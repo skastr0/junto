@@ -65,7 +65,7 @@ const fixtureDoc = (): CanvasDoc =>
 const CANVAS_NAME = "factory-board";
 
 test.use({
-  vellumOptions: {
+  juntoOptions: {
     seedCanvases: {
       [CANVAS_NAME]: fixtureDoc(),
     },
@@ -73,9 +73,9 @@ test.use({
 });
 
 test("factory board: fire on claimed input-required, calm edges silent, tasks glance", async ({
-  vellumCommand,
+  junto,
 }) => {
-  const { page } = vellumCommand;
+  const { page } = junto;
 
   await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
 
@@ -84,7 +84,7 @@ test("factory board: fire on claimed input-required, calm edges silent, tasks gl
   await expect(tasksCard.getByTestId("tasks-glance")).toHaveText("1 open - 1 need input");
   await expect(tasksCard.locator("text=SUBMITTED")).toHaveCount(0);
 
-  const workerShell = page.locator('.react-flow__node[data-id="worker"] .vellum-node');
+  const workerShell = page.locator('.react-flow__node[data-id="worker"] .junto-node');
   await expect(workerShell).toHaveAttribute("data-blocked", "true", { timeout: 15_000 });
   await expect(workerShell).toHaveAttribute("data-attention", "fire");
 
@@ -100,7 +100,7 @@ test("factory board: fire on claimed input-required, calm edges silent, tasks gl
   await expect(page.locator('[data-testid="rf__edge-e-worker-shelf"]')).toHaveCount(1, {
     timeout: 15_000,
   });
-  const edgeFace = await page.locator(".vellum-edge-label").allTextContents();
+  const edgeFace = await page.locator(".junto-edge-label").allTextContents();
   expect(edgeFace.every((t) => t.trim().toLowerCase() !== "relates")).toBe(true);
 
   const term = page.locator('.react-flow__node[data-id="term"]');
@@ -120,8 +120,8 @@ test("factory board: fire on claimed input-required, calm edges silent, tasks gl
   await expect(page.locator("text=/holds keys/i")).toHaveCount(0);
 });
 
-test("submitted-only queue does not block edged actor", async ({ vellumCommand }) => {
-  const { page } = vellumCommand;
+test("submitted-only queue does not block edged actor", async ({ junto }) => {
+  const { page } = junto;
 
   await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
 
@@ -133,7 +133,7 @@ test("submitted-only queue does not block edged actor", async ({ vellumCommand }
     async ({ name }) => {
       const api = (
         globalThis as unknown as {
-          readonly vellumCommand: {
+          readonly junto: {
             readonly workTaskTransition: (
               canvas: string,
               nodeId: string,
@@ -142,14 +142,14 @@ test("submitted-only queue does not block edged actor", async ({ vellumCommand }
             ) => Promise<{ ok: boolean; code?: string; message?: string }>;
           };
         }
-      ).vellumCommand;
+      ).junto;
       return api.workTaskTransition(name, "tasks", "hot-1", "completed");
     },
     { name: CANVAS_NAME },
   );
   expect(done.ok, done.message ?? done.code).toBe(true);
 
-  const workerShell = page.locator('.react-flow__node[data-id="worker"] .vellum-node');
+  const workerShell = page.locator('.react-flow__node[data-id="worker"] .junto-node');
   await expect(async () => {
     await expect(workerShell).not.toHaveAttribute("data-blocked", "true");
   }).toPass({ timeout: 15_000 });

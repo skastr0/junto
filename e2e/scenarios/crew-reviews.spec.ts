@@ -23,7 +23,7 @@
  *   5. malformed verdicts (blocking without findings), unknown tasks, and
  *      subjects with no author provenance are refused with named reasons.
  */
-import { expect, launchVellum, test } from "../harness/launch";
+import { expect, launchJunto, test } from "../harness/launch";
 import {
   crewOccupySeat,
   crewPlayFactory,
@@ -139,13 +139,13 @@ const showTask = async (
 };
 
 const launch = (withReviewsEdge: boolean) =>
-  launchVellum({
+  launchJunto({
     seedCanvases: { [CANVAS]: reviewDoc(withReviewsEdge) },
     afterSeed: installCrewSeatHarness,
   });
 
-const boot = async (vellum: Awaited<ReturnType<typeof launch>>) => {
-  const { page, sandbox } = vellum;
+const boot = async (junto: Awaited<ReturnType<typeof launch>>) => {
+  const { page, sandbox } = junto;
   await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
   await crewPlayFactory(page);
   const a = crewSeat(sandbox, CANVAS, A);
@@ -172,9 +172,9 @@ const claimAndStage = async (
 
 test("crew reviews [fake-tui]: requires-review gates completion on a distinct green", async () => {
   test.setTimeout(300_000);
-  const vellum = await launch(false);
+  const junto = await launch(false);
   try {
-    const { page, sandbox, a, r } = await boot(vellum);
+    const { page, sandbox, a, r } = await boot(junto);
     await claimAndStage(a, SHA_A);
 
     // The gate refuses completion — and hands back the exact subject a
@@ -259,15 +259,15 @@ test("crew reviews [fake-tui]: requires-review gates completion on a distinct gr
     expect(row!.subjectHash).toBe(subject.subjectHash);
     expect(row!.reviewerSeatId).not.toBe(row!.authorSeatId);
   } finally {
-    await vellum.close();
+    await junto.close();
   }
 });
 
 test("crew reviews [fake-tui]: blocking sends back with defect; old green cannot bless new refs", async () => {
   test.setTimeout(300_000);
-  const vellum = await launch(true);
+  const junto = await launch(true);
   try {
-    const { page, a, r } = await boot(vellum);
+    const { page, a, r } = await boot(junto);
     await claimAndStage(a, SHA_A);
 
     // Reviewer reads the staged subject and greens it.
@@ -371,15 +371,15 @@ test("crew reviews [fake-tui]: blocking sends back with defect; old green cannot
     expect(done.ok, JSON.stringify(done)).toBe(true);
     expect(await crewVerdicts(page, CANVAS)).toHaveLength(3);
   } finally {
-    await vellum.close();
+    await junto.close();
   }
 });
 
 test("crew reviews [fake-tui]: malformed, unknown, and authorless verdicts refused", async () => {
   test.setTimeout(300_000);
-  const vellum = await launch(true);
+  const junto = await launch(true);
   try {
-    const { a, r } = await boot(vellum);
+    const { a, r } = await boot(junto);
     await claimAndStage(a, SHA_A);
 
     const subject = await showSubject(r, "task-1");
@@ -422,6 +422,6 @@ test("crew reviews [fake-tui]: malformed, unknown, and authorless verdicts refus
     expect(authorlessErr.details?.reason).toBe("author-unresolved");
     expect(authorlessErr.details?.retryable).toBe(true);
   } finally {
-    await vellum.close();
+    await junto.close();
   }
 });

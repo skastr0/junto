@@ -18,7 +18,7 @@
  *   5. authority is the edge: no messages edge (or a mask that drops the
  *      port) is ScopeError, and removing the edge mid-follow ends it.
  */
-import { expect, launchVellum, test } from "../harness/launch";
+import { expect, launchJunto, test } from "../harness/launch";
 import {
   crewOccupySeat,
   crewPlayFactory,
@@ -63,13 +63,13 @@ const opData = (env: WorkEnvelope): Record<string, unknown> => {
 };
 
 const launch = () =>
-  launchVellum({
+  launchJunto({
     seedCanvases: { [CANVAS]: waitDoc },
     afterSeed: installCrewSeatHarness,
   });
 
-const boot = async (vellum: Awaited<ReturnType<typeof launch>>) => {
-  const { page, sandbox } = vellum;
+const boot = async (junto: Awaited<ReturnType<typeof launch>>) => {
+  const { page, sandbox } = junto;
   await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
   await crewPlayFactory(page);
   const a = crewSeat(sandbox, CANVAS, A);
@@ -81,9 +81,9 @@ const boot = async (vellum: Awaited<ReturnType<typeof launch>>) => {
 
 test("crew wait [fake-tui]: resolves on first matching state for idle/working/gone", async () => {
   test.setTimeout(300_000);
-  const vellum = await launch();
+  const junto = await launch();
   try {
-    const { a, b } = await boot(vellum);
+    const { a, b } = await boot(junto);
 
     // Already idle — resolves immediately with evidence fields.
     const idle = await a.op("seat.wait", { target: B, until: "idle", timeoutMs: 20_000 }, { awaitMs: 45_000, timeoutMs: 45_000 });
@@ -115,15 +115,15 @@ test("crew wait [fake-tui]: resolves on first matching state for idle/working/go
     expect(goneData.confidence).toBe("high");
     expect(goneData.generation?.length).toBeGreaterThan(0);
   } finally {
-    await vellum.close();
+    await junto.close();
   }
 });
 
 test("crew wait [fake-tui]: bounded timeout returns Timeout with from/to", async () => {
   test.setTimeout(180_000);
-  const vellum = await launch();
+  const junto = await launch();
   try {
-    const { a } = await boot(vellum);
+    const { a } = await boot(junto);
     // B never reaches attention inside 3s — the wait must bound itself.
     const res = await a.op("seat.wait", {
       target: B, until: "attention", timeoutMs: 3_000,
@@ -135,15 +135,15 @@ test("crew wait [fake-tui]: bounded timeout returns Timeout with from/to", async
     expect(res.error.details?.to).toBe("attention");
     expect(res.error.details?.retryable).toBe(true);
   } finally {
-    await vellum.close();
+    await junto.close();
   }
 });
 
 test("crew wait [fake-tui]: attention resolves while a peer holds a prompt form", async () => {
   test.setTimeout(240_000);
-  const vellum = await launch();
+  const junto = await launch();
   try {
-    const { a, b } = await boot(vellum);
+    const { a, b } = await boot(junto);
     await b.control({ screen: { mode: "attention" } });
     const res = await a.op("seat.wait", {
       target: B, until: "attention", timeoutMs: 30_000,
@@ -151,15 +151,15 @@ test("crew wait [fake-tui]: attention resolves while a peer holds a prompt form"
     const data = opData(res) as { state: string; confidence: string };
     expect(data.state).toBe("attention");
   } finally {
-    await vellum.close();
+    await junto.close();
   }
 });
 
 test("crew observe [fake-tui]: read returns the settled grid, never write authority", async () => {
   test.setTimeout(240_000);
-  const vellum = await launch();
+  const junto = await launch();
   try {
-    const { a, b } = await boot(vellum);
+    const { a, b } = await boot(junto);
     await b.print("unique-transcript-marker-7f3a", "second line of output");
     // Let the grid settle.
     await new Promise((resolve) => setTimeout(resolve, 1_500));
@@ -180,15 +180,15 @@ test("crew observe [fake-tui]: read returns the settled grid, never write author
     const stdin = await b.stdinLog();
     expect(stdin).not.toContain("unique-transcript-marker-7f3a");
   } finally {
-    await vellum.close();
+    await junto.close();
   }
 });
 
 test("crew observe [fake-tui]: bounded follow returns on advance, duration, or exit", async () => {
   test.setTimeout(300_000);
-  const vellum = await launch();
+  const junto = await launch();
   try {
-    const { a, b } = await boot(vellum);
+    const { a, b } = await boot(junto);
 
     // Baseline cursor.
     const first = await a.op("seat.read", { target: B, lines: 20 });
@@ -234,7 +234,7 @@ test("crew observe [fake-tui]: bounded follow returns on advance, duration, or e
     expect(exitedData.reason).toBe("generation_exited");
     expect(exitedData.confidence).toBe("high");
   } finally {
-    await vellum.close();
+    await junto.close();
   }
 });
 
@@ -250,12 +250,12 @@ test("crew wait [fake-tui]: masked edge refuses wait and read as ScopeError", as
       crewWorksEdge("w-sink-a", SINK, A, [seatA, seatB, sink]),
     ],
   );
-  const vellum = await launchVellum({
+  const junto = await launchJunto({
     seedCanvases: { [CANVAS]: maskedDoc },
     afterSeed: installCrewSeatHarness,
   });
   try {
-    const { a } = await boot(vellum);
+    const { a } = await boot(junto);
 
     const wait = await a.op("seat.wait", { target: B, until: "idle", timeoutMs: 5_000 });
     expect(wait.ok).toBe(false);
@@ -265,15 +265,15 @@ test("crew wait [fake-tui]: masked edge refuses wait and read as ScopeError", as
     expect(read.ok).toBe(false);
     if (!read.ok) expect(read.error.type).toBe("ScopeError");
   } finally {
-    await vellum.close();
+    await junto.close();
   }
 });
 
 test("crew wait [fake-tui]: removing the edge ends authority mid-scenario", async () => {
   test.setTimeout(240_000);
-  const vellum = await launch();
+  const junto = await launch();
   try {
-    const { page, a } = await boot(vellum);
+    const { page, a } = await boot(junto);
 
     // Authority while the edge exists.
     const before = await a.op("seat.wait", { target: B, until: "idle", timeoutMs: 15_000 });
@@ -293,15 +293,15 @@ test("crew wait [fake-tui]: removing the edge ends authority mid-scenario", asyn
     expect(read.ok).toBe(false);
     if (!read.ok) expect(read.error.type).toBe("ScopeError");
   } finally {
-    await vellum.close();
+    await junto.close();
   }
 });
 
 test("crew wait [fake-tui]: tasks.wait observes a peer task reaching completed", async () => {
   test.setTimeout(300_000);
-  const vellum = await launch();
+  const junto = await launch();
   try {
-    const { a, b } = await boot(vellum);
+    const { a, b } = await boot(junto);
 
     // B waits on the task A is about to close; A claims and completes it.
     const waitPromise = b.op("tasks.wait", {
@@ -323,6 +323,6 @@ test("crew wait [fake-tui]: tasks.wait observes a peer task reaching completed",
     expect(data.state).toBe("completed");
     expect(typeof data.epoch).toBe("number");
   } finally {
-    await vellum.close();
+    await junto.close();
   }
 });

@@ -86,9 +86,9 @@ export function EtherEdge({
   const labelY = stitched?.labelY ?? plannedRoute?.labelY ?? fallbackLabelY;
 
   const className = [
-    "vellum-edge",
-    selected ? "vellum-edge--selected" : "",
-    rippling ? "vellum-edge-ripple" : "",
+    "junto-edge",
+    selected ? "junto-edge--selected" : "",
+    rippling ? "junto-edge-ripple" : "",
   ]
     .filter(Boolean)
     .join(" ");
@@ -125,7 +125,7 @@ export function EtherEdge({
               ? `Select edge - ${phase} - ${detail}`
               : `Select edge - ${phase}`
           }
-          className="nodrag nopan vellum-edge-label vellum-edge-label--silent"
+          className="nodrag nopan junto-edge-label junto-edge-label--silent"
           style={{
             top: labelY,
             left: labelX,

@@ -1,7 +1,7 @@
 import type { CanvasDoc, TextNode } from "../../src/shared/canvas";
 import type { TasksContract } from "../../src/shared/work-model";
 import { canvasDoc, tasksNode } from "../harness/sandbox";
-import { expect, launchVellum, test } from "../harness/launch";
+import { expect, launchJunto, test } from "../harness/launch";
 
 const board = (
   id: string,
@@ -54,12 +54,12 @@ const fixture = (): CanvasDoc =>
   );
 
 test("task creation hierarchy and admission", async ({}, testInfo) => {
-  const vellumCommand = await launchVellum({
+  const junto = await launchJunto({
     seedCanvases: { factory: fixture() },
   });
 
   try {
-    const { page } = vellumCommand;
+    const { page } = junto;
     await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
     const build = page.locator('.react-flow__node[data-id="build"]');
     await build.getByTestId("tasks-card").dispatchEvent("dblclick");
@@ -112,6 +112,6 @@ test("task creation hierarchy and admission", async ({}, testInfo) => {
     await incoming.getByRole("button", { name: "Approve", exact: true }).first().click();
     await expect(incoming.getByText(/^Wait 12h/)).toBeVisible();
   } finally {
-    await vellumCommand.close();
+    await junto.close();
   }
 });

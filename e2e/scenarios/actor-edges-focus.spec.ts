@@ -11,7 +11,7 @@ import {
   verbEdge,
   tasksNode,
 } from "../harness/sandbox";
-import { expect, launchVellum, test } from "../harness/launch";
+import { expect, launchJunto, test } from "../harness/launch";
 
 const SHOTS = join(process.cwd(), "test-results", "design-audit");
 const CANVAS = "actor-edges-focus";
@@ -42,12 +42,12 @@ const fixture = canvasDoc(fixtureNodes, [
 
 test("actor terminal focus shows read-only edge inventory", async () => {
   await mkdir(SHOTS, { recursive: true });
-  const vellumCommand = await launchVellum({
+  const junto = await launchJunto({
     seedCanvases: { [CANVAS]: fixture },
   });
 
   try {
-    const { page } = vellumCommand;
+    const { page } = junto;
     await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
 
     const agentNode = page.locator('.react-flow__node[data-id="worker"]');
@@ -96,6 +96,6 @@ test("actor terminal focus shows read-only edge inventory", async () => {
       fullPage: false,
     });
   } finally {
-    await vellumCommand.close();
+    await junto.close();
   }
 });

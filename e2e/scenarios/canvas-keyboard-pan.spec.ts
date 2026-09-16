@@ -3,7 +3,7 @@ import { expect, test } from "../harness/launch";
 import type { Page } from "@playwright/test";
 
 test.use({
-  vellumOptions: {
+  juntoOptions: {
     seedCanvases: {
       field: canvasDoc([textNode("marker", "Marker", 0, 0)]),
     },
@@ -23,8 +23,8 @@ const glide = async (page: Page, key: string, ms: number) => {
   await page.waitForTimeout(80);
 };
 
-test("WASD and arrows fly the canvas, and any focused field keeps its keys", async ({ vellumCommand }) => {
-  const { page } = vellumCommand;
+test("WASD and arrows fly the canvas, and any focused field keeps its keys", async ({ junto }) => {
+  const { page } = junto;
   const marker = page.locator(".react-flow__node", { hasText: "Marker" });
   await expect(marker).toBeVisible({ timeout: 30_000 });
 

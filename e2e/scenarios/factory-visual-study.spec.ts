@@ -16,7 +16,7 @@ import {
   terminalTextNode,
   verbEdge,
 } from "../harness/sandbox";
-import { expect, launchVellum, test } from "../harness/launch";
+import { expect, launchJunto, test } from "../harness/launch";
 
 const SHOTS = join(process.cwd(), "test-results", "design-audit");
 
@@ -133,14 +133,14 @@ const edges: CanvasEdge[] = [
 
 test("capture the implementation-near factory grammar", async () => {
   await mkdir(SHOTS, { recursive: true });
-  const vellumCommand = await launchVellum({
+  const junto = await launchJunto({
     seedCanvases: {
       "factory-visual-study": canvasDoc(nodes, edges),
     },
   });
 
   try {
-    const { page } = vellumCommand;
+    const { page } = junto;
     await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
     await expect(page.locator('.react-flow__node[data-id="tasks"]')).toBeVisible({ timeout: 30_000 });
     const fit = page.getByRole("button", { name: /fit all/i });
@@ -151,6 +151,6 @@ test("capture the implementation-near factory grammar", async () => {
       fullPage: false,
     });
   } finally {
-    await vellumCommand.close();
+    await junto.close();
   }
 });

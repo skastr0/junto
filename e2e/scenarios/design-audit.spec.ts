@@ -27,7 +27,7 @@ import {
   textNode,
   taskItem,
 } from "../harness/sandbox";
-import { expect, launchVellum, test } from "../harness/launch";
+import { expect, launchJunto, test } from "../harness/launch";
 import type {
   Artifact,
   CanvasEdge,
@@ -57,7 +57,7 @@ test("capture live conversation with isolated provider and media fixtures", asyn
   test.setTimeout(90_000);
   await mkdir(SHOTS, { recursive: true });
   const seat = agentTextNode({ id: "live-overseer", key: "local:overseer", label: "Factory Overseer", harness: "vellum-overseer", x: 60, y: 60 });
-  const world = await launchVellum({
+  const world = await launchJunto({
     offline: true,
     seedCanvases: { "live-audit": canvasDoc([
       seat,
@@ -486,7 +486,7 @@ test("capture every surface for design review", async () => {
   // This audit drives ~30 surfaces plus seeded live planes; it runs long
   // enough to need a budget above the default 90s worker timeout.
   test.setTimeout(300_000);
-  const scenarioDir = await mkdtemp(join(tmpdir(), "vellum-audit-"));
+  const scenarioDir = await mkdtemp(join(tmpdir(), "junto-audit-"));
   await mkdir(SHOTS, { recursive: true });
 
   // Usage rail paint: seeded through the durable `usage_state` seam so the
@@ -527,7 +527,7 @@ test("capture every surface for design review", async () => {
     lastLiveAt: new Date().toISOString(),
   };
 
-  const vellumCommand = await launchVellum({
+  const junto = await launchJunto({
     // Seed before Electron owns the StateEngine. The harness splits work
     // projections into WorkRepository rows; writing this fixture through the
     // canvas API after startup would intentionally discard its task/request/
@@ -539,7 +539,7 @@ test("capture every surface for design review", async () => {
   });
 
   try {
-    const { page } = vellumCommand;
+    const { page } = junto;
 
     await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
 
@@ -816,16 +816,16 @@ test("capture every surface for design review", async () => {
     await page.waitForTimeout(700);
     await shot(page, "09b-native-terminal-pinned");
   } finally {
-    await vellumCommand.close();
+    await junto.close();
   }
 });
 
 test("capture Board empty and populated states", async () => {
-  const vellumCommand = await launchVellum({
+  const junto = await launchJunto({
     seedCanvases: { "board-audit": canvasDoc([boardNode]) },
   });
   try {
-    const { page } = vellumCommand;
+    const { page } = junto;
     await mkdir(SHOTS, { recursive: true });
     await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
     const boardNodeCard = page.locator('.react-flow__node[data-id="board1"]');
@@ -878,23 +878,23 @@ test("capture Board empty and populated states", async () => {
       .click();
     await expect(bulletinBoard).toBeHidden();
   } finally {
-    await vellumCommand.close();
+    await junto.close();
   }
 });
 
 // Empty field — the boot state every operator sees on a fresh canvas.
 test("capture the empty field state", async () => {
-  const vellumCommand = await launchVellum({
+  const junto = await launchJunto({
     seedCanvases: { empty: canvasDoc([]) },
   });
   try {
-    const { page } = vellumCommand;
+    const { page } = junto;
     await mkdir(SHOTS, { recursive: true });
     await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
     await page.waitForTimeout(800);
     await shot(page, "24-empty-field");
   } finally {
-    await vellumCommand.close();
+    await junto.close();
   }
 });
 
@@ -902,7 +902,7 @@ test("capture the empty field state", async () => {
 // custom appearance) into the sandbox's SQLite database. The fake ssh binary
 // answers reachability probes, so edges settle into reachable state.
 test("capture the fleet manager overlay", async () => {
-  const vellumCommand = await launchVellum({
+  const junto = await launchJunto({
     seedCanvases: { fleet: canvasDoc([]) },
     seedHosts: [
       {
@@ -946,7 +946,7 @@ test("capture the fleet manager overlay", async () => {
     ],
   });
   try {
-    const { page } = vellumCommand;
+    const { page } = junto;
     await mkdir(SHOTS, { recursive: true });
     await expect(page.locator(".react-flow").first()).toBeVisible({
       timeout: 30_000,
@@ -995,6 +995,6 @@ test("capture the fleet manager overlay", async () => {
       await shot(page, "27-fleet-ghost-detail");
     }
   } finally {
-    await vellumCommand.close();
+    await junto.close();
   }
 });

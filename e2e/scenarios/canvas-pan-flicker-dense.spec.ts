@@ -136,7 +136,7 @@ async function centerBoardInViewport(page: import("@playwright/test").Page): Pro
 }
 
 test.use({
-  vellumOptions: {
+  juntoOptions: {
     seedCanvases: { dense: boardDoc },
   },
 });
@@ -144,8 +144,8 @@ test.use({
 test.describe("dense board pan flicker stress", () => {
   test.setTimeout(300_000);
 
-  test("100 nodes across six regions: zoom out to max, then pan hard", async ({ vellumCommand }) => {
-    const { app, page } = vellumCommand;
+  test("100 nodes across six regions: zoom out to max, then pan hard", async ({ junto }) => {
+    const { app, page } = junto;
     await installEvidence(page);
 
     // Boot + settle + max zoom-out BEFORE arming the capture window.
@@ -161,7 +161,7 @@ test.describe("dense board pan flicker stress", () => {
       // minZoom is 0.15 — the camera must reach it.
       expect(scale, `zoom-out did not reach minZoom (scale ${scale})`).toBeLessThanOrEqual(MIN_ZOOM + 0.005);
       // All 100 nodes stay mounted at max zoom-out (groups have no
-      // .vellum-node card — the wrapper class covers every node).
+      // .junto-node card — the wrapper class covers every node).
       await expect(p.locator(".react-flow__node")).toHaveCount(NODE_COUNT, { timeout: 15_000 });
 
       // Recenter so the whole dense board is on screen, then pan across it.

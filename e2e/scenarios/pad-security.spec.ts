@@ -23,7 +23,7 @@ const padNode = {
 };
 
 test.use({
-  vellumOptions: {
+  juntoOptions: {
     seedCanvases: {
       [CANVAS]: canvasDoc([
         agentTextNode({
@@ -68,9 +68,9 @@ const assertSafeThumb = async (page: import("@playwright/test").Page) => {
 };
 
 test("hostile pad fill stays data and never executes in the card thumb", async ({
-  vellumCommand,
+  junto,
 }) => {
-  const { page } = vellumCommand;
+  const { page } = junto;
   await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
   await waitForApi(page);
 

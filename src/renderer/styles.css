@@ -2,7 +2,7 @@
 @import "./styles/theme.generated.css";
 
 /* ============================================================================
-   VELLUM DESIGN TOKENS come from one source: src/shared/theme/ (authored in
+   JUNTO DESIGN TOKENS come from one source: src/shared/theme/ (authored in
    OKLCH, projected by scripts/theme-build.ts into styles/theme.generated.css
    — the `@theme` imported above). Never declare palette values here; edit the
    source and run `bun run theme:build`. The TS projection for runtime
@@ -43,14 +43,14 @@ body {
   color: var(--color-ink);
 }
 
-.vellum-app {
+.junto-app {
   --bar-height: 64px;
   background:
     radial-gradient(circle at 84% -20%, color-mix(in oklab, var(--color-main) 8%, transparent), transparent 38%),
     var(--color-ground);
 }
 
-.vellum-stage {
+.junto-stage {
   isolation: isolate;
   background: radial-gradient(circle at 50% 20%, color-mix(in oklab, var(--color-main) 2.5%, transparent), transparent 45%);
 }
@@ -78,12 +78,12 @@ body {
   z-index: 40;
 }
 
-html[data-vellum-platform="darwin"] .focus-surface {
+html[data-junto-platform="darwin"] .focus-surface {
   /* traffic lights + breathing room under hiddenInset titlebar */
   padding: 40px 16px 16px;
 }
 /* Parent-contained shell already sits under the real titlebar in stage-main. */
-html[data-vellum-platform="darwin"] .focus-surface.focus-surface--contain-parent {
+html[data-junto-platform="darwin"] .focus-surface.focus-surface--contain-parent {
   padding: 16px;
 }
 .focus-surface--layer-work { z-index: 10000; }
@@ -530,18 +530,18 @@ html[data-vellum-platform="darwin"] .focus-surface.focus-surface--contain-parent
   padding: 0 18px;
 }
 
-html[data-vellum-platform="darwin"] .station-bar {
+html[data-junto-platform="darwin"] .station-bar {
   padding-left: 84px;
   -webkit-app-region: drag;
 }
 
-html[data-vellum-platform="darwin"] .station-bar button,
-html[data-vellum-platform="darwin"] .station-bar input,
-html[data-vellum-platform="darwin"] .station-bar select,
-html[data-vellum-platform="darwin"] .station-bar label,
-html[data-vellum-platform="darwin"] .station-bar aside,
-html[data-vellum-platform="darwin"] .station-bar .usage-hud,
-html[data-vellum-platform="darwin"] .station-bar [role="listbox"] {
+html[data-junto-platform="darwin"] .station-bar button,
+html[data-junto-platform="darwin"] .station-bar input,
+html[data-junto-platform="darwin"] .station-bar select,
+html[data-junto-platform="darwin"] .station-bar label,
+html[data-junto-platform="darwin"] .station-bar aside,
+html[data-junto-platform="darwin"] .station-bar .usage-hud,
+html[data-junto-platform="darwin"] .station-bar [role="listbox"] {
   -webkit-app-region: no-drag;
 }
 
@@ -934,8 +934,8 @@ html[data-vellum-platform="darwin"] .station-bar [role="listbox"] {
 .error-banner__label { color: var(--color-crimson); font-size: 8px; font-weight: 600; letter-spacing: .16em; text-transform: uppercase; }
 .error-banner__message { overflow: hidden; color: var(--color-ink); font-size: 10px; line-height: 1.45; text-overflow: ellipsis; }
 .boot-indicator { display: inline-flex; align-items: center; gap: 7px; border: 1px solid color-mix(in oklab, var(--color-main) 22%, transparent); border-radius: 999px; background: color-mix(in oklab, var(--color-ground) 72%, transparent); color: var(--color-dim); padding: 6px 10px; font-size: 8px; letter-spacing: .16em; text-transform: uppercase; backdrop-filter: blur(12px); }
-.boot-indicator__dot { width: 5px; height: 5px; border-radius: 50%; background: var(--color-amber); box-shadow: 0 0 9px color-mix(in oklab, var(--color-main) 85%, transparent); animation: vellumBootPulse 1.8s ease-in-out infinite; }
-@keyframes vellumBootPulse { 0%, 100% { opacity: .35; } 50% { opacity: 1; } }
+.boot-indicator__dot { width: 5px; height: 5px; border-radius: 50%; background: var(--color-amber); box-shadow: 0 0 9px color-mix(in oklab, var(--color-main) 85%, transparent); animation: juntoBootPulse 1.8s ease-in-out infinite; }
+@keyframes juntoBootPulse { 0%, 100% { opacity: .35; } 50% { opacity: 1; } }
 .field-status__label, .field-legend__title, .field-hint { color: var(--color-faint); font-size: 8px; letter-spacing: .16em; text-transform: uppercase; }
 .field-status { border: 1px solid var(--color-overlay-4); border-radius: 7px; background: color-mix(in oklab, var(--color-ground) 55%, transparent); padding: 8px 10px; backdrop-filter: blur(10px); }
 .field-status__label { display: flex; align-items: center; gap: 6px; }
@@ -1165,9 +1165,9 @@ html[data-vellum-platform="darwin"] .station-bar [role="listbox"] {
    The plate and the React Flow wrapper stay pointer-transparent, so the
    interior remains pane (marquee, deselect, right-click add). Strips unmount
    while the region is selected: NodeResizer owns the edges then. */
-:root { --vellum-region-frame: 12px; --vellum-region-titlebar: 24px; }
-.vellum-region-frame { position: absolute; inset: 0; pointer-events: none; }
-.vellum-region-frame__strip {
+:root { --junto-region-frame: 12px; --junto-region-titlebar: 24px; }
+.junto-region-frame { position: absolute; inset: 0; pointer-events: none; }
+.junto-region-frame__strip {
   position: absolute;
   pointer-events: auto;
   cursor: grab;
@@ -1175,12 +1175,12 @@ html[data-vellum-platform="darwin"] .station-bar [role="listbox"] {
   background: transparent;
   transition: background .16s ease;
 }
-.vellum-region-frame__strip:hover { background: color-mix(in oklab, var(--color-amber) 7%, transparent); }
-.vellum-region-frame__strip:active { cursor: grabbing; }
-.vellum-region-frame__strip--left { left: 0; top: var(--vellum-region-titlebar); bottom: 0; width: var(--vellum-region-frame); }
-.vellum-region-frame__strip--right { right: 0; top: var(--vellum-region-titlebar); bottom: 0; width: var(--vellum-region-frame); }
-.vellum-region-frame__strip--bottom { left: 0; right: 0; bottom: 0; height: var(--vellum-region-frame); }
-.vellum-region-titlebar {
+.junto-region-frame__strip:hover { background: color-mix(in oklab, var(--color-amber) 7%, transparent); }
+.junto-region-frame__strip:active { cursor: grabbing; }
+.junto-region-frame__strip--left { left: 0; top: var(--junto-region-titlebar); bottom: 0; width: var(--junto-region-frame); }
+.junto-region-frame__strip--right { right: 0; top: var(--junto-region-titlebar); bottom: 0; width: var(--junto-region-frame); }
+.junto-region-frame__strip--bottom { left: 0; right: 0; bottom: 0; height: var(--junto-region-frame); }
+.junto-region-titlebar {
   position: absolute;
   left: 0;
   right: 0;
@@ -1189,7 +1189,7 @@ html[data-vellum-platform="darwin"] .station-bar [role="listbox"] {
   display: flex;
   align-items: center;
   gap: 6px;
-  height: var(--vellum-region-titlebar);
+  height: var(--junto-region-titlebar);
   padding: 0 8px;
   border-radius: 13px 13px 0 0;
   border-bottom: 1px solid transparent;
@@ -1198,12 +1198,12 @@ html[data-vellum-platform="darwin"] .station-bar [role="listbox"] {
   cursor: grab;
   transition: background .16s ease, border-color .16s ease;
 }
-.vellum-region-titlebar:hover {
+.junto-region-titlebar:hover {
   background: color-mix(in oklab, var(--color-amber) 6%, transparent);
   border-bottom-color: color-mix(in oklab, var(--color-amber) 22%, transparent);
 }
-.vellum-region-titlebar:active { cursor: grabbing; }
-.vellum-group__label {
+.junto-region-titlebar:active { cursor: grabbing; }
+.junto-group__label {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -1212,12 +1212,12 @@ html[data-vellum-platform="darwin"] .station-bar [role="listbox"] {
   background: color-mix(in oklab, var(--color-raise) 55%, transparent) !important;
   color: color-mix(in oklab, var(--color-ink) 68%, transparent) !important;
 }
-.vellum-group__label:hover { color: color-mix(in oklab, var(--color-ink) 90%, transparent) !important; border-color: color-mix(in oklab, var(--color-ink) 22%, transparent) !important; }
-.vellum-group__label-prefix { color: var(--color-faint); }
+.junto-group__label:hover { color: color-mix(in oklab, var(--color-ink) 90%, transparent) !important; border-color: color-mix(in oklab, var(--color-ink) 22%, transparent) !important; }
+.junto-group__label-prefix { color: var(--color-faint); }
 /* Region glance — pulled-back camera prints the region name across its body.
-   Opacity rides --vellum-region-glance, written on the ReactFlow root per zoom
+   Opacity rides --junto-region-glance, written on the ReactFlow root per zoom
    (see lib/region-glance.ts); at readable zoom the value is 0 and this is invisible. */
-.vellum-region-glance {
+.junto-region-glance {
   position: absolute;
   inset: 0;
   z-index: 0;
@@ -1225,18 +1225,18 @@ html[data-vellum-platform="darwin"] .station-bar [role="listbox"] {
   place-items: center;
   overflow: hidden;
   pointer-events: none;
-  opacity: var(--vellum-region-glance, 0);
+  opacity: var(--junto-region-glance, 0);
 }
 /* A region one level in rides its own band, which is zero wherever the outer
    band is not — the two names never print at the same time. */
-.vellum-region-glance--nested {
-  opacity: var(--vellum-region-glance-sub, 0);
+.junto-region-glance--nested {
+  opacity: var(--junto-region-glance-sub, 0);
 }
-.vellum-region-glance--nested .vellum-region-glance__text {
+.junto-region-glance--nested .junto-region-glance__text {
   color: color-mix(in oklab, var(--color-ink) 38%, transparent);
   letter-spacing: .14em;
 }
-.vellum-region-glance__text {
+.junto-region-glance__text {
   max-width: 100%;
   color: color-mix(in oklab, var(--color-ink) 32%, transparent);
   font-family: "Arial Narrow", "Avenir Next Condensed", sans-serif;
@@ -1248,15 +1248,15 @@ html[data-vellum-platform="darwin"] .station-bar [role="listbox"] {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.vellum-resize-handle { width: 10px !important; height: 10px !important; border: 1px solid var(--color-amber) !important; border-radius: 2px !important; background: var(--color-inset) !important; box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-main) 8%, transparent); }
-.vellum-resize-line { border-color: color-mix(in oklab, var(--color-main) 50%, transparent) !important; }
+.junto-resize-handle { width: 10px !important; height: 10px !important; border: 1px solid var(--color-amber) !important; border-radius: 2px !important; background: var(--color-inset) !important; box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-main) 8%, transparent); }
+.junto-resize-line { border-color: color-mix(in oklab, var(--color-main) 50%, transparent) !important; }
 /* Cards drag from anywhere; keep motion quiet and physical. */
-.vellum-node { transition: border-color .18s ease, box-shadow .18s ease, transform .16s ease; }
-.react-flow__node:hover .vellum-node { transform: translateY(-1px); }
-.react-flow__node:hover .vellum-node--bare { transform: none; }
-.react-flow__node.dragging .vellum-node { transform: none; }
-.vellum-node--bare .vellum-node__body { overflow: visible; }
-.vellum-node__preamble {
+.junto-node { transition: border-color .18s ease, box-shadow .18s ease, transform .16s ease; }
+.react-flow__node:hover .junto-node { transform: translateY(-1px); }
+.react-flow__node:hover .junto-node--bare { transform: none; }
+.react-flow__node.dragging .junto-node { transform: none; }
+.junto-node--bare .junto-node__body { overflow: visible; }
+.junto-node__preamble {
   position: absolute;
   top: -9px;
   right: -8px;
@@ -1272,10 +1272,10 @@ html[data-vellum-platform="darwin"] .station-bar [role="listbox"] {
   color: var(--color-ink);
   padding: 7px 7px 7px 9px;
   transform: translateY(-100%);
-  animation: vellum-preamble-enter .18s ease-out both;
+  animation: junto-preamble-enter .18s ease-out both;
   pointer-events: auto;
 }
-.vellum-node__preamble::after {
+.junto-node__preamble::after {
   content: "";
   position: absolute;
   right: 12px;
@@ -1287,7 +1287,7 @@ html[data-vellum-platform="darwin"] .station-bar [role="listbox"] {
   background: color-mix(in oklab, var(--color-second) 6%, var(--color-ground) 90%);
   transform: rotate(45deg);
 }
-.vellum-node__preamble-text {
+.junto-node__preamble-text {
   min-width: 0;
   color: color-mix(in oklab, var(--color-ink) 90%, transparent);
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -1295,7 +1295,7 @@ html[data-vellum-platform="darwin"] .station-bar [role="listbox"] {
   line-height: 1.35;
   overflow-wrap: anywhere;
 }
-.vellum-node__preamble-close {
+.junto-node__preamble-close {
   position: relative;
   z-index: 1;
   display: grid;
@@ -1309,25 +1309,25 @@ html[data-vellum-platform="darwin"] .station-bar [role="listbox"] {
   color: var(--color-steel);
   cursor: pointer;
 }
-.vellum-node__preamble-close:hover,
-.vellum-node__preamble-close:focus-visible {
+.junto-node__preamble-close:hover,
+.junto-node__preamble-close:focus-visible {
   background: var(--color-overlay-3);
   color: var(--color-cyan);
   outline: none;
 }
-@keyframes vellum-preamble-enter {
+@keyframes junto-preamble-enter {
   from { opacity: 0; transform: translateY(calc(-100% + 4px)); }
   to { opacity: 1; transform: translateY(-100%); }
 }
 @media (prefers-reduced-motion: reduce) {
-  .vellum-node__preamble { animation: none; }
+  .junto-node__preamble { animation: none; }
 }
 
-.vellum-dot--pulse { opacity: 1; }
+.junto-dot--pulse { opacity: 1; }
 
 
 /* Every card advertises its dots while a connection drag is live. */
-.react-flow.is-connecting .vellum-handle--source { opacity: 1; }
+.react-flow.is-connecting .junto-handle--source { opacity: 1; }
 
 .manifest-shell { height: 100%; overflow: auto; padding: 36px clamp(20px, 5vw, 72px) 72px; background: radial-gradient(circle at 78% 15%, color-mix(in oklab, var(--color-second) 3.5%, transparent), transparent 33%); }
 .manifest-header { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; max-width: 1320px; margin: 0 auto 28px; padding-bottom: 20px; border-bottom: 1px solid var(--color-overlay-4); }
@@ -1417,14 +1417,14 @@ html[data-surface-motion="paused"] *::after {
    boundary. */
 html[data-viewport-busy] .react-flow .react-flow__node,
 html[data-viewport-busy] .react-flow .react-flow__edge,
-html[data-viewport-busy] .react-flow .vellum-node,
-html[data-viewport-busy] .react-flow .vellum-edge-label {
+html[data-viewport-busy] .react-flow .junto-node,
+html[data-viewport-busy] .react-flow .junto-edge-label {
   transition: none !important;
 }
 html[data-viewport-busy] .react-flow .react-flow__node,
 html[data-viewport-busy] .react-flow .react-flow__edge,
-html[data-viewport-busy] .react-flow .vellum-node,
-html[data-viewport-busy] .react-flow .vellum-edge-label {
+html[data-viewport-busy] .react-flow .junto-node,
+html[data-viewport-busy] .react-flow .junto-edge-label {
   animation-play-state: paused !important;
 }
 /* Impact-mode filter/opacity transitions are especially expensive mid-pan.
@@ -1455,24 +1455,24 @@ html[data-viewport-busy] .react-flow .react-flow__edge-path {
   opacity: 1;
   filter: none;
 }
-.react-flow.impact-mode .react-flow__node.impact-root .vellum-node {
+.react-flow.impact-mode .react-flow__node.impact-root .junto-node {
   box-shadow:
     0 0 0 1px color-mix(in oklab, var(--color-accent) 45%, transparent),
     0 0 18px color-mix(in oklab, var(--color-accent) 22%, transparent),
     0 12px 30px var(--color-shadow-2);
 }
-.react-flow.connection-focus-mode .react-flow__node.impact-root .vellum-node {
+.react-flow.connection-focus-mode .react-flow__node.impact-root .junto-node {
   box-shadow:
     0 0 0 1px color-mix(in oklab, var(--color-second) 48%, transparent),
     0 0 18px color-mix(in oklab, var(--color-second) 22%, transparent),
     0 12px 30px var(--color-shadow-2);
 }
-.react-flow.impact-mode .react-flow__node.impact-in:not(.impact-root) .vellum-node {
+.react-flow.impact-mode .react-flow__node.impact-in:not(.impact-root) .junto-node {
   box-shadow:
     0 0 0 1px color-mix(in oklab, var(--color-accent) 22%, transparent),
     0 10px 28px var(--color-shadow-2);
 }
-.react-flow.connection-focus-mode .react-flow__node.impact-in:not(.impact-root) .vellum-node {
+.react-flow.connection-focus-mode .react-flow__node.impact-in:not(.impact-root) .junto-node {
   box-shadow:
     0 0 0 1px color-mix(in oklab, var(--color-second) 26%, transparent),
     0 10px 28px var(--color-shadow-2);
@@ -1487,12 +1487,12 @@ html[data-viewport-busy] .react-flow .react-flow__edge-path {
 .react-flow.connection-focus-mode .react-flow__edge.impact-edge-in {
   opacity: 1;
 }
-.react-flow.impact-mode .vellum-edge-label:not(.vellum-edge-label--impact-in),
-.react-flow.connection-focus-mode .vellum-edge-label:not(.vellum-edge-label--impact-in) {
+.react-flow.impact-mode .junto-edge-label:not(.junto-edge-label--impact-in),
+.react-flow.connection-focus-mode .junto-edge-label:not(.junto-edge-label--impact-in) {
   opacity: 0.2;
   pointer-events: none;
 }
-.vellum-edge-label--impact-in {
+.junto-edge-label--impact-in {
   opacity: 1;
   border-color: color-mix(in oklab, var(--color-accent) 45%, transparent);
 }
@@ -1705,7 +1705,7 @@ html[data-viewport-busy] .react-flow .react-flow__edge-path {
 /* Connection handles: hidden at rest, thin, flush with the card edge. They
    surface only on node hover or while a connection is being dragged — never a
    permanent overlay. */
-.vellum-handle {
+.junto-handle {
   width: 9px;
   height: 9px;
   border-radius: 999px;
@@ -1719,52 +1719,52 @@ html[data-viewport-busy] .react-flow .react-flow__edge-path {
 
 /* The visible dot is 9px; the grab target is ~26px. A connect gesture should
    not demand pixel-perfect aim. */
-.vellum-handle::before {
+.junto-handle::before {
   content: "";
   position: absolute;
   inset: -9px;
   border-radius: 999px;
 }
 
-.vellum-handle--source { border-color: color-mix(in oklab, var(--color-main) 72%, transparent); }
-.vellum-handle--target { border-color: color-mix(in oklab, var(--color-second) 72%, transparent); border-style: dashed; }
-.vellum-handle--source { z-index: 3; }
-.vellum-handle--target { z-index: 2; }
-.vellum-handle--source.react-flow__handle-top { transform: translate(-50%, -50%) translateY(-2px); }
-.vellum-handle--target.react-flow__handle-top { transform: translate(-50%, -50%) translateY(3px); }
-.vellum-handle--source.react-flow__handle-right { transform: translate(50%, -50%) translateX(2px); }
-.vellum-handle--target.react-flow__handle-right { transform: translate(50%, -50%) translateX(-3px); }
-.vellum-handle--source.react-flow__handle-bottom { transform: translate(-50%, 50%) translateY(2px); }
-.vellum-handle--target.react-flow__handle-bottom { transform: translate(-50%, 50%) translateY(-3px); }
-.vellum-handle--source.react-flow__handle-left { transform: translate(-50%, -50%) translateX(-2px); }
-.vellum-handle--target.react-flow__handle-left { transform: translate(-50%, -50%) translateX(3px); }
+.junto-handle--source { border-color: color-mix(in oklab, var(--color-main) 72%, transparent); }
+.junto-handle--target { border-color: color-mix(in oklab, var(--color-second) 72%, transparent); border-style: dashed; }
+.junto-handle--source { z-index: 3; }
+.junto-handle--target { z-index: 2; }
+.junto-handle--source.react-flow__handle-top { transform: translate(-50%, -50%) translateY(-2px); }
+.junto-handle--target.react-flow__handle-top { transform: translate(-50%, -50%) translateY(3px); }
+.junto-handle--source.react-flow__handle-right { transform: translate(50%, -50%) translateX(2px); }
+.junto-handle--target.react-flow__handle-right { transform: translate(50%, -50%) translateX(-3px); }
+.junto-handle--source.react-flow__handle-bottom { transform: translate(-50%, 50%) translateY(2px); }
+.junto-handle--target.react-flow__handle-bottom { transform: translate(-50%, 50%) translateY(-3px); }
+.junto-handle--source.react-flow__handle-left { transform: translate(-50%, -50%) translateX(-2px); }
+.junto-handle--target.react-flow__handle-left { transform: translate(-50%, -50%) translateX(3px); }
 
 /* Node hover reveals the source dots only; target handles stay hidden (they
    still accept drops), so a card never wears more than four quiet dots.
    React Flow stamps `connectionindicator` on every connectable handle at
    rest — it must never force visibility. */
-.vellum-node:hover .vellum-handle--source {
+.junto-node:hover .junto-handle--source {
   opacity: 1;
 }
 
-.vellum-handle.clickconnecting,
-.vellum-handle.connectingfrom,
-.vellum-handle.connectingto {
+.junto-handle.clickconnecting,
+.junto-handle.connectingfrom,
+.junto-handle.connectingto {
   opacity: 1;
   box-shadow: 0 0 8px color-mix(in oklab, var(--color-main) 25%, transparent);
 }
 
-.vellum-handle.connectingto.valid {
+.junto-handle.connectingto.valid {
   border-color: color-mix(in oklab, var(--color-second) 95%, transparent);
   background: color-mix(in oklab, var(--color-second) 20%, transparent);
   box-shadow: 0 0 0 4px color-mix(in oklab, var(--color-second) 12%, transparent), 0 0 16px color-mix(in oklab, var(--color-second) 30%, transparent);
 }
 
-.vellum-node__open { opacity: 0; }
-.vellum-node:hover .vellum-node__open,
-.react-flow__node.selected .vellum-node__open { opacity: 1; }
-.vellum-node__flag-rail { display: flex; min-height: 14px; align-items: center; gap: 4px; margin: -2px 0 7px; padding-right: 34px; }
-.vellum-node__flag { border: 1px solid; border-radius: 3px; padding: 2px 5px; font-size: 7px; letter-spacing: .13em; line-height: 1; text-transform: uppercase; }
+.junto-node__open { opacity: 0; }
+.junto-node:hover .junto-node__open,
+.react-flow__node.selected .junto-node__open { opacity: 1; }
+.junto-node__flag-rail { display: flex; min-height: 14px; align-items: center; gap: 4px; margin: -2px 0 7px; padding-right: 34px; }
+.junto-node__flag { border: 1px solid; border-radius: 3px; padding: 2px 5px; font-size: 7px; letter-spacing: .13em; line-height: 1; text-transform: uppercase; }
 
 .react-flow__handle:hover {
   background: color-mix(in oklab, var(--color-main) 35%, transparent);
@@ -1809,7 +1809,7 @@ html[data-viewport-busy] .react-flow .react-flow__edge-path {
    a plain class (not a Tailwind arbitrary-value utility) so it cannot lose a
    cascade-layer fight against a plain-element rule like `button { font: … }`
    above. */
-.vellum-edge-label {
+.junto-edge-label {
   position: absolute;
   transform: translate(-50%, -50%);
   pointer-events: auto;
@@ -1825,21 +1825,21 @@ html[data-viewport-busy] .react-flow .react-flow__edge-path {
   transition: color 0.15s ease, border-color 0.15s ease;
 }
 
-.vellum-edge-label:hover {
+.junto-edge-label:hover {
   color: var(--color-ink);
   border-color: var(--color-stroke-hi);
 }
 
 /* --- Blocker: static card shadow + static ring ---------------------------
    Base card must not repaint every frame — never animate box-shadow/filter
-   on .vellum-blocker itself. Ring is a static ::after (no compositor timeline). */
-.vellum-blocker {
+   on .junto-blocker itself. Ring is a static ::after (no compositor timeline). */
+.junto-blocker {
   position: relative;
   box-shadow:
     0 0 0 2px color-mix(in oklab, var(--color-accent) 22%, transparent),
     0 0 12px 0 color-mix(in oklab, var(--color-accent) 12%, transparent);
 }
-.vellum-blocker::after {
+.junto-blocker::after {
   content: "";
   position: absolute;
   inset: -5px;
@@ -1854,42 +1854,42 @@ html[data-viewport-busy] .react-flow .react-flow__edge-path {
    No CSS animation — interpolating keyframes keep Chromium presenting every
    vsync. html[data-attention-phase] selects the bright head + one-cell tail.
    Pulse uses data-attention-beat. Between ticks the compositor can idle. */
-.vellum-activity-mark {
+.junto-activity-mark {
   contain: layout style paint;
   isolation: isolate;
 }
-.vellum-activity-clock-cell {
+.junto-activity-clock-cell {
   opacity: 0.1;
   transform: scale(0.82);
 }
-html[data-attention-phase="0"] .vellum-activity-clock-cell:nth-child(1),
-html[data-attention-phase="1"] .vellum-activity-clock-cell:nth-child(2),
-html[data-attention-phase="2"] .vellum-activity-clock-cell:nth-child(3),
-html[data-attention-phase="3"] .vellum-activity-clock-cell:nth-child(4),
-html[data-attention-phase="4"] .vellum-activity-clock-cell:nth-child(5),
-html[data-attention-phase="5"] .vellum-activity-clock-cell:nth-child(6),
-html[data-attention-phase="6"] .vellum-activity-clock-cell:nth-child(7),
-html[data-attention-phase="7"] .vellum-activity-clock-cell:nth-child(8) {
+html[data-attention-phase="0"] .junto-activity-clock-cell:nth-child(1),
+html[data-attention-phase="1"] .junto-activity-clock-cell:nth-child(2),
+html[data-attention-phase="2"] .junto-activity-clock-cell:nth-child(3),
+html[data-attention-phase="3"] .junto-activity-clock-cell:nth-child(4),
+html[data-attention-phase="4"] .junto-activity-clock-cell:nth-child(5),
+html[data-attention-phase="5"] .junto-activity-clock-cell:nth-child(6),
+html[data-attention-phase="6"] .junto-activity-clock-cell:nth-child(7),
+html[data-attention-phase="7"] .junto-activity-clock-cell:nth-child(8) {
   opacity: 1;
   transform: scale(1);
 }
-html[data-attention-phase="0"] .vellum-activity-clock-cell:nth-child(8),
-html[data-attention-phase="1"] .vellum-activity-clock-cell:nth-child(1),
-html[data-attention-phase="2"] .vellum-activity-clock-cell:nth-child(2),
-html[data-attention-phase="3"] .vellum-activity-clock-cell:nth-child(3),
-html[data-attention-phase="4"] .vellum-activity-clock-cell:nth-child(4),
-html[data-attention-phase="5"] .vellum-activity-clock-cell:nth-child(5),
-html[data-attention-phase="6"] .vellum-activity-clock-cell:nth-child(6),
-html[data-attention-phase="7"] .vellum-activity-clock-cell:nth-child(7) {
+html[data-attention-phase="0"] .junto-activity-clock-cell:nth-child(8),
+html[data-attention-phase="1"] .junto-activity-clock-cell:nth-child(1),
+html[data-attention-phase="2"] .junto-activity-clock-cell:nth-child(2),
+html[data-attention-phase="3"] .junto-activity-clock-cell:nth-child(3),
+html[data-attention-phase="4"] .junto-activity-clock-cell:nth-child(4),
+html[data-attention-phase="5"] .junto-activity-clock-cell:nth-child(5),
+html[data-attention-phase="6"] .junto-activity-clock-cell:nth-child(6),
+html[data-attention-phase="7"] .junto-activity-clock-cell:nth-child(7) {
   opacity: 0.48;
   transform: scale(0.94);
 }
 
-.vellum-activity-pulse-cell {
+.junto-activity-pulse-cell {
   opacity: 0.22;
   transform: scale(0.88);
 }
-html[data-attention-beat="1"] .vellum-activity-pulse-cell {
+html[data-attention-beat="1"] .junto-activity-pulse-cell {
   opacity: 1;
   transform: scale(1);
 }
@@ -1898,15 +1898,15 @@ html[data-attention-beat="1"] .vellum-activity-pulse-cell {
    ActivityMark also unmounts animated layers when surfaceMotionLive$ is false. */
 
 @media (prefers-reduced-motion: reduce) {
-  .vellum-blocker::after,
-  .vellum-node__flag--blocked-live,
-  .vellum-status-dot-pulse,
-  .vellum-activity-clock-cell,
-  .vellum-activity-pulse-cell,
-  .vellum-edge-ripple .react-flow__edge-path,
-  path.vellum-edge-ripple,
-  .vellum-node[data-seat-attention="true"]::after,
-  .vellum-node[data-attention="fire"]::after {
+  .junto-blocker::after,
+  .junto-node__flag--blocked-live,
+  .junto-status-dot-pulse,
+  .junto-activity-clock-cell,
+  .junto-activity-pulse-cell,
+  .junto-edge-ripple .react-flow__edge-path,
+  path.junto-edge-ripple,
+  .junto-node[data-seat-attention="true"]::after,
+  .junto-node[data-attention="fire"]::after {
     animation: none;
   }
 }
@@ -1914,25 +1914,25 @@ html[data-attention-beat="1"] .vellum-activity-pulse-cell {
 /* --- Blocked ripple: static dash pattern ---------------------------------
    stroke-dashoffset and opacity animations both keep the compositor live.
    Dashes stay for “interrupted flow” direction; no continuous paint. */
-.vellum-edge-ripple .react-flow__edge-path,
-path.vellum-edge-ripple {
+.junto-edge-ripple .react-flow__edge-path,
+path.junto-edge-ripple {
   stroke-dasharray: 5 6;
   opacity: 0.78;
 }
 
 /* --- Fire / ice attention (glance language) ---------------------------
-   data-attention on .vellum-node: fire = needs human; ice = calm capacity.
+   data-attention on .junto-node: fire = needs human; ice = calm capacity.
    Static shadow on the card + one ::after halo (transform/opacity only). */
-.vellum-node[data-attention="fire"],
-.vellum-node[data-seat-attention="true"] {
+.junto-node[data-attention="fire"],
+.junto-node[data-seat-attention="true"] {
   position: relative;
   box-shadow:
     0 0 0 2px color-mix(in oklab, var(--color-main) 55%, transparent),
     0 0 18px 2px color-mix(in oklab, var(--color-main) 18%, transparent),
     0 10px 28px var(--color-shadow-2);
 }
-.vellum-node[data-attention="fire"]::after,
-.vellum-node[data-seat-attention="true"]::after {
+.junto-node[data-attention="fire"]::after,
+.junto-node[data-seat-attention="true"]::after {
   content: "";
   position: absolute;
   inset: -6px;
@@ -1943,19 +1943,19 @@ path.vellum-edge-ripple {
   transform: scale(1);
 }
 @media (prefers-reduced-motion: reduce) {
-  .vellum-node[data-attention="fire"]::after,
-  .vellum-node[data-seat-attention="true"]::after {
+  .junto-node[data-attention="fire"]::after,
+  .junto-node[data-seat-attention="true"]::after {
     animation: none;
   }
 }
-html[data-surface-motion="paused"] .vellum-node[data-attention="fire"]::after,
-html[data-surface-motion="paused"] .vellum-node[data-seat-attention="true"]::after {
+html[data-surface-motion="paused"] .junto-node[data-attention="fire"]::after,
+html[data-surface-motion="paused"] .junto-node[data-seat-attention="true"]::after {
   animation: none;
 }
-.vellum-node[data-attention="ice"] {
+.junto-node[data-attention="ice"] {
   /* calm — no extra chrome; silence is semantic */
 }
-.vellum-node[data-attention="empty"] {
+.junto-node[data-attention="empty"] {
   opacity: 0.88;
 }
 
@@ -1964,33 +1964,33 @@ html[data-surface-motion="paused"] .vellum-node[data-seat-attention="true"]::aft
    corner pie/spin decals (those fought state borders). Three "something's
    wrong" states stay distinct by ring offset / rim offset only.
    `gone` is muted, not crimson — I20 forbids implying revoke/compromise. */
-.vellum-node[data-occupancy="idle"] {
+.junto-node[data-occupancy="idle"] {
   outline: 1px solid color-mix(in oklab, var(--color-steel) 22%, transparent);
   outline-offset: 2px;
 }
 /* Working belongs to the shared upper-right ActivityMark, never the shell. */
 /* attention = needs input (occupant); ring set off the edge. */
-.vellum-node[data-occupancy="attention"] {
+.junto-node[data-occupancy="attention"] {
   outline: 2px solid color-mix(in oklab, var(--color-main) 75%, transparent);
   outline-offset: 4px;
 }
 /* activity_blocked = line stopped (packet); rim sits at the edge — never
    the same offset as attention's ring, so the two never read as one badge. */
-.vellum-node[data-occupancy="activity_blocked"] {
+.junto-node[data-occupancy="activity_blocked"] {
   outline: 2.5px solid color-mix(in oklab, var(--color-accent) 75%, transparent);
   outline-offset: 0;
 }
 /* stalled = quiet steel ring only (corner clock meter removed). */
-.vellum-node[data-occupancy="stalled"] {
+.junto-node[data-occupancy="stalled"] {
   outline: 1.5px solid color-mix(in oklab, var(--color-steel) 40%, transparent);
   outline-offset: 3px;
 }
-.vellum-node[data-occupancy="parked"] {
+.junto-node[data-occupancy="parked"] {
   outline: 1.5px solid color-mix(in oklab, var(--color-violet) 40%, transparent);
   outline-offset: 2px;
   position: relative;
 }
-.vellum-node[data-occupancy="parked"]::before {
+.junto-node[data-occupancy="parked"]::before {
   content: "";
   position: absolute;
   inset: 0;
@@ -2004,7 +2004,7 @@ html[data-surface-motion="paused"] .vellum-node[data-seat-attention="true"]::aft
 }
 /* gone = host unreachable, last intent stands (I20) — muted outline only,
    never crimson (that would read as revoked/compromised). */
-.vellum-node[data-occupancy="gone"] {
+.junto-node[data-occupancy="gone"] {
   outline: 1px solid color-mix(in oklab, var(--color-steel) 22%, transparent);
   outline-offset: 2px;
   opacity: 0.78;
@@ -2033,7 +2033,7 @@ html[data-surface-motion="paused"] .vellum-node[data-seat-attention="true"]::aft
    DISPATCHES joins asynchronously — where a 9px segmented row of four
    uppercase labels in the house monospace font does not reliably clear the
    available width. */
-.vellum-picker-select {
+.junto-picker-select {
   width: 100%;
   height: 22px;
   border: 1px solid var(--color-stroke);
@@ -2047,14 +2047,14 @@ html[data-surface-motion="paused"] .vellum-node[data-seat-attention="true"]::aft
   outline: none;
   transition: border-color 0.18s ease, background 0.18s ease;
 }
-.vellum-picker-select:hover { border-color: color-mix(in oklab, var(--color-main) 32%, transparent); }
-.vellum-picker-select:focus { border-color: color-mix(in oklab, var(--color-main) 55%, transparent); box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-main) 8%, transparent); }
-.vellum-picker-select option { background: var(--color-raise); color: var(--color-ink); }
+.junto-picker-select:hover { border-color: color-mix(in oklab, var(--color-main) 32%, transparent); }
+.junto-picker-select:focus { border-color: color-mix(in oklab, var(--color-main) 55%, transparent); box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-main) 8%, transparent); }
+.junto-picker-select option { background: var(--color-raise); color: var(--color-ink); }
 
 /* A row (signal/session/dispatch) that opens the detail modal. The
    class owns the full row layout — an unlayered class beats layered Tailwind
    utilities, so it must agree with them, never fight them. */
-.vellum-row-button {
+.junto-row-button {
   display: flex;
   align-items: baseline;
   gap: 8px;
@@ -2067,12 +2067,12 @@ html[data-surface-motion="paused"] .vellum-node[data-seat-attention="true"]::aft
   text-align: left;
   transition: background 0.15s ease;
 }
-.vellum-row-button:hover { background: var(--color-overlay-1); }
-.vellum-row-button:focus-visible { outline: 1px solid color-mix(in oklab, var(--color-main) 50%, transparent); outline-offset: 1px; }
+.junto-row-button:hover { background: var(--color-overlay-1); }
+.junto-row-button:focus-visible { outline: 1px solid color-mix(in oklab, var(--color-main) 50%, transparent); outline-offset: 1px; }
 
-/* Detail chrome (content classes live under vellum-modal__*).
+/* Detail chrome (content classes live under junto-modal__*).
    Host: FocusSurface measure=document — every overlay goes through it. */
-.vellum-modal {
+.junto-modal {
   position: relative;
   width: min(760px, 84vw);
   height: min(78vh, 900px);
@@ -2088,8 +2088,8 @@ html[data-surface-motion="paused"] .vellum-node[data-seat-attention="true"]::aft
   padding: 20px 22px 20px;
   box-shadow: 0 24px 60px var(--color-shadow-1);
 }
-/* FocusSurface owns measure/layer; re-assert measure after .vellum-modal defaults. */
-.focus-surface__panel.vellum-modal.focus-surface__panel--document {
+/* FocusSurface owns measure/layer; re-assert measure after .junto-modal defaults. */
+.focus-surface__panel.junto-modal.focus-surface__panel--document {
   width: min(var(--focus-document-width, 760px), 84vw);
   height: min(78vh, 900px);
   max-height: 92vh;
@@ -2098,11 +2098,11 @@ html[data-surface-motion="paused"] .vellum-node[data-seat-attention="true"]::aft
     0 24px 80px var(--color-shadow-1),
     0 0 0 1px var(--color-overlay-1);
 }
-.focus-surface__panel.vellum-modal.focus-surface__panel--document[data-height="resizable"] {
+.focus-surface__panel.junto-modal.focus-surface__panel--document[data-height="resizable"] {
   resize: both;
   overflow: auto;
 }
-.vellum-modal__close {
+.junto-modal__close {
   position: absolute;
   top: 10px;
   right: 10px;
@@ -2114,33 +2114,33 @@ html[data-surface-motion="paused"] .vellum-node[data-seat-attention="true"]::aft
   color: var(--color-faint);
   transition: background 0.18s ease, color 0.18s ease;
 }
-.vellum-modal__close:hover { background: var(--color-overlay-3); color: var(--color-ink); }
-.vellum-modal__eyebrow { color: var(--color-cyan); font-size: 8px; letter-spacing: 0.16em; text-transform: uppercase; }
-.vellum-modal__title { margin-top: 7px; padding-right: 20px; overflow-wrap: anywhere; color: var(--color-ink); font-family: "Arial Narrow", "Avenir Next Condensed", sans-serif; font-size: 19px; letter-spacing: 0.06em; line-height: 1.25; text-transform: uppercase; }
-.vellum-modal__meta { margin-top: 6px; color: var(--color-dim); font-size: 9px; letter-spacing: 0.04em; }
-.vellum-modal__body {
+.junto-modal__close:hover { background: var(--color-overlay-3); color: var(--color-ink); }
+.junto-modal__eyebrow { color: var(--color-cyan); font-size: 8px; letter-spacing: 0.16em; text-transform: uppercase; }
+.junto-modal__title { margin-top: 7px; padding-right: 20px; overflow-wrap: anywhere; color: var(--color-ink); font-family: "Arial Narrow", "Avenir Next Condensed", sans-serif; font-size: 19px; letter-spacing: 0.06em; line-height: 1.25; text-transform: uppercase; }
+.junto-modal__meta { margin-top: 6px; color: var(--color-dim); font-size: 9px; letter-spacing: 0.04em; }
+.junto-modal__body {
   margin-top: 14px;
   width: 100%;
   font-size: 12px;
   line-height: 1.6;
 }
-.vellum-modal__paragraph { margin: 0; color: var(--color-ink); font-size: 11px; line-height: 1.55; }
-.vellum-modal__line { margin-top: 6px; color: var(--color-dim); font-size: 9px; letter-spacing: 0.03em; line-height: 1.5; }
-.vellum-modal__pre { margin: 0; overflow-wrap: anywhere; white-space: pre-wrap; color: var(--color-ink); font-family: ui-monospace, SFMono-Regular, monospace; font-size: 11px; line-height: 1.55; }
-.vellum-modal__pre--small { color: var(--color-dim); font-size: 10px; }
-.vellum-modal__section-label { margin-top: 12px; color: var(--color-faint); font-size: 8px; letter-spacing: 0.14em; text-transform: uppercase; }
-.vellum-modal__quote { margin-top: 5px; border-left: 2px solid var(--color-stroke); overflow-wrap: anywhere; white-space: pre-wrap; color: var(--color-dim); padding-left: 9px; font-size: 10px; line-height: 1.55; }
-.vellum-modal__scroll { max-height: 160px; overflow-y: auto; }
-.vellum-modal__chips { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 6px; }
-.vellum-modal__chip { border: 1px solid var(--color-stroke); border-radius: 4px; color: var(--color-dim); padding: 2px 6px; font-family: ui-monospace, SFMono-Regular, monospace; font-size: 9px; }
-.vellum-modal__details { margin-top: 12px; }
-.vellum-modal__summary { cursor: pointer; color: var(--color-dim); font-size: 9px; letter-spacing: 0.1em; text-transform: uppercase; }
-.vellum-modal__summary::marker { color: var(--color-faint); }
+.junto-modal__paragraph { margin: 0; color: var(--color-ink); font-size: 11px; line-height: 1.55; }
+.junto-modal__line { margin-top: 6px; color: var(--color-dim); font-size: 9px; letter-spacing: 0.03em; line-height: 1.5; }
+.junto-modal__pre { margin: 0; overflow-wrap: anywhere; white-space: pre-wrap; color: var(--color-ink); font-family: ui-monospace, SFMono-Regular, monospace; font-size: 11px; line-height: 1.55; }
+.junto-modal__pre--small { color: var(--color-dim); font-size: 10px; }
+.junto-modal__section-label { margin-top: 12px; color: var(--color-faint); font-size: 8px; letter-spacing: 0.14em; text-transform: uppercase; }
+.junto-modal__quote { margin-top: 5px; border-left: 2px solid var(--color-stroke); overflow-wrap: anywhere; white-space: pre-wrap; color: var(--color-dim); padding-left: 9px; font-size: 10px; line-height: 1.55; }
+.junto-modal__scroll { max-height: 160px; overflow-y: auto; }
+.junto-modal__chips { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 6px; }
+.junto-modal__chip { border: 1px solid var(--color-stroke); border-radius: 4px; color: var(--color-dim); padding: 2px 6px; font-family: ui-monospace, SFMono-Regular, monospace; font-size: 9px; }
+.junto-modal__details { margin-top: 12px; }
+.junto-modal__summary { cursor: pointer; color: var(--color-dim); font-size: 9px; letter-spacing: 0.1em; text-transform: uppercase; }
+.junto-modal__summary::marker { color: var(--color-faint); }
 
 /* Comment composer: one-line-growing textarea + submit, styled to
    match .inspector-editor's input/textarea treatment. */
-.vellum-modal__comment { margin-top: 14px; border-top: 1px solid var(--color-overlay-3); padding-top: 12px; }
-.vellum-modal__comment-row { display: flex; align-items: flex-end; gap: 6px; }
+.junto-modal__comment { margin-top: 14px; border-top: 1px solid var(--color-overlay-3); padding-top: 12px; }
+.junto-modal__comment-row { display: flex; align-items: flex-end; gap: 6px; }
 
 /* Signal emit form (deliberate write modal) */
 .signal-emit { display: grid; gap: 10px; margin-top: 4px; }
@@ -2221,7 +2221,7 @@ html[data-surface-motion="paused"] .vellum-node[data-seat-attention="true"]::aft
 }
 .signal-emit-button:hover { background: color-mix(in oklab, var(--color-second) 18%, transparent); border-color: color-mix(in oklab, var(--color-second) 60%, transparent); }
 .signal-emit-button:disabled { opacity: 0.35; cursor: not-allowed; }
-.vellum-modal__comment-input {
+.junto-modal__comment-input {
   flex: 1;
   min-height: 30px;
   max-height: 140px;
@@ -2237,9 +2237,9 @@ html[data-surface-motion="paused"] .vellum-node[data-seat-attention="true"]::aft
   line-height: 1.45;
   outline: none;
 }
-.vellum-modal__comment-input::placeholder { color: var(--color-faint); }
-.vellum-modal__comment-input:focus { border-color: color-mix(in oklab, var(--color-second) 55%, transparent); box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-second) 8%, transparent); }
-.vellum-modal__comment-submit {
+.junto-modal__comment-input::placeholder { color: var(--color-faint); }
+.junto-modal__comment-input:focus { border-color: color-mix(in oklab, var(--color-second) 55%, transparent); box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-second) 8%, transparent); }
+.junto-modal__comment-submit {
   border: 1px solid var(--color-stroke);
   border-radius: 4px;
   background: transparent;
@@ -2250,14 +2250,14 @@ html[data-surface-motion="paused"] .vellum-node[data-seat-attention="true"]::aft
   text-transform: uppercase;
   transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
 }
-.vellum-modal__comment-submit:hover:not(:disabled) { background: color-mix(in oklab, var(--color-second) 8%, transparent); border-color: color-mix(in oklab, var(--color-second) 40%, transparent); color: var(--color-ink); }
-.vellum-modal__comment-submit:disabled { opacity: 0.4; cursor: default; }
-.vellum-modal__comment-status { margin-top: 6px; font-size: 9px; letter-spacing: 0.03em; }
-.vellum-modal__comment-status--ok { color: var(--color-green); }
-.vellum-modal__comment-status--error { color: var(--color-crimson); }
+.junto-modal__comment-submit:hover:not(:disabled) { background: color-mix(in oklab, var(--color-second) 8%, transparent); border-color: color-mix(in oklab, var(--color-second) 40%, transparent); color: var(--color-ink); }
+.junto-modal__comment-submit:disabled { opacity: 0.4; cursor: default; }
+.junto-modal__comment-status { margin-top: 6px; font-size: 9px; letter-spacing: 0.03em; }
+.junto-modal__comment-status--ok { color: var(--color-green); }
+.junto-modal__comment-status--error { color: var(--color-crimson); }
 
 /* Resize handle affordance: subtle diagonal-lines glyph in the bottom-right corner */
-.vellum-modal::after,
+.junto-modal::after,
 .focus-surface__panel--document[data-height="resizable"]::after {
   content: "";
   position: absolute;
@@ -2284,7 +2284,7 @@ html[data-surface-motion="paused"] .vellum-node[data-seat-attention="true"]::aft
   transition: opacity 0.18s ease;
 }
 
-.vellum-modal:hover::after,
+.junto-modal:hover::after,
 .focus-surface__panel--document[data-height="resizable"]:hover::after {
   opacity: 0.55;
 }
@@ -2681,7 +2681,7 @@ ol.note-md__list > .note-md__li::before {
 }
 
 /* One top-layer tooltip for the station's dense, icon-led controls. */
-.vellum-tooltip {
+.junto-tooltip {
   position: fixed;
   z-index: var(--layer-tooltip);
   max-width: min(280px, calc(100vw - 16px));
@@ -2702,17 +2702,17 @@ ol.note-md__list > .note-md__li::before {
   opacity: 1;
   transition: opacity 70ms ease-out, transform 90ms cubic-bezier(0.16, 1, 0.3, 1);
 }
-.vellum-tooltip[data-positioned="false"] { visibility: hidden; }
-.vellum-tooltip[data-placement="top"] { transform-origin: bottom center; }
-.vellum-tooltip[data-placement="bottom"] { transform-origin: top center; }
+.junto-tooltip[data-positioned="false"] { visibility: hidden; }
+.junto-tooltip[data-placement="top"] { transform-origin: bottom center; }
+.junto-tooltip[data-placement="bottom"] { transform-origin: top center; }
 
 @starting-style {
-  .vellum-tooltip[data-placement="top"] { opacity: 0; transform: translateY(2px); }
-  .vellum-tooltip[data-placement="bottom"] { opacity: 0; transform: translateY(-2px); }
+  .junto-tooltip[data-placement="top"] { opacity: 0; transform: translateY(2px); }
+  .junto-tooltip[data-placement="bottom"] { opacity: 0; transform: translateY(-2px); }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .vellum-tooltip { transition: none; }
+  .junto-tooltip { transition: none; }
 }
 
 /* Actor terminal — one right instrument pane beside xterm. Ledger occupies a

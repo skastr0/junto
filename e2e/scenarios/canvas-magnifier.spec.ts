@@ -13,15 +13,15 @@ const blockedWorker = {
 };
 
 test.use({
-  vellumOptions: {
+  juntoOptions: {
     seedCanvases: {
       scanner: canvasDoc([blockedWorker]),
     },
   },
 });
 
-test("Option reveals the bounded semantic scanner and release dismisses it", async ({ vellumCommand }) => {
-  const { page } = vellumCommand;
+test("Option reveals the bounded semantic scanner and release dismisses it", async ({ junto }) => {
+  const { page } = junto;
   const node = page.getByTestId("rf__node-worker");
   const magnifier = page.getByTestId("canvas-magnifier");
 

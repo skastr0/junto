@@ -14,7 +14,7 @@ const IPC_ADDED_TEXT = "created through the product IPC";
 const SEEDED_TASK_ID = "sqlite-seed-task";
 
 test.use({
-  vellumOptions: {
+  juntoOptions: {
     seedCanvases: {
       roundtrip: canvasDoc([
         textNode("n1", ORIGINAL_TEXT, 0, 0),
@@ -58,9 +58,9 @@ const expectSqliteAuthority = async (input: {
 };
 
 test("operator UI write round-trips through main IPC and survives renderer reload", async ({
-  vellumCommand,
+  junto,
 }) => {
-  const { page, sandbox } = vellumCommand;
+  const { page, sandbox } = junto;
 
   const node = page.locator(".react-flow__node", { hasText: ORIGINAL_TEXT });
   await expect(node).toBeVisible({ timeout: 30_000 });
@@ -99,9 +99,9 @@ test("operator UI write round-trips through main IPC and survives renderer reloa
 });
 
 test("canvas list/read/write product paths persist through the unified SQLite authority", async ({
-  vellumCommand,
+  junto,
 }) => {
-  const { page, sandbox } = vellumCommand;
+  const { page, sandbox } = junto;
 
   const result = await page.evaluate(
     async ({ name, addedText }) => {

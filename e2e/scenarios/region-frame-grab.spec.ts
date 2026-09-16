@@ -51,9 +51,9 @@ const installBoard = async (page: import("@playwright/test").Page): Promise<void
       async () =>
         page.evaluate(() => {
           const runtime = globalThis as unknown as {
-            readonly vellumCommand?: { readonly listCanvases: () => Promise<unknown[]> };
+            readonly junto?: { readonly listCanvases: () => Promise<unknown[]> };
           };
-          return Boolean(runtime.vellumCommand?.listCanvases);
+          return Boolean(runtime.junto?.listCanvases);
         }),
       { timeout: 30_000 },
     )
@@ -61,7 +61,7 @@ const installBoard = async (page: import("@playwright/test").Page): Promise<void
   await page.evaluate(async (document) => {
     const api = (
       globalThis as unknown as {
-        readonly vellumCommand: {
+        readonly junto: {
           readonly listCanvases: () => Promise<ReadonlyArray<{ name: string }>>;
           readonly createCanvas: (name: string) => Promise<{ name: string; revision: string }>;
           readonly readCanvas: (name: string) => Promise<{ name: string; revision: string }>;
@@ -72,7 +72,7 @@ const installBoard = async (page: import("@playwright/test").Page): Promise<void
           ) => Promise<unknown>;
         };
       }
-    ).vellumCommand;
+    ).junto;
     const list = await api.listCanvases();
     const name = list[0]?.name ?? (await api.createCanvas("frame")).name;
     const read = await api.readCanvas(name);
@@ -81,9 +81,9 @@ const installBoard = async (page: import("@playwright/test").Page): Promise<void
 };
 
 test("clicking the frame selects the region, dragging it moves the region", async ({
-  vellumCommand,
+  junto,
 }) => {
-  const { page } = vellumCommand;
+  const { page } = junto;
   await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
   await installBoard(page);
 
@@ -145,9 +145,9 @@ test("clicking the frame selects the region, dragging it moves the region", asyn
 });
 
 test("frame grab works before selection and leaves the interior as pane", async ({
-  vellumCommand,
+  junto,
 }) => {
-  const { page } = vellumCommand;
+  const { page } = junto;
   await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
   await installBoard(page);
 

@@ -2,7 +2,7 @@ import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 
 import type { CanvasDoc } from "../../src/shared/canvas";
-import { expect, launchVellum, test } from "../harness/launch";
+import { expect, launchJunto, test } from "../harness/launch";
 
 const CANVAS = "note-focus-surface";
 const SHOTS = join(process.cwd(), "test-results", "note-focus-surface");
@@ -23,11 +23,11 @@ const document: CanvasDoc = {
 };
 
 test("Note focus survives canvas updates and moves to the pinned dock", async () => {
-  const vellumCommand = await launchVellum({
+  const junto = await launchJunto({
     seedCanvases: { [CANVAS]: document },
   });
   try {
-    const { page } = vellumCommand;
+    const { page } = junto;
     await mkdir(SHOTS, { recursive: true });
     await expect(page.locator('.react-flow__node[data-id="note-1"]')).toBeVisible({
       timeout: 30_000,
@@ -76,6 +76,6 @@ test("Note focus survives canvas updates and moves to the pinned dock", async ()
     await noteEditor.getByRole("button", { name: "done", exact: true }).click();
     await expect(noteEditor).toBeHidden();
   } finally {
-    await vellumCommand.close();
+    await junto.close();
   }
 });

@@ -22,7 +22,7 @@ const LAUNCH = {
 };
 
 test.use({
-  vellumOptions: {
+  juntoOptions: {
     electronArgs: ["--force-device-scale-factor=1.5"],
     seedCanvases: {
       dpr: canvasDoc([
@@ -32,8 +32,8 @@ test.use({
   },
 });
 
-test("rows sit on an exact grid at a fractional device scale factor", async ({ vellumCommand }) => {
-  const { page } = vellumCommand;
+test("rows sit on an exact grid at a fractional device scale factor", async ({ junto }) => {
+  const { page } = junto;
   const node = page.locator(".react-flow__node", { hasText: LABEL });
   await expect(node).toBeVisible({ timeout: 30_000 });
   await node.dblclick();

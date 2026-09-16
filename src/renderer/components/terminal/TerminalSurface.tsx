@@ -121,7 +121,7 @@ export type TerminalRendererKind = "webgl" | "dom";
  * Written on the surface root and the xterm host so the active renderer is
  * readable from devtools and from an e2e page query, without a UI affordance.
  */
-export const TERMINAL_RENDERER_ATTR = "data-vellum-term-renderer";
+export const TERMINAL_RENDERER_ATTR = "data-junto-term-renderer";
 
 /** The only two addon members this surface drives. */
 type WebglHandle = {
@@ -334,11 +334,11 @@ export const wheelReportFanout = (input: {
  *
  * Renderer console is captured into the observability ring
  * (installObservabilityConsoleHook -> recordRendererConsole), so these lines
- * are queryable. Grep tag: vellum:term-geom
+ * are queryable. Grep tag: junto:term-geom
  */
 const logTermGeom = (event: string, data: Record<string, unknown>): void => {
   try {
-    console.warn(`[vellum:term-geom] ${event} ${JSON.stringify(data)}`);
+    console.warn(`[junto:term-geom] ${event} ${JSON.stringify(data)}`);
   } catch {
     // diagnostics must never break the surface
   }
@@ -975,19 +975,19 @@ export function TerminalSurface({
     // Read-only screen-text registries for tests: under the WebGL renderer the
     // DOM carries no text, so e2e reads the buffer through these instead of
     // .xterm-rows. Display-only — no write path, no capability.
-    // __vellumTermScreenText: the visible viewport (live composer/footer).
-    // __vellumTermTranscriptText: the WHOLE buffer including scrollback — the
+    // __juntoTermScreenText: the visible viewport (live composer/footer).
+    // __juntoTermTranscriptText: the WHOLE buffer including scrollback — the
     // only witness for counts across a scrolling session (paste duplication).
     const screenTextRegistry = (
       window as unknown as {
-        __vellumTermScreenText?: Map<string, () => string>;
-        __vellumTermTranscriptText?: Map<string, () => string>;
+        __juntoTermScreenText?: Map<string, () => string>;
+        __juntoTermTranscriptText?: Map<string, () => string>;
       }
     );
-    screenTextRegistry.__vellumTermScreenText ??= new Map();
-    screenTextRegistry.__vellumTermTranscriptText ??= new Map();
+    screenTextRegistry.__juntoTermScreenText ??= new Map();
+    screenTextRegistry.__juntoTermTranscriptText ??= new Map();
     const screenTextKey = bindingId || `surface-${Math.random().toString(36).slice(2)}`;
-    screenTextRegistry.__vellumTermScreenText.set(screenTextKey, () => {
+    screenTextRegistry.__juntoTermScreenText.set(screenTextKey, () => {
       const buffer = term.buffer.active;
       const rows: string[] = [];
       for (let row = 0; row < term.rows; row += 1) {
@@ -997,7 +997,7 @@ export function TerminalSurface({
       }
       return rows.join("\n");
     });
-    screenTextRegistry.__vellumTermTranscriptText.set(screenTextKey, () => {
+    screenTextRegistry.__juntoTermTranscriptText.set(screenTextKey, () => {
       const buffer = term.buffer.active;
       const rows: string[] = [];
       for (let row = 0; row < buffer.length; row += 1) {
@@ -1217,8 +1217,8 @@ export function TerminalSurface({
       gpuRef.current?.dispose();
       gpuRef.current = null;
       webglBlockedRef.current = false;
-      screenTextRegistry.__vellumTermScreenText?.delete(screenTextKey);
-      screenTextRegistry.__vellumTermTranscriptText?.delete(screenTextKey);
+      screenTextRegistry.__juntoTermScreenText?.delete(screenTextKey);
+      screenTextRegistry.__juntoTermTranscriptText?.delete(screenTextKey);
       term.dispose();
       termRef.current = null;
       fitRef.current = null;

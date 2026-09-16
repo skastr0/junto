@@ -9,7 +9,7 @@ import {
   waitForControlDoctor,
 } from "../harness/browser-control-client";
 import { canvasDoc } from "../harness/sandbox";
-import { launchVellum } from "../harness/launch";
+import { launchJunto } from "../harness/launch";
 import { expect, test } from "@playwright/test";
 
 // Product path: process-bind + human edge — no enable/grant ceremony.
@@ -22,7 +22,7 @@ const PAGE_URL = "https://example.com/";
 const PROFILE = "personal";
 
 test("browser access UI is process-bind + edges; no enable grant ceremony", async () => {
-  const vellumCommand = await launchVellum({
+  const junto = await launchJunto({
     seedCanvases: {
       "browser-authorization-granted": canvasDoc([
         browserAgentNode({ id: "a1", agentKey: "local:default", label: AGENT_LABEL }),
@@ -34,7 +34,7 @@ test("browser access UI is process-bind + edges; no enable grant ceremony", asyn
   });
 
   try {
-    const { app, page, sandbox } = vellumCommand;
+    const { app, page, sandbox } = junto;
     const socketPath = sandboxControlSocketPath(sandbox.homeDir);
     const token = await readSandboxControlToken(sandbox.homeDir);
     await waitForControlDoctor(socketPath, token);
@@ -53,6 +53,6 @@ test("browser access UI is process-bind + edges; no enable grant ceremony", asyn
     const denied = await controlCall(socketPath, token, "profiles");
     expect(denied.envelope.ok).toBe(false);
   } finally {
-    await vellumCommand.close();
+    await junto.close();
   }
 });

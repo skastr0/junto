@@ -25,15 +25,15 @@ const nodes = [
 const edge = verbEdge("e-settings", "source", "target", "contributes", nodes);
 
 test.use({
-  vellumOptions: {
+  juntoOptions: {
     seedCanvases: {
       "edge-settings": canvasDoc(nodes, [edge]),
     },
   },
 });
 
-test("double-clicking an edge opens its relation surface", async ({ vellumCommand }) => {
-  const { page } = vellumCommand;
+test("double-clicking an edge opens its relation surface", async ({ junto }) => {
+  const { page } = junto;
   const flowEdge = page.getByTestId("rf__edge-e-settings");
   const source = page.getByTestId("rf__node-source");
   const target = page.getByTestId("rf__node-target");

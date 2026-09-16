@@ -7,7 +7,7 @@
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { agentTextNode, canvasDoc } from "../harness/sandbox";
-import { expect, launchVellum, test } from "../harness/launch";
+import { expect, launchJunto, test } from "../harness/launch";
 
 const SHOTS = join(process.cwd(), "test-results", "design-audit");
 const AGENT_LABEL = "rails width worker";
@@ -74,10 +74,10 @@ const probeWidths = async (
   });
 
 test("collapsing stacked right-pane sections does not resize the terminal", async () => {
-  const vellumCommand = await launchVellum();
+  const junto = await launchJunto();
 
   try {
-    const { page } = vellumCommand;
+    const { page } = junto;
     await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
 
     await page.evaluate(async (document) => {
@@ -156,6 +156,6 @@ test("collapsing stacked right-pane sections does not resize the terminal", asyn
       fullPage: false,
     });
   } finally {
-    await vellumCommand.close();
+    await junto.close();
   }
 });

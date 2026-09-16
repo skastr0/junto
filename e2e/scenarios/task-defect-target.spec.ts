@@ -1,6 +1,6 @@
 import type { CanvasDoc, TextNode } from "../../src/shared/canvas";
 import { canvasDoc, tasksNode } from "../harness/sandbox";
-import { expect, launchVellum, test } from "../harness/launch";
+import { expect, launchJunto, test } from "../harness/launch";
 
 const operatorBoard = (
   id: string,
@@ -47,12 +47,12 @@ const fixture = (): CanvasDoc =>
   );
 
 test("operator sends a task back to a deep visited board", async () => {
-  const vellumCommand = await launchVellum({
+  const junto = await launchJunto({
     seedCanvases: { factory: fixture() },
   });
 
   try {
-    const { page } = vellumCommand;
+    const { page } = junto;
     await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
 
     const seeded = await page.evaluate(async () => {
@@ -155,6 +155,6 @@ test("operator sends a task back to a deep visited board", async () => {
         rejectedState: "rejected",
       });
   } finally {
-    await vellumCommand.close();
+    await junto.close();
   }
 });

@@ -75,15 +75,15 @@ const denseDoc = (): CanvasDoc => {
 const EDGE_COUNT = denseDoc().edges.length;
 
 test.use({
-  vellumOptions: {
+  juntoOptions: {
     seedCanvases: {
       perf: denseDoc(),
     },
   },
 });
 
-test("dense canvas: selection stays under interaction budget", async ({ vellumCommand }) => {
-  const { page } = vellumCommand;
+test("dense canvas: selection stays under interaction budget", async ({ junto }) => {
+  const { page } = junto;
 
   await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
   const first = page.getByTestId("rf__node-n0");
@@ -119,8 +119,8 @@ test("dense canvas: selection stays under interaction budget", async ({ vellumCo
   expect(median, `selection samples ms=${JSON.stringify(samples)}`).toBeLessThan(250);
 });
 
-test("dense canvas: drag commits without mid-gesture snap-back", async ({ vellumCommand }) => {
-  const { page } = vellumCommand;
+test("dense canvas: drag commits without mid-gesture snap-back", async ({ junto }) => {
+  const { page } = junto;
 
   await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
   const node = page.getByTestId("rf__node-n1");

@@ -12,7 +12,7 @@ import { expect, test } from "../harness/launch";
 const CANVAS = "pad-e2e";
 
 test.use({
-  vellumOptions: {
+  juntoOptions: {
     seedCanvases: {
       [CANVAS]: canvasDoc([
         agentTextNode({
@@ -71,9 +71,9 @@ const patchPad = (
   );
 
 test("pad: create, wire seat, patch, persist, draw, pin + look-here", async ({
-  vellumCommand,
+  junto,
 }) => {
-  const { page } = vellumCommand;
+  const { page } = junto;
 
   await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
   await waitForApi(page);

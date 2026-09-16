@@ -82,9 +82,9 @@ const waitForApi = async (page: Page): Promise<void> => {
       async () =>
         page.evaluate(() => {
           const runtime = globalThis as unknown as {
-            readonly vellumCommand?: { readonly listCanvases?: unknown };
+            readonly junto?: { readonly listCanvases?: unknown };
           };
-          return typeof runtime.vellumCommand?.listCanvases === "function";
+          return typeof runtime.junto?.listCanvases === "function";
         }),
       { timeout: 30_000 },
     )
@@ -94,8 +94,8 @@ const waitForApi = async (page: Page): Promise<void> => {
 const installBoard = async (page: Page): Promise<string> => {
   await waitForApi(page);
   return page.evaluate(async (document) => {
-    const api = (globalThis as unknown as { readonly vellumCommand: CanvasApi })
-      .vellumCommand;
+    const api = (globalThis as unknown as { readonly junto: CanvasApi })
+      .junto;
     let list = await api.listCanvases();
     let name = list[0]?.name;
     if (!name) {
@@ -115,8 +115,8 @@ const readGrant = async (
 ): Promise<{ readonly overseer: boolean | undefined; readonly revision: string }> =>
   page.evaluate(
     async ({ name, id }) => {
-      const api = (globalThis as unknown as { readonly vellumCommand: CanvasApi })
-        .vellumCommand;
+      const api = (globalThis as unknown as { readonly junto: CanvasApi })
+        .junto;
       const read = await api.readCanvas(name);
       const node = read.doc.nodes.find((candidate) => candidate.id === id);
       return {
@@ -143,8 +143,8 @@ const grantViaHumanApi = async (
   }
   return page.evaluate(
     async ({ name, id }) => {
-      const api = (globalThis as unknown as { readonly vellumCommand: CanvasApi })
-        .vellumCommand;
+      const api = (globalThis as unknown as { readonly junto: CanvasApi })
+        .junto;
       if (typeof api.canvasOverseerSet !== "function") {
         throw new Error(
           "Overseer control is unavailable: no rts-overseer and no canvasOverseerSet",
@@ -164,9 +164,9 @@ const grantViaHumanApi = async (
 };
 
 test("human toggle persists overseer authority without moving the viewport", async ({
-  vellumCommand,
+  junto,
 }) => {
-  const { page } = vellumCommand;
+  const { page } = junto;
   await mkdir(SHOTS, { recursive: true });
   await mkdir(join(process.cwd(), ".amp/in/artifacts"), { recursive: true });
 
@@ -203,7 +203,7 @@ test("human toggle persists overseer authority without moving the viewport", asy
   const ordinary = await readGrant(page, canvasName, ORDINARY_ID);
   expect(ordinary.overseer).not.toBe(true);
 
-  const card = grantedNode.locator(".vellum-node");
+  const card = grantedNode.locator(".junto-node");
   if ((await card.count()) > 0) {
     await expect(card).toHaveAttribute("data-overseer", "true");
   }

@@ -25,7 +25,7 @@ import { expect, test } from "../harness/launch";
 import { waitForTerminalPaint, waitForTerminalText } from "../harness/term-ready";
 
 const REPO = process.cwd();
-const REPLAY_DIR = "/tmp/vellum-real-bytes";
+const REPLAY_DIR = "/tmp/junto-real-bytes";
 const LABEL = "e2e repaint";
 const BINDING_ID = "e2e-repaint-1";
 const LAUNCH = { kind: "command" as const, argv: ["/bin/sh", "-i"] };
@@ -118,7 +118,7 @@ const scrollMetrics = async (
   }, SCROLLER);
 
 test.use({
-  vellumOptions: {
+  juntoOptions: {
     seedCanvases: {
       repaint: canvasDoc([
         terminalTextNode({ id: "t1", bindingId: BINDING_ID, label: LABEL, launch: LAUNCH }),
@@ -128,9 +128,9 @@ test.use({
 });
 
 test("the same scroll position renders the same before and after scrolling", async ({
-  vellumCommand,
+  junto,
 }) => {
-  const { page } = vellumCommand;
+  const { page } = junto;
   const raw = materialize("grok", "working-turn");
 
   const node = page.locator(".react-flow__node", { hasText: LABEL });
@@ -197,7 +197,7 @@ test("the same scroll position renders the same before and after scrolling", asy
       }
     }
   }
-  await page.screenshot({ path: "/tmp/vellum-repaint-settled.png" });
+  await page.screenshot({ path: "/tmp/junto-repaint-settled.png" });
   expect(
     settledMarker,
     `could not return to the anchor line R${anchor} to compare`,

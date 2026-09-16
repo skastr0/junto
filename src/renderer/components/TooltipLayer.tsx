@@ -1,13 +1,13 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
-const TOOLTIP_ID = "vellum-tooltip";
+const TOOLTIP_ID = "junto-tooltip";
 const SHOW_DELAY_MS = 20;
 const TRANSIT_GRACE_MS = 280;
 const VIEWPORT_GUTTER = 8;
 const TRIGGER_SELECTOR = [
   "[data-tooltip]",
-  "[data-vellum-tooltip]",
+  "[data-junto-tooltip]",
   "[title]",
   "button[aria-label]",
   "a[aria-label]",
@@ -34,19 +34,19 @@ const triggerFor = (target: EventTarget | null): HTMLElement | null =>
 export type TitleHost = {
   getAttribute: (name: string) => string | null;
   removeAttribute: (name: string) => void;
-  dataset: { tooltip?: string; vellumTooltip?: string };
+  dataset: { tooltip?: string; juntoTooltip?: string };
   querySelectorAll?: (selectors: string) => Iterable<TitleHost>;
 };
 
 /**
- * Move native `title` → data-vellum-tooltip and strip the attribute so the
+ * Move native `title` → data-junto-tooltip and strip the attribute so the
  * browser never paints a second OS tooltip beside our branded surface.
  * Safe to call repeatedly (idempotent).
  */
 export const absorbNativeTitle = (element: TitleHost): void => {
   const title = element.getAttribute("title")?.trim();
   if (!title) return;
-  if (!element.dataset.tooltip) element.dataset.vellumTooltip = title;
+  if (!element.dataset.tooltip) element.dataset.juntoTooltip = title;
   element.removeAttribute("title");
 };
 
@@ -65,7 +65,7 @@ const tooltipText = (target: HTMLElement): string => {
   absorbNativeTitle(target);
   const branded = (
     target.dataset.tooltip
-    ?? target.dataset.vellumTooltip
+    ?? target.dataset.juntoTooltip
     ?? ""
   ).trim();
   if (branded) return branded;
@@ -249,7 +249,7 @@ export function TooltipLayer() {
     <div
       ref={tooltipRef}
       id={TOOLTIP_ID}
-      className="vellum-tooltip"
+      className="junto-tooltip"
       data-placement={position?.placement ?? "top"}
       data-positioned={position ? "true" : "false"}
       role="tooltip"

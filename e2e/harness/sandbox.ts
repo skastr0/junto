@@ -86,9 +86,9 @@ export const createSandbox = async (): Promise<Sandbox> => {
   const root = await mkdtemp(join(tempRoot, "junto-e2e-"));
   const userDataDir = join(root, "user-data");
   const homeDir = join(root, "home");
-  const vellumDir = join(homeDir, ".junto");
-  const canvasesDir = join(vellumDir, "canvases");
-  const stateDir = join(vellumDir, "state");
+  const juntoDir = join(homeDir, ".junto");
+  const canvasesDir = join(juntoDir, "canvases");
+  const stateDir = join(juntoDir, "state");
   await Promise.all([
     mkdir(userDataDir, { recursive: true }),
     mkdir(canvasesDir, { recursive: true }),
@@ -163,7 +163,7 @@ export const writeFixtureCanvas = async (
 
   // Default to the sandbox's canonical product database. Demo-mode apps
   // isolate product state in a process-minted ephemeral SQLite file, so
-  // launchVellum re-seeds the same fixtures into that database after boot.
+  // launchJunto re-seeds the same fixtures into that database after boot.
   const state = makeStateEngineLive(
     databasePath ??
       join(sandbox.homeDir, ".junto", "state", "junto.db"),
@@ -454,7 +454,7 @@ export const writeFixtureCanvas = async (
 /**
  * Remove canvases from an explicit database, keeping only the seeded names.
  * Demo-mode apps mint an ephemeral product database and create an empty
- * default canvas at first boot; launchVellum removes it so the renderer
+ * default canvas at first boot; launchJunto removes it so the renderer
  * boots onto the seeded canvas instead of the empty default.
  */
 export const removeFixtureCanvases = async (

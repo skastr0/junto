@@ -27,7 +27,7 @@ const rowTexts = async (page: import("@playwright/test").Page): Promise<Readonly
   );
 
 test.use({
-  vellumOptions: {
+  juntoOptions: {
     seedCanvases: {
       wrap: canvasDoc([
         terminalTextNode({ id: "t1", bindingId: BINDING_ID, label: LABEL, launch: LAUNCH }),
@@ -36,15 +36,15 @@ test.use({
   },
 });
 
-test("output written across a reopen is not wrapped at a stale width", async ({ vellumCommand }) => {
-  const { page } = vellumCommand;
+test("output written across a reopen is not wrapped at a stale width", async ({ junto }) => {
+  const { page } = junto;
   const logs: Array<Record<string, number | boolean>> = [];
   page.on("console", (msg) => {
     const t = msg.text();
-    const at = t.indexOf("[vellum:term-geom] resize ");
+    const at = t.indexOf("[junto:term-geom] resize ");
     if (at < 0) return;
     try {
-      logs.push(JSON.parse(t.slice(at + "[vellum:term-geom] resize ".length)));
+      logs.push(JSON.parse(t.slice(at + "[junto:term-geom] resize ".length)));
     } catch {
       /* ignore */
     }
@@ -92,7 +92,7 @@ test("output written across a reopen is not wrapped at a stale width", async ({ 
   const cols = (logs[logs.length - 1]?.cols as number) ?? 0;
   const orphans = rows.filter((r) => /^=+$/.test(r.trim()) && r.trim().length > 0);
   console.log(`GRID cols=${cols}; orphan continuation rows=${orphans.length}`);
-  await page.screenshot({ path: "/tmp/vellum-wrap-divergence.png" });
+  await page.screenshot({ path: "/tmp/junto-wrap-divergence.png" });
 
   expect(cols, "no geometry captured").toBeGreaterThan(100);
   expect(

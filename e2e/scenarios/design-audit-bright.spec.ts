@@ -18,7 +18,7 @@ import {
   tasksNode,
   taskItem,
 } from "../harness/sandbox";
-import { expect, launchVellum, test } from "../harness/launch";
+import { expect, launchJunto, test } from "../harness/launch";
 import type { CanvasEdge, CanvasNode, GroupNode } from "../../src/shared/canvas";
 
 const SHOTS = join(process.cwd(), "test-results", "design-audit-bright");
@@ -112,11 +112,11 @@ const edges: CanvasEdge[] = [
 ];
 
 test("capture key surfaces in bright mode", async () => {
-  const vellumCommand = await launchVellum({
+  const junto = await launchJunto({
     seedCanvases: { "design-audit-bright": canvasDoc(nodes, edges) },
   });
   try {
-    const { page } = vellumCommand;
+    const { page } = junto;
     await mkdir(SHOTS, { recursive: true });
 
     await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
@@ -182,6 +182,6 @@ test("capture key surfaces in bright mode", async () => {
     await page.locator(".settings-panel__close").click();
     await page.waitForTimeout(300);
   } finally {
-    await vellumCommand.close();
+    await junto.close();
   }
 });

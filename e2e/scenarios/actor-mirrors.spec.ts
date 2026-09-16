@@ -16,7 +16,7 @@ import {
   worksEdge,
   tasksNode,
 } from "../harness/sandbox";
-import { expect, launchVellum, test } from "../harness/launch";
+import { expect, launchJunto, test } from "../harness/launch";
 
 const CANVAS = "actor-mirrors";
 
@@ -65,12 +65,12 @@ const fixture = canvasDoc(
 );
 
 test("connections rail mirrors swap the modal and Cmd+] cycles the ring", async ({}, testInfo) => {
-  const vellumCommand = await launchVellum({
+  const junto = await launchJunto({
     seedCanvases: { [CANVAS]: fixture },
   });
 
   try {
-    const { page } = vellumCommand;
+    const { page } = junto;
     await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
 
     const hubCard = page.locator('.react-flow__node[data-id="alpha"]');
@@ -145,6 +145,6 @@ test("connections rail mirrors swap the modal and Cmd+] cycles the ring", async 
       timeout: 10_000,
     });
   } finally {
-    await vellumCommand.close();
+    await junto.close();
   }
 });

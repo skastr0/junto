@@ -1,20 +1,20 @@
-import { expect, launchVellum, test } from "../harness/launch";
+import { expect, launchJunto, test } from "../harness/launch";
 
 for (const seedRetiredCommercialState of [false, true]) {
   test(`opens offline with ${seedRetiredCommercialState ? "stale commercial rows" : "fresh state"}`, async () => {
-    const vellumCommand = await launchVellum({ seedRetiredCommercialState, offline: true });
+    const junto = await launchJunto({ seedRetiredCommercialState, offline: true });
     try {
-      const { page } = vellumCommand;
+      const { page } = junto;
       await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
-      const connectivity = await vellumCommand.app.evaluate(async ({ app, net }) => {
+      const connectivity = await junto.app.evaluate(async ({ app, net }) => {
         const requests = await Promise.allSettled([
           globalThis.fetch("https://offline-startup.invalid/"),
           net.fetch("https://offline-startup.invalid/"),
         ]);
         return {
           preloaded: (globalThis as typeof globalThis & {
-            __vellumCommandOfflineHarness?: boolean;
-          }).__vellumCommandOfflineHarness === true,
+            __juntoOfflineHarness?: boolean;
+          }).__juntoOfflineHarness === true,
           appPath: app.getAppPath(),
           requests: requests.map((request) => request.status),
           errors: requests.map((request) =>
@@ -40,7 +40,7 @@ for (const seedRetiredCommercialState of [false, true]) {
       expect(result.canvasCount).toBeGreaterThan(0);
       expect(result.commercialMethods).toEqual([]);
     } finally {
-      await vellumCommand.close();
+      await junto.close();
     }
   });
 }

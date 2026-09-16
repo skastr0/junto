@@ -12,7 +12,7 @@ import type { Locator } from "@playwright/test";
 import type { CanvasDoc } from "../../src/shared/canvas";
 import type { Artifact } from "../../src/shared/canvas";
 import { agentTextNode, artifactsNode, canvasDoc, claimByNodeId, taskItem, tasksNode, verbEdge } from "../harness/sandbox";
-import { expect, launchVellum, test } from "../harness/launch";
+import { expect, launchJunto, test } from "../harness/launch";
 
 const CANVAS = "atelier";
 const SHOTS = join(process.cwd(), ".amp", "in", "artifacts", "artifacts-audit");
@@ -140,11 +140,11 @@ test("artifacts node feature contract", async ({}, testInfo) => {
   await mkdir(SHOTS, { recursive: true });
   const shot = (name: string) => join(SHOTS, name);
 
-  const vellumCommand = await launchVellum({
+  const junto = await launchJunto({
     seedCanvases: { [CANVAS]: fixture() },
   });
   try {
-    const { page } = vellumCommand;
+    const { page } = junto;
     const rendererErrors: string[] = [];
     page.on("pageerror", (error) => rendererErrors.push(`pageerror: ${error.message}`));
     page.on("console", (message) => {
@@ -402,6 +402,6 @@ test("artifacts node feature contract", async ({}, testInfo) => {
     );
     expect(rendererErrors).toEqual([]);
   } finally {
-    await vellumCommand.close();
+    await junto.close();
   }
 });

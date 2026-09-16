@@ -92,7 +92,7 @@ const ptyGeom = async (
 };
 
 test.use({
-  vellumOptions: {
+  juntoOptions: {
     seedCanvases: {
       geom: canvasDoc([
         terminalTextNode({
@@ -152,8 +152,8 @@ const rowTexts = async (page: import("@playwright/test").Page): Promise<Readonly
  * serialized VT snapshot into a reset terminal. Nothing else in the tree
  * exercises that.
  */
-test("reopening a session with scrollback renders it intact", async ({ vellumCommand }) => {
-  const { page } = vellumCommand;
+test("reopening a session with scrollback renders it intact", async ({ junto }) => {
+  const { page } = junto;
 
   const node = page.locator(".react-flow__node", { hasText: LABEL });
   await expect(node).toBeVisible({ timeout: 30_000 });
@@ -191,7 +191,7 @@ test("reopening a session with scrollback renders it intact", async ({ vellumCom
     for (const problem of integrityViolations(await rowTexts(page))) {
       found.push(`reopen ${cycle}: ${problem}`);
     }
-    await page.screenshot({ path: `/tmp/vellum-reopen-${cycle}.png` });
+    await page.screenshot({ path: `/tmp/junto-reopen-${cycle}.png` });
   }
 
   expect(
@@ -201,9 +201,9 @@ test("reopening a session with scrollback renders it intact", async ({ vellumCom
 });
 
 test("the size the child process sees matches the size xterm renders", async ({
-  vellumCommand,
+  junto,
 }) => {
-  const { page } = vellumCommand;
+  const { page } = junto;
 
   const node = page.locator(".react-flow__node", { hasText: LABEL });
   await expect(node).toBeVisible({ timeout: 30_000 });

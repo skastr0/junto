@@ -17,7 +17,7 @@ import { execFileSync } from "node:child_process";
 import { DatabaseSync } from "node:sqlite";
 import { join } from "node:path";
 import type { CanvasDoc } from "../../src/shared/canvas";
-import { expect, launchVellum, test } from "../harness/launch";
+import { expect, launchJunto, test } from "../harness/launch";
 
 const SEAT_ID = "agent-wake-target";
 /** Resolved at runtime: the canvas the app booted on. */
@@ -96,19 +96,19 @@ const seatPid = (): number | null => {
 
 test("mail wakes a cold seat and honors an operator stop", async () => {
   test.setTimeout(420_000);
-  const vellumCommand = await launchVellum({
+  const junto = await launchJunto({
     // Sandbox HOME and state stay isolated. PATH is the one deliberate
     // opening: the fakes-only sandbox PATH has no real harness binary, and
     // this test exists to spawn one. Claude auth rides the macOS keychain,
     // not HOME.
     extraEnv: { PATH: process.env.PATH ?? "/usr/bin:/bin" },
   });
-  const appHome = vellumCommand.sandbox.homeDir;
+  const appHome = junto.sandbox.homeDir;
 
   // The sandbox app's own main log is the diagnosis channel: every wake
   // refusal names itself there ([wake] / [delivery] lines).
   const mainLog: string[] = [];
-  const proc = vellumCommand.app.process();
+  const proc = junto.app.process();
   proc.stdout?.on("data", (chunk: Buffer) => mainLog.push(String(chunk)));
   proc.stderr?.on("data", (chunk: Buffer) => mainLog.push(String(chunk)));
   const wakeLog = (): string =>
@@ -119,7 +119,7 @@ test("mail wakes a cold seat and honors an operator stop", async () => {
       .join("\n");
 
   try {
-    const { page } = vellumCommand;
+    const { page } = junto;
     await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
 
     // Author into the BOOT canvas — the one the renderer (and its Play
@@ -129,12 +129,12 @@ test("mail wakes a cold seat and honors an operator stop", async () => {
       (doc) =>
         (async () => {
           const api = (window as unknown as {
-            vellumCommand: {
+            junto: {
               listCanvases: () => Promise<ReadonlyArray<{ name: string }>>;
               readCanvas: (n: string) => Promise<{ doc: CanvasDoc; revision: string }>;
               writeCanvas: (n: string, d: CanvasDoc, r: string) => Promise<unknown>;
             };
-          }).vellumCommand;
+          }).junto;
           const name = (await api.listCanvases())[0]!.name;
           const read = await api.readCanvas(name);
           await api.writeCanvas(name, doc as CanvasDoc, read.revision);
@@ -159,11 +159,11 @@ test("mail wakes a cold seat and honors an operator stop", async () => {
         ([name, eid, fromId, toId]) =>
           (async () => {
             const api = (window as unknown as {
-              vellumCommand: {
+              junto: {
                 readCanvas: (n: string) => Promise<{ doc: CanvasDoc; revision: string }>;
                 writeCanvas: (n: string, d: CanvasDoc, r: string) => Promise<unknown>;
               };
-            }).vellumCommand;
+            }).junto;
             const read = await api.readCanvas(name!);
             await api.writeCanvas(
               name!,
@@ -242,6 +242,6 @@ test("mail wakes a cold seat and honors an operator stop", async () => {
       });
     await expect.poll(() => seatPid(), { timeout: 15_000 }).not.toBeNull();
   } finally {
-    await vellumCommand.close();
+    await junto.close();
   }
 });

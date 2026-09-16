@@ -25,7 +25,7 @@ import {
   tasksNode,
   verbEdge,
 } from "../harness/sandbox";
-import { expect, launchVellum, test } from "../harness/launch";
+import { expect, launchJunto, test } from "../harness/launch";
 
 const hub: CanvasNode = agentTextNode({
   id: "hub",
@@ -99,14 +99,14 @@ const sinkEdges = (sinkId: string): CanvasEdge[] =>
 const edges: CanvasEdge[] = [...hubEdges, ...sinkEdges("sink1"), ...sinkEdges("sink2")];
 
 test("wire loom PoC — hub and spoke rendered capture", async ({}, testInfo) => {
-  const vellumCommand = await launchVellum({
+  const junto = await launchJunto({
     seedCanvases: {
       "wire-loom-poc": canvasDoc(loomNodes, edges),
     },
   });
 
   try {
-    const { page } = vellumCommand;
+    const { page } = junto;
     await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
     await expect(page.locator('.react-flow__node[data-id="hub"]')).toBeVisible({ timeout: 30_000 });
 
@@ -122,6 +122,6 @@ test("wire loom PoC — hub and spoke rendered capture", async ({}, testInfo) =>
       fullPage: false,
     });
   } finally {
-    await vellumCommand.close();
+    await junto.close();
   }
 });

@@ -60,9 +60,9 @@ const installWorkBoard = async (page: import("@playwright/test").Page): Promise<
       async () =>
         page.evaluate(() => {
           const runtime = globalThis as unknown as {
-            readonly vellumCommand?: { readonly listCanvases: () => Promise<unknown[]> };
+            readonly junto?: { readonly listCanvases: () => Promise<unknown[]> };
           };
-          return Boolean(runtime.vellumCommand?.listCanvases);
+          return Boolean(runtime.junto?.listCanvases);
         }),
       { timeout: 30_000 },
     )
@@ -70,7 +70,7 @@ const installWorkBoard = async (page: import("@playwright/test").Page): Promise<
   return page.evaluate(async (document) => {
     const api = (
       globalThis as unknown as {
-        readonly vellumCommand: {
+        readonly junto: {
           readonly listCanvases: () => Promise<ReadonlyArray<{ name: string }>>;
           readonly createCanvas: (name: string) => Promise<{ name: string; revision: string }>;
           readonly readCanvas: (name: string) => Promise<{ name: string; revision: string }>;
@@ -81,7 +81,7 @@ const installWorkBoard = async (page: import("@playwright/test").Page): Promise<
           ) => Promise<unknown>;
         };
       }
-    ).vellumCommand;
+    ).junto;
     let list = await api.listCanvases();
     let name = list[0]?.name;
     if (!name) {
@@ -150,9 +150,9 @@ const work = async (page: import("@playwright/test").Page): Promise<WorkApi> => 
 };
 
 test("work plane: renderer exposes operator task lifecycle only", async ({
-  vellumCommand,
+  junto,
 }) => {
-  const { page } = vellumCommand;
+  const { page } = junto;
   const api = await work(page);
 
   const actorOperations = await page.evaluate(() => ({
@@ -228,8 +228,8 @@ test("work plane: renderer exposes operator task lifecycle only", async ({
 
 });
 
-test("work plane: bad ids reject without mutating the live doc", async ({ vellumCommand }) => {
-  const { page } = vellumCommand;
+test("work plane: bad ids reject without mutating the live doc", async ({ junto }) => {
+  const { page } = junto;
   const api = await work(page);
 
   await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });

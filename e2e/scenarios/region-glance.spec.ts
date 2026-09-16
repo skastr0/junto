@@ -64,9 +64,9 @@ const install = async (page: import("@playwright/test").Page): Promise<string> =
       async () =>
         page.evaluate(() => {
           const runtime = globalThis as unknown as {
-            readonly vellumCommand?: { readonly listCanvases: () => Promise<unknown[]> };
+            readonly junto?: { readonly listCanvases: () => Promise<unknown[]> };
           };
-          return Boolean(runtime.vellumCommand?.listCanvases);
+          return Boolean(runtime.junto?.listCanvases);
         }),
       { timeout: 30_000 },
     )
@@ -74,7 +74,7 @@ const install = async (page: import("@playwright/test").Page): Promise<string> =
   return page.evaluate(async (document) => {
     const api = (
       globalThis as unknown as {
-        readonly vellumCommand: {
+        readonly junto: {
           readonly listCanvases: () => Promise<ReadonlyArray<{ name: string }>>;
           readonly createCanvas: (name: string) => Promise<{ name: string; revision: string }>;
           readonly readCanvas: (name: string) => Promise<{ name: string; revision: string }>;
@@ -85,7 +85,7 @@ const install = async (page: import("@playwright/test").Page): Promise<string> =
           ) => Promise<unknown>;
         };
       }
-    ).vellumCommand;
+    ).junto;
     const list = await api.listCanvases();
     let name = list[0]?.name;
     if (!name) name = (await api.createCanvas("glance")).name;
@@ -105,8 +105,8 @@ const glanceBands = async (
       return raw === "" ? 0 : Number(raw);
     };
     return {
-      outer: read("--vellum-region-glance"),
-      nested: read("--vellum-region-glance-sub"),
+      outer: read("--junto-region-glance"),
+      nested: read("--junto-region-glance-sub"),
     };
   });
 
@@ -150,9 +150,9 @@ const pinch = async (
 };
 
 test("region names appear as the camera pulls back and vanish up close", async ({
-  vellumCommand,
+  junto,
 }) => {
-  const { page } = vellumCommand;
+  const { page } = junto;
   await install(page);
   await expect(page.locator(".react-flow__node", { hasText: "Build floor" }).first()).toBeVisible({
     timeout: 30_000,
@@ -176,9 +176,9 @@ test("region names appear as the camera pulls back and vanish up close", async (
 });
 
 test("nested regions name themselves one band closer in, never with their parent", async ({
-  vellumCommand,
+  junto,
 }) => {
-  const { page } = vellumCommand;
+  const { page } = junto;
   await install(page);
   await expect(page.locator(".react-flow__node", { hasText: "North bay" }).first()).toBeVisible({
     timeout: 30_000,

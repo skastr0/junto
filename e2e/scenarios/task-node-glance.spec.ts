@@ -70,15 +70,15 @@ const fixture = (): CanvasDoc =>
   );
 
 test.use({
-  vellumOptions: {
+  juntoOptions: {
     seedCanvases: { factory: fixture() },
   },
 });
 
 test("task glance and board header agree on open counters, identity, and closed lane copy", async ({
-  vellumCommand,
+  junto,
 }) => {
-  const { page } = vellumCommand;
+  const { page } = junto;
   await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
   const node = page.locator('.react-flow__node[data-id="tasks"]');
   await expect(node).toBeVisible({ timeout: 30_000 });
@@ -96,9 +96,9 @@ test("task glance and board header agree on open counters, identity, and closed 
   expect(headerText).not?.toContain("Tasks tasks");
 
   // Stacked layout: the title owns its row at the default 240px node width.
-  // The app re-homes native titles onto data-vellum-tooltip (TooltipLayer).
+  // The app re-homes native titles onto data-junto-tooltip (TooltipLayer).
   const title = card.locator(".factory-glance__header .truncate").first();
-  await expect(title).toHaveAttribute("data-vellum-tooltip", "Tasks");
+  await expect(title).toHaveAttribute("data-junto-tooltip", "Tasks");
   const titleBox = await title.evaluate((el) => ({
     scrollWidth: el.scrollWidth,
     clientWidth: el.clientWidth,
@@ -144,9 +144,9 @@ test("task glance and board header agree on open counters, identity, and closed 
 });
 
 test("a long authored title keeps its identity row readable", async ({
-  vellumCommand,
+  junto,
 }) => {
-  const { page } = vellumCommand;
+  const { page } = junto;
   await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
   const node = page.locator('.react-flow__node[data-id="tasks"]');
   await expect(node).toBeVisible({ timeout: 30_000 });
@@ -162,7 +162,7 @@ test("a long authored title keeps its identity row readable", async ({
   const card = node.getByTestId("tasks-card");
   const title = card.locator(".factory-glance__header .truncate").first();
   await expect(title).toHaveAttribute(
-    "data-vellum-tooltip",
+    "data-junto-tooltip",
     "Release queue for the factory floor",
     { timeout: 10_000 },
   );

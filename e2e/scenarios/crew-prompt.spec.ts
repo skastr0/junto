@@ -28,7 +28,7 @@
  *
  * Seats are fake-tui: deterministic screen control, labelled honestly.
  */
-import { expect, launchVellum, test } from "../harness/launch";
+import { expect, launchJunto, test } from "../harness/launch";
 import {
   crewMailAttempts,
   crewMessagePasteWrites,
@@ -69,14 +69,14 @@ const attemptRows = async (
   );
 
 const launch = () =>
-  launchVellum({
+  launchJunto({
     seedCanvases: { [CANVAS]: promptDoc },
     afterSeed: installCrewSeatHarness,
     extraEnv: { JUNTO_PTY_TRACE: "1" },
   });
 
-const boot = async (vellum: Awaited<ReturnType<typeof launch>>) => {
-  const { page, sandbox } = vellum;
+const boot = async (junto: Awaited<ReturnType<typeof launch>>) => {
+  const { page, sandbox } = junto;
   await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
   await crewPlayFactory(page);
   const a = crewSeat(sandbox, CANVAS, A);
@@ -174,9 +174,9 @@ const promptUntilNotified = async (
 
 test("crew prompt [fake-tui]: idle seat takes the full body immediately", async () => {
   test.setTimeout(240_000);
-  const vellum = await launch();
+  const junto = await launch();
   try {
-    const { page, sandbox, a, b } = await boot(vellum);
+    const { page, sandbox, a, b } = await boot(junto);
 
     const { messageId, data } = await promptUntilNotified(a, {
       target: B,
@@ -204,15 +204,15 @@ test("crew prompt [fake-tui]: idle seat takes the full body immediately", async 
     expect(stdin).toContain("rotate the keys now");
     expect(stdin).not.toContain("msg read");
   } finally {
-    await vellum.close();
+    await junto.close();
   }
 });
 
 test("crew prompt [fake-tui]: busy seat refuses SeatBusy, same row retries clean", async () => {
   test.setTimeout(300_000);
-  const vellum = await launch();
+  const junto = await launch();
   try {
-    const { page, sandbox, a, b } = await boot(vellum);
+    const { page, sandbox, a, b } = await boot(junto);
 
     // Park the seat in Working — an immediate prompt must refuse, not queue.
     await b.control({ screen: { mode: "working" } });
@@ -250,15 +250,15 @@ test("crew prompt [fake-tui]: busy seat refuses SeatBusy, same row retries clean
       .poll(async () => await b.stdinLog(), { timeout: 10_000 })
       .toContain("hold while busy");
   } finally {
-    await vellum.close();
+    await junto.close();
   }
 });
 
 test("crew prompt [fake-tui]: drafted composer refuses SeatBusy, no bytes typed", async () => {
   test.setTimeout(240_000);
-  const vellum = await launch();
+  const junto = await launch();
   try {
-    const { a, b } = await boot(vellum);
+    const { a, b } = await boot(junto);
 
     // An operator half-typed into the composer — prompt must not paste over it.
     await b.control({ screen: { mode: "draft", text: "half-typed thought" } });
@@ -289,15 +289,15 @@ test("crew prompt [fake-tui]: drafted composer refuses SeatBusy, no bytes typed"
     const stdin = await b.stdinLog();
     expect(stdin).not.toContain("do not paste over the draft");
   } finally {
-    await vellum.close();
+    await junto.close();
   }
 });
 
 test("crew prompt [fake-tui]: fallback notice delivers the pointer form on the same row", async () => {
   test.setTimeout(300_000);
-  const vellum = await launch();
+  const junto = await launch();
   try {
-    const { page, sandbox, a, b } = await boot(vellum);
+    const { page, sandbox, a, b } = await boot(junto);
 
     // Explicit fallback: the same durable row delivers ordinary-notice
     // form — one summary line with a msg-read pointer, not the body.
@@ -328,15 +328,15 @@ test("crew prompt [fake-tui]: fallback notice delivers the pointer form on the s
     // on its own line the way the immediate payload does.
     expect(stdin).not.toContain("\nprompt: fall back to notice");
   } finally {
-    await vellum.close();
+    await junto.close();
   }
 });
 
 test("crew prompt [fake-tui]: unacknowledged paste is unresolved, never replayed", async () => {
   test.setTimeout(300_000);
-  const vellum = await launch();
+  const junto = await launch();
   try {
-    const { page, sandbox, a, b } = await boot(vellum);
+    const { page, sandbox, a, b } = await boot(junto);
 
     // The fake keeps the pasted text in its composer and never repaints
     // Working — the written-no-evidence class, deterministically.
@@ -391,15 +391,15 @@ test("crew prompt [fake-tui]: unacknowledged paste is unresolved, never replayed
     const stdin = await b.stdinLog();
     expect(stdin).toContain("strand me in the composer");
   } finally {
-    await vellum.close();
+    await junto.close();
   }
 });
 
 test("crew prompt [fake-tui]: retry must name this seat's own prompt", async () => {
   test.setTimeout(240_000);
-  const vellum = await launch();
+  const junto = await launch();
   try {
-    const { a } = await boot(vellum);
+    const { a } = await boot(junto);
 
     // A invented message id — not a prompt this seat created for B.
     const forged = await a.op("msg.prompt", {
@@ -410,15 +410,15 @@ test("crew prompt [fake-tui]: retry must name this seat's own prompt", async () 
     if (forged.ok) return;
     expect(forged.error.type).toBe("ScopeError");
   } finally {
-    await vellum.close();
+    await junto.close();
   }
 });
 
 test("crew prompt [fake-tui]: oversize immediate body refuses before any byte", async () => {
   test.setTimeout(240_000);
-  const vellum = await launch();
+  const junto = await launch();
   try {
-    const { a, b } = await boot(vellum);
+    const { a, b } = await boot(junto);
 
     // The immediate limit bounds the pasted payload, so a body that
     // pushes the envelope over refuses as an input error — never typed.
@@ -443,6 +443,6 @@ test("crew prompt [fake-tui]: oversize immediate body refuses before any byte", 
     const stdin = await b.stdinLog();
     expect(stdin).not.toContain("xxxx");
   } finally {
-    await vellum.close();
+    await junto.close();
   }
 });

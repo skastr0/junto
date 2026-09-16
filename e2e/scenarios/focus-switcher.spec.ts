@@ -13,7 +13,7 @@ import {
   tasksNode,
   worksEdge,
 } from "../harness/sandbox";
-import { expect, launchVellum, test } from "../harness/launch";
+import { expect, launchJunto, test } from "../harness/launch";
 
 const CANVAS = "focus-switcher";
 
@@ -39,12 +39,12 @@ const fixture = canvasDoc(
 );
 
 test("Control+Tab HUD cycles focus models without closing the modal", async ({}, testInfo) => {
-  const vellumCommand = await launchVellum({
+  const junto = await launchJunto({
     seedCanvases: { [CANVAS]: fixture },
   });
 
   try {
-    const { page } = vellumCommand;
+    const { page } = junto;
     await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
 
     const hubCard = page.locator('.react-flow__node[data-id="alpha"]');
@@ -80,6 +80,6 @@ test("Control+Tab HUD cycles focus models without closing the modal", async ({},
       page.locator(".work-focus-shell, .native-terminal-surface, [data-focus-surface='1']").first(),
     ).toBeVisible({ timeout: 10_000 });
   } finally {
-    await vellumCommand.close();
+    await junto.close();
   }
 });

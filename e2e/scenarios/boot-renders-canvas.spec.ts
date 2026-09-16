@@ -5,11 +5,11 @@ const FIXTURE_TEXT = "Hello Junto e2e";
 
 const rendererCanvasCount = async (): Promise<number> => {
   const runtime = globalThis as unknown as {
-    readonly vellumCommand?: {
+    readonly junto?: {
       readonly listCanvases: () => Promise<ReadonlyArray<unknown>>;
     };
   };
-  return (await runtime.vellumCommand?.listCanvases())?.length ?? 0;
+  return (await runtime.junto?.listCanvases())?.length ?? 0;
 };
 
 const probeCanceledNavigation = async (
@@ -20,7 +20,7 @@ const probeCanceledNavigation = async (
   page.evaluate(
     async ({ targetUrl, expectedUrl, fixtureText }) => {
       const runtime = globalThis as unknown as {
-        readonly vellumCommand?: {
+        readonly junto?: {
           readonly listCanvases: () => Promise<ReadonlyArray<unknown>>;
         };
       };
@@ -29,7 +29,7 @@ const probeCanceledNavigation = async (
       // promise is destroyed and the test fails instead of inspecting a new
       // page after the fact.
       await new Promise((resolve) => globalThis.setTimeout(resolve, 150));
-      const canvases = await runtime.vellumCommand?.listCanvases();
+      const canvases = await runtime.junto?.listCanvases();
       return {
         href: globalThis.location.href,
         canvasCount: canvases?.length ?? 0,
@@ -41,7 +41,7 @@ const probeCanceledNavigation = async (
   );
 
 test.use({
-  vellumOptions: {
+  juntoOptions: {
     seedCanvases: {
       boot: canvasDoc([textNode("n1", FIXTURE_TEXT, 0, 0)]),
     },
@@ -51,8 +51,8 @@ test.use({
   },
 });
 
-test("boots straight into the seeded canvas and renders its node", async ({ vellumCommand }) => {
-  const { page } = vellumCommand;
+test("boots straight into the seeded canvas and renders its node", async ({ junto }) => {
+  const { page } = junto;
 
   await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
   const node = page.locator(".react-flow__node", { hasText: FIXTURE_TEXT });
@@ -70,11 +70,11 @@ test("boots straight into the seeded canvas and renders its node", async ({ vell
   // the active deadline rather than merely winning a short test race.
   await page.waitForTimeout(5_500);
   await expect(page.locator(".react-flow__node", { hasText: FIXTURE_TEXT })).toBeVisible();
-  expect(vellumCommand.app.process().exitCode).toBeNull();
+  expect(junto.app.process().exitCode).toBeNull();
 });
 
-test("denied off-authority navigation keeps the committed canvas trusted", async ({ vellumCommand }) => {
-  const { page } = vellumCommand;
+test("denied off-authority navigation keeps the committed canvas trusted", async ({ junto }) => {
+  const { page } = junto;
   await expect(page.locator(".react-flow__node", { hasText: FIXTURE_TEXT })).toBeVisible({
     timeout: 30_000,
   });
@@ -89,8 +89,8 @@ test("denied off-authority navigation keeps the committed canvas trusted", async
   expect(result.canvasCount).toBeGreaterThan(0);
 });
 
-test("denied redirect restores the committed canvas trust", async ({ vellumCommand }) => {
-  const { page } = vellumCommand;
+test("denied redirect restores the committed canvas trust", async ({ junto }) => {
+  const { page } = junto;
   await expect(page.locator(".react-flow__node", { hasText: FIXTURE_TEXT })).toBeVisible({
     timeout: 30_000,
   });
@@ -98,7 +98,7 @@ test("denied redirect restores the committed canvas trust", async ({ vellumComma
   // restore authority to the still-committed canvas instead of leaving it
   // visible but IPC-dead.
   const committedUrl = page.url();
-  const result = await probeCanceledNavigation(page, "/__vellum_redirect", committedUrl);
+  const result = await probeCanceledNavigation(page, "/__junto_redirect", committedUrl);
   expect(result).toMatchObject({
     href: committedUrl,
     expectedUrl: committedUrl,
@@ -145,29 +145,29 @@ const waitForRecoveredCanvas = async (
     .toBe(true);
 };
 
-test("a stalled replacement document recovers instead of leaving a black window", async ({ vellumCommand }) => {
+test("a stalled replacement document recovers instead of leaving a black window", async ({ junto }) => {
   test.setTimeout(60_000);
-  const { app, page } = vellumCommand;
+  const { app, page } = junto;
   await expect(page.locator(".react-flow__node", { hasText: FIXTURE_TEXT })).toBeVisible({
     timeout: 30_000,
   });
 
   await page.evaluate(() => {
-    globalThis.setTimeout(() => globalThis.location.assign("/__vellum_stall"), 0);
+    globalThis.setTimeout(() => globalThis.location.assign("/__junto_stall"), 0);
   });
 
   await waitForRecoveredCanvas(app, page);
   expect(app.process().exitCode).toBeNull();
 });
 
-test("a committed document that never mounts recovers through the mount deadline", async ({ vellumCommand }) => {
-  const { app, page } = vellumCommand;
+test("a committed document that never mounts recovers through the mount deadline", async ({ junto }) => {
+  const { app, page } = junto;
   await expect(page.locator(".react-flow__node", { hasText: FIXTURE_TEXT })).toBeVisible({
     timeout: 30_000,
   });
 
   await page.evaluate(() => {
-    globalThis.setTimeout(() => globalThis.location.assign("/__vellum_blank"), 0);
+    globalThis.setTimeout(() => globalThis.location.assign("/__junto_blank"), 0);
   });
 
   await waitForRecoveredCanvas(app, page);

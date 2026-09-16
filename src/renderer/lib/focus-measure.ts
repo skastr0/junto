@@ -92,7 +92,7 @@ export const actorTerminalRailsPx = (
 
 /** Default CSS pixel widths for non-ch measures (document / workspace). */
 export const FOCUS_WIDTH_PX = {
-  /** Session / signal / dispatch detail — existing vellum-modal. */
+  /** Session / signal / dispatch detail — existing junto-modal. */
   document: 760,
   /** Browser / multi-pane work that still wants a frame, not full bleed. */
   workspace: 1280,

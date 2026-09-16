@@ -75,7 +75,7 @@ const doc = canvasDoc(nodes, [
 ]);
 
 test.use({
-  vellumOptions: {
+  juntoOptions: {
     seedCanvases: { probe: doc },
     // Residual auth-required has no producer: create it the way old databases
     // carry it — a durable row state older than the current state machine.
@@ -93,8 +93,8 @@ test.use({
   },
 });
 
-test("requests: authored identity, attention-first glance, honest inbox", async ({ vellumCommand }) => {
-  const { page } = vellumCommand;
+test("requests: authored identity, attention-first glance, honest inbox", async ({ junto }) => {
+  const { page } = junto;
   await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
 
   const req1 = page.locator('.react-flow__node[data-id="req1"]');

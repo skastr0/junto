@@ -10,7 +10,7 @@ import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import type { CanvasDoc, TextNode } from "../../src/shared/canvas";
 import { agentTextNode, canvasDoc } from "../harness/sandbox";
-import { expect, launchVellum, test } from "../harness/launch";
+import { expect, launchJunto, test } from "../harness/launch";
 
 const CANVAS = "board-detail";
 const BOARD_ID = "board-1";
@@ -181,7 +181,7 @@ const SHOTS = ".amp/in/artifacts/board-detail-e2e";
 
 test.describe(() => {
   test.use({
-    vellumOptions: {
+    juntoOptions: {
       seedCanvases: {
         [CANVAS]: canvasDoc([boardNode("Fleet announcements")]),
       },
@@ -189,10 +189,10 @@ test.describe(() => {
   });
 
   test("board detail: authored title survives, counts stay singular, notify reports", async ({
-    vellumCommand,
+    junto,
   }) => {
     test.setTimeout(120_000);
-    const { page } = vellumCommand;
+    const { page } = junto;
 
     await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
     await expect(
@@ -288,7 +288,7 @@ test.describe(() => {
       y: 40,
     });
 
-    const vellumCommand = await launchVellum({
+    const junto = await launchJunto({
       extraEnv: {
         PATH: e2ePath(mockDir),
         BOARD_E2E_INBOX: inbox,
@@ -303,7 +303,7 @@ test.describe(() => {
     });
 
     try {
-      const { page } = vellumCommand;
+      const { page } = junto;
 
       await expect(page.locator(".react-flow")).toBeVisible({
         timeout: 30_000,
@@ -393,7 +393,7 @@ test.describe(() => {
         fullPage: false,
       });
     } finally {
-      await vellumCommand.close();
+      await junto.close();
       await rm(mockDir, { recursive: true, force: true });
     }
   });

@@ -21,7 +21,7 @@ const padNode = {
 };
 
 test.use({
-  vellumOptions: {
+  juntoOptions: {
     seedCanvases: {
       [CANVAS]: canvasDoc([
         agentTextNode({
@@ -55,8 +55,8 @@ const readPad = (page: import("@playwright/test").Page) =>
 
 const shapeCount = (pad: Pad): number => pad.shapes.filter((shape) => shape.type === "box").length;
 
-test("pad editor: activate, draw box with R, persist", async ({ vellumCommand }) => {
-  const { page } = vellumCommand;
+test("pad editor: activate, draw box with R, persist", async ({ junto }) => {
+  const { page } = junto;
 
   await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
   await waitForApi(page);
@@ -97,9 +97,9 @@ test("pad editor: activate, draw box with R, persist", async ({ vellumCommand })
 });
 
 test("pad editor: camera holds steady through first content; Tab and Backspace respect focus", async ({
-  vellumCommand,
+  junto,
 }) => {
-  const { page } = vellumCommand;
+  const { page } = junto;
 
   await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
   await waitForApi(page);

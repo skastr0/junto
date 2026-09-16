@@ -74,17 +74,17 @@ function PreambleBubble({
 }) {
   return (
     <div
-      className="vellum-node__preamble nodrag nopan"
+      className="junto-node__preamble nodrag nopan"
       data-testid="node-preamble"
       data-node-id={nodeId}
       data-preamble-id={preamble.preambleId}
       role="status"
       aria-live="polite"
     >
-      <span className="vellum-node__preamble-text">{preamble.text}</span>
+      <span className="junto-node__preamble-text">{preamble.text}</span>
       <button
         type="button"
-        className="vellum-node__preamble-close nodrag nopan"
+        className="junto-node__preamble-close nodrag nopan"
         aria-label="Dismiss preamble"
         title="Dismiss"
         onPointerDown={(event) => {
@@ -180,7 +180,7 @@ function VerbLandingZones({ node }: { readonly node: CanvasNode }) {
           id={verbHandleId(verb)}
           type="target"
           position={index === 0 ? Position.Left : Position.Right}
-          className="vellum-handle vellum-verb-zone"
+          className="junto-handle junto-verb-zone"
           data-verb={verb}
           aria-label={`Connect as ${verb}`}
           style={verbZoneStyle(verb, index === 0)}
@@ -191,7 +191,7 @@ function VerbLandingZones({ node }: { readonly node: CanvasNode }) {
 }
 
 function ConnectionHandles({ node }: { readonly node: CanvasNode }) {
-  return <>{HANDLE_SIDES.map(([name, pos]) => <Handle key={`s-${name}`} id={`s-${name}`} aria-label={`Connect from ${name}`} type="source" position={pos} className={`vellum-handle vellum-handle--source vellum-handle--${name}`} />)}{HANDLE_SIDES.map(([name, pos]) => <Handle key={`t-${name}`} id={`t-${name}`} aria-label={`Connect to ${name}`} type="target" position={pos} className={`vellum-handle vellum-handle--target vellum-handle--${name}`} />)}<VerbLandingZones node={node} /></>;
+  return <>{HANDLE_SIDES.map(([name, pos]) => <Handle key={`s-${name}`} id={`s-${name}`} aria-label={`Connect from ${name}`} type="source" position={pos} className={`junto-handle junto-handle--source junto-handle--${name}`} />)}{HANDLE_SIDES.map(([name, pos]) => <Handle key={`t-${name}`} id={`t-${name}`} aria-label={`Connect to ${name}`} type="target" position={pos} className={`junto-handle junto-handle--target junto-handle--${name}`} />)}<VerbLandingZones node={node} /></>;
 }
 
 function MinimalNodeToolbar({
@@ -442,13 +442,13 @@ export function NodeShell({
   const bindingId =
     nativeBinding?.kind === "native" ? nativeBinding.bindingId : undefined;
   const seatEvent = use$(
-    agentSeat$.byBindingId[bindingId ?? "__vellum-shell-no-binding__"],
+    agentSeat$.byBindingId[bindingId ?? "__junto-shell-no-binding__"],
   );
   const needsLook = use$(
-    agentSeat$.needsLookByBindingId[bindingId ?? "__vellum-shell-no-binding__"],
+    agentSeat$.needsLookByBindingId[bindingId ?? "__junto-shell-no-binding__"],
   );
   const session = use$(
-    terminal$.sessionByBindingId[bindingId ?? "__vellum-shell-no-binding__"],
+    terminal$.sessionByBindingId[bindingId ?? "__junto-shell-no-binding__"],
   );
   const attentionReasons = useNodeAttentionReasons(node);
   const harness = node.ether?.terminal?.harness;
@@ -558,7 +558,7 @@ export function NodeShell({
   // isBlocker alone used to skip actors blocked only by upstream criteria.
   return (
     <div
-      className={`vellum-node group relative flex h-full w-full flex-col overflow-visible ${bare ? "vellum-node--bare rounded-sm px-1 py-0.5" : "rounded-[10px] px-3.5 py-3"} ${shellBlocked ? "vellum-blocker" : ""}`}
+      className={`junto-node group relative flex h-full w-full flex-col overflow-visible ${bare ? "junto-node--bare rounded-sm px-1 py-0.5" : "rounded-[10px] px-3.5 py-3"} ${shellBlocked ? "junto-blocker" : ""}`}
       data-node-kind={node.ether?.entity?.kind ?? node.type}
       data-bare={bare ? "true" : undefined}
       data-blocked={shellBlocked ? "true" : undefined}
@@ -582,14 +582,14 @@ export function NodeShell({
           minHeight={bare ? 24 : 72}
           // Never paint amber/gold resize chrome over stoppage crimson.
           color={shellBlocked || isBlocker ? HUE.crimson : accent}
-          handleClassName="vellum-resize-handle"
-          lineClassName="vellum-resize-line"
+          handleClassName="junto-resize-handle"
+          lineClassName="junto-resize-line"
           onResizeEnd={(_event, params) => resizeNode(node.id, params)}
         />
       ) : null}
       {onOpen ? (
         <button
-          className="vellum-node__open nodrag nopan absolute right-2 top-2 z-10 grid size-6 place-items-center rounded text-cyan-300/70 transition hover:bg-white/10 hover:text-cyan-200"
+          className="junto-node__open nodrag nopan absolute right-2 top-2 z-10 grid size-6 place-items-center rounded text-cyan-300/70 transition hover:bg-white/10 hover:text-cyan-200"
           aria-label={openTitle ?? "Open external link"}
           title={openTitle ?? "Open link"}
 
@@ -618,11 +618,11 @@ export function NodeShell({
       )}
       {!bare && (flags.length > 0 || liveSeatAttention || (shellBlocked && !flagBlocker)) ? (
 
-        <div className="vellum-node__flag-rail">
+        <div className="junto-node__flag-rail">
           {shellBlocked && !flagBlocker ? (
             <span
               key="graph-blocked"
-              className="vellum-node__flag vellum-node__flag--blocked-live"
+              className="junto-node__flag junto-node__flag--blocked-live"
               title="Blocked — waiting on connected work"
               style={{
                 color: FLAG_HUES.blocker,
@@ -641,7 +641,7 @@ export function NodeShell({
           {flags.map((flag) => (
             <span
               key={flag}
-              className="vellum-node__flag"
+              className="junto-node__flag"
               style={{
                 color: FLAG_HUES[flag],
                 borderColor: withAlpha(FLAG_HUES[flag], 0.36),
@@ -653,7 +653,7 @@ export function NodeShell({
           ))}
         </div>
       ) : null}
-      <div className="vellum-node__body min-h-0 flex-1 overflow-hidden">
+      <div className="junto-node__body min-h-0 flex-1 overflow-hidden">
         <div className="h-full min-h-0 overflow-hidden">{children}</div>
       </div>
     </div>

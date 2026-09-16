@@ -14,7 +14,7 @@ const TONE_HEX: Record<ChipTone, string> = {
 
 /**
  * Chip — tiny uppercase annotation (flags, state tags, counts). The one
- * treatment for `.vellum-node__flag`, WORKING n tags, service pills, etc.
+ * treatment for `.junto-node__flag`, WORKING n tags, service pills, etc.
  */
 export function Chip({
   tone,

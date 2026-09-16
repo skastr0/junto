@@ -15,7 +15,7 @@
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { agentTextNode, canvasDoc, textNode } from "../harness/sandbox";
-import { expect, launchVellum, test } from "../harness/launch";
+import { expect, launchJunto, test } from "../harness/launch";
 
 const SHOTS = join(process.cwd(), "test-results", "actor-ledger-right-pane");
 const CANVAS = "actor-ledger";
@@ -51,7 +51,7 @@ const fixture = canvasDoc(
 
 test("ledger is a compact resizable section in the right pane and stays out of the pinned dock", async () => {
   await mkdir(SHOTS, { recursive: true });
-  const vellumCommand = await launchVellum({
+  const junto = await launchJunto({
     seedCanvases: {
       [CANVAS]: fixture,
       [OTHER_CANVAS]: canvasDoc([textNode("note", "elsewhere", 40, 40)], []),
@@ -59,7 +59,7 @@ test("ledger is a compact resizable section in the right pane and stays out of t
   });
 
   try {
-    const { page } = vellumCommand;
+    const { page } = junto;
     await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
 
     const hubCard = page.locator('.react-flow__node[data-id="alpha"]');
@@ -160,6 +160,6 @@ test("ledger is a compact resizable section in the right pane and stays out of t
       timeout: 10_000,
     });
   } finally {
-    await vellumCommand.close();
+    await junto.close();
   }
 });

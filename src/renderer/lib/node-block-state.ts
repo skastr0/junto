@@ -14,7 +14,7 @@ import type { CanvasNode, EtherFlag } from "@shared/canvas";
 import { isBlockableNode } from "@shared/execution-graph";
 
 export type NodeBlockPresentation = {
-  /** Crimson border / vellum-blocker pulse / primary stoppage paint. */
+  /** Crimson border / junto-blocker pulse / primary stoppage paint. */
   readonly isBlocker: boolean;
   /** Crimson wash + pulse (seat stoppage only). */
   readonly shellBlocked: boolean;

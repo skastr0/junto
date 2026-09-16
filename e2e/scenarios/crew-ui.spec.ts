@@ -17,7 +17,7 @@
  *      for green) and the verdict chain tracks posted verdicts, ageing
  *      prior-epoch rows as send-backs bump the task epoch.
  */
-import { expect, launchVellum, test } from "../harness/launch";
+import { expect, launchJunto, test } from "../harness/launch";
 import {
   crewMailAttempts,
   crewManagesEdge,
@@ -63,7 +63,7 @@ const opData = (env: WorkEnvelope): Record<string, unknown> => {
 
 test("crew ui [fake-tui]: the mail ledger renders truthful delivery on every row", async () => {
   test.setTimeout(240_000);
-  const vellum = await launchVellum({
+  const junto = await launchJunto({
     seedCanvases: {
       [CANVAS]: crewDoc(
         [seatA, seatB],
@@ -74,7 +74,7 @@ test("crew ui [fake-tui]: the mail ledger renders truthful delivery on every row
     extraEnv: { JUNTO_PTY_TRACE: "1" },
   });
   try {
-    const { page, sandbox } = vellum;
+    const { page, sandbox } = junto;
     await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
     await crewPlayFactory(page);
 
@@ -204,7 +204,7 @@ test("crew ui [fake-tui]: the mail ledger renders truthful delivery on every row
     await expect(refusedRow).toHaveAttribute("data-delivery", "refused");
     await expect(refusedRow).not.toHaveAttribute("data-unresolved", "true");
   } finally {
-    await vellum.close();
+    await junto.close();
   }
 });
 
@@ -220,11 +220,11 @@ test("crew ui: the relation surface paints granted and masked ports from ether.m
     "seat.wait",
     "terminal.read",
   ]);
-  const vellum = await launchVellum({
+  const junto = await launchJunto({
     seedCanvases: { [CANVAS]: crewDoc([seatA, seatB], [masked]) },
   });
   try {
-    const { page } = vellum;
+    const { page } = junto;
     await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
     await expect(page.getByTestId("rf__edge-e-ab")).toHaveCount(1, {
       timeout: 30_000,
@@ -262,7 +262,7 @@ test("crew ui: the relation surface paints granted and masked ports from ether.m
     await sendChip.click();
     await expect(sendChip).toHaveAttribute("data-granted", "true");
   } finally {
-    await vellum.close();
+    await junto.close();
   }
 });
 
@@ -288,12 +288,12 @@ test("crew ui [fake-tui]: task detail arms the review gate and chains posted ver
       crewReviewsEdge("e-rev", R, A, [seatA, seatR, sink]),
     ],
   );
-  const vellum = await launchVellum({
+  const junto = await launchJunto({
     seedCanvases: { [CANVAS]: doc },
     afterSeed: installCrewSeatHarness,
   });
   try {
-    const { page, sandbox } = vellum;
+    const { page, sandbox } = junto;
     await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
     await crewPlayFactory(page);
 
@@ -396,6 +396,6 @@ test("crew ui [fake-tui]: task detail arms the review gate and chains posted ver
     await expect(authoring).toContainText("waiting for green");
     await expect(authoring).toContainText("epoch 1");
   } finally {
-    await vellum.close();
+    await junto.close();
   }
 });

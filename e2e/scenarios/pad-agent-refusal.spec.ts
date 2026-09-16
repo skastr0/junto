@@ -6,7 +6,7 @@ import { chmod, mkdtemp, readFile, rm, unlink, writeFile } from "node:fs/promise
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { agentTextNode, canvasDoc } from "../harness/sandbox";
-import { expect, launchVellum } from "../harness/launch";
+import { expect, launchJunto } from "../harness/launch";
 import { test } from "@playwright/test";
 
 const CANVAS = "pad-agent-refusal";
@@ -181,7 +181,7 @@ test("pad agent refusal: mock seat pad.patch ink and image are InputError", asyn
     x: 40,
     y: 40,
   });
-  const vellumCommand = await launchVellum({
+  const junto = await launchJunto({
     extraEnv: {
       PATH: e2ePath(mockDir),
       PAD_E2E_INBOX: inbox,
@@ -196,7 +196,7 @@ test("pad agent refusal: mock seat pad.patch ink and image are InputError", asyn
   });
 
   try {
-    const { page } = vellumCommand;
+    const { page } = junto;
     await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
     await expect
       .poll(
@@ -277,7 +277,7 @@ test("pad agent refusal: mock seat pad.patch ink and image are InputError", asyn
     expect(read.data.pad.inks).toEqual([]);
     expect(read.data.pad.images).toEqual([]);
   } finally {
-    await vellumCommand.close();
+    await junto.close();
     await rm(mockDir, { recursive: true, force: true });
   }
 });

@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { expect, launchVellum, test } from "../harness/launch";
+import { expect, launchJunto, test } from "../harness/launch";
 import {
   crewDoc, crewOccupySeat, crewPlayFactory, crewReviewsEdge, crewRule,
   crewSeat, crewSeatNode, crewTasksNode, crewWorksEdge, installCrewSeatHarness,
@@ -96,7 +96,7 @@ const launchProvenance = async () => {
 };
 
 const preserveFinalEvidence = async (
-  app: Awaited<ReturnType<typeof launchVellum>>,
+  app: Awaited<ReturnType<typeof launchJunto>>,
   testInfo: TestInfo,
   provenance: Awaited<ReturnType<typeof launchProvenance>>,
 ) => {
@@ -207,7 +207,7 @@ const receiptSubject = async (
 test("crew reviews [fake-tui]: receipt, blocking, repair and green reach the live verdict chain", async ({}, testInfo) => {
   test.setTimeout(240_000);
   const provenance = await launchProvenance();
-  const app = await launchVellum({
+  const app = await launchJunto({
     seedCanvases: { [CANVAS]: doc },
     afterSeed: installCrewSeatHarness,
     extraEnv: { JUNTO_PTY_TRACE: "1" },

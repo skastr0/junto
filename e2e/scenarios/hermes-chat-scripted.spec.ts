@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { oneReplyScenario, writeScenario } from "../fakes/hermes-scenario";
 import { canvasDoc } from "../harness/sandbox";
-import { expect, launchVellum, test } from "../harness/launch";
+import { expect, launchJunto, test } from "../harness/launch";
 import type { TextNode } from "../../src/shared/canvas";
 
 // Real spawn->terminal pipeline against a fake `hermes` on PATH — no demo
@@ -40,18 +40,18 @@ const hermesAgentNode = (input: {
 });
 
 test("double-clicking a fake hermes agent opens its managed terminal seat", async () => {
-  const scenarioDir = await mkdtemp(join(tmpdir(), "vellum-e2e-hermes-"));
+  const scenarioDir = await mkdtemp(join(tmpdir(), "junto-e2e-hermes-"));
   const scenarioPath = join(scenarioDir, "scenario.json");
   await writeScenario(scenarioPath, oneReplyScenario("managed-terminal"));
 
-  const vellumCommand = await launchVellum({
+  const junto = await launchJunto({
     extraEnv: { FAKE_HERMES_SCENARIO: scenarioPath },
     seedCanvases: {
       chat: canvasDoc([hermesAgentNode({ id: "a1", key: AGENT_KEY, label: LABEL })]),
     },
   });
   try {
-    const { page } = vellumCommand;
+    const { page } = junto;
 
     const node = page.locator(".react-flow__node", { hasText: LABEL });
     await expect(node).toBeVisible({ timeout: 30_000 });
@@ -63,6 +63,6 @@ test("double-clicking a fake hermes agent opens its managed terminal seat", asyn
     await expect(surface).toBeVisible({ timeout: 20_000 });
     await expect(surface).toContainText(LABEL);
   } finally {
-    await vellumCommand.close();
+    await junto.close();
   }
 });

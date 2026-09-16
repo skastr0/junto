@@ -29,7 +29,7 @@ const rowTexts = async (page: import("@playwright/test").Page): Promise<Readonly
   );
 
 test.use({
-  vellumOptions: {
+  juntoOptions: {
     seedCanvases: {
       absrow: canvasDoc([
         terminalTextNode({ id: "t1", bindingId: BINDING_ID, label: LABEL, launch: LAUNCH }),
@@ -38,9 +38,9 @@ test.use({
   },
 });
 
-test("a TUI status line lands on the real last row, not a stale one", async ({ vellumCommand }) => {
-  const { page } = vellumCommand;
-  page.on("console", (m) => { const t = m.text(); if (t.includes("[vellum:term-geom]")) console.log("LOG " + t.slice(t.indexOf("[vellum:term-geom]"))); });
+test("a TUI status line lands on the real last row, not a stale one", async ({ junto }) => {
+  const { page } = junto;
+  page.on("console", (m) => { const t = m.text(); if (t.includes("[junto:term-geom]")) console.log("LOG " + t.slice(t.indexOf("[junto:term-geom]"))); });
   const node = page.locator(".react-flow__node", { hasText: LABEL });
   await expect(node).toBeVisible({ timeout: 30_000 });
   await node.dblclick();
@@ -77,7 +77,7 @@ test("a TUI status line lands on the real last row, not a stale one", async ({ v
   const statusAt = rows.map((t, i) => ({ t, i })).filter((r) => r.t.includes("STATUS-ROW-"));
   console.log(`RENDERED ROWS=${rows.length}`);
   for (const s of statusAt) console.log(`  STATUS at rendered row ${s.i}: ${JSON.stringify(s.t.slice(0, 60))}`);
-  await page.screenshot({ path: "/tmp/vellum-absolute-row.png" });
+  await page.screenshot({ path: "/tmp/junto-absolute-row.png" });
 
   expect(statusAt.length, "status marker never rendered").toBeGreaterThan(0);
   // Judge only the CURRENT status line. Earlier ones legitimately remain in the

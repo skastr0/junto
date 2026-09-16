@@ -4,15 +4,15 @@ import { expect, test } from "../harness/launch";
 const FIXTURE_TEXT = "Inspect this note";
 
 test.use({
-  vellumOptions: {
+  juntoOptions: {
     seedCanvases: {
       inspector: canvasDoc([textNode("n1", FIXTURE_TEXT, 0, 0)]),
     },
   },
 });
 
-test("clicking a node shows its content in the RTS command bar", async ({ vellumCommand }) => {
-  const { page } = vellumCommand;
+test("clicking a node shows its content in the RTS command bar", async ({ junto }) => {
+  const { page } = junto;
 
   const node = page.locator(".react-flow__node", { hasText: FIXTURE_TEXT });
   await expect(node).toBeVisible({ timeout: 30_000 });

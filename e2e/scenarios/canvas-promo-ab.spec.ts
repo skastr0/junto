@@ -84,7 +84,7 @@ const fixtureDoc = buildField();
 const NODE_COUNT = fixtureDoc.nodes.length;
 
 test.use({
-  vellumOptions: { seedCanvases: { ab: fixtureDoc } },
+  juntoOptions: { seedCanvases: { ab: fixtureDoc } },
 });
 
 type InPageSampler = {
@@ -189,9 +189,9 @@ test.describe("viewport promotion A/B", () => {
   test.setTimeout(240_000);
 
   for (const variant of ["busy-promoted", "will-change-suppressed", "permanently-promoted"] as const) {
-    test(`pan cost with ${variant} viewport promotion`, async ({ vellumCommand }) => {
+    test(`pan cost with ${variant} viewport promotion`, async ({ junto }) => {
       test.setTimeout(240_000);
-      const { page } = vellumCommand;
+      const { page } = junto;
 
       await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
       await expect(page.locator(".react-flow__node")).toHaveCount(NODE_COUNT, { timeout: 30_000 });
@@ -211,7 +211,7 @@ test.describe("viewport promotion A/B", () => {
         });
       }
 
-      const cdp = await vellumCommand.app.context().newCDPSession(page);
+      const cdp = await junto.app.context().newCDPSession(page);
       await cdp.send("Performance.enable");
       const results: Record<string, unknown> = {};
 

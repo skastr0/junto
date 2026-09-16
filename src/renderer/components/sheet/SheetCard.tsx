@@ -53,7 +53,7 @@ export function SheetCard({
       </div>
 
       {sheet && columns.length > 0 ? (
-        <div className="vellum-sheet-preview">
+        <div className="junto-sheet-preview">
           <table>
             <thead>
               <tr>
@@ -81,7 +81,7 @@ export function SheetCard({
             </tbody>
           </table>
           {hiddenRows > 0 ? (
-            <div className="vellum-sheet-preview__more">
+            <div className="junto-sheet-preview__more">
               +{hiddenRows} more row{hiddenRows === 1 ? "" : "s"}
             </div>
           ) : null}

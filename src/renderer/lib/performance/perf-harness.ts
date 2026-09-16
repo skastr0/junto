@@ -29,7 +29,7 @@ import {
 import { PERF_ENABLED } from "./perf-flag";
 
 /** Greppable prefix; one line per interval, JSON after the space. */
-export const PERF_LOG_PREFIX = "[vellum-perf]";
+export const PERF_LOG_PREFIX = "[junto-perf]";
 
 export const PERF_REPORT_INTERVAL_MS = 5_000;
 

@@ -55,7 +55,7 @@ const violations = (rows: ReadonlyArray<string>): ReadonlyArray<string> => {
 };
 
 test.use({
-  vellumOptions: {
+  juntoOptions: {
     seedCanvases: {
       churn: canvasDoc([
         terminalTextNode({ id: "t1", bindingId: BINDING_ID, label: LABEL, launch: LAUNCH }),
@@ -64,8 +64,8 @@ test.use({
   },
 });
 
-test("rows survive forced repaints and resizes during live output", async ({ vellumCommand }) => {
-  const { page } = vellumCommand;
+test("rows survive forced repaints and resizes during live output", async ({ junto }) => {
+  const { page } = junto;
 
   const node = page.locator(".react-flow__node", { hasText: LABEL });
   await expect(node).toBeVisible({ timeout: 30_000 });
@@ -100,7 +100,7 @@ test("rows survive forced repaints and resizes during live output", async ({ vel
   await page.setViewportSize(base);
   await waitForTerminalPaint(page);
 
-  await page.screenshot({ path: "/tmp/vellum-churn-final.png" });
+  await page.screenshot({ path: "/tmp/junto-churn-final.png" });
   for (const problem of violations(await rowTexts(page))) {
     found.push(`after settle: ${problem}`);
   }

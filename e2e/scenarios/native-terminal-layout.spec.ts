@@ -109,7 +109,7 @@ const assertFillsPane = (probe: LayoutProbe, where: string): void => {
 };
 
 test.use({
-  vellumOptions: {
+  juntoOptions: {
     seedCanvases: {
       term: canvasDoc([
         terminalTextNode({
@@ -123,8 +123,8 @@ test.use({
   },
 });
 
-test("native terminal xterm fills focus pane and stays filled after pin", async ({ vellumCommand }) => {
-  const { page } = vellumCommand;
+test("native terminal xterm fills focus pane and stays filled after pin", async ({ junto }) => {
+  const { page } = junto;
 
   const node = page.locator(".react-flow__node", { hasText: LABEL });
   await expect(node).toBeVisible({ timeout: 30_000 });

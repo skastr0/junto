@@ -10,7 +10,7 @@ import { expect, test } from "../harness/launch";
 const CANVAS = "pad-work-plane";
 
 test.use({
-  vellumOptions: {
+  juntoOptions: {
     seedCanvases: {
       [CANVAS]: canvasDoc([
         agentTextNode({
@@ -65,9 +65,9 @@ const patchPad = (
   );
 
 test("pad work plane: create, wire seat, patch box, read, persist across reload", async ({
-  vellumCommand,
+  junto,
 }) => {
-  const { page } = vellumCommand;
+  const { page } = junto;
 
   await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
   await waitForApi(page);
@@ -159,9 +159,9 @@ test("pad work plane: create, wire seat, patch box, read, persist across reload"
 });
 
 test("pad work plane: an external patch surfaces in the open pad", async ({
-  vellumCommand,
+  junto,
 }) => {
-  const { page } = vellumCommand;
+  const { page } = junto;
 
   await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
   await waitForApi(page);

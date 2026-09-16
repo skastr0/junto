@@ -9,7 +9,7 @@ import {
   waitForControlDoctor,
 } from "../harness/browser-control-client";
 import { canvasDoc } from "../harness/sandbox";
-import { launchVellum } from "../harness/launch";
+import { launchJunto } from "../harness/launch";
 import { expect, test } from "@playwright/test";
 import { isValidControlRequestId } from "../../src/shared/browser-control";
 import { randomUUID } from "node:crypto";
@@ -23,7 +23,7 @@ const PAGE_URL = "https://example.org/";
 const PROFILE = "work";
 
 test("protected control routes deny without process-bind; request-id contract holds", async () => {
-  const vellumCommand = await launchVellum({
+  const junto = await launchJunto({
     seedCanvases: {
       "tool-call-spy": canvasDoc(
         [
@@ -36,7 +36,7 @@ test("protected control routes deny without process-bind; request-id contract ho
   });
 
   try {
-    const { page, sandbox } = vellumCommand;
+    const { page, sandbox } = junto;
     const socketPath = sandboxControlSocketPath(sandbox.homeDir);
     const token = await readSandboxControlToken(sandbox.homeDir);
     await waitForControlDoctor(socketPath, token);
@@ -66,6 +66,6 @@ test("protected control routes deny without process-bind; request-id contract ho
     // Either 400 bad_request or 401 process-unbound depending on order — both fail closed.
     expect(malformed.envelope.ok).toBe(false);
   } finally {
-    await vellumCommand.close();
+    await junto.close();
   }
 });

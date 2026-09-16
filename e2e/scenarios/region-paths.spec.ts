@@ -39,8 +39,8 @@ const regionFilled: GroupNode = {
       hold: true,
       defaults: {
         paths: {
-          local: "/Users/operator/Projects/vellum",
-          "remote-a": "/home/operator/vellum",
+          local: "/Users/operator/Projects/junto",
+          "remote-a": "/home/operator/junto",
         },
       },
     },
@@ -53,9 +53,9 @@ const installBoard = async (page: Page, doc: CanvasDoc): Promise<void> => {
       async () =>
         page.evaluate(() => {
           const runtime = globalThis as unknown as {
-            readonly vellumCommand?: { readonly listCanvases: () => Promise<unknown[]> };
+            readonly junto?: { readonly listCanvases: () => Promise<unknown[]> };
           };
-          return Boolean(runtime.vellumCommand?.listCanvases);
+          return Boolean(runtime.junto?.listCanvases);
         }),
       { timeout: 30_000 },
     )
@@ -64,7 +64,7 @@ const installBoard = async (page: Page, doc: CanvasDoc): Promise<void> => {
   await page.evaluate(async (document) => {
     const api = (
       globalThis as unknown as {
-        readonly vellumCommand: {
+        readonly junto: {
           readonly listCanvases: () => Promise<ReadonlyArray<{ name: string }>>;
           readonly createCanvas: (name: string) => Promise<{ name: string }>;
           readonly readCanvas: (name: string) => Promise<{ revision: string }>;
@@ -75,7 +75,7 @@ const installBoard = async (page: Page, doc: CanvasDoc): Promise<void> => {
           ) => Promise<unknown>;
         };
       }
-    ).vellumCommand;
+    ).junto;
     const list = await api.listCanvases();
     const name = list[0]?.name ?? (await api.createCanvas("region-paths")).name;
     // Retry once on revision conflict (autosave / concurrent stamp).
@@ -109,8 +109,8 @@ test.beforeAll(async () => {
   await mkdir(SHOTS, { recursive: true });
 });
 
-test("region folder paths — empty, save, escape", async ({ vellumCommand }) => {
-  const { page } = vellumCommand;
+test("region folder paths — empty, save, escape", async ({ junto }) => {
+  const { page } = junto;
   await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
   await installBoard(page, canvasDoc([regionEmpty]));
   await expect(page.getByTestId(`rf__node-${regionEmpty.id}`)).toBeVisible({
@@ -150,8 +150,8 @@ test("region folder paths — empty, save, escape", async ({ vellumCommand }) =>
   await expect(page.getByRole("dialog", { name: "Region folder paths" })).toHaveCount(0);
 });
 
-test("region folder paths — multi-host seed + remove", async ({ vellumCommand }) => {
-  const { page } = vellumCommand;
+test("region folder paths — multi-host seed + remove", async ({ junto }) => {
+  const { page } = junto;
   await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
   await installBoard(page, canvasDoc([regionFilled]));
   await expect(page.getByTestId(`rf__node-${regionFilled.id}`)).toBeVisible({
@@ -163,11 +163,11 @@ test("region folder paths — multi-host seed + remove", async ({ vellumCommand 
   // The picker shows the selected host only — local is the first stored key.
   await expect(
     dialog.getByRole("textbox", { name: /Working directory for /i }),
-  ).toHaveValue("/Users/operator/Projects/vellum");
+  ).toHaveValue("/Users/operator/Projects/junto");
   await dialog.getByRole("option", { name: /remote-a/i }).click();
   await expect(
     dialog.getByRole("textbox", { name: /Working directory for remote-a/i }),
-  ).toHaveValue("/home/operator/vellum");
+  ).toHaveValue("/home/operator/junto");
   await expect(dialog.getByRole("button", { name: /use this folder/i }).first()).toBeVisible();
   await page.screenshot({
     path: join(SHOTS, "21-region-paths-multi-host.png"),
@@ -182,6 +182,6 @@ test("region folder paths — multi-host seed + remove", async ({ vellumCommand 
   dialog = await openRegionPaths(page, regionFilled.id);
   await expect(
     dialog.getByRole("textbox", { name: /Working directory for /i }),
-  ).toHaveValue("/Users/operator/Projects/vellum");
+  ).toHaveValue("/Users/operator/Projects/junto");
   await expect(dialog.getByRole("option", { name: /remote-a/i })).toHaveCount(0);
 });

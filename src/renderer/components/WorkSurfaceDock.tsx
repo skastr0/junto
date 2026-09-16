@@ -60,7 +60,7 @@ export function WorkSurfaceDock() {
       const onMove = (ev: PointerEvent) => {
         const drag = dragRef.current;
         if (!drag) return;
-        const stage = document.querySelector(".vellum-stage") as HTMLElement | null;
+        const stage = document.querySelector(".junto-stage") as HTMLElement | null;
         const stageW = stage?.clientWidth ?? window.innerWidth;
         if (stageW < 1) return;
         // Dragging left edge rightward shrinks the dock.

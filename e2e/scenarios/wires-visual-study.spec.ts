@@ -13,7 +13,7 @@ import {
   tasksNode,
   canvasDoc as _doc,
 } from "../harness/sandbox";
-import { expect, launchVellum, test } from "../harness/launch";
+import { expect, launchJunto, test } from "../harness/launch";
 
 const SHOTS = join(process.cwd(), "test-results", "wires-study");
 
@@ -145,7 +145,7 @@ const edges: CanvasEdge[] = [
 
 test("capture current wires rendering — dense scene", async () => {
   await mkdir(SHOTS, { recursive: true });
-  const vellumCommand = await launchVellum({
+  const junto = await launchJunto({
     seedCanvases: {
       "wires-visual-study": canvasDoc(
         [work, ...actors, board, relay, cron, flagged, review],
@@ -155,7 +155,7 @@ test("capture current wires rendering — dense scene", async () => {
   });
 
   try {
-    const { page } = vellumCommand;
+    const { page } = junto;
     await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
     await expect(page.locator('.react-flow__node[data-id="work"]')).toBeVisible({ timeout: 30_000 });
     const fit = page.getByRole("button", { name: /fit all/i });
@@ -175,6 +175,6 @@ test("capture current wires rendering — dense scene", async () => {
       await page.screenshot({ path: join(SHOTS, "01-wires-bundle-zoom.png"), fullPage: false });
     }
   } finally {
-    await vellumCommand.close();
+    await junto.close();
   }
 });

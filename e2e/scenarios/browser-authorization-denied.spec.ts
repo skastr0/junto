@@ -4,16 +4,16 @@ import {
   sandboxControlSocketPath,
   waitForControlDoctor,
 } from "../harness/browser-control-client";
-import { launchVellum } from "../harness/launch";
+import { launchJunto } from "../harness/launch";
 import { expect, test } from "@playwright/test";
 
 // Process-bind product path denial: a transport token without a registered
 // process is refused.
 
 test("agent-side control requests without process-bind are refused", async () => {
-  const vellumCommand = await launchVellum({});
+  const junto = await launchJunto({});
   try {
-    const { sandbox } = vellumCommand;
+    const { sandbox } = junto;
     const socketPath = sandboxControlSocketPath(sandbox.homeDir);
     const token = await readSandboxControlToken(sandbox.homeDir);
     await waitForControlDoctor(socketPath, token);
@@ -26,6 +26,6 @@ test("agent-side control requests without process-bind are refused", async () =>
     const wrongToken = await controlCall(socketPath, "0".repeat(64), "doctor");
     expect(wrongToken.envelope.ok).toBe(false);
   } finally {
-    await vellumCommand.close();
+    await junto.close();
   }
 });

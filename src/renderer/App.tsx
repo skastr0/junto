@@ -165,9 +165,9 @@ const assertCanvasNavigationAdmitted = (): void => {
 const nodeRefNavigation = makeNodeRefNavigationCoordinator({
   clock: canvasNavigationClock,
   readCanvas: async (name) => {
-    const vellum = window.vellumCommand;
-    if (!vellum) throw new Error("Electron preload bridge is not available.");
-    return vellum.readCanvas(name);
+    const junto = window.vellumCommand;
+    if (!junto) throw new Error("Electron preload bridge is not available.");
+    return junto.readCanvas(name);
   },
   assertCanApply: assertCanvasNavigationAdmitted,
   apply: (event, result) => {
@@ -194,9 +194,9 @@ const nodeRefNavigation = makeNodeRefNavigationCoordinator({
 const externalCanvasReload = makeCanvasExternalReloadCoordinator({
   flushLocalEdits: flushCanvasEdits,
   readCanvas: async (name) => {
-    const vellum = window.vellumCommand;
-    if (!vellum) throw new Error("Electron preload bridge is not available.");
-    return vellum.readCanvas(name);
+    const junto = window.vellumCommand;
+    if (!junto) throw new Error("Electron preload bridge is not available.");
+    return junto.readCanvas(name);
   },
   currentCanvasName: () => state$.canvasName.peek(),
   currentDoc: () => state$.doc.peek(),
@@ -303,11 +303,11 @@ export function App() {
       state$.booting.set(false);
       return;
     }
-    const vellum = window.vellumCommand;
+    const junto = window.vellumCommand;
     // Subscribe before boot touches a default canvas. Preload can deliver a
     // buffered cold-start locator synchronously from this call; returning the
     // navigation promise delays its durable relay ACK until focus is applied.
-    const offNodeRef = vellum.onNodeRefOpened(async (event) => {
+    const offNodeRef = junto.onNodeRefOpened(async (event) => {
       assertCanvasNavigationAdmitted();
       state$.canvasLoading.set(true);
       await runCanvasAuthoringOperation(async () => {
@@ -328,11 +328,11 @@ export function App() {
     // fetches and made the HUD feel deferred. Main `usage.start()` polls
     // immediately.
     const offUsage =
-      USAGE_ENABLED && vellum.onUsageChanged
-        ? vellum.onUsageChanged((state) => state$.usage.set(state))
+      USAGE_ENABLED && junto.onUsageChanged
+        ? junto.onUsageChanged((state) => state$.usage.set(state))
         : () => undefined;
-    if (USAGE_ENABLED && vellum.getUsage) {
-      void vellum
+    if (USAGE_ENABLED && junto.getUsage) {
+      void junto
         .getUsage()
         .then((usage) => state$.usage.set(usage))
         .catch(() => {
@@ -342,12 +342,12 @@ export function App() {
 
     const boot = async () => {
       try {
-        const settingsResult = await vellum.settingsGet?.();
+        const settingsResult = await junto.settingsGet?.();
         if (settingsResult?.ok && settingsResult.settings) {
           state$.settings.set(settingsResult.settings);
         }
-        state$.snapshots.set(await vellum.getSnapshots());
-        const list = await vellum.listCanvases();
+        state$.snapshots.set(await junto.getSnapshots());
+        const list = await junto.listCanvases();
         state$.canvases.set(list);
         if (!nodeRefNavigation.hasReceived()) {
           const action = nextCanvasBootAction(
@@ -388,8 +388,8 @@ export function App() {
     // GPU helper can drop off the fan curve (fleet closed is not enough).
     const stopSurfaceMotion = startSurfaceMotionGate();
 
-    const offSnapshots = vellum.onSnapshotsChanged((state) => state$.snapshots.set(state));
-    const offCanvas = vellum.onCanvasChanged((name) => {
+    const offSnapshots = junto.onSnapshotsChanged((state) => state$.snapshots.set(state));
+    const offCanvas = junto.onCanvasChanged((name) => {
       const current = state$.canvasName.peek();
       if (name !== "" && name === current) {
         void externalCanvasReload.changed(name);
@@ -404,15 +404,15 @@ export function App() {
         if (first) await openCanvas(first);
       })();
     });
-    const offPreamble = vellum.onPreamble?.((event) => {
+    const offPreamble = junto.onPreamble?.((event) => {
       if (event.canvasName !== state$.canvasName.peek()) return;
       showPreamble(event);
     });
 
-    const offCanvasFlush = vellum.onCanvasFlushRequested(async () => {
+    const offCanvasFlush = junto.onCanvasFlushRequested(async () => {
       await flushCanvasEdits();
     });
-    const offCanvasQuiesceAndFlush = vellum.onCanvasQuiesceAndFlushRequested(async (acknowledgeQuiesced) => {
+    const offCanvasQuiesceAndFlush = junto.onCanvasQuiesceAndFlushRequested(async (acknowledgeQuiesced) => {
       try {
         const flush = quiesceAndFlushCanvasEdits();
         // quiesceAndFlushCanvasEdits closes admission synchronously before its
@@ -519,16 +519,16 @@ export function App() {
   }
 
   return (
-    <div className="vellum-app flex h-screen w-screen flex-col overflow-hidden" style={{ background: "var(--color-ground)" }}>
+    <div className="junto-app flex h-screen w-screen flex-col overflow-hidden" style={{ background: "var(--color-ground)" }}>
       <TopBar
         onOpen={(name) => void openCanvas(name)}
         onCreate={(name) => void createCanvas(name)}
         onDelete={(name) => void deleteCanvas(name)}
       />
 
-      <div className="vellum-stage flex min-h-0 flex-1">
+      <div className="junto-stage flex min-h-0 flex-1">
         {/* Canvas column shrinks when the dock opens; overlays anchor to it. */}
-        <div className="vellum-stage-main relative min-w-0 flex-1">
+        <div className="junto-stage-main relative min-w-0 flex-1">
         {error ? (
           <div
             role="alert"

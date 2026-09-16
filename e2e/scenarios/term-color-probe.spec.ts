@@ -61,7 +61,7 @@ const probeColors = async (
   });
 
 test.use({
-  vellumOptions: {
+  juntoOptions: {
     seedCanvases: {
       term: canvasDoc([
         terminalTextNode({
@@ -75,8 +75,8 @@ test.use({
   },
 });
 
-test("xterm paints SGR colors, not flat ink", async ({ vellumCommand }) => {
-  const { page } = vellumCommand;
+test("xterm paints SGR colors, not flat ink", async ({ junto }) => {
+  const { page } = junto;
 
   const node = page.locator(".react-flow__node", { hasText: LABEL });
   await expect(node).toBeVisible({ timeout: 30_000 });

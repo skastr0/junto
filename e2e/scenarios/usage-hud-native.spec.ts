@@ -17,7 +17,7 @@
  *   - with no last-good at all, the rail hides entirely (fail open)
  */
 import type { UsageState } from "../../src/shared/usage";
-import { expect, launchVellum, test, type VellumHandle } from "../harness/launch";
+import { expect, launchJunto, test, type JuntoHandle } from "../harness/launch";
 
 const iso = (minutesAgo: number): string =>
   new Date(Date.now() - minutesAgo * 60_000).toISOString();
@@ -88,7 +88,7 @@ const MULTI_PROVIDER_STATE: UsageState = {
   lastLiveAt: iso(4),
 };
 
-const waitForBridge = async (handle: VellumHandle): Promise<void> => {
+const waitForBridge = async (handle: JuntoHandle): Promise<void> => {
   await expect
     .poll(() =>
       handle.page.evaluate(
@@ -99,7 +99,7 @@ const waitForBridge = async (handle: VellumHandle): Promise<void> => {
 };
 
 test("usage HUD paints seeded multi-provider quotas and marks cache confidence honestly", async () => {
-  const handle = await launchVellum({ seedUsage: MULTI_PROVIDER_STATE });
+  const handle = await launchJunto({ seedUsage: MULTI_PROVIDER_STATE });
   try {
     await expect(handle.page.locator(".react-flow")).toBeVisible({
       timeout: 30_000,
@@ -147,7 +147,7 @@ test("usage HUD paints seeded multi-provider quotas and marks cache confidence h
 test("usage HUD hides entirely when there is no last-good and live fails", async () => {
   // No seedUsage: empty cache, and every native source fails closed inside
   // the sandboxed HOME/PATH — fail open means no chrome, not an error chip.
-  const handle = await launchVellum();
+  const handle = await launchJunto();
   try {
     await expect(handle.page.locator(".react-flow")).toBeVisible({
       timeout: 30_000,

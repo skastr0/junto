@@ -14,7 +14,7 @@
  */
 import type { CanvasDoc, TextNode } from "../../src/shared/canvas";
 import { agentTextNode, canvasDoc, tasksNode } from "../harness/sandbox";
-import { expect, launchVellum, test } from "../harness/launch";
+import { expect, launchJunto, test } from "../harness/launch";
 
 const board = (
   id: string,
@@ -100,12 +100,12 @@ type AnyTask = {
 
 test("task path carries exact data through fork, defect, gate, converge, and close", async () => {
   test.setTimeout(180_000);
-  const vellumCommand = await launchVellum({
+  const junto = await launchJunto({
     seedCanvases: { factory: fixture() },
   });
 
   try {
-    const { page } = vellumCommand;
+    const { page } = junto;
     await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
 
     const readTask = (nodeId: string, taskId: string) =>
@@ -378,6 +378,6 @@ test("task path carries exact data through fork, defect, gate, converge, and clo
     await expect(details.locator('[data-testid="task-visits-layer-2"]')).toContainText("Build");
     await expect(details.locator('[data-testid="task-visits-layer-5"]')).toContainText("Ship");
   } finally {
-    await vellumCommand.close();
+    await junto.close();
   }
 });

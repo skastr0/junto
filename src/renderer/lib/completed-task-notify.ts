@@ -328,7 +328,7 @@ export const installCompletedNotifyTestHook = (): void => {
   if (typeof window === "undefined") return;
   (
     window as unknown as {
-      __vellumTestInjectCompletedNotify?: (
+      __juntoTestInjectCompletedNotify?: (
         items: ReadonlyArray<{
           readonly id: string;
           readonly nodeId: string;
@@ -336,7 +336,7 @@ export const installCompletedNotifyTestHook = (): void => {
         }>,
       ) => void;
     }
-  ).__vellumTestInjectCompletedNotify = (items) => {
+  ).__juntoTestInjectCompletedNotify = (items) => {
     const at = Date.now();
     const known: Record<string, TaskState> = {};
     const stack = items.map((item, index) => {

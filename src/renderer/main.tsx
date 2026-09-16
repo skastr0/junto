@@ -30,7 +30,7 @@ if (!root) {
 
 // Main owns platform-sensitive authority. This marker only selects renderer
 // geometry and copy; it never grants an OS capability.
-document.documentElement.dataset.vellumPlatform = window.vellumCommand?.platform ?? "unknown";
+document.documentElement.dataset.juntoPlatform = window.vellumCommand?.platform ?? "unknown";
 
 function AppRoot() {
   const api = window.vellumCommand;

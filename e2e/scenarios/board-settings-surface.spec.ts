@@ -1,7 +1,7 @@
 import type { CanvasDoc, TextNode } from "../../src/shared/canvas";
 import type { TasksContract } from "../../src/shared/work-model";
 import { canvasDoc, tasksNode } from "../harness/sandbox";
-import { expect, launchVellum, test } from "../harness/launch";
+import { expect, launchJunto, test } from "../harness/launch";
 
 const board = (
   id: string,
@@ -58,10 +58,10 @@ const fixture = (): CanvasDoc =>
   );
 
 test("board settings has one full-size home with side-specific board entry", async ({}, testInfo) => {
-  const vellumCommand = await launchVellum({ seedCanvases: { factory: fixture() } });
+  const junto = await launchJunto({ seedCanvases: { factory: fixture() } });
 
   try {
-    const { page } = vellumCommand;
+    const { page } = junto;
     await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
     const build = page.locator('.react-flow__node[data-id="build"]');
     await expect(build).toBeVisible({ timeout: 30_000 });
@@ -113,6 +113,6 @@ test("board settings has one full-size home with side-specific board entry", asy
       contentType: "image/png",
     });
   } finally {
-    await vellumCommand.close();
+    await junto.close();
   }
 });

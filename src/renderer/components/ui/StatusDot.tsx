@@ -31,7 +31,7 @@ export function StatusDot({
     <span
       aria-hidden
       title={title}
-      className={pulse ? "vellum-status-dot-pulse" : undefined}
+      className={pulse ? "junto-status-dot-pulse" : undefined}
       style={{
         display: "inline-block",
         width: 7,

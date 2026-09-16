@@ -27,7 +27,7 @@ import {
   verbEdge,
   type EdgeKindSource,
 } from "../harness/sandbox";
-import { expect, launchVellum, test } from "../harness/launch";
+import { expect, launchJunto, test } from "../harness/launch";
 import type { Verb } from "../../src/shared/physics/verbs";
 import type {
   Artifact,
@@ -260,7 +260,7 @@ test("still 00 — factory hero board", async () => {
   const pageNode: LinkNode = {
     id: "page-landing",
     type: "link",
-    url: "https://vellumcommand.com",
+    url: "https://juntoagents.com",
     x: ac1,
     y: ar1,
     width: CW,
@@ -394,19 +394,19 @@ test("still 00 — factory hero board", async () => {
   // "consolidate demo state to ephemeral SQLite"), so seeded canvases are
   // invisible to a demo launch. This still needs its seeded factory board,
   // so it launches without demo mode; the seeded usage rail still renders.
-  const vellumCommand = await launchVellum({
+  const junto = await launchJunto({
     seedCanvases: { factory: canvasDoc(nodes, edges) },
     seedUsage: heroUsage,
   });
 
   try {
-    const { app, page } = vellumCommand;
+    const { app, page } = junto;
     await resizeFrame(app, page);
     await expect(page.locator(".react-flow__node").first()).toBeVisible({ timeout: 30_000 });
     await hideDemoChip(page);
     await fitAll(page);
     await shot(page, "00-canvas-factory-hero");
   } finally {
-    await vellumCommand.close();
+    await junto.close();
   }
 });

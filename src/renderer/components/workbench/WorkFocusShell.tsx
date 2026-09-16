@@ -178,7 +178,7 @@ export function WorkFocusShell() {
 
   if (!hasFocus) return null;
 
-  // contain=parent: fill .vellum-stage-main only. Body portal would cover the
+  // contain=parent: fill .junto-stage-main only. Body portal would cover the
   // pinned dock sibling and break wheel/pointer on pinned PTYs whenever any
   // focus surface is still open (multi-stream pin + focus).
   return (

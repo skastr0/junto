@@ -29,7 +29,7 @@ const LAUNCH = {
 type GeomLog = { readonly event: string; readonly data: Record<string, number | boolean> };
 
 test.use({
-  vellumOptions: {
+  juntoOptions: {
     seedCanvases: {
       geomprobe: canvasDoc([
         terminalTextNode({ id: "t1", bindingId: BINDING_ID, label: LABEL, launch: LAUNCH }),
@@ -39,15 +39,15 @@ test.use({
 });
 
 test("xterm measures against a laid-out box, and the painted screen matches the grid", async ({
-  vellumCommand,
+  junto,
 }) => {
-  const { page } = vellumCommand;
+  const { page } = junto;
   const logs: GeomLog[] = [];
   page.on("console", (msg) => {
     const text = msg.text();
-    const at = text.indexOf("[vellum:term-geom]");
+    const at = text.indexOf("[junto:term-geom]");
     if (at < 0) return;
-    const rest = text.slice(at + "[vellum:term-geom]".length).trim();
+    const rest = text.slice(at + "[junto:term-geom]".length).trim();
     const space = rest.indexOf(" ");
     if (space < 0) return;
     try {

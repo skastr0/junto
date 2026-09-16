@@ -123,7 +123,7 @@ function RegionLabel({
   }
   return (
     <span
-      className="vellum-group__label cursor-text rounded-sm px-2 py-1 text-[10px] uppercase tracking-[0.18em]"
+      className="junto-group__label cursor-text rounded-sm px-2 py-1 text-[10px] uppercase tracking-[0.18em]"
       style={accent ? { color: accent } : undefined}
       onDoubleClick={(event) => {
         if (event.shiftKey) return;
@@ -301,7 +301,7 @@ export function GroupNode({ data, selected }: NodeProps<FlowNode>) {
       ? withAlpha(HUE.amber, 0.42)
       : stroke;
   return <div
-    className="vellum-group relative h-full w-full rounded-[14px]"
+    className="junto-group relative h-full w-full rounded-[14px]"
     style={{
       border: `1px solid ${plateBorder}`,
       pointerEvents: "none",
@@ -313,12 +313,12 @@ export function GroupNode({ data, selected }: NodeProps<FlowNode>) {
   >
     {glanceable ? (
       <div
-        className={`vellum-region-glance${nestedGlance ? " vellum-region-glance--nested" : ""}`}
+        className={`junto-region-glance${nestedGlance ? " junto-region-glance--nested" : ""}`}
         data-testid={`region-glance-${node.id}`}
         aria-hidden
       >
         <span
-          className="vellum-region-glance__text"
+          className="junto-region-glance__text"
           style={{
             fontSize: `${regionGlanceFontSize(node.width, node.height, label, nestedGlance)}px`,
             ...(node.color ? { color: withAlpha(tint, 0.4) } : {}),
@@ -329,7 +329,7 @@ export function GroupNode({ data, selected }: NodeProps<FlowNode>) {
       </div>
     ) : null}
     <div style={{ pointerEvents: "auto" }}>
-      <NodeResizer isVisible={selected} minWidth={320} minHeight={180} color={HUE.amber} handleClassName="vellum-resize-handle" lineClassName="vellum-resize-line" onResizeEnd={(_event, params) => resizeNode(node.id, params)} />
+      <NodeResizer isVisible={selected} minWidth={320} minHeight={180} color={HUE.amber} handleClassName="junto-resize-handle" lineClassName="junto-resize-line" onResizeEnd={(_event, params) => resizeNode(node.id, params)} />
     </div>
     <div style={{ pointerEvents: "auto" }}>
       <RegionToolbar
@@ -342,11 +342,11 @@ export function GroupNode({ data, selected }: NodeProps<FlowNode>) {
       />
     </div>
     {selected ? null : (
-      <div className="vellum-region-frame" aria-hidden>
+      <div className="junto-region-frame" aria-hidden>
         {(["left", "right", "bottom"] as const).map((side) => (
           <div
             key={side}
-            className={`vellum-region-frame__strip vellum-region-frame__strip--${side}`}
+            className={`junto-region-frame__strip junto-region-frame__strip--${side}`}
             data-testid={`region-frame-${side}`}
             title="Drag region"
             onPointerEnter={() => setFrameHover(true)}
@@ -357,7 +357,7 @@ export function GroupNode({ data, selected }: NodeProps<FlowNode>) {
       </div>
     )}
     <div
-      className="region-drag-handle vellum-region-titlebar"
+      className="region-drag-handle junto-region-titlebar"
       data-testid="region-titlebar"
       title="Drag region"
       onPointerEnter={() => setFrameHover(true)}

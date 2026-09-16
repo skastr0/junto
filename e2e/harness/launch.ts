@@ -15,7 +15,7 @@
  *    since the trusted renderer protocol only installs when app.isPackaged
  *  - focus isolation: JUNTO_E2E=1 creates off-screen, non-focusable windows
  *    + accessory Dock policy so Playwright never steals macOS focus. Opt into
- *    a visible window for debugging with JUNTO_E2E_SHOW=1 (not --vellum-headless —
+ *    a visible window for debugging with JUNTO_E2E_SHOW=1 (not --junto-headless —
  *    that mode has no authoring renderer at all).
  */
 import { lstat, readdir, stat, unlink } from "node:fs/promises";
@@ -118,13 +118,13 @@ export interface LaunchOptions {
   readonly electronArgs?: ReadonlyArray<string>;
 }
 
-export interface VellumWorld {
+export interface JuntoWorld {
   readonly app: ElectronApplication;
   readonly page: Page;
   readonly sandbox: Sandbox;
 }
 
-export interface VellumHandle extends VellumWorld {
+export interface JuntoHandle extends JuntoWorld {
   readonly close: () => Promise<void>;
 }
 
@@ -346,7 +346,7 @@ const collectApplicationCleanup = async (
  * application and child process are terminal and the sandbox-local
  * daemon has acknowledged shutdown.
  */
-export const cleanupVellumHarness = async (
+export const cleanupJuntoHarness = async (
   input: HarnessCleanupInput,
   operations: HarnessCleanupOperations = defaultCleanupOperations,
   timeouts: HarnessCleanupTimeouts = defaultCleanupTimeouts,
@@ -414,7 +414,7 @@ export const cleanupVellumHarness = async (
   }
 };
 
-export const launchVellum = async (options: LaunchOptions = {}): Promise<VellumHandle> => {
+export const launchJunto = async (options: LaunchOptions = {}): Promise<JuntoHandle> => {
   const sandbox = await createSandbox();
   let server: RendererServer | undefined;
   let application: HarnessApplicationState = { kind: "not-launched" };
@@ -567,7 +567,7 @@ export const launchVellum = async (options: LaunchOptions = {}): Promise<VellumH
 
     let closePromise: Promise<void> | undefined;
     const close = (): Promise<void> => {
-      closePromise ??= cleanupVellumHarness({
+      closePromise ??= cleanupJuntoHarness({
         sandbox,
         server,
         application,
@@ -578,7 +578,7 @@ export const launchVellum = async (options: LaunchOptions = {}): Promise<VellumH
     return { app, page, sandbox, close };
   } catch (launchError) {
     try {
-      await cleanupVellumHarness({
+      await cleanupJuntoHarness({
         sandbox,
         server,
         application,
@@ -604,18 +604,18 @@ export const launchVellum = async (options: LaunchOptions = {}): Promise<VellumH
 
 // --- Playwright fixture wiring ------------------------------------------------
 
-export interface VellumFixtures {
-  vellumOptions: LaunchOptions;
-  vellumCommand: VellumHandle;
+export interface JuntoFixtures {
+  juntoOptions: LaunchOptions;
+  junto: JuntoHandle;
 }
 
-/** Extended `test`: `test.use({ vellumOptions: {...} })` per spec/describe,
- * then destructure `{ vellumCommand: { app, page, sandbox } }` — launch + teardown
+/** Extended `test`: `test.use({ juntoOptions: {...} })` per spec/describe,
+ * then destructure `{ junto: { app, page, sandbox } }` — launch + teardown
  * are owned by the fixture, never by the spec. */
-export const test = base.extend<VellumFixtures>({
-  vellumOptions: [{}, { option: true }],
-  vellumCommand: async ({ vellumOptions }, use) => {
-    const handle = await launchVellum(vellumOptions);
+export const test = base.extend<JuntoFixtures>({
+  juntoOptions: [{}, { option: true }],
+  junto: async ({ juntoOptions }, use) => {
+    const handle = await launchJunto(juntoOptions);
     try {
       await use(handle);
     } finally {

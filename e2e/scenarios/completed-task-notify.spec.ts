@@ -18,8 +18,8 @@ const installBoard = async (page: import("@playwright/test").Page): Promise<void
       async () =>
         page.evaluate(() =>
           Boolean(
-            (globalThis as unknown as { vellumCommand?: { listCanvases?: unknown } })
-              .vellumCommand?.listCanvases,
+            (globalThis as unknown as { junto?: { listCanvases?: unknown } })
+              .junto?.listCanvases,
           ),
         ),
       { timeout: 30_000 },
@@ -29,7 +29,7 @@ const installBoard = async (page: import("@playwright/test").Page): Promise<void
   await page.evaluate(async (document) => {
     const api = (
       globalThis as unknown as {
-        readonly vellumCommand: {
+        readonly junto: {
           readonly listCanvases: () => Promise<ReadonlyArray<{ name: string }>>;
           readonly createCanvas: (name: string) => Promise<{ name: string; revision: string }>;
           readonly readCanvas: (name: string) => Promise<{ revision: string }>;
@@ -40,7 +40,7 @@ const installBoard = async (page: import("@playwright/test").Page): Promise<void
           ) => Promise<unknown>;
         };
       }
-    ).vellumCommand;
+    ).junto;
     let list = await api.listCanvases();
     let name = list[0]?.name;
     if (!name) {
@@ -53,9 +53,9 @@ const installBoard = async (page: import("@playwright/test").Page): Promise<void
 };
 
 test("completed task notify plate has solid boundaries and stacks cards", async ({
-  vellumCommand,
+  junto,
 }) => {
-  const { page } = vellumCommand;
+  const { page } = junto;
   await mkdir(SHOTS, { recursive: true });
 
   await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
@@ -68,9 +68,9 @@ test("completed task notify plate has solid boundaries and stacks cards", async 
         page.evaluate(() =>
           typeof (
             globalThis as unknown as {
-              __vellumTestInjectCompletedNotify?: unknown;
+              __juntoTestInjectCompletedNotify?: unknown;
             }
-          ).__vellumTestInjectCompletedNotify === "function",
+          ).__juntoTestInjectCompletedNotify === "function",
         ),
       { timeout: 15_000 },
     )
@@ -79,11 +79,11 @@ test("completed task notify plate has solid boundaries and stacks cards", async 
   await page.evaluate(() => {
     (
       globalThis as unknown as {
-        __vellumTestInjectCompletedNotify: (
+        __juntoTestInjectCompletedNotify: (
           items: ReadonlyArray<{ id: string; nodeId: string; brief: string }>,
         ) => void;
       }
-    ).__vellumTestInjectCompletedNotify([
+    ).__juntoTestInjectCompletedNotify([
       { id: "t1", nodeId: "tasks", brief: "Wire board soft notify" },
       { id: "t2", nodeId: "tasks", brief: "Sticky hotbar leases for actors" },
       { id: "t3", nodeId: "tasks", brief: "Page delete behind feature flag" },
@@ -117,8 +117,8 @@ test("completed task notify plate has solid boundaries and stacks cards", async 
   await stack.screenshot({ path: join(SHOTS, "14-subtle-scrolled.png") });
 });
 
-test("mark all read empties the stack in one click", async ({ vellumCommand }) => {
-  const { page } = vellumCommand;
+test("mark all read empties the stack in one click", async ({ junto }) => {
+  const { page } = junto;
   await mkdir(SHOTS, { recursive: true });
 
   await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
@@ -130,8 +130,8 @@ test("mark all read empties the stack in one click", async ({ vellumCommand }) =
       async () =>
         page.evaluate(() =>
           typeof (
-            globalThis as unknown as { __vellumTestInjectCompletedNotify?: unknown }
-          ).__vellumTestInjectCompletedNotify === "function",
+            globalThis as unknown as { __juntoTestInjectCompletedNotify?: unknown }
+          ).__juntoTestInjectCompletedNotify === "function",
         ),
       { timeout: 15_000 },
     )
@@ -140,11 +140,11 @@ test("mark all read empties the stack in one click", async ({ vellumCommand }) =
   await page.evaluate(() => {
     (
       globalThis as unknown as {
-        __vellumTestInjectCompletedNotify: (
+        __juntoTestInjectCompletedNotify: (
           items: ReadonlyArray<{ id: string; nodeId: string; brief: string }>,
         ) => void;
       }
-    ).__vellumTestInjectCompletedNotify([
+    ).__juntoTestInjectCompletedNotify([
       { id: "t1", nodeId: "tasks", brief: "Region nameplates at strategic zoom" },
       { id: "t2", nodeId: "tasks", brief: "Window-frame grab for regions" },
       { id: "t3", nodeId: "tasks", brief: "Ready tier in the command group" },

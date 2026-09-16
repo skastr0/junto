@@ -11,7 +11,7 @@ import type { Page } from "@playwright/test";
 import type { CanvasDoc, GroupNode, TextNode } from "../../src/shared/canvas";
 import type { RemoteHost } from "../../src/shared/remote-hosts";
 import { canvasDoc, tasksNode } from "../harness/sandbox";
-import { expect, launchVellum, test } from "../harness/launch";
+import { expect, launchJunto, test } from "../harness/launch";
 
 const SHOTS = join(process.cwd(), "test-results", "fleet-ship");
 
@@ -53,7 +53,7 @@ const shipRoutingDoc = (): CanvasDoc => {
       region: {
         hold: true,
         defaults: {
-          paths: { local: "/Users/operator/Projects/vellum", "remote-a": "/tmp/remote-a" },
+          paths: { local: "/Users/operator/Projects/junto", "remote-a": "/tmp/remote-a" },
         },
       },
     },
@@ -84,11 +84,11 @@ test.beforeAll(async () => {
 });
 
 test("SHIP Fleet entry, empty state, enrollment validation, and clean relaunch", async () => {
-  const vellumCommand = await launchVellum({
+  const junto = await launchJunto({
     seedCanvases: { "fleet-ship-empty": emptyFleetDoc },
   });
   try {
-    const { page } = vellumCommand;
+    const { page } = junto;
     await waitForCanvas(page);
 
     const panel = await openFleet(page);
@@ -128,17 +128,17 @@ test("SHIP Fleet entry, empty state, enrollment validation, and clean relaunch",
     await page.keyboard.press("Escape");
     await expect(page.locator(".fleet-panel")).toHaveCount(0);
   } finally {
-    await vellumCommand.close();
+    await junto.close();
   }
 });
 
 test("SHIP station detail shows probe truth and main-owned deploy gating", async () => {
-  const vellumCommand = await launchVellum({
+  const junto = await launchJunto({
     seedCanvases: { "fleet-ship-detail": emptyFleetDoc },
     seedHosts: [localHost, enrolledRemote, terminalOnlyMac],
   });
   try {
-    const { page } = vellumCommand;
+    const { page } = junto;
     await waitForCanvas(page);
     const panel = await openFleet(page);
     await expect(panel.locator(".fleet-station")).toHaveCount(2, { timeout: 15_000 });
@@ -167,17 +167,17 @@ test("SHIP station detail shows probe truth and main-owned deploy gating", async
     await expect(panel.getByRole("button", { name: "Box" })).toHaveCount(0);
     await shot(page, "05-probe-result");
   } finally {
-    await vellumCommand.close();
+    await junto.close();
   }
 });
 
 test("SHIP routing exposes enrolled hosts for terminal, agent, queue, regions, and Machine settings", async () => {
-  const vellumCommand = await launchVellum({
+  const junto = await launchJunto({
     seedCanvases: { "fleet-ship-routing": shipRoutingDoc() },
     seedHosts: [localHost, enrolledRemote],
   });
   try {
-    const { page } = vellumCommand;
+    const { page } = junto;
     await waitForCanvas(page);
 
     const region = page.getByTestId("rf__node-ship-region");
@@ -244,17 +244,17 @@ test("SHIP routing exposes enrolled hosts for terminal, agent, queue, regions, a
     await page.keyboard.press("Escape");
     await expect(settings).toHaveCount(0);
   } finally {
-    await vellumCommand.close();
+    await junto.close();
   }
 });
 
 test("SHIP Fleet stays usable in bright mode, reduced motion, and a narrow viewport", async () => {
-  const vellumCommand = await launchVellum({
+  const junto = await launchJunto({
     seedCanvases: { "fleet-ship-a11y": emptyFleetDoc },
     seedHosts: [localHost, enrolledRemote],
   });
   try {
-    const { page } = vellumCommand;
+    const { page } = junto;
     await waitForCanvas(page);
     await page.emulateMedia({ reducedMotion: "reduce" });
     await page.setViewportSize({ width: 760, height: 620 });
@@ -278,6 +278,6 @@ test("SHIP Fleet stays usable in bright mode, reduced motion, and a narrow viewp
     await page.keyboard.press("Escape");
     await expect(panel).toHaveCount(0);
   } finally {
-    await vellumCommand.close();
+    await junto.close();
   }
 });

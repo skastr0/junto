@@ -257,16 +257,16 @@ function EntityCard({
   const hostId =
     terminalBinding?.kind === "native" ? terminalBinding.hostId : undefined;
   const seatEvent = use$(
-    agentSeat$.byBindingId[bindingId ?? "__vellum-entity-card-no-binding__"],
+    agentSeat$.byBindingId[bindingId ?? "__junto-entity-card-no-binding__"],
   );
   const needsLook = use$(
     agentSeat$.needsLookByBindingId[
-      bindingId ?? "__vellum-entity-card-no-binding__"
+      bindingId ?? "__junto-entity-card-no-binding__"
     ],
   );
   const session = use$(
     terminal$.sessionByBindingId[
-      bindingId ?? "__vellum-entity-card-no-binding__"
+      bindingId ?? "__junto-entity-card-no-binding__"
     ],
   );
   // Hydrate session cache so pre-ownership failures (cli-missing) paint on the card.

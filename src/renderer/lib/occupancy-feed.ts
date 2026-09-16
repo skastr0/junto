@@ -90,8 +90,8 @@ export function chatActivityFeed(
   };
 }
 
-const NO_AGENT_KEY = "__vellum-occupancy-no-agent__";
-const NO_BINDING = "__vellum-occupancy-no-binding__";
+const NO_AGENT_KEY = "__junto-occupancy-no-agent__";
+const NO_BINDING = "__junto-occupancy-no-binding__";
 
 /**
  * The single observable slice a per-node consumer depends on for live

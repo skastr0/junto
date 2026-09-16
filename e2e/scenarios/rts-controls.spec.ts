@@ -52,9 +52,9 @@ const installBoard = async (page: import("@playwright/test").Page): Promise<stri
       async () =>
         page.evaluate(() => {
           const runtime = globalThis as unknown as {
-            readonly vellumCommand?: { readonly listCanvases: () => Promise<unknown[]> };
+            readonly junto?: { readonly listCanvases: () => Promise<unknown[]> };
           };
-          return Boolean(runtime.vellumCommand?.listCanvases);
+          return Boolean(runtime.junto?.listCanvases);
         }),
       { timeout: 30_000 },
     )
@@ -62,7 +62,7 @@ const installBoard = async (page: import("@playwright/test").Page): Promise<stri
   return page.evaluate(async (document) => {
     const api = (
       globalThis as unknown as {
-        readonly vellumCommand: {
+        readonly junto: {
           readonly listCanvases: () => Promise<ReadonlyArray<{ name: string }>>;
           readonly createCanvas: (name: string) => Promise<{ name: string; revision: string }>;
           readonly readCanvas: (name: string) => Promise<{ name: string; revision: string }>;
@@ -73,7 +73,7 @@ const installBoard = async (page: import("@playwright/test").Page): Promise<stri
           ) => Promise<unknown>;
         };
       }
-    ).vellumCommand;
+    ).junto;
     let list = await api.listCanvases();
     let name = list[0]?.name;
     if (!name) {
@@ -87,9 +87,9 @@ const installBoard = async (page: import("@playwright/test").Page): Promise<stri
 };
 
 test("rts shell: role left, kind middle, region strip, pause everywhere", async ({
-  vellumCommand,
+  junto,
 }) => {
-  const { page } = vellumCommand;
+  const { page } = junto;
   await mkdir(SHOTS, { recursive: true });
 
   await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
@@ -165,15 +165,15 @@ test("rts shell: role left, kind middle, region strip, pause everywhere", async 
 
   const admissionKey = kindStrip.getByRole("button", { name: "Who starts tasks" });
   const waitKey = kindStrip.getByRole("button", { name: "Wait before starting" });
-  await expect(admissionKey).toHaveAttribute("data-vellum-tooltip", "Starts: Immediate");
-  await expect(waitKey).toHaveAttribute("data-vellum-tooltip", "Wait: none");
+  await expect(admissionKey).toHaveAttribute("data-junto-tooltip", "Starts: Immediate");
+  await expect(waitKey).toHaveAttribute("data-junto-tooltip", "Wait: none");
 
   await admissionKey.click();
   const admissionQuickSelect = page.getByLabel("Admission quick select");
   await expect(admissionQuickSelect).toBeVisible();
   await admissionQuickSelect.getByRole("button", { name: "Approval" }).click();
   await expect(admissionKey).toHaveAttribute(
-    "data-vellum-tooltip",
+    "data-junto-tooltip",
     "Starts: Approval",
   );
 
@@ -182,7 +182,7 @@ test("rts shell: role left, kind middle, region strip, pause everywhere", async 
   await expect(waitQuickSet).toBeVisible();
   await page.screenshot({ path: join(SHOTS, "03-task-board-wait.png"), fullPage: false });
   await waitQuickSet.getByRole("button", { name: "1h" }).click();
-  await expect(waitKey).toHaveAttribute("data-vellum-tooltip", "Wait: 1h");
+  await expect(waitKey).toHaveAttribute("data-junto-tooltip", "Wait: 1h");
   // The install-time fit centers the region, so the tasks sink sits outside
   // the viewport and its floating toolbar (fixed-position) cannot be clicked.
   // Frame the selected node through the command card first.

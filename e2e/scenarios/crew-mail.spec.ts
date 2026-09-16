@@ -21,7 +21,7 @@
  *
  * Seats are fake-tui: deterministic screen control, labelled honestly.
  */
-import { expect, launchVellum, test } from "../harness/launch";
+import { expect, launchJunto, test } from "../harness/launch";
 import {
   crewMailAttempts,
   crewMessageCount,
@@ -56,16 +56,16 @@ const opData = (env: WorkEnvelope): Record<string, unknown> => {
 };
 
 const launch = () =>
-  launchVellum({
+  launchJunto({
     seedCanvases: { [CANVAS]: mailDoc },
     afterSeed: installCrewSeatHarness,
     extraEnv: { JUNTO_PTY_TRACE: "1" },
   });
 
 /** [delivery]/[wake] lines from the sandbox app's own main log. */
-const mainLogOf = (vellum: Awaited<ReturnType<typeof launchVellum>>): (() => string) => {
+const mainLogOf = (junto: Awaited<ReturnType<typeof launchJunto>>): (() => string) => {
   const lines: string[] = [];
-  const proc = vellum.app.process();
+  const proc = junto.app.process();
   proc.stdout?.on("data", (chunk: Buffer) => lines.push(String(chunk)));
   proc.stderr?.on("data", (chunk: Buffer) => lines.push(String(chunk)));
   return () =>
@@ -78,10 +78,10 @@ const mainLogOf = (vellum: Awaited<ReturnType<typeof launchVellum>>): (() => str
 
 test("crew mail [fake-tui]: sent mail projects notified delivery with one PTY paste", async () => {
   test.setTimeout(240_000);
-  const vellum = await launch();
-  const wakeLog = mainLogOf(vellum);
+  const junto = await launch();
+  const wakeLog = mainLogOf(junto);
   try {
-    const { page, sandbox } = vellum;
+    const { page, sandbox } = junto;
     await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
     await crewPlayFactory(page);
 
@@ -174,16 +174,16 @@ test("crew mail [fake-tui]: sent mail projects notified delivery with one PTY pa
     expect(afterSent).toBeDefined();
     expect(afterSent?.readAt).toBeUndefined();
   } finally {
-    await vellum.close();
+    await junto.close();
   }
 });
 
 test("crew mail [fake-tui]: unacknowledged paste is unresolved and never re-pasted", async () => {
   test.setTimeout(240_000);
-  const vellum = await launch();
-  const wakeLog = mainLogOf(vellum);
+  const junto = await launch();
+  const wakeLog = mainLogOf(junto);
   try {
-    const { page, sandbox } = vellum;
+    const { page, sandbox } = junto;
     await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
     await crewPlayFactory(page);
 
@@ -267,15 +267,15 @@ test("crew mail [fake-tui]: unacknowledged paste is unresolved and never re-past
     const stdin = await seatBHandle.stdinLog();
     expect(stdin).toContain("sink this one");
   } finally {
-    await vellum.close();
+    await junto.close();
   }
 });
 
 test("crew mail [fake-tui]: read and reply state stay truthful across the pair", async () => {
   test.setTimeout(240_000);
-  const vellum = await launch();
+  const junto = await launch();
   try {
-    const { page, sandbox } = vellum;
+    const { page, sandbox } = junto;
     await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
     await crewPlayFactory(page);
 
@@ -349,13 +349,13 @@ test("crew mail [fake-tui]: read and reply state stay truthful across the pair",
     );
     expect(replyMsg).toBeDefined();
   } finally {
-    await vellum.close();
+    await junto.close();
   }
 });
 
 test("crew mail [fake-tui]: masking msg.send off the edge refuses the send", async () => {
   test.setTimeout(180_000);
-  const vellum = await launchVellum({
+  const junto = await launchJunto({
     seedCanvases: {
       [CANVAS]: crewDoc(
         [seatA, seatB],
@@ -372,7 +372,7 @@ test("crew mail [fake-tui]: masking msg.send off the edge refuses the send", asy
     extraEnv: { JUNTO_PTY_TRACE: "1" },
   });
   try {
-    const { page, sandbox } = vellum;
+    const { page, sandbox } = junto;
     await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
     await crewPlayFactory(page);
 
@@ -391,15 +391,15 @@ test("crew mail [fake-tui]: masking msg.send off the edge refuses the send", asy
     // And nothing reached the durable mailbox.
     expect(await crewMessageCount(page, CANVAS, B)).toBe(0);
   } finally {
-    await vellum.close();
+    await junto.close();
   }
 });
 
 test("crew mail [fake-tui]: removing the edge mid-flight closes further sends", async () => {
   test.setTimeout(240_000);
-  const vellum = await launch();
+  const junto = await launch();
   try {
-    const { page, sandbox } = vellum;
+    const { page, sandbox } = junto;
     await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
     await crewPlayFactory(page);
 
@@ -428,6 +428,6 @@ test("crew mail [fake-tui]: removing the edge mid-flight closes further sends", 
     if (second.ok) return;
     expect(second.error.type).toBe("ScopeError");
   } finally {
-    await vellum.close();
+    await junto.close();
   }
 });

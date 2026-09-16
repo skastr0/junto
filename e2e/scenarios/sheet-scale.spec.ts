@@ -68,7 +68,7 @@ const note: CanvasNode = {
 };
 
 test.use({
-  vellumOptions: {
+  juntoOptions: {
     extraEnv: { JUNTO_E2E_SHOW: "1" },
     seedCanvases: {
       sheets: canvasDoc(
@@ -80,10 +80,10 @@ test.use({
 });
 
 test("a 500-row sheet stays virtualized, editable, and leaves the canvas intact", async ({
-  vellumCommand,
+  junto,
 }) => {
   test.setTimeout(180_000);
-  const { app, page } = vellumCommand;
+  const { app, page } = junto;
   mkdirSync(SHOTS, { recursive: true });
   const framesDir = join(SHOTS, "sheet-scale-frames");
   mkdirSync(framesDir, { recursive: true });
@@ -134,7 +134,7 @@ test("a 500-row sheet stays virtualized, editable, and leaves the canvas intact"
   const firstCell = detail.getByRole("textbox", { name: "Host row 1", exact: true });
   await expect(firstCell).toBeVisible({ timeout: 10_000 });
 
-  const mountedBefore = await grid.locator("tbody tr:not(.vellum-sheet__spacer)").count();
+  const mountedBefore = await grid.locator("tbody tr:not(.junto-sheet__spacer)").count();
   expect(mountedBefore, `mounted rows at top=${mountedBefore}`).toBeLessThan(80);
   expect(mountedBefore).toBeGreaterThan(5);
 
@@ -154,7 +154,7 @@ test("a 500-row sheet stays virtualized, editable, and leaves the canvas intact"
   const lastCell = detail.getByRole("textbox", { name: `Host row ${String(ROWS)}`, exact: true });
   await expect(lastCell).toBeVisible({ timeout: 10_000 });
   await lastCell.fill("host-500-edited");
-  const mountedBottom = await grid.locator("tbody tr:not(.vellum-sheet__spacer)").count();
+  const mountedBottom = await grid.locator("tbody tr:not(.junto-sheet__spacer)").count();
   expect(mountedBottom, `mounted rows at bottom=${mountedBottom}`).toBeLessThan(80);
   await expect(lastCell).toHaveValue("host-500-edited");
 
@@ -165,7 +165,7 @@ test("a 500-row sheet stays virtualized, editable, and leaves the canvas intact"
     .poll(async () => Number(await grid.getAttribute("data-row-start")), { timeout: 10_000 })
     .toBeGreaterThan(50);
   const midTyped = await grid.evaluate((el) => {
-    const input = el.querySelector("tbody tr:not(.vellum-sheet__spacer) input");
+    const input = el.querySelector("tbody tr:not(.junto-sheet__spacer) input");
     if (!(input instanceof HTMLInputElement)) return "";
     input.focus();
     input.value = "mid-host";
@@ -184,11 +184,11 @@ test("a 500-row sheet stays virtualized, editable, and leaves the canvas intact"
     page.evaluate(async () => {
       const api = (
         globalThis as unknown as {
-          readonly vellumCommand: {
+          readonly junto: {
             readonly readCanvas: (name: string) => Promise<{ doc: { nodes: unknown[] } }>;
           };
         }
-      ).vellumCommand;
+      ).junto;
       const read = await api.readCanvas("sheets");
       const node = read.doc.nodes.find(
         (candidate) => (candidate as { id?: string }).id === "sheet1",

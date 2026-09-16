@@ -1,7 +1,7 @@
 import type { CanvasDoc, GroupNode, TextNode } from "../../src/shared/canvas";
 import type { TasksContract } from "../../src/shared/work-model";
 import { canvasDoc, tasksNode } from "../harness/sandbox";
-import { expect, launchVellum, test } from "../harness/launch";
+import { expect, launchJunto, test } from "../harness/launch";
 
 const board = (
   id: string,
@@ -96,12 +96,12 @@ const fixture = (): CanvasDoc =>
   );
 
 test("five-board fork renders one compact path", async ({}, testInfo) => {
-  const vellumCommand = await launchVellum({
+  const junto = await launchJunto({
     seedCanvases: { factory: fixture() },
   });
 
   try {
-    const { page } = vellumCommand;
+    const { page } = junto;
     await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
     const intake = page.locator('.react-flow__node[data-id="intake"]');
     await intake.getByTestId("tasks-card").dispatchEvent("dblclick");
@@ -161,6 +161,6 @@ test("five-board fork renders one compact path", async ({}, testInfo) => {
       contentType: "image/png",
     });
   } finally {
-    await vellumCommand.close();
+    await junto.close();
   }
 });

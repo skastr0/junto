@@ -205,7 +205,7 @@ export function ChatView({
         <Dropdown
           aria-label="Model"
           className="chat-header__model"
-          triggerClassName="vellum-picker-select chat-header__model-trigger"
+          triggerClassName="junto-picker-select chat-header__model-trigger"
           value={selectedModelId ?? models[0]?.modelId ?? ""}
           options={models.map((model) => ({
             value: model.modelId,

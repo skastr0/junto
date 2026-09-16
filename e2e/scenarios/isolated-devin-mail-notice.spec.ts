@@ -22,7 +22,7 @@ import { readMailAttemptFacts, type MailAttemptFacts } from "../../src/shared/cr
 import { composeMessageDeliveryPayload } from "../../src/shared/message-delivery";
 import { SeatReadResult } from "../../src/shared/seat-control";
 import { transportLogDirectory } from "../../src/shared/transport-trace";
-import { expect, launchVellum, test } from "../harness/launch";
+import { expect, launchJunto, test } from "../harness/launch";
 import { crewMessagePasteWrites, crewPlayFactory, crewSeat, type CrewSeat } from "../harness/crew-fixture";
 import { HARNESS_MAIL_TRANSPORT } from "../../src/shared/managed-terminal-templates";
 import {
@@ -209,7 +209,7 @@ test("isolated Devin [real-harness]: settled seat reaches readAt or a durable na
   const artifact = (name: string) => join(artifacts, name);
   const json = (path: string, value: unknown) => writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`);
   json(HOLD_NOTE, { phase: "prelaunch", at: new Date().toISOString(), artifacts, ...provenance });
-  const vellum = await launchVellum({
+  const junto = await launchJunto({
     seedCanvases: { [ISOLATED_DEVIN_MAIL_CANVAS]: isolatedDevinMailDoc() },
     extraEnv: { JUNTO_PTY_TRACE: "1" },
     afterSeed: async (sandbox) => {
@@ -219,7 +219,7 @@ test("isolated Devin [real-harness]: settled seat reaches readAt or a durable na
       expect(existsSync(join(sandbox.homeDir, ".local/share/devin/cli/sessions.db"))).toBe(false);
     },
   });
-  const { page, sandbox } = vellum;
+  const { page, sandbox } = junto;
   const sender = crewSeat(sandbox, ISOLATED_DEVIN_MAIL_CANVAS, ISOLATED_DEVIN_SENDER_ID);
   let occupied: Awaited<ReturnType<typeof occupyDevinOnce>> | undefined;
   let messageId: string | undefined;
@@ -233,7 +233,7 @@ test("isolated Devin [real-harness]: settled seat reaches readAt or a durable na
   const writeHold = (extra: Record<string, unknown>) => {
     const body = {
       ...provenance, at: new Date().toISOString(), artifacts,
-      electronMainPid: vellum.app.process().pid, harnessPid: occupied?.pid,
+      electronMainPid: junto.app.process().pid, harnessPid: occupied?.pid,
       cohortNonce: provenance.embeddedBuildIdentity?.cohortNonce ?? null,
       bindingId: occupied?.bindingId, epoch: occupied?.epoch, cwd: occupied?.cwd,
       sandboxHome: sandbox.homeDir, canvas: ISOLATED_DEVIN_MAIL_CANVAS, messageId, messageId2,
@@ -257,7 +257,7 @@ test("isolated Devin [real-harness]: settled seat reaches readAt or a durable na
 
   try {
     try {
-      if (HOLD) await vellum.app.evaluate(({ BrowserWindow }) => {
+      if (HOLD) await junto.app.evaluate(({ BrowserWindow }) => {
         for (const win of BrowserWindow.getAllWindows()) if (!win.isDestroyed()) { win.show(); win.focus(); }
       });
       console.log(`ISOLATED_DEVIN_HOLD ${JSON.stringify(writeHold({ phase: "launched" }))}`);
@@ -446,6 +446,6 @@ test("isolated Devin [real-harness]: settled seat reaches readAt or a durable na
     }
     expect(HARNESS_MAIL_TRANSPORT.devin.typedNoticeQualified).toBe(qualificationAtStart);
   } finally {
-    await vellum.close();
+    await junto.close();
   }
 });

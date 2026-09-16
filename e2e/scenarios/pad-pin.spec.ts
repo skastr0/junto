@@ -22,7 +22,7 @@ const padNode = {
 };
 
 test.use({
-  vellumOptions: {
+  juntoOptions: {
     seedCanvases: {
       [CANVAS]: canvasDoc(
         [
@@ -91,9 +91,9 @@ const patchPad = (
   );
 
 test("pad pin: wired mention look-here crop; unwired mention refused", async ({
-  vellumCommand,
+  junto,
 }) => {
-  const { page } = vellumCommand;
+  const { page } = junto;
 
   await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
   await waitForApi(page);
@@ -153,9 +153,9 @@ test("pad pin: wired mention look-here crop; unwired mention refused", async ({
 });
 
 test("pad pin: draft survives Escape, mention picks by click, replies arrive live", async ({
-  vellumCommand,
+  junto,
 }) => {
-  const { page } = vellumCommand;
+  const { page } = junto;
 
   await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
   await waitForApi(page);

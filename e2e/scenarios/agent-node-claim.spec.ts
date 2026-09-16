@@ -11,7 +11,7 @@ import {
   worksEdge,
   tasksNode,
 } from "../harness/sandbox";
-import { expect, launchVellum, test } from "../harness/launch";
+import { expect, launchJunto, test } from "../harness/launch";
 
 const SHOTS = join(process.cwd(), "test-results", "design-audit");
 
@@ -31,10 +31,10 @@ const fixtureDoc = canvasDoc(
 
 test("an agent node shows the task its seat has claimed", async () => {
   await mkdir(SHOTS, { recursive: true });
-  const vellumCommand = await launchVellum();
+  const junto = await launchJunto();
 
   try {
-    const { page } = vellumCommand;
+    const { page } = junto;
     await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
 
     const canvas = await page.evaluate(async (document) => {
@@ -83,6 +83,6 @@ test("an agent node shows the task its seat has claimed", async () => {
       fullPage: false,
     });
   } finally {
-    await vellumCommand.close();
+    await junto.close();
   }
 });

@@ -6,7 +6,7 @@
  * A repeatable measurement, not a pass/fail gate. Per gesture it captures:
  *
  *   - CDP screencast frames (the compositor's own output, timestamped)
- *   - a per-frame rAF sample (timestamp, mounted .vellum-node count,
+ *   - a per-frame rAF sample (timestamp, mounted .junto-node count,
  *     html[data-viewport-busy] state, computed will-change on the viewport)
  *   - DOM churn from a MutationObserver on the .react-flow subtree
  *     (childList adds/removes — the remint/blink signature)
@@ -94,7 +94,7 @@ export async function installEvidence(page: import("@playwright/test").Page): Pr
       const busy = document.documentElement.hasAttribute("data-viewport-busy");
       perFrame.push({
         t: Math.round(performance.now()),
-        nodes: document.querySelectorAll(".vellum-node").length,
+        nodes: document.querySelectorAll(".junto-node").length,
         busy,
       });
       if (busy !== lastBusy) {

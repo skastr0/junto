@@ -95,7 +95,7 @@ const NODE_COUNT = fixtureDoc.nodes.length;
 const EDGE_COUNT = fixtureDoc.edges.length;
 
 test.use({
-  vellumOptions: {
+  juntoOptions: {
     seedCanvases: { flicker: fixtureDoc },
   },
 });
@@ -107,32 +107,32 @@ test.describe("canvas pan flicker evidence", () => {
 
   type Capture = { app: import("playwright-core").ElectronApplication; page: import("@playwright/test").Page };
 
-  test("wheel pan on a region-heavy canvas", async ({ vellumCommand }) => {
-    const { app, page } = vellumCommand;
+  test("wheel pan on a region-heavy canvas", async ({ junto }) => {
+    const { app, page } = junto;
     await installEvidence(page);
     await capture({ app, page, nodeCount: NODE_COUNT, edgeCount: EDGE_COUNT }, "wheel-pan", (p) =>
       wheelPan(p, GESTURE_MS, false),
     );
   });
 
-  test("bursty wheel pan (flaps the busy latch)", async ({ vellumCommand }) => {
-    const { app, page } = vellumCommand;
+  test("bursty wheel pan (flaps the busy latch)", async ({ junto }) => {
+    const { app, page } = junto;
     await installEvidence(page);
     await capture({ app, page, nodeCount: NODE_COUNT, edgeCount: EDGE_COUNT }, "wheel-pan-bursty", (p) =>
       wheelPan(p, GESTURE_MS, true),
     );
   });
 
-  test("middle-button drag pan", async ({ vellumCommand }) => {
-    const { app, page } = vellumCommand;
+  test("middle-button drag pan", async ({ junto }) => {
+    const { app, page } = junto;
     await installEvidence(page);
     await capture({ app, page, nodeCount: NODE_COUNT, edgeCount: EDGE_COUNT }, "middle-drag-pan", (p) =>
       middleDragPan(p),
     );
   });
 
-  test("pan with an active selection keeps node filters stable", async ({ vellumCommand }) => {
-    const { app, page } = vellumCommand;
+  test("pan with an active selection keeps node filters stable", async ({ junto }) => {
+    const { app, page } = junto;
     await installEvidence(page);
 
     await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });

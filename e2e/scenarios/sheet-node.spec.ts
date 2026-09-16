@@ -33,13 +33,13 @@ const sheetNode = {
 };
 
 test.use({
-  vellumOptions: { seedCanvases: { sheets: canvasDoc([sheetNode]) } },
+  juntoOptions: { seedCanvases: { sheets: canvasDoc([sheetNode]) } },
 });
 
 test("a sheet card shows its grid and the editor writes back to the canvas", async ({
-  vellumCommand,
+  junto,
 }) => {
-  const { page } = vellumCommand;
+  const { page } = junto;
   await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
 
   const card = page.locator('.react-flow__node[data-id="sheet1"]');
@@ -71,11 +71,11 @@ test("a sheet card shows its grid and the editor writes back to the canvas", asy
   const stored = await page.evaluate(async () => {
     const api = (
       globalThis as unknown as {
-        readonly vellumCommand: {
+        readonly junto: {
           readonly readCanvas: (name: string) => Promise<{ doc: { nodes: unknown[] } }>;
         };
       }
-    ).vellumCommand;
+    ).junto;
     const read = await api.readCanvas("sheets");
     const node = read.doc.nodes.find(
       (candidate) => (candidate as { id?: string }).id === "sheet1",

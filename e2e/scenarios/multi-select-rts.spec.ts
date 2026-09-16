@@ -60,9 +60,9 @@ const installBoard = async (page: import("@playwright/test").Page): Promise<void
       async () =>
         page.evaluate(() => {
           const runtime = globalThis as unknown as {
-            readonly vellumCommand?: { readonly listCanvases: () => Promise<unknown[]> };
+            readonly junto?: { readonly listCanvases: () => Promise<unknown[]> };
           };
-          return Boolean(runtime.vellumCommand?.listCanvases);
+          return Boolean(runtime.junto?.listCanvases);
         }),
       { timeout: 30_000 },
     )
@@ -70,7 +70,7 @@ const installBoard = async (page: import("@playwright/test").Page): Promise<void
   await page.evaluate(async (document) => {
     const api = (
       globalThis as unknown as {
-        readonly vellumCommand: {
+        readonly junto: {
           readonly listCanvases: () => Promise<ReadonlyArray<{ name: string }>>;
           readonly createCanvas: (name: string) => Promise<{ name: string; revision: string }>;
           readonly readCanvas: (name: string) => Promise<{ name: string; revision: string }>;
@@ -81,7 +81,7 @@ const installBoard = async (page: import("@playwright/test").Page): Promise<void
           ) => Promise<unknown>;
         };
       }
-    ).vellumCommand;
+    ).junto;
     let list = await api.listCanvases();
     let name = list[0]?.name;
     if (!name) {
@@ -93,8 +93,8 @@ const installBoard = async (page: import("@playwright/test").Page): Promise<void
   }, fixtureDoc);
 };
 
-test("multi-select: RTS multi command + multi-prompt", async ({ vellumCommand }) => {
-  const { page } = vellumCommand;
+test("multi-select: RTS multi command + multi-prompt", async ({ junto }) => {
+  const { page } = junto;
   await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
   await installBoard(page);
 
@@ -175,11 +175,11 @@ test("multi-select: RTS multi command + multi-prompt", async ({ vellumCommand })
   await expect(page.locator(".rts-kind-surface .rts-quiet")).toContainText("mixed");
 });
 
-test("rubber-band marquee selects inside a region's interior", async ({ vellumCommand }) => {
+test("rubber-band marquee selects inside a region's interior", async ({ junto }) => {
   // Regions are inert background: the plate and wrapper are pointer-
   // transparent, so a drag that starts inside a region must rubber-band
   // select the contained nodes instead of moving the region.
-  const { page } = vellumCommand;
+  const { page } = junto;
   await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
   await installBoard(page);
 

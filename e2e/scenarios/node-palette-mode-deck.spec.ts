@@ -4,7 +4,7 @@ import type { GroupNode } from "../../src/shared/canvas";
 import type { HarnessId } from "../../src/shared/managed-terminal-templates";
 import type { ClaudeModelCacheEntry } from "../harness/agent-harness-fixture";
 import { canvasDoc } from "../harness/sandbox";
-import { expect, launchVellum, test } from "../harness/launch";
+import { expect, launchJunto, test } from "../harness/launch";
 
 const REPO_ROOT = process.cwd();
 
@@ -29,9 +29,9 @@ const CLAUDE_MODELS: readonly ClaudeModelCacheEntry[] = [
 ];
 
 const seededLaunch = (
-  extras: Parameters<typeof launchVellum>[0] = {},
+  extras: Parameters<typeof launchJunto>[0] = {},
 ) =>
-  launchVellum({
+  launchJunto({
     seedHarnessInstalls: SEEDED_HARNESSES,
     claudeModelCache: CLAUDE_MODELS,
     ...extras,
@@ -89,10 +89,10 @@ const openFolderPicker = async (
 };
 
 test("Mode Deck exposes the searchable catalog and keeps launch context dense at the foot of the agent pane", async () => {
-  const vellumCommand = await seededLaunch();
+  const junto = await seededLaunch();
 
   try {
-    const { page } = vellumCommand;
+    const { page } = junto;
     const deck = await openModeDeck(page);
 
     for (const category of ["All", "Shell"]) {
@@ -168,15 +168,15 @@ test("Mode Deck exposes the searchable catalog and keeps launch context dense at
       launchBox!.y - (wiringBox!.y + wiringBox!.height),
     ).toBeLessThanOrEqual(24);
   } finally {
-    await vellumCommand.close();
+    await junto.close();
   }
 });
 
 test("model and effort choices remain visually attached to the active agent row", async () => {
-  const vellumCommand = await seededLaunch();
+  const junto = await seededLaunch();
 
   try {
-    const { page } = vellumCommand;
+    const { page } = junto;
     const deck = await openModeDeck(page);
     const agent = deck.getByRole("button", { name: "Claude Code", exact: true });
     await agent.hover();
@@ -234,17 +234,17 @@ test("model and effort choices remain visually attached to the active agent row"
     expect(horizontalGap(modelBox!, effortBox!)).toBeLessThanOrEqual(24);
     expect(verticallyOverlaps(agentBox!, modelBox!)).toBe(true);
   } finally {
-    await vellumCommand.close();
+    await junto.close();
   }
 });
 
 test("starting-folder modal reuses live directory browsing and can save a containing-region default", async () => {
-  const vellumCommand = await seededLaunch({
+  const junto = await seededLaunch({
     seedCanvases: { portfolio: canvasDoc([containingRegion]) },
   });
 
   try {
-    const { page } = vellumCommand;
+    const { page } = junto;
     const deck = await openModeDeck(page);
     const picker = await openFolderPicker(page, deck);
     const input = picker.getByLabel("Agent working directory");
@@ -270,17 +270,17 @@ test("starting-folder modal reuses live directory browsing and can save a contai
     await expect(regionDefault).toBeEnabled();
     await regionDefault.check({ force: true });
   } finally {
-    await vellumCommand.close();
+    await junto.close();
   }
 });
 
 test("region-default promotion fails closed with actionable guidance outside a region", async () => {
-  const vellumCommand = await seededLaunch({
+  const junto = await seededLaunch({
     seedCanvases: { portfolio: canvasDoc([]) },
   });
 
   try {
-    const { page } = vellumCommand;
+    const { page } = junto;
     const deck = await openModeDeck(page);
     const picker = await openFolderPicker(page, deck);
     const regionDefault = picker.getByRole("checkbox", {
@@ -292,17 +292,17 @@ test("region-default promotion fails closed with actionable guidance outside a r
       /add a region to set up defaults and shared context/i,
     );
   } finally {
-    await vellumCommand.close();
+    await junto.close();
   }
 });
 
 test("one agent-row click creates exactly one configured agent without a legacy location step", async () => {
-  const vellumCommand = await seededLaunch({
+  const junto = await seededLaunch({
     seedCanvases: { portfolio: canvasDoc([]) },
   });
 
   try {
-    const { page } = vellumCommand;
+    const { page } = junto;
     const deck = await openModeDeck(page);
     const picker = await openFolderPicker(page, deck);
     const input = picker.getByLabel("Agent working directory");
@@ -346,15 +346,15 @@ test("one agent-row click creates exactly one configured agent without a legacy 
       });
     }).toEqual([{ harness: "claude", cwd: join(REPO_ROOT, "src") }]);
   } finally {
-    await vellumCommand.close();
+    await junto.close();
   }
 });
 
 test("node detail rail preserves navigation while explaining primary and secondary connections", async () => {
-  const vellumCommand = await seededLaunch();
+  const junto = await seededLaunch();
 
   try {
-    const { page } = vellumCommand;
+    const { page } = junto;
     const deck = await openModeDeck(page);
     const terminal = deck.locator(".node-deck-catalog__card").filter({
       hasText: "Terminal",
@@ -405,7 +405,7 @@ test("node detail rail preserves navigation while explaining primary and seconda
     await expect(wires).toBeVisible();
     await expect(wires.locator("img")).toHaveCount(0);
   } finally {
-    await vellumCommand.close();
+    await junto.close();
   }
 });
 
@@ -448,10 +448,10 @@ const cascadeEnterKey = async (menu: Locator): Promise<"ArrowRight" | "ArrowLeft
 };
 
 test("fuzzy agent search ranks installed harnesses and reports an honest miss", async () => {
-  const vellumCommand = await seededLaunch();
+  const junto = await seededLaunch();
 
   try {
-    const { page } = vellumCommand;
+    const { page } = junto;
     const deck = await openModeDeck(page);
     const claude = deck.getByRole("button", { name: "Claude Code", exact: true });
     await expect(claude).toBeVisible();
@@ -472,15 +472,15 @@ test("fuzzy agent search ranks installed harnesses and reports an honest miss", 
       "No installed agent CLIs found on this machine.",
     );
   } finally {
-    await vellumCommand.close();
+    await junto.close();
   }
 });
 
 test("changing the search closes the cascade without resurrecting it on clear", async () => {
-  const vellumCommand = await seededLaunch();
+  const junto = await seededLaunch();
 
   try {
-    const { page } = vellumCommand;
+    const { page } = junto;
     const deck = await openModeDeck(page);
     const claude = deck.getByRole("button", { name: "Claude Code", exact: true });
     await claude.hover();
@@ -496,17 +496,17 @@ test("changing the search closes the cascade without resurrecting it on clear", 
     await expect(claude).toBeVisible();
     await expect(page.locator(".agent-cascade")).toHaveCount(0);
   } finally {
-    await vellumCommand.close();
+    await junto.close();
   }
 });
 
 test("search Down and Enter browse results without creating nodes", async () => {
-  const vellumCommand = await seededLaunch({
+  const junto = await seededLaunch({
     seedCanvases: { portfolio: canvasDoc([]) },
   });
 
   try {
-    const { page } = vellumCommand;
+    const { page } = junto;
     const deck = await openModeDeck(page);
     const canvasNodes = page.locator(".react-flow__node");
     const before = await canvasNodes.count();
@@ -530,15 +530,15 @@ test("search Down and Enter browse results without creating nodes", async () => 
     await expect(search).toBeFocused();
     await expect(canvasNodes).toHaveCount(before);
   } finally {
-    await vellumCommand.close();
+    await junto.close();
   }
 });
 
 test("harness keyboard activation opens choices and Escape dismisses one layer at a time", async () => {
-  const vellumCommand = await seededLaunch();
+  const junto = await seededLaunch();
 
   try {
-    const { page } = vellumCommand;
+    const { page } = junto;
     const deck = await openModeDeck(page);
     const search = searchBox(page);
     await search.press("ArrowDown");
@@ -579,15 +579,15 @@ test("harness keyboard activation opens choices and Escape dismisses one layer a
     await page.keyboard.press("Escape");
     await expect(page.getByRole("dialog", { name: "Add canvas item" })).toHaveCount(0);
   } finally {
-    await vellumCommand.close();
+    await junto.close();
   }
 });
 
 test("Tab and Shift-Tab leave the cascade relative to its harness anchor", async () => {
-  const vellumCommand = await seededLaunch();
+  const junto = await seededLaunch();
 
   try {
-    const { page } = vellumCommand;
+    const { page } = junto;
     const deck = await openModeDeck(page);
     const claude = deck.getByRole("button", { name: "Claude Code", exact: true });
     await claude.focus();
@@ -605,15 +605,15 @@ test("Tab and Shift-Tab leave the cascade relative to its harness anchor", async
     await expect(page.locator(".agent-cascade")).toHaveCount(0);
     await expect(deck.getByRole("tab", { name: "Canvas", exact: true })).toBeFocused();
   } finally {
-    await vellumCommand.close();
+    await junto.close();
   }
 });
 
 test("Escape dismisses a hover preview without changing search focus or query", async () => {
-  const vellumCommand = await seededLaunch();
+  const junto = await seededLaunch();
 
   try {
-    const { page } = vellumCommand;
+    const { page } = junto;
     const deck = await openModeDeck(page);
     const search = searchBox(page);
     await search.fill("claude");
@@ -629,17 +629,17 @@ test("Escape dismisses a hover preview without changing search focus or query", 
     await expect(search).toBeFocused();
     await expect(search).toHaveValue("claude");
   } finally {
-    await vellumCommand.close();
+    await junto.close();
   }
 });
 
 test("column type-ahead scrolls to an offscreen model and selects its effort", async () => {
-  const vellumCommand = await seededLaunch({
+  const junto = await seededLaunch({
     seedCanvases: { portfolio: canvasDoc([]) },
   });
 
   try {
-    const { page } = vellumCommand;
+    const { page } = junto;
     const deck = await openModeDeck(page);
     await searchBox(page).press("ArrowDown");
     await page.keyboard.press("Enter");
@@ -670,18 +670,18 @@ test("column type-ahead scrolls to an offscreen model and selects its effort", a
       { harness: "claude", model: "claude-zephyr-1", effort: "high" },
     ]);
   } finally {
-    await vellumCommand.close();
+    await junto.close();
   }
 });
 
 test("Use harness defaults creates one Kimi agent when no models are available", async () => {
-  const vellumCommand = await seededLaunch({
+  const junto = await seededLaunch({
     seedCanvases: { portfolio: canvasDoc([]) },
     seedHarnessInstalls: [...SEEDED_HARNESSES, "kimi"],
   });
 
   try {
-    const { page } = vellumCommand;
+    const { page } = junto;
     const deck = await openModeDeck(page);
     const kimi = deck.getByRole("button", { name: "Kimi Code", exact: true });
     await expect(kimi).toBeVisible();
@@ -698,6 +698,6 @@ test("Use harness defaults creates one Kimi agent when no models are available",
       { harness: "kimi", model: undefined, effort: undefined },
     ]);
   } finally {
-    await vellumCommand.close();
+    await junto.close();
   }
 });

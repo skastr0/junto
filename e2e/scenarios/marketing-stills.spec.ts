@@ -31,7 +31,7 @@ import {
   verbEdge,
   type EdgeKindSource,
 } from "../harness/sandbox";
-import { expect, launchVellum, test } from "../harness/launch";
+import { expect, launchJunto, test } from "../harness/launch";
 import type { Verb } from "../../src/shared/physics/verbs";
 import type { Artifact, CanvasEdge, CanvasNode, GroupNode, Task } from "../../src/shared/canvas";
 
@@ -291,13 +291,13 @@ test("still 01 — one region factory close", async () => {
     hEdge("e3", "agent", "req", "escalates", nodes),
   ];
 
-  const vellumCommand = await launchVellum({
+  const junto = await launchJunto({
     demo: true,
     seedCanvases: { portfolio: canvasDoc(nodes, edges) },
   });
 
   try {
-    const { app, page } = vellumCommand;
+    const { app, page } = junto;
     await resizeFrame(app, page);
     await expect(page.locator(".react-flow__node").first()).toBeVisible({ timeout: 30_000 });
     await lightPanes(page, panes);
@@ -305,7 +305,7 @@ test("still 01 — one region factory close", async () => {
     await fitAll(page);
     await shot(page, "01-canvas-one-region");
   } finally {
-    await vellumCommand.close();
+    await junto.close();
   }
 });
 
@@ -424,13 +424,13 @@ test("still 02 — multi-host work board", async () => {
     hEdge("e-b2", "tasks-beacon", "a-release", "works", nodes),
   ];
 
-  const vellumCommand = await launchVellum({
+  const junto = await launchJunto({
     demo: true,
     seedCanvases: { portfolio: canvasDoc(nodes, edges) },
   });
 
   try {
-    const { app, page } = vellumCommand;
+    const { app, page } = junto;
     await resizeFrame(app, page);
     await expect(page.locator(".react-flow__node").first()).toBeVisible({ timeout: 30_000 });
     await lightPanes(page, panes);
@@ -438,7 +438,7 @@ test("still 02 — multi-host work board", async () => {
     await fitAll(page);
     await shot(page, "02-canvas-multi-host-work");
   } finally {
-    await vellumCommand.close();
+    await junto.close();
   }
 });
 
@@ -618,13 +618,13 @@ test("still 03 — five region factory map", async () => {
 
   const allNodes: CanvasNode[] = [...regions, ...panes.map(paneNode), ...nodes];
 
-  const vellumCommand = await launchVellum({
+  const junto = await launchJunto({
     demo: true,
     seedCanvases: { portfolio: canvasDoc(allNodes, edges) },
   });
 
   try {
-    const { app, page } = vellumCommand;
+    const { app, page } = junto;
     await resizeFrame(app, page);
     await expect(page.locator(".react-flow__node").first()).toBeVisible({ timeout: 30_000 });
     await lightPanes(page, panes);
@@ -632,7 +632,7 @@ test("still 03 — five region factory map", async () => {
     await fitAll(page);
     await shot(page, "03-canvas-five-regions");
   } finally {
-    await vellumCommand.close();
+    await junto.close();
   }
 });
 
@@ -641,7 +641,7 @@ test("still 03 — five region factory map", async () => {
 test("still 04 — six machine fleet manager", async () => {
   await mkdir(SHOTS, { recursive: true });
 
-  const vellumCommand = await launchVellum({
+  const junto = await launchJunto({
     seedCanvases: { fleet: canvasDoc([]) },
     seedHosts: [
         {
@@ -694,7 +694,7 @@ test("still 04 — six machine fleet manager", async () => {
   });
 
   try {
-    const { app, page } = vellumCommand;
+    const { app, page } = junto;
     await resizeFrame(app, page);
     await expect(page.locator(".react-flow").first()).toBeVisible({ timeout: 30_000 });
     await page.getByRole("button", { name: "Open fleet manager" }).click();
@@ -713,7 +713,7 @@ test("still 04 — six machine fleet manager", async () => {
       await shot(page, "04b-fleet-station-focus");
     }
   } finally {
-    await vellumCommand.close();
+    await junto.close();
   }
 });
 
@@ -981,13 +981,13 @@ test("still 05 — five regions agent square", async () => {
 
   const allNodes: CanvasNode[] = [...nodes, ...panes.map(paneNode)];
 
-  const vellumCommand = await launchVellum({
+  const junto = await launchJunto({
     demo: true,
     seedCanvases: { portfolio: canvasDoc(allNodes, edges) },
   });
 
   try {
-    const { app, page } = vellumCommand;
+    const { app, page } = junto;
     await resizeFrame(app, page);
     await expect(page.locator(".react-flow__node").first()).toBeVisible({ timeout: 30_000 });
     await lightPanes(page, panes);
@@ -995,7 +995,7 @@ test("still 05 — five regions agent square", async () => {
     await fitAll(page);
     await shot(page, "05-canvas-five-regions-agent-square");
   } finally {
-    await vellumCommand.close();
+    await junto.close();
   }
 });
 
@@ -1181,12 +1181,12 @@ test("still 06 — work UI grid", async () => {
     hEdge("e-a1-ops", "a-ops", "art1", "publishes", nodes),
   ]);
 
-  const vellumCommand = await launchVellum({
+  const junto = await launchJunto({
     seedCanvases: { portfolio: doc },
   });
 
   try {
-    const { app, page } = vellumCommand;
+    const { app, page } = junto;
     await resizeFrame(app, page);
     await expect(page.locator(".react-flow__node").first()).toBeVisible({ timeout: 30_000 });
     await hideFilmChrome(page);
@@ -1234,7 +1234,7 @@ test("still 06 — work UI grid", async () => {
 
     compositeGrid([kanbanPath, reqPath, artPath], join(SHOTS, "06-ui-work-grid.png"), 3, 32);
   } finally {
-    await vellumCommand.close();
+    await junto.close();
   }
 });
 
@@ -1268,12 +1268,12 @@ test("still 07 — open terminal and ACP UIs", async () => {
     }),
   ];
 
-  const vellumCommand = await launchVellum({
+  const junto = await launchJunto({
     seedCanvases: { portfolio: canvasDoc(nodes) },
   });
 
   try {
-    const { app, page } = vellumCommand;
+    const { app, page } = junto;
     await resizeFrame(app, page);
     await expect(page.locator(".react-flow__node").first()).toBeVisible({ timeout: 30_000 });
     await hideFilmChrome(page);
@@ -1322,6 +1322,6 @@ test("still 07 — open terminal and ACP UIs", async () => {
     // (not canvas cards).
     compositeGrid([agentTermPath, termPath], join(SHOTS, "07-ui-surfaces-grid.png"), 2, 32);
   } finally {
-    await vellumCommand.close();
+    await junto.close();
   }
 });

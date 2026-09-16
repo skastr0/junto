@@ -64,12 +64,12 @@ export function TerminalCard({
   const [session, setSession] = useState<TerminalSessionSummary>();
   const seatEvent = use$(
     agentSeat$.byBindingId[
-      native?.bindingId ?? "__vellum-terminal-no-binding__"
+      native?.bindingId ?? "__junto-terminal-no-binding__"
     ],
   );
   const needsLook = use$(
     agentSeat$.needsLookByBindingId[
-      native?.bindingId ?? "__vellum-terminal-no-binding__"
+      native?.bindingId ?? "__junto-terminal-no-binding__"
     ],
   );
   const attentionReasons = useNodeAttentionReasons(node);

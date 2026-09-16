@@ -8,7 +8,7 @@ import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import type { CanvasEdge, CanvasNode } from "../../src/shared/canvas";
 import { agentTextNode, canvasDoc, taskItem, tasksNode, requestsNode, artifactsNode } from "../harness/sandbox";
-import { expect, launchVellum, test } from "../harness/launch";
+import { expect, launchJunto, test } from "../harness/launch";
 
 const SHOTS = join(process.cwd(), "test-results", "stupidity-audit");
 
@@ -117,11 +117,11 @@ const EDGES: CanvasEdge[] = [
 test("walk every product surface and screenshot it", async () => {
   test.setTimeout(600_000);
   await mkdir(SHOTS, { recursive: true });
-  const vellumCommand = await launchVellum({
+  const junto = await launchJunto({
     seedCanvases: { "stupidity-audit": canvasDoc(NODES, EDGES) },
   });
 
-  const { page } = vellumCommand;
+  const { page } = junto;
   const shot = async (name: string) => {
     await page.waitForTimeout(450);
     await page.screenshot({ path: join(SHOTS, `${name}.png`), fullPage: false });
@@ -219,6 +219,6 @@ test("walk every product surface and screenshot it", async () => {
       await escapeAll();
     }
   } finally {
-    await vellumCommand.close();
+    await junto.close();
   }
 });

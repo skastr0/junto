@@ -17,13 +17,13 @@ const probeCanvas = canvasDoc([
 ]);
 
 test.use({
-  vellumOptions: {
+  juntoOptions: {
     seedCanvases: { probe: probeCanvas },
   },
 });
 
-test("command bar opens from the trigger and cmd+K, filters the list only, and commits a focus", async ({ vellumCommand }) => {
-  const { page } = vellumCommand;
+test("command bar opens from the trigger and cmd+K, filters the list only, and commits a focus", async ({ junto }) => {
+  const { page } = junto;
   await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
 
   // Open from the top-bar trigger; the input owns focus.
@@ -66,8 +66,8 @@ test("command bar opens from the trigger and cmd+K, filters the list only, and c
 });
 
 
-test("actions mode catalogs commands, Enter runs them, Tab toggles modes", async ({ vellumCommand }) => {
-  const { page } = vellumCommand;
+test("actions mode catalogs commands, Enter runs them, Tab toggles modes", async ({ junto }) => {
+  const { page } = junto;
   await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
 
   // Select a node first: copy-node-reference only appears with a selection,

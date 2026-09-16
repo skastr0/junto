@@ -22,7 +22,7 @@ import { expect, test } from "../harness/launch";
 import { waitForTerminalPaint } from "../harness/term-ready";
 
 const REPO = process.cwd();
-const REPLAY_DIR = "/tmp/vellum-real-bytes";
+const REPLAY_DIR = "/tmp/junto-real-bytes";
 
 /** Harness capture used as the byte source. Grok is the heaviest redrawer. */
 const CASES = [
@@ -73,7 +73,7 @@ const geomOf = async (
   });
 
 test.use({
-  vellumOptions: {
+  juntoOptions: {
     seedCanvases: {
       realbytes: canvasDoc([
         terminalTextNode({ id: "t1", bindingId: BINDING_ID, label: LABEL, launch: LAUNCH }),
@@ -84,9 +84,9 @@ test.use({
 
 for (const { harness, scenario } of CASES) {
   test(`real ${harness}/${scenario} bytes render the same on screen as headless`, async ({
-    vellumCommand,
+    junto,
   }) => {
-    const { page } = vellumCommand;
+    const { page } = junto;
     const raw = materialize(harness, scenario);
 
     const node = page.locator(".react-flow__node", { hasText: LABEL });
@@ -106,7 +106,7 @@ for (const { harness, scenario } of CASES) {
     await waitForTerminalPaint(page, 12);
 
     const onScreen = await renderedRows(page);
-    await page.screenshot({ path: `/tmp/vellum-real-bytes-${harness}-${scenario}.png` });
+    await page.screenshot({ path: `/tmp/junto-real-bytes-${harness}-${scenario}.png` });
 
     // Ground truth: the app's own headless terminal, same bytes, same geometry.
     const { SessionObserver } = (await import(
@@ -162,7 +162,7 @@ for (const { harness, scenario } of CASES) {
       await waitForTerminalPaint(page);
 
       const restored = (await renderedRows(page)).join("\n");
-      await page.screenshot({ path: `/tmp/vellum-reopen-${harness}-${cycle}.png` });
+      await page.screenshot({ path: `/tmp/junto-reopen-${harness}-${cycle}.png` });
       const lost = contentRows.filter((line) => !restored.includes(line.trim()));
       if (lost.length > 0) {
         afterReopen.push(

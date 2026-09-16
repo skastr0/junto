@@ -6,7 +6,7 @@ import {
   taskItem,
   tasksNode,
 } from "../harness/sandbox";
-import { expect, launchVellum, test } from "../harness/launch";
+import { expect, launchJunto, test } from "../harness/launch";
 
 const installBoard = async (
   page: import("@playwright/test").Page,
@@ -17,9 +17,9 @@ const installBoard = async (
       async () =>
         page.evaluate(() => {
           const runtime = globalThis as unknown as {
-            readonly vellumCommand?: { readonly listCanvases: () => Promise<unknown[]> };
+            readonly junto?: { readonly listCanvases: () => Promise<unknown[]> };
           };
-          return Boolean(runtime.vellumCommand?.listCanvases);
+          return Boolean(runtime.junto?.listCanvases);
         }),
       { timeout: 30_000 },
     )
@@ -28,7 +28,7 @@ const installBoard = async (
   await page.evaluate(async (document) => {
     const api = (
       globalThis as unknown as {
-        readonly vellumCommand: {
+        readonly junto: {
           readonly listCanvases: () => Promise<ReadonlyArray<{ name: string }>>;
           readonly createCanvas: (name: string) => Promise<{ name: string }>;
           readonly readCanvas: (name: string) => Promise<{ revision: string }>;
@@ -39,7 +39,7 @@ const installBoard = async (
           ) => Promise<unknown>;
         };
       }
-    ).vellumCommand;
+    ).junto;
     const list = await api.listCanvases();
     const name = list[0]?.name ?? (await api.createCanvas("task-board-ux")).name;
     const read = await api.readCanvas(name);
@@ -114,12 +114,12 @@ test("task board supports creation, operator responses, layered status, and hand
       { id: "e-builder2-tasks", fromNode: "builder-2", toNode: "tasks" },
     ],
   );
-  const vellumCommand = await launchVellum({
+  const junto = await launchJunto({
     seedCanvases: { factory: fixture },
   });
 
   try {
-    const { page } = vellumCommand;
+    const { page } = junto;
     await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
     await expect(page.locator('.react-flow__node[data-id="tasks"]')).toBeVisible({
       timeout: 30_000,
@@ -275,7 +275,7 @@ test("task board supports creation, operator responses, layered status, and hand
       timeout: 10_000,
     });
   } finally {
-    await vellumCommand.close();
+    await junto.close();
   }
 });
 
@@ -288,10 +288,10 @@ test("Kanban enqueue opens the normal modal above the task board", async () => {
       items: [],
     }),
   ]);
-  const vellumCommand = await launchVellum();
+  const junto = await launchJunto();
 
   try {
-    const { page } = vellumCommand;
+    const { page } = junto;
     await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
     await installBoard(page, fixture);
     const tasksNodeCard = page.locator('.react-flow__node[data-id="tasks"]');
@@ -321,15 +321,15 @@ test("Kanban enqueue opens the normal modal above the task board", async () => {
     await expect(creator).toBeHidden();
     await expect(board).toBeVisible();
   } finally {
-    await vellumCommand.close();
+    await junto.close();
   }
 });
 
 test("task detail media uses the full panel width", async () => {
-  const vellumCommand = await launchVellum();
+  const junto = await launchJunto();
 
   try {
-    const { page } = vellumCommand;
+    const { page } = junto;
     await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
 
     const contentRef = await page.evaluate(async () => {
@@ -392,6 +392,6 @@ test("task detail media uses the full panel width", async () => {
     expect(metrics.mediaWidth).toBeGreaterThan(metrics.panelWidth - 48);
     expect(metrics.imageObjectFit).toBe("contain");
   } finally {
-    await vellumCommand.close();
+    await junto.close();
   }
 });

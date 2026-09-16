@@ -63,9 +63,9 @@ export const SUBREGION_BAND: GlanceBand = {
 };
 
 /** Inherited custom property an outermost region body reads for its watermark. */
-export const GLANCE_VAR = "--vellum-region-glance";
+export const GLANCE_VAR = "--junto-region-glance";
 /** The same, for a region nested inside another. */
-export const GLANCE_SUB_VAR = "--vellum-region-glance-sub";
+export const GLANCE_SUB_VAR = "--junto-region-glance-sub";
 
 /** Quantization step — keeps per-frame style writes coarse but visually smooth. */
 const STEP = 0.04;

@@ -69,9 +69,9 @@ const installBoard = async (page: import("@playwright/test").Page): Promise<stri
       async () =>
         page.evaluate(() => {
           const runtime = globalThis as unknown as {
-            readonly vellumCommand?: { readonly listCanvases: () => Promise<unknown[]> };
+            readonly junto?: { readonly listCanvases: () => Promise<unknown[]> };
           };
-          return Boolean(runtime.vellumCommand?.listCanvases);
+          return Boolean(runtime.junto?.listCanvases);
         }),
       { timeout: 30_000 },
     )
@@ -79,7 +79,7 @@ const installBoard = async (page: import("@playwright/test").Page): Promise<stri
   return page.evaluate(async (document) => {
     const api = (
       globalThis as unknown as {
-        readonly vellumCommand: {
+        readonly junto: {
           readonly listCanvases: () => Promise<ReadonlyArray<{ name: string }>>;
           readonly createCanvas: (name: string) => Promise<{ name: string; revision: string }>;
           readonly readCanvas: (name: string) => Promise<{ name: string; revision: string }>;
@@ -90,7 +90,7 @@ const installBoard = async (page: import("@playwright/test").Page): Promise<stri
           ) => Promise<unknown>;
         };
       }
-    ).vellumCommand;
+    ).junto;
     let list = await api.listCanvases();
     let name = list[0]?.name;
     if (!name) {
@@ -125,10 +125,10 @@ const cdpMetric = (
 ): number => metrics.find((m) => m.name === name)?.value ?? 0;
 
 test("renderer cost probe: sample per-process CPU, FPS, long tasks, layout churn", async ({
-  vellumCommand,
+  junto,
 }) => {
   test.setTimeout(SAMPLE_MS + 120_000);
-  const { app, page } = vellumCommand;
+  const { app, page } = junto;
 
   await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
   await installBoard(page);

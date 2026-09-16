@@ -138,14 +138,14 @@ export function ActivityMark({
         role="status"
         aria-label={label}
         title={label}
-        className={["vellum-activity-mark", className].filter(Boolean).join(" ")}
+        className={["junto-activity-mark", className].filter(Boolean).join(" ")}
         data-activity-mode="static"
         data-activity-tone={tone}
         data-activity-size={size}
         style={shellStyle}
       >
         <span
-          className="vellum-activity-static-dot"
+          className="junto-activity-static-dot"
           style={{
             display: "inline-block",
             width: dot,
@@ -168,7 +168,7 @@ export function ActivityMark({
         role="status"
         aria-label={label}
         title={label}
-        className={["vellum-activity-mark", className].filter(Boolean).join(" ")}
+        className={["junto-activity-mark", className].filter(Boolean).join(" ")}
         data-activity-mode="pulse"
         data-activity-tone={tone}
         data-activity-size={size}
@@ -186,7 +186,7 @@ export function ActivityMark({
           {PULSE_CELLS.map(([row, column]) => (
             <span
               key={`${String(row)}:${String(column)}`}
-              className="vellum-activity-pulse-cell"
+              className="junto-activity-pulse-cell"
               style={{
                 gridRow: row,
                 gridColumn: column,
@@ -207,7 +207,7 @@ export function ActivityMark({
       role="status"
       aria-label={label}
       title={label}
-      className={["vellum-activity-mark", className].filter(Boolean).join(" ")}
+      className={["junto-activity-mark", className].filter(Boolean).join(" ")}
       data-activity-mode="wave"
       data-activity-tone={tone}
       data-activity-size={size}
@@ -228,7 +228,7 @@ export function ActivityMark({
         {CLOCKWISE_CELLS.map(([row, column], clockStep) => (
           <span
             key={`${String(row)}:${String(column)}`}
-            className="vellum-activity-clock-cell"
+            className="junto-activity-clock-cell"
             style={
               {
                 gridRow: row,

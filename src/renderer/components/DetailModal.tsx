@@ -23,9 +23,9 @@ export function DetailModal({
       onClose={onClose}
       closeOnEscape
       closeOnBackdrop
-      panelClassName="vellum-modal nowheel"
+      panelClassName="junto-modal nowheel"
     >
-      <button type="button" className="vellum-modal__close" aria-label="Close" onClick={onClose}>
+      <button type="button" className="junto-modal__close" aria-label="Close" onClick={onClose}>
         <X size={13} />
       </button>
       {children}

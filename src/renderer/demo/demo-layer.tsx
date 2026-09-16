@@ -11,7 +11,7 @@ const DEFAULT_SCENARIO_ID = "trailer-60";
 const scenariosById = demoScenarios as Readonly<Record<string, DemoScenario | undefined>>;
 
 // Demo/scripting engine only. Self-gating: checks demoState() once on mount
-// and renders null forever when the app wasn't launched with --vellum-demo /
+// and renders null forever when the app wasn't launched with --junto-demo /
 // JUNTO_DEMO=1, so product behavior with demo off is byte-identical.
 export function DemoLayer() {
   const [active, setActive] = useState(false);

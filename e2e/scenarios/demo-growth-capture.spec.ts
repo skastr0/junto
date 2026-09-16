@@ -17,7 +17,7 @@ import { writeFileSync } from "node:fs";
 import { copyFile, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { expect, launchVellum, test } from "../harness/launch";
+import { expect, launchJunto, test } from "../harness/launch";
 
 // Playwright deletes its output dir at every run start, so a capture under
 // test-results/ is wiped by ANY concurrent playwright invocation (and even
@@ -43,7 +43,7 @@ test("roll growth-50 and record the take", async () => {
   const framesDir = join(OUT, "frames");
   await mkdir(framesDir, { recursive: true });
 
-  const vellumCommand = await launchVellum({
+  const junto = await launchJunto({
     demo: true,
     extraEnv: {
       JUNTO_DEMO_SCENARIO: "growth-50",
@@ -51,7 +51,7 @@ test("roll growth-50 and record the take", async () => {
     },
   });
 
-  const { app, page, sandbox } = vellumCommand;
+  const { app, page, sandbox } = junto;
   try {
     await app.evaluate(({ BrowserWindow }, size) => {
       const win = BrowserWindow.getAllWindows()[0];
@@ -157,6 +157,6 @@ test("roll growth-50 and record the take", async () => {
       `CAPTURE frames=${frames.length} first=${frames[0]?.ts} last=${frames[frames.length - 1]?.ts} takeT0=${edl ? edl.startedAtEpochMs / 1000 : "?"}`,
     );
   } finally {
-    await vellumCommand.close();
+    await junto.close();
   }
 });

@@ -6,7 +6,7 @@
    - color identifies state;
    - motion identifies activity or transition;
    - decorative craft stays quiet enough to be discovered, never announced. */
-.vellum-node[data-node-kind="agent"] { border-radius: 7px 11px 11px 7px; }
+.junto-node[data-node-kind="agent"] { border-radius: 7px 11px 11px 7px; }
 /* Overseer identity — indigo, never amber (attention) or crimson (blocker).
    Ordinary agent cards stay unchanged; this only paints granted seats. */
 .overseer-mark {
@@ -21,7 +21,7 @@
   user-select: none;
   pointer-events: none;
 }
-.vellum-node[data-overseer="true"]:not([data-blocked="true"]):not([data-seat-attention="true"]):not([data-attention="fire"]) {
+.junto-node[data-overseer="true"]:not([data-blocked="true"]):not([data-seat-attention="true"]):not([data-attention="fire"]) {
   outline: 1px solid color-mix(in oklab, var(--color-indigo) 42%, transparent);
   outline-offset: 1px;
 }
@@ -31,14 +31,14 @@
 .factory-agent-card:not(:has([data-testid="claimed-task"])) {
   justify-content: center;
 }
-.vellum-node[data-node-kind="task"] { border-radius: 8px 4px 4px 8px; }
-.vellum-node[data-node-kind="requests"] { border-radius: 4px 9px 9px 4px; }
-.vellum-node[data-node-kind="artifacts"] {
+.junto-node[data-node-kind="task"] { border-radius: 8px 4px 4px 8px; }
+.junto-node[data-node-kind="requests"] { border-radius: 4px 9px 9px 4px; }
+.junto-node[data-node-kind="artifacts"] {
   border-radius: 3px;
   background: linear-gradient(135deg, color-mix(in oklab, var(--color-raise) 88%, transparent), color-mix(in oklab, var(--color-ground) 96%, transparent)) !important;
 }
-.vellum-node[data-node-kind="board"] { border-radius: 5px; }
-.vellum-node[data-node-kind="cron"], .vellum-node[data-node-kind="timer"] { border-radius: 7px 11px 11px 7px; }
+.junto-node[data-node-kind="board"] { border-radius: 5px; }
+.junto-node[data-node-kind="cron"], .junto-node[data-node-kind="timer"] { border-radius: 7px 11px 11px 7px; }
 
 .factory-glance__header { min-height: 12px; }
 .factory-glance__enqueue {
@@ -106,11 +106,11 @@
    an accept ring in the shared accent would be a second colour arriving at
    the exact moment the first one is being read.
 
-   Written through `.vellum-handle` so the zone beats the plain handle rules
+   Written through `.junto-handle` so the zone beats the plain handle rules
    whichever order the two stylesheets land in: a zone is a handle wearing a
    card's worth of area, and every handle default it inherits (hidden at rest,
    a round dot, the shared accept ring) is wrong for it. */
-.vellum-handle.vellum-verb-zone {
+.junto-handle.junto-verb-zone {
   border: 1px solid color-mix(in oklab, var(--zone-hue) 72%, transparent);
   border-radius: 10px;
   background: color-mix(in oklab, var(--zone-hue) 16%, transparent);
@@ -119,15 +119,15 @@
   cursor: crosshair;
   transition: background 120ms ease-out, border-color 120ms ease-out;
 }
-.vellum-handle.vellum-verb-zone.connectingto,
-.vellum-handle.vellum-verb-zone.connectingto.valid,
-.vellum-handle.vellum-verb-zone:hover {
+.junto-handle.junto-verb-zone.connectingto,
+.junto-handle.junto-verb-zone.connectingto.valid,
+.junto-handle.junto-verb-zone:hover {
   border-color: var(--zone-hue);
   background: color-mix(in oklab, var(--zone-hue) 34%, transparent);
   box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--zone-hue) 45%, transparent);
 }
 @media (prefers-reduced-motion: reduce) {
-  .vellum-handle.vellum-verb-zone { transition: none; }
+  .junto-handle.junto-verb-zone { transition: none; }
 }
 
 /* --- Wire paint: one stroke, one variable -------------------------------
@@ -226,7 +226,7 @@ html[data-theme="bright"] {
 
   --wire-verb-unset: oklch(0.62 0.008 250);
 }
-path.vellum-edge {
+path.junto-edge {
   stroke-linecap: round;
   stroke-linejoin: round;
   transition:
@@ -247,10 +247,10 @@ path.vellum-edge {
    as light, paper reads it as weight. */
 /* Excluded rather than outranked: hovering the wire you already selected must
    not demote it to the lighter bloom. */
-.react-flow__edge:hover path.vellum-edge:not(.vellum-edge--selected) {
+.react-flow__edge:hover path.junto-edge:not(.junto-edge--selected) {
   filter: drop-shadow(0 0 2px color-mix(in oklab, var(--wire-hue, transparent) 50%, transparent));
 }
-.react-flow__edge path.vellum-edge--selected {
+.react-flow__edge path.junto-edge--selected {
   opacity: 1;
   filter:
     drop-shadow(0 0 1px var(--wire-hue, transparent))
@@ -258,9 +258,9 @@ path.vellum-edge {
 }
 /* Pan and zoom own the compositor: no wire filter may thrash it, and neither
    state may outrank that. */
-html[data-viewport-busy] .react-flow path.vellum-edge {
+html[data-viewport-busy] .react-flow path.junto-edge {
   filter: none !important;
 }
 @media (prefers-reduced-motion: reduce) {
-  path.vellum-edge { transition: none; }
+  path.junto-edge { transition: none; }
 }

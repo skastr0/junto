@@ -22,7 +22,7 @@ import {
   worksEdge,
   tasksNode,
 } from "../harness/sandbox";
-import { expect, launchVellum, test } from "../harness/launch";
+import { expect, launchJunto, test } from "../harness/launch";
 import type { CanvasEdge, CanvasNode, GroupNode } from "../../src/shared/canvas";
 
 // Playwright wipes test-results/ on every run (any spec, any agent) — point
@@ -48,7 +48,7 @@ interface FleetPane {
 // Agent names are synthetic workshop names; marketing frames carry no
 // third-party harness marks.
 const fleet: readonly FleetPane[] = [
-  { id: "h1", host: "local", paneId: "w1:p01", terminalId: "term-p01", agent: "rivet", label: "vellum - typecheck", x: 0, y: 0 },
+  { id: "h1", host: "local", paneId: "w1:p01", terminalId: "term-p01", agent: "rivet", label: "junto - typecheck", x: 0, y: 0 },
   { id: "h2", host: "remote-a", paneId: "w1:p02", terminalId: "term-p02", agent: "brisk", label: "ssh kernel", x: 300, y: 0 },
   { id: "h3", host: "local", paneId: "w1:p03", terminalId: "term-p03", agent: "mote", label: "canvas sync", x: 600, y: 0 },
   { id: "h4", host: "remote-a", paneId: "w1:p04", terminalId: "term-p04", agent: "ward", label: "release notes", x: 0, y: 180 },
@@ -102,7 +102,7 @@ const nodes: readonly CanvasNode[] = [
     items: [taskItem("t-1", "ship design tokens", "working"), taskItem("t-2", "wire founder checkout", "submitted")],
   }),
   agentTextNode({ id: "a-forge", key: "local:forge", label: "forge", x: 300, y: 300 }),
-  projectNode({ id: "proj-vellum", name: "junto", x: 680, y: 190 }),
+  projectNode({ id: "proj-junto", name: "junto", x: 680, y: 190 }),
   requestsNode({
     id: "req-beacon",
     x: 600, y: 580,
@@ -118,7 +118,7 @@ const edges: readonly CanvasEdge[] = [
   { id: "e-agent-tasks", fromNode: "a-forge", toNode: "tasks-forge", fromSide: "top", toSide: "bottom", ether: { verb: "contributes" } },
   { id: "e-agent-req", fromNode: "a-forge", toNode: "req-beacon", fromSide: "right", toSide: "left", ether: { verb: "escalates" } },
   // Geography holds no verb: the project and note relations are plain lines.
-  { id: "e-depends", fromNode: "proj-vellum", toNode: "proj-launch", fromSide: "bottom", toSide: "top" },
+  { id: "e-depends", fromNode: "proj-junto", toNode: "proj-launch", fromSide: "bottom", toSide: "top" },
   { id: "e-blocks", fromNode: "note-blocker", toNode: "proj-launch", fromSide: "right", toSide: "left" },
   { id: "e-relates", fromNode: "h7", toNode: "note-attn", fromSide: "right", toSide: "left" },
 ];
@@ -131,13 +131,13 @@ const shot = async (page: Page, name: string) => {
 test("compose a staged fleet board and capture marketing frames", async () => {
   await mkdir(SHOTS, { recursive: true });
 
-  const vellumCommand = await launchVellum({
+  const junto = await launchJunto({
     demo: true,
     seedCanvases: { portfolio: canvasDoc(nodes, edges) },
   });
 
   try {
-    const { app, page } = vellumCommand;
+    const { app, page } = junto;
 
     // Marketing frame size — the default 1320x900 window is too tight for a
     // hero plate. Resize before any capture so layout settles once.
@@ -191,7 +191,7 @@ test("compose a staged fleet board and capture marketing frames", async () => {
       await el.scrollIntoViewIfNeeded();
       await el.screenshot({ path: join(SHOTS, `${name}.png`), animations: "disabled" });
     };
-    await closeup("vellum - typecheck", "02-card-working");
+    await closeup("junto - typecheck", "02-card-working");
     await closeup("og plates", "03-card-blocked");
     await closeup("canvas sync", "04-card-done");
     await closeup("ship design tokens", "05-card-tasks");
@@ -209,9 +209,9 @@ test("compose a staged fleet board and capture marketing frames", async () => {
     }
 
     // 10 — selection state: a working card selected, command panel live.
-    await page.locator(".react-flow__node", { hasText: "vellum - typecheck" }).first().click();
+    await page.locator(".react-flow__node", { hasText: "junto - typecheck" }).first().click();
     await shot(page, "10-board-selected");
   } finally {
-    await vellumCommand.close();
+    await junto.close();
   }
 });

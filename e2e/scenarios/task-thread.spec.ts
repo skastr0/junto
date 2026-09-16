@@ -5,7 +5,7 @@ import {
   claimByNodeId,
   tasksNode,
 } from "../harness/sandbox";
-import { expect, launchVellum, test } from "../harness/launch";
+import { expect, launchJunto, test } from "../harness/launch";
 
 const fixture = (): CanvasDoc => {
   const seat = claimByNodeId("builder-alpha");
@@ -47,7 +47,7 @@ const fixture = (): CanvasDoc => {
                 taskId: "thread-task",
                 metadata: {
                   fromSeat: "builder-alpha",
-                  "vellum.taskThread.kind": "defect",
+                  "junto.taskThread.kind": "defect",
                 },
               },
               {
@@ -58,7 +58,7 @@ const fixture = (): CanvasDoc => {
                 metadata: {
                   taskComment: true,
                   fromSeat: "operator",
-                  "vellum.taskThread.kind": "comment",
+                  "junto.taskThread.kind": "comment",
                 },
               },
             ],
@@ -78,10 +78,10 @@ const fixture = (): CanvasDoc => {
 };
 
 test("task detail renders the attributed thread and operator comments notify its owner", async ({}, testInfo) => {
-  const vellumCommand = await launchVellum({ seedCanvases: { factory: fixture() } });
+  const junto = await launchJunto({ seedCanvases: { factory: fixture() } });
 
   try {
-    const { page } = vellumCommand;
+    const { page } = junto;
     await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
     await page
       .locator('.react-flow__node[data-id="tasks"]')
@@ -158,6 +158,6 @@ test("task detail renders the attributed thread and operator comments notify its
       contentType: "image/png",
     });
   } finally {
-    await vellumCommand.close();
+    await junto.close();
   }
 });

@@ -51,9 +51,9 @@ const installBoard = async (
       async () =>
         page.evaluate(() => {
           const runtime = globalThis as unknown as {
-            readonly vellumCommand?: { readonly listCanvases: () => Promise<unknown[]> };
+            readonly junto?: { readonly listCanvases: () => Promise<unknown[]> };
           };
-          return Boolean(runtime.vellumCommand?.listCanvases);
+          return Boolean(runtime.junto?.listCanvases);
         }),
       { timeout: 30_000 },
     )
@@ -61,7 +61,7 @@ const installBoard = async (
   return page.evaluate(async (board) => {
     const api = (
       globalThis as unknown as {
-        readonly vellumCommand: {
+        readonly junto: {
           readonly listCanvases: () => Promise<ReadonlyArray<{ name: string }>>;
           readonly createCanvas: (name: string) => Promise<{ name: string; revision: string }>;
           readonly readCanvas: (name: string) => Promise<{ name: string; revision: string }>;
@@ -78,7 +78,7 @@ const installBoard = async (
           }) => Promise<unknown>;
         };
       }
-    ).vellumCommand;
+    ).junto;
     let list = await api.listCanvases();
     let name = list[0]?.name;
     if (!name) {
@@ -108,9 +108,9 @@ const shot = async (page: Page, name: string) => {
 };
 
 test("overseer identity: card, selected, paused, ordinary contrast, toggle", async ({
-  vellumCommand,
+  junto,
 }) => {
-  const { page } = vellumCommand;
+  const { page } = junto;
   await mkdir(SHOTS, { recursive: true });
   await mkdir(join(process.cwd(), ".amp/in/artifacts"), { recursive: true });
 
@@ -133,14 +133,14 @@ test("overseer identity: card, selected, paused, ordinary contrast, toggle", asy
   await expect(page.locator("html")).not.toHaveAttribute("data-theme");
   await page.locator(".settings-panel__close").click();
 
-  await expect(granted.locator(".vellum-node")).toHaveAttribute("data-overseer", "true");
+  await expect(granted.locator(".junto-node")).toHaveAttribute("data-overseer", "true");
   await expect(granted.getByTestId("overseer-mark")).toHaveText("OVERSEER");
   const grantedColor = await granted.getByTestId("overseer-mark").evaluate((el) => getComputedStyle(el).color);
   expect(grantedColor).not.toBe("rgb(229, 72, 77)"); // crimson
   expect(grantedColor).not.toBe("rgb(232, 163, 61)"); // amber
-  await expect(ordinary.locator(".vellum-node")).not.toHaveAttribute("data-overseer", "true");
+  await expect(ordinary.locator(".junto-node")).not.toHaveAttribute("data-overseer", "true");
   await expect(ordinary.getByTestId("overseer-mark")).toHaveCount(0);
-  await expect(paused.locator(".vellum-node")).toHaveAttribute("data-overseer", "true");
+  await expect(paused.locator(".junto-node")).toHaveAttribute("data-overseer", "true");
 
   await shot(page, "01-enabled-vs-ordinary");
 
@@ -163,7 +163,7 @@ test("overseer identity: card, selected, paused, ordinary contrast, toggle", asy
   await expect(leftPause).toBeVisible();
   await leftPause.click();
   await expect(leftPause).toHaveAttribute("data-paused", "true");
-  await expect(paused.locator(".vellum-node")).toHaveAttribute("data-overseer", "true");
+  await expect(paused.locator(".junto-node")).toHaveAttribute("data-overseer", "true");
   await expect(page.getByTestId("rts-overseer")).toHaveAttribute("data-overseer", "true");
   await shot(page, "04-paused-enabled");
 

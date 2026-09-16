@@ -38,7 +38,7 @@ const CliBuildReceipt = Schema.Struct({
  * the app puts .local/bin on PATH, and may prepend the same checkout's dist.
  * Both build directories must remain frozen while observing the native run.
  */
-export const seedIsolatedVellumCli = async (
+export const seedIsolatedJuntoCli = async (
   sandbox: Sandbox,
   repoRoot: string = FIXTURE_REPO_ROOT,
 ) => {
@@ -134,7 +134,7 @@ export const seedIsolatedDevinAppHome = async (
 ): Promise<ReturnType<typeof prepareIsolatedHarnessLaunch>> => {
   // Refuse before seeding credentials or starting any harness if the actual
   // agent tool is absent or belongs to a different source build.
-  await seedIsolatedVellumCli(sandbox);
+  await seedIsolatedJuntoCli(sandbox);
   const fakeCodex = join(seededHarnessBinDir(sandbox), "codex");
   if (!existsSync(fakeCodex)) {
     await installCrewSeatHarness(sandbox);

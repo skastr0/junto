@@ -187,7 +187,7 @@ export function SheetDetail({
       onClose={close}
       closeOnEscape
     >
-      <div className="vellum-sheet flex h-full min-h-0 flex-col" data-testid="sheet-detail">
+      <div className="junto-sheet flex h-full min-h-0 flex-col" data-testid="sheet-detail">
         <OverlayHeader
           eyebrow="sheet"
           title={title}
@@ -209,7 +209,7 @@ export function SheetDetail({
         />
 
         <div
-          className="vellum-sheet__grid"
+          className="junto-sheet__grid"
           data-testid="sheet-grid"
           data-row-start={String(range.start)}
           data-row-end={String(range.end)}
@@ -220,10 +220,10 @@ export function SheetDetail({
           <table>
             <thead>
               <tr>
-                <th className="vellum-sheet__gutter" aria-hidden />
+                <th className="junto-sheet__gutter" aria-hidden />
                 {draft.columns.map((column) => (
                   <th key={column.id}>
-                    <div className="vellum-sheet__head">
+                    <div className="junto-sheet__head">
                       <input
                         aria-label={`Column name ${column.name || column.id}`}
                         value={column.name}
@@ -250,7 +250,7 @@ export function SheetDetail({
             </thead>
             <tbody>
               {topSpacer > 0 ? (
-                <tr aria-hidden className="vellum-sheet__spacer">
+                <tr aria-hidden className="junto-sheet__spacer">
                   <td
                     colSpan={draft.columns.length + 1}
                     style={{ height: topSpacer, padding: 0, border: 0 }}
@@ -272,7 +272,7 @@ export function SheetDetail({
                 );
               })}
               {bottomSpacer > 0 ? (
-                <tr aria-hidden className="vellum-sheet__spacer">
+                <tr aria-hidden className="junto-sheet__spacer">
                   <td
                     colSpan={draft.columns.length + 1}
                     style={{ height: bottomSpacer, padding: 0, border: 0 }}
@@ -283,7 +283,7 @@ export function SheetDetail({
           </table>
         </div>
 
-        <div className="vellum-sheet__actions">
+        <div className="junto-sheet__actions">
           <button
             type="button"
             onClick={() => apply(addSheetRow(draft), "structure")}
@@ -304,7 +304,7 @@ export function SheetDetail({
           >
             <Plus size={11} aria-hidden /> Column
           </button>
-          <span className="vellum-sheet__note">
+          <span className="junto-sheet__note">
             Cells are plain text. Wired agents read this grid; they never write it.
           </span>
         </div>
@@ -331,8 +331,8 @@ const SheetRowView = memo(function SheetRowView({
   const rowStyle = { height: SHEET_ROW_HEIGHT_PX } satisfies CSSProperties;
   return (
     <tr style={rowStyle}>
-      <td className="vellum-sheet__gutter">
-        <div className="vellum-sheet__gutter-inner">
+      <td className="junto-sheet__gutter">
+        <div className="junto-sheet__gutter-inner">
           <span>{index + 1}</span>
           <IconButton
             aria-label={`Delete row ${String(index + 1)}`}

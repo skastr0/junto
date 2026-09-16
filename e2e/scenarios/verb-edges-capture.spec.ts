@@ -20,7 +20,7 @@ import {
   tasksNode,
 } from "../harness/sandbox";
 import type { Task } from "../../src/shared/work-model";
-import { expect, launchVellum, test } from "../harness/launch";
+import { expect, launchJunto, test } from "../harness/launch";
 
 const WIRE_WIDTH = "1.2px";
 
@@ -40,7 +40,7 @@ const readWires = async (page: {
 }): Promise<WireFacts> =>
   page.evaluate(() => {
     const paths = Array.from(
-      document.querySelectorAll<SVGPathElement>("path.vellum-edge"),
+      document.querySelectorAll<SVGPathElement>("path.junto-edge"),
     );
     const read = (path: SVGPathElement) => window.getComputedStyle(path);
     return {
@@ -110,11 +110,11 @@ const capture = async (
   anchorNodeId: string,
   screenshotPath: string,
 ): Promise<WireFacts> => {
-  const vellumCommand = await launchVellum({
+  const junto = await launchJunto({
     seedCanvases: { [name]: canvasDoc(nodes, edges) },
   });
   try {
-    const { page } = vellumCommand;
+    const { page } = junto;
     await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
     await expect(
       page.locator(`.react-flow__node[data-id="${anchorNodeId}"]`),
@@ -124,12 +124,12 @@ const capture = async (
     // Park the pointer off the control bar so its hover tooltip is not in frame.
     await page.mouse.move(4, 4);
     await page.waitForTimeout(900);
-    await expect(page.locator("path.vellum-edge")).toHaveCount(edges.length);
+    await expect(page.locator("path.junto-edge")).toHaveCount(edges.length);
     const facts = await readWires(page);
     await page.screenshot({ path: screenshotPath, fullPage: false });
     return facts;
   } finally {
-    await vellumCommand.close();
+    await junto.close();
   }
 };
 
