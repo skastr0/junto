@@ -954,11 +954,20 @@ export const GROK_TEMPLATE: ManagedTerminalTemplate = {
  * `chat --tui` stays the prefix: a Vellum Command seat is a visible TUI on a
  * real PTY. On 0.21.0, `-q` on a TTY seeds an interactive session; the
  * headless answer-and-exit path is `--oneshot` / `-Q` / non-TTY.
+ *
+ * Re-probed 0.21.3 (2026-09-16, upstream 6cd25026) after `hermes update`:
+ * - `hermes chat --help` still lists `--tui`, `-q/--query`, `-m/--model`,
+ *   `--provider`, `--reasoning LEVEL`, `--yolo`, and `--resume/-r SESSION_ID`.
+ * - `--profile` / `-p` is not in either `--help`; `hermes_cli/main.py` still
+ *   pre-parses it off argv before argparse, so the flag works but is hidden.
+ * - `~/.hermes/state.db` is still the sole session store (`sessions` table
+ *   grows; nothing new under `~/.hermes/sessions/`).
+ * - Composer paint and multiline-paste chip were not re-captured (UNVERIFIED).
  */
 export const HERMES_TEMPLATE: ManagedTerminalTemplate = {
   harness: "hermes",
   displayName: "Hermes",
-  probedVersion: "0.21.0",
+  probedVersion: "0.21.3",
   argvSpec: {
     binary: "hermes",
     // -z / chat -q without --tui are headless. Interactive auto-submit needs --tui.

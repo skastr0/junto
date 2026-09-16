@@ -321,7 +321,7 @@ describe("managed-terminal templates (data)", () => {
     expect(HERMES_TEMPLATE.argvSpec.binary).toBe("hermes");
     expect(HERMES_TEMPLATE.argvSpec.prefix).toEqual(["chat", "--tui"]);
     expect(HERMES_TEMPLATE.argvSpec.promptMode).toBe("flag-q");
-    expect(HERMES_TEMPLATE.probedVersion).toBe("0.21.0");
+    expect(HERMES_TEMPLATE.probedVersion).toBe("0.21.3");
     expect(HERMES_TEMPLATE.argvSpec.effortFlag).toBe("--reasoning");
     expect(HERMES_TEMPLATE.efforts).toEqual([
       "none",
