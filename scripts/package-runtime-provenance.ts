@@ -64,11 +64,12 @@ export type PackageTarget = "mac" | "linux";
 
 export type PackageSchemaFacts = {
   readonly currentStateSchemaVersion: number;
+  /** The version-1 baseline has no migration; later versions require a head. */
   readonly migrationHead: {
     readonly fromVersion: number;
     readonly toVersion: number;
     readonly name: string;
-  };
+  } | null;
   readonly migrationIdentitySha256: string;
 };
 
@@ -420,8 +421,8 @@ export const readPackageSchemaFacts = async (
     Number(versionMatch[1]),
     "CURRENT_STATE_SCHEMA_VERSION",
   );
-  if (currentStateSchemaVersion < 2) {
-    throw new Error("current state schema version has no migration head");
+  if (currentStateSchemaVersion < 1) {
+    throw new Error("current state schema version must be at least 1");
   }
 
   const migrationPattern =
@@ -434,16 +435,20 @@ export const readPackageSchemaFacts = async (
   const heads = migrations.filter(
     (migration) => migration.toVersion === currentStateSchemaVersion,
   );
-  if (heads.length !== 1) {
+  if (currentStateSchemaVersion === 1 && migrations.length !== 0) {
+    throw new Error("schema v1 baseline must have no migrations");
+  }
+  if (currentStateSchemaVersion > 1 && heads.length !== 1) {
     throw new Error(
       `schema v${String(currentStateSchemaVersion)} must have exactly one migration head`,
     );
   }
-  const migrationHead = heads[0];
+  const migrationHead = heads[0] ?? null;
   if (
-    migrationHead === undefined ||
-    migrationHead.fromVersion !== currentStateSchemaVersion - 1 ||
-    migrationHead.name.length === 0
+    migrationHead !== null && (
+      migrationHead.fromVersion !== currentStateSchemaVersion - 1 ||
+      migrationHead.name.length === 0
+    )
   ) {
     throw new Error("current state migration head is not contiguous");
   }
@@ -511,7 +516,7 @@ export const readPackageSourceFacts = async (input: {
   const schema = await readPackageSchemaFacts(repoRoot);
   // Construct the admitted value ourselves from primitive reads. Freeze both
   // levels so downstream compiler and qualifier operations cannot mutate it.
-  const migrationHead = Object.freeze({
+  const migrationHead = schema.migrationHead === null ? null : Object.freeze({
     fromVersion: schema.migrationHead.fromVersion,
     toVersion: schema.migrationHead.toVersion,
     name: schema.migrationHead.name,
@@ -545,28 +550,28 @@ const PACKAGE_SOURCE_MIGRATION_HEAD_EQUALITY = {
   fromVersion: {
     label: "migrationHead.fromVersion",
     equal: (root, clone) =>
-      root.migrationHead.fromVersion === clone.migrationHead.fromVersion,
+      root.migrationHead?.fromVersion === clone.migrationHead?.fromVersion,
     values: (root, clone) => [
-      root.migrationHead.fromVersion,
-      clone.migrationHead.fromVersion,
+      root.migrationHead?.fromVersion,
+      clone.migrationHead?.fromVersion,
     ],
   },
   toVersion: {
     label: "migrationHead.toVersion",
     equal: (root, clone) =>
-      root.migrationHead.toVersion === clone.migrationHead.toVersion,
+      root.migrationHead?.toVersion === clone.migrationHead?.toVersion,
     values: (root, clone) => [
-      root.migrationHead.toVersion,
-      clone.migrationHead.toVersion,
+      root.migrationHead?.toVersion,
+      clone.migrationHead?.toVersion,
     ],
   },
   name: {
     label: "migrationHead.name",
-    equal: (root, clone) => root.migrationHead.name === clone.migrationHead.name,
-    values: (root, clone) => [root.migrationHead.name, clone.migrationHead.name],
+    equal: (root, clone) => root.migrationHead?.name === clone.migrationHead?.name,
+    values: (root, clone) => [root.migrationHead?.name, clone.migrationHead?.name],
   },
 } as const satisfies Record<
-  keyof PackageSourceFacts["migrationHead"],
+  keyof NonNullable<PackageSourceFacts["migrationHead"]>,
   PackageSourceFactsEqualityEntry
 >;
 
@@ -760,7 +765,9 @@ export const decodePackageRuntimeProvenance = (
   }
   const runtime = requireRuntime(record.runtime);
   const state = requiredRecord(record.state, "runtime provenance state");
-  const head = requiredRecord(state.migrationHead, "migration head");
+  const head = state.migrationHead === null
+    ? null
+    : requiredRecord(state.migrationHead, "migration head");
   const payload = requiredRecord(record.payload, "runtime provenance payload");
   const decoded: PackageRuntimeProvenance = {
     schema: PACKAGE_RUNTIME_PROVENANCE_SCHEMA,
@@ -778,7 +785,7 @@ export const decodePackageRuntimeProvenance = (
         state.currentStateSchemaVersion,
         "current state schema version",
       ),
-      migrationHead: {
+      migrationHead: head === null ? null : {
         fromVersion: requiredInteger(
           head.fromVersion,
           "migration head fromVersion",
@@ -805,11 +812,13 @@ export const decodePackageRuntimeProvenance = (
   ) {
     throw new Error("runtime provenance identity/path mismatch");
   }
+  const { currentStateSchemaVersion, migrationHead } = decoded.state;
   if (
-    decoded.state.migrationHead.toVersion !==
-      decoded.state.currentStateSchemaVersion ||
-    decoded.state.migrationHead.fromVersion !==
-      decoded.state.currentStateSchemaVersion - 1
+    currentStateSchemaVersion === 1
+      ? migrationHead !== null
+      : migrationHead === null ||
+        migrationHead.toVersion !== currentStateSchemaVersion ||
+        migrationHead.fromVersion !== currentStateSchemaVersion - 1
   ) {
     throw new Error("runtime provenance migration head is not contiguous");
   }
@@ -1038,9 +1047,9 @@ const sameSchemaFacts = (
   expected: PackageSchemaFacts,
 ): boolean =>
   actual.currentStateSchemaVersion === expected.currentStateSchemaVersion &&
-  actual.migrationHead.fromVersion === expected.migrationHead.fromVersion &&
-  actual.migrationHead.toVersion === expected.migrationHead.toVersion &&
-  actual.migrationHead.name === expected.migrationHead.name &&
+  actual.migrationHead?.fromVersion === expected.migrationHead?.fromVersion &&
+  actual.migrationHead?.toVersion === expected.migrationHead?.toVersion &&
+  actual.migrationHead?.name === expected.migrationHead?.name &&
   actual.migrationIdentitySha256 === expected.migrationIdentitySha256;
 
 const verifyRuntimeProvenance = (input: {

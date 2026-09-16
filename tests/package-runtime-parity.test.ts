@@ -22,9 +22,11 @@ import {
   assertExactCommittedCheckout,
   embedRuntimeBuildIdentity,
   assertPackageSourceFactsEqual,
+  decodePackageRuntimeProvenance,
   extractRuntimeBuildIdentity,
   makePackageRuntimeProvenance,
   preparePackageRuntimes,
+  readPackageSchemaFacts,
   readPackageSourceFacts,
   resetOwnedRemoteOutput,
   validateRawAsarArchive,
@@ -299,7 +301,9 @@ const createSourceRepository = async (
     [
       `export const CURRENT_STATE_SCHEMA_VERSION = ${String(schemaVersion)};`,
       `export const STATE_SCHEMA_V${String(schemaVersion)}_IDENTITY = { actualSchemaSha256: ${JSON.stringify(migrationIdentitySha256)} };`,
-      `const migrations = [{ fromVersion: ${String(schemaVersion - 1)}, toVersion: ${String(schemaVersion)}, name: ${JSON.stringify(migrationName)} }];`,
+      schemaVersion === 1
+        ? "const migrations = [];"
+        : `const migrations = [{ fromVersion: ${String(schemaVersion - 1)}, toVersion: ${String(schemaVersion)}, name: ${JSON.stringify(migrationName)} }];`,
       "",
     ].join("\n"),
   );
@@ -572,6 +576,61 @@ describe("exact committed source admission", () => {
 });
 
 describe("package source facts", () => {
+  it("packages the v1 baseline without inventing a migration", async () => {
+    const fixture = await createSourceRepository({ schemaVersion: 1 });
+    try {
+      const facts = await readPackageSourceFacts({ repoRoot: fixture.root });
+      expect(facts.currentStateSchemaVersion).toBe(1);
+      expect(facts.migrationHead).toBeNull();
+      expect(facts.migrationIdentitySha256).toBe(
+        "b545aa0771810a631eeeea9f7b642467e6cca327ba74392298457aab1cec1955",
+      );
+      assertPackageSourceFactsEqual(facts, { ...facts });
+      const provenance = makePackageRuntimeProvenance({
+        runtime: "electron-main",
+        source: facts,
+        payload: compiled("electron-main", "console.log('baseline');", facts),
+      });
+      expect(decodePackageRuntimeProvenance(JSON.parse(JSON.stringify(provenance))))
+        .toEqual(provenance);
+      for (const currentStateSchemaVersion of [0, 2]) {
+        expect(() => decodePackageRuntimeProvenance({
+          ...provenance,
+          state: { ...provenance.state, currentStateSchemaVersion },
+        })).toThrow(/migration head/u);
+      }
+      const inventedHead = { fromVersion: 0, toVersion: 1, name: "invented" };
+      expect(() => decodePackageRuntimeProvenance({
+        ...provenance,
+        state: { ...provenance.state, migrationHead: inventedHead },
+      })).toThrow(/migration head/u);
+      expect(() => assertPackageSourceFactsEqual(facts, {
+        ...facts, migrationHead: inventedHead,
+      })).toThrow(/migrationHead/u);
+      const { migrationHead: _head, ...missingHead } = provenance.state;
+      expect(() => decodePackageRuntimeProvenance({
+        ...provenance, state: missingHead,
+      })).toThrow(/migration head/u);
+
+      const migrationPath = path.join(fixture.root, "src/main/junto/state/migrations.ts");
+      const baseline = await readFile(migrationPath, "utf8");
+      await writeFile(migrationPath, baseline.replace("const migrations = [];",
+        'const migrations = [{ fromVersion: 0, toVersion: 1, name: "invented" }];'));
+      await expect(readPackageSchemaFacts(fixture.root)).rejects.toThrow(/baseline must have no migrations/u);
+      await writeFile(migrationPath, baseline.replaceAll("VERSION = 1", "VERSION = 2")
+        .replaceAll("V1_IDENTITY", "V2_IDENTITY"));
+      await expect(readPackageSchemaFacts(fixture.root)).rejects.toThrow(/exactly one migration head/u);
+    } finally {
+      await rm(fixture.root, { recursive: true, force: true });
+    }
+  });
+
+  it("admits the repository's actual baseline schema facts", async () => {
+    const facts = await readPackageSchemaFacts(repoRoot);
+    expect(facts.currentStateSchemaVersion).toBe(1);
+    expect(facts.migrationHead).toBeNull();
+  });
+
   it("accepts two independently read facts with the same source values", async () => {
     const root = sourceRepositoryRoot as string;
     const rootFacts = await readPackageSourceFacts({
@@ -651,6 +710,7 @@ describe("package source facts", () => {
       repoRoot: sourceRepositoryRoot as string,
       requireClean: true,
     });
+    if (facts.migrationHead === null) throw new Error("fixture requires a migration head");
     expect(Object.getPrototypeOf(facts)).toBe(Object.prototype);
     expect(Object.getPrototypeOf(facts.migrationHead)).toBe(Object.prototype);
     expect(Object.isFrozen(facts)).toBe(true);
