@@ -135,9 +135,9 @@ describe("isolated capture home", () => {
     expect(launch.env.PWD).toBe(cwd);
     expect(launch.env.CLAUDE_CONFIG_DIR).toBe(`${isolatedHome}/.claude`);
     expect(launch.env.SECRET_HISTORY).toBeUndefined();
-    expect(HARNESS_ISOLATION["vellum-overseer"].captureHome).toBe("unsupported");
+    expect(HARNESS_ISOLATION["junto-overseer"].captureHome).toBe("unsupported");
     const overseer = buildIsolatedHarnessLaunch({
-      harness: "vellum-overseer",
+      harness: "junto-overseer",
       isolatedHome,
       cwd,
       operatorHome: operator,

@@ -36,7 +36,7 @@ import {
   overseerWorkRunsLocally,
 } from "../src/main/junto/overseer/work";
 
-const mockHome = join(tmpdir(), `vellum-overseer-work-${randomUUID()}`);
+const mockHome = join(tmpdir(), `junto-overseer-work-${randomUUID()}`);
 
 vi.mock("node:os", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:os")>();

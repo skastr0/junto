@@ -49,7 +49,7 @@ describe("live conversation controls", () => {
 });
 
 describe("live conversation seat and attention", () => {
-  const seat: CanvasNode = { id: "o1", type: "text", text: "Overseer", x: 0, y: 0, width: 240, height: 96, ether: { entity: { kind: "agent" }, overseer: true, terminal: { bindingId: "binding", harness: "vellum-overseer" } } };
+  const seat: CanvasNode = { id: "o1", type: "text", text: "Overseer", x: 0, y: 0, width: 240, height: 96, ether: { entity: { kind: "agent" }, overseer: true, terminal: { bindingId: "binding", harness: "junto-overseer" } } };
   it("requires a granted native controller seat and never upgrades an ordinary worker", () => {
     expect(canStartOverseerLive(seat)).toBe(true);
     expect(canStartOverseerLive({ ...seat, ether: { ...seat.ether, overseer: false } })).toBe(false);

@@ -18,7 +18,7 @@ export const overseerLive$ = observable({
 
 export const canStartOverseerLive = (node: CanvasNode): boolean =>
   LIVE_OVERSEER_ENABLED && node.ether?.entity?.kind === "agent" && node.ether.overseer === true &&
-  node.ether.terminal?.harness === "vellum-overseer";
+  node.ether.terminal?.harness === "junto-overseer";
 
 export const openOverseerLive = (target: LiveSeatTarget): void => {
   if (!LIVE_OVERSEER_ENABLED) return;

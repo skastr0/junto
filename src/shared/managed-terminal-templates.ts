@@ -39,7 +39,7 @@ export const HarnessId = Schema.Literals([
   "amp",
   "fx",
   "omp",
-  "vellum-overseer",
+  "junto-overseer",
 ]);
 export type HarnessId = typeof HarnessId.Type;
 
@@ -454,7 +454,7 @@ export const HARNESS_MAIL_TRANSPORT: Readonly<Record<HarnessId, MailTransportSpe
   amp: MAIL_T2_WORKING,
   fx: MAIL_T2_UNAVAILABLE,
   omp: MAIL_T2_WORKING,
-  "vellum-overseer": MAIL_T2_UNAVAILABLE,
+  "junto-overseer": MAIL_T2_UNAVAILABLE,
 };
 
 export const HARNESS_ISOLATION: Readonly<Record<HarnessId, IsolationSpec>> = {
@@ -541,7 +541,7 @@ export const HARNESS_ISOLATION: Readonly<Record<HarnessId, IsolationSpec>> = {
     captureHome: "isolated",
     limitation: "isolated HOME is a provider picker; operator-home T2 was a disposable cwd",
   },
-  "vellum-overseer": {
+  "junto-overseer": {
     homePins: [],
     credentialEnv: [],
     credentialFiles: [],
@@ -1744,7 +1744,7 @@ export const OMP_TEMPLATE: ManagedTerminalTemplate = {
 
 /** App-owned structured controller. Its tool calls still enter the process-bound Work socket. */
 export const JUNTO_OVERSEER_TEMPLATE: ManagedTerminalTemplate = {
-  harness: "vellum-overseer",
+  harness: "junto-overseer",
   displayName: "Junto Overseer",
   argvSpec: {
     binary: "junto",
@@ -1762,8 +1762,8 @@ export const JUNTO_OVERSEER_TEMPLATE: ManagedTerminalTemplate = {
     stateFeed: "correlated run events", attentionSource: "structured run events",
     labels: ["live conversation", "correlated tools", "cancellation"],
   },
-  mailTransport: HARNESS_MAIL_TRANSPORT["vellum-overseer"],
-  isolation: HARNESS_ISOLATION["vellum-overseer"],
+  mailTransport: HARNESS_MAIL_TRANSPORT["junto-overseer"],
+  isolation: HARNESS_ISOLATION["junto-overseer"],
   efforts: [],
 };
 
@@ -1784,7 +1784,7 @@ export const MANAGED_TERMINAL_TEMPLATES: Readonly<
   amp: AMP_TEMPLATE,
   fx: FX_TEMPLATE,
   omp: OMP_TEMPLATE,
-  "vellum-overseer": JUNTO_OVERSEER_TEMPLATE,
+  "junto-overseer": JUNTO_OVERSEER_TEMPLATE,
 };
 
 export const templateFor = (harness: HarnessId): ManagedTerminalTemplate =>

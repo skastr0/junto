@@ -69,7 +69,7 @@ describe("managed-terminal templates (data)", () => {
     "amp",
     "fx",
     "omp",
-    "vellum-overseer",
+    "junto-overseer",
   ] as const;
 
   it("exports exactly the managed harnesses", () => {

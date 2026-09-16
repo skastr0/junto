@@ -760,7 +760,7 @@ export class LocalSessionHost extends EventEmitter {
 
   /** Open the actor seat. Its harness is declared, never inferred at spawn. */
   createAgentSeat(input: LocalHostAgentSeatInput): TerminalSessionSummary {
-    if (input.harness === "vellum-overseer" && !LIVE_OVERSEER_ENABLED) {
+    if (input.harness === "junto-overseer" && !LIVE_OVERSEER_ENABLED) {
       throw new Error("Live conversation is disabled in this Junto build");
     }
     const bindingId = input.bindingId.trim();

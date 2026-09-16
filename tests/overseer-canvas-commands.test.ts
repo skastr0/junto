@@ -150,8 +150,8 @@ describe("executeOverseerCanvas", () => {
   let runtime: ReturnType<typeof makeRuntime> | undefined;
 
   const installEnv = async (): Promise<void> => {
-    canvasesDir = await mkdtemp(join(tmpdir(), "vellum-overseer-canvases-"));
-    stateDir = await mkdtemp(join(tmpdir(), "vellum-overseer-state-"));
+    canvasesDir = await mkdtemp(join(tmpdir(), "junto-overseer-canvases-"));
+    stateDir = await mkdtemp(join(tmpdir(), "junto-overseer-state-"));
     previousCanvases = process.env.JUNTO_CANVASES_DIR;
     process.env.JUNTO_CANVASES_DIR = canvasesDir;
   };

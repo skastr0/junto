@@ -155,7 +155,7 @@ describe("overseer composition canvas hook with live grant", () => {
   });
 
   it("commits reseat with origin caller and live canvasOverseerSet grant", async () => {
-    stateDir = await mkdtemp(join(tmpdir(), "vellum-overseer-hook-state-"));
+    stateDir = await mkdtemp(join(tmpdir(), "junto-overseer-hook-state-"));
     runtime = makeRuntime(join(stateDir, "junto.db"));
     const settings = await runtime.runPromise(SettingsService);
     await runtime.runPromise(settings.setStationTopology({
@@ -201,7 +201,7 @@ describe("overseer composition canvas hook with live grant", () => {
   });
 
   it("interrupts a waiting canvas hook and drains its cleanup before returning", async () => {
-    stateDir = await mkdtemp(join(tmpdir(), "vellum-overseer-hook-abort-"));
+    stateDir = await mkdtemp(join(tmpdir(), "junto-overseer-hook-abort-"));
     runtime = makeRuntime(join(stateDir, "junto.db"));
     const entered = Deferred.makeUnsafe<void>();
     const release = Deferred.makeUnsafe<void>();

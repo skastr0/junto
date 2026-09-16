@@ -2,7 +2,7 @@ import type { SeatRulePack } from "../types";
 
 /** Exact OSC title states emitted by our own native controller. No terminal composer. */
 export const juntoOverseerRules: SeatRulePack = {
-  harness: "vellum-overseer", version: "1",
+  harness: "junto-overseer", version: "1",
   rules: [
     { id: "controller_working", state: "working", priority: 100, region: "osc_title", visibleWorking: true,
       matchers: { regex: ["^Junto Overseer working$"] } },

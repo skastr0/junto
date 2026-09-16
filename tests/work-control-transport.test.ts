@@ -503,7 +503,7 @@ describe("work control transport", () => {
     const runtime = runtimes.at(-1)!;
     const canvases = await runtime.runPromise(CanvasesService);
     await runtime.runPromise(canvases.mutate("work-cli", (doc) => ({ ...doc, nodes: doc.nodes.map((node) => node.id !== "agent" ? node : ({
-      ...node, ether: { ...node.ether, terminal: { ...node.ether!.terminal!, harness: "vellum-overseer" } },
+      ...node, ether: { ...node.ether, terminal: { ...node.ether!.terminal!, harness: "junto-overseer" } },
     })) })));
     const read = await runtime.runPromise(canvases.read("work-cli"));
     await runtime.runPromise(canvases.canvasOverseerSet({ canvasName: "work-cli", nodeId: "agent", overseer: true, expectedRevision: read.revision }));

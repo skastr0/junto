@@ -2943,7 +2943,7 @@ export const startWorkControlServer = async (
             )).digest("hex"),
           };
           const nativeController = isManagedAgentNode(callerResolved.caller.node) &&
-            callerResolved.caller.node.ether.terminal.harness === "vellum-overseer";
+            callerResolved.caller.node.ether.terminal.harness === "junto-overseer";
           if (!LIVE_OVERSEER_ENABLED && (nativeController || req.op === "overseer.live")) {
             return Result.fail<WorkErrorBody>({
               type: "ScopeError", message: "Live conversation is disabled in this Junto build",

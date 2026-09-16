@@ -421,7 +421,7 @@ describe("omp (P1 corpus 18.1.16 operator-home)", () => {
 describe("fail-closed defaults", () => {
   it("a probe-less pack yields null — factory typing refuses", () => {
     expect(
-      composerVerdictFor(snap({ lines: ["> "] }), rulePackFor("vellum-overseer")),
+      composerVerdictFor(snap({ lines: ["> "] }), rulePackFor("junto-overseer")),
     ).toBe(null);
   });
 
@@ -440,7 +440,7 @@ describe("fail-closed defaults", () => {
       admitUngroundedFirstTypedComposer(null, rulePackFor("omp"), true),
     ).toBe(null);
     expect(
-      admitUngroundedFirstTypedComposer(null, rulePackFor("vellum-overseer"), true),
+      admitUngroundedFirstTypedComposer(null, rulePackFor("junto-overseer"), true),
     ).toBe("empty");
     expect(
       admitUngroundedFirstTypedComposer(null, rulePackFor("amp"), true),

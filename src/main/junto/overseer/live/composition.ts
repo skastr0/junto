@@ -32,7 +32,7 @@ export const composeOverseerLive = async (run: LiveRun) => {
         authority.hostId !== authority.configuration.hostId) return undefined;
       const read = await run(canvases.read(canvasName, "overseer.canvas"));
       const node = read.doc.nodes.find((candidate) => candidate.id === nodeId);
-      if (!node || !isManagedAgentNode(node) || node.ether.terminal.harness !== "vellum-overseer") return undefined;
+      if (!node || !isManagedAgentNode(node) || node.ether.terminal.harness !== "junto-overseer") return undefined;
       const matches = processMap.snapshot().filter((entry) => {
         const alive = processMap.resolve(entry.pid);
         return alive !== undefined &&
@@ -63,7 +63,7 @@ export const composeOverseerLive = async (run: LiveRun) => {
         const previous = detail.previous?.nodes.find((node) => node.id === seat.nodeId);
         const next = detail.next?.nodes.find((node) => node.id === seat.nodeId);
         if (!next || !previous || !isManagedAgentNode(next) || !isManagedAgentNode(previous) ||
-          next.ether.overseer !== true || next.ether.terminal.harness !== "vellum-overseer" ||
+          next.ether.overseer !== true || next.ether.terminal.harness !== "junto-overseer" ||
           next.ether.terminal.bindingId !== previous.ether.terminal.bindingId ||
           next.ether.entity.name !== previous.ether.entity.name ||
           resolveNodeHostId(next) !== resolveNodeHostId(previous)) listener(undefined);

@@ -56,7 +56,7 @@ const liveAuditSnapshot: LiveSnapshot = {
 test("capture live conversation with isolated provider and media fixtures", async () => {
   test.setTimeout(90_000);
   await mkdir(SHOTS, { recursive: true });
-  const seat = agentTextNode({ id: "live-overseer", key: "local:overseer", label: "Factory Overseer", harness: "vellum-overseer", x: 60, y: 60 });
+  const seat = agentTextNode({ id: "live-overseer", key: "local:overseer", label: "Factory Overseer", harness: "junto-overseer", x: 60, y: 60 });
   const world = await launchJunto({
     offline: true,
     seedCanvases: { "live-audit": canvasDoc([

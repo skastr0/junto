@@ -120,7 +120,7 @@ export const harnessBinaryInstalled = (
   harness: HarnessId,
   binary: string,
   options?: HarnessExecutableResolution,
-): boolean => resolveHarnessExecutable(binary, harness === "vellum-overseer" ? {
+): boolean => resolveHarnessExecutable(binary, harness === "junto-overseer" ? {
   ...options, extraDirs: [...juntoCliPathPrefixes(), ...(options?.extraDirs ?? configuredToolDirectories())],
 } : options) !== undefined;
 

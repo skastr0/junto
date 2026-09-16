@@ -31,8 +31,8 @@ const identity: OverseerHostIdentity = {
 const attention = (nodeId = "first"): LiveAttention => ({ canvasName: "factory", selectedNodeIds: [nodeId] });
 const document = (): CanvasDoc => applyMirrorLaw({ nodes: [
   { id: "controller", type: "text", text: "Controller", x: 0, y: 0, width: 260, height: 100,
-    ether: { entity: { kind: "agent", name: "local:vellum-overseer" }, host: "local",
-      terminal: { bindingId: identity.bindingId, harness: "vellum-overseer" } } },
+    ether: { entity: { kind: "agent", name: "local:junto-overseer" }, host: "local",
+      terminal: { bindingId: identity.bindingId, harness: "junto-overseer" } } },
   { id: "first", type: "text", text: "First note", x: 300, y: 0, width: 200, height: 100 },
   { id: "second", type: "text", text: "Second note", x: 600, y: 0, width: 200, height: 100 },
 ], edges: [] });

@@ -312,7 +312,7 @@ export const overseerOperationEnabled = (operation: string): boolean => {
  * palette, seat factory, and terminal create IPC.
  */
 export const managedHarnessEnabled = (harness: string): boolean => {
-  if (harness === "vellum-overseer") return LIVE_OVERSEER_ENABLED;
+  if (harness === "junto-overseer") return LIVE_OVERSEER_ENABLED;
   if (harness === "hermes") return HARNESS_HERMES_ENABLED;
   if (harness === "kimi") return HARNESS_KIMI_ENABLED;
   if (harness === "muse") return HARNESS_MUSE_ENABLED;

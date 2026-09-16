@@ -36,7 +36,7 @@ afterEach(async () => {
 const startFakeWorkServer = async (
   mode: FailureMode,
 ): Promise<{ readonly invocations: () => number }> => {
-  const root = await mkdtemp(join(tmpdir(), "vellum-overseer-socket-"));
+  const root = await mkdtemp(join(tmpdir(), "junto-overseer-socket-"));
   roots.push(root);
   process.env.JUNTO_WORK_HOME = root;
   await mkdir(root, { recursive: true });

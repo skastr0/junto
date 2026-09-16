@@ -32,9 +32,9 @@ describe("Live Overseer product gate", () => {
   });
 
   it("retains durable harness vocabulary independently of authoring", () => {
-    expect(HARNESS_IDS).toContain("vellum-overseer");
-    expect(managedHarnessEnabled("vellum-overseer")).toBe(LIVE_OVERSEER_ENABLED);
-    expect(allTemplates().some((template) => template.harness === "vellum-overseer")).toBe(LIVE_OVERSEER_ENABLED);
+    expect(HARNESS_IDS).toContain("junto-overseer");
+    expect(managedHarnessEnabled("junto-overseer")).toBe(LIVE_OVERSEER_ENABLED);
+    expect(allTemplates().some((template) => template.harness === "junto-overseer")).toBe(LIVE_OVERSEER_ENABLED);
   });
 
   it("gates credentials, model settings, and programmatic conversation opening", () => {
@@ -46,7 +46,7 @@ describe("Live Overseer product gate", () => {
   });
 
   it.runIf(!LIVE_OVERSEER_ENABLED)("refuses new native seats and the executable entry point", () => {
-    expect(() => makeManagedAgentNode(0, 0, { harness: "vellum-overseer", host: "local" })).toThrow(/disabled/u);
+    expect(() => makeManagedAgentNode(0, 0, { harness: "junto-overseer", host: "local" })).toThrow(/disabled/u);
     const process = spawnSync("bun", ["src/cli/main.ts", "overseer-host"], {
       encoding: "utf8",
       timeout: 15_000,
@@ -58,7 +58,7 @@ describe("Live Overseer product gate", () => {
   });
 
   it.runIf(LIVE_OVERSEER_ENABLED)("allows explicitly enabled managed seats", () => {
-    const node = makeManagedAgentNode(0, 0, { harness: "vellum-overseer", host: "local" });
+    const node = makeManagedAgentNode(0, 0, { harness: "junto-overseer", host: "local" });
     expect(canStartOverseerLive(node)).toBe(false);
     expect(canStartOverseerLive({ ...node, ether: { ...node.ether, overseer: true } })).toBe(true);
   });
@@ -72,8 +72,8 @@ describe("Live Overseer product gate", () => {
       bindingId: "live-seat",
       canvasName: "main",
       nodeId: "overseer",
-      harness: "vellum-overseer",
-      agentKey: "local:vellum-overseer",
+      harness: "junto-overseer",
+      agentKey: "local:junto-overseer",
       spawnIntent: {
         documentLaunch: { kind: "harness", argv: ["junto", "overseer-host"] },
         resumeRequested: false,
