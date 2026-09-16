@@ -6,7 +6,6 @@ import path from "node:path";
 import {
   LINUX_DESKTOP_MAX_ARCHIVE_BYTES,
   LINUX_DESKTOP_MAX_METADATA_BYTES,
-  LINUX_DESKTOP_MAX_SOURCE_INDEX_BYTES,
   linuxDesktopArchiveName,
 } from "./linux-desktop-release";
 import {
@@ -85,71 +84,27 @@ export const fingerprintLinuxDesktopFile = async (inputPath: string): Promise<Fi
     return { bytes, sha256: hash.digest("hex") };
   });
 
-const record = (value: unknown): Record<string, unknown> => {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) throw new Error("invalid source index object");
-  return value as Record<string, unknown>;
-};
-const decodeSourceEntry = (value: unknown): FileDigest & { readonly file: string } => {
-  const entry = record(value);
-  if (typeof entry.file !== "string" || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(entry.file) ||
-      !Number.isSafeInteger(entry.bytes) || Number(entry.bytes) < 1 ||
-      typeof entry.sha256 !== "string" || !/^[a-f0-9]{64}$/.test(entry.sha256)) {
-    throw new Error("invalid source index file");
-  }
-  return { file: entry.file, bytes: Number(entry.bytes), sha256: entry.sha256 };
-};
-
-/** Binds the index and archive only; complete source-material closure is a publisher gate. */
-export const verifyLinuxDesktopSourceBinding = async (input: {
+export const verifyLinuxDesktopArchiveBinding = async (input: {
   readonly archivePath: string;
-  readonly sourceIndexPath: string;
   readonly version: string;
-  readonly sourceRevision: string;
-}): Promise<{ readonly archive: FileDigest; readonly sources: FileDigest }> => {
+}): Promise<FileDigest> => {
   const archiveName = linuxDesktopArchiveName(input.version);
-  if (path.basename(input.archivePath) !== archiveName || path.basename(input.sourceIndexPath) !== "sources.json") {
-    throw new Error("release inputs must use the canonical archive and sources.json basenames");
+  if (path.basename(input.archivePath) !== archiveName) {
+    throw new Error("release archive must use the canonical basename");
   }
-  const [archive, source] = await Promise.all([
-    fingerprintLinuxDesktopFile(input.archivePath),
-    readJsonDigest(input.sourceIndexPath, "source index", LINUX_DESKTOP_MAX_SOURCE_INDEX_BYTES),
-  ]);
-  const index = record(source.value);
-  if (index.schema !== "junto/release-sources/v1" || index.product !== "Junto" ||
-      index.access !== "same-download-location" || !Array.isArray(index.files) || !Array.isArray(index.binaries)) {
-    throw new Error("invalid release source index");
-  }
-  if (index.version !== input.version || index.sourceCommit !== input.sourceRevision) {
-    throw new Error("source index version or source commit does not match the desktop release");
-  }
-  const files = index.files.map(decodeSourceEntry);
-  const binaries = index.binaries.map(decodeSourceEntry);
-  if (new Set(files.map((entry) => entry.file)).size !== files.length ||
-      new Set(binaries.map((entry) => entry.file)).size !== binaries.length) {
-    throw new Error("duplicate source index file");
-  }
-  const binary = binaries[0];
-  if (binaries.length !== 1 || binary === undefined || binary.file !== archiveName ||
-      binary.bytes !== archive.bytes || binary.sha256 !== archive.sha256) {
-    throw new Error("source index does not bind the exact desktop archive bytes");
-  }
-  return { archive, sources: { bytes: source.bytes, sha256: source.sha256 } };
+  return fingerprintLinuxDesktopFile(input.archivePath);
 };
 
 export const verifyLinuxDesktopReleaseFiles = async (input: VerifyLinuxDesktopReleaseOptions & {
   readonly releasePath: string;
   readonly archivePath: string;
-  readonly sourceIndexPath: string;
 }): Promise<VerifiedLinuxDesktopRelease> => {
   const descriptor = verifyLinuxDesktopRelease(await readLinuxDesktopReleaseJson(input.releasePath), input);
-  const files = await verifyLinuxDesktopSourceBinding({
+  const archive = await verifyLinuxDesktopArchiveBinding({
     archivePath: input.archivePath,
-    sourceIndexPath: input.sourceIndexPath,
     version: descriptor.version,
-    sourceRevision: descriptor.sourceRevision,
   });
-  if (files.archive.bytes !== descriptor.archive.bytes || files.archive.sha256 !== descriptor.archive.sha256 ||
-      files.sources.bytes !== descriptor.sources.bytes || files.sources.sha256 !== descriptor.sources.sha256) {
+  if (archive.bytes !== descriptor.archive.bytes || archive.sha256 !== descriptor.archive.sha256) {
     throw new Error("local release bytes differ from the signed descriptor");
   }
   return descriptor;

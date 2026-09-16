@@ -62,29 +62,16 @@ const fixture = async () => {
   const sourceRevision = "a".repeat(40);
   const archive = path.join(root, linuxDesktopArchiveName(version));
   await writeFile(archive, "synthetic packaged desktop archive");
-  const digest = await fingerprintLinuxDesktopFile(archive);
-  const sources = path.join(root, "sources.json");
-  const index = {
-    schema: "junto/release-sources/v1",
-    product: "Junto",
-    version,
-    sourceCommit: sourceRevision,
-    access: "same-download-location",
-    files: [{ file: "synthetic-source.tar.gz", bytes: 1, sha256: "b".repeat(64) }],
-    binaries: [{ file: path.basename(archive), ...digest }],
-  };
-  await writeFile(sources, JSON.stringify(index));
   const descriptorPath = path.join(root, "descriptor.json");
   const releasePath = path.join(root, "release.json");
   const prepare = {
     archive,
-    sources,
     version,
     sourceRevision,
     createdAt: "2026-09-10T00:00:00.000Z",
     output: descriptorPath,
   };
-  return { root, trust, now, pem, archive, sources, descriptorPath, releasePath, prepare, index };
+  return { root, trust, now, pem, archive, descriptorPath, releasePath, prepare };
 };
 
 describe("Linux desktop local release CLI", () => {
@@ -101,7 +88,7 @@ describe("Linux desktop local release CLI", () => {
       ["verify", "--release", "release.json", "--release", "other.json"],
       ["verify", "--release", "--help"],
       ["verify", "--release", "release.json", "extra"],
-      ["verify", "--release", "release.json", "--archive", "release.tar.gz"],
+      ["verify", "--release", "release.json", "--sources", "sources.json"],
       ["verify", "--release", "release.json", "--require-newer"],
     ]) expect(() => parseLinuxDesktopReleaseArgs(argv)).toThrow();
   });
@@ -131,7 +118,7 @@ describe("Linux desktop local release CLI", () => {
     const input = await fixture();
     const options = { trust: input.trust, now: input.now, stdin: stdin(input.pem) };
     const prepared = await runLinuxDesktopRelease([
-      "prepare", "--archive", input.archive, "--sources", input.sources,
+      "prepare", "--archive", input.archive,
       "--version", input.prepare.version, "--source-revision", input.prepare.sourceRevision,
       "--created-at", input.prepare.createdAt,
       "--output", input.descriptorPath,
@@ -145,13 +132,13 @@ describe("Linux desktop local release CLI", () => {
     ], options);
     expect(JSON.parse(signed)).toEqual({ ok: true, command: "sign", version: "0.2.1" });
     const verified = await runLinuxDesktopRelease([
-      "verify", "--release", input.releasePath, "--archive", input.archive, "--sources", input.sources,
+      "verify", "--release", input.releasePath, "--archive", input.archive,
       "--current-version", "0.2.0", "--require-newer", "--now", input.now,
     ], options);
     expect(JSON.parse(verified)).toEqual({ ok: true, command: "verify", version: "0.2.1" });
     expect(prepared + signed + verified).not.toContain(input.pem);
     expect(await verifyLinuxDesktopReleaseFiles({
-      releasePath: input.releasePath, archivePath: input.archive, sourceIndexPath: input.sources,
+      releasePath: input.releasePath, archivePath: input.archive,
       trust: input.trust, now: input.now,
     })).toEqual(JSON.parse(descriptorText));
   });
@@ -164,10 +151,10 @@ describe("Linux desktop local release CLI", () => {
     expect(await readFile(input.descriptorPath, "utf8")).toBe("keep this descriptor");
     await rm(input.descriptorPath);
     await prepareLinuxDesktopRelease(input.prepare, options);
-    await symlink(input.sources, input.releasePath);
+    await symlink(input.archive, input.releasePath);
     await expect(signLinuxDesktopReleaseFile({ descriptor: input.descriptorPath, output: input.releasePath }, options))
       .rejects.toMatchObject({ code: "EEXIST" });
-    expect(JSON.parse(await readFile(input.sources, "utf8"))).toEqual(input.index);
+    expect(await readFile(input.archive, "utf8")).toBe("synthetic packaged desktop archive");
     await rm(input.releasePath);
     await writeFile(input.releasePath, "keep this release");
     await expect(signLinuxDesktopReleaseFile({ descriptor: input.descriptorPath, output: input.releasePath }, options))
@@ -176,22 +163,9 @@ describe("Linux desktop local release CLI", () => {
     expect((await readdir(input.root)).some((name) => name.startsWith("linux-desktop-release-stage-"))).toBe(false);
   });
 
-  it("rejects unrelated sources, substituted archive bytes, and noncanonical names before preparing", async () => {
+  it("rejects noncanonical archive names before preparing", async () => {
     const input = await fixture();
     const options = { trust: input.trust };
-    for (const index of [
-      { ...input.index, version: "0.2.2" },
-      { ...input.index, sourceCommit: "c".repeat(40) },
-      { ...input.index, binaries: [] },
-      { ...input.index, binaries: [...input.index.binaries, ...input.index.binaries] },
-      { ...input.index, binaries: [...input.index.binaries, { ...input.index.binaries[0], file: "unrelated-runtime.tar.gz" }] },
-      { ...input.index, schema: "unknown" },
-      { ...input.index, binaries: [{ ...input.index.binaries[0], sha256: "d".repeat(64) }] },
-    ]) {
-      await writeFile(input.sources, JSON.stringify(index));
-      await expect(prepareLinuxDesktopRelease(input.prepare, options)).rejects.toThrow(/source index/);
-    }
-    await writeFile(input.sources, JSON.stringify(input.index));
     await expect(prepareLinuxDesktopRelease({ ...input.prepare, archive: path.join(input.root, "renamed.tar.gz") }, options))
       .rejects.toThrow(/canonical/);
     await expect(readFile(input.descriptorPath)).rejects.toMatchObject({ code: "ENOENT" });
@@ -236,7 +210,7 @@ describe("Linux desktop local release CLI", () => {
     const options = { trust: input.trust, now: input.now, stdin: stdin(input.pem) };
     await prepareLinuxDesktopRelease(input.prepare, options);
     await signLinuxDesktopReleaseFile({ descriptor: input.descriptorPath, output: input.releasePath }, options);
-    const verify = { release: input.releasePath, requireNewer: true, currentVersion: "0.2.0", archive: input.archive, sources: input.sources };
+    const verify = { release: input.releasePath, requireNewer: true, currentVersion: "0.2.0", archive: input.archive };
     await expect(verifyLinuxDesktopReleaseFile({ ...verify, now: "2036-10-01T00:00:00.000Z" }, options)).resolves.toMatchObject({ version: "0.2.1" });
     await expect(verifyLinuxDesktopReleaseFile({ ...verify, currentVersion: "0.2.1" }, options)).rejects.toThrow();
     const validText = await readFile(input.releasePath, "utf8");
@@ -245,14 +219,11 @@ describe("Linux desktop local release CLI", () => {
     await writeFile(input.releasePath, JSON.stringify(tampered));
     await expect(verifyLinuxDesktopReleaseFile(verify, options)).rejects.toThrow();
     await writeFile(input.releasePath, validText);
-    await writeFile(input.sources, `${JSON.stringify(input.index)}\n`);
-    await expect(verifyLinuxDesktopReleaseFile(verify, options)).rejects.toThrow(/signed descriptor/);
-    await writeFile(input.sources, JSON.stringify(input.index));
     await writeFile(input.archive, "changed archive bytes");
-    await expect(verifyLinuxDesktopReleaseFile(verify, options)).rejects.toThrow(/exact desktop archive bytes/);
+    await expect(verifyLinuxDesktopReleaseFile(verify, options)).rejects.toThrow(/local release bytes/);
   });
 
-  it("bounds metadata and source reads and refuses symlinked metadata", async () => {
+  it("bounds metadata reads and refuses symlinked metadata", async () => {
     const input = await fixture();
     await prepareLinuxDesktopRelease(input.prepare, { trust: input.trust });
     const alias = path.join(input.root, "metadata-alias.json");
@@ -260,9 +231,6 @@ describe("Linux desktop local release CLI", () => {
     await expect(readLinuxDesktopReleaseJson(alias)).rejects.toThrow(/regular file/);
     await truncate(input.descriptorPath, 65_537);
     await expect(readLinuxDesktopReleaseJson(input.descriptorPath)).rejects.toThrow(/size limit/);
-    await truncate(input.sources, 1_048_577);
-    await expect(prepareLinuxDesktopRelease({ ...input.prepare, output: path.join(input.root, "other.json") }, { trust: input.trust }))
-      .rejects.toThrow(/size limit/);
   });
 
 });

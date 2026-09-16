@@ -64,7 +64,7 @@ describe("Linux desktop alpha and gated Fleet operator documentation", () => {
       "Do not extract the archive or execute its bundled CLI",
     );
     expect(text).toContain(
-      "`--release ... --archive ... --sources ...`",
+      "`--release ... --archive ...`",
     );
     expect(text).toContain(
       "refuses an existing managed launcher and never launches the app or opens its database",

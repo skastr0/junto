@@ -94,7 +94,6 @@ const fixture = async (options: { home?: string; root?: string; version?: string
     schema: LINUX_DESKTOP_RELEASE_SCHEMA, product: "Junto", channel: "alpha", version, sourceRevision: SOURCE,
     createdAt: "2026-01-01T00:00:00.000Z", target: LINUX_DESKTOP_TARGET,
     archive: { file: filename, path: `/linux/x64/${filename}`, bytes: bytes.length, sha256: sha256(bytes) },
-    sources: { path: `/linux/x64/sources/${version}/sources.json`, bytes: 1, sha256: "b".repeat(64) },
     trust: { algorithm: "ed25519", keyId: keyring.keys[0]!.keyId, keyringRevision: 1 },
   };
   return { root, home, archivePath, descriptor: verifyLinuxDesktopRelease(signLinuxDesktopRelease(descriptor, keyPair.privateKey), { trust, now: "2026-09-10T00:00:00.000Z" }) };

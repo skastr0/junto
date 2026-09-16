@@ -81,12 +81,10 @@ describe("Linux desktop first-install CLI", () => {
     const result = await installLinuxDesktop({
       release: "release.json",
       archive: "app.tar.gz",
-      sources: "sources.json",
     });
     expect(seam.verify).toHaveBeenCalledWith({
       releasePath: "release.json",
       archivePath: "app.tar.gz",
-      sourceIndexPath: "sources.json",
     });
     expect(seam.target).toHaveBeenCalledBefore(seam.verify);
     expect(seam.firstInstall).toHaveBeenCalledBefore(seam.verify);
@@ -104,31 +102,31 @@ describe("Linux desktop first-install CLI", () => {
 
   it("refuses unsupported hosts and existing installations before reading artifacts or staging", async () => {
     seam.target.mockRejectedValueOnce(new Error("unsupported host"));
-    await expect(installLinuxDesktop({ release: "release", archive: "archive", sources: "sources" }))
+    await expect(installLinuxDesktop({ release: "release", archive: "archive" }))
       .rejects.toThrow(/host/);
     expect(seam.verify).not.toHaveBeenCalled();
     seam.firstInstall.mockRejectedValueOnce(new Error("already installed"));
-    await expect(installLinuxDesktop({ release: "release", archive: "archive", sources: "sources" }))
+    await expect(installLinuxDesktop({ release: "release", archive: "archive" }))
       .rejects.toThrow(/installed/);
     expect(seam.stage).not.toHaveBeenCalled();
   });
 
   it("never stages unauthenticated input or activates a changed staged candidate", async () => {
     seam.verify.mockRejectedValueOnce(new Error("invalid signature"));
-    await expect(installLinuxDesktop({ release: "bad", archive: "app", sources: "sources" }))
+    await expect(installLinuxDesktop({ release: "bad", archive: "app" }))
       .rejects.toThrow(/signature/);
     expect(seam.stage).not.toHaveBeenCalled();
     seam.verify.mockResolvedValue({ version: "0.2.1" });
     seam.stage.mockResolvedValue({ executablePath: "/home/example/app" });
     seam.revalidate.mockRejectedValueOnce(new Error("staged bytes changed"));
-    await expect(installLinuxDesktop({ release: "good", archive: "app", sources: "sources" }))
+    await expect(installLinuxDesktop({ release: "good", archive: "app" }))
       .rejects.toThrow(/changed/);
     expect(seam.activate).not.toHaveBeenCalled();
   });
 });
 
 describe("Linux desktop bootstrap argument policy", () => {
-  it("accepts only the three file flags, help, and version", () => {
+  it("accepts only the two file flags, help, and version", () => {
     expect(parseLinuxDesktopBootstrapArgs(["--help"])).toEqual({ kind: "help" });
     expect(parseLinuxDesktopBootstrapArgs(["--version"])).toEqual({ kind: "version" });
     expect(parseLinuxDesktopBootstrapArgs([
@@ -136,13 +134,10 @@ describe("Linux desktop bootstrap argument policy", () => {
       "release.json",
       "--archive",
       "app.tar.gz",
-      "--sources",
-      "sources.json",
     ])).toEqual({
       kind: "install",
       release: "release.json",
       archive: "app.tar.gz",
-      sources: "sources.json",
     });
   });
 
@@ -179,8 +174,6 @@ describe("Linux desktop bootstrap process", () => {
       "release.json",
       "--archive",
       "app.tar.gz",
-      "--sources",
-      "sources.json",
     ]);
     expect(process.exitCode).toBe(1);
     const envelope = JSON.parse(stderr.text());
@@ -210,8 +203,6 @@ describe("Linux desktop bootstrap process", () => {
         "release.json",
         "--archive",
         "app.tar.gz",
-        "--sources",
-        "sources.json",
       ]);
       expect(process.exitCode).toBe(1);
       const envelope = JSON.parse(stderr.text());
@@ -229,26 +220,18 @@ describe("Linux desktop bootstrap process", () => {
 });
 
 describe("Linux desktop bootstrap publication contract", () => {
-  it("requires relink object, Bun notices, source archive, and non-latest verified tags", async () => {
+  it("requires the attested bootstrap binary and non-latest verified tags", async () => {
     expect(linuxDesktopBootstrapReleaseAssets()).toEqual([
       "junto-desktop-bootstrap-linux-x64",
       "junto-desktop-bootstrap-linux-x64.sha256",
       "junto-desktop-bootstrap-linux-x64.attestation.jsonl",
-      "junto-desktop-bootstrap-linux-x64-relink.js",
-      "junto-desktop-bootstrap-linux-x64-relink.json",
-      "junto-desktop-bootstrap-linux-x64-relink-notices.txt",
-      "junto-desktop-bootstrap-linux-x64-bun-notices.tar.gz",
-      "Junto-linux-desktop-bootstrap-1.0.0-source.tar.gz",
-      "RELINK.md",
     ]);
     const workflow = await readFile(
       new URL("../.github/workflows/linux-desktop-bootstrap.yml", import.meta.url),
       "utf8",
     );
-    expect(workflow).toContain("junto-desktop-bootstrap-linux-x64-relink.js");
-    expect(workflow).toContain("junto-desktop-bootstrap-linux-x64-bun-notices.tar.gz");
+    expect(workflow).toContain("junto-desktop-bootstrap-linux-x64.attestation.jsonl");
     expect(workflow).toContain("--verify-tag");
     expect(workflow).toContain("--latest=false");
-    expect(workflow).toContain('sourceCommit // ""');
   });
 });

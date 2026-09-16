@@ -9,7 +9,6 @@ import {
   canonicalLinuxDesktopReleaseDescriptor,
   decodeLinuxDesktopReleaseDescriptor,
   linuxDesktopArchiveName,
-  linuxDesktopSourcesPath,
   type LinuxDesktopReleaseDescriptor,
   type LinuxDesktopSignedRelease,
 } from "../src/shared/linux-desktop-release";
@@ -22,8 +21,8 @@ import {
 } from "../src/shared/linux-desktop-release-crypto";
 import {
   readLinuxDesktopReleaseJson,
+  verifyLinuxDesktopArchiveBinding,
   verifyLinuxDesktopReleaseFiles,
-  verifyLinuxDesktopSourceBinding,
 } from "../src/shared/linux-desktop-release-files";
 const MAX_PRIVATE_KEY_BYTES = 64 * 1024;
 
@@ -32,7 +31,6 @@ export type LinuxDesktopReleaseCommand =
   | {
       readonly command: "prepare";
       readonly archive: string;
-      readonly sources: string;
       readonly version: string;
       readonly sourceRevision: string;
       readonly createdAt: string;
@@ -49,17 +47,16 @@ export type LinuxDesktopReleaseCommand =
       readonly currentVersion?: string;
       readonly requireNewer: boolean;
       readonly archive?: string;
-      readonly sources?: string;
       readonly now?: string;
     };
 
 export const LINUX_DESKTOP_RELEASE_HELP = `Junto Linux desktop release tools
 
-prepare --archive PATH --sources PATH --version X.Y.Z --source-revision SHA
+prepare --archive PATH --version X.Y.Z --source-revision SHA
         --created-at ISO --output PATH
 sign    --descriptor PATH --output PATH < PRIVATE_KEY
 verify  --release PATH [--current-version X.Y.Z] [--require-newer]
-        [--archive PATH --sources PATH] [--now ISO]
+        [--archive PATH] [--now ISO]
 
 Outputs are created exclusively. These commands never upload or publish.
 The sign command reads a private key from stdin, limited to 65,536 bytes.
@@ -80,10 +77,10 @@ export const parseLinuxDesktopReleaseArgs = (
     throw new Error("expected prepare, sign, or verify; use --help");
   }
   const allowed = new Set(command === "prepare"
-    ? ["--archive", "--sources", "--version", "--source-revision", "--created-at", "--output"]
+    ? ["--archive", "--version", "--source-revision", "--created-at", "--output"]
     : command === "sign"
       ? ["--descriptor", "--output"]
-      : ["--release", "--current-version", "--require-newer", "--archive", "--sources", "--now"]);
+      : ["--release", "--current-version", "--require-newer", "--archive", "--now"]);
   const flags = new Map<string, string>();
   for (let index = 1; index < argv.length; index++) {
     const flag = argv[index]!;
@@ -108,7 +105,6 @@ export const parseLinuxDesktopReleaseArgs = (
   if (command === "prepare") return {
     command,
     archive: required("--archive"),
-    sources: required("--sources"),
     version: required("--version"),
     sourceRevision: required("--source-revision"),
     createdAt: required("--created-at"),
@@ -119,9 +115,6 @@ export const parseLinuxDesktopReleaseArgs = (
     descriptor: required("--descriptor"),
     output: required("--output"),
   };
-  if (flags.has("--archive") !== flags.has("--sources")) {
-    throw new Error("local verification requires both --archive and --sources");
-  }
   if (flags.has("--require-newer") && !flags.has("--current-version")) {
     throw new Error("--require-newer requires --current-version");
   }
@@ -130,7 +123,7 @@ export const parseLinuxDesktopReleaseArgs = (
     release: required("--release"),
     requireNewer: flags.has("--require-newer"),
     ...(flags.has("--current-version") ? { currentVersion: flags.get("--current-version")! } : {}),
-    ...(flags.has("--archive") ? { archive: flags.get("--archive")!, sources: flags.get("--sources")! } : {}),
+    ...(flags.has("--archive") ? { archive: flags.get("--archive")! } : {}),
     ...(flags.has("--now") ? { now: flags.get("--now")! } : {}),
   };
 };
@@ -197,9 +190,9 @@ export const prepareLinuxDesktopRelease = async (
   options: LinuxDesktopReleaseCliOptions = {},
 ): Promise<LinuxDesktopReleaseDescriptor> => {
   const trust = options.trust === undefined ? loadEmbeddedLinuxDesktopReleaseTrust() : decodeLinuxDesktopReleaseTrust(options.trust);
-  const files = await verifyLinuxDesktopSourceBinding({
-    archivePath: input.archive, sourceIndexPath: input.sources,
-    version: input.version, sourceRevision: input.sourceRevision,
+  const archive = await verifyLinuxDesktopArchiveBinding({
+    archivePath: input.archive,
+    version: input.version,
   });
   const descriptor = decodeLinuxDesktopReleaseDescriptor({
     schema: "junto/linux-desktop-release/v1",
@@ -212,9 +205,8 @@ export const prepareLinuxDesktopRelease = async (
     archive: {
       file: linuxDesktopArchiveName(input.version),
       path: `/linux/x64/${linuxDesktopArchiveName(input.version)}`,
-      ...files.archive,
+      ...archive,
     },
-    sources: { path: linuxDesktopSourcesPath(input.version), ...files.sources },
     trust: {
       algorithm: "ed25519",
       keyId: trust.policy.trustedKeyId,
@@ -261,9 +253,6 @@ export const verifyLinuxDesktopReleaseFile = async (
   input: VerifyInput,
   options: LinuxDesktopReleaseCliOptions = {},
 ): Promise<LinuxDesktopReleaseDescriptor> => {
-  if ((input.archive === undefined) !== (input.sources === undefined)) {
-    throw new Error("local verification requires both archive and source index paths");
-  }
   const now = input.now ?? options.now;
   const verification = {
     ...(options.trust === undefined ? {} : { trust: options.trust }),
@@ -271,8 +260,8 @@ export const verifyLinuxDesktopReleaseFile = async (
     ...(input.currentVersion === undefined ? {} : { currentVersion: input.currentVersion }),
     requireNewer: input.requireNewer,
   };
-  return input.archive !== undefined && input.sources !== undefined
-    ? verifyLinuxDesktopReleaseFiles({ ...verification, releasePath: input.release, archivePath: input.archive, sourceIndexPath: input.sources })
+  return input.archive !== undefined
+    ? verifyLinuxDesktopReleaseFiles({ ...verification, releasePath: input.release, archivePath: input.archive })
     : verifyLinuxDesktopRelease(await readLinuxDesktopReleaseJson(input.release), verification);
 };
 

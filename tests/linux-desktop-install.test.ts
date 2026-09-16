@@ -71,7 +71,6 @@ const authenticate = (version: string, archive: Buffer): VerifiedLinuxDesktopRel
     schema: LINUX_DESKTOP_RELEASE_SCHEMA, product: "Junto", channel: "alpha", version, sourceRevision: SOURCE,
     createdAt: "2026-01-01T00:00:00.000Z", target: LINUX_DESKTOP_TARGET,
     archive: { file: filename, path: `/linux/x64/${filename}`, bytes: archive.length, sha256: sha256(archive) },
-    sources: { path: `/linux/x64/sources/${version}/sources.json`, bytes: 1, sha256: "b".repeat(64) },
     trust: { algorithm: "ed25519", keyId: keyring.keys[0]!.keyId, keyringRevision: 1 },
   };
   return verifyLinuxDesktopRelease(signLinuxDesktopRelease(descriptor, keyPair.privateKey), { trust, now: "2026-09-10T00:00:00.000Z" });
@@ -126,25 +125,8 @@ describe("rootless Linux desktop installation", () => {
     const archiveName = linuxDesktopArchiveName(version);
     const archivePath = join(input.root, archiveName);
     await writeFile(archivePath, input.bytes);
-    const sources = {
-      schema: "junto/release-sources/v1",
-      product: "Junto",
-      version,
-      sourceCommit: SOURCE,
-      access: "same-download-location",
-      files: [{ file: "synthetic-source.tar.gz", bytes: 1, sha256: "b".repeat(64) }],
-      binaries: [{ file: archiveName, bytes: input.bytes.length, sha256: sha256(input.bytes) }],
-    };
-    const sourcesPath = join(input.root, "sources.json");
-    const sourcesBytes = Buffer.from(JSON.stringify(sources));
-    await writeFile(sourcesPath, sourcesBytes);
     const descriptor: LinuxDesktopReleaseDescriptor = {
       ...input.descriptor,
-      sources: {
-        path: `/linux/x64/sources/${version}/sources.json`,
-        bytes: sourcesBytes.length,
-        sha256: sha256(sourcesBytes),
-      },
     };
     const releasePath = join(input.root, "release.json");
     await writeFile(
@@ -154,7 +136,6 @@ describe("rootless Linux desktop installation", () => {
     await expect(installLinuxDesktop({
       release: releasePath,
       archive: archivePath,
-      sources: sourcesPath,
       home: input.home,
     }, { assertTarget: async () => undefined })).rejects.toThrow(/pinned signing trust/);
     await expect(lstat(join(input.home, ".local"))).rejects.toMatchObject({ code: "ENOENT" });

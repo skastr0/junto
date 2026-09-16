@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { makeLinuxUpdateProvider, type LinuxUpdateDependencies } from "../src/main/junto/update/linux";
 import type { UpdateProvider, UpdateProviderEvent } from "../src/main/junto/update/provider";
-import { LINUX_DESKTOP_TARGET, linuxDesktopArchiveName, linuxDesktopSourcesPath, type LinuxDesktopReleaseDescriptor } from "../src/shared/linux-desktop-release";
+import { LINUX_DESKTOP_TARGET, linuxDesktopArchiveName, type LinuxDesktopReleaseDescriptor } from "../src/shared/linux-desktop-release";
 import { signLinuxDesktopRelease, verifyLinuxDesktopRelease, type LinuxDesktopReleaseTrust } from "../src/shared/linux-desktop-release-crypto";
 
 const pair = generateKeyPairSync("ed25519");
@@ -21,27 +21,20 @@ const trust: LinuxDesktopReleaseTrust = { keyring, policy: {
 } };
 const target = { platform: "linux", architecture: "x64", osRelease: 'ID=ubuntu\nVERSION_ID="24.04"\n', glibcVersion: "2.39", uid: 501, euid: 501 };
 const archive = Buffer.from("synthetic archive download bytes");
-const sourceIndex = (version = "0.2.1"): Buffer => Buffer.from(JSON.stringify({
-  schema: "junto/release-sources/v1", product: "Junto", access: "same-download-location",
-  version, sourceCommit: "a".repeat(40), files: [{ file: "source.tar.gz", bytes: 10, sha256: "b".repeat(64) }],
-  binaries: [{ file: linuxDesktopArchiveName(version), bytes: archive.length, sha256: hash(archive) }],
-}));
 const descriptor = (version = "0.2.1"): LinuxDesktopReleaseDescriptor => ({
   schema: "junto/linux-desktop-release/v1", product: "Junto", channel: "alpha", version,
   sourceRevision: "a".repeat(40), createdAt: "2026-09-10T00:00:00.000Z", target: LINUX_DESKTOP_TARGET,
   archive: { file: linuxDesktopArchiveName(version), path: `/linux/x64/${linuxDesktopArchiveName(version)}`, bytes: archive.length, sha256: hash(archive) },
-  sources: { path: linuxDesktopSourcesPath(version), bytes: sourceIndex(version).length, sha256: hash(sourceIndex(version)) },
   trust: { algorithm: "ed25519", keyId: keyring.keys[0]!.keyId, keyringRevision: 1 },
 });
 const providers: UpdateProvider[] = [];
 afterEach(() => { for (const provider of providers.splice(0)) provider.stop(); });
-const harness = (input: { version?: string; packaged?: boolean; archive?: Buffer; metadata?: unknown; target?: typeof target; now?: string; sources?: Buffer; managed?: boolean } = {}) => {
+const harness = (input: { version?: string; packaged?: boolean; archive?: Buffer; metadata?: unknown; target?: typeof target; now?: string; managed?: boolean } = {}) => {
   const release = signLinuxDesktopRelease(descriptor(input.version), pair.privateKey);
   const calls: { url: string; options: RequestInit | undefined }[] = [];
   const fetch: LinuxUpdateDependencies["fetch"] = vi.fn(async (url, options) => {
     calls.push({ url: String(url), options });
     if (calls.length === 1) return new Response(JSON.stringify(input.metadata ?? release));
-    if (calls.length === 2) return new Response(Uint8Array.from(input.sources ?? sourceIndex(input.version)));
     return new Response(Uint8Array.from(input.archive ?? archive));
   });
   const provider = makeLinuxUpdateProvider({ isPackaged: input.packaged ?? true, currentVersion: "0.2.0" }, {
@@ -62,7 +55,7 @@ describe("Linux desktop update provider", () => {
     const { provider, events, calls } = harness();
     await provider.check();
     expect(events.map((event) => event._tag)).toEqual(["checking", "available", "progress", "downloaded"]);
-    expect(calls.map((call) => new URL(call.url).pathname)).toEqual(["/linux/x64/alpha.json", "/linux/x64/sources/0.2.1/sources.json", "/linux/x64/junto-runtime-0.2.1-linux-x64.tar.gz"]);
+    expect(calls.map((call) => new URL(call.url).pathname)).toEqual(["/linux/x64/alpha.json", "/linux/x64/junto-runtime-0.2.1-linux-x64.tar.gz"]);
     expect(calls.every((call) => new URL(call.url).protocol === "https:" && call.options?.redirect === "error")).toBe(true);
     const downloaded = events.find((event) => event._tag === "downloaded");
     expect(downloaded?._tag).toBe("downloaded");
@@ -72,7 +65,7 @@ describe("Linux desktop update provider", () => {
   it("coalesces concurrent checks", async () => {
     const { provider, calls } = harness();
     await Promise.all([provider.check(), provider.check()]);
-    expect(calls).toHaveLength(3);
+    expect(calls).toHaveLength(2);
   });
   it.each(["0.2.0", "0.1.9"])("does not download same or older release %s", async (version) => {
     const { provider, events, calls } = harness({ version });
@@ -85,12 +78,6 @@ describe("Linux desktop update provider", () => {
     await provider.check();
     expect(calls).toHaveLength(0);
     expect(events.at(-1)).toMatchObject({ _tag: "error", message: expect.stringContaining("not the managed") });
-  });
-  it("rejects corrupt source index bytes before downloading the archive", async () => {
-    const { provider, events, calls } = harness({ sources: Buffer.from("corrupt sources") });
-    await provider.check();
-    expect(calls).toHaveLength(2);
-    expect(events.at(-1)).toMatchObject({ _tag: "error", message: expect.stringContaining("source index") });
   });
   it("does not make network requests in source builds", async () => {
     const { provider, events, calls } = harness({ packaged: false });

@@ -15,7 +15,6 @@ export const LINUX_DESKTOP_BOOTSTRAP_COMMAND = "linux-desktop-bootstrap";
 export interface LinuxDesktopFirstInstallInput {
   readonly release: string;
   readonly archive: string;
-  readonly sources: string;
   readonly home?: string;
 }
 
@@ -56,7 +55,6 @@ export const installLinuxDesktop = async (
   const descriptor = await verifyLinuxDesktopReleaseFiles({
     releasePath: input.release,
     archivePath: input.archive,
-    sourceIndexPath: input.sources,
   });
   const staged = await stageLinuxDesktopRelease({
     archivePath: input.archive,
@@ -79,7 +77,7 @@ export const installLinuxDesktop = async (
 export type LinuxDesktopBootstrapArgs =
   | { readonly kind: "help" }
   | { readonly kind: "version" }
-  | { readonly kind: "install"; readonly release: string; readonly archive: string; readonly sources: string };
+  | { readonly kind: "install"; readonly release: string; readonly archive: string };
 
 const HELP = `Junto Linux desktop bootstrap ${LINUX_DESKTOP_BOOTSTRAP_VERSION}
 
@@ -87,13 +85,12 @@ Authenticate signed first-install inputs with this independently obtained
 program. Do not extract or execute the candidate archive.
 
 Usage:
-  junto-desktop-bootstrap-linux-x64 --release FILE --archive FILE --sources FILE
-  bun scripts/install-linux-desktop.ts --release FILE --archive FILE --sources FILE
+  junto-desktop-bootstrap-linux-x64 --release FILE --archive FILE
+  bun scripts/install-linux-desktop.ts --release FILE --archive FILE
 
 Options:
   --release FILE   Downloaded signed release.json
   --archive FILE   Downloaded Linux x64 runtime archive
-  --sources FILE   Matching corresponding-source sources.json
   --version        Print embedded bootstrap and release-trust identity
   --help           Show this help
 `;
@@ -108,8 +105,7 @@ export const parseLinuxDesktopBootstrapArgs = (
     const current = args[index];
     if (
       current !== "--release" &&
-      current !== "--archive" &&
-      current !== "--sources"
+      current !== "--archive"
     ) {
       throw new Error(`unknown bootstrap option: ${current ?? "<missing>"}`);
     }
@@ -122,13 +118,12 @@ export const parseLinuxDesktopBootstrapArgs = (
   }
   const release = values.get("--release");
   const archive = values.get("--archive");
-  const sources = values.get("--sources");
-  if (release === undefined || archive === undefined || sources === undefined) {
+  if (release === undefined || archive === undefined) {
     throw new Error(
-      "usage: --release FILE --archive FILE --sources FILE",
+      "usage: --release FILE --archive FILE",
     );
   }
-  return { kind: "install", release, archive, sources };
+  return { kind: "install", release, archive };
 };
 
 const writeJson = (stream: NodeJS.WriteStream, value: unknown): void => {

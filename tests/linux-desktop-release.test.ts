@@ -9,14 +9,12 @@ import {
   LINUX_DESKTOP_INSTALL_RESERVE_BYTES,
   LINUX_DESKTOP_MAX_ARCHIVE_BYTES,
   LINUX_DESKTOP_MAX_EXPANDED_BYTES,
-  LINUX_DESKTOP_MAX_SOURCE_INDEX_BYTES,
   LINUX_DESKTOP_RELEASE_SCHEMA,
   LINUX_DESKTOP_TARGET,
   LINUX_DESKTOP_UPDATE_FEED_PATH,
   linuxDesktopArchiveName,
   type LinuxDesktopReleaseDescriptor,
   linuxDesktopReleasePath,
-  linuxDesktopSourcesPath,
 } from "../src/shared/linux-desktop-release";
 import {
   assertVerifiedLinuxDesktopRelease,
@@ -81,11 +79,6 @@ const descriptor = (version = "0.2.1"): LinuxDesktopReleaseDescriptor =>
       bytes: 240_000_000,
       sha256: "b".repeat(64),
     },
-    sources: {
-      path: linuxDesktopSourcesPath(version),
-      bytes: 70_000,
-      sha256: "c".repeat(64),
-    },
     trust: { algorithm: "ed25519", keyId: KEY_ID, keyringRevision: 1 },
   });
 const envelope = () => signLinuxDesktopRelease(descriptor(), pair.privateKey);
@@ -101,9 +94,6 @@ describe("Linux desktop release wire contract", () => {
     expect(LINUX_DESKTOP_UPDATE_FEED_PATH).toBe("/linux/x64/alpha.json");
     expect(linuxDesktopReleasePath("0.2.1")).toBe(
       "/linux/x64/0.2.1/release.json",
-    );
-    expect(linuxDesktopSourcesPath("0.2.1")).toBe(
-      "/linux/x64/sources/0.2.1/sources.json",
     );
     expect(linuxDesktopArchiveName("0.2.1")).toBe(
       "junto-runtime-0.2.1-linux-x64.tar.gz",
@@ -157,7 +147,7 @@ describe("Linux desktop release wire contract", () => {
     const value = descriptor();
     expect(() => decodeLinuxDesktopReleaseDescriptor({ ...value, extra: true }))
       .toThrow(/fields/);
-    for (const field of ["target", "archive", "sources", "trust"] as const) {
+    for (const field of ["target", "archive", "trust"] as const) {
       expect(() =>
         decodeLinuxDesktopReleaseDescriptor({
           ...value,
@@ -170,7 +160,7 @@ describe("Linux desktop release wire contract", () => {
     ).toThrow(/fields/);
   });
 
-  it("refuses unsupported targets and arbitrary archive/source locators", () => {
+  it("refuses unsupported targets and arbitrary archive locators", () => {
     const value = descriptor();
     expect(() =>
       decodeLinuxDesktopReleaseDescriptor({
@@ -193,18 +183,9 @@ describe("Linux desktop release wire contract", () => {
         })
       ).toThrow(/path/);
     }
-    expect(() =>
-      decodeLinuxDesktopReleaseDescriptor({
-        ...value,
-        sources: {
-          ...value.sources,
-          path: "/linux/x64/sources/0.2.0/sources.json",
-        },
-      })
-    ).toThrow(/path/);
   });
 
-  it("bounds positive archive and source index sizes", () => {
+  it("bounds positive archive sizes", () => {
     const value = descriptor();
     for (
       const invalid of [
@@ -222,15 +203,6 @@ describe("Linux desktop release wire contract", () => {
         })
       ).toThrow(/bytes/);
     }
-    expect(() =>
-      decodeLinuxDesktopReleaseDescriptor({
-        ...value,
-        sources: {
-          ...value.sources,
-          bytes: LINUX_DESKTOP_MAX_SOURCE_INDEX_BYTES + 1,
-        },
-      })
-    ).toThrow(/bytes/);
     expect(
       decodeLinuxDesktopReleaseDescriptor({
         ...value,
@@ -285,11 +257,6 @@ describe("Linux desktop release authentication", () => {
       {
         ...value,
         archive: { ...value.archive, bytes: value.archive.bytes + 1 },
-      },
-      { ...value, sources: { ...value.sources, sha256: "e".repeat(64) } },
-      {
-        ...value,
-        sources: { ...value.sources, bytes: value.sources.bytes + 1 },
       },
       { ...value, sourceRevision: "f".repeat(40) },
       { ...value, createdAt: "2026-09-10T11:59:00.000Z" },

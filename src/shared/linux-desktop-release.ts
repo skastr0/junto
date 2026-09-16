@@ -1,6 +1,6 @@
 // FROZEN CONTRACT: src/shared/linux-desktop-release.ts
 // Version: 1.0.0
-// Last Updated: 2026-09-10
+// Last Updated: 2026-09-16
 // Canonical End State: One signed alpha desktop descriptor, independent of Fleet.
 // Change Process: Coordinate publisher and desktop updater changes together.
 /**
@@ -17,7 +17,6 @@ export const LINUX_DESKTOP_UPDATE_FEED_PATH = "/linux/x64/alpha.json";
 export const LINUX_DESKTOP_MAX_ARCHIVE_BYTES = 300_000_000;
 export const LINUX_DESKTOP_MAX_EXPANDED_BYTES = 4_000_000_000;
 export const LINUX_DESKTOP_INSTALL_RESERVE_BYTES = 1_073_741_824;
-export const LINUX_DESKTOP_MAX_SOURCE_INDEX_BYTES = 1_048_576;
 export const LINUX_DESKTOP_MAX_METADATA_BYTES = 65_536;
 export const LINUX_DESKTOP_CLOCK_SKEW_MS = 5 * 60 * 1_000;
 export const LINUX_DESKTOP_SIGNATURE_DOMAIN =
@@ -44,11 +43,6 @@ export interface LinuxDesktopReleaseDescriptor {
   readonly target: typeof LINUX_DESKTOP_TARGET;
   readonly archive: {
     readonly file: string;
-    readonly path: string;
-    readonly bytes: number;
-    readonly sha256: string;
-  };
-  readonly sources: {
     readonly path: string;
     readonly bytes: number;
     readonly sha256: string;
@@ -121,10 +115,6 @@ export const linuxDesktopReleasePath = (version: string): string => {
   versionParts(version);
   return `/linux/x64/${version}/release.json`;
 };
-export const linuxDesktopSourcesPath = (version: string): string => {
-  versionParts(version);
-  return `/linux/x64/sources/${version}/sources.json`;
-};
 
 const sha256 = (value: unknown, label: string): string => {
   if (typeof value !== "string" || !/^[a-f0-9]{64}$/.test(value)) {
@@ -165,7 +155,6 @@ export const decodeLinuxDesktopReleaseDescriptor = (
     "createdAt",
     "target",
     "archive",
-    "sources",
     "trust",
   ], "Linux desktop descriptor");
   if (
@@ -203,14 +192,6 @@ export const decodeLinuxDesktopReleaseDescriptor = (
   if (archive.file !== file || archive.path !== `/linux/x64/${file}`) {
     throw new Error("Linux desktop archive path does not match version");
   }
-  const sources = record(
-    descriptor.sources,
-    ["path", "bytes", "sha256"],
-    "Linux desktop sources",
-  );
-  if (sources.path !== linuxDesktopSourcesPath(version)) {
-    throw new Error("Linux desktop sources path does not match version");
-  }
   const trust = record(descriptor.trust, [
     "algorithm",
     "keyId",
@@ -235,15 +216,6 @@ export const decodeLinuxDesktopReleaseDescriptor = (
       path: archive.path,
       bytes: bytes(archive.bytes, LINUX_DESKTOP_MAX_ARCHIVE_BYTES, "archive"),
       sha256: sha256(archive.sha256, "archive"),
-    }),
-    sources: Object.freeze({
-      path: sources.path,
-      bytes: bytes(
-        sources.bytes,
-        LINUX_DESKTOP_MAX_SOURCE_INDEX_BYTES,
-        "source index",
-      ),
-      sha256: sha256(sources.sha256, "source index"),
     }),
     trust: Object.freeze({
       algorithm: "ed25519",

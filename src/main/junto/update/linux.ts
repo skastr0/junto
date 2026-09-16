@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { chmod, mkdtemp, open, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, open, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -7,14 +7,13 @@ import {
   LINUX_DESKTOP_UPDATE_FEED_PATH,
   LINUX_DESKTOP_MAX_METADATA_BYTES,
   LINUX_DESKTOP_MAX_ARCHIVE_BYTES,
-  LINUX_DESKTOP_MAX_SOURCE_INDEX_BYTES,
   type LinuxDesktopSignedRelease,
 } from "@shared/linux-desktop-release";
 import {
   verifyLinuxDesktopRelease,
   type VerifiedLinuxDesktopRelease,
 } from "@shared/linux-desktop-release-crypto";
-import { verifyLinuxDesktopSourceBinding } from "@shared/linux-desktop-release-files";
+import { verifyLinuxDesktopArchiveBinding } from "@shared/linux-desktop-release-files";
 import { linuxX64UpdateFeed } from "./compiled-config";
 import { UpdateError, updateError } from "./errors";
 import {
@@ -80,7 +79,7 @@ export const makeLinuxUpdateProvider = (options: {
   let flight: Promise<void> | undefined;
   let controller: AbortController | undefined;
   let downloadRoot: string | undefined;
-  let downloaded: { readonly path: string; readonly sourcesPath: string; readonly envelope: LinuxDesktopSignedRelease } | undefined;
+  let downloaded: { readonly path: string; readonly envelope: LinuxDesktopSignedRelease } | undefined;
   const emit: UpdateProviderListener = (event) => listener?.(event);
   const base = new URL(linuxX64UpdateFeed().url);
 
@@ -114,15 +113,6 @@ export const makeLinuxUpdateProvider = (options: {
       downloadRoot = await mkdtemp(join(tmpdir(), "junto-linux-update-"));
       await chmod(downloadRoot, 0o700);
       const archivePath = join(downloadRoot, admitted.archive.file);
-      const sourcesPath = join(downloadRoot, "sources.json");
-      const sourcesResponse = await dependencies.fetch(new URL(admitted.sources.path, base.origin), {
-        redirect: "error", signal: AbortSignal.any([requestController.signal, AbortSignal.timeout(30_000)]),
-      });
-      const sources = await boundedBody(sourcesResponse, Math.min(admitted.sources.bytes, LINUX_DESKTOP_MAX_SOURCE_INDEX_BYTES));
-      if (sources.byteLength !== admitted.sources.bytes || createHash("sha256").update(sources).digest("hex") !== admitted.sources.sha256) {
-        throw new Error("source index does not match its signed size and SHA-256");
-      }
-      await writeFile(sourcesPath, sources, { flag: "wx", mode: 0o600 });
       const archiveResponse = await dependencies.fetch(new URL(admitted.archive.path, base.origin), {
         redirect: "error", signal: AbortSignal.any([requestController.signal, AbortSignal.timeout(10 * 60_000)]),
       });
@@ -157,9 +147,8 @@ export const makeLinuxUpdateProvider = (options: {
       if (transferred !== admitted.archive.bytes || hash.digest("hex") !== admitted.archive.sha256) {
         throw new Error("release archive does not match its signed size and SHA-256");
       }
-      await verifyLinuxDesktopSourceBinding({ archivePath, sourceIndexPath: sourcesPath,
-        version: admitted.version, sourceRevision: admitted.sourceRevision });
-      downloaded = { path: archivePath, sourcesPath, envelope: envelope as LinuxDesktopSignedRelease };
+      await verifyLinuxDesktopArchiveBinding({ archivePath, version: admitted.version });
+      downloaded = { path: archivePath, envelope: envelope as LinuxDesktopSignedRelease };
       emit({ _tag: "downloaded", release: { version: admitted.version, releaseDate: admitted.createdAt }, downloadedFile: archivePath });
     } catch (cause) {
       downloaded = undefined;
@@ -195,10 +184,9 @@ export const makeLinuxUpdateProvider = (options: {
       const descriptor = dependencies.verifyRelease(envelope, options.currentVersion, true);
       if (descriptor.version !== release.version) throw updateError("candidate-mismatch", "Linux staged release version differs from the authenticated descriptor");
       await dependencies.assertManagedIncumbent();
-      const binding = await verifyLinuxDesktopSourceBinding({ archivePath: downloadedFile, sourceIndexPath: downloaded.sourcesPath,
-        version: descriptor.version, sourceRevision: descriptor.sourceRevision });
-      if (binding.sources.bytes !== descriptor.sources.bytes || binding.sources.sha256 !== descriptor.sources.sha256) {
-        throw updateError("candidate-mismatch", "downloaded source index changed after admission");
+      const binding = await verifyLinuxDesktopArchiveBinding({ archivePath: downloadedFile, version: descriptor.version });
+      if (binding.bytes !== descriptor.archive.bytes || binding.sha256 !== descriptor.archive.sha256) {
+        throw updateError("candidate-mismatch", "downloaded archive changed after admission");
       }
       const staged = await stageLinuxDesktopRelease({ archivePath: downloadedFile, descriptor });
       let activated = false;
