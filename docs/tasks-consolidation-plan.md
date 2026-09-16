@@ -51,7 +51,7 @@ normal decode. The next unrelated schema migration remains `21 -> 22`.
 None of the affected fields are SQL columns. In the invalid schema they are
 keys inside JSON columns:
 
-1. `work_tasks.metadata_json["vellum.pipeline"]` holds `claims`, `epoch`,
+1. `work_tasks.metadata_json["junto.pipeline"]` holds `claims`, `epoch`,
    `journey`, `defects`, `holdUntil`, `boarding`, `admission`, `raisedBy`.
    Rule entries carry `severity` and `station`.
 2. `work_task_finish.completion_evidence_json` holds
@@ -66,9 +66,8 @@ keys inside JSON columns:
    `work_pending_proposal_commands`, `work_proposal_planning` hold proposals.
 
 Corrected schema 21 stores the first-class task fields in the reserved
-`work_tasks.metadata_json["vellum.tasks"]` bag. The invalid
-`"vellum.pipeline"` key is consumed only by the corrective converter and does
-not survive startup.
+`work_tasks.metadata_json["junto.tasks"]` bag. The invalid
+`"junto.pipeline"` key has no reader and no writer in the current schema.
 
 ### Migration shape, ruled
 

@@ -189,7 +189,7 @@ Do not retry the flag on resume. The freeze is the trap.
 | G3 | `--session-id` pin + `grok -r <id>` resume round-trip; `--fork-session` for forks | resume replayed pre-resume history verbatim |
 | G4 | Leader lane: `grok agent leader` + `--leader` clients speak full ACP; a second client can `session/load` a **live TUI's** session and replay its update stream (structured observability, no scraping) | steering into a live TUI via this lane not executed (read-only scope); `grok leader list` unreliable |
 | G5 | Hooks EXIST: project-local `.grok/hooks/*.json`, 15 events incl. blocking PreToolUse/Stop; plus per-session `events.jsonl` (`turn_started/turn_ended/phase_changed/tool_started/permission_requested/resolved`) — free machine-readable state feed | ⚠ grok also executes `~/.claude/settings.json` hooks; `grok inspect` under-reports |
-| G6 | `--allow 'Bash(vellumstation *)'` → allow, wait_ms 0 (clean-bed verified) | whole-command-string match, no wrapper peeling |
+| G6 | `--allow 'Bash(juntostation *)'` → allow, wait_ms 0 (clean-bed verified) | whole-command-string match, no wrapper peeling |
 | G7 | Models: `models_cache.json` or ACP init `availableModels[].reasoningEfforts`; efforts exactly high/medium/low | invalid values warn-and-fallback, exit 0 |
 | G8 | Per-turn usage in `updates.jsonl` (`costUsdTicks`, tokens, modelUsage); `signals.json` context/latency; `grok trace <id> --local --json` exports all | weekly limit is TUI text only (`/usage`) |
 | G9 | `/compact` executed; checkpoint file + `auto_compact_completed` event | manual compaction reports as `auto_…`; `compactionCount` stays 0 |
