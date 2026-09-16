@@ -557,7 +557,7 @@ describe("terminal shutdown receipts", () => {
   it("refuses to delete a non-socket object at the term control path", async () => {
     const home = mkdtempSync(join(tmpdir(), "vt-f-"));
     const socketPath = termControlSocketPath(home);
-    mkdirSync(join(home, ".vellum-command", "term"), { recursive: true });
+    mkdirSync(join(home, ".junto", "term"), { recursive: true });
     writeFileSync(socketPath, "operator-owned", "utf8");
     cleanups.push(() => rmSync(home, { recursive: true, force: true }));
 
@@ -572,7 +572,7 @@ describe("terminal shutdown receipts", () => {
     const home = mkdtempSync(join(tmpdir(), "vt-t-"));
     const tokenPath = termControlTokenPath(home);
     const target = join(home, "operator-file");
-    mkdirSync(join(home, ".vellum-command", "term"), { recursive: true });
+    mkdirSync(join(home, ".junto", "term"), { recursive: true });
     writeFileSync(target, "do-not-touch", "utf8");
     symlinkSync(target, `${tokenPath}.${process.pid}.tmp`);
     const server = await startTermControlServer(localHost(), { home });

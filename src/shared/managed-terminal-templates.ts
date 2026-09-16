@@ -175,7 +175,7 @@ export type ArgvSpec = {
    * ephemeral directory instead of an argv string.
    *
    * Junto mounts ONLY its own directory
-   * (`<JUNTO_HOME>/.vellum-command/content/agent-rules/<seat>/`): the
+   * (`<JUNTO_HOME>/.junto/content/agent-rules/<seat>/`): the
    * operator's workspace is never written to, and the loaded context cites the
    * app-owned path as its origin. Official agy 1.2.1 best-practices also parse
    * a workspace-root `AGENTS.md` / `GEMINI.md`; that is why the seat still

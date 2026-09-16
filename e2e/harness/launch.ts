@@ -7,7 +7,7 @@
  *
  * Isolation invariants (never relaxed):
  *  - throwaway --user-data-dir + HOME per test (sandbox.ts); the app still
- *    resolves its one canonical $HOME/.vellum-command/state/vellum-command.db
+ *    resolves its one canonical $HOME/.junto/state/junto.db
  *  - HOME sandboxed to the same temp root + SHELL=/bin/sh, so the adapters'
  *    login-shell PATH probe (src/main/vellum-command/adapters/exec.ts) cannot
  *    resolve the operator's real CLIs
@@ -211,7 +211,7 @@ const findDemoRuntimeDatabase = async (
   );
   candidates.sort((left, right) => right.mtimeMs - left.mtimeMs);
   for (const candidate of candidates) {
-    const database = join(candidate.full, "vellum-command.db");
+    const database = join(candidate.full, "junto.db");
     if (await socketExists(database)) return database;
   }
   return undefined;
@@ -446,7 +446,7 @@ export const launchVellum = async (options: LaunchOptions = {}): Promise<VellumH
 
     // Drop live seat / work-control env that a factory agent inherits. Spreading
     // process.env would otherwise point the e2e app at the operator's real
-    // ~/.vellum-command/work lock (JUNTO_WORK_HOME) and fail work-control startup.
+    // ~/.junto/work lock (JUNTO_WORK_HOME) and fail work-control startup.
     const inherited = { ...(process.env as Record<string, string>) };
     for (const key of [
       "JUNTO_HOME",

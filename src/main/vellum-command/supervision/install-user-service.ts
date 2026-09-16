@@ -32,16 +32,16 @@ const RELEASE_ENTRY_MARKER = "/resources/app-remote/vellum-command-remote.js" as
 const CLI_RELATIVE = "resources/bin/vellum-command" as const;
 const CLI_HELPER_RELATIVE = ".local/bin/vellum-command" as const;
 
-/** Active immutable generation: ~/.vellum-command/runtime/releases/<semver>-<sha64>. */
+/** Active immutable generation: ~/.junto/runtime/releases/<semver>-<sha64>. */
 const RELEASE_DIRECTORY =
-  /^\/(?:[^/\u0000-\u001f\u007f]+\/)*\.vellum-command\/runtime\/releases\/(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)-[0-9a-f]{64}$/u;
+  /^\/(?:[^/\u0000-\u001f\u007f]+\/)*\.junto\/runtime\/releases\/(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)-[0-9a-f]{64}$/u;
 
 /**
  * Candidate tree under userland runtime (releases or staging extract).
  * Staging holds `vellum-command-runtime-<semver>-linux-x64` before activation.
  */
 const CANDIDATE_RUNTIME_ROOT =
-  /^\/(?:[^/\u0000-\u001f\u007f]+\/)*\.vellum-command\/runtime\/(?:releases\/(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)-[0-9a-f]{64}|staging\/[^/\u0000-\u001f\u007f]+\/vellum-command-runtime-(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)-linux-x64)$/u;
+  /^\/(?:[^/\u0000-\u001f\u007f]+\/)*\.junto\/runtime\/(?:releases\/(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)-[0-9a-f]{64}|staging\/[^/\u0000-\u001f\u007f]+\/vellum-command-runtime-(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)-linux-x64)$/u;
 
 const isOwnedNonLinkFile = (path: string, executable = false): boolean => {
   try {

@@ -76,7 +76,7 @@ beforeEach(() => {
 });
 
 describe("userland Linux service rendering", () => {
-  const release = "/home/remote/.vellum-command/runtime/releases/1.2.3-" + "a".repeat(64);
+  const release = "/home/remote/.junto/runtime/releases/1.2.3-" + "a".repeat(64);
 
   it("pins the unit to one immutable release without a shell or current link", () => {
     const service = renderUserlandLinuxService({ releaseDirectory: release });
@@ -100,13 +100,13 @@ describe("userland Linux service rendering", () => {
 
   it("escapes a safe home path and rejects paths outside the immutable layout", () => {
     expect(renderUserlandLinuxService({
-      releaseDirectory: "/home/remote station/.vellum-command/runtime/releases/1.2.3-" + "b".repeat(64),
-    })).toContain("/home/remote\\x20station/.vellum-command/runtime/releases/");
+      releaseDirectory: "/home/remote station/.junto/runtime/releases/1.2.3-" + "b".repeat(64),
+    })).toContain("/home/remote\\x20station/.junto/runtime/releases/");
     expect(() => renderUserlandLinuxService({
-      releaseDirectory: "/home/remote/.vellum-command/runtime/current",
+      releaseDirectory: "/home/remote/.junto/runtime/current",
     })).toThrow(/canonical immutable/u);
     expect(() => renderUserlandLinuxService({
-      releaseDirectory: "/home/remote/.vellum-command/runtime/releases/1.2.3-" + "A".repeat(64),
+      releaseDirectory: "/home/remote/.junto/runtime/releases/1.2.3-" + "A".repeat(64),
     })).toThrow(/canonical immutable/u);
   });
 });

@@ -167,7 +167,7 @@ const makeInstallationRuntime = (
   databasePath: string,
   localInstallationId: InstallationIdValue,
 ) => {
-  // databasePath is `<tmp>/vellum-command.db`; content + install-ops live beside it.
+  // databasePath is `<tmp>/junto.db`; content + install-ops live beside it.
   const installRoot = join(databasePath, "..");
   const state = makeStateEngineLive(databasePath);
   const repositories = Layer.provideMerge(
@@ -304,7 +304,7 @@ const openInstallationAt = async (
   localInstallationId: InstallationIdValue,
 ): Promise<InstallationHarness> => {
   const runtime = makeInstallationRuntime(
-    join(root, "vellum-command.db"),
+    join(root, "junto.db"),
     localInstallationId,
   );
   const services = await runtime.runPromise(

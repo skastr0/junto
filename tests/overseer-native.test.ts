@@ -1001,7 +1001,7 @@ describe("overseer deletion fences share TermPlane/ChatService identity", () => 
 
   it("holds a pending open and a new open across prepare-to-finish without a late view", async () => {
     const root = await mkdtemp(join(tmpdir(), "vellum-overseer-page-fence-"));
-    const runtime = ManagedRuntime.make(makeStateEngineLive(join(root, "vellum-command.db")));
+    const runtime = ManagedRuntime.make(makeStateEngineLive(join(root, "junto.db")));
     const state = await runtime.runPromise(StateEngine);
     const profiles = makeBrowserProfileService(state, root);
     await Effect.runPromise(profiles.ensureDefaults);
@@ -1102,7 +1102,7 @@ describe("overseer deletion fences share TermPlane/ChatService identity", () => 
     }) => Promise<void>,
   ): Promise<void> => {
     const root = await mkdtemp(join(tmpdir(), "vellum-overseer-page-receipt-"));
-    const runtime = ManagedRuntime.make(makeStateEngineLive(join(root, "vellum-command.db")));
+    const runtime = ManagedRuntime.make(makeStateEngineLive(join(root, "junto.db")));
     try {
       const state = await runtime.runPromise(StateEngine);
       const profiles = makeBrowserProfileService(state, root);

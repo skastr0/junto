@@ -40,7 +40,7 @@ be shown as last acknowledged truth, but never as live health.
 ## 1. Local Command Center
 
 1. Start a fresh Command Center with no Remote fleet target.
-2. Confirm `~/.vellum-command/state/vellum-command.db` exists owner-only and no JSON state,
+2. Confirm `~/.junto/state/junto.db` exists owner-only and no JSON state,
    canvas authority directory, projection directory, or seal material appears.
 3. Create a canvas, local agent, work surfaces, watcher, timer, and region.
 4. Draw the required edges and arm the region.

@@ -54,7 +54,7 @@ const seatDoc: CanvasDoc = {
 };
 
 const stateDb = (appHome: string): string =>
-  join(appHome, ".vellum-command", "state", "vellum-command.db");
+  join(appHome, ".junto", "state", "junto.db");
 
 const countRows = (appHome: string, sql: string): number => {
   const db = new DatabaseSync(stateDb(appHome), { readOnly: true });

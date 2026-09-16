@@ -61,9 +61,9 @@ describe("state recovery boundary", () => {
       decodeStateRecoveryExportResult({
         outcome: "exported",
         backup,
-        fileName: "portable-vellum-command.db",
+        fileName: "portable-junto.db",
         sha256: "b".repeat(64),
-        destination: "/tmp/portable-vellum-command.db",
+        destination: "/tmp/portable-junto.db",
       }),
     ).toThrow();
   });

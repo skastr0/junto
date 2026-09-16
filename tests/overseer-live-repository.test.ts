@@ -26,7 +26,7 @@ const operationInput = { operationId: "operation-1", requestId: requestInput.req
 const tempPath = async () => {
   const root = await mkdtemp(join(tmpdir(), "vellum-command-live-test-"));
   roots.push(root);
-  return join(root, "vellum-command.db");
+  return join(root, "junto.db");
 };
 const open = async (configuredPath?: string) => {
   const path = configuredPath ?? await tempPath();

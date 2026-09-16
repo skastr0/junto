@@ -50,7 +50,7 @@ describe("Linux generation readiness contract", () => {
     expect(deploy).toContain('"op": "ping"');
     expect(deploy).not.toMatch(/s\.connect\([^)]+\);\s*s\.close\(\)/u);
     expect(preflight).toContain("systemctl --user");
-    expect(deploy).toContain('ROOT="$HOME/.vellum-command/runtime"');
+    expect(deploy).toContain('ROOT="$HOME/.junto/runtime"');
     expect(deploy).toContain("$ROOT/releases");
   });
 

@@ -87,7 +87,7 @@ describe("remote hosts registry", () => {
   it("constructs fresh SQLite state with only the local host", async () => {
     const root = await mkdtemp(join(tmpdir(), "vellum-hosts-empty-"));
     dirs.push(root);
-    const { registry } = await testRegistry(join(root, "vellum-command.db"));
+    const { registry } = await testRegistry(join(root, "junto.db"));
 
     const hosts = await registry.list();
     expect(hosts.map((host) => host.id)).toEqual(["local"]);
@@ -99,7 +99,7 @@ describe("remote hosts registry", () => {
   it("persists enrollment transactions and keeps local capabilities synthesized", async () => {
     const root = await mkdtemp(join(tmpdir(), "vellum-hosts-write-"));
     dirs.push(root);
-    const { registry, state } = await testRegistry(join(root, "vellum-command.db"));
+    const { registry, state } = await testRegistry(join(root, "junto.db"));
 
     const written = await registry.upsert({
       id: "studio",
@@ -177,7 +177,7 @@ describe("remote hosts registry", () => {
   it("survives an engine restart with SQLite as the only authority", async () => {
     const root = await mkdtemp(join(tmpdir(), "vellum-hosts-restart-"));
     dirs.push(root);
-    const databasePath = join(root, "vellum-command.db");
+    const databasePath = join(root, "junto.db");
 
     const firstRuntime = ManagedRuntime.make(makeStateEngineLive(databasePath));
     try {
@@ -207,7 +207,7 @@ describe("remote hosts registry", () => {
   it("rejects duplicate endpoint and effective Hermes identities before commit", async () => {
     const root = await mkdtemp(join(tmpdir(), "vellum-hosts-unique-"));
     dirs.push(root);
-    const { registry } = await testRegistry(join(root, "vellum-command.db"));
+    const { registry } = await testRegistry(join(root, "junto.db"));
     await registry.upsert({
       id: "studio",
       label: "Studio",
@@ -251,7 +251,7 @@ describe("remote hosts registry", () => {
   it("rejects excess renderer host fields before registry mutation", async () => {
     const root = await mkdtemp(join(tmpdir(), "vellum-hosts-strict-upsert-"));
     dirs.push(root);
-    const { registry } = await testRegistry(join(root, "vellum-command.db"));
+    const { registry } = await testRegistry(join(root, "junto.db"));
     let mutationCount = 0;
     const observingRegistry: HostsRegistry = {
       ...registry,
@@ -313,7 +313,7 @@ describe("remote hosts registry", () => {
     const root = await mkdtemp(join(tmpdir(), "vellum-hosts-boot-"));
     dirs.push(root);
     process.env.HOME = root;
-    const databasePath = join(root, ".vellum-command", "state", "vellum-command.db");
+    const databasePath = join(root, ".junto", "state", "junto.db");
     const setupRuntime = ManagedRuntime.make(makeStateEngineLive(databasePath));
     try {
       const state = await setupRuntime.runPromise(StateEngine);
@@ -388,7 +388,7 @@ describe("remote hosts registry", () => {
   it("publishes a committed mutation even when its caller is interrupted", async () => {
     const root = await mkdtemp(join(tmpdir(), "vellum-hosts-interrupt-"));
     dirs.push(root);
-    const { registry } = await testRegistry(join(root, "vellum-command.db"));
+    const { registry } = await testRegistry(join(root, "junto.db"));
     await registry.list();
     setHostsSnapshot(defaultRemoteHostsDocument().hosts);
 
@@ -478,7 +478,7 @@ describe("remote hosts registry", () => {
   it("rejects malformed endpoints while preserving direct IPv6 destinations", async () => {
     const root = await mkdtemp(join(tmpdir(), "vellum-hosts-endpoint-"));
     dirs.push(root);
-    const { registry } = await testRegistry(join(root, "vellum-command.db"));
+    const { registry } = await testRegistry(join(root, "junto.db"));
 
     await expect(
       registry.upsert({
@@ -536,7 +536,7 @@ describe("remote hosts registry", () => {
   it("rejects duplicate capabilities instead of persisting ambiguous claims", async () => {
     const root = await mkdtemp(join(tmpdir(), "vellum-hosts-capabilities-"));
     dirs.push(root);
-    const { registry } = await testRegistry(join(root, "vellum-command.db"));
+    const { registry } = await testRegistry(join(root, "junto.db"));
 
     await expect(
       registry.upsert({

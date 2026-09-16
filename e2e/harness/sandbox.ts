@@ -2,7 +2,7 @@
  * Per-test sandbox: a throwaway temp root holding the Electron user-data
  * dir, the agent-facing canvases directory, and a sandboxed HOME — plus
  * fixture builders. Nothing here ever reads or writes the operator's real
- * ~/.vellum-command or userData; every path lives under os.tmpdir().
+ * ~/.junto or userData; every path lives under os.tmpdir().
  */
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { DatabaseSync } from "node:sqlite";
@@ -65,7 +65,7 @@ export interface Sandbox {
 /**
  * macOS caps AF_UNIX socket paths at roughly 104 bytes (sun_path). The work,
  * station, canvas, term, and browser control sockets all live under
- * `<home>/.vellum-command/<plane>/control.sock`; with the canonical renamed
+ * `<home>/.junto/<plane>/control.sock`; with the canonical renamed
  * home that is 35 bytes of suffix, so the temp root must leave room. A stock
  * `os.tmpdir()` on macOS expands to a long /var/folders/... path and pushes
  * every control socket over the limit — bind() then fails EINVAL and the app
@@ -75,7 +75,7 @@ export interface Sandbox {
  */
 const controlSocketFits = (root: string): boolean => {
   // Longest control plane suffix under the canonical home.
-  const suffix = join("home", ".vellum-command", "station", "control.sock");
+  const suffix = join("home", ".junto", "station", "control.sock");
   // 6 random chars from mkdtemp + the "vellum-command-e2e-" prefix.
   const longest = join(root, "vellum-command-e2e-abcdef", suffix);
   return Buffer.byteLength(longest) <= 103;
@@ -86,7 +86,7 @@ export const createSandbox = async (): Promise<Sandbox> => {
   const root = await mkdtemp(join(tempRoot, "vellum-command-e2e-"));
   const userDataDir = join(root, "user-data");
   const homeDir = join(root, "home");
-  const vellumDir = join(homeDir, ".vellum-command");
+  const vellumDir = join(homeDir, ".junto");
   const canvasesDir = join(vellumDir, "canvases");
   const stateDir = join(vellumDir, "state");
   await Promise.all([
@@ -116,7 +116,7 @@ export const writeFixtureRetiredCommercialState = async (
   sandbox: Sandbox,
 ): Promise<void> => {
   const runtime = ManagedRuntime.make(makeStateEngineLive(
-    join(sandbox.homeDir, ".vellum-command", "state", "vellum-command.db"),
+    join(sandbox.homeDir, ".junto", "state", "junto.db"),
   ));
   try {
     await runtime.runPromise(Effect.flatMap(StateEngine, (engine) =>
@@ -166,7 +166,7 @@ export const writeFixtureCanvas = async (
   // launchVellum re-seeds the same fixtures into that database after boot.
   const state = makeStateEngineLive(
     databasePath ??
-      join(sandbox.homeDir, ".vellum-command", "state", "vellum-command.db"),
+      join(sandbox.homeDir, ".junto", "state", "junto.db"),
   );
   const repositories = Layer.provideMerge(
     Layer.mergeAll(
@@ -518,9 +518,9 @@ export const flipFixtureRequestState = (
 ): void => {
   const databasePath = join(
     sandbox.homeDir,
-    ".vellum-command",
+    ".junto",
     "state",
-    "vellum-command.db",
+    "junto.db",
   );
   const db = new DatabaseSync(databasePath);
   try {
@@ -540,7 +540,7 @@ export const writeFixtureUsageState = async (
   const runtime = ManagedRuntime.make(
     makeStateEngineLive(
       databasePath ??
-        join(sandbox.homeDir, ".vellum-command", "state", "vellum-command.db"),
+        join(sandbox.homeDir, ".junto", "state", "junto.db"),
     ),
   );
   try {
@@ -572,7 +572,7 @@ export const writeFixtureHosts = async (
 ): Promise<void> => {
   const runtime = ManagedRuntime.make(
     makeStateEngineLive(
-      join(sandbox.homeDir, ".vellum-command", "state", "vellum-command.db"),
+      join(sandbox.homeDir, ".junto", "state", "junto.db"),
     ),
   );
   try {

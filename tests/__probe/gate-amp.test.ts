@@ -14,7 +14,7 @@ describe.skipIf(process.env.GATE_PROBE !== "1")("amp", () => {
     const root = join(process.env.GATE_WORK as string, "amp");
     rmSync(root, { recursive: true, force: true });
     mkdirSync(join(root, "state"), { recursive: true });
-    const dbp = join(root, "state", "vellum-command.db");
+    const dbp = join(root, "state", "junto.db");
     copyFileSync(process.env.GATE_REAL_DB as string, dbp);
     const h = openBenchRuntime({ root, databasePath: dbp });
     const counts = (label: string) =>

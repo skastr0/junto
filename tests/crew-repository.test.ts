@@ -29,7 +29,7 @@ const root = join(tmpdir(), `vellum-command-crew-repo-${randomUUID()}`);
 const runtime = ManagedRuntime.make(
   Layer.provideMerge(
     CrewRepositoryLive,
-    makeStateEngineLive(join(root, "vellum-command.db")),
+    makeStateEngineLive(join(root, "junto.db")),
   ),
 );
 

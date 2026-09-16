@@ -88,7 +88,7 @@ const makeRuntime = (root: string) => {
       makeContentServiceLive({ root: join(root, "content"), skipInlineMediaMigration: true }),
     ),
     Layer.mergeAll(
-      makeStateEngineLive(join(root, "state", "vellum-command.db")),
+      makeStateEngineLive(join(root, "state", "junto.db")),
       makeInstallOpsLive(join(root, "state", "install-ops.db")),
     ),
   );

@@ -37,7 +37,7 @@ import {
 } from "../src/cli/commands/overseer";
 import { OVERSEER_SKILL_MARKDOWN } from "../src/cli/commands/overseer-skill";
 import { Effect } from "effect";
-import { __resetVellumCommandHomeCache } from "../src/shared/vellum-home";
+import { __resetJuntoHomeCache } from "../src/shared/junto-home";
 
 const repoRoot = resolve(import.meta.dirname, "..");
 const roots: string[] = [];
@@ -52,7 +52,7 @@ afterEach(async () => {
   }
   delete process.env[WORK_HOME_ENV];
   delete process.env.JUNTO_HOME;
-  __resetVellumCommandHomeCache();
+  __resetJuntoHomeCache();
   process.exitCode = 0;
 });
 
@@ -104,7 +104,7 @@ const startFakeWorkSocket = async (
 ): Promise<{ readonly home: string; readonly workHome: string }> => {
   const home = await mkdtemp(join(tmpdir(), "vc-overseer-"));
   roots.push(home);
-  const workHome = join(home, ".vellum-command", "work");
+  const workHome = join(home, ".junto", "work");
   await mkdir(workHome, { recursive: true });
   await writeFile(workControlTokenPath(workHome), "overseer-token\n", { mode: 0o600 });
   const server = createServer((socket) => {

@@ -128,7 +128,7 @@ preflight receipt is local to one package update and never enters Station API.
 
 The canonical implementation has:
 
-1. one `~/.vellum-command/state/vellum-command.db` per installation;
+1. one `~/.junto/state/junto.db` per installation;
 2. one normal-runtime Electron-main `StateEngine` connection per database,
    plus the exact quiesced packaged-candidate read-only preflight described
    below;
@@ -146,7 +146,7 @@ The canonical implementation has:
     compatibility path surviving beside that end state.
 
 The file-store-to-SQLite change was a direct cutover. SQLite version 1 is now
-the durable baseline: later releases migrate an installed `vellum-command.db`
+the durable baseline: later releases migrate an installed `junto.db`
 forward in place through a contiguous transactionally applied chain. This
 does not create protocol coexistence, legacy file import, dual reads/writes,
 or downgrade support. Unknown, drifted, and newer database versions fail
@@ -1811,7 +1811,7 @@ route.
 The helper:
 
 - accepts no arbitrary command, path, database location, or shell payload;
-- does not open `vellum-command.db`;
+- does not open `junto.db`;
 - does not read or write settings/projection/status files;
 - carries bounded Station frames between stdio and the owner-local socket;
 - exits when the SSH session or Remote app disappears.

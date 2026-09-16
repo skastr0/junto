@@ -424,7 +424,7 @@ describe("SshTransport", () => {
       () => ({
         code: 8,
         stdout: encoder.encode(
-          "DEPLOY_ALREADY_IN_PROGRESS /Applications/.vellum-command-deploy.lock\n",
+          "DEPLOY_ALREADY_IN_PROGRESS /Applications/.junto-deploy.lock\n",
         ),
         stdoutEndsWithProcessFailure: true,
       }),

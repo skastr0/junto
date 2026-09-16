@@ -176,7 +176,7 @@ describe("executeOverseerCanvas", () => {
 
   const boot = async () => {
     await installEnv();
-    runtime = makeRuntime(join(stateDir, "vellum-command.db"));
+    runtime = makeRuntime(join(stateDir, "junto.db"));
     const canvases = await runtime.runPromise(CanvasesService);
     await runtime.runPromise(canvases.write("ops", overseerDoc()));
     await runtime.runPromise(canvases.write("other", aliasDoc()));

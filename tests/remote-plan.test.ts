@@ -91,7 +91,7 @@ describe("named deploy compilers", () => {
     expect(parts.args[2]).toBe("vellum-plan:linux-userland-observe");
     expect(parts.args[1]).toBe(remotePlan.compileLinuxUserlandObserveSource());
     expect(parts.args[1]).toContain("LINUX_USERLAND_OBSERVE_V1");
-    expect(parts.args[1]).toContain("$HOME/.vellum-command/runtime/releases");
+    expect(parts.args[1]).toContain("$HOME/.junto/runtime/releases");
     expect(parts.args[1]).toContain("resources/bin/vellum-command-remote");
     expect(parts.args[1]).not.toMatch(/sudo|rm -rf|--vellum-headless|current/u);
   });
@@ -107,8 +107,8 @@ describe("named deploy compilers", () => {
     expect(source).toContain("$GENERATION_MARKER/resources/systemd/vellum-command-remote-launch");
     expect(source).toContain("$GENERATION_MARKER/resources/bin/vellum-command-remote");
     expect(source).toContain("state=idempotent");
-    expect(source).toContain('"$HOME/.vellum-command/work/control.sock"');
-    expect(source).toContain('"$HOME/.vellum-command/work/token"');
+    expect(source).toContain('"$HOME/.junto/work/control.sock"');
+    expect(source).toContain('"$HOME/.junto/work/token"');
     expect(source).toContain("socket.AF_UNIX");
     expect(source).toContain(remotePlan.LINUX_WORK_CONTROL_HANDSHAKE_PYTHON);
     expect(source).toContain('"op": "ping"');

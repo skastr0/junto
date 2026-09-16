@@ -4,7 +4,7 @@ import type {
   ContentAvailabilityReason,
   ContentRef,
 } from "@shared/content";
-import { resolveVellumCommandHome } from "@shared/vellum-home";
+import { resolveJuntoHome } from "@shared/junto-home";
 import {
   StateEngine,
   StateEngineError,
@@ -143,7 +143,7 @@ export type ContentServiceShape = {
 
 /**
  * Local content store + SQLite manifest. Main owns the only DB connection;
- * this service never opens `vellum-command.db` itself.
+ * this service never opens `junto.db` itself.
  *
  * - Canonical id: `@vellum/ContentService` — single `Context.Service` definition.
  * - Layer: `makeContentServiceLive`.
@@ -393,7 +393,7 @@ export const makeContentServiceLive = (options?: {
     Effect.gen(function* () {
       const state = yield* StateEngine;
       const installOps = yield* InstallOpsService;
-      const home = options?.home ?? resolveVellumCommandHome();
+      const home = options?.home ?? resolveJuntoHome();
       const root =
         options?.root ??
         contentStoreRoot(home);

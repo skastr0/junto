@@ -27,4 +27,4 @@ export const pullRemoteTransportLog = (target: SshTarget) =>
   });
 
 export const remoteTransportLogHint = (osHome: string): string =>
-  join(osHome, ".vellum-command", "logs", "transport.jsonl");
+  join(osHome, ".junto", "logs", "transport.jsonl");

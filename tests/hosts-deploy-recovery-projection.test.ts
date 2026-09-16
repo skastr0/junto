@@ -32,7 +32,7 @@ describe("Remote deploy recovery guidance", () => {
     );
     expect(
       operatorDeployDetail(
-        "DEPLOY_ALREADY_IN_PROGRESS /Applications/.vellum-command-deploy.lock",
+        "DEPLOY_ALREADY_IN_PROGRESS /Applications/.junto-deploy.lock",
       ),
     ).toContain("already running");
     expect(

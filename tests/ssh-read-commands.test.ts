@@ -66,18 +66,18 @@ describe("ssh read-commands product constructors", () => {
       args: ["/run/user/501/vellum-command-remote/ready-aabbccdd"],
     });
     const test = inspectRemoteCommand(
-      run(remoteTestFileExists("/Users/alice/.vellum-command/term/token")),
+      run(remoteTestFileExists("/Users/alice/.junto/term/token")),
     );
     expect(test).toEqual({
       executable: "/bin/test",
-      args: ["-f", "/Users/alice/.vellum-command/term/token"],
+      args: ["-f", "/Users/alice/.junto/term/token"],
     });
     const socket = inspectRemoteCommand(
-      run(remoteTestSocketExists("/Users/alice/.vellum-command/term/control.sock")),
+      run(remoteTestSocketExists("/Users/alice/.junto/term/control.sock")),
     );
     expect(socket).toEqual({
       executable: "/bin/test",
-      args: ["-S", "/Users/alice/.vellum-command/term/control.sock"],
+      args: ["-S", "/Users/alice/.junto/term/control.sock"],
     });
     expect(inspectRemoteCommand(run(remoteDarwinPackageExists()))).toEqual({
       executable: "/bin/test",

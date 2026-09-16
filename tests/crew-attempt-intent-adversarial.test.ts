@@ -27,7 +27,7 @@ const root = join(tmpdir(), `vellum-command-attempt-intent-${randomUUID()}`);
 const runtime = ManagedRuntime.make(
   Layer.provideMerge(
     CrewRepositoryLive,
-    makeStateEngineLive(join(root, "vellum-command.db")),
+    makeStateEngineLive(join(root, "junto.db")),
   ),
 );
 

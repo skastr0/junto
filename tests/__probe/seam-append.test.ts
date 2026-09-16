@@ -52,7 +52,7 @@ describe.skipIf(process.env.GATE_PROBE !== "1")("seam append cost", () => {
     const root = join(work, `seam-${label}`);
     rmSync(root, { recursive: true, force: true });
     mkdirSync(join(root, "state"), { recursive: true });
-    const databasePath = join(root, "state", "vellum-command.db");
+    const databasePath = join(root, "state", "junto.db");
     const copyStarted = performance.now();
     copyFileSync(process.env.SEAM_DB as string, databasePath);
     const copyMs = performance.now() - copyStarted;

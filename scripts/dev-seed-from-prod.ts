@@ -1,7 +1,7 @@
 /**
  * Seed isolated dev state from production when shapes match.
  *
- * Copies ~/.vellum-command/state/vellum-command.db into $JUNTO_HOME/.vellum-command/state/ only when
+ * Copies ~/.junto/state/junto.db into $JUNTO_HOME/.junto/state/ only when
  * prod's live schema fingerprint equals this build's current schema. Otherwise
  * leaves the isolated tree alone so schema work can migrate independently.
  */
@@ -21,10 +21,10 @@ import {
   expectedStateSchemaIdentity,
 } from "../src/main/vellum-command/state/schema-identity";
 
-const prodDb = join(homedir(), ".vellum-command", "state", "vellum-command.db");
-const vellumHome =
-  process.env.JUNTO_HOME?.trim() || join(homedir(), ".vellum-command-dev");
-const devDb = join(vellumHome, ".vellum-command", "state", "vellum-command.db");
+const prodDb = join(homedir(), ".junto", "state", "junto.db");
+const juntoHome =
+  process.env.JUNTO_HOME?.trim() || join(homedir(), ".junto-dev");
+const devDb = join(juntoHome, ".junto", "state", "junto.db");
 
 const log = (message: string): void => {
   process.stderr.write(`vellum-command dev: ${message}\n`);

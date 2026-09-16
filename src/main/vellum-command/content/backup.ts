@@ -104,7 +104,7 @@ const assertRealDirectory = (path: string): void => {
   }
 };
 
-/** Parent of layout version root: `~/.vellum-command/content/`. */
+/** Parent of layout version root: `~/.junto/content/`. */
 export const contentStoreParent = (root: string): string => dirname(root);
 
 export const contentSnapshotsDir = (root: string): string =>
@@ -178,7 +178,7 @@ const writeManifestAtomic = (
 
 /**
  * Snapshot every content_refs digest into an immutable tree under
- * `~/.vellum-command/content/snapshots/content-snapshot-<uuid>/`.
+ * `~/.junto/content/snapshots/content-snapshot-<uuid>/`.
  *
  * Fails closed if any referenced object is missing or fails hash verify —
  * a coherent product backup must not have dangling refs.

@@ -117,7 +117,7 @@ describe("Linux desktop alpha and gated Fleet operator documentation", () => {
     );
 
     // State custody + forward-only repair.
-    expect(runbook).toContain("`~/.vellum-command/state/vellum-command.db`");
+    expect(runbook).toContain("`~/.junto/state/junto.db`");
     expect(text).toContain("There is no sealed clone preflight or second database opener");
     expect(text).toContain(
       "Install/update never copies, replaces, archives or redirects the product database, WAL or shared-memory file",
@@ -248,7 +248,7 @@ describe("Linux desktop alpha and gated Fleet operator documentation", () => {
       /JUNTO_CONTROL_TCP/u,
       /ssh\s+-[A-Za-z]*L[^\n]*control\.sock/u,
       /socat[^\n]*control\.sock/u,
-      /rm\s+-rf[^\n]*\.vellum-command/u,
+      /rm\s+-rf[^\n]*\.junto/u,
       /sudo\s+apt-get\s+(?:install|remove|purge)\b[^\n]*vellum/iu,
       /dpkg\s+-i\b/u,
     ]) {

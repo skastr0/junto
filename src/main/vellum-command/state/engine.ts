@@ -3,7 +3,7 @@ import {
   lstatSync,
   mkdirSync,
 } from "node:fs";
-import { resolveVellumCommandHome } from "@shared/vellum-home";
+import { resolveJuntoHome } from "@shared/junto-home";
 import { dirname, join, resolve } from "node:path";
 import {
   DatabaseSync,
@@ -80,7 +80,7 @@ const stateEngineError = (
 export const stateDatabasePath = (): string =>
   resolve(
     demoStateDatabasePath() ??
-      join(resolveVellumCommandHome(), ".vellum-command", "state", "vellum-command.db"),
+      join(resolveJuntoHome(), ".junto", "state", "junto.db"),
   );
 
 const assertRealDirectory = (path: string): void => {

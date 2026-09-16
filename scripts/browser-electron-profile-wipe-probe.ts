@@ -390,7 +390,7 @@ const main = async (): Promise<void> => {
   const home = join(root, "home");
   const userData = join(root, "electron");
   const browserRoot = join(root, "browser");
-  const stateDatabasePath = join(root, "state", "vellum-command.db");
+  const stateDatabasePath = join(root, "state", "junto.db");
   const downloads = join(root, "downloads");
   const reports = {
     A: join(root, "reports", "phase-a.json"),

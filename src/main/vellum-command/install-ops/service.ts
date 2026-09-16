@@ -72,12 +72,12 @@ export type InstallOpsServiceShape = {
 
 /**
  * Install-local ops plane: backfill ledgers only. Product work never lives
- * here. Seed scripts must not copy this database with vellum-command.db.
+ * here. Seed scripts must not copy this database with junto.db.
  *
  * - Canonical id: `@vellum/InstallOpsService` — single `Context.Service`.
  * - Layer: `InstallOpsLive` / `makeInstallOpsLive` (engine.ts).
  * - Product vs install-local split is law (AGENTS.md): install-ops.db is not
- *   product truth and must not be seeded with vellum-command.db.
+ *   product truth and must not be seeded with junto.db.
  */
 export class InstallOpsService extends Context.Service<InstallOpsService,
   InstallOpsServiceShape>()("@junto/InstallOpsService") {}

@@ -18,7 +18,7 @@ import {
   type HarnessId,
 } from "@shared/managed-terminal-templates";
 import type { TerminalLaunch } from "@shared/terminal";
-import { usableVellumCommandHome } from "@shared/vellum-home";
+import { usableJuntoHome } from "@shared/junto-home";
 import {
   planManagedInjection,
   targetsBySlot,
@@ -33,15 +33,15 @@ import {
 import { connectedCapabilities, containingRegion } from "../work/authz";
 
 /**
- * Official `bun run dev` sets `JUNTO_HOME` (e.g. ~/.vellum-command-dev) while leaving
+ * Official `bun run dev` sets `JUNTO_HOME` (e.g. ~/.junto-dev) while leaving
  * `HOME` alone so harness state still lives under ~/.grok / ~/.claude.
  * Seeded canvases therefore carry production session pins that may already be
  * owned by a live production seat. Resuming them in the isolated process
  * yields a dead/black TUI — refuse shared resume and pin a fresh id instead.
  */
 export const shouldAvoidSharedHarnessResume = (
-  vellumHomeEnv: string | undefined = process.env.JUNTO_HOME,
-): boolean => usableVellumCommandHome(vellumHomeEnv) !== undefined;
+  juntoHomeEnv: string | undefined = process.env.JUNTO_HOME,
+): boolean => usableJuntoHome(juntoHomeEnv) !== undefined;
 
 /** True when the live compiled grants have an actionable doctrine section. */
 export const nodeHasActionableFactoryEdge = (

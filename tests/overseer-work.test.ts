@@ -146,7 +146,7 @@ const factoryDoc = (
 });
 
 const makeRuntime = () => {
-  const databasePath = join(mockHome, "state", "vellum-command.db");
+  const databasePath = join(mockHome, "state", "junto.db");
   const installRoot = join(databasePath, "..");
   const stateLive = makeStateEngineLive(databasePath);
   const repositoriesLive = Layer.provideMerge(

@@ -21,7 +21,7 @@ import {
 export const USERLAND_LINUX_SERVICE_PATH =
   ".config/systemd/user/vellum-command-remote.service" as const;
 
-const RELEASE_DIRECTORY = /^\/(?:[^/\u0000-\u001f\u007f]+\/)*\.vellum-command\/runtime\/releases\/(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)-[0-9a-f]{64}$/u;
+const RELEASE_DIRECTORY = /^\/(?:[^/\u0000-\u001f\u007f]+\/)*\.junto\/runtime\/releases\/(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)-[0-9a-f]{64}$/u;
 
 const escapeSystemdArgument = (value: string): string =>
   Array.from(Buffer.from(value, "utf8"), (byte) =>

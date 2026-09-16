@@ -1,6 +1,6 @@
 import { chmodSync, existsSync, lstatSync } from "node:fs";
 import { createServer, type Server, type Socket } from "node:net";
-import { resolveVellumCommandHome } from "@shared/vellum-home";
+import { resolveJuntoHome } from "@shared/junto-home";
 import {
   OPERATOR_MAX_REQUEST_BYTES,
   OPERATOR_MAX_RESPONSE_BYTES,
@@ -153,7 +153,7 @@ export const startOperatorControlServer = async (
   options: OperatorControlServerOptions,
   runtime: OperatorControlServerRuntime = {},
 ): Promise<OperatorControlServer> => {
-  const home = options.home ?? resolveVellumCommandHome();
+  const home = options.home ?? resolveJuntoHome();
   const controlDir = operatorControlDir(home);
   const socketPath = operatorControlSocketPath(home);
   prepareControlDirectory(controlDir);

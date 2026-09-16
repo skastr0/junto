@@ -138,7 +138,7 @@ describe("PrimeAgentReporterPlane", () => {
 
     await starting;
     await expect(shuttingDown).resolves.toMatchObject({ clean: true });
-    expect(existsSync(join(home, ".vellum-command", "term", "pa.sock"))).toBe(
+    expect(existsSync(join(home, ".junto", "term", "pa.sock"))).toBe(
       false,
     );
     expect(() =>

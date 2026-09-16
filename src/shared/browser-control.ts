@@ -30,7 +30,7 @@ import {
 // ---------------------------------------------------------------------------
 // Paths (functions of the home dir so the module stays platform-pure)
 
-export const controlDir = (home: string): string => `${home}/.vellum-command/browser`;
+export const controlDir = (home: string): string => `${home}/.junto/browser`;
 export const controlSocketPath = (home: string): string => `${controlDir(home)}/control.sock`;
 export const controlTokenPath = (home: string): string => `${controlDir(home)}/control.token`;
 export const controlShotsDir = (home: string): string => `${controlDir(home)}/shots`;

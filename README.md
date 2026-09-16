@@ -61,9 +61,9 @@ bun install --frozen-lockfile
 bun run dev
 ```
 
-The development app uses `~/.vellum-command-dev/`. When compatible production
+The development app uses `~/.junto-dev/`. When compatible production
 state exists, the development launcher can seed a separate development copy.
-The packaged application uses `~/.vellum-command/`.
+The packaged application uses `~/.junto/`.
 
 No payment account, activation key, private source checkout, or maintainer signing
 credential is required. Install any external agent harness you want to use
@@ -101,7 +101,7 @@ packages keep the ordinary manual source-build workflow.
    through closed `overseer` commands without those edges.
 
 The app owns its durable SQLite state at
-`~/.vellum-command/state/vellum-command.db`. JSON Canvas is an explicit export
+`~/.junto/state/junto.db`. JSON Canvas is an explicit export
 format, not a file that agents edit to change the running application.
 
 Local terminal processes belong to the application and stop when it quits. Remote

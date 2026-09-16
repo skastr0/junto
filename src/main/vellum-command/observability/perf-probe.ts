@@ -20,7 +20,7 @@
  * disabled build pays one boolean test per SQL statement and nothing else.
  *
  * Output is one compact JSON line every 5s appended to
- * `~/.vellum-command/logs/perf.jsonl`, beside the transport tape. Install-local
+ * `~/.junto/logs/perf.jsonl`, beside the transport tape. Install-local
  * debugging output, never product state.
  */
 import { appendFileSync, chmodSync, mkdirSync, renameSync, statSync } from "node:fs";

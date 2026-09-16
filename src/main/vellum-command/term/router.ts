@@ -1,7 +1,7 @@
 /**
  * Host-aware terminal authority router.
  * - local → LocalSessionHost (this process)
- * - remote hostId → TermControlClient via SSH unix-forward of ~/.vellum-command/term/control.sock
+ * - remote hostId → TermControlClient via SSH unix-forward of ~/.junto/term/control.sock
  *
  * Remote sessions are owned by the remote Junto station; CC quit does not kill them.
  */
@@ -1128,7 +1128,7 @@ export class TerminalRouter extends EventEmitter {
             .forward(unixForward(sshEndpoint, remoteSock))
             .pipe(Scope.provide(scope));
           const tokenCmd = yield* remoteCat(
-            join(home, ".vellum-command", "term", "token"),
+            join(home, ".junto", "term", "token"),
           );
           const tokenRes = yield* ssh.run(
             oneShot(sshEndpoint, tokenCmd, { budget: "short" }),

@@ -76,7 +76,7 @@ describe("retired product-state signature boundary", () => {
   it("allows the current SQLite authority vocabulary", () => {
     const current = Buffer.from(
       [
-        "~/.vellum-command/state/vellum-command.db",
+        "~/.junto/state/junto.db",
         "state_schema_identity",
         "canvas_generations",
         "work_events",
@@ -150,7 +150,7 @@ describe("first-party ASAR retired-state audit", () => {
   it("scans compiled app text while ignoring third-party signatures", async () => {
     const archive = await makeAsar({
       "out/main/index.js": "state_schema_identity",
-      "out/renderer/index.html": "<main>vellum-command.db</main>",
+      "out/renderer/index.html": "<main>junto.db</main>",
       "out/runtime.json": '{"name":"vellum-command"}',
       "node_modules/legacy/index.js": "settings.json",
       "package.json": '{"legacy":"hosts.json"}',

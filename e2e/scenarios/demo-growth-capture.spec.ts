@@ -120,7 +120,7 @@ test("roll growth-50 and record the take", async () => {
 
     // The EDL landing in the sandbox home is the take-completion receipt —
     // the conductor writes it only after the full beat map has executed.
-    const edlDir = join(sandbox.homeDir, ".vellum-command", "demo");
+    const edlDir = join(sandbox.homeDir, ".junto", "demo");
     await expect
       .poll(
         async () => {

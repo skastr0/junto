@@ -17,7 +17,7 @@ import {
   runOperatorDeployment,
 } from "../src/cli/commands/operator";
 import { browserCliArgsFromArgv } from "../src/cli/browser-argv";
-import { __resetVellumCommandHomeCache } from "../src/shared/vellum-home";
+import { __resetJuntoHomeCache } from "../src/shared/junto-home";
 
 const roots: string[] = [];
 const servers: Server[] = [];
@@ -30,7 +30,7 @@ afterEach(async () => {
     await rm(root, { recursive: true, force: true });
   }
   delete process.env.JUNTO_HOME;
-  __resetVellumCommandHomeCache();
+  __resetJuntoHomeCache();
   process.exitCode = 0;
 });
 
@@ -40,9 +40,9 @@ const startOperatorServer = async (
   const root = await mkdtemp("/tmp/vellum-op-");
   roots.push(root);
   process.env.JUNTO_HOME = root;
-  __resetVellumCommandHomeCache();
+  __resetJuntoHomeCache();
   const socketPath = operatorControlSocketPath(root);
-  await mkdir(join(root, ".vellum-command", "operator"), { recursive: true });
+  await mkdir(join(root, ".junto", "operator"), { recursive: true });
   const server = createServer((socket) => {
     let request = Buffer.alloc(0);
     socket.on("data", (chunk: Buffer) => {

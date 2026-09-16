@@ -99,9 +99,9 @@ const openEngine = async (dbPath: string) => {
 
 const openStation = async (prefix: string) => {
   const home = await tempRoot(prefix);
-  const stateDir = join(home, ".vellum-command", "state");
+  const stateDir = join(home, ".junto", "state");
   await mkdir(stateDir, { recursive: true });
-  const dbPath = join(stateDir, "vellum-command.db");
+  const dbPath = join(stateDir, "junto.db");
   const contentRoot = contentStoreRoot(home);
   const { state } = await openEngine(dbPath);
   const service = createContentService(state, contentRoot);
@@ -741,9 +741,9 @@ describe("media transport e2e - Station projection + transfer + offline", () => 
 
   it("converges to the same verified content state after Station restart", async () => {
     const home = await tempRoot("vellum-media-offline-");
-    const stateDir = join(home, ".vellum-command", "state");
+    const stateDir = join(home, ".junto", "state");
     await mkdir(stateDir, { recursive: true });
-    const dbPath = join(stateDir, "vellum-command.db");
+    const dbPath = join(stateDir, "junto.db");
     const contentRoot = contentStoreRoot(home);
     const fixture = buildMediaFixture("audio", 0x55);
 

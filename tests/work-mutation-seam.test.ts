@@ -33,7 +33,7 @@ import {
 
 const root = join(tmpdir(), `vellum-command-seam-${randomUUID()}`);
 const runtime = ManagedRuntime.make(
-  Layer.mergeAll(makeStateEngineLive(join(root, "vellum-command.db"))),
+  Layer.mergeAll(makeStateEngineLive(join(root, "junto.db"))),
 );
 
 let state: StateEngineShape;

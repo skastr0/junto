@@ -201,7 +201,7 @@ describe("SQLite settings service", () => {
   const preparePaths = async (): Promise<void> => {
     if (root) return;
     root = await mkdtemp(join(tmpdir(), "vellum-settings-sqlite-"));
-    databasePath = join(root, "state", "vellum-command.db");
+    databasePath = join(root, "state", "junto.db");
   };
 
   const openService = async (
@@ -603,7 +603,7 @@ describe("SQLite settings service", () => {
     const check = await run(service.doctor);
     expect(check.id).toBe("settings");
     expect(check.status).toBe("ok");
-    expect(check.detail).toContain("vellum-command.db");
+    expect(check.detail).toContain("junto.db");
     expect(check.detail).toContain("v1");
     expect(check.detail).not.toContain(root);
     expect(check.metadata).toMatchObject({

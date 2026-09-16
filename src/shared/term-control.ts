@@ -4,7 +4,7 @@
 
 import { join } from "node:path";
 import { remoteStationContractVersion } from "./remote-station-release";
-import { resolveVellumCommandHome } from "./vellum-home";
+import { resolveJuntoHome } from "./junto-home";
 import {
   decodeLinuxReleaseFence,
   type LinuxReleaseFence,
@@ -23,13 +23,13 @@ export const TERM_MAX_FRAME_BYTES = 2 * 1024 * 1024;
 export const TERM_MAINTENANCE_OBSERVATION_BYTES = 8;
 export const TERM_MAINTENANCE_MAX_ACTIVE_SESSIONS = 1_000_000;
 
-export const termControlDir = (home = resolveVellumCommandHome()): string => join(home, ".vellum-command", "term");
-export const termControlSocketPath = (home = resolveVellumCommandHome()): string =>
+export const termControlDir = (home = resolveJuntoHome()): string => join(home, ".junto", "term");
+export const termControlSocketPath = (home = resolveJuntoHome()): string =>
   join(termControlDir(home), "control.sock");
-export const termControlTokenPath = (home = resolveVellumCommandHome()): string =>
+export const termControlTokenPath = (home = resolveJuntoHome()): string =>
   join(termControlDir(home), "token");
 /** Relative to remote $HOME — used for SSH unix forward. */
-export const TERM_REMOTE_SOCK_REL = ".vellum-command/term/control.sock";
+export const TERM_REMOTE_SOCK_REL = ".junto/term/control.sock";
 
 type TermControlActorSeatBase = {
   readonly bindingId: string;

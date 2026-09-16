@@ -23,7 +23,7 @@ import { makeStateEngineLive } from "../src/main/vellum-command/state/engine";
 import { WorkRepositoryLive } from "../src/main/vellum-command/work/repository";
 
 const stateLive = makeStateEngineLive(
-  join(mockCanvasesHome, ".vellum-command", "state", "vellum-command.db"),
+  join(mockCanvasesHome, ".junto", "state", "junto.db"),
 );
 const repositoriesLive = Layer.provideMerge(WorkRepositoryLive, stateLive);
 const canvasesLive = Layer.provideMerge(CanvasesLive, repositoriesLive);
@@ -58,7 +58,7 @@ describe("canvases.ts remove()", () => {
     const listBefore = await runtime.runPromise(canvases.list);
     expect(listBefore.some((row) => row.name === name)).toBe(true);
 
-    const dir = join(mockCanvasesHome, ".vellum-command", "canvases");
+    const dir = join(mockCanvasesHome, ".junto", "canvases");
     await mkdir(dir, { recursive: true });
     await writeFile(join(dir, `${name}.digest.txt`), "digest body", "utf8");
     await writeFile(join(dir, `${name}.svg`), "<svg/>", "utf8");

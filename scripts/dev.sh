@@ -2,7 +2,7 @@
 # Official Junto dev entry.
 #
 # Side-by-side with production:
-# - JUNTO_HOME=~/.vellum-command-dev isolates state + control sockets from ~/.vellum-command
+# - JUNTO_HOME=~/.junto-dev isolates state + control sockets from ~/.junto
 # - main pins Electron userData under that home so the single-instance lock
 #   does not fight /Applications/Junto.app
 # When production already matches this build's current schema, prod state is
@@ -12,7 +12,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-ISOLATED_HOME="${HOME}/.vellum-command-dev"
+ISOLATED_HOME="${HOME}/.junto-dev"
 
 # shellcheck source=scripts/linux-display.sh
 source "$ROOT/scripts/linux-display.sh"

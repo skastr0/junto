@@ -282,7 +282,7 @@ export const remoteDarwinDeployLockExists = (): Effect.Effect<
 > =>
   makeRemoteCommand("/bin/test", [
     "-d",
-    "/Applications/.vellum-command-deploy.lock",
+    "/Applications/.junto-deploy.lock",
   ]);
 
 export const remoteDarwinIncomingExists = (): Effect.Effect<

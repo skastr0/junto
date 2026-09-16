@@ -23,7 +23,7 @@ the agent. Store evidence was read through the running app's canvas control
 API; no helper opened the product database.
 
 The intake binding is `01M27TCSRRRBFQHGSBD5RXDN8F`.
-Journal offsets refer to `~/.vellum-command/logs/pty-delivery.jsonl`.
+Journal offsets refer to `~/.junto/logs/pty-delivery.jsonl`.
 Private receipt snapshots and the read-only collection helper are under
 `/tmp/vellum-command-fresh-mail-20260914/`.
 

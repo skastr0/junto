@@ -49,8 +49,8 @@ mutable row and event has one installation authority home.
 4. **Deploy Remote** (only when the release capability is enabled) — stage the
    app bundle + LaunchAgent, start it, configure through Station API, and wait
    for:
-   - `~/.vellum-command/term/control.sock`
-   - `~/.vellum-command/browser/control.sock`
+   - `~/.junto/term/control.sock`
+   - `~/.junto/browser/control.sock`
    - the Station API status to report database/work/simulation readiness
 5. Canvas → New terminal → **Host** = remote → Start → Open.
 6. CC quit does **not** kill remote PTYs (local quit only). Explicit Kill does.
@@ -59,19 +59,19 @@ mutable row and event has one installation authority home.
 
 ```text
 CC TerminalRouter(hostId)
-  → SSH forward remote ~/.vellum-command/term/control.sock
+  → SSH forward remote ~/.junto/term/control.sock
   → TermControlClient (NDJSON + token)
   → operator terminal surface only; does not bind a CC actor to a Remote seat
 
 Remote host-local browser (same installation as page + actor)
-  → ~/.vellum-command/browser/control.sock on the Remote only
+  → ~/.junto/browser/control.sock on the Remote only
   → WebContentsView on that Remote (needs BrowserWindow — deploy starts GUI app)
 
 CC fleet coordination
   → SSH fixed command vellum-command-station
   → owner-local Station control socket
   → Remote main process
-  → ~/.vellum-command/state/vellum-command.db
+  → ~/.junto/state/junto.db
 ```
 
 Station API verbs remain `pair`, `configure`, `project`, `report`, and
@@ -99,7 +99,7 @@ browser RPC.
       from the Remote SQLite database; no new CC-home task is claimed
 - [ ] Permitted Remote-home request/artifact creation persists offline and
       reconciles idempotently by logical cursor after CC returns
-- [ ] `ssh remote 'test -S ~/.vellum-command/term/control.sock && echo ok'`
+- [ ] `ssh remote 'test -S ~/.junto/term/control.sock && echo ok'`
 - [ ] Remote terminal create/type/resize from CC
 - [ ] Quit CC → remote shell still running (ssh/process list)
 - [ ] Reopen CC → reattach same binding

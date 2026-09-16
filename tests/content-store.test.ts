@@ -444,9 +444,9 @@ describe("content schema migration 11 → current", () => {
 describe("content service put + restart survival", () => {
   it("puts stream, records manifest, survives engine restart", async () => {
     const home = await tempRoot("vellum-command-content-svc-");
-    const stateDir = join(home, ".vellum-command", "state");
+    const stateDir = join(home, ".junto", "state");
     await mkdir(stateDir, { recursive: true });
-    const dbPath = join(stateDir, "vellum-command.db");
+    const dbPath = join(stateDir, "junto.db");
     const contentRoot = contentStoreRoot(home);
 
     const payload = Buffer.from("restart-me-please");
@@ -507,9 +507,9 @@ describe("content service put + restart survival", () => {
 
   it("does not create a ref when owner is omitted (orphan-safe object only)", async () => {
     const home = await tempRoot("vellum-command-content-no-ref-");
-    const stateDir = join(home, ".vellum-command", "state");
+    const stateDir = join(home, ".junto", "state");
     await mkdir(stateDir, { recursive: true });
-    const dbPath = join(stateDir, "vellum-command.db");
+    const dbPath = join(stateDir, "junto.db");
     const contentRoot = contentStoreRoot(home);
     const { state } = await openEngine(dbPath);
     const service = createContentService(state, contentRoot);

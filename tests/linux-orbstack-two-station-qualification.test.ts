@@ -66,10 +66,10 @@ describe("Linux OrbStack two-station qualification (userland archive)", () => {
 
   it("stages the managed bundle under the owner-home release cache", () => {
     expect(managedBundleRelativeDestination("qualification-candidate")).toBe(
-      ".vellum-command/releases/linux-x64-glibc/qualification/current/",
+      ".junto/releases/linux-x64-glibc/qualification/current/",
     );
     expect(managedBundleRelativeDestination("final-release")).toBe(
-      ".vellum-command/releases/linux-x64-glibc/current/",
+      ".junto/releases/linux-x64-glibc/current/",
     );
   });
 

@@ -100,7 +100,7 @@ describe("content disk admission", () => {
 
   it("put fails closed with disk-low before streaming", async () => {
     const home = await tempRoot("vellum-command-content-disk-");
-    const dbPath = join(home, "vellum-command.db");
+    const dbPath = join(home, "junto.db");
     const { state } = await openEngine(dbPath);
     const root = contentStoreRoot(home);
     const service = createContentService(state, root);
@@ -151,7 +151,7 @@ describe("content disk admission", () => {
 describe("content integrity + GC + snapshot", () => {
   it("integrity verifies referenced objects and reports missing/corrupt", async () => {
     const home = await tempRoot("vellum-command-content-integrity-");
-    const dbPath = join(home, "vellum-command.db");
+    const dbPath = join(home, "junto.db");
     const { state } = await openEngine(dbPath);
     const root = contentStoreRoot(home);
     const service = createContentService(state, root);
@@ -188,7 +188,7 @@ describe("content integrity + GC + snapshot", () => {
 
   it("GC never deletes referenced or active-transfer digests", async () => {
     const home = await tempRoot("vellum-command-content-gc-");
-    const dbPath = join(home, "vellum-command.db");
+    const dbPath = join(home, "junto.db");
     const { state } = await openEngine(dbPath);
     const root = contentStoreRoot(home);
     const service = createContentService(state, root);
@@ -319,7 +319,7 @@ describe("content integrity + GC + snapshot", () => {
 
   it("snapshot + restored DB prove no dangling referenced objects", async () => {
     const home = await tempRoot("vellum-command-content-snap-");
-    const dbPath = join(home, "vellum-command.db");
+    const dbPath = join(home, "junto.db");
     const { state } = await openEngine(dbPath);
     const root = contentStoreRoot(home);
     const service = createContentService(state, root);
@@ -388,7 +388,7 @@ describe("content integrity + GC + snapshot", () => {
 
   it("snapshot refuses when a referenced object is missing", async () => {
     const home = await tempRoot("vellum-command-content-snap-miss-");
-    const dbPath = join(home, "vellum-command.db");
+    const dbPath = join(home, "junto.db");
     const { state } = await openEngine(dbPath);
     const root = contentStoreRoot(home);
     const service = createContentService(state, root);
@@ -420,7 +420,7 @@ describe("content integrity + GC + snapshot", () => {
 
   it("dry-run GC reports candidates without deleting", async () => {
     const home = await tempRoot("vellum-command-content-gc-dry-");
-    const dbPath = join(home, "vellum-command.db");
+    const dbPath = join(home, "junto.db");
     const { state } = await openEngine(dbPath);
     const root = contentStoreRoot(home);
     const service = createContentService(state, root);

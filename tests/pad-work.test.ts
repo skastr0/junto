@@ -314,7 +314,7 @@ describe("pad persist", () => {
   const runtime = ManagedRuntime.make(
     Layer.provideMerge(
       WorkRepositoryLive,
-      makeStateEngineLive(join(root, "vellum-command.db")),
+      makeStateEngineLive(join(root, "junto.db")),
     ),
   );
   let repository: Context.Service.Shape<typeof WorkRepository>;
@@ -572,7 +572,7 @@ describe("pad persist", () => {
 describe("WorkService pad mark-read", () => {
   const root = join(tmpdir(), `vellum-command-pad-read-${randomUUID()}`);
   const makeRuntime = () => {
-    const stateLive = makeStateEngineLive(join(root, "state", "vellum-command.db"));
+    const stateLive = makeStateEngineLive(join(root, "state", "junto.db"));
     const repositoriesLive = Layer.provideMerge(
       Layer.mergeAll(
         WorkRepositoryLive,
@@ -647,7 +647,7 @@ describe("WorkService pad mark-read", () => {
 describe("WorkService pad author refusals", () => {
   const root = join(tmpdir(), `vellum-command-pad-svc-${randomUUID()}`);
   const makeRuntime = () => {
-    const stateLive = makeStateEngineLive(join(root, "state", "vellum-command.db"));
+    const stateLive = makeStateEngineLive(join(root, "state", "junto.db"));
     const repositoriesLive = Layer.provideMerge(
       Layer.mergeAll(
         WorkRepositoryLive,
@@ -1058,7 +1058,7 @@ describe("pad inbound-actor roster", () => {
   const runtime = ManagedRuntime.make(
     Layer.provideMerge(
       WorkRepositoryLive,
-      makeStateEngineLive(join(root, "vellum-command.db")),
+      makeStateEngineLive(join(root, "junto.db")),
     ),
   );
   let repository: Context.Service.Shape<typeof WorkRepository>;

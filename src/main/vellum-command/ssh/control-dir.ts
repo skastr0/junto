@@ -18,10 +18,10 @@ const MUX_DIR_PATTERN = /^\/tmp\/vc-\d+-[0-9a-f]{8}$/u;
 
 /** Short per-user, per-home mux directory. Never `$TMPDIR` — those paths are long. */
 export const sshMuxControlDir = (
-  vellumHome: string,
+  juntoHome: string,
   uid = process.getuid?.() ?? 0,
 ): string => {
-  const normalized = vellumHome.replace(/\/+$/u, "") || "/";
+  const normalized = juntoHome.replace(/\/+$/u, "") || "/";
   const tag = createHash("sha256").update(normalized).digest("hex").slice(0, 8);
   const dir = `/tmp/vc-${uid}-${tag}`;
   if (!MUX_DIR_PATTERN.test(dir)) {

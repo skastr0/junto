@@ -2,8 +2,8 @@
 # Seed isolated dev state from production when schema versions match.
 #
 # Copies product durability only:
-#   - ~/.vellum-command/state/vellum-command.db  →  $JUNTO_HOME/.vellum-command/state/vellum-command.db
-#   - ~/.vellum-command/content/         →  $JUNTO_HOME/.vellum-command/content/
+#   - ~/.junto/state/junto.db  →  $JUNTO_HOME/.junto/state/junto.db
+#   - ~/.junto/content/         →  $JUNTO_HOME/.junto/content/
 #
 # Never copies install-ops.db (backfill ledgers). That file is install-local:
 # a fresh install-ops on dev re-runs pending walks against the seeded product
@@ -14,13 +14,13 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-PROD_HOME="${HOME}/.vellum-command"
-PROD_DB="${PROD_HOME}/state/vellum-command.db"
+PROD_HOME="${HOME}/.junto"
+PROD_DB="${PROD_HOME}/state/junto.db"
 PROD_CONTENT="${PROD_HOME}/content"
-JUNTO_HOME="${JUNTO_HOME:-${HOME}/.vellum-command-dev}"
-DEV_DB="${JUNTO_HOME}/.vellum-command/state/vellum-command.db"
-DEV_CONTENT="${JUNTO_HOME}/.vellum-command/content"
-DEV_OPS_DB="${JUNTO_HOME}/.vellum-command/state/install-ops.db"
+JUNTO_HOME="${JUNTO_HOME:-${HOME}/.junto-dev}"
+DEV_DB="${JUNTO_HOME}/.junto/state/junto.db"
+DEV_CONTENT="${JUNTO_HOME}/.junto/content"
+DEV_OPS_DB="${JUNTO_HOME}/.junto/state/install-ops.db"
 
 log() {
   printf 'vellum-command dev: %s\n' "$*" >&2

@@ -25,7 +25,7 @@ afterEach(() => {
 });
 
 const makeGenerationTree = (home: string, generation: string): string => {
-  const release = join(home, ".vellum-command", "runtime", "releases", generation);
+  const release = join(home, ".junto", "runtime", "releases", generation);
   const bin = join(release, "resources", "bin");
   mkdirSync(bin, { recursive: true, mode: 0o700 });
   const remote = join(bin, "vellum-command-remote");
@@ -41,7 +41,7 @@ describe("install-user-service path resolution", () => {
     const generation = `1.2.3-${"a".repeat(64)}`;
     const remote = makeGenerationTree(home, generation);
     const release = resolveReleaseDirectoryFromRemoteBinary(remote);
-    expect(release).toBe(join(home, ".vellum-command", "runtime", "releases", generation));
+    expect(release).toBe(join(home, ".junto", "runtime", "releases", generation));
     expect(() =>
       renderUserlandLinuxService({ releaseDirectory: release }),
     ).not.toThrow();
@@ -52,7 +52,7 @@ describe("install-user-service path resolution", () => {
     roots.push(home);
     const stage = join(
       home,
-      ".vellum-command",
+      ".junto",
       "runtime",
       "staging",
       `1.2.3-${"b".repeat(64)}-12345`,

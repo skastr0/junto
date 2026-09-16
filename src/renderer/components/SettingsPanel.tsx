@@ -653,7 +653,7 @@ function InstallationFacts() {
           </FieldRow>
           <FieldRow label="Data location" hint="where Junto stores its data">
             <span className="settings-mono-value" style={{ color: INK, fontSize: 12 }}>
-              ~/.vellum-command/state/vellum-command.db
+              ~/.junto/state/junto.db
             </span>
           </FieldRow>
         </>

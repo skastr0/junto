@@ -492,7 +492,7 @@ describe("resolveCursorCredential", () => {
   it("prefers the env cookie over the config file", () => {
     const home = mkdtempSync(join(tmpdir(), "cursor-env-"));
     cleanup.push(home);
-    mkdirSync(join(home, ".vellum-command", "config"), { recursive: true });
+    mkdirSync(join(home, ".junto", "config"), { recursive: true });
     writeFileSync(cursorConfigCookiePath(home), "next-auth.session-token=config-file-value");
     const outcome = resolveCursorCredential({
       env: { CURSOR_COOKIE: "env-cookie-value" },
@@ -509,7 +509,7 @@ describe("resolveCursorCredential", () => {
   it("discovers the config-file cookie and skips blank files", () => {
     const home = mkdtempSync(join(tmpdir(), "cursor-cfg-"));
     cleanup.push(home);
-    mkdirSync(join(home, ".vellum-command", "config"), { recursive: true });
+    mkdirSync(join(home, ".junto", "config"), { recursive: true });
     writeFileSync(cursorConfigCookiePath(home), "  \n");
     expect(resolveCursorCredential({ env: {}, home, appDbPath: join(home, "a.vscdb") }).kind).toBe("missing");
     writeFileSync(cursorConfigCookiePath(home), "wos-session=file-value");

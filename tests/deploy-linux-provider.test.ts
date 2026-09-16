@@ -134,7 +134,7 @@ describe("Linux userland generation observe", () => {
 
       const dest = join(
         home,
-        ".vellum-command",
+        ".junto",
         "runtime",
         "releases",
         `1.2.3-${"a".repeat(64)}`,

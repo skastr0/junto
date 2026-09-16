@@ -616,7 +616,7 @@ describe.skipIf(!enabled)("decision gate: does the read path scale", () => {
       const root = join(process.env.GATE_WORK ?? "/tmp", "gate-real");
       rmSync(root, { recursive: true, force: true });
       mkdirSync(join(root, "state"), { recursive: true });
-      const databasePath = join(root, "state", "vellum-command.db");
+      const databasePath = join(root, "state", "junto.db");
       copyFileSync(source, databasePath);
       const record = await measureScale({
         scale: "real",
@@ -641,7 +641,7 @@ describe.skipIf(!enabled)("decision gate: does the read path scale", () => {
         rmSync(root, { recursive: true, force: true });
         mkdirSync(root, { recursive: true });
         cpSync(fixture.root, root, { recursive: true });
-        const databasePath = join(root, "state", "vellum-command.db");
+        const databasePath = join(root, "state", "junto.db");
         const record = await measureScale({
           scale: spec.id,
           label: spec.label,

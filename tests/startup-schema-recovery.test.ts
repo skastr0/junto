@@ -39,7 +39,7 @@ afterEach(() => {
 const tempDb = (userVersion: number): string => {
   const root = mkdtempSync(join(tmpdir(), "vellum-schema-probe-"));
   roots.push(root);
-  const path = join(root, "vellum-command.db");
+  const path = join(root, "junto.db");
   const db = new DatabaseSync(path);
   db.exec(`PRAGMA user_version = ${userVersion}`);
   db.close();
@@ -126,7 +126,7 @@ describe("runStartupSchemaRecovery", () => {
     reason: "newer-than-supported" as const,
     userVersion: 4,
     supportedVersion: 3,
-    path: "/tmp/vellum-command.db",
+    path: "/tmp/junto.db",
   };
 
   it("quits headless without dialog", async () => {

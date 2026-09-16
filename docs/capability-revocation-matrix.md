@@ -41,7 +41,7 @@ session; actor delete revokes then terminates **OwnedProcess only**.
 | PID reuse | Start-key epoch rejects recycled PID | `readProcessStartKey` / `lstart` stored at bind; resolve unbinds on mismatch | **Met** | `process-identity.ts` `bind` / `resolveLive` |
 | Work caller resolution | Map principal → unique agent card | `resolveCallerAcrossCanvases` / `resolveCallerOnDoc`; ambiguous → ScopeError | **Met** | `work/caller-resolve.ts` |
 | Browser caller resolution | Same process-bind; only agents wield browser | Terminal principals denied; agent → edge pages | **Met** | `browser/process-bind.ts` |
-| Transport token | Shared secret for socket membership, not principal | Bearer token at `~/.vellum-command/work/token` (work) / browser control token; checked before process-bind | **Met** | `work/control.ts` `workTokenMatches`; not a substitute for PID |
+| Transport token | Shared secret for socket membership, not principal | Bearer token at `~/.junto/work/token` (work) / browser control token; checked before process-bind | **Met** | `work/control.ts` `workTokenMatches`; not a substitute for PID |
 
 **Verdict:** process-bind is the live identity plane for both work and browser
 protected routes. No product path treats client-supplied nodeRef as the seat.

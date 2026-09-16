@@ -34,7 +34,7 @@ import { makeStateEngineLive } from "../src/main/vellum-command/state/engine";
 import { WorkRepositoryLive } from "../src/main/vellum-command/work/repository";
 
 const stateLive = makeStateEngineLive(
-  join(mockCanvasesHome, ".vellum-command", "state", "vellum-command.db"),
+  join(mockCanvasesHome, ".junto", "state", "junto.db"),
 );
 const repositoriesLive = Layer.provideMerge(WorkRepositoryLive, stateLive);
 const canvasesLive = Layer.provideMerge(CanvasesLive, repositoriesLive);
@@ -59,7 +59,7 @@ const runHeadless = async (script: "digest.ts" | "render.ts", name: string) => {
         cwd: globalThis.process.cwd(),
         env: {
           ...globalThis.process.env,
-          JUNTO_CANVASES_DIR: join(mockCanvasesHome, ".vellum-command", "canvases"),
+          JUNTO_CANVASES_DIR: join(mockCanvasesHome, ".junto", "canvases"),
         },
       },
       (error, stdout, stderr) => {
@@ -74,7 +74,7 @@ const runHeadless = async (script: "digest.ts" | "render.ts", name: string) => {
 beforeAll(async () => {
   process.env.JUNTO_CANVASES_DIR = join(
     mockCanvasesHome,
-    ".vellum-command",
+    ".junto",
     "canvases",
   );
   canvases = await runtime.runPromise(CanvasesService);
@@ -117,7 +117,7 @@ describe("canvas path capability boundary", () => {
     await runtime.runPromise(canvases.list);
 
     await expect(
-      access(join(mockCanvasesHome, ".vellum-command", "canvases")),
+      access(join(mockCanvasesHome, ".junto", "canvases")),
     ).rejects.toThrow();
   });
 
@@ -136,7 +136,7 @@ describe("canvas path capability boundary", () => {
       access(
         join(
           mockCanvasesHome,
-          ".vellum-command",
+          ".junto",
           "canvases",
           "projection-sink.canvas",
         ),
@@ -198,7 +198,7 @@ describe("canvas path capability boundary", () => {
   });
 
   it("does not follow projection symlinks outside the output root", async () => {
-    const root = join(mockCanvasesHome, ".vellum-command", "canvases");
+    const root = join(mockCanvasesHome, ".junto", "canvases");
     const outsideProjection = join(mockCanvasesHome, "outside.digest.txt");
     const projectionPath = join(root, "safe.digest.txt");
     await runtime.runPromise(canvases.create("safe"));
@@ -230,7 +230,7 @@ describe("canvas path capability boundary", () => {
       access(
         join(
           mockCanvasesHome,
-          ".vellum-command",
+          ".junto",
           "canvases",
           "portfolio-2026.canvas",
         ),

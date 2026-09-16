@@ -162,7 +162,7 @@ describe("CanvasesService SQLite authority", () => {
 
   it("commits sequential authority generations on write and create", async () => {
     await installEnv();
-    runtime = makeCanvasRuntime(join(stateDir, "vellum-command.db"));
+    runtime = makeCanvasRuntime(join(stateDir, "junto.db"));
     const canvases = await runtime.runPromise(CanvasesService);
 
     await runtime.runPromise(canvases.write("alpha", noteDoc("one")));
@@ -200,7 +200,7 @@ describe("CanvasesService SQLite authority", () => {
 
   it("exposes coherent stored authority material with detached caller maps", async () => {
     await installEnv();
-    runtime = makeCanvasRuntime(join(stateDir, "vellum-command.db"));
+    runtime = makeCanvasRuntime(join(stateDir, "junto.db"));
     const canvases = await runtime.runPromise(CanvasesService);
     await runtime.runPromise(canvases.write("alpha", noteDoc("one")));
     await runtime.runPromise(canvases.create("beta"));
@@ -240,13 +240,13 @@ describe("CanvasesService SQLite authority", () => {
 
   it("reloads the live map from SQLite across restart", async () => {
     await installEnv();
-    runtime = makeCanvasRuntime(join(stateDir, "vellum-command.db"));
+    runtime = makeCanvasRuntime(join(stateDir, "junto.db"));
     const canvases = await runtime.runPromise(CanvasesService);
     await runtime.runPromise(canvases.write("alpha", noteDoc("authority-wins")));
     await runtime.dispose();
     runtime = undefined;
 
-    runtime = makeCanvasRuntime(join(stateDir, "vellum-command.db"));
+    runtime = makeCanvasRuntime(join(stateDir, "junto.db"));
     const reloaded = await runtime.runPromise(CanvasesService);
     const list = await runtime.runPromise(reloaded.list);
     expect(list.map((row) => row.name)).toEqual(["alpha"]);
@@ -294,7 +294,7 @@ describe("CanvasesService SQLite authority", () => {
     expectedMessage
   ) => {
     await installEnv();
-    const database = join(stateDir, "vellum-command.db");
+    const database = join(stateDir, "junto.db");
     runtime = makeCanvasRuntime(database);
     const canvases = await runtime.runPromise(CanvasesService);
     await runtime.runPromise(canvases.write("work", noteDoc("authorial")));
@@ -333,7 +333,7 @@ describe("CanvasesService SQLite authority", () => {
 
   it("keeps work rows out of authority while projecting committed work reads", async () => {
     await installEnv();
-    runtime = makeCanvasRuntime(join(stateDir, "vellum-command.db"));
+    runtime = makeCanvasRuntime(join(stateDir, "junto.db"));
     const settings = await runtime.runPromise(SettingsService);
     await runtime.runPromise(
       settings.setStationTopology({
@@ -385,7 +385,7 @@ describe("CanvasesService SQLite authority", () => {
 
   it("keeps the authored board contract while stripping projected rows", async () => {
     await installEnv();
-    runtime = makeCanvasRuntime(join(stateDir, "vellum-command.db"));
+    runtime = makeCanvasRuntime(join(stateDir, "junto.db"));
     const canvases = await runtime.runPromise(CanvasesService);
     const authored = taskSinkDoc();
     await runtime.runPromise(
@@ -419,7 +419,7 @@ describe("CanvasesService SQLite authority", () => {
 
   it("stores exactly the current graph after many commits", async () => {
     await installEnv();
-    runtime = makeCanvasRuntime(join(stateDir, "vellum-command.db"));
+    runtime = makeCanvasRuntime(join(stateDir, "junto.db"));
     const canvases = await runtime.runPromise(CanvasesService);
     const state = await runtime.runPromise(StateEngine);
 
@@ -460,7 +460,7 @@ describe("CanvasesService SQLite authority", () => {
     expect(reread.doc.nodes[0]).toMatchObject({ text: `rev-${commits - 1}` });
 
     await runtime.dispose();
-    runtime = makeCanvasRuntime(join(stateDir, "vellum-command.db"));
+    runtime = makeCanvasRuntime(join(stateDir, "junto.db"));
     const reopened = await runtime.runPromise(CanvasesService);
     expect(
       (await runtime.runPromise(reopened.read("alpha"))).doc.nodes[0],
@@ -469,7 +469,7 @@ describe("CanvasesService SQLite authority", () => {
 
   it("keeps a work-fact authorial basis as opaque history after later commits", async () => {
     await installEnv();
-    runtime = makeCanvasRuntime(join(stateDir, "vellum-command.db"));
+    runtime = makeCanvasRuntime(join(stateDir, "junto.db"));
     const settings = await runtime.runPromise(SettingsService);
     await runtime.runPromise(
       settings.setStationTopology({
@@ -534,7 +534,7 @@ describe("CanvasesService SQLite authority", () => {
 
   it("starts empty when the authority pointer is absent", async () => {
     await installEnv();
-    runtime = makeCanvasRuntime(join(stateDir, "vellum-command.db"));
+    runtime = makeCanvasRuntime(join(stateDir, "junto.db"));
     const canvases = await runtime.runPromise(CanvasesService);
     const list = await runtime.runPromise(canvases.list);
     expect(list).toEqual([]);
@@ -547,7 +547,7 @@ describe("CanvasesService SQLite authority", () => {
 
   it("remove drops the document from the next authority generation", async () => {
     await installEnv();
-    runtime = makeCanvasRuntime(join(stateDir, "vellum-command.db"));
+    runtime = makeCanvasRuntime(join(stateDir, "junto.db"));
     const canvases = await runtime.runPromise(CanvasesService);
     await runtime.runPromise(canvases.create("keep"));
     await runtime.runPromise(canvases.create("drop"));
@@ -563,7 +563,7 @@ describe("CanvasesService SQLite authority", () => {
 
   it("deduplicates identical maps and preserves a valid empty head", async () => {
     await installEnv();
-    const database = join(stateDir, "vellum-command.db");
+    const database = join(stateDir, "junto.db");
     runtime = makeCanvasRuntime(database);
     const canvases = await runtime.runPromise(CanvasesService);
     const doc = noteDoc("same");
@@ -592,7 +592,7 @@ describe("CanvasesService SQLite authority", () => {
 
   it("rejects a stale expectedRevision without advancing the generation", async () => {
     await installEnv();
-    runtime = makeCanvasRuntime(join(stateDir, "vellum-command.db"));
+    runtime = makeCanvasRuntime(join(stateDir, "junto.db"));
     const canvases = await runtime.runPromise(CanvasesService);
     const first = await runtime.runPromise(
       canvases.write("alpha", noteDoc("one")),
@@ -641,7 +641,7 @@ describe("CanvasesService SQLite authority", () => {
 
   const bootGrantedPortfolio = async () => {
     await installEnv();
-    const database = join(stateDir, "vellum-command.db");
+    const database = join(stateDir, "junto.db");
     runtime = makeCanvasRuntime(database);
     const settings = await runtime.runPromise(SettingsService);
     await runtime.runPromise(

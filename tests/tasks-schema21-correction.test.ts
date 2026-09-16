@@ -1211,7 +1211,7 @@ const readBackupFiles = async (root: string): Promise<ReadonlyArray<string>> =>
 describe("schema-21 corrective migration", () => {
   it("detects the invalid-21 identity and requires an advance", async () => {
     const root = await makeRoot();
-    const path = join(root, "vellum-command.db");
+    const path = join(root, "junto.db");
     const database = seedInvalid21Database(path);
     database.close();
     const probe = new DatabaseSync(path, { readOnly: true });
@@ -1227,7 +1227,7 @@ describe("schema-21 corrective migration", () => {
 
   it("corrects an invalid-21 database through StateEngine atomically", async () => {
     const root = await makeRoot();
-    const path = join(root, "vellum-command.db");
+    const path = join(root, "junto.db");
     const database = seedInvalid21Database(path);
     database.close();
 
@@ -1618,7 +1618,7 @@ describe("schema-21 corrective migration", () => {
 
   it("fresh databases build the exact corrected schema 21", async () => {
     const root = await makeRoot();
-    const path = join(root, "vellum-command.db");
+    const path = join(root, "junto.db");
     const runtime = ManagedRuntime.make(makeStateEngineLive(path));
     const state = await runtime.runPromise(StateEngine);
     handles.push({
@@ -1651,7 +1651,7 @@ describe("schema-21 corrective migration", () => {
 
   it("fails closed on a task id collision and leaves the database untouched", async () => {
     const root = await makeRoot();
-    const path = join(root, "vellum-command.db");
+    const path = join(root, "junto.db");
     const database = seedInvalid21Database(path);
     // Collide: a pending proposal whose id is already an unrelated task row.
     insertFact(database, {
@@ -1715,7 +1715,7 @@ describe("schema-21 corrective migration", () => {
 
   it("keeps an already-materialized pending proposal and still drops proposal storage", async () => {
     const root = await makeRoot();
-    const path = join(root, "vellum-command.db");
+    const path = join(root, "junto.db");
     const database = seedInvalid21Database(path);
     insertFact(database, {
       eventHome: "cc-installation",
@@ -1871,7 +1871,7 @@ describe("schema-21 corrective migration", () => {
 
   it("corrects old-shape work data and proposals inside the 20 -> 21 step", async () => {
     const root = await makeRoot();
-    const path = join(root, "vellum-command.db");
+    const path = join(root, "junto.db");
     const v20 = new DatabaseSync(path, {
       open: true,
       enableForeignKeyConstraints: true,

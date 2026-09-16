@@ -227,7 +227,7 @@ describe("browser edge-delete session teardown", () => {
   beforeEach(async () => {
     root = await mkdtemp(join(tmpdir(), "vellum-edge-delete-"));
     stateRuntime = ManagedRuntime.make(
-      makeStateEngineLive(join(root, "vellum-command.db")),
+      makeStateEngineLive(join(root, "junto.db")),
     );
     state = await stateRuntime.runPromise(StateEngine);
     registries = [];

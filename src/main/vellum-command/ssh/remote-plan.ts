@@ -36,9 +36,9 @@ fail() { printf 'LINUX_USERLAND_PREFLIGHT_V1 ok=0 reason=%s\n' "$1"; exit 0; }
 UID_VALUE=$(/usr/bin/id -u) || fail identity
 case "$UID_VALUE" in ''|0|*[!0-9]*) fail identity;; esac
 /usr/bin/systemctl --user show-environment >/dev/null 2>&1 || fail systemd-user
-[ ! -L "$HOME/.vellum-command" ] || fail home-link
-mkdir -p "$HOME/.vellum-command/runtime/releases" "$HOME/.vellum-command/runtime/staging" || fail runtime
-chmod 700 "$HOME/.vellum-command" "$HOME/.vellum-command/runtime" "$HOME/.vellum-command/runtime/releases" "$HOME/.vellum-command/runtime/staging" || fail runtime
+[ ! -L "$HOME/.junto" ] || fail home-link
+mkdir -p "$HOME/.junto/runtime/releases" "$HOME/.junto/runtime/staging" || fail runtime
+chmod 700 "$HOME/.junto" "$HOME/.junto/runtime" "$HOME/.junto/runtime/releases" "$HOME/.junto/runtime/staging" || fail runtime
 FREE=$(/usr/bin/df -PB1 "$HOME" | /usr/bin/awk 'NR == 2 { print $4 }')
 case "$FREE" in ''|*[!0-9]*) fail disk;; esac
 printf 'LINUX_USERLAND_PREFLIGHT_V1 ok=1 uid=%s free=%s\n' "$UID_VALUE" "$FREE"
@@ -67,8 +67,8 @@ printf '%s\n' "$VERSION" | /usr/bin/awk -F. 'NF == 3 && $1 ~ /^(0|[1-9][0-9]*)$/
 case "$SHA" in ????????????????????????????????????????????????????????????????) ;; *) fail header;; esac
 case "$BYTES" in ''|0|*[!0-9]*) fail header;; esac
 [ "$BYTES" -le 3221225472 ] || fail header
-ROOT="$HOME/.vellum-command/runtime"
-[ ! -L "$HOME/.vellum-command" ] && [ ! -L "$ROOT" ] || fail home-link
+ROOT="$HOME/.junto/runtime"
+[ ! -L "$HOME/.junto" ] && [ ! -L "$ROOT" ] || fail home-link
 mkdir -p "$ROOT/releases" "$ROOT/staging" || fail stage
 chmod 700 "$ROOT" "$ROOT/releases" "$ROOT/staging" || fail stage
 DEST="$ROOT/releases/$VERSION-$SHA"
@@ -87,8 +87,8 @@ prove_activation() {
   /usr/bin/systemctl --user daemon-reload >/dev/null 2>&1 || return 1
   /usr/bin/systemctl --user restart vellum-command-remote.service >/dev/null 2>&1 || return 1
   /usr/bin/systemctl --user is-active --quiet vellum-command-remote.service || return 1
-  SOCK="$HOME/.vellum-command/work/control.sock"
-  TOKEN="$HOME/.vellum-command/work/token"
+  SOCK="$HOME/.junto/work/control.sock"
+  TOKEN="$HOME/.junto/work/token"
   WAIT=0
   while [ "$WAIT" -lt 30 ]; do
     if [ -S "$SOCK" ] && [ ! -L "$SOCK" ] \
@@ -181,7 +181,7 @@ emit() { printf 'LINUX_USERLAND_OBSERVE_V1 present=%s\n' "$1"; exit 0; }
 [ -x /usr/bin/awk ] || exit 1
 [ -n "$HOME" ] || exit 1
 [ -d "$HOME" ] || emit 0
-ROOT="$HOME/.vellum-command/runtime/releases"
+ROOT="$HOME/.junto/runtime/releases"
 [ -d "$ROOT" ] && [ ! -L "$ROOT" ] || emit 0
 present=0
 for dest in "$ROOT"/*; do

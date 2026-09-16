@@ -47,7 +47,7 @@ export const termPlaneBlocksAppExit = (
 export interface TermPlaneStartOptions {
   /**
    * Root for an app-owned control directory. Production omits this and keeps
-   * the canonical ~/.vellum-command/term contract; isolated app instances may supply
+   * the canonical ~/.junto/term contract; isolated app instances may supply
    * their own Electron-owned userData path.
    */
   readonly controlHome?: string;

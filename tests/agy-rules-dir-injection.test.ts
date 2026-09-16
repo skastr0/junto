@@ -10,7 +10,7 @@ import {
 import { planManagedSpawn } from "../src/main/vellum-command/term/managed-spawn-plan";
 import { resolveManagedLaunchPlan } from "../src/shared/managed-terminal-launch";
 import { AGY_TEMPLATE } from "../src/shared/managed-terminal-templates";
-import { __resetVellumCommandHomeCache } from "../src/shared/vellum-home";
+import { __resetJuntoHomeCache } from "../src/shared/junto-home";
 
 /**
  * Antigravity has no system-prompt flag, so its Tier-A carrier is a DIRECTORY:
@@ -34,13 +34,13 @@ describe("agy doctrine rides an app-owned --add-dir rules directory", () => {
     tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), "vellum-agy-rules-"));
     priorHome = process.env.JUNTO_HOME;
     process.env.JUNTO_HOME = tmpHome;
-    __resetVellumCommandHomeCache();
+    __resetJuntoHomeCache();
   });
 
   afterEach(() => {
     if (priorHome === undefined) delete process.env.JUNTO_HOME;
     else process.env.JUNTO_HOME = priorHome;
-    __resetVellumCommandHomeCache();
+    __resetJuntoHomeCache();
     fs.rmSync(tmpHome, { recursive: true, force: true });
   });
 
@@ -63,7 +63,7 @@ describe("agy doctrine rides an app-owned --add-dir rules directory", () => {
       doctrine: "# doctrine\n\nclaim tasks",
     });
     expect(dir).toBe(agentRulesDirFor("agent-01"));
-    expect(dir?.startsWith(path.join(tmpHome, ".vellum-command"))).toBe(true);
+    expect(dir?.startsWith(path.join(tmpHome, ".junto"))).toBe(true);
     expect(
       fs.readFileSync(path.join(dir!, AGENT_RULES_FILENAME), "utf8"),
     ).toContain("claim tasks");
@@ -74,7 +74,7 @@ describe("agy doctrine rides an app-owned --add-dir rules directory", () => {
       seatRef: "../../../etc",
       doctrine: "x",
     });
-    expect(dir?.startsWith(path.join(tmpHome, ".vellum-command"))).toBe(true);
+    expect(dir?.startsWith(path.join(tmpHome, ".junto"))).toBe(true);
     expect(dir).not.toContain("..");
   });
 

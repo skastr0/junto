@@ -4,7 +4,7 @@
  * Skipped by default so `bun run test` stays fast. Run it explicitly:
  *
  *   JUNTO_SCALE_BENCH=1 \
- *   JUNTO_SCALE_BENCH_REAL_DB=/path/to/a/copy/of/vellum-command.db \
+ *   JUNTO_SCALE_BENCH_REAL_DB=/path/to/a/copy/of/junto.db \
  *   npx vitest run tests/scale-bench/scale.test.ts --reporter=verbose
  *
  * Env:

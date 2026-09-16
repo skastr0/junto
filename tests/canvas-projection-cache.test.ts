@@ -74,7 +74,7 @@ const openRuntime = async () => {
       CanvasesLive,
       Layer.provideMerge(
         Layer.mergeAll(WorkRepositoryLive, CanvasEntityRepositoryLive),
-        makeStateEngineLive(join(stateDirectory, "vellum-command.db")),
+        makeStateEngineLive(join(stateDirectory, "junto.db")),
       ),
     ),
   );

@@ -19,7 +19,7 @@ been published.
 | Updates | Signed `/linux/x64/alpha.json`; automatic check/download, explicit Restart | Managed official installations only |
 | Source builds / loose archives | Build and launch locally | Do not gain managed update eligibility by extraction |
 | Corresponding source | `/linux/x64/sources/<version>/sources.json` | Bound to the exact released archive |
-| State | One app-owned `~/.vellum-command/state/vellum-command.db` | Install/update never copies, replaces or separately opens it |
+| State | One app-owned `~/.junto/state/junto.db` | Install/update never copies, replaces or separately opens it |
 | Maturity | Alpha | Does not imply Fleet Beta or production qualification |
 
 Use the [desktop guide](linux-command-center-alpha.md) and

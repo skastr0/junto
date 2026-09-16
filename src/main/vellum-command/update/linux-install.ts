@@ -416,9 +416,9 @@ export const activateLinuxDesktopRelease = async (handle: StagedLinuxDesktopRele
     const stableDesktop = desktopPath(authority.home);
     const reuseDesktop = options.mode === "first-install" && await exists(stableDesktop);
     const nonce = randomUUID();
-    temporaryLauncher = join(dirname(stableLauncher), `.vellum-command-desktop-${nonce}`);
+    temporaryLauncher = join(dirname(stableLauncher), `.junto-desktop-${nonce}`);
     if (!reuseDesktop) {
-      temporaryDesktop = join(dirname(stableDesktop), `.vellum-command-${nonce}.desktop`);
+      temporaryDesktop = join(dirname(stableDesktop), `.junto-${nonce}.desktop`);
       await writeTemporaryFile(temporaryDesktop, desktopBody(authority.home), 0o644);
     }
     await writeTemporaryFile(temporaryLauncher, launcherBody(authority.root, handle.generationPath.slice(authority.root.length + 1)), 0o755);

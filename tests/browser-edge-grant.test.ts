@@ -177,7 +177,7 @@ describe("browser edge-grant process-bind dual admit", () => {
   beforeEach(async () => {
     root = await mkdtemp(join(tmpdir(), "vellum-edge-grant-"));
     stateRuntime = ManagedRuntime.make(
-      makeStateEngineLive(join(root, "vellum-command.db")),
+      makeStateEngineLive(join(root, "junto.db")),
     );
     state = await stateRuntime.runPromise(StateEngine);
     registries = [];

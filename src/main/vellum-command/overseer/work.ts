@@ -24,7 +24,7 @@ import {
 } from "@shared/overseer-control";
 import { workControlDir, WORK_HOME_ENV } from "@shared/work-control";
 import type { WorkErrorBody, WorkOpName } from "@shared/work-control";
-import { resolveVellumCommandHome } from "@shared/vellum-home";
+import { resolveJuntoHome } from "@shared/junto-home";
 import type { ActorRef } from "@shared/work-protocol";
 import type { BoardAuthor } from "@shared/work-model";
 import { OPERATOR_SEAT_ID } from "@shared/work-reference";
@@ -114,7 +114,7 @@ const LOCAL_CONTENT_OPERATIONS = new Set<string>([
 const callerWorkHome = (): string => {
   const env = process.env[WORK_HOME_ENV]?.trim();
   if (env) return env;
-  return workControlDir(resolveVellumCommandHome());
+  return workControlDir(resolveJuntoHome());
 };
 
 const mapWorkCode = (

@@ -1,6 +1,6 @@
 import { chmodSync, existsSync, lstatSync } from "node:fs";
 import { createServer, type Server, type Socket } from "node:net";
-import { resolveVellumCommandHome } from "@shared/vellum-home";
+import { resolveJuntoHome } from "@shared/junto-home";
 import { Effect, Result, Schema } from "effect";
 import {
   acquireControlListenerLease,
@@ -199,7 +199,7 @@ export const startCanvasControlServer = async (
   const controlHome =
     options.controlHome?.trim() ||
     process.env[CANVAS_CONTROL_HOME_ENV]?.trim() ||
-    canvasControlDir(options.home ?? resolveVellumCommandHome());
+    canvasControlDir(options.home ?? resolveJuntoHome());
   prepareControlDirectory(controlHome);
   const socketPath = canvasControlSocketPath(controlHome);
   const listenerLease = await acquireControlListenerLease(socketPath);

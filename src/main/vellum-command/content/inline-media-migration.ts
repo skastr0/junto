@@ -2,7 +2,7 @@
  * One-shot migration of historical inline Base64 work media into the local
  * content store. Runs after StateEngine is up; gated by the install-ops
  * backfill ledger (`install-ops.db` / `content.inline-media.v1`), not by
- * product `vellum-command.db`. The product table `content_inline_media_migration`
+ * product `junto.db`. The product table `content_inline_media_migration`
  * remains for schema identity only and is no longer the authority.
  *
  * Scope law: this walk rewrites MATERIAL PROJECTIONS ONLY (parts_json /

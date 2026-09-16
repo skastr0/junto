@@ -470,7 +470,7 @@ export const runWorkCliAcceptance = async () => {
       }),
     ),
     Layer.mergeAll(
-      makeStateEngineLive(join(root, "state", "vellum-command.db")),
+      makeStateEngineLive(join(root, "state", "junto.db")),
       makeInstallOpsLive(join(root, "state", "install-ops.db")),
     ),
   );

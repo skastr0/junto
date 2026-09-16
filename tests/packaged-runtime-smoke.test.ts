@@ -290,7 +290,7 @@ describe("packaged runtime smoke receipts", () => {
     expect(() => assertDarwinUnixSocketPathFits(tooLong)).toThrow(/Darwin 103-byte limit/u);
     expect(() =>
       assertDarwinUnixSocketPathFits(
-        "/private/tmp/vellum-command-smoke-XXXXXX/home/.vellum-command/browser/control.sock",
+        "/private/tmp/vellum-command-smoke-XXXXXX/home/.junto/browser/control.sock",
       ),
     ).not.toThrow();
   });

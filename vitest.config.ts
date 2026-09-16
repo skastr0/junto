@@ -32,8 +32,8 @@ export default defineConfig({
     // lifecycle. It is not part of the application test surface.
     exclude: [...configDefaults.exclude, "e2e/**", "infra/**"],
     // Unbound StateEngineLive / stateDatabasePath() must never resolve to
-    // the operator's ~/.vellum-command production tree during unit tests.
-    setupFiles: [resolve(__dirname, "tests/vitest-setup-vellum-home.ts")],
+    // the operator's ~/.junto production tree during unit tests.
+    setupFiles: [resolve(__dirname, "tests/vitest-setup-junto-home.ts")],
   },
   resolve: {
     alias: {

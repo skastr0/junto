@@ -19,7 +19,7 @@ export const STATION_CONTROL_MAX_FRAME_BYTES =
   STATION_API_MAX_PROJECTION_CHARS * 4 + 1024 * 1024;
 
 export const stationControlDir = (home: string): string =>
-  `${home}/.vellum-command/station`;
+  `${home}/.junto/station`;
 
 /** Enroll door. Filename stays `control.sock` for Darwin package-phase probes. */
 export const stationEnrollSocketPath = (stationHome: string): string =>

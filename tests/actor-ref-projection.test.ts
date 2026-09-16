@@ -88,7 +88,7 @@ const makeRuntime = async (
 ) => {
   const root = await mkdtemp(join(tmpdir(), prefix));
   roots.push(root);
-  const state = makeStateEngineLive(join(root, "vellum-command.db"));
+  const state = makeStateEngineLive(join(root, "junto.db"));
   const repositories = Layer.provideMerge(
     Layer.mergeAll(
       WorkRepositoryLive,

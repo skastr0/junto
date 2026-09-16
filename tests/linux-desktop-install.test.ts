@@ -197,7 +197,7 @@ describe("rootless Linux desktop installation", () => {
 
   itOnLinux("creates an inactive generation, then publishes a launcher without touching product state", async () => {
     const input = await fixture();
-    const database = join(input.home, ".vellum-command/state/vellum-command.db");
+    const database = join(input.home, ".junto/state/junto.db");
     await mkdir(dirname(database), { recursive: true });
     await writeFile(database, "installed state sentinel");
     const candidate = await stage(input);

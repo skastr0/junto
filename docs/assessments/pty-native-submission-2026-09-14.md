@@ -178,7 +178,7 @@ Private local receipts are under
 `/tmp/vellum-command-native-repro-54f79b07/` and
 `/tmp/vellum-command-native-repro-7d2d6cb1/`: build identity, delivery journal,
 trace summary and observe-lease captures/replays. Row numbers above refer to
-`~/.vellum-command/logs/pty-delivery.jsonl` at this checkpoint; filtered copies
+`~/.junto/logs/pty-delivery.jsonl` at this checkpoint; filtered copies
 use different offsets. Raw session history stays outside the repository.
 
 This establishes native automatic claim submission, completion, handoff and

@@ -171,7 +171,7 @@ const makeSessions = (root: string): BrowserSessionService => {
 const newRoot = async (): Promise<string> => {
   const root = await mkdtemp(TEST_ROOT_PREFIX);
   const runtime = ManagedRuntime.make(
-    makeStateEngineLive(join(root, "vellum-command.db")),
+    makeStateEngineLive(join(root, "junto.db")),
   );
   states.set(root, await runtime.runPromise(StateEngine));
   stateRuntimes.push(runtime);

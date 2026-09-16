@@ -48,7 +48,7 @@ afterEach(async () => {
 });
 
 const makeRuntime = (root: string) => {
-  const stateLive = makeStateEngineLive(join(root, "state", "vellum-command.db"));
+  const stateLive = makeStateEngineLive(join(root, "state", "junto.db"));
   const repositoriesLive = Layer.provideMerge(
     Layer.mergeAll(
       WorkRepositoryLive,

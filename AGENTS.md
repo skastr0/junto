@@ -24,7 +24,7 @@ public or user-facing string must use the full name **Junto** only.
 | Release artifacts | `Junto-…` |
 | Code identifiers / source paths | unchanged — not brand |
 
-**Renamed runtime surfaces:** `VellumCommandApi`, `resolveVellumCommandHome`, `~/.vellum-command/`,
+**Renamed runtime surfaces:** `VellumCommandApi`, `resolveJuntoHome`, `~/.junto/`,
 `dist/vellum-command`, `bin/vellum-command`, `JUNTO_*` env keys,
 `window.vellumCommand`, and `vellum-command-*` protocol/control prefixes.
 
@@ -64,16 +64,16 @@ Protocol 1 remains prerelease. The closed operations are `pair`, `configure`,
 
 **Normative direction:** the protected document is the product; compiled
 projections and capability-bound tools are the agent API. **Sole product
-store** is `~/.vellum-command/state/vellum-command.db` — canvases, work, content manifests,
+store** is `~/.junto/state/junto.db` — canvases, work, content manifests,
 station, settings, and every other product durable fact. That law is about
 **product** durability, not process-internal bookkeeping: install-local
-internals (e.g. backfill ledgers in `~/.vellum-command/state/install-ops.db`, content
-object files under `~/.vellum-command/content/`) may use separate on-disk stores
+internals (e.g. backfill ledgers in `~/.junto/state/install-ops.db`, content
+object files under `~/.junto/content/`) may use separate on-disk stores
 owned by the same app runtime. Do not fold migration/backfill completeness
 markers into product rows so seeds and installs cannot lie about local
 walks. Each installation has one sole app runtime process as the normal
 opener of product and install-ops databases, and one `StateEngine`
-connection for `vellum-command.db`: Electron main on Command Center, or the
+connection for `junto.db`: Electron main on Command Center, or the
 displayless packaged Node Remote process on Remote. Renderers, CLIs,
 helpers, and remote callers use IPC/control APIs and never open product or
 install-ops databases. Every app version has one role-independent product
@@ -136,7 +136,7 @@ Routine migrations are **expand → preserve → deprecate**:
 Physical retirement is not a startup migration. It requires a separate
 reviewed compaction, a verified coherent backup, replacement-parity proof,
 fleet compatibility evidence, and explicit operator approval. Never ask an
-installed system to delete `vellum-command.db`; never add a downgrade, old-schema
+installed system to delete `junto.db`; never add a downgrade, old-schema
 runtime reader, dual write, or file-store compatibility path.
 
 Authorial canvas writes persist one relational current graph
@@ -173,7 +173,7 @@ down-conversion.
 
 An older Command Center binary that finds `PRAGMA user_version` ahead of its
 `CURRENT_STATE_SCHEMA_VERSION` refuses deterministically before opening
-`vellum-command.db` for write: the read-only `schema-version-probe` reports
+`junto.db` for write: the read-only `schema-version-probe` reports
 `newer-than-supported`, and `startup-schema-recovery` surfaces a plain
 "Update required" path (quit, or install the newer feed build). It never
 opens, migrates, downgrades, or partially decodes advanced state.
@@ -206,7 +206,7 @@ See [`docs/overseer-plan.md`](docs/overseer-plan.md) and
 [`docs/overseer-coverage-matrix.md`](docs/overseer-coverage-matrix.md).
 
 Headless CLIs reach `CanvasesService` through the running app's owner-local
-canvas control socket. They do not open `vellum-command.db`. Ordinary agents
+canvas control socket. They do not open `junto.db`. Ordinary agents
 remain strictly read-only for authorial intent. Current headless CLIs:
 
 | command | who | what it does |
@@ -225,7 +225,7 @@ to an exported document or the database:
 | surface | detail |
 |---|---|
 | CLI | `dist/vellum-command` (`bun run cli:build`) — `ping`, `doctor`, `capabilities`, `onboard`, `tasks`, `msg`, `request`, `artifact`, board ops; overseer seats also `overseer` |
-| Socket | `~/.vellum-command/work/control.sock` + bearer token `~/.vellum-command/work/token` |
+| Socket | `~/.junto/work/control.sock` + bearer token `~/.junto/work/token` |
 | Identity | **process-bind** — CLI must run as a descendant of a live Junto agent (ACP) process. Main registers those PIDs; control admits via Unix peer PID (+ PPID walk). No client-supplied nodeRef / `JUNTO_NODE_REF` identity claim. |
 | Authz | **edges** — ordinary agents only act on connected nodes (kernel-enforced ScopeError otherwise); board ports are distinct (`board.create_topic` vs `board.post`). An overseer bypasses edge scope for closed `overseer` ops after live grant admission; pause/blocked do not deny those ops. |
 
@@ -472,7 +472,7 @@ phase, and attention/occupancy are separate planes.
 
 ## Discipline
 
-- `~/.vellum-command/state/vellum-command.db` is the only **product** state store. Do not add
+- `~/.junto/state/junto.db` is the only **product** state store. Do not add
   parallel product JSON stores, manifests, seals, pointer files, drop-file
   protocols, dual product reads/writes, legacy imports, or rollback paths.
   Install-local internals (backfill ledgers, content object files) are not
@@ -501,7 +501,7 @@ Two kinds of migration exist and they never mix:
 2. **Data backfills** — marker-gated, idempotent walks that run after
    StateEngine is up (e.g. `content/inline-media-migration.ts`). Completeness
    markers live in install-ops (`install-ops.db` / `InstallOpsService`), not
-   in product tables. Dev seeds may copy `vellum-command.db` + content files; they
+   in product tables. Dev seeds may copy `junto.db` + content files; they
    must never copy install-ops ledgers.
 
 Backfill laws (each one broke, or nearly broke, a real release):
@@ -520,7 +520,7 @@ Backfill laws (each one broke, or nearly broke, a real release):
   transactions, safe resume from any interruption.
 - **Install-local ledger.** Backfill completeness is install-local
   bookkeeping, not product state — separate Effect layer/service and
-  separate on-disk store from `vellum-command.db`.
+  separate on-disk store from `junto.db`.
 - **Proven against the real schema before it ships.** Every migration or
   backfill ships with a test that runs it on the production DDL — triggers
   active — seeded with historical-shaped rows *including rows in the immutable

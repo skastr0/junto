@@ -179,7 +179,7 @@ Ranked by `original_token_count` (`orig`), with what the harness actually delive
 | 14 | 6376 | 6200 | 75 | 0 | 6200 | 3 | `sed -n '1,126p' e2e/harness/launch.ts && sed -n '417,580p' e2e/harness/launch.ts && cat tests/pty-e2e/README.md && sed -n '1,155p' …/pty-capture.ts` |
 | 15 | 5941 | 5941 | 1245 | 0 | 7000 | 3 | `cat …/state/backup.ts; cat …/canvas-control/protocol.ts; rg -n 'dev-seed\|seed.*prod\|snapshot\|backup\|owner\|fixture' AGENTS.md package.js…` |
 | 16 | 5751 | 5751 | 3839 | 0 | 8000 | 1 | `prism workflow runs events 7cdd2144-… --store …/live.sqlite > …/events.json` + python heredoc |
-| 17 | 5651 | 5651 | 6908 | 0 | 9000 | 1 | python heredoc over `~/.vellum-command/logs/pty-delivery.jsonl` |
+| 17 | 5651 | 5651 | 6908 | 0 | 9000 | 1 | python heredoc over `~/.junto/logs/pty-delivery.jsonl` |
 | 18 | 5602 | 5500 | 13428 | 0 | 5500 | 2 | `sed -n '28,45p' package.json` + `rg -n '^ FAIL \|^AssertionError\|^Error:' …/crew-isolated-diagnostic.log` |
 | 19 | 5594 | 5594 | 10731 | 0 | 8000 | 4 | `sed -n '1,230p' src/shared/work-model.ts; sed -n '1,210p' src/shared/physics/verbs.ts; sed -n '1,200p' src/shared/message-delivery.ts` |
 | 20 | 5579 | 5579 | 8000 | 0 | 7700 | 1 | `cat tests/injection-supervisor.test.ts` + `cat …/term/intervention/policy.ts` |

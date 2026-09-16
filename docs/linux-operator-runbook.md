@@ -81,13 +81,13 @@ filesystem rollback. State repair remains forward-only.
 ## State custody
 
 The sole product database is
-`~/.vellum-command/state/vellum-command.db`, owned by the normal app runtime.
+`~/.junto/state/junto.db`, owned by the normal app runtime.
 Renderers, CLIs, installers, updaters and SSH callers do not open it directly.
 
 Settings → Advanced can list verified retained backups and export one to an
 explicit new destination. Backups are portability/forensic evidence; there is
 no restore, import, database replacement or downgrade surface. Do not erase
-`~/.vellum-command` to make an install, update or Doctor check pass.
+`~/.junto` to make an install, update or Doctor check pass.
 
 ## Troubleshooting
 

@@ -35,7 +35,7 @@ const makeRuntime = async (
     ? await mkdtemp(join(tmpdir(), "vellum-fleet-targets-"))
     : undefined;
   if (root !== undefined) roots.push(root);
-  const databasePath = path ?? join(root!, "state", "vellum-command.db");
+  const databasePath = path ?? join(root!, "state", "junto.db");
   const stateLive = makeStateEngineLive(databasePath);
   const runtime = ManagedRuntime.make(
     Layer.provideMerge(

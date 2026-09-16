@@ -3,7 +3,7 @@
  * file rather than a flag (Antigravity `--add-dir`).
  *
  * Provenance is the whole point of the shape: Junto writes ONLY under
- * its own home (`<JUNTO_HOME>/.vellum-command/content/agent-rules/<seat>/`)
+ * its own home (`<JUNTO_HOME>/.junto/content/agent-rules/<seat>/`)
  * and mounts that directory into the seat's workspace. The operator's project
  * is never written to, no foreign `AGENTS.md` is indexed, and the doctrine the
  * seat reads cites an app-owned path as its origin.
@@ -15,15 +15,15 @@
 
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { resolveVellumCommandHome } from "@shared/vellum-home";
+import { resolveJuntoHome } from "@shared/junto-home";
 
 /** Doctrine filename read by the harness inside an added directory. */
 export const AGENT_RULES_FILENAME = "AGENTS.md" as const;
 
 /** Root of the per-seat ephemeral rules tree. */
 export const agentRulesRoot = (
-  home: string = resolveVellumCommandHome(),
-): string => join(home, ".vellum-command", "content", "agent-rules");
+  home: string = resolveJuntoHome(),
+): string => join(home, ".junto", "content", "agent-rules");
 
 /**
  * Path-safe directory key for one seat. Node ids are ULID-shaped
@@ -39,7 +39,7 @@ export const agentRulesDirKey = (seatRef: string): string | undefined => {
 /** Directory Junto mounts for this seat (no filesystem access). */
 export const agentRulesDirFor = (
   seatRef: string,
-  home: string = resolveVellumCommandHome(),
+  home: string = resolveJuntoHome(),
 ): string | undefined => {
   const key = agentRulesDirKey(seatRef);
   return key ? join(agentRulesRoot(home), key) : undefined;
@@ -58,7 +58,7 @@ export const writeAgentRulesDir = (input: {
 }): string | undefined => {
   const dir = agentRulesDirFor(
     input.seatRef,
-    input.home ?? resolveVellumCommandHome(),
+    input.home ?? resolveJuntoHome(),
   );
   if (!dir) return undefined;
   const body = input.doctrine.trim();

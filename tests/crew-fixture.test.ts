@@ -169,12 +169,12 @@ describe("seat dir derivation", () => {
     expect(crewSeatDirName("c", "n.1")).toBe("c--n.1");
   });
 
-  it("roots seats under ~/.vellum-command/crew-seats", () => {
+  it("roots seats under ~/.junto/crew-seats", () => {
     expect(crewSeatsDir(sandbox)).toBe(
-      "/tmp/crew-home/.vellum-command/crew-seats",
+      "/tmp/crew-home/.junto/crew-seats",
     );
     expect(crewSeatDir(sandbox, "canvas", "node")).toBe(
-      "/tmp/crew-home/.vellum-command/crew-seats/canvas--node",
+      "/tmp/crew-home/.junto/crew-seats/canvas--node",
     );
   });
 });

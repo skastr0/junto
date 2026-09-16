@@ -598,7 +598,7 @@ describe("station status doctor", () => {
         observedRemote({
           station: undefined,
           reachability: "unreachable",
-          reachabilityError: "socket token=secret at /Users/operator/.vellum-command/work/control.sock",
+          reachabilityError: "socket token=secret at /Users/operator/.junto/work/control.sock",
           observationError: "bearer=secret",
         }),
       ],
@@ -636,7 +636,7 @@ describe("station status doctor", () => {
 
   it("redacts credentials, board references, and local paths at the diagnostic boundary", () => {
     const diagnostic = redactStationDiagnostic(
-      "bearer=secret authorization:abc token=xyz license_key=license-secret dodo_activation_id=dodo-secret vellum-command://canvas?node=agent-123 node-01KZ12345678 /Users/operator/.vellum-command/state/vellum-command.db",
+      "bearer=secret authorization:abc token=xyz license_key=license-secret dodo_activation_id=dodo-secret vellum-command://canvas?node=agent-123 node-01KZ12345678 /Users/operator/.junto/state/junto.db",
     );
     expect(diagnostic).not.toContain("secret");
     expect(diagnostic).not.toContain("agent-123");

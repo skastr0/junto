@@ -1,12 +1,12 @@
 /**
  * Failure tape for SSH, term sockets, and seat table transitions.
- * Install-local files under ~/.vellum-command/logs — not product state.
+ * Install-local files under ~/.junto/logs — not product state.
  */
 import { join } from "node:path";
 import { occupancyFromSummary } from "./terminal-seat-occupancy";
-import { resolveVellumCommandHome } from "./vellum-home";
+import { resolveJuntoHome } from "./junto-home";
 
-export const TRANSPORT_LOG_DIR_SEGMENTS = [".vellum-command", "logs"] as const;
+export const TRANSPORT_LOG_DIR_SEGMENTS = [".junto", "logs"] as const;
 export const TRANSPORT_LOG_FILE = "transport.jsonl";
 
 export type TransportPlane = "ssh-transport" | "term" | "station";
@@ -103,10 +103,10 @@ export const seatTapeFromSummary = (
   }
 };
 
-export const transportLogDirectory = (home = resolveVellumCommandHome()): string =>
+export const transportLogDirectory = (home = resolveJuntoHome()): string =>
   join(home, ...TRANSPORT_LOG_DIR_SEGMENTS);
 
-export const transportLogPath = (home = resolveVellumCommandHome()): string =>
+export const transportLogPath = (home = resolveJuntoHome()): string =>
   join(transportLogDirectory(home), TRANSPORT_LOG_FILE);
 
 /** Remote journal path from that machine's $HOME (not this process home). */

@@ -131,7 +131,7 @@ describe("canvas entity registry", () => {
     const root = await mkdtemp(join(tmpdir(), "vellum-entity-fresh-"));
     roots.push(root);
     const stateDirectory = join(root, "state");
-    const path = join(stateDirectory, "vellum-command.db");
+    const path = join(stateDirectory, "junto.db");
     await mkdir(stateDirectory);
 
     const runtime = await openEngine(path);
@@ -143,7 +143,7 @@ describe("canvas entity registry", () => {
     const root = await mkdtemp(join(tmpdir(), "vellum-entity-migrate-"));
     roots.push(root);
     const stateDirectory = join(root, "state");
-    const path = join(stateDirectory, "vellum-command.db");
+    const path = join(stateDirectory, "junto.db");
     await mkdir(stateDirectory);
 
     const body = JSON.stringify({
@@ -228,7 +228,7 @@ describe("canvas entity registry", () => {
     const root = await mkdtemp(join(tmpdir(), "vellum-entity-archive-"));
     roots.push(root);
     const stateDirectory = join(root, "state");
-    const path = join(stateDirectory, "vellum-command.db");
+    const path = join(stateDirectory, "junto.db");
     await mkdir(stateDirectory);
 
     const runtime = await openEngine(path);
@@ -289,7 +289,7 @@ describe("canvas entity registry", () => {
     const root = await mkdtemp(join(tmpdir(), "vellum-entity-reactivate-"));
     roots.push(root);
     const stateDirectory = join(root, "state");
-    const path = join(stateDirectory, "vellum-command.db");
+    const path = join(stateDirectory, "junto.db");
     await mkdir(stateDirectory);
 
     const runtime = await openEngine(path);
@@ -324,7 +324,7 @@ describe("canvas entity registry", () => {
     const root = await mkdtemp(join(tmpdir(), "vellum-entity-rebind-"));
     roots.push(root);
     const stateDirectory = join(root, "state");
-    const path = join(stateDirectory, "vellum-command.db");
+    const path = join(stateDirectory, "junto.db");
     await mkdir(stateDirectory);
 
     const runtime = openEngine(path);
@@ -375,7 +375,7 @@ describe("canvas entity registry", () => {
     const root = await mkdtemp(join(tmpdir(), "vellum-entity-remove-canvas-"));
     roots.push(root);
     const stateDirectory = join(root, "state");
-    const path = join(stateDirectory, "vellum-command.db");
+    const path = join(stateDirectory, "junto.db");
     await mkdir(stateDirectory);
 
     const runtime = openEngine(path);
@@ -409,7 +409,7 @@ describe("canvas entity registry", () => {
     const root = await mkdtemp(join(tmpdir(), "vellum-entity-soft-active-"));
     roots.push(root);
     const stateDirectory = join(root, "state");
-    const path = join(stateDirectory, "vellum-command.db");
+    const path = join(stateDirectory, "junto.db");
     await mkdir(stateDirectory);
 
     const runtime = await openEngine(path);
@@ -447,7 +447,7 @@ describe("canvas entity registry", () => {
     const root = await mkdtemp(join(tmpdir(), "vellum-entity-soft-reactivate-"));
     roots.push(root);
     const stateDirectory = join(root, "state");
-    const path = join(stateDirectory, "vellum-command.db");
+    const path = join(stateDirectory, "junto.db");
     await mkdir(stateDirectory);
 
     const runtime = openEngine(path);
@@ -482,7 +482,7 @@ describe("canvas entity registry", () => {
     const root = await mkdtemp(join(tmpdir(), "vellum-entity-multi-canvas-"));
     roots.push(root);
     const stateDirectory = join(root, "state");
-    const path = join(stateDirectory, "vellum-command.db");
+    const path = join(stateDirectory, "junto.db");
     await mkdir(stateDirectory);
 
     const runtime = openEngine(path);
@@ -519,7 +519,7 @@ describe("canvas entity registry", () => {
     const root = await mkdtemp(join(tmpdir(), "vellum-entity-bind-swap-"));
     roots.push(root);
     const stateDirectory = join(root, "state");
-    const path = join(stateDirectory, "vellum-command.db");
+    const path = join(stateDirectory, "junto.db");
     await mkdir(stateDirectory);
 
     const runtime = openEngine(path);
@@ -575,7 +575,7 @@ describe("canvas entity registry", () => {
     const root = await mkdtemp(join(tmpdir(), "vellum-entity-dup-bind-migrate-"));
     roots.push(root);
     const stateDirectory = join(root, "state");
-    const path = join(stateDirectory, "vellum-command.db");
+    const path = join(stateDirectory, "junto.db");
     await mkdir(stateDirectory);
 
     const body = JSON.stringify({
@@ -672,7 +672,7 @@ describe("canvas entity registry", () => {
     const root = await mkdtemp(join(tmpdir(), "vellum-entity-delta-"));
     roots.push(root);
     const stateDirectory = join(root, "state");
-    const path = join(stateDirectory, "vellum-command.db");
+    const path = join(stateDirectory, "junto.db");
     await mkdir(stateDirectory);
 
     const runtime = await openEngine(path);
@@ -773,7 +773,7 @@ describe("canvas entity registry", () => {
     const root = await mkdtemp(join(tmpdir(), "vellum-entity-heal-gap-"));
     roots.push(root);
     const stateDirectory = join(root, "state");
-    const path = join(stateDirectory, "vellum-command.db");
+    const path = join(stateDirectory, "junto.db");
     await mkdir(stateDirectory);
 
     const runtime = await openEngine(path);
@@ -827,7 +827,7 @@ describe("canvas entity registry", () => {
     const root = await mkdtemp(join(tmpdir(), "vellum-entity-heal-kind-"));
     roots.push(root);
     const stateDirectory = join(root, "state");
-    const path = join(stateDirectory, "vellum-command.db");
+    const path = join(stateDirectory, "junto.db");
     await mkdir(stateDirectory);
 
     const runtime = await openEngine(path);
@@ -882,7 +882,7 @@ describe("canvas entity registry", () => {
     const root = await mkdtemp(join(tmpdir(), "vellum-entity-suppress-"));
     roots.push(root);
     const stateDirectory = join(root, "state");
-    const path = join(stateDirectory, "vellum-command.db");
+    const path = join(stateDirectory, "junto.db");
     await mkdir(stateDirectory);
 
     const runtime = openEngine(path);
@@ -920,7 +920,7 @@ describe("canvas entity registry", () => {
     const root = await mkdtemp(join(tmpdir(), "vellum-entity-soft-missing-"));
     roots.push(root);
     const stateDirectory = join(root, "state");
-    const path = join(stateDirectory, "vellum-command.db");
+    const path = join(stateDirectory, "junto.db");
     await mkdir(stateDirectory);
 
     const runtime = openEngine(path);

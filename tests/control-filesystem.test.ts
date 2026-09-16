@@ -189,7 +189,7 @@ describe("control filesystem lifecycle", () => {
     await withLease(path, async (lease) => {
       await expect(removeObservedSocket(lease, { beforeQuarantineRename: () => renameSync(replacement, path) })).rejects.toThrow(/changed before quarantine/);
     });
-    const quarantines = (await (await import("node:fs/promises")).readdir(base)).filter((name) => name.startsWith(".vellum-command-stale-"));
+    const quarantines = (await (await import("node:fs/promises")).readdir(base)).filter((name) => name.startsWith(".junto-stale-"));
     expect(quarantines).toHaveLength(1);
     expect(readFileSync(path, "utf8")).toBe("foreign");
     expect(existsSync(join(base, quarantines[0]!, "control.sock"))).toBe(false);

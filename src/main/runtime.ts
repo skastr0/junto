@@ -15,7 +15,7 @@
  *   is empty Context (S0 fitness gate; permanent allowlist is host/post-dispose only).
  * - V4-ENTRY: src/main/index.ts, src/main/ipc.ts, src/main/vellum-command/ipc.ts carry zero
  *   bare Effect.runPromise; only AppRuntime for product domain work.
- * - Sole product store: StateEngine → vellum-command.db. InstallOps (install-ops.db) is
+ * - Sole product store: StateEngine → junto.db. InstallOps (install-ops.db) is
  *   install-local bookkeeping co-composed here so ContentService sees both; it is
  *   never a second product truth store.
  *

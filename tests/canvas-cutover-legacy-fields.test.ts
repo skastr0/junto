@@ -71,7 +71,7 @@ afterEach(async () => {
 describe("canvas cutover with legacy bodies", () => {
   it("converts legacy edge wire fields to verbs, once", async () => {
     root = await mkdtemp(join(tmpdir(), "vellum-cutover-legacy-"));
-    const path = join(root, "vellum-command.db");
+    const path = join(root, "junto.db");
     const v20 = new DatabaseSync(path);
     try {
       v20.exec(STATE_SCHEMA_V20_SQL);

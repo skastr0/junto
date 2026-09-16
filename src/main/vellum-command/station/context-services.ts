@@ -26,7 +26,7 @@
  * | `@vellum/StationPeerRouteResolver` | `fleet-propagation.ts` | `OpenSshStationPeerRouteResolverLive` |
  * | `@vellum/StationFleetPropagation` | `fleet-propagation.ts` | `StationFleetPropagationLive` |
  *
- * Sole product store remains `vellum-command.db` via StateEngine; station services
+ * Sole product store remains `junto.db` via StateEngine; station services
  * never open a second product DB.
  */
 

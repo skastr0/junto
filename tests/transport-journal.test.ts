@@ -26,22 +26,22 @@ import {
   recordTransportError,
   startTransportJournal,
 } from "../src/main/vellum-command/observability/transport-journal";
-import { __resetVellumCommandHomeCache } from "../src/shared/vellum-home";
+import { __resetJuntoHomeCache } from "../src/shared/junto-home";
 
 const originalHome = process.env.JUNTO_HOME;
 
 afterEach(() => {
   if (originalHome === undefined) delete process.env.JUNTO_HOME;
   else process.env.JUNTO_HOME = originalHome;
-  __resetVellumCommandHomeCache();
+  __resetJuntoHomeCache();
 });
 
 describe("transport journal", () => {
   it("repairs product-log directories and files to owner-only modes", () => {
     const root = mkdtempSync(join(tmpdir(), "vellum-transport-modes-"));
     process.env.JUNTO_HOME = root;
-    __resetVellumCommandHomeCache();
-    const product = join(root, ".vellum-command");
+    __resetJuntoHomeCache();
+    const product = join(root, ".junto");
     const logs = join(product, "logs");
     const journal = join(logs, "transport.jsonl");
     const rotated = `${journal}.1`;
@@ -123,7 +123,7 @@ describe("transport journal", () => {
   it("writes the full failure tape including stack, stderr, and frame", () => {
     const root = mkdtempSync(join(tmpdir(), "vellum-transport-fail-"));
     process.env.JUNTO_HOME = root;
-    __resetVellumCommandHomeCache();
+    __resetJuntoHomeCache();
     startTransportJournal();
     const err = new Error("ssh exited 255 during forward");
     err.stack = `${err.message}\n    at forward (service.ts:1121:19)`;
@@ -187,7 +187,7 @@ describe("transport journal", () => {
   it("writes a seat-table hop without a journal-start heartbeat", () => {
     const root = mkdtempSync(join(tmpdir(), "vellum-transport-"));
     process.env.JUNTO_HOME = root;
-    __resetVellumCommandHomeCache();
+    __resetJuntoHomeCache();
     startTransportJournal();
     appendTransportTrace({
       plane: "term",
@@ -211,7 +211,7 @@ describe("transport journal", () => {
 
   it("names the Remote journal from that machine home", () => {
     expect(transportLogPathForHome("/Users/op")).toBe(
-      "/Users/op/.vellum-command/logs/transport.jsonl",
+      "/Users/op/.junto/logs/transport.jsonl",
     );
   });
 

@@ -25,7 +25,7 @@ does not make mutable work multi-writer.
 
 1. Every installation has a durable installation identity and belongs to at
    most one factory and one role.
-2. Role is chosen by the operator and stored in `vellum-command.db`; hardware and
+2. Role is chosen by the operator and stored in `junto.db`; hardware and
    network discovery never infer it.
 3. A machine is not both Command Center and Remote.
 4. No Command Center is created through SSH, a canvas edit, or a Station API

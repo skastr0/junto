@@ -80,7 +80,7 @@ const roots: string[] = [];
 const servers: WorkControlServer[] = [];
 const rogueServers: NetServer[] = [];
 const makeWorkTestRuntime = (root: string) => {
-  const stateLive = makeStateEngineLive(join(root, "state", "vellum-command.db"));
+  const stateLive = makeStateEngineLive(join(root, "state", "junto.db"));
   const repositoriesLive = Layer.provideMerge(
     Layer.mergeAll(
       WorkRepositoryLive,

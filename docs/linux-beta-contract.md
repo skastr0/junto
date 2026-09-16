@@ -44,7 +44,7 @@ two-installation, signing, and publication gates. Therefore:
 | Install/update | One ordinary-user transaction for first install and later update |
 | Host preparation | Read-only preflight; optional administrator actions remain outside Junto |
 | Connectivity | Operator-enrolled OpenSSH route, Command Center to Remote |
-| Durable state | One `~/.vellum-command/state/vellum-command.db` per installation |
+| Durable state | One `~/.junto/state/junto.db` per installation |
 | Fleet control | Fixed Station surface; `pair`, `configure`, `project`, `report`, `status` |
 | Projection | One complete replace-only Command Center projection |
 | Local runtimes | Host-local agents, terminals, watchers, and timers |

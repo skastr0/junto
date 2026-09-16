@@ -14,7 +14,7 @@
  *   Effect.runPromise (empty Context; S0 fitness gate).
  * - V4-ENTRY: src/main/vellum-remote.ts has zero bare Effect.runPromise; only
  *   RemoteRuntime for product domain work.
- * - Sole product store: StateEngine → vellum-command.db. InstallOps co-composed for
+ * - Sole product store: StateEngine → junto.db. InstallOps co-composed for
  *   ContentService; install-ops.db is install-local, not product truth.
  *
  * Intentionally has no Electron shell, renderer host, browser host, update, or
@@ -79,7 +79,7 @@ import { resolve } from "node:path";
 /**
  * True when this process is a release-tree candidate or forced via env.
  * Used for product packaging checks.
- * Staging extracts under ~/.vellum-command/runtime/staging/… count as packaged
+ * Staging extracts under ~/.junto/runtime/staging/… count as packaged
  * candidates during remote install cutover.
  */
 export const isRemotePackaged = (

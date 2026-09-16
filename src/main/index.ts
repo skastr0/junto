@@ -24,10 +24,10 @@ import { modeFromConfiguration, startupDoor } from "@shared/station-mode";
 import { DARK_RUNTIME } from "@shared/theme";
 import type { PreambleEvent } from "@shared/preamble";
 import {
-  resolveVellumCommandHome,
+  resolveJuntoHome,
   shouldPinUnpackagedElectronUserData,
   unpackagedElectronUserDataPath,
-} from "@shared/vellum-home";
+} from "@shared/junto-home";
 import {
   resolvedSpawnEnv,
   terminateAdapterChildrenOnQuit,
@@ -204,18 +204,18 @@ app.commandLine.removeSwitch("proxy-auto-detect");
 // Defense in depth for every renderer, including future windows whose local
 // preferences might otherwise drift. This must run before app readiness.
 app.enableSandbox();
-// Official `bun run dev` sets JUNTO_HOME (~/.vellum-command-dev). Pin Electron
+// Official `bun run dev` sets JUNTO_HOME (~/.junto-dev). Pin Electron
 // userData under that home *before* requestSingleInstanceLock so the
 // Chromium singleton does not fight the packaged production install.
 // Never override --user-data-dir (e2e/probes) or packaged installs.
 if (
   shouldPinUnpackagedElectronUserData({
     packaged: app.isPackaged,
-    vellumHomeEnv: process.env.JUNTO_HOME,
+    juntoHomeEnv: process.env.JUNTO_HOME,
     hasUserDataDirSwitch: app.commandLine.hasSwitch("user-data-dir"),
   })
 ) {
-  const isolatedUserData = unpackagedElectronUserDataPath(resolveVellumCommandHome());
+  const isolatedUserData = unpackagedElectronUserDataPath(resolveJuntoHome());
   app.setPath("userData", isolatedUserData);
   // Dock / menu bar: still PRODUCT_NAME first for brand lint; "Dev" marks the
   // unpackaged process so it is visually distinct from production.
@@ -1493,7 +1493,7 @@ if (packagedSandboxDisablingSwitch !== undefined) {
     }
 
     // Work control socket: agent protocol surface over the work plane.
-    // Independent of browser composition; owns ~/.vellum-command/work/{control.sock,token}.
+    // Independent of browser composition; owns ~/.junto/work/{control.sock,token}.
     try {
       overseerComposition = await composeOverseer({
         run: AppRuntime.runPromise,

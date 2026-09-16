@@ -38,7 +38,7 @@ const openEngine = async () => {
   const root = await mkdtemp(join(tmpdir(), "vellum-command-write-budget-"));
   roots.push(root);
   const runtime = ManagedRuntime.make(
-    makeStateEngineLive(join(root, "state", "vellum-command.db")),
+    makeStateEngineLive(join(root, "state", "junto.db")),
   );
   runtimes.push(runtime);
   return runtime;

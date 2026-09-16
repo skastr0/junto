@@ -6,7 +6,7 @@
  * product's own CLI process so a test can hand-craft transport tokens and
  * request ids to exercise the denial paths.
  *
- * Never touches the operator's real ~/.vellum-command: every caller passes the
+ * Never touches the operator's real ~/.junto: every caller passes the
  * sandbox's homeDir (HOME is already sandboxed by e2e/harness/launch.ts, so
  * the app's own control plane lives under that same temp home).
  */

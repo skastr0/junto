@@ -115,9 +115,9 @@ Read-only host checks that do not stop the app:
 
 ```sh
 ssh <endpoint> 'launchctl print gui/$(id -u)/skastr0.vellumcommand'
-ssh <endpoint> 'test -S ~/.vellum-command/station/control.sock && echo station-ready'
-ssh <endpoint> 'test -S ~/.vellum-command/term/control.sock && echo terminal-ready'
-ssh <endpoint> 'test -S ~/.vellum-command/browser/control.sock && echo browser-ready'
+ssh <endpoint> 'test -S ~/.junto/station/control.sock && echo station-ready'
+ssh <endpoint> 'test -S ~/.junto/term/control.sock && echo terminal-ready'
+ssh <endpoint> 'test -S ~/.junto/browser/control.sock && echo browser-ready'
 ```
 
 Tailscale may provide route reachability, but it supplies no identity or

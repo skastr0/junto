@@ -11,7 +11,7 @@ import { DatabaseSync } from "node:sqlite";
 
 const root = mkdtempSync(join(tmpdir(), "vellum-command-electron-sqlite-"));
 const stateDir = join(root, "state");
-const databasePath = join(stateDir, "vellum-command.db");
+const databasePath = join(stateDir, "junto.db");
 const backupPath = join(root, "vellum-command.backup.db");
 
 try {

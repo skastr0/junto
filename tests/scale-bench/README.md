@@ -25,7 +25,7 @@ plus the cost at the target load (1000 nodes, ~133 events/sec).
 
 ```bash
 JUNTO_SCALE_BENCH=1 \
-JUNTO_SCALE_BENCH_REAL_DB=/path/to/a/copy/of/vellum-command.db \
+JUNTO_SCALE_BENCH_REAL_DB=/path/to/a/copy/of/junto.db \
 JUNTO_SCALE_BENCH_OUT=/tmp/after.jsonl \
 npx vitest run tests/scale-bench/scale.test.ts --reporter=verbose
 ```

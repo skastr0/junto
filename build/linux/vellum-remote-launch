@@ -22,7 +22,7 @@ fi
 [ "$#" -eq 2 ] && [ "$1" = --clean ] || fail 'clean launcher sentinel is required' 64
 notify_socket="$2"; home="${HOME:?HOME required}"; runtime="${XDG_RUNTIME_DIR:?XDG_RUNTIME_DIR required}"; generation="${INVOCATION_ID:?INVOCATION_ID required}"
 case "$0" in */resources/systemd/vellum-command-remote-launch) release=${0%/resources/systemd/vellum-command-remote-launch} ;; *) fail 'launcher path is not a release resource' 73 ;; esac
-case "$release" in "$home"/.vellum-command/runtime/releases/*) ;; *) fail 'release is outside station user runtime' 73 ;; esac
+case "$release" in "$home"/.junto/runtime/releases/*) ;; *) fail 'release is outside station user runtime' 73 ;; esac
 name=${release##*/}; digest=${name##*-}
 case "$name" in *[!0-9.a-f-]*|*-|*--*|'') fail 'release is not a canonical generation' 73 ;; esac
 [ "${#digest}" -eq 64 ] || fail 'release is not a canonical generation' 73
@@ -61,7 +61,7 @@ fi
 vellum_pid=$!; deadline=$(( $(/bin/date +%s) + 30 ))
 while :; do
   alive "$vellum_pid" || wait "$vellum_pid"
-  if owned_socket "$home/.vellum-command/work/control.sock" && owned_file "$home/.vellum-command/work/token" && owned_file "$receipt" && /usr/bin/printf '%s\n' "$generation" | /usr/bin/cmp -s - "$receipt"; then
+  if owned_socket "$home/.junto/work/control.sock" && owned_file "$home/.junto/work/token" && owned_file "$receipt" && /usr/bin/printf '%s\n' "$generation" | /usr/bin/cmp -s - "$receipt"; then
     [ -x /usr/bin/systemd-notify ] || fail 'systemd notification utility is unavailable' 69
     NOTIFY_SOCKET="$notify_socket" /usr/bin/systemd-notify --ready || fail 'could not publish readiness' 70
     break

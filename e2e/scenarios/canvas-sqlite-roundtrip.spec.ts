@@ -40,7 +40,7 @@ const expectSqliteAuthority = async (input: {
   readonly canvasesDir: string;
 }): Promise<void> => {
   expect(
-    await exists(join(input.homeDir, ".vellum-command", "state", "vellum-command.db")),
+    await exists(join(input.homeDir, ".junto", "state", "junto.db")),
     "unified SQLite state database",
   ).toBe(true);
 

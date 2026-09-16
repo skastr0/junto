@@ -19,7 +19,7 @@ export {
 } from "./seat-control";
 
 // Work control-plane wire contract: NDJSON frames over a local Unix domain
-// socket at ~/.vellum-command/work/control.sock. Pure module — no Node imports — so
+// socket at ~/.junto/work/control.sock. Pure module — no Node imports — so
 // the Electron-hosted daemon, the standalone CLI, and tests share one source
 // of truth. Transport is owner-local only; every request carries a bearer
 // token. Domain mutations route through WorkService — this file only knows
@@ -28,8 +28,8 @@ export {
 // ---------------------------------------------------------------------------
 // Paths (functions of home so the module stays platform-pure)
 
-/** Default dir: `~/.vellum-command/work`. Tests override with `JUNTO_WORK_HOME`. */
-export const workControlDir = (home: string): string => `${home}/.vellum-command/work`;
+/** Default dir: `~/.junto/work`. Tests override with `JUNTO_WORK_HOME`. */
+export const workControlDir = (home: string): string => `${home}/.junto/work`;
 
 export const workControlSocketPath = (workHome: string): string =>
   `${workHome}/control.sock`;

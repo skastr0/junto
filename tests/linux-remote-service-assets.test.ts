@@ -6,7 +6,7 @@ describe("Linux Remote userland assets", () => {
   it("uses a self-locating launcher with no privileged installation surface", async () => {
     const launcher = await readFile(new URL("../build/linux/vellum-remote-launch", import.meta.url), "utf8");
     expect(launcher).toContain('*/resources/systemd/vellum-command-remote-launch) release=${0%/resources/systemd/vellum-command-remote-launch}');
-    expect(launcher).toContain('case "$release" in "$home"/.vellum-command/runtime/releases/*)');
+    expect(launcher).toContain('case "$release" in "$home"/.junto/runtime/releases/*)');
     expect(launcher).toContain("resources/bin/vellum-command-remote");
     expect(launcher).not.toMatch(/sudo|\/opt\/|systemctl|apparmor|chrome-sandbox/iu);
   });

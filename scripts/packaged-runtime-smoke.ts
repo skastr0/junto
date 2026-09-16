@@ -759,10 +759,10 @@ export const smokePackagedRuntime = async (
 
   const realHome = homedir();
   const realRoots = [
-    path.join(realHome, ".vellum-command", "browser"),
-    path.join(realHome, ".vellum-command", "canvases"),
-    path.join(realHome, ".vellum-command", "state"),
-    path.join(realHome, ".vellum-command", "content"),
+    path.join(realHome, ".junto", "browser"),
+    path.join(realHome, ".junto", "canvases"),
+    path.join(realHome, ".junto", "state"),
+    path.join(realHome, ".junto", "content"),
   ];
   const beforeSnapshots = await Promise.all(realRoots.map(snapshotTree));
   let realRootEvents = 0;

@@ -4,8 +4,8 @@ import { describe, expect, it } from "vitest";
 import {
   shouldPinUnpackagedElectronUserData,
   unpackagedElectronUserDataPath,
-  usableVellumCommandHome,
-} from "../src/shared/vellum-home";
+  usableJuntoHome,
+} from "../src/shared/junto-home";
 
 const main = readFileSync(
   new URL("../src/main/index.ts", import.meta.url),
@@ -21,46 +21,46 @@ describe("dev side-by-side with production install", () => {
     expect(
       shouldPinUnpackagedElectronUserData({
         packaged: false,
-        vellumHomeEnv: "/Users/op/.vellum-command-dev",
+        juntoHomeEnv: "/Users/op/.junto-dev",
         hasUserDataDirSwitch: false,
       }),
     ).toBe(true);
     expect(
       shouldPinUnpackagedElectronUserData({
         packaged: true,
-        vellumHomeEnv: "/Users/op/.vellum-command-dev",
+        juntoHomeEnv: "/Users/op/.junto-dev",
         hasUserDataDirSwitch: false,
       }),
     ).toBe(false);
     expect(
       shouldPinUnpackagedElectronUserData({
         packaged: false,
-        vellumHomeEnv: undefined,
+        juntoHomeEnv: undefined,
         hasUserDataDirSwitch: false,
       }),
     ).toBe(false);
     expect(
       shouldPinUnpackagedElectronUserData({
         packaged: false,
-        vellumHomeEnv: "/Users/op/.vellum-command-dev",
+        juntoHomeEnv: "/Users/op/.junto-dev",
         hasUserDataDirSwitch: true,
       }),
     ).toBe(false);
     expect(
       shouldPinUnpackagedElectronUserData({
         packaged: false,
-        vellumHomeEnv: "relative-not-allowed",
+        juntoHomeEnv: "relative-not-allowed",
         hasUserDataDirSwitch: false,
       }),
     ).toBe(false);
   });
 
   it("places unpackaged userData under isolated JUNTO_HOME (not Application Support)", () => {
-    expect(unpackagedElectronUserDataPath("/Users/op/.vellum-command-dev")).toBe(
-      join("/Users/op/.vellum-command-dev", ".vellum-command", "electron-user-data"),
+    expect(unpackagedElectronUserDataPath("/Users/op/.junto-dev")).toBe(
+      join("/Users/op/.junto-dev", ".junto", "electron-user-data"),
     );
-    expect(usableVellumCommandHome("/Users/op/.vellum-command-dev")).toBe(
-      "/Users/op/.vellum-command-dev",
+    expect(usableJuntoHome("/Users/op/.junto-dev")).toBe(
+      "/Users/op/.junto-dev",
     );
   });
 
@@ -73,8 +73,8 @@ describe("dev side-by-side with production install", () => {
     expect(lock).toBeGreaterThan(setPath);
   });
 
-  it("official bun run dev always sets JUNTO_HOME to ~/.vellum-command-dev", () => {
-    expect(devSh).toContain('ISOLATED_HOME="${HOME}/.vellum-command-dev"');
+  it("official bun run dev always sets JUNTO_HOME to ~/.junto-dev", () => {
+    expect(devSh).toContain('ISOLATED_HOME="${HOME}/.junto-dev"');
     expect(devSh).toContain('export JUNTO_HOME="${ISOLATED_HOME}"');
     expect(devSh).toContain("electron-vite dev");
   });

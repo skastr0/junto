@@ -7,7 +7,7 @@
  */
 import { createReadStream } from "node:fs";
 import { Readable } from "node:stream";
-import { resolveVellumCommandHome } from "../shared/vellum-home";
+import { resolveJuntoHome } from "../shared/junto-home";
 import {
   CONTENT_TRANSFER_COMMAND,
   parseContentHelperArgs,
@@ -44,7 +44,7 @@ export const runContentTransfer = async (
   }
 
   const args = parsed;
-  const root = contentStoreRoot(resolveVellumCommandHome());
+  const root = contentStoreRoot(resolveJuntoHome());
   const ref = contentRefForTransfer({
     sha256: args.sha256,
     byteLength: args.byteLength,

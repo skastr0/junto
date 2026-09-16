@@ -243,7 +243,7 @@ describe("work attach token and connect", () => {
             ),
         } as never,
         target,
-        "/Users/alice/.vellum-command/term/token",
+        "/Users/alice/.junto/term/token",
       ),
     );
     expect(missing).toEqual({ _tag: "missing" });
@@ -262,7 +262,7 @@ describe("work attach token and connect", () => {
             ),
         } as never,
         target,
-        "/Users/alice/.vellum-command/term/token",
+        "/Users/alice/.junto/term/token",
       ),
     );
     expect(timedOut).toEqual({ _tag: "unknown" });

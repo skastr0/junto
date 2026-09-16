@@ -47,7 +47,7 @@ const fixture = async () => {
   const sandbox: Sandbox = {
     root: join(root, "sandbox"), homeDir: join(root, "sandbox", "home"),
     userDataDir: join(root, "sandbox", "user-data"),
-    canvasesDir: join(root, "sandbox", "home", ".vellum-command", "canvases"),
+    canvasesDir: join(root, "sandbox", "home", ".junto", "canvases"),
   };
   return { repoRoot, sandbox, binary, receiptPath, receipt, bytes, git, commit, installArtifact };
 };
@@ -101,7 +101,7 @@ describe("isolated real-harness CLI provisioning", () => {
     expect(await readFile(seeded.executable)).toEqual(f.bytes);
     const cwd = join(f.sandbox.root, "throwaway-cwd");
     await mkdir(cwd);
-    const socket = join(f.sandbox.homeDir, ".vellum-command", "work", "control.sock");
+    const socket = join(f.sandbox.homeDir, ".junto", "work", "control.sock");
     const stdout = execFileSync("/bin/sh", ["-c", "command -v vellum-command && exec vellum-command --help"], {
       cwd, encoding: "utf8", env: {
         HOME: f.sandbox.homeDir, PATH: `${seededHarnessBinDir(f.sandbox)}:/usr/bin:/bin`,

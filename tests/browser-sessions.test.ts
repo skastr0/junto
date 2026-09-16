@@ -228,7 +228,7 @@ describe("BrowserSessionService", () => {
   beforeEach(async () => {
     root = await mkdtemp(join(tmpdir(), "vellum-command-browser-sessions-"));
     stateRuntime = ManagedRuntime.make(
-      makeStateEngineLive(join(root, "vellum-command.db")),
+      makeStateEngineLive(join(root, "junto.db")),
     );
     state = await stateRuntime.runPromise(StateEngine);
     clock = 0;

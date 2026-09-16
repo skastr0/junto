@@ -3,7 +3,7 @@
  *
  * The helper never accepts host paths or free-form shell.  Modes are closed
  * argv records that operate only on the local Junto content layout under
- * `$HOME/.vellum-command/content/…`.  Bytes travel on stdin/stdout; control/status is
+ * `$HOME/.junto/content/…`.  Bytes travel on stdin/stdout; control/status is
  * a single bounded JSON line on the opposite stream of the byte direction.
  */
 

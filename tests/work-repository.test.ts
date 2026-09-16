@@ -43,7 +43,7 @@ const root = join(tmpdir(), `vellum-command-work-v2-${randomUUID()}`);
 const runtime = ManagedRuntime.make(
   Layer.provideMerge(
     WorkRepositoryLive,
-    makeStateEngineLive(join(root, "vellum-command.db")),
+    makeStateEngineLive(join(root, "junto.db")),
   ),
 );
 
@@ -234,7 +234,7 @@ describe("WorkRepository v2 local authority", () => {
     const isolatedRuntime = ManagedRuntime.make(
       Layer.provideMerge(
         WorkRepositoryLive,
-        makeStateEngineLive(join(isolatedRoot, "vellum-command.db")),
+        makeStateEngineLive(join(isolatedRoot, "junto.db")),
       ),
     );
     try {
@@ -382,7 +382,7 @@ describe("WorkRepository v2 local authority", () => {
     const unconfiguredRuntime = ManagedRuntime.make(
       Layer.provideMerge(
         WorkRepositoryLive,
-        makeStateEngineLive(join(unconfiguredRoot, "vellum-command.db")),
+        makeStateEngineLive(join(unconfiguredRoot, "junto.db")),
       ),
     );
     try {
@@ -1950,7 +1950,7 @@ describe("WorkRepository board CC-homed facts", () => {
     const remoteRuntime = ManagedRuntime.make(
       Layer.provideMerge(
         WorkRepositoryLive,
-        makeStateEngineLive(join(remoteRoot, "vellum-command.db")),
+        makeStateEngineLive(join(remoteRoot, "junto.db")),
       ),
     );
     try {

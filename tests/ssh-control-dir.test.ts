@@ -14,7 +14,7 @@ import { createSshProgramCompiler } from "../src/main/vellum-command/ssh/program
 describe("SSH mux control directory", () => {
   it("keeps the expanded ControlPath plus OpenSSH temp suffix under the Unix limit", () => {
     const dir = sshMuxControlDir(
-      "/Users/developer-with-a-long-home-name/.vellum-command-dev",
+      "/Users/developer-with-a-long-home-name/.junto-dev",
       501,
     );
     expect(dir).toMatch(/^\/tmp\/vc-501-[0-9a-f]{8}$/u);
@@ -27,7 +27,7 @@ describe("SSH mux control directory", () => {
 
   it("isolates mux dirs by Junto home and uid", () => {
     const prod = sshMuxControlDir("/Users/operator", 501);
-    const dev = sshMuxControlDir("/Users/operator/.vellum-command-dev", 501);
+    const dev = sshMuxControlDir("/Users/operator/.junto-dev", 501);
     const other = sshMuxControlDir("/Users/operator", 502);
     expect(prod).not.toBe(dev);
     expect(prod).not.toBe(other);
@@ -36,7 +36,7 @@ describe("SSH mux control directory", () => {
   it("rejects the previous cm-v1 home-nested ControlPath that overflowed macOS", () => {
     const previous = join(
       "/Users/developer-with-a-long-home-name",
-      ".vellum-command",
+      ".junto",
       "ssh",
     );
     const overflowed = join(previous, `cm-v1-${"a".repeat(40)}`);
@@ -45,8 +45,8 @@ describe("SSH mux control directory", () => {
     ).toBeGreaterThan(UNIX_DOMAIN_SOCKET_PATH_LIMIT);
     const longHome = join(
       "/Users/developer-with-a-long-home-name",
-      ".vellum-command-dev",
-      ".vellum-command",
+      ".junto-dev",
+      ".junto",
       "ssh",
     );
     expect(muxControlPathFitsUnixLimit(longHome)).toBe(false);

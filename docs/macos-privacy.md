@@ -39,7 +39,7 @@ as the same trust decision as opening Terminal.app in that directory.
 
 | Surface | Trigger | Filesystem or system scope | Retention and limits |
 |---|---|---|---|
-| Product state | App start | `~/.vellum-command` only | Durable app state, content, sockets, and logs |
+| Product state | App start | `~/.junto` only | Durable app state, content, sockets, and logs |
 | Live conversation | Starting a call in a Live-enabled build | Microphone audio sent to OpenAI; selected canvas context and transcript sent to the controller | Audio is not recorded locally; transcript, requests, and operation receipts remain in product state; microphone tracks stop on call end |
 | Spawn PATH | App start | The operator's default shell is run once as login+interactive to read its `PATH`, plus inherited `PATH`, optional operator tool directories, and fixed executable directories such as `~/.local/bin` and `~/.bun/bin` | One bounded probe at startup, no filesystem scan; failure falls back to the fixed directories |
 | Supervisor status | Packaged app start | Current-user launchd job metadata | No content-library access and no permission prompt |

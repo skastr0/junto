@@ -62,7 +62,7 @@ describe("Live provider preferences", () => {
 
   it("keeps the OpenAI key in the existing vault across preference edits, rotation, and resets", async () => {
     const root = await mkdtemp(join(tmpdir(), "vellum-command-live-settings-"));
-    const path = join(root, "vellum-command.db");
+    const path = join(root, "junto.db");
     const vault = new MemoryCredentialStore();
     const runtime = ManagedRuntime.make(makeStateEngineLive(path));
     try {

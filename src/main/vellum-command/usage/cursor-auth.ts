@@ -6,7 +6,7 @@ import { join } from "node:path";
 //   0. operator settings (Settings > Providers) - a full Cookie header,
 //      deliberate operator intent in Junto.
 //   1. CURSOR_COOKIE env var - a full Cookie header copied from cursor.com.
-//   2. ~/.vellum-command/config/cursor-cookie - same Cookie header format,
+//   2. ~/.junto/config/cursor-cookie - same Cookie header format,
 //      operator-managed. Junto never writes this file.
 //   3. The Cursor desktop app's own session database (state.vscdb), read
 //      with a dependency-free read-only SQLite walker - no sqlite package,
@@ -19,7 +19,7 @@ export const CURSOR_COOKIE_ENV = "CURSOR_COOKIE";
 
 /** Operator-managed cookie file (raw Cookie header text, read-only). */
 export const cursorConfigCookiePath = (home: string = homedir()): string =>
-  join(home, ".vellum-command", "config", "cursor-cookie");
+  join(home, ".junto", "config", "cursor-cookie");
 
 /** Cursor desktop app session store location (macOS / Linux layouts). */
 export const cursorAppDbPath = (home: string = homedir(), env: NodeJS.ProcessEnv = process.env): string => {

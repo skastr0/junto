@@ -118,7 +118,7 @@ describe("browser composition (no ceremony)", () => {
   it("awaits physical-station identity before composition and adapter activation", async () => {
     const root = await mkdtemp(join(tmpdir(), "vellum-command-browser-composition-"));
     const stateRuntime = ManagedRuntime.make(
-      makeStateEngineLive(join(root, "vellum-command.db")),
+      makeStateEngineLive(join(root, "junto.db")),
     );
     const state = await stateRuntime.runPromise(StateEngine);
     const authority = deferred<BrowserHostCapabilityAuthorityLease>();

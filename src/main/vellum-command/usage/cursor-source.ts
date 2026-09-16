@@ -723,7 +723,7 @@ const fetchCursor = async (
 
 /** Capability note for doctor surfaces. */
 export const CURSOR_LIMITS_STATUS =
-  "live - cursor.com web APIs via CURSOR_COOKIE, ~/.vellum-command/config/cursor-cookie, or the Cursor app session database";
+  "live - cursor.com web APIs via CURSOR_COOKIE, ~/.junto/config/cursor-cookie, or the Cursor app session database";
 
 /** Operator tier from Settings > Providers - highest precedence in the chain. */
 export interface CursorOperatorCredentials {

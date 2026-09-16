@@ -52,7 +52,7 @@ afterEach(async () => {
 });
 
 const makeClaimContentRuntime = (root: string) => {
-  const stateLive = makeStateEngineLive(join(root, "state", "vellum-command.db"));
+  const stateLive = makeStateEngineLive(join(root, "state", "junto.db"));
   const repositoriesLive = Layer.provideMerge(
     Layer.mergeAll(
       WorkRepositoryLive,
@@ -247,7 +247,7 @@ describe("S3 - WorkService claim + ContentRef media", () => {
     roots.push(root);
     // Intentionally omit ContentService + InstallOps — S2 hard yield* must not
     // soft-miss; constructing WorkService without ContentService must fail loud.
-    const stateLive = makeStateEngineLive(join(root, "state", "vellum-command.db"));
+    const stateLive = makeStateEngineLive(join(root, "state", "junto.db"));
     const repositoriesLive = Layer.provideMerge(
       Layer.mergeAll(
         WorkRepositoryLive,

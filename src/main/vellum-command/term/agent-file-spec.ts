@@ -5,7 +5,7 @@
  * Kimi has no system-prompt flag: the way to brief a seat before its first turn
  * is a Markdown agent definition whose body becomes the system prompt. So the
  * compiled doctrine is written to a file Junto owns —
- * `<JUNTO_HOME>/.vellum-command/content/agent-files/<seat>.md` — and the
+ * `<JUNTO_HOME>/.junto/content/agent-files/<seat>.md` — and the
  * path is handed to the harness. The operator's project is never written to.
  *
  * The frontmatter is the verified schema and nothing else:
@@ -29,7 +29,7 @@
 
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { resolveVellumCommandHome } from "@shared/vellum-home";
+import { resolveJuntoHome } from "@shared/junto-home";
 
 /** Frontmatter `name`. Kebab-case, stable, and never derived from a node id. */
 export const AGENT_FILE_NAME = "vellum-command-seat" as const;
@@ -39,8 +39,8 @@ export const AGENT_FILE_DESCRIPTION =
 
 /** Root of the per-seat ephemeral agent-definition tree. */
 export const agentFileRoot = (
-  home: string = resolveVellumCommandHome(),
-): string => join(home, ".vellum-command", "content", "agent-files");
+  home: string = resolveJuntoHome(),
+): string => join(home, ".junto", "content", "agent-files");
 
 /**
  * Path-safe key for one seat. Node ids are ULID-shaped (`agent-01M0…`), but
@@ -56,7 +56,7 @@ export const agentFileKey = (seatRef: string): string | undefined => {
 /** File Junto hands to the harness (no filesystem access). */
 export const agentFilePathFor = (
   seatRef: string,
-  home: string = resolveVellumCommandHome(),
+  home: string = resolveJuntoHome(),
 ): string | undefined => {
   const key = agentFileKey(seatRef);
   return key ? join(agentFileRoot(home), `${key}.md`) : undefined;
@@ -93,7 +93,7 @@ export const writeAgentFileSpec = (input: {
   readonly doctrine: string;
   readonly home?: string;
 }): string | undefined => {
-  const home = input.home ?? resolveVellumCommandHome();
+  const home = input.home ?? resolveJuntoHome();
   const path = agentFilePathFor(input.seatRef, home);
   if (!path) return undefined;
   const spec = buildAgentFileSpec(input.doctrine);

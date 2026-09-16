@@ -218,9 +218,9 @@ describe("browser control envelopes (pure)", () => {
     });
   });
 
-  it("derives socket/token paths under ~/.vellum-command/browser", () => {
-    expect(controlSocketPath("/home/u")).toBe("/home/u/.vellum-command/browser/control.sock");
-    expect(controlTokenPath("/home/u")).toBe("/home/u/.vellum-command/browser/control.token");
+  it("derives socket/token paths under ~/.junto/browser", () => {
+    expect(controlSocketPath("/home/u")).toBe("/home/u/.junto/browser/control.sock");
+    expect(controlTokenPath("/home/u")).toBe("/home/u/.junto/browser/control.token");
   });
 });
 
@@ -278,7 +278,7 @@ describe("control route handlers", () => {
   beforeEach(async () => {
     root = await mkdtemp(join(tmpdir(), "vellum-control-"));
     stateRuntime = ManagedRuntime.make(
-      makeStateEngineLive(join(root, "vellum-command.db")),
+      makeStateEngineLive(join(root, "junto.db")),
     );
     state = await stateRuntime.runPromise(StateEngine);
     sessionCounter = 0;

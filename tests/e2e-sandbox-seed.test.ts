@@ -41,7 +41,7 @@ describe("E2E SQLite fixture seeding", () => {
 
       const runtime = ManagedRuntime.make(
         makeStateEngineLive(
-          join(sandbox.homeDir, ".vellum-command", "state", "vellum-command.db"),
+          join(sandbox.homeDir, ".junto", "state", "junto.db"),
         ),
       );
       try {

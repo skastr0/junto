@@ -55,7 +55,7 @@ const familyPaths = (databasePath: string): FamilyPaths => ({
 });
 
 const productDatabasePathBeside = (path: string): string =>
-  resolve(join(dirname(path), "vellum-command.db"));
+  resolve(join(dirname(path), "junto.db"));
 
 const assertOwned = (path: string, info: Stats): void => {
   const uid = currentUid();

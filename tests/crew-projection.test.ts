@@ -75,7 +75,7 @@ const openFixture = async () => {
         },
       })),
     }))),
-    makeStateEngineLive(join(root, "state", "vellum-command.db")),
+    makeStateEngineLive(join(root, "state", "junto.db")),
   );
   const runtime = ManagedRuntime.make(Layer.provideMerge(
     CanvasesLive,

@@ -19,7 +19,7 @@ import {
 import type { IncomingMessage, Server, ServerResponse } from "node:http";
 import { createServer } from "node:http";
 import type { Socket } from "node:net";
-import { resolveVellumCommandHome } from "@shared/vellum-home";
+import { resolveJuntoHome } from "@shared/junto-home";
 import { dirname, join, resolve } from "node:path";
 import { Result, Schema } from "effect";
 import { formatNodeRef } from "@shared/node-ref";
@@ -105,7 +105,7 @@ import {
 } from "../control-filesystem";
 
 // Local control plane for agents (the browser ACI): a tiny HTTP server on a
-// unix domain socket at ~/.vellum-command/browser/control.sock, hosted by the Electron
+// unix domain socket at ~/.junto/browser/control.sock, hosted by the Electron
 // main process and calling the warm-session service directly. Security model:
 // filesystem (socket + token file are chmod 600 in the user's home) plus a
 // bearer token on EVERY request — so a same-host process still needs read
@@ -1327,7 +1327,7 @@ export const startBrowserControlServer = async (
   },
   runtime: BrowserControlRuntime = defaultControlRuntime,
 ): Promise<BrowserControlServer> => {
-  const home = options.home ?? resolveVellumCommandHome();
+  const home = options.home ?? resolveJuntoHome();
   const dir = controlDir(home);
   prepareControlDirectory(dir);
   await ensureScreenshotDirectory(controlShotsDir(home));

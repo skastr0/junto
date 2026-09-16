@@ -10,7 +10,7 @@ import {
 } from "node:fs";
 import { createServer, type Server, type Socket } from "node:net";
 import { LIVE_OVERSEER_ENABLED } from "@shared/features";
-import { resolveVellumCommandHome } from "@shared/vellum-home";
+import { resolveJuntoHome } from "@shared/junto-home";
 import { join } from "node:path";
 import { Effect, Result, Option, Schema } from "effect";
 import { ulid } from "ulid";
@@ -244,7 +244,7 @@ import {
   type ControlSocketPathIdentity,
 } from "../control-filesystem";
 // Local work control plane for agents: NDJSON over a Unix domain socket at
-// ~/.vellum-command/work/control.sock. Token + process-bind identity + edge authz;
+// ~/.junto/work/control.sock. Token + process-bind identity + edge authz;
 // mutations route through WorkService. One admission path, no second identity.
 
 // ---------------------------------------------------------------------------
@@ -254,7 +254,7 @@ export const resolveWorkHome = (home?: string, workHome?: string): string => {
   if (workHome && workHome.trim().length > 0) return workHome.trim();
   const env = process.env.JUNTO_WORK_HOME?.trim();
   if (env) return env;
-  return workControlDir(home ?? resolveVellumCommandHome());
+  return workControlDir(home ?? resolveJuntoHome());
 };
 
 export const rotateWorkToken = (tokenPath: string): string => {

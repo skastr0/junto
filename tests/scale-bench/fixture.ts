@@ -342,7 +342,7 @@ export const benchCacheRoot = (): string =>
 
 /**
  * Generate (or reuse) the synthetic database for `spec`.
- * Returns the fixture root; the database is <root>/state/vellum-command.db.
+ * Returns the fixture root; the database is <root>/state/junto.db.
  */
 export const ensureSyntheticFixture = async (
   spec: ScaleSpec,
@@ -350,7 +350,7 @@ export const ensureSyntheticFixture = async (
 ): Promise<{ readonly root: string; readonly databasePath: string; readonly generatedMs: number }> => {
   const log = options.log ?? (() => {});
   const root = join(benchCacheRoot(), `${spec.id}-${specKey(spec)}`);
-  const databasePath = join(root, "state", "vellum-command.db");
+  const databasePath = join(root, "state", "junto.db");
   const stampPath = join(root, "fixture.json");
   if (!options.regenerate && existsSync(stampPath) && existsSync(databasePath)) {
     const stamp = JSON.parse(readFileSync(stampPath, "utf8")) as {
@@ -594,7 +594,7 @@ export const copyRealFixture = (
 ): { readonly root: string; readonly databasePath: string } => {
   rmSync(root, { recursive: true, force: true });
   mkdirSync(join(root, "state"), { recursive: true });
-  const databasePath = join(root, "state", "vellum-command.db");
+  const databasePath = join(root, "state", "junto.db");
   copyFileSync(sourcePath, databasePath);
   for (const suffix of ["-wal", "-shm"]) {
     if (existsSync(`${sourcePath}${suffix}`)) {

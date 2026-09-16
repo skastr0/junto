@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { createConnection, type Socket } from "node:net";
-import { resolveVellumCommandHome } from "@shared/vellum-home";
+import { resolveJuntoHome } from "@shared/junto-home";
 import { Context, Effect, Layer, Result } from "effect";
 import {
   decodeOverseerRequest,
@@ -24,7 +24,7 @@ import { AuthError, RuntimeDown, WireError } from "./errors";
 export const resolveWorkHome = (): string => {
   const env = process.env[WORK_HOME_ENV]?.trim();
   if (env) return env;
-  return workControlDir(resolveVellumCommandHome());
+  return workControlDir(resolveJuntoHome());
 };
 
 /**

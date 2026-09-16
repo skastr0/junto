@@ -39,7 +39,7 @@ const repositories = Layer.provideMerge(
     makeContentServiceLive({ root: join(root, "content"), skipInlineMediaMigration: true }),
   ),
   Layer.mergeAll(
-    makeStateEngineLive(join(root, "vellum-command.db")),
+    makeStateEngineLive(join(root, "junto.db")),
     makeInstallOpsLive(join(root, "install-ops.db")),
   ),
 );

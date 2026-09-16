@@ -4,13 +4,13 @@
  * check of its own so tests can exercise it directly.
  */
 import { mkdir, writeFile } from "node:fs/promises";
-import { resolveVellumCommandHome } from "@shared/vellum-home";
+import { resolveJuntoHome } from "@shared/junto-home";
 import { join } from "node:path";
 import type { DemoEdl, DemoWriteEdlResult } from "@shared/demo";
 
 export const writeDemoEdl = async (edl: DemoEdl): Promise<DemoWriteEdlResult> => {
   try {
-    const dir = join(resolveVellumCommandHome(), ".vellum-command", "demo");
+    const dir = join(resolveJuntoHome(), ".junto", "demo");
     await mkdir(dir, { recursive: true });
     const path = join(dir, `edl-${edl.scenarioId}-${edl.startedAtEpochMs}.json`);
     await writeFile(path, JSON.stringify(edl, null, 2), "utf8");

@@ -35,8 +35,8 @@ production process's live composer or resume its harness session. A successful
 clone run therefore does not establish that the original stuck session is fixed.
 
 Enable `JUNTO_PTY_TRACE=1` before launch. The local journal is
-`<JUNTO_HOME>/.vellum-command/logs/pty-delivery.jsonl`; with the default
-home it is `~/.vellum-command/logs/pty-delivery.jsonl`. Records correlate a
+`<JUNTO_HOME>/.junto/logs/pty-delivery.jsonl`; with the default
+home it is `~/.junto/logs/pty-delivery.jsonl`. Records correlate a
 delivery with its binding, harness, evidence probes, admission gates, physical
 write stages, acknowledgements, and final verdict. Prompt content is represented
 only by length and SHA-256. The journal is bounded and disabled by default.

@@ -241,13 +241,13 @@ describe("buildRemoteDeployScript", () => {
     expect(script).not.toContain("IN_STATION_EXE");
     expect(script).not.toContain("IN_BROWSER_EXE");
     expect(script).toContain(
-      "TERM_SOCK='/Users/remote station/.vellum-command/term/control.sock'",
+      "TERM_SOCK='/Users/remote station/.junto/term/control.sock'",
     );
     expect(script).toContain(
-      "BROWSER_SOCK='/Users/remote station/.vellum-command/browser/control.sock'",
+      "BROWSER_SOCK='/Users/remote station/.junto/browser/control.sock'",
     );
     expect(script).toContain(
-      "STATION_SOCK='/Users/remote station/.vellum-command/station/control.sock'",
+      "STATION_SOCK='/Users/remote station/.junto/station/control.sock'",
     );
     expect(script).not.toContain("--vellum-headless");
     expect(firstInstall).toContain("--vellum-headless");
@@ -276,7 +276,7 @@ describe("buildRemoteDeployScript", () => {
     );
     expect(script).toContain('"$TAR" -C "$IN/$BUNDLE" -xf -');
     expect(script).toContain(
-      "DEPLOY_LOCK='/Applications/.vellum-command-deploy.lock'",
+      "DEPLOY_LOCK='/Applications/.junto-deploy.lock'",
     );
     expect(script).toContain("reclaim_abandoned_deploy_lock");
     expect(script).toContain("DEPLOY_STALE_LOCK_RECLAIMED");
@@ -483,7 +483,7 @@ describe("buildRemoteDeployScript", () => {
       { kind: "app-tar", expectedPackageState: "present" },
     );
     expect(shellActive).toContain(
-      "TERM_SOCK='/Users/remote$(touch should-not-run)/.vellum-command/term/control.sock'",
+      "TERM_SOCK='/Users/remote$(touch should-not-run)/.junto/term/control.sock'",
     );
     const apostrophe = buildRemoteDeployScript(
       "/Users/o'malley",
@@ -491,7 +491,7 @@ describe("buildRemoteDeployScript", () => {
       { kind: "app-tar", expectedPackageState: "present" },
     );
     expect(apostrophe).toContain(
-      `TERM_SOCK='/Users/o'"'"'malley/.vellum-command/term/control.sock'`,
+      `TERM_SOCK='/Users/o'"'"'malley/.junto/term/control.sock'`,
     );
 
     expect(isSafeRemoteHomePath("/Users/remote station")).toBe(true);
@@ -557,7 +557,7 @@ describe("remote deploy transaction behavior", () => {
     );
     const termSocketPath = join(
       remoteHome,
-      ".vellum-command",
+      ".junto",
       "term",
       "control.sock",
     );

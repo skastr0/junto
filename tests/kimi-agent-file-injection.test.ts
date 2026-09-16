@@ -92,7 +92,7 @@ describe("agent-file spec", () => {
     expect(agentFileKey("../../etc/passwd")).toBe("------etc-passwd");
     expect(agentFileKey("   ")).toBeUndefined();
     const path = agentFilePathFor("../../etc/passwd", home)!;
-    expect(path.startsWith(join(home, ".vellum-command", "content", "agent-files"))).toBe(
+    expect(path.startsWith(join(home, ".junto", "content", "agent-files"))).toBe(
       true,
     );
     expect(path).not.toContain("/etc/passwd");
@@ -108,7 +108,7 @@ describe("agent-file spec", () => {
     expect(path).toBe(
       join(
         home,
-        ".vellum-command",
+        ".junto",
         "content",
         "agent-files",
         "agent-01M0R1XQR6FTCA1QBCDSH46QHM.md",

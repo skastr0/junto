@@ -10,7 +10,7 @@ import { dialog } from "electron";
 import { PRODUCT_NAME } from "@shared/product-name";
 
 /** Operator-facing location of the sole durable store (tilde form). */
-export const OPERATOR_STATE_DIR_DISPLAY = "~/.vellum-command/state/" as const;
+export const OPERATOR_STATE_DIR_DISPLAY = "~/.junto/state/" as const;
 
 export const SUPPORT_EMAIL = "support@vellumcommand.com" as const;
 

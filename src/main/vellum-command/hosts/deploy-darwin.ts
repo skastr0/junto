@@ -797,7 +797,7 @@ type RemoteDeployScriptRuntime = {
 
 const PRODUCTION_DEPLOY_SCRIPT_RUNTIME: RemoteDeployScriptRuntime = {
   appPath: REMOTE_APP_PATH,
-  lockPath: "/Applications/.vellum-command-deploy.lock",
+  lockPath: "/Applications/.junto-deploy.lock",
   commands: {
     uname: "/usr/bin/uname",
     id: "/usr/bin/id",

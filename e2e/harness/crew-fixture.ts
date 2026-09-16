@@ -15,7 +15,7 @@
  * projection; physical write counts use the opt-in PTY trace journal.
  * This fixture never opens the product database while the app runs.
  *
- * Control channel per seat (all under `<sandbox home>/.vellum-command/
+ * Control channel per seat (all under `<sandbox home>/.junto/
  * crew-seats/<canvas>--<nodeId>/`):
  *   ready.json    fake's identity report (pid, nodeRef, seat, argv)
  *   control.json  one-shot screen request + submit/paste/exit — polled ~50ms
@@ -177,7 +177,7 @@ export const crewDoc = (
 
 /** Fake-seat control root inside the sandbox home. */
 export const crewSeatsDir = (sandbox: Sandbox): string =>
-  join(sandbox.homeDir, ".vellum-command", "crew-seats");
+  join(sandbox.homeDir, ".junto", "crew-seats");
 
 /** `canvas:node` -> the directory name the fake derives identically. */
 export const crewSeatDirName = (canvas: string, nodeId: string): string =>
@@ -228,7 +228,7 @@ const crypto = require("crypto");
 
 const workHome =
   process.env.JUNTO_WORK_HOME ||
-  path.join(process.env.HOME || "", ".vellum-command", "work");
+  path.join(process.env.HOME || "", ".junto", "work");
 const sock = path.join(workHome, "control.sock");
 const tokPath = path.join(workHome, "token");
 const seatRoot = path.join(workHome, "..", "crew-seats");

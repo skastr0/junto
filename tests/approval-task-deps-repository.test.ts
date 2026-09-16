@@ -32,7 +32,7 @@ const root = join(
 const runtime = ManagedRuntime.make(
   Layer.provideMerge(
     WorkRepositoryLive,
-    makeStateEngineLive(join(root, "vellum-command.db")),
+    makeStateEngineLive(join(root, "junto.db")),
   ),
 );
 

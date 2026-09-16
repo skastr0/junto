@@ -21,7 +21,7 @@ const bracket = (text: string) => `\x1b[200~${text}\x1b[201~`;
 const launch = async () => {
   const root = await mkdtemp(join(tmpdir(), "vellum-command-crew-control-"));
   await installCrewSeatHarness({ homeDir: root } as Sandbox);
-  const seat = new CrewSeat(join(root, ".vellum-command", "crew-seats", "probe--seat"));
+  const seat = new CrewSeat(join(root, ".junto", "crew-seats", "probe--seat"));
   const epoch = "fake-control-generation";
   const observer = new SessionObserver({ bindingId, epoch, cols: 120, rows: 32 });
   const runtime = new SeatStateRuntime({ turnProgressWatch: false });

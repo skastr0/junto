@@ -116,7 +116,7 @@ Run as the intended ordinary Station user. Prove:
 
 Snapshot the Station user's Junto state before each release operation.
 Package activity must not copy, replace, archive, or synthesize
-`vellum-command.db`, its WAL, or its shared-memory file.
+`junto.db`, its WAL, or its shared-memory file.
 
 No Junto process may open a privileged prompt or receive an administrator
 credential during the run. Checking that no password was persisted is

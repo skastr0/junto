@@ -31,7 +31,7 @@ const hostId = Schema.decodeUnknownSync(HostId);
 
 const makeRuntime = (root: string) => {
   const stateLive = makeStateEngineLive(
-    join(root, "state", "vellum-command.db"),
+    join(root, "state", "junto.db"),
   );
   const repositoriesLive = Layer.provideMerge(
     Layer.mergeAll(

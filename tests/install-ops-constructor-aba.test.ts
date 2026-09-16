@@ -219,7 +219,7 @@ describe("install-ops actual-connection constructor ABA", () => {
       roots.push(root);
       mkdirSync(root, { recursive: true });
       const opsPath = join(root, "install-ops.db");
-      const productPath = join(root, "vellum-command.db");
+      const productPath = join(root, "junto.db");
       seedInstallOps(opsPath);
       seedProduct(productPath);
 

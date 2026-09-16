@@ -40,7 +40,7 @@ describe("license state schema migration", () => {
     const root = await mkdtemp(join(tmpdir(), "vellum-license-migration-"));
     roots.push(root);
     const stateDirectory = join(root, "state");
-    const path = join(stateDirectory, "vellum-command.db");
+    const path = join(stateDirectory, "junto.db");
     await mkdir(stateDirectory);
     const versionOne = new DatabaseSync(path);
     try {
@@ -169,7 +169,7 @@ describe("license state schema migration", () => {
     const root = await mkdtemp(join(tmpdir(), "vellum-license-v2-migration-"));
     roots.push(root);
     const stateDirectory = join(root, "state");
-    const path = join(stateDirectory, "vellum-command.db");
+    const path = join(stateDirectory, "junto.db");
     await mkdir(stateDirectory);
     const legacyBody = JSON.stringify({
       provider: "dodo",

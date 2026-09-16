@@ -44,7 +44,7 @@ export const OPERATOR_MAX_RESPONSE_BYTES = 512 * 1024;
 export const OPERATOR_MAX_ERROR_BYTES = 4 * 1024;
 
 export const operatorControlDir = (home: string): string =>
-  `${home}/.vellum-command/operator`;
+  `${home}/.junto/operator`;
 
 export const operatorControlSocketPath = (home: string): string =>
   `${operatorControlDir(home)}/control.sock`;

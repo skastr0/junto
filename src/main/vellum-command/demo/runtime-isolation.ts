@@ -35,7 +35,7 @@ const acquireDemoDirectory = (): EphemeralDirectory => {
 /** Absolute path to this process's ephemeral demo database, if demo is on. */
 export const demoStateDatabasePath = (): string | undefined =>
   isDemoMode()
-    ? join(acquireDemoDirectory().path, "vellum-command.db")
+    ? join(acquireDemoDirectory().path, "junto.db")
     : undefined;
 
 /**

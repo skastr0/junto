@@ -28,7 +28,7 @@ describe("provider credential vault", () => {
 
   it("keeps secrets out of SQLite and newly minted backups", async () => {
     root = await mkdtemp(join(tmpdir(), "vellum-cred-vault-"));
-    const databasePath = join(root, "state", "vellum-command.db");
+    const databasePath = join(root, "state", "junto.db");
     const runtime = ManagedRuntime.make(makeStateEngineLive(databasePath));
     const state = await runtime.runPromise(StateEngine);
     const store = new MemoryCredentialStore();
@@ -79,7 +79,7 @@ describe("provider credential vault", () => {
 
   it("strips leftover plaintext from newly minted backups", async () => {
     root = await mkdtemp(join(tmpdir(), "vellum-cred-backup-redact-"));
-    const databasePath = join(root, "state", "vellum-command.db");
+    const databasePath = join(root, "state", "junto.db");
     const runtime = ManagedRuntime.make(makeStateEngineLive(databasePath));
     const state = await runtime.runPromise(StateEngine);
     await run(makeSettingsService(state, { credentials: new MemoryCredentialStore() }));
@@ -109,7 +109,7 @@ describe("provider credential vault", () => {
 
   it("keeps unmigrated secrets across unrelated patches when the vault is unavailable", async () => {
     root = await mkdtemp(join(tmpdir(), "vellum-cred-retain-"));
-    const databasePath = join(root, "state", "vellum-command.db");
+    const databasePath = join(root, "state", "junto.db");
     const runtime = ManagedRuntime.make(makeStateEngineLive(databasePath));
     const state = await runtime.runPromise(StateEngine);
     await run(makeSettingsService(state, { credentials: new MemoryCredentialStore() }));
@@ -159,7 +159,7 @@ describe("provider credential vault", () => {
 
   it("boots when the credential vault cannot be created", async () => {
     root = await mkdtemp(join(tmpdir(), "vellum-cred-boot-"));
-    const databasePath = join(root, "state", "vellum-command.db");
+    const databasePath = join(root, "state", "junto.db");
     const runtime = ManagedRuntime.make(makeStateEngineLive(databasePath));
     const state = await runtime.runPromise(StateEngine);
     await writeFile(join(root, "state", "credentials"), "not-a-directory");

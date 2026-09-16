@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { createConnection, type Socket } from "node:net";
-import { resolveVellumCommandHome } from "@shared/vellum-home";
+import { resolveJuntoHome } from "@shared/junto-home";
 import { Context, Effect, Layer } from "effect";
 import {
   OPERATOR_DEFAULT_TIMEOUT_MS,
@@ -23,7 +23,7 @@ import { AuthError, RuntimeDown, WireError } from "./errors";
 type OperatorSocketError = RuntimeDown | AuthError | WireError;
 
 export const resolveOperatorSocketPath = (): string =>
-  operatorControlSocketPath(resolveVellumCommandHome());
+  operatorControlSocketPath(resolveJuntoHome());
 
 export const defaultOperatorTimeout = (op: OperatorOpName): number => {
   if (op === "fleet.deploy" || op === "fleet.qualify") {

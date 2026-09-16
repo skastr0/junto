@@ -81,7 +81,7 @@ describe("demo runtime isolation", () => {
     const ownedRoot = dirname(databasePath);
     expect(databasePath).not.toBe("/tmp/caller-selected-state.db");
     expect(databasePath).not.toBe(
-      join(homedir(), ".vellum-command", "demo", "state", "vellum-command.db"),
+      join(homedir(), ".junto", "demo", "state", "junto.db"),
     );
     expect(relative(tmpdir(), ownedRoot)).toMatch(
       /^vellum-command-demo-runtime-[^/]+$/u,
@@ -138,12 +138,12 @@ describe("demo runtime isolation", () => {
     const { stateDatabasePath } = await import(
       "../src/main/vellum-command/state/engine"
     );
-    const { resolveVellumCommandHome } = await import("../src/shared/vellum-home");
+    const { resolveJuntoHome } = await import("../src/shared/junto-home");
 
     // JUNTO_HOME is the only product redirect (test setup / dev use it).
     // Retired flags like JUNTO_STATE_DB must not open a second store.
     expect(stateDatabasePath()).toBe(
-      join(resolveVellumCommandHome(), ".vellum-command", "state", "vellum-command.db"),
+      join(resolveJuntoHome(), ".junto", "state", "junto.db"),
     );
     expect(stateDatabasePath()).not.toBe("/tmp/untrusted-second-home.db");
   });

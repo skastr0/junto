@@ -5,9 +5,9 @@ import { isAbsolute, join, resolve } from "node:path";
  * Junto-specific home directory.
  *
  * Junto's state, control sockets, and internal caches live under this
- * directory (`<home>/.vellum-command/...`). By default it is the OS user home, but the
+ * directory (`<home>/.junto/...`). By default it is the OS user home, but the
  * `JUNTO_HOME` environment variable overrides it. This lets a dev build run
- * with an isolated `.vellum-command` tree while leaving `HOME` (and therefore the shell
+ * with an isolated `.junto` tree while leaving `HOME` (and therefore the shell
  * home seen by child terminals/tools) unchanged.
  *
  * Only Junto-owned paths should use this helper. External tool caches
@@ -15,13 +15,13 @@ import { isAbsolute, join, resolve } from "node:path";
  * resolution intentionally stay on the real `HOME` for predictable behavior.
  *
  * Side-by-side with a production install: official `bun run dev` sets
- * `JUNTO_HOME=~/.vellum-command-dev` and pins Electron `userData` under that tree so
+ * `JUNTO_HOME=~/.junto-dev` and pins Electron `userData` under that tree so
  * the single-instance lock does not fight `/Applications/Junto.app`.
  */
 
-let cachedVellumCommandHome: string | undefined;
+let cachedJuntoHome: string | undefined;
 
-export const usableVellumCommandHome = (
+export const usableJuntoHome = (
   value: string | undefined,
 ): string | undefined => {
   if (value === undefined) return undefined;
@@ -33,12 +33,12 @@ export const usableVellumCommandHome = (
   return resolve(trimmed);
 };
 
-export const resolveVellumCommandHome = (): string => {
-  if (cachedVellumCommandHome === undefined) {
-    cachedVellumCommandHome =
-      usableVellumCommandHome(process.env.JUNTO_HOME) ?? homedir();
+export const resolveJuntoHome = (): string => {
+  if (cachedJuntoHome === undefined) {
+    cachedJuntoHome =
+      usableJuntoHome(process.env.JUNTO_HOME) ?? homedir();
   }
-  return cachedVellumCommandHome;
+  return cachedJuntoHome;
 };
 
 /**
@@ -46,8 +46,8 @@ export const resolveVellumCommandHome = (): string => {
  * Lives under the isolated home so Chromium's singleton lock file is not
  * shared with the packaged production install's Application Support tree.
  */
-export const unpackagedElectronUserDataPath = (vellumHome: string): string =>
-  join(resolve(vellumHome), ".vellum-command", "electron-user-data");
+export const unpackagedElectronUserDataPath = (juntoHome: string): string =>
+  join(resolve(juntoHome), ".junto", "electron-user-data");
 
 /**
  * Pin unpackaged Electron userData only when the operator opted into an
@@ -59,15 +59,15 @@ export const unpackagedElectronUserDataPath = (vellumHome: string): string =>
  */
 export const shouldPinUnpackagedElectronUserData = (input: {
   readonly packaged: boolean;
-  readonly vellumHomeEnv: string | undefined;
+  readonly juntoHomeEnv: string | undefined;
   readonly hasUserDataDirSwitch: boolean;
 }): boolean => {
   if (input.packaged) return false;
   if (input.hasUserDataDirSwitch) return false;
-  return usableVellumCommandHome(input.vellumHomeEnv) !== undefined;
+  return usableJuntoHome(input.juntoHomeEnv) !== undefined;
 };
 
 /** Test hook: clear the memoized Junto home. */
-export const __resetVellumCommandHomeCache = (): void => {
-  cachedVellumCommandHome = undefined;
+export const __resetJuntoHomeCache = (): void => {
+  cachedJuntoHome = undefined;
 };

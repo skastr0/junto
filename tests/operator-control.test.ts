@@ -12,7 +12,7 @@ import {
 describe("operator control contract", () => {
   it("uses a dedicated owner-local socket without a token path", () => {
     expect(operatorControlSocketPath("/home/operator")).toBe(
-      "/home/operator/.vellum-command/operator/control.sock",
+      "/home/operator/.junto/operator/control.sock",
     );
   });
 

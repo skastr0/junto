@@ -116,7 +116,7 @@ configurePeerPidHelperRoots([peerPidHelperRoot]);
 const canvasName = "browser-containment";
 const makeCanvasRuntime = () => {
   const stateLive = makeStateEngineLive(
-    join(controlHome, ".vellum-command", "state", "vellum-command.db"),
+    join(controlHome, ".junto", "state", "junto.db"),
   );
   const repositoriesLive = Layer.provideMerge(WorkRepositoryLive, stateLive);
   const stationLive = Layer.provideMerge(StationRepositoryLive, stateLive);

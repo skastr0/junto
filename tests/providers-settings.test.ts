@@ -250,7 +250,7 @@ describe("providers settings service persistence", () => {
   const openService = async (): Promise<Harness> => {
     if (root === "") {
       root = await mkdtemp(join(tmpdir(), "vellum-providers-settings-"));
-      databasePath = join(root, "state", "vellum-command.db");
+      databasePath = join(root, "state", "junto.db");
     }
     const runtime = ManagedRuntime.make(makeStateEngineLive(databasePath));
     const state = await runtime.runPromise(StateEngine);

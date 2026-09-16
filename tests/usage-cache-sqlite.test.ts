@@ -148,7 +148,7 @@ afterEach(async () => {
 describe("SQLite usage cache", () => {
   test("survives an engine restart and refuses to replace last-good with a failure envelope", async () => {
     const root = await tempRoot();
-    const databasePath = join(root, "state", "vellum-command.db");
+    const databasePath = join(root, "state", "junto.db");
     const first = await openEngine(databasePath);
     const firstCacheRuntime = cacheRuntime(first.engine);
     const firstCache = await firstCacheRuntime.runPromise(UsageCache);
@@ -184,7 +184,7 @@ describe("SQLite usage cache", () => {
 
   test("an empty database has no cache row until a successful snapshot is saved", async () => {
     const root = await tempRoot();
-    const { engine } = await openEngine(join(root, "vellum-command.db"));
+    const { engine } = await openEngine(join(root, "junto.db"));
     const runtime = cacheRuntime(engine);
     const empty = await runtime.runPromise(
       Effect.flatMap(UsageCache, (cache) => cache.loadLastGood),
@@ -203,7 +203,7 @@ describe("SQLite usage cache", () => {
 
   test("rejects an excess persisted snapshot without pruning or rewriting it", async () => {
     const root = await tempRoot();
-    const { engine } = await openEngine(join(root, "vellum-command.db"));
+    const { engine } = await openEngine(join(root, "junto.db"));
     const encoded = JSON.stringify([
       {
         ...quotaSnapshot("alpha", "claude", 42),
@@ -253,7 +253,7 @@ describe("SQLite usage cache", () => {
   test("failed refresh retains SQLite last-good and a persistence fault stays non-fatal", async () => {
     const root = await tempRoot();
     const { runtime: engineRuntime, engine } = await openEngine(
-      join(root, "vellum-command.db"),
+      join(root, "junto.db"),
     );
     const seedRuntime = cacheRuntime(engine);
     const seed = await seedRuntime.runPromise(UsageCache);

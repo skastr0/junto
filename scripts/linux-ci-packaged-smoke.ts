@@ -354,7 +354,7 @@ export const smokeLinuxCiPackagedRuntime = async (
     JUNTO_BROWSER_DIR: browser,
     JUNTO_BROWSER_HOME: isolatedHome,
     JUNTO_CANVASES_DIR: canvases,
-    JUNTO_WORK_HOME: path.join(isolatedHome, ".vellum-command", "work"),
+    JUNTO_WORK_HOME: path.join(isolatedHome, ".junto", "work"),
   };
 
   const processPlane = createAppProcessPlane();

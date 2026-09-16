@@ -224,7 +224,7 @@ const expectFamilyUnchanged = async (
 };
 
 const seedProductFamily = async (root: string): Promise<string> => {
-  const productPath = join(root, "vellum-command.db");
+  const productPath = join(root, "junto.db");
   seedOperatorDatabase(productPath, 18);
   await chmod(productPath, 0o640);
   for (const suffix of FAMILY_SUFFIXES.slice(1)) {
@@ -725,7 +725,7 @@ describe("install-ops complete SQLite-family admission", () => {
     it(`rejects a reverse alias from product ${productSuffix || "main"} to the install-ops inode`, async () => {
       const root = await makeRoot();
       const path = join(root, "install-ops.db");
-      const productPath = join(root, "vellum-command.db");
+      const productPath = join(root, "junto.db");
       seedInstallOpsDatabase(path, {
         id: "test.reverse-alias",
         status: "pending",
@@ -837,7 +837,7 @@ describe("install-ops complete SQLite-family admission", () => {
 
   it("rejects the product pathname itself and a non-regular ledger leaf", async () => {
     const root = await makeRoot();
-    const productPath = join(root, "vellum-command.db");
+    const productPath = join(root, "junto.db");
     seedOperatorDatabase(productPath, 18);
     const productBytes = await readFile(productPath);
 
@@ -979,7 +979,7 @@ describe("install-ops degraded runtime acquisition", () => {
   it("opens product state and content with a corrupt ledger, then retries a repaired ledger next boot", async () => {
     const root = await makeRoot();
     const stateDirectory = join(root, "state");
-    const productPath = join(stateDirectory, "vellum-command.db");
+    const productPath = join(stateDirectory, "junto.db");
     const opsPath = join(stateDirectory, "install-ops.db");
     const contentRoot = join(root, "content");
     await mkdir(stateDirectory, { recursive: true });
@@ -1044,7 +1044,7 @@ describe("install-ops degraded runtime acquisition", () => {
 
   it("degrades on an unsupported ledger schema without changing its bytes", async () => {
     const root = await makeRoot();
-    const productPath = join(root, "vellum-command.db");
+    const productPath = join(root, "junto.db");
     const opsPath = join(root, "install-ops.db");
     seedOperatorDatabase(opsPath, 2);
     await chmod(opsPath, 0o600);

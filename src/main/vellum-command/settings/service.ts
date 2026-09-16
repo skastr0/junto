@@ -846,7 +846,7 @@ export const makeSettingsService = (
           supervised.status === "warning"
             ? ("warning" as const)
             : ("ok" as const),
-        detail: `vellum-command.db - settings v${settings.version} - ${supervised.detail}`,
+        detail: `junto.db - settings v${settings.version} - ${supervised.detail}`,
         metadata: {
           version: String(settings.version),
           ...supervised.metadata,

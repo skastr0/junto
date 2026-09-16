@@ -51,7 +51,7 @@ const key = (messageId: string, generation = "generation-1") => ({
 
 const openFixture = async (directory: string) => {
   const runtime = ManagedRuntime.make(Layer.provideMerge(
-    CrewRepositoryLive, makeStateEngineLive(join(directory, "vellum-command.db")),
+    CrewRepositoryLive, makeStateEngineLive(join(directory, "junto.db")),
   ));
   const repository = await runtime.runPromise(CrewRepository);
   const state = await runtime.runPromise(StateEngine);

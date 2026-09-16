@@ -660,7 +660,7 @@ const runtimeReleaseDirectory = (
 ): string =>
   path.posix.join(
     guestHome(machine),
-    ".vellum-command/runtime/releases",
+    ".junto/runtime/releases",
     runtimeGenerationName(artifact),
   );
 
@@ -1087,7 +1087,7 @@ const verifyPackageAbsent = async (
     "/bin/sh",
     [
       "-c",
-      'if [ -d "$HOME/.vellum-command/runtime/releases" ] && [ "$(/usr/bin/find "$HOME/.vellum-command/runtime/releases" -mindepth 1 -maxdepth 1 2>/dev/null | /usr/bin/wc -l)" != 0 ]; then exit 1; fi; if [ -x "$HOME/.local/bin/vellum-command" ]; then exit 1; fi; exit 0',
+      'if [ -d "$HOME/.junto/runtime/releases" ] && [ "$(/usr/bin/find "$HOME/.junto/runtime/releases" -mindepth 1 -maxdepth 1 2>/dev/null | /usr/bin/wc -l)" != 0 ]; then exit 1; fi; if [ -x "$HOME/.local/bin/vellum-command" ]; then exit 1; fi; exit 0',
     ],
   );
   if (result.exitCode !== 0) {
@@ -1112,7 +1112,7 @@ const observeInstalledPackage = async (
     "/bin/sh",
     [
       "-c",
-      `set -eu; RELEASE="$HOME/.vellum-command/runtime/releases/${release}"; test -x "$RELEASE/vellum-command"; test -x "$HOME/.local/bin/vellum-command"; printf 'vellum\t%s\tuserland\n' "${artifact.version}"`,
+      `set -eu; RELEASE="$HOME/.junto/runtime/releases/${release}"; test -x "$RELEASE/vellum-command"; test -x "$HOME/.local/bin/vellum-command"; printf 'vellum\t%s\tuserland\n' "${artifact.version}"`,
     ],
   );
   const [packageName, version, architecture] =
@@ -1157,7 +1157,7 @@ const installPackage = async (
   const installScript = [
     "set -eu",
     "umask 077",
-    'ROOT="$HOME/.vellum-command/runtime"',
+    'ROOT="$HOME/.junto/runtime"',
     `RELEASE_ID="${release}"`,
     'STAGE="$ROOT/staging/$RELEASE_ID-$$"',
     'DEST="$ROOT/releases/$RELEASE_ID"',
@@ -1318,7 +1318,7 @@ const launchCommandCenter = async (
       "--property=TimeoutStopSec=10s",
       "/bin/sh",
       "-c",
-      'set -eu; APP=$(/usr/bin/find "$HOME/.vellum-command/runtime/releases" -mindepth 2 -maxdepth 2 -type f -name vellum-command -perm -111 | /usr/bin/head -n 1); test -n "$APP"; exec /usr/bin/xvfb-run -a -s "-screen 0 1280x1024x24 -nolisten tcp" "$APP" --ozone-platform=x11 --vellum-command-operator-control',
+      'set -eu; APP=$(/usr/bin/find "$HOME/.junto/runtime/releases" -mindepth 2 -maxdepth 2 -type f -name vellum-command -perm -111 | /usr/bin/head -n 1); test -n "$APP"; exec /usr/bin/xvfb-run -a -s "-screen 0 1280x1024x24 -nolisten tcp" "$APP" --ozone-platform=x11 --vellum-command-operator-control',
     ],
   );
   return unit;
@@ -1345,7 +1345,7 @@ const ensureRemoteUserlandService = async (
       "-c",
       [
         "set -eu",
-        `RELEASE="$HOME/.vellum-command/runtime/releases/${release}"`,
+        `RELEASE="$HOME/.junto/runtime/releases/${release}"`,
         'UNIT="$HOME/.config/systemd/user/vellum-command-remote.service"',
         'test -x "$RELEASE/resources/bin/vellum-command-remote"',
         'test ! -L "$RELEASE/resources/bin/vellum-command-remote"',
@@ -1397,8 +1397,8 @@ const managedBundleCacheRoot = (
   profile: "qualification-candidate" | "final-release",
 ): string =>
   profile === "qualification-candidate"
-    ? ".vellum-command/releases/linux-x64-glibc/qualification"
-    : ".vellum-command/releases/linux-x64-glibc";
+    ? ".junto/releases/linux-x64-glibc/qualification"
+    : ".junto/releases/linux-x64-glibc";
 
 const guestPathExists = async (
   executor: CommandExecutor,
@@ -2513,7 +2513,7 @@ const managedRun = async (
       "/bin/sh",
       [
         "-c",
-        `set -eu; RELEASE="$HOME/.vellum-command/runtime/releases/${state.artifact.version}-${state.artifact.archiveSha256}"; test -x "$RELEASE/resources/bin/vellum-command-remote"; test -x "$RELEASE/resources/systemd/vellum-command-remote-launch"; printf 'vellum\\t%s\\tuserland\\n' "${state.artifact.version}"`,
+        `set -eu; RELEASE="$HOME/.junto/runtime/releases/${state.artifact.version}-${state.artifact.archiveSha256}"; test -x "$RELEASE/resources/bin/vellum-command-remote"; test -x "$RELEASE/resources/systemd/vellum-command-remote-launch"; printf 'vellum\\t%s\\tuserland\\n' "${state.artifact.version}"`,
       ],
     );
     const [packageName, packageVersion, architecture] =
@@ -2804,7 +2804,7 @@ const managedRun = async (
       "/bin/sh",
       [
         "-c",
-        `set -eu; RELEASE="$HOME/.vellum-command/runtime/releases/${state.artifact.version}-${state.artifact.archiveSha256}"; test -x "$RELEASE/resources/bin/vellum-command-remote"; test -x "$RELEASE/resources/systemd/vellum-command-remote-launch"; printf 'vellum\\t%s\\tuserland\\n' "${state.artifact.version}"`,
+        `set -eu; RELEASE="$HOME/.junto/runtime/releases/${state.artifact.version}-${state.artifact.archiveSha256}"; test -x "$RELEASE/resources/bin/vellum-command-remote"; test -x "$RELEASE/resources/systemd/vellum-command-remote-launch"; printf 'vellum\\t%s\\tuserland\\n' "${state.artifact.version}"`,
       ],
     );
     if (
@@ -3287,20 +3287,20 @@ const observeCommandCenterRuntimeSecurity = async (
     orbctlPath,
     machine,
     [
-      [path.posix.join(guestHome(machine), ".vellum-command/work"), "directory"],
+      [path.posix.join(guestHome(machine), ".junto/work"), "directory"],
       [
-        path.posix.join(guestHome(machine), ".vellum-command/work/control.sock"),
+        path.posix.join(guestHome(machine), ".junto/work/control.sock"),
         "socket",
       ],
-      [path.posix.join(guestHome(machine), ".vellum-command/work/token"), "regular file"],
-      [path.posix.join(guestHome(machine), ".vellum-command/station"), "directory"],
+      [path.posix.join(guestHome(machine), ".junto/work/token"), "regular file"],
+      [path.posix.join(guestHome(machine), ".junto/station"), "directory"],
       [
-        path.posix.join(guestHome(machine), ".vellum-command/station/control.sock"),
+        path.posix.join(guestHome(machine), ".junto/station/control.sock"),
         "socket",
       ],
-      [path.posix.join(guestHome(machine), ".vellum-command/operator"), "directory"],
+      [path.posix.join(guestHome(machine), ".junto/operator"), "directory"],
       [
-        path.posix.join(guestHome(machine), ".vellum-command/operator/control.sock"),
+        path.posix.join(guestHome(machine), ".junto/operator/control.sock"),
         "socket",
       ],
       [
@@ -3404,15 +3404,15 @@ const observeRemoteDisplaylessSecurity = async (
     orbctlPath,
     machine,
     [
-      [path.posix.join(guestHome(machine), ".vellum-command/work"), "directory"],
+      [path.posix.join(guestHome(machine), ".junto/work"), "directory"],
       [
-        path.posix.join(guestHome(machine), ".vellum-command/work/control.sock"),
+        path.posix.join(guestHome(machine), ".junto/work/control.sock"),
         "socket",
       ],
-      [path.posix.join(guestHome(machine), ".vellum-command/work/token"), "regular file"],
-      [path.posix.join(guestHome(machine), ".vellum-command/station"), "directory"],
+      [path.posix.join(guestHome(machine), ".junto/work/token"), "regular file"],
+      [path.posix.join(guestHome(machine), ".junto/station"), "directory"],
       [
-        path.posix.join(guestHome(machine), ".vellum-command/station/control.sock"),
+        path.posix.join(guestHome(machine), ".junto/station/control.sock"),
         "socket",
       ],
       [
@@ -3479,8 +3479,8 @@ const observeMachine = async (
   const requestId = `qualification-${machine.name.endsWith("-cc") ? "cc" : "remote"}`;
   const releaseProof =
     expectedRole === "remote"
-      ? `set -eu; RELEASE="$HOME/.vellum-command/runtime/releases/${artifact.version}-${artifact.archiveSha256}"; test -x "$RELEASE/resources/bin/vellum-command-remote"; test -x "$RELEASE/resources/systemd/vellum-command-remote-launch"; printf 'vellum\\t%s\\tuserland\\n' "${artifact.version}"`
-      : `set -eu; RELEASE="$HOME/.vellum-command/runtime/releases/${artifact.version}-${artifact.archiveSha256}"; test -x "$RELEASE/vellum-command"; printf 'vellum\\t%s\\tuserland\\n' "${artifact.version}"`;
+      ? `set -eu; RELEASE="$HOME/.junto/runtime/releases/${artifact.version}-${artifact.archiveSha256}"; test -x "$RELEASE/resources/bin/vellum-command-remote"; test -x "$RELEASE/resources/systemd/vellum-command-remote-launch"; printf 'vellum\\t%s\\tuserland\\n' "${artifact.version}"`
+      : `set -eu; RELEASE="$HOME/.junto/runtime/releases/${artifact.version}-${artifact.archiveSha256}"; test -x "$RELEASE/vellum-command"; printf 'vellum\\t%s\\tuserland\\n' "${artifact.version}"`;
   const [packageIdentity, service, fixedStatus] = await Promise.all([
     runGuest(
       executor,

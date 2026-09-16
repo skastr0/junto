@@ -3,7 +3,7 @@ import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, statSync, wri
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { __resetVellumCommandHomeCache } from "../src/shared/vellum-home";
+import { __resetJuntoHomeCache } from "../src/shared/junto-home";
 import { CR, ManagedTerminalDrive, OperatorInterlock, encodeBracketedPaste } from "../src/main/vellum-command/term/drive";
 import type { ManagedPromptOutcome } from "../src/shared/managed-prompt";
 import {
@@ -54,7 +54,7 @@ describe("PTY delivery trace", () => {
   afterEach(() => {
     for (const drive of drives.splice(0)) drive.resetForTest();
     vi.unstubAllEnvs();
-    __resetVellumCommandHomeCache();
+    __resetJuntoHomeCache();
     for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
   });
 
@@ -248,7 +248,7 @@ describe("PTY delivery trace", () => {
     const root = freshRoot();
     vi.stubEnv("JUNTO_HOME", root);
     vi.stubEnv("JUNTO_PTY_TRACE", setting);
-    __resetVellumCommandHomeCache();
+    __resetJuntoHomeCache();
     expect(createPtyDeliveryTracer()).toBeUndefined();
     expect(await makeDrive().writePrompt("binding-1", "ordinary delivery")).toEqual(submittedOutcome());
     expect(existsSync(ptyDeliveryTracePath())).toBe(false);
@@ -258,10 +258,10 @@ describe("PTY delivery trace", () => {
     const root = freshRoot();
     vi.stubEnv("JUNTO_HOME", root);
     vi.stubEnv("JUNTO_PTY_TRACE", "1");
-    __resetVellumCommandHomeCache();
+    __resetJuntoHomeCache();
     expect(await makeDrive().writePrompt("binding-1", "private opt-in prompt")).toEqual(submittedOutcome());
     await new Promise<void>((resolve) => setTimeout(resolve, 50));
-    const path = join(root, ".vellum-command", "logs", "pty-delivery.jsonl");
+    const path = join(root, ".junto", "logs", "pty-delivery.jsonl");
     expect(ptyDeliveryTracePath()).toBe(path);
     const text = readFileSync(path, "utf8");
     expect(text).toContain('"event":"delivery.end","fields":{"ok":true}');

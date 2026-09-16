@@ -21,7 +21,7 @@ export const CANVAS_CONTROL_MAX_RESPONSE_BYTES = 64 * 1024 * 1024;
 export const CANVAS_CONTROL_MAX_ERROR_BYTES = 4_096;
 
 export const canvasControlDir = (home: string): string =>
-  `${home}/.vellum-command/canvas`;
+  `${home}/.junto/canvas`;
 
 export const canvasControlSocketPath = (controlHome: string): string =>
   `${controlHome}/control.sock`;

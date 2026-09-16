@@ -18,7 +18,7 @@
  *
  * Run it against a COPY. It appends real work records.
  *
- *   GATE_PROBE=1 WORLD_DB=<path/to/vellum-command.db> \
+ *   GATE_PROBE=1 WORLD_DB=<path/to/junto.db> \
  *     npx vitest run tests/__probe/world-differential.test.ts
  */
 import { cpSync, mkdirSync, rmSync } from "node:fs";
@@ -51,7 +51,7 @@ describe.skipIf(!enabled || SOURCE === undefined)(
     it("serves boot hydration, one append, and a resident read identically", async () => {
       const root = join(tmpdir(), `vellum-world-diff-${randomUUID()}`);
       mkdirSync(join(root, "state"), { recursive: true });
-      const databasePath = join(root, "state", "vellum-command.db");
+      const databasePath = join(root, "state", "junto.db");
       cpSync(SOURCE as string, databasePath);
       const handle = openBenchRuntime({ root, databasePath });
       const world = makeWorkWorld();
