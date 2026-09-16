@@ -28,6 +28,7 @@ import { ACP_CHAT_SURFACE_HIDDEN } from "@shared/legacy-surfaces";
 import { isHarnessId } from "@shared/managed-terminal-templates";
 import { resolveTerminalBinding } from "@shared/terminal";
 import { activateNodeSurface } from "../../lib/activate-node-surface";
+import { productNodeKindEnabled } from "@shared/features";
 import { agentSeat$ } from "../../lib/agent-seat-state";
 import { consumeWorkDetailOpen, workDetailOpen$ } from "../../lib/work-detail-open";
 import { onTerminalEvent } from "../../lib/terminal-events";
@@ -406,6 +407,10 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
     entityKind === "pad" ||
     entityKind === "sheet" ||
     entityKind === "git";
+  // A feature-gated sink keeps its historical card and rename behavior but
+  // cannot open a work detail surface in a build whose gate is off.
+  const workDetailAllowed =
+    isWorkSurface && productNodeKindEnabled(entityKind);
   const isCron = entityKind === "cron" || entityKind === "timer";
 
   useEffect(() => {
@@ -459,10 +464,10 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
   useEffect(() => {
     if (!isWorkDetailTarget) return;
     const consumed = consumeWorkDetailOpen(node.id);
-    if (!isWorkSurface || !consumed) return;
+    if (!workDetailAllowed || !consumed) return;
     setWorkDetailItemId(consumed.itemId || undefined);
     setWorkDetail(true);
-  }, [isWorkDetailTarget, isWorkSurface, node.id]);
+  }, [isWorkDetailTarget, workDetailAllowed, node.id]);
 
 
   const commit = () => {
@@ -511,7 +516,7 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
       }
 
     >
-      {workDetail && entityKind === "task" ? (
+      {workDetail && workDetailAllowed && entityKind === "task" ? (
         <TasksDetail
           node={node}
           initialItemId={workDetailItemId}
@@ -521,7 +526,7 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
           }}
         />
       ) : null}
-      {workDetail && entityKind === "requests" ? (
+      {workDetail && workDetailAllowed && entityKind === "requests" ? (
         <RequestsDetail
           node={node}
           initialItemId={workDetailItemId}
@@ -531,19 +536,19 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
           }}
         />
       ) : null}
-      {workDetail && entityKind === "board" ? (
+      {workDetail && workDetailAllowed && entityKind === "board" ? (
         <BoardDetail node={node} onClose={() => setWorkDetail(false)} />
       ) : null}
-      {workDetail && entityKind === "pad" ? (
+      {workDetail && workDetailAllowed && entityKind === "pad" ? (
         <PadDetail node={node} onClose={() => setWorkDetail(false)} />
       ) : null}
-      {workDetail && entityKind === "sheet" ? (
+      {workDetail && workDetailAllowed && entityKind === "sheet" ? (
         <SheetDetail node={node} onClose={() => setWorkDetail(false)} />
       ) : null}
       {workDetail && entityKind === "git" ? (
         <GitDetail node={node} onClose={() => setWorkDetail(false)} />
       ) : null}
-      {workDetail && entityKind === "artifacts" ? (
+      {workDetail && workDetailAllowed && entityKind === "artifacts" ? (
         <ArtifactsDetail
           node={node}
           onClose={() => {
@@ -647,7 +652,7 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
               if (result.opened) return;
               // Work surfaces also open via local state when the trigger path
               // is unavailable (tests / no work-detail bus).
-              if (isWorkSurface) {
+              if (workDetailAllowed) {
                 setWorkDetail(true);
                 return;
               }

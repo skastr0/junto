@@ -6,7 +6,7 @@
  * and other furniture return false (caller still focuses/selects).
  */
 import type { CanvasNode } from "@shared/canvas";
-import { BROWSER_ENABLED } from "@shared/features";
+import { BROWSER_ENABLED, productNodeKindEnabled } from "@shared/features";
 import { ACP_CHAT_SURFACE_HIDDEN } from "@shared/legacy-surfaces";
 import { formatNodeRef } from "@shared/node-ref";
 import { resolveTerminalBinding } from "@shared/terminal";
@@ -44,13 +44,14 @@ export function nodeSurfaceKind(node: CanvasNode): NodeSurfaceKind | null {
     return null;
   }
   if (
-    kind === "task" ||
-    kind === "requests" ||
-    kind === "artifacts" ||
-    kind === "board" ||
-    kind === "pad" ||
-    kind === "sheet" ||
-    kind === "git"
+    productNodeKindEnabled(kind) &&
+    (kind === "task" ||
+      kind === "requests" ||
+      kind === "artifacts" ||
+      kind === "board" ||
+      kind === "pad" ||
+      kind === "sheet" ||
+      kind === "git")
   ) {
     return "work";
   }

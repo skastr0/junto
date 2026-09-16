@@ -11,6 +11,26 @@ export const FEATURE_CATALOG = {
     env: "VELLUM_COMMAND_BROWSER",
     define: "__VELLUM_COMMAND_BROWSER_ENABLED__",
   },
+  board: {
+    env: "VELLUM_COMMAND_BOARD",
+    define: "__VELLUM_COMMAND_BOARD_ENABLED__",
+  },
+  pad: {
+    env: "VELLUM_COMMAND_PAD",
+    define: "__VELLUM_COMMAND_PAD_ENABLED__",
+  },
+  sheet: {
+    env: "VELLUM_COMMAND_SHEET",
+    define: "__VELLUM_COMMAND_SHEET_ENABLED__",
+  },
+  requests: {
+    env: "VELLUM_COMMAND_REQUESTS",
+    define: "__VELLUM_COMMAND_REQUESTS_ENABLED__",
+  },
+  artifacts: {
+    env: "VELLUM_COMMAND_ARTIFACTS",
+    define: "__VELLUM_COMMAND_ARTIFACTS_ENABLED__",
+  },
   fleetUi: {
     env: "VELLUM_COMMAND_FLEET_UI",
     define: "__VELLUM_COMMAND_FLEET_UI_ENABLED__",
@@ -93,11 +113,20 @@ export type FeatureKey = keyof typeof FEATURE_CATALOG;
 
 export type FeatureSet = Readonly<Record<FeatureKey, boolean>>;
 
-/** Public release baseline. Host-local Browser ships; Fleet UI and remote/host management stay off. */
+/**
+ * Public release baseline. Work-sink extras and the host-local Browser stay
+ * off; Fleet UI and remote/host management stay off. Each gate remains the
+ * way back on for a build that needs the surface.
+ */
 export const SHIP_FEATURES: FeatureSet = {
   cron: false,
   relay: false,
-  browser: true,
+  browser: false,
+  board: false,
+  pad: false,
+  sheet: false,
+  requests: false,
+  artifacts: false,
   fleetUi: false,
   usage: false,
   helpMap: false,
@@ -118,6 +147,11 @@ export const ALL_FEATURES: FeatureSet = {
   cron: true,
   relay: true,
   browser: true,
+  board: true,
+  pad: true,
+  sheet: true,
+  requests: true,
+  artifacts: true,
   fleetUi: true,
   usage: true,
   helpMap: true,

@@ -11,6 +11,7 @@
  * fire-and-block first.
  */
 import type { CanvasDoc } from "@shared/canvas";
+import { REQUESTS_ENABLED } from "@shared/features";
 import type { WorkBlockedSeat } from "@shared/execution-graph";
 import {
   makeStopDirective,
@@ -130,6 +131,10 @@ export const requestStillBlocking = (
 /**
  * Live block for a seat, auto-clearing when the request no longer blocks.
  * Pure against doc; mutates the map only on auto-clear.
+ *
+ * A build with the requests sink off does not enforce its stop plane: with
+ * no resolve surface, any recorded block releases rather than strands the
+ * seat.
  */
 export const liveSeatBlock = (
   canvasName: string,
@@ -138,7 +143,7 @@ export const liveSeatBlock = (
 ): SeatBlock | undefined => {
   const block = getSeatBlock(canvasName, nodeId);
   if (!block) return undefined;
-  if (!requestStillBlocking(doc, block)) {
+  if (!REQUESTS_ENABLED || !requestStillBlocking(doc, block)) {
     clearSeatBlocked(canvasName, nodeId);
     return undefined;
   }

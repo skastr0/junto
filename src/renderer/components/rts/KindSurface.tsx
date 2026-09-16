@@ -27,6 +27,7 @@ import type { CanvasNode } from "@shared/canvas";
 import {
   BROWSER_ENABLED,
   CRON_ENABLED,
+  productNodeKindEnabled,
   RELAY_ENABLED,
 } from "@shared/features";
 import { isHarnessId } from "@shared/managed-terminal-templates";
@@ -491,6 +492,7 @@ export function KindSurface() {
   const isFreeNote = node.type === "text" && !node.ether?.entity;
   const hasKindActions =
     kind !== undefined &&
+    productNodeKindEnabled(kind) &&
     [
       "agent",
       "terminal",
@@ -512,6 +514,7 @@ export function KindSurface() {
   // noise.
   const showFieldsKey =
     !isFreeNote &&
+    (kind === undefined || productNodeKindEnabled(kind)) &&
     kind !== "agent" &&
     kind !== "terminal" &&
     kind !== "label" &&

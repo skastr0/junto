@@ -21,11 +21,15 @@ import { registerChatIpc } from "./chat/ipc";
 import { ChatServiceContext } from "./chat/service";
 import { HermesPlane } from "./hermes/plane";
 import {
+  ARTIFACTS_ENABLED,
+  BOARD_ENABLED,
   BROWSER_ENABLED,
   CRON_ENABLED,
   FLEET_UI_ENABLED,
   HERMES_INTEGRATION_ENABLED,
+  PAD_ENABLED,
   RELAY_ENABLED,
+  REQUESTS_ENABLED,
   USAGE_ENABLED,
 } from "@shared/features";
 import { KernelService } from "./kernel/service";
@@ -912,7 +916,7 @@ export const registerVellumIpc = (): void => {
         ),
       ),
   );
-  privilegedIpc.handle(
+  if (REQUESTS_ENABLED) privilegedIpc.handle(
     IPC_CHANNELS.workRequestResolve,
     (
       _event,
@@ -941,7 +945,7 @@ export const registerVellumIpc = (): void => {
       ),
   );
 
-  privilegedIpc.handle(
+  if (ARTIFACTS_ENABLED) privilegedIpc.handle(
     IPC_CHANNELS.workArtifactArchive,
     (
       _event,
@@ -968,7 +972,7 @@ export const registerVellumIpc = (): void => {
       ),
   );
 
-  privilegedIpc.handle(
+  if (ARTIFACTS_ENABLED) privilegedIpc.handle(
     IPC_CHANNELS.workArtifactDelete,
     (
       _event,
@@ -1007,7 +1011,7 @@ export const registerVellumIpc = (): void => {
       ),
   );
 
-  privilegedIpc.handle(
+  if (BOARD_ENABLED) privilegedIpc.handle(
     IPC_CHANNELS.workBoardList,
     (
       _event,
@@ -1025,7 +1029,7 @@ export const registerVellumIpc = (): void => {
       ),
   );
 
-  privilegedIpc.handle(
+  if (BOARD_ENABLED) privilegedIpc.handle(
     IPC_CHANNELS.workBoardCreateTopic,
     (
       _event,
@@ -1074,7 +1078,7 @@ export const registerVellumIpc = (): void => {
       ),
   );
 
-  privilegedIpc.handle(
+  if (BOARD_ENABLED) privilegedIpc.handle(
     IPC_CHANNELS.workBoardPost,
     (
       _event,
@@ -1103,7 +1107,7 @@ export const registerVellumIpc = (): void => {
       ),
   );
 
-  privilegedIpc.handle(
+  if (BOARD_ENABLED) privilegedIpc.handle(
     IPC_CHANNELS.workBoardMarkRead,
     (_event, canvas: string, nodeId: string, topicId: string, upToPosition?: number) =>
       runRendererWorkAuthoring(
@@ -1126,7 +1130,7 @@ export const registerVellumIpc = (): void => {
       ),
   );
 
-  privilegedIpc.handle(
+  if (BOARD_ENABLED) privilegedIpc.handle(
     IPC_CHANNELS.workBoardNotify,
     (_event, canvas: string, nodeId: string, topicId?: string) =>
       runRendererWorkAuthoring(
@@ -1181,7 +1185,7 @@ export const registerVellumIpc = (): void => {
       ),
   );
 
-  privilegedIpc.handle(
+  if (PAD_ENABLED) privilegedIpc.handle(
     IPC_CHANNELS.workPadRead,
     (_event, canvas: string, nodeId: string, pinId?: string) =>
       AppRuntime.runPromise(
@@ -1209,7 +1213,7 @@ export const registerVellumIpc = (): void => {
       ),
   );
 
-  privilegedIpc.handle(
+  if (PAD_ENABLED) privilegedIpc.handle(
     IPC_CHANNELS.workPadPatch,
     (
       _event,

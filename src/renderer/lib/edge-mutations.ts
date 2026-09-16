@@ -8,6 +8,7 @@ import {
   type PortName,
   type Verb,
 } from "@shared/physics";
+import { productNodeKindEnabled } from "@shared/features";
 import { validateFlowDag, type FlowCycleError } from "@shared/flow-graph";
 import { persistPortMaskEther } from "./crew-port-mask";
 import { isGitNode, isLabelNode, nodeTitle } from "./presentation";
@@ -66,6 +67,15 @@ export const verbsForDraw = (
   fromKind: string | undefined,
   toKind: string | undefined,
 ): DrawVerbs => {
+  // A feature-gated kind turned off in this build keeps its historical edges
+  // but takes no new wire: the decoder still admits the stored verb, the
+  // authoring surface never draws one.
+  if (
+    (fromKind !== undefined && !productNodeKindEnabled(fromKind)) ||
+    (toKind !== undefined && !productNodeKindEnabled(toKind))
+  ) {
+    return NO_DRAW_VERBS;
+  }
   const drawn = verbsForPair(fromKind, toKind);
   if (drawn.length > 0) return { verbs: drawn, reversed: false };
   const flipped = verbsForPair(toKind, fromKind);
@@ -77,7 +87,8 @@ const wireableNode = (node: CanvasNode | undefined): boolean =>
   node !== undefined &&
   node.type !== "group" &&
   !isLabelNode(node) &&
-  !isGitNode(node);
+  !isGitNode(node) &&
+  productNodeKindEnabled(kindOf(node));
 
 /** Live connect validation — the same grammar the commit below enforces. */
 export const connectAllowed = (
@@ -237,6 +248,13 @@ export const addEdge = (params: {
     (toNode && isGitNode(toNode))
   ) {
     state$.error.set("Git cannot take connections.");
+    return;
+  }
+  if (
+    (fromNode !== undefined && !productNodeKindEnabled(kindOf(fromNode))) ||
+    (toNode !== undefined && !productNodeKindEnabled(kindOf(toNode)))
+  ) {
+    state$.error.set("That node is disabled in this build.");
     return;
   }
   const fromKind = kindOf(fromNode);

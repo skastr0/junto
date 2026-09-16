@@ -518,6 +518,9 @@ function TaskKindKeys({ node }: { readonly node: CanvasNode }) {
 /** Kind-specific action keys (agent/terminal/task/…). */
 export function KindActions({ node }: { readonly node: CanvasNode }) {
   const kind = node.ether?.entity?.kind;
+  // A feature-gated kind turned off in this build keeps its historical card
+  // but loses every kind action, so no pop or surface can reopen it.
+  if (kind !== undefined && !productNodeKindEnabled(kind)) return null;
   switch (kind) {
     case "agent": {
       // Managed terminal is the product surface; ACP chat stays hard-hidden.

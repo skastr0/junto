@@ -5,6 +5,11 @@
 declare const __VELLUM_COMMAND_CRON_ENABLED__: boolean | undefined;
 declare const __VELLUM_COMMAND_RELAY_ENABLED__: boolean | undefined;
 declare const __VELLUM_COMMAND_BROWSER_ENABLED__: boolean | undefined;
+declare const __VELLUM_COMMAND_BOARD_ENABLED__: boolean | undefined;
+declare const __VELLUM_COMMAND_PAD_ENABLED__: boolean | undefined;
+declare const __VELLUM_COMMAND_SHEET_ENABLED__: boolean | undefined;
+declare const __VELLUM_COMMAND_REQUESTS_ENABLED__: boolean | undefined;
+declare const __VELLUM_COMMAND_ARTIFACTS_ENABLED__: boolean | undefined;
 declare const __VELLUM_COMMAND_FLEET_UI_ENABLED__: boolean | undefined;
 declare const __VELLUM_COMMAND_USAGE_ENABLED__: boolean | undefined;
 declare const __VELLUM_COMMAND_HELP_MAP_ENABLED__: boolean | undefined;

@@ -19,7 +19,12 @@ describe("compile-time feature profiles", () => {
     expect(resolved.features).toEqual({
       cron: false,
       relay: false,
-      browser: true,
+      browser: false,
+      board: false,
+      pad: false,
+      sheet: false,
+      requests: false,
+      artifacts: false,
       fleetUi: false,
       usage: false,
       helpMap: false,

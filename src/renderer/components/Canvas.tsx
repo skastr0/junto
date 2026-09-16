@@ -72,7 +72,15 @@ import {
 } from "../lib/node-factories";
 import { putImagesFromDataTransfer } from "../lib/image-content";
 import { contentObjectUrl } from "@shared/content-url";
-import { BROWSER_ENABLED, FLEET_UI_ENABLED } from "@shared/features";
+import {
+  ARTIFACTS_ENABLED,
+  BOARD_ENABLED,
+  BROWSER_ENABLED,
+  FLEET_UI_ENABLED,
+  PAD_ENABLED,
+  REQUESTS_ENABLED,
+  SHEET_ENABLED,
+} from "@shared/features";
 import { HUE, themeFor, withAlpha } from "../lib/theme";
 import { themeMode$ } from "../lib/theme-mode";
 import type { MemberSeverity } from "@shared/region-rollup";
@@ -725,6 +733,7 @@ const makeAddActions = (
     dismiss();
   },
   addRequests: () => {
+    if (!REQUESTS_ENABLED) return;
     const position = positionFor({ width: 240, height: 120 });
     const node = makeRequestsNode(position.x, position.y);
     addNode(node, { edit: false });
@@ -732,6 +741,7 @@ const makeAddActions = (
     dismiss();
   },
   addArtifacts: () => {
+    if (!ARTIFACTS_ENABLED) return;
     const position = positionFor({ width: 240, height: 120 });
     const node = makeArtifactsNode(position.x, position.y);
     addNode(node, { edit: false });
@@ -739,6 +749,7 @@ const makeAddActions = (
     dismiss();
   },
   addBoard: () => {
+    if (!BOARD_ENABLED) return;
     const position = positionFor({ width: 240, height: 120 });
     const node = makeBoardNode(position.x, position.y);
     addNode(node, { edit: false });
@@ -746,6 +757,7 @@ const makeAddActions = (
     dismiss();
   },
   addPad: () => {
+    if (!PAD_ENABLED) return;
     const position = positionFor({ width: 240, height: 120 });
     const node = makePadNode(position.x, position.y);
     addNode(node, { edit: false });
@@ -753,6 +765,7 @@ const makeAddActions = (
     dismiss();
   },
   addSheet: () => {
+    if (!SHEET_ENABLED) return;
     const position = positionFor({ width: 260, height: 120 });
     const node = makeSheetNode(position.x, position.y);
     addNode(node, { edit: false });

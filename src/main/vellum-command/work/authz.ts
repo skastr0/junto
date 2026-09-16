@@ -20,7 +20,7 @@ import type { WorkErrorBody, WorkOpName } from "@shared/work-control";
 import { OPERATOR_SEAT_ID } from "@shared/work-reference";
 import type { ActorRef } from "@shared/work-protocol";
 import { Result, Match } from "effect";
-import { RELAY_ENABLED } from "@shared/features";
+import { productNodeKindEnabled, RELAY_ENABLED } from "@shared/features";
 import { tasksNodeName } from "@shared/tasks-node-identity";
 
 // Edges are the capability system. Kernel-enforced per call via factory physics
@@ -238,6 +238,47 @@ export const admitLiveOverseer = (
 };
 
 /**
+ * A feature-gated product sink stays decodable but offers no work surface in
+ * a build whose gate is off. Name the gate rather than an edge so an agent
+ * stops instead of asking the operator for a wire that can never grant.
+ */
+const featureDisabledError = (
+  callerId: string,
+  targetId: string,
+  kind: string,
+  op: WorkOpName,
+): WorkErrorBody => ({
+  type: "ScopeError",
+  message: `node "${targetId}" kind ${kind} is disabled in this Vellum Command build`,
+  details: {
+    target: targetId,
+    caller: callerId,
+    expected: [],
+    received: kind,
+    hint: "this product surface is turned off in this build",
+    next_step:
+      "stop work on this node; the feature is disabled in this build and no edge can grant it",
+    retryable: false,
+    missing: "feature enabled in this build",
+    reason: op,
+  },
+});
+
+/** True when a live connected target is a product kind this build disabled. */
+export const targetFeatureDisabled = (
+  doc: CanvasDoc,
+  callerId: string,
+  targetId: string,
+): boolean => {
+  const kind = nodeKind(findNode(doc, targetId));
+  return (
+    kind !== undefined &&
+    !productNodeKindEnabled(kind) &&
+    areConnected(doc, callerId, targetId)
+  );
+};
+
+/**
  * Target admission for a live overseer: node existence + kind, no edge.
  * Ordinary agents still go through {@link admitWorkTarget}.
  */
@@ -253,6 +294,15 @@ export const admitOverseerWorkTarget = (
       message: `target "${targetId}" not found`,
       details: { target: targetId, retryable: false },
     });
+  }
+  const overseerTargetKind = nodeKind(target);
+  if (
+    overseerTargetKind !== undefined &&
+    !productNodeKindEnabled(overseerTargetKind)
+  ) {
+    return Result.fail(
+      featureDisabledError("overseer", targetId, overseerTargetKind, op),
+    );
   }
   if (requiresConnection(op) && isTargetWorkOp(op) && !kindAllowsOp(nodeKind(target), op)) {
     return Result.fail(
@@ -460,6 +510,16 @@ export const admitWorkTarget = (
 
   if (!requiresConnection(op) || !isTargetWorkOp(op)) {
     return Result.succeed({ node: target });
+  }
+
+  const targetKind = nodeKind(target);
+  if (
+    targetKind !== undefined &&
+    targetFeatureDisabled(doc, callerId, targetId)
+  ) {
+    return Result.fail(
+      featureDisabledError(callerId, targetId, targetKind, op),
+    );
   }
 
   const view = canvasDocToCapabilityView(doc);

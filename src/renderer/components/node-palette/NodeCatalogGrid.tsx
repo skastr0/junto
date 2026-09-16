@@ -20,9 +20,14 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import {
+  ARTIFACTS_ENABLED,
+  BOARD_ENABLED,
   BROWSER_ENABLED,
   CRON_ENABLED,
+  PAD_ENABLED,
   RELAY_ENABLED,
+  REQUESTS_ENABLED,
+  SHEET_ENABLED,
 } from "@shared/features";
 import { fuzzyMatch } from "../../lib/fuzzy-match";
 import { HUE } from "../../lib/theme";
@@ -161,33 +166,33 @@ export const DEFAULT_NODE_CATALOG_ENTRIES: readonly NodeCatalogEntry[] = [
     purpose: "A work queue. Connected agents pick up tasks and turn in finished work.",
     behavior: "A task waiting on your answer pauses only the agent working on it.",
   },
-  {
+  ...(REQUESTS_ENABLED ? [{
     id: "requests", category: "sinks", label: "Requests", subtitle: "questions for you",
     icon: Inbox,
     purpose: "Questions from agents that only you can answer.",
     behavior: "An open question pauses only the agent that asked it.",
-  },
-  {
+  } satisfies NodeCatalogEntry] : []),
+  ...(ARTIFACTS_ENABLED ? [{
     id: "artifacts", category: "sinks", label: "Artifacts", subtitle: "finished work shelf",
     icon: Archive,
     purpose: "A shelf for finished outputs: files, results, and proof of work.",
-  },
-  {
+  } satisfies NodeCatalogEntry] : []),
+  ...(BOARD_ENABLED ? [{
     id: "board", category: "sinks", label: "Board", subtitle: "topics and posts",
     icon: Braces,
     purpose: "A shared board for topics, updates, and decisions.",
-  },
-  {
+  } satisfies NodeCatalogEntry] : []),
+  ...(PAD_ENABLED ? [{
     id: "pad", category: "sinks", label: "Pad", subtitle: "images, shapes, ink, pins",
     icon: PenLine,
     purpose: "A shared page. You mark; wired agents read the same page and patch boxes and pins.",
-  },
-  {
+  } satisfies NodeCatalogEntry] : []),
+  ...(SHEET_ENABLED ? [{
     id: "sheet", category: "sinks", label: "Sheet", subtitle: "a small grid of numbers and names",
     icon: Table,
     purpose: "Jot numbers and names in rows and columns beside the work. Wired agents can read it.",
     behavior: "You author it; agents read it. There is no agent write path.",
-  },
+  } satisfies NodeCatalogEntry] : []),
   {
     id: "git", category: "sinks", label: "Git", subtitle: "commit browser",
     icon: GitBranch,

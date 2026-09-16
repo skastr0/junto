@@ -8,7 +8,14 @@ import {
   ScreenshotRequest,
   StopRequest,
 } from "../../shared/browser-control";
-import { BROWSER_ENABLED } from "../../shared/features";
+import {
+  ARTIFACTS_ENABLED,
+  BOARD_ENABLED,
+  BROWSER_ENABLED,
+  PAD_ENABLED,
+  REQUESTS_ENABLED,
+  SHEET_ENABLED,
+} from "../../shared/features";
 import { MANAGED_PROMPT_IMMEDIATE_MAX } from "../../shared/managed-prompt";
 import { SeatReadArgs, SeatWaitArgs, TaskWaitArgs } from "../../shared/seat-control";
 import {
@@ -93,6 +100,22 @@ export interface CapabilityInvocation {
   readonly command: string;
   readonly discover: string;
 }
+
+/**
+ * One predicate for every discovery surface a feature gate can silence:
+ * schemas, examples, capability rows, and edge-grant invocations. A disabled
+ * product command is never advertised, so an agent cannot discover its way
+ * back to a surface the kernel already refuses.
+ */
+export const commandSurfaceEnabled = (commandId: string): boolean => {
+  if (commandId.startsWith("board.")) return BOARD_ENABLED;
+  if (commandId.startsWith("pad.")) return PAD_ENABLED;
+  if (commandId === "sheet.read") return SHEET_ENABLED;
+  if (commandId.startsWith("request.")) return REQUESTS_ENABLED;
+  if (commandId.startsWith("artifact.")) return ARTIFACTS_ENABLED;
+  if (commandId.startsWith("browser.")) return BROWSER_ENABLED;
+  return true;
+};
 
 const BROWSER_INVOCATION: CapabilityInvocation = {
   port: "browser.automate",
@@ -180,13 +203,13 @@ const invocationsForConnected = (value: unknown): unknown => {
     if (BROWSER_ENABLED && entry.grants.includes("browser.automate")) {
       invocations.push(BROWSER_INVOCATION);
     }
-    if (entry.grants.includes("pad.read")) {
+    if (PAD_ENABLED && entry.grants.includes("pad.read")) {
       invocations.push(...PAD_READ_INVOCATIONS);
     }
-    if (entry.grants.includes("pad.patch")) {
+    if (PAD_ENABLED && entry.grants.includes("pad.patch")) {
       invocations.push(PAD_PATCH_INVOCATION);
     }
-    if (entry.grants.includes("sheet.read")) {
+    if (SHEET_ENABLED && entry.grants.includes("sheet.read")) {
       invocations.push(SHEET_READ_INVOCATION);
     }
     invocations.push(
@@ -652,7 +675,7 @@ export const browserStopSchema = browserSchema(
   StopRequest,
 );
 
-export const allSchemas: ReadonlyArray<CommandSchemaContract> = [
+const declaredSchemas: ReadonlyArray<CommandSchemaContract> = [
   tasksListSchema,
   tasksCreateSchema,
   tasksClaimSchema,
@@ -703,7 +726,11 @@ export const allSchemas: ReadonlyArray<CommandSchemaContract> = [
     : []),
 ];
 
-export const allExamples: ReadonlyArray<CommandExample> = [
+/** Schemas a feature gate has turned off never leave discovery. */
+export const allSchemas: ReadonlyArray<CommandSchemaContract> =
+  declaredSchemas.filter((contract) => commandSurfaceEnabled(contract.command_id));
+
+const declaredExamples: ReadonlyArray<CommandExample> = [
   {
     command_id: "verdict.post",
     command: "verdict post",
@@ -1298,7 +1325,11 @@ export const allExamples: ReadonlyArray<CommandExample> = [
   ...overseerExamples,
 ];
 
-export const commandCapabilities: ReadonlyArray<CommandCapability> = [
+/** Examples follow their command: a disabled surface has no runnable recipe. */
+export const allExamples: ReadonlyArray<CommandExample> =
+  declaredExamples.filter((example) => commandSurfaceEnabled(example.command_id));
+
+const declaredCapabilities: ReadonlyArray<CommandCapability> = [
   {
     command_id: "ping",
     command: "ping",
@@ -1731,3 +1762,9 @@ export const commandCapabilities: ReadonlyArray<CommandCapability> = [
     : []),
   ...overseerCapabilities,
 ];
+
+/** Capability rows follow their command: a disabled surface is not discoverable. */
+export const commandCapabilities: ReadonlyArray<CommandCapability> =
+  declaredCapabilities.filter((capability) =>
+    commandSurfaceEnabled(capability.command_id),
+  );

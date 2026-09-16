@@ -1,5 +1,13 @@
 import { Data, HashMap, HashSet, Match } from "effect";
 import {
+  ARTIFACTS_ENABLED,
+  BOARD_ENABLED,
+  BROWSER_ENABLED,
+  PAD_ENABLED,
+  REQUESTS_ENABLED,
+  SHEET_ENABLED,
+} from "../features";
+import {
   isWellKnownKind,
   portSet,
   WELL_KNOWN_KINDS,
@@ -44,18 +52,31 @@ const taskOffers = portSet(
   "msg.list",
   "msg.send",
 );
-const requestsOffers = portSet("request.escalate", "msg.list", "msg.send");
-const artifactsOffers = portSet("artifact.publish");
-const pageOffers = portSet("browser.automate");
-const boardOffers = portSet(
-  "board.list",
-  "board.create_topic",
-  "board.post",
-  "board.mark_read",
-);
-const padOffers = portSet("pad.read", "pad.patch");
+// Feature-gated sink offers. A disabled feature keeps its role (historical
+// rows stay decodable and render as cards) but offers no port, so every
+// capability surface — CLI grants, work ops, overseer admin, station wire —
+// fails closed on the same empty set. The gate lives here, at the one table
+// both admission and the work vocabulary read.
+const requestsOffers = REQUESTS_ENABLED
+  ? portSet("request.escalate", "msg.list", "msg.send")
+  : emptyOffers;
+const artifactsOffers = ARTIFACTS_ENABLED
+  ? portSet("artifact.publish")
+  : emptyOffers;
+const pageOffers = BROWSER_ENABLED ? portSet("browser.automate") : emptyOffers;
+const boardOffers = BOARD_ENABLED
+  ? portSet(
+    "board.list",
+    "board.create_topic",
+    "board.post",
+    "board.mark_read",
+  )
+  : emptyOffers;
+const padOffers = PAD_ENABLED
+  ? portSet("pad.read", "pad.patch")
+  : emptyOffers;
 /** Read-only by construction: the operator authors a sheet, agents consult it. */
-const sheetOffers = portSet("sheet.read");
+const sheetOffers = SHEET_ENABLED ? portSet("sheet.read") : emptyOffers;
 
 /**
  * The role a kind carries, decided by which literal group it was written into

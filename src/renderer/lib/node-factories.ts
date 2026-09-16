@@ -9,7 +9,14 @@ import type {
 } from "@shared/canvas";
 import type { HarnessId } from "@shared/managed-terminal-templates";
 import { templateFor } from "@shared/managed-terminal-templates";
-import { managedHarnessEnabled } from "@shared/features";
+import {
+  ARTIFACTS_ENABLED,
+  BOARD_ENABLED,
+  managedHarnessEnabled,
+  PAD_ENABLED,
+  REQUESTS_ENABLED,
+  SHEET_ENABLED,
+} from "@shared/features";
 import { resolveManagedLaunch } from "@shared/managed-terminal-launch";
 import { emptySheet } from "@shared/sheet";
 import { isValidStationHostId } from "@shared/station";
@@ -280,79 +287,102 @@ export const makeTasksNode = (
   };
 };
 
+/**
+ * Authoring constructor gate: a feature-off sink cannot be created by any
+ * code path, while an already-authored node still decodes and renders.
+ */
+const requireFeature = (enabled: boolean, label: string): void => {
+  if (!enabled) throw new Error(`${label} is disabled in this build`);
+};
+
 // Operator requests — items live around state input-required.
-export const makeRequestsNode = (x: number, y: number): TextNode => ({
-  id: `requests-${ulid()}`,
-  type: "text",
-  text: "requests",
-  x: Math.round(x),
-  y: Math.round(y),
-  width: 240,
-  height: 120,
-  ether: {
-    entity: { kind: "requests" },
-    requests: { items: [] },
-  },
-});
+export const makeRequestsNode = (x: number, y: number): TextNode => {
+  requireFeature(REQUESTS_ENABLED, "requests sink");
+  return {
+    id: `requests-${ulid()}`,
+    type: "text",
+    text: "requests",
+    x: Math.round(x),
+    y: Math.round(y),
+    width: 240,
+    height: 120,
+    ether: {
+      entity: { kind: "requests" },
+      requests: { items: [] },
+    },
+  };
+};
 
 // Artifact shelf — published parts with optional task provenance.
-export const makeArtifactsNode = (x: number, y: number): TextNode => ({
-  id: `artifacts-${ulid()}`,
-  type: "text",
-  text: "artifacts",
-  x: Math.round(x),
-  y: Math.round(y),
-  width: 240,
-  height: 120,
-  ether: {
-    entity: { kind: "artifacts" },
-    artifacts: { items: [] },
-  },
-});
+export const makeArtifactsNode = (x: number, y: number): TextNode => {
+  requireFeature(ARTIFACTS_ENABLED, "artifacts sink");
+  return {
+    id: `artifacts-${ulid()}`,
+    type: "text",
+    text: "artifacts",
+    x: Math.round(x),
+    y: Math.round(y),
+    width: 240,
+    height: 120,
+    ether: {
+      entity: { kind: "artifacts" },
+      artifacts: { items: [] },
+    },
+  };
+};
 
 /** Bulletin board sink — topics + posts; work-plane owns durability. */
-export const makeBoardNode = (x: number, y: number): TextNode => ({
-  id: `board-${ulid()}`,
-  type: "text",
-  text: "board",
-  x: Math.round(x),
-  y: Math.round(y),
-  width: 240,
-  height: 120,
-  ether: {
-    entity: { kind: "board" },
-    board: { topics: [] },
-  },
-});
+export const makeBoardNode = (x: number, y: number): TextNode => {
+  requireFeature(BOARD_ENABLED, "board sink");
+  return {
+    id: `board-${ulid()}`,
+    type: "text",
+    text: "board",
+    x: Math.round(x),
+    y: Math.round(y),
+    width: 240,
+    height: 120,
+    ether: {
+      entity: { kind: "board" },
+      board: { topics: [] },
+    },
+  };
+};
+
+/** Sheet sink — the grid is authored on the node, so it is born with one. */
+export const makeSheetNode = (x: number, y: number): TextNode => {
+  requireFeature(SHEET_ENABLED, "sheet sink");
+  return {
+    id: `sheet-${ulid()}`,
+    type: "text",
+    text: "sheet",
+    x: Math.round(x),
+    y: Math.round(y),
+    width: 260,
+    height: 120,
+    ether: {
+      entity: { kind: "sheet" },
+      sheet: emptySheet(),
+    },
+  };
+};
 
 /** Spatial pad sink — empty is legal; work-plane owns durability. */
-/** Sheet sink — the grid is authored on the node, so it is born with one. */
-export const makeSheetNode = (x: number, y: number): TextNode => ({
-  id: `sheet-${ulid()}`,
-  type: "text",
-  text: "sheet",
-  x: Math.round(x),
-  y: Math.round(y),
-  width: 260,
-  height: 120,
-  ether: {
-    entity: { kind: "sheet" },
-    sheet: emptySheet(),
-  },
-});
-
-export const makePadNode = (x: number, y: number): TextNode => ({
-  id: `pad-${ulid()}`,
-  type: "text",
-  text: "pad",
-  x: Math.round(x),
-  y: Math.round(y),
-  width: 240,
-  height: 120,
-  ether: {
-    entity: { kind: "pad" },
-  },
-});
+export const makePadNode = (x: number, y: number): TextNode => {
+  requireFeature(PAD_ENABLED, "pad sink");
+  return {
+    id: `pad-${ulid()}`,
+    type: "text",
+    text: "pad",
+    x: Math.round(x),
+    y: Math.round(y),
+    width: 240,
+    height: 120,
+    ether: {
+      entity: { kind: "pad" },
+    },
+  };
+};
 
 
 /** Vellum Command-owned terminal node. Session starts on create / open (no card Start). */

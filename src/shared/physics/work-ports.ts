@@ -1,3 +1,4 @@
+import { productNodeKindEnabled } from "../features";
 import type { WorkOpName } from "../work-control";
 import type { Port, SinkKind } from "./schema";
 
@@ -150,5 +151,10 @@ export const OPS_BY_SINK = {
   terminal: [],
 } as const satisfies Record<SinkKind, ReadonlyArray<TargetWorkOpName>>;
 
+/**
+ * Ops a sink kind offers on the work plane. A feature-gated sink whose gate
+ * is off offers none, so role admission, overseer admin, and scope errors all
+ * report the same empty vocabulary the kind's empty offers grant.
+ */
 export const opsForSink = (kind: SinkKind): ReadonlyArray<TargetWorkOpName> =>
-  OPS_BY_SINK[kind];
+  productNodeKindEnabled(kind) ? OPS_BY_SINK[kind] : [];

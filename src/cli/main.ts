@@ -39,7 +39,16 @@ import { earlyDispatchFromArgv } from "./early-dispatch";
 import { runContentTransfer } from "./content-transfer";
 import { runStationStdio } from "./station-stdio";
 import { CLI_NAME, CLI_VERSION } from "./core/constants";
-import { BROWSER_ENABLED, FLEET_UI_ENABLED, LIVE_OVERSEER_ENABLED } from "@shared/features";
+import {
+  ARTIFACTS_ENABLED,
+  BOARD_ENABLED,
+  BROWSER_ENABLED,
+  FLEET_UI_ENABLED,
+  LIVE_OVERSEER_ENABLED,
+  PAD_ENABLED,
+  REQUESTS_ENABLED,
+  SHEET_ENABLED,
+} from "@shared/features";
 import { runOverseerHost } from "../overseer-host/main";
 
 declare const __VELLUM_COMMAND_BROWSER_ENABLED__: boolean | undefined;
@@ -74,13 +83,13 @@ export const rootCommand = Command.make(CLI_NAME).pipe(
     msgCommand,
     seatCommand,
     verdictCommand,
-    escalateCommand,
-    artifactCommand,
     contentCommand,
     docsCommand,
-    boardCommand,
-    padCommand,
-    sheetCommand,
+    ...(BOARD_ENABLED ? [boardCommand] : []),
+    ...(PAD_ENABLED ? [padCommand] : []),
+    ...(SHEET_ENABLED ? [sheetCommand] : []),
+    ...(REQUESTS_ENABLED ? [escalateCommand] : []),
+    ...(ARTIFACTS_ENABLED ? [artifactCommand] : []),
     overseerCommand,
     stationOperatorCommand,
     ...(FLEET_UI_ENABLED
@@ -99,6 +108,21 @@ const runtimeLayer = Layer.mergeAll(
   WorkSocketLive,
   OperatorSocketLive,
 );
+
+/**
+ * A command group whose product feature is off in this build. Named so the
+ * entrypoint can refuse with one sentence before the unregistered command
+ * collapses into a generic usage error.
+ */
+const disabledCliGroup = (args: ReadonlyArray<string>): string | undefined => {
+  const group = args[0];
+  if (!BOARD_ENABLED && group === "board") return "board";
+  if (!PAD_ENABLED && group === "pad") return "pad";
+  if (!SHEET_ENABLED && group === "sheet") return "sheet";
+  if (!REQUESTS_ENABLED && group === "escalate") return "escalate";
+  if (!ARTIFACTS_ENABLED && group === "artifact") return "artifact";
+  return undefined;
+};
 
 export const runCli = (args: ReadonlyArray<string>) =>
   Effect.suspend(() => cli(args)).pipe(
@@ -138,6 +162,14 @@ if (import.meta.main) {
   ) {
     process.stderr.write(
       `vellum-command ${dispatch.args[0]}: disabled in this Vellum Command build\n`,
+    );
+    process.exitCode = 2;
+  } else if (
+    dispatch.kind === "cli" &&
+    disabledCliGroup(dispatch.args) !== undefined
+  ) {
+    process.stderr.write(
+      `vellum-command ${disabledCliGroup(dispatch.args)}: disabled in this Vellum Command build\n`,
     );
     process.exitCode = 2;
   } else if (dispatch.kind === "station-stdio") {

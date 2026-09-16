@@ -13,6 +13,11 @@
 declare const __VELLUM_COMMAND_CRON_ENABLED__: boolean | undefined;
 declare const __VELLUM_COMMAND_RELAY_ENABLED__: boolean | undefined;
 declare const __VELLUM_COMMAND_BROWSER_ENABLED__: boolean | undefined;
+declare const __VELLUM_COMMAND_BOARD_ENABLED__: boolean | undefined;
+declare const __VELLUM_COMMAND_PAD_ENABLED__: boolean | undefined;
+declare const __VELLUM_COMMAND_SHEET_ENABLED__: boolean | undefined;
+declare const __VELLUM_COMMAND_REQUESTS_ENABLED__: boolean | undefined;
+declare const __VELLUM_COMMAND_ARTIFACTS_ENABLED__: boolean | undefined;
 declare const __VELLUM_COMMAND_FLEET_UI_ENABLED__: boolean | undefined;
 declare const __VELLUM_COMMAND_USAGE_ENABLED__: boolean | undefined;
 declare const __VELLUM_COMMAND_HELP_MAP_ENABLED__: boolean | undefined;
@@ -50,6 +55,39 @@ export const BROWSER_ENABLED: boolean =
   typeof __VELLUM_COMMAND_BROWSER_ENABLED__ === "boolean"
     ? __VELLUM_COMMAND_BROWSER_ENABLED__
     : envEnabled("VELLUM_COMMAND_BROWSER");
+
+/** Bulletin board sink — node authoring, wires, and the board CLI. */
+export const BOARD_ENABLED: boolean =
+  typeof __VELLUM_COMMAND_BOARD_ENABLED__ === "boolean"
+    ? __VELLUM_COMMAND_BOARD_ENABLED__
+    : envEnabled("VELLUM_COMMAND_BOARD");
+
+/** Pad sink — node authoring, wires, and the pad CLI. */
+export const PAD_ENABLED: boolean =
+  typeof __VELLUM_COMMAND_PAD_ENABLED__ === "boolean"
+    ? __VELLUM_COMMAND_PAD_ENABLED__
+    : envEnabled("VELLUM_COMMAND_PAD");
+
+/** Sheet sink — node authoring, wire, and the sheet CLI. */
+export const SHEET_ENABLED: boolean =
+  typeof __VELLUM_COMMAND_SHEET_ENABLED__ === "boolean"
+    ? __VELLUM_COMMAND_SHEET_ENABLED__
+    : envEnabled("VELLUM_COMMAND_SHEET");
+
+/**
+ * Requests sink — node authoring, wires, and the escalate CLI. Input-required
+ * work stays on the Tasks node, which owns the same attention states.
+ */
+export const REQUESTS_ENABLED: boolean =
+  typeof __VELLUM_COMMAND_REQUESTS_ENABLED__ === "boolean"
+    ? __VELLUM_COMMAND_REQUESTS_ENABLED__
+    : envEnabled("VELLUM_COMMAND_REQUESTS");
+
+/** Artifacts sink — node authoring, wires, and the artifact CLI. */
+export const ARTIFACTS_ENABLED: boolean =
+  typeof __VELLUM_COMMAND_ARTIFACTS_ENABLED__ === "boolean"
+    ? __VELLUM_COMMAND_ARTIFACTS_ENABLED__
+    : envEnabled("VELLUM_COMMAND_ARTIFACTS");
 
 export const FLEET_UI_ENABLED: boolean =
   typeof __VELLUM_COMMAND_FLEET_UI_ENABLED__ === "boolean"
@@ -162,6 +200,11 @@ export const BUILD_FEATURES = {
   cron: CRON_ENABLED,
   relay: RELAY_ENABLED,
   browser: BROWSER_ENABLED,
+  board: BOARD_ENABLED,
+  pad: PAD_ENABLED,
+  sheet: SHEET_ENABLED,
+  requests: REQUESTS_ENABLED,
+  artifacts: ARTIFACTS_ENABLED,
   fleetUi: FLEET_UI_ENABLED,
   usage: USAGE_ENABLED,
   helpMap: HELP_MAP_ENABLED,
@@ -183,11 +226,20 @@ export const schedulerFeatureEnabled = (
   kind: "cron" | "relay" | "gauge",
 ): boolean => kind === "cron" ? CRON_ENABLED : RELAY_ENABLED;
 
-/** Historical hidden kinds remain decodable, but cannot regain authoring controls. */
+/**
+ * Historical hidden kinds remain decodable, but cannot regain authoring
+ * controls. This is the one predicate every authoring, wire, and capability
+ * surface reads so a disabled feature cannot reappear through a side door.
+ */
 export const productNodeKindEnabled = (kind: string | undefined): boolean => {
   if (kind === "cron" || kind === "timer") return CRON_ENABLED;
   if (kind === "relay" || kind === "watcher" || kind === "gauge") return RELAY_ENABLED;
   if (kind === "page") return BROWSER_ENABLED;
+  if (kind === "board") return BOARD_ENABLED;
+  if (kind === "pad") return PAD_ENABLED;
+  if (kind === "sheet") return SHEET_ENABLED;
+  if (kind === "requests") return REQUESTS_ENABLED;
+  if (kind === "artifacts") return ARTIFACTS_ENABLED;
   return true;
 };
 
