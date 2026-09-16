@@ -93,7 +93,7 @@ export function PadDetail({
   }, [readPad]);
 
   // Live refresh: every work-plane patch advances this node's pad glance
-  // revision in the factory doc. Refresh while the surface is open so agent
+  // revision in the pad doc. Refresh while the surface is open so agent
   // patches appear without reopening. Own commits reach acceptance through
   // `onCommit`; the read here only confirms or clears the undo baseline.
   const docNodes = use$(state$.doc.nodes);

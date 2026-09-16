@@ -397,7 +397,7 @@ const msgReplyCommand = Command.make(
     ),
 ).pipe(
   Command.withDescription(
-    "Reply to factory mail and mark inReplyTo read (batch-capable)",
+    "Reply to crew mail and mark inReplyTo read (batch-capable)",
   ),
 );
 

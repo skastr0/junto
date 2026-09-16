@@ -2499,7 +2499,7 @@ describe("composer gate and the bounded edge-map claim", () => {
     // claim is burned by a refused attempt, and the notice parks until the
     // canvas map changes. The gate must hold (no claim burn) while the
     // composer is not proven empty, and deliver on the empty boundary.
-    const msg = userMsg(ulid(), "[factory - map] edge contracts changed — Added: tasks", {
+    const msg = userMsg(ulid(), "[crew - map] edge contracts changed — Added: tasks", {
       metadata: { edgeMapChange: true, addedIds: ["tasks"] },
     });
     const store = makeStore({ c: edgeDoc([msg]) });
@@ -2551,7 +2551,7 @@ describe("composer gate and the bounded edge-map claim", () => {
 
 describe("bounded re-drive marks and the PTY write truth", () => {
   const edgeMsg = (): Message =>
-    userMsg(ulid(), "[factory - map] edge contracts changed — Added: tasks", {
+    userMsg(ulid(), "[crew - map] edge contracts changed — Added: tasks", {
       metadata: { edgeMapChange: true, addedIds: ["tasks"] },
     });
   const edgeDoc2 = (messages: ReadonlyArray<Message>): CanvasDoc => ({

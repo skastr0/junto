@@ -200,7 +200,7 @@ describe("edge-map change injection", () => {
       added: [{ id: "n-tasks", kind: "task" }],
       removed: [{ id: "n-req", kind: "requests" }],
     });
-    expect(text).toContain("[factory - map]");
+    expect(text).toContain("[crew - map]");
     expect(text).toContain("n-tasks");
     expect(text).toContain("Removed: `n-req`");
     expect(text).not.toContain("### Edge contract");

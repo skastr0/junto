@@ -147,10 +147,10 @@ test("mail wakes a cold seat and honors an operator stop", async () => {
     });
 
     // Born paused — first play is an explicit operator confirmation.
-    await page.getByRole("button", { name: "Play factory" }).click();
-    const dialog = page.getByRole("dialog", { name: /start|first|play|factory/i });
+    await page.getByRole("button", { name: "Play crew" }).click();
+    const dialog = page.getByRole("dialog", { name: /start|first|play|crew/i });
     await dialog.getByRole("button", { name: "play" }).click();
-    await expect(page.getByRole("button", { name: "Pause factory" })).toBeVisible({
+    await expect(page.getByRole("button", { name: "Pause crew" })).toBeVisible({
       timeout: 15_000,
     });
 

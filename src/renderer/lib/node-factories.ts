@@ -43,7 +43,7 @@ export const makeTextNode = (x: number, y: number): TextNode => ({
 
 /**
  * Geography label — bare map text (no card chrome, no connectors).
- * Settings surface: text + optional color + size. Not a factory seat.
+ * Settings surface: text + optional color + size. Not a crew seat.
  */
 export const makeLabelNode = (x: number, y: number): TextNode => ({
   id: `label-${ulid()}`,
@@ -61,7 +61,7 @@ export const makeLabelNode = (x: number, y: number): TextNode => ({
 /**
  * Geography image card — JSON Canvas `file` node whose `file` is a
  * `junto-content://` object URL for an image ContentRef. Renders the image;
- * no factory ports. Plain workspace-path file cards are retired.
+ * no crew ports. Plain workspace-path file cards are retired.
  */
 export const makeImageNode = (
   x: number,

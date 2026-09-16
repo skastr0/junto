@@ -55,13 +55,13 @@ export type InjectionConnectedTarget = {
 /**
  * Context slots for the injection payload.
  * `seatBound` is the hard gate: false (detached terminal) → no injection at all.
- * `connected` means the seat holds at least one actionable factory edge and
+ * `connected` means the seat holds at least one actionable canvas edge and
  * therefore receives the compiled edge contracts.
  */
 export type InjectionContext = {
   /** Detached terminal (no canvas node) → false → silence. */
   readonly seatBound: boolean;
-  /** Seat holds an actionable factory edge → edge contracts are compiled in. */
+  /** Seat holds an actionable canvas edge → edge contracts are compiled in. */
   readonly connected: boolean;
   /** Canvas seat / node ref (context only — identity is process-bind). */
   readonly seatRef?: string;
@@ -133,7 +133,7 @@ A **seat** is your identity on the canvas: the node you occupy, bound to your pr
 - **Grants** come from each authored edge verb and its operator mask. A mask only removes ports. A messages edge can grant mail, prompts, waits and terminal reads; a directed reviews edge grants \`verdict.post\` only from reviewer to author.${TASKS_ENABLED ? " Task verbs differ on claiming and authoring." : ""} \`capabilities\` gives the actual held ports; a neighboring kind alone proves no permission.
 - **Identity** is process-bind: the OS proves who you are. You cannot claim another seat, and no env var makes you someone else.
 - **Orientation** is one command: \`junto onboard\` returns your seat, role, region briefing, connected targets ${TASKS_ENABLED ? "with grants and their board contracts" : "with their grants"}, and co-members. Re-run it whenever your view may be stale.
-- **Rulings** are operator precedent pinned to a region. They stand over every seat inside it: \`junto rulings\`.\n\n**Map-change notices are informational.** \`[factory - map]\` notices announce grant changes — they are not a command to re-run \`onboard\`/\`capabilities\` every time. Re-orient once at session start and whenever you actually need the live map to act. Idle chatter (ack-for-ack) is wasteful: acknowledge once, then stay quiet until real work or a new request arrives.`;
+- **Rulings** are operator precedent pinned to a region. They stand over every seat inside it: \`junto rulings\`.\n\n**Map-change notices are informational.** \`[crew - map]\` notices announce grant changes — they are not a command to re-run \`onboard\`/\`capabilities\` every time. Re-orient once at session start and whenever you actually need the live map to act. Idle chatter (ack-for-ack) is wasteful: acknowledge once, then stay quiet until real work or a new request arrives.`;
 
 // ── Worker doctrine (base) ─────────────────────────────────────────────────
 
@@ -288,7 +288,7 @@ Errors are **ground truth** — do not invent around them. Read \`type\` and \`n
 
 - \`ScopeError\` — not connected / not authorized for that target; the fix is an edge on the canvas, not a workaround${TASK_ERROR_BULLETS}
 - \`InputError\` — payload failed schema decode; \`schema show\` prints the exact shape
-- \`RuntimeDown\` / \`Paused\` — factory unavailable; wait, then re-run \`onboard\`. Do not retry-loop.
+- \`RuntimeDown\` / \`Paused\` — crew unavailable; wait, then re-run \`onboard\`. Do not retry-loop.
 ${REQUESTS_ENABLED ? "- \`Blocked\` — this seat is blocked; stop and wait for the operator (the stop directive names the request)" : ""}
 
 Retry law: retry only when the error says \`retryable: true\`, at most twice, then adapt or escalate. Never loop the same failing call.
@@ -444,7 +444,7 @@ ${rowsFor(targets, [
   ["pad.patch", `| patch shapes | \`junto pad patch '{"target":"${t}","patches":[{"op":"upsert","layer":"shape","shape":{"id":"box-1","type":"box","x":0,"y":0,"w":80,"h":40,"z":0}}]}'\` |`],
 ])}
 
-With \`pad.patch\`, agents may upsert shapes, edges, and pin posts. Agent ink or image upserts are refused. Pin mentions must be inbound actor node ids — @ cannot name an unwired agent. Agents never write the factory canvas.`;
+With \`pad.patch\`, agents may upsert shapes, edges, and pin posts. Agent ink or image upserts are refused. Pin mentions must be inbound actor node ids — @ cannot name an unwired agent. Agents never write the crew canvas.`;
 };
 
 const sheetSlot = (targets: readonly InjectionConnectedTarget[]): string => {
@@ -631,7 +631,7 @@ export const buildRegionBriefingSection = (
 
 export const buildOrientNotice = (seatRef?: string): string =>
   [
-    "Your seat's factory CLI: `junto onboard`.",
+    "Your seat's crew CLI: `junto onboard`.",
     seatRef ? `Seat: \`${seatRef}\`.` : "",
     "Run it before anything else — it returns your seat, region, and grants.",
   ]
@@ -705,9 +705,9 @@ export const composeEdgeMapChangeNotice = (change: EdgeMapChange): string => {
     parts.push(`Removed: ${fmt(change.removed)}`);
   }
   if (parts.length === 0) {
-    return "[factory - map] edge map unchanged — re-run `junto capabilities` for the live grant list.";
+    return "[crew - map] edge map unchanged — re-run `junto capabilities` for the live grant list.";
   }
-  return `[factory - map] edge contracts changed — ${parts.join(". ")}. Re-run \`junto capabilities\` for the live grant list.`;
+  return `[crew - map] edge contracts changed — ${parts.join(". ")}. Re-run \`junto capabilities\` for the live grant list.`;
 };
 
 /**

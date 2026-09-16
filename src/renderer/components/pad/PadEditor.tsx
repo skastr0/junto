@@ -732,7 +732,7 @@ export function PadEditor({
         event.stopPropagation();
       } else if (!typing) {
         // The pad surface owns the keyboard while open: a declined key must
-        // not reach the factory canvas behind the modal — ReactFlow's
+        // not reach the crew canvas behind the modal — ReactFlow's
         // document-level deleteKeyCode deletes the selected node on
         // Backspace even when a pad control has focus. Only other listeners
         // are stopped; native behavior (focus move, button activation,
@@ -1300,7 +1300,7 @@ export function PadEditor({
             <strong>Mark the page</strong>
             <span>
               Draw boxes, drop images, ink, and pin look-here crops. Wired agents
-              read this page and patch structure. They never write the factory canvas.
+              read this page and patch structure. They never write the crew canvas.
             </span>
             <div className="pad-empty__keys">
               <span><Kbd>R</Kbd> box</span>

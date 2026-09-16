@@ -1,4 +1,4 @@
-// Mount surface for the orchestrator: <InspectorTabs .../> + <ChatView .../>
+// Mount surface for the chat host: <InspectorTabs .../> + <ChatView .../>
 // plus the chat-state store (for reading `unread` into a tab badge).
 export { InspectorTabs, type InspectorTab } from "./InspectorTabs";
 export { ChatView } from "./ChatView";

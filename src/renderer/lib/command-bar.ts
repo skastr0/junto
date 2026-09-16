@@ -25,7 +25,7 @@ export const closeCommandBar = (): void => {
   state$.commandBarOpen.set(false);
 };
 
-/** Hotbar lease eligibility is factory-role based: actors only. Shared with
+/** Hotbar lease eligibility is crew-role based: actors only. Shared with
  * RtsBottomBar so the command bar focus commit and the RTS focus key apply
  * identical lease semantics. */
 export const isHotbarLeaseActor = (node: CanvasNode | undefined): boolean =>

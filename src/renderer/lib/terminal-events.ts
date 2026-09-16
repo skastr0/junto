@@ -58,7 +58,7 @@ const ensureIpcSubscription = (): void => {
  * Renderer-wide terminal event fan-out, indexed by binding.
  *
  * Canvas cards and the open xterm surface all observe the same Electron IPC
- * channel. Keeping exactly one bridge subscription prevents a large factory
+ * channel. Keeping exactly one bridge subscription prevents a large crew
  * canvas from tripping EventEmitter's listener limit.
  *
  * Raw PTY output rides this channel, so a flat listener set charged every

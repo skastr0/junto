@@ -403,7 +403,7 @@ export function NodeShell({
    * Used by geography labels so they read as free text on the field.
    */
   bare = false,
-  /** Full factory toolbar vs delete-only (labels). */
+  /** Full crew toolbar vs delete-only (labels). */
   toolbar = "full",
 
   children,

@@ -75,7 +75,7 @@ const docsConceptsCommand = Command.make("concepts", {}, () =>
     "docs concepts",
     Effect.succeed({ topic: "concepts", content: buildConceptsDoc() }),
   ),
-).pipe(Command.withDescription("Concepts: seats, grants, factory, earned completion, identity"));
+).pipe(Command.withDescription("Concepts: seats, grants, the crew, earned completion, identity"));
 
 const docsOverseerCommand = Command.make("overseer", {}, () =>
   executeJsonCommand(

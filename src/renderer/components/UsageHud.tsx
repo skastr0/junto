@@ -9,7 +9,7 @@ import { HarnessMark } from "./HarnessMark";
 import "./UsageHud.css";
 
 // Compact station usage rail: one [glyph / bar] cell per quota (vertical
-// split — icon above meter). Sources are the native strategy pipelines.
+// split — icon above meter). Sources are the native strategy meters.
 // Fail open: paint only when there are quotas; hide entirely when no source
 // reports data or the poll has nothing to show (no loading/error chrome).
 

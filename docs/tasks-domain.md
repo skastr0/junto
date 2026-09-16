@@ -27,9 +27,9 @@ fields, and product copy. The analogy collided with the real Station concept
 feature unreadable. The operator's ruling is that product language stays
 neutral and plain: a user must never have to ask what an arrival is.
 
-The governing metaphor for the product at large is a factory with strict
-contracts. That is a way of thinking, not a theme. Copy does not say
-"factory" or "contract" unless the word is the plainest one available.
+The governing metaphor for the product at large is a crew of peers working
+one canvas. That is a way of thinking, not a theme. Copy uses crew words —
+seat, peer, grant, canvas — only where they are the plainest word available.
 
 ## The words
 

@@ -82,7 +82,7 @@ test("roll growth-50 and record the take", async () => {
     // the whole take. Real product controls, clicked like an operator would:
     // the pause switch, then the first-play confirm gate.
     try {
-      await page.getByRole("button", { name: "Play factory" }).click({ timeout: 3_000 });
+      await page.getByRole("button", { name: "Play crew" }).click({ timeout: 3_000 });
       await page
         .locator('[data-testid="first-play-confirm"]')
         .getByRole("button", { name: "play" })

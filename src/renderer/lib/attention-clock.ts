@@ -1,5 +1,5 @@
 /**
- * Factory attention clock — discrete 90 ms phases, no CSS interpolation.
+ * Crew attention clock — discrete 90 ms phases, no CSS interpolation.
  *
  * Chromium samples interpolating CSS animations every vsync, which keeps the
  * GPU helper and WindowServer presenting the whole window. This clock stamps

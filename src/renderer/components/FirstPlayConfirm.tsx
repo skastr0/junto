@@ -4,7 +4,7 @@ import { Play } from "lucide-react";
 import { DIM, GROUND, HUE, INK, INK_2, STROKE, withAlpha } from "../lib/theme";
 
 // First-play confirmation — the explicit operator gate the pause law requires
-// (@shared/pause: the factory is BORN PAUSED; the first play is a human
+// (@shared/pause: the crew is BORN PAUSED; the first play is a human
 // decision, never a default). Shown once per canvas (everPlayed latch);
 // subsequent play/pause toggles are direct. Inline-styled overlay by design —
 // this dialog owns no shared stylesheet surface.

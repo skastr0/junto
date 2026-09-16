@@ -25,7 +25,7 @@ export type DoctrineFewShotPayload = {
 export const FEW_SHOT_CLAIM: DoctrineFewShotPayload = {
   command: "tasks claim",
   args: ["tasks", "claim", '{"target":"n7","task":"t1"}'],
-  lesson: "Claim only unclaimed tasks; the factory queue decides what is available.",
+  lesson: "Claim only unclaimed tasks; the crew queue decides what is available.",
 };
 
 export const FEW_SHOT_PROGRESS: DoctrineFewShotPayload = {
@@ -45,7 +45,7 @@ export const FEW_SHOT_COMPLETE_EVIDENCE: DoctrineFewShotPayload = {
     "update",
     '{"target":"n7","task":"t1","state":"completed","note":"done","completionEvidence":{"artifacts":[{"artifactId":"a1","nodeId":"art1"}],"git":{"commits":["abc123"]}}}',
   ],
-  lesson: "completed is a factory verdict, not a self-declaration — attach evidence first, or the server rejects the transition.",
+  lesson: "completed is a crew verdict, not a self-declaration — attach evidence first, or the server rejects the transition.",
 };
 
 /** Escalate: file a request, block the seat, wait for the operator. */

@@ -432,7 +432,7 @@ export const msgReplySchema: CommandSchemaContract = {
   command: "msg reply",
   schema_id: "msg.reply.input/v1",
   description:
-    "Reply to factory mail: send text to target and mark inReplyTo read on own mailbox.",
+    "Reply to crew mail: send text to target and mark inReplyTo read on own mailbox.",
   schema: MsgReplyArgs,
   accepts_batch: true,
   input_modes: inputModes,
@@ -545,7 +545,7 @@ export const padReadSchema: CommandSchemaContract = {
   command: "pad read",
   schema_id: "pad.read.input/v1",
   description:
-    "Read a connected pad (grant pad.read): revision, IR, digest, SVG. Optional pinId adds look-here. Agents never write the factory canvas.",
+    "Read a connected pad (grant pad.read): revision, IR, digest, SVG. Optional pinId adds look-here. Agents never write the crew canvas.",
   schema: PadReadArgs,
   input_modes: inputModes,
 };
@@ -576,7 +576,7 @@ export const padDigestSchema: CommandSchemaContract = {
   command: "pad digest",
   schema_id: "pad.digest.input/v1",
   description:
-    "Text IR of a connected pad (grant pad.read). Working copy for a wired seat — not the factory canvas.",
+    "Text IR of a connected pad (grant pad.read). Working copy for a wired seat — not the crew canvas.",
   schema: PadTargetArgs,
   input_modes: inputModes,
 };
@@ -586,7 +586,7 @@ export const padSvgSchema: CommandSchemaContract = {
   command: "pad svg",
   schema_id: "pad.svg.input/v1",
   description:
-    "SVG picture of a connected pad (grant pad.read). Agents read the page; they never write the factory canvas.",
+    "SVG picture of a connected pad (grant pad.read). Agents read the page; they never write the crew canvas.",
   schema: PadTargetArgs,
   input_modes: inputModes,
 };
@@ -606,7 +606,7 @@ export const padGetSchema: CommandSchemaContract = {
   command: "pad get",
   schema_id: "pad.get.input/v1",
   description:
-    "Compact focused items from a connected pad (grant pad.read). Optional id returns that item. Agents never write the factory canvas.",
+    "Compact focused items from a connected pad (grant pad.read). Optional id returns that item. Agents never write the crew canvas.",
   schema: PadGetArgs,
   input_modes: inputModes,
 };
@@ -1555,7 +1555,7 @@ const declaredCapabilities: ReadonlyArray<CommandCapability> = [
     command_id: "msg.reply",
     command: "msg reply",
     category: "workflow",
-    description: "Reply to factory mail and mark parent read (batch-capable).",
+    description: "Reply to crew mail and mark parent read (batch-capable).",
     schemas: [msgReplySchema],
     examples: allExamples.filter((e) => e.command_id === "msg.reply"),
     batch: {

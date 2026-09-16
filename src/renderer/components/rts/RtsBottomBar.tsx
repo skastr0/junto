@@ -249,7 +249,7 @@ const liveNodeIds = (doc: { readonly nodes: ReadonlyArray<{ readonly id: string 
   doc.nodes.map((n) => n.id);
 
 /**
- * Opportunistic hotbar leases are **actors only** (factory role).
+ * Opportunistic hotbar leases are **actors only** (crew role).
  * Well-known: `agent`. Notes, tasks, regions, pages, etc. never auto-lease.
  * Operator fixed slots (⌘1–9) remain unrestricted. Shared with the command
  * bar via lib/command-bar so focus commits lease identically everywhere.

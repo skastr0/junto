@@ -2,7 +2,7 @@
 
 Operator and wired agents share one page. The operator marks. The agent
 sees the same page (SVG + digest + look-here crop) and patches named
-boxes and pins. Ordinary agents never write the factory canvas. An overseer
+boxes and pins. Ordinary agents never write the crew canvas. An overseer
 authors canvas through closed `overseer` commands, not through pad.
 
 Contract: [`pad-architecture.md`](pad-architecture.md).
@@ -60,7 +60,7 @@ ink element. Agents may not upsert ink. No pressure, no pixel eraser.
 
 ## Agent
 
-Working copy is `pad.read`, not the factory digest. Process-bind + an
+Working copy is `pad.read`, not the crew digest. Process-bind + an
 edge that grants the port. No edge is `ScopeError`.
 
 ### Ports

@@ -3,10 +3,10 @@ import { groupMembers } from "./graph";
 
 // Factory pause plane — pure law. The switch state itself is app-state
 // (never the document; see pause-plane in main): definitions travel with
-// the file, the switch that lets the factory act exists only in the
+// the file, the switch that lets the crew act exists only in the
 // running app, flipped by a human.
 //
-// LAW: a canvas with no recorded play decision is PAUSED. The factory is
+// LAW: a canvas with no recorded play decision is PAUSED. The crew is
 // born paused, always; the first play is an explicit operator confirmation.
 
 export type CanvasPauseState = {

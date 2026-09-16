@@ -69,7 +69,7 @@ const padReadCommand = Command.make(
     ),
 ).pipe(
   Command.withDescription(
-    "Read a connected pad (grant pad.read): revision, IR, digest, SVG. Optional pinId adds look-here. Agents never write the factory canvas.",
+    "Read a connected pad (grant pad.read): revision, IR, digest, SVG. Optional pinId adds look-here. Agents never write the crew canvas.",
   ),
 );
 
@@ -107,7 +107,7 @@ const padDigestCommand = Command.make(
     ),
 ).pipe(
   Command.withDescription(
-    "Text IR of a connected pad (grant pad.read). Working copy for a wired seat — not the factory canvas.",
+    "Text IR of a connected pad (grant pad.read). Working copy for a wired seat — not the crew canvas.",
   ),
 );
 
@@ -126,7 +126,7 @@ const padSvgCommand = Command.make(
     ),
 ).pipe(
   Command.withDescription(
-    "SVG picture of a connected pad (grant pad.read). Agents read the page; they never write the factory canvas.",
+    "SVG picture of a connected pad (grant pad.read). Agents read the page; they never write the crew canvas.",
   ),
 );
 
@@ -176,7 +176,7 @@ const padGetCommand = Command.make(
     ),
 ).pipe(
   Command.withDescription(
-    "Compact focused items from a connected pad (grant pad.read). Optional id returns that item. Agents never write the factory canvas.",
+    "Compact focused items from a connected pad (grant pad.read). Optional id returns that item. Agents never write the crew canvas.",
   ),
 );
 
@@ -215,7 +215,7 @@ const padTaggedCommand = Command.make(
 
 export const padCommand = Command.make("pad").pipe(
   Command.withDescription(
-    "Pad ops — shared page on the work plane; agents never write the factory canvas",
+    "Pad ops — shared page on the work plane; agents never write the crew canvas",
   ),
   Command.withSubcommands([
     padReadCommand,

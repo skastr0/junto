@@ -44,7 +44,7 @@ export {
  *
  * This module is the pristine seam between the local work domain, Station
  * reports, and SQLite repositories. It deliberately contains no ReportBatch,
- * SSH, socket, database, or wall-clock orchestration concerns.
+ * SSH, socket, database, or wall-clock coordination concerns.
  */
 /**
  * The Junto work-event envelope at version 1. Station protocol 1 admits

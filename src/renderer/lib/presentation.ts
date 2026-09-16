@@ -13,11 +13,11 @@ export const hostOf = (url: string): string => {
   }
 };
 
-/** Bare map text (geography). No connectors, ports, or factory seat. */
+/** Bare map text (geography). No connectors, ports, or crew seat. */
 export const isLabelNode = (node: CanvasNode): boolean =>
   node.ether?.entity?.kind === "label";
 
-/** Git commit browser (geography). No connectors, ports, or factory seat. */
+/** Git commit browser (geography). No connectors, ports, or crew seat. */
 export const isGitNode = (node: CanvasNode): boolean =>
   node.ether?.entity?.kind === "git";
 

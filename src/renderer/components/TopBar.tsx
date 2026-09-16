@@ -163,7 +163,7 @@ function CommandBarTrigger({ canvasName }: { readonly canvasName: string }) {
 // PAUSED is the prominent state, playing stays quiet. First play routes
 // through FirstPlayConfirm (everPlayed latch); pausing is always instant.
 // The state machine lives in lib/factory-pause.ts and is shared with the
-// command bar "Play/Pause factory" action — this control is a thin face.
+// command bar "Play/Pause crew" action — this control is a thin face.
 function FactoryPauseControl({ canvasName }: { readonly canvasName: string }) {
   const pauseState = use$(factoryPause$.state);
   const confirmOpen = use$(factoryPause$.confirmOpen);
@@ -186,13 +186,13 @@ function FactoryPauseControl({ canvasName }: { readonly canvasName: string }) {
         type="button"
         data-testid="factory-pause"
         data-pause-state={pauseLabel}
-        aria-label={playing ? "Pause factory" : "Play factory"}
+        aria-label={playing ? "Pause crew" : "Play crew"}
         title={
           error
             ? `pause switch: ${error}`
             : playing
-              ? "Pause factory"
-              : "Play factory"
+              ? "Pause crew"
+              : "Play crew"
         }
         disabled={busy}
         onClick={onClick}

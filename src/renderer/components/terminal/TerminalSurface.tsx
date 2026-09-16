@@ -1571,7 +1571,7 @@ export function TerminalSurface({
             setStatus(sawExit ? "exited" : "control");
             setKillPhase(sawExit ? "stopped" : "idle");
             // Correct local geometry to the real pane box BEFORE clearLoad()
-            // reveals the terminal. A factory-woken seat was hydrated above at
+            // reveals the terminal. A crew-woken seat was hydrated above at
             // the snapshot's own geometry (headless default, unless something
             // already grew it) — without this, the first frame the operator
             // ever sees is that stale size, and an alt-screen TUI (Grok) will

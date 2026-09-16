@@ -843,7 +843,7 @@ describe("ManagedTerminalDrive", () => {
     drive.onCompactNoop("b1");
     await expect(compact).resolves.toMatchObject({ status: "submitted" });
 
-    const task = drive.writePrompt("b1", "[factory claim] task-1");
+    const task = drive.writePrompt("b1", "[crew claim] task-1");
     await flushMicrotasks();
     drive.onCompactNoop("b1");
     let settled = false;

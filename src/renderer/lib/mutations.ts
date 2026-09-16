@@ -47,7 +47,7 @@ const syncHistoryState = (): void => {
 const confirmDestructive = (message: string): boolean =>
   typeof window === "undefined" || typeof window.confirm !== "function" || window.confirm(message);
 
-// --- save pipeline --------------------------------------------------------
+// --- save flow ------------------------------------------------------------
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
 interface PendingCanvasSave {
   readonly name: string;

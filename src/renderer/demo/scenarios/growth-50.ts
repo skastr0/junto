@@ -1,6 +1,6 @@
 // Growth-ladder scenario for the Junto demo engine — active ONLY
 // under --junto-demo / JUNTO_DEMO=1 (see @shared/demo). Landing-page demo:
-// a factory that starts with two agents and only ever grows. Each rung
+// a crew that starts with two agents and only ever grows. Each rung
 // introduces one product feature; label overlays are composited in post from
 // the EDL (this file emits no copy beyond in-world card text).
 //
@@ -292,7 +292,7 @@ const artifactsNode: TextNode = {
 // Rung 4  b26   growth + first blocker               [L3: blocked goes red]
 // Rung 5  b42   requests inbox, answer, clear        [L4: questions, one inbox]
 // Rung 6  b54   artifacts shelf                      [L5: results file themselves]
-// Rung 7  b62   second machine joins                 [L6: every machine, one factory]
+// Rung 7  b62   second machine joins                 [L6: every machine, one crew]
 // Rung 8  b74   finale growth + slow pullback        [close card]
 
 // Rung 1 — open small.
@@ -350,7 +350,7 @@ at(66, ...spawn(C[2]), ...spawn(C[3]));
 at(68, ...spawn(C[4]), ...spawn(C[5]));
 at(70, cameraFit(undefined, 2, 0.15));
 
-// Rung 8 — the factory hums; one last ambient block clears; slow pullback.
+// Rung 8 — the crew hums; one last ambient block clears; slow pullback.
 at(74, ...spawn(FINALE[0]), ...spawn(FINALE[1]));
 at(76, ...spawn(FINALE[2]));
 at(80, flagOp(["demo-g-h15"], "blocker", true));

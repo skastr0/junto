@@ -60,10 +60,10 @@ export const PORT_DESCRIPTIONS: Readonly<Record<Port, string>> = {
   "board.create_topic": "Create a board topic (does not notify agents).",
   "board.post": "Post a note under a topic.",
   "board.mark_read": "Mark a topic read without replying.",
-  "pad.read": "Read the connected pad (grant pad.read): revision, IR, digest, SVG; optional pinId adds look-here. Agents never write the factory canvas.",
+  "pad.read": "Read the connected pad (grant pad.read): revision, IR, digest, SVG; optional pinId adds look-here. Agents never write the crew canvas.",
   "pad.patch": "Apply PadPatch (grant pad.patch). Agents may upsert shapes, edges, and pin posts. Agent ink or image upserts are refused. Mentions must be inbound actor node ids.",
   "sheet.read": "Read the connected sheet (grant sheet.read): columns, rows, and a markdown table. Sheets are operator-authored — agents never write one.",
-  "relay.trigger": "Fire a connected scheduler pipeline now.",
+  "relay.trigger": "Fire a connected scheduler run now.",
 };
 
 // ── Per-kind data models (generated from the real schemas) ─────────────────
@@ -121,7 +121,7 @@ const NODE_EVENTS: Readonly<Record<string, readonly string[]>> = {
     "pad.digest / pad.svg / pad.get / pad.look-here / pad.tagged — CLI projections of pad.read",
   ],
   agent: [
-    "msg.append — factory mail or peer messages land in the seat mailbox",
+    "msg.append — crew mail or peer messages land in the seat mailbox",
     "msg.list — own inbox marks listed mail read; sent shows peer readAt",
     "msg.react / msg.reply — ack without a reply, or reply",
     "seat.state — idle/working/attention/unknown/gone derived from the PTY",
@@ -132,7 +132,7 @@ const NODE_EVENTS: Readonly<Record<string, readonly string[]>> = {
   ],
   terminal: ["terminal.session — PTY attach/detach lifecycle"],
   cron: ["cron.fire — durable timer due", "cron.next_fire — schedule projection"],
-  relay: ["relay.trigger — agent-fired pipeline run"],
+  relay: ["relay.trigger — agent-fired run"],
   watcher: ["watcher.satisfied — stat threshold crossed"],
   timer: ["timer.fire — durable timer due"],
 };
@@ -153,12 +153,12 @@ const ETHER_BY_KIND: Readonly<Record<string, Schema.Schema<unknown>>> = {
 };
 
 const MODEL_NOTE: Readonly<Record<string, string>> = {
-  task: "Tasks board: one stable TaskId is persisted immediately. Omitted admission is approval — the operator's approval lets a seat claim; admission never loosens the board floor (Immediate / Approval / Me). dependsOn contains TaskIds only and gates claim until every prerequisite completes. Finish criteria + completionEvidence gate the completed transition; every rule in force needs a claim (or a waiver when the chosen path no longer reaches its board); checks gate sending on.",
+  task: "Tasks board: one stable TaskId is persisted immediately. Omitted admission is approval — the operator's approval lets a seat claim; admission never loosens the board's base admission (Immediate / Approval / Me). dependsOn contains TaskIds only and gates claim until every prerequisite completes. Finish criteria + completionEvidence gate the completed transition; every rule in force needs a claim (or a waiver when the chosen path no longer reaches its board); checks gate sending on.",
   requests: "Requests sink: items share the Task state machine; resolving a request unblocks the seat.",
   artifacts: "Artifacts sink: items (Artifact[]) published through the admitted, process-bound path.",
   board: "Board sink: topics with posts; glance strip in ether, full posts on list/detail.",
   sheet: "Sheet sink: an operator-authored grid (columns + rows of plain text). The canvas document owns it — there is no work-plane row, no revision counter, and no agent write path.",
-  pad: "Pad sink: work-plane IR. Empty pad is legal. Glance is title + shape count + unread pin count. Working copy is pad.read, not the factory digest.",
+  pad: "Pad sink: work-plane IR. Empty pad is legal. Glance is title + shape count + unread pin count. Working copy is pad.read, not the crew digest.",
   agent: "Actor seat: mailbox items (Message[]) + terminal session; identity is process-bind.",
   page: "Browser surface: admitted page sessions controlled via the browser CLI.",
   terminal: "Terminal resource: PTY session surface.",
@@ -175,7 +175,7 @@ const KIND_NOTE: Readonly<Record<string, string>> = {
   artifacts: "The delivery surface: publish outputs; artifacts never block.",
   board: "The bulletin surface: optional shared context, never a decision inbox.",
   sheet: "A small grid to jot numbers and names beside the work. Read-only to agents; the operator types it.",
-  pad: "The shared page: wired agents read a picture + IR and patch named boxes and pins. They never write the factory canvas. Agent ink or image upserts are refused. Mentions must be inbound actor node ids.",
+  pad: "The shared page: wired agents read a picture + IR and patch named boxes and pins. They never write the crew canvas. Agent ink or image upserts are refused. Mentions must be inbound actor node ids.",
   page: "The browser surface (feature-gated): page automation grants.",
   terminal: "A terminal resource sink (v1 access family only).",
   cron: "Time scheduler (feature-gated).",
@@ -212,7 +212,7 @@ export const buildNodesCatalogDoc = (): string => {
   const lines = [
     "# Node kinds",
     "",
-    "Every node kind on the canvas, its factory role, and the ports it offers on an edge.",
+    "Every node kind on the canvas, its crew role, and the ports it offers on an edge.",
     "",
     "| kind | role | offers |",
     "|---|---|---|",
@@ -312,15 +312,15 @@ export const buildDoctrineDoc = (): string => {
     ...(TASKS_ENABLED
       ? [
         "### Why completion is earned",
-        "`completed` is a factory verdict: the server rejects the transition unless",
+        "`completed` is a crew verdict: the server rejects the transition unless",
         "finish criteria are met and evidence is attached (artifacts exist, linked,",
         "named exactly; git SHAs well-formed and counted). The agent submits; the",
-        "factory ratifies. Operators can QA-reject back to Queue with a comment.",
+        "crew ratifies. Operators can QA-reject back to Queue with a comment.",
         "",
       ]
       : [
         "### Why reporting is the record",
-        "There is no factory verdict to earn in this build. What a seat writes",
+        "There is no crew verdict to earn in this build. What a seat writes",
         "on its edges is the record the operator reads — say what you did,",
         "what you verified, and what you could not finish.",
         "",
@@ -338,7 +338,7 @@ export const buildDoctrineDoc = (): string => {
     "### The operational events",
     `Beyond the doctrine you receive: ${TASKS_ENABLED ? "claim notices (task data at claim), " : ""}edge`,
     "map-change notices (contracts added/removed), orient notices (re-grounding),",
-    "repair notes (environment fixes), and factory mail. All are compact; the",
+    "repair notes (environment fixes), and crew mail. All are compact; the",
     "full context is always one `onboard` away.",
     "",
   ].join("\n");
@@ -346,11 +346,11 @@ export const buildDoctrineDoc = (): string => {
 
 // ── Concepts ───────────────────────────────────────────────────────────────
 
-/** The factory paragraph is task-shaped; without tasks it becomes seat-shaped. */
+/** The crew paragraph is task-shaped; without tasks it becomes seat-shaped. */
 const FACTORY_CONCEPT = TASKS_ENABLED
   ? [
-    "## The factory",
-    "Tasks are a pull queue. The factory (edges + live state) decides what is",
+    "## The crew",
+    "Tasks are a pull queue. The crew (edges + live state) decides what is",
     "available; seats claim and work. Claims are atomic and delivered as a",
     "complete CLI task briefing. Idle seats wait — they do not invent backlog.",
   ]
@@ -365,13 +365,13 @@ const FACTORY_CONCEPT = TASKS_ENABLED
 const COMPLETION_CONCEPT = TASKS_ENABLED
   ? [
     "## Earned completion",
-    "Completion is a factory verdict, not a harness assertion: finish criteria",
+    "Completion is a crew verdict, not a harness assertion: finish criteria",
     "are hard gates enforced on the `completed` transition, with evidence",
     "(artifacts + git SHAs) verified by the task home.",
   ]
   : [
     "## Honest reporting",
-    "There is no factory verdict in this build. A seat says what it did, what",
+    "There is no crew verdict in this build. A seat says what it did, what",
     "it verified, and what it could not finish.",
   ];
 
@@ -419,7 +419,7 @@ export const DOC_TOPICS: ReadonlyArray<{
   { id: "doctrine", title: "Full doctrine", description: "The complete doctrine: injected body + expansions." },
   { id: "nodes", title: "Node catalog", description: "Every node kind, its role, and the ports it offers." },
   { id: "node", title: "Node kind in depth", description: "Role, ports, data model, events, and contract for one kind." },
-  { id: "concepts", title: "Concepts", description: `Seats, grants, ${TASKS_ENABLED ? "the factory, earned completion" : "edges, honest reporting"}, identity, errors, the ladder.` },
+  { id: "concepts", title: "Concepts", description: `Seats, grants, ${TASKS_ENABLED ? "the crew, earned completion" : "edges, honest reporting"}, identity, errors, the ladder.` },
   { id: "contract", title: "CLI contract", description: "The full command surface with schemas and examples." },
 ];
 

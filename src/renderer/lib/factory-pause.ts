@@ -5,7 +5,7 @@ import type { CanvasPauseState } from "@shared/pause";
  * Factory pause state machine — the single source of truth for the pause
  * switch, shared by the TopBar control and the command bar action.
  *
- * The pause law (@shared/pause) is preserved exactly: the factory is BORN
+ * The pause law (@shared/pause) is preserved exactly: the crew is BORN
  * PAUSED and the first play is an explicit operator decision (confirm
  * overlay), never a default. Busy transitions are serialized.
  */

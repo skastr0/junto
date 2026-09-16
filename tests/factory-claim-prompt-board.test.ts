@@ -131,7 +131,7 @@ describe("claim briefing board rules", () => {
   it("stays at the base contract without a document", () => {
     const text = buildFactoryClaimPrompt({ boardId: "build", task: task() });
     expect(text).not.toContain("Rules in force here");
-    expect(text).toContain("[factory claim] task");
+    expect(text).toContain("[crew claim] task");
   });
 
   it("mirrors the board guidance into the JSON briefing", () => {
