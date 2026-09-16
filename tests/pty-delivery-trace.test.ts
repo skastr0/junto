@@ -35,7 +35,11 @@ describe("PTY delivery trace", () => {
     options: Partial<ConstructorParameters<typeof ManagedTerminalDrive>[0]> = {},
   ): ManagedTerminalDrive => {
     const drive = new ManagedTerminalDrive({
-      write: () => true,
+      // The trace fixture's default transport acknowledges a submitted turn.
+      write: (bindingId, data) => {
+        if (data === CR) drive.onTurnStart(bindingId);
+        return true;
+      },
       isSeatIdle: () => true,
       harnessFor: () => "devin",
       pasteToCrSettleMs: 0,
@@ -68,6 +72,7 @@ describe("PTY delivery trace", () => {
         if (data === encodeBracketedPaste(prompt)) {
           expect(interlock.holdWrite(bindingId, { replay: () => writes.push(operatorBytes) })).toBe(true);
         }
+        if (data === CR) drive.onTurnStart(bindingId);
         return true;
       },
     });
@@ -145,7 +150,11 @@ describe("PTY delivery trace", () => {
       const writes: string[] = [];
       const drive = makeDrive({
         onTrace,
-        write: (_bindingId, data) => { writes.push(data); return accepted; },
+        write: (bindingId, data) => {
+          writes.push(data);
+          if (accepted && data === CR) drive.onTurnStart(bindingId);
+          return accepted;
+        },
       });
       const outcome = await drive.writePrompt("binding-1", "same delivery");
       return { writes, outcome };

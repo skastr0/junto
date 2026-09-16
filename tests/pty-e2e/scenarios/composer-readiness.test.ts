@@ -95,6 +95,8 @@ const replayFrames = async (
       }
     }
     if (acceptFinal) {
+      // This recording ends at readiness. It supplies no response to the
+      // new probe, so one admitted paste remains honestly unacknowledged.
       writes.length = 0;
       const outcome = await drive.writePrompt(bindingId, "review probe", {
         queueIfBusy: false,
@@ -103,7 +105,7 @@ const replayFrames = async (
       });
       expect({ outcome, writes }, receipt(frames.at(-1)!)).toEqual({
         outcome: {
-          status: "submitted", bindingGeneration: 0,
+          status: "unresolved", reason: "no-turn-start", bindingGeneration: 0,
           writesBefore: 0, writesAfter: 1, pasteWrites: 1, wrotePhysicalBytes: true,
         },
         writes: ["\x1b[200~review probe\x1b[201~", "\r"],
@@ -153,7 +155,7 @@ describe("captured intermediate frames govern paste readiness", () => {
       expect(final.snapshot.lines.some((line) => /^\s*◇\s+Thinking/u.test(line))).toBe(false);
       expect(hasEmptyPrompt(final), `${scenario}: final captured prompt must be visibly empty`).toBe(true);
       expect(final.pasteable, receipt(final)).toBe(true);
-    });
+    }, 15_000);
   }
 
   for (const harness of ["hermes", "kimi"]) {

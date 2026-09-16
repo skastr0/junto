@@ -131,8 +131,12 @@ describe("durable notice fallback and generation-fenced resume", () => {
     live = await openFixture(directory);
     const pastes: string[] = [];
     const drive = new ManagedTerminalDrive({
-      write: (_id, data) => { if (data.startsWith("\u001b[200~")) pastes.push(data); return true; },
-      isSeatIdle: () => true, pendingText: () => false, stallWatch: false, pasteToCrSettleMs: 0,
+      write: (id, data) => {
+        if (data.startsWith("\u001b[200~")) pastes.push(data);
+        if (data === "\r") drive.onTurnStart(id);
+        return true;
+      },
+      isSeatIdle: () => true, pendingText: () => false, stallWatch: false, stallTimeoutMs: 10, pasteToCrSettleMs: 0,
     });
     try {
       expect(await live.store.hasNoticeFallback!({ canvas, nodeId, messageId })).toBe(true);
@@ -219,7 +223,7 @@ describe("durable notice fallback and generation-fenced resume", () => {
       isSeatIdle: () => true,
       pendingText: () => true,
       now: () => 10_000,
-      stallWatch: false,
+      stallWatch: false, stallTimeoutMs: 10,
       pasteToCrSettleMs: 0,
     });
     expect(await drive.writePrompt(bindingId, "currently pending", {
@@ -424,8 +428,12 @@ describe("durable notice fallback and generation-fenced resume", () => {
     let pending = true;
     let pastes = 0;
     const drive = new ManagedTerminalDrive({
-      write: (_id, data) => { if (data.startsWith("\u001b[200~")) pastes += 1; return true; },
-      isSeatIdle: () => true, pendingText: () => pending, stallWatch: false, pasteToCrSettleMs: 0,
+      write: (id, data) => {
+        if (data.startsWith("\u001b[200~")) pastes += 1;
+        if (data === "\r" && !pending) drive.onTurnStart(id);
+        return true;
+      },
+      isSeatIdle: () => true, pendingText: () => pending, stallWatch: false, stallTimeoutMs: 10, pasteToCrSettleMs: 0,
     });
     await fixture.store.enqueueAttempt({ ...current, policy: "notice" });
     await fixture.store.markAttempted(current);

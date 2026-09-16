@@ -114,7 +114,7 @@ const replay = (scenario: string, mode: ChunkMode, acknowledgeText?: string) => 
     },
     async assertAdmission(
       frame: Frame,
-      expected: "submitted" | "not-ready" | "seat-busy" | "composer-not-empty",
+      expected: "admitted" | "not-ready" | "seat-busy" | "composer-not-empty",
     ): Promise<void> {
       writes.length = 0;
       const result = await drive.writePrompt(bindingId, PROBE, {
@@ -122,17 +122,17 @@ const replay = (scenario: string, mode: ChunkMode, acknowledgeText?: string) => 
         awaitTurnStart: false,
         ready: frame.ready,
       });
-      const submitted = expected === "submitted";
+      const admitted = expected === "admitted";
       // This call supplies recorded readiness explicitly. A false readiness
       // input refuses before the seat/composer gate can supply its reason.
       const reason = frame.ready ? expected : "not-ready";
       expect({ outcome: result, writes }, receipt(frame)).toEqual({
         outcome: {
-          ...(submitted ? { status: "submitted" } : { status: "refused", reason }),
-          bindingGeneration: 0, writesBefore: 0, writesAfter: submitted ? 1 : 0,
-          pasteWrites: submitted ? 1 : 0, wrotePhysicalBytes: submitted,
+          ...(admitted ? { status: "unresolved", reason: "no-turn-start" } : { status: "refused", reason }),
+          bindingGeneration: 0, writesBefore: 0, writesAfter: admitted ? 1 : 0,
+          pasteWrites: admitted ? 1 : 0, wrotePhysicalBytes: admitted,
         },
-        writes: submitted ? [paste(PROBE), "\r"] : [],
+        writes: admitted ? [paste(PROBE), "\r"] : [],
       });
     },
     dispose() {
@@ -230,7 +230,9 @@ describe("Amp standalone recorded initialization and composer readiness", () => 
             }
             // This probes admission only; the ACK test below supplies the PTY
             // response to the drive's actual paste and CR callbacks.
-            await behavior.assertAdmission(final!, "submitted");
+            // No captured response follows this new probe. Admission alone
+            // cannot prove submission; the ACK test below proves that separately.
+            await behavior.assertAdmission(final!, "admitted");
           } else if (scenario === "paste-chip") {
             expect(pasteDraftSeen, `target paste never appeared as a protected draft\n${payloadFrames.join("\n")}`).toBe(true);
             expect(sendingBeforeTitle, "target paste lacks Sending with an empty box before its title spins").toBeGreaterThan(0);

@@ -97,6 +97,7 @@ describe("shared destination drive factory", () => {
     const drive = createManagedTerminalDrive({
       write: (_bindingId, data) => {
         writes.push(data);
+        if (data === "\r") drive.onTurnStart(_bindingId);
         return true;
       },
       isSeatIdle: () => true,
@@ -466,7 +467,7 @@ describe("snapshot-unknown evidence", () => {
     expect(writes).toHaveLength(2);
   });
 
-  it("present snapshot with text gone still receipts the submit", async () => {
+  it("present snapshot with text gone does not receipt without a turn ACK", async () => {
     vi.useFakeTimers();
     const writes: string[] = [];
     const attention: string[] = [];
@@ -478,7 +479,10 @@ describe("snapshot-unknown evidence", () => {
     const first = drive.writePrompt("seat", "hello");
     await vi.advanceTimersByTimeAsync(120);
     await vi.advanceTimersByTimeAsync(5_000);
-    await expect(first).resolves.toEqual(submitted);
+    await expect(first).resolves.toMatchObject({
+      status: "unresolved", reason: "no-turn-start", pasteWrites: 1,
+    });
+    expect(attention).toContain("prompt-stalled");
     expect(writes).toHaveLength(2);
   });
 });

@@ -618,6 +618,7 @@ describe("GAP-DRV-7: Grok [Pasted:Nlines] footer is not composer chip chrome", (
       const drive = new ManagedTerminalDrive({
         write: (_id, data) => {
           writes.push(data);
+          if (data === CR) drive.onTurnStart(_id);
           return true;
         },
         isSeatIdle: () => true,

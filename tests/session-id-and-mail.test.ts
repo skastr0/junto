@@ -282,6 +282,7 @@ describe("Grok post-spawn delay", () => {
       pasteToCrSettleMs: 0,
       write: (_id, data) => {
         writes.push(data);
+        if (data === CR) drive.onTurnStart(_id);
         return true;
       },
       isSeatIdle: () => true,
