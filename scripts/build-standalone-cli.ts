@@ -69,6 +69,8 @@ const main = (): void => {
       "--no-compile-autoload-bunfig",
       "--no-compile-autoload-tsconfig",
       "--no-compile-autoload-package-json",
+      // @electron/asar selects node:fs outside Electron; this branch is unused in Bun.
+      "--external=original-fs",
       ...build.featureDefines,
       "--outfile",
       stage,
