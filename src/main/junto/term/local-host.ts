@@ -570,8 +570,15 @@ const canonicalDir = (path: string): string => {
   }
 };
 
-const sameResolvedDirectory = (left: string, right: string): boolean =>
-  canonicalDir(left) === canonicalDir(right);
+const sameResolvedDirectory = (left: string, right: string): boolean => {
+  const a = canonicalDir(left);
+  const b = canonicalDir(right);
+  // APFS/NTFS fold case but realpath does not; a case-flipped spelling of the
+  // operator home still lands there on chdir.
+  return process.platform === "darwin" || process.platform === "win32"
+    ? a.toLowerCase() === b.toLowerCase()
+    : a === b;
+};
 
 /** An actor seat whose harness launch does not name an executable argv. */
 export type AgentLaunchUnresolvable = {
@@ -690,20 +697,34 @@ export const resolveLaunch = (
         ),
       );
     }
-    const resolvedFile = resolveHarnessExecutable(file, {
+    // Path-like argv (`./tool`, `dir/tool`) resolves against the seat cwd so
+    // resolution and spawn name the same target.
+    const fileTarget =
+      !isAbsolute(file) && /[/\\]/.test(file) ? resolve(cwd, file) : file;
+    const resolvedFile = resolveHarnessExecutable(fileTarget, {
       pathEnv: env.PATH ?? process.env.PATH,
       extraDirs: configuredToolDirectories(),
     });
     // A bare name that fails resolution must not spawn anyway: the child
     // would re-walk PATH itself and a dead shim Junto already rejected could
-    // still win there. Absolute argv keeps the raw path — spawn classification
-    // reports ENOENT/EACCES accurately for it.
-    if (resolvedFile === undefined && !isAbsolute(file)) {
+    // still win there. An absolute/path target that exists yet fails
+    // resolution (a dead shim, or a non-executable file) fails closed the same
+    // way — only a genuinely absent path reaches spawn so ENOENT can classify
+    // as cli-missing.
+    if (
+      resolvedFile === undefined &&
+      (!isAbsolute(fileTarget) || existsSync(fileTarget))
+    ) {
       return Result.fail(
         unresolvable(`the harness binary "${file}" was not found on the seat PATH`),
       );
     }
-    return Result.succeed({ file: resolvedFile ?? file, args: argv.slice(1), cwd, env });
+    return Result.succeed({
+      file: resolvedFile ?? fileTarget,
+      args: argv.slice(1),
+      cwd,
+      env,
+    });
   }
 
   if (launch && launch.kind !== "shell" && argv.length > 0) {

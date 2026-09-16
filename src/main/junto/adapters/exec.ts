@@ -407,23 +407,23 @@ export const staticPathDirs = (home: string): ReadonlyArray<string> => [
 //   4. the static floor above.
 
 // One level of directory children. Missing roots return []. Symlinks count —
-// version managers publish `current`/`default`/`latest` aliases as symlinked
-// dirs and the final isDirectory() gate resolves them with statSync.
-// Non-numeric names (those aliases) sort first because they name the
-// manager's active choice; numbered versions then run newest-name first
-// (numeric-aware so v22 sorts before v9).
+// version managers publish `current`/`default`/`latest`/`lts-*` aliases as
+// symlinked dirs and the final isDirectory() gate resolves them with statSync.
+// Symlinked dirs sort first because they name the manager's active choice;
+// numbered versions then run newest-name first (numeric-aware so v22 sorts
+// before v9); leftover plain dirs like `old`/`backup` come last.
 const readVersionDirs = (root: string): ReadonlyArray<string> => {
   try {
+    const rank = (entry: { isSymbolicLink(): boolean; name: string }) =>
+      entry.isSymbolicLink() ? 0 : /\d/.test(entry.name) ? 1 : 2;
     return readdirSync(root, { withFileTypes: true })
       .filter((entry) => entry.isDirectory() || entry.isSymbolicLink())
-      .map((entry) => entry.name)
       .sort((left, right) => {
-        const leftVersioned = /\d/.test(left);
-        const rightVersioned = /\d/.test(right);
-        if (leftVersioned !== rightVersioned) return leftVersioned ? 1 : -1;
-        return right.localeCompare(left, undefined, { numeric: true });
+        const rankDiff = rank(left) - rank(right);
+        if (rankDiff !== 0) return rankDiff;
+        return right.name.localeCompare(left.name, undefined, { numeric: true });
       })
-      .map((name) => join(root, name));
+      .map((entry) => join(root, entry.name));
   } catch {
     return [];
   }

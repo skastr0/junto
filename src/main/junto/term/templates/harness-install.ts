@@ -9,7 +9,7 @@
 import { spawnSync } from "node:child_process";
 import { accessSync, constants } from "node:fs";
 import { homedir } from "node:os";
-import { delimiter, isAbsolute, join } from "node:path";
+import { delimiter, dirname, isAbsolute, join } from "node:path";
 import {
   allTemplates,
   templateFor,
@@ -141,10 +141,18 @@ export const resolveHarnessExecutable = (
 ): string | undefined => {
   const name = binary.trim();
   if (!name) return undefined;
-  if (isAbsolute(name)) return isExecutableFile(name) ? name : undefined;
-
   const sep = options.pathSep ?? delimiter;
   const searchPath = harnessSearchPath(options);
+  // An absolute path into a shims dir is still a trampoline — a dead one
+  // must not win on X_OK alone.
+  if (isAbsolute(name)) {
+    if (!isExecutableFile(name)) return undefined;
+    if (SHIM_ROOT.test(dirname(name)) && !shimRunsLive(name, searchPath)) {
+      return undefined;
+    }
+    return name;
+  }
+
   for (const dir of searchPath.split(sep)) {
     if (!dir) continue;
     const candidate = join(dir, name);

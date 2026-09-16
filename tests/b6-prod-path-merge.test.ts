@@ -60,6 +60,7 @@ describe("enumeratedToolDirs", () => {
       const miseNode = join(home, ".local", "share", "mise", "installs", "node");
       mkdirSync(join(miseNode, "22.11.0", "bin"), { recursive: true });
       mkdirSync(join(miseNode, "24.2.0", "bin"), { recursive: true });
+      mkdirSync(join(miseNode, "old", "bin"), { recursive: true });
       // Version managers publish aliases like `current`/`latest` as symlinks.
       symlinkSync(join(miseNode, "24.2.0"), join(miseNode, "latest"));
       const nvmNode = join(home, ".nvm", "versions", "node");
@@ -70,9 +71,17 @@ describe("enumeratedToolDirs", () => {
       expect(dirs).toContain(join(miseNode, "24.2.0", "bin"));
       expect(dirs).toContain(join(miseNode, "22.11.0", "bin"));
       expect(dirs).toContain(join(nvmNode, "v20.10.0", "bin"));
+      // The manager's symlinked alias names its active choice and wins.
+      expect(dirs.indexOf(join(miseNode, "latest", "bin"))).toBeLessThan(
+        dirs.indexOf(join(miseNode, "24.2.0", "bin")),
+      );
       // newest-name first within one manager's install root
       expect(dirs.indexOf(join(miseNode, "24.2.0", "bin"))).toBeLessThan(
         dirs.indexOf(join(miseNode, "22.11.0", "bin")),
+      );
+      // a leftover plain dir never shadows a versioned install
+      expect(dirs.indexOf(join(miseNode, "22.11.0", "bin"))).toBeLessThan(
+        dirs.indexOf(join(miseNode, "old", "bin")),
       );
     } finally {
       rmSync(home, { recursive: true, force: true });

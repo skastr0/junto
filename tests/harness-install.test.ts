@@ -223,6 +223,18 @@ describe("harnessBinaryInstalled", () => {
     ).toBe(shim);
   });
 
+  it("refuses an absolute path into a shims dir when the shim is dead", () => {
+    const home = makeScratch();
+    const shimsDir = join(home, "mise", "shims");
+    mkdirSync(shimsDir, { recursive: true });
+    const shim = join(shimsDir, "codex");
+    writeFileSync(shim, "#!/bin/sh\nexit 1\n");
+    chmodSync(shim, 0o755);
+    expect(
+      resolveHarnessExecutable(shim, { home, pathSep: ":" }),
+    ).toBeUndefined();
+  });
+
   it("reports not installed when only a dead shim exists", () => {
     const home = makeScratch();
     const shimsDir = join(home, ".local", "share", "mise", "shims");

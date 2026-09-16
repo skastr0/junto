@@ -5,7 +5,7 @@ import type {
   AppTerminalLease,
 } from "../src/main/junto/app-process-plane";
 import { homedir, tmpdir } from "node:os";
-import { mkdtempSync, rmSync, symlinkSync } from "node:fs";
+import { chmodSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import {
   expandTerminalCwd,
@@ -399,6 +399,10 @@ describe("LocalSessionHost", () => {
     const link = join(alias, "home-link");
     symlinkSync(home, link);
     try {
+      // APFS folds case: a case-flipped spelling still chdirs into home.
+      const caseFlipped = home.replace(/[a-z]/i, (c) =>
+        c === c.toLowerCase() ? c.toUpperCase() : c.toLowerCase(),
+      );
       const cwds = [
         home,
         `${home}/`,
@@ -406,6 +410,7 @@ describe("LocalSessionHost", () => {
         join(home, "..", basename(home)),
         "~",
         link,
+        caseFlipped,
       ];
       for (const cwd of cwds) {
         const resolved = resolveLaunch({
@@ -439,6 +444,26 @@ describe("LocalSessionHost", () => {
       launch: { kind: "shell", cwd: homedir() },
     });
     expect(Result.isSuccess(resolved)).toBe(true);
+  });
+
+  it("resolves a path-like harness argv against the seat cwd", () => {
+    const work = mkdtempSync(join(tmpdir(), "junto-cwd-bin-"));
+    const tool = join(work, "tool");
+    try {
+      writeFileSync(tool, "#!/bin/sh\nexit 0\n");
+      chmodSync(tool, 0o755);
+      const resolved = Result.getOrThrow(
+        resolveLaunch({
+          kind: "agent",
+          harness: "codex",
+          agentKey: "local:codex",
+          launch: { kind: "harness", argv: ["./tool"], cwd: work },
+        }),
+      );
+      expect(resolved.file).toBe(tool);
+    } finally {
+      rmSync(work, { recursive: true, force: true });
+    }
   });
 
   it("fails an agent seat whose bare harness name cannot resolve on the seat PATH", () => {
