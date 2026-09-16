@@ -256,30 +256,33 @@ describe("D3 — unresolved delivery must never Ctrl+C a working agent", () => {
 
     await advance(5_000); // first ACK timeout; working repaint is still in flight
     await flush();
-    // Law-aligned (live duplicate fix): the retry CR SUBMITTED — the TUI
-    // truth is working and our text left the composer; only the working
-    // repaint is late. That is "Fired" per the product law → the drive
-    // resolves TRUE (never false), so the delivery layer receipts the
-    // message and can never re-paste it on a later idle.
-    await expect(p).resolves.toMatchObject({ status: "submitted" });
+    // The model accepted the CR, but that private fact is not a receipt.
+    // No working evidence reached the drive before its bounded wait ended.
+    await expect(p).resolves.toMatchObject({
+      status: "unresolved", reason: "no-turn-start", pasteWrites: 1,
+    });
 
     // PRODUCT LAW: delivery recovery must not interrupt the working agent.
     expect(ctrlC(loop)).toEqual([]);
 
-    // Positive submission evidence resolves success without stalled attention.
-    expect(loop.attention).toEqual([]);
+    expect(loop.attention.map((a) => a.reason)).toEqual(["prompt-stalled"]);
     expect(labels(loop)).toEqual(["paste", "cr", "cr"]);
 
     // The late ack is a no-op for the drive (no pending turn).
     await advance(1_100);
     await flush();
     expect(loop.events.filter((e) => e.state === "working").length).toBeGreaterThan(0);
+    loop.drive.onSeatIdle(BINDING);
+    await expect(loop.drive.writePrompt(BINDING, "one\ntwo")).resolves.toMatchObject({
+      status: "refused", reason: "written-unresolved", pasteWrites: 0,
+    });
+    expect(labels(loop)).toEqual(["paste", "cr", "cr"]);
     loop.dispose();
   });
 });
 
 describe("D4 — awaitTurnStart:false (firstTyped path) must not receipt a chip", () => {
-  it("chip remains after recipe → writePrompt FALSE and the chip is preserved", async () => {
+  it("chip remains after bounded ACK and recovery → unresolved with the chip preserved", async () => {
     const { loop, advance, flush } = setup({
       tui: { secondCrSubmits: false, workingFrames: 1 },
       stallTimeoutMs: 5_000,
@@ -296,12 +299,14 @@ describe("D4 — awaitTurnStart:false (firstTyped path) must not receipt a chip"
     await flush();
     await advance(40);
     await flush();
+    await advance(10_000);
+    await flush();
     const ok = await p;
     // PRODUCT LAW: never return true while a paste chip sits in the composer
     // (firstTyped arm is consumed on resolve → gate closes → chip stays).
     expect(ok).toMatchObject({ status: "unresolved", reason: "chip-pending" });
     expect(loop.tui.chipPending()).toBe(true);
-    expect(labels(loop)).toEqual(["paste", "cr", "cr"]);
+    expect(labels(loop)).toEqual(["paste", "cr", "cr", "cr"]);
     expect(loop.attention.map((a) => a.reason)).toEqual(["prompt-stalled"]);
     loop.dispose();
   });
@@ -325,8 +330,10 @@ describe("D4 — awaitTurnStart:false (firstTyped path) must not receipt a chip"
     await flush();
     const snap = loop.observer.snapshotNow();
     expect(snap.lines.some((l) => l.includes("[Pasted text"))).toBe(true);
+    await advance(10_000);
+    await flush();
     await expect(p).resolves.toMatchObject({ status: "unresolved" });
-    expect(labels(loop)).toEqual(["paste", "cr", "cr"]);
+    expect(labels(loop)).toEqual(["paste", "cr", "cr", "cr"]);
     expect(loop.attention.map((a) => a.reason)).toEqual(["prompt-stalled"]);
     loop.dispose();
   });
@@ -356,14 +363,14 @@ describe("D4 — awaitTurnStart:false (firstTyped path) must not receipt a chip"
 });
 
 describe("D5 — 2nd-CR collapse (sanity, passes today)", () => {
-describe("D7 — FIRED-LAW: paste submitted, working ack late → resolve TRUE (live 4x duplicate class)", () => {
-  it("D7: text leaves the composer before the timeout → TRUE without recovery or attention", async () => {
+describe("D7 — a late ACK leaves one unresolved attempt, never a re-paste", () => {
+  it("D7: text absence before the timeout cannot substitute for the missing ACK", async () => {
     const { loop, advance, flush } = setup({
       // Real submit on the FIRST CR (single-line paste), but the working
       // repaint is delivered 6s later — past the 5s stall window. This is
       // the live report shape: one msg.send pasted 4x because each paste
-      // fired while the ack was late, so the drive resolved false and the
-      // delivery layer re-pasted on every idle.
+      // fired while the ack was late. The named unresolved outcome retains
+      // uncertainty and the binding hold prevents those repeated pastes.
       tui: { chipOnMultilinePaste: false, workingFrames: 1, ackDelayMs: 6_000 },
       stallTimeoutMs: 5_000,
       pasteToCrSettleMs: 40,
@@ -376,11 +383,21 @@ describe("D7 — FIRED-LAW: paste submitted, working ack late → resolve TRUE (
 
     await advance(5_000); // stall closes without an ack
     await flush();
-    // FIRED-LAW: our text is no longer in the composer → delivered.
-    await expect(p).resolves.toMatchObject({ status: "submitted" });
+    await expect(p).resolves.toMatchObject({
+      status: "unresolved", reason: "no-turn-start", pasteWrites: 1,
+    });
     expect(ctrlC(loop)).toEqual([]);
-    // Attention belongs to a final failure, not an intermediate ACK timeout.
-    expect(loop.attention).toEqual([]);
+    expect(loop.attention.map((a) => a.reason)).toEqual(["prompt-stalled"]);
+    expect(labels(loop)).toEqual(["paste", "cr"]);
+    await advance(1_100);
+    await flush();
+    expect(loop.events.some((event) => event.state === "working")).toBe(true);
+    for (let i = 0; i < 3; i += 1) {
+      loop.drive.onSeatIdle(BINDING);
+      await expect(loop.drive.writePrompt(BINDING, "single line")).resolves.toMatchObject({
+        status: "refused", reason: "written-unresolved", pasteWrites: 0,
+      });
+    }
     expect(labels(loop)).toEqual(["paste", "cr"]);
     loop.dispose();
   });

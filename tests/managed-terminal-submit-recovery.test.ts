@@ -49,7 +49,10 @@ describe("submission recovery ownership", () => {
         } else if (data === CR) {
           crs += 1;
           if (phase === "recipe CR" && crs === 1) interlock.noteResize(bindingId);
-          else pending = false;
+          else {
+            pending = false;
+            drive.onTurnStart(bindingId);
+          }
         }
         return true;
       },
@@ -166,9 +169,10 @@ describe("submission recovery ownership", () => {
       composerVerdict: () => "empty",
       pendingText: () => false,
       pasteChip: () => false,
-      write: (_bindingId, data) => {
+      write: (bindingId, data) => {
         writes.push(data);
         if (data !== CR) return new Promise<boolean>((resolve) => release.push(resolve));
+        drive.onTurnStart(bindingId);
         return true;
       },
     });
