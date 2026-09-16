@@ -72,6 +72,7 @@ export const RETIRED_PRODUCT_STATE_COMPOUND_SIGNATURES = [
   {
     label: "JUNTO_BROWSER_DIR + config.json",
     signatures: ["JUNTO_BROWSER_DIR", "config.json"],
+    standaloneBasenames: ["config.json"],
   },
 ] as const;
 
@@ -185,11 +186,12 @@ const signatureBytes = RETIRED_PRODUCT_STATE_SIGNATURES.map(
 
 const compoundSignatureBytes =
   RETIRED_PRODUCT_STATE_COMPOUND_SIGNATURES.map(
-    ({ label, signatures }) => ({
+    ({ label, signatures, standaloneBasenames }) => ({
       label,
-      bytes: signatures.map((signature) =>
-        Buffer.from(signature, "utf8")
-      ),
+      signatures: signatures.map((signature) => ({
+        bytes: Buffer.from(signature, "utf8"),
+        standalone: standaloneBasenames.some((basename) => basename === signature),
+      })),
     }),
   );
 
@@ -248,8 +250,22 @@ const firstRetiredSignature = (
     buffer.indexOf(signature) !== -1
   )?.signature;
   if (exact !== undefined) return exact;
-  return compoundSignatureBytes.find(({ bytes: signatures }) =>
-    signatures.every((signature) => buffer.indexOf(signature) !== -1)
+  return compoundSignatureBytes.find(({ signatures }) =>
+    signatures.every(({ bytes: signature, standalone }) => {
+      let offset = buffer.indexOf(signature);
+      if (!standalone) return offset !== -1;
+      // A retired basename must be a whole string literal or binary string,
+      // not the suffix of a documented third-party path in the same bundle.
+      const delimiter = (byte: number | undefined) =>
+        byte === undefined || byte === 0 || byte === 34 || byte === 39 || byte === 96;
+      while (offset !== -1) {
+        if (delimiter(buffer[offset - 1]) && delimiter(buffer[offset + signature.length])) {
+          return true;
+        }
+        offset = buffer.indexOf(signature, offset + signature.length);
+      }
+      return false;
+    })
   )?.label;
 };
 

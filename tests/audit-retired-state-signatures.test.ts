@@ -117,6 +117,22 @@ describe("retired product-state signature boundary", () => {
     },
   );
 
+  it("does not confuse third-party config paths with retired browser state", () => {
+    const current = Buffer.from(
+      'const guidance = "never ~/.config/devin/config.json"; const root = process.env.JUNTO_BROWSER_DIR;',
+    );
+    expect(() => auditRetiredStateBuffer(current)).not.toThrow();
+    for (const quote of ['"', "'", "`", "\0"]) {
+      const retired = Buffer.concat([
+        current,
+        Buffer.from(`\njoin(root, ${quote}config.json${quote});`),
+      ]);
+      expect(() => auditRetiredStateBuffer(retired)).toThrowError(
+        expect.objectContaining({ code: "retired-signature" }),
+      );
+    }
+  });
+
   it("bounds executable buffers and regular-file reads before accepting them", async () => {
     const root = await makeTempRoot();
     const executable = join(root, "junto-browser");
