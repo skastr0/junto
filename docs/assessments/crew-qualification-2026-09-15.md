@@ -1,5 +1,9 @@
 # Crew qualification, 2026-09-15
 
+Historical assessment. The [September 16 QA build receipt](crew-qualification-2026-09-16.md)
+supersedes the integration and package status below, while preserving each
+earlier test's actual evidence scope.
+
 **The local crew implementation has substantial unit and database evidence;
 the complete feature is not qualified in a real harness or a production
 package.** Durable fallback/resume and checkout receipt composition now have
