@@ -10,7 +10,6 @@ import {
   isFreshStateSchema,
   readRecordedStateSchemaIdentity,
   stampStateSchemaIdentity,
-  verifyStateSchema,
   verifyAndStampStateSchema,
   verifyRecordedStateSchemaIdentity,
   type VerifiedStateSchemaIdentity,
@@ -598,25 +597,6 @@ const verifyRecordedCurrentSchema = (
   return recorded;
 };
 
-const verifyRecordedCurrentSchemaReadOnly = (
-  database: DatabaseSync,
-  currentSchemaSql: string,
-): VerifiedStateSchemaIdentity => {
-  let recorded:
-    | ReturnType<typeof readRecordedStateSchemaIdentity>
-    | undefined;
-  let recordedFailure: unknown;
-  try {
-    recorded = readRecordedStateSchemaIdentity(database);
-  } catch (error) {
-    recordedFailure = error;
-  }
-  const expected = verifyStateSchema(database, currentSchemaSql);
-  if (recorded === undefined) throw recordedFailure;
-  requireIdentity("recorded current state schema", recorded, expected);
-  return recorded;
-};
-
 export const validateStateSchemaMigrationPlan = (
   plan: StateSchemaMigrationPlan,
 ): ReadonlyMap<number, StateSchemaMigration> => {
@@ -697,11 +677,6 @@ export const stateSchemaAdvanceRequired = (
     return false;
   }
 
-  if (version === 0 && plan.baselineVersion === plan.currentVersion) {
-    verifyRecordedCurrentSchemaReadOnly(database, plan.currentSchemaSql);
-    return true;
-  }
-
   const recorded = verifyRecordedStateSchemaIdentity(database);
   const effectiveVersion = version === 0 ? plan.baselineVersion : version;
   if (version === 0) {
@@ -778,16 +753,12 @@ export const migrateStateSchema = (
         database.exec(plan.currentSchemaSql);
         version = plan.currentVersion;
       } else {
+        // An unversioned database is admitted only through its recorded
+        // witness: it must prove the stamped identity matches the live
+        // shape before the baseline comparison below accepts it as v1.
         let recorded: VerifiedStateSchemaIdentity =
-          version === plan.currentVersion ||
-            (
-              version === 0 &&
-              plan.baselineVersion === plan.currentVersion
-            )
-            ? verifyRecordedCurrentSchema(
-                database,
-                plan.currentSchemaSql,
-              )
+          version === plan.currentVersion
+            ? verifyRecordedCurrentSchema(database, plan.currentSchemaSql)
             : verifyRecordedStateSchemaIdentity(database);
         if (version === 0) {
           requireIdentity(
