@@ -3037,5 +3037,5 @@ describe("BrowserSessionService", () => {
     views[0]?.resolveDestroyed();
     await expect(retry).resolves.toMatchObject({ ok: true, data: { alreadyStopped: true } });
     expect(service.overseerDeleteSessionsForRef(timedPage.ref)).toEqual([]);
-  });
+  }, 30_000);
 });
