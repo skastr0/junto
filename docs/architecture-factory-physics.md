@@ -113,7 +113,7 @@ item **claimed by** the direct `toNode` actor generates
 **blocks** on that actor alone. Tasks are claimed by the actor that started
 them; requests are claimed by the actor that raised them, at creation. An
 unclaimed attention item is inventory for a human — it stops nobody. Claims
-address the vellum node id (names are display labels, roles are routing tags).
+address the junto node id (names are display labels, roles are routing tags).
 Manual `blocker` flags mark that actor only.
 There is **no** `depends` phase and **no** automatic multi-hop dependency
 cascade on edges. No claimed blocking item on the connected sink → soft

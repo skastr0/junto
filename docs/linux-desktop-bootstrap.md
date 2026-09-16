@@ -23,7 +23,7 @@ BOOTSTRAP_COMMIT=REPLACE_WITH_APPROVED_40_HEX_COMMIT
 ALPHA_VERSION=REPLACE_WITH_QUALIFIED_APP_VERSION
 ```
 
-The bootstrap embeds release-keyring revision 1, key id `vellum-linux-2026a`,
+The bootstrap embeds release-keyring revision 1, key id `junto-linux-2026a`,
 and the public trust pin in `build/linux/release-trust-policy.json`. Changing
 those pins requires a newly approved bootstrap, not a website-supplied key.
 
@@ -31,7 +31,7 @@ those pins requires a newly approved bootstrap, not a website-supplied key.
 
 Prerequisites: independently trusted `curl` and GitHub CLI `gh` 2.68.0 or
 newer. Do not obtain `gh` from the candidate archive or
-https://vellumcommand.com/download.
+https://juntoagents.com/download.
 
 Download the three payload files into a new private directory. From that
 directory:

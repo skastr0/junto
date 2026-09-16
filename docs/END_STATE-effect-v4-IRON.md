@@ -18,7 +18,7 @@ Electron main (and Remote) run as a **V4 Effect program**: `effect@4` lockstep, 
 | V4-VERIFY (probe sheet) | **DONE** at time of review |
 | **V4-PROGRAM** | **DONE** — factory cycle/claim/deliver/hydrate are Effect; host `runFork` |
 | **V4-DEBT-ZERO** | **DONE** — `debt: []`; only permanent post-dispose `update/ipc.ts` |
-| **V4-ENTRY** | **DONE** — `index`/`ipc`/`vellum/ipc`/`junto-remote` domain entry only via AppRuntime/RemoteRuntime; cement in `tests/effect-runpromise-boundary.test.ts` |
+| **V4-ENTRY** | **DONE** — `index`/`ipc`/`junto/ipc`/`junto-remote` domain entry only via AppRuntime/RemoteRuntime; cement in `tests/effect-runpromise-boundary.test.ts` |
 | **V4-CONSOLIDATE-FINAL** | **DONE** — P0–P6 + typecheck + lint + full suite + claim tests green; objective true |
 
 ---

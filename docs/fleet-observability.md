@@ -114,7 +114,7 @@ diagnostics, not authority for identity, projection, or logical cursors.
 Read-only host checks that do not stop the app:
 
 ```sh
-ssh <endpoint> 'launchctl print gui/$(id -u)/skastr0.vellumcommand'
+ssh <endpoint> 'launchctl print gui/$(id -u)/com.skastr0.junto'
 ssh <endpoint> 'test -S ~/.junto/station/control.sock && echo station-ready'
 ssh <endpoint> 'test -S ~/.junto/term/control.sock && echo terminal-ready'
 ssh <endpoint> 'test -S ~/.junto/browser/control.sock && echo browser-ready'

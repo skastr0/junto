@@ -79,7 +79,7 @@ Station API verbs remain `pair`, `configure`, `project`, `report`, and
 may make the enrolled SSH endpoint reachable, but is optional and supplies no
 Station authority.
 
-## Why not `--vellum-headless` on deploy
+## Why not `--junto-headless` on deploy
 
 `WebContentsView` is parented under `BrowserWindow.contentView`. Headless skips
 `createWindow()`, so host-local browser automation cannot attach. Deploy starts

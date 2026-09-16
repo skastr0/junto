@@ -60,9 +60,9 @@ This is why the plan is short. Most of the factory is built.
 | **Station CLI, agent-native** | **built** | `src/cli/` — `junto onboard \| doctor \| capabilities \| tasks list\|claim\|update \| msg list\|send \| escalate \| artifact publish \| browser \| schema \| examples`; JSON-in/JSON-out, batch-capable, `dist/junto` via `bun run cli:build`; browser commands retain their host-local control socket behind the one agent-facing command |
 | **Mailbox with transport abstraction** — pending-until-live, deliver-on-append + deliver-on-attach, pause-aware | **built** | `src/main/junto/work/message-delivery.ts` (`MessageDeliveryTransport`) — today: ACP `chatPrompt` + herdr control stream |
 | Kernel tick / pulse: claim routing, pulse composition, armed/paused state, execution snapshots | **built** | `src/main/junto/kernel/{cycle,evaluate,service}.ts` — incl. `composePulseMessage`, `MIN_LIVE_PULSE_SPACING_MS` |
-| Factory physics: tasks pull queue, seats, blocking as worker-state, on-fire/on-ice, claim contract | **built** | see `architecture-factory-physics.md`, `vellum-factory-simulation-model` |
+| Factory physics: tasks pull queue, seats, blocking as worker-state, on-fire/on-ice, claim contract | **built** | see `architecture-factory-physics.md`, `junto-factory-simulation-model` |
 | Attention/alert surfaces | **partially built** | `alert-attention.ts`, `alert-queue.ts` exist |
-| vellum prism plugin (7 tools + session-start hook + global rule + skill) | **built, to be pruned** | `packages/vellum-plugin/` |
+| junto prism plugin (7 tools + session-start hook + global rule + skill) | **built, to be pruned** | `packages/junto-plugin/` |
 
 **The gap is exactly four things:** (a) main has no idea what any terminal's screen says, (b) no managed-terminal transport on the mailbox, (c) no templates/picker, (d) instruction injection is a global-config hook instead of per-session.
 
@@ -103,7 +103,7 @@ Each phase ends in a commit. Phases 1–2 are the bulk; 3–7 are wiring to surf
 ### Phase 3 — Node UI: attention and blocked
 
 - Node **requesting attention**: amber + exclamation mark.
-- Nodes **blocked behind it**: red. (Consistent with existing physics — blocking is worker-state, not a cascade; see `vellum-factory-simulation-model`.)
+- Nodes **blocked behind it**: red. (Consistent with existing physics — blocking is worker-state, not a cascade; see `junto-factory-simulation-model`.)
 - Uniform across every prompt type and every harness. A codex hook-trust modal reads exactly like a Claude permission prompt reads exactly like "the CLI could not run."
 - Design from the canvas act inward, grounded in the rendered app — capture with e2e stills before claiming the surface works.
 
@@ -151,7 +151,7 @@ This is the piece the operator flagged as needing to be strong. **Two tiers, bec
   2. The CLI contract — call **`junto onboard`** at session start and after compaction; the work op table plus `junto browser` for `browser.automate`; errors (`ScopeError`, `ClaimConflict`, `RuntimeDown`, `Blocked`) are ground truth.
   3. Seat context — seat ref, connected targets.
 - **Then the task arrives as a typed prompt** carrying the claim. `junto onboard` returns seat + role + connected targets + claimed task metadata — which is loop step 6 exactly.
-- **Plugin: DROPPED entirely** (operator ruling 2026-07-26 — supersedes the earlier "prune to an opt-in tier"). There is no user-installed tool surface in anyone's harness config. `packages/vellum-plugin/` goes away; the doctrine *text* becomes the injected payload and `tools/shared/work-client.ts` folds into whatever needs the socket. Reason: an opt-in tier re-introduces the ambiguity the no-tiers ruling exists to kill — "this terminal has the integration, so is it an actor?" is a question with no good answer. Injection happens **only** through a Junto-spawned template.
+- **Plugin: DROPPED entirely** (operator ruling 2026-07-26 — supersedes the earlier "prune to an opt-in tier"). There is no user-installed tool surface in anyone's harness config. `packages/junto-plugin/` goes away; the doctrine *text* becomes the injected payload and `tools/shared/work-client.ts` folds into whatever needs the socket. Reason: an opt-in tier re-introduces the ambiguity the no-tiers ruling exists to kill — "this terminal has the integration, so is it an actor?" is a question with no good answer. Injection happens **only** through a Junto-spawned template.
 
 **Acceptance:** loop steps 2 and 6. Unconnected agent → nothing injected, nothing typed. Connected agent → onboard called by the agent itself, task metadata in its context, visible in the TUI.
 
@@ -216,7 +216,7 @@ The consolidation's whole point: **QA scales with template rows, not with surfac
 
 - **Per harness, per template row:** spawn → inject → onboard → claim → work → escalate → block → answer → resume → complete. Plus the trap list from §9 as explicit regressions.
 - **Replay tests** (cheap, deterministic, no model spend): recorded PTY captures per harness drive the state machine and the typing gate. This is the bulk of automated coverage.
-- **E2E stills** for every canvas state (idle/working/attention/blocked) — never describe the UI from a code read; capture it (`vellum-e2e-capture-recipe`).
+- **E2E stills** for every canvas state (idle/working/attention/blocked) — never describe the UI from a code read; capture it (`junto-e2e-capture-recipe`).
 - **Live smoke** (costs plan usage, keep minimal): one full acceptance loop per harness before release.
 - **Version pinning:** several load-bearing behaviors are undocumented (Claude's `--settings`-as-hook-source; Hermes's hidden `--profile`). Prime Agent support is probed against stock 0.7.1, including foreground daemon mode, socket routing, built-in reporter, and public list/stop. Pin probed versions in the template pack and re-smoke on harness updates.
 
