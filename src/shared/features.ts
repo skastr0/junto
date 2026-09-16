@@ -6,34 +6,34 @@
  * tests and unbundled scripts stay deterministic.
  *
  * Product surfaces default OFF. Each may be enabled for a build with its
- * dedicated `VELLUM_COMMAND_*` environment variable. Official builders always inject
+ * dedicated `JUNTO_*` environment variable. Official builders always inject
  * every define; the environment fallback exists only for source-run tooling.
  */
 
-declare const __VELLUM_COMMAND_CRON_ENABLED__: boolean | undefined;
-declare const __VELLUM_COMMAND_RELAY_ENABLED__: boolean | undefined;
-declare const __VELLUM_COMMAND_BROWSER_ENABLED__: boolean | undefined;
-declare const __VELLUM_COMMAND_BOARD_ENABLED__: boolean | undefined;
-declare const __VELLUM_COMMAND_PAD_ENABLED__: boolean | undefined;
-declare const __VELLUM_COMMAND_SHEET_ENABLED__: boolean | undefined;
-declare const __VELLUM_COMMAND_REQUESTS_ENABLED__: boolean | undefined;
-declare const __VELLUM_COMMAND_ARTIFACTS_ENABLED__: boolean | undefined;
-declare const __VELLUM_COMMAND_TASKS_ENABLED__: boolean | undefined;
-declare const __VELLUM_COMMAND_FLEET_UI_ENABLED__: boolean | undefined;
-declare const __VELLUM_COMMAND_USAGE_ENABLED__: boolean | undefined;
-declare const __VELLUM_COMMAND_HELP_MAP_ENABLED__: boolean | undefined;
-declare const __VELLUM_COMMAND_AUDIO_ENABLED__: boolean | undefined;
-declare const __VELLUM_COMMAND_LIVE_OVERSEER_ENABLED__: boolean | undefined;
-declare const __VELLUM_COMMAND_HERMES_INTEGRATION_ENABLED__: boolean | undefined;
-declare const __VELLUM_COMMAND_DEV_TOOLS_ENABLED__: boolean | undefined;
-declare const __VELLUM_COMMAND_HARNESS_HERMES_ENABLED__: boolean | undefined;
-declare const __VELLUM_COMMAND_HARNESS_KIMI_ENABLED__: boolean | undefined;
-declare const __VELLUM_COMMAND_HARNESS_MUSE_ENABLED__: boolean | undefined;
-declare const __VELLUM_COMMAND_HARNESS_FX_ENABLED__: boolean | undefined;
-declare const __VELLUM_COMMAND_HARNESS_AMP_ENABLED__: boolean | undefined;
-declare const __VELLUM_COMMAND_HARNESS_OMP_ENABLED__: boolean | undefined;
-declare const __VELLUM_COMMAND_HARNESS_PRIME_AGENT_ENABLED__: boolean | undefined;
-declare const __VELLUM_COMMAND_HARNESS_SETTINGS_ENABLED__: boolean | undefined;
+declare const __JUNTO_CRON_ENABLED__: boolean | undefined;
+declare const __JUNTO_RELAY_ENABLED__: boolean | undefined;
+declare const __JUNTO_BROWSER_ENABLED__: boolean | undefined;
+declare const __JUNTO_BOARD_ENABLED__: boolean | undefined;
+declare const __JUNTO_PAD_ENABLED__: boolean | undefined;
+declare const __JUNTO_SHEET_ENABLED__: boolean | undefined;
+declare const __JUNTO_REQUESTS_ENABLED__: boolean | undefined;
+declare const __JUNTO_ARTIFACTS_ENABLED__: boolean | undefined;
+declare const __JUNTO_TASKS_ENABLED__: boolean | undefined;
+declare const __JUNTO_FLEET_UI_ENABLED__: boolean | undefined;
+declare const __JUNTO_USAGE_ENABLED__: boolean | undefined;
+declare const __JUNTO_HELP_MAP_ENABLED__: boolean | undefined;
+declare const __JUNTO_AUDIO_ENABLED__: boolean | undefined;
+declare const __JUNTO_LIVE_OVERSEER_ENABLED__: boolean | undefined;
+declare const __JUNTO_HERMES_INTEGRATION_ENABLED__: boolean | undefined;
+declare const __JUNTO_DEV_TOOLS_ENABLED__: boolean | undefined;
+declare const __JUNTO_HARNESS_HERMES_ENABLED__: boolean | undefined;
+declare const __JUNTO_HARNESS_KIMI_ENABLED__: boolean | undefined;
+declare const __JUNTO_HARNESS_MUSE_ENABLED__: boolean | undefined;
+declare const __JUNTO_HARNESS_FX_ENABLED__: boolean | undefined;
+declare const __JUNTO_HARNESS_AMP_ENABLED__: boolean | undefined;
+declare const __JUNTO_HARNESS_OMP_ENABLED__: boolean | undefined;
+declare const __JUNTO_HARNESS_PRIME_AGENT_ENABLED__: boolean | undefined;
+declare const __JUNTO_HARNESS_SETTINGS_ENABLED__: boolean | undefined;
 
 const envEnabled = (key: string): boolean => {
   try {
@@ -44,92 +44,92 @@ const envEnabled = (key: string): boolean => {
 };
 
 export const CRON_ENABLED: boolean =
-  typeof __VELLUM_COMMAND_CRON_ENABLED__ === "boolean"
-    ? __VELLUM_COMMAND_CRON_ENABLED__
-    : envEnabled("VELLUM_COMMAND_CRON");
+  typeof __JUNTO_CRON_ENABLED__ === "boolean"
+    ? __JUNTO_CRON_ENABLED__
+    : envEnabled("JUNTO_CRON");
 
 export const RELAY_ENABLED: boolean =
-  typeof __VELLUM_COMMAND_RELAY_ENABLED__ === "boolean"
-    ? __VELLUM_COMMAND_RELAY_ENABLED__
-    : envEnabled("VELLUM_COMMAND_RELAY");
+  typeof __JUNTO_RELAY_ENABLED__ === "boolean"
+    ? __JUNTO_RELAY_ENABLED__
+    : envEnabled("JUNTO_RELAY");
 
 export const BROWSER_ENABLED: boolean =
-  typeof __VELLUM_COMMAND_BROWSER_ENABLED__ === "boolean"
-    ? __VELLUM_COMMAND_BROWSER_ENABLED__
-    : envEnabled("VELLUM_COMMAND_BROWSER");
+  typeof __JUNTO_BROWSER_ENABLED__ === "boolean"
+    ? __JUNTO_BROWSER_ENABLED__
+    : envEnabled("JUNTO_BROWSER");
 
 /** Bulletin board sink — node authoring, wires, and the board CLI. */
 export const BOARD_ENABLED: boolean =
-  typeof __VELLUM_COMMAND_BOARD_ENABLED__ === "boolean"
-    ? __VELLUM_COMMAND_BOARD_ENABLED__
-    : envEnabled("VELLUM_COMMAND_BOARD");
+  typeof __JUNTO_BOARD_ENABLED__ === "boolean"
+    ? __JUNTO_BOARD_ENABLED__
+    : envEnabled("JUNTO_BOARD");
 
 /** Pad sink — node authoring, wires, and the pad CLI. */
 export const PAD_ENABLED: boolean =
-  typeof __VELLUM_COMMAND_PAD_ENABLED__ === "boolean"
-    ? __VELLUM_COMMAND_PAD_ENABLED__
-    : envEnabled("VELLUM_COMMAND_PAD");
+  typeof __JUNTO_PAD_ENABLED__ === "boolean"
+    ? __JUNTO_PAD_ENABLED__
+    : envEnabled("JUNTO_PAD");
 
 /** Sheet sink — node authoring, wire, and the sheet CLI. */
 export const SHEET_ENABLED: boolean =
-  typeof __VELLUM_COMMAND_SHEET_ENABLED__ === "boolean"
-    ? __VELLUM_COMMAND_SHEET_ENABLED__
-    : envEnabled("VELLUM_COMMAND_SHEET");
+  typeof __JUNTO_SHEET_ENABLED__ === "boolean"
+    ? __JUNTO_SHEET_ENABLED__
+    : envEnabled("JUNTO_SHEET");
 
 /**
  * Requests sink — node authoring, wires, and the escalate CLI. Input-required
  * work stays on the Tasks node, which owns the same attention states.
  */
 export const REQUESTS_ENABLED: boolean =
-  typeof __VELLUM_COMMAND_REQUESTS_ENABLED__ === "boolean"
-    ? __VELLUM_COMMAND_REQUESTS_ENABLED__
-    : envEnabled("VELLUM_COMMAND_REQUESTS");
+  typeof __JUNTO_REQUESTS_ENABLED__ === "boolean"
+    ? __JUNTO_REQUESTS_ENABLED__
+    : envEnabled("JUNTO_REQUESTS");
 
 /** Artifacts sink — node authoring, wires, and the artifact CLI. */
 export const ARTIFACTS_ENABLED: boolean =
-  typeof __VELLUM_COMMAND_ARTIFACTS_ENABLED__ === "boolean"
-    ? __VELLUM_COMMAND_ARTIFACTS_ENABLED__
-    : envEnabled("VELLUM_COMMAND_ARTIFACTS");
+  typeof __JUNTO_ARTIFACTS_ENABLED__ === "boolean"
+    ? __JUNTO_ARTIFACTS_ENABLED__
+    : envEnabled("JUNTO_ARTIFACTS");
 
 /**
  * Tasks sink — node authoring, wires, the tasks CLI group, and the
  * task-scoped content access and verdicts that hang off it.
  */
 export const TASKS_ENABLED: boolean =
-  typeof __VELLUM_COMMAND_TASKS_ENABLED__ === "boolean"
-    ? __VELLUM_COMMAND_TASKS_ENABLED__
-    : envEnabled("VELLUM_COMMAND_TASKS");
+  typeof __JUNTO_TASKS_ENABLED__ === "boolean"
+    ? __JUNTO_TASKS_ENABLED__
+    : envEnabled("JUNTO_TASKS");
 
 export const FLEET_UI_ENABLED: boolean =
-  typeof __VELLUM_COMMAND_FLEET_UI_ENABLED__ === "boolean"
-    ? __VELLUM_COMMAND_FLEET_UI_ENABLED__
-    : envEnabled("VELLUM_COMMAND_FLEET_UI");
+  typeof __JUNTO_FLEET_UI_ENABLED__ === "boolean"
+    ? __JUNTO_FLEET_UI_ENABLED__
+    : envEnabled("JUNTO_FLEET_UI");
 
 export const USAGE_ENABLED: boolean =
-  typeof __VELLUM_COMMAND_USAGE_ENABLED__ === "boolean"
-    ? __VELLUM_COMMAND_USAGE_ENABLED__
-    : envEnabled("VELLUM_COMMAND_USAGE");
+  typeof __JUNTO_USAGE_ENABLED__ === "boolean"
+    ? __JUNTO_USAGE_ENABLED__
+    : envEnabled("JUNTO_USAGE");
 
 export const HELP_MAP_ENABLED: boolean =
-  typeof __VELLUM_COMMAND_HELP_MAP_ENABLED__ === "boolean"
-    ? __VELLUM_COMMAND_HELP_MAP_ENABLED__
-    : envEnabled("VELLUM_COMMAND_HELP_MAP");
+  typeof __JUNTO_HELP_MAP_ENABLED__ === "boolean"
+    ? __JUNTO_HELP_MAP_ENABLED__
+    : envEnabled("JUNTO_HELP_MAP");
 
 /** Local GPT-Live POC, disabled unless explicitly included in this build. */
 export const LIVE_OVERSEER_ENABLED: boolean =
-  typeof __VELLUM_COMMAND_LIVE_OVERSEER_ENABLED__ === "boolean"
-    ? __VELLUM_COMMAND_LIVE_OVERSEER_ENABLED__
-    : envEnabled("VELLUM_COMMAND_LIVE_OVERSEER");
+  typeof __JUNTO_LIVE_OVERSEER_ENABLED__ === "boolean"
+    ? __JUNTO_LIVE_OVERSEER_ENABLED__
+    : envEnabled("JUNTO_LIVE_OVERSEER");
 
 export const AUDIO_ENABLED: boolean =
-  typeof __VELLUM_COMMAND_AUDIO_ENABLED__ === "boolean"
-    ? __VELLUM_COMMAND_AUDIO_ENABLED__
-    : envEnabled("VELLUM_COMMAND_AUDIO");
+  typeof __JUNTO_AUDIO_ENABLED__ === "boolean"
+    ? __JUNTO_AUDIO_ENABLED__
+    : envEnabled("JUNTO_AUDIO");
 
 export const HERMES_INTEGRATION_ENABLED: boolean =
-  typeof __VELLUM_COMMAND_HERMES_INTEGRATION_ENABLED__ === "boolean"
-    ? __VELLUM_COMMAND_HERMES_INTEGRATION_ENABLED__
-    : envEnabled("VELLUM_COMMAND_HERMES");
+  typeof __JUNTO_HERMES_INTEGRATION_ENABLED__ === "boolean"
+    ? __JUNTO_HERMES_INTEGRATION_ENABLED__
+    : envEnabled("JUNTO_HERMES");
 
 /**
  * Developer diagnostics in Advanced settings + logs explorer chrome.
@@ -137,9 +137,9 @@ export const HERMES_INTEGRATION_ENABLED: boolean =
  * feed URLs, build/updater provenance, data paths, or logs explorer.
  */
 export const DEV_TOOLS_ENABLED: boolean =
-  typeof __VELLUM_COMMAND_DEV_TOOLS_ENABLED__ === "boolean"
-    ? __VELLUM_COMMAND_DEV_TOOLS_ENABLED__
-    : envEnabled("VELLUM_COMMAND_DEV_TOOLS");
+  typeof __JUNTO_DEV_TOOLS_ENABLED__ === "boolean"
+    ? __JUNTO_DEV_TOOLS_ENABLED__
+    : envEnabled("JUNTO_DEV_TOOLS");
 
 /**
  * Hermes managed TUI seat — ON; the gate stays as the way back off.
@@ -151,21 +151,21 @@ export const DEV_TOOLS_ENABLED: boolean =
  * paste, so typed delivery beyond the `-q` spawn prompt is single-line only.
  */
 export const HARNESS_HERMES_ENABLED: boolean =
-  typeof __VELLUM_COMMAND_HARNESS_HERMES_ENABLED__ === "boolean"
-    ? __VELLUM_COMMAND_HARNESS_HERMES_ENABLED__
-    : envEnabled("VELLUM_COMMAND_HARNESS_HERMES");
+  typeof __JUNTO_HARNESS_HERMES_ENABLED__ === "boolean"
+    ? __JUNTO_HARNESS_HERMES_ENABLED__
+    : envEnabled("JUNTO_HARNESS_HERMES");
 
 /** Kimi Code managed seat — ON; the gate stays as the way back off. */
 export const HARNESS_KIMI_ENABLED: boolean =
-  typeof __VELLUM_COMMAND_HARNESS_KIMI_ENABLED__ === "boolean"
-    ? __VELLUM_COMMAND_HARNESS_KIMI_ENABLED__
-    : envEnabled("VELLUM_COMMAND_HARNESS_KIMI");
+  typeof __JUNTO_HARNESS_KIMI_ENABLED__ === "boolean"
+    ? __JUNTO_HARNESS_KIMI_ENABLED__
+    : envEnabled("JUNTO_HARNESS_KIMI");
 
 /** Muse Code managed seat — ON; the gate stays as the way back off. */
 export const HARNESS_MUSE_ENABLED: boolean =
-  typeof __VELLUM_COMMAND_HARNESS_MUSE_ENABLED__ === "boolean"
-    ? __VELLUM_COMMAND_HARNESS_MUSE_ENABLED__
-    : envEnabled("VELLUM_COMMAND_HARNESS_MUSE");
+  typeof __JUNTO_HARNESS_MUSE_ENABLED__ === "boolean"
+    ? __JUNTO_HARNESS_MUSE_ENABLED__
+    : envEnabled("JUNTO_HARNESS_MUSE");
 
 /**
  * fx managed seat — ON, with the gate kept for a fast way back off.
@@ -180,18 +180,18 @@ export const HARNESS_MUSE_ENABLED: boolean =
  * idle until that capture exists.
  */
 export const HARNESS_FX_ENABLED: boolean =
-  typeof __VELLUM_COMMAND_HARNESS_FX_ENABLED__ === "boolean"
-    ? __VELLUM_COMMAND_HARNESS_FX_ENABLED__
-    : envEnabled("VELLUM_COMMAND_HARNESS_FX");
+  typeof __JUNTO_HARNESS_FX_ENABLED__ === "boolean"
+    ? __JUNTO_HARNESS_FX_ENABLED__
+    : envEnabled("JUNTO_HARNESS_FX");
 
 /**
  * Amp managed seat — ON; the gate stays as the way back off. Seat rules and
  * the thread-receipt parser are proven against the installed CLI.
  */
 export const HARNESS_AMP_ENABLED: boolean =
-  typeof __VELLUM_COMMAND_HARNESS_AMP_ENABLED__ === "boolean"
-    ? __VELLUM_COMMAND_HARNESS_AMP_ENABLED__
-    : envEnabled("VELLUM_COMMAND_HARNESS_AMP");
+  typeof __JUNTO_HARNESS_AMP_ENABLED__ === "boolean"
+    ? __JUNTO_HARNESS_AMP_ENABLED__
+    : envEnabled("JUNTO_HARNESS_AMP");
 
 /**
  * Oh My Pi managed seat — ON, with the gate kept for a fast way back off.
@@ -202,24 +202,24 @@ export const HARNESS_AMP_ENABLED: boolean =
  * may read idle until that capture exists.
  */
 export const HARNESS_OMP_ENABLED: boolean =
-  typeof __VELLUM_COMMAND_HARNESS_OMP_ENABLED__ === "boolean"
-    ? __VELLUM_COMMAND_HARNESS_OMP_ENABLED__
-    : envEnabled("VELLUM_COMMAND_HARNESS_OMP");
+  typeof __JUNTO_HARNESS_OMP_ENABLED__ === "boolean"
+    ? __JUNTO_HARNESS_OMP_ENABLED__
+    : envEnabled("JUNTO_HARNESS_OMP");
 
 /** Stock Prime Agent 0.7.1 managed seat; separately installed CLI required. */
 export const HARNESS_PRIME_AGENT_ENABLED: boolean =
-  typeof __VELLUM_COMMAND_HARNESS_PRIME_AGENT_ENABLED__ === "boolean"
-    ? __VELLUM_COMMAND_HARNESS_PRIME_AGENT_ENABLED__
-    : envEnabled("VELLUM_COMMAND_HARNESS_PRIME_AGENT");
+  typeof __JUNTO_HARNESS_PRIME_AGENT_ENABLED__ === "boolean"
+    ? __JUNTO_HARNESS_PRIME_AGENT_ENABLED__
+    : envEnabled("JUNTO_HARNESS_PRIME_AGENT");
 
 /**
  * Settings → Agents surface: scan harness CLIs/options and persist per-harness
  * spawn defaults. Ship/prod off.
  */
 export const HARNESS_SETTINGS_ENABLED: boolean =
-  typeof __VELLUM_COMMAND_HARNESS_SETTINGS_ENABLED__ === "boolean"
-    ? __VELLUM_COMMAND_HARNESS_SETTINGS_ENABLED__
-    : envEnabled("VELLUM_COMMAND_HARNESS_SETTINGS");
+  typeof __JUNTO_HARNESS_SETTINGS_ENABLED__ === "boolean"
+    ? __JUNTO_HARNESS_SETTINGS_ENABLED__
+    : envEnabled("JUNTO_HARNESS_SETTINGS");
 
 export const BUILD_FEATURES = {
   cron: CRON_ENABLED,

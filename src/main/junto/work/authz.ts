@@ -249,7 +249,7 @@ const featureDisabledError = (
   op: WorkOpName,
 ): WorkErrorBody => ({
   type: "ScopeError",
-  message: `node "${targetId}" kind ${kind} is disabled in this Vellum Command build`,
+  message: `node "${targetId}" kind ${kind} is disabled in this Junto build`,
   details: {
     target: targetId,
     caller: callerId,

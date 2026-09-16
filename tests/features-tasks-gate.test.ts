@@ -10,7 +10,7 @@ import { isClaimableTaskSink } from "../src/shared/factory-tick";
 import {
   admitWorkTarget,
   opsForKind,
-} from "../src/main/vellum-command/work/authz";
+} from "../src/main/junto/work/authz";
 import { DEFAULT_NODE_CATALOG_ENTRIES } from "../src/renderer/components/node-palette/NodeCatalogGrid";
 import { makeTasksNode } from "../src/renderer/lib/node-factories";
 import {
@@ -22,10 +22,10 @@ import { OVERSEER_CATALOG } from "../src/shared/overseer-control";
 import {
   buildConceptsDoc,
   NODE_DOCS,
-} from "../src/shared/vellum-docs";
+} from "../src/shared/junto-docs";
 import {
   SEAT_DOCTRINE,
-  VELLUM_INTRO,
+  JUNTO_INTRO,
   WORKER_DOCTRINE,
 } from "../src/shared/managed-terminal-injection";
 
@@ -101,7 +101,7 @@ describe("task-surface product gates", () => {
       expect(Result.isFailure(denied)).toBe(true);
       if (Result.isFailure(denied)) {
         expect(denied.failure.message).toMatch(
-          /disabled in this Vellum Command build/u,
+          /disabled in this Junto build/u,
         );
         expect(denied.failure.details?.missing).toBe(
           "feature enabled in this build",
@@ -124,12 +124,12 @@ describe("task-surface product gates", () => {
       expect(WORKER_DOCTRINE).not.toContain("input-required");
       expect(WORKER_DOCTRINE).toContain("### Work comes from people");
       expect(WORKER_DOCTRINE).toContain("### Report honestly");
-      expect(VELLUM_INTRO).not.toContain("tasks");
+      expect(JUNTO_INTRO).not.toContain("tasks");
       expect(SEAT_DOCTRINE).not.toContain("Task verbs differ");
       expect(buildConceptsDoc()).not.toContain("Earned completion");
       expect(buildConceptsDoc()).toContain("Honest reporting");
 
-      const ipc = readFileSync("src/main/vellum-command/ipc.ts", "utf8");
+      const ipc = readFileSync("src/main/junto/ipc.ts", "utf8");
       expect(ipc).toContain("if (TASKS_ENABLED) privilegedIpc.handle(");
       const preload = readFileSync("src/preload/index.ts", "utf8");
       expect(preload).toContain("...(TASKS_ENABLED ? taskWorkApi : {})");
@@ -148,7 +148,7 @@ describe("task-surface product gates", () => {
         );
         expect(runtime.status, `${group} should refuse`).toBe(2);
         expect(runtime.stderr).toContain(
-          "disabled in this Vellum Command build",
+          "disabled in this Junto build",
         );
       }
 
@@ -214,7 +214,7 @@ describe("task-surface product gates", () => {
 
     expect(WORKER_DOCTRINE).toContain("### Pull from the board");
     expect(WORKER_DOCTRINE).toContain("### Completion is earned");
-    expect(VELLUM_INTRO).toContain("tasks");
+    expect(JUNTO_INTRO).toContain("tasks");
     expect(SEAT_DOCTRINE).toContain("Task verbs differ");
     expect(buildConceptsDoc()).toContain("Earned completion");
   });
