@@ -1,3 +1,4 @@
+import { TASKS_ENABLED } from "@shared/features";
 import type { Task } from "@shared/work-model";
 import type { WorkOpResult } from "@shared/ipc";
 import { runCanvasAuthoringOperation } from "./canvas-editor-flush";
@@ -10,6 +11,15 @@ export const releaseTaskToQueue = async (
   sinkNodeId: string,
   taskId: string,
 ): Promise<WorkOpResult<Task> | undefined> => {
+  // The tasks surface is gated: refuse here so no caller can reach a missing
+  // preload API or a work op this build does not serve.
+  if (!TASKS_ENABLED) {
+    return {
+      ok: false,
+      code: "invalid",
+      message: "Tasks are disabled in this build.",
+    };
+  }
   const api = getVellumCommandApi();
   if (!api) {
     return {

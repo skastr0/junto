@@ -58,6 +58,7 @@ import {
   sessionLoadPresentation,
   type SessionLoadPhase,
 } from "../../lib/session-load";
+import { TASKS_ENABLED } from "@shared/features";
 import { releaseTaskToQueue } from "../../lib/work-actions";
 import {
   canClaimFocusAfterAsyncWork,
@@ -2005,7 +2006,7 @@ export function TerminalSurface({
           </>
         }
       />
-      {claimedTask ? (
+      {claimedTask && TASKS_ENABLED ? (
         <div
           className="flex items-center gap-2 border-b border-stroke bg-cyan/[0.045] px-3 py-1.5 text-[11px]"
           role="status"

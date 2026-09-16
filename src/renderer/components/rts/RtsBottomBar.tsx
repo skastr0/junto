@@ -28,6 +28,7 @@ import {
   X,
 } from "lucide-react";
 import type { CanvasNode, EtherFlag } from "@shared/canvas";
+import { TASKS_ENABLED } from "@shared/features";
 import { executionGraphContextFromActorRefs, groupMembers } from "@shared/graph";
 import { isBlockableNode } from "@shared/execution-graph";
 import type { MemberSeverity, RegionRollup } from "@shared/region-rollup";
@@ -1469,7 +1470,7 @@ export function RtsBottomBar({ minimap, tools }: { readonly minimap: ReactNode; 
   return (
     <div className="rts-shell" role="region" aria-label="RTS bottom bar">
       {/* Above notify + minimap cluster (bottom-right stack). */}
-      <CompletedTaskNotifyStack />
+      {TASKS_ENABLED ? <CompletedTaskNotifyStack /> : null}
       {/* Top row: ops strip spans command+kind; notify strip sits over minimap. */}
       <HotbarStrip byId={byId} severityByNodeId={severityMap} />
       <NotifyStrip rollups={rollups} />
