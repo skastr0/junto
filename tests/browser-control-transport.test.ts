@@ -23,24 +23,24 @@ import {
   startBrowserControlServer,
   type BrowserControlRuntime,
   type BrowserControlServer,
-} from "../src/main/vellum-command/browser/control";
-import type { EdgeGrantService } from "../src/main/vellum-command/browser/edge-grant";
-import { makeBrowserProfileService } from "../src/main/vellum-command/browser/profiles";
+} from "../src/main/junto/browser/control";
+import type { EdgeGrantService } from "../src/main/junto/browser/edge-grant";
+import { makeBrowserProfileService } from "../src/main/junto/browser/profiles";
 import {
   BrowserSessionService,
   type BrowserViewAdapter,
   type BrowserViewHandle,
-} from "../src/main/vellum-command/browser/sessions";
-import type { PageTargetResolver } from "../src/main/vellum-command/browser/page-target";
+} from "../src/main/junto/browser/sessions";
+import type { PageTargetResolver } from "../src/main/junto/browser/page-target";
 import {
   BROWSER_CAPABILITY_ACTIONS,
   makeBrowserCapabilityRegistry,
   type BrowserAutomationPrincipal,
   type BrowserCapabilityRegistry,
-} from "../src/main/vellum-command/browser/capabilities";
-import { makeProcessIdentityMap } from "../src/main/vellum-command/process-identity";
+} from "../src/main/junto/browser/capabilities";
+import { makeProcessIdentityMap } from "../src/main/junto/process-identity";
 import { LOCAL_BROWSER_TEST_AUTHORITY } from "./browser-host-test-authority";
-import { makeStateEngineLive, StateEngine } from "../src/main/vellum-command/state/engine";
+import { makeStateEngineLive, StateEngine } from "../src/main/junto/state/engine";
 
 const repoRoot = resolve(import.meta.dirname, "..");
 const TEST_ROOT_PREFIX = "/tmp/vct-";
@@ -50,7 +50,7 @@ const capabilityRegistries: BrowserCapabilityRegistry[] = [];
 const rogueServers: HttpServer[] = [];
 const stateRuntimes: ManagedRuntime.ManagedRuntime<StateEngine, unknown>[] = [];
 const states = new Map<string, Context.Service.Shape<typeof StateEngine>>();
-const PAGE_REF = "vellum-command://canvas/work?node=cli-node";
+const PAGE_REF = "junto://canvas/work?node=cli-node";
 const AGENT_KEY = "local:cli";
 const deferred = <A>() => {
   let resolve!: (value: A | PromiseLike<A>) => void;

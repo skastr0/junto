@@ -19,11 +19,11 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   exportStateBackup,
   listStateBackups,
-} from "../src/main/vellum-command/state/recovery";
+} from "../src/main/junto/state/recovery";
 import {
   makeStateEngineLive,
   StateEngine,
-} from "../src/main/vellum-command/state/engine";
+} from "../src/main/junto/state/engine";
 
 const roots: string[] = [];
 const runtimes: Array<
@@ -108,7 +108,7 @@ describe("state recovery", () => {
       join(
         layout.state,
         "backups",
-        "vellum-command-backup-22222222-2222-4222-8222-222222222222.db",
+        "junto-backup-22222222-2222-4222-8222-222222222222.db",
       ),
     );
 

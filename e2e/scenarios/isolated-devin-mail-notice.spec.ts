@@ -16,7 +16,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { Schema } from "effect";
 import type { Page } from "@playwright/test";
-import { promptBoxBody } from "../../src/main/vellum-command/term/observer/regions";
+import { promptBoxBody } from "../../src/main/junto/term/observer/regions";
 import type { Message } from "../../src/shared/work-model";
 import { readMailAttemptFacts, type MailAttemptFacts } from "../../src/shared/crew";
 import { composeMessageDeliveryPayload } from "../../src/shared/message-delivery";

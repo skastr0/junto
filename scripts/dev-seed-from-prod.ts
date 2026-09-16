@@ -14,12 +14,12 @@ import {
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { CURRENT_STATE_SCHEMA_VERSION } from "../src/main/vellum-command/state/migrations";
-import { STATE_SCHEMA_SQL } from "../src/main/vellum-command/state/schema";
+import { CURRENT_STATE_SCHEMA_VERSION } from "../src/main/junto/state/migrations";
+import { STATE_SCHEMA_SQL } from "../src/main/junto/state/schema";
 import {
   actualStateSchemaSha256,
   expectedStateSchemaIdentity,
-} from "../src/main/vellum-command/state/schema-identity";
+} from "../src/main/junto/state/schema-identity";
 
 const prodDb = join(homedir(), ".junto", "state", "junto.db");
 const juntoHome =
@@ -27,7 +27,7 @@ const juntoHome =
 const devDb = join(juntoHome, ".junto", "state", "junto.db");
 
 const log = (message: string): void => {
-  process.stderr.write(`vellum-command dev: ${message}\n`);
+  process.stderr.write(`junto dev: ${message}\n`);
 };
 
 if (!existsSync(prodDb)) {

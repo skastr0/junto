@@ -27,9 +27,9 @@ binding, cancellation, resize and operator-input protections remain in place.
 An unresolved accepted paste still prevents automatic repaste in that binding
 generation. No automatic Ctrl+C cleanup was restored.
 
-Source: [drive](../../src/main/vellum-command/term/drive/managed-terminal-drive.ts),
-[shared factory](../../src/main/vellum-command/term/drive/managed-drive-factory.ts),
-[seat runtime](../../src/main/vellum-command/term/agent-state/runtime.ts).
+Source: [drive](../../src/main/junto/term/drive/managed-terminal-drive.ts),
+[shared factory](../../src/main/junto/term/drive/managed-drive-factory.ts),
+[seat runtime](../../src/main/junto/term/agent-state/runtime.ts).
 Command Center and Node Remote supply the same runtime state lookup. This
 does not qualify the separate Node Remote factory-composition gap.
 
@@ -175,8 +175,8 @@ and its links are documentation-only additions.
 ## Evidence and limits
 
 Private local receipts are under
-`/tmp/vellum-command-native-repro-54f79b07/` and
-`/tmp/vellum-command-native-repro-7d2d6cb1/`: build identity, delivery journal,
+`/tmp/junto-native-repro-54f79b07/` and
+`/tmp/junto-native-repro-7d2d6cb1/`: build identity, delivery journal,
 trace summary and observe-lease captures/replays. Row numbers above refer to
 `~/.junto/logs/pty-delivery.jsonl` at this checkpoint; filtered copies
 use different offsets. Raw session history stays outside the repository.

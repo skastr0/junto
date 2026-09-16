@@ -16,7 +16,7 @@ import {
   parseDirectoryDraft,
   trimTrailingSlash,
 } from "../../lib/directory-picker";
-import { getVellumCommandApi } from "../../lib/vellum-api";
+import { getJuntoApi } from "../../lib/junto-api";
 import { Button, IconButton, Input } from "../ui";
 
 /** Typing a path settles before the listing follows it. */
@@ -61,7 +61,7 @@ export function HostDirectoryPicker({
     const requestSeq = ++loadSeq.current;
     const target = path.trim() || "~";
     attemptedTarget.current = target;
-    const api = getVellumCommandApi();
+    const api = getJuntoApi();
     if (!api?.hostDirectoryRead) {
       if (requestSeq === loadSeq.current) {
         setSnapshot(undefined);

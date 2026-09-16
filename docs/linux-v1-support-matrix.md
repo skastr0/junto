@@ -11,9 +11,9 @@ been published.
 | --- | --- | --- |
 | Distribution / CPU | Ubuntu 24.04 LTS, x86-64 | Official alpha target |
 | C library | glibc 2.39 on Ubuntu 24.04 | Other distributions are not implied |
-| Package | Rootless `vellum-command-runtime-<version>-linux-x64.tar.gz` | Exact archive must pass audit and signature admission |
-| Install layout | `~/.local/opt/vellum-command-alpha/<version>-<archiveSHA256>/` | Immutable owner-local generations |
-| Launch | `~/.local/bin/vellum-command-desktop` and user desktop entry | Same ordinary user; no system service |
+| Package | Rootless `junto-runtime-<version>-linux-x64.tar.gz` | Exact archive must pass audit and signature admission |
+| Install layout | `~/.local/opt/junto-alpha/<version>-<archiveSHA256>/` | Immutable owner-local generations |
+| Launch | `~/.local/bin/junto-desktop` and user desktop entry | Same ordinary user; no system service |
 | Desktop display | X11 or Wayland/XWayland session | Native session evidence is distinct from Xvfb CI smoke |
 | Sandbox | Chromium sandbox with reviewed host-specific preparation if needed | No root launch, global policy weakening or sandbox bypass |
 | Updates | Signed `/linux/x64/alpha.json`; automatic check/download, explicit Restart | Managed official installations only |

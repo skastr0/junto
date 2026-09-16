@@ -3,10 +3,10 @@ import { Effect, Layer, Result, Schema } from "effect";
 import type { CanvasReadResult } from "../src/shared/ipc";
 import { InstallationId } from "../src/shared/installation-id";
 import { CommandCenterConfiguration } from "../src/shared/station-api";
-import { CanvasesService, type CanvasChangeDetail } from "../src/main/vellum-command/canvases";
-import { StationRepository } from "../src/main/vellum-command/station/repository";
-import { deriveActorSeatId } from "../src/main/vellum-command/station/actor-seat-compiler";
-import { resolveOverseerActor, watchOverseerRevocation } from "../src/main/vellum-command/overseer/admission";
+import { CanvasesService, type CanvasChangeDetail } from "../src/main/junto/canvases";
+import { StationRepository } from "../src/main/junto/station/repository";
+import { deriveActorSeatId } from "../src/main/junto/station/actor-seat-compiler";
+import { resolveOverseerActor, watchOverseerRevocation } from "../src/main/junto/overseer/admission";
 
 const local = Schema.decodeUnknownSync(InstallationId)("cc-test");
 const remote = Schema.decodeUnknownSync(InstallationId)("remote-test");

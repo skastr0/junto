@@ -8,7 +8,7 @@ import { resolveTerminalBinding, sessionActorMatches } from "@shared/terminal";
 import { occupancyFromSummary } from "@shared/terminal-seat-occupancy";
 import { markAgentSeatSeen } from "./agent-seat-state";
 import { flushPendingCanvasSave } from "./mutations";
-import { getVellumCommandApi } from "./vellum-api";
+import { getJuntoApi } from "./junto-api";
 import { state$ } from "./state";
 import type { WorkZone } from "./surface-registry";
 import { openTerminalSurface, terminal$ } from "./terminal-state";
@@ -31,7 +31,7 @@ export const ensureTerminalRunning = async (
     if (!surface) {
       return { ok: false, message: missingActorSurfaceMessage };
     }
-    const api = getVellumCommandApi();
+    const api = getJuntoApi();
     if (!api?.terminalCreate) {
       return { ok: false, message: "terminal API unavailable — restart Junto" };
     }
@@ -93,7 +93,7 @@ export const ensureTerminalRunning = async (
   if (binding?.kind !== "native") {
     return { ok: false, message: "raw terminal is missing its binding" };
   }
-  const api = getVellumCommandApi();
+  const api = getJuntoApi();
   if (!api?.terminalCreate) {
     return { ok: false, message: "terminal API unavailable — restart Junto" };
   }
@@ -185,9 +185,9 @@ export const openTerminal = async (
 export const killTerminal = async (node: CanvasNode): Promise<void> => {
   const binding = resolveTerminalBinding(node);
   if (binding?.kind !== "native") return;
-  await getVellumCommandApi()?.terminalKill?.(binding.bindingId, binding.hostId);
+  await getJuntoApi()?.terminalKill?.(binding.bindingId, binding.hostId);
   try {
-    const next = await getVellumCommandApi()?.terminalGet?.(binding.bindingId, binding.hostId);
+    const next = await getJuntoApi()?.terminalGet?.(binding.bindingId, binding.hostId);
     terminal$.sessionByBindingId[binding.bindingId].set(next);
   } catch {
     terminal$.sessionByBindingId[binding.bindingId].set(undefined);

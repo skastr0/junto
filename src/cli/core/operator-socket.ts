@@ -44,7 +44,7 @@ const runtimeDown = () =>
   new RuntimeDown({
     message: "Junto operator control is unavailable",
     next_step:
-      "launch Junto with `--vellum-command-operator-control`, then retry this command",
+      "launch Junto with `--junto-operator-control`, then retry this command",
   });
 
 const appendBounded = (
@@ -303,7 +303,7 @@ export const OperatorSocketLive = Layer.succeed(
     ) =>
       Effect.gen(function* () {
         const rawRequest = {
-          protocol: "vellum-command-operator/v1",
+          protocol: "junto-operator/v1",
           id: randomUUID(),
           op,
           args,

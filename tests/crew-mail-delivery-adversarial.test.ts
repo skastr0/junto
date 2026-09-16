@@ -8,7 +8,7 @@ import {
   type MessageDeliveryAttemptStore,
   type MessageDeliveryStore,
   type MessageDeliveryTimers,
-} from "../src/main/vellum-command/work/message-delivery";
+} from "../src/main/junto/work/message-delivery";
 import type { DeliveryAttempt } from "../src/shared/crew";
 
 // Independent adversarial seam tests for the crew mail/prompt contract

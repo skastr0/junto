@@ -3,16 +3,16 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   AcpClient,
   type AcpClientHandlers,
-} from "../src/main/vellum-command/chat/acp-client";
-import { buildAcpSpawnTarget } from "../src/main/vellum-command/chat/spawn";
-import { EffectAcpChild } from "../src/main/vellum-command/hermes/plane";
-import { parseHermesProfileName } from "../src/main/vellum-command/hermes/domain";
-import { HermesTransport } from "../src/main/vellum-command/hermes/transport";
+} from "../src/main/junto/chat/acp-client";
+import { buildAcpSpawnTarget } from "../src/main/junto/chat/spawn";
+import { EffectAcpChild } from "../src/main/junto/hermes/plane";
+import { parseHermesProfileName } from "../src/main/junto/hermes/domain";
+import { HermesTransport } from "../src/main/junto/hermes/transport";
 import type {
   ConfirmSshReady,
   SshLease,
   SshReady,
-} from "../src/main/vellum-command/ssh";
+} from "../src/main/junto/ssh";
 
 afterEach(() => {
   vi.useRealTimers();

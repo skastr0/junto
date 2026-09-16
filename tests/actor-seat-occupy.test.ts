@@ -3,14 +3,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   makeActorSeatOccupy,
   type ActorOccupySpec,
-} from "../src/main/vellum-command/term/actor-seat-occupy";
-import { LocalSessionHost } from "../src/main/vellum-command/term/local-host";
+} from "../src/main/junto/term/actor-seat-occupy";
+import { LocalSessionHost } from "../src/main/junto/term/local-host";
 import {
   makeLocalSeatProcess,
   makeRemoteSeatProcess,
   type RemoteAgentSeatCommand,
   type RemoteSeatProcessClient,
-} from "../src/main/vellum-command/term/seat-process";
+} from "../src/main/junto/term/seat-process";
 import type { TerminalSessionSummary } from "../src/shared/terminal";
 import {
   SeatAlreadyOccupiedError,
@@ -21,8 +21,8 @@ import {
 import {
   makeProcessIdentityMap,
   setProcessIdentityMapForTests,
-} from "../src/main/vellum-command/process-identity";
-import { setProcessEpochReaderForTests } from "../src/main/vellum-command/process-epoch";
+} from "../src/main/junto/process-identity";
+import { setProcessEpochReaderForTests } from "../src/main/junto/process-epoch";
 import { makeFakeTerminalProcessAuthority } from "./helpers/fake-terminal-process-authority";
 import type { FakeTerminalProcessAuthority } from "./helpers/fake-terminal-process-authority";
 

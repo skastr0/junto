@@ -12,8 +12,8 @@ import { ProvidersSettingsSection } from "../src/renderer/components/settings/Pr
 import { makeManagedAgentNode } from "../src/renderer/lib/node-factories";
 import { canStartOverseerLive, openOverseerLive, overseerLive$ } from "../src/renderer/lib/overseer-live-state";
 import { state$ } from "../src/renderer/lib/state";
-import { LocalSessionHost } from "../src/main/vellum-command/term/local-host";
-import { makeLocalSeatProcess } from "../src/main/vellum-command/term/seat-process";
+import { LocalSessionHost } from "../src/main/junto/term/local-host";
+import { makeLocalSeatProcess } from "../src/main/junto/term/seat-process";
 import { occupancyFromSession, occupyVacantSeat } from "../src/shared/terminal-seat-occupancy";
 import { makeFakeTerminalProcessAuthority } from "./helpers/fake-terminal-process-authority";
 
@@ -75,7 +75,7 @@ describe("Live Overseer product gate", () => {
       harness: "vellum-overseer",
       agentKey: "local:vellum-overseer",
       spawnIntent: {
-        documentLaunch: { kind: "harness", argv: ["vellum-command", "overseer-host"] },
+        documentLaunch: { kind: "harness", argv: ["junto", "overseer-host"] },
         resumeRequested: false,
         injection: { seatBound: false, connected: false },
       },

@@ -43,7 +43,7 @@ import {
   CURRENT_STATION_PROTOCOL_SUPPORT,
   type StationProtocolSupport,
 } from "../src/shared/station-protocol";
-import { verifyProductionLinuxDeployBundle } from "../src/main/vellum-command/hosts/linux-release-admission";
+import { verifyProductionLinuxDeployBundle } from "../src/main/junto/hosts/linux-release-admission";
 
 const roots: string[] = [];
 const VERSION = "0.1.0";
@@ -53,7 +53,7 @@ const CREATED_AT = "2026-07-23T11:55:00.000Z";
 const EXPIRES_AT = "2026-08-01T12:00:00.000Z";
 const QUALIFICATION_EXPIRES_AT = "2026-07-24T11:55:00.000Z";
 const KEY_ID = "vellum-linux-2026a";
-const PACKAGE = `vellum-command-runtime-${VERSION}-linux-x64.tar.gz`;
+const PACKAGE = `junto-runtime-${VERSION}-linux-x64.tar.gz`;
 const ciTarget = {
   runner: "ubuntu-24.04",
   os: "linux",
@@ -241,7 +241,7 @@ const createFixture = async (options: {
         component: {
           version: VERSION,
           properties: [
-            { name: "vellum-command:source-revision", value: REVISION },
+            { name: "junto:source-revision", value: REVISION },
           ],
         },
       },
@@ -252,9 +252,9 @@ const createFixture = async (options: {
         purl: "pkg:npm/effect@3.0.0",
         licenses: [{ expression: options.sbomLicense ?? "MIT" }],
         properties: [
-          { name: "vellum-command:direct", value: "true" },
-          { name: "vellum-command:development", value: "false" },
-          { name: "vellum-command:license-source", value: "package-metadata" },
+          { name: "junto:direct", value: "true" },
+          { name: "junto:development", value: "false" },
+          { name: "junto:license-source", value: "package-metadata" },
         ],
       }],
     }),
@@ -546,7 +546,7 @@ const createFixture = async (options: {
     createdAt: CREATED_AT,
     expiresAt: EXPIRES_AT,
     downloadLocator:
-      `https://releases.example.test/vellum-command-runtime-${VERSION}-linux-x64.tar.gz`,
+      `https://releases.example.test/junto-runtime-${VERSION}-linux-x64.tar.gz`,
     keyId: KEY_ID,
     qualification: {
       candidateBundleDirectory: candidateDirectory,
@@ -910,7 +910,7 @@ describe("signed Linux release bundle", () => {
           preferred: 2,
           compatibleFrom: 2,
           warnBelow: 2,
-          stationApi: "vellum-command/station-api/v3",
+          stationApi: "junto/station-api/v3",
         } as unknown as StationProtocolSupport,
       },
       { trustedKeyId: "vellum-linux-other" },
@@ -939,8 +939,8 @@ describe("signed Linux release bundle", () => {
         ...withoutStationProtocol,
         schema: "vellum/linux-release-manifest/v3",
         protocols: {
-          stationApi: "vellum-command/station-api/v3",
-          workControl: "vellum-command-work/v1",
+          stationApi: "junto/station-api/v3",
+          workControl: "junto-work/v1",
           minimumPeerVersion: VERSION,
         },
       })

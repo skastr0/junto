@@ -3,7 +3,7 @@ import {
   PASTE_CHIP_TEXT,
   promptHasPasteChip,
   promptStillPending,
-} from "../src/main/vellum-command/term/drive";
+} from "../src/main/junto/term/drive";
 
 const RULE = "─".repeat(40);
 

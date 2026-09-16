@@ -30,7 +30,7 @@ import { applyWorkCanvasWrite, editText, renameRequestsNode, renameTasksNode } f
 import { runCanvasAuthoringOperation } from "../../lib/canvas-editor-flush";
 import { state$ } from "../../lib/state";
 import { boardAuthorLabel } from "../../lib/board-author";
-import { getVellumCommandApi } from "../../lib/vellum-api";
+import { getJuntoApi } from "../../lib/junto-api";
 import { FirstLineRenameInput } from "../nodes/FirstLineRenameInput";
 import { TaskBoard } from "./TaskBoard";
 import { ArtifactLibrary, RequestInbox } from "./WorkLedger";
@@ -503,7 +503,7 @@ export function BoardDetail({
   const selected: BoardTopicView | undefined =
     topics?.find((t) => t.topicId === selectedTopicId) ?? topics?.[0];
   const canvas = canvasName();
-  const api = getVellumCommandApi();
+  const api = getJuntoApi();
   // The board node's first line is the operator's authored title (the mirror
   // preserves it); the work surface carries the same identity.
   const boardTitle = boardTitleFromText(node.type === "text" ? node.text : "");

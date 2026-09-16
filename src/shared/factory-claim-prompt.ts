@@ -3,7 +3,7 @@
  * managed seat when a task becomes `working` on that actor.
  *
  * Contract: an agent that only reads this string must be able to form a valid
- * `vellum-command tasks list` / `vellum-command tasks update` without schema discovery.
+ * `junto tasks list` / `junto tasks update` without schema discovery.
  * Claim delivery must never gate on a prior `/compact` harness turn.
  */
 
@@ -92,7 +92,7 @@ const boardSections = (
           `- ${entry.rule.text}  (id ${entry.rule.id}, from ${provenanceOf(entry)})`,
       ),
       "Answer with completionEvidence.claims: [{ ruleId, text, refs }]. A task rule whose board your chosen path no longer reaches may instead carry completionEvidence.waivers: [{ ruleId, reason }].",
-      `Read the live stack any time: vellum-command tasks rules '{"target":"${boardId}","task":"${task.id}"}'`,
+      `Read the live stack any time: junto tasks rules '{"target":"${boardId}","task":"${task.id}"}'`,
     );
   }
 
@@ -137,7 +137,7 @@ const boardSections = (
     );
     if (anyChecks) {
       lines.push(
-        `Run them here and submit the results: vellum-command tasks check '{"target":"${boardId}","task":"${task.id}"${destinations.length > 1 ? ',"next":"<board>"' : ""}}'`,
+        `Run them here and submit the results: junto tasks check '{"target":"${boardId}","task":"${task.id}"${destinations.length > 1 ? ',"next":"<board>"' : ""}}'`,
       );
     }
   }
@@ -179,9 +179,9 @@ export const buildFactoryClaimPrompt = (
 ): string => {
   const { boardId, task, doc } = input;
   const brief = taskBrief(task);
-  const listExample = `vellum-command tasks list '{"target":"${boardId}"}'`;
-  const updateExample = `vellum-command tasks update '{"target":"${boardId}","task":"${task.id}","state":"completed","note":"<what you did>"}'`;
-  const workingExample = `vellum-command tasks update '{"target":"${boardId}","task":"${task.id}","state":"working","note":"<progress>"}'`;
+  const listExample = `junto tasks list '{"target":"${boardId}"}'`;
+  const updateExample = `junto tasks update '{"target":"${boardId}","task":"${task.id}","state":"completed","note":"<what you did>"}'`;
+  const workingExample = `junto tasks update '{"target":"${boardId}","task":"${task.id}","state":"working","note":"<progress>"}'`;
 
   const media = taskMediaParts(task);
   const mediaNote =
@@ -288,11 +288,11 @@ export const buildFactoryClaimPrompt = (
     `Task id: ${task.id}`,
     "",
     "CLI contract (copy-paste JSON — do not invent flags):",
-    `- orient:  vellum-command onboard`,
+    `- orient:  junto onboard`,
     `- list:    ${listExample}`,
     `- progress:${workingExample}`,
     `- complete:${updateExample}`,
-    "- blocked: vellum-command escalate  (JSON per `vellum-command schema show request.escalate` / examples)",
+    "- blocked: junto escalate  (JSON per `junto schema show request.escalate` / examples)",
     "",
     "You can start from the task briefing below; list is optional once you have target + task id.",
     "",

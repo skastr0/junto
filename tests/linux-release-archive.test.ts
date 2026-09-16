@@ -69,6 +69,6 @@ describe("Linux release archive", () => {
       bundleDirectory: root,
       verificationReceiptPath: receiptPath,
       archivePath: path.join(output, "vellum-1.2.3-ubuntu-24.04-x64-release.tar.gz"),
-    })).rejects.toThrow(/must be named vellum-command-runtime-1.2.3-linux-x64\.tar\.gz/u);
+    })).rejects.toThrow(/must be named junto-runtime-1.2.3-linux-x64\.tar\.gz/u);
   });
 });

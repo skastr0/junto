@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   CheckoutWatcher,
   type GitProbe,
-} from "../src/main/vellum-command/work/checkout-watch";
+} from "../src/main/junto/work/checkout-watch";
 import type { ActorSeatId } from "../src/shared/actor-seat";
 
 // Provenance: an observation carries the process identity that was bound

@@ -6,13 +6,13 @@ import {
 } from "../src/shared/remote-hosts";
 import {
   setHostsSnapshot,
-} from "../src/main/vellum-command/hosts/snapshot";
+} from "../src/main/junto/hosts/snapshot";
 import {
   HermesPlane,
   HermesPlaneLive,
-} from "../src/main/vellum-command/hermes/plane";
-import { HermesTransport } from "../src/main/vellum-command/hermes/transport";
-import { SettingsService } from "../src/main/vellum-command/settings/service";
+} from "../src/main/junto/hermes/plane";
+import { HermesTransport } from "../src/main/junto/hermes/transport";
+import { SettingsService } from "../src/main/junto/settings/service";
 
 const PROFILE_TABLE = `
  Profile          Model                        Gateway      Alias

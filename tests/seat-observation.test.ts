@@ -7,11 +7,11 @@ import type { WorkErrorBody } from "../src/shared/work-control";
 import type {
   ObserverGridSnapshot,
   ObserverGridWindow,
-} from "../src/main/vellum-command/term/observer";
+} from "../src/main/junto/term/observer";
 import {
   makeSeatObservation,
   type SeatObservationDeps,
-} from "../src/main/vellum-command/work/seat-observation";
+} from "../src/main/junto/work/seat-observation";
 
 // Focused tests for the seat wait/observe service. Everything is injected: the
 // service's contract is about authority, ordering and bounds, none of which

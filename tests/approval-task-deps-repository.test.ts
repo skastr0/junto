@@ -9,12 +9,12 @@ import {
   WorkRepositoryLive,
   createAuthorialTaskDependencyScopeCapability,
   type TaskDependencyScopeCapability,
-} from "../src/main/vellum-command/work/repository";
-import { subjectHashOf } from "../src/main/vellum-command/work/review-subject-hash";
+} from "../src/main/junto/work/repository";
+import { subjectHashOf } from "../src/main/junto/work/review-subject-hash";
 import {
   makeStateEngineLive,
   StateEngine,
-} from "../src/main/vellum-command/state/engine";
+} from "../src/main/junto/state/engine";
 import { ActorSeatId } from "../src/shared/actor-seat";
 import { CanvasDoc, serializeCanvas } from "../src/shared/canvas";
 import { InstallationId } from "../src/shared/installation-id";
@@ -27,7 +27,7 @@ import { authorialMaterialForTest } from "./helpers/task-topology-authority";
 
 const root = join(
   tmpdir(),
-  `vellum-command-approval-task-deps-${randomUUID()}`,
+  `junto-approval-task-deps-${randomUUID()}`,
 );
 const runtime = ManagedRuntime.make(
   Layer.provideMerge(

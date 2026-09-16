@@ -1,4 +1,4 @@
-import { CrewRepositoryLive } from "../src/main/vellum-command/work/crew-repository";
+import { CrewRepositoryLive } from "../src/main/junto/work/crew-repository";
 import { randomUUID } from "node:crypto";
 import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -14,29 +14,29 @@ import {
   emptyPad,
   type PadPatch as PadPatchValue,
 } from "../src/shared/pad";
-import { admitWorkTarget } from "../src/main/vellum-command/work/authz";
+import { admitWorkTarget } from "../src/main/junto/work/authz";
 import {
   addedPadMentions,
   inboundActorNodeIds,
   padAuthorRuleError,
-} from "../src/main/vellum-command/work/pad-rules";
+} from "../src/main/junto/work/pad-rules";
 import { projectPadTagged } from "../src/cli/core/pad";
 import { strokePath } from "../src/shared/pad-geom";
 import {
   WorkRepository,
   WorkRepositoryLive,
-} from "../src/main/vellum-command/work/repository";
-import { makeStateEngineLive, StateEngine } from "../src/main/vellum-command/state/engine";
+} from "../src/main/junto/work/repository";
+import { makeStateEngineLive, StateEngine } from "../src/main/junto/state/engine";
 import { InstallationId } from "../src/shared/installation-id";
 import { IntentFactBasis } from "../src/shared/work-protocol";
-import { CanvasesLive, CanvasesService } from "../src/main/vellum-command/canvases";
-import { WorkLive, WorkService } from "../src/main/vellum-command/work/service";
-import { makeContentServiceLive } from "../src/main/vellum-command/content/service";
-import { makeInstallOpsLive } from "../src/main/vellum-command/install-ops/engine";
-import { StationRepositoryLive } from "../src/main/vellum-command/station/repository";
-import { StationFleetTargetRepositoryLive } from "../src/main/vellum-command/station/fleet-target-repository";
-import { StationLivePeerRegistryLive } from "../src/main/vellum-command/station/session-registry";
-import { SettingsLive, SettingsService } from "../src/main/vellum-command/settings/service";
+import { CanvasesLive, CanvasesService } from "../src/main/junto/canvases";
+import { WorkLive, WorkService } from "../src/main/junto/work/service";
+import { makeContentServiceLive } from "../src/main/junto/content/service";
+import { makeInstallOpsLive } from "../src/main/junto/install-ops/engine";
+import { StationRepositoryLive } from "../src/main/junto/station/repository";
+import { StationFleetTargetRepositoryLive } from "../src/main/junto/station/fleet-target-repository";
+import { StationLivePeerRegistryLive } from "../src/main/junto/station/session-registry";
+import { SettingsLive, SettingsService } from "../src/main/junto/settings/service";
 import {
   canvasAuthorityMaterialFixture,
   seedCanvasAuthority,
@@ -310,7 +310,7 @@ describe("pad ScopeError without edge", () => {
 });
 
 describe("pad persist", () => {
-  const root = join(tmpdir(), `vellum-command-pad-work-${randomUUID()}`);
+  const root = join(tmpdir(), `junto-pad-work-${randomUUID()}`);
   const runtime = ManagedRuntime.make(
     Layer.provideMerge(
       WorkRepositoryLive,
@@ -570,7 +570,7 @@ describe("pad persist", () => {
 });
 
 describe("WorkService pad mark-read", () => {
-  const root = join(tmpdir(), `vellum-command-pad-read-${randomUUID()}`);
+  const root = join(tmpdir(), `junto-pad-read-${randomUUID()}`);
   const makeRuntime = () => {
     const stateLive = makeStateEngineLive(join(root, "state", "junto.db"));
     const repositoriesLive = Layer.provideMerge(
@@ -645,7 +645,7 @@ describe("WorkService pad mark-read", () => {
 });
 
 describe("WorkService pad author refusals", () => {
-  const root = join(tmpdir(), `vellum-command-pad-svc-${randomUUID()}`);
+  const root = join(tmpdir(), `junto-pad-svc-${randomUUID()}`);
   const makeRuntime = () => {
     const stateLive = makeStateEngineLive(join(root, "state", "junto.db"));
     const repositoriesLive = Layer.provideMerge(
@@ -1054,7 +1054,7 @@ describe("WorkService pad author refusals", () => {
  * follow the document to a new version.
  */
 describe("pad inbound-actor roster", () => {
-  const root = join(tmpdir(), `vellum-command-pad-roster-${randomUUID()}`);
+  const root = join(tmpdir(), `junto-pad-roster-${randomUUID()}`);
   const runtime = ManagedRuntime.make(
     Layer.provideMerge(
       WorkRepositoryLive,

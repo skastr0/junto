@@ -2,9 +2,9 @@ import { EventEmitter } from "node:events";
 import { describe, expect, it, vi } from "vitest";
 import { IPC_CHANNELS } from "../src/shared/ipc";
 import type { CanvasNode } from "../src/shared/canvas";
-import { registerTerminalIpc } from "../src/main/vellum-command/term/ipc";
-import type { TermPlane } from "../src/main/vellum-command/term/plane";
-import { TerminalNodeDeleteService } from "../src/main/vellum-command/term/node-delete";
+import { registerTerminalIpc } from "../src/main/junto/term/ipc";
+import type { TermPlane } from "../src/main/junto/term/plane";
+import { TerminalNodeDeleteService } from "../src/main/junto/term/node-delete";
 import type { HarnessId } from "../src/shared/managed-terminal-templates";
 
 const sender = {

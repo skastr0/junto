@@ -51,7 +51,7 @@ const readToken = (tokenPath: string) =>
     catch: () =>
       new RuntimeDown({
         message: "work control token unavailable — is Junto running?",
-        next_step: "launch Junto, then `vellum-command doctor`",
+        next_step: "launch Junto, then `junto doctor`",
       }),
   });
 
@@ -141,7 +141,7 @@ const ndjsonCall = (
           new RuntimeDown({
             message:
               error instanceof Error ? error.message : "failed to open work control socket",
-            next_step: "launch Junto, then `vellum-command doctor`",
+            next_step: "launch Junto, then `junto doctor`",
           }),
         ),
       );
@@ -231,7 +231,7 @@ const ndjsonCall = (
           Effect.fail(
             new RuntimeDown({
               message: "Junto app is not running (work socket down)",
-              next_step: "launch Junto, then `vellum-command doctor`",
+              next_step: "launch Junto, then `junto doctor`",
             }),
           ),
         );
@@ -269,7 +269,7 @@ export const WorkSocketLive = Layer.succeed(
           return yield* Effect.fail(
             new RuntimeDown({
               message: "work control token empty — is Junto running?",
-              next_step: "launch Junto, then `vellum-command doctor`",
+              next_step: "launch Junto, then `junto doctor`",
             }),
           );
         }

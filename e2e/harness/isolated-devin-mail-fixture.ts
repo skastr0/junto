@@ -10,7 +10,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Schema } from "effect";
 import type { CanvasDoc } from "../../src/shared/canvas";
-import { prepareIsolatedHarnessLaunch } from "../../src/main/vellum-command/term/isolated-harness-launch";
+import { prepareIsolatedHarnessLaunch } from "../../src/main/junto/term/isolated-harness-launch";
 import { templateFor } from "../../src/shared/managed-terminal-templates";
 import { agentTextNode, verbEdge, type Sandbox } from "./sandbox";
 import { seededHarnessBinDir } from "./agent-harness-fixture";
@@ -23,9 +23,9 @@ export const ISOLATED_DEVIN_CREDENTIAL_REL = ".local/share/devin/credentials.tom
 
 const FIXTURE_REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const CLI_BUILD_HINT =
-  "Build the matching Junto CLI first: JUNTO_FEATURE_PROFILE=all-on bun scripts/build-standalone-cli.ts vellum-command";
+  "Build the matching Junto CLI first: JUNTO_FEATURE_PROFILE=all-on bun scripts/build-standalone-cli.ts junto";
 const CliBuildReceipt = Schema.Struct({
-  schema: Schema.Literal("vellum-command/cli-relink/v1"),
+  schema: Schema.Literal("junto/cli-relink/v1"),
   sourceCommit: Schema.String,
   featureProfile: Schema.Literal("all-on"),
   binary: Schema.Struct({ bytes: Schema.Number, sha256: Schema.String }),
@@ -42,7 +42,7 @@ export const seedIsolatedVellumCli = async (
   sandbox: Sandbox,
   repoRoot: string = FIXTURE_REPO_ROOT,
 ) => {
-  const source = join(repoRoot, "dist", "vellum-command");
+  const source = join(repoRoot, "dist", "junto");
   const receiptSource = `${source}-relink.json`;
   if (!existsSync(source) || !existsSync(receiptSource)) {
     throw new Error(`Isolated Devin has no compiled Junto CLI. ${CLI_BUILD_HINT}`);
@@ -72,7 +72,7 @@ export const seedIsolatedVellumCli = async (
   }
   const binDir = seededHarnessBinDir(sandbox);
   await mkdir(binDir, { recursive: true });
-  const executable = join(binDir, "vellum-command");
+  const executable = join(binDir, "junto");
   await writeFile(executable, binary, { mode: 0o755 });
   await chmod(executable, 0o755);
   await writeFile(`${executable}-relink.json`, receiptText);

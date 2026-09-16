@@ -8,20 +8,20 @@ import type { CanvasDoc } from "../src/shared/canvas";
 import { readMailExtension } from "../src/shared/crew";
 import type { TerminalSessionSummary } from "../src/shared/terminal";
 import { IntentFactBasis } from "../src/shared/work-protocol";
-import { runCli } from "../src/main/vellum-command/adapters/exec";
-import { CanvasError, CanvasesLive, CanvasesService } from "../src/main/vellum-command/canvases";
-import { makeContentServiceLive } from "../src/main/vellum-command/content/service";
-import { makeInstallOpsLive } from "../src/main/vellum-command/install-ops/engine";
-import { makeSettingsLive, SettingsService } from "../src/main/vellum-command/settings/service";
-import { makeStateEngineLive, StateEngine } from "../src/main/vellum-command/state/engine";
-import { StationFleetTargetRepositoryLive } from "../src/main/vellum-command/station/fleet-target-repository";
-import { StationRepositoryLive } from "../src/main/vellum-command/station/repository";
-import { StationLivePeerRegistryLive } from "../src/main/vellum-command/station/session-registry";
-import { makeCheckoutWatchComposition } from "../src/main/vellum-command/work/checkout-watch-composition";
-import { CrewRepository, CrewRepositoryLive } from "../src/main/vellum-command/work/crew-repository";
-import { MessageDeliveryService } from "../src/main/vellum-command/work/message-delivery";
-import { WorkRepository, WorkRepositoryLive } from "../src/main/vellum-command/work/repository";
-import { WorkLive, WorkService, type WorkOpResult } from "../src/main/vellum-command/work/service";
+import { runCli } from "../src/main/junto/adapters/exec";
+import { CanvasError, CanvasesLive, CanvasesService } from "../src/main/junto/canvases";
+import { makeContentServiceLive } from "../src/main/junto/content/service";
+import { makeInstallOpsLive } from "../src/main/junto/install-ops/engine";
+import { makeSettingsLive, SettingsService } from "../src/main/junto/settings/service";
+import { makeStateEngineLive, StateEngine } from "../src/main/junto/state/engine";
+import { StationFleetTargetRepositoryLive } from "../src/main/junto/station/fleet-target-repository";
+import { StationRepositoryLive } from "../src/main/junto/station/repository";
+import { StationLivePeerRegistryLive } from "../src/main/junto/station/session-registry";
+import { makeCheckoutWatchComposition } from "../src/main/junto/work/checkout-watch-composition";
+import { CrewRepository, CrewRepositoryLive } from "../src/main/junto/work/crew-repository";
+import { MessageDeliveryService } from "../src/main/junto/work/message-delivery";
+import { WorkRepository, WorkRepositoryLive } from "../src/main/junto/work/repository";
+import { WorkLive, WorkService, type WorkOpResult } from "../src/main/junto/work/service";
 
 const cleanups: Array<() => Promise<void>> = [];
 afterAll(async () => {
@@ -62,7 +62,7 @@ const checkout = async (path: string) => {
 };
 
 const fixture = async (canvas: string) => {
-  const root = join(tmpdir(), `vellum-command-checkout-composition-${randomUUID()}`);
+  const root = join(tmpdir(), `junto-checkout-composition-${randomUUID()}`);
   const repositories = Layer.provideMerge(
     Layer.mergeAll(
       WorkRepositoryLive, CrewRepositoryLive, StationRepositoryLive, StationFleetTargetRepositoryLive,

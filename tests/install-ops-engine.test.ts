@@ -110,7 +110,7 @@ vi.mock("node:sqlite", () => ({
 import {
   InstallOpsService,
   makeInstallOpsLive,
-} from "../src/main/vellum-command/install-ops/engine";
+} from "../src/main/junto/install-ops/engine";
 
 const homes: string[] = [];
 const runtimes: Array<ManagedRuntime.ManagedRuntime<any, unknown>> = [];

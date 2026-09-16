@@ -122,75 +122,75 @@ export const commandSurfaceEnabled = (commandId: string): boolean => {
 
 const BROWSER_INVOCATION: CapabilityInvocation = {
   port: "browser.automate",
-  command: "vellum-command browser",
-  discover: "vellum-command browser pages --json",
+  command: "junto browser",
+  discover: "junto browser pages --json",
 };
 
 const PAD_READ_INVOCATIONS: ReadonlyArray<CapabilityInvocation> = [
   {
     port: "pad.read",
-    command: "vellum-command pad read",
-    discover: "vellum-command schema show pad.read",
+    command: "junto pad read",
+    discover: "junto schema show pad.read",
   },
   {
     port: "pad.read",
-    command: "vellum-command pad digest",
-    discover: "vellum-command schema show pad.digest",
+    command: "junto pad digest",
+    discover: "junto schema show pad.digest",
   },
   {
     port: "pad.read",
-    command: "vellum-command pad svg",
-    discover: "vellum-command schema show pad.svg",
+    command: "junto pad svg",
+    discover: "junto schema show pad.svg",
   },
   {
     port: "pad.read",
-    command: "vellum-command pad look-here",
-    discover: "vellum-command schema show pad.look-here",
+    command: "junto pad look-here",
+    discover: "junto schema show pad.look-here",
   },
   {
     port: "pad.read",
-    command: "vellum-command pad get",
-    discover: "vellum-command schema show pad.get",
+    command: "junto pad get",
+    discover: "junto schema show pad.get",
   },
   {
     port: "pad.read",
-    command: "vellum-command pad tagged",
-    discover: "vellum-command schema show pad.tagged",
+    command: "junto pad tagged",
+    discover: "junto schema show pad.tagged",
   },
 ];
 
 const SHEET_READ_INVOCATION: CapabilityInvocation = {
   port: "sheet.read",
-  command: "vellum-command sheet read",
-  discover: "vellum-command schema show sheet.read",
+  command: "junto sheet read",
+  discover: "junto schema show sheet.read",
 };
 
 const PAD_PATCH_INVOCATION: CapabilityInvocation = {
   port: "pad.patch",
-  command: "vellum-command pad patch",
-  discover: "vellum-command schema show pad.patch",
+  command: "junto pad patch",
+  discover: "junto schema show pad.patch",
 };
 
 const CREW_INVOCATIONS: ReadonlyArray<CapabilityInvocation> = [
   {
     port: "msg.prompt",
-    command: "vellum-command msg prompt",
-    discover: "vellum-command schema show msg.prompt",
+    command: "junto msg prompt",
+    discover: "junto schema show msg.prompt",
   },
   {
     port: "seat.wait",
-    command: "vellum-command seat wait",
-    discover: "vellum-command schema show seat.wait",
+    command: "junto seat wait",
+    discover: "junto schema show seat.wait",
   },
   {
     port: "terminal.read",
-    command: "vellum-command seat read",
-    discover: "vellum-command schema show seat.read",
+    command: "junto seat read",
+    discover: "junto schema show seat.read",
   },
   {
     port: "verdict.post",
-    command: "vellum-command verdict post",
-    discover: "vellum-command schema show verdict.post",
+    command: "junto verdict post",
+    discover: "junto schema show verdict.post",
   },
 ];
 
@@ -1318,10 +1318,10 @@ const declaredExamples: ReadonlyArray<CommandExample> = [
           args: [
             "browser",
             "open",
-            "vellum-command://canvas/work?node=page-1",
+            "junto://canvas/work?node=page-1",
             "--json",
           ],
-          input: { ref: "vellum-command://canvas/work?node=page-1" },
+          input: { ref: "junto://canvas/work?node=page-1" },
         },
       ]
     : []),

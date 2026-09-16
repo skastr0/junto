@@ -7,37 +7,37 @@ import type { CanvasDoc, TextNode } from "../src/shared/canvas";
 import type { ManagedPromptOutcome } from "../src/shared/managed-prompt";
 import {
   LocalSessionHost,
-} from "../src/main/vellum-command/term/local-host";
-import { startTermControlServer } from "../src/main/vellum-command/term/control-server";
-import { TermControlClient } from "../src/main/vellum-command/term/control-client";
-import { TermControlTransportUncertainError } from "../src/main/vellum-command/term/control-client";
-import { TerminalRouter } from "../src/main/vellum-command/term/router";
+} from "../src/main/junto/term/local-host";
+import { startTermControlServer } from "../src/main/junto/term/control-server";
+import { TermControlClient } from "../src/main/junto/term/control-client";
+import { TermControlTransportUncertainError } from "../src/main/junto/term/control-client";
+import { TerminalRouter } from "../src/main/junto/term/router";
 import {
   hostsSnapshot,
   setHostsSnapshot,
-} from "../src/main/vellum-command/hosts/snapshot";
+} from "../src/main/junto/hosts/snapshot";
 import { Scope } from "effect";
 import { FLEET_UI_ENABLED } from "../src/shared/features";
 import {
   bindManagedTerminalDriveForOverseer,
-} from "../src/main/vellum-command/term/managed-drive-holder";
-import { createManagedTerminalDrive } from "../src/main/vellum-command/term/drive/managed-drive-factory";
+} from "../src/main/junto/term/managed-drive-holder";
+import { createManagedTerminalDrive } from "../src/main/junto/term/drive/managed-drive-factory";
 import {
   attachManagedTerminalDriveRuntime,
   type ManagedDriveHostEvent,
   type ManagedDriveSeatEvent,
-} from "../src/main/vellum-command/term/drive/managed-drive-runtime";
+} from "../src/main/junto/term/drive/managed-drive-runtime";
 import {
   makeOverseerNativeLive,
   type OverseerNativeLiveOptions,
-} from "../src/main/vellum-command/overseer/native";
-import type { TermPlane } from "../src/main/vellum-command/term/plane";
-import { TerminalNodeDeleteService } from "../src/main/vellum-command/term/node-delete";
+} from "../src/main/junto/overseer/native";
+import type { TermPlane } from "../src/main/junto/term/plane";
+import { TerminalNodeDeleteService } from "../src/main/junto/term/node-delete";
 import {
   makeProcessIdentityMap,
   setProcessIdentityMapForTests,
-} from "../src/main/vellum-command/process-identity";
-import { setProcessEpochReaderForTests } from "../src/main/vellum-command/process-epoch";
+} from "../src/main/junto/process-identity";
+import { setProcessEpochReaderForTests } from "../src/main/junto/process-epoch";
 import { makeFakeTerminalProcessAuthority } from "./helpers/fake-terminal-process-authority";
 
 const cleanups: Array<() => Promise<void> | void> = [];
@@ -130,7 +130,7 @@ describe("term control managedPrompt", () => {
         return submitted;
       },
       interrupt: async (_bindingId: string) => true,
-    } as unknown as import("../src/main/vellum-command/term/drive").ManagedTerminalDrive);
+    } as unknown as import("../src/main/junto/term/drive").ManagedTerminalDrive);
     const { client } = await bootServer();
     await expect(
       client.managedPrompt("bind-y", "do the thing", true),

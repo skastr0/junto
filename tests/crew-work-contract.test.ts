@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   MsgPromptArgs, MsgSendArgs, VerdictPostArgs, WorkErrorBody, decodeWorkRequest,
 } from "../src/shared/work-control";
-import { admitWorkTarget } from "../src/main/vellum-command/work/authz";
+import { admitWorkTarget } from "../src/main/junto/work/authz";
 import type { CanvasDoc } from "../src/shared/canvas";
 
 describe("crew work wire contract", () => {

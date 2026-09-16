@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import { TerminalNodeDeleteService } from "../src/main/vellum-command/term/node-delete";
-import type { TerminalRouter } from "../src/main/vellum-command/term/router";
+import { TerminalNodeDeleteService } from "../src/main/junto/term/node-delete";
+import type { TerminalRouter } from "../src/main/junto/term/router";
 
 const makeRouter = (
   deleteBinding: (bindingId: string, hostId?: string) => Promise<boolean>,

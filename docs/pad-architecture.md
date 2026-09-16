@@ -250,13 +250,13 @@ JSON-only, same envelope as board. Discovery schemas + examples
 required for every verb.
 
 ```
-vellum-command pad read
-vellum-command pad patch
-vellum-command pad digest
-vellum-command pad svg
-vellum-command pad look-here
-vellum-command pad get
-vellum-command pad tagged
+junto pad read
+junto pad patch
+junto pad digest
+junto pad svg
+junto pad look-here
+junto pad get
+junto pad tagged
 ```
 
 `docs node pad` must exist. Descriptions name the grant, the

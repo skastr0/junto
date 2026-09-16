@@ -6,7 +6,7 @@ import {
   LIVE_MAX_EVENT_BYTES,
   type OpenAiLiveConnectionOptions,
   type OpenAiLiveSocket,
-} from "../src/main/vellum-command/overseer/live/openai-connection";
+} from "../src/main/junto/overseer/live/openai-connection";
 
 class FakeSocket extends EventEmitter implements OpenAiLiveSocket {
   readyState = 0;

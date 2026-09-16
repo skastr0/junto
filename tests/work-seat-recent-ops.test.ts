@@ -25,11 +25,11 @@ import {
   createAuthorialTaskDependencyScopeCapability,
   WorkRepository,
   WorkRepositoryLive,
-} from "../src/main/vellum-command/work/repository";
+} from "../src/main/junto/work/repository";
 import {
   makeStateEngineLive,
   StateEngine,
-} from "../src/main/vellum-command/state/engine";
+} from "../src/main/junto/state/engine";
 import { authorialMaterialForTest } from "./helpers/task-topology-authority";
 import { seedCanvasAuthority } from "./helpers/canvas-authority-material";
 
@@ -96,7 +96,7 @@ const openRepository = async (
 ) => {
   const root = join(
     tmpdir(),
-    `vellum-command-seat-recent-ops-${local}-${randomUUID()}`,
+    `junto-seat-recent-ops-${local}-${randomUUID()}`,
   );
   const runtime = ManagedRuntime.make(
     Layer.provideMerge(

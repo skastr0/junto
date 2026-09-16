@@ -141,7 +141,7 @@ export const runCli = (args: ReadonlyArray<string>) =>
 // When executed as the CLI entrypoint (bun / compiled binary).
 if (import.meta.main) {
   // Bun puts user args at index 2 in both modes: source is
-  // [bunPath, script, ...args], compiled is ["bun", "/$bunfs/root/vellum-command",
+  // [bunPath, script, ...args], compiled is ["bun", "/$bunfs/root/junto",
   // ...args]. V4 runWith takes user args only — never the full argv.
   const dispatch = earlyDispatchFromArgv(Bun.argv);
   if (dispatch.kind === "overseer-host") {
@@ -153,7 +153,7 @@ if (import.meta.main) {
     }
   } else if (dispatch.kind === "browser") {
     if (!browserCliAvailable) {
-      process.stderr.write("vellum-command browser: disabled in this build\n");
+      process.stderr.write("junto browser: disabled in this build\n");
       process.exitCode = 2;
     } else {
       await runBrowserCli(dispatch.args);
@@ -164,7 +164,7 @@ if (import.meta.main) {
     (dispatch.args[0] === "fleet" || dispatch.args[0] === "qualification")
   ) {
     process.stderr.write(
-      `vellum-command ${dispatch.args[0]}: disabled in this Junto build\n`,
+      `junto ${dispatch.args[0]}: disabled in this Junto build\n`,
     );
     process.exitCode = 2;
   } else if (
@@ -172,7 +172,7 @@ if (import.meta.main) {
     disabledCliGroup(dispatch.args) !== undefined
   ) {
     process.stderr.write(
-      `vellum-command ${disabledCliGroup(dispatch.args)}: disabled in this Junto build\n`,
+      `junto ${disabledCliGroup(dispatch.args)}: disabled in this Junto build\n`,
     );
     process.exitCode = 2;
   } else if (dispatch.kind === "station-stdio") {

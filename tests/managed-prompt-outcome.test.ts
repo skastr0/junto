@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ManagedTerminalDrive } from "../src/main/vellum-command/term/drive/managed-terminal-drive";
+import { ManagedTerminalDrive } from "../src/main/junto/term/drive/managed-terminal-drive";
 import {
   admitImmediatePrompt,
   deriveMailDisplayState,
@@ -15,7 +15,7 @@ import {
   type MessageDeliveryAttemptStore,
   type MessageDeliveryStore,
   type MessageDeliveryTransport,
-} from "../src/main/vellum-command/work/message-delivery";
+} from "../src/main/junto/work/message-delivery";
 
 const submittedOutcome = (
   writesBefore = 0,

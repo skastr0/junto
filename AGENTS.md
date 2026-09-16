@@ -25,13 +25,13 @@ public or user-facing string must use the full name **Junto** only.
 | Code identifiers / source paths | unchanged — not brand |
 
 **Renamed runtime surfaces:** `VellumCommandApi`, `resolveJuntoHome`, `~/.junto/`,
-`dist/vellum-command`, `bin/vellum-command`, `JUNTO_*` env keys,
-`window.vellumCommand`, and `vellum-command-*` protocol/control prefixes.
+`dist/junto`, `bin/junto`, `JUNTO_*` env keys,
+`window.vellumCommand`, and `junto-*` protocol/control prefixes.
 
-**Implementation boundaries:** source paths under `src/main/vellum-command/`, the npm package name, the appId,
+**Implementation boundaries:** source paths under `src/main/junto/`, the npm package name, the appId,
 Context service identifiers, internal `@junto/*` tags, checked-in helper source filenames, and Linux release
 archive names remain implementation/release identities. They are not legacy readers or compatibility aliases.
-The active product state and node-reference URI use the canonical `vellum-command` names above.
+The active product state and node-reference URI use the canonical `junto` names above.
 
 **Enforcement:** `bun run lint:product-name` — capital-V product token not
 followed by ` Command` or `-Command` is a lint error. Wired into `bun run verify`.
@@ -55,7 +55,7 @@ namespace. The sole historical decode exception is the portfolio body stored
 inside frozen v1 SQLite fixtures, required by the immutable installed-state
 proof and never emitted or negotiated.
 
-[`docs/vellum-protocol.md`](docs/vellum-protocol.md) is the canonical
+[`docs/junto-protocol.md`](docs/junto-protocol.md) is the canonical
 multi-installation contract: identity, complete intent projection, sink/item
 authority, synchronous CC-home task claims, offline Remote execution, logical
 event convergence, the closed Station operations, and transport adapters.
@@ -193,7 +193,7 @@ Junto tools under edge-scoped work control.
 
 **Overseer exception (narrow).** A human may toggle overseer on an existing
 managed agent seat. That seat keeps the `agent` kind, gains a distinctive UI,
-and may use closed `vellum-command overseer` commands for operator-equivalent
+and may use closed `junto overseer` commands for operator-equivalent
 canvas, node, and work operations without connecting edges. It may occupy
 Command Center or Remote. Command Center validates the live grant and
 authenticated source installation and performs authoring; a Remote does not
@@ -224,19 +224,19 @@ to an exported document or the database:
 
 | surface | detail |
 |---|---|
-| CLI | `dist/vellum-command` (`bun run cli:build`) — `ping`, `doctor`, `capabilities`, `onboard`, `tasks`, `msg`, `request`, `artifact`, board ops; overseer seats also `overseer` |
+| CLI | `dist/junto` (`bun run cli:build`) — `ping`, `doctor`, `capabilities`, `onboard`, `tasks`, `msg`, `request`, `artifact`, board ops; overseer seats also `overseer` |
 | Socket | `~/.junto/work/control.sock` + bearer token `~/.junto/work/token` |
 | Identity | **process-bind** — CLI must run as a descendant of a live Junto agent (ACP) process. Main registers those PIDs; control admits via Unix peer PID (+ PPID walk). No client-supplied nodeRef / `JUNTO_NODE_REF` identity claim. |
 | Authz | **edges** — ordinary agents only act on connected nodes (kernel-enforced ScopeError otherwise); board ports are distinct (`board.create_topic` vs `board.post`). An overseer bypasses edge scope for closed `overseer` ops after live grant admission; pause/blocked do not deny those ops. |
 
-**How to use:** open the agent chat in Junto so the process is registered, then run `dist/vellum-command` from that agent/tooling tree. `onboard` / `capabilities` report the live edge contract for the admitted principal.
+**How to use:** open the agent chat in Junto so the process is registered, then run `dist/junto` from that agent/tooling tree. `onboard` / `capabilities` report the live edge contract for the admitted principal.
 
-Browser control (`vellum-command browser` / `bun run browser`) uses the same process-bind
+Browser control (`junto browser` / `bun run browser`) uses the same process-bind
 identity on protected routes. There is **no enable-grant ceremony** and no client
 capability secret — only a live registered process + human-drawn edges to page
-nodes. Station wire entry is `vellum-command station-stdio`; content transfer is
-`vellum-command content-transfer …`. Packaged installs ship **one** CLI binary
-(`bin/vellum-command`) only.
+nodes. Station wire entry is `junto station-stdio`; content transfer is
+`junto content-transfer …`. Packaged installs ship **one** CLI binary
+(`bin/junto`) only.
 
 Ops go through WorkService (tasks/messages/requests/artifacts/board). That is
 the ordinary agent write path. Freeform canvas authoring remains
@@ -248,7 +248,7 @@ human/Command Center except closed overseer commands from a live granted seat.
 
 - Contract: [`docs/pad-architecture.md`](docs/pad-architecture.md)
 - Operator and agent guide: [`docs/pad.md`](docs/pad.md)
-- CLI: `vellum-command pad read`, `patch`, `digest`, `svg`, `look-here`, `get`, `tagged`
+- CLI: `junto pad read`, `patch`, `digest`, `svg`, `look-here`, `get`, `tagged`
 
 ### Station roles
 
@@ -371,7 +371,7 @@ but do not consume rising-edge memory or durable cron firing slots.
 
 ## Sources (read-only adapters)
 
-`src/main/vellum-command/adapters/` — live: **hermes** (+ exec helpers). A down hermes degrades to a stale badge; it never touches the document. hermes enumerates profiles on the local machine + remote hosts over ssh.
+`src/main/junto/adapters/` — live: **hermes** (+ exec helpers). A down hermes degrades to a stale badge; it never touches the document. hermes enumerates profiles on the local machine + remote hosts over ssh.
 
 ## In-app planes
 
@@ -389,7 +389,7 @@ station when work must survive Command Center quit.
 - Resumable / crashed / stalled / paused belong to the occupant process, not the seat.
 - Local and remote share this contract. Placement (local | remote) selects the process Layer. It does not change occupancy.
 - Pin / unpin / remount must not occupy. They activate (or just keep the view).
-- Code: `src/shared/terminal-seat-occupancy.ts`, `src/main/vellum-command/term/seat-process.ts`.
+- Code: `src/shared/terminal-seat-occupancy.ts`, `src/main/junto/term/seat-process.ts`.
 
 **Named session resume law** — a seat resumes one explicit harness session id,
 or it starts fresh. There is no "continue whatever was last." Harness
@@ -431,8 +431,8 @@ Remote remains deliberately displayless.
 ## Structure
 
 - `src/shared/` — **frozen contracts**: `canvas.ts` (document schema), `entities.ts` (snapshots), `graph.ts` (derived), `region-rollup.ts` (derived region severity rollups), `digest.ts`, `portfolio.ts`, `svg.ts`. Change deliberately; much depends on them.
-- `src/main/vellum-command/state/` — the one SQLite engine and composed current schema.
-- `src/main/vellum-command/` — document/work/station services, data adapters, and IPC/control boundaries.
+- `src/main/junto/state/` — the one SQLite engine and composed current schema.
+- `src/main/junto/` — document/work/station services, data adapters, and IPC/control boundaries.
 - `src/renderer/` — the canvas surface.
 - `scripts/` — the headless CLIs above.
 
@@ -444,7 +444,7 @@ Junto mints when it owns the resource.
 
 - **Law:** no ambient `kill(pid)` / open host wipe APIs. Domain types + Effect
   Schema + branded handles only.
-- **Process signals:** `src/main/vellum-command/process-signal.ts` — sole site for
+- **Process signals:** `src/main/junto/process-signal.ts` — sole site for
   `process.kill(-pid)`. Flow: `admitSpawnedProcess` → `OwnedProcess` (unique
   symbol + WeakMap authority) → `signalOwned` / `releaseOwned`.
 - **Full doctrine:** [`docs/architecture-machine-safety.md`](docs/architecture-machine-safety.md).
@@ -494,7 +494,7 @@ phase, and attention/occupancy are separate planes.
 Two kinds of migration exist and they never mix:
 
 1. **Schema evolution** — expand-only DDL steps in
-   `src/main/vellum-command/state/migrations.ts`: versioned (`user_version` N→N+1),
+   `src/main/junto/state/migrations.ts`: versioned (`user_version` N→N+1),
    identity-witnessed, one startup transaction, authorizer-guarded. A schema
    step adds tables/columns/triggers; it never rewrites rows. The sole exception
    is the corrected version-21 Tasks repair above.

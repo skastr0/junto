@@ -6,7 +6,7 @@ import { LOCAL_HOST_ID } from "@shared/remote-hosts";
 import { FLEET_UI_ENABLED, HERMES_INTEGRATION_ENABLED } from "@shared/features";
 import { findContainingRegion, resolveRegionCwd } from "@shared/region-defaults";
 import { state$ } from "../../lib/state";
-import { getVellumCommandApi } from "../../lib/vellum-api";
+import { getJuntoApi } from "../../lib/junto-api";
 import { AGENT_NODE_SIZE } from "../../lib/node-geometry";
 import {
   actorHostChoicesFromEnrollment,
@@ -92,7 +92,7 @@ export function AgentLaunchContext({
   useEffect(() => {
     if (!FLEET_UI_ENABLED) return;
     let live = true;
-    void getVellumCommandApi()?.hostsList?.().then((result) => {
+    void getJuntoApi()?.hostsList?.().then((result) => {
       if (!live || !result.ok || !result.hosts) return;
       const next = actorHostChoicesFromEnrollment(result.hosts, configured);
       setHosts(next);

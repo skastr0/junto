@@ -7,7 +7,7 @@ import { useRunningDeployJobs } from "../../lib/deploy-job-state";
 import { closeFleet, refreshFleet } from "../../lib/fleet-state";
 import { activateOnPointerUp } from "../../lib/pointer-activation";
 import { state$ } from "../../lib/state";
-import { getVellumCommandApi } from "../../lib/vellum-api";
+import { getJuntoApi } from "../../lib/junto-api";
 import { FocusSurface } from "../FocusSurface";
 import { Button, OverlayHeader } from "../ui";
 import { FleetDeployJobPanel } from "./FleetDeployJobPanel";
@@ -49,7 +49,7 @@ function FleetOverlayInner() {
 
   useEffect(() => {
     let cancelled = false;
-    const api = getVellumCommandApi();
+    const api = getJuntoApi();
     if (!api?.settingsGet) return;
     void api
       .settingsGet()
@@ -64,7 +64,7 @@ function FleetOverlayInner() {
 
   useEffect(() => {
     let cancelled = false;
-    const api = getVellumCommandApi();
+    const api = getJuntoApi();
     if (!api?.hostsDeployCapabilities) {
       setBoxFleetEnabled(false);
       return;

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { colorFgBgFor, resolveThemeMode } from "../src/shared/theme";
 import { defaultSettings, settingsOpFail, settingsOpOk } from "../src/shared/settings";
-import { themePublishDecision } from "../src/main/vellum-command/settings/theme-publish";
+import { themePublishDecision } from "../src/main/junto/settings/theme-publish";
 
 describe("theme resolution — one rule for main and renderer", () => {
   it("an explicit preference wins and never consults the OS", () => {

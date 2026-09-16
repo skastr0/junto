@@ -1,5 +1,5 @@
 import type { TerminalSessionSummary } from "@shared/terminal";
-import { getVellumCommandApi } from "./vellum-api";
+import { getJuntoApi } from "./junto-api";
 
 type SessionListener = (session: TerminalSessionSummary | undefined) => void;
 
@@ -73,7 +73,7 @@ const dispatch = (
 };
 
 const pollHost = async (slot: HostSlot): Promise<void> => {
-  const api = getVellumCommandApi();
+  const api = getJuntoApi();
   // Call through the bridge object rather than a detached reference — the
   // preload surface is free to be method-shaped.
   if (!api?.terminalList) return;

@@ -1,7 +1,7 @@
-import type * as SignalTerminationModule from "../../src/main/vellum-command/process-signal-termination";
+import type * as SignalTerminationModule from "../../src/main/junto/process-signal-termination";
 
 const signalTerminationModulePath =
-  "../../src/main/vellum-command/process-signal-termination" + ".ts";
+  "../../src/main/junto/process-signal-termination" + ".ts";
 const { installProcessSignalTermination } = (await import(
   signalTerminationModulePath
 )) as typeof SignalTerminationModule;

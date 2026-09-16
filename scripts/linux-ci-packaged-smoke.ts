@@ -23,7 +23,7 @@ import {
 import {
   createAppProcessPlane,
   type AppProcessLease,
-} from "../src/main/vellum-command/app-process-plane";
+} from "../src/main/junto/app-process-plane";
 import {
   assertNoTcpListeners,
   descendantRows,
@@ -179,7 +179,7 @@ export const validateLinuxSandboxCapability = (input: {
     }
     if (
       input.appArmorCurrent === undefined ||
-      !/^vellum-command(?:\s|\(|$)/u.test(input.appArmorCurrent.trim())
+      !/^junto(?:\s|\(|$)/u.test(input.appArmorCurrent.trim())
     ) {
       throw new Error("packaged Junto did not enter its installed AppArmor profile");
     }
@@ -311,14 +311,14 @@ export const smokeLinuxCiPackagedRuntime = async (
   const display = requireXvfbDisplay(process.env.DISPLAY);
   const executable = await realpath(path.resolve(requestedExecutable));
   if (
-    path.basename(executable) !== "vellum-command" ||
+    path.basename(executable) !== "junto" ||
     !(await isExecutable(executable))
   ) {
-    throw new Error("Linux packaged runtime smoke requires packaged vellum-command");
+    throw new Error("Linux packaged runtime smoke requires packaged junto");
   }
   const installDirectory = path.dirname(executable);
   const resources = await realpath(path.join(installDirectory, "resources"));
-  const workCli = path.join(resources, "bin", "vellum-command");
+  const workCli = path.join(resources, "bin", "junto");
   if (!(await isExecutable(workCli))) {
     throw new Error("packaged CLI is missing");
   }
@@ -584,7 +584,7 @@ if (modulePath === invokedPath) {
   const executable = process.argv[2];
   if (executable === undefined || process.argv.length !== 3) {
     console.error(
-      "usage: bun scripts/linux-ci-packaged-smoke.ts /path/to/installed/vellum-command",
+      "usage: bun scripts/linux-ci-packaged-smoke.ts /path/to/installed/junto",
     );
     process.exitCode = 2;
   } else {
@@ -593,7 +593,7 @@ if (modulePath === invokedPath) {
       .catch((error: unknown) => {
         const message = error instanceof Error ? error.message : String(error);
         console.error(
-          `vellum-command Linux packaged runtime smoke failed: ${message.slice(0, 1_000)}`,
+          `junto Linux packaged runtime smoke failed: ${message.slice(0, 1_000)}`,
         );
         process.exitCode = 1;
       });

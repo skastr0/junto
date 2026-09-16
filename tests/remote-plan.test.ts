@@ -5,8 +5,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { Effect, Result } from "effect";
-import { inspectRemoteCommand } from "../src/main/vellum-command/ssh/domain";
-import * as remotePlan from "../src/main/vellum-command/ssh/remote-plan";
+import { inspectRemoteCommand } from "../src/main/junto/ssh/domain";
+import * as remotePlan from "../src/main/junto/ssh/remote-plan";
 import {
   compileDarwinRemoteDeployScript,
   compileLinuxUserlandDeploy,
@@ -14,7 +14,7 @@ import {
   compileLinuxUserlandPreflightSource,
   compileLinuxUserlandDeploySource,
   LINUX_WORK_CONTROL_HANDSHAKE_PYTHON,
-} from "../src/main/vellum-command/ssh/remote-plan";
+} from "../src/main/junto/ssh/remote-plan";
 import {
   encodeWorkFrame,
   workErr,
@@ -80,7 +80,7 @@ describe("named deploy compilers", () => {
     expect(parts.args[0]).toBe("-c");
     expect(parts.args[2]).toBe("vellum-plan:linux-userland-restart");
     expect(parts.args[1]).toBe(remotePlan.compileLinuxUserlandRestartSource());
-    expect(parts.args[1]).toContain("systemctl --user restart vellum-command-remote.service");
+    expect(parts.args[1]).toContain("systemctl --user restart junto-remote.service");
     expect(parts.args[1]).not.toMatch(/sudo|rm -rf|--vellum-headless/u);
   });
 
@@ -92,20 +92,20 @@ describe("named deploy compilers", () => {
     expect(parts.args[1]).toBe(remotePlan.compileLinuxUserlandObserveSource());
     expect(parts.args[1]).toContain("LINUX_USERLAND_OBSERVE_V1");
     expect(parts.args[1]).toContain("$HOME/.junto/runtime/releases");
-    expect(parts.args[1]).toContain("resources/bin/vellum-command-remote");
+    expect(parts.args[1]).toContain("resources/bin/junto-remote");
     expect(parts.args[1]).not.toMatch(/sudo|rm -rf|--vellum-headless|current/u);
   });
 
-  it("hardens deploy around vellum-command-remote generation pin, sealed install, and member proof", () => {
+  it("hardens deploy around junto-remote generation pin, sealed install, and member proof", () => {
     const source = compileLinuxUserlandDeploySource();
-    expect(source).toContain("resources/bin/vellum-command-remote");
+    expect(source).toContain("resources/bin/junto-remote");
     expect(source).not.toContain("--vellum-state-preflight");
     expect(source).toContain("--install-user-service");
     expect(source).toContain("unit_pins_generation");
     expect(source).toContain("prove_activation");
     expect(source).toContain('GENERATION_MARKER="releases/$VERSION-$SHA"');
-    expect(source).toContain("$GENERATION_MARKER/resources/systemd/vellum-command-remote-launch");
-    expect(source).toContain("$GENERATION_MARKER/resources/bin/vellum-command-remote");
+    expect(source).toContain("$GENERATION_MARKER/resources/systemd/junto-remote-launch");
+    expect(source).toContain("$GENERATION_MARKER/resources/bin/junto-remote");
     expect(source).toContain("state=idempotent");
     expect(source).toContain('"$HOME/.junto/work/control.sock"');
     expect(source).toContain('"$HOME/.junto/work/token"');
@@ -115,7 +115,7 @@ describe("named deploy compilers", () => {
     expect(source).toContain("s.sendall");
     expect(source).not.toMatch(/s\.connect\([^)]+\);\s*s\.close\(\)/u);
     expect(source).not.toContain('"$DEST/vellum"');
-    expect(source).not.toContain('"$RELEASE/vellum-command"');
+    expect(source).not.toContain('"$RELEASE/junto"');
     expect(source).not.toMatch(/Xvfb|ozone-platform|--vellum-headless/u);
     expect(source).not.toContain("rm -rf");
     expect(source).toContain('/bin/rm -f -- "$ARCHIVE"');

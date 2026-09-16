@@ -3,7 +3,7 @@
  * linux-unpacked (or finalized) tree:
  *
  *   resources/bin/node              — official Node linux-x64 binary
- *   resources/bin/vellum-command-remote     — wrapper that exec's bundled node on the entry
+ *   resources/bin/junto-remote     — wrapper that exec's bundled node on the entry
  *   resources/app-remote/…          — remote JS entry + node-pty rebuilt for Node ABI
  *
  * Product remote is Node, never ELECTRON_RUN_AS_NODE and never Bun --compile.
@@ -72,9 +72,9 @@ export const pinnedNodeLinuxX64ArchiveSha256 = (
 
 export const REMOTE_NODE_RELATIVE = "resources/bin/node";
 export const REMOTE_NODE_LICENSE_RELATIVE = "resources/bin/node.LICENSE";
-export const REMOTE_WRAPPER_RELATIVE = "resources/bin/vellum-command-remote";
+export const REMOTE_WRAPPER_RELATIVE = "resources/bin/junto-remote";
 export const REMOTE_APP_DIR_RELATIVE = "resources/app-remote";
-export const REMOTE_ENTRY_RELATIVE = "resources/app-remote/vellum-command-remote.js";
+export const REMOTE_ENTRY_RELATIVE = "resources/app-remote/junto-remote.js";
 export const REMOTE_NODE_PTY_RELATIVE =
   "resources/app-remote/node_modules/node-pty";
 export const REMOTE_APP_PACKAGE_RELATIVE = "resources/app-remote/package.json";
@@ -104,9 +104,9 @@ export const LINUX_NODE_PTY_NATIVE_RELATIVE =
   "build/Release/pty.node";
 
 /** Repo-side build output copied into the runtime when present. */
-export const REMOTE_ENTRY_SOURCE_RELATIVE = "out/remote/vellum-command-remote.js";
+export const REMOTE_ENTRY_SOURCE_RELATIVE = "out/remote/junto-remote.js";
 /** TypeScript product entry compiled by --entry-only. */
-export const REMOTE_ENTRY_TS_RELATIVE = "src/main/vellum-remote.ts";
+export const REMOTE_ENTRY_TS_RELATIVE = "src/main/junto-remote.ts";
 
 const SEMVER =
   /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/u;
@@ -140,16 +140,16 @@ export const nodeLinuxX64ArchiveUrl = (version: string): string =>
   `https://nodejs.org/dist/v${requireNodeRemoteVersion(version)}/${nodeLinuxX64ArchiveName(version)}`;
 
 /**
- * Wrapper executed as resources/bin/vellum-command-remote. Resolves the release root
+ * Wrapper executed as resources/bin/junto-remote. Resolves the release root
  * from argv0, never uses system node, never sets ELECTRON_RUN_AS_NODE.
  */
 export const vellumRemoteWrapperScript = (): string => `#!/bin/sh
 # Displayless product Remote: bundled Node + app-remote entry. No system Node,
 # no Bun compile, no ELECTRON_RUN_AS_NODE.
 set -eu
-fail() { printf '%s\\n' "vellum-command-remote: $1" >&2; exit "\${2:-69}"; }
+fail() { printf '%s\\n' "junto-remote: $1" >&2; exit "\${2:-69}"; }
 case "\${0}" in
-  */resources/bin/vellum-command-remote) release=\${0%/resources/bin/vellum-command-remote} ;;
+  */resources/bin/junto-remote) release=\${0%/resources/bin/junto-remote} ;;
   *) fail 'launcher path is not a release resource' 73 ;;
 esac
 case "$release" in
@@ -239,7 +239,7 @@ const sha256File = async (file: string): Promise<string> => {
 };
 
 /**
- * Bundle src/main/vellum-remote.ts → out/remote/vellum-command-remote.js (CJS, Node target).
+ * Bundle src/main/junto-remote.ts → out/remote/junto-remote.js (CJS, Node target).
  * Not Bun --compile — product remote loads under the official Node binary.
  */
 export const buildRemoteEntryBundle = async (input: {
@@ -309,7 +309,7 @@ export const buildRemoteEntryBundle = async (input: {
     // let the displayless Node Remote resolve the Electron package.
     body = body.replace(
       /(?:__require|require)\s*\(\s*["']electron["']\s*\)/gu,
-      '(() => { throw new Error("electron is forbidden in vellum-command-remote"); })()',
+      '(() => { throw new Error("electron is forbidden in junto-remote"); })()',
     );
     const forbidden: ReadonlyArray<{
       readonly pattern: RegExp;
@@ -645,7 +645,7 @@ export const stageRemoteEntry = async (input: {
   // CJS entry can resolve node-pty via NODE_PATH; package.json documents the surface.
   await writeFile(
     path.join(input.runtimeRoot, REMOTE_APP_PACKAGE_RELATIVE),
-    `${JSON.stringify({ name: "vellum-app-remote", private: true, main: "vellum-command-remote.js" }, null, 2)}\n`,
+    `${JSON.stringify({ name: "vellum-app-remote", private: true, main: "junto-remote.js" }, null, 2)}\n`,
     { encoding: "utf8", mode: 0o644 },
   );
   return { entryPath: destination };
@@ -709,7 +709,7 @@ const assertExactStagedRemoteApp = async (input: {
   const actual = await walkRemoteAppFiles(input.appRoot);
   const expected = [
     "package.json",
-    "vellum-command-remote.js",
+    "junto-remote.js",
     ...LINUX_REMOTE_NOTICE_FILES,
   ];
   if (input.requireProvenance) {
@@ -829,7 +829,7 @@ export const installLinuxRemoteRuntime = async (input: {
   const requireEntry = input.requireEntry !== false;
   const requireProvenance = input.requireProvenance === true;
   const stageRoot = await mkdtemp(
-    path.join(runtimeRoot, ".vellum-remote-stage-"),
+    path.join(runtimeRoot, ".junto-remote-stage-"),
   );
   await chmod(stageRoot, 0o700);
   const stagedAppRoot = path.join(stageRoot, REMOTE_APP_DIR_RELATIVE);

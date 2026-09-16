@@ -9,11 +9,11 @@ import {
   WorkRepository,
   WorkRepositoryLive,
   type SendOnTaskInput,
-} from "../src/main/vellum-command/work/repository";
+} from "../src/main/junto/work/repository";
 import {
   makeStateEngineLive,
   StateEngine,
-} from "../src/main/vellum-command/state/engine";
+} from "../src/main/junto/state/engine";
 import { IntentFactBasis } from "../src/shared/work-protocol";
 import { serializeCanvas, type CanvasDoc } from "../src/shared/canvas";
 import type { Task } from "../src/shared/work-model";
@@ -30,7 +30,7 @@ import {
 // same input, so a concurrent blocking verdict between preflight and
 // commit slips through. Pinned expected-fail until the field is consumed.
 
-const root = join(tmpdir(), `vellum-command-crew-sendon-${randomUUID()}`);
+const root = join(tmpdir(), `junto-crew-sendon-${randomUUID()}`);
 const runtime = ManagedRuntime.make(
   Layer.provideMerge(
     WorkRepositoryLive,

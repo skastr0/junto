@@ -557,7 +557,7 @@ const applyInjectionChoices = (
     }
     // promptMode none (Amp, fx): never firstTyped-paste the full doctrine.
     // Those TUIs have no argv prompt slot; a multiline paste is the chip
-    // hole. One-line onboard pointer — live map is `vellum-command onboard`.
+    // hole. One-line onboard pointer — live map is `junto onboard`.
     if (body && mode === "none") {
       return {
         choices,

@@ -89,7 +89,7 @@ describe("renderer Junto node-reference navigation", () => {
     });
 
     await expect(
-      coordinator.navigate({ ...event("portfolio", "page"), ref: "vellum-command://canvas/portfolio?node=%70age" }),
+      coordinator.navigate({ ...event("portfolio", "page"), ref: "junto://canvas/portfolio?node=%70age" }),
     ).rejects.toEqual(expect.objectContaining({ code: "event" }));
     await expect(coordinator.navigate(event("portfolio", "page"))).rejects.toEqual(
       expect.objectContaining({ code: "read" }),

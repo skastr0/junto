@@ -143,14 +143,14 @@ describe("Linux release artifact identity", () => {
   it("admits one target-specific userland runtime archive", () => {
     expect(() => validateLinuxReleaseArtifactNames({
       names: [
-        "vellum-command-runtime-0.1.0-linux-x64.tar.gz",
+        "junto-runtime-0.1.0-linux-x64.tar.gz",
       ],
-      expectedArchive: "vellum-command-runtime-0.1.0-linux-x64.tar.gz",
+      expectedArchive: "junto-runtime-0.1.0-linux-x64.tar.gz",
     })).not.toThrow();
   });
 
   it.each([
-    "vellum-command-runtime-0.1.0-linux-arm64.tar.gz",
+    "junto-runtime-0.1.0-linux-arm64.tar.gz",
     "Junto-0.1.0-x64-linux.AppImage",
     "vellum-linux-generic.tar.gz",
     "vellum-0.1.0.rpm",
@@ -158,10 +158,10 @@ describe("Linux release artifact identity", () => {
   ])("rejects unsupported artifact %s", (unsupported) => {
     expect(() => validateLinuxReleaseArtifactNames({
       names: [
-        "vellum-command-runtime-0.1.0-linux-x64.tar.gz",
+        "junto-runtime-0.1.0-linux-x64.tar.gz",
         unsupported,
       ],
-      expectedArchive: "vellum-command-runtime-0.1.0-linux-x64.tar.gz",
+      expectedArchive: "junto-runtime-0.1.0-linux-x64.tar.gz",
     })).toThrow(/unsupported|one exact/u);
   });
 
@@ -180,7 +180,7 @@ describe("Linux release artifact identity", () => {
         "utf8",
       ),
     ).version as string;
-    const archive = `vellum-command-runtime-${packageVersion}-linux-x64.tar.gz`;
+    const archive = `junto-runtime-${packageVersion}-linux-x64.tar.gz`;
     const evidenceNames: string[] = [];
     await writeFile(path.join(release, archive), "runtime archive");
     await Promise.all(
@@ -263,7 +263,7 @@ describe("Linux release artifact identity", () => {
     expect(JSON.stringify(manifest)).not.toContain(root);
     expect(await readFile(path.join(logs, "unit.log"), "utf8")).toBe("passed\n");
     expect(linuxCiChecksumLines(manifest)).toContain(
-      `release/vellum-command-runtime-${packageVersion}-linux-x64.tar.gz`,
+      `release/junto-runtime-${packageVersion}-linux-x64.tar.gz`,
     );
     await expect(verifyLinuxCiReleaseManifest({
       manifest,

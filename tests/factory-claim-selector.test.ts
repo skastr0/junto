@@ -5,7 +5,7 @@ import {
   selectFactoryClaims,
 } from "../src/shared/factory-tick";
 import type { CanvasDoc, CanvasEdge } from "../src/shared/canvas";
-import { admitWorkTarget } from "../src/main/vellum-command/work/authz";
+import { admitWorkTarget } from "../src/main/junto/work/authz";
 import { ActorRef } from "../src/shared/work-protocol";
 import { taskAdmissionState } from "../src/shared/rules";
 

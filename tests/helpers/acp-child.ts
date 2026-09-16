@@ -2,11 +2,11 @@ import type {
   AppChildIo,
   AppProcessLease,
   AppProcessSignalReceipt,
-} from "../../src/main/vellum-command/app-process-plane";
+} from "../../src/main/junto/app-process-plane";
 import type {
   AcpChildLike,
   SpawnedAcpChild,
-} from "../../src/main/vellum-command/chat/acp-client";
+} from "../../src/main/junto/chat/acp-client";
 
 export type TestLocalAcpChild = AcpChildLike & {
   kill(signal?: NodeJS.Signals): unknown;

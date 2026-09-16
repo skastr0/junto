@@ -20,23 +20,23 @@ import { join } from "node:path";
 import { Effect, Layer, ManagedRuntime, Schema } from "effect";
 import type { CanvasDoc, CanvasNode } from "../../src/shared/canvas";
 import { IntentFactBasis, type ActorRef } from "../../src/shared/work-protocol";
-import { CanvasesLive, CanvasesService } from "../../src/main/vellum-command/canvases";
-import { SettingsLive, SettingsService } from "../../src/main/vellum-command/settings/service";
-import { StationFleetTargetRepositoryLive } from "../../src/main/vellum-command/station/fleet-target-repository";
-import { StationRepository, StationRepositoryLive } from "../../src/main/vellum-command/station/repository";
+import { CanvasesLive, CanvasesService } from "../../src/main/junto/canvases";
+import { SettingsLive, SettingsService } from "../../src/main/junto/settings/service";
+import { StationFleetTargetRepositoryLive } from "../../src/main/junto/station/fleet-target-repository";
+import { StationRepository, StationRepositoryLive } from "../../src/main/junto/station/repository";
 import {
   createAuthorialTaskDependencyScopeCapability,
   WorkRepository,
   WorkRepositoryLive,
-} from "../../src/main/vellum-command/work/repository";
-import { makeContentServiceLive } from "../../src/main/vellum-command/content/service";
-import { makeInstallOpsLive } from "../../src/main/vellum-command/install-ops/engine";
-import { CURRENT_STATE_SCHEMA_VERSION } from "../../src/main/vellum-command/state/migrations";
-import { StateEngine } from "../../src/main/vellum-command/state/service";
+} from "../../src/main/junto/work/repository";
+import { makeContentServiceLive } from "../../src/main/junto/content/service";
+import { makeInstallOpsLive } from "../../src/main/junto/install-ops/engine";
+import { CURRENT_STATE_SCHEMA_VERSION } from "../../src/main/junto/state/migrations";
+import { StateEngine } from "../../src/main/junto/state/service";
 import {
   mailboxMessageDeliveryId,
   mailboxMessageReadId,
-} from "../../src/main/vellum-command/work/mailbox-receipts";
+} from "../../src/main/junto/work/mailbox-receipts";
 import { SqlRecorder, makeInstrumentedStateEngineLive } from "./harness";
 
 export const BENCH_CANVAS_NAME = "factory";

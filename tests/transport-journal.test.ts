@@ -25,7 +25,7 @@ import {
   appendTransportTrace,
   recordTransportError,
   startTransportJournal,
-} from "../src/main/vellum-command/observability/transport-journal";
+} from "../src/main/junto/observability/transport-journal";
 import { __resetJuntoHomeCache } from "../src/shared/junto-home";
 
 const originalHome = process.env.JUNTO_HOME;

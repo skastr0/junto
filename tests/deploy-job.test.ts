@@ -19,8 +19,8 @@ import {
   finishDeployJob,
   getDeployJob,
   reportDeployCopyProgress,
-} from "../src/main/vellum-command/hosts/deploy-job-registry";
-import { estimateDirectoryBytes } from "../src/main/vellum-command/hosts/deploy-copy-stream";
+} from "../src/main/junto/hosts/deploy-job-registry";
+import { estimateDirectoryBytes } from "../src/main/junto/hosts/deploy-copy-stream";
 
 describe("percentFromStages", () => {
   it("maps known milestones", () => {

@@ -10,7 +10,7 @@ import {
   LIVE_CONTEXT_LIMITS,
   meaningfulLiveChanges,
   quietLiveContext,
-} from "../src/main/vellum-command/overseer/live/context";
+} from "../src/main/junto/overseer/live/context";
 
 const actor = Schema.decodeUnknownSync(ActorSeatId)(`seat_${"a".repeat(64)}`);
 const task = (id = "investigation", state: TaskState = "working"): Task => ({

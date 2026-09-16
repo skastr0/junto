@@ -12,14 +12,14 @@ import {
   encodeBracketedPaste,
   hermesRefusesMultilinePaste,
   payloadMayChip,
-} from "../src/main/vellum-command/term/drive";
+} from "../src/main/junto/term/drive";
 import {
   makeManagedPulseDeliver,
   scheduleManagedPulseReady,
   subscribeManagedPulseReady,
-} from "../src/main/vellum-command/term/managed-pulse-bridge";
+} from "../src/main/junto/term/managed-pulse-bridge";
 import { isPromptSubmitted } from "../src/shared/managed-prompt";
-import type { PtyDeliveryTraceEvent } from "../src/main/vellum-command/term/drive/pty-delivery-trace";
+import type { PtyDeliveryTraceEvent } from "../src/main/junto/term/drive/pty-delivery-trace";
 
 describe("typing recipe", () => {
   it("encodes bracketed paste as one envelope", () => {

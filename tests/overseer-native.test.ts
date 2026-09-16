@@ -9,29 +9,29 @@ import { decodeOverseerArgs } from "../src/shared/overseer-control";
 import {
   INTERRUPT_BYTE,
   ManagedTerminalDrive,
-} from "../src/main/vellum-command/term/drive";
-import { TerminalNodeDeleteService } from "../src/main/vellum-command/term/node-delete";
-import { NodeDeleteService } from "../src/main/vellum-command/chat/node-delete";
+} from "../src/main/junto/term/drive";
+import { TerminalNodeDeleteService } from "../src/main/junto/term/node-delete";
+import { NodeDeleteService } from "../src/main/junto/chat/node-delete";
 import {
   admitOverseerPage,
   overseerPageNodeIds,
-} from "../src/main/vellum-command/overseer/authz";
-import { callerMayAccessPage } from "../src/main/vellum-command/browser/authz";
+} from "../src/main/junto/overseer/authz";
+import { callerMayAccessPage } from "../src/main/junto/browser/authz";
 import {
   makeOverseerNativeLive,
   type OverseerNativeLiveOptions,
-} from "../src/main/vellum-command/overseer/native";
-import type { TermPlane } from "../src/main/vellum-command/term/plane";
-import type { ChatService } from "../src/main/vellum-command/chat/service";
+} from "../src/main/junto/overseer/native";
+import type { TermPlane } from "../src/main/junto/term/plane";
+import type { ChatService } from "../src/main/junto/chat/service";
 import {
   BrowserSessionService,
   type BrowserViewAdapter,
-} from "../src/main/vellum-command/browser/sessions";
-import { makeBrowserProfileService } from "../src/main/vellum-command/browser/profiles";
-import { makeStateEngineLive } from "../src/main/vellum-command/state/engine";
-import { StateEngine } from "../src/main/vellum-command/state/service";
+} from "../src/main/junto/browser/sessions";
+import { makeBrowserProfileService } from "../src/main/junto/browser/profiles";
+import { makeStateEngineLive } from "../src/main/junto/state/engine";
+import { StateEngine } from "../src/main/junto/state/service";
 import { LOCAL_BROWSER_TEST_AUTHORITY } from "./browser-host-test-authority";
-import type { ResolvedPageTarget } from "../src/main/vellum-command/browser/page-target";
+import type { ResolvedPageTarget } from "../src/main/junto/browser/page-target";
 
 
 const PNG = Uint8Array.from([137, 80, 78, 71, 13, 10, 26, 10, 1, 2, 3]);
@@ -376,9 +376,9 @@ describe("overseer native adapters", () => {
       data: { sessionId: "ui-sess", url: "https://example.com/next" },
     }));
     const pages = {
-      overseerSessionsForRef: () => [{ owner: "vellum-command-ui", sessionId: "ui-sess" }],
+      overseerSessionsForRef: () => [{ owner: "junto-ui", sessionId: "ui-sess" }],
       overseerSessionOwner: (sessionId: string) =>
-        sessionId === "ui-sess" ? "vellum-command-ui" : undefined,
+        sessionId === "ui-sess" ? "junto-ui" : undefined,
       sessionIdForRefForOwner: () => undefined,
       sessionIdForRef: () => "ui-sess",
       stateForOwner: (owner: string, sessionId: string) => ({
@@ -397,7 +397,7 @@ describe("overseer native adapters", () => {
     });
     expect(moved.ok).toBe(true);
     expect(gotoForOwner).toHaveBeenCalledWith(
-      "vellum-command-ui",
+      "junto-ui",
       "ui-sess",
       "https://example.com/next",
     );
@@ -862,8 +862,8 @@ describe("overseer deletion fences share TermPlane/ChatService identity", () => 
 
     pages = {
       stopForOwner,
-      overseerSessionsForRef: () => [{ owner: "vellum-command-ui", sessionId: "sess-late" }],
-      overseerDeleteSessionsForRef: () => [{ owner: "vellum-command-ui", sessionId: "sess-late" }],
+      overseerSessionsForRef: () => [{ owner: "junto-ui", sessionId: "sess-late" }],
+      overseerDeleteSessionsForRef: () => [{ owner: "junto-ui", sessionId: "sess-late" }],
       beginOverseerPageDelete: vi.fn(),
       finishOverseerPageDelete: vi.fn(),
     } as unknown as BrowserSessionService;
@@ -872,7 +872,7 @@ describe("overseer deletion fences share TermPlane/ChatService identity", () => 
     ]);
     expect(bound.ok).toBe(true);
     if (!bound.ok) return;
-    expect(stopForOwner).toHaveBeenCalledWith("vellum-command-ui", "sess-late");
+    expect(stopForOwner).toHaveBeenCalledWith("junto-ui", "sess-late");
     expect(bound.pageStops).toEqual([{ sessionId: "sess-late", stopped: true }]);
   });
 
@@ -930,7 +930,7 @@ describe("overseer deletion fences share TermPlane/ChatService identity", () => 
       overseerSessionsForRef: (ref: string) =>
         ref.includes("p1")
           ? [
-              { owner: "vellum-command-ui", sessionId: "ui-sess" },
+              { owner: "junto-ui", sessionId: "ui-sess" },
               { owner: "job-a", sessionId: "auto-a" },
               { owner: "job-b", sessionId: "auto-b" },
             ]
@@ -938,7 +938,7 @@ describe("overseer deletion fences share TermPlane/ChatService identity", () => 
       overseerDeleteSessionsForRef: (ref: string) =>
         ref.includes("p1")
           ? [
-              { owner: "vellum-command-ui", sessionId: "ui-sess" },
+              { owner: "junto-ui", sessionId: "ui-sess" },
               { owner: "job-a", sessionId: "auto-a" },
               { owner: "job-b", sessionId: "auto-b" },
             ]
@@ -954,7 +954,7 @@ describe("overseer deletion fences share TermPlane/ChatService identity", () => 
     if (!prepared.ok) return;
     expect(pages.beginOverseerPageDelete).toHaveBeenCalled();
     expect(stopped).toEqual([
-      { owner: "vellum-command-ui", sessionId: "ui-sess" },
+      { owner: "junto-ui", sessionId: "ui-sess" },
       { owner: "job-a", sessionId: "auto-a" },
       { owner: "job-b", sessionId: "auto-b" },
     ]);
@@ -1052,7 +1052,7 @@ describe("overseer deletion fences share TermPlane/ChatService identity", () => 
     pages.setPoolLimitsProvider(async () => ({ maxVisibleSurfaces: 4, maxWarmSessions: 8 }));
 
     const deleted: ResolvedPageTarget = {
-      ref: "vellum-command://canvas/factory?node=p1",
+      ref: "junto://canvas/factory?node=p1",
       nodeId: "p1",
       url: "https://p1.example.com",
       hostId: "local",
@@ -1072,7 +1072,7 @@ describe("overseer deletion fences share TermPlane/ChatService identity", () => 
     await expect(duringLease).resolves.toMatchObject({ ok: false, code: "cancelled" });
 
     const sibling = await pages.openForOwner("job-b", {
-      ref: "vellum-command://canvas/factory?node=p-sibling",
+      ref: "junto://canvas/factory?node=p-sibling",
       nodeId: "p-sibling",
       url: "https://sibling.example.com",
       hostId: "local",
@@ -1137,7 +1137,7 @@ describe("overseer deletion fences share TermPlane/ChatService identity", () => 
       );
       pages.setPoolLimitsProvider(async () => ({ maxVisibleSurfaces: 4, maxWarmSessions: 8 }));
       const opened = await pages.openForOwner("job-a", {
-        ref: "vellum-command://canvas/factory?node=p1",
+        ref: "junto://canvas/factory?node=p1",
         nodeId: "p1",
         url: "https://p1.example.com",
         hostId: "local",

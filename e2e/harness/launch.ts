@@ -9,7 +9,7 @@
  *  - throwaway --user-data-dir + HOME per test (sandbox.ts); the app still
  *    resolves its one canonical $HOME/.junto/state/junto.db
  *  - HOME sandboxed to the same temp root + SHELL=/bin/sh, so the adapters'
- *    login-shell PATH probe (src/main/vellum-command/adapters/exec.ts) cannot
+ *    login-shell PATH probe (src/main/junto/adapters/exec.ts) cannot
  *    resolve the operator's real CLIs
  *  - renderer served from a local static server (127.0.0.1, ephemeral port)
  *    since the trusted renderer protocol only installs when app.isPackaged
@@ -201,7 +201,7 @@ const findDemoRuntimeDatabase = async (
     entries
       .filter(
         (entry) =>
-          entry.isDirectory() && entry.name.startsWith("vellum-command-demo-runtime-"),
+          entry.isDirectory() && entry.name.startsWith("junto-demo-runtime-"),
       )
       .map(async (entry) => {
         const full = join(searchRoot, entry.name);
@@ -464,7 +464,7 @@ export const launchVellum = async (options: LaunchOptions = {}): Promise<VellumH
     const env: Record<string, string> = {
       ...inherited,
       HOME: sandbox.homeDir,
-      // Demo isolation mints vellum-command-demo-runtime-* under os.tmpdir().
+      // Demo isolation mints junto-demo-runtime-* under os.tmpdir().
       // Pin TMPDIR to this launch's sandbox so two workers cannot seed each
       // other's newest demo database. The demo file is SQLite, not a UDS.
       TMPDIR: sandbox.root,

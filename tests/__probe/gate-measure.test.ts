@@ -25,9 +25,9 @@ import { Effect } from "effect";
 import type { CanvasDoc } from "../../src/shared/canvas";
 import { groupMembers } from "../../src/shared/graph";
 import { regionsContaining } from "../../src/shared/pause";
-import { CanvasesService } from "../../src/main/vellum-command/canvases";
-import { WorkRepository } from "../../src/main/vellum-command/work/repository";
-import { StateEngine } from "../../src/main/vellum-command/state/service";
+import { CanvasesService } from "../../src/main/junto/canvases";
+import { WorkRepository } from "../../src/main/junto/work/repository";
+import { StateEngine } from "../../src/main/junto/state/service";
 import { IntentFactBasis } from "../../src/shared/work-protocol";
 import { Schema } from "effect";
 import {

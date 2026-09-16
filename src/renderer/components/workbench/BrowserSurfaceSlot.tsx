@@ -11,12 +11,12 @@ import {
   unpinWorkbenchSurface,
 } from "../../lib/dock-state";
 import type { WorkZone } from "../../lib/surface-registry";
-import { getVellumCommandApi } from "../../lib/vellum-api";
+import { getJuntoApi } from "../../lib/junto-api";
 import { activateSurfaceOnMouseDown } from "../../lib/pointer-activation";
 import { useTwoClickArm } from "../../lib/two-click-arm";
 import { Button, OverlayHeader } from "../ui";
 
-type BrowserApi = ReturnType<typeof getVellumCommandApi> & Partial<VellumCommandBrowserApi>;
+type BrowserApi = ReturnType<typeof getJuntoApi> & Partial<VellumCommandBrowserApi>;
 
 /**
  * Browser workbench body: plain DOM placeholder — WebContentsView is never
@@ -64,7 +64,7 @@ export function BrowserSurfaceSlot({
       if (!parkedSessionId) return;
       const stillDocked = dock$.registry.peek().surfaces.some((s) => s.id === pageRef);
       if (!stillDocked) return;
-      void (getVellumCommandApi() as BrowserApi | undefined)?.browserSetBounds?.(
+      void (getJuntoApi() as BrowserApi | undefined)?.browserSetBounds?.(
         parkedSessionId,
         { ...BROWSER_ZERO_BOUNDS },
       ).catch(() => undefined);
@@ -91,7 +91,7 @@ export function BrowserSurfaceSlot({
       setStatus("waiting for session…");
       return;
     }
-    const api = getVellumCommandApi() as BrowserApi | undefined;
+    const api = getJuntoApi() as BrowserApi | undefined;
     if (!api?.browserSetBounds) {
       setStatus("browser surface API unavailable");
       return;

@@ -5,15 +5,15 @@ import {
   migrateStateSchema,
   STATE_SCHEMA_V14_IDENTITY,
   STATE_SCHEMA_V15_IDENTITY,
-} from "../src/main/vellum-command/state/migrations";
+} from "../src/main/junto/state/migrations";
 import {
   STATE_SCHEMA_SQL,
   STATE_SCHEMA_V14_SQL,
-} from "../src/main/vellum-command/state/schema";
+} from "../src/main/junto/state/schema";
 import {
   expectedStateSchemaIdentity,
   verifyAndStampStateSchema,
-} from "../src/main/vellum-command/state/schema-identity";
+} from "../src/main/junto/state/schema-identity";
 
 describe("task archived schema migration 14 → 15", () => {
   it("freezes v14 and current identities", () => {

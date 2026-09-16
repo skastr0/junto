@@ -1,7 +1,7 @@
 /**
- * Packaged content-transfer entry — `vellum-command content-transfer …`.
+ * Packaged content-transfer entry — `junto content-transfer …`.
  *
- * Same receive|send|stat closed argv as the unified vellum-command content-transfer
+ * Same receive|send|stat closed argv as the unified junto content-transfer
  * station, with no helper alias or legacy process surface.
  * subcommand of the single packaged CLI binary.
  */
@@ -11,16 +11,16 @@ import { resolveJuntoHome } from "../shared/junto-home";
 import {
   CONTENT_TRANSFER_COMMAND,
   parseContentHelperArgs,
-} from "../main/vellum-command/content/helper-contract";
-import { contentStoreRoot } from "../main/vellum-command/content/paths";
+} from "../main/junto/content/helper-contract";
+import { contentStoreRoot } from "../main/junto/content/paths";
 import {
   contentRefForTransfer,
   encodeContentHelperStatus,
   receiveContentTransfer,
   sendContentTransfer,
   statContentForTransfer,
-} from "../main/vellum-command/content/transfer-local";
-import { ContentStoreError } from "../main/vellum-command/content/store";
+} from "../main/junto/content/transfer-local";
+import { ContentStoreError } from "../main/junto/content/store";
 
 export { CONTENT_TRANSFER_COMMAND };
 
@@ -38,7 +38,7 @@ export const runContentTransfer = async (
 ): Promise<void> => {
   const parsed = parseContentHelperArgs(argv);
   if ("exitCode" in parsed) {
-    process.stderr.write(`vellum-command content-transfer: ${parsed.error}\n`);
+    process.stderr.write(`junto content-transfer: ${parsed.error}\n`);
     process.exitCode = parsed.exitCode;
     return;
   }

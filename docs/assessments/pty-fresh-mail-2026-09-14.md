@@ -25,7 +25,7 @@ API; no helper opened the product database.
 The intake binding is `01M27TCSRRRBFQHGSBD5RXDN8F`.
 Journal offsets refer to `~/.junto/logs/pty-delivery.jsonl`.
 Private receipt snapshots and the read-only collection helper are under
-`/tmp/vellum-command-fresh-mail-20260914/`.
+`/tmp/junto-fresh-mail-20260914/`.
 
 ## Intake receipts
 
@@ -173,4 +173,4 @@ case did not repeat the earlier identical-content batch test or inject
 receipt failures. Captured adapter tests, Remote support and the remaining
 matrix retain their explicit limits; this is not full-matrix certification.
 Private build, install, runtime-proof, trace and app-owned receipt artifacts
-are under `/tmp/vellum-command-fresh-mail-20260914/`.
+are under `/tmp/junto-fresh-mail-20260914/`.

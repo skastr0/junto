@@ -16,25 +16,25 @@ import {
 import {
   CanvasesLive,
   CanvasesService,
-} from "../src/main/vellum-command/canvases";
+} from "../src/main/junto/canvases";
 import {
   makeStateEngineLive,
   StateEngine,
-} from "../src/main/vellum-command/state/engine";
+} from "../src/main/junto/state/engine";
 import {
   StationFleetTargetRepository,
   StationFleetTargetRepositoryLive,
-} from "../src/main/vellum-command/station/fleet-target-repository";
+} from "../src/main/junto/station/fleet-target-repository";
 import {
   makeStationRepositoryLive,
   StationRepository,
   stationProjectionContentSha256,
-} from "../src/main/vellum-command/station/repository";
+} from "../src/main/junto/station/repository";
 import {
   compileStationPortfolioBody,
-} from "../src/main/vellum-command/station/portfolio";
-import { deriveActorSeatId } from "../src/main/vellum-command/station/actor-seat-compiler";
-import { WorkRepositoryLive } from "../src/main/vellum-command/work/repository";
+} from "../src/main/junto/station/portfolio";
+import { deriveActorSeatId } from "../src/main/junto/station/actor-seat-compiler";
+import { WorkRepositoryLive } from "../src/main/junto/work/repository";
 
 const installation = Schema.decodeUnknownSync(InstallationId);
 const hostId = Schema.decodeUnknownSync(StationHostId);

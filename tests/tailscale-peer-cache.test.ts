@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { TailscalePeerCache } from "../src/main/vellum-command/hosts/tailscale-peers";
+import { TailscalePeerCache } from "../src/main/junto/hosts/tailscale-peers";
 
 const statusJson = JSON.stringify({
   Self: {

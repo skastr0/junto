@@ -32,7 +32,7 @@ import {
 const roots: string[] = [];
 const body = "source fixture";
 const temporary = async () => {
-  const directory = await mkdtemp(path.join(tmpdir(), "vellum-command-runtime-source-test-"));
+  const directory = await mkdtemp(path.join(tmpdir(), "junto-runtime-source-test-"));
   roots.push(directory);
   return directory;
 };

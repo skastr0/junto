@@ -6,10 +6,10 @@ describe("browser startup recovery gate", () => {
   const root = join(import.meta.dirname, "..");
   const indexSrc = readFileSync(join(root, "src/main/index.ts"), "utf8");
   const browserIpcSrc = readFileSync(
-    join(root, "src/main/vellum-command/browser/ipc.ts"),
+    join(root, "src/main/junto/browser/ipc.ts"),
     "utf8",
   );
-  const vellumIpcSrc = readFileSync(join(root, "src/main/vellum-command/ipc.ts"), "utf8");
+  const vellumIpcSrc = readFileSync(join(root, "src/main/junto/ipc.ts"), "utf8");
 
   it("keeps browser handlers inside the post-recovery activation boundary", () => {
     const ready = indexSrc.slice(indexSrc.indexOf("app.whenReady().then"));
@@ -83,7 +83,7 @@ describe("browser startup recovery gate", () => {
     const ready = indexSrc.slice(indexSrc.indexOf("app.whenReady().then"));
     const supervised = ready.indexOf("if (!(await ensureSupervised())) return;");
     const host = ready.indexOf("await browserCompositionHost.ensureHeadlessHost()");
-    expect(indexSrc).toContain('import { loadStationSupervisor } from "./vellum-command/supervision/select";');
+    expect(indexSrc).toContain('import { loadStationSupervisor } from "./junto/supervision/select";');
     expect(indexSrc).toContain("const handoff = await supervisor.requestHandoff();");
     expect(indexSrc).not.toContain("kickstartLaunchAgent");
     expect(supervised).toBeGreaterThanOrEqual(0);

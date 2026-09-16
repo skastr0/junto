@@ -23,34 +23,34 @@ import { mirrorRequestsText } from "../../src/shared/task";
 import {
   CanvasesLive,
   CanvasesService,
-} from "../../src/main/vellum-command/canvases";
+} from "../../src/main/junto/canvases";
 import {
   makeStateEngineLive,
-} from "../../src/main/vellum-command/state/engine";
-import { StateEngine } from "../../src/main/vellum-command/state/service";
+} from "../../src/main/junto/state/engine";
+import { StateEngine } from "../../src/main/junto/state/service";
 import {
   SettingsLive,
   SettingsService,
-} from "../../src/main/vellum-command/settings/service";
-import { makeHostsRegistry } from "../../src/main/vellum-command/hosts/registry";
+} from "../../src/main/junto/settings/service";
+import { makeHostsRegistry } from "../../src/main/junto/hosts/registry";
 import type { RemoteHost } from "../../src/shared/remote-hosts";
 import type { UsageState } from "../../src/shared/usage";
 import {
   createAuthorialTaskDependencyScopeCapability,
   WorkRepository,
   WorkRepositoryLive,
-} from "../../src/main/vellum-command/work/repository";
+} from "../../src/main/junto/work/repository";
 import {
   StationRepository,
   StationRepositoryLive,
-} from "../../src/main/vellum-command/station/repository";
+} from "../../src/main/junto/station/repository";
 import {
   StationFleetTargetRepository,
   StationFleetTargetRepositoryLive,
-} from "../../src/main/vellum-command/station/fleet-target-repository";
+} from "../../src/main/junto/station/fleet-target-repository";
 import {
   compileActorSeatRegistry,
-} from "../../src/main/vellum-command/station/actor-seat-compiler";
+} from "../../src/main/junto/station/actor-seat-compiler";
 import {
   IntentFactBasis,
   type ActorRef,
@@ -76,14 +76,14 @@ export interface Sandbox {
 const controlSocketFits = (root: string): boolean => {
   // Longest control plane suffix under the canonical home.
   const suffix = join("home", ".junto", "station", "control.sock");
-  // 6 random chars from mkdtemp + the "vellum-command-e2e-" prefix.
-  const longest = join(root, "vellum-command-e2e-abcdef", suffix);
+  // 6 random chars from mkdtemp + the "junto-e2e-" prefix.
+  const longest = join(root, "junto-e2e-abcdef", suffix);
   return Buffer.byteLength(longest) <= 103;
 };
 
 export const createSandbox = async (): Promise<Sandbox> => {
   const tempRoot = controlSocketFits(tmpdir()) ? tmpdir() : "/tmp";
-  const root = await mkdtemp(join(tempRoot, "vellum-command-e2e-"));
+  const root = await mkdtemp(join(tempRoot, "junto-e2e-"));
   const userDataDir = join(root, "user-data");
   const homeDir = join(root, "home");
   const vellumDir = join(homeDir, ".junto");

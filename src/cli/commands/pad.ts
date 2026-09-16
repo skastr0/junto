@@ -199,8 +199,8 @@ const padTaggedCommand = Command.make(
             new InputError({
               message: "process-bound seat id missing from capabilities",
               path: "capabilities.node.id",
-              hint: "run vellum-command onboard under the live Junto agent process",
-              next_step: "vellum-command onboard",
+              hint: "run junto onboard under the live Junto agent process",
+              next_step: "junto onboard",
             }),
           );
         }

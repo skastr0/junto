@@ -41,23 +41,23 @@ import {
 import {
   SshEndpoint,
   SshIoError,
-} from "../src/main/vellum-command/ssh/domain";
+} from "../src/main/junto/ssh/domain";
 import {
   resolveRemotePackagedPlatform,
-} from "../src/main/vellum-command/ssh/read-commands";
+} from "../src/main/junto/ssh/read-commands";
 import type {
   ConfirmSshReady,
   SshLease,
   SshTransport,
-} from "../src/main/vellum-command/ssh/service";
+} from "../src/main/junto/ssh/service";
 import {
   admitEnrolledOpenSshStationPeer,
   encodeOpenSshStationFrame,
   makeOpenSshStationFrameDecoder,
   makeOpenSshStationFrameTransport,
   makeOpenSshStationPeerExchange,
-} from "../src/main/vellum-command/station/openssh-peer-exchange";
-import type { StationRemoteHandlers } from "../src/main/vellum-command/station/peer-exchange";
+} from "../src/main/junto/station/openssh-peer-exchange";
+import type { StationRemoteHandlers } from "../src/main/junto/station/peer-exchange";
 
 const runEffect = <A, E>(effect: Effect.Effect<A, E, any>): Promise<A> =>
   Effect.runPromise(effect as Effect.Effect<A, E, never>);

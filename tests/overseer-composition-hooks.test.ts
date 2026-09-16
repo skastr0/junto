@@ -1,4 +1,4 @@
-import { CrewRepositoryLive } from "../src/main/vellum-command/work/crew-repository";
+import { CrewRepositoryLive } from "../src/main/junto/work/crew-repository";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -7,24 +7,24 @@ import { Deferred, Effect, Layer, ManagedRuntime, Schema } from "effect";
 import { applyMirrorLaw, type CanvasDoc, type CanvasNode, type TextNode } from "../src/shared/canvas";
 import type { OverseerCaller } from "../src/shared/overseer-control";
 import { InstallationId } from "../src/shared/station-api";
-import { CanvasesLive, CanvasesService } from "../src/main/vellum-command/canvases";
-import { makeStateEngineLive } from "../src/main/vellum-command/state/engine";
-import { WorkRepositoryLive } from "../src/main/vellum-command/work/repository";
-import { StationRepository, StationRepositoryLive } from "../src/main/vellum-command/station/repository";
-import { StationFleetTargetRepositoryLive } from "../src/main/vellum-command/station/fleet-target-repository";
-import { StationLivePeerRegistryLive } from "../src/main/vellum-command/station/session-registry";
-import { WorkLive } from "../src/main/vellum-command/work/service";
-import { SettingsLive, SettingsService } from "../src/main/vellum-command/settings/service";
-import { makeContentServiceLive } from "../src/main/vellum-command/content/service";
-import { makeInstallOpsLive } from "../src/main/vellum-command/install-ops/engine";
-import { commitAgentReseat } from "../src/main/vellum-command/overseer/canvas";
+import { CanvasesLive, CanvasesService } from "../src/main/junto/canvases";
+import { makeStateEngineLive } from "../src/main/junto/state/engine";
+import { WorkRepositoryLive } from "../src/main/junto/work/repository";
+import { StationRepository, StationRepositoryLive } from "../src/main/junto/station/repository";
+import { StationFleetTargetRepositoryLive } from "../src/main/junto/station/fleet-target-repository";
+import { StationLivePeerRegistryLive } from "../src/main/junto/station/session-registry";
+import { WorkLive } from "../src/main/junto/work/service";
+import { SettingsLive, SettingsService } from "../src/main/junto/settings/service";
+import { makeContentServiceLive } from "../src/main/junto/content/service";
+import { makeInstallOpsLive } from "../src/main/junto/install-ops/engine";
+import { commitAgentReseat } from "../src/main/junto/overseer/canvas";
 import {
   createDispatchGrant,
   lateBoundDrive,
   reseatCanvasArgs,
   runCanvasHook,
   schedulerCanvasArgs,
-} from "../src/main/vellum-command/overseer/composition";
+} from "../src/main/junto/overseer/composition";
 
 
 const origin: OverseerCaller = { canvasName: "ops", nodeId: "overseer" };

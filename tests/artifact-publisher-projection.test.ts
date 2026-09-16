@@ -18,11 +18,11 @@ import {
   readCanvasWorkProjection,
   WorkRepository,
   WorkRepositoryLive,
-} from "../src/main/vellum-command/work/repository";
+} from "../src/main/junto/work/repository";
 import {
   makeStateEngineLive,
   StateEngine,
-} from "../src/main/vellum-command/state/engine";
+} from "../src/main/junto/state/engine";
 import { IntentFactBasis } from "../src/shared/work-protocol";
 import type { CanvasDoc } from "../src/shared/canvas";
 import {
@@ -32,7 +32,7 @@ import {
 
 const root = join(
   tmpdir(),
-  `vellum-command-artifact-publisher-${randomUUID()}`,
+  `junto-artifact-publisher-${randomUUID()}`,
 );
 const runtime = ManagedRuntime.make(
   Layer.provideMerge(

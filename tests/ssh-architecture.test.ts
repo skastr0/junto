@@ -29,7 +29,7 @@ const display = (path: string): string => relative(root, path);
 
 describe("SSH architecture", () => {
   it("has no projection drop-file transport", () => {
-    const projectionDirectory = join(root, "src/main/vellum-command/projection");
+    const projectionDirectory = join(root, "src/main/junto/projection");
     expect(
       existsSync(projectionDirectory)
         ? readdirSync(projectionDirectory, { withFileTypes: true }).map(
@@ -39,7 +39,7 @@ describe("SSH architecture", () => {
     ).toEqual([]);
 
     const remotePlan = readFileSync(
-      join(root, "src/main/vellum-command/ssh/remote-plan.ts"),
+      join(root, "src/main/junto/ssh/remote-plan.ts"),
       "utf8",
     );
     expect(remotePlan).not.toContain("incoming.frame");
@@ -61,17 +61,17 @@ describe("SSH architecture", () => {
       // product remote traffic still constructs ssh only inside the kernel.
       "scripts/linux-orbstack-two-station-qualification.ts",
       // Doctor only checks executability of the OpenSSH client path; spawn stays in kernel.
-      "src/main/vellum-command/hosts/doctor.ts",
+      "src/main/junto/hosts/doctor.ts",
       // Box invokes its fixed `ssh <id> true` preparation operation; ordinary
       // remote traffic remains inside the central OpenSSH transport.
-      "src/main/vellum-command/box/cli.ts",
+      "src/main/junto/box/cli.ts",
       // Capability inventory names the OpenSSH binary; no process construction.
       "src/shared/linux-host-capabilities.ts",
       "src/shared/linux-host-capability-doctor.ts",
     ]);
     const violations = files.flatMap((path) => {
       const name = display(path);
-      if (name.startsWith("src/main/vellum-command/ssh/")) return [];
+      if (name.startsWith("src/main/junto/ssh/")) return [];
       if (allowedBinaryMentions.has(name)) return [];
       const source = readFileSync(path, "utf8");
       const shellInvocation =
@@ -91,46 +91,46 @@ describe("SSH architecture", () => {
 
   it("reserves private SSH constructors for product policy renderers", () => {
     const renderers = new Set([
-      "src/main/vellum-command/hermes/transport.ts",
-      "src/main/vellum-command/hosts/doctor.ts",
+      "src/main/junto/hermes/transport.ts",
+      "src/main/junto/hosts/doctor.ts",
       // Host configure is product policy over the shared SSH kernel.
-      "src/main/vellum-command/hosts/configure-remote.ts",
+      "src/main/junto/hosts/configure-remote.ts",
       // Platform admission probes uname; Darwin renders the installer command.
-      "src/main/vellum-command/hosts/remote-platform.ts",
-      "src/main/vellum-command/hosts/deploy-darwin.ts",
+      "src/main/junto/hosts/remote-platform.ts",
+      "src/main/junto/hosts/deploy-darwin.ts",
       // Linux renders fixed preflight/install programs; artifact and station
       // facts cross only the bounded stdin frame owned by SshTransport.
-      "src/main/vellum-command/hosts/deploy-linux.ts",
+      "src/main/junto/hosts/deploy-linux.ts",
       // HostRuntime observes and applies over the shared SSH kernel.
-      "src/main/vellum-command/hosts/host-runtime.ts",
-      "src/main/vellum-command/hosts/host-runtime-platform.ts",
+      "src/main/junto/hosts/host-runtime.ts",
+      "src/main/junto/hosts/host-runtime-platform.ts",
       // Update maintenance holds the socket-bound term control lease over a
       // bounded unix forward on the shared SSH kernel.
-      "src/main/vellum-command/hosts/maintenance.ts",
-      "src/main/vellum-command/hosts/host-ops.ts",
-      "src/main/vellum-command/hosts/host-ops-darwin.ts",
-      "src/main/vellum-command/hosts/host-ops-linux.ts",
+      "src/main/junto/hosts/maintenance.ts",
+      "src/main/junto/hosts/host-ops.ts",
+      "src/main/junto/hosts/host-ops-darwin.ts",
+      "src/main/junto/hosts/host-ops-linux.ts",
       "scripts/host-ops.ts",
       "scripts/transport-logs.ts",
-      "src/main/vellum-command/observability/transport-pull.ts",
-      "src/main/vellum-command/term/router.ts",
+      "src/main/junto/observability/transport-pull.ts",
+      "src/main/junto/term/router.ts",
       // Fresh enrollment performs one bounded identity bootstrap; normal
       // fleet traffic uses only the persistent OpenSSH peer exchange.
-      "src/main/vellum-command/station/openssh-bootstrap.ts",
-      "src/main/vellum-command/station/openssh-peer-exchange.ts",
-      "src/main/vellum-command/station/fleet-propagation.ts",
+      "src/main/junto/station/openssh-bootstrap.ts",
+      "src/main/junto/station/openssh-peer-exchange.ts",
+      "src/main/junto/station/fleet-propagation.ts",
       // Content transfer renders the fixed helper/stat/stream protocol over
       // the shared SSH capability; it does not construct an SSH process.
-      "src/main/vellum-command/content/transfer.ts",
+      "src/main/junto/content/transfer.ts",
     ]);
     const privateImport = /(?:from\s+|import\s*\()["'][^"']*\/ssh\/[^"']+["']/u;
     const violations = files.flatMap((path) => {
       const name = display(path);
       // hosts/doctor is a policy renderer (warm + home + closed binary probes).
       if (
-        name.startsWith("src/main/vellum-command/ssh/") ||
+        name.startsWith("src/main/junto/ssh/") ||
         renderers.has(name) ||
-        name === "src/main/vellum-command/hosts/doctor.ts"
+        name === "src/main/junto/hosts/doctor.ts"
       ) {
         return [];
       }
@@ -142,15 +142,15 @@ describe("SSH architecture", () => {
 
   it("keeps Darwin and Linux package transfers off the Station mux", () => {
     const darwin = readFileSync(
-      join(root, "src/main/vellum-command/hosts/deploy-darwin.ts"),
+      join(root, "src/main/junto/hosts/deploy-darwin.ts"),
       "utf8",
     );
     const linux = readFileSync(
-      join(root, "src/main/vellum-command/hosts/deploy-linux.ts"),
+      join(root, "src/main/junto/hosts/deploy-linux.ts"),
       "utf8",
     );
     const darwinOps = readFileSync(
-      join(root, "src/main/vellum-command/hosts/host-ops-darwin.ts"),
+      join(root, "src/main/junto/hosts/host-ops-darwin.ts"),
       "utf8",
     );
     expect(darwin).toContain("deploymentStream");
@@ -165,18 +165,18 @@ describe("SSH architecture", () => {
   it("has one persistent Station exchange and no one-shot Station client", () => {
     const retiredClient = join(
       root,
-      "src/main/vellum-command/station/remote-client.ts",
+      "src/main/junto/station/remote-client.ts",
     );
     const fleet = readFileSync(
-      join(root, "src/main/vellum-command/station/fleet-propagation.ts"),
+      join(root, "src/main/junto/station/fleet-propagation.ts"),
       "utf8",
     );
     const exchange = readFileSync(
-      join(root, "src/main/vellum-command/station/openssh-peer-exchange.ts"),
+      join(root, "src/main/junto/station/openssh-peer-exchange.ts"),
       "utf8",
     );
     const doctor = readFileSync(
-      join(root, "src/main/vellum-command/hosts/doctor.ts"),
+      join(root, "src/main/junto/hosts/doctor.ts"),
       "utf8",
     );
 
@@ -189,11 +189,11 @@ describe("SSH architecture", () => {
   });
 
   it("keeps Box as lifecycle/preparation glue outside steady-state transport", () => {
-    const boxDirectory = join(root, "src/main/vellum-command/box");
+    const boxDirectory = join(root, "src/main/junto/box");
     const boxFiles = sourceFiles(boxDirectory);
     const boxService = readFileSync(join(boxDirectory, "service.ts"), "utf8");
     const boxCli = readFileSync(join(boxDirectory, "cli.ts"), "utf8");
-    const stationFiles = sourceFiles(join(root, "src/main/vellum-command/station"));
+    const stationFiles = sourceFiles(join(root, "src/main/junto/station"));
 
     expect(boxService).not.toMatch(
       /readonly\s+ssh\s*:\s*\([^)]*command\s*:/u,
@@ -229,9 +229,9 @@ describe("SSH architecture", () => {
       /import\s*\{[^}]*\bmakeRemoteCommand\b[^}]*\}\s*from\s*["'][^"']+["']/u;
     const bareMakeRemote = /\bmakeRemoteCommand\s*\(/u;
     const allowed = new Set([
-      "src/main/vellum-command/ssh/domain.ts",
-      "src/main/vellum-command/ssh/read-commands.ts",
-      "src/main/vellum-command/ssh/remote-plan.ts",
+      "src/main/junto/ssh/domain.ts",
+      "src/main/junto/ssh/read-commands.ts",
+      "src/main/junto/ssh/remote-plan.ts",
     ]);
     const violations = files.flatMap((path) => {
       const name = display(path);
@@ -248,7 +248,7 @@ describe("SSH architecture", () => {
   });
 
   it("public ssh barrel does not export makeRemoteCommand or Darwin freeform compiler", () => {
-    const barrel = readFileSync(join(root, "src/main/vellum-command/ssh/index.ts"), "utf8");
+    const barrel = readFileSync(join(root, "src/main/junto/ssh/index.ts"), "utf8");
     expect(barrel).not.toMatch(/\bmakeRemoteCommand\b/u);
     expect(barrel).not.toMatch(/\bcompileDarwinRemoteDeployScript\b/u);
   });
@@ -263,7 +263,7 @@ describe("SSH architecture", () => {
       /spawn(?:Sync)?\s*\(\s*["'`](?:\/[^"'`]+\/)?bash["'`]\s*,\s*\[\s*["'`]-lc["'`]/u,
     ];
     const hostFiles = files.filter((path) =>
-      display(path).startsWith("src/main/vellum-command/hosts/"),
+      display(path).startsWith("src/main/junto/hosts/"),
     );
     const violations = hostFiles.flatMap((path) => {
       const source = readFileSync(path, "utf8");
@@ -276,9 +276,9 @@ describe("SSH architecture", () => {
 
   it("compileDarwinRemoteDeployScript is confined to residual Darwin path + compiler", () => {
     const allowed = new Set([
-      "src/main/vellum-command/ssh/remote-plan.ts",
-      "src/main/vellum-command/hosts/deploy-darwin.ts",
-      "src/main/vellum-command/hosts/host-ops-darwin.ts",
+      "src/main/junto/ssh/remote-plan.ts",
+      "src/main/junto/hosts/deploy-darwin.ts",
+      "src/main/junto/hosts/host-ops-darwin.ts",
     ]);
     const importOrCall = /\bcompileDarwinRemoteDeployScript\b/u;
     const violations = files.flatMap((path) => {
@@ -298,7 +298,7 @@ describe("SSH architecture", () => {
     // action the host registry invokes on removal/edit — and must never be
     // reachable from a Scope/Layer finalizer that runs on ordinary dispose.
     const service = readFileSync(
-      join(root, "src/main/vellum-command/ssh/service.ts"),
+      join(root, "src/main/junto/ssh/service.ts"),
       "utf8",
     );
     expect(service).toMatch(/ControlPersist=no prevents|Do not issue -O exit/iu);

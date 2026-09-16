@@ -11,19 +11,19 @@ import { Context, Effect, Schema } from "effect";
 import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
 import {
   BoxId,
-} from "../src/main/vellum-command/box";
+} from "../src/main/junto/box";
 import {
   BoxCli,
   makeBoxCli,
-} from "../src/main/vellum-command/box/cli";
+} from "../src/main/junto/box/cli";
 import {
   BoxProcessError,
   BoxProcessRunner,
   resolveBoxCliCandidates,
   type BoxProcessRequest,
   type BoxProcessResult,
-} from "../src/main/vellum-command/box/process";
-import { admitOwnedBox } from "../src/main/vellum-command/box/ownership";
+} from "../src/main/junto/box/process";
+import { admitOwnedBox } from "../src/main/junto/box/ownership";
 
 const boxId = Schema.decodeUnknownSync(BoxId)("bx_c79mgja6");
 const machine = {

@@ -17,12 +17,12 @@ vi.mock("@shared/release-capabilities", async (importOriginal) => {
   };
 });
 
-import { registerHostsIpc } from "../src/main/vellum-command/hosts/ipc";
+import { registerHostsIpc } from "../src/main/junto/hosts/ipc";
 import {
   HOST_OPERATION_ADMISSIONS,
   HostOperationShutdownRefused,
   createHostOperationGate,
-} from "../src/main/vellum-command/hosts/shutdown";
+} from "../src/main/junto/hosts/shutdown";
 
 type InvokeHandler = (event: unknown, ...args: ReadonlyArray<unknown>) => unknown;
 

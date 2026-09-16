@@ -7,7 +7,7 @@
  * stack with REAL production classes:
  *
  *   canvases commit (CanvasesService.write — SQLite via StateEngine)
- *     -> subscribeChanges listener wired exactly like src/main/vellum-command/ipc.ts:987-991
+ *     -> subscribeChanges listener wired exactly like src/main/junto/ipc.ts:987-991
  *     -> onCanvasChangeForEdgeMap -> deliverEdgeMapChangeNotices (real)
  *     -> WorkService.workSystemMailboxNotify (real, Command-Center gate)
  *     -> repository.appendMessage (real overlay projection)
@@ -27,7 +27,7 @@
  *    re-drive loop observable deterministically.
  *  - The delivery store implements the real MessageDeliveryStore interface
  *    over the REAL WorkRepository + canvases, replicating the production
- *    wiring at src/main/vellum-command/ipc.ts:1338-1405 (mailboxMessageDeliveryId
+ *    wiring at src/main/junto/ipc.ts:1338-1405 (mailboxMessageDeliveryId
  *    receipts, authorial intent basis). No fake persistence.
  *
  * NOT faked: planEdgeMapChanges, composeEdgeMapChangeNotice,
@@ -35,7 +35,7 @@
  * PausePlane, MessageDeliveryService, ManagedTerminalDrive, SessionObserver,
  * SeatStateRuntime.
  */
-import { CrewRepositoryLive } from "../../src/main/vellum-command/work/crew-repository";
+import { CrewRepositoryLive } from "../../src/main/junto/work/crew-repository";
 import { randomUUID } from "node:crypto";
 import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -43,41 +43,41 @@ import { join } from "node:path";
 import { Context, Effect, Layer, ManagedRuntime, Schema } from "effect";
 import type { CanvasDoc, Message } from "../../src/shared/canvas";
 import type { AgentSeatStateEvent } from "../../src/shared/agent-seat-state";
-import { SessionObserver } from "../../src/main/vellum-command/term/observer";
-import { SeatStateRuntime } from "../../src/main/vellum-command/term/agent-state/runtime";
-import { ManagedTerminalDrive } from "../../src/main/vellum-command/term/drive";
+import { SessionObserver } from "../../src/main/junto/term/observer";
+import { SeatStateRuntime } from "../../src/main/junto/term/agent-state/runtime";
+import { ManagedTerminalDrive } from "../../src/main/junto/term/drive";
 import { ScriptedTui, type TuiHarness, type DriveLoopOptions } from "./scripted-tui";
 import {
   BRACKETED_PASTE_END,
   BRACKETED_PASTE_START,
   CR,
-} from "../../src/main/vellum-command/term/drive/typing";
-import { CanvasesLive, CanvasesService } from "../../src/main/vellum-command/canvases";
-import { makeStateEngineLive } from "../../src/main/vellum-command/state/engine";
+} from "../../src/main/junto/term/drive/typing";
+import { CanvasesLive, CanvasesService } from "../../src/main/junto/canvases";
+import { makeStateEngineLive } from "../../src/main/junto/state/engine";
 import {
   WorkRepository,
   WorkRepositoryLive,
-} from "../../src/main/vellum-command/work/repository";
-import { WorkLive, WorkService } from "../../src/main/vellum-command/work/service";
-import { StationRepositoryLive } from "../../src/main/vellum-command/station/repository";
-import { StationFleetTargetRepositoryLive } from "../../src/main/vellum-command/station/fleet-target-repository";
-import { StationLivePeerRegistryLive } from "../../src/main/vellum-command/station/session-registry";
-import { SettingsLive, SettingsService } from "../../src/main/vellum-command/settings/service";
-import { makeContentServiceLive } from "../../src/main/vellum-command/content/service";
-import { makeInstallOpsLive } from "../../src/main/vellum-command/install-ops/engine";
+} from "../../src/main/junto/work/repository";
+import { WorkLive, WorkService } from "../../src/main/junto/work/service";
+import { StationRepositoryLive } from "../../src/main/junto/station/repository";
+import { StationFleetTargetRepositoryLive } from "../../src/main/junto/station/fleet-target-repository";
+import { StationLivePeerRegistryLive } from "../../src/main/junto/station/session-registry";
+import { SettingsLive, SettingsService } from "../../src/main/junto/settings/service";
+import { makeContentServiceLive } from "../../src/main/junto/content/service";
+import { makeInstallOpsLive } from "../../src/main/junto/install-ops/engine";
 import {
   FactoryPauseRepositoryLive,
-} from "../../src/main/vellum-command/pause/repository";
-import { PausePlane, PausePlaneLive } from "../../src/main/vellum-command/pause-plane";
+} from "../../src/main/junto/pause/repository";
+import { PausePlane, PausePlaneLive } from "../../src/main/junto/pause-plane";
 import {
   messageDelivery,
   type MessageDeliveryTransport,
-} from "../../src/main/vellum-command/work/message-delivery";
-import { deliverEdgeMapChangeNotices, onCanvasChangeForEdgeMap } from "../../src/main/vellum-command/work/edge-map-notify";
+} from "../../src/main/junto/work/message-delivery";
+import { deliverEdgeMapChangeNotices, onCanvasChangeForEdgeMap } from "../../src/main/junto/work/edge-map-notify";
 import {
   mailboxMessageDeliveryId,
   mailboxMessageReadId,
-} from "../../src/main/vellum-command/work/mailbox-receipts";
+} from "../../src/main/junto/work/mailbox-receipts";
 import { IntentFactBasis, type ActorRef } from "../../src/shared/work-protocol";
 import { seatPaused } from "../../src/shared/pause";
 
@@ -134,7 +134,7 @@ export type LoopWrite = {
 
 /**
  * Full production loop for the protocol harness — same wiring as
- * src/main/vellum-command/ipc.ts: drive.write → TUI byte model → real SessionObserver
+ * src/main/junto/ipc.ts: drive.write → TUI byte model → real SessionObserver
  * → SeatStateRuntime; working → drive.onTurnStart, idle → drive.onSeatIdle +
  * messageDelivery.onManagedTerminalIdle (ipc.ts:1289-1294). The drive writeFn
  * is the OS-boundary: it forwards to the ScriptedTui but can be wedged

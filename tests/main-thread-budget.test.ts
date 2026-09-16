@@ -17,7 +17,7 @@ import {
   resetMainThreadBudget,
   withinBudget,
   type BudgetViolation,
-} from "../src/main/vellum-command/observability/main-thread-budget";
+} from "../src/main/junto/observability/main-thread-budget";
 
 const seen: Array<BudgetViolation> = [];
 

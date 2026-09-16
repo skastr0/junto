@@ -20,7 +20,7 @@ export type EarlyDispatch =
 /**
  * Bun places user args at index 2 in both execution modes:
  *   source   = [bunPath, "/…/src/cli/main.ts", ...args]
- *   compiled = ["bun", "/$bunfs/root/vellum-command", ...args]
+ *   compiled = ["bun", "/$bunfs/root/junto", ...args]
  */
 export const earlyDispatchFromArgv = (
   argv: ReadonlyArray<string>,

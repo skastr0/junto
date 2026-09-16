@@ -7,7 +7,7 @@ report convergence, actor and sink placement, and macOS Command Center to
 Remote qualification
 
 **Architecture:** [Fleet and Station architecture](fleet-station-architecture.md)
-and [Junto protocol](vellum-protocol.md)
+and [Junto protocol](junto-protocol.md)
 
 ## What a green Fleet view proves
 
@@ -79,7 +79,7 @@ identity appears in every complete projection.
 From a process-bound Junto agent, run:
 
 ```sh
-vellum-command doctor
+junto doctor
 ```
 
 Doctor is the machine-readable aggregate. Its Station and Remote-host checks
@@ -104,8 +104,8 @@ health.
 The managed macOS Remote LaunchAgent writes:
 
 ```text
-~/Library/Logs/Junto/vellum-command.out.log
-~/Library/Logs/Junto/vellum-command.err.log
+~/Library/Logs/Junto/junto.out.log
+~/Library/Logs/Junto/junto.err.log
 ```
 
 Use logs only after Fleet has named the failing layer. Logs are supporting

@@ -38,8 +38,8 @@ const LINUX_FIXED_MODE_DIRECTORIES = [
 ];
 const LINUX_FIXED_MODE_FILES = new Map([
   ["resources/bin/unix-peer-pid.py", 0o755],
-  ["resources/systemd/vellum-command-remote-launch", 0o755],
-  ["resources/systemd/vellum-command-remote.service.template", 0o644],
+  ["resources/systemd/junto-remote-launch", 0o755],
+  ["resources/systemd/junto-remote.service.template", 0o644],
 ]);
 
 const libraryFuseNames = () =>
@@ -385,7 +385,7 @@ const admitLinuxArtifact = async (candidate) => {
         throw error;
       }
     }
-    const executablePath = procDescriptorPath(rootHandle, "vellum-command");
+    const executablePath = procDescriptorPath(rootHandle, "junto");
     const executablePathMetadata = await lstat(executablePath);
     if (
       executablePathMetadata.isSymbolicLink() ||
@@ -561,7 +561,7 @@ const assertLinuxArtifactIdentity = async (artifact) => {
     }
   }
   const [executablePathMetadata, executableHandleMetadata] = await Promise.all([
-    lstat(procDescriptorPath(artifact.root.handle, "vellum-command")),
+    lstat(procDescriptorPath(artifact.root.handle, "junto")),
     artifact.executable.handle.stat(),
   ]);
   if (
@@ -656,9 +656,9 @@ export default async function afterPack(context) {
   }
   if (
     platform === "linux" &&
-    context.packager.executableName !== "vellum-command"
+    context.packager.executableName !== "junto"
   ) {
-    throw new Error("Linux package executable identity is not vellum-command");
+    throw new Error("Linux package executable identity is not junto");
   }
   const linuxArtifact =
     platform === "linux"
@@ -674,7 +674,7 @@ export default async function afterPack(context) {
         "bin",
       );
       for (const name of [
-        "vellum-command",
+        "junto",
         "unix-peer-pid.py",
       ]) {
         const resource = path.join(resourceDirectory, name);

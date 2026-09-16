@@ -18,7 +18,7 @@ Electron main (and Remote) run as a **V4 Effect program**: `effect@4` lockstep, 
 | V4-VERIFY (probe sheet) | **DONE** at time of review |
 | **V4-PROGRAM** | **DONE** — factory cycle/claim/deliver/hydrate are Effect; host `runFork` |
 | **V4-DEBT-ZERO** | **DONE** — `debt: []`; only permanent post-dispose `update/ipc.ts` |
-| **V4-ENTRY** | **DONE** — `index`/`ipc`/`vellum/ipc`/`vellum-command-remote` domain entry only via AppRuntime/RemoteRuntime; cement in `tests/effect-runpromise-boundary.test.ts` |
+| **V4-ENTRY** | **DONE** — `index`/`ipc`/`vellum/ipc`/`junto-remote` domain entry only via AppRuntime/RemoteRuntime; cement in `tests/effect-runpromise-boundary.test.ts` |
 | **V4-CONSOLIDATE-FINAL** | **DONE** — P0–P6 + typecheck + lint + full suite + claim tests green; objective true |
 
 ---
@@ -37,10 +37,10 @@ rg -n 'Context\.Tag\b|Context\.GenericTag\b|Effect\.Tag\b|Effect\.Service\b' \
 rg -n 'Effect\.fork\b|Effect\.forkDaemon\b' src/main src/cli --glob '*.ts'  # exit 1
 
 # P3 kernel — no Promise runners in kernel tree
-rg -n 'Effect\.runPromise|Runtime\.runPromise' src/main/vellum-command/kernel --glob '*.ts'  # exit 1
+rg -n 'Effect\.runPromise|Runtime\.runPromise' src/main/junto/kernel --glob '*.ts'  # exit 1
 
 # P5 program shape — no async factory control plane in kernel
-rg -n 'async \(|= async |: Promise<' src/main/vellum-command/kernel/service.ts
+rg -n 'async \(|= async |: Promise<' src/main/junto/kernel/service.ts
 # After V4-PROGRAM: factory control path must not be an async runCycle/runClaimTicks chain.
 # Iron definition in V4-PROGRAM task: zero matches for runCycle/runClaimTicks as async functions;
 # cycle is Effect.gen (or equivalent) started via AppRuntime.runFork from boot.

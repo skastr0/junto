@@ -12,7 +12,7 @@
  * signatures and strictly newer admission prevent substitution and downgrade.
  */
 export const LINUX_DESKTOP_RELEASE_SCHEMA =
-  "vellum-command/linux-desktop-release/v1";
+  "junto/linux-desktop-release/v1";
 export const LINUX_DESKTOP_UPDATE_FEED_PATH = "/linux/x64/alpha.json";
 export const LINUX_DESKTOP_MAX_ARCHIVE_BYTES = 300_000_000;
 export const LINUX_DESKTOP_MAX_EXPANDED_BYTES = 4_000_000_000;
@@ -115,7 +115,7 @@ export const compareLinuxDesktopVersions = (
 
 export const linuxDesktopArchiveName = (version: string): string => {
   versionParts(version);
-  return `vellum-command-runtime-${version}-linux-x64.tar.gz`;
+  return `junto-runtime-${version}-linux-x64.tar.gz`;
 };
 export const linuxDesktopReleasePath = (version: string): string => {
   versionParts(version);

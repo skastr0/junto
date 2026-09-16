@@ -2,7 +2,7 @@
  * Canvas + note image authoring helpers.
  *
  * Durable form is always a ContentRef in the content store, projected into the
- * document as a `vellum-command-content://` object URL (file node `file` field, or
+ * document as a `junto-content://` object URL (file node `file` field, or
  * markdown `![alt](url)` in free notes). No Base64 in CanvasDoc.
  */
 

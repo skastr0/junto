@@ -106,7 +106,7 @@ describe("Linux desktop release wire contract", () => {
       "/linux/x64/sources/0.2.1/sources.json",
     );
     expect(linuxDesktopArchiveName("0.2.1")).toBe(
-      "vellum-command-runtime-0.2.1-linux-x64.tar.gz",
+      "junto-runtime-0.2.1-linux-x64.tar.gz",
     );
     expect(() => linuxDesktopReleasePath("../0.2.1")).toThrow(/version/);
   });

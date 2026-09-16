@@ -1,4 +1,4 @@
-import { CrewRepositoryLive, subjectHashOf } from "../src/main/vellum-command/work/crew-repository";
+import { CrewRepositoryLive, subjectHashOf } from "../src/main/junto/work/crew-repository";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -59,58 +59,58 @@ import {
 import {
   CanvasesLive,
   CanvasesService,
-} from "../src/main/vellum-command/canvases";
+} from "../src/main/junto/canvases";
 import {
   makeSettingsLive,
   SettingsService,
-} from "../src/main/vellum-command/settings/service";
+} from "../src/main/junto/settings/service";
 import {
   StationApiLive,
   StationApiService,
-} from "../src/main/vellum-command/station/api";
+} from "../src/main/junto/station/api";
 import {
   deriveActorSeatId,
-} from "../src/main/vellum-command/station/actor-seat-compiler";
+} from "../src/main/junto/station/actor-seat-compiler";
 import {
   StationFleetTargetRepository,
   StationFleetTargetRepositoryLive,
-} from "../src/main/vellum-command/station/fleet-target-repository";
+} from "../src/main/junto/station/fleet-target-repository";
 import {
   compileStationPortfolioBody,
   decodeStationPortfolioBody,
-} from "../src/main/vellum-command/station/portfolio";
+} from "../src/main/junto/station/portfolio";
 import {
   bindNegotiatedStationProtocol,
   makeStationPeerSession,
   type StationPeerSession,
   type StationSessionFrameTransport,
-} from "../src/main/vellum-command/station/peer-session";
+} from "../src/main/junto/station/peer-session";
 import {
   StationPropagation,
   StationPropagationLive,
-} from "../src/main/vellum-command/station/propagation";
+} from "../src/main/junto/station/propagation";
 import {
   makeStationRepositoryLive,
   StationRepository,
-} from "../src/main/vellum-command/station/repository";
+} from "../src/main/junto/station/repository";
 import {
   StationLivePeerRegistry,
   StationLivePeerRegistryLive,
-} from "../src/main/vellum-command/station/session-registry";
+} from "../src/main/junto/station/session-registry";
 import {
   stationControlErrorEnvelope,
-} from "../src/main/vellum-command/station/dispatcher";
+} from "../src/main/junto/station/dispatcher";
 import {
   makeStateEngineLive,
-} from "../src/main/vellum-command/state/engine";
+} from "../src/main/junto/state/engine";
 import {
   WorkLive,
   WorkService,
-} from "../src/main/vellum-command/work/service";
+} from "../src/main/junto/work/service";
 import {
   executeOverseerWork,
   overseerWorkAdmin,
-} from "../src/main/vellum-command/overseer/work";
+} from "../src/main/junto/overseer/work";
 import {
   createAuthorialTaskDependencyScopeCapability,
   createCurrentProjectedTaskDependencyScopeCapability,
@@ -118,11 +118,11 @@ import {
   WorkAuthorityError,
   WorkRepository,
   WorkRepositoryLive,
-} from "../src/main/vellum-command/work/repository";
+} from "../src/main/junto/work/repository";
 import {
   makeContentServiceLive,
-} from "../src/main/vellum-command/content/service";
-import { makeInstallOpsLive } from "../src/main/vellum-command/install-ops/engine";
+} from "../src/main/junto/content/service";
+import { makeInstallOpsLive } from "../src/main/junto/install-ops/engine";
 
 const runEffect = <A, E>(effect: Effect.Effect<A, E, any>): Promise<A> =>
   Effect.runPromise(effect as Effect.Effect<A, E, never>);
@@ -292,7 +292,7 @@ const openInstallation = async (
   localInstallationId: InstallationIdValue,
 ): Promise<InstallationHarness> => {
   const root = await mkdtemp(
-    join(tmpdir(), `vellum-command-station-offline-${localInstallationId}-`),
+    join(tmpdir(), `junto-station-offline-${localInstallationId}-`),
   );
   const harness = await openInstallationAt(root, localInstallationId);
   opened.push(harness);

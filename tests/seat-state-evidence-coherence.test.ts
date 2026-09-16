@@ -8,13 +8,13 @@
  */
 
 import { afterEach, describe, expect, it } from "vitest";
-import { SeatStateRuntime } from "../src/main/vellum-command/term/agent-state/runtime";
+import { SeatStateRuntime } from "../src/main/junto/term/agent-state/runtime";
 import {
   SessionObserver,
   terminalObserverPlane,
-} from "../src/main/vellum-command/term/observer";
-import type { ObserverGridSnapshot } from "../src/main/vellum-command/term/observer/types";
-import { resetFirstTypedForTest } from "../src/main/vellum-command/term/first-typed";
+} from "../src/main/junto/term/observer";
+import type { ObserverGridSnapshot } from "../src/main/junto/term/observer/types";
+import { resetFirstTypedForTest } from "../src/main/junto/term/first-typed";
 
 const HR = "─".repeat(40);
 const IDLE_EMPTY = [HR, "❯ ", HR, "footer"];

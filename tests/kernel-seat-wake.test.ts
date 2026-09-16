@@ -10,11 +10,11 @@ import {
   makeKernelLaneScheduler,
   subscribeKernelPauseWake,
   subscribeKernelSeatWake,
-} from "../src/main/vellum-command/kernel/service";
+} from "../src/main/junto/kernel/service";
 import {
   LANE_FLOOR_MS,
   type TickTimerCancel,
-} from "../src/main/vellum-command/kernel/tick";
+} from "../src/main/junto/kernel/tick";
 
 /** Manual clock + timers: the floor is asserted exactly, never slept through. */
 const makeTestClock = () => {

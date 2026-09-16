@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   extractKimiSessionIdFromText,
   isKimiSessionId,
-} from "../src/main/vellum-command/term/templates/kimi-session";
-import { extractSessionIdFromText } from "../src/main/vellum-command/term/session-id-store";
+} from "../src/main/junto/term/templates/kimi-session";
+import { extractSessionIdFromText } from "../src/main/junto/term/session-id-store";
 import { KIMI_TEMPLATE } from "../src/shared/managed-terminal-templates";
 
 const SPAWN_CARD = [

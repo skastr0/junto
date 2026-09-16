@@ -4,7 +4,7 @@ import {
   buildQuitConfirmPrompt,
   hasLiveWork,
   QUIT_CONFIRM_ACCEPT_INDEX,
-} from "../src/main/vellum-command/quit-live-work";
+} from "../src/main/junto/quit-live-work";
 
 describe("quit live-work assessment", () => {
   it("idle snapshot requires no confirm", () => {

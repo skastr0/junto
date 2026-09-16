@@ -20,7 +20,7 @@ import {
   REVIEW_REASON_EDGE_MISSING,
   REVIEW_REASON_MALFORMED,
   REVIEW_REASON_STALE_SUBJECT,
-} from "../src/main/vellum-command/work/reviews";
+} from "../src/main/junto/work/reviews";
 import {
   workTaskClaim,
   workTaskCreate,

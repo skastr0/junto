@@ -93,7 +93,7 @@ describe("Fleet compatibility truth consumers", () => {
       station: {
         name: "Junto",
         version: "0.1.14",
-        userDataPath: "/tmp/vellum-command",
+        userDataPath: "/tmp/junto",
       },
       services: [],
       recommendations: [],

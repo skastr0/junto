@@ -3,8 +3,8 @@ import type {
   AppTerminalExit,
   AppTerminalLease,
   AppTerminalSpawnSpec,
-} from "../../src/main/vellum-command/app-process-plane";
-import type { LocalTerminalProcessAuthority } from "../../src/main/vellum-command/term/local-host";
+} from "../../src/main/junto/app-process-plane";
+import type { LocalTerminalProcessAuthority } from "../../src/main/junto/term/local-host";
 
 export type FakeTerminalSignal = "SIGTERM" | "SIGKILL";
 

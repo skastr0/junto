@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   createRendererSurfaceRecovery,
   resolveRendererSurfaceTimeoutMs,
-} from "../src/main/vellum-command/renderer-surface-recovery";
+} from "../src/main/junto/renderer-surface-recovery";
 
 describe("renderer surface recovery", () => {
   it("accepts a bounded timeout override only in the unpackaged test harness", () => {

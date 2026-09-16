@@ -336,9 +336,9 @@ describe("machine-safety architecture", () => {
       .sort();
 
     expect(uses).toEqual([
-      "src/main/vellum-command/process-identity.ts:probe",
-      "src/main/vellum-command/process-signal.ts:group",
-      "src/main/vellum-command/process-signal.ts:probe",
+      "src/main/junto/process-identity.ts:probe",
+      "src/main/junto/process-signal.ts:group",
+      "src/main/junto/process-signal.ts:probe",
     ]);
   });
 
@@ -352,33 +352,33 @@ describe("machine-safety architecture", () => {
       .sort();
 
     expect(uses).toEqual([
-      "src/main/vellum-command/app-process-plane.ts:forbidden-reference:child.kill",
-      "src/main/vellum-command/app-process-plane.ts:forbidden-reference:pty.kill",
-      "src/main/vellum-command/app-process-plane.ts:forbidden-reference:record.kill",
-      "src/main/vellum-command/app-process-plane.ts:forbidden-reference:record.kill",
-      "src/main/vellum-command/app-process-plane.ts:forbidden-reference:record.kill",
-      "src/main/vellum-command/app-process-plane.ts:forbidden-reference:record.kill",
-      "src/main/vellum-command/app-process-plane.ts:forbidden-reference:record.kill",
-      "src/main/vellum-command/app-process-plane.ts:forbidden-reference:record.kill",
+      "src/main/junto/app-process-plane.ts:forbidden-reference:child.kill",
+      "src/main/junto/app-process-plane.ts:forbidden-reference:pty.kill",
+      "src/main/junto/app-process-plane.ts:forbidden-reference:record.kill",
+      "src/main/junto/app-process-plane.ts:forbidden-reference:record.kill",
+      "src/main/junto/app-process-plane.ts:forbidden-reference:record.kill",
+      "src/main/junto/app-process-plane.ts:forbidden-reference:record.kill",
+      "src/main/junto/app-process-plane.ts:forbidden-reference:record.kill",
+      "src/main/junto/app-process-plane.ts:forbidden-reference:record.kill",
       // Live-granted node targets resolve bindings, never PIDs. Router delegates
       // to the same owned-session stop capability as terminal IPC.
-      "src/main/vellum-command/overseer/native.ts:ctx.termPlane.router.kill",
-      "src/main/vellum-command/overseer/native.ts:ctx.termPlane.router.kill",
-      "src/main/vellum-command/overseer/native.ts:ctx.termPlane.router.kill",
-      "src/main/vellum-command/process-signal.ts:forbidden-reference:child.kill",
-      "src/main/vellum-command/process-signal.ts:rec.child.kill",
-      "src/main/vellum-command/term/control-server.ts:host.kill",
-      "src/main/vellum-command/term/ipc.ts:router.kill",
-      "src/main/vellum-command/term/router.ts:c.kill",
-      "src/main/vellum-command/term/router.ts:this.local.kill",
+      "src/main/junto/overseer/native.ts:ctx.termPlane.router.kill",
+      "src/main/junto/overseer/native.ts:ctx.termPlane.router.kill",
+      "src/main/junto/overseer/native.ts:ctx.termPlane.router.kill",
+      "src/main/junto/process-signal.ts:forbidden-reference:child.kill",
+      "src/main/junto/process-signal.ts:rec.child.kill",
+      "src/main/junto/term/control-server.ts:host.kill",
+      "src/main/junto/term/ipc.ts:router.kill",
+      "src/main/junto/term/router.ts:c.kill",
+      "src/main/junto/term/router.ts:this.local.kill",
       // Owned child only: codesign/plutil admit timeout.
-      "src/main/vellum-command/update/admit-mac-app.ts:child.kill",
+      "src/main/junto/update/admit-mac-app.ts:child.kill",
     ]);
   });
 
   it("keeps asynchronous spawn sites on a reviewed lifetime inventory", () => {
     expect(unsafeSpawnReferences).toEqual([
-      "src/main/vellum-command/app-process-plane.ts:spawn",
+      "src/main/junto/app-process-plane.ts:spawn",
     ]);
 
     const uses = [
@@ -394,20 +394,20 @@ describe("machine-safety architecture", () => {
       .sort();
 
     expect(uses).toEqual([
-      "src/main/vellum-command/app-process-plane.ts:nodePty.spawn",
-      "src/main/vellum-command/app-process-plane.ts:spawn",
-      "src/main/vellum-command/app-process-plane.ts:spawn",
-      "src/main/vellum-command/process-signal.ts:spawn",
+      "src/main/junto/app-process-plane.ts:nodePty.spawn",
+      "src/main/junto/app-process-plane.ts:spawn",
+      "src/main/junto/app-process-plane.ts:spawn",
+      "src/main/junto/process-signal.ts:spawn",
       // Owned children only: codesign admit, ditto extract.
-      "src/main/vellum-command/update/admit-mac-app.ts:spawn",
-      "src/main/vellum-command/update/staging.ts:spawn",
+      "src/main/junto/update/admit-mac-app.ts:spawn",
+      "src/main/junto/update/staging.ts:spawn",
     ]);
 
     // Raw child admission is now centralized in the app process plane. Other
     // modules must route through that plane instead of minting authority
     // beside their own spawn calls.
     for (const name of [
-      "src/main/vellum-command/app-process-plane.ts",
+      "src/main/junto/app-process-plane.ts",
     ]) {
       const admissions = callSites.filter(
         (site) => site.file === name && site.callee === "admitChildProcess",
@@ -423,7 +423,7 @@ describe("machine-safety architecture", () => {
       .sort();
 
     expect(uses).toEqual([
-      "src/main/vellum-command/app-process-plane.ts",
+      "src/main/junto/app-process-plane.ts",
     ]);
 
     const detachedTrue = parsedSources
@@ -442,14 +442,14 @@ describe("machine-safety architecture", () => {
       })
       .sort();
     expect(detachedTrue).toEqual([
-      "src/main/vellum-command/app-process-plane.ts",
-      "src/main/vellum-command/process-signal.ts",
+      "src/main/junto/app-process-plane.ts",
+      "src/main/junto/process-signal.ts",
     ]);
   });
 
   it("does not expose bypass admission or a second Effect group-kill plane", () => {
     const processSignal = readFileSync(
-      join(root, "src/main/vellum-command/process-signal.ts"),
+      join(root, "src/main/junto/process-signal.ts"),
       "utf8",
     );
     expect(processSignal).not.toMatch(
@@ -457,7 +457,7 @@ describe("machine-safety architecture", () => {
     );
 
     const forbiddenEffectImports = parsedSources.flatMap(({ file, source }) => {
-      if (!file.startsWith("src/main/vellum-command/ssh/")) return [];
+      if (!file.startsWith("src/main/junto/ssh/")) return [];
       return source.statements.flatMap((statement) => {
         if (!ts.isImportDeclaration(statement) || !ts.isStringLiteral(statement.moduleSpecifier)) {
           return [];
@@ -489,7 +489,7 @@ describe("machine-safety architecture", () => {
       "node:path",
     ]);
     const unapprovedSshImports = parsedSources.flatMap(({ file, source }) => {
-      if (!file.startsWith("src/main/vellum-command/ssh/")) return [];
+      if (!file.startsWith("src/main/junto/ssh/")) return [];
       return source.statements.flatMap((statement) => {
         if (!ts.isImportDeclaration(statement) || !ts.isStringLiteral(statement.moduleSpecifier)) {
           return [];

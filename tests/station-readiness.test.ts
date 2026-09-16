@@ -9,8 +9,8 @@ import {
   createStationReadinessCoordinator,
   stationReadinessMetadata,
   type BrowserProductPathReceipt,
-} from "../src/main/vellum-command/station-readiness";
-import type { NativeTerminalReadiness } from "../src/main/vellum-command/term/native-readiness";
+} from "../src/main/junto/station-readiness";
+import type { NativeTerminalReadiness } from "../src/main/junto/term/native-readiness";
 
 const installationId = Schema.decodeUnknownSync(InstallationId);
 const stationConfiguration = Schema.decodeUnknownSync(StationConfiguration);

@@ -8,8 +8,8 @@ import { Header } from "tar";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { LINUX_DESKTOP_RELEASE_SCHEMA, LINUX_DESKTOP_TARGET, linuxDesktopArchiveName, type LinuxDesktopReleaseDescriptor } from "../src/shared/linux-desktop-release";
 import { signLinuxDesktopRelease, verifyLinuxDesktopRelease, type LinuxDesktopReleaseTrust, type VerifiedLinuxDesktopRelease } from "../src/shared/linux-desktop-release-crypto";
-import { installLinuxDesktop } from "../src/main/vellum-command/update/linux-first-install";
-import { activateLinuxDesktopRelease, assertLinuxDesktopFirstInstallAvailable, assertLinuxDesktopManagedIncumbent, holdLinuxDesktopInstallReadiness, LinuxDesktopActivationError, linuxDesktopInstallStorageDoctor, markLinuxDesktopInstallReady, revalidateLinuxDesktopRelease, stageLinuxDesktopRelease, type StagedLinuxDesktopRelease } from "../src/main/vellum-command/update/linux-install";
+import { installLinuxDesktop } from "../src/main/junto/update/linux-first-install";
+import { activateLinuxDesktopRelease, assertLinuxDesktopFirstInstallAvailable, assertLinuxDesktopManagedIncumbent, holdLinuxDesktopInstallReadiness, LinuxDesktopActivationError, linuxDesktopInstallStorageDoctor, markLinuxDesktopInstallReady, revalidateLinuxDesktopRelease, stageLinuxDesktopRelease, type StagedLinuxDesktopRelease } from "../src/main/junto/update/linux-install";
 import { itOnLinux } from "./helpers/platform";
 
 const fault = vi.hoisted(() => ({ syncPath: undefined as string | undefined, syncSuffix: undefined as string | undefined }));
@@ -58,7 +58,7 @@ const archiveBytes = (members: readonly Member[]): Buffer => {
 };
 
 const makeRoot = async (): Promise<{ readonly root: string; readonly home: string }> => {
-  const root = await mkdtemp(join(await realpath(tmpdir()), "vellum-command-linux-install-test-"));
+  const root = await mkdtemp(join(await realpath(tmpdir()), "junto-linux-install-test-"));
   roots.push(root);
   const home = join(root, "home");
   await mkdir(home, { mode: 0o700 });
@@ -66,7 +66,7 @@ const makeRoot = async (): Promise<{ readonly root: string; readonly home: strin
 };
 
 const authenticate = (version: string, archive: Buffer): VerifiedLinuxDesktopRelease => {
-  const filename = `vellum-command-runtime-${version}-linux-x64.tar.gz`;
+  const filename = `junto-runtime-${version}-linux-x64.tar.gz`;
   const descriptor: LinuxDesktopReleaseDescriptor = {
     schema: LINUX_DESKTOP_RELEASE_SCHEMA, product: "Junto", channel: "alpha", version, sourceRevision: SOURCE,
     createdAt: "2026-01-01T00:00:00.000Z", target: LINUX_DESKTOP_TARGET,
@@ -80,12 +80,12 @@ const authenticate = (version: string, archive: Buffer): VerifiedLinuxDesktopRel
 const makeAsar = async (root: string, version: string, change?: "version" | "source" | "payload" | "marker"): Promise<Buffer> => {
   const directory = await mkdtemp(join(root, "asar-input-"));
   await mkdir(join(directory, "out/main"), { recursive: true });
-  const buildIdentity = { schema: "vellum-command/runtime-build-identity/v1", cohortNonce: "ba035b20-2435-4af4-83b7-71839c4feec7", sourceCommit: SOURCE, runtime: "electron-main" };
+  const buildIdentity = { schema: "junto/runtime-build-identity/v1", cohortNonce: "ba035b20-2435-4af4-83b7-71839c4feec7", sourceCommit: SOURCE, runtime: "electron-main" };
   const marker = change === "marker" ? { ...buildIdentity, cohortNonce: "cc035b20-2435-4af4-83b7-71839c4feec7" } : buildIdentity;
   const main = Buffer.from(`// harmless packaged fixture\n/* JUNTO_RUNTIME_BUILD_IDENTITY:${Buffer.from(JSON.stringify(marker)).toString("base64url")} */\n`);
-  await writeFile(join(directory, "package.json"), JSON.stringify({ name: "@skastr0/vellum-command", version: change === "version" ? "0.0.1" : version }));
+  await writeFile(join(directory, "package.json"), JSON.stringify({ name: "@skastr0/junto", version: change === "version" ? "0.0.1" : version }));
   await writeFile(join(directory, "out/main/index.js"), main);
-  await writeFile(join(directory, "out/package-runtime-provenance.json"), JSON.stringify({ schema: "vellum-command/package-runtime-provenance/v2", product: "Junto", runtime: "electron-main", appVersion: version, sourceCommit: change === "source" ? "c".repeat(40) : SOURCE, buildIdentity, state: {}, payload: { packagedPath: "out/main/index.js", bytes: main.length, sha256: change === "payload" ? "0".repeat(64) : sha256(main) } }));
+  await writeFile(join(directory, "out/package-runtime-provenance.json"), JSON.stringify({ schema: "junto/package-runtime-provenance/v2", product: "Junto", runtime: "electron-main", appVersion: version, sourceCommit: change === "source" ? "c".repeat(40) : SOURCE, buildIdentity, state: {}, payload: { packagedPath: "out/main/index.js", bytes: main.length, sha256: change === "payload" ? "0".repeat(64) : sha256(main) } }));
   const path = `${directory}.asar`;
   await createPackage(directory, path);
   return readFile(path);
@@ -94,10 +94,10 @@ const makeAsar = async (root: string, version: string, change?: "version" | "sou
 const fixture = async (options: { readonly root?: string; readonly home?: string; readonly version?: string; readonly change?: "version" | "source" | "payload" | "marker"; readonly members?: (rootName: string) => readonly Member[] } = {}) => {
   const location = options.root === undefined ? await makeRoot() : { root: options.root, home: options.home! };
   const version = options.version ?? "0.3.0";
-  const rootName = `vellum-command-runtime-${version}-linux-x64`;
+  const rootName = `junto-runtime-${version}-linux-x64`;
   const members: readonly Member[] = options.members?.(rootName) ?? [
     { path: `${rootName}/`, type: "Directory" },
-    { path: `${rootName}/vellum-command`, mode: 0o755, body: "#!/bin/sh\nexit 0\n" },
+    { path: `${rootName}/junto`, mode: 0o755, body: "#!/bin/sh\nexit 0\n" },
     { path: `${rootName}/resources/`, type: "Directory" },
     { path: `${rootName}/resources/app.asar`, body: await makeAsar(location.root, version, options.change) },
   ];
@@ -107,7 +107,7 @@ const fixture = async (options: { readonly root?: string; readonly home?: string
   return { ...location, archivePath, descriptor: authenticate(version, bytes), bytes };
 };
 const stage = (input: Awaited<ReturnType<typeof fixture>>) => stageLinuxDesktopRelease(input);
-const active = (home: string) => join(home, ".local/bin/vellum-command-desktop");
+const active = (home: string) => join(home, ".local/bin/junto-desktop");
 
 describe("rootless Linux desktop installation", () => {
   it("unmocked first install rejects an attacker-signed tarball before extraction", async () => {
@@ -117,9 +117,9 @@ describe("rootless Linux desktop installation", () => {
       members: (rootName) => [
         { path: `${rootName}/`, type: "Directory" },
         {
-          path: `${rootName}/vellum-command`,
+          path: `${rootName}/junto`,
           mode: 0o755,
-          body: "#!/bin/sh\nprintf executed > /tmp/vellum-command-candidate-executed\n",
+          body: "#!/bin/sh\nprintf executed > /tmp/junto-candidate-executed\n",
         },
       ],
     });
@@ -127,7 +127,7 @@ describe("rootless Linux desktop installation", () => {
     const archivePath = join(input.root, archiveName);
     await writeFile(archivePath, input.bytes);
     const sources = {
-      schema: "vellum-command/release-sources/v1",
+      schema: "junto/release-sources/v1",
       product: "Junto",
       version,
       sourceCommit: SOURCE,
@@ -171,7 +171,7 @@ describe("rootless Linux desktop installation", () => {
     const input = await fixture();
     await writeFile(input.archivePath, Buffer.alloc(input.bytes.length));
     await expect(stage(input)).rejects.toThrow("checksum");
-    expect((await readdir(join(input.home, ".local/opt/vellum-command-alpha"))).filter((name) => !name.startsWith("."))).toEqual([]);
+    expect((await readdir(join(input.home, ".local/opt/junto-alpha"))).filter((name) => !name.startsWith("."))).toEqual([]);
     const alias = join(input.root, "alias.tar.gz");
     await symlink(input.archivePath, alias);
     await expect(stageLinuxDesktopRelease({ ...input, archivePath: alias })).rejects.toThrow();
@@ -181,17 +181,17 @@ describe("rootless Linux desktop installation", () => {
     ["traversal", (root: string): Member => ({ path: `${root}/../outside`, body: "escape" })],
     ["absolute", (): Member => ({ path: "/outside", body: "escape" })],
     ["symlink", (root: string): Member => ({ path: `${root}/link`, type: "SymbolicLink", linkpath: "/outside" })],
-    ["hardlink", (root: string): Member => ({ path: `${root}/link`, type: "Link", linkpath: `${root}/vellum-command` })],
+    ["hardlink", (root: string): Member => ({ path: `${root}/link`, type: "Link", linkpath: `${root}/junto` })],
     ["device", (root: string): Member => ({ path: `${root}/device`, type: "CharacterDevice" })],
     ["setuid", (root: string): Member => ({ path: `${root}/evil`, mode: 0o4755, body: "x" })],
     ["writable", (root: string): Member => ({ path: `${root}/evil`, mode: 0o666, body: "x" })],
     ["missing parent", (root: string): Member => ({ path: `${root}/absent/file`, body: "x" })],
-    ["duplicate", (root: string): Member => ({ path: `${root}/vellum-command`, body: "replacement" })],
+    ["duplicate", (root: string): Member => ({ path: `${root}/junto`, body: "replacement" })],
     ["oversized", (root: string): Member => ({ path: `${root}/large`, size: 1_000_000_001 })],
   ] as const)("rejects authenticated archives with %s entries", async (_label, bad) => {
-    const input = await fixture({ members: (root) => [{ path: `${root}/`, type: "Directory" }, { path: `${root}/vellum-command`, mode: 0o755, body: "safe" }, bad(root)] });
+    const input = await fixture({ members: (root) => [{ path: `${root}/`, type: "Directory" }, { path: `${root}/junto`, mode: 0o755, body: "safe" }, bad(root)] });
     await expect(stage(input)).rejects.toThrow();
-    expect((await readdir(join(input.home, ".local/opt/vellum-command-alpha"))).filter((name) => !name.startsWith("."))).toEqual([]);
+    expect((await readdir(join(input.home, ".local/opt/junto-alpha"))).filter((name) => !name.startsWith("."))).toEqual([]);
     await expect(lstat(active(input.home))).rejects.toMatchObject({ code: "ENOENT" });
   });
 
@@ -206,7 +206,7 @@ describe("rootless Linux desktop installation", () => {
     await activateLinuxDesktopRelease(candidate, { mode: "first-install" });
     expect(await readFile(active(input.home), "utf8")).toContain(`exec '${candidate.executablePath}' "$@"`);
     expect((await lstat(active(input.home))).mode & 0o777).toBe(0o755);
-    expect(await readFile(join(input.home, ".local/share/applications/vellum-command.desktop"), "utf8")).toContain(`Exec="${active(input.home)}" %U`);
+    expect(await readFile(join(input.home, ".local/share/applications/junto.desktop"), "utf8")).toContain(`Exec="${active(input.home)}" %U`);
     expect(await readFile(database, "utf8")).toBe("installed state sentinel");
     await expect(activateLinuxDesktopRelease(candidate, { mode: "first-install" })).rejects.toThrow("consumed");
   });
@@ -217,7 +217,7 @@ describe("rootless Linux desktop installation", () => {
     const filename = `${"long-".repeat(35)}asset.txt`;
     const input = await fixture({ ...location, members: (root) => [
       { path: `${root}/`, type: "Directory" },
-      { path: `${root}/vellum-command`, mode: 0o755, body: "safe executable" },
+      { path: `${root}/junto`, mode: 0o755, body: "safe executable" },
       { path: `${root}/resources/`, type: "Directory" },
       { path: `${root}/resources/app.asar`, body: asar },
       { path: "././@LongLink", type: "NextFileHasLongPath", body: `${root}/resources/${filename}\0` },
@@ -247,7 +247,7 @@ describe("rootless Linux desktop installation", () => {
   itOnLinux("rejects PAX metadata that embeds a NUL in the path", async () => {
     const location = await makeRoot();
     const version = "0.3.0";
-    const rootName = `vellum-command-runtime-${version}-linux-x64`;
+    const rootName = `junto-runtime-${version}-linux-x64`;
     const pax = paxRecord("path", `${rootName}/visible.txt\0hidden.txt`);
     const body = Buffer.from("payload");
     const archive = gzipSync(Buffer.concat([
@@ -260,13 +260,13 @@ describe("rootless Linux desktop installation", () => {
     const archivePath = join(location.root, `${version}-${sha256(archive)}.tar.gz`);
     await writeFile(archivePath, archive);
     await expect(stageLinuxDesktopRelease({ archivePath, descriptor: authenticate(version, archive), home: location.home })).rejects.toThrow(/NUL|unsafe|unsupported/u);
-    expect((await readdir(join(location.home, ".local/opt/vellum-command-alpha")).catch(() => [])).filter((name) => !name.startsWith("."))).toEqual([]);
+    expect((await readdir(join(location.home, ".local/opt/junto-alpha")).catch(() => [])).filter((name) => !name.startsWith("."))).toEqual([]);
   });
 
   it("rejects a numeric PAX path that would crash unpack", async () => {
     const location = await makeRoot();
     const version = "0.3.0";
-    const rootName = `vellum-command-runtime-${version}-linux-x64`;
+    const rootName = `junto-runtime-${version}-linux-x64`;
     const pax = paxRecord("path", "12345");
     const archive = gzipSync(Buffer.concat([
       rawHeader("PaxHeader/poc", pax.length, "ExtendedHeader"),
@@ -283,7 +283,7 @@ describe("rootless Linux desktop installation", () => {
   itOnLinux("rejects oversized PAX metadata instead of falling back to the ordinary header name", async () => {
     const location = await makeRoot();
     const version = "0.3.0";
-    const rootName = `vellum-command-runtime-${version}-linux-x64`;
+    const rootName = `junto-runtime-${version}-linux-x64`;
     const pax = paxRecord("path", `${rootName}/${"a".repeat(5000)}`);
     const archive = gzipSync(Buffer.concat([
       rawHeader("PaxHeader/poc", pax.length, "ExtendedHeader"),
@@ -302,7 +302,7 @@ describe("rootless Linux desktop installation", () => {
     await writeFile(input.archivePath, truncated);
     const descriptor = authenticate("0.3.0", truncated);
     await expect(stageLinuxDesktopRelease({ archivePath: input.archivePath, descriptor, home: input.home })).rejects.toThrow();
-    expect((await readdir(join(input.home, ".local/opt/vellum-command-alpha")).catch(() => [])).filter((name) => !name.startsWith("."))).toEqual([]);
+    expect((await readdir(join(input.home, ".local/opt/junto-alpha")).catch(() => [])).filter((name) => !name.startsWith("."))).toEqual([]);
   });
 
   itOnLinux("first install refuses an existing managed launcher, while update preserves the previous generation", async () => {
@@ -313,7 +313,7 @@ describe("rootless Linux desktop installation", () => {
     const input = await fixture({ ...initial, version: "0.3.1" });
     const candidate = await stage(input);
     await expect(activateLinuxDesktopRelease(candidate, { mode: "first-install" })).rejects.toMatchObject({ activated: false });
-    await expect(activateLinuxDesktopRelease(candidate, { mode: "update", expectedIncumbentExecutablePath: "/unmanaged/vellum-command" })).rejects.toThrow("exact managed");
+    await expect(activateLinuxDesktopRelease(candidate, { mode: "update", expectedIncumbentExecutablePath: "/unmanaged/junto" })).rejects.toThrow("exact managed");
     expect(await readFile(active(initial.home), "utf8")).toBe(before);
     await activateLinuxDesktopRelease(candidate, { mode: "update", expectedIncumbentExecutablePath: old.executablePath });
     expect(await readFile(active(initial.home), "utf8")).toContain(candidate.executablePath);
@@ -329,19 +329,19 @@ describe("rootless Linux desktop installation", () => {
 
   itOnLinux("checks managed-install eligibility without creating files", async () => {
     const input = await fixture();
-    await expect(assertLinuxDesktopManagedIncumbent({ home: input.home, executablePath: "/unmanaged/vellum-command" })).rejects.toThrow();
+    await expect(assertLinuxDesktopManagedIncumbent({ home: input.home, executablePath: "/unmanaged/junto" })).rejects.toThrow();
     await expect(lstat(join(input.home, ".local"))).rejects.toMatchObject({ code: "ENOENT" });
     const candidate = await stage(input);
     await activateLinuxDesktopRelease(candidate, { mode: "first-install" });
     await expect(assertLinuxDesktopManagedIncumbent({ home: input.home, executablePath: candidate.executablePath })).resolves.toBeUndefined();
-    await expect(assertLinuxDesktopManagedIncumbent({ home: input.home, executablePath: "/unmanaged/vellum-command" })).rejects.toThrow("exact managed");
+    await expect(assertLinuxDesktopManagedIncumbent({ home: input.home, executablePath: "/unmanaged/junto" })).rejects.toThrow("exact managed");
   });
 
   it("first-install eligibility is read-only and refuses foreign entries", async () => {
     const input = await fixture();
     await expect(assertLinuxDesktopFirstInstallAvailable({ home: input.home })).resolves.toBeUndefined();
     await expect(lstat(join(input.home, ".local"))).rejects.toMatchObject({ code: "ENOENT" });
-    const desktop = join(input.home, ".local/share/applications/vellum-command.desktop");
+    const desktop = join(input.home, ".local/share/applications/junto.desktop");
     await mkdir(dirname(desktop), { recursive: true, mode: 0o700 });
     await writeFile(desktop, "existing desktop entry");
     await expect(assertLinuxDesktopFirstInstallAvailable({ home: input.home })).rejects.toThrow("unrelated");
@@ -425,7 +425,7 @@ describe("rootless Linux desktop installation", () => {
     await expect(stage(input)).rejects.toThrow("unrelated");
     expect(await readFile(active(input.home), "utf8")).toBe("unrelated command");
     await rm(active(input.home));
-    const desktop = join(input.home, ".local/share/applications/vellum-command.desktop");
+    const desktop = join(input.home, ".local/share/applications/junto.desktop");
     await mkdir(dirname(desktop), { recursive: true, mode: 0o700 });
     await writeFile(desktop, "unrelated desktop entry");
     await expect(stage(input)).rejects.toThrow("unrelated desktop");
@@ -443,14 +443,14 @@ describe("rootless Linux desktop installation", () => {
 
   itOnLinux("fails before activation when admitted payload cannot be made durable", async () => {
     const input = await fixture();
-    fault.syncSuffix = "/vellum-command";
+    fault.syncSuffix = "/junto";
     await expect(stage(input)).rejects.toThrow("durable write failure");
     await expect(lstat(active(input.home))).rejects.toMatchObject({ code: "ENOENT" });
   });
 
   itOnLinux("can re-admit an inactive generation after its parent-directory sync failed", async () => {
     const input = await fixture();
-    fault.syncPath = join(input.home, ".local/opt/vellum-command-alpha");
+    fault.syncPath = join(input.home, ".local/opt/junto-alpha");
     await expect(stage(input)).rejects.toThrow("durable write failure");
     await expect(lstat(active(input.home))).rejects.toMatchObject({ code: "ENOENT" });
     fault.syncPath = undefined;
@@ -475,7 +475,7 @@ describe("rootless Linux desktop installation", () => {
   itOnLinux("resumes a first install interrupted after desktop publication, including a retained temporary hardlink", async () => {
     const input = await fixture();
     const candidate = await stage(input);
-    const desktop = join(input.home, ".local/share/applications/vellum-command.desktop");
+    const desktop = join(input.home, ".local/share/applications/junto.desktop");
     fault.syncPath = dirname(desktop);
     await expect(activateLinuxDesktopRelease(candidate, { mode: "first-install" })).rejects.toMatchObject({ activated: false });
     await expect(lstat(active(input.home))).rejects.toMatchObject({ code: "ENOENT" });
@@ -521,11 +521,11 @@ describe("rootless Linux desktop installation", () => {
     const initial = await fixture();
     const installed = await stage(initial);
     await activateLinuxDesktopRelease(installed, { mode: "first-install" });
-    const leftover = join(initial.home, ".local/opt/vellum-command-alpha", `0.1.0-${"c".repeat(64)}`);
+    const leftover = join(initial.home, ".local/opt/junto-alpha", `0.1.0-${"c".repeat(64)}`);
     await mkdir(leftover, { mode: 0o700 });
-    await writeFile(join(leftover, "vellum-command"), "foreign leftover\n", { mode: 0o755 });
+    await writeFile(join(leftover, "junto"), "foreign leftover\n", { mode: 0o755 });
     await markLinuxDesktopInstallReady({ home: initial.home, executablePath: installed.executablePath });
-    expect(await readFile(join(leftover, "vellum-command"), "utf8")).toBe("foreign leftover\n");
+    expect(await readFile(join(leftover, "junto"), "utf8")).toBe("foreign leftover\n");
     const check = await linuxDesktopInstallStorageDoctor({ home: initial.home, executablePath: installed.executablePath });
     expect(check?.id).toBe("linux-install-storage");
     expect(check?.metadata?.legacyGenerationCount).toBe("1");

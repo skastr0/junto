@@ -14,8 +14,8 @@ import {
   startOperatorControlServer,
   type OperatorControlServer,
   type OperatorControlServerRuntime,
-} from "../src/main/vellum-command/operator-control";
-import type { ProcessIdentityMap } from "../src/main/vellum-command/process-identity";
+} from "../src/main/junto/operator-control";
+import type { ProcessIdentityMap } from "../src/main/junto/process-identity";
 import { Result } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -106,7 +106,7 @@ const start = async (
   runtime: OperatorControlServerRuntime = admittedRuntime,
 ): Promise<OperatorControlServer> => {
   // Darwin Unix-domain socket paths are capped near 104 bytes.
-  const home = await mkdtemp("/tmp/vellum-command-operator-");
+  const home = await mkdtemp("/tmp/junto-operator-");
   roots.push(home);
   const server = await startOperatorControlServer({ home, dispatch }, runtime);
   servers.push(server);

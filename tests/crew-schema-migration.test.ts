@@ -5,15 +5,15 @@ import {
   CURRENT_STATE_SCHEMA_IDENTITY,
   migrateStateSchema,
   STATE_SCHEMA_V23_IDENTITY,
-} from "../src/main/vellum-command/state/migrations";
+} from "../src/main/junto/state/migrations";
 import {
   STATE_SCHEMA_SQL,
   STATE_SCHEMA_V23_SQL,
-} from "../src/main/vellum-command/state/schema";
+} from "../src/main/junto/state/schema";
 import {
   expectedStateSchemaIdentity,
   verifyAndStampStateSchema,
-} from "../src/main/vellum-command/state/schema-identity";
+} from "../src/main/junto/state/schema-identity";
 
 const SEAT_A = `seat_${"a".repeat(64)}`;
 const SEAT_B = `seat_${"b".repeat(64)}`;

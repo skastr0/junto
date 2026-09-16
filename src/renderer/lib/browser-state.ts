@@ -1,21 +1,21 @@
 import { observable } from "@legendapp/state";
 import type { BrowserSessionInfo, VellumCommandBrowserApi } from "@shared/ipc";
 import { parseNodeRef } from "@shared/node-ref";
-import { getVellumCommandApi } from "./vellum-api";
+import { getJuntoApi } from "./junto-api";
 
-// Runtime-only browser meta cache. Canonical vellum-command:// refs are the durable
+// Runtime-only browser meta cache. Canonical junto:// refs are the durable
 // identity; nodeId is display metadata and must never become a session key.
 export const browser$ = observable({
-  /** canonical vellum-command:// ref -> last known session info. */
+  /** canonical junto:// ref -> last known session info. */
   sessionByRef: {} as Record<string, BrowserSessionInfo>,
 });
 
-// getVellumCommandApi() narrows its return type to VellumCommandApi proper; every browser
+// getJuntoApi() narrows its return type to VellumCommandApi proper; every browser
 // method lives on the sibling VellumCommandBrowserApi slice that global.d.ts merges
 // onto window.vellumCommand at runtime. Cast per-call — Partial<> so a
 // not-yet-landed method degrades to
 // undefined rather than a type error.
-type BrowserApi = ReturnType<typeof getVellumCommandApi> & Partial<VellumCommandBrowserApi>;
+type BrowserApi = ReturnType<typeof getJuntoApi> & Partial<VellumCommandBrowserApi>;
 
 export const isCanonicalBrowserRef = (ref: string): boolean => parseNodeRef(ref).ok;
 
@@ -110,7 +110,7 @@ export const clearBrowserSessionIfUnchanged = (
 /** One-shot hydration for a card that mounts after the session already opened. */
 export const refreshBrowserSession = async (ref: string): Promise<void> => {
   if (!isCanonicalBrowserRef(ref)) return;
-  const api = getVellumCommandApi() as BrowserApi | undefined;
+  const api = getJuntoApi() as BrowserApi | undefined;
   if (!api?.browserSessionList) return;
   const observedSessionId = browserSessionIdForRef(ref);
   try {
@@ -138,7 +138,7 @@ let activeUnsubscribe: (() => void) | undefined;
 
 export const subscribeBrowserSessionEvents = (): (() => void) => {
   if (activeUnsubscribe) return activeUnsubscribe;
-  const api = getVellumCommandApi() as BrowserApi | undefined;
+  const api = getJuntoApi() as BrowserApi | undefined;
   if (!api?.onBrowserSessionChanged) return () => undefined;
   const unsubscribe = api.onBrowserSessionChanged((session) => {
     cacheBrowserSession(session);

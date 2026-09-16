@@ -14,11 +14,11 @@ import { InstallationId } from "../src/shared/installation-id";
 import {
   WorkRepository,
   WorkRepositoryLive,
-} from "../src/main/vellum-command/work/repository";
+} from "../src/main/junto/work/repository";
 import {
   makeStateEngineLive,
   StateEngine,
-} from "../src/main/vellum-command/state/engine";
+} from "../src/main/junto/state/engine";
 import { IntentFactBasis } from "../src/shared/work-protocol";
 import { serializeCanvas, type CanvasDoc } from "../src/shared/canvas";
 import type { Task } from "../src/shared/work-model";
@@ -28,7 +28,7 @@ import {
   authorialTaskTopologyCapabilityForTest,
 } from "./helpers/task-topology-authority";
 
-const root = join(tmpdir(), `vellum-command-work-path-${randomUUID()}`);
+const root = join(tmpdir(), `junto-work-path-${randomUUID()}`);
 const runtime = ManagedRuntime.make(
   Layer.provideMerge(
     WorkRepositoryLive,

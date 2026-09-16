@@ -7,14 +7,14 @@ import {
   encodeOmpWorkspaceDir,
   isOmpSessionId,
   ompSessionsDir,
-} from "../src/main/vellum-command/term/templates/omp-session";
+} from "../src/main/junto/term/templates/omp-session";
 import {
   OMP_TEMPLATE,
   SPAWN_ENV_SCRUB,
 } from "../src/shared/managed-terminal-templates";
 import { resolveManagedLaunch } from "../src/shared/managed-terminal-launch";
-import { evaluate } from "../src/main/vellum-command/term/agent-state";
-import type { ObserverGridSnapshot } from "../src/main/vellum-command/term/observer/types";
+import { evaluate } from "../src/main/junto/term/agent-state";
+import type { ObserverGridSnapshot } from "../src/main/junto/term/observer/types";
 
 // A real session filename from a probe run of omp 18.0.9.
 const ID = "01a047a9-b043-7000-8238-77d95a659b41";

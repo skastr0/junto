@@ -18,7 +18,7 @@ import type {
   AppProcessPlane,
   AppProcessSignalReceipt,
   AppTerminalLease,
-} from "../src/main/vellum-command/app-process-plane";
+} from "../src/main/junto/app-process-plane";
 
 const tempSandboxes = new Set<ProbeSandbox>();
 const cleanDrainReceipt: ProbeProcessDrainReceipt = {

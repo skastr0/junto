@@ -20,7 +20,7 @@ const stdin = (...chunks: (string | Uint8Array)[]): AsyncIterable<string | Uint8
 });
 const roots: string[] = [];
 const temporary = async (): Promise<string> => {
-  const directory = await mkdtemp(path.join(tmpdir(), "vellum-command-desktop-release-test-"));
+  const directory = await mkdtemp(path.join(tmpdir(), "junto-desktop-release-test-"));
   roots.push(directory);
   return directory;
 };
@@ -65,7 +65,7 @@ const fixture = async () => {
   const digest = await fingerprintLinuxDesktopFile(archive);
   const sources = path.join(root, "sources.json");
   const index = {
-    schema: "vellum-command/release-sources/v1",
+    schema: "junto/release-sources/v1",
     product: "Junto",
     version,
     sourceCommit: sourceRevision,

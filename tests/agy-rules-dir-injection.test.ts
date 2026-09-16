@@ -6,8 +6,8 @@ import {
   AGENT_RULES_FILENAME,
   agentRulesDirFor,
   writeAgentRulesDir,
-} from "../src/main/vellum-command/term/agent-rules-dir";
-import { planManagedSpawn } from "../src/main/vellum-command/term/managed-spawn-plan";
+} from "../src/main/junto/term/agent-rules-dir";
+import { planManagedSpawn } from "../src/main/junto/term/managed-spawn-plan";
 import { resolveManagedLaunchPlan } from "../src/shared/managed-terminal-launch";
 import { AGY_TEMPLATE } from "../src/shared/managed-terminal-templates";
 import { __resetJuntoHomeCache } from "../src/shared/junto-home";
@@ -90,7 +90,7 @@ describe("agy doctrine rides an app-owned --add-dir rules directory", () => {
     expect(argv[argv.indexOf("--add-dir") + 1]).toBe(dir);
     const body = fs.readFileSync(path.join(dir!, AGENT_RULES_FILENAME), "utf8");
     expect(body).toContain("Junto");
-    expect(body).toContain("vellum-command");
+    expect(body).toContain("junto");
     // Tier A: the doctrine is a spawn-time fact, not a typed first message.
     expect(plan?.firstTypedMessage).toBeUndefined();
   });

@@ -776,12 +776,12 @@ const makeAddActions = (
   },
   addGit: () => {
     const position = positionFor({ width: 280, height: 128 });
-    window.dispatchEvent(new CustomEvent("vellum-command:new-git", { detail: position }));
+    window.dispatchEvent(new CustomEvent("junto:new-git", { detail: position }));
     dismiss();
   },
   addTerminal: () => {
     const position = positionFor({ width: 260, height: 110 });
-    window.dispatchEvent(new CustomEvent("vellum-command:new-terminal", { detail: position }));
+    window.dispatchEvent(new CustomEvent("junto:new-terminal", { detail: position }));
     dismiss();
   },
   addPage: () => {
@@ -1264,9 +1264,9 @@ function CanvasGraph() {
       }
       setTerminalAnchor(anchor);
     };
-    window.addEventListener("vellum-command:new-terminal", openTerminal);
+    window.addEventListener("junto:new-terminal", openTerminal);
     return () => {
-      window.removeEventListener("vellum-command:new-terminal", openTerminal);
+      window.removeEventListener("junto:new-terminal", openTerminal);
     };
   }, []);
   useEffect(() => {
@@ -1275,9 +1275,9 @@ function CanvasGraph() {
       if (createGitFromRegion(anchor)) return;
       setGitAnchor(anchor);
     };
-    window.addEventListener("vellum-command:new-git", openGit);
+    window.addEventListener("junto:new-git", openGit);
     return () => {
-      window.removeEventListener("vellum-command:new-git", openGit);
+      window.removeEventListener("junto:new-git", openGit);
     };
   }, []);
   const [multiMenu, setMultiMenu] = useState<{ x: number; y: number } | null>(null);

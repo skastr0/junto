@@ -17,7 +17,7 @@ import { STATION_PROTOCOL_BASELINE } from "./station-protocol";
  * concurrent calls on one ephemeral connection.
  */
 export const STATION_SESSION_PROTOCOL =
-  `vellum-command/station-session/v${STATION_PROTOCOL_BASELINE}` as const;
+  `junto/station-session/v${STATION_PROTOCOL_BASELINE}` as const;
 
 export const StationSessionRequestId = Schema.String.pipe(
   Schema.check(Schema.isMinLength(1)),

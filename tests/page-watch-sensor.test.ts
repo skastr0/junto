@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { CanvasDoc } from "../src/shared/canvas";
 import { pageLoadMapKey } from "../src/shared/scheduler-effects";
-import { resetWatcherMemory } from "../src/main/vellum-command/kernel/evaluate";
+import { resetWatcherMemory } from "../src/main/junto/kernel/evaluate";
 import {
   __resetKernelMemoryForTest,
   __setAutomationGateForTest,
@@ -10,7 +10,7 @@ import {
   getWatchers,
   runEvaluationCycle,
   setDocs,
-} from "../src/main/vellum-command/kernel/cycle";
+} from "../src/main/junto/kernel/cycle";
 
 const pageRelayDoc = (): CanvasDoc =>
   ({

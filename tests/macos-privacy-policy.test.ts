@@ -5,7 +5,7 @@ import {
   defaultSettings,
   sanitizeFleetConsent,
 } from "../src/shared/settings";
-import { decodeStoredSettings } from "../src/main/vellum-command/settings/state-schema";
+import { decodeStoredSettings } from "../src/main/junto/settings/state-schema";
 
 const read = (path: string): string => readFileSync(path, "utf8");
 
@@ -28,9 +28,9 @@ describe("macOS privacy policy", () => {
     ].join("\n");
     const runtime = [
       read("src/main/index.ts"),
-      read("src/main/vellum-command/trusted-renderer-protocol.ts"),
-      read("src/main/vellum-command/browser/web-policy.ts"),
-      read("src/main/vellum-command/hosts/deploy-darwin.ts"),
+      read("src/main/junto/trusted-renderer-protocol.ts"),
+      read("src/main/junto/browser/web-policy.ts"),
+      read("src/main/junto/hosts/deploy-darwin.ts"),
       read("scripts/app-paths.sh"),
     ].join("\n");
 
@@ -80,7 +80,7 @@ describe("macOS privacy policy", () => {
   });
 
   it("does not execute a login shell or expose general filesystem enumeration IPC", () => {
-    const spawn = read("src/main/vellum-command/adapters/exec.ts");
+    const spawn = read("src/main/junto/adapters/exec.ts");
     const ipc = read("src/shared/ipc.ts");
 
     expect(spawn).not.toContain("queryLoginShellPath");
@@ -103,9 +103,9 @@ describe("macOS privacy policy", () => {
   });
 
   it("revokes admitted provider work without the global adapter shutdown switch", () => {
-    const usage = read("src/main/vellum-command/usage/usage-service.ts");
-    const snapshots = read("src/main/vellum-command/snapshots.ts");
-    const exec = read("src/main/vellum-command/adapters/exec.ts");
+    const usage = read("src/main/junto/usage/usage-service.ts");
+    const snapshots = read("src/main/junto/snapshots.ts");
+    const exec = read("src/main/junto/adapters/exec.ts");
 
     expect(usage).toContain("abortAdmittedAccess");
     expect(snapshots).toContain("abortAdmittedAccess");

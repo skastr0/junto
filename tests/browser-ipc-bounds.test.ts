@@ -5,17 +5,17 @@ import { BROWSER_MAX_REF_BYTES } from "../src/shared/browser-limits";
 import {
   browserProfileWipeDialogOptions,
   registerBrowserIpc,
-} from "../src/main/vellum-command/browser/ipc";
-import type { PageTargetResolver } from "../src/main/vellum-command/browser/page-target";
+} from "../src/main/junto/browser/ipc";
+import type { PageTargetResolver } from "../src/main/junto/browser/page-target";
 import {
   BrowserSessionService,
   type BrowserViewAdapter,
-} from "../src/main/vellum-command/browser/sessions";
-import type { BrowserProfileServiceApi } from "../src/main/vellum-command/browser/profiles";
+} from "../src/main/junto/browser/sessions";
+import type { BrowserProfileServiceApi } from "../src/main/junto/browser/profiles";
 import { LOCAL_BROWSER_TEST_AUTHORITY } from "./browser-host-test-authority";
 
 type InvokeHandler = (event: unknown, ...args: ReadonlyArray<unknown>) => unknown;
-const PAGE_REF = "vellum-command://canvas/work?node=page-1";
+const PAGE_REF = "junto://canvas/work?node=page-1";
 const UNUSED_PROFILE_SERVICE = Object.freeze({}) as BrowserProfileServiceApi;
 
 const session = (): BrowserSessionInfo => ({

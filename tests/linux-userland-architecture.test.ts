@@ -29,12 +29,12 @@ const walkTs = async (
 describe("Linux userland architecture negatives", () => {
   it("deploy product code never installs under /opt/vellum or /opt/Junto", async () => {
     const files = [
-      path.join(ROOT, "src/main/vellum-command/hosts/deploy-linux.ts"),
-      path.join(ROOT, "src/main/vellum-command/ssh/remote-plan.ts"),
-      path.join(ROOT, "src/main/vellum-command/hosts/linux-release-admission.ts"),
-      path.join(ROOT, "src/main/vellum-command/hosts/linux-release-feed.ts"),
-      path.join(ROOT, "src/main/vellum-command/hosts/remote-deployment.ts"),
-      path.join(ROOT, "src/main/vellum-command/hosts/deploy-configured-remote.ts"),
+      path.join(ROOT, "src/main/junto/hosts/deploy-linux.ts"),
+      path.join(ROOT, "src/main/junto/ssh/remote-plan.ts"),
+      path.join(ROOT, "src/main/junto/hosts/linux-release-admission.ts"),
+      path.join(ROOT, "src/main/junto/hosts/linux-release-feed.ts"),
+      path.join(ROOT, "src/main/junto/hosts/remote-deployment.ts"),
+      path.join(ROOT, "src/main/junto/hosts/deploy-configured-remote.ts"),
     ];
     for (const file of files) {
       const source = await readFile(file, "utf8");
@@ -49,8 +49,8 @@ describe("Linux userland architecture negatives", () => {
 
   it("product barrels never re-export the release bridge/installer", async () => {
     const barrels = [
-      path.join(ROOT, "src/main/vellum-command/hosts/index.ts"),
-      path.join(ROOT, "src/main/vellum-command/ssh/index.ts"),
+      path.join(ROOT, "src/main/junto/hosts/index.ts"),
+      path.join(ROOT, "src/main/junto/ssh/index.ts"),
       path.join(ROOT, "src/shared"),
     ];
     for (const entry of barrels) {

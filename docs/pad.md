@@ -6,7 +6,7 @@ boxes and pins. Ordinary agents never write the factory canvas. An overseer
 authors canvas through closed `overseer` commands, not through pad.
 
 Contract: [`pad-architecture.md`](pad-architecture.md).
-CLI discovery: `vellum-command docs node pad`.
+CLI discovery: `junto docs node pad`.
 
 ## Operator
 
@@ -75,22 +75,22 @@ Only two work ports exist:
 CLI projections of `pad.read` (same grant):
 
 ```
-vellum-command pad read '{"target":"<pad-id>"}'
-vellum-command pad digest '{"target":"<pad-id>"}'
-vellum-command pad svg '{"target":"<pad-id>"}'
-vellum-command pad get '{"target":"<pad-id>","id":"<element-id>"}'
-vellum-command pad look-here '{"target":"<pad-id>","pinId":"<pin-id>"}'
-vellum-command pad tagged '{"target":"<pad-id>"}'
+junto pad read '{"target":"<pad-id>"}'
+junto pad digest '{"target":"<pad-id>"}'
+junto pad svg '{"target":"<pad-id>"}'
+junto pad get '{"target":"<pad-id>","id":"<element-id>"}'
+junto pad look-here '{"target":"<pad-id>","pinId":"<pin-id>"}'
+junto pad tagged '{"target":"<pad-id>"}'
 ```
 
 Mutation:
 
 ```
-vellum-command pad patch '{"target":"<pad-id>","patches":[{"op":"upsert","layer":"shape","shape":{"id":"box-1","type":"box","x":0,"y":0,"w":80,"h":40,"z":0}}]}'
+junto pad patch '{"target":"<pad-id>","patches":[{"op":"upsert","layer":"shape","shape":{"id":"box-1","type":"box","x":0,"y":0,"w":80,"h":40,"z":0}}]}'
 ```
 
 Agents may upsert shapes, edges, and pin posts. Discover schemas with
-`vellum-command schema show pad.read` and `vellum-command schema show pad.patch`.
+`junto schema show pad.read` and `junto schema show pad.patch`.
 
 ### Refusals
 
@@ -106,14 +106,14 @@ an unwired agent. `pin.reply` authors are stamped by WorkService.
 
 ### look-here
 
-`pad.read` with `pinId`, or `vellum-command pad look-here`. Crop is
+`pad.read` with `pinId`, or `junto pad look-here`. Crop is
 `pin.bounds` when present, otherwise the pin ± margin. Use it when the
 operator pointed at a region. A pinId that no longer resolves degrades a
 `pad.read` to a plain read (`lookHere` omitted, nothing marked read);
-`vellum-command pad look-here` stays strict and fails on the same input.
+`junto pad look-here` stays strict and fails on the same input.
 
 ### tagged
 
-`vellum-command pad tagged` lists pins that mention this process-bound
+`junto pad tagged` lists pins that mention this process-bound
 seat. Same `pad.read` grant. The mention universe is inbound actor
 edges; unwired names are refused on `pad.patch`.

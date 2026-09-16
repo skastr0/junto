@@ -25,7 +25,7 @@ import { expect, launchVellum, test } from "../harness/launch";
 // path outside the repo; set DEMO_CAPTURE_DIR for durable storage.
 const OUT =
   process.env.DEMO_CAPTURE_DIR ??
-  join(tmpdir(), "vellum-command-demo-capture");
+  join(tmpdir(), "junto-demo-capture");
 // Same 16:10 frame as marketing-shots; Retina compositor yields 2x frames.
 const FRAME = { width: 1760, height: 1100 };
 // growth-50 runs ~52s at 112 BPM (+2-beat tail); generous ceiling for drift.

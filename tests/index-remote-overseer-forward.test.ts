@@ -1,4 +1,4 @@
-import { CrewRepositoryLive } from "../src/main/vellum-command/work/crew-repository";
+import { CrewRepositoryLive } from "../src/main/junto/work/crew-repository";
 import { readFileSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -18,25 +18,25 @@ import {
   OverseerRequest,
   type OverseerResult,
 } from "../src/shared/overseer-control";
-import { WorkRepositoryLive } from "../src/main/vellum-command/work/repository";
-import { WorkLive } from "../src/main/vellum-command/work/service";
-import { CanvasesLive } from "../src/main/vellum-command/canvases";
+import { WorkRepositoryLive } from "../src/main/junto/work/repository";
+import { WorkLive } from "../src/main/junto/work/service";
+import { CanvasesLive } from "../src/main/junto/canvases";
 import {
   StationRepository,
   StationRepositoryLive,
-} from "../src/main/vellum-command/station/repository";
-import { StationFleetTargetRepositoryLive } from "../src/main/vellum-command/station/fleet-target-repository";
-import { StationLivePeerRegistryLive } from "../src/main/vellum-command/station/session-registry";
+} from "../src/main/junto/station/repository";
+import { StationFleetTargetRepositoryLive } from "../src/main/junto/station/fleet-target-repository";
+import { StationLivePeerRegistryLive } from "../src/main/junto/station/session-registry";
 import {
   makeSettingsLive,
-} from "../src/main/vellum-command/settings/service";
-import { makeStateEngineLive } from "../src/main/vellum-command/state/engine";
-import { makeInstallOpsLive } from "../src/main/vellum-command/install-ops/engine";
-import { makeContentServiceLive } from "../src/main/vellum-command/content/service";
-import { ChatServiceContext } from "../src/main/vellum-command/chat/service";
-import type { ChatService } from "../src/main/vellum-command/chat/service";
-import { ActorSeatOccupy } from "../src/main/vellum-command/term/actor-seat-occupy";
-import { composeOverseer } from "../src/main/vellum-command/overseer/composition";
+} from "../src/main/junto/settings/service";
+import { makeStateEngineLive } from "../src/main/junto/state/engine";
+import { makeInstallOpsLive } from "../src/main/junto/install-ops/engine";
+import { makeContentServiceLive } from "../src/main/junto/content/service";
+import { ChatServiceContext } from "../src/main/junto/chat/service";
+import type { ChatService } from "../src/main/junto/chat/service";
+import { ActorSeatOccupy } from "../src/main/junto/term/actor-seat-occupy";
+import { composeOverseer } from "../src/main/junto/overseer/composition";
 
 const decodeInstallationId = Schema.decodeUnknownSync(InstallationId);
 const COMMAND_CENTER = decodeInstallationId("cc-forward-test");

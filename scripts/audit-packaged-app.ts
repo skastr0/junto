@@ -298,7 +298,7 @@ export const validateMacOSRuntimePolicy = (
   }
 
   for (const cliPath of [
-    "Contents/Resources/bin/vellum-command",
+    "Contents/Resources/bin/junto",
   ] as const) {
     const cli = value.machO.find(
       (entry) => isRecord(entry) && entry.path === cliPath,
@@ -924,7 +924,7 @@ export const auditPackagedApp = async (
   );
   const appAsarPath = path.join(contentsPath, "Resources", "app.asar");
   const binPath = path.join(contentsPath, "Resources", "bin");
-  const workCliPath = path.join(binPath, "vellum-command");
+  const workCliPath = path.join(binPath, "junto");
   await requireRegularFile(infoPlistPath);
   await requireExecutable(mainExecutablePath);
   await requireRegularFile(appAsarPath);
@@ -1001,7 +1001,7 @@ export const auditSourcePackagedApp = async (requestedPath: string) => {
     throw new Error("source package must be Junto.app");
   }
   const asarPath = path.join(appPath, "Contents", "Resources", "app.asar");
-  const workCliPath = path.join(appPath, "Contents", "Resources", "bin", "vellum-command");
+  const workCliPath = path.join(appPath, "Contents", "Resources", "bin", "junto");
   await requireExecutable(workCliPath);
   await validateRawAsarArchive(asarPath);
   validateProjectNotices(asarPath);
@@ -1042,7 +1042,7 @@ if (invokedPath === modulePath) {
       })
       .catch((error: unknown) => {
         const message = error instanceof Error ? error.message : String(error);
-        console.error(`vellum-command package security audit failed: ${message}`);
+        console.error(`junto package security audit failed: ${message}`);
         process.exitCode = 1;
       });
   }

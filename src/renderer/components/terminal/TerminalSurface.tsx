@@ -18,7 +18,7 @@ import {
   terminalSurfaceId,
   unpinWorkbenchSurface,
 } from "../../lib/dock-state";
-import { getVellumCommandApi } from "../../lib/vellum-api";
+import { getJuntoApi } from "../../lib/junto-api";
 import { xtermThemeFor } from "../../lib/terminal-theme";
 import { attachXtermAppearance } from "../../lib/xterm-appearance";
 import { themeMode$ } from "../../lib/theme-mode";
@@ -1369,7 +1369,7 @@ export function TerminalSurface({
   }, [visible, node.id]);
 
   useEffect(() => {
-    const api = getVellumCommandApi() as VellumCommandTerminalApi | undefined;
+    const api = getJuntoApi() as VellumCommandTerminalApi | undefined;
     const term = termRef.current;
     apiRef.current = api;
     if (!api || !term || !bindingId) {
@@ -1776,7 +1776,7 @@ export function TerminalSurface({
     operatorStopped.current = true;
     setKillPhase("stopping");
     setStatus("stopping…");
-    void getVellumCommandApi()
+    void getJuntoApi()
       ?.terminalKill?.(bindingId, hostId)
       .then(() => {
         setKillPhase("stopped");
@@ -1886,7 +1886,7 @@ export function TerminalSurface({
     if (status !== "exited" && killPhase !== "stopped") return;
     if (!bindingId) return;
     let alive = true;
-    void getVellumCommandApi()
+    void getJuntoApi()
       ?.terminalGet?.(bindingId, hostId)
       .then((live) => {
         if (!alive || !live) return;

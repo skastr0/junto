@@ -8,11 +8,11 @@ import {
   getRuntimeFlagOverrides,
   projectRuntimeFlags,
   setRuntimeFlag,
-} from "../src/main/vellum-command/kernel/cycle";
+} from "../src/main/junto/kernel/cycle";
 import {
   __setSchedulerEffectDepsForTest,
   applySchedulerFire,
-} from "../src/main/vellum-command/kernel/effects";
+} from "../src/main/junto/kernel/effects";
 
 const board = (flags: ReadonlyArray<"blocker" | "parked" | "attention"> = []): CanvasDoc =>
   ({

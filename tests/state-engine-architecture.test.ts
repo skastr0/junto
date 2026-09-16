@@ -7,17 +7,17 @@ const allowed = new Set([
   "scripts/electron-sqlite-smoke.mjs",
   // Dev-only seed that copies a prod junto.db into an isolated dev tree.
   "scripts/dev-seed-from-prod.ts",
-  "src/main/vellum-command/state/backup.ts",
-  "src/main/vellum-command/state/engine.ts",
-  "src/main/vellum-command/state/migrations.ts",
-  "src/main/vellum-command/state/recovery.ts",
-  "src/main/vellum-command/state/schema-identity.ts",
+  "src/main/junto/state/backup.ts",
+  "src/main/junto/state/engine.ts",
+  "src/main/junto/state/migrations.ts",
+  "src/main/junto/state/recovery.ts",
+  "src/main/junto/state/schema-identity.ts",
   // Read-only pre-AppRuntime probe for newer-than-supported schema recovery.
-  "src/main/vellum-command/state/schema-version-probe.ts",
+  "src/main/junto/state/schema-version-probe.ts",
   // Install-local ledger (install-ops.db) — not product state; separate opener.
-  "src/main/vellum-command/install-ops/engine.ts",
+  "src/main/junto/install-ops/engine.ts",
   // Read-only external harness receipts; never Junto product state.
-  "src/main/vellum-command/term/session-existence.ts",
+  "src/main/junto/term/session-existence.ts",
 ]);
 
 const filesUnder = (directory: string): string[] => {

@@ -3,7 +3,7 @@ import { Result } from "effect";
 import type {
   AppProcessSignalReceipt,
   AppTerminalLease,
-} from "../src/main/vellum-command/app-process-plane";
+} from "../src/main/junto/app-process-plane";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import {
@@ -12,12 +12,12 @@ import {
   resolveLaunch,
   TerminalLaunchError,
   type LocalTerminalProcessAuthority,
-} from "../src/main/vellum-command/term/local-host";
+} from "../src/main/junto/term/local-host";
 import {
   makeProcessIdentityMap,
   setProcessIdentityMapForTests,
-} from "../src/main/vellum-command/process-identity";
-import { setProcessEpochReaderForTests } from "../src/main/vellum-command/process-epoch";
+} from "../src/main/junto/process-identity";
+import { setProcessEpochReaderForTests } from "../src/main/junto/process-epoch";
 import {
   makeFakeTerminalProcessAuthority,
   type FakeTerminalProcessAuthority,
@@ -25,20 +25,20 @@ import {
 import {
   getCapturedSessionId,
   resetSessionIdStoreForTest,
-} from "../src/main/vellum-command/term/session-id-store";
+} from "../src/main/junto/term/session-id-store";
 import type {
   PrimeAgentDaemonHandle,
   PrimeAgentDaemons,
-} from "../src/main/vellum-command/term/prime-agent-daemon";
-import { seatStateRuntime } from "../src/main/vellum-command/term/agent-state";
-import { OperatorInterlock } from "../src/main/vellum-command/term/drive/operator-interlock";
+} from "../src/main/junto/term/prime-agent-daemon";
+import { seatStateRuntime } from "../src/main/junto/term/agent-state";
+import { OperatorInterlock } from "../src/main/junto/term/drive/operator-interlock";
 import {
   OBSERVER_UNWATCHED_SCROLLBACK,
   OBSERVER_WATCHED_SCROLLBACK,
   TerminalObserverPlane,
-} from "../src/main/vellum-command/term/observer";
+} from "../src/main/junto/term/observer";
 import { SeatOccupationFailedError } from "../src/shared/terminal-seat-occupancy";
-import type { PrimeAgentReporterReport } from "../src/main/vellum-command/term/prime-agent-reporter";
+import type { PrimeAgentReporterReport } from "../src/main/junto/term/prime-agent-reporter";
 
 const hosts: LocalSessionHost[] = [];
 const syntheticEpochs = new Map<number, string>();

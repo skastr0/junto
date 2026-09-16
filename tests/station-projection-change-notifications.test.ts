@@ -14,9 +14,9 @@ import {
 import {
   installProjectionAndNotify,
   projectionCanvasChanges,
-} from "../src/main/vellum-command/station/api";
-import { compileStationPortfolioBody } from "../src/main/vellum-command/station/portfolio";
-import { stationProjectionContentSha256 } from "../src/main/vellum-command/station/repository";
+} from "../src/main/junto/station/api";
+import { compileStationPortfolioBody } from "../src/main/junto/station/portfolio";
+import { stationProjectionContentSha256 } from "../src/main/junto/station/repository";
 
 const installationId = Schema.decodeUnknownSync(InstallationId)("remote-installation");
 const sequence = Schema.decodeUnknownSync(LogicalSequence);

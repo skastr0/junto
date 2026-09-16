@@ -24,9 +24,9 @@ describe("parseInline", () => {
     ]);
   });
 
-  it("parses image markup and allows vellum-command-content src", () => {
+  it("parses image markup and allows junto-content src", () => {
     const src =
-      "vellum-command-content://object/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa?byteLength=12&mediaType=image%2Fpng";
+      "junto-content://object/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa?byteLength=12&mediaType=image%2Fpng";
     expect(parseInline(`shot ![cap](${src}) end`)).toEqual([
       { kind: "text", value: "shot " },
       { kind: "image", alt: "cap", src },
@@ -72,7 +72,7 @@ describe("parseBlocks", () => {
 
   it("parses a sole image line as an image block", () => {
     const src =
-      "vellum-command-content://object/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb?byteLength=4&mediaType=image%2Fpng";
+      "junto-content://object/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb?byteLength=4&mediaType=image%2Fpng";
     const blocks = parseBlocks(`# Title\n\n![diagram](${src})\n\nbody`);
     expect(blocks).toEqual([
       {

@@ -12,8 +12,8 @@ const processMocks = vi.hoisted(() => ({
   releaseOwned: vi.fn(),
 }));
 
-vi.mock("../src/main/vellum-command/process-signal", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../src/main/vellum-command/process-signal")>()),
+vi.mock("../src/main/junto/process-signal", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/main/junto/process-signal")>()),
   spawnDetachedProcessGroup: processMocks.spawnDetachedProcessGroup,
   signalOwned: processMocks.signalOwned,
   releaseOwned: processMocks.releaseOwned,
@@ -43,11 +43,11 @@ import { STATION_SESSION_PROTOCOL } from "../src/shared/station-session";
 import {
   createAppProcessPlane,
   type AppProcessLease,
-} from "../src/main/vellum-command/app-process-plane";
+} from "../src/main/junto/app-process-plane";
 import {
   setProcessEpochReaderForTests,
   type ProcessEpochRow,
-} from "../src/main/vellum-command/process-epoch";
+} from "../src/main/junto/process-epoch";
 
 class FakeRuntimeChild extends EventEmitter {
   readonly stdin = new PassThrough();
@@ -290,7 +290,7 @@ describe("packaged runtime smoke receipts", () => {
     expect(() => assertDarwinUnixSocketPathFits(tooLong)).toThrow(/Darwin 103-byte limit/u);
     expect(() =>
       assertDarwinUnixSocketPathFits(
-        "/private/tmp/vellum-command-smoke-XXXXXX/home/.junto/browser/control.sock",
+        "/private/tmp/junto-smoke-XXXXXX/home/.junto/browser/control.sock",
       ),
     ).not.toThrow();
   });
@@ -385,7 +385,7 @@ describe("packaged runtime smoke child lifecycle", () => {
   });
 
   it("retains the sandbox and returns a bounded straggler when group admission was refused", async () => {
-    const tempRoot = await mkdtemp(join(tmpdir(), "vellum-command-smoke-refused-"));
+    const tempRoot = await mkdtemp(join(tmpdir(), "junto-smoke-refused-"));
     tempRoots.add(tempRoot);
     vi.useFakeTimers();
     const child = new FakeRuntimeChild();
@@ -427,7 +427,7 @@ describe("packaged runtime smoke child lifecycle", () => {
   });
 
   it("retains the sandbox when a fallback root closes but descendants remain unproven", async () => {
-    const tempRoot = await mkdtemp(join(tmpdir(), "vellum-command-smoke-root-only-"));
+    const tempRoot = await mkdtemp(join(tmpdir(), "junto-smoke-root-only-"));
     tempRoots.add(tempRoot);
     vi.useFakeTimers();
     const child = new FakeRuntimeChild();
@@ -465,7 +465,7 @@ describe("packaged runtime smoke child lifecycle", () => {
   });
 
   it("retains an unclosed runtime after epoch revalidation refuses both signal phases", async () => {
-    const tempRoot = await mkdtemp(join(tmpdir(), "vellum-command-smoke-epoch-"));
+    const tempRoot = await mkdtemp(join(tmpdir(), "junto-smoke-epoch-"));
     tempRoots.add(tempRoot);
     vi.useFakeTimers();
     const child = new FakeRuntimeChild();
@@ -506,7 +506,7 @@ describe("packaged runtime smoke child lifecycle", () => {
   });
 
   it("removes the sandbox only after a clean central group drain", async () => {
-    const tempRoot = await mkdtemp(join(tmpdir(), "vellum-command-smoke-clean-"));
+    const tempRoot = await mkdtemp(join(tmpdir(), "junto-smoke-clean-"));
     tempRoots.add(tempRoot);
     vi.useFakeTimers();
     const child = new FakeRuntimeChild();

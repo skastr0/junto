@@ -8,7 +8,7 @@ import {
   redactSecrets,
   type OllamaApiOutcome,
   type OllamaWebOutcome,
-} from "../src/main/vellum-command/usage/ollama-source";
+} from "../src/main/junto/usage/ollama-source";
 
 const FETCHED = "2026-08-18T12:00:00.000Z";
 const SECRET_COOKIE = "s3cr3t-session-token-value-0001";

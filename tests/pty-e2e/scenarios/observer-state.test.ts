@@ -33,15 +33,15 @@ import {
   loadFixture,
   runScenario,
 } from "../runner";
-import { SessionObserver } from "../../../src/main/vellum-command/term/observer";
-import { SeatStateRuntime, progressFingerprint } from "../../../src/main/vellum-command/term/agent-state/runtime";
+import { SessionObserver } from "../../../src/main/junto/term/observer";
+import { SeatStateRuntime, progressFingerprint } from "../../../src/main/junto/term/agent-state/runtime";
 import { terminalActivity, isActiveProcessLabel } from "../../../src/renderer/lib/activity";
 import {
   armFirstTypedMessage,
   resetFirstTypedForTest,
   takeFirstTypedMessage,
-} from "../../../src/main/vellum-command/term/first-typed";
-import type { ObserverGridSnapshot } from "../../../src/main/vellum-command/term/observer/types";
+} from "../../../src/main/junto/term/first-typed";
+import type { ObserverGridSnapshot } from "../../../src/main/junto/term/observer/types";
 
 afterEach(() => {
   resetFirstTypedForTest();

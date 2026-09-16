@@ -8,8 +8,8 @@
  *
  * Not in scope (word-boundary / casing; renamed by the sweep commits):
  * - glued camelCase identifiers: VellumCommandApi, resolveJuntoHome
- * - lowercase paths / bins: ~/.junto/, junto.db, dist/vellum-command
- * - env / package keys: JUNTO_*, @skastr0/vellum-command
+ * - lowercase paths / bins: ~/.junto/, junto.db, dist/junto
+ * - env / package keys: JUNTO_*, @skastr0/junto
  * - hyphenated internal protocol/header tokens: X-Vellum-Command-Content-State
  *   (local wire labels, not product brand — retired by the protocol commit)
  *

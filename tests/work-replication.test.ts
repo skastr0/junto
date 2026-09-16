@@ -30,13 +30,13 @@ import {
   WorkReplicationError,
   WorkRepository,
   WorkRepositoryLive,
-} from "../src/main/vellum-command/work/repository";
-import { stationProjectionContentSha256 } from "../src/main/vellum-command/station/repository";
-import { compileStationPortfolioBody } from "../src/main/vellum-command/station/portfolio";
+} from "../src/main/junto/work/repository";
+import { stationProjectionContentSha256 } from "../src/main/junto/station/repository";
+import { compileStationPortfolioBody } from "../src/main/junto/station/portfolio";
 import {
   makeStateEngineLive,
   StateEngine,
-} from "../src/main/vellum-command/state/engine";
+} from "../src/main/junto/state/engine";
 import {
   authorialMaterialForTest,
   authorialTaskTopologyCapabilityForTest,
@@ -162,7 +162,7 @@ const openInstallation = async (
 ) => {
   const root = join(
     tmpdir(),
-    `vellum-command-work-replication-v2-${local}-${randomUUID()}`,
+    `junto-work-replication-v2-${local}-${randomUUID()}`,
   );
   const runtime = ManagedRuntime.make(
     Layer.provideMerge(

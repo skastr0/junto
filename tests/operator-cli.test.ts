@@ -155,7 +155,7 @@ describe("top-level browser dispatch", () => {
     expect(
       browserCliArgsFromArgv([
         "bun",
-        "/$bunfs/root/vellum-command",
+        "/$bunfs/root/junto",
         "fleet",
         "add",
         "--capability",
@@ -165,7 +165,7 @@ describe("top-level browser dispatch", () => {
     expect(
       browserCliArgsFromArgv([
         "bun",
-        "/$bunfs/root/vellum-command",
+        "/$bunfs/root/junto",
         "browser",
         "doctor",
         "--json",

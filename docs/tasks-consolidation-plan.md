@@ -43,7 +43,7 @@ approval", and the second creation mode.
 
 ## Durable storage
 
-Schema head remains 21 (`src/main/vellum-command/state/migrations.ts`). This corrective
+Schema head remains 21 (`src/main/junto/state/migrations.ts`). This corrective
 repair does not consume a schema version: fresh upgrades construct the fixed
 version 21, while an existing invalid version-21 database is rewritten before
 normal decode. The next unrelated schema migration remains `21 -> 22`.
@@ -138,7 +138,7 @@ copy, tests, and docs together so no batch leaves two vocabularies alive.
   over message text. Domain codes `not_ready`, `unadmitted`, `fork_choice`,
   `wrong_home`, `operator_owned` map to typed errors with `next_step`.
 - `tasks check` prints one JSON envelope to stdout, no table on stderr.
-- `vellum-docs.ts` port descriptions generated from `TaskState` and the update
+- `junto-docs.ts` port descriptions generated from `TaskState` and the update
   args. Injection copy, few-shots, and the task briefing
   rewritten in the domain words with a paste-able completion example that
   includes `claims`.
@@ -175,7 +175,7 @@ copy, tests, and docs together so no batch leaves two vocabularies alive.
 
 - `architecture-factory-physics.md` gains a section on rules, claims,
   checks, visits, defects, and epochs.
-- `vellum-protocol.md`, `security-doctrine.md`, `managed-terminal-plan.md`
+- `junto-protocol.md`, `security-doctrine.md`, `managed-terminal-plan.md`
   word sweep.
 - AGENTS.md: schema head corrected, lexicon pointer to `tasks-domain.md`.
 - Tests added: factory-tick starvation and key collision, wake with

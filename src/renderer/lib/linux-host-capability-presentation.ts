@@ -11,7 +11,7 @@ import type {
 export const LINUX_HOST_PREPARATION_DOC =
   "docs/linux-host-preparation.md" as const;
 export const LINUX_HOST_PREPARATION_URL =
-  `https://github.com/skastr0/vellum-command/blob/main/${LINUX_HOST_PREPARATION_DOC}` as const;
+  `https://github.com/skastr0/junto/blob/main/${LINUX_HOST_PREPARATION_DOC}` as const;
 
 const FINDINGS_ANCHOR =
   "docs/linux-host-preparation.md#how-are-host-findings-reported" as const satisfies LinuxHostRemediationAnchor;

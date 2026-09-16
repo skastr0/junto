@@ -15,7 +15,7 @@ afterEach(async () => {
 });
 
 const fixture = async () => {
-  const root = await mkdtemp(join(tmpdir(), "vellum-command-cli-fixture-"));
+  const root = await mkdtemp(join(tmpdir(), "junto-cli-fixture-"));
   roots.push(root);
   const repoRoot = join(root, "checkout");
   await mkdir(join(repoRoot, "src"), { recursive: true });
@@ -34,10 +34,10 @@ const fixture = async () => {
   // A labeled transport test artifact, never a substitute for the real CLI
   // in the Devin scenario. Native qualification builds the standalone CLI.
   const bytes = Buffer.from("#!/bin/sh\nprintf '%s\\n' 'fixture executable' \"$HOME\" \"$PWD\" \"$JUNTO_WORK_SOCKET\" \"$1\"\n");
-  const binary = join(repoRoot, "dist", "vellum-command");
+  const binary = join(repoRoot, "dist", "junto");
   const receiptPath = `${binary}-relink.json`;
   const receipt = {
-    schema: "vellum-command/cli-relink/v1", sourceCommit, featureProfile: "all-on",
+    schema: "junto/cli-relink/v1", sourceCommit, featureProfile: "all-on",
     binary: { bytes: bytes.length, sha256: createHash("sha256").update(bytes).digest("hex") },
   };
   const installArtifact = async (metadata: unknown = receipt) => {
@@ -102,7 +102,7 @@ describe("isolated real-harness CLI provisioning", () => {
     const cwd = join(f.sandbox.root, "throwaway-cwd");
     await mkdir(cwd);
     const socket = join(f.sandbox.homeDir, ".junto", "work", "control.sock");
-    const stdout = execFileSync("/bin/sh", ["-c", "command -v vellum-command && exec vellum-command --help"], {
+    const stdout = execFileSync("/bin/sh", ["-c", "command -v junto && exec junto --help"], {
       cwd, encoding: "utf8", env: {
         HOME: f.sandbox.homeDir, PATH: `${seededHarnessBinDir(f.sandbox)}:/usr/bin:/bin`,
         JUNTO_WORK_SOCKET: socket,

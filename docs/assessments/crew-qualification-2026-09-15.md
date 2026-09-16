@@ -101,7 +101,7 @@ notification suppression, identity/read failure before writes, and
 close/reopen crash recovery before traffic. The earlier batch-association
 case failed before the producer repair, then passed.
 
-The current [main composition](../../src/main/vellum-command/ipc.ts#L1682)
+The current [main composition](../../src/main/junto/ipc.ts#L1682)
 reconciles old intents before configuring live mail delivery. A delayed
 boot scan does not reconcile current live attempts. The fallback/resume
 additions now have their own receipts in U6.
@@ -113,7 +113,7 @@ independently checked service, observer and CLI results and exact limits.
 They cover register-before-current, grant revocation after registration,
 current authorized peer replacement, dead-generation events, observer
 replacement during read, UTF-8 bounds and subscription cleanup. Current
-[control dispatch](../../src/main/vellum-command/work/control.ts#L1529)
+[control dispatch](../../src/main/junto/work/control.ts#L1529)
 now reaches all three live operations; the earlier assessment's
 unintegrated-control statement is historical.
 
@@ -153,7 +153,7 @@ history from the live empty composer. An adjacent-frame replay through
 the observer, seat runtime and shared drive accepts exactly one paste and
 one CR, with pending evidence gone before the accepted working event.
 
-`/tmp/vellum-command-codex-multiline-gate-20260915.log` records **140/140
+`/tmp/junto-codex-multiline-gate-20260915.log` records **140/140
 tests in 7 files**, 08:15:35 BRT. This closes the recorded-evidence gap for
 those cases. It is replay of captured native bytes, not a fresh real Codex
 model run or a crew-workflow qualification.
@@ -167,7 +167,7 @@ The checked source includes
 [migration 23 to 24](../../tests/crew-schema-migration.test.ts).
 The migration fixture checks unchanged existing message/receipt table
 definitions and retained work history.
-`/tmp/vellum-command-crew-integration-gate.log` records **21/21 tests in
+`/tmp/junto-crew-integration-gate.log` records **21/21 tests in
 3 files**, 07:56:18 BRT: `main-authoring-gate`, `crew-schema-migration` and
 `single-write-seam-crew-boundaries`, all-on with `--maxWorkers=4`.
 It tested the shared tree after `e52ea0e27`; it is not a clean-package
@@ -180,8 +180,8 @@ historical refusal/uncertainty; those timestamps remain intact and no
 read fact is invented. Without notification, unresolved still wins over
 refusal. The updated contract and
 [display regression](../../tests/crew-mail-view.test.ts#L57) agree.
-`/tmp/vellum-command-notified-display-before.log` records **3 failed,
-17 passed in 2 files**; `/tmp/vellum-command-notified-display-after.log`
+`/tmp/junto-notified-display-before.log` records **3 failed,
+17 passed in 2 files**; `/tmp/junto-notified-display-after.log`
 records **69/69 in 5 files**, 08:22:23 BRT. This is fact/display
 qualification, not proof that an external recipient received or read mail.
 
@@ -193,7 +193,7 @@ reopen; plain immediate refusal granted fallback without a request; and an
 old-generation grant released the current drive when its own grant failed,
 allowing a second physical paste. The adopted regressions all fail against
 that exact earlier commit:
-`/tmp/vellum-command-fallback-before-e52-corrections.log`.
+`/tmp/junto-fallback-before-e52-corrections.log`.
 
 `8ef303514` corrects those paths. Only an explicit fallback request persists
 notice policy, before transport gates and under the message reservation.
@@ -210,10 +210,10 @@ ordering, old/replaced generation protection, paused policy, cancellation,
 reservation and failed/unknown authority reads. Evidence:
 
 - **35/35 focused tests**, 2 files, exact `e52ea0e27` plus the three correction
-  files: `/tmp/vellum-command-fallback-isolated-fixed.log`, 08:12:49 BRT.
+  files: `/tmp/junto-fallback-isolated-fixed.log`, 08:12:49 BRT.
   The same isolated source passed typecheck.
 - **145/145 adjacent tests**, 9 files, all-on:
-  `/tmp/vellum-command-fallback-takeover-adjacent.log`, 08:11:16 BRT.
+  `/tmp/junto-fallback-takeover-adjacent.log`, 08:11:16 BRT.
   Effect, write-seam, product-name and no-middle-dot lint gates passed.
 
 This upgrades service/database qualification. It does not establish live
@@ -230,11 +230,11 @@ provenance. Source receipts:
 [writer tests](../../tests/checkout-receipt-writer.test.ts) and
 [composition tests](../../tests/checkout-watch-composition.test.ts).
 The related writer/review gate log,
-`/tmp/vellum-command-checkout-receipt-writer-20260915.log`, records
+`/tmp/junto-checkout-receipt-writer-20260915.log`, records
 **46/46 tests in 2 files**, 08:02:39 BRT, before those working-tree fixes
 were committed.
 
-`/tmp/vellum-command-checkout-composition-final.log` records **7/7 tests**,
+`/tmp/junto-checkout-composition-final.log` records **7/7 tests**,
 08:05:43 BRT. These create real Git repositories and commit through the real
 Canvases, Work, CrewRepository and StateEngine services. They check silent
 baseline, commit-before-notify and dedupe, read failure/retry, process
@@ -249,7 +249,7 @@ changes, stops it when product automation suspends, and wires the
 generation-checked drive release after durable mail authorization. These
 are now composed product paths, not merely constructors.
 
-`/tmp/vellum-command-crew-lifecycle-gate-final.log` records **28/28 tests in
+`/tmp/junto-crew-lifecycle-gate-final.log` records **28/28 tests in
 4 files**, 08:03:10 BRT: `main-authoring-architecture`, `main-authoring-ipc`,
 `index-shutdown-wiring` and `terminal-shutdown-receipts`, all-on with
 `--maxWorkers=4`. That run used the shared tree with the later-committed
@@ -257,7 +257,7 @@ lifecycle wiring; it did not launch a production package.
 
 `dd0e82d7a` preserves domain `retryable` and next-step details through the
 real verdict control socket. Its checked log is
-`/tmp/vellum-command-work-control-retryable-green.log`: **48 passed, 1
+`/tmp/junto-work-control-retryable-green.log`: **48 passed, 1
 skipped**, 07:56:54 BRT. Authentication, framing and response mapping are
 real; the new cases stub the domain verdict result. This is control-path
 qualification, not a model turn.
@@ -275,20 +275,20 @@ complete Electron journeys.
 
 ### E2 — generated review workflow, separately from PTY health
 
-`/tmp/vellum-command-crew-review-native-192cbd228.log` records a real
+`/tmp/junto-crew-review-native-192cbd228.log` records a real
 Electron run of the explicitly named **`[fake-tui]`** scenario. It reached
 the blocking/repair/green chain, then failed to find `canvas-digest-body`.
 The source mount defect was fixed in `a6949909e`.
 
 The corrected run in
-`/tmp/vellum-command-crew-review-native-digest-fixed.log` is **1/1 passed**,
+`/tmp/junto-crew-review-native-digest-fixed.log` is **1/1 passed**,
 including the visible verdict chain and digest. It ran product source
 `192cbd228` plus that digest fix in the isolated QA worktree, main PID
-`42869`, disposable home `/tmp/vellum-command-e2e-hDhTWj/home`.
+`42869`, disposable home `/tmp/junto-e2e-hDhTWj/home`.
 The filename's `native` does not turn its fake harness into a real model.
 
 The independently opened trace
-`/tmp/vellum-command-crew-review-native-digest-pty.jsonl` also contains an
+`/tmp/junto-crew-review-native-digest-pty.jsonl` also contains an
 author claim paste followed by refused continuation and a reviewer
 `queue-timeout`. Therefore the passing review workflow is not successful
 unattended PTY submission qualification. The complete Electron review
@@ -320,7 +320,7 @@ between input callbacks and records the complete submitted payload's length
 and hash. This removes cooked-input echo/buffering that misrepresented the
 composer to the observer.
 
-The inspected `/tmp/vellum-command-fake-codex-20260915/report.json` and
+The inspected `/tmp/junto-fake-codex-20260915/report.json` and
 `probe.test.ts` exercise the installed fixture through **node-pty**, the real
 SessionObserver, SeatStateRuntime and shared drive. Paste markers were
 deliberately split across three writes. Before CR, the observer reports
@@ -338,7 +338,7 @@ crew authorization or mail receipts, or call a real model provider.
 ## Aggregate result and remaining qualification
 
 The completed all-on run is preserved at
-`/tmp/vellum-command-crew-all-on-integrated-20260915.log`:
+`/tmp/junto-crew-all-on-integrated-20260915.log`:
 
 | Run | Checked result |
 |---|---|
@@ -349,12 +349,12 @@ The completed all-on run is preserved at
 The two failures were the write-seam register and a state-write-budget
 timing assertion. The latter independently passed 2/2 in a focused
 single-worker rerun recorded at
-`/tmp/vellum-command-state-budget-focused.log`; this does not make the
+`/tmp/junto-state-budget-focused.log`; this does not make the
 aggregate run green. `6767b57fb` registers the missing boundaries, but the
 recorded aggregate predates that correction and further edits.
 
 A fresh clean QA checkout,
-`/tmp/vellum-command-crew-qa-9e438586`, is pinned to `9e4385864`.
+`/tmp/junto-crew-qa-9e438586`, is pinned to `9e4385864`.
 Its build and unit runs are in progress at this update; no result is
 claimed for them, and it has not supplied a renewed Electron or native
 qualification receipt.
@@ -372,7 +372,7 @@ qualification receipt.
   No current checked receipt upgrades any new-crew package cell.
 - **Nonblocking drift follow-up:** renderer
   [reviewGateOf](../../src/renderer/lib/crew-review-view.ts#L263) and server
-  [evaluateReviewGate](../../src/main/vellum-command/work/reviews.ts#L486)
+  [evaluateReviewGate](../../src/main/junto/work/reviews.ts#L486)
   duplicate latest-verdict, exact-subject and current-reviewer logic. The
   inspected rules agree today, including blocking winning a same-time tie.
   This is a future drift risk, not a demonstrated current review failure.

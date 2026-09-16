@@ -11,7 +11,7 @@ import {
   ownedBoxesNeedRefresh,
   upsertCachedBox,
 } from "../../lib/box-fleet-state";
-import { getVellumCommandApi } from "../../lib/vellum-api";
+import { getJuntoApi } from "../../lib/junto-api";
 import { Button, Chip, StatusDot } from "../ui";
 
 const BOX_DASHBOARD_URL = "https://box.ascii.dev/box/dashboard";
@@ -41,7 +41,7 @@ export function FleetBoxPanel({
   const [message, setMessage] = useState("");
 
   const refreshAvailability = useCallback(async (force = false) => {
-    const api = getVellumCommandApi();
+    const api = getJuntoApi();
     const availability = api?.boxAvailability;
     if (!availability) {
       invalidateBoxAvailability();
@@ -64,7 +64,7 @@ export function FleetBoxPanel({
   }, []);
 
   const refreshOwnedBoxes = useCallback(async (force = false) => {
-    const api = getVellumCommandApi();
+    const api = getJuntoApi();
     const listOwned = api?.boxListOwned;
     if (!listOwned) {
       invalidateOwnedBoxes();
@@ -122,7 +122,7 @@ export function FleetBoxPanel({
   };
 
   const create = async () => {
-    const api = getVellumCommandApi();
+    const api = getJuntoApi();
     const createBox = api?.boxCreate;
     if (!createBox) return;
     setBusy("create");
@@ -159,7 +159,7 @@ export function FleetBoxPanel({
     operation: "refresh" | "prepare" | "stop" | "resume" | "detach",
     boxId: string,
   ) => {
-    const api = getVellumCommandApi();
+    const api = getJuntoApi();
     const invoke =
       operation === "refresh"
         ? api?.boxRefresh

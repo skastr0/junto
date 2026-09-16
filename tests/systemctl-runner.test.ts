@@ -5,7 +5,7 @@ import type {
   AppProcessLease,
   AppProcessPlane,
   AppProcessSignalReceipt,
-} from "../src/main/vellum-command/app-process-plane";
+} from "../src/main/junto/app-process-plane";
 import {
   SYSTEMCTL_DEADLINE_MS,
   SYSTEMCTL_PATH,
@@ -13,7 +13,7 @@ import {
   createSystemctlRunner,
   systemdUserUnitTarget,
   type VellumSystemdUserUnitTarget,
-} from "../src/main/vellum-command/supervision/systemctl-runner";
+} from "../src/main/junto/supervision/systemctl-runner";
 
 type RunnerProcessPlane = Pick<
   AppProcessPlane,
@@ -119,7 +119,7 @@ describe("systemctl runner target and argv boundary", () => {
         "--property=ControlGroup",
         "--property=InvocationID",
         "show",
-        "vellum-command-remote.service",
+        "junto-remote.service",
       ],
       env: expect.objectContaining({
         LANG: "C",
@@ -147,7 +147,7 @@ describe("systemctl runner target and argv boundary", () => {
         "--no-pager",
         "--no-ask-password",
         "start",
-        "vellum-command-remote.service",
+        "junto-remote.service",
       ],
       shell: false,
     }));

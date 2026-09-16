@@ -32,10 +32,10 @@ describe("Linux desktop alpha and gated Fleet operator documentation", () => {
     expect(bootstrap).toContain("That procedure is withdrawn");
     expect(commands).toContain("gh attestation verify");
     expect(commands).toContain("bun scripts/install-linux-desktop.ts");
-    expect(commands).toContain("vellum-command-desktop-bootstrap-linux-x64");
+    expect(commands).toContain("junto-desktop-bootstrap-linux-x64");
     expect(commands).not.toMatch(/^\s*tar\s+-xzf\b/mu);
     expect(commands).not.toContain("desktop-install");
-    expect(commands).not.toContain("resources/bin/vellum-command");
+    expect(commands).not.toContain("resources/bin/junto");
     expect(commands).not.toContain("sha256sum");
   });
 
@@ -70,9 +70,9 @@ describe("Linux desktop alpha and gated Fleet operator documentation", () => {
       "refuses an existing managed launcher and never launches the app or opens its database",
     );
     expect(text).toContain(
-      "`~/.local/opt/vellum-command-alpha/<version>-<archiveSHA256>/`",
+      "`~/.local/opt/junto-alpha/<version>-<archiveSHA256>/`",
     );
-    expect(text).toContain("`~/.local/bin/vellum-command-desktop`");
+    expect(text).toContain("`~/.local/bin/junto-desktop`");
     expect(text).toContain(
       "The app never invokes a package manager, loads AppArmor policy, enables lingering, collects administrator credentials or retries through a privileged fallback",
     );
@@ -152,7 +152,7 @@ describe("Linux desktop alpha and gated Fleet operator documentation", () => {
 
     // Desktop and Fleet share rootless authority but have separate qualification.
     expect(production).toContain(
-      "The canonical payload is `vellum-command-runtime-<version>-linux-x64.tar.gz`",
+      "The canonical payload is `junto-runtime-<version>-linux-x64.tar.gz`",
     );
     expect(production).toContain(
       "Desktop descriptors and the alpha feed live under `/linux/x64/`, separately from the gated Fleet release contract",

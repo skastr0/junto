@@ -736,7 +736,7 @@ const SHARED_ENV_SPEC: EnvSpec = {
   scrub: SPAWN_ENV_SCRUB,
   // Seat/socket/token reach direct harness subprocesses; the Prime Agent
   // runtime starts its isolated daemon from this resolved environment.
-  // PATH inject so `dist/vellum-command` resolves for `vellum-command onboard`.
+  // PATH inject so `dist/junto` resolves for `junto onboard`.
   injectKeys: [
     "PATH",
     "JUNTO_SOCKET",
@@ -1747,7 +1747,7 @@ export const JUNTO_OVERSEER_TEMPLATE: ManagedTerminalTemplate = {
   harness: "vellum-overseer",
   displayName: "Junto Overseer",
   argvSpec: {
-    binary: "vellum-command",
+    binary: "junto",
     prefix: ["overseer-host"],
     promptMode: "none",
     modelFlag: "--model",

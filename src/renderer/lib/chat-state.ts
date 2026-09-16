@@ -8,7 +8,7 @@ import type {
   ChatModelChoice,
   ChatOpenResult,
 } from "@shared/ipc";
-import { getVellumCommandApi } from "./vellum-api";
+import { getJuntoApi } from "./junto-api";
 
 // window.vellumCommand is ambiently typed as VellumCommandApi only (src/renderer/global.d.ts).
 // The ACP chat surface (ChatApi) is documented as "merged into the preload
@@ -18,7 +18,7 @@ import { getVellumCommandApi } from "./vellum-api";
 // still gates on `typeof x === "function"` before calling, so an
 // over-optimistic type costs nothing: a method that isn't actually there yet
 // degrades to a quiet error state exactly like a genuinely absent one would.
-const getChatApi = (): ChatApi | undefined => getVellumCommandApi() as unknown as ChatApi | undefined;
+const getChatApi = (): ChatApi | undefined => getJuntoApi() as unknown as ChatApi | undefined;
 
 // One live ACP session per agent node, keyed by agentKey ("<host>:<profile>").
 // ChatEvent payloads are forwarded verbatim from the ACP relay (see

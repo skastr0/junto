@@ -33,15 +33,15 @@ import {
   bindNegotiatedStationProtocol,
   makeStationPeerSession,
   type StationSessionFrameTransport,
-} from "../src/main/vellum-command/station/peer-session";
+} from "../src/main/junto/station/peer-session";
 import {
   StationControlReportError,
-} from "../src/main/vellum-command/station/control-server";
+} from "../src/main/junto/station/control-server";
 import {
   dispatchRegisteredStationRemoteOverseer,
   makeRemoteStationOverseerDispatcher,
   registerStationRemoteOverseerHandler,
-} from "../src/main/vellum-command/station/overseer-transport";
+} from "../src/main/junto/station/overseer-transport";
 
 const installationId = Schema.decodeUnknownSync(InstallationId);
 const REMOTE = installationId("remote-overseer-test");

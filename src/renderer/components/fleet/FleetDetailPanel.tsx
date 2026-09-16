@@ -49,7 +49,7 @@ import { activateOnPointerUp } from "../../lib/pointer-activation";
 import { state$ } from "../../lib/state";
 import { DIM, GREEN, HUE, withAlpha } from "../../lib/theme";
 import { updateState$ } from "../../lib/update-state";
-import { getVellumCommandApi } from "../../lib/vellum-api";
+import { getJuntoApi } from "../../lib/junto-api";
 import { LinuxHostCapabilities } from "../LinuxHostCapabilities";
 import { Button, Chip, IconButton, type ChipTone } from "../ui";
 import { FleetDeployJobPanel } from "./FleetDeployJobPanel";
@@ -389,7 +389,7 @@ function StationDetail({ host, probe }: { readonly host: RemoteHost; readonly pr
   });
 
   const loadCaps = useCallback(async () => {
-    const api = getVellumCommandApi();
+    const api = getJuntoApi();
     const readCaps = api?.hostsDeployCapabilities;
     if (!readCaps) {
       setCaps(null);
@@ -465,7 +465,7 @@ function StationDetail({ host, probe }: { readonly host: RemoteHost; readonly pr
   };
 
   const runAction = async (kind: "configure" | "deploy" | "remove") => {
-    const api = getVellumCommandApi();
+    const api = getJuntoApi();
     if (!api) return;
     if (kind === "deploy" && !deployEnabled) return;
     if (kind === "configure" && !machineMutateEnabled) return;

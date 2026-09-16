@@ -4,7 +4,7 @@
 import { useEffect, useState } from "react";
 import type { BrowserProfileInfo, VellumCommandApi, VellumCommandBrowserApi, VellumCommandTerminalApi } from "@shared/ipc";
 import { Select } from "./ui";
-import { getVellumCommandApi } from "../lib/vellum-api";
+import { getJuntoApi } from "../lib/junto-api";
 
 type HostOpt = { readonly value: string; readonly label: string };
 type BrowserApi = (VellumCommandApi & Partial<VellumCommandTerminalApi> & Partial<VellumCommandBrowserApi>) | undefined;
@@ -29,7 +29,7 @@ export function EnrolledHostSelect({
 
   useEffect(() => {
     let current = true;
-    void getVellumCommandApi()
+    void getJuntoApi()
       ?.hostsList?.()
       .then((result) => {
         if (!current || !result?.ok || !Array.isArray(result.hosts)) return;
@@ -97,7 +97,7 @@ export function BrowserProfileSelect({
 
   useEffect(() => {
     let current = true;
-    const api = getVellumCommandApi() as BrowserApi;
+    const api = getJuntoApi() as BrowserApi;
     void api
       ?.browserProfiles?.()
       .then((result) => {

@@ -9,12 +9,12 @@ import {
   BrowserCompositionStartupError,
   makeBrowserShutdownCoordinator,
   startBrowserComposition,
-} from "../src/main/vellum-command/browser/composition";
-import { makeBrowserCapabilityRegistry } from "../src/main/vellum-command/browser/capabilities";
-import { makeBrowserProfileGate } from "../src/main/vellum-command/browser/profile-gate";
-import type { BrowserSessionService } from "../src/main/vellum-command/browser/sessions";
-import type { BrowserHostCapabilityAuthorityLease } from "../src/main/vellum-command/browser/station-authority";
-import { makeStateEngineLive, StateEngine } from "../src/main/vellum-command/state/engine";
+} from "../src/main/junto/browser/composition";
+import { makeBrowserCapabilityRegistry } from "../src/main/junto/browser/capabilities";
+import { makeBrowserProfileGate } from "../src/main/junto/browser/profile-gate";
+import type { BrowserSessionService } from "../src/main/junto/browser/sessions";
+import type { BrowserHostCapabilityAuthorityLease } from "../src/main/junto/browser/station-authority";
+import { makeStateEngineLive, StateEngine } from "../src/main/junto/state/engine";
 
 const deferred = <T>() => {
   let resolve!: (value: T) => void;
@@ -69,7 +69,7 @@ describe("browser composition (no ceremony)", () => {
   it("source no longer wires grant delivery / agent product", () => {
     const root = join(import.meta.dirname, "..");
     const composition = readFileSync(
-      join(root, "src/main/vellum-command/browser/composition.ts"),
+      join(root, "src/main/junto/browser/composition.ts"),
       "utf8",
     );
     const index = readFileSync(join(root, "src/main/index.ts"), "utf8");
@@ -87,11 +87,11 @@ describe("browser composition (no ceremony)", () => {
   it("ceremony modules are gone from the tree", () => {
     const root = join(import.meta.dirname, "..");
     for (const rel of [
-      "src/main/vellum-command/browser/agent-product.ts",
-      "src/main/vellum-command/browser/agent-runtime.ts",
-      "src/main/vellum-command/browser/agent-authority.ts",
-      "src/main/vellum-command/browser/agent-confirmation.ts",
-      "src/main/vellum-command/browser/agent-ipc.ts",
+      "src/main/junto/browser/agent-product.ts",
+      "src/main/junto/browser/agent-runtime.ts",
+      "src/main/junto/browser/agent-authority.ts",
+      "src/main/junto/browser/agent-confirmation.ts",
+      "src/main/junto/browser/agent-ipc.ts",
     ]) {
       expect(() => readFileSync(join(root, rel))).toThrow();
     }
@@ -116,7 +116,7 @@ describe("browser composition (no ceremony)", () => {
   });
 
   it("awaits physical-station identity before composition and adapter activation", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vellum-command-browser-composition-"));
+    const root = await mkdtemp(join(tmpdir(), "junto-browser-composition-"));
     const stateRuntime = ManagedRuntime.make(
       makeStateEngineLive(join(root, "junto.db")),
     );
@@ -129,7 +129,7 @@ describe("browser composition (no ceremony)", () => {
         activated = true;
         expect(
           await composition.sessions.open({
-            ref: "vellum-command://canvas/work?node=legacy-local",
+            ref: "junto://canvas/work?node=legacy-local",
             nodeId: "legacy-local",
             hostId: "local",
             url: "https://example.com/",

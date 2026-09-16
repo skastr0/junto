@@ -60,7 +60,7 @@ export const makeLabelNode = (x: number, y: number): TextNode => ({
 
 /**
  * Geography image card — JSON Canvas `file` node whose `file` is a
- * `vellum-command-content://` object URL for an image ContentRef. Renders the image;
+ * `junto-content://` object URL for an image ContentRef. Renders the image;
  * no factory ports. Plain workspace-path file cards are retired.
  */
 export const makeImageNode = (

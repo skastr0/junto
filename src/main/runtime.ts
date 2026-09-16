@@ -13,7 +13,7 @@
  * - Never rebuild RootLayer or make() per IPC/handler call.
  * - Domain Effects enter via AppRuntime.runPromise / runFork — bare Effect.runPromise
  *   is empty Context (S0 fitness gate; permanent allowlist is host/post-dispose only).
- * - V4-ENTRY: src/main/index.ts, src/main/ipc.ts, src/main/vellum-command/ipc.ts carry zero
+ * - V4-ENTRY: src/main/index.ts, src/main/ipc.ts, src/main/junto/ipc.ts carry zero
  *   bare Effect.runPromise; only AppRuntime for product domain work.
  * - Sole product store: StateEngine → junto.db. InstallOps (install-ops.db) is
  *   install-local bookkeeping co-composed here so ContentService sees both; it is
@@ -24,10 +24,10 @@
 import { existsSync } from "node:fs";
 import { app } from "electron";
 import { Effect, Layer, ManagedRuntime } from "effect";
-import { ObservabilityLoggerLive } from "./vellum-command/observability";
+import { ObservabilityLoggerLive } from "./junto/observability";
 import productMetadata from "../../package.json";
 import type { DoctorReport, ServiceCheck } from "@shared/contracts";
-import { linuxDesktopInstallStorageDoctor } from "./vellum-command/update/linux-install";
+import { linuxDesktopInstallStorageDoctor } from "./junto/update/linux-install";
 import { assessSupervisedRuntime } from "@shared/station";
 import { CURRENT_STATION_PROTOCOL_SUPPORT } from "@shared/station-protocol";
 import {
@@ -37,77 +37,77 @@ import {
 import { termControlSocketPath } from "@shared/term-control";
 import { CodexLive, CodexService } from "./services/codex";
 import { AppInfoLive, AppInfoService } from "./services/app-info";
-import { CanvasesLive, CanvasesService } from "./vellum-command/canvases";
-import { ChatServiceFromHermesLive, HermesPlaneLive } from "./vellum-command/hermes/plane";
-import { HermesTransportLive } from "./vellum-command/hermes/transport";
-import { ActorSeatOccupyLive } from "./vellum-command/term/actor-seat-occupy-live";
-import { termPlane } from "./vellum-command/term/plane";
+import { CanvasesLive, CanvasesService } from "./junto/canvases";
+import { ChatServiceFromHermesLive, HermesPlaneLive } from "./junto/hermes/plane";
+import { HermesTransportLive } from "./junto/hermes/transport";
+import { ActorSeatOccupyLive } from "./junto/term/actor-seat-occupy-live";
+import { termPlane } from "./junto/term/plane";
 import {
   assessNativeTerminalDoctor,
   probeNativeTerminalReadiness,
-} from "./vellum-command/term/native-readiness";
-import { KernelLive, KernelService } from "./vellum-command/kernel/service";
-import { KernelStateRepositoryLive } from "./vellum-command/kernel/repository";
-import { PausePlaneLive } from "./vellum-command/pause-plane";
-import { FactoryPauseRepositoryLive } from "./vellum-command/pause/repository";
-import { SchedulerRepositoryLive } from "./vellum-command/scheduler/repository";
-import { WorkLive } from "./vellum-command/work/service";
-import { WorkRepositoryLive } from "./vellum-command/work/repository";
-import { CrewRepositoryLive } from "./vellum-command/work/crew-repository";
-import { makeContentServiceLive } from "./vellum-command/content/service";
-import { InstallOpsLive } from "./vellum-command/install-ops/engine";
-import { RegionRollupLive, RegionRollupService } from "./vellum-command/region-rollup";
-import { SettingsLive, SettingsService } from "./vellum-command/settings/service";
-import { probeSupervisedRuntime } from "./vellum-command/settings/supervised-probe";
-import { SnapshotsLive, SnapshotsService } from "./vellum-command/snapshots";
-import { UsageLive } from "./vellum-command/usage/live";
-import { UsageService } from "./vellum-command/usage/usage-service";
-import { HostsService, HostsServiceLive } from "./vellum-command/hosts";
-import { HostRuntimeLive } from "./vellum-command/hosts/host-runtime";
-import { composeMainFleetCompatibilitySnapshot } from "./vellum-command/hosts/fleet-compatibility";
-import { SshTransportLive } from "./vellum-command/ssh";
+} from "./junto/term/native-readiness";
+import { KernelLive, KernelService } from "./junto/kernel/service";
+import { KernelStateRepositoryLive } from "./junto/kernel/repository";
+import { PausePlaneLive } from "./junto/pause-plane";
+import { FactoryPauseRepositoryLive } from "./junto/pause/repository";
+import { SchedulerRepositoryLive } from "./junto/scheduler/repository";
+import { WorkLive } from "./junto/work/service";
+import { WorkRepositoryLive } from "./junto/work/repository";
+import { CrewRepositoryLive } from "./junto/work/crew-repository";
+import { makeContentServiceLive } from "./junto/content/service";
+import { InstallOpsLive } from "./junto/install-ops/engine";
+import { RegionRollupLive, RegionRollupService } from "./junto/region-rollup";
+import { SettingsLive, SettingsService } from "./junto/settings/service";
+import { probeSupervisedRuntime } from "./junto/settings/supervised-probe";
+import { SnapshotsLive, SnapshotsService } from "./junto/snapshots";
+import { UsageLive } from "./junto/usage/live";
+import { UsageService } from "./junto/usage/usage-service";
+import { HostsService, HostsServiceLive } from "./junto/hosts";
+import { HostRuntimeLive } from "./junto/hosts/host-runtime";
+import { composeMainFleetCompatibilitySnapshot } from "./junto/hosts/fleet-compatibility";
+import { SshTransportLive } from "./junto/ssh";
 import {
   BoxCliLive,
   BoxFleetServiceLive,
   BoxActivityPolicyLive,
   BoxOwnershipRepositoryLive,
   BoxProcessRunnerLive,
-} from "./vellum-command/box";
-import { primeHostsSnapshot } from "./vellum-command/hosts/snapshot";
+} from "./junto/box";
+import { primeHostsSnapshot } from "./junto/hosts/snapshot";
 import {
   StationStatusLive,
   StationStatusService,
-} from "./vellum-command/station-status-store";
+} from "./junto/station-status-store";
 import {
   createStationReadinessCoordinator,
   stationReadinessMetadata,
-} from "./vellum-command/station-readiness";
-import { stationControlReadiness } from "./vellum-command/station/control-server";
-import { workControlReadiness } from "./vellum-command/work/control";
-import { StateEngineLive } from "./vellum-command/state/engine";
-import { CURRENT_STATE_SCHEMA_VERSION } from "./vellum-command/state/migrations";
+} from "./junto/station-readiness";
+import { stationControlReadiness } from "./junto/station/control-server";
+import { workControlReadiness } from "./junto/work/control";
+import { StateEngineLive } from "./junto/state/engine";
+import { CURRENT_STATE_SCHEMA_VERSION } from "./junto/state/migrations";
 import {
   StationFleetTargetRepositoryLive,
-} from "./vellum-command/station/fleet-target-repository";
+} from "./junto/station/fleet-target-repository";
 import {
   StationRepository,
   StationRepositoryLive,
   type StationProjection,
   type StationStatusFacts,
-} from "./vellum-command/station/repository";
-import { StationApiLive } from "./vellum-command/station/api";
-import { StationPropagationLive } from "./vellum-command/station/propagation";
+} from "./junto/station/repository";
+import { StationApiLive } from "./junto/station/api";
+import { StationPropagationLive } from "./junto/station/propagation";
 import {
   OpenSshStationPeerRouteResolverLive,
   StationFleetPropagationLive,
-} from "./vellum-command/station/fleet-propagation";
+} from "./junto/station/fleet-propagation";
 import {
   OpenSshStationPeerExchangeLive,
-} from "./vellum-command/station/openssh-peer-exchange";
+} from "./junto/station/openssh-peer-exchange";
 import {
   StationLivePeerRegistryLive,
-} from "./vellum-command/station/session-registry";
-import { CanvasEntityRepositoryLive } from "./vellum-command/entities/repository";
+} from "./junto/station/session-registry";
+import { CanvasEntityRepositoryLive } from "./junto/entities/repository";
 import {
   deferredUpdateHostHooks,
   installUpdateProviderHandle,
@@ -115,7 +115,7 @@ import {
   linuxX64UpdateFeed,
   makePlatformUpdateProvider,
   makeUpdateServiceLayer,
-} from "./vellum-command/update";
+} from "./junto/update";
 
 // Keep this exact layer value as the sole database owner in the runtime graph.
 // Effect memoizes layers by reference, so every repository below receives the

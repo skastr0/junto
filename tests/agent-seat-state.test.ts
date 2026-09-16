@@ -10,10 +10,10 @@ import {
   grokRules,
   hermesRules,
   rulePackFor,
-} from "../src/main/vellum-command/term/agent-state";
-import type { ObserverGridSnapshot } from "../src/main/vellum-command/term/observer/types";
+} from "../src/main/junto/term/agent-state";
+import type { ObserverGridSnapshot } from "../src/main/junto/term/observer/types";
 import type { AgentSeatStateEvent } from "../src/shared/agent-seat-state";
-import type { SeatMatcher } from "../src/main/vellum-command/term/agent-state/types";
+import type { SeatMatcher } from "../src/main/junto/term/agent-state/types";
 import { HARNESS_IDS } from "../src/shared/managed-terminal-templates";
 
 afterEach(() => {
@@ -1210,7 +1210,7 @@ describe("evaluate — kimi / pi / prime-agent scrollback hygiene", () => {
       snap({
         lines: [
           HR,
-          "> vellum-command msg list",
+          "> junto msg list",
           HR,
           "? for shortcuts                    Gemini 3.7 Flash \u00B7 high",
         ],

@@ -20,16 +20,16 @@ import { ProductPlanesLive } from "../src/main/runtime";
 import {
   HostsService,
   makeHostsService,
-} from "../src/main/vellum-command/hosts/service";
+} from "../src/main/junto/hosts/service";
 import {
   makeHostsRegistry,
   resetDefaultHostsRegistryForTests,
   type HostsRegistry,
-} from "../src/main/vellum-command/hosts/registry";
+} from "../src/main/junto/hosts/registry";
 import {
   makeStateEngineLive,
-} from "../src/main/vellum-command/state/engine";
-import { StateEngine } from "../src/main/vellum-command/state/service";
+} from "../src/main/junto/state/engine";
+import { StateEngine } from "../src/main/junto/state/service";
 import {
   findHostByHermesId,
   findHostById,
@@ -37,10 +37,10 @@ import {
   hostsWithCapability,
   setHostsSnapshot,
   subscribeHostsSnapshot,
-} from "../src/main/vellum-command/hosts/snapshot";
-import { SshTransport } from "../src/main/vellum-command/ssh/service";
-import { acpVerboseLogging } from "../src/main/vellum-command/chat/acp-client";
-import { StationFleetPropagation } from "../src/main/vellum-command/station/fleet-propagation";
+} from "../src/main/junto/hosts/snapshot";
+import { SshTransport } from "../src/main/junto/ssh/service";
+import { acpVerboseLogging } from "../src/main/junto/chat/acp-client";
+import { StationFleetPropagation } from "../src/main/junto/station/fleet-propagation";
 
 const dirs: string[] = [];
 const originalHome = process.env.HOME;
@@ -462,7 +462,7 @@ describe("remote hosts registry", () => {
       ).not.toThrow();
       expect(reconciliations).toBe(1);
       expect(warning).toHaveBeenCalledWith(
-        "[vellum-command:hosts] routing snapshot listener failed",
+        "[junto:hosts] routing snapshot listener failed",
       );
       expect(JSON.stringify(warning.mock.calls)).not.toContain(
         "private-endpoint",

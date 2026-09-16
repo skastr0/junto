@@ -49,9 +49,9 @@ import {
 } from "./finalize-linux-package";
 
 export const PACKAGE_RUNTIME_PARITY_RECEIPT_SCHEMA =
-  "vellum-command/package-runtime-parity-receipt/v2" as const;
+  "junto/package-runtime-parity-receipt/v2" as const;
 export const PACKAGE_RUNTIME_PARITY_ATTEMPT_SCHEMA =
-  "vellum-command/package-runtime-parity-attempt/v1" as const;
+  "junto/package-runtime-parity-attempt/v1" as const;
 export const HISTORICAL_COMPARISON_RELATIVE =
   "tests/fixtures/package-runtime-parity/public-0.1.14-schema18-historical.json" as const;
 
@@ -62,7 +62,7 @@ const UUID =
 const PRODUCT_NAME = "Junto" as const;
 
 export type HistoricalPackageComparison = {
-  readonly schema: "vellum-command/package-runtime-historical-comparison/v1";
+  readonly schema: "junto/package-runtime-historical-comparison/v1";
   readonly classification: "historical-comparison-only";
   readonly product: typeof PRODUCT_NAME;
   readonly release: {
@@ -295,7 +295,7 @@ export const loadHistoricalPackageComparison = async (
   const head = requireRecord(release.migrationHead, "historical migration head");
   if (
     record.schema !==
-      "vellum-command/package-runtime-historical-comparison/v1" ||
+      "junto/package-runtime-historical-comparison/v1" ||
     record.classification !== "historical-comparison-only" ||
     record.product !== PRODUCT_NAME ||
     release.appVersion !== "0.1.14" ||
@@ -338,7 +338,7 @@ export const loadHistoricalPackageComparison = async (
     }
   }
   const comparison: HistoricalPackageComparison = {
-    schema: "vellum-command/package-runtime-historical-comparison/v1",
+    schema: "junto/package-runtime-historical-comparison/v1",
     classification: "historical-comparison-only",
     product: PRODUCT_NAME,
     release: {
@@ -411,7 +411,7 @@ export const plantHistoricalStaleRemote = async (input: {
         input.comparison.release.migrationIdentitySha256,
     },
     payload: {
-      packagedPath: "resources/app-remote/vellum-command-remote.js",
+      packagedPath: "resources/app-remote/junto-remote.js",
       bytes: payload.byteLength,
       sha256: sha256(payload),
     },
@@ -832,7 +832,7 @@ export const qualifyFreshPackageRuntimeParity = async (input: {
       });
       await attempt.setSourceCommit(rootFacts.sourceCommit);
       const workDirectory = await mkdtemp(
-        path.join(tmpdir(), "vellum-command-package-parity-"),
+        path.join(tmpdir(), "junto-package-parity-"),
       );
       await chmod(workDirectory, 0o700);
       const cloneRoot = path.join(workDirectory, "source");
@@ -892,7 +892,7 @@ export const qualifyFreshPackageRuntimeParity = async (input: {
         const archive = path.join(
           cloneRoot,
           "release",
-          `vellum-command-runtime-${source.appVersion}-linux-x64.tar.gz`,
+          `junto-runtime-${source.appVersion}-linux-x64.tar.gz`,
         );
         await requireRegularFile(archive, "fresh candidate archive");
         const candidateRoot = await extractCandidateArchive({

@@ -33,7 +33,7 @@ import {
 } from "../scripts/prepare-release-sources";
 const roots: string[] = [];
 const temporary = () => {
-  const root = mkdtempSync(path.join(tmpdir(), "vellum-command-source-test-"));
+  const root = mkdtempSync(path.join(tmpdir(), "junto-source-test-"));
   roots.push(root);
   return root;
 };
@@ -56,7 +56,7 @@ const fixture = async () => {
   writeFileSync(
     path.join(root, "Junto-0.2.1-cli-relink.json"),
     JSON.stringify({
-      schema: "vellum-command/cli-relink/v1",
+      schema: "junto/cli-relink/v1",
       sourceCommit,
       bunVersion: "1.3.13",
       featureProfile: "ship",
@@ -78,7 +78,7 @@ const fixture = async () => {
   );
   const binaries = [await fingerprintSourceFile(root, "binary.zip")];
   const index = {
-    schema: "vellum-command/release-sources/v1",
+    schema: "junto/release-sources/v1",
     product: "Junto",
     version: "0.2.1",
     sourceCommit,
@@ -99,15 +99,15 @@ const fixture = async () => {
 describe("corresponding-source release inventory", () => {
   it("binds a Linux archive to the exact packaged app and relink CLI", async () => {
     const root = temporary();
-    const name = "vellum-command-runtime-0.2.1-linux-x64";
+    const name = "junto-runtime-0.2.1-linux-x64";
     const runtimeRoot = path.join(root, name);
     mkdirSync(path.join(runtimeRoot, "resources/bin"), { recursive: true });
     writeFileSync(path.join(runtimeRoot, "resources/app.asar"), "verified app");
-    writeFileSync(path.join(runtimeRoot, "resources/bin/vellum-command"), "verified CLI");
+    writeFileSync(path.join(runtimeRoot, "resources/bin/junto"), "verified CLI");
     const archivePath = path.join(root, `${name}.tar.gz`);
     execFileSync("/usr/bin/tar", [...(process.platform === "linux" ? ["--owner=1000", "--group=1000"] : ["--uid", "1000", "--gid", "1000"]), "-czf", archivePath, "-C", root, name]);
     await expect(assertLinuxArchiveContainsRuntime({ archivePath, runtimeRoot, version: "0.2.1" })).resolves.toBeUndefined();
-    writeFileSync(path.join(runtimeRoot, "resources/bin/vellum-command"), "changed CLI");
+    writeFileSync(path.join(runtimeRoot, "resources/bin/junto"), "changed CLI");
     await expect(assertLinuxArchiveContainsRuntime({ archivePath, runtimeRoot, version: "0.2.1" })).rejects.toThrow(/verified runtime file/);
     await expect(assertLinuxArchiveContainsRuntime({ archivePath, runtimeRoot, version: "0.2.2" })).rejects.toThrow(/canonical archive name/);
   });
@@ -280,25 +280,25 @@ describe("corresponding-source release inventory", () => {
     const dist = path.join(root, "dist");
     mkdirSync(dist);
     for (const file of [
-      "vellum-command-relink.js",
-      "vellum-command-relink-notices.txt",
-      "vellum-command",
+      "junto-relink.js",
+      "junto-relink-notices.txt",
+      "junto",
     ])
       writeFileSync(path.join(dist, file), `fixture ${file}`);
     writeFileSync(
-      path.join(dist, "vellum-command-relink.json"),
+      path.join(dist, "junto-relink.json"),
       JSON.stringify({
-        schema: "vellum-command/cli-relink/v1",
+        schema: "junto/cli-relink/v1",
         sourceCommit: git("rev-parse", "HEAD").trim(),
         bunVersion: "1.3.13",
         featureProfile: "ship",
         featureFingerprint: "fixture",
-        payload: await fingerprintSourceFile(dist, "vellum-command-relink.js"),
+        payload: await fingerprintSourceFile(dist, "junto-relink.js"),
         notices: await fingerprintSourceFile(
           dist,
-          "vellum-command-relink-notices.txt",
+          "junto-relink-notices.txt",
         ),
-        binary: await fingerprintSourceFile(dist, "vellum-command"),
+        binary: await fingerprintSourceFile(dist, "junto"),
       }),
     );
     const first = await prepareReleaseSources({

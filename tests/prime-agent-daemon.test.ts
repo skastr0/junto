@@ -9,17 +9,17 @@ import type {
   AppProcessLease,
   AppProcessPlane,
   AppProcessSignalReceipt,
-} from "../src/main/vellum-command/app-process-plane";
+} from "../src/main/junto/app-process-plane";
 import {
   makePrimeAgentDaemons,
   type PrimeAgentDaemonHandle,
   type PrimeAgentDaemonProcessPlane,
   type PrimeAgentDaemonUnexpectedExit,
-} from "../src/main/vellum-command/term/prime-agent-daemon";
+} from "../src/main/junto/term/prime-agent-daemon";
 import type {
   PrimeAgentReporterRegisterInput,
   PrimeAgentReporterRegistration,
-} from "../src/main/vellum-command/term/prime-agent-reporter";
+} from "../src/main/junto/term/prime-agent-reporter";
 
 type CommandPlan = Readonly<{
   stdout?: string;
@@ -358,7 +358,7 @@ describe("Prime Agent daemon plane", () => {
     expect(daemon.spec.args?.slice(0, 4)).toEqual([
       "-c",
       expect.stringContaining("--version"),
-      "vellum-command-prime-agent-daemon",
+      "junto-prime-agent-daemon",
       "/opt/bin/prime-agent",
     ]);
     expect(daemon.spec.args?.slice(4)).toEqual([
@@ -390,7 +390,7 @@ describe("Prime Agent daemon plane", () => {
     expect(terminal.args.slice(0, 5)).toEqual([
       "-c",
       expect.any(String),
-      "vellum-command-prime-agent",
+      "junto-prime-agent",
       "/opt/bin/prime-agent",
       first.socketPath,
     ]);

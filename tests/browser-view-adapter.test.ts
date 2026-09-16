@@ -184,7 +184,7 @@ const electron = vi.hoisted(() => {
   };
 });
 
-vi.mock("../src/main/vellum-command/browser/partition-network", () => ({
+vi.mock("../src/main/junto/browser/partition-network", () => ({
   ensureManagedBrowserPartitionNetwork: async () => ({
     partition: "persist:test",
     session: {},
@@ -226,8 +226,8 @@ import {
   buildBoundedEvalScript,
   electronViewAdapter,
   makeElectronBrowserViewAttachmentTarget,
-} from "../src/main/vellum-command/browser/view-adapter";
-import type { BrowserViewEvents } from "../src/main/vellum-command/browser/sessions";
+} from "../src/main/junto/browser/view-adapter";
+import type { BrowserViewEvents } from "../src/main/junto/browser/sessions";
 
 const navigation = (
   url: string,

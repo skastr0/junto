@@ -68,7 +68,7 @@ change the operator's viewport during reconciliation.
 
 ### Main already owns the authorial transaction
 
-`src/main/vellum-command/canvases.ts` exposes revision-checked `write` and
+`src/main/junto/canvases.ts` exposes revision-checked `write` and
 transactional `mutate`. The callback runs synchronously against current
 authority. Extend the internal transaction seam to check caller delegation and
 target changes against the same portfolio snapshot, including cross-canvas
@@ -93,7 +93,7 @@ ambient reach. Do not widen all agents' kind-level ports or manufacture edges.
 
 ### Seat identity and native resources need coherent revocation
 
-`src/main/vellum-command/station/actor-seat-compiler.ts` groups references by
+`src/main/junto/station/actor-seat-compiler.ts` groups references by
 installation and binding and rejects conflicting executable descriptors.
 Delegation must agree across references to the same seat; do not infer it from
 whichever reference happens to be found first.
@@ -120,7 +120,7 @@ with shared schemas and typed dispatch. No arbitrary IPC forwarding, generic
 method invocation, raw full-document replacement, caller-supplied principal, or
 second credential/admission path.
 
-The CLI is `vellum-command overseer`. Use canonical canvas/node references,
+The CLI is `junto overseer`. Use canonical canvas/node references,
 defaulting to the caller's canvas where unambiguous. Follow existing JSON,
 stdin, and file-input conventions. Results distinguish applied mutations from
 queued commands. Structural batches validate and commit atomically per canvas;

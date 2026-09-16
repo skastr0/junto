@@ -2,19 +2,19 @@ import { Effect, Schema } from "effect";
 import { describe, expect, it, vi } from "vitest";
 import type { CanvasDoc, CanvasNode } from "../src/shared/canvas";
 import { InstallationId } from "../src/shared/installation-id";
-import { deriveActorSeatId } from "../src/main/vellum-command/station/actor-seat-compiler";
+import { deriveActorSeatId } from "../src/main/junto/station/actor-seat-compiler";
 import {
   ActorSeatOccupy,
   type ActorOccupySpec,
-} from "../src/main/vellum-command/term/actor-seat-occupy";
-import { termPlane } from "../src/main/vellum-command/term/plane";
+} from "../src/main/junto/term/actor-seat-occupy";
+import { termPlane } from "../src/main/junto/term/plane";
 import {
   AUTO_RESTART_BACKOFF_MS,
   AUTO_RESTART_MAX,
   ensureManagedSeatRunning,
   managedSeatWakeDecision,
   resetAutoRestartBudgetsForTest,
-} from "../src/main/vellum-command/term/ensure-managed-seat";
+} from "../src/main/junto/term/ensure-managed-seat";
 
 const base = {
   stopping: false,

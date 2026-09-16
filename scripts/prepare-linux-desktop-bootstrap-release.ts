@@ -5,11 +5,11 @@ import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { LINUX_DESKTOP_BOOTSTRAP_VERSION } from "../src/main/vellum-command/update/linux-first-install";
+import { LINUX_DESKTOP_BOOTSTRAP_VERSION } from "../src/main/junto/update/linux-first-install";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 export const LINUX_DESKTOP_BOOTSTRAP_NAME =
-  "vellum-command-desktop-bootstrap-linux-x64";
+  "junto-desktop-bootstrap-linux-x64";
 
 export const linuxDesktopBootstrapReleaseAssets = (
   version: string = LINUX_DESKTOP_BOOTSTRAP_VERSION,
@@ -55,7 +55,7 @@ export const prepareLinuxDesktopBootstrapRelease = (input: {
   const relinkNotices = `${binary}-relink-notices.txt`;
   const receipt = JSON.parse(readFileSync(relinkJson, "utf8")) as Record<string, unknown>;
   if (
-    receipt.schema !== "vellum-command/cli-relink/v1" ||
+    receipt.schema !== "junto/cli-relink/v1" ||
     receipt.sourceCommit !== input.commit ||
     receipt.bunVersion !== input.bunVersion
   ) {

@@ -88,7 +88,7 @@ const makeCodec = <To, From = unknown>(
 export const STATION_PROTOCOL_1_CODECS = Object.freeze({
   version: STATION_PROTOCOL_1,
   preface: Object.freeze({
-    protocol: "vellum-command/station-protocol-preface/v1" as const,
+    protocol: "junto/station-protocol-preface/v1" as const,
     preface: makeCodec(StationProtocolPreface),
     offer: makeCodec(StationProtocolOffer),
     accept: makeCodec(StationProtocolAccept),

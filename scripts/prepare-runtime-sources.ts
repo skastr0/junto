@@ -12,7 +12,7 @@ import { create as createTar } from "tar";
 import catalog from "../third_party/bun-1.3.13/runtime-source-catalog.json";
 
 export const RUNTIME_SOURCE_INDEX = "runtime-sources.json";
-export const RUNTIME_SOURCE_SCHEMA = "vellum-command/runtime-source-materials/v1";
+export const RUNTIME_SOURCE_SCHEMA = "junto/runtime-source-materials/v1";
 export const RUNTIME_ELECTRON_VERSION = "43.2.0";
 const BUN_VERSION = "1.3.13";
 const SAFE_FILE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,199}$/u;

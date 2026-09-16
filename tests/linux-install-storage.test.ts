@@ -20,14 +20,14 @@ import {
   holdLinuxDesktopInstallReadiness,
   markLinuxDesktopInstallReady,
   stageLinuxDesktopRelease,
-} from "../src/main/vellum-command/update/linux-install";
+} from "../src/main/junto/update/linux-install";
 import {
   assertLinuxInstallDiskAdmission,
   requiredLinuxInstallStageBytes,
   retireLinuxInstallTree,
   type OwnedLinuxInstallRoot,
   type RetirableLinuxInstallTree,
-} from "../src/main/vellum-command/update/linux-install-storage";
+} from "../src/main/junto/update/linux-install-storage";
 import { itOnLinux } from "./helpers/platform";
 
 const roots: string[] = [];
@@ -63,33 +63,33 @@ const archiveBytes = (members: readonly { path: string; type?: Header["type"]; b
 const makeAsar = async (root: string, version: string): Promise<Buffer> => {
   const directory = await mkdtemp(join(root, "asar-input-"));
   await mkdir(join(directory, "out/main"), { recursive: true });
-  const buildIdentity = { schema: "vellum-command/runtime-build-identity/v1", cohortNonce: "ba035b20-2435-4af4-83b7-71839c4feec7", sourceCommit: SOURCE, runtime: "electron-main" };
+  const buildIdentity = { schema: "junto/runtime-build-identity/v1", cohortNonce: "ba035b20-2435-4af4-83b7-71839c4feec7", sourceCommit: SOURCE, runtime: "electron-main" };
   const main = Buffer.from(`// harmless packaged fixture\n/* JUNTO_RUNTIME_BUILD_IDENTITY:${Buffer.from(JSON.stringify(buildIdentity)).toString("base64url")} */\n`);
-  await writeFile(join(directory, "package.json"), JSON.stringify({ name: "@skastr0/vellum-command", version }));
+  await writeFile(join(directory, "package.json"), JSON.stringify({ name: "@skastr0/junto", version }));
   await writeFile(join(directory, "out/main/index.js"), main);
-  await writeFile(join(directory, "out/package-runtime-provenance.json"), JSON.stringify({ schema: "vellum-command/package-runtime-provenance/v2", product: "Junto", runtime: "electron-main", appVersion: version, sourceCommit: SOURCE, buildIdentity, state: {}, payload: { packagedPath: "out/main/index.js", bytes: main.length, sha256: sha256(main) } }));
+  await writeFile(join(directory, "out/package-runtime-provenance.json"), JSON.stringify({ schema: "junto/package-runtime-provenance/v2", product: "Junto", runtime: "electron-main", appVersion: version, sourceCommit: SOURCE, buildIdentity, state: {}, payload: { packagedPath: "out/main/index.js", bytes: main.length, sha256: sha256(main) } }));
   const path = `${directory}.asar`;
   await createPackage(directory, path);
   return readFile(path);
 };
 
 const fixture = async (options: { home?: string; root?: string; version?: string } = {}) => {
-  const root = options.root ?? await mkdtemp(join(await realpath(tmpdir()), "vellum-command-linux-storage-test-"));
+  const root = options.root ?? await mkdtemp(join(await realpath(tmpdir()), "junto-linux-storage-test-"));
   if (options.root === undefined) roots.push(root);
   const home = options.home ?? join(root, "home");
   if (options.home === undefined) await mkdir(home, { mode: 0o700 });
   const version = options.version ?? "0.3.0";
-  const rootName = `vellum-command-runtime-${version}-linux-x64`;
+  const rootName = `junto-runtime-${version}-linux-x64`;
   const asar = await makeAsar(root, version);
   const bytes = archiveBytes([
     { path: `${rootName}/`, type: "Directory" },
-    { path: `${rootName}/vellum-command`, mode: 0o755, body: "#!/bin/sh\nexit 0\n" },
+    { path: `${rootName}/junto`, mode: 0o755, body: "#!/bin/sh\nexit 0\n" },
     { path: `${rootName}/resources/`, type: "Directory" },
     { path: `${rootName}/resources/app.asar`, body: asar },
   ]);
   const archivePath = join(root, `${version}-${sha256(bytes)}.tar.gz`);
   await writeFile(archivePath, bytes);
-  const filename = `vellum-command-runtime-${version}-linux-x64.tar.gz`;
+  const filename = `junto-runtime-${version}-linux-x64.tar.gz`;
   const descriptor: LinuxDesktopReleaseDescriptor = {
     schema: LINUX_DESKTOP_RELEASE_SCHEMA, product: "Junto", channel: "alpha", version, sourceRevision: SOURCE,
     createdAt: "2026-01-01T00:00:00.000Z", target: LINUX_DESKTOP_TARGET,

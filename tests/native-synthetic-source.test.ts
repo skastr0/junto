@@ -7,7 +7,7 @@ import {
   makeSyntheticSource,
   parseSyntheticQuota,
   resolveSyntheticApiKey,
-} from "../src/main/vellum-command/usage/synthetic-source";
+} from "../src/main/junto/usage/synthetic-source";
 
 const FETCHED = "2026-04-17T04:20:00.000Z";
 const FAKE_KEY = "sk-synthetic-fixture-abc123";

@@ -2,7 +2,7 @@
  * L2 mail nits: durable read-ack idempotency (stable readAt).
  * Control-plane foreign-mailbox refusal lives in work-control-transport.
  */
-import { CrewRepositoryLive } from "../src/main/vellum-command/work/crew-repository";
+import { CrewRepositoryLive } from "../src/main/junto/work/crew-repository";
 import { mkdirSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -11,29 +11,29 @@ import { Effect, Layer, ManagedRuntime, Schema } from "effect";
 import { afterEach, describe, expect, it } from "vitest";
 import type { CanvasDoc } from "../src/shared/canvas";
 import { IntentFactBasis } from "../src/shared/work-protocol";
-import { CanvasesLive, CanvasesService } from "../src/main/vellum-command/canvases";
-import { makeStateEngineLive } from "../src/main/vellum-command/state/engine";
+import { CanvasesLive, CanvasesService } from "../src/main/junto/canvases";
+import { makeStateEngineLive } from "../src/main/junto/state/engine";
 import {
   SettingsLive,
   SettingsService,
-} from "../src/main/vellum-command/settings/service";
+} from "../src/main/junto/settings/service";
 import {
   StationFleetTargetRepositoryLive,
-} from "../src/main/vellum-command/station/fleet-target-repository";
-import { StationRepositoryLive } from "../src/main/vellum-command/station/repository";
+} from "../src/main/junto/station/fleet-target-repository";
+import { StationRepositoryLive } from "../src/main/junto/station/repository";
 import {
   StationLivePeerRegistryLive,
-} from "../src/main/vellum-command/station/session-registry";
-import { mailboxMessageReadId } from "../src/main/vellum-command/work/mailbox-receipts";
+} from "../src/main/junto/station/session-registry";
+import { mailboxMessageReadId } from "../src/main/junto/work/mailbox-receipts";
 import {
   WorkRepository,
   WorkRepositoryLive,
-} from "../src/main/vellum-command/work/repository";
-import { WorkLive, WorkService } from "../src/main/vellum-command/work/service";
+} from "../src/main/junto/work/repository";
+import { WorkLive, WorkService } from "../src/main/junto/work/service";
 import {
   makeContentServiceLive,
-} from "../src/main/vellum-command/content/service";
-import { makeInstallOpsLive } from "../src/main/vellum-command/install-ops/engine";
+} from "../src/main/junto/content/service";
+import { makeInstallOpsLive } from "../src/main/junto/install-ops/engine";
 
 const roots: string[] = [];
 const runtimes: Array<{ dispose: () => Promise<void> }> = [];

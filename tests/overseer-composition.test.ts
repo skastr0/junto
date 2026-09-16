@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { Effect } from "effect";
 import type { OverseerCaller, OverseerRequest, OverseerResult } from "../src/shared/overseer-control";
 import type { WorkErrorBody } from "../src/shared/work-control";
-import type { ApplicationCaptureResult } from "../src/main/vellum-command/overseer/native";
+import type { ApplicationCaptureResult } from "../src/main/junto/overseer/native";
 
 const captureTrustedWindowPng = (
   capture: () => Promise<Uint8Array | undefined>,

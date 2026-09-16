@@ -15,7 +15,7 @@ const call = (name: string, args: unknown) => ({ status: "completed", output: [
 
 describe("native Overseer host", () => {
   it("ships as one internal command in the existing packaged CLI", () => {
-    expect(earlyDispatchFromArgv(["bun", "/app/vellum-command", "overseer-host"])).toEqual({ kind: "overseer-host", args: [] });
+    expect(earlyDispatchFromArgv(["bun", "/app/junto", "overseer-host"])).toEqual({ kind: "overseer-host", args: [] });
     const tools = overseerHostTools();
     expect(tools.some((tool) => tool.name === "canvas__batch")).toBe(true);
     expect(tools.every((tool) => tool.parameters.type === "object")).toBe(true);

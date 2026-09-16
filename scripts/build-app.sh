@@ -26,7 +26,7 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --target)
       [[ $# -ge 2 && -n "$2" ]] || {
-        printf 'vellum-command: error: --target requires mac or linux\n' >&2
+        printf 'junto: error: --target requires mac or linux\n' >&2
         exit 1
       }
       TARGET="$2"
@@ -41,7 +41,7 @@ while [[ $# -gt 0 ]]; do
     --compile-only) COMPILE_ONLY=1; shift ;;
     --preflight-only) PREFLIGHT_ONLY=1; shift ;;
     -h|--help) usage 0 ;;
-    *) printf 'vellum-command: error: unknown flag: %s\n' "$1" >&2; usage 1 ;;
+    *) printf 'junto: error: unknown flag: %s\n' "$1" >&2; usage 1 ;;
   esac
 done
 
@@ -49,25 +49,25 @@ if [[ -z "$TARGET" ]]; then
   case "$(uname -s)" in
     Darwin) TARGET="mac" ;;
     Linux) TARGET="linux" ;;
-    *) printf 'vellum-command: error: unsupported host OS: %s\n' "$(uname -s)" >&2; exit 1 ;;
+    *) printf 'junto: error: unsupported host OS: %s\n' "$(uname -s)" >&2; exit 1 ;;
   esac
 fi
-case "$TARGET" in mac|linux) ;; *) printf 'vellum-command: error: target must be mac or linux\n' >&2; exit 1 ;; esac
+case "$TARGET" in mac|linux) ;; *) printf 'junto: error: target must be mac or linux\n' >&2; exit 1 ;; esac
 if [[ "$TARGET" == "mac" && "$(uname -s)" != "Darwin" ]] || [[ "$TARGET" == "linux" && "$(uname -s)" != "Linux" ]]; then
-  printf 'vellum-command: error: %s packaging must run in its target OS execution environment\n' "$TARGET" >&2
+  printf 'junto: error: %s packaging must run in its target OS execution environment\n' "$TARGET" >&2
   exit 1
 fi
 if [[ "$NOTARIZE" -eq 1 && "$TARGET" != "mac" ]]; then
-  printf 'vellum-command: error: notarization is only available for the mac target\n' >&2
+  printf 'junto: error: notarization is only available for the mac target\n' >&2
   exit 1
 fi
 if [[ "$SIGN" -eq 1 && "$TARGET" != "mac" ]]; then
-  printf 'vellum-command: error: --sign selects macOS signing; Linux release manifests use linux-release-tool.ts\n' >&2
+  printf 'junto: error: --sign selects macOS signing; Linux release manifests use linux-release-tool.ts\n' >&2
   exit 1
 fi
 BUN_EXECUTABLE="$(type -P bun || true)"
 if [[ -z "$BUN_EXECUTABLE" || ! -x "$BUN_EXECUTABLE" ]]; then
-  printf 'vellum-command: error: Bun is required to compile Junto\n' >&2
+  printf 'junto: error: Bun is required to compile Junto\n' >&2
   exit 1
 fi
 if [[ "$SIGN" -eq 1 ]]; then
@@ -79,14 +79,14 @@ FEATURE_DEVIATION="$(
 )"
 if [[ -n "$FEATURE_DEVIATION" && "${JUNTO_ALLOW_FEATURE_OVERRIDES:-}" != "1" ]]; then
   printf \
-    'vellum-command: error: ship feature deviation requires JUNTO_ALLOW_FEATURE_OVERRIDES=1 (%s)\n' \
+    'junto: error: ship feature deviation requires JUNTO_ALLOW_FEATURE_OVERRIDES=1 (%s)\n' \
     "$FEATURE_DEVIATION" >&2
   exit 1
 fi
 FEATURE_RECEIPT="$(
   "$BUN_EXECUTABLE" "$SCRIPT_DIR/build-features.ts" --receipt
 )"
-printf 'vellum-command: feature build receipt %s\n' "$FEATURE_RECEIPT"
+printf 'junto: feature build receipt %s\n' "$FEATURE_RECEIPT"
 if [[ "$PREFLIGHT_ONLY" -eq 1 ]]; then
   exit 0
 fi
@@ -97,24 +97,24 @@ cd "$REPO_ROOT"
 PINNED_BUN_VERSION="$("$BUN_EXECUTABLE" -e 'const manager = require("./package.json").packageManager; if (!/^bun@[0-9]+\.[0-9]+\.[0-9]+$/.test(manager)) throw new Error("packageManager must pin Bun"); process.stdout.write(manager.slice(4))')"
 COMPILER_BUN_VERSION="$("$BUN_EXECUTABLE" --version)"
 if [[ "$COMPILER_BUN_VERSION" != "$PINNED_BUN_VERSION" ]]; then
-  printf 'vellum-command: error: packaging embeds Bun; use the pinned Bun %s (found %s) so runtime notices match\n' "$PINNED_BUN_VERSION" "$COMPILER_BUN_VERSION" >&2
+  printf 'junto: error: packaging embeds Bun; use the pinned Bun %s (found %s) so runtime notices match\n' "$PINNED_BUN_VERSION" "$COMPILER_BUN_VERSION" >&2
   exit 1
 fi
 ELECTRON_INSTALLER="$REPO_ROOT/node_modules/electron/install.js"
 NODE_EXECUTABLE="$(type -P node || true)"
 if [[ -z "$NODE_EXECUTABLE" || ! -x "$NODE_EXECUTABLE" ]]; then
-  printf 'vellum-command: error: Node is required to materialize the pinned Electron runtime\n' >&2
+  printf 'junto: error: Node is required to materialize the pinned Electron runtime\n' >&2
   exit 1
 fi
 
 if [[ ! -f "$ELECTRON_INSTALLER" || -L "$ELECTRON_INSTALLER" ]]; then
-  printf 'vellum-command: error: Electron installer missing — run: bun install --frozen-lockfile\n' >&2
+  printf 'junto: error: Electron installer missing — run: bun install --frozen-lockfile\n' >&2
   exit 1
 fi
-printf 'vellum-command: materializing pinned Electron runtime …\n'
+printf 'junto: materializing pinned Electron runtime …\n'
 "$NODE_EXECUTABLE" "$ELECTRON_INSTALLER"
 if [[ ! -d node_modules/electron-builder ]]; then
-  printf 'vellum-command: error: electron-builder missing — run: bun install\n' >&2
+  printf 'junto: error: electron-builder missing — run: bun install\n' >&2
   exit 1
 fi
 if [[ "$VERIFY" -eq 1 ]]; then
@@ -128,13 +128,13 @@ elif [[ "$FAST" -eq 0 ]]; then
   bun run typecheck
 fi
 
-printf 'vellum-command: building fresh package runtimes …\n'
+printf 'junto: building fresh package runtimes …\n'
 "$BUN_EXECUTABLE" "$SCRIPT_DIR/package-runtime-provenance.ts" \
   prepare --target "$TARGET" >/dev/null
-printf 'vellum-command: standalone CLI → dist/vellum-command …\n'
-"$BUN_EXECUTABLE" "$SCRIPT_DIR/build-standalone-cli.ts" vellum-command
+printf 'junto: standalone CLI → dist/junto …\n'
+"$BUN_EXECUTABLE" "$SCRIPT_DIR/build-standalone-cli.ts" junto
 if [[ "$COMPILE_ONLY" -eq 1 ]]; then
-  printf 'vellum-command: compile-only done (fresh runtime cohort + standalone CLI). Skip packaging.\n'
+  printf 'junto: compile-only done (fresh runtime cohort + standalone CLI). Skip packaging.\n'
   exit 0
 fi
 

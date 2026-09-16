@@ -1,5 +1,5 @@
 {
-  "schema": "vellum-command/package-runtime-historical-comparison/v1",
+  "schema": "junto/package-runtime-historical-comparison/v1",
   "classification": "historical-comparison-only",
   "product": "Junto",
   "release": {

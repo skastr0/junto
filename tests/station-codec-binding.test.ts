@@ -13,7 +13,7 @@ import {
 import {
   bindNegotiatedStationProtocol,
   type StationPeerProtocolDiagnostics,
-} from "../src/main/vellum-command/station/peer-session";
+} from "../src/main/junto/station/peer-session";
 
 describe("Station codec binding across transports", () => {
   const localDiagnostics: StationPeerProtocolDiagnostics = {

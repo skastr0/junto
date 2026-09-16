@@ -311,7 +311,7 @@ const nodes: CanvasNode[] = [
   parkedNote,
   linkNode,
   projectNode({ id: "proj1", name: "prism", x: 0, y: 460 }),
-  projectNode({ id: "proj2", name: "vellum-command", x: 260, y: 460 }),
+  projectNode({ id: "proj2", name: "junto", x: 260, y: 460 }),
   agentTextNode({
     id: "agent1",
     key: "local:default",
@@ -422,7 +422,7 @@ const nodes: CanvasNode[] = [
         parts: [
           {
             kind: "text",
-            text: '{\n  "subject": "vellum-command",\n  "verified": true,\n  "issuer": "sigstore"\n}',
+            text: '{\n  "subject": "junto",\n  "verified": true,\n  "issuer": "sigstore"\n}',
           },
         ],
         metadata: { mediaType: "application/json", proof: "verified" },

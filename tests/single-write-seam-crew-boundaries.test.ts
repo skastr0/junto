@@ -60,10 +60,10 @@ const CREW_TABLES = [
   "work_review_verdicts",
 ] as const;
 
-const crewRepository = "src/main/vellum-command/work/crew-repository.ts";
-const crewSchema = "src/main/vellum-command/work/crew-schema.ts";
-const workSchema = "src/main/vellum-command/work/state-schema.ts";
-const workRepository = "src/main/vellum-command/work/repository.ts";
+const crewRepository = "src/main/junto/work/crew-repository.ts";
+const crewSchema = "src/main/junto/work/crew-schema.ts";
+const workSchema = "src/main/junto/work/state-schema.ts";
+const workRepository = "src/main/junto/work/repository.ts";
 
 describe("crew boundaries in the single-write-seam register", () => {
   it("registers the crew repository as the one writer of its five tables", () => {

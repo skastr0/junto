@@ -1,16 +1,16 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ACCESS_CANCELLED_ERROR } from "../src/main/vellum-command/access-signal";
+import { ACCESS_CANCELLED_ERROR } from "../src/main/junto/access-signal";
 import {
   fetchHermesBundle,
   parseProfiles,
   parseVersion,
   type HermesFleetOperations,
-} from "../src/main/vellum-command/adapters/hermes";
+} from "../src/main/junto/adapters/hermes";
 import {
   defaultRemoteHostsDocument,
   type RemoteHost,
 } from "../src/shared/remote-hosts";
-import { setHostsSnapshot } from "../src/main/vellum-command/hosts/snapshot";
+import { setHostsSnapshot } from "../src/main/junto/hosts/snapshot";
 
 const TABLE = `
  Profile          Model                        Gateway      Alias        Distribution

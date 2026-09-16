@@ -6,7 +6,7 @@ import { decodeManagedSpawnIntent } from "../src/shared/term-control";
 import {
   connectedTargetsForNode,
   makeManagedSpawnIntent,
-} from "../src/main/vellum-command/term/managed-spawn-plan";
+} from "../src/main/junto/term/managed-spawn-plan";
 
 const agent = (id: string, host = "local"): CanvasNode => ({
   id, type: "text", text: id, x: 0, y: 0, width: 200, height: 100,
@@ -44,7 +44,7 @@ const compile = (doc: CanvasDoc, nodeId = "worker") => {
   const text = buildInjectionText(intent.injection);
   if (text === null) throw new Error("A canvas-bound seat must receive doctrine");
   // Inspect executable examples separately from prose explaining refused powers.
-  const commands = [...text.matchAll(/`(vellum-command [^`]+)`/g)].map((match) => match[1]!);
+  const commands = [...text.matchAll(/`(junto [^`]+)`/g)].map((match) => match[1]!);
   return { targets, intent, text, commands };
 };
 
@@ -55,7 +55,7 @@ const targetPorts = (compiled: ReturnType<typeof compile>, id: string) => {
 };
 
 const hasCommand = (commands: readonly string[], prefix: string): boolean =>
-  commands.some((command) => command.startsWith(`vellum-command ${prefix}`));
+  commands.some((command) => command.startsWith(`junto ${prefix}`));
 
 describe("crew doctrine compiled from authored grants", () => {
   it("teaches review only to the drawn reviewer, without inventing peer mail or task access", () => {
@@ -68,7 +68,7 @@ describe("crew doctrine compiled from authored grants", () => {
     for (const prefix of ["msg send ", "msg prompt ", "seat wait ", "seat read ", "tasks show "]) {
       expect(hasCommand(reviewer.commands, prefix), prefix).toBe(false);
     }
-    expect(reviewer.commands).toContain("vellum-command msg list");
+    expect(reviewer.commands).toContain("junto msg list");
     expect(reviewer.text).toContain("receipt's target board, task id, epoch and subjectHash exactly");
     expect(reviewer.text).toContain("`tasks show` is available only with a separate task-list grant");
     expect(reviewer.text).toContain("never rebinding your old verdict to newer work");
@@ -87,10 +87,10 @@ describe("crew doctrine compiled from authored grants", () => {
       "msg.list", "msg.prompt", "msg.send", "seat.wait", "terminal.read",
     ]);
     expect(compiled.intent.injection.connected).toBe(true);
-    expect(compiled.commands).toContain(`vellum-command msg send '{"target":"${target}","text":"..."}'`);
-    expect(compiled.commands).toContain(`vellum-command msg prompt '{"target":"${target}","text":"..."}'`);
-    expect(compiled.commands).toContain(`vellum-command seat wait ${target} --until idle --timeout 30s`);
-    expect(compiled.commands).toContain(`vellum-command seat read ${target} --lines 40`);
+    expect(compiled.commands).toContain(`junto msg send '{"target":"${target}","text":"..."}'`);
+    expect(compiled.commands).toContain(`junto msg prompt '{"target":"${target}","text":"..."}'`);
+    expect(compiled.commands).toContain(`junto seat wait ${target} --until idle --timeout 30s`);
+    expect(compiled.commands).toContain(`junto seat read ${target} --lines 40`);
     expect(hasCommand(compiled.commands, "verdict post ")).toBe(false);
   });
 
@@ -103,7 +103,7 @@ describe("crew doctrine compiled from authored grants", () => {
     expect(compiled.intent.injection.connected).toBe(true);
     expect(hasCommand(compiled.commands, command)).toBe(true);
     for (const prefix of absent) expect(hasCommand(compiled.commands, prefix), prefix).toBe(false);
-    expect(compiled.commands).not.toContain('vellum-command msg list \'{"target":"peer"}\'');
+    expect(compiled.commands).not.toContain('junto msg list \'{"target":"peer"}\'');
     expect(hasCommand(compiled.commands, "verdict post ")).toBe(false);
   });
 
@@ -112,7 +112,7 @@ describe("crew doctrine compiled from authored grants", () => {
     expect(targetPorts(compiled, "peer")).toEqual([]);
     expect(compiled.intent.injection.connected).toBe(false);
     expect(compiled.text).not.toContain("### Edge contract —");
-    expect(compiled.commands).toContain("vellum-command onboard");
+    expect(compiled.commands).toContain("junto onboard");
   });
 
   it("uses the eligible peer for each command when neighboring grants differ", () => {
@@ -121,14 +121,14 @@ describe("crew doctrine compiled from authored grants", () => {
       peerEdge("messages", "worker", "b-sender", ["msg.send"]),
       peerEdge("messages", "worker", "c-reader", ["terminal.read"]),
     ], [agent("worker"), agent("a-waiter"), agent("b-sender"), agent("c-reader")]));
-    expect(compiled.commands.filter((command) => command.startsWith("vellum-command msg send "))).toEqual([
-      'vellum-command msg send \'{"target":"b-sender","text":"..."}\'',
+    expect(compiled.commands.filter((command) => command.startsWith("junto msg send "))).toEqual([
+      'junto msg send \'{"target":"b-sender","text":"..."}\'',
     ]);
-    expect(compiled.commands.filter((command) => command.startsWith("vellum-command seat wait "))).toEqual([
-      "vellum-command seat wait a-waiter --until idle --timeout 30s",
+    expect(compiled.commands.filter((command) => command.startsWith("junto seat wait "))).toEqual([
+      "junto seat wait a-waiter --until idle --timeout 30s",
     ]);
-    expect(compiled.commands.filter((command) => command.startsWith("vellum-command seat read "))).toEqual([
-      "vellum-command seat read c-reader --lines 40",
+    expect(compiled.commands.filter((command) => command.startsWith("junto seat read "))).toEqual([
+      "junto seat read c-reader --lines 40",
     ]);
     expect(hasCommand(compiled.commands, "msg prompt ")).toBe(false);
   });
@@ -142,12 +142,12 @@ describe("crew doctrine compiled from authored grants", () => {
     expect(reviewer.targets).toHaveLength(1);
     expect(targetPorts(reviewer, "peer")).toEqual(["seat.wait", "verdict.post"]);
     expect(hasCommand(reviewer.commands, "verdict post ")).toBe(true);
-    expect(reviewer.commands).toContain("vellum-command seat wait peer --until idle --timeout 30s");
+    expect(reviewer.commands).toContain("junto seat wait peer --until idle --timeout 30s");
     expect(hasCommand(reviewer.commands, "msg send ")).toBe(false);
 
     const author = compile(doc, "peer");
     expect(targetPorts(author, "worker")).toEqual(["seat.wait"]);
-    expect(author.commands).toContain("vellum-command seat wait worker --until idle --timeout 30s");
+    expect(author.commands).toContain("junto seat wait worker --until idle --timeout 30s");
     expect(hasCommand(author.commands, "verdict post ")).toBe(false);
   });
 
@@ -163,7 +163,7 @@ describe("crew doctrine compiled from authored grants", () => {
       edges: [{ id: "works", fromNode: "tasks", toNode: "worker", ether: { verb: "works" } }],
     };
     const compiled = compile(doc);
-    const prefix = "vellum-command tasks update '";
+    const prefix = "junto tasks update '";
     const stage = compiled.commands.find((command) => command.startsWith(prefix) && command.includes('"completionEvidence"'));
     if (stage === undefined) throw new Error("Missing staged evidence command");
     expect(JSON.parse(stage.slice(prefix.length, -1))).toEqual({
@@ -190,7 +190,7 @@ describe("crew doctrine compiled from authored grants", () => {
       agent("worker", remoteId === "worker" ? "studio" : "local"),
       agent("peer", remoteId === "peer" ? "studio" : "local"),
     ]));
-    expect(compiled.commands).toContain('vellum-command msg send \'{"target":"peer","text":"..."}\'');
+    expect(compiled.commands).toContain('junto msg send \'{"target":"peer","text":"..."}\'');
     // This pins the advertised prerequisites, not a live Remote execution proof.
     expect(compiled.text).toContain("Crew prompt, sent receipts, seat wait and seat read require a configured Command Center");
     expect(compiled.text).toContain("Prompt/wait/read require a local peer, and are unavailable for Remote seats");

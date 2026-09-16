@@ -1,8 +1,8 @@
 import { readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 
-const storage = new URL("../src/main/vellum-command/update/linux-install-storage.ts", import.meta.url);
-const install = new URL("../src/main/vellum-command/update/linux-install.ts", import.meta.url);
+const storage = new URL("../src/main/junto/update/linux-install-storage.ts", import.meta.url);
+const install = new URL("../src/main/junto/update/linux-install.ts", import.meta.url);
 
 describe("Linux install storage architecture", () => {
   it("keeps recursive deletion behind minted install-tree authority", async () => {

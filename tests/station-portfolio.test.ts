@@ -10,7 +10,7 @@ import {
   STATION_PORTFOLIO_PROTOCOL,
   compileStationPortfolioBody,
   decodeStationPortfolioBody,
-} from "../src/main/vellum-command/station/portfolio";
+} from "../src/main/junto/station/portfolio";
 
 const installation = (value: string) =>
   Schema.decodeUnknownSync(InstallationId)(value);
@@ -225,7 +225,7 @@ describe("station portfolio body", () => {
     expect(() =>
       decodeStationPortfolioBody(
         JSON.stringify({
-          protocol: "vellum-command/station-portfolio/v1",
+          protocol: "junto/station-portfolio/v1",
           documents: canonical.documents,
         }),
       )

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { clipboardFormatsAreSafeForGrok } from "../src/main/vellum-command/term/drive/clipboard-safe";
+import { clipboardFormatsAreSafeForGrok } from "../src/main/junto/term/drive/clipboard-safe";
 
 describe("Grok clipboard format safety", () => {
   it("accepts text-only pasteboard metadata", () => {

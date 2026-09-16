@@ -23,26 +23,26 @@ import {
 } from "./build-linux-remote-runtime";
 
 export const LINUX_RUNTIME_AUDIT_SCHEMA =
-  "vellum-command/linux-runtime-audit/v2" as const;
+  "junto/linux-runtime-audit/v2" as const;
 export const LINUX_RUNTIME_REQUIRED_FILES = [
-  "vellum-command",
+  "junto",
   "resources/app.asar",
-  "resources/bin/vellum-command",
-  "resources/bin/vellum-command-remote",
+  "resources/bin/junto",
+  "resources/bin/junto-remote",
   "resources/bin/node",
   REMOTE_NODE_LICENSE_RELATIVE,
   "resources/bin/unix-peer-pid.py",
-  "resources/app-remote/vellum-command-remote.js",
+  "resources/app-remote/junto-remote.js",
   "resources/app-remote/package.json",
   "resources/app-remote/package-runtime-provenance.json",
   ...LINUX_REMOTE_NOTICE_FILES.map((file) => `resources/app-remote/${file}`),
-  "resources/systemd/vellum-command-remote-launch",
-  "resources/systemd/vellum-command-remote.service.template",
+  "resources/systemd/junto-remote-launch",
+  "resources/systemd/junto-remote.service.template",
 ] as const;
 
 export const LINUX_REMOTE_APP_EXACT_FILES = [
   ...LINUX_REMOTE_NOTICE_FILES.map((file) => `resources/app-remote/${file}`),
-  "resources/app-remote/vellum-command-remote.js",
+  "resources/app-remote/junto-remote.js",
   "resources/app-remote/package.json",
   "resources/app-remote/package-runtime-provenance.json",
   ...LINUX_NODE_PTY_RUNTIME_FILES.map(
@@ -53,10 +53,10 @@ export const LINUX_REMOTE_APP_EXACT_FILES = [
 export const LINUX_REMOTE_CLOSURE_EXACT_FILES = [
   "resources/bin/node",
   REMOTE_NODE_LICENSE_RELATIVE,
-  "resources/bin/vellum-command-remote",
+  "resources/bin/junto-remote",
   ...LINUX_REMOTE_APP_EXACT_FILES,
-  "resources/systemd/vellum-command-remote-launch",
-  "resources/systemd/vellum-command-remote.service.template",
+  "resources/systemd/junto-remote-launch",
+  "resources/systemd/junto-remote.service.template",
 ] as const;
 
 const FORBIDDEN_SEGMENTS = new Set([
@@ -80,7 +80,7 @@ export type LinuxRuntimeInventoryEntry = {
 };
 
 export type LinuxRuntimeInventory = {
-  readonly schema: "vellum-command/linux-runtime-inventory/v1";
+  readonly schema: "junto/linux-runtime-inventory/v1";
   readonly fileCount: number;
   readonly totalBytes: number;
   readonly rootSha256: string;
@@ -163,7 +163,7 @@ export const linuxRuntimeInventoryRoot = (
   entries: ReadonlyArray<LinuxRuntimeInventoryEntry>,
 ): string => {
   const hash = createHash("sha256");
-  hash.update("vellum-command/linux-runtime-inventory/v1\0");
+  hash.update("junto/linux-runtime-inventory/v1\0");
   for (const entry of entries) {
     hash.update(entry.path);
     hash.update("\0");
@@ -197,7 +197,7 @@ export const collectLinuxRuntimeInventory = async (
     throw new Error("Linux runtime inventory contains duplicate paths");
   }
   return {
-    schema: "vellum-command/linux-runtime-inventory/v1",
+    schema: "junto/linux-runtime-inventory/v1",
     fileCount: entries.length,
     totalBytes: entries.reduce((sum, entry) => sum + entry.bytes, 0),
     rootSha256: linuxRuntimeInventoryRoot(entries),
@@ -212,14 +212,14 @@ const isAlternateRemotePath = (candidate: string): boolean => {
     return true;
   }
   if (
-    basename === "vellum-command-remote.js" &&
-    candidate !== "resources/app-remote/vellum-command-remote.js"
+    basename === "junto-remote.js" &&
+    candidate !== "resources/app-remote/junto-remote.js"
   ) {
     return true;
   }
   if (
-    basename === "vellum-command-remote" &&
-    candidate !== "resources/bin/vellum-command-remote"
+    basename === "junto-remote" &&
+    candidate !== "resources/bin/junto-remote"
   ) {
     return true;
   }
@@ -230,14 +230,14 @@ const isAlternateRemotePath = (candidate: string): boolean => {
     return true;
   }
   if (
-    basename === "vellum-command-remote-launch" &&
-    candidate !== "resources/systemd/vellum-command-remote-launch"
+    basename === "junto-remote-launch" &&
+    candidate !== "resources/systemd/junto-remote-launch"
   ) {
     return true;
   }
   if (
-    basename === "vellum-command-remote.service.template" &&
-    candidate !== "resources/systemd/vellum-command-remote.service.template"
+    basename === "junto-remote.service.template" &&
+    candidate !== "resources/systemd/junto-remote.service.template"
   ) {
     return true;
   }
@@ -310,7 +310,7 @@ export const validateLinuxRuntimeInventory = (
   input: unknown,
 ): LinuxRuntimeInventory => {
   const record = asRecord(input, "Linux runtime inventory");
-  if (record.schema !== "vellum-command/linux-runtime-inventory/v1") {
+  if (record.schema !== "junto/linux-runtime-inventory/v1") {
     throw new Error("invalid Linux runtime inventory schema");
   }
   if (!Array.isArray(record.entries)) {
@@ -350,7 +350,7 @@ export const validateLinuxRuntimeInventory = (
     throw new Error("Linux runtime inventory paths must be unique and sorted");
   }
   const inventory: LinuxRuntimeInventory = {
-    schema: "vellum-command/linux-runtime-inventory/v1",
+    schema: "junto/linux-runtime-inventory/v1",
     fileCount: asInteger(record.fileCount, "Linux runtime file count"),
     totalBytes: asInteger(record.totalBytes, "Linux runtime total bytes"),
     rootSha256: asString(record.rootSha256, "Linux runtime inventory root"),
@@ -380,7 +380,7 @@ export const decodeLinuxRuntimeAuditReceipt = (
     throw new Error("Linux Remote closure is not exact");
   }
   const remoteInventory = validateLinuxRuntimeInventory({
-    schema: "vellum-command/linux-runtime-inventory/v1",
+    schema: "junto/linux-runtime-inventory/v1",
     fileCount: remote.entries.length,
     totalBytes: remote.entries.reduce((sum: number, raw: unknown) => {
       const item = asRecord(raw, "Linux Remote closure entry");
@@ -434,7 +434,7 @@ export const decodeLinuxRuntimeAuditReceipt = (
 export const validateUserServiceTemplate = (input: string): void => {
   if (
     !input.includes(
-      "ExecStart=@JUNTO_RUNTIME_ROOT@/resources/systemd/vellum-command-remote-launch\n",
+      "ExecStart=@JUNTO_RUNTIME_ROOT@/resources/systemd/junto-remote-launch\n",
     )
   ) {
     throw new Error("user service must retain the runtime-root placeholder");
@@ -590,7 +590,7 @@ export const linuxRemoteClosureRoot = (
   entries: ReadonlyArray<LinuxRuntimeInventoryEntry>,
 ): string => {
   const hash = createHash("sha256");
-  hash.update("vellum-command/linux-remote-closure/v1\0");
+  hash.update("junto/linux-remote-closure/v1\0");
   for (const entry of entries) {
     hash.update(
       `${entry.path}\0${String(entry.bytes)}\0${entry.mode.toString(8)}\0${entry.sha256}\n`,
@@ -648,7 +648,7 @@ export const auditLinuxRuntime = async ({
     await readFile(
       path.join(
         root,
-        "resources/systemd/vellum-command-remote.service.template",
+        "resources/systemd/junto-remote.service.template",
       ),
       "utf8",
     ),
@@ -761,7 +761,7 @@ const parseCli = (
   }
   const version =
     options.get("--version") ??
-    path.basename(runtime).match(/^vellum-command-runtime-(.+)-linux-x64$/u)?.[1];
+    path.basename(runtime).match(/^junto-runtime-(.+)-linux-x64$/u)?.[1];
   if (version === undefined) throw new Error("runtime artifact name mismatch");
   return { runtime, version, ...(options.has("--receipt") ? { receipt: options.get("--receipt") } : {}) } as {
     readonly runtime: string;

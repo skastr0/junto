@@ -47,7 +47,7 @@ describe("buildOrientNotice", () => {
   it("is a single line (marker-prefixed notice must not chip)", () => {
     const notice = buildOrientNotice("seat-1");
     expect(notice).not.toContain("\n");
-    expect(notice).toContain("vellum-command onboard");
+    expect(notice).toContain("junto onboard");
     expect(notice).toContain("seat-1");
     expect(appendBootstrapMarker(notice, "seat-1")).not.toContain("\n");
   });

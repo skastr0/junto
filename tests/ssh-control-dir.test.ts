@@ -8,8 +8,8 @@ import {
   sshMuxControlDir,
   sshMuxControlPathTemplate,
   UNIX_DOMAIN_SOCKET_PATH_LIMIT,
-} from "../src/main/vellum-command/ssh/control-dir";
-import { createSshProgramCompiler } from "../src/main/vellum-command/ssh/program";
+} from "../src/main/junto/ssh/control-dir";
+import { createSshProgramCompiler } from "../src/main/junto/ssh/program";
 
 describe("SSH mux control directory", () => {
   it("keeps the expanded ControlPath plus OpenSSH temp suffix under the Unix limit", () => {

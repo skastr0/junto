@@ -8,7 +8,7 @@
  * admission nor pending evidence can inspect the model's private state.
  * This is a deterministic integration regression, not a visual app E2E.
  */
-import { CrewRepositoryLive } from "../src/main/vellum-command/work/crew-repository";
+import { CrewRepositoryLive } from "../src/main/junto/work/crew-repository";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -16,36 +16,36 @@ import { Context, Effect, Layer, ManagedRuntime } from "effect";
 import { describe, expect, it, vi } from "vitest";
 import type { CanvasDoc } from "../src/shared/canvas";
 import type { AgentSeatStateEvent } from "../src/shared/agent-seat-state";
-import { CanvasesLive, CanvasesService } from "../src/main/vellum-command/canvases";
-import { makeContentServiceLive } from "../src/main/vellum-command/content/service";
-import { makeInstallOpsLive } from "../src/main/vellum-command/install-ops/engine";
-import { __resetKernelMemoryForTest } from "../src/main/vellum-command/kernel/cycle";
-import { KernelLive, KernelService, managedTaskDeliveryId } from "../src/main/vellum-command/kernel/service";
-import { FactoryPauseRepositoryLive } from "../src/main/vellum-command/pause/repository";
-import { PausePlane, PausePlaneLive } from "../src/main/vellum-command/pause-plane";
-import { SchedulerRepositoryLive } from "../src/main/vellum-command/scheduler/repository";
-import { SettingsLive, SettingsService } from "../src/main/vellum-command/settings/service";
-import { makeSnapshotsLive } from "../src/main/vellum-command/snapshots";
-import { makeStateEngineLive } from "../src/main/vellum-command/state/engine";
-import { StationFleetTargetRepositoryLive } from "../src/main/vellum-command/station/fleet-target-repository";
-import { StationRepositoryLive } from "../src/main/vellum-command/station/repository";
-import { StationLivePeerRegistryLive } from "../src/main/vellum-command/station/session-registry";
-import { ActorSeatOccupy } from "../src/main/vellum-command/term/actor-seat-occupy";
-import { composerVerdictForHarness, seatStateRuntime } from "../src/main/vellum-command/term/agent-state";
+import { CanvasesLive, CanvasesService } from "../src/main/junto/canvases";
+import { makeContentServiceLive } from "../src/main/junto/content/service";
+import { makeInstallOpsLive } from "../src/main/junto/install-ops/engine";
+import { __resetKernelMemoryForTest } from "../src/main/junto/kernel/cycle";
+import { KernelLive, KernelService, managedTaskDeliveryId } from "../src/main/junto/kernel/service";
+import { FactoryPauseRepositoryLive } from "../src/main/junto/pause/repository";
+import { PausePlane, PausePlaneLive } from "../src/main/junto/pause-plane";
+import { SchedulerRepositoryLive } from "../src/main/junto/scheduler/repository";
+import { SettingsLive, SettingsService } from "../src/main/junto/settings/service";
+import { makeSnapshotsLive } from "../src/main/junto/snapshots";
+import { makeStateEngineLive } from "../src/main/junto/state/engine";
+import { StationFleetTargetRepositoryLive } from "../src/main/junto/station/fleet-target-repository";
+import { StationRepositoryLive } from "../src/main/junto/station/repository";
+import { StationLivePeerRegistryLive } from "../src/main/junto/station/session-registry";
+import { ActorSeatOccupy } from "../src/main/junto/term/actor-seat-occupy";
+import { composerVerdictForHarness, seatStateRuntime } from "../src/main/junto/term/agent-state";
 import {
   BRACKETED_PASTE_START,
   INTERRUPT_BYTE,
   ManagedTerminalDrive,
   promptHasPasteChip,
   promptStillPending,
-} from "../src/main/vellum-command/term/drive";
-import { OperatorInterlock } from "../src/main/vellum-command/term/drive/operator-interlock";
-import { makeManagedPulseDeliver, setManagedPulseDeliver } from "../src/main/vellum-command/term/managed-pulse-bridge";
+} from "../src/main/junto/term/drive";
+import { OperatorInterlock } from "../src/main/junto/term/drive/operator-interlock";
+import { makeManagedPulseDeliver, setManagedPulseDeliver } from "../src/main/junto/term/managed-pulse-bridge";
 import { isPromptSubmitted } from "../src/shared/managed-prompt";
-import { SessionObserver } from "../src/main/vellum-command/term/observer";
-import { termPlane } from "../src/main/vellum-command/term/plane";
-import { WorkRepository, WorkRepositoryLive } from "../src/main/vellum-command/work/repository";
-import { WorkLive, WorkService } from "../src/main/vellum-command/work/service";
+import { SessionObserver } from "../src/main/junto/term/observer";
+import { termPlane } from "../src/main/junto/term/plane";
+import { WorkRepository, WorkRepositoryLive } from "../src/main/junto/work/repository";
+import { WorkLive, WorkService } from "../src/main/junto/work/service";
 import { ScriptedTui } from "./pty-e2e/scripted-tui";
 
 const CANVAS = "claim-delivery";

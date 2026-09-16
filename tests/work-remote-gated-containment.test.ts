@@ -1,4 +1,4 @@
-import { CrewRepositoryLive } from "../src/main/vellum-command/work/crew-repository";
+import { CrewRepositoryLive } from "../src/main/junto/work/crew-repository";
 import { randomUUID } from "node:crypto";
 import { readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -8,23 +8,23 @@ import { describe, expect, it } from "vitest";
 import type { CanvasDoc, Part } from "../src/shared/canvas";
 import { InstallationId } from "../src/shared/installation-id";
 import { HostId } from "../src/shared/remote-hosts";
-import { CanvasesLive, CanvasesService } from "../src/main/vellum-command/canvases";
-import { makeContentServiceLive } from "../src/main/vellum-command/content/service";
-import { makeInstallOpsLive } from "../src/main/vellum-command/install-ops/engine";
-import { makeSettingsLive, SettingsService } from "../src/main/vellum-command/settings/service";
-import { makeStateEngineLive } from "../src/main/vellum-command/state/engine";
-import { StateEngine } from "../src/main/vellum-command/state/service";
+import { CanvasesLive, CanvasesService } from "../src/main/junto/canvases";
+import { makeContentServiceLive } from "../src/main/junto/content/service";
+import { makeInstallOpsLive } from "../src/main/junto/install-ops/engine";
+import { makeSettingsLive, SettingsService } from "../src/main/junto/settings/service";
+import { makeStateEngineLive } from "../src/main/junto/state/engine";
+import { StateEngine } from "../src/main/junto/state/service";
 import {
   StationFleetTargetRepository,
   StationFleetTargetRepositoryLive,
-} from "../src/main/vellum-command/station/fleet-target-repository";
-import { StationRepositoryLive } from "../src/main/vellum-command/station/repository";
-import { StationLivePeerRegistryLive } from "../src/main/vellum-command/station/session-registry";
+} from "../src/main/junto/station/fleet-target-repository";
+import { StationRepositoryLive } from "../src/main/junto/station/repository";
+import { StationLivePeerRegistryLive } from "../src/main/junto/station/session-registry";
 import {
   WorkRepository,
   WorkRepositoryLive,
-} from "../src/main/vellum-command/work/repository";
-import { WorkLive, WorkService } from "../src/main/vellum-command/work/service";
+} from "../src/main/junto/work/repository";
+import { WorkLive, WorkService } from "../src/main/junto/work/service";
 
 const installationId = Schema.decodeUnknownSync(InstallationId);
 const hostId = Schema.decodeUnknownSync(HostId);
@@ -137,7 +137,7 @@ describe("Remote-home approval Task containment", () => {
   it("refuses before content, command, event, fact, or Task persistence", async () => {
     const root = join(
       tmpdir(),
-      `vellum-command-remote-gated-${randomUUID()}`,
+      `junto-remote-gated-${randomUUID()}`,
     );
     const runtime = makeRuntime(root);
 

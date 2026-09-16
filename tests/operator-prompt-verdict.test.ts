@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { mapPromptResultToVerdict } from "../src/main/vellum-command/work/operator-prompt-verdict";
-import type { PromptResult } from "../src/main/vellum-command/work/message-delivery";
+import { mapPromptResultToVerdict } from "../src/main/junto/work/operator-prompt-verdict";
+import type { PromptResult } from "../src/main/junto/work/message-delivery";
 
 const submitted: PromptResult = {
   policy: "immediate",

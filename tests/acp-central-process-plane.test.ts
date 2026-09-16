@@ -14,20 +14,20 @@ vi.mock("node:child_process", async (importOriginal) => ({
   spawn: mocks.spawn,
 }));
 
-vi.mock("../src/main/vellum-command/process-signal", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../src/main/vellum-command/process-signal")>()),
+vi.mock("../src/main/junto/process-signal", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/main/junto/process-signal")>()),
   admitChildProcess: mocks.admitChildProcess,
   signalOwned: mocks.signalOwned,
   releaseOwned: mocks.releaseOwned,
 }));
 
-import { createAppProcessPlane } from "../src/main/vellum-command/app-process-plane";
-import type { JsonRpcId, SpawnFn } from "../src/main/vellum-command/chat/acp-client";
+import { createAppProcessPlane } from "../src/main/junto/app-process-plane";
+import type { JsonRpcId, SpawnFn } from "../src/main/junto/chat/acp-client";
 import {
   ChatService,
   ChatShutdownUncleanError,
   requireCleanChatShutdown,
-} from "../src/main/vellum-command/chat/service";
+} from "../src/main/junto/chat/service";
 
 class FakeChild extends EventEmitter {
   readonly stdin = new PassThrough();

@@ -5,14 +5,14 @@ import { afterEach, describe, expect, it } from "vitest";
 import { Context, Effect, ManagedRuntime } from "effect";
 import { defaultSettings, type Settings } from "../src/shared/settings";
 import type { RemoteHost } from "../src/shared/remote-hosts";
-import type { ResolvedPageTarget } from "../src/main/vellum-command/browser/page-target";
-import { makeBrowserProfileService } from "../src/main/vellum-command/browser/profiles";
+import type { ResolvedPageTarget } from "../src/main/junto/browser/page-target";
+import { makeBrowserProfileService } from "../src/main/junto/browser/profiles";
 import {
   BrowserSessionService,
   type BrowserViewAdapter,
-} from "../src/main/vellum-command/browser/sessions";
-import { prepareBrowserHostCapabilityAuthority } from "../src/main/vellum-command/browser/station-authority";
-import { makeStateEngineLive, StateEngine } from "../src/main/vellum-command/state/engine";
+} from "../src/main/junto/browser/sessions";
+import { prepareBrowserHostCapabilityAuthority } from "../src/main/junto/browser/station-authority";
+import { makeStateEngineLive, StateEngine } from "../src/main/junto/state/engine";
 
 const hosts: ReadonlyArray<RemoteHost> = [
   {
@@ -31,7 +31,7 @@ const hosts: ReadonlyArray<RemoteHost> = [
 ];
 
 const target = (nodeId: string, hostId: string): ResolvedPageTarget => ({
-  ref: `vellum-command://canvas/work?node=${nodeId}`,
+  ref: `junto://canvas/work?node=${nodeId}`,
   nodeId,
   hostId,
   url: `https://${nodeId}.example.com`,
@@ -107,7 +107,7 @@ describe("browser physical-station authority", () => {
     listener?.(settingsAt("remote", "studio"));
     loading.resolve(settingsAt("command-center", "local"));
     const lease = await preparing;
-    const root = await mkdtemp(join(tmpdir(), "vellum-command-browser-station-"));
+    const root = await mkdtemp(join(tmpdir(), "junto-browser-station-"));
     roots.push(root);
     let adapterCalls = 0;
     const adapter: BrowserViewAdapter = () => {
@@ -154,7 +154,7 @@ describe("browser physical-station authority", () => {
       },
       (hostId) => hosts.find((host) => host.id === hostId),
     );
-    const root = await mkdtemp(join(tmpdir(), "vellum-command-browser-station-"));
+    const root = await mkdtemp(join(tmpdir(), "junto-browser-station-"));
     roots.push(root);
     let adapterCalls = 0;
     const adapter: BrowserViewAdapter = () => {

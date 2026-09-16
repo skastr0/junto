@@ -7,31 +7,31 @@ import {
   makeBrowserCapabilityRegistry,
   type BrowserCapabilityRegistry,
   type BrowserCapabilityTarget,
-} from "../../../src/main/vellum-command/browser/capabilities";
-import { makeBrowserProfileGate } from "../../../src/main/vellum-command/browser/profile-gate";
+} from "../../../src/main/junto/browser/capabilities";
+import { makeBrowserProfileGate } from "../../../src/main/junto/browser/profile-gate";
 import {
   browserProfileQuarantinePath,
   makeBrowserProfileStorageLifecycle,
   type BrowserProfileStoragePlatform,
   type BrowserProfileStorageSessionControl,
-} from "../../../src/main/vellum-command/browser/profile-storage";
-import { makeElectronBrowserProfileStoragePlatform } from "../../../src/main/vellum-command/browser/profile-storage-electron";
+} from "../../../src/main/junto/browser/profile-storage";
+import { makeElectronBrowserProfileStoragePlatform } from "../../../src/main/junto/browser/profile-storage-electron";
 import {
   makeBrowserProfileService,
   type BrowserProfilePendingWipe,
-} from "../../../src/main/vellum-command/browser/profiles";
+} from "../../../src/main/junto/browser/profiles";
 import {
   makeStateEngineLive,
   StateEngine,
-} from "../../../src/main/vellum-command/state/engine";
-import type { ResolvedPageTarget } from "../../../src/main/vellum-command/browser/page-target";
+} from "../../../src/main/junto/state/engine";
+import type { ResolvedPageTarget } from "../../../src/main/junto/browser/page-target";
 import {
   BROWSER_UI_SESSION_OWNER,
   BrowserSessionService,
   type BrowserResult,
   type BrowserProfileQuiescence,
-} from "../../../src/main/vellum-command/browser/sessions";
-import { makeBrowserTestOnlyElectronHarness } from "../../../src/main/vellum-command/browser/view-adapter";
+} from "../../../src/main/junto/browser/sessions";
+import { makeBrowserTestOnlyElectronHarness } from "../../../src/main/junto/browser/view-adapter";
 import { partitionNameForProfile } from "../../../src/shared/browser";
 import { formatNodeRef } from "../../../src/shared/node-ref";
 import { LOCAL_BROWSER_TEST_AUTHORITY } from "../../browser-host-test-authority";

@@ -24,18 +24,18 @@ import {
   type StationSessionFrame,
   type StationSessionRequestFrame,
 } from "../src/shared/station-session";
-import { CURRENT_STATE_SCHEMA_VERSION } from "../src/main/vellum-command/state/migrations";
-import { SshEndpoint } from "../src/main/vellum-command/ssh/domain";
-import { resolveRemotePackagedPlatform } from "../src/main/vellum-command/ssh/read-commands";
+import { CURRENT_STATE_SCHEMA_VERSION } from "../src/main/junto/state/migrations";
+import { SshEndpoint } from "../src/main/junto/ssh/domain";
+import { resolveRemotePackagedPlatform } from "../src/main/junto/ssh/read-commands";
 import type {
   ConfirmSshReady,
   SshLease,
   SshTransport,
-} from "../src/main/vellum-command/ssh/service";
+} from "../src/main/junto/ssh/service";
 import {
   OpenSshStationBootstrapError,
   bootstrapOpenSshStationStatus,
-} from "../src/main/vellum-command/station/openssh-bootstrap";
+} from "../src/main/junto/station/openssh-bootstrap";
 
 const runEffect = <A, E>(effect: Effect.Effect<A, E, any>): Promise<A> =>
   Effect.runPromise(effect as Effect.Effect<A, E, never>);
@@ -82,7 +82,7 @@ const correlatedStatus = (
 const protocolAccept = StationProtocolAccept.make({
   protocol: STATION_PROTOCOL_PREFACE,
   frame: "accept",
-  appVersion: "vellum-command",
+  appVersion: "junto",
   stateSchemaVersion: CURRENT_STATE_SCHEMA_VERSION,
   support: CURRENT_STATION_PROTOCOL_SUPPORT,
   selected: CURRENT_STATION_PROTOCOL_SUPPORT.preferred,

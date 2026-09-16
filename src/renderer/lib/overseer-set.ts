@@ -4,7 +4,7 @@ import { isHarnessId } from "@shared/managed-terminal-templates";
 import { flushCanvasEdits } from "./canvas-editor-flush";
 import { getCanvasRevision } from "./mutations";
 import { state$ } from "./state";
-import { getVellumCommandApi } from "./vellum-api";
+import { getJuntoApi } from "./junto-api";
 
 /** Managed executable agent seat — the only UI-eligible overseer target. */
 export const isManagedAgentSeat = (node: CanvasNode): boolean => {
@@ -39,7 +39,7 @@ export const setOverseerSeat = async (input: {
   readonly nodeId: string;
   readonly overseer: boolean;
 }): Promise<CanvasOverseerSetResult> => {
-  const api = getVellumCommandApi();
+  const api = getJuntoApi();
   if (typeof api?.canvasOverseerSet !== "function") {
     throw new OverseerSetError("Overseer control is unavailable.");
   }

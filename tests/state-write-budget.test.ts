@@ -18,11 +18,11 @@ import {
   armMainThreadBudget,
   resetMainThreadBudget,
   type BudgetViolation,
-} from "../src/main/vellum-command/observability/main-thread-budget";
+} from "../src/main/junto/observability/main-thread-budget";
 import {
   makeStateEngineLive,
   StateEngine,
-} from "../src/main/vellum-command/state/engine";
+} from "../src/main/junto/state/engine";
 
 const roots: string[] = [];
 const runtimes: Array<{ dispose: () => Promise<void> }> = [];
@@ -35,7 +35,7 @@ afterEach(async () => {
 });
 
 const openEngine = async () => {
-  const root = await mkdtemp(join(tmpdir(), "vellum-command-write-budget-"));
+  const root = await mkdtemp(join(tmpdir(), "junto-write-budget-"));
   roots.push(root);
   const runtime = ManagedRuntime.make(
     makeStateEngineLive(join(root, "state", "junto.db")),

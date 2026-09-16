@@ -9,8 +9,8 @@ const mocks = vi.hoisted(() => ({
   handles: [] as unknown[],
 }));
 
-vi.mock("../src/main/vellum-command/process-epoch", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/main/vellum-command/process-epoch")>();
+vi.mock("../src/main/junto/process-epoch", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/main/junto/process-epoch")>();
   return {
     ...actual,
     captureChildProcessEpoch: (pid: number) => ({
@@ -29,12 +29,12 @@ vi.mock("node:child_process", async (importOriginal) => ({
   spawn: mocks.spawn,
 }));
 
-vi.mock("../src/main/vellum-command/adapters/exec", () => ({
+vi.mock("../src/main/junto/adapters/exec", () => ({
   resolvedSpawnEnv: mocks.resolvedSpawnEnv,
 }));
 
-vi.mock("../src/main/vellum-command/process-signal", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../src/main/vellum-command/process-signal")>();
+vi.mock("../src/main/junto/process-signal", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../src/main/junto/process-signal")>();
   return {
     ...actual,
     admitChildProcess: (input: Parameters<typeof actual.admitChildProcess>[0]) => {
@@ -53,7 +53,7 @@ import {
   SERVICE_CHILD_TEARDOWN_PENDING_ERROR,
   spawnServiceChild,
 } from "../src/main/services/process";
-import { signalOwned, type OwnedProcess } from "../src/main/vellum-command/process-signal";
+import { signalOwned, type OwnedProcess } from "../src/main/junto/process-signal";
 
 class FakeWritable extends EventEmitter {
   readonly write = vi.fn(() => true);

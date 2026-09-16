@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type {
   SystemctlRunResult,
   VellumSystemdUserUnitTarget,
-} from "../src/main/vellum-command/supervision/systemctl-runner";
+} from "../src/main/junto/supervision/systemctl-runner";
 
 const mocks = vi.hoisted(() => ({
   target: Object.freeze({}) as VellumSystemdUserUnitTarget,
@@ -11,8 +11,8 @@ const mocks = vi.hoisted(() => ({
   startVellumSystemdUserUnit: vi.fn(),
 }));
 
-vi.mock("../src/main/vellum-command/supervision/systemctl-runner", () => ({
-  JUNTO_SYSTEMD_USER_UNIT: "vellum-command-remote.service",
+vi.mock("../src/main/junto/supervision/systemctl-runner", () => ({
+  JUNTO_SYSTEMD_USER_UNIT: "junto-remote.service",
   systemdUserUnitTarget: mocks.systemdUserUnitTarget,
   showVellumSystemdUserUnit: mocks.showVellumSystemdUserUnit,
   startVellumSystemdUserUnit: mocks.startVellumSystemdUserUnit,
@@ -22,7 +22,7 @@ import {
   createSystemdUserStationSupervisor,
   renderUserlandLinuxService,
   USERLAND_LINUX_SERVICE_PATH,
-} from "../src/main/vellum-command/supervision/systemd-user";
+} from "../src/main/junto/supervision/systemd-user";
 
 const showOutput = (overrides: Partial<Record<
   "LoadState" | "ActiveState" | "SubState" | "MainPID" | "ControlGroup" | "InvocationID",
@@ -33,7 +33,7 @@ const showOutput = (overrides: Partial<Record<
     ActiveState: "active",
     SubState: "running",
     MainPID: String(process.pid),
-    ControlGroup: "/user.slice/user-1000.slice/user@1000.service/app.slice/vellum-command-remote.service",
+    ControlGroup: "/user.slice/user-1000.slice/user@1000.service/app.slice/junto-remote.service",
     InvocationID: "0123456789abcdef0123456789abcdef",
     ...overrides,
   };
@@ -44,7 +44,7 @@ const showOutput = (overrides: Partial<Record<
 
 const successful = (stdout = showOutput()): SystemctlRunResult => ({
   action: "show",
-  unit: "vellum-command-remote.service",
+  unit: "junto-remote.service",
   stdout,
   stderr: "",
   clean: true,
@@ -57,7 +57,7 @@ const failed = (
   stdout = "",
 ): SystemctlRunResult => ({
   action: "show",
-  unit: "vellum-command-remote.service",
+  unit: "junto-remote.service",
   stdout,
   stderr: "bounded diagnostic",
   clean: kind !== "close-timeout",
@@ -81,13 +81,13 @@ describe("userland Linux service rendering", () => {
   it("pins the unit to one immutable release without a shell or current link", () => {
     const service = renderUserlandLinuxService({ releaseDirectory: release });
     expect(USERLAND_LINUX_SERVICE_PATH).toBe(
-      ".config/systemd/user/vellum-command-remote.service",
+      ".config/systemd/user/junto-remote.service",
     );
     expect(service).toContain(
-      `ConditionFileIsExecutable=${release}/resources/bin/vellum-command-remote`,
+      `ConditionFileIsExecutable=${release}/resources/bin/junto-remote`,
     );
     expect(service).toContain(
-      `ExecStart=${release}/resources/systemd/vellum-command-remote-launch`,
+      `ExecStart=${release}/resources/systemd/junto-remote-launch`,
     );
     expect(service).toContain("Type=notify");
     expect(service).toContain("RuntimeDirectoryMode=0700");
@@ -119,7 +119,7 @@ describe("systemd user station supervisor observation", () => {
     const current = await supervisor.observe();
     expect(supervisor.metadata).toMatchObject({
       provider: "systemd-user",
-      serviceLabel: "vellum-command-remote.service",
+      serviceLabel: "junto-remote.service",
     });
     expect(current).toEqual({
       provider: "systemd-user",

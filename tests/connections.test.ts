@@ -42,7 +42,7 @@ describe("resolveConnections — hermes-only", () => {
 
   it("project cards do not join the live corpus", () => {
     const index = buildConnectionIndex(state([entity("remote-a:vega")]));
-    expect(resolveConnections({ kind: "project", name: "vellum-command" }, index)).toEqual([]);
+    expect(resolveConnections({ kind: "project", name: "junto" }, index)).toEqual([]);
   });
 
   it("agents are identity-declared: connection exists even when hermes is down or missing", () => {

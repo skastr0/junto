@@ -25,7 +25,7 @@ import {
   type ManagedTerminalTemplate,
 } from "@shared/managed-terminal-templates";
 import { harnessVisibleInPalette } from "@shared/harness-settings";
-import { getVellumCommandApi } from "../../lib/vellum-api";
+import { getJuntoApi } from "../../lib/junto-api";
 import { state$ } from "../../lib/state";
 import { rankMatches } from "../../lib/fuzzy-match";
 import {
@@ -200,7 +200,7 @@ export function AgentHarnessPick({
 
   useEffect(() => {
     let cancelled = false;
-    const api = getVellumCommandApi();
+    const api = getJuntoApi();
     if (!api?.managedTerminalHarnesses) {
       // No probe API (tests / degraded preload): fail closed — hide all until
       // we can prove install. Feature gate still applied via empty set.

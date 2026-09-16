@@ -8,23 +8,23 @@ import {
   KernelStateCorruptError,
   KernelStateRepository,
   KernelStateRepositoryLive,
-} from "../src/main/vellum-command/kernel/repository";
+} from "../src/main/junto/kernel/repository";
 import {
   FactoryPauseRepository,
   FactoryPauseRepositoryLive,
   FactoryPauseStateCorruptError,
-} from "../src/main/vellum-command/pause/repository";
+} from "../src/main/junto/pause/repository";
 import {
   makeStateEngineLive,
   StateEngine,
-} from "../src/main/vellum-command/state/engine";
+} from "../src/main/junto/state/engine";
 import type { PulseRecord } from "../src/shared/ipc";
 
 const roots: string[] = [];
 const runtimes: Array<{ readonly dispose: () => Promise<void> }> = [];
 
 const makeRoot = async (): Promise<string> => {
-  const root = await mkdtemp(join(tmpdir(), "vellum-command-runtime-state-"));
+  const root = await mkdtemp(join(tmpdir(), "junto-runtime-state-"));
   roots.push(root);
   return root;
 };

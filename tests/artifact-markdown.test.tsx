@@ -53,7 +53,7 @@ describe("safeArtifactMarkdownUrl", () => {
     "mailto:operator@example.com",
     "/relative/path",
     "#section",
-    "vellum-command-content://object/abc",
+    "junto-content://object/abc",
   ])("allows %s", (url) => {
     expect(safeArtifactMarkdownUrl(url)).toBe(url);
   });

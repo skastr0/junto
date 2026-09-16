@@ -35,7 +35,7 @@ import {
  * control mode and rejects registered agent process trees.
  */
 
-export const OPERATOR_PROTOCOL_VERSION = "vellum-command-operator/v1" as const;
+export const OPERATOR_PROTOCOL_VERSION = "junto-operator/v1" as const;
 export const OPERATOR_DEFAULT_TIMEOUT_MS = 30_000;
 export const OPERATOR_SYNC_TIMEOUT_MS = 120_000;
 export const OPERATOR_DEPLOY_TIMEOUT_MS = 15 * 60_000;

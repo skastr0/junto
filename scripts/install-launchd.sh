@@ -211,9 +211,9 @@ cat >&3 <<PLIST_EOF
   <key>AssociatedBundleIdentifiers</key>
   <string>$LABEL</string>
   <key>StandardOutPath</key>
-  <string>$LOG_DIR/vellum-command.out.log</string>
+  <string>$LOG_DIR/junto.out.log</string>
   <key>StandardErrorPath</key>
-  <string>$LOG_DIR/vellum-command.err.log</string>
+  <string>$LOG_DIR/junto.err.log</string>
 </dict>
 </plist>
 PLIST_EOF
@@ -277,7 +277,7 @@ if launchctl print "$DOMAIN/$LABEL" 2>/dev/null | grep -q "state = running"; the
   log "$LABEL loaded and running"
   log "  logs: $LOG_DIR"
 else
-    err "$LABEL loaded but not reported running — check $LOG_DIR/vellum-command.err.log"
+    err "$LABEL loaded but not reported running — check $LOG_DIR/junto.err.log"
   launchctl print "$DOMAIN/$LABEL" 2>/dev/null | sed -n '1,12p' >&2 || true
   exit 1
 fi

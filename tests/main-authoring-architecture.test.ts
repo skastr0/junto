@@ -39,7 +39,7 @@ const stringArgumentsForCalls = (
 
 describe("main authoring architecture", () => {
   it("classifies every renderer, pull, portfolio, and delivery mutation ingress", () => {
-    const ipcPath = join(mainRoot, "vellum-command", "ipc.ts");
+    const ipcPath = join(mainRoot, "junto", "ipc.ts");
     const labels = stringArgumentsForCalls(
       ipcPath,
       new Set([
@@ -78,7 +78,7 @@ describe("main authoring architecture", () => {
   });
 
   it("routes durable set_flag through classified kernel.flag-mirror mutate only", () => {
-    const kernel = source("src/main/vellum-command/kernel/service.ts");
+    const kernel = source("src/main/junto/kernel/service.ts");
     // Product law: set_flag / flagOnUnsatisfied write document ether.flags on CC
     // (same truth as toggleFlag), never ghost runtime-only overrides.
     expect(kernel).toContain('mainAuthoringGate.run("kernel.flag-mirror"');
@@ -98,33 +98,33 @@ describe("main authoring architecture", () => {
         /import\s+\{[^}]*\bWorkService\b[^}]*\}\s+from/u.test(readFileSync(path, "utf8")),
       )
       .map((path) => relative(root, path))
-      .filter((path) => path !== "src/main/vellum-command/work/service.ts")
+      .filter((path) => path !== "src/main/junto/work/service.ts")
       .sort();
     expect(importers).toEqual([
       // Operator qualification mints offline Remote Work through WorkService.
-      "src/main/vellum-command/hosts/operator-qualification-work.ts",
-      "src/main/vellum-command/ipc.ts",
-      "src/main/vellum-command/kernel/service.ts",
+      "src/main/junto/hosts/operator-qualification-work.ts",
+      "src/main/junto/ipc.ts",
+      "src/main/junto/kernel/service.ts",
       // Closed administrative dispatch is still process-bound and gated.
-      "src/main/vellum-command/overseer/work.ts",
-      "src/main/vellum-command/work/control.ts",
+      "src/main/junto/overseer/work.ts",
+      "src/main/junto/work/control.ts",
       // Canvas topology changes emit exactly one compact edge map-change
       // notice per seat; this is the classified authoring listener, not a
       // renderer/control ingress.
-      "src/main/vellum-command/work/edge-map-notify.ts",
+      "src/main/junto/work/edge-map-notify.ts",
     ]);
 
-    const control = source("src/main/vellum-command/work/control.ts");
+    const control = source("src/main/junto/work/control.ts");
     expect(control).toContain("mainAuthoringLabelForWorkOperation(req.op)");
     expect(control).toContain("authoringGate.run(authoringLabel, run)");
     expect(control).toContain('workErr(\n              "RuntimeDown"');
   });
 
   it("keeps actor authority on the process-bound control plane", () => {
-    const ipc = source("src/main/vellum-command/ipc.ts");
+    const ipc = source("src/main/junto/ipc.ts");
     const preload = source("src/preload/index.ts");
     const contract = source("src/shared/ipc.ts");
-    const control = source("src/main/vellum-command/work/control.ts");
+    const control = source("src/main/junto/work/control.ts");
 
     expect(ipc).toContain("resolveProjectedIpcActorRef");
     // Claim resolves the projected actor at the trusted IPC boundary; other
@@ -154,7 +154,7 @@ describe("main authoring architecture", () => {
   });
 
   it("keeps the quit flush admission to the renderer's own canvas save", () => {
-    const gate = source("src/main/vellum-command/main-authoring-gate.ts");
+    const gate = source("src/main/junto/main-authoring-gate.ts");
     const finalFlush = gate.slice(
       gate.indexOf("const FINAL_FLUSH_LABELS"),
       gate.indexOf("export type MainAuthoringWorkClassification"),

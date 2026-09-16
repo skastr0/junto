@@ -52,7 +52,7 @@ import {
   setActorRailOpen,
   terminal$,
 } from "../../lib/terminal-state";
-import { getVellumCommandApi } from "../../lib/vellum-api";
+import { getJuntoApi } from "../../lib/junto-api";
 import { modKeyGlyph } from "../../lib/platform";
 import { Button, Chip, Eyebrow, IconButton, type ChipTone } from "../ui";
 import { Textarea } from "../ui/Field";
@@ -430,7 +430,7 @@ export function ActorLedgerPane({
   const [opsFeed, setOpsFeed] = useState<WorkSeatRecentOpsFeed | null>(null);
   useEffect(() => {
     if (!visible || !expanded || !isActor || !canvasMatches) return;
-    const api = getVellumCommandApi();
+    const api = getJuntoApi();
     if (!api?.workSeatRecentOps) return;
     let stale = false;
     const pull = (): void => {
@@ -466,7 +466,7 @@ export function ActorLedgerPane({
 
   if (!isActor || !canvasMatches) return null;
 
-  const api = getVellumCommandApi();
+  const api = getJuntoApi();
   const runWork = async (
     key: string,
     operation: () => Promise<WorkOpResult<unknown>>,
@@ -784,7 +784,7 @@ export function ActorLedgerPane({
                 className="actor-ledger__mail-folded"
                 data-testid="actor-ledger-mail-folded"
               >
-                {`${visibleMail.hidden} settled - vellum-command msg list`}
+                {`${visibleMail.hidden} settled - junto msg list`}
               </p>
             ) : null}
           </section>

@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
-import { InjectionSupervisor, type NoticeWriter } from "../src/main/vellum-command/term/injection-supervisor";
+import { InjectionSupervisor, type NoticeWriter } from "../src/main/junto/term/injection-supervisor";
 import { buildBootstrapMarker } from "../src/shared/managed-terminal-injection";
-import type { ObserverGridSnapshot } from "../src/main/vellum-command/term/observer/types";
+import type { ObserverGridSnapshot } from "../src/main/junto/term/observer/types";
 import type { AgentSeatStateEvent } from "../src/shared/agent-seat-state";
 
 const snap = (over: Partial<ObserverGridSnapshot> = {}): ObserverGridSnapshot => ({
@@ -170,7 +170,7 @@ describe("InjectionSupervisor", () => {
     // delivery is long gone from the harness's own context by now.
     turnCycle(5n);
     expect(writer).toHaveBeenCalledTimes(1);
-    expect(String(writer.mock.calls[0][1])).toMatch(/vellum-command onboard/);
+    expect(String(writer.mock.calls[0][1])).toMatch(/junto onboard/);
 
     // Budget exhausted: the operator hears about it, exactly once.
     turnCycle(8n);

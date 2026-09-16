@@ -1,4 +1,4 @@
-import { CrewRepositoryLive } from "../src/main/vellum-command/work/crew-repository";
+import { CrewRepositoryLive } from "../src/main/junto/work/crew-repository";
 import { afterEach, describe, expect, it } from "vitest";
 import { createHash } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
@@ -9,26 +9,26 @@ import {
   CanvasesLive,
   CanvasesService,
   type CanvasAuthorityStoredDocument,
-} from "../src/main/vellum-command/canvases";
-import { makeStateEngineLive } from "../src/main/vellum-command/state/engine";
-import { StateEngine } from "../src/main/vellum-command/state/service";
-import { WorkRepositoryLive } from "../src/main/vellum-command/work/repository";
-import { StationRepositoryLive } from "../src/main/vellum-command/station/repository";
+} from "../src/main/junto/canvases";
+import { makeStateEngineLive } from "../src/main/junto/state/engine";
+import { StateEngine } from "../src/main/junto/state/service";
+import { WorkRepositoryLive } from "../src/main/junto/work/repository";
+import { StationRepositoryLive } from "../src/main/junto/station/repository";
 import {
   StationFleetTargetRepositoryLive,
-} from "../src/main/vellum-command/station/fleet-target-repository";
+} from "../src/main/junto/station/fleet-target-repository";
 import {
   StationLivePeerRegistryLive,
-} from "../src/main/vellum-command/station/session-registry";
-import { WorkLive, WorkService } from "../src/main/vellum-command/work/service";
+} from "../src/main/junto/station/session-registry";
+import { WorkLive, WorkService } from "../src/main/junto/work/service";
 import {
   SettingsLive,
   SettingsService,
-} from "../src/main/vellum-command/settings/service";
+} from "../src/main/junto/settings/service";
 import {
   makeContentServiceLive,
-} from "../src/main/vellum-command/content/service";
-import { makeInstallOpsLive } from "../src/main/vellum-command/install-ops/engine";
+} from "../src/main/junto/content/service";
+import { makeInstallOpsLive } from "../src/main/junto/install-ops/engine";
 import {
   applyMirrorLaw,
   serializeCanvas,
@@ -36,7 +36,7 @@ import {
 } from "../src/shared/canvas";
 import {
   verifyCanvasIntentMaterial,
-} from "../src/main/vellum-command/canvas-intent-identity";
+} from "../src/main/junto/canvas-intent-identity";
 import { managedAgentEther } from "./helpers/managed-agent-ether";
 
 const noteDoc = (text: string): CanvasDoc =>

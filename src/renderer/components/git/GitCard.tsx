@@ -3,7 +3,7 @@ import { GitBranch } from "lucide-react";
 import type { CanvasNode } from "@shared/canvas";
 import type { GitStatus } from "@shared/git";
 import { DIM, GREEN, HUE, INK } from "../../lib/theme";
-import { getVellumCommandApi } from "../../lib/vellum-api";
+import { getJuntoApi } from "../../lib/junto-api";
 import { FirstLineRenameInput } from "../nodes/FirstLineRenameInput";
 import { editText } from "../../lib/mutations";
 import "./git.css";
@@ -44,7 +44,7 @@ export function GitCard({
       return;
     }
     let live = true;
-    void getVellumCommandApi()
+    void getJuntoApi()
       ?.gitStatus?.(cwd)
       .then((result) => {
         if (!live) return;

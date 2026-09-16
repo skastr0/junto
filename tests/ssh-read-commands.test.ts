@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   inspectRemoteCommand,
   SshEndpoint,
-} from "../src/main/vellum-command/ssh/domain";
+} from "../src/main/junto/ssh/domain";
 import {
   DARWIN_PACKAGED_STATION_EXECUTABLE,
   DARWIN_PACKAGED_APP_EXECUTABLE,
@@ -22,8 +22,8 @@ import {
   remoteVellumStationNegotiation,
   remoteLinuxUserlandVellumStation,
   resolveRemotePackagedPlatform,
-} from "../src/main/vellum-command/ssh/read-commands";
-import type { SshTransport } from "../src/main/vellum-command/ssh/service";
+} from "../src/main/junto/ssh/read-commands";
+import type { SshTransport } from "../src/main/junto/ssh/service";
 
 const run = <A, E>(effect: Effect.Effect<A, E>): A => {
   const result = Effect.runSync(Effect.result(effect));
@@ -59,11 +59,11 @@ describe("ssh read-commands product constructors", () => {
 
   it("confines cat/test to clean absolute paths", () => {
     const cat = inspectRemoteCommand(
-      run(remoteCat("/run/user/501/vellum-command-remote/ready-aabbccdd")),
+      run(remoteCat("/run/user/501/junto-remote/ready-aabbccdd")),
     );
     expect(cat).toEqual({
       executable: "/bin/cat",
-      args: ["/run/user/501/vellum-command-remote/ready-aabbccdd"],
+      args: ["/run/user/501/junto-remote/ready-aabbccdd"],
     });
     const test = inspectRemoteCommand(
       run(remoteTestFileExists("/Users/alice/.junto/term/token")),
@@ -162,7 +162,7 @@ describe("ssh read-commands product constructors", () => {
       "/home/remote station",
     ));
     expect(inspectRemoteCommand(run(remoteLinuxUserlandVellumStation(userland)))).toEqual({
-      executable: "/home/remote station/.local/bin/vellum-command",
+      executable: "/home/remote station/.local/bin/junto",
       args: ["station-stdio"],
     });
     expect(Result.isFailure(Effect.runSync(Effect.result(bindLinuxRemoteUserland(

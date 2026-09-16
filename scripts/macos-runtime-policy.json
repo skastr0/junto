@@ -14,8 +14,8 @@
       "profile": "jit"
     },
     {
-      "path": "Contents/Resources/bin/vellum-command",
-      "identifier": "vellum-command",
+      "path": "Contents/Resources/bin/junto",
+      "identifier": "junto",
       "profile": "none"
     },
     {

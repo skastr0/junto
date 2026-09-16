@@ -11,7 +11,7 @@ import {
   isAllowedByBrowserTestOnlyExactOriginGrant,
   isManagedBrowserWebContents,
   makeBrowserTestOnlyExactOriginGrant,
-} from "../src/main/vellum-command/browser/web-policy";
+} from "../src/main/junto/browser/web-policy";
 
 type Listener = (...args: ReadonlyArray<unknown>) => void;
 type BeforeRequest = (

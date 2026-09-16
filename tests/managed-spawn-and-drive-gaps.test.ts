@@ -5,22 +5,22 @@ import { join } from "node:path";
 import {
   ManagedTerminalDrive,
   DEFAULT_QUEUE_TIMEOUT_MS,
-} from "../src/main/vellum-command/term/drive";
-import { isManagedTerminalReady } from "../src/main/vellum-command/term/drive/readiness";
+} from "../src/main/junto/term/drive";
+import { isManagedTerminalReady } from "../src/main/junto/term/drive/readiness";
 import {
   armFirstTypedMessage,
   peekFirstTypedMessage,
   takeFirstTypedMessage,
   resetFirstTypedForTest,
-} from "../src/main/vellum-command/term/first-typed";
+} from "../src/main/junto/term/first-typed";
 import {
   nodeHasActionableFactoryEdge,
   launchForManagedSpawn,
   launchForManagedSpawnIntent,
   makeManagedSpawnIntent,
   shouldAvoidSharedHarnessResume,
-} from "../src/main/vellum-command/term/managed-spawn-plan";
-import { __setSessionExistenceHomeForTest } from "../src/main/vellum-command/term/session-existence";
+} from "../src/main/junto/term/managed-spawn-plan";
+import { __setSessionExistenceHomeForTest } from "../src/main/junto/term/session-existence";
 import type { CanvasDoc } from "../src/shared/canvas";
 import { createRequire } from "node:module";
 import { BROWSER_ENABLED } from "../src/shared/features";
@@ -266,10 +266,10 @@ describe("managed spawn plan", () => {
     expect(plan?.injection.inject).toBe(true);
     if (BROWSER_ENABLED) {
       expect(plan?.injection.systemPrompt).toContain(
-        "vellum-command browser pages --json",
+        "junto browser pages --json",
       );
     } else {
-      expect(plan?.injection.systemPrompt).not.toContain("vellum-command browser");
+      expect(plan?.injection.systemPrompt).not.toContain("junto browser");
     }
   });
 
@@ -316,7 +316,7 @@ describe("managed spawn plan", () => {
     // positional promptMode → doctrine rides argv, auto-submits at spawn
     expect(plan?.firstTypedMessage).toBeUndefined();
     const argv = launch?.argv ?? [];
-    expect(argv.some((a) => a.includes("vellum-command onboard"))).toBe(true);
+    expect(argv.some((a) => a.includes("junto onboard"))).toBe(true);
   });
 
   it("connected devin delivers doctrine as positional prompt after --", () => {
@@ -331,7 +331,7 @@ describe("managed spawn plan", () => {
     const argv = launch?.argv ?? [];
     const sep = argv.indexOf("--");
     expect(sep).toBeGreaterThan(-1);
-    expect(argv[sep + 1]).toContain("vellum-command onboard");
+    expect(argv[sep + 1]).toContain("junto onboard");
   });
 
   it("preserves picker choices while adding connected injection", () => {
@@ -460,7 +460,7 @@ describe("managed spawn plan", () => {
   it("finalizes named-session proof on the selected spawn host", () => {
     delete process.env.JUNTO_HOME;
     const commandCenterHome = mkdtempSync(join(tmpdir(), "vellum-cc-proof-"));
-    const remoteHome = mkdtempSync(join(tmpdir(), "vellum-remote-proof-"));
+    const remoteHome = mkdtempSync(join(tmpdir(), "junto-remote-proof-"));
     const sid = "aaaaaaaa-bbbb-cccc-dddd-ffffffffffff";
     try {
       // Compilation runs while Command Center has no session proof. It must be

@@ -24,7 +24,7 @@ import {
   sessionChromeUnchanged,
   shouldRefreshSessionFromTerminalEvent,
 } from "../../lib/terminal-session-refresh";
-import { getVellumCommandApi } from "../../lib/vellum-api";
+import { getJuntoApi } from "../../lib/junto-api";
 import { renameTerminalNode } from "../../lib/mutations";
 import { ClaimedTaskStrip } from "../nodes/ClaimedTaskStrip";
 import { ExecutionCardHeader } from "../nodes/ExecutionCardHeader";
@@ -90,7 +90,7 @@ export function TerminalCard({
 
   const refresh = () =>
     native &&
-    getVellumCommandApi()
+    getJuntoApi()
       ?.terminalGet?.(native.bindingId, native.hostId)
       .then(applySession)
       .catch(() => undefined);

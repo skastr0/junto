@@ -14,7 +14,7 @@ import { harnessPrefsFor } from "@shared/settings";
 import { HUE, INK } from "../../lib/theme";
 import { state$ } from "../../lib/state";
 import { patchSettings, resetSettings } from "../../lib/settings-state";
-import { getVellumCommandApi } from "../../lib/vellum-api";
+import { getJuntoApi } from "../../lib/junto-api";
 import { Button, Select } from "../ui";
 
 type HarnessScan = ManagedTerminalHarnessOption & {
@@ -32,7 +32,7 @@ export function HarnessesSettingsSection() {
   const [busy, setBusy] = useState(false);
 
   const refresh = useCallback(async () => {
-    const api = getVellumCommandApi();
+    const api = getJuntoApi();
     if (!api?.managedTerminalHarnesses) {
       setError("Harness scan API unavailable.");
       setScan([]);

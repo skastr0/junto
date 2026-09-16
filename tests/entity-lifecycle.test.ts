@@ -16,12 +16,12 @@ import {
 import {
   CanvasEntityRepository,
   CanvasEntityRepositoryLive,
-} from "../src/main/vellum-command/entities/repository";
-import { CanvasesLive, CanvasesService } from "../src/main/vellum-command/canvases";
+} from "../src/main/junto/entities/repository";
+import { CanvasesLive, CanvasesService } from "../src/main/junto/canvases";
 import {
   makeStateEngineLive,
   StateEngine,
-} from "../src/main/vellum-command/state/engine";
+} from "../src/main/junto/state/engine";
 import {
   CURRENT_STATE_SCHEMA_VERSION,
   STATE_SCHEMA_MIGRATIONS,
@@ -29,20 +29,20 @@ import {
   STATE_SCHEMA_V6_IDENTITY,
   STATE_SCHEMA_V7_IDENTITY,
   STATE_SCHEMA_V8_IDENTITY,
-} from "../src/main/vellum-command/state/migrations";
+} from "../src/main/junto/state/migrations";
 import {
   STATE_SCHEMA_V5_SQL,
   STATE_SCHEMA_V6_SQL,
   STATE_SCHEMA_V7_SQL,
   STATE_SCHEMA_V8_SQL,
-} from "../src/main/vellum-command/state/schema";
+} from "../src/main/junto/state/schema";
 import {
   expectedStateSchemaIdentity,
   verifyAndStampStateSchema,
-} from "../src/main/vellum-command/state/schema-identity";
-import { WorkRepositoryLive } from "../src/main/vellum-command/work/repository";
-import { SettingsLive } from "../src/main/vellum-command/settings/service";
-import { StationRepositoryLive } from "../src/main/vellum-command/station/repository";
+} from "../src/main/junto/state/schema-identity";
+import { WorkRepositoryLive } from "../src/main/junto/work/repository";
+import { SettingsLive } from "../src/main/junto/settings/service";
+import { StationRepositoryLive } from "../src/main/junto/station/repository";
 import { managedAgentEther } from "./helpers/managed-agent-ether";
 
 const roots: string[] = [];

@@ -61,7 +61,7 @@ describe("retired product-state signature boundary", () => {
       expect(() =>
         auditRetiredStateBuffer(
           Buffer.from(`runtime-prefix\0${signature}\0runtime-suffix`),
-          { label: "dist/vellum-command" },
+          { label: "dist/junto" },
         )
       ).toThrowError(
         expect.objectContaining({
@@ -86,9 +86,9 @@ describe("retired product-state signature boundary", () => {
       ].join("\0"),
     );
     expect(
-      auditRetiredStateBuffer(current, { label: "dist/vellum-command-station" }),
+      auditRetiredStateBuffer(current, { label: "dist/junto-station" }),
     ).toEqual({
-      label: "dist/vellum-command-station",
+      label: "dist/junto-station",
       scannedBytes: current.byteLength,
     });
   });
@@ -119,26 +119,26 @@ describe("retired product-state signature boundary", () => {
 
   it("bounds executable buffers and regular-file reads before accepting them", async () => {
     const root = await makeTempRoot();
-    const executable = join(root, "vellum-command-browser");
+    const executable = join(root, "junto-browser");
     await writeFile(executable, "state_schema_identity");
 
     await expect(
       auditRetiredStateFile(executable, {
-        label: "vellum-command-browser",
+        label: "junto-browser",
         maxBytes: 21,
       }),
     ).resolves.toEqual({
-      label: "vellum-command-browser",
+      label: "junto-browser",
       scannedBytes: 21,
     });
     await expect(
       auditRetiredStateFile(executable, {
-        label: "vellum-command-browser",
+        label: "junto-browser",
         maxBytes: 20,
       }),
     ).rejects.toMatchObject({ code: "byte-bound" });
 
-    const linked = join(root, "linked-vellum-command-browser");
+    const linked = join(root, "linked-junto-browser");
     await symlink(executable, linked);
     await expect(auditRetiredStateFile(linked)).rejects.toMatchObject({
       code: "not-regular-file",
@@ -151,7 +151,7 @@ describe("first-party ASAR retired-state audit", () => {
     const archive = await makeAsar({
       "out/main/index.js": "state_schema_identity",
       "out/renderer/index.html": "<main>junto.db</main>",
-      "out/runtime.json": '{"name":"vellum-command"}',
+      "out/runtime.json": '{"name":"junto"}',
       "node_modules/legacy/index.js": "settings.json",
       "package.json": '{"legacy":"hosts.json"}',
       "out/renderer/model.glb": Buffer.from("current.json"),
@@ -170,7 +170,7 @@ describe("first-party ASAR retired-state audit", () => {
   it("rejects a retired signature extracted from a first-party entry", async () => {
     const archive = await makeAsar({
       "out/main/index.js": "const authority = 'canvas-authority-v1'",
-      "out/runtime.json": '{"name":"vellum-command"}',
+      "out/runtime.json": '{"name":"junto"}',
     });
     expect(() => auditRetiredStateAsar(archive)).toThrowError(
       expect.objectContaining({
@@ -230,7 +230,7 @@ describe("first-party ASAR retired-state audit", () => {
   it("rejects non-positive and unsafe bounds", async () => {
     const archive = await makeAsar({
       "out/main/index.js": "state_schema_identity",
-      "out/runtime.json": '{"name":"vellum-command"}',
+      "out/runtime.json": '{"name":"junto"}',
     });
     for (const maxAsarEntries of [
       0,
@@ -254,9 +254,9 @@ describe("complete packaged runtime retired-state audit", () => {
       const archive = await makeAsar({
         "out/main/index.js":
           target === "asar" ? "incoming.frame" : "state_schema_identity",
-        "out/runtime.json": '{"name":"vellum-command"}',
+        "out/runtime.json": '{"name":"junto"}',
       });
-      const work = join(root, "vellum-command");
+      const work = join(root, "junto");
       await writeFile(
         work,
         target === "work" ? "incoming.frame" : "state_schema_identity",
@@ -280,7 +280,7 @@ describe("complete Linux packaged runtime retired-state audit", () => {
       const root = await makeTempRoot();
       const archive = await makeAsar({
         "out/main/index.js": target === "asar" ? "incoming.frame" : "safe",
-        "out/runtime.json": '{"name":"vellum-command"}',
+        "out/runtime.json": '{"name":"junto"}',
       });
       const paths = Object.fromEntries(await Promise.all(
         ["work", "installer", "bridge"].map(async (name) => {

@@ -7,7 +7,7 @@ import {
   type AppProcessPlane,
   type AppProcessSignalReceipt,
   type AppProcessSpawnSpec,
-} from "../src/main/vellum-command/app-process-plane";
+} from "../src/main/junto/app-process-plane";
 
 const DEFAULT_MAX_LOG_BYTES = 128 * 1024;
 const DEFAULT_TERM_GRACE_MS = 1_000;

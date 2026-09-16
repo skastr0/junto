@@ -13,7 +13,7 @@ import {
   verifyCanvasIntentMaterial,
   type CanvasIntentMaterial,
   type StoredCanvasIntentDocument,
-} from "../src/main/vellum-command/canvas-intent-identity";
+} from "../src/main/junto/canvas-intent-identity";
 
 const noteDoc = (text: string): CanvasDoc => ({
   nodes: [

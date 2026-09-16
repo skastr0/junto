@@ -91,7 +91,7 @@ export const StationStateSchemaVersion = Schema.Number.pipe(Schema.check(Schema.
 export type StationStateSchemaVersion = typeof StationStateSchemaVersion.Type;
 
 export const STATION_PROTOCOL_PREFACE =
-  "vellum-command/station-protocol-preface/v1" as const;
+  "junto/station-protocol-preface/v1" as const;
 
 const StationProtocolPeerDiagnostics = {
   appVersion: StationAppVersion,

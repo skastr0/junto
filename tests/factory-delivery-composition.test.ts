@@ -4,11 +4,11 @@
  * drive. No raw PTY bypass exists in the shared recipe.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { WritePromptOptions } from "../src/main/vellum-command/term/drive";
+import type { WritePromptOptions } from "../src/main/junto/term/drive";
 import type { ManagedPromptOutcome } from "../src/shared/managed-prompt";
 import { PAUSED_CANVAS, type PauseChangeListener } from "../src/shared/pause";
-import { createManagedTerminalDrive } from "../src/main/vellum-command/term/drive/managed-drive-factory";
-import { InjectionSupervisor } from "../src/main/vellum-command/term/injection-supervisor";
+import { createManagedTerminalDrive } from "../src/main/junto/term/drive/managed-drive-factory";
+import { InjectionSupervisor } from "../src/main/junto/term/injection-supervisor";
 import {
   armFirstTypedMessage,
   clearDeliveredForBinding,
@@ -16,8 +16,8 @@ import {
   peekFirstTypedMessage,
   resetFirstTypedForTest,
   takeFirstTypedEntryIfCurrent,
-} from "../src/main/vellum-command/term/first-typed";
-import { MessageDeliveryService } from "../src/main/vellum-command/work/message-delivery";
+} from "../src/main/junto/term/first-typed";
+import { MessageDeliveryService } from "../src/main/junto/work/message-delivery";
 import {
   composeFactoryDelivery,
   factoryBoardTransport,
@@ -30,7 +30,7 @@ import {
   makeFactoryWriteManagedPrompt,
   wireFactorySupervisor,
   type FactoryDeliveryDrive,
-} from "../src/main/vellum-command/term/factory-delivery-composition";
+} from "../src/main/junto/term/factory-delivery-composition";
 
 type FakeDrive = {
   writes: Array<{ bindingId: string; text: string; options: unknown }>;
@@ -425,7 +425,7 @@ describe("factoryPulseTransport", () => {
       managedPulseDeliver,
       setManagedPulseDeliver,
     } = await import(
-      "../src/main/vellum-command/term/managed-pulse-bridge"
+      "../src/main/junto/term/managed-pulse-bridge"
     );
     const drive = fakeDrive();
     try {

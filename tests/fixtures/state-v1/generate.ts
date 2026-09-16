@@ -21,23 +21,23 @@ import {
 } from "../../../src/shared/work-protocol";
 import {
   STATE_SCHEMA_V1_IDENTITY,
-} from "../../../src/main/vellum-command/state/migrations";
+} from "../../../src/main/junto/state/migrations";
 import {
   STATE_SCHEMA_V1_SQL,
-} from "../../../src/main/vellum-command/state/schema";
+} from "../../../src/main/junto/state/schema";
 import {
   expectedStateSchemaIdentity,
-} from "../../../src/main/vellum-command/state/schema-identity";
+} from "../../../src/main/junto/state/schema-identity";
 import {
   compileStationPortfolioBody,
   decodeStationPortfolioBody,
-} from "../../../src/main/vellum-command/station/portfolio";
+} from "../../../src/main/junto/station/portfolio";
 import {
   stationProjectionContentSha256,
-} from "../../../src/main/vellum-command/station/repository";
+} from "../../../src/main/junto/station/repository";
 import {
   workRecordContentSha256,
-} from "../../../src/main/vellum-command/work/repository";
+} from "../../../src/main/junto/work/repository";
 
 const CREATED_AT = "2026-07-28T12:00:00.000Z";
 const RECEIVED_AT = "2026-07-28T12:00:03.000Z";

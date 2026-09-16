@@ -97,10 +97,10 @@ describe("crew CLI discovery", () => {
       { target: "wrong-vocabulary", grants: ["seat.read", "reviews"] },
     ];
     const expected = [
-      { ...connected[0], invocations: [{ port: "msg.prompt", command: "vellum-command msg prompt", discover: "vellum-command schema show msg.prompt" }] },
-      { ...connected[1], invocations: [{ port: "seat.wait", command: "vellum-command seat wait", discover: "vellum-command schema show seat.wait" }] },
-      { ...connected[2], invocations: [{ port: "terminal.read", command: "vellum-command seat read", discover: "vellum-command schema show seat.read" }] },
-      { ...connected[3], invocations: [{ port: "verdict.post", command: "vellum-command verdict post", discover: "vellum-command schema show verdict.post" }] },
+      { ...connected[0], invocations: [{ port: "msg.prompt", command: "junto msg prompt", discover: "junto schema show msg.prompt" }] },
+      { ...connected[1], invocations: [{ port: "seat.wait", command: "junto seat wait", discover: "junto schema show seat.wait" }] },
+      { ...connected[2], invocations: [{ port: "terminal.read", command: "junto seat read", discover: "junto schema show seat.read" }] },
+      { ...connected[3], invocations: [{ port: "verdict.post", command: "junto verdict post", discover: "junto schema show verdict.post" }] },
       connected[4],
       connected[5],
     ];

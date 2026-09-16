@@ -37,7 +37,7 @@ export const WorkSurfaceActivity = Schema.Struct({
    * keep ignoring it while the region ladder can still show it.
    */
   ready: Schema.optionalKey(Schema.Boolean),
-  source: Schema.optionalKey(Schema.Literals(["vellum-command", "native"])),
+  source: Schema.optionalKey(Schema.Literals(["junto", "native"])),
 });
 export type WorkSurfaceActivity = typeof WorkSurfaceActivity.Type;
 

@@ -17,7 +17,7 @@ import {
   type LaneOverrun,
   type LaneProcess,
   type TickTimerCancel,
-} from "../src/main/vellum-command/kernel/tick";
+} from "../src/main/junto/kernel/tick";
 
 /**
  * A clock the test moves by hand, plus the timers armed against it.

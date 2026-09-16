@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/brand/vellum-command-icon.png" alt="Junto" width="128" height="128" />
+  <img src="assets/brand/junto-icon.png" alt="Junto" width="128" height="128" />
 </p>
 
 # Junto
@@ -10,7 +10,7 @@ relationships allow.
 
 Junto is free, open-source software under [Apache-2.0](LICENSE). It is
 actively developed by a solo maintainer. Reports and proposals go through
-[issues](https://github.com/skastr0/vellum-command/issues); see
+[issues](https://github.com/skastr0/junto/issues); see
 [CONTRIBUTING.md](CONTRIBUTING.md) and [SUPPORT.md](SUPPORT.md).
 
 ## Status and downloads
@@ -55,8 +55,8 @@ Requirements:
   (Xcode Command Line Tools on macOS, a C/C++ toolchain and Python 3 on Linux).
 
 ```sh
-git clone https://github.com/skastr0/vellum-command.git
-cd vellum-command
+git clone https://github.com/skastr0/junto.git
+cd junto
 bun install --frozen-lockfile
 bun run dev
 ```
@@ -113,13 +113,13 @@ the native controller, OpenAI API-key setup, and per-call voice limits.
 
 ## Agent tools
 
-Build the CLI with `bun run cli:build`; the result is `dist/vellum-command`.
-Packaged applications include the same CLI as `bin/vellum-command`.
+Build the CLI with `bun run cli:build`; the result is `dist/junto`.
+Packaged applications include the same CLI as `bin/junto`.
 
 ```sh
-dist/vellum-command doctor
-dist/vellum-command capabilities
-dist/vellum-command onboard
+dist/junto doctor
+dist/junto capabilities
+dist/junto onboard
 ```
 
 Protected operations require the CLI to run under an agent process registered by
@@ -137,7 +137,7 @@ bun run render
 
 They produce readable canvas projections without opening the product database.
 See [the security doctrine](docs/security-doctrine.md),
-[the Work and Station contract](docs/vellum-protocol.md), and
+[the Work and Station contract](docs/junto-protocol.md), and
 [the pad guide](docs/pad.md) for the detailed boundaries.
 
 ## Development checks

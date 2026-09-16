@@ -6,14 +6,14 @@ import { Effect, ManagedRuntime } from "effect";
 import { afterEach, describe, expect, it } from "vitest";
 import { mkdir, readdir, writeFile } from "node:fs/promises";
 import { MASKED_SECRET } from "../src/shared/settings";
-import { makeSettingsService } from "../src/main/vellum-command/settings/service";
-import { makeStateEngineLive, StateEngine } from "../src/main/vellum-command/state/engine";
+import { makeSettingsService } from "../src/main/junto/settings/service";
+import { makeStateEngineLive, StateEngine } from "../src/main/junto/state/engine";
 import {
   MemoryCredentialStore,
   UnavailableCredentialStore,
-} from "../src/main/vellum-command/credentials/store";
-import { PROVIDER_CREDENTIAL_SLOT_VALUES } from "../src/main/vellum-command/credentials/state-schema";
-import { reconcilePendingStateBackups } from "../src/main/vellum-command/state/backup";
+} from "../src/main/junto/credentials/store";
+import { PROVIDER_CREDENTIAL_SLOT_VALUES } from "../src/main/junto/credentials/state-schema";
+import { reconcilePendingStateBackups } from "../src/main/junto/state/backup";
 
 const SECRET = "sk-proof-plaintext-credential-9f8e7d6c-UNIQUE";
 const run = <A, E>(effect: Effect.Effect<A, E>) => Effect.runPromise(effect);
@@ -174,9 +174,9 @@ describe("provider credential vault", () => {
     const backups = join(root, "backups");
     await mkdir(backups, { mode: 0o700 });
     const finalName =
-      "vellum-command-backup-22222222-2222-4222-8222-222222222222.db";
+      "junto-backup-22222222-2222-4222-8222-222222222222.db";
     const pendingName =
-      "vellum-command-backup-aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa.db.pending";
+      "junto-backup-aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa.db.pending";
     await writeFile(join(backups, pendingName), SECRET, { mode: 0o600 });
     await writeFile(join(backups, `${pendingName}-journal`), SECRET, { mode: 0o600 });
     await writeFile(join(backups, finalName), "keep", { mode: 0o600 });

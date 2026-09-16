@@ -10,7 +10,7 @@
  * Roles:
  *   Command Center — Electron desktop (Xvfb allowed for headless lab).
  *   Remote — displayless generation-pinned Node user service only
- *            (`vellum-command-remote.service` → resources/bin/vellum-command-remote). Never
+ *            (`junto-remote.service` → resources/bin/junto-remote). Never
  *            Electron, Chromium, renderer, CDP, Xvfb, or DISPLAY.
  *
  * Fresh VMs (when not cloning a pinned golden): 
@@ -49,7 +49,7 @@ import { redactLinuxCiLog } from "./linux-ci-evidence";
 import {
   verifyProductionLinuxDeployBundle,
   verifyQualificationLinuxDeployBundle,
-} from "../src/main/vellum-command/hosts/linux-release-admission";
+} from "../src/main/junto/hosts/linux-release-admission";
 import {
   decodeStationQualification,
   STATION_QUALIFICATION_EVIDENCE_FILE,
@@ -667,7 +667,7 @@ const runtimeReleaseDirectory = (
 const runtimeExecutable = (
   machine: RunMachine,
   artifact: ArtifactIdentity,
-): string => path.posix.join(runtimeReleaseDirectory(machine, artifact), "vellum-command");
+): string => path.posix.join(runtimeReleaseDirectory(machine, artifact), "junto");
 
 const runtimeCli = (
   machine: RunMachine,
@@ -675,7 +675,7 @@ const runtimeCli = (
 ): string =>
   path.posix.join(
     runtimeReleaseDirectory(machine, artifact),
-    "resources/bin/vellum-command",
+    "resources/bin/junto",
   );
 
 const runtimeStationCli = (
@@ -684,7 +684,7 @@ const runtimeStationCli = (
 ): string =>
   path.posix.join(
     runtimeReleaseDirectory(machine, artifact),
-    "resources/bin/vellum-command",
+    "resources/bin/junto",
   );
 
 const runGuest = (
@@ -1087,7 +1087,7 @@ const verifyPackageAbsent = async (
     "/bin/sh",
     [
       "-c",
-      'if [ -d "$HOME/.junto/runtime/releases" ] && [ "$(/usr/bin/find "$HOME/.junto/runtime/releases" -mindepth 1 -maxdepth 1 2>/dev/null | /usr/bin/wc -l)" != 0 ]; then exit 1; fi; if [ -x "$HOME/.local/bin/vellum-command" ]; then exit 1; fi; exit 0',
+      'if [ -d "$HOME/.junto/runtime/releases" ] && [ "$(/usr/bin/find "$HOME/.junto/runtime/releases" -mindepth 1 -maxdepth 1 2>/dev/null | /usr/bin/wc -l)" != 0 ]; then exit 1; fi; if [ -x "$HOME/.local/bin/junto" ]; then exit 1; fi; exit 0',
     ],
   );
   if (result.exitCode !== 0) {
@@ -1112,13 +1112,13 @@ const observeInstalledPackage = async (
     "/bin/sh",
     [
       "-c",
-      `set -eu; RELEASE="$HOME/.junto/runtime/releases/${release}"; test -x "$RELEASE/vellum-command"; test -x "$HOME/.local/bin/vellum-command"; printf 'vellum\t%s\tuserland\n' "${artifact.version}"`,
+      `set -eu; RELEASE="$HOME/.junto/runtime/releases/${release}"; test -x "$RELEASE/junto"; test -x "$HOME/.local/bin/junto"; printf 'vellum\t%s\tuserland\n' "${artifact.version}"`,
     ],
   );
   const [packageName, version, architecture] =
     result.stdout.trim().split("\t");
   if (
-    packageName !== "vellum-command" ||
+    packageName !== "junto" ||
     version !== artifact.version ||
     architecture !== "userland"
   ) {
@@ -1165,16 +1165,16 @@ const installPackage = async (
     'mkdir -p "$ROOT/releases" "$ROOT/staging" "$HOME/.local/bin" "$HOME/.config/systemd/user"',
     'mkdir "$STAGE"',
     '/usr/bin/tar -xzf "$ARCHIVE" -C "$STAGE" --no-same-owner --no-same-permissions',
-    `TREE="$STAGE/vellum-command-runtime-${artifact.version}-linux-x64"`,
-    'test -x "$TREE/vellum-command"',
-    'test -x "$TREE/resources/bin/vellum-command-remote"',
-    'test -x "$TREE/resources/systemd/vellum-command-remote-launch"',
+    `TREE="$STAGE/junto-runtime-${artifact.version}-linux-x64"`,
+    'test -x "$TREE/junto"',
+    'test -x "$TREE/resources/bin/junto-remote"',
+    'test -x "$TREE/resources/systemd/junto-remote-launch"',
     'mv "$TREE" "$DEST"',
     'rm -rf -- "$STAGE"',
-    'ln -sfn "$DEST/resources/bin/vellum-command" "$HOME/.local/bin/vellum-command"',
-    '"$DEST/resources/bin/vellum-command-remote" --install-user-service',
+    'ln -sfn "$DEST/resources/bin/junto" "$HOME/.local/bin/junto"',
+    '"$DEST/resources/bin/junto-remote" --install-user-service',
     "/usr/bin/systemctl --user daemon-reload",
-    "/usr/bin/systemctl --user enable --now vellum-command-remote.service || true",
+    "/usr/bin/systemctl --user enable --now junto-remote.service || true",
     `printf 'vellum\\t%s\\tuserland\\n' "${artifact.version}"`,
   ].join("\n");
   await runGuest(
@@ -1187,7 +1187,7 @@ const installPackage = async (
     { timeoutMs: DEPLOY_COMMAND_TIMEOUT_MS },
   );
   return {
-    packageName: "vellum-command",
+    packageName: "junto",
     version: artifact.version,
     architecture: "userland",
     sha256,
@@ -1214,7 +1214,7 @@ const startPackagedRuntime = async (
     machine,
     `start packaged Junto runtime on ${machine.name}`,
     "/usr/bin/systemctl",
-    ["--user", "--no-block", "start", "vellum-command-remote.service"],
+    ["--user", "--no-block", "start", "junto-remote.service"],
   );
 };
 
@@ -1222,7 +1222,7 @@ const commandCenterUnitName = (runId: string): string =>
   `vellum-qualification-command-center-${requireRunId(runId)}.service`;
 
 /** Sole product Remote supervisor unit (generation-pinned Node, not Electron). */
-const REMOTE_USERLAND_UNIT = "vellum-command-remote.service" as const;
+const REMOTE_USERLAND_UNIT = "junto-remote.service" as const;
 
 const stopUserUnitAndProveInactive = async (
   executor: CommandExecutor,
@@ -1302,7 +1302,7 @@ const launchCommandCenter = async (
     machine,
     "stop headless Command Center before desktop startup",
     "/usr/bin/systemctl",
-    ["--user", "stop", "vellum-command-remote.service"],
+    ["--user", "stop", "junto-remote.service"],
   );
   await runGuest(
     executor,
@@ -1318,7 +1318,7 @@ const launchCommandCenter = async (
       "--property=TimeoutStopSec=10s",
       "/bin/sh",
       "-c",
-      'set -eu; APP=$(/usr/bin/find "$HOME/.junto/runtime/releases" -mindepth 2 -maxdepth 2 -type f -name vellum-command -perm -111 | /usr/bin/head -n 1); test -n "$APP"; exec /usr/bin/xvfb-run -a -s "-screen 0 1280x1024x24 -nolisten tcp" "$APP" --ozone-platform=x11 --vellum-command-operator-control',
+      'set -eu; APP=$(/usr/bin/find "$HOME/.junto/runtime/releases" -mindepth 2 -maxdepth 2 -type f -name junto -perm -111 | /usr/bin/head -n 1); test -n "$APP"; exec /usr/bin/xvfb-run -a -s "-screen 0 1280x1024x24 -nolisten tcp" "$APP" --ozone-platform=x11 --junto-operator-control',
     ],
   );
   return unit;
@@ -1346,15 +1346,15 @@ const ensureRemoteUserlandService = async (
       [
         "set -eu",
         `RELEASE="$HOME/.junto/runtime/releases/${release}"`,
-        'UNIT="$HOME/.config/systemd/user/vellum-command-remote.service"',
-        'test -x "$RELEASE/resources/bin/vellum-command-remote"',
-        'test ! -L "$RELEASE/resources/bin/vellum-command-remote"',
-        'test -x "$RELEASE/resources/systemd/vellum-command-remote-launch"',
-        'test ! -L "$RELEASE/resources/systemd/vellum-command-remote-launch"',
+        'UNIT="$HOME/.config/systemd/user/junto-remote.service"',
+        'test -x "$RELEASE/resources/bin/junto-remote"',
+        'test ! -L "$RELEASE/resources/bin/junto-remote"',
+        'test -x "$RELEASE/resources/systemd/junto-remote-launch"',
+        'test ! -L "$RELEASE/resources/systemd/junto-remote-launch"',
         'test -f "$UNIT"',
         'test ! -L "$UNIT"',
-        `/usr/bin/grep -F "ExecStart=" "$UNIT" | /usr/bin/grep -F "releases/${release}/resources/systemd/vellum-command-remote-launch" >/dev/null`,
-        `/usr/bin/grep -F "ConditionFileIsExecutable=" "$UNIT" | /usr/bin/grep -F "releases/${release}/resources/bin/vellum-command-remote" >/dev/null`,
+        `/usr/bin/grep -F "ExecStart=" "$UNIT" | /usr/bin/grep -F "releases/${release}/resources/systemd/junto-remote-launch" >/dev/null`,
+        `/usr/bin/grep -F "ConditionFileIsExecutable=" "$UNIT" | /usr/bin/grep -F "releases/${release}/resources/bin/junto-remote" >/dev/null`,
         '! /usr/bin/grep -E "xvfb|ozone-platform|--vellum-headless|ELECTRON_|chromium" "$UNIT" >/dev/null',
       ].join("; "),
     ],
@@ -2513,13 +2513,13 @@ const managedRun = async (
       "/bin/sh",
       [
         "-c",
-        `set -eu; RELEASE="$HOME/.junto/runtime/releases/${state.artifact.version}-${state.artifact.archiveSha256}"; test -x "$RELEASE/resources/bin/vellum-command-remote"; test -x "$RELEASE/resources/systemd/vellum-command-remote-launch"; printf 'vellum\\t%s\\tuserland\\n' "${state.artifact.version}"`,
+        `set -eu; RELEASE="$HOME/.junto/runtime/releases/${state.artifact.version}-${state.artifact.archiveSha256}"; test -x "$RELEASE/resources/bin/junto-remote"; test -x "$RELEASE/resources/systemd/junto-remote-launch"; printf 'vellum\\t%s\\tuserland\\n' "${state.artifact.version}"`,
       ],
     );
     const [packageName, packageVersion, architecture] =
       remotePackage.stdout.trim().split("\t");
     if (
-      packageName !== "vellum-command" ||
+      packageName !== "junto" ||
       packageVersion !== state.artifact.version ||
       architecture !== "userland"
     ) {
@@ -2534,7 +2534,7 @@ const managedRun = async (
       [
         "--user",
         "show",
-        "vellum-command-remote.service",
+        "junto-remote.service",
         "--property=InvocationID",
         "--value",
       ],
@@ -2734,7 +2734,7 @@ const managedRun = async (
       [
         "--user",
         "show",
-        "vellum-command-remote.service",
+        "junto-remote.service",
         "--property=InvocationID",
         "--value",
       ],
@@ -2804,7 +2804,7 @@ const managedRun = async (
       "/bin/sh",
       [
         "-c",
-        `set -eu; RELEASE="$HOME/.junto/runtime/releases/${state.artifact.version}-${state.artifact.archiveSha256}"; test -x "$RELEASE/resources/bin/vellum-command-remote"; test -x "$RELEASE/resources/systemd/vellum-command-remote-launch"; printf 'vellum\\t%s\\tuserland\\n' "${state.artifact.version}"`,
+        `set -eu; RELEASE="$HOME/.junto/runtime/releases/${state.artifact.version}-${state.artifact.archiveSha256}"; test -x "$RELEASE/resources/bin/junto-remote"; test -x "$RELEASE/resources/systemd/junto-remote-launch"; printf 'vellum\\t%s\\tuserland\\n' "${state.artifact.version}"`,
       ],
     );
     if (
@@ -2931,10 +2931,10 @@ const parseFixedStationStatus = (
   output: string,
   expectedRequestId: string,
 ): Record<string, unknown> => {
-  const raw = parseJsonObject(output, "fixed vellum-command station-stdio status");
+  const raw = parseJsonObject(output, "fixed junto station-stdio status");
   const decoded = decodeStationSessionFrame(raw);
   if (Result.isFailure(decoded)) {
-    throw new Error("fixed vellum-command station-stdio emitted a malformed Station frame");
+    throw new Error("fixed junto station-stdio emitted a malformed Station frame");
   }
   const frame = decoded.success;
   if (
@@ -2943,7 +2943,7 @@ const parseFixedStationStatus = (
     !frame.envelope.ok ||
     frame.envelope.response.op !== "status"
   ) {
-    throw new Error("fixed vellum-command station-stdio emitted the wrong status response");
+    throw new Error("fixed junto station-stdio emitted the wrong status response");
   }
   return frame.envelope.response as unknown as Record<string, unknown>;
 };
@@ -2970,7 +2970,7 @@ const readFixedStationStatus = async (
         "-o",
         "ServerAliveCountMax=2",
         `${machine.username}@${machine.name}@orb`,
-        "/usr/bin/vellum-command",
+        "/usr/bin/junto",
         "station-stdio",
       ],
       input: stationStatusRequest(requestId),
@@ -3304,7 +3304,7 @@ const observeCommandCenterRuntimeSecurity = async (
         "socket",
       ],
       [
-        `/run/user/${String(uid)}/vellum-command-remote/ready-${invocationId}`,
+        `/run/user/${String(uid)}/junto-remote/ready-${invocationId}`,
         "regular file",
       ],
     ],
@@ -3416,7 +3416,7 @@ const observeRemoteDisplaylessSecurity = async (
         "socket",
       ],
       [
-        `/run/user/${String(uid)}/vellum-command-remote/ready-${invocationId}`,
+        `/run/user/${String(uid)}/junto-remote/ready-${invocationId}`,
         "regular file",
       ],
     ],
@@ -3479,8 +3479,8 @@ const observeMachine = async (
   const requestId = `qualification-${machine.name.endsWith("-cc") ? "cc" : "remote"}`;
   const releaseProof =
     expectedRole === "remote"
-      ? `set -eu; RELEASE="$HOME/.junto/runtime/releases/${artifact.version}-${artifact.archiveSha256}"; test -x "$RELEASE/resources/bin/vellum-command-remote"; test -x "$RELEASE/resources/systemd/vellum-command-remote-launch"; printf 'vellum\\t%s\\tuserland\\n' "${artifact.version}"`
-      : `set -eu; RELEASE="$HOME/.junto/runtime/releases/${artifact.version}-${artifact.archiveSha256}"; test -x "$RELEASE/vellum-command"; printf 'vellum\\t%s\\tuserland\\n' "${artifact.version}"`;
+      ? `set -eu; RELEASE="$HOME/.junto/runtime/releases/${artifact.version}-${artifact.archiveSha256}"; test -x "$RELEASE/resources/bin/junto-remote"; test -x "$RELEASE/resources/systemd/junto-remote-launch"; printf 'vellum\\t%s\\tuserland\\n' "${artifact.version}"`
+      : `set -eu; RELEASE="$HOME/.junto/runtime/releases/${artifact.version}-${artifact.archiveSha256}"; test -x "$RELEASE/junto"; printf 'vellum\\t%s\\tuserland\\n' "${artifact.version}"`;
   const [packageIdentity, service, fixedStatus] = await Promise.all([
     runGuest(
       executor,
@@ -3499,7 +3499,7 @@ const observeMachine = async (
       [
         "--user",
         "show",
-        "vellum-command-remote.service",
+        "junto-remote.service",
         "--property=ActiveState",
         "--property=SubState",
         "--property=MainPID",
@@ -3512,7 +3512,7 @@ const observeMachine = async (
   const [packageName, version, architecture] =
     packageIdentity.stdout.trim().split("\t");
   if (
-    packageName !== "vellum-command" ||
+    packageName !== "junto" ||
     version !== artifact.version ||
     architecture !== "userland"
   ) {

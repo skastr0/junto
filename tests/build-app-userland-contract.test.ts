@@ -9,19 +9,19 @@ describe("app build userland artifact contract", () => {
       "utf8",
     );
     const compiledControls = [...build.matchAll(/"\$SCRIPT_DIR\/build-standalone-cli\.ts" ([^\s]+)/gu)].map((match) => match[1]);
-    expect(compiledControls).toEqual(["vellum-command"]);
-    expect(standaloneControlBuild("vellum-command")).toMatchObject({
-      output: "dist/vellum-command", source: "src/cli/main.ts",
+    expect(compiledControls).toEqual(["junto"]);
+    expect(standaloneControlBuild("junto")).toMatchObject({
+      output: "dist/junto", source: "src/cli/main.ts",
     });
-    expect(standaloneControlBuild("vellum-command-desktop-bootstrap-linux-x64")).toMatchObject({
-      output: "dist/vellum-command-desktop-bootstrap-linux-x64",
+    expect(standaloneControlBuild("junto-desktop-bootstrap-linux-x64")).toMatchObject({
+      output: "dist/junto-desktop-bootstrap-linux-x64",
       source: "scripts/linux-desktop-bootstrap.ts",
     });
-    expect(build).not.toContain("vellum-command-desktop-bootstrap-linux-x64");
+    expect(build).not.toContain("junto-desktop-bootstrap-linux-x64");
     expect(build).not.toContain("bun build --compile");
-    expect(build).not.toContain("vellum-command-browser");
-    expect(build).not.toContain("vellum-command-station");
-    expect(build).not.toContain("vellum-command-content");
+    expect(build).not.toContain("junto-browser");
+    expect(build).not.toContain("junto-station");
+    expect(build).not.toContain("junto-content");
     expect(build).not.toContain("vellum-release-installer");
     expect(build).not.toContain("linux-release-installer.ts");
     expect(build).not.toContain("vellum-release-bridge");

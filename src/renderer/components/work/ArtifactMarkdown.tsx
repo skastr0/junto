@@ -3,7 +3,7 @@ import Markdown, { type Components, type UrlTransform } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import "./artifact-markdown.css";
 
-const SAFE_URL_PATTERN = /^(?:https?:|mailto:|vellum-command-content:|\/|#)/iu;
+const SAFE_URL_PATTERN = /^(?:https?:|mailto:|junto-content:|\/|#)/iu;
 
 /**
  * Keep artifact links useful without giving Markdown a path to execute code.

@@ -33,7 +33,7 @@ import {
   type WorkSurface,
   type WorkZone,
 } from "./surface-registry";
-import { getVellumCommandApi } from "./vellum-api";
+import { getJuntoApi } from "./junto-api";
 import { closeTerminalSurface, terminal$, terminalNodeIds } from "./terminal-state";
 
 // Workbench side effects: pure transitions live in surface-registry.ts; this
@@ -105,7 +105,7 @@ export const parseNoteSurfaceId = (id: string): string | null =>
 
 export const dock$ = observable({
   registry: initialWorkbenchState() as WorkbenchState,
-  /** canonical vellum-command:// ref -> display payload for browser slots. */
+  /** canonical junto:// ref -> display payload for browser slots. */
   browserByRef: {} as Record<string, DockBrowserPayload>,
   /** chat:<nodeId> -> ACP surface identity. ACP runtime state remains keyed by agentKey. */
   chatById: {} as Record<string, DockChatPayload>,
@@ -117,9 +117,9 @@ export const dock$ = observable({
   opErrorByRef: {} as Record<string, BrowserOpError>,
 });
 
-type BrowserApi = ReturnType<typeof getVellumCommandApi> & Partial<VellumCommandBrowserApi>;
+type BrowserApi = ReturnType<typeof getJuntoApi> & Partial<VellumCommandBrowserApi>;
 
-const api = (): BrowserApi | undefined => getVellumCommandApi() as BrowserApi | undefined;
+const api = (): BrowserApi | undefined => getJuntoApi() as BrowserApi | undefined;
 
 /**
  * Detach a warm session over IPC after its surface closed. The result is bound

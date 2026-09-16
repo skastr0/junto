@@ -6,7 +6,7 @@ import {
   getRuntimeFlagOverrides,
   projectRuntimeFlags,
   setRuntimeFlag,
-} from "../src/main/vellum-command/kernel/cycle";
+} from "../src/main/junto/kernel/cycle";
 
 const doc = (flags: ReadonlyArray<"blocker" | "parked" | "attention"> = []): CanvasDoc => ({
   nodes: [

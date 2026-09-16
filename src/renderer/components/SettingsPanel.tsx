@@ -40,7 +40,7 @@ import {
   type AlertSfxId,
 } from "../lib/sfx";
 import { HUE, INK, themeFor } from "../lib/theme";
-import { getVellumCommandApi } from "../lib/vellum-api";
+import { getJuntoApi } from "../lib/junto-api";
 import { Button, Eyebrow, Select } from "./ui";
 import "./settings-panel.css";
 
@@ -301,10 +301,10 @@ function BrowserSection() {
     readonly kind: "success" | "error";
     readonly message: string;
   }>();
-  type BrowserApi = ReturnType<typeof getVellumCommandApi> & Partial<VellumCommandBrowserApi>;
+  type BrowserApi = ReturnType<typeof getJuntoApi> & Partial<VellumCommandBrowserApi>;
 
   const loadProfiles = useCallback(async () => {
-    const api = getVellumCommandApi() as BrowserApi | undefined;
+    const api = getJuntoApi() as BrowserApi | undefined;
     if (!api?.browserProfiles) {
       setProfilesLoading(false);
       setWipeNotice({ kind: "error", message: "Browser profile API unavailable." });
@@ -331,7 +331,7 @@ function BrowserSection() {
 
   const wipeSelectedProfile = async () => {
     if (!selectedProfile || confirmation !== selectedProfile || wipeBusy) return;
-    const api = getVellumCommandApi() as BrowserApi | undefined;
+    const api = getJuntoApi() as BrowserApi | undefined;
     if (!api?.browserWipeProfile) {
       setWipeNotice({ kind: "error", message: "Browser profile wipe API unavailable." });
       return;
@@ -468,7 +468,7 @@ function AdvancedSection() {
   useEffect(() => {
     let cancelled = false;
     const load = async () => {
-      const api = getVellumCommandApi();
+      const api = getJuntoApi();
       if (!api?.loginItemGet) {
         if (!cancelled) {
           setLoginItemLoading(false);
@@ -502,7 +502,7 @@ function AdvancedSection() {
   }, []);
 
   const onToggleLoginItem = async (next: boolean) => {
-    const api = getVellumCommandApi();
+    const api = getJuntoApi();
     if (!api?.loginItemSet) {
       setLoginItemError("Login item API unavailable.");
       return;
@@ -796,7 +796,7 @@ function StateRecoveryControls() {
   }>();
 
   const loadBackups = useCallback(async () => {
-    const api = getVellumCommandApi();
+    const api = getJuntoApi();
     if (!api?.stateBackupsList) {
       setLoading(false);
       setNotice({
@@ -844,7 +844,7 @@ function StateRecoveryControls() {
 
   const exportSelected = async () => {
     if (selectedId === undefined || exporting) return;
-    const api = getVellumCommandApi();
+    const api = getJuntoApi();
     if (!api?.stateBackupExport) {
       setNotice({
         kind: "error",

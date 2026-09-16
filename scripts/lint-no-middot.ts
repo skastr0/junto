@@ -83,7 +83,7 @@ const ROOT_FILES = ["README.md", "AGENTS.md", "CLAUDE.md", "PRODUCT.md"];
 
 // The one src subtree whose purpose is matching third-party TUI bytes.
 const EXEMPT_SUBTREES = [
-  path.join("src", "main", "vellum-command", "term", "agent-state", "rules"),
+  path.join("src", "main", "junto", "term", "agent-state", "rules"),
 ];
 
 const isExempt = (rel: string): boolean =>

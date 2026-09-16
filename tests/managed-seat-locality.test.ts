@@ -6,13 +6,13 @@ import {
   type InstallationId as InstallationIdValue,
 } from "../src/shared/installation-id";
 import { selectFactoryClaims } from "../src/shared/factory-tick";
-import { deriveActorSeatId } from "../src/main/vellum-command/station/actor-seat-compiler";
-import { isManagedSeatRuntimeLocal } from "../src/main/vellum-command/term/ensure-managed-seat";
+import { deriveActorSeatId } from "../src/main/junto/station/actor-seat-compiler";
+import { isManagedSeatRuntimeLocal } from "../src/main/junto/term/ensure-managed-seat";
 import {
   activeActorRegistry,
   actorSeatSelectableNow,
   managedTaskDeliveryId,
-} from "../src/main/vellum-command/kernel/service";
+} from "../src/main/junto/kernel/service";
 
 const actorNode = (
   hostId: string,

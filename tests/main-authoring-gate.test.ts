@@ -4,7 +4,7 @@ import {
   classifyMainAuthoringWorkOperation,
   createMainAuthoringGate,
   mainAuthoringLabelForWorkOperation,
-} from "../src/main/vellum-command/main-authoring-gate";
+} from "../src/main/junto/main-authoring-gate";
 import type { WorkOpName } from "../src/shared/work-control";
 
 const deferred = <A>() => {

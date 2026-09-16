@@ -9,18 +9,18 @@
  * controlled rule-pack inputs, not claims of additional native captures.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { evaluate } from "../src/main/vellum-command/term/agent-state/engine";
-import { SeatStateRuntime } from "../src/main/vellum-command/term/agent-state/runtime";
-import { createManagedTerminalDrive } from "../src/main/vellum-command/term/drive/managed-drive-factory";
-import { attachManagedTerminalDriveRuntime } from "../src/main/vellum-command/term/drive/managed-drive-runtime";
+import { evaluate } from "../src/main/junto/term/agent-state/engine";
+import { SeatStateRuntime } from "../src/main/junto/term/agent-state/runtime";
+import { createManagedTerminalDrive } from "../src/main/junto/term/drive/managed-drive-factory";
+import { attachManagedTerminalDriveRuntime } from "../src/main/junto/term/drive/managed-drive-runtime";
 import {
   promptHasPasteChip,
   promptStillPending,
-} from "../src/main/vellum-command/term/drive/prompt-evidence";
-import { encodeBracketedPaste } from "../src/main/vellum-command/term/drive/typing";
+} from "../src/main/junto/term/drive/prompt-evidence";
+import { encodeBracketedPaste } from "../src/main/junto/term/drive/typing";
 import { isPromptSubmitted } from "../src/shared/managed-prompt";
-import { SessionObserver } from "../src/main/vellum-command/term/observer/session-observer";
-import type { ObserverGridSnapshot } from "../src/main/vellum-command/term/observer/types";
+import { SessionObserver } from "../src/main/junto/term/observer/session-observer";
+import type { ObserverGridSnapshot } from "../src/main/junto/term/observer/types";
 import pendingFrame from "./fixtures/pty-own-paste-pending-frame.json";
 
 const PAYLOAD = Array.from({ length: 73 }, (_, i) => `test handoff line ${i + 1}`).join("\n");

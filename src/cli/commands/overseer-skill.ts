@@ -35,21 +35,21 @@ Identity is process-bind (Unix peer PID). Never send a nodeRef, actor claim, or 
 
 These work with no daemon, socket, or grant:
 
-- \`vellum-command overseer skill\`
-- \`vellum-command overseer schema list|show\`
-- \`vellum-command overseer examples list|show\`
-- \`vellum-command overseer capabilities\`
-- \`vellum-command schema\` / \`examples\` (includes overseer contracts)
-- \`vellum-command docs overseer\`
-- \`vellum-command overseer --help\`
+- \`junto overseer skill\`
+- \`junto overseer schema list|show\`
+- \`junto overseer examples list|show\`
+- \`junto overseer capabilities\`
+- \`junto schema\` / \`examples\` (includes overseer contracts)
+- \`junto docs overseer\`
+- \`junto overseer --help\`
 
 Everything else talks to the existing work socket as outer op \`overseer\`.
 
 ## Invocation
 
 \`\`\`
-vellum-command overseer <family> <verb> [json | @file | -]
-vellum-command overseer status
+junto overseer <family> <verb> [json | @file | -]
+junto overseer status
 \`\`\`
 
 Input is a JSON object: inline, \`@path\`, or \`-\` / \`@-\` for stdin. Omit input for empty-arg operations (\`{}\`). Canvas may be omitted when the caller's canvas is unambiguous; main fills it.
@@ -92,11 +92,11 @@ This CLI does **not** claim that a running daemon has a handler for every verb. 
 
 ## Workflows
 
-1. Load this skill offline: \`vellum-command overseer skill\`
-2. Inspect args: \`vellum-command overseer schema show canvas.create\`
-3. Copy an example: \`vellum-command overseer examples show node.create\`
+1. Load this skill offline: \`junto overseer skill\`
+2. Inspect args: \`junto overseer schema show canvas.create\`
+3. Copy an example: \`junto overseer examples show node.create\`
 4. Run under the live granted agent process (not a random shell).
-5. Prefer \`overseer status\` first. If the socket is down: launch Junto, then \`vellum-command doctor\`.
+5. Prefer \`overseer status\` first. If the socket is down: launch Junto, then \`junto doctor\`.
 6. Mutate with expected canvas/node ids from list/read. Use \`overseer canvas batch\` for a coherent structural edit; task creation and worker actions use their own operations.
 7. On \`Forbidden\` / \`Unsupported\`, stop. Do not retry as the operator.
 

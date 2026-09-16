@@ -21,7 +21,7 @@ import {
 } from "./browser-limits";
 
 // Browser control-plane protocol: the wire contract between the Electron-hosted
-// HTTP server (main/vellum-command/browser/control.ts) and the agent CLI
+// HTTP server (main/junto/browser/control.ts) and the agent CLI
 // (scripts/browser-cli.ts). Pure module — no Node imports — so both ends and
 // tests share one source of truth. Transport is a local Unix domain socket only
 // and every request carries a bearer token; this file only knows shapes,
@@ -357,8 +357,8 @@ export const CONTROL_ROUTES = {
 } as const;
 export type ControlRouteName = keyof typeof CONTROL_ROUTES;
 
-export const CONTROL_TOKEN_HEADER = "x-vellum-command-token";
-export const CONTROL_REQUEST_ID_HEADER = "x-vellum-command-request-id";
+export const CONTROL_TOKEN_HEADER = "x-junto-token";
+export const CONTROL_REQUEST_ID_HEADER = "x-junto-request-id";
 
 /** Child-only environment inputs. Values never enter argv or query strings. */
 export const CONTROL_HOME_ENV = "JUNTO_BROWSER_HOME";

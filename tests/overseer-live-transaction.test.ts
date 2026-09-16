@@ -3,8 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect, ManagedRuntime } from "effect";
 import { describe, expect, it } from "vitest";
-import { makeStateEngineLive, StateEngine } from "../src/main/vellum-command/state/engine";
-import { OverseerLiveExecution, type OverseerLiveExecutionConstraint } from "../src/main/vellum-command/overseer/live/execution";
+import { makeStateEngineLive, StateEngine } from "../src/main/junto/state/engine";
+import { OverseerLiveExecution, type OverseerLiveExecutionConstraint } from "../src/main/junto/overseer/live/execution";
 
 describe("Live execution at the sole StateEngine transaction", () => {
   const exercise = async (test: (runtime: ManagedRuntime.ManagedRuntime<StateEngine, unknown>) => Promise<void>) => {

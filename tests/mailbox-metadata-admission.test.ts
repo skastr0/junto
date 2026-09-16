@@ -27,15 +27,15 @@ import {
 import {
   WorkRepository,
   WorkRepositoryLive,
-} from "../src/main/vellum-command/work/repository";
+} from "../src/main/junto/work/repository";
 import {
   mailboxMessageDeliveryId,
   mailboxMessageReadId,
-} from "../src/main/vellum-command/work/mailbox-receipts";
+} from "../src/main/junto/work/mailbox-receipts";
 import {
   makeStateEngineLive,
   StateEngine,
-} from "../src/main/vellum-command/state/engine";
+} from "../src/main/junto/state/engine";
 import { IntentFactBasis } from "../src/shared/work-protocol";
 import type { CanvasDoc } from "../src/shared/canvas";
 import {
@@ -43,7 +43,7 @@ import {
   seedCanvasAuthority,
 } from "./helpers/canvas-authority-material";
 
-const root = join(tmpdir(), `vellum-command-mailbox-admission-${randomUUID()}`);
+const root = join(tmpdir(), `junto-mailbox-admission-${randomUUID()}`);
 const runtime = ManagedRuntime.make(
   Layer.provideMerge(
     WorkRepositoryLive,

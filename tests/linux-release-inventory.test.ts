@@ -66,7 +66,7 @@ describe("Linux release dependency and SBOM evidence", () => {
     await writeFile(
       path.join(root, "package.json"),
       JSON.stringify({
-        name: "@skastr0/vellum-command",
+        name: "@skastr0/junto",
         version: "0.1.0",
         dependencies: { effect: "3.0.0" },
         devDependencies: { vitest: "4.0.0" },
@@ -163,7 +163,7 @@ describe("Linux release dependency and SBOM evidence", () => {
 
     const sbom = createCycloneDxSbom({
       inventory,
-      productName: "@skastr0/vellum-command",
+      productName: "@skastr0/junto",
       productVersion: "0.1.0",
       sourceDateEpoch: 1_784_772_800,
     });
@@ -174,7 +174,7 @@ describe("Linux release dependency and SBOM evidence", () => {
       metadata: {
         component: {
           type: "application",
-          name: "@skastr0/vellum-command",
+          name: "@skastr0/junto",
           version: "0.1.0",
         },
       },
@@ -184,15 +184,15 @@ describe("Linux release dependency and SBOM evidence", () => {
           licenses: [{ expression: "MIT" }],
           properties: expect.arrayContaining([
             {
-              name: "vellum-command:license-source",
+              name: "junto:license-source",
               value: "bundled-license-file",
             },
             {
-              name: "vellum-command:license-evidence-file",
+              name: "junto:license-evidence-file",
               value: "LICENSE",
             },
             {
-              name: "vellum-command:license-evidence-sha256",
+              name: "junto:license-evidence-sha256",
               value: createHash("sha256").update(MIT_LICENSE).digest("hex"),
             },
           ]),
@@ -209,7 +209,7 @@ describe("Linux release dependency and SBOM evidence", () => {
     await mkdir(modules);
     await writeFile(
       path.join(root, "package.json"),
-      JSON.stringify({ name: "vellum-command", version: "0.1.0" }),
+      JSON.stringify({ name: "junto", version: "0.1.0" }),
     );
     await writePackage(path.join(modules, "bad"), "../bad", "1.0.0", "MIT");
     await expect(
@@ -235,7 +235,7 @@ describe("Linux release dependency and SBOM evidence", () => {
     await mkdir(modules);
     await writeFile(
       path.join(root, "package.json"),
-      JSON.stringify({ name: "vellum-command", version: "0.1.0" }),
+      JSON.stringify({ name: "junto", version: "0.1.0" }),
     );
     await Promise.all([
       writePackage(
@@ -298,7 +298,7 @@ describe("Linux release dependency and SBOM evidence", () => {
     await writeFile(
       path.join(root, "package.json"),
       JSON.stringify({
-        name: "vellum-command",
+        name: "junto",
         version: "0.1.0",
         dependencies: { hidden: "1.0.0" },
       }),

@@ -33,33 +33,33 @@ describe("Linux userland runtime audit", () => {
     );
   });
   it("requires a relocatable service placeholder and rejects privilege directives", () => {
-    expect(() => validateUserServiceTemplate("ExecStart=@JUNTO_RUNTIME_ROOT@/resources/systemd/vellum-command-remote-launch\n")).not.toThrow();
-    expect(() => validateUserServiceTemplate("User=root\nExecStart=@JUNTO_RUNTIME_ROOT@/resources/systemd/vellum-command-remote-launch\n")).toThrow(/privileged/u);
+    expect(() => validateUserServiceTemplate("ExecStart=@JUNTO_RUNTIME_ROOT@/resources/systemd/junto-remote-launch\n")).not.toThrow();
+    expect(() => validateUserServiceTemplate("User=root\nExecStart=@JUNTO_RUNTIME_ROOT@/resources/systemd/junto-remote-launch\n")).toThrow(/privileged/u);
   });
   it("fails closed on chrome sandbox and privileged mode residue", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "vellum-command-runtime-audit-"));
+    const root = await mkdtemp(path.join(tmpdir(), "junto-runtime-audit-"));
     const runtime = path.join(root, linuxRuntimeArtifactName({ version: "0.1.0", arch: "x64" }));
     try {
       await mkdir(path.join(runtime, "resources/bin"), { recursive: true });
       await mkdir(path.join(runtime, "resources/app-remote"), { recursive: true });
       await mkdir(path.join(runtime, "resources/systemd"), { recursive: true });
       for (const file of [
-        "vellum-command",
+        "junto",
         "resources/app.asar",
-        "resources/bin/vellum-command",
+        "resources/bin/junto",
         "resources/bin/unix-peer-pid.py",
         "resources/bin/node",
-        "resources/bin/vellum-command-remote",
-        "resources/app-remote/vellum-command-remote.js",
-        "resources/systemd/vellum-command-remote-launch",
+        "resources/bin/junto-remote",
+        "resources/app-remote/junto-remote.js",
+        "resources/systemd/junto-remote-launch",
       ]) await writeFile(path.join(runtime, file), "fixture");
-      await writeFile(path.join(runtime, "resources/systemd/vellum-command-remote.service.template"), "ExecStart=@JUNTO_RUNTIME_ROOT@/resources/systemd/vellum-command-remote-launch\nConditionFileIsExecutable=@JUNTO_RUNTIME_ROOT@/resources/bin/vellum-command-remote\n");
+      await writeFile(path.join(runtime, "resources/systemd/junto-remote.service.template"), "ExecStart=@JUNTO_RUNTIME_ROOT@/resources/systemd/junto-remote-launch\nConditionFileIsExecutable=@JUNTO_RUNTIME_ROOT@/resources/bin/junto-remote\n");
       await writeFile(path.join(runtime, "chrome-sandbox"), "forbidden");
       await expect(auditLinuxRuntime({ runtimePath: runtime, version: "0.1.0" })).rejects.toThrow(/privileged packaging residue/u);
       await rm(path.join(runtime, "chrome-sandbox"));
-      await chmod(path.join(runtime, "vellum-command"), 0o4755);
+      await chmod(path.join(runtime, "junto"), 0o4755);
       // Non-root macOS often strips setuid; only assert when the platform retained privileged bits.
-      const mode = (await lstat(path.join(runtime, "vellum-command"))).mode;
+      const mode = (await lstat(path.join(runtime, "junto"))).mode;
       if ((mode & 0o7000) !== 0) {
         await expect(auditLinuxRuntime({ runtimePath: runtime, version: "0.1.0" })).rejects.toThrow(/privileged mode bits/u);
       }

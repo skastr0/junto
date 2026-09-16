@@ -8,11 +8,11 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   buildLinuxRemotePreflightScript,
-} from "../src/main/vellum-command/hosts/deploy-linux";
+} from "../src/main/junto/hosts/deploy-linux";
 import {
   compileLinuxUserlandPreflightSource,
   compileLinuxUserlandDeploySource,
-} from "../src/main/vellum-command/ssh/remote-plan";
+} from "../src/main/junto/ssh/remote-plan";
 
 const roots: string[] = [];
 
@@ -58,7 +58,7 @@ describe("Linux generation readiness contract", () => {
     const root = await mkdtemp(join(tmpdir(), "vellum-ready-path-"));
     roots.push(root);
     const generation = "11111111111111111111111111111111";
-    const dir = join(root, "vellum-command-remote");
+    const dir = join(root, "junto-remote");
     await mkdir(dir, { recursive: true });
     const path = join(dir, `ready-${generation}`);
     await writeFile(path, `${generation}\n`, { mode: 0o600 });

@@ -4,15 +4,15 @@ import { createServer, type Server } from "node:http";
 import { dirname, isAbsolute } from "node:path";
 import { app, webContents, type WebContents } from "electron";
 import { ManagedRuntime } from "effect";
-import { makeBrowserProfileService } from "../../../src/main/vellum-command/browser/profiles";
-import { BrowserSessionService } from "../../../src/main/vellum-command/browser/sessions";
+import { makeBrowserProfileService } from "../../../src/main/junto/browser/profiles";
+import { BrowserSessionService } from "../../../src/main/junto/browser/sessions";
 import {
   makeStateEngineLive,
   StateEngine,
-} from "../../../src/main/vellum-command/state/engine";
-import { makeBrowserTestOnlyElectronHarness } from "../../../src/main/vellum-command/browser/view-adapter";
-import { isManagedBrowserWebContents } from "../../../src/main/vellum-command/browser/web-policy";
-import type { ResolvedPageTarget } from "../../../src/main/vellum-command/browser/page-target";
+} from "../../../src/main/junto/state/engine";
+import { makeBrowserTestOnlyElectronHarness } from "../../../src/main/junto/browser/view-adapter";
+import { isManagedBrowserWebContents } from "../../../src/main/junto/browser/web-policy";
+import type { ResolvedPageTarget } from "../../../src/main/junto/browser/page-target";
 import { formatNodeRef } from "../../../src/shared/node-ref";
 import { LOCAL_BROWSER_TEST_AUTHORITY } from "../../browser-host-test-authority";
 

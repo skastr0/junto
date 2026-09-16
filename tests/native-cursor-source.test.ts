@@ -9,7 +9,7 @@ import {
   readAppDatabaseCookie,
   readStateDbValue,
   resolveCursorCredential,
-} from "../src/main/vellum-command/usage/cursor-auth";
+} from "../src/main/junto/usage/cursor-auth";
 import {
   buildCursorQuota,
   buildCursorSnapshot,
@@ -20,7 +20,7 @@ import {
   summarizeEventCosts,
   type CursorEventsPageData,
   type FetchLike,
-} from "../src/main/vellum-command/usage/cursor-source";
+} from "../src/main/junto/usage/cursor-source";
 
 const FETCHED = "2026-08-17T12:00:00.000Z";
 const SECRET_COOKIE = "WorkosCursorSessionToken=abc123SECRET%3A%3Aey.jwt.token";

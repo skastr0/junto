@@ -1,8 +1,8 @@
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, test } from "vitest";
-import { CANVAS_STATE_SCHEMA_SQL } from "../src/main/vellum-command/state/schema";
-import { STATION_STATE_SCHEMA_SQL } from "../src/main/vellum-command/station/state-schema";
-import { WORK_STATE_SCHEMA_SQL } from "../src/main/vellum-command/work/state-schema";
+import { CANVAS_STATE_SCHEMA_SQL } from "../src/main/junto/state/schema";
+import { STATION_STATE_SCHEMA_SQL } from "../src/main/junto/station/state-schema";
+import { WORK_STATE_SCHEMA_SQL } from "../src/main/junto/work/state-schema";
 
 const databases: DatabaseSync[] = [];
 const observedAt = "2026-07-27T12:00:00.000Z";
@@ -501,7 +501,7 @@ describe("Work v2 exact-current SQLite schema", () => {
       notnull: 1,
     });
     expect(WORK_STATE_SCHEMA_SQL).not.toMatch(
-      /home_station|vellum-command:command-center|payload_json/u,
+      /home_station|junto:command-center|payload_json/u,
     );
   });
 

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   enumerateCursorModels,
   parseCursorModelsList,
-} from "../src/main/vellum-command/term/templates/enumerate-models";
+} from "../src/main/junto/term/templates/enumerate-models";
 
 const LIVE_STDOUT = `Available models
 

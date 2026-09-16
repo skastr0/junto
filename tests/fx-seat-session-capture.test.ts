@@ -15,12 +15,12 @@ const persistence = vi.hoisted(() => ({
 
 // The canvas persistence boundary is recorded; discovery reads a real fx
 // index and every capture decision runs through the production service.
-vi.mock("../src/main/vellum-command/term/seat-session-id", () => ({
+vi.mock("../src/main/junto/term/seat-session-id", () => ({
   writeSeatSessionId: persistence.write,
 }));
 
-import { SeatSessionCapture } from "../src/main/vellum-command/term/seat-session-capture";
-import { FX_INDEX_SCHEMA_VERSION } from "../src/main/vellum-command/term/templates/fx-session";
+import { SeatSessionCapture } from "../src/main/junto/term/seat-session-capture";
+import { FX_INDEX_SCHEMA_VERSION } from "../src/main/junto/term/templates/fx-session";
 
 const SESSION = "1787761861883-1787761861883720000-7afaf80c8f5acd35";
 const OTHER_SESSION = "1787761862883-1787761862883720000-97d25f70d04d6c5e";

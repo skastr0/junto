@@ -1,33 +1,33 @@
 {
   "databaseOpeners": [
     {
-      "path": "src/main/vellum-command/state/backup.ts",
+      "path": "src/main/junto/state/backup.ts",
       "reason": "State engine: opens the pending backup file it is writing, and the source database read-only to verify it."
     },
     {
-      "path": "src/main/vellum-command/state/engine.ts",
+      "path": "src/main/junto/state/engine.ts",
       "reason": "State engine: THE single read-write opener of the state database. Every other writer in the process receives a StateWriter from here."
     },
     {
-      "path": "src/main/vellum-command/state/migrations.ts",
+      "path": "src/main/junto/state/migrations.ts",
       "reason": "State engine: receives the already-open DatabaseSync from engine.ts and imports the type to name it."
     },
     {
-      "path": "src/main/vellum-command/state/recovery.ts",
+      "path": "src/main/junto/state/recovery.ts",
       "reason": "State engine: opens a backup file read-only to inventory and restore it."
     },
     {
-      "path": "src/main/vellum-command/state/schema-identity.ts",
+      "path": "src/main/junto/state/schema-identity.ts",
       "reason": "State engine: builds an in-memory reference database to hash the expected schema against the live one."
     },
     {
-      "path": "src/main/vellum-command/state/schema-version-probe.ts",
+      "path": "src/main/junto/state/schema-version-probe.ts",
       "reason": "State engine: opens the database read-only to read user_version before the engine commits to it."
     }
   ],
   "databaseOpenerExceptions": [
     {
-      "path": "src/main/vellum-command/install-ops/engine.ts",
+      "path": "src/main/junto/install-ops/engine.ts",
       "reason": "Opens install-ops.db, a SECOND database in the same process. Deliberately separate so backfill bookkeeping never travels with a product state seed, but it is still a second SQLite opener inside the main process, the same class of defect as a second writer of the state database.",
       "retire": "Fold backfill_markers into the state engine as install-local rows, or delete install-ops entirely once the inline-media backfill (BACKFILL_INLINE_MEDIA_V1) has run everywhere and the marker is no longer read."
     },
@@ -42,14 +42,14 @@
       "retire": "Prove the packaged runtime from an e2e assertion inside the app, so no probe has to import the driver itself."
     },
     {
-      "path": "src/main/vellum-command/term/session-existence.ts",
+      "path": "src/main/junto/term/session-existence.ts",
       "reason": "Opens harness-owned session index databases (e.g. a CLI's own SQLite session store) READ-ONLY to prove a named session id still exists before offering resume. Never the product state database.",
       "retire": "Delete when every managed harness exposes a session-existence probe through its CLI instead of an on-disk index."
     }
   ],
   "mutationSeams": [
     {
-      "path": "src/main/vellum-command/state/migrations.ts",
+      "path": "src/main/junto/state/migrations.ts",
       "kind": "permanent",
       "tables": [
         "canvas_entities",
@@ -65,7 +65,7 @@
       "reason": "The state engine's forward migration steps. Table rebuilds and backfills run once per schema advance, inside the engine, before any repository can read. The 20 -> 21 consolidation step also rebuilds work_facts (rows copied forward byte-exact) to shed its FK into the retired blob generation store."
     },
     {
-      "path": "src/main/vellum-command/state/schema-identity.ts",
+      "path": "src/main/junto/state/schema-identity.ts",
       "kind": "permanent",
       "tables": [
         "state_schema_identity"
@@ -73,7 +73,7 @@
       "reason": "The state engine's own schema witness row."
     },
     {
-      "path": "src/main/vellum-command/work/state-schema.ts",
+      "path": "src/main/junto/work/state-schema.ts",
       "kind": "permanent",
       "tables": [
         "work_canvas_revisions"
@@ -81,7 +81,7 @@
       "reason": "Work-plane DDL. The only INSERTs are inside AFTER INSERT/UPDATE/DELETE triggers that bump the projection revision counter, so the write is SQLite's and local to the row, which is exactly why no call path can bypass it."
     },
     {
-      "path": "src/main/vellum-command/work/crew-schema.ts",
+      "path": "src/main/junto/work/crew-schema.ts",
       "kind": "permanent",
       "tables": [
         "work_canvas_revisions"
@@ -89,7 +89,7 @@
       "reason": "Crew DDL contributes exactly three revision-counter INSERTs inside SQLite triggers: mail-attempt INSERT, mail-attempt UPDATE, and task-verdict INSERT. Each invalidates the affected canvas projection in the same transaction as its crew row. No application statement writes the derived counter, and this declaration owns no crew storage table."
     },
     {
-      "path": "src/main/vellum-command/work/journal.ts",
+      "path": "src/main/junto/work/journal.ts",
       "kind": "debt",
       "tables": [
         "work_commands",
@@ -103,7 +103,7 @@
       "retire": "The four record tables plus work_event_sequences are the destination shape and stay. work_pending_commands is the debt: it is a derived index of unresolved commands, so once the in-memory world holds that index it leaves this file's table set and the entry becomes permanent."
     },
     {
-      "path": "src/main/vellum-command/work/repository.ts",
+      "path": "src/main/junto/work/repository.ts",
       "kind": "debt",
       "tables": [
         "station_peer_ack_cursors",
@@ -157,7 +157,7 @@
       "retire": "IN-MEMORY WORLD: retire when the in-memory factory world owns the projection and this file's only write is the journal append."
     },
     {
-      "path": "src/main/vellum-command/work/crew-repository.ts",
+      "path": "src/main/junto/work/crew-repository.ts",
       "kind": "debt",
       "tables": [
         "work_mail_attempts",
@@ -170,7 +170,7 @@
       "retire": "IN-MEMORY WORLD: retire when the in-memory factory world owns the crew projection and this file's only write is the journal append."
     },
     {
-      "path": "src/main/vellum-command/canvas/records.ts",
+      "path": "src/main/junto/canvas/records.ts",
       "kind": "debt",
       "tables": [
         "canvas_documents",
@@ -182,7 +182,7 @@
       "retire": "Stop copying every document body on every commit (insertFullGeneration) by content-addressing generations; the seam itself stays."
     },
     {
-      "path": "src/main/vellum-command/entities/sync.ts",
+      "path": "src/main/junto/entities/sync.ts",
       "kind": "debt",
       "tables": [
         "canvas_entities"
@@ -191,7 +191,7 @@
       "retire": "IN-MEMORY WORLD: retire when the in-memory factory world owns the projection and this file's only write is the journal append."
     },
     {
-      "path": "src/main/vellum-command/kernel/repository.ts",
+      "path": "src/main/junto/kernel/repository.ts",
       "kind": "debt",
       "tables": [
         "kernel_armed_regions",
@@ -201,7 +201,7 @@
       "retire": "IN-MEMORY WORLD: retire when the in-memory factory world owns the projection and this file's only write is the journal append."
     },
     {
-      "path": "src/main/vellum-command/pause/repository.ts",
+      "path": "src/main/junto/pause/repository.ts",
       "kind": "debt",
       "tables": [
         "factory_pause_canvases",
@@ -211,7 +211,7 @@
       "retire": "IN-MEMORY WORLD: retire when the in-memory factory world owns the projection and this file's only write is the journal append."
     },
     {
-      "path": "src/main/vellum-command/content/manifest.ts",
+      "path": "src/main/junto/content/manifest.ts",
       "kind": "debt",
       "tables": [
         "content_objects",
@@ -223,7 +223,7 @@
       "retire": "Derive content refs from the journal instead of maintaining them as their own mutable ledger."
     },
     {
-      "path": "src/main/vellum-command/content/inline-media-migration.ts",
+      "path": "src/main/junto/content/inline-media-migration.ts",
       "kind": "debt",
       "tables": [
         "work_artifacts",
@@ -236,7 +236,7 @@
       "retire": "Delete this file once BACKFILL_INLINE_MEDIA_V1 is complete on every install. It is a migration, not a product path, and must not outlive the backfill."
     },
     {
-      "path": "src/main/vellum-command/station/repository.ts",
+      "path": "src/main/junto/station/repository.ts",
       "kind": "debt",
       "tables": [
         "station_installation",
@@ -249,7 +249,7 @@
       "retire": "IN-MEMORY WORLD: retire when the in-memory factory world owns the projection and this file's only write is the journal append."
     },
     {
-      "path": "src/main/vellum-command/station/fleet-target-repository.ts",
+      "path": "src/main/junto/station/fleet-target-repository.ts",
       "kind": "debt",
       "tables": [
         "station_fleet_targets",
@@ -259,7 +259,7 @@
       "retire": "IN-MEMORY WORLD: retire when the in-memory factory world owns the projection and this file's only write is the journal append."
     },
     {
-      "path": "src/main/vellum-command/station/configuration-state.ts",
+      "path": "src/main/junto/station/configuration-state.ts",
       "kind": "debt",
       "tables": [
         "station_configuration"
@@ -268,7 +268,7 @@
       "retire": "IN-MEMORY WORLD: retire when the in-memory factory world owns the projection and this file's only write is the journal append."
     },
     {
-      "path": "src/main/vellum-command/station-status-store.ts",
+      "path": "src/main/junto/station-status-store.ts",
       "kind": "debt",
       "tables": [
         "station_status_facts"
@@ -277,7 +277,7 @@
       "retire": "IN-MEMORY WORLD: retire when the in-memory factory world owns the projection and this file's only write is the journal append."
     },
     {
-      "path": "src/main/vellum-command/hosts/registry.ts",
+      "path": "src/main/junto/hosts/registry.ts",
       "kind": "debt",
       "tables": [
         "box_resources",
@@ -289,7 +289,7 @@
       "retire": "IN-MEMORY WORLD: retire when the in-memory factory world owns the projection and this file's only write is the journal append."
     },
     {
-      "path": "src/main/vellum-command/box/repository.ts",
+      "path": "src/main/junto/box/repository.ts",
       "kind": "debt",
       "tables": [
         "box_resources",
@@ -299,7 +299,7 @@
       "retire": "IN-MEMORY WORLD: retire when the in-memory factory world owns the projection and this file's only write is the journal append."
     },
     {
-      "path": "src/main/vellum-command/browser/profiles.ts",
+      "path": "src/main/junto/browser/profiles.ts",
       "kind": "debt",
       "tables": [
         "browser_profile_canvas_defaults",
@@ -311,7 +311,7 @@
       "retire": "IN-MEMORY WORLD: retire when the in-memory factory world owns the projection and this file's only write is the journal append."
     },
     {
-      "path": "src/main/vellum-command/scheduler/repository.ts",
+      "path": "src/main/junto/scheduler/repository.ts",
       "kind": "debt",
       "tables": [
         "scheduler_interval_firings",
@@ -321,7 +321,7 @@
       "retire": "IN-MEMORY WORLD: retire when the in-memory factory world owns the projection and this file's only write is the journal append."
     },
     {
-      "path": "src/main/vellum-command/settings/service.ts",
+      "path": "src/main/junto/settings/service.ts",
       "kind": "debt",
       "tables": [
         "settings_initialization",
@@ -331,7 +331,7 @@
       "retire": "IN-MEMORY WORLD: retire when the in-memory factory world owns the projection and this file's only write is the journal append."
     },
     {
-      "path": "src/main/vellum-command/usage/usage-cache.ts",
+      "path": "src/main/junto/usage/usage-cache.ts",
       "kind": "debt",
       "tables": [
         "usage_state"
@@ -340,7 +340,7 @@
       "retire": "IN-MEMORY WORLD: retire when the in-memory factory world owns the projection and this file's only write is the journal append."
     },
     {
-      "path": "src/main/vellum-command/install-ops/engine.ts",
+      "path": "src/main/junto/install-ops/engine.ts",
       "kind": "debt",
       "tables": [
         "backfill_markers"
@@ -359,7 +359,7 @@
       "retire": "Prove the packaged runtime from an e2e assertion inside the app, so the probe and its tables go away."
     },
     {
-      "path": "src/main/vellum-command/state/tasks-schema21-correction.ts",
+      "path": "src/main/junto/state/tasks-schema21-correction.ts",
       "kind": "debt",
       "tables": [
         "canvas_nodes",
@@ -391,7 +391,7 @@
       ]
     },
     {
-      "path": "src/main/vellum-command/credentials/bindings.ts",
+      "path": "src/main/junto/credentials/bindings.ts",
       "kind": "permanent",
       "tables": [
         "openai_credential_bindings",
@@ -429,7 +429,7 @@
       "reason": "Sole writer of provider credential binding metadata. The credential coordinator supplies a StateWriter from the existing SettingsService transaction; secret material stays in the credential store, never these rows."
     },
     {
-      "path": "src/main/vellum-command/overseer/live/repository.ts",
+      "path": "src/main/junto/overseer/live/repository.ts",
       "kind": "debt",
       "tables": [
         "overseer_live_events",
@@ -441,7 +441,7 @@
       "retire": "Retain this event append seam; remove its materialized-row writes when Live session, request, and operation state is derived from its event journal in the resident world."
     },
     {
-      "path": "src/main/vellum-command/state/backup.ts",
+      "path": "src/main/junto/state/backup.ts",
       "kind": "debt",
       "tables": [
         "settings_preferences"
@@ -453,214 +453,214 @@
   "sharedTableExceptions": [
     {
       "table": "work_canvas_revisions",
-      "owner": "src/main/vellum-command/work/state-schema.ts",
+      "owner": "src/main/junto/work/state-schema.ts",
       "alsoWrittenBy": [
-        "src/main/vellum-command/work/crew-schema.ts"
+        "src/main/junto/work/crew-schema.ts"
       ],
       "reason": "Both DDL modules declare SQLite triggers for the same derived canvas revision counter. Work DDL covers journal-backed projections; crew DDL adds only mail-attempt insert/update and task-verdict insert invalidation. The runtime mutation seam still refuses every application write to this table.",
       "retire": "Consolidate current revision-trigger declarations under work/state-schema.ts while preserving frozen migration SQL, then remove this exception when crew-schema.ts no longer contains these trigger bodies."
     },
     {
       "table": "box_resources",
-      "owner": "src/main/vellum-command/box/repository.ts",
+      "owner": "src/main/junto/box/repository.ts",
       "alsoWrittenBy": [
-        "src/main/vellum-command/hosts/registry.ts"
+        "src/main/junto/hosts/registry.ts"
       ],
       "reason": "The hosts seam clears a removed host's boxes as a cascade.",
       "retire": "Have host removal call the box seam instead of deleting box_resources directly."
     },
     {
       "table": "canvas_entities",
-      "owner": "src/main/vellum-command/entities/sync.ts",
+      "owner": "src/main/junto/entities/sync.ts",
       "alsoWrittenBy": [
-        "src/main/vellum-command/state/migrations.ts"
+        "src/main/junto/state/migrations.ts"
       ],
       "reason": "The migration seeds canvas_entities when the table is introduced; entities/sync.ts owns it afterwards.",
       "retire": "Express a schema-advance table rebuild without an INSERT ... SELECT that names a product table."
     },
     {
       "table": "host_registry",
-      "owner": "src/main/vellum-command/hosts/registry.ts",
+      "owner": "src/main/junto/hosts/registry.ts",
       "alsoWrittenBy": [
-        "src/main/vellum-command/box/repository.ts"
+        "src/main/junto/box/repository.ts"
       ],
       "reason": "The box seam writes the host row a box is bound to and deletes it when the box is released.",
       "retire": "Have box ownership call the hosts seam instead of writing host_registry directly."
     },
     {
       "table": "station_fleet_targets",
-      "owner": "src/main/vellum-command/station/fleet-target-repository.ts",
+      "owner": "src/main/junto/station/fleet-target-repository.ts",
       "alsoWrittenBy": [
-        "src/main/vellum-command/hosts/registry.ts"
+        "src/main/junto/hosts/registry.ts"
       ],
       "reason": "The hosts seam clears a removed host's fleet targets as a cascade.",
       "retire": "Have host removal call the fleet-target seam instead of deleting station_fleet_targets directly."
     },
     {
       "table": "station_known_installations",
-      "owner": "src/main/vellum-command/station/repository.ts",
+      "owner": "src/main/junto/station/repository.ts",
       "alsoWrittenBy": [
-        "src/main/vellum-command/station/fleet-target-repository.ts"
+        "src/main/junto/station/fleet-target-repository.ts"
       ],
       "reason": "Both station seams register a peer installation before referencing it.",
       "retire": "Put installation registration in one station seam."
     },
     {
       "table": "work_artifacts",
-      "owner": "src/main/vellum-command/work/repository.ts",
+      "owner": "src/main/junto/work/repository.ts",
       "alsoWrittenBy": [
-        "src/main/vellum-command/content/inline-media-migration.ts"
+        "src/main/junto/content/inline-media-migration.ts"
       ],
       "reason": "Same inline-media backfill.",
-      "retire": "Delete src/main/vellum-command/content/inline-media-migration.ts once BACKFILL_INLINE_MEDIA_V1 is complete everywhere."
+      "retire": "Delete src/main/junto/content/inline-media-migration.ts once BACKFILL_INLINE_MEDIA_V1 is complete everywhere."
     },
     {
       "table": "work_board_posts",
-      "owner": "src/main/vellum-command/work/repository.ts",
+      "owner": "src/main/junto/work/repository.ts",
       "alsoWrittenBy": [
-        "src/main/vellum-command/state/migrations.ts",
-        "src/main/vellum-command/content/inline-media-migration.ts"
+        "src/main/junto/state/migrations.ts",
+        "src/main/junto/content/inline-media-migration.ts"
       ],
       "reason": "THREE writers. The migration backfills the table on a schema advance and the inline-media backfill rewrites parts_json in place. Neither mints a work fact.",
       "retire": "Delete the inline-media backfill, and express migration rebuilds without naming a product table."
     },
     {
       "table": "work_board_topics",
-      "owner": "src/main/vellum-command/work/repository.ts",
+      "owner": "src/main/junto/work/repository.ts",
       "alsoWrittenBy": [
-        "src/main/vellum-command/content/inline-media-migration.ts"
+        "src/main/junto/content/inline-media-migration.ts"
       ],
       "reason": "Same inline-media backfill.",
-      "retire": "Delete src/main/vellum-command/content/inline-media-migration.ts once BACKFILL_INLINE_MEDIA_V1 is complete everywhere."
+      "retire": "Delete src/main/junto/content/inline-media-migration.ts once BACKFILL_INLINE_MEDIA_V1 is complete everywhere."
     },
     {
       "table": "work_events",
-      "owner": "src/main/vellum-command/work/journal.ts",
+      "owner": "src/main/junto/work/journal.ts",
       "alsoWrittenBy": [
-        "src/main/vellum-command/state/migrations.ts",
-        "src/main/vellum-command/state/tasks-schema21-correction.ts"
+        "src/main/junto/state/migrations.ts",
+        "src/main/junto/state/tasks-schema21-correction.ts"
       ],
       "reason": "Same schema-advance table rebuild.",
       "retire": "Express a schema-advance table rebuild without an INSERT ... SELECT that names a product table."
     },
     {
       "table": "work_messages",
-      "owner": "src/main/vellum-command/work/repository.ts",
+      "owner": "src/main/junto/work/repository.ts",
       "alsoWrittenBy": [
-        "src/main/vellum-command/content/inline-media-migration.ts"
+        "src/main/junto/content/inline-media-migration.ts"
       ],
       "reason": "The inline-media backfill rewrites parts_json in place with no work fact.",
-      "retire": "Delete src/main/vellum-command/content/inline-media-migration.ts once BACKFILL_INLINE_MEDIA_V1 is complete everywhere."
+      "retire": "Delete src/main/junto/content/inline-media-migration.ts once BACKFILL_INLINE_MEDIA_V1 is complete everywhere."
     },
     {
       "table": "work_pending_commands",
-      "owner": "src/main/vellum-command/work/journal.ts",
+      "owner": "src/main/junto/work/journal.ts",
       "alsoWrittenBy": [
-        "src/main/vellum-command/state/migrations.ts",
-        "src/main/vellum-command/work/repository.ts"
+        "src/main/junto/state/migrations.ts",
+        "src/main/junto/work/repository.ts"
       ],
       "reason": "journal.ts INSERTs the pending row as part of the append that records the command; repository.ts UPDATEs it to point at the disposition that resolved it (resolvePending). Both halves are one lifecycle, split only because resolution needs the domain reasoning the append deliberately does not carry. state/migrations.ts rebuilds the table on a schema step.",
       "retire": "Retires with the pending index itself: once the in-memory world holds unresolved commands, neither file writes this table."
     },
     {
       "table": "work_task_messages",
-      "owner": "src/main/vellum-command/work/repository.ts",
+      "owner": "src/main/junto/work/repository.ts",
       "alsoWrittenBy": [
-        "src/main/vellum-command/content/inline-media-migration.ts",
-        "src/main/vellum-command/state/tasks-schema21-correction.ts"
+        "src/main/junto/content/inline-media-migration.ts",
+        "src/main/junto/state/tasks-schema21-correction.ts"
       ],
       "reason": "Same inline-media backfill.",
-      "retire": "Delete src/main/vellum-command/content/inline-media-migration.ts once BACKFILL_INLINE_MEDIA_V1 is complete everywhere."
+      "retire": "Delete src/main/junto/content/inline-media-migration.ts once BACKFILL_INLINE_MEDIA_V1 is complete everywhere."
     },
     {
       "table": "work_task_transitions",
-      "owner": "src/main/vellum-command/work/repository.ts",
+      "owner": "src/main/junto/work/repository.ts",
       "alsoWrittenBy": [
-        "src/main/vellum-command/state/migrations.ts",
-        "src/main/vellum-command/state/tasks-schema21-correction.ts"
+        "src/main/junto/state/migrations.ts",
+        "src/main/junto/state/tasks-schema21-correction.ts"
       ],
       "reason": "Same schema-advance table rebuild.",
       "retire": "Express a schema-advance table rebuild without an INSERT ... SELECT that names a product table."
     },
     {
       "table": "work_tasks",
-      "owner": "src/main/vellum-command/work/repository.ts",
+      "owner": "src/main/junto/work/repository.ts",
       "alsoWrittenBy": [
-        "src/main/vellum-command/state/migrations.ts",
-        "src/main/vellum-command/state/tasks-schema21-correction.ts"
+        "src/main/junto/state/migrations.ts",
+        "src/main/junto/state/tasks-schema21-correction.ts"
       ],
       "reason": "The migration rebuilds work_tasks during a schema advance, before any repository reads it.",
       "retire": "Express a schema-advance table rebuild without an INSERT ... SELECT that names a product table."
     },
     {
       "table": "work_facts",
-      "owner": "src/main/vellum-command/work/journal.ts",
+      "owner": "src/main/junto/work/journal.ts",
       "alsoWrittenBy": [
-        "src/main/vellum-command/state/migrations.ts",
-        "src/main/vellum-command/state/tasks-schema21-correction.ts"
+        "src/main/junto/state/migrations.ts",
+        "src/main/junto/state/tasks-schema21-correction.ts"
       ],
       "reason": "The 20 -> 21 consolidation step rebuilds work_facts (bak -> drop -> recreate -> copy) to shed its FK into the retired blob generation store; rows copy forward byte-exact before any repository can read.",
       "retire": "Express a schema-advance table rebuild without an INSERT ... SELECT that names a product table."
     },
     {
       "table": "work_dispositions",
-      "owner": "src/main/vellum-command/work/journal.ts",
+      "owner": "src/main/junto/work/journal.ts",
       "alsoWrittenBy": [
-        "src/main/vellum-command/state/tasks-schema21-correction.ts"
+        "src/main/junto/state/tasks-schema21-correction.ts"
       ],
       "reason": "The corrective converter rewrites command_sha256/fact_sha256 referents and rehashes affected disposition events; journal.ts remains the runtime append seam.",
       "retire": "Retires with the schema-21 corrective converter once no invalid-21 database remains."
     },
     {
       "table": "work_event_sequences",
-      "owner": "src/main/vellum-command/work/journal.ts",
+      "owner": "src/main/junto/work/journal.ts",
       "alsoWrittenBy": [
-        "src/main/vellum-command/state/tasks-schema21-correction.ts"
+        "src/main/junto/state/tasks-schema21-correction.ts"
       ],
       "reason": "The corrective converter allocates fresh sequences when a proposal record's seq slot is occupied; journal.ts remains the runtime allocator.",
       "retire": "Retires with the schema-21 corrective converter once no invalid-21 database remains."
     },
     {
       "table": "work_task_dependencies",
-      "owner": "src/main/vellum-command/work/repository.ts",
+      "owner": "src/main/junto/work/repository.ts",
       "alsoWrittenBy": [
-        "src/main/vellum-command/state/tasks-schema21-correction.ts"
+        "src/main/junto/state/tasks-schema21-correction.ts"
       ],
       "reason": "The corrective converter materializes proposal planning dependsOn rows into the normalized dependency table.",
       "retire": "Retires with the schema-21 corrective converter once no invalid-21 database remains."
     },
     {
       "table": "work_task_finish",
-      "owner": "src/main/vellum-command/work/repository.ts",
+      "owner": "src/main/junto/work/repository.ts",
       "alsoWrittenBy": [
-        "src/main/vellum-command/state/tasks-schema21-correction.ts"
+        "src/main/junto/state/tasks-schema21-correction.ts"
       ],
       "reason": "The corrective converter materializes proposal planning finish criteria and rewrites retired completion evidence in place.",
       "retire": "Retires with the schema-21 corrective converter once no invalid-21 database remains."
     },
     {
       "table": "canvas_nodes",
-      "owner": "src/main/vellum-command/canvas/records.ts",
+      "owner": "src/main/junto/canvas/records.ts",
       "alsoWrittenBy": [
-        "src/main/vellum-command/state/tasks-schema21-correction.ts"
+        "src/main/junto/state/tasks-schema21-correction.ts"
       ],
       "reason": "The corrective converter rewrites retired Tasks/region ether in place and rebuilds changed canvases through persistCanvas.",
       "retire": "Retires with the schema-21 corrective converter once no invalid-21 database remains."
     },
     {
       "table": "work_commands",
-      "owner": "src/main/vellum-command/work/journal.ts",
+      "owner": "src/main/junto/work/journal.ts",
       "alsoWrittenBy": [
-        "src/main/vellum-command/state/tasks-schema21-correction.ts"
+        "src/main/junto/state/tasks-schema21-correction.ts"
       ],
       "reason": "The corrective converter rewrites retired action_json task payloads in place and rehashes the command events; journal.ts remains the runtime append seam.",
       "retire": "Retires with the schema-21 corrective converter once no invalid-21 database remains."
     },
     {
       "table": "settings_preferences",
-      "owner": "src/main/vellum-command/settings/service.ts",
+      "owner": "src/main/junto/settings/service.ts",
       "alsoWrittenBy": [
-        "src/main/vellum-command/state/backup.ts"
+        "src/main/junto/state/backup.ts"
       ],
       "reason": "SettingsService owns the live product row. backup.ts writes the same table name only in its private pending backup copy to remove inline provider secrets before publication; it never rewrites the source database.",
       "retire": "Remove the backup-copy writer and this table-name exception once every supported input schema guarantees preferences contain no inline provider secrets."
@@ -696,14 +696,14 @@
       "reason": "Decodes pad read results and seat capabilities returned over the canvas control socket."
     },
     {
-      "path": "src/main/vellum-command/box/cli.ts",
+      "path": "src/main/junto/box/cli.ts",
       "kinds": [
         "wire"
       ],
       "reason": "Decodes the box provider CLI's stdout envelopes from a child process."
     },
     {
-      "path": "src/main/vellum-command/box/repository.ts",
+      "path": "src/main/junto/box/repository.ts",
       "kinds": [
         "row"
       ],
@@ -711,42 +711,42 @@
       "retire": "IN-MEMORY WORLD: retire when the world is resident and typed, so nothing has to be re-parsed back into domain values."
     },
     {
-      "path": "src/main/vellum-command/box/service.ts",
+      "path": "src/main/junto/box/service.ts",
       "kinds": [
         "operator"
       ],
       "reason": "Decodes the box id the operator supplies before it addresses a provider box."
     },
     {
-      "path": "src/main/vellum-command/browser/control.ts",
+      "path": "src/main/junto/browser/control.ts",
       "kinds": [
         "wire"
       ],
       "reason": "Decodes browser control request bodies arriving over the control transport."
     },
     {
-      "path": "src/main/vellum-command/canvas-control/client.ts",
+      "path": "src/main/junto/canvas-control/client.ts",
       "kinds": [
         "wire"
       ],
       "reason": "Decodes canvas control responses read off the control socket."
     },
     {
-      "path": "src/main/vellum-command/canvas-control/protocol.ts",
+      "path": "src/main/junto/canvas-control/protocol.ts",
       "kinds": [
         "codec"
       ],
       "reason": "Defines the canvas control request and response decoders for that socket."
     },
     {
-      "path": "src/main/vellum-command/canvas-control/server.ts",
+      "path": "src/main/junto/canvas-control/server.ts",
       "kinds": [
         "wire"
       ],
       "reason": "Decodes canvas control requests arriving from a client on the socket."
     },
     {
-      "path": "src/main/vellum-command/canvases.ts",
+      "path": "src/main/junto/canvases.ts",
       "kinds": [
         "mint"
       ],
@@ -754,7 +754,7 @@
       "retire": "Construct the branded value through a total constructor instead of re-validating a value this process just built."
     },
     {
-      "path": "src/main/vellum-command/hosts/configure-remote.ts",
+      "path": "src/main/junto/hosts/configure-remote.ts",
       "kinds": [
         "wire",
         "mint"
@@ -763,28 +763,28 @@
       "retire": "Construct the branded value through a total constructor instead of re-validating a value this process just built."
     },
     {
-      "path": "src/main/vellum-command/hosts/host-ops.ts",
+      "path": "src/main/junto/hosts/host-ops.ts",
       "kinds": [
         "constant"
       ],
       "reason": "Brands the placeholder installation id literal used by the target-only host ops layers."
     },
     {
-      "path": "src/main/vellum-command/hosts/operator-qualification-work.ts",
+      "path": "src/main/junto/hosts/operator-qualification-work.ts",
       "kinds": [
         "operator"
       ],
       "reason": "Decodes the host id carried on an operator-authored qualification task marker."
     },
     {
-      "path": "src/main/vellum-command/hosts/service.ts",
+      "path": "src/main/junto/hosts/service.ts",
       "kinds": [
         "operator"
       ],
       "reason": "Decodes a remote host registration the operator entered before it reaches the registry."
     },
     {
-      "path": "src/main/vellum-command/ipc.ts",
+      "path": "src/main/junto/ipc.ts",
       "kinds": [
         "mint"
       ],
@@ -792,7 +792,7 @@
       "retire": "Construct the branded value through a total constructor instead of re-validating a value this process just built."
     },
     {
-      "path": "src/main/vellum-command/kernel/repository.ts",
+      "path": "src/main/junto/kernel/repository.ts",
       "kinds": [
         "row"
       ],
@@ -800,7 +800,7 @@
       "retire": "IN-MEMORY WORLD: retire when the world is resident and typed, so nothing has to be re-parsed back into domain values."
     },
     {
-      "path": "src/main/vellum-command/kernel/service.ts",
+      "path": "src/main/junto/kernel/service.ts",
       "kinds": [
         "mint"
       ],
@@ -808,21 +808,21 @@
       "retire": "Construct the branded value through a total constructor instead of re-validating a value this process just built."
     },
     {
-      "path": "src/main/vellum-command/observability/ipc.ts",
+      "path": "src/main/junto/observability/ipc.ts",
       "kinds": [
         "wire"
       ],
       "reason": "Decodes observability queries arriving from the renderer over IPC."
     },
     {
-      "path": "src/main/vellum-command/process-signal.ts",
+      "path": "src/main/junto/process-signal.ts",
       "kinds": [
         "wire"
       ],
       "reason": "Decodes pids and signal names observed from the operating system before acting on them."
     },
     {
-      "path": "src/main/vellum-command/scheduler/repository.ts",
+      "path": "src/main/junto/scheduler/repository.ts",
       "kinds": [
         "row"
       ],
@@ -830,21 +830,21 @@
       "retire": "IN-MEMORY WORLD: retire when the world is resident and typed, so nothing has to be re-parsed back into domain values."
     },
     {
-      "path": "src/main/vellum-command/settings/ipc.ts",
+      "path": "src/main/junto/settings/ipc.ts",
       "kinds": [
         "wire"
       ],
       "reason": "Decodes the settings section key arriving from the renderer over IPC."
     },
     {
-      "path": "src/main/vellum-command/settings/patch.ts",
+      "path": "src/main/junto/settings/patch.ts",
       "kinds": [
         "operator"
       ],
       "reason": "Decodes operator settings and settings patches before they are merged."
     },
     {
-      "path": "src/main/vellum-command/settings/service.ts",
+      "path": "src/main/junto/settings/service.ts",
       "kinds": [
         "mint"
       ],
@@ -852,7 +852,7 @@
       "retire": "Construct the branded value through a total constructor instead of re-validating a value this process just built."
     },
     {
-      "path": "src/main/vellum-command/settings/state-schema.ts",
+      "path": "src/main/junto/settings/state-schema.ts",
       "kinds": [
         "row"
       ],
@@ -860,14 +860,14 @@
       "retire": "IN-MEMORY WORLD: retire when the world is resident and typed, so nothing has to be re-parsed back into domain values."
     },
     {
-      "path": "src/main/vellum-command/ssh/domain.ts",
+      "path": "src/main/junto/ssh/domain.ts",
       "kinds": [
         "operator"
       ],
       "reason": "Decodes operator-supplied SSH endpoints, identity files, host key policy and socket paths."
     },
     {
-      "path": "src/main/vellum-command/station/actor-seat-compiler.ts",
+      "path": "src/main/junto/station/actor-seat-compiler.ts",
       "kinds": [
         "mint"
       ],
@@ -875,7 +875,7 @@
       "retire": "Construct the branded value through a total constructor instead of re-validating a value this process just built."
     },
     {
-      "path": "src/main/vellum-command/station/api.ts",
+      "path": "src/main/junto/station/api.ts",
       "kinds": [
         "wire",
         "mint"
@@ -884,7 +884,7 @@
       "retire": "Construct the branded value through a total constructor instead of re-validating a value this process just built."
     },
     {
-      "path": "src/main/vellum-command/station/configuration-state.ts",
+      "path": "src/main/junto/station/configuration-state.ts",
       "kinds": [
         "row"
       ],
@@ -892,14 +892,14 @@
       "retire": "IN-MEMORY WORLD: retire when the world is resident and typed, so nothing has to be re-parsed back into domain values."
     },
     {
-      "path": "src/main/vellum-command/station/control-server.ts",
+      "path": "src/main/junto/station/control-server.ts",
       "kinds": [
         "wire"
       ],
       "reason": "Decodes report requests arriving from a peer station."
     },
     {
-      "path": "src/main/vellum-command/station/fleet-propagation.ts",
+      "path": "src/main/junto/station/fleet-propagation.ts",
       "kinds": [
         "mint"
       ],
@@ -907,7 +907,7 @@
       "retire": "Construct the branded value through a total constructor instead of re-validating a value this process just built."
     },
     {
-      "path": "src/main/vellum-command/station/fleet-target-repository.ts",
+      "path": "src/main/junto/station/fleet-target-repository.ts",
       "kinds": [
         "row"
       ],
@@ -915,7 +915,7 @@
       "retire": "IN-MEMORY WORLD: retire when the world is resident and typed, so nothing has to be re-parsed back into domain values."
     },
     {
-      "path": "src/main/vellum-command/station/openssh-bootstrap.ts",
+      "path": "src/main/junto/station/openssh-bootstrap.ts",
       "kinds": [
         "mint"
       ],
@@ -923,7 +923,7 @@
       "retire": "Construct the branded value through a total constructor instead of re-validating a value this process just built."
     },
     {
-      "path": "src/main/vellum-command/station/openssh-peer-exchange.ts",
+      "path": "src/main/junto/station/openssh-peer-exchange.ts",
       "kinds": [
         "wire",
         "mint"
@@ -932,7 +932,7 @@
       "retire": "Construct the branded value through a total constructor instead of re-validating a value this process just built."
     },
     {
-      "path": "src/main/vellum-command/station/peer-session.ts",
+      "path": "src/main/junto/station/peer-session.ts",
       "kinds": [
         "mint"
       ],
@@ -940,7 +940,7 @@
       "retire": "Construct the branded value through a total constructor instead of re-validating a value this process just built."
     },
     {
-      "path": "src/main/vellum-command/station/propagation.ts",
+      "path": "src/main/junto/station/propagation.ts",
       "kinds": [
         "mint"
       ],
@@ -948,7 +948,7 @@
       "retire": "Construct the branded value through a total constructor instead of re-validating a value this process just built."
     },
     {
-      "path": "src/main/vellum-command/station/repository.ts",
+      "path": "src/main/junto/station/repository.ts",
       "kinds": [
         "row"
       ],
@@ -956,21 +956,21 @@
       "retire": "IN-MEMORY WORLD: retire when the world is resident and typed, so nothing has to be re-parsed back into domain values."
     },
     {
-      "path": "src/main/vellum-command/supervision/darwin.ts",
+      "path": "src/main/junto/supervision/darwin.ts",
       "kinds": [
         "wire"
       ],
       "reason": "Decodes the pid launchd reports for the supervised process."
     },
     {
-      "path": "src/main/vellum-command/supervision/systemd-user.ts",
+      "path": "src/main/junto/supervision/systemd-user.ts",
       "kinds": [
         "wire"
       ],
       "reason": "Decodes the fields and pid systemd reports for the supervised unit."
     },
     {
-      "path": "src/main/vellum-command/term/actor-seat-occupy-live.ts",
+      "path": "src/main/junto/term/actor-seat-occupy-live.ts",
       "kinds": [
         "mint"
       ],
@@ -978,14 +978,14 @@
       "retire": "Construct the branded value through a total constructor instead of re-validating a value this process just built."
     },
     {
-      "path": "src/main/vellum-command/term/control-client.ts",
+      "path": "src/main/junto/term/control-client.ts",
       "kinds": [
         "wire"
       ],
       "reason": "Decodes the host directory snapshot returned over the terminal control transport."
     },
     {
-      "path": "src/main/vellum-command/usage/usage-cache.ts",
+      "path": "src/main/junto/usage/usage-cache.ts",
       "kinds": [
         "row"
       ],
@@ -993,14 +993,14 @@
       "retire": "IN-MEMORY WORLD: retire when the world is resident and typed, so nothing has to be re-parsed back into domain values."
     },
     {
-      "path": "src/main/vellum-command/work/control.ts",
+      "path": "src/main/junto/work/control.ts",
       "kinds": [
         "wire"
       ],
       "reason": "Decodes work control requests arriving over the work control socket."
     },
     {
-      "path": "src/main/vellum-command/work/journal.ts",
+      "path": "src/main/junto/work/journal.ts",
       "kinds": [
         "mint"
       ],
@@ -1008,7 +1008,7 @@
       "retire": "A total LogicalSequence constructor that increments without a decode."
     },
     {
-      "path": "src/main/vellum-command/work/repository.ts",
+      "path": "src/main/junto/work/repository.ts",
       "kinds": [
         "row",
         "mint"
@@ -1017,7 +1017,7 @@
       "retire": "IN-MEMORY WORLD: retire when the world is resident and typed, so nothing has to be re-parsed back into domain values."
     },
     {
-      "path": "src/main/vellum-command/work/service.ts",
+      "path": "src/main/junto/work/service.ts",
       "kinds": [
         "mint"
       ],
@@ -1201,7 +1201,7 @@
       "reason": "Defines the frozen Station protocol 1 wire codec; every schema decode here is a wire-boundary decode by construction."
     },
     {
-      "path": "src/main/vellum-command/overseer/live/ipc.ts",
+      "path": "src/main/junto/overseer/live/ipc.ts",
       "kinds": [
         "operator",
         "wire"
@@ -1209,7 +1209,7 @@
       "reason": "Decodes trusted-renderer IPC ingress for operator-authored Live session start, selection, corrections, and lifecycle controls. Provider-event routing also validates the cross-process session id and voice epoch here."
     },
     {
-      "path": "src/main/vellum-command/overseer/live/repository.ts",
+      "path": "src/main/junto/overseer/live/repository.ts",
       "kinds": [
         "row",
         "mint"
@@ -1225,7 +1225,7 @@
       "reason": "Decodes the external Responses API result and its function-call items before the native controller can dispatch any provider-produced tool call."
     },
     {
-      "path": "src/main/vellum-command/work/crew-repository.ts",
+      "path": "src/main/junto/work/crew-repository.ts",
       "kinds": [
         "row"
       ],
@@ -1256,7 +1256,7 @@
   ],
   "journalFreeMutations": [
     {
-      "path": "src/main/vellum-command/work/repository.ts",
+      "path": "src/main/junto/work/repository.ts",
       "reasons": [
         "crew.review-verdict",
         "work.artifact.delete",
@@ -1266,15 +1266,15 @@
       "retire": "Mint artifact.archive and artifact.retract facts and materialize them, then delete those two reasons. Remove crew.review-verdict from this call-site entry if verdict admission no longer posts journal-free rows; if verdicts ever replicate, mint review.verdict facts and materialize them before retiring the closed reason."
     },
     {
-      "path": "src/main/vellum-command/content/inline-media-migration.ts",
+      "path": "src/main/junto/content/inline-media-migration.ts",
       "reasons": [
         "content.inline-media.backfill"
       ],
       "reason": "BACKFILL_INLINE_MEDIA_V1 rewrites parts_json across six work_* projection tables to externalize inline media. It is a one-time content move, not a work transition, and must not mint facts that replicate as one.",
-      "retire": "Delete src/main/vellum-command/content/inline-media-migration.ts once the backfill has run on every install."
+      "retire": "Delete src/main/junto/content/inline-media-migration.ts once the backfill has run on every install."
     },
     {
-      "path": "src/main/vellum-command/work/crew-repository.ts",
+      "path": "src/main/junto/work/crew-repository.ts",
       "reasons": [
         "crew.checkout-observation",
         "crew.mail-attempt",

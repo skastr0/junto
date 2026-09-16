@@ -11,7 +11,7 @@ describe("shared contracts", () => {
       station: {
         name: "Junto",
         version: "0.1.0",
-        userDataPath: "/tmp/vellum-command",
+        userDataPath: "/tmp/junto",
       },
       services: [
         {

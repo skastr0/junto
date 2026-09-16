@@ -202,7 +202,7 @@ export const prepareLinuxDesktopRelease = async (
     version: input.version, sourceRevision: input.sourceRevision,
   });
   const descriptor = decodeLinuxDesktopReleaseDescriptor({
-    schema: "vellum-command/linux-desktop-release/v1",
+    schema: "junto/linux-desktop-release/v1",
     product: "Junto",
     channel: "alpha",
     version: input.version,

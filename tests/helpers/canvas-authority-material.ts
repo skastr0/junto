@@ -2,16 +2,16 @@ import { serializeCanvas, type CanvasDoc } from "../../src/shared/canvas";
 import {
   canvasBodySha256Of,
   intentSha256Of,
-} from "../../src/main/vellum-command/canvas-intent-identity";
+} from "../../src/main/junto/canvas-intent-identity";
 import type {
   CanvasAuthorityMaterialSnapshot,
   CanvasAuthorityStoredDocument,
-} from "../../src/main/vellum-command/canvases";
+} from "../../src/main/junto/canvases";
 import {
   persistCanvas,
   writePortfolioHead,
   type CanvasSqlWriter,
-} from "../../src/main/vellum-command/canvas/records";
+} from "../../src/main/junto/canvas/records";
 
 /**
  * Seed the relational canvas authority directly: portfolio head plus one

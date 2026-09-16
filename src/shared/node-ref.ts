@@ -41,7 +41,7 @@ export class NodeRefFormatError extends Error {
   }
 }
 
-const SCHEME = "vellum-command";
+const SCHEME = "junto";
 const AUTHORITY = "canvas";
 const CONTROL_CHARACTER = /[\u0000-\u001f\u007f]/;
 const MAX_URI_LENGTH = 4_096;
@@ -104,7 +104,7 @@ export const parseNodeRef = (input: string): NodeRefSchemaIssue => {
 
   const schemeEnd = input.indexOf("://");
   if (schemeEnd < 0 || input.slice(0, schemeEnd) !== SCHEME) {
-    return fail("scheme", "Junto reference must use the lowercase vellum-command scheme");
+    return fail("scheme", "Junto reference must use the lowercase junto scheme");
   }
 
   const afterScheme = input.slice(schemeEnd + 3);

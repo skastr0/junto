@@ -1,10 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
-import { UpdateError } from "../src/main/vellum-command/update/errors";
+import { UpdateError } from "../src/main/junto/update/errors";
 import {
   assertCurrentLinuxDesktopTarget,
   assertLinuxDesktopUpdateTarget,
   type LinuxDesktopTargetObservation,
-} from "../src/main/vellum-command/update/linux-target";
+} from "../src/main/junto/update/linux-target";
 
 const qualified: LinuxDesktopTargetObservation = {
   platform: "linux",

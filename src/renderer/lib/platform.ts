@@ -1,4 +1,4 @@
-import { getVellumCommandApi } from "./vellum-api";
+import { getJuntoApi } from "./junto-api";
 
 /**
  * Renderer platform marker for copy and shortcut hints. Reads the preload
@@ -6,7 +6,7 @@ import { getVellumCommandApi } from "./vellum-api";
  * `navigator.platform` when the bridge is down (tests, early boot).
  */
 export const rendererPlatform = (): NodeJS.Platform => {
-  const api = getVellumCommandApi();
+  const api = getJuntoApi();
   if (api?.platform) return api.platform;
   const hint = typeof navigator === "undefined" ? "" : navigator.platform;
   return /win/i.test(hint) ? "win32" : /mac/i.test(hint) ? "darwin" : "linux";

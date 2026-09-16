@@ -161,7 +161,7 @@ const loadOverseerArgs = (operation: OverseerOperation, input: Option.Option<str
           path: "args",
           expected: operation,
           received: value,
-          hint: `vellum-command overseer schema show ${operation}`,
+          hint: `junto overseer schema show ${operation}`,
         }),
       );
     }
@@ -257,7 +257,7 @@ const schemaShowCommand = Command.make("show", { target: targetArg }, ({ target 
           new InputError({
             message: `No overseer schema found for ${target}`,
             path: "target",
-            hint: "vellum-command overseer schema list",
+            hint: "junto overseer schema list",
           }),
         );
       }
@@ -318,7 +318,7 @@ const examplesShowCommand = Command.make("show", { target: targetArg }, ({ targe
           new InputError({
             message: `No overseer examples found for ${target}`,
             path: "target",
-            hint: "vellum-command overseer examples list",
+            hint: "junto overseer examples list",
           }),
         );
       }

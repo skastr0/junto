@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   SUPERVISOR_DIAGNOSTIC_MAX_CHARACTERS,
   stationSupervisorFailure,
-} from "../src/main/vellum-command/supervision/contract";
-import { createStandaloneStationSupervisor } from "../src/main/vellum-command/supervision/standalone";
+} from "../src/main/junto/supervision/contract";
+import { createStandaloneStationSupervisor } from "../src/main/junto/supervision/standalone";
 
 describe("standalone station supervisor", () => {
   it("does not claim a handoff on unsupported platforms", async () => {

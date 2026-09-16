@@ -3,7 +3,7 @@ import {
   type AppChildIo,
   type AppProcessLease,
   type AppProcessSignalReceipt,
-} from "../vellum-command/app-process-plane";
+} from "../junto/app-process-plane";
 
 export interface ProcessResult {
   readonly code: number | null;

@@ -18,41 +18,41 @@ import { describe, expect, it } from "vitest";
 import {
   CanvasesLive,
   CanvasesService,
-} from "../src/main/vellum-command/canvases";
+} from "../src/main/junto/canvases";
 import {
   verifyCanvasIntentMaterial,
-} from "../src/main/vellum-command/canvas-intent-identity";
+} from "../src/main/junto/canvas-intent-identity";
 import { serializeCanvas } from "../src/shared/canvas";
 import {
   makeSchedulerRepositoryLive,
   SchedulerRepository,
-} from "../src/main/vellum-command/scheduler/repository";
+} from "../src/main/junto/scheduler/repository";
 import {
   makeStateEngineLive,
   StateEngine,
-} from "../src/main/vellum-command/state/engine";
+} from "../src/main/junto/state/engine";
 import {
   CURRENT_STATE_SCHEMA_VERSION,
   STATE_SCHEMA_V1_IDENTITY,
-} from "../src/main/vellum-command/state/migrations";
+} from "../src/main/junto/state/migrations";
 import {
   verifyRecordedStateSchemaIdentity,
-} from "../src/main/vellum-command/state/schema-identity";
+} from "../src/main/junto/state/schema-identity";
 import {
   StationFleetTargetRepositoryLive,
   StationFleetTargetRepository,
-} from "../src/main/vellum-command/station/fleet-target-repository";
+} from "../src/main/junto/station/fleet-target-repository";
 import {
   decodeStationPortfolioBody,
-} from "../src/main/vellum-command/station/portfolio";
+} from "../src/main/junto/station/portfolio";
 import {
   makeStationRepositoryLive,
   StationRepository,
-} from "../src/main/vellum-command/station/repository";
+} from "../src/main/junto/station/repository";
 import {
   WorkRepository,
   WorkRepositoryLive,
-} from "../src/main/vellum-command/work/repository";
+} from "../src/main/junto/work/repository";
 import { InstallationId } from "../src/shared/installation-id";
 
 const COMMAND_CENTER_ID = Schema.decodeUnknownSync(InstallationId)(

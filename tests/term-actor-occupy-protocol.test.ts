@@ -9,22 +9,22 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { makeActorSeatOccupy } from "../src/main/vellum-command/term/actor-seat-occupy";
-import { seatStateRuntime } from "../src/main/vellum-command/term/agent-state";
-import { TermControlClient } from "../src/main/vellum-command/term/control-client";
-import { startTermControlServer } from "../src/main/vellum-command/term/control-server";
-import { LocalSessionHost } from "../src/main/vellum-command/term/local-host";
+import { makeActorSeatOccupy } from "../src/main/junto/term/actor-seat-occupy";
+import { seatStateRuntime } from "../src/main/junto/term/agent-state";
+import { TermControlClient } from "../src/main/junto/term/control-client";
+import { startTermControlServer } from "../src/main/junto/term/control-server";
+import { LocalSessionHost } from "../src/main/junto/term/local-host";
 import {
   peekFirstTypedMessage,
   resetFirstTypedForTest,
-} from "../src/main/vellum-command/term/first-typed";
-import { makeManagedSpawnIntent } from "../src/main/vellum-command/term/managed-spawn-plan";
-import { setProcessEpochReaderForTests } from "../src/main/vellum-command/process-epoch";
-import { __setSessionExistenceHomeForTest } from "../src/main/vellum-command/term/session-existence";
+} from "../src/main/junto/term/first-typed";
+import { makeManagedSpawnIntent } from "../src/main/junto/term/managed-spawn-plan";
+import { setProcessEpochReaderForTests } from "../src/main/junto/process-epoch";
+import { __setSessionExistenceHomeForTest } from "../src/main/junto/term/session-existence";
 import {
   makeProcessIdentityMap,
   setProcessIdentityMapForTests,
-} from "../src/main/vellum-command/process-identity";
+} from "../src/main/junto/process-identity";
 import { TERM_CONTROL_PROTOCOL } from "../src/shared/term-control";
 import { SeatIdentityConflictError } from "../src/shared/terminal-seat-occupancy";
 import { makeFakeTerminalProcessAuthority } from "./helpers/fake-terminal-process-authority";

@@ -8,18 +8,18 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   makeStateEngineLive,
   StateEngine,
-} from "../src/main/vellum-command/state/engine";
+} from "../src/main/junto/state/engine";
 import {
   CURRENT_STATE_SCHEMA_VERSION,
   STATE_SCHEMA_V2_IDENTITY,
-} from "../src/main/vellum-command/state/migrations";
+} from "../src/main/junto/state/migrations";
 import {
   STATE_SCHEMA_V1_SQL,
   STATE_SCHEMA_V2_SQL,
-} from "../src/main/vellum-command/state/schema";
+} from "../src/main/junto/state/schema";
 import {
   verifyAndStampStateSchema,
-} from "../src/main/vellum-command/state/schema-identity";
+} from "../src/main/junto/state/schema-identity";
 
 const roots: string[] = [];
 const runtimes: Array<

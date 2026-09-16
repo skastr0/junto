@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 /**
- * Dev convenience shim. Packaged installs use `vellum-command station-stdio` only.
+ * Dev convenience shim. Packaged installs use `junto station-stdio` only.
  */
 import { runStationStdio } from "../src/cli/station-stdio";
 

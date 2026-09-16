@@ -383,7 +383,7 @@ export const createCycloneDxSbom = (input: {
         version: input.productVersion,
         properties: [
           {
-            name: "vellum-command:source-revision",
+            name: "junto:source-revision",
             value: input.inventory.sourceRevision,
           },
         ],
@@ -400,18 +400,18 @@ export const createCycloneDxSbom = (input: {
           : { expression: entry.license },
       ],
       properties: [
-        { name: "vellum-command:direct", value: String(entry.direct) },
-        { name: "vellum-command:development", value: String(entry.development) },
-        { name: "vellum-command:license-source", value: entry.licenseSource },
+        { name: "junto:direct", value: String(entry.direct) },
+        { name: "junto:development", value: String(entry.development) },
+        { name: "junto:license-source", value: entry.licenseSource },
         ...(entry.licenseEvidence === undefined
           ? []
           : [
             {
-              name: "vellum-command:license-evidence-file",
+              name: "junto:license-evidence-file",
               value: entry.licenseEvidence.file,
             },
             {
-              name: "vellum-command:license-evidence-sha256",
+              name: "junto:license-evidence-sha256",
               value: entry.licenseEvidence.sha256,
             },
           ]),

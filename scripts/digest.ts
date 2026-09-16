@@ -2,8 +2,8 @@
 import { Effect } from "effect";
 import { digestCanvas } from "../src/shared/digest";
 import { executionGraphContextFromActorRefs } from "../src/shared/graph";
-import { readCanvasThroughControl } from "../src/main/vellum-command/canvas-control/client";
-import { writeCanvasProjectionSidecar } from "../src/main/vellum-command/canvas-control/sidecars";
+import { readCanvasThroughControl } from "../src/main/junto/canvas-control/client";
+import { writeCanvasProjectionSidecar } from "../src/main/junto/canvas-control/sidecars";
 
 // The running app supplies one compiled canvas plus its current Hermes snapshot.
 // This process writes only the deterministic digest sidecar.

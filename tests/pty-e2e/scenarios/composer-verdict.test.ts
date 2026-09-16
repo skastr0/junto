@@ -19,9 +19,9 @@
  */
 import { describe, expect, it } from "vitest";
 import { loadP1Fixture } from "../runner";
-import { SessionObserver } from "../../../src/main/vellum-command/term/observer";
-import { composerVerdictForHarness } from "../../../src/main/vellum-command/term/agent-state";
-import type { ComposerVerdict } from "../../../src/main/vellum-command/term/agent-state";
+import { SessionObserver } from "../../../src/main/junto/term/observer";
+import { composerVerdictForHarness } from "../../../src/main/junto/term/agent-state";
+import type { ComposerVerdict } from "../../../src/main/junto/term/agent-state";
 
 const CHUNK = 64;
 // macOS Verify runs vitest at the default 5s test timeout on 2 workers;

@@ -2,12 +2,12 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   compiledMacSigningPolicy,
   parseMacSigningPolicy,
-} from "../src/main/vellum-command/mac-signing-policy";
+} from "../src/main/junto/mac-signing-policy";
 import {
   buildRemoteDeployScript,
   validateLocalBundleProvenance,
-} from "../src/main/vellum-command/hosts/deploy-darwin";
-import { admitStagedMacApp } from "../src/main/vellum-command/update/admit-mac-app";
+} from "../src/main/junto/hosts/deploy-darwin";
+import { admitStagedMacApp } from "../src/main/junto/update/admit-mac-app";
 import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -64,7 +64,7 @@ describe("compiled macOS release trust", () => {
   it("binds the signed bundle version to the advertised release", async () => {
     vi.stubGlobal("__JUNTO_MAC_TEAM_ID__", team);
     vi.stubGlobal("__JUNTO_MAC_SIGNING_IDENTITY__", authority);
-    const root = await mkdtemp(join(tmpdir(), "vellum-command-mac-admit-"));
+    const root = await mkdtemp(join(tmpdir(), "junto-mac-admit-"));
     try {
       const appPath = join(root, "Junto.app");
       const executable = join(appPath, "Contents", "MacOS", "Junto");

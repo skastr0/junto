@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { createRendererSurfaceReadiness } from "../src/main/vellum-command/renderer-surface-readiness";
+import { createRendererSurfaceReadiness } from "../src/main/junto/renderer-surface-readiness";
 
 describe("renderer surface readiness", () => {
   it("accepts only the active committed document challenge", () => {

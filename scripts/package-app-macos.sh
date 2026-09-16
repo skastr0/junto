@@ -2,7 +2,7 @@
 # Native macOS package path. Signing, audit, and notarization stay mac-only.
 set -euo pipefail
 if [[ "$(uname -s)" != "Darwin" ]]; then
-  printf 'vellum-command: error: macOS packaging must run on macOS\n' >&2
+  printf 'junto: error: macOS packaging must run on macOS\n' >&2
   exit 1
 fi
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -56,7 +56,7 @@ cleanup_package_attempt() {
 trap cleanup_package_attempt EXIT
 
 PACKAGE_VERSION="$("$BUN_EXECUTABLE" -e 'process.stdout.write(require("./package.json").version)')"
-NODE_SHIM_DIR="$(mktemp -d /tmp/vellum-command-node-shim.XXXXXXXXXX)"
+NODE_SHIM_DIR="$(mktemp -d /tmp/junto-node-shim.XXXXXXXXXX)"
 ln -s -- "$BUN_EXECUTABLE" "$NODE_SHIM_DIR/node"
 ELECTRON_VERSION="$(bun -e 'process.stdout.write(require("./node_modules/electron/package.json").version)')"
 PATH="$NODE_SHIM_DIR:$PATH" bunx --bun electron-rebuild \
@@ -112,4 +112,4 @@ if [[ "$NOTARIZE" -eq 1 ]]; then
   JUNTO_APP_SRC="$FINAL_APP" JUNTO_ZIP_SRC="$FINAL_ZIP" \
     bash "$SCRIPT_DIR/notarize-app.sh"
 fi
-printf 'vellum-command: built %s\n' "$FINAL_APP"
+printf 'junto: built %s\n' "$FINAL_APP"

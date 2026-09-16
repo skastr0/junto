@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 /**
- * Dev convenience shim. Packaged installs use `vellum-command content-transfer …` only.
+ * Dev convenience shim. Packaged installs use `junto content-transfer …` only.
  */
 import { runContentTransfer } from "../src/cli/content-transfer";
 

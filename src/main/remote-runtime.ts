@@ -6,13 +6,13 @@
  *   boot  → ManagedRuntime.make(RemoteRootLayer) once  // RemoteRuntime below
  *   entry → RemoteRuntime.runPromise(handler)          // remote boot / station APIs
  *   loops → RemoteRuntime.runFork / same warm Context  // factory program (V4-PROGRAM)
- *   quit  → RemoteRuntime.dispose()                    // vellum-command-remote drainAndExit
+ *   quit  → RemoteRuntime.dispose()                    // junto-remote drainAndExit
  *
  * Same laws as Command Center AppRuntime (src/main/runtime.ts):
  * - One ManagedRuntime per process; never rebuild per call.
  * - Domain Effects enter via RemoteRuntime.runPromise / runFork — not bare
  *   Effect.runPromise (empty Context; S0 fitness gate).
- * - V4-ENTRY: src/main/vellum-remote.ts has zero bare Effect.runPromise; only
+ * - V4-ENTRY: src/main/junto-remote.ts has zero bare Effect.runPromise; only
  *   RemoteRuntime for product domain work.
  * - Sole product store: StateEngine → junto.db. InstallOps co-composed for
  *   ContentService; install-ops.db is install-local, not product truth.
@@ -21,55 +21,55 @@
  * Electron IPC. isPackaged is env / release-tree placement — never app.isPackaged.
  */
 import { Effect, Layer, ManagedRuntime } from "effect";
-import { ObservabilityLoggerLive } from "./vellum-command/observability";
+import { ObservabilityLoggerLive } from "./junto/observability";
 import { CURRENT_STATION_PROTOCOL_SUPPORT } from "@shared/station-protocol";
 import { assessSupervisedRuntime } from "@shared/station";
-import { CanvasesLive } from "./vellum-command/canvases";
+import { CanvasesLive } from "./junto/canvases";
 import {
   ChatServiceFromHermesLive,
   HermesPlaneLive,
-} from "./vellum-command/hermes/plane";
-import { HermesTransportLive } from "./vellum-command/hermes/transport";
-import { KernelLive } from "./vellum-command/kernel/service";
-import { KernelStateRepositoryLive } from "./vellum-command/kernel/repository";
-import { PausePlaneLive } from "./vellum-command/pause-plane";
-import { FactoryPauseRepositoryLive } from "./vellum-command/pause/repository";
-import { SchedulerRepositoryLive } from "./vellum-command/scheduler/repository";
-import { WorkLive } from "./vellum-command/work/service";
-import { WorkRepositoryLive } from "./vellum-command/work/repository";
-import { CrewRepositoryLive } from "./vellum-command/work/crew-repository";
-import { makeContentServiceLive } from "./vellum-command/content/service";
-import { InstallOpsLive } from "./vellum-command/install-ops/engine";
-import { RegionRollupLive } from "./vellum-command/region-rollup";
-import { makeSettingsLive } from "./vellum-command/settings/service";
-import { SnapshotsLive } from "./vellum-command/snapshots";
-import { UsageLive } from "./vellum-command/usage/live";
-import { HostsServiceLive } from "./vellum-command/hosts";
-import { HostRuntimeLive } from "./vellum-command/hosts/host-runtime";
-import { SshTransportLive } from "./vellum-command/ssh";
-import { StationStatusLive } from "./vellum-command/station-status-store";
-import { StateEngineLive } from "./vellum-command/state/engine";
-import { StationFleetTargetRepositoryLive } from "./vellum-command/station/fleet-target-repository";
+} from "./junto/hermes/plane";
+import { HermesTransportLive } from "./junto/hermes/transport";
+import { KernelLive } from "./junto/kernel/service";
+import { KernelStateRepositoryLive } from "./junto/kernel/repository";
+import { PausePlaneLive } from "./junto/pause-plane";
+import { FactoryPauseRepositoryLive } from "./junto/pause/repository";
+import { SchedulerRepositoryLive } from "./junto/scheduler/repository";
+import { WorkLive } from "./junto/work/service";
+import { WorkRepositoryLive } from "./junto/work/repository";
+import { CrewRepositoryLive } from "./junto/work/crew-repository";
+import { makeContentServiceLive } from "./junto/content/service";
+import { InstallOpsLive } from "./junto/install-ops/engine";
+import { RegionRollupLive } from "./junto/region-rollup";
+import { makeSettingsLive } from "./junto/settings/service";
+import { SnapshotsLive } from "./junto/snapshots";
+import { UsageLive } from "./junto/usage/live";
+import { HostsServiceLive } from "./junto/hosts";
+import { HostRuntimeLive } from "./junto/hosts/host-runtime";
+import { SshTransportLive } from "./junto/ssh";
+import { StationStatusLive } from "./junto/station-status-store";
+import { StateEngineLive } from "./junto/state/engine";
+import { StationFleetTargetRepositoryLive } from "./junto/station/fleet-target-repository";
 import {
   StationRepository,
   StationRepositoryLive,
   type StationProjection,
   type StationStatusFacts,
-} from "./vellum-command/station/repository";
-import { StationApiLive } from "./vellum-command/station/api";
-import { StationPropagationLive } from "./vellum-command/station/propagation";
+} from "./junto/station/repository";
+import { StationApiLive } from "./junto/station/api";
+import { StationPropagationLive } from "./junto/station/propagation";
 import {
   OpenSshStationPeerRouteResolverLive,
   StationFleetPropagationLive,
-} from "./vellum-command/station/fleet-propagation";
-import { OpenSshStationPeerExchangeLive } from "./vellum-command/station/openssh-peer-exchange";
-import { StationLivePeerRegistryLive } from "./vellum-command/station/session-registry";
-import { CURRENT_STATE_SCHEMA_VERSION } from "./vellum-command/state/migrations";
-import { ActorSeatOccupyLive } from "./vellum-command/term/actor-seat-occupy-live";
+} from "./junto/station/fleet-propagation";
+import { OpenSshStationPeerExchangeLive } from "./junto/station/openssh-peer-exchange";
+import { StationLivePeerRegistryLive } from "./junto/station/session-registry";
+import { CURRENT_STATE_SCHEMA_VERSION } from "./junto/state/migrations";
+import { ActorSeatOccupyLive } from "./junto/term/actor-seat-occupy-live";
 import {
   resolveCandidateRuntimeRootFromRemoteBinary,
   resolveReleaseDirectoryFromRemoteBinary,
-} from "./vellum-command/supervision/install-user-service";
+} from "./junto/supervision/install-user-service";
 import { resolve } from "node:path";
 
 // ---------------------------------------------------------------------------
@@ -249,7 +249,7 @@ const RemoteRootLayer = Layer.provideMerge(
 );
 
 // RemoteRuntime is the sole warm ManagedRuntime for the displayless Remote
-// process. Constructed once at module load; never remake. Callers: vellum-command-remote
+// process. Constructed once at module load; never remake. Callers: junto-remote
 // boot, station/work control bridges, product planes. Dispose exactly once on
 // SIGTERM/SIGINT via RemoteRuntime.dispose() in drainAndExit.
 const RemoteAppLayer = Layer.mergeAll(RemoteRootLayer, ObservabilityLoggerLive);

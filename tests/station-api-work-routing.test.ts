@@ -29,18 +29,18 @@ import {
   selectStationReportRoutes,
   StationApiService,
   type StationApiPeerContext,
-} from "../src/main/vellum-command/station/api";
-import { ProjectedActorSeat } from "../src/main/vellum-command/station/actor-seat-compiler";
-import { STATION_PORTFOLIO_PROTOCOL } from "../src/main/vellum-command/station/portfolio";
-import { stationProjectionContentSha256 } from "../src/main/vellum-command/station/repository";
+} from "../src/main/junto/station/api";
+import { ProjectedActorSeat } from "../src/main/junto/station/actor-seat-compiler";
+import { STATION_PORTFOLIO_PROTOCOL } from "../src/main/junto/station/portfolio";
+import { stationProjectionContentSha256 } from "../src/main/junto/station/repository";
 import { authorialMaterialForTest } from "./helpers/task-topology-authority";
 import {
   admitEnrolledStationPeer,
   dispatchStationApiRequest,
   type RunStationApi,
   type StationTransportAdmission,
-} from "../src/main/vellum-command/station/dispatcher";
-import { mintStationPeerRoute } from "../src/main/vellum-command/station/peer-exchange";
+} from "../src/main/junto/station/dispatcher";
+import { mintStationPeerRoute } from "../src/main/junto/station/peer-exchange";
 
 const runEffect = <A, E>(effect: Effect.Effect<A, E, any>): Promise<A> =>
   Effect.runPromise(effect as Effect.Effect<A, E, never>);

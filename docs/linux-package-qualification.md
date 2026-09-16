@@ -192,7 +192,7 @@ The receipt remains bounded, redacted operator evidence. It is not
 self-proving automation and it may not be synthesized from single-host smoke.
 
 The structured receipt retains the established
-`vellum-command/station-two-installation-qualification/v1` shape:
+`junto/station-two-installation-qualification/v1` shape:
 
 - each installation records a closed `nativePlatform`;
 - Remote is `linux` / `ubuntu` / `24.04` / `x64`;

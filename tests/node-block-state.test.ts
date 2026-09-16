@@ -4,7 +4,7 @@ import { nodeBlockPresentation } from "../src/renderer/lib/node-block-state";
 const noteNode = {
   type: "text" as const,
   ether: {
-    entity: { kind: "project" as const, name: "vellum-command" },
+    entity: { kind: "project" as const, name: "junto" },
   },
 };
 

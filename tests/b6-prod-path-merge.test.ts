@@ -6,7 +6,7 @@ import {
   resolvedSpawnEnv,
   resolvedSpawnEnvSync,
   staticPathDirs,
-} from "../src/main/vellum-command/adapters/exec";
+} from "../src/main/junto/adapters/exec";
 
 // The spawn plane resolves user-installed CLIs under a packaged/launchd/Finder
 // launch by merging the operator's login-shell PATH with a static fallback

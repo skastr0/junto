@@ -18,17 +18,17 @@ import {
 import {
   applyAndValidatePatch,
   decodePatchInput,
-} from "../src/main/vellum-command/settings/patch";
+} from "../src/main/junto/settings/patch";
 import {
   decodeStoredSettings,
-} from "../src/main/vellum-command/settings/state-schema";
+} from "../src/main/junto/settings/state-schema";
 import {
   makeSettingsService,
   type SettingsServiceApi,
-} from "../src/main/vellum-command/settings/service";
-import { StateEngine } from "../src/main/vellum-command/state/service";
-import { makeStateEngineLive } from "../src/main/vellum-command/state/engine";
-import { MemoryCredentialStore } from "../src/main/vellum-command/credentials/store";
+} from "../src/main/junto/settings/service";
+import { StateEngine } from "../src/main/junto/state/service";
+import { makeStateEngineLive } from "../src/main/junto/state/engine";
+import { MemoryCredentialStore } from "../src/main/junto/credentials/store";
 
 const run = <A, E>(effect: Effect.Effect<A, E>): Promise<A> =>
   Effect.runPromise(effect);

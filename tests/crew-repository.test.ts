@@ -9,12 +9,12 @@ import {
   CrewRepositoryLive,
   applyVerdictWrite,
   subjectHashOf,
-} from "../src/main/vellum-command/work/crew-repository";
+} from "../src/main/junto/work/crew-repository";
 import {
   makeStateEngineLive,
   StateEngine,
-} from "../src/main/vellum-command/state/engine";
-import { unjournaledWorkMutation } from "../src/main/vellum-command/work/mutation-seam";
+} from "../src/main/junto/state/engine";
+import { unjournaledWorkMutation } from "../src/main/junto/work/mutation-seam";
 import { ActorSeatId } from "../src/shared/actor-seat";
 import { deriveMailDisplayState, type ReviewVerdict } from "../src/shared/crew";
 
@@ -25,7 +25,7 @@ const SEAT_REVIEWER = seat("b");
 const SEAT_REVIEWER_2 = seat("d");
 const SEAT_AUTHOR = seat("c");
 
-const root = join(tmpdir(), `vellum-command-crew-repo-${randomUUID()}`);
+const root = join(tmpdir(), `junto-crew-repo-${randomUUID()}`);
 const runtime = ManagedRuntime.make(
   Layer.provideMerge(
     CrewRepositoryLive,

@@ -24,12 +24,12 @@ import {
 } from "../src/shared/station-api";
 import { LogicalSequence as WorkLogicalSequence } from "../src/shared/work-protocol";
 import type { StationControlEnvelope } from "../src/shared/station-api-envelope";
-import { CanvasesService } from "../src/main/vellum-command/canvases";
-import { WorkRepository } from "../src/main/vellum-command/work/repository";
+import { CanvasesService } from "../src/main/junto/canvases";
+import { WorkRepository } from "../src/main/junto/work/repository";
 import {
   StationApiService,
   type StationApiPeerContext,
-} from "../src/main/vellum-command/station/api";
+} from "../src/main/junto/station/api";
 import {
   STATION_FLEET_MAX_WAITERS_PER_TARGET,
   StationFleetPropagation,
@@ -38,17 +38,17 @@ import {
   StationPeerRouteResolutionError,
   StationPeerRouteResolver,
   awaitFleetProjectionApplied,
-} from "../src/main/vellum-command/station/fleet-propagation";
+} from "../src/main/junto/station/fleet-propagation";
 import {
   StationFleetTargetRepository,
   type StationFleetTarget,
-} from "../src/main/vellum-command/station/fleet-target-repository";
+} from "../src/main/junto/station/fleet-target-repository";
 import {
   mintStationPeerRoute,
   StationPeerExchange,
   StationPeerExchangeError,
   type StationRemoteHandlers,
-} from "../src/main/vellum-command/station/peer-exchange";
+} from "../src/main/junto/station/peer-exchange";
 import {
   CURRENT_STATION_PROTOCOL_SUPPORT,
   STATION_PROTOCOL_BASELINE,
@@ -61,15 +61,15 @@ import {
   bindNegotiatedStationProtocol,
   type StationPeerProtocolBinding,
   type StationPeerSession,
-} from "../src/main/vellum-command/station/peer-session";
+} from "../src/main/junto/station/peer-session";
 import {
   StationPropagation,
   type StationPropagationReceipt,
-} from "../src/main/vellum-command/station/propagation";
+} from "../src/main/junto/station/propagation";
 import {
   StationLivePeerRegistry,
   StationLivePeerRegistryLive,
-} from "../src/main/vellum-command/station/session-registry";
+} from "../src/main/junto/station/session-registry";
 
 const hostId = Schema.decodeUnknownSync(HostId);
 const installationId = Schema.decodeUnknownSync(InstallationId);

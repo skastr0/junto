@@ -66,7 +66,7 @@ const runtimeBundleAuditObjectKeys = (source: string): ReadonlyArray<string> => 
 /** Rootless Linux audit is a top-level auditLinuxRuntime({ runtimePath, version }). */
 const linuxRuntimeAuditPresent = (source: string): boolean =>
   /\bexport const auditLinuxRuntime\b/u.test(source) &&
-  /resources\/bin\/vellum-command-remote/u.test(source) &&
+  /resources\/bin\/junto-remote/u.test(source) &&
   /resources\/bin\/node/u.test(source);
 
 describe("macOS packaged runtime policy", () => {
@@ -80,17 +80,17 @@ describe("macOS packaged runtime policy", () => {
     ).toEqual([...EXPECTED_JIT_MACHO_PATHS].sort());
     expect(
       MACOS_RUNTIME_POLICY.machO.find(
-        (entry) => entry.path === "Contents/Resources/bin/vellum-command",
+        (entry) => entry.path === "Contents/Resources/bin/junto",
       ),
-    ).toMatchObject({ identifier: "vellum-command", profile: "none" });
+    ).toMatchObject({ identifier: "junto", profile: "none" });
     expect(
       MACOS_RUNTIME_POLICY.machO.find(
-        (entry) => entry.path === "Contents/Resources/bin/vellum-command-browser",
+        (entry) => entry.path === "Contents/Resources/bin/junto-browser",
       ),
     ).toBeUndefined();
     expect(
       MACOS_RUNTIME_POLICY.machO.find(
-        (entry) => entry.path === "Contents/Resources/bin/vellum-command-station",
+        (entry) => entry.path === "Contents/Resources/bin/junto-station",
       ),
     ).toBeUndefined();
     expect(
@@ -115,9 +115,9 @@ describe("macOS packaged runtime policy", () => {
 
     const cliJit = structuredClone(rawRuntimePolicy);
     const cli = cliJit.machO.find(
-      (entry) => entry.path === "Contents/Resources/bin/vellum-command",
+      (entry) => entry.path === "Contents/Resources/bin/junto",
     );
-    if (cli === undefined) throw new Error("test fixture is missing vellum-command");
+    if (cli === undefined) throw new Error("test fixture is missing junto");
     cli.profile = "jit";
     expect(() => validateMacOSRuntimePolicy(cliJit)).toThrow(/JIT roles mismatch/u);
 
@@ -247,7 +247,7 @@ Load command 9
       validateMachOMinimumSystemVersions(
         ["12.6", "13.0.1"],
         "13.0",
-        "Contents/Resources/bin/vellum-command",
+        "Contents/Resources/bin/junto",
       ),
     ).toThrow(/minos=13\.0\.1 declared=13\.0/u);
     expect(() => parseMachOArchitectures("arm64 arm64")).toThrow(
@@ -315,7 +315,7 @@ describe("electron-builder role-specific signing", () => {
     expect(
       signingProfileForPath(
         appPath,
-        path.join(appPath, "Contents/Resources/bin/vellum-command"),
+        path.join(appPath, "Contents/Resources/bin/junto"),
         MACOS_RUNTIME_POLICY,
       ),
     ).toBe("none");

@@ -13,7 +13,7 @@ import {
   linuxReleaseFenceActive,
   observeLinuxReleaseFence,
   type LinuxReleaseFenceIo,
-} from "../src/main/vellum-command/term/release-fence";
+} from "../src/main/junto/term/release-fence";
 
 const fence = (
   overrides: Partial<LinuxReleaseFence> = {},

@@ -7,17 +7,17 @@ import {
   STATE_SCHEMA_V16_IDENTITY,
   STATE_SCHEMA_V17_IDENTITY,
   CURRENT_STATE_SCHEMA_IDENTITY,
-} from "../src/main/vellum-command/state/migrations";
+} from "../src/main/junto/state/migrations";
 import {
   STATE_SCHEMA_SQL,
   STATE_SCHEMA_V15_SQL,
   STATE_SCHEMA_V16_SQL,
   STATE_SCHEMA_V17_SQL,
-} from "../src/main/vellum-command/state/schema";
+} from "../src/main/junto/state/schema";
 import {
   expectedStateSchemaIdentity,
   verifyAndStampStateSchema,
-} from "../src/main/vellum-command/state/schema-identity";
+} from "../src/main/junto/state/schema-identity";
 
 describe("board post tags schema migration 15 → 16", () => {
   it("freezes v15 and current identities", () => {

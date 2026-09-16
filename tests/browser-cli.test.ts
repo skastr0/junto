@@ -82,7 +82,7 @@ const runCli = (
   options: {
     readonly home: string;
     readonly controlHome?: string;
-    readonly entry?: "browser" | "vellum-command";
+    readonly entry?: "browser" | "junto";
   },
 ): Promise<{ readonly code: number | null; readonly stdout: string; readonly stderr: string }> =>
   new Promise((resolveRun, rejectRun) => {
@@ -95,7 +95,7 @@ const runCli = (
       [CONTROL_HOME_ENV]: options.controlHome,
     };
     const entry =
-      options.entry === "vellum-command"
+      options.entry === "junto"
         ? [join(repoRoot, "src/cli/main.ts"), "browser"]
         : [join(repoRoot, "scripts/browser-cli.ts")];
     const child = spawn("bun", [...entry, ...args], {
@@ -129,7 +129,7 @@ afterEach(async () => {
 });
 
 describe("packaged browser CLI contract", () => {
-  it("supports the canonical vellum-command browser command and standalone compatibility helper", async () => {
+  it("supports the canonical junto browser command and standalone compatibility helper", async () => {
     const root = await newRoot();
     const seen: SeenRequest[] = [];
     await startRogueControl(root, seen);
@@ -142,7 +142,7 @@ describe("packaged browser CLI contract", () => {
     });
     const canonical = await runCli(["doctor", "--json"], {
       home: root,
-      entry: "vellum-command",
+      entry: "junto",
     });
 
     expect(direct.code, direct.stderr).toBe(0);
@@ -307,32 +307,32 @@ describe("browser CLI packaging contract", () => {
     const browserCli = await readFile(join(repoRoot, "scripts/browser-cli.ts"), "utf8");
 
     expect(pkg.build.extraResources).toEqual([
-      { from: "dist/vellum-command", to: "bin/vellum-command" },
+      { from: "dist/junto", to: "bin/junto" },
       { from: "scripts/unix-peer-pid.py", to: "bin/unix-peer-pid.py" },
     ]);
     expect(pkg.build.files).not.toContain("scripts/**");
     expect(cliBuildScript).toContain("--no-compile-autoload-dotenv");
     expect(cliBuildScript).toContain("--no-compile-autoload-bunfig");
-    const cliBuildPosition = buildScript.indexOf('"$SCRIPT_DIR/build-standalone-cli.ts" vellum-command');
+    const cliBuildPosition = buildScript.indexOf('"$SCRIPT_DIR/build-standalone-cli.ts" junto');
     expect(cliBuildPosition).toBeGreaterThanOrEqual(0);
     expect(cliBuildPosition).toBeLessThan(
       buildScript.indexOf('if [[ "$COMPILE_ONLY" -eq 1 ]]'),
     );
-    expect(buildScript).not.toContain("vellum-command-browser");
-    expect(buildScript).not.toContain("vellum-command-station");
-    expect(buildScript).not.toContain("vellum-command-content");
-    expect(installScript).toContain('install_cli_link "vellum-command"');
-    expect(installScript).not.toContain('install_cli_link "vellum-command-browser"');
-    expect(installScript).not.toContain('install_cli_link "vellum-command-station"');
-    expect(installScript).not.toContain('install_cli_link "vellum-command-content"');
-    expect(installScript).toContain('local work_helper="$APP_DST/Contents/Resources/bin/vellum-command"');
+    expect(buildScript).not.toContain("junto-browser");
+    expect(buildScript).not.toContain("junto-station");
+    expect(buildScript).not.toContain("junto-content");
+    expect(installScript).toContain('install_cli_link "junto"');
+    expect(installScript).not.toContain('install_cli_link "junto-browser"');
+    expect(installScript).not.toContain('install_cli_link "junto-station"');
+    expect(installScript).not.toContain('install_cli_link "junto-content"');
+    expect(installScript).toContain('local work_helper="$APP_DST/Contents/Resources/bin/junto"');
     expect(installScript).toContain('ln -s "$helper" "$target"');
     expect(installScript).toContain('CLI link changed identity during creation');
     expect(installScript).not.toContain('mv -f "$stage" "$target"');
     expect(installScript).toContain("refusing to replace non-symlink command");
     expect(installScript).toContain('[[ "$existing" != "$helper" ]]');
     expect(browserCli).not.toMatch(
-      /CONTROL_CAPABILITY|JUNTO_BROWSER_CAPABILITY|x-vellum-command-capability/u,
+      /CONTROL_CAPABILITY|JUNTO_BROWSER_CAPABILITY|x-junto-capability/u,
     );
   });
 });

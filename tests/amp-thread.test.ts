@@ -3,21 +3,21 @@ import {
   isAmpThreadId,
   parseAmpThreadReceipt,
   provisionAmpThread,
-} from "../src/main/vellum-command/term/templates/amp-thread";
+} from "../src/main/junto/term/templates/amp-thread";
 import {
   ensureProvisionedSessionId,
   usesProvisionedSession,
-} from "../src/main/vellum-command/term/amp-seat-thread";
+} from "../src/main/junto/term/amp-seat-thread";
 import {
   launchForManagedSpawn,
   planManagedSpawn,
-} from "../src/main/vellum-command/term/managed-spawn-plan";
+} from "../src/main/junto/term/managed-spawn-plan";
 import { makeManagedAgentNode } from "../src/renderer/lib/node-factories";
 import { firstCascadeColumn } from "../src/renderer/components/node-palette/agent-launch-model";
-import { harnessBinaryInstalled } from "../src/main/vellum-command/term/templates/harness-install";
-import { evaluate } from "../src/main/vellum-command/term/agent-state";
-import { ManagedTerminalDrive } from "../src/main/vellum-command/term/drive";
-import type { ObserverGridSnapshot } from "../src/main/vellum-command/term/observer/types";
+import { harnessBinaryInstalled } from "../src/main/junto/term/templates/harness-install";
+import { evaluate } from "../src/main/junto/term/agent-state";
+import { ManagedTerminalDrive } from "../src/main/junto/term/drive";
+import type { ObserverGridSnapshot } from "../src/main/junto/term/observer/types";
 import { AMP_TEMPLATE } from "../src/shared/managed-terminal-templates";
 
 // The receipt shape below is real output from
@@ -407,7 +407,7 @@ describe("AC-8: a restart resumes the same thread without re-injecting doctrine"
     expect(fresh?.injection.inject).toBe(true);
     expect(fresh?.firstTypedMessage?.length ?? 0).toBeGreaterThan(0);
     expect(fresh?.firstTypedMessage).not.toContain("\n");
-    expect(fresh?.firstTypedMessage).toContain("vellum-command onboard");
+    expect(fresh?.firstTypedMessage).toContain("junto onboard");
   });
 });
 

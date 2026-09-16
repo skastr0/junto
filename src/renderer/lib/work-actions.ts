@@ -3,7 +3,7 @@ import type { Task } from "@shared/work-model";
 import type { WorkOpResult } from "@shared/ipc";
 import { runCanvasAuthoringOperation } from "./canvas-editor-flush";
 import { applyWorkCanvasWrite } from "./mutations";
-import { getVellumCommandApi } from "./vellum-api";
+import { getJuntoApi } from "./junto-api";
 
 /** Operator release: one WorkService transition atomically requeues + unclaims. */
 export const releaseTaskToQueue = async (
@@ -20,7 +20,7 @@ export const releaseTaskToQueue = async (
       message: "Tasks are disabled in this build.",
     };
   }
-  const api = getVellumCommandApi();
+  const api = getJuntoApi();
   if (!api) {
     return {
       ok: false,

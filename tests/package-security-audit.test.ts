@@ -277,8 +277,8 @@ describe("electron-builder fitness", () => {
       .map(({ to }) => `resources/${to}`)
       .filter((resource) => resource.startsWith("resources/systemd/"));
     expect(stagedSystemdPaths).toEqual([
-      "resources/systemd/vellum-command-remote-launch",
-      "resources/systemd/vellum-command-remote.service.template",
+      "resources/systemd/junto-remote-launch",
+      "resources/systemd/junto-remote.service.template",
     ]);
 
     const afterPackSource = await readFile(
@@ -293,12 +293,12 @@ describe("electron-builder fitness", () => {
     );
     expect(fixedSystemdModes).toEqual([
       {
-        resource: "resources/systemd/vellum-command-remote-launch",
+        resource: "resources/systemd/junto-remote-launch",
         mode: "0o755",
       },
       {
         resource:
-          "resources/systemd/vellum-command-remote.service.template",
+          "resources/systemd/junto-remote.service.template",
         mode: "0o644",
       },
     ]);
@@ -344,7 +344,7 @@ describe("electron-builder fitness", () => {
     ]);
 
     const sshFileSystemLayer = await readFile(
-      new URL("../src/main/vellum-command/ssh/live.ts", import.meta.url),
+      new URL("../src/main/junto/ssh/live.ts", import.meta.url),
       "utf8",
     );
     expect(sshFileSystemLayer).toContain(

@@ -48,9 +48,9 @@ describe("packaged feature build contract", () => {
   });
 
   it("defaults the standalone CLI compiler to explicit ship defines", () => {
-    const build = standaloneControlBuild("vellum-command");
+    const build = standaloneControlBuild("junto");
     expect(build.profile).toBe("ship");
-    expect(build.output).toBe("dist/vellum-command");
+    expect(build.output).toBe("dist/junto");
     for (const [key, feature] of Object.entries(FEATURE_CATALOG)) {
       expect(build.featureDefines).toContain(
         `--define=${feature.define}=${JSON.stringify(SHIP_FEATURES[key as keyof typeof SHIP_FEATURES])}`,
@@ -60,7 +60,7 @@ describe("packaged feature build contract", () => {
 
   it("keeps package scripts on the profile-aware standalone compiler", async () => {
     const packageJson = await readFile(path.join(repoRoot, "package.json"), "utf8");
-    expect(packageJson).toContain('"cli:build": "bun scripts/build-standalone-cli.ts vellum-command"');
+    expect(packageJson).toContain('"cli:build": "bun scripts/build-standalone-cli.ts junto"');
     expect(packageJson).not.toContain("browser:build");
     expect(packageJson).not.toContain("station:build");
     expect(packageJson).not.toContain("content:build");

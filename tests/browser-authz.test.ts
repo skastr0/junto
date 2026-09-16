@@ -8,12 +8,12 @@ import {
   isBrowserCallerKind,
   isBrowserCallerNode,
   resolveBrowserCaller,
-} from "../src/main/vellum-command/browser/authz";
-import { resolveBrowserCallerFromProcess } from "../src/main/vellum-command/browser/process-bind";
+} from "../src/main/junto/browser/authz";
+import { resolveBrowserCallerFromProcess } from "../src/main/junto/browser/process-bind";
 import {
   makeProcessIdentityMap,
   admitProcessIdentity,
-} from "../src/main/vellum-command/process-identity";
+} from "../src/main/junto/process-identity";
 import type { Socket } from "node:net";
 
 const text = (
@@ -129,7 +129,7 @@ describe("browser edge authz", () => {
     expect(areConnected(board, "agent", "p1")).toBe(true);
     expect(connectedPageNodeIds(board, "agent")).toEqual(["p1"]);
     expect(connectedPageRefs(board, "work", "agent")).toEqual([
-      "vellum-command://canvas/work?node=p1",
+      "junto://canvas/work?node=p1",
     ]);
     expect(callerMayAccessPage(board, "agent", "p2")).toBe(false);
   });
@@ -168,7 +168,7 @@ describe("process-bind (browser canvas resolution)", () => {
     expect(resolved.ok).toBe(true);
     if (resolved.ok) {
       expect(resolved.principal.nodeId).toBe("agent");
-      expect(resolved.pageRefs).toEqual(["vellum-command://canvas/work?node=p1"]);
+      expect(resolved.pageRefs).toEqual(["junto://canvas/work?node=p1"]);
     }
   });
 
@@ -218,7 +218,7 @@ describe("process-bind (browser canvas resolution)", () => {
     if (resolved.ok) {
       expect(resolved.principal.nodeId).toBe("term");
       expect(resolved.principal.kind).toBe("agent");
-      expect(resolved.pageRefs).toEqual(["vellum-command://canvas/work?node=p1"]);
+      expect(resolved.pageRefs).toEqual(["junto://canvas/work?node=p1"]);
     }
   });
 

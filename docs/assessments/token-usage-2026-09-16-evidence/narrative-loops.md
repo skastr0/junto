@@ -430,7 +430,7 @@ pinned Bun version and is now signing a freshly rebuilt app and PTY helper" (ord
 `91377f1c-013a-484f-9f21-8b18b2451169`" (ord 6619, 04:06:33); "The remaining build step is macOS
 signing; the source is unchanged and all checks remain green" (ord 6646, 04:08:34); "The package is
 signing" (ord 7263, 04:29:45); "Signing is still active" (ord 7315, 04:31:38). The literal polling
-commands are `tail -n 8 /tmp/vellum-command-build-54f79b07.log` (5× from ord 6576) and
+commands are `tail -n 8 /tmp/junto-build-54f79b07.log` (5× from ord 6576) and
 `ps -axo pid,ppid,state,etime,pcpu,command | rg '[c]odesign|[s]ign-app|[e]lectron-builder'`.
 Important qualification: this is **dead wall time, not dead agent time** — the agent filled it with
 `herdr` reads and code review (53 `herdr` calls in the turn), so it kept making progress on other
@@ -453,7 +453,7 @@ interrupted sessions as answers. **I stopped that run**" (ord 3915). It re-dispa
 (ord 3953, 02:09:41, now on `swe-2-max`). At 02:27:58: "Devin hit its account-wide message rate limit
 during the fan-out. Three harness reports were recovered, and two other lanes produced usable reports
 in the wrong schema; the rest are incomplete" (ord 4368). The repeated literal verb is
-`prism workflow runs show 2cb0474e-cf02-48ef-a1cb-ea11172ff51c --store /tmp/vellum-command-pty-matrix-20260914/harness-live.sqlite` (4× from ord 3993) — i.e. polling a run store for lanes that had
+`prism workflow runs show 2cb0474e-cf02-48ef-a1cb-ea11172ff51c --store /tmp/junto-pty-matrix-20260914/harness-live.sqlite` (4× from ord 3993) — i.e. polling a run store for lanes that had
 already died. The agent's own post-mortem is at ord 4837: *"My workflow handled failure badly. I
 wrapped each task with `Effect.either` so other lanes could continue, but added no requirement that
 any lane succeed. Consequently, the workflow said "completed" with every task failed."*
@@ -619,7 +619,7 @@ surrounding actions, it is marked **[observed]**.
   no longer advancing it."*
 - ord 1206 (23:15:07): *"I only approved Devin's subsequent CLI command."*
 - ord 15765 (11:32:23): *"The native run found another concrete gap: Devin's command-approval screen is
-  being reported as low-confidence idle. I can see it asking to run `vellum-command onboard`. No mail
+  being reported as low-confidence idle. I can see it asking to run `junto onboard`. No mail
   has been sent yet; I'm approving that one read-only command and preserving the screen for a
   classifier regression."*
 - ord 14331 (10:48:27): *"I can now see the real Devin failure: it is still at "Do you trust the

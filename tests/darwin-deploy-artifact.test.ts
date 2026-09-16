@@ -7,7 +7,7 @@ import {
   buildRemoteDeployScript,
   compileExpectedPackageState,
   validateReleaseZipArtifactInput,
-} from "../src/main/vellum-command/hosts/deploy-darwin";
+} from "../src/main/junto/hosts/deploy-darwin";
 
 vi.hoisted(() => {
   vi.stubGlobal("__JUNTO_MAC_TEAM_ID__", "EXAMP12345");

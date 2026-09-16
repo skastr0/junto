@@ -1,6 +1,6 @@
 # Support for Junto
 
-Use [GitHub issues](https://github.com/skastr0/vellum-command/issues) for reproducible
+Use [GitHub issues](https://github.com/skastr0/junto/issues) for reproducible
 bugs, documentation corrections, and focused proposals. Include the version or
 commit, platform, install channel, enabled experimental features, and a minimal
 reproduction with private details removed.

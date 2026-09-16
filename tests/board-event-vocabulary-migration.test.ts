@@ -4,16 +4,16 @@ import {
   CURRENT_STATE_SCHEMA_VERSION,
   STATE_SCHEMA_V9_IDENTITY,
   migrateStateSchema,
-} from "../src/main/vellum-command/state/migrations";
+} from "../src/main/junto/state/migrations";
 import {
   STATE_SCHEMA_SQL,
   STATE_SCHEMA_V9_SQL,
-} from "../src/main/vellum-command/state/schema";
+} from "../src/main/junto/state/schema";
 import {
   expectedStateSchemaIdentity,
   readRecordedStateSchemaIdentity,
   verifyAndStampStateSchema,
-} from "../src/main/vellum-command/state/schema-identity";
+} from "../src/main/junto/state/schema-identity";
 
 const observedAt = "2026-01-01T00:00:00.000Z";
 const contentSha = "a".repeat(64);

@@ -9,7 +9,7 @@ playwright="$repo_root/node_modules/.bin/playwright"
 source "$script_dir/linux-display.sh"
 
 if [[ ! -x "$playwright" ]]; then
-  printf 'vellum-command: error: Playwright is missing — run .agents/setup\n' >&2
+  printf 'junto: error: Playwright is missing — run .agents/setup\n' >&2
   exit 1
 fi
 
@@ -21,7 +21,7 @@ cd "$repo_root"
 if [[ "${1:-}" == "--all" ]]; then
   shift
 elif [[ $# -eq 0 ]]; then
-  printf 'vellum-command: no spec paths given — running startup smoke (e2e/scenarios/free-startup.spec.ts). Pass spec paths, or use --all for the full suite.\n' >&2
+  printf 'junto: no spec paths given — running startup smoke (e2e/scenarios/free-startup.spec.ts). Pass spec paths, or use --all for the full suite.\n' >&2
   set -- e2e/scenarios/free-startup.spec.ts
 fi
 
@@ -29,15 +29,15 @@ command=("$playwright" test --config e2e/playwright.config.ts "$@")
 
 if [[ "$(uname -s)" == "Linux" ]] && vellum_use_available_desktop; then
   if [[ -n "${AMP_DIRECT_DESKTOP:-}" ]]; then
-    printf 'vellum-command: Electron E2E is using the active Amp Desktop\n' >&2
+    printf 'junto: Electron E2E is using the active Amp Desktop\n' >&2
     export JUNTO_E2E_SHOW="${JUNTO_E2E_SHOW:-1}"
   fi
 elif [[ "$(uname -s)" == "Linux" ]]; then
   if ! command -v xvfb-run >/dev/null 2>&1; then
-    printf 'vellum-command: error: no desktop or Xvfb fallback is available — run .agents/setup\n' >&2
+    printf 'junto: error: no desktop or Xvfb fallback is available — run .agents/setup\n' >&2
     exit 1
   fi
-  printf 'vellum-command: Electron E2E is using the headless Xvfb fallback\n' >&2
+  printf 'junto: Electron E2E is using the headless Xvfb fallback\n' >&2
   export JUNTO_E2E_SHOW="${JUNTO_E2E_SHOW:-1}"
   exec xvfb-run -a -s '-screen 0 1920x1200x24 -nolisten tcp' "${command[@]}"
 fi

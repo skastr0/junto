@@ -31,16 +31,16 @@ import {
   type BrowserProfilePendingWipe,
   type BrowserProfileWipeLifecycle,
   type BrowserProfileWipeOutcome,
-} from "../src/main/vellum-command/browser/profiles";
-import { BrowserProfileGate } from "../src/main/vellum-command/browser/profile-gate";
+} from "../src/main/junto/browser/profiles";
+import { BrowserProfileGate } from "../src/main/junto/browser/profile-gate";
 import {
   BROWSER_MAX_VISIBLE_SURFACES_HARD,
   BROWSER_MAX_WARM_SESSIONS_HARD,
 } from "../src/shared/browser-limits";
 import {
   makeStateEngineLive,
-} from "../src/main/vellum-command/state/engine";
-import { StateEngine } from "../src/main/vellum-command/state/service";
+} from "../src/main/junto/state/engine";
+import { StateEngine } from "../src/main/junto/state/service";
 
 const FIXED_TIME = "2026-07-17T12:00:00.000Z";
 const MODE_MASK = 0o777;
@@ -95,7 +95,7 @@ describe("browser profile registry", () => {
 
   const freshState = async () => {
     root = await mkdtemp(
-      join(tmpdir(), "vellum-command-browser-sqlite-"),
+      join(tmpdir(), "junto-browser-sqlite-"),
     );
     registryRoot = join(root, "browser");
     runtime = ManagedRuntime.make(

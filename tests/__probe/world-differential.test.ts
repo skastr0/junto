@@ -27,13 +27,13 @@ import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { Effect, Schema } from "effect";
 import { describe, it, expect } from "vitest";
-import { StateEngine } from "../../src/main/vellum-command/state/service";
+import { StateEngine } from "../../src/main/junto/state/service";
 import {
   WorkRepository,
   readCanvasWorkProjection,
   readCanvasWorkRevision,
-} from "../../src/main/vellum-command/work/repository";
-import { makeWorkWorld } from "../../src/main/vellum-command/work/world";
+} from "../../src/main/junto/work/repository";
+import { makeWorkWorld } from "../../src/main/junto/work/world";
 import { IntentFactBasis } from "../../src/shared/work-protocol";
 import { ActorSeatId } from "../../src/shared/actor-seat";
 import { openBenchRuntime } from "../scale-bench/fixture";

@@ -25,11 +25,11 @@ import {
   readCanvasWorkProjection,
   WorkRepository,
   WorkRepositoryLive,
-} from "../src/main/vellum-command/work/repository";
+} from "../src/main/junto/work/repository";
 import {
   makeStateEngineLive,
   StateEngine,
-} from "../src/main/vellum-command/state/engine";
+} from "../src/main/junto/state/engine";
 import { IntentFactBasis } from "../src/shared/work-protocol";
 import { WorkSnapshot } from "../src/shared/work-model";
 import { ContentRef } from "../src/shared/content";
@@ -40,7 +40,7 @@ import {
   authorialTaskTopologyCapabilityForTest,
 } from "./helpers/task-topology-authority";
 
-const root = join(tmpdir(), `vellum-command-projection-shape-${randomUUID()}`);
+const root = join(tmpdir(), `junto-projection-shape-${randomUUID()}`);
 const runtime = ManagedRuntime.make(
   Layer.provideMerge(
     WorkRepositoryLive,

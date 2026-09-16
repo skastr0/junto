@@ -6,10 +6,10 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   LocalSessionHost,
   type LocalHostEvent,
-} from "../src/main/vellum-command/term/local-host";
-import { startTermControlServer } from "../src/main/vellum-command/term/control-server";
-import { TermControlClient } from "../src/main/vellum-command/term/control-client";
-import { seatStateRuntime } from "../src/main/vellum-command/term/agent-state";
+} from "../src/main/junto/term/local-host";
+import { startTermControlServer } from "../src/main/junto/term/control-server";
+import { TermControlClient } from "../src/main/junto/term/control-client";
+import { seatStateRuntime } from "../src/main/junto/term/agent-state";
 import {
   TERM_CONTROL_PROTOCOL,
   type TermControlResponse,
@@ -17,8 +17,8 @@ import {
 import {
   makeProcessIdentityMap,
   setProcessIdentityMapForTests,
-} from "../src/main/vellum-command/process-identity";
-import { setProcessEpochReaderForTests } from "../src/main/vellum-command/process-epoch";
+} from "../src/main/junto/process-identity";
+import { setProcessEpochReaderForTests } from "../src/main/junto/process-epoch";
 import { makeFakeTerminalProcessAuthority } from "./helpers/fake-terminal-process-authority";
 
 const cleanups: Array<() => Promise<void> | void> = [];

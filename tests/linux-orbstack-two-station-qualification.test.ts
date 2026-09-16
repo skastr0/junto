@@ -86,11 +86,11 @@ describe("Linux OrbStack two-station qualification (userland archive)", () => {
     expect(source).not.toContain("debFile");
   });
 
-  it("starts Remote only via generation-pinned vellum-command-remote.service", () => {
+  it("starts Remote only via generation-pinned junto-remote.service", () => {
     const source = readFileSync(SCRIPT, "utf8");
     expect(source).toContain("ensureRemoteUserlandService");
-    expect(source).toContain("resources/bin/vellum-command-remote");
-    expect(source).toContain("vellum-command-remote.service");
+    expect(source).toContain("resources/bin/junto-remote");
+    expect(source).toContain("junto-remote.service");
     expect(source).toContain("--install-user-service");
     // Remote must never be launched through Electron/Xvfb/ozone.
     expect(source).not.toMatch(
@@ -100,7 +100,7 @@ describe("Linux OrbStack two-station qualification (userland archive)", () => {
     expect(source).not.toContain("launchRemoteQualificationRuntime");
     // Command Center may still use Xvfb for desktop startup.
     expect(source).toContain("xvfb-run");
-    expect(source).toContain("--vellum-command-operator-control");
+    expect(source).toContain("--junto-operator-control");
   });
 
   it("observes Remote as displayless Node without renderer/CDP/Xvfb gates", () => {

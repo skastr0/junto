@@ -8,21 +8,21 @@ import type { CanvasDoc, CanvasEdge } from "../src/shared/canvas";
 import { readMailExtension, type MailSenderStamp } from "../src/shared/crew";
 import type { CompletionEvidence, TaskRule } from "../src/shared/work-model";
 import type { ActorRef } from "../src/shared/work-reference";
-import { CanvasesLive, CanvasesService } from "../src/main/vellum-command/canvases";
-import { makeContentServiceLive } from "../src/main/vellum-command/content/service";
-import { makeInstallOpsLive } from "../src/main/vellum-command/install-ops/engine";
-import { makeSettingsLive, SettingsService } from "../src/main/vellum-command/settings/service";
-import { makeStateEngineLive, StateEngine } from "../src/main/vellum-command/state/engine";
-import { StationFleetTargetRepositoryLive } from "../src/main/vellum-command/station/fleet-target-repository";
-import { StationRepositoryLive } from "../src/main/vellum-command/station/repository";
-import { StationLivePeerRegistryLive } from "../src/main/vellum-command/station/session-registry";
-import { CrewRepository, CrewRepositoryLive } from "../src/main/vellum-command/work/crew-repository";
-import { messageDelivery } from "../src/main/vellum-command/work/message-delivery";
-import { WorkRepository, WorkRepositoryLive } from "../src/main/vellum-command/work/repository";
-import { reviewSubjectProjection } from "../src/main/vellum-command/work/reviews";
-import { WorkLive, WorkService, type WorkOpResult, type WorkTaskShowView } from "../src/main/vellum-command/work/service";
+import { CanvasesLive, CanvasesService } from "../src/main/junto/canvases";
+import { makeContentServiceLive } from "../src/main/junto/content/service";
+import { makeInstallOpsLive } from "../src/main/junto/install-ops/engine";
+import { makeSettingsLive, SettingsService } from "../src/main/junto/settings/service";
+import { makeStateEngineLive, StateEngine } from "../src/main/junto/state/engine";
+import { StationFleetTargetRepositoryLive } from "../src/main/junto/station/fleet-target-repository";
+import { StationRepositoryLive } from "../src/main/junto/station/repository";
+import { StationLivePeerRegistryLive } from "../src/main/junto/station/session-registry";
+import { CrewRepository, CrewRepositoryLive } from "../src/main/junto/work/crew-repository";
+import { messageDelivery } from "../src/main/junto/work/message-delivery";
+import { WorkRepository, WorkRepositoryLive } from "../src/main/junto/work/repository";
+import { reviewSubjectProjection } from "../src/main/junto/work/reviews";
+import { WorkLive, WorkService, type WorkOpResult, type WorkTaskShowView } from "../src/main/junto/work/service";
 
-const root = join(tmpdir(), `vellum-command-crew-review-service-${randomUUID()}`);
+const root = join(tmpdir(), `junto-crew-review-service-${randomUUID()}`);
 const makeRuntime = () => {
   const repositories = Layer.provideMerge(
     Layer.mergeAll(

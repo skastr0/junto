@@ -5,7 +5,7 @@
  * CLI examples catalog (cli/core/discovery.ts) imports the same objects for
  * its matching entries ("claim one", "complete with evidence",
  * "block until answer"). Drift between what the doctrine teaches and what
- * `vellum-command examples show` prints is therefore impossible by
+ * `junto examples show` prints is therefore impossible by
  * construction.
  *
  * Payloads mirror the real schemas (shared/work-control.ts). Keep them small

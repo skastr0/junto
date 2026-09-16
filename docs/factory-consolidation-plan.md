@@ -149,10 +149,10 @@ owner).
 |---|---|---|---|
 | D1 | today's `agent` + `herdr` as separate actor kinds; one actor kind remains, named `agent`; `herdr` → `role: "geography"` | an ACP-backed node was once the actor | `physics/kinds.ts:38-40` |
 | D2 | `sanitizeActorSurfacePorts` — the decoder that deletes an actor's entity | invented to validate "one kind requires another kind's fields" | `canvas.ts:559-592` |
-| D3 | ~~ACP subsystem~~ → **kept, severed.** Its factory coupling dies: no kind, no seat, no ports, no participation in any capability decision. The UI and transport stay, hidden and inert. | it was wired into physics to be reachable | `main/vellum-command/chat/` (+ IPC channels, renderer chat dir) |
+| D3 | ~~ACP subsystem~~ → **kept, severed.** Its factory coupling dies: no kind, no seat, no ports, no participation in any capability decision. The UI and transport stay, hidden and inert. | it was wired into physics to be reachable | `main/junto/chat/` (+ IPC channels, renderer chat dir) |
 | D4 | Route tokens + the second admission path | Tier 3 for callers with no local Junto | `work/route-tokens.ts`, `work/live-seat.ts:26,76`, `work/control.ts:194-266` |
 | D5 | `RuntimeTier`, `PORT_TIER_FLOOR`, `tierAllowsPort`, `ActorClass`, `External`/`Facility` placements | the retired Tier 1–4 model, gating ports inside physics | `physics/placement.ts:20-30,63-81`; `admit.ts:200-207` |
-| D6 | Opt-in prism plugin + its install plane + Fleet UI section | the retired opt-in tier | `packages/vellum-plugin/`, `main/vellum-command/plugin-install/` (12 files), `FleetDetailPanel.tsx:386-418`, `hosts/ipc.ts:562` |
+| D6 | Opt-in prism plugin + its install plane + Fleet UI section | the retired opt-in tier | `packages/vellum-plugin/`, `main/junto/plugin-install/` (12 files), `FleetDetailPanel.tsx:386-418`, `hosts/ipc.ts:562` |
 | D7 | `ProcessPrincipalKind` 3 kinds × 3 optional ids → one `Principal` | one per actor kind | `process-identity.ts:19-32`, `caller-resolve.ts:51-53` |
 | D8 | `ActorDeliverySurface` 3 tags → 1 | one per actor kind | `shared/actor-surface.ts:50-53` |
 | D9 | ~12 parallel kind lists re-deciding participation (they disagree about herdr) | no single resolver to call | `message-delivery.ts:69-71,138`, `region-rollup.ts:88-89`, `digest.ts:85-89`, `station.ts:22-29`, `work/authz.ts:122-127`, `browser/authz.ts:27`, `work-canvas-merge.ts:13-14`, `actor-surface.ts:96-141` |
@@ -284,5 +284,5 @@ Both former open items are closed by operator ruling; neither is a derivation.
    deliberate rather than a hole.
 3. **The hidden chat surface stays.** The cement test therefore bans ACP symbols
    from `physics/`, `work/`, `browser/`, and `kernel/` — the capability planes —
-   rather than from the repo. `main/vellum-command/chat/` and the ACP transport are
+   rather than from the repo. `main/junto/chat/` and the ACP transport are
    allowed to exist, and must remain unreferenced by any factory decision.

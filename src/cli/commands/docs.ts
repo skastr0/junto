@@ -9,7 +9,7 @@ import {
   buildNodesCatalogDoc,
   DOC_TOPICS,
   NODE_DOCS,
-} from "@shared/vellum-docs";
+} from "@shared/junto-docs";
 import { OVERSEER_SKILL_MARKDOWN } from "./overseer-skill";
 import { overseerOfflineCapabilities } from "./overseer";
 import { commandCapabilities } from "../core/discovery";
@@ -105,7 +105,7 @@ const docsContractCommand = Command.make("contract", {}, () =>
         "| command | category | description |",
         "|---|---|---|",
         ...commandCapabilities.map(
-          (c) => `| \`vellum-command ${c.command}\` | ${c.category} | ${c.description} |`,
+          (c) => `| \`junto ${c.command}\` | ${c.category} | ${c.description} |`,
         ),
       ].join("\n"),
     }),

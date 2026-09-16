@@ -7,7 +7,7 @@
  * Source of truth: Playground/effect migration v3-to-v4 notes.
  * Contract: docs/END_STATE-effect-foundation.md §S7 / R7-platform
  *
- * Path ownership: src/main/vellum-command/ssh/**, src/cli/**.
+ * Path ownership: src/main/junto/ssh/**, src/cli/**.
  * Consolidation: one map, zero dual v1/v2 import shims, zero live dual paths.
  */
 
@@ -113,31 +113,31 @@ export const S7_LIVE_IMPORT_SITES = [
   },
   {
     module: "effect/FileSystem",
-    files: ["src/main/vellum-command/ssh/service.ts"],
+    files: ["src/main/junto/ssh/service.ts"],
     v4: "effect/FileSystem",
   },
   {
     module: "effect/unstable/process/ChildProcess",
     files: [
-      "src/main/vellum-command/ssh/service.ts",
-      "src/main/vellum-command/ssh/program.ts",
-      "src/main/vellum-command/ssh/process-spawner.ts",
+      "src/main/junto/ssh/service.ts",
+      "src/main/junto/ssh/program.ts",
+      "src/main/junto/ssh/process-spawner.ts",
     ],
     v4: "effect/unstable/process/ChildProcess",
   },
   {
     module: "@effect/platform-node/NodeFileSystem",
-    files: ["src/main/vellum-command/ssh/live.ts"],
+    files: ["src/main/junto/ssh/live.ts"],
     v4: "stays @effect/platform-node (lockstep V4)",
   },
   {
     module: "@effect/platform-node/NodeSink",
-    files: ["src/main/vellum-command/ssh/process-spawner.ts"],
+    files: ["src/main/junto/ssh/process-spawner.ts"],
     v4: "partial → effect/Stdio (see map)",
   },
   {
     module: "@effect/platform-node/NodeStream",
-    files: ["src/main/vellum-command/ssh/process-spawner.ts"],
+    files: ["src/main/junto/ssh/process-spawner.ts"],
     v4: "stays platform-node; shape change on pin",
   },
   {
@@ -153,9 +153,9 @@ export const S7_LIVE_IMPORT_SITES = [
 ] as const;
 
 export const S7_REMAINING_CONTEXT_TAGS = [
-  { id: "@junto/SshTransport", file: "src/main/vellum-command/ssh/service.ts" },
-  { id: "@junto/SshTransportConfig", file: "src/main/vellum-command/ssh/service.ts" },
-  { id: "@junto/ssh/ProcessSpawner", file: "src/main/vellum-command/ssh/process-spawner.ts" },
+  { id: "@junto/SshTransport", file: "src/main/junto/ssh/service.ts" },
+  { id: "@junto/SshTransportConfig", file: "src/main/junto/ssh/service.ts" },
+  { id: "@junto/ssh/ProcessSpawner", file: "src/main/junto/ssh/process-spawner.ts" },
   { id: "@junto/cli/WorkSocket", file: "src/cli/core/socket.ts" },
   { id: "@junto/cli/OperatorSocket", file: "src/cli/core/operator-socket.ts" },
 ] as const;

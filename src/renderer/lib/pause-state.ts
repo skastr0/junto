@@ -4,7 +4,7 @@ import {
   type CanvasPauseState,
   type PauseScope,
 } from "@shared/pause";
-import { getVellumCommandApi } from "./vellum-api";
+import { getJuntoApi } from "./junto-api";
 import { state$ } from "./state";
 
 // Renderer mirror of the main-process pause plane for the OPEN canvas.
@@ -23,7 +23,7 @@ export const pause$ = observable({
 
 /** Re-fetch the open canvas's pause state. Stale responses are dropped. */
 export const refreshPauseState = async (canvasName: string): Promise<void> => {
-  const api = getVellumCommandApi();
+  const api = getJuntoApi();
   if (!api?.factoryPauseState || !canvasName) return;
   try {
     const next = await api.factoryPauseState(canvasName);
@@ -52,7 +52,7 @@ export const setScopePaused = async (
   scope: PauseScope,
   paused: boolean,
 ): Promise<string> => {
-  const api = getVellumCommandApi();
+  const api = getJuntoApi();
   const canvasName = state$.canvasName.peek();
   if (!api?.factoryPauseSet || !canvasName) return "no canvas is open";
   try {

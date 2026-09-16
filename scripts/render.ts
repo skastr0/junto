@@ -2,8 +2,8 @@
 import { Effect } from "effect";
 import { executionGraphContextFromActorRefs } from "../src/shared/graph";
 import { renderCanvasSvg } from "../src/shared/svg";
-import { readCanvasThroughControl } from "../src/main/vellum-command/canvas-control/client";
-import { writeCanvasProjectionSidecar } from "../src/main/vellum-command/canvas-control/sidecars";
+import { readCanvasThroughControl } from "../src/main/junto/canvas-control/client";
+import { writeCanvasProjectionSidecar } from "../src/main/junto/canvas-control/sidecars";
 
 // Headless canvas -> SVG. The running app supplies the compiled live canvas;
 // this process writes only the agent-facing SVG sidecar.

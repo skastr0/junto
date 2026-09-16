@@ -3,7 +3,7 @@ import {
   CheckoutAttribution,
   CheckoutWatcher,
   type GitProbe,
-} from "../src/main/vellum-command/work/checkout-watch";
+} from "../src/main/junto/work/checkout-watch";
 import type { ActorSeatId } from "../src/shared/actor-seat";
 
 // Independent adversarial seam tests for the checkout commit watch

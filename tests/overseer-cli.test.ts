@@ -268,7 +268,7 @@ describe("overseer source CLI offline", () => {
     };
     expect(docsData.data.topic).toBe("overseer");
     expect(docsData.data.offline).toBe(true);
-    expect(docsData.data.content).toContain("vellum-command overseer");
+    expect(docsData.data.content).toContain("junto overseer");
 
     const help = await runCli(["overseer", "--help"]);
     expect(help.code).toBe(0);

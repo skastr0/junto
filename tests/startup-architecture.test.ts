@@ -8,7 +8,7 @@ const indexSource = readFileSync(
   "utf8",
 );
 const remoteSource = readFileSync(
-  join(root, "src/main/vellum-remote.ts"),
+  join(root, "src/main/junto-remote.ts"),
   "utf8",
 );
 
@@ -184,11 +184,11 @@ describe("main-process startup architecture", () => {
 describe("station helper door split", () => {
   it("bootstrap uses enroll/negotiation; peer exchange uses the session helper", () => {
     const bootstrap = readFileSync(
-      join(root, "src/main/vellum-command/station/openssh-bootstrap.ts"),
+      join(root, "src/main/junto/station/openssh-bootstrap.ts"),
       "utf8",
     );
     const peer = readFileSync(
-      join(root, "src/main/vellum-command/station/openssh-peer-exchange.ts"),
+      join(root, "src/main/junto/station/openssh-peer-exchange.ts"),
       "utf8",
     );
     expect(bootstrap).toContain('"negotiation"');

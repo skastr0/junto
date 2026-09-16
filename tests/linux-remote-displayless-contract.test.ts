@@ -1,7 +1,7 @@
 /**
  * Displayless Linux Remote product contract.
  *
- * Packaging ships bundled Node + resources/bin/vellum-command-remote + app-remote
+ * Packaging ships bundled Node + resources/bin/junto-remote + app-remote
  * entry, rebuilds node-pty for that Node ABI, and never uses
  * ELECTRON_RUN_AS_NODE or Bun --compile for the product remote.
  */
@@ -83,12 +83,12 @@ const inspectTree = async (
 
 describe("Linux remote displayless packaging helpers", () => {
   it("bundles Electron's optional original-fs branch as native Node filesystem", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "vellum-command-remote-fs-"));
+    const root = await mkdtemp(path.join(tmpdir(), "junto-remote-fs-"));
     try {
       await mkdir(path.join(root, "src/main"), { recursive: true });
       await writeFile(path.join(root, "package.json"), JSON.stringify({ name: "remote-fs-fixture", version: "0.2.1" }));
       await writeFile(path.join(root, "probe.txt"), "native filesystem works");
-      await writeFile(path.join(root, "src/main/vellum-remote.ts"), `
+      await writeFile(path.join(root, "src/main/junto-remote.ts"), `
         const fs = 'electron' in process.versions ? require('original-fs') : require('fs');
         export const contents = fs.readFileSync('./probe.txt', 'utf8');
         export const fleet = __JUNTO_FLEET_UI_ENABLED__;
@@ -146,7 +146,7 @@ describe("Linux remote displayless packaging helpers", () => {
   });
 
   it("extracts the Node binary and its notices from the same archive", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "vellum-command-node-notices-"));
+    const root = await mkdtemp(path.join(tmpdir(), "junto-node-notices-"));
     try {
       const memberRoot = `node-v${DEFAULT_NODE_REMOTE_VERSION}-linux-x64`;
       await mkdir(path.join(root, memberRoot, "bin"), { recursive: true });
@@ -188,7 +188,7 @@ describe("Linux remote displayless packaging helpers", () => {
       "lib/utils.js",
       "build/Release/pty.node",
     ]);
-    const root = await mkdtemp(path.join(tmpdir(), "vellum-command-node-pty-"));
+    const root = await mkdtemp(path.join(tmpdir(), "junto-node-pty-"));
     try {
       const built = path.join(root, "built-node-pty");
       const staged = path.join(root, "staged-node-pty");
@@ -268,7 +268,7 @@ describe("Linux remote displayless packaging helpers", () => {
   it("wrapper execs bundled node on app-remote entry without ELECTRON_RUN_AS_NODE", () => {
     const script = vellumRemoteWrapperScript();
     expect(script.startsWith("#!/bin/sh\n")).toBe(true);
-    expect(script).toContain("resources/bin/vellum-command-remote");
+    expect(script).toContain("resources/bin/junto-remote");
     expect(script).toContain(REMOTE_NODE_RELATIVE);
     expect(script).toContain(REMOTE_ENTRY_RELATIVE);
     expect(script).toContain('exec "$node" "$entry" "$@"');
@@ -278,7 +278,7 @@ describe("Linux remote displayless packaging helpers", () => {
   });
 
   it("fails closed with a clear message when the remote JS entry is missing", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "vellum-command-remote-entry-"));
+    const root = await mkdtemp(path.join(tmpdir(), "junto-remote-entry-"));
     try {
       const runtime = path.join(root, "runtime");
       await mkdir(runtime, { recursive: true });
@@ -290,7 +290,7 @@ describe("Linux remote displayless packaging helpers", () => {
           buildIfMissing: false,
           skipNativeRebuild: true,
         }),
-      ).rejects.toThrow(/out\/remote\/vellum-command-remote\.js/u);
+      ).rejects.toThrow(/out\/remote\/junto-remote\.js/u);
       expect(remoteEntryMissingMessage(REMOTE_ENTRY_SOURCE_RELATIVE)).toContain(
         REMOTE_ENTRY_SOURCE_RELATIVE,
       );
@@ -303,7 +303,7 @@ describe("Linux remote displayless packaging helpers", () => {
   });
 
   it("stages wrapper + entry on any OS when native rebuild is skipped", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "vellum-command-remote-layout-"));
+    const root = await mkdtemp(path.join(tmpdir(), "junto-remote-layout-"));
     try {
       const runtime = path.join(root, "runtime");
       await mkdir(runtime, { recursive: true });
@@ -338,7 +338,7 @@ describe("Linux remote displayless packaging helpers", () => {
   });
 
   it("refuses a Remote package missing a project distribution notice", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "vellum-command-remote-notices-"));
+    const root = await mkdtemp(path.join(tmpdir(), "junto-remote-notices-"));
     try {
       const runtime = path.join(root, "runtime");
       await mkdir(runtime, { recursive: true });
@@ -360,15 +360,15 @@ describe("Linux remote displayless packaging helpers", () => {
 });
 
 describe("Linux remote displayless product contracts", () => {
-  it("audit requires bundled node, vellum-command-remote, and app-remote entry", () => {
+  it("audit requires bundled node, junto-remote, and app-remote entry", () => {
     for (const required of LINUX_REMOTE_RUNTIME_REQUIRED_FILES) {
       expect(LINUX_RUNTIME_REQUIRED_FILES).toContain(required);
     }
     expect(LINUX_RUNTIME_REQUIRED_FILES).toEqual(
       expect.arrayContaining([
         "resources/bin/node",
-        "resources/bin/vellum-command-remote",
-        "resources/app-remote/vellum-command-remote.js",
+        "resources/bin/junto-remote",
+        "resources/app-remote/junto-remote.js",
         "resources/app-remote/LICENSE",
         "resources/app-remote/THIRD_PARTY_NOTICES.md",
       ]),
@@ -394,7 +394,7 @@ describe("Linux remote displayless product contracts", () => {
 
     const finalize = await readRepo("scripts/finalize-linux-package.ts");
     expect(finalize).toContain('"resources/bin/node"');
-    expect(finalize).toContain('"resources/bin/vellum-command-remote"');
+    expect(finalize).toContain('"resources/bin/junto-remote"');
     expect(finalize).toContain("spawn-helper");
 
     const buildRemote = await readRepo("scripts/build-linux-remote-runtime.ts");
@@ -423,23 +423,23 @@ describe("Linux remote displayless product contracts", () => {
     }
   });
 
-  it("user service template is displayless and pinned to vellum-command-remote", async () => {
-    const unit = await readRepo("build/linux/vellum-remote.service.template");
+  it("user service template is displayless and pinned to junto-remote", async () => {
+    const unit = await readRepo("build/linux/junto-remote.service.template");
     expect(unit).toContain(
-      "ExecStart=@JUNTO_RUNTIME_ROOT@/resources/systemd/vellum-command-remote-launch",
+      "ExecStart=@JUNTO_RUNTIME_ROOT@/resources/systemd/junto-remote-launch",
     );
     expect(unit).toContain(
-      "ConditionFileIsExecutable=@JUNTO_RUNTIME_ROOT@/resources/bin/vellum-command-remote",
+      "ConditionFileIsExecutable=@JUNTO_RUNTIME_ROOT@/resources/bin/junto-remote",
     );
     expect(unit).not.toMatch(/Xvfb|xauth|mcookie/u);
     expect(unit).not.toMatch(/User=|Group=|Capability|\/opt\//u);
   });
 
-  it("launcher invokes resources/bin/vellum-command-remote without Xvfb", async () => {
-    const launcher = await readRepo("build/linux/vellum-remote-launch");
-    expect(launcher).toContain("resources/bin/vellum-command-remote");
+  it("launcher invokes resources/bin/junto-remote without Xvfb", async () => {
+    const launcher = await readRepo("build/linux/junto-remote-launch");
+    expect(launcher).toContain("resources/bin/junto-remote");
     expect(launcher).toContain("unset DISPLAY WAYLAND_DISPLAY XAUTHORITY");
-    expect(launcher).toContain("displayless vellum-command-remote payload is unavailable");
+    expect(launcher).toContain("displayless junto-remote payload is unavailable");
     expect(launcher).not.toMatch(/Xvfb|xauth|mcookie/u);
     expect(launcher).not.toMatch(/--ozone-platform|--vellum-headless|ELECTRON_RUN_AS_NODE/u);
   });

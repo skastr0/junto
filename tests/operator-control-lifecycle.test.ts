@@ -3,7 +3,7 @@ import { join } from "node:path";
 import {
   OPERATOR_CONTROL_SWITCH,
   operatorControlEnabledFromInitialArgv,
-} from "../src/main/vellum-command/operator-control";
+} from "../src/main/junto/operator-control";
 import { describe, expect, it } from "vitest";
 
 const source = readFileSync(
@@ -15,10 +15,10 @@ describe("operator control main lifecycle", () => {
   it("enables only from the frozen initial argv", () => {
     expect(
       operatorControlEnabledFromInitialArgv(
-        ["vellum-command", OPERATOR_CONTROL_SWITCH],
+        ["junto", OPERATOR_CONTROL_SWITCH],
       ),
     ).toBe(true);
-    expect(operatorControlEnabledFromInitialArgv(["vellum-command"])).toBe(false);
+    expect(operatorControlEnabledFromInitialArgv(["junto"])).toBe(false);
 
     const freeze = source.indexOf("const operatorControlEnabledAtLaunch =");
     const singleton = source.indexOf("app.requestSingleInstanceLock()");

@@ -32,7 +32,7 @@ The complete qualification contract requires that the runner:
 - invokes the signed payload's read-only host preflight as the intended
   ordinary users;
 - starts Remote only through the generation-pinned product unit
-  `vellum-command-remote.service` → `~/.junto/runtime/releases/<ver>-<sha>/resources/bin/vellum-command-remote`
+  `junto-remote.service` → `~/.junto/runtime/releases/<ver>-<sha>/resources/bin/junto-remote`
   (no Electron, Chromium, renderer, CDP, Xvfb, or display env on Remote);
 - proves the packaged Node Remote starts without `DISPLAY`, `Xvfb`, `xauth`,
   or `mcookie`, while browser automation remains `unavailable` independently

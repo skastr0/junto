@@ -41,13 +41,13 @@ import {
   readCanvasWorkRevision,
   WorkRepository,
   WorkRepositoryLive,
-} from "../src/main/vellum-command/work/repository";
+} from "../src/main/junto/work/repository";
 import {
   makeStateEngineLive,
   StateEngine,
-} from "../src/main/vellum-command/state/engine";
-import { unjournaledWorkMutation } from "../src/main/vellum-command/work/mutation-seam";
-import { makeWorkWorld, type WorkWorld } from "../src/main/vellum-command/work/world";
+} from "../src/main/junto/state/engine";
+import { unjournaledWorkMutation } from "../src/main/junto/work/mutation-seam";
+import { makeWorkWorld, type WorkWorld } from "../src/main/junto/work/world";
 import { IntentFactBasis } from "../src/shared/work-protocol";
 import { serializeCanvas, type CanvasDoc } from "../src/shared/canvas";
 import { authorialMaterialForTest } from "./helpers/task-topology-authority";
@@ -61,7 +61,7 @@ const BOARD = "board-sink";
 const PAD = "pad-sink";
 const INBOX = "agent-inbox";
 
-const root = join(tmpdir(), `vellum-command-work-world-${randomUUID()}`);
+const root = join(tmpdir(), `junto-work-world-${randomUUID()}`);
 const runtime = ManagedRuntime.make(
   Layer.provideMerge(
     WorkRepositoryLive,

@@ -6,18 +6,18 @@ set -euo pipefail
 umask 0022
 
 if [[ "$(uname -s)" != "Linux" ]]; then
-  printf 'vellum-command: error: Linux packaging requires a Linux execution environment\n' >&2
+  printf 'junto: error: Linux packaging requires a Linux execution environment\n' >&2
   exit 1
 fi
 case "$(uname -m)" in
   x86_64) ;;
-  *) printf 'vellum-command: error: Linux v1 packages require an x64 execution process\n' >&2; exit 1 ;;
+  *) printf 'junto: error: Linux v1 packages require an x64 execution process\n' >&2; exit 1 ;;
 esac
 VERIFY=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --verify) VERIFY=1 ;;
-    *) printf 'vellum-command: error: unsupported Linux package option: %s\n' "$1" >&2; exit 1 ;;
+    *) printf 'junto: error: unsupported Linux package option: %s\n' "$1" >&2; exit 1 ;;
   esac
   shift
 done
@@ -26,7 +26,7 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd -P)"
 cd "$REPO_ROOT"
 RELEASE_DIR="$REPO_ROOT/release"
 if [[ -L "$RELEASE_DIR" || ( -e "$RELEASE_DIR" && ! -d "$RELEASE_DIR" ) ]]; then
-  printf 'vellum-command: error: release must be a non-symlink directory\n' >&2
+  printf 'junto: error: release must be a non-symlink directory\n' >&2
   exit 1
 fi
 mkdir -p -- "$RELEASE_DIR"
@@ -41,7 +41,7 @@ cleanup_package_attempt() {
   if [[ -n "$ATTEMPT_DIR" && -d "$ATTEMPT_DIR" && ! -L "$ATTEMPT_DIR" && "$(dirname "$ATTEMPT_DIR")" == "$RELEASE_DIR" && "$(basename "$ATTEMPT_DIR")" == .vellum-package-attempt-* ]]; then
     rm -rf -- "$ATTEMPT_DIR"
   elif [[ -e "$ATTEMPT_DIR" || -L "$ATTEMPT_DIR" ]]; then
-    printf 'vellum-command: warning: retained package attempt after identity change: %s\n' "$ATTEMPT_DIR" >&2
+    printf 'junto: warning: retained package attempt after identity change: %s\n' "$ATTEMPT_DIR" >&2
   fi
 }
 trap cleanup_package_attempt EXIT
@@ -60,8 +60,8 @@ bunx --no-install electron-rebuild \
 # FPM preserves input modes. Keep its icon copy outside release and delete only
 # that mktemp capability during cleanup.
 PACKAGE_ASSET_DIR="$(mktemp -d -t vellum-linux-assets.XXXXXX)"
-PACKAGE_ICON="$PACKAGE_ASSET_DIR/vellum-command-icon.png"
-install -m 0644 -- assets/brand/vellum-command-icon.png "$PACKAGE_ICON"
+PACKAGE_ICON="$PACKAGE_ASSET_DIR/junto-icon.png"
+install -m 0644 -- assets/brand/junto-icon.png "$PACKAGE_ICON"
 
 ELECTRON_DIST_ARGS=()
 if [[ -x "node_modules/electron/dist/electron" ]]; then
@@ -77,7 +77,7 @@ bunx --no-install electron-builder --linux dir --x64 --publish never \
 DRAFT_RUNTIME="$ATTEMPT_DIR/linux-unpacked"
 # Atomically replace the complete app-remote directory. The staging command
 # includes the fresh provenance and rejects stale/excess Remote closure files.
-printf 'vellum-command: staging exact Linux Remote closure …\n'
+printf 'junto: staging exact Linux Remote closure …\n'
 bun "$SCRIPT_DIR/build-linux-remote-runtime.ts" \
   --runtime "$DRAFT_RUNTIME" \
   --repo "$REPO_ROOT" \
@@ -104,6 +104,6 @@ FINAL_ARTIFACT="$RELEASE_DIR/$(basename "$DRAFT_ARTIFACT")"
 FINAL_ARCHIVE="$RELEASE_DIR/$(basename "$DRAFT_ARCHIVE")"
 ATTEMPT_DIR=""
 if [[ "$VERIFY" -eq 1 ]]; then
-  printf 'vellum-command: source/package parity and Linux x64 execution audit passed; installed sandbox and PTY qualification still require the disposable Ubuntu gate.\n'
+  printf 'junto: source/package parity and Linux x64 execution audit passed; installed sandbox and PTY qualification still require the disposable Ubuntu gate.\n'
 fi
-printf 'vellum-command: built relocatable runtime %s and %s\n' "$FINAL_ARTIFACT" "$FINAL_ARCHIVE"
+printf 'junto: built relocatable runtime %s and %s\n' "$FINAL_ARTIFACT" "$FINAL_ARCHIVE"

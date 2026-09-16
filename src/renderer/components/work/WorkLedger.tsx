@@ -36,7 +36,7 @@ import { applyWorkCanvasWrite } from "../../lib/mutations";
 import { runCanvasAuthoringOperation } from "../../lib/canvas-editor-flush";
 import { openWorkDetail } from "../../lib/work-detail-open";
 import { state$ } from "../../lib/state";
-import { getVellumCommandApi } from "../../lib/vellum-api";
+import { getJuntoApi } from "../../lib/junto-api";
 import { modKeyGlyph } from "../../lib/platform";
 import {
   artifactDeletionWarning,
@@ -466,7 +466,7 @@ export function RequestInbox({
   });
   const [pendingId, setPendingId] = useState<string | null>(null);
   const [error, setError] = useState("");
-  const api = getVellumCommandApi();
+  const api = getJuntoApi();
   const name = canvasName();
   const normalized = query.trim().toLowerCase();
   const visible = useMemo(() => {
@@ -829,7 +829,7 @@ export function ArtifactLibrary({
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [pendingId, setPendingId] = useState<string | null>(null);
   const [error, setError] = useState("");
-  const api = getVellumCommandApi();
+  const api = getJuntoApi();
   const name = canvasName();
   const doc = use$(state$.doc);
   const normalized = query.trim().toLowerCase();

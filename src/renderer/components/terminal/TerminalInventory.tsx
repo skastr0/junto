@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { TerminalSessionSummary } from "@shared/terminal";
-import { getVellumCommandApi } from "../../lib/vellum-api";
+import { getJuntoApi } from "../../lib/junto-api";
 import { Button, Eyebrow } from "../ui";
 
 /**
@@ -11,7 +11,7 @@ import { Button, Eyebrow } from "../ui";
 export function TerminalInventory() {
   const [sessions, setSessions] = useState<readonly TerminalSessionSummary[]>([]);
   const [open, setOpen] = useState(false);
-  const refresh = () => void getVellumCommandApi()?.terminalList?.().then(setSessions);
+  const refresh = () => void getJuntoApi()?.terminalList?.().then(setSessions);
   useEffect(() => { if (open) refresh(); }, [open]);
   const detached = sessions.filter((session) => session.detached && session.status === "running");
   return (
@@ -43,7 +43,7 @@ export function TerminalInventory() {
                     className="row-span-2"
                     title="Stop the process"
                     aria-label="Stop process"
-                    onClick={() => void getVellumCommandApi()?.terminalKill?.(session.bindingId).then(refresh)}
+                    onClick={() => void getJuntoApi()?.terminalKill?.(session.bindingId).then(refresh)}
                   >
                     Stop
                   </Button>

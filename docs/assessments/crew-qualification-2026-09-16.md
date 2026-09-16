@@ -85,13 +85,13 @@ qualification flag should be enabled from the generated-harness results alone.
 
 These are local execution artifacts, not committed logs:
 
-- `/tmp/vellum-command-final-verify.log`
-- `/tmp/vellum-command-final-crew-e2e.log`
-- `/tmp/vellum-command-final-build.log`
-- `/tmp/vellum-command-final-package-smoke.log`
-- `/tmp/vellum-command-final-install.log`
-- `/tmp/vellum-command-final-installed-provenance.json`
-- `/tmp/vellum-command-qa-ready-20260916.md`
+- `/tmp/junto-final-verify.log`
+- `/tmp/junto-final-crew-e2e.log`
+- `/tmp/junto-final-build.log`
+- `/tmp/junto-final-package-smoke.log`
+- `/tmp/junto-final-install.log`
+- `/tmp/junto-final-installed-provenance.json`
+- `/tmp/junto-qa-ready-20260916.md`
 - `test-results/crew-review-cycle-crew-rev-dd7b0-each-the-live-verdict-chain/crew-verdict-chain.png`
 
 The review-cycle result directory also contains the final canvas, runtime

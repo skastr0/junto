@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { makeBrowserProductPathProbe } from "../src/main/vellum-command/browser/readiness-probe";
+import { makeBrowserProductPathProbe } from "../src/main/junto/browser/readiness-probe";
 
 const station = (overrides: Partial<ReturnType<typeof facts>> = {}) => () => ({ ...facts(), ...overrides });
 const facts = () => ({ role: "remote", hostId: "studio", browserCapabilityDeclared: true, controlReady: true, controlHostId: "studio", registeredRemoteHostId: "studio", sandboxReady: true, displayReady: true });

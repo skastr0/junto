@@ -1,5 +1,5 @@
 {
-  "schema": "vellum-command/validator-lolhtml-notices/v1",
+  "schema": "junto/validator-lolhtml-notices/v1",
   "crateCount": 43,
   "crates": [
     {

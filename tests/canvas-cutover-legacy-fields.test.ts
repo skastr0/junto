@@ -5,13 +5,13 @@ import { createHash } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import { Effect, ManagedRuntime } from "effect";
 import { afterEach, describe, expect, it } from "vitest";
-import { makeStateEngineLive, StateEngine } from "../src/main/vellum-command/state/engine";
+import { makeStateEngineLive, StateEngine } from "../src/main/junto/state/engine";
 import {
   CURRENT_STATE_SCHEMA_VERSION,
-} from "../src/main/vellum-command/state/migrations";
-import { STATE_SCHEMA_V20_SQL } from "../src/main/vellum-command/state/schema";
-import { verifyAndStampStateSchema } from "../src/main/vellum-command/state/schema-identity";
-import { reconstructCanvasDoc } from "../src/main/vellum-command/canvas/records";
+} from "../src/main/junto/state/migrations";
+import { STATE_SCHEMA_V20_SQL } from "../src/main/junto/state/schema";
+import { verifyAndStampStateSchema } from "../src/main/junto/state/schema-identity";
+import { reconstructCanvasDoc } from "../src/main/junto/canvas/records";
 
 /**
  * The 20 -> 21 consolidation runs the one-shot legacy EDGE conversion (wire

@@ -12,7 +12,7 @@ import {
 } from "../harness/crew-fixture";
 import { taskItem } from "../harness/sandbox";
 import type { Message, Task } from "../../src/shared/work-model";
-import type { WorkTaskShowView } from "../../src/main/vellum-command/work/service";
+import type { WorkTaskShowView } from "../../src/main/junto/work/service";
 import type { VerdictPostArgs } from "../../src/shared/work-control";
 import { composeMessageDeliveryPayload } from "../../src/shared/message-delivery";
 import { transportLogDirectory } from "../../src/shared/transport-trace";

@@ -13,7 +13,7 @@ import {
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { CURRENT_STATE_SCHEMA_IDENTITY, CURRENT_STATE_SCHEMA_VERSION, STATE_SCHEMA_MIGRATIONS } from "../src/main/vellum-command/state/migrations";
+import { CURRENT_STATE_SCHEMA_IDENTITY, CURRENT_STATE_SCHEMA_VERSION, STATE_SCHEMA_MIGRATIONS } from "../src/main/junto/state/migrations";
 import {
   MAIN_PAYLOAD_SOURCE_RELATIVE,
   MAIN_PROVENANCE_SOURCE_RELATIVE,
@@ -138,13 +138,13 @@ const writeExactRemoteClosure = async (
   remote: Buffer,
 ): Promise<void> => {
   const ordinaryFiles = [
-    "vellum-command",
-    "resources/bin/vellum-command",
+    "junto",
+    "resources/bin/junto",
     "resources/bin/unix-peer-pid.py",
     "resources/bin/node",
     "resources/bin/node.LICENSE",
-    "resources/bin/vellum-command-remote",
-    "resources/systemd/vellum-command-remote-launch",
+    "resources/bin/junto-remote",
+    "resources/systemd/junto-remote-launch",
   ];
   for (const relative of ordinaryFiles) {
     await mkdir(path.dirname(path.join(runtimeRoot, relative)), {
@@ -155,9 +155,9 @@ const writeExactRemoteClosure = async (
   await writeFile(
     path.join(
       runtimeRoot,
-      "resources/systemd/vellum-command-remote.service.template",
+      "resources/systemd/junto-remote.service.template",
     ),
-    "ExecStart=@JUNTO_RUNTIME_ROOT@/resources/systemd/vellum-command-remote-launch\n",
+    "ExecStart=@JUNTO_RUNTIME_ROOT@/resources/systemd/junto-remote-launch\n",
   );
   await mkdir(path.join(runtimeRoot, "resources/app-remote"), {
     recursive: true,
@@ -165,12 +165,12 @@ const writeExactRemoteClosure = async (
   await writeFile(path.join(runtimeRoot, "resources/app-remote/LICENSE"), "project license\n");
   await writeFile(path.join(runtimeRoot, "resources/app-remote/THIRD_PARTY_NOTICES.md"), "dependency notices\n");
   await writeFile(
-    path.join(runtimeRoot, "resources/app-remote/vellum-command-remote.js"),
+    path.join(runtimeRoot, "resources/app-remote/junto-remote.js"),
     remote,
   );
   await writeFile(
     path.join(runtimeRoot, "resources/app-remote/package.json"),
-    `${JSON.stringify({ name: "vellum-app-remote", private: true, main: "vellum-command-remote.js" })}\n`,
+    `${JSON.stringify({ name: "vellum-app-remote", private: true, main: "junto-remote.js" })}\n`,
   );
   await writeProvenance({
     runtime: "linux-remote",
@@ -224,7 +224,7 @@ const createSyntheticLinuxRuntime = async (input: {
   if (input.includeAsarRemote === true) {
     await mkdir(path.join(appStage, "out/remote"), { recursive: true });
     await writeFile(
-      path.join(appStage, "out/remote/vellum-command-remote.js"),
+      path.join(appStage, "out/remote/junto-remote.js"),
       "forbidden Remote\n",
     );
   }
@@ -293,13 +293,13 @@ const createSourceRepository = async (
   git(root, ["config", "user.email", "package-test@example.invalid"]);
   git(root, ["config", "user.name", "Package Test"]);
   git(root, ["config", "commit.gpgsign", "false"]);
-  await mkdir(path.join(root, "src/main/vellum-command/state"), { recursive: true });
+  await mkdir(path.join(root, "src/main/junto/state"), { recursive: true });
   await writeFile(
     path.join(root, "package.json"),
     `${JSON.stringify({ version: appVersion })}\n`,
   );
   await writeFile(
-    path.join(root, "src/main/vellum-command/state/migrations.ts"),
+    path.join(root, "src/main/junto/state/migrations.ts"),
     [
       `export const CURRENT_STATE_SCHEMA_VERSION = ${String(schemaVersion)};`,
       `export const STATE_SCHEMA_V${String(schemaVersion)}_IDENTITY = { actualSchemaSha256: ${JSON.stringify(migrationIdentitySha256)} };`,
@@ -325,7 +325,7 @@ const mutatePackageSourceFacts = async (
   }
   const migrationPath = path.join(
     root,
-    "src/main/vellum-command/state/migrations.ts",
+    "src/main/junto/state/migrations.ts",
   );
   const body = await readFile(migrationPath, "utf8");
   const substitutions: ReadonlyArray<readonly [string, string]> =
@@ -737,7 +737,7 @@ describe("packaged runtime exact parity and closure", () => {
         receipt.compiledRuntimes.linuxRemote?.payloadSha256,
       );
       expect(receipt.linuxRuntimeClosure?.remoteEntries.map((entry) => entry.path)).toEqual(
-        [...LINUX_REMOTE_APP_EXACT_FILES, "resources/bin/node", "resources/bin/node.LICENSE", "resources/bin/vellum-command-remote", "resources/systemd/vellum-command-remote-launch", "resources/systemd/vellum-command-remote.service.template"].sort(),
+        [...LINUX_REMOTE_APP_EXACT_FILES, "resources/bin/node", "resources/bin/node.LICENSE", "resources/bin/junto-remote", "resources/systemd/junto-remote-launch", "resources/systemd/junto-remote.service.template"].sort(),
       );
     } finally {
       await rm(root, { recursive: true, force: true });
@@ -778,7 +778,7 @@ describe("packaged runtime exact parity and closure", () => {
       await writeFile(
         path.join(
           candidate.runtimeRoot,
-          "resources/alternate/vellum-command-remote.js",
+          "resources/alternate/junto-remote.js",
         ),
         "duplicate\n",
       );
@@ -852,7 +852,7 @@ describe("packaged runtime exact parity and closure", () => {
   });
 
   it("whole-directory Remote staging removes stale files and preserves siblings", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "vellum-remote-replace-"));
+    const root = await mkdtemp(path.join(tmpdir(), "junto-remote-replace-"));
     const runtime = path.join(root, "runtime");
     try {
       await mkdir(path.join(root, "out/remote"), { recursive: true });
@@ -882,7 +882,7 @@ describe("packaged runtime exact parity and closure", () => {
         "resources/app-remote/LICENSE",
         "resources/app-remote/THIRD_PARTY_NOTICES.md",
         "resources/app-remote/package.json",
-        "resources/app-remote/vellum-command-remote.js",
+        "resources/app-remote/junto-remote.js",
       ]);
       await expect(readFile(path.join(runtime, "preserve"), "utf8")).resolves.toBe(
         "keep\n",
@@ -893,7 +893,7 @@ describe("packaged runtime exact parity and closure", () => {
   });
 
   it("runtime inventory changes for Node, wrapper, launcher, and node-pty", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "vellum-command-runtime-inventory-"));
+    const root = await mkdtemp(path.join(tmpdir(), "junto-runtime-inventory-"));
     try {
       const candidate = await createSyntheticLinuxRuntime({ root });
       const initial = await collectLinuxRuntimeInventory(candidate.runtimeRoot);
@@ -931,8 +931,8 @@ describe("packaged runtime exact parity and closure", () => {
       ).toMatchObject({ schema: LINUX_RUNTIME_AUDIT_SCHEMA, ok: true });
       for (const relative of [
         "resources/bin/node",
-        "resources/bin/vellum-command-remote",
-        "resources/systemd/vellum-command-remote-launch",
+        "resources/bin/junto-remote",
+        "resources/systemd/junto-remote-launch",
         "resources/app-remote/node_modules/node-pty/lib/index.js",
       ]) {
         await writeFile(path.join(candidate.runtimeRoot, relative), `mutated ${relative}\n`);
@@ -1019,7 +1019,7 @@ describe("attempt-owned publication", () => {
     try {
       const version = "1.2.3";
       await mkdir(path.join(release, "linux-unpacked"));
-      await writeFile(path.join(release, "linux-unpacked/vellum-command"), "runtime\n");
+      await writeFile(path.join(release, "linux-unpacked/junto"), "runtime\n");
       const outside = path.join(release, "outside-created.tar.gz");
       await symlink(
         outside,
@@ -1143,12 +1143,12 @@ describe("qualification receipt lifecycle", () => {
       packagedPath:
         runtime === "electron-main"
           ? "out/main/index.js"
-          : "resources/app-remote/vellum-command-remote.js",
+          : "resources/app-remote/junto-remote.js",
       buildIdentity: identity(runtime),
     });
     expect(() =>
       decodePackageRuntimeParityReceipt({
-        schema: "vellum-command/package-runtime-parity-receipt/v2",
+        schema: "junto/package-runtime-parity-receipt/v2",
         product: "Junto",
         qualification: "fresh-isolated-linux-x64-execution",
         externalCandidatePublished: false,

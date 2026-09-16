@@ -1116,7 +1116,7 @@ test("still 06 — work UI grid", async () => {
           parts: [
             {
               kind: "text",
-              text: '{\n  "subject": "vellum-command",\n  "verified": true\n}',
+              text: '{\n  "subject": "junto",\n  "verified": true\n}',
             },
           ],
           metadata: { mediaType: "application/json", proof: "verified" },

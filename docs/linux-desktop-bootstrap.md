@@ -45,9 +45,9 @@ directory:
   BOOTSTRAP_COMMIT="REPLACE_WITH_APPROVED_40_HEX_COMMIT"
   ALPHA_VERSION="REPLACE_WITH_QUALIFIED_APP_VERSION"
 
-  BOOTSTRAP="vellum-command-desktop-bootstrap-linux-x64"
-  BASE="https://github.com/skastr0/vellum-command/releases/download/$BOOTSTRAP_TAG"
-  ALPHA_ARCHIVE="vellum-command-runtime-$ALPHA_VERSION-linux-x64.tar.gz"
+  BOOTSTRAP="junto-desktop-bootstrap-linux-x64"
+  BASE="https://github.com/skastr0/junto/releases/download/$BOOTSTRAP_TAG"
+  ALPHA_ARCHIVE="junto-runtime-$ALPHA_VERSION-linux-x64.tar.gz"
 
   gh --version
 
@@ -60,8 +60,8 @@ directory:
   gh attestation verify "$BOOTSTRAP" \
     --hostname github.com \
     --bundle "$BOOTSTRAP.attestation.jsonl" \
-    --repo skastr0/vellum-command \
-    --cert-identity "https://github.com/skastr0/vellum-command/.github/workflows/linux-desktop-bootstrap.yml@refs/tags/$BOOTSTRAP_TAG" \
+    --repo skastr0/junto \
+    --cert-identity "https://github.com/skastr0/junto/.github/workflows/linux-desktop-bootstrap.yml@refs/tags/$BOOTSTRAP_TAG" \
     --cert-oidc-issuer https://token.actions.githubusercontent.com \
     --source-ref "refs/tags/$BOOTSTRAP_TAG" \
     --source-digest "$BOOTSTRAP_COMMIT" \
@@ -82,7 +82,7 @@ There is no archive extraction command and no candidate execution. Launch is a
 later, deliberate step after any separately reviewed sandbox preparation:
 
 ```sh
-"$HOME/.local/bin/vellum-command-desktop"
+"$HOME/.local/bin/junto-desktop"
 ```
 
 An attestation, identity, commit, or provenance mismatch is a stop condition.
@@ -104,17 +104,17 @@ the GitHub repository or its release authority stops both paths.
   ALPHA_VERSION="REPLACE_WITH_QUALIFIED_APP_VERSION"
 
   git clone --no-checkout \
-    https://github.com/skastr0/vellum-command.git \
-    vellum-command-bootstrap-source
-  git -C vellum-command-bootstrap-source checkout --detach "$BOOTSTRAP_COMMIT"
-  test "$(git -C vellum-command-bootstrap-source rev-parse HEAD)" = "$BOOTSTRAP_COMMIT"
+    https://github.com/skastr0/junto.git \
+    junto-bootstrap-source
+  git -C junto-bootstrap-source checkout --detach "$BOOTSTRAP_COMMIT"
+  test "$(git -C junto-bootstrap-source rev-parse HEAD)" = "$BOOTSTRAP_COMMIT"
 
-  cd vellum-command-bootstrap-source
+  cd junto-bootstrap-source
   test "$(bun --version)" = "1.3.13"
   bun install --frozen-lockfile
   bun scripts/install-linux-desktop.ts \
     --release "$INPUTS/release.json" \
-    --archive "$INPUTS/vellum-command-runtime-$ALPHA_VERSION-linux-x64.tar.gz" \
+    --archive "$INPUTS/junto-runtime-$ALPHA_VERSION-linux-x64.tar.gz" \
     --sources "$INPUTS/sources.json"
 )
 ```

@@ -7,9 +7,9 @@ Read `AGENTS.md` — it is the canonical project guide for this repository.
 **The product is Junto. Never the short form without Command.**
 
 A different product owns the short one-word name. Every public / user-facing
-string in this repo must say **Junto**. Source paths (`src/main/vellum-command/`), the npm package,
+string in this repo must say **Junto**. Source paths (`src/main/junto/`), the npm package,
 and appId remain implementation identifiers, not compatibility readers. Runtime surfaces use `VellumCommandApi`,
-`~/.junto/`, `junto.db`, and the canonical CLI bin `vellum-command`.
+`~/.junto/`, `junto.db`, and the canonical CLI bin `junto`.
 
 Gate: `bun run lint:product-name` (also in `bun run verify`).
 Constant: `src/shared/product-name.ts`.

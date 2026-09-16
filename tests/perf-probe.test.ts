@@ -6,7 +6,7 @@ import {
   summarizePerfBlocks,
   summarizePerfReads,
   type PerfWindowLine,
-} from "../src/main/vellum-command/observability/perf-probe";
+} from "../src/main/junto/observability/perf-probe";
 
 describe("perf probe gate", () => {
   it("is off unless JUNTO_PERF is exactly 1", () => {

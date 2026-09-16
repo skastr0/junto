@@ -17,12 +17,12 @@ import {
   type BrowserCapabilityTarget,
   type BrowserCapabilityTerminationNotice,
   type BrowserCapabilityUseTarget,
-} from "../src/main/vellum-command/browser/capabilities";
-import { BrowserProfileGate } from "../src/main/vellum-command/browser/profile-gate";
+} from "../src/main/junto/browser/capabilities";
+import { BrowserProfileGate } from "../src/main/junto/browser/profile-gate";
 
-const REF_ONE = "vellum-command://canvas/work?node=n1";
-const REF_TWO = "vellum-command://canvas/work?node=n2";
-const REF_THREE = "vellum-command://canvas/work?node=n3";
+const REF_ONE = "junto://canvas/work?node=n1";
+const REF_TWO = "junto://canvas/work?node=n2";
+const REF_THREE = "junto://canvas/work?node=n3";
 const TARGET_ONE: BrowserCapabilityTarget = {
   ref: REF_ONE,
   hostId: "local",
@@ -210,7 +210,7 @@ describe("browser capability issuance", () => {
       { ...base, actions: ["wildcard" as BrowserCapabilityAction] },
       { ...base, targets: [] },
       { ...base, targets: [TARGET_ONE, TARGET_ONE] },
-      { ...base, targets: [{ ...TARGET_ONE, ref: "vellum-command://canvas/work?node=%6e1" }] },
+      { ...base, targets: [{ ...TARGET_ONE, ref: "junto://canvas/work?node=%6e1" }] },
       { ...base, targets: [{ ...TARGET_ONE, hostId: "-remote" }] },
       { ...base, targets: [{ ...TARGET_ONE, profile: "*" }] },
       { ...base, targets: [{ ...TARGET_ONE, exactOrigins: ["*"] }] },

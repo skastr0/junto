@@ -1,15 +1,15 @@
 #!/usr/bin/env bun
 import { Effect } from "effect";
-import { readCanvasThroughControl } from "../src/main/vellum-command/canvas-control/client";
+import { readCanvasThroughControl } from "../src/main/junto/canvas-control/client";
 import { formatNodeRef, nodeRefKey, parseNodeRef } from "../src/shared/node-ref";
 
-const usage = `vellum-command node references
+const usage = `junto node references
 
 usage: bun run ref <command> [args] [--json]
 
 commands:
   format <canvas-name> <node-id>  print a canonical Junto node reference
-  resolve <vellum-command-uri>    resolve a reference without mutating the canvas`;
+  resolve <junto-uri>    resolve a reference without mutating the canvas`;
 
 type CliError = {
   readonly code: string;

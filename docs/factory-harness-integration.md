@@ -6,7 +6,7 @@
 
 - [Managed terminal plan](managed-terminal-plan.md)
 - [Factory physics](architecture-factory-physics.md)
-- [Junto protocol](vellum-protocol.md)
+- [Junto protocol](junto-protocol.md)
 - [Security doctrine](security-doctrine.md)
 
 This path is retained so older research notes have a stable target. It is not a

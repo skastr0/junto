@@ -34,7 +34,7 @@ import {
   type AppProcessDrainResult,
   type AppProcessLease,
   type AppProcessPlane,
-} from "../src/main/vellum-command/app-process-plane";
+} from "../src/main/junto/app-process-plane";
 
 const SMOKE_TIMEOUT_MS = 45_000;
 const STARTUP_TIMEOUT_MS = 25_000;
@@ -164,7 +164,7 @@ export const parseDoctorReceipt = (output: string): DoctorReceipt => {
   try {
     value = JSON.parse(output);
   } catch {
-    throw new Error("packaged vellum-command browser returned non-JSON doctor output");
+    throw new Error("packaged junto browser returned non-JSON doctor output");
   }
   if (
     typeof value !== "object" ||
@@ -173,7 +173,7 @@ export const parseDoctorReceipt = (output: string): DoctorReceipt => {
     Object.keys(value).sort().join(",") !== "data,ok" ||
     (value as { ok?: unknown }).ok !== true
   ) {
-    throw new Error("packaged vellum-command browser returned the wrong doctor envelope");
+    throw new Error("packaged junto browser returned the wrong doctor envelope");
   }
   const data = (value as { data?: unknown }).data;
   if (
@@ -183,7 +183,7 @@ export const parseDoctorReceipt = (output: string): DoctorReceipt => {
     Object.keys(data).join(",") !== "status" ||
     (data as { status?: unknown }).status !== "ok"
   ) {
-    throw new Error("packaged vellum-command browser returned the wrong doctor payload");
+    throw new Error("packaged junto browser returned the wrong doctor payload");
   }
   return value as DoctorReceipt;
 };
@@ -247,7 +247,7 @@ export const parsePackagedStationStatus = (
     .filter((line) => line.length > 0);
   if (lines.length !== 1) {
     throw new Error(
-      "packaged vellum-command station-stdio returned the wrong response count",
+      "packaged junto station-stdio returned the wrong response count",
     );
   }
 
@@ -255,12 +255,12 @@ export const parsePackagedStationStatus = (
   try {
     raw = JSON.parse(lines[0]);
   } catch {
-    throw new Error("packaged vellum-command station-stdio returned non-JSON output");
+    throw new Error("packaged junto station-stdio returned non-JSON output");
   }
   const decoded = decodeStationSessionFrame(raw);
   if (Result.isFailure(decoded)) {
     throw new Error(
-      "packaged vellum-command station-stdio returned a malformed session frame",
+      "packaged junto station-stdio returned a malformed session frame",
     );
   }
   const frame = decoded.success;
@@ -271,7 +271,7 @@ export const parsePackagedStationStatus = (
     frame.envelope.response.op !== "status"
   ) {
     throw new Error(
-      "packaged vellum-command station-stdio returned the wrong status response",
+      "packaged junto station-stdio returned the wrong status response",
     );
   }
   return frame.envelope.response;
@@ -315,7 +315,7 @@ export const verifyPackagedStationOwnerLocalHandoff = async (
     const next = `${current}${String(chunk)}`;
     if (Buffer.byteLength(next, "utf8") > CHILD_OUTPUT_LIMIT_BYTES) {
       rejectResponse(
-        new Error("packaged vellum-command station-stdio exceeded its output bound"),
+        new Error("packaged junto station-stdio exceeded its output bound"),
       );
     }
     return next;
@@ -338,14 +338,14 @@ export const verifyPackagedStationOwnerLocalHandoff = async (
   const removeCloseListener = lease.io.onClose(() => {
     if (!responseObserved) {
       rejectResponse(
-        new Error("packaged vellum-command station-stdio closed before its response"),
+        new Error("packaged junto station-stdio closed before its response"),
       );
     }
   });
   const timeout = setTimeout(
     () =>
       rejectResponse(
-        new Error("packaged vellum-command station-stdio status response timed out"),
+        new Error("packaged junto station-stdio status response timed out"),
       ),
     options.timeoutMs ?? 15_000,
   );
@@ -376,7 +376,7 @@ export const verifyPackagedStationOwnerLocalHandoff = async (
       stderr.trim().length > 0
     ) {
       throw new Error(
-        "packaged vellum-command station-stdio did not complete its owner-local handoff",
+        "packaged junto station-stdio did not complete its owner-local handoff",
       );
     }
     parsePackagedStationStatus(stdout);
@@ -754,7 +754,7 @@ export const smokePackagedRuntime = async (
   }
   preflightRuntime(appPath);
   const executable = path.join(appPath, "Contents", "MacOS", "Junto");
-  const packagedCli = path.join(appPath, "Contents", "Resources", "bin", "vellum-command");
+  const packagedCli = path.join(appPath, "Contents", "Resources", "bin", "junto");
   await Promise.all([stat(executable), stat(packagedCli)]);
 
   const realHome = homedir();
@@ -776,7 +776,7 @@ export const smokePackagedRuntime = async (
   // overflow sockaddr_un before the browser control server binds. Canonical
   // /private/tmp keeps the isolated, random root well inside the kernel limit.
   const shortTempParent = await realpath("/tmp");
-  const tempRoot = await mkdtemp(path.join(shortTempParent, "vellum-command-smoke-"));
+  const tempRoot = await mkdtemp(path.join(shortTempParent, "junto-smoke-"));
   await chmod(tempRoot, 0o700);
   const isolatedHome = path.join(tempRoot, "home");
   const userData = path.join(tempRoot, "user-data");
@@ -1027,7 +1027,7 @@ if (invokedPath === modulePath) {
         try {
           writeSync(
             process.stderr.fd,
-            `vellum-command packaged runtime smoke failed: ${sanitized}\n`,
+            `junto packaged runtime smoke failed: ${sanitized}\n`,
           );
         } finally {
           process.exit(1);

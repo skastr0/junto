@@ -97,8 +97,8 @@ describe("claim briefing board rules", () => {
     expect(text).toContain("prices stay in BRL");
     expect(text).toContain('sends the task to Tasks review (next: "review")');
     expect(text).toContain("outgoing: typecheck");
-    expect(text).toContain("vellum-command tasks check");
-    expect(text).toContain("vellum-command tasks rules");
+    expect(text).toContain("junto tasks check");
+    expect(text).toContain("junto tasks rules");
     expect(text).toContain("completionEvidence.claims");
     expect(text).toContain("completionEvidence.waivers");
   });

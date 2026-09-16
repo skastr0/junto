@@ -44,7 +44,7 @@ import {
   readClaudeModels,
   readGrokModels,
   readHermesModels,
-} from "../src/main/vellum-command/term/templates/enumerate-models";
+} from "../src/main/junto/term/templates/enumerate-models";
 import {
   HARNESS_HERMES_ENABLED,
   HARNESS_KIMI_ENABLED,
@@ -429,7 +429,7 @@ describe("resolveManagedLaunch argv", () => {
         effort: "high",
         permissionMode: "acceptEdits",
         sessionId: "11111111-1111-1111-1111-111111111111",
-        systemPrompt: "call vellum-command onboard",
+        systemPrompt: "call junto onboard",
         prompt: "start the task",
         cwd: "/repo",
         env: { JUNTO_TOKEN: "t" },
@@ -449,7 +449,7 @@ describe("resolveManagedLaunch argv", () => {
       "--session-id",
       "11111111-1111-1111-1111-111111111111",
       "--append-system-prompt",
-      "call vellum-command onboard",
+      "call junto onboard",
       "start the task",
     ]);
     expect(launch.env?.JUNTO_TOKEN).toBe("t");
@@ -875,7 +875,7 @@ describe("resolveManagedLaunch argv", () => {
         model: "sonnet",
         effort: "high",
         sessionId: "019fd402-9e75-75e2-bca4-18bff1f2d5cc",
-        systemPrompt: "call vellum-command onboard",
+        systemPrompt: "call junto onboard",
         prompt: "start the task",
       },
       bareAmbient,
@@ -889,7 +889,7 @@ describe("resolveManagedLaunch argv", () => {
       "--session-id",
       "019fd402-9e75-75e2-bca4-18bff1f2d5cc",
       "--append-system-prompt",
-      "call vellum-command onboard",
+      "call junto onboard",
       "start the task",
     ]);
   });

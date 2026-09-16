@@ -5,8 +5,8 @@ import type { AgentSeatStateEvent } from "../src/shared/agent-seat-state";
 import type {
   ObserverGridSnapshot,
   ObserverGridWindow,
-} from "../src/main/vellum-command/term/observer";
-import { makeSeatObservation } from "../src/main/vellum-command/work/seat-observation";
+} from "../src/main/junto/term/observer";
+import { makeSeatObservation } from "../src/main/junto/work/seat-observation";
 
 // Independent adversarial seam tests for the seat wait/observe contract
 // (historical crew contract, deleted by operator ruling 2026-09-16). The service's own rules: authority is re-derived

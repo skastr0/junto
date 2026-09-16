@@ -86,7 +86,7 @@ describe("message-delivery pure helpers", () => {
     expect(composeImmediatePromptPayload(message)).toBe(
       "mail from Reviewer\nRead the patch.\nCheck the failing case.",
     );
-    expect(composeMessageDeliveryPayload(message)).toContain("vellum-command msg read m1");
+    expect(composeMessageDeliveryPayload(message)).toContain("junto msg read m1");
   });
 
   it("formats one-line payload with role and optional taskId", () => {
@@ -124,7 +124,7 @@ describe("message-delivery pure helpers", () => {
       true,
     );
     expect(line).toContain("01KZSM4A84AS");
-    expect(line).toContain("vellum-command msg read 01KZSM4A84ASFRTZ77YAQ09CVH");
+    expect(line).toContain("junto msg read 01KZSM4A84ASFRTZ77YAQ09CVH");
     expect(line).not.toContain("[factory mail from");
     // Essay body is not dumped — only a short preview + CLI pointer.
     expect(line.includes("\n")).toBe(false);
@@ -152,7 +152,7 @@ describe("message-delivery pure helpers", () => {
     ]);
     expect(batch).toContain("3 unread");
     expect(batch).not.toContain("factory mail");
-    expect(batch).toContain("vellum-command msg list");
+    expect(batch).toContain("junto msg list");
     expect(batch.includes("\n")).toBe(false);
     const newestIdx = batch.indexOf(newest.slice(0, 12));
     const middleIdx = batch.indexOf(middle.slice(0, 12));

@@ -5,15 +5,15 @@ SQLite database** through the **real product services** (no reimplementation,
 no mocks):
 
 1. `CanvasesService.read(canvas)` — the full-world read
-   (`src/main/vellum-command/canvases.ts` → `readCanvasWorkProjection`,
-   `src/main/vellum-command/work/repository.ts:2624`): wall time, the synchronous block
+   (`src/main/junto/canvases.ts` → `readCanvasWorkProjection`,
+   `src/main/junto/work/repository.ts:2624`): wall time, the synchronous block
    it occupies, CPU, SQL statement count, SQLite-vs-decode split, and the
    projected/stored document inflation.
 2. `WorkRepository.readSnapshot(canvas, node)` — the exported entry to
    `loadSnapshot` (`repository.ts:2290`), per sink, with the SQL statement
    count per call.
 3. The synchronous read path of one `wakeManagedSeat`
-   (`src/main/vellum-command/kernel/service.ts` `wakeManagedSeatProgram`): full canvas
+   (`src/main/junto/kernel/service.ts` `wakeManagedSeatProgram`): full canvas
    read + station scope + active actor refs + registry compile. Seat process
    spawn is excluded on purpose — it is not main-thread synchronous work.
 

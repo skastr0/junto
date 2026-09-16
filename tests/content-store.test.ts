@@ -7,39 +7,39 @@ import { Effect, ManagedRuntime } from "effect";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   CONTENT_STATE_SCHEMA_SQL,
-} from "../src/main/vellum-command/content/state-schema";
+} from "../src/main/junto/content/state-schema";
 import {
   contentIncomingDir,
   contentObjectPath,
   contentStoreRoot,
-} from "../src/main/vellum-command/content/paths";
+} from "../src/main/junto/content/paths";
 import {
   createContentService,
-} from "../src/main/vellum-command/content/service";
+} from "../src/main/junto/content/service";
 import {
   ContentManifestError,
   getContentObject,
   listContentRefsForObject,
   recordContentObject,
   recordContentRef,
-} from "../src/main/vellum-command/content/manifest";
+} from "../src/main/junto/content/manifest";
 import {
   ContentStoreError,
   ensureContentLayout,
   hashContentObjectFile,
   ingestContentBytes,
   verifyContentObjectFile,
-} from "../src/main/vellum-command/content/store";
+} from "../src/main/junto/content/store";
 import {
   makeStateEngineLive,
   StateEngine,
-} from "../src/main/vellum-command/state/engine";
+} from "../src/main/junto/state/engine";
 import type {
   StateBindings,
   StateInputValue,
   StateRow,
   StateWriter,
-} from "../src/main/vellum-command/state/service";
+} from "../src/main/junto/state/service";
 import {
   CURRENT_STATE_SCHEMA_VERSION,
   migrateStateSchema,
@@ -50,18 +50,18 @@ import {
   STATE_SCHEMA_V15_IDENTITY,
   STATE_SCHEMA_V16_IDENTITY,
   CURRENT_STATE_SCHEMA_IDENTITY,
-} from "../src/main/vellum-command/state/migrations";
+} from "../src/main/junto/state/migrations";
 import {
   STATE_SCHEMA_SQL,
   STATE_SCHEMA_V11_SQL,
   STATE_SCHEMA_V12_SQL,
   STATE_SCHEMA_V13_SQL,
   STATE_SCHEMA_V14_SQL,
-} from "../src/main/vellum-command/state/schema";
+} from "../src/main/junto/state/schema";
 import {
   expectedStateSchemaIdentity,
   verifyAndStampStateSchema,
-} from "../src/main/vellum-command/state/schema-identity";
+} from "../src/main/junto/state/schema-identity";
 
 const roots: string[] = [];
 const runtimes: Array<
@@ -104,7 +104,7 @@ const openEngine = async (dbPath: string) => {
 
 describe("content layout + stream ingest", () => {
   it("streams chunks without buffering the full body and publishes by digest", async () => {
-    const home = await tempRoot("vellum-command-content-ingest-");
+    const home = await tempRoot("junto-content-ingest-");
     const root = contentStoreRoot(home);
     const payload = Buffer.alloc(256 * 1024 + 17, 0x5a);
     payload[0] = 0x01;
@@ -139,7 +139,7 @@ describe("content layout + stream ingest", () => {
   });
 
   it("is idempotent when the verified digest already exists", async () => {
-    const home = await tempRoot("vellum-command-content-idem-");
+    const home = await tempRoot("junto-content-idem-");
     const root = contentStoreRoot(home);
     const payload = Buffer.from("same-bytes-twice");
     const first = await ingestContentBytes({
@@ -159,7 +159,7 @@ describe("content layout + stream ingest", () => {
   });
 
   it("fails closed on expected digest mismatch and leaves no published object", async () => {
-    const home = await tempRoot("vellum-command-content-corrupt-");
+    const home = await tempRoot("junto-content-corrupt-");
     const root = contentStoreRoot(home);
     const payload = Buffer.from("actual-bytes");
     await expect(
@@ -179,7 +179,7 @@ describe("content layout + stream ingest", () => {
   });
 
   it("refuses symlink substitution on the object tree", async () => {
-    const home = await tempRoot("vellum-command-content-symlink-");
+    const home = await tempRoot("junto-content-symlink-");
     const root = contentStoreRoot(home);
     ensureContentLayout(root);
     const outside = join(home, "outside");
@@ -443,7 +443,7 @@ describe("content schema migration 11 → current", () => {
 
 describe("content service put + restart survival", () => {
   it("puts stream, records manifest, survives engine restart", async () => {
-    const home = await tempRoot("vellum-command-content-svc-");
+    const home = await tempRoot("junto-content-svc-");
     const stateDir = join(home, ".junto", "state");
     await mkdir(stateDir, { recursive: true });
     const dbPath = join(stateDir, "junto.db");
@@ -506,7 +506,7 @@ describe("content service put + restart survival", () => {
   });
 
   it("does not create a ref when owner is omitted (orphan-safe object only)", async () => {
-    const home = await tempRoot("vellum-command-content-no-ref-");
+    const home = await tempRoot("junto-content-no-ref-");
     const stateDir = join(home, ".junto", "state");
     await mkdir(stateDir, { recursive: true });
     const dbPath = join(stateDir, "junto.db");

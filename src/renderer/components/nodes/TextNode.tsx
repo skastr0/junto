@@ -38,7 +38,7 @@ import {
 } from "../../lib/terminal-session-refresh";
 import { terminal$ } from "../../lib/terminal-state";
 import { openNoteSurface } from "../../lib/dock-state";
-import { getVellumCommandApi } from "../../lib/vellum-api";
+import { getJuntoApi } from "../../lib/junto-api";
 import { HarnessMark } from "../HarnessMark";
 import { OverseerMark } from "../OverseerMark";
 import { isOverseerSeat } from "../../lib/overseer-set";
@@ -273,7 +273,7 @@ function EntityCard({
   useEffect(() => {
     if (!bindingId) return;
     const refresh = () =>
-      getVellumCommandApi()
+      getJuntoApi()
         ?.terminalGet?.(bindingId, hostId)
         .then((next) => {
           const prev = terminal$.sessionByBindingId[bindingId].peek();

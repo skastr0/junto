@@ -28,8 +28,8 @@ import {
   isPinSessionHarness,
   parseHarnessSessionArgv,
   reclaimOrphanedHarnessArgv,
-} from "../src/main/vellum-command/term/session-existence";
-import { launchForManagedSpawn } from "../src/main/vellum-command/term/managed-spawn-plan";
+} from "../src/main/junto/term/session-existence";
+import { launchForManagedSpawn } from "../src/main/junto/term/managed-spawn-plan";
 import { makeManagedAgentNode } from "../src/renderer/lib/node-factories";
 import type { CanvasDoc } from "../src/shared/canvas";
 

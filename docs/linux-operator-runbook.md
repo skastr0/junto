@@ -23,8 +23,8 @@ embedded release trust and installs a fresh managed generation. It refuses
 an existing managed launcher and never launches the app or opens its database.
 
 The generation lives at
-`~/.local/opt/vellum-command-alpha/<version>-<archiveSHA256>/`.
-`~/.local/bin/vellum-command-desktop` launches the selected immutable
+`~/.local/opt/junto-alpha/<version>-<archiveSHA256>/`.
+`~/.local/bin/junto-desktop` launches the selected immutable
 generation, with an ordinary-user desktop entry. Close any existing loose
 extracted app before launching the managed installation.
 

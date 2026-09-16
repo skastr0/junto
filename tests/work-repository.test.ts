@@ -23,12 +23,12 @@ import {
   WorkAuthorityError,
   WorkRepository,
   WorkRepositoryLive,
-} from "../src/main/vellum-command/work/repository";
-import { subjectHashOf } from "../src/main/vellum-command/work/review-subject-hash";
+} from "../src/main/junto/work/repository";
+import { subjectHashOf } from "../src/main/junto/work/review-subject-hash";
 import {
   makeStateEngineLive,
   StateEngine,
-} from "../src/main/vellum-command/state/engine";
+} from "../src/main/junto/state/engine";
 import {
   IntentFactBasis,
   type IntentFactBasis as IntentFactBasisValue,
@@ -39,7 +39,7 @@ import {
 } from "./helpers/task-topology-authority";
 import { seedCanvasAuthority } from "./helpers/canvas-authority-material";
 
-const root = join(tmpdir(), `vellum-command-work-v2-${randomUUID()}`);
+const root = join(tmpdir(), `junto-work-v2-${randomUUID()}`);
 const runtime = ManagedRuntime.make(
   Layer.provideMerge(
     WorkRepositoryLive,
@@ -230,7 +230,7 @@ afterAll(async () => {
 
 describe("WorkRepository v2 local authority", () => {
   it("persists ContentRef parts on new work writes", async () => {
-    const isolatedRoot = join(tmpdir(), `vellum-command-content-contract-${randomUUID()}`);
+    const isolatedRoot = join(tmpdir(), `junto-content-contract-${randomUUID()}`);
     const isolatedRuntime = ManagedRuntime.make(
       Layer.provideMerge(
         WorkRepositoryLive,
@@ -377,7 +377,7 @@ describe("WorkRepository v2 local authority", () => {
   it("rejects unconfigured local mutation without writing any Work row", async () => {
     const unconfiguredRoot = join(
       tmpdir(),
-      `vellum-command-work-v2-unconfigured-${randomUUID()}`,
+      `junto-work-v2-unconfigured-${randomUUID()}`,
     );
     const unconfiguredRuntime = ManagedRuntime.make(
       Layer.provideMerge(
@@ -1945,7 +1945,7 @@ describe("WorkRepository board CC-homed facts", () => {
   it("rejects board writes when local authority is Remote", async () => {
     const remoteRoot = join(
       tmpdir(),
-      `vellum-command-work-board-remote-${randomUUID()}`,
+      `junto-work-board-remote-${randomUUID()}`,
     );
     const remoteRuntime = ManagedRuntime.make(
       Layer.provideMerge(

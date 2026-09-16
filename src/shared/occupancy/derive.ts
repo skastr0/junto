@@ -37,7 +37,7 @@ import { Schema } from "effect";
 // Later main plug (optional, not required for this module): process-bind
 // registry → hasOccupant + lastSeenAtMs; WorkSurfaceActivity / ACP →
 // activity.harness; canvas ether.flags → flags.parked | flags.attention.
-// See src/main/vellum-command/region-rollup.ts for an existing live-activity gatherer.
+// See src/main/junto/region-rollup.ts for an existing live-activity gatherer.
 
 /** Default heartbeat gap before a bound seat is considered stalled (24h). */
 export const DEFAULT_STALL_AFTER_MS = 24 * 60 * 60 * 1000;

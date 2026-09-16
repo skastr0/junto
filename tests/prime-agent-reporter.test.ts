@@ -12,12 +12,12 @@ import { createConnection, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { LocalSessionHost } from "../src/main/vellum-command/term/local-host";
+import { LocalSessionHost } from "../src/main/junto/term/local-host";
 import {
   TermPlane,
   termPlaneBlocksAppExit,
   type TermPrimeAgentReporterPlane,
-} from "../src/main/vellum-command/term/plane";
+} from "../src/main/junto/term/plane";
 import { termControlSocketPath } from "../src/shared/term-control";
 import { makeFakeTerminalProcessAuthority } from "./helpers/fake-terminal-process-authority";
 import {
@@ -25,9 +25,9 @@ import {
   PRIME_AGENT_REPORTER_MAX_MESSAGE_BYTES,
   PrimeAgentReporterPlane,
   type PrimeAgentReporterReport,
-} from "../src/main/vellum-command/term/prime-agent-reporter";
-import { SeatStateRuntime } from "../src/main/vellum-command/term/agent-state/runtime";
-import type { ObserverGridSnapshot } from "../src/main/vellum-command/term/observer/types";
+} from "../src/main/junto/term/prime-agent-reporter";
+import { SeatStateRuntime } from "../src/main/junto/term/agent-state/runtime";
+import type { ObserverGridSnapshot } from "../src/main/junto/term/observer/types";
 
 const cleanups: Array<() => Promise<void> | void> = [];
 

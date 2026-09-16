@@ -157,7 +157,7 @@ export const lowerSeatWait = (input: {
         message: "seat wait needs a seat argument or --any",
         path: "seat",
         hint: "name the seat to watch, or pass --any for every authorized peer",
-        next_step: "vellum-command seat wait <seat> --until idle",
+        next_step: "junto seat wait <seat> --until idle",
       }),
     };
   }

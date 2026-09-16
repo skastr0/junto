@@ -4,11 +4,11 @@ import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { ManagedRuntime } from "effect";
 import { afterEach, describe, expect, it } from "vitest";
-import { makeStateEngineLive, StateEngine } from "../src/main/vellum-command/state/engine";
-import { CURRENT_STATE_SCHEMA_VERSION, migrateStateSchema, STATE_SCHEMA_MIGRATION_PLAN, STATE_SCHEMA_V22_IDENTITY } from "../src/main/vellum-command/state/migrations";
-import { STATE_SCHEMA_V22_SQL } from "../src/main/vellum-command/state/schema";
-import { verifyRecordedStateSchemaIdentity } from "../src/main/vellum-command/state/schema-identity";
-import { assertLiveRequestCurrent, makeLiveRepository, operationArgsHash, transitionLiveOperationInTransaction, type LiveRequestCorrelation } from "../src/main/vellum-command/overseer/live/repository";
+import { makeStateEngineLive, StateEngine } from "../src/main/junto/state/engine";
+import { CURRENT_STATE_SCHEMA_VERSION, migrateStateSchema, STATE_SCHEMA_MIGRATION_PLAN, STATE_SCHEMA_V22_IDENTITY } from "../src/main/junto/state/migrations";
+import { STATE_SCHEMA_V22_SQL } from "../src/main/junto/state/schema";
+import { verifyRecordedStateSchemaIdentity } from "../src/main/junto/state/schema-identity";
+import { assertLiveRequestCurrent, makeLiveRepository, operationArgsHash, transitionLiveOperationInTransaction, type LiveRequestCorrelation } from "../src/main/junto/overseer/live/repository";
 
 const roots: string[] = [];
 const runtimes: Array<ManagedRuntime.ManagedRuntime<StateEngine, unknown>> = [];
@@ -17,14 +17,14 @@ afterEach(async () => {
   for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true });
 });
 const clock = () => "2026-09-12T12:00:00.000Z";
-const binding = { sessionId: "session-1", seatNodeRef: "vellum-command://factory/overseer", occupantGeneration: "42:start-1", authorityEpoch: "epoch-1" };
+const binding = { sessionId: "session-1", seatNodeRef: "junto://factory/overseer", occupantGeneration: "42:start-1", authorityEpoch: "epoch-1" };
 const requestInput = { requestId: "request-1", sessionId: binding.sessionId, providerDelegationId: "delegation-1", text: "Move the selected node",
   capturedContext: { canvasName: "factory", selectedNodeIds: ["a"], revision: "revision-1" }, transcriptRefs: ["transcript-1"] };
 const correlation: LiveRequestCorrelation = { ...binding, requestId: requestInput.requestId, intentRevision: 1 };
 const operationInput = { operationId: "operation-1", requestId: requestInput.requestId, intentRevision: 1, operation: "node.move",
   args: { canvasName: "factory", nodeId: "a", x: 100, y: 200 }, targetRefs: ["a"], targetRevision: "revision-1" };
 const tempPath = async () => {
-  const root = await mkdtemp(join(tmpdir(), "vellum-command-live-test-"));
+  const root = await mkdtemp(join(tmpdir(), "junto-live-test-"));
   roots.push(root);
   return join(root, "junto.db");
 };

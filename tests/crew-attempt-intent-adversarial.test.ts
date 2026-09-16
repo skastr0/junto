@@ -7,11 +7,11 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   CrewRepository,
   CrewRepositoryLive,
-} from "../src/main/vellum-command/work/crew-repository";
+} from "../src/main/junto/work/crew-repository";
 import {
   makeStateEngineLive,
   StateEngine,
-} from "../src/main/vellum-command/state/engine";
+} from "../src/main/junto/state/engine";
 import { ActorSeatId } from "../src/shared/actor-seat";
 
 // Crash-probe proof for the attempt-intent witness (root ruling). The
@@ -23,7 +23,7 @@ import { ActorSeatId } from "../src/shared/actor-seat";
 // concluded. Verified against the real CrewRepository over SQLite.
 
 const SEAT = Schema.decodeUnknownSync(ActorSeatId)(`seat_${"a".repeat(64)}`);
-const root = join(tmpdir(), `vellum-command-attempt-intent-${randomUUID()}`);
+const root = join(tmpdir(), `junto-attempt-intent-${randomUUID()}`);
 const runtime = ManagedRuntime.make(
   Layer.provideMerge(
     CrewRepositoryLive,

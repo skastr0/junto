@@ -47,7 +47,7 @@ import {
 import {
   STATION_PEER_ARG,
   STATION_PROTOCOL_NEGOTIATION_ARG,
-} from "../src/main/vellum-command/station/helper-contract";
+} from "../src/main/junto/station/helper-contract";
 import {
   CURRENT_STATION_PROTOCOL_SUPPORT,
   STATION_PROTOCOL_BASELINE,
@@ -67,22 +67,22 @@ import {
 } from "../src/shared/station-session";
 import {
   StationApiService,
-} from "../src/main/vellum-command/station/api";
+} from "../src/main/junto/station/api";
 import {
   StationControlReportError,
   startStationControlServer,
   stationControlReadiness,
   type StationControlRequestAdmission,
   type StationControlServer,
-} from "../src/main/vellum-command/station/control-server";
+} from "../src/main/junto/station/control-server";
 import {
   relayStationControlSession,
   resolveStationControlSocketPath,
-} from "../src/main/vellum-command/station/control-relay";
+} from "../src/main/junto/station/control-relay";
 import {
   makeOwnerLocalStationControlHandoffAuthority,
   type StationControlLocalHandoffAuthority,
-} from "../src/main/vellum-command/station/peer-authority";
+} from "../src/main/junto/station/peer-authority";
 
 const runEffect = <A, E>(effect: Effect.Effect<A, E, any>): Promise<A> =>
   Effect.runPromise(effect as Effect.Effect<A, E, never>);
@@ -1142,13 +1142,13 @@ describe("packaged Station relay", () => {
         child.once("error", reject);
         child.once("exit", resolve);
       }),
-      "vellum-command station-stdio argument rejection timed out",
+      "junto station-stdio argument rejection timed out",
     );
 
     expect(exitCode).toBe(64);
     expect(Buffer.concat(stdout)).toEqual(Buffer.alloc(0));
     expect(Buffer.concat(stderr).toString("utf8")).toBe(
-      "vellum-command station-stdio: arguments are not accepted\n",
+      "junto station-stdio: arguments are not accepted\n",
     );
   });
 

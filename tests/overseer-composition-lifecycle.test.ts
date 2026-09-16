@@ -5,20 +5,20 @@ import { InstallationId } from "../src/shared/installation-id";
 import { CommandCenterConfiguration } from "../src/shared/station-api";
 import type { OverseerCaller, OverseerRequest } from "../src/shared/overseer-control";
 import type { TerminalSessionSummary } from "../src/shared/terminal";
-import { CanvasesService } from "../src/main/vellum-command/canvases";
-import { ChatServiceContext, type ChatService } from "../src/main/vellum-command/chat/service";
-import { NodeDeleteService } from "../src/main/vellum-command/chat/node-delete";
-import { StationRepository } from "../src/main/vellum-command/station/repository";
-import { deriveActorSeatId } from "../src/main/vellum-command/station/actor-seat-compiler";
+import { CanvasesService } from "../src/main/junto/canvases";
+import { ChatServiceContext, type ChatService } from "../src/main/junto/chat/service";
+import { NodeDeleteService } from "../src/main/junto/chat/node-delete";
+import { StationRepository } from "../src/main/junto/station/repository";
+import { deriveActorSeatId } from "../src/main/junto/station/actor-seat-compiler";
 import {
   dispatchRegisteredStationRemoteOverseer,
-} from "../src/main/vellum-command/station/overseer-transport";
-import { ActorSeatOccupy } from "../src/main/vellum-command/term/actor-seat-occupy";
+} from "../src/main/junto/station/overseer-transport";
+import { ActorSeatOccupy } from "../src/main/junto/term/actor-seat-occupy";
 import {
   composeOverseer,
   type OverseerRunPromise,
-} from "../src/main/vellum-command/overseer/composition";
-import { mainAuthoringGate } from "../src/main/vellum-command/main-authoring-gate";
+} from "../src/main/junto/overseer/composition";
+import { mainAuthoringGate } from "../src/main/junto/main-authoring-gate";
 
 const local = Schema.decodeUnknownSync(InstallationId)("cc-lifecycle");
 const remote = Schema.decodeUnknownSync(InstallationId)("remote-lifecycle");

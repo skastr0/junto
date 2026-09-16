@@ -13,7 +13,7 @@ import {
   isLocalHermesHost,
   parseAgentKey,
   resolveHermesStationIdentity,
-} from "../src/main/vellum-command/hermes/domain";
+} from "../src/main/junto/hermes/domain";
 
 const station = resolveHermesStationIdentity({
   role: "remote",
@@ -160,15 +160,15 @@ describe("canonical Hermes station identity", () => {
 
   it("has no source-level local alias or canonical-to-local rewrite seam", () => {
     const domain = readFileSync(
-      join(process.cwd(), "src/main/vellum-command/hermes/domain.ts"),
+      join(process.cwd(), "src/main/junto/hermes/domain.ts"),
       "utf8",
     );
     const plane = readFileSync(
-      join(process.cwd(), "src/main/vellum-command/hermes/plane.ts"),
+      join(process.cwd(), "src/main/junto/hermes/plane.ts"),
       "utf8",
     );
     const chat = readFileSync(
-      join(process.cwd(), "src/main/vellum-command/chat/service.ts"),
+      join(process.cwd(), "src/main/junto/chat/service.ts"),
       "utf8",
     );
 

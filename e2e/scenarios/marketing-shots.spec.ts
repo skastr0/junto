@@ -102,7 +102,7 @@ const nodes: readonly CanvasNode[] = [
     items: [taskItem("t-1", "ship design tokens", "working"), taskItem("t-2", "wire founder checkout", "submitted")],
   }),
   agentTextNode({ id: "a-forge", key: "local:forge", label: "forge", x: 300, y: 300 }),
-  projectNode({ id: "proj-vellum", name: "vellum-command", x: 680, y: 190 }),
+  projectNode({ id: "proj-vellum", name: "junto", x: 680, y: 190 }),
   requestsNode({
     id: "req-beacon",
     x: 600, y: 580,

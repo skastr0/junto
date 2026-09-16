@@ -369,7 +369,7 @@ export const redactStationDiagnostic = (value: string): string =>
       /((?:bearer|authorization|access[_ -]?token|socket[_ -]?token|token|password|license(?:[_ -]?key)?|dodo(?:[_ -]?(?:key|activation)(?:[_ -]?id)?|[_ -]?id)?))\s*[:=]\s*[^\s,;]+/giu,
       "$1=[redacted]",
     )
-    .replaceAll(/vellum-command:\/\/[^\s)]+/giu, "vellum-command://[redacted]")
+    .replaceAll(/junto:\/\/[^\s)]+/giu, "junto://[redacted]")
     .replaceAll(
       /\b(?:agent|terminal|task|board|requests|artifacts|node)-[0-9A-Z]{8,}\b/giu,
       "[node redacted]",

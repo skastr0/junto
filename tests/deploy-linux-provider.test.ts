@@ -17,10 +17,10 @@ import {
   decodeLinuxRemoteObserve,
   decodeLinuxRemoteRestart,
   linuxObserveToHostPackage,
-} from "../src/main/vellum-command/hosts/deploy-linux";
-import type { RemoteDeploymentTarget } from "../src/main/vellum-command/hosts/remote-deployment";
-import { parseSshEndpoint, type SshEndpoint } from "../src/main/vellum-command/ssh/domain";
-import { compileLinuxUserlandObserveSource } from "../src/main/vellum-command/ssh/remote-plan";
+} from "../src/main/junto/hosts/deploy-linux";
+import type { RemoteDeploymentTarget } from "../src/main/junto/hosts/remote-deployment";
+import { parseSshEndpoint, type SshEndpoint } from "../src/main/junto/ssh/domain";
+import { compileLinuxUserlandObserveSource } from "../src/main/junto/ssh/remote-plan";
 
 const endpoint = Effect.runSync(parseSshEndpoint("studio-box"));
 
@@ -141,12 +141,12 @@ describe("Linux userland generation observe", () => {
       );
       mkdirSync(join(dest, "resources", "bin"), { recursive: true });
       mkdirSync(join(dest, "resources", "systemd"), { recursive: true });
-      const remote = join(dest, "resources", "bin", "vellum-command-remote");
+      const remote = join(dest, "resources", "bin", "junto-remote");
       const launch = join(
         dest,
         "resources",
         "systemd",
-        "vellum-command-remote-launch",
+        "junto-remote-launch",
       );
       writeFileSync(remote, "remote");
       writeFileSync(launch, "launch");

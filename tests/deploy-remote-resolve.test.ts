@@ -28,8 +28,8 @@ import {
   validateLocalBundleProvenance,
   type RemoteDeployScriptTestRuntime,
   watchTarExit,
-} from "../src/main/vellum-command/hosts/deploy-darwin";
-import { SshTransferExitError } from "../src/main/vellum-command/ssh/service";
+} from "../src/main/junto/hosts/deploy-darwin";
+import { SshTransferExitError } from "../src/main/junto/ssh/service";
 
 vi.hoisted(() => {
   vi.stubGlobal("__JUNTO_MAC_TEAM_ID__", "EXAMP12345");
@@ -227,14 +227,14 @@ describe("buildRemoteDeployScript", () => {
     expect(script).toContain("APP='/Applications/Junto.app'");
     expect(script).toContain("IN='/Applications/Junto.app.incoming'");
     expect(script).toContain(
-      "CLI_EXE='/Applications/Junto.app/Contents/Resources/bin/vellum-command'",
+      "CLI_EXE='/Applications/Junto.app/Contents/Resources/bin/junto'",
     );
     const admit = readFileSync(
-      new URL("../src/main/vellum-command/hosts/deploy-darwin.ts", import.meta.url),
+      new URL("../src/main/junto/hosts/deploy-darwin.ts", import.meta.url),
       "utf8",
     );
     expect(admit).toContain("basename(REMOTE_CLI_EXECUTABLE)");
-    expect(admit).not.toContain('"vellum-command",');
+    expect(admit).not.toContain('"junto",');
     expect(script).toContain(
       'test -f "$IN_CLI_EXE" && test ! -L "$IN_CLI_EXE" && test -x "$IN_CLI_EXE"',
     );
@@ -291,7 +291,7 @@ describe("buildRemoteDeployScript", () => {
     expect(script).toContain('"$LAUNCHCTL" enable "$JOB"');
     const copyOps = readFileSync(
       new URL(
-        "../src/main/vellum-command/hosts/host-ops-darwin.ts",
+        "../src/main/junto/hosts/host-ops-darwin.ts",
         import.meta.url,
       ),
       "utf8",
@@ -683,8 +683,8 @@ describe("remote deploy transaction behavior", () => {
           "printf 'new-generation' > \"$target/Contents/MacOS/Junto\"",
           'chmod 755 "$target/Contents/MacOS/Junto"',
           'if [ "$FAKE_MISSING_CONTROL_HELPER" != "cli" ]; then',
-          "  printf 'cli-helper' > \"$target/Contents/Resources/bin/vellum-command\"",
-          '  chmod 755 "$target/Contents/Resources/bin/vellum-command"',
+          "  printf 'cli-helper' > \"$target/Contents/Resources/bin/junto\"",
+          '  chmod 755 "$target/Contents/Resources/bin/junto"',
           "fi",
           "printf 'new-info' > \"$target/Contents/Info.plist\"",
           'touch "$FAKE_STATE/tar-ran"',

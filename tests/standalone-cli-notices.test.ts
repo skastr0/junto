@@ -11,7 +11,7 @@ const write = (file: string, contents: string): void => {
 };
 const fixture = (): string => {
   const root = mkdtempSync(
-    path.join(tmpdir(), "vellum-command-cli-notices-test-"),
+    path.join(tmpdir(), "junto-cli-notices-test-"),
   );
   roots.push(root);
   write(

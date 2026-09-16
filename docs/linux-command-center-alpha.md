@@ -33,9 +33,9 @@ download directory, replace the approved values from the current GitHub guide:
   BOOTSTRAP_COMMIT="REPLACE_WITH_APPROVED_40_HEX_COMMIT"
   ALPHA_VERSION="REPLACE_WITH_QUALIFIED_APP_VERSION"
 
-  BOOTSTRAP="vellum-command-desktop-bootstrap-linux-x64"
-  BASE="https://github.com/skastr0/vellum-command/releases/download/$BOOTSTRAP_TAG"
-  ALPHA_ARCHIVE="vellum-command-runtime-$ALPHA_VERSION-linux-x64.tar.gz"
+  BOOTSTRAP="junto-desktop-bootstrap-linux-x64"
+  BASE="https://github.com/skastr0/junto/releases/download/$BOOTSTRAP_TAG"
+  ALPHA_ARCHIVE="junto-runtime-$ALPHA_VERSION-linux-x64.tar.gz"
 
   gh --version
 
@@ -48,8 +48,8 @@ download directory, replace the approved values from the current GitHub guide:
   gh attestation verify "$BOOTSTRAP" \
     --hostname github.com \
     --bundle "$BOOTSTRAP.attestation.jsonl" \
-    --repo skastr0/vellum-command \
-    --cert-identity "https://github.com/skastr0/vellum-command/.github/workflows/linux-desktop-bootstrap.yml@refs/tags/$BOOTSTRAP_TAG" \
+    --repo skastr0/junto \
+    --cert-identity "https://github.com/skastr0/junto/.github/workflows/linux-desktop-bootstrap.yml@refs/tags/$BOOTSTRAP_TAG" \
     --cert-oidc-issuer https://token.actions.githubusercontent.com \
     --source-ref "refs/tags/$BOOTSTRAP_TAG" \
     --source-digest "$BOOTSTRAP_COMMIT" \
@@ -86,14 +86,14 @@ bootstrap guide.
 The managed generation is:
 
 ```text
-~/.local/opt/vellum-command-alpha/<version>-<archiveSHA256>/vellum-command
+~/.local/opt/junto-alpha/<version>-<archiveSHA256>/junto
 ```
 
 After any required external sandbox preparation below, launch as the same
 ordinary user:
 
 ```sh
-"$HOME/.local/bin/vellum-command-desktop"
+"$HOME/.local/bin/junto-desktop"
 ```
 
 Official managed installations check for and download signed alpha updates
@@ -136,7 +136,7 @@ publication uses the signed descriptor and source binding in
 the release key policy kept in the private distribution repository. Fleet manifest/checksum
 verification is a separate gated release contract.
 
-Launch the extracted `vellum-command` executable in your desktop session.
+Launch the extracted `junto` executable in your desktop session.
 Source builds remain unmanaged and do not consume the official updater.
 A restrictive Ubuntu sandbox policy can refuse an executable outside its
 reviewed attachment path. The exact AppArmor profile below applies to the
@@ -153,14 +153,14 @@ reviewers
 The Alpha executable remains an ordinary-user, rootless installation at:
 
 ```text
-~/.local/opt/vellum-command-alpha/<version>-<archiveSHA256>/vellum-command
+~/.local/opt/junto-alpha/<version>-<archiveSHA256>/junto
 ```
 
 Ubuntu 24.04 restricts unprivileged user namespaces through AppArmor. The
 reviewed source file [`scripts/linux-command-center.apparmor`](../scripts/linux-command-center.apparmor)
 grants only `userns,` to the exact versioned Alpha executable attachment. It
 uses AppArmor ABI 4.0, imports `tunables/global`, names the profile
-`vellum-command`, and uses `flags=(unconfined)`. There is no local include and
+`junto`, and uses `flags=(unconfined)`. There is no local include and
 no second rule in the profile body.
 
 This file is external host preparation only. It is intentionally excluded from
@@ -179,19 +179,19 @@ the installed copy, or add a local policy fragment.
 
 ```sh
 PROFILE_SOURCE="$PWD/scripts/linux-command-center.apparmor"
-PROFILE_DESTINATION="/etc/apparmor.d/vellum-command"
+PROFILE_DESTINATION="/etc/apparmor.d/junto"
 
 test -f "$PROFILE_SOURCE"
 sudo install -o root -g root -m 0644 "$PROFILE_SOURCE" "$PROFILE_DESTINATION"
 cmp "$PROFILE_SOURCE" "$PROFILE_DESTINATION"
 sudo apparmor_parser -r "$PROFILE_DESTINATION"
-sudo aa-status | grep -F "vellum-command"
+sudo aa-status | grep -F "junto"
 ```
 
 `cmp` must succeed before launch. If review or comparison fails, stop; do not
 synthesize a broader profile. The expected loaded profile is
-`vellum-command`. The runtime label observed through `/proc` is expected to be
-`vellum-command (unconfined)`.
+`junto`. The runtime label observed through `/proc` is expected to be
+`junto (unconfined)`.
 
 ## Xorg launch and test
 
@@ -202,7 +202,7 @@ display path explicit.
 
 ```sh
 ALPHA_GENERATION="REPLACE_WITH_VERSION-ARCHIVE_SHA256"
-ALPHA_EXECUTABLE="$HOME/.local/opt/vellum-command-alpha/$ALPHA_GENERATION/vellum-command"
+ALPHA_EXECUTABLE="$HOME/.local/opt/junto-alpha/$ALPHA_GENERATION/junto"
 
 test "${XDG_SESSION_TYPE:-}" = "x11"
 test -n "${DISPLAY:-}"
@@ -215,7 +215,7 @@ wait "$ALPHA_PID"
 ```
 
 Confirm that the window opens natively and that the label is
-`vellum-command (unconfined)`. Close Junto normally so `wait` returns.
+`junto (unconfined)`. Close Junto normally so `wait` returns.
 A missing profile, a different label, or a Chromium namespace failure is a
 failed Alpha test, not permission to weaken the host.
 
@@ -226,7 +226,7 @@ required for this test; an XWayland launch is not native Wayland evidence.
 
 ```sh
 ALPHA_GENERATION="REPLACE_WITH_VERSION-ARCHIVE_SHA256"
-ALPHA_EXECUTABLE="$HOME/.local/opt/vellum-command-alpha/$ALPHA_GENERATION/vellum-command"
+ALPHA_EXECUTABLE="$HOME/.local/opt/junto-alpha/$ALPHA_GENERATION/junto"
 
 test "${XDG_SESSION_TYPE:-}" = "wayland"
 test -n "${WAYLAND_DISPLAY:-}"
@@ -239,7 +239,7 @@ wait "$ALPHA_PID"
 ```
 
 Confirm that the window opens through native Wayland and that the label is
-`vellum-command (unconfined)`. Close Junto normally so `wait` returns.
+`junto (unconfined)`. Close Junto normally so `wait` returns.
 Record the Ubuntu version, display session, installed Alpha version, policy
 file digest, label, and result as qualification evidence.
 
@@ -257,7 +257,7 @@ After closing every Alpha process, the administrator can unload and remove the
 external policy:
 
 ```sh
-PROFILE_DESTINATION="/etc/apparmor.d/vellum-command"
+PROFILE_DESTINATION="/etc/apparmor.d/junto"
 sudo apparmor_parser -R "$PROFILE_DESTINATION"
 sudo rm -- "$PROFILE_DESTINATION"
 ```

@@ -20,14 +20,14 @@ import {
   agentFilePathFor,
   buildAgentFileSpec,
   writeAgentFileSpec,
-} from "../src/main/vellum-command/term/agent-file-spec";
+} from "../src/main/junto/term/agent-file-spec";
 import {
   KIMI_TEMPLATE,
   templateFor,
 } from "../src/shared/managed-terminal-templates";
 import { resolveManagedLaunchPlan } from "../src/shared/managed-terminal-launch";
-import { planManagedSpawn } from "../src/main/vellum-command/term/managed-spawn-plan";
-import { __setSessionExistenceHomeForTest } from "../src/main/vellum-command/term/session-existence";
+import { planManagedSpawn } from "../src/main/junto/term/managed-spawn-plan";
+import { __setSessionExistenceHomeForTest } from "../src/main/junto/term/session-existence";
 import type { CanvasDoc } from "../src/shared/canvas";
 
 const temps: string[] = [];

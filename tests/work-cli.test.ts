@@ -414,8 +414,8 @@ describe("schema/examples from validating schemas", () => {
         invocations: [
           {
             port: "browser.automate",
-            command: "vellum-command browser",
-            discover: "vellum-command browser pages --json",
+            command: "junto browser",
+            discover: "junto browser pages --json",
           },
         ],
       });
@@ -504,23 +504,23 @@ describe("schema/examples from validating schemas", () => {
       invocations: expect.arrayContaining([
         {
           port: "pad.read",
-          command: "vellum-command pad read",
-          discover: "vellum-command schema show pad.read",
+          command: "junto pad read",
+          discover: "junto schema show pad.read",
         },
         {
           port: "pad.read",
-          command: "vellum-command pad look-here",
-          discover: "vellum-command schema show pad.look-here",
+          command: "junto pad look-here",
+          discover: "junto schema show pad.look-here",
         },
         {
           port: "pad.read",
-          command: "vellum-command pad tagged",
-          discover: "vellum-command schema show pad.tagged",
+          command: "junto pad tagged",
+          discover: "junto schema show pad.tagged",
         },
         {
           port: "pad.patch",
-          command: "vellum-command pad patch",
-          discover: "vellum-command schema show pad.patch",
+          command: "junto pad patch",
+          discover: "junto schema show pad.patch",
         },
       ]),
     });

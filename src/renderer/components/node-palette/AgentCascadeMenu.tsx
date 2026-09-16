@@ -17,7 +17,7 @@ import type {
   ManagedTerminalModelOption,
   ManagedTerminalProfileOption,
 } from "@shared/ipc";
-import { getVellumCommandApi } from "../../lib/vellum-api";
+import { getJuntoApi } from "../../lib/junto-api";
 import {
   typeaheadAccept,
   typeaheadIndex,
@@ -261,7 +261,7 @@ export function AgentCascadeMenu({
 
   useEffect(() => {
     let live = true;
-    const api = getVellumCommandApi();
+    const api = getJuntoApi();
     void api
       ?.managedTerminalModels?.(harness)
       .then((result) => {

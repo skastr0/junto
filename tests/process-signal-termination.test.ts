@@ -6,7 +6,7 @@ import {
   createSignalQuitState,
   installProcessSignalTermination,
   runNormalQuitPreparation,
-} from "../src/main/vellum-command/process-signal-termination";
+} from "../src/main/junto/process-signal-termination";
 
 afterEach(() => {
   vi.useRealTimers();

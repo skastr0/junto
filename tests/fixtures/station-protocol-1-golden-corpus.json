@@ -2,7 +2,7 @@
   "protocol": 1,
   "preface": {
     "offer": {
-      "protocol": "vellum-command/station-protocol-preface/v1",
+      "protocol": "junto/station-protocol-preface/v1",
       "frame": "offer",
       "appVersion": "0.1.14",
       "stateSchemaVersion": 20,
@@ -13,7 +13,7 @@
       }
     },
     "accept": {
-      "protocol": "vellum-command/station-protocol-preface/v1",
+      "protocol": "junto/station-protocol-preface/v1",
       "frame": "accept",
       "appVersion": "0.1.14",
       "stateSchemaVersion": 20,
@@ -25,7 +25,7 @@
       "selected": 1
     },
     "reject": {
-      "protocol": "vellum-command/station-protocol-preface/v1",
+      "protocol": "junto/station-protocol-preface/v1",
       "frame": "reject",
       "appVersion": "0.1.14",
       "stateSchemaVersion": 20,
@@ -40,23 +40,23 @@
   },
   "session": {
     "requestFrame": {
-      "protocol": "vellum-command/station-session/v1",
+      "protocol": "junto/station-session/v1",
       "frame": "request",
       "requestId": "req-01",
       "request": {
-        "protocol": "vellum-command/station-api/v1",
+        "protocol": "junto/station-api/v1",
         "op": "status"
       }
     },
     "responseFrameOk": {
-      "protocol": "vellum-command/station-session/v1",
+      "protocol": "junto/station-session/v1",
       "frame": "response",
       "requestId": "req-01",
       "envelope": {
-        "protocol": "vellum-command/station-control/v1",
+        "protocol": "junto/station-control/v1",
         "ok": true,
         "response": {
-          "protocol": "vellum-command/station-api/v1",
+          "protocol": "junto/station-api/v1",
           "op": "status",
           "installationId": "remote-inst-01",
           "state": "unenrolled",
@@ -73,11 +73,11 @@
       }
     },
     "responseFrameErr": {
-      "protocol": "vellum-command/station-session/v1",
+      "protocol": "junto/station-session/v1",
       "frame": "response",
       "requestId": "req-01",
       "envelope": {
-        "protocol": "vellum-command/station-control/v1",
+        "protocol": "junto/station-control/v1",
         "ok": false,
         "error": {
           "code": "runtime_down",
@@ -89,10 +89,10 @@
   },
   "control": {
     "okEnvelope": {
-      "protocol": "vellum-command/station-control/v1",
+      "protocol": "junto/station-control/v1",
       "ok": true,
       "response": {
-        "protocol": "vellum-command/station-api/v1",
+        "protocol": "junto/station-api/v1",
         "op": "pair",
         "commandCenterInstallationId": "cc-inst-01",
         "stationInstallationId": "remote-inst-01",
@@ -100,7 +100,7 @@
       }
     },
     "errEnvelope": {
-      "protocol": "vellum-command/station-control/v1",
+      "protocol": "junto/station-control/v1",
       "ok": false,
       "error": {
         "code": "authorization_denied",
@@ -111,7 +111,7 @@
   },
   "api": {
     "pairRequest": {
-      "protocol": "vellum-command/station-api/v1",
+      "protocol": "junto/station-api/v1",
       "op": "pair",
       "commandCenterInstallationId": "cc-inst-01",
       "stationInstallationId": "remote-inst-01",
@@ -119,14 +119,14 @@
       "appVersion": "0.1.14"
     },
     "pairResponse": {
-      "protocol": "vellum-command/station-api/v1",
+      "protocol": "junto/station-api/v1",
       "op": "pair",
       "commandCenterInstallationId": "cc-inst-01",
       "stationInstallationId": "remote-inst-01",
       "pairedAt": "2026-08-01T12:00:00.000Z"
     },
     "configureRequest": {
-      "protocol": "vellum-command/station-api/v1",
+      "protocol": "junto/station-api/v1",
       "op": "configure",
       "installationId": "remote-inst-01",
       "configuration": {
@@ -146,7 +146,7 @@
       }
     },
     "configureResponse": {
-      "protocol": "vellum-command/station-api/v1",
+      "protocol": "junto/station-api/v1",
       "op": "configure",
       "installationId": "remote-inst-01",
       "configuration": {
@@ -167,7 +167,7 @@
       "configuredAt": "2026-08-01T12:00:00.000Z"
     },
     "projectRequest": {
-      "protocol": "vellum-command/station-api/v1",
+      "protocol": "junto/station-api/v1",
       "op": "project",
       "stationInstallationId": "remote-inst-01",
       "projection": {
@@ -181,7 +181,7 @@
       }
     },
     "projectResponse": {
-      "protocol": "vellum-command/station-api/v1",
+      "protocol": "junto/station-api/v1",
       "op": "project",
       "stationInstallationId": "remote-inst-01",
       "decision": "install",
@@ -192,7 +192,7 @@
       }
     },
     "reportRequest": {
-      "protocol": "vellum-command/station-api/v1",
+      "protocol": "junto/station-api/v1",
       "op": "report",
       "senderInstallationId": "cc-inst-01",
       "targetInstallationId": "remote-inst-01",
@@ -209,7 +209,7 @@
       }
     },
     "reportResponse": {
-      "protocol": "vellum-command/station-api/v1",
+      "protocol": "junto/station-api/v1",
       "op": "report",
       "senderInstallationId": "remote-inst-01",
       "targetInstallationId": "cc-inst-01",
@@ -226,11 +226,11 @@
       }
     },
     "statusRequest": {
-      "protocol": "vellum-command/station-api/v1",
+      "protocol": "junto/station-api/v1",
       "op": "status"
     },
     "statusResponse": {
-      "protocol": "vellum-command/station-api/v1",
+      "protocol": "junto/station-api/v1",
       "op": "status",
       "installationId": "remote-inst-01",
       "state": "ready",

@@ -5,7 +5,7 @@ import {
   templateFor,
   type HarnessId,
 } from "../src/shared/managed-terminal-templates";
-import { buildSpawnEnv, scrubSpawnEnv } from "../src/main/vellum-command/term/templates/resolve-launch";
+import { buildSpawnEnv, scrubSpawnEnv } from "../src/main/junto/term/templates/resolve-launch";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";

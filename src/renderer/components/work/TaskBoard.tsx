@@ -123,7 +123,7 @@ import {
   type ClipboardImage,
 } from "../../lib/clipboard-image";
 import { state$ } from "../../lib/state";
-import { getVellumCommandApi } from "../../lib/vellum-api";
+import { getJuntoApi } from "../../lib/junto-api";
 import {
   defaultTaskAdmission,
   parseTaskWait,
@@ -2334,7 +2334,7 @@ export function TaskBoard({
   const [bulkPending, setBulkPending] = useState(false);
   const [error, setError] = useState("");
   const [announcement, setAnnouncement] = useState("");
-  const api = getVellumCommandApi();
+  const api = getJuntoApi();
   const name = canvasName();
   const actorRefs = use$(state$.actorRefs);
   const activeActorSeatIds = useMemo(

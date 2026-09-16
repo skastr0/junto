@@ -14,9 +14,9 @@ import {
   makeStationStatusLive,
   StationStatusService,
   StationStatusStoreError,
-} from "../src/main/vellum-command/station-status-store";
-import { makeStateEngineLive } from "../src/main/vellum-command/state/engine";
-import { StateEngine } from "../src/main/vellum-command/state/service";
+} from "../src/main/junto/station-status-store";
+import { makeStateEngineLive } from "../src/main/junto/state/engine";
+import { StateEngine } from "../src/main/junto/state/service";
 
 const decodeHostId = Schema.decodeUnknownSync(StationHostId);
 const STUDIO_HOST = decodeHostId("studio");
@@ -98,7 +98,7 @@ describe("SQLite station status receipts", () => {
   let runtime: TestRuntime;
 
   beforeEach(async () => {
-    root = mkdtempSync(join(tmpdir(), "vellum-command-station-status-"));
+    root = mkdtempSync(join(tmpdir(), "junto-station-status-"));
     databasePath = join(root, "junto.db");
     runtime = makeTestRuntime(databasePath);
     await acquireStatus(runtime);

@@ -148,7 +148,7 @@ describe.skipIf(process.platform === "win32")("adapter execution lifecycle", () 
 
   it("delegates group spawn and all OS lifecycle authority to appProcessPlane", () => {
     const source = readFileSync(
-      join(import.meta.dirname, "..", "src/main/vellum-command/adapters/exec.ts"),
+      join(import.meta.dirname, "..", "src/main/junto/adapters/exec.ts"),
       "utf8",
     );
     expect(source).toContain("appProcessPlane.spawnGroup({");
@@ -191,7 +191,7 @@ describe.skipIf(process.platform === "win32")("adapter execution lifecycle", () 
       /relaunchInstalled: \(executablePath\) => \{\s*skipQuitConfirm = true;\s*runtimeDisposed = true;\s*app\.relaunch\(\{ execPath: executablePath, args: \[\] \}\);\s*app\.exit\(0\);/u,
     );
     const linuxUpdateSource = readFileSync(
-      join(import.meta.dirname, "..", "src/main/vellum-command/update/linux.ts"),
+      join(import.meta.dirname, "..", "src/main/junto/update/linux.ts"),
       "utf8",
     );
     expect(linuxUpdateSource).toMatch(

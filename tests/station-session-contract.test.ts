@@ -176,7 +176,7 @@ describe("Station session v1 frame contract", () => {
     expect(
       Result.isFailure(
         decodeStationSessionFrame({
-          protocol: "vellum-command/station-session/v2",
+          protocol: "junto/station-session/v2",
           frame: "request",
           requestId,
           request: {
@@ -193,7 +193,7 @@ describe("Station session v1 frame contract", () => {
           frame: "request",
           requestId,
           request: {
-            protocol: "vellum-command/station-api/v2",
+            protocol: "junto/station-api/v2",
             op: "status",
           },
         }),
@@ -206,7 +206,7 @@ describe("Station session v1 frame contract", () => {
           frame: "response",
           requestId,
           envelope: {
-            protocol: "vellum-command/station-control/v2",
+            protocol: "junto/station-control/v2",
             ok: true,
             response: {
               protocol: STATION_API_PROTOCOL,
@@ -251,8 +251,8 @@ describe("Station session v1 frame contract", () => {
       ),
     ).toBe(true);
 
-    expect(STATION_SESSION_PROTOCOL).toBe("vellum-command/station-session/v1");
-    expect(STATION_CONTROL_PROTOCOL).toBe("vellum-command/station-control/v1");
+    expect(STATION_SESSION_PROTOCOL).toBe("junto/station-session/v1");
+    expect(STATION_CONTROL_PROTOCOL).toBe("junto/station-control/v1");
   });
 
   it("keeps the protocol preface outside the v1 session frame", () => {

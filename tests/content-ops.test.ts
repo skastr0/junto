@@ -14,32 +14,32 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   assertRestoredContentCoherent,
   verifyContentSnapshotCoherence,
-} from "../src/main/vellum-command/content/backup";
+} from "../src/main/junto/content/backup";
 import {
   admitContentWrite,
   DEFAULT_CONTENT_DISK_RESERVE_BYTES,
-} from "../src/main/vellum-command/content/disk-admission";
+} from "../src/main/junto/content/disk-admission";
 import {
   upsertContentTransfer,
-} from "../src/main/vellum-command/content/manifest";
+} from "../src/main/junto/content/manifest";
 import {
   contentObjectPath,
   contentPartialPath,
   contentStoreRoot,
-} from "../src/main/vellum-command/content/paths";
-import { createContentService } from "../src/main/vellum-command/content/service";
+} from "../src/main/junto/content/paths";
+import { createContentService } from "../src/main/junto/content/service";
 import {
   ContentStoreError,
   ensureContentLayout,
-} from "../src/main/vellum-command/content/store";
+} from "../src/main/junto/content/store";
 import {
   contentTransferPartialId,
   receiveContentTransfer,
-} from "../src/main/vellum-command/content/transfer-local";
+} from "../src/main/junto/content/transfer-local";
 import {
   makeStateEngineLive,
   StateEngine,
-} from "../src/main/vellum-command/state/engine";
+} from "../src/main/junto/state/engine";
 
 const roots: string[] = [];
 const runtimes: Array<ManagedRuntime.ManagedRuntime<StateEngine, unknown>> =
@@ -99,7 +99,7 @@ describe("content disk admission", () => {
   });
 
   it("put fails closed with disk-low before streaming", async () => {
-    const home = await tempRoot("vellum-command-content-disk-");
+    const home = await tempRoot("junto-content-disk-");
     const dbPath = join(home, "junto.db");
     const { state } = await openEngine(dbPath);
     const root = contentStoreRoot(home);
@@ -127,7 +127,7 @@ describe("content disk admission", () => {
   });
 
   it("transfer receive refuses when remaining bytes exceed free space", async () => {
-    const home = await tempRoot("vellum-command-content-xfer-disk-");
+    const home = await tempRoot("junto-content-xfer-disk-");
     const root = contentStoreRoot(home);
     ensureContentLayout(root);
     const payload = Buffer.from("transfer-payload-bytes");
@@ -150,7 +150,7 @@ describe("content disk admission", () => {
 
 describe("content integrity + GC + snapshot", () => {
   it("integrity verifies referenced objects and reports missing/corrupt", async () => {
-    const home = await tempRoot("vellum-command-content-integrity-");
+    const home = await tempRoot("junto-content-integrity-");
     const dbPath = join(home, "junto.db");
     const { state } = await openEngine(dbPath);
     const root = contentStoreRoot(home);
@@ -187,7 +187,7 @@ describe("content integrity + GC + snapshot", () => {
   });
 
   it("GC never deletes referenced or active-transfer digests", async () => {
-    const home = await tempRoot("vellum-command-content-gc-");
+    const home = await tempRoot("junto-content-gc-");
     const dbPath = join(home, "junto.db");
     const { state } = await openEngine(dbPath);
     const root = contentStoreRoot(home);
@@ -318,7 +318,7 @@ describe("content integrity + GC + snapshot", () => {
   });
 
   it("snapshot + restored DB prove no dangling referenced objects", async () => {
-    const home = await tempRoot("vellum-command-content-snap-");
+    const home = await tempRoot("junto-content-snap-");
     const dbPath = join(home, "junto.db");
     const { state } = await openEngine(dbPath);
     const root = contentStoreRoot(home);
@@ -387,7 +387,7 @@ describe("content integrity + GC + snapshot", () => {
   });
 
   it("snapshot refuses when a referenced object is missing", async () => {
-    const home = await tempRoot("vellum-command-content-snap-miss-");
+    const home = await tempRoot("junto-content-snap-miss-");
     const dbPath = join(home, "junto.db");
     const { state } = await openEngine(dbPath);
     const root = contentStoreRoot(home);
@@ -419,7 +419,7 @@ describe("content integrity + GC + snapshot", () => {
   });
 
   it("dry-run GC reports candidates without deleting", async () => {
-    const home = await tempRoot("vellum-command-content-gc-dry-");
+    const home = await tempRoot("junto-content-gc-dry-");
     const dbPath = join(home, "junto.db");
     const { state } = await openEngine(dbPath);
     const root = contentStoreRoot(home);

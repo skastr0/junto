@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   persistableProviders,
   retainUnmigratedProviderSecrets,
-} from "../src/main/vellum-command/credentials/redact";
+} from "../src/main/junto/credentials/redact";
 
 describe("retainUnmigratedProviderSecrets", () => {
   it("keeps non-section keys intact while merging sections", () => {

@@ -21,7 +21,7 @@ const digest = (bytes: Buffer) => ({
 
 describe("Linux desktop bootstrap corresponding-source publication", () => {
   it("refuses a relink receipt that does not bind the exact commit, Bun, and payload bytes", async () => {
-    const dist = await mkdtemp(join(await realpath(tmpdir()), "vellum-command-bootstrap-release-"));
+    const dist = await mkdtemp(join(await realpath(tmpdir()), "junto-bootstrap-release-"));
     roots.push(dist);
     const binary = Buffer.from("bootstrap-bytes");
     const payload = Buffer.from("relink-object");
@@ -30,7 +30,7 @@ describe("Linux desktop bootstrap corresponding-source publication", () => {
     await writeFile(join(dist, `${LINUX_DESKTOP_BOOTSTRAP_NAME}-relink.js`), payload);
     await writeFile(join(dist, `${LINUX_DESKTOP_BOOTSTRAP_NAME}-relink-notices.txt`), notices);
     await writeFile(join(dist, `${LINUX_DESKTOP_BOOTSTRAP_NAME}-relink.json`), JSON.stringify({
-      schema: "vellum-command/cli-relink/v1",
+      schema: "junto/cli-relink/v1",
       sourceCommit: "a".repeat(40),
       bunVersion: "1.3.13",
       featureProfile: "ship",
@@ -60,7 +60,7 @@ describe("Linux desktop bootstrap corresponding-source publication", () => {
   // The release script invokes GNU tar with --sort=name; the Linux release
   // host provides that native packaging prerequisite.
   itOnLinux("writes Bun notices, source archive, checksum, and RELINK.md beside matching bytes", async () => {
-    const dist = await mkdtemp(join(await realpath(tmpdir()), "vellum-command-bootstrap-release-"));
+    const dist = await mkdtemp(join(await realpath(tmpdir()), "junto-bootstrap-release-"));
     roots.push(dist);
     const binary = Buffer.from("bootstrap-bytes");
     const payload = Buffer.from("relink-object");
@@ -74,7 +74,7 @@ describe("Linux desktop bootstrap corresponding-source publication", () => {
       { encoding: "utf8" },
     ).stdout.trim();
     await writeFile(join(dist, `${LINUX_DESKTOP_BOOTSTRAP_NAME}-relink.json`), JSON.stringify({
-      schema: "vellum-command/cli-relink/v1",
+      schema: "junto/cli-relink/v1",
       sourceCommit: commit,
       bunVersion: "1.3.13",
       featureProfile: "ship",

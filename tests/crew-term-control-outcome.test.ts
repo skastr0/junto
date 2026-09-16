@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   TermControlClient,
   TermControlTransportUncertainError,
-} from "../src/main/vellum-command/term/control-client";
+} from "../src/main/junto/term/control-client";
 import type { ManagedPromptOutcome } from "../src/shared/managed-prompt";
 import { TERM_CONTROL_PROTOCOL } from "../src/shared/term-control";
 

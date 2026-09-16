@@ -116,7 +116,7 @@ test("factory board: fire on claimed input-required, calm edges silent, tasks gl
   await expect(page.getByRole("button", { name: "Open fields" })).toHaveCount(0);
   await expect(page.locator(".rts-kind-form-panel")).toHaveCount(0);
   await expect(page.locator("text=/browser access/i")).toHaveCount(0);
-  await expect(page.locator("text=/vellum-command-browser/i")).toHaveCount(0);
+  await expect(page.locator("text=/junto-browser/i")).toHaveCount(0);
   await expect(page.locator("text=/holds keys/i")).toHaveCount(0);
 });
 

@@ -6,12 +6,12 @@ import {
   makeUpdateService,
   UpdateService,
   type InstallPlan,
-} from "../src/main/vellum-command/update/service";
-import type { AuthorizedUpdateCandidate } from "../src/main/vellum-command/update/domain";
+} from "../src/main/junto/update/service";
+import type { AuthorizedUpdateCandidate } from "../src/main/junto/update/domain";
 import type {
   UpdateProvider,
   UpdateProviderListener,
-} from "../src/main/vellum-command/update/provider";
+} from "../src/main/junto/update/provider";
 import { writeFile, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -419,8 +419,8 @@ describe("UpdateService", () => {
 });
 
 describe("platform-neutral staged installation", () => {
-  const readyLinux = async (installation: import("../src/main/vellum-command/update/provider").StagedUpdate, host: import("../src/main/vellum-command/update/provider").UpdateHostHooks) => {
-    const root = await mkdtemp(join(tmpdir(), "vellum-command-linux-coordinator-"));
+  const readyLinux = async (installation: import("../src/main/junto/update/provider").StagedUpdate, host: import("../src/main/junto/update/provider").UpdateHostHooks) => {
+    const root = await mkdtemp(join(tmpdir(), "junto-linux-coordinator-"));
     roots.push(root);
     const archivePath = join(root, "release.tar.gz");
     await writeFile(archivePath, "authenticated Linux archive");
@@ -436,7 +436,7 @@ describe("platform-neutral staged installation", () => {
   it("uses Linux admission and revalidation before quiescence, then awaits installation", async () => {
     const calls: string[] = [];
     const host = { quiesceForInstall: async () => { calls.push("quiesce"); }, relaunchWithoutInstall: vi.fn() };
-    const installation = { executablePath: "/owned/new/vellum-command", revalidate: async () => { calls.push("revalidate"); },
+    const installation = { executablePath: "/owned/new/junto", revalidate: async () => { calls.push("revalidate"); },
       installAfterQuiesce: async () => { calls.push("install"); } };
     const { service, harness, stageDownloaded } = await readyLinux(installation, host);
     const state = await Effect.runPromise(service.restartAndInstall);
@@ -450,7 +450,7 @@ describe("platform-neutral staged installation", () => {
   it("refuses a changed staged generation before releasing the runtime", async () => {
     const host = { quiesceForInstall: vi.fn(async () => undefined), relaunchWithoutInstall: vi.fn() };
     const installAfterQuiesce = vi.fn();
-    const { service } = await readyLinux({ executablePath: "/owned/new/vellum-command", installAfterQuiesce,
+    const { service } = await readyLinux({ executablePath: "/owned/new/junto", installAfterQuiesce,
       revalidate: async () => { throw new Error("generation contents changed"); } }, host);
     await expect(Effect.runPromise(service.restartAndInstall)).rejects.toThrow(/generation contents changed/);
     expect(host.quiesceForInstall).not.toHaveBeenCalled();
@@ -460,7 +460,7 @@ describe("platform-neutral staged installation", () => {
 
   it.each([false, true])("only allows old-app recovery before activation, activated=%s", async (activated) => {
     const host = { quiesceForInstall: vi.fn(async () => undefined), relaunchWithoutInstall: vi.fn() };
-    const { service } = await readyLinux({ executablePath: "/owned/new/vellum-command", hasActivated: () => activated,
+    const { service } = await readyLinux({ executablePath: "/owned/new/junto", hasActivated: () => activated,
       installAfterQuiesce: async () => { throw new Error("handoff failed"); } }, host);
     await expect(Effect.runPromise(service.restartAndInstall)).rejects.toThrow(activated ? /previous release cannot be restored/ : /handoff failed/);
     expect(host.quiesceForInstall).toHaveBeenCalledOnce();

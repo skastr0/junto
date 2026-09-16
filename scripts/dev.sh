@@ -19,14 +19,14 @@ source "$ROOT/scripts/linux-display.sh"
 
 if [[ "$(uname -s)" == "Linux" ]] && ! vellum_use_available_desktop; then
   printf '%s\n' \
-    'vellum-command: error: an interactive X11 or Wayland desktop is required' \
+    'junto: error: an interactive X11 or Wayland desktop is required' \
     'Open the orb Desktop before running the Junto development app.' >&2
   exit 1
 fi
 
 mkdir -p "${ISOLATED_HOME}"
 
-printf 'vellum-command dev → JUNTO_HOME=%s (HOME unchanged; Electron userData isolated)\n' "${ISOLATED_HOME}" >&2
+printf 'junto dev → JUNTO_HOME=%s (HOME unchanged; Electron userData isolated)\n' "${ISOLATED_HOME}" >&2
 
 export JUNTO_HOME="${ISOLATED_HOME}"
 # Advanced diagnostics (install provenance, logs explorer) — never on ship/prod.

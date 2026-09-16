@@ -7,24 +7,24 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { CanvasDoc, Message } from "../src/shared/canvas";
 import { InstallationId } from "../src/shared/installation-id";
 import type { ActorRef } from "../src/shared/work-protocol";
-import { compileActorSeatRegistry } from "../src/main/vellum-command/station/actor-seat-compiler";
-import { makeStateEngineLive, StateEngine } from "../src/main/vellum-command/state/engine";
-import { CrewRepository, CrewRepositoryLive } from "../src/main/vellum-command/work/crew-repository";
-import { makeMailAttemptStore } from "../src/main/vellum-command/work/mail-attempt-store";
+import { compileActorSeatRegistry } from "../src/main/junto/station/actor-seat-compiler";
+import { makeStateEngineLive, StateEngine } from "../src/main/junto/state/engine";
+import { CrewRepository, CrewRepositoryLive } from "../src/main/junto/work/crew-repository";
+import { makeMailAttemptStore } from "../src/main/junto/work/mail-attempt-store";
 import {
   MESSAGE_DELIVERY_SETTLE_MS,
   MessageDeliveryService,
   type MessageDeliveryAttemptStore,
   type MessageDeliveryStore,
-} from "../src/main/vellum-command/work/message-delivery";
-import { ManagedTerminalDrive } from "../src/main/vellum-command/term/drive/managed-terminal-drive";
+} from "../src/main/junto/work/message-delivery";
+import { ManagedTerminalDrive } from "../src/main/junto/term/drive/managed-terminal-drive";
 
 const canvas = "mail-fallback";
 const nodeId = "fallback-node";
 const bindingId = "fallback-process";
 const installation = Schema.decodeUnknownSync(InstallationId)("mail-fallback-installation");
 const iso = (n: number): string => new Date(1_760_000_000_000 + n).toISOString();
-const root = join(tmpdir(), `vellum-command-mail-fallback-${randomUUID()}`);
+const root = join(tmpdir(), `junto-mail-fallback-${randomUUID()}`);
 
 const recipientDoc = (messages: ReadonlyArray<Message> = []): CanvasDoc => ({
   nodes: [{

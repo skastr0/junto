@@ -35,27 +35,27 @@ import {
   rotateControlToken,
   tokenMatches,
   type ControlAdmitContext,
-} from "../src/main/vellum-command/browser/control";
+} from "../src/main/junto/browser/control";
 import type { CanvasDoc } from "../src/shared/canvas";
 import type {
   PageTargetResolver,
   ResolvedPageTarget,
-} from "../src/main/vellum-command/browser/page-target";
-import { makeBrowserProfileService } from "../src/main/vellum-command/browser/profiles";
+} from "../src/main/junto/browser/page-target";
+import { makeBrowserProfileService } from "../src/main/junto/browser/profiles";
 import {
   BrowserSessionService,
   type BrowserViewAdapter,
   type BrowserViewHandle,
-} from "../src/main/vellum-command/browser/sessions";
+} from "../src/main/junto/browser/sessions";
 import { LOCAL_BROWSER_TEST_AUTHORITY } from "./browser-host-test-authority";
 import {
   BROWSER_CAPABILITY_ACTIONS,
   makeBrowserCapabilityRegistry,
   type BrowserCapabilityRegistry,
-} from "../src/main/vellum-command/browser/capabilities";
-import { makeStateEngineLive, StateEngine } from "../src/main/vellum-command/state/engine";
+} from "../src/main/junto/browser/capabilities";
+import { makeStateEngineLive, StateEngine } from "../src/main/junto/state/engine";
 
-const REF = "vellum-command://canvas/work?node=n1";
+const REF = "junto://canvas/work?node=n1";
 const DEFAULT_TARGET: ResolvedPageTarget = {
   ref: REF,
   nodeId: "n1",
@@ -861,7 +861,7 @@ describe("control route handlers", () => {
     };
     const { call } = makeStack(makeSpyAdapter().adapter, resolver);
     expect(
-      await call("POST", "/open", { ref: "vellum-command://canvas/work?node=other" }),
+      await call("POST", "/open", { ref: "junto://canvas/work?node=other" }),
     ).toMatchObject({
       status: 403,
       envelope: { ok: false, error: { _tag: "forbidden" } },
@@ -923,7 +923,7 @@ describe("control route handlers", () => {
   });
 
   it("enforces the URL allowlist on the document-derived target", async () => {
-    const badRef = "vellum-command://canvas/work?node=bad";
+    const badRef = "junto://canvas/work?node=bad";
     const { call } = makeStack(
       makeSpyAdapter().adapter,
       resolverFor({
@@ -1131,7 +1131,7 @@ describe("listPageNodes", () => {
       }]),
     ).toEqual([
       {
-        ref: "vellum-command://canvas/work?node=p1",
+        ref: "junto://canvas/work?node=p1",
         sessionId: null,
         canvas: "work",
         nodeId: "p1",
@@ -1208,7 +1208,7 @@ describe("listPageNodes", () => {
       { name: "bounded", doc: bounded },
     ]);
     expect(boundedRows).toEqual([{
-      ref: "vellum-command://canvas/bounded?node=good",
+      ref: "junto://canvas/bounded?node=good",
       sessionId: null,
       canvas: "bounded",
       nodeId: "good",
@@ -1275,11 +1275,11 @@ describe("listPageNodes", () => {
       async () => [{ name: "work", doc }],
       undefined,
       {},
-      "vellum-command-ui",
+      "junto-ui",
     );
     expect(rows).toEqual([
       {
-        ref: "vellum-command://canvas/work?node=p1",
+        ref: "junto://canvas/work?node=p1",
         sessionId: null,
         canvas: "work",
         nodeId: "p1",

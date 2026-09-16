@@ -1,6 +1,6 @@
 # Bun 1.3.13 runtime notices and corresponding source
 
-The compiled `vellum-command` control executable contains the stock Bun runtime.
+The compiled `junto` control executable contains the stock Bun runtime.
 These files travel with that executable in Junto distributions. They
 retain upstream license text; Apache-2.0 does not replace these component licenses.
 
@@ -171,7 +171,7 @@ For development from the matching Junto source checkout, the CLI build
 script can also be invoked with the resulting Bun executable:
 
 ```sh
-/path/to/bun-source/build/release-local/bun scripts/build-standalone-cli.ts vellum-command
+/path/to/bun-source/build/release-local/bun scripts/build-standalone-cli.ts junto
 ```
 
 That script invokes `process.execPath` and does not select a cross-compilation

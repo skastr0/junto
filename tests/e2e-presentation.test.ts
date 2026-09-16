@@ -4,7 +4,7 @@ import {
   e2eFocusIsolationActive,
   e2eMainWindowOptions,
   e2ePresentationFromEnv,
-} from "../src/main/vellum-command/e2e-presentation";
+} from "../src/main/junto/e2e-presentation";
 
 describe("e2eFocusIsolationActive", () => {
   it("is on only for E2E without JUNTO_E2E_SHOW", () => {

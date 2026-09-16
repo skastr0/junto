@@ -1,12 +1,12 @@
 import { readFile } from "node:fs/promises";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { LinuxDesktopActivationError } from "../src/main/vellum-command/update/linux-install";
+import { LinuxDesktopActivationError } from "../src/main/junto/update/linux-install";
 import {
   installLinuxDesktop,
   linuxDesktopBootstrapIdentity,
   parseLinuxDesktopBootstrapArgs,
   runLinuxDesktopBootstrap,
-} from "../src/main/vellum-command/update/linux-first-install";
+} from "../src/main/junto/update/linux-first-install";
 import { linuxDesktopBootstrapReleaseAssets } from "../scripts/prepare-linux-desktop-bootstrap-release";
 
 const seam = vi.hoisted(() => ({
@@ -17,9 +17,9 @@ const seam = vi.hoisted(() => ({
   target: vi.fn(),
   firstInstall: vi.fn(),
 }));
-vi.mock("../src/main/vellum-command/update/linux-target", async () => {
-  const actual = await vi.importActual<typeof import("../src/main/vellum-command/update/linux-target")>(
-    "../src/main/vellum-command/update/linux-target",
+vi.mock("../src/main/junto/update/linux-target", async () => {
+  const actual = await vi.importActual<typeof import("../src/main/junto/update/linux-target")>(
+    "../src/main/junto/update/linux-target",
   );
   return { ...actual, assertCurrentLinuxDesktopTarget: seam.target };
 });
@@ -29,9 +29,9 @@ vi.mock("../src/shared/linux-desktop-release-files", async () => {
   );
   return { ...actual, verifyLinuxDesktopReleaseFiles: seam.verify };
 });
-vi.mock("../src/main/vellum-command/update/linux-install", async () => {
-  const actual = await vi.importActual<typeof import("../src/main/vellum-command/update/linux-install")>(
-    "../src/main/vellum-command/update/linux-install",
+vi.mock("../src/main/junto/update/linux-install", async () => {
+  const actual = await vi.importActual<typeof import("../src/main/junto/update/linux-install")>(
+    "../src/main/junto/update/linux-install",
   );
   return {
     ...actual,
@@ -71,7 +71,7 @@ describe("Linux desktop first-install CLI", () => {
   it("uses authenticated inputs and the shared create-only transaction without launching", async () => {
     const descriptor = { version: "0.2.1" };
     const staged = {
-      executablePath: "/home/example/.local/opt/vellum-command-alpha/0.2.1-hash/vellum-command",
+      executablePath: "/home/example/.local/opt/junto-alpha/0.2.1-hash/junto",
       archiveSha256: "a".repeat(64),
     };
     seam.verify.mockResolvedValue(descriptor);
@@ -196,8 +196,8 @@ describe("Linux desktop bootstrap process", () => {
     async (activated) => {
       seam.verify.mockResolvedValue({ version: "0.2.1" });
       seam.stage.mockResolvedValue({
-        executablePath: "/home/example/.local/opt/vellum-command-alpha/0.2.1-hash/vellum-command",
-        generationPath: "/home/example/.local/opt/vellum-command-alpha/0.2.1-hash",
+        executablePath: "/home/example/.local/opt/junto-alpha/0.2.1-hash/junto",
+        generationPath: "/home/example/.local/opt/junto-alpha/0.2.1-hash",
         archiveSha256: "a".repeat(64),
       });
       seam.revalidate.mockResolvedValue(undefined);
@@ -231,13 +231,13 @@ describe("Linux desktop bootstrap process", () => {
 describe("Linux desktop bootstrap publication contract", () => {
   it("requires relink object, Bun notices, source archive, and non-latest verified tags", async () => {
     expect(linuxDesktopBootstrapReleaseAssets()).toEqual([
-      "vellum-command-desktop-bootstrap-linux-x64",
-      "vellum-command-desktop-bootstrap-linux-x64.sha256",
-      "vellum-command-desktop-bootstrap-linux-x64.attestation.jsonl",
-      "vellum-command-desktop-bootstrap-linux-x64-relink.js",
-      "vellum-command-desktop-bootstrap-linux-x64-relink.json",
-      "vellum-command-desktop-bootstrap-linux-x64-relink-notices.txt",
-      "vellum-command-desktop-bootstrap-linux-x64-bun-notices.tar.gz",
+      "junto-desktop-bootstrap-linux-x64",
+      "junto-desktop-bootstrap-linux-x64.sha256",
+      "junto-desktop-bootstrap-linux-x64.attestation.jsonl",
+      "junto-desktop-bootstrap-linux-x64-relink.js",
+      "junto-desktop-bootstrap-linux-x64-relink.json",
+      "junto-desktop-bootstrap-linux-x64-relink-notices.txt",
+      "junto-desktop-bootstrap-linux-x64-bun-notices.tar.gz",
       "Junto-linux-desktop-bootstrap-1.0.0-source.tar.gz",
       "RELINK.md",
     ]);
@@ -245,8 +245,8 @@ describe("Linux desktop bootstrap publication contract", () => {
       new URL("../.github/workflows/linux-desktop-bootstrap.yml", import.meta.url),
       "utf8",
     );
-    expect(workflow).toContain("vellum-command-desktop-bootstrap-linux-x64-relink.js");
-    expect(workflow).toContain("vellum-command-desktop-bootstrap-linux-x64-bun-notices.tar.gz");
+    expect(workflow).toContain("junto-desktop-bootstrap-linux-x64-relink.js");
+    expect(workflow).toContain("junto-desktop-bootstrap-linux-x64-bun-notices.tar.gz");
     expect(workflow).toContain("--verify-tag");
     expect(workflow).toContain("--latest=false");
     expect(workflow).toContain('sourceCommit // ""');

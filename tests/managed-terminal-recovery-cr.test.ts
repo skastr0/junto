@@ -4,13 +4,13 @@ import {
   ManagedTerminalDrive,
   OperatorInterlock,
   encodeBracketedPaste,
-} from "../src/main/vellum-command/term/drive";
-import { isLiveClaudeResumeSummaryChoice } from "../src/main/vellum-command/term/drive/claude-startup";
+} from "../src/main/junto/term/drive";
+import { isLiveClaudeResumeSummaryChoice } from "../src/main/junto/term/drive/claude-startup";
 import {
   claudeRules,
   ruleMatches,
-} from "../src/main/vellum-command/term/agent-state";
-import type { ObserverGridSnapshot } from "../src/main/vellum-command/term/observer/types";
+} from "../src/main/junto/term/agent-state";
+import type { ObserverGridSnapshot } from "../src/main/junto/term/observer/types";
 
 describe("recovery CR (harness-owned selector submit)", () => {
   const drives: ManagedTerminalDrive[] = [];

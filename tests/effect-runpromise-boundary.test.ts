@@ -25,8 +25,8 @@ const ALLOWLIST = path.join(ROOT, "scripts/effect-runpromise-allowlist.json");
 const ENTRY_SURFACES = [
   "src/main/index.ts",
   "src/main/ipc.ts",
-  "src/main/vellum-command/ipc.ts",
-  "src/main/vellum-remote.ts",
+  "src/main/junto/ipc.ts",
+  "src/main/junto-remote.ts",
 ] as const;
 
 const CALL_PATTERN = /Effect\.runPromise\b/;
@@ -89,10 +89,10 @@ describe("effect-runpromise boundary (S0)", () => {
 
     const forbidden = raw.permanent.filter(
       (e) =>
-        e.path.startsWith("src/main/vellum-command/kernel/") ||
-        e.path === "src/main/vellum-command/kernel" ||
-        e.path.startsWith("src/main/vellum-command/work/") ||
-        e.path === "src/main/vellum-command/work",
+        e.path.startsWith("src/main/junto/kernel/") ||
+        e.path === "src/main/junto/kernel" ||
+        e.path.startsWith("src/main/junto/work/") ||
+        e.path === "src/main/junto/work",
     );
     expect(forbidden).toEqual([]);
   });
@@ -117,13 +117,13 @@ describe("effect-runpromise boundary (S0)", () => {
     // S2: kernel debt entry is gone — zero bare Effect.runPromise in
     // kernel/service.ts. Permanent must still never cover kernel/work.
     expect(
-      raw.debt.some((e) => e.path.startsWith("src/main/vellum-command/kernel/")),
+      raw.debt.some((e) => e.path.startsWith("src/main/junto/kernel/")),
     ).toBe(false);
     expect(
-      raw.permanent.some((e) => e.path.startsWith("src/main/vellum-command/kernel/")),
+      raw.permanent.some((e) => e.path.startsWith("src/main/junto/kernel/")),
     ).toBe(false);
     expect(
-      raw.permanent.some((e) => e.path.startsWith("src/main/vellum-command/work/")),
+      raw.permanent.some((e) => e.path.startsWith("src/main/junto/work/")),
     ).toBe(false);
   });
 
@@ -142,7 +142,7 @@ describe("effect-runpromise boundary (S0)", () => {
 });
 
 describe("V4-ENTRY managed runtime domain entry", () => {
-  it("has zero bare Effect.runPromise in index/ipc/vellum-ipc/vellum-command-remote", () => {
+  it("has zero bare Effect.runPromise in index/ipc/vellum-ipc/junto-remote", () => {
     const bad: string[] = [];
     for (const rel of ENTRY_SURFACES) {
       const source = readFileSync(path.join(ROOT, rel), "utf8");
@@ -159,11 +159,11 @@ describe("V4-ENTRY managed runtime domain entry", () => {
     const cc = readFileSync(path.join(ROOT, "src/main/index.ts"), "utf8");
     const ipc = readFileSync(path.join(ROOT, "src/main/ipc.ts"), "utf8");
     const vellumIpc = readFileSync(
-      path.join(ROOT, "src/main/vellum-command/ipc.ts"),
+      path.join(ROOT, "src/main/junto/ipc.ts"),
       "utf8",
     );
     const remote = readFileSync(
-      path.join(ROOT, "src/main/vellum-remote.ts"),
+      path.join(ROOT, "src/main/junto-remote.ts"),
       "utf8",
     );
 

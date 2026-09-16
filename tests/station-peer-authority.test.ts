@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   makeOwnerLocalStationControlHandoffAuthority,
   type StationControlLocalHandoff,
-} from "../src/main/vellum-command/station/peer-authority";
+} from "../src/main/junto/station/peer-authority";
 
 describe("Station owner-local handoff authority", () => {
   it("binds one opaque admission to the exact accepted socket", () => {

@@ -6,33 +6,33 @@
  * Guard: WorkService.workTaskClaim with ContentService + InstallOps in a warm
  * ManagedRuntime must claim a ContentRef task when receipts+files are verified.
  */
-import { CrewRepositoryLive } from "../src/main/vellum-command/work/crew-repository";
+import { CrewRepositoryLive } from "../src/main/junto/work/crew-repository";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Layer, ManagedRuntime } from "effect";
 import { afterEach, describe, expect, it } from "vitest";
 import type { CanvasDoc } from "../src/shared/canvas";
-import { CanvasesLive, CanvasesService } from "../src/main/vellum-command/canvases";
+import { CanvasesLive, CanvasesService } from "../src/main/junto/canvases";
 import {
   ContentService,
   makeContentServiceLive,
-} from "../src/main/vellum-command/content/service";
-import { makeInstallOpsLive } from "../src/main/vellum-command/install-ops/engine";
-import { makeStateEngineLive } from "../src/main/vellum-command/state/engine";
+} from "../src/main/junto/content/service";
+import { makeInstallOpsLive } from "../src/main/junto/install-ops/engine";
+import { makeStateEngineLive } from "../src/main/junto/state/engine";
 import {
   StationFleetTargetRepositoryLive,
-} from "../src/main/vellum-command/station/fleet-target-repository";
-import { StationRepositoryLive } from "../src/main/vellum-command/station/repository";
+} from "../src/main/junto/station/fleet-target-repository";
+import { StationRepositoryLive } from "../src/main/junto/station/repository";
 import {
   StationLivePeerRegistryLive,
-} from "../src/main/vellum-command/station/session-registry";
+} from "../src/main/junto/station/session-registry";
 import {
   SettingsLive,
   SettingsService,
-} from "../src/main/vellum-command/settings/service";
-import { WorkLive, WorkService } from "../src/main/vellum-command/work/service";
-import { WorkRepositoryLive } from "../src/main/vellum-command/work/repository";
+} from "../src/main/junto/settings/service";
+import { WorkLive, WorkService } from "../src/main/junto/work/service";
+import { WorkRepositoryLive } from "../src/main/junto/work/repository";
 
 const TINY_PNG = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",

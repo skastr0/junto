@@ -2,12 +2,12 @@ import { readFileSync } from "node:fs";
 import { Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import { SeatReadResult } from "../src/shared/seat-control";
-import { evaluate, SeatStateRuntime } from "../src/main/vellum-command/term/agent-state";
-import type { ObserverGridSnapshot } from "../src/main/vellum-command/term/observer/types";
+import { evaluate, SeatStateRuntime } from "../src/main/junto/term/agent-state";
+import type { ObserverGridSnapshot } from "../src/main/junto/term/observer/types";
 
 // Exact decoded SeatReadResult from the isolated native Devin session on
-// 2026-09-15, before the operator approved `vellum-command onboard`.
-// Source: /tmp/vellum-command-devin-command-approval-20260915.json.
+// 2026-09-15, before the operator approved `junto onboard`.
+// Source: /tmp/junto-devin-command-approval-20260915.json.
 // JSON unicode escapes preserve every captured character, including its footer.
 const captured = Schema.decodeUnknownSync(SeatReadResult)(JSON.parse(readFileSync(
   new URL("./fixtures/devin-command-approval-seat-read.json", import.meta.url), "utf8",

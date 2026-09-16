@@ -22,17 +22,17 @@ import {
   clampUtf8Bytes,
   utf8ByteLength,
 } from "../src/shared/browser-limits";
-import type { ResolvedPageTarget } from "../src/main/vellum-command/browser/page-target";
+import type { ResolvedPageTarget } from "../src/main/junto/browser/page-target";
 import type { RemoteHost } from "../src/shared/remote-hosts";
-import type { BrowserHostCapabilityAuthority } from "../src/main/vellum-command/browser/host-capability";
+import type { BrowserHostCapabilityAuthority } from "../src/main/junto/browser/host-capability";
 import {
   BrowserProfileError,
   makeBrowserProfileService,
   type BrowserProfileServiceApi,
-} from "../src/main/vellum-command/browser/profiles";
-import { makeStateEngineLive } from "../src/main/vellum-command/state/engine";
-import { StateEngine } from "../src/main/vellum-command/state/service";
-import { BrowserProfileGate } from "../src/main/vellum-command/browser/profile-gate";
+} from "../src/main/junto/browser/profiles";
+import { makeStateEngineLive } from "../src/main/junto/state/engine";
+import { StateEngine } from "../src/main/junto/state/service";
+import { BrowserProfileGate } from "../src/main/junto/browser/profile-gate";
 import {
   BrowserOwnerSessionTeardownFailure,
   BrowserSessionService,
@@ -40,7 +40,7 @@ import {
   type BrowserViewEvents,
   type BrowserViewHandle,
   type BrowserViewOptions,
-} from "../src/main/vellum-command/browser/sessions";
+} from "../src/main/junto/browser/sessions";
 import { LOCAL_BROWSER_TEST_AUTHORITY } from "./browser-host-test-authority";
 
 describe("warmPoolEvictions (pure)", () => {
@@ -140,7 +140,7 @@ const target = (
   nodeId: string,
   overrides: Partial<ResolvedPageTarget> = {},
 ): ResolvedPageTarget => ({
-  ref: `vellum-command://canvas/work?node=${nodeId}`,
+  ref: `junto://canvas/work?node=${nodeId}`,
   nodeId,
   url: `https://${nodeId}.example.com`,
   hostId: "local",
@@ -226,7 +226,7 @@ describe("BrowserSessionService", () => {
     | undefined;
 
   beforeEach(async () => {
-    root = await mkdtemp(join(tmpdir(), "vellum-command-browser-sessions-"));
+    root = await mkdtemp(join(tmpdir(), "junto-browser-sessions-"));
     stateRuntime = ManagedRuntime.make(
       makeStateEngineLive(join(root, "junto.db")),
     );
@@ -281,7 +281,7 @@ describe("BrowserSessionService", () => {
       ok: true,
       data: {
         sessionId: "session-1",
-        ref: "vellum-command://canvas/work?node=n1",
+        ref: "junto://canvas/work?node=n1",
         nodeId: "n1",
         profile: "personal",
       },
@@ -2838,7 +2838,7 @@ describe("BrowserSessionService", () => {
 
     const live = service.overseerSessionsForRef(page.ref);
     expect(live).toEqual(expect.arrayContaining([
-      { owner: "vellum-command-ui", sessionId: ui.data.sessionId },
+      { owner: "junto-ui", sessionId: ui.data.sessionId },
       { owner: "job-a", sessionId: jobA.data.sessionId },
       { owner: "job-b", sessionId: jobB.data.sessionId },
     ]));

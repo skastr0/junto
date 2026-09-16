@@ -37,7 +37,7 @@ mutable row and event has one installation authority home.
 1. Settings → Hosts → add remote (`id`, SSH endpoint).
 2. Install/start the app on the Remote so its owner-local Station control
    socket is available.
-3. **Configure as Remote** — Command Center invokes `vellum-command station-stdio`
+3. **Configure as Remote** — Command Center invokes `junto station-stdio`
    over SSH and completes `status → pair → configure`. No remote file is read
    or written. The packaged helper carries the same strict Station session
    frames when invoked over SSH or directly by the operator account: its
@@ -68,7 +68,7 @@ Remote host-local browser (same installation as page + actor)
   → WebContentsView on that Remote (needs BrowserWindow — deploy starts GUI app)
 
 CC fleet coordination
-  → SSH fixed command vellum-command-station
+  → SSH fixed command junto-station
   → owner-local Station control socket
   → Remote main process
   → ~/.junto/state/junto.db
@@ -128,14 +128,14 @@ packaged app digest before treating the path as qualified.
 
 | Piece | Path |
 |-------|------|
-| Deploy | `src/main/vellum-command/hosts/deploy-remote.ts` |
-| Pair/configure | `src/main/vellum-command/hosts/configure-remote.ts` |
-| Station API | `src/main/vellum-command/station/api.ts` |
-| Enrollment identity bootstrap | `src/main/vellum-command/station/openssh-bootstrap.ts` |
-| Persistent OpenSSH peer exchange | `src/main/vellum-command/station/openssh-peer-exchange.ts` |
-| Fleet session supervisor | `src/main/vellum-command/station/fleet-propagation.ts` |
-| Station control | `src/main/vellum-command/station/control-server.ts` |
-| Term control UDS | `src/main/vellum-command/term/control-*.ts` |
-| Router | `src/main/vellum-command/term/router.ts` |
+| Deploy | `src/main/junto/hosts/deploy-remote.ts` |
+| Pair/configure | `src/main/junto/hosts/configure-remote.ts` |
+| Station API | `src/main/junto/station/api.ts` |
+| Enrollment identity bootstrap | `src/main/junto/station/openssh-bootstrap.ts` |
+| Persistent OpenSSH peer exchange | `src/main/junto/station/openssh-peer-exchange.ts` |
+| Fleet session supervisor | `src/main/junto/station/fleet-propagation.ts` |
+| Station control | `src/main/junto/station/control-server.ts` |
+| Term control UDS | `src/main/junto/term/control-*.ts` |
+| Router | `src/main/junto/term/router.ts` |
 | IPC | `hostsDeployRemote` in `src/shared/ipc.ts` |
 | UI | Settings → Deploy Remote |

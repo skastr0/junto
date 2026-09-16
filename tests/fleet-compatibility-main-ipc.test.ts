@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import type { HostDeployJobSnapshot } from "../src/shared/deploy-job";
 import { DoctorReport } from "../src/shared/contracts";
 import { OperatorFleetTestData } from "../src/shared/operator-control";
-import { composeMainFleetCompatibilitySnapshot } from "../src/main/vellum-command/hosts/fleet-compatibility";
+import { composeMainFleetCompatibilitySnapshot } from "../src/main/junto/hosts/fleet-compatibility";
 
 const job = (
   status: HostDeployJobSnapshot["status"],
@@ -81,7 +81,7 @@ describe("Main Fleet compatibility IPC projection", () => {
       station: {
         name: "Junto",
         version: "0.1.14",
-        userDataPath: "/tmp/vellum-command",
+        userDataPath: "/tmp/junto",
       },
       services: [],
       recommendations: [],
@@ -89,9 +89,9 @@ describe("Main Fleet compatibility IPC projection", () => {
     });
     expect(doctor.fleetCompatibility?.status).toBe("checking");
 
-    const ipcSource = readFileSync("src/main/vellum-command/hosts/ipc.ts", "utf8");
+    const ipcSource = readFileSync("src/main/junto/hosts/ipc.ts", "utf8");
     const operatorSource = readFileSync(
-      "src/main/vellum-command/hosts/operator-coordinator.ts",
+      "src/main/junto/hosts/operator-coordinator.ts",
       "utf8",
     );
     expect(ipcSource).toContain("compatibility: result.success.compatibility");

@@ -32,7 +32,7 @@ import {
 } from "./finalize-linux-package";
 
 export const RELEASE_SOURCE_INDEX = "sources.json";
-export const RELEASE_SOURCE_SCHEMA = "vellum-command/release-sources/v1";
+export const RELEASE_SOURCE_SCHEMA = "junto/release-sources/v1";
 const SAFE_FILE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,199}$/u;
 const SHA256 = /^[0-9a-f]{64}$/u;
 const REVISION = /^[0-9a-f]{40}$/u;
@@ -235,7 +235,7 @@ const validateRelinkReceipt = (
 ): Record<string, unknown> => {
   const receipt = record(value);
   if (
-    receipt.schema !== "vellum-command/cli-relink/v1" ||
+    receipt.schema !== "junto/cli-relink/v1" ||
     receipt.sourceCommit !== sourceCommit ||
     receipt.bunVersion !== bunVersion ||
     typeof receipt.featureFingerprint !== "string" ||
@@ -374,7 +374,7 @@ export const assertPackagedCliCorresponds = async (
   if (process.platform !== "darwin")
     throw new Error("packaged CLI bytes differ from compiled relink object");
   const temporary = await mkdtemp(
-    path.join(tmpdir(), "vellum-command-cli-signature-"),
+    path.join(tmpdir(), "junto-cli-signature-"),
   );
   try {
     const normalized: SourceFile[] = [];
@@ -392,7 +392,7 @@ export const assertPackagedCliCorresponds = async (
           "-",
           "--timestamp=none",
           "--identifier",
-          "vellum-command-cli-comparison",
+          "junto-cli-comparison",
         ],
         ["--remove-signature"],
       ]) {
@@ -473,7 +473,7 @@ export const assertLinuxArchiveContainsRuntime = async (input: {
   if (path.basename(input.archivePath) !== linuxRuntimeArchiveName({ version: input.version, arch: "x64" }))
     throw new Error("Linux source binding requires the canonical archive name");
   validateLinuxRuntimeArchive({ archive: input.archivePath, artifactName });
-  for (const relative of ["resources/app.asar", "resources/bin/vellum-command"]) {
+  for (const relative of ["resources/app.asar", "resources/bin/junto"]) {
     const expected = await fingerprintSourceFile(path.join(input.runtimeRoot, path.dirname(relative)), path.basename(relative));
     await new Promise<void>((resolve, reject) => {
       const child = spawn("/usr/bin/tar", ["-xOzf", input.archivePath, `${artifactName}/${relative}`], { stdio: ["ignore", "pipe", "pipe"] });
@@ -574,7 +574,7 @@ export const prepareReleaseSources = async (input: {
   const receipt = validateRelinkReceipt(
     JSON.parse(
       await readFile(
-        path.join(cliDirectory, "vellum-command-relink.json"),
+        path.join(cliDirectory, "junto-relink.json"),
         "utf8",
       ),
     ),
@@ -582,25 +582,25 @@ export const prepareReleaseSources = async (input: {
     runtime.bunVersion,
   );
   assertRelinkFingerprint(
-    await fingerprintSourceFile(cliDirectory, "vellum-command-relink.js"),
+    await fingerprintSourceFile(cliDirectory, "junto-relink.js"),
     receipt.payload,
   );
   assertRelinkFingerprint(
     await fingerprintSourceFile(
       cliDirectory,
-      "vellum-command-relink-notices.txt",
+      "junto-relink-notices.txt",
     ),
     receipt.notices,
   );
   assertRelinkFingerprint(
-    await fingerprintSourceFile(cliDirectory, "vellum-command"),
+    await fingerprintSourceFile(cliDirectory, "junto"),
     receipt.binary,
   );
   for (const [from, to] of [
-    ["vellum-command-relink.js", `Junto-${version}-cli.js`],
-    ["vellum-command-relink.json", `Junto-${version}-cli-relink.json`],
+    ["junto-relink.js", `Junto-${version}-cli.js`],
+    ["junto-relink.json", `Junto-${version}-cli-relink.json`],
     [
-      "vellum-command-relink-notices.txt",
+      "junto-relink-notices.txt",
       `Junto-${version}-cli-notices.txt`,
     ],
   ] as const)
@@ -613,7 +613,7 @@ export const prepareReleaseSources = async (input: {
         `cat ${sourcePartNames(file.file, file.bytes).join(" ")} > ${file.file}`,
     )
     .join("\n");
-  const recipe = `# Rebuilding the Junto control CLI\n\nThis download contains the exact dependency-bundled application object compiled into this release. Its digest, feature profile and compiler version are recorded in Junto-${version}-cli-relink.json; its application and bundled dependency licenses are in Junto-${version}-cli-notices.txt.\n\nVerify every download against sources.json. Large source archives are transported as ordered 128 MiB parts because the release feed upload path caps single objects at 300 MB. Concatenate their parts and verify the resulting whole-archive SHA-256 in the index before extracting:\n\n\`\`\`sh\n${reconstruction}\n\`\`\`\n\nExtract the matching application source archive and follow third_party/bun-1.3.13/README.md to rebuild Bun with your changed LGPL libraries using the runtime source archives here. The Bun source includes its build driver, dependency pins and patches. Compiler/build-tool prerequisites are described upstream.\n\nUsing that rebuilt native Bun executable, run from a directory containing this application object:\n\n\`\`\`sh\n/path/to/rebuilt/bun build --compile --no-compile-autoload-dotenv --no-compile-autoload-bunfig --no-compile-autoload-tsconfig --no-compile-autoload-package-json --outfile vellum-command Junto-${version}-cli.js\n./vellum-command --help\n\`\`\`\n\nThe application-object compile needs no npm packages, repository checkout, or network access. It uses the running Bun executable as the runtime, so the output contains your rebuilt library. It does not inherit the official macOS signature. App/Station control admission and process identity checks still apply. This does not claim byte-identical output or an executed full WebKit rebuild.\n`;
+  const recipe = `# Rebuilding the Junto control CLI\n\nThis download contains the exact dependency-bundled application object compiled into this release. Its digest, feature profile and compiler version are recorded in Junto-${version}-cli-relink.json; its application and bundled dependency licenses are in Junto-${version}-cli-notices.txt.\n\nVerify every download against sources.json. Large source archives are transported as ordered 128 MiB parts because the release feed upload path caps single objects at 300 MB. Concatenate their parts and verify the resulting whole-archive SHA-256 in the index before extracting:\n\n\`\`\`sh\n${reconstruction}\n\`\`\`\n\nExtract the matching application source archive and follow third_party/bun-1.3.13/README.md to rebuild Bun with your changed LGPL libraries using the runtime source archives here. The Bun source includes its build driver, dependency pins and patches. Compiler/build-tool prerequisites are described upstream.\n\nUsing that rebuilt native Bun executable, run from a directory containing this application object:\n\n\`\`\`sh\n/path/to/rebuilt/bun build --compile --no-compile-autoload-dotenv --no-compile-autoload-bunfig --no-compile-autoload-tsconfig --no-compile-autoload-package-json --outfile junto Junto-${version}-cli.js\n./junto --help\n\`\`\`\n\nThe application-object compile needs no npm packages, repository checkout, or network access. It uses the running Bun executable as the runtime, so the output contains your rebuilt library. It does not inherit the official macOS signature. App/Station control admission and process identity checks still apply. This does not claim byte-identical output or an executed full WebKit rebuild.\n`;
   try {
     await writeFile(path.join(directory, "RELINK.md"), recipe, { flag: "wx" });
   } catch (error) {
@@ -656,12 +656,12 @@ export const prepareReleaseSources = async (input: {
     if (parity.sourceCommit !== commit || parity.appVersion !== version)
       throw new Error("packaged app and source archive disagree");
     await assertPackagedCliCorresponds(
-      path.join(cliDirectory, "vellum-command"),
-      path.join(input.appBundle, "Contents/Resources/bin/vellum-command"),
+      path.join(cliDirectory, "junto"),
+      path.join(input.appBundle, "Contents/Resources/bin/junto"),
     );
     for (const relative of [
       "Contents/Resources/app.asar",
-      "Contents/Resources/bin/vellum-command",
+      "Contents/Resources/bin/junto",
     ]) {
       await assertZipContainsAppFile(
         path.join(
@@ -682,7 +682,7 @@ export const prepareReleaseSources = async (input: {
     const parity = await verifyPackagedRuntimeParity({ repoRoot: root, target: "linux", runtimeRoot: input.linuxRuntime });
     if (parity.sourceCommit !== commit || parity.appVersion !== version)
       throw new Error("packaged Linux runtime and source archive disagree");
-    await assertPackagedCliCorresponds(path.join(cliDirectory, "vellum-command"), path.join(input.linuxRuntime, "resources/bin/vellum-command"));
+    await assertPackagedCliCorresponds(path.join(cliDirectory, "junto"), path.join(input.linuxRuntime, "resources/bin/junto"));
     await assertLinuxArchiveContainsRuntime({ archivePath: input.linuxArchive, runtimeRoot: input.linuxRuntime, version });
     binaries = [await fingerprintSourceFile(path.dirname(input.linuxArchive), path.basename(input.linuxArchive))];
   }

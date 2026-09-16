@@ -50,34 +50,34 @@
  *                fires (canvas-only) → documentation.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { SessionObserver } from "../../../src/main/vellum-command/term/observer";
-import { SeatStateRuntime } from "../../../src/main/vellum-command/term/agent-state/runtime";
+import { SessionObserver } from "../../../src/main/junto/term/observer";
+import { SeatStateRuntime } from "../../../src/main/junto/term/agent-state/runtime";
 import {
   admitUngroundedFirstTypedComposer,
   composerVerdictFor,
   rulePackFor,
-} from "../../../src/main/vellum-command/term/agent-state";
+} from "../../../src/main/junto/term/agent-state";
 import {
   SeatStateMachine,
   SEAT_DEBOUNCE,
-} from "../../../src/main/vellum-command/term/agent-state/seat-state-machine";
-import { evaluate } from "../../../src/main/vellum-command/term/agent-state/engine";
-import { hookStateFromSnapshot } from "../../../src/main/vellum-command/term/agent-state/hook-feed";
-import { progressFingerprint } from "../../../src/main/vellum-command/term/agent-state/turn-progress-watch";
-import { sanitizeTitle } from "../../../src/main/vellum-command/term/observer/sanitize";
+} from "../../../src/main/junto/term/agent-state/seat-state-machine";
+import { evaluate } from "../../../src/main/junto/term/agent-state/engine";
+import { hookStateFromSnapshot } from "../../../src/main/junto/term/agent-state/hook-feed";
+import { progressFingerprint } from "../../../src/main/junto/term/agent-state/turn-progress-watch";
+import { sanitizeTitle } from "../../../src/main/junto/term/observer/sanitize";
 import {
   deriveInjectionSignal,
   promptRegionLines,
   scanMarker,
-} from "../../../src/main/vellum-command/term/observer/interaction";
-import { InjectionSupervisor } from "../../../src/main/vellum-command/term/injection-supervisor";
+} from "../../../src/main/junto/term/observer/interaction";
+import { InjectionSupervisor } from "../../../src/main/junto/term/injection-supervisor";
 import { buildBootstrapMarker } from "@shared/managed-terminal-injection";
 import {
   applyAgentSeatStateEvent,
   agentSeat$,
   resetAgentSeatState,
 } from "../../../src/renderer/lib/agent-seat-state";
-import { armFirstTypedMessage, resetFirstTypedForTest } from "../../../src/main/vellum-command/term/first-typed";
+import { armFirstTypedMessage, resetFirstTypedForTest } from "../../../src/main/junto/term/first-typed";
 import {
   BRACKETED_PASTE_END,
   BRACKETED_PASTE_START,
@@ -87,7 +87,7 @@ import {
   encodeBracketedPaste,
   promptHasPasteChip,
   promptStillPending,
-} from "../../../src/main/vellum-command/term/drive";
+} from "../../../src/main/junto/term/drive";
 import {
   assertChunkEquality,
   chunkEvents,
@@ -96,7 +96,7 @@ import {
   runScenario,
 } from "../runner";
 import { DriveLoop, ScriptedTui, type DriveLoopOptions } from "../scripted-tui";
-import type { ObserverGridSnapshot } from "../../../src/main/vellum-command/term/observer/types";
+import type { ObserverGridSnapshot } from "../../../src/main/junto/term/observer/types";
 import type { AgentSeatStateEvent } from "../../../src/shared/agent-seat-state";
 
 const BINDING = "seat-b1";

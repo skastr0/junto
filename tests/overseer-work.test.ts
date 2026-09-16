@@ -1,4 +1,4 @@
-import { CrewRepositoryLive } from "../src/main/vellum-command/work/crew-repository";
+import { CrewRepositoryLive } from "../src/main/junto/work/crew-repository";
 import { randomUUID } from "node:crypto";
 import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -15,28 +15,28 @@ import {
   admitWorkTarget,
   overseerWorkAdmin,
   requiresConnection,
-} from "../src/main/vellum-command/work/authz";
-import { CanvasesLive, CanvasesService } from "../src/main/vellum-command/canvases";
-import { WorkLive, WorkService } from "../src/main/vellum-command/work/service";
-import { WorkRepositoryLive } from "../src/main/vellum-command/work/repository";
-import { makeStateEngineLive } from "../src/main/vellum-command/state/engine";
-import { StationRepositoryLive } from "../src/main/vellum-command/station/repository";
+} from "../src/main/junto/work/authz";
+import { CanvasesLive, CanvasesService } from "../src/main/junto/canvases";
+import { WorkLive, WorkService } from "../src/main/junto/work/service";
+import { WorkRepositoryLive } from "../src/main/junto/work/repository";
+import { makeStateEngineLive } from "../src/main/junto/state/engine";
+import { StationRepositoryLive } from "../src/main/junto/station/repository";
 import {
   StationFleetTargetRepository,
   StationFleetTargetRepositoryLive,
-} from "../src/main/vellum-command/station/fleet-target-repository";
+} from "../src/main/junto/station/fleet-target-repository";
 import { InstallationId } from "../src/shared/installation-id";
 import { HostId } from "../src/shared/remote-hosts";
-import { StationLivePeerRegistryLive } from "../src/main/vellum-command/station/session-registry";
-import { makeSettingsLive, SettingsService } from "../src/main/vellum-command/settings/service";
-import { makeContentServiceLive } from "../src/main/vellum-command/content/service";
-import { makeInstallOpsLive } from "../src/main/vellum-command/install-ops/engine";
+import { StationLivePeerRegistryLive } from "../src/main/junto/station/session-registry";
+import { makeSettingsLive, SettingsService } from "../src/main/junto/settings/service";
+import { makeContentServiceLive } from "../src/main/junto/content/service";
+import { makeInstallOpsLive } from "../src/main/junto/install-ops/engine";
 import {
   executeOverseerWork,
   overseerWorkRunsLocally,
-} from "../src/main/vellum-command/overseer/work";
+} from "../src/main/junto/overseer/work";
 
-const mockHome = join(tmpdir(), `vellum-command-overseer-work-${randomUUID()}`);
+const mockHome = join(tmpdir(), `junto-overseer-work-${randomUUID()}`);
 
 vi.mock("node:os", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:os")>();

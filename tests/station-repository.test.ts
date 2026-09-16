@@ -28,27 +28,27 @@ import { ProjectedIntentFactBasis } from "../src/shared/work-protocol";
 import {
   makeSettingsLive,
   SettingsService,
-} from "../src/main/vellum-command/settings/service";
-import { findHostById } from "../src/main/vellum-command/hosts/snapshot";
+} from "../src/main/junto/settings/service";
+import { findHostById } from "../src/main/junto/hosts/snapshot";
 import {
   compileStationPortfolioBody,
   STATION_PORTFOLIO_PROTOCOL,
-} from "../src/main/vellum-command/station/portfolio";
+} from "../src/main/junto/station/portfolio";
 import {
   StationRepository,
   makeStationRepositoryLive,
   stationProjectionContentSha256,
-} from "../src/main/vellum-command/station/repository";
+} from "../src/main/junto/station/repository";
 import {
   makeStateEngineLive,
   StateEngine,
   type StateRow,
-} from "../src/main/vellum-command/state/engine";
+} from "../src/main/junto/state/engine";
 import {
   createCurrentProjectedTaskDependencyScopeCapability,
   WorkRepository,
   WorkRepositoryLive,
-} from "../src/main/vellum-command/work/repository";
+} from "../src/main/junto/work/repository";
 
 const decodeInstallationId = Schema.decodeUnknownSync(InstallationId);
 const decodeProjectionSequence =
@@ -66,7 +66,7 @@ afterEach(async () => {
 });
 
 const testDatabase = async (): Promise<string> => {
-  const root = await mkdtemp(join(tmpdir(), "vellum-command-station-repository-"));
+  const root = await mkdtemp(join(tmpdir(), "junto-station-repository-"));
   roots.push(root);
   return join(root, "junto.db");
 };

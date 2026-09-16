@@ -106,7 +106,7 @@ export interface LinuxReleaseManifest {
   };
   readonly target: typeof LINUX_RELEASE_TARGET;
   readonly package: {
-    readonly name: "vellum-command";
+    readonly name: "junto";
     readonly kind: "userland-runtime-archive";
     readonly file: string;
     readonly bytes: number;
@@ -160,7 +160,7 @@ export interface LinuxQualificationCandidateManifest {
   };
   readonly target: typeof LINUX_RELEASE_TARGET;
   readonly package: {
-    readonly name: "vellum-command";
+    readonly name: "junto";
     readonly kind: "userland-runtime-archive";
     readonly file: string;
     readonly bytes: number;
@@ -358,7 +358,7 @@ const MAX_PACKAGE_BYTES = 2 * 1024 * 1024 * 1024;
 const MAX_VERIFIER_BYTES = 256 * 1024 * 1024;
 
 export const linuxUserlandRuntimeArchiveName = (version: string): string =>
-  `vellum-command-runtime-${requireSemver(version, "release version")}-linux-x64.tar.gz`;
+  `junto-runtime-${requireSemver(version, "release version")}-linux-x64.tar.gz`;
 
 const record = (value: unknown, label: string): Record<string, unknown> => {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
@@ -507,7 +507,7 @@ const requireDownloadLocator = (
     parsed.hash.length > 0 ||
     parsed.hostname.length === 0 ||
     !parsed.pathname.endsWith(
-      `/vellum-command-runtime-${version}-linux-x64.tar.gz`,
+      `/junto-runtime-${version}-linux-x64.tar.gz`,
     )
   ) {
     throw new Error("download locator must name the exact HTTPS release bundle");
@@ -952,7 +952,7 @@ export const decodeLinuxReleaseManifest = (
   );
   const expectedPackage = linuxUserlandRuntimeArchiveName(version);
   if (
-    packageEntry.name !== "vellum-command" ||
+    packageEntry.name !== "junto" ||
     packageEntry.kind !== "userland-runtime-archive" ||
     packageEntry.file !== expectedPackage
   ) {
@@ -1034,7 +1034,7 @@ export const decodeLinuxReleaseManifest = (
     },
     target: LINUX_RELEASE_TARGET,
     package: {
-      name: "vellum-command",
+      name: "junto",
       kind: "userland-runtime-archive",
       file: expectedPackage,
       bytes: packageBytes,
@@ -1160,7 +1160,7 @@ export const decodeLinuxQualificationCandidateManifest = (
   );
   const expectedPackage = linuxUserlandRuntimeArchiveName(version);
   if (
-    packageEntry.name !== "vellum-command" ||
+    packageEntry.name !== "junto" ||
     packageEntry.kind !== "userland-runtime-archive" ||
     packageEntry.file !== expectedPackage
   ) {
@@ -1255,7 +1255,7 @@ export const decodeLinuxQualificationCandidateManifest = (
     },
     target: LINUX_RELEASE_TARGET,
     package: {
-      name: "vellum-command",
+      name: "junto",
       kind: "userland-runtime-archive",
       file: expectedPackage,
       bytes: packageBytes,
@@ -1713,15 +1713,15 @@ const validateSbomInventoryConsistency = (
       ? undefined
       : record(dependency.licenseEvidence, "dependency license evidence");
     const expectedProperties = new Map([
-      ["vellum-command:direct", String(dependency.direct)],
-      ["vellum-command:development", String(dependency.development)],
-      ["vellum-command:license-source", String(dependency.licenseSource)],
+      ["junto:direct", String(dependency.direct)],
+      ["junto:development", String(dependency.development)],
+      ["junto:license-source", String(dependency.licenseSource)],
       ...(evidence === undefined
         ? []
         : [
-          ["vellum-command:license-evidence-file", String(evidence.file)] as const,
+          ["junto:license-evidence-file", String(evidence.file)] as const,
           [
-            "vellum-command:license-evidence-sha256",
+            "junto:license-evidence-sha256",
             String(evidence.sha256),
           ] as const,
         ]),
@@ -2004,7 +2004,7 @@ const validateEvidenceReceipt = (
       : [];
     const revision = properties.some((property) => {
       const decoded = record(property, "SBOM property");
-      return decoded.name === "vellum-command:source-revision" &&
+      return decoded.name === "junto:source-revision" &&
         decoded.value === manifest.source.revision;
     });
     if (
@@ -2777,7 +2777,7 @@ export const createLinuxQualificationCandidateManifest = async (input: {
     },
     target: LINUX_RELEASE_TARGET,
     package: {
-      name: "vellum-command",
+      name: "junto",
       kind: "userland-runtime-archive",
       file: packageReceipt.file,
       bytes: packageReceipt.bytes,
@@ -2890,7 +2890,7 @@ export const createLinuxReleaseManifest = async (input: {
     },
     target: LINUX_RELEASE_TARGET,
     package: {
-      name: "vellum-command",
+      name: "junto",
       kind: "userland-runtime-archive",
       file: packageReceipt.file,
       bytes: packageReceipt.bytes,

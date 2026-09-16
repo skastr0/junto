@@ -7,19 +7,19 @@ import { spawn } from "node-pty";
 import { expect, it } from "vitest";
 import { CrewSeat, installCrewSeatHarness } from "../e2e/harness/crew-fixture";
 import type { Sandbox } from "../e2e/harness/sandbox";
-import { SeatStateRuntime } from "../src/main/vellum-command/term/agent-state/runtime";
-import { createManagedTerminalDrive } from "../src/main/vellum-command/term/drive/managed-drive-factory";
-import { promptStillPending } from "../src/main/vellum-command/term/drive/prompt-evidence";
-import { isManagedTerminalReady } from "../src/main/vellum-command/term/drive/readiness";
-import { SessionObserver } from "../src/main/vellum-command/term/observer";
-import type { ObserverGridSnapshot } from "../src/main/vellum-command/term/observer/types";
+import { SeatStateRuntime } from "../src/main/junto/term/agent-state/runtime";
+import { createManagedTerminalDrive } from "../src/main/junto/term/drive/managed-drive-factory";
+import { promptStillPending } from "../src/main/junto/term/drive/prompt-evidence";
+import { isManagedTerminalReady } from "../src/main/junto/term/drive/readiness";
+import { SessionObserver } from "../src/main/junto/term/observer";
+import type { ObserverGridSnapshot } from "../src/main/junto/term/observer/types";
 
 const bindingId = "crew-control-probe";
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const bracket = (text: string) => `\x1b[200~${text}\x1b[201~`;
 
 const launch = async () => {
-  const root = await mkdtemp(join(tmpdir(), "vellum-command-crew-control-"));
+  const root = await mkdtemp(join(tmpdir(), "junto-crew-control-"));
   await installCrewSeatHarness({ homeDir: root } as Sandbox);
   const seat = new CrewSeat(join(root, ".junto", "crew-seats", "probe--seat"));
   const epoch = "fake-control-generation";

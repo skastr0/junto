@@ -7,7 +7,7 @@ import {
   decodeLiveTranscriptEvent,
   LIVE_TRANSCRIPT_LIMITS,
   type LiveTranscriptFragment,
-} from "../src/main/vellum-command/overseer/live/transcript";
+} from "../src/main/junto/overseer/live/transcript";
 
 const input = (eventId: string, text: string, startMs = 0, endMs = startMs + 10): LiveTranscriptFragment =>
   ({ eventId, role: "user", text, startMs, endMs });

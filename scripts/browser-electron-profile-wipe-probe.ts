@@ -12,7 +12,7 @@ import {
 import { createServer, type Server, type ServerResponse } from "node:http";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { browserProfileQuarantinePath } from "../src/main/vellum-command/browser/profile-storage";
+import { browserProfileQuarantinePath } from "../src/main/junto/browser/profile-storage";
 import {
   createProbeSandbox,
   createProbeProcessSupervisor,

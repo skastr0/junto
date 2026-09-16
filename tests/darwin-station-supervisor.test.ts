@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type {
   LaunchctlRunResult,
   VellumLaunchAgentTarget,
-} from "../src/main/vellum-command/settings/launchctl-runner";
+} from "../src/main/junto/settings/launchctl-runner";
 
 const mocks = vi.hoisted(() => ({
   target: Object.freeze({}) as VellumLaunchAgentTarget,
@@ -11,14 +11,14 @@ const mocks = vi.hoisted(() => ({
   kickstartLaunchAgent: vi.fn(),
 }));
 
-vi.mock("../src/main/vellum-command/settings/launchctl-runner", () => ({
+vi.mock("../src/main/junto/settings/launchctl-runner", () => ({
   JUNTO_LAUNCHD_LABEL: "skastr0.vellumcommand",
   launchAgentTargetForCurrentUser: mocks.launchAgentTargetForCurrentUser,
   printLaunchAgent: mocks.printLaunchAgent,
   kickstartLaunchAgent: mocks.kickstartLaunchAgent,
 }));
 
-import { createDarwinStationSupervisor } from "../src/main/vellum-command/supervision/darwin";
+import { createDarwinStationSupervisor } from "../src/main/junto/supervision/darwin";
 
 const launchdPrint = (
   body: string,

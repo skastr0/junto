@@ -40,25 +40,25 @@ import type { Task } from "../src/shared/work-model";
 import {
   materializeContentObject,
   taskContentRef,
-} from "../src/main/vellum-command/content/agent-access";
+} from "../src/main/junto/content/agent-access";
 import {
   contentObjectPath,
   contentPartialPath,
   contentStoreRoot,
-} from "../src/main/vellum-command/content/paths";
-import { createContentProtocolHandler } from "../src/main/vellum-command/content/protocol";
-import { createContentService } from "../src/main/vellum-command/content/service";
+} from "../src/main/junto/content/paths";
+import { createContentProtocolHandler } from "../src/main/junto/content/protocol";
+import { createContentService } from "../src/main/junto/content/service";
 import {
   contentTransferPartialId,
   receiveContentTransfer,
   sendContentTransfer,
   statContentForTransfer,
-} from "../src/main/vellum-command/content/transfer-local";
-import { ContentStoreError } from "../src/main/vellum-command/content/store";
+} from "../src/main/junto/content/transfer-local";
+import { ContentStoreError } from "../src/main/junto/content/store";
 import {
   makeStateEngineLive,
   StateEngine,
-} from "../src/main/vellum-command/state/engine";
+} from "../src/main/junto/state/engine";
 import {
   buildMediaFixture,
   DEFAULT_STREAM_CHUNK,

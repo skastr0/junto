@@ -273,7 +273,7 @@ test.describe(() => {
   // scenario launches manually (extraEnv) instead of through the fixture.
   test("board detail: agent post lands live and Mark read clears the lane", async () => {
     test.setTimeout(120_000);
-    const mockDir = await mkdtemp(join(tmpdir(), "vellum-command-board-seat-"));
+    const mockDir = await mkdtemp(join(tmpdir(), "junto-board-seat-"));
     const inbox = join(mockDir, "inbox.json");
     const outbox = join(mockDir, "outbox.json");
     const mockBin = join(mockDir, "codex");

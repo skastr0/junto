@@ -10,7 +10,7 @@ import {
   normalizeOrganization,
   resolveEnvCredential,
   scanSessionMaterial,
-} from "../src/main/vellum-command/usage/devin-auth";
+} from "../src/main/junto/usage/devin-auth";
 import {
   buildDevinSnapshot,
   candidatePaths,
@@ -19,7 +19,7 @@ import {
   fetchDevinWith,
   parseDevinQuotaUsage,
   redactToken,
-} from "../src/main/vellum-command/usage/devin-source";
+} from "../src/main/junto/usage/devin-source";
 
 const FETCHED = "2026-08-25T12:00:00.000Z";
 const TOKEN = "auth1_abcdefghijklmnopqrstuvwx";

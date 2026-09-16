@@ -7,7 +7,7 @@
  * `[fake-tui]` in its title and evidence. The fake is a `codex` binary
  * planted on the sandbox PATH ahead of the fakes dir: it paints the exact
  * screens the codex seat-state rule pack classifies
- * (src/main/vellum-command/term/agent-state/rules/codex.ts), echoes PTY
+ * (src/main/junto/term/agent-state/rules/codex.ts), echoes PTY
  * input the way a real composer does, and proxies REAL work-control
  * operations over the app's Unix control socket with the seat's own
  * injected env (process-bind admission — the same path a registered
@@ -29,7 +29,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { chmod, mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { Page } from "@playwright/test";
-import type { PtyDeliveryTraceEvent } from "../../src/main/vellum-command/term/drive/pty-delivery-trace";
+import type { PtyDeliveryTraceEvent } from "../../src/main/junto/term/drive/pty-delivery-trace";
 import type { CanvasDoc, CanvasEdge, CanvasNode, TextNode } from "../../src/shared/canvas";
 import type { GroupNode } from "../../src/shared/canvas";
 import { readMailAttemptFacts, readMailExtension, type MailAttemptFacts, type MailExtension, type ReviewVerdict } from "../../src/shared/crew";
@@ -551,7 +551,7 @@ const callWork = (op, args, timeoutMs) =>
 
 const runCli = (argv, timeoutMs) =>
   new Promise((resolve) => {
-    const bin = process.env.JUNTO_CLI || "vellum-command";
+    const bin = process.env.JUNTO_CLI || "junto";
     cp.execFile(
       bin,
       argv,

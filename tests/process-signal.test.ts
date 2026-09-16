@@ -11,7 +11,7 @@ import {
   spawnDetachedProcessGroup,
   KillablePid,
   type OwnedProcess,
-} from "../src/main/vellum-command/process-signal";
+} from "../src/main/junto/process-signal";
 import {
   captureChildProcessEpoch,
   captureProcessGroupEpoch,
@@ -19,7 +19,7 @@ import {
   processGroupEpochIsCurrent,
   setProcessEpochReaderForTests,
   type ProcessEpochRow,
-} from "../src/main/vellum-command/process-epoch";
+} from "../src/main/junto/process-epoch";
 import { Schema } from "effect";
 
 const row = (
@@ -41,7 +41,7 @@ describe("process-signal authority", () => {
     expect(Schema.decodeUnknownResult(KillablePid)(process.ppid)._tag).toBe("Failure");
   });
   it("has no raw-pid admission export", async () => {
-    const surface = await import("../src/main/vellum-command/process-signal");
+    const surface = await import("../src/main/junto/process-signal");
     expect("admitSpawnedProcess" in surface).toBe(false);
     expect("registerOwnedProcess" in surface).toBe(false);
   });
@@ -355,7 +355,7 @@ describe("process-signal authority", () => {
   });
 
   it("source contains no positive terminating process.kill branch", async () => {
-    const source = await readFile("src/main/vellum-command/process-signal.ts", "utf8");
+    const source = await readFile("src/main/junto/process-signal.ts", "utf8");
     expect(source).not.toMatch(/process\.kill\(rec\.pid/);
     expect(source).toMatch(/process\.kill\(-rec\.pid/);
   });

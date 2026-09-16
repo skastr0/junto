@@ -8,7 +8,7 @@ import {
   workErr,
   workOk,
 } from "../src/shared/work-control";
-import { handshakeLinuxWorkControl } from "../src/main/vellum-command/hosts/host-runtime-platform";
+import { handshakeLinuxWorkControl } from "../src/main/junto/hosts/host-runtime-platform";
 
 const listen = async (
   path: string,

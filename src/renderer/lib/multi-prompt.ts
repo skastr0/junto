@@ -4,7 +4,7 @@ import type {
   TerminalManagedPromptResult,
 } from "@shared/ipc";
 import { resolveTerminalBinding } from "@shared/terminal";
-import { getVellumCommandApi } from "./vellum-api";
+import { getJuntoApi } from "./junto-api";
 import { state$ } from "./state";
 
 export type MultiPromptTarget = {
@@ -68,7 +68,7 @@ export const multiPromptTargetsFromNodes = (
 
 const defaultOps = (): MultiPromptOps => ({
   writePrompt: async (input) => {
-    const api = getVellumCommandApi();
+    const api = getJuntoApi();
     if (!api?.terminalManagedPrompt) {
       return {
         ok: false,

@@ -5,8 +5,8 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   harnessBinaryInstalled,
   resolveHarnessExecutable,
-} from "../src/main/vellum-command/term/templates/harness-install";
-import { resolveLaunch } from "../src/main/vellum-command/term/local-host";
+} from "../src/main/junto/term/templates/harness-install";
+import { resolveLaunch } from "../src/main/junto/term/local-host";
 import { Result } from "effect";
 
 const scratchDirs: string[] = [];

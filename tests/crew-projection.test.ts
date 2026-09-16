@@ -3,13 +3,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect, Layer, ManagedRuntime, Schema } from "effect";
 import { afterEach, describe, expect, it } from "vitest";
-import { CanvasesLive, CanvasesService } from "../src/main/vellum-command/canvases";
-import { CanvasEntityRepositoryLive } from "../src/main/vellum-command/entities/repository";
-import { makeStateEngineLive, StateEngine } from "../src/main/vellum-command/state/engine";
-import type { StateBindings, StateEngineShape } from "../src/main/vellum-command/state/service";
-import { CrewRepository, CrewRepositoryLive, subjectHashOf } from "../src/main/vellum-command/work/crew-repository";
-import { mailboxMessageDeliveryId, mailboxMessageReactId, mailboxMessageReadId } from "../src/main/vellum-command/work/mailbox-receipts";
-import { createAuthorialTaskDependencyScopeCapability, WorkRepository, WorkRepositoryLive } from "../src/main/vellum-command/work/repository";
+import { CanvasesLive, CanvasesService } from "../src/main/junto/canvases";
+import { CanvasEntityRepositoryLive } from "../src/main/junto/entities/repository";
+import { makeStateEngineLive, StateEngine } from "../src/main/junto/state/engine";
+import type { StateBindings, StateEngineShape } from "../src/main/junto/state/service";
+import { CrewRepository, CrewRepositoryLive, subjectHashOf } from "../src/main/junto/work/crew-repository";
+import { mailboxMessageDeliveryId, mailboxMessageReactId, mailboxMessageReadId } from "../src/main/junto/work/mailbox-receipts";
+import { createAuthorialTaskDependencyScopeCapability, WorkRepository, WorkRepositoryLive } from "../src/main/junto/work/repository";
 import type { CanvasDoc } from "../src/shared/canvas";
 import { readMailAttemptFacts, type ReviewVerdict } from "../src/shared/crew";
 import { mailDisplayFactsOf } from "../src/shared/message-delivery";
@@ -56,7 +56,7 @@ const document: CanvasDoc = {
 };
 
 const openFixture = async () => {
-  const root = await mkdtemp(join(tmpdir(), "vellum-command-crew-projection-"));
+  const root = await mkdtemp(join(tmpdir(), "junto-crew-projection-"));
   roots.push(root);
   const queries: Array<{ sql: string; bindings?: StateBindings }> = [];
   // Decorate the reader on the one real engine. CanvasesService and both

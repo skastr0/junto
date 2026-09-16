@@ -3,17 +3,17 @@ import { Deferred, Effect } from "effect";
 import type { CanvasDoc } from "../src/shared/canvas";
 import { callerGrantLive } from "../src/shared/overseer-authoring";
 import { managedAgentEther } from "./helpers/managed-agent-ether";
-import type { CanvasPortfolioEdit, CanvasPortfolioView } from "../src/main/vellum-command/canvases";
+import type { CanvasPortfolioEdit, CanvasPortfolioView } from "../src/main/junto/canvases";
 import {
   __resetKernelMemoryForTest,
   __setAutomationGateForTest,
   __setDocsForTest,
   manualSchedulerFire,
   overseerSchedulerFire,
-} from "../src/main/vellum-command/kernel/cycle";
-import { __setSchedulerEffectDepsForTest } from "../src/main/vellum-command/kernel/effects";
-import { makeSchedulerProductionEffectDeps } from "../src/main/vellum-command/kernel/service";
-import { mainAuthoringGate } from "../src/main/vellum-command/main-authoring-gate";
+} from "../src/main/junto/kernel/cycle";
+import { __setSchedulerEffectDepsForTest } from "../src/main/junto/kernel/effects";
+import { makeSchedulerProductionEffectDeps } from "../src/main/junto/kernel/service";
+import { mainAuthoringGate } from "../src/main/junto/main-authoring-gate";
 import { CRON_ENABLED } from "../src/shared/features";
 import type { Task } from "../src/shared/work-model";
 

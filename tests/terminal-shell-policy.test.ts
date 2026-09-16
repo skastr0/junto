@@ -11,7 +11,7 @@ import {
   TerminalLaunchError,
   validateExecutableShell,
   type ShellFilesystem,
-} from "../src/main/vellum-command/term/shell-policy";
+} from "../src/main/junto/term/shell-policy";
 
 const filesystem = (input?: {
   readonly regular?: boolean;

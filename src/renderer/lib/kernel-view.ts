@@ -1,4 +1,4 @@
-// The kernel is now a headless loop in the MAIN process (src/main/vellum-command/kernel/)
+// The kernel is now a headless loop in the MAIN process (src/main/junto/kernel/)
 // — this module is a pure PROJECTION of it over IPC. Renderer surface for
 // watcher status + execution phase only. Region pulse / arming product is gone.
 
@@ -9,7 +9,7 @@ import type {
   WatcherRuntimeState,
 } from "@shared/ipc";
 import type { EtherFlag } from "@shared/canvas";
-import { getVellumCommandApi } from "./vellum-api";
+import { getJuntoApi } from "./junto-api";
 import { state$ } from "./state";
 
 // --- frozen interface --------------------------------------------------------
@@ -134,7 +134,7 @@ export function startKernelBridge(): () => void {
   if (started) return stopKernelBridge;
   started = true;
 
-  const api = getVellumCommandApi();
+  const api = getJuntoApi();
   if (!api) return stopKernelBridge;
 
   const offKernelChanged = api.onKernelChanged((snapshot) => {

@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { publishSystemdGenerationReadiness } from "../src/main/vellum-command/work/control";
+import { publishSystemdGenerationReadiness } from "../src/main/junto/work/control";
 
 const roots: string[] = [];
 const originalInvocationId = process.env.INVOCATION_ID;
@@ -25,7 +25,7 @@ afterEach(async () => {
 
 describe("work control systemd readiness", () => {
   it("ignores ambient Linux desktop runtime directories outside a systemd invocation", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vellum-command-work-ready-desktop-"));
+    const root = await mkdtemp(join(tmpdir(), "junto-work-ready-desktop-"));
     roots.push(root);
     delete process.env.INVOCATION_ID;
     process.env.XDG_RUNTIME_DIR = root;
@@ -43,23 +43,23 @@ describe("work control systemd readiness", () => {
   });
 
   it("publishes the exact private generation receipt for a systemd invocation", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vellum-command-work-ready-systemd-"));
+    const root = await mkdtemp(join(tmpdir(), "junto-work-ready-systemd-"));
     roots.push(root);
-    await mkdir(join(root, "vellum-command-remote"));
+    await mkdir(join(root, "junto-remote"));
     const generation = "b".repeat(32);
     process.env.INVOCATION_ID = generation;
     process.env.XDG_RUNTIME_DIR = root;
 
     publishSystemdGenerationReadiness();
 
-    const receiptPath = join(root, "vellum-command-remote", `ready-${generation}`);
+    const receiptPath = join(root, "junto-remote", `ready-${generation}`);
     expect(await readFile(receiptPath, "utf8")).toBe(`${generation}\n`);
     expect((await stat(receiptPath)).mode & 0o777).toBe(0o600);
   });
 
   it("assigns generation publication only to the displayless Remote entry", async () => {
     const workControlSource = await readFile(
-      new URL("../src/main/vellum-command/work/control.ts", import.meta.url),
+      new URL("../src/main/junto/work/control.ts", import.meta.url),
       "utf8",
     );
     const genericStartup = workControlSource.slice(
@@ -70,7 +70,7 @@ describe("work control systemd readiness", () => {
     );
 
     const remoteSource = await readFile(
-      new URL("../src/main/vellum-remote.ts", import.meta.url),
+      new URL("../src/main/junto-remote.ts", import.meta.url),
       "utf8",
     );
     expect(

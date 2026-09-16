@@ -167,7 +167,7 @@ const callSeat = async (
 };
 
 test("pad agent refusal: mock seat pad.patch ink and image are InputError", async () => {
-  const mockDir = await mkdtemp(join(tmpdir(), "vellum-command-pad-seat-"));
+  const mockDir = await mkdtemp(join(tmpdir(), "junto-pad-seat-"));
   const inbox = join(mockDir, "inbox.json");
   const outbox = join(mockDir, "outbox.json");
   const mockBin = join(mockDir, "codex");

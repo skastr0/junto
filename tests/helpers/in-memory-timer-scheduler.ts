@@ -6,8 +6,8 @@ import {
 import type {
   SchedulerClaimInput,
   SchedulerClaimResult,
-} from "../../src/main/vellum-command/scheduler/repository";
-import type { TimerSchedulerDeps } from "../../src/main/vellum-command/kernel/cycle";
+} from "../../src/main/junto/scheduler/repository";
+import type { TimerSchedulerDeps } from "../../src/main/junto/kernel/cycle";
 
 /**
  * Test-only scheduler driver. Production always binds the SQLite repository;

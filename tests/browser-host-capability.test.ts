@@ -3,7 +3,7 @@ import type { RemoteHost } from "../src/shared/remote-hosts";
 import {
   admitBrowserHostCapability,
   type BrowserHostCapabilityAuthority,
-} from "../src/main/vellum-command/browser/host-capability";
+} from "../src/main/junto/browser/host-capability";
 
 const host = (
   id: string,

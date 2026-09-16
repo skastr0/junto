@@ -5,7 +5,7 @@ import {
   edgeNotifyOn,
   resolveBoardWakeSet,
 } from "../src/shared/board-wake";
-import { deliverBoardWakeSeats } from "../src/main/vellum-command/work/board-delivery";
+import { deliverBoardWakeSeats } from "../src/main/junto/work/board-delivery";
 
 const doc = (partial: Partial<CanvasDoc> & Pick<CanvasDoc, "nodes" | "edges">): CanvasDoc => ({
   nodes: partial.nodes,

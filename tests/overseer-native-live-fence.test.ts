@@ -1,10 +1,10 @@
 import { Effect, Fiber } from "effect";
 import { describe, expect, it } from "vitest";
 import type { CanvasDoc } from "../src/shared/canvas";
-import { makeOverseerNativeLive } from "../src/main/vellum-command/overseer/native";
-import { ManagedTerminalDrive } from "../src/main/vellum-command/term/drive";
-import type { TermPlane } from "../src/main/vellum-command/term/plane";
-import type { ChatService } from "../src/main/vellum-command/chat/service";
+import { makeOverseerNativeLive } from "../src/main/junto/overseer/native";
+import { ManagedTerminalDrive } from "../src/main/junto/term/drive";
+import type { TermPlane } from "../src/main/junto/term/plane";
+import type { ChatService } from "../src/main/junto/chat/service";
 
 const doc: CanvasDoc = { nodes: [{
   id: "worker", type: "text", text: "Worker", x: 0, y: 0, width: 240, height: 120,

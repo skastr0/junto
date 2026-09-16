@@ -6,23 +6,23 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   evaluateSchemaCompatibility,
   probeInstalledStateSchema,
-} from "../src/main/vellum-command/state/schema-version-probe";
+} from "../src/main/junto/state/schema-version-probe";
 import {
   feedVersionUnbricks,
   makeSchemaRecoveryUpdater,
   runStartupSchemaRecovery,
-} from "../src/main/vellum-command/update/startup-schema-recovery";
+} from "../src/main/junto/update/startup-schema-recovery";
 
-import { linuxX64UpdateFeed } from "../src/main/vellum-command/update/compiled-config";
+import { linuxX64UpdateFeed } from "../src/main/junto/update/compiled-config";
 import type {
   StagedUpdate,
   UpdateHostHooks,
   UpdateProvider,
   UpdateProviderListener,
-} from "../src/main/vellum-command/update/provider";
+} from "../src/main/junto/update/provider";
 
 const { makePlatformProvider } = vi.hoisted(() => ({ makePlatformProvider: vi.fn() }));
-vi.mock("../src/main/vellum-command/update/platform", () => ({
+vi.mock("../src/main/junto/update/platform", () => ({
   makePlatformUpdateProvider: makePlatformProvider,
 }));
 
@@ -169,11 +169,11 @@ describe("runStartupSchemaRecovery", () => {
     const before = readFileSync(path);
     const host = recoveryHost();
     const install = vi.fn(async (owner: UpdateHostHooks) => {
-      owner.relaunchInstalled?.("/owned-generations/new/vellum-command");
+      owner.relaunchInstalled?.("/owned-generations/new/junto");
     });
     const revalidate = vi.fn(async () => {});
     const provider = recoveryProvider(async () => ({
-      executablePath: "/owned-generations/new/vellum-command",
+      executablePath: "/owned-generations/new/junto",
       revalidate,
       installAfterQuiesce: install,
     }));
@@ -194,7 +194,7 @@ describe("runStartupSchemaRecovery", () => {
     expect(provider.stageDownloaded).toHaveBeenCalledWith("/owned-cache/desktop.tar.gz", { version: "0.1.4" });
     expect(revalidate).toHaveBeenCalledOnce();
     expect(install).toHaveBeenCalledWith(host);
-    expect(host.relaunchInstalled).toHaveBeenCalledWith("/owned-generations/new/vellum-command");
+    expect(host.relaunchInstalled).toHaveBeenCalledWith("/owned-generations/new/junto");
     expect(host.quiesceForInstall).not.toHaveBeenCalled();
     expect(host.relaunchWithoutInstall).not.toHaveBeenCalled();
     expect(provider.quitAndInstall).not.toHaveBeenCalled();
@@ -204,7 +204,7 @@ describe("runStartupSchemaRecovery", () => {
   it("shows an asynchronous Linux activation failure without relaunching the old app", async () => {
     const host = recoveryHost();
     const provider = recoveryProvider(async () => ({
-      executablePath: "/owned-generations/new/vellum-command",
+      executablePath: "/owned-generations/new/junto",
       installAfterQuiesce: async () => { throw new Error("activation failed"); },
     }));
     const boxes = vi.fn(async () => ({ response: 0 }));
@@ -392,7 +392,7 @@ describe("verified recovery update lifecycle", () => {
   it("revalidates the exact staged candidate before installation", async () => {
     const install = vi.fn(async () => {});
     const provider = recoveryProvider(async () => ({
-      executablePath: "/owned-generations/new/vellum-command",
+      executablePath: "/owned-generations/new/junto",
       revalidate: async () => { throw new Error("candidate bytes changed"); },
       installAfterQuiesce: install,
     }));

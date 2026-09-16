@@ -7,13 +7,13 @@ import type { ActorSeatId } from "../src/shared/actor-seat";
 import type { CanvasNode } from "../src/shared/canvas";
 import type { Task, TasksContract } from "../src/shared/work-model";
 import type { ActorRef } from "../src/shared/work-reference";
-import { runCli } from "../src/main/vellum-command/adapters/exec";
-import type { GitProbe } from "../src/main/vellum-command/work/checkout-watch";
+import { runCli } from "../src/main/junto/adapters/exec";
+import type { GitProbe } from "../src/main/junto/work/checkout-watch";
 import {
   CrewRepositoryError,
   type CheckoutObservationInput,
   type CrewRepositoryShape,
-} from "../src/main/vellum-command/work/crew-repository";
+} from "../src/main/junto/work/crew-repository";
 import {
   CHECKOUT_WATCH_DEFAULT_POLL_MS,
   CHECKOUT_WATCH_MAX_RETAINED,
@@ -26,7 +26,7 @@ import {
   type CheckoutWatchClaim,
   type CheckoutWatchContext,
   type CheckoutReceiptMailInput,
-} from "../src/main/vellum-command/work/checkout-watch-live";
+} from "../src/main/junto/work/checkout-watch-live";
 
 // Focused seam tests for the production checkout watch: proven claim context,
 // canonical checkout identity, the read-only git probe, and the live

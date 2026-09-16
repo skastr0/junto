@@ -4,8 +4,8 @@ import {
   SshProcessError,
   SshSetupError,
   SshTimeoutError,
-} from "../src/main/vellum-command/ssh/domain";
-import { classifySshStderr, formatSshFailure } from "../src/main/vellum-command/ssh/format";
+} from "../src/main/junto/ssh/domain";
+import { classifySshStderr, formatSshFailure } from "../src/main/junto/ssh/format";
 
 describe("SSH failure formatting", () => {
   it("classifies known OpenSSH failures without copying remote bytes", () => {

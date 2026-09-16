@@ -223,7 +223,7 @@
         },
         {
           "bindingId": "binding",
-          "text": "[message - user] 2 unread — m-two,m-one — vellum-command msg list"
+          "text": "[message - user] 2 unread — m-two,m-one — junto msg list"
         }
       ],
       "receiptCountBeforeReleasingTransport": 0,
@@ -241,7 +241,7 @@
       "transportCalls": [
         {
           "bindingId": "binding",
-          "text": "[message - user] 2 unread — m-two,m-one — vellum-command msg list"
+          "text": "[message - user] 2 unread — m-two,m-one — junto msg list"
         }
       ],
       "acceptedMessageIds": [
@@ -290,14 +290,14 @@
       ]
     }
   },
-  "artifactsLocal": "/tmp/vellum-command-pty-matrix-20260914",
+  "artifactsLocal": "/tmp/junto-pty-matrix-20260914",
   "probeCommands": [
-    "bun /tmp/vellum-command-pty-matrix-20260914/drive-probes.ts",
-    "bun /tmp/vellum-command-pty-matrix-20260914/generation-probe.ts",
-    "bun /tmp/vellum-command-pty-matrix-20260914/rule-probes.ts",
-    "bun --no-install /tmp/vellum-command-pty-matrix-20260914/mail-probes.ts",
-    "bun /tmp/vellum-command-pty-matrix-20260914/adapter-probes.ts",
-    "bun /tmp/vellum-command-pty-matrix-20260914/fx-probe.ts"
+    "bun /tmp/junto-pty-matrix-20260914/drive-probes.ts",
+    "bun /tmp/junto-pty-matrix-20260914/generation-probe.ts",
+    "bun /tmp/junto-pty-matrix-20260914/rule-probes.ts",
+    "bun --no-install /tmp/junto-pty-matrix-20260914/mail-probes.ts",
+    "bun /tmp/junto-pty-matrix-20260914/adapter-probes.ts",
+    "bun /tmp/junto-pty-matrix-20260914/fx-probe.ts"
   ],
   "adapterProbes": {
     "source": "eefaafff",
@@ -408,20 +408,20 @@
     "full-tests.log": "350242717f5ce1906650f4fabd0533d688ab001909ba31fe6d3b7e8b02cca913"
   },
   "assessedSourceSha256": {
-    "src/main/vellum-command/term/drive/managed-terminal-drive.ts": "1c4e49c18395cfe46a347a1b584b0f48f364ce71509ce84c0aaaefaa53b9a1f1",
-    "src/main/vellum-command/term/drive/operator-interlock.ts": "c2a7461b1643957ce322cad06e3846f43344ed7063ac53dd81baac199ac5728a",
-    "src/main/vellum-command/term/drive/prompt-evidence.ts": "ae8f1528966f2a7ce0be23c91d36f57f9f3e3c0db932fda76a661f7edbc8fc06",
-    "src/main/vellum-command/work/message-delivery.ts": "4b72115a174a343ecf0b148f8bc20a22c7addd5a3fb4daee475a914cfd643e21",
-    "src/main/vellum-command/kernel/service.ts": "29c8cc9a45051f5e7a9237b1623cdef20ab30124ae0774be07ab85563c3860e9",
-    "src/main/vellum-command/term/observer/session-observer.ts": "e49e58e04e391f08756540d2f94c8c81f21010d4204498aa5fd75843358f832c",
-    "src/main/vellum-command/term/agent-state/rules/cursor.ts": "8be846df194e2c706215ec001301a926e59470dc3c99dbf74cb2ae8594d880ce",
-    "src/main/vellum-command/term/agent-state/rules/agy.ts": "d865daadd3a9fe846a87c73b5ae16e91fc56b64f32a90250e218ae3fe8f6e91a",
-    "src/main/vellum-command/term/agent-state/rules/hermes.ts": "79edafea943ab9468f53d74e0c362aceeaedba6cf0a575bfb419b3dbdfab0550",
-    "src/main/vellum-command/term/templates/fx-session.ts": "feb4927c6fd379940e12b623d1349ed0d0a424a302ff39149361a62418a65f6e",
+    "src/main/junto/term/drive/managed-terminal-drive.ts": "1c4e49c18395cfe46a347a1b584b0f48f364ce71509ce84c0aaaefaa53b9a1f1",
+    "src/main/junto/term/drive/operator-interlock.ts": "c2a7461b1643957ce322cad06e3846f43344ed7063ac53dd81baac199ac5728a",
+    "src/main/junto/term/drive/prompt-evidence.ts": "ae8f1528966f2a7ce0be23c91d36f57f9f3e3c0db932fda76a661f7edbc8fc06",
+    "src/main/junto/work/message-delivery.ts": "4b72115a174a343ecf0b148f8bc20a22c7addd5a3fb4daee475a914cfd643e21",
+    "src/main/junto/kernel/service.ts": "29c8cc9a45051f5e7a9237b1623cdef20ab30124ae0774be07ab85563c3860e9",
+    "src/main/junto/term/observer/session-observer.ts": "e49e58e04e391f08756540d2f94c8c81f21010d4204498aa5fd75843358f832c",
+    "src/main/junto/term/agent-state/rules/cursor.ts": "8be846df194e2c706215ec001301a926e59470dc3c99dbf74cb2ae8594d880ce",
+    "src/main/junto/term/agent-state/rules/agy.ts": "d865daadd3a9fe846a87c73b5ae16e91fc56b64f32a90250e218ae3fe8f6e91a",
+    "src/main/junto/term/agent-state/rules/hermes.ts": "79edafea943ab9468f53d74e0c362aceeaedba6cf0a575bfb419b3dbdfab0550",
+    "src/main/junto/term/templates/fx-session.ts": "feb4927c6fd379940e12b623d1349ed0d0a424a302ff39149361a62418a65f6e",
     "src/renderer/components/terminal/TerminalSurface.tsx": "5a8d92398f6256d640c2851ac821fde93affdcb8f4d255c839815684942297d8",
-    "src/main/vellum-command/term/stream-coalescer.ts": "3719b6f5ed027b64492df6e3081c2e2619e25225a56d728fb70c0e6ce22a9d94",
-    "src/main/vellum-command/term/ipc.ts": "86b636f70e320028a5bcc74ca0ab178838646a8719a9d5a8158377553d8b158f",
-    "src/main/vellum-command/ipc.ts": "8064f22c54ab2c3514aac5f140f959c00c5d117c27a2103e4eba6fbcec44c78a",
-    "src/main/vellum-remote.ts": "ad20c2eb14771084c06025dc7aa63d53c2bb8693964d7b99ce286af9f26f60f4"
+    "src/main/junto/term/stream-coalescer.ts": "3719b6f5ed027b64492df6e3081c2e2619e25225a56d728fb70c0e6ce22a9d94",
+    "src/main/junto/term/ipc.ts": "86b636f70e320028a5bcc74ca0ab178838646a8719a9d5a8158377553d8b158f",
+    "src/main/junto/ipc.ts": "8064f22c54ab2c3514aac5f140f959c00c5d117c27a2103e4eba6fbcec44c78a",
+    "src/main/junto-remote.ts": "ad20c2eb14771084c06025dc7aa63d53c2bb8693964d7b99ce286af9f26f60f4"
   }
 }

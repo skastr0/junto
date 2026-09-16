@@ -2,7 +2,7 @@
  * Linux packaged-product PTY smoke.
  *
  * Usage:
- *   bun scripts/linux-packaged-pty-smoke.ts /path/to/resources /path/to/vellum-command
+ *   bun scripts/linux-packaged-pty-smoke.ts /path/to/resources /path/to/junto
  *
  * The verifier launches the ordinary packaged executable in headless mode,
  * authenticates to its terminal control socket, and drives the production
@@ -31,12 +31,12 @@ import {
   termControlSocketPath,
   termControlTokenPath,
 } from "../src/shared/term-control";
-import type { LocalHostEvent } from "../src/main/vellum-command/term/local-host";
-import { TermControlClient } from "../src/main/vellum-command/term/control-client";
+import type { LocalHostEvent } from "../src/main/junto/term/local-host";
+import { TermControlClient } from "../src/main/junto/term/control-client";
 import {
   createAppProcessPlane,
   type AppProcessLease,
-} from "../src/main/vellum-command/app-process-plane";
+} from "../src/main/junto/app-process-plane";
 import {
   finalizePackagedRuntimeSandbox,
   observeSpawnedRuntimeLease,
@@ -338,12 +338,12 @@ export const smokeLinuxPackagedPty = async (
   }
   const resources = await realpath(path.resolve(requestedResources));
   const executable = await realpath(path.resolve(requestedExecutable));
-  if (path.basename(executable) !== "vellum-command" || !isExecutable(executable)) {
-    throw new Error("Linux packaged PTY smoke requires the packaged vellum-command executable");
+  if (path.basename(executable) !== "junto" || !isExecutable(executable)) {
+    throw new Error("Linux packaged PTY smoke requires the packaged junto executable");
   }
   const siblingResources = await realpath(path.join(path.dirname(executable), "resources"));
   if (siblingResources !== resources) {
-    throw new Error("resources must belong to the packaged vellum-command executable");
+    throw new Error("resources must belong to the packaged junto executable");
   }
   auditLinuxPtyPlacement(resources);
 
@@ -505,7 +505,7 @@ if (invokedPath === modulePath) {
   const [resources, executable] = process.argv.slice(2);
   if (!resources || !executable || process.argv.length !== 4) {
     console.error(
-      "usage: bun scripts/linux-packaged-pty-smoke.ts /path/to/resources /path/to/vellum-command",
+      "usage: bun scripts/linux-packaged-pty-smoke.ts /path/to/resources /path/to/junto",
     );
     process.exitCode = 2;
   } else {
@@ -519,7 +519,7 @@ if (invokedPath === modulePath) {
         // and exact process handle. Publish failure without force-exiting this
         // verifier: the owned handle remains a lifetime witness until the
         // packaged process actually closes.
-        writeSync(process.stderr.fd, `vellum-command Linux packaged PTY smoke failed: ${message}\n`);
+        writeSync(process.stderr.fd, `junto Linux packaged PTY smoke failed: ${message}\n`);
         process.exitCode = 1;
       });
   }

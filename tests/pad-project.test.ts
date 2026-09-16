@@ -431,9 +431,9 @@ describe("padToSvg paint safety", () => {
         ]),
       ),
       "dark",
-      { hrefs: { img1: `vellum-command-content:x" onerror="1` } },
+      { hrefs: { img1: `junto-content:x" onerror="1` } },
     );
-    expect(linked).toContain('href="vellum-command-content:x&quot; onerror=&quot;1"');
+    expect(linked).toContain('href="junto-content:x&quot; onerror=&quot;1"');
     expect(linked).not.toMatch(/\sonerror="/i);
   });
 

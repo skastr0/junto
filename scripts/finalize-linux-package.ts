@@ -41,7 +41,7 @@ export const linuxRuntimeArtifactName = ({
   if (resolvedArch !== "x64") {
     throw new Error(`Linux runtime requires x64, got ${String(resolvedArch)}`);
   }
-  return `vellum-command-runtime-${requireSemver(version)}-linux-${resolvedArch}`;
+  return `junto-runtime-${requireSemver(version)}-linux-${resolvedArch}`;
 };
 
 export const linuxRuntimeArchiveName = (input: {
@@ -116,12 +116,12 @@ export const validateLinuxRuntimeArchive = ({
 };
 
 const executableNames = new Set([
-  "vellum-command",
-  "resources/bin/vellum-command",
-  "resources/bin/vellum-command-remote",
+  "junto",
+  "resources/bin/junto",
+  "resources/bin/junto-remote",
   "resources/bin/node",
   "resources/bin/unix-peer-pid.py",
-  "resources/systemd/vellum-command-remote-launch",
+  "resources/systemd/junto-remote-launch",
 ]);
 
 const normalizeModes = async (root: string, relative = ""): Promise<void> => {

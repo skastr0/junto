@@ -20,12 +20,12 @@ import {
   type WorkCommand as WorkCommandValue,
   type WorkRecord as WorkRecordValue,
 } from "../src/shared/work-protocol";
-import { compileStationPortfolioBody } from "../src/main/vellum-command/station/portfolio";
-import { stationProjectionContentSha256 } from "../src/main/vellum-command/station/repository";
+import { compileStationPortfolioBody } from "../src/main/junto/station/portfolio";
+import { stationProjectionContentSha256 } from "../src/main/junto/station/repository";
 import {
   makeStateEngineLive,
   StateEngine,
-} from "../src/main/vellum-command/state/engine";
+} from "../src/main/junto/state/engine";
 import {
   authorialMaterialForTest,
   authorialTaskTopologyCapabilityForTest,
@@ -37,7 +37,7 @@ import {
   WorkRepository,
   WorkRepositoryLive,
   type TaskDependencyScopeCapability,
-} from "../src/main/vellum-command/work/repository";
+} from "../src/main/junto/work/repository";
 
 const observedAt = "2026-08-26T18:00:00.000Z";
 const topology: CanvasDoc = {
@@ -155,7 +155,7 @@ const openInstallation = async (
 ) => {
   const root = join(
     tmpdir(),
-    `vellum-command-work-hardening-${local}-${randomUUID()}`,
+    `junto-work-hardening-${local}-${randomUUID()}`,
   );
   const runtime = ManagedRuntime.make(
     Layer.provideMerge(

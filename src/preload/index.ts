@@ -90,7 +90,7 @@ const CHAT_TURN_TIMEOUT_MS = 900_000;
 const invoke = <T>(channel: string, timeoutMs: number, ...args: unknown[]): Promise<T> =>
   new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
-      reject(new Error(`vellum-command: backend did not respond (${channel}). Try restarting the app.`));
+      reject(new Error(`junto: backend did not respond (${channel}). Try restarting the app.`));
     }, timeoutMs);
     ipcRenderer.invoke(channel, ...args).then(
       (value) => {

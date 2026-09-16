@@ -18,7 +18,7 @@ import { compileVerb } from "../src/shared/physics/verbs";
 import {
   resolveManagedLaunch,
   resolveManagedLaunchPlan,
-} from "../src/main/vellum-command/term/templates/resolve-launch";
+} from "../src/main/junto/term/templates/resolve-launch";
 
 const bareAmbient = { PATH: "/usr/bin", HOME: "/home/op" };
 const taskPorts = compileVerb("contributes", "agent", "task")!.ports;
@@ -51,7 +51,7 @@ describe("compiled doctrine — base and slots", () => {
     expect(text!).toContain(SEAT_DOCTRINE.slice(0, 20));
     expect(text!).toContain(WORKER_DOCTRINE.slice(0, 40));
     expect(text!).toContain(BASE_CONTRACT.slice(0, 40));
-    expect(text!).toContain("vellum-command onboard");
+    expect(text!).toContain("junto onboard");
     expect(text!).toContain("process-bind");
   });
 
@@ -71,11 +71,11 @@ describe("compiled doctrine — base and slots", () => {
     const text = buildInjectionText(connectedCtx)!;
     // tasks slot
     expect(text).toContain("### Edge contract — tasks");
-    expect(text).toContain(`vellum-command tasks list '{"target":"tasks-main"}'`);
+    expect(text).toContain(`junto tasks list '{"target":"tasks-main"}'`);
     expect(text).toContain("Finish criteria are **hard gates**");
     // escalate slot
     expect(text).toContain("### Edge contract — requests / escalate");
-    expect(text).toContain(`vellum-command escalate '{"target":"req-1"`);
+    expect(text).toContain(`junto escalate '{"target":"req-1"`);
     // msg slot
     expect(text).toContain("### Edge contract — messages");
     expect(text).toContain("pull-only");
@@ -100,9 +100,9 @@ describe("compiled doctrine — base and slots", () => {
     expect(text).not.toContain("### Edge contract —");
     expect(text).not.toContain("### Edge contracts");
     expect(text).not.toContain("compiled from the edges connected at spawn");
-    expect(text).not.toContain("vellum-command tasks list");
-    expect(text).not.toContain("vellum-command escalate");
-    expect(text).not.toContain("vellum-command artifact");
+    expect(text).not.toContain("junto tasks list");
+    expect(text).not.toContain("junto escalate");
+    expect(text).not.toContain("junto artifact");
     expect(text).toMatch(/none at spawn/i);
   });
 
@@ -126,9 +126,9 @@ describe("compiled doctrine — base and slots", () => {
   it("compiles the pad edge contract when a pad is connected", () => {
     const slots = compileEdgeSlots([{ id: "pad-1", kind: "pad", ports: ["pad.read", "pad.patch"] }]);
     expect(slots.join("\n")).toContain("### Edge contract — pad");
-    expect(slots.join("\n")).toContain(`vellum-command pad read '{"target":"pad-1"}'`);
-    expect(slots.join("\n")).toContain("vellum-command pad look-here");
-    expect(slots.join("\n")).toContain("vellum-command pad tagged");
+    expect(slots.join("\n")).toContain(`junto pad read '{"target":"pad-1"}'`);
+    expect(slots.join("\n")).toContain("junto pad look-here");
+    expect(slots.join("\n")).toContain("junto pad tagged");
     expect(slots.join("\n")).toContain("ink or image");
     expect(slots.join("\n")).toContain("inbound actor");
   });
@@ -136,7 +136,7 @@ describe("compiled doctrine — base and slots", () => {
   it("compiles the sheet edge contract, and it names no write command", () => {
     const slots = compileEdgeSlots([{ id: "sheet-1", kind: "sheet", ports: ["sheet.read"] }]).join("\n");
     expect(slots).toContain("### Edge contract — sheet");
-    expect(slots).toContain(`vellum-command sheet read '{"target":"sheet-1"}'`);
+    expect(slots).toContain(`junto sheet read '{"target":"sheet-1"}'`);
     expect(slots).not.toContain("sheet patch");
     expect(slots).not.toContain("sheet write");
   });
@@ -193,8 +193,8 @@ describe("edge-map change injection", () => {
 
   it("composes a compact ids-only map-change notice (no contract tables)", () => {
     // law-aligned: inline contract sections ("### Edge contract — tasks",
-    // "vellum-command tasks list") → ids-only one-liner; contracts live in
-    // `vellum-command onboard` / `vellum-command capabilities` (PROTO-5).
+    // "junto tasks list") → ids-only one-liner; contracts live in
+    // `junto onboard` / `junto capabilities` (PROTO-5).
     const text = composeEdgeMapChangeNotice({
       seatId: "seat-a",
       added: [{ id: "n-tasks", kind: "task" }],
@@ -259,7 +259,7 @@ describe("planManagedInjection tier resolution", () => {
   it("plans Tier A systemPrompt for claude/grok and Tier B firstTyped for codex/hermes", () => {
     const claude = planManagedInjection("claude", connectedCtx);
     expect(claude).toMatchObject({ inject: true, tier: "A" });
-    expect(claude.systemPrompt).toContain("vellum-command onboard");
+    expect(claude.systemPrompt).toContain("junto onboard");
     expect(claude.firstTypedMessage).toBeUndefined();
 
     const grok = planManagedInjection("grok", connectedCtx);
@@ -268,7 +268,7 @@ describe("planManagedInjection tier resolution", () => {
 
     const codex = planManagedInjection("codex", connectedCtx);
     expect(codex).toMatchObject({ inject: true, tier: "B" });
-    expect(codex.firstTypedMessage).toContain("vellum-command onboard");
+    expect(codex.firstTypedMessage).toContain("junto onboard");
     expect(codex.systemPrompt).toBeUndefined();
 
     const hermes = planManagedInjection("hermes", connectedCtx);
@@ -313,7 +313,7 @@ describe("resolveManagedLaunchPlan Tier A flags", () => {
     const argv = launch.argv ?? [];
     const idx = argv.indexOf("--append-system-prompt");
     expect(idx).toBeGreaterThan(-1);
-    expect(argv[idx + 1]).toContain("vellum-command onboard");
+    expect(argv[idx + 1]).toContain("junto onboard");
     expect(argv[idx + 1]).toContain("canvas-a::worker-1");
   });
 
@@ -350,7 +350,7 @@ describe("resolveManagedLaunchPlan Tier A flags", () => {
       );
       expect(firstTypedMessage).toBeTruthy();
       expect(firstTypedMessage).not.toContain("\n");
-      expect(firstTypedMessage).toContain("vellum-command onboard");
+      expect(firstTypedMessage).toContain("junto onboard");
       expect(firstTypedMessage).not.toContain("# Junto");
     }
   });
@@ -364,7 +364,7 @@ describe("resolveManagedLaunchPlan Tier A flags", () => {
         connectedTargets: [{ id: "page-1", kind: "page", ports: ["browser.automate"] }],
       })!;
       expect(text).toContain("### Edge contract — browser");
-      expect(text).toContain("vellum-command browser pages");
+      expect(text).toContain("junto browser pages");
     });
   }
   it("appends the operator-authored region briefing as the final supplemental section", () => {
@@ -403,10 +403,10 @@ describe("resolveManagedLaunchPlan Tier A flags", () => {
       seatRef: "n3",
       connectedTargets: [{ id: "n8", kind: "requests", summary: "Requests", ports: requestPorts }],
     });
-    expect(requestsOnly).toContain('vellum-command escalate {"target":"req1","brief":"need API key for staging","reason":"cannot continue without operator secret"}');
+    expect(requestsOnly).toContain('junto escalate {"target":"req1","brief":"need API key for staging","reason":"cannot continue without operator secret"}');
     // The worker-loop doctrine names `tasks claim` in prose for every seat;
     // what a requests-only seat must never get is the tasks CLI surface.
-    expect(requestsOnly).not.toContain("vellum-command tasks claim");
+    expect(requestsOnly).not.toContain("junto tasks claim");
     expect(requestsOnly).not.toContain('tasks claim {"target"');
   });
 

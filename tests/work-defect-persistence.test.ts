@@ -16,11 +16,11 @@ import { InstallationId } from "../src/shared/installation-id";
 import {
   WorkRepository,
   WorkRepositoryLive,
-} from "../src/main/vellum-command/work/repository";
+} from "../src/main/junto/work/repository";
 import {
   makeStateEngineLive,
   StateEngine,
-} from "../src/main/vellum-command/state/engine";
+} from "../src/main/junto/state/engine";
 import { IntentFactBasis } from "../src/shared/work-protocol";
 import {
   serializeCanvas,
@@ -36,7 +36,7 @@ import {
 } from "./helpers/task-topology-authority";
 import { seedCanvasAuthority } from "./helpers/canvas-authority-material";
 
-const root = join(tmpdir(), `vellum-command-defect-persistence-${randomUUID()}`);
+const root = join(tmpdir(), `junto-defect-persistence-${randomUUID()}`);
 const runtime = ManagedRuntime.make(
   Layer.provideMerge(
     WorkRepositoryLive,

@@ -194,7 +194,7 @@ export const composeMessageDeliverySummary = (
         : previewRaw;
     const previewBit = preview.length > 0 ? ` — ${preview}` : "";
     return sanitizeDeliveryLine(
-      `mail${fromBit}${previewBit} — vellum-command msg read ${id}`,
+      `mail${fromBit}${previewBit} — junto msg read ${id}`,
     );
   }
   const senders = [...new Set(ordered.map(factoryMailFromSeat).filter((from) => from !== undefined))];
@@ -206,7 +206,7 @@ export const composeMessageDeliverySummary = (
   const more =
     ordered.length > 3 ? ` +${String(ordered.length - 3)}` : "";
   return sanitizeDeliveryLine(
-    `mail${fromBit} — ${String(ordered.length)} unread — ${ids}${more} — vellum-command msg list`,
+    `mail${fromBit} — ${String(ordered.length)} unread — ${ids}${more} — junto msg list`,
   );
 };
 

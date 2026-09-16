@@ -2,8 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Terminal } from "@xterm/headless";
 import type { CanvasNode } from "../src/shared/canvas";
 import { defaultTerminal } from "../src/shared/settings";
-import type { LocalHostEvent } from "../src/main/vellum-command/term/local-host";
-import { TerminalStreamCoalescer } from "../src/main/vellum-command/term/stream-coalescer";
+import type { LocalHostEvent } from "../src/main/junto/term/local-host";
+import { TerminalStreamCoalescer } from "../src/main/junto/term/stream-coalescer";
 
 type Effect = { run: () => void | (() => void); deps?: readonly unknown[] };
 const hooks = vi.hoisted(() => ({
@@ -41,8 +41,8 @@ vi.mock("@legendapp/state/react", async (load) => ({
   use$: (value: (() => unknown) | { get: () => unknown }) =>
     typeof value === "function" ? value() : value.get(),
 }));
-vi.mock("../src/renderer/lib/vellum-api", () => ({
-  getVellumCommandApi: () => hooks.api,
+vi.mock("../src/renderer/lib/junto-api", () => ({
+  getJuntoApi: () => hooks.api,
 }));
 
 import { fallbackCell, TerminalSurface } from "../src/renderer/components/terminal/TerminalSurface";

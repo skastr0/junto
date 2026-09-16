@@ -35,7 +35,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # checkout's release directory.  Do not let an ambient RELEASE_DIR redirect
 # the write authority inherited from app-paths.sh.
 if [[ -n "${JUNTO_RELEASE_DIR+x}" ]]; then
-  printf 'vellum-command: error: JUNTO_RELEASE_DIR is not configurable for notarization\n' >&2
+  printf 'junto: error: JUNTO_RELEASE_DIR is not configurable for notarization\n' >&2
   exit 1
 fi
 

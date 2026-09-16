@@ -18,19 +18,19 @@ import {
   makeStateEngineLive,
   StateEngine,
   StateEngineError,
-} from "../src/main/vellum-command/state/engine";
-import { createVerifiedStateBackup } from "../src/main/vellum-command/state/backup";
+} from "../src/main/junto/state/engine";
+import { createVerifiedStateBackup } from "../src/main/junto/state/backup";
 import {
   STATE_SCHEMA_IDENTITY_SQL,
   STATE_SCHEMA_SQL,
   STATE_SCHEMA_V1_SQL,
-} from "../src/main/vellum-command/state/schema";
-import { CURRENT_STATE_SCHEMA_VERSION } from "../src/main/vellum-command/state/migrations";
+} from "../src/main/junto/state/schema";
+import { CURRENT_STATE_SCHEMA_VERSION } from "../src/main/junto/state/migrations";
 import {
   RETIRED_SOURCE_SCHEMA_SHA256,
   verifyAndStampStateSchema,
-} from "../src/main/vellum-command/state/schema-identity";
-import { USAGE_STATE_SCHEMA_SQL } from "../src/main/vellum-command/usage/state-schema";
+} from "../src/main/junto/state/schema-identity";
+import { USAGE_STATE_SCHEMA_SQL } from "../src/main/junto/usage/state-schema";
 const makeTempDir = (prefix: string): Promise<string> =>
   mkdtemp(join(tmpdir(), prefix)).then((root) => {
     tempRoots.push(root);
@@ -593,7 +593,7 @@ describe("StateEngine", () => {
     expect(firstReceipt.schemaVersion).toBe(engine.info.schemaVersion);
     expect(dirname(backupPath)).toBe(join(root, "live", "backups"));
     expect(basename(backupPath)).toMatch(
-      /^vellum-command-backup-[a-f0-9-]{36}\.db$/u,
+      /^junto-backup-[a-f0-9-]{36}\.db$/u,
     );
     expect((await lstat(join(root, "live", "backups"))).mode & 0o777).toBe(
       0o700,

@@ -2,16 +2,16 @@ import { createServer, type RequestListener, type Server } from "node:http";
 import { describe, expect, it, vi } from "vitest";
 import {
   makeElectronBrowserReadinessProductPath,
-} from "../src/main/vellum-command/browser/readiness-product-path";
-import { makeBrowserProductPathProbe } from "../src/main/vellum-command/browser/readiness-probe";
+} from "../src/main/junto/browser/readiness-product-path";
+import { makeBrowserProductPathProbe } from "../src/main/junto/browser/readiness-probe";
 import type {
   BrowserCompositionHost,
   BrowserCompositionHostWindow,
-} from "../src/main/vellum-command/browser/composition-host";
+} from "../src/main/junto/browser/composition-host";
 import type {
   BrowserViewAdapter,
   BrowserViewHandle,
-} from "../src/main/vellum-command/browser/sessions";
+} from "../src/main/junto/browser/sessions";
 
 const PNG = Uint8Array.from([
   0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00,

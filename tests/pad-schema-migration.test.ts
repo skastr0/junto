@@ -7,17 +7,17 @@ import {
   STATE_SCHEMA_V17_IDENTITY,
   STATE_SCHEMA_V20_IDENTITY,
   CURRENT_STATE_SCHEMA_IDENTITY,
-} from "../src/main/vellum-command/state/migrations";
+} from "../src/main/junto/state/migrations";
 import {
   STATE_SCHEMA_SQL,
   STATE_SCHEMA_V16_SQL,
   STATE_SCHEMA_V17_SQL,
   STATE_SCHEMA_V20_SQL,
-} from "../src/main/vellum-command/state/schema";
+} from "../src/main/junto/state/schema";
 import {
   expectedStateSchemaIdentity,
   verifyAndStampStateSchema,
-} from "../src/main/vellum-command/state/schema-identity";
+} from "../src/main/junto/state/schema-identity";
 
 describe("pad schema migration 16 → 17", () => {
   it("freezes v16, v17, and current identities", () => {

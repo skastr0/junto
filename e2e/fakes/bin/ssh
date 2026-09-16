@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Fake `ssh` executable for E2E — accepts the product's real invocation shape
-// (see src/main/vellum-command/ssh/program.ts's createSshProgramCompiler) and executes
+// (see src/main/junto/ssh/program.ts's createSshProgramCompiler) and executes
 // the remote command LOCALLY via /bin/sh, with PATH prefixed by this same
 // directory so a remote hostId (e.g. "remote-a") resolves product binaries back
 // to the fakes next to this file. No network — everything runs on the

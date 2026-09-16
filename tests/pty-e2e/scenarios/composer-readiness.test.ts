@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { SeatStateRuntime } from "../../../src/main/vellum-command/term/agent-state/runtime";
-import { isManagedTerminalReady } from "../../../src/main/vellum-command/term/drive/readiness";
-import { createManagedTerminalDrive } from "../../../src/main/vellum-command/term/drive/managed-drive-factory";
-import { SessionObserver } from "../../../src/main/vellum-command/term/observer";
-import type { ObserverGridSnapshot } from "../../../src/main/vellum-command/term/observer/types";
+import { SeatStateRuntime } from "../../../src/main/junto/term/agent-state/runtime";
+import { isManagedTerminalReady } from "../../../src/main/junto/term/drive/readiness";
+import { createManagedTerminalDrive } from "../../../src/main/junto/term/drive/managed-drive-factory";
+import { SessionObserver } from "../../../src/main/junto/term/observer";
+import type { ObserverGridSnapshot } from "../../../src/main/junto/term/observer/types";
 import { requireCapture } from "../runner";
 
 const FRAME_END = "\x1b[?2026l";

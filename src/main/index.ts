@@ -31,9 +31,9 @@ import {
 import {
   resolvedSpawnEnv,
   terminateAdapterChildrenOnQuit,
-} from "./vellum-command/adapters/exec";
-import { appProcessPlane } from "./vellum-command/app-process-plane";
-import { beginBoxProcessShutdown } from "./vellum-command/box";
+} from "./junto/adapters/exec";
+import { appProcessPlane } from "./junto/app-process-plane";
+import { beginBoxProcessShutdown } from "./junto/box";
 import { AppRuntime } from "./runtime";
 import {
   armMainThreadBudget,
@@ -42,137 +42,137 @@ import {
   recordSystemLog,
   startPerfProbe,
   startTransportJournal,
-} from "./vellum-command/observability";
-import { releaseDemoRuntimeIsolation } from "./vellum-command/demo/runtime-isolation";
+} from "./junto/observability";
+import { releaseDemoRuntimeIsolation } from "./junto/demo/runtime-isolation";
 import { registerBrowserIpcHandlers, registerIpcHandlers } from "./ipc";
-import { CanvasesService } from "./vellum-command/canvases";
-import { resolveControlHome } from "./vellum-command/control-home";
-import { registerDemoIpcHandlers } from "./vellum-command/demo/ipc";
+import { CanvasesService } from "./junto/canvases";
+import { resolveControlHome } from "./junto/control-home";
+import { registerDemoIpcHandlers } from "./junto/demo/ipc";
 import {
   BROWSER_COMPOSITION_STARTUP_FAILURE_MESSAGE,
   startBrowserComposition,
   type BrowserComposition,
-} from "./vellum-command/browser/composition";
-import { makeBrowserCompositionHost } from "./vellum-command/browser/composition-host";
-import { makeElectronBrowserViewAttachmentTarget } from "./vellum-command/browser/view-adapter";
-import { makeElectronBrowserReadinessProductPath } from "./vellum-command/browser/readiness-product-path";
-import { makeBrowserProductPathProbe } from "./vellum-command/browser/readiness-probe";
-import { installBrowserProductPathProbe } from "./vellum-command/station-readiness";
-import { findHostById, hostsSnapshot } from "./vellum-command/hosts/snapshot";
+} from "./junto/browser/composition";
+import { makeBrowserCompositionHost } from "./junto/browser/composition-host";
+import { makeElectronBrowserViewAttachmentTarget } from "./junto/browser/view-adapter";
+import { makeElectronBrowserReadinessProductPath } from "./junto/browser/readiness-product-path";
+import { makeBrowserProductPathProbe } from "./junto/browser/readiness-probe";
+import { installBrowserProductPathProbe } from "./junto/station-readiness";
+import { findHostById, hostsSnapshot } from "./junto/hosts/snapshot";
 import { hostHasCapability } from "@shared/remote-hosts";
 import {
   BROWSER_ENABLED,
   HERMES_INTEGRATION_ENABLED,
   LIVE_OVERSEER_ENABLED,
 } from "@shared/features";
-import { HermesPlane } from "./vellum-command/hermes/plane";
-import { termPlane, termPlaneBlocksAppExit } from "./vellum-command/term/plane";
-import { configureTerminalRouterLayeredRunner } from "./vellum-command/term/router";
-import { ChatServiceContext } from "./vellum-command/chat/service";
-import { resolveBrowserPageTarget } from "./vellum-command/browser/ipc";
-import { startBrowserControlServer, type BrowserControlServer } from "./vellum-command/browser/control";
+import { HermesPlane } from "./junto/hermes/plane";
+import { termPlane, termPlaneBlocksAppExit } from "./junto/term/plane";
+import { configureTerminalRouterLayeredRunner } from "./junto/term/router";
+import { ChatServiceContext } from "./junto/chat/service";
+import { resolveBrowserPageTarget } from "./junto/browser/ipc";
+import { startBrowserControlServer, type BrowserControlServer } from "./junto/browser/control";
 import {
   startWorkControlServer,
   workControlReadiness,
   type WorkControlServer,
-} from "./vellum-command/work/control";
+} from "./junto/work/control";
 import {
   captureTrustedWindowPng,
   composeOverseer,
   type OverseerComposition,
-} from "./vellum-command/overseer/composition";
-import { composeOverseerLive } from "./vellum-command/overseer/live/composition";
-import { registerOverseerLiveIpc } from "./vellum-command/overseer/live/ipc";
+} from "./junto/overseer/composition";
+import { composeOverseerLive } from "./junto/overseer/live/composition";
+import { registerOverseerLiveIpc } from "./junto/overseer/live/ipc";
 import {
   startStationControlServer,
   stationControlReadiness,
   type StationControlServer,
-} from "./vellum-command/station/control-server";
+} from "./junto/station/control-server";
 import {
   startStationRemoteReportPump,
   type StationRemoteReportPump,
-} from "./vellum-command/station/remote-report-pump";
-import { StationFleetPropagation } from "./vellum-command/station/fleet-propagation";
-import { StationApiService } from "./vellum-command/station/api";
-import { StationRepository } from "./vellum-command/station/repository";
-import { WorkRepository } from "./vellum-command/work/repository";
-import { makeOwnerLocalStationControlHandoffAuthority } from "./vellum-command/station/peer-authority";
+} from "./junto/station/remote-report-pump";
+import { StationFleetPropagation } from "./junto/station/fleet-propagation";
+import { StationApiService } from "./junto/station/api";
+import { StationRepository } from "./junto/station/repository";
+import { WorkRepository } from "./junto/work/repository";
+import { makeOwnerLocalStationControlHandoffAuthority } from "./junto/station/peer-authority";
 import {
   startCanvasControlServer,
   type CanvasControlServer,
-} from "./vellum-command/canvas-control";
-import { KernelService } from "./vellum-command/kernel/service";
-import { makeEdgeGrantService } from "./vellum-command/browser/edge-grant";
-import { prepareDefaultBrowserStationAdmissionAuthority } from "./vellum-command/browser/station-admission";
-import { configurePeerPidHelperRoots } from "./vellum-command/process-identity";
-import { evaluateSchemaCompatibility } from "./vellum-command/state/schema-version-probe";
-import { runStartupStateFailureDialog } from "./vellum-command/state/startup-state-failure-dialog";
-import { ensureSchemaCompatibleOrRecover } from "./vellum-command/update/startup-schema-recovery";
-import { installBrowserEgressProxyAuth } from "./vellum-command/browser/partition-network";
-import { isManagedBrowserWebContents } from "./vellum-command/browser/web-policy";
+} from "./junto/canvas-control";
+import { KernelService } from "./junto/kernel/service";
+import { makeEdgeGrantService } from "./junto/browser/edge-grant";
+import { prepareDefaultBrowserStationAdmissionAuthority } from "./junto/browser/station-admission";
+import { configurePeerPidHelperRoots } from "./junto/process-identity";
+import { evaluateSchemaCompatibility } from "./junto/state/schema-version-probe";
+import { runStartupStateFailureDialog } from "./junto/state/startup-state-failure-dialog";
+import { ensureSchemaCompatibleOrRecover } from "./junto/update/startup-schema-recovery";
+import { installBrowserEgressProxyAuth } from "./junto/browser/partition-network";
+import { isManagedBrowserWebContents } from "./junto/browser/web-policy";
 import {
   canonicalNodeRefUri,
   latestNodeRefUri,
   makeNodeRefIngress,
-} from "./vellum-command/node-ref-ingress";
+} from "./junto/node-ref-ingress";
 import type { NodeRefKey } from "@shared/node-ref";
-import { resolveNodeRef } from "./vellum-command/node-ref-resolver";
+import { resolveNodeRef } from "./junto/node-ref-resolver";
 import {
   createQuitPreparationArbiter,
   createSignalQuitState,
   installProcessSignalTermination,
   runNormalQuitPreparation,
-} from "./vellum-command/process-signal-termination";
+} from "./junto/process-signal-termination";
 import {
   isTrustedMainWebContents,
   setTrustedMainWebContents,
-} from "./vellum-command/trusted-main-webcontents";
-import { createTrustedRendererNavigation } from "./vellum-command/trusted-renderer-navigation";
-import { createRendererSurfaceReadiness } from "./vellum-command/renderer-surface-readiness";
+} from "./junto/trusted-main-webcontents";
+import { createTrustedRendererNavigation } from "./junto/trusted-renderer-navigation";
+import { createRendererSurfaceReadiness } from "./junto/renderer-surface-readiness";
 import {
   createRendererSurfaceRecovery,
   resolveRendererSurfaceTimeoutMs,
-} from "./vellum-command/renderer-surface-recovery";
+} from "./junto/renderer-surface-recovery";
 import {
   assessLiveWork,
   buildQuitConfirmPrompt,
   hasLiveWork,
   QUIT_CONFIRM_ACCEPT_INDEX,
-} from "./vellum-command/quit-live-work";
-import { mainAuthoringGate } from "./vellum-command/main-authoring-gate";
+} from "./junto/quit-live-work";
+import { mainAuthoringGate } from "./junto/main-authoring-gate";
 import {
   installTrustedRendererPermissionPolicy,
   installTrustedRendererProtocol,
   registerTrustedRendererScheme,
-} from "./vellum-command/trusted-renderer-protocol";
+} from "./junto/trusted-renderer-protocol";
 import {
   CONTENT_PROTOCOL_SCHEME_REGISTRATION,
   installContentProtocol,
-} from "./vellum-command/content/protocol";
-import { ContentService } from "./vellum-command/content/service";
+} from "./junto/content/protocol";
+import { ContentService } from "./junto/content/service";
 import {
   resolveTrustedRendererOrigin,
   type TrustedRendererOrigin,
 } from "@shared/trusted-renderer-origin";
-import { loadStationSupervisor } from "./vellum-command/supervision/select";
-import { SettingsService } from "./vellum-command/settings/service";
-import { StateEngine } from "./vellum-command/state/service";
-import { CURRENT_STATE_SCHEMA_VERSION } from "./vellum-command/state/migrations";
-import { installUpdateHostHooks } from "./vellum-command/update";
-import { hostOperationsShutdown } from "./vellum-command/hosts/shutdown";
-import { makeOperatorCoordinator } from "./vellum-command/hosts/operator-coordinator";
+import { loadStationSupervisor } from "./junto/supervision/select";
+import { SettingsService } from "./junto/settings/service";
+import { StateEngine } from "./junto/state/service";
+import { CURRENT_STATE_SCHEMA_VERSION } from "./junto/state/migrations";
+import { installUpdateHostHooks } from "./junto/update";
+import { hostOperationsShutdown } from "./junto/hosts/shutdown";
+import { makeOperatorCoordinator } from "./junto/hosts/operator-coordinator";
 import {
   operatorControlEnabledFromInitialArgv,
   startOperatorControlServer,
   type OperatorControlServer,
-} from "./vellum-command/operator-control";
-import { findPackagedSandboxDisablingSwitch } from "./vellum-command/packaged-sandbox-policy";
+} from "./junto/operator-control";
+import { findPackagedSandboxDisablingSwitch } from "./junto/packaged-sandbox-policy";
 import {
   applyE2eMacOsFocusIsolation,
   e2eFocusIsolationActive,
   e2eMainWindowOptions,
   e2ePresentationFromEnv,
-} from "./vellum-command/e2e-presentation";
+} from "./junto/e2e-presentation";
 
 // TerminalRouter SSH dials need the process RootLayer; bind AppRuntime once
 // so term/router never imports the Electron runtime graph itself.
@@ -1801,7 +1801,7 @@ if (packagedSandboxDisablingSwitch !== undefined) {
     activatePendingNodeRef();
     rendererWindowAdmissionReady = true;
     if (process.platform === "linux" && app.isPackaged) {
-      void import("./vellum-command/update/linux-install").then(({ markLinuxDesktopInstallReady }) =>
+      void import("./junto/update/linux-install").then(({ markLinuxDesktopInstallReady }) =>
         markLinuxDesktopInstallReady({ executablePath: process.execPath }).catch(() => undefined),
       );
     }

@@ -11,8 +11,8 @@ import {
 import {
   resolveNodeRef,
   type CanvasNodeReader,
-} from "../src/main/vellum-command/node-ref-resolver";
-import { CanvasError } from "../src/main/vellum-command/canvases";
+} from "../src/main/junto/node-ref-resolver";
+import { CanvasError } from "../src/main/junto/canvases";
 
 const parsed = (input: string): NodeRef => {
   const result = parseNodeRef(input);
@@ -76,28 +76,28 @@ describe("canonical Junto node references", () => {
     }
     expect(formatNodeRef(refs[1]!)).toContain("r%C3%A9sum%C3%A9%20100%25");
     expect(formatNodeRef(refs[2]!)).toContain("folder%2Fpage%5Cdraft");
-    expect(formatNodeRef(refs[3]!)).toBe("vellum-command://canvas/portfolio?node=.");
-    expect(formatNodeRef(refs[4]!)).toBe("vellum-command://canvas/portfolio?node=..");
+    expect(formatNodeRef(refs[3]!)).toBe("junto://canvas/portfolio?node=.");
+    expect(formatNodeRef(refs[4]!)).toBe("junto://canvas/portfolio?node=..");
   });
 
   it.each([
     ["https://canvas/portfolio?node=n1", "scheme"],
     ["VELLUM://canvas/portfolio?node=n1", "scheme"],
-    ["vellum-command://evil/portfolio?node=n1", "authority"],
-    ["vellum-command://user@canvas/portfolio?node=n1", "authority"],
-    ["vellum-command://canvas:443/portfolio?node=n1", "authority"],
-    ["vellum-command://canvas/Portfolio?node=n1", "canvas_name"],
-    ["vellum-command://canvas/portfolio", "shape"],
-    ["vellum-command://canvas/portfolio/?node=n1", "shape"],
-    ["vellum-command://canvas/portfolio/node/n1?node=n1", "shape"],
-    ["vellum-command://canvas/portfolio?node=n1&open=true", "shape"],
-    ["vellum-command://canvas/portfolio?node=n1&node=n2", "shape"],
-    ["vellum-command://canvas/portfolio?node=n1#fragment", "shape"],
-    ["vellum-command://canvas/portfolio?node=%", "encoding"],
-    ["vellum-command://canvas/portfolio?node=a%00b", "node_id"],
-    ["vellum-command://canvas/portfolio?node=r%c3%a9sum%c3%a9", "canonical"],
-    ["vellum-command://canvas/portfolio?node=%61", "canonical"],
-    ["vellum-command://canvas/portfolio?node=a+b", "canonical"],
+    ["junto://evil/portfolio?node=n1", "authority"],
+    ["junto://user@canvas/portfolio?node=n1", "authority"],
+    ["junto://canvas:443/portfolio?node=n1", "authority"],
+    ["junto://canvas/Portfolio?node=n1", "canvas_name"],
+    ["junto://canvas/portfolio", "shape"],
+    ["junto://canvas/portfolio/?node=n1", "shape"],
+    ["junto://canvas/portfolio/node/n1?node=n1", "shape"],
+    ["junto://canvas/portfolio?node=n1&open=true", "shape"],
+    ["junto://canvas/portfolio?node=n1&node=n2", "shape"],
+    ["junto://canvas/portfolio?node=n1#fragment", "shape"],
+    ["junto://canvas/portfolio?node=%", "encoding"],
+    ["junto://canvas/portfolio?node=a%00b", "node_id"],
+    ["junto://canvas/portfolio?node=r%c3%a9sum%c3%a9", "canonical"],
+    ["junto://canvas/portfolio?node=%61", "canonical"],
+    ["junto://canvas/portfolio?node=a+b", "canonical"],
   ])("rejects noncanonical or unsafe input: %s", (input, code) => {
     const result = parseNodeRef(input);
     expect(result.ok).toBe(false);
@@ -124,8 +124,8 @@ describe("Junto node reference resolver", () => {
     const beta = await Effect.runPromise(
       resolveNodeRef(canvases, { canvasName: "beta", nodeId: "shared" }),
     );
-    expect(alpha.key).toBe("vellum-command://canvas/alpha?node=shared");
-    expect(beta.key).toBe("vellum-command://canvas/beta?node=shared");
+    expect(alpha.key).toBe("junto://canvas/alpha?node=shared");
+    expect(beta.key).toBe("junto://canvas/beta?node=shared");
     expect(alpha.key).not.toBe(beta.key);
   });
 

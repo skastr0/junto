@@ -9,7 +9,7 @@ read_config_value() {
   if [[ -n "${!variable+x}" ]]; then
     value="${!variable}"
     if [[ -z "$value" ]]; then
-      printf 'vellum-command: error: %s must not be empty\n' "$variable" >&2
+      printf 'junto: error: %s must not be empty\n' "$variable" >&2
       return 1
     fi
     printf '%s' "$value"
@@ -24,7 +24,7 @@ APP_BUNDLE_ID="skastr0.vellumcommand"
 # The release installer requires an explicit expected team, never an artifact-derived one.
 app_signing_requirement() {
   if [[ ! "${JUNTO_MAC_TEAM_ID:-}" =~ ^[A-Z0-9]{10}$ ]]; then
-    printf 'vellum-command: error: JUNTO_MAC_TEAM_ID is required for signed installation\n' >&2
+    printf 'junto: error: JUNTO_MAC_TEAM_ID is required for signed installation\n' >&2
     return 1
   fi
   printf '=anchor apple generic and identifier "skastr0.vellumcommand" and certificate 1[field.1.2.840.113635.100.6.2.6] exists and certificate leaf[field.1.2.840.113635.100.6.1.13] exists and certificate leaf[subject.OU] = "%s"' "$JUNTO_MAC_TEAM_ID"
@@ -73,8 +73,8 @@ APP_DST_PARENT=""
 DOMAIN="gui/$(id -u)"
 RELEASE_DIR="$(read_config_value JUNTO_RELEASE_DIR "$REPO_ROOT/release")" || return 1
 
-log() { printf 'vellum-command: %s\n' "$*"; }
-err() { printf 'vellum-command: error: %s\n' "$*" >&2; }
+log() { printf 'junto: %s\n' "$*"; }
+err() { printf 'junto: error: %s\n' "$*" >&2; }
 
 assert_bundle_identifier() {
   local name="$1"

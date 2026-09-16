@@ -28,23 +28,23 @@ import {
 import {
   deriveActorSeatId,
   ProjectedActorSeat,
-} from "../src/main/vellum-command/station/actor-seat-compiler";
-import { STATION_PORTFOLIO_PROTOCOL } from "../src/main/vellum-command/station/portfolio";
-import { stationProjectionContentSha256 } from "../src/main/vellum-command/station/repository";
+} from "../src/main/junto/station/actor-seat-compiler";
+import { STATION_PORTFOLIO_PROTOCOL } from "../src/main/junto/station/portfolio";
+import { stationProjectionContentSha256 } from "../src/main/junto/station/repository";
 import { authorialMaterialForTest } from "./helpers/task-topology-authority";
 import {
   makeStationWorkAdmission,
   selectStationReportRoutes,
-} from "../src/main/vellum-command/station/api";
+} from "../src/main/junto/station/api";
 import {
   makeStateEngineLive,
   StateEngine,
-} from "../src/main/vellum-command/state/engine";
+} from "../src/main/junto/state/engine";
 import {
   workRecordContentSha256,
   WorkRepository,
   WorkRepositoryLive,
-} from "../src/main/vellum-command/work/repository";
+} from "../src/main/junto/work/repository";
 
 const strictDecode = { onExcessProperty: "error" } as const;
 const observedAt = "2026-08-26T18:00:00.000Z";
@@ -603,7 +603,7 @@ const openRepository = async (
   const projectedBasis = projected.basis;
   const root = join(
     tmpdir(),
-    `vellum-command-station-dependency-scope-${randomUUID()}`,
+    `junto-station-dependency-scope-${randomUUID()}`,
   );
   const runtime = ManagedRuntime.make(
     Layer.provideMerge(
@@ -1081,7 +1081,7 @@ describe("Station dependency scope admission", () => {
 
     expect(authorization._tag).toBe("admitted");
     expect(Buffer.from(JSON.stringify(command))).toEqual(before);
-    expect(STATION_API_PROTOCOL).toBe("vellum-command/station-api/v1");
+    expect(STATION_API_PROTOCOL).toBe("junto/station-api/v1");
     expect(selectStationReportRoutes("remote", remote, cc)).toEqual({
       facts: { eventHome: remote, entityHome: remote },
       commands: { eventHome: remote, entityHome: cc },

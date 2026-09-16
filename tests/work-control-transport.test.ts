@@ -18,7 +18,7 @@ import {
   type WorkErrorDetails,
 } from "../src/shared/work-control";
 import type { PreambleEvent } from "../src/shared/preamble";
-import { CanvasesLive, CanvasesService } from "../src/main/vellum-command/canvases";
+import { CanvasesLive, CanvasesService } from "../src/main/junto/canvases";
 import {
   resolveProcessBoundActorRef,
   startWorkControlServer,
@@ -26,47 +26,47 @@ import {
   type WorkControlRuntime,
   type WorkControlServer,
   type WorkControlServerOptions,
-} from "../src/main/vellum-command/work/control";
-import { mailboxMessageReadId } from "../src/main/vellum-command/work/mailbox-receipts";
-import { messageDelivery } from "../src/main/vellum-command/work/message-delivery";
-import { WorkLive, WorkService } from "../src/main/vellum-command/work/service";
-import { CrewRepositoryLive } from "../src/main/vellum-command/work/crew-repository";
+} from "../src/main/junto/work/control";
+import { mailboxMessageReadId } from "../src/main/junto/work/mailbox-receipts";
+import { messageDelivery } from "../src/main/junto/work/message-delivery";
+import { WorkLive, WorkService } from "../src/main/junto/work/service";
+import { CrewRepositoryLive } from "../src/main/junto/work/crew-repository";
 import {
   ContentService,
   makeContentServiceLive,
-} from "../src/main/vellum-command/content/service";
+} from "../src/main/junto/content/service";
 import {
   createAuthorialTaskDependencyScopeCapability,
   WorkRepository,
   WorkRepositoryLive,
-} from "../src/main/vellum-command/work/repository";
-import { makeStateEngineLive } from "../src/main/vellum-command/state/engine";
-import { makeInstallOpsLive } from "../src/main/vellum-command/install-ops/engine";
-import { StationRepositoryLive } from "../src/main/vellum-command/station/repository";
+} from "../src/main/junto/work/repository";
+import { makeStateEngineLive } from "../src/main/junto/state/engine";
+import { makeInstallOpsLive } from "../src/main/junto/install-ops/engine";
+import { StationRepositoryLive } from "../src/main/junto/station/repository";
 import {
   StationFleetTargetRepositoryLive,
   StationFleetTargetRepository,
   StationFleetTargetIdentity,
-} from "../src/main/vellum-command/station/fleet-target-repository";
+} from "../src/main/junto/station/fleet-target-repository";
 import {
   StationLivePeerRegistryLive,
-} from "../src/main/vellum-command/station/session-registry";
+} from "../src/main/junto/station/session-registry";
 import {
   SettingsLive,
   SettingsService,
-} from "../src/main/vellum-command/settings/service";
-import { PausePlane, PausePlaneAllPlaying } from "../src/main/vellum-command/pause-plane";
+} from "../src/main/junto/settings/service";
+import { PausePlane, PausePlaneAllPlaying } from "../src/main/junto/pause-plane";
 import {
   makeProcessIdentityMap,
   type ProcessIdentityMap,
-} from "../src/main/vellum-command/process-identity";
-import { resetSeatBlocks } from "../src/main/vellum-command/work/blocked-seat";
+} from "../src/main/junto/process-identity";
+import { resetSeatBlocks } from "../src/main/junto/work/blocked-seat";
 import type { CanvasDoc } from "../src/shared/canvas";
 import type { ContentRef } from "../src/shared/content";
 import {
   createMainAuthoringGate,
   type MainAuthoringGate,
-} from "../src/main/vellum-command/main-authoring-gate";
+} from "../src/main/junto/main-authoring-gate";
 import {
   actorRefFixture,
 } from "./helpers/actor-ref-fixtures";
@@ -330,7 +330,7 @@ const startTestServer = async (options: {
   readonly authoringGate: MainAuthoringGate;
   readonly processMap: ProcessIdentityMap;
 }> => {
-  const root = await mkdtemp(join(tmpdir(), "vellum-command-work-ctl-"));
+  const root = await mkdtemp(join(tmpdir(), "junto-work-ctl-"));
   roots.push(root);
   const canvasesDir = join(root, "canvases");
   const workHome = join(root, "work");
@@ -1443,7 +1443,7 @@ describe("work control transport", () => {
     const server = servers[0]!;
     const response = (await call(server.socketPath, {
       token: token(),
-      nodeRef: "vellum-command://canvas/other?node=impostor",
+      nodeRef: "junto://canvas/other?node=impostor",
       op: "capabilities",
     })) as {
       ok: false;
@@ -1493,7 +1493,7 @@ describe("work control transport", () => {
 
   it("denies an unbound peer", async () => {
     // Spin a one-off server with empty process map.
-    const root = await mkdtemp(join(tmpdir(), "vellum-command-work-unbound-"));
+    const root = await mkdtemp(join(tmpdir(), "junto-work-unbound-"));
     roots.push(root);
     const workHome = join(root, "work");
     const canvasesDir = join(root, "canvases");

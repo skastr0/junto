@@ -33,11 +33,11 @@ import { BROWSER_ENABLED } from "../src/shared/features";
 // 0 on ok envelopes, 1 on error envelopes. Remote Station-browser is deleted;
 // `--host`, hidden `station` mode, and station-trust exit 2 before transport.
 
-const usage = `vellum-command browser control
+const usage = `junto browser control
 
 usage:
-  vellum-command browser <command> [args] [--json]
-  vellum-command-browser <command> [args] [--json]
+  junto browser <command> [args] [--json]
+  junto-browser <command> [args] [--json]
   bun run browser <command> [args] [--json]
 
 auth:
@@ -227,7 +227,7 @@ const parseArgs = (
   argv: ReadonlyArray<string>,
 ): { call: Call; json: boolean } | { error: string } => {
   // The standalone compatibility helper receives the command directly. The
-  // canonical `vellum-command browser` dispatcher calls this same parser and may leave
+  // canonical `junto browser` dispatcher calls this same parser and may leave
   // its one dispatch word in argv.
   let commandArgv = argv[0] === "browser" ? argv.slice(1) : [...argv];
   const json = commandArgv.includes("--json");

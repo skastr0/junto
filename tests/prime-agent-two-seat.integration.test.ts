@@ -9,27 +9,27 @@ import { dirname, join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { createAppProcessPlane } from "../src/main/vellum-command/app-process-plane";
+import { createAppProcessPlane } from "../src/main/junto/app-process-plane";
 import {
   getProcessIdentityMap,
   setProcessIdentityMapForTests,
   type ProcessPrincipal,
-} from "../src/main/vellum-command/process-identity";
-import { seatStateRuntime } from "../src/main/vellum-command/term/agent-state";
-import { LocalSessionHost } from "../src/main/vellum-command/term/local-host";
-import { TerminalObserverPlane } from "../src/main/vellum-command/term/observer";
+} from "../src/main/junto/process-identity";
+import { seatStateRuntime } from "../src/main/junto/term/agent-state";
+import { LocalSessionHost } from "../src/main/junto/term/local-host";
+import { TerminalObserverPlane } from "../src/main/junto/term/observer";
 import {
   makePrimeAgentDaemons,
   type PrimeAgentDaemonUnexpectedExit,
-} from "../src/main/vellum-command/term/prime-agent-daemon";
+} from "../src/main/junto/term/prime-agent-daemon";
 import {
   PrimeAgentReporterPlane,
   primeAgentReporterSocketPath,
-} from "../src/main/vellum-command/term/prime-agent-reporter";
+} from "../src/main/junto/term/prime-agent-reporter";
 import {
   getCapturedSessionId,
   resetSessionIdStoreForTest,
-} from "../src/main/vellum-command/term/session-id-store";
+} from "../src/main/junto/term/session-id-store";
 
 const FAKE_PRIME_AGENT = fileURLToPath(
   new URL("./fixtures/prime-agent/prime-agent.mjs", import.meta.url),

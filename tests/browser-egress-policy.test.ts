@@ -3,7 +3,7 @@ import {
   BROWSER_MAX_EGRESS_HAPPY_EYEBALLS_INFLIGHT,
   BROWSER_MAX_PENDING_DNS_HOSTS,
 } from "../src/shared/browser-limits";
-import { makeBrowserTestOnlyExactOriginGrant } from "../src/main/vellum-command/browser/web-policy";
+import { makeBrowserTestOnlyExactOriginGrant } from "../src/main/junto/browser/web-policy";
 import {
   approveResolvedEndpoints,
   classifyEgressAuthority,
@@ -12,7 +12,7 @@ import {
   createBoundedHostResolver,
   type ApprovedEgressEndpoint,
   type EgressSocket,
-} from "../src/main/vellum-command/browser/egress-policy";
+} from "../src/main/junto/browser/egress-policy";
 
 describe("browser egress destination policy", () => {
   it("admits public literals and DNS names, denies private and metadata", () => {

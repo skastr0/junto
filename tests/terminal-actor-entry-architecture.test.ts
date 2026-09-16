@@ -14,7 +14,7 @@ const IPC_CONTRACT = "src/shared/ipc.ts";
 const RENDERER_ENTRY = "src/renderer/lib/terminal-actions.ts";
 const TERMINAL_SURFACE =
   "src/renderer/components/terminal/TerminalSurface.tsx";
-const MAIN_ENTRY = "src/main/vellum-command/term/ipc.ts";
+const MAIN_ENTRY = "src/main/junto/term/ipc.ts";
 
 const between = (source: string, start: string, end: string): string => {
   const from = source.indexOf(start);
@@ -114,7 +114,7 @@ describe("terminal actor entry", () => {
     const source = readSource(TERMINAL_SURFACE);
     const attachEffect = between(
       source,
-      "const api = getVellumCommandApi() as VellumCommandTerminalApi | undefined;",
+      "const api = getJuntoApi() as VellumCommandTerminalApi | undefined;",
       'const label = node.type === "text" ? node.text : "terminal";',
     );
 

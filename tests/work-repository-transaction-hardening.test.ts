@@ -9,12 +9,12 @@ import {
   WorkRepositoryLive,
   createAuthorialTaskDependencyScopeCapability,
   type TaskDependencyScopeCapability,
-} from "../src/main/vellum-command/work/repository";
-import { subjectHashOf } from "../src/main/vellum-command/work/review-subject-hash";
+} from "../src/main/junto/work/repository";
+import { subjectHashOf } from "../src/main/junto/work/review-subject-hash";
 import {
   makeStateEngineLive,
   StateEngine,
-} from "../src/main/vellum-command/state/engine";
+} from "../src/main/junto/state/engine";
 import { serializeCanvas, type CanvasDoc } from "../src/shared/canvas";
 import { ActorSeatId } from "../src/shared/actor-seat";
 import { InstallationId } from "../src/shared/installation-id";
@@ -29,7 +29,7 @@ import { seedCanvasAuthority } from "./helpers/canvas-authority-material";
 
 const root = join(
   tmpdir(),
-  `vellum-command-work-transaction-hardening-${randomUUID()}`,
+  `junto-work-transaction-hardening-${randomUUID()}`,
 );
 const runtime = ManagedRuntime.make(
   Layer.provideMerge(

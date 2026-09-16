@@ -2,13 +2,13 @@ import { describe, expect, it } from "vitest";
 import {
   decodeCodexAuth,
   type CodexAuthOutcome,
-} from "../src/main/vellum-command/usage/codex-auth";
+} from "../src/main/junto/usage/codex-auth";
 import {
   buildCodexSnapshot,
   deriveWindowTitle,
   parseWhamUsage,
   type CodexOutcome,
-} from "../src/main/vellum-command/usage/codex-source";
+} from "../src/main/junto/usage/codex-source";
 
 const FETCHED = "2026-07-26T12:00:00.000Z";
 

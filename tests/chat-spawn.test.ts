@@ -1,6 +1,6 @@
 import { homedir } from "node:os";
 import { describe, expect, it } from "vitest";
-import { buildAcpSpawnTarget, resolveSessionCwd } from "../src/main/vellum-command/chat/spawn";
+import { buildAcpSpawnTarget, resolveSessionCwd } from "../src/main/junto/chat/spawn";
 
 describe("buildAcpSpawnTarget", () => {
   it("parses a local default ACP intent", () => {

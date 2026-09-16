@@ -31,7 +31,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     }
     if (process.argv[2] === "--builder-identity") process.stdout.write(config.builderIdentity);
   } catch (error) {
-    console.error(`vellum-command: ${error.message}`);
+    console.error(`junto: ${error.message}`);
     process.exitCode = 1;
   }
 }

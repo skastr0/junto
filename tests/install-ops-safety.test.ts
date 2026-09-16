@@ -21,14 +21,14 @@ import {
   BACKFILL_INLINE_MEDIA_V1,
   InstallOpsService,
   makeInstallOpsLive,
-} from "../src/main/vellum-command/install-ops/engine";
+} from "../src/main/junto/install-ops/engine";
 import {
   INSTALL_OPS_SCHEMA_SQL,
   INSTALL_OPS_SCHEMA_VERSION,
-} from "../src/main/vellum-command/install-ops/schema";
-import { ContentService, makeContentServiceLive } from "../src/main/vellum-command/content/service";
-import { StateEngine, makeStateEngineLive } from "../src/main/vellum-command/state/engine";
-import { CURRENT_STATE_SCHEMA_VERSION } from "../src/main/vellum-command/state/migrations";
+} from "../src/main/junto/install-ops/schema";
+import { ContentService, makeContentServiceLive } from "../src/main/junto/content/service";
+import { StateEngine, makeStateEngineLive } from "../src/main/junto/state/engine";
+import { CURRENT_STATE_SCHEMA_VERSION } from "../src/main/junto/state/migrations";
 
 const FAMILY_SUFFIXES = ["", "-journal", "-wal", "-shm"] as const;
 type FamilySuffix = (typeof FAMILY_SUFFIXES)[number];

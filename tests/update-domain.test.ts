@@ -12,7 +12,7 @@ import {
   isMintedCandidate,
   mintAuthorizedCandidate,
   remoteRolloutTargetVersion,
-} from "../src/main/vellum-command/update/domain";
+} from "../src/main/junto/update/domain";
 
 const roots: string[] = [];
 
@@ -86,7 +86,7 @@ describe("update domain", () => {
   });
 
   it("refuses symlink and directory archive inputs", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vellum-command-archive-admit-"));
+    const root = await mkdtemp(join(tmpdir(), "junto-archive-admit-"));
     roots.push(root);
     const file = join(root, "archive.zip");
     const link = join(root, "redirect.zip");

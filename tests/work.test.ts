@@ -1,4 +1,4 @@
-import { CrewRepositoryLive } from "../src/main/vellum-command/work/crew-repository";
+import { CrewRepositoryLive } from "../src/main/junto/work/crew-repository";
 import { randomUUID } from "node:crypto";
 import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -82,7 +82,7 @@ const agentNode = (
 });
 
 
-const mockCanvasesHome = join(tmpdir(), `vellum-command-work-${randomUUID()}`);
+const mockCanvasesHome = join(tmpdir(), `junto-work-${randomUUID()}`);
 
 vi.mock("node:os", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:os")>();
@@ -95,38 +95,38 @@ vi.mock("@shared/seed", () => import("../src/shared/seed"));
 import {
   CanvasesLive,
   CanvasesService,
-} from "../src/main/vellum-command/canvases";
-import { WorkLive, WorkService } from "../src/main/vellum-command/work/service";
-import { messageDelivery } from "../src/main/vellum-command/work/message-delivery";
+} from "../src/main/junto/canvases";
+import { WorkLive, WorkService } from "../src/main/junto/work/service";
+import { messageDelivery } from "../src/main/junto/work/message-delivery";
 import {
   createCurrentProjectedTaskDependencyScopeCapability,
   WorkRepository,
   WorkRepositoryLive,
-} from "../src/main/vellum-command/work/repository";
-import { makeStateEngineLive } from "../src/main/vellum-command/state/engine";
+} from "../src/main/junto/work/repository";
+import { makeStateEngineLive } from "../src/main/junto/state/engine";
 import {
   StationRepository,
   StationRepositoryLive,
   stationProjectionContentSha256,
-} from "../src/main/vellum-command/station/repository";
+} from "../src/main/junto/station/repository";
 import {
   StationFleetTargetRepository,
   StationFleetTargetRepositoryLive,
-} from "../src/main/vellum-command/station/fleet-target-repository";
+} from "../src/main/junto/station/fleet-target-repository";
 import {
   StationLivePeerRegistryLive,
-} from "../src/main/vellum-command/station/session-registry";
+} from "../src/main/junto/station/session-registry";
 import {
   makeSettingsLive,
   SettingsService,
-} from "../src/main/vellum-command/settings/service";
+} from "../src/main/junto/settings/service";
 import {
   compileStationPortfolioBody,
-} from "../src/main/vellum-command/station/portfolio";
+} from "../src/main/junto/station/portfolio";
 import {
   makeContentServiceLive,
-} from "../src/main/vellum-command/content/service";
-import { makeInstallOpsLive } from "../src/main/vellum-command/install-ops/engine";
+} from "../src/main/junto/content/service";
+import { makeInstallOpsLive } from "../src/main/junto/install-ops/engine";
 
 const makeWorkRuntime = (databasePath: string) => {
   const installRoot = join(databasePath, "..");
@@ -859,7 +859,7 @@ describe("WorkService — concurrent ops", () => {
   it("lets a Remote-local actor queue mail and create requests and artifacts offline", async () => {
     const isolatedRoot = join(
       tmpdir(),
-      `vellum-command-work-remote-mail-${randomUUID()}`
+      `junto-work-remote-mail-${randomUUID()}`
     );
     const runtime = makeWorkRuntime(
       join(isolatedRoot, "state", "junto.db")

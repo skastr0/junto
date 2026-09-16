@@ -3,12 +3,12 @@ import type {
   AppTerminalExit,
   AppTerminalLease,
   AppTerminalSpawnSpec,
-} from "../src/main/vellum-command/app-process-plane";
+} from "../src/main/junto/app-process-plane";
 import {
   assessNativeTerminalDoctor,
   probeNativeTerminalReadiness,
   type NativeTerminalProbeAuthority,
-} from "../src/main/vellum-command/term/native-readiness";
+} from "../src/main/junto/term/native-readiness";
 import { makeFakeTerminalProcessAuthority } from "./helpers/fake-terminal-process-authority";
 
 afterEach(() => {

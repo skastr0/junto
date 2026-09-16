@@ -27,10 +27,10 @@ describe("state recovery renderer boundary", () => {
 
   it("keeps native save selection and overwrite refusal in Main", async () => {
     const settingsIpc = await readSource(
-      "../src/main/vellum-command/settings/ipc.ts",
+      "../src/main/junto/settings/ipc.ts",
     );
     const recovery = await readSource(
-      "../src/main/vellum-command/state/recovery.ts",
+      "../src/main/junto/state/recovery.ts",
     );
 
     expect(settingsIpc).toContain("dialog.showSaveDialog");

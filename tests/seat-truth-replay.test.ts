@@ -15,9 +15,9 @@ import {
   applyOscHookFromSnapshot,
   evaluate,
   hookStateFromSnapshot,
-} from "../src/main/vellum-command/term/agent-state";
-import { ManagedTerminalDrive } from "../src/main/vellum-command/term/drive";
-import type { ObserverGridSnapshot } from "../src/main/vellum-command/term/observer/types";
+} from "../src/main/junto/term/agent-state";
+import { ManagedTerminalDrive } from "../src/main/junto/term/drive";
+import type { ObserverGridSnapshot } from "../src/main/junto/term/observer/types";
 
 const HR = "────────────────";
 

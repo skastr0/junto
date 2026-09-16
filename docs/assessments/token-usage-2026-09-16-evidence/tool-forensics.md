@@ -164,16 +164,16 @@ Ranked by `original_token_count` (`orig`), with what the harness actually delive
 | # | orig | delivered | ordinal | exit | max_out | cmds in call | command |
 |---|---|---|---|---|---|---|---|
 | 1 | 50684 | 4800 | 10758 | 0 | 4800 | 2 | `tower glyph list vellum --orbit forge --json \| python3 -c '…print(json.dumps(…,indent=2))'` |
-| 2 | 25993 | 1500 | 4764 | 0 | 1500 | 2 | `rg -n -m 8 'non.interactive\|auto mode\|permission.*denied\|…' /tmp/vellum-command-pty-matrix-20260914/preserved-sessions` |
+| 2 | 25993 | 1500 | 4764 | 0 | 1500 | 2 | `rg -n -m 8 'non.interactive\|auto mode\|permission.*denied\|…' /tmp/junto-pty-matrix-20260914/preserved-sessions` |
 | 3 | 16992 | 6000 | 7856 | 0 | 6000 | 3 | `git status --short` + `rg --files -g AGENTS.md -g CLAUDE.md -g GROK.md …` + `cat docs/security-doctrine.md` + `cat …/quasar/SKILL.md` (one shell command of a 3-command call; the other two returned 892 and 123 tokens) |
-| 4 | 12321 | 12321 | 4660 | 0 | (var) | 1 | `rg -n 'fail\|Task\|status\|success' /tmp/vellum-command-pty-matrix-20260914/harness-status.json …/shared-status.json` — recovered by hand; the call site is `cmds.map(cmd=>tools.exec_command({cmd,max_output_tokens:1700}))` |
+| 4 | 12321 | 12321 | 4660 | 0 | (var) | 1 | `rg -n 'fail\|Task\|status\|success' /tmp/junto-pty-matrix-20260914/harness-status.json …/shared-status.json` — recovered by hand; the call site is `cmds.map(cmd=>tools.exec_command({cmd,max_output_tokens:1700}))` |
 | 5 | 11511 | 5000 | 13789 | 0 | 5000 | 2 | `cat /tmp/isolated-devin-mail-hold.json; ps -axo pid,ppid,etime,command \| rg '(Electron.app/Contents/MacOS/Electron\|Junto.app/…)'` |
 | 6 | 8401 | 2300 | 4262 | 0 | 2300 | 1 | `wc -c …/prime-finalize/stderr.log` + python heredoc scanning devin CLI logs |
 | 7 | 7966 | 7300 | 4396 | 0 | 7300 | 1 | python heredoc reading `harness-status.json` / `shared-status.json` |
 | 8 | 7088 | 7000 | 3986 | 0 | 7000 | 1 | `rg --files -g AGENTS.md -g CLAUDE.md …` + `cat docs/managed-terminal-verification.md \| head -140` + `cat docs/managed-terminal-plan.md` |
 | 9 | 6861 | 5500 | 9636 | 0 | 5500 | 3 | `sed -n '1,100p' package.json && sed -n '1,160p' docs/assessments/pty-matrix-2026-09-14.md` |
-| 10 | 6831 | 6500 | 2072 | 0 | 6500 | 1 | `sed -n '1,120p' AGENTS.md && sed -n '1600,1645p' src/main/vellum-command/ipc.ts && sed -n '1,160p' docs/managed-terminal-verification.md` |
-| 11 | 6731 | 6000 | 8508 | 0 | 6000 | 3 | `sed -n '1,160p' /tmp/vellum-command-fresh-mail-20260914/read-receipts.ts && sed -n '1,180p' docs/assessments/pty-matrix-2026-09-14.md` |
+| 10 | 6831 | 6500 | 2072 | 0 | 6500 | 1 | `sed -n '1,120p' AGENTS.md && sed -n '1600,1645p' src/main/junto/ipc.ts && sed -n '1,160p' docs/managed-terminal-verification.md` |
+| 11 | 6731 | 6000 | 8508 | 0 | 6000 | 3 | `sed -n '1,160p' /tmp/junto-fresh-mail-20260914/read-receipts.ts && sed -n '1,180p' docs/assessments/pty-matrix-2026-09-14.md` |
 | 12 | 6717 | 4800 | 5605 | 0 | 4800 | 1 | `sed -n '555,650p' …/managed-terminal-drive.ts && sed -n '210,285p' …/managed-terminal-drive.ts && sed -n '1,145p' docs/assessments/…` |
 | 13 | 6535 | 2800 | 202 | 0 | 2800 | 1 | `rg --files test-results/pty-review-current && rg -n 'Error\|error\|missing\|terminal\|button\|replay\|attached' …` |
 | 14 | 6376 | 6200 | 75 | 0 | 6200 | 3 | `sed -n '1,126p' e2e/harness/launch.ts && sed -n '417,580p' e2e/harness/launch.ts && cat tests/pty-e2e/README.md && sed -n '1,155p' …/pty-capture.ts` |
@@ -187,7 +187,7 @@ Ranked by `original_token_count` (`orig`), with what the harness actually delive
 | 22 | 5460 | 4500 | 11559 | 0 | 4500 | 2 | `git log -7 --oneline` + `rg --files …/work` + `sed -n '1,72p' …/crew-integration-typecheck.log` |
 | 23 | 5440 | 5440 | 4497 | 0 | 5500 | 1 | `rg -n 'coalescer\|flush\|attach\(' …/term/ipc.ts \| head -65` + `sed -n '1370,1518p' …/TerminalSurface.tsx` |
 | 24 | 5259 | 3500 | 3735 | 0 | 3500 | 4 | `prism workflow models --worker devin --json` |
-| 25 | 5102 | 5102 | 3855 | 0 | 5500 | 1 | python heredoc over `/tmp/vellum-command-pty-matrix-20260914/events.json` |
+| 25 | 5102 | 5102 | 3855 | 0 | 5500 | 1 | python heredoc over `/tmp/junto-pty-matrix-20260914/events.json` |
 
 ```bash
 awk -F'\t' 'NR>1 && ($14=="cmd"||$14=="stdin"){print $9}' /tmp/tt-fw/cmds.tsv | sort -rn | head -25 | awk '{s+=$1} END{print s}'
@@ -316,7 +316,7 @@ python3 /tmp/tt-fw/repeats.py
 | 10 | 8 | 1969 | 2287 | 12378,12414,12573,12632,12744,12811,13004,13052 | `/Users/…/bin/herdr agent read w3F:p1H --source visible` |
 | 11 | 2 | 1481 | 3638 | 10947,11272 | `cat src/shared/managed-prompt.ts` |
 | 12 | 3 | 1236 | 1916 | 6326,6408,6476 | `git -C <TMPDIR>/vellum-interrupt-admission diff -- src/main/…/managed-terminal-drive.ts` |
-| 13 | 5 | 1156 | 1445 | 6576,6604,6611,6638,6649 | `tail -n 8 <TMPDIR>/vellum-command-build-<HEX>.log` |
+| 13 | 5 | 1156 | 1445 | 6576,6604,6611,6638,6649 | `tail -n 8 <TMPDIR>/junto-build-<HEX>.log` |
 | 14 | 2 | 1024 | 1437 | 5068,5133 | `git diff -- src/main/…/managed-terminal-drive.ts` |
 | 15 | 2 | 984 | 4685 | 2050,7069 | `git diff --stat && git diff -- src/main/…/managed-terminal-drive.ts` |
 | 16 | 7 | 983 | 1166 | 8684,8701,8878,9195,9246,9272,9413 | `herdr agent prompt w3F:p16 …` |
@@ -406,8 +406,8 @@ Which commands started them:
 
 ```bash
 awk -F'\t' 'NR>1 && ($16==25573||$16==20466||$16==71881){printf "sid=%-7s ord=%-6s %s\n",$16,$1,substr($6,1,130)}' /tmp/tt-fw/cmds.tsv
-# sid=25573 ord=3252  env PATH=… JUNTO_FEATURE_PROFILE=ship … bash scripts/build-app.sh --target mac --sign > /tmp/vellum-command-fresh-production-build.log 2>&1
-# sid=20466 ord=6557  mise exec bun@1.3.13 -- env … bash scripts/build-app.sh --target mac --sign > /tmp/vellum-command-build-54f79b07.log 2>&1
+# sid=25573 ord=3252  env PATH=… JUNTO_FEATURE_PROFILE=ship … bash scripts/build-app.sh --target mac --sign > /tmp/junto-fresh-production-build.log 2>&1
+# sid=20466 ord=6557  mise exec bun@1.3.13 -- env … bash scripts/build-app.sh --target mac --sign > /tmp/junto-build-54f79b07.log 2>&1
 # sid=71881 ord=93    JUNTO_E2E_SHOW=1 bun run test:e2e:fast e2e/scenarios/mail-wakes-cold-seat.spec.ts … --workers=1
 ```
 
@@ -578,7 +578,7 @@ python3 /tmp/tt-fw/thrash2.py
 | 4 | 7,685 | 14 | 14869..15034 | 296 s (11:06:34 → 11:11:30) | `herdr agent send-keys w3F:p16 ctrl+c` ×4, `herdr agent read w3F:p16 --source visible` ×4 |
 | 5 | 6,756 | 8 | 15540..15612 | 85 s (11:27:15 → 11:28:40) | `tail -n 20/30 …crew-qa-…-unit.log` ×4, `git log -3 --oneline` ×2 |
 | 6 | 5,679 | 9 | 6297..6408 | 158 s (03:57:11 → 03:59:49) | `git status --short` ×2, `herdr agent read w3F:p16 …` ×2, `git -C … diff …` ×2 |
-| 7 | 3,253 | 11 | 6576..6665 | 300 s (04:04:28 → 04:09:28) | `tail -n 8 …/vellum-command-build-<HEX>.log` ×5 |
+| 7 | 3,253 | 11 | 6576..6665 | 300 s (04:04:28 → 04:09:28) | `tail -n 8 …/junto-build-<HEX>.log` ×5 |
 
 **Worst two spans, call by call:**
 
@@ -589,7 +589,7 @@ python3 /tmp/tt-fw/thrash2.py
 | 15783 | 11:32:53 | 1,287 | 3 | log,inspect | python heredoc reading a temp json + log |
 | 15811 | 11:33:40 | 644 | 3 | log,vcs | python heredoc reading a temp json |
 | 15823 | 11:34:08 | 854 | 2 | log,pane | `herdr agent prompt w3F:p1H 'New bounded QA triage authorized…'` |
-| 15835 | 11:34:20 | 1,846 | 3 | log,vcs | `tail -n 75 …/vellum-command-crew-e2e-<HEX>.log` |
+| 15835 | 11:34:20 | 1,846 | 3 | log,vcs | `tail -n 75 …/junto-crew-e2e-<HEX>.log` |
 | 15844 | 11:34:31 | 789 | 3 | pane,vcs,inspect | `herdr agent read w3F:p1H --source visible` |
 | 15865 | 11:35:10 | 4,084 | 3 | inspect | `rg -n 'awaitTurnStart\|deliveryAwaitTurnStart\|FIRED\|…' src…` |
 | 15881 | 11:35:44 | 1,218 | 3 | vcs,inspect | `rg -n -A 55 'assertExactCommittedCheckout' scripts/package-runtime-provenance.ts` |
@@ -605,10 +605,10 @@ python3 /tmp/tt-fw/thrash2.py
 |---|---|---|---|---|---|
 | 15310 | 11:23:14 | 1,091 | 5 | start_app,pane,vcs,inspect | `git status --short` (+4 more) |
 | 15320 | 11:23:22 | 1,725 | 4 | log,pane,vcs,test,inspect | `herdr agent send-keys w3F:p1H enter` |
-| 15332 | 11:23:32 | 1,980 | 4 | log,pane,vcs,test | `tail -n 20 …/vellum-command-crew-typecheck-freeze.log` |
+| 15332 | 11:23:32 | 1,980 | 4 | log,pane,vcs,test | `tail -n 20 …/junto-crew-typecheck-freeze.log` |
 | 15342 | 11:23:41 | 263 | 3 | pane | `herdr agent send-keys w3F:p1H ctrl+c` |
 | 15351 | 11:23:55 | 151 | 4 | start_app,log,pane,test | `herdr agent prompt w3F:p1H 'Current root instruction, supersedes queued audits…'` |
-| 15366 | 11:24:20 | 3,311 | 4 | log,pane,inspect | `tail -n 20 …/vellum-command-crew-qa-<HEX>-build.log` |
+| 15366 | 11:24:20 | 3,311 | 4 | log,pane,inspect | `tail -n 20 …/junto-crew-qa-<HEX>-build.log` |
 | 15378 | 11:24:28 | 1,806 | 3 | vcs,inspect | `rg -n -A 35 -B 10 'FAIL\|AssertionError\|Error:' …/crew-qa-…-build.log` |
 | 15392 | 11:24:47 | 1,031 | 4 | pane,vcs,inspect | `sed -n '66,124p' tests/actor-ledger.test.ts` |
 

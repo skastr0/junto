@@ -23,7 +23,7 @@ import {
 import type { CanvasNode } from "@shared/canvas";
 import type { OccupancyClue, OccupancyHarnessState } from "@shared/occupancy";
 import { resolveTerminalBinding, type WorkSurfaceActivity } from "@shared/terminal";
-import { getVellumCommandApi } from "./vellum-api";
+import { getJuntoApi } from "./junto-api";
 import { terminal$ } from "./terminal-state";
 
 export type AgentSeatStore = {
@@ -279,7 +279,7 @@ let activeUnsubscribe: (() => void) | undefined;
 
 export const subscribeAgentSeatState = (): (() => void) => {
   if (activeUnsubscribe) return activeUnsubscribe;
-  const api = getVellumCommandApi();
+  const api = getJuntoApi();
   if (!api || typeof api.onAgentSeatStateChanged !== "function") {
     return () => undefined;
   }

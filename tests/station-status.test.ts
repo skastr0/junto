@@ -636,7 +636,7 @@ describe("station status doctor", () => {
 
   it("redacts credentials, board references, and local paths at the diagnostic boundary", () => {
     const diagnostic = redactStationDiagnostic(
-      "bearer=secret authorization:abc token=xyz license_key=license-secret dodo_activation_id=dodo-secret vellum-command://canvas?node=agent-123 node-01KZ12345678 /Users/operator/.junto/state/junto.db",
+      "bearer=secret authorization:abc token=xyz license_key=license-secret dodo_activation_id=dodo-secret junto://canvas?node=agent-123 node-01KZ12345678 /Users/operator/.junto/state/junto.db",
     );
     expect(diagnostic).not.toContain("secret");
     expect(diagnostic).not.toContain("agent-123");

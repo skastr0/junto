@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { HostDeployJobSnapshot } from "@shared/ipc";
-import { getVellumCommandApi } from "./vellum-api";
+import { getJuntoApi } from "./junto-api";
 
 /**
  * Mirror of the main-owned deploy job for a host.
@@ -16,7 +16,7 @@ export const useHostDeployJob = (
       setJob(null);
       return;
     }
-    const api = getVellumCommandApi();
+    const api = getJuntoApi();
     const getJob = api?.hostsDeployJobGet;
     const onChanged = api?.onHostsDeployJobChanged;
     if (!getJob || !onChanged) {
@@ -49,7 +49,7 @@ export const useRunningDeployJobs = (): ReadonlyArray<HostDeployJobSnapshot> => 
   const [jobs, setJobs] = useState<ReadonlyArray<HostDeployJobSnapshot>>([]);
 
   useEffect(() => {
-    const api = getVellumCommandApi();
+    const api = getJuntoApi();
     const listJobs = api?.hostsDeployJobsList;
     const onChanged = api?.onHostsDeployJobChanged;
     if (!listJobs || !onChanged) {

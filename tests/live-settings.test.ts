@@ -12,11 +12,11 @@ import {
   liveSettings,
   redactProvidersForIpc,
 } from "../src/shared/settings";
-import { MemoryCredentialStore } from "../src/main/vellum-command/credentials/store";
-import { makeSettingsService } from "../src/main/vellum-command/settings/service";
-import { decodeStoredSettings, preferencesFromSettings } from "../src/main/vellum-command/settings/state-schema";
-import { makeStateEngineLive } from "../src/main/vellum-command/state/engine";
-import { StateEngine } from "../src/main/vellum-command/state/service";
+import { MemoryCredentialStore } from "../src/main/junto/credentials/store";
+import { makeSettingsService } from "../src/main/junto/settings/service";
+import { decodeStoredSettings, preferencesFromSettings } from "../src/main/junto/settings/state-schema";
+import { makeStateEngineLive } from "../src/main/junto/state/engine";
+import { StateEngine } from "../src/main/junto/state/service";
 
 const decodePatch = Schema.decodeUnknownSync(SettingsPatch, { onExcessProperty: "error" });
 const SECRET = "sk-openai-live-test-only";
@@ -61,7 +61,7 @@ describe("Live provider preferences", () => {
   });
 
   it("keeps the OpenAI key in the existing vault across preference edits, rotation, and resets", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vellum-command-live-settings-"));
+    const root = await mkdtemp(join(tmpdir(), "junto-live-settings-"));
     const path = join(root, "junto.db");
     const vault = new MemoryCredentialStore();
     const runtime = ManagedRuntime.make(makeStateEngineLive(path));

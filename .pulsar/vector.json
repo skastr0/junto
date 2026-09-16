@@ -1,5 +1,5 @@
 {
-  "id": "vellum-command",
+  "id": "junto",
   "domain": "typescript",
   "description": "Junto weighting thesis: machine-safety and unfinished production code dominate; Electron process boundaries and Effect composition are first-class; generic size pressure is secondary.",
   "signal_overrides": {

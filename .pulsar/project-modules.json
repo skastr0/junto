@@ -7,9 +7,9 @@
       "enabled": true
     },
     {
-      "id": "vellum-command",
+      "id": "junto",
       "kind": "repo-local",
-      "path": ".pulsar/modules/vellum-command.ts"
+      "path": ".pulsar/modules/junto.ts"
     }
   ]
 }

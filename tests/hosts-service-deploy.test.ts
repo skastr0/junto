@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import type { HostsServiceShape } from "../src/main/vellum-command/hosts/service";
+import type { HostsServiceShape } from "../src/main/junto/hosts/service";
 
 describe("HostsService deploy surface", () => {
   it("has no deploy verb: HostRuntime.reconcile is the only deployment path", () => {
@@ -15,7 +15,7 @@ describe("HostsService deploy surface", () => {
     expect(hostsServiceHasNoDeployConfiguredRemote).toBe(true);
 
     const service = readFileSync(
-      new URL("../src/main/vellum-command/hosts/service.ts", import.meta.url),
+      new URL("../src/main/junto/hosts/service.ts", import.meta.url),
       "utf8",
     );
     expect(service).not.toContain("deployConfiguredRemote");

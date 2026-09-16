@@ -6,13 +6,13 @@ import {
   __setDocsForTest,
   manualSchedulerFire,
   overseerSchedulerFire,
-} from "../src/main/vellum-command/kernel/cycle";
+} from "../src/main/junto/kernel/cycle";
 import {
   __setSchedulerEffectDepsForTest,
   admitSchedulerEffectAutomation,
   applySchedulerFire,
   collectTriggerCascadeTargets,
-} from "../src/main/vellum-command/kernel/effects";
+} from "../src/main/junto/kernel/effects";
 import { CRON_ENABLED, RELAY_ENABLED } from "../src/shared/features";
 
 const overseerFire = (input: {

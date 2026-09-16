@@ -28,7 +28,7 @@ This contract derives from
 
 ## Release and installation boundaries
 
-The canonical payload is `vellum-command-runtime-<version>-linux-x64.tar.gz`.
+The canonical payload is `junto-runtime-<version>-linux-x64.tar.gz`.
 Desktop descriptors and the alpha feed live under `/linux/x64/`, separately
 from the gated Fleet release contract. An archive build alone does not prove
 signing, first install, installed update or native-host qualification.
@@ -39,8 +39,8 @@ reviewed-checkout code with the embedded release trust pin; it never executes
 candidate-archive code. First install refuses an existing managed launcher;
 subsequent updates belong to the running app's flush/quiescence path.
 Generations live
-at `~/.local/opt/vellum-command-alpha/<version>-<archiveSHA256>/`, selected by
-`~/.local/bin/vellum-command-desktop` with a user desktop entry. Product state
+at `~/.local/opt/junto-alpha/<version>-<archiveSHA256>/`, selected by
+`~/.local/bin/junto-desktop` with a user desktop entry. Product state
 is outside these immutable application generations.
 
 The retired `.deb`/`/opt` lane is not a fallback. Its historical CI workflow

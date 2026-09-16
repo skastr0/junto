@@ -4,7 +4,7 @@ import { PatchDiff } from "@pierre/diffs/react";
 import type { CanvasNode } from "@shared/canvas";
 import type { GitCommit } from "@shared/git";
 import { DIM, GREEN, HUE, INK } from "../../lib/theme";
-import { getVellumCommandApi } from "../../lib/vellum-api";
+import { getJuntoApi } from "../../lib/junto-api";
 import { FocusSurface } from "../FocusSurface";
 import { IconButton, OverlayHeader } from "../ui";
 import "./git.css";
@@ -44,7 +44,7 @@ export function GitDetail({
       return;
     }
     let live = true;
-    void getVellumCommandApi()
+    void getJuntoApi()
       ?.gitLog?.(cwd)
       .then((result) => {
         if (!live) return;
@@ -71,7 +71,7 @@ export function GitDetail({
     }
     let live = true;
     setLoadingPatch(true);
-    void getVellumCommandApi()
+    void getJuntoApi()
       ?.gitShow?.(cwd, selected)
       .then((result) => {
         if (!live) return;

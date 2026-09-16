@@ -23,7 +23,7 @@ DEV_CONTENT="${JUNTO_HOME}/.junto/content"
 DEV_OPS_DB="${JUNTO_HOME}/.junto/state/install-ops.db"
 
 log() {
-  printf 'vellum-command dev: %s\n' "$*" >&2
+  printf 'junto dev: %s\n' "$*" >&2
 }
 
 if [[ ! -f "${PROD_DB}" ]]; then
@@ -38,7 +38,7 @@ fi
 
 CURRENT="$(
   sed -nE 's/^export const CURRENT_STATE_SCHEMA_VERSION = ([0-9]+);$/\1/p' \
-    "${ROOT}/src/main/vellum-command/state/migrations.ts" | head -1
+    "${ROOT}/src/main/junto/state/migrations.ts" | head -1
 )"
 if [[ -z "${CURRENT}" ]]; then
   log "could not read CURRENT_STATE_SCHEMA_VERSION; keeping isolated state"

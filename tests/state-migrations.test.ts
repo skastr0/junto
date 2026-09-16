@@ -7,17 +7,17 @@ import {
   migrateStateSchema,
   validateStateSchemaMigrationPlan,
   type StateSchemaMigrationPlan,
-} from "../src/main/vellum-command/state/migrations";
+} from "../src/main/junto/state/migrations";
 import {
   STATE_SCHEMA_IDENTITY_SQL,
   STATE_SCHEMA_SQL,
   STATE_SCHEMA_V1_SQL,
   STATE_SCHEMA_V2_SQL,
-} from "../src/main/vellum-command/state/schema";
+} from "../src/main/junto/state/schema";
 import {
   expectedStateSchemaIdentity,
   verifyAndStampStateSchema,
-} from "../src/main/vellum-command/state/schema-identity";
+} from "../src/main/junto/state/schema-identity";
 
 const VERSION_ONE_SQL = `
   ${STATE_SCHEMA_IDENTITY_SQL}

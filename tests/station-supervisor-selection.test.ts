@@ -1,12 +1,12 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import type { StationSupervisor } from "../src/main/vellum-command/supervision/contract";
+import type { StationSupervisor } from "../src/main/junto/supervision/contract";
 import {
   createStationSupervisorSelector,
   loadStationSupervisor,
   type StationSupervisorLoaders,
-} from "../src/main/vellum-command/supervision/select";
+} from "../src/main/junto/supervision/select";
 
 const stubSupervisor = (provider: "launchd" | "systemd-user" | "standalone") =>
   ({
@@ -54,7 +54,7 @@ describe("station supervisor platform selection", () => {
 
   it("keeps platform providers behind dynamic-import boundaries", () => {
     const source = readFileSync(
-      join(process.cwd(), "src/main/vellum-command/supervision/select.ts"),
+      join(process.cwd(), "src/main/junto/supervision/select.ts"),
       "utf8",
     );
 

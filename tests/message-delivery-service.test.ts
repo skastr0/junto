@@ -7,7 +7,7 @@ import {
   MessageDeliveryService,
   type MessageDeliveryStore,
   type MessageDeliveryTransport,
-} from "../src/main/vellum-command/work/message-delivery";
+} from "../src/main/junto/work/message-delivery";
 import type { ManagedPromptOutcome } from "../src/shared/managed-prompt";
 
 /** Submitted acceptance with one paste envelope of write evidence. */
@@ -1564,7 +1564,7 @@ describe("MessageDeliveryService", () => {
     await waitUntil(() => payloads.length === 1);
     expect(payloads[0]).toContain("3 unread");
     expect(payloads[0]).toContain("b1");
-    expect(payloads[0]).toContain("vellum-command msg list");
+    expect(payloads[0]).toContain("junto msg list");
     await waitUntil(async () =>
       (await store.hasAcceptedMessageDelivery("c", "agent", "b1")) &&
       (await store.hasAcceptedMessageDelivery("c", "agent", "b2")) &&

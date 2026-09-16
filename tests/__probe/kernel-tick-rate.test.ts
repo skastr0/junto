@@ -20,7 +20,7 @@ import { Cause, Effect } from "effect";
 import {
   KERNEL_CYCLE_KEY,
   makeKernelLaneScheduler,
-} from "../../src/main/vellum-command/kernel/service";
+} from "../../src/main/junto/kernel/service";
 
 const CYCLE_MS = Number(process.env.TICK_CYCLE_MS ?? 20);
 const EVENT_MS = Number(process.env.TICK_EVENT_MS ?? 5);

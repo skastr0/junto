@@ -14,16 +14,16 @@ import {
   STATE_SCHEMA_V18_IDENTITY,
   STATE_SCHEMA_V19_IDENTITY,
   CURRENT_STATE_SCHEMA_IDENTITY,
-} from "../src/main/vellum-command/state/migrations";
+} from "../src/main/junto/state/migrations";
 import {
   STATE_SCHEMA_SQL,
   STATE_SCHEMA_V18_SQL,
   STATE_SCHEMA_V19_SQL,
-} from "../src/main/vellum-command/state/schema";
+} from "../src/main/junto/state/schema";
 import {
   expectedStateSchemaIdentity,
   verifyAndStampStateSchema,
-} from "../src/main/vellum-command/state/schema-identity";
+} from "../src/main/junto/state/schema-identity";
 
 const revision = (
   database: DatabaseSync,

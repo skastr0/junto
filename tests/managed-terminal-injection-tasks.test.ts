@@ -15,9 +15,9 @@ describe("doctrine — task path verbs", () => {
   it("teaches the tasks slot every verb a board move needs", () => {
     const text = buildInjectionText(seatWithTasks)!;
     for (const command of [
-      `vellum-command tasks show '{"target":"tasks-main","task":"<taskId>"}'`,
-      `vellum-command tasks rules '{"target":"tasks-main","task":"<taskId>"}'`,
-      `vellum-command tasks check '{"target":"tasks-main","task":"<taskId>"}'`,
+      `junto tasks show '{"target":"tasks-main","task":"<taskId>"}'`,
+      `junto tasks rules '{"target":"tasks-main","task":"<taskId>"}'`,
+      `junto tasks check '{"target":"tasks-main","task":"<taskId>"}'`,
     ]) {
       expect(text).toContain(command);
     }
@@ -35,9 +35,9 @@ describe("doctrine — task path verbs", () => {
   });
 
   it("puts rulings in the base contract, where every seat sees it", () => {
-    expect(BASE_CONTRACT).toContain("vellum-command rulings");
+    expect(BASE_CONTRACT).toContain("junto rulings");
     const isolated = buildInjectionText({ seatBound: true, connected: false })!;
-    expect(isolated).toContain("vellum-command rulings");
+    expect(isolated).toContain("junto rulings");
     expect(isolated).not.toContain("### Edge contract — tasks");
   });
 });

@@ -1,13 +1,13 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { SeatStateRuntime } from "../src/main/vellum-command/term/agent-state/runtime";
-import { composerVerdictForHarness } from "../src/main/vellum-command/term/agent-state/composer";
-import { createManagedTerminalDrive } from "../src/main/vellum-command/term/drive/managed-drive-factory";
-import { promptHasPasteChip, promptStillPending } from "../src/main/vellum-command/term/drive/prompt-evidence";
-import { isManagedTerminalReady } from "../src/main/vellum-command/term/drive/readiness";
-import { SessionObserver } from "../src/main/vellum-command/term/observer";
-import { codexMultilineComposerEvidence, pendingEvidenceLines } from "../src/main/vellum-command/term/observer/interaction";
-import type { ObserverGridSnapshot } from "../src/main/vellum-command/term/observer/types";
+import { SeatStateRuntime } from "../src/main/junto/term/agent-state/runtime";
+import { composerVerdictForHarness } from "../src/main/junto/term/agent-state/composer";
+import { createManagedTerminalDrive } from "../src/main/junto/term/drive/managed-drive-factory";
+import { promptHasPasteChip, promptStillPending } from "../src/main/junto/term/drive/prompt-evidence";
+import { isManagedTerminalReady } from "../src/main/junto/term/drive/readiness";
+import { SessionObserver } from "../src/main/junto/term/observer";
+import { codexMultilineComposerEvidence, pendingEvidenceLines } from "../src/main/junto/term/observer/interaction";
+import type { ObserverGridSnapshot } from "../src/main/junto/term/observer/types";
 
 const FRAME_END = "\x1b[?2026l";
 const corpus = new URL("./pty-e2e/corpus/codex/paste-chip.jsonl", import.meta.url);

@@ -17,7 +17,7 @@ import { contractOf } from "../src/shared/physics";
 import {
   admitWorkTarget,
   opsForKind,
-} from "../src/main/vellum-command/work/authz";
+} from "../src/main/junto/work/authz";
 import { DEFAULT_NODE_CATALOG_ENTRIES } from "../src/renderer/components/node-palette/NodeCatalogGrid";
 import {
   makeArtifactsNode,
@@ -41,7 +41,7 @@ import {
   buildConceptsDoc,
   buildNodesCatalogDoc,
   NODE_DOCS,
-} from "../src/shared/vellum-docs";
+} from "../src/shared/junto-docs";
 import {
   JUNTO_INTRO,
   WORKER_DOCTRINE,
@@ -50,7 +50,7 @@ import {
   liveSeatBlock,
   markSeatBlocked,
   resetSeatBlocks,
-} from "../src/main/vellum-command/work/blocked-seat";
+} from "../src/main/junto/work/blocked-seat";
 
 /**
  * Product gates for the work-sink extras: Board, Pad, Sheet, Requests, and
@@ -228,7 +228,7 @@ describe("work-sink product gates", () => {
       expect(kinds).toContain("SHEET_ENABLED");
       expect(kinds).toContain("REQUESTS_ENABLED");
       expect(kinds).toContain("ARTIFACTS_ENABLED");
-      const ipc = readFileSync("src/main/vellum-command/ipc.ts", "utf8");
+      const ipc = readFileSync("src/main/junto/ipc.ts", "utf8");
       expect(ipc).toContain("if (BOARD_ENABLED) privilegedIpc.handle(");
       expect(ipc).toContain("if (PAD_ENABLED) privilegedIpc.handle(");
       expect(ipc).toContain("if (ARTIFACTS_ENABLED) privilegedIpc.handle(");

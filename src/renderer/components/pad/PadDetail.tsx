@@ -10,7 +10,7 @@ import { OverlayHeader } from "../ui/OverlayHeader";
 import { applyWorkCanvasWrite } from "../../lib/mutations";
 import { runCanvasAuthoringOperation } from "../../lib/canvas-editor-flush";
 import { state$ } from "../../lib/state";
-import { getVellumCommandApi } from "../../lib/vellum-api";
+import { getJuntoApi } from "../../lib/junto-api";
 import type { PadCommitOutcome } from "./pad-editor-model";
 import { PadEditor } from "./PadEditor";
 import "./pad-editor.css";
@@ -58,7 +58,7 @@ export function PadDetail({
         pendingRefreshRef.current = true;
         return null;
       }
-      const api = getVellumCommandApi();
+      const api = getJuntoApi();
       if (!api) {
         setError("Junto work plane is unavailable.");
         return null;
@@ -106,7 +106,7 @@ export function PadDetail({
 
   const onCommit = useCallback(
     async (patches: ReadonlyArray<PadPatch>): Promise<PadCommitOutcome> => {
-      const api = getVellumCommandApi();
+      const api = getJuntoApi();
       if (!api) {
         return { ok: false, message: "Junto work plane is unavailable." };
       }

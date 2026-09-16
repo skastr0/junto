@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { SeatStateRuntime } from "../../../src/main/vellum-command/term/agent-state/runtime";
-import { createManagedTerminalDrive } from "../../../src/main/vellum-command/term/drive/managed-drive-factory";
-import { promptStillPending } from "../../../src/main/vellum-command/term/drive/prompt-evidence";
-import { isManagedTerminalReady } from "../../../src/main/vellum-command/term/drive/readiness";
-import { DEFAULT_PROMPT_STALL_MS } from "../../../src/main/vellum-command/term/drive/typing";
-import { SessionObserver } from "../../../src/main/vellum-command/term/observer";
-import type { ObserverGridSnapshot } from "../../../src/main/vellum-command/term/observer/types";
+import { SeatStateRuntime } from "../../../src/main/junto/term/agent-state/runtime";
+import { createManagedTerminalDrive } from "../../../src/main/junto/term/drive/managed-drive-factory";
+import { promptStillPending } from "../../../src/main/junto/term/drive/prompt-evidence";
+import { isManagedTerminalReady } from "../../../src/main/junto/term/drive/readiness";
+import { DEFAULT_PROMPT_STALL_MS } from "../../../src/main/junto/term/drive/typing";
+import { SessionObserver } from "../../../src/main/junto/term/observer";
+import type { ObserverGridSnapshot } from "../../../src/main/junto/term/observer/types";
 import { CHUNK_MODES, chunkBytes, gateFixture, requireCapture, type ChunkMode } from "../runner";
 
 const FRAME_END = "\x1b[?2026l";

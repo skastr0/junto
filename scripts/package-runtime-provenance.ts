@@ -31,9 +31,9 @@ import {
 } from "./audit-linux-package";
 
 export const PACKAGE_RUNTIME_PROVENANCE_SCHEMA =
-  "vellum-command/package-runtime-provenance/v2" as const;
+  "junto/package-runtime-provenance/v2" as const;
 export const RUNTIME_BUILD_IDENTITY_SCHEMA =
-  "vellum-command/runtime-build-identity/v1" as const;
+  "junto/runtime-build-identity/v1" as const;
 export const MAIN_PROVENANCE_SOURCE_RELATIVE =
   "out/package-runtime-provenance.json" as const;
 export const REMOTE_PROVENANCE_SOURCE_RELATIVE =
@@ -45,7 +45,7 @@ export const MAIN_PAYLOAD_PACKAGED_RELATIVE = "out/main/index.js" as const;
 export const REMOTE_PROVENANCE_PACKAGED_RELATIVE =
   "resources/app-remote/package-runtime-provenance.json" as const;
 export const REMOTE_PAYLOAD_PACKAGED_RELATIVE =
-  "resources/app-remote/vellum-command-remote.js" as const;
+  "resources/app-remote/junto-remote.js" as const;
 
 const PRODUCT_NAME = "Junto" as const;
 const SOURCE_COMMIT = /^[0-9a-f]{40}$/u;
@@ -407,7 +407,7 @@ export const readPackageSchemaFacts = async (
 ): Promise<PackageSchemaFacts> => {
   const migrationsPath = path.join(
     path.resolve(repoRoot),
-    "src/main/vellum-command/state/migrations.ts",
+    "src/main/junto/state/migrations.ts",
   );
   await requireRegularFile(migrationsPath, "state migration source");
   const body = await readFile(migrationsPath, "utf8");
@@ -1364,7 +1364,7 @@ const assertAsarHasNoRemote = (header: ValidatedRawAsarHeader): void => {
       entry === "resources/app-remote" ||
       entry.startsWith("resources/app-remote/") ||
       entry.split("/").includes("app-remote") ||
-      ["vellum-command-remote", "vellum-command-remote.js"].includes(
+      ["junto-remote", "junto-remote.js"].includes(
         entry.split("/").at(-1) ?? "",
       ),
   );
@@ -1459,10 +1459,10 @@ export const assertMacHasNoRemoteResources = async (
     return (
       parts.includes("app-remote") ||
       (parts.includes("out") && parts.includes("remote")) ||
-      basename === "vellum-command-remote" ||
-      basename === "vellum-command-remote.js" ||
-      basename === "vellum-command-remote-launch" ||
-      basename === "vellum-command-remote.service.template" ||
+      basename === "junto-remote" ||
+      basename === "junto-remote.js" ||
+      basename === "junto-remote-launch" ||
+      basename === "junto-remote.service.template" ||
       entry === "bin/node" ||
       entry.startsWith("systemd/")
     );

@@ -6,21 +6,21 @@ import { Effect, Layer, ManagedRuntime } from "effect";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   runInlineMediaMigration,
-} from "../src/main/vellum-command/content/inline-media-migration";
-import { unjournaledWorkMutation } from "../src/main/vellum-command/work/mutation-seam";
+} from "../src/main/junto/content/inline-media-migration";
+import { unjournaledWorkMutation } from "../src/main/junto/work/mutation-seam";
 import {
   contentObjectPath,
   contentStoreRoot,
-} from "../src/main/vellum-command/content/paths";
+} from "../src/main/junto/content/paths";
 import {
   BACKFILL_INLINE_MEDIA_V1,
   InstallOpsService,
   makeInstallOpsLive,
-} from "../src/main/vellum-command/install-ops/engine";
+} from "../src/main/junto/install-ops/engine";
 import {
   makeStateEngineLive,
   StateEngine,
-} from "../src/main/vellum-command/state/engine";
+} from "../src/main/junto/state/engine";
 
 const roots: string[] = [];
 const runtimes: Array<ManagedRuntime.ManagedRuntime<any, unknown>> = [];

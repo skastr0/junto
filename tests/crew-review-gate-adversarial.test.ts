@@ -14,7 +14,7 @@ import {
   reviewSubjectHash,
   type ResolvedReviewSubject,
   type ReviewSubjectProjection,
-} from "../src/main/vellum-command/work/reviews";
+} from "../src/main/junto/work/reviews";
 
 // Independent adversarial seam tests for the review-verdict decision core
 // (historical crew contract, deleted by operator ruling 2026-09-16): subject resolution, verdict posting, the

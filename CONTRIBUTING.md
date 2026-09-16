@@ -1,7 +1,7 @@
 # Contributing to Junto
 
 Junto is solo-maintained. The contribution channel is
-[GitHub issues](https://github.com/skastr0/vellum-command/issues): reproducible bugs,
+[GitHub issues](https://github.com/skastr0/junto/issues): reproducible bugs,
 documentation corrections, and focused proposals are welcome.
 
 Unsolicited pull requests are not accepted. If the maintainer explicitly invites a

@@ -7,7 +7,7 @@ import { stripEmptyRegionPaths } from "@shared/region-defaults";
 import { trimTrailingSlash } from "../lib/directory-picker";
 import { setRegionDefaults } from "../lib/mutations";
 import { state$ } from "../lib/state";
-import { getVellumCommandApi } from "../lib/vellum-api";
+import { getJuntoApi } from "../lib/junto-api";
 import { FocusSurface } from "./FocusSurface";
 import { HostDirectoryPicker } from "./node-palette/HostDirectoryPicker";
 import { Button, IconButton, OverlayHeader } from "./ui";
@@ -90,7 +90,7 @@ export function RegionPathsModal({
 
   useEffect(() => {
     if (!FLEET_UI_ENABLED) return;
-    const api = getVellumCommandApi();
+    const api = getJuntoApi();
     void api
       ?.hostsList?.()
       .then((res) => {

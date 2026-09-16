@@ -6,7 +6,7 @@ import {
   latestNodeRefUri,
   makeNodeRefIngress,
   type NodeRefIngressTarget,
-} from "../src/main/vellum-command/node-ref-ingress";
+} from "../src/main/junto/node-ref-ingress";
 
 const deferred = <T>() => {
   let resolve!: (value: T) => void;
@@ -30,7 +30,7 @@ describe("node-reference ingress", () => {
       code: "invalid",
     });
     await expect(
-      ingress.accept("vellum-command://canvas/portfolio?node=%70age"),
+      ingress.accept("junto://canvas/portfolio?node=%70age"),
     ).resolves.toMatchObject({
       ok: false,
       code: "invalid",
@@ -50,7 +50,7 @@ describe("node-reference ingress", () => {
       ok: true,
       delivery: "emitted",
       target: {
-        ref: "vellum-command://canvas/portfolio?node=page%2Fa",
+        ref: "junto://canvas/portfolio?node=page%2Fa",
         canvasName: "portfolio",
         nodeId: "page/a",
       },
@@ -96,7 +96,7 @@ describe("node-reference ingress", () => {
     const ingress = makeNodeRefIngress(() => first.promise);
     const older = ingress.accept(nodeRefKey(ref("portfolio", "first")));
 
-    await expect(ingress.accept("vellum-command://canvas/portfolio?node=%ZZ")).resolves.toMatchObject({
+    await expect(ingress.accept("junto://canvas/portfolio?node=%ZZ")).resolves.toMatchObject({
       ok: false,
       code: "invalid",
     });
@@ -143,16 +143,16 @@ describe("owner-memory open-url selection", () => {
     const second = nodeRefKey(ref("portfolio", "second"));
 
     expect(canonicalNodeRefUri(first)).toBe(first);
-    expect(canonicalNodeRefUri("vellum-command://canvas/portfolio?node=%73econd")).toBeUndefined();
-    expect(latestNodeRefUri(["vellum-command", first, "--flag", second])).toBe(second);
-    expect(latestNodeRefUri(["vellum-command", "https://example.com/"])).toBeUndefined();
+    expect(canonicalNodeRefUri("junto://canvas/portfolio?node=%73econd")).toBeUndefined();
+    expect(latestNodeRefUri(["junto", first, "--flag", second])).toBe(second);
+    expect(latestNodeRefUri(["junto", "https://example.com/"])).toBeUndefined();
   });
 
   it("has no filesystem relay exports, paths, artifacts, or watcher", async () => {
-    const module = await import("../src/main/vellum-command/node-ref-ingress");
+    const module = await import("../src/main/junto/node-ref-ingress");
     const [ingressSource, indexSource] = await Promise.all([
       readFile(
-        new URL("../src/main/vellum-command/node-ref-ingress.ts", import.meta.url),
+        new URL("../src/main/junto/node-ref-ingress.ts", import.meta.url),
         "utf8",
       ),
       readFile(new URL("../src/main/index.ts", import.meta.url), "utf8"),

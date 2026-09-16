@@ -24,7 +24,7 @@ Verbatim from the operator; this is the test:
 3. Create a Claude Code node, connect it to a tasks node, add a task, **start the simulation.**
 4. The task is **claimed by the agent**, which **starts working autonomously.**
 5. Double-click the node → **the already-running TUI**, live, mid-session.
-6. Among its first messages: **`vellum-command onboard`** via the station CLI — it worked, and it injected the **task data and metadata**.
+6. Among its first messages: **`junto onboard`** via the station CLI — it worked, and it injected the **task data and metadata**.
 7. Work **continues until the task is complete.**
 8. **Blocked states are visible** on the canvas.
 
@@ -53,13 +53,13 @@ This is why the plan is short. Most of the factory is built.
 
 | subsystem | state | files |
 |---|---|---|
-| PTY ownership, spawn, byte journal, resize, exit, sealed kill plane | **built** | `src/main/vellum-command/term/local-host.ts` (single data hook at `observeData:698`), `plane.ts`, `router.ts`, `sessions.ts`, `release-fence.ts`, `shell-policy.ts` |
+| PTY ownership, spawn, byte journal, resize, exit, sealed kill plane | **built** | `src/main/junto/term/local-host.ts` (single data hook at `observeData:698`), `plane.ts`, `router.ts`, `sessions.ts`, `release-fence.ts`, `shell-policy.ts` |
 | Remote terminals over SSH | **built** | `term/remote/`, and `hermes --profile X -m Y` over `ssh -t` verified working (R1–R3) |
 | Renderer terminal surface (xterm) | **built** | `src/renderer/components/terminal/{TerminalSurface,TerminalCard,TerminalWizard,TerminalInventory}.tsx` |
-| Work-control server: all ops + scopes + process-bind identity | **built** | `src/main/vellum-command/work/{control,authz,caller-resolve,live-seat,service}.ts` — ops include `ping doctor capabilities onboard tasks.create tasks.list tasks.show tasks.rules tasks.check tasks.claim tasks.update msg.list msg.send request.escalate artifact.publish` |
-| **Station CLI, agent-native** | **built** | `src/cli/` — `vellum-command onboard \| doctor \| capabilities \| tasks list\|claim\|update \| msg list\|send \| escalate \| artifact publish \| browser \| schema \| examples`; JSON-in/JSON-out, batch-capable, `dist/vellum-command` via `bun run cli:build`; browser commands retain their host-local control socket behind the one agent-facing command |
-| **Mailbox with transport abstraction** — pending-until-live, deliver-on-append + deliver-on-attach, pause-aware | **built** | `src/main/vellum-command/work/message-delivery.ts` (`MessageDeliveryTransport`) — today: ACP `chatPrompt` + herdr control stream |
-| Kernel tick / pulse: claim routing, pulse composition, armed/paused state, execution snapshots | **built** | `src/main/vellum-command/kernel/{cycle,evaluate,service}.ts` — incl. `composePulseMessage`, `MIN_LIVE_PULSE_SPACING_MS` |
+| Work-control server: all ops + scopes + process-bind identity | **built** | `src/main/junto/work/{control,authz,caller-resolve,live-seat,service}.ts` — ops include `ping doctor capabilities onboard tasks.create tasks.list tasks.show tasks.rules tasks.check tasks.claim tasks.update msg.list msg.send request.escalate artifact.publish` |
+| **Station CLI, agent-native** | **built** | `src/cli/` — `junto onboard \| doctor \| capabilities \| tasks list\|claim\|update \| msg list\|send \| escalate \| artifact publish \| browser \| schema \| examples`; JSON-in/JSON-out, batch-capable, `dist/junto` via `bun run cli:build`; browser commands retain their host-local control socket behind the one agent-facing command |
+| **Mailbox with transport abstraction** — pending-until-live, deliver-on-append + deliver-on-attach, pause-aware | **built** | `src/main/junto/work/message-delivery.ts` (`MessageDeliveryTransport`) — today: ACP `chatPrompt` + herdr control stream |
+| Kernel tick / pulse: claim routing, pulse composition, armed/paused state, execution snapshots | **built** | `src/main/junto/kernel/{cycle,evaluate,service}.ts` — incl. `composePulseMessage`, `MIN_LIVE_PULSE_SPACING_MS` |
 | Factory physics: tasks pull queue, seats, blocking as worker-state, on-fire/on-ice, claim contract | **built** | see `architecture-factory-physics.md`, `vellum-factory-simulation-model` |
 | Attention/alert surfaces | **partially built** | `alert-attention.ts`, `alert-queue.ts` exist |
 | vellum prism plugin (7 tools + session-start hook + global rule + skill) | **built, to be pruned** | `packages/vellum-plugin/` |
@@ -77,7 +77,7 @@ Each phase ends in a commit. Phases 1–2 are the bulk; 3–7 are wiring to surf
 **Why:** every drive decision (is the input box idle? is a dialog up? did the title flip to working?) needs the screen, and today the only interpreter of the byte stream lives in the renderer and is disposed on unmount (`TerminalSurface.tsx:207/266`). Autonomous workers run with windows closed — exactly when the interpretation must exist.
 
 - Add `@xterm/headless` (currently absent; only `xterm` + `addon-fit` are present).
-- New `src/main/vellum-command/term/observer/`: one headless terminal per live session, fed from `observeData:698` (the single insertion point — every byte already flows through it with a seq).
+- New `src/main/junto/term/observer/`: one headless terminal per live session, fed from `observeData:698` (the single insertion point — every byte already flows through it with a seq).
 - Register the handlers Junto currently discards (zero OSC/CSI handlers exist in `src/` today):
   - **OSC 0/2** title — the primary fallback state feed across the covered harnesses.
   - **OSC 9** — Claude's `9;4;3`/`9;4;0` working flag, Codex's `]9;<msg>` turn-complete, Grok's `9;4` binary.
@@ -133,7 +133,7 @@ Each phase ends in a commit. Phases 1–2 are the bulk; 3–7 are wiring to surf
   - Hermes: `hermes profile list` (~1s, parseable, no `--json`) + `~/.hermes/profiles/*/config.yaml`; models from `provider_models_cache.json` — **validate, staleness is proven** (exit 0 with an HTTP 404 body); effort has no flag → typed `/reasoning` (verify session-scoped) or omitted in v1.
   - Prime Agent: `prime-agent model list`; effort is `--thinking off|minimal|low|medium|high|xhigh|max`.
 - **Spawn env scrubbing (mandatory):** strip the exact shared traps (`CLAUDE_CODE_CHILD_SESSION`, `CLAUDECODE`, `CLAUDE_CODE_ENTRYPOINT`, `PI_CODING_AGENT`, `NO_COLOR`, `FORCE_COLOR`) and every `PRIME_AGENT_INTERNAL_*` key. Apply the same predicate after host injection, so an injected value cannot recreate a nested or internal process role.
-- Inject `PATH` so `dist/vellum-command` resolves, including its canonical `vellum-command browser` dispatcher; inject seat/socket/token env (verified to reach agent shell subprocesses on the original four; Prime Agent receives them through its isolated binding daemon).
+- Inject `PATH` so `dist/junto` resolves, including its canonical `junto browser` dispatcher; inject seat/socket/token env (verified to reach agent shell subprocesses on the original four; Prime Agent receives them through its isolated binding daemon).
 - Session id: pin where possible (Claude `--session-id`, Grok `--session-id`), capture otherwise (Codex: SessionStart hook > `CODEX_THREAD_ID` > notify > rollout; Hermes: `HERMES_SESSION_ID` env; Prime Agent: built-in reporter, with scoped `list --json` as lifecycle evidence). Persisting captured identity on the authoritative seat is required before cold wake; Prime Agent capture is currently process-local diagnostics and no spawn path consumes it.
 - **Prime Agent runtime isolation:** the authorial template remains plain stock argv (`--model`, `--thinking`, `--append-system-prompt`, positional prompt, `-r`). At live spawn only, Junto registers its ready reporter route, owns one foreground wrapper generation per binding, requires the separately installed executable to report version `0.7.1` or newer (`PRIME_AGENT_MINIMUM_VERSION`), then `exec`s `prime-agent --mode daemon --daemon-socket <unique>` in that same generation, binds the exact daemon and PTY generations, and routes the TUI through that socket after bounded command-first `list --json --daemon-socket` probes. The daemon flags are help-visible stock 0.7.1 low-level mode; upstream still calls the daemon internal infrastructure, so Junto invokes the process and imports no private module or removed command hierarchy. The socket is never persisted authorial config. Teardown revokes both identity generations before async cleanup, validates and stops only top-level roots through public exact-socket list/stop, proves the roster empty, then signals the exact owned daemon lease. Signaling the daemon first is unsafe because detached workers can recover a missing supervisor. A replacement is never bound or PID-signaled; uncertain crash cleanup is non-clean and retains its disposable directory.
 - Per-harness spawn traps: Grok **requires a git cwd** (else a modal swallows the prompt); Hermes needs **`chat --tui -q`** (`-z` is headless); Codex resume **does not inherit flags** — re-pass everything; Prime Agent must never fall back to the default shared daemon or global `shutdown`.
@@ -148,9 +148,9 @@ This is the piece the operator flagged as needing to be strong. **Two tiers, bec
 - **Tier B — first typed message** (Codex, Hermes): the same text delivered as the session's first typed prompt. Costs a little context; gains full visibility in the transcript, which suits the legibility doctrine. (Candidate to check later: a codex `-c` instructions-file key — unverified, do not assume.)
 - **Injected payload** (the content the pruned global rule used to carry):
   1. Worker doctrine — factory seat, pull queue, claim-is-factory, requests block, artifacts never block, identity is process-bind, reach is edges.
-  2. The CLI contract — call **`vellum-command onboard`** at session start and after compaction; the work op table plus `vellum-command browser` for `browser.automate`; errors (`ScopeError`, `ClaimConflict`, `RuntimeDown`, `Blocked`) are ground truth.
+  2. The CLI contract — call **`junto onboard`** at session start and after compaction; the work op table plus `junto browser` for `browser.automate`; errors (`ScopeError`, `ClaimConflict`, `RuntimeDown`, `Blocked`) are ground truth.
   3. Seat context — seat ref, connected targets.
-- **Then the task arrives as a typed prompt** carrying the claim. `vellum-command onboard` returns seat + role + connected targets + claimed task metadata — which is loop step 6 exactly.
+- **Then the task arrives as a typed prompt** carrying the claim. `junto onboard` returns seat + role + connected targets + claimed task metadata — which is loop step 6 exactly.
 - **Plugin: DROPPED entirely** (operator ruling 2026-07-26 — supersedes the earlier "prune to an opt-in tier"). There is no user-installed tool surface in anyone's harness config. `packages/vellum-plugin/` goes away; the doctrine *text* becomes the injected payload and `tools/shared/work-client.ts` folds into whatever needs the socket. Reason: an opt-in tier re-introduces the ambiguity the no-tiers ruling exists to kill — "this terminal has the integration, so is it an actor?" is a question with no good answer. Injection happens **only** through a Junto-spawned template.
 
 **Acceptance:** loop steps 2 and 6. Unconnected agent → nothing injected, nothing typed. Connected agent → onboard called by the agent itself, task metadata in its context, visible in the TUI.
@@ -159,11 +159,11 @@ This is the piece the operator flagged as needing to be strong. **Two tiers, bec
 
 The CLI exists; the deltas are:
 
-- **`vellum-command escalate`** — the sole agent-facing request verb. It emits the durable internal `request.create` fact plus **blocked-seat semantics**: files the request, marks the seat blocked, returns a stop directive. Optional bounded **hold**: block on the socket until the human answers and return the answer in-band, so the agent continues the same turn (bound below the harness's bash timeout; Claude's is settable via injected `--settings` env). Timeout → return the blocked directive.
+- **`junto escalate`** — the sole agent-facing request verb. It emits the durable internal `request.create` fact plus **blocked-seat semantics**: files the request, marks the seat blocked, returns a stop directive. Optional bounded **hold**: block on the socket until the human answers and return the answer in-band, so the agent continues the same turn (bound below the harness's bash timeout; Claude's is settable via injected `--settings` env). Timeout → return the blocked directive.
 - **Blocked enforcement in the server**: while a seat is blocked, every work/page op returns `Blocked` with a stop directive. Transport-independent — this is the layer that works even where hooks don't (Codex).
 - **Page automation ops** — expose the existing edge-gated page capability to the agent's CLI. Process-bind gives the agent principal; the capability matrix already grants `agent` principals edge pages.
 - **`msg.*` revived for agent-to-agent mail** — agents never touch another PTY. An agent sends via the work plane; the **kernel** delivers by typed injection at the recipient's turn boundary, tagged `[factory mail from <seat>]`. Edges gate who may mail whom; the kernel owns pacing (cooldown + per-tick budget), so a mail loop drains at human-visible speed on a visible canvas.
-- **Ergonomics for a typing agent:** ops are typed by an LLM into a TUI, so error messages must be instructive and self-correcting, and `vellum-command schema`/`examples` must cover every op. Keep JSON-in/JSON-out (already batch-capable).
+- **Ergonomics for a typing agent:** ops are typed by an LLM into a TUI, so error messages must be instructive and self-correcting, and `junto schema`/`examples` must cover every op. Keep JSON-in/JSON-out (already batch-capable).
 - **Broadcast** — same mailbox, N seats, eventually-delivered per seat (a busy seat receives at its turn boundary). Shift-click → type → broadcast.
 
 **Acceptance:** escalate blocks and unblocks cleanly on all five covered harnesses; a blocked seat's tools are dark; broadcast lands on N seats.

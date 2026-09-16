@@ -1,6 +1,6 @@
 import { Context, Effect, Layer, Schema } from "effect";
 import type { ServiceCheck } from "@shared/contracts";
-import { resolvedSpawnEnv } from "../vellum-command/adapters/exec";
+import { resolvedSpawnEnv } from "../junto/adapters/exec";
 import {
   assertServiceChildSpawnAllowed,
   runProcess,

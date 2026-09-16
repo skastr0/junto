@@ -28,10 +28,10 @@ import {
   CanvasesLive,
   CanvasesService,
   canvasNameFrom,
-} from "../src/main/vellum-command/canvases";
-import { writeCanvasProjectionSidecar } from "../src/main/vellum-command/canvas-control/sidecars";
-import { makeStateEngineLive } from "../src/main/vellum-command/state/engine";
-import { WorkRepositoryLive } from "../src/main/vellum-command/work/repository";
+} from "../src/main/junto/canvases";
+import { writeCanvasProjectionSidecar } from "../src/main/junto/canvas-control/sidecars";
+import { makeStateEngineLive } from "../src/main/junto/state/engine";
+import { WorkRepositoryLive } from "../src/main/junto/work/repository";
 
 const stateLive = makeStateEngineLive(
   join(mockCanvasesHome, ".junto", "state", "junto.db"),

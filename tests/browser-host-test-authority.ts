@@ -1,4 +1,4 @@
-import type { BrowserHostCapabilityAuthority } from "../src/main/vellum-command/browser/host-capability";
+import type { BrowserHostCapabilityAuthority } from "../src/main/junto/browser/host-capability";
 import type { RemoteHost } from "../src/shared/remote-hosts";
 
 export const LOCAL_BROWSER_TEST_HOST = Object.freeze({

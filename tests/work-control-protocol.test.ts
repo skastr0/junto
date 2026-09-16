@@ -20,7 +20,7 @@ import {
   scopeDenialToWorkError,
   scopeError,
   visibilityOf,
-} from "../src/main/vellum-command/work/authz";
+} from "../src/main/junto/work/authz";
 import type { CanvasDoc } from "../src/shared/canvas";
 import { ScopeDenial } from "../src/shared/physics";
 
@@ -55,7 +55,7 @@ describe("work-control wire schemas", () => {
   it("rejects the retired client nodeRef field", () => {
     const decoded = decodeWorkRequest({
       token: "t",
-      nodeRef: "vellum-command://canvas/demo?node=agent-1",
+      nodeRef: "junto://canvas/demo?node=agent-1",
       op: "ping",
     });
     expect(Result.isFailure(decoded)).toBe(true);

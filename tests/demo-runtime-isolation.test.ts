@@ -67,14 +67,14 @@ describe("demo runtime isolation", () => {
     process.env.JUNTO_STATE_DB = "/tmp/caller-selected-state.db";
 
     const isolation = await import(
-      "../src/main/vellum-command/demo/runtime-isolation"
+      "../src/main/junto/demo/runtime-isolation"
     );
     releaseDemo = isolation.releaseDemoRuntimeIsolation;
     const { makeStateEngineLive, stateDatabasePath } = await import(
-      "../src/main/vellum-command/state/engine"
+      "../src/main/junto/state/engine"
     );
     const { StateEngine } = await import(
-      "../src/main/vellum-command/state/service"
+      "../src/main/junto/state/service"
     );
 
     const databasePath = stateDatabasePath();
@@ -84,7 +84,7 @@ describe("demo runtime isolation", () => {
       join(homedir(), ".junto", "demo", "state", "junto.db"),
     );
     expect(relative(tmpdir(), ownedRoot)).toMatch(
-      /^vellum-command-demo-runtime-[^/]+$/u,
+      /^junto-demo-runtime-[^/]+$/u,
     );
     expect(process.env.JUNTO_CANVASES_DIR).toBe(
       join(ownedRoot, "projections"),
@@ -106,14 +106,14 @@ describe("demo runtime isolation", () => {
     process.env.JUNTO_CANVASES_DIR = "/tmp/vellum-demo-sidecars";
 
     const isolation = await import(
-      "../src/main/vellum-command/demo/runtime-isolation"
+      "../src/main/junto/demo/runtime-isolation"
     );
     releaseDemo = isolation.releaseDemoRuntimeIsolation;
     const databasePath = isolation.demoStateDatabasePath();
 
     expect(databasePath).toBeDefined();
     expect(relative(tmpdir(), dirname(databasePath!))).toMatch(
-      /^vellum-command-demo-runtime-[^/]+$/u,
+      /^junto-demo-runtime-[^/]+$/u,
     );
     expect(process.env.JUNTO_CANVASES_DIR).toBe(
       "/tmp/vellum-demo-sidecars",
@@ -122,7 +122,7 @@ describe("demo runtime isolation", () => {
 
   it("is inert outside demo mode", async () => {
     const isolation = await import(
-      "../src/main/vellum-command/demo/runtime-isolation"
+      "../src/main/junto/demo/runtime-isolation"
     );
     releaseDemo = isolation.releaseDemoRuntimeIsolation;
 
@@ -136,7 +136,7 @@ describe("demo runtime isolation", () => {
     process.env.JUNTO_STATE_DB = "/tmp/untrusted-second-home.db";
 
     const { stateDatabasePath } = await import(
-      "../src/main/vellum-command/state/engine"
+      "../src/main/junto/state/engine"
     );
     const { resolveJuntoHome } = await import("../src/shared/junto-home");
 
@@ -173,7 +173,7 @@ describe("demo runtime isolation", () => {
         "..",
         "src",
         "main",
-        "vellum-command",
+        "junto",
         "state",
         "engine.ts",
       ),

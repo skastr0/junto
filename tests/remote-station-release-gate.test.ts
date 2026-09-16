@@ -4,8 +4,8 @@ import {
   STATION_PORTFOLIO_PROTOCOL,
   STATION_PORTFOLIO_PROTOCOL_VERSION,
   decodeStationPortfolioBody,
-} from "../src/main/vellum-command/station/portfolio";
-import { STATION_READINESS_VERSION } from "../src/main/vellum-command/station-readiness";
+} from "../src/main/junto/station/portfolio";
+import { STATION_READINESS_VERSION } from "../src/main/junto/station-readiness";
 import { STATION_API_PROTOCOL } from "../src/shared/station-api";
 import { STATION_CONTROL_PROTOCOL } from "../src/shared/station-api-envelope";
 import {
@@ -41,21 +41,21 @@ describe("unreleased Remote Station contract gate", () => {
       compatibleFrom: 1,
       warnBelow: 1,
     });
-    expect(STATION_API_PROTOCOL).toBe("vellum-command/station-api/v1");
+    expect(STATION_API_PROTOCOL).toBe("junto/station-api/v1");
     expect(STATION_SESSION_PROTOCOL).toBe(
-      "vellum-command/station-session/v1",
+      "junto/station-session/v1",
     );
     expect(STATION_CONTROL_PROTOCOL).toBe(
-      "vellum-command/station-control/v1",
+      "junto/station-control/v1",
     );
     expect(TERM_CONTROL_PROTOCOL).toBe(1);
     expect(STATION_PORTFOLIO_PROTOCOL_VERSION).toBe(1);
     expect(STATION_PORTFOLIO_PROTOCOL).toBe(
-      "vellum-command/station-portfolio/v1",
+      "junto/station-portfolio/v1",
     );
     expect(STATION_QUALIFICATION_SCHEMA_VERSION).toBe(1);
     expect(STATION_QUALIFICATION_SCHEMA).toBe(
-      "vellum-command/station-two-installation-qualification/v1",
+      "junto/station-two-installation-qualification/v1",
     );
     expect(STATION_STATUS_VERSION).toBe(1);
     expect(REMOTE_HOSTS_VERSION).toBe(1);
@@ -80,11 +80,11 @@ describe("unreleased Remote Station contract gate", () => {
   it("requires every independent Remote Station version to use the gate", () => {
     const station = source("src/shared/station-protocol.ts");
     const term = source("src/shared/term-control.ts");
-    const portfolio = source("src/main/vellum-command/station/portfolio.ts");
+    const portfolio = source("src/main/junto/station/portfolio.ts");
     const qualification = source("src/shared/station-qualification.ts");
     const status = source("src/shared/station-status.ts");
     const remoteHosts = source("src/shared/remote-hosts.ts");
-    const readiness = source("src/main/vellum-command/station-readiness.ts");
+    const readiness = source("src/main/junto/station-readiness.ts");
 
     for (const [path, body] of [
       ["station-protocol.ts", station],
@@ -112,7 +112,7 @@ describe("unreleased Remote Station contract gate", () => {
     ).toEqual({ documents: new Map(), actorSeats: [] });
     expect(() =>
       decodeStationPortfolioBody(
-        body("vellum-command/station-portfolio/v2"),
+        body("junto/station-portfolio/v2"),
       ),
     ).toThrow("projection body violates the portfolio contract");
   });

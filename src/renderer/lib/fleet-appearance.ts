@@ -2,7 +2,7 @@ import { Effect, Queue } from "effect";
 import type { RemoteHost } from "@shared/remote-hosts";
 import { refreshFleet } from "./fleet-state";
 import { state$ } from "./state";
-import { getVellumCommandApi } from "./vellum-api";
+import { getJuntoApi } from "./junto-api";
 
 type FleetAppearance = NonNullable<RemoteHost["appearance"]>;
 
@@ -21,7 +21,7 @@ const persistAppearance = Effect.fn("fleet.persistAppearance")(function* (
   command: AppearanceCommand,
 ) {
   if (latestRevision.get(command.host.id) !== command.revision) return;
-  const api = getVellumCommandApi();
+  const api = getJuntoApi();
   const upsert = api?.hostsUpsert;
   if (!upsert) {
     return yield* Effect.fail(new Error("Host appearance API unavailable"));

@@ -1,5 +1,5 @@
 {
-  "name": "@skastr0/vellum-command",
+  "name": "@skastr0/junto",
   "version": "0.3.1",
   "description": "Junto — the deep-field station for multi-agent fleets.",
   "author": {
@@ -11,12 +11,12 @@
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/skastr0/vellum-command.git"
+    "url": "git+https://github.com/skastr0/junto.git"
   },
   "bugs": {
-    "url": "https://github.com/skastr0/vellum-command/issues"
+    "url": "https://github.com/skastr0/junto/issues"
   },
-  "homepage": "https://github.com/skastr0/vellum-command#readme",
+  "homepage": "https://github.com/skastr0/junto#readme",
   "trustedDependencies": [
     "electron",
     "node-pty"
@@ -61,7 +61,7 @@
     "linux:release:create": "bun scripts/linux-release-tool.ts create",
     "linux:release:sign": "bun scripts/linux-release-tool.ts sign",
     "linux:release:verify": "bun scripts/linux-release-verify.ts",
-    "linux:release:verify:build": "bun build --compile --outfile dist/vellum-command-linux-verify-x64 scripts/linux-release-verify.ts",
+    "linux:release:verify:build": "bun build --compile --outfile dist/junto-linux-verify-x64 scripts/linux-release-verify.ts",
     "linux:release:archive": "bun scripts/linux-release-archive.ts create",
     "linux:qualify:orbstack": "bun scripts/linux-orbstack-two-station-qualification.ts",
     "app:install": "bash scripts/install-app.sh",
@@ -80,11 +80,11 @@
     "content-transfer": "bun src/cli/main.ts content-transfer",
     "render": "bun scripts/render.ts",
     "cli": "bun src/cli/main.ts",
-    "cli:build": "bun scripts/build-standalone-cli.ts vellum-command",
-    "cli:build:dev": "bun scripts/build-standalone-cli.ts vellum-command-dev",
-    "linux:desktop:bootstrap:build": "bun scripts/build-standalone-cli.ts vellum-command-desktop-bootstrap-linux-x64",
+    "cli:build": "bun scripts/build-standalone-cli.ts junto",
+    "cli:build:dev": "bun scripts/build-standalone-cli.ts junto-dev",
+    "linux:desktop:bootstrap:build": "bun scripts/build-standalone-cli.ts junto-desktop-bootstrap-linux-x64",
     "linux:desktop:bootstrap:prepare": "bun scripts/prepare-linux-desktop-bootstrap-release.ts",
-    "remote:build": "bun scripts/build-vellum-remote.ts",
+    "remote:build": "bun scripts/build-junto-remote.ts",
     "package:qualify:runtime-parity": "bun scripts/qualify-package-runtime-parity.ts",
     "test:e2e:startup": "JUNTO_FEATURE_PROFILE=all-on electron-vite build && scripts/run-e2e.sh e2e/scenarios/free-startup.spec.ts",
     "test:e2e:audit": "JUNTO_FEATURE_PROFILE=all-on electron-vite build && scripts/run-e2e.sh e2e/scenarios/design-audit.spec.ts",
@@ -173,8 +173,8 @@
     ],
     "extraResources": [
       {
-        "from": "dist/vellum-command",
-        "to": "bin/vellum-command"
+        "from": "dist/junto",
+        "to": "bin/junto"
       },
       {
         "from": "scripts/unix-peer-pid.py",
@@ -185,7 +185,7 @@
       {
         "name": "Junto node reference",
         "schemes": [
-          "vellum-command"
+          "junto"
         ],
         "role": "Viewer"
       }
@@ -214,10 +214,10 @@
       "target": [
         "dir"
       ],
-      "executableName": "vellum-command",
+      "executableName": "junto",
       "category": "Development",
       "synopsis": "Spatial command station for multi-agent fleets",
-      "icon": "assets/brand/vellum-command-icon.png",
+      "icon": "assets/brand/junto-icon.png",
       "files": [
         "out/**",
         "!out/remote{,/**/*}",
@@ -231,12 +231,12 @@
       ],
       "extraResources": [
         {
-          "from": "build/linux/vellum-remote-launch",
-          "to": "systemd/vellum-command-remote-launch"
+          "from": "build/linux/junto-remote-launch",
+          "to": "systemd/junto-remote-launch"
         },
         {
-          "from": "build/linux/vellum-remote.service.template",
-          "to": "systemd/vellum-command-remote.service.template"
+          "from": "build/linux/junto-remote.service.template",
+          "to": "systemd/junto-remote.service.template"
         }
       ],
       "desktop": {

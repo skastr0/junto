@@ -15,7 +15,7 @@ import { applyWorkCanvasWrite } from "../../lib/mutations";
 import { runCanvasAuthoringOperation } from "../../lib/canvas-editor-flush";
 import { activateSurfaceOnMouseDown } from "../../lib/pointer-activation";
 import { state$ } from "../../lib/state";
-import { getVellumCommandApi } from "../../lib/vellum-api";
+import { getJuntoApi } from "../../lib/junto-api";
 import { IconButton } from "../ui";
 import {
   resolveArtifactsNodeId,
@@ -73,7 +73,7 @@ export function TaskEnqueueSurface({
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
   const [resetToken, setResetToken] = useState(0);
-  const api = getVellumCommandApi();
+  const api = getJuntoApi();
   const name = canvasName();
 
   if (!payload || !nodeExists) {

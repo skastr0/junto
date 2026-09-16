@@ -18,7 +18,7 @@ do not justify duplicate internal domains, dual writes, dormant fallback
 stores, or retired file paths.
 
 The exact multi-installation contract is
-[`vellum-protocol.md`](vellum-protocol.md). That document may refine protocol
+[`junto-protocol.md`](junto-protocol.md). That document may refine protocol
 mechanics, but it cannot weaken the trust boundaries or forbidden residue
 defined here.
 
@@ -342,7 +342,7 @@ version witness fails closed without mutation.
 Version 1 is the frozen post-consolidation baseline. The current
 source/runtime schema is version 23, selected by `CURRENT_STATE_SCHEMA_VERSION`
 and the immutable contiguous chain declared in
-`src/main/vellum-command/state/migrations.ts`. The public macOS 0.1.14 package remains
+`src/main/junto/state/migrations.ts`. The public macOS 0.1.14 package remains
 historical evidence for schema version 18; it does not define the current
 source/runtime head. The frozen `18 → 19`, `19 → 20`, and `20 → 21` migrations must never
 be edited, squashed, renumbered, or reused. The next schema change must append
@@ -668,7 +668,7 @@ new fleet connection. Timeout or disconnect on `overseer` is uncertain
 completion; Command Center never automatically replays the mutation.
 
 The first transport adapter is OpenSSH. Command Center invokes the fixed
-`vellum-command-station` command as one persistent framed session. The helper connects
+`junto-station` command as one persistent framed session. The helper connects
 to the Remote app's owner-local control socket; Remote main strictly decodes
 and authorizes each frame and owns every database transaction. SSH never writes
 settings, projections, acknowledgements, status, or database files.

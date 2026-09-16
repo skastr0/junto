@@ -7,7 +7,7 @@ import {
   createAppProcessPlane,
   type AppProcessLease,
   type AppProcessPlane,
-} from "../src/main/vellum-command/app-process-plane";
+} from "../src/main/junto/app-process-plane";
 import {
   runBoundedWorkCliCommand,
   WorkCliCommandFailure,
@@ -239,7 +239,7 @@ describe("work CLI acceptance process safety", () => {
 
   it("turns spawn failure into a typed failure instead of an apparent exit", async () => {
     const plane = makePlane();
-    const root = await mkdtemp(join(tmpdir(), "vellum-command-work-cli-missing-"));
+    const root = await mkdtemp(join(tmpdir(), "junto-work-cli-missing-"));
     try {
       const command = runBoundedWorkCliCommand(plane, {
         command: join(root, "missing-child"),

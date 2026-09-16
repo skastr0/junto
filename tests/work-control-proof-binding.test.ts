@@ -13,22 +13,22 @@ import {
 import {
   CanvasError,
   CanvasesService,
-} from "../src/main/vellum-command/canvases";
+} from "../src/main/junto/canvases";
 import {
   WorkService,
   type WorkServiceShape,
-} from "../src/main/vellum-command/work/service";
-import { PausePlaneAllPlaying } from "../src/main/vellum-command/pause-plane";
+} from "../src/main/junto/work/service";
+import { PausePlaneAllPlaying } from "../src/main/junto/pause-plane";
 import {
   makeProcessIdentityMap,
   type ProcessPrincipal,
-} from "../src/main/vellum-command/process-identity";
+} from "../src/main/junto/process-identity";
 import {
   startWorkControlServer,
   type WorkControlServer,
-} from "../src/main/vellum-command/work/control";
-import { createMainAuthoringGate } from "../src/main/vellum-command/main-authoring-gate";
-import { injectionSupervisor } from "../src/main/vellum-command/term/injection-supervisor";
+} from "../src/main/junto/work/control";
+import { createMainAuthoringGate } from "../src/main/junto/main-authoring-gate";
+import { injectionSupervisor } from "../src/main/junto/term/injection-supervisor";
 import { canvasAuthorityMaterialFixture } from "./helpers/canvas-authority-material";
 
 // Regression: managed seats bind their PTY process by agent key with no
@@ -144,7 +144,7 @@ interface Rig {
 const rigs: Rig[] = [];
 
 const startRig = async (): Promise<Rig> => {
-  const root = await mkdtemp(join(tmpdir(), "vellum-command-work-proof-"));
+  const root = await mkdtemp(join(tmpdir(), "junto-work-proof-"));
   const workHome = join(root, "work");
   mkdirSync(workHome, { recursive: true });
   const map = makeProcessIdentityMap({

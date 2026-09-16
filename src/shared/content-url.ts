@@ -13,10 +13,10 @@ import { Schema } from "effect";
  * Bytes never enter renderer state as Base64. The main process streams from
  * the local content store; the URL carries only ContentRef metadata.
  *
- * Form: `vellum-command-content://object/<sha256>?byteLength=N&mediaType=...`
+ * Form: `junto-content://object/<sha256>?byteLength=N&mediaType=...`
  * Optional: `displayName`
  */
-export const CONTENT_PROTOCOL_SCHEME = "vellum-command-content" as const;
+export const CONTENT_PROTOCOL_SCHEME = "junto-content" as const;
 export const CONTENT_PROTOCOL_HOST = "object" as const;
 
 export type ContentMediaKind = "image" | "audio" | "video" | "binary";

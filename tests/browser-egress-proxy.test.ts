@@ -1,11 +1,11 @@
 import { connect, createServer, type AddressInfo, type Socket } from "node:net";
 import { describe, expect, it } from "vitest";
-import { startBrowserEgressProxy } from "../src/main/vellum-command/browser/egress-proxy";
+import { startBrowserEgressProxy } from "../src/main/junto/browser/egress-proxy";
 import {
   BROWSER_MAX_EGRESS_PENDING_CONNECTS,
   BROWSER_MAX_EGRESS_SOCKETS,
 } from "../src/shared/browser-limits";
-import type { ApprovedEgressEndpoint, DialApprovedEndpoint } from "../src/main/vellum-command/browser/egress-policy";
+import type { ApprovedEgressEndpoint, DialApprovedEndpoint } from "../src/main/junto/browser/egress-policy";
 
 const listen = (): Promise<{ port: number; close: () => Promise<void>; connections: Socket[] }> =>
   new Promise((resolve, reject) => {

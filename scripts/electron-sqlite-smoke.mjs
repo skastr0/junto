@@ -9,10 +9,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
-const root = mkdtempSync(join(tmpdir(), "vellum-command-electron-sqlite-"));
+const root = mkdtempSync(join(tmpdir(), "junto-electron-sqlite-"));
 const stateDir = join(root, "state");
 const databasePath = join(stateDir, "junto.db");
-const backupPath = join(root, "vellum-command.backup.db");
+const backupPath = join(root, "junto.backup.db");
 
 try {
   mkdirSync(stateDir, { recursive: true, mode: 0o700 });

@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   createStateRecoveryIpcHandlers,
   type StateRecoveryOperations,
-} from "../src/main/vellum-command/state/recovery-ipc";
+} from "../src/main/junto/state/recovery-ipc";
 import { decodeStateBackupId } from "../src/shared/state-recovery";
 
 const id = decodeStateBackupId(
@@ -10,7 +10,7 @@ const id = decodeStateBackupId(
 );
 const backup = {
   id,
-  file: "vellum-command-backup-22222222-2222-4222-8222-222222222222.db",
+  file: "junto-backup-22222222-2222-4222-8222-222222222222.db",
   bytes: 8_192,
   modifiedAtEpochMs: 1_700_000_000_000,
   schemaVersion: 1,

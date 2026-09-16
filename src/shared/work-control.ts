@@ -38,7 +38,7 @@ export const workControlTokenPath = (workHome: string): string =>
   `${workHome}/token`;
 
 export const WORK_HOME_ENV = "JUNTO_WORK_HOME";
-export const WORK_PROTOCOL_VERSION = "vellum-command-work/v1";
+export const WORK_PROTOCOL_VERSION = "junto-work/v1";
 
 export const WORK_DEFAULT_BATCH_CONCURRENCY = 5;
 export const WORK_DEFAULT_TIMEOUT_MS = 30_000;
@@ -673,7 +673,7 @@ export const makeStopDirective = (input: {
   brief: input.brief,
   message: `You are blocked waiting on request ${input.requestId}. Stop work until the operator answers.`,
   next_step:
-    "Wait for the operator to answer the request, then retry work ops (re-run vellum-command onboard if your view is stale).",
+    "Wait for the operator to answer the request, then retry work ops (re-run junto onboard if your view is stale).",
 });
 
 /** Artifact wire parts: text/data stay inline; binary media is a ContentRef. */

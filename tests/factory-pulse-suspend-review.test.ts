@@ -8,13 +8,13 @@
  * suspend/shutdown cut), so the gate cannot re-introduce the wrapper trap.
  */
 import { afterEach, describe, expect, it } from "vitest";
-import type { WritePromptOptions } from "../src/main/vellum-command/term/drive";
+import type { WritePromptOptions } from "../src/main/junto/term/drive";
 import type { ManagedPromptOutcome } from "../src/shared/managed-prompt";
-import { factoryPulseTransport } from "../src/main/vellum-command/term/factory-delivery-composition";
+import { factoryPulseTransport } from "../src/main/junto/term/factory-delivery-composition";
 import {
   managedPulseDeliver,
   setManagedPulseDeliver,
-} from "../src/main/vellum-command/term/managed-pulse-bridge";
+} from "../src/main/junto/term/managed-pulse-bridge";
 
 type FakeDrive = {
   writes: Array<{ bindingId: string; text: string }>;

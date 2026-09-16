@@ -28,24 +28,24 @@ import { collectStandaloneCliNotices } from "./standalone-cli-notices";
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
 const controls = {
-  "vellum-command": {
+  "junto": {
     source: "src/cli/main.ts",
-    output: "dist/vellum-command",
+    output: "dist/junto",
   },
-  "vellum-command-dev": {
+  "junto-dev": {
     source: "src/cli/main.ts",
-    output: "dist/vellum-command-dev",
+    output: "dist/junto-dev",
   },
-  "vellum-command-desktop-bootstrap-linux-x64": {
+  "junto-desktop-bootstrap-linux-x64": {
     source: "scripts/linux-desktop-bootstrap.ts",
-    output: "dist/vellum-command-desktop-bootstrap-linux-x64",
+    output: "dist/junto-desktop-bootstrap-linux-x64",
   },
 } as const;
 
 export type StandaloneControl = keyof typeof controls;
 
 export const standaloneControlBuild = (
-  control: StandaloneControl = "vellum-command",
+  control: StandaloneControl = "junto",
 ) => {
   const selected = controls[control];
   const resolvedFeatures = resolveBuildFeatures(process.env);
@@ -62,7 +62,7 @@ const main = async (): Promise<void> => {
   const [rawControl, ...extraArgs] = process.argv.slice(2);
   if (!rawControl || extraArgs.length > 0 || !(rawControl in controls)) {
     throw new Error(
-      "usage: bun scripts/build-standalone-cli.ts vellum-command|vellum-command-dev|vellum-command-desktop-bootstrap-linux-x64",
+      "usage: bun scripts/build-standalone-cli.ts junto|junto-dev|junto-desktop-bootstrap-linux-x64",
     );
   }
 
@@ -189,7 +189,7 @@ const main = async (): Promise<void> => {
     };
   };
   const receipt = {
-    schema: "vellum-command/cli-relink/v1",
+    schema: "junto/cli-relink/v1",
     sourceCommit,
     bunVersion: Bun.version,
     featureProfile: build.profile,

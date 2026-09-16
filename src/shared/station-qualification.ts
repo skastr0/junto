@@ -17,7 +17,7 @@ import { DisplayTimestamp } from "./work-protocol";
 export const STATION_QUALIFICATION_SCHEMA_VERSION =
   remoteStationContractVersion("Station qualification receipt", 1);
 export const STATION_QUALIFICATION_SCHEMA =
-  `vellum-command/station-two-installation-qualification/v${STATION_QUALIFICATION_SCHEMA_VERSION}` as const;
+  `junto/station-two-installation-qualification/v${STATION_QUALIFICATION_SCHEMA_VERSION}` as const;
 export const STATION_QUALIFICATION_RECEIPT_FILE =
   "station-qualification-receipt.json" as const;
 export const STATION_QUALIFICATION_MANIFEST_FILE =
@@ -39,7 +39,7 @@ export const StationQualificationSha256 = Schema.String.pipe(
 export type StationQualificationSha256 = typeof StationQualificationSha256.Type;
 
 export const StationQualificationPackageFile = Schema.String.pipe(
-  Schema.check(Schema.isPattern(/^vellum-command-runtime-(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)-linux-x64\.tar\.gz$/u)),
+  Schema.check(Schema.isPattern(/^junto-runtime-(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)-linux-x64\.tar\.gz$/u)),
   Schema.brand("StationQualificationPackageFile"),
 );
 export type StationQualificationPackageFile =

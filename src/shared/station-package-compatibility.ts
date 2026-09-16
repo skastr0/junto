@@ -22,7 +22,7 @@ export const STATION_PACKAGE_COMPATIBILITY_SCHEMA_VERSION =
   remoteStationContractVersion("Station package compatibility matrix", 1);
 
 export const STATION_PACKAGE_COMPATIBILITY_SCHEMA =
-  `vellum-command/station-package-compatibility-matrix/v${STATION_PACKAGE_COMPATIBILITY_SCHEMA_VERSION}` as const;
+  `junto/station-package-compatibility-matrix/v${STATION_PACKAGE_COMPATIBILITY_SCHEMA_VERSION}` as const;
 
 export const StationPackageProofCommit = Schema.String.pipe(
   Schema.check(Schema.isPattern(/^[a-f0-9]{40}$/u)),

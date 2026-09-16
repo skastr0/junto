@@ -5,7 +5,7 @@
 **Scope:** durable product state, canvas history, work-plane residency, Station
 coordination, scheduling, backup, and process ownership
 
-**Protocol:** [vellum-protocol.md](vellum-protocol.md)
+**Protocol:** [junto-protocol.md](junto-protocol.md)
 
 Junto has one storage architecture:
 
@@ -72,7 +72,7 @@ any number of releases before applying the chain.
 
 The current source/runtime schema is version 22. `CURRENT_STATE_SCHEMA_VERSION`
 and `STATE_SCHEMA_MIGRATIONS` in
-`src/main/vellum-command/state/migrations.ts` are the sole head and chain authority, so
+`src/main/junto/state/migrations.ts` are the sole head and chain authority, so
 this document does not duplicate the migration table. The public macOS 0.1.14
 package remains historical evidence for schema version 18; it does not define
 the current source/runtime head. The frozen `18 → 19`, `19 → 20`, and `20 → 21` migrations
@@ -317,7 +317,7 @@ The fleet protocol has five bounded, schema-decoded operations:
 | `report` | Duplex exchange of strict Work commands, facts, dispositions, receipts, and cumulative full-route ACK cursors |
 | `status` | Report installation identity, configuration, projection, cursors, and readiness |
 
-Command Center invokes the `vellum-command station-stdio` executable through the
+Command Center invokes the `junto station-stdio` executable through the
 operator's enrolled OpenSSH route. It is one persistent bounded framed session:
 the helper accepts no arbitrary command or path, connects to the Remote app's
 owner-local Station socket, and relays correlated frames without opening

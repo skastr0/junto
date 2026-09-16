@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Live acceptance for the work control plane + compiled `dist/vellum-command`.
+ * Live acceptance for the work control plane + compiled `dist/junto`.
  *
  * Boots the real NDJSON work control daemon (WorkService + CanvasesService)
  * against a sandboxed work home, then drives the compiled CLI from a cwd
@@ -30,40 +30,40 @@ import {
   createAppProcessPlane,
   type AppProcessDrainResult,
   type AppProcessPlane,
-} from "../src/main/vellum-command/app-process-plane";
-import { CanvasesLive, CanvasesService } from "../src/main/vellum-command/canvases";
+} from "../src/main/junto/app-process-plane";
+import { CanvasesLive, CanvasesService } from "../src/main/junto/canvases";
 import {
   startWorkControlServer,
   type WorkControlShutdownReceipt,
-} from "../src/main/vellum-command/work/control";
-import { WorkLive, WorkService } from "../src/main/vellum-command/work/service";
-import { CrewRepositoryLive } from "../src/main/vellum-command/work/crew-repository";
-import { makeContentServiceLive } from "../src/main/vellum-command/content/service";
-import { makeInstallOpsLive } from "../src/main/vellum-command/install-ops/engine";
+} from "../src/main/junto/work/control";
+import { WorkLive, WorkService } from "../src/main/junto/work/service";
+import { CrewRepositoryLive } from "../src/main/junto/work/crew-repository";
+import { makeContentServiceLive } from "../src/main/junto/content/service";
+import { makeInstallOpsLive } from "../src/main/junto/install-ops/engine";
 import {
   createAuthorialTaskDependencyScopeCapability,
   WorkRepository,
   WorkRepositoryLive,
-} from "../src/main/vellum-command/work/repository";
-import { StationRepositoryLive } from "../src/main/vellum-command/station/repository";
+} from "../src/main/junto/work/repository";
+import { StationRepositoryLive } from "../src/main/junto/station/repository";
 import {
   StationFleetTargetRepositoryLive,
-} from "../src/main/vellum-command/station/fleet-target-repository";
+} from "../src/main/junto/station/fleet-target-repository";
 import {
   StationLivePeerRegistryLive,
-} from "../src/main/vellum-command/station/session-registry";
-import { makeStateEngineLive } from "../src/main/vellum-command/state/engine";
-import { PausePlaneAllPlaying } from "../src/main/vellum-command/pause-plane";
-import { makeProcessIdentityMap } from "../src/main/vellum-command/process-identity";
+} from "../src/main/junto/station/session-registry";
+import { makeStateEngineLive } from "../src/main/junto/state/engine";
+import { PausePlaneAllPlaying } from "../src/main/junto/pause-plane";
+import { makeProcessIdentityMap } from "../src/main/junto/process-identity";
 import {
   SettingsLive,
   SettingsService,
-} from "../src/main/vellum-command/settings/service";
+} from "../src/main/junto/settings/service";
 import { WORK_MAX_FRAME_BYTES } from "../src/shared/work-control";
 import { IntentFactBasis } from "../src/shared/work-protocol";
 
 const REPO = process.cwd();
-const CLI = join(REPO, "dist/vellum-command");
+const CLI = join(REPO, "dist/junto");
 const CANVAS = "work-acc";
 const AGENT = "agent";
 const TASKS = "tasks";
@@ -435,10 +435,10 @@ const log = (label: string, body: string) => {
 
 export const runWorkCliAcceptance = async () => {
   if (!existsSync(CLI)) {
-    throw new Error("missing dist/vellum-command — run bun run cli:build");
+    throw new Error("missing dist/junto — run bun run cli:build");
   }
 
-  const root = await mkdtemp(join(tmpdir(), "vellum-command-work-acc-"));
+  const root = await mkdtemp(join(tmpdir(), "junto-work-acc-"));
   const canvases = join(root, "canvases");
   const workHome = join(root, "work");
   const outside = join(root, "outside");

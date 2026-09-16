@@ -18,23 +18,23 @@ import {
   CanvasError,
   CanvasesService,
   type CanvasChangeDetail,
-} from "../src/main/vellum-command/canvases";
+} from "../src/main/junto/canvases";
 import {
   listCanvasesThroughControl,
   readCanvasThroughControl,
-} from "../src/main/vellum-command/canvas-control/client";
+} from "../src/main/junto/canvas-control/client";
 import {
   CANVAS_CONTROL_PROTOCOL_VERSION,
   CanvasControlReadData,
   decodeCanvasControlResponse,
   encodeCanvasControlFrame,
-} from "../src/main/vellum-command/canvas-control/protocol";
+} from "../src/main/junto/canvas-control/protocol";
 import {
   startCanvasControlServer,
   type CanvasControlServer,
   type CanvasControlServerRuntime,
-} from "../src/main/vellum-command/canvas-control/server";
-import { SnapshotsService } from "../src/main/vellum-command/snapshots";
+} from "../src/main/junto/canvas-control/server";
+import { SnapshotsService } from "../src/main/junto/snapshots";
 import { actorRefFixture } from "./helpers/actor-ref-fixtures";
 import {
   canvasAuthorityMaterialFixture,

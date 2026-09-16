@@ -2,11 +2,11 @@ import { readFileSync } from "node:fs";
 import { Effect, Layer } from "effect";
 import { describe, expect, it } from "vitest";
 import { LINUX_REMOTE_DEPLOY_DISABLED_DETAIL, RELEASE_CAPABILITIES } from "../src/shared/release-capabilities";
-import { admitHostRuntimeApply, applyHostRuntime } from "../src/main/vellum-command/hosts/host-runtime";
-import { HostOps, HostTarget } from "../src/main/vellum-command/hosts/host-ops";
+import { admitHostRuntimeApply, applyHostRuntime } from "../src/main/junto/hosts/host-runtime";
+import { HostOps, HostTarget } from "../src/main/junto/hosts/host-ops";
 import type { RemoteHost } from "../src/shared/remote-hosts";
-import { parseSshEndpoint } from "../src/main/vellum-command/ssh/domain";
-import { SshTransport } from "../src/main/vellum-command/ssh/service";
+import { parseSshEndpoint } from "../src/main/junto/ssh/domain";
+import { SshTransport } from "../src/main/junto/ssh/service";
 
 /**
  * Live production freeze: HostRuntime.admit after observe, then Linux
@@ -87,15 +87,15 @@ describe("production Linux deploy freeze (live HostRuntime path)", () => {
 
   it("coordinator deploy is HostRuntime.reconcile, not a platformless live freeze", () => {
     const coordinator = readFileSync(
-      new URL("../src/main/vellum-command/hosts/operator-coordinator.ts", import.meta.url),
+      new URL("../src/main/junto/hosts/operator-coordinator.ts", import.meta.url),
       "utf8",
     );
     const runtime = readFileSync(
-      new URL("../src/main/vellum-command/hosts/host-runtime.ts", import.meta.url),
+      new URL("../src/main/junto/hosts/host-runtime.ts", import.meta.url),
       "utf8",
     );
     const linuxOps = readFileSync(
-      new URL("../src/main/vellum-command/hosts/host-ops-linux.ts", import.meta.url),
+      new URL("../src/main/junto/hosts/host-ops-linux.ts", import.meta.url),
       "utf8",
     );
     expect(coordinator).toContain(".reconcile(");
