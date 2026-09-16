@@ -30,6 +30,7 @@ import {
   BOARD_ENABLED,
   BROWSER_ENABLED,
   REQUESTS_ENABLED,
+  TASKS_ENABLED,
 } from "./features";
 import type { CanvasDoc } from "./canvas";
 import type { Port } from "./physics/schema";
@@ -111,7 +112,7 @@ export const KIND_TO_SLOT: Readonly<Record<string, EdgeSlotKind | undefined>> = 
  * disabled feature must not appear as an available work surface.
  */
 const WORK_SURFACE_WORDS: ReadonlyArray<string> = [
-  "tasks",
+  ...(TASKS_ENABLED ? ["tasks"] : []),
   ...(REQUESTS_ENABLED ? ["requests"] : []),
   ...(ARTIFACTS_ENABLED ? ["artifacts"] : []),
   ...(BOARD_ENABLED ? ["boards"] : []),
@@ -128,15 +129,19 @@ export const SEAT_DOCTRINE = `## Seats
 
 A **seat** is your identity on the factory floor: the node you occupy, bound to your process. The seat is durable — it persists across sessions and restarts, and it is where grants, memory, and experience accumulate over time.
 
-- **Grants** come from each authored edge verb and its operator mask. A mask only removes ports. A messages edge can grant mail, prompts, waits and terminal reads; a directed reviews edge grants \`verdict.post\` only from reviewer to author. Task verbs differ on claiming and authoring. \`capabilities\` gives the actual held ports; a neighboring kind alone proves no permission.
+- **Grants** come from each authored edge verb and its operator mask. A mask only removes ports. A messages edge can grant mail, prompts, waits and terminal reads; a directed reviews edge grants \`verdict.post\` only from reviewer to author.${TASKS_ENABLED ? " Task verbs differ on claiming and authoring." : ""} \`capabilities\` gives the actual held ports; a neighboring kind alone proves no permission.
 - **Identity** is process-bind: the OS proves who you are. You cannot claim another seat, and no env var makes you someone else.
-- **Orientation** is one command: \`vellum-command onboard\` returns your seat, role, region briefing, connected targets with grants and their board contracts, and co-members. Re-run it whenever your view may be stale.
+- **Orientation** is one command: \`vellum-command onboard\` returns your seat, role, region briefing, connected targets ${TASKS_ENABLED ? "with grants and their board contracts" : "with their grants"}, and co-members. Re-run it whenever your view may be stale.
 - **Rulings** are operator precedent pinned to a region. They stand over every seat inside it: \`vellum-command rulings\`.\n\n**Map-change notices are informational.** \`[factory - map]\` notices announce grant changes — they are not a command to re-run \`onboard\`/\`capabilities\` every time. Re-orient once at session start and whenever you actually need the live map to act. Idle chatter (ack-for-ack) is wasteful: acknowledge once, then stay quiet until real work or a new request arrives.`;
 
 // ── Worker doctrine (base) ─────────────────────────────────────────────────
 
-/** Blocking law: the escalate path leaves with its feature; input-required stays. */
-const BLOCKED_SECTION = REQUESTS_ENABLED
+/** Blocking law leaves with its features: escalate, then input-required, then mail. */
+const BLOCKED_SECTION = !TASKS_ENABLED
+  ? `### When you are blocked
+
+If you need a decision you cannot make, write what you need to the seat that asked, then stop. Do not thrash alternatives and do not invent work around the block.`
+  : REQUESTS_ENABLED
   ? `### Requests block
 
 \`input-required\` and open **requests** generate stoppage on the **connected actor seat**. When blocked:
@@ -159,44 +164,75 @@ const ARTIFACTS_SECTION = ARTIFACTS_ENABLED
 Publishing artifacts is non-blocking product delivery. Ship intermediate and final outputs freely; they do not stop other seats.`
   : "";
 
-/** Worker doctrine — factory seat, pull queue, claim contract, blocking, identity. */
-export const WORKER_DOCTRINE = `## Worker doctrine
+/** The loop step that says where work comes from: a claim queue, or people. */
+const WORK_STEP = TASKS_ENABLED
+  ? `2. **work** — do the work the board makes available. If a task is already claimed by your seat, continue it; claim only tasks that are unclaimed (\`tasks claim\`). Never invent backlog.`
+  : `2. **work** — do the work the operator and your region ask for. Instructions arrive in your region briefing and in mail over your edges; open the surfaces you need and work by hand. Never invent backlog.`;
 
-You are a **factory worker** on a Vellum Command canvas seat. The human authors the board; you pull work through connected edges and report state via the \`vellum-command\` CLI. Never invent canvas structure or freeform authoring.
+const UPDATE_STEP = TASKS_ENABLED
+  ? `3. **update** — report state honestly: \`working\` while active, then \`completed\` / \`failed\` / \`canceled\` / \`input-required\` as appropriate.`
+  : `3. **update** — report state honestly to the seats that asked: what you finished, what failed, and what is still open.`;
 
-### Worker loop
+const IDLE_LINE = TASKS_ENABLED
+  ? `Repeat. When idle with no open tasks to pull, wait — do not invent new tasks.`
+  : `Repeat. When idle with nothing addressed to you, wait — do not invent work.`;
 
-1. **onboard** — always first, no exceptions: at session start and after every compaction. Read seat, role, region, connected targets, grants.
-2. **work** — do the work the board makes available. If a task is already claimed by your seat, continue it; claim only tasks that are unclaimed (\`tasks claim\`). Never invent backlog.
-3. **update** — report state honestly: \`working\` while active, then \`completed\` / \`failed\` / \`canceled\` / \`input-required\` as appropriate.
-4. **request when blocked** — if you need human input or approval, ${REQUESTS_ENABLED ? "escalate (when a requests node is connected) or set the task to \`input-required\`" : "set the task to \`input-required\`"}. Stop inventing work around the block.
-
-Repeat. When idle with no open tasks to pull, wait — do not invent new tasks.
-
-### Pull from the board
+/** Where work comes from: the task pull queue, or the people on the canvas. */
+const WORK_SOURCE_SECTION = TASKS_ENABLED
+  ? `### Pull from the board
 
 Tasks are a **pull queue**. The factory (edges + live state) decides what is available. Do not:
 
 - invent work the board never listed
 - claim from targets you are not connected to (ScopeError is correct — fix edges, not the code)
-- treat an open queue as stoppage — \`submitted\`/\`working\` means the factory is humming
+- treat an open queue as stoppage — \`submitted\`/\`working\` means the factory is humming`
+  : `### Work comes from people
 
-${BLOCKED_SECTION}
-${ARTIFACTS_SECTION}
+There is no claim queue in this build. Work reaches you from the operator, your region briefing, and mail addressed to your seat. Do not:
 
-### Completion is earned
+- invent work nobody asked for
+- act on nodes you are not connected to (ScopeError is correct — fix edges, not the code)
+- treat a quiet canvas as stoppage — silence is the factory at rest`;
+
+/** Completion law: a factory verdict with a queue, honest reporting without. */
+const COMPLETION_SECTION = TASKS_ENABLED
+  ? `### Completion is earned
 
 You do not **self-declare** completion — you **submit** it. \`completed\` is a factory verdict: the server rejects the transition unless finish criteria are met and evidence is attached.
 
 - Before \`completed\`: verify every finish criterion (description, git commits${ARTIFACTS_ENABLED ? ", artifacts on the required node" : ""}), then attach \`completionEvidence\` — ${ARTIFACTS_ENABLED ? "artifacts published with task linkage + " : ""}real git SHAs.
 - A rejection names the missing pieces (\`InvalidTransition\` with \`missing\` + \`next_step\`) — read it, fix the evidence, retry. Do not mark \`completed\` without evidence.
 - If criteria are unreachable, ${REQUESTS_ENABLED ? "escalate" : "set the task to \`input-required\`"} with what you tried and what you need. Do not mark \`failed\` unless the task is truly dead.
-- \`working\` notes are progress telemetry: state what you did at milestones (first commit, tests passing, blocked), not just "working".
+- \`working\` notes are progress telemetry: state what you did at milestones (first commit, tests passing, blocked), not just "working".`
+  : `### Report honestly
+
+There is no factory verdict to submit in this build. Say what you did, what you verified, and what you could not finish. Do not dress up unfinished work as done; if you cannot finish, say so and stop.`;
+
+/** Worker doctrine — factory seat, work source, blocking, identity. */
+export const WORKER_DOCTRINE = `## Worker doctrine
+
+You are a **factory worker** on a Vellum Command canvas seat. The human authors the canvas; you work through connected edges and report state via the \`vellum-command\` CLI. Never invent canvas structure or freeform authoring.
+
+### Worker loop
+
+1. **onboard** — always first, no exceptions: at session start and after every compaction. Read seat, role, region, connected targets, grants.
+${WORK_STEP}
+${UPDATE_STEP}
+4. **request when blocked** — if you need human input or approval, ${TASKS_ENABLED ? (REQUESTS_ENABLED ? "escalate (when a requests node is connected) or set the task to \`input-required\`" : "set the task to \`input-required\`") : "say what you need to the seat that asked and stop"}. Stop inventing work around the block.
+
+${IDLE_LINE}
+
+${WORK_SOURCE_SECTION}
+
+${BLOCKED_SECTION}
+${ARTIFACTS_SECTION}
+
+${COMPLETION_SECTION}
 
 ### Reach
 
 - **Reach** is edges + ports. You only act on connected nodes. ScopeError means you are not authorized for that target.
-- Env like seat/task hints is **context only**, never authority.`;
+- Env like seat hints is **context only**, never authority.`;
 
 // ── Base CLI contract (always available to seats) ─────────────────────────
 
@@ -215,6 +251,18 @@ after an edge appears — re-run \`vellum-command capabilities\` for the current
 `
   : "";
 
+/** Orientation wording: a task-board world, or seats and their grants. */
+const ORIENT_DETAIL = TASKS_ENABLED
+  ? "connected targets with what each board is for, who may start tasks there, its Next boards, and the rulings pinned over you"
+  : "connected targets with their grants and the rulings pinned over you";
+
+/** Task-shaped error meanings leave with the tasks surface. */
+const TASK_ERROR_BULLETS = TASKS_ENABLED
+  ? `
+- \`ClaimConflict\` — task already claimed by someone else, or a state race; pick another task or wait for the holder
+- \`InvalidTransition\` — illegal state change (e.g. \`completed\` without finish-criteria evidence); the message names the missing pieces`
+  : "";
+
 /** Always-present contract: orientation + self-description + laws. */
 export const BASE_CONTRACT = `## CLI contract — base
 
@@ -222,7 +270,7 @@ JSON-in/JSON-out — every command takes one JSON argument (inline, \`@file\`, o
 
 | intent | command |
 |---|---|
-| orient (always first) | \`vellum-command onboard\` — seat, region briefing, connected targets with what each board is for, who may start tasks there, its Next boards, and the rulings pinned over you |
+| orient (always first) | \`vellum-command onboard\` — seat, region briefing, ${ORIENT_DETAIL} |
 | live contract / grants | \`vellum-command capabilities\` |
 | pinned rulings for your regions | \`vellum-command rulings\` — add \`'{"target":"<id>"}'\` for a connected target's stack |
 | thought bubble | \`vellum-command preamble '{"text":"..."}'\` |
@@ -235,9 +283,7 @@ For an unfamiliar command, in order: \`examples show <command>\` → \`schema sh
 
 Errors are **ground truth** — do not invent around them. Read \`type\` and \`next_step\`:
 
-- \`ScopeError\` — not connected / not authorized for that target; the fix is an edge on the canvas, not a workaround
-- \`ClaimConflict\` — task already claimed by someone else, or a state race; pick another task or wait for the holder
-- \`InvalidTransition\` — illegal state change (e.g. \`completed\` without finish-criteria evidence); the message names the missing pieces
+- \`ScopeError\` — not connected / not authorized for that target; the fix is an edge on the canvas, not a workaround${TASK_ERROR_BULLETS}
 - \`InputError\` — payload failed schema decode; \`schema show\` prints the exact shape
 - \`RuntimeDown\` / \`Paused\` — factory unavailable; wait, then re-run \`onboard\`. Do not retry-loop.
 ${REQUESTS_ENABLED ? "- \`Blocked\` — this seat is blocked; stop and wait for the operator (the stop directive names the request)" : ""}

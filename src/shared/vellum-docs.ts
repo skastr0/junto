@@ -10,7 +10,11 @@
  */
 
 import { Schema } from "effect";
-import { productNodeKindEnabled, productPortEnabled } from "./features";
+import {
+  productNodeKindEnabled,
+  productPortEnabled,
+  TASKS_ENABLED,
+} from "./features";
 import {
   KindSpecs,
   ACTOR_ACTOR_INBOX_PORTS,
@@ -332,6 +336,35 @@ export const buildDoctrineDoc = (): string => {
 
 // ── Concepts ───────────────────────────────────────────────────────────────
 
+/** The factory paragraph is task-shaped; without tasks it becomes seat-shaped. */
+const FACTORY_CONCEPT = TASKS_ENABLED
+  ? [
+    "## The factory",
+    "Tasks are a pull queue. The factory (edges + live state) decides what is",
+    "available; seats claim and work. Claims are atomic and delivered as a",
+    "complete CLI task briefing. Idle seats wait — they do not invent backlog.",
+  ]
+  : [
+    "## Seats and edges",
+    "There is no claim queue in this build. Work reaches a seat from the",
+    "operator, its region briefing, and mail over its edges. Edges remain the",
+    "permission surface; idle seats wait and do not invent backlog.",
+  ];
+
+/** Completion verdicts are task-shaped; without tasks, honest reporting. */
+const COMPLETION_CONCEPT = TASKS_ENABLED
+  ? [
+    "## Earned completion",
+    "Completion is a factory verdict, not a harness assertion: finish criteria",
+    "are hard gates enforced on the `completed` transition, with evidence",
+    "(artifacts + git SHAs) verified by the task home.",
+  ]
+  : [
+    "## Honest reporting",
+    "There is no factory verdict in this build. A seat says what it did, what",
+    "it verified, and what it could not finish.",
+  ];
+
 export const buildConceptsDoc = (): string =>
   [
     "# Concepts",
@@ -339,10 +372,7 @@ export const buildConceptsDoc = (): string =>
     "## Seats",
     SEAT_DOCTRINE,
     "",
-    "## The factory",
-    "Tasks are a pull queue. The factory (edges + live state) decides what is",
-    "available; seats claim and work. Claims are atomic and delivered as a",
-    "complete CLI task briefing. Idle seats wait — they do not invent backlog.",
+    ...FACTORY_CONCEPT,
     "",
     "## Grants and ports",
     `Every edge hands the seat the ports the node offers. The port set:`,
@@ -350,10 +380,7 @@ export const buildConceptsDoc = (): string =>
       (p) => `- \`${p}\` — ${PORT_DESCRIPTIONS[p]}`,
     ),
     "",
-    "## Earned completion",
-    "Completion is a factory verdict, not a harness assertion: finish criteria",
-    "are hard gates enforced on the `completed` transition, with evidence",
-    "(artifacts + git SHAs) verified by the task home.",
+    ...COMPLETION_CONCEPT,
     "",
     "## Process-bind identity",
     "Identity is the process tree under Vellum Command, proven by the OS. Env is",

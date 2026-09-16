@@ -19,7 +19,15 @@ import {
   commandCapabilities,
 } from "../src/cli/core/discovery";
 import { OVERSEER_CATALOG } from "../src/shared/overseer-control";
-import { NODE_DOCS } from "../src/shared/vellum-docs";
+import {
+  buildConceptsDoc,
+  NODE_DOCS,
+} from "../src/shared/vellum-docs";
+import {
+  SEAT_DOCTRINE,
+  VELLUM_INTRO,
+  WORKER_DOCTRINE,
+} from "../src/shared/managed-terminal-injection";
 
 /**
  * Task-surface product gate. The Tasks node, its CLI group, and the
@@ -109,6 +117,18 @@ describe("task-surface product gates", () => {
       expect(families).not.toContain("content");
       expect(NODE_DOCS.some((doc) => doc.kind === "task")).toBe(false);
 
+      // Injected doctrine stops teaching a claim queue and completion verdicts.
+      expect(WORKER_DOCTRINE).not.toContain("### Pull from the board");
+      expect(WORKER_DOCTRINE).not.toContain("### Completion is earned");
+      expect(WORKER_DOCTRINE).not.toContain("tasks claim");
+      expect(WORKER_DOCTRINE).not.toContain("input-required");
+      expect(WORKER_DOCTRINE).toContain("### Work comes from people");
+      expect(WORKER_DOCTRINE).toContain("### Report honestly");
+      expect(VELLUM_INTRO).not.toContain("tasks");
+      expect(SEAT_DOCTRINE).not.toContain("Task verbs differ");
+      expect(buildConceptsDoc()).not.toContain("Earned completion");
+      expect(buildConceptsDoc()).toContain("Honest reporting");
+
       const ipc = readFileSync("src/main/vellum-command/ipc.ts", "utf8");
       expect(ipc).toContain("if (TASKS_ENABLED) privilegedIpc.handle(");
       const preload = readFileSync("src/preload/index.ts", "utf8");
@@ -157,5 +177,11 @@ describe("task-surface product gates", () => {
       OVERSEER_CATALOG.some((entry) => entry.family === "tasks"),
     ).toBe(true);
     expect(NODE_DOCS.some((doc) => doc.kind === "task")).toBe(true);
+
+    expect(WORKER_DOCTRINE).toContain("### Pull from the board");
+    expect(WORKER_DOCTRINE).toContain("### Completion is earned");
+    expect(VELLUM_INTRO).toContain("tasks");
+    expect(SEAT_DOCTRINE).toContain("Task verbs differ");
+    expect(buildConceptsDoc()).toContain("Earned completion");
   });
 });
