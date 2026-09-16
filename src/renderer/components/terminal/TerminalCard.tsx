@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { use$ } from "@legendapp/state/react";
 import { SquareTerminal } from "lucide-react";
 import type { CanvasNode } from "@shared/canvas";
+import { TASKS_ENABLED } from "@shared/features";
 import { isHarnessId } from "@shared/managed-terminal-templates";
 import type { TerminalSessionSummary } from "@shared/terminal";
 import { resolveTerminalBinding } from "@shared/terminal";
@@ -241,7 +242,7 @@ export function TerminalCard({
       <div className="mt-1 truncate text-[10px] tabular-nums text-dim">
         {native.hostId}
       </div>
-      <ClaimedTaskStrip node={node} />
+      {TASKS_ENABLED ? <ClaimedTaskStrip node={node} /> : null}
     </div>
   );
 }

@@ -151,6 +151,40 @@ describe("task-surface product gates", () => {
           "disabled in this Vellum Command build",
         );
       }
+
+      // Renderer surfaces that survive as historical rows stay read-only: no
+      // claimed-task strip, no enqueue control, and no workbench pane whose
+      // only possible submit would fail against a missing API.
+      const terminalSurface = readFileSync(
+        "src/renderer/components/terminal/TerminalSurface.tsx",
+        "utf8",
+      );
+      expect(terminalSurface).toContain("claimedTask && TASKS_ENABLED ?");
+      const rtsBottomBar = readFileSync(
+        "src/renderer/components/rts/RtsBottomBar.tsx",
+        "utf8",
+      );
+      expect(rtsBottomBar).toContain(
+        "{TASKS_ENABLED ? <CompletedTaskNotifyStack /> : null}",
+      );
+      const terminalCard = readFileSync(
+        "src/renderer/components/terminal/TerminalCard.tsx",
+        "utf8",
+      );
+      expect(terminalCard).toContain(
+        "{TASKS_ENABLED ? <ClaimedTaskStrip node={node} /> : null}",
+      );
+      const workSurfaces = readFileSync(
+        "src/renderer/components/work/WorkSurfaces.tsx",
+        "utf8",
+      );
+      expect(workSurfaces).toContain("TASKS_ENABLED ? (");
+      const workbench = readFileSync(
+        "src/renderer/components/workbench/WorkbenchPanes.tsx",
+        "utf8",
+      );
+      expect(workbench).toContain('if (surface.kind === "task-create") {');
+      expect(workbench).toContain("if (!TASKS_ENABLED) return null;");
     },
   );
 

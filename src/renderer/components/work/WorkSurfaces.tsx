@@ -6,6 +6,7 @@ import type {
   Part,
   TaskState,
 } from "@shared/canvas";
+import { TASKS_ENABLED } from "@shared/features";
 import type { WorkOpResult } from "@shared/ipc";
 import type { BoardPost, BoardTopic, BoardTopicView } from "@shared/work-model";
 import {
@@ -218,25 +219,29 @@ export function TasksCard({
         onRequestRename={onRequestRename}
         onRenameDone={onRenameDone}
         trailing={
-          <button
-            type="button"
-            className="nodrag nowheel factory-glance__enqueue"
-            data-testid="tasks-card-enqueue"
-            title="Add task"
-            aria-label="Add task"
-            onClick={(event) => {
-              event.preventDefault();
-              event.stopPropagation();
-              openTaskCreateSurface(node);
-            }}
-            onDoubleClick={(event) => {
-              event.preventDefault();
-              event.stopPropagation();
-            }}
-            onPointerDown={(event) => event.stopPropagation()}
-          >
-            <Plus size={11} strokeWidth={2.25} aria-hidden />
-          </button>
+          // A tasks-off build must not open the enqueue surface: the create API
+          // is absent, so a historical tasks card keeps only its read glance.
+          TASKS_ENABLED ? (
+            <button
+              type="button"
+              className="nodrag nowheel factory-glance__enqueue"
+              data-testid="tasks-card-enqueue"
+              title="Add task"
+              aria-label="Add task"
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                openTaskCreateSurface(node);
+              }}
+              onDoubleClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+              }}
+              onPointerDown={(event) => event.stopPropagation()}
+            >
+              <Plus size={11} strokeWidth={2.25} aria-hidden />
+            </button>
+          ) : null
         }
       />
       <div
