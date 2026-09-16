@@ -22,6 +22,7 @@ describe("recovery CR (harness-owned selector submit)", () => {
       isSeatIdle: () => true,
       pasteToCrSettleMs: 0,
       stallWatch: false,
+      stallTimeoutMs: 10,
       operatorInput: new OperatorInterlock(),
       ...options,
     });
@@ -36,7 +37,11 @@ describe("recovery CR (harness-owned selector submit)", () => {
   it("writes one bare CR on a clean binding without opening a turn", async () => {
     const writes: string[] = [];
     const drive = makeDrive({
-      write: (_bindingId, data) => { writes.push(data); return true; },
+      write: (bindingId, data) => {
+        writes.push(data);
+        if (data === CR && writes.length > 1) drive.onTurnStart(bindingId);
+        return true;
+      },
     });
     await expect(drive.submitRecoveryCr("seat")).resolves.toBe(true);
     expect(writes).toEqual([CR]);
@@ -77,8 +82,9 @@ describe("recovery CR (harness-owned selector submit)", () => {
     const gate = new Promise<boolean>((resolve) => { releasePaste = resolve; });
     const writes: string[] = [];
     const drive = makeDrive({
-      write: (_bindingId, data) => {
+      write: (bindingId, data) => {
         writes.push(data);
+        if (data === CR) drive.onTurnStart(bindingId);
         return data === CR ? true : gate;
       },
     });

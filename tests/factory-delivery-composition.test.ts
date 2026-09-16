@@ -909,6 +909,7 @@ describe("real destination-drive composition", () => {
     drive = createManagedTerminalDrive({
       write: (bindingId, data) => {
         writes.push({ bindingId, data });
+        if (data === "\r") drive.onTurnStart(bindingId);
         return true;
       },
       isSeatIdle: () => true,

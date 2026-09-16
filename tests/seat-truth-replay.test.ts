@@ -270,6 +270,7 @@ describe("replay - sticky working clearance", () => {
       pasteToCrSettleMs: 0,
       write: (_id, data) => {
         writes.push(data);
+        if (data === "\r") drive.onTurnStart(_id);
         return true;
       },
       isSeatIdle: () => seatIdle,
@@ -357,6 +358,7 @@ describe("replay - happy-path working→idle drain", () => {
       pasteToCrSettleMs: 0,
       write: (_id, data) => {
         writes.push({ data });
+        if (data === "\r") drive.onTurnStart(_id);
         return true;
       },
       isSeatIdle: () => idle,

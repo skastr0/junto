@@ -276,6 +276,7 @@ describe("SeatStateRuntime mid-turn stall", () => {
       pasteToCrSettleMs: 0,
       write: (_id, data) => {
         writes.push(data);
+        if (data === "\r") drive.onTurnStart(_id);
         return true;
       },
       isSeatIdle: (id) => rt.isSeatIdle(id),

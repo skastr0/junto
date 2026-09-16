@@ -182,6 +182,7 @@ describe("ManagedTerminalDrive discriminated outcomes", () => {
       isSeatIdle: () => idle,
       now: () => 10_000,
       stallWatch: false,
+      stallTimeoutMs: 10,
       pasteToCrSettleMs: 0,
       ...over,
     });
@@ -195,7 +196,13 @@ describe("ManagedTerminalDrive discriminated outcomes", () => {
   };
 
   it("resolves submitted with physical-write facts on the fast path", async () => {
-    const { drive } = makeDrive({ pendingText: () => false });
+    const { drive } = makeDrive({
+      pendingText: () => false,
+      write: (bindingId, data) => {
+        if (data === "\r") drive.onTurnStart(bindingId);
+        return true;
+      },
+    });
     const outcome = await drive.writePrompt("b", "hello", {
       awaitTurnStart: false,
     });

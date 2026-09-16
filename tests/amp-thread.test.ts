@@ -321,6 +321,7 @@ describe("AC-7: mail waits for a verified idle Amp seat", () => {
     const drive = new ManagedTerminalDrive({
       write: (_bindingId, data) => {
         writes.push(data);
+        if (data === "\r") drive.onTurnStart(_bindingId);
         return true;
       },
       isSeatIdle: () => seatIdle,
