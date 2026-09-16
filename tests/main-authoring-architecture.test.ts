@@ -62,6 +62,7 @@ describe("main authoring architecture", () => {
       "ipc.work.board-notify",
       "ipc.work.board-post",
       "ipc.work.board-topic-create",
+      "ipc.work.message-append",
       "ipc.work.pad-patch",
       "ipc.work.request-resolve",
       "ipc.work.task-claim",

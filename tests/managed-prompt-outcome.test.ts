@@ -1255,3 +1255,194 @@ describe("MessageDeliveryService outcome policy", () => {
     );
   });
 });
+
+const operatorPromptMsg = (id: string, text = "act now"): Message =>
+  userMsg(id, text, {
+    metadata: {
+      mailKind: "prompt",
+      operatorPrompt: true,
+      fromSeat: `seat_${"c".repeat(64)}`,
+      senderGeneration: "operator",
+      senderHarness: "unknown",
+      senderName: "operator",
+      senderNodeId: "operator",
+    },
+  });
+
+describe("operatorPrompt boundary re-drive", () => {
+  it("admits a flagged prompt row through attemptOne with immediate policy", async () => {
+    const prompt = operatorPromptMsg("op1", "deliver now");
+    const store = makeStore({ c: agentDoc([prompt]) });
+    const seenPayloads: string[] = [];
+    const seenOptions: Array<object | undefined> = [];
+    const transport: MessageDeliveryTransport = {
+      sendManagedTerminalPrompt: async (_bindingId, text, options) => {
+        seenPayloads.push(text);
+        seenOptions.push(options);
+        return submittedOutcome();
+      },
+    };
+    const service = new MessageDeliveryService();
+    service.configure({ transport, store });
+    service.notifyAppended("c", "agent", prompt);
+    await flushDelivery();
+    expect(seenPayloads).toHaveLength(1);
+    expect(seenPayloads[0]?.startsWith("mail from operator")).toBe(true);
+    expect(seenPayloads[0]).toContain("deliver now");
+    expect(seenOptions).toContainEqual(
+      expect.objectContaining({ queueIfBusy: false }),
+    );
+    expect(await store.hasAcceptedMessageDelivery("c", "agent", "op1")).toBe(
+      true,
+    );
+  });
+
+  it("gate refusal leaves the row pending without burning transport attempts", async () => {
+    const prompt = operatorPromptMsg("op1");
+    const store = makeStore({ c: agentDoc([prompt]) });
+    const ledger = makeLedger();
+    let idle = false;
+    let calls = 0;
+    const transport: MessageDeliveryTransport = {
+      seatDeliverySnapshot: async () => ({
+        idle,
+        generationKey: "gen-7",
+        operatorDraft: false,
+      }),
+      sendManagedTerminalPrompt: async () => {
+        calls += 1;
+        return submittedOutcome();
+      },
+    };
+    let clock = 100_000;
+    const service = new MessageDeliveryService();
+    service.configure({
+      transport,
+      store,
+      attempts: ledger,
+      now: () => clock,
+      timers: { set: () => ({}), clear: () => {} },
+    });
+    service.notifyAppended("c", "agent", prompt);
+    await flushDelivery();
+    expect(calls).toBe(0);
+    expect(await store.hasAcceptedMessageDelivery("c", "agent", "op1")).toBe(
+      false,
+    );
+    expect(
+      ledger.calls.some((call) => call.startsWith("mark:")),
+    ).toBe(false);
+    idle = true;
+    clock += 2_000;
+    service.onManagedTerminalIdle("bind-profile-13");
+    await flushDelivery();
+    clock += 2_000;
+    service.onManagedTerminalIdle("bind-profile-13");
+    await flushDelivery();
+    expect(calls).toBe(1);
+    expect(await store.hasAcceptedMessageDelivery("c", "agent", "op1")).toBe(
+      true,
+    );
+  });
+
+  it("unresolved hold still blocks same-generation retry", async () => {
+    const prompt = operatorPromptMsg("op1");
+    const store = makeStore({ c: agentDoc([prompt]) });
+    let calls = 0;
+    const transport: MessageDeliveryTransport = {
+      sendManagedTerminalPrompt: async () => {
+        calls += 1;
+        return {
+          status: "unresolved",
+          reason: "no-turn-start",
+          bindingGeneration: 0,
+          writesBefore: 0,
+          writesAfter: 1,
+          pasteWrites: 1,
+          wrotePhysicalBytes: true,
+        };
+      },
+    };
+    const service = new MessageDeliveryService();
+    service.configure({ transport, store });
+    service.notifyAppended("c", "agent", prompt);
+    await flushDelivery();
+    expect(calls).toBe(1);
+    service.onManagedTerminalIdle("bind-profile-13");
+    await flushDelivery();
+    service.onComposerEmpty("bind-profile-13");
+    await flushDelivery();
+    expect(calls).toBe(1);
+    expect(await store.hasAcceptedMessageDelivery("c", "agent", "op1")).toBe(
+      false,
+    );
+  });
+
+  it("attemptBatch never swallows flagged prompt rows into a notice dump", async () => {
+    const notices = [userMsg("n1", "first"), userMsg("n2", "second")];
+    const prompt = operatorPromptMsg("op1", "operator body");
+    const store = makeStore({ c: agentDoc([...notices, prompt]) });
+    const seenPayloads: string[] = [];
+    const transport: MessageDeliveryTransport = {
+      sendManagedTerminalPrompt: async (_bindingId, text) => {
+        seenPayloads.push(text);
+        return submittedOutcome(seenPayloads.length - 1, seenPayloads.length);
+      },
+    };
+    const service = new MessageDeliveryService();
+    service.configure({ transport, store });
+    service.onBooted();
+    await flushDelivery(10);
+    const promptPayload = seenPayloads.find((text) =>
+      text.includes("operator body"),
+    );
+    expect(promptPayload).toBeDefined();
+    expect(promptPayload?.startsWith("mail from operator")).toBe(true);
+    expect(seenPayloads.some((text) => text.includes("2 unread"))).toBe(true);
+    expect(await store.hasAcceptedMessageDelivery("c", "agent", "op1")).toBe(
+      true,
+    );
+    expect(await store.hasAcceptedMessageDelivery("c", "agent", "n1")).toBe(
+      true,
+    );
+    expect(await store.hasAcceptedMessageDelivery("c", "agent", "n2")).toBe(
+      true,
+    );
+  });
+
+  it("MAX_TRANSPORT_ATTEMPTS parks a flagged prompt after failed writes", async () => {
+    const prompt = operatorPromptMsg("op1");
+    const store = makeStore({ c: agentDoc([prompt]) });
+    let calls = 0;
+    const transport: MessageDeliveryTransport = {
+      sendManagedTerminalPrompt: async () => {
+        calls += 1;
+        return {
+          status: "refused",
+          reason: "clipboard-unsafe",
+          bindingGeneration: 0,
+          writesBefore: calls - 1,
+          writesAfter: calls,
+          pasteWrites: 1,
+          wrotePhysicalBytes: true,
+        };
+      },
+    };
+    const service = new MessageDeliveryService();
+    service.configure({
+      transport,
+      store,
+      timers: { set: () => ({}), clear: () => {} },
+    });
+    service.notifyAppended("c", "agent", prompt);
+    await flushDelivery();
+    for (let i = 0; i < 4; i += 1) {
+      service.onManagedTerminalIdle("bind-profile-13");
+      await flushDelivery();
+    }
+    expect(calls).toBe(3);
+    expect(await store.hasAcceptedMessageDelivery("c", "agent", "op1")).toBe(
+      false,
+    );
+  });
+});

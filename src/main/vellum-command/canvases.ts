@@ -201,6 +201,7 @@ export type CanvasReadTag =
   | "ipc.mergePortfolio"
   | "ipc.readCanvas"
   | "ipc.rendererActor"
+  | "ipc.terminalManagedPrompt"
   | "kernel.hydrateDoc"
   | "kernel.resyncDoc"
   | "kernel.wakeManagedSeat"

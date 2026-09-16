@@ -39,6 +39,7 @@ import {
   surfaceLabel,
 } from "../../lib/multi-selection";
 import {
+  formatMultiPromptStatus,
   multiPromptAgents,
   multiPromptTargetsFromNodes,
 } from "../../lib/multi-prompt";
@@ -361,16 +362,10 @@ const MultiPromptComposer = memo(
             setStatus(targets.length > 1 ? `sending ${targets.length}…` : "sending…");
             try {
               const result = await multiPromptAgents(targets, text);
-              if (result.failed.length === 0) {
-                setStatus(`sent to ${result.sent}`);
-                return true;
-              }
-              const failKeys = result.failed.map((f) => f.agentKey).join(", ");
-              setStatus(
-                `sent ${result.sent} — failed ${result.failed.length}${failKeys ? ` — ${failKeys}` : ""}`,
-              );
-              // Keep draft so the operator can retry failed seats.
-              return false;
+              setStatus(formatMultiPromptStatus(result));
+              // Keep the draft whenever any seat did not submit so the
+              // operator sees which queued, stayed unconfirmed, or failed.
+              return result.sent === targets.length;
             } finally {
               setBusy(false);
             }

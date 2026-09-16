@@ -226,7 +226,7 @@ export const IPC_CHANNELS = {
   terminalAttach: "vellum-command:terminal-attach",
   terminalRelease: "vellum-command:terminal-release",
   terminalWrite: "vellum-command:terminal-write",
-  /** Operator multi-prompt / managed seat paste+CR (idle-gated drive). */
+  /** Operator multi-prompt via durable prompt-mail (deliver now or queue). */
   terminalManagedPrompt: "vellum-command:terminal-managed-prompt",
   terminalResize: "vellum-command:terminal-resize",
   terminalShutdown: "vellum-command:terminal-shutdown",
@@ -1158,6 +1158,20 @@ export interface VellumCommandGitApi {
   readonly gitShow: (cwd: string, sha: string) => Promise<GitShowResult>;
 }
 
+export type TerminalManagedPromptDisposition =
+  | "submitted"
+  | "queued"
+  | "unresolved"
+  | "failed";
+
+export type TerminalManagedPromptResult = {
+  readonly ok: boolean;
+  readonly disposition: TerminalManagedPromptDisposition;
+  readonly messageId?: string;
+  readonly reason?: string;
+  readonly error?: string;
+};
+
 export interface VellumCommandTerminalApi {
   readonly terminalList: (hostId?: string) => Promise<readonly TerminalSessionSummary[]>;
   readonly terminalCreate: (input: TerminalCreateInput) => Promise<TerminalSessionSummary>;
@@ -1184,16 +1198,16 @@ export interface VellumCommandTerminalApi {
   readonly terminalRelease: (leaseId: string) => Promise<boolean>;
   readonly terminalWrite: (leaseId: string, data: string, encoding?: "utf8" | "base64") => Promise<boolean>;
   /**
-   * Submit one managed-agent prompt (bracketed paste + CR) via the idle-gated
-   * drive. Optional canvas/node wakes a lazy seat first. Does not require a
-   * renderer control lease.
+   * Submit one operator multi-prompt via durable prompt-mail. Immediate
+   * delivery when the seat is idle; otherwise the row stays pending and the
+   * verdict is `queued`. Does not require a renderer control lease.
    */
   readonly terminalManagedPrompt: (input: {
     readonly bindingId: string;
     readonly text: string;
     readonly canvasName?: string;
     readonly nodeId?: string;
-  }) => Promise<{ readonly ok: boolean; readonly error?: string }>;
+  }) => Promise<TerminalManagedPromptResult>;
   readonly terminalResize: (leaseId: string, cols: number, rows: number) => Promise<boolean>;
   readonly onTerminalEvent: (listener: (event: unknown) => void) => () => void;
   /** Fail-soft model enumeration for one harness (empty list = use defaults). */

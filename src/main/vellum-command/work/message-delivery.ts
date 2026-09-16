@@ -201,6 +201,10 @@ export type PromptResult =
     }
   | { readonly unavailable: PromptUnavailable };
 
+/** Operator multi-prompt rows re-drive at seat boundaries; other prompts stay explicit-only. */
+export const isOperatorPromptRow = (message: Message): boolean =>
+  message.metadata?.operatorPrompt === true;
+
 /**
  * Durable delivery-attempt ledger (storage lane: work/mail-attempt-store.ts
  * adapts work/crew-repository.ts to this seam). The delivery layer never
@@ -1166,9 +1170,9 @@ export class MessageDeliveryService {
     if (!isPendingDelivery(message)) return;
     // Index first: if this attempt is refused, the seat's next transition is
     // what re-drives it, and that pass reads the index, not the world.
-    // Prompt-kind rows stay explicit-only inside attemptOne unless a durable
-    // notice-fallback marker re-admitted them, so creation still cannot race
-    // an explicit prompt attempt.
+    // Prompt-kind rows stay explicit-only inside attemptOne unless an
+    // operatorPrompt flag or a durable notice-fallback marker re-admitted
+    // them. Ordinary creation still cannot race an explicit prompt attempt.
     this.rememberPending(canvas, nodeId, message);
     void this.attemptOne(canvas, nodeId, message);
   }
@@ -1807,9 +1811,11 @@ export class MessageDeliveryService {
     messages: ReadonlyArray<Message>,
   ): Promise<void> {
     const edgeMap: Message[] = [];
+    const operatorPrompts: Message[] = [];
     const ordinary: Message[] = [];
     for (const message of messages) {
       if (message.metadata?.edgeMapChange === true) edgeMap.push(message);
+      else if (isOperatorPromptRow(message)) operatorPrompts.push(message);
       else if (readMailExtension(message.metadata)?.mailKind === "prompt") {
         // Explicit-only — unless a durable fallback marker re-admitted it.
         if (
@@ -1826,6 +1832,10 @@ export class MessageDeliveryService {
       await this.attemptBatch(canvas, nodeId, latestFirst);
     }
     for (const message of edgeMap) {
+      if (!this.active(generation)) return;
+      await this.attemptOne(canvas, nodeId, message);
+    }
+    for (const message of operatorPrompts) {
       if (!this.active(generation)) return;
       await this.attemptOne(canvas, nodeId, message);
     }
@@ -2094,9 +2104,12 @@ export class MessageDeliveryService {
       if (!target) return;
 
       // Prompt-kind rows are explicit-only: the auto-notice queue never
-      // takes them — unless a durable notice-fallback marker re-admitted
-      // this row. Skipped rows leave the pending index; the world (not the
-      // index) re-derives them, so a later grant still finds them.
+      // takes them — unless an operatorPrompt flag or a durable
+      // notice-fallback marker re-admitted this row. Operator prompts stay
+      // immediate (full body as a turn). Notice fallback degrades to a
+      // summary line and must not be used for the operator's body.
+      // Skipped rows leave the pending index; the world (not the index)
+      // re-derives them, so a later grant still finds them.
       const mailKindIsPrompt =
         readMailExtension(live.metadata)?.mailKind === "prompt";
       let noticeFallback = false;
@@ -2106,7 +2119,7 @@ export class MessageDeliveryService {
           nodeId,
           live.messageId,
         );
-        if (!noticeFallback) {
+        if (!noticeFallback && !isOperatorPromptRow(live)) {
           this.forgetPending(canvas, nodeId, live.messageId);
           return;
         }

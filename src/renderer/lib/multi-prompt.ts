@@ -1,4 +1,8 @@
 import type { CanvasNode } from "@shared/canvas";
+import type {
+  TerminalManagedPromptDisposition,
+  TerminalManagedPromptResult,
+} from "@shared/ipc";
 import { resolveTerminalBinding } from "@shared/terminal";
 import { getVellumCommandApi } from "./vellum-api";
 import { state$ } from "./state";
@@ -10,13 +14,19 @@ export type MultiPromptTarget = {
   readonly agentKey: string;
 };
 
+export type MultiPromptSeatNote = {
+  readonly nodeId: string;
+  readonly agentKey: string;
+  readonly error?: string;
+  readonly reason?: string;
+  readonly messageId?: string;
+};
+
 export type MultiPromptResult = {
   readonly sent: number;
-  readonly failed: ReadonlyArray<{
-    readonly nodeId: string;
-    readonly agentKey: string;
-    readonly error: string;
-  }>;
+  readonly queued: ReadonlyArray<MultiPromptSeatNote>;
+  readonly unresolved: ReadonlyArray<MultiPromptSeatNote>;
+  readonly failed: ReadonlyArray<MultiPromptSeatNote>;
 };
 
 export type MultiPromptOps = {
@@ -25,7 +35,7 @@ export type MultiPromptOps = {
     readonly text: string;
     readonly canvasName?: string;
     readonly nodeId?: string;
-  }) => Promise<{ readonly ok: boolean; readonly error?: string }>;
+  }) => Promise<TerminalManagedPromptResult>;
   readonly canvasName?: string;
 };
 
@@ -60,17 +70,59 @@ const defaultOps = (): MultiPromptOps => ({
   writePrompt: async (input) => {
     const api = getVellumCommandApi();
     if (!api?.terminalManagedPrompt) {
-      return { ok: false, error: "managed prompt API unavailable" };
+      return {
+        ok: false,
+        disposition: "failed",
+        error: "managed prompt API unavailable",
+      };
     }
     return api.terminalManagedPrompt(input);
   },
   canvasName: state$.canvasName.peek() || undefined,
 });
 
+const dispositionOf = (
+  result: TerminalManagedPromptResult,
+): TerminalManagedPromptDisposition =>
+  result.disposition ?? (result.ok ? "submitted" : "failed");
+
+const seatNote = (
+  target: MultiPromptTarget,
+  result: TerminalManagedPromptResult,
+  fallback: string,
+): MultiPromptSeatNote => ({
+  nodeId: target.nodeId,
+  agentKey: target.agentKey,
+  error: result.error ?? fallback,
+  ...(result.reason !== undefined ? { reason: result.reason } : {}),
+  ...(result.messageId !== undefined ? { messageId: result.messageId } : {}),
+});
+
+/** Compact RTS status: `sent 2 — queued 1 — failed 0` plus seat keys. */
+export const formatMultiPromptStatus = (result: MultiPromptResult): string => {
+  const parts = [
+    `sent ${result.sent}`,
+    `queued ${result.queued.length}`,
+    `failed ${result.failed.length}`,
+  ];
+  if (result.unresolved.length > 0) {
+    parts.push(`unconfirmed ${result.unresolved.length}`);
+  }
+  const keys = [
+    ...result.queued.map((item) => item.agentKey),
+    ...result.unresolved.map((item) => item.agentKey),
+    ...result.failed.map((item) => item.agentKey),
+  ];
+  const unique = [...new Set(keys)];
+  return unique.length > 0
+    ? `${parts.join(" — ")} — ${unique.join(", ")}`
+    : parts.join(" — ");
+};
+
 /**
  * Fan-out one prompt to many managed agent seats.
- * Wakes each seat (when canvas known) then paste+CR via the managed drive.
- * Each target is independent; never throws.
+ * Each target is independent; never throws. Returns per-seat dispositions
+ * so the composer can keep the draft whenever any seat did not submit.
  */
 export async function multiPromptAgents(
   targets: ReadonlyArray<MultiPromptTarget>,
@@ -79,30 +131,44 @@ export async function multiPromptAgents(
 ): Promise<MultiPromptResult> {
   const trimmed = text.trim();
   if (!trimmed || targets.length === 0) {
-    return { sent: 0, failed: [] };
+    return { sent: 0, queued: [], unresolved: [], failed: [] };
   }
 
-  const failed: Array<{ nodeId: string; agentKey: string; error: string }> = [];
+  const queued: MultiPromptSeatNote[] = [];
+  const unresolved: MultiPromptSeatNote[] = [];
+  const failed: MultiPromptSeatNote[] = [];
   let sent = 0;
   const canvasName = ops.canvasName?.trim() || undefined;
 
   await Promise.all(
-    targets.map(async ({ nodeId, bindingId, agentKey }) => {
+    targets.map(async (target) => {
+      const { nodeId, bindingId, agentKey } = target;
       try {
         const result = await ops.writePrompt({
           bindingId,
           text: trimmed,
           ...(canvasName ? { canvasName, nodeId } : {}),
         });
-        if (result.ok) {
-          sent += 1;
-          return;
+        switch (dispositionOf(result)) {
+          case "submitted":
+            sent += 1;
+            return;
+          case "queued":
+            queued.push(seatNote(target, result, "queued at seat"));
+            return;
+          case "unresolved":
+            unresolved.push(
+              seatNote(
+                target,
+                result,
+                "Prompt submission is unconfirmed. Inspect the terminal before retrying.",
+              ),
+            );
+            return;
+          case "failed":
+            failed.push(seatNote(target, result, "prompt refused"));
+            return;
         }
-        failed.push({
-          nodeId,
-          agentKey,
-          error: result.error ?? "prompt refused",
-        });
       } catch (error) {
         failed.push({
           nodeId,
@@ -113,5 +179,5 @@ export async function multiPromptAgents(
     }),
   );
 
-  return { sent, failed };
+  return { sent, queued, unresolved, failed };
 }

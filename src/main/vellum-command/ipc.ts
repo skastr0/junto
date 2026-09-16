@@ -109,6 +109,10 @@ import { isTrustedMainWebContents } from "./trusted-main-webcontents";
 import { trustedRendererIpc } from "./trusted-main-webcontents";
 import type { WorkMetadata, Part, TaskState } from "@shared/canvas";
 import { makeUserMessage } from "@shared/task";
+import { actorDeliverySurfaceOf } from "@shared/actor-surface";
+import { mailExtensionMetadata } from "@shared/crew";
+import { operatorActorRef } from "@shared/work-reference";
+import { mapPromptResultToVerdict } from "./work/operator-prompt-verdict";
 import { ulid } from "ulid";
 import type { PadPatch } from "@shared/pad";
 import type { BoardPost } from "@shared/work-model";
@@ -1461,8 +1465,9 @@ export const registerVellumIpc = (): void => {
       // Post-spawn session capture for harnesses that mint an id and never
       // print it (Muse, fx). Home is read lazily so a test seam can move it.
       const seatSessionCapture = new SeatSessionCapture(() => homedir());
-      // Operator multi-prompt (RTS): wake lazy seat + paste+CR without a
-      // renderer control lease. Same drive as board megaphone / mailbox.
+      // Operator multi-prompt (RTS): durable prompt-mail, then immediate
+      // delivery. Busy seats queue at the mailbox — never the drive park.
+      // Wake lives on attemptOne (including bounded wake retry).
       privilegedIpc.handle(
         IPC_CHANNELS.terminalManagedPrompt,
         async (
@@ -1477,46 +1482,114 @@ export const registerVellumIpc = (): void => {
           const bindingId =
             typeof input?.bindingId === "string" ? input.bindingId.trim() : "";
           const text = typeof input?.text === "string" ? input.text.trim() : "";
-          if (!bindingId) return { ok: false as const, error: "binding required" };
-          if (!text) return { ok: false as const, error: "empty prompt" };
+          if (!bindingId) {
+            return {
+              ok: false as const,
+              disposition: "failed" as const,
+              error: "binding required",
+            };
+          }
+          if (!text) {
+            return {
+              ok: false as const,
+              disposition: "failed" as const,
+              error: "empty prompt",
+            };
+          }
           const canvasName =
             typeof input?.canvasName === "string" ? input.canvasName.trim() : "";
           const nodeId =
             typeof input?.nodeId === "string" ? input.nodeId.trim() : "";
-          if (canvasName && nodeId) {
-            try {
-              const woke = await kernel.wakeManagedSeat(canvasName, nodeId);
-              if (!woke) {
-                return {
-                  ok: false as const,
-                  error: "could not start managed seat",
-                };
-              }
-            } catch (error) {
+          if (!canvasName || !nodeId) {
+            return {
+              ok: false as const,
+              disposition: "failed" as const,
+              error: "canvas and node required",
+            };
+          }
+          const sender = operatorActorRef(canvasName);
+          const messageId = ulid();
+          const message = makeUserMessage({
+            messageId,
+            text,
+            contextId: canvasName,
+            metadata: {
+              factoryMail: true,
+              operatorPrompt: true,
+              ...mailExtensionMetadata({
+                mailKind: "prompt",
+                fromSeat: sender.seatId,
+                senderNodeId: sender.nodeId,
+                senderName: "operator",
+                senderGeneration: "operator",
+                senderHarness: "unknown",
+              }),
+            },
+          });
+          try {
+            const appended = await runRendererWorkAuthoring(
+              "ipc.work.message-append",
+              () =>
+                AppRuntime.runPromise(
+                  Effect.gen(function* () {
+                    const denied = yield* denyRemoteWork;
+                    if (denied) return denied;
+                    const canvases = yield* CanvasesService;
+                    const read = yield* canvases.read(
+                      canvasName,
+                      "ipc.terminalManagedPrompt",
+                    );
+                    const node = read.doc.nodes.find((n) => n.id === nodeId);
+                    const surface =
+                      node === undefined
+                        ? undefined
+                        : actorDeliverySurfaceOf(node);
+                    if (
+                      surface === undefined ||
+                      surface.hostId !== "local"
+                    ) {
+                      return {
+                        ok: false as const,
+                        code: "invalid" as const,
+                        message:
+                          "Immediate prompts require a local managed seat",
+                      };
+                    }
+                    if (surface.bindingId !== bindingId) {
+                      return {
+                        ok: false as const,
+                        code: "invalid" as const,
+                        message: "binding does not match the managed seat",
+                      };
+                    }
+                    const work = yield* WorkService;
+                    return yield* work.workSystemMailboxNotify(
+                      canvasName,
+                      nodeId,
+                      message,
+                    );
+                  }),
+                ),
+            );
+            if (!appended.ok) {
               return {
                 ok: false as const,
-                error:
-                  error instanceof Error
-                    ? error.message
-                    : "could not start managed seat",
+                disposition: "failed" as const,
+                error: appended.message,
               };
             }
-          }
-          try {
-            const outcome = await writeManagedPrompt(bindingId, text, {
-              ready: true,
+            const liveId = appended.data.messageId;
+            const result = await messageDelivery.prompt({
+              canvas: canvasName,
+              nodeId,
+              messageId: liveId,
             });
-            return outcome.status === "submitted"
-              ? { ok: true as const }
-              : {
-                  ok: false as const,
-                  error: outcome.status === "unresolved" || outcome.reason === "written-unresolved"
-                    ? "Prompt submission is unconfirmed. Inspect the terminal before retrying."
-                    : `Prompt refused before writing: ${outcome.reason}`,
-                };
+            return mapPromptResultToVerdict(result, liveId);
           } catch (error) {
             return {
               ok: false as const,
+              disposition: "failed" as const,
+              messageId,
               error:
                 error instanceof Error ? error.message : "prompt write failed",
             };
