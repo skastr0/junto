@@ -161,6 +161,11 @@ export class InjectionSupervisor {
     this.noteWorkPlaneCall(bindingId);
   }
 
+  /** Sticky process-bound proof for a binding (survives generation cuts). */
+  isProven(bindingId: string): boolean {
+    return this.provenBindings.has(bindingId);
+  }
+
   /** User keystrokes routed to the PTY (from the terminal write IPC). */
   noteUserInput(bindingId: string, at: number = this.now()): void {
     // Sticky: input may arrive before the seat's first snapshot.

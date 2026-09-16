@@ -2914,11 +2914,17 @@ export const startWorkControlServer = async (
           }
 
           // Bootstrap proof: any work-plane call from the seat's own process is
-          // definitive evidence the agent knows the factory CLI.
+          // definitive evidence the agent knows the factory CLI. Managed seats
+          // bind their process by agent key, not binding id, so the proof key
+          // comes from the resolved caller node's terminal binding.
+          const callerNode = callerResolved.caller.node;
+          const proofBindingId =
+            admission.principal.bindingId ??
+            (isManagedAgentNode(callerNode)
+              ? callerNode.ether.terminal.bindingId
+              : undefined);
           yield* Effect.sync(() =>
-            injectionSupervisor.noteWorkPlaneCall(
-              admission.principal.bindingId,
-            ),
+            injectionSupervisor.noteWorkPlaneCall(proofBindingId),
           );
           const occupant = occupantKeyForPrincipal(
             admission.principal,
