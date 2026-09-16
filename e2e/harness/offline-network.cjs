@@ -54,4 +54,4 @@ globalThis.fetch = async (input, init) => {
   return fetch(input, init);
 };
 
-globalThis.__vellumCommandOfflineHarness = true;
+globalThis.__juntoOfflineHarness = true;

@@ -11,5 +11,5 @@ export declare const signingProfileForPath: (
   runtimePolicy: RuntimeSigningPolicy,
 ) => "none" | "jit";
 
-declare const signVellumApp: (options: Record<string, unknown>) => Promise<void>;
-export default signVellumApp;
+declare const signJuntoApp: (options: Record<string, unknown>) => Promise<void>;
+export default signJuntoApp;

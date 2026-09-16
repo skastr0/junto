@@ -10,8 +10,6 @@
  * - glued camelCase identifiers: JuntoApi, resolveJuntoHome
  * - lowercase paths / bins: ~/.junto/, junto.db, dist/junto
  * - env / package keys: JUNTO_*, @skastr0/junto
- * - hyphenated internal protocol/header tokens: X-Vellum-Command-Content-State
- *   (local wire labels, not product brand — retired by the protocol commit)
  *
  * Run: `bun run lint:product-name`
  * Exit 0 = clean; exit 1 = violations printed.
@@ -98,10 +96,6 @@ const ROOT_TEXT_FILES = new Set([
 const LINE_ALLOW: readonly RegExp[] = [
   // This file encodes the forbidden token in its pattern source.
   /BARE_PRODUCT|lint-product-name|retired brand mark|retired mark/i,
-  // Local/internal header and protocol token labels (not user-facing brand).
-  // e.g. X-Vellum-Content-State — retired by the protocol commit, allowed here
-  // only until that family is renamed.
-  /\bX-Vellum-[A-Za-z0-9-]+\b/,
 ];
 
 type Hit = { file: string; line: number; text: string };
