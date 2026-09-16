@@ -83,7 +83,6 @@
     "cli:build": "bun scripts/build-standalone-cli.ts junto",
     "cli:build:dev": "bun scripts/build-standalone-cli.ts junto-dev",
     "linux:desktop:bootstrap:build": "bun scripts/build-standalone-cli.ts junto-desktop-bootstrap-linux-x64",
-    "linux:desktop:bootstrap:prepare": "bun scripts/prepare-linux-desktop-bootstrap-release.ts",
     "remote:build": "bun scripts/build-junto-remote.ts",
     "package:qualify:runtime-parity": "bun scripts/qualify-package-runtime-parity.ts",
     "test:e2e:startup": "JUNTO_FEATURE_PROFILE=all-on electron-vite build && scripts/run-e2e.sh e2e/scenarios/free-startup.spec.ts",

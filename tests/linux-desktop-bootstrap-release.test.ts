@@ -7,7 +7,6 @@ import {
   LINUX_DESKTOP_BOOTSTRAP_NAME,
   prepareLinuxDesktopBootstrapRelease,
 } from "../scripts/prepare-linux-desktop-bootstrap-release";
-import { itOnLinux } from "./helpers/platform";
 
 const roots: string[] = [];
 afterEach(async () => {
@@ -19,81 +18,22 @@ const digest = (bytes: Buffer) => ({
   sha256: createHash("sha256").update(bytes).digest("hex"),
 });
 
-describe("Linux desktop bootstrap corresponding-source publication", () => {
-  it("refuses a relink receipt that does not bind the exact commit, Bun, and payload bytes", async () => {
+describe("Linux desktop bootstrap publication", () => {
+  it("writes a checksum beside the compiled bootstrap binary", async () => {
     const dist = await mkdtemp(join(await realpath(tmpdir()), "junto-bootstrap-release-"));
     roots.push(dist);
     const binary = Buffer.from("bootstrap-bytes");
-    const payload = Buffer.from("relink-object");
-    const notices = Buffer.from("notices");
     await writeFile(join(dist, LINUX_DESKTOP_BOOTSTRAP_NAME), binary);
-    await writeFile(join(dist, `${LINUX_DESKTOP_BOOTSTRAP_NAME}-relink.js`), payload);
-    await writeFile(join(dist, `${LINUX_DESKTOP_BOOTSTRAP_NAME}-relink-notices.txt`), notices);
-    await writeFile(join(dist, `${LINUX_DESKTOP_BOOTSTRAP_NAME}-relink.json`), JSON.stringify({
-      schema: "junto/cli-relink/v1",
-      sourceCommit: "a".repeat(40),
-      bunVersion: "1.3.13",
-      featureProfile: "ship",
-      featureFingerprint: "fp",
-      payload: digest(payload),
-      notices: digest(notices),
-      binary: digest(binary),
-    }));
-    expect(() => prepareLinuxDesktopBootstrapRelease({
-      commit: "b".repeat(40),
-      bunVersion: "1.3.13",
-      distDirectory: dist,
-    })).toThrow(/relink receipt/);
-    expect(() => prepareLinuxDesktopBootstrapRelease({
-      commit: "a".repeat(40),
-      bunVersion: "1.3.12",
-      distDirectory: dist,
-    })).toThrow(/relink receipt/);
-    await writeFile(join(dist, `${LINUX_DESKTOP_BOOTSTRAP_NAME}-relink.js`), Buffer.from("changed"));
-    expect(() => prepareLinuxDesktopBootstrapRelease({
-      commit: "a".repeat(40),
-      bunVersion: "1.3.13",
-      distDirectory: dist,
-    })).toThrow(/relink material/);
-  });
-
-  // The release script invokes GNU tar with --sort=name; the Linux release
-  // host provides that native packaging prerequisite.
-  itOnLinux("writes Bun notices, source archive, checksum, and RELINK.md beside matching bytes", async () => {
-    const dist = await mkdtemp(join(await realpath(tmpdir()), "junto-bootstrap-release-"));
-    roots.push(dist);
-    const binary = Buffer.from("bootstrap-bytes");
-    const payload = Buffer.from("relink-object");
-    const notices = Buffer.from("notices");
-    await writeFile(join(dist, LINUX_DESKTOP_BOOTSTRAP_NAME), binary);
-    await writeFile(join(dist, `${LINUX_DESKTOP_BOOTSTRAP_NAME}-relink.js`), payload);
-    await writeFile(join(dist, `${LINUX_DESKTOP_BOOTSTRAP_NAME}-relink-notices.txt`), notices);
-    const commit = (await import("node:child_process")).spawnSync(
-      "git",
-      ["rev-parse", "HEAD"],
-      { encoding: "utf8" },
-    ).stdout.trim();
-    await writeFile(join(dist, `${LINUX_DESKTOP_BOOTSTRAP_NAME}-relink.json`), JSON.stringify({
-      schema: "junto/cli-relink/v1",
-      sourceCommit: commit,
-      bunVersion: "1.3.13",
-      featureProfile: "ship",
-      featureFingerprint: "fp",
-      payload: digest(payload),
-      notices: digest(notices),
-      binary: digest(binary),
-    }));
     const prepared = prepareLinuxDesktopBootstrapRelease({
-      commit,
-      bunVersion: "1.3.13",
       distDirectory: dist,
     });
-    expect(prepared.assets).toContain(`${LINUX_DESKTOP_BOOTSTRAP_NAME}-relink.js`);
-    expect(prepared.assets).toContain(`${LINUX_DESKTOP_BOOTSTRAP_NAME}-bun-notices.tar.gz`);
+    expect(prepared.assets).toEqual([
+      LINUX_DESKTOP_BOOTSTRAP_NAME,
+      `${LINUX_DESKTOP_BOOTSTRAP_NAME}.sha256`,
+      `${LINUX_DESKTOP_BOOTSTRAP_NAME}.attestation.jsonl`,
+    ]);
+    expect(prepared.sha256).toBe(digest(binary).sha256);
     expect(await readFile(join(dist, `${LINUX_DESKTOP_BOOTSTRAP_NAME}.sha256`), "utf8"))
-      .toContain(digest(binary).sha256);
-    expect(await readFile(join(dist, "RELINK.md"), "utf8")).toContain("prepare-runtime-sources.ts");
-    const bunNotices = await readFile(join(dist, `${LINUX_DESKTOP_BOOTSTRAP_NAME}-bun-notices.tar.gz`));
-    expect(bunNotices.length).toBeGreaterThan(1_000);
+      .toBe(`${digest(binary).sha256}  ${LINUX_DESKTOP_BOOTSTRAP_NAME}\n`);
   });
 });
