@@ -38,9 +38,7 @@ OptIn is stale; the new default-granted observation ruling is preserved.
 5. Physical acceptance and durable receipt are distinct. An uncertain write
    is visible and retained. Exactly-once across an external-TUI crash is not
    promised.
-6. Ordinary mail never interrupts work. Immediate prompts use the same drive,
-   idle/empty-composer gate and operator interlock. No raw input side door.
-7. Each delivered change is a commit with checked evidence. Recorded replay,
+6. Each delivered change is a commit with checked evidence. Recorded replay,
    fake-harness app integration and real-harness runs remain distinct claims.
 
 ## Mail and immediate prompt
