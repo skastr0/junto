@@ -49,22 +49,6 @@
   ],
   "mutationSeams": [
     {
-      "path": "src/main/junto/state/migrations.ts",
-      "kind": "permanent",
-      "tables": [
-        "canvas_entities",
-        "work_board_posts",
-        "work_events",
-        "work_facts",
-        "work_pending_commands",
-        "work_pending_proposal_commands",
-        "work_proposal_events",
-        "work_task_transitions",
-        "work_tasks"
-      ],
-      "reason": "The state engine's forward migration steps. Table rebuilds and backfills run once per schema advance, inside the engine, before any repository can read. The 20 -> 21 consolidation step also rebuilds work_facts (rows copied forward byte-exact) to shed its FK into the retired blob generation store."
-    },
-    {
       "path": "src/main/junto/state/schema-identity.ts",
       "kind": "permanent",
       "tables": [
@@ -359,38 +343,6 @@
       "retire": "Prove the packaged runtime from an e2e assertion inside the app, so the probe and its tables go away."
     },
     {
-      "path": "src/main/junto/state/tasks-schema21-correction.ts",
-      "kind": "debt",
-      "tables": [
-        "canvas_nodes",
-        "work_commands",
-        "work_dispositions",
-        "work_event_sequences",
-        "work_events",
-        "work_facts",
-        "work_task_dependencies",
-        "work_task_finish",
-        "work_task_messages",
-        "work_task_transitions",
-        "work_tasks"
-      ],
-      "reason": "The schema-21 corrective converter: rewrites retired Tasks vocabulary in authorial canvas ether, task metadata bags, completion evidence, and Work action/result JSON; repairs journal content hashes and their correlated copies; materializes proposal rows into canonical task records; and rebuilds changed canvases. Runs only inside migrateStateSchema's startup transaction, gated by the exact invalid-21 schema identity (or the 20 -> 21 consolidation step).",
-      "retire": "Delete the converter once every installed database has advanced past the invalid schema-21 shape (no invalid-21 identity remains in the field).",
-      "dynamicTableSites": [
-        {
-          "statement": "UPDATE",
-          "expression": "${table}",
-          "resolvesTo": [
-            "work_commands",
-            "work_facts",
-            "work_tasks",
-            "work_task_finish"
-          ],
-          "reason": "rewriteJsonColumn runs the same canonicalizing UPDATE against the four JSON-bearing tables the converter is authorized to repair."
-        }
-      ]
-    },
-    {
       "path": "src/main/junto/credentials/bindings.ts",
       "kind": "permanent",
       "tables": [
@@ -470,15 +422,6 @@
       "retire": "Have host removal call the box seam instead of deleting box_resources directly."
     },
     {
-      "table": "canvas_entities",
-      "owner": "src/main/junto/entities/sync.ts",
-      "alsoWrittenBy": [
-        "src/main/junto/state/migrations.ts"
-      ],
-      "reason": "The migration seeds canvas_entities when the table is introduced; entities/sync.ts owns it afterwards.",
-      "retire": "Express a schema-advance table rebuild without an INSERT ... SELECT that names a product table."
-    },
-    {
       "table": "host_registry",
       "owner": "src/main/junto/hosts/registry.ts",
       "alsoWrittenBy": [
@@ -518,7 +461,6 @@
       "table": "work_board_posts",
       "owner": "src/main/junto/work/repository.ts",
       "alsoWrittenBy": [
-        "src/main/junto/state/migrations.ts",
         "src/main/junto/content/inline-media-migration.ts"
       ],
       "reason": "THREE writers. The migration backfills the table on a schema advance and the inline-media backfill rewrites parts_json in place. Neither mints a work fact.",
@@ -534,16 +476,6 @@
       "retire": "Delete src/main/junto/content/inline-media-migration.ts once BACKFILL_INLINE_MEDIA_V1 is complete everywhere."
     },
     {
-      "table": "work_events",
-      "owner": "src/main/junto/work/journal.ts",
-      "alsoWrittenBy": [
-        "src/main/junto/state/migrations.ts",
-        "src/main/junto/state/tasks-schema21-correction.ts"
-      ],
-      "reason": "Same schema-advance table rebuild.",
-      "retire": "Express a schema-advance table rebuild without an INSERT ... SELECT that names a product table."
-    },
-    {
       "table": "work_messages",
       "owner": "src/main/junto/work/repository.ts",
       "alsoWrittenBy": [
@@ -556,105 +488,19 @@
       "table": "work_pending_commands",
       "owner": "src/main/junto/work/journal.ts",
       "alsoWrittenBy": [
-        "src/main/junto/state/migrations.ts",
         "src/main/junto/work/repository.ts"
       ],
-      "reason": "journal.ts INSERTs the pending row as part of the append that records the command; repository.ts UPDATEs it to point at the disposition that resolved it (resolvePending). Both halves are one lifecycle, split only because resolution needs the domain reasoning the append deliberately does not carry. state/migrations.ts rebuilds the table on a schema step.",
+      "reason": "journal.ts INSERTs the pending row as part of the append that records the command; repository.ts UPDATEs it to point at the disposition that resolved it (resolvePending). Both halves are one lifecycle, split only because resolution needs the domain reasoning the append deliberately does not carry.",
       "retire": "Retires with the pending index itself: once the in-memory world holds unresolved commands, neither file writes this table."
     },
     {
       "table": "work_task_messages",
       "owner": "src/main/junto/work/repository.ts",
       "alsoWrittenBy": [
-        "src/main/junto/content/inline-media-migration.ts",
-        "src/main/junto/state/tasks-schema21-correction.ts"
+        "src/main/junto/content/inline-media-migration.ts"
       ],
       "reason": "Same inline-media backfill.",
       "retire": "Delete src/main/junto/content/inline-media-migration.ts once BACKFILL_INLINE_MEDIA_V1 is complete everywhere."
-    },
-    {
-      "table": "work_task_transitions",
-      "owner": "src/main/junto/work/repository.ts",
-      "alsoWrittenBy": [
-        "src/main/junto/state/migrations.ts",
-        "src/main/junto/state/tasks-schema21-correction.ts"
-      ],
-      "reason": "Same schema-advance table rebuild.",
-      "retire": "Express a schema-advance table rebuild without an INSERT ... SELECT that names a product table."
-    },
-    {
-      "table": "work_tasks",
-      "owner": "src/main/junto/work/repository.ts",
-      "alsoWrittenBy": [
-        "src/main/junto/state/migrations.ts",
-        "src/main/junto/state/tasks-schema21-correction.ts"
-      ],
-      "reason": "The migration rebuilds work_tasks during a schema advance, before any repository reads it.",
-      "retire": "Express a schema-advance table rebuild without an INSERT ... SELECT that names a product table."
-    },
-    {
-      "table": "work_facts",
-      "owner": "src/main/junto/work/journal.ts",
-      "alsoWrittenBy": [
-        "src/main/junto/state/migrations.ts",
-        "src/main/junto/state/tasks-schema21-correction.ts"
-      ],
-      "reason": "The 20 -> 21 consolidation step rebuilds work_facts (bak -> drop -> recreate -> copy) to shed its FK into the retired blob generation store; rows copy forward byte-exact before any repository can read.",
-      "retire": "Express a schema-advance table rebuild without an INSERT ... SELECT that names a product table."
-    },
-    {
-      "table": "work_dispositions",
-      "owner": "src/main/junto/work/journal.ts",
-      "alsoWrittenBy": [
-        "src/main/junto/state/tasks-schema21-correction.ts"
-      ],
-      "reason": "The corrective converter rewrites command_sha256/fact_sha256 referents and rehashes affected disposition events; journal.ts remains the runtime append seam.",
-      "retire": "Retires with the schema-21 corrective converter once no invalid-21 database remains."
-    },
-    {
-      "table": "work_event_sequences",
-      "owner": "src/main/junto/work/journal.ts",
-      "alsoWrittenBy": [
-        "src/main/junto/state/tasks-schema21-correction.ts"
-      ],
-      "reason": "The corrective converter allocates fresh sequences when a proposal record's seq slot is occupied; journal.ts remains the runtime allocator.",
-      "retire": "Retires with the schema-21 corrective converter once no invalid-21 database remains."
-    },
-    {
-      "table": "work_task_dependencies",
-      "owner": "src/main/junto/work/repository.ts",
-      "alsoWrittenBy": [
-        "src/main/junto/state/tasks-schema21-correction.ts"
-      ],
-      "reason": "The corrective converter materializes proposal planning dependsOn rows into the normalized dependency table.",
-      "retire": "Retires with the schema-21 corrective converter once no invalid-21 database remains."
-    },
-    {
-      "table": "work_task_finish",
-      "owner": "src/main/junto/work/repository.ts",
-      "alsoWrittenBy": [
-        "src/main/junto/state/tasks-schema21-correction.ts"
-      ],
-      "reason": "The corrective converter materializes proposal planning finish criteria and rewrites retired completion evidence in place.",
-      "retire": "Retires with the schema-21 corrective converter once no invalid-21 database remains."
-    },
-    {
-      "table": "canvas_nodes",
-      "owner": "src/main/junto/canvas/records.ts",
-      "alsoWrittenBy": [
-        "src/main/junto/state/tasks-schema21-correction.ts"
-      ],
-      "reason": "The corrective converter rewrites retired Tasks/region ether in place and rebuilds changed canvases through persistCanvas.",
-      "retire": "Retires with the schema-21 corrective converter once no invalid-21 database remains."
-    },
-    {
-      "table": "work_commands",
-      "owner": "src/main/junto/work/journal.ts",
-      "alsoWrittenBy": [
-        "src/main/junto/state/tasks-schema21-correction.ts"
-      ],
-      "reason": "The corrective converter rewrites retired action_json task payloads in place and rehashes the command events; journal.ts remains the runtime append seam.",
-      "retire": "Retires with the schema-21 corrective converter once no invalid-21 database remains."
     },
     {
       "table": "settings_preferences",

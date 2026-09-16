@@ -5,9 +5,7 @@ import { DatabaseSync } from "node:sqlite";
 import { ManagedRuntime } from "effect";
 import { afterEach, describe, expect, it } from "vitest";
 import { makeStateEngineLive, StateEngine } from "../src/main/junto/state/engine";
-import { CURRENT_STATE_SCHEMA_VERSION, migrateStateSchema, STATE_SCHEMA_MIGRATION_PLAN, STATE_SCHEMA_V22_IDENTITY } from "../src/main/junto/state/migrations";
-import { STATE_SCHEMA_V22_SQL } from "../src/main/junto/state/schema";
-import { verifyRecordedStateSchemaIdentity } from "../src/main/junto/state/schema-identity";
+import { CURRENT_STATE_SCHEMA_VERSION } from "../src/main/junto/state/migrations";
 import { assertLiveRequestCurrent, makeLiveRepository, operationArgsHash, transitionLiveOperationInTransaction, type LiveRequestCorrelation } from "../src/main/junto/overseer/live/repository";
 
 const roots: string[] = [];
@@ -151,29 +149,23 @@ describe("durable Live journal", () => {
     expect(await runtime.runPromise(repository.getOperation(operationInput.operationId))).toMatchObject({ status: "unknown" });
   });
 
-  it("upgrades a populated production v22 database and retains every old row including immutable Work logs", async () => {
+  it("opens the populated v1 fixture and retains every row including immutable Work logs", async () => {
     const path = await tempPath();
     await copyFile(new URL("./fixtures/state-v1/remote-v1.db", import.meta.url), path);
-    const version22 = new DatabaseSync(path);
+    const baseline = new DatabaseSync(path);
     let before: Record<string, unknown[]>;
     try {
-      migrateStateSchema(version22, { ...STATE_SCHEMA_MIGRATION_PLAN, currentVersion: 22,
-        currentSchemaSql: STATE_SCHEMA_V22_SQL,
-        migrations: STATE_SCHEMA_MIGRATION_PLAN.migrations.filter((migration) => migration.toVersion <= 22) });
-      expect(verifyRecordedStateSchemaIdentity(version22)).toMatchObject(STATE_SCHEMA_V22_IDENTITY);
-      version22.prepare("INSERT INTO provider_credential_bindings(credential_id, slot, lifecycle, created_at) VALUES (?, 'openrouter/apiKey', 'active', ?)")
-        .run("c3cbb7c1-8f51-41f3-8d34-1e95cbb6ff88", clock());
-      const tables = version22.prepare("SELECT name FROM sqlite_schema WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name <> 'state_schema_identity' ORDER BY name").all();
-      before = Object.fromEntries(tables.map((row) => [String(row.name), version22.prepare(`SELECT * FROM "${String(row.name).replaceAll('"', '""')}"`).all()]));
+      const tables = baseline.prepare("SELECT name FROM sqlite_schema WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name <> 'state_schema_identity' ORDER BY name").all();
+      before = Object.fromEntries(tables.map((row) => [String(row.name), baseline.prepare(`SELECT * FROM "${String(row.name).replaceAll('"', '""')}"`).all()]));
       for (const table of ["work_events", "work_commands", "work_facts", "work_dispositions"]) expect(before[table]!.length).toBeGreaterThan(0);
-    } finally { version22.close(); }
+    } finally { baseline.close(); }
     const { runtime, state } = await open(path);
     expect(state.info.schemaVersion).toBe(CURRENT_STATE_SCHEMA_VERSION);
-    expect(CURRENT_STATE_SCHEMA_VERSION).toBe(24);
-    const after = await runtime.runPromise(state.read("test.live-migration-preservation", (reader) => Object.fromEntries(
+    expect(CURRENT_STATE_SCHEMA_VERSION).toBe(1);
+    const after = await runtime.runPromise(state.read("test.live-baseline-preservation", (reader) => Object.fromEntries(
       Object.keys(before).map((table) => [table, reader.all(`SELECT * FROM "${table.replaceAll('"', '""')}"`)]))));
     expect(after).toEqual(before);
-    expect(await runtime.runPromise(state.read("test.live-new-tables", (reader) => reader.all(
+    expect(await runtime.runPromise(state.read("test.live-tables", (reader) => reader.all(
       "SELECT name FROM sqlite_schema WHERE type = 'table' AND (name LIKE 'overseer_live_%' OR name = 'openai_credential_bindings') ORDER BY name"))))
       .toEqual(["openai_credential_bindings", "overseer_live_events", "overseer_live_operations", "overseer_live_requests", "overseer_live_sessions"].map((name) => ({ name })));
   });

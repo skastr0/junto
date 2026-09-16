@@ -310,7 +310,7 @@ export const WORK_STATE_SCHEMA_SQL = `
         AND seq NOT GLOB '*[^0-9]*'
         AND substr(seq, 1, 1) <> '0'
       ),
-    protocol TEXT NOT NULL CHECK (protocol = 'vellum/work/v2'),
+    protocol TEXT NOT NULL CHECK (protocol = 'junto/work/v1'),
     record_type TEXT NOT NULL
       CHECK (record_type IN ('command', 'fact', 'disposition')),
     item_kind TEXT NOT NULL
@@ -2006,39 +2006,6 @@ export const WORK_PROPOSAL_EVENTS_REJECT_VOCAB_SQL =
   WORK_PROPOSAL_STATE_SCHEMA_SQL.replaceAll(
     "operation IN ('proposal.create', 'proposal.approve')",
     "operation IN ('proposal.create', 'proposal.approve', 'proposal.reject')",
-  );
-
-/**
- * Historical Work schema embedded in state schema versions 1–3.
- * Kept as an exact forward-migration witness; fresh installs use the current
- * trigger above. This avoids duplicating the rest of the large Work schema.
- */
-export const WORK_STATE_SCHEMA_V3_SQL = WORK_STATE_SCHEMA_SQL
-  .replace(`  ${WORK_PROPOSAL_STATE_SCHEMA_SQL}\n`, "")
-  .replace(
-  `  CREATE TRIGGER IF NOT EXISTS work_tasks_actor_immutable
-  BEFORE UPDATE OF actor_seat_id ON work_tasks
-  WHEN
-    OLD.actor_seat_id IS NOT NULL
-    AND OLD.actor_seat_id IS NOT NEW.actor_seat_id
-    AND NOT (
-      NEW.actor_seat_id IS NULL
-      AND NEW.state = 'submitted'
-    )
-  BEGIN
-    SELECT RAISE(
-      ABORT,
-      'work task actor seat is immutable except for operator release'
-    );
-  END;`,
-  `  CREATE TRIGGER IF NOT EXISTS work_tasks_actor_immutable
-  BEFORE UPDATE OF actor_seat_id ON work_tasks
-  WHEN
-    OLD.actor_seat_id IS NOT NULL
-    AND OLD.actor_seat_id IS NOT NEW.actor_seat_id
-  BEGIN
-    SELECT RAISE(ABORT, 'work task actor seat is immutable after first claim');
-  END;`,
   );
 
 /**

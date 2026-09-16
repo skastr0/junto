@@ -28,7 +28,7 @@ describe("browser profile id validation", () => {
   });
 
   it("maps profile to stable partition name", () => {
-    expect(partitionNameForProfile("work")).toBe("persist:vellum-profile-work");
+    expect(partitionNameForProfile("work")).toBe("persist:junto-profile-work");
   });
 });
 

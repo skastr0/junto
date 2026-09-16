@@ -533,7 +533,7 @@ describe("browser profile registry", () => {
     expect(Object.isFrozen(receipt)).toBe(true);
     expect(observed).toMatchObject({
       profileId: "personal",
-      partition: "persist:vellum-profile-personal",
+      partition: "persist:junto-profile-personal",
       stage: "live_clear_pending",
       ...wipePaths(root, "personal"),
     });

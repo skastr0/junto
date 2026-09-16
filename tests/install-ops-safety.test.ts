@@ -50,7 +50,7 @@ afterEach(async () => {
 });
 
 const makeRoot = async (): Promise<string> => {
-  const root = join(tmpdir(), `vellum-install-ops-safety-${randomUUID()}`);
+  const root = join(tmpdir(), `junto-install-ops-safety-${randomUUID()}`);
   roots.push(root);
   await mkdir(root, { recursive: true });
   return root;
@@ -88,7 +88,10 @@ const pathExists = async (path: string): Promise<boolean> => {
   }
 };
 
-const seedOperatorDatabase = (path: string, version = 18): void => {
+const seedOperatorDatabase = (
+  path: string,
+  version = CURRENT_STATE_SCHEMA_VERSION,
+): void => {
   const database = new DatabaseSync(path);
   try {
     database.exec(`
@@ -161,7 +164,7 @@ const readOperatorFacts = (path: string) => {
 const readOperatorFactsFromMainBytes = async (path: string): Promise<
   ReturnType<typeof readOperatorFacts>
 > => {
-  const copy = join(tmpdir(), `vellum-product-facts-${randomUUID()}.db`);
+  const copy = join(tmpdir(), `junto-product-facts-${randomUUID()}.db`);
   try {
     await writeFile(copy, await readFile(path), { mode: 0o600 });
     return readOperatorFacts(copy);
@@ -225,7 +228,7 @@ const expectFamilyUnchanged = async (
 
 const seedProductFamily = async (root: string): Promise<string> => {
   const productPath = join(root, "junto.db");
-  seedOperatorDatabase(productPath, 18);
+  seedOperatorDatabase(productPath);
   await chmod(productPath, 0o640);
   for (const suffix of FAMILY_SUFFIXES.slice(1)) {
     await writeFile(
@@ -239,7 +242,7 @@ const seedProductFamily = async (root: string): Promise<string> => {
 
 const expectProductFacts = async (productPath: string): Promise<void> => {
   await expect(readOperatorFactsFromMainBytes(productPath)).resolves.toEqual({
-    version: 18,
+    version: CURRENT_STATE_SCHEMA_VERSION,
     tables: ["operator_canary"],
     canary: "preserve-me",
   });
@@ -838,7 +841,7 @@ describe("install-ops complete SQLite-family admission", () => {
   it("rejects the product pathname itself and a non-regular ledger leaf", async () => {
     const root = await makeRoot();
     const productPath = join(root, "junto.db");
-    seedOperatorDatabase(productPath, 18);
+    seedOperatorDatabase(productPath);
     const productBytes = await readFile(productPath);
 
     const directRuntime = trackRuntime(
@@ -846,7 +849,9 @@ describe("install-ops complete SQLite-family admission", () => {
     );
     await expectDeferred(directRuntime, productPath);
     expect(await readFile(productPath)).toEqual(productBytes);
-    expect(readOperatorFacts(productPath).version).toBe(18);
+    expect(readOperatorFacts(productPath).version).toBe(
+      CURRENT_STATE_SCHEMA_VERSION,
+    );
 
     const directoryPath = join(root, "install-ops.db");
     await mkdir(directoryPath);

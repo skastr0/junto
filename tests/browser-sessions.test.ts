@@ -125,7 +125,7 @@ const makeSpyAdapter = (acknowledgeDestroy = true, throwAfterDestroy = false) =>
       executeJavaScript: async (code) => {
         spy.calls.push(`eval:${utf8ByteLength(code)}`);
         return {
-          __vellumEval: 1,
+          __juntoEval: 1,
           status: "ok",
           json: JSON.stringify({ code, nested: { values: [1, true, null] } }),
         };
@@ -286,7 +286,7 @@ describe("BrowserSessionService", () => {
         profile: "personal",
       },
     });
-    expect(views[0]?.partition).toBe("persist:vellum-profile-personal");
+    expect(views[0]?.partition).toBe("persist:junto-profile-personal");
     expect(views[0]?.calls).toContain("load:https://n1.example.com");
   });
 
@@ -524,7 +524,7 @@ describe("BrowserSessionService", () => {
       setBounds: () => {},
       detach: () => {},
       destroy: () => {},
-      executeJavaScript: async () => ({ __vellumEval: 1, status: "ok", json }),
+      executeJavaScript: async () => ({ __juntoEval: 1, status: "ok", json }),
     });
     const { service } = makeService(adapter);
     const opened = await service.open(target("result-bytes"));
@@ -547,7 +547,7 @@ describe("BrowserSessionService", () => {
       setBounds: () => {},
       detach: () => {},
       destroy: () => {},
-      executeJavaScript: async () => ({ __vellumEval: 1, status: "ok", json }),
+      executeJavaScript: async () => ({ __juntoEval: 1, status: "ok", json }),
     });
     const { service } = makeService(adapter);
     const opened = await service.open(target("result-shape"));
@@ -591,11 +591,11 @@ describe("BrowserSessionService", () => {
 
     expect(await service.eval(opened.data.sessionId, "raw()"))
       .toMatchObject({ ok: false, code: "unsupported_result" });
-    response = { __vellumEval: 1, status: "ok", json: "null", extra: true };
+    response = { __juntoEval: 1, status: "ok", json: "null", extra: true };
     expect(await service.eval(opened.data.sessionId, "extra()"))
       .toMatchObject({ ok: false, code: "unsupported_result" });
     response = {
-      __vellumEval: 1,
+      __juntoEval: 1,
       status: "result_too_large",
       message: "x".repeat(BROWSER_MAX_ERROR_BYTES + 1),
     };
@@ -688,7 +688,7 @@ describe("BrowserSessionService", () => {
       ok: true,
       data: { profile: "personal", sessionId: "session-3" },
     });
-    expect(views[2]?.partition).toBe("persist:vellum-profile-personal");
+    expect(views[2]?.partition).toBe("persist:junto-profile-personal");
   });
 
   it("coalesces concurrent Stop Page calls onto one physical destruction acknowledgement", async () => {
@@ -1148,7 +1148,7 @@ describe("BrowserSessionService", () => {
         executeJavaScript: () =>
           index === 0
             ? hangingEvaluation.promise
-            : Promise.resolve({ __vellumEval: 1, status: "ok", json: '"usable"' }),
+            : Promise.resolve({ __juntoEval: 1, status: "ok", json: '"usable"' }),
       };
     };
     const { service } = makeService(adapter);
@@ -1807,16 +1807,16 @@ describe("BrowserSessionService", () => {
         viewsDestroyed: 0,
       },
     });
-    workPartition.resolve("persist:vellum-profile-work");
+    workPartition.resolve("persist:junto-profile-work");
     const work = await pendingWork;
     expect(work).toMatchObject({ ok: true });
     expect(service.stateForOwner("job-shared", work.ok ? work.data.sessionId : "missing"))
       .toMatchObject({ ok: true });
     expect(views).toHaveLength(1);
-    expect(views[0]?.partition).toBe("persist:vellum-profile-work");
+    expect(views[0]?.partition).toBe("persist:junto-profile-work");
 
     expect(gate.cancelBeforeMutation(started.data.block)).toBe(true);
-    personalPartition.resolve("persist:vellum-profile-personal");
+    personalPartition.resolve("persist:junto-profile-personal");
     await expect(pendingPersonal).resolves.toMatchObject({ ok: false, code: "cancelled" });
     expect(views).toHaveLength(1);
   });
@@ -2341,7 +2341,7 @@ describe("BrowserSessionService", () => {
     expect(drainSettled).toBe(false);
     expect(views).toHaveLength(0);
 
-    partition.resolve("persist:vellum-profile-personal");
+    partition.resolve("persist:junto-profile-personal");
 
     await expect(opening).resolves.toMatchObject({
       ok: false,
@@ -2407,7 +2407,7 @@ describe("BrowserSessionService", () => {
     });
     expect(views).toHaveLength(0);
 
-    partition.resolve("persist:vellum-profile-personal");
+    partition.resolve("persist:junto-profile-personal");
     await expect(opening).resolves.toMatchObject({ ok: false, code: "cancelled" });
     await expect(service.drainUiOnQuit("retry shutdown")).resolves.toMatchObject({
       clean: true,
@@ -2595,7 +2595,7 @@ describe("BrowserSessionService", () => {
     await vi.waitFor(() => expect(partitionReads).toBe(1));
     service.beginUiShutdown("test shutdown");
     const draining = service.drainUiOnQuit("test shutdown");
-    partition.resolve("persist:vellum-profile-personal");
+    partition.resolve("persist:junto-profile-personal");
 
     await expect(opening).resolves.toMatchObject({ ok: false, code: "cancelled" });
     await expect(draining).resolves.toMatchObject({
@@ -2690,7 +2690,7 @@ describe("BrowserSessionService", () => {
     });
     await expect(evaluating).resolves.toMatchObject({ ok: false, code: "cancelled" });
 
-    evaluation.resolve({ __vellumEval: 1, status: "ok", json: "null" });
+    evaluation.resolve({ __juntoEval: 1, status: "ok", json: "null" });
     await Promise.resolve();
     await expect(service.drainUiOnQuit("test shutdown")).resolves.toMatchObject({
       clean: true,
@@ -2895,7 +2895,7 @@ describe("BrowserSessionService", () => {
     expect(views.some((view) => view.partition.includes("work"))).toBe(true);
 
     service.finishOverseerPageDelete(deleted.ref, "lease-page");
-    personalPartition.resolve("persist:vellum-profile-personal");
+    personalPartition.resolve("persist:junto-profile-personal");
     await expect(pending).resolves.toMatchObject({ ok: false, code: "cancelled" });
     expect(views.some((view) => view.partition.includes("personal"))).toBe(false);
     expect(service.overseerSessionsForRef(deleted.ref)).toEqual([]);

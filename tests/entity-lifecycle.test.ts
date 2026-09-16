@@ -1,8 +1,6 @@
-import { createHash } from "node:crypto";
 import { mkdtemp, mkdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { DatabaseSync } from "node:sqlite";
 import { Effect, Layer, ManagedRuntime } from "effect";
 import { afterEach, describe, expect, it } from "vitest";
 import {
@@ -24,22 +22,7 @@ import {
 } from "../src/main/junto/state/engine";
 import {
   CURRENT_STATE_SCHEMA_VERSION,
-  STATE_SCHEMA_MIGRATIONS,
-  STATE_SCHEMA_V5_IDENTITY,
-  STATE_SCHEMA_V6_IDENTITY,
-  STATE_SCHEMA_V7_IDENTITY,
-  STATE_SCHEMA_V8_IDENTITY,
 } from "../src/main/junto/state/migrations";
-import {
-  STATE_SCHEMA_V5_SQL,
-  STATE_SCHEMA_V6_SQL,
-  STATE_SCHEMA_V7_SQL,
-  STATE_SCHEMA_V8_SQL,
-} from "../src/main/junto/state/schema";
-import {
-  expectedStateSchemaIdentity,
-  verifyAndStampStateSchema,
-} from "../src/main/junto/state/schema-identity";
 import { WorkRepositoryLive } from "../src/main/junto/work/repository";
 import { SettingsLive } from "../src/main/junto/settings/service";
 import { StationRepositoryLive } from "../src/main/junto/station/repository";
@@ -113,22 +96,10 @@ describe("entity identity laws", () => {
 });
 
 describe("canvas entity registry", () => {
-  it("freezes v5/v6/v7/v8 identities and opens at current schema version", async () => {
-    expect(expectedStateSchemaIdentity(STATE_SCHEMA_V5_SQL)).toEqual(
-      STATE_SCHEMA_V5_IDENTITY,
-    );
-    expect(expectedStateSchemaIdentity(STATE_SCHEMA_V6_SQL)).toEqual(
-      STATE_SCHEMA_V6_IDENTITY,
-    );
-    expect(expectedStateSchemaIdentity(STATE_SCHEMA_V7_SQL)).toEqual(
-      STATE_SCHEMA_V7_IDENTITY,
-    );
-    expect(expectedStateSchemaIdentity(STATE_SCHEMA_V8_SQL)).toEqual(
-      STATE_SCHEMA_V8_IDENTITY,
-    );
-    expect(CURRENT_STATE_SCHEMA_VERSION).toBe(STATE_SCHEMA_MIGRATIONS.at(-1)?.toVersion);
+  it("opens at the version-1 baseline schema", async () => {
+    expect(CURRENT_STATE_SCHEMA_VERSION).toBe(1);
 
-    const root = await mkdtemp(join(tmpdir(), "vellum-entity-fresh-"));
+    const root = await mkdtemp(join(tmpdir(), "junto-entity-fresh-"));
     roots.push(root);
     const stateDirectory = join(root, "state");
     const path = join(stateDirectory, "junto.db");
@@ -137,95 +108,10 @@ describe("canvas entity registry", () => {
     const runtime = await openEngine(path);
     const state = await runtime.runPromise(StateEngine);
     expect(state.info.schemaVersion).toBe(CURRENT_STATE_SCHEMA_VERSION);
-  });
-
-  it("migrates v5 → v6 and backfills active entities from head", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vellum-entity-migrate-"));
-    roots.push(root);
-    const stateDirectory = join(root, "state");
-    const path = join(stateDirectory, "junto.db");
-    await mkdir(stateDirectory);
-
-    const body = JSON.stringify({
-      nodes: [
-        {
-          id: "agent-1",
-          type: "text",
-          x: 0,
-          y: 0,
-          width: 100,
-          height: 40,
-          text: "worker",
-          ether: {
-            entity: { kind: "agent", name: "local:worker" },
-            terminal: { bindingId: "bind-1" },
-          },
-        },
-      ],
-      edges: [],
-    });
-    const v5 = new DatabaseSync(path);
-    try {
-      v5.exec(STATE_SCHEMA_V5_SQL);
-      v5.prepare(
-        `
-          INSERT INTO canvas_generations(
-            generation, created_at, cause, intent_sha256, document_count
-          ) VALUES (?, ?, ?, ?, ?)
-        `,
-      ).run("1", "2026-07-31T00:00:00.000Z", "seed", "a".repeat(64), 1);
-      v5.prepare(
-        `
-          INSERT INTO canvas_generation_documents(
-            generation, name, body, sha256, modified_at
-          ) VALUES (?, ?, ?, ?, ?)
-        `,
-      ).run(
-        "1",
-        "main",
-        body,
-        createHash("sha256").update(body, "utf8").digest("hex"),
-        "2026-07-31T00:00:00.000Z",
-      );
-      v5.prepare(
-        "INSERT INTO canvas_head(singleton, generation) VALUES (1, '1')",
-      ).run();
-      verifyAndStampStateSchema(v5, STATE_SCHEMA_V5_SQL);
-      v5.exec("PRAGMA user_version = 5");
-    } finally {
-      v5.close();
-    }
-
-    const runtime = await openEngine(path);
-    const state = await runtime.runPromise(StateEngine);
-    expect(state.info.schemaVersion).toBe(CURRENT_STATE_SCHEMA_VERSION);
-
-    const row = await runtime.runPromise(
-      state.read("entity.backfill", (reader) =>
-        reader.get<{
-          readonly entity_id: string;
-          readonly lifecycle: string;
-          readonly kind: string | null;
-          readonly binding_id: string | null;
-        }>(
-          `
-            SELECT entity_id, lifecycle, kind, binding_id
-            FROM canvas_entities
-            WHERE canvas_name = 'main' AND entity_id = 'agent-1'
-          `,
-        ),
-      ),
-    );
-    expect(row).toEqual({
-      entity_id: "agent-1",
-      lifecycle: "active",
-      kind: "agent",
-      binding_id: "bind-1",
-    });
   });
 
   it("archives on canvas membership loss and soft-deletes from archive only", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vellum-entity-archive-"));
+    const root = await mkdtemp(join(tmpdir(), "junto-entity-archive-"));
     roots.push(root);
     const stateDirectory = join(root, "state");
     const path = join(stateDirectory, "junto.db");
@@ -286,7 +172,7 @@ describe("canvas entity registry", () => {
   });
 
   it("reactivates archived entity when node returns to the canvas", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vellum-entity-reactivate-"));
+    const root = await mkdtemp(join(tmpdir(), "junto-entity-reactivate-"));
     roots.push(root);
     const stateDirectory = join(root, "state");
     const path = join(stateDirectory, "junto.db");
@@ -321,7 +207,7 @@ describe("canvas entity registry", () => {
   });
 
   it("reassigns binding when prior holder is archived in the same write", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vellum-entity-rebind-"));
+    const root = await mkdtemp(join(tmpdir(), "junto-entity-rebind-"));
     roots.push(root);
     const stateDirectory = join(root, "state");
     const path = join(stateDirectory, "junto.db");
@@ -372,7 +258,7 @@ describe("canvas entity registry", () => {
   });
 
   it("archives all active entities when a canvas is removed", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vellum-entity-remove-canvas-"));
+    const root = await mkdtemp(join(tmpdir(), "junto-entity-remove-canvas-"));
     roots.push(root);
     const stateDirectory = join(root, "state");
     const path = join(stateDirectory, "junto.db");
@@ -406,7 +292,7 @@ describe("canvas entity registry", () => {
   });
 
   it("refuses soft-delete of an active entity", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vellum-entity-soft-active-"));
+    const root = await mkdtemp(join(tmpdir(), "junto-entity-soft-active-"));
     roots.push(root);
     const stateDirectory = join(root, "state");
     const path = join(stateDirectory, "junto.db");
@@ -444,7 +330,7 @@ describe("canvas entity registry", () => {
   });
 
   it("reactivates soft_deleted entity when node returns to the canvas", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vellum-entity-soft-reactivate-"));
+    const root = await mkdtemp(join(tmpdir(), "junto-entity-soft-reactivate-"));
     roots.push(root);
     const stateDirectory = join(root, "state");
     const path = join(stateDirectory, "junto.db");
@@ -479,7 +365,7 @@ describe("canvas entity registry", () => {
   });
 
   it("keeps same entity_id independent across canvases", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vellum-entity-multi-canvas-"));
+    const root = await mkdtemp(join(tmpdir(), "junto-entity-multi-canvas-"));
     roots.push(root);
     const stateDirectory = join(root, "state");
     const path = join(stateDirectory, "junto.db");
@@ -516,7 +402,7 @@ describe("canvas entity registry", () => {
   });
 
   it("swaps bindings among co-active nodes in one write", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vellum-entity-bind-swap-"));
+    const root = await mkdtemp(join(tmpdir(), "junto-entity-bind-swap-"));
     roots.push(root);
     const stateDirectory = join(root, "state");
     const path = join(stateDirectory, "junto.db");
@@ -571,105 +457,8 @@ describe("canvas entity registry", () => {
     expect(b?.bindingId).toBe("bind-1");
   });
 
-  it("backfills duplicate active bindings without bricking migrate", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vellum-entity-dup-bind-migrate-"));
-    roots.push(root);
-    const stateDirectory = join(root, "state");
-    const path = join(stateDirectory, "junto.db");
-    await mkdir(stateDirectory);
-
-    const body = JSON.stringify({
-      nodes: [
-        {
-          id: "agent-a",
-          type: "text",
-          x: 0,
-          y: 0,
-          width: 40,
-          height: 40,
-          text: "a",
-          ether: {
-            entity: { kind: "agent", name: "local:a" },
-            terminal: { bindingId: "dup" },
-          },
-        },
-        {
-          id: "agent-b",
-          type: "text",
-          x: 10,
-          y: 0,
-          width: 40,
-          height: 40,
-          text: "b",
-          ether: {
-            entity: { kind: "agent", name: "local:b" },
-            terminal: { bindingId: "dup" },
-          },
-        },
-      ],
-      edges: [],
-    });
-    const v5 = new DatabaseSync(path);
-    try {
-      v5.exec(STATE_SCHEMA_V5_SQL);
-      v5.prepare(
-        `
-          INSERT INTO canvas_generations(
-            generation, created_at, cause, intent_sha256, document_count
-          ) VALUES (?, ?, ?, ?, ?)
-        `,
-      ).run("1", "2026-07-31T00:00:00.000Z", "seed", "a".repeat(64), 1);
-      v5.prepare(
-        `
-          INSERT INTO canvas_generation_documents(
-            generation, name, body, sha256, modified_at
-          ) VALUES (?, ?, ?, ?, ?)
-        `,
-      ).run(
-        "1",
-        "main",
-        body,
-        createHash("sha256").update(body, "utf8").digest("hex"),
-        "2026-07-31T00:00:00.000Z",
-      );
-      v5.prepare(
-        "INSERT INTO canvas_head(singleton, generation) VALUES (1, '1')",
-      ).run();
-      verifyAndStampStateSchema(v5, STATE_SCHEMA_V5_SQL);
-      v5.exec("PRAGMA user_version = 5");
-    } finally {
-      v5.close();
-    }
-
-    const runtime = openEngine(path);
-    const state = await runtime.runPromise(StateEngine);
-    expect(state.info.schemaVersion).toBe(CURRENT_STATE_SCHEMA_VERSION);
-
-    const rows = await runtime.runPromise(
-      state.read("entity.dup-bind", (reader) =>
-        reader.all<{
-          readonly entity_id: string;
-          readonly binding_id: string | null;
-          readonly lifecycle: string;
-        }>(
-          `
-            SELECT entity_id, binding_id, lifecycle
-            FROM canvas_entities
-            WHERE canvas_name = 'main'
-            ORDER BY entity_id
-          `,
-        ),
-      ),
-    );
-    expect(rows).toHaveLength(2);
-    expect(rows.every((r) => r.lifecycle === "active")).toBe(true);
-    const bindings = rows.map((r) => r.binding_id);
-    expect(bindings.filter((b) => b === "dup")).toHaveLength(1);
-    expect(bindings.filter((b) => b === null)).toHaveLength(1);
-  });
-
   it("writes only the entity rows whose registry identity moved", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vellum-entity-delta-"));
+    const root = await mkdtemp(join(tmpdir(), "junto-entity-delta-"));
     roots.push(root);
     const stateDirectory = join(root, "state");
     const path = join(stateDirectory, "junto.db");
@@ -770,7 +559,7 @@ describe("canvas entity registry", () => {
   });
 
   it("heals a registry row the table lost on the next write", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vellum-entity-heal-gap-"));
+    const root = await mkdtemp(join(tmpdir(), "junto-entity-heal-gap-"));
     roots.push(root);
     const stateDirectory = join(root, "state");
     const path = join(stateDirectory, "junto.db");
@@ -824,7 +613,7 @@ describe("canvas entity registry", () => {
   });
 
   it("heals a registry row whose kind drifted from the document", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vellum-entity-heal-kind-"));
+    const root = await mkdtemp(join(tmpdir(), "junto-entity-heal-kind-"));
     roots.push(root);
     const stateDirectory = join(root, "state");
     const path = join(stateDirectory, "junto.db");
@@ -879,7 +668,7 @@ describe("canvas entity registry", () => {
   });
 
   it("lists suppressed entity ids for portfolio merge", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vellum-entity-suppress-"));
+    const root = await mkdtemp(join(tmpdir(), "junto-entity-suppress-"));
     roots.push(root);
     const stateDirectory = join(root, "state");
     const path = join(stateDirectory, "junto.db");
@@ -917,7 +706,7 @@ describe("canvas entity registry", () => {
   });
 
   it("refuses soft-delete of missing entity", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vellum-entity-soft-missing-"));
+    const root = await mkdtemp(join(tmpdir(), "junto-entity-soft-missing-"));
     roots.push(root);
     const stateDirectory = join(root, "state");
     const path = join(stateDirectory, "junto.db");

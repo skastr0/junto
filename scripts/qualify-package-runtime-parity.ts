@@ -34,7 +34,6 @@ import {
   verifyPackagedRuntimeParity,
   type PackageRuntimeParityVerification,
   type PackageRuntimeProvenance,
-  type PackageSourceFacts,
   type RuntimeBuildIdentity,
 } from "./package-runtime-provenance";
 import { REMOTE_ENTRY_SOURCE_RELATIVE } from "./build-linux-remote-runtime";
@@ -53,6 +52,8 @@ export const PACKAGE_RUNTIME_PARITY_RECEIPT_SCHEMA =
   "junto/package-runtime-parity-receipt/v2" as const;
 export const PACKAGE_RUNTIME_PARITY_ATTEMPT_SCHEMA =
   "junto/package-runtime-parity-attempt/v1" as const;
+export const HISTORICAL_COMPARISON_RELATIVE =
+  "tests/fixtures/package-runtime-parity/public-0.1.14-schema18-historical.json" as const;
 
 const SOURCE_COMMIT = /^[0-9a-f]{40}$/u;
 const SHA256 = /^[0-9a-f]{64}$/u;
@@ -60,11 +61,34 @@ const UUID =
   /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
 const PRODUCT_NAME = "Junto" as const;
 
+export type HistoricalPackageComparison = {
+  readonly schema: "junto/package-runtime-historical-comparison/v1";
+  readonly classification: "historical-comparison-only";
+  readonly product: typeof PRODUCT_NAME;
+  readonly release: {
+    readonly appVersion: "0.1.14";
+    readonly sourceComparisonCommit: string;
+    readonly currentStateSchemaVersion: 18;
+    readonly migrationHead: {
+      readonly fromVersion: 17;
+      readonly toVersion: 18;
+      readonly name: string;
+    };
+    readonly migrationIdentitySha256: string;
+  };
+  readonly evidence: ReadonlyArray<{
+    readonly path: string;
+    readonly sha256: string;
+  }>;
+  readonly constraint: string;
+};
+
 export type StaleRemoteProbe = {
   readonly synthetic: true;
+  readonly historicalComparisonOnly: true;
   readonly planted: {
-    readonly appVersion: string;
-    readonly currentStateSchemaVersion: number;
+    readonly appVersion: "0.1.14";
+    readonly currentStateSchemaVersion: 18;
     readonly payloadSha256: string;
     readonly provenanceSha256: string;
   };
@@ -130,6 +154,15 @@ export type PackageRuntimeParityReceipt = {
   readonly linuxRuntimeAudit: LinuxRuntimeAuditReceipt;
   readonly linuxRuntimeAuditSha256: string;
   readonly staleRemoteProbe: StaleRemoteProbe;
+  readonly historicalComparison: {
+    readonly file: typeof HISTORICAL_COMPARISON_RELATIVE;
+    readonly fixtureSha256: string;
+    readonly appVersion: "0.1.14";
+    readonly currentStateSchemaVersion: 18;
+    readonly migrationIdentitySha256: string;
+    readonly evidence: HistoricalPackageComparison["evidence"];
+    readonly use: "historical-comparison-only";
+  };
 };
 
 export type QualificationAttemptMarker = {
@@ -242,14 +275,101 @@ const runGit = (
     quiet: true,
   });
 
-/**
- * Plant ignored output only. The official cohort build must remove it. The
- * planted bundle claims the current source identity with a synthetic stale
- * marker, so byte-replacement is proven rather than size-rejected.
- */
-export const plantStaleRemoteProbe = async (input: {
+export const loadHistoricalPackageComparison = async (
+  repoRoot: string,
+): Promise<{
+  readonly comparison: HistoricalPackageComparison;
+  readonly fixtureSha256: string;
+}> => {
+  const fixturePath = path.join(repoRoot, HISTORICAL_COMPARISON_RELATIVE);
+  await requireRegularFile(fixturePath, "historical comparison fixture");
+  const fixtureBody = await readFile(fixturePath);
+  let input: unknown;
+  try {
+    input = JSON.parse(fixtureBody.toString("utf8"));
+  } catch {
+    throw new Error("historical comparison fixture is not valid JSON");
+  }
+  const record = requireRecord(input, "historical comparison fixture");
+  const release = requireRecord(record.release, "historical release");
+  const head = requireRecord(release.migrationHead, "historical migration head");
+  if (
+    record.schema !==
+      "junto/package-runtime-historical-comparison/v1" ||
+    record.classification !== "historical-comparison-only" ||
+    record.product !== PRODUCT_NAME ||
+    release.appVersion !== "0.1.14" ||
+    release.currentStateSchemaVersion !== 18 ||
+    head.fromVersion !== 17 ||
+    head.toVersion !== 18
+  ) {
+    throw new Error("historical comparison must remain public 0.1.14 schema 18");
+  }
+  const evidenceInput = record.evidence;
+  if (!Array.isArray(evidenceInput) || evidenceInput.length === 0) {
+    throw new Error("historical comparison has no evidence hashes");
+  }
+  const evidence = evidenceInput.map((entry, index) => {
+    const item = requireRecord(entry, `historical evidence ${String(index)}`);
+    return {
+      path: requireString(item.path, "historical evidence path"),
+      sha256: requireString(
+        item.sha256,
+        "historical evidence SHA-256",
+        SHA256,
+      ),
+    };
+  });
+  const fixtureDirectory = path.dirname(fixturePath);
+  const fixturesRoot = path.resolve(repoRoot, "tests/fixtures");
+  for (const item of evidence) {
+    const evidencePath = path.resolve(fixtureDirectory, item.path);
+    const relative = path.relative(fixturesRoot, evidencePath);
+    if (
+      relative.startsWith("..") ||
+      path.isAbsolute(relative) ||
+      relative.length === 0
+    ) {
+      throw new Error("historical evidence path escapes tests/fixtures");
+    }
+    await requireRegularFile(evidencePath, "historical evidence");
+    if ((await sha256File(evidencePath)) !== item.sha256) {
+      throw new Error(`historical evidence hash mismatch: ${item.path}`);
+    }
+  }
+  const comparison: HistoricalPackageComparison = {
+    schema: "junto/package-runtime-historical-comparison/v1",
+    classification: "historical-comparison-only",
+    product: PRODUCT_NAME,
+    release: {
+      appVersion: "0.1.14",
+      sourceComparisonCommit: requireString(
+        release.sourceComparisonCommit,
+        "historical source comparison commit",
+        SOURCE_COMMIT,
+      ),
+      currentStateSchemaVersion: 18,
+      migrationHead: {
+        fromVersion: 17,
+        toVersion: 18,
+        name: requireString(head.name, "historical migration head name"),
+      },
+      migrationIdentitySha256: requireString(
+        release.migrationIdentitySha256,
+        "historical migration identity SHA-256",
+        SHA256,
+      ),
+    },
+    evidence,
+    constraint: requireString(record.constraint, "historical constraint"),
+  };
+  return { comparison, fixtureSha256: sha256(fixtureBody) };
+};
+
+/** Plant ignored output only. The official cohort build must remove it. */
+export const plantHistoricalStaleRemote = async (input: {
   readonly repoRoot: string;
-  readonly source: PackageSourceFacts;
+  readonly comparison: HistoricalPackageComparison;
 }): Promise<StaleRemoteProbe["planted"]> => {
   const outputDirectory = path.join(input.repoRoot, "out/remote");
   await rm(outputDirectory, { recursive: true, force: true });
@@ -258,10 +378,10 @@ export const plantStaleRemoteProbe = async (input: {
     [
       "#!/usr/bin/env node",
       "// Synthetic stale-package probe. Never a published artifact.",
-      `var CURRENT_STATE_SCHEMA_VERSION = ${String(input.source.currentStateSchemaVersion)};`,
-      `var APP_VERSION = ${JSON.stringify(input.source.appVersion)};`,
+      "var CURRENT_STATE_SCHEMA_VERSION = 18;",
+      `var APP_VERSION = ${JSON.stringify(input.comparison.release.appVersion)};`,
       "module.exports = { CURRENT_STATE_SCHEMA_VERSION, APP_VERSION };",
-      "// padding proves a foreign bundle is replaced, not size-rejected",
+      "// padding proves an old plausible bundle is replaced, not size-rejected",
       "x".repeat(2048),
       "",
     ].join("\n"),
@@ -270,22 +390,25 @@ export const plantStaleRemoteProbe = async (input: {
   const identity: RuntimeBuildIdentity = {
     schema: RUNTIME_BUILD_IDENTITY_SCHEMA,
     cohortNonce: randomUUID(),
-    sourceCommit: input.source.sourceCommit,
+    sourceCommit: input.comparison.release.sourceComparisonCommit,
     runtime: "linux-remote",
   };
   const payload = embedRuntimeBuildIdentity({ payload: rawMarker, identity });
   // This is an explicitly synthetic stale probe, not admitted source facts.
+  // Keep its historical values isolated from the live source-facts capability.
   const provenance: PackageRuntimeProvenance = {
     schema: PACKAGE_RUNTIME_PROVENANCE_SCHEMA,
     product: "Junto",
     runtime: "linux-remote",
-    appVersion: input.source.appVersion,
-    sourceCommit: input.source.sourceCommit,
+    appVersion: input.comparison.release.appVersion,
+    sourceCommit: input.comparison.release.sourceComparisonCommit,
     buildIdentity: identity,
     state: {
-      currentStateSchemaVersion: input.source.currentStateSchemaVersion,
-      migrationHead: input.source.migrationHead,
-      migrationIdentitySha256: input.source.migrationIdentitySha256,
+      currentStateSchemaVersion:
+        input.comparison.release.currentStateSchemaVersion,
+      migrationHead: input.comparison.release.migrationHead,
+      migrationIdentitySha256:
+        input.comparison.release.migrationIdentitySha256,
     },
     payload: {
       packagedPath: "resources/app-remote/junto-remote.js",
@@ -297,6 +420,9 @@ export const plantStaleRemoteProbe = async (input: {
     `${JSON.stringify(provenance, null, 2)}\n`,
     "utf8",
   );
+  if (provenance.schema !== PACKAGE_RUNTIME_PROVENANCE_SCHEMA) {
+    throw new Error("synthetic stale provenance schema mismatch");
+  }
   await writeFile(
     path.join(input.repoRoot, REMOTE_ENTRY_SOURCE_RELATIVE),
     payload,
@@ -308,8 +434,8 @@ export const plantStaleRemoteProbe = async (input: {
     { mode: 0o644 },
   );
   return {
-    appVersion: input.source.appVersion,
-    currentStateSchemaVersion: input.source.currentStateSchemaVersion,
+    appVersion: "0.1.14",
+    currentStateSchemaVersion: 18,
     payloadSha256: sha256(payload),
     provenanceSha256: sha256(provenanceBody),
   };
@@ -730,15 +856,16 @@ export const qualifyFreshPackageRuntimeParity = async (input: {
           expectedSourceCommit: rootFacts.sourceCommit,
         });
         const source = assertPackageSourceFactsEqual(rootFacts, cloneFacts).clone;
+        const historical = await loadHistoricalPackageComparison(cloneRoot);
 
         run({
           command: "bun",
           args: ["install", "--frozen-lockfile"],
           cwd: cloneRoot,
         });
-        const planted = await plantStaleRemoteProbe({
+        const planted = await plantHistoricalStaleRemote({
           repoRoot: cloneRoot,
-          source,
+          comparison: historical.comparison,
         });
 
         run({
@@ -837,10 +964,22 @@ export const qualifyFreshPackageRuntimeParity = async (input: {
           linuxRuntimeAuditSha256: sha256(JSON.stringify(linuxRuntimeAudit)),
           staleRemoteProbe: {
             synthetic: true,
+            historicalComparisonOnly: true,
             planted,
             outcome: "replaced",
             rebuiltPayloadSha256,
             packagedPayloadSha256: packagedRemote.payloadSha256,
+          },
+          historicalComparison: {
+            file: HISTORICAL_COMPARISON_RELATIVE,
+            fixtureSha256: historical.fixtureSha256,
+            appVersion: historical.comparison.release.appVersion,
+            currentStateSchemaVersion:
+              historical.comparison.release.currentStateSchemaVersion,
+            migrationIdentitySha256:
+              historical.comparison.release.migrationIdentitySha256,
+            evidence: historical.comparison.evidence,
+            use: "historical-comparison-only",
           },
         };
         decodePackageRuntimeParityReceipt(receipt);

@@ -65,7 +65,7 @@ const TINY_PNG = Buffer.from(
 
 describe("inline media migration", () => {
   it("rewrites parts_json base64 into ContentRef, records object, marks complete", async () => {
-    const home = await tempRoot("vellum-inline-media-");
+    const home = await tempRoot("junto-inline-media-");
     const { state, installOps, contentRoot } = await openEngines(home);
 
     const boardParts = JSON.stringify([
@@ -188,7 +188,7 @@ describe("inline media migration", () => {
   });
 
   it("completes against immutable work logs and leaves them byte-identical", async () => {
-    const home = await tempRoot("vellum-inline-media-logs-");
+    const home = await tempRoot("junto-inline-media-logs-");
     const { state, installOps, contentRoot } = await openEngines(home);
 
     const factBody = JSON.stringify({
@@ -235,7 +235,7 @@ describe("inline media migration", () => {
             "home1",
             "home1",
             "1",
-            "vellum/work/v2",
+            "junto/work/v1",
             "fact",
             "message",
             "msg-1",

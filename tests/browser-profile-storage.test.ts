@@ -42,7 +42,7 @@ import type {
 const WIPE_ID = "11111111-1111-4111-8111-111111111111";
 const SECOND_WIPE_ID = "22222222-2222-4222-8222-222222222222";
 const PROFILE = "personal";
-const PARTITION = "persist:vellum-profile-personal";
+const PARTITION = "persist:junto-profile-personal";
 
 interface Layout {
   readonly root: string;
@@ -87,7 +87,7 @@ describe("browser profile storage lifecycle", () => {
   });
 
   const createLayout = async (storageName = "exact-electron-storage"): Promise<Layout> => {
-    cleanupRoot = await realpath(await mkdtemp(join(tmpdir(), "vellum-profile-storage-")));
+    cleanupRoot = await realpath(await mkdtemp(join(tmpdir(), "junto-profile-storage-")));
     const userDataPath = join(cleanupRoot, "User Data");
     const sessionDataPath = join(userDataPath, "Session Data");
     const storagePath = join(sessionDataPath, "Partitions", storageName);
@@ -783,7 +783,7 @@ describe("browser profile storage lifecycle", () => {
       stage: "live_clear_pending",
     });
     expect(await Effect.runPromise(registry.partitionName("work"))).toBe(
-      "persist:vellum-profile-work",
+      "persist:junto-profile-work",
     );
   });
 

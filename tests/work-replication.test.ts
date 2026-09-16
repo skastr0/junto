@@ -680,7 +680,7 @@ describe("WorkRepository v2 report reconciliation", () => {
       Schema.decodeUnknownSync(WorkRecord, {
         onExcessProperty: "error",
       })({
-        protocol: "vellum/work/v2",
+        protocol: "junto/work/v1",
         id: {
           route: { eventHome: cc, entityHome: cc },
           seq: "1",
@@ -710,7 +710,7 @@ describe("WorkRepository v2 report reconciliation", () => {
       Schema.decodeUnknownSync(WorkRecord, {
         onExcessProperty: "error",
       })({
-        protocol: "vellum/work/v2",
+        protocol: "junto/work/v1",
         id: {
           route: { eventHome: cc, entityHome: cc },
           seq: "2",

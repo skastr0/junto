@@ -60,7 +60,7 @@ export const BROWSER_PROFILES_STATE_SCHEMA_SQL = `
     profile_id TEXT NOT NULL UNIQUE
       REFERENCES browser_profiles(id) ON DELETE RESTRICT,
     partition TEXT NOT NULL
-      CHECK (partition = 'persist:vellum-profile-' || profile_id),
+      CHECK (partition = 'persist:junto-profile-' || profile_id),
     requested_at TEXT NOT NULL CHECK (length(requested_at) > 0),
     stage TEXT NOT NULL
       CHECK (stage IN ('live_clear_pending', 'restart_delete_pending')),

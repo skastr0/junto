@@ -38,7 +38,7 @@ export const workControlTokenPath = (workHome: string): string =>
   `${workHome}/token`;
 
 export const WORK_HOME_ENV = "JUNTO_WORK_HOME";
-export const WORK_PROTOCOL_VERSION = "junto-work/v1";
+export const WORK_PROTOCOL_VERSION = "junto/work-control/v1";
 
 export const WORK_DEFAULT_BATCH_CONCURRENCY = 5;
 export const WORK_DEFAULT_TIMEOUT_MS = 30_000;

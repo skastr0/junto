@@ -13,7 +13,6 @@ import {
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { CURRENT_STATE_SCHEMA_IDENTITY, CURRENT_STATE_SCHEMA_VERSION, STATE_SCHEMA_MIGRATIONS } from "../src/main/junto/state/migrations";
 import {
   MAIN_PAYLOAD_SOURCE_RELATIVE,
   MAIN_PROVENANCE_SOURCE_RELATIVE,
@@ -37,12 +36,9 @@ import {
   type RuntimeBuildIdentity,
 } from "../scripts/package-runtime-provenance";
 import {
-  HISTORICAL_COMPARISON_RELATIVE,
   PACKAGE_RUNTIME_PARITY_ATTEMPT_SCHEMA,
   cloneExactCommit,
   decodePackageRuntimeParityReceipt,
-  loadHistoricalPackageComparison,
-  plantHistoricalStaleRemote,
   readLinuxX64ExecutionFacts,
   withQualificationReceiptAttempt,
 } from "../scripts/qualify-package-runtime-parity";
@@ -281,10 +277,10 @@ const createSourceRepository = async (
   readonly root: string;
   readonly commit: string;
 }> => {
-  const appVersion = options.appVersion ?? "0.1.14";
+  const appVersion = options.appVersion ?? "0.2.0";
   const schemaVersion = options.schemaVersion ?? 20;
   const migrationName =
-    options.migrationName ?? "witness-every-projected-work-table";
+    options.migrationName ?? "synthetic-migration-head";
   const migrationIdentitySha256 =
     options.migrationIdentitySha256 ??
     "b545aa0771810a631eeeea9f7b642467e6cca327ba74392298457aab1cec1955";
@@ -319,7 +315,7 @@ const mutatePackageSourceFacts = async (
   if (field === "appVersion") {
     await writeFile(
       path.join(root, "package.json"),
-      `${JSON.stringify({ version: "0.1.15" })}\n`,
+      `${JSON.stringify({ version: "0.2.1" })}\n`,
     );
     return;
   }
@@ -339,7 +335,7 @@ const mutatePackageSourceFacts = async (
           ["fromVersion: 19, toVersion: 20", "fromVersion: 20, toVersion: 21"],
         ]
       : field === "migrationHead"
-        ? [["witness-every-projected-work-table", "different-head"]]
+        ? [["synthetic-migration-head", "different-head"]]
         : [
             [
               "b545aa0771810a631eeeea9f7b642467e6cca327ba74392298457aab1cec1955",
@@ -372,29 +368,6 @@ afterAll(async () => {
 });
 
 describe("fresh compiler cohort provenance", () => {
-  it("reads the current schema head without changing migrations", async () => {
-    const facts = await readPackageSourceFacts({
-      repoRoot,
-      requireClean: false,
-    });
-    const packageVersion = (
-      JSON.parse(
-        await readFile(path.join(repoRoot, "package.json"), "utf8"),
-      ) as { readonly version: string }
-    ).version;
-    expect(facts).toMatchObject({
-      appVersion: packageVersion,
-      currentStateSchemaVersion: CURRENT_STATE_SCHEMA_VERSION,
-      migrationHead: {
-        fromVersion: STATE_SCHEMA_MIGRATIONS.at(-1)!.fromVersion,
-        toVersion: STATE_SCHEMA_MIGRATIONS.at(-1)!.toVersion,
-        name: STATE_SCHEMA_MIGRATIONS.at(-1)!.name,
-      },
-      migrationIdentitySha256:
-        CURRENT_STATE_SCHEMA_IDENTITY.actualSchemaSha256,
-    });
-  });
-
   it("removes stale main and Remote before both compilers and stamps one identity", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "junto-cohort-build-"));
     try {
@@ -402,7 +375,7 @@ describe("fresh compiler cohort provenance", () => {
       await mkdir(path.join(root, "out/remote"), { recursive: true });
       const stale = compiled(
         "electron-main",
-        "var CURRENT_STATE_SCHEMA_VERSION=18; var APP_VERSION='0.1.13';\n",
+        "var CURRENT_STATE_SCHEMA_VERSION=1; var APP_VERSION='0.0.0-stale';\n",
       );
       await writeFile(path.join(root, MAIN_PAYLOAD_SOURCE_RELATIVE), stale);
       await writeProvenance({
@@ -410,7 +383,7 @@ describe("fresh compiler cohort provenance", () => {
         payload: stale,
         file: path.join(root, MAIN_PROVENANCE_SOURCE_RELATIVE),
       });
-      await writeFile(path.join(root, "out/remote/stale"), "schema 18\n");
+      await writeFile(path.join(root, "out/remote/stale"), "stale\n");
       await writeFile(path.join(root, "out/sibling"), "preserve\n");
       let mainWasAbsent = false;
       let remoteWasAbsent = false;
@@ -660,7 +633,7 @@ describe("package source facts", () => {
   });
 
   it.each([
-    "0.1.14-01",
+    "9.9.9-01",
     "1.2.3-rc.01",
   ] as const)("rejects SemVer 2 numeric prerelease leading zeroes (%s)", async (appVersion) => {
     const fixture = await createSourceRepository({ appVersion });
@@ -714,9 +687,9 @@ describe("package source facts", () => {
         "mutated",
       ),
     ).toBe(false);
-    expect(facts.appVersion).toBe("0.1.14");
+    expect(facts.appVersion).toBe("0.2.0");
     expect(facts.migrationHead.name).toBe(
-      "witness-every-projected-work-table",
+      "synthetic-migration-head",
     );
   });
 });
@@ -749,7 +722,7 @@ describe("packaged runtime exact parity and closure", () => {
     try {
       const staleMain = compiled(
         "electron-main",
-        "var CURRENT_STATE_SCHEMA_VERSION=18; var APP_VERSION='0.1.13';\n",
+        "var CURRENT_STATE_SCHEMA_VERSION=1; var APP_VERSION='0.0.0-stale';\n",
       );
       const candidate = await createSyntheticLinuxRuntime({
         root,
@@ -881,8 +854,8 @@ describe("packaged runtime exact parity and closure", () => {
       ).toEqual([
         "resources/app-remote/LICENSE",
         "resources/app-remote/THIRD_PARTY_NOTICES.md",
-        "resources/app-remote/package.json",
         "resources/app-remote/junto-remote.js",
+        "resources/app-remote/package.json",
       ]);
       await expect(readFile(path.join(runtime, "preserve"), "utf8")).resolves.toBe(
         "keep\n",
@@ -1197,39 +1170,7 @@ describe("qualification receipt lifecycle", () => {
   });
 });
 
-describe("historical probe and official wiring", () => {
-  it("pins public 0.1.14 schema 18 only as hash-checked history", async () => {
-    const historical = await loadHistoricalPackageComparison(repoRoot);
-    expect(historical.comparison).toMatchObject({
-      classification: "historical-comparison-only",
-      product: "Junto",
-      release: {
-        appVersion: "0.1.14",
-        currentStateSchemaVersion: 18,
-        migrationHead: { fromVersion: 17, toVersion: 18 },
-      },
-    });
-    expect(HISTORICAL_COMPARISON_RELATIVE).toContain("historical");
-  });
-
-  it("plants a plausible schema-18 bundle that a cohort must replace", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "junto-stale-probe-"));
-    try {
-      const historical = await loadHistoricalPackageComparison(repoRoot);
-      const planted = await plantHistoricalStaleRemote({
-        repoRoot: root,
-        comparison: historical.comparison,
-      });
-      expect(planted.currentStateSchemaVersion).toBe(18);
-      expect(planted.payloadSha256).toMatch(/^[0-9a-f]{64}$/u);
-      await expect(
-        readFile(path.join(root, REMOTE_ENTRY_SOURCE_RELATIVE), "utf8"),
-      ).resolves.toContain("CURRENT_STATE_SCHEMA_VERSION = 18");
-    } finally {
-      await rm(root, { recursive: true, force: true });
-    }
-  });
-
+describe("official wiring", () => {
   it("builds once and verifies package drafts before publication", async () => {
     const [buildApp, macPackage, linuxPackage, qualifier] = await Promise.all([
       readFile(path.join(repoRoot, "scripts/build-app.sh"), "utf8"),

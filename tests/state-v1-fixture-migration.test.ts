@@ -3,7 +3,6 @@ import {
   copyFile,
   mkdtemp,
   readFile,
-  readdir,
   rm,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -65,12 +64,6 @@ type FixtureCase = {
   readonly fileName: string;
   readonly sha256: string;
   readonly preservedTables: ReadonlyArray<string>;
-  /**
-   * Populated v1 tables deliberately consolidated away by a later step: their
-   * rows are not preserved in place — the semantic content is asserted through
-   * the service reads, and the pre-migration backup retains them byte-exact.
-   */
-  readonly consolidatedTables?: ReadonlyArray<string>;
 };
 
 const cases: ReadonlyArray<FixtureCase> = [
@@ -78,16 +71,12 @@ const cases: ReadonlyArray<FixtureCase> = [
     role: "command-center",
     fileName: "command-center-v1.db",
     sha256:
-      "e1c12bcf3a662f52854936bfee1c0ef5fd41e024e80d7223bd3c90e0a1d00d2c",
-    // The blob canvas tables of v1 are consolidated into relational canvas
-    // authority by the 20 -> 21 step; their semantic content is asserted via
-    // CanvasesService below, and the backup still preserves them byte-exact.
-    consolidatedTables: [
-      "canvas_generations",
-      "canvas_generation_documents",
-      "canvas_head",
-    ],
+      "ba3fd2b90591bd83f3706b153799c0f325ab47bc10b273be5fdcccd9155a2615",
     preservedTables: [
+      "canvas_documents",
+      "canvas_edges",
+      "canvas_nodes",
+      "canvas_portfolio_head",
       "host_registry",
       "host_registry_state",
       "station_known_installations",
@@ -95,6 +84,7 @@ const cases: ReadonlyArray<FixtureCase> = [
       "station_configuration",
       "station_fleet_targets",
       "station_peer_ack_cursors",
+      "work_canvas_revisions",
       "work_event_sequences",
       "work_events",
       "work_facts",
@@ -107,7 +97,7 @@ const cases: ReadonlyArray<FixtureCase> = [
     role: "remote",
     fileName: "remote-v1.db",
     sha256:
-      "23db672fe4f4fbc7fbe0fe4a5c9efd3f009f93f4500462aa036b9aa57ac19cc9",
+      "2d9e0be7c9571292ad872e45b415efa8fbdfa91198ab0a178f1ae31d12c6588a",
     preservedTables: [
       "host_registry",
       "host_registry_state",
@@ -119,6 +109,7 @@ const cases: ReadonlyArray<FixtureCase> = [
       "station_projection_head",
       "station_received_cursors",
       "station_peer_ack_cursors",
+      "work_canvas_revisions",
       "work_event_sequences",
       "work_events",
       "work_commands",
@@ -194,7 +185,6 @@ const readTable = (
 const capturePreservationWitness = (
   database: DatabaseSync,
   tables: ReadonlyArray<string>,
-  consolidatedTables: ReadonlyArray<string> = [],
 ): PreservationWitness => {
   const nonEmptyTables = (
     database
@@ -214,7 +204,7 @@ const capturePreservationWitness = (
   )
     .map(({ name }) => String(name))
     .filter((table) => readTable(database, table).rows.length > 0);
-  expect([...tables, ...consolidatedTables].sort()).toEqual(nonEmptyTables);
+  expect([...tables].sort()).toEqual(nonEmptyTables);
   return Object.fromEntries(
     tables.map((table) => [table, readTable(database, table)]),
   );
@@ -261,7 +251,7 @@ const expectHealthyVersionOne = (database: DatabaseSync): void => {
         `,
       )
       .get(),
-  ).toBeUndefined();
+  ).toEqual({ name: "license_activation" });
 };
 
 const makeFixtureRuntime = (path: string) => {
@@ -352,15 +342,14 @@ const assertCommandCenterRepositories = async (
   expect(authority.documents.get("factory")?.nodes).toHaveLength(2);
   expect(() => verifyCanvasIntentMaterial(authority)).not.toThrow();
   const storedFactory = authority.storedDocuments.get("factory");
-  // The 20 -> 21 cutover decoded the legacy blob exactly once: authority is
-  // relational, the derived body is canonical serialization, and the retired
-  // wire fields are gone from durable state for good.
+  // Authority is relational at the v1 baseline: the derived body is canonical
+  // serialization and retired wire fields are absent from durable state.
   expect(storedFactory?.rawBody).not.toContain('"ports"');
   expect(storedFactory?.rawBody).toBe(
     serializeCanvas(storedFactory!.document),
   );
   expect(storedFactory?.document.edges[0]?.ether).toEqual({
-    verb: "contributes",
+    verb: "works",
   });
   expect(status).toMatchObject({
     installationId: COMMAND_CENTER_ID,
@@ -588,9 +577,9 @@ const assertRemoteRepositories = async (
   await assertCommonWorkProjection(runtime, "task-v1-remote");
 };
 
-describe("frozen state schema v1 compatibility fixtures", () => {
+describe("state schema v1 baseline fixtures", () => {
   it.each(cases)(
-    "migrates the copied $role fixture without changing v1 rows",
+    "opens the copied $role fixture at the current baseline without changing rows",
     async (fixture) => {
       const sourcePath = fixturePath(fixture.fileName);
       expect(await fileSha256(sourcePath)).toBe(fixture.sha256);
@@ -599,19 +588,15 @@ describe("frozen state schema v1 compatibility fixtures", () => {
       let baseline: PreservationWitness;
       try {
         expectHealthyVersionOne(source);
-        baseline = capturePreservationWitness(
-          source,
-          fixture.preservedTables,
-          fixture.consolidatedTables ?? [],
-        );
+        baseline = capturePreservationWitness(source, fixture.preservedTables);
       } finally {
         source.close();
       }
 
-      const root = await mkdtemp(join(tmpdir(), `vellum-${fixture.role}-v1-`));
-      const migratedPath = join(root, fixture.fileName);
-      await copyFile(sourcePath, migratedPath);
-      const runtime = makeFixtureRuntime(migratedPath);
+      const root = await mkdtemp(join(tmpdir(), `junto-${fixture.role}-v1-`));
+      const openedPath = join(root, fixture.fileName);
+      await copyFile(sourcePath, openedPath);
+      const runtime = makeFixtureRuntime(openedPath);
       try {
         const state = await runtime.runPromise(StateEngine);
         expect(state.info.schemaVersion).toBe(CURRENT_STATE_SCHEMA_VERSION);
@@ -625,44 +610,20 @@ describe("frozen state schema v1 compatibility fixtures", () => {
       }
 
       try {
-        const migrated = openReadOnly(migratedPath);
+        const opened = openReadOnly(openedPath);
         try {
-          expect(migrated.prepare("PRAGMA user_version").get()).toEqual({
+          expect(opened.prepare("PRAGMA user_version").get()).toEqual({
             user_version: CURRENT_STATE_SCHEMA_VERSION,
           });
-          expect(
-            readPreservedColumns(migrated, baseline),
-          ).toEqual(baseline);
-          expect(migrated.prepare("PRAGMA quick_check").get()).toEqual({
+          expect(readPreservedColumns(opened, baseline)).toEqual(baseline);
+          expect(opened.prepare("PRAGMA quick_check").get()).toEqual({
             quick_check: "ok",
           });
-          expect(migrated.prepare("PRAGMA foreign_key_check").all()).toEqual(
+          expect(opened.prepare("PRAGMA foreign_key_check").all()).toEqual(
             [],
           );
-          expect(
-            migrated
-              .prepare(
-                `
-                  SELECT name
-                  FROM sqlite_schema
-                  WHERE type = 'table'
-                    AND name = 'license_activation'
-                `,
-              )
-              .get(),
-          ).toEqual({ name: "license_activation" });
         } finally {
-          migrated.close();
-        }
-
-        const backups = await readdir(join(root, "backups"));
-        expect(backups).toHaveLength(1);
-        const backup = openReadOnly(join(root, "backups", backups[0]!));
-        try {
-          expectHealthyVersionOne(backup);
-          expect(readPreservedColumns(backup, baseline)).toEqual(baseline);
-        } finally {
-          backup.close();
+          opened.close();
         }
         expect(await fileSha256(sourcePath)).toBe(fixture.sha256);
       } finally {

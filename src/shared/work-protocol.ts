@@ -47,12 +47,12 @@ export {
  * SSH, socket, database, or wall-clock orchestration concerns.
  */
 /**
- * Existing task/request/message records retain their frozen v2 envelope.
- * Station protocol 1 admits ContentRef parts inside that envelope but never
- * rewrites prior Work history or its durable representation. Media bytes stay
- * off the wire; only bounded reference metadata is carried.
+ * The Junto work-event envelope at version 1. Station protocol 1 admits
+ * ContentRef parts inside that envelope but never rewrites prior Work history
+ * or its durable representation. Media bytes stay off the wire; only bounded
+ * reference metadata is carried.
  */
-export const WORK_PROTOCOL = "vellum/work/v2" as const;
+export const WORK_PROTOCOL = "junto/work/v1" as const;
 
 /** Intrinsic limits for one work record, independent of report batching. */
 export const WORK_PROTOCOL_MAX_RECORD_BYTES = 256 * 1024;

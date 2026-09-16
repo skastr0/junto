@@ -1,8 +1,8 @@
 import { DatabaseSync } from "node:sqlite";
 import { afterEach, describe, expect, test } from "vitest";
-import { CANVAS_STATE_SCHEMA_SQL } from "../src/main/junto/state/schema";
+import { CANVAS_AUTHORITY_SCHEMA_SQL } from "../src/main/junto/canvas/state-schema";
 import { STATION_STATE_SCHEMA_SQL } from "../src/main/junto/station/state-schema";
-import { WORK_STATE_SCHEMA_SQL } from "../src/main/junto/work/state-schema";
+import { WORK_STATE_SCHEMA_HEAD_BASIS_SQL } from "../src/main/junto/work/state-schema";
 
 const databases: DatabaseSync[] = [];
 const observedAt = "2026-07-27T12:00:00.000Z";
@@ -17,41 +17,36 @@ const makeDatabase = (): DatabaseSync => {
   database.exec(`
     PRAGMA foreign_keys = ON;
     PRAGMA trusted_schema = OFF;
-    ${CANVAS_STATE_SCHEMA_SQL}
+    ${CANVAS_AUTHORITY_SCHEMA_SQL}
     ${STATION_STATE_SCHEMA_SQL}
-    ${WORK_STATE_SCHEMA_SQL}
+    ${WORK_STATE_SCHEMA_HEAD_BASIS_SQL}
   `);
   database
     .prepare(
       `
-        INSERT INTO canvas_generations(
+        INSERT INTO canvas_portfolio_head(
+          singleton,
           generation,
-          created_at,
-          cause,
           intent_sha256,
-          document_count
-        ) VALUES ('1', ?, 'test', ?, 1)
+          created_at,
+          updated_at
+        ) VALUES (1, '1', ?, ?, ?)
       `,
     )
-    .run(observedAt, hash("f"));
+    .run(hash("f"), observedAt, observedAt);
   database
     .prepare(
       `
-        INSERT INTO canvas_generation_documents(
-          generation,
-          name,
-          body,
-          sha256,
+        INSERT INTO canvas_documents(
+          canvas_id,
+          canvas_name,
+          revision_sha256,
+          created_at,
           modified_at
-        ) VALUES ('1', 'factory', '{}', ?, ?)
+        ) VALUES ('canvas-factory', 'factory', ?, ?, ?)
       `,
     )
-    .run(hash("e"), observedAt);
-  database
-    .prepare(
-      "INSERT INTO canvas_head(singleton, generation) VALUES (1, '1')",
-    )
-    .run();
+    .run(hash("e"), observedAt, observedAt);
   return database;
 };
 
@@ -169,7 +164,7 @@ const insertRecord = (
           content_sha256,
           origin_at,
           received_at
-        ) VALUES (?, ?, ?, 'vellum/work/v2', ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, 'junto/work/v1', ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `,
     )
     .run(
@@ -282,7 +277,7 @@ afterEach(() => {
   while (databases.length > 0) databases.pop()!.close();
 });
 
-describe("Work v2 exact-current SQLite schema", () => {
+describe("Work exact-current SQLite schema", () => {
   test("stores full InstallationId routes and rejects unknown homes", () => {
     const database = makeDatabase();
     registerInstallation(database, "cc-installation");
@@ -500,7 +495,7 @@ describe("Work v2 exact-current SQLite schema", () => {
       type: "TEXT",
       notnull: 1,
     });
-    expect(WORK_STATE_SCHEMA_SQL).not.toMatch(
+    expect(WORK_STATE_SCHEMA_HEAD_BASIS_SQL).not.toMatch(
       /home_station|junto:command-center|payload_json/u,
     );
   });
@@ -590,7 +585,7 @@ describe("Work v2 exact-current SQLite schema", () => {
         null,
       ),
     ).toThrow(
-      /authorial fact basis must resolve its exact sink canvas generation/u,
+      /authorial fact basis must resolve its exact sink canvas head/u,
     );
 
     database

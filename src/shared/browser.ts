@@ -167,7 +167,7 @@ export const warmPoolEvictions = (
 
 /** Electron partition name for a validated profile id. */
 export const partitionNameForProfile = (profileId: string): string =>
-  `persist:vellum-profile-${profileId}`;
+  `persist:junto-profile-${profileId}`;
 
 /** Public top-level browser target admission; retained as the lifecycle API. */
 export const isAllowedBrowserUrl = isAllowedBrowserTarget;

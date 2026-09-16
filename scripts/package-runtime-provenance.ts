@@ -420,8 +420,8 @@ export const readPackageSchemaFacts = async (
     Number(versionMatch[1]),
     "CURRENT_STATE_SCHEMA_VERSION",
   );
-  if (currentStateSchemaVersion < 1) {
-    throw new Error("current state schema version is not a positive version");
+  if (currentStateSchemaVersion < 2) {
+    throw new Error("current state schema version has no migration head");
   }
 
   const migrationPattern =
@@ -431,38 +431,21 @@ export const readPackageSchemaFacts = async (
     toVersion: Number(match[2]),
     name: match[3] ?? "",
   }));
-  let migrationHead: {
-    readonly fromVersion: number;
-    readonly toVersion: number;
-    readonly name: string;
-  };
-  if (currentStateSchemaVersion === 1) {
-    // Version 1 is the Junto baseline: composed fresh, adopted, and never
-    // reached by a migration chain, so its head is the baseline sentinel.
-    if (migrations.length !== 0) {
-      throw new Error(
-        "schema v1 baseline must declare an empty migration registry",
-      );
-    }
-    migrationHead = { fromVersion: 0, toVersion: 1, name: "junto-v1-baseline" };
-  } else {
-    const heads = migrations.filter(
-      (migration) => migration.toVersion === currentStateSchemaVersion,
+  const heads = migrations.filter(
+    (migration) => migration.toVersion === currentStateSchemaVersion,
+  );
+  if (heads.length !== 1) {
+    throw new Error(
+      `schema v${String(currentStateSchemaVersion)} must have exactly one migration head`,
     );
-    if (heads.length !== 1) {
-      throw new Error(
-        `schema v${String(currentStateSchemaVersion)} must have exactly one migration head`,
-      );
-    }
-    const head = heads[0];
-    if (
-      head === undefined ||
-      head.fromVersion !== currentStateSchemaVersion - 1 ||
-      head.name.length === 0
-    ) {
-      throw new Error("current state migration head is not contiguous");
-    }
-    migrationHead = head;
+  }
+  const migrationHead = heads[0];
+  if (
+    migrationHead === undefined ||
+    migrationHead.fromVersion !== currentStateSchemaVersion - 1 ||
+    migrationHead.name.length === 0
+  ) {
+    throw new Error("current state migration head is not contiguous");
   }
 
   const identityName = `STATE_SCHEMA_V${String(currentStateSchemaVersion)}_IDENTITY`;

@@ -292,7 +292,7 @@ const commandCenterTopology = (
 
 const dependentCommand = (sequence = "1"): WorkCommandValue =>
   Schema.decodeUnknownSync(WorkCommand, strictDecode)({
-    protocol: "vellum/work/v2",
+    protocol: "junto/work/v1",
     id: {
       route: { eventHome: cc, entityHome: remote },
       seq: sequence,
@@ -332,7 +332,7 @@ const taskCreateCommand = (input: {
   readonly dependsOn?: ReadonlyArray<string>;
 }): WorkCommandValue => {
   const semantic = {
-    protocol: "vellum/work/v2" as const,
+    protocol: "junto/work/v1" as const,
     id: {
       route: { eventHome: cc, entityHome: remote },
       seq: input.sequence,
@@ -384,7 +384,7 @@ const taskCreateCommand = (input: {
 
 const dependentClaimCommand = (): WorkCommandValue => {
   const semantic = {
-    protocol: "vellum/work/v2" as const,
+    protocol: "junto/work/v1" as const,
     id: {
       route: { eventHome: cc, entityHome: remote },
       seq: "1",
@@ -470,7 +470,7 @@ const correlatedClaimFact = (): WorkFactValue => {
     throw new Error("claim command fixture changed operation");
   }
   const semantic = {
-    protocol: "vellum/work/v2" as const,
+    protocol: "junto/work/v1" as const,
     id: {
       route: { eventHome: remote, entityHome: remote },
       seq: "1",
@@ -518,7 +518,7 @@ const dependentFact = (
   sequence = "1",
 ): WorkFactValue =>
   Schema.decodeUnknownSync(WorkFact, strictDecode)({
-    protocol: "vellum/work/v2",
+    protocol: "junto/work/v1",
     id: {
       route: { eventHome: remote, entityHome: remote },
       seq: sequence,
@@ -545,7 +545,7 @@ const taskFact = (input: {
   readonly dependsOn?: ReadonlyArray<string>;
 }): WorkFactValue => {
   const candidate = {
-    protocol: "vellum/work/v2" as const,
+    protocol: "junto/work/v1" as const,
     id: {
       route: { eventHome: remote, entityHome: remote },
       seq: input.sequence,

@@ -403,7 +403,7 @@ const messageCommand = (
   sentBy: ActorRef = remoteActor,
 ): WorkCommandValue =>
   Schema.decodeUnknownSync(WorkCommand, strictDecode)({
-    protocol: "vellum/work/v2",
+    protocol: "junto/work/v1",
     id: {
       route: { eventHome: remote, entityHome: cc },
       seq: "1",
@@ -428,7 +428,7 @@ const messageCommand = (
 
 const messageFact = (): WorkFactValue =>
   Schema.decodeUnknownSync(WorkFact, strictDecode)({
-    protocol: "vellum/work/v2",
+    protocol: "junto/work/v1",
     id: {
       route: { eventHome: cc, entityHome: cc },
       seq: "1",
@@ -464,7 +464,7 @@ const threadMessage = {
 
 const threadCommand = (): WorkCommandValue =>
   Schema.decodeUnknownSync(WorkCommand, strictDecode)({
-    protocol: "vellum/work/v2",
+    protocol: "junto/work/v1",
     id: {
       route: { eventHome: cc, entityHome: remote },
       seq: "1",
@@ -502,7 +502,7 @@ const remoteThreadCommand = (): WorkCommandValue =>
 
 const threadFact = (): WorkFactValue =>
   Schema.decodeUnknownSync(WorkFact, strictDecode)({
-    protocol: "vellum/work/v2",
+    protocol: "junto/work/v1",
     id: {
       route: { eventHome: remote, entityHome: remote },
       seq: "1",
@@ -534,7 +534,7 @@ const artifactFact = (
   taskNodeId = "tasks",
 ): WorkFactValue =>
   Schema.decodeUnknownSync(WorkFact, strictDecode)({
-    protocol: "vellum/work/v2",
+    protocol: "junto/work/v1",
     id: {
       route: { eventHome: remote, entityHome: remote },
       seq: "2",
@@ -571,7 +571,7 @@ const artifactFact = (
 
 const remoteOverseerTaskCreateCommand = (): WorkCommandValue =>
   Schema.decodeUnknownSync(WorkCommand, strictDecode)({
-    protocol: "vellum/work/v2",
+    protocol: "junto/work/v1",
     id: {
       route: { eventHome: remote, entityHome: cc },
       seq: "13",
@@ -601,7 +601,7 @@ const remoteOverseerThreadCommentCommand = (
   sentBy: ActorRef = remoteOverseer,
 ): WorkCommandValue =>
   Schema.decodeUnknownSync(WorkCommand, strictDecode)({
-    protocol: "vellum/work/v2",
+    protocol: "junto/work/v1",
     id: {
       route: { eventHome: cc, entityHome: remote },
       seq: "17",
@@ -632,7 +632,7 @@ const remoteOverseerThreadCommentCommand = (
 
 const remoteOverseerMailboxCommand = (): WorkCommandValue =>
   Schema.decodeUnknownSync(WorkCommand, strictDecode)({
-    protocol: "vellum/work/v2",
+    protocol: "junto/work/v1",
     id: {
       route: { eventHome: remote, entityHome: cc },
       seq: "14",
@@ -662,7 +662,7 @@ const remoteOverseerMailboxCommand = (): WorkCommandValue =>
 
 const remoteAssigneeClaimCommand = (): WorkCommandValue =>
   Schema.decodeUnknownSync(WorkCommand, strictDecode)({
-    protocol: "vellum/work/v2",
+    protocol: "junto/work/v1",
     id: {
       route: { eventHome: cc, entityHome: remote },
       seq: "16",
@@ -708,7 +708,7 @@ const remoteAssigneeClaimCommandAuthorizedBy = (
 
 const remoteOverseerRequestCommand = (): WorkCommandValue =>
   Schema.decodeUnknownSync(WorkCommand, strictDecode)({
-    protocol: "vellum/work/v2",
+    protocol: "junto/work/v1",
     id: {
       route: { eventHome: cc, entityHome: remote },
       seq: "15",
@@ -740,7 +740,7 @@ const remoteOverseerArtifactCommand = (
   taskNodeId = "tasks",
 ): WorkCommandValue =>
   Schema.decodeUnknownSync(WorkCommand, strictDecode)({
-    protocol: "vellum/work/v2",
+    protocol: "junto/work/v1",
     id: {
       route: { eventHome: cc, entityHome: remote },
       seq: "3",
@@ -789,7 +789,7 @@ const taskDescribeCommand = (
   target: InstallationIdValue,
 ): WorkCommandValue =>
   Schema.decodeUnknownSync(WorkCommand, strictDecode)({
-    protocol: "vellum/work/v2",
+    protocol: "junto/work/v1",
     id: {
       route: { eventHome: sender, entityHome: target },
       seq: "1",
@@ -823,7 +823,7 @@ const agentTaskCreateCommand = (
   sinkNodeId = "tasks",
 ): WorkCommandValue =>
   Schema.decodeUnknownSync(WorkCommand, strictDecode)({
-    protocol: "vellum/work/v2",
+    protocol: "junto/work/v1",
     id: {
       route: { eventHome: remote, entityHome: cc },
       seq: "3",
@@ -852,7 +852,7 @@ const agentTaskCreateCommand = (
 const localTaskFact = (seq: number): WorkFactValue => {
   const taskId = `local-task-${seq}`;
   return Schema.decodeUnknownSync(WorkFact, strictDecode)({
-    protocol: "vellum/work/v2",
+    protocol: "junto/work/v1",
     id: {
       route: { eventHome: remote, entityHome: remote },
       seq: String(seq),
@@ -888,7 +888,7 @@ const largeTaskCreateCommand = (
 ): WorkCommandValue => {
   const itemId = `large-task-${seq}`;
   return Schema.decodeUnknownSync(WorkCommand, strictDecode)({
-    protocol: "vellum/work/v2",
+    protocol: "junto/work/v1",
     id: {
       route: { eventHome: cc, entityHome: remote },
       seq: String(seq),
@@ -1205,7 +1205,7 @@ describe("Station API v1 work routing", () => {
 
   const boardTopicCommand = (): WorkCommandValue =>
     Schema.decodeUnknownSync(WorkCommand, strictDecode)({
-      protocol: "vellum/work/v2",
+      protocol: "junto/work/v1",
       id: {
         route: { eventHome: remote, entityHome: cc },
         seq: "11",
@@ -1237,7 +1237,7 @@ describe("Station API v1 work routing", () => {
 
   const boardPostCommand = (): WorkCommandValue =>
     Schema.decodeUnknownSync(WorkCommand, strictDecode)({
-      protocol: "vellum/work/v2",
+      protocol: "junto/work/v1",
       id: {
         route: { eventHome: remote, entityHome: cc },
         seq: "12",

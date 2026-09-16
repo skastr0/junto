@@ -324,7 +324,7 @@
   },
   "work": {
     "taskCreateFact": {
-      "protocol": "vellum/work/v2",
+      "protocol": "junto/work/v1",
       "recordType": "fact",
       "operation": "task.create",
       "id": {
@@ -349,7 +349,7 @@
       },
       "predecessor": null,
       "originAt": "2026-08-01T12:00:00.000Z",
-      "contentSha256": "f92a74e5f645665315cf526dd6c01920228b5cc2b027fdaeb9c204d0411e8b41",
+      "contentSha256": "21a5215871b8b9a895591dc5f8d7feff6005bc0cc218b37d00824bf6aea6e1ae",
       "body": {
         "operation": "task.create",
         "task": {
@@ -360,7 +360,7 @@
       }
     },
     "taskDescribeFact": {
-      "protocol": "vellum/work/v2",
+      "protocol": "junto/work/v1",
       "recordType": "fact",
       "operation": "task.describe",
       "id": {
@@ -391,7 +391,7 @@
         "seq": "1"
       },
       "originAt": "2026-08-01T12:00:00.000Z",
-      "contentSha256": "f7cc6de603a11767c37fd39fcf097daacc03251963a8effce397330a58859f47",
+      "contentSha256": "6ffbc5112094c345079e527db90903fa4644df65aeea1400f5fd6af78ad7f701",
       "body": {
         "operation": "task.describe",
         "task": {
@@ -415,7 +415,7 @@
       }
     },
     "taskTransitionFact": {
-      "protocol": "vellum/work/v2",
+      "protocol": "junto/work/v1",
       "recordType": "fact",
       "operation": "task.transition",
       "id": {
@@ -446,7 +446,7 @@
         "seq": "2"
       },
       "originAt": "2026-08-01T12:00:00.000Z",
-      "contentSha256": "ed507c0a56338df9936b3871460ac5bd66795c3ec1debcb1177b707df53f6b24",
+      "contentSha256": "5cf761acab4113d54563aa0f2ced6ba620864ab679b1fe4b2cabe3c5541eaab5",
       "body": {
         "operation": "task.transition",
         "task": {
@@ -458,7 +458,7 @@
       }
     },
     "taskClaimCommand": {
-      "protocol": "vellum/work/v2",
+      "protocol": "junto/work/v1",
       "recordType": "command",
       "operation": "task.claim",
       "id": {
@@ -478,7 +478,7 @@
       },
       "predecessor": null,
       "originAt": "2026-08-01T12:00:00.000Z",
-      "contentSha256": "3cf26169b6287ef1c57a47e8487f7efc0af7fcbfec48854aa31a1a719ad3540c",
+      "contentSha256": "90853aba62c6a727d95d41843a9067b246fe18d3ac247b86e63ba0054a0d48c4",
       "body": {
         "operation": "task.claim",
         "sourceQueueHome": "cc-inst-01",
@@ -507,7 +507,7 @@
       }
     },
     "taskClaimFact": {
-      "protocol": "vellum/work/v2",
+      "protocol": "junto/work/v1",
       "recordType": "fact",
       "operation": "task.claim",
       "id": {
@@ -534,11 +534,11 @@
           },
           "seq": "1"
         },
-        "commandSha256": "3cf26169b6287ef1c57a47e8487f7efc0af7fcbfec48854aa31a1a719ad3540c"
+        "commandSha256": "90853aba62c6a727d95d41843a9067b246fe18d3ac247b86e63ba0054a0d48c4"
       },
       "predecessor": null,
       "originAt": "2026-08-01T12:00:00.000Z",
-      "contentSha256": "c3c548359b0d8fc41c8c5fb30ee27b1be3e299a08198998ece8f6143bbe3dcc2",
+      "contentSha256": "f2677fd0197e5014b6046ebd0494ee03f33f80c97bd97343077831b694f35f65",
       "body": {
         "operation": "task.claim",
         "task": {
@@ -556,7 +556,7 @@
       }
     },
     "requestCreateFact": {
-      "protocol": "vellum/work/v2",
+      "protocol": "junto/work/v1",
       "recordType": "fact",
       "operation": "request.create",
       "id": {
@@ -581,7 +581,7 @@
       },
       "predecessor": null,
       "originAt": "2026-08-01T12:00:00.000Z",
-      "contentSha256": "0f7e635a9e1238ae884ddabfb729d070fdbf9f55053fc9c5a3ddc3505ec12340",
+      "contentSha256": "a8885b2e4ecebb2cc8e4ce85d18b660e00419764a5277855f0b8d4165d77462e",
       "body": {
         "operation": "request.create",
         "request": {
@@ -593,7 +593,7 @@
       }
     },
     "requestResolveFact": {
-      "protocol": "vellum/work/v2",
+      "protocol": "junto/work/v1",
       "recordType": "fact",
       "operation": "request.resolve",
       "id": {
@@ -624,7 +624,7 @@
         "seq": "4"
       },
       "originAt": "2026-08-01T12:00:00.000Z",
-      "contentSha256": "d026847d866760803d0abc8eebe70b90e7460354c07eb8a82184cc2eef0707f4",
+      "contentSha256": "0fab964bc63afd4d8423bfa041f718aaa57795024a7ccffed0a0e0ff4f1392fe",
       "body": {
         "operation": "request.resolve",
         "request": {
@@ -636,7 +636,7 @@
       }
     },
     "messageAppendFact": {
-      "protocol": "vellum/work/v2",
+      "protocol": "junto/work/v1",
       "recordType": "fact",
       "operation": "message.append",
       "id": {
@@ -661,7 +661,7 @@
       },
       "predecessor": null,
       "originAt": "2026-08-01T12:00:00.000Z",
-      "contentSha256": "686a48616320d864b4ed60b49b7c6e74c4f80c389aca46da4e538d6f12b2a3e3",
+      "contentSha256": "46d6ff0b72f1211b1d9b6f2f208e8aa1224ac1615d71b41a3f13aad67343e0fe",
       "body": {
         "operation": "message.append",
         "message": {
@@ -686,7 +686,7 @@
       }
     },
     "artifactPublishFact": {
-      "protocol": "vellum/work/v2",
+      "protocol": "junto/work/v1",
       "recordType": "fact",
       "operation": "artifact.publish",
       "id": {
@@ -711,7 +711,7 @@
       },
       "predecessor": null,
       "originAt": "2026-08-01T12:00:00.000Z",
-      "contentSha256": "b4ec118667ce2fe4d19d2c0e11c994d3354acafe3aced3a995956555056a6166",
+      "contentSha256": "7bef25640625e41342493e6103c9a599ae47d8325b5ebbe21e134b19f2de7632",
       "body": {
         "operation": "artifact.publish",
         "artifact": {
@@ -739,7 +739,7 @@
       }
     },
     "deliveryAcceptedFact": {
-      "protocol": "vellum/work/v2",
+      "protocol": "junto/work/v1",
       "recordType": "fact",
       "operation": "delivery.accepted",
       "id": {
@@ -764,7 +764,7 @@
       },
       "predecessor": null,
       "originAt": "2026-08-01T12:00:00.000Z",
-      "contentSha256": "304d7e762e1bf66173c651361dcebf838c0454a6cd1ee5ce04345ffd6e7e3692",
+      "contentSha256": "27683a9476d1dfc28afc4354a8312f0dda0196c727dde45d8616f136ce2688ad",
       "body": {
         "operation": "delivery.accepted",
         "receipt": {
@@ -787,7 +787,7 @@
       }
     },
     "boardTopicCreateFact": {
-      "protocol": "vellum/work/v2",
+      "protocol": "junto/work/v1",
       "recordType": "fact",
       "operation": "board.topic.create",
       "id": {
@@ -812,7 +812,7 @@
       },
       "predecessor": null,
       "originAt": "2026-08-01T12:00:00.000Z",
-      "contentSha256": "f9170bf5d59b32474e622fa15803adb075cb675fa8fd256bdb993b7ecc288e5b",
+      "contentSha256": "46e8931238b5ef52e810d89389da02ffe5353093a9b405025bf09e143862088d",
       "body": {
         "operation": "board.topic.create",
         "topic": {
@@ -834,7 +834,7 @@
       }
     },
     "boardPostAppendFact": {
-      "protocol": "vellum/work/v2",
+      "protocol": "junto/work/v1",
       "recordType": "fact",
       "operation": "board.post.append",
       "id": {
@@ -859,7 +859,7 @@
       },
       "predecessor": null,
       "originAt": "2026-08-01T12:00:00.000Z",
-      "contentSha256": "eceb19d5b42421cfb7bd8258afbf32bf1922de78231a2c58dfa384412930dadd",
+      "contentSha256": "aa61366c10eb3e76d009b61569f1c6253decf9997310056fe6091da44e794f66",
       "body": {
         "operation": "board.post.append",
         "post": {
@@ -885,7 +885,7 @@
       }
     },
     "padPatchFact": {
-      "protocol": "vellum/work/v2",
+      "protocol": "junto/work/v1",
       "recordType": "fact",
       "operation": "pad.patch",
       "id": {
@@ -910,7 +910,7 @@
       },
       "predecessor": null,
       "originAt": "2026-08-01T12:00:00.000Z",
-      "contentSha256": "da12903cf7a700e633ed1b5297e3184663bc9296a8da32ed5878c7a9ebaf7a89",
+      "contentSha256": "4f55ff6867454a8e1d645d27dcfb04a8f29d301009221bf1c280c2859616e11b",
       "body": {
         "operation": "pad.patch",
         "patchId": "patch-01",
@@ -928,7 +928,7 @@
       }
     },
     "appliedDisposition": {
-      "protocol": "vellum/work/v2",
+      "protocol": "junto/work/v1",
       "recordType": "disposition",
       "operation": "task.claim",
       "id": {
@@ -947,7 +947,7 @@
         }
       },
       "originAt": "2026-08-01T12:00:00.000Z",
-      "contentSha256": "450d204c8d9d3b6f867d395a64f884a854469a2d1bb35f02206b1e535a76485a",
+      "contentSha256": "d920ba9bddbb8099698b92b88ed7c94b06554c127ef4d4848f1e9fb9b7215739",
       "body": {
         "status": "applied",
         "command": {
@@ -957,7 +957,7 @@
           },
           "seq": "1"
         },
-        "commandSha256": "3cf26169b6287ef1c57a47e8487f7efc0af7fcbfec48854aa31a1a719ad3540c",
+        "commandSha256": "90853aba62c6a727d95d41843a9067b246fe18d3ac247b86e63ba0054a0d48c4",
         "fact": {
           "route": {
             "eventHome": "remote-inst-01",
@@ -965,11 +965,11 @@
           },
           "seq": "1"
         },
-        "factSha256": "c3c548359b0d8fc41c8c5fb30ee27b1be3e299a08198998ece8f6143bbe3dcc2"
+        "factSha256": "f2677fd0197e5014b6046ebd0494ee03f33f80c97bd97343077831b694f35f65"
       }
     },
     "rejectedDisposition": {
-      "protocol": "vellum/work/v2",
+      "protocol": "junto/work/v1",
       "recordType": "disposition",
       "operation": "task.claim",
       "id": {
@@ -988,7 +988,7 @@
         }
       },
       "originAt": "2026-08-01T12:00:00.000Z",
-      "contentSha256": "96ce7a2f017c76faacc5749ad0af2cd1c7124169e51e9c7f7eb39b4d12f447e0",
+      "contentSha256": "12fb10da5c332ff8969aaa65898761577f14aa15870391e452edbe7a396189a0",
       "body": {
         "status": "rejected",
         "command": {
@@ -998,7 +998,7 @@
           },
           "seq": "1"
         },
-        "commandSha256": "3cf26169b6287ef1c57a47e8487f7efc0af7fcbfec48854aa31a1a719ad3540c",
+        "commandSha256": "90853aba62c6a727d95d41843a9067b246fe18d3ac247b86e63ba0054a0d48c4",
         "reason": "claim-contention",
         "message": "Actor already has an active task claim"
       }

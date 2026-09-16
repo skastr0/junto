@@ -1081,7 +1081,7 @@ describe("overseer deletion fences share TermPlane/ChatService identity", () => 
     expect(sibling.ok).toBe(true);
 
     expect(native.finishOverseerNodeDelete(prepared.leaseId, "committed")).toEqual({ ok: true });
-    releasePartition("persist:vellum-profile-personal");
+    releasePartition("persist:junto-profile-personal");
     await expect(pending).resolves.toMatchObject({ ok: false, code: "cancelled" });
     expect(views.some((view) => view.partition.includes("personal") && view.loadUrl !== undefined))
       .toBe(false);

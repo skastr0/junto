@@ -1,15 +1,17 @@
-# Frozen state schema v1 fixtures
+# State schema v1 baseline fixtures
 
-These databases are immutable compatibility evidence for Junto's released
-SQLite schema version 1. Tests must open them read-only, copy them to a
-disposable directory, and migrate only the copy.
+These databases are the pinned baseline evidence for Junto's SQLite schema
+version 1 — the current durable shape after the product rename re-baselined
+the schema at that composition. Tests open them read-only and copy them to a
+disposable directory before any runtime touch.
 
 | fixture | role-valid representative state | SHA-256 |
 |---|---|---|
-| `command-center-v1.db` | authored `factory` canvas generation/head, Command Center configuration, enrolled fleet target, claimed CC-home task facts, and peer ACK cursor | `e1c12bcf3a662f52854936bfee1c0ef5fd41e024e80d7223bd3c90e0a1d00d2c` |
-| `remote-v1.db` | Remote pairing/configuration, complete installed `factory` projection with a `studio`-homed timer, accepted cross-home task claim command/fact/disposition, receive and peer ACK cursors, and interval scheduler cursor/firing | `23db672fe4f4fbc7fbe0fe4a5c9efd3f009f93f4500462aa036b9aa57ac19cc9` |
+| `command-center-v1.db` | authored `factory` canvas (relational authority rows + portfolio head), Command Center configuration, enrolled fleet target, claimed CC-home task facts, and peer ACK cursor | `ba3fd2b90591bd83f3706b153799c0f325ab47bc10b273be5fdcccd9155a2615` |
+| `remote-v1.db` | Remote pairing/configuration, complete installed `factory` projection with a `studio`-homed timer, accepted cross-home task claim command/fact/disposition, receive and peer ACK cursors, and interval scheduler cursor/firing | `2d9e0be7c9571292ad872e45b415efa8fbdfa91198ab0a178f1ae31d12c6588a` |
 
 Both fixtures were compiled from the exported `STATE_SCHEMA_V1_SQL`, carry
-`PRAGMA user_version = 1`, and record the frozen
-`STATE_SCHEMA_V1_IDENTITY`. `generate.ts` is a manual audit recipe and refuses
-to overwrite either artifact; it is never part of the test path.
+`PRAGMA user_version = 1`, and record `STATE_SCHEMA_V1_IDENTITY`.
+`generate.ts` is a manual audit recipe — re-run it after an intentional
+baseline change; it overwrites both artifacts and is never part of the test
+path.

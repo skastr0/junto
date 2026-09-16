@@ -137,13 +137,13 @@ const taskWithContent = (
         ...refs.map((ref) => ({ kind: "content" as const, ref })),
       ],
       taskId: id,
-      contextId: "Vellumcommand",
+      contextId: "Juntocommand",
     },
   ],
 });
 
 const taskCreateFact = (task: Task, seq = "1") => ({
-  protocol: "vellum/work/v2",
+  protocol: "junto/work/v1",
   recordType: "fact",
   operation: "task.create",
   id: {
@@ -209,7 +209,7 @@ describe("media transport e2e - task creation + WorkRecord bounds", () => {
 
   it("admits historical RawPart on WorkRecord decode (no codec ban)", () => {
     const inline = {
-      protocol: "vellum/work/v2",
+      protocol: "junto/work/v1",
       recordType: "fact",
       operation: "task.create",
       id: {
@@ -252,7 +252,7 @@ describe("media transport e2e - task creation + WorkRecord bounds", () => {
                 },
               ],
               taskId: "task-legacy-b64",
-              contextId: "Vellumcommand",
+              contextId: "Juntocommand",
             },
           ],
         },
@@ -285,7 +285,7 @@ describe("media transport e2e - task creation + WorkRecord bounds", () => {
 
 describe("media transport e2e - local ingest + crash ordering", () => {
   it("streams image/audio/video fixtures without full-body residency beyond one chunk", async () => {
-    const station = await openStation("vellum-media-ingest-");
+    const station = await openStation("junto-media-ingest-");
 
     for (const kind of ["image", "audio", "video"] as const) {
       const fixture = buildMediaFixture(kind);
@@ -357,7 +357,7 @@ describe("media transport e2e - local ingest + crash ordering", () => {
     expect(hash).toMatch(/^[a-f0-9]{64}$/);
 
     // Full mid-size large fixture through ContentService put.
-    const station = await openStation("vellum-media-large-put-");
+    const station = await openStation("junto-media-large-put-");
     const large = buildMediaFixture("large");
     const putStats = emptyStreamStats();
     const put = await station.service
@@ -385,7 +385,7 @@ describe("media transport e2e - local ingest + crash ordering", () => {
   });
 
   it("crash before SQLite leaves orphan object only — task stays non-runnable", async () => {
-    const station = await openStation("vellum-media-crash-order-");
+    const station = await openStation("junto-media-crash-order-");
     const fixture = buildMediaFixture("image", 0x0dd);
     // Object-only put (no owner) — durable file + object row, no content_refs
     // for a task owner. Task still non-runnable until receipt is verified via
@@ -454,7 +454,7 @@ describe("media transport e2e - local ingest + crash ordering", () => {
 
 describe("media transport e2e - renderer access", () => {
   it("streams image/audio/video through the app content protocol with range seeks", async () => {
-    const station = await openStation("vellum-media-renderer-");
+    const station = await openStation("junto-media-renderer-");
 
     for (const kind of ["image", "audio", "video"] as const) {
       const fixture = buildMediaFixture(kind, 0x11 + kind.length);
@@ -505,7 +505,7 @@ describe("media transport e2e - renderer access", () => {
   });
 
   it("surfaces missing and corrupt as explicit renderer states", async () => {
-    const station = await openStation("vellum-media-renderer-fail-");
+    const station = await openStation("junto-media-renderer-fail-");
     const missingRef = makeRef(
       "f".repeat(64),
       100,
@@ -521,7 +521,7 @@ describe("media transport e2e - renderer access", () => {
   });
 
   it("materializes task-scoped agent access without exposing foreign digests", async () => {
-    const station = await openStation("vellum-media-agent-");
+    const station = await openStation("junto-media-agent-");
     const workHome = join(station.home, "work");
     await mkdir(workHome, { recursive: true });
     const fixture = buildMediaFixture("image", 0x22);
@@ -564,7 +564,7 @@ describe("media transport e2e - renderer access", () => {
 
 describe("media transport e2e - Station projection + transfer + offline", () => {
   it("gates runnable work until local receipt is verified", async () => {
-    const station = await openStation("vellum-media-gate-");
+    const station = await openStation("junto-media-gate-");
     const fixture = buildMediaFixture("video", 0x33);
     const ref = makeRef(
       fixture.sha256,
@@ -603,8 +603,8 @@ describe("media transport e2e - Station projection + transfer + offline", () => 
   });
 
   it("interrupts, resumes, rejects corruption, and treats duplicate delivery as idempotent", async () => {
-    const cc = await openStation("vellum-media-cc-");
-    const remote = await openStation("vellum-media-remote-");
+    const cc = await openStation("junto-media-cc-");
+    const remote = await openStation("junto-media-remote-");
     const fixture = buildMediaFixture("large", 0x44);
 
     const put = await cc.service
@@ -707,7 +707,7 @@ describe("media transport e2e - Station projection + transfer + offline", () => 
 
     // --- corruption never becomes available ---
     const corruptBytes = makeDeterministicPayload(fixture.byteLength, 0xbad);
-    const corruptRoot = contentStoreRoot(await tempRoot("vellum-media-corrupt-"));
+    const corruptRoot = contentStoreRoot(await tempRoot("junto-media-corrupt-"));
     await expect(
       receiveContentTransfer({
         root: corruptRoot,
@@ -725,7 +725,7 @@ describe("media transport e2e - Station projection + transfer + offline", () => 
 
     // Truncated stream cannot become available content — stays partial,
     // never publishes under the claimed digest.
-    const truncRoot = contentStoreRoot(await tempRoot("vellum-media-trunc-"));
+    const truncRoot = contentStoreRoot(await tempRoot("junto-media-trunc-"));
     const truncated = await receiveContentTransfer({
       root: truncRoot,
       ref: put.ref,
@@ -740,7 +740,7 @@ describe("media transport e2e - Station projection + transfer + offline", () => 
   });
 
   it("converges to the same verified content state after Station restart", async () => {
-    const home = await tempRoot("vellum-media-offline-");
+    const home = await tempRoot("junto-media-offline-");
     const stateDir = join(home, ".junto", "state");
     await mkdir(stateDir, { recursive: true });
     const dbPath = join(stateDir, "junto.db");
