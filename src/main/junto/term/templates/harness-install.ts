@@ -104,18 +104,29 @@ export const harnessSearchPath = (
 // real binary resolves on X_OK alone.
 const SHIM_ROOT = /[/\\]shims$/u;
 const SHIM_LIVENESS_TIMEOUT_MS = 1_500;
+// spawnSync blocks the main thread, so palette polls and back-to-back seat
+// launches must not re-probe the same shim every call.
+const SHIM_LIVENESS_CACHE_MS = 60_000;
+const shimLivenessCache = new Map<string, { live: boolean; at: number }>();
 
 const shimRunsLive = (candidate: string, pathEnv: string): boolean => {
+  const cached = shimLivenessCache.get(candidate);
+  if (cached !== undefined && Date.now() - cached.at < SHIM_LIVENESS_CACHE_MS) {
+    return cached.live;
+  }
+  let live = false;
   try {
     const result = spawnSync(candidate, ["--version"], {
       env: { ...process.env, PATH: pathEnv },
       stdio: "ignore",
       timeout: SHIM_LIVENESS_TIMEOUT_MS,
     });
-    return result.status === 0;
+    live = result.status === 0;
   } catch {
-    return false;
+    live = false;
   }
+  shimLivenessCache.set(candidate, { live, at: Date.now() });
+  return live;
 };
 
 /**

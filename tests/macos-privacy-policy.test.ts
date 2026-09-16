@@ -1,5 +1,11 @@
 import { readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import {
+  enumeratedToolDirs,
+  staticPathDirs,
+} from "../src/main/junto/adapters/exec";
 import {
   applySettingsPatch,
   defaultSettings,
@@ -97,6 +103,25 @@ describe("macOS privacy policy", () => {
     expect(host).toContain("resolves to the operator home");
     expect(ipc).not.toContain("chassis:select-folder");
     expect(ipc).not.toContain("chassis:read-directory");
+  });
+
+  it("never puts a TCC-protected folder on the spawn PATH", () => {
+    const home = homedir();
+    const protectedRoots = [
+      "Desktop",
+      "Documents",
+      "Downloads",
+      "Music",
+      "Movies",
+      "Pictures",
+    ].map((name) => join(home, name));
+    const isProtected = (dir: string) =>
+      protectedRoots.some(
+        (root) => dir === root || dir.startsWith(`${root}/`),
+      );
+    for (const dir of [...staticPathDirs(home), ...enumeratedToolDirs(home)]) {
+      expect(isProtected(dir), `spawn PATH must not contain ${dir}`).toBe(false);
+    }
   });
 
   it("discloses Hermes host snapshots separately from local Hermes usage", () => {

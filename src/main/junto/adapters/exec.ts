@@ -406,16 +406,24 @@ export const staticPathDirs = (home: string): ReadonlyArray<string> => [
 //   3. enumerated version-manager install roots (below);
 //   4. the static floor above.
 
-// One level of directory children, newest-name first (numeric-aware so
-// v22 sorts before v9). Missing roots return []. Symlinks count — version
-// managers publish `current`/`default` aliases as symlinked dirs and the
-// final isDirectory() gate resolves them with statSync.
+// One level of directory children. Missing roots return []. Symlinks count —
+// version managers publish `current`/`default`/`latest` aliases as symlinked
+// dirs and the final isDirectory() gate resolves them with statSync.
+// Non-numeric names (those aliases) sort first because they name the
+// manager's active choice; numbered versions then run newest-name first
+// (numeric-aware so v22 sorts before v9).
 const readVersionDirs = (root: string): ReadonlyArray<string> => {
   try {
     return readdirSync(root, { withFileTypes: true })
       .filter((entry) => entry.isDirectory() || entry.isSymbolicLink())
-      .map((entry) => join(root, entry.name))
-      .sort((left, right) => right.localeCompare(left, undefined, { numeric: true }));
+      .map((entry) => entry.name)
+      .sort((left, right) => {
+        const leftVersioned = /\d/.test(left);
+        const rightVersioned = /\d/.test(right);
+        if (leftVersioned !== rightVersioned) return leftVersioned ? 1 : -1;
+        return right.localeCompare(left, undefined, { numeric: true });
+      })
+      .map((name) => join(root, name));
   } catch {
     return [];
   }
