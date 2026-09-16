@@ -1,6 +1,6 @@
 {
   "name": "@skastr0/vellum-command",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Vellum Command — the deep-field station for multi-agent fleets.",
   "author": {
     "name": "Guilherme Castro",
