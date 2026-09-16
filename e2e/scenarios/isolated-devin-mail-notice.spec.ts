@@ -309,11 +309,14 @@ test("isolated Devin [real-harness]: settled seat reaches readAt or a durable na
       const live = await page.evaluate(async (id) => window.vellumCommand!.terminalGet(id), DEVIN_BINDING);
       if (live?.pid !== occupied.pid || live?.epoch !== occupied.epoch) throw new Error("Opening Devin replaced its occupied process");
 
-      const sendAndObserve = async (nonce: string) => {
+      const sendAndObserve = async (nonce: string, slot: 1 | 2) => {
         const send = await sender.op("msg.send", { target: ISOLATED_DEVIN_RECEIVER_ID, text: nonce });
         if (!send.ok) throw new Error(`msg.send failed: ${JSON.stringify(send.error)}`);
         const id = (send.data as { messageId?: string } | undefined)?.messageId;
         if (typeof id !== "string" || id.length === 0) throw new Error("msg.send did not return a messageId");
+        // Record the durable id before polling so a timed-out observation
+        // still preserves which message was actually sent.
+        if (slot === 1) messageId = id; else messageId2 = id;
         writeHold({ phase: "observing-mail", readyEvidence: artifact("ready-before-send.json") });
         const until = Date.now() + OBSERVE_MS;
         let outcome: ReturnType<typeof outcomeOf> = { kind: "pending" };
@@ -330,8 +333,7 @@ test("isolated Devin [real-harness]: settled seat reaches readAt or a durable na
         }
         return { messageId: id, outcome };
       };
-      const first = await sendAndObserve(`isolated-devin-mail ${Date.now()}`);
-      messageId = first.messageId;
+      const first = await sendAndObserve(`isolated-devin-mail ${Date.now()}`, 1);
       writeHold({ phase: "first-outcome", outcome: first.outcome });
       // A second notice on the same warm generation is part of qualification.
       // If the seat already moved or exited, record the precise reason instead
@@ -344,8 +346,7 @@ test("isolated Devin [real-harness]: settled seat reaches readAt or a durable na
           // The seat may still be working on the first mail. Re-arm on a
           // stable empty composer of the same epoch before the second send.
           await awaitReady();
-          const second = await sendAndObserve(`isolated-devin-mail-warm ${Date.now()}`);
-          messageId2 = second.messageId;
+          const second = await sendAndObserve(`isolated-devin-mail-warm ${Date.now()}`, 2);
           outcome2 = second.outcome;
         } catch (error) {
           secondNoticeSkipped = String(error);
