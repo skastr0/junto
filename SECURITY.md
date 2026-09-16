@@ -8,7 +8,7 @@ or support commitment.
 
 ## Private reports
 
-Email **support@vellumcommand.com**. Do not publish vulnerability details in a
+Email **support@juntoagents.com**. Do not publish vulnerability details in a
 GitHub issue or pull request.
 
 Include the affected version or commit, platform, build channel, enabled feature
@@ -34,7 +34,7 @@ creates authority or increases impact beyond the documented trust model.
 ## Distribution and disclosure
 
 Official binaries are linked from the
-[Junto download page](https://vellumcommand.com/download). Official macOS
+[Junto download page](https://juntoagents.com/download). Official macOS
 builds are signed and notarized; automatic updates use the app's configured
 maintainer-run release feed. Linux first install is authenticated by an
 independently obtained bootstrap or a reviewed source checkout, not by the

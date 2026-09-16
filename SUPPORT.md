@@ -13,6 +13,6 @@ Support does not include private consulting, urgent response, custom integration
 or troubleshooting third-party credentials and infrastructure. Unsolicited pull
 requests are not accepted; see [CONTRIBUTING.md](CONTRIBUTING.md).
 
-For downloads, use the [official site](https://vellumcommand.com/download).
+For downloads, use the [official site](https://juntoagents.com/download).
 For suspected vulnerabilities, use [SECURITY.md](SECURITY.md) instead of a public
 issue.
