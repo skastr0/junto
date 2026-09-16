@@ -10,6 +10,7 @@ declare const __VELLUM_COMMAND_PAD_ENABLED__: boolean | undefined;
 declare const __VELLUM_COMMAND_SHEET_ENABLED__: boolean | undefined;
 declare const __VELLUM_COMMAND_REQUESTS_ENABLED__: boolean | undefined;
 declare const __VELLUM_COMMAND_ARTIFACTS_ENABLED__: boolean | undefined;
+declare const __VELLUM_COMMAND_TASKS_ENABLED__: boolean | undefined;
 declare const __VELLUM_COMMAND_FLEET_UI_ENABLED__: boolean | undefined;
 declare const __VELLUM_COMMAND_USAGE_ENABLED__: boolean | undefined;
 declare const __VELLUM_COMMAND_HELP_MAP_ENABLED__: boolean | undefined;

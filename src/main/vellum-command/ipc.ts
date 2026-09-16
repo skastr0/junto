@@ -30,6 +30,7 @@ import {
   PAD_ENABLED,
   RELAY_ENABLED,
   REQUESTS_ENABLED,
+  TASKS_ENABLED,
   USAGE_ENABLED,
 } from "@shared/features";
 import { KernelService } from "./kernel/service";
@@ -727,7 +728,7 @@ export const registerVellumIpc = (): void => {
     return null;
   });
 
-  privilegedIpc.handle(
+  if (TASKS_ENABLED) privilegedIpc.handle(
     IPC_CHANNELS.workTaskCreate,
     (
       _event,
@@ -765,7 +766,7 @@ export const registerVellumIpc = (): void => {
         ),
       ),
   );
-  privilegedIpc.handle(
+  if (TASKS_ENABLED) privilegedIpc.handle(
     IPC_CHANNELS.workTaskDescribe,
     (_event, canvas: string, nodeId: string, taskId: string, brief: string) =>
       runRendererWorkAuthoring(
@@ -780,7 +781,7 @@ export const registerVellumIpc = (): void => {
         ),
       ),
   );
-  privilegedIpc.handle(
+  if (TASKS_ENABLED) privilegedIpc.handle(
     IPC_CHANNELS.workTaskTransition,
     (
       _event,
@@ -813,7 +814,7 @@ export const registerVellumIpc = (): void => {
       ),
   );
   // Operator approval of a task waiting at an Approval board.
-  privilegedIpc.handle(
+  if (TASKS_ENABLED) privilegedIpc.handle(
     IPC_CHANNELS.workTaskPromote,
     (_event, canvas: string, nodeId: string, taskId: string, note?: string) =>
       runRendererWorkAuthoring(
@@ -828,7 +829,7 @@ export const registerVellumIpc = (): void => {
         ),
       ),
   );
-  privilegedIpc.handle(
+  if (TASKS_ENABLED) privilegedIpc.handle(
     IPC_CHANNELS.workTaskComment,
     (_event, canvas: string, nodeId: string, taskId: string, text: string) =>
       runRendererWorkAuthoring(
@@ -866,7 +867,7 @@ export const registerVellumIpc = (): void => {
         ),
       ),
   );
-  privilegedIpc.handle(
+  if (TASKS_ENABLED) privilegedIpc.handle(
     IPC_CHANNELS.workTaskRespond,
     (
       _event,
@@ -894,7 +895,7 @@ export const registerVellumIpc = (): void => {
         ),
       ),
   );
-  privilegedIpc.handle(
+  if (TASKS_ENABLED) privilegedIpc.handle(
     IPC_CHANNELS.workTaskClaim,
     (_event, canvas: string, nodeId: string, taskId: string, actor: string) =>
       runRendererWorkAuthoring(

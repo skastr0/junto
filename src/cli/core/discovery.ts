@@ -15,6 +15,7 @@ import {
   PAD_ENABLED,
   REQUESTS_ENABLED,
   SHEET_ENABLED,
+  TASKS_ENABLED,
 } from "../../shared/features";
 import { MANAGED_PROMPT_IMMEDIATE_MAX } from "../../shared/managed-prompt";
 import { SeatReadArgs, SeatWaitArgs, TaskWaitArgs } from "../../shared/seat-control";
@@ -108,6 +109,8 @@ export interface CapabilityInvocation {
  * back to a surface the kernel already refuses.
  */
 export const commandSurfaceEnabled = (commandId: string): boolean => {
+  if (commandId.startsWith("tasks.")) return TASKS_ENABLED;
+  if (commandId.startsWith("content.")) return TASKS_ENABLED;
   if (commandId.startsWith("board.")) return BOARD_ENABLED;
   if (commandId.startsWith("pad.")) return PAD_ENABLED;
   if (commandId === "sheet.read") return SHEET_ENABLED;

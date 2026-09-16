@@ -28,6 +28,7 @@ import {
   RELAY_ENABLED,
   REQUESTS_ENABLED,
   SHEET_ENABLED,
+  TASKS_ENABLED,
 } from "@shared/features";
 import { fuzzyMatch } from "../../lib/fuzzy-match";
 import { HUE } from "../../lib/theme";
@@ -160,12 +161,12 @@ export const DEFAULT_NODE_CATALOG_ENTRIES: readonly NodeCatalogEntry[] = [
     icon: SquareTerminal,
     purpose: "A shell on the selected machine for commands, logs, and hands-on work.",
   },
-  {
+  ...(TASKS_ENABLED ? [{
     id: "tasks", category: "sinks", label: "Tasks", subtitle: "shared work queue",
     icon: Blocks,
     purpose: "A work queue. Connected agents pick up tasks and turn in finished work.",
     behavior: "A task waiting on your answer pauses only the agent working on it.",
-  },
+  } satisfies NodeCatalogEntry] : []),
   ...(REQUESTS_ENABLED ? [{
     id: "requests", category: "sinks", label: "Requests", subtitle: "questions for you",
     icon: Inbox,

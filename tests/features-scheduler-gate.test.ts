@@ -1,6 +1,10 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { CRON_ENABLED, RELAY_ENABLED } from "../src/shared/features";
+import {
+  CRON_ENABLED,
+  RELAY_ENABLED,
+  TASKS_ENABLED,
+} from "../src/shared/features";
 import {
   DEFAULT_NODE_CATALOG_ENTRIES,
   catalogWireLines,
@@ -21,9 +25,11 @@ describe("scheduler product gates", () => {
     () => {
       expect(catalogIds()).not.toContain("cron");
       expect(catalogIds()).not.toContain("relay");
-      expect(catalogWireLines("tasks").map((line) => line.family)).toEqual([
-        "access",
-      ]);
+      // The tasks gate owns its wire lines; the scheduler gate only removes
+      // watch and effect here.
+      expect(catalogWireLines("tasks").map((line) => line.family)).toEqual(
+        TASKS_ENABLED ? ["access"] : [],
+      );
       expect(opsForKind("relay")).toEqual([]);
 
       const preload = readFileSync("src/preload/index.ts", "utf8");

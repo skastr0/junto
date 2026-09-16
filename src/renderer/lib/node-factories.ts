@@ -16,6 +16,7 @@ import {
   PAD_ENABLED,
   REQUESTS_ENABLED,
   SHEET_ENABLED,
+  TASKS_ENABLED,
 } from "@shared/features";
 import { resolveManagedLaunch } from "@shared/managed-terminal-launch";
 import { emptySheet } from "@shared/sheet";
@@ -90,6 +91,14 @@ export const makeGroupNode = (
   width: Math.round(size?.width ?? 560),
   height: Math.round(size?.height ?? 320),
 });
+
+/**
+ * Authoring constructor gate: a feature-off sink cannot be created by any
+ * code path, while an already-authored node still decodes and renders.
+ */
+const requireFeature = (enabled: boolean, label: string): void => {
+  if (!enabled) throw new Error(`${label} is disabled in this build`);
+};
 
 /** Shared options for authoring or re-seating a managed agent. */
 export type ManagedAgentSeatOptions = {
@@ -270,6 +279,7 @@ export const makeTasksNode = (
   y: number,
   queueHost: string,
 ): TextNode => {
+  requireFeature(TASKS_ENABLED, "tasks sink");
   const host = requireHostId(queueHost);
   return {
     id: `task-${ulid()}`,
@@ -285,14 +295,6 @@ export const makeTasksNode = (
       tasks: { items: [] },
     },
   };
-};
-
-/**
- * Authoring constructor gate: a feature-off sink cannot be created by any
- * code path, while an already-authored node still decodes and renders.
- */
-const requireFeature = (enabled: boolean, label: string): void => {
-  if (!enabled) throw new Error(`${label} is disabled in this build`);
 };
 
 // Operator requests — items live around state input-required.

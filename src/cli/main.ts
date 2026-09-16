@@ -48,6 +48,7 @@ import {
   PAD_ENABLED,
   REQUESTS_ENABLED,
   SHEET_ENABLED,
+  TASKS_ENABLED,
 } from "@shared/features";
 import { runOverseerHost } from "../overseer-host/main";
 
@@ -78,12 +79,12 @@ export const rootCommand = Command.make(CLI_NAME).pipe(
     schemaCommand,
     examplesCommand,
     preambleCommand,
-    tasksCommand,
+    ...(TASKS_ENABLED ? [tasksCommand] : []),
     rulingsCommand,
     msgCommand,
     seatCommand,
     verdictCommand,
-    contentCommand,
+    ...(TASKS_ENABLED ? [contentCommand] : []),
     docsCommand,
     ...(BOARD_ENABLED ? [boardCommand] : []),
     ...(PAD_ENABLED ? [padCommand] : []),
@@ -116,6 +117,8 @@ const runtimeLayer = Layer.mergeAll(
  */
 const disabledCliGroup = (args: ReadonlyArray<string>): string | undefined => {
   const group = args[0];
+  if (!TASKS_ENABLED && group === "tasks") return "tasks";
+  if (!TASKS_ENABLED && group === "content") return "content";
   if (!BOARD_ENABLED && group === "board") return "board";
   if (!PAD_ENABLED && group === "pad") return "pad";
   if (!SHEET_ENABLED && group === "sheet") return "sheet";

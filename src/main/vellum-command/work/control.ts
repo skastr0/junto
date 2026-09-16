@@ -131,7 +131,7 @@ import {
 } from "./blocked-seat";
 import { PausePlane } from "../pause-plane";
 import { seatPaused } from "@shared/pause";
-import { RELAY_ENABLED } from "@shared/features";
+import { RELAY_ENABLED, TASKS_ENABLED } from "@shared/features";
 
 /** Ops that act on the factory — refused for paused seats. Reads stay open. */
 const MUTATING_OPS: ReadonlySet<string> = new Set([
@@ -665,6 +665,8 @@ const boardRulesMap = (doc: CanvasDoc, fromNodeId: string) =>
  * board contract and no flow edges, so plain nodes stay quiet.
  */
 const boardBriefing = (doc: CanvasDoc, nodeId: string) => {
+  // Tasks are a product surface: a tasks-off build carries no board summary.
+  if (!TASKS_ENABLED) return undefined;
   const node = doc.nodes.find((candidate) => candidate.id === nodeId);
   const identity = tasksNodeIdentity(node, nodeId);
   const contract = boardContractOf(node);

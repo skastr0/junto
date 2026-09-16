@@ -5,6 +5,7 @@ import {
   type CanvasDoc,
   type CanvasNode,
 } from "../canvas";
+import { productNodeKindEnabled } from "../features";
 import { groupMembers, isGroup } from "../graph";
 import type { CapabilityView, NodeMeta } from "./admit";
 import { directedEdgeKey, undirectedEdgeKey } from "./admit";
@@ -71,6 +72,13 @@ export const canvasDocToCapabilityView = (
     nodeMeta = HashMap.set(nodeMeta, asNodeId(node.id), nodeMetaOf(node));
   }
 
+  // Claimability is a capability: an endpoint kind a product gate turned off
+  // takes no factory handoff, even when a historical `works` edge survives.
+  const kindEnabledAt = (id: NodeId): boolean => {
+    const meta = HashMap.get(nodeMeta, id);
+    return Option.isNone(meta) || productNodeKindEnabled(meta.value.kind);
+  };
+
   let connected = HashMap.empty<NodeId, HashSet.HashSet<NodeId>>();
   const addAdj = (from: NodeId, to: NodeId): void => {
     const prev = HashMap.get(connected, from);
@@ -111,7 +119,7 @@ export const canvasDocToCapabilityView = (
     }
     const prev = pairPorts.get(key);
     pairPorts.set(key, prev === undefined ? ports : HashSet.union(prev, ports));
-    if (grant?.claimable === true) {
+    if (grant?.claimable === true && kindEnabledAt(a) && kindEnabledAt(b)) {
       claimable = HashSet.add(claimable, key);
     }
   }

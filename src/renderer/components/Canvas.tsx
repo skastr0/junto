@@ -80,6 +80,7 @@ import {
   PAD_ENABLED,
   REQUESTS_ENABLED,
   SHEET_ENABLED,
+  TASKS_ENABLED,
 } from "@shared/features";
 import { HUE, themeFor, withAlpha } from "../lib/theme";
 import { themeMode$ } from "../lib/theme-mode";
@@ -725,6 +726,7 @@ const makeAddActions = (
     dismiss();
   },
   addTasks: () => {
+    if (!TASKS_ENABLED) return;
     const position = positionFor({ width: 240, height: 120 });
     const stationHost = state$.settings.station.hostId.peek() || "local";
     const node = makeTasksNode(position.x, position.y, stationHost);
@@ -1549,10 +1551,10 @@ function CanvasGraph() {
       proOptions={{ hideAttribution: true }}
       style={{ background: fieldTheme.ground }}
     >
-      {/* The dotted ground is CSS inside the composited viewport (styles.css,
-          .react-flow__viewport::before): React Flow's <Background> re-renders a
-          full-window SVG pattern on every viewport change, which repainted the
-          whole window on every pan frame. */}
+      {/* No painted ground pattern: any pattern inside the composited viewport
+          pays per-tile raster on every pan frame (see styles.css note above the
+          busy gate); React Flow's <Background> re-rendered a full-window SVG
+          pattern per viewport change, which was worse. Flat ground wins. */}
       <ViewportTransformLease />
       <CanvasLoom edges={edges} />
       <CanvasMagnifier />

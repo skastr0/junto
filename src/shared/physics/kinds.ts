@@ -6,6 +6,7 @@ import {
   PAD_ENABLED,
   REQUESTS_ENABLED,
   SHEET_ENABLED,
+  TASKS_ENABLED,
 } from "../features";
 import {
   isWellKnownKind,
@@ -44,14 +45,16 @@ export const ACTOR_ACTOR_INBOX_PORTS: ReadonlyArray<Port> = [
 ];
 
 const msgOffers = portSet(...ACTOR_ACTOR_INBOX_PORTS);
-const taskOffers = portSet(
-  "tasks.list",
-  "tasks.create",
-  "tasks.claim",
-  "tasks.update",
-  "msg.list",
-  "msg.send",
-);
+const taskOffers = TASKS_ENABLED
+  ? portSet(
+    "tasks.list",
+    "tasks.create",
+    "tasks.claim",
+    "tasks.update",
+    "msg.list",
+    "msg.send",
+  )
+  : emptyOffers;
 // Feature-gated sink offers. A disabled feature keeps its role (historical
 // rows stay decodable and render as cards) but offers no port, so every
 // capability surface — CLI grants, work ops, overseer admin, station wire —

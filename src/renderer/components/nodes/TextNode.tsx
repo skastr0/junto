@@ -28,7 +28,7 @@ import { ACP_CHAT_SURFACE_HIDDEN } from "@shared/legacy-surfaces";
 import { isHarnessId } from "@shared/managed-terminal-templates";
 import { resolveTerminalBinding } from "@shared/terminal";
 import { activateNodeSurface } from "../../lib/activate-node-surface";
-import { productNodeKindEnabled } from "@shared/features";
+import { productNodeKindEnabled, TASKS_ENABLED } from "@shared/features";
 import { agentSeat$ } from "../../lib/agent-seat-state";
 import { consumeWorkDetailOpen, workDetailOpen$ } from "../../lib/work-detail-open";
 import { onTerminalEvent } from "../../lib/terminal-events";
@@ -371,7 +371,9 @@ function EntityCard({
           {context}
         </div>
       ) : null}
-      {kind === "agent" ? <ClaimedTaskStrip node={node} /> : null}
+      {kind === "agent" && TASKS_ENABLED ? (
+        <ClaimedTaskStrip node={node} />
+      ) : null}
     </div>
   );
 }
@@ -508,7 +510,7 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
           <TerminalToolbarActions node={node} />
         ) : isAgent && !ACP_CHAT_SURFACE_HIDDEN ? (
           <AgentChatToolbarActions node={node} />
-        ) : entityKind === "task" ? (
+        ) : entityKind === "task" && TASKS_ENABLED ? (
           <TaskToolbarActions node={node} />
         ) : isCron ? (
           <CronScheduleToolbarAction onOpen={() => setCronScheduleOpen(true)} />

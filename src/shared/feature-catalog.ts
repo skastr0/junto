@@ -31,6 +31,11 @@ export const FEATURE_CATALOG = {
     env: "VELLUM_COMMAND_ARTIFACTS",
     define: "__VELLUM_COMMAND_ARTIFACTS_ENABLED__",
   },
+  /** Tasks node, task CLI, and the task-scoped content access it carries. */
+  tasks: {
+    env: "VELLUM_COMMAND_TASKS",
+    define: "__VELLUM_COMMAND_TASKS_ENABLED__",
+  },
   fleetUi: {
     env: "VELLUM_COMMAND_FLEET_UI",
     define: "__VELLUM_COMMAND_FLEET_UI_ENABLED__",
@@ -127,6 +132,7 @@ export const SHIP_FEATURES: FeatureSet = {
   sheet: false,
   requests: false,
   artifacts: false,
+  tasks: false,
   fleetUi: false,
   usage: false,
   helpMap: false,
@@ -152,6 +158,7 @@ export const ALL_FEATURES: FeatureSet = {
   sheet: true,
   requests: true,
   artifacts: true,
+  tasks: true,
   fleetUi: true,
   usage: true,
   helpMap: true,

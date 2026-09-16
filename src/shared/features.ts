@@ -18,6 +18,7 @@ declare const __VELLUM_COMMAND_PAD_ENABLED__: boolean | undefined;
 declare const __VELLUM_COMMAND_SHEET_ENABLED__: boolean | undefined;
 declare const __VELLUM_COMMAND_REQUESTS_ENABLED__: boolean | undefined;
 declare const __VELLUM_COMMAND_ARTIFACTS_ENABLED__: boolean | undefined;
+declare const __VELLUM_COMMAND_TASKS_ENABLED__: boolean | undefined;
 declare const __VELLUM_COMMAND_FLEET_UI_ENABLED__: boolean | undefined;
 declare const __VELLUM_COMMAND_USAGE_ENABLED__: boolean | undefined;
 declare const __VELLUM_COMMAND_HELP_MAP_ENABLED__: boolean | undefined;
@@ -88,6 +89,15 @@ export const ARTIFACTS_ENABLED: boolean =
   typeof __VELLUM_COMMAND_ARTIFACTS_ENABLED__ === "boolean"
     ? __VELLUM_COMMAND_ARTIFACTS_ENABLED__
     : envEnabled("VELLUM_COMMAND_ARTIFACTS");
+
+/**
+ * Tasks sink — node authoring, wires, the tasks CLI group, and the
+ * task-scoped content access and verdicts that hang off it.
+ */
+export const TASKS_ENABLED: boolean =
+  typeof __VELLUM_COMMAND_TASKS_ENABLED__ === "boolean"
+    ? __VELLUM_COMMAND_TASKS_ENABLED__
+    : envEnabled("VELLUM_COMMAND_TASKS");
 
 export const FLEET_UI_ENABLED: boolean =
   typeof __VELLUM_COMMAND_FLEET_UI_ENABLED__ === "boolean"
@@ -205,6 +215,7 @@ export const BUILD_FEATURES = {
   sheet: SHEET_ENABLED,
   requests: REQUESTS_ENABLED,
   artifacts: ARTIFACTS_ENABLED,
+  tasks: TASKS_ENABLED,
   fleetUi: FLEET_UI_ENABLED,
   usage: USAGE_ENABLED,
   helpMap: HELP_MAP_ENABLED,
@@ -232,6 +243,7 @@ export const schedulerFeatureEnabled = (
  * surface reads so a disabled feature cannot reappear through a side door.
  */
 export const productNodeKindEnabled = (kind: string | undefined): boolean => {
+  if (kind === "task") return TASKS_ENABLED;
   if (kind === "cron" || kind === "timer") return CRON_ENABLED;
   if (kind === "relay" || kind === "watcher" || kind === "gauge") return RELAY_ENABLED;
   if (kind === "page") return BROWSER_ENABLED;
@@ -249,6 +261,8 @@ export const productNodeKindEnabled = (kind: string | undefined): boolean => {
  * docs, capability inventories) rather than node kinds.
  */
 export const productPortEnabled = (port: string): boolean => {
+  if (port.startsWith("tasks.")) return TASKS_ENABLED;
+  if (port.startsWith("content.")) return TASKS_ENABLED;
   if (port.startsWith("board.")) return BOARD_ENABLED;
   if (port.startsWith("pad.")) return PAD_ENABLED;
   if (port === "sheet.read") return SHEET_ENABLED;
@@ -265,6 +279,8 @@ export const productPortEnabled = (port: string): boolean => {
  */
 export const overseerOperationEnabled = (operation: string): boolean => {
   const family = operation.split(".", 1)[0] ?? operation;
+  if (family === "tasks") return TASKS_ENABLED;
+  if (family === "content") return TASKS_ENABLED;
   if (family === "request") return REQUESTS_ENABLED;
   if (family === "artifact") return ARTIFACTS_ENABLED;
   if (family === "board") return BOARD_ENABLED;

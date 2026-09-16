@@ -25,6 +25,7 @@ describe("compile-time feature profiles", () => {
       sheet: false,
       requests: false,
       artifacts: false,
+      tasks: false,
       fleetUi: false,
       usage: false,
       helpMap: false,

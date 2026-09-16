@@ -41,6 +41,7 @@ import {
   PAD_ENABLED,
   RELAY_ENABLED,
   REQUESTS_ENABLED,
+  TASKS_ENABLED,
   USAGE_ENABLED,
 } from "@shared/features";
 import type { SnapshotState } from "@shared/entities";
@@ -392,6 +393,13 @@ const liveApi: import("@shared/overseer-live").OverseerLiveApi = {
  * them so the enabled groups are spread at the exposure site.
  */
 type WorkFeatureApiKey =
+  | "workTaskCreate"
+  | "workTaskDescribe"
+  | "workTaskTransition"
+  | "workTaskPromote"
+  | "workTaskComment"
+  | "workTaskRespond"
+  | "workTaskClaim"
   | "workRequestResolve"
   | "workArtifactArchive"
   | "workArtifactDelete"
@@ -436,66 +444,6 @@ const vellumApi: Omit<VellumCommandApi, keyof typeof liveApi | WorkFeatureApiKey
     invoke(IPC_CHANNELS.regionRollups, IPC_TIMEOUT_MS, name),
   contentPutImage: (input) =>
     invoke(IPC_CHANNELS.contentPutImage, IPC_TIMEOUT_MS, input),
-  workTaskCreate: (canvas, nodeId, brief, metadata, reason, media, dependsOn, finishCriteria, rules, options) =>
-    invoke(
-      IPC_CHANNELS.workTaskCreate,
-      IPC_TIMEOUT_MS,
-      canvas,
-      nodeId,
-      brief,
-      metadata,
-      reason,
-      media,
-      dependsOn,
-      finishCriteria,
-      rules,
-      options,
-    ),
-  workTaskDescribe: (canvas, nodeId, taskId, brief) =>
-    invoke(IPC_CHANNELS.workTaskDescribe, IPC_TIMEOUT_MS, canvas, nodeId, taskId, brief),
-  workTaskTransition: (
-    canvas,
-    nodeId,
-    taskId,
-    state,
-    note,
-    completionEvidence,
-    path,
-  ) =>
-    invoke(
-      IPC_CHANNELS.workTaskTransition,
-      IPC_TIMEOUT_MS,
-      canvas,
-      nodeId,
-      taskId,
-      state,
-      note,
-      completionEvidence,
-      path,
-    ),
-  workTaskPromote: (canvas, nodeId, taskId, note) =>
-    invoke(IPC_CHANNELS.workTaskPromote, IPC_TIMEOUT_MS, canvas, nodeId, taskId, note),
-  workTaskComment: (canvas, nodeId, taskId, text) =>
-    invoke(
-      IPC_CHANNELS.workTaskComment,
-      IPC_TIMEOUT_MS,
-      canvas,
-      nodeId,
-      taskId,
-      text,
-    ),
-  workTaskRespond: (canvas, nodeId, taskId, responseText, disposition) =>
-    invoke(
-      IPC_CHANNELS.workTaskRespond,
-      IPC_TIMEOUT_MS,
-      canvas,
-      nodeId,
-      taskId,
-      responseText,
-      disposition,
-    ),
-  workTaskClaim: (canvas, nodeId, taskId, actor) =>
-    invoke(IPC_CHANNELS.workTaskClaim, IPC_TIMEOUT_MS, canvas, nodeId, taskId, actor),
   workSeatRecentOps: (canvas, nodeId, limit) =>
     invoke(
       IPC_CHANNELS.workSeatRecentOps,
@@ -557,6 +505,78 @@ const vellumApi: Omit<VellumCommandApi, keyof typeof liveApi | WorkFeatureApiKey
       IPC_CHANNELS.observabilityCleared,
       listener,
     ),
+};
+
+const taskWorkApi: Pick<
+  VellumCommandApi,
+  | "workTaskCreate"
+  | "workTaskDescribe"
+  | "workTaskTransition"
+  | "workTaskPromote"
+  | "workTaskComment"
+  | "workTaskRespond"
+  | "workTaskClaim"
+> = {
+  workTaskCreate: (canvas, nodeId, brief, metadata, reason, media, dependsOn, finishCriteria, rules, options) =>
+    invoke(
+      IPC_CHANNELS.workTaskCreate,
+      IPC_TIMEOUT_MS,
+      canvas,
+      nodeId,
+      brief,
+      metadata,
+      reason,
+      media,
+      dependsOn,
+      finishCriteria,
+      rules,
+      options,
+    ),
+  workTaskDescribe: (canvas, nodeId, taskId, brief) =>
+    invoke(IPC_CHANNELS.workTaskDescribe, IPC_TIMEOUT_MS, canvas, nodeId, taskId, brief),
+  workTaskTransition: (
+    canvas,
+    nodeId,
+    taskId,
+    state,
+    note,
+    completionEvidence,
+    path,
+  ) =>
+    invoke(
+      IPC_CHANNELS.workTaskTransition,
+      IPC_TIMEOUT_MS,
+      canvas,
+      nodeId,
+      taskId,
+      state,
+      note,
+      completionEvidence,
+      path,
+    ),
+  workTaskPromote: (canvas, nodeId, taskId, note) =>
+    invoke(IPC_CHANNELS.workTaskPromote, IPC_TIMEOUT_MS, canvas, nodeId, taskId, note),
+  workTaskComment: (canvas, nodeId, taskId, text) =>
+    invoke(
+      IPC_CHANNELS.workTaskComment,
+      IPC_TIMEOUT_MS,
+      canvas,
+      nodeId,
+      taskId,
+      text,
+    ),
+  workTaskRespond: (canvas, nodeId, taskId, responseText, disposition) =>
+    invoke(
+      IPC_CHANNELS.workTaskRespond,
+      IPC_TIMEOUT_MS,
+      canvas,
+      nodeId,
+      taskId,
+      responseText,
+      disposition,
+    ),
+  workTaskClaim: (canvas, nodeId, taskId, actor) =>
+    invoke(IPC_CHANNELS.workTaskClaim, IPC_TIMEOUT_MS, canvas, nodeId, taskId, actor),
 };
 
 const requestsWorkApi: Pick<VellumCommandApi, "workRequestResolve"> = {
@@ -854,6 +874,7 @@ if (preloadLocation === undefined || isRendererPreloadCandidate(preloadLocation)
   contextBridge.exposeInMainWorld("chassis", chassisApi);
   contextBridge.exposeInMainWorld("vellumCommand", {
     ...vellumApi,
+    ...(TASKS_ENABLED ? taskWorkApi : {}),
     ...(REQUESTS_ENABLED ? requestsWorkApi : {}),
     ...(ARTIFACTS_ENABLED ? artifactsWorkApi : {}),
     ...(BOARD_ENABLED ? boardWorkApi : {}),
