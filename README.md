@@ -22,7 +22,7 @@ actively developed by a solo maintainer. Reports and proposals go through
 | Fleet management and Remote stations | Experimental, disabled in the default build. |
 | Windows | No supported build or release lane. |
 
-The [official download page](https://vellumcommand.com/download) lists available
+The [official download page](https://juntoagents.com/download) lists available
 builds, signed Linux metadata, and corresponding source downloads. Official
 automatic updates use the maintainer-run release feed. Updates download
 in the background and offer an explicit restart when ready. The source repository

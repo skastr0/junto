@@ -2,14 +2,11 @@
 
 Read `AGENTS.md` — it is the canonical project guide for this repository.
 
-## Product brand — hard invariant
+## Product name: Junto
 
-**The product is Junto. Never the short form without Command.**
+**The product name is Junto.**
 
-A different product owns the short one-word name. Every public / user-facing
-string in this repo must say **Junto**. Source paths (`src/main/junto/`), the npm package,
-and appId remain implementation identifiers, not compatibility readers. Runtime surfaces use `VellumCommandApi`,
-`~/.junto/`, `junto.db`, and the canonical CLI bin `junto`.
+Every public, user-facing, and runtime string in this repo uses the name **Junto**. Runtime surfaces use `JuntoApi`, `~/.junto/`, `junto.db`, and the canonical CLI bin `junto`. Source paths live under `src/main/junto/`.
 
 Gate: `bun run lint:product-name` (also in `bun run verify`).
 Constant: `src/shared/product-name.ts`.

@@ -7,53 +7,23 @@ geography. The current canvas serialization is a
 [JSON Canvas 1.0](https://jsoncanvas.org) document extended with a namespaced
 `ether` key.
 
-## Product brand — hard invariant
+## Product name: Junto
 
-**The product name is Junto. Never the short form without Command.**
+**The product name is Junto.**
 
-A different product owns the short one-word name. This app, brand, and every
-public or user-facing string must use the full name **Junto** only.
+Every public, user-facing, and runtime string uses the name **Junto**.
 
-| Surface | Rule |
-|---|---|
-| UI, dialogs, toasts, recovery HTML | `Junto` |
-| CLI hints, doctor, next_step copy | `Junto` |
-| README, PRODUCT, marketing, store | `Junto` |
-| Agent docs (this file, CLAUDE.md) | `Junto` |
-| macOS app / executable | `Junto.app` |
-| Release artifacts | `Junto-…` |
-| Code identifiers / source paths | unchanged — not brand |
-
-**Renamed runtime surfaces:** `VellumCommandApi`, `resolveJuntoHome`, `~/.junto/`,
-`dist/junto`, `bin/junto`, `JUNTO_*` env keys,
-`window.vellumCommand`, and `junto-*` protocol/control prefixes.
-
-**Implementation boundaries:** source paths under `src/main/junto/`, the npm package name, the appId,
-Context service identifiers, internal `@junto/*` tags, checked-in helper source filenames, and Linux release
-archive names remain implementation/release identities. They are not legacy readers or compatibility aliases.
-The active product state and node-reference URI use the canonical `junto` names above.
-
-**Enforcement:** `bun run lint:product-name` — capital-V product token not
-followed by ` Command` or `-Command` is a lint error. Wired into `bun run verify`.
-Constant: `src/shared/product-name.ts` (`PRODUCT_NAME`).
-
-**PR test:** would a stranger reading only this string think the product is the
-short one-word name? If yes, rewrite to **Junto**.
+**Enforcement:** `bun run lint:product-name` — verifies product name usage across the codebase. Wired into `bun run verify`. Constant: `src/shared/product-name.ts` (`PRODUCT_NAME`).
 
 ## Security doctrine — read first
 
 [`docs/security-doctrine.md`](docs/security-doctrine.md) is the governing
-product trust model. It defines Junto as a single-operator factory,
+product trust model. It defines Junto as a single-operator station,
 attached agents as trusted but fallible, edges as enforceable operator intent
 inside Junto, and Stations as single-home executors of Command Center
 intent. If a review, backlog item, test, or older architecture note conflicts
-with it, the conflict is migration work. This fresh-app rename has no old-home
-importers, dual writers, or internal runtime aliases. Station protocol
-negotiation remains a product contract for independently updated peers when
-those peers are deployed; newly emitted traffic has no legacy codec or
-namespace. The sole historical decode exception is the portfolio body stored
-inside frozen v1 SQLite fixtures, required by the immutable installed-state
-proof and never emitted or negotiated.
+with it, the conflict is migration work. Newly emitted traffic has no legacy
+codec or namespace.
 
 [`docs/junto-protocol.md`](docs/junto-protocol.md) is the canonical
 multi-installation contract: identity, complete intent projection, sink/item
@@ -88,41 +58,14 @@ to correctness.
 JSON Canvas exports and agent sidecars (`*.digest.txt`, `*.svg`) are outputs,
 not durability or input watched by the app.
 
-Install/update stages and cutovers without a sealed clone preflight.
-Schema evolution runs on normal app open; failures surface in the normal
-startup recovery flow. There is no second database opener for update proofs,
-and the product rename itself has no startup data-copy step. The separately
-ruled Tasks vocabulary consolidation below is the sole startup data rewrite.
-
-**SQLite evolution law:** version 1 is the frozen durable baseline. The current
-source/runtime schema is version 23, selected by `CURRENT_STATE_SCHEMA_VERSION`
-and reached through the immutable contiguous steps declared in `migrations.ts`.
-The public macOS 0.1.14 package remains historical evidence for schema version
-18; it does not define the current source/runtime head. The frozen `18 → 19`,
-and `19 → 20` migrations must never be edited, squashed, renumbered, or reused.
-The original Tasks-bearing `20 → 21` result was invalid and is replaced by the
-corrected version-21 definition below.
-The next schema change must append `23 → 24`.
+**SQLite evolution law:** Version 1 is the baseline Junto schema, selected by
+`CURRENT_STATE_SCHEMA_VERSION = 1` and declared in `src/main/junto/state/migrations.ts`.
 `PRAGMA user_version` selects a contiguous forward-only migration chain, and
 `state_schema_identity` proves the exact shape expected at each step. Every
-schema edit must increment the current version, append an atomic `N → N+1`
-migration, and prove old rows survive. Shipped migration history is immutable:
-never edit, delete, reorder, or renumber a released step.
-
-**Corrective Tasks removal, not legacy policy.** Corrected schema 21 removes a
-broken, unshippable Tasks representation whose railway vocabulary and
-proposal-first model must not remain in the product or codebase. The old shape
-is invalid implementation residue, not previously respected legacy data. The
-startup-atomic repair rewrites an existing invalid version-21 database in
-place before normal decode, recomputes every correlated content hash,
-materializes proposal state as canonical Tasks, and removes the broken
-storage. Fresh upgrades build only the corrected version 21. The schema and
-Remote wire versions do not increment for this repair. No old Tasks key,
-active codec, table, decoder, dual read/write, or fallback survives; only the
-isolated corrective input converter knows the invalid shape. This removal is
-required for codebase health and is not a precedent for rewriting valid
-history; the normal evolution and immutable-history laws govern every other
-migration.
+subsequent schema edit must increment the current version, append an atomic
+`N → N+1` migration (starting with `1 → 2`), and prove existing rows survive.
+Shipped migration history is immutable: never edit, delete, reorder, or renumber
+a released step.
 
 Routine migrations are **expand → preserve → deprecate**:
 
@@ -198,7 +141,7 @@ canvas, node, and work operations without connecting edges. It may occupy
 Command Center or Remote. Command Center validates the live grant and
 authenticated source installation and performs authoring; a Remote does not
 author projection. Only humans grant or revoke; overseers cannot propagate
-authority. Factory pause and play have no bearing on administration. An
+authority. Workspace pause and play have no bearing on administration. An
 overseer cannot delete its own seat or move the operator viewport. It does
 not receive the operator socket, fleet enrollment, or credentials.
 
@@ -244,7 +187,7 @@ human/Command Center except closed overseer commands from a live granted seat.
 
 **Board residency:** board is a **Command Center-homed global sink** (same residency class as actor mailboxes). Sink definition is in the fleet projection; material topics/posts live only on CC. Remote agents enqueue `board.topic.create` / `board.post.append`; Remotes store applied dispositions/events and do **not** rematerialize board rows. List/read the full board on Command Center. `board.mark_read` is install-local. Operator megaphone / edge `wake` is CC UI only; agent posts never wake.
 
-**Pad (shared page):** a Command Center-homed work-plane sink (same class as board). Ordinary agents read a picture + IR and patch named boxes and pins. They never write the factory canvas. Ports are `pad.read` and `pad.patch` only. Ordinary agent ink or image upserts are refused. Mentions must be inbound actor node ids. An overseer uses closed `overseer` pad/canvas ops, not a pad-plane canvas write.
+**Pad (shared page):** a Command Center-homed work-plane sink (same class as board). Ordinary agents read a picture + IR and patch named boxes and pins. They never write the canvas. Ports are `pad.read` and `pad.patch` only. Ordinary agent ink or image upserts are refused. Mentions must be inbound actor node ids. An overseer uses closed `overseer` pad/canvas ops, not a pad-plane canvas write.
 
 - Contract: [`docs/pad-architecture.md`](docs/pad-architecture.md)
 - Operator and agent guide: [`docs/pad.md`](docs/pad.md)
@@ -292,7 +235,7 @@ Edges: `{ "id", "fromNode", "toNode", "ether": { "verb": Verb } }`.
 
 | source → target | verbs | compiled |
 |---|---|---|
-| agent → agent | `messages` | msg ports |
+| agent → agent | `messages` \| `reviews` | msg ports; or directed `verdict.post` |
 | agent → task | `manages` \| `contributes` | task ports (`contributes` adds `tasks.claim`) |
 | agent → requests | `escalates` | `request.escalate` + msg ports |
 | agent → artifacts | `publishes` | `artifact.publish` |
@@ -300,7 +243,7 @@ Edges: `{ "id", "fromNode", "toNode", "ether": { "verb": Verb } }`.
 | agent → pad | `reads` \| `edits` | `pad.read` (`edits` adds `pad.patch`) |
 | agent → page | `navigates` | `browser.automate` |
 | agent → relay | `fires` \| `announces` | `relay.trigger`; or a watch on the agent's own attention flag |
-| task → agent | `works` | task ports; `claimable: true` — the factory tick's claim selector reads this |
+| task → agent | `works` | task ports; `claimable: true` — the claim selector reads this |
 | task → task | `feeds` | no ports; `flow: true`, DAG-guarded task-path hop |
 | {task,requests,artifacts,board,pad,page} → relay | `announces` | watch on that sink's own headline event |
 | {relay,clock} → agent | `wakes` \| `flags` | `inject_prompt` \| `set_flag` |
@@ -357,7 +300,7 @@ absent from the verb table (sink–sink, geography).
 **Not a product peer:** hermes **gauge** (`watcher`) is palette-hidden / dormant; it shares the `clock` scheduler row with `cron`/`timer` but has no palette entry.
 
 **Effects (v1):** `enqueue_task` - `set_flag` - `inject_prompt` — the compiled
-facets of `enqueues` / `flags` / `wakes`. Task claiming stays in the factory
+facets of `enqueues` / `flags` / `wakes`. Task claiming stays in the workspace
 tick (`works`'s compiled `claimable` grant, not an effect). No `relayState`
 cascade — multi-hop stoppage is a **relay** node, `announces` in and an
 effect verb out, only.
@@ -454,7 +397,7 @@ host-destructive call? If yes, the change is not done.*
 
 ## Factory physics (architecture north star)
 
-**The canvas is a factory floor, not an ACL spreadsheet.** Edges are ocaps
+**The canvas is a workspace, not an ACL spreadsheet.** Edges are ocaps
 (mint by draw, attenuate via ports, revoke by delete); process-bind wields the
 seat. Roles derive from entity kind — never authorial `ether.role`. Capability,
 phase, and attention/occupancy are separate planes.
@@ -463,7 +406,7 @@ phase, and attention/occupancy are separate planes.
   Junto-spawned template terminal. A raw user-opened terminal is
   `geography/"terminal"`; `worker` is reserved for a future native agent UI and
   must not appear as a kind. Geography holds no seat, no ports, no inbox, and no
-  work claim — but it *may* display agent state, because display is not a factory
+  work claim — but it *may* display agent state, because display is not a canvas
   power. Placement (`Cc | Station{hostId}`) is data: it never gates a port.
 - **PR test:** no host capability without connected edge + port + process-bind.
 - **Full doctrine:** [`docs/architecture-factory-physics.md`](docs/architecture-factory-physics.md).
@@ -496,8 +439,7 @@ Two kinds of migration exist and they never mix:
 1. **Schema evolution** — expand-only DDL steps in
    `src/main/junto/state/migrations.ts`: versioned (`user_version` N→N+1),
    identity-witnessed, one startup transaction, authorizer-guarded. A schema
-   step adds tables/columns/triggers; it never rewrites rows. The sole exception
-   is the corrected version-21 Tasks repair above.
+   step adds tables/columns/triggers; it never rewrites rows.
 2. **Data backfills** — marker-gated, idempotent walks that run after
    StateEngine is up (e.g. `content/inline-media-migration.ts`). Completeness
    markers live in install-ops (`install-ops.db` / `InstallOpsService`), not
@@ -510,9 +452,7 @@ Backfill laws (each one broke, or nearly broke, a real release):
   `work_facts`, `work_commands`, and `work_dispositions` are never UPDATEd or
   DELETEd — not even to "modernize" old payloads. History is served as written;
   decode paths admit historical shapes (decode-admits-history). Backfills
-  rewrite material projections only. The sole exception is the corrected
-  version-21 Tasks consolidation ruled above; after that cutover there is no
-  historical Tasks decoder.
+  rewrite material projections only.
 - **A backfill never gates boot.** Failure = log it, leave the marker pending,
   retry next boot. The app always opens; a half-done backfill is a deferred
   walk, not a startup error.
