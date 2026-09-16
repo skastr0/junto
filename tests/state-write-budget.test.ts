@@ -11,8 +11,9 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { performance } from "node:perf_hooks";
 import { Effect, ManagedRuntime } from "effect";
-import { afterEach, expect, it } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
 import {
   armMainThreadBudget,
   resetMainThreadBudget,
@@ -27,6 +28,7 @@ const roots: string[] = [];
 const runtimes: Array<{ dispose: () => Promise<void> }> = [];
 
 afterEach(async () => {
+  vi.restoreAllMocks();
   resetMainThreadBudget();
   while (runtimes.length > 0) await runtimes.pop()!.dispose();
   while (roots.length > 0) await rm(roots.pop()!, { recursive: true, force: true });
@@ -71,6 +73,11 @@ it("names the operation behind a write that blows the main-thread budget", async
 });
 
 it("stays silent for a write inside the budget", async () => {
+  const runtime = await openEngine();
+  // This checks the reporting threshold, not filesystem speed under parallel
+  // test load. The slow-write case above still exercises a real elapsed clock.
+  let elapsed = 100;
+  vi.spyOn(performance, "now").mockImplementation(() => elapsed);
   const seen: Array<BudgetViolation> = [];
   armMainThreadBudget({
     enabled: true,
@@ -78,11 +85,11 @@ it("stays silent for a write inside the budget", async () => {
     report: (violation) => seen.push(violation),
   });
 
-  const runtime = await openEngine();
   await runtime.runPromise(
     Effect.flatMap(StateEngine, (engine) =>
       engine.transaction("test.fast-write", (writer) => {
         writer.get<{ readonly n: number }>("SELECT 1 AS n");
+        elapsed += 1;
       }),
     ),
   );
