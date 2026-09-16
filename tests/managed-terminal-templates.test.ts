@@ -46,10 +46,10 @@ import {
   readHermesModels,
 } from "../src/main/vellum-command/term/templates/enumerate-models";
 import {
+  HARNESS_HERMES_ENABLED,
   HARNESS_KIMI_ENABLED,
   HARNESS_MUSE_ENABLED,
   HARNESS_PRIME_AGENT_ENABLED,
-  HERMES_INTEGRATION_ENABLED,
   managedHarnessEnabled,
 } from "../src/shared/features";
 
@@ -78,9 +78,9 @@ describe("managed-terminal templates (data)", () => {
     expect(allTemplates().map((template) => template.harness)).toEqual([
       ...expected,
     ]);
-    // Ship defaults: every harness gate is on; Hermes still rides the wider
-    // integration gate.
-    if (!HERMES_INTEGRATION_ENABLED) {
+    // Ship defaults: every harness gate is on, Hermes included; the deep ACP
+    // integration gate no longer decides whether the TUI seat is authorable.
+    if (!HARNESS_HERMES_ENABLED) {
       expect(expected).not.toContain("hermes");
     }
     if (!HARNESS_KIMI_ENABLED) expect(expected).not.toContain("kimi");

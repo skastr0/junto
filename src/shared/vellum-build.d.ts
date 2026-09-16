@@ -18,6 +18,7 @@ declare const __VELLUM_COMMAND_AUDIO_ENABLED__: boolean | undefined;
 declare const __VELLUM_COMMAND_LIVE_OVERSEER_ENABLED__: boolean | undefined;
 declare const __VELLUM_COMMAND_HERMES_INTEGRATION_ENABLED__: boolean | undefined;
 declare const __VELLUM_COMMAND_DEV_TOOLS_ENABLED__: boolean | undefined;
+declare const __VELLUM_COMMAND_HARNESS_HERMES_ENABLED__: boolean | undefined;
 declare const __VELLUM_COMMAND_HARNESS_KIMI_ENABLED__: boolean | undefined;
 declare const __VELLUM_COMMAND_HARNESS_MUSE_ENABLED__: boolean | undefined;
 declare const __VELLUM_COMMAND_HARNESS_PRIME_AGENT_ENABLED__: boolean | undefined;

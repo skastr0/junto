@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  HARNESS_HERMES_ENABLED,
   HARNESS_KIMI_ENABLED,
   HARNESS_MUSE_ENABLED,
   HARNESS_PRIME_AGENT_ENABLED,
@@ -17,11 +18,15 @@ describe("managed harness product gates", () => {
   it("ships every managed harness gate on", () => {
     const ship = resolveBuildFeatures({});
     expect(ship.profile).toBe("ship");
+    expect(ship.features.harnessHermes).toBe(true);
     expect(ship.features.harnessKimi).toBe(true);
     expect(ship.features.harnessMuse).toBe(true);
     expect(ship.features.harnessAmp).toBe(true);
     expect(ship.features.harnessOmp).toBe(true);
     expect(ship.features.harnessPrimeAgent).toBe(true);
+    expect(SHIP_FEATURES.harnessHermes).toBe(true);
+    // The TUI seat ships while the deep ACP integration does not.
+    expect(SHIP_FEATURES.hermesIntegration).toBe(false);
     expect(SHIP_FEATURES.harnessKimi).toBe(true);
     expect(SHIP_FEATURES.harnessMuse).toBe(true);
     expect(SHIP_FEATURES.harnessAmp).toBe(true);
@@ -45,6 +50,26 @@ describe("managed harness product gates", () => {
     // Pi stays a production seat and has no authoring gate.
     expect(HARNESS_IDS).toContain("pi");
     expect(managedHarnessEnabled("pi")).toBe(true);
+  });
+
+  it.runIf(HARNESS_HERMES_ENABLED)(
+    "offers the Hermes TUI seat without the ACP integration gate",
+    () => {
+      expect(managedHarnessEnabled("hermes")).toBe(true);
+      expect(allTemplates().map((t) => t.harness)).toContain("hermes");
+      expect(
+        makeManagedAgentNode(0, 0, { harness: "hermes", host: "local" }).ether
+          ?.terminal?.harness,
+      ).toBe("hermes");
+    },
+  );
+
+  it.runIf(!HARNESS_HERMES_ENABLED)("hides hermes from authoring when gated off", () => {
+    expect(managedHarnessEnabled("hermes")).toBe(false);
+    expect(allTemplates().map((t) => t.harness)).not.toContain("hermes");
+    expect(() =>
+      makeManagedAgentNode(0, 0, { harness: "hermes", host: "local" }),
+    ).toThrow(/disabled/u);
   });
 
   it.runIf(!HARNESS_KIMI_ENABLED)("hides kimi from authoring when gated off", () => {

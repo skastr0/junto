@@ -26,6 +26,7 @@ declare const __VELLUM_COMMAND_AUDIO_ENABLED__: boolean | undefined;
 declare const __VELLUM_COMMAND_LIVE_OVERSEER_ENABLED__: boolean | undefined;
 declare const __VELLUM_COMMAND_HERMES_INTEGRATION_ENABLED__: boolean | undefined;
 declare const __VELLUM_COMMAND_DEV_TOOLS_ENABLED__: boolean | undefined;
+declare const __VELLUM_COMMAND_HARNESS_HERMES_ENABLED__: boolean | undefined;
 declare const __VELLUM_COMMAND_HARNESS_KIMI_ENABLED__: boolean | undefined;
 declare const __VELLUM_COMMAND_HARNESS_MUSE_ENABLED__: boolean | undefined;
 declare const __VELLUM_COMMAND_HARNESS_FX_ENABLED__: boolean | undefined;
@@ -140,6 +141,20 @@ export const DEV_TOOLS_ENABLED: boolean =
     ? __VELLUM_COMMAND_DEV_TOOLS_ENABLED__
     : envEnabled("VELLUM_COMMAND_DEV_TOOLS");
 
+/**
+ * Hermes managed TUI seat — ON; the gate stays as the way back off.
+ *
+ * Independent of `HERMES_INTEGRATION_ENABLED`: that flag is the deep ACP chat
+ * plane and fleet host identity, which stay off in ship. The terminal seat is
+ * `hermes chat --tui` on a PTY like every other harness and needs none of it.
+ * Known limit carried by the template: Hermes chips multiline bracketed
+ * paste, so typed delivery beyond the `-q` spawn prompt is single-line only.
+ */
+export const HARNESS_HERMES_ENABLED: boolean =
+  typeof __VELLUM_COMMAND_HARNESS_HERMES_ENABLED__ === "boolean"
+    ? __VELLUM_COMMAND_HARNESS_HERMES_ENABLED__
+    : envEnabled("VELLUM_COMMAND_HARNESS_HERMES");
+
 /** Kimi Code managed seat — ON; the gate stays as the way back off. */
 export const HARNESS_KIMI_ENABLED: boolean =
   typeof __VELLUM_COMMAND_HARNESS_KIMI_ENABLED__ === "boolean"
@@ -223,6 +238,7 @@ export const BUILD_FEATURES = {
   liveOverseer: LIVE_OVERSEER_ENABLED,
   hermesIntegration: HERMES_INTEGRATION_ENABLED,
   devTools: DEV_TOOLS_ENABLED,
+  harnessHermes: HARNESS_HERMES_ENABLED,
   harnessKimi: HARNESS_KIMI_ENABLED,
   harnessMuse: HARNESS_MUSE_ENABLED,
   harnessFx: HARNESS_FX_ENABLED,
@@ -297,7 +313,7 @@ export const overseerOperationEnabled = (operation: string): boolean => {
  */
 export const managedHarnessEnabled = (harness: string): boolean => {
   if (harness === "vellum-overseer") return LIVE_OVERSEER_ENABLED;
-  if (harness === "hermes") return HERMES_INTEGRATION_ENABLED;
+  if (harness === "hermes") return HARNESS_HERMES_ENABLED;
   if (harness === "kimi") return HARNESS_KIMI_ENABLED;
   if (harness === "muse") return HARNESS_MUSE_ENABLED;
   if (harness === "fx") return HARNESS_FX_ENABLED;

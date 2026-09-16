@@ -56,6 +56,12 @@ export const FEATURE_CATALOG = {
     env: "VELLUM_COMMAND_AUDIO",
     define: "__VELLUM_COMMAND_AUDIO_ENABLED__",
   },
+  /**
+   * Deep Hermes integration: the ACP chat plane, fleet host identity
+   * (`hermesId` agent hosts), portfolio snapshots, and the Providers settings
+   * card. The managed Hermes TERMINAL seat is `harnessHermes` below and does
+   * not depend on this gate.
+   */
   hermesIntegration: {
     env: "VELLUM_COMMAND_HERMES",
     define: "__VELLUM_COMMAND_HERMES_INTEGRATION_ENABLED__",
@@ -75,6 +81,15 @@ export const FEATURE_CATALOG = {
    * whole surface. Durable HarnessId decode still admits historical canvas
    * rows in every profile.
    */
+  /**
+   * Hermes as a managed TUI seat (`hermes chat --tui` on a real PTY). Only the
+   * terminal template, palette entry, seat factory, and `hermes profile list`
+   * picker step ride this gate; the ACP plane stays under `hermesIntegration`.
+   */
+  harnessHermes: {
+    env: "VELLUM_COMMAND_HARNESS_HERMES",
+    define: "__VELLUM_COMMAND_HARNESS_HERMES_ENABLED__",
+  },
   harnessKimi: {
     env: "VELLUM_COMMAND_HARNESS_KIMI",
     define: "__VELLUM_COMMAND_HARNESS_KIMI_ENABLED__",
@@ -140,6 +155,7 @@ export const SHIP_FEATURES: FeatureSet = {
   liveOverseer: false,
   hermesIntegration: false,
   devTools: false,
+  harnessHermes: true,
   harnessKimi: true,
   harnessMuse: true,
   harnessFx: true,
@@ -166,6 +182,7 @@ export const ALL_FEATURES: FeatureSet = {
   liveOverseer: true,
   hermesIntegration: true,
   devTools: true,
+  harnessHermes: true,
   harnessKimi: true,
   harnessMuse: true,
   harnessFx: true,

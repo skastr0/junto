@@ -10,10 +10,7 @@ import type {
   ManagedTerminalProfilesResult,
 } from "@shared/ipc";
 import { isHarnessId, templateFor, type HarnessId } from "@shared/managed-terminal-templates";
-import {
-  HERMES_INTEGRATION_ENABLED,
-  managedHarnessEnabled,
-} from "@shared/features";
+import { managedHarnessEnabled } from "@shared/features";
 import {
   enumerateAgyModels,
   enumerateFxModels,
@@ -223,7 +220,9 @@ export const enumerateManagedModels = async (
 };
 
 export const enumerateManagedProfiles = async (): Promise<ManagedTerminalProfilesResult> => {
-  if (!HERMES_INTEGRATION_ENABLED) {
+  // Profiles are a picker step for the managed Hermes TUI seat, so they ride
+  // the terminal harness gate, not the deeper ACP integration gate.
+  if (!managedHarnessEnabled("hermes")) {
     return { profiles: [], source: "empty" };
   }
   try {

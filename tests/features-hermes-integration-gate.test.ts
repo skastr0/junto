@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   HARNESS_AMP_ENABLED,
   HARNESS_FX_ENABLED,
+  HARNESS_HERMES_ENABLED,
   HARNESS_KIMI_ENABLED,
   HARNESS_MUSE_ENABLED,
   HARNESS_OMP_ENABLED,
@@ -27,13 +28,15 @@ describe("Hermes integration product gate", () => {
   it.runIf(!HERMES_INTEGRATION_ENABLED)(
     "removes Hermes integration while retaining the independent ACP chat plane",
     () => {
-      // Hermes is independent of the shipped stock Prime Agent CLI harness;
-      // an explicit Prime build override may still disable its authoring. Durable
-      // HARNESS_IDS retain every decode vocabulary entry in either profile.
+      // The managed Hermes TUI seat rides its own `harnessHermes` gate (ship
+      // ON), so the template stays authorable while the deep integration is
+      // off. Durable HARNESS_IDS retain every decode vocabulary entry in
+      // either profile.
       expect(allTemplates().map((template) => template.harness)).toEqual([
         "claude",
         "codex",
         "grok",
+        ...(HARNESS_HERMES_ENABLED ? ["hermes" as const] : []),
         "pi",
         ...(HARNESS_PRIME_AGENT_ENABLED ? ["prime-agent" as const] : []),
         ...(HARNESS_KIMI_ENABLED ? ["kimi" as const] : []),
@@ -45,18 +48,27 @@ describe("Hermes integration product gate", () => {
         ...(HARNESS_FX_ENABLED ? ["fx" as const] : []),
         ...(HARNESS_OMP_ENABLED ? ["omp" as const] : []),
       ]);
-      expect(managedHarnessEnabled("hermes")).toBe(false);
+      expect(managedHarnessEnabled("hermes")).toBe(HARNESS_HERMES_ENABLED);
       expect(managedHarnessEnabled("kimi")).toBe(HARNESS_KIMI_ENABLED);
       expect(managedHarnessEnabled("muse")).toBe(HARNESS_MUSE_ENABLED);
       expect(managedHarnessEnabled("prime-agent")).toBe(
         HARNESS_PRIME_AGENT_ENABLED,
       );
-      expect(() =>
-        makeManagedAgentNode(0, 0, {
-          harness: "hermes",
-          host: "local",
-        }),
-      ).toThrow(/disabled/u);
+      if (HARNESS_HERMES_ENABLED) {
+        expect(
+          makeManagedAgentNode(0, 0, {
+            harness: "hermes",
+            host: "local",
+          }).ether?.terminal?.harness,
+        ).toBe("hermes");
+      } else {
+        expect(() =>
+          makeManagedAgentNode(0, 0, {
+            harness: "hermes",
+            host: "local",
+          }),
+        ).toThrow(/disabled/u);
+      }
       expect(
         makeManagedAgentNode(0, 0, {
           harness: "claude",

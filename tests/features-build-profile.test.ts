@@ -34,6 +34,8 @@ describe("compile-time feature profiles", () => {
       hermesIntegration: false,
       devTools: false,
       // Every managed harness ships ON; each gate remains the way back off.
+      // The Hermes TUI seat is one of them; only the ACP integration stays off.
+      harnessHermes: true,
       harnessKimi: true,
       harnessMuse: true,
       harnessFx: true,
