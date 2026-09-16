@@ -7,7 +7,7 @@ operations are integrated or end-to-end qualified.
 
 ## What this step is
 
-Step 2 of the [crew brief](../crew-contract.md): parity with a peer-agent
+Step 2 of the crew brief (contract deleted by operator ruling 2026-09-16): parity with a peer-agent
 surface by letting a seat wait on another seat, read another seat's settled
 screen, and wait on a task. Every operation is a read. The port grants no
 input, no resize, and no signal; nothing here authors the canvas.

@@ -1,6 +1,6 @@
 /**
  * Crew fixture — deterministic generated-canvas crews for the local crew
- * surface (docs/crew-contract.md): mail, immediate prompts, seat/task
+ * surface (crew contract deleted by operator ruling 2026-09-16): mail, immediate prompts, seat/task
  * waits, read-only terminal observation, and review verdicts.
  *
  * Seats are FAKE TUI processes — every spec that uses them is labelled

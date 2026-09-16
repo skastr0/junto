@@ -12,7 +12,7 @@ import {
 import type { DeliveryAttempt } from "../src/shared/crew";
 
 // Independent adversarial seam tests for the crew mail/prompt contract
-// (docs/crew-contract.md). Delivery attempt identity is (messageId, recipient
+// (historical crew contract, deleted by operator ruling 2026-09-16). Delivery attempt identity is (messageId, recipient
 // seat, recipient generation); the durable attempt ledger must be written
 // before any transport action and consulted before any replay.
 

@@ -17,7 +17,7 @@ import {
 } from "../src/main/vellum-command/work/reviews";
 
 // Independent adversarial seam tests for the review-verdict decision core
-// (docs/crew-contract.md): subject resolution, verdict posting, the
+// (historical crew contract, deleted by operator ruling 2026-09-16): subject resolution, verdict posting, the
 // completion gate, reviews-edge lookup, and receipt mail. All pure — the
 // work service composes these, so a wrong ruling here is a wrong ruling
 // everywhere.

@@ -7,7 +7,7 @@ import {
 import type { ActorSeatId } from "../src/shared/actor-seat";
 
 // Independent adversarial seam tests for the checkout commit watch
-// (docs/crew-contract.md receipt feed): attribution ambiguity, baseline
+// (historical crew contract receipt feed, deleted by operator ruling 2026-09-16): attribution ambiguity, baseline
 // silence, sha normalization, and lastSeen advancement semantics.
 
 const SEAT_A = "seat-a" as ActorSeatId;

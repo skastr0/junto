@@ -7,7 +7,7 @@ import {
 } from "../src/shared/crew";
 
 // Independent adversarial seam tests for the review-verdict contract
-// (docs/crew-contract.md). The gate compares epoch AND subjectHash; the
+// (historical crew contract, deleted by operator ruling 2026-09-16). The gate compares epoch AND subjectHash; the
 // hash payload is the one canonical function every lane must build from,
 // so its normalization semantics are pinned here.
 

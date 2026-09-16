@@ -13,7 +13,7 @@ generated review workflow passed while its PTY trace recorded a stalled
 fake author prompt; its complete Electron rerun remains pending. The
 observed Devin attempt wrote zero prompts.
 
-This reconciles the [required crew contract](../crew-contract.md) with
+This reconciles the crew contract (deleted by operator ruling 2026-09-16) with
 the committed source cutoff **`9e4385864`**, 2026-09-15. New receipts cover
 `9e4385864` (acknowledged-mail display), `4f84cb80a` / `cf52d96ab`
 (recorded Codex multiline evidence) and `2d2e6a4e8` (raw fake-PTY fixture).

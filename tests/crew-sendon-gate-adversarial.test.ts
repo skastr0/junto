@@ -24,7 +24,7 @@ import {
 } from "./helpers/task-topology-authority";
 
 // Independent adversarial pin for the requires-review write-time gate
-// (docs/crew-contract.md). transitionTask re-checks the green inside its
+// (historical crew contract, deleted by operator ruling 2026-09-16). transitionTask re-checks the green inside its
 // own transaction via reviewGateSatisfiedWithin; sendTaskOn — the path a
 // task takes when completing onto the next board — silently drops the
 // same input, so a concurrent blocking verdict between preflight and

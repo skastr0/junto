@@ -9,7 +9,7 @@ import type {
 import { makeSeatObservation } from "../src/main/vellum-command/work/seat-observation";
 
 // Independent adversarial seam tests for the seat wait/observe contract
-// (docs/crew-contract.md). The service's own rules: authority is re-derived
+// (historical crew contract, deleted by operator ruling 2026-09-16). The service's own rules: authority is re-derived
 // from a fresh live document before an event is accepted and before every
 // return; subscriptions register before the current value is checked.
 
