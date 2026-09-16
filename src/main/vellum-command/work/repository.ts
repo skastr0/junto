@@ -1,4 +1,5 @@
 import { Buffer } from "node:buffer";
+import { workProjectionChanges } from "./projection-changes";
 import { createHash } from "node:crypto";
 import { Context, Effect, Result, Layer, Schema } from "effect";
 import {
@@ -7923,22 +7924,8 @@ export const WorkRepositoryLive = Layer.effect(
   WorkRepository,
   Effect.gen(function* () {
     const state = yield* StateEngine;
-    const listeners = new Set<
-      (canvasName: string, nodeId: string) => void
-    >();
-
-    const notify = (sink: SinkRefValue): void => {
-      for (const listener of listeners) {
-        try {
-          listener(sink.canvasName, sink.nodeId);
-        } catch (error) {
-          console.error(
-            `[work] change listener failed for ${sink.canvasName}/${sink.nodeId}:`,
-            error,
-          );
-        }
-      }
-    };
+    const changes = workProjectionChanges(state);
+    const notify = changes.notify;
 
     const readSnapshot = (
       canvasName: string,
@@ -10760,12 +10747,7 @@ export const WorkRepositoryLive = Layer.effect(
       recordsAfter,
       pendingCommands,
       acceptRecords,
-      subscribeChanges: (listener) => {
-        listeners.add(listener);
-        return () => {
-          listeners.delete(listener);
-        };
-      },
+      subscribeChanges: changes.subscribe,
     });
   }),
 );

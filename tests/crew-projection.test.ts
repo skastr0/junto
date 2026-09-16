@@ -150,6 +150,38 @@ const openFixture = async () => {
 };
 
 describe("Crew facts in the actual CanvasesService overlay", () => {
+  it("announces committed attempt facts to canvas subscribers without publishing failed or no-op writes", async () => {
+    const f = await openFixture();
+    await f.appendMessage("live-attempt");
+    const notices: string[] = [];
+    const unsubscribe = f.canvases.subscribeChanges((canvas) => notices.push(canvas));
+    const key = f.attemptKey("live-attempt");
+    try {
+      await f.runtime.runPromise(f.crew.enqueueAttempt({ ...key, policy: "notice", at: iso(10) }));
+      expect(notices.splice(0)).toEqual([CANVAS]);
+      await f.runtime.runPromise(f.crew.enqueueAttempt({ ...key, policy: "notice", at: iso(10) }));
+      expect(notices).toEqual([]);
+
+      await f.runtime.runPromise(f.crew.recordAttempt({ ...key, outcome: { kind: "unresolved", at: iso(11) } }));
+      expect(notices.splice(0)).toEqual([CANVAS]);
+      expect(mailDisplayFactsOf(await f.message("live-attempt")).unresolvedAt).toBe(iso(11));
+
+      await expect(f.runtime.runPromise(f.crew.recordAttempt({
+        ...f.attemptKey("missing"), outcome: { kind: "notified", at: iso(12) },
+      }))).rejects.toThrow("attempt row missing");
+      expect(notices).toEqual([]);
+
+      await f.runtime.runPromise(f.crew.markAttempted({ ...key, at: iso(13) }));
+      expect(notices.splice(0)).toEqual([CANVAS]);
+      await f.runtime.runPromise(f.crew.reconcileUnresolvedAttempts(iso(14)));
+      expect(notices.splice(0)).toEqual([CANVAS]);
+      await f.runtime.runPromise(f.crew.reconcileUnresolvedAttempts(iso(15)));
+      expect(notices).toEqual([]);
+    } finally {
+      unsubscribe();
+    }
+  });
+
   it("refreshes attempts without receipts and keeps the newest queued generation after a late old-generation outcome", async () => {
     const f = await openFixture();
     await f.appendMessage("attempt-only");

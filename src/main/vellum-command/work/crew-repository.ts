@@ -21,6 +21,7 @@
 
 import { Context, Effect, Layer, Schema } from "effect";
 import { StateEngine } from "../state/engine";
+import { workProjectionChanges } from "./projection-changes";
 import type { StateReader, StateWriter } from "../state/service";
 import {
   unjournaledWorkMutation,
@@ -547,6 +548,7 @@ export const CrewRepositoryLive = Layer.effect(
   CrewRepository,
   Effect.gen(function* () {
     const state = yield* StateEngine;
+    const changes = workProjectionChanges(state);
 
     // Every crew write is a Command Center-local operational mutation that
     // mints no replicated work fact, so it runs inside one transaction under a
@@ -554,10 +556,26 @@ export const CrewRepositoryLive = Layer.effect(
     const writeTx = <A>(
       op: string,
       body: (writer: StateWriter) => A,
+      affected: ReadonlyArray<CrewSink> | ((writer: StateWriter) => ReadonlyArray<CrewSink>) = [],
     ): Effect.Effect<A, CrewRepositoryError> =>
-      state
-        .transaction(op, body)
-        .pipe(Effect.mapError((error) => toCrewError(op, error)));
+      state.transaction(op, (writer) => {
+        const sinks = typeof affected === "function" ? affected(writer) : affected;
+        const before = writer.get<{ n: number | bigint }>("SELECT total_changes() AS n")!.n;
+        const value = body(writer);
+        const changed = writer.get<{ n: number | bigint }>("SELECT total_changes() AS n")!.n !== before;
+        return { value, sinks: changed ? sinks : [] };
+      }).pipe(
+        Effect.mapError((error) => toCrewError(op, error)),
+        Effect.tap(({ sinks }) => Effect.sync(() => {
+          const seen = new Set<string>();
+          for (const sink of sinks) {
+            const key = JSON.stringify([sink.canvasName, sink.nodeId]);
+            if (!seen.has(key)) changes.notify(sink);
+            seen.add(key);
+          }
+        })),
+        Effect.map(({ value }) => value),
+      );
 
     const insertQueued = (writer: StateWriter, input: EnqueueAttemptInput): void => {
       writer.run(
@@ -589,7 +607,7 @@ export const CrewRepositoryLive = Layer.effect(
             throw new Error("attempt row missing after enqueue");
           }
           return { attempt: attemptFromRow(row), created: before === undefined };
-        }));
+        }), [input.sink]);
 
     const enqueueBatch: CrewRepositoryShape["enqueueBatch"] = (input) =>
       writeTx("crew.enqueueBatch", (writer) =>
@@ -625,7 +643,7 @@ export const CrewRepositoryLive = Layer.effect(
             out.push(attemptFromRow(row));
           }
           return out;
-        }));
+        }), input.members.map((member) => member.sink));
 
     const markAttempted: CrewRepositoryShape["markAttempted"] = (input) =>
       writeTx("crew.markAttempted", (writer) =>
@@ -647,7 +665,7 @@ export const CrewRepositoryLive = Layer.effect(
               input.recipientGeneration,
             ],
           );
-        }));
+        }), [input.sink]);
 
     const recordAttempt: CrewRepositoryShape["recordAttempt"] = (input) =>
       writeTx("crew.recordAttempt", (writer) =>
@@ -692,7 +710,7 @@ export const CrewRepositoryLive = Layer.effect(
             throw new Error("attempt row missing on recordAttempt");
           }
           return attemptFromRow(row);
-        }));
+        }), [input.sink]);
 
     const attempt: CrewRepositoryShape["attempt"] = (key) =>
       state
@@ -758,7 +776,9 @@ export const CrewRepositoryLive = Layer.effect(
               [at, at],
             );
             return Number(result.changes ?? 0);
-          }));
+          }), (writer) => writer.all<{ canvas_name: string; node_id: string }>(
+            "SELECT DISTINCT canvas_name, node_id FROM work_mail_attempts WHERE attempt_seq > resolved_seq",
+          ).map((row) => ({ canvasName: row.canvas_name, nodeId: row.node_id })));
 
     const grantHeldAttempt: CrewRepositoryShape["grantHeldAttempt"] = (input) =>
       writeTx("crew.grantHeldAttempt", (writer) =>
@@ -786,7 +806,7 @@ export const CrewRepositoryLive = Layer.effect(
             ],
           );
           return Number(result.changes ?? 0) === 1;
-        }));
+        }), [input.sink]);
 
     const listHeldAttempts: CrewRepositoryShape["listHeldAttempts"] = (canvasName) =>
       state
@@ -837,7 +857,7 @@ export const CrewRepositoryLive = Layer.effect(
             ],
           );
           return before === undefined;
-        }));
+        }), [input.sink]);
 
     const hasNoticeFallback: CrewRepositoryShape["hasNoticeFallback"] = (
       sink,
