@@ -48,8 +48,8 @@ receipt="$service_runtime/ready-$generation"; [ ! -e "$receipt" ] && [ ! -L "$re
 # Explicitly clear any inherited display variables. Core Remote is displayless.
 unset DISPLAY WAYLAND_DISPLAY XAUTHORITY ELECTRON_OZONE_PLATFORM_HINT OZONE_PLATFORM XDG_SESSION_TYPE || true
 
-vellum_pid=''
-cleanup() { [ -z "$vellum_pid" ] || kill -TERM "$vellum_pid" 2>/dev/null || true; }
+junto_pid=''
+cleanup() { [ -z "$junto_pid" ] || kill -TERM "$junto_pid" 2>/dev/null || true; }
 trap 'cleanup; exit 0' HUP INT TERM
 trap cleanup EXIT
 
@@ -58,9 +58,9 @@ if [ -n "${remote_args-}" ]; then
 else
   /usr/bin/setsid "$remote" &
 fi
-vellum_pid=$!; deadline=$(( $(/bin/date +%s) + 30 ))
+junto_pid=$!; deadline=$(( $(/bin/date +%s) + 30 ))
 while :; do
-  alive "$vellum_pid" || wait "$vellum_pid"
+  alive "$junto_pid" || wait "$junto_pid"
   if owned_socket "$home/.junto/work/control.sock" && owned_file "$home/.junto/work/token" && owned_file "$receipt" && /usr/bin/printf '%s\n' "$generation" | /usr/bin/cmp -s - "$receipt"; then
     [ -x /usr/bin/systemd-notify ] || fail 'systemd notification utility is unavailable' 69
     NOTIFY_SOCKET="$notify_socket" /usr/bin/systemd-notify --ready || fail 'could not publish readiness' 70
@@ -69,5 +69,5 @@ while :; do
   [ "$(/bin/date +%s)" -lt "$deadline" ] || fail 'work control readiness timed out' 70
   sleep 1
 done
-while alive "$vellum_pid"; do sleep 1; done
-wait "$vellum_pid"
+while alive "$junto_pid"; do sleep 1; done
+wait "$junto_pid"

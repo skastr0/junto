@@ -94,10 +94,10 @@ describe("Linux desktop alpha and gated Fleet operator documentation", () => {
     expect(runbook).not.toContain("## Post-COMMIT repair");
     expect(runbook).not.toContain("## Uninstall the package");
     expect(runbook).not.toContain("sudo apt-get remove");
-    expect(runbook).not.toContain("/var/lib/vellum-release-stage");
-    expect(runbook).not.toContain("vellum-linux-verify-x64");
-    expect(runbook).not.toContain("/usr/libexec/vellum-release-bridge");
-    expect(runbook).not.toContain("/usr/libexec/vellum-release-installer");
+    expect(runbook).not.toContain("/var/lib/junto-release-stage");
+    expect(runbook).not.toContain("junto-linux-verify-x64");
+    expect(runbook).not.toContain("/usr/libexec/junto-release-bridge");
+    expect(runbook).not.toContain("/usr/libexec/junto-release-installer");
 
     // Desktop evidence cannot qualify the gated, displayless Remote.
     expect(text).toContain(
@@ -244,12 +244,12 @@ describe("Linux desktop alpha and gated Fleet operator documentation", () => {
       /\baa-disable\b/u,
       /systemctl\s+disable\s+apparmor/u,
       /sysctl\b.*unprivileged_userns/u,
-      /sudo\s+(?:\/opt\/[^\n]*vellum|vellum)(?:\s|$)/iu,
+      /sudo\s+(?:\/opt\/[^\n]*junto|junto)(?:\s|$)/iu,
       /JUNTO_CONTROL_TCP/u,
       /ssh\s+-[A-Za-z]*L[^\n]*control\.sock/u,
       /socat[^\n]*control\.sock/u,
       /rm\s+-rf[^\n]*\.junto/u,
-      /sudo\s+apt-get\s+(?:install|remove|purge)\b[^\n]*vellum/iu,
+      /sudo\s+apt-get\s+(?:install|remove|purge)\b[^\n]*junto/iu,
       /dpkg\s+-i\b/u,
     ]) {
       expect(commands).not.toMatch(forbidden);
@@ -268,19 +268,19 @@ describe("Linux desktop alpha and gated Fleet operator documentation", () => {
     const prose = collapsed(docs);
 
     expect(commands).not.toMatch(
-      /\b(?:tar|cp|rsync|mv)\b[^\n]*(?:\.vellum|vellum\.db|vellum\.db-wal|vellum\.db-shm)/iu,
+      /\b(?:tar|cp|rsync|mv)\b[^\n]*(?:\.junto|junto\.db|junto\.db-wal|junto\.db-shm)/iu,
     );
     expect(commands).not.toMatch(/\bVACUUM\s+INTO\b/iu);
     expect(commands).not.toMatch(
-      /\bsqlite3\b[^\n]*(?:\.vellum|vellum\.db)/iu,
+      /\bsqlite3\b[^\n]*(?:\.junto|junto\.db)/iu,
     );
     expect(prose).not.toMatch(
-      /restore.{0,160}(?:as|to|into)\s+`?~\/\.vellum\/state\/vellum\.db/iu,
+      /restore.{0,160}(?:as|to|into)\s+`?~\/\.junto\/state\/junto\.db/iu,
     );
     expect(prose).not.toMatch(
-      /(?:create|make|take).{0,160}(?:backup|archive).{0,160}\b`?~\/\.vellum\b/iu,
+      /(?:create|make|take).{0,160}(?:backup|archive).{0,160}\b`?~\/\.junto\b/iu,
     );
-    expect(docs).not.toContain("vellum-backups");
+    expect(docs).not.toContain("junto-backups");
     const runbook = collapsed(await readDoc("linux-operator-runbook.md"));
     expect(runbook).toContain(
       "Settings → Advanced can list verified retained backups and export one to an explicit new destination",

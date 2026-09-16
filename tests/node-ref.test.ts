@@ -82,7 +82,7 @@ describe("canonical Junto node references", () => {
 
   it.each([
     ["https://canvas/portfolio?node=n1", "scheme"],
-    ["VELLUM://canvas/portfolio?node=n1", "scheme"],
+    ["JUNTO://canvas/portfolio?node=n1", "scheme"],
     ["junto://evil/portfolio?node=n1", "authority"],
     ["junto://user@canvas/portfolio?node=n1", "authority"],
     ["junto://canvas:443/portfolio?node=n1", "authority"],

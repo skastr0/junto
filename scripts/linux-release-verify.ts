@@ -79,7 +79,7 @@ const parseOptions = (
     trustedKeyFingerprintSha256 === undefined
   ) {
     throw new Error(
-      "usage: vellum-linux-verify-x64 --bundle DIR --keyring FILE --trusted-keyring-revision N --trusted-keyring-sha256 HEX --trusted-key-id ID --trusted-key-fingerprint-sha256 HEX --peer-station-protocol-preferred N --peer-station-protocol-compatible-from N --peer-station-protocol-warn-below N [--installed-version X.Y.Z]",
+      "usage: junto-linux-verify-x64 --bundle DIR --keyring FILE --trusted-keyring-revision N --trusted-keyring-sha256 HEX --trusted-key-id ID --trusted-key-fingerprint-sha256 HEX --peer-station-protocol-preferred N --peer-station-protocol-compatible-from N --peer-station-protocol-warn-below N [--installed-version X.Y.Z]",
     );
   }
   return {

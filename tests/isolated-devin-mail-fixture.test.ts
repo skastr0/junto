@@ -5,7 +5,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { seedIsolatedVellumCli } from "../e2e/harness/isolated-devin-mail-fixture";
+import { seedIsolatedJuntoCli } from "../e2e/harness/isolated-devin-mail-fixture";
 import { seededHarnessBinDir } from "../e2e/harness/agent-harness-fixture";
 import type { Sandbox } from "../e2e/harness/sandbox";
 
@@ -55,7 +55,7 @@ const fixture = async () => {
 describe("isolated real-harness CLI provisioning", () => {
   it("fails before any sandbox seeding when the build is absent", async () => {
     const f = await fixture();
-    await expect(seedIsolatedVellumCli(f.sandbox, f.repoRoot)).rejects.toThrow("no compiled Junto CLI");
+    await expect(seedIsolatedJuntoCli(f.sandbox, f.repoRoot)).rejects.toThrow("no compiled Junto CLI");
     expect(existsSync(f.sandbox.homeDir)).toBe(false);
   });
 
@@ -64,7 +64,7 @@ describe("isolated real-harness CLI provisioning", () => {
   ])("refuses an unproven or mismatched profile receipt: %j", async (override) => {
     const f = await fixture();
     await f.installArtifact({ ...f.receipt, ...override });
-    await expect(seedIsolatedVellumCli(f.sandbox, f.repoRoot)).rejects.toThrow("committed, all-on CLI build receipt");
+    await expect(seedIsolatedJuntoCli(f.sandbox, f.repoRoot)).rejects.toThrow("committed, all-on CLI build receipt");
     expect(existsSync(f.sandbox.homeDir)).toBe(false);
   });
 
@@ -72,7 +72,7 @@ describe("isolated real-harness CLI provisioning", () => {
     const f = await fixture();
     await f.installArtifact();
     await writeFile(f.binary, Buffer.from("different executable"));
-    await expect(seedIsolatedVellumCli(f.sandbox, f.repoRoot)).rejects.toThrow("bytes do not match");
+    await expect(seedIsolatedJuntoCli(f.sandbox, f.repoRoot)).rejects.toThrow("bytes do not match");
     expect(existsSync(f.sandbox.homeDir)).toBe(false);
   });
 
@@ -81,7 +81,7 @@ describe("isolated real-harness CLI provisioning", () => {
     await f.installArtifact();
     await writeFile(join(f.repoRoot, "src", "cli.ts"), "export const version = 2;\n");
     if (committed) f.commit();
-    await expect(seedIsolatedVellumCli(f.sandbox, f.repoRoot)).rejects.toThrow("source differs");
+    await expect(seedIsolatedJuntoCli(f.sandbox, f.repoRoot)).rejects.toThrow("source differs");
     expect(existsSync(f.sandbox.homeDir)).toBe(false);
   });
 
@@ -92,7 +92,7 @@ describe("isolated real-harness CLI provisioning", () => {
     await writeFile(join(f.repoRoot, "tests", "new.test.ts"), "// test-only change\n");
     f.git("add", "tests");
     f.commit();
-    const seeded = await seedIsolatedVellumCli(f.sandbox, f.repoRoot);
+    const seeded = await seedIsolatedJuntoCli(f.sandbox, f.repoRoot);
     expect(seeded.sourceCommit).toBe(f.receipt.sourceCommit);
     expect(await readFile(seeded.executable)).toEqual(f.bytes);
     expect(JSON.parse(await readFile(`${seeded.executable}-relink.json`, "utf8"))).toEqual(f.receipt);

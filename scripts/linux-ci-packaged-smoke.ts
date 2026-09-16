@@ -323,7 +323,7 @@ export const smokeLinuxCiPackagedRuntime = async (
     throw new Error("packaged CLI is missing");
   }
 
-  const tempRoot = await mkdtemp("/tmp/vellum-linux-runtime-smoke-");
+  const tempRoot = await mkdtemp("/tmp/junto-linux-runtime-smoke-");
   await chmod(tempRoot, 0o700);
   const isolatedHome = path.join(tempRoot, "home");
   const userData = path.join(tempRoot, "user-data");
@@ -343,8 +343,8 @@ export const smokeLinuxCiPackagedRuntime = async (
       ? {}
       : { XAUTHORITY: process.env.XAUTHORITY }),
     HOME: isolatedHome,
-    USER: process.env.USER ?? "vellum-smoke",
-    LOGNAME: process.env.LOGNAME ?? process.env.USER ?? "vellum-smoke",
+    USER: process.env.USER ?? "junto-smoke",
+    LOGNAME: process.env.LOGNAME ?? process.env.USER ?? "junto-smoke",
     PATH: "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
     SHELL: "/bin/bash",
     TMPDIR: isolatedTmp,

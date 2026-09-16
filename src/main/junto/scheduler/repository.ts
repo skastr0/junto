@@ -64,7 +64,7 @@ export type SchedulerRepositoryError =
 
 /**
  * effect-foundation **S4-rest-main** (staged, not half-migrated):
- * - Canonical id: `@vellum/SchedulerRepository` — single definition; no dual path.
+ * - Canonical id: `@junto/SchedulerRepository` — single definition; no dual path.
  * - Service id: Context.Service (Effect V4 live).
  * - Shape:
  *   `class SchedulerRepository extends Context.Service<SchedulerRepository, SchedulerRepository>()("@junto/SchedulerRepository") {}`

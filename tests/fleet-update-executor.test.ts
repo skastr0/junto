@@ -34,7 +34,7 @@ const waitingResult: HostsDeployRemoteResult = {
   code: "conflict",
   statusRecorded: true,
   recoveryAction: {
-    kind: "close-active-vellum-terminals",
+    kind: "close-active-junto-terminals",
     activeTerminalSessions: 2,
   },
 };

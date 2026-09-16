@@ -42,7 +42,7 @@ describe("Linux work-control handshake", () => {
   });
 
   it("is up when the daemon returns a well-formed envelope", async () => {
-    dir = await mkdtemp(join(tmpdir(), "vellum-work-attach-"));
+    dir = await mkdtemp(join(tmpdir(), "junto-work-attach-"));
     const sock = join(dir, "control.sock");
     server = await listen(sock, () =>
       encodeWorkFrame(workErr("AuthError", "process unbound")),
@@ -53,7 +53,7 @@ describe("Linux work-control handshake", () => {
   });
 
   it("is up on a successful ping", async () => {
-    dir = await mkdtemp(join(tmpdir(), "vellum-work-attach-"));
+    dir = await mkdtemp(join(tmpdir(), "junto-work-attach-"));
     const sock = join(dir, "control.sock");
     server = await listen(sock, () =>
       encodeWorkFrame(workOk("ping", { pong: true })),
@@ -64,14 +64,14 @@ describe("Linux work-control handshake", () => {
   });
 
   it("is down when nothing accepts the connect", async () => {
-    dir = await mkdtemp(join(tmpdir(), "vellum-work-attach-"));
+    dir = await mkdtemp(join(tmpdir(), "junto-work-attach-"));
     await expect(
       handshakeLinuxWorkControl(join(dir, "missing.sock"), "token", 200),
     ).resolves.toBe("down");
   });
 
   it("is unknown when the socket speaks garbage", async () => {
-    dir = await mkdtemp(join(tmpdir(), "vellum-work-attach-"));
+    dir = await mkdtemp(join(tmpdir(), "junto-work-attach-"));
     const sock = join(dir, "control.sock");
     server = await listen(sock, () => "not-json\n");
     await expect(handshakeLinuxWorkControl(sock, "token", 500)).resolves.toBe(

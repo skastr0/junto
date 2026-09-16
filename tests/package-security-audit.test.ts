@@ -25,7 +25,7 @@ const signing = {
 
 const developerIdCodesign = `
 Executable=/tmp/Junto.app/Contents/MacOS/Junto
-Identifier=skastr0.vellumcommand
+Identifier=com.skastr0.junto
 Format=app bundle with Mach-O thin (arm64)
 CodeDirectory v=20500 size=431 flags=0x10000(runtime) hashes=3+7 location=embedded
 Signature size=9055
@@ -110,8 +110,8 @@ describe("codesign metadata audit", () => {
     [
       "wrong identifier",
       developerIdCodesign.replace(
-        "Identifier=skastr0.vellumcommand",
-        "Identifier=evil.vellum",
+        "Identifier=com.skastr0.junto",
+        "Identifier=evil.junto",
       ),
     ],
     [
@@ -177,7 +177,7 @@ describe("Electron fuse audit", () => {
 describe("ASAR integrity audit", () => {
   const hash = "a".repeat(64);
   const plist = {
-    CFBundleIdentifier: "skastr0.vellumcommand",
+    CFBundleIdentifier: "com.skastr0.junto",
     CFBundleExecutable: "Junto",
     LSMinimumSystemVersion: "13.0",
     ElectronAsarIntegrity: {

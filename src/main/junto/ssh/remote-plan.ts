@@ -45,7 +45,7 @@ printf 'LINUX_USERLAND_PREFLIGHT_V1 ok=1 uid=%s free=%s\n' "$UID_VALUE" "$FREE"
 `.trim();
 
 export const compileLinuxUserlandPreflight = (): Effect.Effect<RemoteCommand, SshInputError> =>
-  makeRemoteCommand("/bin/sh", ["-c", compileLinuxUserlandPreflightSource(), "vellum-plan:linux-userland-preflight"]);
+  makeRemoteCommand("/bin/sh", ["-c", compileLinuxUserlandPreflightSource(), "junto-plan:linux-userland-preflight"]);
 
 /**
  * One owner-home archive transaction. Header is fixed by the provider:
@@ -154,7 +154,7 @@ printf 'LINUX_USERLAND_DEPLOY_V1 ok=1 state=ready release=%s\n' "$VERSION-$SHA"
 `.trim();
 
 export const compileLinuxUserlandDeploy = (): Effect.Effect<RemoteCommand, SshInputError> =>
-  makeRemoteCommand("/bin/sh", ["-c", compileLinuxUserlandDeploySource(), "vellum-plan:linux-userland-deploy"]);
+  makeRemoteCommand("/bin/sh", ["-c", compileLinuxUserlandDeploySource(), "junto-plan:linux-userland-deploy"]);
 
 export const compileLinuxUserlandRestartSource = (): string => String.raw`
 set -eu
@@ -168,7 +168,7 @@ printf 'LINUX_USERLAND_RESTART_V1 ok=1\n'
 `.trim();
 
 export const compileLinuxUserlandRestart = (): Effect.Effect<RemoteCommand, SshInputError> =>
-  makeRemoteCommand("/bin/sh", ["-c", compileLinuxUserlandRestartSource(), "vellum-plan:linux-userland-restart"]);
+  makeRemoteCommand("/bin/sh", ["-c", compileLinuxUserlandRestartSource(), "junto-plan:linux-userland-restart"]);
 
 /**
  * Read-only package plane: a canonical userland generation is present or
@@ -199,7 +199,7 @@ emit "$present"
 `.trim();
 
 export const compileLinuxUserlandObserve = (): Effect.Effect<RemoteCommand, SshInputError> =>
-  makeRemoteCommand("/bin/sh", ["-c", compileLinuxUserlandObserveSource(), "vellum-plan:linux-userland-observe"]);
+  makeRemoteCommand("/bin/sh", ["-c", compileLinuxUserlandObserveSource(), "junto-plan:linux-userland-observe"]);
 
 
 export const compileDarwinRemoteDeployScript = (script: string): Effect.Effect<RemoteCommand, SshInputError> =>

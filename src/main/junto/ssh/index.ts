@@ -65,5 +65,5 @@ export {
   remoteTailscaleServeStatus,
   remoteTestFileExists,
   remoteUname,
-  remoteVellumStation,
+  remoteJuntoStation,
 } from "./read-commands";

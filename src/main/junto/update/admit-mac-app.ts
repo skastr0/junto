@@ -8,7 +8,7 @@ import { updateError } from "./errors";
 /** Product identity — must match production packaging and deploy-darwin. */
 const PRODUCT_NAME = "Junto";
 const APP_BUNDLE_NAME = `${PRODUCT_NAME}.app`;
-const BUNDLE_IDENTIFIER = "skastr0.vellumcommand";
+const BUNDLE_IDENTIFIER = "com.skastr0.junto";
 const ADMIT_TIMEOUT_MS = 30_000;
 
 export type AdmitMacAppCommandResult = {

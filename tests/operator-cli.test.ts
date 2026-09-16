@@ -37,7 +37,7 @@ afterEach(async () => {
 const startOperatorServer = async (
   respond: (request: Record<string, unknown>) => unknown,
 ): Promise<void> => {
-  const root = await mkdtemp("/tmp/vellum-op-");
+  const root = await mkdtemp("/tmp/junto-op-");
   roots.push(root);
   process.env.JUNTO_HOME = root;
   __resetJuntoHomeCache();
@@ -174,7 +174,7 @@ describe("top-level browser dispatch", () => {
     expect(
       browserCliArgsFromArgv([
         "/Users/dev/.bun/bin/bun",
-        "/Users/dev/Projects/vellum/src/cli/main.ts",
+        "/Users/dev/Projects/junto/src/cli/main.ts",
         "browser",
         "doctor",
       ]),

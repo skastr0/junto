@@ -531,7 +531,7 @@ describe("operator deployment coordinator", () => {
                 role: "previous",
                 configuration: { ok: false, detail: "deferred" },
                 recoveryAction: {
-                  kind: "close-active-vellum-terminals",
+                  kind: "close-active-junto-terminals",
                   activeTerminalSessions: 2,
                 },
               } as never),
@@ -541,7 +541,7 @@ describe("operator deployment coordinator", () => {
     );
     expect(result.ok).toBe(false);
     expect(result.recoveryAction).toEqual({
-      kind: "close-active-vellum-terminals",
+      kind: "close-active-junto-terminals",
       activeTerminalSessions: 2,
     });
   });

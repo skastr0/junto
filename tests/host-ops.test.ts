@@ -129,7 +129,7 @@ let termServer: Server | undefined;
 let workServer: Server | undefined;
 
 const scratchDir = async (): Promise<string> => {
-  const dir = await mkdtemp(join(tmpdir(), "vellum-host-ops-"));
+  const dir = await mkdtemp(join(tmpdir(), "junto-host-ops-"));
   scratchDirs.push(dir);
   return dir;
 };

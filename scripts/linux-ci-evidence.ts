@@ -41,7 +41,7 @@ const packagePath = path.join(packageRoot, "package.json");
 type LinuxCiGate = (typeof LINUX_CI_REQUIRED_GATES)[number];
 
 export interface LinuxCiInventory {
-  readonly schema: "vellum/linux-ci-inventory/v1";
+  readonly schema: "junto/linux-ci-inventory/v1";
   readonly target: typeof LINUX_CI_TARGET;
   readonly source: {
     readonly commit: string;
@@ -63,7 +63,7 @@ export interface LinuxCiInventory {
 }
 
 export interface LinuxCiTestReceipt {
-  readonly schema: "vellum/linux-ci-test-receipt/v1";
+  readonly schema: "junto/linux-ci-test-receipt/v1";
   readonly ok: true;
   readonly target: typeof LINUX_CI_TARGET;
   readonly gates: ReadonlyArray<{
@@ -73,7 +73,7 @@ export interface LinuxCiTestReceipt {
 }
 
 export interface LinuxCiReleaseManifest {
-  readonly schema: "vellum/linux-release-evidence/v1";
+  readonly schema: "junto/linux-release-evidence/v1";
   readonly target: typeof LINUX_CI_TARGET;
   readonly source: {
     readonly commit: string;
@@ -226,7 +226,7 @@ export const collectLinuxCiInventory = async (input: {
     osRelease: await readFile("/etc/os-release", "utf8"),
   });
   return {
-    schema: "vellum/linux-ci-inventory/v1",
+    schema: "junto/linux-ci-inventory/v1",
     target: LINUX_CI_TARGET,
     source: {
       commit: requireHexCommit(input.commit),
@@ -261,7 +261,7 @@ export const createLinuxCiTestReceipt = (
     throw new Error(`missing required Linux CI gates: ${missing.join(", ")}`);
   }
   return {
-    schema: "vellum/linux-ci-test-receipt/v1",
+    schema: "junto/linux-ci-test-receipt/v1",
     ok: true,
     target: LINUX_CI_TARGET,
     gates: LINUX_CI_REQUIRED_GATES.map((name) => ({ name, status: "passed" })),
@@ -364,7 +364,7 @@ const validateLinuxCiReceipts = async (input: {
     "target inventory",
   ) as Partial<LinuxCiInventory>;
   if (
-    inventory.schema !== "vellum/linux-ci-inventory/v1" ||
+    inventory.schema !== "junto/linux-ci-inventory/v1" ||
     !hasExactTarget(inventory.target) ||
     inventory.source?.commit !== input.commit ||
     inventory.source?.sourceDateEpoch !== input.sourceDateEpoch
@@ -578,7 +578,7 @@ export const createLinuxCiReleaseManifest = async (input: {
   evidence.sort((left, right) => left.file.localeCompare(right.file));
 
   return {
-    schema: "vellum/linux-release-evidence/v1",
+    schema: "junto/linux-release-evidence/v1",
     target: LINUX_CI_TARGET,
     source: {
       commit,
@@ -605,7 +605,7 @@ const decodeLinuxCiReleaseManifest = (
     value === null ||
     Array.isArray(value) ||
     (value as { schema?: unknown }).schema !==
-      "vellum/linux-release-evidence/v1"
+      "junto/linux-release-evidence/v1"
   ) {
     throw new Error("malformed Linux release evidence manifest");
   }

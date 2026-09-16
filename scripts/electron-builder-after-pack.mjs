@@ -29,8 +29,8 @@ const LINUX_RELEASE_ROOT = fileURLToPath(
 );
 // package-app-linux.sh packages into a private attempt directory directly
 // under release/; finalize-linux-package.ts owns the same attempt name rule.
-const LINUX_ATTEMPT_NAME = /^\.vellum-package-attempt-[0-9A-Za-z._-]+$/u;
-const LINUX_ARTIFACT_ROOT_SHAPE = `${LINUX_RELEASE_ROOT}/.vellum-package-attempt-*/linux-unpacked`;
+const LINUX_ATTEMPT_NAME = /^\.junto-package-attempt-[0-9A-Za-z._-]+$/u;
+const LINUX_ARTIFACT_ROOT_SHAPE = `${LINUX_RELEASE_ROOT}/.junto-package-attempt-*/linux-unpacked`;
 const LINUX_FIXED_MODE_DIRECTORIES = [
   "resources",
   "resources/bin",

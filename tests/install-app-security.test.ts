@@ -25,7 +25,7 @@ function read(path: string): string {
 
 const temporaryRoots: string[] = [];
 const makeSandbox = (): string => {
-  const sandbox = realpathSync(mkdtempSync(join(tmpdir(), "vellum-install-test.")));
+  const sandbox = realpathSync(mkdtempSync(join(tmpdir(), "junto-install-test.")));
   temporaryRoots.push(sandbox);
   mkdirSync(join(sandbox, "Applications"));
   return sandbox;
@@ -60,7 +60,7 @@ const runPaths = (
     [
       "-c",
       script,
-      "vellum-path-test",
+      "junto-path-test",
       pathsFile,
       sandbox,
       join(sandbox, ".junto", "state", "junto.db"),
@@ -107,13 +107,13 @@ describe("hardened app installer", () => {
     expect(installed).toBeLessThan(success);
     expect(install).not.toContain("run_staged_state_update_preflight");
     expect(install).not.toContain("bind_state_update_source");
-    expect(install).not.toContain("--vellum-state-preflight");
+    expect(install).not.toContain("--junto-state-preflight");
   });
 
   it("fixes production identities and write targets while retaining read-only candidate selection", () => {
-    expect(paths).toContain('LABEL="skastr0.vellumcommand"');
+    expect(paths).toContain('LABEL="com.skastr0.junto"');
     expect(paths).toContain('PRODUCT_NAME="Junto"');
-    expect(paths).toContain('APP_BUNDLE_ID="skastr0.vellumcommand"');
+    expect(paths).toContain('APP_BUNDLE_ID="com.skastr0.junto"');
     expect(paths).toContain("installer identities are fixed");
     expect(paths).toContain("installer write targets are derived");
     expect(paths).toContain('APP_SRC="$(read_config_value JUNTO_APP_SRC');
@@ -149,7 +149,7 @@ printf '%s\n' "$APP_DST" "$PLIST" "$LOG_DIR" "$BIN_DIR" "$STATE_DATABASE"`,
     expect(result.status).toBe(0);
     expect(result.stdout.trim().split("\n")).toEqual([
       join(sandbox, "Applications", "Junto.app"),
-      join(sandbox, "Library", "LaunchAgents", "skastr0.vellumcommand.plist"),
+      join(sandbox, "Library", "LaunchAgents", "com.skastr0.junto.plist"),
       join(sandbox, "Library", "Logs", "Junto"),
       join(sandbox, ".local", "bin"),
       join(sandbox, ".junto", "state", "junto.db"),
@@ -185,7 +185,7 @@ printf '%s\n' "$APP_DST" "$PLIST" "$LOG_DIR" "$BIN_DIR" "$STATE_DATABASE"`,
 
   it("refuses an arbitrary canonical directory even in test mode", () => {
     const sandbox = makeSandbox();
-    const nested = join(sandbox, "vellum-install-test.abcdef");
+    const nested = join(sandbox, "junto-install-test.abcdef");
     mkdirSync(nested, { mode: 0o700 });
     mkdirSync(join(nested, "Applications"));
     const result = runPaths(
@@ -257,7 +257,7 @@ printf '%s\n' "$APP_DST" "$PLIST" "$LOG_DIR" "$BIN_DIR" "$STATE_DATABASE"`,
 
   it("refuses symlink escapes in app and user-scoped parents", () => {
     const appSandbox = makeSandbox();
-    const appOutside = mkdtempSync(join(tmpdir(), "vellum-install-outside."));
+    const appOutside = mkdtempSync(join(tmpdir(), "junto-install-outside."));
     temporaryRoots.push(appOutside);
     rmSync(join(appSandbox, "Applications"), { recursive: true });
     symlinkSync(appOutside, join(appSandbox, "Applications"), "dir");
@@ -269,7 +269,7 @@ printf '%s\n' "$APP_DST" "$PLIST" "$LOG_DIR" "$BIN_DIR" "$STATE_DATABASE"`,
     expect(appResult.stderr).toContain("non-symlink directory");
 
     const logSandbox = makeSandbox();
-    const logOutside = mkdtempSync(join(tmpdir(), "vellum-log-outside."));
+    const logOutside = mkdtempSync(join(tmpdir(), "junto-log-outside."));
     temporaryRoots.push(logOutside);
     mkdirSync(join(logSandbox, "Library"));
     symlinkSync(logOutside, join(logSandbox, "Library", "Logs"), "dir");
@@ -297,7 +297,7 @@ safe_remove_install_stage`,
     expect(substitution.status).not.toBe(0);
     expect(readFileSync(marker, "utf8")).toBe("retained");
 
-    const outside = mkdtempSync(join(tmpdir(), "vellum-transaction-outside."));
+    const outside = mkdtempSync(join(tmpdir(), "junto-transaction-outside."));
     temporaryRoots.push(outside);
     const stageRoot = join(
       sandbox,
@@ -561,7 +561,7 @@ cat "$PLIST"`,
     const sandbox = makeSandbox();
     const launchAgents = join(sandbox, "Library", "LaunchAgents");
     mkdirSync(launchAgents, { recursive: true });
-    const plist = join(launchAgents, "skastr0.vellumcommand.plist");
+    const plist = join(launchAgents, "com.skastr0.junto.plist");
     const program = join(
       sandbox,
       "Applications",
@@ -574,7 +574,7 @@ cat "$PLIST"`,
       plist,
       `<?xml version="1.0" encoding="UTF-8"?>
 <plist version="1.0"><dict>
-<key>Label</key><string>skastr0.vellumcommand</string>
+<key>Label</key><string>com.skastr0.junto</string>
 <key>ProgramArguments</key><array>
 <string>${program}</string>
 <string>--foreign</string>
@@ -588,7 +588,7 @@ cat "$PLIST"`,
 # extra-argument refusal itself is what rejects the otherwise matching plist.
 function /usr/libexec/PlistBuddy() {
   case "\${2:-}" in
-    "Print :Label") printf '%s\\n' "skastr0.vellumcommand" ;;
+    "Print :Label") printf '%s\\n' "com.skastr0.junto" ;;
     "Print :ProgramArguments:0") printf '%s\\n' "${program}" ;;
     "Print :ProgramArguments:1") printf '%s\\n' "--foreign" ;;
     *) exit 1 ;;
@@ -720,7 +720,7 @@ printf '%s\n' "$(cat "$PLIST_STAGE")" "$(cat "$PLIST")"`,
       cutover,
     );
     expect(position(install, "unload_launchd")).toBeLessThan(cutover);
-    expect(position(install, "vellum_processes_running")).toBeLessThan(
+    expect(position(install, "junto_processes_running")).toBeLessThan(
       cutover,
     );
     expect(

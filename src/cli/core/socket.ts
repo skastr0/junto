@@ -29,7 +29,7 @@ export const resolveWorkHome = (): string => {
 
 /**
  * effect-foundation **S4-rest-main** (staged, not half-migrated):
- * - Canonical id: `@vellum/cli/WorkSocket` — single definition; no dual path.
+ * - Canonical id: `@junto/cli/WorkSocket` — single definition; no dual path.
  * - Service id: Context.Service (Effect V4 live).
  * - Shape:
  *   `class WorkSocket extends Context.Service<WorkSocket, WorkSocket>()("@junto/cli/WorkSocket") {}`

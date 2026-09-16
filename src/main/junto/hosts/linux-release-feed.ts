@@ -24,9 +24,9 @@ import {
 import { resolveJuntoHome } from "@shared/junto-home";
 import { join } from "node:path";
 
-/** Same Worker host as Mac arm64 feed; Linux channel lives under /linux/. */
+/** Same origin as the Mac arm64 feed; Linux channel lives under /linux/. */
 export const LINUX_RELEASE_FEED_BASE =
-  "https://vellumreleasedistribution-rele2p3h3apcupwjim2zajqqmhyd.skastr052.workers.dev" as const;
+  "https://releases.juntoagents.com" as const;
 
 export const linuxRemoteArtifactBundleRoot = (home = resolveJuntoHome()): string =>
   join(home, ".junto", "releases", "linux-x64-glibc", "current");
@@ -48,7 +48,7 @@ export const linuxStableChannelUrl = (
 ): string => `${base.replace(/\/+$/u, "")}/linux/channels/stable.json`;
 
 export type LinuxStableChannel = {
-  readonly schema: "vellum/linux-release-channel/v1";
+  readonly schema: "junto/linux-release-channel/v1";
   readonly channel: "stable";
   readonly version: string;
   readonly sourceRevision: string;
@@ -76,7 +76,7 @@ export const decodeLinuxStableChannel = (
     throw new Error("Linux stable channel is not an object");
   }
   const row = value as Record<string, unknown>;
-  if (row.schema !== "vellum/linux-release-channel/v1") {
+  if (row.schema !== "junto/linux-release-channel/v1") {
     throw new Error("Linux stable channel schema is unrecognized");
   }
   if (row.channel !== "stable") {
@@ -130,7 +130,7 @@ export const decodeLinuxStableChannel = (
     throw new Error("Linux stable channel publishedAt is invalid");
   }
   return Object.freeze({
-    schema: "vellum/linux-release-channel/v1",
+    schema: "junto/linux-release-channel/v1",
     channel: "stable",
     version: row.version,
     sourceRevision: row.sourceRevision,

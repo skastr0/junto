@@ -24,7 +24,7 @@ afterEach(() => {
 const makeScratch = (): string => {
   const dir = join(
     tmpdir(),
-    `vellum-harness-probe-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+    `junto-harness-probe-${Date.now()}-${Math.random().toString(16).slice(2)}`,
   );
   mkdirSync(dir, { recursive: true });
   scratchDirs.push(dir);

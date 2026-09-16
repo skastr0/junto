@@ -198,7 +198,7 @@ describe("surface-registry (pure workbench)", () => {
 
 // --- dock-state (observable + side effects) --------------------------------
 
-interface MockVellum {
+interface MockJunto {
   browserOpen: ReturnType<typeof vi.fn>;
   browserClose: ReturnType<typeof vi.fn>;
   browserStop: ReturnType<typeof vi.fn>;
@@ -234,10 +234,10 @@ const baseSession = (
   ...overrides,
 });
 
-function installMockVellum(overrides: Partial<MockVellum> = {}): MockVellum {
+function installMockJunto(overrides: Partial<MockJunto> = {}): MockJunto {
   let handle = 0;
   const sessions = new Map<string, BrowserSessionInfo>();
-  const mock: MockVellum = {
+  const mock: MockJunto = {
     browserOpen: vi.fn(async (input: { ref: string }): Promise<BrowserOpResult<BrowserSessionInfo>> => {
       const parsed = parseNodeRef(input.ref);
       if (!parsed.ok) return { ok: false, code: "invalid", message: "bad ref" };
@@ -262,7 +262,7 @@ function installMockVellum(overrides: Partial<MockVellum> = {}): MockVellum {
     browserSessionList: vi.fn(async () => ({ ok: true, data: [...sessions.values()] })),
     ...overrides,
   };
-  (globalThis as unknown as { window: { vellumCommand: MockVellum } }).window = { vellumCommand: mock };
+  (globalThis as unknown as { window: { vellumCommand: MockJunto } }).window = { vellumCommand: mock };
   return mock;
 }
 
@@ -307,7 +307,7 @@ describe("dock-state", () => {
   });
 
   it("openDockBrowser registers the slot + payload and opens the session over IPC", async () => {
-    const mock = installMockVellum();
+    const mock = installMockJunto();
     const ref = refOf("n1");
     await openDockBrowser(ref, payloadOf("n1", "https://example.com", "Example"));
     expect(dock$.registry.peek().surfaces).toEqual([
@@ -448,7 +448,7 @@ describe("dock-state", () => {
   });
 
   it("opens many browsers without detaching earlier ones (tabs replace eviction)", async () => {
-    const mock = installMockVellum();
+    const mock = installMockJunto();
     const refs = [refOf("n1"), refOf("n2"), refOf("n3")];
     await openDockBrowser(refs[0]!, payloadOf("n1", "https://a.example.com", "A"));
     await openDockBrowser(refs[1]!, payloadOf("n2", "https://b.example.com", "B"));
@@ -458,7 +458,7 @@ describe("dock-state", () => {
   });
 
   it("closeDockBrowser removes UI without an identity fallback when no handle exists", () => {
-    const mock = installMockVellum();
+    const mock = installMockJunto();
     const ref = refOf("ghost");
     dock$.browserByRef[ref].set(payloadOf("ghost", "https://ghost.example.com", "Ghost"));
     dock$.registry.set(openSurface(dock$.registry.peek(), browserSlot(ref)).state);
@@ -472,7 +472,7 @@ describe("dock-state", () => {
     const ref = refOf("n1");
     const oldSession = baseSession(ref, "n1", "old-handle");
     const newSession = baseSession(ref, "n1", "new-handle");
-    const mock = installMockVellum({
+    const mock = installMockJunto({
       browserOpen: vi
         .fn()
         .mockResolvedValueOnce({ ok: true, data: oldSession })
@@ -488,7 +488,7 @@ describe("dock-state", () => {
   });
 
   it("Stop Page destroys the exact current handle and clears UI state without detaching", async () => {
-    const mock = installMockVellum();
+    const mock = installMockJunto();
     const ref = refOf("stop-page");
     await openDockBrowser(ref, payloadOf("stop-page", "https://stop.example.com", "Stop"));
 
@@ -507,7 +507,7 @@ describe("dock-state", () => {
     const pendingStop = new Promise<{ readonly ok: true; readonly data: unknown }>((resolve) => {
       finishStop = resolve;
     });
-    const mock = installMockVellum({ browserStop: vi.fn(() => pendingStop) });
+    const mock = installMockJunto({ browserStop: vi.fn(() => pendingStop) });
     const ref = refOf("stop-race");
     await openDockBrowser(ref, payloadOf("stop-race", "https://stop.example.com", "Stop"));
 
@@ -532,7 +532,7 @@ describe("dock-state", () => {
   });
 
   it("Stop Page fails closed and keeps the surface discoverable when main rejects it", async () => {
-    const mock = installMockVellum({
+    const mock = installMockJunto({
       browserStop: vi.fn(async () => ({
         ok: false,
         code: "failed",
@@ -556,7 +556,7 @@ describe("dock-state", () => {
   });
 
   it("treats authoritative session-list absence as already stopped", async () => {
-    const mock = installMockVellum({
+    const mock = installMockJunto({
       browserSessionList: vi.fn(async () => ({ ok: true, data: [] })),
     });
     const ref = refOf("already-stopped");
@@ -590,7 +590,7 @@ describe("dock-state", () => {
   });
 
   it("clears a stale cached handle when Stop Page returns not_found and the session list proves absence", async () => {
-    const mock = installMockVellum({
+    const mock = installMockJunto({
       browserStop: vi.fn(async () => ({
         ok: false,
         code: "not_found",
@@ -614,7 +614,7 @@ describe("dock-state", () => {
   it("never redirects a stale Stop Page request onto a replacement runtime without a retry", async () => {
     const ref = refOf("replaced-runtime");
     const replacement = baseSession(ref, "replaced-runtime", "replacement-handle");
-    const mock = installMockVellum({
+    const mock = installMockJunto({
       browserStop: vi.fn(async () => ({
         ok: false,
         code: "not_found",
@@ -648,7 +648,7 @@ describe("dock-state", () => {
     const pendingOpen = new Promise<BrowserOpResult<BrowserSessionInfo>>((resolve) => {
       resolveOpen = resolve;
     });
-    const mock = installMockVellum({ browserOpen: vi.fn(() => pendingOpen) });
+    const mock = installMockJunto({ browserOpen: vi.fn(() => pendingOpen) });
     const opening = openDockBrowser(
       ref,
       payloadOf("n-stale-open", "https://a.example.com", "A"),
@@ -665,7 +665,7 @@ describe("dock-state", () => {
 
   it("reports a failed open on the surface instead of waiting silently", async () => {
     const ref = refOf("open-failed");
-    installMockVellum({
+    installMockJunto({
       browserOpen: vi.fn(async () => ({
         ok: false,
         code: "resource_exhausted",
@@ -688,7 +688,7 @@ describe("dock-state", () => {
 
   it("reports a thrown open as an operator-facing failure", async () => {
     const ref = refOf("open-threw");
-    installMockVellum({
+    installMockJunto({
       browserOpen: vi.fn(async () => {
         throw new Error("Object has been destroyed");
       }),
@@ -704,7 +704,7 @@ describe("dock-state", () => {
   });
 
   it("refuses a disallowed target before any IPC round trip", async () => {
-    const mock = installMockVellum();
+    const mock = installMockJunto();
     const ref = refOf("open-local");
 
     await openDockBrowser(ref, payloadOf("open-local", "http://localhost:5173", "Local"));
@@ -720,7 +720,7 @@ describe("dock-state", () => {
     const pendingOpen = new Promise<BrowserOpResult<BrowserSessionInfo>>((resolve) => {
       resolveOpen = resolve;
     });
-    const mock = installMockVellum({ browserOpen: vi.fn(() => pendingOpen) });
+    const mock = installMockJunto({ browserOpen: vi.fn(() => pendingOpen) });
     const opening = openDockBrowser(ref, payloadOf("stale-failure", "https://a.example.com", "A"));
     for (let i = 0; i < 20 && !mock.browserOpen.mock.calls.length; i++) {
       await Promise.resolve();
@@ -735,7 +735,7 @@ describe("dock-state", () => {
 
   it("a malformed ok open result is a visible failure, not a silent cache skip", async () => {
     const ref = refOf("malformed-open");
-    installMockVellum({
+    installMockJunto({
       browserOpen: vi.fn(async () => ({
         ok: true,
         data: { ...baseSession(refOf("other"), "other", "other-handle") },
@@ -753,7 +753,7 @@ describe("dock-state", () => {
 
   it("a later open success clears a reported open failure", async () => {
     const ref = refOf("open-retry");
-    const mock = installMockVellum({
+    const mock = installMockJunto({
       browserOpen: vi
         .fn()
         .mockResolvedValueOnce({ ok: false, code: "failed", message: "no" })
@@ -789,7 +789,7 @@ describe("dock-state", () => {
 
   it("a failed detach reports close failure and parks the native view", async () => {
     const ref = refOf("close-failed");
-    const mock = installMockVellum({
+    const mock = installMockJunto({
       browserClose: vi.fn(async () => ({
         ok: false,
         code: "failed",
@@ -821,7 +821,7 @@ describe("dock-state", () => {
 
   it("a not_found detach clears the stale handle instead of reporting an error", async () => {
     const ref = refOf("close-stale");
-    const mock = installMockVellum({
+    const mock = installMockJunto({
       browserClose: vi.fn(async () => ({
         ok: false,
         code: "not_found",
@@ -851,7 +851,7 @@ describe("dock-state", () => {
   it("reconciles attached sessions by canonical ref and exact sessionId", async () => {
     const attachedRef = refOf("attached");
     const detachedRef = refOf("detached");
-    installMockVellum({
+    installMockJunto({
       browserSessionList: vi.fn(async () => ({
         ok: true,
         data: [

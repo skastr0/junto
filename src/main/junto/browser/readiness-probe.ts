@@ -156,7 +156,7 @@ const loopbackUrl = (origin: string, nonce: string): string | undefined => {
       parsed.search !== "" ||
       parsed.hash !== ""
     ) return undefined;
-    return `${parsed.href}vellum-readiness?nonce=${encodeURIComponent(nonce)}`;
+    return `${parsed.href}junto-readiness?nonce=${encodeURIComponent(nonce)}`;
   } catch {
     return undefined;
   }

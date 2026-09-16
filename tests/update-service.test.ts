@@ -132,7 +132,7 @@ describe("UpdateService", () => {
   });
 
   it("sets canInstall true when ready with staged app path", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vellum-update-ready-"));
+    const root = await mkdtemp(join(tmpdir(), "junto-update-ready-"));
     roots.push(root);
     const zipPath = join(root, "update.zip");
     const body = Buffer.from("zip-body-ready");
@@ -171,7 +171,7 @@ describe("UpdateService", () => {
   });
 
   it("skips check when phase is ready", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vellum-update-skip-"));
+    const root = await mkdtemp(join(tmpdir(), "junto-update-skip-"));
     roots.push(root);
     const zipPath = join(root, "update.zip");
     await writeFile(zipPath, Buffer.from("zip-body-skip"));
@@ -210,7 +210,7 @@ describe("UpdateService", () => {
   });
 
   it("serializes concurrent provider events", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vellum-update-serial-"));
+    const root = await mkdtemp(join(tmpdir(), "junto-update-serial-"));
     roots.push(root);
     const zipA = join(root, "a.zip");
     const zipB = join(root, "b.zip");
@@ -273,7 +273,7 @@ describe("UpdateService", () => {
   });
 
   it("finalizeInstallAfterQuiesce authorizes staged candidate then quitAndInstall", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vellum-update-svc-"));
+    const root = await mkdtemp(join(tmpdir(), "junto-update-svc-"));
     roots.push(root);
     const zipPath = join(root, "update.zip");
     const body = Buffer.from("zip-body");
@@ -335,7 +335,7 @@ describe("UpdateService", () => {
   });
 
   it("relaunchWithoutInstall when quitAndInstall throws", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vellum-update-quit-fail-"));
+    const root = await mkdtemp(join(tmpdir(), "junto-update-quit-fail-"));
     roots.push(root);
     const zipPath = join(root, "update.zip");
     await writeFile(zipPath, Buffer.from("zip-quit-fail"));

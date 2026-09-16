@@ -5,7 +5,7 @@
     <title>Junto hostile containment fixture</title>
   </head>
   <body>
-    <script id="vellum-containment-report" type="application/json"></script>
+    <script id="junto-containment-report" type="application/json"></script>
     <script>
       void (async () => {
         const params = new URL(location.href).searchParams;
@@ -14,7 +14,7 @@
         const mode = params.get("mode") || "read";
         const downloadUrl = params.get("download") || "";
         const privateSentinelUrl = params.get("privateSentinel") || "";
-        const customProtocolUrl = params.get("customProtocol") || "vellum-probe://denied";
+        const customProtocolUrl = params.get("customProtocol") || "junto-probe://denied";
         const writes = [];
 
         const delay = (milliseconds) =>
@@ -46,7 +46,7 @@
 
         if (mode === "seed") {
           document.cookie = `vellum_probe=${encodeURIComponent(nonce)}; Path=/; SameSite=Lax`;
-          localStorage.setItem("vellum-probe", nonce);
+          localStorage.setItem("junto-probe", nonce);
         }
 
         const cookie = document.cookie
@@ -54,7 +54,7 @@
           .map((part) => part.trim())
           .find((part) => part.startsWith("vellum_probe="));
 
-        const popup = window.open(`${location.origin}/popup`, "vellum-hostile-popup");
+        const popup = window.open(`${location.origin}/popup`, "junto-hostile-popup");
         const popupReturnedNull = popup === null;
         if (popup !== null) popup.close();
 
@@ -113,7 +113,7 @@
           },
           writeAttempts: writes,
           cookieValue: cookie ? decodeURIComponent(cookie.slice("vellum_probe=".length)) : null,
-          storageValue: localStorage.getItem("vellum-probe"),
+          storageValue: localStorage.getItem("junto-probe"),
           popupReturnedNull,
           permissionState,
           geolocation,
@@ -124,7 +124,7 @@
           locationAfterAttacks: location.href,
         };
         globalThis.__vellumContainmentProbe = report;
-        const reportNode = document.getElementById("vellum-containment-report");
+        const reportNode = document.getElementById("junto-containment-report");
         reportNode.textContent = JSON.stringify(report);
 
         const poisonedEval = () => {

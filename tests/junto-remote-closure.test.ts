@@ -99,7 +99,7 @@ describe("junto-remote closure", () => {
     expect(entry).not.toContain("STATE_UPDATE_PREFLIGHT_SWITCH");
     expect(entry).not.toContain("withStateUpdateCandidate");
     expect(entry).not.toContain("inspectStateUpdateCandidate");
-    expect(entry).not.toContain("--vellum-state-preflight");
+    expect(entry).not.toContain("--junto-state-preflight");
     expect(entry).toContain("publishSystemdGenerationReadiness");
     expect(entry).toContain("installUserlandLinuxRemoteService");
     expect(entry).toContain("RemoteRuntime");

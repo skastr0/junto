@@ -1,18 +1,18 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type {
   LaunchctlRunResult,
-  VellumLaunchAgentTarget,
+  JuntoLaunchAgentTarget,
 } from "../src/main/junto/settings/launchctl-runner";
 
 const mocks = vi.hoisted(() => ({
-  target: Object.freeze({}) as VellumLaunchAgentTarget,
+  target: Object.freeze({}) as JuntoLaunchAgentTarget,
   launchAgentTargetForCurrentUser: vi.fn(),
   printLaunchAgent: vi.fn(),
   kickstartLaunchAgent: vi.fn(),
 }));
 
 vi.mock("../src/main/junto/settings/launchctl-runner", () => ({
-  JUNTO_LAUNCHD_LABEL: "skastr0.vellumcommand",
+  JUNTO_LAUNCHD_LABEL: "com.skastr0.junto",
   launchAgentTargetForCurrentUser: mocks.launchAgentTargetForCurrentUser,
   printLaunchAgent: mocks.printLaunchAgent,
   kickstartLaunchAgent: mocks.kickstartLaunchAgent,
@@ -22,13 +22,13 @@ import { createDarwinStationSupervisor } from "../src/main/junto/supervision/dar
 
 const launchdPrint = (
   body: string,
-): string => `gui/501/skastr0.vellumcommand = {\n${body}\n}\n`;
+): string => `gui/501/com.skastr0.junto = {\n${body}\n}\n`;
 
 const successful = (
   stdout = launchdPrint("\tstate = not running"),
 ): LaunchctlRunResult => ({
   action: "print",
-  target: "gui/501/skastr0.vellumcommand",
+  target: "gui/501/com.skastr0.junto",
   stdout,
   stderr: "",
   clean: true,
@@ -41,7 +41,7 @@ const failed = (
   code: number | null = null,
 ): LaunchctlRunResult => ({
   action: "print",
-  target: "gui/501/skastr0.vellumcommand",
+  target: "gui/501/com.skastr0.junto",
   stdout: "",
   stderr: "bounded diagnostic",
   clean: kind !== "close-timeout",
@@ -68,7 +68,7 @@ describe("Darwin station supervisor observation", () => {
 
     expect(supervisor.metadata).toMatchObject({
       provider: "launchd",
-      serviceLabel: "skastr0.vellumcommand",
+      serviceLabel: "com.skastr0.junto",
     });
     expect(observation).toEqual({
       provider: "launchd",

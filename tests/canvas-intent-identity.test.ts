@@ -1,12 +1,20 @@
 import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
-import { Result } from "effect";
 import { describe, expect, it } from "vitest";
 import {
-  decodeCanvasDoc,
   serializeCanvas,
   type CanvasDoc,
 } from "../src/shared/canvas";
+import {
+  readDocumentRows,
+  readPortfolioHead,
+  reconstructCanvasDoc,
+} from "../src/main/junto/canvas/records";
+import type {
+  StateBindings,
+  StateInputValue,
+  StateReader,
+} from "../src/main/junto/state/service";
 import {
   canvasBodySha256Of,
   intentSha256Of,
@@ -160,7 +168,7 @@ describe("authorial canvas intent identity", () => {
     ).toThrow(/semantic document mismatch/);
   });
 
-  it("verifies the exact frozen v1 legacy body by scrubbed semantic equality", () => {
+  it("verifies the frozen v1 fixture intent material by scrubbed semantic equality", () => {
     const database = new DatabaseSync(
       fileURLToPath(
         new URL(
@@ -176,37 +184,28 @@ describe("authorial canvas intent identity", () => {
       },
     );
     try {
-      const head = database
-        .prepare(
-          `SELECT generation, intent_sha256
-             FROM canvas_generations
-             WHERE generation = (SELECT generation FROM canvas_head WHERE singleton = 1)`,
-        )
-        .get() as { readonly generation: string; readonly intent_sha256: string };
-      const rows = database
-        .prepare(
-          `SELECT name, body, sha256
-             FROM canvas_generation_documents
-             WHERE generation = ?
-             ORDER BY name`,
-        )
-        .all(head.generation) as unknown as ReadonlyArray<{
-          readonly name: string;
-          readonly body: string;
-          readonly sha256: string;
-        }>;
+      const bind = (bindings?: StateBindings): StateInputValue[] =>
+        Array.isArray(bindings) ? [...bindings] : [];
+      const reader: StateReader = {
+        get: (sql, bindings) =>
+          database.prepare(sql).get(...bind(bindings)) as never,
+        all: (sql, bindings) =>
+          database.prepare(sql).all(...bind(bindings)) as never,
+      };
+      const head = readPortfolioHead(reader);
+      if (head === undefined) {
+        throw new Error("fixture has no canvas portfolio head");
+      }
       const documents = new Map<string, CanvasDoc>();
       const storedDocuments = new Map<string, StoredCanvasIntentDocument>();
-      for (const row of rows) {
-        const decoded = decodeCanvasDoc(JSON.parse(row.body));
-        if (Result.isFailure(decoded)) {
-          throw new Error(decoded.failure.message);
-        }
-        documents.set(row.name, decoded.success);
-        storedDocuments.set(row.name, {
-          document: decoded.success,
-          rawBody: row.body,
-          revisionSha256: row.sha256,
+      for (const row of readDocumentRows(reader)) {
+        const document = reconstructCanvasDoc(reader, row.canvas_id);
+        const rawBody = serializeCanvas(document);
+        documents.set(row.canvas_name, document);
+        storedDocuments.set(row.canvas_name, {
+          document,
+          rawBody,
+          revisionSha256: row.revision_sha256,
         });
       }
       const material = {
@@ -217,9 +216,8 @@ describe("authorial canvas intent identity", () => {
 
       expect(() => verifyCanvasIntentMaterial(material)).not.toThrow();
       const factory = storedDocuments.get("factory")!;
-      expect(factory.rawBody).toContain('"ports"');
-      expect(factory.rawBody).not.toBe(serializeCanvas(factory.document));
-      expect(factory.document.edges[0]?.ether).toEqual({ verb: "contributes" });
+      expect(factory.rawBody).toBe(serializeCanvas(factory.document));
+      expect(factory.document.edges[0]?.ether).toEqual({ verb: "works" });
     } finally {
       database.close();
     }

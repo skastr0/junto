@@ -109,7 +109,7 @@ const makeRuntime = (root: string) => {
 };
 
 const startFixture = async (stuck: boolean, initialReady = true) => {
-  const root = await mkdtemp(join(tmpdir(), "vellum-claim-delivery-"));
+  const root = await mkdtemp(join(tmpdir(), "junto-claim-delivery-"));
   const runtime = makeRuntime(root);
   const writes: string[] = [];
   const seatEvents: AgentSeatStateEvent[] = [];

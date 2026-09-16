@@ -186,7 +186,7 @@ describe("actor occupy protocol (in-process both ends)", () => {
   });
 
   it("finalizes Remote-only named-session proof on the spawn side of UDS", async () => {
-    const priorVellumHome = process.env.JUNTO_HOME;
+    const priorJuntoHome = process.env.JUNTO_HOME;
     delete process.env.JUNTO_HOME;
     const commandCenterHome = mkdtempSync(join(tmpdir(), "vt-actor-cc-home-"));
     const remoteHome = mkdtempSync(join(tmpdir(), "vt-actor-remote-home-"));
@@ -248,8 +248,8 @@ describe("actor occupy protocol (in-process both ends)", () => {
       expect(fake.controllers[0]?.spec.args).not.toContain("--session-id");
     } finally {
       __setSessionExistenceHomeForTest(undefined);
-      if (priorVellumHome === undefined) delete process.env.JUNTO_HOME;
-      else process.env.JUNTO_HOME = priorVellumHome;
+      if (priorJuntoHome === undefined) delete process.env.JUNTO_HOME;
+      else process.env.JUNTO_HOME = priorJuntoHome;
     }
   });
 

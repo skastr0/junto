@@ -66,7 +66,7 @@ const resolveHermesEndpoint = (
 
 /**
  * effect-foundation **S4-rest-main** (staged, not half-migrated):
- * - Canonical id: `@vellum/HermesTransport` — single definition; no dual path.
+ * - Canonical id: `@junto/HermesTransport` — single definition; no dual path.
  * - Service id: Context.Service (Effect V4 live).
  * - Shape:
  *   `class HermesTransport extends Context.Service<HermesTransport, HermesTransport>()("@junto/HermesTransport") {}`

@@ -87,7 +87,7 @@ export const createStateRecoveryIpcHandlers = (
     let choice: StateRecoveryDestinationChoice;
     try {
       choice = await chooseDestination(
-        `vellum-state-backup-${id}.db`,
+        `junto-state-backup-${id}.db`,
       );
     } catch {
       return exportError(

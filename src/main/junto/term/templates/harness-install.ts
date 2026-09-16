@@ -19,7 +19,7 @@ import {
 } from "@shared/managed-terminal-templates";
 import { managedHarnessEnabled } from "@shared/features";
 import { configuredToolDirectories } from "../../adapters/exec";
-import { vellumCliPathPrefixes } from "./seat-env";
+import { juntoCliPathPrefixes } from "./seat-env";
 
 export type HarnessInstallProbe = {
   readonly harness: HarnessId;
@@ -121,7 +121,7 @@ export const harnessBinaryInstalled = (
   binary: string,
   options?: HarnessExecutableResolution,
 ): boolean => resolveHarnessExecutable(binary, harness === "vellum-overseer" ? {
-  ...options, extraDirs: [...vellumCliPathPrefixes(), ...(options?.extraDirs ?? configuredToolDirectories())],
+  ...options, extraDirs: [...juntoCliPathPrefixes(), ...(options?.extraDirs ?? configuredToolDirectories())],
 } : options) !== undefined;
 
 const probeOne = (template: ManagedTerminalTemplate): HarnessInstallProbe => {

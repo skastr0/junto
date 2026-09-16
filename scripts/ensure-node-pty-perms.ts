@@ -1,7 +1,7 @@
 /**
  * node-pty's spawn-helper must be executable. Bun (and some extract paths)
  * can drop +x on prebuilds, which surfaces as:
- *   [vellum] failed to spawn: native PTY backend is unavailable
+ *   [junto] failed to spawn: native PTY backend is unavailable
  * with cause posix_spawnp failed.
  *
  * Also drop a cross-platform build/Release that cannot load on this host

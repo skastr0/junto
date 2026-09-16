@@ -85,7 +85,7 @@ const success = (stdout: string): BoxProcessResult => ({
 });
 
 // A real executable on every platform: /bin/true is absent on macOS.
-const STUB_ROOT = mkdtempSync(join(tmpdir(), "vellum-box-cli-stub-"));
+const STUB_ROOT = mkdtempSync(join(tmpdir(), "junto-box-cli-stub-"));
 const STUB_EXECUTABLE = join(STUB_ROOT, "box");
 writeFileSync(STUB_EXECUTABLE, "#!/bin/sh\nexit 0\n");
 chmodSync(STUB_EXECUTABLE, 0o700);
@@ -106,7 +106,7 @@ afterAll(() => {
 
 describe("Box CLI adapter", () => {
   it("detects the official ~/.ascii/bin/box installation path", () => {
-    const root = mkdtempSync(join(tmpdir(), "vellum-box-cli-"));
+    const root = mkdtempSync(join(tmpdir(), "junto-box-cli-"));
     const executable = join(root, ".ascii", "bin", "box");
     try {
       mkdirSync(join(root, ".ascii", "bin"), { recursive: true });

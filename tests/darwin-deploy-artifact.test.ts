@@ -110,7 +110,7 @@ describe("expected package state compilation", () => {
       kind: "app-tar",
       expectedPackageState: compileExpectedPackageState("absent", "present"),
     });
-    expect(script).not.toContain("--vellum-headless");
+    expect(script).not.toContain("--junto-headless");
     expect(script).toContain("STATION_READY");
     expect(script).not.toContain("ENROLLMENT_READY");
   });
@@ -118,7 +118,7 @@ describe("expected package state compilation", () => {
 
 describe("hash fixture for release zip shape", () => {
   it("hashes a temp file to 64 hex for authority tests", () => {
-    const dir = mkdtempSync(join(tmpdir(), "vellum-darwin-zip-"));
+    const dir = mkdtempSync(join(tmpdir(), "junto-darwin-zip-"));
     try {
       const path = join(dir, "payload.zip");
       writeFileSync(path, "zip-bytes");

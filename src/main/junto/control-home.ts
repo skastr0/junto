@@ -31,7 +31,7 @@ export interface ResolveControlHomeInput {
   readonly userData: string;
   /** `process.env.JUNTO_E2E === "1"`. */
   readonly e2e?: boolean;
-  /** `--vellum-headless` present on argv. */
+  /** `--junto-headless` present on argv. */
   readonly headless?: boolean;
   /** `app.isPackaged`. */
   readonly packaged?: boolean;

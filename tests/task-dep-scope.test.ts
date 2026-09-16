@@ -25,7 +25,7 @@ const ids = (() => {
 const regionDoc = (): CanvasDoc => ({
   nodes: [
     {
-      id: "region-vellum",
+      id: "region-junto",
       type: "group",
       x: 0,
       y: 0,

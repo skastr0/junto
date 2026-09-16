@@ -44,17 +44,17 @@ export const RETIRED_PRODUCT_STATE_SIGNATURES = [
   "StationBrowserTrustRepository",
   "STATION_BROWSER_PROTOCOL_VERSION",
   "STATION_BROWSER_ORIGIN_ROUTE_PATH",
-  "remoteVellumBrowserStation",
+  "remoteJuntoBrowserStation",
   "prepareStationBrowserRuntimeRoutes",
-  "vellum/station-browser-owner/v1",
-  "vellum-station-session-v1.",
+  "junto/station-browser-owner/v1",
+  "junto-station-session-v1.",
   "/station-route",
   "browserTrust",
   "provision-station-browser-trust",
   "--peer-station-browser-protocol",
-  "vellum:browser-automation-enable",
-  "vellum:browser-automation-list",
-  "vellum:browser-automation-revoke",
+  "junto:browser-automation-enable",
+  "junto:browser-automation-list",
+  "junto:browser-automation-revoke",
   "managedRemoteUpdate",
   "managedRemoteRollback",
   "rollback_previous_app",
@@ -456,7 +456,7 @@ export const auditRetiredStateRuntimeBundle = async (
 ): Promise<RetiredStateRuntimeBundleAuditReceipt> => {
   const asar = auditRetiredStateAsar(paths.asarPath);
   const work = await auditRetiredStateFile(paths.workCliPath, {
-    label: "packaged vellum",
+    label: "packaged junto",
   });
   return { asar, work };
 };
@@ -468,15 +468,15 @@ export const auditLinuxRetiredStateRuntimeBundle = async (
   const asar = auditRetiredStateAsar(paths.asarPath);
   const [work, installer, bridge] = await Promise.all([
     auditRetiredStateFile(paths.workCliPath, {
-      label: "packaged vellum",
+      label: "packaged junto",
       maxBytes: LINUX_RELEASE_HELPER_RETIRED_STATE_AUDIT_MAX_BYTES,
     }),
     auditRetiredStateFile(paths.installerPath, {
-      label: "packaged vellum-release-installer",
+      label: "packaged junto-release-installer",
       maxBytes: LINUX_RELEASE_HELPER_RETIRED_STATE_AUDIT_MAX_BYTES,
     }),
     auditRetiredStateFile(paths.bridgePath, {
-      label: "packaged vellum-release-bridge",
+      label: "packaged junto-release-bridge",
       maxBytes: LINUX_RELEASE_HELPER_RETIRED_STATE_AUDIT_MAX_BYTES,
     }),
   ]);

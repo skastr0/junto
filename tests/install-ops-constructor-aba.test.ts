@@ -144,7 +144,7 @@ const seedProduct = (path: string): void => {
   try {
     database.exec(`
       PRAGMA journal_mode = DELETE;
-      PRAGMA user_version = 18;
+      PRAGMA user_version = 1;
       CREATE TABLE operator_canary (
         id INTEGER PRIMARY KEY,
         value TEXT NOT NULL
@@ -163,7 +163,7 @@ const seedProduct = (path: string): void => {
 };
 
 const productFacts = (path: string) => {
-  const copy = join(tmpdir(), `vellum-aba-product-copy-${randomUUID()}.db`);
+  const copy = join(tmpdir(), `junto-aba-product-copy-${randomUUID()}.db`);
   writeFileSync(copy, readFileSync(path), { mode: 0o600 });
   const database = new DatabaseSync(copy, { readOnly: true });
   try {
@@ -215,7 +215,7 @@ const familyWitness = (path: string) => ({
 describe("install-ops actual-connection constructor ABA", () => {
   for (const phase of ["read-only", "writable"] as const) {
     it(`fingerprints and rejects product state swapped only during the ${phase} constructor`, async () => {
-      const root = join(tmpdir(), `vellum-install-ops-aba-${randomUUID()}`);
+      const root = join(tmpdir(), `junto-install-ops-aba-${randomUUID()}`);
       roots.push(root);
       mkdirSync(root, { recursive: true });
       const opsPath = join(root, "install-ops.db");
@@ -260,7 +260,7 @@ describe("install-ops actual-connection constructor ABA", () => {
       expect(fileWitness(opsPath)).toEqual(opsBefore);
       expect(readdirSync(root).sort()).toEqual(entriesBefore);
       expect(productFacts(productPath)).toEqual({
-        version: 18,
+        version: 1,
         tables: ["operator_canary"],
         canary: "preserve-me",
       });
@@ -269,7 +269,7 @@ describe("install-ops actual-connection constructor ABA", () => {
   }
 
   it("does not recreate a main pathname removed before writable construction", async () => {
-    const root = join(tmpdir(), `vellum-install-ops-existing-${randomUUID()}`);
+    const root = join(tmpdir(), `junto-install-ops-existing-${randomUUID()}`);
     roots.push(root);
     mkdirSync(root, { recursive: true });
     const opsPath = join(root, "install-ops.db");

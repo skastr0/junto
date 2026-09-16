@@ -78,9 +78,9 @@ const repoRoot = path.resolve(
 );
 
 const OBSERVATION_SCHEMA =
-  "vellum/linux-orbstack-observation/v2" as const;
+  "junto/linux-orbstack-observation/v2" as const;
 const RUN_STATE_SCHEMA =
-  "vellum/linux-orbstack-run-state/v4" as const;
+  "junto/linux-orbstack-run-state/v4" as const;
 const EVIDENCE_FILE = STATION_QUALIFICATION_EVIDENCE_FILE;
 const MAX_COMMAND_OUTPUT_BYTES = 64 * 1024;
 const MAX_EVIDENCE_LINE_BYTES = 32 * 1024;
@@ -320,8 +320,8 @@ export const qualificationMachineNames = (
 ): { readonly commandCenter: string; readonly remote: string } => {
   const runId = requireRunId(runIdInput);
   return {
-    commandCenter: `vellum-q-${runId}-cc`,
-    remote: `vellum-q-${runId}-remote`,
+    commandCenter: `junto-q-${runId}-cc`,
+    remote: `junto-q-${runId}-remote`,
   };
 };
 
@@ -421,7 +421,7 @@ const inspectVerifiedBundle = async (input: {
   if (input.expectedKind === "qualification-candidate") {
     if (
       receipt.schema !==
-        "vellum/linux-qualification-candidate-verification-receipt/v1" ||
+        "junto/linux-qualification-candidate-verification-receipt/v1" ||
       receipt.purpose !== LINUX_QUALIFICATION_CANDIDATE_PURPOSE ||
       receipt.publishable !== false ||
       !SHA256.test(receipt.ciEvidenceSha256)
@@ -429,7 +429,7 @@ const inspectVerifiedBundle = async (input: {
       throw new Error("qualification candidate verification receipt is invalid");
     }
   } else if (
-    receipt.schema !== "vellum/linux-release-verification-receipt/v1"
+    receipt.schema !== "junto/linux-release-verification-receipt/v1"
   ) {
     throw new Error("final release verification receipt is invalid");
   }
@@ -504,7 +504,7 @@ const inspectVerifiedBundle = async (input: {
       expiresAt: receipt.expiresAt,
       filesVerified: receipt.filesVerified,
       ...(receipt.schema ===
-          "vellum/linux-qualification-candidate-verification-receipt/v1"
+          "junto/linux-qualification-candidate-verification-receipt/v1"
         ? {
             purpose: receipt.purpose,
             publishable: receipt.publishable,
@@ -945,7 +945,7 @@ const latestState = (
     (
       state.kind === "qualification-candidate"
         ? state.artifact.verification.schema !==
-            "vellum/linux-qualification-candidate-verification-receipt/v1" ||
+            "junto/linux-qualification-candidate-verification-receipt/v1" ||
           state.artifact.verification.purpose !==
             LINUX_QUALIFICATION_CANDIDATE_PURPOSE ||
           state.artifact.verification.publishable !== false ||
@@ -953,7 +953,7 @@ const latestState = (
             state.artifact.verification.ciEvidenceSha256 ?? "",
           )
         : state.artifact.verification.schema !==
-            "vellum/linux-release-verification-receipt/v1"
+            "junto/linux-release-verification-receipt/v1"
     )
   ) {
     throw new Error("qualification evidence has malformed run state");
@@ -1112,7 +1112,7 @@ const observeInstalledPackage = async (
     "/bin/sh",
     [
       "-c",
-      `set -eu; RELEASE="$HOME/.junto/runtime/releases/${release}"; test -x "$RELEASE/junto"; test -x "$HOME/.local/bin/junto"; printf 'vellum\t%s\tuserland\n' "${artifact.version}"`,
+      `set -eu; RELEASE="$HOME/.junto/runtime/releases/${release}"; test -x "$RELEASE/junto"; test -x "$HOME/.local/bin/junto"; printf 'junto\t%s\tuserland\n' "${artifact.version}"`,
     ],
   );
   const [packageName, version, architecture] =
@@ -1175,7 +1175,7 @@ const installPackage = async (
     '"$DEST/resources/bin/junto-remote" --install-user-service',
     "/usr/bin/systemctl --user daemon-reload",
     "/usr/bin/systemctl --user enable --now junto-remote.service || true",
-    `printf 'vellum\\t%s\\tuserland\\n' "${artifact.version}"`,
+    `printf 'junto\\t%s\\tuserland\\n' "${artifact.version}"`,
   ].join("\n");
   await runGuest(
     executor,
@@ -1219,7 +1219,7 @@ const startPackagedRuntime = async (
 };
 
 const commandCenterUnitName = (runId: string): string =>
-  `vellum-qualification-command-center-${requireRunId(runId)}.service`;
+  `junto-qualification-command-center-${requireRunId(runId)}.service`;
 
 /** Sole product Remote supervisor unit (generation-pinned Node, not Electron). */
 const REMOTE_USERLAND_UNIT = "junto-remote.service" as const;
@@ -1355,7 +1355,7 @@ const ensureRemoteUserlandService = async (
         'test ! -L "$UNIT"',
         `/usr/bin/grep -F "ExecStart=" "$UNIT" | /usr/bin/grep -F "releases/${release}/resources/systemd/junto-remote-launch" >/dev/null`,
         `/usr/bin/grep -F "ConditionFileIsExecutable=" "$UNIT" | /usr/bin/grep -F "releases/${release}/resources/bin/junto-remote" >/dev/null`,
-        '! /usr/bin/grep -E "xvfb|ozone-platform|--vellum-headless|ELECTRON_|chromium" "$UNIT" >/dev/null',
+        '! /usr/bin/grep -E "xvfb|ozone-platform|--junto-headless|ELECTRON_|chromium" "$UNIT" >/dev/null',
       ].join("; "),
     ],
   );
@@ -2513,7 +2513,7 @@ const managedRun = async (
       "/bin/sh",
       [
         "-c",
-        `set -eu; RELEASE="$HOME/.junto/runtime/releases/${state.artifact.version}-${state.artifact.archiveSha256}"; test -x "$RELEASE/resources/bin/junto-remote"; test -x "$RELEASE/resources/systemd/junto-remote-launch"; printf 'vellum\\t%s\\tuserland\\n' "${state.artifact.version}"`,
+        `set -eu; RELEASE="$HOME/.junto/runtime/releases/${state.artifact.version}-${state.artifact.archiveSha256}"; test -x "$RELEASE/resources/bin/junto-remote"; test -x "$RELEASE/resources/systemd/junto-remote-launch"; printf 'junto\\t%s\\tuserland\\n' "${state.artifact.version}"`,
       ],
     );
     const [packageName, packageVersion, architecture] =
@@ -2804,12 +2804,12 @@ const managedRun = async (
       "/bin/sh",
       [
         "-c",
-        `set -eu; RELEASE="$HOME/.junto/runtime/releases/${state.artifact.version}-${state.artifact.archiveSha256}"; test -x "$RELEASE/resources/bin/junto-remote"; test -x "$RELEASE/resources/systemd/junto-remote-launch"; printf 'vellum\\t%s\\tuserland\\n' "${state.artifact.version}"`,
+        `set -eu; RELEASE="$HOME/.junto/runtime/releases/${state.artifact.version}-${state.artifact.archiveSha256}"; test -x "$RELEASE/resources/bin/junto-remote"; test -x "$RELEASE/resources/systemd/junto-remote-launch"; printf 'junto\\t%s\\tuserland\\n' "${state.artifact.version}"`,
       ],
     );
     if (
       packageAfterRedeploy.stdout.trim() !==
-        `vellum\t${state.artifact.version}\tuserland`
+        `junto\t${state.artifact.version}\tuserland`
     ) {
       throw new Error("idempotent redeploy changed the qualified userland runtime");
     }
@@ -3105,7 +3105,7 @@ type RuntimeSecurityObservation =
   | RemoteSecurityObservation;
 
 const FORBIDDEN_REMOTE_PROCESS =
-  /(?:^|\/)(?:electron|chrome|chromium|xvfb-run|Xvfb)(?:\s|$)|(?:^|\s)--type=renderer(?:=|\s|$)|(?:^|\s)--ozone-platform(?:=|\s|$)|(?:^|\s)--vellum-headless(?:=|\s|$)/iu;
+  /(?:^|\/)(?:electron|chrome|chromium|xvfb-run|Xvfb)(?:\s|$)|(?:^|\s)--type=renderer(?:=|\s|$)|(?:^|\s)--ozone-platform(?:=|\s|$)|(?:^|\s)--junto-headless(?:=|\s|$)/iu;
 
 const FORBIDDEN_REMOTE_ENV =
   /^(?:DISPLAY|WAYLAND_DISPLAY|XAUTHORITY|ELECTRON_RUN_AS_NODE|ELECTRON_OZONE_PLATFORM_HINT|OZONE_PLATFORM|CHROME_WRAPPER)=/mu;
@@ -3479,8 +3479,8 @@ const observeMachine = async (
   const requestId = `qualification-${machine.name.endsWith("-cc") ? "cc" : "remote"}`;
   const releaseProof =
     expectedRole === "remote"
-      ? `set -eu; RELEASE="$HOME/.junto/runtime/releases/${artifact.version}-${artifact.archiveSha256}"; test -x "$RELEASE/resources/bin/junto-remote"; test -x "$RELEASE/resources/systemd/junto-remote-launch"; printf 'vellum\\t%s\\tuserland\\n' "${artifact.version}"`
-      : `set -eu; RELEASE="$HOME/.junto/runtime/releases/${artifact.version}-${artifact.archiveSha256}"; test -x "$RELEASE/junto"; printf 'vellum\\t%s\\tuserland\\n' "${artifact.version}"`;
+      ? `set -eu; RELEASE="$HOME/.junto/runtime/releases/${artifact.version}-${artifact.archiveSha256}"; test -x "$RELEASE/resources/bin/junto-remote"; test -x "$RELEASE/resources/systemd/junto-remote-launch"; printf 'junto\\t%s\\tuserland\\n' "${artifact.version}"`
+      : `set -eu; RELEASE="$HOME/.junto/runtime/releases/${artifact.version}-${artifact.archiveSha256}"; test -x "$RELEASE/junto"; printf 'junto\\t%s\\tuserland\\n' "${artifact.version}"`;
   const [packageIdentity, service, fixedStatus] = await Promise.all([
     runGuest(
       executor,

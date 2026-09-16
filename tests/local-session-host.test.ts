@@ -261,18 +261,18 @@ describe("LocalSessionHost", () => {
 
   it("expands region ~/ cwd paths before spawn (node-pty rejects literal tildes)", () => {
     expect(expandTerminalCwd("~")).toBe(homedir());
-    expect(expandTerminalCwd("~/Projects/vellum")).toBe(
-      join(homedir(), "Projects/vellum"),
+    expect(expandTerminalCwd("~/Projects/junto")).toBe(
+      join(homedir(), "Projects/junto"),
     );
     expect(expandTerminalCwd("/absolute/repo")).toBe("/absolute/repo");
 
     const launch = Result.getOrThrow(
       resolveLaunch({
         kind: "terminal",
-        launch: { kind: "shell", cwd: "~/Projects/vellum" },
+        launch: { kind: "shell", cwd: "~/Projects/junto" },
       }),
     );
-    expect(launch.cwd).toBe(join(homedir(), "Projects/vellum"));
+    expect(launch.cwd).toBe(join(homedir(), "Projects/junto"));
     expect(launch.env.TERM).toMatch(/^(xterm|screen)/);
   });
 
@@ -320,7 +320,7 @@ describe("LocalSessionHost", () => {
       bindingId: "bad-cwd",
       launch: {
         kind: "shell",
-        cwd: join(homedir(), "definitely-missing-vellum-cwd-probe"),
+        cwd: join(homedir(), "definitely-missing-junto-cwd-probe"),
       },
     });
 
@@ -495,7 +495,7 @@ describe("LocalSessionHost", () => {
   it("delegates terminal spawn to the central authority and observes its exact witness", async () => {
     const fake = makeFakeTerminalProcessAuthority((_spec, index) => ({
       pid: trackSyntheticPid(42_420 + index),
-      output: "vellum-pty-ok\n",
+      output: "junto-pty-ok\n",
       autoExitMs: 10,
     }));
     const host = hostWith(fake);
@@ -506,7 +506,7 @@ describe("LocalSessionHost", () => {
 
     const summary = host.create({
       bindingId: "bind-test-1",
-      launch: { kind: "command", argv: ["/bin/echo", "vellum-pty-ok"] },
+      launch: { kind: "command", argv: ["/bin/echo", "junto-pty-ok"] },
       cols: 80,
       rows: 24,
       canvasName: "main",
@@ -522,14 +522,14 @@ describe("LocalSessionHost", () => {
     expect(fake.controllers[0]?.spec).toMatchObject({
       source: "term:bind-test-1",
       command: "/bin/echo",
-      args: ["vellum-pty-ok"],
+      args: ["junto-pty-ok"],
       cols: 80,
       rows: 24,
     });
     expect("kill" in (fake.controllers[0]?.lease.io ?? {})).toBe(false);
 
     await vi.waitFor(() => expect(host.get("bind-test-1")?.status).toBe("exited"));
-    expect(outputs.join("")).toContain("vellum-pty-ok");
+    expect(outputs.join("")).toContain("junto-pty-ok");
     expect(host.runningCount()).toBe(0);
   });
 
@@ -1099,7 +1099,7 @@ describe("LocalSessionHost", () => {
       expect(initial.status).toBe("running");
       expect(fake.controllers).toHaveLength(1);
 
-      process.env.JUNTO_HOME = "/tmp/vellum-dev-isolate-create-agent-seat";
+      process.env.JUNTO_HOME = "/tmp/junto-dev-isolate-create-agent-seat";
       const fresh = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
       const again = host.createAgentSeat({
         bindingId,
@@ -1123,7 +1123,7 @@ describe("LocalSessionHost", () => {
 
   it("under JUNTO_HOME strips shared resume argv even when create is first open", () => {
     const priorHome = process.env.JUNTO_HOME;
-    process.env.JUNTO_HOME = "/tmp/vellum-dev-isolate-strip-resume";
+    process.env.JUNTO_HOME = "/tmp/junto-dev-isolate-strip-resume";
     try {
       const fake = makeFakeTerminalProcessAuthority(() => ({
         pid: trackSyntheticPid(42_470),

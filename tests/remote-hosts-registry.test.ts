@@ -85,7 +85,7 @@ afterEach(async () => {
 
 describe("remote hosts registry", () => {
   it("constructs fresh SQLite state with only the local host", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vellum-hosts-empty-"));
+    const root = await mkdtemp(join(tmpdir(), "junto-hosts-empty-"));
     dirs.push(root);
     const { registry } = await testRegistry(join(root, "junto.db"));
 
@@ -97,7 +97,7 @@ describe("remote hosts registry", () => {
   });
 
   it("persists enrollment transactions and keeps local capabilities synthesized", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vellum-hosts-write-"));
+    const root = await mkdtemp(join(tmpdir(), "junto-hosts-write-"));
     dirs.push(root);
     const { registry, state } = await testRegistry(join(root, "junto.db"));
 
@@ -175,7 +175,7 @@ describe("remote hosts registry", () => {
   });
 
   it("survives an engine restart with SQLite as the only authority", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vellum-hosts-restart-"));
+    const root = await mkdtemp(join(tmpdir(), "junto-hosts-restart-"));
     dirs.push(root);
     const databasePath = join(root, "junto.db");
 
@@ -205,7 +205,7 @@ describe("remote hosts registry", () => {
   });
 
   it("rejects duplicate endpoint and effective Hermes identities before commit", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vellum-hosts-unique-"));
+    const root = await mkdtemp(join(tmpdir(), "junto-hosts-unique-"));
     dirs.push(root);
     const { registry } = await testRegistry(join(root, "junto.db"));
     await registry.upsert({
@@ -249,7 +249,7 @@ describe("remote hosts registry", () => {
   });
 
   it("rejects excess renderer host fields before registry mutation", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vellum-hosts-strict-upsert-"));
+    const root = await mkdtemp(join(tmpdir(), "junto-hosts-strict-upsert-"));
     dirs.push(root);
     const { registry } = await testRegistry(join(root, "junto.db"));
     let mutationCount = 0;
@@ -310,7 +310,7 @@ describe("remote hosts registry", () => {
   });
 
   it("hydrates persisted hosts before the first normal-boot route", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vellum-hosts-boot-"));
+    const root = await mkdtemp(join(tmpdir(), "junto-hosts-boot-"));
     dirs.push(root);
     process.env.HOME = root;
     const databasePath = join(root, ".junto", "state", "junto.db");
@@ -386,7 +386,7 @@ describe("remote hosts registry", () => {
   });
 
   it("publishes a committed mutation even when its caller is interrupted", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vellum-hosts-interrupt-"));
+    const root = await mkdtemp(join(tmpdir(), "junto-hosts-interrupt-"));
     dirs.push(root);
     const { registry } = await testRegistry(join(root, "junto.db"));
     await registry.list();
@@ -476,7 +476,7 @@ describe("remote hosts registry", () => {
 
 
   it("rejects malformed endpoints while preserving direct IPv6 destinations", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vellum-hosts-endpoint-"));
+    const root = await mkdtemp(join(tmpdir(), "junto-hosts-endpoint-"));
     dirs.push(root);
     const { registry } = await testRegistry(join(root, "junto.db"));
 
@@ -534,7 +534,7 @@ describe("remote hosts registry", () => {
   });
 
   it("rejects duplicate capabilities instead of persisting ambiguous claims", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vellum-hosts-capabilities-"));
+    const root = await mkdtemp(join(tmpdir(), "junto-hosts-capabilities-"));
     dirs.push(root);
     const { registry } = await testRegistry(join(root, "junto.db"));
 

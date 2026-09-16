@@ -605,7 +605,7 @@ void app.whenReady().then(async () => {
     personalPartition,
     makeBrowserTestOnlyExactOriginGrant(exactOrigin),
   );
-  const proxyProbeUrl = "https://vellum-direct-network-probe.invalid/";
+  const proxyProbeUrl = "https://junto-direct-network-probe.invalid/";
   [audit.defaultProxyResolution, audit.profileProxyResolution] = await Promise.all([
     session.defaultSession.resolveProxy(proxyProbeUrl),
     personalSession.resolveProxy(proxyProbeUrl),

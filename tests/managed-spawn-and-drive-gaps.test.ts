@@ -27,11 +27,11 @@ import { BROWSER_ENABLED } from "../src/shared/features";
 
 const require = createRequire(import.meta.url);
 
-const originalVellumHome = process.env.JUNTO_HOME;
+const originalJuntoHome = process.env.JUNTO_HOME;
 afterEach(() => {
   __setSessionExistenceHomeForTest(undefined);
-  if (originalVellumHome === undefined) delete process.env.JUNTO_HOME;
-  else process.env.JUNTO_HOME = originalVellumHome;
+  if (originalJuntoHome === undefined) delete process.env.JUNTO_HOME;
+  else process.env.JUNTO_HOME = originalJuntoHome;
 });
 
 describe("CJS headless interop (boot gate)", () => {
@@ -108,7 +108,7 @@ describe("amp readiness is positive, not quiet", () => {
         harness: "amp",
         snapshot: snap("", [
           "\u2502                                              \u2502",
-          "\u2570 ~ Connecting \u2500 ~/Projects/vellum (main) \u2500\u256f",
+          "\u2570 ~ Connecting \u2500 ~/Projects/junto (main) \u2500\u256f",
         ]),
       }),
     ).toBe(false);
@@ -118,7 +118,7 @@ describe("amp readiness is positive, not quiet", () => {
     expect(
       isManagedTerminalReady({
         harness: "amp",
-        snapshot: snap("", ["\u2570 ~ Catching Up \u2500 ~/Projects/vellum \u2500\u256f"]),
+        snapshot: snap("", ["\u2570 ~ Catching Up \u2500 ~/Projects/junto \u2500\u256f"]),
       }),
     ).toBe(false);
   });
@@ -134,8 +134,8 @@ describe("amp readiness is positive, not quiet", () => {
     expect(
       isManagedTerminalReady({
         harness: "amp",
-        snapshot: snap("Ready response - amp - ~/Projects/vellum", [
-          "\u2570\u2500 ~/Projects/vellum (main) \u2500\u256f",
+        snapshot: snap("Ready response - amp - ~/Projects/junto", [
+          "\u2570\u2500 ~/Projects/junto (main) \u2500\u256f",
         ]),
       }),
     ).toBe(true);
@@ -411,7 +411,7 @@ describe("managed spawn plan", () => {
   it("re-passes Codex model, effort, and approval on resume", () => {
     // Isolation (JUNTO_HOME) forces resume off; this case is production path.
     delete process.env.JUNTO_HOME;
-    const home = mkdtempSync(join(tmpdir(), "vellum-codex-resume-"));
+    const home = mkdtempSync(join(tmpdir(), "junto-codex-resume-"));
     __setSessionExistenceHomeForTest(home);
     try {
       const rolloutDir = join(home, ".codex", "sessions", "2026", "07", "30");
@@ -459,7 +459,7 @@ describe("managed spawn plan", () => {
 
   it("finalizes named-session proof on the selected spawn host", () => {
     delete process.env.JUNTO_HOME;
-    const commandCenterHome = mkdtempSync(join(tmpdir(), "vellum-cc-proof-"));
+    const commandCenterHome = mkdtempSync(join(tmpdir(), "junto-cc-proof-"));
     const remoteHome = mkdtempSync(join(tmpdir(), "junto-remote-proof-"));
     const sid = "aaaaaaaa-bbbb-cccc-dddd-ffffffffffff";
     try {
@@ -527,7 +527,7 @@ describe("managed spawn plan", () => {
 
   it("suppresses Tier B first-typed doctrine only for a host-proven resume", () => {
     delete process.env.JUNTO_HOME;
-    const home = mkdtempSync(join(tmpdir(), "vellum-kimi-resume-host-"));
+    const home = mkdtempSync(join(tmpdir(), "junto-kimi-resume-host-"));
     const sid = "ses_remote_kimi";
     try {
       mkdirSync(join(home, ".kimi-code", "sessions", "work", sid), {
@@ -564,7 +564,7 @@ describe("managed spawn plan", () => {
   });
 
   it("isolated JUNTO_HOME refuses shared pin resume and mints a fresh session", () => {
-    process.env.JUNTO_HOME = "/tmp/vellum-dev-isolated-home";
+    process.env.JUNTO_HOME = "/tmp/junto-dev-isolated-home";
     expect(shouldAvoidSharedHarnessResume()).toBe(true);
     const prodSession = "0c813489-ff73-4f9d-af00-96adc0d63d94";
     const { launch } = launchForManagedSpawn({
@@ -584,7 +584,7 @@ describe("managed spawn plan", () => {
           "--permission-mode",
           "default",
         ],
-        cwd: "/Users/op/Projects/vellum",
+        cwd: "/Users/op/Projects/junto",
       },
     });
     expect(launch?.argv).toBeDefined();
@@ -601,7 +601,7 @@ describe("managed spawn plan", () => {
 
   it("production (no JUNTO_HOME) still resumes a proven Grok pin", () => {
     delete process.env.JUNTO_HOME;
-    const home = mkdtempSync(join(tmpdir(), "vellum-grok-resume-"));
+    const home = mkdtempSync(join(tmpdir(), "junto-grok-resume-"));
     __setSessionExistenceHomeForTest(home);
     try {
       const sid = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";

@@ -27,7 +27,7 @@ interface NotarizeFixture {
 }
 
 function temporaryRoot(): string {
-  const directory = realpathSync(mkdtempSync(join(tmpdir(), "vellum-notarize-security.")));
+  const directory = realpathSync(mkdtempSync(join(tmpdir(), "junto-notarize-security.")));
   temporaryRoots.push(directory);
   return directory;
 }
@@ -72,7 +72,7 @@ function runNotarize(
   const bashEnvironment = join(fixture.root, "bash-env");
   writeFileSync(
     bashEnvironment,
-    'function /usr/libexec/PlistBuddy() { printf "%s\\n" "skastr0.vellumcommand"; }\n',
+    'function /usr/libexec/PlistBuddy() { printf "%s\\n" "com.skastr0.junto"; }\n',
   );
   return spawnSync("/bin/bash", [fixture.script, ...resolvedArgs], {
     cwd: fixture.root,

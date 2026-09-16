@@ -200,10 +200,10 @@ const measureScale = async (options: {
           )?.n ?? 0,
         generationBodies:
           reader.get<{ readonly n: number }>(
-            "SELECT COALESCE(sum(length(body)),0) AS n FROM canvas_generation_documents",
+            "SELECT COALESCE(sum(length(ether_json)),0) AS n FROM canvas_nodes",
           )?.n ?? 0,
         generationRows:
-          reader.get<{ readonly n: number }>("SELECT count(*) AS n FROM canvas_generations")?.n ?? 0,
+          reader.get<{ readonly n: number }>("SELECT count(*) AS n FROM canvas_documents")?.n ?? 0,
       }));
     }) as never,
   )) as Record<string, number>;

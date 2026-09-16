@@ -17,7 +17,7 @@
  *      the held lease itself is the generation fence.
  *
  * Refusal with active sessions surfaces the fixed
- * "close-active-vellum-terminals" recovery action and leaves the incumbent
+ * "close-active-junto-terminals" recovery action and leaves the incumbent
  * untouched. First installs have no incumbent and never touch this module.
  */
 import { join } from "node:path";
@@ -304,7 +304,7 @@ export const maintenanceRefusedDeployResult = (
       ...failedBeforeMutation(host, detail, {
         code: "conflict",
         recoveryAction: {
-          kind: "close-active-vellum-terminals",
+          kind: "close-active-junto-terminals",
           activeTerminalSessions: sessions,
         },
       }),

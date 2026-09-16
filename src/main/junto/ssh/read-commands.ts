@@ -297,7 +297,7 @@ export const remoteDarwinIncomingExists = (): Effect.Effect<
 export const remoteDarwinLaunchAgentIncomingRemove = (
   homeDirectory: string,
 ): Effect.Effect<RemoteCommand, SshInputError> => {
-  const path = `${homeDirectory}/Library/LaunchAgents/skastr0.vellumcommand.plist.incoming`;
+  const path = `${homeDirectory}/Library/LaunchAgents/com.skastr0.junto.plist.incoming`;
   return admitReadPath(path).pipe(
     Effect.flatMap((safe) => makeRemoteCommand("/bin/rm", ["-f", safe])),
   );
@@ -566,7 +566,7 @@ if [ -r /sys/module/apparmor/parameters/enabled ]; then
       if [ -r /sys/kernel/security/apparmor/profiles ]; then
         while IFS= read -r profile; do
           case "$profile" in
-            vellum\ *|vellum\(*|*/vellum\ *|*/vellum\(*) apparmor_profile=loaded ;;
+            junto\ *|junto\(*|*/junto\ *|*/junto\(*) apparmor_profile=loaded ;;
           esac
         done < /sys/kernel/security/apparmor/profiles
       elif [ -e /sys/kernel/security/apparmor/profiles ]; then
@@ -706,7 +706,7 @@ export const remoteHostProbe = (
  * stdin and one typed response on stdout. Only the immutable packaged resource
  * selected by current host evidence can receive that request.
  */
-const remoteVellumStationCommand = (
+const remoteJuntoStationCommand = (
   platform: RemotePackagedPlatform,
   args: ReadonlyArray<string>,
 ): Effect.Effect<
@@ -746,22 +746,22 @@ const remoteLinuxUserlandStationCommand = (
 };
 
 /** Exact owner-local Station helper, pinned by platform + HOME witnesses. */
-export const remoteLinuxUserlandVellumStation = (
+export const remoteLinuxUserlandJuntoStation = (
   userland: RemoteLinuxUserland,
 ): Effect.Effect<RemoteCommand, SshInputError> =>
   remoteLinuxUserlandStationCommand(userland, stationStdioArgs("session"));
 
 /** Owner-local exact Station protocol preface helper. */
-export const remoteLinuxUserlandVellumStationNegotiation = (
+export const remoteLinuxUserlandJuntoStationNegotiation = (
   userland: RemoteLinuxUserland,
 ): Effect.Effect<RemoteCommand, SshInputError> =>
   remoteLinuxUserlandStationCommand(userland, stationStdioArgs("negotiation"));
 
 /** Exact pre-negotiation-v2 helper invocation. */
-export const remoteVellumStation = (
+export const remoteJuntoStation = (
   platform: RemotePackagedPlatform,
 ): Effect.Effect<RemoteCommand, SshInputError> =>
-  remoteVellumStationCommand(platform, stationStdioArgs("session"));
+  remoteJuntoStationCommand(platform, stationStdioArgs("session"));
 
 /**
  * Fixed compatibility-preface helper invocation.
@@ -769,10 +769,10 @@ export const remoteVellumStation = (
  * This is intentionally a separate closed constructor. No caller can turn
  * the Station helper into a generic remote argv surface.
  */
-export const remoteVellumStationNegotiation = (
+export const remoteJuntoStationNegotiation = (
   platform: RemotePackagedPlatform,
 ): Effect.Effect<RemoteCommand, SshInputError> =>
-  remoteVellumStationCommand(platform, stationStdioArgs("negotiation"));
+  remoteJuntoStationCommand(platform, stationStdioArgs("negotiation"));
 
 const decodeObservedRemoteHome = (
   output: string,
@@ -814,7 +814,7 @@ export const resolveRemoteStationHelper = (
   Effect.gen(function* () {
     const observed = remotePackagedPlatforms.get(platform);
     if (observed === "darwin") {
-      return yield* remoteVellumStationCommand(
+      return yield* remoteJuntoStationCommand(
         platform,
         stationStdioArgs(mode),
       );
@@ -874,7 +874,7 @@ const assertContentHelperArgs = (
   return Effect.succeed(args);
 };
 
-const remoteVellumContentCommand = (
+const remoteJuntoContentCommand = (
   platform: RemotePackagedPlatform,
   args: ReadonlyArray<string>,
 ): Effect.Effect<RemoteCommand, SshInputError> => {
@@ -937,7 +937,7 @@ export const resolveRemoteContentHelper = (
   Effect.gen(function* () {
     const observed = remotePackagedPlatforms.get(platform);
     if (observed === "darwin") {
-      return yield* remoteVellumContentCommand(platform, args);
+      return yield* remoteJuntoContentCommand(platform, args);
     }
     if (observed !== "linux") {
       return yield* Effect.fail(

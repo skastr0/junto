@@ -306,11 +306,11 @@ describe("AC-7: mail waits for a verified idle Amp seat", () => {
   });
 
   // Real frames again: a streaming turn, then the settled composer.
-  const WORKING = snap("\u28f6 amp - ~/Projects/vellum", [
-    "\u2570 ~ Streaming \u2500 ~/Projects/vellum (main) \u2500\u256f",
+  const WORKING = snap("\u28f6 amp - ~/Projects/junto", [
+    "\u2570 ~ Streaming \u2500 ~/Projects/junto (main) \u2500\u256f",
   ]);
-  const IDLE = snap("Ready response - amp - ~/Projects/vellum", [
-    "\u2570\u2500 ~/Projects/vellum (main) \u2500\u256f",
+  const IDLE = snap("Ready response - amp - ~/Projects/junto", [
+    "\u2570\u2500 ~/Projects/junto (main) \u2500\u256f",
   ]);
 
   it("queues while the turn streams and submits once the turn settles", async () => {

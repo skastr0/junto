@@ -1691,7 +1691,7 @@ export const FX_TEMPLATE: ManagedTerminalTemplate = {
  *   `flag-tables.ts` assigns a single string. Junto already emits
  *   one flag; doctrine is one joined body, never two argv fragments.
  * - Session cwd encoding is three-way (installed `session-paths.ts`):
- *   home-relative `-…` (`-Projects-vellum`), cwd under `os.tmpdir()` is
+ *   home-relative `-…` (`-Projects-junto`), cwd under `os.tmpdir()` is
  *   `-tmp-…`, anything else is the abs wrap (`--private-tmp-omp-probe--`).
  *   This machine's tmpdir is `/var/folders/…/T`, so the 18.0.9
  *   `/private/tmp/omp-probe` tree stays the abs wrap.

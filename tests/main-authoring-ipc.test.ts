@@ -83,7 +83,7 @@ describe("renderer canvas authoring IPC", () => {
   });
 
   it("lands the renderer flush through the same handlers while the gate is closing", async () => {
-    const { registerVellumIpc } = await import("../src/main/junto/ipc");
+    const { registerJuntoIpc } = await import("../src/main/junto/ipc");
     const {
       MainAuthoringRefused,
       mainAuthoringGate,
@@ -94,13 +94,13 @@ describe("renderer canvas authoring IPC", () => {
     const trustedSender = {
       id: 71,
       isDestroyed: () => false,
-      getURL: () => "vellum-app://renderer/index.html",
+      getURL: () => "junto-app://renderer/index.html",
     };
     setTrustedMainWebContents(trustedSender as never, {
-      initialUrl: "vellum-app://renderer/index.html",
-      allows: (url) => url === "vellum-app://renderer/index.html",
+      initialUrl: "junto-app://renderer/index.html",
+      allows: (url) => url === "junto-app://renderer/index.html",
     });
-    registerVellumIpc();
+    registerJuntoIpc();
 
     const write = handlerFor(IPC_CHANNELS.writeCanvas);
     const create = handlerFor(IPC_CHANNELS.createCanvas);
@@ -128,7 +128,7 @@ describe("renderer canvas authoring IPC", () => {
           sender: {
             id: 72,
             isDestroyed: () => false,
-            getURL: () => "vellum-app://renderer/index.html",
+            getURL: () => "junto-app://renderer/index.html",
           },
         },
         "cross-sender",

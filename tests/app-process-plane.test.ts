@@ -235,8 +235,8 @@ const spec = (purpose = "test operation") => ({
 
 const terminalSpec = (purpose = "test terminal") => ({
   ...spec(purpose),
-  cwd: "/tmp/vellum-terminal",
-  env: { TERM: "vellum-test" },
+  cwd: "/tmp/junto-terminal",
+  env: { TERM: "junto-test" },
   cols: 120,
   rows: 32,
 });
@@ -512,8 +512,8 @@ describe("app terminal process plane", () => {
         name: "xterm-256color",
         cols: 120,
         rows: 32,
-        cwd: "/tmp/vellum-terminal",
-        env: { TERM: "vellum-test" },
+        cwd: "/tmp/junto-terminal",
+        env: { TERM: "junto-test" },
         handleFlowControl: true,
       },
     );
@@ -530,12 +530,12 @@ describe("app terminal process plane", () => {
     const exited = vi.fn();
     lease.io.onData(data);
     lease.io.onExit(exited);
-    lease.io.write("echo vellum\n");
+    lease.io.write("echo junto\n");
     lease.io.resize?.(132, 44);
-    pty.emitData("vellum\r\n");
-    expect(pty.write).toHaveBeenCalledWith("echo vellum\n");
+    pty.emitData("junto\r\n");
+    expect(pty.write).toHaveBeenCalledWith("echo junto\n");
     expect(pty.resize).toHaveBeenCalledWith(132, 44);
-    expect(data).toHaveBeenCalledWith("vellum\r\n");
+    expect(data).toHaveBeenCalledWith("junto\r\n");
 
     const redirectedKill = vi.fn();
     (pty as unknown as { kill: (signal?: string) => void }).kill = redirectedKill;

@@ -28,7 +28,7 @@ export const parseMacSigningPolicy = (
     teamIdentifier,
     signingAuthority,
     developerIdRequirement:
-      `=anchor apple generic and identifier "skastr0.vellumcommand" and certificate 1[field.1.2.840.113635.100.6.2.6] exists and certificate leaf[field.1.2.840.113635.100.6.1.13] exists and certificate leaf[subject.OU] = "${teamIdentifier}"`,
+      `=anchor apple generic and identifier "com.skastr0.junto" and certificate 1[field.1.2.840.113635.100.6.2.6] exists and certificate leaf[field.1.2.840.113635.100.6.1.13] exists and certificate leaf[subject.OU] = "${teamIdentifier}"`,
   });
 };
 

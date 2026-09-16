@@ -22,9 +22,9 @@ describe("app build userland artifact contract", () => {
     expect(build).not.toContain("junto-browser");
     expect(build).not.toContain("junto-station");
     expect(build).not.toContain("junto-content");
-    expect(build).not.toContain("vellum-release-installer");
+    expect(build).not.toContain("junto-release-installer");
     expect(build).not.toContain("linux-release-installer.ts");
-    expect(build).not.toContain("vellum-release-bridge");
+    expect(build).not.toContain("junto-release-bridge");
     expect(build).not.toContain("linux-release-bridge.ts");
   });
 

@@ -23,7 +23,7 @@ import { UsageSources } from "./usage-source";
 
 /**
  * effect-foundation **S4-rest-main** (staged, not half-migrated):
- * - Canonical id: `@vellum/UsageService` — single definition; no dual path.
+ * - Canonical id: `@junto/UsageService` — single definition; no dual path.
  * - Service id: Context.Service (Effect V4 live).
  * - Shape:
  *   `class UsageService extends Context.Service<UsageService, UsageService>()("@junto/UsageService") {}`

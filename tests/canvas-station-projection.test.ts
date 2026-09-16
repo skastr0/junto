@@ -66,7 +66,7 @@ const note = (text: string): CanvasDoc => ({
 
 describe("CanvasesService Station projection", () => {
   it("reads Remote intent from the complete projection and refuses authorship", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vellum-canvas-station-"));
+    const root = await mkdtemp(join(tmpdir(), "junto-canvas-station-"));
     roots.push(root);
     const local = decodeInstallationId("remote-installation");
     const commandCenter = decodeInstallationId("command-installation");

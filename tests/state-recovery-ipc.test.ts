@@ -70,7 +70,7 @@ describe("state recovery IPC", () => {
     const destination = "/Users/operator/portable-junto.db";
 
     const result = await handlers.export(id, async (suggested) => {
-      expect(suggested).toBe(`vellum-state-backup-${id}.db`);
+      expect(suggested).toBe(`junto-state-backup-${id}.db`);
       return { outcome: "selected", path: destination };
     });
 

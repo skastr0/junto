@@ -309,7 +309,7 @@ export class EffectAcpChild extends EventEmitter implements AcpChildLike {
 
 /**
  * effect-foundation **S4-rest-main** (staged, not half-migrated):
- * - Canonical id: `@vellum/HermesPlane` — single definition; no dual path.
+ * - Canonical id: `@junto/HermesPlane` — single definition; no dual path.
  * - Service id: Context.Service (Effect V4 live).
  * - Shape:
  *   `class HermesPlane extends Context.Service<HermesPlane, HermesPlane>()("@junto/HermesPlane") {}`

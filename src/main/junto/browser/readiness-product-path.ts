@@ -96,8 +96,8 @@ const readinessEvents = (): BrowserViewEvents => ({
 
 const successfulEval = (value: unknown): boolean =>
   typeof value === "object" && value !== null &&
-  "__vellumEval" in value && "status" in value && "json" in value &&
-  value.__vellumEval === 1 && value.status === "ok" && value.json === "true";
+  "__juntoEval" in value && "status" in value && "json" in value &&
+  value.__juntoEval === 1 && value.status === "ok" && value.json === "true";
 
 const hasPngSignature = (value: Uint8Array): boolean =>
   value.byteLength >= PNG_SIGNATURE.byteLength &&
@@ -232,7 +232,7 @@ export const makeElectronBrowserReadinessProductPath = (
       ) {
         throw new Error("readiness page requested without its exact loopback origin");
       }
-      const partition = `vellum-readiness-${createNonce()}`;
+      const partition = `junto-readiness-${createNonce()}`;
       let view: BrowserViewHandle | undefined;
       let pageClosed = false;
       let closePageFlight: Promise<void> | undefined;

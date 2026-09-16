@@ -12,7 +12,7 @@ import {
   JUNTO_SYSTEMD_USER_UNIT,
   createSystemctlRunner,
   systemdUserUnitTarget,
-  type VellumSystemdUserUnitTarget,
+  type JuntoSystemdUserUnitTarget,
 } from "../src/main/junto/supervision/systemctl-runner";
 
 type RunnerProcessPlane = Pick<
@@ -97,7 +97,7 @@ describe("systemctl runner target and argv boundary", () => {
     const processPlane = makeProcessPlane(showHarness);
     const runner = createSystemctlRunner({ processPlane });
 
-    const showing = runner.showVellumUnit(systemdUserUnitTarget());
+    const showing = runner.showJuntoUnit(systemdUserUnitTarget());
     showHarness.close();
     await expect(showing).resolves.toMatchObject({
       clean: true,
@@ -133,7 +133,7 @@ describe("systemctl runner target and argv boundary", () => {
 
     const startHarness = makeLeaseHarness();
     vi.mocked(processPlane.spawnChild).mockReturnValueOnce(startHarness.lease);
-    const starting = runner.startVellumUnit(systemdUserUnitTarget());
+    const starting = runner.startJuntoUnit(systemdUserUnitTarget());
     startHarness.close();
     await expect(starting).resolves.toMatchObject({
       clean: true,
@@ -161,7 +161,7 @@ describe("systemctl runner target and argv boundary", () => {
       const processPlane = makeProcessPlane(harness);
       const runner = createSystemctlRunner({ processPlane });
 
-      const running = runner.showVellumUnit(systemdUserUnitTarget());
+      const running = runner.showJuntoUnit(systemdUserUnitTarget());
       harness.close();
       await running;
 
@@ -179,8 +179,8 @@ describe("systemctl runner target and argv boundary", () => {
     const processPlane = makeProcessPlane(harness);
     const runner = createSystemctlRunner({ processPlane });
 
-    const result = await runner.startVellumUnit(
-      Object.freeze({}) as VellumSystemdUserUnitTarget,
+    const result = await runner.startJuntoUnit(
+      Object.freeze({}) as JuntoSystemdUserUnitTarget,
     );
 
     expect(result).toMatchObject({
@@ -205,7 +205,7 @@ describe("systemctl runner bounded lifecycle", () => {
       stdoutCapBytes: 8,
       stderrCapBytes: 6,
     });
-    const running = runner.showVellumUnit(systemdUserUnitTarget());
+    const running = runner.showJuntoUnit(systemdUserUnitTarget());
     let settled = false;
     void running.then(() => {
       settled = true;
@@ -232,7 +232,7 @@ describe("systemctl runner bounded lifecycle", () => {
     const harness = makeLeaseHarness();
     const processPlane = makeProcessPlane(harness);
     const runner = createSystemctlRunner({ processPlane });
-    const running = runner.showVellumUnit(systemdUserUnitTarget());
+    const running = runner.showJuntoUnit(systemdUserUnitTarget());
 
     await vi.advanceTimersByTimeAsync(SYSTEMCTL_DEADLINE_MS);
     expect(processPlane.terminate).toHaveBeenCalledWith(
@@ -257,7 +257,7 @@ describe("systemctl runner bounded lifecycle", () => {
     const harness = makeLeaseHarness();
     const processPlane = makeProcessPlane(harness);
     const runner = createSystemctlRunner({ processPlane });
-    const running = runner.startVellumUnit(systemdUserUnitTarget());
+    const running = runner.startJuntoUnit(systemdUserUnitTarget());
 
     harness.error(Object.assign(new Error("permission denied"), {
       code: "EACCES",
@@ -286,7 +286,7 @@ describe("systemctl runner bounded lifecycle", () => {
     const runner = createSystemctlRunner({ processPlane });
 
     await expect(
-      runner.showVellumUnit(systemdUserUnitTarget()),
+      runner.showJuntoUnit(systemdUserUnitTarget()),
     ).resolves.toMatchObject({
       clean: true,
       ok: false,

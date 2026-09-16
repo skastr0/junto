@@ -880,7 +880,7 @@ export class ChatService {
 
 /**
  * effect-foundation **S4-rest-main** (staged, not half-migrated):
- * - Canonical id: `@vellum/ChatService` — single definition; no dual path.
+ * - Canonical id: `@junto/ChatService` — single definition; no dual path.
  * - Service id: Context.Service (Effect V4 live).
  * - Shape:
  *   `class ChatServiceContext extends Context.Service<ChatServiceContext, ChatService>()("@junto/ChatService") {}`

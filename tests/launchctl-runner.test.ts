@@ -5,7 +5,7 @@ import {
   LAUNCHCTL_PATH,
   createLaunchctlRunner,
   launchAgentTargetForCurrentUser,
-  type VellumLaunchAgentTarget,
+  type JuntoLaunchAgentTarget,
 } from "../src/main/junto/settings/launchctl-runner";
 import type {
   AppProcessClose,
@@ -101,7 +101,7 @@ const createTestRunner = (processPlane: RunnerProcessPlane) =>
     stderrCapBytes: 6,
   });
 
-const ownedTarget = (): VellumLaunchAgentTarget => {
+const ownedTarget = (): JuntoLaunchAgentTarget => {
   const target = launchAgentTargetForCurrentUser();
   if (target === undefined) throw new Error("expected test launch-agent target");
   return target;
@@ -129,11 +129,11 @@ describe("launchctl runner target boundary", () => {
     await expect(running).resolves.toMatchObject({
       clean: true,
       ok: true,
-      target: "gui/501/skastr0.vellumcommand",
+      target: "gui/501/com.skastr0.junto",
     });
     expect(processPlane.spawnChild).toHaveBeenCalledWith(
       expect.objectContaining({
-        args: ["print", "gui/501/skastr0.vellumcommand"],
+        args: ["print", "gui/501/com.skastr0.junto"],
       }),
     );
   });
@@ -142,7 +142,7 @@ describe("launchctl runner target boundary", () => {
     const harness = makeLeaseHarness();
     const processPlane = makeProcessPlane(harness);
     const runner = createTestRunner(processPlane);
-    const forged = Object.freeze({}) as VellumLaunchAgentTarget;
+    const forged = Object.freeze({}) as JuntoLaunchAgentTarget;
 
     await expect(runner.printLaunchAgent(forged)).resolves
       .toMatchObject({
@@ -195,7 +195,7 @@ describe("launchctl runner process authority", () => {
       source: "settings.launchctl-runner",
       purpose: "print launch agent",
       command: LAUNCHCTL_PATH,
-      args: ["print", "gui/501/skastr0.vellumcommand"],
+      args: ["print", "gui/501/com.skastr0.junto"],
       shell: false,
     });
 
@@ -212,7 +212,7 @@ describe("launchctl runner process authority", () => {
       source: "settings.launchctl-runner",
       purpose: "kickstart launch agent",
       command: LAUNCHCTL_PATH,
-      args: ["kickstart", "gui/501/skastr0.vellumcommand"],
+      args: ["kickstart", "gui/501/com.skastr0.junto"],
       shell: false,
     });
   });

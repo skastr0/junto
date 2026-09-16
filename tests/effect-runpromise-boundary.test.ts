@@ -142,7 +142,7 @@ describe("effect-runpromise boundary (S0)", () => {
 });
 
 describe("V4-ENTRY managed runtime domain entry", () => {
-  it("has zero bare Effect.runPromise in index/ipc/vellum-ipc/junto-remote", () => {
+  it("has zero bare Effect.runPromise in index/ipc/junto-ipc/junto-remote", () => {
     const bad: string[] = [];
     for (const rel of ENTRY_SURFACES) {
       const source = readFileSync(path.join(ROOT, rel), "utf8");
@@ -158,7 +158,7 @@ describe("V4-ENTRY managed runtime domain entry", () => {
     // Cement: entry surfaces import and call the warm ManagedRuntime, not bare.
     const cc = readFileSync(path.join(ROOT, "src/main/index.ts"), "utf8");
     const ipc = readFileSync(path.join(ROOT, "src/main/ipc.ts"), "utf8");
-    const vellumIpc = readFileSync(
+    const juntoIpc = readFileSync(
       path.join(ROOT, "src/main/junto/ipc.ts"),
       "utf8",
     );
@@ -170,7 +170,7 @@ describe("V4-ENTRY managed runtime domain entry", () => {
     expect(cc).toMatch(/AppRuntime\.runPromise/);
     expect(cc).toMatch(/AppRuntime\.runFork/);
     expect(ipc).toMatch(/AppRuntime\.runPromise/);
-    expect(vellumIpc).toMatch(/AppRuntime\.runPromise/);
+    expect(juntoIpc).toMatch(/AppRuntime\.runPromise/);
     expect(remote).toMatch(/RemoteRuntime\.runPromise/);
     expect(remote).toMatch(/RemoteRuntime\.runFork/);
 

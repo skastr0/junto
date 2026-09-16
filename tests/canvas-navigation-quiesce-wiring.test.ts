@@ -21,7 +21,7 @@ describe("canvas navigation quiesce wiring", () => {
     const coordinatorStart = source.indexOf("const nodeRefNavigation");
     const coordinatorEnd = source.indexOf("const externalCanvasReload", coordinatorStart);
     const coordinator = source.slice(coordinatorStart, coordinatorEnd);
-    const listenerStart = source.indexOf("vellum.onNodeRefOpened");
+    const listenerStart = source.indexOf("junto.onNodeRefOpened");
     const listenerEnd = source.indexOf("// Usage:", listenerStart);
     const listener = source.slice(listenerStart, listenerEnd);
 

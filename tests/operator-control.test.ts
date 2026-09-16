@@ -24,7 +24,7 @@ describe("operator control contract", () => {
       args: {
         id: "station-1",
         label: "Station 1",
-        sshEndpoint: "vellum@station-1",
+        sshEndpoint: "junto@station-1",
         capabilities: ["terminal", "browser"],
       },
     });
@@ -37,7 +37,7 @@ describe("operator control contract", () => {
       args: {
         id: "station-1",
         label: "Station 1",
-        sshEndpoint: "vellum@station-1",
+        sshEndpoint: "junto@station-1",
         capabilities: ["terminal"],
         command: "sudo anything",
       },
@@ -90,7 +90,7 @@ describe("operator control contract", () => {
           request: {
             kind: "linux-administrator-password",
             hostId: "station-1",
-            endpoint: "vellum@station-1",
+            endpoint: "junto@station-1",
             version: "0.1.5",
             manifestSha256: "a".repeat(64),
             debSha256: "b".repeat(64),

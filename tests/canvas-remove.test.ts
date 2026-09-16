@@ -5,7 +5,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 const { mockCanvasesHome } = vi.hoisted(() => {
   const tempRoot = (process.env.TMPDIR ?? "/tmp").replace(/\/+$/, "");
-  const home = `${tempRoot}/vellum-canvas-remove-${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  const home = `${tempRoot}/junto-canvas-remove-${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
   process.env.JUNTO_HOME = home;
   return { mockCanvasesHome: home };
 });

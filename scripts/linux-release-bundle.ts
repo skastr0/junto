@@ -36,9 +36,9 @@ export const LINUX_RELEASE_KEYRING = "release-keyring.json";
 export const LINUX_RELEASE_MAX_VALIDITY_MS = 31 * 24 * 60 * 60 * 1_000;
 export const LINUX_RELEASE_CLOCK_SKEW_MS = 5 * 60 * 1_000;
 export const LINUX_QUALIFICATION_CANDIDATE_SCHEMA =
-  "vellum/linux-qualification-candidate-manifest/v1" as const;
+  "junto/linux-qualification-candidate-manifest/v1" as const;
 export const LINUX_QUALIFICATION_CANDIDATE_SIGNATURE_SCHEMA =
-  "vellum/linux-qualification-candidate-signatures/v1" as const;
+  "junto/linux-qualification-candidate-signatures/v1" as const;
 export const LINUX_QUALIFICATION_CANDIDATE_PURPOSE =
   "station-qualification-candidate" as const;
 export const LINUX_QUALIFICATION_CANDIDATE_MAX_VALIDITY_MS =
@@ -91,7 +91,7 @@ export interface LinuxReleaseFile {
 }
 
 export interface LinuxReleaseManifest {
-  readonly schema: "vellum/linux-release-manifest/v7";
+  readonly schema: "junto/linux-release-manifest/v7";
   readonly release: {
     readonly product: "Junto";
     readonly version: string;
@@ -124,7 +124,7 @@ export interface LinuxReleaseManifest {
 }
 
 export interface LinuxReleaseSignature {
-  readonly schema: "vellum/linux-release-signatures/v1";
+  readonly schema: "junto/linux-release-signatures/v1";
   readonly algorithm: "ed25519";
   readonly keyId: string;
   readonly signedAt: string;
@@ -208,7 +208,7 @@ export interface LinuxReleaseKey {
 }
 
 export interface LinuxReleaseKeyring {
-  readonly schema: "vellum/linux-release-keyring/v1";
+  readonly schema: "junto/linux-release-keyring/v1";
   readonly revision: number;
   readonly keys: ReadonlyArray<LinuxReleaseKey>;
 }
@@ -242,7 +242,7 @@ export interface LinuxReleaseQualificationInput {
 }
 
 export interface LinuxReleaseVerificationReceipt {
-  readonly schema: "vellum/linux-release-verification-receipt/v1";
+  readonly schema: "junto/linux-release-verification-receipt/v1";
   readonly ok: true;
   readonly version: string;
   readonly sourceRevision: string;
@@ -263,7 +263,7 @@ export interface LinuxReleaseVerificationReceipt {
 }
 
 export interface LinuxQualificationCandidateVerificationReceipt {
-  readonly schema: "vellum/linux-qualification-candidate-verification-receipt/v1";
+  readonly schema: "junto/linux-qualification-candidate-verification-receipt/v1";
   readonly ok: true;
   readonly purpose: typeof LINUX_QUALIFICATION_CANDIDATE_PURPOSE;
   readonly publishable: false;
@@ -336,7 +336,7 @@ const REQUIRED_FIXED_FILES = Object.freeze([
   ["source-revision", "source-revision.json"],
   ["operator-runbook", "OPERATIONS.md"],
   ["support-matrix", "SUPPORT.md"],
-  ["offline-verifier", "vellum-linux-verify-x64"],
+  ["offline-verifier", "junto-linux-verify-x64"],
 ] as const satisfies ReadonlyArray<readonly [LinuxReleaseFileKind, string]>);
 
 const QUALIFICATION_REQUIRED_FIXED_FILES = REQUIRED_FIXED_FILES;
@@ -554,7 +554,7 @@ const metadataSignatureEnvelope = (
 ): Buffer =>
   Buffer.from(
     canonicalJson({
-      schema: "vellum/linux-release-signing-envelope/v1",
+      schema: "junto/linux-release-signing-envelope/v1",
       algorithm: "ed25519",
       keyId,
       signedAt,
@@ -572,7 +572,7 @@ const qualificationCandidateSignatureEnvelope = (
 ): Buffer =>
   Buffer.from(
     canonicalJson({
-      schema: "vellum/linux-qualification-candidate-signing-envelope/v1",
+      schema: "junto/linux-qualification-candidate-signing-envelope/v1",
       purpose: LINUX_QUALIFICATION_CANDIDATE_PURPOSE,
       algorithm: "ed25519",
       keyId,
@@ -767,7 +767,7 @@ export const decodeLinuxReleaseKeyring = (
 ): LinuxReleaseKeyring => {
   const keyring = record(value, "Linux release keyring");
   exactKeys(keyring, ["schema", "revision", "keys"], "Linux release keyring");
-  if (keyring.schema !== "vellum/linux-release-keyring/v1") {
+  if (keyring.schema !== "junto/linux-release-keyring/v1") {
     throw new Error("unsupported Linux release keyring");
   }
   const revision = requireInteger(
@@ -797,7 +797,7 @@ export const decodeLinuxReleaseKeyring = (
     }
   }
   return {
-    schema: "vellum/linux-release-keyring/v1",
+    schema: "junto/linux-release-keyring/v1",
     revision,
     keys,
   };
@@ -901,7 +901,7 @@ export const decodeLinuxReleaseManifest = (
     ],
     "Linux release manifest",
   );
-  if (manifest.schema !== "vellum/linux-release-manifest/v7") {
+  if (manifest.schema !== "junto/linux-release-manifest/v7") {
     throw new Error("unsupported Linux release manifest");
   }
 
@@ -1019,7 +1019,7 @@ export const decodeLinuxReleaseManifest = (
   }
 
   return {
-    schema: "vellum/linux-release-manifest/v7",
+    schema: "junto/linux-release-manifest/v7",
     release: {
       product: "Junto",
       version,
@@ -1311,13 +1311,13 @@ export const decodeLinuxReleaseSignature = (
     "Linux release signature",
   );
   if (
-    signature.schema !== "vellum/linux-release-signatures/v1" ||
+    signature.schema !== "junto/linux-release-signatures/v1" ||
     signature.algorithm !== "ed25519"
   ) {
     throw new Error("unsupported Linux release signature");
   }
   return {
-    schema: "vellum/linux-release-signatures/v1",
+    schema: "junto/linux-release-signatures/v1",
     algorithm: "ed25519",
     keyId: requireKeyId(signature.keyId),
     signedAt: requireIsoTimestamp(signature.signedAt, "release signing time"),
@@ -1504,7 +1504,7 @@ const validateSourceRevisionReceipt = (
   const receipt = record(parsed, "source revision receipt");
   exactKeys(receipt, ["schema", "revision"], "source revision receipt");
   if (
-    receipt.schema !== "vellum/source-revision/v1" ||
+    receipt.schema !== "junto/source-revision/v1" ||
     receipt.revision !== expectedRevision ||
     canonicalJson(receipt) !== input
   ) {
@@ -1562,7 +1562,7 @@ const validateDependencyLicenseInventory = (
   sourceRevision: string,
 ): void => {
   if (
-    receipt.schema !== "vellum/dependency-license-inventory/v1" ||
+    receipt.schema !== "junto/dependency-license-inventory/v1" ||
     receipt.sourceRevision !== sourceRevision ||
     !Array.isArray(receipt.packages) ||
     receipt.packages.length === 0 ||
@@ -1803,7 +1803,7 @@ const validateCiEvidenceManifest = (
     "CI evidence publishable artifact",
   );
   if (
-    receipt.schema !== "vellum/linux-release-evidence/v1" ||
+    receipt.schema !== "junto/linux-release-evidence/v1" ||
     JSON.stringify(receipt.target) !==
       JSON.stringify(LINUX_CI_EVIDENCE_TARGET) ||
     source.commit !== manifest.source.revision ||
@@ -1917,7 +1917,7 @@ const validateEvidenceReceipt = (
   if (file === "build-receipt.json") {
     const source = record(receipt.source, "build receipt source");
     if (
-      receipt.schema !== "vellum/linux-ci-inventory/v1" ||
+      receipt.schema !== "junto/linux-ci-inventory/v1" ||
       !hasReleaseTarget(receipt.target) ||
       source.commit !== manifest.source.revision
     ) {
@@ -1935,7 +1935,7 @@ const validateEvidenceReceipt = (
       return decoded.name;
     });
     if (
-      receipt.schema !== "vellum/linux-ci-test-receipt/v1" ||
+      receipt.schema !== "junto/linux-ci-test-receipt/v1" ||
       receipt.ok !== true ||
       !hasReleaseTarget(receipt.target) ||
       JSON.stringify(names) !== JSON.stringify(REQUIRED_CI_GATES)
@@ -2394,7 +2394,7 @@ export const verifyLinuxReleaseBundle = async (
     },
   ].sort(compareFileNames);
   return {
-    schema: "vellum/linux-release-verification-receipt/v1",
+    schema: "junto/linux-release-verification-receipt/v1",
     ok: true,
     version: manifest.release.version,
     sourceRevision: manifest.source.revision,
@@ -2541,7 +2541,7 @@ export const verifyLinuxQualificationCandidateBundle = async (
   ].sort(compareFileNames);
   return {
     schema:
-      "vellum/linux-qualification-candidate-verification-receipt/v1",
+      "junto/linux-qualification-candidate-verification-receipt/v1",
     ok: true,
     purpose: LINUX_QUALIFICATION_CANDIDATE_PURPOSE,
     publishable: false,
@@ -2875,7 +2875,7 @@ export const createLinuxReleaseManifest = async (input: {
     throw new Error("Linux release bundle is missing its userland runtime archive");
   }
   const manifest: LinuxReleaseManifest = {
-    schema: "vellum/linux-release-manifest/v7",
+    schema: "junto/linux-release-manifest/v7",
     release: {
       product: "Junto",
       version,
@@ -3120,7 +3120,7 @@ export const signLinuxReleaseMetadata = async (input: {
     throw new Error("release private key does not match the pinned keyring");
   }
   const signature: LinuxReleaseSignature = {
-    schema: "vellum/linux-release-signatures/v1",
+    schema: "junto/linux-release-signatures/v1",
     algorithm: "ed25519",
     keyId,
     signedAt,
@@ -3166,7 +3166,7 @@ export const writeEmptyLinuxReleaseKeyring = async (
   target: string,
 ): Promise<void> => {
   const keyring: LinuxReleaseKeyring = {
-    schema: "vellum/linux-release-keyring/v1",
+    schema: "junto/linux-release-keyring/v1",
     revision: 1,
     keys: [],
   };

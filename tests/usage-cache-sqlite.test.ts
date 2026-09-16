@@ -79,7 +79,7 @@ const makeSource = (
 });
 
 const tempRoot = async (): Promise<string> => {
-  const root = await mkdtemp(join(tmpdir(), "vellum-usage-sqlite-"));
+  const root = await mkdtemp(join(tmpdir(), "junto-usage-sqlite-"));
   roots.push(root);
   return root;
 };

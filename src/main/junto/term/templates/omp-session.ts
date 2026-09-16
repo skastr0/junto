@@ -9,7 +9,7 @@
  *
  * Installed 18.1.16 `session-paths.ts` names the directory three ways:
  *
- *   /Users/<me>/Projects/vellum  ->  -Projects-vellum
+ *   /Users/<me>/Projects/junto  ->  -Projects-junto
  *   <os.tmpdir()>/seat           ->  -tmp-seat
  *   /private/tmp/omp-probe       ->  --private-tmp-omp-probe--
  *
@@ -53,7 +53,7 @@ export const encodeOmpWorkspaceDir = (
   const temp = tmpRoot.replace(/\/+$/, "");
   if (root && (path === root || path.startsWith(`${root}/`))) {
     // Home-relative: the remainder keeps its leading slash, which becomes the
-    // leading dash (`/Projects/vellum` -> `-Projects-vellum`).
+    // leading dash (`/Projects/junto` -> `-Projects-junto`).
     return path.slice(root.length).replaceAll("/", "-");
   }
   if (temp && (path === temp || path.startsWith(`${temp}/`))) {

@@ -160,7 +160,7 @@ export class ScriptedTui {
     this.rows = options.rows ?? 24;
     if (this.harness === "codex") this.title = "Codex";
     if (this.harness === "hermes") this.title = "✓ gpt-5.4-mini \u00b7 proj";
-    if (this.harness === "grok") this.title = "vellum - grok";
+    if (this.harness === "grok") this.title = "junto - grok";
   }
 
   /** Internal truth: is an unsubmitted chip currently held? */
@@ -208,7 +208,7 @@ export class ScriptedTui {
           this.harness === "codex"
             ? "Codex"
             : this.harness === "grok"
-              ? "vellum - grok"
+              ? "junto - grok"
               : "✳ Claude Code",
           this.harness === "grok" ? "4;0;0" : "4;0;",
           this.idleScreen(["❯ "]),
@@ -522,7 +522,7 @@ export class ScriptedTui {
       this.harness === "codex"
         ? "Codex"
         : this.harness === "grok"
-          ? "vellum - grok"
+          ? "junto - grok"
           : "✳ Claude Code";
     this.osc9 = this.harness === "grok" ? "4;0;0" : "4;0;";
     this.repaintWithComposer(composer);

@@ -184,7 +184,7 @@ const runBoundedEvalInPage = async (
     }
   } catch {
     return {
-      __vellumEval: 1,
+      __juntoEval: 1,
       status: "unsupported_result",
       message: "isolated serializer intrinsics unavailable",
     };
@@ -339,17 +339,17 @@ const runBoundedEvalInPage = async (
 
   try {
     serialize(result, 0);
-    return { __vellumEval: 1, status: "ok", json: joinParts("") };
+    return { __juntoEval: 1, status: "ok", json: joinParts("") };
   } catch (error) {
     if (error === tooLarge) {
       return {
-        __vellumEval: 1,
+        __juntoEval: 1,
         status: "result_too_large",
         message: "eval result exceeds a hard serialization limit",
       };
     }
     return {
-      __vellumEval: 1,
+      __juntoEval: 1,
       status: "unsupported_result",
       message: "eval result is not finite plain JSON",
     };

@@ -31,7 +31,7 @@ describe("bump-version", () => {
   });
 
   it("bumps a temp package.json and supports dry-run", () => {
-    const dir = mkdtempSync(path.join(tmpdir(), "vellum-bump-"));
+    const dir = mkdtempSync(path.join(tmpdir(), "junto-bump-"));
     const packageJsonPath = path.join(dir, "package.json");
     writeFileSync(
       packageJsonPath,

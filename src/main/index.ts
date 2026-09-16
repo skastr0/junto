@@ -328,13 +328,13 @@ if (startupNodeRefUri !== undefined) queueNodeRefUri(startupNodeRefUri);
 // Explicit headless mode keeps the runtime, watchers, kernel, and local UDS
 // services alive without creating a renderer. It replaces the former dev CDP
 // listener: headless qualification must never require a network control port.
-const headless = process.argv.includes("--vellum-headless");
+const headless = process.argv.includes("--junto-headless");
 // Freeze this privileged ingress decision from the original process argv.
 // A later second-instance event cannot enable it in the running singleton.
 const operatorControlEnabledAtLaunch =
   operatorControlEnabledFromInitialArgv(process.argv);
 
-// Playwright E2E needs a real authoring renderer (not --vellum-headless), but
+// Playwright E2E needs a real authoring renderer (not --junto-headless), but
 // must never steal macOS focus or plant Dock icons. JUNTO_E2E_SHOW=1 opts out
 // for visual debugging of a single scenario.
 const e2ePresentation = e2ePresentationFromEnv();
@@ -1400,7 +1400,7 @@ if (packagedSandboxDisablingSwitch !== undefined) {
       );
     }
 
-    // Packaged --vellum-headless on an Unenrolled install is enrollment
+    // Packaged --junto-headless on an Unenrolled install is enrollment
     // ingress: enroll door only (status, pair, configure). Never the
     // operational Remote. No report pump or product planes. An already
     // enrolled install skips this entirely and takes its own mode's door.

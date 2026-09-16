@@ -2,7 +2,7 @@ import { EventEmitter } from "node:events";
 import { readFile } from "node:fs/promises";
 import { describe, expect, it, vi } from "vitest";
 import {
-  cleanupVellumHarness,
+  cleanupJuntoHarness,
   observeElectronApplicationClose,
   type HarnessCleanupOperations,
   type HarnessCleanupTimeouts,
@@ -111,7 +111,7 @@ describe("Junto e2e harness cleanup", () => {
       app.terminate();
     };
 
-    await cleanupVellumHarness(
+    await cleanupJuntoHarness(
       {
         sandbox,
         server: makeServer(order),
@@ -144,7 +144,7 @@ describe("Junto e2e harness cleanup", () => {
       throw new Error("renderer socket refused close");
     });
 
-    const error = await cleanupVellumHarness(
+    const error = await cleanupJuntoHarness(
       {
         sandbox,
         server,
@@ -182,7 +182,7 @@ describe("Junto e2e harness cleanup", () => {
       order.push("sandbox.destroy");
     });
 
-    const error = await cleanupVellumHarness(
+    const error = await cleanupJuntoHarness(
       {
         sandbox,
         server: makeServer(order),
@@ -222,7 +222,7 @@ describe("Junto e2e harness cleanup", () => {
         order.push("sandbox.destroy");
       });
 
-      const error = await cleanupVellumHarness(
+      const error = await cleanupJuntoHarness(
         {
           sandbox,
           server: makeServer(order),
@@ -254,7 +254,7 @@ describe("Junto e2e harness cleanup", () => {
       return new Promise<void>(() => undefined);
     };
 
-    const error = await cleanupVellumHarness(
+    const error = await cleanupJuntoHarness(
       {
         sandbox,
         server: makeServer(order),
@@ -284,7 +284,7 @@ describe("Junto e2e harness cleanup", () => {
       order.push("sandbox.destroy");
     });
 
-    const error = await cleanupVellumHarness(
+    const error = await cleanupJuntoHarness(
       {
         sandbox,
         server: makeServer(order),
@@ -315,7 +315,7 @@ describe("Junto e2e harness cleanup", () => {
       app.terminate();
     };
 
-    const error = await cleanupVellumHarness(
+    const error = await cleanupJuntoHarness(
       {
         sandbox,
         server: makeServer(order, () => new Promise<void>(() => undefined)),

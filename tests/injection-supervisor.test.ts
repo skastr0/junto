@@ -126,7 +126,7 @@ describe("InjectionSupervisor", () => {
     const writer = vi.fn<NoticeWriter>().mockReturnValue(true);
     s.setWriter(writer);
     s.noteWorkPlaneCall("b1");
-    s.onSnapshot(snap({ text: "what is vellum?" }));
+    s.onSnapshot(snap({ text: "what is junto?" }));
     expect(writer).not.toHaveBeenCalled();
   });
 

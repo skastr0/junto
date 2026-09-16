@@ -34,7 +34,7 @@ export const SYNC_BLOCK_BUDGET_MS = 4;
 export const TARGET_EVENTS_PER_SECOND = 133;
 
 export type BenchRecord = {
-  readonly schema: "vellum.scale-bench/1";
+  readonly schema: "junto.scale-bench/1";
   readonly scale: string;
   readonly label: string;
   readonly recordedAt: string;
@@ -301,7 +301,7 @@ export const benchmarkScale = async (options: {
   const readP50 = readTiming.wall.p50Ms;
 
   return {
-    schema: "vellum.scale-bench/1",
+    schema: "junto.scale-bench/1",
     scale: options.scale,
     label: options.label,
     recordedAt: new Date().toISOString(),

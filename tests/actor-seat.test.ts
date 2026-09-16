@@ -63,7 +63,7 @@ describe("actor-seat compiler", () => {
     const command = installation("install-command");
 
     expect(deriveActorSeatId(command, "binding-1")).toBe(
-      "seat_9f5c62b7df53d578024e84744ea30f8ce422da1fd086e41beacdde4bbe3da3ca",
+      "seat_2823676a782068a3894ae26b8740abea567259c6396ad52c4058c73be1fd615d",
     );
     expect(deriveActorSeatId(command, " binding-1 ")).toBe(
       deriveActorSeatId(command, "binding-1"),

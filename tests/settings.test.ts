@@ -200,7 +200,7 @@ describe("SQLite settings service", () => {
 
   const preparePaths = async (): Promise<void> => {
     if (root) return;
-    root = await mkdtemp(join(tmpdir(), "vellum-settings-sqlite-"));
+    root = await mkdtemp(join(tmpdir(), "junto-settings-sqlite-"));
     databasePath = join(root, "state", "junto.db");
   };
 
@@ -230,7 +230,7 @@ describe("SQLite settings service", () => {
   it("does not infer Command Center for headless enrollment argv", () => {
     expect(shouldEnsureDefaultCommandCenter(["node", "app"])).toBe(true);
     expect(
-      shouldEnsureDefaultCommandCenter(["node", "app", "--vellum-headless"]),
+      shouldEnsureDefaultCommandCenter(["node", "app", "--junto-headless"]),
     ).toBe(false);
   });
 

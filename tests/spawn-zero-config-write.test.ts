@@ -56,7 +56,7 @@ describe("zero-config-write spawn audit", () => {
   });
 
   it("spawn resolve never creates paths under harness homes", () => {
-    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "vellum-spawn-audit-"));
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "junto-spawn-audit-"));
     const homes = {
       claude: path.join(tmp, ".claude"),
       codex: path.join(tmp, ".codex"),

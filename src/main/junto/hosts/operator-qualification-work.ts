@@ -54,7 +54,7 @@ import {
 export const QUALIFICATION_WORK_PROTOCOL =
   "junto/operator-qualification-work/v1" as const;
 export const QUALIFICATION_WORK_MARKER_KEY =
-  "vellumQualificationWork" as const;
+  "juntoQualificationWork" as const;
 export const QUALIFICATION_WORK_SINK_NODE_ID =
   "qualification-work-sink" as const;
 export const QUALIFICATION_WORK_ACTOR_NODE_ID =

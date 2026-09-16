@@ -37,7 +37,7 @@ const commandCenterConfiguration = (): StationConfigurationValue =>
 const input = {
   version: "0.1.0",
   configuration: remoteConfiguration(),
-  packageIdentity: "vellum 0.1.0",
+  packageIdentity: "junto 0.1.0",
   supervisorAligned: true,
   projectionInstalled: true,
   databaseReady: true,

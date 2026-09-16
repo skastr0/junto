@@ -390,7 +390,7 @@ describe("scrubSpawnEnv + buildSpawnEnv", () => {
         PI_CODING_AGENT: "evil",
         PRIME_AGENT_INTERNAL_DAEMON_WORKER: "evil",
         PRIME_AGENT_INTERNAL_NEW_AUTHORITY: "evil",
-        PATH: "/opt/vellum/bin:/usr/bin",
+        PATH: "/opt/junto/bin:/usr/bin",
       },
     );
     expect(env.CLAUDECODE).toBeUndefined();
@@ -398,7 +398,7 @@ describe("scrubSpawnEnv + buildSpawnEnv", () => {
     expect(env.PRIME_AGENT_INTERNAL_DAEMON_WORKER).toBeUndefined();
     expect(env.PRIME_AGENT_INTERNAL_NEW_AUTHORITY).toBeUndefined();
     expect(env.NO_COLOR).toBeUndefined();
-    expect(env.PATH).toBe("/opt/vellum/bin:/usr/bin");
+    expect(env.PATH).toBe("/opt/junto/bin:/usr/bin");
     expect(env.JUNTO_SOCKET).toBe("/tmp/work.sock");
     expect(env.HOME).toBe("/home/op");
   });
@@ -585,7 +585,7 @@ describe("resolveManagedLaunch argv", () => {
         model: "grok-4.5",
         effort: "low",
         sessionId: "eacbbdbf-e813-5648-927c-a357e5eddaad",
-        agentFile: "/tmp/vellum-agent.md",
+        agentFile: "/tmp/junto-agent.md",
         prompt: "Reply with OK",
         cwd: "/repo/git-project",
       },
@@ -602,7 +602,7 @@ describe("resolveManagedLaunch argv", () => {
       "--session-id",
       "eacbbdbf-e813-5648-927c-a357e5eddaad",
       "--agent",
-      "/tmp/vellum-agent.md",
+      "/tmp/junto-agent.md",
       "Reply with OK",
     ]);
     expect(launch.cwd).toBe("/repo/git-project");

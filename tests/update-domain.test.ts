@@ -59,10 +59,10 @@ describe("update domain", () => {
   });
 
   it("hashes file contents as sha256", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vellum-update-hash-"));
+    const root = await mkdtemp(join(tmpdir(), "junto-update-hash-"));
     roots.push(root);
     const path = join(root, "payload.bin");
-    const body = Buffer.from("vellum-update-fixture");
+    const body = Buffer.from("junto-update-fixture");
     await writeFile(path, body);
     const expected = createHash("sha256").update(body).digest("hex");
     const digest = await Effect.runPromise(hashFileSha256(path));

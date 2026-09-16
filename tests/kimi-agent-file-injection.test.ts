@@ -31,17 +31,17 @@ import { __setSessionExistenceHomeForTest } from "../src/main/junto/term/session
 import type { CanvasDoc } from "../src/shared/canvas";
 
 const temps: string[] = [];
-const originalVellumHome = process.env.JUNTO_HOME;
+const originalJuntoHome = process.env.JUNTO_HOME;
 
 const tempHome = (): string => {
-  const dir = mkdtempSync(join(tmpdir(), "vellum-kimi-agent-file-"));
+  const dir = mkdtempSync(join(tmpdir(), "junto-kimi-agent-file-"));
   temps.push(dir);
   return dir;
 };
 
 afterEach(() => {
-  if (originalVellumHome === undefined) delete process.env.JUNTO_HOME;
-  else process.env.JUNTO_HOME = originalVellumHome;
+  if (originalJuntoHome === undefined) delete process.env.JUNTO_HOME;
+  else process.env.JUNTO_HOME = originalJuntoHome;
   __setSessionExistenceHomeForTest(undefined);
   for (const dir of temps.splice(0)) {
     try {

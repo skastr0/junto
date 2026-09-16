@@ -17,7 +17,7 @@ import {
 
 type NetworkDecision = { readonly kind: "allow" } | { readonly kind: "deny" };
 
-const exactOriginGrant = Symbol("vellum.browser.test-only-exact-origin");
+const exactOriginGrant = Symbol("junto.browser.test-only-exact-origin");
 
 /**
  * Opaque, test-only network capability. The production adapter never creates

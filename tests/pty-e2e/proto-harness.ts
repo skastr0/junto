@@ -571,4 +571,4 @@ export class ProtoHarness {
 
 /** One temp root per harness (persistence boundary). */
 export const makeProtoRoot = (label: string): string =>
-  join(tmpdir(), `vellum-proto-${label}-${randomUUID()}`);
+  join(tmpdir(), `junto-proto-${label}-${randomUUID()}`);

@@ -37,7 +37,7 @@ const decodeHost = Schema.decodeUnknownResult(RemoteHost, {
 export type { ConfigureRemoteResult };
 
 /**
- * S4 (effect@3.21): single canonical Tag `@vellum/HostsService`.
+ * S4 (effect@3.21): single canonical Tag `@junto/HostsService`.
  * `Context.Service` unavailable until Effect V4 pin — do not dual-define.
  * Shape is `HostsServiceShape`. V4 map:
  * `class HostsService extends Context.Service<HostsService, Shape>()("@junto/HostsService")`.

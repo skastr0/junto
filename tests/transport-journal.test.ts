@@ -38,7 +38,7 @@ afterEach(() => {
 
 describe("transport journal", () => {
   it("repairs product-log directories and files to owner-only modes", () => {
-    const root = mkdtempSync(join(tmpdir(), "vellum-transport-modes-"));
+    const root = mkdtempSync(join(tmpdir(), "junto-transport-modes-"));
     process.env.JUNTO_HOME = root;
     __resetJuntoHomeCache();
     const product = join(root, ".junto");
@@ -121,7 +121,7 @@ describe("transport journal", () => {
   });
 
   it("writes the full failure tape including stack, stderr, and frame", () => {
-    const root = mkdtempSync(join(tmpdir(), "vellum-transport-fail-"));
+    const root = mkdtempSync(join(tmpdir(), "junto-transport-fail-"));
     process.env.JUNTO_HOME = root;
     __resetJuntoHomeCache();
     startTransportJournal();
@@ -185,7 +185,7 @@ describe("transport journal", () => {
   });
 
   it("writes a seat-table hop without a journal-start heartbeat", () => {
-    const root = mkdtempSync(join(tmpdir(), "vellum-transport-"));
+    const root = mkdtempSync(join(tmpdir(), "junto-transport-"));
     process.env.JUNTO_HOME = root;
     __resetJuntoHomeCache();
     startTransportJournal();

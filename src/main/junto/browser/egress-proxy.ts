@@ -175,9 +175,9 @@ export const startBrowserEgressProxy = (
 ): Promise<BrowserEgressProxyHandle> =>
   new Promise((resolve, reject) => {
     const credentials: BrowserEgressProxyCredentials = {
-      username: `vellum-${randomBytes(8).toString("hex")}`,
+      username: `junto-${randomBytes(8).toString("hex")}`,
       password: randomBytes(18).toString("base64url"),
-      realm: `vellum-browser-${randomBytes(8).toString("hex")}`,
+      realm: `junto-browser-${randomBytes(8).toString("hex")}`,
     };
     const resolveHost = createBoundedHostResolver(options.resolveHost);
     const dial = options.dial ?? defaultDial;

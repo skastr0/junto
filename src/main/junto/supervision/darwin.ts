@@ -6,7 +6,7 @@ import {
   printLaunchAgent,
   type LaunchctlFailureKind,
   type LaunchctlRunResult,
-  type VellumLaunchAgentTarget,
+  type JuntoLaunchAgentTarget,
 } from "../settings/launchctl-runner";
 import {
   stationSupervisorFailure,
@@ -150,7 +150,7 @@ const targetUnavailable = (): StationSupervisorFailure =>
   );
 
 const observeLaunchAgent = async (
-  target: VellumLaunchAgentTarget | undefined,
+  target: JuntoLaunchAgentTarget | undefined,
 ): Promise<StationSupervisorObservation> => {
   if (target === undefined) {
     return Object.freeze({
@@ -202,7 +202,7 @@ const observeLaunchAgent = async (
 };
 
 const requestLaunchAgentHandoff = async (
-  target: VellumLaunchAgentTarget | undefined,
+  target: JuntoLaunchAgentTarget | undefined,
 ): Promise<StationSupervisorHandoff> => {
   if (target === undefined) {
     return Object.freeze({

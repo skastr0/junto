@@ -202,7 +202,7 @@ export type OperatorManagedInstallsData =
   typeof OperatorManagedInstallsData.Type;
 
 export const OperatorDeployRecoveryAction = Schema.Struct({
-  kind: Schema.Literal("close-active-vellum-terminals"),
+  kind: Schema.Literal("close-active-junto-terminals"),
   activeTerminalSessions: NonNegativeInt,
 });
 export type OperatorDeployRecoveryAction =

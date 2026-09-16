@@ -1,21 +1,21 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type {
   SystemctlRunResult,
-  VellumSystemdUserUnitTarget,
+  JuntoSystemdUserUnitTarget,
 } from "../src/main/junto/supervision/systemctl-runner";
 
 const mocks = vi.hoisted(() => ({
-  target: Object.freeze({}) as VellumSystemdUserUnitTarget,
+  target: Object.freeze({}) as JuntoSystemdUserUnitTarget,
   systemdUserUnitTarget: vi.fn(),
-  showVellumSystemdUserUnit: vi.fn(),
-  startVellumSystemdUserUnit: vi.fn(),
+  showJuntoSystemdUserUnit: vi.fn(),
+  startJuntoSystemdUserUnit: vi.fn(),
 }));
 
 vi.mock("../src/main/junto/supervision/systemctl-runner", () => ({
   JUNTO_SYSTEMD_USER_UNIT: "junto-remote.service",
   systemdUserUnitTarget: mocks.systemdUserUnitTarget,
-  showVellumSystemdUserUnit: mocks.showVellumSystemdUserUnit,
-  startVellumSystemdUserUnit: mocks.startVellumSystemdUserUnit,
+  showJuntoSystemdUserUnit: mocks.showJuntoSystemdUserUnit,
+  startJuntoSystemdUserUnit: mocks.startJuntoSystemdUserUnit,
 }));
 
 import {
@@ -70,8 +70,8 @@ const failed = (
 
 beforeEach(() => {
   mocks.systemdUserUnitTarget.mockReset();
-  mocks.showVellumSystemdUserUnit.mockReset();
-  mocks.startVellumSystemdUserUnit.mockReset();
+  mocks.showJuntoSystemdUserUnit.mockReset();
+  mocks.startJuntoSystemdUserUnit.mockReset();
   mocks.systemdUserUnitTarget.mockReturnValue(mocks.target);
 });
 
@@ -95,7 +95,7 @@ describe("userland Linux service rendering", () => {
     expect(service).not.toMatch(/^Environment=ELECTRON_OZONE/mu);
     expect(service).not.toMatch(/^Environment=OZONE_PLATFORM=/mu);
     expect(service).not.toMatch(/^Environment=XDG_SESSION_TYPE=/mu);
-    expect(service).not.toMatch(/^ConditionFileIsExecutable=.*\/vellum$/mu);
+    expect(service).not.toMatch(/^ConditionFileIsExecutable=.*\/junto$/mu);
   });
 
   it("escapes a safe home path and rejects paths outside the immutable layout", () => {
@@ -113,7 +113,7 @@ describe("userland Linux service rendering", () => {
 
 describe("systemd user station supervisor observation", () => {
   it("does not derive Electron ownership from systemd wrapper MainPID", async () => {
-    mocks.showVellumSystemdUserUnit.mockResolvedValueOnce(successful());
+    mocks.showJuntoSystemdUserUnit.mockResolvedValueOnce(successful());
     const supervisor = createSystemdUserStationSupervisor();
 
     const current = await supervisor.observe();
@@ -129,7 +129,7 @@ describe("systemd user station supervisor observation", () => {
     expect(current).not.toHaveProperty("pid");
     expect(current).not.toHaveProperty("MainPID");
 
-    mocks.showVellumSystemdUserUnit.mockResolvedValueOnce(successful(
+    mocks.showJuntoSystemdUserUnit.mockResolvedValueOnce(successful(
       showOutput({ MainPID: String(process.pid + 1) }),
     ));
     await expect(supervisor.observe()).resolves.toEqual({
@@ -141,7 +141,7 @@ describe("systemd user station supervisor observation", () => {
 
   it("distinguishes installed inactive and canonical absent units", async () => {
     const supervisor = createSystemdUserStationSupervisor();
-    mocks.showVellumSystemdUserUnit.mockResolvedValueOnce(successful(
+    mocks.showJuntoSystemdUserUnit.mockResolvedValueOnce(successful(
       showOutput({ ActiveState: "inactive", SubState: "dead", MainPID: "0" }),
     ));
     await expect(supervisor.observe()).resolves.toEqual({
@@ -158,14 +158,14 @@ describe("systemd user station supervisor observation", () => {
       ControlGroup: "",
       InvocationID: "",
     });
-    mocks.showVellumSystemdUserUnit.mockResolvedValueOnce(successful(absent));
+    mocks.showJuntoSystemdUserUnit.mockResolvedValueOnce(successful(absent));
     await expect(supervisor.observe()).resolves.toEqual({
       provider: "systemd-user",
       state: "absent",
       ownership: "none",
     });
 
-    mocks.showVellumSystemdUserUnit.mockResolvedValueOnce(successful(
+    mocks.showJuntoSystemdUserUnit.mockResolvedValueOnce(successful(
       showOutput({ ActiveState: "inactive", SubState: "dead", MainPID: "0", ControlGroup: "", InvocationID: "" }),
     ));
     await expect(supervisor.observe()).resolves.toEqual({
@@ -174,7 +174,7 @@ describe("systemd user station supervisor observation", () => {
       ownership: "none",
     });
 
-    mocks.showVellumSystemdUserUnit.mockResolvedValueOnce(
+    mocks.showJuntoSystemdUserUnit.mockResolvedValueOnce(
       failed("exit-nonzero", absent),
     );
     await expect(supervisor.observe()).resolves.toEqual({
@@ -193,7 +193,7 @@ describe("systemd user station supervisor observation", () => {
     showOutput({ MainPID: "2147483648" }),
     showOutput({ ActiveState: "active now" }),
   ])("degrades on malformed systemctl properties", async (stdout) => {
-    mocks.showVellumSystemdUserUnit.mockResolvedValue(successful(stdout));
+    mocks.showJuntoSystemdUserUnit.mockResolvedValue(successful(stdout));
     const supervisor = createSystemdUserStationSupervisor();
 
     await expect(supervisor.observe()).resolves.toMatchObject({
@@ -210,7 +210,7 @@ describe("systemd user station supervisor observation", () => {
     showOutput({ LoadState: "masked", ActiveState: "inactive", MainPID: "0" }),
     showOutput({ LoadState: "not-found", MainPID: "9" }),
   ])("reports valid but unhealthy service state as degraded", async (stdout) => {
-    mocks.showVellumSystemdUserUnit.mockResolvedValue(successful(stdout));
+    mocks.showJuntoSystemdUserUnit.mockResolvedValue(successful(stdout));
     const supervisor = createSystemdUserStationSupervisor();
 
     await expect(supervisor.observe()).resolves.toMatchObject({
@@ -226,7 +226,7 @@ describe("systemd user station supervisor observation", () => {
     ["close-timeout", "close-unconfirmed"],
     ["exit-nonzero", "command-failed"],
   ] as const)("maps %s to a typed unknown observation", async (kind, expected) => {
-    mocks.showVellumSystemdUserUnit.mockResolvedValue(failed(kind));
+    mocks.showJuntoSystemdUserUnit.mockResolvedValue(failed(kind));
     const supervisor = createSystemdUserStationSupervisor();
 
     await expect(supervisor.observe()).resolves.toMatchObject({
@@ -240,7 +240,7 @@ describe("systemd user station supervisor observation", () => {
 
 describe("systemd user station supervisor handoff", () => {
   it("reports only request acceptance", async () => {
-    mocks.startVellumSystemdUserUnit.mockResolvedValue({
+    mocks.startJuntoSystemdUserUnit.mockResolvedValue({
       ...successful(""),
       action: "start",
     });
@@ -250,11 +250,11 @@ describe("systemd user station supervisor handoff", () => {
 
     expect(result).toEqual({ provider: "systemd-user", accepted: true });
     expect(result).not.toHaveProperty("state");
-    expect(mocks.startVellumSystemdUserUnit).toHaveBeenCalledWith(mocks.target);
+    expect(mocks.startJuntoSystemdUserUnit).toHaveBeenCalledWith(mocks.target);
   });
 
   it("returns a typed failure when systemd rejects the request", async () => {
-    mocks.startVellumSystemdUserUnit.mockResolvedValue({
+    mocks.startJuntoSystemdUserUnit.mockResolvedValue({
       ...failed("process-error"),
       action: "start",
     });

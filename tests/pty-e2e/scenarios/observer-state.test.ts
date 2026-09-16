@@ -7,7 +7,7 @@
  * product behavior. Tests that FAIL on today's code are the repros (they must
  * pass once the defect is fixed); tests that pass document the working law.
  *
- * Defect map (from /tmp/vellum-pty-expert.md / /tmp/vellum-my-findings.md):
+ * Defect map (from /tmp/junto-pty-expert.md / /tmp/junto-my-findings.md):
  *   R1: claude.ts priorities — osc_title_working (1100) outranks
  *       live_prompt_box (950), so an empty composer + stale braille title
  *       evaluates working. Expect idle (composer glyph is idle chrome).

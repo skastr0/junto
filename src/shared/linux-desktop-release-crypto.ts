@@ -32,12 +32,12 @@ export interface LinuxDesktopReleaseKey {
   readonly supersededBy?: string;
 }
 export interface LinuxDesktopReleaseKeyring {
-  readonly schema: "vellum/linux-release-keyring/v1";
+  readonly schema: "junto/linux-release-keyring/v1";
   readonly revision: number;
   readonly keys: readonly LinuxDesktopReleaseKey[];
 }
 export interface LinuxDesktopReleaseTrustPolicy {
-  readonly schema: "vellum/linux-release-trust-policy/v1";
+  readonly schema: "junto/linux-release-trust-policy/v1";
   readonly state: "configured";
   readonly trustedKeyringRevision: number;
   readonly trustedKeyringSha256: string;
@@ -193,7 +193,7 @@ export const decodeLinuxDesktopReleaseTrust = (
     "release keyring",
   );
   if (
-    rawKeyring.schema !== "vellum/linux-release-keyring/v1" ||
+    rawKeyring.schema !== "junto/linux-release-keyring/v1" ||
     !Array.isArray(rawKeyring.keys) || rawKeyring.keys.length < 1 ||
     rawKeyring.keys.length > 128
   ) throw new Error("unsupported release keyring");
@@ -207,7 +207,7 @@ export const decodeLinuxDesktopReleaseTrust = (
     )
   ) throw new Error("invalid release key rotation");
   const keyring = Object.freeze({
-    schema: "vellum/linux-release-keyring/v1" as const,
+    schema: "junto/linux-release-keyring/v1" as const,
     revision: revision(rawKeyring.revision),
     keys: Object.freeze(keys),
   });
@@ -220,11 +220,11 @@ export const decodeLinuxDesktopReleaseTrust = (
     "trustedKeyFingerprintSha256",
   ], "release trust policy");
   if (
-    rawPolicy.schema !== "vellum/linux-release-trust-policy/v1" ||
+    rawPolicy.schema !== "junto/linux-release-trust-policy/v1" ||
     rawPolicy.state !== "configured"
   ) throw new Error("Linux desktop release trust is not configured");
   const policy = Object.freeze({
-    schema: "vellum/linux-release-trust-policy/v1" as const,
+    schema: "junto/linux-release-trust-policy/v1" as const,
     state: "configured" as const,
     trustedKeyringRevision: revision(rawPolicy.trustedKeyringRevision),
     trustedKeyringSha256: digest(rawPolicy.trustedKeyringSha256),

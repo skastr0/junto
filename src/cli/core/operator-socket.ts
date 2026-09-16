@@ -277,7 +277,7 @@ const ndjsonCall = (
 
 /**
  * effect-foundation **S4-rest-main** (staged, not half-migrated):
- * - Canonical id: `@vellum/cli/OperatorSocket` — single definition; no dual path.
+ * - Canonical id: `@junto/cli/OperatorSocket` — single definition; no dual path.
  * - Service id: Context.Service (Effect V4 live).
  * - Shape:
  *   `class OperatorSocket extends Context.Service<OperatorSocket, OperatorSocket>()("@junto/cli/OperatorSocket") {}`

@@ -32,7 +32,7 @@ describe("Linux userland runtime package contract", () => {
       expect(result.artifact).toBe(path.join(release, name));
       expect((await readFile(result.archive)).byteLength).toBeGreaterThan(0);
       expect(() => validateLinuxRuntimeArchive({ archive: result.archive, artifactName: name })).not.toThrow();
-      await expect(readFile(result.manifest, "utf8")).resolves.toContain('"schema": "vellum/linux-userland-runtime/v1"');
+      await expect(readFile(result.manifest, "utf8")).resolves.toContain('"schema": "junto/linux-userland-runtime/v1"');
     } finally { await rm(release, { recursive: true, force: true }); }
   });
 

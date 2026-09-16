@@ -5,7 +5,7 @@
  * Anti-hacking bar (spec §1): every screen truth flows through a REAL
  * SessionObserver fed by REAL byte receipts (P2/P3 compositions grounded in
  * the 2026-08 managed-terminal probe reports and the P1 corpus under
- * /tmp/vellum-pty-fixtures). No hand-built ObserverGridSnapshot objects.
+ * /tmp/junto-pty-fixtures). No hand-built ObserverGridSnapshot objects.
  * Pure-function tests (scanMarker / engine ordering / isSeatIdle gate) call
  * the REAL functions with REAL observer output. Fakes sit ONLY at the OS
  * boundary: the scripted TUI (PTY process model, scripted-tui.ts) and fake
@@ -15,7 +15,7 @@
  * code are the repros (they pass once the defect is fixed); tests that pass
  * document the current law.
  *
- * Defect map (from /tmp/vellum-defect-coverage.md + /tmp/vellum-pty-expert.md):
+ * Defect map (from /tmp/junto-defect-coverage.md + /tmp/junto-pty-expert.md):
  *   OBS-4  D4   1150 tie: legacy_permission_blocker beats composer_draft_idle —
  *                stale scrollback permission text pins attention over a live chip.
  *   OBS-5  D5   whole_recent attention rules pin attention from scrollback.

@@ -59,7 +59,7 @@ const writePackage = async (
 
 describe("Linux release dependency and SBOM evidence", () => {
   it("records deterministic package identities and licenses without local paths", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "vellum-release-sbom-"));
+    const root = await mkdtemp(path.join(tmpdir(), "junto-release-sbom-"));
     roots.push(root);
     const modules = path.join(root, "node_modules");
     await mkdir(modules);
@@ -203,7 +203,7 @@ describe("Linux release dependency and SBOM evidence", () => {
   });
 
   it("refuses malformed source and package identities", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "vellum-release-sbom-"));
+    const root = await mkdtemp(path.join(tmpdir(), "junto-release-sbom-"));
     roots.push(root);
     const modules = path.join(root, "node_modules");
     await mkdir(modules);
@@ -229,7 +229,7 @@ describe("Linux release dependency and SBOM evidence", () => {
   });
 
   it("does not infer rights from modified MIT text or padded sentinels", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "vellum-release-sbom-"));
+    const root = await mkdtemp(path.join(tmpdir(), "junto-release-sbom-"));
     roots.push(root);
     const modules = path.join(root, "node_modules");
     await mkdir(modules);
@@ -290,7 +290,7 @@ describe("Linux release dependency and SBOM evidence", () => {
   });
 
   it("rejects symlink-hidden and missing declared dependencies", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "vellum-release-sbom-"));
+    const root = await mkdtemp(path.join(tmpdir(), "junto-release-sbom-"));
     roots.push(root);
     const modules = path.join(root, "node_modules");
     const hidden = path.join(root, "hidden");

@@ -74,7 +74,7 @@ export type InstallOpsServiceShape = {
  * Install-local ops plane: backfill ledgers only. Product work never lives
  * here. Seed scripts must not copy this database with junto.db.
  *
- * - Canonical id: `@vellum/InstallOpsService` — single `Context.Service`.
+ * - Canonical id: `@junto/InstallOpsService` — single `Context.Service`.
  * - Layer: `InstallOpsLive` / `makeInstallOpsLive` (engine.ts).
  * - Product vs install-local split is law (AGENTS.md): install-ops.db is not
  *   product truth and must not be seeded with junto.db.

@@ -106,13 +106,13 @@ const memoryIo = (
 describe("Linux release fence contract", () => {
   it("uses one fixed persistent root namespace", () => {
     expect(LINUX_RELEASE_FENCE_DIRECTORY).toBe(
-      "/var/lib/vellum-release-fence",
+      "/var/lib/junto-release-fence",
     );
     expect(LINUX_RELEASE_FENCE_PATH).toBe(
-      "/var/lib/vellum-release-fence/active",
+      "/var/lib/junto-release-fence/active",
     );
     expect(LINUX_RELEASE_FENCE_PATH.startsWith("/run/")).toBe(false);
-    expect(LINUX_RELEASE_FENCE_PATH.includes(".vellum")).toBe(false);
+    expect(LINUX_RELEASE_FENCE_PATH.includes(".junto")).toBe(false);
   });
 
   it("round-trips one strict canonical root marker", () => {

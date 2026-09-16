@@ -65,7 +65,7 @@ afterEach(async () => {
 });
 
 const openRuntime = async () => {
-  const root = await mkdtemp(join(tmpdir(), "vellum-projection-cache-"));
+  const root = await mkdtemp(join(tmpdir(), "junto-projection-cache-"));
   roots.push(root);
   const stateDirectory = join(root, "state");
   await mkdir(stateDirectory);

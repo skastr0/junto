@@ -2,7 +2,7 @@
  * Per-session instruction injection for managed terminals (Phase 6 → compiled doctrine).
  *
  * Single source of truth for the doctrine text that used to live in the
- * vellum-plugin global rule. Spawn (Tier A flags) and first typed message
+ * junto-plugin global rule. Spawn (Tier A flags) and first typed message
  * (Tier B) both consume this builder.
  *
  * Compiled doctrine model:
@@ -239,7 +239,7 @@ ${COMPLETION_SECTION}
 const BROWSER_SLOT_ROWS = BROWSER_ENABLED
   ? `
 | list granted pages | \`junto browser pages --json\` |
-| open a granted page | \`junto browser open <vellum-ref> --json\` |
+| open a granted page | \`junto browser open <junto-ref> --json\` |
 | navigate / inspect / capture | \`junto browser goto\` - \`junto browser eval\` - \`junto browser shot\` |`
   : "";
 

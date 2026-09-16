@@ -23,7 +23,7 @@ export interface UsageSource {
 // [...]) — same pattern as the SDK adapter tests.
 /**
  * effect-foundation **S4-rest-main** (staged, not half-migrated):
- * - Canonical id: `@vellum/UsageSources` — single definition; no dual path.
+ * - Canonical id: `@junto/UsageSources` — single definition; no dual path.
  * - Service id: Context.Service (Effect V4 live).
  * - Shape:
  *   `class UsageSources extends Context.Service<UsageSources, ReadonlyArray<UsageSource>>()("@junto/UsageSources") {}`

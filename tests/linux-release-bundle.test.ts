@@ -52,7 +52,7 @@ const NOW = Date.parse("2026-07-23T12:00:00.000Z");
 const CREATED_AT = "2026-07-23T11:55:00.000Z";
 const EXPIRES_AT = "2026-08-01T12:00:00.000Z";
 const QUALIFICATION_EXPIRES_AT = "2026-07-24T11:55:00.000Z";
-const KEY_ID = "vellum-linux-2026a";
+const KEY_ID = "junto-linux-2026a";
 const PACKAGE = `junto-runtime-${VERSION}-linux-x64.tar.gz`;
 const ciTarget = {
   runner: "ubuntu-24.04",
@@ -137,7 +137,7 @@ const createFixture = async (options: {
   readonly includeRetiredChromeSandboxMode?: boolean;
 } = {}) => {
   const directory = await mkdtemp(
-    path.join(tmpdir(), "vellum-linux-release-bundle-"),
+    path.join(tmpdir(), "junto-linux-release-bundle-"),
   );
   roots.push(directory);
   const keys = generateKeyPairSync("ed25519");
@@ -147,7 +147,7 @@ const createFixture = async (options: {
   }).toString();
   const status = options.keyStatus ?? "active";
   const keyring: LinuxReleaseKeyring = {
-    schema: "vellum/linux-release-keyring/v1",
+    schema: "junto/linux-release-keyring/v1",
     revision: 7,
     keys: [
       {
@@ -170,12 +170,12 @@ const createFixture = async (options: {
   const payloads: Readonly<Record<string, string>> = {
     [PACKAGE]: "synthetic-userland-runtime-archive-for-contract-tests",
     "build-receipt.json": canonical({
-      schema: "vellum/linux-ci-inventory/v1",
+      schema: "junto/linux-ci-inventory/v1",
       target: ciTarget,
       source: { commit: REVISION, sourceDateEpoch: 1_784_772_800 },
     }),
     "test-receipt.json": canonical({
-      schema: "vellum/linux-ci-test-receipt/v1",
+      schema: "junto/linux-ci-test-receipt/v1",
       ok: true,
       target: ciTarget,
       gates: (options.testGates ?? ciGates).map((name) => ({
@@ -219,7 +219,7 @@ const createFixture = async (options: {
     [STATION_QUALIFICATION_EVIDENCE_FILE]:
       "Human/operator attestation for one real two-installation Station qualification.\n",
     "dependency-license-inventory.json": canonical({
-      schema: "vellum/dependency-license-inventory/v1",
+      schema: "junto/dependency-license-inventory/v1",
       sourceRevision: REVISION,
       packages: [{
         name: "effect",
@@ -260,12 +260,12 @@ const createFixture = async (options: {
     }),
     "CHANGELOG.md": "# Junto 0.1.0\n\nExact Linux release notes.\n",
     "source-revision.json": canonical({
-      schema: "vellum/source-revision/v1",
+      schema: "junto/source-revision/v1",
       revision: REVISION,
     }),
     "OPERATIONS.md": "# Linux operations\n\nVerify before install.\n",
     "SUPPORT.md": "# Linux v1 support\n\nUbuntu 24.04 x86-64.\n",
-    "vellum-linux-verify-x64": "compiled-verifier-placeholder",
+    "junto-linux-verify-x64": "compiled-verifier-placeholder",
   };
   await Promise.all(
     Object.entries(payloads)
@@ -273,12 +273,12 @@ const createFixture = async (options: {
       .map(([name, body]) =>
       writeFile(path.join(directory, name), body, {
         encoding: "utf8",
-        mode: name === "vellum-linux-verify-x64" ? 0o755 : 0o644,
+        mode: name === "junto-linux-verify-x64" ? 0o755 : 0o644,
       }),
     ),
   );
   const ciEvidenceManifest = canonical({
-    schema: "vellum/linux-release-evidence/v1",
+    schema: "junto/linux-release-evidence/v1",
     target: ciTarget,
     source: { commit: REVISION, sourceDateEpoch: 1_784_772_800 },
     publishable: { format: "userland-runtime-archive", file: PACKAGE },
@@ -348,10 +348,10 @@ const createFixture = async (options: {
     return { directory, keys, keyring };
   }
   const candidateDirectory = await mkdtemp(
-    path.join(tmpdir(), "vellum-linux-qualification-candidate-"),
+    path.join(tmpdir(), "junto-linux-qualification-candidate-"),
   );
   const qualificationDirectory = await mkdtemp(
-    path.join(tmpdir(), "vellum-linux-qualification-result-"),
+    path.join(tmpdir(), "junto-linux-qualification-result-"),
   );
   roots.push(candidateDirectory, qualificationDirectory);
   await writeKeyring(candidateDirectory, keyring);
@@ -361,7 +361,7 @@ const createFixture = async (options: {
       .map(([name, body]) =>
         writeFile(path.join(candidateDirectory, name), body, {
           encoding: "utf8",
-          mode: name === "vellum-linux-verify-x64" ? 0o755 : 0o644,
+          mode: name === "junto-linux-verify-x64" ? 0o755 : 0o644,
         }),
       ),
     writeFile(
@@ -629,7 +629,7 @@ describe("signed Linux qualification candidate", () => {
     const receipt = await verifyQualificationFixture(fixture.directory);
 
     expect(manifest).toMatchObject({
-      schema: "vellum/linux-qualification-candidate-manifest/v1",
+      schema: "junto/linux-qualification-candidate-manifest/v1",
       purpose: "station-qualification-candidate",
       publishable: false,
       source: {
@@ -650,7 +650,7 @@ describe("signed Linux qualification candidate", () => {
     expect(manifest.files).toHaveLength(15);
     expect(receipt).toMatchObject({
       schema:
-        "vellum/linux-qualification-candidate-verification-receipt/v1",
+        "junto/linux-qualification-candidate-verification-receipt/v1",
       ok: true,
       purpose: "station-qualification-candidate",
       publishable: false,
@@ -723,7 +723,7 @@ describe("signed Linux release bundle", () => {
         "utf8",
       ),
     ));
-    expect(manifest.schema).toBe("vellum/linux-release-manifest/v7");
+    expect(manifest.schema).toBe("junto/linux-release-manifest/v7");
     expect(manifest.files.map(({ file }) => file)).not.toEqual(
       expect.arrayContaining([
         STATION_QUALIFICATION_EVIDENCE_FILE,
@@ -737,7 +737,7 @@ describe("signed Linux release bundle", () => {
       warnBelow: 1,
     });
     await expect(verifyFixture(fixture.directory)).resolves.toEqual({
-      schema: "vellum/linux-release-verification-receipt/v1",
+      schema: "junto/linux-release-verification-receipt/v1",
       ok: true,
       version: VERSION,
       sourceRevision: REVISION,
@@ -913,7 +913,7 @@ describe("signed Linux release bundle", () => {
           stationApi: "junto/station-api/v3",
         } as unknown as StationProtocolSupport,
       },
-      { trustedKeyId: "vellum-linux-other" },
+      { trustedKeyId: "junto-linux-other" },
       { trustedKeyringRevision: 8 },
       { trustedKeyringSha256: "0".repeat(64) },
       { trustedKeyFingerprintSha256: "0".repeat(64) },
@@ -937,10 +937,10 @@ describe("signed Linux release bundle", () => {
     expect(() =>
       decodeLinuxReleaseManifest({
         ...withoutStationProtocol,
-        schema: "vellum/linux-release-manifest/v3",
+        schema: "junto/linux-release-manifest/v3",
         protocols: {
           stationApi: "junto/station-api/v3",
-          workControl: "junto-work/v1",
+          workControl: "junto/work-control/v1",
           minimumPeerVersion: VERSION,
         },
       })
@@ -948,7 +948,7 @@ describe("signed Linux release bundle", () => {
     expect(() =>
       decodeLinuxReleaseManifest({
         ...manifest,
-        schema: "vellum/linux-release-manifest/v5",
+        schema: "junto/linux-release-manifest/v5",
       })
     ).toThrow(/unsupported|manifest/u);
   });
@@ -963,7 +963,7 @@ describe("signed Linux release bundle", () => {
   it("rejects empty keyrings and pins the checked-in active release key", async () => {
     expect(() =>
       decodeLinuxReleaseKeyring({
-        schema: "vellum/linux-release-keyring/v1",
+        schema: "junto/linux-release-keyring/v1",
         revision: 1,
         keys: [],
       })
@@ -979,12 +979,12 @@ describe("signed Linux release bundle", () => {
       readonly keys: ReadonlyArray<{ readonly keyId: string; readonly status: string }>;
     };
     expect(checkedIn).toMatchObject({
-      schema: "vellum/linux-release-keyring/v1",
+      schema: "junto/linux-release-keyring/v1",
       revision: 1,
     });
     expect(checkedIn.keys).toHaveLength(1);
     expect(checkedIn.keys[0]).toMatchObject({
-      keyId: "vellum-linux-2026a",
+      keyId: "junto-linux-2026a",
       status: "active",
     });
   });

@@ -103,7 +103,7 @@ describe("demo runtime isolation", () => {
 
   it("preserves only an explicit derivative-sidecar output root", async () => {
     process.env.JUNTO_DEMO = "1";
-    process.env.JUNTO_CANVASES_DIR = "/tmp/vellum-demo-sidecars";
+    process.env.JUNTO_CANVASES_DIR = "/tmp/junto-demo-sidecars";
 
     const isolation = await import(
       "../src/main/junto/demo/runtime-isolation"
@@ -116,7 +116,7 @@ describe("demo runtime isolation", () => {
       /^junto-demo-runtime-[^/]+$/u,
     );
     expect(process.env.JUNTO_CANVASES_DIR).toBe(
-      "/tmp/vellum-demo-sidecars",
+      "/tmp/junto-demo-sidecars",
     );
   });
 

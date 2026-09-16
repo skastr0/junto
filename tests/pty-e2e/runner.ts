@@ -3,7 +3,7 @@
  * golden-grid capture, seat-state assertion helpers.
  *
  * Pipeline per scenario (spec §anti-hacking):
- *   1. loadFixture: try P1 real captures under /tmp/vellum-pty-fixtures first;
+ *   1. loadFixture: try P1 real captures under /tmp/junto-pty-fixtures first;
  *      fall back to the built-in P2/P3 receipt tables below (every byte
  *      sequence is grounded in the 2026-08 managed-terminal probe reports
  *      and the agent-CLI sweep — no invented streams).

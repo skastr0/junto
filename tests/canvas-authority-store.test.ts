@@ -137,8 +137,8 @@ describe("CanvasesService SQLite authority", () => {
   let runtime: ReturnType<typeof makeCanvasRuntime> | undefined;
 
   const installEnv = async (): Promise<void> => {
-    canvasesDir = await mkdtemp(join(tmpdir(), "vellum-canvases-"));
-    stateDir = await mkdtemp(join(tmpdir(), "vellum-state-live-"));
+    canvasesDir = await mkdtemp(join(tmpdir(), "junto-canvases-"));
+    stateDir = await mkdtemp(join(tmpdir(), "junto-state-live-"));
     previousCanvases = process.env.JUNTO_CANVASES_DIR;
     process.env.JUNTO_CANVASES_DIR = canvasesDir;
   };

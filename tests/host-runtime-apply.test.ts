@@ -185,7 +185,7 @@ describe("HostRuntime apply over HostOps", () => {
     expect(runtime).not.toContain("DarwinApplyOperations");
     expect(runtime).not.toContain("LinuxApplyOperations");
     expect(runtime).not.toContain("adapterFor");
-    expect(runtime).not.toContain("--vellum-headless");
+    expect(runtime).not.toContain("--junto-headless");
     expect(runtime).not.toContain('from "./deploy-darwin"');
     expect(() =>
       readFileSync(

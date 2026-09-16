@@ -5,7 +5,7 @@
  *
  * Decision ladder (highest priority first):
  *
- *   L2  proven        → silent            (vellum awareness proven — nothing to do)
+ *   L2  proven        → silent            (junto awareness proven — nothing to do)
  *   gone              → silent            (seat vanished — no reachable PTY)
  *   ── escalate (canvas-only, NOT a PTY write — never gated) ──
  *   turnsWithoutProof ≥ MAX_TURNS_WITHOUT_PROOF (still unproven) → escalate
@@ -38,7 +38,7 @@ import type {
 // ---------------------------------------------------------------------------
 // Turn budget
 
-/** Turns a seat may go without proof of vellum awareness before we escalate. */
+/** Turns a seat may go without proof of junto awareness before we escalate. */
 export const MAX_TURNS_WITHOUT_PROOF = 3;
 
 /**
@@ -62,7 +62,7 @@ export const REORIENT_EVERY_TURNS = 2;
 // `user`, `injection`, and `turn` mirror ../observer/interaction (same literal
 // values, enforced by the type-level assertions at the bottom of this file).
 // `seat` and `awareness` are local to this package: seat deliberately does NOT
-// import agent-state, and awareness is the policy package's own vellum
+// import agent-state, and awareness is the policy package's own junto
 // comprehension signal.
 
 /** Is the operator at the seat, drafting, or is our own text in the box? */
@@ -98,7 +98,7 @@ export type InjectionSignal = typeof InjectionSignal.Type;
 export const TurnSignal = Schema.Literals(["none", "in-turn", "ended"]);
 export type TurnSignal = typeof TurnSignal.Type;
 
-/** Junto comprehension: has the seat proven it knows vellum? */
+/** Junto comprehension: has the seat proven it knows junto? */
 export const AwarenessSignal = Schema.Literals(["unproven", "proven"]);
 export type AwarenessSignal = typeof AwarenessSignal.Type;
 
@@ -107,7 +107,7 @@ export type AwarenessSignal = typeof AwarenessSignal.Type;
 
 /**
  * Full decision input. `turnsWithoutProof` counts turns since the seat last
- * proved vellum awareness, capped at 8.
+ * proved junto awareness, capped at 8.
  */
 export const InteractionContext = Schema.Struct({
   seat: SeatSignal,
@@ -171,7 +171,7 @@ export const PTY_WRITE_KINDS: ReadonlySet<string> = new Set(["notify-orient"]);
 export const decideIntervention = (ctx: InteractionContext): Intervention => {
   const { seat, user, injection, turn, awareness, turnsWithoutProof } = ctx;
 
-  // L4 — proof of vellum awareness: nothing to do, ever.
+  // L4 — proof of junto awareness: nothing to do, ever.
   if (awareness === "proven") return { kind: "silent" };
 
   // Seat gone: no live PTY to reach. Stay quiet.
@@ -192,7 +192,7 @@ export const decideIntervention = (ctx: InteractionContext): Intervention => {
     return {
       kind: "escalate",
       diagnostics: [
-        `seat unguided after ${MAX_TURNS_WITHOUT_PROOF} turns without proof of vellum awareness`,
+        `seat unguided after ${MAX_TURNS_WITHOUT_PROOF} turns without proof of junto awareness`,
       ],
     };
   }

@@ -601,7 +601,7 @@ export const managedTaskDeliveryId = (
   `delivery_${createHash("sha256")
     .update(
       JSON.stringify([
-        "vellum/managed-task-delivery/v1",
+        "junto/managed-task-delivery/v1",
         sink.canvasName,
         sink.nodeId,
         taskId,

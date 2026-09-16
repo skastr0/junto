@@ -1,8 +1,9 @@
 /**
- * One-shot audit generator for the frozen schema-v1 compatibility fixtures.
+ * Audit generator for the schema-v1 durable baseline fixtures.
  *
- * This file is never imported by the test suite. The committed databases are
- * immutable release evidence, so generation refuses to overwrite either one.
+ * This file is never imported by the test suite. Re-run it after any
+ * intentional baseline change to regenerate both committed databases in
+ * place; the fixture test pins their SHA-256.
  */
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync, unlinkSync } from "node:fs";
@@ -12,6 +13,8 @@ import { Schema } from "effect";
 import {
   serializeCanvas,
   type CanvasDoc,
+  type CanvasEdge,
+  type CanvasNode,
 } from "../../../src/shared/canvas";
 import { InstallationId } from "../../../src/shared/installation-id";
 import {
@@ -578,6 +581,118 @@ const insertMaterializedTask = (
   );
 };
 
+/** Mirror of canvas/records.ts persistCanvas with a fixed canvas id. */
+const seedCanvasDocument = (
+  database: DatabaseSync,
+  input: {
+    readonly canvasId: string;
+    readonly canvasName: string;
+    readonly doc: CanvasDoc;
+    readonly revisionSha256: string;
+    readonly modifiedAt: string;
+  },
+): void => {
+  database.prepare(
+    `
+      INSERT INTO canvas_documents(
+        canvas_id,
+        canvas_name,
+        revision_sha256,
+        created_at,
+        modified_at
+      ) VALUES (?, ?, ?, ?, ?)
+    `,
+  ).run(
+    input.canvasId,
+    input.canvasName,
+    input.revisionSha256,
+    input.modifiedAt,
+    input.modifiedAt,
+  );
+  const insertNode = database.prepare(
+    `
+      INSERT INTO canvas_nodes(
+        canvas_id,
+        node_id,
+        z_index,
+        type,
+        x,
+        y,
+        width,
+        height,
+        color,
+        text_content,
+        file_path,
+        file_subpath,
+        link_url,
+        group_label,
+        group_background,
+        group_background_style,
+        ether_json,
+        updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `,
+  );
+  input.doc.nodes.forEach((node: CanvasNode, index: number) => {
+    insertNode.run(
+      input.canvasId,
+      node.id,
+      index,
+      node.type,
+      node.x,
+      node.y,
+      node.width,
+      node.height,
+      node.color ?? null,
+      node.type === "text" ? node.text : null,
+      node.type === "file" ? node.file : null,
+      node.type === "file" ? (node.subpath ?? null) : null,
+      node.type === "link" ? node.url : null,
+      node.type === "group" ? (node.label ?? null) : null,
+      node.type === "group" ? (node.background ?? null) : null,
+      node.type === "group" ? (node.backgroundStyle ?? null) : null,
+      node.ether === undefined ? null : JSON.stringify(node.ether),
+      input.modifiedAt,
+    );
+  });
+  const insertEdge = database.prepare(
+    `
+      INSERT INTO canvas_edges(
+        canvas_id,
+        edge_id,
+        z_index,
+        from_node_id,
+        from_side,
+        from_end,
+        to_node_id,
+        to_side,
+        to_end,
+        color,
+        label,
+        ether_json,
+        updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `,
+  );
+  input.doc.edges.forEach((edge: CanvasEdge, index: number) => {
+    insertEdge.run(
+      input.canvasId,
+      edge.id,
+      index,
+      edge.fromNode,
+      edge.fromSide ?? null,
+      edge.fromEnd ?? null,
+      edge.toNode,
+      edge.toSide ?? null,
+      edge.toEnd ?? null,
+      edge.color ?? null,
+      edge.label ?? null,
+      edge.ether === undefined ? null : JSON.stringify(edge.ether),
+      input.modifiedAt,
+    );
+  });
+};
+
 const authorialIntentSha256 = (
   name: string,
   documentSha256: string,
@@ -625,31 +740,24 @@ const seedCommandCenter = (database: DatabaseSync): void => {
     "factory",
     documentSha256,
   );
+  seedCanvasDocument(database, {
+    canvasId: "cnv_fixture_factory",
+    canvasName: "factory",
+    doc: canvas,
+    revisionSha256: documentSha256,
+    modifiedAt: CREATED_AT,
+  });
   database.prepare(
     `
-      INSERT INTO canvas_generations(
+      INSERT INTO canvas_portfolio_head(
+        singleton,
         generation,
-        created_at,
-        cause,
         intent_sha256,
-        document_count
-      ) VALUES ('9', ?, 'state-v1-fixture', ?, 1)
+        created_at,
+        updated_at
+      ) VALUES (1, '9', ?, ?, ?)
     `,
-  ).run(CREATED_AT, intentSha256);
-  database.prepare(
-    `
-      INSERT INTO canvas_generation_documents(
-        generation,
-        name,
-        body,
-        sha256,
-        modified_at
-      ) VALUES ('9', 'factory', ?, ?, ?)
-    `,
-  ).run(body, documentSha256, CREATED_AT);
-  database.exec(
-    "INSERT INTO canvas_head(singleton, generation) VALUES (1, '9')",
-  );
+  ).run(intentSha256, CREATED_AT, CREATED_AT);
 
   const { actor } = actorFor(
     canvas,
@@ -1191,7 +1299,7 @@ const generate = (
 ): string => {
   const path = fileURLToPath(new URL(fileName, import.meta.url));
   if (existsSync(path)) {
-    throw new Error(`refusing to overwrite immutable fixture ${fileName}`);
+    unlinkSync(path);
   }
   const database = new DatabaseSync(path, {
     open: true,

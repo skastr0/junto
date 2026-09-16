@@ -11,7 +11,7 @@ describe("usage product gate", () => {
     expect(preload).toContain("...(USAGE_ENABLED ? usageApi : {})");
     expect(main).toContain("if (USAGE_ENABLED) usage.start()");
     expect(main).toContain("if (USAGE_ENABLED) {");
-    expect(app).toContain("USAGE_ENABLED && vellum.onUsageChanged");
-    expect(app).toContain("USAGE_ENABLED && vellum.getUsage");
+    expect(app).toContain("USAGE_ENABLED && junto.onUsageChanged");
+    expect(app).toContain("USAGE_ENABLED && junto.getUsage");
   });
 });

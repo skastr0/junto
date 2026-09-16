@@ -21,7 +21,7 @@ export type SeatEnvInjectInput = {
 /**
  * Directories that may hold the `junto` CLI binary. Fail-soft — missing dirs omitted.
  */
-export const vellumCliPathPrefixes = (
+export const juntoCliPathPrefixes = (
   cwd: string = process.cwd(),
   resourcesPath: string | undefined = typeof process.resourcesPath === "string"
     ? process.resourcesPath
@@ -56,7 +56,7 @@ export const buildManagedSeatInject = (
 ): Record<string, string> => {
   const inject: Record<string, string> = {};
 
-  const prefixes = vellumCliPathPrefixes();
+  const prefixes = juntoCliPathPrefixes();
   if (prefixes.length > 0) {
     const current = typeof env.PATH === "string" ? env.PATH : "";
     inject.PATH = [...prefixes, current].filter((p) => p.length > 0).join(delimiter);
@@ -72,7 +72,7 @@ export const buildManagedSeatInject = (
   // the seat's CLI is the binary the seat was launched with. Agents reference
   // this variable when their shell reset PATH; the message never prints the
   // literal path (machine-specific internals stay out of agent context).
-  const cliPrefix = vellumCliPathPrefixes().find((prefix) =>
+  const cliPrefix = juntoCliPathPrefixes().find((prefix) =>
     existsSync(join(prefix, "junto")),
   );
   if (cliPrefix !== undefined) {

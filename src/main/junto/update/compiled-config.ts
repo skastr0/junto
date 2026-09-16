@@ -3,34 +3,28 @@
  *
  * Packaged apps never accept a runtime arbitrary feed URL override.
  *
- * Production custom domain (after DNS):
- *   https://releases.vellumcommand.com/mac/arm64
+ * Production origin:
+ *   https://releases.juntoagents.com/mac/arm64
  *
- * Live Worker (deployed; use until custom domain is wired):
- *   workers.dev base + /mac/arm64
+ * The replacement Worker and bucket (junto-releases, JuntoReleaseDistribution)
+ * are still pending deployment; the default below already points at the
+ * production origin.
  */
 
 declare const __JUNTO_MAC_UPDATE_FEED_URL__: string | undefined;
 
-/** Custom-domain production generic provider base (DNS still pending). */
-export const MAC_ARM64_UPDATE_FEED_URL_CUSTOM_DOMAIN =
-  "https://releases.vellumcommand.com/mac/arm64" as const;
+/** Production generic provider base for the Junto release feed. */
+export const MAC_ARM64_UPDATE_FEED_URL_PRODUCTION =
+  "https://releases.juntoagents.com/mac/arm64" as const;
 
 /**
- * Live download surface published by the maintainer's release feed.
- * Bucket: vellum-releases. Update this if the Worker hostname changes.
- */
-export const MAC_ARM64_UPDATE_FEED_URL_WORKER =
-  "https://vellumreleasedistribution-rele2p3h3apcupwjim2zajqqmhyd.skastr052.workers.dev/mac/arm64" as const;
-
-/**
- * Interim GitHub public feed (used only when Worker is unavailable).
+ * Interim GitHub public feed (used only when the release feed is unavailable).
  */
 export const MAC_ARM64_UPDATE_FEED_URL_INTERIM =
-  "https://github.com/skastr0/vellum-releases/releases/download/v0.1.0" as const;
+  "https://github.com/skastr0/junto/releases/download/v0.1.0" as const;
 
-/** Active packaged default: live Worker path. */
-export const MAC_ARM64_UPDATE_FEED_URL = MAC_ARM64_UPDATE_FEED_URL_WORKER;
+/** Active packaged default: the production origin. */
+export const MAC_ARM64_UPDATE_FEED_URL = MAC_ARM64_UPDATE_FEED_URL_PRODUCTION;
 
 export type UpdateFeedConfig = {
   readonly provider: "generic";
@@ -59,5 +53,5 @@ export const macArm64UpdateFeed = (): UpdateFeedConfig => ({
 /** Linux desktop alpha has its own signed descriptor, distinct from Fleet. */
 export const linuxX64UpdateFeed = (): UpdateFeedConfig => ({
   provider: "generic",
-  url: MAC_ARM64_UPDATE_FEED_URL_WORKER.replace(/\/mac\/arm64$/u, "/linux/x64"),
+  url: MAC_ARM64_UPDATE_FEED_URL_PRODUCTION.replace(/\/mac\/arm64$/u, "/linux/x64"),
 });

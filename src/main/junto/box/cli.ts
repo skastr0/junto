@@ -169,7 +169,7 @@ const errorDetailFromJsonLines = (stdout: string): string | undefined => {
 
 /**
  * effect-foundation **S4-rest-main** (staged, not half-migrated):
- * - Canonical id: `@vellum/box/BoxCli` — single definition; no dual path.
+ * - Canonical id: `@junto/box/BoxCli` — single definition; no dual path.
  * - Service id: Context.Service (Effect V4 live).
  * - Shape:
  *   `class BoxCli extends Context.Service<BoxCli, BoxCli>()("@junto/box/BoxCli") {}`

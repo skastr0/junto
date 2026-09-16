@@ -24,7 +24,7 @@ import {
 const homes = new Set<string>();
 
 const temporaryHome = (): string => {
-  const home = mkdtempSync(join(tmpdir(), "vellum-linux-release-feed-"));
+  const home = mkdtempSync(join(tmpdir(), "junto-linux-release-feed-"));
   homes.add(home);
   return home;
 };

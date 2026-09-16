@@ -1257,7 +1257,7 @@ describe("work control transport", () => {
         media: [
           {
             kind: "raw",
-            bytesBase64: Buffer.from("vellum-media").toString("base64"),
+            bytesBase64: Buffer.from("junto-media").toString("base64"),
             mediaType: "image/png",
           },
         ],
@@ -1281,7 +1281,7 @@ describe("work control transport", () => {
     expect(media).toMatchObject({
       kind: "content",
       ref: {
-        byteLength: Buffer.byteLength("vellum-media"),
+        byteLength: Buffer.byteLength("junto-media"),
         mediaType: "image/png",
       },
     });

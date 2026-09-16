@@ -4,7 +4,7 @@
  * Canonical end state (docs/END_STATE-effect-foundation.md §S1 + V4-ENTRY):
  *
  *   boot  → ManagedRuntime.make(RootLayer) once   // AppRuntime below
- *   IPC   → AppRuntime.runPromise(handler)        // adapters only (src/main/ipc.ts, vellum/ipc.ts)
+ *   IPC   → AppRuntime.runPromise(handler)        // adapters only (src/main/ipc.ts, junto/ipc.ts)
  *   loops → AppRuntime.runFork / same Context     // factory program (V4-PROGRAM)
  *   quit  → AppRuntime.dispose()                  // sole teardown; index.ts owns the call
  *

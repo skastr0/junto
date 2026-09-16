@@ -172,7 +172,7 @@ describe("reduceChatEvent — usage, status/error, and unknown kinds", () => {
 // one unique agentKey per test so the shared chatState$ store never bleeds
 // between cases. ---------------------------------------------------------
 
-interface MockVellum {
+interface MockJunto {
   chatOpen: ReturnType<typeof vi.fn>;
   chatPrompt: ReturnType<typeof vi.fn>;
   chatPermission: ReturnType<typeof vi.fn>;
@@ -184,8 +184,8 @@ interface MockVellum {
 let keyCounter = 0;
 const freshAgentKey = (): string => `remote-a:test-${++keyCounter}`;
 
-function installMockVellum(overrides: Partial<MockVellum> = {}): MockVellum {
-  const mock: MockVellum = {
+function installMockJunto(overrides: Partial<MockJunto> = {}): MockJunto {
+  const mock: MockJunto = {
     chatOpen: vi.fn(async (): Promise<ChatOpenResult> => ({ ok: true, sessionId: "s1", models: [{ modelId: "m1" }] })),
     chatPrompt: vi.fn(async () => ({ ok: true })),
     chatPermission: vi.fn(async () => ({ ok: true })),
@@ -194,7 +194,7 @@ function installMockVellum(overrides: Partial<MockVellum> = {}): MockVellum {
     onChatEvent: vi.fn(() => () => undefined),
     ...overrides,
   };
-  (globalThis as unknown as { window: { vellumCommand: MockVellum } }).window = { vellumCommand: mock };
+  (globalThis as unknown as { window: { vellumCommand: MockJunto } }).window = { vellumCommand: mock };
   return mock;
 }
 
@@ -207,7 +207,7 @@ describe("openChat", () => {
 
   it("goes connecting -> live and adopts the returned session/models", async () => {
     const agentKey = freshAgentKey();
-    const mock = installMockVellum();
+    const mock = installMockJunto();
     const promise = openChat(agentKey);
     expect(getAgentChatState(agentKey).status).toBe("connecting");
     await promise;
@@ -223,7 +223,7 @@ describe("openChat", () => {
     // authMethods isn't in the typed ChatOpenResult — ACP carries it on the raw
     // payload when the agent isn't authenticated yet; extractAuthMethods reads
     // it defensively off the untyped result.
-    installMockVellum({
+    installMockJunto({
       chatOpen: vi.fn(async () => ({ ok: false, error: "not authenticated", authMethods: ["oauth"] }) as unknown as ChatOpenResult),
     });
     await openChat(agentKey);
@@ -242,7 +242,7 @@ describe("openChat", () => {
 
   it("degrades to a quiet error state when chatOpen rejects", async () => {
     const agentKey = freshAgentKey();
-    installMockVellum({ chatOpen: vi.fn(async () => { throw new Error("ipc down"); }) });
+    installMockJunto({ chatOpen: vi.fn(async () => { throw new Error("ipc down"); }) });
     await openChat(agentKey);
     expect(getAgentChatState(agentKey)).toMatchObject({ status: "error", error: "ipc down" });
   });
@@ -253,7 +253,7 @@ describe("sendPrompt", () => {
 
   it("pushes an optimistic user item and forwards context block texts to chatPrompt", async () => {
     const agentKey = freshAgentKey();
-    const mock = installMockVellum();
+    const mock = installMockJunto();
     await sendPrompt(agentKey, "  hello agent  ", [{ label: "node", text: "selected node digest" }]);
     expect(mock.chatPrompt).toHaveBeenCalledWith(agentKey, "hello agent", ["selected node digest"]);
     expect(getAgentChatState(agentKey).transcript).toMatchObject([{ kind: "user", text: "hello agent" }]);
@@ -261,7 +261,7 @@ describe("sendPrompt", () => {
 
   it("is a no-op for blank text", async () => {
     const agentKey = freshAgentKey();
-    const mock = installMockVellum();
+    const mock = installMockJunto();
     await sendPrompt(agentKey, "   ");
     expect(mock.chatPrompt).not.toHaveBeenCalled();
     expect(getAgentChatState(agentKey).transcript).toHaveLength(0);
@@ -269,7 +269,7 @@ describe("sendPrompt", () => {
 
   it("appends an error status line when the turn fails, without throwing", async () => {
     const agentKey = freshAgentKey();
-    installMockVellum({ chatPrompt: vi.fn(async () => ({ ok: false, error: "agent refused" })) });
+    installMockJunto({ chatPrompt: vi.fn(async () => ({ ok: false, error: "agent refused" })) });
     await sendPrompt(agentKey, "do the thing");
     const transcript = getAgentChatState(agentKey).transcript;
     expect(transcript.map((item) => item.kind)).toEqual(["user", "status"]);
@@ -282,7 +282,7 @@ describe("answerPermission — lifecycle", () => {
 
   it("marks the card answered, clears pendingPermission, and calls chatPermission with the chosen option", async () => {
     const agentKey = freshAgentKey();
-    const mock = installMockVellum();
+    const mock = installMockJunto();
     let state = reduceChatEvent(
       initialAgentChatState(),
       event("permission_request", { requestId: "req-9", options: [{ optionId: "allow_once" }, { optionId: "deny" }] }, agentKey),
@@ -300,7 +300,7 @@ describe("answerPermission — lifecycle", () => {
 
   it("still marks the card answered (disabling it) even if the IPC call fails", async () => {
     const agentKey = freshAgentKey();
-    installMockVellum({ chatPermission: vi.fn(async () => ({ ok: false })) });
+    installMockJunto({ chatPermission: vi.fn(async () => ({ ok: false })) });
     chatState$[agentKey].set(
       reduceChatEvent(initialAgentChatState(), event("permission_request", { requestId: "req-10", options: [{ optionId: "deny" }] }, agentKey)),
     );
@@ -318,7 +318,7 @@ describe("setModel / closeChat / markRead", () => {
 
   it("setModel adopts the id on success and reports failure otherwise", async () => {
     const agentKey = freshAgentKey();
-    installMockVellum({ chatSetModel: vi.fn(async () => ({ ok: true })) });
+    installMockJunto({ chatSetModel: vi.fn(async () => ({ ok: true })) });
     await setModel(agentKey, "opus");
     expect(getAgentChatState(agentKey).selectedModelId).toBe("opus");
   });
@@ -350,7 +350,7 @@ describe("subscribeChatEvents", () => {
   it("routes a pushed ChatEvent into the right agent's slot", () => {
     const agentKey = freshAgentKey();
     let handler: ((event: ChatEvent) => void) | undefined;
-    installMockVellum({
+    installMockJunto({
       onChatEvent: vi.fn((listener: (event: ChatEvent) => void) => { handler = listener; return () => undefined; }),
     });
     const unsubscribe = subscribeChatEvents();
@@ -363,7 +363,7 @@ describe("subscribeChatEvents", () => {
   it("mirrors coarse chrome on stream events and paint-equals skip identical slots", () => {
     const agentKey = freshAgentKey();
     let handler: ((event: ChatEvent) => void) | undefined;
-    installMockVellum({
+    installMockJunto({
       onChatEvent: vi.fn((listener: (event: ChatEvent) => void) => {
         handler = listener;
         return () => undefined;

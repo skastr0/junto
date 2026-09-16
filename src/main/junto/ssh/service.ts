@@ -108,7 +108,7 @@ export interface SshReady<A> {
 export type ConfirmSshReady = <A>(value: A) => SshReady<A>;
 
 /**
- * S4 (effect@3.21): single canonical Tag id `@vellum/SshTransport`.
+ * S4 (effect@3.21): single canonical Tag id `@junto/SshTransport`.
  * `Context.Service` is unavailable until the product pins Effect V4 — do not
  * dual-define Tag + Service. Shape is `SshTransportShape` for callers.
  * V4 map: `class SshTransport extends Context.Service<SshTransport, Shape>()("@junto/SshTransport")`.
@@ -185,7 +185,7 @@ export class SshTransport extends Context.Service<SshTransport,
 export type SshTransportShape = Context.Service.Shape<typeof SshTransport>;
 
 /**
- * S4: single Tag `@vellum/ssh/SshTransportConfig`. Same V4 staging as SshTransport.
+ * S4: single Tag `@junto/ssh/SshTransportConfig`. Same V4 staging as SshTransport.
  */
 export class SshTransportConfig extends Context.Service<SshTransportConfig,
   {

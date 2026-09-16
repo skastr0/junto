@@ -27,7 +27,7 @@ fi
 
 command=("$playwright" test --config e2e/playwright.config.ts "$@")
 
-if [[ "$(uname -s)" == "Linux" ]] && vellum_use_available_desktop; then
+if [[ "$(uname -s)" == "Linux" ]] && junto_use_available_desktop; then
   if [[ -n "${AMP_DIRECT_DESKTOP:-}" ]]; then
     printf 'junto: Electron E2E is using the active Amp Desktop\n' >&2
     export JUNTO_E2E_SHOW="${JUNTO_E2E_SHOW:-1}"

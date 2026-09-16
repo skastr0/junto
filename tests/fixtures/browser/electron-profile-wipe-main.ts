@@ -66,7 +66,7 @@ const reportPath = requiredArgument("report-path");
 const markerInputPath = requiredArgument("marker-input-path");
 const EXPECTED_FAILPOINT_EXIT = 86;
 const REPORT_TIMEOUT_MS = 15_000;
-const DISK_MARKER_NAME = ".vellum-profile-wipe-sentinel";
+const DISK_MARKER_NAME = ".junto-profile-wipe-sentinel";
 const DISK_MARKER_PATTERN = /^[A-Za-z0-9_-]{43}$/;
 const storageKeys = [
   "cookie",
@@ -281,7 +281,7 @@ const waitForStorageReport = async (
       owner,
       sessionId,
       `(() => {
-        const node = document.getElementById("vellum-profile-wipe-report");
+        const node = document.getElementById("junto-profile-wipe-report");
         if (node?.dataset.ready !== "true") return null;
         return JSON.parse(node.textContent || "null");
       })()`,

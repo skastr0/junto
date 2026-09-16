@@ -114,14 +114,14 @@ describe("Linux HostRuntime restart act", () => {
 
 describe("Linux userland generation observe", () => {
   it("reports present only when a canonical generation tree exists", () => {
-    const home = mkdtempSync(join(tmpdir(), "vellum-linux-observe-"));
+    const home = mkdtempSync(join(tmpdir(), "junto-linux-observe-"));
     const run = () =>
       spawnSync(
         "/bin/sh",
         [
           "-c",
           compileLinuxUserlandObserveSource(),
-          "vellum-plan:linux-userland-observe",
+          "junto-plan:linux-userland-observe",
         ],
         { encoding: "utf8", env: { ...process.env, HOME: home } },
       );

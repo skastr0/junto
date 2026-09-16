@@ -147,7 +147,7 @@
         "title": "✳ Untitled session",
         "osc9": "",
         "promptGlyph": "❯",
-        "description": "round1: paste+CR@40ms (vellum timing); round2: paste, chip render, CR; ONE Ctrl+C clear",
+        "description": "round1: paste+CR@40ms (junto timing); round2: paste, chip render, CR; ONE Ctrl+C clear",
         "pasteText": "PASTE_LINE_00\nPASTE_LINE_01\nPASTE_LINE_02\nPASTE_LINE_03\nPASTE_LINE_04\nPASTE_LINE_05\nPASTE_LINE_06\nPASTE_LINE_07\nPASTE_LINE_08\nPASTE_LINE_09\nPASTE_LINE_10\nPASTE_LINE_11\nPASTE_LINE_12\nPASTE_LINE_13\nPASTE_LINE_14",
         "chipObserved": true
       }
@@ -222,7 +222,7 @@
         "lines": 1,
         "cliVersion": "2.1.272 (Claude Code)",
         "isolated": true,
-        "isolatedHome": "/tmp/vellum-capture-home/claude",
+        "isolatedHome": "/tmp/junto-capture-home/claude",
         "composerPending": false,
         "workingVisible": false
       },

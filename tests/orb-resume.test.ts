@@ -9,7 +9,7 @@ describe("orb resume", () => {
   let env: NodeJS.ProcessEnv;
 
   beforeEach(() => {
-    home = mkdtempSync(join(tmpdir(), "vellum-orb-resume-"));
+    home = mkdtempSync(join(tmpdir(), "junto-orb-resume-"));
     const bin = join(home, ".local/bin");
     mkdirSync(bin, { recursive: true });
     // Explicit exits: on macOS bash 3.2 a failing [[ ]] does not trip set -e.

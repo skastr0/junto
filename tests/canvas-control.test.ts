@@ -181,7 +181,7 @@ const start = async (input: {
   readonly runtime?: CanvasControlServerRuntime;
   readonly beforeRun?: () => void | Promise<void>;
 }) => {
-  const root = await mkdtemp(join(tmpdir(), "vellum-canvas-control-"));
+  const root = await mkdtemp(join(tmpdir(), "junto-canvas-control-"));
   roots.push(root);
   const controlHome = join(root, "canvas");
   const runtime = makeRuntime({
@@ -560,7 +560,7 @@ describe("canvas control", () => {
       expect(source).not.toMatch(
         /\b(?:CanvasesLive|CanvasesService|StateEngine|HermesStandaloneLive|ManagedRuntime)\b/u,
       );
-      expect(source).not.toMatch(/vellum\/canvases/u);
+      expect(source).not.toMatch(/junto\/canvases/u);
     }
   });
 });

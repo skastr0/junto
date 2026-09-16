@@ -37,7 +37,7 @@ afterEach(() => {
 });
 
 const tempDb = (userVersion: number): string => {
-  const root = mkdtempSync(join(tmpdir(), "vellum-schema-probe-"));
+  const root = mkdtempSync(join(tmpdir(), "junto-schema-probe-"));
   roots.push(root);
   const path = join(root, "junto.db");
   const db = new DatabaseSync(path);
@@ -74,7 +74,7 @@ const recoveryProvider = (
 
 describe("probeInstalledStateSchema", () => {
   it("reports missing when the file is absent", () => {
-    const root = mkdtempSync(join(tmpdir(), "vellum-schema-missing-"));
+    const root = mkdtempSync(join(tmpdir(), "junto-schema-missing-"));
     roots.push(root);
     expect(probeInstalledStateSchema(join(root, "nope.db"))).toEqual({
       kind: "missing",
@@ -406,7 +406,7 @@ describe("verified recovery update lifecycle", () => {
 
   it("waits for signature staging and drops a candidate that arrives after timeout", async () => {
     vi.useFakeTimers();
-    const stagingRoot = mkdtempSync(join(tmpdir(), "vellum-recovery-proof-"));
+    const stagingRoot = mkdtempSync(join(tmpdir(), "junto-recovery-proof-"));
     roots.push(stagingRoot);
     let finishStage!: (candidate: StagedUpdate) => void;
     const provider = recoveryProvider(() => new Promise((resolve) => { finishStage = resolve; }));
@@ -425,7 +425,7 @@ describe("verified recovery update lifecycle", () => {
   });
 
   it("releases Mac proof staging before delegating the verified install", async () => {
-    const stagingRoot = mkdtempSync(join(tmpdir(), "vellum-recovery-proof-"));
+    const stagingRoot = mkdtempSync(join(tmpdir(), "junto-recovery-proof-"));
     roots.push(stagingRoot);
     const provider = recoveryProvider(async () => ({ executablePath: "/proof/app", stagingRoot }));
     const quitAndInstall = vi.fn(() => { expect(existsSync(stagingRoot)).toBe(false); });
@@ -439,7 +439,7 @@ describe("verified recovery update lifecycle", () => {
 
 describe("probe rejects non-files", () => {
   it("marks directories unreadable", () => {
-    const root = mkdtempSync(join(tmpdir(), "vellum-schema-dir-"));
+    const root = mkdtempSync(join(tmpdir(), "junto-schema-dir-"));
     roots.push(root);
     writeFileSync(join(root, "note"), "x");
     const probe = probeInstalledStateSchema(root);

@@ -7,7 +7,7 @@ import { mailSendInput } from "../src/cli/core/mail-input";
 
 describe("mail send input", () => {
   it("preserves notice fallback across inline, batch, and file prompt inputs", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "vellum-crew-cli-"));
+    const dir = await mkdtemp(join(tmpdir(), "junto-crew-cli-"));
     const items = [{ target: "peer-a", text: "Review" }, { target: "peer-b", messageId: "m1" }];
     try {
       const path = join(dir, "prompts.json");

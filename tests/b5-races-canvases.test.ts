@@ -8,7 +8,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 // SQLite serializes overlapping full-generation commits. These checks prove
 // concurrent writers cannot corrupt the active head or lose another canvas.
 
-const mockCanvasesHome = join(tmpdir(), `vellum-b5-races-canvases-${randomUUID()}`);
+const mockCanvasesHome = join(tmpdir(), `junto-b5-races-canvases-${randomUUID()}`);
 
 vi.mock("node:os", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:os")>();

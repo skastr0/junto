@@ -16,7 +16,7 @@ import { HarnessId } from "@shared/managed-terminal-templates";
 import { StationHostId } from "@shared/station-api";
 import { SinkRef } from "@shared/work-protocol";
 
-export const ACTOR_SEAT_ID_PROTOCOL = "vellum/actor-seat/v1" as const;
+export const ACTOR_SEAT_ID_PROTOCOL = "junto/actor-seat/v1" as const;
 
 export const ActorSeatCanvasRef = SinkRef;
 export type ActorSeatCanvasRef = typeof ActorSeatCanvasRef.Type;

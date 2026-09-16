@@ -136,7 +136,7 @@
         "title": "devin: hello",
         "osc9": "",
         "promptGlyph": "❭",
-        "description": "round1: paste+CR@40ms (vellum timing); round2: paste, chip render, CR; ONE Ctrl+C clear",
+        "description": "round1: paste+CR@40ms (junto timing); round2: paste, chip render, CR; ONE Ctrl+C clear",
         "pasteText": "PASTE_LINE_00\nPASTE_LINE_01\nPASTE_LINE_02\nPASTE_LINE_03\nPASTE_LINE_04\nPASTE_LINE_05\nPASTE_LINE_06\nPASTE_LINE_07\nPASTE_LINE_08\nPASTE_LINE_09\nPASTE_LINE_10\nPASTE_LINE_11\nPASTE_LINE_12\nPASTE_LINE_13\nPASTE_LINE_14\nPASTE_LINE_15\nPASTE_LINE_16\nPASTE_LINE_17\nPASTE_LINE_18\nPASTE_LINE_19\nPASTE_LINE_20\nPASTE_LINE_21\nPASTE_LINE_22\nPASTE_LINE_23\nPASTE_LINE_24\nPASTE_LINE_25\nPASTE_LINE_26\nPASTE_LINE_27\nPASTE_LINE_28\nPASTE_LINE_29\nPASTE_LINE_30\nPASTE_LINE_31\nPASTE_LINE_32\nPASTE_LINE_33\nPASTE_LINE_34\nPASTE_LINE_35\nPASTE_LINE_36\nPASTE_LINE_37\nPASTE_LINE_38\nPASTE_LINE_39",
         "payloadVisible": true,
         "chipObserved": true
@@ -166,7 +166,7 @@
         "osc9": "",
         "promptGlyph": "❭",
         "description": "working turn: OSC title churn / spinner / progress frames then interrupt",
-        "prompt": "forty numbered VELLUM CAPTURE lines"
+        "prompt": "forty numbered JUNTO CAPTURE lines"
       }
     },
     {
@@ -197,7 +197,7 @@
         "lines": 1,
         "cliVersion": "devin 3000.10.27 (bcbe88c7)",
         "isolated": true,
-        "isolatedHome": "/tmp/vellum-capture-home/devin",
+        "isolatedHome": "/tmp/junto-capture-home/devin",
         "composerPending": true,
         "workingVisible": true,
         "exited": false
@@ -221,7 +221,7 @@
         "bytes": 850,
         "lines": 1,
         "isolated": true,
-        "isolatedHome": "/tmp/vellum-capture-home/devin",
+        "isolatedHome": "/tmp/junto-capture-home/devin",
         "holdModals": true,
         "entered": false
       },

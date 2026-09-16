@@ -44,14 +44,14 @@ describe("terminal shell executable policy", () => {
       },
     };
 
-    expect(validateExecutableShell("/opt/vellum/shell", fs)).toBe(
-      "/opt/vellum/shell",
+    expect(validateExecutableShell("/opt/junto/shell", fs)).toBe(
+      "/opt/junto/shell",
     );
     expect(order).toEqual(["stat", "access:X_OK"]);
   });
 
   it("uses the operating system's actual X_OK decision", () => {
-    const root = mkdtempSync(join(tmpdir(), "vellum-shell-policy-"));
+    const root = mkdtempSync(join(tmpdir(), "junto-shell-policy-"));
     tempRoots.push(root);
     const shell = join(root, "shell");
     writeFileSync(shell, "#!/bin/sh\nexit 0\n", { mode: 0o600 });

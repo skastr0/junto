@@ -37,7 +37,7 @@ if [[ -L "$RELEASE_DIR" || ( -e "$RELEASE_DIR" && ! -d "$RELEASE_DIR" ) ]]; then
 fi
 mkdir -p -- "$RELEASE_DIR"
 RELEASE_DIR="$(cd "$RELEASE_DIR" && pwd -P)"
-ATTEMPT_DIR="$(mktemp -d "$RELEASE_DIR/.vellum-package-attempt-XXXXXXXX")"
+ATTEMPT_DIR="$(mktemp -d "$RELEASE_DIR/.junto-package-attempt-XXXXXXXX")"
 chmod 0700 "$ATTEMPT_DIR"
 NODE_SHIM_DIR=""
 cleanup_package_attempt() {
@@ -47,7 +47,7 @@ cleanup_package_attempt() {
     fi
     rmdir -- "$NODE_SHIM_DIR" 2>/dev/null || true
   fi
-  if [[ -n "$ATTEMPT_DIR" && -d "$ATTEMPT_DIR" && ! -L "$ATTEMPT_DIR" && "$(dirname "$ATTEMPT_DIR")" == "$RELEASE_DIR" && "$(basename "$ATTEMPT_DIR")" == .vellum-package-attempt-* ]]; then
+  if [[ -n "$ATTEMPT_DIR" && -d "$ATTEMPT_DIR" && ! -L "$ATTEMPT_DIR" && "$(dirname "$ATTEMPT_DIR")" == "$RELEASE_DIR" && "$(basename "$ATTEMPT_DIR")" == .junto-package-attempt-* ]]; then
     rm -rf -- "$ATTEMPT_DIR"
   elif [[ -e "$ATTEMPT_DIR" || -L "$ATTEMPT_DIR" ]]; then
     err "retained package attempt after identity change: $ATTEMPT_DIR"

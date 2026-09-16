@@ -144,7 +144,7 @@ describe("withIncumbentMaintenance", () => {
     expect(result.code).toBe("conflict");
     expect(result.detail).toContain(REMOTE_UPDATE_IDLE_PRODUCT_COPY);
     expect(result.recoveryAction).toEqual({
-      kind: "close-active-vellum-terminals",
+      kind: "close-active-junto-terminals",
       activeTerminalSessions: 2,
     });
     // Incumbent untouched: mutation never started.
@@ -552,7 +552,7 @@ describe("reconcile injects maintenance for an incumbent update", () => {
     expect(result.code).toBe("conflict");
     expect(result.detail).toContain(REMOTE_UPDATE_IDLE_PRODUCT_COPY);
     expect(result.recoveryAction).toEqual({
-      kind: "close-active-vellum-terminals",
+      kind: "close-active-junto-terminals",
       activeTerminalSessions: 3,
     });
     expect(result.disposition).toBe("not-started");
@@ -650,7 +650,7 @@ describe("reconcile injects maintenance for an incumbent update", () => {
     expect(result.ok).toBe(false);
     expect(result.code).toBe("conflict");
     expect(result.recoveryAction).toEqual({
-      kind: "close-active-vellum-terminals",
+      kind: "close-active-junto-terminals",
       activeTerminalSessions: 1,
     });
     expect(result.disposition).toBe("not-started");

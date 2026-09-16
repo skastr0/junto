@@ -10,7 +10,7 @@
  *                  no hand-written INSERT anywhere in this file.
  *
  * Generation is expensive, so a synthetic database is cached under
- * JUNTO_SCALE_BENCH_DIR (default: <tmpdir>/vellum-scale-bench) keyed by the
+ * JUNTO_SCALE_BENCH_DIR (default: <tmpdir>/junto-scale-bench) keyed by the
  * spec + state schema version, and reused until the key changes.
  */
 import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
@@ -251,7 +251,7 @@ const COUNT_QUERIES: ReadonlyArray<readonly [keyof FixtureShape, string]> = [
     "SELECT count(*) AS n FROM work_delivery_receipts WHERE delivered_canvas_name = ?",
   ],
   ["facts", "SELECT count(*) AS n FROM work_facts"],
-  ["canvasDocumentRows", "SELECT count(*) AS n FROM canvas_generation_documents"],
+  ["canvasDocumentRows", "SELECT count(*) AS n FROM canvas_documents"],
 ];
 
 export const probeShape = async (
@@ -273,10 +273,16 @@ export const probeShape = async (
         }
         const doc = reader.get<{ readonly n: number }>(
           `
-            SELECT length(body) AS n
-            FROM canvas_generation_documents
-            WHERE name = ?
-              AND generation = (SELECT generation FROM canvas_head)
+            SELECT COALESCE(
+              sum(
+                length(COALESCE(n.ether_json, ''))
+                  + length(COALESCE(n.text_content, ''))
+              ),
+              0
+            ) AS n
+            FROM canvas_nodes AS n
+            JOIN canvas_documents AS d ON d.canvas_id = n.canvas_id
+            WHERE d.canvas_name = ?
           `,
           [canvasName],
         );
@@ -338,7 +344,7 @@ const specKey = (spec: ScaleSpec): string =>
     .slice(0, 16);
 
 export const benchCacheRoot = (): string =>
-  process.env.JUNTO_SCALE_BENCH_DIR ?? join(tmpdir(), "vellum-scale-bench");
+  process.env.JUNTO_SCALE_BENCH_DIR ?? join(tmpdir(), "junto-scale-bench");
 
 /**
  * Generate (or reuse) the synthetic database for `spec`.

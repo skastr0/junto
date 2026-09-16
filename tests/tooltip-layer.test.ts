@@ -11,7 +11,7 @@ const host = (init: {
   children?: TitleHost[];
 }): TitleHost => {
   let title = init.title;
-  const dataset: { tooltip?: string; vellumTooltip?: string } = {
+  const dataset: { tooltip?: string; juntoTooltip?: string } = {
     tooltip: init.tooltip,
   };
   return {
@@ -28,11 +28,11 @@ const host = (init: {
 };
 
 describe("absorbNativeTitle", () => {
-  it("moves title to data-vellum-tooltip and strips the attribute", () => {
+  it("moves title to data-junto-tooltip and strips the attribute", () => {
     const button = host({ title: "Open settings" });
     absorbNativeTitle(button);
     expect(button.getAttribute("title")).toBeNull();
-    expect(button.dataset.vellumTooltip).toBe("Open settings");
+    expect(button.dataset.juntoTooltip).toBe("Open settings");
   });
 
   it("is idempotent and does not clobber data-tooltip", () => {
@@ -41,7 +41,7 @@ describe("absorbNativeTitle", () => {
     absorbNativeTitle(button);
     expect(button.getAttribute("title")).toBeNull();
     expect(button.dataset.tooltip).toBe("Branded");
-    expect(button.dataset.vellumTooltip).toBeUndefined();
+    expect(button.dataset.juntoTooltip).toBeUndefined();
   });
 
   it("walks newly mounted subtrees (React remount shape)", () => {
@@ -51,7 +51,7 @@ describe("absorbNativeTitle", () => {
     absorbNativeTitlesInTree(root);
     expect(a.getAttribute("title")).toBeNull();
     expect(b.getAttribute("title")).toBeNull();
-    expect(a.dataset.vellumTooltip).toBe("A");
-    expect(b.dataset.vellumTooltip).toBe("B");
+    expect(a.dataset.juntoTooltip).toBe("A");
+    expect(b.dataset.juntoTooltip).toBe("B");
   });
 });

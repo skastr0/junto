@@ -21,7 +21,7 @@ const CREDITS_FIXTURE = {
 };
 const KEY_FIXTURE = {
   data: {
-    label: "vellum-key",
+    label: "junto-key",
     limit: 50,
     limit_remaining: 32.5,
     usage: 17.5,
@@ -104,7 +104,7 @@ describe("parseCreditsPayload", () => {
 describe("parseKeyPayload", () => {
   it("decodes every optional field with correct types", () => {
     const key = parseKeyPayload(KEY_FIXTURE);
-    expect(key?.label).toBe("vellum-key");
+    expect(key?.label).toBe("junto-key");
     expect(key?.limit).toBe(50);
     expect(key?.limitRemaining).toBe(32.5);
     expect(key?.limitReset).toBe("monthly");

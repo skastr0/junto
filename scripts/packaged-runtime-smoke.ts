@@ -146,7 +146,7 @@ export const hasDebugAuthority = (rows: ReadonlyArray<ProcessRow>): boolean =>
     ),
   );
 
-export const assertNoLiveVellumRuntime = (
+export const assertNoLiveJuntoRuntime = (
   rows: ReadonlyArray<ProcessRow>,
   bundleRoots: ReadonlyArray<string> = ["/Applications/Junto.app"],
 ): void => {
@@ -410,13 +410,13 @@ const currentProcessRows = (): ReadonlyArray<ProcessRow> => {
 };
 
 const preflightRuntime = (requestedAppPath: string): void => {
-  assertNoLiveVellumRuntime(currentProcessRows(), [
+  assertNoLiveJuntoRuntime(currentProcessRows(), [
     "/Applications/Junto.app",
     requestedAppPath,
   ]);
   const launchAgent = runFixed("/bin/launchctl", [
     "print",
-    `gui/${String(currentUid())}/skastr0.vellumcommand`,
+    `gui/${String(currentUid())}/com.skastr0.junto`,
   ]);
   if (launchAgent.status === 0) {
     throw new Error("the Junto LaunchAgent is loaded; unload it before packaged smoke");
@@ -790,8 +790,8 @@ export const smokePackagedRuntime = async (
 
   const childEnvironment: NodeJS.ProcessEnv = {
     HOME: isolatedHome,
-    USER: process.env.USER ?? "vellum-smoke",
-    LOGNAME: process.env.LOGNAME ?? process.env.USER ?? "vellum-smoke",
+    USER: process.env.USER ?? "junto-smoke",
+    LOGNAME: process.env.LOGNAME ?? process.env.USER ?? "junto-smoke",
     PATH: "/usr/bin:/bin:/usr/sbin:/sbin",
     TMPDIR: isolatedTmp,
     LANG: "en_US.UTF-8",

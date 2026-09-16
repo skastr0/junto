@@ -132,7 +132,7 @@ const embeddedProductionLinuxReleaseTrust =
       readonly trustedKeyFingerprintSha256?: unknown;
     };
     if (
-      policy.schema !== "vellum/linux-release-trust-policy/v1" ||
+      policy.schema !== "junto/linux-release-trust-policy/v1" ||
       Object.keys(policy).sort().join("\0") !==
         [
           "schema",

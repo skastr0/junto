@@ -59,7 +59,7 @@ claim: the scrub gate certifies the placeholder classes it checks, and the
 manifests record what was neutralized by hand.
 
 The recorder (`pty-capture.ts`, beside this README) runs each harness under an
-isolated HOME (`/tmp/vellum-capture-home/<harness>`) and pins per-harness
+isolated HOME (`/tmp/junto-capture-home/<harness>`) and pins per-harness
 config-dir env overrides (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`,
 `PI_CODING_AGENT_DIR`, `PI_CODING_AGENT_SESSION_DIR`) inside it — pi resolves
 `PI_CODING_AGENT_DIR` before HOME, so an inherited override alone would still
@@ -91,7 +91,7 @@ it does not send the optional delayed-response or shell-permission probes.
 
 ## Add a repro (checklist)
 
-1. Pick the defect from /tmp/vellum-defect-coverage.md (or a new finding).
+1. Pick the defect from /tmp/junto-defect-coverage.md (or a new finding).
 2. Fixture: prefer P1 real bytes (capture or reuse); else P2/P3 from verified probe receipts; never invent sequences.
 3. Feed through the REAL observer; run the canonicality gate; run all 3 chunk modes (must be identical).
 4. Assert CORRECT behavior in the test name: `BUG-<id>: <expected>`.
@@ -99,5 +99,5 @@ it does not send the optional delayed-response or shell-permission probes.
 
 ## Current status
 
-See /tmp/vellum-repro-ledger.md (red tests = reproduced defects) and /tmp/vellum-defect-coverage.md
+See /tmp/junto-repro-ledger.md (red tests = reproduced defects) and /tmp/junto-defect-coverage.md
 (46-defect inventory with coverage status).

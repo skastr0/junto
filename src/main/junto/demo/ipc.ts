@@ -1,5 +1,5 @@
 /**
- * Demo/scripting engine IPC surface (--vellum-demo only; inert otherwise).
+ * Demo/scripting engine IPC surface (--junto-demo only; inert otherwise).
  * Handlers are ALWAYS registered so the renderer's demoState probe never
  * hangs waiting on a missing channel — behavior is flag-gated, not
  * registration.

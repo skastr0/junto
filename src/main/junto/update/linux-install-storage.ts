@@ -282,7 +282,7 @@ export const acquireLinuxInstallMutation = async (
   if (!sameIdentity(current, authority.identity)) throw new Error("Linux desktop install root changed filesystem identity");
   if (process.platform !== "linux") throw new Error("Linux install mutation leases are Linux-only");
   const server = createServer((socket) => socket.destroy());
-  const abstractPath = `\0vellum-linux-install-${createHash("sha256").update(`${current.dev}:${current.ino}`).digest("hex")}`;
+  const abstractPath = `\0junto-linux-install-${createHash("sha256").update(`${current.dev}:${current.ino}`).digest("hex")}`;
   try {
     await listenUnix(server, abstractPath);
   } catch (cause) {

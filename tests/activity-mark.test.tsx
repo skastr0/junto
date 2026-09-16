@@ -11,8 +11,8 @@ import { afterEach, describe, expect, it } from "vitest";
 import { ActivityMark } from "../src/renderer/components/ActivityMark";
 import { surfaceMotionLive$ } from "../src/renderer/lib/surface-motion";
 
-const CLOCK_CELL = /vellum-activity-clock-cell/g;
-const PULSE_CELL = /vellum-activity-pulse-cell/g;
+const CLOCK_CELL = /junto-activity-clock-cell/g;
+const PULSE_CELL = /junto-activity-pulse-cell/g;
 const CLOCK_STEP = /--activity-clock-step/g;
 
 const count = (html: string, re: RegExp): number => {
@@ -58,7 +58,7 @@ describe("ActivityMark cell structure", () => {
     expect(count(html, CLOCK_CELL)).toBe(0);
     expect(count(html, PULSE_CELL)).toBe(0);
     expect(html).toContain('data-activity-mode="static"');
-    expect(html).toContain("vellum-activity-static-dot");
+    expect(html).toContain("junto-activity-static-dot");
   });
 
   it("active=false: static mark even when mode is wave", () => {

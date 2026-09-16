@@ -98,7 +98,7 @@ describe("Linux desktop first-install CLI", () => {
       launched: false,
       executable_path: staged.executablePath,
       bootstrap_version: "1.0.0",
-      trusted_key_id: "vellum-linux-2026a",
+      trusted_key_id: "junto-linux-2026a",
     });
   });
 

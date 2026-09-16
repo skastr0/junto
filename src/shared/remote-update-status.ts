@@ -184,7 +184,7 @@ export const remoteUpdatePhaseFromDeployJob = (input: {
     return undefined;
   }
   if (job.status === "succeeded") return { kind: "updated" };
-  if (job.recoveryHint === "close-active-vellum-terminals") {
+  if (job.recoveryHint === "close-active-junto-terminals") {
     return { kind: "waiting-for-idle" };
   }
   return { kind: "failed" };

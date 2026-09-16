@@ -37,7 +37,7 @@ export type FactoryPauseRepositoryError =
 
 /**
  * effect-foundation **S4-rest-main** (staged, not half-migrated):
- * - Canonical id: `@vellum/FactoryPauseRepository` — single definition; no dual path.
+ * - Canonical id: `@junto/FactoryPauseRepository` — single definition; no dual path.
  * - Service id: Context.Service (Effect V4 live).
  * - Shape:
  *   `class FactoryPauseRepository extends Context.Service<FactoryPauseRepository, FactoryPauseRepository>()("@junto/FactoryPauseRepository") {}`

@@ -20,7 +20,7 @@ import {
 } from "../src/main/junto/control-filesystem";
 
 const roots: string[] = [];
-const root = async () => { const path = await mkdtemp(join(tmpdir(), "vellum-control-fs-")); roots.push(path); return path; };
+const root = async () => { const path = await mkdtemp(join(tmpdir(), "junto-control-fs-")); roots.push(path); return path; };
 afterEach(async () => {
   await Promise.all(roots.splice(0).map((path) => rm(path, { recursive: true, force: true })));
 });

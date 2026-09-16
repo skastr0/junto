@@ -20,9 +20,9 @@ describe("Linux OrbStack two-station qualification (userland archive)", () => {
       "--run-id",
       "release-015",
       "--evidence-dir",
-      "/tmp/vellum-evidence",
+      "/tmp/junto-evidence",
       "--golden-vm",
-      "vellum-ubuntu-x64-golden",
+      "junto-ubuntu-x64-golden",
       "--golden-id",
       "01QUALIFICATIONGOLDEN000000000",
       "--kind",
@@ -35,7 +35,7 @@ describe("Linux OrbStack two-station qualification (userland archive)", () => {
     expect(options).toMatchObject({
       mode: "prepare",
       runId: "release-015",
-      goldenName: "vellum-ubuntu-x64-golden",
+      goldenName: "junto-ubuntu-x64-golden",
       kind: "qualification-candidate",
       bundleDirectory: "/tmp/bundle",
     });
@@ -49,7 +49,7 @@ describe("Linux OrbStack two-station qualification (userland archive)", () => {
         "--run-id",
         "release-015",
         "--evidence-dir",
-        "/tmp/vellum-evidence",
+        "/tmp/junto-evidence",
         "--deb",
         "/tmp/app.deb",
       ]),
@@ -58,8 +58,8 @@ describe("Linux OrbStack two-station qualification (userland archive)", () => {
 
   it("names disposable VMs from the run id", () => {
     expect(qualificationMachineNames("release-015")).toEqual({
-      commandCenter: "vellum-q-release-015-cc",
-      remote: "vellum-q-release-015-remote",
+      commandCenter: "junto-q-release-015-cc",
+      remote: "junto-q-release-015-remote",
     });
     expect(requireRunId("release-015")).toBe("release-015");
   });
@@ -78,7 +78,7 @@ describe("Linux OrbStack two-station qualification (userland archive)", () => {
     expect(source).not.toMatch(/\/usr\/bin\/dpkg(?:-query)?\b/u);
     expect(source).not.toMatch(/\/usr\/bin\/apt-get\b/u);
     expect(source).not.toMatch(/\/opt\/Junto\b/u);
-    expect(source).not.toMatch(/vellum-release-bridge|vellum-release-installer/u);
+    expect(source).not.toMatch(/junto-release-bridge|junto-release-installer/u);
     expect(source).not.toMatch(/admin-password|passwordless sudo/u);
     expect(source).toContain("userland");
     expect(source).toContain("archiveSha256");
@@ -94,7 +94,7 @@ describe("Linux OrbStack two-station qualification (userland archive)", () => {
     expect(source).toContain("--install-user-service");
     // Remote must never be launched through Electron/Xvfb/ozone.
     expect(source).not.toMatch(
-      /qualification-remote-.*xvfb-run|--vellum-headless --ozone-platform/u,
+      /qualification-remote-.*xvfb-run|--junto-headless --ozone-platform/u,
     );
     expect(source).not.toContain("remoteQualificationUnitName");
     expect(source).not.toContain("launchRemoteQualificationRuntime");

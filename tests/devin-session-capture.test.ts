@@ -35,7 +35,7 @@ describe("devin session capture — lock file names it, the process tree claims 
   const homeWithLocks = (
     locks: ReadonlyArray<{ slug: string; pid: number; ageMs?: number }>,
   ): string => {
-    const home = mkdtempSync(join(tmpdir(), "vellum-devin-"));
+    const home = mkdtempSync(join(tmpdir(), "junto-devin-"));
     temps.push(home);
     const dir = devinSessionLocksDir(home);
     mkdirSync(dir, { recursive: true });
@@ -84,7 +84,7 @@ describe("devin session capture — lock file names it, the process tree claims 
   });
 
   it("ignores unreadable, non-numeric, and non-lock entries", () => {
-    const home = mkdtempSync(join(tmpdir(), "vellum-devin-"));
+    const home = mkdtempSync(join(tmpdir(), "junto-devin-"));
     temps.push(home);
     const dir = devinSessionLocksDir(home);
     mkdirSync(dir, { recursive: true });
@@ -146,7 +146,7 @@ describe("devin proof is the sessions row, not the lock", () => {
   });
 
   const devinHome = (): { home: string; root: string } => {
-    const home = mkdtempSync(join(tmpdir(), "vellum-devin-proof-"));
+    const home = mkdtempSync(join(tmpdir(), "junto-devin-proof-"));
     temps.push(home);
     const root = join(home, ".local", "share", "devin", "cli");
     mkdirSync(join(root, "session_locks"), { recursive: true });

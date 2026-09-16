@@ -24,7 +24,7 @@ import {
 const roots: string[] = [];
 
 const temporaryRoot = async (): Promise<string> => {
-  const root = await mkdtemp(path.join(tmpdir(), "vellum-linux-ci-evidence-"));
+  const root = await mkdtemp(path.join(tmpdir(), "junto-linux-ci-evidence-"));
   roots.push(root);
   return root;
 };
@@ -74,7 +74,7 @@ describe("Linux clean-CI target", () => {
 describe("Linux CI gate receipt", () => {
   it("requires every exact gate once and records only passes", () => {
     expect(createLinuxCiTestReceipt([...LINUX_CI_REQUIRED_GATES])).toEqual({
-      schema: "vellum/linux-ci-test-receipt/v1",
+      schema: "junto/linux-ci-test-receipt/v1",
       ok: true,
       target: {
         runner: "ubuntu-24.04",
@@ -111,13 +111,13 @@ describe("Linux CI gate receipt", () => {
 describe("Linux CI log safety", () => {
   it("redacts workspace, runner, home, and secret material", () => {
     const input = [
-      "/home/runner/work/vellum/vellum/src/main.ts",
+      "/home/runner/work/junto/junto/src/main.ts",
       "/opt/actions/temp/build.log",
       "/Users/operator/.junto/work/token",
       "Authorization: Bearer abcdefghijklmnopqrstuvwxyz012345",
     ].join("\n");
     const result = redactLinuxCiLog(input, {
-      workspace: "/home/runner/work/vellum/vellum",
+      workspace: "/home/runner/work/junto/junto",
       runnerTemp: "/opt/actions/temp",
       home: "/Users/operator",
     });
@@ -152,9 +152,9 @@ describe("Linux release artifact identity", () => {
   it.each([
     "junto-runtime-0.1.0-linux-arm64.tar.gz",
     "Junto-0.1.0-x64-linux.AppImage",
-    "vellum-linux-generic.tar.gz",
-    "vellum-0.1.0.rpm",
-    "vellum-0.1.0.flatpak",
+    "junto-linux-generic.tar.gz",
+    "junto-0.1.0.rpm",
+    "junto-0.1.0.flatpak",
   ])("rejects unsupported artifact %s", (unsupported) => {
     expect(() => validateLinuxReleaseArtifactNames({
       names: [
@@ -189,7 +189,7 @@ describe("Linux release artifact identity", () => {
     await writeFile(
       path.join(evidence, "inventory.json"),
       JSON.stringify({
-        schema: "vellum/linux-ci-inventory/v1",
+        schema: "junto/linux-ci-inventory/v1",
         target: {
           runner: "ubuntu-24.04",
           os: "linux",

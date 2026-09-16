@@ -356,7 +356,7 @@ describe("redaction", () => {
 
 describe("offline conversation fallback", () => {
   it("counts .db files under antigravity-cli/conversations only as an extras signal", () => {
-    const home = mkdtempSync(join(tmpdir(), "vellum-agy-"));
+    const home = mkdtempSync(join(tmpdir(), "junto-agy-"));
     try {
       const conv = join(home, ".gemini", "antigravity-cli", "conversations");
       mkdirSync(conv, { recursive: true });

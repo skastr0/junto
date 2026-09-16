@@ -35,8 +35,8 @@ describe("omp workspace encoding", () => {
 
   it("is home-relative under $HOME", () => {
     expect(
-      encodeOmpWorkspaceDir("/Users/me/Projects/vellum", "/Users/me", TMP),
-    ).toBe("-Projects-vellum");
+      encodeOmpWorkspaceDir("/Users/me/Projects/junto", "/Users/me", TMP),
+    ).toBe("-Projects-junto");
   });
 
   it("is tmp-relative under os.tmpdir()", () => {
@@ -71,8 +71,8 @@ describe("omp workspace encoding", () => {
 
   it("prefers home when a cwd could also sit under tmpdir", () => {
     expect(
-      encodeOmpWorkspaceDir("/Users/me/Projects/vellum", "/Users/me", "/Users/me"),
-    ).toBe("-Projects-vellum");
+      encodeOmpWorkspaceDir("/Users/me/Projects/junto", "/Users/me", "/Users/me"),
+    ).toBe("-Projects-junto");
   });
 });
 

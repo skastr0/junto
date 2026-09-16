@@ -4,15 +4,15 @@ import { IPC_CHANNELS } from "@shared/ipc";
 import { CodexService } from "./services/codex";
 import { AppRuntime, buildDoctorReport } from "./runtime";
 import type { BrowserSessionService } from "./junto/browser/sessions";
-import { registerVellumBrowserIpc, registerVellumIpc } from "./junto/ipc";
+import { registerJuntoBrowserIpc, registerJuntoIpc } from "./junto/ipc";
 import { trustedRendererIpc } from "./junto/trusted-main-webcontents";
 
 export const registerBrowserIpcHandlers = (sessions: BrowserSessionService): void => {
-  registerVellumBrowserIpc(sessions);
+  registerJuntoBrowserIpc(sessions);
 };
 
 export const registerIpcHandlers = (): void => {
-  registerVellumIpc();
+  registerJuntoIpc();
   const privilegedIpc = trustedRendererIpc(ipcMain);
   privilegedIpc.handle(IPC_CHANNELS.doctor, () => AppRuntime.runPromise(buildDoctorReport));
 

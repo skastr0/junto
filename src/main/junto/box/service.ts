@@ -76,7 +76,7 @@ export const BOX_IDLE_AUTO_STOP_SECONDS = 10 * 60;
 
 /**
  * effect-foundation **S4-rest-main** (staged, not half-migrated):
- * - Canonical id: `@vellum/box/BoxFleetService` — single definition; no dual path.
+ * - Canonical id: `@junto/box/BoxFleetService` — single definition; no dual path.
  * - Service id: Context.Service (Effect V4 live).
  * - Shape:
  *   `class BoxFleetService extends Context.Service<BoxFleetService, BoxFleetService>()("@junto/box/BoxFleetService") {}`

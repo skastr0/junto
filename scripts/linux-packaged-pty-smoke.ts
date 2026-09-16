@@ -348,7 +348,7 @@ export const smokeLinuxPackagedPty = async (
   auditLinuxPtyPlacement(resources);
 
   const tempParent = await realpath("/tmp");
-  const tempRoot = await mkdtemp(path.join(tempParent, "vellum-linux-pty-smoke-"));
+  const tempRoot = await mkdtemp(path.join(tempParent, "junto-linux-pty-smoke-"));
   await chmod(tempRoot, 0o700);
   const isolatedHome = path.join(tempRoot, "home");
   const userData = path.join(tempRoot, "user-data");
@@ -363,8 +363,8 @@ export const smokeLinuxPackagedPty = async (
   const environment: NodeJS.ProcessEnv = {
     ...inheritedDisplayEnvironment(),
     HOME: isolatedHome,
-    USER: process.env.USER ?? "vellum-smoke",
-    LOGNAME: process.env.LOGNAME ?? process.env.USER ?? "vellum-smoke",
+    USER: process.env.USER ?? "junto-smoke",
+    LOGNAME: process.env.LOGNAME ?? process.env.USER ?? "junto-smoke",
     PATH: "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
     SHELL: "/bin/bash",
     TMPDIR: isolatedTmp,
@@ -392,7 +392,7 @@ export const smokeLinuxPackagedPty = async (
       source: "linux-packaged-pty-smoke",
       purpose: "verify packaged Junto terminal runtime",
       command: executable,
-      args: ["--vellum-headless", `--user-data-dir=${userData}`],
+      args: ["--junto-headless", `--user-data-dir=${userData}`],
       cwd: tempRoot,
       env: environment,
       shell: false,

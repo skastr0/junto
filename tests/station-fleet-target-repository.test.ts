@@ -32,7 +32,7 @@ const makeRuntime = async (
   path?: string,
 ): Promise<Readonly<{ path: string; runtime: FleetRuntime }>> => {
   const root = path === undefined
-    ? await mkdtemp(join(tmpdir(), "vellum-fleet-targets-"))
+    ? await mkdtemp(join(tmpdir(), "junto-fleet-targets-"))
     : undefined;
   if (root !== undefined) roots.push(root);
   const databasePath = path ?? join(root!, "state", "junto.db");

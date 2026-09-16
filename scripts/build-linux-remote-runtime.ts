@@ -143,7 +143,7 @@ export const nodeLinuxX64ArchiveUrl = (version: string): string =>
  * Wrapper executed as resources/bin/junto-remote. Resolves the release root
  * from argv0, never uses system node, never sets ELECTRON_RUN_AS_NODE.
  */
-export const vellumRemoteWrapperScript = (): string => `#!/bin/sh
+export const juntoRemoteWrapperScript = (): string => `#!/bin/sh
 # Displayless product Remote: bundled Node + app-remote entry. No system Node,
 # no Bun compile, no ELECTRON_RUN_AS_NODE.
 set -eu
@@ -645,18 +645,18 @@ export const stageRemoteEntry = async (input: {
   // CJS entry can resolve node-pty via NODE_PATH; package.json documents the surface.
   await writeFile(
     path.join(input.runtimeRoot, REMOTE_APP_PACKAGE_RELATIVE),
-    `${JSON.stringify({ name: "vellum-app-remote", private: true, main: "junto-remote.js" }, null, 2)}\n`,
+    `${JSON.stringify({ name: "junto-app-remote", private: true, main: "junto-remote.js" }, null, 2)}\n`,
     { encoding: "utf8", mode: 0o644 },
   );
   return { entryPath: destination };
 };
 
-export const stageVellumRemoteWrapper = async (
+export const stageJuntoRemoteWrapper = async (
   runtimeRoot: string,
 ): Promise<{ readonly wrapperPath: string }> => {
   const wrapperPath = path.join(runtimeRoot, REMOTE_WRAPPER_RELATIVE);
   await mkdir(path.dirname(wrapperPath), { recursive: true, mode: 0o755 });
-  await writeFile(wrapperPath, vellumRemoteWrapperScript(), {
+  await writeFile(wrapperPath, juntoRemoteWrapperScript(), {
     encoding: "utf8",
     mode: 0o755,
   });
@@ -835,7 +835,7 @@ export const installLinuxRemoteRuntime = async (input: {
   const stagedAppRoot = path.join(stageRoot, REMOTE_APP_DIR_RELATIVE);
   let archiveSha256 = "skipped-non-linux";
   try {
-    await stageVellumRemoteWrapper(stageRoot);
+    await stageJuntoRemoteWrapper(stageRoot);
     if (requireEntry) {
       await stageRemoteEntry({
         repoRoot,

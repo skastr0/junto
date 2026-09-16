@@ -52,7 +52,7 @@ import {
 
 const PRODUCT_NAME = "Junto";
 const APP_BUNDLE_NAME = `${PRODUCT_NAME}.app`;
-const LABEL = "skastr0.vellumcommand";
+const LABEL = "com.skastr0.junto";
 const DEPLOY_TIMEOUT_MS = 20 * 60 * 1000;
 const REMOTE_APP_PATH = `/Applications/${APP_BUNDLE_NAME}`;
 const REMOTE_CLI_EXECUTABLE =
@@ -875,15 +875,15 @@ const buildRemoteDeployScriptWithRuntime = (
   const generationProofLimit = String(waitLimits.generationProof);
   const socketReadyLimit = String(waitLimits.socketReady);
 
-  // First install only: --vellum-headless so an unconfigured package never
+  // First install only: --junto-headless so an unconfigured package never
   // opens the Command Center canvas. Update stays Remote — redeploy
   // is not unenroll. expectedPackageState is that compile decision, not
   // raw disk presence (enrolled missing .app stays present).
   const firstInstall = transfer.expectedPackageState === "absent";
-  const enrollmentFlag = firstInstall ? "--vellum-headless" : "";
+  const enrollmentFlag = firstInstall ? "--junto-headless" : "";
   const programArguments = firstInstall
     ? `<string>${xmlText(remoteExecutablePath)}</string>
-<string>${xmlText("--vellum-headless")}</string>`
+<string>${xmlText("--junto-headless")}</string>`
     : `<string>${xmlText(remoteExecutablePath)}</string>`;
   const plistBody = `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">

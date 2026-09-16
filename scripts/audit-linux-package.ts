@@ -62,8 +62,8 @@ export const LINUX_REMOTE_CLOSURE_EXACT_FILES = [
 const FORBIDDEN_SEGMENTS = new Set([
   "chrome-sandbox",
   "apparmor-profile",
-  "vellum-release-installer",
-  "vellum-release-bridge",
+  "junto-release-installer",
+  "junto-release-bridge",
   "sudoers",
   "before-install.sh",
   "after-install.sh",

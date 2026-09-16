@@ -12,19 +12,19 @@ export const LAUNCHCTL_PATH = "/bin/launchctl";
 export const LAUNCHCTL_DEADLINE_MS = 3_000;
 export const LAUNCHCTL_STDOUT_CAP_BYTES = 64 * 1024;
 export const LAUNCHCTL_STDERR_CAP_BYTES = 16 * 1024;
-export const JUNTO_LAUNCHD_LABEL = "skastr0.vellumcommand";
+export const JUNTO_LAUNCHD_LABEL = "com.skastr0.junto";
 
-const VellumLaunchAgentTargetTypeId: unique symbol = Symbol(
-  "@junto/VellumLaunchAgentTarget",
+const JuntoLaunchAgentTargetTypeId: unique symbol = Symbol(
+  "@junto/JuntoLaunchAgentTarget",
 );
 
 /** Opaque authority to address only this user's Junto LaunchAgent. */
-export interface VellumLaunchAgentTarget {
-  readonly [VellumLaunchAgentTargetTypeId]:
-    typeof VellumLaunchAgentTargetTypeId;
+export interface JuntoLaunchAgentTarget {
+  readonly [JuntoLaunchAgentTargetTypeId]:
+    typeof JuntoLaunchAgentTargetTypeId;
 }
 
-const launchAgentTargets = new WeakMap<VellumLaunchAgentTarget, string>();
+const launchAgentTargets = new WeakMap<JuntoLaunchAgentTarget, string>();
 
 type LaunchctlAction = "print" | "kickstart";
 
@@ -73,10 +73,10 @@ export type LaunchctlRunResult =
 
 export interface LaunchctlRunner {
   readonly printLaunchAgent: (
-    target: VellumLaunchAgentTarget,
+    target: JuntoLaunchAgentTarget,
   ) => Promise<LaunchctlRunResult>;
   readonly kickstartLaunchAgent: (
-    target: VellumLaunchAgentTarget,
+    target: JuntoLaunchAgentTarget,
   ) => Promise<LaunchctlRunResult>;
 }
 
@@ -97,7 +97,7 @@ interface LaunchctlRunnerOptions {
 const MAX_DIAGNOSTIC_CHARACTERS = 512;
 const MAX_LAUNCHD_UID = 0xffff_ffff;
 const LAUNCHD_TARGET_PATTERN =
-  /^gui\/(0|[1-9]\d{0,9})\/skastr0\.vellumcommand$/;
+  /^gui\/(0|[1-9]\d{0,9})\/com\.skastr0\.junto$/;
 
 const boundedPositiveInteger = (
   value: number | undefined,
@@ -144,7 +144,7 @@ const isValidLaunchdTarget = (target: string): boolean => {
  * another user's launchd domain.
  */
 export const launchAgentTargetForCurrentUser = (
-): VellumLaunchAgentTarget | undefined => {
+): JuntoLaunchAgentTarget | undefined => {
   const uid = process.getuid?.();
   if (
     uid === undefined || !Number.isSafeInteger(uid) || uid < 0 ||
@@ -152,8 +152,8 @@ export const launchAgentTargetForCurrentUser = (
   ) return undefined;
   const target = `gui/${uid}/${JUNTO_LAUNCHD_LABEL}`;
   if (!isValidLaunchdTarget(target)) return undefined;
-  const capability: VellumLaunchAgentTarget = {
-    [VellumLaunchAgentTargetTypeId]: VellumLaunchAgentTargetTypeId,
+  const capability: JuntoLaunchAgentTarget = {
+    [JuntoLaunchAgentTargetTypeId]: JuntoLaunchAgentTargetTypeId,
   };
   launchAgentTargets.set(capability, target);
   return Object.freeze(capability);
@@ -236,7 +236,7 @@ export const createLaunchctlRunner = (
 
   const run = async (
     action: LaunchctlAction,
-    targetCapability: VellumLaunchAgentTarget,
+    targetCapability: JuntoLaunchAgentTarget,
   ): Promise<LaunchctlRunResult> => {
     const target = launchAgentTargets.get(targetCapability);
     const emptyBase: LaunchctlResultBase = {
@@ -529,9 +529,9 @@ export const createLaunchctlRunner = (
   };
 
   return Object.freeze({
-    printLaunchAgent: (target: VellumLaunchAgentTarget) =>
+    printLaunchAgent: (target: JuntoLaunchAgentTarget) =>
       run("print", target),
-    kickstartLaunchAgent: (target: VellumLaunchAgentTarget) =>
+    kickstartLaunchAgent: (target: JuntoLaunchAgentTarget) =>
       run("kickstart", target),
   });
 };
@@ -539,9 +539,9 @@ export const createLaunchctlRunner = (
 const launchctlRunner = createLaunchctlRunner();
 
 export const printLaunchAgent = (
-  target: VellumLaunchAgentTarget,
+  target: JuntoLaunchAgentTarget,
 ): Promise<LaunchctlRunResult> => launchctlRunner.printLaunchAgent(target);
 
 export const kickstartLaunchAgent = (
-  target: VellumLaunchAgentTarget,
+  target: JuntoLaunchAgentTarget,
 ): Promise<LaunchctlRunResult> => launchctlRunner.kickstartLaunchAgent(target);

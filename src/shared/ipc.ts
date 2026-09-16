@@ -148,7 +148,7 @@ export const IPC_CHANNELS = {
   browserSessionList: "junto:browser-session-list",
   browserSetBounds: "junto:browser-set-bounds",
   browserSurfaceConfig: "junto:browser-surface-config",
-  // demo/scripting engine (--vellum-demo only; inert otherwise)
+  // demo/scripting engine (--junto-demo only; inert otherwise)
   demoState: "junto:demo-state",
   demoWriteEdl: "junto:demo-write-edl",
   // user settings plane (app-owned SQLite state)
@@ -1019,7 +1019,7 @@ export interface HostsConfigureRemoteResult {
 /** Fixed operator recovery for a deployment refusal; never carries a command or path. */
 export type HostsDeployRemoteRecoveryAction =
   {
-    readonly kind: "close-active-vellum-terminals";
+    readonly kind: "close-active-junto-terminals";
     readonly activeTerminalSessions: number;
   };
 
@@ -1229,7 +1229,7 @@ export interface VellumCommandTerminalApi {
   ) => () => void;
 }
 
-// --- demo/scripting engine (--vellum-demo only) ------------------------------
+// --- demo/scripting engine (--junto-demo only) ------------------------------
 // Outside demo mode: demoState answers { active: false } and the other two
 // answer ok:false — handlers are always registered, behavior is flag-gated.
 

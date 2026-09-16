@@ -26,7 +26,7 @@ const tempRoots: string[] = [];
 
 const makeTempRoot = async (): Promise<string> => {
   const root = await mkdtemp(
-    join(tmpdir(), "vellum-retired-signature-audit-"),
+    join(tmpdir(), "junto-retired-signature-audit-"),
   );
   tempRoots.push(root);
   return root;
@@ -78,7 +78,7 @@ describe("retired product-state signature boundary", () => {
       [
         "~/.junto/state/junto.db",
         "state_schema_identity",
-        "canvas_generations",
+        "canvas_portfolio_head",
         "work_events",
         "station_projection_versions",
         "station_projection_head",
@@ -284,7 +284,7 @@ describe("complete Linux packaged runtime retired-state audit", () => {
       });
       const paths = Object.fromEntries(await Promise.all(
         ["work", "installer", "bridge"].map(async (name) => {
-          const file = join(root, `vellum-${name}`);
+          const file = join(root, `junto-${name}`);
           await writeFile(file, name === target ? "incoming.frame" : "safe");
           return [name, file];
         }),
@@ -300,7 +300,7 @@ describe("complete Linux packaged runtime retired-state audit", () => {
 
   it("keeps every Linux executable scan finite", async () => {
     const root = await makeTempRoot();
-    const helper = join(root, "vellum-release-installer");
+    const helper = join(root, "junto-release-installer");
     await writeFile(helper, "safe");
     expect(auditRetiredStateBuffer(new Uint8Array(
       LINUX_RELEASE_HELPER_RETIRED_STATE_AUDIT_MAX_BYTES,

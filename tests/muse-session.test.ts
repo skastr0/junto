@@ -119,7 +119,7 @@ afterEach(() => {
 const A = "aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa";
 const B = "bbbbbbbb-2222-4222-8222-bbbbbbbbbbbb";
 const C = "cccccccc-3333-4333-8333-cccccccccccc";
-const WORKSPACE = "/repo/vellum";
+const WORKSPACE = "/repo/junto";
 const OTHER = "/repo/other";
 
 describe("muse session capture", () => {

@@ -14,7 +14,7 @@ describe("Linux userland Remote launcher", () => {
     expect(source).not.toContain("xauth");
     expect(source).not.toContain("mcookie");
     expect(source).not.toContain("--ozone-platform");
-    expect(source).not.toContain("--vellum-headless");
+    expect(source).not.toContain("--junto-headless");
     expect(source).not.toMatch(/--no-sandbox|disable-setuid-sandbox|ELECTRON_RUN_AS_NODE/u);
   });
 });

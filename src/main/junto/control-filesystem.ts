@@ -126,7 +126,7 @@ const acquireLinuxAbstractLease = async (
 ): Promise<KernelListenerLease> => {
   const server = createServer((socket) => socket.destroy());
   const abstractPath =
-    `\0vellum-control-${createHash("sha256").update(leaseKey).digest("hex")}`;
+    `\0junto-control-${createHash("sha256").update(leaseKey).digest("hex")}`;
   await listenUnix(server, abstractPath);
   // The product listener itself owns process lifetime. This server owns only
   // the collision-proof kernel address and must not create a second exit gate.

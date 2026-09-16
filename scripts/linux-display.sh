@@ -4,7 +4,7 @@
 # A caller-provided desktop always wins. In an Amp orb, command shells do not
 # inherit the Desktop session, so recover its generated environment only when
 # the live X11 or Wayland socket proves that session still exists.
-vellum_use_available_desktop() {
+junto_use_available_desktop() {
   if [[ -n "${DISPLAY:-}" || -n "${WAYLAND_DISPLAY:-}" ]]; then
     return 0
   fi

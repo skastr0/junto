@@ -15,18 +15,18 @@ export const SYSTEMCTL_STDERR_CAP_BYTES = 16 * 1024;
 /** The systemd provider owns one fixed Junto user-service name. */
 export const JUNTO_SYSTEMD_USER_UNIT = "junto-remote.service";
 
-const VellumSystemdUserUnitTargetTypeId: unique symbol = Symbol(
-  "@junto/VellumSystemdUserUnitTarget",
+const JuntoSystemdUserUnitTargetTypeId: unique symbol = Symbol(
+  "@junto/JuntoSystemdUserUnitTarget",
 );
 
 /** Opaque authority to address only Junto's fixed systemd user unit. */
-export interface VellumSystemdUserUnitTarget {
-  readonly [VellumSystemdUserUnitTargetTypeId]:
-    typeof VellumSystemdUserUnitTargetTypeId;
+export interface JuntoSystemdUserUnitTarget {
+  readonly [JuntoSystemdUserUnitTargetTypeId]:
+    typeof JuntoSystemdUserUnitTargetTypeId;
 }
 
 const systemdUserUnitTargets = new WeakMap<
-  VellumSystemdUserUnitTarget,
+  JuntoSystemdUserUnitTarget,
   typeof JUNTO_SYSTEMD_USER_UNIT
 >();
 
@@ -75,11 +75,11 @@ export type SystemctlRunResult =
   });
 
 export interface SystemctlRunner {
-  readonly showVellumUnit: (
-    target: VellumSystemdUserUnitTarget,
+  readonly showJuntoUnit: (
+    target: JuntoSystemdUserUnitTarget,
   ) => Promise<SystemctlRunResult>;
-  readonly startVellumUnit: (
-    target: VellumSystemdUserUnitTarget,
+  readonly startJuntoUnit: (
+    target: JuntoSystemdUserUnitTarget,
   ) => Promise<SystemctlRunResult>;
 }
 
@@ -139,9 +139,9 @@ const appendDiagnostic = (
   `${existing.diagnostic}; ${next}`.slice(0, MAX_DIAGNOSTIC_CHARACTERS),
 );
 
-export const systemdUserUnitTarget = (): VellumSystemdUserUnitTarget => {
-  const target: VellumSystemdUserUnitTarget = {
-    [VellumSystemdUserUnitTargetTypeId]: VellumSystemdUserUnitTargetTypeId,
+export const systemdUserUnitTarget = (): JuntoSystemdUserUnitTarget => {
+  const target: JuntoSystemdUserUnitTarget = {
+    [JuntoSystemdUserUnitTargetTypeId]: JuntoSystemdUserUnitTargetTypeId,
   };
   systemdUserUnitTargets.set(target, JUNTO_SYSTEMD_USER_UNIT);
   return Object.freeze(target);
@@ -258,7 +258,7 @@ export const createSystemctlRunner = (
 
   const run = async (
     action: SystemctlAction,
-    targetCapability: VellumSystemdUserUnitTarget,
+    targetCapability: JuntoSystemdUserUnitTarget,
   ): Promise<SystemctlRunResult> => {
     const unit = systemdUserUnitTargets.get(targetCapability);
     const emptyBase: SystemctlResultBase = {
@@ -541,19 +541,19 @@ export const createSystemctlRunner = (
   };
 
   return Object.freeze({
-    showVellumUnit: (target: VellumSystemdUserUnitTarget) =>
+    showJuntoUnit: (target: JuntoSystemdUserUnitTarget) =>
       run("show", target),
-    startVellumUnit: (target: VellumSystemdUserUnitTarget) =>
+    startJuntoUnit: (target: JuntoSystemdUserUnitTarget) =>
       run("start", target),
   });
 };
 
 const systemctlRunner = createSystemctlRunner();
 
-export const showVellumSystemdUserUnit = (
-  target: VellumSystemdUserUnitTarget,
-): Promise<SystemctlRunResult> => systemctlRunner.showVellumUnit(target);
+export const showJuntoSystemdUserUnit = (
+  target: JuntoSystemdUserUnitTarget,
+): Promise<SystemctlRunResult> => systemctlRunner.showJuntoUnit(target);
 
-export const startVellumSystemdUserUnit = (
-  target: VellumSystemdUserUnitTarget,
-): Promise<SystemctlRunResult> => systemctlRunner.startVellumUnit(target);
+export const startJuntoSystemdUserUnit = (
+  target: JuntoSystemdUserUnitTarget,
+): Promise<SystemctlRunResult> => systemctlRunner.startJuntoUnit(target);

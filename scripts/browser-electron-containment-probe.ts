@@ -52,7 +52,7 @@ const MAX_LOG_BYTES = 256 * 1024;
 // Adversarial recurrence input only: the product protocol no longer defines
 // this header. The probe sends it to prove an obsolete client credential
 // cannot select browser authority.
-const RETIRED_CLIENT_CAPABILITY_HEADER = "x-vellum-capability";
+const RETIRED_CLIENT_CAPABILITY_HEADER = "x-junto-capability";
 const probeSupervisor = createProbeProcessSupervisor({ maxLogBytes: MAX_LOG_BYTES });
 let probeStage = "setup";
 let activeProbeServer: Server | undefined;
@@ -886,7 +886,7 @@ const waitForReport = async (
         await controlCall(socketPath, token, "eval", {
           sessionId,
           code: `(() => {
-            const node = document.getElementById("vellum-containment-report");
+            const node = document.getElementById("junto-containment-report");
             if (node?.dataset.mainWorldPoisoned !== "true") return null;
             return JSON.parse(node.textContent || "null");
           })()`,
@@ -1703,7 +1703,7 @@ const main = async (): Promise<void> => {
   const restartShutdownRequestPath = join(root, "shutdown-launch-two.request");
   const markerPath = join(root, `host-marker-${randomUUID()}`);
   const nonce = randomUUID();
-  const customProtocolUrl = `vellum-probe://denied/${nonce}`;
+  const customProtocolUrl = `junto-probe://denied/${nonce}`;
   const legacyTcpPort = await reserveLoopbackPort();
   await Promise.all(
     [home, userData, browserDir, downloadsDir].map((path) =>
@@ -1740,7 +1740,7 @@ const main = async (): Promise<void> => {
       downloadRequests += 1;
       res.writeHead(200, {
         "content-type": "application/octet-stream",
-        "content-disposition": `attachment; filename="vellum-probe-${nonce}.txt"`,
+        "content-disposition": `attachment; filename="junto-probe-${nonce}.txt"`,
         "cache-control": "no-store",
       });
       res.end("a denied hostile download must never reach disk");

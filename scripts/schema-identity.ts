@@ -18,7 +18,7 @@ import { fileURLToPath } from "node:url";
 const ROOT = resolve(fileURLToPath(new URL(".", import.meta.url)), "..");
 const MIGRATIONS = join(ROOT, "src/main/junto/state/migrations.ts");
 
-const out = mkdtempSync(join(tmpdir(), "vellum-schema-identity-"));
+const out = mkdtempSync(join(tmpdir(), "junto-schema-identity-"));
 const resultPath = join(out, "identity.json");
 const toolTest = join(ROOT, "tests", "schema-identity-writer.tool.test.ts");
 

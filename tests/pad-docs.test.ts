@@ -18,7 +18,7 @@ describe("pad operator and agent docs", () => {
     expect(node).toContain("junto pad tagged");
     expect(node).toContain("ink or image");
     expect(node).toContain("inbound actor");
-    expect(node).not.toMatch(/\bVellum\b(?! Command)/);
+    expect(node).not.toMatch(/\bVellum\b/);
   });
 
   it("docs/pad.md matches shipped ports, CLI verbs, and refusals", async () => {
@@ -39,7 +39,7 @@ describe("pad operator and agent docs", () => {
     expect(guide).toContain("`d`");
     expect(guide).toContain("@");
     expect(guide).not.toContain("\u00b7");
-    expect(guide).not.toMatch(/\bVellum\b(?! Command)/);
+    expect(guide).not.toMatch(/\bVellum\b/);
     expect(guide).not.toMatch(/\bPNG\b/);
     expect(guide).toContain("SVG + digest + look-here crop");
     expect(guide).toContain("local inverse patch — durable with the next editor write");

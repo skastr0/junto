@@ -433,7 +433,7 @@ const decodeEvalEnvelope = (value: unknown): BrowserResult<{ result: unknown }> 
       }
       return descriptor.value;
     };
-    if (readData("__vellumEval") !== 1) {
+    if (readData("__juntoEval") !== 1) {
       return err("unsupported_result", "eval returned a foreign result envelope");
     }
 
@@ -441,7 +441,7 @@ const decodeEvalEnvelope = (value: unknown): BrowserResult<{ result: unknown }> 
     if (status === "ok") {
       if (
         keys.length !== 3 ||
-        !keys.includes("__vellumEval") ||
+        !keys.includes("__juntoEval") ||
         !keys.includes("status") ||
         !keys.includes("json")
       ) {
@@ -476,7 +476,7 @@ const decodeEvalEnvelope = (value: unknown): BrowserResult<{ result: unknown }> 
     if (status === "unsupported_result" || status === "result_too_large") {
       if (
         keys.length !== 3 ||
-        !keys.includes("__vellumEval") ||
+        !keys.includes("__juntoEval") ||
         !keys.includes("status") ||
         !keys.includes("message")
       ) {

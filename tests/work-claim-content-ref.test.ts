@@ -114,7 +114,7 @@ const factoryDoc = (): CanvasDoc => ({
 
 describe("S3 - WorkService claim + ContentRef media", () => {
   it("claims a ContentRef task when ContentService receipts+files are verified", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vellum-s3-claim-content-"));
+    const root = await mkdtemp(join(tmpdir(), "junto-s3-claim-content-"));
     roots.push(root);
     const runtime = makeClaimContentRuntime(root);
     runtimes.push(runtime);
@@ -190,7 +190,7 @@ describe("S3 - WorkService claim + ContentRef media", () => {
   });
 
   it("rejects unverified ContentRef as content-pending, not service-unavailable", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vellum-s3-claim-pending-"));
+    const root = await mkdtemp(join(tmpdir(), "junto-s3-claim-pending-"));
     roots.push(root);
     const runtime = makeClaimContentRuntime(root);
     runtimes.push(runtime);
@@ -243,7 +243,7 @@ describe("S3 - WorkService claim + ContentRef media", () => {
   });
 
   it("fails WorkLive layer build when ContentService is omitted (hard dep)", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vellum-s3-no-content-"));
+    const root = await mkdtemp(join(tmpdir(), "junto-s3-no-content-"));
     roots.push(root);
     // Intentionally omit ContentService + InstallOps — S2 hard yield* must not
     // soft-miss; constructing WorkService without ContentService must fail loud.

@@ -49,14 +49,14 @@ const makeTrust = (
     ...override,
   };
   const keyring = {
-    schema: "vellum/linux-release-keyring/v1" as const,
+    schema: "junto/linux-release-keyring/v1" as const,
     revision: 1,
     keys: [key],
   };
   return {
     keyring,
     policy: {
-      schema: "vellum/linux-release-trust-policy/v1",
+      schema: "junto/linux-release-trust-policy/v1",
       state: "configured",
       trustedKeyringRevision: 1,
       trustedKeyringSha256: hash(`${JSON.stringify(keyring, null, 2)}\n`),
@@ -141,7 +141,7 @@ describe("Linux desktop release wire contract", () => {
   });
 
   it.each([
-    ["schema", "vellum/linux-release-bundle/v7"],
+    ["schema", "junto/linux-release-bundle/v7"],
     ["product", "Other Command"],
     ["channel", "stable"],
     ["sourceRevision", "A".repeat(40)],
@@ -255,7 +255,7 @@ describe("Linux desktop release authentication", () => {
   it("loads the real existing embedded public trust pin without filesystem lookup", () => {
     const pinned = loadEmbeddedLinuxDesktopReleaseTrust();
     expect(pinned.policy.trustedKeyringSha256).toBe(
-      "77878a59cea16ee1c22cba9d3add4980a7c52cb0c8f02272c4e021dec701b7da",
+      "d57438aa4b63ad5c0d1f1f58975fe1de18324f32d4776c53357dd4419c2f330c",
     );
     expect(pinned.keyring.keys[0]!.fingerprintSha256).toBe(
       pinned.policy.trustedKeyFingerprintSha256,
@@ -307,7 +307,7 @@ describe("Linux desktop release authentication", () => {
 
   it("refuses signatures made in another domain or over bare JSON", () => {
     const value = descriptor();
-    for (const prefix of ["", "vellum/linux-release-bundle/v7\n"]) {
+    for (const prefix of ["", "junto/linux-release-bundle/v7\n"]) {
       const signature = sign(
         null,
         Buffer.from(prefix + canonicalLinuxDesktopReleaseDescriptor(value)),

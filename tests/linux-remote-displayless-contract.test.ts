@@ -43,8 +43,8 @@ import {
   resolveNodeRemoteVersion,
   stageBuiltNodePtyLinuxRuntime,
   stageRemoteEntry,
-  stageVellumRemoteWrapper,
-  vellumRemoteWrapperScript,
+  stageJuntoRemoteWrapper,
+  juntoRemoteWrapperScript,
 } from "../scripts/build-linux-remote-runtime";
 
 const readRepo = (relative: string) =>
@@ -266,7 +266,7 @@ describe("Linux remote displayless packaging helpers", () => {
   });
 
   it("wrapper execs bundled node on app-remote entry without ELECTRON_RUN_AS_NODE", () => {
-    const script = vellumRemoteWrapperScript();
+    const script = juntoRemoteWrapperScript();
     expect(script.startsWith("#!/bin/sh\n")).toBe(true);
     expect(script).toContain("resources/bin/junto-remote");
     expect(script).toContain(REMOTE_NODE_RELATIVE);
@@ -316,7 +316,7 @@ describe("Linux remote displayless packaging helpers", () => {
       for (const notice of LINUX_REMOTE_NOTICE_FILES) {
         await writeFile(path.join(root, notice), `distribution notice: ${notice}\n`);
       }
-      const { wrapperPath } = await stageVellumRemoteWrapper(runtime);
+      const { wrapperPath } = await stageJuntoRemoteWrapper(runtime);
       const { entryPath } = await stageRemoteEntry({
         repoRoot: root,
         runtimeRoot: runtime,
@@ -441,6 +441,6 @@ describe("Linux remote displayless product contracts", () => {
     expect(launcher).toContain("unset DISPLAY WAYLAND_DISPLAY XAUTHORITY");
     expect(launcher).toContain("displayless junto-remote payload is unavailable");
     expect(launcher).not.toMatch(/Xvfb|xauth|mcookie/u);
-    expect(launcher).not.toMatch(/--ozone-platform|--vellum-headless|ELECTRON_RUN_AS_NODE/u);
+    expect(launcher).not.toMatch(/--ozone-platform|--junto-headless|ELECTRON_RUN_AS_NODE/u);
   });
 });

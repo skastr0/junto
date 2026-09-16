@@ -17,14 +17,14 @@
  *
  * | Identifier | Definition | Live layer |
  * |---|---|---|
- * | `@vellum/StationRepository` | `repository.ts` | `StationRepositoryLive` / `makeStationRepositoryLive` |
- * | `@vellum/StationApiService` | `api.ts` | `StationApiLive` |
- * | `@vellum/StationPropagation` | `propagation.ts` | `StationPropagationLive` |
- * | `@vellum/StationPeerExchange` | `peer-exchange.ts` | `OpenSshStationPeerExchangeLive` |
- * | `@vellum/StationFleetTargetRepository` | `fleet-target-repository.ts` | `StationFleetTargetRepositoryLive` |
- * | `@vellum/StationLivePeerRegistry` | `session-registry.ts` | `StationLivePeerRegistryLive` |
- * | `@vellum/StationPeerRouteResolver` | `fleet-propagation.ts` | `OpenSshStationPeerRouteResolverLive` |
- * | `@vellum/StationFleetPropagation` | `fleet-propagation.ts` | `StationFleetPropagationLive` |
+ * | `@junto/StationRepository` | `repository.ts` | `StationRepositoryLive` / `makeStationRepositoryLive` |
+ * | `@junto/StationApiService` | `api.ts` | `StationApiLive` |
+ * | `@junto/StationPropagation` | `propagation.ts` | `StationPropagationLive` |
+ * | `@junto/StationPeerExchange` | `peer-exchange.ts` | `OpenSshStationPeerExchangeLive` |
+ * | `@junto/StationFleetTargetRepository` | `fleet-target-repository.ts` | `StationFleetTargetRepositoryLive` |
+ * | `@junto/StationLivePeerRegistry` | `session-registry.ts` | `StationLivePeerRegistryLive` |
+ * | `@junto/StationPeerRouteResolver` | `fleet-propagation.ts` | `OpenSshStationPeerRouteResolverLive` |
+ * | `@junto/StationFleetPropagation` | `fleet-propagation.ts` | `StationFleetPropagationLive` |
  *
  * Sole product store remains `junto.db` via StateEngine; station services
  * never open a second product DB.

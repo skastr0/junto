@@ -136,7 +136,7 @@ const electron = vi.hoisted(() => {
       userGesture?: boolean,
     ): Promise<unknown> {
       this.isolatedCalls.push({ worldId, scripts, userGesture });
-      return Promise.resolve({ __vellumEval: 1, status: "ok", json: "null" });
+      return Promise.resolve({ __juntoEval: 1, status: "ok", json: "null" });
     }
     capturePage(): Promise<{ toPNG(): Uint8Array }> {
       return Promise.resolve({ toPNG: () => new Uint8Array([1]) });
@@ -755,7 +755,7 @@ describe("isolated-world bounded eval serializer", () => {
     );
 
     expect(result).toEqual({
-      __vellumEval: 1,
+      __juntoEval: 1,
       status: "ok",
       json: '{"title":"isolated title","values":[1,true,null]}',
     });
@@ -766,7 +766,7 @@ describe("isolated-world bounded eval serializer", () => {
       freshContext(),
       `"a".repeat(${BROWSER_MAX_EVAL_RESULT_BYTES - 2})`,
     );
-    expect(atLimit).toMatchObject({ __vellumEval: 1, status: "ok" });
+    expect(atLimit).toMatchObject({ __juntoEval: 1, status: "ok" });
     if (
       typeof atLimit !== "object" ||
       atLimit === null ||
@@ -780,7 +780,7 @@ describe("isolated-world bounded eval serializer", () => {
     expect(await runBoundedEval(
       freshContext(),
       `"a".repeat(${BROWSER_MAX_EVAL_RESULT_BYTES - 1})`,
-    )).toMatchObject({ __vellumEval: 1, status: "result_too_large" });
+    )).toMatchObject({ __juntoEval: 1, status: "result_too_large" });
   });
 
   it("accepts exactly the depth cap and rejects N+1", async () => {
@@ -816,7 +816,7 @@ describe("isolated-world bounded eval serializer", () => {
     ["throwing proxy", "new Proxy({}, { ownKeys: () => { throw new Error('trap'); } })"],
   ])("rejects unsupported %s results", async (_label, source) => {
     expect(await runBoundedEval(freshContext(), source))
-      .toMatchObject({ __vellumEval: 1, status: "unsupported_result" });
+      .toMatchObject({ __juntoEval: 1, status: "unsupported_result" });
   });
 
   it("keeps serializer intrinsics pristine across hostile prior automation", async () => {
@@ -824,11 +824,11 @@ describe("isolated-world bounded eval serializer", () => {
     expect(await runBoundedEval(
       context,
       "JSON.stringify = () => 'poison'; TextEncoder = class {}; eval = () => 'poison'; 'first'",
-    )).toEqual({ __vellumEval: 1, status: "ok", json: '"first"' });
+    )).toEqual({ __juntoEval: 1, status: "ok", json: '"first"' });
 
     expect(await runBoundedEval(context, "({ title: document.title })"))
       .toEqual({
-        __vellumEval: 1,
+        __juntoEval: 1,
         status: "ok",
         json: '{"title":"isolated title"}',
       });

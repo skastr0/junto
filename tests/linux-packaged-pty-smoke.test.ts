@@ -15,7 +15,7 @@ import {
 
 const roots: string[] = [];
 const root = async (): Promise<string> => {
-  const path = await mkdtemp(join(tmpdir(), "vellum-linux-pty-layout-"));
+  const path = await mkdtemp(join(tmpdir(), "junto-linux-pty-layout-"));
   roots.push(path);
   return path;
 };
@@ -190,7 +190,7 @@ describe("Linux packaged PTY product-path smoke", () => {
     expect(source).not.toContain(unsupportedSwitch);
     expect(source).toContain("TermControlClient.connect");
     expect(source).toContain("createAppProcessPlane()");
-    expect(source).toContain("--vellum-headless");
+    expect(source).toContain("--junto-headless");
     expect(source).not.toContain("process.exit(1)");
     expect(source).toContain("process.exitCode = 1");
   });

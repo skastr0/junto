@@ -30,7 +30,7 @@ export interface InstalledPackageLicense {
 }
 
 export interface DependencyLicenseInventory {
-  readonly schema: "vellum/dependency-license-inventory/v1";
+  readonly schema: "junto/dependency-license-inventory/v1";
   readonly sourceRevision: string;
   readonly packages: ReadonlyArray<InstalledPackageLicense>;
   readonly unknownLicenseCount: number;
@@ -351,7 +351,7 @@ export const collectDependencyLicenseInventory = async (input: {
     }
   }
   return {
-    schema: "vellum/dependency-license-inventory/v1",
+    schema: "junto/dependency-license-inventory/v1",
     sourceRevision: requireRevision(input.sourceRevision),
     packages: sorted,
     unknownLicenseCount: sorted.filter((entry) => entry.license === "UNKNOWN")
@@ -500,7 +500,7 @@ export const linuxReleaseInventoryMain = async (
       }),
     ),
     writeJsonExclusive(required(options, "--source-out"), {
-      schema: "vellum/source-revision/v1",
+      schema: "junto/source-revision/v1",
       revision: requireRevision(sourceRevision),
     }),
   ]);

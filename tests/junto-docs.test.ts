@@ -12,7 +12,7 @@ import {
 import { ALL_PORTS } from "../src/shared/physics/schema";
 import { KindSpecs } from "../src/shared/physics/kinds";
 
-describe("vellum docs catalog", () => {
+describe("junto docs catalog", () => {
   it("covers every well-known kind with role + offers", () => {
     const kinds = Object.keys(KindSpecs);
     expect(NODE_DOCS.length).toBe(kinds.length);

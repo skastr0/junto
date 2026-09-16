@@ -27,7 +27,7 @@ const walkTs = async (
 };
 
 describe("Linux userland architecture negatives", () => {
-  it("deploy product code never installs under /opt/vellum or /opt/Junto", async () => {
+  it("deploy product code never installs under /opt/junto or /opt/Junto", async () => {
     const files = [
       path.join(ROOT, "src/main/junto/hosts/deploy-linux.ts"),
       path.join(ROOT, "src/main/junto/ssh/remote-plan.ts"),
@@ -41,8 +41,8 @@ describe("Linux userland architecture negatives", () => {
       expect(source, file).not.toMatch(/\/opt\/[Vv]ellum\b/u);
       expect(source, file).not.toMatch(/\bdpkg(?:-deb|-query)?\b/u);
       expect(source, file).not.toMatch(/\bapt-get\b/u);
-      expect(source, file).not.toMatch(/vellum-release-bridge/u);
-      expect(source, file).not.toMatch(/vellum-release-installer/u);
+      expect(source, file).not.toMatch(/junto-release-bridge/u);
+      expect(source, file).not.toMatch(/junto-release-installer/u);
       expect(source, file).not.toMatch(/admin-password/u);
     }
   });
@@ -61,8 +61,8 @@ describe("Linux userland architecture negatives", () => {
           .map((name) => path.join(entry, name));
       for (const file of files) {
         const source = await readFile(file, "utf8");
-        expect(source, file).not.toMatch(/vellum-release-bridge/u);
-        expect(source, file).not.toMatch(/vellum-release-installer/u);
+        expect(source, file).not.toMatch(/junto-release-bridge/u);
+        expect(source, file).not.toMatch(/junto-release-installer/u);
         expect(source, file).not.toMatch(/linux-release-bridge/u);
         expect(source, file).not.toMatch(/linux-release-installer/u);
       }
@@ -76,7 +76,7 @@ describe("Linux userland architecture negatives", () => {
       const source = await readFile(file, "utf8");
       expect(source, file).not.toMatch(/\bsudo\b/u);
       expect(source, file).not.toMatch(/admin-password/u);
-      expect(source, file).not.toMatch(/vellum-release-bridge/u);
+      expect(source, file).not.toMatch(/junto-release-bridge/u);
     }
   });
 

@@ -261,7 +261,7 @@ describe("credential resolution", () => {
   });
 
   it("reads CLI OAuth credentials from the supplied KIMI_CODE_HOME", () => {
-    const tempHome = mkdtempSync(join(tmpdir(), "vellum-kimi-source-"));
+    const tempHome = mkdtempSync(join(tmpdir(), "junto-kimi-source-"));
     const previousHome = process.env.KIMI_CODE_HOME;
     mkdirSync(join(tempHome, "credentials"));
     writeFileSync(

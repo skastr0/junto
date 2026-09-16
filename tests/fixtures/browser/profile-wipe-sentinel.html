@@ -6,12 +6,12 @@
     <title>Junto profile wipe sentinel</title>
   </head>
   <body>
-    <output id="vellum-profile-wipe-report" aria-live="polite"></output>
+    <output id="junto-profile-wipe-report" aria-live="polite"></output>
     <script>
       (() => {
         "use strict";
 
-        const reportNode = document.getElementById("vellum-profile-wipe-report");
+        const reportNode = document.getElementById("junto-profile-wipe-report");
         const parameters = new URLSearchParams(location.search);
         const mode = parameters.get("mode");
         const profile = parameters.get("profile");
@@ -19,11 +19,11 @@
         const allowedModes = new Set(["seed", "read", "blank"]);
         const allowedProfiles = new Set(["personal", "work"]);
         const cookieName = "vellum_profile_wipe_cookie";
-        const localStorageKey = "vellum-profile-wipe-local";
-        const databaseName = "vellum-profile-wipe-indexed-db";
+        const localStorageKey = "junto-profile-wipe-local";
+        const databaseName = "junto-profile-wipe-indexed-db";
         const databaseStore = "sentinels";
         const databaseKey = "value";
-        const cacheName = "vellum-profile-wipe-cache";
+        const cacheName = "junto-profile-wipe-cache";
         const cacheRequest = "/profile-wipe/cache-sentinel";
         const workerScope = `${location.origin}/profile-wipe/`;
 

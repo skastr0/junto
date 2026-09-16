@@ -403,7 +403,7 @@ describe("browser egress proxy pinning", () => {
       expect(request.head.toLowerCase()).not.toContain("proxy-authorization");
       expect(request.head.toLowerCase()).not.toContain("proxy-connection");
       expect(request.head).not.toContain(proxy.credentials.password);
-      expect(request.head).not.toContain("vellum-");
+      expect(request.head).not.toContain("junto-");
     }
     // node:http normalizes forwarded header names to lower case.
     expect(origin.requests[0]?.head.toLowerCase()).not.toContain("x-test");

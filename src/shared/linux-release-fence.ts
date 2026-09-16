@@ -7,11 +7,11 @@
  * same-UID marker impossible.
  */
 export const LINUX_RELEASE_FENCE_DIRECTORY =
-  "/var/lib/vellum-release-fence" as const;
+  "/var/lib/junto-release-fence" as const;
 export const LINUX_RELEASE_FENCE_PATH =
-  "/var/lib/vellum-release-fence/active" as const;
+  "/var/lib/junto-release-fence/active" as const;
 export const LINUX_RELEASE_FENCE_PROTOCOL =
-  "vellum/linux-release-fence/v1" as const;
+  "junto/linux-release-fence/v1" as const;
 export const LINUX_RELEASE_FENCE_MAX_BYTES = 4 * 1024;
 
 const HEX_32 = /^[0-9a-f]{32}$/u;

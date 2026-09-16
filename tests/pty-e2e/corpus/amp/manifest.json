@@ -205,7 +205,7 @@
         "osc9": "",
         "promptGlyph": null,
         "description": "the numbered-line prompt remains queued as steering while the ongoing turn is Streaming; no interrupt or idle return is recorded",
-        "prompt": "forty numbered VELLUM CAPTURE lines"
+        "prompt": "forty numbered JUNTO CAPTURE lines"
       }
     }
   ],

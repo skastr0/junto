@@ -22,7 +22,7 @@ vi.mock("../src/main/junto/process-signal", async (importOriginal) => ({
 import {
   DARWIN_UNIX_SOCKET_PATH_MAX_BYTES,
   assertDarwinUnixSocketPathFits,
-  assertNoLiveVellumRuntime,
+  assertNoLiveJuntoRuntime,
   assertNoTcpListeners,
   boundedProcessKind,
   descendantRows,
@@ -178,15 +178,15 @@ describe("packaged runtime smoke process qualification", () => {
 
   it("rejects live Junto and debugger/CDP authority", () => {
     expect(() =>
-      assertNoLiveVellumRuntime(parseProcessRows(processFixture), ["/release/Junto.app"]),
+      assertNoLiveJuntoRuntime(parseProcessRows(processFixture), ["/release/Junto.app"]),
     ).toThrow(/already running/u);
     expect(() =>
-      assertNoLiveVellumRuntime([
+      assertNoLiveJuntoRuntime([
         { pid: 1, ppid: 0, command: "/Applications/Other.app/Contents/MacOS/Other" },
       ]),
     ).not.toThrow();
     expect(() =>
-      assertNoLiveVellumRuntime([
+      assertNoLiveJuntoRuntime([
         {
           pid: 2,
           ppid: 1,

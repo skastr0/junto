@@ -3,7 +3,7 @@
  * macOS focus / Dock while still creating a real BrowserWindow that
  * Playwright can attach to, click, and screenshot.
  *
- * `--vellum-headless` is a different mode (no authoring renderer at all).
+ * `--junto-headless` is a different mode (no authoring renderer at all).
  * E2E needs a renderer surface; it must simply never steal focus.
  *
  * Opt out of hiding (debug a failing scenario visually):

@@ -31,7 +31,7 @@ afterEach(async () => {
 const makeRuntime = async (databasePath?: string) => {
   const root =
     databasePath === undefined
-      ? await mkdtemp(join(tmpdir(), "vellum-scheduler-"))
+      ? await mkdtemp(join(tmpdir(), "junto-scheduler-"))
       : undefined;
   if (root !== undefined) roots.push(root);
   const path = databasePath ?? join(root!, "junto.db");

@@ -97,7 +97,7 @@ describe("process identity epoch", () => {
 
 describe("process identity peer PID (real UDS)", () => {
   it("reads peer PID via sealed helper on a real Unix socket", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vellum-peer-pid-"));
+    const root = await mkdtemp(join(tmpdir(), "junto-peer-pid-"));
     roots.push(root);
     // Point helper roots at the repo scripts/ (absolute) — same as dev main.
     const repoScripts = join(process.cwd(), "scripts");

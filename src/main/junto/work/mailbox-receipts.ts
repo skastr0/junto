@@ -13,7 +13,7 @@ export const mailboxMessageDeliveryId = (
   messageId: string,
 ): string =>
   `delivery_${digest([
-    "vellum/mailbox-message-delivery/v1",
+    "junto/mailbox-message-delivery/v1",
     canvasName,
     nodeId,
     messageId,
@@ -26,7 +26,7 @@ export const mailboxMessageReadId = (
   messageId: string,
 ): string =>
   `delivery_${digest([
-    "vellum/mailbox-message-read/v1",
+    "junto/mailbox-message-read/v1",
     canvasName,
     nodeId,
     messageId,
@@ -49,7 +49,7 @@ export const mailboxMessageReactId = (
   reaction: MailboxReactionKind,
 ): string =>
   `delivery_${digest([
-    "vellum/mailbox-message-react/v1",
+    "junto/mailbox-message-react/v1",
     canvasName,
     nodeId,
     messageId,

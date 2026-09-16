@@ -363,7 +363,7 @@ describe("probe process supervisor", () => {
   });
 
   it("retains an unclean sandbox and emits its path plus drain receipt", async () => {
-    const prefix = join(tmpdir(), "vellum-probe-supervisor-test-");
+    const prefix = join(tmpdir(), "junto-probe-supervisor-test-");
     const sandbox = await createProbeSandbox(prefix);
     tempSandboxes.add(sandbox);
     const root = sandbox.root;
@@ -391,7 +391,7 @@ describe("probe process supervisor", () => {
   });
 
   it("rejects a structural sandbox forgery without touching the minted root", async () => {
-    const prefix = join(tmpdir(), "vellum-probe-supervisor-test-");
+    const prefix = join(tmpdir(), "junto-probe-supervisor-test-");
     const sandbox = await createProbeSandbox(prefix);
     tempSandboxes.add(sandbox);
     const marker = join(sandbox.root, "owned.txt");

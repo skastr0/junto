@@ -38,7 +38,7 @@ export class PausePlane extends Context.Service<PausePlane,
       paused: boolean,
     ) => Effect.Effect<void, PauseStateError>;
     readonly subscribe: (listener: PauseChangeListener) => () => void;
-  }>()("vellum/PausePlane") {}
+  }>()("junto/PausePlane") {}
 
 /**
  * Harness double: everything playing, writes accepted but inert. For suites

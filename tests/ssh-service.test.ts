@@ -125,7 +125,7 @@ const testLayer = async (
   releases: Command.StandardCommand[],
   options?: { readonly global?: number; readonly perEndpoint?: number },
 ) => {
-  const root = await mkdtemp("/tmp/vellum-ssh-test-");
+  const root = await mkdtemp("/tmp/junto-ssh-test-");
   temporaryDirs.push(root);
   let nextPid = 100;
   const spawner = ProcessSpawner.of({
@@ -594,7 +594,7 @@ describe("SshTransport", () => {
       Effect.gen(function* () {
         const endpoint = yield* parseSshEndpoint("linux-station");
         const remote = yield* makeRemoteCommand(
-          "/usr/libexec/vellum-release-bridge",
+          "/usr/libexec/junto-release-bridge",
         );
         return yield* (yield* SshTransport).transact(
           dedicatedStream(endpoint, remote),
@@ -657,7 +657,7 @@ describe("SshTransport", () => {
       Effect.gen(function* () {
         const endpoint = yield* parseSshEndpoint("linux-station");
         const remote = yield* makeRemoteCommand(
-          "/usr/libexec/vellum-release-bridge",
+          "/usr/libexec/junto-release-bridge",
         );
         yield* (yield* SshTransport).transact(
           dedicatedStream(endpoint, remote),
@@ -700,7 +700,7 @@ describe("SshTransport", () => {
         Effect.gen(function* () {
           const endpoint = yield* parseSshEndpoint("linux-station");
           const remote = yield* makeRemoteCommand(
-            "/usr/libexec/vellum-release-bridge",
+            "/usr/libexec/junto-release-bridge",
           );
           return yield* (yield* SshTransport).transact(
             dedicatedStream(endpoint, remote),
@@ -997,7 +997,7 @@ describe("SshTransport", () => {
     let maxActive = 0;
     const activeByEndpoint = new Map<string, number>();
     const maxByEndpoint = new Map<string, number>();
-    const root = await mkdtemp("/tmp/vellum-ssh-admission-");
+    const root = await mkdtemp("/tmp/junto-ssh-admission-");
     temporaryDirs.push(root);
     let pid = 1_000;
     const spawner = ProcessSpawner.of({

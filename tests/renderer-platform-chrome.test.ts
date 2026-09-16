@@ -9,9 +9,9 @@ describe("renderer platform chrome", () => {
   const styles = readFileSync(join(root, "src/renderer/styles.css"), "utf8");
 
   it("uses a preload platform marker for macOS-only geometry", () => {
-    expect(main).toContain("dataset.vellumPlatform = window.vellumCommand?.platform ?? \"unknown\"");
-    expect(styles).toContain('html[data-vellum-platform="darwin"] .focus-surface');
-    expect(styles).toContain('html[data-vellum-platform="darwin"] .station-bar');
+    expect(main).toContain("dataset.juntoPlatform = window.vellumCommand?.platform ?? \"unknown\"");
+    expect(styles).toContain('html[data-junto-platform="darwin"] .focus-surface');
+    expect(styles).toContain('html[data-junto-platform="darwin"] .station-bar');
     expect(index).toContain('process.platform === "darwin" ? { titleBarStyle: "hiddenInset" as const } : {}');
   });
 

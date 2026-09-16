@@ -15,7 +15,7 @@ import { join } from "node:path";
 import { Context, Effect, Layer, ManagedRuntime } from "effect";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
-const mockCanvasesHome = join(tmpdir(), `vellum-canvas-paths-${randomUUID()}`);
+const mockCanvasesHome = join(tmpdir(), `junto-canvas-paths-${randomUUID()}`);
 
 vi.mock("node:os", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:os")>();

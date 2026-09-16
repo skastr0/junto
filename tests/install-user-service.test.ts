@@ -36,7 +36,7 @@ const makeGenerationTree = (home: string, generation: string): string => {
 
 describe("install-user-service path resolution", () => {
   it("admits only canonical releases/ generations for install", () => {
-    const home = realpathSync(mkdtempSync(join(tmpdir(), "vellum-install-svc-")));
+    const home = realpathSync(mkdtempSync(join(tmpdir(), "junto-install-svc-")));
     roots.push(home);
     const generation = `1.2.3-${"a".repeat(64)}`;
     const remote = makeGenerationTree(home, generation);
@@ -48,7 +48,7 @@ describe("install-user-service path resolution", () => {
   });
 
   it("admits staging extract roots for candidate preflight only", () => {
-    const home = realpathSync(mkdtempSync(join(tmpdir(), "vellum-install-stage-")));
+    const home = realpathSync(mkdtempSync(join(tmpdir(), "junto-install-stage-")));
     roots.push(home);
     const stage = join(
       home,
@@ -77,7 +77,7 @@ describe("install-user-service path resolution", () => {
   });
 
   it("rejects free-form paths outside userland runtime", () => {
-    const root = realpathSync(mkdtempSync(join(tmpdir(), "vellum-install-reject-")));
+    const root = realpathSync(mkdtempSync(join(tmpdir(), "junto-install-reject-")));
     roots.push(root);
     const bin = join(root, "resources", "bin");
     mkdirSync(bin, { recursive: true });

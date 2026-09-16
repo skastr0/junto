@@ -114,8 +114,8 @@ const main = async (): Promise<void> => {
     url: string;
     webSocketDebuggerUrl: string;
   }>;
-  const pageTarget = list.find((t) => t.type === "page" && t.url.includes("vellum-app"));
-  if (!pageTarget) throw new Error(`no vellum page target at ${ENDPOINT}`);
+  const pageTarget = list.find((t) => t.type === "page" && t.url.includes("junto-app"));
+  if (!pageTarget) throw new Error(`no junto page target at ${ENDPOINT}`);
 
   const cdp = await CdpSession.connect(pageTarget.webSocketDebuggerUrl);
   await cdp.send("Runtime.enable");

@@ -40,7 +40,7 @@ afterEach(async () => {
 });
 
 const makeLayout = async () => {
-  const root = await mkdtemp(join(tmpdir(), "vellum-state-recovery-"));
+  const root = await mkdtemp(join(tmpdir(), "junto-state-recovery-"));
   roots.push(root);
   const state = join(root, "state");
   const exports = join(root, "exports");
@@ -75,7 +75,7 @@ describe("state recovery", () => {
       schemaSha256: created.schemaSha256,
     });
 
-    const destination = join(layout.exports, "vellum-export.db");
+    const destination = join(layout.exports, "junto-export.db");
     const receipt = await Effect.runPromise(
       exportStateBackup(inventory[0]!.id, destination, layout.database),
     );
@@ -153,13 +153,13 @@ describe("state recovery", () => {
       Effect.runPromise(
         exportStateBackup(
           backup!.id,
-          "relative-vellum-export.db",
+          "relative-junto-export.db",
           layout.database,
         ),
       ),
     ).rejects.toThrow(/absolute path/u);
     expect(
-      existsSync(join(process.cwd(), "relative-vellum-export.db")),
+      existsSync(join(process.cwd(), "relative-junto-export.db")),
     ).toBe(false);
   });
 

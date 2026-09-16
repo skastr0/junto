@@ -9,7 +9,7 @@ describe("browser startup recovery gate", () => {
     join(root, "src/main/junto/browser/ipc.ts"),
     "utf8",
   );
-  const vellumIpcSrc = readFileSync(join(root, "src/main/junto/ipc.ts"), "utf8");
+  const juntoIpcSrc = readFileSync(join(root, "src/main/junto/ipc.ts"), "utf8");
 
   it("keeps browser handlers inside the post-recovery activation boundary", () => {
     const ready = indexSrc.slice(indexSrc.indexOf("app.whenReady().then"));
@@ -137,11 +137,11 @@ describe("browser startup recovery gate", () => {
     expect(ready.indexOf("registerIpcHandlers();")).toBeLessThan(
       ready.indexOf("startBrowserComposition("),
     );
-    const ordinaryVellumIpc = vellumIpcSrc.slice(
-      vellumIpcSrc.indexOf("export const registerVellumIpc"),
-      vellumIpcSrc.indexOf("export const registerVellumBrowserIpc"),
+    const ordinaryJuntoIpc = juntoIpcSrc.slice(
+      juntoIpcSrc.indexOf("export const registerJuntoIpc"),
+      juntoIpcSrc.indexOf("export const registerJuntoBrowserIpc"),
     );
-    expect(ordinaryVellumIpc).not.toContain("registerBrowserIpc(");
+    expect(ordinaryJuntoIpc).not.toContain("registerBrowserIpc(");
   });
 
   it("has no eager session singleton and requires injected recovered sessions", () => {

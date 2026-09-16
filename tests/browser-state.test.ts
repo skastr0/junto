@@ -12,7 +12,7 @@ const sessionOf = (ref: string) => browser$.sessionByRef[ref].peek();
 // --- window.vellumCommand mocked exactly like tests/chat-state.test.ts; one unique
 // nodeId per test so browser$.sessionByRef never bleeds between cases. ---
 
-interface MockVellum {
+interface MockJunto {
   browserSessionList: ReturnType<typeof vi.fn>;
   onBrowserSessionChanged: ReturnType<typeof vi.fn>;
 }
@@ -38,13 +38,13 @@ const baseSession = (
   ...overrides,
 });
 
-function installMockVellum(overrides: Partial<MockVellum> = {}): MockVellum {
-  const mock: MockVellum = {
+function installMockJunto(overrides: Partial<MockJunto> = {}): MockJunto {
+  const mock: MockJunto = {
     browserSessionList: vi.fn(async (): Promise<BrowserOpResult<ReadonlyArray<BrowserSessionInfo>>> => ({ ok: true, data: [] })),
     onBrowserSessionChanged: vi.fn(() => () => undefined),
     ...overrides,
   };
-  (globalThis as unknown as { window: { vellumCommand: MockVellum } }).window = { vellumCommand: mock };
+  (globalThis as unknown as { window: { vellumCommand: MockJunto } }).window = { vellumCommand: mock };
   return mock;
 }
 
@@ -66,7 +66,7 @@ describe("subscribeBrowserSessionEvents", () => {
     const nodeId = freshNodeId();
     const ref = refOf(nodeId);
     let handler: ((session: BrowserSessionInfo) => void) | undefined;
-    installMockVellum({
+    installMockJunto({
       onBrowserSessionChanged: vi.fn((listener: (session: BrowserSessionInfo) => void) => {
         handler = listener;
         return () => undefined;
@@ -81,7 +81,7 @@ describe("subscribeBrowserSessionEvents", () => {
   });
 
   it("is a singleton — a second call reuses the first subscription", () => {
-    const mock = installMockVellum();
+    const mock = installMockJunto();
     const first = subscribeBrowserSessionEvents();
     const second = subscribeBrowserSessionEvents();
     expect(second).toBe(first);
@@ -93,7 +93,7 @@ describe("subscribeBrowserSessionEvents", () => {
     const nodeId = freshNodeId();
     const ref = refOf(nodeId);
     let handler: ((session: BrowserSessionInfo) => void) | undefined;
-    installMockVellum({
+    installMockJunto({
       onBrowserSessionChanged: vi.fn((listener: (session: BrowserSessionInfo) => void) => {
         handler = listener;
         return () => undefined;
@@ -110,7 +110,7 @@ describe("subscribeBrowserSessionEvents", () => {
     const nodeId = freshNodeId();
     const ref = refOf(nodeId);
     let handler: ((session: BrowserSessionInfo) => void) | undefined;
-    installMockVellum({
+    installMockJunto({
       onBrowserSessionChanged: vi.fn((listener: (session: BrowserSessionInfo) => void) => {
         handler = listener;
         return () => undefined;
@@ -134,7 +134,7 @@ describe("refreshBrowserSession", () => {
     const nodeId = freshNodeId();
     const wantedRef = refOf(nodeId, "portfolio");
     const otherRef = refOf(nodeId, "archive");
-    installMockVellum({
+    installMockJunto({
       browserSessionList: vi.fn(async () => ({
         ok: true,
         data: [
@@ -156,7 +156,7 @@ describe("refreshBrowserSession", () => {
     const nodeId = freshNodeId();
     const ref = refOf(nodeId);
     browser$.sessionByRef[ref].set(baseSession(ref, nodeId, { sessionId: "stale" }));
-    installMockVellum();
+    installMockJunto();
     await refreshBrowserSession(ref);
     expect(sessionOf(ref)).toBeUndefined();
   });
@@ -171,7 +171,7 @@ describe("refreshBrowserSession", () => {
     const pendingList = new Promise<BrowserOpResult<ReadonlyArray<BrowserSessionInfo>>>((resolve) => {
       resolveList = resolve;
     });
-    installMockVellum({
+    installMockJunto({
       browserSessionList: vi.fn(() => pendingList),
       onBrowserSessionChanged: vi.fn((listener: (session: BrowserSessionInfo) => void) => {
         handler = listener;

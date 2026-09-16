@@ -643,7 +643,7 @@ export const browserPagesSchema = browserSchema(
 );
 export const browserOpenSchema = browserSchema(
   "open",
-  "open <vellum-ref>",
+  "open <junto-ref>",
   "Open or reuse a granted page session.",
   OpenRequest,
 );
@@ -1313,7 +1313,7 @@ const declaredExamples: ReadonlyArray<CommandExample> = [
         },
         {
           command_id: "browser.open",
-          command: "browser open <vellum-ref>",
+          command: "browser open <junto-ref>",
           name: "open a granted page",
           args: [
             "browser",

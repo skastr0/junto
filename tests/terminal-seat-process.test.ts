@@ -262,7 +262,7 @@ describe("local TerminalSeatProcess", () => {
   });
 
   it("replans a dead proven resume as a fresh injected generation", async () => {
-    const priorVellumHome = process.env.JUNTO_HOME;
+    const priorJuntoHome = process.env.JUNTO_HOME;
     const proofHome = mkdtempSync(join(tmpdir(), "seat-resume-proof-"));
     const workDir = join(proofHome, "work");
     const sessionId = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
@@ -336,8 +336,8 @@ describe("local TerminalSeatProcess", () => {
     } finally {
       __setSessionExistenceHomeForTest(undefined);
       rmSync(proofHome, { recursive: true, force: true });
-      if (priorVellumHome === undefined) delete process.env.JUNTO_HOME;
-      else process.env.JUNTO_HOME = priorVellumHome;
+      if (priorJuntoHome === undefined) delete process.env.JUNTO_HOME;
+      else process.env.JUNTO_HOME = priorJuntoHome;
     }
   });
 });

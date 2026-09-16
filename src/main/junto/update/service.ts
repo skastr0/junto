@@ -20,7 +20,7 @@ import { releaseStaging } from "./staging";
 
 /**
  * effect-foundation **S4-rest-main** (staged, not half-migrated):
- * - Canonical id: `@vellum/UpdateService` — single definition; no dual path.
+ * - Canonical id: `@junto/UpdateService` — single definition; no dual path.
  * - Service id: Context.Service (Effect V4 live).
  * - Shape:
  *   `class UpdateService extends Context.Service<UpdateService, UpdateService>()("@junto/UpdateService") {}`

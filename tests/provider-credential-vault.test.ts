@@ -27,7 +27,7 @@ describe("provider credential vault", () => {
   });
 
   it("keeps secrets out of SQLite and newly minted backups", async () => {
-    root = await mkdtemp(join(tmpdir(), "vellum-cred-vault-"));
+    root = await mkdtemp(join(tmpdir(), "junto-cred-vault-"));
     const databasePath = join(root, "state", "junto.db");
     const runtime = ManagedRuntime.make(makeStateEngineLive(databasePath));
     const state = await runtime.runPromise(StateEngine);
@@ -78,7 +78,7 @@ describe("provider credential vault", () => {
   });
 
   it("strips leftover plaintext from newly minted backups", async () => {
-    root = await mkdtemp(join(tmpdir(), "vellum-cred-backup-redact-"));
+    root = await mkdtemp(join(tmpdir(), "junto-cred-backup-redact-"));
     const databasePath = join(root, "state", "junto.db");
     const runtime = ManagedRuntime.make(makeStateEngineLive(databasePath));
     const state = await runtime.runPromise(StateEngine);
@@ -108,7 +108,7 @@ describe("provider credential vault", () => {
   });
 
   it("keeps unmigrated secrets across unrelated patches when the vault is unavailable", async () => {
-    root = await mkdtemp(join(tmpdir(), "vellum-cred-retain-"));
+    root = await mkdtemp(join(tmpdir(), "junto-cred-retain-"));
     const databasePath = join(root, "state", "junto.db");
     const runtime = ManagedRuntime.make(makeStateEngineLive(databasePath));
     const state = await runtime.runPromise(StateEngine);
@@ -158,7 +158,7 @@ describe("provider credential vault", () => {
   });
 
   it("boots when the credential vault cannot be created", async () => {
-    root = await mkdtemp(join(tmpdir(), "vellum-cred-boot-"));
+    root = await mkdtemp(join(tmpdir(), "junto-cred-boot-"));
     const databasePath = join(root, "state", "junto.db");
     const runtime = ManagedRuntime.make(makeStateEngineLive(databasePath));
     const state = await runtime.runPromise(StateEngine);
@@ -170,7 +170,7 @@ describe("provider credential vault", () => {
   });
 
   it("removes pending backup databases and sqlite sidecars", async () => {
-    root = await mkdtemp(join(tmpdir(), "vellum-pending-backup-"));
+    root = await mkdtemp(join(tmpdir(), "junto-pending-backup-"));
     const backups = join(root, "backups");
     await mkdir(backups, { mode: 0o700 });
     const finalName =

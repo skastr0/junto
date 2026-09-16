@@ -18,7 +18,7 @@ export const SHEET_MAX_COLUMNS = 32;
 export const SHEET_MAX_ROWS = 500;
 export const SHEET_MAX_CELL_LENGTH = 2_000;
 export const SHEET_MAX_NAME_LENGTH = 120;
-/** Editor row pitch — keep in lockstep with `.vellum-sheet__grid` CSS. */
+/** Editor row pitch — keep in lockstep with `.junto-sheet__grid` CSS. */
 export const SHEET_ROW_HEIGHT_PX = 32;
 export const SHEET_ROW_OVERSCAN = 10;
 

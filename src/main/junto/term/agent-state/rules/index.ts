@@ -14,7 +14,7 @@ import { kimiRules } from "./kimi";
 import { museRules } from "./muse";
 import { piRules } from "./pi";
 import { primeAgentRules } from "./prime-agent";
-import { vellumOverseerRules } from "./vellum-overseer";
+import { juntoOverseerRules } from "./vellum-overseer";
 
 export { agyRules } from "./agy";
 export { ampRules } from "./amp";
@@ -32,7 +32,7 @@ export { piRules } from "./pi";
 export { primeAgentRules } from "./prime-agent";
 
 const PACKS: Record<HarnessId, SeatRulePack> = {
-  "vellum-overseer": vellumOverseerRules,
+  "vellum-overseer": juntoOverseerRules,
   agy: agyRules,
   amp: ampRules,
   fx: fxRules,

@@ -8,7 +8,7 @@ describe("Remote deploy recovery guidance", () => {
   it("renders exact guidance for active terminal sessions", () => {
     expect(
       deployRecoveryGuidance({
-        kind: "close-active-vellum-terminals",
+        kind: "close-active-junto-terminals",
         activeTerminalSessions: 1,
       }),
     ).toBe(

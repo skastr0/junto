@@ -20,7 +20,7 @@ export type ClassifiedSpawnFailure = {
   readonly reason: SpawnExitReason;
   /** Operator-facing label (activity mark title / card subtitle). */
   readonly message: string;
-  /** Journal line body (no leading [vellum] prefix). */
+  /** Journal line body (no leading [junto] prefix). */
   readonly journal: string;
 };
 

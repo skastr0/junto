@@ -115,7 +115,7 @@ export type StateEngineShape = {
 /**
  * Sole product SQLite engine (junto.db).
  *
- * - Canonical id: `@vellum/StateEngine` — single `Context.Service` definition.
+ * - Canonical id: `@junto/StateEngine` — single `Context.Service` definition.
  * - Layer: `StateEngineLive` / `makeStateEngineLive` (engine.ts).
  */
 export class StateEngine extends Context.Service<StateEngine,

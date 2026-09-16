@@ -12,9 +12,9 @@ import { HARNESS_MAIL_TRANSPORT } from "../src/shared/managed-terminal-templates
 
 describe("prepareIsolatedHarnessLaunch", () => {
   it("seeds Devin credentials.toml only and keeps qualification false", () => {
-    const operator = fs.mkdtempSync(path.join(os.tmpdir(), "vellum-prep-op-"));
-    const isolated = fs.mkdtempSync(path.join(os.tmpdir(), "vellum-prep-iso-"));
-    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "vellum-prep-cwd-"));
+    const operator = fs.mkdtempSync(path.join(os.tmpdir(), "junto-prep-op-"));
+    const isolated = fs.mkdtempSync(path.join(os.tmpdir(), "junto-prep-iso-"));
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "junto-prep-cwd-"));
     const credRel = ".local/share/devin/credentials.toml";
     fs.mkdirSync(path.join(operator, ".local/share/devin/cli"), { recursive: true });
     fs.writeFileSync(path.join(operator, credRel), "windsurf_api_key = \"redacted\"\n");
@@ -74,8 +74,8 @@ describe("prepareIsolatedHarnessLaunch", () => {
 
 describe("seedIsolatedAuthFiles", () => {
   it("skips missing Devin credential files without copying sessions", () => {
-    const operator = fs.mkdtempSync(path.join(os.tmpdir(), "vellum-seed-op-"));
-    const isolated = fs.mkdtempSync(path.join(os.tmpdir(), "vellum-seed-iso-"));
+    const operator = fs.mkdtempSync(path.join(os.tmpdir(), "junto-seed-op-"));
+    const isolated = fs.mkdtempSync(path.join(os.tmpdir(), "junto-seed-iso-"));
     const result = seedIsolatedAuthFiles({
       harness: "devin",
       isolatedHome: isolated,

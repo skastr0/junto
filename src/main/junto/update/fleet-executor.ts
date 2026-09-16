@@ -137,7 +137,7 @@ export type FleetUpdateExecutor = {
 };
 
 const isWaitingRefusal = (result: HostsDeployRemoteResult): boolean =>
-  result.recoveryAction?.kind === "close-active-vellum-terminals";
+  result.recoveryAction?.kind === "close-active-junto-terminals";
 
 export const makeFleetUpdateExecutor = (
   deps: FleetUpdateExecutorDeps,

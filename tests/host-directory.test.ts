@@ -21,7 +21,7 @@ afterEach(() => {
 
 describe("host directory browser", () => {
   it("returns a canonical, bounded directory page with folders first", async () => {
-    const root = mkdtempSync(join(tmpdir(), "vellum-host-directory-"));
+    const root = mkdtempSync(join(tmpdir(), "junto-host-directory-"));
     roots.push(root);
     mkdirSync(join(root, "z-folder"));
     mkdirSync(join(root, "a-folder"));
@@ -39,7 +39,7 @@ describe("host directory browser", () => {
   });
 
   it("rejects relative paths and files", async () => {
-    const root = mkdtempSync(join(tmpdir(), "vellum-host-directory-"));
+    const root = mkdtempSync(join(tmpdir(), "junto-host-directory-"));
     roots.push(root);
     const file = join(root, "file.txt");
     writeFileSync(file, "hello");

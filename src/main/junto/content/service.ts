@@ -145,7 +145,7 @@ export type ContentServiceShape = {
  * Local content store + SQLite manifest. Main owns the only DB connection;
  * this service never opens `junto.db` itself.
  *
- * - Canonical id: `@vellum/ContentService` — single `Context.Service` definition.
+ * - Canonical id: `@junto/ContentService` — single `Context.Service` definition.
  * - Layer: `makeContentServiceLive`.
  * - Hard law: yield ContentService from warm Layer Context; never ambient
  *   empty-context lookup (claim-gate class of bug).

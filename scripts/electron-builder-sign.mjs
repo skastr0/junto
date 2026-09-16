@@ -104,7 +104,7 @@ const signWithRetries = async (options) => {
   }
 };
 
-export default async function signVellumApp(options) {
+export default async function signJuntoApp(options) {
   const [runtimePolicy, packagePolicy] = await Promise.all([
     loadJson(RUNTIME_POLICY_PATH),
     loadJson(PACKAGE_POLICY_PATH),

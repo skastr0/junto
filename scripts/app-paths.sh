@@ -18,16 +18,16 @@ read_config_value() {
   printf '%s' "$fallback"
 }
 
-LABEL="skastr0.vellumcommand"
+LABEL="com.skastr0.junto"
 PRODUCT_NAME="Junto"
-APP_BUNDLE_ID="skastr0.vellumcommand"
+APP_BUNDLE_ID="com.skastr0.junto"
 # The release installer requires an explicit expected team, never an artifact-derived one.
 app_signing_requirement() {
   if [[ ! "${JUNTO_MAC_TEAM_ID:-}" =~ ^[A-Z0-9]{10}$ ]]; then
     printf 'junto: error: JUNTO_MAC_TEAM_ID is required for signed installation\n' >&2
     return 1
   fi
-  printf '=anchor apple generic and identifier "skastr0.vellumcommand" and certificate 1[field.1.2.840.113635.100.6.2.6] exists and certificate leaf[field.1.2.840.113635.100.6.1.13] exists and certificate leaf[subject.OU] = "%s"' "$JUNTO_MAC_TEAM_ID"
+  printf '=anchor apple generic and identifier "com.skastr0.junto" and certificate 1[field.1.2.840.113635.100.6.2.6] exists and certificate leaf[field.1.2.840.113635.100.6.1.13] exists and certificate leaf[subject.OU] = "%s"' "$JUNTO_MAC_TEAM_ID"
 }
 
 # Repo root = parent of scripts/
@@ -267,7 +267,7 @@ assert_installer_path_capabilities() {
     assert_not_protected_root "installer sandbox root" "$INSTALL_SANDBOX_ROOT" || return 1
     test_temp_root="$(current_user_test_temp_root)" || return 1
     sandbox_name="${INSTALL_SANDBOX_ROOT##*/}"
-    if [[ "${INSTALL_SANDBOX_ROOT%/*}" != "$test_temp_root" || ! "$sandbox_name" =~ ^vellum-install-test\.[A-Za-z0-9]{6,}$ ]]; then
+    if [[ "${INSTALL_SANDBOX_ROOT%/*}" != "$test_temp_root" || ! "$sandbox_name" =~ ^junto-install-test\.[A-Za-z0-9]{6,}$ ]]; then
       err "installer sandbox must be a dedicated Junto directory under the OS user temporary root"
       return 1
     fi
@@ -848,7 +848,7 @@ unload_launchd() {
   return 1
 }
 
-vellum_processes_running() {
+junto_processes_running() {
   if [[ -n "$INSTALL_SANDBOX_ROOT" ]]; then
     return 1
   fi
@@ -863,7 +863,7 @@ quit_running_app() {
   if [[ -n "$INSTALL_SANDBOX_ROOT" ]]; then
     return 0
   fi
-  if vellum_processes_running; then
+  if junto_processes_running; then
     err "Quit ${PRODUCT_NAME} before installing; refusing to replace a running app"
     return 1
   fi

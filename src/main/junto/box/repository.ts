@@ -137,7 +137,7 @@ const isSshUsableState = (state: string): boolean =>
 
 /**
  * effect-foundation **S4-rest-main** (staged, not half-migrated):
- * - Canonical id: `@vellum/box/BoxOwnershipRepository` — single definition; no dual path.
+ * - Canonical id: `@junto/box/BoxOwnershipRepository` — single definition; no dual path.
  * - Service id: Context.Service (Effect V4 live).
  * - Shape:
  *   `class BoxOwnershipRepository extends Context.Service<BoxOwnershipRepository, BoxOwnershipRepository>()("@junto/box/BoxOwnershipRepository") {}`

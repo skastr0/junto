@@ -61,7 +61,7 @@ const waitUntil = async (
   throw new Error(`adapter lifecycle fixture timed out: ${label}`);
 };
 
-const root = await mkdtemp(join(tmpdir(), "vellum-adapter-exec-"));
+const root = await mkdtemp(join(tmpdir(), "junto-adapter-exec-"));
 const markerPath = join(root, "late-spawned");
 const workerPath = join(import.meta.dirname, "adapter-exec-worker.ts");
 
@@ -77,7 +77,7 @@ const runGroupObservationScenario = async () => {
   const gracefulStartedAt = Date.now();
   const graceful = await runCli(process.execPath, [workerPath, "graceful-100"], 1_000);
   const gracefulSettledWithinBound = Date.now() - gracefulStartedAt < 1_500;
-  const failedSpawn = await runCli("/definitely-missing-vellum-adapter-command", [], 1_000);
+  const failedSpawn = await runCli("/definitely-missing-junto-adapter-command", [], 1_000);
 
   const inheritedPidsPath = join(root, "inherited-pids.json");
   const inherited = await runCli(

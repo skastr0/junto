@@ -149,7 +149,7 @@ afterEach(async () => {
 
 describe("StateEngine", () => {
   test("opens the sole database with exact schema identity and private SQLite settings", async () => {
-    const root = await makeTempDir("vellum-state-engine-");
+    const root = await makeTempDir("junto-state-engine-");
     const path = join(root, "state", "junto.db");
     const runtime = makeRuntime(path);
 
@@ -200,7 +200,7 @@ describe("StateEngine", () => {
   });
 
   test("treats SQLite-only implementation objects as a fresh authority schema", async () => {
-    const root = await makeTempDir("vellum-state-sqlite-internal-");
+    const root = await makeTempDir("junto-state-sqlite-internal-");
     const path = join(root, "junto.db");
     const sqliteOnly = new DatabaseSync(path);
     try {
@@ -239,7 +239,7 @@ describe("StateEngine", () => {
   });
 
   test("reopens idempotently without losing committed state", async () => {
-    const root = await makeTempDir("vellum-state-reopen-");
+    const root = await makeTempDir("junto-state-reopen-");
     const path = join(root, "state", "junto.db");
     const firstRuntime = makeRuntime(path);
     const firstEngine = await firstRuntime.runPromise(StateEngine);
@@ -294,7 +294,7 @@ describe("StateEngine", () => {
   });
 
   test("adopts the exact unversioned baseline in place without losing state", async () => {
-    const root = await makeTempDir("vellum-state-adopt-v1-");
+    const root = await makeTempDir("junto-state-adopt-v1-");
     const path = join(root, "junto.db");
     seedVersionOneStateSchema(path, 0);
     const unversioned = new DatabaseSync(path);
@@ -379,7 +379,7 @@ describe("StateEngine", () => {
   });
 
   test("does not create a backup for fresh initialization or exact-current reopen", async () => {
-    const root = await makeTempDir("vellum-state-no-startup-backup-");
+    const root = await makeTempDir("junto-state-no-startup-backup-");
     const path = join(root, "junto.db");
     const fresh = makeRuntime(path);
     await fresh.runPromise(StateEngine);
@@ -397,7 +397,7 @@ describe("StateEngine", () => {
   });
 
   test("aborts an installed schema advance before live mutation when backup verification cannot start", async () => {
-    const root = await makeTempDir("vellum-state-migration-backup-failure-");
+    const root = await makeTempDir("junto-state-migration-backup-failure-");
     const path = join(root, "junto.db");
     seedVersionOneStateSchema(path);
     const external = join(root, "external");
@@ -425,7 +425,7 @@ describe("StateEngine", () => {
   });
 
   test("commits a complete transaction and rolls every write back on failure", async () => {
-    const root = await makeTempDir("vellum-state-transaction-");
+    const root = await makeTempDir("junto-state-transaction-");
     const runtime = makeRuntime(join(root, "junto.db"));
     const engine = await runtime.runPromise(StateEngine);
 
@@ -498,7 +498,7 @@ describe("StateEngine", () => {
   });
 
   test("writes large resumable work in bounded chunks and preserves every row", async () => {
-    const root = await makeTempDir("vellum-state-chunks-");
+    const root = await makeTempDir("junto-state-chunks-");
     const runtime = makeRuntime(join(root, "junto.db"));
     const engine = await runtime.runPromise(StateEngine);
     const values = Array.from({ length: 17 }, (_, index) => index + 1);
@@ -547,7 +547,7 @@ describe("StateEngine", () => {
   });
 
   test("VACUUM INTO captures WAL commits in fresh engine-owned backup files", async () => {
-    const root = await makeTempDir("vellum-state-backup-");
+    const root = await makeTempDir("junto-state-backup-");
     const livePath = join(root, "live", "junto.db");
     const runtime = makeRuntime(livePath);
     const engine = await runtime.runPromise(StateEngine);
@@ -643,7 +643,7 @@ describe("StateEngine", () => {
   });
 
   test("failed backup verification removes only the newly minted invalid file", async () => {
-    const root = await makeTempDir("vellum-state-backup-failure-cleanup-");
+    const root = await makeTempDir("junto-state-backup-failure-cleanup-");
     const stateDirectory = join(root, "state");
     await mkdir(stateDirectory);
     const database = new DatabaseSync(join(stateDirectory, "junto.db"));
@@ -681,7 +681,7 @@ describe("StateEngine", () => {
   });
 
   test("caller input cannot redirect backup writes or chmod a shared directory", async () => {
-    const root = await makeTempDir("vellum-state-backup-authority-");
+    const root = await makeTempDir("junto-state-backup-authority-");
     const shared = join(root, "shared");
     await mkdir(shared, { mode: 0o755 });
     await chmod(shared, 0o755);
@@ -701,7 +701,7 @@ describe("StateEngine", () => {
   });
 
   test("rejects a symlinked backup directory without touching its target", async () => {
-    const root = await makeTempDir("vellum-state-backup-symlink-");
+    const root = await makeTempDir("junto-state-backup-symlink-");
     const stateDirectory = join(root, "state");
     const external = join(root, "external");
     await mkdir(external, { mode: 0o755 });
@@ -718,7 +718,7 @@ describe("StateEngine", () => {
   });
 
   test("rejects an unknown schema object before committing current DDL", async () => {
-    const root = await makeTempDir("vellum-state-unknown-schema-");
+    const root = await makeTempDir("junto-state-unknown-schema-");
     const path = join(root, "junto.db");
     const drifted = new DatabaseSync(path);
     try {
@@ -750,7 +750,7 @@ describe("StateEngine", () => {
   });
 
   test("rejects a newer database without persisting WAL or other mutations", async () => {
-    const root = await makeTempDir("vellum-state-newer-version-");
+    const root = await makeTempDir("junto-state-newer-version-");
     const path = join(root, "junto.db");
     await seedCurrentStateSchema(path);
 
@@ -771,7 +771,7 @@ describe("StateEngine", () => {
   });
 
   test("rejects a current database missing a table without repairing it", async () => {
-    const root = await makeTempDir("vellum-state-missing-table-");
+    const root = await makeTempDir("junto-state-missing-table-");
     const path = join(root, "junto.db");
     await seedCurrentStateSchema(path);
 
@@ -789,7 +789,7 @@ describe("StateEngine", () => {
   });
 
   test("rejects a current database missing an index without repairing it", async () => {
-    const root = await makeTempDir("vellum-state-missing-index-");
+    const root = await makeTempDir("junto-state-missing-index-");
     const path = join(root, "junto.db");
     await seedCurrentStateSchema(path);
 
@@ -807,7 +807,7 @@ describe("StateEngine", () => {
   });
 
   test("rejects a current database missing a trigger without repairing it", async () => {
-    const root = await makeTempDir("vellum-state-missing-trigger-");
+    const root = await makeTempDir("junto-state-missing-trigger-");
     const path = join(root, "junto.db");
     await seedCurrentStateSchema(path);
 
@@ -825,7 +825,7 @@ describe("StateEngine", () => {
   });
 
   test("rejects a current table missing constraints without replacing it", async () => {
-    const root = await makeTempDir("vellum-state-shape-drift-");
+    const root = await makeTempDir("junto-state-shape-drift-");
     const path = join(root, "junto.db");
     await seedCurrentStateSchema(path);
 
@@ -852,7 +852,7 @@ describe("StateEngine", () => {
   });
 
   test("rejects a partial current database without completing or stamping it", async () => {
-    const root = await makeTempDir("vellum-state-partial-schema-");
+    const root = await makeTempDir("junto-state-partial-schema-");
     const path = join(root, "junto.db");
     const partial = new DatabaseSync(path);
     try {
@@ -887,7 +887,7 @@ describe("StateEngine", () => {
   });
 
   test("fails closed on a corrupt pre-existing database", async () => {
-    const root = await makeTempDir("vellum-state-path-");
+    const root = await makeTempDir("junto-state-path-");
     const fakeDatabase = join(root, "junto.db");
     await writeFile(fakeDatabase, "not sqlite");
     const bytes = await readFile(fakeDatabase);
@@ -901,7 +901,7 @@ describe("StateEngine", () => {
   });
 
   test("refuses a symlinked database without touching its target", async () => {
-    const root = await makeTempDir("vellum-state-symlink-");
+    const root = await makeTempDir("junto-state-symlink-");
     const target = join(root, "operator-file");
     const databasePath = join(root, "junto.db");
     await writeFile(target, "keep");
@@ -915,7 +915,7 @@ describe("StateEngine", () => {
   });
 
   test("refuses a dangling database symlink without creating its target", async () => {
-    const root = await makeTempDir("vellum-state-dangling-symlink-");
+    const root = await makeTempDir("junto-state-dangling-symlink-");
     const target = join(root, "operator-file");
     const databasePath = join(root, "junto.db");
     await symlink(target, databasePath);
@@ -928,7 +928,7 @@ describe("StateEngine", () => {
   });
 
   test("refuses a symlinked state directory without creating a database", async () => {
-    const root = await makeTempDir("vellum-state-root-symlink-");
+    const root = await makeTempDir("junto-state-root-symlink-");
     const target = join(root, "operator-directory");
     const linkedState = join(root, "state");
     await mkdir(target, { mode: 0o755 });
@@ -943,7 +943,7 @@ describe("StateEngine", () => {
   });
 
   test("closes the captured service when its scoped runtime is disposed", async () => {
-    const root = await makeTempDir("vellum-state-disposal-");
+    const root = await makeTempDir("junto-state-disposal-");
     const runtime = makeRuntime(join(root, "junto.db"));
     const engine = await runtime.runPromise(StateEngine);
     await disposeRuntime(runtime);

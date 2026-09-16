@@ -29,10 +29,10 @@ import { launchForManagedSpawn } from "../src/main/junto/term/managed-spawn-plan
 import type { CanvasDoc } from "../src/shared/canvas";
 
 const temps: string[] = [];
-const originalVellumHome = process.env.JUNTO_HOME;
+const originalJuntoHome = process.env.JUNTO_HOME;
 
 const tempHome = (): string => {
-  const dir = mkdtempSync(join(tmpdir(), "vellum-hermes-statedb-"));
+  const dir = mkdtempSync(join(tmpdir(), "junto-hermes-statedb-"));
   temps.push(dir);
   return dir;
 };
@@ -66,8 +66,8 @@ const seedStateDb = (
 };
 
 afterEach(() => {
-  if (originalVellumHome === undefined) delete process.env.JUNTO_HOME;
-  else process.env.JUNTO_HOME = originalVellumHome;
+  if (originalJuntoHome === undefined) delete process.env.JUNTO_HOME;
+  else process.env.JUNTO_HOME = originalJuntoHome;
   __setSessionExistenceHomeForTest(undefined);
   for (const dir of temps.splice(0)) {
     try {

@@ -173,13 +173,13 @@ describe("remoteUpdatePhaseFromDeployJob", () => {
     ).toEqual({ kind: "installing" });
   });
 
-  it("maps the close-active-vellum-terminals refusal to waiting-for-idle", () => {
+  it("maps the close-active-junto-terminals refusal to waiting-for-idle", () => {
     expect(
       remoteUpdatePhaseFromDeployJob({
         job: {
           status: "failed",
           stages: [],
-          recoveryHint: "close-active-vellum-terminals",
+          recoveryHint: "close-active-junto-terminals",
         },
         availableVersion: "0.1.1",
       }),
@@ -281,7 +281,7 @@ describe("phase derivation", () => {
           job: {
             status: "failed",
             stages: [],
-            recoveryHint: "close-active-vellum-terminals",
+            recoveryHint: "close-active-junto-terminals",
           },
           availableVersion: "0.1.1",
         }),

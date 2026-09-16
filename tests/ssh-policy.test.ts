@@ -81,7 +81,7 @@ const recordingLayer = async (
   calls: Command.StandardCommand[],
   masterReleases?: MasterReleaseSnapshot[],
 ) => {
-  const root = await mkdtemp("/tmp/vellum-ssh-policy-");
+  const root = await mkdtemp("/tmp/junto-ssh-policy-");
   temporaryDirs.push(root);
   const controlDir = join(root, "control");
   const forwardedLocalSockets = new Map<string, string>();
@@ -230,7 +230,7 @@ describe("SSH policy surface", () => {
       makeRemoteCommand("/usr/bin/true"),
     );
     const compiler = createSshProgramCompiler({
-      controlDir: "/tmp/vellum-ssh-policy-test",
+      controlDir: "/tmp/junto-ssh-policy-test",
       envExecutable: "/usr/bin/env",
       sshExecutable: "/usr/bin/ssh",
       environment: {
@@ -254,14 +254,14 @@ describe("SSH policy surface", () => {
   it("keeps deployment streams dedicated for one bounded privileged transcript", async () => {
     const endpoint = await runPromise(parseSshEndpoint("linux-station"));
     const remote = await runPromise(
-      makeRemoteCommand("/usr/libexec/vellum-release-bridge", []),
+      makeRemoteCommand("/usr/libexec/junto-release-bridge", []),
     );
     const compiler = createSshProgramCompiler({
-      controlDir: "/tmp/vellum-ssh-policy-test",
+      controlDir: "/tmp/junto-ssh-policy-test",
       envExecutable: "/usr/bin/env",
       sshExecutable: "/usr/bin/ssh",
       environment: {
-        HOME: "/tmp/vellum-ssh-policy-home",
+        HOME: "/tmp/junto-ssh-policy-home",
         PATH: "/usr/bin:/bin",
       },
     });

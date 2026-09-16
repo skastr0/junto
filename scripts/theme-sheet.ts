@@ -119,7 +119,7 @@ const html = `<!doctype html>
 <body class="bg-ground text-ink font-mono">
 
 <header style="margin-bottom: 16px">
-  <h1 class="font-display text-amber">VELLUM COMMAND — THEME SHEET
+  <h1 class="font-display text-amber">JUNTO COMMAND — THEME SHEET
     <span class="mode-dark">/ dark</span><span class="mode-bright">/ bright</span></h1>
   <div class="text-faint" style="font-size: 9px">${cssFile}, tokens from src/shared/theme/ via theme.generated.css</div>
 </header>

@@ -32,7 +32,7 @@ const MAX_LOG_BYTES = 128 * 1024;
 const LAUNCH_TIMEOUT_MS = 60_000;
 const PROBE_TIMEOUT_MS = 190_000;
 const PHASE_B_EXIT = 86;
-const DISK_MARKER_NAME = ".vellum-profile-wipe-sentinel";
+const DISK_MARKER_NAME = ".junto-profile-wipe-sentinel";
 const probeSupervisor = createProbeProcessSupervisor({ maxLogBytes: MAX_LOG_BYTES });
 const storageKeys = [
   "cookie",

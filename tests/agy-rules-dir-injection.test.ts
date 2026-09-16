@@ -31,7 +31,7 @@ describe("agy doctrine rides an app-owned --add-dir rules directory", () => {
   let priorHome: string | undefined;
 
   beforeEach(() => {
-    tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), "vellum-agy-rules-"));
+    tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), "junto-agy-rules-"));
     priorHome = process.env.JUNTO_HOME;
     process.env.JUNTO_HOME = tmpHome;
     __resetJuntoHomeCache();

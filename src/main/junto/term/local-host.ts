@@ -1784,7 +1784,7 @@ export class LocalSessionHost extends EventEmitter {
     this.revokeProcessIdentities(rec);
     if (this.sessions.get(rec.bindingId) === rec) {
       const data =
-        "\r\n[vellum] Prime Agent daemon exited unexpectedly; stopping client\r\n";
+        "\r\n[junto] Prime Agent daemon exited unexpectedly; stopping client\r\n";
       rec.seq = rec.seq + 1n;
       this.pushJournal(rec, {
         seq: rec.seq,
@@ -2206,7 +2206,7 @@ export class LocalSessionHost extends EventEmitter {
       seq: rec.seq,
       type: "output",
       data:
-        `\r\n[vellum] resume failed for prior session; starting fresh session ${freshId}\r\n`,
+        `\r\n[junto] resume failed for prior session; starting fresh session ${freshId}\r\n`,
     });
 
     // Spawn the replacement on this turn — not on a microtask. Exit bookkeeping
@@ -2269,7 +2269,7 @@ export class LocalSessionHost extends EventEmitter {
     this.pushJournal(rec, {
       seq: rec.seq,
       type: "output",
-      data: `\r\n[vellum] ${classified.journal}\r\n`,
+      data: `\r\n[junto] ${classified.journal}\r\n`,
     });
     this.safeEmitEvent({
       type: "exit",
@@ -2293,7 +2293,7 @@ export class LocalSessionHost extends EventEmitter {
     this.pushJournal(rec, {
       seq: rec.seq,
       type: "output",
-      data: `\r\n[vellum] terminal setup failed; stopping central lease: ${message}\r\n`,
+      data: `\r\n[junto] terminal setup failed; stopping central lease: ${message}\r\n`,
     });
     console.error(`[term] setup failed for ${rec.bindingId}@${rec.epoch}; stopping lease:`, error);
   }

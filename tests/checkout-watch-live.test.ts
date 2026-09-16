@@ -476,7 +476,7 @@ describe("claimContextFrom — proven context only", () => {
 describe("checkoutKeyFromPath — canonical worktree identity", () => {
   const tempDirs: string[] = [];
   const tempDir = async (): Promise<string> => {
-    const dir = await mkdtemp(join(tmpdir(), "vellum-checkout-key-"));
+    const dir = await mkdtemp(join(tmpdir(), "junto-checkout-key-"));
     tempDirs.push(dir);
     return dir;
   };
@@ -580,7 +580,7 @@ describe("gitProbeOverRunCli — read-only and bounded", () => {
   });
 
   it("reads a real local repository through the real adapter", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "vellum-checkout-probe-"));
+    const dir = await mkdtemp(join(tmpdir(), "junto-checkout-probe-"));
     try {
       const init = await runCli("git", ["init", "-q", "-b", "main", dir], 15_000);
       expect(init.ok).toBe(true);

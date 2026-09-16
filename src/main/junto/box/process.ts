@@ -36,7 +36,7 @@ export class BoxProcessError extends Schema.TaggedError<BoxProcessError>()(
 
 /**
  * effect-foundation **S4-rest-main** (staged, not half-migrated):
- * - Canonical id: `@vellum/box/BoxProcessRunner` — single definition; no dual path.
+ * - Canonical id: `@junto/box/BoxProcessRunner` — single definition; no dual path.
  * - Service id: Context.Service (Effect V4 live).
  * - Shape:
  *   `class BoxProcessRunner extends Context.Service<BoxProcessRunner, BoxProcessRunner>()("@junto/box/BoxProcessRunner") {}`

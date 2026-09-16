@@ -54,7 +54,7 @@ describe("validateLocalBundleProvenance", () => {
   const executablePath = `${appPath}/Contents/MacOS/Junto`;
   const metadata = [
     `Executable=${executablePath}`,
-    "Identifier=skastr0.vellumcommand",
+    "Identifier=com.skastr0.junto",
     "CodeDirectory v=20500 flags=0x10000(runtime) hashes=3+7 location=embedded",
     "Signature size=9055",
     `CDHash=${TEST_CDHASH}`,
@@ -69,7 +69,7 @@ describe("validateLocalBundleProvenance", () => {
   ): Parameters<typeof validateLocalBundleProvenance>[0] => ({
     appPath,
     executablePath,
-    bundleIdentifier: "skastr0.vellumcommand",
+    bundleIdentifier: "com.skastr0.junto",
     bundleExecutable: "Junto",
     bundleVersion: "0.1.0",
     codesignMetadata: metadata,
@@ -79,7 +79,7 @@ describe("validateLocalBundleProvenance", () => {
   it("admits only the pinned bundle, executable, team, and Developer ID receipt", () => {
     expect(validateLocalBundleProvenance(valid())).toEqual({
       appPath,
-      bundleIdentifier: "skastr0.vellumcommand",
+      bundleIdentifier: "com.skastr0.junto",
       bundleExecutable: "Junto",
       version: "0.1.0",
       teamIdentifier: "EXAMP12345",
@@ -91,7 +91,7 @@ describe("validateLocalBundleProvenance", () => {
 
   it.each([
     ["arbitrary directory", { appPath: "/release/Other.app" }],
-    ["wrong bundle", { bundleIdentifier: "evil.vellum" }],
+    ["wrong bundle", { bundleIdentifier: "evil.junto" }],
     ["wrong executable", { bundleExecutable: "Other" }],
     ["invalid version", { bundleVersion: "0.1.0 unsafe" }],
     [
@@ -100,7 +100,7 @@ describe("validateLocalBundleProvenance", () => {
     ],
     [
       "wrong signed identifier",
-      { codesignMetadata: metadata.replace("Identifier=skastr0.vellumcommand", "Identifier=evil") },
+      { codesignMetadata: metadata.replace("Identifier=com.skastr0.junto", "Identifier=evil") },
     ],
     [
       "wrong team",
@@ -249,8 +249,8 @@ describe("buildRemoteDeployScript", () => {
     expect(script).toContain(
       "STATION_SOCK='/Users/remote station/.junto/station/control.sock'",
     );
-    expect(script).not.toContain("--vellum-headless");
-    expect(firstInstall).toContain("--vellum-headless");
+    expect(script).not.toContain("--junto-headless");
+    expect(firstInstall).toContain("--junto-headless");
     expect(script).toContain("STATION_READY");
     expect(script).toContain("RUNTIME_SOCKET_TIMEOUT");
     expect(script).not.toContain("ENROLLMENT_READY");
@@ -336,7 +336,7 @@ describe("buildRemoteDeployScript", () => {
     expect(activation).toBeGreaterThan(socketRemoval);
     expect(appTransition).toBeGreaterThan(activation);
     expect(script).not.toContain("run_candidate_state_preflight");
-    expect(script).not.toContain("--vellum-state-preflight");
+    expect(script).not.toContain("--junto-state-preflight");
     expect(script).toContain(
       'if ! OBSERVED_EXE_PIDS="$(exact_exe_pids)"; then',
     );
@@ -538,7 +538,7 @@ describe("remote deploy transaction behavior", () => {
     expectedPackageState: "absent" | "present" = "present",
     installedPackageState: "absent" | "present" = "present",
   ) => {
-    const root = mkdtempSync("/tmp/vellum-deploy-test-");
+    const root = mkdtempSync("/tmp/junto-deploy-test-");
     const bin = join(root, "bin");
     const state = join(root, "state");
     const remoteHome = join(root, "Users", "remote");
@@ -553,7 +553,7 @@ describe("remote deploy transaction behavior", () => {
       remoteHome,
       "Library",
       "LaunchAgents",
-      "skastr0.vellumcommand.plist",
+      "com.skastr0.junto.plist",
     );
     const termSocketPath = join(
       remoteHome,
@@ -709,7 +709,7 @@ describe("remote deploy transaction behavior", () => {
           'if [ "$FAKE_CODESIGN_FAIL" = "1" ]; then exit 1; fi',
           'if [ "$1" = "-d" ]; then',
           '  echo "Executable=$target/Contents/MacOS/Junto" >&2',
-          '  echo "Identifier=skastr0.vellumcommand" >&2',
+          '  echo "Identifier=com.skastr0.junto" >&2',
           '  echo "CodeDirectory v=20500 flags=0x10000(runtime)" >&2',
           '  echo "Signature size=9055" >&2',
           '  echo "Authority=Developer ID Application: Example Maintainer (EXAMP12345)" >&2',
@@ -743,18 +743,18 @@ describe("remote deploy transaction behavior", () => {
         [
           'target="${@: -1}"',
           'case "$*" in',
-          '  *CFBundleIdentifier*) echo "skastr0.vellumcommand" ;;',
+          '  *CFBundleIdentifier*) echo "com.skastr0.junto" ;;',
           '  *CFBundleExecutable*) echo "Junto" ;;',
           '  *ProgramArguments.2*) exit 1 ;;',
           '  *ProgramArguments.1*)',
           expectedPackageState === "absent"
-            ? '    echo "--vellum-headless" ;;'
+            ? '    echo "--junto-headless" ;;'
             : "    exit 1 ;;",
           '  *ProgramArguments.0*)',
           '    if [ "$FAKE_EXISTING_PLIST_INVALID" = "1" ] && [ "$target" = "$FAKE_PLIST" ]; then echo "/unowned/executable"; else echo "$FAKE_EXE"; fi',
           "    ;;",
           '  *Label*)',
-          '    if [ "$FAKE_EXISTING_PLIST_INVALID" = "1" ] && [ "$target" = "$FAKE_PLIST" ]; then echo "unowned.label"; else echo "skastr0.vellumcommand"; fi',
+          '    if [ "$FAKE_EXISTING_PLIST_INVALID" = "1" ] && [ "$target" = "$FAKE_PLIST" ]; then echo "unowned.label"; else echo "com.skastr0.junto"; fi',
           "    ;;",
           "  *) exit 1 ;;",
           "esac",
@@ -1403,7 +1403,7 @@ describe("deploy transfer lifecycle", () => {
     expect(script).toContain("UNAME='/usr/bin/uname'");
     expect(script).toContain('test "$("$UNAME" -s)" = "Darwin"');
     expect(script).not.toContain(`"$("'/usr/bin/uname'"`);
-    expect(script).not.toContain("--vellum-headless");
+    expect(script).not.toContain("--junto-headless");
   });
 
   it("maps remote transaction exit receipts by cutover phase", () => {

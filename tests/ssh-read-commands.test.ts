@@ -18,9 +18,9 @@ import {
   remoteTestSocketExists,
   remoteDarwinPackageExists,
   remoteUname,
-  remoteVellumStation,
-  remoteVellumStationNegotiation,
-  remoteLinuxUserlandVellumStation,
+  remoteJuntoStation,
+  remoteJuntoStationNegotiation,
+  remoteLinuxUserlandJuntoStation,
   resolveRemotePackagedPlatform,
 } from "../src/main/junto/ssh/read-commands";
 import type { SshTransport } from "../src/main/junto/ssh/service";
@@ -136,22 +136,22 @@ describe("ssh read-commands product constructors", () => {
     const darwin = observedPlatform("Darwin\n");
     const linux = observedPlatform("Linux\n");
 
-    expect(inspectRemoteCommand(run(remoteVellumStation(darwin)))).toEqual({
+    expect(inspectRemoteCommand(run(remoteJuntoStation(darwin)))).toEqual({
       executable: DARWIN_PACKAGED_STATION_EXECUTABLE,
       args: ["station-stdio"],
     });
     expect(
-      inspectRemoteCommand(run(remoteVellumStationNegotiation(darwin))),
+      inspectRemoteCommand(run(remoteJuntoStationNegotiation(darwin))),
     ).toEqual({
       executable: DARWIN_PACKAGED_STATION_EXECUTABLE,
       args: ["station-stdio", STATION_PROTOCOL_NEGOTIATION_ARG],
     });
     expect(
-      Result.isFailure(Effect.runSync(Effect.result(remoteVellumStation(linux)))),
+      Result.isFailure(Effect.runSync(Effect.result(remoteJuntoStation(linux)))),
     ).toBe(true);
     expect(
       Result.isFailure(
-        Effect.runSync(Effect.result(remoteVellumStationNegotiation(linux))),
+        Effect.runSync(Effect.result(remoteJuntoStationNegotiation(linux))),
       ),
     ).toBe(true);
   });
@@ -161,7 +161,7 @@ describe("ssh read-commands product constructors", () => {
       observedPlatform("Linux\n"),
       "/home/remote station",
     ));
-    expect(inspectRemoteCommand(run(remoteLinuxUserlandVellumStation(userland)))).toEqual({
+    expect(inspectRemoteCommand(run(remoteLinuxUserlandJuntoStation(userland)))).toEqual({
       executable: "/home/remote station/.local/bin/junto",
       args: ["station-stdio"],
     });
@@ -198,7 +198,7 @@ describe("ssh read-commands product constructors", () => {
     expect(
       Result.isFailure(
         Effect.runSync(
-          Effect.result(remoteVellumStation({} as never)),
+          Effect.result(remoteJuntoStation({} as never)),
         ),
       ),
     ).toBe(true);

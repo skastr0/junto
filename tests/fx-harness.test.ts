@@ -27,7 +27,7 @@ const B = "1787763494998-1787763494998649000-97d25f70d04d6c5e";
 const OLD = "1787249073205-1787249073205767000-7094405acf93d7c9";
 // 0.0.8 shape: 12-char url-safe token (session_layout.zig generateSessionId).
 const SHORT = "AbC_-0123xyz";
-const WORKSPACE = "/Users/developer/Projects/vellum";
+const WORKSPACE = "/Users/developer/Projects/junto";
 const OTHER = "/repo/other";
 
 let home: string | undefined;

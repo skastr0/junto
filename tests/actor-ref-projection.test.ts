@@ -108,7 +108,7 @@ const makeRuntime = async (
 describe("active ActorRef projection", () => {
   it("compiles Command Center refs from one coherent canvas and fleet topology read", async () => {
     const runtime = await makeRuntime(
-      "vellum-actor-ref-command-",
+      "junto-actor-ref-command-",
       "installation-command",
     );
     const localInstallationId = installation("installation-command");
@@ -248,7 +248,7 @@ describe("active ActorRef projection", () => {
 
   it("reads Remote refs only from the validated installed portfolio registry", async () => {
     const runtime = await makeRuntime(
-      "vellum-actor-ref-remote-",
+      "junto-actor-ref-remote-",
       "installation-remote",
     );
     const local = installation("installation-remote");

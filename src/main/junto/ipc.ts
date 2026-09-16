@@ -332,7 +332,7 @@ const denyUnlessCommandCenterAuthorial = Effect.gen(function* () {
   }
 });
 
-export const registerVellumIpc = (): void => {
+export const registerJuntoIpc = (): void => {
   const privilegedIpc = trustedRendererIpc(ipcMain);
   registerTerminalIpc(privilegedIpc, termPlane, {
     isTrustedSender: isTrustedMainWebContents,
@@ -1943,7 +1943,7 @@ export const registerVellumIpc = (): void => {
 };
 
 /** Browser-only IPC is installed after cold profile recovery succeeds. */
-export const registerVellumBrowserIpc = (sessions: BrowserSessionService): void => {
+export const registerJuntoBrowserIpc = (sessions: BrowserSessionService): void => {
   if (!BROWSER_ENABLED) return;
   registerBrowserIpc(
     trustedRendererIpc(ipcMain),

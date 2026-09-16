@@ -36,11 +36,11 @@ const sha256 = (bytes: Buffer | string): string => createHash("sha256").update(b
 const keyPair = generateKeyPairSync("ed25519");
 const fingerprint = sha256(keyPair.publicKey.export({ type: "spki", format: "der" }));
 const keyring = {
-  schema: "vellum/linux-release-keyring/v1" as const,
+  schema: "junto/linux-release-keyring/v1" as const,
   revision: 1,
   keys: [{ keyId: "ephemeral-installer-test", algorithm: "ed25519" as const, publicKeyPem: keyPair.publicKey.export({ type: "spki", format: "pem" }).toString(), fingerprintSha256: fingerprint, status: "active" as const, validFrom: "2020-01-01T00:00:00.000Z" }],
 };
-const trust: LinuxDesktopReleaseTrust = { keyring, policy: { schema: "vellum/linux-release-trust-policy/v1", state: "configured", trustedKeyringRevision: 1, trustedKeyringSha256: sha256(`${JSON.stringify(keyring, null, 2)}\n`), trustedKeyId: keyring.keys[0]!.keyId, trustedKeyFingerprintSha256: fingerprint } };
+const trust: LinuxDesktopReleaseTrust = { keyring, policy: { schema: "junto/linux-release-trust-policy/v1", state: "configured", trustedKeyringRevision: 1, trustedKeyringSha256: sha256(`${JSON.stringify(keyring, null, 2)}\n`), trustedKeyId: keyring.keys[0]!.keyId, trustedKeyFingerprintSha256: fingerprint } };
 const SOURCE = "a".repeat(40);
 
 interface Member { readonly path: string; readonly type?: Header["type"]; readonly body?: Buffer | string; readonly mode?: number; readonly size?: number; readonly linkpath?: string; }

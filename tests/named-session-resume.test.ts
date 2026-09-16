@@ -86,7 +86,7 @@ describe("reclaim uses the harness's own named-resume flag", () => {
   });
 
   const homeWithPiSession = (cwdDir: string, sid: string): string => {
-    const home = mkdtempSync(join(tmpdir(), "vellum-pi-reclaim-"));
+    const home = mkdtempSync(join(tmpdir(), "junto-pi-reclaim-"));
     temps.push(home);
     const dir = join(home, ".pi", "agent", "sessions", cwdDir);
     mkdirSync(dir, { recursive: true });
@@ -103,7 +103,7 @@ describe("reclaim uses the harness's own named-resume flag", () => {
     const pin = ["pi", "--session-id", sid, "--model", "auto"];
 
     // No proof under this host's sessions root — the pin argv is left alone.
-    const empty = mkdtempSync(join(tmpdir(), "vellum-pi-empty-"));
+    const empty = mkdtempSync(join(tmpdir(), "junto-pi-empty-"));
     temps.push(empty);
     __setSessionExistenceHomeForTest(empty);
     expect(reclaimOrphanedHarnessArgv(pin, cwd)).toEqual(pin);

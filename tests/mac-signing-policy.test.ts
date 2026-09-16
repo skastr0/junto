@@ -23,7 +23,7 @@ describe("compiled macOS release trust", () => {
     expect(policy.teamIdentifier).toBe(team);
     expect(policy.signingAuthority).toBe(authority);
     expect(policy.developerIdRequirement).toContain('anchor apple generic');
-    expect(policy.developerIdRequirement).toContain('identifier "skastr0.vellumcommand"');
+    expect(policy.developerIdRequirement).toContain('identifier "com.skastr0.junto"');
     expect(policy.developerIdRequirement).toContain(`certificate leaf[subject.OU] = "${team}"`);
   });
 
@@ -46,7 +46,7 @@ describe("compiled macOS release trust", () => {
     expect(() => validateLocalBundleProvenance({
       appPath: "/missing/Junto.app",
       executablePath: "/missing/Junto.app/Contents/MacOS/Junto",
-      bundleIdentifier: "skastr0.vellumcommand",
+      bundleIdentifier: "com.skastr0.junto",
       bundleExecutable: "Junto",
       bundleVersion: "0.2.0",
       codesignMetadata: `TeamIdentifier=${team}\nAuthority=${authority}`,
@@ -73,7 +73,7 @@ describe("compiled macOS release trust", () => {
       await chmod(executable, 0o700);
       await writeFile(join(appPath, "Contents", "Info.plist"), "synthetic signed plist");
       const runCommand = vi.fn(async (_command: string, args: readonly string[]) => ({
-        code: 0, stderr: "", stdout: args.includes("CFBundleIdentifier") ? "skastr0.vellumcommand" :
+        code: 0, stderr: "", stdout: args.includes("CFBundleIdentifier") ? "com.skastr0.junto" :
           args.includes("CFBundleExecutable") ? "Junto" : args.includes("CFBundleShortVersionString") ? "0.2.0" : "",
       }));
       await expect(admitStagedMacApp(appPath, { runCommand, expectedVersion: "0.2.1" })).rejects.toThrow(/version does not match/);

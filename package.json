@@ -1,5 +1,5 @@
 {
-  "name": "@skastr0/junto",
+  "name": "junto",
   "version": "0.3.1",
   "description": "Junto — the deep-field station for multi-agent fleets.",
   "author": {
@@ -143,7 +143,7 @@
     "vitest": "4.1.11"
   },
   "build": {
-    "appId": "skastr0.vellumcommand",
+    "appId": "com.skastr0.junto",
     "productName": "Junto",
     "afterPack": "./scripts/electron-builder-after-pack.mjs",
     "npmRebuild": false,
@@ -158,7 +158,7 @@
     "publish": [
       {
         "provider": "generic",
-        "url": "https://vellumreleasedistribution-rele2p3h3apcupwjim2zajqqmhyd.skastr052.workers.dev/mac/arm64"
+        "url": "https://releases.juntoagents.com/mac/arm64"
       }
     ],
     "files": [

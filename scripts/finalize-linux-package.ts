@@ -21,7 +21,7 @@ import { fileURLToPath } from "node:url";
 const packagePath = fileURLToPath(new URL("../package.json", import.meta.url));
 
 const SEMVER = /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/u;
-const ATTEMPT_NAME = /^\.vellum-package-attempt-[0-9A-Za-z._-]+$/u;
+const ATTEMPT_NAME = /^\.junto-package-attempt-[0-9A-Za-z._-]+$/u;
 
 const requireSemver = (value: unknown): string => {
   if (typeof value !== "string" || !SEMVER.test(value)) {
@@ -321,7 +321,7 @@ export const createLinuxRuntimeDraft = async ({
     await manifestHandle.writeFile(
       `${JSON.stringify(
         {
-          schema: "vellum/linux-userland-runtime/v1",
+          schema: "junto/linux-userland-runtime/v1",
           version,
           arch: "x64",
           artifact: artifactName,
@@ -473,7 +473,7 @@ export const finalizeLinuxRuntimeArtifact = async ({
   ];
   for (const candidate of finals) await assertPackageDestinationAbsent(candidate);
 
-  const attempt = await mkdtemp(path.join(release, ".vellum-package-attempt-"));
+  const attempt = await mkdtemp(path.join(release, ".junto-package-attempt-"));
   await chmod(attempt, 0o700);
   const source = path.join(release, "linux-unpacked");
   const stagedSource = path.join(attempt, "linux-unpacked");

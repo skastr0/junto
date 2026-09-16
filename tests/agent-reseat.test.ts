@@ -73,9 +73,9 @@ describe("buildManagedAgentSeat / reseatManagedAgentNode", () => {
     const original = makeManagedAgentNode(0, 0, {
       harness: "codex",
       host: "local",
-      cwd: "/Users/me/Projects/vellum",
+      cwd: "/Users/me/Projects/junto",
     });
-    expect(seatLaunchCwd(original)).toBe("/Users/me/Projects/vellum");
+    expect(seatLaunchCwd(original)).toBe("/Users/me/Projects/junto");
     const next = reseatManagedAgentNode(
       original,
       reseatChoicesFromConfiguration(
@@ -83,7 +83,7 @@ describe("buildManagedAgentSeat / reseatManagedAgentNode", () => {
         seatLaunchCwd(original),
       ),
     );
-    expect(next.ether?.terminal?.launch?.cwd).toBe("/Users/me/Projects/vellum");
+    expect(next.ether?.terminal?.launch?.cwd).toBe("/Users/me/Projects/junto");
     expect(next.ether?.terminal?.harness).toBe("claude");
   });
 

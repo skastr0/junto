@@ -31,14 +31,14 @@ if [[ -L "$RELEASE_DIR" || ( -e "$RELEASE_DIR" && ! -d "$RELEASE_DIR" ) ]]; then
 fi
 mkdir -p -- "$RELEASE_DIR"
 RELEASE_DIR="$(cd "$RELEASE_DIR" && pwd -P)"
-ATTEMPT_DIR="$(mktemp -d "$RELEASE_DIR/.vellum-package-attempt-XXXXXXXX")"
+ATTEMPT_DIR="$(mktemp -d "$RELEASE_DIR/.junto-package-attempt-XXXXXXXX")"
 chmod 0700 "$ATTEMPT_DIR"
 PACKAGE_ASSET_DIR=""
 cleanup_package_attempt() {
   if [[ -n "$PACKAGE_ASSET_DIR" && -d "$PACKAGE_ASSET_DIR" && ! -L "$PACKAGE_ASSET_DIR" ]]; then
     rm -rf -- "$PACKAGE_ASSET_DIR"
   fi
-  if [[ -n "$ATTEMPT_DIR" && -d "$ATTEMPT_DIR" && ! -L "$ATTEMPT_DIR" && "$(dirname "$ATTEMPT_DIR")" == "$RELEASE_DIR" && "$(basename "$ATTEMPT_DIR")" == .vellum-package-attempt-* ]]; then
+  if [[ -n "$ATTEMPT_DIR" && -d "$ATTEMPT_DIR" && ! -L "$ATTEMPT_DIR" && "$(dirname "$ATTEMPT_DIR")" == "$RELEASE_DIR" && "$(basename "$ATTEMPT_DIR")" == .junto-package-attempt-* ]]; then
     rm -rf -- "$ATTEMPT_DIR"
   elif [[ -e "$ATTEMPT_DIR" || -L "$ATTEMPT_DIR" ]]; then
     printf 'junto: warning: retained package attempt after identity change: %s\n' "$ATTEMPT_DIR" >&2
@@ -59,7 +59,7 @@ bunx --no-install electron-rebuild \
 
 # FPM preserves input modes. Keep its icon copy outside release and delete only
 # that mktemp capability during cleanup.
-PACKAGE_ASSET_DIR="$(mktemp -d -t vellum-linux-assets.XXXXXX)"
+PACKAGE_ASSET_DIR="$(mktemp -d -t junto-linux-assets.XXXXXX)"
 PACKAGE_ICON="$PACKAGE_ASSET_DIR/junto-icon.png"
 install -m 0644 -- assets/brand/junto-icon.png "$PACKAGE_ICON"
 

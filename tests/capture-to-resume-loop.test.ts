@@ -39,7 +39,7 @@ import {
 const temps: string[] = [];
 
 const tempHome = (): string => {
-  const dir = mkdtempSync(join(tmpdir(), "vellum-capture-resume-"));
+  const dir = mkdtempSync(join(tmpdir(), "junto-capture-resume-"));
   temps.push(dir);
   return dir;
 };
@@ -160,7 +160,7 @@ describe("resume argv per reinjectability class", () => {
     const grokResume = resolveManagedLaunch("grok", {
       resumeId: "SID",
       systemPrompt: "DOCTRINE",
-      agentFile: "/tmp/vellum-agent.md",
+      agentFile: "/tmp/junto-agent.md",
     }).argv!;
     expect(grokFresh).toContain("--rules");
     expect(grokFresh).toContain("DOCTRINE");
@@ -169,7 +169,7 @@ describe("resume argv per reinjectability class", () => {
     expect(grokResume).not.toContain("--rules");
     expect(grokResume).not.toContain("--agent");
     expect(grokResume).not.toContain("DOCTRINE");
-    expect(grokResume).not.toContain("/tmp/vellum-agent.md");
+    expect(grokResume).not.toContain("/tmp/junto-agent.md");
   });
 
   it("hermes re-passes -m on resume (or the model silently reverts)", () => {

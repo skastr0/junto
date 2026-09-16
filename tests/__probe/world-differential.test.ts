@@ -49,7 +49,7 @@ describe.skipIf(!enabled || SOURCE === undefined)(
   "in-memory world vs SQLite, on a real database",
   () => {
     it("serves boot hydration, one append, and a resident read identically", async () => {
-      const root = join(tmpdir(), `vellum-world-diff-${randomUUID()}`);
+      const root = join(tmpdir(), `junto-world-diff-${randomUUID()}`);
       mkdirSync(join(root, "state"), { recursive: true });
       const databasePath = join(root, "state", "junto.db");
       cpSync(SOURCE as string, databasePath);
@@ -141,10 +141,8 @@ describe.skipIf(!enabled || SOURCE === undefined)(
               readonly generation: string;
               readonly intent_sha256: string;
             }>(
-              `SELECT generation, intent_sha256 FROM canvas_generations
-               WHERE generation = (
-                 SELECT generation FROM canvas_head WHERE singleton = 1
-               )`,
+              `SELECT generation, intent_sha256 FROM canvas_portfolio_head
+               WHERE singleton = 1`,
             ),
           ),
         );

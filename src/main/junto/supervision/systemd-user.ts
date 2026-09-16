@@ -2,8 +2,8 @@ import { Schema } from "effect";
 import { readFileSync } from "node:fs";
 import {
   JUNTO_SYSTEMD_USER_UNIT,
-  showVellumSystemdUserUnit,
-  startVellumSystemdUserUnit,
+  showJuntoSystemdUserUnit,
+  startJuntoSystemdUserUnit,
   systemdUserUnitTarget,
   type SystemctlFailureKind,
   type SystemctlRunResult,
@@ -299,7 +299,7 @@ const classifySystemdShow = (
 const observeSystemdUserUnit = async (): Promise<
   StationSupervisorObservation
 > => {
-  const result = await showVellumSystemdUserUnit(systemdUserUnitTarget());
+  const result = await showJuntoSystemdUserUnit(systemdUserUnitTarget());
   if (!result.ok) {
     if (result.clean && result.failure.kind === "exit-nonzero") {
       const parsed = parseSystemdShow(result.stdout);
@@ -330,7 +330,7 @@ const observeSystemdUserUnit = async (): Promise<
 const requestSystemdUserHandoff = async (): Promise<
   StationSupervisorHandoff
 > => {
-  const result = await startVellumSystemdUserUnit(systemdUserUnitTarget());
+  const result = await startJuntoSystemdUserUnit(systemdUserUnitTarget());
   if (result.ok) {
     return Object.freeze({ provider: "systemd-user", accepted: true });
   }

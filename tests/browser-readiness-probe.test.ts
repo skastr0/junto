@@ -31,7 +31,7 @@ describe("browser product-path readiness probe", () => {
     const receipt = await makeBrowserProductPathProbe({ station: station(), productPath: value.path, createNonce: () => "nonce" }).probe(signal());
 
     expect(receipt).toEqual({ version: 1, hostId: "studio", transport: "ready", composition: "ready", display: "ready", sandbox: "ready", capability: "ready" });
-    expect(value.path.openSyntheticLoopbackPage).toHaveBeenCalledWith(expect.objectContaining({ url: "http://127.0.0.1:49152/vellum-readiness?nonce=nonce" }));
+    expect(value.path.openSyntheticLoopbackPage).toHaveBeenCalledWith(expect.objectContaining({ url: "http://127.0.0.1:49152/junto-readiness?nonce=nonce" }));
     expect(value.close).toHaveBeenCalledTimes(1);
     expect(value.closePath).toHaveBeenCalledTimes(1);
   });

@@ -170,7 +170,7 @@ const writeExactRemoteClosure = async (
   );
   await writeFile(
     path.join(runtimeRoot, "resources/app-remote/package.json"),
-    `${JSON.stringify({ name: "vellum-app-remote", private: true, main: "junto-remote.js" })}\n`,
+    `${JSON.stringify({ name: "junto-app-remote", private: true, main: "junto-remote.js" })}\n`,
   );
   await writeProvenance({
     runtime: "linux-remote",
@@ -288,7 +288,7 @@ const createSourceRepository = async (
   const migrationIdentitySha256 =
     options.migrationIdentitySha256 ??
     "b545aa0771810a631eeeea9f7b642467e6cca327ba74392298457aab1cec1955";
-  const root = await mkdtemp(path.join(tmpdir(), "vellum-package-source-git-"));
+  const root = await mkdtemp(path.join(tmpdir(), "junto-package-source-git-"));
   git(root, ["init", "--quiet"]);
   git(root, ["config", "user.email", "package-test@example.invalid"]);
   git(root, ["config", "user.name", "Package Test"]);
@@ -396,7 +396,7 @@ describe("fresh compiler cohort provenance", () => {
   });
 
   it("removes stale main and Remote before both compilers and stamps one identity", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "vellum-cohort-build-"));
+    const root = await mkdtemp(path.join(tmpdir(), "junto-cohort-build-"));
     try {
       await mkdir(path.join(root, "out/main"), { recursive: true });
       await mkdir(path.join(root, "out/remote"), { recursive: true });
@@ -463,7 +463,7 @@ describe("fresh compiler cohort provenance", () => {
   });
 
   it("does not compile an unshipped Linux Remote for mac packages", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "vellum-mac-cohort-build-"));
+    const root = await mkdtemp(path.join(tmpdir(), "junto-mac-cohort-build-"));
     try {
       await mkdir(path.join(root, "out/remote"), { recursive: true });
       await writeFile(path.join(root, "out/remote/stale"), "stale\n");
@@ -499,7 +499,7 @@ describe("fresh compiler cohort provenance", () => {
   });
 
   it("cannot bless an ignored stale main when the main compiler emits nothing", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "vellum-cohort-noop-"));
+    const root = await mkdtemp(path.join(tmpdir(), "junto-cohort-noop-"));
     try {
       await mkdir(path.join(root, "out/main"), { recursive: true });
       await writeFile(path.join(root, MAIN_PAYLOAD_SOURCE_RELATIVE), "stale\n");
@@ -519,7 +519,7 @@ describe("fresh compiler cohort provenance", () => {
   });
 
   it("removes only the owned Remote output and refuses its symlink", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "vellum-owned-output-"));
+    const root = await mkdtemp(path.join(tmpdir(), "junto-owned-output-"));
     try {
       await mkdir(path.join(root, "out/remote"), { recursive: true });
       await writeFile(path.join(root, "out/remote/stale"), "old\n");
@@ -576,7 +576,7 @@ describe("exact committed source admission", () => {
 
   it("clones exact commit bytes without local alternates", async () => {
     const fixture = await createSourceRepository();
-    const work = await mkdtemp(path.join(tmpdir(), "vellum-exact-clone-"));
+    const work = await mkdtemp(path.join(tmpdir(), "junto-exact-clone-"));
     const clone = path.join(work, "clone");
     try {
       const result = await cloneExactCommit({
@@ -723,7 +723,7 @@ describe("package source facts", () => {
 
 describe("packaged runtime exact parity and closure", () => {
   it("accepts exact packaged outputs and binds the full Linux closure", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "vellum-package-parity-"));
+    const root = await mkdtemp(path.join(tmpdir(), "junto-package-parity-"));
     try {
       const candidate = await createSyntheticLinuxRuntime({ root });
       const receipt = await verifyPackagedRuntimeParity({
@@ -745,7 +745,7 @@ describe("packaged runtime exact parity and closure", () => {
   });
 
   it("rejects internally self-consistent stale main bytes that differ from fresh output", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "vellum-package-stale-main-"));
+    const root = await mkdtemp(path.join(tmpdir(), "junto-package-stale-main-"));
     try {
       const staleMain = compiled(
         "electron-main",
@@ -769,7 +769,7 @@ describe("packaged runtime exact parity and closure", () => {
   });
 
   it("rejects alternate or excess Remote copies anywhere in Linux runtime", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "vellum-package-duplicate-"));
+    const root = await mkdtemp(path.join(tmpdir(), "junto-package-duplicate-"));
     try {
       const candidate = await createSyntheticLinuxRuntime({ root });
       await mkdir(path.join(candidate.runtimeRoot, "resources/alternate"), {
@@ -821,7 +821,7 @@ describe("packaged runtime exact parity and closure", () => {
   });
 
   it("forbids Remote-only resources in mac app.asar.unpacked", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "vellum-package-mac-remote-"));
+    const root = await mkdtemp(path.join(tmpdir(), "junto-package-mac-remote-"));
     try {
       const candidate = await createSyntheticMacBundle(root);
       await mkdir(
@@ -948,7 +948,7 @@ describe("packaged runtime exact parity and closure", () => {
 
 describe("raw ASAR admission", () => {
   it("rejects a raw dotdot key before normalized ASAR APIs can hide it", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "vellum-raw-asar-"));
+    const root = await mkdtemp(path.join(tmpdir(), "junto-raw-asar-"));
     try {
       const candidate = await createSyntheticLinuxRuntime({ root });
       await mkdir(path.join(candidate.appStage, "aa"), { recursive: true });
@@ -1015,7 +1015,7 @@ describe("raw ASAR admission", () => {
 
 describe("attempt-owned publication", () => {
   it("rejects a dangling final archive symlink without touching its target", async () => {
-    const release = await mkdtemp(path.join(tmpdir(), "vellum-dangling-final-"));
+    const release = await mkdtemp(path.join(tmpdir(), "junto-dangling-final-"));
     try {
       const version = "1.2.3";
       await mkdir(path.join(release, "linux-unpacked"));
@@ -1042,8 +1042,8 @@ describe("attempt-owned publication", () => {
   });
 
   it("forced audit failure leaves no finals and preserves unrelated outputs", async () => {
-    const release = await mkdtemp(path.join(tmpdir(), "vellum-audit-failure-"));
-    const attempt = path.join(release, ".vellum-package-attempt-forced-failure");
+    const release = await mkdtemp(path.join(tmpdir(), "junto-audit-failure-"));
+    const attempt = path.join(release, ".junto-package-attempt-forced-failure");
     try {
       await mkdir(attempt);
       await writeFile(path.join(attempt, "candidate.zip"), "draft\n");
@@ -1082,8 +1082,8 @@ describe("attempt-owned publication", () => {
   });
 
   it("publisher rejects a dangling destination and keeps unrelated files", async () => {
-    const release = await mkdtemp(path.join(tmpdir(), "vellum-publish-link-"));
-    const attempt = path.join(release, ".vellum-package-attempt-link");
+    const release = await mkdtemp(path.join(tmpdir(), "junto-publish-link-"));
+    const attempt = path.join(release, ".junto-package-attempt-link");
     try {
       await mkdir(attempt);
       await writeFile(path.join(attempt, "candidate.zip"), "draft\n");
@@ -1108,7 +1108,7 @@ describe("attempt-owned publication", () => {
 
 describe("qualification receipt lifecycle", () => {
   it("a failed attempt supersedes an older success receipt immediately", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "vellum-stale-receipt-"));
+    const root = await mkdtemp(path.join(tmpdir(), "junto-stale-receipt-"));
     const receiptPath = path.join(root, "receipt.json");
     try {
       await writeFile(receiptPath, '{"old-success":true,"commit":"deadbeef"}\n');
@@ -1213,7 +1213,7 @@ describe("historical probe and official wiring", () => {
   });
 
   it("plants a plausible schema-18 bundle that a cohort must replace", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "vellum-stale-probe-"));
+    const root = await mkdtemp(path.join(tmpdir(), "junto-stale-probe-"));
     try {
       const historical = await loadHistoricalPackageComparison(repoRoot);
       const planted = await plantHistoricalStaleRemote({

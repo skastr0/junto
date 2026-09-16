@@ -136,7 +136,7 @@ afterEach(async () => {
 });
 
 const makeHome = async (): Promise<string> => {
-  const home = join(tmpdir(), `vellum-install-ops-engine-${randomUUID()}`);
+  const home = join(tmpdir(), `junto-install-ops-engine-${randomUUID()}`);
   homes.push(home);
   await mkdir(home, { recursive: true });
   return home;

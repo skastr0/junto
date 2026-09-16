@@ -25,51 +25,51 @@ const ruleBody = (selector: string): string => {
 
 describe("canvas continuous motion (discrete clock, no interpolating CSS)", () => {
   it("retired interpolating factory keyframes are gone", () => {
-    expect(css).not.toMatch(/@keyframes\s+vellumActivityClock\b/);
-    expect(css).not.toMatch(/@keyframes\s+vellumActivityPulse\b/);
-    expect(css).not.toMatch(/@keyframes\s+vellumBlockerHalo\b/);
-    expect(css).not.toMatch(/@keyframes\s+vellumSeatAttentionHalo\b/);
-    expect(css).not.toMatch(/@keyframes\s+vellumEdgeRippleOpacity\b/);
-    expect(css).not.toMatch(/@keyframes\s+vellumBlockerFlagPulse\b/);
-    expect(css).not.toMatch(/@keyframes\s+vellumStatusDotPulse\b/);
-    expect(css).not.toMatch(/@keyframes\s+vellum-dot-pulse\b/);
-    expect(css).not.toMatch(/@keyframes\s+vellumPulse\b/);
-    expect(css).not.toMatch(/@keyframes\s+vellumDash\b/);
-    expect(css).not.toMatch(/@keyframes\s+vellumSeatAttentionPulse\b/);
+    expect(css).not.toMatch(/@keyframes\s+juntoActivityClock\b/);
+    expect(css).not.toMatch(/@keyframes\s+juntoActivityPulse\b/);
+    expect(css).not.toMatch(/@keyframes\s+juntoBlockerHalo\b/);
+    expect(css).not.toMatch(/@keyframes\s+juntoSeatAttentionHalo\b/);
+    expect(css).not.toMatch(/@keyframes\s+juntoEdgeRippleOpacity\b/);
+    expect(css).not.toMatch(/@keyframes\s+juntoBlockerFlagPulse\b/);
+    expect(css).not.toMatch(/@keyframes\s+juntoStatusDotPulse\b/);
+    expect(css).not.toMatch(/@keyframes\s+junto-dot-pulse\b/);
+    expect(css).not.toMatch(/@keyframes\s+juntoPulse\b/);
+    expect(css).not.toMatch(/@keyframes\s+juntoDash\b/);
+    expect(css).not.toMatch(/@keyframes\s+juntoSeatAttentionPulse\b/);
   });
 
   it("ActivityMark cells have no CSS animation and key off the clock", () => {
-    expect(ruleBody(".vellum-activity-clock-cell")).not.toMatch(/animation\s*:/);
-    expect(ruleBody(".vellum-activity-pulse-cell")).not.toMatch(/animation\s*:/);
+    expect(ruleBody(".junto-activity-clock-cell")).not.toMatch(/animation\s*:/);
+    expect(ruleBody(".junto-activity-pulse-cell")).not.toMatch(/animation\s*:/);
     expect(css).toMatch(
-      /html\[data-attention-phase="0"\]\s+\.vellum-activity-clock-cell:nth-child\(1\)/,
+      /html\[data-attention-phase="0"\]\s+\.junto-activity-clock-cell:nth-child\(1\)/,
     );
     expect(css).toMatch(
-      /html\[data-attention-phase="7"\]\s+\.vellum-activity-clock-cell:nth-child\(8\)/,
+      /html\[data-attention-phase="7"\]\s+\.junto-activity-clock-cell:nth-child\(8\)/,
     );
     expect(css).toMatch(
-      /html\[data-attention-beat="1"\]\s+\.vellum-activity-pulse-cell/,
+      /html\[data-attention-beat="1"\]\s+\.junto-activity-pulse-cell/,
     );
   });
 
   it("blocker halo is a static ::after ring, not an animation", () => {
-    expect(css).toMatch(/\.vellum-blocker\s*\{[^}]*box-shadow:[^}]*\}/s);
-    const halo = ruleBody(".vellum-blocker::after");
+    expect(css).toMatch(/\.junto-blocker\s*\{[^}]*box-shadow:[^}]*\}/s);
+    const halo = ruleBody(".junto-blocker::after");
     expect(halo).not.toMatch(/animation\s*:/);
     expect(halo).not.toMatch(/will-change\s*:/);
-    const blockerBlock = css.match(/\.vellum-blocker\s*\{([^}]*)\}/)?.[1];
+    const blockerBlock = css.match(/\.junto-blocker\s*\{([^}]*)\}/)?.[1];
     expect(blockerBlock).toBeDefined();
     expect(blockerBlock).not.toMatch(/animation\s*:/);
   });
 
   it("seat-attention uses static box-shadow + static ::after ring", () => {
     const halo = ruleBody(
-      '.vellum-node[data-seat-attention="true"]::after',
+      '.junto-node[data-seat-attention="true"]::after',
     );
     expect(halo).not.toMatch(/animation\s*:/);
     expect(halo).not.toMatch(/will-change\s*:/);
     const parent = css.match(
-      /\.vellum-node\[data-attention="fire"\],\s*\n\.vellum-node\[data-seat-attention="true"\]\s*\{([^}]*)\}/,
+      /\.junto-node\[data-attention="fire"\],\s*\n\.junto-node\[data-seat-attention="true"\]\s*\{([^}]*)\}/,
     )?.[1];
     expect(parent).toBeDefined();
     expect(parent).not.toMatch(/animation\s*:/);
@@ -78,10 +78,10 @@ describe("canvas continuous motion (discrete clock, no interpolating CSS)", () =
 
   it("blocked-edge ripple keeps a static dash and does not animate", () => {
     expect(css).toMatch(
-      /\.vellum-edge-ripple[\s\S]*?stroke-dasharray:\s*5 6/,
+      /\.junto-edge-ripple[\s\S]*?stroke-dasharray:\s*5 6/,
     );
     const ripple = css.match(
-      /\.vellum-edge-ripple \.react-flow__edge-path,\s*\npath\.vellum-edge-ripple\s*\{([^}]*)\}/,
+      /\.junto-edge-ripple \.react-flow__edge-path,\s*\npath\.junto-edge-ripple\s*\{([^}]*)\}/,
     )?.[1];
     expect(ripple).toBeDefined();
     expect(ripple).not.toMatch(/animation\s*:/);

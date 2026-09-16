@@ -478,7 +478,7 @@ describe("terminal maintenance lease", () => {
   });
 
   it("treats an unreachable control plane as an error, never zero sessions", async () => {
-    const home = mkdtempSync(join(tmpdir(), "vellum-term-unreachable-"));
+    const home = mkdtempSync(join(tmpdir(), "junto-term-unreachable-"));
     try {
       await expect(
         TermControlClient.connect({

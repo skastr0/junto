@@ -9,13 +9,13 @@ import { signLinuxDesktopRelease, verifyLinuxDesktopRelease, type LinuxDesktopRe
 const pair = generateKeyPairSync("ed25519");
 const hash = (body: string | Buffer): string => createHash("sha256").update(body).digest("hex");
 const fingerprint = hash(pair.publicKey.export({ format: "der", type: "spki" }));
-const keyring = { schema: "vellum/linux-release-keyring/v1" as const, revision: 1, keys: [{
+const keyring = { schema: "junto/linux-release-keyring/v1" as const, revision: 1, keys: [{
   keyId: "synthetic-updater-test", algorithm: "ed25519" as const,
   publicKeyPem: pair.publicKey.export({ format: "pem", type: "spki" }).toString(),
   fingerprintSha256: fingerprint, status: "active" as const, validFrom: "2026-09-01T00:00:00.000Z",
 }] };
 const trust: LinuxDesktopReleaseTrust = { keyring, policy: {
-  schema: "vellum/linux-release-trust-policy/v1", state: "configured", trustedKeyringRevision: 1,
+  schema: "junto/linux-release-trust-policy/v1", state: "configured", trustedKeyringRevision: 1,
   trustedKeyringSha256: hash(`${JSON.stringify(keyring, null, 2)}\n`),
   trustedKeyId: keyring.keys[0]!.keyId, trustedKeyFingerprintSha256: fingerprint,
 } };

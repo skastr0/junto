@@ -13,7 +13,7 @@ import { ActorRef } from "@shared/work-protocol";
  * One NDJSON request and one NDJSON response travel over an owner-only Unix
  * socket. The surface is projection-only: it cannot mutate authorial intent.
  */
-export const CANVAS_CONTROL_PROTOCOL_VERSION = "vellum-canvas-control/v1";
+export const CANVAS_CONTROL_PROTOCOL_VERSION = "junto-canvas-control/v1";
 export const CANVAS_CONTROL_HOME_ENV = "JUNTO_CANVAS_CONTROL_HOME";
 export const CANVAS_CONTROL_DEFAULT_TIMEOUT_MS = 30_000;
 export const CANVAS_CONTROL_MAX_REQUEST_BYTES = 64 * 1024;

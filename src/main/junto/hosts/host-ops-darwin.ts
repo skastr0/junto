@@ -385,7 +385,7 @@ export const cleanupDarwinHost = (
         observedAt,
       };
     }
-    const removedPath = `${home}/Library/LaunchAgents/skastr0.vellumcommand.plist.incoming`;
+    const removedPath = `${home}/Library/LaunchAgents/com.skastr0.junto.plist.incoming`;
     const removed = yield* ssh
       .run(oneShot(target, removeCmd.success, { budget: "short" }))
       .pipe(Effect.result);

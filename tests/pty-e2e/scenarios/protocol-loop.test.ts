@@ -537,7 +537,7 @@ describe("PROTO-8 — paused seat reports paused:true + next_step", () => {
 
   beforeAll(async () => {
     resetSeatBlocks();
-    const root = await mkdtemp(join(tmpdir(), "vellum-proto8-"));
+    const root = await mkdtemp(join(tmpdir(), "junto-proto8-"));
     roots.push(root);
     const canvasesDir = join(root, "canvases");
     const workHome = join(root, "work");

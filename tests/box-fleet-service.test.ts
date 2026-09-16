@@ -55,7 +55,7 @@ const machine = (
 });
 
 const fixture = async () => {
-  const root = await mkdtemp(join(tmpdir(), "vellum-box-fleet-"));
+  const root = await mkdtemp(join(tmpdir(), "junto-box-fleet-"));
   roots.push(root);
   const stateLive = makeStateEngineLive(join(root, "junto.db"));
   const complete = ManagedRuntime.make(

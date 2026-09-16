@@ -144,7 +144,7 @@ describe("evaluate — claude", () => {
     const r = evaluate(
       snap({
         title: "⠋ Claude",
-        lines: [HR, "> [Pasted text #1 +5 lines]", HR, "vellum git:(main)"],
+        lines: [HR, "> [Pasted text #1 +5 lines]", HR, "junto git:(main)"],
       }),
       { harness: "claude" },
     );
@@ -927,7 +927,7 @@ describe("evaluate — kimi / pi / prime-agent scrollback hygiene", () => {
           "◈ more history",
           "ready for input",
         ],
-        title: "prime-agent - session - vellum",
+        title: "prime-agent - session - junto",
         osc9: "4;0",
       }),
       { harness: "prime-agent" },
@@ -943,7 +943,7 @@ describe("evaluate — kimi / pi / prime-agent scrollback hygiene", () => {
           "some reasoning text in scrollback",
           "  12% \u00b7 7.7k \u00b7 sonnet",
         ],
-        title: "π - main - vellum",
+        title: "π - main - junto",
       }),
       { harness: "pi" },
     );
@@ -999,7 +999,7 @@ describe("evaluate — kimi / pi / prime-agent scrollback hygiene", () => {
         lines: [
           "\u256d\u2500\u2500 $\u00b7\u00b7\u00b7\u00b7 \u2500 high \u2500\u256e",
           "\u2502                                              \u2502",
-          "\u2570 ~ Connecting \u2500\u2500 ~/Projects/vellum (main) \u2500\u256f",
+          "\u2570 ~ Connecting \u2500\u2500 ~/Projects/junto (main) \u2500\u256f",
         ],
         title: "",
       }),
@@ -1012,7 +1012,7 @@ describe("evaluate — kimi / pi / prime-agent scrollback hygiene", () => {
   it("amp: resume replay is not a writeable seat either", () => {
     const result = evaluate(
       snap({
-        lines: ["\u2570 ~ Catching Up \u2500\u2500 ~/Projects/vellum (main) \u2500\u256f"],
+        lines: ["\u2570 ~ Catching Up \u2500\u2500 ~/Projects/junto (main) \u2500\u256f"],
         title: "",
       }),
       { harness: "amp" },
@@ -1023,8 +1023,8 @@ describe("evaluate — kimi / pi / prime-agent scrollback hygiene", () => {
   it("amp: braille title is working", () => {
     const result = evaluate(
       snap({
-        lines: ["\u2570 ~ Streaming \u2500\u2500 ~/Projects/vellum (main) \u2500\u256f"],
-        title: "\u28f6 amp - ~/Projects/vellum",
+        lines: ["\u2570 ~ Streaming \u2500\u2500 ~/Projects/junto (main) \u2500\u256f"],
+        title: "\u28f6 amp - ~/Projects/junto",
       }),
       { harness: "amp" },
     );
@@ -1039,9 +1039,9 @@ describe("evaluate — kimi / pi / prime-agent scrollback hygiene", () => {
         lines: [
           " \u2503 Reply with the single word READY and nothing else.",
           " READY",
-          "\u2570\u2500\u2500 ~/Projects/vellum (main) \u2500\u256f",
+          "\u2570\u2500\u2500 ~/Projects/junto (main) \u2500\u256f",
         ],
-        title: "Ready response - amp - ~/Projects/vellum",
+        title: "Ready response - amp - ~/Projects/junto",
       }),
       { harness: "amp" },
     );
@@ -1053,8 +1053,8 @@ describe("evaluate — kimi / pi / prime-agent scrollback hygiene", () => {
   it("amp: waiting for approval is attention, never idle", () => {
     const result = evaluate(
       snap({
-        lines: ["\u2570 Waiting for Approval \u2500\u2500 ~/Projects/vellum \u2500\u256f"],
-        title: "Some thread - amp - ~/Projects/vellum",
+        lines: ["\u2570 Waiting for Approval \u2500\u2500 ~/Projects/junto \u2500\u256f"],
+        title: "Some thread - amp - ~/Projects/junto",
       }),
       { harness: "amp" },
     );
@@ -1072,7 +1072,7 @@ describe("evaluate — kimi / pi / prime-agent scrollback hygiene", () => {
           "\u2502 Ctrl+C Quit                   \u2502",
           "\u2502           Esc cancel          \u2502",
         ],
-        title: "Ready response - amp - ~/Projects/vellum",
+        title: "Ready response - amp - ~/Projects/junto",
       }),
       { harness: "amp" },
     );
@@ -1093,7 +1093,7 @@ describe("evaluate — kimi / pi / prime-agent scrollback hygiene", () => {
           "❯",
           "Grok 4.6 (high) \u00B7 163K / 500K (33%) \u00B7 ctrl+o transcript",
         ],
-        title: "vellum - grok",
+        title: "junto - grok",
       }),
       { harness: "grok" },
     );
@@ -1110,7 +1110,7 @@ describe("evaluate — kimi / pi / prime-agent scrollback hygiene", () => {
           "❯",
           "Grok 4.6 (high) \u00B7 163K / 500K (33%) \u00B7 ctrl+o transcript",
         ],
-        title: "vellum - grok",
+        title: "junto - grok",
       }),
       { harness: "grok" },
     );
@@ -1125,7 +1125,7 @@ describe("evaluate — kimi / pi / prime-agent scrollback hygiene", () => {
           "❯",
           "Grok 4.6 (high) \u00B7 163K / 500K (33%) \u00B7 ctrl+o transcript",
         ],
-        title: "vellum - grok",
+        title: "junto - grok",
       }),
       { harness: "grok" },
     );

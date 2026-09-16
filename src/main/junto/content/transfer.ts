@@ -251,7 +251,7 @@ export type ContentTransferServiceShape = {
 /**
  * Station content transfer orchestration (SSH helper path).
  *
- * - Canonical id: `@vellum/ContentTransferService` — single `Context.Service`.
+ * - Canonical id: `@junto/ContentTransferService` — single `Context.Service`.
  * - Layer: `makeContentTransferServiceLive`.
  */
 export class ContentTransferService extends Context.Service<ContentTransferService, ContentTransferServiceShape>()("@junto/ContentTransferService") {}

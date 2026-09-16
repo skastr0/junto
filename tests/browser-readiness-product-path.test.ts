@@ -33,7 +33,7 @@ const compositionHost = (): BrowserCompositionHost => {
 
 const viewFixture = (
   capture: Uint8Array = PNG,
-  evaluation: unknown = { __vellumEval: 1, status: "ok", json: "true" },
+  evaluation: unknown = { __juntoEval: 1, status: "ok", json: "true" },
 ) => {
   const loadUrl = vi.fn(async () => undefined);
   const attach = vi.fn();
@@ -61,7 +61,7 @@ const openPage = async (
 ) => {
   const origin = path.loopbackOrigin();
   return path.openSyntheticLoopbackPage({
-    url: `${origin}vellum-readiness?nonce=test`,
+    url: `${origin}junto-readiness?nonce=test`,
     signal,
   });
 };
@@ -114,7 +114,7 @@ describe("Electron browser readiness product path", () => {
 
   it("cannot turn a swallowed navigation failure plus blank-page PNG into ready", async () => {
     const view = viewFixture(PNG, {
-      __vellumEval: 1,
+      __juntoEval: 1,
       status: "ok",
       json: "false",
     });

@@ -12,7 +12,7 @@ import { PRODUCT_NAME } from "@shared/product-name";
 /** Operator-facing location of the sole durable store (tilde form). */
 export const OPERATOR_STATE_DIR_DISPLAY = "~/.junto/state/" as const;
 
-export const SUPPORT_EMAIL = "support@vellumcommand.com" as const;
+export const SUPPORT_EMAIL = "support@juntoagents.com" as const;
 
 const TECHNICAL_FRAGMENT_MAX = 280;
 

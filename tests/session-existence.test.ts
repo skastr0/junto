@@ -24,8 +24,8 @@ afterEach(() => {
   // These cases assert production pin/resume semantics. The shared Vitest
   // setup deliberately enables an isolated JUNTO_HOME for state safety, so
   // clear it for the assertion and restore the harness after each case.
-  if (originalVellumHome === undefined) delete process.env.JUNTO_HOME;
-  else process.env.JUNTO_HOME = originalVellumHome;
+  if (originalJuntoHome === undefined) delete process.env.JUNTO_HOME;
+  else process.env.JUNTO_HOME = originalJuntoHome;
   __setSessionExistenceHomeForTest(undefined);
   for (const dir of temps.splice(0)) {
     try {
@@ -36,10 +36,10 @@ afterEach(() => {
   }
 });
 
-const originalVellumHome = process.env.JUNTO_HOME;
+const originalJuntoHome = process.env.JUNTO_HOME;
 
 const tempHome = (): string => {
-  const dir = mkdtempSync(join(tmpdir(), "vellum-session-exist-"));
+  const dir = mkdtempSync(join(tmpdir(), "junto-session-exist-"));
   temps.push(dir);
   return dir;
 };
@@ -120,7 +120,7 @@ describe("harness session existence (external proof)", () => {
 
   it("reclaims a pin argv when this host already has the session", () => {
     const home = tempHome();
-    const cwd = "/Users/developer/Projects/vellum";
+    const cwd = "/Users/developer/Projects/junto";
     const sid = "8fd57ce4-c2b9-48e0-affc-617513834c26";
     const pin = ["grok", "--minimal", "--session-id", sid];
     expect(parseHarnessSessionArgv(pin)).toEqual({
@@ -212,7 +212,7 @@ describe("harness session existence (external proof)", () => {
     // Layout: ~/.kimi-code/sessions/<workDirKey>/<sessionId>/{state.json, agents/...}
     // Live 0.34.0 ids are session_<uuid> or ses_<uuid>. The welcome-card
     // Session: line is blank at spawn and is not this proof.
-    const dir = join(home, ".kimi-code", "sessions", "wd_vellum", sid);
+    const dir = join(home, ".kimi-code", "sessions", "wd_junto", sid);
     mkdirSync(join(dir, "agents", "main"), { recursive: true });
     writeFileSync(join(dir, "state.json"), "{}");
     writeFileSync(join(dir, "agents", "main", "wire.jsonl"), "");

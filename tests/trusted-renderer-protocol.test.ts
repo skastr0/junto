@@ -23,7 +23,7 @@ describe("trusted renderer protocol", () => {
   let root = "";
 
   beforeEach(async () => {
-    root = await mkdtemp(join(tmpdir(), "vellum-trusted-renderer-"));
+    root = await mkdtemp(join(tmpdir(), "junto-trusted-renderer-"));
     await mkdir(join(root, "assets"));
     await writeFile(join(root, "index.html"), '<script src="./assets/app.js"></script>');
     await writeFile(join(root, "assets/app.js"), "globalThis.loaded = true;");
@@ -117,7 +117,7 @@ describe("trusted renderer protocol", () => {
   });
 
   it("rejects a symlink that resolves outside the renderer root", async () => {
-    const outside = join(root, "..", `vellum-outside-${process.pid}.js`);
+    const outside = join(root, "..", `junto-outside-${process.pid}.js`);
     await writeFile(outside, "secret");
     await symlink(outside, join(root, "assets/escape.js"));
     try {

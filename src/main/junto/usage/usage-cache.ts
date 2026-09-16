@@ -43,7 +43,7 @@ const fromStateError = (
  */
 /**
  * effect-foundation **S4-rest-main** (staged, not half-migrated):
- * - Canonical id: `@vellum/UsageCache` — single definition; no dual path.
+ * - Canonical id: `@junto/UsageCache` — single definition; no dual path.
  * - Service id: Context.Service (Effect V4 live).
  * - Shape:
  *   `class UsageCache extends Context.Service<UsageCache, UsageCache>()("@junto/UsageCache") {}`

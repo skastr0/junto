@@ -22,8 +22,8 @@ afterEach(async () => {
 
 describe("Linux release archive", () => {
   it("creates only the exact userland runtime archive name bound by the receipt", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "vellum-release-archive-"));
-    const output = await mkdtemp(path.join(tmpdir(), "vellum-release-archive-output-"));
+    const root = await mkdtemp(path.join(tmpdir(), "junto-release-archive-"));
+    const output = await mkdtemp(path.join(tmpdir(), "junto-release-archive-output-"));
     roots.push(root, output);
     const version = "1.2.3";
     const packageFile = linuxUserlandRuntimeArchiveName(version);
@@ -38,12 +38,12 @@ describe("Linux release archive", () => {
     ));
     const receiptPath = path.join(output, "verification.json");
     await writeFile(receiptPath, JSON.stringify({
-      schema: "vellum/linux-release-verification-receipt/v1",
+      schema: "junto/linux-release-verification-receipt/v1",
       ok: true,
       version,
       sourceRevision: "a".repeat(40),
       target: LINUX_RELEASE_TARGET,
-      keyId: "vellum-linux-2026a",
+      keyId: "junto-linux-2026a",
       keyringRevision: 1,
       signedAt: "2026-07-31T00:00:00.000Z",
       expiresAt: "2026-08-01T00:00:00.000Z",
@@ -68,7 +68,7 @@ describe("Linux release archive", () => {
     await expect(createLinuxReleaseArchive({
       bundleDirectory: root,
       verificationReceiptPath: receiptPath,
-      archivePath: path.join(output, "vellum-1.2.3-ubuntu-24.04-x64-release.tar.gz"),
+      archivePath: path.join(output, "junto-1.2.3-ubuntu-24.04-x64-release.tar.gz"),
     })).rejects.toThrow(/must be named junto-runtime-1.2.3-linux-x64\.tar\.gz/u);
   });
 });

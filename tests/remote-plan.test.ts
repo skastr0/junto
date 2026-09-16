@@ -51,8 +51,8 @@ describe("linux remote preflight compiler", () => {
     expect(source).toContain("umask 077");
     expect(source).toContain("systemctl --user");
     expect(source).not.toContain("sudo");
-    expect(source).not.toContain("/usr/libexec/vellum-release-installer");
-    expect(source).not.toContain("/usr/libexec/vellum-release-bridge");
+    expect(source).not.toContain("/usr/libexec/junto-release-installer");
+    expect(source).not.toContain("/usr/libexec/junto-release-bridge");
   });
 
   it("compiles to a branded RemoteCommand with plan argv label", () => {
@@ -60,7 +60,7 @@ describe("linux remote preflight compiler", () => {
     const parts = inspectRemoteCommand(command);
     expect(parts.executable).toBe("/bin/sh");
     expect(parts.args[0]).toBe("-c");
-    expect(parts.args[2]).toBe("vellum-plan:linux-userland-preflight");
+    expect(parts.args[2]).toBe("junto-plan:linux-userland-preflight");
     expect(parts.args[1]).toBe(compileLinuxUserlandPreflightSource());
   });
 });
@@ -70,7 +70,7 @@ describe("named deploy compilers", () => {
     const parts = inspectRemoteCommand(run(compileLinuxUserlandDeploy()));
     expect(parts.executable).toBe("/bin/sh");
     expect(parts.args[0]).toBe("-c");
-    expect(parts.args[2]).toBe("vellum-plan:linux-userland-deploy");
+    expect(parts.args[2]).toBe("junto-plan:linux-userland-deploy");
     expect(parts.args[1]).toBe(compileLinuxUserlandDeploySource());
   });
 
@@ -78,28 +78,28 @@ describe("named deploy compilers", () => {
     const parts = inspectRemoteCommand(run(remotePlan.compileLinuxUserlandRestart()));
     expect(parts.executable).toBe("/bin/sh");
     expect(parts.args[0]).toBe("-c");
-    expect(parts.args[2]).toBe("vellum-plan:linux-userland-restart");
+    expect(parts.args[2]).toBe("junto-plan:linux-userland-restart");
     expect(parts.args[1]).toBe(remotePlan.compileLinuxUserlandRestartSource());
     expect(parts.args[1]).toContain("systemctl --user restart junto-remote.service");
-    expect(parts.args[1]).not.toMatch(/sudo|rm -rf|--vellum-headless/u);
+    expect(parts.args[1]).not.toMatch(/sudo|rm -rf|--junto-headless/u);
   });
 
   it("compiles a userland generation observe command with a fixed invocation", () => {
     const parts = inspectRemoteCommand(run(remotePlan.compileLinuxUserlandObserve()));
     expect(parts.executable).toBe("/bin/sh");
     expect(parts.args[0]).toBe("-c");
-    expect(parts.args[2]).toBe("vellum-plan:linux-userland-observe");
+    expect(parts.args[2]).toBe("junto-plan:linux-userland-observe");
     expect(parts.args[1]).toBe(remotePlan.compileLinuxUserlandObserveSource());
     expect(parts.args[1]).toContain("LINUX_USERLAND_OBSERVE_V1");
     expect(parts.args[1]).toContain("$HOME/.junto/runtime/releases");
     expect(parts.args[1]).toContain("resources/bin/junto-remote");
-    expect(parts.args[1]).not.toMatch(/sudo|rm -rf|--vellum-headless|current/u);
+    expect(parts.args[1]).not.toMatch(/sudo|rm -rf|--junto-headless|current/u);
   });
 
   it("hardens deploy around junto-remote generation pin, sealed install, and member proof", () => {
     const source = compileLinuxUserlandDeploySource();
     expect(source).toContain("resources/bin/junto-remote");
-    expect(source).not.toContain("--vellum-state-preflight");
+    expect(source).not.toContain("--junto-state-preflight");
     expect(source).toContain("--install-user-service");
     expect(source).toContain("unit_pins_generation");
     expect(source).toContain("prove_activation");
@@ -114,9 +114,9 @@ describe("named deploy compilers", () => {
     expect(source).toContain('"op": "ping"');
     expect(source).toContain("s.sendall");
     expect(source).not.toMatch(/s\.connect\([^)]+\);\s*s\.close\(\)/u);
-    expect(source).not.toContain('"$DEST/vellum"');
+    expect(source).not.toContain('"$DEST/junto"');
     expect(source).not.toContain('"$RELEASE/junto"');
-    expect(source).not.toMatch(/Xvfb|ozone-platform|--vellum-headless/u);
+    expect(source).not.toMatch(/Xvfb|ozone-platform|--junto-headless/u);
     expect(source).not.toContain("rm -rf");
     expect(source).toContain('/bin/rm -f -- "$ARCHIVE"');
     expect(source).toContain('/bin/rmdir -- "$STAGE"');
@@ -124,7 +124,7 @@ describe("named deploy compilers", () => {
   });
 
   it("work-control handshake python requires a ping envelope, not a connect-only", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "vellum-linux-handshake-"));
+    const dir = await mkdtemp(join(tmpdir(), "junto-linux-handshake-"));
     const sock = join(dir, "control.sock");
     const tokenPath = join(dir, "token");
     await writeFile(tokenPath, "secret\n", { mode: 0o600 });

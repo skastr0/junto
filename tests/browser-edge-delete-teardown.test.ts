@@ -92,7 +92,7 @@ const makeSpyAdapter = (): BrowserViewAdapter => {
       },
       whenDestroyed: () => destroyed,
       executeJavaScript: async () => ({
-        __vellumEval: 1,
+        __juntoEval: 1,
         status: "ok",
         json: "null",
       }),
@@ -225,7 +225,7 @@ describe("browser edge-delete session teardown", () => {
   let state: Context.Service.Shape<typeof StateEngine>;
 
   beforeEach(async () => {
-    root = await mkdtemp(join(tmpdir(), "vellum-edge-delete-"));
+    root = await mkdtemp(join(tmpdir(), "junto-edge-delete-"));
     stateRuntime = ManagedRuntime.make(
       makeStateEngineLive(join(root, "junto.db")),
     );

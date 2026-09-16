@@ -59,11 +59,11 @@ describe("agent host authoring", () => {
       harness: "grok",
       host: "build-box",
       agentHost: "hermes-build-box",
-      cwd: "/srv/work/vellum",
+      cwd: "/srv/work/junto",
     });
 
     expect(node.ether?.host).toBe("build-box");
-    expect(node.ether?.terminal?.launch?.cwd).toBe("/srv/work/vellum");
+    expect(node.ether?.terminal?.launch?.cwd).toBe("/srv/work/junto");
     expect(node.ether?.entity?.name).toBe("hermes-build-box:grok");
   });
 });

@@ -54,10 +54,10 @@ const doctorReport = (
 
 describe("pickRemoteStationFaceApi", () => {
   it("prefers vellumCommand.doctor and otherwise uses chassis.doctor", () => {
-    const fromVellum = async () => doctorReport();
+    const fromJunto = async () => doctorReport();
     const fromChassis = async () => doctorReport();
     expect(
-      pickRemoteStationFaceApi({ doctor: fromVellum }, { doctor: fromChassis })
+      pickRemoteStationFaceApi({ doctor: fromJunto }, { doctor: fromChassis })
         .doctor,
     ).toBeTypeOf("function");
     expect(pickRemoteStationFaceApi({}, { doctor: fromChassis }).doctor).toBeTypeOf(
@@ -187,7 +187,7 @@ describe("RemoteStationFaceView", () => {
     expect(html).not.toContain("WorkFocusShell");
     expect(html).not.toContain("add-item");
     expect(html).not.toMatch(/\u00B7/);
-    expect(html).not.toMatch(/\bVellum\b(?! Command)/);
+    expect(html).not.toMatch(/\bVellum\b/);
   });
 
   it("omits optional rows when stats only have identity", () => {
@@ -217,7 +217,7 @@ describe("App remote mount", () => {
     );
     const remoteBranch = app.indexOf('if (stationRole === "remote")');
     const remoteMount = app.indexOf("<RemoteStationFace");
-    const ccShell = app.indexOf('className="vellum-app');
+    const ccShell = app.indexOf('className="junto-app');
     expect(remoteBranch).toBeGreaterThan(-1);
     expect(remoteMount).toBeGreaterThan(remoteBranch);
     expect(remoteMount).toBeLessThan(ccShell);

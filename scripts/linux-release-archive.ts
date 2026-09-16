@@ -54,7 +54,7 @@ export interface InspectedLinuxReleaseArchive {
 }
 
 export interface CreatedLinuxReleaseArchive {
-  readonly schema: "vellum/linux-release-archive-receipt/v1";
+  readonly schema: "junto/linux-release-archive-receipt/v1";
   readonly ok: true;
   readonly version: string;
   readonly archiveFile: string;
@@ -387,7 +387,7 @@ export const inspectLinuxReleaseArchive = async (input: {
       input.temporaryParent === undefined
         ? tmpdir()
         : path.resolve(input.temporaryParent),
-      "vellum-linux-release-archive-",
+      "junto-linux-release-archive-",
     ),
   );
   const extractedDirectory = path.join(temporaryRoot, "bundle");
@@ -569,7 +569,7 @@ const fileHeader = (entry: LinuxReleaseArchiveExpectedFile): Buffer => {
     header,
     100,
     8,
-    entry.file === "vellum-linux-verify-x64" ? 0o755 : 0o644,
+    entry.file === "junto-linux-verify-x64" ? 0o755 : 0o644,
   );
   putTarOctal(header, 108, 8, 0);
   putTarOctal(header, 116, 8, 0);
@@ -639,7 +639,7 @@ const readVerificationReceipt = async (
     }
     const receipt = value as Partial<LinuxReleaseVerificationReceipt>;
     if (
-      receipt.schema !== "vellum/linux-release-verification-receipt/v1" ||
+      receipt.schema !== "junto/linux-release-verification-receipt/v1" ||
       receipt.ok !== true ||
       typeof receipt.version !== "string" ||
       !RELEASE_VERSION.test(receipt.version) ||
@@ -770,7 +770,7 @@ export const createLinuxReleaseArchive = async (input: {
   await assertExactBundleInventory(bundleDirectory, expected);
 
   const temporaryRoot = await mkdtemp(
-    path.join(path.dirname(archivePath), ".vellum-linux-archive-"),
+    path.join(path.dirname(archivePath), ".junto-linux-archive-"),
   );
   const temporaryArchive = path.join(temporaryRoot, expectedBasename);
   try {
@@ -790,7 +790,7 @@ export const createLinuxReleaseArchive = async (input: {
       temporaryParent: path.dirname(archivePath),
     });
     const result: CreatedLinuxReleaseArchive = {
-      schema: "vellum/linux-release-archive-receipt/v1",
+      schema: "junto/linux-release-archive-receipt/v1",
       ok: true,
       version: receipt.version,
       archiveFile: path.basename(archivePath),

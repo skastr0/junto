@@ -69,7 +69,7 @@ describe("harness mail transport facts", () => {
 describe("isolated capture home", () => {
   it("never points HOME or config pins at the operator home", () => {
     const operator = os.homedir();
-    const isolated = path.join(os.tmpdir(), "vellum-capture-home-test");
+    const isolated = path.join(os.tmpdir(), "junto-capture-home-test");
     for (const id of HARNESS_IDS) {
       const spec = HARNESS_ISOLATION[id];
       const result = isolatedCaptureEnv({
@@ -111,8 +111,8 @@ describe("isolated capture home", () => {
 
   it("buildIsolatedHarnessLaunch is an overlay, never operator HOME or cwd", () => {
     const operator = os.homedir();
-    const isolatedHome = path.join(os.tmpdir(), "vellum-isolated-home");
-    const cwd = path.join(os.tmpdir(), "vellum-isolated-cwd");
+    const isolatedHome = path.join(os.tmpdir(), "junto-isolated-home");
+    const cwd = path.join(os.tmpdir(), "junto-isolated-cwd");
     const launch = buildIsolatedHarnessLaunch({
       harness: "claude",
       isolatedHome,
@@ -206,7 +206,7 @@ describe("isolated capture home", () => {
   });
 
   it("capture spawn overlay relocates Claude and Pi config dirs", () => {
-    const isolated = path.join(os.tmpdir(), "vellum-capture-home-test");
+    const isolated = path.join(os.tmpdir(), "junto-capture-home-test");
     const claude = buildSpawnEnv(
       {
         name: "claude",
@@ -231,8 +231,8 @@ describe("isolated capture home", () => {
         isolatedRelative: ".local/share/devin/credentials.toml",
       },
     ]);
-    const operator = fs.mkdtempSync(path.join(os.tmpdir(), "vellum-op-auth-"));
-    const isolated = fs.mkdtempSync(path.join(os.tmpdir(), "vellum-iso-auth-"));
+    const operator = fs.mkdtempSync(path.join(os.tmpdir(), "junto-op-auth-"));
+    const isolated = fs.mkdtempSync(path.join(os.tmpdir(), "junto-iso-auth-"));
     const credRel = ".local/share/devin/credentials.toml";
     const credSrc = path.join(operator, credRel);
     fs.mkdirSync(path.dirname(credSrc), { recursive: true });
@@ -262,7 +262,7 @@ describe("isolated capture home", () => {
   });
 
   it("isolated spawn env does not inherit operator auth keys", () => {
-    const isolated = path.join(os.tmpdir(), "vellum-capture-home-test");
+    const isolated = path.join(os.tmpdir(), "junto-capture-home-test");
     const previous = {
       ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
       OPENAI_API_KEY: process.env.OPENAI_API_KEY,

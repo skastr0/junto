@@ -106,7 +106,7 @@ const authorialBasis = (generation: string, contentSha256: string) =>
 
 describe("mailbox message read receipts", () => {
   it("acceptedDeliveryAt returns durable accepted_at; re-accept conflicts", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vellum-mail-read-"));
+    const root = await mkdtemp(join(tmpdir(), "junto-mail-read-"));
     roots.push(root);
     mkdirSync(join(root, "state"), { recursive: true });
     mkdirSync(join(root, "canvases"), { recursive: true });
@@ -184,7 +184,7 @@ describe("mailbox message read receipts", () => {
   });
 
   it("workMessageMarkRead re-acks with the stored readAt", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vellum-mail-mark-"));
+    const root = await mkdtemp(join(tmpdir(), "junto-mail-mark-"));
     roots.push(root);
     mkdirSync(join(root, "state"), { recursive: true });
     mkdirSync(join(root, "canvases"), { recursive: true });

@@ -42,7 +42,7 @@ const {
 const temporaryRoots: string[] = [];
 
 function temporaryRoot(): string {
-  const directory = realpathSync(mkdtempSync(join(tmpdir(), "vellum-mac-updater-meta.")));
+  const directory = realpathSync(mkdtempSync(join(tmpdir(), "junto-mac-updater-meta.")));
   temporaryRoots.push(directory);
   return directory;
 }

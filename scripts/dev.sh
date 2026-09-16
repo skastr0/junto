@@ -17,7 +17,7 @@ ISOLATED_HOME="${HOME}/.junto-dev"
 # shellcheck source=scripts/linux-display.sh
 source "$ROOT/scripts/linux-display.sh"
 
-if [[ "$(uname -s)" == "Linux" ]] && ! vellum_use_available_desktop; then
+if [[ "$(uname -s)" == "Linux" ]] && ! junto_use_available_desktop; then
   printf '%s\n' \
     'junto: error: an interactive X11 or Wayland desktop is required' \
     'Open the orb Desktop before running the Junto development app.' >&2

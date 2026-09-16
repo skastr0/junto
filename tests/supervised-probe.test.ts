@@ -19,10 +19,10 @@ describe("supervised station probe", () => {
       join(root, "src/main/junto/settings/supervised-probe.ts"),
       "utf8",
     );
-    expect(JUNTO_LAUNCHD_LABEL).toBe("skastr0.vellumcommand");
-    expect(runner.match(/skastr0\.vellumcommand/gu)).toHaveLength(1);
+    expect(JUNTO_LAUNCHD_LABEL).toBe("com.skastr0.junto");
+    expect(runner.match(/com\.skastr0\.junto/gu)).toHaveLength(1);
     expect(probe).not.toContain("JUNTO_LAUNCHD_LABEL");
-    expect(probe).not.toContain("skastr0.vellumcommand");
+    expect(probe).not.toContain("com.skastr0.junto");
   });
 
   it.each([

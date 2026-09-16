@@ -71,7 +71,7 @@ import { dirname, join } from "node:path";
  */
 /**
  * effect-foundation **S4-rest-main** (staged, not half-migrated):
- * - Canonical id: `@vellum/SettingsService` — single definition; no dual path.
+ * - Canonical id: `@junto/SettingsService` — single definition; no dual path.
  * - Service id: Context.Service (Effect V4 live).
  * - Shape:
  *   `class SettingsService extends Context.Service<SettingsService, SettingsService>()("@junto/SettingsService") {}`
@@ -128,7 +128,7 @@ export type SettingsServiceOptions = {
 /** Headless enrollment must not infer Command Center. Role is never inferred. */
 export const shouldEnsureDefaultCommandCenter = (
   argv: readonly string[] = process.argv,
-): boolean => !argv.includes("--vellum-headless");
+): boolean => !argv.includes("--junto-headless");
 
 type StateService = Context.Service.Shape<typeof StateEngine>;
 type SettingsRows = {

@@ -20,7 +20,7 @@ export interface ProcessHandle {
   readonly stderr: Stream.Stream<Uint8Array, ProcessFailure>;
 }
 /**
- * Single canonical service id `@vellum/ssh/ProcessSpawner` via Context.Service.
+ * Single canonical service id `@junto/ssh/ProcessSpawner` via Context.Service.
  * @see docs/END_STATE-effect-foundation.md §S4
  */
 export class ProcessSpawner extends Context.Service<ProcessSpawner,

@@ -120,10 +120,10 @@ const makeSpyAdapter = (options: {
         try {
           const json = JSON.stringify(value ?? null);
           return json === undefined
-            ? { __vellumEval: 1, status: "unsupported_result", message: "unsupported" }
-            : { __vellumEval: 1, status: "ok", json };
+            ? { __juntoEval: 1, status: "unsupported_result", message: "unsupported" }
+            : { __juntoEval: 1, status: "ok", json };
         } catch {
-          return { __vellumEval: 1, status: "unsupported_result", message: "unsupported" };
+          return { __juntoEval: 1, status: "unsupported_result", message: "unsupported" };
         }
       },
       capturePagePng: async () =>
@@ -227,7 +227,7 @@ describe("browser control envelopes (pure)", () => {
 describe("token handling", () => {
   let root: string;
   beforeEach(async () => {
-    root = await mkdtemp(join(tmpdir(), "vellum-control-token-"));
+    root = await mkdtemp(join(tmpdir(), "junto-control-token-"));
   });
   afterEach(async () => {
     await rm(root, { recursive: true, force: true });
@@ -276,7 +276,7 @@ describe("control route handlers", () => {
   const TOKEN = "test-token";
 
   beforeEach(async () => {
-    root = await mkdtemp(join(tmpdir(), "vellum-control-"));
+    root = await mkdtemp(join(tmpdir(), "junto-control-"));
     stateRuntime = ManagedRuntime.make(
       makeStateEngineLive(join(root, "junto.db")),
     );

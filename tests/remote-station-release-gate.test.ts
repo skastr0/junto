@@ -108,11 +108,11 @@ describe("unreleased Remote Station contract gate", () => {
       { documents: new Map(), actorSeats: [] },
     );
     expect(
-      decodeStationPortfolioBody(body("vellum/station-portfolio/v2")),
+      decodeStationPortfolioBody(body("junto/station-portfolio/v2")),
     ).toEqual({ documents: new Map(), actorSeats: [] });
     expect(() =>
       decodeStationPortfolioBody(
-        body("junto/station-portfolio/v2"),
+        body("junto/station-portfolio/v3"),
       ),
     ).toThrow("projection body violates the portfolio contract");
   });

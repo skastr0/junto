@@ -98,7 +98,7 @@ describe("content helper contract", () => {
 
 describe("content transfer local plane", () => {
   it("publishes only after full digest+length verification", async () => {
-    const home = await tempRoot("vellum-xfer-publish-");
+    const home = await tempRoot("junto-xfer-publish-");
     const root = contentStoreRoot(home);
     const bytes = makePayload(64 * 1024 + 17);
     const ref = contentRefForTransfer({
@@ -129,7 +129,7 @@ describe("content transfer local plane", () => {
   });
 
   it("resumes a partial transfer without restarting from zero", async () => {
-    const home = await tempRoot("vellum-xfer-resume-");
+    const home = await tempRoot("junto-xfer-resume-");
     const root = contentStoreRoot(home);
     const bytes = makePayload(50_000);
     const ref = contentRefForTransfer({
@@ -166,7 +166,7 @@ describe("content transfer local plane", () => {
   });
 
   it("rejects a resume offset that does not match the partial", async () => {
-    const home = await tempRoot("vellum-xfer-offset-");
+    const home = await tempRoot("junto-xfer-offset-");
     const root = contentStoreRoot(home);
     const bytes = makePayload(1000);
     const ref = contentRefForTransfer({
@@ -190,7 +190,7 @@ describe("content transfer local plane", () => {
   });
 
   it("never reports verified for a corrupt stream", async () => {
-    const home = await tempRoot("vellum-xfer-corrupt-");
+    const home = await tempRoot("junto-xfer-corrupt-");
     const root = contentStoreRoot(home);
     const good = makePayload(2048);
     const bad = makePayload(2048, 99);
@@ -213,7 +213,7 @@ describe("content transfer local plane", () => {
   });
 
   it("is idempotent when the digest is already verified", async () => {
-    const home = await tempRoot("vellum-xfer-idem-");
+    const home = await tempRoot("junto-xfer-idem-");
     const root = contentStoreRoot(home);
     const bytes = Buffer.from("station-content-transfer-idempotent");
     const first = await ingestContentBytes({
@@ -234,7 +234,7 @@ describe("content transfer local plane", () => {
   });
 
   it("sends remaining bytes from an offset for pull", async () => {
-    const home = await tempRoot("vellum-xfer-send-");
+    const home = await tempRoot("junto-xfer-send-");
     const root = contentStoreRoot(home);
     const bytes = makePayload(4096);
     const ingested = await ingestContentBytes({
@@ -256,8 +256,8 @@ describe("content transfer local plane", () => {
   });
 
   it("simulates push→receive across two local stores (CC and Remote)", async () => {
-    const ccHome = await tempRoot("vellum-xfer-cc-");
-    const remoteHome = await tempRoot("vellum-xfer-remote-");
+    const ccHome = await tempRoot("junto-xfer-cc-");
+    const remoteHome = await tempRoot("junto-xfer-remote-");
     const ccRoot = contentStoreRoot(ccHome);
     const remoteRoot = contentStoreRoot(remoteHome);
     const bytes = makePayload(32_000, 3);

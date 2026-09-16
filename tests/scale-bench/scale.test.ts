@@ -11,7 +11,7 @@
  *   JUNTO_SCALE_BENCH=1          enable (required)
  *   JUNTO_SCALE_BENCH_SCALES     comma list of real,500,1000 (default: all)
  *   JUNTO_SCALE_BENCH_REAL_DB    operator database to COPY and measure
- *   JUNTO_SCALE_BENCH_DIR        fixture cache root (default <tmpdir>/vellum-scale-bench)
+ *   JUNTO_SCALE_BENCH_DIR        fixture cache root (default <tmpdir>/junto-scale-bench)
  *   JUNTO_SCALE_BENCH_OUT        JSONL file to append each record to
  *   JUNTO_SCALE_BENCH_REGEN=1    rebuild synthetic fixtures from scratch
  *
@@ -145,7 +145,7 @@ describe.skipIf(!enabled)("scale benchmark", () => {
       }
       const fixture = copyRealFixture(
         source,
-        join(tmpdir(), "vellum-scale-bench-real"),
+        join(tmpdir(), "junto-scale-bench-real"),
       );
       const handle = openBenchRuntime({
         root: fixture.root,

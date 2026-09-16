@@ -24,7 +24,7 @@ export const STATION_PORTFOLIO_PROTOCOL =
   `junto/station-portfolio/v${STATION_PORTFOLIO_PROTOCOL_VERSION}` as const;
 /** Frozen v1 SQLite fixtures retain this body; never emit or negotiate it. */
 const LEGACY_STATION_PORTFOLIO_PROTOCOL =
-  "vellum/station-portfolio/v2" as const;
+  "junto/station-portfolio/v2" as const;
 export const STATION_PORTFOLIO_MAX_CANVASES = 256;
 export const STATION_PORTFOLIO_MAX_ACTOR_SEATS = 16_384;
 

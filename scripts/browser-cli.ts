@@ -49,7 +49,7 @@ commands:
   profiles                        list browser profiles
   pages                           list page nodes across canvases
   sessions                        list live sessions
-  open <vellum-ref>                resolve and open/reuse a page session
+  open <junto-ref>                resolve and open/reuse a page session
   goto <sessionId> <url>           navigate an existing session
   eval <sessionId> <code>          run JS in the page, print JSON result
   shot <sessionId>                 screenshot to a server-owned PNG
@@ -258,7 +258,7 @@ const parseArgs = (
       if (a !== undefined) return { error: `${cmd} accepts no arguments` };
       return { json, call: { kind: "local", route: cmd } };
     case "open":
-      if (!a || b) return { error: "open requires exactly one <vellum-ref>" };
+      if (!a || b) return { error: "open requires exactly one <junto-ref>" };
       return {
         json,
         call: {

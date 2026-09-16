@@ -399,7 +399,7 @@ describe("terminal shutdown receipts", () => {
   });
 
   it("drains client requests only after the socket close witness", async () => {
-    const home = mkdtempSync(join(tmpdir(), "vellum-term-client-close-"));
+    const home = mkdtempSync(join(tmpdir(), "junto-term-client-close-"));
     const socketPath = join(home, "control.sock");
     const peers = new Set<Socket>();
     const server = createServer({ allowHalfOpen: true }, (socket) => {
@@ -440,7 +440,7 @@ describe("terminal shutdown receipts", () => {
   });
 
   it("does not treat a generic client error as terminal proof", async () => {
-    const home = mkdtempSync(join(tmpdir(), "vellum-term-client-error-"));
+    const home = mkdtempSync(join(tmpdir(), "junto-term-client-error-"));
     const socketPath = join(home, "control.sock");
     const peers = new Set<Socket>();
     const server = createServer((socket) => {

@@ -38,7 +38,7 @@ Skipped by default, so `bun run test` is unaffected.
 | `JUNTO_SCALE_BENCH_SCALES` | `real,500,1000` subset (default: all three) |
 | `JUNTO_SCALE_BENCH_REAL_DB` | operator database; it is **copied**, never opened in place |
 | `JUNTO_SCALE_BENCH_REAL_CANVAS` | canvas name in that database (default `factory`) |
-| `JUNTO_SCALE_BENCH_DIR` | fixture cache root (default `<tmpdir>/vellum-scale-bench`) |
+| `JUNTO_SCALE_BENCH_DIR` | fixture cache root (default `<tmpdir>/junto-scale-bench`) |
 | `JUNTO_SCALE_BENCH_OUT` | JSONL file to append records to |
 | `JUNTO_SCALE_BENCH_REGEN=1` | rebuild the synthetic fixtures from scratch |
 
@@ -69,7 +69,7 @@ large, so they are cached by spec hash + state schema version:
 | `synthetic-500` | 162 s | 381 MB |
 | `synthetic-1000` | 374 s (on a loaded machine) | 769 MB |
 
-Delete `<tmpdir>/vellum-scale-bench` to reclaim the space.
+Delete `<tmpdir>/junto-scale-bench` to reclaim the space.
 
 ## Reading a record
 

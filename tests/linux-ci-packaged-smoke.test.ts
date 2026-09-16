@@ -10,7 +10,7 @@ import {
 } from "../scripts/linux-ci-packaged-smoke";
 
 const sandboxStatus = `
-Name:\tvellum
+Name:\tjunto
 NoNewPrivs:\t1
 Seccomp:\t2
 Seccomp_filters:\t2

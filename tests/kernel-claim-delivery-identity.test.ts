@@ -90,7 +90,7 @@ const makeRuntime = (root: string) => {
 
 
 const startFixture = async () => {
-  const root = await mkdtemp(join(tmpdir(), "vellum-claim-identity-"));
+  const root = await mkdtemp(join(tmpdir(), "junto-claim-identity-"));
   let runtime = makeRuntime(root);
   let kernel: Context.Service.Shape<typeof KernelService> | undefined;
   let cycles = 0;

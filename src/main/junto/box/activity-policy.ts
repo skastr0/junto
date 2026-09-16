@@ -275,7 +275,7 @@ export const makeBoxActivityReconciler = (
 
 /**
  * effect-foundation **S4-rest-main** (staged, not half-migrated):
- * - Canonical id: `@vellum/box/BoxActivityPolicy` — single definition; no dual path.
+ * - Canonical id: `@junto/box/BoxActivityPolicy` — single definition; no dual path.
  * - Service id: Context.Service (Effect V4 live).
  * - Shape:
  *   `class BoxActivityPolicy extends Context.Service<BoxActivityPolicy, BoxActivityPolicy>()("@junto/box/BoxActivityPolicy") {}`

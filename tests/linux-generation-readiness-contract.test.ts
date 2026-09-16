@@ -42,8 +42,8 @@ describe("Linux generation readiness contract", () => {
       expect(source).not.toContain("sudo");
       expect(source).not.toContain("dpkg");
       expect(source).not.toContain("/opt/");
-      expect(source).not.toContain("vellum-release-bridge");
-      expect(source).not.toContain("vellum-release-installer");
+      expect(source).not.toContain("junto-release-bridge");
+      expect(source).not.toContain("junto-release-installer");
     }
     expect(preflight).not.toContain("python3");
     expect(deploy).toContain("/usr/bin/python3");
@@ -55,7 +55,7 @@ describe("Linux generation readiness contract", () => {
   });
 
   it("installer path convention matches work-control under runtimeRoot/uid", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vellum-ready-path-"));
+    const root = await mkdtemp(join(tmpdir(), "junto-ready-path-"));
     roots.push(root);
     const generation = "11111111111111111111111111111111";
     const dir = join(root, "junto-remote");

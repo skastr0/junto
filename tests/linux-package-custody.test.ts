@@ -7,6 +7,6 @@ describe("Linux package custody", () => {
     expect(files).toEqual(expect.arrayContaining(["junto-remote-launch", "junto-remote.service.template"]));
     expect(files.join("\n")).not.toMatch(/apparmor|install|remove|bridge|sudoers/iu);
     const packageJson = await readFile(new URL("../package.json", import.meta.url), "utf8");
-    expect(packageJson).not.toMatch(/vellum-release-installer|vellum-release-bridge|appArmorProfile|"deb"/u);
+    expect(packageJson).not.toMatch(/junto-release-installer|junto-release-bridge|appArmorProfile|"deb"/u);
   });
 });

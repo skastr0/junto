@@ -78,7 +78,7 @@ describe("work CLI json input modes", () => {
       ),
     ).rejects.toThrow(/actor|unexpected/i);
 
-    const dir = mkdtempSync(join(tmpdir(), "vellum-cli-json-"));
+    const dir = mkdtempSync(join(tmpdir(), "junto-cli-json-"));
     const file = join(dir, "claim.json");
     writeFileSync(file, JSON.stringify({ target: "n7", task: "t2" }));
     const fromFile = await Effect.runPromise(
@@ -530,7 +530,7 @@ describe("schema/examples from validating schemas", () => {
 
 describe("artifact content admission", () => {
   it("rejects path parts instead of Base64-encoding them", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "vellum-art-"));
+    const dir = mkdtempSync(join(tmpdir(), "junto-art-"));
     const path = join(dir, "x.bin");
     writeFileSync(path, Buffer.from([1, 2, 3, 4]));
     await expect(

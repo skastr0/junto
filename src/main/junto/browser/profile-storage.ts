@@ -31,7 +31,7 @@ const LIVE_CLEAR_STEP_TIMEOUT_MS = 15_000;
 const LIVE_CLEAR_AGGREGATE_TIMEOUT_MS = 45_000;
 const CONTROL_CHARACTER = /[\u0000-\u001f\u007f]/;
 const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const QUARANTINE_PREFIX = ".vellum-wipe-";
+const QUARANTINE_PREFIX = ".junto-wipe-";
 
 export type BrowserProfileStorageStage =
   | "prepare"

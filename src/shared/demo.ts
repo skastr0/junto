@@ -1,7 +1,7 @@
 import type { CanvasEdge, CanvasNode, EtherFlag } from "./canvas";
 
 // Demo/scripting engine contracts. The engine exists ONLY when the app is
-// launched with --vellum-demo (argv) or JUNTO_DEMO=1 (env): outside demo
+// launched with --junto-demo (argv) or JUNTO_DEMO=1 (env): outside demo
 // mode every channel below answers inert ({ active: false } / ok:false) and
 // no scripted transport is ever constructed. Nothing here is product
 // behavior — it is a film set for driving the real UI deterministically.

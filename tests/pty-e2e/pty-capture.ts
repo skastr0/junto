@@ -3,12 +3,12 @@
  * pty-capture.ts — canonical PTY byte-stream capture for the Junto PTY E2E corpus.
  *
  * Spawns each real harness TUI inside a node-pty (120x32, TERM=xterm-256color,
- * isolated cwd under /tmp/vellum-capture-cwd/<harness>), drives the canonical
+ * isolated cwd under /tmp/junto-capture-cwd/<harness>), drives the canonical
  * scenarios, scrubs every byte stream, and writes:
  *
  *   tests/pty-e2e/corpus/<harness>/<scenario>.jsonl   {"t":ms,"b64":...}
  *   tests/pty-e2e/corpus/<harness>/manifest.json      per-scenario manifests
- *   /tmp/vellum-capture-report.md                         receipts + canonicality
+ *   /tmp/junto-capture-report.md                         receipts + canonicality
  *
  * Test-support utility — NOT part of the vitest suite (no .test.ts suffix, so
  * the unit lanes never pick it up). Run directly:
@@ -32,7 +32,7 @@
  *   bun tests/pty-e2e/pty-capture.ts check <harness> <scenario> [--glyph <glyph>]
  *
  * CONFIG ISOLATION: spawns run with HOME and the XDG dirs pointed at a fresh
- * per-harness dir under /tmp/vellum-capture-home, and each harness's
+ * per-harness dir under /tmp/junto-capture-home, and each harness's
  * config-dir env overrides (CLAUDE_CONFIG_DIR, CODEX_HOME,
  * PI_CODING_AGENT_DIR, PI_CODING_AGENT_SESSION_DIR) are pinned inside it —
  * pi resolves PI_CODING_AGENT_DIR BEFORE HOME, so without the pin an
@@ -74,8 +74,8 @@ const { Terminal } = createRequire(import.meta.url)("@xterm/headless") as typeof
 // ── corpus / capture constants ──────────────────────────────────────────────
 const OUT_ROOT = path.join(REPO, "tests", "pty-e2e", "corpus");
 const CAPTURE_ROOT = path.join(REPO, "tests", "pty-e2e", `.corpus-stage-${process.pid}-${randomUUID()}`);
-const CWD_ROOT = "/tmp/vellum-capture-cwd";
-const HOME_ROOT = "/tmp/vellum-capture-home";
+const CWD_ROOT = "/tmp/junto-capture-cwd";
+const HOME_ROOT = "/tmp/junto-capture-home";
 const FAKE_UUID = "00000000-0000-4000-8000-000000000000"; // fallback; random per spawn
 const COLS = 120;
 const ROWS = 32;
@@ -295,10 +295,10 @@ export function scrub(text: string, cwd: string): string {
   // paths first (longest first)
   s = s.split(cwdReal).join("<CWD>");
   s = s.split(cwd).join("<CWD>");
-  s = s.split(path.join(TMP_REAL, "vellum-capture-cwd")).join("<CAPTURE>");
-  s = s.split(path.join("/tmp", "vellum-capture-cwd")).join("<CAPTURE>");
-  s = s.split(path.join(TMP_REAL, "vellum-capture-home")).join("<HOME>");
-  s = s.split(path.join("/tmp", "vellum-capture-home")).join("<HOME>");
+  s = s.split(path.join(TMP_REAL, "junto-capture-cwd")).join("<CAPTURE>");
+  s = s.split(path.join("/tmp", "junto-capture-cwd")).join("<CAPTURE>");
+  s = s.split(path.join(TMP_REAL, "junto-capture-home")).join("<HOME>");
+  s = s.split(path.join("/tmp", "junto-capture-home")).join("<HOME>");
   s = s.split(HOME).join("<HOME>");
   s = s.split("~" + path.sep + USER).join("<HOME>");
   // Harnesses can print cached/configured paths belonging to another account.
@@ -1073,7 +1073,7 @@ async function scenarioWorkingTurn(ctx: Ctx, s0: number): Promise<void> {
   sess.write("\u0015");
   await sess.wait(200);
   const wt0 = Date.now();
-  sess.write("Write forty numbered lines. Each line must contain the words VELLUM CAPTURE and its line number.");
+  sess.write("Write forty numbered lines. Each line must contain the words JUNTO CAPTURE and its line number.");
   await sess.wait(250);
   sess.write("\r");
   const workingSeen = await (async () => {
@@ -1123,7 +1123,7 @@ async function scenarioWorkingTurn(ctx: Ctx, s0: number): Promise<void> {
       exited: sess.exited,
     },
     expectedScreen: expectedScreenFor(def, wtBytes, `working turn: OSC title churn / spinner / progress frames; ${wtStillWorking ? "Ctrl+C sent" : "no interrupt sent"}`, {
-      prompt: "forty numbered VELLUM CAPTURE lines",
+      prompt: "forty numbered JUNTO CAPTURE lines",
     }),
   });
 }
@@ -1373,9 +1373,9 @@ async function runHarness(def: HarnessDef, coreOnly = false): Promise<ScenarioRe
     console.log(`[${def.name}] done. exited=${sess.exited} aliveAfterKill=${alive} bytes=${sess.bytes}`);
     results.push({ harness: def.name, scenario: "__session__", status: sess.exited ? "complete" : "killed", reason: alive ? "process survived SIGKILL?!" : undefined, observed: { bytes: sess.bytes, elapsedMs: Date.now() - tStart }, expectedScreen: {} });
     try {
-      fs.mkdirSync("/tmp/vellum-capture-raw", { recursive: true });
+      fs.mkdirSync("/tmp/junto-capture-raw", { recursive: true });
       const all = Buffer.concat(sess.events.map((e) => e.buf)).toString("utf8");
-      fs.writeFileSync(`/tmp/vellum-capture-raw/${def.name}.bin`, Buffer.from(scrub(all, sess.cwd), "utf8"));
+      fs.writeFileSync(`/tmp/junto-capture-raw/${def.name}.bin`, Buffer.from(scrub(all, sess.cwd), "utf8"));
     } catch { /* best effort */ }
   };
 

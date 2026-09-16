@@ -15,12 +15,12 @@ import {
 } from "../src/main/junto/term/drive";
 import { makeManagedAgentNode } from "../src/renderer/lib/node-factories";
 
-const originalVellumHome = process.env.JUNTO_HOME;
+const originalJuntoHome = process.env.JUNTO_HOME;
 
 afterEach(() => {
   vi.useRealTimers();
-  if (originalVellumHome === undefined) delete process.env.JUNTO_HOME;
-  else process.env.JUNTO_HOME = originalVellumHome;
+  if (originalJuntoHome === undefined) delete process.env.JUNTO_HOME;
+  else process.env.JUNTO_HOME = originalJuntoHome;
 });
 
 describe("session id parsing + authorial pin", () => {

@@ -365,7 +365,7 @@ STAGED_APP_ID="$(path_identity "$STAGE")"
 bind_unsupervised_incumbent
 unload_launchd
 quit_running_app
-if launchd_loaded || vellum_processes_running; then
+if launchd_loaded || junto_processes_running; then
   err "Junto did not quiesce; refusing to replace the app"
   exit 1
 fi
