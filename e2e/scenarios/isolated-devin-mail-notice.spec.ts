@@ -1,7 +1,8 @@
 /**
  * Isolated real-Devin mail observation [real-harness]. A real settled prompt
- * precedes fresh mail; the app projection must eventually report a read or a
- * durable refusal/unresolved fact. A queued row alone never passes.
+ * precedes fresh mail, then a second notice on the same warm generation; the
+ * app projection must eventually report a read or a durable refusal/unresolved
+ * fact for each. A queued row alone never passes.
  *
  * ISOLATED_DEVIN_HOLD=1 exposes the live app for Computer Use after observation
  * (also on failure). Final evidence is collected after the bounded hold and
@@ -50,6 +51,26 @@ const sha256File = (path: string): string | undefined => {
   return createHash("sha256").update(readFileSync(path)).digest("hex");
 };
 
+const embeddedBuildIdentity = () => {
+  const mainPath = join(process.cwd(), "out", "main", "index.js");
+  if (!existsSync(mainPath)) return undefined;
+  const markers = [...readFileSync(mainPath, "utf8").matchAll(/\/\* VELLUM_COMMAND_RUNTIME_BUILD_IDENTITY:([A-Za-z0-9_-]*) \*\//gu)];
+  const payload = markers[0]?.[1];
+  if (payload === undefined || payload.length === 0) return undefined;
+  try {
+    const identity = JSON.parse(Buffer.from(payload, "base64url").toString("utf8"));
+    if (typeof identity !== "object" || identity === null) return undefined;
+    const record = identity as { cohortNonce?: unknown; sourceCommit?: unknown; runtime?: unknown };
+    return {
+      cohortNonce: typeof record.cohortNonce === "string" ? record.cohortNonce : undefined,
+      sourceCommit: typeof record.sourceCommit === "string" ? record.sourceCommit : undefined,
+      runtime: typeof record.runtime === "string" ? record.runtime : undefined,
+    };
+  } catch {
+    return undefined;
+  }
+};
+
 const runtimeProvenance = () => {
   const rendererDir = join(process.cwd(), "out", "renderer", "assets");
   const rendererAssets = existsSync(rendererDir)
@@ -76,6 +97,7 @@ const runtimeProvenance = () => {
     builtSourceCorrespondence: "unverified-by-spec",
     checkoutCommit,
     checkoutDiffSha256,
+    embeddedBuildIdentity: embeddedBuildIdentity() ?? null,
     outMainSha256: sha256File(join(process.cwd(), "out", "main", "index.js")),
     outPreloadSha256: sha256File(join(process.cwd(), "out", "preload", "index.cjs")),
     outRendererIndexSha256: sha256File(join(process.cwd(), "out", "renderer", "index.html")),
@@ -176,7 +198,7 @@ test("isolated Devin evidence: notification supersedes uncertainty without imply
 
 test("isolated Devin [real-harness]: settled seat reaches readAt or a durable named failure", async () => {
   if (!Number.isFinite(HOLD_MS) || HOLD_MS < 0 || HOLD_MS > 600_000) throw new Error("ISOLATED_DEVIN_HOLD_MS must be between 0 and 600000");
-  test.setTimeout((HOLD ? HOLD_MS : 0) + 420_000);
+  test.setTimeout((HOLD ? HOLD_MS : 0) + 630_000);
   if (!existsSync(operatorCred)) test.skip(true, "no operator Devin credentials.toml to seed");
   if (resolveOperatorDevinBinary(process.env.PATH ?? "") === undefined) test.skip(true, "real devin binary not on PATH");
   const qualificationAtStart = HARNESS_MAIL_TRANSPORT.devin.typedNoticeQualified;
@@ -201,6 +223,9 @@ test("isolated Devin [real-harness]: settled seat reaches readAt or a durable na
   const sender = crewSeat(sandbox, ISOLATED_DEVIN_MAIL_CANVAS, ISOLATED_DEVIN_SENDER_ID);
   let occupied: Awaited<ReturnType<typeof occupyDevinOnce>> | undefined;
   let messageId: string | undefined;
+  let messageId2: string | undefined;
+  let outcome2: ReturnType<typeof outcomeOf> | undefined;
+  let secondNoticeSkipped: string | undefined;
   let ready: SeatReadResult | undefined;
   let failure: unknown;
   let trustConfirmed = false;
@@ -209,8 +234,9 @@ test("isolated Devin [real-harness]: settled seat reaches readAt or a durable na
     const body = {
       ...provenance, at: new Date().toISOString(), artifacts,
       electronMainPid: vellum.app.process().pid, harnessPid: occupied?.pid,
+      cohortNonce: provenance.embeddedBuildIdentity?.cohortNonce ?? null,
       bindingId: occupied?.bindingId, epoch: occupied?.epoch, cwd: occupied?.cwd,
-      sandboxHome: sandbox.homeDir, canvas: ISOLATED_DEVIN_MAIL_CANVAS, messageId,
+      sandboxHome: sandbox.homeDir, canvas: ISOLATED_DEVIN_MAIL_CANVAS, messageId, messageId2,
       window: HOLD ? "visible" : "offscreen", holdMs: HOLD ? HOLD_MS : 0,
       typedNoticeQualified: qualificationAtStart, ...extra,
     };
@@ -248,57 +274,84 @@ test("isolated Devin [real-harness]: settled seat reaches readAt or a durable na
       await page.locator(`.react-flow__node[data-id="${ISOLATED_DEVIN_RECEIVER_ID}"]`).dblclick();
       const front = page.locator(".workbench-pane:not(.workbench-pane--parked) .native-terminal-surface");
       await expect(front).toBeVisible({ timeout: 30_000 });
-      const deadline = Date.now() + READY_MS;
-      let stable = "";
-      let stableSince = 0;
-      while (Date.now() < deadline) {
-        const grid = await readDevin(sender);
-        json(artifact("readiness-latest.json"), grid);
-        if (grid.replaced || grid.epoch !== occupied.epoch) throw new Error("Devin generation changed during readiness");
-        if (selectedTrustPrompt(grid)) {
-          stable = "";
-          if (!trustConfirmed) {
-            await front.locator(".xterm-screen").click();
-            await page.screenshot({ path: artifact("trust-before-enter.png"), fullPage: true });
-            const current = await readDevin(sender);
-            if (current.epoch === occupied.epoch && selectedTrustPrompt(current)) {
-              json(artifact("trust-before-enter.json"), current);
-              await page.keyboard.press("Enter");
-              trustConfirmed = true;
-              writeHold({ phase: "trust-confirmed", trustEvidence: artifact("trust-before-enter.json") });
+      const awaitReady = async (): Promise<SeatReadResult> => {
+        const deadline = Date.now() + READY_MS;
+        let stable = "";
+        let stableSince = 0;
+        while (Date.now() < deadline) {
+          const grid = await readDevin(sender);
+          json(artifact("readiness-latest.json"), grid);
+          if (grid.replaced || grid.epoch !== occupied!.epoch) throw new Error("Devin generation changed during readiness");
+          if (selectedTrustPrompt(grid)) {
+            stable = "";
+            if (!trustConfirmed) {
+              await front.locator(".xterm-screen").click();
+              await page.screenshot({ path: artifact("trust-before-enter.png"), fullPage: true });
+              const current = await readDevin(sender);
+              if (current.epoch === occupied!.epoch && selectedTrustPrompt(current)) {
+                json(artifact("trust-before-enter.json"), current);
+                await page.keyboard.press("Enter");
+                trustConfirmed = true;
+                writeHold({ phase: "trust-confirmed", trustEvidence: artifact("trust-before-enter.json") });
+              }
             }
-          }
-        } else if (eligiblePrompt(grid)) {
-          const key = `${grid.epoch}:${grid.reason}:${grid.text}`;
-          if (key !== stable) { stable = key; stableSince = Date.now(); }
-          if (Date.now() - stableSince >= 2_500) { ready = grid; break; }
-        } else { stable = ""; }
-        await page.waitForTimeout(500);
-      }
-      if (ready === undefined) throw new Error("Devin never reached a stable, high-confidence empty prompt; no mail was sent");
+          } else if (eligiblePrompt(grid)) {
+            const key = `${grid.epoch}:${grid.reason}:${grid.text}`;
+            if (key !== stable) { stable = key; stableSince = Date.now(); }
+            if (Date.now() - stableSince >= 2_500) return grid;
+          } else { stable = ""; }
+          await page.waitForTimeout(500);
+        }
+        throw new Error("Devin never reached a stable, high-confidence empty prompt; no mail was sent");
+      };
+      ready = await awaitReady();
       json(artifact("ready-before-send.json"), ready);
       const live = await page.evaluate(async (id) => window.vellumCommand!.terminalGet(id), DEVIN_BINDING);
       if (live?.pid !== occupied.pid || live?.epoch !== occupied.epoch) throw new Error("Opening Devin replaced its occupied process");
 
-      const nonce = `isolated-devin-mail ${Date.now()}`;
-      const send = await sender.op("msg.send", { target: ISOLATED_DEVIN_RECEIVER_ID, text: nonce });
-      if (!send.ok) throw new Error(`Fresh msg.send failed: ${JSON.stringify(send.error)}`);
-      messageId = (send.data as { messageId?: string } | undefined)?.messageId;
-      if (typeof messageId !== "string" || messageId.length === 0) throw new Error("Fresh msg.send did not return a messageId");
-      writeHold({ phase: "observing-mail", readyEvidence: artifact("ready-before-send.json") });
-      const until = Date.now() + OBSERVE_MS;
-      let outcome: ReturnType<typeof outcomeOf> = { kind: "pending" };
-      while (Date.now() < until) {
-        outcome = outcomeOf((await projectedMessages(page)).find((item) => item.messageId === messageId));
-        writeHold({ phase: "observing-mail", outcome });
-        if (outcome.kind === "read" || outcome.kind === "unresolved") break;
-        // A pre-write refusal can be followed by a successful readiness retry.
-        // Give the full observation window before accepting that durable fact.
-        await page.waitForTimeout(500);
+      const sendAndObserve = async (nonce: string) => {
+        const send = await sender.op("msg.send", { target: ISOLATED_DEVIN_RECEIVER_ID, text: nonce });
+        if (!send.ok) throw new Error(`msg.send failed: ${JSON.stringify(send.error)}`);
+        const id = (send.data as { messageId?: string } | undefined)?.messageId;
+        if (typeof id !== "string" || id.length === 0) throw new Error("msg.send did not return a messageId");
+        writeHold({ phase: "observing-mail", readyEvidence: artifact("ready-before-send.json") });
+        const until = Date.now() + OBSERVE_MS;
+        let outcome: ReturnType<typeof outcomeOf> = { kind: "pending" };
+        while (Date.now() < until) {
+          outcome = outcomeOf((await projectedMessages(page)).find((item) => item.messageId === id));
+          writeHold({ phase: "observing-mail", outcome });
+          if (outcome.kind === "read" || outcome.kind === "unresolved") break;
+          // A pre-write refusal can be followed by a successful readiness retry.
+          // Give the full observation window before accepting that durable fact.
+          await page.waitForTimeout(500);
+        }
+        if (!["read", "unresolved", "refused"].includes(outcome.kind)) {
+          throw new Error(`No read receipt or durable named failure after ${OBSERVE_MS}ms: ${JSON.stringify(outcome)}`);
+        }
+        return { messageId: id, outcome };
+      };
+      const first = await sendAndObserve(`isolated-devin-mail ${Date.now()}`);
+      messageId = first.messageId;
+      writeHold({ phase: "first-outcome", outcome: first.outcome });
+      // A second notice on the same warm generation is part of qualification.
+      // If the seat already moved or exited, record the precise reason instead
+      // of forcing a send; the run then stays unqualified evidence.
+      const warm = await page.evaluate(async (id) => window.vellumCommand!.terminalGet(id), DEVIN_BINDING);
+      if (warm?.status !== "running" || warm.epoch !== occupied.epoch) {
+        secondNoticeSkipped = `seat-not-warm status=${warm?.status ?? "gone"} epoch=${warm?.epoch ?? "none"}`;
+      } else {
+        try {
+          // The seat may still be working on the first mail. Re-arm on a
+          // stable empty composer of the same epoch before the second send.
+          await awaitReady();
+          const second = await sendAndObserve(`isolated-devin-mail-warm ${Date.now()}`);
+          messageId2 = second.messageId;
+          outcome2 = second.outcome;
+        } catch (error) {
+          secondNoticeSkipped = String(error);
+        }
       }
-      if (!["read", "unresolved", "refused"].includes(outcome.kind)) {
-        throw new Error(`No read receipt or durable named failure after ${OBSERVE_MS}ms: ${JSON.stringify(outcome)}`);
-      }
+      writeHold({ phase: "observed-mail", outcome: first.outcome, outcome2, secondNoticeSkipped });
     } catch (error) {
       failure = error;
       writeHold({ phase: "observation-failed", error: String(error) });
@@ -320,13 +373,21 @@ test("isolated Devin [real-harness]: settled seat reaches readAt or a durable na
 
     // END evidence: every source is read after observation/hold, while the
     // app still owns its database. Failed sources stay explicit, never empty.
-    const [mail, grid, session, pasteCount, screenshot] = await Promise.all([
+    const [mail, mail2, grid, session, pasteCount, pasteCount2, screenshot] = await Promise.all([
       observed(async () => (await projectedMessages(page)).find((item) => item.messageId === messageId)),
+      observed(async () => {
+        if (messageId2 === undefined) throw new Error(secondNoticeSkipped ?? "No second notice was sent");
+        return (await projectedMessages(page)).find((item) => item.messageId === messageId2);
+      }),
       observed(() => readDevin(sender)),
       observed(() => page.evaluate(async (id) => window.vellumCommand!.terminalGet(id), DEVIN_BINDING)),
       observed(async () => {
         if (messageId === undefined) throw new Error("No message was sent");
         return crewMessagePasteWrites(page, sandbox, ISOLATED_DEVIN_MAIL_CANVAS, ISOLATED_DEVIN_RECEIVER_ID, messageId);
+      }),
+      observed(async () => {
+        if (messageId2 === undefined) throw new Error(secondNoticeSkipped ?? "No second notice was sent");
+        return crewMessagePasteWrites(page, sandbox, ISOLATED_DEVIN_MAIL_CANVAS, ISOLATED_DEVIN_RECEIVER_ID, messageId2);
       }),
       observed(async () => {
         const path = artifact("seat-final.png");
@@ -337,11 +398,19 @@ test("isolated Devin [real-harness]: settled seat reaches readAt or a durable na
     const logs = await observed(async () => preserveLogs());
     const outcome = await observed(async () => mail.ok ? outcomeOf(mail.value) : undefined);
     const finalOutcome = outcome.ok ? outcome.value : undefined;
+    const finalOutcome2 = mail2.ok ? outcomeOf(mail2.value) : undefined;
     const payload = await observed(async () => mail.ok && mail.value !== undefined ? composeMessageDeliveryPayload(mail.value) : undefined);
+    const payload2 = await observed(async () => mail2.ok && mail2.value !== undefined ? composeMessageDeliveryPayload(mail2.value) : undefined);
     const facts = {
       at: new Date().toISOString(), messageId, mail, outcome: finalOutcome, session,
       physicalPastes: pasteCount.ok ? pasteCount.value : null, pasteEvidence: pasteCount,
-      correlation: { bindingId: DEVIN_BINDING, payloadSha256: payload.ok && payload.value !== undefined ? createHash("sha256").update(payload.value).digest("hex") : undefined, payloadError: payload.ok ? undefined : payload.error, scope: "one fresh message, unchanged recipient generation" },
+      secondNotice: {
+        messageId: messageId2, mail: mail2, outcome: finalOutcome2, skipped: secondNoticeSkipped,
+        physicalPastes: pasteCount2.ok ? pasteCount2.value : null, pasteEvidence: pasteCount2,
+        payloadSha256: payload2.ok && payload2.value !== undefined ? createHash("sha256").update(payload2.value).digest("hex") : undefined,
+        payloadError: payload2.ok ? undefined : payload2.error,
+      },
+      correlation: { bindingId: DEVIN_BINDING, payloadSha256: payload.ok && payload.value !== undefined ? createHash("sha256").update(payload.value).digest("hex") : undefined, payloadError: payload.ok ? undefined : payload.error, scope: "one fresh message plus one warm-seat message, unchanged recipient generation" },
       typedNoticeQualified: qualificationAtStart,
     };
     json(artifact("seat-read-final.json"), grid);
@@ -365,6 +434,15 @@ test("isolated Devin [real-harness]: settled seat reaches readAt or a durable na
     expect(["read", "unresolved", "refused"]).toContain(finalOutcome?.kind);
     if (finalOutcome?.kind === "unresolved") expect(pasteCount.value).toBe(1);
     if (finalOutcome?.kind === "refused") expect(pasteCount.value).toBe(0);
+    if (messageId2 !== undefined) {
+      expect(mail2.ok, JSON.stringify(mail2)).toBe(true);
+      expect(pasteCount2.ok, JSON.stringify(pasteCount2)).toBe(true);
+      if (!pasteCount2.ok) throw new Error(pasteCount2.error);
+      expect(pasteCount2.value, "Repeated accepted paste of the warm-seat mail").toBeLessThanOrEqual(1);
+      expect(["read", "unresolved", "refused"]).toContain(finalOutcome2?.kind);
+      if (finalOutcome2?.kind === "unresolved") expect(pasteCount2.value).toBe(1);
+      if (finalOutcome2?.kind === "refused") expect(pasteCount2.value).toBe(0);
+    }
     expect(HARNESS_MAIL_TRANSPORT.devin.typedNoticeQualified).toBe(qualificationAtStart);
   } finally {
     await vellum.close();
