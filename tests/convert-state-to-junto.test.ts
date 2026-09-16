@@ -17,6 +17,7 @@ import {
   intentSha256Of,
 } from "../src/main/junto/canvas-intent-identity";
 import { serializeCanvas } from "../src/shared/canvas";
+import { verdictSubjectHashPayload } from "../src/shared/crew";
 
 const open = (): DatabaseSync => new DatabaseSync(":memory:");
 
@@ -44,6 +45,36 @@ const NOW = "2026-09-16T00:00:00.000Z";
 const CC = "cc-01";
 const REMOTE = "remote-01";
 const SEAT = `seat_${"a".repeat(64)}`;
+const REVIEWER_SEAT = `seat_${"b".repeat(64)}`;
+
+const EVIDENCE = {
+  artifacts: [{ artifactId: "art-1", nodeId: "worker-agent" }],
+  git: { commits: ["abc123"] },
+  claims: [{ ruleId: "r1", text: "done", refs: ["ref-1"] }],
+};
+
+const taskHashInput = {
+  kind: "task" as const,
+  installationId: CC,
+  canvasName: "factory",
+  nodeId: "tasks",
+  taskId: "task-0",
+  epoch: 0,
+  commitShas: EVIDENCE.git.commits,
+  artifactRefs: EVIDENCE.artifacts,
+  claimRefs: ["ref-1"],
+};
+
+/** Mint a subject hash under the retired domain separator. */
+const oldSubjectHash = (
+  input: Parameters<typeof verdictSubjectHashPayload>[0],
+): string =>
+  sha256(
+    verdictSubjectHashPayload(input).replace(
+      '"junto/crew/verdict-subject/v1"',
+      '"vellum/crew/verdict-subject/v1"',
+    ),
+  );
 
 type WorkSemantic = Record<string, unknown>;
 const recordSha = (record: WorkSemantic): string =>
@@ -73,11 +104,12 @@ const commandRecord = {
 
 const OLD_PROJECTION_BODY = JSON.stringify({
   canvases: { factory: { harness: "vellum-overseer" } },
+  security: { vellumTcpListeners: 0 },
 });
 const PROJECTION_BODY = OLD_PROJECTION_BODY.replace(
   "vellum-overseer",
   "junto-overseer",
-);
+).replace("vellumTcpListeners", "juntoTcpListeners");
 const PROJECTION_SHA = sha256(OLD_PROJECTION_BODY);
 
 const factRecord = {
@@ -444,6 +476,79 @@ const buildFixture = (): DatabaseSync => {
     NOW,
   );
 
+  // A completed task carrying finish evidence plus two review verdicts whose
+  // subject hashes were minted under the retired domain separator.
+  run(
+    db,
+    `INSERT INTO work_tasks(
+       canvas_name, node_id, task_id, entity_home, actor_seat_id,
+       fact_event_home, fact_entity_home, fact_seq, state,
+       brief_message_id, artifact_ids_json, metadata_json,
+       reason, response, created_at, updated_at, origin_at, received_at
+     ) VALUES (
+       'factory', 'tasks', 'task-0', ?, ?, ?, ?, '1', 'completed',
+       'brief-1', NULL, ?, NULL, NULL, ?, ?, ?, ?
+     )`,
+    CC,
+    SEAT,
+    CC,
+    CC,
+    JSON.stringify({
+      "vellum.pipeline.stage": "build",
+      "vellum.gate.report": "pass",
+    }),
+    NOW,
+    NOW,
+    NOW,
+    NOW,
+  );
+  run(
+    db,
+    `INSERT INTO work_task_finish(
+       canvas_name, node_id, task_id,
+       finish_criteria_json, completion_evidence_json
+     ) VALUES ('factory', 'tasks', 'task-0', NULL, ?)`,
+    JSON.stringify(EVIDENCE),
+  );
+  run(
+    db,
+    `INSERT INTO work_review_verdicts(
+       verdict_id, kind, reviewer_seat_id, reviewer_node_id, author_seat_id,
+       subject_kind, subject_task_installation, subject_task_canvas,
+       subject_task_node, subject_task_item, subject_epoch,
+       subject_sha, subject_checkout, subject_hash, epoch,
+       findings_json, refs_json, posted_at_ms
+     ) VALUES (
+       'verdict-task-1', 'green', ?, 'reviewer-agent', ?,
+       'task', ?, 'factory', 'tasks', 'task-0', 0,
+       NULL, NULL, ?, 0,
+       '["ok"]', ?, 1
+     )`,
+    REVIEWER_SEAT,
+    SEAT,
+    CC,
+    oldSubjectHash(taskHashInput),
+    JSON.stringify(["vellum/crew/verdict-subject/v1"]),
+  );
+  run(
+    db,
+    `INSERT INTO work_review_verdicts(
+       verdict_id, kind, reviewer_seat_id, reviewer_node_id, author_seat_id,
+       subject_kind, subject_task_installation, subject_task_canvas,
+       subject_task_node, subject_task_item, subject_epoch,
+       subject_sha, subject_checkout, subject_hash, epoch,
+       findings_json, refs_json, posted_at_ms
+     ) VALUES (
+       'verdict-commit-1', 'blocking', ?, NULL, ?,
+       'commit', NULL, NULL, NULL, NULL, NULL,
+       'deadbeef', NULL, ?, 2,
+       '["stale"]', '[]', 2
+     )`,
+    REVIEWER_SEAT,
+    SEAT,
+    oldSubjectHash({ kind: "commit", sha: "deadbeef" }),
+  );
+
   db.exec("PRAGMA user_version = 23");
   run(
     db,
@@ -654,6 +759,46 @@ describe("convert-state-to-junto", () => {
     });
     expect(report.repairedCanvases).toBe(1);
     expect(report.repairedProjections).toBe(1);
+
+    // Verdict subject hashes are rebuilt under the renamed domain separator
+    // from the stored preimage (evidence refs via work_task_finish).
+    expect(
+      get<{ subject_hash: string }>(
+        db,
+        "SELECT subject_hash FROM work_review_verdicts WHERE verdict_id = 'verdict-task-1'",
+      ).subject_hash,
+    ).toBe(sha256(verdictSubjectHashPayload(taskHashInput)));
+    expect(
+      get<{ subject_hash: string }>(
+        db,
+        "SELECT subject_hash FROM work_review_verdicts WHERE verdict_id = 'verdict-commit-1'",
+      ).subject_hash,
+    ).toBe(
+      sha256(verdictSubjectHashPayload({ kind: "commit", sha: "deadbeef" })),
+    );
+    expect(
+      get<{ refs_json: string }>(
+        db,
+        "SELECT refs_json FROM work_review_verdicts WHERE verdict_id = 'verdict-task-1'",
+      ).refs_json,
+    ).toBe('["junto/crew/verdict-subject/v1"]');
+    expect(report.repairedVerdicts).toBe(2);
+    expect(
+      get<{ metadata_json: string }>(
+        db,
+        `SELECT metadata_json FROM work_tasks
+         WHERE canvas_name = 'factory' AND node_id = 'tasks' AND task_id = 'task-0'`,
+      ).metadata_json,
+    ).toContain('"junto.pipeline.stage"');
+    expect(
+      get<{ metadata_json: string }>(
+        db,
+        `SELECT metadata_json FROM work_tasks
+         WHERE canvas_name = 'factory' AND node_id = 'tasks' AND task_id = 'task-0'`,
+      ).metadata_json,
+    ).toContain('"junto.gate.report"');
+    expect(report.rewrites.stationField).toBeGreaterThan(0);
+    expect(report.rewrites.hashDomain).toBeGreaterThan(0);
 
     // Row counts are preserved on retained tables.
     for (const table of report.tables) {

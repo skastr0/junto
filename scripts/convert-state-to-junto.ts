@@ -31,6 +31,7 @@ import {
   intentSha256Of,
 } from "../src/main/junto/canvas-intent-identity";
 import { serializeCanvas } from "../src/shared/canvas";
+import { verdictSubjectHashPayload } from "../src/shared/crew";
 
 // ---------------------------------------------------------------------------
 // Minimal database interface — satisfied by bun:sqlite (CLI) and node:sqlite
@@ -638,10 +639,13 @@ export type ConversionReport = {
     readonly harnessId: number;
     readonly contextId: number;
     readonly tasksNamespace: number;
+    readonly stationField: number;
+    readonly hashDomain: number;
   };
   readonly rehashedRecords: number;
   readonly repairedCanvases: number;
   readonly repairedProjections: number;
+  readonly repairedVerdicts: number;
   readonly userVersion: number;
   readonly schemaIdentitySha256: string;
 };
@@ -655,7 +659,12 @@ const quoteIdent = (name: string): string => `"${name.replaceAll('"', '""')}"`;
  * Ordered so no `to` value contains a later `from`.
  */
 const COPY_REWRITE_PAIRS: ReadonlyArray<{
-  readonly category: "protocol" | "browserPartition" | "harnessId";
+  readonly category:
+    | "protocol"
+    | "browserPartition"
+    | "harnessId"
+    | "stationField"
+    | "hashDomain";
   readonly from: string;
   readonly to: string;
 }> = [
@@ -701,6 +710,37 @@ const COPY_REWRITE_PAIRS: ReadonlyArray<{
     to: "persist:junto-profile-",
   },
   { category: "harnessId", from: "vellum-overseer", to: "junto-overseer" },
+  {
+    category: "stationField",
+    from: "vellumTcpListeners",
+    to: "juntoTcpListeners",
+  },
+  {
+    category: "hashDomain",
+    from: "vellum/board-wake-inject/v1",
+    to: "junto/board-wake-inject/v1",
+  },
+  {
+    category: "hashDomain",
+    from: "vellum/crew/verdict-subject/v1",
+    to: "junto/crew/verdict-subject/v1",
+  },
+];
+
+/**
+ * Durable work-domain metadata key prefixes — scoped to `work_*` tables, same
+ * reach as the text columns that carry metadata_json/parts_json or embed
+ * metadata inside action/result bodies.
+ */
+const WORK_NAMESPACE_PAIRS: ReadonlyArray<{
+  readonly from: string;
+  readonly to: string;
+}> = [
+  { from: "vellum.tasks", to: "junto.tasks" },
+  { from: "vellum.pipeline", to: "junto.pipeline" },
+  { from: "vellum.taskRelease", to: "junto.taskRelease" },
+  { from: "vellum.taskThread", to: "junto.taskThread" },
+  { from: "vellum.gate", to: "junto.gate" },
 ];
 
 const tableColumns = (db: SqlDb, table: string): readonly string[] =>
@@ -1065,6 +1105,101 @@ const repairProjectionHashes = (
   return repaired;
 };
 
+/**
+ * `work_review_verdicts.subject_hash` is `sha256(verdictSubjectHashPayload)`
+ * whose first payload element is the domain separator — renamed under Junto.
+ * The gate recomputes the hash from live evidence and compares bytes, so
+ * stored rows must carry the new-domain value or every pre-rename verdict
+ * reads stale. Scalar preimage fields live on the verdict row; task-kind
+ * completion refs come from the subject task's `work_task_finish` evidence.
+ * A verdict whose evidence has since advanced is gate-stale regardless, so
+ * recomputing against current evidence loses nothing.
+ */
+const repairVerdictSubjectHashes = (db: SqlDb): number => {
+  if (!tableNames(schemaObjects(db)).includes("work_review_verdicts")) return 0;
+  const rows = db
+    .prepare(
+      `SELECT verdict_id, subject_kind,
+              subject_task_installation, subject_task_canvas,
+              subject_task_node, subject_task_item, subject_epoch,
+              subject_sha, subject_hash
+       FROM work_review_verdicts`,
+    )
+    .all() as Array<{
+      readonly verdict_id: unknown;
+      readonly subject_kind: unknown;
+      readonly subject_task_installation: unknown;
+      readonly subject_task_canvas: unknown;
+      readonly subject_task_node: unknown;
+      readonly subject_task_item: unknown;
+      readonly subject_epoch: unknown;
+      readonly subject_sha: unknown;
+      readonly subject_hash: unknown;
+    }>;
+  const evidenceFor = db.prepare(
+    `SELECT completion_evidence_json FROM work_task_finish
+     WHERE canvas_name = ? AND node_id = ? AND task_id = ?`,
+  );
+  const update = db.prepare(
+    `UPDATE work_review_verdicts SET subject_hash = ? WHERE verdict_id = ?`,
+  );
+  let repaired = 0;
+  for (const row of rows) {
+    const stored = String(row.subject_hash);
+    let computed: string;
+    if (String(row.subject_kind) === "commit") {
+      computed = sha256(
+        verdictSubjectHashPayload({
+          kind: "commit",
+          sha: String(row.subject_sha),
+        }),
+      );
+    } else {
+      const evidenceRow = evidenceFor.get(
+        String(row.subject_task_canvas) as never,
+        String(row.subject_task_node) as never,
+        String(row.subject_task_item) as never,
+      ) as { readonly completion_evidence_json: unknown } | undefined;
+      const evidence =
+        evidenceRow?.completion_evidence_json === null ||
+        evidenceRow === undefined
+          ? undefined
+          : (JSON.parse(String(evidenceRow.completion_evidence_json)) as {
+              readonly git?: { readonly commits?: readonly string[] };
+              readonly artifacts?: ReadonlyArray<{
+                readonly nodeId: string;
+                readonly artifactId: string;
+              }>;
+              readonly claims?: ReadonlyArray<{
+                readonly refs?: readonly string[];
+              }>;
+            });
+      computed = sha256(
+        verdictSubjectHashPayload({
+          kind: "task",
+          installationId: String(row.subject_task_installation),
+          canvasName: String(row.subject_task_canvas),
+          nodeId: String(row.subject_task_node),
+          taskId: String(row.subject_task_item),
+          epoch: Number(row.subject_epoch),
+          commitShas: evidence?.git?.commits ?? [],
+          artifactRefs: (evidence?.artifacts ?? []).map((artifact) => ({
+            nodeId: artifact.nodeId,
+            artifactId: artifact.artifactId,
+          })),
+          claimRefs: (evidence?.claims ?? []).flatMap(
+            (claim) => claim.refs ?? [],
+          ),
+        }),
+      );
+    }
+    if (computed === stored) continue;
+    update.run(computed as never, String(row.verdict_id) as never);
+    repaired += 1;
+  }
+  return repaired;
+};
+
 export const convertStateToJunto = (
   db: SqlDb,
   options: Options,
@@ -1137,12 +1272,15 @@ export const convertStateToJunto = (
         "persist:vellum-profile-",
       ),
       harnessId: countLiteralRows(db, surviving, "vellum-overseer"),
-      tasksNamespace: countLiteralRows(
-        db,
-        surviving,
-        "vellum.tasks",
-        workTable,
+      tasksNamespace: WORK_NAMESPACE_PAIRS.reduce(
+        (total, pair) =>
+          total + countLiteralRows(db, surviving, pair.from, workTable),
+        0,
       ),
+      stationField: countLiteralRows(db, surviving, "vellumTcpListeners"),
+      hashDomain:
+        countLiteralRows(db, surviving, "vellum/board-wake-inject/v1") +
+        countLiteralRows(db, surviving, "vellum/crew/verdict-subject/v1"),
       contextId:
         ["Vellum", "VellumCommand", "Vellumcommand"].reduce(
           (total, retired) =>
@@ -1211,13 +1349,15 @@ export const convertStateToJunto = (
     for (const pair of COPY_REWRITE_PAIRS) {
       rewriteLiteral(db, schemaObjects(db), pair.from, pair.to, notRebuilt);
     }
-    rewriteLiteral(
-      db,
-      schemaObjects(db),
-      "vellum.tasks",
-      "junto.tasks",
-      workTable,
-    );
+    for (const pair of WORK_NAMESPACE_PAIRS) {
+      rewriteLiteral(
+        db,
+        schemaObjects(db),
+        pair.from,
+        pair.to,
+        workTable,
+      );
+    }
     for (const retired of ["Vellum", "VellumCommand", "Vellumcommand"]) {
       rewriteLiteral(
         db,
@@ -1260,6 +1400,10 @@ export const convertStateToJunto = (
     // 8. Correlated record hashes: every record changed protocol, and any
     //    body/basis rewrite moves its hash. Propagate to a fixed point.
     const rehashedRecords = repairWorkRecordHashes(db);
+
+    // 8b. Verdict subject hashes embed the renamed domain separator; rebuild
+    //    them from the stored preimage so the gate still compares equal bytes.
+    const repairedVerdicts = repairVerdictSubjectHashes(db);
 
     // 9. Recreate the baseline's triggers, indexes, and views now that the
     //    data is final, then create-order the fingerprint check.
@@ -1316,6 +1460,7 @@ export const convertStateToJunto = (
       rehashedRecords,
       repairedCanvases,
       repairedProjections,
+      repairedVerdicts,
       userVersion: 1,
       schemaIdentitySha256: expectedFingerprint,
     };
@@ -1346,9 +1491,12 @@ const formatReport = (report: ConversionReport): string => {
     `    harness ids: ${report.rewrites.harnessId}`,
     `    contextId values: ${report.rewrites.contextId}`,
     `    metadata namespace keys: ${report.rewrites.tasksNamespace}`,
+    `    station field names: ${report.rewrites.stationField}`,
+    `    hash domain literals: ${report.rewrites.hashDomain}`,
     `  recomputed content hashes: ${report.rehashedRecords}`,
     `  rebuilt canvas identities: ${report.repairedCanvases}`,
     `  recomputed projection hashes: ${report.repairedProjections}`,
+    `  recomputed verdict subject hashes: ${report.repairedVerdicts}`,
     `  row counts (before -> after):`,
     ...report.tables.map(
       (table) => `    ${table.name}: ${table.before} -> ${table.after}`,
