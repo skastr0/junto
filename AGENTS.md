@@ -141,7 +141,7 @@ canvas, node, and work operations without connecting edges. It may occupy
 Command Center or Remote. Command Center validates the live grant and
 authenticated source installation and performs authoring; a Remote does not
 author projection. Only humans grant or revoke; overseers cannot propagate
-authority. Workspace pause and play have no bearing on administration. An
+authority. Factory pause and play have no bearing on administration. An
 overseer cannot delete its own seat or move the operator viewport. It does
 not receive the operator socket, fleet enrollment, or credentials.
 

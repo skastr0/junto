@@ -432,7 +432,7 @@ canvas mutation path.
 An overseer is not another actor kind. It is an existing managed agent seat
 whose occupant may use closed `overseer` operations after a live human grant.
 Only humans grant or revoke; overseers cannot propagate authority. Copied
-aliases do not inherit the grant. Workspace pause and play have no bearing on
+aliases do not inherit the grant. Factory pause and play have no bearing on
 overseer administration. An overseer cannot delete its own seat, including
 indirect removal through canvas delete, kind change, or binding replacement,
 and cannot pan, zoom, focus, resize, or switch the operator viewport. It does

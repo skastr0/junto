@@ -1,4 +1,3 @@
-import { spawn } from "node:child_process";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { ACCESS_CANCELLED_ERROR } from "../access-signal";
@@ -444,11 +443,15 @@ const captureLoginShellPath = (): Promise<string | undefined> =>
       resolve(undefined);
       return;
     }
-    let child: ReturnType<typeof spawn>;
+    // The probe is an owned child like every other spawn: admission, group
+    // tracking, and quit drainage stay with the central plane.
+    let lease: AppProcessLease;
     try {
-      child = spawn(
-        shell,
-        [
+      lease = appProcessPlane.spawnGroup({
+        source: "adapter.login-shell-probe",
+        purpose: "operator login-shell PATH discovery",
+        command: shell,
+        args: [
           "-l",
           "-i",
           "-c",
@@ -456,15 +459,14 @@ const captureLoginShellPath = (): Promise<string | undefined> =>
           // echoing this command cannot forge a sentinel and corrupt the parse.
           `echo JUNTO_ENV_""BEGIN; env; echo JUNTO_ENV_""END`,
         ],
-        {
-          env: { ...process.env, TERM: "dumb" },
-          stdio: ["ignore", "pipe", "ignore"],
-        },
-      );
+        env: { ...process.env, TERM: "dumb" },
+      });
     } catch {
       resolve(undefined);
       return;
     }
+    const io = lease.io;
+    io.stdin.end();
     let output = "";
     let settled = false;
     const finish = (path: string | undefined): void => {
@@ -475,9 +477,9 @@ const captureLoginShellPath = (): Promise<string | undefined> =>
     };
     const kill = (): void => {
       try {
-        child.kill("SIGKILL");
+        appProcessPlane.forceTerminate(lease, "login shell PATH probe bound");
       } catch {
-        // Probe teardown is best effort; close still settles the promise.
+        // The central plane retains the lease for its authoritative drain.
       }
     };
     const timer = setTimeout(() => {
@@ -485,15 +487,18 @@ const captureLoginShellPath = (): Promise<string | undefined> =>
       finish(undefined);
     }, LOGIN_SHELL_PROBE_TIMEOUT_MS);
     timer.unref?.();
-    child.on("error", () => finish(undefined));
-    child.stdout?.setEncoding("utf8");
-    child.stdout?.on("data", (chunk) => {
+    io.onError(() => finish(undefined));
+    io.stdout.setEncoding("utf8");
+    io.stdout.on("data", (chunk) => {
       output += chunk;
       if (Buffer.byteLength(output) > LOGIN_SHELL_PROBE_MAX_OUTPUT_BYTES) {
         kill();
       }
     });
-    child.on("close", () => finish(loginShellPathFromProbeOutput(output)));
+    // Plane children always pipe stderr; drain and discard rc noise so a
+    // chatty startup file cannot fill the pipe and stall the probe.
+    io.stderr.on("data", () => undefined);
+    io.onClose(() => finish(loginShellPathFromProbeOutput(output)));
   });
 
 // Pure PATH merge, extracted so the ordering/dedup contract is unit-testable.

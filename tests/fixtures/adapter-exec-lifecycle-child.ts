@@ -74,6 +74,9 @@ const readGrandchildPid = async (path: string): Promise<number> => {
 };
 
 const runGroupObservationScenario = async () => {
+  // Resolve the one-time login-shell probe before the timed section; its
+  // bounded rc-file latency is process state, not adapter op settlement.
+  await resolvedSpawnEnv();
   const gracefulStartedAt = Date.now();
   const graceful = await runCli(process.execPath, [workerPath, "graceful-100"], 1_000);
   const gracefulSettledWithinBound = Date.now() - gracefulStartedAt < 1_500;
