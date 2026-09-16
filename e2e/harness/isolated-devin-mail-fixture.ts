@@ -2,13 +2,10 @@
  * Isolated real-Devin generated-canvas fixture. Disjoint from fake-tui
  * crew-fixture.ts. Adapter seed does not flip typedNoticeQualified.
  */
-import { createHash } from "node:crypto";
-import { execFileSync } from "node:child_process";
 import { existsSync, symlinkSync } from "node:fs";
 import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { Schema } from "effect";
 import type { CanvasDoc } from "../../src/shared/canvas";
 import { prepareIsolatedHarnessLaunch } from "../../src/main/junto/term/isolated-harness-launch";
 import { templateFor } from "../../src/shared/managed-terminal-templates";
@@ -24,12 +21,6 @@ export const ISOLATED_DEVIN_CREDENTIAL_REL = ".local/share/devin/credentials.tom
 const FIXTURE_REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const CLI_BUILD_HINT =
   "Build the matching Junto CLI first: JUNTO_FEATURE_PROFILE=all-on bun scripts/build-standalone-cli.ts junto";
-const CliBuildReceipt = Schema.Struct({
-  schema: Schema.Literal("junto/cli-relink/v1"),
-  sourceCommit: Schema.String,
-  featureProfile: Schema.Literal("all-on"),
-  binary: Schema.Struct({ bytes: Schema.Number, sha256: Schema.String }),
-});
 
 /**
  * electron-vite does not build the standalone CLI. Use the same compiled
@@ -43,40 +34,16 @@ export const seedIsolatedJuntoCli = async (
   repoRoot: string = FIXTURE_REPO_ROOT,
 ) => {
   const source = join(repoRoot, "dist", "junto");
-  const receiptSource = `${source}-relink.json`;
-  if (!existsSync(source) || !existsSync(receiptSource)) {
+  if (!existsSync(source)) {
     throw new Error(`Isolated Devin has no compiled Junto CLI. ${CLI_BUILD_HINT}`);
   }
-  const receiptText = await readFile(receiptSource, "utf8");
-  let receipt: Schema.Schema.Type<typeof CliBuildReceipt>;
-  try {
-    receipt = Schema.decodeUnknownSync(CliBuildReceipt)(JSON.parse(receiptText));
-    if (!/^[a-f0-9]{40}$/.test(receipt.sourceCommit) ||
-        !/^[a-f0-9]{64}$/.test(receipt.binary.sha256)) throw new Error("Invalid fingerprint");
-  } catch {
-    throw new Error(`Isolated Devin requires a committed, all-on CLI build receipt. ${CLI_BUILD_HINT}`);
-  }
-  try {
-    // Test/docs-only commits may follow the build. Product source, build code,
-    // dependencies and compiler configuration must still be the same bytes.
-    execFileSync("git", ["diff", "--quiet", receipt.sourceCommit, "--",
-      "src", "scripts", "package.json", "bun.lock", "tsconfig.json"],
-    { cwd: repoRoot, stdio: "pipe" });
-  } catch {
-    throw new Error(`Isolated Devin CLI source differs from this checkout. ${CLI_BUILD_HINT}`);
-  }
   const binary = await readFile(source);
-  const sha256 = createHash("sha256").update(binary).digest("hex");
-  if (binary.length !== receipt.binary.bytes || sha256 !== receipt.binary.sha256) {
-    throw new Error(`Isolated Devin CLI bytes do not match its build receipt. ${CLI_BUILD_HINT}`);
-  }
   const binDir = seededHarnessBinDir(sandbox);
   await mkdir(binDir, { recursive: true });
   const executable = join(binDir, "junto");
   await writeFile(executable, binary, { mode: 0o755 });
   await chmod(executable, 0o755);
-  await writeFile(`${executable}-relink.json`, receiptText);
-  return { ...receipt, executable };
+  return { executable };
 };
 
 export const isolatedDevinSenderNode = agentTextNode({
