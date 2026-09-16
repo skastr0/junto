@@ -6,9 +6,9 @@
  */
 
 import { EventEmitter } from "node:events";
-import { existsSync, statSync } from "node:fs";
+import { existsSync, realpathSync, statSync } from "node:fs";
 import * as os from "node:os";
-import { basename, isAbsolute, join } from "node:path";
+import { basename, isAbsolute, join, resolve } from "node:path";
 import { randomBytes, randomUUID } from "node:crypto";
 import { Result } from "effect";
 import { LIVE_OVERSEER_ENABLED } from "@shared/features";
@@ -559,6 +559,20 @@ const isUsableCwd = (cwd: string): boolean => {
   }
 };
 
+// Canonicalize for the home-seat refusal: realpath collapses `..`, `.`,
+// trailing slashes, and symlinks; resolve() is the fallback when the path
+// does not exist yet (isUsableCwd rejects it on its own afterwards).
+const canonicalDir = (path: string): string => {
+  try {
+    return realpathSync(path);
+  } catch {
+    return resolve(path);
+  }
+};
+
+const sameResolvedDirectory = (left: string, right: string): boolean =>
+  canonicalDir(left) === canonicalDir(right);
+
 /** An actor seat whose harness launch does not name an executable argv. */
 export type AgentLaunchUnresolvable = {
   readonly code: "agent_launch_unresolvable";
@@ -669,7 +683,7 @@ export const resolveLaunch = (
     // terminal seat keeps the fallback — it is a user-driven shell with the
     // same semantics as Terminal.app.
     const homeRoot = process.env.HOME || os.homedir();
-    if (isAbsolute(homeRoot) && cwd === homeRoot) {
+    if (isAbsolute(homeRoot) && sameResolvedDirectory(cwd, homeRoot)) {
       return Result.fail(
         unresolvable(
           "the seat's working directory is missing or resolves to the operator home",
@@ -679,8 +693,17 @@ export const resolveLaunch = (
     const resolvedFile = resolveHarnessExecutable(file, {
       pathEnv: env.PATH ?? process.env.PATH,
       extraDirs: configuredToolDirectories(),
-    }) ?? file;
-    return Result.succeed({ file: resolvedFile, args: argv.slice(1), cwd, env });
+    });
+    // A bare name that fails resolution must not spawn anyway: the child
+    // would re-walk PATH itself and a dead shim Junto already rejected could
+    // still win there. Absolute argv keeps the raw path — spawn classification
+    // reports ENOENT/EACCES accurately for it.
+    if (resolvedFile === undefined && !isAbsolute(file)) {
+      return Result.fail(
+        unresolvable(`the harness binary "${file}" was not found on the seat PATH`),
+      );
+    }
+    return Result.succeed({ file: resolvedFile ?? file, args: argv.slice(1), cwd, env });
   }
 
   if (launch && launch.kind !== "shell" && argv.length > 0) {

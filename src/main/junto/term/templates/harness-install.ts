@@ -103,7 +103,7 @@ export const harnessSearchPath = (
 // activation env is present. Only shim candidates pay this liveness probe — a
 // real binary resolves on X_OK alone.
 const SHIM_ROOT = /[/\\]shims$/u;
-const SHIM_LIVENESS_TIMEOUT_MS = 3_000;
+const SHIM_LIVENESS_TIMEOUT_MS = 1_500;
 
 const shimRunsLive = (candidate: string, pathEnv: string): boolean => {
   try {

@@ -1,4 +1,6 @@
-import { homedir } from "node:os";
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 import {
   enumeratedToolDirs,
@@ -50,6 +52,31 @@ describe("staticPathDirs", () => {
 describe("enumeratedToolDirs", () => {
   it("returns nothing for a home with no version-manager roots", () => {
     expect(enumeratedToolDirs("/nonexistent/home")).toEqual([]);
+  });
+
+  it("enumerates real and symlinked version dirs under known roots", () => {
+    const home = mkdtempSync(join(tmpdir(), "junto-vm-roots-"));
+    try {
+      const miseNode = join(home, ".local", "share", "mise", "installs", "node");
+      mkdirSync(join(miseNode, "22.11.0", "bin"), { recursive: true });
+      mkdirSync(join(miseNode, "24.2.0", "bin"), { recursive: true });
+      // Version managers publish aliases like `current`/`latest` as symlinks.
+      symlinkSync(join(miseNode, "24.2.0"), join(miseNode, "latest"));
+      const nvmNode = join(home, ".nvm", "versions", "node");
+      mkdirSync(join(nvmNode, "v20.10.0", "bin"), { recursive: true });
+
+      const dirs = enumeratedToolDirs(home);
+      expect(dirs).toContain(join(miseNode, "latest", "bin"));
+      expect(dirs).toContain(join(miseNode, "24.2.0", "bin"));
+      expect(dirs).toContain(join(miseNode, "22.11.0", "bin"));
+      expect(dirs).toContain(join(nvmNode, "v20.10.0", "bin"));
+      // newest-name first within one manager's install root
+      expect(dirs.indexOf(join(miseNode, "24.2.0", "bin"))).toBeLessThan(
+        dirs.indexOf(join(miseNode, "22.11.0", "bin")),
+      );
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
   });
 });
 

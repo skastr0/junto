@@ -4,8 +4,9 @@ import type {
   AppProcessSignalReceipt,
   AppTerminalLease,
 } from "../src/main/junto/app-process-plane";
-import { homedir } from "node:os";
-import { join } from "node:path";
+import { homedir, tmpdir } from "node:os";
+import { mkdtempSync, rmSync, symlinkSync } from "node:fs";
+import { basename, join } from "node:path";
 import {
   expandTerminalCwd,
   LocalSessionHost,
@@ -392,6 +393,73 @@ describe("LocalSessionHost", () => {
     });
   });
 
+  it("refuses an agent seat rooted at the operator home, in every equivalent spelling", () => {
+    const home = homedir();
+    const alias = mkdtempSync(join(tmpdir(), "junto-home-alias-"));
+    const link = join(alias, "home-link");
+    symlinkSync(home, link);
+    try {
+      const cwds = [
+        home,
+        `${home}/`,
+        join(home, "."),
+        join(home, "..", basename(home)),
+        "~",
+        link,
+      ];
+      for (const cwd of cwds) {
+        const resolved = resolveLaunch({
+          kind: "agent",
+          harness: "codex",
+          agentKey: "local:codex",
+          launch: { kind: "harness", argv: ["codex"], cwd },
+        });
+        expect(Result.isFailure(resolved)).toBe(true);
+        if (Result.isFailure(resolved)) {
+          expect(resolved.failure).toMatchObject({
+            code: "agent_launch_unresolvable",
+          });
+        }
+      }
+      const missing = resolveLaunch({
+        kind: "agent",
+        harness: "codex",
+        agentKey: "local:codex",
+        launch: { kind: "harness", argv: ["codex"] },
+      });
+      expect(Result.isFailure(missing)).toBe(true);
+    } finally {
+      rmSync(alias, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps a terminal seat rooted at the operator home launchable", () => {
+    const resolved = resolveLaunch({
+      kind: "terminal",
+      launch: { kind: "shell", cwd: homedir() },
+    });
+    expect(Result.isSuccess(resolved)).toBe(true);
+  });
+
+  it("fails an agent seat whose bare harness name cannot resolve on the seat PATH", () => {
+    const resolved = resolveLaunch({
+      kind: "agent",
+      harness: "codex",
+      agentKey: "local:codex",
+      launch: {
+        kind: "harness",
+        argv: ["definitely-missing-junto-cli"],
+        cwd: "/tmp",
+      },
+    });
+    if (!Result.isFailure(resolved)) {
+      throw new Error("an unresolvable bare harness name must not spawn");
+    }
+    expect(resolved.failure).toMatchObject({
+      code: "agent_launch_unresolvable",
+    });
+  });
+
   it("keeps the live seat environment authoritative over a stale launch plan", () => {
     const resolved = Result.getOrThrow(
       resolveLaunch(
@@ -471,7 +539,7 @@ describe("LocalSessionHost", () => {
       bindingId: "seat-cli-missing",
       harness: "claude",
       agentKey: "local:claude",
-      launch: { kind: "harness", argv: ["claude"], cwd: "/tmp" },
+      launch: { kind: "harness", argv: ["/nonexistent-junto-test-dir/claude"], cwd: "/tmp" },
     });
 
     expect(summary).toMatchObject({

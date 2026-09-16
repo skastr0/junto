@@ -1,6 +1,6 @@
 import { readdirSync, statSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { delimiter, join } from "node:path";
 import { ACCESS_CANCELLED_ERROR } from "../access-signal";
 import {
   appProcessPlane,
@@ -407,11 +407,13 @@ export const staticPathDirs = (home: string): ReadonlyArray<string> => [
 //   4. the static floor above.
 
 // One level of directory children, newest-name first (numeric-aware so
-// v22 sorts before v9). Missing roots return [].
+// v22 sorts before v9). Missing roots return []. Symlinks count — version
+// managers publish `current`/`default` aliases as symlinked dirs and the
+// final isDirectory() gate resolves them with statSync.
 const readVersionDirs = (root: string): ReadonlyArray<string> => {
   try {
     return readdirSync(root, { withFileTypes: true })
-      .filter((entry) => entry.isDirectory())
+      .filter((entry) => entry.isDirectory() || entry.isSymbolicLink())
       .map((entry) => join(root, entry.name))
       .sort((left, right) => right.localeCompare(left, undefined, { numeric: true }));
   } catch {
@@ -481,7 +483,7 @@ export const mergePath = (inputs: {
   const segments: string[] = [];
   const pushAll = (value: string | undefined) => {
     if (!value) return;
-    for (const part of value.split(":")) {
+    for (const part of value.split(delimiter)) {
       const dir = part.trim();
       if (dir) segments.push(dir);
     }
@@ -505,7 +507,7 @@ export const mergePath = (inputs: {
     seen.add(dir);
     merged.push(dir);
   }
-  return merged.join(":");
+  return merged.join(delimiter);
 };
 
 let extraPathDirs: ReadonlyArray<string> = [];

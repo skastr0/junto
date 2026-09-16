@@ -57,7 +57,7 @@ seats, and this disclosure.
 | Working-directory browser | Opening an agent, Git, or region folder picker | One shallow page at a time, beginning at the shown path; hidden folders are suppressed until typed | No recursive walk, watcher, Spotlight query, glob, or background index |
 | Git surface | Creating/opening a Git node for an operator-chosen directory | Repository and Git metadata through read-only status/log/show commands | No untracked-file content scan in status; runs only for the authored Git surface |
 | Terminal or attached agent | Explicitly creating or activating the seat, or auto-occupying a playing canvas's seats at launch | The selected cwd and whatever the launched shell/CLI accesses | Broad by design; ends with the owned process unless a separately disclosed supervised service is installed. A managed agent seat is refused when its working directory resolves to the operator home |
-| Browser page | Explicitly opening a page node | Junto-owned persistent browser profile and public network destinations; downloads land under the app's own state directory, never `~/Downloads` | Site cookies/storage persist until the operator wipes that profile; hostile web permissions are denied |
+| Browser page | Explicitly opening a page node | Junto-owned persistent browser profile and public network destinations; managed-page downloads are denied outright, and the app's own session download path is pinned under app state so it never resolves `~/Downloads` | Site cookies/storage persist until the operator wipes that profile; hostile web permissions are denied |
 | SSH/Remote | Explicit enrollment, then reconnect/sync while Command Center runs | OpenSSH configuration/credentials plus app paths on that enrolled Remote | No tailnet-wide file walk; managed package installs default off and stay in disclosed Junto app/service paths |
 | Backup export | Export action and native save dialog | One operator-selected destination | Creates a verified copy and never overwrites an existing file |
 | Login item | Settings checkbox | macOS Login Items state | Off until explicitly enabled; no hidden launch |
@@ -70,12 +70,15 @@ could enumerate any path was removed; only the explicit terminal/Git/region
 picker remains.
 
 Opening the agent picker checks only executable names on the inherited `PATH`,
-optional operator-configured tool directories, and a short list of known paths
-such as `~/.local/bin` and `~/.kimi-code/bin`; it does not list those
-directories. Detection and launch share that resolution. Opening one harness's
-options may read that harness's one model cache or run its model-list command.
-This happens only in the open agent picker, not at app startup or in the
-background.
+optional operator-configured tool directories, enumerated version-manager
+install roots, and a short list of known paths such as `~/.local/bin` and
+`~/.kimi-code/bin`; it does not list those directories. Candidates inside a
+version-manager `shims` directory must additionally answer a bounded
+`--version` probe, so a dead shim cannot shadow a real binary; that probe runs
+the shim itself, briefly, under Junto's identity. Detection and launch share
+that resolution. Opening one harness's options may read that harness's one
+model cache or run its model-list command. This happens only in the open agent
+picker, not at app startup or in the background.
 
 ## Provider access disclosures
 

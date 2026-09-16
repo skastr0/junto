@@ -1258,6 +1258,13 @@ if (packagedSandboxDisablingSwitch !== undefined) {
         app.isPackaged,
         process.env.ELECTRON_RENDERER_URL,
       );
+      // Pin Chromium's default download dir under app-owned state before the
+      // session's first materialized use — profile init resolves
+      // NSSearchPathForDirectoriesInDomains and would bill ~/Downloads to
+      // Junto before any window exists.
+      const downloadsDir = join(app.getPath("userData"), "downloads");
+      mkdirSync(downloadsDir, { recursive: true });
+      session.defaultSession.setDownloadPath(downloadsDir);
       if (app.isPackaged) {
         await installTrustedRendererProtocol(
           session.defaultSession.protocol,
@@ -1271,12 +1278,6 @@ if (packagedSandboxDisablingSwitch !== undefined) {
       );
       await app.setProxy({ mode: "direct" });
       await session.defaultSession.setProxy({ mode: "direct" });
-      // Pin Chromium's default download dir under app-owned state before any
-      // window exists. Without this, the first download on defaultSession
-      // resolves ~/Downloads and bills a TCC prompt to Junto.
-      const downloadsDir = join(app.getPath("userData"), "downloads");
-      mkdirSync(downloadsDir, { recursive: true });
-      session.defaultSession.setDownloadPath(downloadsDir);
     } catch (error) {
       console.error("[window] trusted renderer protocol setup failed");
       console.error(error);
