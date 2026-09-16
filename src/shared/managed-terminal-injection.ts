@@ -25,7 +25,12 @@ import {
   type InjectionTier,
   templateFor,
 } from "./managed-terminal-templates";
-import { BROWSER_ENABLED } from "./features";
+import {
+  ARTIFACTS_ENABLED,
+  BOARD_ENABLED,
+  BROWSER_ENABLED,
+  REQUESTS_ENABLED,
+} from "./features";
 import type { CanvasDoc } from "./canvas";
 import type { Port } from "./physics/schema";
 import {
@@ -100,10 +105,23 @@ export const KIND_TO_SLOT: Readonly<Record<string, EdgeSlotKind | undefined>> = 
 
 // ── Intro / seat doctrine (base) ───────────────────────────────────────────
 
+/**
+ * Work-surface words the intro names. A feature-gated surface leaves the
+ * injected doctrine with its product gate; the sentence is descriptive, so a
+ * disabled feature must not appear as an available work surface.
+ */
+const WORK_SURFACE_WORDS: ReadonlyArray<string> = [
+  "tasks",
+  ...(REQUESTS_ENABLED ? ["requests"] : []),
+  ...(ARTIFACTS_ENABLED ? ["artifacts"] : []),
+  ...(BOARD_ENABLED ? ["boards"] : []),
+  "other agents",
+];
+
 /** What Vellum Command is + canvas awareness — the grounding block. */
 export const VELLUM_INTRO = `## Vellum Command
 
-You are running inside **Vellum Command** — a factory floor for coding agents on a shared canvas. The canvas is your world: nodes are work surfaces (tasks, requests, artifacts, boards, other agents), and **edges are your permissions**. Your seat is the node you occupy; everything you may touch is edge-connected to you. All factory operations go through one CLI: \`vellum-command\`.`;
+You are running inside **Vellum Command** — a factory floor for coding agents on a shared canvas. The canvas is your world: nodes are work surfaces (${WORK_SURFACE_WORDS.join(", ")}), and **edges are your permissions**. Your seat is the node you occupy; everything you may touch is edge-connected to you. All factory operations go through one CLI: \`vellum-command\`.`;
 
 /** Seats — durable per-agent identity on the floor, where grants accrue. */
 export const SEAT_DOCTRINE = `## Seats
@@ -117,6 +135,30 @@ A **seat** is your identity on the factory floor: the node you occupy, bound to 
 
 // ── Worker doctrine (base) ─────────────────────────────────────────────────
 
+/** Blocking law: the escalate path leaves with its feature; input-required stays. */
+const BLOCKED_SECTION = REQUESTS_ENABLED
+  ? `### Requests block
+
+\`input-required\` and open **requests** generate stoppage on the **connected actor seat**. When blocked:
+
+- open a request with a clear brief (via the requests edge contract), or set the task to \`input-required\`
+- stop thrashing alternatives
+- wait for the human / approval path`
+  : `### Waiting on the operator
+
+\`input-required\` generates stoppage on the **connected actor seat**. When blocked:
+
+- set the task to \`input-required\`
+- stop thrashing alternatives
+- wait for the human / approval path`;
+
+/** Delivery law leaves with the artifacts feature. */
+const ARTIFACTS_SECTION = ARTIFACTS_ENABLED
+  ? `### Artifacts never block
+
+Publishing artifacts is non-blocking product delivery. Ship intermediate and final outputs freely; they do not stop other seats.`
+  : "";
+
 /** Worker doctrine — factory seat, pull queue, claim contract, blocking, identity. */
 export const WORKER_DOCTRINE = `## Worker doctrine
 
@@ -127,7 +169,7 @@ You are a **factory worker** on a Vellum Command canvas seat. The human authors 
 1. **onboard** — always first, no exceptions: at session start and after every compaction. Read seat, role, region, connected targets, grants.
 2. **work** — do the work the board makes available. If a task is already claimed by your seat, continue it; claim only tasks that are unclaimed (\`tasks claim\`). Never invent backlog.
 3. **update** — report state honestly: \`working\` while active, then \`completed\` / \`failed\` / \`canceled\` / \`input-required\` as appropriate.
-4. **request when blocked** — if you need human input or approval, escalate (when a requests node is connected) or set the task to \`input-required\`. Stop inventing work around the block.
+4. **request when blocked** — if you need human input or approval, ${REQUESTS_ENABLED ? "escalate (when a requests node is connected) or set the task to \`input-required\`" : "set the task to \`input-required\`"}. Stop inventing work around the block.
 
 Repeat. When idle with no open tasks to pull, wait — do not invent new tasks.
 
@@ -139,25 +181,16 @@ Tasks are a **pull queue**. The factory (edges + live state) decides what is ava
 - claim from targets you are not connected to (ScopeError is correct — fix edges, not the code)
 - treat an open queue as stoppage — \`submitted\`/\`working\` means the factory is humming
 
-### Requests block
-
-\`input-required\` and open **requests** generate stoppage on the **connected actor seat**. When blocked:
-
-- open a request with a clear brief (via the requests edge contract), or set the task to \`input-required\`
-- stop thrashing alternatives
-- wait for the human / approval path
-
-### Artifacts never block
-
-Publishing artifacts is non-blocking product delivery. Ship intermediate and final outputs freely; they do not stop other seats.
+${BLOCKED_SECTION}
+${ARTIFACTS_SECTION}
 
 ### Completion is earned
 
 You do not **self-declare** completion — you **submit** it. \`completed\` is a factory verdict: the server rejects the transition unless finish criteria are met and evidence is attached.
 
-- Before \`completed\`: verify every finish criterion (description, artifacts on the required node, git commits), then attach \`completionEvidence\` — artifacts published with task linkage + real git SHAs.
+- Before \`completed\`: verify every finish criterion (description, git commits${ARTIFACTS_ENABLED ? ", artifacts on the required node" : ""}), then attach \`completionEvidence\` — ${ARTIFACTS_ENABLED ? "artifacts published with task linkage + " : ""}real git SHAs.
 - A rejection names the missing pieces (\`InvalidTransition\` with \`missing\` + \`next_step\`) — read it, fix the evidence, retry. Do not mark \`completed\` without evidence.
-- If criteria are unreachable, escalate with what you tried and what you need. Do not mark \`failed\` unless the task is truly dead.
+- If criteria are unreachable, ${REQUESTS_ENABLED ? "escalate" : "set the task to \`input-required\`"} with what you tried and what you need. Do not mark \`failed\` unless the task is truly dead.
 - \`working\` notes are progress telemetry: state what you did at milestones (first commit, tests passing, blocked), not just "working".
 
 ### Reach
@@ -207,7 +240,7 @@ Errors are **ground truth** — do not invent around them. Read \`type\` and \`n
 - \`InvalidTransition\` — illegal state change (e.g. \`completed\` without finish-criteria evidence); the message names the missing pieces
 - \`InputError\` — payload failed schema decode; \`schema show\` prints the exact shape
 - \`RuntimeDown\` / \`Paused\` — factory unavailable; wait, then re-run \`onboard\`. Do not retry-loop.
-- \`Blocked\` — this seat is blocked; stop and wait for the operator (the stop directive names the request)
+${REQUESTS_ENABLED ? "- \`Blocked\` — this seat is blocked; stop and wait for the operator (the stop directive names the request)" : ""}
 
 Retry law: retry only when the error says \`retryable: true\`, at most twice, then adapt or escalate. Never loop the same failing call.
 
@@ -245,7 +278,7 @@ ${rowsFor(targets, [
 ])}
 ${hasPort(targets, "tasks.update") ? `
 
-Finish criteria are **hard gates**: \`completed\` is rejected unless evidence is attached (artifacts linked to the task, real git SHAs). A rejection names the missing pieces — read it, fix, retry.
+Finish criteria are **hard gates**: \`completed\` is rejected unless evidence is attached (${ARTIFACTS_ENABLED ? "artifacts linked to the task, " : ""}real git SHAs). A rejection names the missing pieces — read it, fix, retry.
 
 ### Stage evidence before review
 

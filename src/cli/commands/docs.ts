@@ -8,6 +8,7 @@ import {
   buildNodeKindDoc,
   buildNodesCatalogDoc,
   DOC_TOPICS,
+  NODE_DOCS,
 } from "@shared/vellum-docs";
 import { OVERSEER_SKILL_MARKDOWN } from "./overseer-skill";
 import { overseerOfflineCapabilities } from "./overseer";
@@ -20,7 +21,9 @@ const topicArg = Argument.string("topic").pipe(
 );
 
 const kindArg = Argument.string("kind").pipe(
-  Argument.withDescription("Node kind (task, requests, artifacts, board, pad, agent, page, terminal, cron, relay, timer, watcher)"),
+  Argument.withDescription(
+    `Node kind (${NODE_DOCS.map((doc) => doc.kind).join(", ")})`,
+  ),
 );
 
 const docsListCommand = Command.make("list", {}, () =>

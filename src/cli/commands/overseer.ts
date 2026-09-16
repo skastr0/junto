@@ -12,6 +12,7 @@ import {
   type OverseerOperation,
 } from "../../shared/overseer-control";
 import type { WorkOpName } from "../../shared/work-control";
+import { overseerOperationEnabled } from "../../shared/features";
 import type {
   CommandCapability,
   CommandExample,
@@ -89,6 +90,9 @@ const commandIdFor = (operation: OverseerOperation): string => `overseer.${opera
 const matchesOverseerTarget = (target: string, operation: OverseerOperation): boolean => {
   const normalized = target.trim();
   if (normalized.length === 0) return false;
+  // Offline targets resolve against the live catalog: a feature-gated
+  // operation is not discoverable even when its name is typed directly.
+  if (!OVERSEER_CATALOG.some((entry) => entry.operation === operation)) return false;
   return (
     operation === normalized ||
     commandIdFor(operation) === normalized ||
@@ -364,7 +368,7 @@ export const overseerOfflineCapabilities = () => ({
     inner_result: "{ok:true,operation,data}|{ok:false,operation,error}",
   },
   implemented: {
-    cli_transport: OVERSEER_OPERATION_NAMES.slice(),
+    cli_transport: OVERSEER_CATALOG.map((entry) => entry.operation),
     offline: ["overseer skill", "overseer schema", "overseer examples", "overseer capabilities"],
   },
   unavailable: OVERSEER_UNAVAILABLE,
@@ -418,7 +422,7 @@ export const overseerSchemas: ReadonlyArray<CommandSchemaContract> = OVERSEER_CA
   }),
 );
 
-export const overseerExamples: ReadonlyArray<CommandExample> = [
+const declaredOverseerExamples: ReadonlyArray<CommandExample> = [
   {
     command_id: commandIdFor("canvas.batch"),
     command: "overseer canvas batch",
@@ -522,6 +526,12 @@ export const overseerExamples: ReadonlyArray<CommandExample> = [
     input: { nodeId: "git-1" },
   },
 ];
+
+/** Examples follow their operation: a disabled family has no recipe. */
+export const overseerExamples: ReadonlyArray<CommandExample> =
+  declaredOverseerExamples.filter((example) =>
+    overseerOperationEnabled(example.command_id.replace(/^overseer\./, "")),
+  );
 
 export const overseerCapabilities: ReadonlyArray<CommandCapability> = [
   {

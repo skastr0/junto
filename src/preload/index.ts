@@ -31,12 +31,16 @@ import {
 } from "@shared/ipc";
 import type { Task } from "@shared/work-model";
 import {
+  ARTIFACTS_ENABLED,
+  BOARD_ENABLED,
   BROWSER_ENABLED,
   CRON_ENABLED,
   FLEET_UI_ENABLED,
   HERMES_INTEGRATION_ENABLED,
   LIVE_OVERSEER_ENABLED,
+  PAD_ENABLED,
   RELAY_ENABLED,
+  REQUESTS_ENABLED,
   USAGE_ENABLED,
 } from "@shared/features";
 import type { SnapshotState } from "@shared/entities";
@@ -382,7 +386,24 @@ const liveApi: import("@shared/overseer-live").OverseerLiveApi = {
   onLiveChanged: (callback) => subscribe(IPC_CHANNELS.liveChanged, callback),
 };
 
-const vellumApi: Omit<VellumCommandApi, keyof typeof liveApi> = {
+/**
+ * Work-plane API keys behind a product gate. They leave the exposed object
+ * with their feature (same pattern as `browserApi`); `vellumApi` excludes
+ * them so the enabled groups are spread at the exposure site.
+ */
+type WorkFeatureApiKey =
+  | "workRequestResolve"
+  | "workArtifactArchive"
+  | "workArtifactDelete"
+  | "workBoardList"
+  | "workBoardCreateTopic"
+  | "workBoardPost"
+  | "workBoardMarkRead"
+  | "workBoardNotify"
+  | "workPadRead"
+  | "workPadPatch";
+
+const vellumApi: Omit<VellumCommandApi, keyof typeof liveApi | WorkFeatureApiKey> = {
   platform: process.platform,
   updateGetState: () =>
     invoke(IPC_CHANNELS.updateGetState, IPC_TIMEOUT_MS),
@@ -475,33 +496,6 @@ const vellumApi: Omit<VellumCommandApi, keyof typeof liveApi> = {
     ),
   workTaskClaim: (canvas, nodeId, taskId, actor) =>
     invoke(IPC_CHANNELS.workTaskClaim, IPC_TIMEOUT_MS, canvas, nodeId, taskId, actor),
-  workRequestResolve: (canvas, nodeId, taskId, responseText, disposition) =>
-    invoke(
-      IPC_CHANNELS.workRequestResolve,
-      IPC_TIMEOUT_MS,
-      canvas,
-      nodeId,
-      taskId,
-      responseText,
-      disposition,
-    ),
-  workArtifactArchive: (canvas, nodeId, artifactId, archived) =>
-    invoke(
-      IPC_CHANNELS.workArtifactArchive,
-      IPC_TIMEOUT_MS,
-      canvas,
-      nodeId,
-      artifactId,
-      archived,
-    ),
-  workArtifactDelete: (canvas, nodeId, artifactId) =>
-    invoke(
-      IPC_CHANNELS.workArtifactDelete,
-      IPC_TIMEOUT_MS,
-      canvas,
-      nodeId,
-      artifactId,
-    ),
   workSeatRecentOps: (canvas, nodeId, limit) =>
     invoke(
       IPC_CHANNELS.workSeatRecentOps,
@@ -509,66 +503,6 @@ const vellumApi: Omit<VellumCommandApi, keyof typeof liveApi> = {
       canvas,
       nodeId,
       limit,
-    ),
-  workBoardList: (canvas, nodeId, topicId) =>
-    invoke(
-      IPC_CHANNELS.workBoardList,
-      IPC_TIMEOUT_MS,
-      canvas,
-      nodeId,
-      topicId,
-    ),
-  workBoardCreateTopic: (canvas, nodeId, title, body, notify) =>
-    invoke(
-      IPC_CHANNELS.workBoardCreateTopic,
-      IPC_TIMEOUT_MS,
-      canvas,
-      nodeId,
-      title,
-      body,
-      notify,
-    ),
-  workBoardPost: (canvas, nodeId, topicId, text) =>
-    invoke(
-      IPC_CHANNELS.workBoardPost,
-      IPC_TIMEOUT_MS,
-      canvas,
-      nodeId,
-      topicId,
-      text,
-    ),
-  workBoardMarkRead: (canvas, nodeId, topicId, upToPosition?: number) =>
-    invoke(
-      IPC_CHANNELS.workBoardMarkRead,
-      IPC_TIMEOUT_MS,
-      canvas,
-      nodeId,
-      topicId,
-      upToPosition,
-    ),
-  workBoardNotify: (canvas, nodeId, topicId) =>
-    invoke(
-      IPC_CHANNELS.workBoardNotify,
-      IPC_TIMEOUT_MS,
-      canvas,
-      nodeId,
-      topicId,
-    ),
-  workPadRead: (canvas, nodeId, pinId) =>
-    invoke(
-      IPC_CHANNELS.workPadRead,
-      IPC_TIMEOUT_MS,
-      canvas,
-      nodeId,
-      pinId,
-    ),
-  workPadPatch: (canvas, nodeId, patches) =>
-    invoke(
-      IPC_CHANNELS.workPadPatch,
-      IPC_TIMEOUT_MS,
-      canvas,
-      nodeId,
-      patches,
     ),
   onNodeRefOpened,
   onCanvasFlushRequested,
@@ -622,6 +556,115 @@ const vellumApi: Omit<VellumCommandApi, keyof typeof liveApi> = {
     subscribe<{ newestId: number; total: number; dropped: number }>(
       IPC_CHANNELS.observabilityCleared,
       listener,
+    ),
+};
+
+const requestsWorkApi: Pick<VellumCommandApi, "workRequestResolve"> = {
+  workRequestResolve: (canvas, nodeId, taskId, responseText, disposition) =>
+    invoke(
+      IPC_CHANNELS.workRequestResolve,
+      IPC_TIMEOUT_MS,
+      canvas,
+      nodeId,
+      taskId,
+      responseText,
+      disposition,
+    ),
+};
+
+const artifactsWorkApi: Pick<
+  VellumCommandApi,
+  "workArtifactArchive" | "workArtifactDelete"
+> = {
+  workArtifactArchive: (canvas, nodeId, artifactId, archived) =>
+    invoke(
+      IPC_CHANNELS.workArtifactArchive,
+      IPC_TIMEOUT_MS,
+      canvas,
+      nodeId,
+      artifactId,
+      archived,
+    ),
+  workArtifactDelete: (canvas, nodeId, artifactId) =>
+    invoke(
+      IPC_CHANNELS.workArtifactDelete,
+      IPC_TIMEOUT_MS,
+      canvas,
+      nodeId,
+      artifactId,
+    ),
+};
+
+const boardWorkApi: Pick<
+  VellumCommandApi,
+  | "workBoardList"
+  | "workBoardCreateTopic"
+  | "workBoardPost"
+  | "workBoardMarkRead"
+  | "workBoardNotify"
+> = {
+  workBoardList: (canvas, nodeId, topicId) =>
+    invoke(
+      IPC_CHANNELS.workBoardList,
+      IPC_TIMEOUT_MS,
+      canvas,
+      nodeId,
+      topicId,
+    ),
+  workBoardCreateTopic: (canvas, nodeId, title, body, notify) =>
+    invoke(
+      IPC_CHANNELS.workBoardCreateTopic,
+      IPC_TIMEOUT_MS,
+      canvas,
+      nodeId,
+      title,
+      body,
+      notify,
+    ),
+  workBoardPost: (canvas, nodeId, topicId, text) =>
+    invoke(
+      IPC_CHANNELS.workBoardPost,
+      IPC_TIMEOUT_MS,
+      canvas,
+      nodeId,
+      topicId,
+      text,
+    ),
+  workBoardMarkRead: (canvas, nodeId, topicId, upToPosition?: number) =>
+    invoke(
+      IPC_CHANNELS.workBoardMarkRead,
+      IPC_TIMEOUT_MS,
+      canvas,
+      nodeId,
+      topicId,
+      upToPosition,
+    ),
+  workBoardNotify: (canvas, nodeId, topicId) =>
+    invoke(
+      IPC_CHANNELS.workBoardNotify,
+      IPC_TIMEOUT_MS,
+      canvas,
+      nodeId,
+      topicId,
+    ),
+};
+
+const padWorkApi: Pick<VellumCommandApi, "workPadRead" | "workPadPatch"> = {
+  workPadRead: (canvas, nodeId, pinId) =>
+    invoke(
+      IPC_CHANNELS.workPadRead,
+      IPC_TIMEOUT_MS,
+      canvas,
+      nodeId,
+      pinId,
+    ),
+  workPadPatch: (canvas, nodeId, patches) =>
+    invoke(
+      IPC_CHANNELS.workPadPatch,
+      IPC_TIMEOUT_MS,
+      canvas,
+      nodeId,
+      patches,
     ),
 };
 
@@ -811,6 +854,10 @@ if (preloadLocation === undefined || isRendererPreloadCandidate(preloadLocation)
   contextBridge.exposeInMainWorld("chassis", chassisApi);
   contextBridge.exposeInMainWorld("vellumCommand", {
     ...vellumApi,
+    ...(REQUESTS_ENABLED ? requestsWorkApi : {}),
+    ...(ARTIFACTS_ENABLED ? artifactsWorkApi : {}),
+    ...(BOARD_ENABLED ? boardWorkApi : {}),
+    ...(PAD_ENABLED ? padWorkApi : {}),
     ...(LIVE_OVERSEER_ENABLED ? liveApi : {}),
     ...chatApi,
     ...(USAGE_ENABLED ? usageApi : {}),

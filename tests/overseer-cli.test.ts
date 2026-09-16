@@ -24,6 +24,11 @@ import {
   commandCapabilities,
   renderSchemaContract,
 } from "../src/cli/core/discovery";
+import { BUILD_FEATURES } from "../src/shared/features";
+import {
+  FEATURE_CATALOG,
+  type FeatureKey,
+} from "../src/shared/feature-catalog";
 import {
   overseerExamples,
   overseerOfflineCapabilities,
@@ -61,6 +66,12 @@ const runCli = (
 ): Promise<{ readonly code: number | null; readonly stdout: string; readonly stderr: string }> =>
   new Promise((resolveRun, rejectRun) => {
     const env: NodeJS.ProcessEnv = { ...process.env };
+    // The source CLI resolves features from VELLUM_COMMAND_* when no build
+    // defines are present; mirror this test's build profile so the child and
+    // the in-process catalog agree.
+    for (const [key, feature] of Object.entries(FEATURE_CATALOG)) {
+      env[feature.env] = BUILD_FEATURES[key as FeatureKey] ? "1" : "0";
+    }
     if (options.home) env.VELLUM_COMMAND_HOME = options.home;
     if (options.workHome) env[WORK_HOME_ENV] = options.workHome;
     const child = spawn("bun", [join(repoRoot, "src/cli/main.ts"), ...args], {

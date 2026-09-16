@@ -3,6 +3,7 @@
  * self-preservation. Main owns transactions; this module does not touch SQLite.
  */
 import { Result } from "effect";
+import { productNodeKindEnabled } from "./features";
 import {
   decodeCanvasDoc,
   type CanvasDoc,
@@ -410,9 +411,17 @@ export const verbsForEndpoints = (
   toNode === undefined ||
   fromNode.id === toNode.id ||
   fromNode.type === "group" ||
-  toNode.type === "group"
+  toNode.type === "group" ||
+  !productNodeKindEnabled(kindOfNode(fromNode)) ||
+  !productNodeKindEnabled(kindOfNode(toNode))
     ? []
     : verbsForPair(kindOfNode(fromNode), kindOfNode(toNode));
+
+/** The authored kind of a node, when this build's product gates hide it. */
+export const gatedKindOf = (node: CanvasNode | undefined): string | undefined => {
+  const kind = kindOfNode(node);
+  return kind !== undefined && !productNodeKindEnabled(kind) ? kind : undefined;
+};
 
 export const edgeVerbAdmitted = (
   fromNode: CanvasNode | undefined,
@@ -506,6 +515,10 @@ export const applyCanvasBatch = (
             ...(tasks === undefined ? {} : { tasks: { ...tasks, items: [] } }),
           } }),
         };
+        const gated = gatedKindOf(node);
+        if (gated !== undefined) {
+          return reject("Forbidden", `kind "${gated}" is disabled in this Vellum Command build`);
+        }
         if (nodes.has(node.id)) return reject("InvalidArguments", `node "${node.id}" already exists`);
         nodes.set(node.id, node);
         results.push({ operation: step.operation, nodeId: node.id });
@@ -515,6 +528,10 @@ export const applyCanvasBatch = (
       case "node.move": {
         const node = nodes.get(step.nodeId);
         if (node === undefined) return reject("NotFound", `node "${step.nodeId}" was not found`);
+        const gated = gatedKindOf(node);
+        if (gated !== undefined) {
+          return reject("Forbidden", `kind "${gated}" is disabled in this Vellum Command build`);
+        }
         nodes.set(node.id, step.operation === "node.configure"
           ? applyNodeChanges(node, step.changes)
           : nodeGeometry(node, step));
@@ -524,6 +541,12 @@ export const applyCanvasBatch = (
       case "edge.connect": {
         const { verb, ...draft } = step.edge;
         const edge: CanvasEdge = { ...draft, id: draft.id ?? mintId("edge"), ether: { verb } };
+        if (
+          gatedKindOf(nodes.get(edge.fromNode)) !== undefined ||
+          gatedKindOf(nodes.get(edge.toNode)) !== undefined
+        ) {
+          return reject("Forbidden", "edge touches a kind disabled in this Vellum Command build");
+        }
         if (edges.has(edge.id)) return reject("InvalidArguments", `edge "${edge.id}" already exists`);
         edges.set(edge.id, edge);
         results.push({ operation: step.operation, edgeId: edge.id });
@@ -534,7 +557,15 @@ export const applyCanvasBatch = (
         const edge = edges.get(step.edgeId);
         if (edge === undefined) return reject("NotFound", `edge "${step.edgeId}" was not found`);
         if (step.operation === "edge.disconnect") edges.delete(edge.id);
-        else edges.set(edge.id, applyEdgeChanges(edge, step.changes));
+        else {
+          if (
+            gatedKindOf(nodes.get(edge.fromNode)) !== undefined ||
+            gatedKindOf(nodes.get(edge.toNode)) !== undefined
+          ) {
+            return reject("Forbidden", "edge touches a kind disabled in this Vellum Command build");
+          }
+          edges.set(edge.id, applyEdgeChanges(edge, step.changes));
+        }
         results.push({ operation: step.operation, edgeId: edge.id });
         break;
       }

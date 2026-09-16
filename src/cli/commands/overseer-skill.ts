@@ -1,6 +1,24 @@
 /** Product-embedded overseer skill text. Not a global Amp skill install. */
+import { BOARD_ENABLED, PAD_ENABLED } from "@shared/features";
+import { OVERSEER_CATALOG } from "@shared/overseer-control";
 
 export const OVERSEER_SKILL_NAME = "overseer";
+
+// The skill is a product surface: families a feature gate turned off leave
+// the list and their verb notes with them.
+const ENABLED_FAMILIES: ReadonlyArray<string> = [
+  "status",
+  ...new Set(
+    OVERSEER_CATALOG
+      .map((entry) => entry.family)
+      .filter((family) => family !== "overseer"),
+  ),
+];
+
+const FAMILY_VERB_NOTES = [
+  BOARD_ENABLED ? "Board uses `create-topic` and `mark-read`;" : "",
+  PAD_ENABLED ? "pad uses `look-here`." : "",
+].filter((note) => note.length > 0).join(" ");
 
 export const OVERSEER_SKILL_MARKDOWN = `---
 name: overseer
@@ -45,9 +63,9 @@ Wire: \`{op:"overseer", args:{operation, args}}\`. Outer work errors are auth, p
 
 ## Families
 
-status, canvas, node, edge, tasks, request, artifact, msg, board, pad, sheet, content, agent, terminal, page, scheduler, git
+${ENABLED_FAMILIES.join(", ")}
 
-Verbs match \`OVERSEER_OPERATION_NAMES\` (dots become family + verb). Board uses \`create-topic\` and \`mark-read\`; pad uses \`look-here\`. \`overseer status\` is live grant/surface, not git.
+Verbs match \`OVERSEER_OPERATION_NAMES\` (dots become family + verb). ${FAMILY_VERB_NOTES} \`overseer status\` is live grant/surface, not git.
 
 Remote seats are supported on the same CLI. Station transport is not this command.
 

@@ -29,6 +29,7 @@ import {
   findEdge,
   findNode,
   flowCycleIfInvalid,
+  gatedKindOf,
   nativeDeleteResourcesOf,
   nodeGeometry,
   nodeHasOverseerGrant,
@@ -601,6 +602,16 @@ const handleNodeCreate = (
     const decodedNode = decodeNode(args.node, `node-${ulid()}`);
     if (!decodedNode.ok) return decodedNode;
     const node = decodedNode.node;
+    const gated = gatedKindOf(node);
+    if (gated !== undefined) {
+      return {
+        ok: false,
+        error: fail(
+          "ScopeError",
+          `kind "${gated}" is disabled in this Vellum Command build`,
+        ),
+      };
+    }
     if (findNode(current, node.id) !== undefined) {
       return {
         ok: false,
@@ -649,6 +660,16 @@ const mutateExistingNode = (
       return {
         ok: false,
         error: fail("UnknownTarget", `node "${nodeId}" was not found`),
+      };
+    }
+    const gated = gatedKindOf(existing);
+    if (gated !== undefined) {
+      return {
+        ok: false,
+        error: fail(
+          "ScopeError",
+          `kind "${gated}" is disabled in this Vellum Command build`,
+        ),
       };
     }
     const nextNode = transform(existing, view);
@@ -860,6 +881,15 @@ const handleEdgeConnect = (
         error: fail("UnknownTarget", "edge endpoints were not found"),
       };
     }
+    if (gatedKindOf(fromNode) !== undefined || gatedKindOf(toNode) !== undefined) {
+      return {
+        ok: false,
+        error: fail(
+          "ScopeError",
+          "edge touches a kind disabled in this Vellum Command build",
+        ),
+      };
+    }
     if (!edgeVerbAdmitted(fromNode, toNode, draft.verb)) {
       return {
         ok: false,
@@ -922,9 +952,20 @@ const handleEdgeConfigure = (
       };
     }
     const changes = args.changes;
+    const endpointFrom = findNode(current, existing.fromNode);
+    const endpointTo = findNode(current, existing.toNode);
+    if (gatedKindOf(endpointFrom) !== undefined || gatedKindOf(endpointTo) !== undefined) {
+      return {
+        ok: false,
+        error: fail(
+          "ScopeError",
+          "edge touches a kind disabled in this Vellum Command build",
+        ),
+      };
+    }
     if (changes.verb !== undefined) {
-      const fromNode = findNode(current, existing.fromNode);
-      const toNode = findNode(current, existing.toNode);
+      const fromNode = endpointFrom;
+      const toNode = endpointTo;
       if (!edgeVerbAdmitted(fromNode, toNode, changes.verb)) {
         return {
           ok: false,

@@ -1,4 +1,5 @@
 import { Result, Schema } from "effect";
+import { overseerOperationEnabled } from "./features";
 import {
   CanvasColor,
   EdgeEnd,
@@ -843,6 +844,12 @@ export const isOverseerMutation = (
 ): boolean => !READ_ONLY_OPERATIONS.has(operation);
 
 /** Stable family/verb catalog used by offline CLI discovery. */
+/**
+ * The operations this build actually exposes. A feature-gated family leaves
+ * the catalog — and with it the CLI families, the offline schema/example
+ * lists, and the live `overseer status` command list — while the full
+ * vocabulary above stays as the decode/type surface for historical rows.
+ */
 export const OVERSEER_CATALOG: ReadonlyArray<OverseerCatalogEntry> =
   OVERSEER_OPERATION_NAMES.map((operation) => {
     const split = operation.indexOf(".");
@@ -854,4 +861,4 @@ export const OVERSEER_CATALOG: ReadonlyArray<OverseerCatalogEntry> =
       verb,
       mutation: isOverseerMutation(operation),
     };
-  });
+  }).filter((entry) => overseerOperationEnabled(entry.operation));

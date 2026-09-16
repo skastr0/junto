@@ -6,6 +6,7 @@ import type { Pad } from "@shared/pad";
 import { DIM, INK } from "../../lib/theme";
 import { themeMode$ } from "../../lib/theme-mode";
 import { state$ } from "../../lib/state";
+import { PAD_ENABLED } from "@shared/features";
 import { getVellumCommandApi } from "../../lib/vellum-api";
 import { FirstLineRenameInput } from "../nodes/FirstLineRenameInput";
 import { editText } from "../../lib/mutations";
@@ -43,7 +44,9 @@ export function PadCard({
   const label = firstLine || "pad";
 
   useEffect(() => {
-    const api = getVellumCommandApi();
+    // A gated pad keeps its historical card but fetches nothing: its preload
+    // API leaves with the feature.
+    const api = PAD_ENABLED ? getVellumCommandApi() : undefined;
     if (!api || revision === 0) {
       setPad(null);
       return;

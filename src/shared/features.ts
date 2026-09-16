@@ -244,6 +244,37 @@ export const productNodeKindEnabled = (kind: string | undefined): boolean => {
 };
 
 /**
+ * Whether a capability token belongs to a surface this build enabled. The
+ * sibling of {@link productNodeKindEnabled} for lists that speak ports (CLI
+ * docs, capability inventories) rather than node kinds.
+ */
+export const productPortEnabled = (port: string): boolean => {
+  if (port.startsWith("board.")) return BOARD_ENABLED;
+  if (port.startsWith("pad.")) return PAD_ENABLED;
+  if (port === "sheet.read") return SHEET_ENABLED;
+  if (port.startsWith("request.")) return REQUESTS_ENABLED;
+  if (port.startsWith("artifact.")) return ARTIFACTS_ENABLED;
+  if (port.startsWith("browser.")) return BROWSER_ENABLED;
+  return true;
+};
+
+/**
+ * Whether an overseer operation belongs to a surface this build enabled.
+ * Gated families leave the catalog, the CLI tree, the offline lists, and the
+ * live dispatcher together.
+ */
+export const overseerOperationEnabled = (operation: string): boolean => {
+  const family = operation.split(".", 1)[0] ?? operation;
+  if (family === "request") return REQUESTS_ENABLED;
+  if (family === "artifact") return ARTIFACTS_ENABLED;
+  if (family === "board") return BOARD_ENABLED;
+  if (family === "pad") return PAD_ENABLED;
+  if (family === "sheet") return SHEET_ENABLED;
+  if (family === "page") return BROWSER_ENABLED;
+  return true;
+};
+
+/**
  * Whether a harness may be authored / spawned in this build.
  * Durable HarnessId still decodes historical canvas rows; this only gates
  * palette, seat factory, and terminal create IPC.

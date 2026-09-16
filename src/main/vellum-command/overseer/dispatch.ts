@@ -1,4 +1,5 @@
 import { Effect, Result } from "effect";
+import { overseerOperationEnabled } from "@shared/features";
 import {
   decodeOverseerArgs,
   OVERSEER_CATALOG,
@@ -58,6 +59,19 @@ export const executeOverseer = Effect.fn("overseer.execute")(function* (
   runtime: OverseerRuntime,
   sourceInstallationId?: InstallationId,
 ) {
+  // Feature gates land before admission and decode: a disabled family is
+  // unreachable even when a client sends the raw operation name.
+  if (!overseerOperationEnabled(request.operation)) {
+    return failed(request, {
+      type: "ScopeError",
+      message:
+        `overseer ${request.operation} is disabled in this Vellum Command build`,
+      details: {
+        retryable: false,
+        missing: "feature enabled in this build",
+      },
+    });
+  }
   const decoded = decodeOverseerArgs(request.operation, request.args);
   if (Result.isFailure(decoded)) {
     return failed(request, { type: "InputError", message: decoded.failure.message });

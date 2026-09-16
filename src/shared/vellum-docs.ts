@@ -10,6 +10,7 @@
  */
 
 import { Schema } from "effect";
+import { productNodeKindEnabled, productPortEnabled } from "./features";
 import {
   KindSpecs,
   ACTOR_ACTOR_INBOX_PORTS,
@@ -193,7 +194,13 @@ const buildNodeDocs = (): ReadonlyArray<NodeDoc> =>
     };
   });
 
-export const NODE_DOCS: ReadonlyArray<NodeDoc> = buildNodeDocs();
+/**
+ * Node docs are a product surface: a kind a feature gate turned off leaves
+ * the catalog, the per-kind page, and the doctrine's worked examples.
+ */
+export const NODE_DOCS: ReadonlyArray<NodeDoc> = buildNodeDocs().filter((doc) =>
+  productNodeKindEnabled(doc.kind),
+);
 
 // ── Catalog ────────────────────────────────────────────────────────────────
 
@@ -275,7 +282,7 @@ export const buildDoctrineDoc = (): string => {
       { id: "<artifacts-node>", kind: "artifacts" },
       { id: "<board-node>", kind: "board" },
       { id: "<peer-agent>", kind: "agent" },
-    ].map((target) => ({
+    ].filter((target) => productNodeKindEnabled(target.kind)).map((target) => ({
       ...target,
       ports: ALL_PORTS.filter((port) =>
         NODE_DOCS.find((doc) => doc.kind === target.kind)?.offers.includes(port),
@@ -339,7 +346,9 @@ export const buildConceptsDoc = (): string =>
     "",
     "## Grants and ports",
     `Every edge hands the seat the ports the node offers. The port set:`,
-    ...ALL_PORTS.map((p) => `- \`${p}\` — ${PORT_DESCRIPTIONS[p]}`),
+    ...ALL_PORTS.filter((port) => productPortEnabled(port)).map(
+      (p) => `- \`${p}\` — ${PORT_DESCRIPTIONS[p]}`,
+    ),
     "",
     "## Earned completion",
     "Completion is a factory verdict, not a harness assertion: finish criteria",

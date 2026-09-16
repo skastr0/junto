@@ -11,6 +11,8 @@ import {
   REQUESTS_ENABLED,
   SHEET_ENABLED,
 } from "../src/shared/features";
+import { OVERSEER_CATALOG } from "../src/shared/overseer-control";
+import { overseerOperationEnabled } from "../src/shared/features";
 import { contractOf } from "../src/shared/physics";
 import {
   admitWorkTarget,
@@ -30,6 +32,20 @@ import {
   annotateCapabilityInvocations,
   commandCapabilities,
 } from "../src/cli/core/discovery";
+import {
+  overseerExamples,
+  overseerOfflineCapabilities,
+} from "../src/cli/commands/overseer";
+import { OVERSEER_SKILL_MARKDOWN } from "../src/cli/commands/overseer-skill";
+import {
+  buildConceptsDoc,
+  buildNodesCatalogDoc,
+  NODE_DOCS,
+} from "../src/shared/vellum-docs";
+import {
+  VELLUM_INTRO,
+  WORKER_DOCTRINE,
+} from "../src/shared/managed-terminal-injection";
 import {
   liveSeatBlock,
   markSeatBlocked,
@@ -220,6 +236,46 @@ describe("work-sink product gates", () => {
       const cli = readFileSync("src/cli/main.ts", "utf8");
       expect(cli).toContain("disabledCliGroup");
 
+      // Overseer families leave the catalog and every derived list.
+      const gatedFamilies = ["board", "pad", "sheet", "request", "artifact"];
+      expect(
+        OVERSEER_CATALOG.some((entry) => gatedFamilies.includes(entry.family)),
+      ).toBe(false);
+      expect(overseerOperationEnabled("board.list")).toBe(false);
+      expect(overseerOperationEnabled("sheet.configure")).toBe(false);
+      expect(
+        overseerExamples.some((example) =>
+          gatedFamilies.some((family) =>
+            example.command_id.startsWith(`overseer.${family}`),
+          ),
+        ),
+      ).toBe(false);
+      expect(
+        overseerOfflineCapabilities().implemented.cli_transport.some((operation) =>
+          gatedFamilies.some((family) => operation.startsWith(`${family}.`)),
+        ),
+      ).toBe(false);
+      expect(OVERSEER_SKILL_MARKDOWN).not.toContain("board, pad");
+
+      // Product docs lose the gated kinds, ports, and worked examples.
+      expect(
+        NODE_DOCS.some((doc) => gatedFamilies.includes(doc.kind)),
+      ).toBe(false);
+      expect(buildNodesCatalogDoc()).not.toContain("| board |");
+      expect(buildConceptsDoc()).not.toContain("`board.");
+
+      // Injected doctrine does not teach a disabled surface.
+      expect(VELLUM_INTRO).not.toContain("requests");
+      expect(WORKER_DOCTRINE).not.toContain("### Requests block");
+      expect(WORKER_DOCTRINE).not.toContain("### Artifacts never block");
+
+      // Preload hides the work APIs with their gates.
+      const preload = readFileSync("src/preload/index.ts", "utf8");
+      expect(preload).toContain("...(REQUESTS_ENABLED ? requestsWorkApi : {})");
+      expect(preload).toContain("...(ARTIFACTS_ENABLED ? artifactsWorkApi : {})");
+      expect(preload).toContain("...(BOARD_ENABLED ? boardWorkApi : {})");
+      expect(preload).toContain("...(PAD_ENABLED ? padWorkApi : {})");
+
       for (const group of ["board", "pad", "sheet", "escalate", "artifact"]) {
         const runtime = spawnSync(
           "bun",
@@ -263,6 +319,20 @@ describe("work-sink product gates", () => {
       ).toBe(true);
       expect(
         commandCapabilities.some((c) => c.command_id === "pad.patch"),
+      ).toBe(true);
+
+      // Overseer families, docs, and doctrine stay whole in all-on.
+      const families = OVERSEER_CATALOG.map((entry) => entry.family);
+      expect(families).toContain("board");
+      expect(families).toContain("sheet");
+      expect(overseerOperationEnabled("board.list")).toBe(true);
+      expect(NODE_DOCS.some((doc) => doc.kind === "board")).toBe(true);
+      expect(WORKER_DOCTRINE).toContain("### Requests block");
+      expect(VELLUM_INTRO).toContain("requests");
+      expect(
+        overseerExamples.some((example) =>
+          example.command_id.startsWith("overseer.request"),
+        ),
       ).toBe(true);
     },
   );
