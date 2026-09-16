@@ -1,5 +1,5 @@
 import { observable } from "@legendapp/state";
-import type { BrowserSessionInfo, VellumCommandBrowserApi } from "@shared/ipc";
+import type { BrowserSessionInfo, JuntoBrowserApi } from "@shared/ipc";
 import { parseNodeRef } from "@shared/node-ref";
 import { getJuntoApi } from "./junto-api";
 
@@ -10,12 +10,12 @@ export const browser$ = observable({
   sessionByRef: {} as Record<string, BrowserSessionInfo>,
 });
 
-// getJuntoApi() narrows its return type to VellumCommandApi proper; every browser
-// method lives on the sibling VellumCommandBrowserApi slice that global.d.ts merges
-// onto window.vellumCommand at runtime. Cast per-call — Partial<> so a
+// getJuntoApi() narrows its return type to JuntoApi proper; every browser
+// method lives on the sibling JuntoBrowserApi slice that global.d.ts merges
+// onto window.junto at runtime. Cast per-call — Partial<> so a
 // not-yet-landed method degrades to
 // undefined rather than a type error.
-type BrowserApi = ReturnType<typeof getJuntoApi> & Partial<VellumCommandBrowserApi>;
+type BrowserApi = ReturnType<typeof getJuntoApi> & Partial<JuntoBrowserApi>;
 
 export const isCanonicalBrowserRef = (ref: string): boolean => parseNodeRef(ref).ok;
 
@@ -130,7 +130,7 @@ export const refreshBrowserSession = async (ref: string): Promise<void> => {
   }
 };
 
-// Singleton fan-out: window.vellumCommand.onBrowserSessionChanged -> sessionByRef,
+// Singleton fan-out: window.junto.onBrowserSessionChanged -> sessionByRef,
 // following the subscribeChatEvents precedent (chat-state.ts). Safe to call
 // from every PageCard mount; only the first call actually subscribes. Absent
 // the bridge method (IPC not landed yet) degrades to a no-op unsubscribe.

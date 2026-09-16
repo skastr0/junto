@@ -136,7 +136,7 @@ test("task detail renders the attributed thread and operator comments notify its
     await expect
       .poll(async () =>
         page.evaluate(async (text) => {
-          const api = window.vellumCommand;
+          const api = window.junto;
           if (!api) return false;
           const [canvas] = await api.listCanvases();
           if (!canvas) return false;

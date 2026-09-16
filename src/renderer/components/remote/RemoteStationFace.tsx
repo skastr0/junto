@@ -102,7 +102,7 @@ export function RemoteStationFace() {
   useEffect(() => {
     let cancelled = false;
     const api = pickRemoteStationFaceApi(
-      window.vellumCommand,
+      window.junto,
       window.chassis,
     );
     void loadRemoteStationFaceStats({ role, hostId }, api).then((next) => {

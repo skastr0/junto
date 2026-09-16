@@ -95,7 +95,7 @@ test("capture live conversation with isolated provider and media fixtures", asyn
       replace(channels.liveStopActions, () => { current = { ...current, actionsStopped: true, message: "Actions stopped. End this call and start a new conversation to enable actions." }; return current; });
     }, { channels: IPC_CHANNELS, seed: liveAuditSnapshot });
     await page.evaluate(async () => {
-      const api = window.vellumCommand!;
+      const api = window.junto!;
       // The key is a non-secret fixture in the disposable settings store.
       await api.settingsPatch({ appearance: { theme: "dark" }, providers: { openai: { apiKey: "audit-not-a-provider-key" } }, live: { backendModel: "audit-backend" } });
       const track = { enabled: false, onended: null, stop() {} };
@@ -143,9 +143,9 @@ test("capture live conversation with isolated provider and media fixtures", asyn
     await panel.getByRole("button", { name: "Correct request" }).click();
     await panel.getByRole("textbox", { name: "Correction for this request" }).fill("Keep the selected note where it is; only add the checklist.");
     await shot(page, "30-live-correction-muted");
-    await page.evaluate(() => window.vellumCommand!.settingsPatch({ appearance: { theme: "bright" } }));
+    await page.evaluate(() => window.junto!.settingsPatch({ appearance: { theme: "bright" } }));
     await shot(page, "31-live-bright");
-    await page.evaluate(() => window.vellumCommand!.settingsPatch({ appearance: { theme: "dark" } }));
+    await page.evaluate(() => window.junto!.settingsPatch({ appearance: { theme: "dark" } }));
     await panel.getByRole("button", { name: "Send", exact: true }).click();
     await expect(panel.getByText("Keep the selected note where it is; only add the checklist.", { exact: true })).toBeVisible();
     await expect(panel.getByRole("textbox", { name: "Correction for this request" })).not.toBeVisible();

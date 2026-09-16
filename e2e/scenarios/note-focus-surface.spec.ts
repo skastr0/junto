@@ -41,7 +41,7 @@ test("Note focus survives canvas updates and moves to the pinned dock", async ()
     await textarea.fill("# Field notes\n\nUnsaved operator draft");
 
     await page.evaluate(async (canvas) => {
-      const api = window.vellumCommand;
+      const api = window.junto;
       if (!api) throw new Error("Junto preload bridge is unavailable");
       const read = await api.readCanvas(canvas);
       const next = {

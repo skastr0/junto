@@ -50,7 +50,7 @@ function LiveConversation({ target }: { readonly target: LiveSeatTarget }) {
 
   useEffect(() => {
     mounted.current = true;
-    const api = window.vellumCommand;
+    const api = window.junto;
     const unsubscribe = api?.onLiveChanged(receiveSnapshot);
     void api?.liveSnapshot().then(receiveSnapshot).catch((caught: unknown) => {
       if (mounted.current) setError(errorText(caught));
@@ -66,7 +66,7 @@ function LiveConversation({ target }: { readonly target: LiveSeatTarget }) {
     if (!sessionId || !canvasName) return;
     const attention = readLiveAttention();
     const timer = setTimeout(() => {
-      void window.vellumCommand?.liveAttention(sessionId, attention).catch((caught: unknown) => {
+      void window.junto?.liveAttention(sessionId, attention).catch((caught: unknown) => {
         if (mounted.current) setError(errorText(caught));
       });
     }, 100);
@@ -74,7 +74,7 @@ function LiveConversation({ target }: { readonly target: LiveSeatTarget }) {
   }, [sessionId, canvasName, selectedNodeId, selectedNodeIds]);
 
   const start = () => {
-    const api = window.vellumCommand;
+    const api = window.junto;
     if (!api || callActive) return;
     const settings = state$.settings.peek();
     if (!settings.providers?.openai?.apiKeyConfigured || !liveSettings(settings).backendModel.trim()) {
@@ -152,9 +152,9 @@ function LiveConversation({ target }: { readonly target: LiveSeatTarget }) {
         onStart={start} onMute={toggleMute} onEnd={end}
         onSettings={() => { minimize(); openSettings(); }}
         onPlayback={() => { void mediaRef.current?.resumePlayback(); }}
-        onStop={() => { if (sessionId) void run(() => window.vellumCommand!.liveStopActions(sessionId)); }}
-        onCancel={(requestId) => { if (sessionId) void run(() => window.vellumCommand!.liveCancel(sessionId, requestId)); }}
-        onSteer={(requestId, text) => { if (sessionId) void run(() => window.vellumCommand!.liveSteer(sessionId, requestId, text, readLiveAttention())); }}
+        onStop={() => { if (sessionId) void run(() => window.junto!.liveStopActions(sessionId)); }}
+        onCancel={(requestId) => { if (sessionId) void run(() => window.junto!.liveCancel(sessionId, requestId)); }}
+        onSteer={(requestId, text) => { if (sessionId) void run(() => window.junto!.liveSteer(sessionId, requestId, text, readLiveAttention())); }}
       />
     </FocusSurface>
   );

@@ -157,7 +157,7 @@ test("task board supports creation, operator responses, layered status, and hand
     // used to flush and blur the active task input. The caret must stay in the
     // creator while the board receives that live update.
     await page.evaluate(async () => {
-      const api = window.vellumCommand!;
+      const api = window.junto!;
       const canvas = (await api.listCanvases())[0];
       if (!canvas) throw new Error("No canvas available for focus regression");
       const result = await api.workTaskCreate(canvas.name, "tasks", "Background projection update", { details: "Background projection update" });
@@ -333,7 +333,7 @@ test("task detail media uses the full panel width", async () => {
     await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
 
     const contentRef = await page.evaluate(async () => {
-      const result = await window.vellumCommand!.contentPutImage({
+      const result = await window.junto!.contentPutImage({
         bytesBase64:
           "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
         mediaType: "image/png",
@@ -344,13 +344,13 @@ test("task detail media uses the full panel width", async () => {
     });
     await installBoard(page, canvasDoc([tasksNode({ id: "tasks", items: [] })]));
     const canvasName = await page.evaluate(async () => {
-      const canvas = (await window.vellumCommand!.listCanvases())[0];
+      const canvas = (await window.junto!.listCanvases())[0];
       if (!canvas) throw new Error("No canvas available for media fixture");
       return canvas.name;
     });
     await page.evaluate(
       async ({ canvas, ref }) => {
-        const result = await window.vellumCommand!.workTaskCreate(
+        const result = await window.junto!.workTaskCreate(
           canvas,
           "tasks",
           "Task with media",

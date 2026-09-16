@@ -4,7 +4,7 @@
  * Glance-only cards: OVERSEER reads on the card; grant/revoke lives on the
  * RTS kind strip. Pause/play is orthogonal. Ordinary agents stay unstyled.
  *
- * Boards install at runtime via window.vellumCommand.
+ * Boards install at runtime via window.junto.
  * Run: `bunx electron-vite build && bun run test:e2e:fast e2e/scenarios/overseer-seat.spec.ts`
  */
 import { copyFile, mkdir } from "node:fs/promises";

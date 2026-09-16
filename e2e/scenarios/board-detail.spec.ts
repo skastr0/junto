@@ -242,7 +242,7 @@ test.describe(() => {
 
     // The authored title survives the work writes on the persisted document.
     const persisted = await page.evaluate(async (canvas) => {
-      const read = await window.vellumCommand!.readCanvas(canvas);
+      const read = await window.junto!.readCanvas(canvas);
       const node = read.doc.nodes.find((n) => n.id === "board-1");
       return node?.type === "text" ? node.text : "";
     }, CANVAS);
@@ -328,7 +328,7 @@ test.describe(() => {
       const occupySeat = () =>
         page.evaluate(
           async ([canvas, node]) => {
-            const api = window.vellumCommand!;
+            const api = window.junto!;
             if (typeof api.terminalCreate !== "function") {
               throw new Error("terminalCreate missing");
             }
@@ -352,7 +352,7 @@ test.describe(() => {
 
       const topicId = await page.evaluate(
         async ([canvas, id]) => {
-          const list = await window.vellumCommand!.workBoardList(canvas, id);
+          const list = await window.junto!.workBoardList(canvas, id);
           if (!list.ok) throw new Error(list.message);
           return list.data.topics[0]?.topicId ?? "";
         },

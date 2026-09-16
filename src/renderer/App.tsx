@@ -82,15 +82,15 @@ const setError = (error: unknown) =>
   state$.error.set(error instanceof Error ? error.message : String(error));
 
 const refreshList = async () => {
-  if (!window.vellumCommand) return;
-  state$.canvases.set(await window.vellumCommand.listCanvases());
+  if (!window.junto) return;
+  state$.canvases.set(await window.junto.listCanvases());
 };
 
 const refreshSnapshotsSoft = async (doc: CanvasDoc) => {
-  if (!HERMES_INTEGRATION_ENABLED || !window.vellumCommand?.refreshSnapshots) return;
+  if (!HERMES_INTEGRATION_ENABLED || !window.junto?.refreshSnapshots) return;
   try {
     const snapshots = await Promise.race([
-      window.vellumCommand.refreshSnapshots(identityHints([doc], state$.snapshots.peek())),
+      window.junto.refreshSnapshots(identityHints([doc], state$.snapshots.peek())),
       new Promise<null>((resolve) => window.setTimeout(() => resolve(null), 1500)),
     ]);
     if (snapshots) state$.snapshots.set(snapshots);
@@ -127,14 +127,14 @@ const canvasNavigationClock = makeNavigationClock();
 // with just this document's bindings.
 const openCanvas = async (name: string) => {
   await runCanvasAuthoringOperation(async () => {
-    if (!window.vellumCommand) return;
+    if (!window.junto) return;
     let request: number | undefined;
     state$.canvasLoading.set(true);
     try {
       await flushCanvasEdits();
       if (canvasMutationsQuiesced()) return;
       request = canvasNavigationClock.begin();
-      const result = await window.vellumCommand.readCanvas(name);
+      const result = await window.junto.readCanvas(name);
       if (canvasMutationsQuiesced() || !canvasNavigationClock.isCurrent(request)) return;
       clearAbandonedCanvas(result.name);
       state$.canvasName.set(result.name);
@@ -165,7 +165,7 @@ const assertCanvasNavigationAdmitted = (): void => {
 const nodeRefNavigation = makeNodeRefNavigationCoordinator({
   clock: canvasNavigationClock,
   readCanvas: async (name) => {
-    const junto = window.vellumCommand;
+    const junto = window.junto;
     if (!junto) throw new Error("Electron preload bridge is not available.");
     return junto.readCanvas(name);
   },
@@ -194,7 +194,7 @@ const nodeRefNavigation = makeNodeRefNavigationCoordinator({
 const externalCanvasReload = makeCanvasExternalReloadCoordinator({
   flushLocalEdits: flushCanvasEdits,
   readCanvas: async (name) => {
-    const junto = window.vellumCommand;
+    const junto = window.junto;
     if (!junto) throw new Error("Electron preload bridge is not available.");
     return junto.readCanvas(name);
   },
@@ -216,14 +216,14 @@ const externalCanvasReload = makeCanvasExternalReloadCoordinator({
 
 const createCanvas = async (name: string) => {
   await runCanvasAuthoringOperation(async () => {
-    if (!window.vellumCommand) return;
+    if (!window.junto) return;
     let request: number | undefined;
     state$.canvasLoading.set(true);
     try {
       await flushCanvasEdits();
       if (canvasMutationsQuiesced()) return;
       request = canvasNavigationClock.begin();
-      const result = await window.vellumCommand.createCanvas(name);
+      const result = await window.junto.createCanvas(name);
       if (canvasMutationsQuiesced()) return;
       clearAbandonedCanvas(result.name);
       await refreshList();
@@ -249,7 +249,7 @@ const createCanvas = async (name: string) => {
 
 const deleteCanvas = async (name: string) => {
   await runCanvasAuthoringOperation(async () => {
-    if (!window.vellumCommand || !name) return;
+    if (!window.junto || !name) return;
     state$.canvasLoading.set(true);
     try {
       const wasOpen = state$.canvasName.peek() === name;
@@ -259,7 +259,7 @@ const deleteCanvas = async (name: string) => {
       // delete wins over any already-returning watcher echo.
       await prepareCanvasRemoval(name);
       if (canvasMutationsQuiesced()) return;
-      await window.vellumCommand.deleteCanvas(name);
+      await window.junto.deleteCanvas(name);
       if (canvasMutationsQuiesced()) return;
       await refreshList();
       if (canvasMutationsQuiesced()) return;
@@ -298,12 +298,12 @@ export function App() {
   const errorAction = retryActionForError(error);
 
   useEffect(() => {
-    if (!window.vellumCommand) {
+    if (!window.junto) {
       state$.error.set("Electron preload bridge is not available.");
       state$.booting.set(false);
       return;
     }
-    const junto = window.vellumCommand;
+    const junto = window.junto;
     // Subscribe before boot touches a default canvas. Preload can deliver a
     // buffered cold-start locator synchronously from this call; returning the
     // navigation promise delays its durable relay ACK until focus is applied.

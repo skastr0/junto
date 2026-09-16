@@ -2,7 +2,7 @@ import { use$ } from "@legendapp/state/react";
 import { CircleHelp, RotateCcw, Settings2, X } from "lucide-react";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import type { BrowserProfileInfo, VellumCommandBrowserApi } from "@shared/ipc";
+import type { BrowserProfileInfo, JuntoBrowserApi } from "@shared/ipc";
 import type { SettingsSectionKey } from "@shared/settings";
 import {
   AUDIO_ENABLED,
@@ -301,7 +301,7 @@ function BrowserSection() {
     readonly kind: "success" | "error";
     readonly message: string;
   }>();
-  type BrowserApi = ReturnType<typeof getJuntoApi> & Partial<VellumCommandBrowserApi>;
+  type BrowserApi = ReturnType<typeof getJuntoApi> & Partial<JuntoBrowserApi>;
 
   const loadProfiles = useCallback(async () => {
     const api = getJuntoApi() as BrowserApi | undefined;

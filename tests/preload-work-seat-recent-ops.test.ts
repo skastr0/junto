@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   IPC_CHANNELS,
-  type VellumCommandApi,
+  type JuntoApi,
 } from "../src/shared/ipc";
 
 const electron = vi.hoisted(() => ({
@@ -25,10 +25,10 @@ vi.mock("electron", () => ({
   },
 }));
 
-const loadPreload = async (): Promise<VellumCommandApi> => {
+const loadPreload = async (): Promise<JuntoApi> => {
   await import("../src/preload/index");
-  const api = electron.exposed.get("vellumCommand") as
-    | VellumCommandApi
+  const api = electron.exposed.get("junto") as
+    | JuntoApi
     | undefined;
   if (api === undefined) {
     throw new Error("preload did not expose Junto API");

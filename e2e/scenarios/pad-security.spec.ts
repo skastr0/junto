@@ -44,7 +44,7 @@ const waitForApi = async (page: import("@playwright/test").Page): Promise<void> 
     .poll(
       async () =>
         page.evaluate(() => {
-          const api = window.vellumCommand;
+          const api = window.junto;
           return (
             typeof api?.workPadPatch === "function" &&
             typeof api.workPadRead === "function"
@@ -76,7 +76,7 @@ test("hostile pad fill stays data and never executes in the card thumb", async (
 
   const patched = await page.evaluate(
     async ([canvas, id, fill]) => {
-      const api = window.vellumCommand!;
+      const api = window.junto!;
       (window as unknown as { pwned: number }).pwned = 0;
       const patches: PadPatch[] = [
         {
@@ -123,7 +123,7 @@ test("hostile pad fill stays data and never executes in the card thumb", async (
   await assertSafeThumb(page);
 
   const after = await page.evaluate(async ([canvas, id, fill]) => {
-    const read = await window.vellumCommand!.workPadRead(canvas, id);
+    const read = await window.junto!.workPadRead(canvas, id);
     return {
       pwned: (window as unknown as { pwned?: number }).pwned ?? 0,
       ok: read.ok,

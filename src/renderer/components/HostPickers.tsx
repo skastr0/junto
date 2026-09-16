@@ -2,12 +2,12 @@
  * Shared enrolled-host + browser-profile Selects for node/region config.
  */
 import { useEffect, useState } from "react";
-import type { BrowserProfileInfo, VellumCommandApi, VellumCommandBrowserApi, VellumCommandTerminalApi } from "@shared/ipc";
+import type { BrowserProfileInfo, JuntoApi, JuntoBrowserApi, JuntoTerminalApi } from "@shared/ipc";
 import { Select } from "./ui";
 import { getJuntoApi } from "../lib/junto-api";
 
 type HostOpt = { readonly value: string; readonly label: string };
-type BrowserApi = (VellumCommandApi & Partial<VellumCommandTerminalApi> & Partial<VellumCommandBrowserApi>) | undefined;
+type BrowserApi = (JuntoApi & Partial<JuntoTerminalApi> & Partial<JuntoBrowserApi>) | undefined;
 
 export function EnrolledHostSelect({
   value,

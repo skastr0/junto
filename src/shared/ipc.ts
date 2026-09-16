@@ -561,7 +561,7 @@ export type ChatFinishNodeDeleteResult =
   | { readonly ok: true }
   | { readonly ok: false; readonly error: string };
 
-export interface VellumCommandSchedulerApi {
+export interface JuntoSchedulerApi {
   /** Fire one selected scheduler's outbound does edges only. */
   readonly schedulerFire: (
     canvas: string,
@@ -578,7 +578,7 @@ export interface VellumCommandSchedulerApi {
   >;
 }
 
-export interface VellumCommandHermesIntegrationApi {
+export interface JuntoHermesIntegrationApi {
   readonly generatePortfolio: (
     name: string,
     options?: { all?: boolean },
@@ -589,7 +589,7 @@ export interface VellumCommandHermesIntegrationApi {
   readonly agentMessage: (key: string, text: string) => Promise<AgentReply>;
 }
 
-export interface VellumCommandApi extends UpdateApi, OverseerLiveApi {
+export interface JuntoApi extends UpdateApi, OverseerLiveApi {
   /** Read-only platform marker for renderer geometry and copy. */
   readonly platform: NodeJS.Platform;
   /** Internal bootstrap receipt emitted after React commits the product shell. */
@@ -847,7 +847,7 @@ export interface VellumCommandApi extends UpdateApi, OverseerLiveApi {
 }
 
 /** Optional fleet/hosts product surface. Omitted from preload when Fleet UI is off. */
-export interface VellumCommandHostsApi {
+export interface JuntoHostsApi {
   // Remote host registry (SSH fleet surface).
   readonly hostsList: () => Promise<HostsOpResult>;
   readonly hostsDiscoverPeers: () => Promise<HostsDiscoverPeersResult>;
@@ -883,7 +883,7 @@ export interface VellumCommandHostsApi {
 }
 
 /** Optional provider-usage product surface. Omitted from preload when disabled. */
-export interface VellumCommandUsageApi {
+export interface JuntoUsageApi {
   readonly getUsage: () => Promise<UsageState>;
   readonly refreshUsage: () => Promise<UsageState>;
   readonly onUsageChanged: (listener: (state: UsageState) => void) => () => void;
@@ -1059,8 +1059,8 @@ export type {
 } from "./deploy-job";
 
 // The attached-chat surface is declared separately and merged into the
-// preload bridge alongside VellumCommandApi.
-export interface VellumCommandChatApi extends ChatApi {}
+// preload bridge alongside JuntoApi.
+export interface JuntoChatApi extends ChatApi {}
 
 /**
  * Open the terminal surface declared by this exact canvas node.
@@ -1152,7 +1152,7 @@ export interface TerminalAttachInput {
   readonly hostId?: string;
 }
 
-export interface VellumCommandGitApi {
+export interface JuntoGitApi {
   readonly gitStatus: (cwd: string) => Promise<GitStatusResult>;
   readonly gitLog: (cwd: string, limit?: number) => Promise<GitLogResult>;
   readonly gitShow: (cwd: string, sha: string) => Promise<GitShowResult>;
@@ -1172,7 +1172,7 @@ export type TerminalManagedPromptResult = {
   readonly error?: string;
 };
 
-export interface VellumCommandTerminalApi {
+export interface JuntoTerminalApi {
   readonly terminalList: (hostId?: string) => Promise<readonly TerminalSessionSummary[]>;
   readonly terminalCreate: (input: TerminalCreateInput) => Promise<TerminalSessionSummary>;
   readonly terminalGet: (bindingId: string, hostId?: string) => Promise<TerminalSessionSummary | undefined>;
@@ -1233,7 +1233,7 @@ export interface VellumCommandTerminalApi {
 // Outside demo mode: demoState answers { active: false } and the other two
 // answer ok:false — handlers are always registered, behavior is flag-gated.
 
-export interface VellumCommandDemoApi {
+export interface JuntoDemoApi {
   readonly demoState: () => Promise<DemoStateInfo>;
   readonly demoWriteEdl: (edl: DemoEdl) => Promise<DemoWriteEdlResult>;
 }
@@ -1284,7 +1284,7 @@ export interface BrowserSurfaceConfigInfo {
   readonly maxWarmSessions: number;
 }
 
-export interface VellumCommandBrowserApi {
+export interface JuntoBrowserApi {
   readonly browserProfiles: () => Promise<BrowserOpResult<ReadonlyArray<BrowserProfileInfo>>>;
   readonly browserSurfaceConfig: () => Promise<BrowserOpResult<BrowserSurfaceConfigInfo>>;
   readonly browserOpen: (input: BrowserOpenInput) => Promise<BrowserOpResult<BrowserSessionInfo>>;

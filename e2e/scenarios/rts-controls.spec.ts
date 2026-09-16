@@ -6,7 +6,7 @@
  * (agent chat, terminal, task board, …); right = minimap. Node/region
  * pause toggles live on left / chips.
  *
- * Boards install at runtime via window.vellumCommand (authority-only boot); pattern
+ * Boards install at runtime via window.junto (authority-only boot); pattern
  * copied from pause-surface.spec.ts.
  * Run: `bunx electron-vite build && bun run test:e2e:fast e2e/scenarios/rts-controls.spec.ts`
  */
@@ -212,7 +212,7 @@ test("rts shell: role left, kind middle, region strip, pause everywhere", async 
   // Work-plane projection updates must not blur or remount a pinned interactive
   // surface. Preserve both the active element and its in-progress draft.
   await page.evaluate(async () => {
-    const api = window.vellumCommand!;
+    const api = window.junto!;
     const canvas = (await api.listCanvases())[0];
     if (!canvas) throw new Error("No canvas available for focus regression");
     const result = await api.workTaskCreate(

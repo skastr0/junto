@@ -19,8 +19,8 @@ const installBridge = (): Bridge => {
     sink = listener;
     return unsubscribeIpc;
   });
-  (globalThis as unknown as { window: { vellumCommand: TerminalBridge } }).window = {
-    vellumCommand: { onTerminalEvent: subscribeIpc },
+  (globalThis as unknown as { window: { junto: TerminalBridge } }).window = {
+    junto: { onTerminalEvent: subscribeIpc },
   };
   return {
     deliver: (event: unknown) => sink?.(event),

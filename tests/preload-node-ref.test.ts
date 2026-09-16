@@ -2,8 +2,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type {
   NodeRefOpenedDelivery,
   NodeRefOpenedEvent,
-  VellumCommandApi,
-  VellumCommandHostsApi,
+  JuntoApi,
+  JuntoHostsApi,
 } from "../src/shared/ipc";
 import type { CanvasDoc } from "../src/shared/canvas";
 import { IPC_CHANNELS } from "../src/shared/ipc";
@@ -50,9 +50,9 @@ const delivery = (nodeId: string, deliveryId: string): NodeRefOpenedDelivery => 
   deliveryId,
 });
 
-const loadPreload = async (): Promise<VellumCommandApi> => {
+const loadPreload = async (): Promise<JuntoApi> => {
   await import("../src/preload/index");
-  const api = electron.exposed.get("vellumCommand") as VellumCommandApi | undefined;
+  const api = electron.exposed.get("junto") as JuntoApi | undefined;
   if (api === undefined) throw new Error("preload did not expose Junto API");
   return api;
 };
@@ -139,8 +139,8 @@ describe("preload renderer surface readiness", () => {
 
 describe("preload Remote deployment authorization", () => {
   it("forwards host id only — no administrator password payload", async () => {
-    const api = (await loadPreload()) as VellumCommandApi &
-      Partial<VellumCommandHostsApi>;
+    const api = (await loadPreload()) as JuntoApi &
+      Partial<JuntoHostsApi>;
     const input = { id: "studio" };
     if (!api.hostsDeployRemote) {
       throw new Error("hostsDeployRemote missing from all-on preload");
@@ -167,7 +167,7 @@ describe("preload node-reference delivery", () => {
     });
     try {
       await import("../src/preload/index");
-      expect(electron.exposed.has("vellumCommand")).toBe(false);
+      expect(electron.exposed.has("junto")).toBe(false);
       expect(electron.exposed.has("chassis")).toBe(false);
     } finally {
       if (prior === undefined) delete (globalThis as { location?: unknown }).location;

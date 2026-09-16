@@ -66,7 +66,7 @@ export async function installEvidence(page: import("@playwright/test").Page): Pr
   // The perf flag resolved at module load — arm it before the app boots, then reload.
   await page.reload();
   await page.waitForFunction(
-    () => (globalThis as { vellumCommandPerf?: { enabled: boolean } }).vellumCommandPerf?.enabled === true,
+    () => (globalThis as { juntoPerf?: { enabled: boolean } }).juntoPerf?.enabled === true,
     undefined,
     { timeout: 15_000 },
   );
@@ -388,8 +388,8 @@ export const capture = async (
 
   const perfSnapshot = await page.evaluate(() => {
     const harness = (window as unknown as {
-      vellumCommandPerf?: { snapshot?: () => unknown };
-    }).vellumCommandPerf;
+      juntoPerf?: { snapshot?: () => unknown };
+    }).juntoPerf;
     return harness?.snapshot ? harness.snapshot() : undefined;
   });
 

@@ -10,7 +10,7 @@ import { kernel$ } from "./kernel-view";
 import { chatCoarse$ } from "./chat-state";
 import { viewportBusy$ } from "./viewport-busy";
 
-// Coarse poll of window.vellumCommand.regionRollups for main-process graph enrichment.
+// Coarse poll of window.junto.regionRollups for main-process graph enrichment.
 // Client always re-derives with the live seat + chat planes so chips match the
 // cards (same status source). Live IPC never blanks them.
 
@@ -210,11 +210,11 @@ export function useRegionRollups(): ReadonlyArray<RegionRollup> {
   const genRef = useRef(0);
 
   useEffect(() => {
-    if (!canvasName || !window.vellumCommand?.regionRollups) {
+    if (!canvasName || !window.junto?.regionRollups) {
       setLive([]);
       return;
     }
-    const api = window.vellumCommand;
+    const api = window.junto;
     if (!api?.regionRollups) {
       setLive([]);
       return;

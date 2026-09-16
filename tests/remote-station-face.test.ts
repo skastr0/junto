@@ -53,7 +53,7 @@ const doctorReport = (
 });
 
 describe("pickRemoteStationFaceApi", () => {
-  it("prefers vellumCommand.doctor and otherwise uses chassis.doctor", () => {
+  it("prefers junto.doctor and otherwise uses chassis.doctor", () => {
     const fromJunto = async () => doctorReport();
     const fromChassis = async () => doctorReport();
     expect(

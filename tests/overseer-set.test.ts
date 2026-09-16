@@ -52,7 +52,7 @@ beforeEach(() => {
   canvasOverseerSet.mockClear();
   state$.settings.set(EMPTY_SETTINGS);
   vi.stubGlobal("window", {
-    vellumCommand: { canvasOverseerSet },
+    junto: { canvasOverseerSet },
   });
 });
 
@@ -150,7 +150,7 @@ describe("setOverseerSeat", () => {
   });
 
   it("refuses when the IPC method is absent", async () => {
-    vi.stubGlobal("window", { vellumCommand: {} });
+    vi.stubGlobal("window", { junto: {} });
     await expect(
       setOverseerSeat({ canvasName: "Workshop", nodeId: "seat", overseer: true }),
     ).rejects.toBeInstanceOf(OverseerSetError);

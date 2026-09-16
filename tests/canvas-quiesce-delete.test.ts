@@ -37,7 +37,7 @@ describe("renderer delete quiesce boundary", () => {
     );
     const writeCanvas = vi.fn(async () => ({ revision: "written" }));
     const runtimeWindow = {
-      vellumCommand: {
+      junto: {
         writeCanvas,
         browserStop,
         browserSessionList: async () => ({ ok: true, data: [] }),

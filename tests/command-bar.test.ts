@@ -120,17 +120,17 @@ describe("command bar actions mode", () => {
 
 type DigestApi = { exportDigest: (name: string) => Promise<DigestResult | undefined> };
 
-const digestWindow = (): { vellumCommand?: DigestApi } => {
-  const g = globalThis as { window?: { vellumCommand?: DigestApi } };
+const digestWindow = (): { junto?: DigestApi } => {
+  const g = globalThis as { window?: { junto?: DigestApi } };
   if (g.window === undefined) g.window = {};
   return g.window;
 };
 
 describe("openCanvasDigest", () => {
-  const prior = digestWindow().vellumCommand;
+  const prior = digestWindow().junto;
 
   afterEach(() => {
-    digestWindow().vellumCommand = prior;
+    digestWindow().junto = prior;
     state$.canvasName.set("");
     state$.digest.set(null);
     state$.digestOpen.set(false);
@@ -139,7 +139,7 @@ describe("openCanvasDigest", () => {
 
   it("opens the panel when export succeeds", async () => {
     state$.canvasName.set("ops");
-    digestWindow().vellumCommand = {
+    digestWindow().junto = {
       exportDigest: async () => ({ digest: "board", path: "ops.digest.txt" }),
     };
     await openCanvasDigest("ops");
@@ -153,7 +153,7 @@ describe("openCanvasDigest", () => {
 
   it("surfaces export failure on state.error and does not open", async () => {
     state$.canvasName.set("ops");
-    digestWindow().vellumCommand = {
+    digestWindow().junto = {
       exportDigest: async () => {
         throw new Error("digest write failed");
       },
@@ -166,7 +166,7 @@ describe("openCanvasDigest", () => {
 
   it("treats a missing result as failure", async () => {
     state$.canvasName.set("ops");
-    digestWindow().vellumCommand = undefined;
+    digestWindow().junto = undefined;
     await openCanvasDigest("ops");
     expect(state$.digestOpen.peek()).toBe(false);
     expect(state$.error.peek()).toBe("Canvas digest is unavailable.");
@@ -178,7 +178,7 @@ describe("openCanvasDigest", () => {
     const pending = new Promise<DigestResult>((resolve) => {
       release = resolve;
     });
-    digestWindow().vellumCommand = { exportDigest: async () => pending };
+    digestWindow().junto = { exportDigest: async () => pending };
     const done = openCanvasDigest("ops");
     state$.canvasName.set("other");
     release({ digest: "stale", path: "ops.digest.txt" });
@@ -194,7 +194,7 @@ describe("openCanvasDigest", () => {
     const pending = new Promise<DigestResult>((_resolve, reject) => {
       rejectPending = reject;
     });
-    digestWindow().vellumCommand = { exportDigest: async () => pending };
+    digestWindow().junto = { exportDigest: async () => pending };
     const done = openCanvasDigest("ops");
     state$.canvasName.set("other");
     rejectPending(new Error("digest write failed"));

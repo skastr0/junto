@@ -10,9 +10,9 @@ import type {
 } from "@shared/ipc";
 import { getJuntoApi } from "./junto-api";
 
-// window.vellumCommand is ambiently typed as VellumCommandApi only (src/renderer/global.d.ts).
+// window.junto is ambiently typed as JuntoApi only (src/renderer/global.d.ts).
 // The ACP chat surface (ChatApi) is documented as "merged into the preload
-// bridge alongside VellumCommandApi" at runtime, but that global declaration isn't
+// bridge alongside JuntoApi" at runtime, but that global declaration isn't
 // ours to widen (out of this file's lane) — so this module reads the chat
 // methods off the same object through a local cast. Every call site below
 // still gates on `typeof x === "function"` before calling, so an
@@ -24,7 +24,7 @@ const getChatApi = (): ChatApi | undefined => getJuntoApi() as unknown as ChatAp
 // ChatEvent payloads are forwarded verbatim from the ACP relay (see
 // @shared/ipc's comment on ChatEvent) — every read below narrows `unknown`
 // defensively. A payload that doesn't match the expected shape degrades to
-// "ignore this field" rather than throwing; a missing window.vellumCommand method
+// "ignore this field" rather than throwing; a missing window.junto method
 // degrades to a quiet error state. Nothing in this module ever throws across
 // its public surface.
 
@@ -668,7 +668,7 @@ export function markRead(agentKey: string): void {
   chatState$[agentKey].unread.set(0);
 }
 
-// Singleton fan-out: window.vellumCommand.onChatEvent -> the right agent's slot in
+// Singleton fan-out: window.junto.onChatEvent -> the right agent's slot in
 // chatState$. Safe to call from every ChatView mount; only the first call
 // actually subscribes. Absent onChatEvent (IPC not landed yet) degrades to a
 // no-op unsubscribe rather than throwing.

@@ -64,7 +64,7 @@ const waitForApi = async (page: import("@playwright/test").Page): Promise<void> 
     .poll(
       async () =>
         page.evaluate(() => {
-          const api = window.vellumCommand;
+          const api = window.junto;
           return (
             typeof api?.workPadRead === "function" &&
             typeof api.workPadPatch === "function"
@@ -77,7 +77,7 @@ const waitForApi = async (page: import("@playwright/test").Page): Promise<void> 
 
 const readPad = (page: import("@playwright/test").Page, pinId?: string) =>
   page.evaluate(
-    ([canvas, id, pin]) => window.vellumCommand!.workPadRead(canvas, id, pin),
+    ([canvas, id, pin]) => window.junto!.workPadRead(canvas, id, pin),
     [CANVAS, PAD_ID, pinId] as const,
   );
 
@@ -86,7 +86,7 @@ const patchPad = (
   patches: ReadonlyArray<PadPatch>,
 ): Promise<WorkOpResult<PadBody>> =>
   page.evaluate(
-    ([canvas, id, next]) => window.vellumCommand!.workPadPatch(canvas, id, next),
+    ([canvas, id, next]) => window.junto!.workPadPatch(canvas, id, next),
     [CANVAS, PAD_ID, patches] as const,
   );
 

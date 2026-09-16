@@ -16,7 +16,7 @@ beforeEach(() => {
   pauseSet.mockClear();
   factoryPause$.set({ state: null, busy: false, error: "", confirmOpen: false });
   vi.stubGlobal("window", {
-    vellumCommand: {
+    junto: {
       factoryPauseState: async () => PAUSED_CANVAS,
       factoryPauseSet: pauseSet,
     },

@@ -1,15 +1,15 @@
 import type {
   ChassisApi,
-  VellumCommandApi,
-  VellumCommandBrowserApi,
-  VellumCommandChatApi,
-  VellumCommandDemoApi,
-  VellumCommandHermesIntegrationApi,
-  VellumCommandHostsApi,
-  VellumCommandSchedulerApi,
-  VellumCommandGitApi,
-  VellumCommandTerminalApi,
-  VellumCommandUsageApi,
+  JuntoApi,
+  JuntoBrowserApi,
+  JuntoChatApi,
+  JuntoDemoApi,
+  JuntoHermesIntegrationApi,
+  JuntoHostsApi,
+  JuntoSchedulerApi,
+  JuntoGitApi,
+  JuntoTerminalApi,
+  JuntoUsageApi,
 } from "@shared/ipc";
 import type { CanvasPerformanceHarness } from "./lib/performance/perf-harness";
 
@@ -17,18 +17,18 @@ declare global {
   interface Window {
     readonly chassis?: ChassisApi;
     /** Published only while JUNTO_PERF has armed the renderer perf harness. */
-    readonly vellumCommandPerf?: CanvasPerformanceHarness;
-    readonly vellumCommand?: VellumCommandApi &
-      VellumCommandChatApi &
-      VellumCommandTerminalApi &
-      VellumCommandGitApi &
-      VellumCommandDemoApi &
+    readonly juntoPerf?: CanvasPerformanceHarness;
+    readonly junto?: JuntoApi &
+      JuntoChatApi &
+      JuntoTerminalApi &
+      JuntoGitApi &
+      JuntoDemoApi &
       Partial<
-          VellumCommandBrowserApi &
-          VellumCommandUsageApi &
-          VellumCommandSchedulerApi &
-          VellumCommandHermesIntegrationApi &
-          VellumCommandHostsApi
+          JuntoBrowserApi &
+          JuntoUsageApi &
+          JuntoSchedulerApi &
+          JuntoHermesIntegrationApi &
+          JuntoHostsApi
       >;
   }
 }

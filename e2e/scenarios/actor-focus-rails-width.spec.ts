@@ -81,7 +81,7 @@ test("collapsing stacked right-pane sections does not resize the terminal", asyn
     await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
 
     await page.evaluate(async (document) => {
-      const api = window.vellumCommand!;
+      const api = window.junto!;
       const list = await api.listCanvases();
       const name = list[0]?.name ?? (await api.createCanvas("work")).name;
       const read = await api.readCanvas(name);

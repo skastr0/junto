@@ -30,9 +30,9 @@ type TerminalListFn = (
 const installApi = (terminalList: TerminalListFn): void => {
   (
     globalThis as unknown as {
-      window: { vellumCommand: { terminalList: TerminalListFn } };
+      window: { junto: { terminalList: TerminalListFn } };
     }
-  ).window = { vellumCommand: { terminalList } };
+  ).window = { junto: { terminalList } };
 };
 
 let setIntervalSpy: ReturnType<typeof vi.spyOn>;
@@ -229,8 +229,8 @@ describe("registerTerminalSessionPoll", () => {
   });
 
   it("is inert when the preload bridge has no terminalList yet", async () => {
-    (globalThis as unknown as { window: { vellumCommand: object } }).window = {
-      vellumCommand: {},
+    (globalThis as unknown as { window: { junto: object } }).window = {
+      junto: {},
     };
     const listener = vi.fn();
     registerTerminalSessionPoll("b1", undefined, listener);

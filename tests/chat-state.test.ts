@@ -168,7 +168,7 @@ describe("reduceChatEvent — usage, status/error, and unknown kinds", () => {
   });
 });
 
-// --- action layer: window.vellumCommand mocked exactly like tests/mutations.test.ts,
+// --- action layer: window.junto mocked exactly like tests/mutations.test.ts,
 // one unique agentKey per test so the shared chatState$ store never bleeds
 // between cases. ---------------------------------------------------------
 
@@ -194,7 +194,7 @@ function installMockJunto(overrides: Partial<MockJunto> = {}): MockJunto {
     onChatEvent: vi.fn(() => () => undefined),
     ...overrides,
   };
-  (globalThis as unknown as { window: { vellumCommand: MockJunto } }).window = { vellumCommand: mock };
+  (globalThis as unknown as { window: { junto: MockJunto } }).window = { junto: mock };
   return mock;
 }
 
@@ -233,7 +233,7 @@ describe("openChat", () => {
     expect(state.authMethods).toEqual(["oauth"]);
   });
 
-  it("degrades to a quiet error state when window.vellumCommand is absent — never throws", async () => {
+  it("degrades to a quiet error state when window.junto is absent — never throws", async () => {
     clearWindow();
     const agentKey = freshAgentKey();
     await expect(openChat(agentKey)).resolves.toBeUndefined();
@@ -323,7 +323,7 @@ describe("setModel / closeChat / markRead", () => {
     expect(getAgentChatState(agentKey).selectedModelId).toBe("opus");
   });
 
-  it("closeChat sets status closed even when window.vellumCommand is absent", async () => {
+  it("closeChat sets status closed even when window.junto is absent", async () => {
     clearWindow();
     const agentKey = freshAgentKey();
     await closeChat(agentKey);

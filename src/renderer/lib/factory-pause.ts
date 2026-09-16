@@ -27,7 +27,7 @@ export const refreshFactoryPause = async (canvasName: string): Promise<void> => 
   });
   if (!canvasName) return;
   try {
-    const state = await window.vellumCommand?.factoryPauseState(canvasName);
+    const state = await window.junto?.factoryPauseState(canvasName);
     if (state) factoryPause$.state.set(state);
   } catch {
     // Unreachable backend: leave the control unrendered rather than lie.
@@ -42,7 +42,7 @@ export const applyFactoryPause = async (
   if (!canvasName || factoryPause$.busy.peek()) return;
   factoryPause$.busy.set(true);
   try {
-    const result = await window.vellumCommand?.factoryPauseSet(
+    const result = await window.junto?.factoryPauseSet(
       canvasName,
       { kind: "canvas" },
       paused,

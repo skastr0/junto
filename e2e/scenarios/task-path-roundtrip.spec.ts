@@ -111,7 +111,7 @@ test("task path carries exact data through fork, defect, gate, converge, and clo
     const readTask = (nodeId: string, taskId: string) =>
       page.evaluate(
         async ([node, id]) => {
-          const read = await window.vellumCommand!.readCanvas("factory");
+          const read = await window.junto!.readCanvas("factory");
           return (read.doc.nodes
             .find((candidate) => candidate.id === node)
             ?.ether?.tasks?.items.find((task) => task.id === id) ?? null) as unknown;
@@ -121,7 +121,7 @@ test("task path carries exact data through fork, defect, gate, converge, and clo
 
     // ---- birth ------------------------------------------------------------
     const created = await page.evaluate(async () => {
-      const api = window.vellumCommand!;
+      const api = window.junto!;
       return api.workTaskCreate(
         "factory",
         "intake",
@@ -150,7 +150,7 @@ test("task path carries exact data through fork, defect, gate, converge, and clo
 
     // ---- claim at intake ---------------------------------------------------
     const claimIntake = await page.evaluate(
-      ([id]) => window.vellumCommand!.workTaskClaim("factory", "intake", id, "worker"),
+      ([id]) => window.junto!.workTaskClaim("factory", "intake", id, "worker"),
       [taskId] as const,
     );
     expect(claimIntake).toMatchObject({ ok: true });
@@ -163,7 +163,7 @@ test("task path carries exact data through fork, defect, gate, converge, and clo
     // ---- send on: fork demands an explicit next ---------------------------
     const forkless = await page.evaluate(
       ([id]) =>
-        window.vellumCommand!.workTaskTransition(
+        window.junto!.workTaskTransition(
           "factory", "intake", id, "completed", "done at intake", { artifacts: [] },
         ),
       [taskId] as const,
@@ -172,7 +172,7 @@ test("task path carries exact data through fork, defect, gate, converge, and clo
 
     const toBuild = await page.evaluate(
       ([id]) =>
-        window.vellumCommand!.workTaskTransition(
+        window.junto!.workTaskTransition(
           "factory", "intake", id, "completed", "intake accepted", { artifacts: [] },
           { next: "build", handoffNote: "intake accepted" },
         ),
@@ -217,14 +217,14 @@ test("task path carries exact data through fork, defect, gate, converge, and clo
 
     // ---- send back to intake ----------------------------------------------
     const claimBuild = await page.evaluate(
-      ([id]) => window.vellumCommand!.workTaskClaim("factory", "build", id, "worker"),
+      ([id]) => window.junto!.workTaskClaim("factory", "build", id, "worker"),
       [taskId] as const,
     );
     expect(claimBuild).toMatchObject({ ok: true });
 
     const defect = await page.evaluate(
       ([id]) =>
-        window.vellumCommand!.workTaskTransition(
+        window.junto!.workTaskTransition(
           "factory", "build", id, "rejected", "wrong artifact shape", undefined,
           { defect: { summary: "the intake brief chose the wrong artifact" } },
         ),
@@ -255,13 +255,13 @@ test("task path carries exact data through fork, defect, gate, converge, and clo
 
     // ---- re-claim, send on down the other fork arm ------------------------
     const reclaim = await page.evaluate(
-      ([id]) => window.vellumCommand!.workTaskClaim("factory", "intake", id, "worker"),
+      ([id]) => window.junto!.workTaskClaim("factory", "intake", id, "worker"),
       [taskId] as const,
     );
     expect(reclaim).toMatchObject({ ok: true });
     const toReview = await page.evaluate(
       ([id]) =>
-        window.vellumCommand!.workTaskTransition(
+        window.junto!.workTaskTransition(
           "factory", "intake", id, "completed", "redone for review", { artifacts: [] },
           { next: "review", handoffNote: "redone for review" },
         ),
@@ -271,20 +271,20 @@ test("task path carries exact data through fork, defect, gate, converge, and clo
 
     // ---- approval gate at review ------------------------------------------
     const gatedClaim = await page.evaluate(
-      ([id]) => window.vellumCommand!.workTaskClaim("factory", "review", id, "worker"),
+      ([id]) => window.junto!.workTaskClaim("factory", "review", id, "worker"),
       [taskId] as const,
     );
     expect(gatedClaim).toMatchObject({ ok: false });
     expect(JSON.stringify(gatedClaim)).toContain("approval");
 
     const promote = await page.evaluate(
-      ([id]) => window.vellumCommand!.workTaskPromote("factory", "review", id, "reviewed the redo"),
+      ([id]) => window.junto!.workTaskPromote("factory", "review", id, "reviewed the redo"),
       [taskId] as const,
     );
     expect(promote).toMatchObject({ ok: true });
 
     const promotedClaim = await page.evaluate(
-      ([id]) => window.vellumCommand!.workTaskClaim("factory", "review", id, "worker"),
+      ([id]) => window.junto!.workTaskClaim("factory", "review", id, "worker"),
       [taskId] as const,
     );
     expect(promotedClaim).toMatchObject({ ok: true });
@@ -292,7 +292,7 @@ test("task path carries exact data through fork, defect, gate, converge, and clo
     // ---- converge onto ship; the approval marker must NOT travel ----------
     const toShip = await page.evaluate(
       ([id]) =>
-        window.vellumCommand!.workTaskTransition(
+        window.junto!.workTaskTransition(
           "factory", "review", id, "completed", "review accepted", { artifacts: [] },
           { next: "ship", handoffNote: "review accepted" },
         ),
@@ -310,7 +310,7 @@ test("task path carries exact data through fork, defect, gate, converge, and clo
 
     // ---- terminal close at ship -------------------------------------------
     const claimShip = await page.evaluate(
-      ([id]) => window.vellumCommand!.workTaskClaim("factory", "ship", id, "worker"),
+      ([id]) => window.junto!.workTaskClaim("factory", "ship", id, "worker"),
       [taskId] as const,
     );
     expect(claimShip).toMatchObject({ ok: true });
@@ -318,7 +318,7 @@ test("task path carries exact data through fork, defect, gate, converge, and clo
     // rule is the product requirement this spec exists to prove.
     const unanswered = await page.evaluate(
       ([id]) =>
-        window.vellumCommand!.workTaskTransition(
+        window.junto!.workTaskTransition(
           "factory", "ship", id, "completed", "shipped", { artifacts: [] },
         ),
       [taskId] as const,
@@ -328,7 +328,7 @@ test("task path carries exact data through fork, defect, gate, converge, and clo
 
     const close = await page.evaluate(
       ([id]) =>
-        window.vellumCommand!.workTaskTransition(
+        window.junto!.workTaskTransition(
           "factory", "ship", id, "completed", "shipped",
           {
             artifacts: [],

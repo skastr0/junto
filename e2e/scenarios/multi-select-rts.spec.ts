@@ -134,7 +134,7 @@ test("multi-select: RTS multi command + multi-prompt", async ({ junto }) => {
   // rebuild the selected-node objects, but it must not blur or remount the
   // interactive prompt when its canonical target set is unchanged.
   await page.evaluate(async () => {
-    const api = window.vellumCommand!;
+    const api = window.junto!;
     const canvas = (await api.listCanvases())[0];
     if (!canvas) throw new Error("No canvas available for focus regression");
     const result = await api.workTaskCreate(

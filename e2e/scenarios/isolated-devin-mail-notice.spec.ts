@@ -106,7 +106,7 @@ const runtimeProvenance = () => {
 };
 
 const projectedMessages = async (page: Page): Promise<ReadonlyArray<Message>> => {
-  const read = await page.evaluate(async (name) => window.vellumCommand!.readCanvas(name), ISOLATED_DEVIN_MAIL_CANVAS);
+  const read = await page.evaluate(async (name) => window.junto!.readCanvas(name), ISOLATED_DEVIN_MAIL_CANVAS);
   const node = read.doc.nodes.find((entry) => entry.id === ISOLATED_DEVIN_RECEIVER_ID);
   if (node === undefined) throw new Error("The isolated Devin mailbox sink is missing from readCanvas");
   return node.ether?.messages?.items ?? [];
@@ -144,11 +144,11 @@ const eligiblePrompt = (grid: SeatReadResult): boolean => {
 
 const occupyDevinOnce = async (page: Page) => {
   await page.evaluate(async ([canvas, node]) => {
-    await window.vellumCommand!.terminalCreate({ node, canvasName: canvas });
+    await window.junto!.terminalCreate({ node, canvasName: canvas });
   }, [ISOLATED_DEVIN_MAIL_CANVAS, isolatedDevinReceiverNode] as const);
   const deadline = Date.now() + 90_000;
   while (Date.now() < deadline) {
-    const session = await page.evaluate(async (bindingId) => window.vellumCommand!.terminalGet(bindingId), DEVIN_BINDING);
+    const session = await page.evaluate(async (bindingId) => window.junto!.terminalGet(bindingId), DEVIN_BINDING);
     if (session?.status === "running" && session.pid !== undefined && session.pid > 0) return session;
     await page.waitForTimeout(250);
   }
@@ -264,7 +264,7 @@ test("isolated Devin [real-harness]: settled seat reaches readAt or a durable na
       await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
       await crewPlayFactory(page);
       await page.evaluate(async ([canvas, node]) => {
-        await window.vellumCommand!.terminalCreate({ node, canvasName: canvas });
+        await window.junto!.terminalCreate({ node, canvasName: canvas });
       }, [ISOLATED_DEVIN_MAIL_CANVAS, isolatedDevinSenderNode] as const);
       await sender.ready(45_000);
       occupied = await occupyDevinOnce(page);
@@ -306,7 +306,7 @@ test("isolated Devin [real-harness]: settled seat reaches readAt or a durable na
       };
       ready = await awaitReady();
       json(artifact("ready-before-send.json"), ready);
-      const live = await page.evaluate(async (id) => window.vellumCommand!.terminalGet(id), DEVIN_BINDING);
+      const live = await page.evaluate(async (id) => window.junto!.terminalGet(id), DEVIN_BINDING);
       if (live?.pid !== occupied.pid || live?.epoch !== occupied.epoch) throw new Error("Opening Devin replaced its occupied process");
 
       const sendAndObserve = async (nonce: string, slot: 1 | 2) => {
@@ -338,7 +338,7 @@ test("isolated Devin [real-harness]: settled seat reaches readAt or a durable na
       // A second notice on the same warm generation is part of qualification.
       // If the seat already moved or exited, record the precise reason instead
       // of forcing a send; the run then stays unqualified evidence.
-      const warm = await page.evaluate(async (id) => window.vellumCommand!.terminalGet(id), DEVIN_BINDING);
+      const warm = await page.evaluate(async (id) => window.junto!.terminalGet(id), DEVIN_BINDING);
       if (warm?.status !== "running" || warm.epoch !== occupied.epoch) {
         secondNoticeSkipped = `seat-not-warm status=${warm?.status ?? "gone"} epoch=${warm?.epoch ?? "none"}`;
       } else {
@@ -381,7 +381,7 @@ test("isolated Devin [real-harness]: settled seat reaches readAt or a durable na
         return (await projectedMessages(page)).find((item) => item.messageId === messageId2);
       }),
       observed(() => readDevin(sender)),
-      observed(() => page.evaluate(async (id) => window.vellumCommand!.terminalGet(id), DEVIN_BINDING)),
+      observed(() => page.evaluate(async (id) => window.junto!.terminalGet(id), DEVIN_BINDING)),
       observed(async () => {
         if (messageId === undefined) throw new Error("No message was sent");
         return crewMessagePasteWrites(page, sandbox, ISOLATED_DEVIN_MAIL_CANVAS, ISOLATED_DEVIN_RECEIVER_ID, messageId);

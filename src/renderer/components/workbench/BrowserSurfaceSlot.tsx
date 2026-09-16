@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { use$ } from "@legendapp/state/react";
-import type { BrowserOpResult, BrowserSessionInfo, VellumCommandBrowserApi } from "@shared/ipc";
+import type { BrowserOpResult, BrowserSessionInfo, JuntoBrowserApi } from "@shared/ipc";
 import { browser$, clearBrowserSessionIfUnchanged } from "../../lib/browser-state";
 import {
   BROWSER_ZERO_BOUNDS,
@@ -16,7 +16,7 @@ import { activateSurfaceOnMouseDown } from "../../lib/pointer-activation";
 import { useTwoClickArm } from "../../lib/two-click-arm";
 import { Button, OverlayHeader } from "../ui";
 
-type BrowserApi = ReturnType<typeof getJuntoApi> & Partial<VellumCommandBrowserApi>;
+type BrowserApi = ReturnType<typeof getJuntoApi> & Partial<JuntoBrowserApi>;
 
 /**
  * Browser workbench body: plain DOM placeholder — WebContentsView is never

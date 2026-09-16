@@ -49,7 +49,7 @@ const chatFinishNodeDelete = vi.fn(
 );
 
 const runtimeWindow = {
-  vellumCommand: {
+  junto: {
     writeCanvas,
     terminalBeginNodeDelete,
     terminalFinishNodeDelete,

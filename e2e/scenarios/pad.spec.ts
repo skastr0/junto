@@ -38,7 +38,7 @@ const waitForApi = async (page: import("@playwright/test").Page): Promise<void> 
     .poll(
       async () =>
         page.evaluate(() => {
-          const api = window.vellumCommand;
+          const api = window.junto;
           return (
             typeof api?.workPadRead === "function" &&
             typeof api.workPadPatch === "function" &&
@@ -56,7 +56,7 @@ const readPad = (
   pinId?: string,
 ) =>
   page.evaluate(
-    ([canvas, id, pin]) => window.vellumCommand!.workPadRead(canvas, id, pin),
+    ([canvas, id, pin]) => window.junto!.workPadRead(canvas, id, pin),
     [CANVAS, nodeId, pinId] as const,
   );
 
@@ -66,7 +66,7 @@ const patchPad = (
   patches: ReadonlyArray<PadPatch>,
 ): Promise<WorkOpResult<PadBody>> =>
   page.evaluate(
-    ([canvas, id, next]) => window.vellumCommand!.workPadPatch(canvas, id, next),
+    ([canvas, id, next]) => window.junto!.workPadPatch(canvas, id, next),
     [CANVAS, nodeId, patches] as const,
   );
 
@@ -96,7 +96,7 @@ test("pad: create, wire seat, patch, persist, draw, pin + look-here", async ({
     .poll(
       async () => {
         padId = await page.evaluate(async (canvas) => {
-          const read = await window.vellumCommand!.readCanvas(canvas);
+          const read = await window.junto!.readCanvas(canvas);
           return (
             read.doc.nodes.find((node) => node.ether?.entity?.kind === "pad")?.id ??
             ""
@@ -109,7 +109,7 @@ test("pad: create, wire seat, patch, persist, draw, pin + look-here", async ({
     .toBeGreaterThan(0);
 
   await page.evaluate(async ([canvas, id]) => {
-    const api = window.vellumCommand!;
+    const api = window.junto!;
     const read = await api.readCanvas(canvas);
     if (read.doc.edges.some((edge) => edge.id === "e-seat-pad")) return;
     await api.writeCanvas(

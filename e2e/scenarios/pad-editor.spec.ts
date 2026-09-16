@@ -41,7 +41,7 @@ const waitForApi = async (page: import("@playwright/test").Page): Promise<void> 
   await expect
     .poll(
       async () =>
-        page.evaluate(() => typeof window.vellumCommand?.workPadRead === "function"),
+        page.evaluate(() => typeof window.junto?.workPadRead === "function"),
       { timeout: 30_000 },
     )
     .toBe(true);
@@ -49,7 +49,7 @@ const waitForApi = async (page: import("@playwright/test").Page): Promise<void> 
 
 const readPad = (page: import("@playwright/test").Page) =>
   page.evaluate(
-    ([canvas, id]) => window.vellumCommand!.workPadRead(canvas, id),
+    ([canvas, id]) => window.junto!.workPadRead(canvas, id),
     [CANVAS, PAD_ID] as const,
   );
 

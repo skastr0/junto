@@ -187,7 +187,7 @@ class AuthorialMergeConflictError extends Error {
 // and external changes merge structurally; overlapping edits fall through to a
 // visible recovery canvas instead of silently choosing either side.
 const rebaseLocalOverDisk = async (failed: PendingCanvasSave): Promise<void> => {
-  const api = window.vellumCommand;
+  const api = window.junto;
   if (!api) throw new Error("Electron preload bridge is not available.");
 
   const localRequest = pendingSave?.name === failed.name ? pendingSave : failed;
@@ -246,7 +246,7 @@ const recoverRevisionConflict = async (
   failed: PendingCanvasSave,
   knownAuthority?: CanvasReadResult,
 ): Promise<void> => {
-  const api = window.vellumCommand;
+  const api = window.junto;
   if (!api) throw new Error("Electron preload bridge is not available.");
 
   let created: Awaited<ReturnType<typeof api.createCanvas>> | undefined;
@@ -346,7 +346,7 @@ const handleSaveFailure = async (
 
 const runSave = async (request: PendingCanvasSave): Promise<void> => {
   const { name, doc } = request;
-  const api = window.vellumCommand;
+  const api = window.junto;
   if (!api) throw new Error("Electron preload bridge is not available.");
   if (abandonedNames.has(name)) return;
 
@@ -579,7 +579,7 @@ export const scheduleSave = (): void => {
   if (!canvasMutationAdmissionOpen) return;
   if (saveTimer) clearTimeout(saveTimer);
   const name = state$.canvasName.peek();
-  if (!name || !window.vellumCommand || abandonedNames.has(name)) return;
+  if (!name || !window.junto || abandonedNames.has(name)) return;
   if (blockedConflictNames.has(name)) {
     state$.saveState.set("error");
     state$.error.set(`reload canvas "${name}" before editing after its recovery copy`);
@@ -946,7 +946,7 @@ const deleteNodesInternal = async (
       );
     }
     if (terminalLease !== undefined) {
-      const finish = window.vellumCommand?.terminalFinishNodeDelete;
+      const finish = window.junto?.terminalFinishNodeDelete;
       if (typeof finish === "function") {
         finishes.push(finish(terminalLease, outcome));
       }
@@ -1009,7 +1009,7 @@ const deleteNodesInternal = async (
   // owned PTY plus any Prime Agent daemon have a clean exact receipt.
   if (managedTerminalBindings.size > 0) {
     const beginTerminalDelete =
-      window.vellumCommand?.terminalBeginNodeDelete;
+      window.junto?.terminalBeginNodeDelete;
     if (typeof beginTerminalDelete !== "function") {
       await finishDeleteLeases("aborted");
       if (canvasMutationAdmissionOpen) {

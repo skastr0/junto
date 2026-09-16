@@ -201,7 +201,7 @@ test("pad agent refusal: mock seat pad.patch ink and image are InputError", asyn
     await expect
       .poll(
         async () =>
-          page.evaluate(() => typeof window.vellumCommand?.workPadRead === "function"),
+          page.evaluate(() => typeof window.junto?.workPadRead === "function"),
         { timeout: 30_000 },
       )
       .toBe(true);
@@ -230,7 +230,7 @@ test("pad agent refusal: mock seat pad.patch ink and image are InputError", asyn
     const occupySeat = () =>
       page.evaluate(
         async ([canvas, node]) => {
-          const api = window.vellumCommand!;
+          const api = window.junto!;
           if (typeof api.terminalCreate !== "function") {
             throw new Error("terminalCreate missing");
           }
@@ -269,7 +269,7 @@ test("pad agent refusal: mock seat pad.patch ink and image are InputError", asyn
     expect(image.error.message).toMatch(/image/i);
 
     const read = await page.evaluate(
-      ([canvas, id]) => window.vellumCommand!.workPadRead(canvas, id),
+      ([canvas, id]) => window.junto!.workPadRead(canvas, id),
       [CANVAS, PAD_ID] as const,
     );
     expect(read.ok).toBe(true);

@@ -92,7 +92,7 @@ const waitForBridge = async (handle: JuntoHandle): Promise<void> => {
   await expect
     .poll(() =>
       handle.page.evaluate(
-        () => typeof window.vellumCommand?.refreshUsage === "function",
+        () => typeof window.junto?.refreshUsage === "function",
       ),
     )
     .toBe(true);
@@ -135,7 +135,7 @@ test("usage HUD paints seeded multi-provider quotas and marks cache confidence h
     ).toHaveCount(1);
 
     // A failed live refresh keeps last-good painted (never wipes the rail).
-    await handle.page.evaluate(() => window.vellumCommand?.refreshUsage?.());
+    await handle.page.evaluate(() => window.junto?.refreshUsage?.());
     await expect(handle.page.locator(".usage-hud__cell")).toHaveCount(3, {
       timeout: 30_000,
     });
@@ -153,7 +153,7 @@ test("usage HUD hides entirely when there is no last-good and live fails", async
       timeout: 30_000,
     });
     await waitForBridge(handle);
-    await handle.page.evaluate(() => window.vellumCommand?.refreshUsage?.());
+    await handle.page.evaluate(() => window.junto?.refreshUsage?.());
     await expect(handle.page.locator(".usage-hud")).toHaveCount(0, {
       timeout: 30_000,
     });

@@ -233,7 +233,7 @@ export function ObservabilityPanel() {
   );
 
   const load = useCallback(async () => {
-    if (!window.vellumCommand?.observabilityQuery) return;
+    if (!window.junto?.observabilityQuery) return;
     // Empty chip set → show nothing (avoid invalid IPC query).
     if (levels.length === 0 || sources.length === 0) {
       setEntries([]);
@@ -241,7 +241,7 @@ export function ObservabilityPanel() {
     }
     const gen = ++loadGen.current;
     try {
-      const snap = await window.vellumCommand.observabilityQuery(queryRef.current);
+      const snap = await window.junto.observabilityQuery(queryRef.current);
       if (gen !== loadGen.current) return;
       applySnapshot(snap);
     } catch {
@@ -253,7 +253,7 @@ export function ObservabilityPanel() {
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
-    const api = window.vellumCommand;
+    const api = window.junto;
     if (!api?.observabilityWatch) return;
     void api.observabilityWatch().then((snap) => {
       if (cancelled) return;
@@ -276,7 +276,7 @@ export function ObservabilityPanel() {
   // Live push while open + live.
   useEffect(() => {
     if (!open || !live) return;
-    const unsubLog = window.vellumCommand?.onObservabilityLog?.((entry) => {
+    const unsubLog = window.junto?.onObservabilityLog?.((entry) => {
       if (!matchesObservabilityQuery(entry, queryRef.current)) return;
       setEntries((prev) => {
         const next = [...prev, entry];
@@ -290,7 +290,7 @@ export function ObservabilityPanel() {
         return t + 1;
       });
     });
-    const unsubClear = window.vellumCommand?.onObservabilityCleared?.((payload) => {
+    const unsubClear = window.junto?.onObservabilityCleared?.((payload) => {
       setEntries([]);
       setTotal(payload.total);
       setDropped(payload.dropped);
@@ -333,8 +333,8 @@ export function ObservabilityPanel() {
   };
 
   const clear = async () => {
-    if (!window.vellumCommand?.observabilityClear) return;
-    await window.vellumCommand.observabilityClear();
+    if (!window.junto?.observabilityClear) return;
+    await window.junto.observabilityClear();
     setEntries([]);
     setTotal(0);
     setDropped(0);

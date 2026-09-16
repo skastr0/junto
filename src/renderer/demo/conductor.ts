@@ -65,7 +65,7 @@ const runTake = async (scenario: DemoScenario): Promise<void> => {
     pendingTimer = null;
     demo$.running.set(false);
     const edl: DemoEdl = { scenarioId: scenario.id, bpm: scenario.bpm, startedAtEpochMs, entries };
-    void window.vellumCommand?.demoWriteEdl(edl).catch(() => undefined);
+    void window.junto?.demoWriteEdl(edl).catch(() => undefined);
   };
 
   const scheduleAt = (targetBeat: number, action: () => void): void => {

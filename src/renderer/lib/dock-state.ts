@@ -3,7 +3,7 @@ import type { CanvasNode, EtherBrowser } from "@shared/canvas";
 import type {
   BrowserOpResult,
   BrowserSessionInfo,
-  VellumCommandBrowserApi,
+  JuntoBrowserApi,
 } from "@shared/ipc";
 import { classifyBrowserTarget, describeBrowserTargetRejection } from "@shared/browser-policy";
 import {
@@ -117,7 +117,7 @@ export const dock$ = observable({
   opErrorByRef: {} as Record<string, BrowserOpError>,
 });
 
-type BrowserApi = ReturnType<typeof getJuntoApi> & Partial<VellumCommandBrowserApi>;
+type BrowserApi = ReturnType<typeof getJuntoApi> & Partial<JuntoBrowserApi>;
 
 const api = (): BrowserApi | undefined => getJuntoApi() as BrowserApi | undefined;
 

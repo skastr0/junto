@@ -145,10 +145,10 @@ const preserveFinalEvidence = async (
     ...[AUTHOR, REVIEWER].map((nodeId) => capture(`${nodeId}-events.ndjson`, "application/x-ndjson",
       () => readFile(join(crewSeat(sandbox, CANVAS, nodeId).dir, "events.ndjson")))),
     capture("canvas-final.json", "application/json", async () => JSON.stringify(
-      await boundedAppRead(() => page.evaluate(async (name) => window.vellumCommand!.readCanvas(name), CANVAS)), null, 2)),
+      await boundedAppRead(() => page.evaluate(async (name) => window.junto!.readCanvas(name), CANVAS)), null, 2)),
     capture("runtime-final.json", "application/json", async () => {
       const sessions = await boundedAppRead(() => page.evaluate(async (canvas) =>
-        (await window.vellumCommand!.terminalList()).filter((session) => session.canvasName === canvas), CANVAS));
+        (await window.junto!.terminalList()).filter((session) => session.canvasName === canvas), CANVAS));
       return JSON.stringify({
         capturedAt, provenance, mainPid: app.app.process().pid,
         home: sandbox.homeDir, canvas: CANVAS, sessions,
@@ -178,7 +178,7 @@ const receiptSubject = async (
   let found: Message | undefined;
   await expect.poll(async () => {
     const inbox = await page.evaluate(async ({ canvas, nodeId }) => {
-      const read = await window.vellumCommand!.readCanvas(canvas);
+      const read = await window.junto!.readCanvas(canvas);
       return read.doc.nodes.find((node) => node.id === nodeId)?.ether?.messages?.items ?? [];
     }, { canvas: CANVAS, nodeId: REVIEWER });
     found = inbox.find((message) => {
@@ -276,7 +276,7 @@ test("crew reviews [fake-tui]: receipt, blocking, repair and green reach the liv
 
     // Read the app's canonical projection, never a second database connection.
     const projected = await page.evaluate(async ({ canvas, board, task }) => {
-      const read = await window.vellumCommand!.readCanvas(canvas);
+      const read = await window.junto!.readCanvas(canvas);
       return read.doc.nodes.find((node) => node.id === board)?.ether?.tasks?.items.find((item) => item.id === task);
     }, { canvas: CANVAS, board: BOARD, task: TASK }) as Task;
     expect(projected.subjectHash).toBe(repairedSubject.subjectHash);

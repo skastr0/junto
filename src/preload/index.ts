@@ -11,16 +11,16 @@ import {
   type CanvasQuiesceAndFlushOutcome,
   type CanvasQuiesceAndFlushRequest,
   type LoginItemOpResult,
-  type VellumCommandApi,
-  type VellumCommandBrowserApi,
-  type VellumCommandChatApi,
-  type VellumCommandDemoApi,
-  type VellumCommandGitApi,
-  type VellumCommandHermesIntegrationApi,
-  type VellumCommandHostsApi,
-  type VellumCommandSchedulerApi,
-  type VellumCommandTerminalApi,
-  type VellumCommandUsageApi,
+  type JuntoApi,
+  type JuntoBrowserApi,
+  type JuntoChatApi,
+  type JuntoDemoApi,
+  type JuntoGitApi,
+  type JuntoHermesIntegrationApi,
+  type JuntoHostsApi,
+  type JuntoSchedulerApi,
+  type JuntoTerminalApi,
+  type JuntoUsageApi,
   type KernelSnapshot,
   type NodeRefOpenedDelivery,
   type NodeRefOpenedEvent,
@@ -411,7 +411,7 @@ type WorkFeatureApiKey =
   | "workPadRead"
   | "workPadPatch";
 
-const vellumApi: Omit<VellumCommandApi, keyof typeof liveApi | WorkFeatureApiKey> = {
+const vellumApi: Omit<JuntoApi, keyof typeof liveApi | WorkFeatureApiKey> = {
   platform: process.platform,
   updateGetState: () =>
     invoke(IPC_CHANNELS.updateGetState, IPC_TIMEOUT_MS),
@@ -508,7 +508,7 @@ const vellumApi: Omit<VellumCommandApi, keyof typeof liveApi | WorkFeatureApiKey
 };
 
 const taskWorkApi: Pick<
-  VellumCommandApi,
+  JuntoApi,
   | "workTaskCreate"
   | "workTaskDescribe"
   | "workTaskTransition"
@@ -579,7 +579,7 @@ const taskWorkApi: Pick<
     invoke(IPC_CHANNELS.workTaskClaim, IPC_TIMEOUT_MS, canvas, nodeId, taskId, actor),
 };
 
-const requestsWorkApi: Pick<VellumCommandApi, "workRequestResolve"> = {
+const requestsWorkApi: Pick<JuntoApi, "workRequestResolve"> = {
   workRequestResolve: (canvas, nodeId, taskId, responseText, disposition) =>
     invoke(
       IPC_CHANNELS.workRequestResolve,
@@ -593,7 +593,7 @@ const requestsWorkApi: Pick<VellumCommandApi, "workRequestResolve"> = {
 };
 
 const artifactsWorkApi: Pick<
-  VellumCommandApi,
+  JuntoApi,
   "workArtifactArchive" | "workArtifactDelete"
 > = {
   workArtifactArchive: (canvas, nodeId, artifactId, archived) =>
@@ -616,7 +616,7 @@ const artifactsWorkApi: Pick<
 };
 
 const boardWorkApi: Pick<
-  VellumCommandApi,
+  JuntoApi,
   | "workBoardList"
   | "workBoardCreateTopic"
   | "workBoardPost"
@@ -669,7 +669,7 @@ const boardWorkApi: Pick<
     ),
 };
 
-const padWorkApi: Pick<VellumCommandApi, "workPadRead" | "workPadPatch"> = {
+const padWorkApi: Pick<JuntoApi, "workPadRead" | "workPadPatch"> = {
   workPadRead: (canvas, nodeId, pinId) =>
     invoke(
       IPC_CHANNELS.workPadRead,
@@ -688,7 +688,7 @@ const padWorkApi: Pick<VellumCommandApi, "workPadRead" | "workPadPatch"> = {
     ),
 };
 
-const hermesIntegrationApi: VellumCommandHermesIntegrationApi = {
+const hermesIntegrationApi: JuntoHermesIntegrationApi = {
   generatePortfolio: (name, options) =>
     invoke(IPC_CHANNELS.generatePortfolio, IPC_TIMEOUT_MS, name, options),
   refreshSnapshots: (hints) =>
@@ -697,19 +697,19 @@ const hermesIntegrationApi: VellumCommandHermesIntegrationApi = {
     invoke(IPC_CHANNELS.agentMessage, AGENT_MESSAGE_TIMEOUT_MS, key, text),
 };
 
-const schedulerApi: VellumCommandSchedulerApi = {
+const schedulerApi: JuntoSchedulerApi = {
   schedulerFire: (canvas, sourceNodeId) =>
     invoke(IPC_CHANNELS.schedulerFire, IPC_TIMEOUT_MS, canvas, sourceNodeId),
 };
 
-const usageApi: VellumCommandUsageApi = {
+const usageApi: JuntoUsageApi = {
   getUsage: () => invoke(IPC_CHANNELS.getUsage, IPC_TIMEOUT_MS),
   refreshUsage: () => invoke(IPC_CHANNELS.refreshUsage, USAGE_REFRESH_TIMEOUT_MS),
   onUsageChanged: (listener) =>
     subscribe<UsageState>(IPC_CHANNELS.usageChanged, listener),
 };
 
-const chatApi: VellumCommandChatApi = {
+const chatApi: JuntoChatApi = {
   chatOpen: (agentKey, resumeSessionId) =>
     invoke(IPC_CHANNELS.chatOpen, IPC_TIMEOUT_MS, agentKey, resumeSessionId),
   chatPrompt: (agentKey, text, contextBlocks) =>
@@ -726,7 +726,7 @@ const chatApi: VellumCommandChatApi = {
   onChatEvent: (listener) => subscribe<ChatEvent>(IPC_CHANNELS.chatEvent, listener),
 };
 
-const browserApi: VellumCommandBrowserApi = {
+const browserApi: JuntoBrowserApi = {
   browserProfiles: () => invoke(IPC_CHANNELS.browserProfiles, IPC_TIMEOUT_MS),
   browserSurfaceConfig: () => invoke(IPC_CHANNELS.browserSurfaceConfig, IPC_TIMEOUT_MS),
   browserOpen: (input: BrowserOpenInput) =>
@@ -748,7 +748,7 @@ const browserApi: VellumCommandBrowserApi = {
     subscribe<BrowserSessionInfo>(IPC_CHANNELS.browserSessionChanged, listener),
 };
 
-const terminalApi: VellumCommandTerminalApi = {
+const terminalApi: JuntoTerminalApi = {
   terminalList: (hostId) =>
     invoke(
       IPC_CHANNELS.terminalList,
@@ -815,18 +815,18 @@ const terminalApi: VellumCommandTerminalApi = {
     subscribe(IPC_CHANNELS.agentSeatStateChanged, listener),
 };
 
-const gitApi: VellumCommandGitApi = {
+const gitApi: JuntoGitApi = {
   gitStatus: (cwd) => invoke(IPC_CHANNELS.gitStatus, IPC_TIMEOUT_MS, cwd),
   gitLog: (cwd, limit) => invoke(IPC_CHANNELS.gitLog, IPC_TIMEOUT_MS, cwd, limit),
   gitShow: (cwd, sha) => invoke(IPC_CHANNELS.gitShow, IPC_TIMEOUT_MS, cwd, sha),
 };
 
-const demoApi: VellumCommandDemoApi = {
+const demoApi: JuntoDemoApi = {
   demoState: () => invoke(IPC_CHANNELS.demoState, IPC_TIMEOUT_MS),
   demoWriteEdl: (edl) => invoke(IPC_CHANNELS.demoWriteEdl, IPC_TIMEOUT_MS, edl),
 };
 
-const hostsApi: VellumCommandHostsApi = {
+const hostsApi: JuntoHostsApi = {
   hostsList: () => invoke(IPC_CHANNELS.hostsList, IPC_TIMEOUT_MS),
   hostsDiscoverPeers: () => invoke(IPC_CHANNELS.hostsDiscoverPeers, IPC_TIMEOUT_MS),
   hostsUpsert: (host: unknown) => invoke(IPC_CHANNELS.hostsUpsert, IPC_TIMEOUT_MS, host),
@@ -872,7 +872,7 @@ const preloadLocation = typeof globalThis.location === "undefined"
 
 if (preloadLocation === undefined || isRendererPreloadCandidate(preloadLocation)) {
   contextBridge.exposeInMainWorld("chassis", chassisApi);
-  contextBridge.exposeInMainWorld("vellumCommand", {
+  contextBridge.exposeInMainWorld("junto", {
     ...vellumApi,
     ...(TASKS_ENABLED ? taskWorkApi : {}),
     ...(REQUESTS_ENABLED ? requestsWorkApi : {}),

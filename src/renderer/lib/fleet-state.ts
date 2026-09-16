@@ -53,15 +53,15 @@ export const closeFleet = (): void => {
 
 /** Reload enrolled hosts + unenrolled Tailscale peers from main. */
 export const refreshFleet = async (): Promise<void> => {
-  if (!window.vellumCommand?.hostsList) return;
+  if (!window.junto?.hostsList) return;
   state$.fleetLoading.set(true);
   try {
-    const hostsResult = await window.vellumCommand.hostsList();
+    const hostsResult = await window.junto.hostsList();
     if (hostsResult.ok && hostsResult.hosts) {
       state$.fleetHosts.set([...hostsResult.hosts]);
     }
-    const peersResult = window.vellumCommand.hostsDiscoverPeers
-      ? await window.vellumCommand.hostsDiscoverPeers()
+    const peersResult = window.junto.hostsDiscoverPeers
+      ? await window.junto.hostsDiscoverPeers()
       : undefined;
     if (peersResult?.ok && peersResult.peers) {
       state$.fleetPeers.set([...peersResult.peers]);
@@ -75,7 +75,7 @@ export const refreshFleet = async (): Promise<void> => {
 
 /** Probe one host's SSH reachability; records the outcome in fleetProbe. */
 export const probeHost = async (id: string): Promise<void> => {
-  if (!window.vellumCommand?.hostsTest) {
+  if (!window.junto?.hostsTest) {
     state$.fleetProbe[id].set({
       status: "unreachable",
       detail: "hosts test API unavailable",
@@ -84,7 +84,7 @@ export const probeHost = async (id: string): Promise<void> => {
   }
   state$.fleetProbe[id].set({ status: "probing" });
   try {
-    const result = await window.vellumCommand.hostsTest(id);
+    const result = await window.junto.hostsTest(id);
     // The edge mirrors link reachability, not the strict all-checks verdict —
     // a host that answers SSH but has doctor warnings is still reachable.
     const reachable =

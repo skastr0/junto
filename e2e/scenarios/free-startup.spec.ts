@@ -29,7 +29,7 @@ for (const seedRetiredCommercialState of [false, true]) {
       expect(connectivity.errors[0]).toContain("E2E external network is offline");
       expect(connectivity.errors[1]).toContain("ERR_BLOCKED_BY_CLIENT");
       const result = await page.evaluate(async () => {
-        const api = window.vellumCommand;
+        const api = window.junto;
         if (api === undefined) throw new Error("Junto preload API is unavailable");
         const canvases = await api.listCanvases();
         return {

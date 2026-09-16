@@ -312,7 +312,7 @@ test("artifacts node feature contract", async ({}, testInfo) => {
     // agent-authority), so the same non-bare ContentMedia component is driven
     // through the task detail media surface it shares with the artifact pane.
     const contentPut = await page.evaluate(async (png) => {
-      const result = await window.vellumCommand!.contentPutImage({
+      const result = await window.junto!.contentPutImage({
         bytesBase64: png,
         mediaType: "image/png",
         displayName: "og-plate.png",
@@ -321,7 +321,7 @@ test("artifacts node feature contract", async ({}, testInfo) => {
       return result.ref;
     }, PNG_48X32);
     await page.evaluate(async ({ ref }) => {
-      const api = window.vellumCommand!;
+      const api = window.junto!;
       const canvases = await api.listCanvases();
       const name = canvases[0]!.name;
       const result = await api.workTaskCreate(

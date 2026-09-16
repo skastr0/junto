@@ -1,4 +1,4 @@
-import type { VellumCommandTerminalApi } from "@shared/ipc";
+import type { JuntoTerminalApi } from "@shared/ipc";
 import { getJuntoApi } from "./junto-api";
 
 type TerminalEventListener = (event: unknown) => void;
@@ -49,7 +49,7 @@ const dispatch = (event: unknown): void => {
 
 const ensureIpcSubscription = (): void => {
   if (unsubscribeIpc || listenerCount === 0) return;
-  const api = getJuntoApi() as VellumCommandTerminalApi | undefined;
+  const api = getJuntoApi() as JuntoTerminalApi | undefined;
   if (!api?.onTerminalEvent) return;
   unsubscribeIpc = api.onTerminalEvent(dispatch);
 };

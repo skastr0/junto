@@ -262,7 +262,7 @@ function installMockJunto(overrides: Partial<MockJunto> = {}): MockJunto {
     browserSessionList: vi.fn(async () => ({ ok: true, data: [...sessions.values()] })),
     ...overrides,
   };
-  (globalThis as unknown as { window: { vellumCommand: MockJunto } }).window = { vellumCommand: mock };
+  (globalThis as unknown as { window: { junto: MockJunto } }).window = { junto: mock };
   return mock;
 }
 
@@ -573,8 +573,8 @@ describe("dock-state", () => {
 
   it("succeeds and clears residual state when browserStop is feature-flagged off", async () => {
     // BROWSER_ENABLED=false omits the browser slice from preload.
-    (globalThis as unknown as { window: { vellumCommand: Record<string, never> } }).window = {
-      vellumCommand: {},
+    (globalThis as unknown as { window: { junto: Record<string, never> } }).window = {
+      junto: {},
     };
     const ref = refOf("flag-off");
     dock$.browserByRef[ref].set(payloadOf("flag-off", "https://stop.example.com", "Stop"));
@@ -842,7 +842,7 @@ describe("dock-state", () => {
     expect(mock.browserClose).toHaveBeenCalledWith("warm-handle");
   });
 
-  it("degrades quietly when window.vellumCommand is absent", async () => {
+  it("degrades quietly when window.junto is absent", async () => {
     const ref = refOf("n1");
     await expect(openDockBrowser(ref, payloadOf("n1", "https://a.example.com", "A", "p"))).resolves.toBeUndefined();
     expect(() => closeDockBrowser(ref)).not.toThrow();

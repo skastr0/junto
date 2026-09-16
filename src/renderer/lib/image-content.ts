@@ -54,7 +54,7 @@ export const putClipboardImage = async (
   image: ClipboardImage,
   displayName?: string,
 ): Promise<PutImageResult> => {
-  const api = window.vellumCommand;
+  const api = window.junto;
   if (!api?.contentPutImage) {
     return { ok: false, error: "content put is unavailable" };
   }

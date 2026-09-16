@@ -9,7 +9,7 @@ import {
 
 const sessionOf = (ref: string) => browser$.sessionByRef[ref].peek();
 
-// --- window.vellumCommand mocked exactly like tests/chat-state.test.ts; one unique
+// --- window.junto mocked exactly like tests/chat-state.test.ts; one unique
 // nodeId per test so browser$.sessionByRef never bleeds between cases. ---
 
 interface MockJunto {
@@ -44,7 +44,7 @@ function installMockJunto(overrides: Partial<MockJunto> = {}): MockJunto {
     onBrowserSessionChanged: vi.fn(() => () => undefined),
     ...overrides,
   };
-  (globalThis as unknown as { window: { vellumCommand: MockJunto } }).window = { vellumCommand: mock };
+  (globalThis as unknown as { window: { junto: MockJunto } }).window = { junto: mock };
   return mock;
 }
 
@@ -189,7 +189,7 @@ describe("refreshBrowserSession", () => {
     unsubscribe();
   });
 
-  it("degrades quietly when window.vellumCommand is absent", async () => {
+  it("degrades quietly when window.junto is absent", async () => {
     clearWindow();
     await expect(refreshBrowserSession(refOf(freshNodeId()))).resolves.toBeUndefined();
   });

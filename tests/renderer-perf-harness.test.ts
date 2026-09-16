@@ -31,7 +31,7 @@ const loadModules = async (): Promise<{
 afterEach(() => {
   delete process.env[FLAG];
   delete (globalThis as { JUNTO_PERF?: unknown }).JUNTO_PERF;
-  delete (globalThis as { vellumCommandPerf?: unknown }).vellumCommandPerf;
+  delete (globalThis as { juntoPerf?: unknown }).juntoPerf;
   vi.unstubAllGlobals();
 });
 
@@ -93,7 +93,7 @@ describe("harness with the flag off", () => {
     expect(started.report()).toBeUndefined();
     expect(schedule).not.toHaveBeenCalled();
     expect(emit).not.toHaveBeenCalled();
-    expect((globalThis as { vellumCommandPerf?: unknown }).vellumCommandPerf).toBeUndefined();
+    expect((globalThis as { juntoPerf?: unknown }).juntoPerf).toBeUndefined();
 
     // The call sites stay the no-op they are in production: with no recorder
     // installed, a probe recorder created afterwards sees nothing.
@@ -248,8 +248,8 @@ describe("harness with the flag on", () => {
       emit: () => undefined,
     });
 
-    const published = (globalThis as { vellumCommandPerf?: { snapshot: () => unknown } })
-      .vellumCommandPerf;
+    const published = (globalThis as { juntoPerf?: { snapshot: () => unknown } })
+      .juntoPerf;
     expect(published).toBeDefined();
     expect(published?.snapshot()).toBeDefined();
 

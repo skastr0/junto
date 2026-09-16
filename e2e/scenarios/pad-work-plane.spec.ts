@@ -36,7 +36,7 @@ const waitForApi = async (page: import("@playwright/test").Page): Promise<void> 
     .poll(
       async () =>
         page.evaluate(() => {
-          const api = window.vellumCommand;
+          const api = window.junto;
           return (
             typeof api?.workPadRead === "function" &&
             typeof api.workPadPatch === "function" &&
@@ -50,7 +50,7 @@ const waitForApi = async (page: import("@playwright/test").Page): Promise<void> 
 
 const readPad = (page: import("@playwright/test").Page, nodeId: string) =>
   page.evaluate(
-    ([canvas, id]) => window.vellumCommand!.workPadRead(canvas, id),
+    ([canvas, id]) => window.junto!.workPadRead(canvas, id),
     [CANVAS, nodeId] as const,
   );
 
@@ -60,7 +60,7 @@ const patchPad = (
   patches: ReadonlyArray<PadPatch>,
 ): Promise<WorkOpResult<PadBody>> =>
   page.evaluate(
-    ([canvas, id, next]) => window.vellumCommand!.workPadPatch(canvas, id, next),
+    ([canvas, id, next]) => window.junto!.workPadPatch(canvas, id, next),
     [CANVAS, nodeId, patches] as const,
   );
 
@@ -90,7 +90,7 @@ test("pad work plane: create, wire seat, patch box, read, persist across reload"
     .poll(
       async () => {
         padId = await page.evaluate(async (canvas) => {
-          const read = await window.vellumCommand!.readCanvas(canvas);
+          const read = await window.junto!.readCanvas(canvas);
           return (
             read.doc.nodes.find((node) => node.ether?.entity?.kind === "pad")?.id ??
             ""
@@ -103,7 +103,7 @@ test("pad work plane: create, wire seat, patch box, read, persist across reload"
     .toBeGreaterThan(0);
 
   await page.evaluate(async ([canvas, id]) => {
-    const api = window.vellumCommand!;
+    const api = window.junto!;
     const read = await api.readCanvas(canvas);
     if (read.doc.edges.some((edge) => edge.id === "e-seat-pad")) return;
     await api.writeCanvas(
@@ -184,7 +184,7 @@ test("pad work plane: an external patch surfaces in the open pad", async ({
     .poll(
       async () => {
         padId = await page.evaluate(async (canvas) => {
-          const read = await window.vellumCommand!.readCanvas(canvas);
+          const read = await window.junto!.readCanvas(canvas);
           return (
             read.doc.nodes.find((node) => node.ether?.entity?.kind === "pad")?.id ??
             ""

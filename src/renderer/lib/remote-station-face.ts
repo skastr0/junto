@@ -47,17 +47,17 @@ const pickMethod = <T>(
   return (value as (...args: never[]) => unknown).bind(api) as T;
 };
 
-/** Doctor lives on chassis; admit vellumCommand.doctor if a host ever surfaces it. */
+/** Doctor lives on chassis; admit junto.doctor if a host ever surfaces it. */
 export const pickRemoteStationFaceApi = (
-  vellumCommand: unknown,
+  junto: unknown,
   chassis?: unknown,
 ): RemoteStationFaceApi => {
   const doctor =
-    pickMethod<() => Promise<DoctorReport>>(vellumCommand, "doctor") ??
+    pickMethod<() => Promise<DoctorReport>>(junto, "doctor") ??
     pickMethod<() => Promise<DoctorReport>>(chassis, "doctor");
   const terminalList = pickMethod<
     (hostId?: string) => Promise<ReadonlyArray<TerminalSessionSummary>>
-  >(vellumCommand, "terminalList");
+  >(junto, "terminalList");
   return {
     ...(doctor === undefined ? {} : { doctor }),
     ...(terminalList === undefined ? {} : { terminalList }),

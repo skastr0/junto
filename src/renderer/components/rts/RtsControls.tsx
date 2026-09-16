@@ -712,7 +712,7 @@ function SchedulerKindKeys({ node }: { readonly node: CanvasNode }) {
   }, [node.id]);
 
   const fireNow = async () => {
-    const api = window.vellumCommand;
+    const api = window.junto;
     const canvas = state$.canvasName.peek();
     if (!api?.schedulerFire || !canvas || fireBusy) return;
     setFireBusy(true);

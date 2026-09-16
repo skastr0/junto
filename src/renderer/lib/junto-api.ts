@@ -1,19 +1,19 @@
 import type {
-  VellumCommandApi,
-  VellumCommandGitApi,
-  VellumCommandHostsApi,
-  VellumCommandTerminalApi,
+  JuntoApi,
+  JuntoGitApi,
+  JuntoHostsApi,
+  JuntoTerminalApi,
 } from "@shared/ipc";
 
-// `window.vellumCommand` is absent in two legitimate cases: no DOM at all (tests),
+// `window.junto` is absent in two legitimate cases: no DOM at all (tests),
 // and the preload bridge not having landed a given method yet (a concurrent
 // agent* IPC methods share this surface
 // contract). Every call site treats either as a source-down state — never a
 // crash — by routing through this single accessor.
 export const getJuntoApi = ():
-  | (VellumCommandApi &
-      Partial<VellumCommandTerminalApi> &
-      Partial<VellumCommandGitApi> &
-      Partial<VellumCommandHostsApi>)
+  | (JuntoApi &
+      Partial<JuntoTerminalApi> &
+      Partial<JuntoGitApi> &
+      Partial<JuntoHostsApi>)
   | undefined =>
-  typeof window === "undefined" ? undefined : window.vellumCommand;
+  typeof window === "undefined" ? undefined : window.junto;

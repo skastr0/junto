@@ -237,7 +237,7 @@ export function CronScheduleSurface({
       : `Runs this cron's ${effectCount} linked action${effectCount === 1 ? "" : "s"} now. Not a page watch.`;
 
   const fireNow = async () => {
-    const api = window.vellumCommand;
+    const api = window.junto;
     const canvas = state$.canvasName.peek();
     if (!api?.schedulerFire || !canvas) {
       setFireStatus("Fire is unavailable");

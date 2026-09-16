@@ -848,7 +848,7 @@ export const crewOccupySeat = async (
   const occupy = () =>
     page.evaluate(
       async ([canvasName, seatNode]) => {
-        const api = window.vellumCommand!;
+        const api = window.junto!;
         await api.terminalCreate({ node: seatNode, canvasName });
       },
       [canvas, node] as const,
@@ -873,7 +873,7 @@ export const crewWriteCanvas = async (
 ): Promise<void> => {
   await page.evaluate(
     async ([name, nextDoc]) => {
-      const api = window.vellumCommand!;
+      const api = window.junto!;
       const read = await api.readCanvas(name);
       await api.writeCanvas(name, nextDoc, read.revision);
     },
@@ -888,7 +888,7 @@ export const crewMutateCanvas = async (
   mutate: (doc: CanvasDoc) => CanvasDoc,
 ): Promise<void> => {
   const current = await page.evaluate(
-    async (name) => (await window.vellumCommand!.readCanvas(name)).doc,
+    async (name) => (await window.junto!.readCanvas(name)).doc,
     canvas,
   );
   await crewWriteCanvas(page, canvas, mutate(current as CanvasDoc));
@@ -899,7 +899,7 @@ export const crewMutateCanvas = async (
 // ---------------------------------------------------------------------------
 
 const crewCanvas = (page: Page, canvas: string): Promise<CanvasDoc> =>
-  page.evaluate(async (name) => (await window.vellumCommand!.readCanvas(name)).doc, canvas);
+  page.evaluate(async (name) => (await window.junto!.readCanvas(name)).doc, canvas);
 
 const crewMessages = async (
   page: Page,
@@ -1060,7 +1060,7 @@ export const crewMessagePasteWrites = async (
     .find((candidate) => candidate.messageId === messageId);
   if (message === undefined) throw new Error(`Missing projected crew message ${messageId}`);
   const bindings = await page.evaluate(async ([canvasName, recipient]) =>
-    (await window.vellumCommand!.terminalList()).filter((session) =>
+    (await window.junto!.terminalList()).filter((session) =>
       session.canvasName === canvasName && session.nodeId === recipient && session.status === "running"),
   [canvas, nodeId] as const);
   if (bindings.length !== 1) throw new Error(`Expected one live crew binding for ${canvas}/${nodeId}; found ${bindings.length}`);

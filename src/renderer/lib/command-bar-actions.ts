@@ -77,7 +77,7 @@ const digestErrorMessage = (error: unknown): string =>
 /** Open the digest for the named canvas. Late results after a switch are dropped. */
 export const openCanvasDigest = async (canvasName: string): Promise<void> => {
   try {
-    const result = await window.vellumCommand?.exportDigest(canvasName);
+    const result = await window.junto?.exportDigest(canvasName);
     if (state$.canvasName.peek() !== canvasName) return;
     if (result == null) {
       state$.error.set(DIGEST_UNAVAILABLE);

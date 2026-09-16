@@ -13,9 +13,9 @@
  * `canvasPerformance.*` call stays the cheap undefined-check it is today.
  *
  * Reading it live (flag on):
- *     vellumCommandPerf.report()     // force one line now, returns the object
- *     vellumCommandPerf.snapshot()   // cumulative counters since boot
- *     vellumCommandPerf.stop()       // uninstall
+ *     juntoPerf.report()     // force one line now, returns the object
+ *     juntoPerf.snapshot()   // cumulative counters since boot
+ *     juntoPerf.stop()       // uninstall
  */
 
 import {
@@ -250,7 +250,7 @@ export const startCanvasPerformanceHarness = (
 
   // The runtime reader the module never had. Publishing it is part of being
   // armed; the off path publishes nothing.
-  (globalThis as { vellumCommandPerf?: CanvasPerformanceHarness }).vellumCommandPerf = harness;
+  (globalThis as { juntoPerf?: CanvasPerformanceHarness }).juntoPerf = harness;
   emit(`${PERF_LOG_PREFIX} armed reactBuild=${reactBuild} intervalMs=${intervalMs}`);
   return harness;
 };

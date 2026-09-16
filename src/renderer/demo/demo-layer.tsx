@@ -18,7 +18,7 @@ export function DemoLayer() {
   const [scenarioId, setScenarioId] = useState(DEFAULT_SCENARIO_ID);
 
   useEffect(() => {
-    const api = window.vellumCommand;
+    const api = window.junto;
     if (!api) return;
     let cancelled = false;
     let rollTimer: number | undefined;

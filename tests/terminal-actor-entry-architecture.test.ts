@@ -114,7 +114,7 @@ describe("terminal actor entry", () => {
     const source = readSource(TERMINAL_SURFACE);
     const attachEffect = between(
       source,
-      "const api = getJuntoApi() as VellumCommandTerminalApi | undefined;",
+      "const api = getJuntoApi() as JuntoTerminalApi | undefined;",
       'const label = node.type === "text" ? node.text : "terminal";',
     );
 

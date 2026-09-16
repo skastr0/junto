@@ -41,12 +41,12 @@ describe("canvas navigation quiesce wiring", () => {
     const create = source.slice(createStart, deleteStart);
     const remove = source.slice(deleteStart, retryStart);
 
-    const createCall = create.indexOf("await window.vellumCommand.createCanvas(name)");
+    const createCall = create.indexOf("await window.junto.createCanvas(name)");
     const gateAfterCreate = create.indexOf("if (canvasMutationsQuiesced()) return", createCall);
     expect(createCall).toBeLessThan(gateAfterCreate);
     expect(gateAfterCreate)
       .toBeLessThan(create.indexOf("state$.canvasName.set(result.name)"));
-    expect(remove.indexOf("await window.vellumCommand.deleteCanvas(name)"))
+    expect(remove.indexOf("await window.junto.deleteCanvas(name)"))
       .toBeLessThan(remove.lastIndexOf("if (canvasMutationsQuiesced()) return"));
     expect(remove.lastIndexOf("if (canvasMutationsQuiesced()) return"))
       .toBeLessThan(remove.indexOf("await openCanvas(remaining[0]!.name)"));

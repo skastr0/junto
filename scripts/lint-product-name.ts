@@ -7,7 +7,7 @@
  * `Vellum-Command` are all retired and must be rewritten.
  *
  * Not in scope (word-boundary / casing; renamed by the sweep commits):
- * - glued camelCase identifiers: VellumCommandApi, resolveJuntoHome
+ * - glued camelCase identifiers: JuntoApi, resolveJuntoHome
  * - lowercase paths / bins: ~/.junto/, junto.db, dist/junto
  * - env / package keys: JUNTO_*, @skastr0/junto
  * - hyphenated internal protocol/header tokens: X-Vellum-Command-Content-State

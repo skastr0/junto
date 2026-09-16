@@ -6,7 +6,7 @@
  * surface the explicit confirmation (honest consequences), and confirming
  * must flip the control to playing.
  *
- * Boards install at runtime via window.vellumCommand (disk seedCanvases is dead —
+ * Boards install at runtime via window.junto (disk seedCanvases is dead —
  * authority-only boot); pattern copied from work-plane.spec.ts.
  * Run: `bunx electron-vite build && bun run test:e2e:fast e2e/scenarios/pause-surface.spec.ts`
  */

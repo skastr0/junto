@@ -5,7 +5,7 @@ import { WebglAddon } from "@xterm/addon-webgl";
 import "@xterm/xterm/css/xterm.css";
 import { actorDeliverySurfaceOf } from "@shared/actor-surface";
 import type { CanvasNode } from "@shared/canvas";
-import type { VellumCommandTerminalApi } from "@shared/ipc";
+import type { JuntoTerminalApi } from "@shared/ipc";
 import { resolveTerminalBinding, type TerminalOutputBatch } from "@shared/terminal";
 import { terminalSettings, type TerminalSettings } from "@shared/settings";
 import { taskBrief } from "@shared/task";
@@ -665,7 +665,7 @@ export function TerminalSurface({
   const prefFitTimers = useRef<ReturnType<typeof setTimeout>[]>([]);
   const leaseRef = useRef<string | undefined>(undefined);
   const epochRef = useRef<string | undefined>(undefined);
-  const apiRef = useRef<VellumCommandTerminalApi | undefined>(undefined);
+  const apiRef = useRef<JuntoTerminalApi | undefined>(undefined);
   /** Last geometry the spawn-host child acked. View paint does not wait on this. */
   const lastAcked = useRef({ ...UNKNOWN_TERMINAL_GEOMETRY });
   const desiredGeom = useRef({ ...UNKNOWN_TERMINAL_GEOMETRY });
@@ -1369,7 +1369,7 @@ export function TerminalSurface({
   }, [visible, node.id]);
 
   useEffect(() => {
-    const api = getJuntoApi() as VellumCommandTerminalApi | undefined;
+    const api = getJuntoApi() as JuntoTerminalApi | undefined;
     const term = termRef.current;
     apiRef.current = api;
     if (!api || !term || !bindingId) {

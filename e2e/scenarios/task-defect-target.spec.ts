@@ -56,7 +56,7 @@ test("operator sends a task back to a deep visited board", async () => {
     await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
 
     const seeded = await page.evaluate(async () => {
-      const api = window.vellumCommand!;
+      const api = window.junto!;
       const canvas = (await api.listCanvases())[0];
       if (!canvas) throw new Error("No canvas available for defect fixture");
       const created = await api.workTaskCreate(
@@ -123,7 +123,7 @@ test("operator sends a task back to a deep visited board", async () => {
     await expect
       .poll(async () =>
         page.evaluate(async ({ canvas, taskId }) => {
-          const read = await window.vellumCommand!.readCanvas(canvas);
+          const read = await window.junto!.readCanvas(canvas);
           const itemAt = (nodeId: string) =>
             read.doc.nodes
               .find((node) => node.id === nodeId)

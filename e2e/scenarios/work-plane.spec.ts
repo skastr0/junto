@@ -1,7 +1,7 @@
 /**
  * Backpressure e2e for the work plane.
  *
- * Drives the real IPC path (window.vellumCommand.work*) against a sandboxed app,
+ * Drives the real IPC path (window.junto.work*) against a sandboxed app,
  * then asserts the product contracts that unit tests cannot: durable mutation,
  * live projection, and blocked-edge paint from runtime state.
  *
@@ -123,27 +123,27 @@ type WorkApi = {
 };
 
 const work = async (page: import("@playwright/test").Page): Promise<WorkApi> => {
-  const has = await page.evaluate(() => typeof window.vellumCommand?.workTaskCreate === "function");
-  expect(has, "window.vellumCommand.work* must be exposed via preload").toBe(true);
+  const has = await page.evaluate(() => typeof window.junto?.workTaskCreate === "function");
+  expect(has, "window.junto.work* must be exposed via preload").toBe(true);
   return {
     workTaskCreate: (canvas, nodeId, brief) =>
       page.evaluate(
-        ([c, n, b]) => window.vellumCommand!.workTaskCreate(c, n, b, { details: b }),
+        ([c, n, b]) => window.junto!.workTaskCreate(c, n, b, { details: b }),
         [canvas, nodeId, brief] as const,
       ),
     workTaskClaim: (canvas, nodeId, taskId, actorNodeId) =>
       page.evaluate(
-        ([c, n, t, a]) => window.vellumCommand!.workTaskClaim(c, n, t, a),
+        ([c, n, t, a]) => window.junto!.workTaskClaim(c, n, t, a),
         [canvas, nodeId, taskId, actorNodeId] as const,
       ),
     workTaskTransition: (canvas, nodeId, taskId, state, note) =>
       page.evaluate(
-        ([c, n, t, s, noteText]) => window.vellumCommand!.workTaskTransition(c, n, t, s, noteText),
+        ([c, n, t, s, noteText]) => window.junto!.workTaskTransition(c, n, t, s, noteText),
         [canvas, nodeId, taskId, state, note] as const,
       ),
     workRequestResolve: (canvas, nodeId, taskId, responseText, disposition) =>
       page.evaluate(
-        ([c, n, t, r, d]) => window.vellumCommand!.workRequestResolve(c, n, t, r, d),
+        ([c, n, t, r, d]) => window.junto!.workRequestResolve(c, n, t, r, d),
         [canvas, nodeId, taskId, responseText, disposition] as const,
       ),
   };
@@ -156,9 +156,9 @@ test("work plane: renderer exposes operator task lifecycle only", async ({
   const api = await work(page);
 
   const actorOperations = await page.evaluate(() => ({
-    messageAppend: typeof (window.vellumCommand as Record<string, unknown> | undefined)?.workMessageAppend,
-    requestCreate: typeof (window.vellumCommand as Record<string, unknown> | undefined)?.workRequestCreate,
-    artifactPublish: typeof (window.vellumCommand as Record<string, unknown> | undefined)?.workArtifactPublish,
+    messageAppend: typeof (window.junto as Record<string, unknown> | undefined)?.workMessageAppend,
+    requestCreate: typeof (window.junto as Record<string, unknown> | undefined)?.workRequestCreate,
+    artifactPublish: typeof (window.junto as Record<string, unknown> | undefined)?.workArtifactPublish,
   }));
   expect(actorOperations).toEqual({
     messageAppend: "undefined",
@@ -219,7 +219,7 @@ test("work plane: renderer exposes operator task lifecycle only", async ({
 
   // Live authority (not disk seed) holds completed state; glance hides settled.
   await expect(async () => {
-    const live = await page.evaluate(async (name) => window.vellumCommand!.readCanvas(name), CANVAS);
+    const live = await page.evaluate(async (name) => window.junto!.readCanvas(name), CANVAS);
     const tasks = live.doc.nodes.find((n) => n.id === "tasks");
     const item = tasks?.ether?.tasks?.items?.find((t) => t.id === created.data.id);
     expect(item?.state).toBe("completed");
@@ -238,13 +238,13 @@ test("work plane: bad ids reject without mutating the live doc", async ({ junto 
     timeout: 30_000,
   });
 
-  const before = await page.evaluate(async (name) => window.vellumCommand!.readCanvas(name), CANVAS);
+  const before = await page.evaluate(async (name) => window.junto!.readCanvas(name), CANVAS);
   const beforeJson = JSON.stringify(before.doc);
 
   const missingNode = await api.workTaskCreate(CANVAS, "no-such-node", "x");
   expect(missingNode.ok).toBe(false);
   if (!missingNode.ok) expect(missingNode.code).toBe("node_not_found");
 
-  const after = await page.evaluate(async (name) => window.vellumCommand!.readCanvas(name), CANVAS);
+  const after = await page.evaluate(async (name) => window.junto!.readCanvas(name), CANVAS);
   expect(JSON.stringify(after.doc)).toBe(beforeJson);
 });
