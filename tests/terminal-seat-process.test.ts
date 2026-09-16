@@ -58,7 +58,7 @@ const actorSpec = (bindingId: string, hostId?: string): OccupySpec => ({
   canvasName: "factory",
   nodeId: `node-${bindingId}`,
   spawnIntent: {
-    documentLaunch: { kind: "harness", argv: ["grok"] },
+    documentLaunch: { kind: "harness", argv: ["grok"], cwd: "/tmp" },
     resumeRequested: false,
     injection: { seatBound: false, connected: false },
   },

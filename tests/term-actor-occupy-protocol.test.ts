@@ -35,7 +35,7 @@ const cleanups: Array<() => Promise<void> | void> = [];
 const passThroughAdmission = () => Effect.void;
 
 const actorSpawnIntent = () => ({
-  documentLaunch: { kind: "harness", argv: ["grok"] },
+  documentLaunch: { kind: "harness", argv: ["grok"], cwd: "/tmp" },
   resumeRequested: false,
   injection: { seatBound: true, connected: false },
 } as const);
@@ -157,7 +157,7 @@ describe("actor occupy protocol (in-process both ends)", () => {
     const spawnIntent = makeManagedSpawnIntent({
       harness: "muse",
       agentKey: "station:muse",
-      documentLaunch: { kind: "harness", argv: ["muse"] },
+      documentLaunch: { kind: "harness", argv: ["muse"], cwd: "/tmp" },
       injection: {
         seatBound: true,
         connected: true,

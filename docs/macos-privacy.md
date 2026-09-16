@@ -1,6 +1,6 @@
 # macOS privacy and filesystem access
 
-Last audited: 2026-09-12.
+Last audited: 2026-09-16.
 
 Junto is a developer workstation, not a file indexer. It does not
 scan the whole home folder, Photos library, Music library, Downloads,
@@ -35,19 +35,29 @@ terminals and operator-selected agent CLIs. Those children intentionally run
 with the signed-in user's normal authority. Treat opening a terminal or agent
 as the same trust decision as opening Terminal.app in that directory.
 
+**TCC attribution.** macOS bills every descendant's file access to Junto's
+responsible-process identity: a permission dialog that names Junto may be
+raised by an agent's own tooling — Grok's vendored `rg`, a harness's `find`,
+a computer-use client's Apple Events — not by Junto code. This is observable
+in the TCC log as `accessing=<child binary>` with `responsible=com.skastr0.junto`.
+The seat inherits Junto's granted folders until the seat's own process tree
+ends; Junto cannot disclaim responsibility from pure Node/Electron, so the
+only mitigations are scoping which seats run, refusing home-rooted agent
+seats, and this disclosure.
+
 ## Access inventory
 
 | Surface | Trigger | Filesystem or system scope | Retention and limits |
 |---|---|---|---|
 | Product state | App start | `~/.junto` only | Durable app state, content, sockets, and logs |
 | Live conversation | Starting a call in a Live-enabled build | Microphone audio sent to OpenAI; selected canvas context and transcript sent to the controller | Audio is not recorded locally; transcript, requests, and operation receipts remain in product state; microphone tracks stop on call end |
-| Spawn PATH | App start | The operator's default shell is run once as login+interactive to read its `PATH`, plus inherited `PATH`, optional operator tool directories, and fixed executable directories such as `~/.local/bin` and `~/.bun/bin` | One bounded probe at startup, no filesystem scan; failure falls back to the fixed directories |
+| Spawn PATH | App start | Inherited `PATH`, optional operator tool directories, enumerated version-manager install roots (`~/.nvm`, `~/.local/share/mise`, `~/.asdf`, `~/.local/share/fnm`, `~/.volta`, `~/.pyenv`, `~/.rbenv` `bin` dirs), and fixed executable directories such as `~/.local/bin` and `~/.bun/bin` | Shell startup files are never executed: rc files are arbitrary operator code and every path they touch is billed to Junto's TCC identity. The directory reads are dotdir listings under the operator home, never protected folders |
 | Supervisor status | Packaged app start | Current-user launchd job metadata | No content-library access and no permission prompt |
 | Provider usage | Per-provider toggle in Settings | Only the enabled provider's disclosed credentials, cache, session data, process data, and network endpoints | All sources default off; usage sources refresh every five minutes; Hermes host snapshots poll every minute when separately enabled; revocation clears the row immediately and stops future polls |
 | Working-directory browser | Opening an agent, Git, or region folder picker | One shallow page at a time, beginning at the shown path; hidden folders are suppressed until typed | No recursive walk, watcher, Spotlight query, glob, or background index |
 | Git surface | Creating/opening a Git node for an operator-chosen directory | Repository and Git metadata through read-only status/log/show commands | No untracked-file content scan in status; runs only for the authored Git surface |
-| Terminal or attached agent | Explicitly creating or activating the seat | The selected cwd and whatever the launched shell/CLI accesses | Broad by design; ends with the owned process unless a separately disclosed supervised service is installed |
-| Browser page | Explicitly opening a page node | Junto-owned persistent browser profile and public network destinations | Site cookies/storage persist until the operator wipes that profile; hostile web permissions are denied |
+| Terminal or attached agent | Explicitly creating or activating the seat, or auto-occupying a playing canvas's seats at launch | The selected cwd and whatever the launched shell/CLI accesses | Broad by design; ends with the owned process unless a separately disclosed supervised service is installed. A managed agent seat is refused when its working directory resolves to the operator home |
+| Browser page | Explicitly opening a page node | Junto-owned persistent browser profile and public network destinations; downloads land under the app's own state directory, never `~/Downloads` | Site cookies/storage persist until the operator wipes that profile; hostile web permissions are denied |
 | SSH/Remote | Explicit enrollment, then reconnect/sync while Command Center runs | OpenSSH configuration/credentials plus app paths on that enrolled Remote | No tailnet-wide file walk; managed package installs default off and stay in disclosed Junto app/service paths |
 | Backup export | Export action and native save dialog | One operator-selected destination | Creates a verified copy and never overwrites an existing file |
 | Login item | Settings checkbox | macOS Login Items state | Off until explicitly enabled; no hidden launch |
@@ -73,24 +83,30 @@ Provider usage is the only background feature that reads state owned by other
 developer tools. Every source is independently disabled by default. Its
 Settings card names the access before opt-in:
 
-- Claude: `~/.claude`, macOS Keychain, Anthropic network.
+- Claude: `~/.claude` and `~/.claude.json`, macOS Keychain, Anthropic network.
 - Codex: `~/.codex/auth.json`, OpenAI network.
-- Copilot: configured token or GitHub CLI config/token, GitHub network.
-- Cursor: configured cookie or Cursor's local app database, Cursor network.
-- Devin: configured token or Chrome profile local storage, Devin network.
+- Copilot: configured token or GitHub CLI config/token (`~/.config/gh`),
+  GitHub network.
+- Cursor: configured cookie or Cursor's local app database
+  (`~/Library/Application Support/Cursor/User/globalStorage/state.vscdb`),
+  Cursor network.
+- Devin: configured token or Chrome profile local storage
+  (`~/Library/Application Support/Google/Chrome/*/Local Storage/leveldb`,
+  scanned recursively), Devin network.
 - Grok: `~/.grok` credentials and recent session history, xAI network.
-- Hermes usage: `~/.hermes/profiles` and local profile state databases. Does
-  not run `hermes` CLI commands or reach enrolled hosts. Refreshes every five
-  minutes.
+- Hermes usage: `~/.hermes/profiles` and local profile state databases, read
+  through the `sqlite3` CLI. Does not run `hermes` CLI commands or reach
+  enrolled hosts. Refreshes every five minutes.
 - Hermes host snapshots (separate toggle, Hermes-integration builds only):
   local and enrolled-host SSH `hermes profile list` and `hermes version`, plus
   remote profile metadata. Polls every one minute.
 - Kimi: configured or `~/.kimi-code` credentials, Kimi network.
 - Ollama Cloud: configured/environment credentials, Ollama network.
-- OpenCode Go: credentials and local usage database, OpenCode network.
+- OpenCode Go: credentials and local usage database read through the
+  `sqlite3` CLI, OpenCode network.
 - OpenRouter: configured/environment/key-file credentials, OpenRouter network.
-- Antigravity: `~/.gemini` conversations plus process command lines and local
-  ports used to find its running local service.
+- Antigravity: `~/.gemini` conversations plus `ps`/`lsof` process and port
+  listings used to find its running local service.
 - Synthetic: configured/environment credentials, Synthetic network.
 
 Entering a credential does not silently enable its source. Revoking a source

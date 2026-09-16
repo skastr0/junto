@@ -289,7 +289,7 @@ describe("LocalSessionHost", () => {
         kind: "agent",
         harness: "codex",
         agentKey: "local:codex",
-        launch: { kind: "harness", argv: ["codex"] },
+        launch: { kind: "harness", argv: ["codex"], cwd: "/tmp" },
       }),
     );
 
@@ -366,7 +366,11 @@ describe("LocalSessionHost", () => {
       kind: "agent",
       harness: "claude",
       agentKey: "local:claude",
-      launch: { kind: "harness", argv: ["/usr/local/bin/claude", "--resume"] },
+      launch: {
+        kind: "harness",
+        argv: ["/usr/local/bin/claude", "--resume"],
+        cwd: "/tmp",
+      },
     });
     expect(Result.getOrThrow(resolved)).toMatchObject({
       file: "/usr/local/bin/claude",
@@ -398,6 +402,7 @@ describe("LocalSessionHost", () => {
           launch: {
             kind: "harness",
             argv: ["codex"],
+            cwd: "/tmp",
             env: {
               PATH: "/installed/bin:/usr/bin",
               JUNTO_SOCKET: "/stale/work.sock",
@@ -466,7 +471,7 @@ describe("LocalSessionHost", () => {
       bindingId: "seat-cli-missing",
       harness: "claude",
       agentKey: "local:claude",
-      launch: { kind: "harness", argv: ["claude"] },
+      launch: { kind: "harness", argv: ["claude"], cwd: "/tmp" },
     });
 
     expect(summary).toMatchObject({
@@ -542,7 +547,7 @@ describe("LocalSessionHost", () => {
       bindingId: "replay-running",
       harness: "grok",
       agentKey: "local:grok",
-      launch: { kind: "harness", argv: ["/usr/local/bin/grok"] },
+      launch: { kind: "harness", argv: ["/usr/local/bin/grok"], cwd: "/tmp" },
     });
     const seen: Array<{
       readonly bindingId: string;
@@ -583,7 +588,7 @@ describe("LocalSessionHost", () => {
       bindingId: "replay-exited",
       harness: "grok",
       agentKey: "local:grok",
-      launch: { kind: "harness", argv: ["/usr/local/bin/grok"] },
+      launch: { kind: "harness", argv: ["/usr/local/bin/grok"], cwd: "/tmp" },
     });
     fake.controllers[0]?.exit();
     await vi.waitFor(() => expect(host.get("replay-exited")?.status).toBe("exited"));
@@ -625,6 +630,7 @@ describe("LocalSessionHost", () => {
       launch: {
         kind: "harness",
         argv: ["/usr/local/bin/prime-agent", "--thinking", "high"],
+        cwd: "/tmp",
       },
       canvasName: "factory",
       nodeId: "prime-node",
@@ -678,7 +684,7 @@ describe("LocalSessionHost", () => {
       bindingId: "prime-late-anchor",
       harness: "prime-agent",
       agentKey: "local:late-prime",
-      launch: { kind: "harness", argv: ["prime-agent"] },
+      launch: { kind: "harness", argv: ["prime-agent"], cwd: "/tmp" },
       canvasName: "factory",
     });
     expect(identities.snapshot()).toEqual([]);
@@ -714,7 +720,7 @@ describe("LocalSessionHost", () => {
       bindingId: "prime-report",
       harness: "prime-agent",
       agentKey: "local:prime-report",
-      launch: { kind: "harness", argv: ["prime-agent"] },
+      launch: { kind: "harness", argv: ["prime-agent"], cwd: "/tmp" },
     });
 
     daemons.records[0]?.report({
@@ -755,7 +761,7 @@ describe("LocalSessionHost", () => {
       bindingId: "codex-session-capture",
       harness: "codex",
       agentKey: "local:codex",
-      launch: { kind: "harness", argv: ["/usr/local/bin/codex"] },
+      launch: { kind: "harness", argv: ["/usr/local/bin/codex"], cwd: "/tmp" },
     });
 
     fake.controllers[0]?.emitData("tool id 550e8400-e29b-41d4-a716-446655440000\nCODEX_");
@@ -775,7 +781,7 @@ describe("LocalSessionHost", () => {
       bindingId: "kimi-session-capture",
       harness: "kimi",
       agentKey: "local:kimi",
-      launch: { kind: "harness", argv: ["kimi"] },
+      launch: { kind: "harness", argv: ["kimi"], cwd: "/tmp" },
     });
 
     fake.controllers[0]?.emitData(
@@ -807,7 +813,7 @@ describe("LocalSessionHost", () => {
       bindingId: "prime-client-exit",
       harness: "prime-agent",
       agentKey: "local:prime-client-exit",
-      launch: { kind: "harness", argv: ["prime-agent"] },
+      launch: { kind: "harness", argv: ["prime-agent"], cwd: "/tmp" },
       canvasName: "factory",
       nodeId: "prime-client-exit-node",
     });
@@ -866,7 +872,7 @@ describe("LocalSessionHost", () => {
       bindingId: "prime-crash",
       harness: "prime-agent",
       agentKey: "local:prime-crash",
-      launch: { kind: "harness", argv: ["prime-agent"] },
+      launch: { kind: "harness", argv: ["prime-agent"], cwd: "/tmp" },
       canvasName: "factory",
       nodeId: "prime-crash-node",
     });
@@ -916,7 +922,7 @@ describe("LocalSessionHost", () => {
         bindingId: `prime-bind-fail-${failureAt}`,
         harness: "prime-agent",
         agentKey: `local:prime-bind-fail-${failureAt}`,
-        launch: { kind: "harness", argv: ["prime-agent"] },
+        launch: { kind: "harness", argv: ["prime-agent"], cwd: "/tmp" },
         canvasName: "factory",
         nodeId: `prime-bind-fail-${failureAt}-node`,
       } as const;
@@ -955,7 +961,7 @@ describe("LocalSessionHost", () => {
       bindingId: "stable-agent-seat",
       harness: "claude" as const,
       agentKey: "local:claude",
-      launch: { kind: "harness" as const, argv: ["/usr/local/bin/claude"] },
+      launch: { kind: "harness" as const, argv: ["/usr/local/bin/claude"], cwd: "/tmp" },
       canvasName: "factory",
       nodeId: "agent-node",
     };
@@ -999,6 +1005,7 @@ describe("LocalSessionHost", () => {
         launch: {
           kind: "harness",
           argv: ["claude", "--resume", "dead-session-aaaaaaaa"],
+          cwd: "/tmp",
         },
         canvasName: "factory",
         nodeId: "agent-node",
@@ -1038,6 +1045,7 @@ describe("LocalSessionHost", () => {
         launch: {
           kind: "harness",
           argv: ["claude", "--resume", "gone-session-bbbbbbbb"],
+          cwd: "/tmp",
         },
       });
       expect(first.status).toBe("running");
@@ -1063,6 +1071,7 @@ describe("LocalSessionHost", () => {
         launch: {
           kind: "harness",
           argv: ["claude", "--resume", "gone-session-bbbbbbbb"],
+          cwd: "/tmp",
         },
       });
       expect(again.status).toBe("running");
@@ -1092,6 +1101,7 @@ describe("LocalSessionHost", () => {
         launch: {
           kind: "harness",
           argv: ["claude", "--resume", shared],
+          cwd: "/tmp",
         },
         canvasName: "factory",
         nodeId: "agent-node",
@@ -1108,6 +1118,7 @@ describe("LocalSessionHost", () => {
         launch: {
           kind: "harness",
           argv: ["claude", "--session-id", fresh],
+          cwd: "/tmp",
         },
         canvasName: "factory",
         nodeId: "agent-node",
@@ -1138,6 +1149,7 @@ describe("LocalSessionHost", () => {
         launch: {
           kind: "harness",
           argv: ["grok", "-r", shared, "-m", "grok-4.5"],
+          cwd: "/tmp",
         },
       });
       expect(fake.controllers).toHaveLength(1);
@@ -1161,7 +1173,7 @@ describe("LocalSessionHost", () => {
       bindingId: "restart-stopping-seat",
       harness: "codex" as const,
       agentKey: "local:codex",
-      launch: { kind: "harness" as const, argv: ["/usr/local/bin/codex"] },
+      launch: { kind: "harness" as const, argv: ["/usr/local/bin/codex"], cwd: "/tmp" },
       canvasName: "factory",
       nodeId: "codex-node",
     };
@@ -1209,7 +1221,7 @@ describe("LocalSessionHost", () => {
       bindingId: "prime-quit-wait",
       harness: "prime-agent",
       agentKey: "local:prime-quit-wait",
-      launch: { kind: "harness", argv: ["prime-agent"] },
+      launch: { kind: "harness", argv: ["prime-agent"], cwd: "/tmp" },
       canvasName: "factory",
       nodeId: "prime-quit-wait-node",
     });
@@ -1248,7 +1260,7 @@ describe("LocalSessionHost", () => {
       bindingId: "prime-explicit-kill",
       harness: "prime-agent",
       agentKey: "local:prime-explicit-kill",
-      launch: { kind: "harness", argv: ["prime-agent"] },
+      launch: { kind: "harness", argv: ["prime-agent"], cwd: "/tmp" },
     });
 
     expect(host.kill("prime-explicit-kill")).toBe(true);
@@ -1282,7 +1294,7 @@ describe("LocalSessionHost", () => {
       bindingId: "prime-node-delete",
       harness: "prime-agent",
       agentKey: "local:prime-node-delete",
-      launch: { kind: "harness", argv: ["prime-agent"] },
+      launch: { kind: "harness", argv: ["prime-agent"], cwd: "/tmp" },
       canvasName: "factory",
       nodeId: "prime-node-delete-node",
     });
@@ -1316,7 +1328,7 @@ describe("LocalSessionHost", () => {
         bindingId: `prime-${suffix}`,
         harness: "prime-agent",
         agentKey: `local:prime-${suffix}`,
-        launch: { kind: "harness", argv: ["prime-agent"] },
+        launch: { kind: "harness", argv: ["prime-agent"], cwd: "/tmp" },
         canvasName: "factory",
         nodeId: `prime-${suffix}-node`,
       });
@@ -1374,7 +1386,7 @@ describe("LocalSessionHost", () => {
       bindingId: "prime-replacement",
       harness: "prime-agent" as const,
       agentKey: "local:prime-replacement",
-      launch: { kind: "harness" as const, argv: ["prime-agent"] },
+      launch: { kind: "harness" as const, argv: ["prime-agent"], cwd: "/tmp" },
       canvasName: "factory",
       nodeId: "prime-replacement-node",
     };
@@ -1430,7 +1442,7 @@ describe("LocalSessionHost", () => {
       bindingId: "prime-fake-authority",
       harness: "prime-agent",
       agentKey: "local:prime-fake-authority",
-      launch: { kind: "harness", argv: ["/fake/bin/prime-agent"] },
+      launch: { kind: "harness", argv: ["/fake/bin/prime-agent"], cwd: "/tmp" },
     });
 
     expect(fake.controllers).toHaveLength(1);
@@ -1450,7 +1462,7 @@ describe("LocalSessionHost", () => {
       bindingId: "codex-no-daemons",
       harness: "codex",
       agentKey: "local:codex-no-daemons",
-      launch: { kind: "harness", argv: ["/usr/local/bin/codex"] },
+      launch: { kind: "harness", argv: ["/usr/local/bin/codex"], cwd: "/tmp" },
     });
 
     expect(daemons.records).toHaveLength(0);
@@ -1596,7 +1608,7 @@ describe("LocalSessionHost", () => {
       bindingId: "managed-io",
       harness: "claude",
       agentKey: "local:claude",
-      launch: { kind: "harness", argv: ["/usr/local/bin/claude"] },
+      launch: { kind: "harness", argv: ["/usr/local/bin/claude"], cwd: "/tmp" },
     });
 
     const interactive = await host.attach({
@@ -1766,7 +1778,7 @@ describe("LocalSessionHost", () => {
       bindingId: "prime-dirty-cleanup",
       harness: "prime-agent",
       agentKey: "local:prime-dirty-cleanup",
-      launch: { kind: "harness", argv: ["prime-agent"] },
+      launch: { kind: "harness", argv: ["prime-agent"], cwd: "/tmp" },
     });
     fake.controllers[0]?.exit();
     await vi.waitFor(() =>

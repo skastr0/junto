@@ -1,3 +1,4 @@
+import { tmpdir } from "node:os";
 import { createContext, runInContext, type Context } from "node:vm";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -19,6 +20,7 @@ const electron = vi.hoisted(() => {
     readonly setPermissionRequestHandler = vi.fn();
     readonly setDevicePermissionHandler = vi.fn();
     readonly setDisplayMediaRequestHandler = vi.fn();
+    readonly setDownloadPath = vi.fn();
     resolveHost(): Promise<{ endpoints: ReadonlyArray<{ address: string }> }> {
       return Promise.resolve({ endpoints: [{ address: "93.184.216.34" }] });
     }
@@ -202,6 +204,7 @@ vi.mock("../src/main/junto/browser/partition-network", () => ({
 }));
 
 vi.mock("electron", () => ({
+  app: { getPath: () => tmpdir() },
   BrowserWindow: { getAllWindows: () => [] },
   session: {
     fromPartition: (partition: string) => {

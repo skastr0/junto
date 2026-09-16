@@ -60,7 +60,7 @@ const actorSpec = (bindingId: string, hostId?: string): ActorOccupySpec => ({
   canvasName: "factory",
   nodeId: `node-${bindingId}`,
   spawnIntent: {
-    documentLaunch: { kind: "harness", argv: ["grok"] },
+    documentLaunch: { kind: "harness", argv: ["grok"], cwd: "/tmp" },
     resumeRequested: false,
     injection: { seatBound: true, connected: false },
   },

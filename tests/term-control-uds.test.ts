@@ -515,7 +515,7 @@ describe("term control UDS", () => {
       canvasName: "factory",
       nodeId: "actor-node",
       spawnIntent: {
-        documentLaunch: { kind: "harness", argv: ["grok"] },
+        documentLaunch: { kind: "harness", argv: ["grok"], cwd: "/tmp" },
         resumeRequested: false,
         injection: { seatBound: true, connected: false },
       },
@@ -632,7 +632,7 @@ describe("term control UDS", () => {
     });
     cleanups.push(() => client.close());
     const spawnIntent = {
-      documentLaunch: { kind: "harness" as const, argv: ["grok"] },
+      documentLaunch: { kind: "harness" as const, argv: ["grok"], cwd: "/tmp" },
       resumeRequested: false,
       injection: { seatBound: true, connected: false },
     };
@@ -795,7 +795,7 @@ describe("term control UDS", () => {
       canvasName: "factory",
       nodeId: "unsupported-actor",
       spawnIntent: {
-        documentLaunch: { kind: "harness", argv: ["grok"] },
+        documentLaunch: { kind: "harness", argv: ["grok"], cwd: "/tmp" },
         resumeRequested: false,
         injection: { seatBound: true, connected: false },
       },

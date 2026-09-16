@@ -232,7 +232,7 @@ describe("ActorSeatOccupy Remote projection barrier", () => {
     canvasName: "factory",
     nodeId: `node-${bindingId}`,
     spawnIntent: {
-      documentLaunch: { kind: "harness", argv: ["grok"] },
+      documentLaunch: { kind: "harness", argv: ["grok"], cwd: "/tmp" },
       resumeRequested: false,
       injection: { seatBound: true, connected: false },
     },
@@ -393,7 +393,7 @@ describe("makeLiveProjectionAdmissionPorts", () => {
           entity: { kind: "agent", name: "station-a:codex" },
           terminal: {
             bindingId,
-            launch: { kind: "harness", argv: ["codex"] },
+            launch: { kind: "harness", argv: ["codex"], cwd: "/tmp" },
             harness: "codex",
           },
           host: "station-a",

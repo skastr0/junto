@@ -6,6 +6,7 @@
  * "not installed" after a broken process start.
  */
 
+import { spawnSync } from "node:child_process";
 import { accessSync, constants } from "node:fs";
 import { homedir } from "node:os";
 import { delimiter, isAbsolute, join } from "node:path";
@@ -18,7 +19,10 @@ import {
   type IsolationSpec,
 } from "@shared/managed-terminal-templates";
 import { managedHarnessEnabled } from "@shared/features";
-import { configuredToolDirectories } from "../../adapters/exec";
+import {
+  configuredToolDirectories,
+  enumeratedToolDirs,
+} from "../../adapters/exec";
 import { juntoCliPathPrefixes } from "./seat-env";
 
 export type HarnessInstallProbe = {
@@ -60,8 +64,9 @@ export const knownHarnessInstallDirs = (home: string): ReadonlyArray<string> => 
 
 /**
  * Directories detection and launch both search: the resolved seat PATH
- * (login-shell PATH merged upstream by resolvedSpawnEnv), operator tool
- * directories, then known home install dirs. No login shell is run here.
+ * (merged upstream by resolvedSpawnEnv), operator tool directories, then
+ * enumerated version-manager install roots and known home install dirs.
+ * No shell is run to build this path.
  */
 export const harnessSearchPath = (
   options: HarnessExecutableResolution = {},
@@ -81,6 +86,7 @@ export const harnessSearchPath = (
     const trimmed = dir.trim();
     if (trimmed) segments.push(trimmed);
   }
+  for (const dir of enumeratedToolDirs(home)) segments.push(dir);
   for (const dir of knownHarnessInstallDirs(home)) segments.push(dir);
   const seen = new Set<string>();
   const merged: string[] = [];
@@ -92,9 +98,31 @@ export const harnessSearchPath = (
   return merged.join(sep);
 };
 
+// A `*/shims` entry is a version-manager trampoline, not a binary: it passes
+// X_OK while exiting "No version is set for shim" until its manager's
+// activation env is present. Only shim candidates pay this liveness probe — a
+// real binary resolves on X_OK alone.
+const SHIM_ROOT = /[/\\]shims$/u;
+const SHIM_LIVENESS_TIMEOUT_MS = 3_000;
+
+const shimRunsLive = (candidate: string, pathEnv: string): boolean => {
+  try {
+    const result = spawnSync(candidate, ["--version"], {
+      env: { ...process.env, PATH: pathEnv },
+      stdio: "ignore",
+      timeout: SHIM_LIVENESS_TIMEOUT_MS,
+    });
+    return result.status === 0;
+  } catch {
+    return false;
+  }
+};
+
 /**
  * Resolve `binary` to an absolute executable using the same search path
- * detection and launch share. Absolute paths are checked as-is.
+ * detection and launch share. Absolute paths are checked as-is. Candidates
+ * living in a version-manager `shims` dir must additionally answer
+ * `--version`, so a dead shim loses to a real binary later in the path.
  */
 export const resolveHarnessExecutable = (
   binary: string,
@@ -105,10 +133,13 @@ export const resolveHarnessExecutable = (
   if (isAbsolute(name)) return isExecutableFile(name) ? name : undefined;
 
   const sep = options.pathSep ?? delimiter;
-  for (const dir of harnessSearchPath(options).split(sep)) {
+  const searchPath = harnessSearchPath(options);
+  for (const dir of searchPath.split(sep)) {
     if (!dir) continue;
     const candidate = join(dir, name);
-    if (isExecutableFile(candidate)) return candidate;
+    if (!isExecutableFile(candidate)) continue;
+    if (SHIM_ROOT.test(dir) && !shimRunsLive(candidate, searchPath)) continue;
+    return candidate;
   }
   return undefined;
 };

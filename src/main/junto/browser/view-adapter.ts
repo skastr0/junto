@@ -1,4 +1,5 @@
-import { isAbsolute } from "node:path";
+import { mkdirSync } from "node:fs";
+import { isAbsolute, join } from "node:path";
 import * as electron from "electron";
 import type { BrowserWindow as ElectronBrowserWindow } from "electron";
 import { isAllowedBrowserUrl } from "@shared/browser";
@@ -373,9 +374,12 @@ const makeElectronViewAdapter = (
 ): BrowserViewAdapter => async (partition, events, options) => {
   const WebContentsView = requireWebContentsView();
   const browserPartition = session.fromPartition(partition);
-  if (testOnlyDownloadPath !== undefined) {
-    browserPartition.setDownloadPath(testOnlyDownloadPath);
-  }
+  // Downloads land in app-owned state, never ~/Downloads: a managed page
+  // download must not bill a TCC prompt to Junto.
+  const downloadPath =
+    testOnlyDownloadPath ?? join(electron.app.getPath("userData"), "downloads");
+  mkdirSync(downloadPath, { recursive: true });
+  browserPartition.setDownloadPath(downloadPath);
   await ensureManagedBrowserPartitionNetwork(browserPartition, partition, testOnlyGrant);
   hardenBrowserPartition(browserPartition, testOnlyGrant);
   const view = new WebContentsView({

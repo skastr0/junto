@@ -662,6 +662,20 @@ export const resolveLaunch = (
     if (file === undefined) {
       return Result.fail(unresolvable("the seat's launch profile carries no argv"));
     }
+    // An agent seat rooted at the operator home turns the harness's own file
+    // tools (rg --files, find) into a whole-home sweep whose access macOS
+    // bills to Junto's TCC responsible-process identity. Missing and literal
+    // `~` cwds both land there via resolveCwd's fallback; refuse them. A
+    // terminal seat keeps the fallback — it is a user-driven shell with the
+    // same semantics as Terminal.app.
+    const homeRoot = process.env.HOME || os.homedir();
+    if (isAbsolute(homeRoot) && cwd === homeRoot) {
+      return Result.fail(
+        unresolvable(
+          "the seat's working directory is missing or resolves to the operator home",
+        ),
+      );
+    }
     const resolvedFile = resolveHarnessExecutable(file, {
       pathEnv: env.PATH ?? process.env.PATH,
       extraDirs: configuredToolDirectories(),

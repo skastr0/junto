@@ -79,12 +79,22 @@ describe("macOS privacy policy", () => {
     expect(optedIn.fleet.remoteManagedInstallsConsented).toBe(true);
   });
 
-  it("does not execute a login shell or expose general filesystem enumeration IPC", () => {
+  it("never executes shell startup files for PATH discovery or exposes filesystem enumeration IPC", () => {
     const spawn = read("src/main/junto/adapters/exec.ts");
+    const host = read("src/main/junto/term/local-host.ts");
     const ipc = read("src/shared/ipc.ts");
 
-    expect(spawn).not.toContain("queryLoginShellPath");
-    expect(spawn).not.toMatch(/\[\s*["']-lc["']/u);
+    // No probe name, no shell selection, no login/interactive rc flags, no
+    // sentinel protocol: a regression on any of these reintroduces arbitrary
+    // rc execution under Junto's TCC identity.
+    expect(spawn).not.toMatch(/captureLoginShellPath|loginShellPath|queryLoginShellPath/u);
+    expect(spawn).not.toMatch(/process\.env\.SHELL/u);
+    expect(spawn).not.toMatch(/\[\s*["'](?:-l|-i|-c|-lc|-ic|-ilc|-lic)["']/u);
+    expect(spawn).not.toContain("JUNTO_ENV_BEGIN");
+    // A managed agent seat may never be rooted at the operator home: a
+    // harness's own file tools would sweep Desktop/Documents/Downloads under
+    // Junto's TCC identity.
+    expect(host).toContain("resolves to the operator home");
     expect(ipc).not.toContain("chassis:select-folder");
     expect(ipc).not.toContain("chassis:read-directory");
   });

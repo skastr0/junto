@@ -1,7 +1,7 @@
 import { homedir } from "node:os";
 import { afterAll, describe, expect, it } from "vitest";
 import {
-  loginShellPathFromProbeOutput,
+  enumeratedToolDirs,
   mergePath,
   resolvedSpawnEnv,
   resolvedSpawnEnvSync,
@@ -9,9 +9,10 @@ import {
 } from "../src/main/junto/adapters/exec";
 
 // The spawn plane resolves user-installed CLIs under a packaged/launchd/Finder
-// launch by merging the operator's login-shell PATH with a static fallback
-// floor. The merge logic is pure so the ordering, deduplication, and floor
-// are testable without executing any user-controlled shell code.
+// launch by merging inherited PATH, operator tool directories, enumerated
+// version-manager install roots, and a static fallback floor. The merge logic
+// is pure so the ordering, deduplication, and floor are testable without
+// executing any user-controlled shell code.
 
 const HOME = "/home/tester";
 const split = (p: string) => p.split(":");
@@ -22,14 +23,33 @@ describe("staticPathDirs", () => {
       "/home/tester/.local/bin",
       "/home/tester/.kimi-code/bin",
       "/home/tester/.bun/bin",
+      "/home/tester/.grok/bin",
+      "/home/tester/.volta/bin",
+      "/home/tester/.cargo/bin",
+      "/home/tester/.deno/bin",
+      "/home/tester/go/bin",
+      "/home/tester/bin",
+      "/home/tester/.local/share/pnpm",
+      "/home/tester/Library/pnpm",
+      "/home/tester/.nix-profile/bin",
       "/home/tester/.local/share/mise/shims",
+      "/home/tester/.asdf/shims",
+      "/home/tester/.pyenv/shims",
+      "/home/tester/.rbenv/shims",
       "/opt/homebrew/bin",
       "/usr/local/bin",
+      "/opt/local/bin",
       "/usr/bin",
       "/bin",
       "/usr/sbin",
       "/sbin",
     ]);
+  });
+});
+
+describe("enumeratedToolDirs", () => {
+  it("returns nothing for a home with no version-manager roots", () => {
+    expect(enumeratedToolDirs("/nonexistent/home")).toEqual([]);
   });
 });
 
@@ -80,20 +100,24 @@ describe("mergePath", () => {
     );
   });
 
-  it("login-shell PATH precedes inherited PATH and the floor", () => {
+  it("enumerated install roots sit after operator dirs and before the static floor", () => {
     const merged = mergePath({
-      loginShellPath: "/home/tester/.bun/bin:/opt/login/bin",
       currentPath: "/usr/bin:/bin",
       home: HOME,
+      extraDirs: ["/opt/custom/bin"],
+      enumeratedDirs: [
+        "/home/tester/.local/share/mise/installs/node/24/bin",
+        "/home/tester/.nvm/versions/node/v22.11.0/bin",
+      ],
     });
     const dirs = split(merged);
-    expect(dirs[0]).toBe("/home/tester/.bun/bin");
-    expect(dirs[1]).toBe("/opt/login/bin");
-    expect(dirs.indexOf("/opt/login/bin")).toBeLessThan(dirs.indexOf("/usr/bin"));
-    // A real binary dir from the login shell outranks a stale shim dir below.
-    expect(dirs.indexOf("/home/tester/.bun/bin")).toBeLessThan(
+    const realInstall = "/home/tester/.local/share/mise/installs/node/24/bin";
+    expect(dirs.indexOf("/opt/custom/bin")).toBeLessThan(dirs.indexOf(realInstall));
+    // A real version-manager install outranks the same manager's shim dir.
+    expect(dirs.indexOf(realInstall)).toBeLessThan(
       dirs.indexOf("/home/tester/.local/share/mise/shims"),
     );
+    expect(dirs.indexOf(realInstall)).toBeLessThan(dirs.indexOf("/opt/homebrew/bin"));
   });
 
   it("dedups, keeping first occurrence", () => {
@@ -117,35 +141,6 @@ describe("mergePath", () => {
     expect(dirs[1]).toBe("/y");
     expect(dirs).not.toContain("");
     expect(dirs).not.toContain(" ");
-  });
-});
-
-describe("loginShellPathFromProbeOutput", () => {
-  it("extracts PATH between the sentinels, ignoring rc noise", () => {
-    const output = [
-      "shell greeting noise",
-      "JUNTO_ENV_BEGIN",
-      "HOME=/home/tester",
-      "PATH=/home/tester/.bun/bin:/usr/bin:/bin",
-      "SHELL=/bin/zsh",
-      "JUNTO_ENV_END",
-      "more noise after",
-    ].join("\n");
-    expect(loginShellPathFromProbeOutput(output)).toBe(
-      "/home/tester/.bun/bin:/usr/bin:/bin",
-    );
-  });
-
-  it("returns undefined when sentinels or PATH are absent", () => {
-    expect(loginShellPathFromProbeOutput("")).toBeUndefined();
-    expect(
-      loginShellPathFromProbeOutput("JUNTO_ENV_BEGIN\nFOO=1\n"),
-    ).toBeUndefined();
-    expect(
-      loginShellPathFromProbeOutput(
-        "JUNTO_ENV_BEGIN\nFOO=1\nJUNTO_ENV_END\n",
-      ),
-    ).toBeUndefined();
   });
 });
 

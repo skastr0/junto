@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import {
   app,
@@ -1270,6 +1271,12 @@ if (packagedSandboxDisablingSwitch !== undefined) {
       );
       await app.setProxy({ mode: "direct" });
       await session.defaultSession.setProxy({ mode: "direct" });
+      // Pin Chromium's default download dir under app-owned state before any
+      // window exists. Without this, the first download on defaultSession
+      // resolves ~/Downloads and bills a TCC prompt to Junto.
+      const downloadsDir = join(app.getPath("userData"), "downloads");
+      mkdirSync(downloadsDir, { recursive: true });
+      session.defaultSession.setDownloadPath(downloadsDir);
     } catch (error) {
       console.error("[window] trusted renderer protocol setup failed");
       console.error(error);
@@ -1277,9 +1284,9 @@ if (packagedSandboxDisablingSwitch !== undefined) {
       return;
     }
 
-    // Resolve the operator PATH before any adapter/service spawn: the login
-    // shell is probed once for its PATH, then inherited PATH and the static
-    // floor fill any gaps.
+    // Resolve the spawn PATH before any adapter/service spawn: inherited
+    // PATH, operator tool directories, enumerated version-manager roots, and
+    // the static floor — never a login shell.
     await resolvedSpawnEnv();
     if (shutdownAdmissionClosed) return;
 
