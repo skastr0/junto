@@ -389,7 +389,7 @@ const liveApi: import("@shared/overseer-live").OverseerLiveApi = {
 
 /**
  * Work-plane API keys behind a product gate. They leave the exposed object
- * with their feature (same pattern as `browserApi`); `vellumApi` excludes
+ * with their feature (same pattern as `browserApi`); `juntoApi` excludes
  * them so the enabled groups are spread at the exposure site.
  */
 type WorkFeatureApiKey =
@@ -411,7 +411,7 @@ type WorkFeatureApiKey =
   | "workPadRead"
   | "workPadPatch";
 
-const vellumApi: Omit<JuntoApi, keyof typeof liveApi | WorkFeatureApiKey> = {
+const juntoApi: Omit<JuntoApi, keyof typeof liveApi | WorkFeatureApiKey> = {
   platform: process.platform,
   updateGetState: () =>
     invoke(IPC_CHANNELS.updateGetState, IPC_TIMEOUT_MS),
@@ -873,7 +873,7 @@ const preloadLocation = typeof globalThis.location === "undefined"
 if (preloadLocation === undefined || isRendererPreloadCandidate(preloadLocation)) {
   contextBridge.exposeInMainWorld("chassis", chassisApi);
   contextBridge.exposeInMainWorld("junto", {
-    ...vellumApi,
+    ...juntoApi,
     ...(TASKS_ENABLED ? taskWorkApi : {}),
     ...(REQUESTS_ENABLED ? requestsWorkApi : {}),
     ...(ARTIFACTS_ENABLED ? artifactsWorkApi : {}),

@@ -45,14 +45,14 @@
         });
 
         if (mode === "seed") {
-          document.cookie = `vellum_probe=${encodeURIComponent(nonce)}; Path=/; SameSite=Lax`;
+          document.cookie = `junto_probe=${encodeURIComponent(nonce)}; Path=/; SameSite=Lax`;
           localStorage.setItem("junto-probe", nonce);
         }
 
         const cookie = document.cookie
           .split(";")
           .map((part) => part.trim())
-          .find((part) => part.startsWith("vellum_probe="));
+          .find((part) => part.startsWith("junto_probe="));
 
         const popup = window.open(`${location.origin}/popup`, "junto-hostile-popup");
         const popupReturnedNull = popup === null;
@@ -108,11 +108,11 @@
             process: typeof globalThis.process,
             Buffer: typeof globalThis.Buffer,
             module: typeof globalThis.module,
-            vellumCommand: typeof globalThis.vellumCommand,
+            junto: typeof globalThis.junto,
             chassis: typeof globalThis.chassis,
           },
           writeAttempts: writes,
-          cookieValue: cookie ? decodeURIComponent(cookie.slice("vellum_probe=".length)) : null,
+          cookieValue: cookie ? decodeURIComponent(cookie.slice("junto_probe=".length)) : null,
           storageValue: localStorage.getItem("junto-probe"),
           popupReturnedNull,
           permissionState,
@@ -123,7 +123,7 @@
           customProtocolAttempted: customProtocolUrl,
           locationAfterAttacks: location.href,
         };
-        globalThis.__vellumContainmentProbe = report;
+        globalThis.__juntoContainmentProbe = report;
         const reportNode = document.getElementById("junto-containment-report");
         reportNode.textContent = JSON.stringify(report);
 
