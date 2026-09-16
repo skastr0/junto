@@ -35,12 +35,7 @@ rollback to files.
 - Renderers, headless CLIs, packaged helpers, and SSH callers use app-owned
   IPC or control protocols.
 - The sole packaged exception is the staged candidate's sealed
-  process. Schema migration runs on normal app open; there is no sealed preflight opener. Historical note: older releases used a clone-readiness path for the fixed canonical path
-  read-only, when it exists, only after the installer has fully quiesced the
-  incumbent and proved that SQLite was released. It closes that source before
-  migrating and inspecting a disposable clone, accepts no database-path
-  argument or environment redirect, and starts no product runtime planes. A
-  first install creates only a disposable empty candidate.
+  process. Schema migration runs on normal app open; there is no sealed preflight opener.
 - Tests may open an explicitly injected disposable database. That is not a
   product access path.
 
@@ -60,30 +55,13 @@ different jobs and must not be collapsed:
 - the identity proves that the live tables, constraints, indexes, and triggers
   are exactly the shape that migration expects.
 
-Version 1 freezes the completed SQLite/work-protocol consolidation. A fresh
-database executes the current composed DDL and is stamped at the current
-version. A non-empty unversioned database is adopted only if its live and
-recorded identities equal the frozen version-1 witness. Every later schema
-change increments `CURRENT_STATE_SCHEMA_VERSION`, retains every prior witness,
-and appends exactly one synchronous migration step. Once a migration ships,
-its version, name, input witness, and behavior are immutable. A repair is a new
-forward migration, never an edit to history, because an installation may skip
-any number of releases before applying the chain.
-
-The current source/runtime schema is version 22. `CURRENT_STATE_SCHEMA_VERSION`
-and `STATE_SCHEMA_MIGRATIONS` in
-`src/main/junto/state/migrations.ts` are the sole head and chain authority, so
-this document does not duplicate the migration table. The public macOS 0.1.14
-package remains historical evidence for schema version 18; it does not define
-the current source/runtime head. The frozen `18 → 19`, `19 → 20`, and `20 → 21` migrations
-must never be edited, squashed, renumbered, or reused. The next schema change
-must append `22 → 23`.
-
-The frozen version-1 Command Center and Remote fixtures carry representative
-canvas, topology, projection, Work, cursor, and scheduler rows. Tests hash the
-fixtures, migrate disposable copies through the entire chain, and prove the
-installed rows and original column values survive before current repositories
-decode them.
+Version 1 is the baseline Junto schema. A fresh database executes the current
+composed DDL and is stamped at version 1. Every later schema change increments
+`CURRENT_STATE_SCHEMA_VERSION` (declared in `src/main/junto/state/migrations.ts`)
+and appends exactly one synchronous migration step (`1 → 2`, etc.). Once a
+migration ships, its version, name, input witness, and behavior are immutable.
+A repair is a new forward migration, never an edit to history, because an
+installation may skip any number of releases before applying the chain.
 
 Routine startup evolution follows four explicit stages:
 

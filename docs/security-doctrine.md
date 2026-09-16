@@ -100,10 +100,10 @@ managed resource outside the local Junto process.
 - Unenrolled machines and unauthenticated network peers.
 - Downloaded packages, updates, imports, and network responses until verified.
 - Data crossing into privileged filesystem, process, shell, browser, or root
-  operations until decoded and validated.
+   operations until decoded and validated.
 - Other operating-system users.
 - Responses and payloads crossing an external provider connector until decoded
-  and validated.
+   and validated.
 - Root authority except during an explicit, bounded operator transaction.
 
 Agent and model output is treated as untrusted **input** when it crosses one of
@@ -339,23 +339,17 @@ stamp, and the version advance commit together or all roll back. A database
 from a newer release, an unknown version, a missing migration, or a drifted
 version witness fails closed without mutation.
 
-Version 1 is the frozen post-consolidation baseline. The current
-source/runtime schema is version 23, selected by `CURRENT_STATE_SCHEMA_VERSION`
-and the immutable contiguous chain declared in
-`src/main/junto/state/migrations.ts`. The public macOS 0.1.14 package remains
-historical evidence for schema version 18; it does not define the current
-source/runtime head. The frozen `18 → 19`, `19 → 20`, and `20 → 21` migrations must never
-be edited, squashed, renumbered, or reused. The next schema change must append
-`23 → 24`. Each step preserves the prior representation by adding beside frozen
-durable shapes rather than widening released checks or deleting their bytes.
+Version 1 is the Junto baseline schema, selected by `CURRENT_STATE_SCHEMA_VERSION = 1`
+and declared in `src/main/junto/state/migrations.ts`. Every subsequent schema
+change after version 1 must append an `N → N+1` migration (starting with `1 → 2`)
+and prove representative data preservation. A released migration is immutable
+and may never be edited, removed, reordered, or renumbered.
 
 An unversioned non-empty database is adopted only when both its live schema and
 recorded identity match the exact version-1 baseline. This is not a general
-legacy importer: there is no file-store reader, dual schema, downgrade, repair
-path, or instruction to delete `junto.db`. Every schema change after version
-1 must append an `N → N+1` migration and prove representative data
-preservation. A released migration is immutable and may never be edited,
-removed, reordered, or renumbered.
+legacy importer: there is no file-store reader, dual schema, downgrade, or
+instruction to delete `junto.db`. Every schema change after version 1 must
+append an `N → N+1` migration and prove representative data preservation.
 
 Routine migrations are expand, preserve, and deprecate. They add a new
 representation, copy forward while retaining every installed row and old
@@ -438,7 +432,7 @@ canvas mutation path.
 An overseer is not another actor kind. It is an existing managed agent seat
 whose occupant may use closed `overseer` operations after a live human grant.
 Only humans grant or revoke; overseers cannot propagate authority. Copied
-aliases do not inherit the grant. Factory pause and play have no bearing on
+aliases do not inherit the grant. Workspace pause and play have no bearing on
 overseer administration. An overseer cannot delete its own seat, including
 indirect removal through canvas delete, kind change, or binding replacement,
 and cannot pan, zoom, focus, resize, or switch the operator viewport. It does
@@ -668,7 +662,7 @@ new fleet connection. Timeout or disconnect on `overseer` is uncertain
 completion; Command Center never automatically replays the mutation.
 
 The first transport adapter is OpenSSH. Command Center invokes the fixed
-`junto-station` command as one persistent framed session. The helper connects
+`junto station-stdio` command as one persistent framed session. The helper connects
 to the Remote app's owner-local control socket; Remote main strictly decodes
 and authorizes each frame and owns every database transaction. SSH never writes
 settings, projections, acknowledgements, status, or database files.

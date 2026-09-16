@@ -65,15 +65,11 @@ a wire codec and they do not authorize a feature. Two installations may have
 different app and schema versions while communicating through the same
 Station protocol.
 
-SQLite schema version 1 is the frozen durable baseline. The current
-source/runtime schema is version 22, selected by `CURRENT_STATE_SCHEMA_VERSION`
-and reached through the immutable contiguous chain declared in
-`src/main/junto/state/migrations.ts`. The public macOS 0.1.14 package remains
-historical evidence for schema version 18; it does not define the current
-source/runtime head. The frozen `18 → 19`, `19 → 20`, and `20 → 21` migrations must never
-be edited, squashed, renumbered, or reused. The next schema change must append
-`22 → 23`. Those schema numbers are local database facts. They are neither sent
-as migration instructions nor negotiated as Station behavior.
+SQLite schema version 1 is the baseline Junto schema, selected by
+`CURRENT_STATE_SCHEMA_VERSION = 1` and declared in
+`src/main/junto/state/migrations.ts`. Those schema numbers are local database
+facts. They are neither sent as migration instructions nor negotiated as
+Station behavior.
 
 Every release declares one contiguous Station-protocol support descriptor:
 
@@ -112,7 +108,7 @@ new protocol number become compatibility work for independently updated peers.
 One negotiated integer selects the complete strict bundle: session framing,
 control envelope, six Station API operations, Work records, projection
 encoding, bounds, and failure semantics. Discriminators such as
-`vellum/work/v2` are members of the selected Station protocol integer, not
+`junto/work/v1` are members of the selected Station protocol integer, not
 independently negotiated versions.
 There is no session-version array, Station-API-version array,
 Work-version array, projection-version array, fallback-protocol number, or
@@ -145,14 +141,13 @@ The canonical implementation has:
 12. no file-store, polling-protocol, remote-browser, or retired internal
     compatibility path surviving beside that end state.
 
-The file-store-to-SQLite change was a direct cutover. SQLite version 1 is now
-the durable baseline: later releases migrate an installed `junto.db`
-forward in place through a contiguous transactionally applied chain. This
-does not create protocol coexistence, legacy file import, dual reads/writes,
+SQLite version 1 is the Junto baseline: later releases migrate an installed
+`junto.db` forward in place through a contiguous transactionally applied chain.
+This does not create protocol coexistence, legacy file import, dual reads/writes,
 or downgrade support. Unknown, drifted, and newer database versions fail
-closed without mutation; a recognized older version is upgraded and retained,
-not deleted. Released migrations are append-only, and routine evolution is
-expand/preserve/deprecate: installed rows, fields, names, and meanings survive.
+closed without mutation. Released migrations are append-only, and routine
+evolution is expand/preserve/deprecate: installed rows, fields, names, and
+meanings survive.
 
 ### Local package update is not Station negotiation
 
@@ -1101,7 +1096,7 @@ Every record has the following exact common envelope:
 
 ```text
 WorkRecordCommon {
-  protocol: "vellum/work/v2"
+  protocol: "junto/work/v1"
   id: WorkRecordId
   recordType: "command" | "fact" | "disposition"
   item: WorkItemRef
