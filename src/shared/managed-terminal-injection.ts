@@ -402,9 +402,9 @@ const artifactSlot = (targets: readonly InjectionConnectedTarget[]): string => {
 
 | intent | command |
 |---|---|
-| ship output | \`vellum-command artifact publish '{"target":"${t}","name":"<name>","parts":[{"kind":"text","text":"..."}],"task":{"target":"<tasksId>","id":"<taskId>"}}'\` |
+| ship output | \`vellum-command artifact publish '{"target":"${t}","name":"<name>","parts":[{"kind":"text","text":"..."}]${TASKS_ENABLED ? `,"task":{"target":"<tasksId>","id":"<taskId>"}` : ""}}'\` |
 
-Artifacts never block: ship intermediate and final outputs freely — they do not stop other seats. When completing a task with an artifacts requirement, publish first with task linkage, then complete with \`completionEvidence.artifacts: [{"artifactId":"<id>","nodeId":"${t}"}]\`.`;
+Artifacts never block: ship intermediate and final outputs freely — they do not stop other seats.${TASKS_ENABLED ? ` When completing a task with an artifacts requirement, publish first with task linkage, then complete with \`completionEvidence.artifacts: [{"artifactId":"<id>","nodeId":"${t}"}]\`.` : ""}`;
 };
 
 const boardSlot = (targets: readonly InjectionConnectedTarget[]): string => {
@@ -501,6 +501,9 @@ export const targetsBySlot = (
   for (const t of targets ?? []) {
     for (const slot of Object.keys(SLOT_PORTS) as EdgeSlotKind[]) {
       if (!BROWSER_ENABLED && slot === "browser") continue;
+      // Reviews ride a task sink as their verdict target — without the tasks
+      // surface the held verdict.post port has no command it can run.
+      if (!TASKS_ENABLED && (slot === "tasks" || slot === "reviews")) continue;
       if (!SLOT_PORTS[slot].some((port) => t.ports?.includes(port))) continue;
       const list = out.get(slot);
       if (list) list.push(t);
@@ -585,11 +588,11 @@ const fewShotsForTargets = (
 ): readonly DoctrineFewShotPayload[] => {
   if (!targets) return [];
   const out: DoctrineFewShotPayload[] = [];
-  if (targets.some((target) => target.ports?.includes("tasks.claim"))) out.push(FEW_SHOT_CLAIM);
-  if (targets.some((target) => target.ports?.includes("tasks.update"))) {
+  if (TASKS_ENABLED && targets.some((target) => target.ports?.includes("tasks.claim"))) out.push(FEW_SHOT_CLAIM);
+  if (TASKS_ENABLED && targets.some((target) => target.ports?.includes("tasks.update"))) {
     out.push(FEW_SHOT_PROGRESS, FEW_SHOT_COMPLETE_EVIDENCE);
   }
-  if (targets.some((target) => target.ports?.includes("request.escalate"))) out.push(FEW_SHOT_ESCALATE);
+  if (REQUESTS_ENABLED && targets.some((target) => target.ports?.includes("request.escalate"))) out.push(FEW_SHOT_ESCALATE);
   return out;
 };
 

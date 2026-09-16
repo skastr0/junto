@@ -309,12 +309,22 @@ export const buildDoctrineDoc = (): string => {
     "exactly the ports that node offers. There is no permission file to drift; the",
     "canvas drawing is the ACL. `ScopeError` names the missing edge and the fix.",
     "",
-    "### Why completion is earned",
-    "`completed` is a factory verdict: the server rejects the transition unless",
-    "finish criteria are met and evidence is attached (artifacts exist, linked,",
-    "named exactly; git SHAs well-formed and counted). The agent submits; the",
-    "factory ratifies. Operators can QA-reject back to Queue with a comment.",
-    "",
+    ...(TASKS_ENABLED
+      ? [
+        "### Why completion is earned",
+        "`completed` is a factory verdict: the server rejects the transition unless",
+        "finish criteria are met and evidence is attached (artifacts exist, linked,",
+        "named exactly; git SHAs well-formed and counted). The agent submits; the",
+        "factory ratifies. Operators can QA-reject back to Queue with a comment.",
+        "",
+      ]
+      : [
+        "### Why reporting is the record",
+        "There is no factory verdict to earn in this build. What a seat writes",
+        "on its edges is the record the operator reads — say what you did,",
+        "what you verified, and what you could not finish.",
+        "",
+      ]),
     "### Why identity is process-bind",
     "Your seat's identity is its process tree under Vellum Command, proven by the",
     "OS (peer PID). No API key, no client-supplied identity, no env-var authority.",
@@ -326,7 +336,7 @@ export const buildDoctrineDoc = (): string => {
     "writes to your harness. The doctrine is the pointer; the CLI is the map.",
     "",
     "### The operational events",
-    "Beyond the doctrine you receive: claim notices (task data at claim), edge",
+    `Beyond the doctrine you receive: ${TASKS_ENABLED ? "claim notices (task data at claim), " : ""}edge`,
     "map-change notices (contracts added/removed), orient notices (re-grounding),",
     "repair notes (environment fixes), and factory mail. All are compact; the",
     "full context is always one `onboard` away.",
@@ -409,7 +419,7 @@ export const DOC_TOPICS: ReadonlyArray<{
   { id: "doctrine", title: "Full doctrine", description: "The complete doctrine: injected body + expansions." },
   { id: "nodes", title: "Node catalog", description: "Every node kind, its role, and the ports it offers." },
   { id: "node", title: "Node kind in depth", description: "Role, ports, data model, events, and contract for one kind." },
-  { id: "concepts", title: "Concepts", description: "Seats, grants, the factory, earned completion, identity, errors, the ladder." },
+  { id: "concepts", title: "Concepts", description: `Seats, grants, ${TASKS_ENABLED ? "the factory, earned completion" : "edges, honest reporting"}, identity, errors, the ladder.` },
   { id: "contract", title: "CLI contract", description: "The full command surface with schemas and examples." },
 ];
 
