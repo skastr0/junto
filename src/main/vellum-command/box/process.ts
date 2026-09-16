@@ -234,7 +234,7 @@ const executable = (path: string): boolean => {
   }
 };
 
-/** Resolve Box without consulting a login shell or executing user-controlled text. */
+/** Resolve Box from the already-merged spawn PATH; no shell is run here. */
 export const resolveBoxCliCandidates = (
   configuredPath?: string,
   environment: NodeJS.ProcessEnv = process.env,

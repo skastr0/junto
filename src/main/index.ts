@@ -1277,8 +1277,9 @@ if (packagedSandboxDisablingSwitch !== undefined) {
       return;
     }
 
-    // Warm inherited PATH + the static tool floor before any adapter/service
-    // spawn. This never invokes a login shell or user shell startup files.
+    // Resolve the operator PATH before any adapter/service spawn: the login
+    // shell is probed once for its PATH, then inherited PATH and the static
+    // floor fill any gaps.
     await resolvedSpawnEnv();
     if (shutdownAdmissionClosed) return;
 

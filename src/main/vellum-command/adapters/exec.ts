@@ -1,3 +1,4 @@
+import { spawn } from "node:child_process";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { ACCESS_CANCELLED_ERROR } from "../access-signal";
@@ -361,13 +362,15 @@ const runRegisteredAdapterOperation = (
 
 // Well-known install roots, in priority order. This is the guaranteed floor:
 // under a packaged/launchd/Finder launch the process inherits launchd's
-// minimal PATH (/usr/bin:/bin:/usr/sbin:/sbin) and does NOT source the user's
-// shell rc, so bare CLI names (hermes/codex/bun) would
-// ENOENT. These dirs — ~/.local/bin + the mise shims dir chiefly — resolve all
-// of them without any login shell, so even a broken login shell still works.
+// minimal PATH (/usr/bin:/bin:/usr/sbin:/sbin). Bare CLI names
+// (hermes/codex/bun) would ENOENT, so these dirs resolve the common roots even
+// when the login-shell PATH capture below cannot run. Real binary dirs rank
+// ahead of shim dirs: a mise shim only works inside an activated context, so
+// a genuine binary must win whenever both exist.
 export const staticPathDirs = (home: string): ReadonlyArray<string> => [
   join(home, ".local", "bin"),
   join(home, ".kimi-code", "bin"),
+  join(home, ".bun", "bin"),
   join(home, ".local", "share", "mise", "shims"),
   "/opt/homebrew/bin",
   "/usr/local/bin",
@@ -377,12 +380,128 @@ export const staticPathDirs = (home: string): ReadonlyArray<string> => [
   "/sbin",
 ];
 
+// ── Login-shell PATH capture ────────────────────────────────────────────────
+//
+// The authoritative answer to "what does `codex` mean on this machine" lives
+// in the operator's shell startup files, not in any directory list we can
+// hardcode. A packaged launch cannot see ~/.bun/bin, nvm, volta, or mise
+// hook-env dirs until the user's own shell reports them. So once per app run
+// we ask the login shell for its environment — the same approach every app
+// that spawns user CLIs uses — bounded by a timeout and fail-open: any probe
+// failure just falls back to the static floor.
+//
+// This is the ONLY sanctioned execution of shell startup files in the spawn
+// plane, and it is used strictly for PATH discovery — never as a permission
+// probe and never on a per-spawn hot path.
+
+const LOGIN_SHELL_PROBE_TIMEOUT_MS = 10_000;
+const LOGIN_SHELL_PROBE_MAX_OUTPUT_BYTES = 1024 * 1024;
+const LOGIN_ENV_BEGIN = "VELLUM_COMMAND_ENV_BEGIN";
+const LOGIN_ENV_END = "VELLUM_COMMAND_ENV_END";
+
+const loginProbeShell = (): string | undefined => {
+  const fromEnv = process.env.SHELL?.trim();
+  if (fromEnv) return fromEnv;
+  if (process.platform === "win32") return undefined;
+  return process.platform === "darwin" ? "/bin/zsh" : "/bin/sh";
+};
+
+/**
+ * Extract PATH from the `env` dump between the probe sentinels. Shell rc
+ * output (motd, prompts, hook noise) lands outside the sentinels and is
+ * discarded; a missing sentinel or PATH line yields undefined.
+ */
+export const loginShellPathFromProbeOutput = (
+  output: string,
+): string | undefined => {
+  const begin = output.indexOf(LOGIN_ENV_BEGIN);
+  if (begin < 0) return undefined;
+  const bodyStart = begin + LOGIN_ENV_BEGIN.length;
+  const end = output.indexOf(LOGIN_ENV_END, bodyStart);
+  if (end < 0) return undefined;
+  const body = output.slice(bodyStart, end);
+  for (const line of body.split(/\r?\n/u)) {
+    if (!line.startsWith("PATH=")) continue;
+    const value = line.slice("PATH=".length).trim();
+    if (value.length > 0) return value;
+  }
+  return undefined;
+};
+
+/**
+ * Run the operator's default shell as login+interactive once and read its
+ * PATH. `-l` sources login files (.zprofile/.zlogin/.profile), `-i` sources
+ * interactive rc (.zshrc/.bashrc) where PATH exports and version-manager
+ * activation (mise/nvm/volta) actually live.
+ *
+ * Never throws, never blocks longer than the timeout, and never feeds stdin —
+ * rc files that prompt simply die with the probe.
+ */
+const captureLoginShellPath = (): Promise<string | undefined> =>
+  new Promise((resolve) => {
+    const shell = loginProbeShell();
+    if (shell === undefined) {
+      resolve(undefined);
+      return;
+    }
+    let child: ReturnType<typeof spawn>;
+    try {
+      child = spawn(
+        shell,
+        [
+          "-l",
+          "-i",
+          "-c",
+          // The markers are split mid-token so a tracing rc (set -x/verbose)
+          // echoing this command cannot forge a sentinel and corrupt the parse.
+          `echo VELLUM_COMMAND_ENV_""BEGIN; env; echo VELLUM_COMMAND_ENV_""END`,
+        ],
+        {
+          env: { ...process.env, TERM: "dumb" },
+          stdio: ["ignore", "pipe", "ignore"],
+        },
+      );
+    } catch {
+      resolve(undefined);
+      return;
+    }
+    let output = "";
+    let settled = false;
+    const finish = (path: string | undefined): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(path);
+    };
+    const kill = (): void => {
+      try {
+        child.kill("SIGKILL");
+      } catch {
+        // Probe teardown is best effort; close still settles the promise.
+      }
+    };
+    const timer = setTimeout(() => {
+      kill();
+      finish(undefined);
+    }, LOGIN_SHELL_PROBE_TIMEOUT_MS);
+    timer.unref?.();
+    child.on("error", () => finish(undefined));
+    child.stdout?.setEncoding("utf8");
+    child.stdout?.on("data", (chunk) => {
+      output += chunk;
+      if (Buffer.byteLength(output) > LOGIN_SHELL_PROBE_MAX_OUTPUT_BYTES) {
+        kill();
+      }
+    });
+    child.on("close", () => finish(loginShellPathFromProbeOutput(output)));
+  });
+
 // Pure PATH merge, extracted so the ordering/dedup contract is unit-testable.
-// Precedence: the environment Electron inherited, then the static floor.
-// Vellum Command deliberately never starts a login shell to discover PATH:
-// shell startup files are arbitrary user code and are not a permission probe.
-// First occurrence of each directory wins; empty entries are dropped.
+// Precedence: the operator's login-shell PATH, then the environment Electron
+// inherited, then operator tool dirs, then the static floor. First occurrence
+// of each directory wins; empty entries are dropped.
 export const mergePath = (inputs: {
+  readonly loginShellPath?: string;
   readonly currentPath?: string;
   readonly home: string;
   readonly extraDirs?: ReadonlyArray<string>;
@@ -396,6 +515,7 @@ export const mergePath = (inputs: {
     }
   };
 
+  pushAll(inputs.loginShellPath);
   pushAll(inputs.currentPath);
   for (const dir of inputs.extraDirs ?? []) {
     const trimmed = dir.trim();
@@ -415,11 +535,13 @@ export const mergePath = (inputs: {
 
 let extraPathDirs: ReadonlyArray<string> = [];
 let inheritedPath: string | undefined;
+let loginShellPath: string | undefined;
 let resolvedEnvPromise: Promise<NodeJS.ProcessEnv> | undefined;
 let resolvedEnvCache: NodeJS.ProcessEnv | undefined;
 
 const spawnPath = (): string =>
   mergePath({
+    loginShellPath,
     currentPath: inheritedPath ?? process.env.PATH,
     home: homedir(),
     extraDirs: extraPathDirs,
@@ -440,8 +562,9 @@ export const setConfiguredToolDirectories = (
 };
 
 // The one resolved environment every spawn call-site should use. Built once
-// from inherited PATH plus the static floor, without executing shell startup
-// files, and handed back for child_process { env } options.
+// from the operator's login-shell PATH (the authoritative user PATH), then
+// inherited PATH, then the static floor, and handed back for child_process
+// { env } options.
 //
 // Chat/agent spawn (chat/spawn.ts, wired by a later change), the codex/prism
 // service spawns, and runCli below all route through here so that a
@@ -455,14 +578,17 @@ export const setConfiguredToolDirectories = (
 // assignment is idempotent. No other key of process.env is touched.
 export const resolvedSpawnEnv = (): Promise<NodeJS.ProcessEnv> => {
   if (resolvedEnvPromise) return resolvedEnvPromise;
-  resolvedEnvPromise = Promise.resolve().then(() => {
-    inheritedPath ??= process.env.PATH;
-    const mergedPath = spawnPath();
-    process.env.PATH = mergedPath;
-    const env: NodeJS.ProcessEnv = { ...process.env, PATH: mergedPath };
-    resolvedEnvCache = env;
-    return env;
-  });
+  resolvedEnvPromise = Promise.resolve()
+    .then(() => captureLoginShellPath())
+    .then((captured) => {
+      loginShellPath = captured;
+      inheritedPath ??= process.env.PATH;
+      const mergedPath = spawnPath();
+      process.env.PATH = mergedPath;
+      const env: NodeJS.ProcessEnv = { ...process.env, PATH: mergedPath };
+      resolvedEnvCache = env;
+      return env;
+    });
   return resolvedEnvPromise;
 };
 

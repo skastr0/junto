@@ -54,12 +54,14 @@ export type HarnessExecutableResolution = {
 export const knownHarnessInstallDirs = (home: string): ReadonlyArray<string> => [
   join(home, ".local", "bin"),
   join(home, ".kimi-code", "bin"),
+  join(home, ".bun", "bin"),
   join(home, ".local", "share", "mise", "shims"),
 ];
 
 /**
- * Directories detection and launch both search: inherited PATH, operator
- * tool directories, then known home install dirs. No login shell.
+ * Directories detection and launch both search: the resolved seat PATH
+ * (login-shell PATH merged upstream by resolvedSpawnEnv), operator tool
+ * directories, then known home install dirs. No login shell is run here.
  */
 export const harnessSearchPath = (
   options: HarnessExecutableResolution = {},

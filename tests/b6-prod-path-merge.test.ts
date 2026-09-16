@@ -1,6 +1,7 @@
 import { homedir } from "node:os";
 import { afterAll, describe, expect, it } from "vitest";
 import {
+  loginShellPathFromProbeOutput,
   mergePath,
   resolvedSpawnEnv,
   resolvedSpawnEnvSync,
@@ -8,9 +9,9 @@ import {
 } from "../src/main/vellum-command/adapters/exec";
 
 // The spawn plane resolves user-installed CLIs under a packaged/launchd/Finder
-// launch without sourcing shell startup files. The merge logic is pure so the
-// ordering, deduplication, and static fallback are testable without executing
-// any user-controlled shell code.
+// launch by merging the operator's login-shell PATH with a static fallback
+// floor. The merge logic is pure so the ordering, deduplication, and floor
+// are testable without executing any user-controlled shell code.
 
 const HOME = "/home/tester";
 const split = (p: string) => p.split(":");
@@ -20,6 +21,7 @@ describe("staticPathDirs", () => {
     expect(staticPathDirs(HOME)).toEqual([
       "/home/tester/.local/bin",
       "/home/tester/.kimi-code/bin",
+      "/home/tester/.bun/bin",
       "/home/tester/.local/share/mise/shims",
       "/opt/homebrew/bin",
       "/usr/local/bin",
@@ -78,6 +80,22 @@ describe("mergePath", () => {
     );
   });
 
+  it("login-shell PATH precedes inherited PATH and the floor", () => {
+    const merged = mergePath({
+      loginShellPath: "/home/tester/.bun/bin:/opt/login/bin",
+      currentPath: "/usr/bin:/bin",
+      home: HOME,
+    });
+    const dirs = split(merged);
+    expect(dirs[0]).toBe("/home/tester/.bun/bin");
+    expect(dirs[1]).toBe("/opt/login/bin");
+    expect(dirs.indexOf("/opt/login/bin")).toBeLessThan(dirs.indexOf("/usr/bin"));
+    // A real binary dir from the login shell outranks a stale shim dir below.
+    expect(dirs.indexOf("/home/tester/.bun/bin")).toBeLessThan(
+      dirs.indexOf("/home/tester/.local/share/mise/shims"),
+    );
+  });
+
   it("dedups, keeping first occurrence", () => {
     const merged = mergePath({
       currentPath: "/a:/a:/b:/b:/c",
@@ -99,6 +117,35 @@ describe("mergePath", () => {
     expect(dirs[1]).toBe("/y");
     expect(dirs).not.toContain("");
     expect(dirs).not.toContain(" ");
+  });
+});
+
+describe("loginShellPathFromProbeOutput", () => {
+  it("extracts PATH between the sentinels, ignoring rc noise", () => {
+    const output = [
+      "shell greeting noise",
+      "VELLUM_COMMAND_ENV_BEGIN",
+      "HOME=/home/tester",
+      "PATH=/home/tester/.bun/bin:/usr/bin:/bin",
+      "SHELL=/bin/zsh",
+      "VELLUM_COMMAND_ENV_END",
+      "more noise after",
+    ].join("\n");
+    expect(loginShellPathFromProbeOutput(output)).toBe(
+      "/home/tester/.bun/bin:/usr/bin:/bin",
+    );
+  });
+
+  it("returns undefined when sentinels or PATH are absent", () => {
+    expect(loginShellPathFromProbeOutput("")).toBeUndefined();
+    expect(
+      loginShellPathFromProbeOutput("VELLUM_COMMAND_ENV_BEGIN\nFOO=1\n"),
+    ).toBeUndefined();
+    expect(
+      loginShellPathFromProbeOutput(
+        "VELLUM_COMMAND_ENV_BEGIN\nFOO=1\nVELLUM_COMMAND_ENV_END\n",
+      ),
+    ).toBeUndefined();
   });
 });
 

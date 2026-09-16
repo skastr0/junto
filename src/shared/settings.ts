@@ -114,8 +114,8 @@ export const AdvancedSettings = Schema.Struct({
   logsExplorer: Schema.optionalKey(Schema.Boolean),
   /**
    * Extra directories for detecting and launching agent CLIs. Optional so
-   * rows written before this field still decode. Absent ≡ none. Never a
-   * reason to run a login shell.
+   * rows written before this field still decode. Absent ≡ none. These rank
+   * after the operator's login-shell PATH and ahead of the static floor.
    */
   toolDirectories: Schema.optionalKey(
     Schema.Array(ToolDirectory).pipe(
