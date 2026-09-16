@@ -874,8 +874,8 @@ export const qualifyFreshPackageRuntimeParity = async (input: {
           cwd: cloneRoot,
           env: {
             ...process.env,
-            VELLUM_COMMAND_SOURCE_COMMIT: source.sourceCommit,
-            VELLUM_COMMAND_PACKAGE_COHORT_NONCE: attempt.nonce,
+            JUNTO_SOURCE_COMMIT: source.sourceCommit,
+            JUNTO_PACKAGE_COHORT_NONCE: attempt.nonce,
           },
         });
 

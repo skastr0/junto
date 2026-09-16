@@ -747,7 +747,7 @@ export type WorkVerdictPostResult = {
   readonly newEpoch?: number;
 };
 
-export const WorkService = Context.Service<WorkService, WorkServiceShape>("@vellum-command/WorkService");
+export const WorkService = Context.Service<WorkService, WorkServiceShape>("@junto/WorkService");
 
 export const WorkLive = Layer.effect(
   WorkService,

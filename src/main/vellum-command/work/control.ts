@@ -252,7 +252,7 @@ import {
 
 export const resolveWorkHome = (home?: string, workHome?: string): string => {
   if (workHome && workHome.trim().length > 0) return workHome.trim();
-  const env = process.env.VELLUM_COMMAND_WORK_HOME?.trim();
+  const env = process.env.JUNTO_WORK_HOME?.trim();
   if (env) return env;
   return workControlDir(home ?? resolveVellumCommandHome());
 };

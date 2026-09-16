@@ -29,7 +29,7 @@ import { launchForManagedSpawn } from "../src/main/vellum-command/term/managed-s
 import type { CanvasDoc } from "../src/shared/canvas";
 
 const temps: string[] = [];
-const originalVellumHome = process.env.VELLUM_COMMAND_HOME;
+const originalVellumHome = process.env.JUNTO_HOME;
 
 const tempHome = (): string => {
   const dir = mkdtempSync(join(tmpdir(), "vellum-hermes-statedb-"));
@@ -66,8 +66,8 @@ const seedStateDb = (
 };
 
 afterEach(() => {
-  if (originalVellumHome === undefined) delete process.env.VELLUM_COMMAND_HOME;
-  else process.env.VELLUM_COMMAND_HOME = originalVellumHome;
+  if (originalVellumHome === undefined) delete process.env.JUNTO_HOME;
+  else process.env.JUNTO_HOME = originalVellumHome;
   __setSessionExistenceHomeForTest(undefined);
   for (const dir of temps.splice(0)) {
     try {
@@ -209,7 +209,7 @@ describe("hermes cold wake", () => {
   });
 
   it("recovers model and provider from the authored argv on replan", () => {
-    delete process.env.VELLUM_COMMAND_HOME;
+    delete process.env.JUNTO_HOME;
     const home = tempHome();
     seedStateDb(home, [SESSION_ID]);
     __setSessionExistenceHomeForTest(home);

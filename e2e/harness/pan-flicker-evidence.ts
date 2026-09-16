@@ -16,7 +16,7 @@
  *   - long tasks + CDP Performance.getMetrics deltas (metrics collection is
  *     explicitly enabled; absent metric names fail the run instead of
  *     reading as zero)
- *   - the app's own VELLUM_PERF counters (loom replans, route wires,
+ *   - the app's own JUNTO_PERF counters (loom replans, route wires,
  *     activity mark mounts) via the in-page harness snapshot
  *
  * Each gesture keeps the window open 1.2s after the gesture so the busy-gate
@@ -61,7 +61,7 @@ type EvidenceWindow = {
 
 export async function installEvidence(page: import("@playwright/test").Page): Promise<void> {
   await page.addInitScript(() => {
-    (globalThis as { VELLUM_PERF?: string }).VELLUM_PERF = "1";
+    (globalThis as { JUNTO_PERF?: string }).JUNTO_PERF = "1";
   });
   // The perf flag resolved at module load — arm it before the app boots, then reload.
   await page.reload();

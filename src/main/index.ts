@@ -204,14 +204,14 @@ app.commandLine.removeSwitch("proxy-auto-detect");
 // Defense in depth for every renderer, including future windows whose local
 // preferences might otherwise drift. This must run before app readiness.
 app.enableSandbox();
-// Official `bun run dev` sets VELLUM_COMMAND_HOME (~/.vellum-command-dev). Pin Electron
+// Official `bun run dev` sets JUNTO_HOME (~/.vellum-command-dev). Pin Electron
 // userData under that home *before* requestSingleInstanceLock so the
 // Chromium singleton does not fight the packaged production install.
 // Never override --user-data-dir (e2e/probes) or packaged installs.
 if (
   shouldPinUnpackagedElectronUserData({
     packaged: app.isPackaged,
-    vellumHomeEnv: process.env.VELLUM_COMMAND_HOME,
+    vellumHomeEnv: process.env.JUNTO_HOME,
     hasUserDataDirSwitch: app.commandLine.hasSwitch("user-data-dir"),
   })
 ) {
@@ -335,7 +335,7 @@ const operatorControlEnabledAtLaunch =
   operatorControlEnabledFromInitialArgv(process.argv);
 
 // Playwright E2E needs a real authoring renderer (not --vellum-headless), but
-// must never steal macOS focus or plant Dock icons. VELLUM_COMMAND_E2E_SHOW=1 opts out
+// must never steal macOS focus or plant Dock icons. JUNTO_E2E_SHOW=1 opts out
 // for visual debugging of a single scenario.
 const e2ePresentation = e2ePresentationFromEnv();
 const e2eIsolateFocus = e2eFocusIsolationActive(e2ePresentation);
@@ -687,8 +687,8 @@ const RECOVERY_WINDOW_MS = 5 * 60 * 1_000;
 const MAX_RECOVERIES = 3;
 const RENDERER_SURFACE_READY_TIMEOUT_MS = resolveRendererSurfaceTimeoutMs({
   packaged: app.isPackaged,
-  testHarness: process.env.VELLUM_COMMAND_E2E === "1",
-  override: process.env.VELLUM_COMMAND_E2E_RENDERER_SURFACE_TIMEOUT_MS,
+  testHarness: process.env.JUNTO_E2E === "1",
+  override: process.env.JUNTO_E2E_RENDERER_SURFACE_TIMEOUT_MS,
   fallbackMs: 30_000,
 });
 const rendererSurfaceRecovery = createRendererSurfaceRecovery({
@@ -1228,10 +1228,10 @@ if (packagedSandboxDisablingSwitch !== undefined) {
     // Process log ring: main console + Effect logger (layer already on AppRuntime).
     installObservabilityConsoleHook();
     startTransportJournal();
-    // VELLUM_PERF=1 only. Main-thread block monitor plus canvas read tape.
+    // JUNTO_PERF=1 only. Main-thread block monitor plus canvas read tape.
     startPerfProbe();
     // The 4ms invariant, asserted at the source. Dev runs are armed; a
-    // packaged app stays silent unless VELLUM_COMMAND_BUDGET says otherwise.
+    // packaged app stays silent unless JUNTO_BUDGET says otherwise.
     armMainThreadBudget({ enabled: !app.isPackaged });
     recordSystemLog(
       `${PRODUCT_NAME} ready - ${app.isPackaged ? "packaged" : "dev"} - ${app.getVersion() || "0.0.0"}`,
@@ -1327,17 +1327,17 @@ if (packagedSandboxDisablingSwitch !== undefined) {
       envHome: process.env.HOME,
       electronHome: app.getPath("home"),
       userData: app.getPath("userData"),
-      e2e: process.env.VELLUM_COMMAND_E2E === "1",
+      e2e: process.env.JUNTO_E2E === "1",
       headless,
       packaged: app.isPackaged,
     } as const;
     const termControlHome = resolveControlHome({
       ...controlHomeInput,
-      explicitHome: process.env.VELLUM_COMMAND_HOME,
+      explicitHome: process.env.JUNTO_HOME,
     });
     const browserControlHome = resolveControlHome({
       ...controlHomeInput,
-      explicitHome: process.env.VELLUM_COMMAND_BROWSER_HOME ?? process.env.VELLUM_COMMAND_HOME,
+      explicitHome: process.env.JUNTO_BROWSER_HOME ?? process.env.JUNTO_HOME,
     });
 
     const stations = await AppRuntime.runPromise(StationRepository);

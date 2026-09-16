@@ -210,7 +210,7 @@ test("crew reviews [fake-tui]: receipt, blocking, repair and green reach the liv
   const app = await launchVellum({
     seedCanvases: { [CANVAS]: doc },
     afterSeed: installCrewSeatHarness,
-    extraEnv: { VELLUM_COMMAND_PTY_TRACE: "1" },
+    extraEnv: { JUNTO_PTY_TRACE: "1" },
   });
   let testFailed = false;
   try {

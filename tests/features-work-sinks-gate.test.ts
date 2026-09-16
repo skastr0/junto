@@ -43,7 +43,7 @@ import {
   NODE_DOCS,
 } from "../src/shared/vellum-docs";
 import {
-  VELLUM_INTRO,
+  JUNTO_INTRO,
   WORKER_DOCTRINE,
 } from "../src/shared/managed-terminal-injection";
 import {
@@ -265,7 +265,7 @@ describe("work-sink product gates", () => {
       expect(buildConceptsDoc()).not.toContain("`board.");
 
       // Injected doctrine does not teach a disabled surface.
-      expect(VELLUM_INTRO).not.toContain("requests");
+      expect(JUNTO_INTRO).not.toContain("requests");
       expect(WORKER_DOCTRINE).not.toContain("### Requests block");
       expect(WORKER_DOCTRINE).not.toContain("### Artifacts never block");
 
@@ -328,7 +328,7 @@ describe("work-sink product gates", () => {
       expect(overseerOperationEnabled("board.list")).toBe(true);
       expect(NODE_DOCS.some((doc) => doc.kind === "board")).toBe(true);
       expect(WORKER_DOCTRINE).toContain("### Requests block");
-      expect(VELLUM_INTRO).toContain("requests");
+      expect(JUNTO_INTRO).toContain("requests");
       expect(
         overseerExamples.some((example) =>
           example.command_id.startsWith("overseer.request"),

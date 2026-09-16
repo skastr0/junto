@@ -17,11 +17,11 @@ export const RETIRED_PRODUCT_STATE_SIGNATURES = [
   "applied.ack",
   "usage-state.json",
   "origin-key.json",
-  "VELLUM_SETTINGS_PATH",
-  "VELLUM_HOSTS_PATH",
-  "VELLUM_STATION_STATUS_PATH",
-  "VELLUM_CANVAS_AUTHORITY_DIR",
-  "VELLUM_STATE_DB",
+  "JUNTO_SETTINGS_PATH",
+  "JUNTO_HOSTS_PATH",
+  "JUNTO_STATION_STATUS_PATH",
+  "JUNTO_CANVAS_AUTHORITY_DIR",
+  "JUNTO_STATE_DB",
   "applyIrreversibleStateCutovers",
   "runtime_store_values",
   "state_metadata",
@@ -30,7 +30,7 @@ export const RETIRED_PRODUCT_STATE_SIGNATURES = [
   "work_home_sequences",
   "runtime/open-url",
   "NodeRefRelay",
-  "VELLUM_AUTHORIAL_WRITE",
+  "JUNTO_AUTHORIAL_WRITE",
   "CanvasControlRemove",
   "removeCanvasThroughControl",
   "canvas:rm",
@@ -70,8 +70,8 @@ export type RetiredProductStateSignature =
 
 export const RETIRED_PRODUCT_STATE_COMPOUND_SIGNATURES = [
   {
-    label: "VELLUM_BROWSER_DIR + config.json",
-    signatures: ["VELLUM_BROWSER_DIR", "config.json"],
+    label: "JUNTO_BROWSER_DIR + config.json",
+    signatures: ["JUNTO_BROWSER_DIR", "config.json"],
   },
 ] as const;
 

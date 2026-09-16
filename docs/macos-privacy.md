@@ -19,7 +19,7 @@ that action. Narrow startup metadata/network exceptions are listed below.
   signer assigns this profile only to its existing Electron roles. The CLI
   and native libraries keep the empty profile and inherited plist.
 - The package declares only `NSMicrophoneUsageDescription`. Live conversations
-  are behind `VELLUM_COMMAND_LIVE_OVERSEER`, off in the shipping profile.
+  are behind `JUNTO_LIVE_OVERSEER`, off in the shipping profile.
   Microphone access begins only when the operator starts a call in an enabled
   build, and its tracks stop when the call ends. The runtime has no camera,
   screen capture, location, contacts, calendar,

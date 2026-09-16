@@ -172,7 +172,7 @@ const errorDetailFromJsonLines = (stdout: string): string | undefined => {
  * - Canonical id: `@vellum/box/BoxCli` — single definition; no dual path.
  * - Service id: Context.Service (Effect V4 live).
  * - Shape:
- *   `class BoxCli extends Context.Service<BoxCli, BoxCli>()("@vellum-command/box/BoxCli") {}`
+ *   `class BoxCli extends Context.Service<BoxCli, BoxCli>()("@junto/box/BoxCli") {}`
  * - Layer today: BoxCliLive / makeBoxCli — V4 rename candidate BoxCli.layer
  *   Do not dual-export Live + `.layer` names.
  */
@@ -201,7 +201,7 @@ export class BoxCli extends Context.Service<BoxCli,
       box: OwnedBox,
       policy: BoxAutoStopPolicy,
     ) => Effect.Effect<void, BoxCliError>;
-  }>()("@vellum-command/box/BoxCli") {}
+  }>()("@junto/box/BoxCli") {}
 
 export const makeBoxCli = (
   runner: Context.Service.Shape<typeof BoxProcessRunner>,

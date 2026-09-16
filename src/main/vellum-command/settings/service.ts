@@ -74,7 +74,7 @@ import { dirname, join } from "node:path";
  * - Canonical id: `@vellum/SettingsService` — single definition; no dual path.
  * - Service id: Context.Service (Effect V4 live).
  * - Shape:
- *   `class SettingsService extends Context.Service<SettingsService, SettingsService>()("@vellum-command/SettingsService") {}`
+ *   `class SettingsService extends Context.Service<SettingsService, SettingsService>()("@junto/SettingsService") {}`
  * - Layer today: SettingsLive / makeSettingsLive — V4 rename candidate SettingsService.layer
  *   Do not dual-export Live + `.layer` names.
  */
@@ -94,7 +94,7 @@ export class SettingsService extends Context.Service<SettingsService,
       SettingsError
     >;
     readonly subscribe: (listener: (settings: Settings) => void) => () => void;
-  }>()("@vellum-command/SettingsService") {}
+  }>()("@junto/SettingsService") {}
 
 export interface SettingsServiceApi {
   readonly doctor: Effect.Effect<ServiceCheck>;

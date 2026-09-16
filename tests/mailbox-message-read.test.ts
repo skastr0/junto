@@ -110,7 +110,7 @@ describe("mailbox message read receipts", () => {
     roots.push(root);
     mkdirSync(join(root, "state"), { recursive: true });
     mkdirSync(join(root, "canvases"), { recursive: true });
-    process.env.VELLUM_COMMAND_CANVASES_DIR = join(root, "canvases");
+    process.env.JUNTO_CANVASES_DIR = join(root, "canvases");
     const runtime = makeRuntime(root);
     runtimes.push(runtime);
 
@@ -188,7 +188,7 @@ describe("mailbox message read receipts", () => {
     roots.push(root);
     mkdirSync(join(root, "state"), { recursive: true });
     mkdirSync(join(root, "canvases"), { recursive: true });
-    process.env.VELLUM_COMMAND_CANVASES_DIR = join(root, "canvases");
+    process.env.JUNTO_CANVASES_DIR = join(root, "canvases");
     const runtime = makeRuntime(root);
     runtimes.push(runtime);
 

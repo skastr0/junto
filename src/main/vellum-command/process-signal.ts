@@ -9,7 +9,7 @@ import {
   type ProcessGroupEpoch,
 } from "./process-epoch";
 
-const OwnedProcessTypeId: unique symbol = Symbol("@vellum-command/OwnedProcess");
+const OwnedProcessTypeId: unique symbol = Symbol("@junto/OwnedProcess");
 export interface OwnedProcess { readonly [OwnedProcessTypeId]: typeof OwnedProcessTypeId; readonly source: string; }
 
 export const KillablePid = Schema.Number.pipe(Schema.check(Schema.isInt()), 

@@ -59,7 +59,7 @@ const launch = () =>
   launchVellum({
     seedCanvases: { [CANVAS]: mailDoc },
     afterSeed: installCrewSeatHarness,
-    extraEnv: { VELLUM_COMMAND_PTY_TRACE: "1" },
+    extraEnv: { JUNTO_PTY_TRACE: "1" },
   });
 
 /** [delivery]/[wake] lines from the sandbox app's own main log. */
@@ -369,7 +369,7 @@ test("crew mail [fake-tui]: masking msg.send off the edge refuses the send", asy
       ),
     },
     afterSeed: installCrewSeatHarness,
-    extraEnv: { VELLUM_COMMAND_PTY_TRACE: "1" },
+    extraEnv: { JUNTO_PTY_TRACE: "1" },
   });
   try {
     const { page, sandbox } = vellum;

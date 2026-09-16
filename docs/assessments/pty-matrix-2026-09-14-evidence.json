@@ -6,7 +6,7 @@
       "passed": 249,
       "skipped": 1,
       "files": 9,
-      "command": "VELLUM_COMMAND_TEST_FEATURE_PROFILE=all-on bunx --no-install vitest run tests/pty-e2e tests/managed-terminal-drive.test.ts tests/message-delivery-service.test.ts tests/managed-spawn-and-drive-gaps.test.ts"
+      "command": "JUNTO_TEST_FEATURE_PROFILE=all-on bunx --no-install vitest run tests/pty-e2e tests/managed-terminal-drive.test.ts tests/message-delivery-service.test.ts tests/managed-spawn-and-drive-gaps.test.ts"
     },
     "full": {
       "passed": 6932,

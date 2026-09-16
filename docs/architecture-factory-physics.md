@@ -292,7 +292,7 @@ the act can touch the OS.
 | **ACL matrix** (principal × resource × verb tables) | Ocaps + edges scale with the drawn factory; matrices diverge from the document |
 | **Ambient region grants** | Region is geography, not a security domain |
 | **Authorial `ether.role`** | Role is derived from kind; mirrors stay derived |
-| **Client-supplied identity** | Process-bind only; no `VELLUM_COMMAND_NODE_REF` claims |
+| **Client-supplied identity** | Process-bind only; no `JUNTO_NODE_REF` claims |
 | **Encoding occupancy in the authorial document as authority** | Occupancy is live; restart re-baselines seats |
 | **Stops as access control** | Derived stoppage filters phase only, never access |
 | **Attention as authz** | Operator focus never mints edges |

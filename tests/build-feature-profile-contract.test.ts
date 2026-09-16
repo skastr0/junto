@@ -13,8 +13,8 @@ const repoRoot = path.resolve(
 
 const cleanFeatureEnvironment = (): NodeJS.ProcessEnv => {
   const environment = { ...process.env };
-  delete environment.VELLUM_COMMAND_FEATURE_PROFILE;
-  delete environment.VELLUM_COMMAND_ALLOW_FEATURE_OVERRIDES;
+  delete environment.JUNTO_FEATURE_PROFILE;
+  delete environment.JUNTO_ALLOW_FEATURE_OVERRIDES;
   for (const feature of Object.values(FEATURE_CATALOG)) delete environment[feature.env];
   return environment;
 };
@@ -29,8 +29,8 @@ const runBuildPreflight = (environment = cleanFeatureEnvironment()) =>
 describe("packaged feature build contract", () => {
   it("admits ordinary source builds without release credentials", () => {
     const environment = cleanFeatureEnvironment();
-    delete environment.VELLUM_COMMAND_MAC_TEAM_ID;
-    delete environment.VELLUM_COMMAND_MAC_SIGNING_IDENTITY;
+    delete environment.JUNTO_MAC_TEAM_ID;
+    delete environment.JUNTO_MAC_SIGNING_IDENTITY;
     const result = runBuildPreflight(environment);
     expect(result.status).toBe(0);
     expect(result.stdout).toContain('"profile":"ship"');
@@ -38,13 +38,13 @@ describe("packaged feature build contract", () => {
 
   it.skipIf(process.platform !== "darwin")("requires explicit signing authority before any official build", () => {
     const environment = cleanFeatureEnvironment();
-    delete environment.VELLUM_COMMAND_MAC_TEAM_ID;
-    delete environment.VELLUM_COMMAND_MAC_SIGNING_IDENTITY;
+    delete environment.JUNTO_MAC_TEAM_ID;
+    delete environment.JUNTO_MAC_SIGNING_IDENTITY;
     const result = spawnSync("/bin/bash", [
       path.join(repoRoot, "scripts", "build-app.sh"), "--preflight-only", "--sign",
     ], { cwd: repoRoot, encoding: "utf8", env: environment });
     expect(result.status).toBe(1);
-    expect(result.stderr).toContain("VELLUM_COMMAND_MAC_TEAM_ID");
+    expect(result.stderr).toContain("JUNTO_MAC_TEAM_ID");
   });
 
   it("defaults the standalone CLI compiler to explicit ship defines", () => {
@@ -68,12 +68,12 @@ describe("packaged feature build contract", () => {
 
   it("rejects ship deviations unless packaging receives explicit authority", () => {
     const deviation = cleanFeatureEnvironment();
-    deviation.VELLUM_COMMAND_BROWSER = "1";
+    deviation.JUNTO_BROWSER = "1";
     const rejected = runBuildPreflight(deviation);
     expect(rejected.status).toBe(1);
-    expect(rejected.stderr).toContain("ship feature deviation requires VELLUM_COMMAND_ALLOW_FEATURE_OVERRIDES=1");
+    expect(rejected.stderr).toContain("ship feature deviation requires JUNTO_ALLOW_FEATURE_OVERRIDES=1");
 
-    deviation.VELLUM_COMMAND_ALLOW_FEATURE_OVERRIDES = "1";
+    deviation.JUNTO_ALLOW_FEATURE_OVERRIDES = "1";
     const authorized = runBuildPreflight(deviation);
     expect(authorized.status).toBe(0);
     expect(authorized.stdout).toContain('"profile":"ship"');

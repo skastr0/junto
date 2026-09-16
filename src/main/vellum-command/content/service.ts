@@ -151,7 +151,7 @@ export type ContentServiceShape = {
  *   empty-context lookup (claim-gate class of bug).
  */
 export class ContentService extends Context.Service<ContentService,
-  ContentServiceShape>()("@vellum-command/ContentService") {}
+  ContentServiceShape>()("@junto/ContentService") {}
 
 const makeContentService = (
   state: StateService,

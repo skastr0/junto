@@ -500,7 +500,7 @@ const BUILTIN_BY_KEY = new Map(
 
 /**
  * Canonical corpus root: `tests/pty-e2e/corpus/<harness>/<scenario>.jsonl`
- * (+ per-harness `manifest.json`). `VELLUM_PTY_CORPUS` overrides it — the
+ * (+ per-harness `manifest.json`). `JUNTO_PTY_CORPUS` overrides it — the
  * transition hatch while the captures move in-repo; it must name a real
  * directory or resolution fails.
  *
@@ -509,7 +509,7 @@ const BUILTIN_BY_KEY = new Map(
  */
 const CORPUS_DIR = join(dirname(fileURLToPath(import.meta.url)), "corpus");
 
-export const corpusRoot = (): string => process.env.VELLUM_PTY_CORPUS ?? CORPUS_DIR;
+export const corpusRoot = (): string => process.env.JUNTO_PTY_CORPUS ?? CORPUS_DIR;
 
 /** Absolute path of one capture. Does not check existence. */
 export const capturePath = (harness: string, scenario: string): string =>
@@ -552,7 +552,7 @@ export function requireCapture(harness: string, scenario: string): LoadedFixture
   throw new Error(
     `real capture missing: ${harness}/${scenario}\n` +
       `  looked for: ${file}\n` +
-      `  corpus root: ${corpusRoot()}${process.env.VELLUM_PTY_CORPUS ? " (VELLUM_PTY_CORPUS)" : " (canonical)"}\n` +
+      `  corpus root: ${corpusRoot()}${process.env.JUNTO_PTY_CORPUS ? " (JUNTO_PTY_CORPUS)" : " (canonical)"}\n` +
       `  capture it with tests/pty-e2e/pty-capture.ts — a missing corpus is a red suite, never a skip.`,
   );
 }

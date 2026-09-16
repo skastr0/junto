@@ -73,13 +73,13 @@ fi
 if [[ "$SIGN" -eq 1 ]]; then
   "$BUN_EXECUTABLE" "$SCRIPT_DIR/mac-signing-config.mjs" --check
 fi
-export VELLUM_COMMAND_FEATURE_PROFILE="${VELLUM_COMMAND_FEATURE_PROFILE:-ship}"
+export JUNTO_FEATURE_PROFILE="${JUNTO_FEATURE_PROFILE:-ship}"
 FEATURE_DEVIATION="$(
   "$BUN_EXECUTABLE" "$SCRIPT_DIR/build-features.ts" --ship-deviation
 )"
-if [[ -n "$FEATURE_DEVIATION" && "${VELLUM_COMMAND_ALLOW_FEATURE_OVERRIDES:-}" != "1" ]]; then
+if [[ -n "$FEATURE_DEVIATION" && "${JUNTO_ALLOW_FEATURE_OVERRIDES:-}" != "1" ]]; then
   printf \
-    'vellum-command: error: ship feature deviation requires VELLUM_COMMAND_ALLOW_FEATURE_OVERRIDES=1 (%s)\n' \
+    'vellum-command: error: ship feature deviation requires JUNTO_ALLOW_FEATURE_OVERRIDES=1 (%s)\n' \
     "$FEATURE_DEVIATION" >&2
   exit 1
 fi

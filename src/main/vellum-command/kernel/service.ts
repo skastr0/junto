@@ -187,7 +187,7 @@ export class KernelService extends Context.Service<KernelService,
           >)
         | undefined,
     ) => void;
-  }>()("@vellum-command/KernelService") {}
+  }>()("@junto/KernelService") {}
 
 const SAFETY_INTERVAL_MS = 30_000;
 

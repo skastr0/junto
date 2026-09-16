@@ -434,7 +434,7 @@ export const decodeLinuxRuntimeAuditReceipt = (
 export const validateUserServiceTemplate = (input: string): void => {
   if (
     !input.includes(
-      "ExecStart=@VELLUM_COMMAND_RUNTIME_ROOT@/resources/systemd/vellum-command-remote-launch\n",
+      "ExecStart=@JUNTO_RUNTIME_ROOT@/resources/systemd/vellum-command-remote-launch\n",
     )
   ) {
     throw new Error("user service must retain the runtime-root placeholder");

@@ -30,7 +30,7 @@ afterEach(async () => {
   for (const root of roots.splice(0)) {
     await rm(root, { recursive: true, force: true });
   }
-  delete process.env.VELLUM_COMMAND_WORK_HOME;
+  delete process.env.JUNTO_WORK_HOME;
 });
 
 const startFakeWorkServer = async (
@@ -38,7 +38,7 @@ const startFakeWorkServer = async (
 ): Promise<{ readonly invocations: () => number }> => {
   const root = await mkdtemp(join(tmpdir(), "vellum-overseer-socket-"));
   roots.push(root);
-  process.env.VELLUM_COMMAND_WORK_HOME = root;
+  process.env.JUNTO_WORK_HOME = root;
   await mkdir(root, { recursive: true });
   await writeFile(workControlTokenPath(root), "test-token\n", { mode: 0o600 });
 

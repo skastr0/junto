@@ -69,7 +69,7 @@ export class StationStatusService extends Context.Service<StationStatusService,
     readonly recordDeployment: (
       deployment: StationDeployRecord,
     ) => Effect.Effect<void, StationStatusStoreError>;
-  }>()("@vellum-command/StationStatusService") {}
+  }>()("@junto/StationStatusService") {}
 
 const parseRecord = (row: StationStatusFactRow): unknown => {
   try {

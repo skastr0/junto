@@ -12,7 +12,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("../src/main/vellum-command/supervision/systemctl-runner", () => ({
-  VELLUM_COMMAND_SYSTEMD_USER_UNIT: "vellum-command-remote.service",
+  JUNTO_SYSTEMD_USER_UNIT: "vellum-command-remote.service",
   systemdUserUnitTarget: mocks.systemdUserUnitTarget,
   showVellumSystemdUserUnit: mocks.showVellumSystemdUserUnit,
   startVellumSystemdUserUnit: mocks.startVellumSystemdUserUnit,

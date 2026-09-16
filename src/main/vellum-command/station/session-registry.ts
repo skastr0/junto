@@ -19,7 +19,7 @@ import {
 } from "./peer-session";
 
 const StationLivePeerTypeId: unique symbol = Symbol(
-  "@vellum-command/station/StationLivePeer",
+  "@junto/station/StationLivePeer",
 );
 
 /**

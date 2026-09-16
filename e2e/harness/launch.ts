@@ -13,9 +13,9 @@
  *    resolve the operator's real CLIs
  *  - renderer served from a local static server (127.0.0.1, ephemeral port)
  *    since the trusted renderer protocol only installs when app.isPackaged
- *  - focus isolation: VELLUM_COMMAND_E2E=1 creates off-screen, non-focusable windows
+ *  - focus isolation: JUNTO_E2E=1 creates off-screen, non-focusable windows
  *    + accessory Dock policy so Playwright never steals macOS focus. Opt into
- *    a visible window for debugging with VELLUM_COMMAND_E2E_SHOW=1 (not --vellum-headless —
+ *    a visible window for debugging with JUNTO_E2E_SHOW=1 (not --vellum-headless —
  *    that mode has no authoring renderer at all).
  */
 import { lstat, readdir, stat, unlink } from "node:fs/promises";
@@ -446,17 +446,17 @@ export const launchVellum = async (options: LaunchOptions = {}): Promise<VellumH
 
     // Drop live seat / work-control env that a factory agent inherits. Spreading
     // process.env would otherwise point the e2e app at the operator's real
-    // ~/.vellum-command/work lock (VELLUM_COMMAND_WORK_HOME) and fail work-control startup.
+    // ~/.vellum-command/work lock (JUNTO_WORK_HOME) and fail work-control startup.
     const inherited = { ...(process.env as Record<string, string>) };
     for (const key of [
-      "VELLUM_COMMAND_HOME",
-      "VELLUM_COMMAND_WORK_HOME",
-      "VELLUM_COMMAND_WORK_SOCKET",
-      "VELLUM_COMMAND_SOCKET",
-      "VELLUM_COMMAND_NODE_REF",
-      "VELLUM_COMMAND_SEAT",
-      "VELLUM_COMMAND_TOKEN",
-      "VELLUM_COMMAND_WORK_TOKEN",
+      "JUNTO_HOME",
+      "JUNTO_WORK_HOME",
+      "JUNTO_WORK_SOCKET",
+      "JUNTO_SOCKET",
+      "JUNTO_NODE_REF",
+      "JUNTO_SEAT",
+      "JUNTO_TOKEN",
+      "JUNTO_WORK_TOKEN",
     ] as const) {
       delete inherited[key];
     }
@@ -471,15 +471,15 @@ export const launchVellum = async (options: LaunchOptions = {}): Promise<VellumH
       TMP: sandbox.root,
       TEMP: sandbox.root,
       SHELL: "/bin/sh",
-      VELLUM_COMMAND_CANVASES_DIR: sandbox.canvasesDir,
-      VELLUM_COMMAND_E2E: "1",
+      JUNTO_CANVASES_DIR: sandbox.canvasesDir,
+      JUNTO_E2E: "1",
       // Match electron-vite's real development contract exactly. It supplies
       // the loopback authority without a trailing slash; using a normalized
       // test-only URL here previously hid a black-window startup regression.
       ELECTRON_RENDERER_URL: server.url.endsWith("/")
         ? server.url.slice(0, -1)
         : server.url,
-      ...(options.demo ? { VELLUM_COMMAND_DEMO: "1" } : {}),
+      ...(options.demo ? { JUNTO_DEMO: "1" } : {}),
       // Restrict PATH to e2e/fakes/bin + the system floor on every launch — no
       // operator CLI, no real host, no AI tokens. Never opt-in: app boot
       // unconditionally starts the usage-HUD poller (ipc.ts), which probes the
@@ -551,8 +551,8 @@ export const launchVellum = async (options: LaunchOptions = {}): Promise<VellumH
 
     // Defense in depth: if a window was somehow shown, re-hide Dock and do not
     // activate. Main already applies accessory policy + show:false when
-    // VELLUM_COMMAND_E2E=1 without VELLUM_COMMAND_E2E_SHOW.
-    if (process.env.VELLUM_COMMAND_E2E_SHOW !== "1") {
+    // JUNTO_E2E=1 without JUNTO_E2E_SHOW.
+    if (process.env.JUNTO_E2E_SHOW !== "1") {
       await app.evaluate(({ app: electronApp, BrowserWindow }) => {
         try {
           electronApp.dock?.hide();

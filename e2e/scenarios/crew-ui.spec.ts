@@ -71,7 +71,7 @@ test("crew ui [fake-tui]: the mail ledger renders truthful delivery on every row
       ),
     },
     afterSeed: installCrewSeatHarness,
-    extraEnv: { VELLUM_COMMAND_PTY_TRACE: "1" },
+    extraEnv: { JUNTO_PTY_TRACE: "1" },
   });
   try {
     const { page, sandbox } = vellum;

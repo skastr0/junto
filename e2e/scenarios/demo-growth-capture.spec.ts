@@ -1,6 +1,6 @@
 /**
  * Demo growth-50 capture — NOT a correctness spec. Rolls the growth-ladder
- * demo scenario (VELLUM_COMMAND_DEMO=1, scenario via VELLUM_COMMAND_DEMO_SCENARIO) and
+ * demo scenario (JUNTO_DEMO=1, scenario via JUNTO_DEMO_SCENARIO) and
  * records the take as a CDP screencast frame sequence + manifest. Post
  * (label overlays, encode) aligns everything by epoch: screencast frame
  * timestamps and the EDL's startedAtEpochMs share the machine clock.
@@ -9,7 +9,7 @@
  * wedges renderer boot (window never paints). The CDP screencast attaches
  * after boot and has no such interaction — and needs no screen-recording TCC.
  *
- * The window is shown (VELLUM_COMMAND_E2E_SHOW=1) for the length of the take: hidden
+ * The window is shown (JUNTO_E2E_SHOW=1) for the length of the take: hidden
  * or occluded windows stop compositing and the screencast stalls with them.
  * Keep the window unobstructed while this spec runs.
  */
@@ -46,8 +46,8 @@ test("roll growth-50 and record the take", async () => {
   const vellumCommand = await launchVellum({
     demo: true,
     extraEnv: {
-      VELLUM_COMMAND_DEMO_SCENARIO: "growth-50",
-      VELLUM_COMMAND_E2E_SHOW: "1",
+      JUNTO_DEMO_SCENARIO: "growth-50",
+      JUNTO_E2E_SHOW: "1",
     },
   });
 

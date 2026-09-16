@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { useReactFlow, type ReactFlowInstance } from "@xyflow/react";
 
-// Demo/scripting engine only (--vellum-demo / VELLUM_COMMAND_DEMO=1). The conductor
+// Demo/scripting engine only (--vellum-demo / JUNTO_DEMO=1). The conductor
 // that drives the beat clock lives outside React (a plain module scheduling
 // setTimeout callbacks), so it cannot call the useReactFlow() hook itself.
 // This bridge is the one place the live React Flow instance crosses from

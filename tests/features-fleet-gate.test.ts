@@ -37,10 +37,10 @@ describe("Fleet product gate", () => {
       "if (FLEET_UI_ENABLED && stationForSeed.station.role === \"command-center\")",
     );
     expect(app).toContain(
-      "const FleetOverlay = __VELLUM_COMMAND_FLEET_UI_ENABLED__",
+      "const FleetOverlay = __JUNTO_FLEET_UI_ENABLED__",
     );
     expect(fleetState).toContain(
-      "if (!__VELLUM_COMMAND_FLEET_UI_ENABLED__) return;",
+      "if (!__JUNTO_FLEET_UI_ENABLED__) return;",
     );
     expect(preload).toContain("...(FLEET_UI_ENABLED ? hostsApi : {})");
     expect(cli).toContain('dispatch.args[0] === "fleet"');

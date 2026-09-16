@@ -15,14 +15,14 @@ import {
 // unnecessary for every test going forward.
 const testFeatureEnvironment: NodeJS.ProcessEnv = {
   ...process.env,
-  ...(process.env.VELLUM_COMMAND_TEST_FEATURE_PROFILE
-    ? { VELLUM_COMMAND_FEATURE_PROFILE: process.env.VELLUM_COMMAND_TEST_FEATURE_PROFILE }
+  ...(process.env.JUNTO_TEST_FEATURE_PROFILE
+    ? { JUNTO_FEATURE_PROFILE: process.env.JUNTO_TEST_FEATURE_PROFILE }
     : {}),
 };
 
 export default defineConfig({
   // Tests default to the exact shipping profile. Feature-specific suites opt
-  // into all-on or individual VELLUM_COMMAND_* overrides before Vitest starts.
+  // into all-on or individual JUNTO_* overrides before Vitest starts.
   define: featureViteDefines(resolveBuildFeatures(testFeatureEnvironment)),
   test: {
     // e2e/ specs use @playwright/test's own `test`/`expect` and launch a

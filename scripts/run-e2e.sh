@@ -30,7 +30,7 @@ command=("$playwright" test --config e2e/playwright.config.ts "$@")
 if [[ "$(uname -s)" == "Linux" ]] && vellum_use_available_desktop; then
   if [[ -n "${AMP_DIRECT_DESKTOP:-}" ]]; then
     printf 'vellum-command: Electron E2E is using the active Amp Desktop\n' >&2
-    export VELLUM_COMMAND_E2E_SHOW="${VELLUM_COMMAND_E2E_SHOW:-1}"
+    export JUNTO_E2E_SHOW="${JUNTO_E2E_SHOW:-1}"
   fi
 elif [[ "$(uname -s)" == "Linux" ]]; then
   if ! command -v xvfb-run >/dev/null 2>&1; then
@@ -38,7 +38,7 @@ elif [[ "$(uname -s)" == "Linux" ]]; then
     exit 1
   fi
   printf 'vellum-command: Electron E2E is using the headless Xvfb fallback\n' >&2
-  export VELLUM_COMMAND_E2E_SHOW="${VELLUM_COMMAND_E2E_SHOW:-1}"
+  export JUNTO_E2E_SHOW="${JUNTO_E2E_SHOW:-1}"
   exec xvfb-run -a -s '-screen 0 1920x1200x24 -nolisten tcp' "${command[@]}"
 fi
 

@@ -6,7 +6,7 @@ resizes, and connects nodes. A separate configurable backend model selects the
 existing typed tools; the running app applies edits through its canvas owner.
 
 This feature is **off by default**, including normal development and ship builds.
-It is enabled only by `VELLUM_COMMAND_LIVE_OVERSEER=1` or the explicit `all-on`
+It is enabled only by `JUNTO_LIVE_OVERSEER=1` or the explicit `all-on`
 test profile. Turning it off hides the controls and provider settings and blocks
 the controller, IPC, Work route, and microphone permission. Stored rows remain
 readable under the same product schema.
@@ -16,8 +16,8 @@ readable under the same product schema.
 From the repository, build the native controller with the flag, then start the app:
 
 ```sh
-VELLUM_COMMAND_LIVE_OVERSEER=1 bun run cli:build
-VELLUM_COMMAND_LIVE_OVERSEER=1 bun run dev
+JUNTO_LIVE_OVERSEER=1 bun run cli:build
+JUNTO_LIVE_OVERSEER=1 bun run dev
 ```
 
 1. In **Settings → Providers → OpenAI live conversation**, save your OpenAI API
@@ -29,7 +29,7 @@ VELLUM_COMMAND_LIVE_OVERSEER=1 bun run dev
 4. Choose **Start live conversation**, then start the call inside the panel and
    allow microphone access. Granting authority alone never starts the microphone.
 
-For an experimental packaged build, pass `VELLUM_COMMAND_LIVE_OVERSEER=1` to
+For an experimental packaged build, pass `JUNTO_LIVE_OVERSEER=1` to
 `bun run app:build`; it must be present at build time. Setting it after launching
 an ordinary packaged build does not enable the feature.
 

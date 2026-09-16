@@ -396,8 +396,8 @@ export const staticPathDirs = (home: string): ReadonlyArray<string> => [
 
 const LOGIN_SHELL_PROBE_TIMEOUT_MS = 10_000;
 const LOGIN_SHELL_PROBE_MAX_OUTPUT_BYTES = 1024 * 1024;
-const LOGIN_ENV_BEGIN = "VELLUM_COMMAND_ENV_BEGIN";
-const LOGIN_ENV_END = "VELLUM_COMMAND_ENV_END";
+const LOGIN_ENV_BEGIN = "JUNTO_ENV_BEGIN";
+const LOGIN_ENV_END = "JUNTO_ENV_END";
 
 const loginProbeShell = (): string | undefined => {
   const fromEnv = process.env.SHELL?.trim();
@@ -454,7 +454,7 @@ const captureLoginShellPath = (): Promise<string | undefined> =>
           "-c",
           // The markers are split mid-token so a tracing rc (set -x/verbose)
           // echoing this command cannot forge a sentinel and corrupt the parse.
-          `echo VELLUM_COMMAND_ENV_""BEGIN; env; echo VELLUM_COMMAND_ENV_""END`,
+          `echo JUNTO_ENV_""BEGIN; env; echo JUNTO_ENV_""END`,
         ],
         {
           env: { ...process.env, TERM: "dumb" },

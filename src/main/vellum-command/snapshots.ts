@@ -15,7 +15,7 @@ export class SnapshotsService extends Context.Service<SnapshotsService,
     readonly refresh: (hints?: ReadonlyArray<BindingHint>) => Effect.Effect<SnapshotState>;
     readonly start: () => void;
     readonly subscribe: (listener: (state: SnapshotState) => void) => () => void;
-  }>()("@vellum-command/SnapshotsService") {}
+  }>()("@junto/SnapshotsService") {}
 
 const emptyState: SnapshotState = { bundles: [] };
 

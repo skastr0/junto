@@ -254,7 +254,7 @@ export type ContentTransferServiceShape = {
  * - Canonical id: `@vellum/ContentTransferService` — single `Context.Service`.
  * - Layer: `makeContentTransferServiceLive`.
  */
-export class ContentTransferService extends Context.Service<ContentTransferService, ContentTransferServiceShape>()("@vellum-command/ContentTransferService") {}
+export class ContentTransferService extends Context.Service<ContentTransferService, ContentTransferServiceShape>()("@junto/ContentTransferService") {}
 
 const makeContentTransferService = (
   state: StateService,

@@ -28,7 +28,7 @@ export class ProcessSpawner extends Context.Service<ProcessSpawner,
     readonly start: (
       command: Command.Command,
     ) => Effect.Effect<ProcessHandle, ProcessFailure, Scope.Scope>;
-  }>()("@vellum-command/ssh/ProcessSpawner") {}
+  }>()("@junto/ssh/ProcessSpawner") {}
 
 export type ProcessSpawnerShape = Context.Service.Shape<typeof ProcessSpawner>;
 const failure = (): ProcessFailure => new ProcessFailure();

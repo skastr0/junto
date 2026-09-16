@@ -361,7 +361,7 @@ export const CONTROL_TOKEN_HEADER = "x-vellum-command-token";
 export const CONTROL_REQUEST_ID_HEADER = "x-vellum-command-request-id";
 
 /** Child-only environment inputs. Values never enter argv or query strings. */
-export const CONTROL_HOME_ENV = "VELLUM_COMMAND_BROWSER_HOME";
+export const CONTROL_HOME_ENV = "JUNTO_BROWSER_HOME";
 
 /** UUID or 32-byte hex ids are accepted; both remain header-bounded. */
 export const isValidControlRequestId = (value: string): boolean =>

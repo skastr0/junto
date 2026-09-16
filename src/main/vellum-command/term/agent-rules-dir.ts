@@ -3,7 +3,7 @@
  * file rather than a flag (Antigravity `--add-dir`).
  *
  * Provenance is the whole point of the shape: Junto writes ONLY under
- * its own home (`<VELLUM_COMMAND_HOME>/.vellum-command/content/agent-rules/<seat>/`)
+ * its own home (`<JUNTO_HOME>/.vellum-command/content/agent-rules/<seat>/`)
  * and mounts that directory into the seat's workspace. The operator's project
  * is never written to, no foreign `AGENTS.md` is indexed, and the doctrine the
  * seat reads cites an app-owned path as its origin.

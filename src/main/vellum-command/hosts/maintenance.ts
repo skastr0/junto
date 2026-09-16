@@ -85,7 +85,7 @@ export class HostMaintenanceAuthority extends Context.Service<
       input: HostMaintenanceAcquireInput,
     ) => Effect.Effect<HostMaintenanceAdmission, never, Scope.Scope>;
   }
->()("@vellum-command/HostMaintenanceAuthority") {}
+>()("@junto/HostMaintenanceAuthority") {}
 
 const describeMaintenanceFailure = (error: unknown): string =>
   error instanceof Error && error.message.trim().length > 0

@@ -120,7 +120,7 @@ const WORK_SURFACE_WORDS: ReadonlyArray<string> = [
 ];
 
 /** What Junto is + canvas awareness — the grounding block. */
-export const VELLUM_INTRO = `## Junto
+export const JUNTO_INTRO = `## Junto
 
 You are running inside **Junto** — a factory floor for coding agents on a shared canvas. The canvas is your world: nodes are work surfaces (${WORK_SURFACE_WORDS.join(", ")}), and **edges are your permissions**. Your seat is the node you occupy; everything you may touch is edge-connected to you. All factory operations go through one CLI: \`vellum-command\`.`;
 
@@ -652,7 +652,7 @@ export const buildInjectionText = (ctx: InjectionContext): string | null => {
   return [
     "# Junto — factory work plane",
     "",
-    VELLUM_INTRO,
+    JUNTO_INTRO,
     "",
     WORKER_DOCTRINE,
     "",

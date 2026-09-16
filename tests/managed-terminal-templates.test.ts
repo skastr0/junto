@@ -349,12 +349,12 @@ describe("scrubSpawnEnv + buildSpawnEnv", () => {
       CLAUDE_CODE_ENTRYPOINT: "cli",
       PI_CODING_AGENT: "true",
       NO_COLOR: "1",
-      VELLUM_COMMAND_TOKEN: "tok",
+      JUNTO_TOKEN: "tok",
       EMPTY: undefined,
     });
     expect(scrubbed).toEqual({
       PATH: "/usr/bin",
-      VELLUM_COMMAND_TOKEN: "tok",
+      JUNTO_TOKEN: "tok",
     });
   });
 
@@ -384,8 +384,8 @@ describe("scrubSpawnEnv + buildSpawnEnv", () => {
         HOME: "/home/op",
       },
       {
-        VELLUM_COMMAND_SOCKET: "/tmp/work.sock",
-        VELLUM_COMMAND_TOKEN: "t",
+        JUNTO_SOCKET: "/tmp/work.sock",
+        JUNTO_TOKEN: "t",
         CLAUDECODE: "evil",
         PI_CODING_AGENT: "evil",
         PRIME_AGENT_INTERNAL_DAEMON_WORKER: "evil",
@@ -399,7 +399,7 @@ describe("scrubSpawnEnv + buildSpawnEnv", () => {
     expect(env.PRIME_AGENT_INTERNAL_NEW_AUTHORITY).toBeUndefined();
     expect(env.NO_COLOR).toBeUndefined();
     expect(env.PATH).toBe("/opt/vellum/bin:/usr/bin");
-    expect(env.VELLUM_COMMAND_SOCKET).toBe("/tmp/work.sock");
+    expect(env.JUNTO_SOCKET).toBe("/tmp/work.sock");
     expect(env.HOME).toBe("/home/op");
   });
 
@@ -432,7 +432,7 @@ describe("resolveManagedLaunch argv", () => {
         systemPrompt: "call vellum-command onboard",
         prompt: "start the task",
         cwd: "/repo",
-        env: { VELLUM_COMMAND_TOKEN: "t" },
+        env: { JUNTO_TOKEN: "t" },
       },
       bareAmbient,
     );
@@ -452,7 +452,7 @@ describe("resolveManagedLaunch argv", () => {
       "call vellum-command onboard",
       "start the task",
     ]);
-    expect(launch.env?.VELLUM_COMMAND_TOKEN).toBe("t");
+    expect(launch.env?.JUNTO_TOKEN).toBe("t");
     expect(launch.env?.CLAUDECODE).toBeUndefined();
   });
 

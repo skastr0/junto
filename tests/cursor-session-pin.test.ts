@@ -34,7 +34,7 @@ import { makeManagedAgentNode } from "../src/renderer/lib/node-factories";
 import type { CanvasDoc } from "../src/shared/canvas";
 
 const temps: string[] = [];
-const originalVellumHome = process.env.VELLUM_COMMAND_HOME;
+const originalVellumHome = process.env.JUNTO_HOME;
 
 const tempHome = (): string => {
   const dir = mkdtempSync(join(tmpdir(), "vellum-cursor-pin-"));
@@ -50,8 +50,8 @@ const seedCursorChat = (home: string, sessionId: string): void => {
 };
 
 afterEach(() => {
-  if (originalVellumHome === undefined) delete process.env.VELLUM_COMMAND_HOME;
-  else process.env.VELLUM_COMMAND_HOME = originalVellumHome;
+  if (originalVellumHome === undefined) delete process.env.JUNTO_HOME;
+  else process.env.JUNTO_HOME = originalVellumHome;
   __setSessionExistenceHomeForTest(undefined);
   for (const dir of temps.splice(0)) {
     try {
@@ -214,7 +214,7 @@ describe("a cursor seat carries its session from the moment it is authored", () 
   });
 
   it("resume:true without proof re-pins instead of resuming a session that is not there", () => {
-    delete process.env.VELLUM_COMMAND_HOME;
+    delete process.env.JUNTO_HOME;
     __setSessionExistenceHomeForTest(tempHome());
     const node = makeManagedAgentNode(0, 0, {
       harness: "cursor",
@@ -238,7 +238,7 @@ describe("a cursor seat carries its session from the moment it is authored", () 
   });
 
   it("resume:true with the chats receipt resumes that exact id, no fork", () => {
-    delete process.env.VELLUM_COMMAND_HOME;
+    delete process.env.JUNTO_HOME;
     const home = tempHome();
     const node = makeManagedAgentNode(0, 0, {
       harness: "cursor",

@@ -31,7 +31,7 @@ import { __setSessionExistenceHomeForTest } from "../src/main/vellum-command/ter
 import type { CanvasDoc } from "../src/shared/canvas";
 
 const temps: string[] = [];
-const originalVellumHome = process.env.VELLUM_COMMAND_HOME;
+const originalVellumHome = process.env.JUNTO_HOME;
 
 const tempHome = (): string => {
   const dir = mkdtempSync(join(tmpdir(), "vellum-kimi-agent-file-"));
@@ -40,8 +40,8 @@ const tempHome = (): string => {
 };
 
 afterEach(() => {
-  if (originalVellumHome === undefined) delete process.env.VELLUM_COMMAND_HOME;
-  else process.env.VELLUM_COMMAND_HOME = originalVellumHome;
+  if (originalVellumHome === undefined) delete process.env.JUNTO_HOME;
+  else process.env.JUNTO_HOME = originalVellumHome;
   __setSessionExistenceHomeForTest(undefined);
   for (const dir of temps.splice(0)) {
     try {
@@ -250,7 +250,7 @@ const seatDoc = (sessionId?: string): { doc: CanvasDoc; nodeId: string } => {
 describe("the spawning host writes the seat's agent file", () => {
   it("fresh spawn: doctrine on disk, path on argv, no typed paste", () => {
     const home = tempHome();
-    process.env.VELLUM_COMMAND_HOME = home;
+    process.env.JUNTO_HOME = home;
     const { doc, nodeId } = seatDoc();
     const plan = planManagedSpawn({ doc, nodeId, harness: "kimi" })!;
     const argv = plan.launch.argv!;
@@ -267,7 +267,7 @@ describe("the spawning host writes the seat's agent file", () => {
 
   it("resume: no file is written and the launch is a plain -S resume", () => {
     const home = tempHome();
-    process.env.VELLUM_COMMAND_HOME = home;
+    process.env.JUNTO_HOME = home;
     const harnessHome = tempHome();
     const sid = "ses_7c6b5a49382716";
     mkdirSync(join(harnessHome, ".kimi-code", "sessions", "wd", sid), {
@@ -294,7 +294,7 @@ describe("the spawning host writes the seat's agent file", () => {
 
   it("only kimi takes this path — grok's agent file stays the caller's", () => {
     const home = tempHome();
-    process.env.VELLUM_COMMAND_HOME = home;
+    process.env.JUNTO_HOME = home;
     expect(templateFor("grok").argvSpec.systemPromptFlag).toBe("--rules");
     const { doc, nodeId } = seatDoc();
     const grokDoc = {

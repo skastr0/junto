@@ -542,7 +542,7 @@ export type CrewRepository = CrewRepositoryShape;
 export const CrewRepository = Context.Service<
   CrewRepository,
   CrewRepositoryShape
->("@vellum-command/CrewRepository");
+>("@junto/CrewRepository");
 
 export const CrewRepositoryLive = Layer.effect(
   CrewRepository,

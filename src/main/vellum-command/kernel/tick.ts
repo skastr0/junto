@@ -456,7 +456,7 @@ export const makeKernelTickScheduler = (
       else if (!suspended && !threw && !resumed) state.attempts.delete(key);
 
       // Reporting an overrun must never kill the driver. The default reporter
-      // is `noteSyncSpan`, which THROWS under VELLUM_COMMAND_BUDGET=strict --
+      // is `noteSyncSpan`, which THROWS under JUNTO_BUDGET=strict --
       // exactly the mode a scale gate or regression hunt runs in. An escape
       // here would skip the trailing wake() in fire() and the kernel would
       // stop ticking, silently, on the first slow key. The violation is

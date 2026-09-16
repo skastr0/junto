@@ -26,7 +26,7 @@ import { UsageSources } from "./usage-source";
  * - Canonical id: `@vellum/UsageService` — single definition; no dual path.
  * - Service id: Context.Service (Effect V4 live).
  * - Shape:
- *   `class UsageService extends Context.Service<UsageService, UsageService>()("@vellum-command/UsageService") {}`
+ *   `class UsageService extends Context.Service<UsageService, UsageService>()("@junto/UsageService") {}`
  * - Layer today: UsageServiceLive (UsageLive merges sources+cache) — V4 rename candidate UsageService.layer
  *   Do not dual-export Live + `.layer` names.
  */
@@ -37,7 +37,7 @@ export class UsageService extends Context.Service<UsageService,
     readonly refresh: () => Effect.Effect<UsageState>;
     readonly start: () => void;
     readonly subscribe: (listener: (state: UsageState) => void) => () => void;
-  }>()("@vellum-command/UsageService") {}
+  }>()("@junto/UsageService") {}
 
 const emptyState: UsageState = { snapshots: [] };
 

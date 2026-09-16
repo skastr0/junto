@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   BASE_CONTRACT,
   WORKER_DOCTRINE,
-  VELLUM_INTRO,
+  JUNTO_INTRO,
   SEAT_DOCTRINE,
   buildInjectionText,
   buildSeatContextSection,
@@ -47,7 +47,7 @@ describe("compiled doctrine — base and slots", () => {
   it("canvas seats always get base doctrine (intro, seat doctrine, worker, base contract)", () => {
     const text = buildInjectionText(seatOnlyCtx);
     expect(text).not.toBeNull();
-    expect(text!).toContain(VELLUM_INTRO.slice(0, 40));
+    expect(text!).toContain(JUNTO_INTRO.slice(0, 40));
     expect(text!).toContain(SEAT_DOCTRINE.slice(0, 20));
     expect(text!).toContain(WORKER_DOCTRINE.slice(0, 40));
     expect(text!).toContain(BASE_CONTRACT.slice(0, 40));

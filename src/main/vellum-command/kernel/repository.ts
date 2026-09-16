@@ -51,7 +51,7 @@ export class KernelStateRepository extends Context.Service<KernelStateRepository
       ReadonlyArray<PulseRecord>,
       KernelStateRepositoryError
     >;
-  }>()("@vellum-command/KernelStateRepository") {}
+  }>()("@junto/KernelStateRepository") {}
 
 type ArmedRegionRow = StateRow & {
   readonly canvas_name: string;

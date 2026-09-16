@@ -194,14 +194,14 @@ export interface BrowserProfileServiceApi {
  * V4 migration map (effect@3.21 keeps the compiling bridge for now):
  *
  *   Context.Service<BrowserProfileService, BrowserProfileServiceApi>()(
- *     "@vellum-command/BrowserProfileService",
+ *     "@junto/BrowserProfileService",
  *   )
  *
  * This is the single browser-profile service identifier and shape. Keep the
  * V3 Tag as the only bridge until the dependency cutover; do not introduce a
  * parallel Tag, Default layer, or accessor shim.
  */
-export class BrowserProfileService extends Context.Service<BrowserProfileService, BrowserProfileServiceApi>()("@vellum-command/BrowserProfileService") {}
+export class BrowserProfileService extends Context.Service<BrowserProfileService, BrowserProfileServiceApi>()("@junto/BrowserProfileService") {}
 
 interface BrowserProfileStateReady extends BrowserProfileRegistryState {
   readonly phase: "ready";
@@ -248,7 +248,7 @@ type PendingWipeRow = {
 };
 
 export const browserRootDir = (): string =>
-  process.env.VELLUM_COMMAND_BROWSER_DIR ||
+  process.env.JUNTO_BROWSER_DIR ||
   join(resolveVellumCommandHome(), ".vellum-command", "browser");
 
 const profilesDir = (root: string) => join(root, "profiles");

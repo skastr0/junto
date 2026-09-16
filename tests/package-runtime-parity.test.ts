@@ -157,7 +157,7 @@ const writeExactRemoteClosure = async (
       runtimeRoot,
       "resources/systemd/vellum-command-remote.service.template",
     ),
-    "ExecStart=@VELLUM_COMMAND_RUNTIME_ROOT@/resources/systemd/vellum-command-remote-launch\n",
+    "ExecStart=@JUNTO_RUNTIME_ROOT@/resources/systemd/vellum-command-remote-launch\n",
   );
   await mkdir(path.join(runtimeRoot, "resources/app-remote"), {
     recursive: true,

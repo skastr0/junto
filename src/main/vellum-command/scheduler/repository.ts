@@ -67,7 +67,7 @@ export type SchedulerRepositoryError =
  * - Canonical id: `@vellum/SchedulerRepository` — single definition; no dual path.
  * - Service id: Context.Service (Effect V4 live).
  * - Shape:
- *   `class SchedulerRepository extends Context.Service<SchedulerRepository, SchedulerRepository>()("@vellum-command/SchedulerRepository") {}`
+ *   `class SchedulerRepository extends Context.Service<SchedulerRepository, SchedulerRepository>()("@junto/SchedulerRepository") {}`
  * - Layer today: SchedulerRepositoryLive / makeSchedulerRepositoryLive — V4 rename candidate SchedulerRepository.layer
  *   Do not dual-export Live + `.layer` names.
  */
@@ -106,7 +106,7 @@ export class SchedulerRepository extends Context.Service<SchedulerRepository,
       IntervalTimerStateValue | undefined,
       SchedulerRepositoryError
     >;
-  }>()("@vellum-command/SchedulerRepository") {}
+  }>()("@junto/SchedulerRepository") {}
 
 type SchedulerStateRow = StateRow & {
   readonly home_station: string;

@@ -15,8 +15,8 @@ export const registerDemoIpcHandlers = (): void => {
   const privilegedIpc = trustedRendererIpc(ipcMain);
   privilegedIpc.handle(IPC_CHANNELS.demoState, () => ({
     active: isDemoMode(),
-    autoroll: isDemoMode() && process.env.VELLUM_COMMAND_DEMO_AUTOROLL === "1",
-    scenarioId: isDemoMode() ? process.env.VELLUM_COMMAND_DEMO_SCENARIO : undefined,
+    autoroll: isDemoMode() && process.env.JUNTO_DEMO_AUTOROLL === "1",
+    scenarioId: isDemoMode() ? process.env.JUNTO_DEMO_SCENARIO : undefined,
   }));
 
   privilegedIpc.handle(IPC_CHANNELS.demoWriteEdl, (_event, edl: DemoEdl) => {

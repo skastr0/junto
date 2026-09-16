@@ -140,7 +140,7 @@ const isSshUsableState = (state: string): boolean =>
  * - Canonical id: `@vellum/box/BoxOwnershipRepository` — single definition; no dual path.
  * - Service id: Context.Service (Effect V4 live).
  * - Shape:
- *   `class BoxOwnershipRepository extends Context.Service<BoxOwnershipRepository, BoxOwnershipRepository>()("@vellum-command/box/BoxOwnershipRepository") {}`
+ *   `class BoxOwnershipRepository extends Context.Service<BoxOwnershipRepository, BoxOwnershipRepository>()("@junto/box/BoxOwnershipRepository") {}`
  * - Layer today: BoxOwnershipRepositoryLive — V4 rename candidate BoxOwnershipRepository.layer
  *   Do not dual-export Live + `.layer` names.
  */
@@ -181,7 +181,7 @@ export class BoxOwnershipRepository extends Context.Service<BoxOwnershipReposito
     readonly detach: (
       box: OwnedBox,
     ) => Effect.Effect<void, BoxOwnershipPersistenceError>;
-  }>()("@vellum-command/box/BoxOwnershipRepository") {}
+  }>()("@junto/box/BoxOwnershipRepository") {}
 
 export const BoxOwnershipRepositoryLive = Layer.effect(
   BoxOwnershipRepository,

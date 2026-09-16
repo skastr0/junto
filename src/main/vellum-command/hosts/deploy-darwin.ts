@@ -282,8 +282,8 @@ export const admitDarwinDeployArtifact = async (
  */
 export const resolveProductionDarwinArtifactInput =
   (): DarwinDeployArtifactInput => {
-    const zipPath = process.env.VELLUM_COMMAND_REMOTE_RELEASE_ZIP?.trim();
-    const sha256 = process.env.VELLUM_COMMAND_REMOTE_RELEASE_ZIP_SHA256?.trim();
+    const zipPath = process.env.JUNTO_REMOTE_RELEASE_ZIP?.trim();
+    const sha256 = process.env.JUNTO_REMOTE_RELEASE_ZIP_SHA256?.trim();
     if (zipPath && sha256) {
       return { kind: "release-zip", zipPath, sha256 };
     }
@@ -543,7 +543,7 @@ const push = (stages: string[], line: string): void => {
 
 /** Resolve the local .app bundle Command Center will push. */
 export const resolveLocalAppBundle = (): string | null => {
-  const env = process.env.VELLUM_COMMAND_APP_SRC?.trim();
+  const env = process.env.JUNTO_APP_SRC?.trim();
   if (env && existsSync(join(env, "Contents", "MacOS", PRODUCT_NAME)))
     return env;
 

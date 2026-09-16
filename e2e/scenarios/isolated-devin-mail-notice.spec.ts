@@ -54,7 +54,7 @@ const sha256File = (path: string): string | undefined => {
 const embeddedBuildIdentity = () => {
   const mainPath = join(process.cwd(), "out", "main", "index.js");
   if (!existsSync(mainPath)) return undefined;
-  const markers = [...readFileSync(mainPath, "utf8").matchAll(/\/\* VELLUM_COMMAND_RUNTIME_BUILD_IDENTITY:([A-Za-z0-9_-]*) \*\//gu)];
+  const markers = [...readFileSync(mainPath, "utf8").matchAll(/\/\* JUNTO_RUNTIME_BUILD_IDENTITY:([A-Za-z0-9_-]*) \*\//gu)];
   const payload = markers[0]?.[1];
   if (payload === undefined || payload.length === 0) return undefined;
   try {
@@ -202,7 +202,7 @@ test("isolated Devin [real-harness]: settled seat reaches readAt or a durable na
   if (!existsSync(operatorCred)) test.skip(true, "no operator Devin credentials.toml to seed");
   if (resolveOperatorDevinBinary(process.env.PATH ?? "") === undefined) test.skip(true, "real devin binary not on PATH");
   const qualificationAtStart = HARNESS_MAIL_TRANSPORT.devin.typedNoticeQualified;
-  if (HOLD) process.env.VELLUM_COMMAND_E2E_SHOW = "1";
+  if (HOLD) process.env.JUNTO_E2E_SHOW = "1";
 
   const provenance = runtimeProvenance();
   const artifacts = mkdtempSync(join("/tmp", "isolated-devin-mail-evidence-"));
@@ -211,7 +211,7 @@ test("isolated Devin [real-harness]: settled seat reaches readAt or a durable na
   json(HOLD_NOTE, { phase: "prelaunch", at: new Date().toISOString(), artifacts, ...provenance });
   const vellum = await launchVellum({
     seedCanvases: { [ISOLATED_DEVIN_MAIL_CANVAS]: isolatedDevinMailDoc() },
-    extraEnv: { VELLUM_COMMAND_PTY_TRACE: "1" },
+    extraEnv: { JUNTO_PTY_TRACE: "1" },
     afterSeed: async (sandbox) => {
       const prepared = await seedIsolatedDevinAppHome(sandbox, operatorHome, process.env.PATH ?? "");
       if (!prepared.ok) throw new Error(prepared.limitation);

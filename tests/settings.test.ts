@@ -18,8 +18,8 @@ import {
 } from "../src/shared/settings";
 import { MONO_CELL } from "../src/renderer/lib/focus-measure";
 import {
-  VELLUM_XTERM_FONT_FAMILY,
-  VELLUM_XTERM_FONT_SIZE,
+  JUNTO_XTERM_FONT_FAMILY,
+  JUNTO_XTERM_FONT_SIZE,
 } from "../src/renderer/lib/terminal-theme";
 import {
   applyAndValidatePatch,
@@ -825,8 +825,8 @@ describe("terminal settings fragment", () => {
     // The literals in shared/settings.ts are a second copy of renderer
     // constants; pin them so the copies cannot drift apart unnoticed.
     expect(defaultTerminal().fontSize).toBe(MONO_CELL.fontSizePx);
-    expect(defaultTerminal().fontSize).toBe(VELLUM_XTERM_FONT_SIZE);
-    expect(defaultTerminal().fontFamily).toBe(VELLUM_XTERM_FONT_FAMILY);
+    expect(defaultTerminal().fontSize).toBe(JUNTO_XTERM_FONT_SIZE);
+    expect(defaultTerminal().fontFamily).toBe(JUNTO_XTERM_FONT_FAMILY);
     // The values the surface hardcoded inline.
     expect(defaultTerminal().lineHeight).toBe(1.2);
     expect(defaultTerminal().scrollback).toBe(10_000);

@@ -5,7 +5,7 @@
  * loom, ActivityMark and viewport call sites already report into it — but
  * nothing ever installed a recorder outside a unit test, so in a running app
  * every one of those calls was a no-op and the snapshot had no reader. This
- * module closes both halves: it installs the recorder when VELLUM_PERF is on
+ * module closes both halves: it installs the recorder when JUNTO_PERF is on
  * and prints one bounded line every 5 seconds.
  *
  * Doctrine, unchanged: with the flag off this is a strict no-op. No recorder
@@ -204,7 +204,7 @@ const defaultEmit = (line: string): void => {
 };
 
 /**
- * Arm the harness. Returns an inert handle unless VELLUM_PERF resolved on, so
+ * Arm the harness. Returns an inert handle unless JUNTO_PERF resolved on, so
  * the caller never needs its own flag check.
  */
 export const startCanvasPerformanceHarness = (

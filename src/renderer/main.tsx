@@ -67,7 +67,7 @@ type CreateRoot = typeof createStandardRoot;
  * React commits forever unless the tree is mounted by react-dom's profiling
  * build, which is the same production reconciler plus the profiler timers.
  *
- * Loaded only when VELLUM_PERF is on, so it code-splits away from the boot
+ * Loaded only when JUNTO_PERF is on, so it code-splits away from the boot
  * chunk and the shipped default path is byte-for-byte the standard client.
  */
 const loadProfilingCreateRoot = async (): Promise<CreateRoot | undefined> => {

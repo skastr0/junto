@@ -145,7 +145,7 @@ describe("PTY delivery trace", () => {
   });
 
   it.each([true, false])("a throwing sink preserves physical writes and result when accepted=%s", async (accepted) => {
-    vi.stubEnv("VELLUM_COMMAND_PTY_TRACE", "0");
+    vi.stubEnv("JUNTO_PTY_TRACE", "0");
     const run = async (onTrace?: PtyDeliveryTraceSink) => {
       const writes: string[] = [];
       const drive = makeDrive({
@@ -246,8 +246,8 @@ describe("PTY delivery trace", () => {
 
   it.each([undefined, "0"])("creates no journal when the trace setting is %s", async (setting) => {
     const root = freshRoot();
-    vi.stubEnv("VELLUM_COMMAND_HOME", root);
-    vi.stubEnv("VELLUM_COMMAND_PTY_TRACE", setting);
+    vi.stubEnv("JUNTO_HOME", root);
+    vi.stubEnv("JUNTO_PTY_TRACE", setting);
     __resetVellumCommandHomeCache();
     expect(createPtyDeliveryTracer()).toBeUndefined();
     expect(await makeDrive().writePrompt("binding-1", "ordinary delivery")).toEqual(submittedOutcome());
@@ -256,8 +256,8 @@ describe("PTY delivery trace", () => {
 
   it("enables the actual default sink only in the configured installation home", async () => {
     const root = freshRoot();
-    vi.stubEnv("VELLUM_COMMAND_HOME", root);
-    vi.stubEnv("VELLUM_COMMAND_PTY_TRACE", "1");
+    vi.stubEnv("JUNTO_HOME", root);
+    vi.stubEnv("JUNTO_PTY_TRACE", "1");
     __resetVellumCommandHomeCache();
     expect(await makeDrive().writePrompt("binding-1", "private opt-in prompt")).toEqual(submittedOutcome());
     await new Promise<void>((resolve) => setTimeout(resolve, 50));

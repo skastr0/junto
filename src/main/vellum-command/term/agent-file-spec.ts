@@ -5,7 +5,7 @@
  * Kimi has no system-prompt flag: the way to brief a seat before its first turn
  * is a Markdown agent definition whose body becomes the system prompt. So the
  * compiled doctrine is written to a file Junto owns —
- * `<VELLUM_COMMAND_HOME>/.vellum-command/content/agent-files/<seat>.md` — and the
+ * `<JUNTO_HOME>/.vellum-command/content/agent-files/<seat>.md` — and the
  * path is handed to the harness. The operator's project is never written to.
  *
  * The frontmatter is the verified schema and nothing else:

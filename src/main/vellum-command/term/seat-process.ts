@@ -77,7 +77,7 @@ export interface TerminalSeatProcessApi {
 export class TerminalSeatProcess extends Context.Service<
   TerminalSeatProcess,
   TerminalSeatProcessApi
->()("@vellum-command/TerminalSeatProcess") {}
+>()("@junto/TerminalSeatProcess") {}
 
 const asClientError = (cause: unknown): Error =>
   cause instanceof Error ? cause : new Error(String(cause));

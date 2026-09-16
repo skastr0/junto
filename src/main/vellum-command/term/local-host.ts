@@ -839,7 +839,7 @@ export class LocalSessionHost extends EventEmitter {
           err,
         );
         throw new Error(
-          `isolated VELLUM_COMMAND_HOME refuses shared harness resume for ${input.harness}`,
+          `isolated JUNTO_HOME refuses shared harness resume for ${input.harness}`,
         );
       }
     }

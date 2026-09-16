@@ -33,7 +33,7 @@ const fixture = async () => {
   const sourceCommit = commit();
   // A labeled transport test artifact, never a substitute for the real CLI
   // in the Devin scenario. Native qualification builds the standalone CLI.
-  const bytes = Buffer.from("#!/bin/sh\nprintf '%s\\n' 'fixture executable' \"$HOME\" \"$PWD\" \"$VELLUM_COMMAND_WORK_SOCKET\" \"$1\"\n");
+  const bytes = Buffer.from("#!/bin/sh\nprintf '%s\\n' 'fixture executable' \"$HOME\" \"$PWD\" \"$JUNTO_WORK_SOCKET\" \"$1\"\n");
   const binary = join(repoRoot, "dist", "vellum-command");
   const receiptPath = `${binary}-relink.json`;
   const receipt = {
@@ -105,7 +105,7 @@ describe("isolated real-harness CLI provisioning", () => {
     const stdout = execFileSync("/bin/sh", ["-c", "command -v vellum-command && exec vellum-command --help"], {
       cwd, encoding: "utf8", env: {
         HOME: f.sandbox.homeDir, PATH: `${seededHarnessBinDir(f.sandbox)}:/usr/bin:/bin`,
-        VELLUM_COMMAND_WORK_SOCKET: socket,
+        JUNTO_WORK_SOCKET: socket,
       },
     });
     const lines = stdout.trim().split("\n");

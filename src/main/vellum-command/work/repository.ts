@@ -7918,7 +7918,7 @@ export interface WorkRepositoryShape {
 export type WorkRepository = WorkRepositoryId;
 
 export const WorkRepository = Context.Service<WorkRepository,
-  WorkRepositoryShape>("@vellum-command/WorkRepository");
+  WorkRepositoryShape>("@junto/WorkRepository");
 
 export const WorkRepositoryLive = Layer.effect(
   WorkRepository,

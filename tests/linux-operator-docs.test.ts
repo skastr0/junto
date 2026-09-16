@@ -245,7 +245,7 @@ describe("Linux desktop alpha and gated Fleet operator documentation", () => {
       /systemctl\s+disable\s+apparmor/u,
       /sysctl\b.*unprivileged_userns/u,
       /sudo\s+(?:\/opt\/[^\n]*vellum|vellum)(?:\s|$)/iu,
-      /VELLUM_COMMAND_CONTROL_TCP/u,
+      /JUNTO_CONTROL_TCP/u,
       /ssh\s+-[A-Za-z]*L[^\n]*control\.sock/u,
       /socat[^\n]*control\.sock/u,
       /rm\s+-rf[^\n]*\.vellum-command/u,

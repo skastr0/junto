@@ -48,7 +48,7 @@ describe("compile-time feature profiles", () => {
 
   it("supports an explicit all-on regression profile", () => {
     const resolved = resolveBuildFeatures({
-      VELLUM_COMMAND_FEATURE_PROFILE: "all-on",
+      JUNTO_FEATURE_PROFILE: "all-on",
     });
     expect(resolved.features).toEqual(ALL_FEATURES);
     expect(resolved.features.harnessPrimeAgent).toBe(true);
@@ -56,7 +56,7 @@ describe("compile-time feature profiles", () => {
 
   it("applies an explicit false override to the shipped Prime Agent gate", () => {
     const resolved = resolveBuildFeatures({
-      VELLUM_COMMAND_HARNESS_PRIME_AGENT: "0",
+      JUNTO_HARNESS_PRIME_AGENT: "0",
     });
     expect(resolved.profile).toBe("ship");
     expect(resolved.features.harnessPrimeAgent).toBe(false);
@@ -65,10 +65,10 @@ describe("compile-time feature profiles", () => {
 
   it("applies typed per-feature overrides over the selected profile", () => {
     const resolved = resolveBuildFeatures({
-      VELLUM_COMMAND_FEATURE_PROFILE: "all-on",
-      VELLUM_COMMAND_BROWSER: "0",
-      VELLUM_COMMAND_CRON: "0",
-      VELLUM_COMMAND_AUDIO: "1",
+      JUNTO_FEATURE_PROFILE: "all-on",
+      JUNTO_BROWSER: "0",
+      JUNTO_CRON: "0",
+      JUNTO_AUDIO: "1",
     });
     expect(resolved.features.browser).toBe(false);
     expect(resolved.features.cron).toBe(false);
@@ -78,17 +78,17 @@ describe("compile-time feature profiles", () => {
 
   it("rejects malformed profiles and overrides", () => {
     expect(() =>
-      resolveBuildFeatures({ VELLUM_COMMAND_FEATURE_PROFILE: "maybe" }),
+      resolveBuildFeatures({ JUNTO_FEATURE_PROFILE: "maybe" }),
     ).toThrow(/must be ship or all-on/u);
-    expect(() => resolveBuildFeatures({ VELLUM_COMMAND_RELAY: "true" })).toThrow(
-      /VELLUM_COMMAND_RELAY must be 0 or 1/u,
+    expect(() => resolveBuildFeatures({ JUNTO_RELAY: "true" })).toThrow(
+      /JUNTO_RELAY must be 0 or 1/u,
     );
   });
 
   it("generates identical Vite and Bun define values", () => {
     const resolved = resolveBuildFeatures({
-      VELLUM_COMMAND_BROWSER: "1",
-      VELLUM_COMMAND_USAGE: "1",
+      JUNTO_BROWSER: "1",
+      JUNTO_USAGE: "1",
     });
     const vite = featureViteDefines(resolved);
     const bun = featureBunDefineArgs(resolved);

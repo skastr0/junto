@@ -98,7 +98,7 @@ export interface SshForwardLease {
   readonly exitCode: Effect.Effect<number, SshError>;
 }
 
-const ReadyTypeId: unique symbol = Symbol("@vellum-command/ssh/Ready");
+const ReadyTypeId: unique symbol = Symbol("@junto/ssh/Ready");
 
 export interface SshReady<A> {
   readonly [ReadyTypeId]: typeof ReadyTypeId;
@@ -111,7 +111,7 @@ export type ConfirmSshReady = <A>(value: A) => SshReady<A>;
  * S4 (effect@3.21): single canonical Tag id `@vellum/SshTransport`.
  * `Context.Service` is unavailable until the product pins Effect V4 — do not
  * dual-define Tag + Service. Shape is `SshTransportShape` for callers.
- * V4 map: `class SshTransport extends Context.Service<SshTransport, Shape>()("@vellum-command/SshTransport")`.
+ * V4 map: `class SshTransport extends Context.Service<SshTransport, Shape>()("@junto/SshTransport")`.
  * @see docs/END_STATE-effect-foundation.md §S4
  * @see Playground/effect/migration/services.md
  */
@@ -179,7 +179,7 @@ export class SshTransport extends Context.Service<SshTransport,
      * cleanup is attempted here.
      */
     readonly teardown: (endpoint: SshEndpoint) => Effect.Effect<void>;
-  }>()("@vellum-command/SshTransport") {}
+  }>()("@junto/SshTransport") {}
 
 /** Canonical service shape for `SshTransport` (one id, one shape — no dual path). */
 export type SshTransportShape = Context.Service.Shape<typeof SshTransport>;
@@ -195,7 +195,7 @@ export class SshTransportConfig extends Context.Service<SshTransportConfig,
     readonly environment: Readonly<Record<string, string>>;
     readonly maxConcurrentDials: number;
     readonly maxConcurrentDialsPerEndpoint: number;
-  }>()("@vellum-command/ssh/SshTransportConfig") {}
+  }>()("@junto/ssh/SshTransportConfig") {}
 
 export type SshTransportConfigShape = Context.Service.Shape<
   typeof SshTransportConfig

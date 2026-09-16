@@ -153,11 +153,11 @@ export const S7_LIVE_IMPORT_SITES = [
 ] as const;
 
 export const S7_REMAINING_CONTEXT_TAGS = [
-  { id: "@vellum-command/SshTransport", file: "src/main/vellum-command/ssh/service.ts" },
-  { id: "@vellum-command/SshTransportConfig", file: "src/main/vellum-command/ssh/service.ts" },
-  { id: "@vellum-command/ssh/ProcessSpawner", file: "src/main/vellum-command/ssh/process-spawner.ts" },
-  { id: "@vellum-command/cli/WorkSocket", file: "src/cli/core/socket.ts" },
-  { id: "@vellum-command/cli/OperatorSocket", file: "src/cli/core/operator-socket.ts" },
+  { id: "@junto/SshTransport", file: "src/main/vellum-command/ssh/service.ts" },
+  { id: "@junto/SshTransportConfig", file: "src/main/vellum-command/ssh/service.ts" },
+  { id: "@junto/ssh/ProcessSpawner", file: "src/main/vellum-command/ssh/process-spawner.ts" },
+  { id: "@junto/cli/WorkSocket", file: "src/cli/core/socket.ts" },
+  { id: "@junto/cli/OperatorSocket", file: "src/cli/core/operator-socket.ts" },
 ] as const;
 
 export const S7_IMPORT_MAP_PREP_META = {

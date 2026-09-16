@@ -1,7 +1,7 @@
 /**
  * SHIP-profile Fleet acceptance coverage.
  *
- * Build first with `VELLUM_COMMAND_FEATURE_PROFILE=ship bun run electron-vite build`,
+ * Build first with `JUNTO_FEATURE_PROFILE=ship bun run electron-vite build`,
  * then run this file through the node Playwright runner. The harness owns a
  * throwaway SQLite installation and uses only the bounded e2e SSH fake.
  */

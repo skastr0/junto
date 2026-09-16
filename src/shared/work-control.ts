@@ -28,7 +28,7 @@ export {
 // ---------------------------------------------------------------------------
 // Paths (functions of home so the module stays platform-pure)
 
-/** Default dir: `~/.vellum-command/work`. Tests override with `VELLUM_COMMAND_WORK_HOME`. */
+/** Default dir: `~/.vellum-command/work`. Tests override with `JUNTO_WORK_HOME`. */
 export const workControlDir = (home: string): string => `${home}/.vellum-command/work`;
 
 export const workControlSocketPath = (workHome: string): string =>
@@ -37,7 +37,7 @@ export const workControlSocketPath = (workHome: string): string =>
 export const workControlTokenPath = (workHome: string): string =>
   `${workHome}/token`;
 
-export const WORK_HOME_ENV = "VELLUM_COMMAND_WORK_HOME";
+export const WORK_HOME_ENV = "JUNTO_WORK_HOME";
 export const WORK_PROTOCOL_VERSION = "vellum-command-work/v1";
 
 export const WORK_DEFAULT_BATCH_CONCURRENCY = 5;

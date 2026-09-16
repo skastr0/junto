@@ -212,7 +212,7 @@ export class HostRuntime extends Context.Service<
       input: HostRuntimeReconcileInput,
     ) => Effect.Effect<ConfiguredRemoteDeployResult>;
   }
->()("@vellum-command/HostRuntime") {}
+>()("@junto/HostRuntime") {}
 
 const withHostOps = <A, E>(
   ssh: Ssh,

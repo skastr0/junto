@@ -140,7 +140,7 @@ export class HostTarget extends Context.Service<
     /** Registered host id; attributes deploy-job stages and copy progress. */
     readonly hostId?: string;
   }
->()("@vellum-command/HostTarget") {
+>()("@junto/HostTarget") {
   static readonly layer = (
     sshTarget: SshTarget,
     hostId?: string,
@@ -157,7 +157,7 @@ export class HostTarget extends Context.Service<
 export class HostConfigure extends Context.Service<
   HostConfigure,
   ConfigureRemoteOptions
->()("@vellum-command/HostConfigure") {
+>()("@junto/HostConfigure") {
   static readonly layer = (
     options: ConfigureRemoteOptions,
   ): Layer.Layer<HostConfigure> =>
@@ -179,7 +179,7 @@ export class HostOps extends Context.Service<
     readonly activate: () => Effect.Effect<HostOpsActivate>;
     readonly attach: () => Effect.Effect<HostOpsAttach>;
   }
->()("@vellum-command/HostOps") {
+>()("@junto/HostOps") {
   static readonly layerDarwinOps: Layer.Layer<
     HostOps,
     never,

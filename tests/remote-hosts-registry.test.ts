@@ -77,8 +77,8 @@ afterEach(async () => {
   );
   resetDefaultHostsRegistryForTests();
   setHostsSnapshot(defaultRemoteHostsDocument().hosts);
-  delete process.env.VELLUM_COMMAND_ACP_VERBOSE;
-  delete process.env.VELLUM_COMMAND_DEBUG;
+  delete process.env.JUNTO_ACP_VERBOSE;
+  delete process.env.JUNTO_DEBUG;
   if (originalHome === undefined) delete process.env.HOME;
   else process.env.HOME = originalHome;
 });
@@ -558,8 +558,8 @@ describe("acp verbose logging gate", () => {
     expect(acpVerboseLogging()).toBe(false);
   });
 
-  it("enables via VELLUM_COMMAND_ACP_VERBOSE", () => {
-    process.env.VELLUM_COMMAND_ACP_VERBOSE = "1";
+  it("enables via JUNTO_ACP_VERBOSE", () => {
+    process.env.JUNTO_ACP_VERBOSE = "1";
     expect(acpVerboseLogging()).toBe(true);
   });
 });

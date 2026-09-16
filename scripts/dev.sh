@@ -2,7 +2,7 @@
 # Official Junto dev entry.
 #
 # Side-by-side with production:
-# - VELLUM_COMMAND_HOME=~/.vellum-command-dev isolates state + control sockets from ~/.vellum-command
+# - JUNTO_HOME=~/.vellum-command-dev isolates state + control sockets from ~/.vellum-command
 # - main pins Electron userData under that home so the single-instance lock
 #   does not fight /Applications/Junto.app
 # When production already matches this build's current schema, prod state is
@@ -26,11 +26,11 @@ fi
 
 mkdir -p "${ISOLATED_HOME}"
 
-printf 'vellum-command dev → VELLUM_COMMAND_HOME=%s (HOME unchanged; Electron userData isolated)\n' "${ISOLATED_HOME}" >&2
+printf 'vellum-command dev → JUNTO_HOME=%s (HOME unchanged; Electron userData isolated)\n' "${ISOLATED_HOME}" >&2
 
-export VELLUM_COMMAND_HOME="${ISOLATED_HOME}"
+export JUNTO_HOME="${ISOLATED_HOME}"
 # Advanced diagnostics (install provenance, logs explorer) — never on ship/prod.
-export VELLUM_COMMAND_DEV_TOOLS="${VELLUM_COMMAND_DEV_TOOLS:-1}"
+export JUNTO_DEV_TOOLS="${JUNTO_DEV_TOOLS:-1}"
 cd "${ROOT}"
 bash scripts/dev-seed-from-prod.sh
 

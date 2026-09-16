@@ -4,7 +4,7 @@ import {
   terminalSettings,
   type TerminalSettings,
 } from "@shared/settings";
-import { VELLUM_XTERM_FONT_FAMILY } from "../src/renderer/lib/terminal-theme";
+import { JUNTO_XTERM_FONT_FAMILY } from "../src/renderer/lib/terminal-theme";
 import {
   applyTerminalPreferences,
   bellResponse,
@@ -88,7 +88,7 @@ describe("managedTerminalOptions", () => {
       scrollSensitivity: 3,
       fastScrollSensitivity: 15,
       fontSize: 13,
-      fontFamily: VELLUM_XTERM_FONT_FAMILY,
+      fontFamily: JUNTO_XTERM_FONT_FAMILY,
       cursorStyle: "block",
       scrollback: 10_000,
       cursorBlink: true,

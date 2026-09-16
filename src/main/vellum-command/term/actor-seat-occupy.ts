@@ -65,7 +65,7 @@ export interface ActorSeatOccupyApi {
 export class ActorSeatOccupy extends Context.Service<
   ActorSeatOccupy,
   ActorSeatOccupyApi
->()("@vellum-command/ActorSeatOccupy") {}
+>()("@junto/ActorSeatOccupy") {}
 
 /** Exact projection identity the destination must acknowledge. */
 export type ProjectionAdmissionRef = {

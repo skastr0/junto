@@ -37,7 +37,7 @@ session; actor delete revokes then terminates **OwnedProcess only**.
 |----------|--------|---------|--------|----------|
 | Identity source | Unix peer PID (+ ancestor walk) of a main-registered process | Work + browser control call `admitProcessIdentity` → `readUnixPeerPid` + `resolveInTree` | **Met** | `src/main/vellum-command/process-identity.ts`, `work/control.ts` (~901–923), `browser/edge-grant.ts` `admitSocket` |
 | Who may bind | Main registers ACP child / native terminal | Chat binds local ACP `childPid`; term binds native PTY | **Met** | `chat/service.ts` `bindLocalProcess`, `term/local-host.ts` |
-| Client nodeRef | Never identity | Token + peer PID only; `VELLUM_COMMAND_NODE_REF` is not an identity claim on control | **Met** | `work/control.ts` comments; `cli/core/socket.ts`; env still named for other tooling, not admit |
+| Client nodeRef | Never identity | Token + peer PID only; `JUNTO_NODE_REF` is not an identity claim on control | **Met** | `work/control.ts` comments; `cli/core/socket.ts`; env still named for other tooling, not admit |
 | PID reuse | Start-key epoch rejects recycled PID | `readProcessStartKey` / `lstart` stored at bind; resolve unbinds on mismatch | **Met** | `process-identity.ts` `bind` / `resolveLive` |
 | Work caller resolution | Map principal → unique agent card | `resolveCallerAcrossCanvases` / `resolveCallerOnDoc`; ambiguous → ScopeError | **Met** | `work/caller-resolve.ts` |
 | Browser caller resolution | Same process-bind; only agents wield browser | Terminal principals denied; agent → edge pages | **Met** | `browser/process-bind.ts` |

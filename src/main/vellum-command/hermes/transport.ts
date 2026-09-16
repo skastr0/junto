@@ -69,7 +69,7 @@ const resolveHermesEndpoint = (
  * - Canonical id: `@vellum/HermesTransport` — single definition; no dual path.
  * - Service id: Context.Service (Effect V4 live).
  * - Shape:
- *   `class HermesTransport extends Context.Service<HermesTransport, HermesTransport>()("@vellum-command/HermesTransport") {}`
+ *   `class HermesTransport extends Context.Service<HermesTransport, HermesTransport>()("@junto/HermesTransport") {}`
  * - Layer today: HermesTransportLive — V4 rename candidate HermesTransport.layer
  *   Do not dual-export Live + `.layer` names.
  */
@@ -85,7 +85,7 @@ export class HermesTransport extends Context.Service<HermesTransport,
         confirm: ConfirmSshReady,
       ) => Effect.Effect<SshReady<A>, E, R>,
     ) => Effect.Effect<A, SshError | SshInputError | E, R | Scope.Scope>;
-  }>()("@vellum-command/HermesTransport") {}
+  }>()("@junto/HermesTransport") {}
 
 export const HermesTransportLive = Layer.effect(
   HermesTransport,

@@ -33,8 +33,8 @@ describe("Linux userland runtime audit", () => {
     );
   });
   it("requires a relocatable service placeholder and rejects privilege directives", () => {
-    expect(() => validateUserServiceTemplate("ExecStart=@VELLUM_COMMAND_RUNTIME_ROOT@/resources/systemd/vellum-command-remote-launch\n")).not.toThrow();
-    expect(() => validateUserServiceTemplate("User=root\nExecStart=@VELLUM_COMMAND_RUNTIME_ROOT@/resources/systemd/vellum-command-remote-launch\n")).toThrow(/privileged/u);
+    expect(() => validateUserServiceTemplate("ExecStart=@JUNTO_RUNTIME_ROOT@/resources/systemd/vellum-command-remote-launch\n")).not.toThrow();
+    expect(() => validateUserServiceTemplate("User=root\nExecStart=@JUNTO_RUNTIME_ROOT@/resources/systemd/vellum-command-remote-launch\n")).toThrow(/privileged/u);
   });
   it("fails closed on chrome sandbox and privileged mode residue", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "vellum-command-runtime-audit-"));
@@ -53,7 +53,7 @@ describe("Linux userland runtime audit", () => {
         "resources/app-remote/vellum-command-remote.js",
         "resources/systemd/vellum-command-remote-launch",
       ]) await writeFile(path.join(runtime, file), "fixture");
-      await writeFile(path.join(runtime, "resources/systemd/vellum-command-remote.service.template"), "ExecStart=@VELLUM_COMMAND_RUNTIME_ROOT@/resources/systemd/vellum-command-remote-launch\nConditionFileIsExecutable=@VELLUM_COMMAND_RUNTIME_ROOT@/resources/bin/vellum-command-remote\n");
+      await writeFile(path.join(runtime, "resources/systemd/vellum-command-remote.service.template"), "ExecStart=@JUNTO_RUNTIME_ROOT@/resources/systemd/vellum-command-remote-launch\nConditionFileIsExecutable=@JUNTO_RUNTIME_ROOT@/resources/bin/vellum-command-remote\n");
       await writeFile(path.join(runtime, "chrome-sandbox"), "forbidden");
       await expect(auditLinuxRuntime({ runtimePath: runtime, version: "0.1.0" })).rejects.toThrow(/privileged packaging residue/u);
       await rm(path.join(runtime, "chrome-sandbox"));

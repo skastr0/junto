@@ -9,11 +9,11 @@ import {
 } from "../src/main/vellum-command/observability/perf-probe";
 
 describe("perf probe gate", () => {
-  it("is off unless VELLUM_PERF is exactly 1", () => {
+  it("is off unless JUNTO_PERF is exactly 1", () => {
     // The zero-cost invariant: without the env flag there is no live probe,
     // so every hot-path guard folds to a constant false.
-    expect(perfProbeEnabled).toBe(process.env.VELLUM_PERF === "1");
-    if (process.env.VELLUM_PERF !== "1") expect(perfProbeEnabled).toBe(false);
+    expect(perfProbeEnabled).toBe(process.env.JUNTO_PERF === "1");
+    if (process.env.JUNTO_PERF !== "1") expect(perfProbeEnabled).toBe(false);
   });
 });
 

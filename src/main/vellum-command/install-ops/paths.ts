@@ -6,7 +6,7 @@ import { join, resolve } from "node:path";
  * that must never travel with product state seeds (dev-from-prod copy of
  * vellum-command.db). Not product durability; not shared with Remotes via projection.
  *
- * Path: `<VELLUM_COMMAND_HOME>/.vellum-command/state/install-ops.db`
+ * Path: `<JUNTO_HOME>/.vellum-command/state/install-ops.db`
  */
 export const installOpsDatabasePath = (home: string = resolveVellumCommandHome()): string =>
   resolve(join(home, ".vellum-command", "state", "install-ops.db"));

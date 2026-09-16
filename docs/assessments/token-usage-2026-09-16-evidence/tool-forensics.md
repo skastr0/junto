@@ -406,9 +406,9 @@ Which commands started them:
 
 ```bash
 awk -F'\t' 'NR>1 && ($16==25573||$16==20466||$16==71881){printf "sid=%-7s ord=%-6s %s\n",$16,$1,substr($6,1,130)}' /tmp/tt-fw/cmds.tsv
-# sid=25573 ord=3252  env PATH=… VELLUM_COMMAND_FEATURE_PROFILE=ship … bash scripts/build-app.sh --target mac --sign > /tmp/vellum-command-fresh-production-build.log 2>&1
+# sid=25573 ord=3252  env PATH=… JUNTO_FEATURE_PROFILE=ship … bash scripts/build-app.sh --target mac --sign > /tmp/vellum-command-fresh-production-build.log 2>&1
 # sid=20466 ord=6557  mise exec bun@1.3.13 -- env … bash scripts/build-app.sh --target mac --sign > /tmp/vellum-command-build-54f79b07.log 2>&1
-# sid=71881 ord=93    VELLUM_COMMAND_E2E_SHOW=1 bun run test:e2e:fast e2e/scenarios/mail-wakes-cold-seat.spec.ts … --workers=1
+# sid=71881 ord=93    JUNTO_E2E_SHOW=1 bun run test:e2e:fast e2e/scenarios/mail-wakes-cold-seat.spec.ts … --workers=1
 ```
 
 Poll timelines:

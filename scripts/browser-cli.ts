@@ -64,7 +64,7 @@ host-local only:
 // through `eval`) wedges the HTTP handler forever and the CLI hangs with no
 // typed error, contradicting the runtime_down contract this file documents.
 const requestTimeoutMs = (): number => {
-  const configured = process.env.VELLUM_COMMAND_BROWSER_REQUEST_TIMEOUT_MS;
+  const configured = process.env.JUNTO_BROWSER_REQUEST_TIMEOUT_MS;
   if (configured === undefined || !/^[1-9][0-9]*$/.test(configured)) {
     return BROWSER_CLI_REQUEST_TIMEOUT_MS;
   }

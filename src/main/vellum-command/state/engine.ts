@@ -194,7 +194,7 @@ const openStateEngine = (
         return statement;
       };
 
-      // One executed statement, counted once. `VELLUM_PERF=1` only: a
+      // One executed statement, counted once. `JUNTO_PERF=1` only: a
       // disabled build pays one constant boolean test per statement.
       const countStatement = (): void => {
         if (perfProbeEnabled) perfProbe?.countStatement();

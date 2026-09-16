@@ -7,7 +7,7 @@ import {
 } from "../src/main/vellum-command/e2e-presentation";
 
 describe("e2eFocusIsolationActive", () => {
-  it("is on only for E2E without VELLUM_COMMAND_E2E_SHOW", () => {
+  it("is on only for E2E without JUNTO_E2E_SHOW", () => {
     expect(e2eFocusIsolationActive({ e2e: true, showWindows: false })).toBe(true);
     expect(e2eFocusIsolationActive({ e2e: true, showWindows: true })).toBe(false);
     expect(e2eFocusIsolationActive({ e2e: false, showWindows: false })).toBe(false);
@@ -30,12 +30,12 @@ describe("e2eMainWindowOptions", () => {
 });
 
 describe("e2ePresentationFromEnv", () => {
-  it("reads VELLUM_COMMAND_E2E and VELLUM_COMMAND_E2E_SHOW", () => {
-    expect(e2ePresentationFromEnv({ VELLUM_COMMAND_E2E: "1" })).toEqual({
+  it("reads JUNTO_E2E and JUNTO_E2E_SHOW", () => {
+    expect(e2ePresentationFromEnv({ JUNTO_E2E: "1" })).toEqual({
       e2e: true,
       showWindows: false,
     });
-    expect(e2ePresentationFromEnv({ VELLUM_COMMAND_E2E: "1", VELLUM_COMMAND_E2E_SHOW: "1" })).toEqual({
+    expect(e2ePresentationFromEnv({ JUNTO_E2E: "1", JUNTO_E2E_SHOW: "1" })).toEqual({
       e2e: true,
       showWindows: true,
     });

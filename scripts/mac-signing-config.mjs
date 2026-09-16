@@ -4,17 +4,17 @@ import path from "node:path";
 // Release inputs are explicit and independent of the certificate being checked.
 // Public source builds do not load this configuration unless signing is requested.
 export const resolveMacSigningConfig = (environment = process.env) => {
-  const teamIdentifier = environment.VELLUM_COMMAND_MAC_TEAM_ID ?? "";
-  const signingIdentity = environment.VELLUM_COMMAND_MAC_SIGNING_IDENTITY ?? "";
+  const teamIdentifier = environment.JUNTO_MAC_TEAM_ID ?? "";
+  const signingIdentity = environment.JUNTO_MAC_SIGNING_IDENTITY ?? "";
   if (!/^[A-Z0-9]{10}$/u.test(teamIdentifier)) {
-    throw new Error("VELLUM_COMMAND_MAC_TEAM_ID must be an explicit 10-character Apple team identifier");
+    throw new Error("JUNTO_MAC_TEAM_ID must be an explicit 10-character Apple team identifier");
   }
   if (
     !signingIdentity.startsWith("Developer ID Application: ") ||
     !signingIdentity.endsWith(` (${teamIdentifier})`) ||
     /[\r\n\0]/u.test(signingIdentity)
   ) {
-    throw new Error("VELLUM_COMMAND_MAC_SIGNING_IDENTITY must be the full Developer ID Application identity for VELLUM_COMMAND_MAC_TEAM_ID");
+    throw new Error("JUNTO_MAC_SIGNING_IDENTITY must be the full Developer ID Application identity for JUNTO_MAC_TEAM_ID");
   }
   return {
     teamIdentifier,

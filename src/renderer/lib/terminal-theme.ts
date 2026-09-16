@@ -84,10 +84,10 @@ export const xtermThemeFor = (mode: ThemeMode): ITheme => {
 };
 
 /** Dark-mode projection — the default, kept for single-mode call sites. */
-export const VELLUM_XTERM_THEME: ITheme = xtermThemeFor("dark");
+export const JUNTO_XTERM_THEME: ITheme = xtermThemeFor("dark");
 
 /** One mono stack for every terminal surface (13px house cell). */
-export const VELLUM_XTERM_FONT_FAMILY =
+export const JUNTO_XTERM_FONT_FAMILY =
   "ui-monospace, SFMono-Regular, Menlo, Monaco, monospace";
 
-export const VELLUM_XTERM_FONT_SIZE = 13;
+export const JUNTO_XTERM_FONT_SIZE = 13;

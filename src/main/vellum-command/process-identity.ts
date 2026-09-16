@@ -38,7 +38,7 @@ interface BoundRecord {
 }
 
 const ProcessIdentityBindingTypeId: unique symbol = Symbol(
-  "@vellum-command/ProcessIdentityBinding",
+  "@junto/ProcessIdentityBinding",
 );
 
 /**
@@ -331,7 +331,7 @@ export const readParentPid = (pid: number): number | undefined => {
 // Peer PID helper — sealed path only (no cwd discovery)
 
 const HELPER_NAME = "unix-peer-pid.py";
-/** Trusted interpreters only (absolute). No PATH / VELLUM_COMMAND_PYTHON in product. */
+/** Trusted interpreters only (absolute). No PATH / JUNTO_PYTHON in product. */
 const TRUSTED_PYTHON = ["/usr/bin/python3", "/bin/python3"] as const;
 
 /** Absolute directories that may contain the peer-PID helper (set at app start). */

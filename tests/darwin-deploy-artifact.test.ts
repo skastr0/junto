@@ -10,8 +10,8 @@ import {
 } from "../src/main/vellum-command/hosts/deploy-darwin";
 
 vi.hoisted(() => {
-  vi.stubGlobal("__VELLUM_COMMAND_MAC_TEAM_ID__", "EXAMP12345");
-  vi.stubGlobal("__VELLUM_COMMAND_MAC_SIGNING_IDENTITY__", "Developer ID Application: Example Maintainer (EXAMP12345)");
+  vi.stubGlobal("__JUNTO_MAC_TEAM_ID__", "EXAMP12345");
+  vi.stubGlobal("__JUNTO_MAC_SIGNING_IDENTITY__", "Developer ID Application: Example Maintainer (EXAMP12345)");
 });
 afterAll(() => vi.unstubAllGlobals());
 

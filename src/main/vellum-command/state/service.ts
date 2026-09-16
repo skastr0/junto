@@ -119,4 +119,4 @@ export type StateEngineShape = {
  * - Layer: `StateEngineLive` / `makeStateEngineLive` (engine.ts).
  */
 export class StateEngine extends Context.Service<StateEngine,
-  StateEngineShape>()("@vellum-command/StateEngine") {}
+  StateEngineShape>()("@junto/StateEngine") {}

@@ -163,7 +163,7 @@ entry="$release/${REMOTE_ENTRY_RELATIVE}"
 # Prefer release-local node_modules so node-pty resolves to the Node-ABI rebuild.
 export NODE_PATH="$release/${REMOTE_APP_DIR_RELATIVE}/node_modules\${NODE_PATH:+:$NODE_PATH}"
 # Preserve the generation-pinned wrapper path after exec replaces argv0 with node.
-export VELLUM_COMMAND_REMOTE_BINARY="$release/${REMOTE_WRAPPER_RELATIVE}"
+export JUNTO_REMOTE_BINARY="$release/${REMOTE_WRAPPER_RELATIVE}"
 unset ELECTRON_RUN_AS_NODE
 exec "$node" "$entry" "$@"
 `;
@@ -281,8 +281,8 @@ export const buildRemoteEntryBundle = async (input: {
       format: "cjs",
       external: ["node-pty", "electron"],
       define: {
-        __VELLUM_COMMAND_MAC_UPDATE_FEED_URL__: JSON.stringify(""),
-        __VELLUM_COMMAND_APP_VERSION__: JSON.stringify(packageJson.version),
+        __JUNTO_MAC_UPDATE_FEED_URL__: JSON.stringify(""),
+        __JUNTO_APP_VERSION__: JSON.stringify(packageJson.version),
         ...featureDefines,
       },
       plugins: [{

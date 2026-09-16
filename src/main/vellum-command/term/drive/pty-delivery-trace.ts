@@ -154,7 +154,7 @@ export const createPtyDeliveryTracer = (
 ): PtyDeliveryTracer | undefined => {
   try {
     if (sink !== undefined) return new PtyDeliveryTracer(sink);
-    if (process.env.VELLUM_COMMAND_PTY_TRACE !== "1") return undefined;
+    if (process.env.JUNTO_PTY_TRACE !== "1") return undefined;
     journal ??= makePtyDeliveryTraceJournal(ptyDeliveryTracePath());
     return new PtyDeliveryTracer(journal.append);
   } catch {

@@ -91,12 +91,12 @@ describe("Linux remote displayless packaging helpers", () => {
       await writeFile(path.join(root, "src/main/vellum-remote.ts"), `
         const fs = 'electron' in process.versions ? require('original-fs') : require('fs');
         export const contents = fs.readFileSync('./probe.txt', 'utf8');
-        export const fleet = __VELLUM_COMMAND_FLEET_UI_ENABLED__;
+        export const fleet = __JUNTO_FLEET_UI_ENABLED__;
       `);
       const builder = new URL("../scripts/build-linux-remote-runtime.ts", import.meta.url).pathname;
       const build = spawnSync("bun", ["-e", `const {buildRemoteEntryBundle}=await import(${JSON.stringify(builder)}); await buildRemoteEntryBundle({repoRoot:${JSON.stringify(root)}});`], {
         cwd: root,
-        env: { ...process.env, VELLUM_COMMAND_FEATURE_PROFILE: "ship" },
+        env: { ...process.env, JUNTO_FEATURE_PROFILE: "ship" },
         encoding: "utf8",
         timeout: 20_000,
       });
@@ -426,10 +426,10 @@ describe("Linux remote displayless product contracts", () => {
   it("user service template is displayless and pinned to vellum-command-remote", async () => {
     const unit = await readRepo("build/linux/vellum-remote.service.template");
     expect(unit).toContain(
-      "ExecStart=@VELLUM_COMMAND_RUNTIME_ROOT@/resources/systemd/vellum-command-remote-launch",
+      "ExecStart=@JUNTO_RUNTIME_ROOT@/resources/systemd/vellum-command-remote-launch",
     );
     expect(unit).toContain(
-      "ConditionFileIsExecutable=@VELLUM_COMMAND_RUNTIME_ROOT@/resources/bin/vellum-command-remote",
+      "ConditionFileIsExecutable=@JUNTO_RUNTIME_ROOT@/resources/bin/vellum-command-remote",
     );
     expect(unit).not.toMatch(/Xvfb|xauth|mcookie/u);
     expect(unit).not.toMatch(/User=|Group=|Capability|\/opt\//u);

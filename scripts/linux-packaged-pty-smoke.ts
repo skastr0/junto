@@ -373,10 +373,10 @@ export const smokeLinuxPackagedPty = async (
     TERM: "xterm-256color",
     COLORTERM: "truecolor",
     XDG_CACHE_HOME: cache,
-    VELLUM_COMMAND_BROWSER_DIR: browser,
-    VELLUM_COMMAND_BROWSER_HOME: isolatedHome,
-    VELLUM_COMMAND_CANVASES_DIR: canvases,
-    VELLUM_COMMAND_WORK_HOME: path.join(isolatedHome, ".vellum-command", "work"),
+    JUNTO_BROWSER_DIR: browser,
+    JUNTO_BROWSER_HOME: isolatedHome,
+    JUNTO_CANVASES_DIR: canvases,
+    JUNTO_WORK_HOME: path.join(isolatedHome, ".vellum-command", "work"),
   };
 
   const processPlane = createAppProcessPlane();

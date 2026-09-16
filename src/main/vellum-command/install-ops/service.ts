@@ -80,4 +80,4 @@ export type InstallOpsServiceShape = {
  *   product truth and must not be seeded with vellum-command.db.
  */
 export class InstallOpsService extends Context.Service<InstallOpsService,
-  InstallOpsServiceShape>()("@vellum-command/InstallOpsService") {}
+  InstallOpsServiceShape>()("@junto/InstallOpsService") {}

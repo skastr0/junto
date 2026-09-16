@@ -51,7 +51,7 @@ afterEach(async () => {
     await rm(root, { recursive: true, force: true });
   }
   delete process.env[WORK_HOME_ENV];
-  delete process.env.VELLUM_COMMAND_HOME;
+  delete process.env.JUNTO_HOME;
   __resetVellumCommandHomeCache();
   process.exitCode = 0;
 });
@@ -66,13 +66,13 @@ const runCli = (
 ): Promise<{ readonly code: number | null; readonly stdout: string; readonly stderr: string }> =>
   new Promise((resolveRun, rejectRun) => {
     const env: NodeJS.ProcessEnv = { ...process.env };
-    // The source CLI resolves features from VELLUM_COMMAND_* when no build
+    // The source CLI resolves features from JUNTO_* when no build
     // defines are present; mirror this test's build profile so the child and
     // the in-process catalog agree.
     for (const [key, feature] of Object.entries(FEATURE_CATALOG)) {
       env[feature.env] = BUILD_FEATURES[key as FeatureKey] ? "1" : "0";
     }
-    if (options.home) env.VELLUM_COMMAND_HOME = options.home;
+    if (options.home) env.JUNTO_HOME = options.home;
     if (options.workHome) env[WORK_HOME_ENV] = options.workHome;
     const child = spawn("bun", [join(repoRoot, "src/cli/main.ts"), ...args], {
       cwd: repoRoot,

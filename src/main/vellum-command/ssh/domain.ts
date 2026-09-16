@@ -32,7 +32,7 @@ export type SshIdentityFile = typeof SshIdentityFile.Type;
 export const SshHostKeyPolicy = Schema.Literals(["system", "accept-new"]);
 export type SshHostKeyPolicy = typeof SshHostKeyPolicy.Type;
 
-const SshRouteTypeId: unique symbol = Symbol("@vellum-command/ssh/SshRoute");
+const SshRouteTypeId: unique symbol = Symbol("@junto/ssh/SshRoute");
 
 export interface SshRoute {
   readonly [SshRouteTypeId]: typeof SshRouteTypeId;
@@ -200,7 +200,7 @@ export const inspectSshTarget = (target: SshTarget): SshRouteDetails => {
   return details;
 };
 
-const RemoteCommandTypeId: unique symbol = Symbol("@vellum-command/ssh/RemoteCommand");
+const RemoteCommandTypeId: unique symbol = Symbol("@junto/ssh/RemoteCommand");
 
 export interface RemoteCommand {
   readonly [RemoteCommandTypeId]: typeof RemoteCommandTypeId;
@@ -302,7 +302,7 @@ export const parseRemoteUnixSocketPath = (
     ),
   );
 
-const RemoteStdinTypeId: unique symbol = Symbol("@vellum-command/ssh/RemoteStdin");
+const RemoteStdinTypeId: unique symbol = Symbol("@junto/ssh/RemoteStdin");
 
 export interface RemoteStdin {
   readonly [RemoteStdinTypeId]: typeof RemoteStdinTypeId;

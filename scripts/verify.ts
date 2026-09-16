@@ -69,7 +69,7 @@ await allMustPass([
   {
     name: "test",
     cmd: ["bun", "scripts/run-unit-tests.ts", `--maxWorkers=${vitestWorkers}`],
-    env: { VELLUM_COMMAND_TEST_FEATURE_PROFILE: "all-on" },
+    env: { JUNTO_TEST_FEATURE_PROFILE: "all-on" },
   },
 ]);
 
@@ -90,7 +90,7 @@ await allMustPass([
       "tests/features-ui-gates.test.ts",
       "tests/features-usage-gate.test.ts",
     ],
-    env: { VELLUM_COMMAND_TEST_FEATURE_PROFILE: "ship" },
+    env: { JUNTO_TEST_FEATURE_PROFILE: "ship" },
   },
 ]);
 

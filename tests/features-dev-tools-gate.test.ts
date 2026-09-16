@@ -7,14 +7,14 @@ describe("dev tools compile-time gate", () => {
   it("is off on the ship profile (prod never injects true)", () => {
     expect(SHIP_FEATURES.devTools).toBe(false);
     expect(
-      resolveBuildFeatures({ VELLUM_COMMAND_FEATURE_PROFILE: "ship" }).features
+      resolveBuildFeatures({ JUNTO_FEATURE_PROFILE: "ship" }).features
         .devTools,
     ).toBe(false);
   });
 
   it("is on for the all-on regression profile", () => {
     expect(
-      resolveBuildFeatures({ VELLUM_COMMAND_FEATURE_PROFILE: "all-on" }).features
+      resolveBuildFeatures({ JUNTO_FEATURE_PROFILE: "all-on" }).features
         .devTools,
     ).toBe(true);
   });

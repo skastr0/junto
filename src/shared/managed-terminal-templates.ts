@@ -175,7 +175,7 @@ export type ArgvSpec = {
    * ephemeral directory instead of an argv string.
    *
    * Junto mounts ONLY its own directory
-   * (`<VELLUM_COMMAND_HOME>/.vellum-command/content/agent-rules/<seat>/`): the
+   * (`<JUNTO_HOME>/.vellum-command/content/agent-rules/<seat>/`): the
    * operator's workspace is never written to, and the loaded context cites the
    * app-owned path as its origin. Official agy 1.2.1 best-practices also parse
    * a workspace-root `AGENTS.md` / `GEMINI.md`; that is why the seat still
@@ -739,10 +739,10 @@ const SHARED_ENV_SPEC: EnvSpec = {
   // PATH inject so `dist/vellum-command` resolves for `vellum-command onboard`.
   injectKeys: [
     "PATH",
-    "VELLUM_COMMAND_SOCKET",
-    "VELLUM_COMMAND_TOKEN",
-    "VELLUM_COMMAND_SEAT",
-    "VELLUM_COMMAND_NODE_REF",
+    "JUNTO_SOCKET",
+    "JUNTO_TOKEN",
+    "JUNTO_SEAT",
+    "JUNTO_NODE_REF",
   ],
 };
 
@@ -1743,7 +1743,7 @@ export const OMP_TEMPLATE: ManagedTerminalTemplate = {
 };
 
 /** App-owned structured controller. Its tool calls still enter the process-bound Work socket. */
-export const VELLUM_OVERSEER_TEMPLATE: ManagedTerminalTemplate = {
+export const JUNTO_OVERSEER_TEMPLATE: ManagedTerminalTemplate = {
   harness: "vellum-overseer",
   displayName: "Junto Overseer",
   argvSpec: {
@@ -1784,7 +1784,7 @@ export const MANAGED_TERMINAL_TEMPLATES: Readonly<
   amp: AMP_TEMPLATE,
   fx: FX_TEMPLATE,
   omp: OMP_TEMPLATE,
-  "vellum-overseer": VELLUM_OVERSEER_TEMPLATE,
+  "vellum-overseer": JUNTO_OVERSEER_TEMPLATE,
 };
 
 export const templateFor = (harness: HarnessId): ManagedTerminalTemplate =>

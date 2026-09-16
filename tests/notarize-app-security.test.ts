@@ -102,9 +102,9 @@ describe("notarization path capabilities", () => {
   });
 
   it("refuses ambient release-root mutation authority before loading shared paths", () => {
-    const result = runNotarize([], { VELLUM_COMMAND_RELEASE_DIR: "/tmp/evil\n'PY'\nrm -rf /" });
+    const result = runNotarize([], { JUNTO_RELEASE_DIR: "/tmp/evil\n'PY'\nrm -rf /" });
     expect(result.status).not.toBe(0);
-    expect(result.stderr).toContain("VELLUM_COMMAND_RELEASE_DIR is not configurable");
+    expect(result.stderr).toContain("JUNTO_RELEASE_DIR is not configurable");
   });
 
   it.each([
@@ -163,23 +163,23 @@ describe("notarization path capabilities", () => {
 
   it("applies the same release-root confinement to ambient source selectors", () => {
     const appOutside = runNotarize([], {
-      VELLUM_COMMAND_APP_SRC: "/tmp/outside.app",
-      VELLUM_COMMAND_ZIP_SRC: "/tmp/outside.zip",
+      JUNTO_APP_SRC: "/tmp/outside.app",
+      JUNTO_ZIP_SRC: "/tmp/outside.zip",
     });
     expect(appOutside.status).not.toBe(0);
     expect(appOutside.stderr).toContain("app must be an existing non-symlink bundle");
 
     const zipOutside = runNotarize([], (fixture) => ({
-      VELLUM_COMMAND_APP_SRC: fixture.app,
-      VELLUM_COMMAND_ZIP_SRC: "/tmp/outside.zip",
+      JUNTO_APP_SRC: fixture.app,
+      JUNTO_ZIP_SRC: "/tmp/outside.zip",
     }));
     expect(zipOutside.status).not.toBe(0);
     expect(zipOutside.stderr).toContain("zip must be an existing non-symlink file");
   });
 
   it("retains source selectors only as validated read authority and records replacement identity checks", () => {
-    expect(source).toContain('ENV_ZIP_SOURCE="${VELLUM_COMMAND_ZIP_SRC:-}"');
-    expect(source).toContain("unset VELLUM_COMMAND_ZIP_SRC VELLUM_COMMAND_APP_SRC");
+    expect(source).toContain('ENV_ZIP_SOURCE="${JUNTO_ZIP_SRC:-}"');
+    expect(source).toContain("unset JUNTO_ZIP_SRC JUNTO_APP_SRC");
     expect(source).toContain('STAGING_DIR="$(mktemp -d "$RELEASE_ROOT/.notarize-stage.XXXXXXXX")"');
     expect(source).toContain('SUBMITTED_ZIP="$STAGING_DIR/submitted.zip"');
     expect(source).toContain('ditto "$ZIP_SRC" "$SUBMITTED_ZIP"');

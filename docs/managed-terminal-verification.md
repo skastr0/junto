@@ -29,13 +29,13 @@ copy install-ops ledgers, control sockets, or tokens. Boot a disposable copy
 through the normal app runtime. Keep its home short, such as `/tmp/vc-pty-qa`:
 long temporary paths can exceed the Unix socket path limit.
 
-An isolated `VELLUM_COMMAND_HOME` preserves product state but deliberately
+An isolated `JUNTO_HOME` preserves product state but deliberately
 starts fresh harness sessions (`launchForManagedSpawn`). It does not copy the
 production process's live composer or resume its harness session. A successful
 clone run therefore does not establish that the original stuck session is fixed.
 
-Enable `VELLUM_COMMAND_PTY_TRACE=1` before launch. The local journal is
-`<VELLUM_COMMAND_HOME>/.vellum-command/logs/pty-delivery.jsonl`; with the default
+Enable `JUNTO_PTY_TRACE=1` before launch. The local journal is
+`<JUNTO_HOME>/.vellum-command/logs/pty-delivery.jsonl`; with the default
 home it is `~/.vellum-command/logs/pty-delivery.jsonl`. Records correlate a
 delivery with its binding, harness, evidence probes, admission gates, physical
 write stages, acknowledgements, and final verdict. Prompt content is represented
@@ -45,11 +45,11 @@ For a built renderer served at `http://127.0.0.1:5173`, launch the normal app
 from the repository with the isolated home and tracing enabled:
 
 ```bash
-env -u VELLUM_COMMAND_WORK_HOME -u VELLUM_COMMAND_WORK_SOCKET \
-  -u VELLUM_COMMAND_SOCKET -u VELLUM_COMMAND_SEAT \
-  -u VELLUM_COMMAND_NODE_REF -u VELLUM_COMMAND_TOKEN \
-  -u VELLUM_COMMAND_WORK_TOKEN \
-  VELLUM_COMMAND_HOME=/tmp/vc-pty-qa VELLUM_COMMAND_PTY_TRACE=1 \
+env -u JUNTO_WORK_HOME -u JUNTO_WORK_SOCKET \
+  -u JUNTO_SOCKET -u JUNTO_SEAT \
+  -u JUNTO_NODE_REF -u JUNTO_TOKEN \
+  -u JUNTO_WORK_TOKEN \
+  JUNTO_HOME=/tmp/vc-pty-qa JUNTO_PTY_TRACE=1 \
   ELECTRON_RENDERER_URL=http://127.0.0.1:5173 \
   node_modules/.bin/electron --disable-backgrounding-occluded-windows .
 ```

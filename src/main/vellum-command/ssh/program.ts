@@ -42,7 +42,7 @@ const READINESS_TIMEOUT_MS: Readonly<Record<ReadinessBudget, number>> = {
 
 const DEPLOYMENT_STREAM_TIMEOUT_MS = 20 * 60_000;
 
-const ProgramTypeId: unique symbol = Symbol("@vellum-command/ssh/Program");
+const ProgramTypeId: unique symbol = Symbol("@junto/ssh/Program");
 
 export interface OneShotProgram {
   readonly [ProgramTypeId]: "oneShot";

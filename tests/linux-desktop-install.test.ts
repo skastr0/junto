@@ -82,7 +82,7 @@ const makeAsar = async (root: string, version: string, change?: "version" | "sou
   await mkdir(join(directory, "out/main"), { recursive: true });
   const buildIdentity = { schema: "vellum-command/runtime-build-identity/v1", cohortNonce: "ba035b20-2435-4af4-83b7-71839c4feec7", sourceCommit: SOURCE, runtime: "electron-main" };
   const marker = change === "marker" ? { ...buildIdentity, cohortNonce: "cc035b20-2435-4af4-83b7-71839c4feec7" } : buildIdentity;
-  const main = Buffer.from(`// harmless packaged fixture\n/* VELLUM_COMMAND_RUNTIME_BUILD_IDENTITY:${Buffer.from(JSON.stringify(marker)).toString("base64url")} */\n`);
+  const main = Buffer.from(`// harmless packaged fixture\n/* JUNTO_RUNTIME_BUILD_IDENTITY:${Buffer.from(JSON.stringify(marker)).toString("base64url")} */\n`);
   await writeFile(join(directory, "package.json"), JSON.stringify({ name: "@skastr0/vellum-command", version: change === "version" ? "0.0.1" : version }));
   await writeFile(join(directory, "out/main/index.js"), main);
   await writeFile(join(directory, "out/package-runtime-provenance.json"), JSON.stringify({ schema: "vellum-command/package-runtime-provenance/v2", product: "Junto", runtime: "electron-main", appVersion: version, sourceCommit: change === "source" ? "c".repeat(40) : SOURCE, buildIdentity, state: {}, payload: { packagedPath: "out/main/index.js", bytes: main.length, sha256: change === "payload" ? "0".repeat(64) : sha256(main) } }));

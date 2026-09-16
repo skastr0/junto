@@ -33,7 +33,7 @@ export type ProbeProcessOutputListener = (
 ) => void;
 
 const ProbeProcessHandleTypeId: unique symbol = Symbol(
-  "@vellum-command/ProbeProcessHandle",
+  "@junto/ProbeProcessHandle",
 );
 
 /** Opaque observation handle. It carries no child, pid, signal, or lease. */
@@ -102,7 +102,7 @@ export interface ProbeProcessSupervisor {
   readonly isQuiescing: () => boolean;
 }
 
-const ProbeSandboxTypeId: unique symbol = Symbol("@vellum-command/ProbeSandbox");
+const ProbeSandboxTypeId: unique symbol = Symbol("@junto/ProbeSandbox");
 
 /** A deletion capability bound to one directory created by this module. */
 export interface ProbeSandbox {

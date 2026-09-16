@@ -9,7 +9,7 @@ import type {
 import {
   SYSTEMCTL_DEADLINE_MS,
   SYSTEMCTL_PATH,
-  VELLUM_COMMAND_SYSTEMD_USER_UNIT,
+  JUNTO_SYSTEMD_USER_UNIT,
   createSystemctlRunner,
   systemdUserUnitTarget,
   type VellumSystemdUserUnitTarget,
@@ -102,7 +102,7 @@ describe("systemctl runner target and argv boundary", () => {
     await expect(showing).resolves.toMatchObject({
       clean: true,
       ok: true,
-      unit: VELLUM_COMMAND_SYSTEMD_USER_UNIT,
+      unit: JUNTO_SYSTEMD_USER_UNIT,
     });
     expect(processPlane.spawnChild).toHaveBeenNthCalledWith(1, {
       source: "supervision.systemctl-runner",

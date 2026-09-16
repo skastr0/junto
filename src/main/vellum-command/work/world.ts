@@ -50,14 +50,14 @@ import type { StateReader } from "../state/service";
 import type { WorkSnapshot as WorkSnapshotValue } from "@shared/work-model";
 
 /**
- * Kill switch. `VELLUM_COMMAND_WORLD=0` puts every canvas read back on the
+ * Kill switch. `JUNTO_WORLD=0` puts every canvas read back on the
  * SQLite read path, with no residency and no seam subscription — the exact
  * code that ran before this module existed. It is read once, at module load:
  * a world that could be switched off halfway through a session would be
  * serving from a residency nobody was maintaining.
  */
 export const workWorldEnabled: boolean =
-  process.env.VELLUM_COMMAND_WORLD !== "0";
+  process.env.JUNTO_WORLD !== "0";
 
 /**
  * How many canvases stay resident.

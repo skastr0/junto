@@ -66,7 +66,7 @@ state hooks; pull-only remains the common declared fallback.
 At source `192cbd228`, independently ran:
 
 ```sh
-VELLUM_COMMAND_TEST_FEATURE_PROFILE=all-on bunx vitest run tests/crew-review-service.test.ts tests/crew-repository.test.ts
+JUNTO_TEST_FEATURE_PROFILE=all-on bunx vitest run tests/crew-review-service.test.ts tests/crew-repository.test.ts
 ```
 
 **27/27 tests, 2 files passed**, 07:37:08 BRT, duration 2.39 seconds.

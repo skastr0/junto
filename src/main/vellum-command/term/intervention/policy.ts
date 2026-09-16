@@ -19,7 +19,7 @@
  *
  * Structural-only: awareness is binary (unproven | proven). Text heuristics
  * were removed (live false alert) — no phrase scanning, no repair-env,
- * no socket-down inference. VELLUM_COMMAND_CLI is the one canonical CLI
+ * no socket-down inference. JUNTO_CLI is the one canonical CLI
  * location, injected at spawn; agent-facing messages never print host paths.
  *
  * The write-gates ALWAYS override every would-be PTY write: when a gate is

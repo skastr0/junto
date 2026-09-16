@@ -32,7 +32,7 @@ import {
 import { EtherBrowser, EtherRegion, EtherTerminal, EtherTimer, EtherWatch } from "./canvas";
 import { EtherSheet } from "./sheet";
 import {
-  VELLUM_INTRO,
+  JUNTO_INTRO,
   SEAT_DOCTRINE,
   WORKER_DOCTRINE,
   BASE_CONTRACT,

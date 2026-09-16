@@ -865,7 +865,7 @@ export const defaultHarnesses = (): HarnessesSettings => ({
  * what the surface already builds with, so the fragment landing changes
  * nothing for an operator who never opens the tab:
  * - fontSize / fontFamily / lineHeight — the house mono cell (MONO_CELL.fontSizePx,
- *   VELLUM_XTERM_FONT_FAMILY, and the hardcoded 1.2 in TerminalSurface)
+ *   JUNTO_XTERM_FONT_FAMILY, and the hardcoded 1.2 in TerminalSurface)
  * - scrollSensitivity / scrollback — the SCROLL_SENSITIVITY and scrollback
  *   constants the surface passed to xterm
  * - cursorStyle / letterSpacing / screenReaderMode —

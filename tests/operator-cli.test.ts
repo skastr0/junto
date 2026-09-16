@@ -29,7 +29,7 @@ afterEach(async () => {
   for (const root of roots.splice(0)) {
     await rm(root, { recursive: true, force: true });
   }
-  delete process.env.VELLUM_COMMAND_HOME;
+  delete process.env.JUNTO_HOME;
   __resetVellumCommandHomeCache();
   process.exitCode = 0;
 });
@@ -39,7 +39,7 @@ const startOperatorServer = async (
 ): Promise<void> => {
   const root = await mkdtemp("/tmp/vellum-op-");
   roots.push(root);
-  process.env.VELLUM_COMMAND_HOME = root;
+  process.env.JUNTO_HOME = root;
   __resetVellumCommandHomeCache();
   const socketPath = operatorControlSocketPath(root);
   await mkdir(join(root, ".vellum-command", "operator"), { recursive: true });

@@ -10,7 +10,7 @@ export type CanvasProjectionSuffix =
 
 const canvasProjectionRoot = (): string =>
   resolve(
-    process.env.VELLUM_COMMAND_CANVASES_DIR ??
+    process.env.JUNTO_CANVASES_DIR ??
       join(resolveVellumCommandHome(), ".vellum-command", "canvases"),
   );
 

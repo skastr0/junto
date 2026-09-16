@@ -45,7 +45,7 @@ try {
   const run = spawnSync("bunx", ["vitest", "run", toolTest], {
     cwd: ROOT,
     stdio: ["ignore", "pipe", "pipe"],
-    env: { ...process.env, VELLUM_COMMAND_TEST_FEATURE_PROFILE: "all-on" },
+    env: { ...process.env, JUNTO_TEST_FEATURE_PROFILE: "all-on" },
   });
   if (run.status !== 0) {
     console.error(String(run.stdout));

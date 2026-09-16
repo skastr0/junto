@@ -1224,7 +1224,7 @@ function ImpactSeedChip() {
 // gesture is silent, and the colour under the cursor is the whole answer.
 
 function CanvasPerformanceBoundary({ children }: { readonly children: ReactNode }) {
-  // Dev always profiles; a packaged build profiles only when VELLUM_PERF armed
+  // Dev always profiles; a packaged build profiles only when JUNTO_PERF armed
   // the harness, which is also what makes the recorder non-null.
   if (!import.meta.env.DEV && !PERF_ENABLED) return children;
   return (

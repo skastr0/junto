@@ -124,11 +124,11 @@ describe("loginShellPathFromProbeOutput", () => {
   it("extracts PATH between the sentinels, ignoring rc noise", () => {
     const output = [
       "shell greeting noise",
-      "VELLUM_COMMAND_ENV_BEGIN",
+      "JUNTO_ENV_BEGIN",
       "HOME=/home/tester",
       "PATH=/home/tester/.bun/bin:/usr/bin:/bin",
       "SHELL=/bin/zsh",
-      "VELLUM_COMMAND_ENV_END",
+      "JUNTO_ENV_END",
       "more noise after",
     ].join("\n");
     expect(loginShellPathFromProbeOutput(output)).toBe(
@@ -139,11 +139,11 @@ describe("loginShellPathFromProbeOutput", () => {
   it("returns undefined when sentinels or PATH are absent", () => {
     expect(loginShellPathFromProbeOutput("")).toBeUndefined();
     expect(
-      loginShellPathFromProbeOutput("VELLUM_COMMAND_ENV_BEGIN\nFOO=1\n"),
+      loginShellPathFromProbeOutput("JUNTO_ENV_BEGIN\nFOO=1\n"),
     ).toBeUndefined();
     expect(
       loginShellPathFromProbeOutput(
-        "VELLUM_COMMAND_ENV_BEGIN\nFOO=1\nVELLUM_COMMAND_ENV_END\n",
+        "JUNTO_ENV_BEGIN\nFOO=1\nJUNTO_ENV_END\n",
       ),
     ).toBeUndefined();
   });

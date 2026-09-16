@@ -336,8 +336,8 @@ const startTestServer = async (options: {
   const workHome = join(root, "work");
   mkdirSync(canvasesDir, { recursive: true });
   mkdirSync(workHome, { recursive: true });
-  process.env.VELLUM_COMMAND_CANVASES_DIR = canvasesDir;
-  process.env.VELLUM_COMMAND_WORK_HOME = workHome;
+  process.env.JUNTO_CANVASES_DIR = canvasesDir;
+  process.env.JUNTO_WORK_HOME = workHome;
 
   const runtime = makeWorkTestRuntime(root);
   runtimes.push(runtime);
@@ -397,12 +397,12 @@ afterEach(async () => {
     const root = roots.pop();
     if (root) await rm(root, { recursive: true, force: true });
   }
-  delete process.env.VELLUM_COMMAND_CANVASES_DIR;
-  delete process.env.VELLUM_COMMAND_WORK_HOME;
+  delete process.env.JUNTO_CANVASES_DIR;
+  delete process.env.JUNTO_WORK_HOME;
 });
 
 const token = (): string => {
-  const workHome = process.env.VELLUM_COMMAND_WORK_HOME!;
+  const workHome = process.env.JUNTO_WORK_HOME!;
   return readFileSync(workControlTokenPath(workHome), "utf8").trim();
 };
 
@@ -1499,8 +1499,8 @@ describe("work control transport", () => {
     const canvasesDir = join(root, "canvases");
     mkdirSync(workHome, { recursive: true });
     mkdirSync(canvasesDir, { recursive: true });
-    process.env.VELLUM_COMMAND_CANVASES_DIR = canvasesDir;
-    process.env.VELLUM_COMMAND_WORK_HOME = workHome;
+    process.env.JUNTO_CANVASES_DIR = canvasesDir;
+    process.env.JUNTO_WORK_HOME = workHome;
     const runtime = makeWorkTestRuntime(root);
     runtimes.push(runtime);
     await seedCanonicalWork(runtime);

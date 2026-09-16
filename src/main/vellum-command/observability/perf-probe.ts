@@ -1,5 +1,5 @@
 /**
- * Env-gated main-thread perf probe (`VELLUM_PERF=1`).
+ * Env-gated main-thread perf probe (`JUNTO_PERF=1`).
  *
  * Answers one question with measurements instead of inference: which caller
  * drives the synchronous main-thread bursts, and how big are those bursts.
@@ -381,7 +381,7 @@ export const appendPerfLine = (line: PerfWindowLine): void => {
  * Single env gate. Read once at module load so every hot-path guard is a
  * constant boolean test that the JIT can fold away when the probe is off.
  */
-export const perfProbeEnabled = process.env.VELLUM_PERF === "1";
+export const perfProbeEnabled = process.env.JUNTO_PERF === "1";
 
 /** Live probe, or `undefined` when the env gate is off. */
 export const perfProbe: PerfProbe | undefined = perfProbeEnabled

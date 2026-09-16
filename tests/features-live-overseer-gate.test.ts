@@ -26,9 +26,9 @@ afterEach(() => {
 describe("Live Overseer product gate", () => {
   it("defaults off and requires an explicit build opt-in", () => {
     expect(resolveBuildFeatures({}).features.liveOverseer).toBe(false);
-    expect(resolveBuildFeatures({ VELLUM_COMMAND_LIVE_OVERSEER: "1" }).features.liveOverseer).toBe(true);
-    expect(resolveBuildFeatures({ VELLUM_COMMAND_FEATURE_PROFILE: "all-on" }).features.liveOverseer).toBe(true);
-    expect(resolveBuildFeatures({ VELLUM_COMMAND_FEATURE_PROFILE: "all-on", VELLUM_COMMAND_LIVE_OVERSEER: "0" }).features.liveOverseer).toBe(false);
+    expect(resolveBuildFeatures({ JUNTO_LIVE_OVERSEER: "1" }).features.liveOverseer).toBe(true);
+    expect(resolveBuildFeatures({ JUNTO_FEATURE_PROFILE: "all-on" }).features.liveOverseer).toBe(true);
+    expect(resolveBuildFeatures({ JUNTO_FEATURE_PROFILE: "all-on", JUNTO_LIVE_OVERSEER: "0" }).features.liveOverseer).toBe(false);
   });
 
   it("retains durable harness vocabulary independently of authoring", () => {
@@ -50,7 +50,7 @@ describe("Live Overseer product gate", () => {
     const process = spawnSync("bun", ["src/cli/main.ts", "overseer-host"], {
       encoding: "utf8",
       timeout: 15_000,
-      env: { ...globalThis.process.env, VELLUM_COMMAND_LIVE_OVERSEER: "0" },
+      env: { ...globalThis.process.env, JUNTO_LIVE_OVERSEER: "0" },
     });
     expect(process.status).toBe(2);
     expect(process.stdout).toBe("");

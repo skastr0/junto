@@ -1,7 +1,7 @@
 /**
  * Resolve a mailbox CLI target to a canvas node id.
  *
- * Agents hold `VELLUM_COMMAND_NODE_REF` as `canvas:nodeId`. Passing that
+ * Agents hold `JUNTO_NODE_REF` as `canvas:nodeId`. Passing that
  * string as `target` used to ScopeError. Own-inbox calls also omit target.
  */
 

@@ -72,7 +72,7 @@ const launch = () =>
   launchVellum({
     seedCanvases: { [CANVAS]: promptDoc },
     afterSeed: installCrewSeatHarness,
-    extraEnv: { VELLUM_COMMAND_PTY_TRACE: "1" },
+    extraEnv: { JUNTO_PTY_TRACE: "1" },
   });
 
 const boot = async (vellum: Awaited<ReturnType<typeof launch>>) => {

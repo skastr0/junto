@@ -23,7 +23,7 @@ import { releaseStaging } from "./staging";
  * - Canonical id: `@vellum/UpdateService` — single definition; no dual path.
  * - Service id: Context.Service (Effect V4 live).
  * - Shape:
- *   `class UpdateService extends Context.Service<UpdateService, UpdateService>()("@vellum-command/UpdateService") {}`
+ *   `class UpdateService extends Context.Service<UpdateService, UpdateService>()("@junto/UpdateService") {}`
  * - Layer today: makeUpdateServiceLayer — V4 rename candidate UpdateService.layer
  *   Do not dual-export Live + `.layer` names.
  */
@@ -51,7 +51,7 @@ export class UpdateService extends Context.Service<UpdateService,
     readonly subscribe: (
       listener: (status: UpdateStatus) => void,
     ) => () => void;
-  }>()("@vellum-command/UpdateService") {}
+  }>()("@junto/UpdateService") {}
 
 /** Sealed install plan — only prepareInstall mints these. */
 export type InstallPlan = {

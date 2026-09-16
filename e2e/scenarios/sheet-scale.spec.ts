@@ -17,7 +17,7 @@ import { SHEET_MAX_ROWS } from "../../src/shared/sheet";
 import { agentTextNode, canvasDoc, verbEdge } from "../harness/sandbox";
 import { expect, test } from "../harness/launch";
 
-const SHOTS = process.env.VELLUM_SHEET_SHOTS ?? join(process.cwd(), ".amp/in/artifacts");
+const SHOTS = process.env.JUNTO_SHEET_SHOTS ?? join(process.cwd(), ".amp/in/artifacts");
 const COLUMNS = 8;
 const ROWS = SHEET_MAX_ROWS;
 const FRAME = { width: 1600, height: 1000 };
@@ -69,7 +69,7 @@ const note: CanvasNode = {
 
 test.use({
   vellumOptions: {
-    extraEnv: { VELLUM_COMMAND_E2E_SHOW: "1" },
+    extraEnv: { JUNTO_E2E_SHOW: "1" },
     seedCanvases: {
       sheets: canvasDoc(
         [sheetNode, neighbour, note],

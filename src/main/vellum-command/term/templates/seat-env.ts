@@ -63,10 +63,10 @@ export const buildManagedSeatInject = (
   }
 
   const workHome = resolveWorkHomeForSeat(env);
-  inject.VELLUM_COMMAND_WORK_HOME = workHome;
+  inject.JUNTO_WORK_HOME = workHome;
   const socket = workControlSocketPath(workHome);
-  inject.VELLUM_COMMAND_SOCKET = socket;
-  inject.VELLUM_COMMAND_WORK_SOCKET = socket;
+  inject.JUNTO_SOCKET = socket;
+  inject.JUNTO_WORK_SOCKET = socket;
 
   // The ONE canonical CLI location for this seat. There is no second path:
   // the seat's CLI is the binary the seat was launched with. Agents reference
@@ -76,14 +76,14 @@ export const buildManagedSeatInject = (
     existsSync(join(prefix, "vellum-command")),
   );
   if (cliPrefix !== undefined) {
-    inject.VELLUM_COMMAND_CLI = join(cliPrefix, "vellum-command");
+    inject.JUNTO_CLI = join(cliPrefix, "vellum-command");
   }
 
   if (input.agentKey?.trim()) {
-    inject.VELLUM_COMMAND_SEAT = input.agentKey.trim();
+    inject.JUNTO_SEAT = input.agentKey.trim();
   }
   if (input.canvasName?.trim() && input.nodeId?.trim()) {
-    inject.VELLUM_COMMAND_NODE_REF = `${input.canvasName.trim()}:${input.nodeId.trim()}`;
+    inject.JUNTO_NODE_REF = `${input.canvasName.trim()}:${input.nodeId.trim()}`;
   }
 
   return inject;

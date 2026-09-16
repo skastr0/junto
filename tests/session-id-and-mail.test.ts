@@ -15,12 +15,12 @@ import {
 } from "../src/main/vellum-command/term/drive";
 import { makeManagedAgentNode } from "../src/renderer/lib/node-factories";
 
-const originalVellumHome = process.env.VELLUM_COMMAND_HOME;
+const originalVellumHome = process.env.JUNTO_HOME;
 
 afterEach(() => {
   vi.useRealTimers();
-  if (originalVellumHome === undefined) delete process.env.VELLUM_COMMAND_HOME;
-  else process.env.VELLUM_COMMAND_HOME = originalVellumHome;
+  if (originalVellumHome === undefined) delete process.env.JUNTO_HOME;
+  else process.env.JUNTO_HOME = originalVellumHome;
 });
 
 describe("session id parsing + authorial pin", () => {
@@ -222,7 +222,7 @@ describe("session id parsing + authorial pin", () => {
   });
 
   it("spawn replan uses a stored authoring pin without implicitly resuming", () => {
-    delete process.env.VELLUM_COMMAND_HOME;
+    delete process.env.JUNTO_HOME;
     const node = makeManagedAgentNode(0, 0, {
       harness: "claude",
       host: "local",
@@ -245,7 +245,7 @@ describe("session id parsing + authorial pin", () => {
   });
 
   it("spawn replan resumes only when requested AND external harness state proves the id", () => {
-    delete process.env.VELLUM_COMMAND_HOME;
+    delete process.env.JUNTO_HOME;
     const node = makeManagedAgentNode(0, 0, {
       harness: "claude",
       host: "local",

@@ -1,22 +1,22 @@
 /**
- * VELLUM_PERF — the one runtime switch for renderer performance telemetry.
+ * JUNTO_PERF — the one runtime switch for renderer performance telemetry.
  *
  * The renderer window runs sandboxed (`contextIsolation: true`,
  * `nodeIntegration: false`, `sandbox: true`), so it cannot read the main
- * process environment: exporting `VELLUM_PERF=1` before launching the app
+ * process environment: exporting `JUNTO_PERF=1` before launching the app
  * does not, on its own, reach this side. The flag is therefore resolved from
  * every source a sandboxed renderer can actually see, and the durable one for
  * a packaged build is localStorage:
  *
- *     localStorage.setItem("VELLUM_PERF", "1")   // then reload the window
+ *     localStorage.setItem("JUNTO_PERF", "1")   // then reload the window
  *
  * Resolution order (first hit wins):
- *   1. `globalThis.VELLUM_PERF`   — harness injection (Playwright
+ *   1. `globalThis.JUNTO_PERF`   — harness injection (Playwright
  *      `addInitScript`, a devtools one-liner, an e2e preamble)
- *   2. `?VELLUM_PERF=1` / `#VELLUM_PERF=1` on the renderer URL — dev server
+ *   2. `?JUNTO_PERF=1` / `#JUNTO_PERF=1` on the renderer URL — dev server
  *      and the e2e static renderer server
- *   3. `localStorage["VELLUM_PERF"]` — survives restarts; the packaged path
- *   4. `process.env.VELLUM_PERF` — Node-visible contexts only (unit tests, or
+ *   3. `localStorage["JUNTO_PERF"]` — survives restarts; the packaged path
+ *   4. `process.env.JUNTO_PERF` — Node-visible contexts only (unit tests, or
  *      a future preload bridge that forwards the variable)
  *
  * Resolved exactly once at module load. Every call site reads a constant, so
@@ -33,21 +33,21 @@ const readable = (value: unknown): boolean => {
 
 /** Injected switch: an e2e init script or a devtools assignment. */
 const fromGlobal = (): boolean | undefined => {
-  const injected = (globalThis as { VELLUM_PERF?: unknown }).VELLUM_PERF;
+  const injected = (globalThis as { JUNTO_PERF?: unknown }).JUNTO_PERF;
   return injected === undefined ? undefined : readable(injected);
 };
 
-/** URL switch: `?VELLUM_PERF=1` or `#VELLUM_PERF=1`. */
+/** URL switch: `?JUNTO_PERF=1` or `#JUNTO_PERF=1`. */
 const fromLocation = (): boolean | undefined => {
   try {
     const href = globalThis.location?.href;
     if (!href) return undefined;
     const url = new URL(href);
-    const search = url.searchParams.get("VELLUM_PERF");
+    const search = url.searchParams.get("JUNTO_PERF");
     if (search !== null) return readable(search);
     const hash = url.hash.startsWith("#") ? url.hash.slice(1) : url.hash;
     if (!hash) return undefined;
-    const hashed = new URLSearchParams(hash).get("VELLUM_PERF");
+    const hashed = new URLSearchParams(hash).get("JUNTO_PERF");
     return hashed === null ? undefined : readable(hashed);
   } catch {
     return undefined;
@@ -57,7 +57,7 @@ const fromLocation = (): boolean | undefined => {
 /** Durable switch: the only one that survives an app restart. */
 const fromStorage = (): boolean | undefined => {
   try {
-    const stored = globalThis.localStorage?.getItem("VELLUM_PERF");
+    const stored = globalThis.localStorage?.getItem("JUNTO_PERF");
     return stored === null || stored === undefined ? undefined : readable(stored);
   } catch {
     // Storage can be denied (opaque origin, disabled cookies). Never throw
@@ -71,7 +71,7 @@ const fromEnv = (): boolean | undefined => {
   try {
     const env = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process
       ?.env;
-    const value = env?.VELLUM_PERF;
+    const value = env?.JUNTO_PERF;
     return value === undefined ? undefined : readable(value);
   } catch {
     return undefined;

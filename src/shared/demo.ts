@@ -1,7 +1,7 @@
 import type { CanvasEdge, CanvasNode, EtherFlag } from "./canvas";
 
 // Demo/scripting engine contracts. The engine exists ONLY when the app is
-// launched with --vellum-demo (argv) or VELLUM_COMMAND_DEMO=1 (env): outside demo
+// launched with --vellum-demo (argv) or JUNTO_DEMO=1 (env): outside demo
 // mode every channel below answers inert ({ active: false } / ok:false) and
 // no scripted transport is ever constructed. Nothing here is product
 // behavior — it is a film set for driving the real UI deterministically.
@@ -17,10 +17,10 @@ export const beatMs = (bpm: number): number => 60_000 / bpm;
 
 export interface DemoStateInfo {
   readonly active: boolean;
-  /** VELLUM_COMMAND_DEMO_AUTOROLL=1 — the take starts itself shortly after mount
+  /** JUNTO_DEMO_AUTOROLL=1 — the take starts itself shortly after mount
    * (headless/scripted capture; also dodges any pre-mount beat-0 race). */
   readonly autoroll?: boolean;
-  /** VELLUM_COMMAND_DEMO_SCENARIO — scenario id to roll (F9 and autoroll). Unknown or
+  /** JUNTO_DEMO_SCENARIO — scenario id to roll (F9 and autoroll). Unknown or
    * absent falls back to the default scenario in the renderer registry. */
   readonly scenarioId?: string;
 }

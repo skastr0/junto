@@ -24,9 +24,9 @@ plus the cost at the target load (1000 nodes, ~133 events/sec).
 ## Run
 
 ```bash
-VELLUM_SCALE_BENCH=1 \
-VELLUM_SCALE_BENCH_REAL_DB=/path/to/a/copy/of/vellum-command.db \
-VELLUM_SCALE_BENCH_OUT=/tmp/after.jsonl \
+JUNTO_SCALE_BENCH=1 \
+JUNTO_SCALE_BENCH_REAL_DB=/path/to/a/copy/of/vellum-command.db \
+JUNTO_SCALE_BENCH_OUT=/tmp/after.jsonl \
 npx vitest run tests/scale-bench/scale.test.ts --reporter=verbose
 ```
 
@@ -34,13 +34,13 @@ Skipped by default, so `bun run test` is unaffected.
 
 | env | meaning |
 |---|---|
-| `VELLUM_SCALE_BENCH=1` | enable (required) |
-| `VELLUM_SCALE_BENCH_SCALES` | `real,500,1000` subset (default: all three) |
-| `VELLUM_SCALE_BENCH_REAL_DB` | operator database; it is **copied**, never opened in place |
-| `VELLUM_SCALE_BENCH_REAL_CANVAS` | canvas name in that database (default `factory`) |
-| `VELLUM_SCALE_BENCH_DIR` | fixture cache root (default `<tmpdir>/vellum-scale-bench`) |
-| `VELLUM_SCALE_BENCH_OUT` | JSONL file to append records to |
-| `VELLUM_SCALE_BENCH_REGEN=1` | rebuild the synthetic fixtures from scratch |
+| `JUNTO_SCALE_BENCH=1` | enable (required) |
+| `JUNTO_SCALE_BENCH_SCALES` | `real,500,1000` subset (default: all three) |
+| `JUNTO_SCALE_BENCH_REAL_DB` | operator database; it is **copied**, never opened in place |
+| `JUNTO_SCALE_BENCH_REAL_CANVAS` | canvas name in that database (default `factory`) |
+| `JUNTO_SCALE_BENCH_DIR` | fixture cache root (default `<tmpdir>/vellum-scale-bench`) |
+| `JUNTO_SCALE_BENCH_OUT` | JSONL file to append records to |
+| `JUNTO_SCALE_BENCH_REGEN=1` | rebuild the synthetic fixtures from scratch |
 
 Output is exactly one JSON line per scale, so two runs are easy to compare:
 

@@ -318,7 +318,7 @@ const runCli = (
   new Promise((resolveCli, rejectCli) => {
     const child = spawn("bun", [join(repoRoot, "scripts/browser-cli.ts"), ...args], {
       cwd: repoRoot,
-      env: { ...process.env, VELLUM_COMMAND_BROWSER: BROWSER_ENABLED ? "1" : "0", ...env, HOME: home },
+      env: { ...process.env, JUNTO_BROWSER: BROWSER_ENABLED ? "1" : "0", ...env, HOME: home },
       stdio: ["ignore", "pipe", "pipe"],
     });
     let stdout = "";
@@ -1337,7 +1337,7 @@ describe("browser control Unix transport", () => {
     const timedOut = await runCli(
       root,
       ["doctor", "--json"],
-      { VELLUM_COMMAND_BROWSER_REQUEST_TIMEOUT_MS: "30" },
+      { JUNTO_BROWSER_REQUEST_TIMEOUT_MS: "30" },
     );
     expect(timedOut.code).toBe(1);
     expect(JSON.parse(timedOut.stdout)).toMatchObject({

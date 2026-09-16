@@ -85,7 +85,7 @@ import { resolve } from "node:path";
 export const isRemotePackaged = (
   binaryPath: string = process.argv[1] ?? process.execPath,
 ): boolean => {
-  if (process.env.VELLUM_COMMAND_PACKAGED === "1") return true;
+  if (process.env.JUNTO_PACKAGED === "1") return true;
   const absolute = resolve(binaryPath);
   try {
     resolveReleaseDirectoryFromRemoteBinary(absolute);
@@ -103,22 +103,22 @@ export const isRemotePackaged = (
 
 /**
  * Product version for protocol/station advertisements. Build injects
- * `__VELLUM_COMMAND_APP_VERSION__`; env override is for tests only.
+ * `__JUNTO_APP_VERSION__`; env override is for tests only.
  */
-declare const __VELLUM_COMMAND_APP_VERSION__: string | undefined;
+declare const __JUNTO_APP_VERSION__: string | undefined;
 
 export const remoteAppVersion = (): string => {
   if (
-    typeof process.env.VELLUM_COMMAND_APP_VERSION === "string" &&
-    process.env.VELLUM_COMMAND_APP_VERSION.trim().length > 0
+    typeof process.env.JUNTO_APP_VERSION === "string" &&
+    process.env.JUNTO_APP_VERSION.trim().length > 0
   ) {
-    return process.env.VELLUM_COMMAND_APP_VERSION.trim();
+    return process.env.JUNTO_APP_VERSION.trim();
   }
   if (
-    typeof __VELLUM_COMMAND_APP_VERSION__ === "string" &&
-    __VELLUM_COMMAND_APP_VERSION__.trim().length > 0
+    typeof __JUNTO_APP_VERSION__ === "string" &&
+    __JUNTO_APP_VERSION__.trim().length > 0
   ) {
-    return __VELLUM_COMMAND_APP_VERSION__.trim();
+    return __JUNTO_APP_VERSION__.trim();
   }
   return "0.0.0";
 };

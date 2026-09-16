@@ -234,7 +234,7 @@ export type ManagedTerminalDriveOptions = {
    * process singleton; tests inject an isolated instance.
    */
   readonly operatorInput?: OperatorInterlock;
-  /** Diagnostic sink; production defaults to VELLUM_COMMAND_PTY_TRACE=1. */
+  /** Diagnostic sink; production defaults to JUNTO_PTY_TRACE=1. */
   readonly onTrace?: PtyDeliveryTraceSink;
 };
 

@@ -1112,7 +1112,7 @@ const assertTcpControlAbsent = (
       },
       (res) => {
         res.resume();
-        settle(new Error(`legacy VELLUM_CONTROL_TCP opened 127.0.0.1:${port}`));
+        settle(new Error(`legacy JUNTO_CONTROL_TCP opened 127.0.0.1:${port}`));
       },
     );
     req.setTimeout(1_000, () => {
@@ -1826,8 +1826,8 @@ const main = async (): Promise<void> => {
   const env: NodeJS.ProcessEnv = {
     ...process.env,
     HOME: home,
-    VELLUM_BROWSER_DIR: browserDir,
-    VELLUM_CONTROL_TCP: `127.0.0.1:${legacyTcpPort}`,
+    JUNTO_BROWSER_DIR: browserDir,
+    JUNTO_CONTROL_TCP: `127.0.0.1:${legacyTcpPort}`,
   };
   delete env.ELECTRON_RENDERER_URL;
   delete env.ELECTRON_RUN_AS_NODE;

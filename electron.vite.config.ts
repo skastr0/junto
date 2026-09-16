@@ -16,17 +16,17 @@ const alias = {
 
 // Build-time update feed only — never honored as a runtime env override.
 // Empty → macArm64UpdateFeed() uses the interim/public default in compiled-config.
-const updateFeedUrl = (process.env.VELLUM_COMMAND_MAC_UPDATE_FEED_URL ?? "").trim();
+const updateFeedUrl = (process.env.JUNTO_MAC_UPDATE_FEED_URL ?? "").trim();
 const updateDefines = {
-  __VELLUM_COMMAND_MAC_UPDATE_FEED_URL__: JSON.stringify(updateFeedUrl),
+  __JUNTO_MAC_UPDATE_FEED_URL__: JSON.stringify(updateFeedUrl),
 };
 
 const resolvedBuildFeatures = resolveBuildFeatures(process.env);
 
 const productDefines = {
   ...updateDefines,
-  __VELLUM_COMMAND_MAC_SIGNING_IDENTITY__: JSON.stringify(process.env.VELLUM_COMMAND_MAC_SIGNING_IDENTITY ?? ""),
-  __VELLUM_COMMAND_MAC_TEAM_ID__: JSON.stringify(process.env.VELLUM_COMMAND_MAC_TEAM_ID ?? ""),
+  __JUNTO_MAC_SIGNING_IDENTITY__: JSON.stringify(process.env.JUNTO_MAC_SIGNING_IDENTITY ?? ""),
+  __JUNTO_MAC_TEAM_ID__: JSON.stringify(process.env.JUNTO_MAC_TEAM_ID ?? ""),
   ...featureViteDefines(resolvedBuildFeatures),
 };
 

@@ -57,7 +57,7 @@ import {
 // Fleet is experimental. The define identifier must wrap import() in
 // this module so ship builds can drop the chunk; imported FLEET_UI_ENABLED
 // is not visible to Rollup DCE.
-const FleetOverlay = __VELLUM_COMMAND_FLEET_UI_ENABLED__
+const FleetOverlay = __JUNTO_FLEET_UI_ENABLED__
   ? lazy(async () => {
       const mod = await import("./components/fleet/FleetOverlay");
       return { default: mod.FleetOverlay };

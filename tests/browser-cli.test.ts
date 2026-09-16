@@ -91,7 +91,7 @@ const runCli = (
       HOME: options.home,
       // This suite exercises the browser-on compatibility contract. Source-run
       // CLIs otherwise follow the same default-off policy as packaged controls.
-      VELLUM_COMMAND_BROWSER: "1",
+      JUNTO_BROWSER: "1",
       [CONTROL_HOME_ENV]: options.controlHome,
     };
     const entry =
@@ -332,7 +332,7 @@ describe("browser CLI packaging contract", () => {
     expect(installScript).toContain("refusing to replace non-symlink command");
     expect(installScript).toContain('[[ "$existing" != "$helper" ]]');
     expect(browserCli).not.toMatch(
-      /CONTROL_CAPABILITY|VELLUM_COMMAND_BROWSER_CAPABILITY|x-vellum-command-capability/u,
+      /CONTROL_CAPABILITY|JUNTO_BROWSER_CAPABILITY|x-vellum-command-capability/u,
     );
   });
 });

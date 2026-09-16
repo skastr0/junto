@@ -8,7 +8,7 @@ import type { StationDoor } from "./station-mode";
  * This module is the OpenSSH adapter surface (paths, framing, timeouts) —
  * not a second protocol.
  */
-export const STATION_CONTROL_HOME_ENV = "VELLUM_COMMAND_STATION_HOME";
+export const STATION_CONTROL_HOME_ENV = "JUNTO_STATION_HOME";
 export const STATION_CONTROL_REQUEST_TIMEOUT_MS = 30_000;
 export const STATION_CONTROL_MAX_CLIENTS = 8;
 

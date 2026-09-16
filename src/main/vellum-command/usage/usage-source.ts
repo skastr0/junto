@@ -26,9 +26,9 @@ export interface UsageSource {
  * - Canonical id: `@vellum/UsageSources` — single definition; no dual path.
  * - Service id: Context.Service (Effect V4 live).
  * - Shape:
- *   `class UsageSources extends Context.Service<UsageSources, ReadonlyArray<UsageSource>>()("@vellum-command/UsageSources") {}`
+ *   `class UsageSources extends Context.Service<UsageSources, ReadonlyArray<UsageSource>>()("@junto/UsageSources") {}`
  * - Layer today: StationUsageSourcesLive — V4 rename candidates UsageSources.layer*
  *   Do not dual-export Live + `.layer` names.
  */
 export class UsageSources extends Context.Service<UsageSources,
-  ReadonlyArray<UsageSource>>()("@vellum-command/UsageSources") {}
+  ReadonlyArray<UsageSource>>()("@junto/UsageSources") {}

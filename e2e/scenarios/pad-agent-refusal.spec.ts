@@ -21,7 +21,7 @@ const path = require("path");
 const inbox = process.env.PAD_E2E_INBOX;
 const outbox = process.env.PAD_E2E_OUTBOX;
 const workHome =
-  process.env.VELLUM_COMMAND_WORK_HOME ||
+  process.env.JUNTO_WORK_HOME ||
   path.join(process.env.HOME || "", ".vellum-command", "work");
 const sock = path.join(workHome, "control.sock");
 const tokPath = path.join(workHome, "token");

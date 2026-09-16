@@ -42,7 +42,7 @@ const runtime = ManagedRuntime.make(
   canvasesLive,
 );
 let canvases: Context.Service.Shape<typeof CanvasesService>;
-const previousCanvasesDirectory = process.env.VELLUM_COMMAND_CANVASES_DIR;
+const previousCanvasesDirectory = process.env.JUNTO_CANVASES_DIR;
 
 const emptyDoc = { nodes: [], edges: [] } as const;
 const rejected = async (effect: Effect.Effect<unknown, unknown>): Promise<void> => {
@@ -59,7 +59,7 @@ const runHeadless = async (script: "digest.ts" | "render.ts", name: string) => {
         cwd: globalThis.process.cwd(),
         env: {
           ...globalThis.process.env,
-          VELLUM_COMMAND_CANVASES_DIR: join(mockCanvasesHome, ".vellum-command", "canvases"),
+          JUNTO_CANVASES_DIR: join(mockCanvasesHome, ".vellum-command", "canvases"),
         },
       },
       (error, stdout, stderr) => {
@@ -72,7 +72,7 @@ const runHeadless = async (script: "digest.ts" | "render.ts", name: string) => {
 };
 
 beforeAll(async () => {
-  process.env.VELLUM_COMMAND_CANVASES_DIR = join(
+  process.env.JUNTO_CANVASES_DIR = join(
     mockCanvasesHome,
     ".vellum-command",
     "canvases",
@@ -83,9 +83,9 @@ beforeAll(async () => {
 afterAll(async () => {
   await runtime.dispose();
   if (previousCanvasesDirectory === undefined) {
-    delete process.env.VELLUM_COMMAND_CANVASES_DIR;
+    delete process.env.JUNTO_CANVASES_DIR;
   } else {
-    process.env.VELLUM_COMMAND_CANVASES_DIR = previousCanvasesDirectory;
+    process.env.JUNTO_CANVASES_DIR = previousCanvasesDirectory;
   }
   await rm(mockCanvasesHome, { recursive: true, force: true });
 });
@@ -145,14 +145,14 @@ describe("canvas path capability boundary", () => {
   });
 
   it("keeps one checked output root for the complete projection write", async () => {
-    const previousRoot = process.env.VELLUM_COMMAND_CANVASES_DIR;
+    const previousRoot = process.env.JUNTO_CANVASES_DIR;
     const rootA = join(mockCanvasesHome, "root-a");
     const outside = join(mockCanvasesHome, "outside-root");
     const swapped = join(mockCanvasesHome, "swapped-root");
     await mkdir(rootA, { recursive: true });
     await mkdir(outside, { recursive: true });
     await symlink(outside, swapped);
-    process.env.VELLUM_COMMAND_CANVASES_DIR = rootA;
+    process.env.JUNTO_CANVASES_DIR = rootA;
     try {
       await runtime.runPromise(canvases.create("stable-root"));
       const pending = writeCanvasProjectionSidecar(
@@ -160,14 +160,14 @@ describe("canvas path capability boundary", () => {
         "svg",
         "<svg/>",
       );
-      process.env.VELLUM_COMMAND_CANVASES_DIR = swapped;
+      process.env.JUNTO_CANVASES_DIR = swapped;
       const written = await pending;
 
       expect(written).toBe(join(rootA, "stable-root.svg"));
       await expect(access(join(outside, "stable-root.svg"))).rejects.toThrow();
     } finally {
-      if (previousRoot === undefined) delete process.env.VELLUM_COMMAND_CANVASES_DIR;
-      else process.env.VELLUM_COMMAND_CANVASES_DIR = previousRoot;
+      if (previousRoot === undefined) delete process.env.JUNTO_CANVASES_DIR;
+      else process.env.JUNTO_CANVASES_DIR = previousRoot;
     }
   });
 

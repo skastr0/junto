@@ -22,4 +22,4 @@ export interface OverseerLiveExecutionConstraint {
 /** Optional per-run constraint; ordinary operator and worker writes never acquire it. */
 export class OverseerLiveExecution extends Context.Service<
   OverseerLiveExecution, OverseerLiveExecutionConstraint
->()("@vellum-command/OverseerLiveExecution") {}
+>()("@junto/OverseerLiveExecution") {}

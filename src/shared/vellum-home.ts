@@ -6,7 +6,7 @@ import { isAbsolute, join, resolve } from "node:path";
  *
  * Junto's state, control sockets, and internal caches live under this
  * directory (`<home>/.vellum-command/...`). By default it is the OS user home, but the
- * `VELLUM_COMMAND_HOME` environment variable overrides it. This lets a dev build run
+ * `JUNTO_HOME` environment variable overrides it. This lets a dev build run
  * with an isolated `.vellum-command` tree while leaving `HOME` (and therefore the shell
  * home seen by child terminals/tools) unchanged.
  *
@@ -15,7 +15,7 @@ import { isAbsolute, join, resolve } from "node:path";
  * resolution intentionally stay on the real `HOME` for predictable behavior.
  *
  * Side-by-side with a production install: official `bun run dev` sets
- * `VELLUM_COMMAND_HOME=~/.vellum-command-dev` and pins Electron `userData` under that tree so
+ * `JUNTO_HOME=~/.vellum-command-dev` and pins Electron `userData` under that tree so
  * the single-instance lock does not fight `/Applications/Junto.app`.
  */
 
@@ -36,13 +36,13 @@ export const usableVellumCommandHome = (
 export const resolveVellumCommandHome = (): string => {
   if (cachedVellumCommandHome === undefined) {
     cachedVellumCommandHome =
-      usableVellumCommandHome(process.env.VELLUM_COMMAND_HOME) ?? homedir();
+      usableVellumCommandHome(process.env.JUNTO_HOME) ?? homedir();
   }
   return cachedVellumCommandHome;
 };
 
 /**
- * Electron userData for an unpackaged process with explicit `VELLUM_COMMAND_HOME`.
+ * Electron userData for an unpackaged process with explicit `JUNTO_HOME`.
  * Lives under the isolated home so Chromium's singleton lock file is not
  * shared with the packaged production install's Application Support tree.
  */
@@ -51,10 +51,10 @@ export const unpackagedElectronUserDataPath = (vellumHome: string): string =>
 
 /**
  * Pin unpackaged Electron userData only when the operator opted into an
- * isolated `VELLUM_COMMAND_HOME` tree (official `bun run dev`). Never override
+ * isolated `JUNTO_HOME` tree (official `bun run dev`). Never override
  * packaged installs or an explicit `--user-data-dir` (e2e / probes).
  *
- * Coupling to `VELLUM_COMMAND_HOME` is intentional: pinning userData alone without
+ * Coupling to `JUNTO_HOME` is intentional: pinning userData alone without
  * state isolation would let a second process race the production DB.
  */
 export const shouldPinUnpackagedElectronUserData = (input: {

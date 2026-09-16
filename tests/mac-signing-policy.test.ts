@@ -40,8 +40,8 @@ describe("compiled macOS release trust", () => {
   });
 
   it("refuses public-build package admission before reading an artifact or running commands", async () => {
-    vi.stubGlobal("__VELLUM_COMMAND_MAC_TEAM_ID__", undefined);
-    vi.stubGlobal("__VELLUM_COMMAND_MAC_SIGNING_IDENTITY__", undefined);
+    vi.stubGlobal("__JUNTO_MAC_TEAM_ID__", undefined);
+    vi.stubGlobal("__JUNTO_MAC_SIGNING_IDENTITY__", undefined);
     expect(() => compiledMacSigningPolicy()).toThrow(/release trust is not configured/);
     expect(() => validateLocalBundleProvenance({
       appPath: "/missing/Junto.app",
@@ -62,8 +62,8 @@ describe("compiled macOS release trust", () => {
   });
 
   it("binds the signed bundle version to the advertised release", async () => {
-    vi.stubGlobal("__VELLUM_COMMAND_MAC_TEAM_ID__", team);
-    vi.stubGlobal("__VELLUM_COMMAND_MAC_SIGNING_IDENTITY__", authority);
+    vi.stubGlobal("__JUNTO_MAC_TEAM_ID__", team);
+    vi.stubGlobal("__JUNTO_MAC_SIGNING_IDENTITY__", authority);
     const root = await mkdtemp(join(tmpdir(), "vellum-command-mac-admit-"));
     try {
       const appPath = join(root, "Junto.app");

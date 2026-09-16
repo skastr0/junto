@@ -88,7 +88,7 @@ test.use({
         ),
       ),
     extraEnv: {
-      VELLUM_COMMAND_E2E_RENDERER_SURFACE_TIMEOUT_MS: "5000",
+      JUNTO_E2E_RENDERER_SURFACE_TIMEOUT_MS: "5000",
     },
   },
 });

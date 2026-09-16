@@ -36,7 +36,7 @@ describe("managed harness product gates", () => {
 
   it("allows an explicit compile-time override to disable Prime Agent", () => {
     const ship = resolveBuildFeatures({
-      VELLUM_COMMAND_HARNESS_PRIME_AGENT: "0",
+      JUNTO_HARNESS_PRIME_AGENT: "0",
     });
     expect(ship.profile).toBe("ship");
     expect(ship.features.harnessPrimeAgent).toBe(false);

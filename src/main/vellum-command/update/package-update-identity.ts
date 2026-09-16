@@ -62,7 +62,7 @@ export const admitPackagedUpdateIdentity = async (input: {
     ) throw new Error("Packaged update version or source identity does not match the signed release");
     const main = read(MAIN_PATH, MAX_MAIN_BYTES);
     if (payload.bytes !== main.length || payload.sha256 !== createHash("sha256").update(main).digest("hex")) throw new Error("Packaged update main payload does not match its build receipt");
-    const markers = [...main.toString("utf8").matchAll(/\/\* VELLUM_COMMAND_RUNTIME_BUILD_IDENTITY:([A-Za-z0-9_-]+) \*\//gu)];
+    const markers = [...main.toString("utf8").matchAll(/\/\* JUNTO_RUNTIME_BUILD_IDENTITY:([A-Za-z0-9_-]+) \*\//gu)];
     if (markers.length !== 1 || markers[0]![1]!.length > 4096) throw new Error("Packaged update main payload must contain one bounded build identity");
     const embedded = record(JSON.parse(Buffer.from(markers[0]![1]!, "base64url").toString("utf8")), "embedded build identity");
     if (Object.keys(embedded).length !== 4 || Object.entries(build).some(([key, value]) => embedded[key] !== value)) throw new Error("Packaged update main build identity does not match its receipt");

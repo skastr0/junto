@@ -40,7 +40,7 @@ export type FactoryPauseRepositoryError =
  * - Canonical id: `@vellum/FactoryPauseRepository` — single definition; no dual path.
  * - Service id: Context.Service (Effect V4 live).
  * - Shape:
- *   `class FactoryPauseRepository extends Context.Service<FactoryPauseRepository, FactoryPauseRepository>()("@vellum-command/FactoryPauseRepository") {}`
+ *   `class FactoryPauseRepository extends Context.Service<FactoryPauseRepository, FactoryPauseRepository>()("@junto/FactoryPauseRepository") {}`
  * - Layer today: FactoryPauseRepositoryLive — V4 rename candidate FactoryPauseRepository.layer
  *   Do not dual-export Live + `.layer` names.
  */
@@ -59,7 +59,7 @@ export class FactoryPauseRepository extends Context.Service<FactoryPauseReposito
       scope: PauseMemberScope,
       paused: boolean,
     ) => Effect.Effect<CanvasPauseState, FactoryPauseRepositoryError>;
-  }>()("@vellum-command/FactoryPauseRepository") {}
+  }>()("@junto/FactoryPauseRepository") {}
 
 type CanvasRow = StateRow & {
   readonly canvas_name: string;

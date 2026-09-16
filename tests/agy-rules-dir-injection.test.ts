@@ -32,14 +32,14 @@ describe("agy doctrine rides an app-owned --add-dir rules directory", () => {
 
   beforeEach(() => {
     tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), "vellum-agy-rules-"));
-    priorHome = process.env.VELLUM_COMMAND_HOME;
-    process.env.VELLUM_COMMAND_HOME = tmpHome;
+    priorHome = process.env.JUNTO_HOME;
+    process.env.JUNTO_HOME = tmpHome;
     __resetVellumCommandHomeCache();
   });
 
   afterEach(() => {
-    if (priorHome === undefined) delete process.env.VELLUM_COMMAND_HOME;
-    else process.env.VELLUM_COMMAND_HOME = priorHome;
+    if (priorHome === undefined) delete process.env.JUNTO_HOME;
+    else process.env.JUNTO_HOME = priorHome;
     __resetVellumCommandHomeCache();
     fs.rmSync(tmpHome, { recursive: true, force: true });
   });

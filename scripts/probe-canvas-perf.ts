@@ -2,7 +2,7 @@
  * Attach to packaged Junto (`--remote-debugging-port=9229`) and measure
  * selection / pan / idle long-task budgets on the live board.
  */
-const ENDPOINT = process.env.VELLUM_COMMAND_CDP_URL ?? "http://127.0.0.1:9229";
+const ENDPOINT = process.env.JUNTO_CDP_URL ?? "http://127.0.0.1:9229";
 
 type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
 

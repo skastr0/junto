@@ -133,7 +133,7 @@ export class CanvasEntityRepository extends Context.Service<CanvasEntityReposito
       canvasName: string,
       entityId: string,
     ) => Effect.Effect<CanvasEntityRecord, CanvasEntityRepositoryError>;
-  }>()("@vellum-command/CanvasEntityRepository") {}
+  }>()("@junto/CanvasEntityRepository") {}
 
 export const CanvasEntityRepositoryLive: Layer.Layer<
   CanvasEntityRepository,

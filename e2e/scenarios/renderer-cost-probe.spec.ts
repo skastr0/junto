@@ -12,7 +12,7 @@
  *   - CDP Performance.getMetrics deltas: LayoutCount, RecalcStyleCount,
  *     ScriptDuration, TaskDuration
  *
- * A/B toggle (the attribution lever): VELLUM_PROBE_MOTION=paused sets
+ * A/B toggle (the attribution lever): JUNTO_PROBE_MOTION=paused sets
  * document.documentElement.dataset.surfaceMotion = "paused" before sampling —
  * the product's own surface-motion gate attribute (src/renderer/lib/
  * surface-motion.ts), which stops every infinite CSS animation via
@@ -24,20 +24,20 @@
  * The window must actually paint for FPS/GPU numbers to mean anything —
  * run with a visible window:
  *
- *   VELLUM_COMMAND_FEATURE_PROFILE=all-on bunx electron-vite build
- *   VELLUM_COMMAND_E2E_SHOW=1 bun run test:e2e:fast e2e/scenarios/renderer-cost-probe.spec.ts
- *   VELLUM_COMMAND_E2E_SHOW=1 VELLUM_PROBE_MOTION=paused bun run test:e2e:fast e2e/scenarios/renderer-cost-probe.spec.ts
+ *   JUNTO_FEATURE_PROFILE=all-on bunx electron-vite build
+ *   JUNTO_E2E_SHOW=1 bun run test:e2e:fast e2e/scenarios/renderer-cost-probe.spec.ts
+ *   JUNTO_E2E_SHOW=1 JUNTO_PROBE_MOTION=paused bun run test:e2e:fast e2e/scenarios/renderer-cost-probe.spec.ts
  *
- * Optional: VELLUM_PROBE_SAMPLE_MS overrides the 15s window.
+ * Optional: JUNTO_PROBE_SAMPLE_MS overrides the 15s window.
  * Result line is grep-able: RENDERER-COST-PROBE-RESULT {json}.
  */
 import type { TextNode } from "../../src/shared/canvas";
 import { agentTextNode, canvasDoc, tasksNode } from "../harness/sandbox";
 import { expect, test } from "../harness/launch";
 
-const SAMPLE_MS = Number(process.env.VELLUM_PROBE_SAMPLE_MS ?? 15_000);
+const SAMPLE_MS = Number(process.env.JUNTO_PROBE_SAMPLE_MS ?? 15_000);
 const MOTION: "live" | "paused" =
-  process.env.VELLUM_PROBE_MOTION === "paused" ? "paused" : "live";
+  process.env.JUNTO_PROBE_MOTION === "paused" ? "paused" : "live";
 
 const withBlocker = (node: TextNode): TextNode => ({
   ...node,

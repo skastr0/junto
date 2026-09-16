@@ -16,9 +16,9 @@
  * WHEN IT IS ARMED. Development only, and by default off everywhere else. The
  * gate resolves once at module load:
  *
- *   VELLUM_COMMAND_BUDGET=0 | off      forced off
- *   VELLUM_COMMAND_BUDGET=1 | on       forced on, report only
- *   VELLUM_COMMAND_BUDGET=strict       forced on, and a violation THROWS
+ *   JUNTO_BUDGET=0 | off      forced off
+ *   JUNTO_BUDGET=1 | on       forced on, report only
+ *   JUNTO_BUDGET=strict       forced on, and a violation THROWS
  *   unset                              on when NODE_ENV is "development"
  *
  * Main boot calls `armMainThreadBudget({ enabled: !app.isPackaged })`, so a dev
@@ -64,7 +64,7 @@ const envGate = (): {
   /** True when the operator named a value. Boot must not override it. */
   forced: boolean;
 } => {
-  const raw = process.env.VELLUM_COMMAND_BUDGET?.trim().toLowerCase();
+  const raw = process.env.JUNTO_BUDGET?.trim().toLowerCase();
   if (raw === "0" || raw === "off" || raw === "false") {
     return { enabled: false, strict: false, forced: true };
   }
@@ -101,7 +101,7 @@ const listeners = new Set<(violation: BudgetViolation) => void>();
  * Arm or disarm the assertion. Called once from main boot with the real dev
  * signal; tests call it directly. Unspecified fields keep their current value.
  *
- * An explicit `VELLUM_COMMAND_BUDGET` wins over `enabled` /
+ * An explicit `JUNTO_BUDGET` wins over `enabled` /
  * `throwOnViolation`: an operator who armed the assertion by hand must not
  * have it switched off again by whatever boot decided. `force` overrides that
  * for tests, which need a deterministic state whatever the environment holds.

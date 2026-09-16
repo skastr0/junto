@@ -51,7 +51,7 @@ describe("browser hard product gate", () => {
           encoding: "utf8",
           env: {
             ...process.env,
-            VELLUM_COMMAND_BROWSER: "0",
+            JUNTO_BROWSER: "0",
           },
         },
       );

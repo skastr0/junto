@@ -448,10 +448,10 @@ export const runWorkCliAcceptance = async () => {
   const artifactPath = join(outside, "report.txt");
   writeFileSync(artifactPath, "acceptance artifact body\n");
 
-  const previousCanvasesDir = process.env.VELLUM_COMMAND_CANVASES_DIR;
-  const previousWorkHome = process.env.VELLUM_COMMAND_WORK_HOME;
-  process.env.VELLUM_COMMAND_CANVASES_DIR = canvases;
-  process.env.VELLUM_COMMAND_WORK_HOME = workHome;
+  const previousCanvasesDir = process.env.JUNTO_CANVASES_DIR;
+  const previousWorkHome = process.env.JUNTO_WORK_HOME;
+  process.env.JUNTO_CANVASES_DIR = canvases;
+  process.env.JUNTO_WORK_HOME = workHome;
 
   const processPlane = createAppProcessPlane({
     termGraceMs: CLI_TERM_GRACE_MS,
@@ -559,8 +559,8 @@ export const runWorkCliAcceptance = async () => {
 
     const env: NodeJS.ProcessEnv = {
       ...process.env,
-      VELLUM_COMMAND_WORK_HOME: workHome,
-      // Identity is process-bind — no VELLUM_COMMAND_NODE_REF.
+      JUNTO_WORK_HOME: workHome,
+      // Identity is process-bind — no JUNTO_NODE_REF.
     };
 
     const sockMode = (await stat(server.socketPath)).mode & 0o777;
@@ -825,10 +825,10 @@ export const runWorkCliAcceptance = async () => {
     } catch (error) {
       cleanupFailures.push(new Error("work CLI acceptance runtime dispose failed", { cause: error }));
     }
-    if (previousCanvasesDir === undefined) delete process.env.VELLUM_COMMAND_CANVASES_DIR;
-    else process.env.VELLUM_COMMAND_CANVASES_DIR = previousCanvasesDir;
-    if (previousWorkHome === undefined) delete process.env.VELLUM_COMMAND_WORK_HOME;
-    else process.env.VELLUM_COMMAND_WORK_HOME = previousWorkHome;
+    if (previousCanvasesDir === undefined) delete process.env.JUNTO_CANVASES_DIR;
+    else process.env.JUNTO_CANVASES_DIR = previousCanvasesDir;
+    if (previousWorkHome === undefined) delete process.env.JUNTO_WORK_HOME;
+    else process.env.JUNTO_WORK_HOME = previousWorkHome;
     const controlClean = server === undefined || controlDrain?.clean === true;
     if (
       cleanupFailures.length === 0 &&

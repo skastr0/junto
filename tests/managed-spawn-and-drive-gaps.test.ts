@@ -27,11 +27,11 @@ import { BROWSER_ENABLED } from "../src/shared/features";
 
 const require = createRequire(import.meta.url);
 
-const originalVellumHome = process.env.VELLUM_COMMAND_HOME;
+const originalVellumHome = process.env.JUNTO_HOME;
 afterEach(() => {
   __setSessionExistenceHomeForTest(undefined);
-  if (originalVellumHome === undefined) delete process.env.VELLUM_COMMAND_HOME;
-  else process.env.VELLUM_COMMAND_HOME = originalVellumHome;
+  if (originalVellumHome === undefined) delete process.env.JUNTO_HOME;
+  else process.env.JUNTO_HOME = originalVellumHome;
 });
 
 describe("CJS headless interop (boot gate)", () => {
@@ -409,8 +409,8 @@ describe("managed spawn plan", () => {
   });
 
   it("re-passes Codex model, effort, and approval on resume", () => {
-    // Isolation (VELLUM_COMMAND_HOME) forces resume off; this case is production path.
-    delete process.env.VELLUM_COMMAND_HOME;
+    // Isolation (JUNTO_HOME) forces resume off; this case is production path.
+    delete process.env.JUNTO_HOME;
     const home = mkdtempSync(join(tmpdir(), "vellum-codex-resume-"));
     __setSessionExistenceHomeForTest(home);
     try {
@@ -458,7 +458,7 @@ describe("managed spawn plan", () => {
   });
 
   it("finalizes named-session proof on the selected spawn host", () => {
-    delete process.env.VELLUM_COMMAND_HOME;
+    delete process.env.JUNTO_HOME;
     const commandCenterHome = mkdtempSync(join(tmpdir(), "vellum-cc-proof-"));
     const remoteHome = mkdtempSync(join(tmpdir(), "vellum-remote-proof-"));
     const sid = "aaaaaaaa-bbbb-cccc-dddd-ffffffffffff";
@@ -526,7 +526,7 @@ describe("managed spawn plan", () => {
   });
 
   it("suppresses Tier B first-typed doctrine only for a host-proven resume", () => {
-    delete process.env.VELLUM_COMMAND_HOME;
+    delete process.env.JUNTO_HOME;
     const home = mkdtempSync(join(tmpdir(), "vellum-kimi-resume-host-"));
     const sid = "ses_remote_kimi";
     try {
@@ -563,8 +563,8 @@ describe("managed spawn plan", () => {
     }
   });
 
-  it("isolated VELLUM_COMMAND_HOME refuses shared pin resume and mints a fresh session", () => {
-    process.env.VELLUM_COMMAND_HOME = "/tmp/vellum-dev-isolated-home";
+  it("isolated JUNTO_HOME refuses shared pin resume and mints a fresh session", () => {
+    process.env.JUNTO_HOME = "/tmp/vellum-dev-isolated-home";
     expect(shouldAvoidSharedHarnessResume()).toBe(true);
     const prodSession = "0c813489-ff73-4f9d-af00-96adc0d63d94";
     const { launch } = launchForManagedSpawn({
@@ -599,8 +599,8 @@ describe("managed spawn plan", () => {
     expect(fresh).not.toBe(prodSession);
   });
 
-  it("production (no VELLUM_COMMAND_HOME) still resumes a proven Grok pin", () => {
-    delete process.env.VELLUM_COMMAND_HOME;
+  it("production (no JUNTO_HOME) still resumes a proven Grok pin", () => {
+    delete process.env.JUNTO_HOME;
     const home = mkdtempSync(join(tmpdir(), "vellum-grok-resume-"));
     __setSessionExistenceHomeForTest(home);
     try {

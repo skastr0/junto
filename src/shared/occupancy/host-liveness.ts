@@ -12,7 +12,7 @@ export interface HostLivenessService {
 }
 
 export class HostLiveness extends Context.Service<HostLiveness,
-  HostLivenessService>()("@vellum-command/HostLiveness") {}
+  HostLivenessService>()("@junto/HostLiveness") {}
 
 /** Host always up — the fleet lane binds the real check later. */
 export const nullHostLiveness: HostLivenessService = {

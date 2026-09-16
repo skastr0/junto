@@ -39,7 +39,7 @@ export class BoxProcessError extends Schema.TaggedError<BoxProcessError>()(
  * - Canonical id: `@vellum/box/BoxProcessRunner` — single definition; no dual path.
  * - Service id: Context.Service (Effect V4 live).
  * - Shape:
- *   `class BoxProcessRunner extends Context.Service<BoxProcessRunner, BoxProcessRunner>()("@vellum-command/box/BoxProcessRunner") {}`
+ *   `class BoxProcessRunner extends Context.Service<BoxProcessRunner, BoxProcessRunner>()("@junto/box/BoxProcessRunner") {}`
  * - Layer today: BoxProcessRunnerLive — V4 rename candidate BoxProcessRunner.layer
  *   Do not dual-export Live + `.layer` names.
  */
@@ -48,7 +48,7 @@ export class BoxProcessRunner extends Context.Service<BoxProcessRunner,
     readonly run: (
       request: BoxProcessRequest,
     ) => Effect.Effect<BoxProcessResult, BoxProcessError>;
-  }>()("@vellum-command/box/BoxProcessRunner") {}
+  }>()("@junto/box/BoxProcessRunner") {}
 
 type ActiveOperation = {
   readonly lease: AppProcessLease;

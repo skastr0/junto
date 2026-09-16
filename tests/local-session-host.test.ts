@@ -400,7 +400,7 @@ describe("LocalSessionHost", () => {
             argv: ["codex"],
             env: {
               PATH: "/installed/bin:/usr/bin",
-              VELLUM_COMMAND_SOCKET: "/stale/work.sock",
+              JUNTO_SOCKET: "/stale/work.sock",
               CLAUDECODE: "nested",
             },
           },
@@ -408,14 +408,14 @@ describe("LocalSessionHost", () => {
         {
           seatInject: {
             PATH: "/repo/dist:/usr/bin",
-            VELLUM_COMMAND_SOCKET: "/live/work.sock",
+            JUNTO_SOCKET: "/live/work.sock",
           },
         },
       ),
     );
 
     expect(resolved.env.PATH).toBe("/repo/dist:/usr/bin");
-    expect(resolved.env.VELLUM_COMMAND_SOCKET).toBe("/live/work.sock");
+    expect(resolved.env.JUNTO_SOCKET).toBe("/live/work.sock");
     expect(resolved.env.CLAUDECODE).toBeUndefined();
   });
 
@@ -981,8 +981,8 @@ describe("LocalSessionHost", () => {
 
   it("fail-open after an immediately-dead resume settles the binding on the live pin", async () => {
     // Production path (no isolation) — resume argv is allowed.
-    const priorHome = process.env.VELLUM_COMMAND_HOME;
-    delete process.env.VELLUM_COMMAND_HOME;
+    const priorHome = process.env.JUNTO_HOME;
+    delete process.env.JUNTO_HOME;
     try {
       const fake = makeFakeTerminalProcessAuthority((_spec, index) => ({
         pid: trackSyntheticPid(42_490 + index),
@@ -1016,14 +1016,14 @@ describe("LocalSessionHost", () => {
       expect(fake.controllers[1]?.spec.args).not.toContain("--resume");
       expect(fake.controllers[1]?.spec.args).not.toContain("dead-session-aaaaaaaa");
     } finally {
-      if (priorHome === undefined) delete process.env.VELLUM_COMMAND_HOME;
-      else process.env.VELLUM_COMMAND_HOME = priorHome;
+      if (priorHome === undefined) delete process.env.JUNTO_HOME;
+      else process.env.JUNTO_HOME = priorHome;
     }
   });
 
   it("fail-open after a late resume death replaces the binding with a live pin", async () => {
-    const priorHome = process.env.VELLUM_COMMAND_HOME;
-    delete process.env.VELLUM_COMMAND_HOME;
+    const priorHome = process.env.JUNTO_HOME;
+    delete process.env.JUNTO_HOME;
     try {
       const fake = makeFakeTerminalProcessAuthority((_spec, index) => ({
         pid: trackSyntheticPid(42_495 + index),
@@ -1069,14 +1069,14 @@ describe("LocalSessionHost", () => {
       expect(again.epoch).toBe(host.get(bindingId)?.epoch);
       expect(fake.controllers).toHaveLength(2);
     } finally {
-      if (priorHome === undefined) delete process.env.VELLUM_COMMAND_HOME;
-      else process.env.VELLUM_COMMAND_HOME = priorHome;
+      if (priorHome === undefined) delete process.env.JUNTO_HOME;
+      else process.env.JUNTO_HOME = priorHome;
     }
   });
 
-  it("under VELLUM_COMMAND_HOME does not occupy an already occupied pin generation", () => {
-    const priorHome = process.env.VELLUM_COMMAND_HOME;
-    delete process.env.VELLUM_COMMAND_HOME;
+  it("under JUNTO_HOME does not occupy an already occupied pin generation", () => {
+    const priorHome = process.env.JUNTO_HOME;
+    delete process.env.JUNTO_HOME;
     try {
       const fake = makeFakeTerminalProcessAuthority((_spec, index) => ({
         pid: trackSyntheticPid(42_460 + index),
@@ -1099,7 +1099,7 @@ describe("LocalSessionHost", () => {
       expect(initial.status).toBe("running");
       expect(fake.controllers).toHaveLength(1);
 
-      process.env.VELLUM_COMMAND_HOME = "/tmp/vellum-dev-isolate-create-agent-seat";
+      process.env.JUNTO_HOME = "/tmp/vellum-dev-isolate-create-agent-seat";
       const fresh = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
       const again = host.createAgentSeat({
         bindingId,
@@ -1116,14 +1116,14 @@ describe("LocalSessionHost", () => {
       expect(fake.controllers).toHaveLength(1);
       expect(fake.controllers[0]?.signals).toEqual([]);
     } finally {
-      if (priorHome === undefined) delete process.env.VELLUM_COMMAND_HOME;
-      else process.env.VELLUM_COMMAND_HOME = priorHome;
+      if (priorHome === undefined) delete process.env.JUNTO_HOME;
+      else process.env.JUNTO_HOME = priorHome;
     }
   });
 
-  it("under VELLUM_COMMAND_HOME strips shared resume argv even when create is first open", () => {
-    const priorHome = process.env.VELLUM_COMMAND_HOME;
-    process.env.VELLUM_COMMAND_HOME = "/tmp/vellum-dev-isolate-strip-resume";
+  it("under JUNTO_HOME strips shared resume argv even when create is first open", () => {
+    const priorHome = process.env.JUNTO_HOME;
+    process.env.JUNTO_HOME = "/tmp/vellum-dev-isolate-strip-resume";
     try {
       const fake = makeFakeTerminalProcessAuthority(() => ({
         pid: trackSyntheticPid(42_470),
@@ -1146,8 +1146,8 @@ describe("LocalSessionHost", () => {
       expect(args).not.toContain(shared);
       expect(args).toEqual(expect.arrayContaining(["--session-id"]));
     } finally {
-      if (priorHome === undefined) delete process.env.VELLUM_COMMAND_HOME;
-      else process.env.VELLUM_COMMAND_HOME = priorHome;
+      if (priorHome === undefined) delete process.env.JUNTO_HOME;
+      else process.env.JUNTO_HOME = priorHome;
     }
   });
 

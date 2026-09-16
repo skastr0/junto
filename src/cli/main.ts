@@ -52,9 +52,9 @@ import {
 } from "@shared/features";
 import { runOverseerHost } from "../overseer-host/main";
 
-declare const __VELLUM_COMMAND_BROWSER_ENABLED__: boolean | undefined;
+declare const __JUNTO_BROWSER_ENABLED__: boolean | undefined;
 const browserCliAvailable =
-  typeof __VELLUM_COMMAND_BROWSER_ENABLED__ !== "boolean" || BROWSER_ENABLED;
+  typeof __JUNTO_BROWSER_ENABLED__ !== "boolean" || BROWSER_ENABLED;
 import {
   setExitCode,
   writeCauseEnvelope,

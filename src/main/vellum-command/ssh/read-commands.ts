@@ -58,7 +58,7 @@ const contentTransferArgs = (
 const SAFE_REMOTE_HOME = /^\/(?:[^/\u0000-\u001f\u007f]+\/)*[^/\u0000-\u001f\u007f]+$/u;
 
 const RemotePackagedPlatformTypeId: unique symbol = Symbol(
-  "@vellum-command/ssh/RemotePackagedPlatform",
+  "@junto/ssh/RemotePackagedPlatform",
 );
 
 /**
@@ -73,7 +73,7 @@ export interface RemotePackagedPlatform {
 type RemotePackagedPlatformName = "darwin" | "linux";
 
 const RemoteLinuxUserlandTypeId: unique symbol = Symbol(
-  "@vellum-command/ssh/RemoteLinuxUserland",
+  "@junto/ssh/RemoteLinuxUserland",
 );
 
 /** A Linux platform observation bound to its independently observed owner home. */

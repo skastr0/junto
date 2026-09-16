@@ -131,7 +131,7 @@ VS Code also accepts OSC 133 and iTerm2 OSC 1337 for compatibility.
 
 Yes, and the injection point already exists and is already the right shape:
 `local-host.ts:241–245` merges `{...process.env, ...launch.env, TERM, COLORTERM}`.
-Adding `ZDOTDIR`/`ENV`/`XDG_DATA_DIRS` + a `VELLUM_NONCE` there is a few lines.
+Adding `ZDOTDIR`/`ENV`/`XDG_DATA_DIRS` + a `JUNTO_NONCE` there is a few lines.
 
 But three constraints from this repo bind the design:
 

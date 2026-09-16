@@ -10,7 +10,7 @@
  *                  no hand-written INSERT anywhere in this file.
  *
  * Generation is expensive, so a synthetic database is cached under
- * VELLUM_SCALE_BENCH_DIR (default: <tmpdir>/vellum-scale-bench) keyed by the
+ * JUNTO_SCALE_BENCH_DIR (default: <tmpdir>/vellum-scale-bench) keyed by the
  * spec + state schema version, and reused until the key changes.
  */
 import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
@@ -95,7 +95,7 @@ export const openBenchRuntime = (options: {
   const recorder = options.recorder ?? new SqlRecorder();
   mkdirSync(join(options.root, "state"), { recursive: true });
   mkdirSync(join(options.root, "canvases"), { recursive: true });
-  process.env.VELLUM_COMMAND_CANVASES_DIR = join(options.root, "canvases");
+  process.env.JUNTO_CANVASES_DIR = join(options.root, "canvases");
   const stateLive = makeInstrumentedStateEngineLive(options.databasePath, recorder);
   const repositoriesLive = Layer.provideMerge(
     Layer.mergeAll(
@@ -338,7 +338,7 @@ const specKey = (spec: ScaleSpec): string =>
     .slice(0, 16);
 
 export const benchCacheRoot = (): string =>
-  process.env.VELLUM_SCALE_BENCH_DIR ?? join(tmpdir(), "vellum-scale-bench");
+  process.env.JUNTO_SCALE_BENCH_DIR ?? join(tmpdir(), "vellum-scale-bench");
 
 /**
  * Generate (or reuse) the synthetic database for `spec`.

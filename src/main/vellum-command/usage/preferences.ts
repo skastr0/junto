@@ -24,7 +24,7 @@ export class UsagePreferences extends Context.Service<UsagePreferences,
     readonly subscribeHermesHostSnapshots: (
       listener: (enabled: boolean) => void,
     ) => () => void;
-  }>()("@vellum-command/UsagePreferences") {}
+  }>()("@junto/UsagePreferences") {}
 
 export const UsagePreferencesLive = Layer.effect(
   UsagePreferences,

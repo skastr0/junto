@@ -32,14 +32,14 @@
 
 /** Stable Context.Service keys for the station plane — single source of truth. */
 export const StationContextTagIds = {
-  repository: "@vellum-command/StationRepository",
-  api: "@vellum-command/StationApiService",
-  propagation: "@vellum-command/StationPropagation",
-  peerExchange: "@vellum-command/StationPeerExchange",
-  fleetTargetRepository: "@vellum-command/StationFleetTargetRepository",
-  livePeerRegistry: "@vellum-command/StationLivePeerRegistry",
-  peerRouteResolver: "@vellum-command/StationPeerRouteResolver",
-  fleetPropagation: "@vellum-command/StationFleetPropagation",
+  repository: "@junto/StationRepository",
+  api: "@junto/StationApiService",
+  propagation: "@junto/StationPropagation",
+  peerExchange: "@junto/StationPeerExchange",
+  fleetTargetRepository: "@junto/StationFleetTargetRepository",
+  livePeerRegistry: "@junto/StationLivePeerRegistry",
+  peerRouteResolver: "@junto/StationPeerRouteResolver",
+  fleetPropagation: "@junto/StationFleetPropagation",
 } as const;
 
 export type StationContextTagId =

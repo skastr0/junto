@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { canvasDoc } from "../harness/sandbox";
 import { expect, test } from "../harness/launch";
 
-const SHOTS = process.env.VELLUM_SHEET_SHOTS ?? join(process.cwd(), "test-results", "sheet-node");
+const SHOTS = process.env.JUNTO_SHEET_SHOTS ?? join(process.cwd(), "test-results", "sheet-node");
 
 const sheetNode = {
   id: "sheet1",

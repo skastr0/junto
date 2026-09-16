@@ -227,13 +227,13 @@ const cp = require("child_process");
 const crypto = require("crypto");
 
 const workHome =
-  process.env.VELLUM_COMMAND_WORK_HOME ||
+  process.env.JUNTO_WORK_HOME ||
   path.join(process.env.HOME || "", ".vellum-command", "work");
 const sock = path.join(workHome, "control.sock");
 const tokPath = path.join(workHome, "token");
 const seatRoot = path.join(workHome, "..", "crew-seats");
 const nodeRef =
-  process.env.VELLUM_COMMAND_NODE_REF || "seat-" + String(process.pid);
+  process.env.JUNTO_NODE_REF || "seat-" + String(process.pid);
 const dir = path.join(
   seatRoot,
   nodeRef.replace(/[^a-zA-Z0-9._-]+/g, "--"),
@@ -261,7 +261,7 @@ fs.writeFileSync(
   JSON.stringify({
     pid: process.pid,
     nodeRef,
-    seat: process.env.VELLUM_COMMAND_SEAT || "",
+    seat: process.env.JUNTO_SEAT || "",
     argv: process.argv.slice(2),
     at: Date.now(),
   }),
@@ -551,7 +551,7 @@ const callWork = (op, args, timeoutMs) =>
 
 const runCli = (argv, timeoutMs) =>
   new Promise((resolve) => {
-    const bin = process.env.VELLUM_COMMAND_CLI || "vellum-command";
+    const bin = process.env.JUNTO_CLI || "vellum-command";
     cp.execFile(
       bin,
       argv,

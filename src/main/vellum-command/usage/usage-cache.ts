@@ -46,7 +46,7 @@ const fromStateError = (
  * - Canonical id: `@vellum/UsageCache` — single definition; no dual path.
  * - Service id: Context.Service (Effect V4 live).
  * - Shape:
- *   `class UsageCache extends Context.Service<UsageCache, UsageCache>()("@vellum-command/UsageCache") {}`
+ *   `class UsageCache extends Context.Service<UsageCache, UsageCache>()("@junto/UsageCache") {}`
  * - Layer today: UsageCacheLive / makeUsageCacheLive — V4 rename candidate UsageCache.layer
  *   Do not dual-export Live + `.layer` names.
  */
@@ -59,7 +59,7 @@ export class UsageCache extends Context.Service<UsageCache,
     readonly saveLastGood: (
       state: UsageStateValue,
     ) => Effect.Effect<void, UsageCacheError>;
-  }>()("@vellum-command/UsageCache") {}
+  }>()("@junto/UsageCache") {}
 
 type UsageStateRow = {
   readonly snapshots_json: string;

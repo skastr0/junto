@@ -3,17 +3,17 @@
  *
  * Skipped by default so `bun run test` stays fast. Run it explicitly:
  *
- *   VELLUM_SCALE_BENCH=1 \
- *   VELLUM_SCALE_BENCH_REAL_DB=/path/to/a/copy/of/vellum-command.db \
+ *   JUNTO_SCALE_BENCH=1 \
+ *   JUNTO_SCALE_BENCH_REAL_DB=/path/to/a/copy/of/vellum-command.db \
  *   npx vitest run tests/scale-bench/scale.test.ts --reporter=verbose
  *
  * Env:
- *   VELLUM_SCALE_BENCH=1          enable (required)
- *   VELLUM_SCALE_BENCH_SCALES     comma list of real,500,1000 (default: all)
- *   VELLUM_SCALE_BENCH_REAL_DB    operator database to COPY and measure
- *   VELLUM_SCALE_BENCH_DIR        fixture cache root (default <tmpdir>/vellum-scale-bench)
- *   VELLUM_SCALE_BENCH_OUT        JSONL file to append each record to
- *   VELLUM_SCALE_BENCH_REGEN=1    rebuild synthetic fixtures from scratch
+ *   JUNTO_SCALE_BENCH=1          enable (required)
+ *   JUNTO_SCALE_BENCH_SCALES     comma list of real,500,1000 (default: all)
+ *   JUNTO_SCALE_BENCH_REAL_DB    operator database to COPY and measure
+ *   JUNTO_SCALE_BENCH_DIR        fixture cache root (default <tmpdir>/vellum-scale-bench)
+ *   JUNTO_SCALE_BENCH_OUT        JSONL file to append each record to
+ *   JUNTO_SCALE_BENCH_REGEN=1    rebuild synthetic fixtures from scratch
  *
  * Output: exactly one JSON line per scale on stdout, so a before/after diff is
  * `diff <(jq -S . before.jsonl) <(jq -S . after.jsonl)`.
@@ -34,13 +34,13 @@ import {
 } from "./fixture";
 import { benchmarkScale, type BenchRecord } from "./measure";
 
-const enabled = process.env.VELLUM_SCALE_BENCH === "1";
-const requested = (process.env.VELLUM_SCALE_BENCH_SCALES ?? "real,500,1000")
+const enabled = process.env.JUNTO_SCALE_BENCH === "1";
+const requested = (process.env.JUNTO_SCALE_BENCH_SCALES ?? "real,500,1000")
   .split(",")
   .map((entry) => entry.trim())
   .filter((entry) => entry.length > 0);
-const regenerate = process.env.VELLUM_SCALE_BENCH_REGEN === "1";
-const outPath = process.env.VELLUM_SCALE_BENCH_OUT;
+const regenerate = process.env.JUNTO_SCALE_BENCH_REGEN === "1";
+const outPath = process.env.JUNTO_SCALE_BENCH_OUT;
 const SCALE_TIMEOUT_MS = 45 * 60_000;
 
 /**
@@ -137,10 +137,10 @@ describe.skipIf(!enabled)("scale benchmark", () => {
   it.skipIf(!requested.includes("real"))(
     "real operator canvas",
     async () => {
-      const source = process.env.VELLUM_SCALE_BENCH_REAL_DB;
+      const source = process.env.JUNTO_SCALE_BENCH_REAL_DB;
       if (source === undefined || !existsSync(source)) {
         throw new Error(
-          "VELLUM_SCALE_BENCH_REAL_DB must point at a database file (it is copied, never opened in place)",
+          "JUNTO_SCALE_BENCH_REAL_DB must point at a database file (it is copied, never opened in place)",
         );
       }
       const fixture = copyRealFixture(
@@ -152,7 +152,7 @@ describe.skipIf(!enabled)("scale benchmark", () => {
         databasePath: fixture.databasePath,
       });
       try {
-        const canvasName = process.env.VELLUM_SCALE_BENCH_REAL_CANVAS ?? BENCH_CANVAS_NAME;
+        const canvasName = process.env.JUNTO_SCALE_BENCH_REAL_CANVAS ?? BENCH_CANVAS_NAME;
         const shape = await probeShape(handle, canvasName, fixture.databasePath);
         const record = await benchmarkScale({
           handle,

@@ -40,7 +40,7 @@ export type { ConfigureRemoteResult };
  * S4 (effect@3.21): single canonical Tag `@vellum/HostsService`.
  * `Context.Service` unavailable until Effect V4 pin — do not dual-define.
  * Shape is `HostsServiceShape`. V4 map:
- * `class HostsService extends Context.Service<HostsService, Shape>()("@vellum-command/HostsService")`.
+ * `class HostsService extends Context.Service<HostsService, Shape>()("@junto/HostsService")`.
  * @see docs/END_STATE-effect-foundation.md §S4
  * @see Playground/effect/migration/services.md
  */
@@ -78,7 +78,7 @@ export class HostsService extends Context.Service<HostsService,
       id: string,
       options: ConfigureRemoteOptions,
     ) => Effect.Effect<ConfigureRemoteResult, RemoteHostsError>;
-  }>()("@vellum-command/HostsService") {}
+  }>()("@junto/HostsService") {}
 
 /** Canonical service shape for `HostsService` (one id, one shape). */
 export type HostsServiceShape = Context.Service.Shape<typeof HostsService>;

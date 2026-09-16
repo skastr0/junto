@@ -1,60 +1,60 @@
 export const FEATURE_CATALOG = {
   cron: {
-    env: "VELLUM_COMMAND_CRON",
-    define: "__VELLUM_COMMAND_CRON_ENABLED__",
+    env: "JUNTO_CRON",
+    define: "__JUNTO_CRON_ENABLED__",
   },
   relay: {
-    env: "VELLUM_COMMAND_RELAY",
-    define: "__VELLUM_COMMAND_RELAY_ENABLED__",
+    env: "JUNTO_RELAY",
+    define: "__JUNTO_RELAY_ENABLED__",
   },
   browser: {
-    env: "VELLUM_COMMAND_BROWSER",
-    define: "__VELLUM_COMMAND_BROWSER_ENABLED__",
+    env: "JUNTO_BROWSER",
+    define: "__JUNTO_BROWSER_ENABLED__",
   },
   board: {
-    env: "VELLUM_COMMAND_BOARD",
-    define: "__VELLUM_COMMAND_BOARD_ENABLED__",
+    env: "JUNTO_BOARD",
+    define: "__JUNTO_BOARD_ENABLED__",
   },
   pad: {
-    env: "VELLUM_COMMAND_PAD",
-    define: "__VELLUM_COMMAND_PAD_ENABLED__",
+    env: "JUNTO_PAD",
+    define: "__JUNTO_PAD_ENABLED__",
   },
   sheet: {
-    env: "VELLUM_COMMAND_SHEET",
-    define: "__VELLUM_COMMAND_SHEET_ENABLED__",
+    env: "JUNTO_SHEET",
+    define: "__JUNTO_SHEET_ENABLED__",
   },
   requests: {
-    env: "VELLUM_COMMAND_REQUESTS",
-    define: "__VELLUM_COMMAND_REQUESTS_ENABLED__",
+    env: "JUNTO_REQUESTS",
+    define: "__JUNTO_REQUESTS_ENABLED__",
   },
   artifacts: {
-    env: "VELLUM_COMMAND_ARTIFACTS",
-    define: "__VELLUM_COMMAND_ARTIFACTS_ENABLED__",
+    env: "JUNTO_ARTIFACTS",
+    define: "__JUNTO_ARTIFACTS_ENABLED__",
   },
   /** Tasks node, task CLI, and the task-scoped content access it carries. */
   tasks: {
-    env: "VELLUM_COMMAND_TASKS",
-    define: "__VELLUM_COMMAND_TASKS_ENABLED__",
+    env: "JUNTO_TASKS",
+    define: "__JUNTO_TASKS_ENABLED__",
   },
   fleetUi: {
-    env: "VELLUM_COMMAND_FLEET_UI",
-    define: "__VELLUM_COMMAND_FLEET_UI_ENABLED__",
+    env: "JUNTO_FLEET_UI",
+    define: "__JUNTO_FLEET_UI_ENABLED__",
   },
   usage: {
-    env: "VELLUM_COMMAND_USAGE",
-    define: "__VELLUM_COMMAND_USAGE_ENABLED__",
+    env: "JUNTO_USAGE",
+    define: "__JUNTO_USAGE_ENABLED__",
   },
   helpMap: {
-    env: "VELLUM_COMMAND_HELP_MAP",
-    define: "__VELLUM_COMMAND_HELP_MAP_ENABLED__",
+    env: "JUNTO_HELP_MAP",
+    define: "__JUNTO_HELP_MAP_ENABLED__",
   },
   liveOverseer: {
-    env: "VELLUM_COMMAND_LIVE_OVERSEER",
-    define: "__VELLUM_COMMAND_LIVE_OVERSEER_ENABLED__",
+    env: "JUNTO_LIVE_OVERSEER",
+    define: "__JUNTO_LIVE_OVERSEER_ENABLED__",
   },
   audio: {
-    env: "VELLUM_COMMAND_AUDIO",
-    define: "__VELLUM_COMMAND_AUDIO_ENABLED__",
+    env: "JUNTO_AUDIO",
+    define: "__JUNTO_AUDIO_ENABLED__",
   },
   /**
    * Deep Hermes integration: the ACP chat plane, fleet host identity
@@ -63,8 +63,8 @@ export const FEATURE_CATALOG = {
    * not depend on this gate.
    */
   hermesIntegration: {
-    env: "VELLUM_COMMAND_HERMES",
-    define: "__VELLUM_COMMAND_HERMES_INTEGRATION_ENABLED__",
+    env: "JUNTO_HERMES",
+    define: "__JUNTO_HERMES_INTEGRATION_ENABLED__",
   },
   /**
    * Advanced diagnostics for developers: install provenance (build/updater,
@@ -72,8 +72,8 @@ export const FEATURE_CATALOG = {
    * ship/prod — only all-on and explicit dev overrides.
    */
   devTools: {
-    env: "VELLUM_COMMAND_DEV_TOOLS",
-    define: "__VELLUM_COMMAND_DEV_TOOLS_ENABLED__",
+    env: "JUNTO_DEV_TOOLS",
+    define: "__JUNTO_DEV_TOOLS_ENABLED__",
   },
   /**
    * Managed harness authoring gates. Ship now enables all of them — each gate
@@ -87,28 +87,28 @@ export const FEATURE_CATALOG = {
    * picker step ride this gate; the ACP plane stays under `hermesIntegration`.
    */
   harnessHermes: {
-    env: "VELLUM_COMMAND_HARNESS_HERMES",
-    define: "__VELLUM_COMMAND_HARNESS_HERMES_ENABLED__",
+    env: "JUNTO_HARNESS_HERMES",
+    define: "__JUNTO_HARNESS_HERMES_ENABLED__",
   },
   harnessKimi: {
-    env: "VELLUM_COMMAND_HARNESS_KIMI",
-    define: "__VELLUM_COMMAND_HARNESS_KIMI_ENABLED__",
+    env: "JUNTO_HARNESS_KIMI",
+    define: "__JUNTO_HARNESS_KIMI_ENABLED__",
   },
   harnessMuse: {
-    env: "VELLUM_COMMAND_HARNESS_MUSE",
-    define: "__VELLUM_COMMAND_HARNESS_MUSE_ENABLED__",
+    env: "JUNTO_HARNESS_MUSE",
+    define: "__JUNTO_HARNESS_MUSE_ENABLED__",
   },
   harnessFx: {
-    env: "VELLUM_COMMAND_HARNESS_FX",
-    define: "__VELLUM_COMMAND_HARNESS_FX_ENABLED__",
+    env: "JUNTO_HARNESS_FX",
+    define: "__JUNTO_HARNESS_FX_ENABLED__",
   },
   harnessAmp: {
-    env: "VELLUM_COMMAND_HARNESS_AMP",
-    define: "__VELLUM_COMMAND_HARNESS_AMP_ENABLED__",
+    env: "JUNTO_HARNESS_AMP",
+    define: "__JUNTO_HARNESS_AMP_ENABLED__",
   },
   harnessOmp: {
-    env: "VELLUM_COMMAND_HARNESS_OMP",
-    define: "__VELLUM_COMMAND_HARNESS_OMP_ENABLED__",
+    env: "JUNTO_HARNESS_OMP",
+    define: "__JUNTO_HARNESS_OMP_ENABLED__",
   },
   /**
    * Shipped stock Prime Agent managed seat. The ship baseline enables authoring;
@@ -116,16 +116,16 @@ export const FEATURE_CATALOG = {
    * independent of the authoring gate in every profile.
    */
   harnessPrimeAgent: {
-    env: "VELLUM_COMMAND_HARNESS_PRIME_AGENT",
-    define: "__VELLUM_COMMAND_HARNESS_PRIME_AGENT_ENABLED__",
+    env: "JUNTO_HARNESS_PRIME_AGENT",
+    define: "__JUNTO_HARNESS_PRIME_AGENT_ENABLED__",
   },
   /**
    * Settings → Agents: scan install/options and set per-harness spawn defaults
    * (model, effort, permission). Ship/prod off until the surface is ready.
    */
   harnessSettings: {
-    env: "VELLUM_COMMAND_HARNESS_SETTINGS",
-    define: "__VELLUM_COMMAND_HARNESS_SETTINGS_ENABLED__",
+    env: "JUNTO_HARNESS_SETTINGS",
+    define: "__JUNTO_HARNESS_SETTINGS_ENABLED__",
   },
 } as const;
 

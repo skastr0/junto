@@ -34,10 +34,10 @@ export const parseMacSigningPolicy = (
 
 export const compiledMacSigningPolicy = (): MacSigningPolicy =>
   parseMacSigningPolicy(
-    typeof __VELLUM_COMMAND_MAC_TEAM_ID__ === "string"
-      ? __VELLUM_COMMAND_MAC_TEAM_ID__
+    typeof __JUNTO_MAC_TEAM_ID__ === "string"
+      ? __JUNTO_MAC_TEAM_ID__
       : undefined,
-    typeof __VELLUM_COMMAND_MAC_SIGNING_IDENTITY__ === "string"
-      ? __VELLUM_COMMAND_MAC_SIGNING_IDENTITY__
+    typeof __JUNTO_MAC_SIGNING_IDENTITY__ === "string"
+      ? __JUNTO_MAC_SIGNING_IDENTITY__
       : undefined,
   );

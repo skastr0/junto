@@ -79,7 +79,7 @@ export const BOX_IDLE_AUTO_STOP_SECONDS = 10 * 60;
  * - Canonical id: `@vellum/box/BoxFleetService` — single definition; no dual path.
  * - Service id: Context.Service (Effect V4 live).
  * - Shape:
- *   `class BoxFleetService extends Context.Service<BoxFleetService, BoxFleetService>()("@vellum-command/box/BoxFleetService") {}`
+ *   `class BoxFleetService extends Context.Service<BoxFleetService, BoxFleetService>()("@junto/box/BoxFleetService") {}`
  * - Layer today: BoxFleetServiceLive / makeBoxFleetService — V4 rename candidate BoxFleetService.layer
  *   Do not dual-export Live + `.layer` names.
  */
@@ -124,7 +124,7 @@ export class BoxFleetService extends Context.Service<BoxFleetService,
     readonly ensureHostAvailable: (
       hostId: string,
     ) => Effect.Effect<BoxResource | undefined, BoxFleetError>;
-  }>()("@vellum-command/box/BoxFleetService") {}
+  }>()("@junto/box/BoxFleetService") {}
 
 const validationError = (cause: unknown): BoxFleetValidationError =>
   BoxFleetValidationError.make({

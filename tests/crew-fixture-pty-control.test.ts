@@ -35,7 +35,7 @@ const launch = async () => {
   });
   const pty = spawn(process.execPath, [join(root, ".local", "bin", "codex")], {
     cwd: root, cols: 120, rows: 32, name: "xterm-256color",
-    env: { PATH: process.env.PATH!, HOME: root, VELLUM_COMMAND_NODE_REF: "probe:seat", TERM: "xterm-256color" },
+    env: { PATH: process.env.PATH!, HOME: root, JUNTO_NODE_REF: "probe:seat", TERM: "xterm-256color" },
   });
   const exited = new Promise<void>((resolve) => pty.onExit(() => resolve()));
   pty.onData((data) => observer.feed(data, ++seq));

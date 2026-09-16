@@ -126,7 +126,7 @@ describe("settings state architecture", () => {
   it("keeps product preferences out of renderer localStorage", async () => {
     // Renderer localStorage is not a preference store: settings live in the
     // StateEngine behind IPC. The only tolerated references are read-only
-    // diagnostic switches an operator flips by hand (react-scan, VELLUM_PERF),
+    // diagnostic switches an operator flips by hand (react-scan, JUNTO_PERF),
     // and even those may never write.
     const diagnosticSwitches = ["main.tsx", "lib/performance/perf-flag.ts"];
     const sources = await Promise.all(

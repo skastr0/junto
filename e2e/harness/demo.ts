@@ -1,7 +1,7 @@
 /**
  * Typed wrappers over the demo/scripting engine's IPC surface
  * (window.vellumCommand.demoWriteEdl — see src/shared/demo.ts).
- * Only live when the app was launched with `demo: true` (VELLUM_COMMAND_DEMO=1);
+ * Only live when the app was launched with `demo: true` (JUNTO_DEMO=1);
  * off-demo the channels answer inert ok:false, never touching real state.
  */
 import type { Page } from "@playwright/test";

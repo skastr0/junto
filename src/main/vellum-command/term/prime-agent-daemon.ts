@@ -266,17 +266,17 @@ type DaemonTiming = Readonly<{
 export class PrimeDaemonProcesses extends Context.Service<
   PrimeDaemonProcesses,
   PrimeAgentDaemonProcessPlane
->()("@vellum-command/term/PrimeDaemonProcesses") {}
+>()("@junto/term/PrimeDaemonProcesses") {}
 
 export class PrimeDaemonReporter extends Context.Service<
   PrimeDaemonReporter,
   PrimeAgentDaemonReporterPort
->()("@vellum-command/term/PrimeDaemonReporter") {}
+>()("@junto/term/PrimeDaemonReporter") {}
 
 export class PrimeDaemonTiming extends Context.Service<
   PrimeDaemonTiming,
   DaemonTiming
->()("@vellum-command/term/PrimeDaemonTiming") {}
+>()("@junto/term/PrimeDaemonTiming") {}
 
 type BoundedSnapshot = Readonly<{
   text: string;
@@ -1360,7 +1360,7 @@ export const primeDaemonLayers = (
 export class PrimeAgentDaemonsService extends Context.Service<
   PrimeAgentDaemonsService,
   PrimeAgentDaemons
->()("@vellum-command/term/PrimeAgentDaemons") {}
+>()("@junto/term/PrimeAgentDaemons") {}
 
 export const PrimeAgentDaemonsLive: Layer.Layer<
   PrimeAgentDaemonsService,

@@ -3,8 +3,8 @@
  * then hand them to the content store (pad, task board, note surfaces).
  */
 
-/** Align with main `VELLUM_COMMAND_CLIPBOARD_IMAGE_MAX_BYTES` (16 MiB). */
-export const VELLUM_COMMAND_CLIPBOARD_IMAGE_MAX_BYTES = 16 * 1024 * 1024;
+/** Align with main `JUNTO_CLIPBOARD_IMAGE_MAX_BYTES` (16 MiB). */
+export const JUNTO_CLIPBOARD_IMAGE_MAX_BYTES = 16 * 1024 * 1024;
 
 export interface ClipboardImage {
   readonly extension: string;
@@ -60,15 +60,15 @@ export const fileToClipboardImage = async (
     return { error: `clipboard image type not allowed: ${hint}` };
   }
   if (file.size <= 0) return { error: "empty image" };
-  if (file.size > VELLUM_COMMAND_CLIPBOARD_IMAGE_MAX_BYTES) {
-    return { error: `image too large (${file.size} bytes; max ${VELLUM_COMMAND_CLIPBOARD_IMAGE_MAX_BYTES})` };
+  if (file.size > JUNTO_CLIPBOARD_IMAGE_MAX_BYTES) {
+    return { error: `image too large (${file.size} bytes; max ${JUNTO_CLIPBOARD_IMAGE_MAX_BYTES})` };
   }
   const buffer = await file.arrayBuffer();
   const bytes = new Uint8Array(buffer);
   if (bytes.byteLength === 0) return { error: "empty image" };
-  if (bytes.byteLength > VELLUM_COMMAND_CLIPBOARD_IMAGE_MAX_BYTES) {
+  if (bytes.byteLength > JUNTO_CLIPBOARD_IMAGE_MAX_BYTES) {
     return {
-      error: `image too large (${bytes.byteLength} bytes; max ${VELLUM_COMMAND_CLIPBOARD_IMAGE_MAX_BYTES})`,
+      error: `image too large (${bytes.byteLength} bytes; max ${JUNTO_CLIPBOARD_IMAGE_MAX_BYTES})`,
     };
   }
   return {

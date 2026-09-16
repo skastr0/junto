@@ -13,7 +13,7 @@ export class RegionRollupService extends Context.Service<RegionRollupService,
   {
     readonly doctor: Effect.Effect<ServiceCheck>;
     readonly rollups: (canvasName: string) => Effect.Effect<ReadonlyArray<RegionRollup>, CanvasError>;
-  }>()("@vellum-command/RegionRollupService") {}
+  }>()("@junto/RegionRollupService") {}
 
 export const makeRegionRollupLive = (
   chatService: ChatService,

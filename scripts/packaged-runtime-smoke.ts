@@ -796,8 +796,8 @@ export const smokePackagedRuntime = async (
     TMPDIR: isolatedTmp,
     LANG: "en_US.UTF-8",
     XDG_CACHE_HOME: cache,
-    VELLUM_COMMAND_BROWSER_HOME: isolatedHome,
-    VELLUM_COMMAND_CANVASES_DIR: canvases,
+    JUNTO_BROWSER_HOME: isolatedHome,
+    JUNTO_CANVASES_DIR: canvases,
   };
 
   const processPlane = createAppProcessPlane();

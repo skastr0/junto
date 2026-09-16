@@ -23,7 +23,7 @@ export const ISOLATED_DEVIN_CREDENTIAL_REL = ".local/share/devin/credentials.tom
 
 const FIXTURE_REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const CLI_BUILD_HINT =
-  "Build the matching Junto CLI first: VELLUM_COMMAND_FEATURE_PROFILE=all-on bun scripts/build-standalone-cli.ts vellum-command";
+  "Build the matching Junto CLI first: JUNTO_FEATURE_PROFILE=all-on bun scripts/build-standalone-cli.ts vellum-command";
 const CliBuildReceipt = Schema.Struct({
   schema: Schema.Literal("vellum-command/cli-relink/v1"),
   sourceCommit: Schema.String,

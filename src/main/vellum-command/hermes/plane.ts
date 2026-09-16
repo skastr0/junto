@@ -312,7 +312,7 @@ export class EffectAcpChild extends EventEmitter implements AcpChildLike {
  * - Canonical id: `@vellum/HermesPlane` — single definition; no dual path.
  * - Service id: Context.Service (Effect V4 live).
  * - Shape:
- *   `class HermesPlane extends Context.Service<HermesPlane, HermesPlane>()("@vellum-command/HermesPlane") {}`
+ *   `class HermesPlane extends Context.Service<HermesPlane, HermesPlane>()("@junto/HermesPlane") {}`
  * - Layer today: HermesPlaneLive — V4 rename candidate HermesPlane.layer
  *   Do not dual-export Live + `.layer` names.
  */
@@ -325,7 +325,7 @@ export class HermesPlane extends Context.Service<HermesPlane,
       key: string,
       text: string,
     ) => Promise<AgentReply>;
-  }>()("@vellum-command/HermesPlane") {}
+  }>()("@junto/HermesPlane") {}
 
 export interface HermesShutdownFailure {
   readonly kind: "chat-close-rejected";

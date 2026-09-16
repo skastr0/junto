@@ -9,7 +9,7 @@
  * Not in scope (word-boundary / casing; renamed by the sweep commits):
  * - glued camelCase identifiers: VellumCommandApi, resolveVellumCommandHome
  * - lowercase paths / bins: ~/.vellum-command/, vellum-command.db, dist/vellum-command
- * - env / package keys: VELLUM_COMMAND_*, @skastr0/vellum-command
+ * - env / package keys: JUNTO_*, @skastr0/vellum-command
  * - hyphenated internal protocol/header tokens: X-Vellum-Command-Content-State
  *   (local wire labels, not product brand — retired by the protocol commit)
  *

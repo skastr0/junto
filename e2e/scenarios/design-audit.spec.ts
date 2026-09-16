@@ -2,10 +2,10 @@
  * Design-audit capture — NOT a correctness spec. Drives every reachable UI
  * surface with seeded fixtures + the fake hermes binary and
  * screenshots each one to test-results/design-audit/ for visual review.
- *   VELLUM_COMMAND_FEATURE_PROFILE=all-on electron-vite build   # fleet/usage/help surfaces
+ *   JUNTO_FEATURE_PROFILE=all-on electron-vite build   # fleet/usage/help surfaces
  *   bun run test:e2e:fast e2e/scenarios/design-audit.spec.ts
  * A plain ship-profile build hides those surfaces and fails this spec.
- * The isolated live scenario needs only VELLUM_COMMAND_LIVE_OVERSEER=1.
+ * The isolated live scenario needs only JUNTO_LIVE_OVERSEER=1.
  * The screenshots are the artifact; assertions only prove a surface appeared.
  */
 import { mkdir, mkdtemp } from "node:fs/promises";

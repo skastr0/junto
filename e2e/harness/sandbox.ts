@@ -158,8 +158,8 @@ export const writeFixtureCanvas = async (
   doc: CanvasDoc,
   databasePath?: string,
 ): Promise<void> => {
-  const previousCanvasesDir = process.env.VELLUM_COMMAND_CANVASES_DIR;
-  process.env.VELLUM_COMMAND_CANVASES_DIR = sandbox.canvasesDir;
+  const previousCanvasesDir = process.env.JUNTO_CANVASES_DIR;
+  process.env.JUNTO_CANVASES_DIR = sandbox.canvasesDir;
 
   // Default to the sandbox's canonical product database. Demo-mode apps
   // isolate product state in a process-minted ephemeral SQLite file, so
@@ -443,9 +443,9 @@ export const writeFixtureCanvas = async (
       await runtime.dispose();
     } finally {
       if (previousCanvasesDir === undefined) {
-        delete process.env.VELLUM_COMMAND_CANVASES_DIR;
+        delete process.env.JUNTO_CANVASES_DIR;
       } else {
-        process.env.VELLUM_COMMAND_CANVASES_DIR = previousCanvasesDir;
+        process.env.JUNTO_CANVASES_DIR = previousCanvasesDir;
       }
     }
   }
@@ -462,8 +462,8 @@ export const removeFixtureCanvases = async (
   databasePath: string,
   keep: ReadonlySet<string>,
 ): Promise<void> => {
-  const previousCanvasesDir = process.env.VELLUM_COMMAND_CANVASES_DIR;
-  process.env.VELLUM_COMMAND_CANVASES_DIR = sandbox.canvasesDir;
+  const previousCanvasesDir = process.env.JUNTO_CANVASES_DIR;
+  process.env.JUNTO_CANVASES_DIR = sandbox.canvasesDir;
   const state = makeStateEngineLive(databasePath);
   const repositories = Layer.provideMerge(
     Layer.mergeAll(
@@ -492,9 +492,9 @@ export const removeFixtureCanvases = async (
       await runtime.dispose();
     } finally {
       if (previousCanvasesDir === undefined) {
-        delete process.env.VELLUM_COMMAND_CANVASES_DIR;
+        delete process.env.JUNTO_CANVASES_DIR;
       } else {
-        process.env.VELLUM_COMMAND_CANVASES_DIR = previousCanvasesDir;
+        process.env.JUNTO_CANVASES_DIR = previousCanvasesDir;
       }
     }
   }

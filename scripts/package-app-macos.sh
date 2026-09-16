@@ -109,7 +109,7 @@ FINAL_APP="$RELEASE_DIR/$APP_OUTPUT_DIR/${PRODUCT_NAME}.app"
 FINAL_ZIP="$RELEASE_DIR/$(basename "$DRAFT_ZIP")"
 ATTEMPT_DIR=""
 if [[ "$NOTARIZE" -eq 1 ]]; then
-  VELLUM_COMMAND_APP_SRC="$FINAL_APP" VELLUM_COMMAND_ZIP_SRC="$FINAL_ZIP" \
+  JUNTO_APP_SRC="$FINAL_APP" JUNTO_ZIP_SRC="$FINAL_ZIP" \
     bash "$SCRIPT_DIR/notarize-app.sh"
 fi
 printf 'vellum-command: built %s\n' "$FINAL_APP"

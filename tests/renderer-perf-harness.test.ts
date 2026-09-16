@@ -2,13 +2,13 @@
  * The permanent renderer perf harness: flag resolution, the strict off-path
  * no-op, and the shape of the 5-second line.
  *
- * VELLUM_PERF is frozen at module load (a boot-path flag must never re-read
+ * JUNTO_PERF is frozen at module load (a boot-path flag must never re-read
  * storage on a render path), so each on/off case resets the module graph and
  * re-imports — that is the only way to exercise both paths honestly.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-const FLAG = "VELLUM_PERF";
+const FLAG = "JUNTO_PERF";
 
 type HarnessModule = typeof import("../src/renderer/lib/performance/perf-harness");
 type RecorderModule = typeof import("../src/renderer/lib/performance/canvas-performance");
@@ -30,12 +30,12 @@ const loadModules = async (): Promise<{
 
 afterEach(() => {
   delete process.env[FLAG];
-  delete (globalThis as { VELLUM_PERF?: unknown }).VELLUM_PERF;
+  delete (globalThis as { JUNTO_PERF?: unknown }).JUNTO_PERF;
   delete (globalThis as { vellumCommandPerf?: unknown }).vellumCommandPerf;
   vi.unstubAllGlobals();
 });
 
-describe("VELLUM_PERF flag", () => {
+describe("JUNTO_PERF flag", () => {
   it("stays off with no source set", async () => {
     const { flag } = await loadModules();
     expect(flag.PERF_ENABLED).toBe(false);
@@ -57,7 +57,7 @@ describe("VELLUM_PERF flag", () => {
   it("prefers an injected global over the environment", async () => {
     const { flag } = await loadModules();
     process.env[FLAG] = "0";
-    (globalThis as { VELLUM_PERF?: unknown }).VELLUM_PERF = true;
+    (globalThis as { JUNTO_PERF?: unknown }).JUNTO_PERF = true;
     expect(flag.resolvePerfFlag()).toBe(true);
   });
 

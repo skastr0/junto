@@ -81,9 +81,9 @@ const failExit = (code: number, message: string): never => {
 };
 
 const resolveBinaryPath = (): string => {
-  // Wrapper exports VELLUM_COMMAND_REMOTE_BINARY so install sees the
+  // Wrapper exports JUNTO_REMOTE_BINARY so install sees the
   // generation-pinned shell path after exec replaces argv0 with bundled node.
-  const fromEnv = process.env.VELLUM_COMMAND_REMOTE_BINARY?.trim();
+  const fromEnv = process.env.JUNTO_REMOTE_BINARY?.trim();
   const raw =
     fromEnv && fromEnv.length > 0
       ? fromEnv
@@ -252,11 +252,11 @@ const runProductBoot = async (): Promise<void> => {
   const controlHome = resolveControlHome({
     envHome: process.env.HOME,
     electronHome: process.env.HOME ?? process.cwd(),
-    userData: process.env.VELLUM_COMMAND_HOME ?? process.env.HOME ?? process.cwd(),
-    e2e: process.env.VELLUM_COMMAND_E2E === "1",
+    userData: process.env.JUNTO_HOME ?? process.env.HOME ?? process.cwd(),
+    e2e: process.env.JUNTO_E2E === "1",
     headless: true,
     packaged: isRemotePackaged(resolveBinaryPath()),
-    explicitHome: process.env.VELLUM_COMMAND_HOME,
+    explicitHome: process.env.JUNTO_HOME,
   });
 
   const stations = await RemoteRuntime.runPromise(StationRepository);

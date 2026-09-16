@@ -278,7 +278,7 @@ export const makeBoxActivityReconciler = (
  * - Canonical id: `@vellum/box/BoxActivityPolicy` — single definition; no dual path.
  * - Service id: Context.Service (Effect V4 live).
  * - Shape:
- *   `class BoxActivityPolicy extends Context.Service<BoxActivityPolicy, BoxActivityPolicy>()("@vellum-command/box/BoxActivityPolicy") {}`
+ *   `class BoxActivityPolicy extends Context.Service<BoxActivityPolicy, BoxActivityPolicy>()("@junto/box/BoxActivityPolicy") {}`
  * - Layer today: BoxActivityPolicyLive — V4 rename candidate BoxActivityPolicy.layer
  *   Do not dual-export Live + `.layer` names.
  */
@@ -294,7 +294,7 @@ export class BoxActivityPolicy extends Context.Service<BoxActivityPolicy,
     readonly ensureHostAvailable: (
       hostId: string,
     ) => Effect.Effect<void, BoxFleetError>;
-  }>()("@vellum-command/box/BoxActivityPolicy") {}
+  }>()("@junto/box/BoxActivityPolicy") {}
 
 export const BoxActivityPolicyLive = Layer.effect(
   BoxActivityPolicy,

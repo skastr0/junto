@@ -57,7 +57,7 @@ const UUID =
 const SEMVER =
   /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-(?:0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*))*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/u;
 const BUILD_MARKER =
-  /\/\* VELLUM_COMMAND_RUNTIME_BUILD_IDENTITY:([A-Za-z0-9_-]+) \*\//gu;
+  /\/\* JUNTO_RUNTIME_BUILD_IDENTITY:([A-Za-z0-9_-]+) \*\//gu;
 
 export type PackageRuntime = "electron-main" | "linux-remote";
 export type PackageTarget = "mac" | "linux";
@@ -495,12 +495,12 @@ export const readPackageSourceFacts = async (input: {
     SOURCE_COMMIT,
   );
   const expectedSourceCommit =
-    input.expectedSourceCommit ?? process.env.VELLUM_COMMAND_SOURCE_COMMIT;
+    input.expectedSourceCommit ?? process.env.JUNTO_SOURCE_COMMIT;
   if (
     expectedSourceCommit !== undefined &&
     requiredString(
       expectedSourceCommit,
-      "VELLUM_COMMAND_SOURCE_COMMIT",
+      "JUNTO_SOURCE_COMMIT",
       SOURCE_COMMIT,
     ) !== sourceCommit
   ) {
@@ -712,7 +712,7 @@ export const embedRuntimeBuildIdentity = (input: {
   );
   return Buffer.concat([
     Buffer.from(input.payload),
-    Buffer.from(`\n/* VELLUM_COMMAND_RUNTIME_BUILD_IDENTITY:${encoded} */\n`, "utf8"),
+    Buffer.from(`\n/* JUNTO_RUNTIME_BUILD_IDENTITY:${encoded} */\n`, "utf8"),
   ]);
 };
 
@@ -954,7 +954,7 @@ export const preparePackageRuntimes = async (input: {
     (await readPackageSourceFacts({ repoRoot, requireClean: true }));
   const cohortNonce = requiredString(
     input.cohortNonce ??
-      process.env.VELLUM_COMMAND_PACKAGE_COHORT_NONCE ??
+      process.env.JUNTO_PACKAGE_COHORT_NONCE ??
       randomUUID(),
     "cohort nonce",
     UUID,

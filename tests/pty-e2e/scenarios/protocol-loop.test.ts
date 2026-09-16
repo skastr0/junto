@@ -543,8 +543,8 @@ describe("PROTO-8 — paused seat reports paused:true + next_step", () => {
     const workHome = join(root, "work");
     mkdirSync(canvasesDir, { recursive: true });
     mkdirSync(workHome, { recursive: true });
-    process.env.VELLUM_COMMAND_CANVASES_DIR = canvasesDir;
-    process.env.VELLUM_COMMAND_WORK_HOME = workHome;
+    process.env.JUNTO_CANVASES_DIR = canvasesDir;
+    process.env.JUNTO_WORK_HOME = workHome;
     harness = new ProtoHarness({ root });
     await harness.start();
     await harness.setStationCommandCenter();

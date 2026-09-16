@@ -55,8 +55,8 @@ export const releaseDemoRuntimeIsolation = (): void => {
 
 // Demo sidecars are outputs, but they must not overwrite the operator's normal
 // digest/SVG projections. E2E may supply its own already-minted output root.
-if (isDemoMode() && !process.env.VELLUM_COMMAND_CANVASES_DIR) {
-  process.env.VELLUM_COMMAND_CANVASES_DIR = join(
+if (isDemoMode() && !process.env.JUNTO_CANVASES_DIR) {
+  process.env.JUNTO_CANVASES_DIR = join(
     acquireDemoDirectory().path,
     "projections",
   );

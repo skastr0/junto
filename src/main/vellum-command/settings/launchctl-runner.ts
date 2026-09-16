@@ -12,10 +12,10 @@ export const LAUNCHCTL_PATH = "/bin/launchctl";
 export const LAUNCHCTL_DEADLINE_MS = 3_000;
 export const LAUNCHCTL_STDOUT_CAP_BYTES = 64 * 1024;
 export const LAUNCHCTL_STDERR_CAP_BYTES = 16 * 1024;
-export const VELLUM_COMMAND_LAUNCHD_LABEL = "skastr0.vellumcommand";
+export const JUNTO_LAUNCHD_LABEL = "skastr0.vellumcommand";
 
 const VellumLaunchAgentTargetTypeId: unique symbol = Symbol(
-  "@vellum-command/VellumLaunchAgentTarget",
+  "@junto/VellumLaunchAgentTarget",
 );
 
 /** Opaque authority to address only this user's Junto LaunchAgent. */
@@ -150,7 +150,7 @@ export const launchAgentTargetForCurrentUser = (
     uid === undefined || !Number.isSafeInteger(uid) || uid < 0 ||
     uid > MAX_LAUNCHD_UID
   ) return undefined;
-  const target = `gui/${uid}/${VELLUM_COMMAND_LAUNCHD_LABEL}`;
+  const target = `gui/${uid}/${JUNTO_LAUNCHD_LABEL}`;
   if (!isValidLaunchdTarget(target)) return undefined;
   const capability: VellumLaunchAgentTarget = {
     [VellumLaunchAgentTargetTypeId]: VellumLaunchAgentTargetTypeId,

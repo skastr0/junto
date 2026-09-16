@@ -223,7 +223,7 @@ describe("the budget is respected", () => {
       now: clock.now,
       setTimer: clock.setTimer,
       // This is the DEFAULT reporter's behaviour under
-      // VELLUM_COMMAND_BUDGET=strict, which is the mode a scale gate runs in.
+      // JUNTO_BUDGET=strict, which is the mode a scale gate runs in.
       // The assertion is meant to name a slow key, not to stop the factory.
       onOverrun: (overrun) => {
         throw new Error(`budget: ${overrun.key} took ${overrun.ms}ms`);

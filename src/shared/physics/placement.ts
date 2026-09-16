@@ -100,7 +100,7 @@ export interface PlacementViewService {
 }
 
 export class PlacementView extends Context.Service<PlacementView,
-  PlacementViewService>()("@vellum-command/PlacementView") {}
+  PlacementViewService>()("@junto/PlacementView") {}
 
 /** Everything unknown — shippable default before a fleet producer binds. */
 export const nullPlacementView: PlacementViewService = {

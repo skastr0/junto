@@ -52,7 +52,7 @@ export interface AppChildIo {
   readonly onError: (listener: (error: Error) => void) => () => void;
 }
 
-const AppProcessLeaseTypeId: unique symbol = Symbol("@vellum-command/AppProcessLease");
+const AppProcessLeaseTypeId: unique symbol = Symbol("@junto/AppProcessLease");
 
 /**
  * A lookup key for plane-owned authority. The private symbol prevents normal
@@ -149,7 +149,7 @@ export class TerminalBackendUnavailableError extends Error {
   }
 }
 
-const AppTerminalLeaseTypeId: unique symbol = Symbol("@vellum-command/AppTerminalLease");
+const AppTerminalLeaseTypeId: unique symbol = Symbol("@junto/AppTerminalLease");
 
 export interface AppTerminalLease {
   readonly [AppTerminalLeaseTypeId]: typeof AppTerminalLeaseTypeId;
