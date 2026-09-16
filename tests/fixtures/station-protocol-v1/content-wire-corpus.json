@@ -105,7 +105,7 @@
     },
     "predecessor": null,
     "originAt": "2026-07-31T18:00:00.000Z",
-    "contentSha256": "220b905884a867e5a9d4cd539f0268dc80851b315abaf563756697db101903d5",
+    "contentSha256": "60bd455b0ad832c9ed0a8a6ef0677b7bf9eb79a39da2d8758fe0c052ac95c1f8",
     "body": {
       "operation": "task.create",
       "task": {
@@ -131,7 +131,7 @@
               }
             ],
             "taskId": "task-media-1",
-            "contextId": "Vellumcommand"
+            "contextId": "Junto"
           }
         ]
       }
@@ -163,7 +163,7 @@
     },
     "predecessor": null,
     "originAt": "2026-07-31T18:00:00.000Z",
-    "contentSha256": "42e1d5cc956d979a5ae40bbd6adfa54c82e3b6bdf51e41ee90130224a732ffe2",
+    "contentSha256": "0d5791faa6bc782a070d13f5af0fb22ef9fc31a44a89a89441e49bf961bc6f57",
     "body": {
       "operation": "task.create",
       "task": {
@@ -181,7 +181,7 @@
               }
             ],
             "taskId": "task-media-legacy",
-            "contextId": "Vellumcommand"
+            "contextId": "Junto"
           }
         ]
       }

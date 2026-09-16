@@ -2719,7 +2719,7 @@ const writeTaskDependsOn = (
  *
  * Task-specific fields (rules / epoch / visits / waitUntil / checkResults
  * / defects / admission / raisedBy) persist as one reserved bag under
- * metadata_json["vellum.tasks"]:
+ * metadata_json["junto.tasks"]:
  * shipped migrations are immutable and work_tasks gains no column, while
  * metadata_json is an existing open JSON column (CHECK: json_valid, no
  * $.claimedBy). writeTask folds the first-class Task fields into the bag on
@@ -2735,7 +2735,7 @@ const writeTaskDependsOn = (
  * satisfied by local visit completion (the source row completes on
  * send-on); no orphan facts (nothing is deleted or renumbered).
  */
-const TASK_METADATA_BAG_KEY = "vellum.tasks";
+const TASK_METADATA_BAG_KEY = "junto.tasks";
 
 /** Operator approval marker — also reserved (see @shared/rules). */
 const TASK_APPROVAL_KEY = TASK_APPROVED_METADATA_KEY;
@@ -2751,7 +2751,7 @@ const assertNoReservedTaskMetadata = (
   ) {
     throw authorityError(
       "invalid-transition",
-      "metadata keys under vellum.tasks are reserved for the work service",
+      "metadata keys under junto.tasks are reserved for the work service",
     );
   }
 };
@@ -7830,7 +7830,7 @@ export interface WorkRepositoryShape {
     }) => Effect.Effect<ReadonlyArray<ReviewReceiptRecord>, RepositoryFailure>;
     /**
      * Approve a task waiting at an `approval` board: epoch-scoped operator
-     * stamp at metadata["vellum.tasks.approvedEpoch"] (same-state
+     * stamp at metadata["junto.tasks.approvedEpoch"] (same-state
      * task.transition fact).
      */
     readonly promoteTask: (

@@ -154,7 +154,7 @@ export const StationQualificationCommandCenterSecurityResult = Schema.Struct({
   rendererSeccomp: Schema.Literal("filtering"),
   userNamespaceIsolation: Schema.Literal(true),
   controlMaterialOwnerOnly: Schema.Literal(true),
-  vellumTcpListeners: Schema.Literal(0),
+  juntoTcpListeners: Schema.Literal(0),
 });
 export type StationQualificationCommandCenterSecurityResult =
   typeof StationQualificationCommandCenterSecurityResult.Type;
@@ -169,7 +169,7 @@ export const StationQualificationRemoteSecurityResult = Schema.Struct({
   chromiumRendererProcesses: Schema.Literal(0),
   displayEnvironment: Schema.Literal("unset"),
   controlMaterialOwnerOnly: Schema.Literal(true),
-  vellumTcpListeners: Schema.Literal(0),
+  juntoTcpListeners: Schema.Literal(0),
 });
 export type StationQualificationRemoteSecurityResult =
   typeof StationQualificationRemoteSecurityResult.Type;

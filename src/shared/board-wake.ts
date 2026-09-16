@@ -128,7 +128,7 @@ export const boardWakeInjectId = (
   wakeEventId: string,
 ): string => {
   // Stable opaque id for delivery.accepted — mirror mailbox digest style.
-  const material = `vellum/board-wake-inject/v1\0${canvas}\0${seatNodeId}\0${wakeEventId}`;
+  const material = `junto/board-wake-inject/v1\0${canvas}\0${seatNodeId}\0${wakeEventId}`;
   // Lightweight non-crypto hash (browser/main safe, no Node crypto import).
   let h = 2166136261;
   for (let i = 0; i < material.length; i += 1) {

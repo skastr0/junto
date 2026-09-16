@@ -35,7 +35,7 @@ const commandCenterSecurity = () => ({
   rendererSeccomp: "filtering" as const,
   userNamespaceIsolation: true as const,
   controlMaterialOwnerOnly: true as const,
-  vellumTcpListeners: 0 as const,
+  juntoTcpListeners: 0 as const,
 });
 const remoteSecurity = () => ({
   runtime: "displayless-node" as const,
@@ -43,7 +43,7 @@ const remoteSecurity = () => ({
   chromiumRendererProcesses: 0 as const,
   displayEnvironment: "unset" as const,
   controlMaterialOwnerOnly: true as const,
-  vellumTcpListeners: 0 as const,
+  juntoTcpListeners: 0 as const,
 });
 
 const qualified = () => ({
@@ -199,9 +199,9 @@ describe("two-installation Station qualification contract", () => {
     const listening = qualified();
     (
       listening.security.remote as {
-        vellumTcpListeners: number;
+        juntoTcpListeners: number;
       }
-    ).vellumTcpListeners = 1;
+    ).juntoTcpListeners = 1;
     expect(Result.isFailure(decodeStationQualification(listening))).toBe(true);
   });
 

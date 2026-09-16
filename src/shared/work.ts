@@ -317,10 +317,10 @@ const rejectReservedTaskMetadata = (
 ): void => {
   if (metadata === undefined) return;
   for (const key of Object.keys(metadata)) {
-    if (key.startsWith("vellum.tasks")) {
+    if (key.startsWith("junto.tasks")) {
       throw new WorkError(
         "invalid",
-        "metadata keys under vellum.tasks are reserved for the work service",
+        "metadata keys under junto.tasks are reserved for the work service",
       );
     }
   }
@@ -662,7 +662,7 @@ const rehomedMetadata = (
 ): WorkMetadata | undefined => {
   if (metadata === undefined) return undefined;
   const keys = Object.keys(metadata).filter(
-    (key) => key.startsWith("vellum.tasks"),
+    (key) => key.startsWith("junto.tasks"),
   );
   if (keys.length === 0) return metadata;
   const rest = { ...metadata };

@@ -360,7 +360,7 @@ export const makeAgentMessage = (params: {
   ...(params.metadata ? { metadata: params.metadata } : {}),
 });
 
-const TASK_RELEASE_ACTOR_SEAT_KEY = "vellum.taskRelease.actorSeatId";
+const TASK_RELEASE_ACTOR_SEAT_KEY = "junto.taskRelease.actorSeatId";
 
 /**
  * Exact operator-release boundary for one claimed task generation.

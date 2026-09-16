@@ -541,7 +541,7 @@ const measureScale = async (options: {
   const worstFrame = loopFrames.reduce((m, f) => (f.ms > m.ms ? f : m), loopFrames[0] as (typeof loopFrames)[number]);
 
   const record = {
-    schema: "vellum.gate/1",
+    schema: "junto.gate/1",
     scale,
     label: options.label,
     recordedAt: new Date().toISOString(),

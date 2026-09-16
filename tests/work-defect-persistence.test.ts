@@ -217,7 +217,7 @@ const rawTaskBag = async (sink: {
     ),
   );
   const parsed = JSON.parse(row!.metadata_json) as Record<string, unknown>;
-  return parsed["vellum.tasks"] as Record<string, unknown> | undefined;
+  return parsed["junto.tasks"] as Record<string, unknown> | undefined;
 };
 
 /**

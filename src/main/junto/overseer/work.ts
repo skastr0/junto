@@ -442,7 +442,7 @@ export const executeOverseerWork = (
           metadata: {
             taskComment: true,
             fromSeat: actor.nodeId,
-            "vellum.taskThread.kind": "comment",
+            "junto.taskThread.kind": "comment",
           },
         }),
         admin,

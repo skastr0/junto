@@ -40,7 +40,7 @@ const task: Task = {
       metadata: {
         taskComment: true,
         fromSeat: "operator",
-        "vellum.taskThread.kind": "comment",
+        "junto.taskThread.kind": "comment",
       },
     },
     {

@@ -800,7 +800,7 @@ describe("work pure transforms", () => {
       role: "user",
       parts: [{ kind: "text", text: "Released to Queue by operator." }],
       metadata: {
-        "vellum.taskRelease.actorSeatId": claimed.task.claimedBy,
+        "junto.taskRelease.actorSeatId": claimed.task.claimedBy,
       },
     });
   });
@@ -855,7 +855,7 @@ describe("work pure transforms", () => {
       role: "user",
       parts: [{ kind: "text", text: "The proof does not include the release receipt." }],
       metadata: {
-        "vellum.taskRelease.actorSeatId": claimed.task.claimedBy,
+        "junto.taskRelease.actorSeatId": claimed.task.claimedBy,
       },
     });
 

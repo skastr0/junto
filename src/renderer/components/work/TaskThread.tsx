@@ -40,7 +40,7 @@ export const taskThreadKind = (
   index: number,
 ): TaskThreadKind => {
   if (index === 0) return "brief";
-  const explicit = metadataText(message, "vellum.taskThread.kind");
+  const explicit = metadataText(message, "junto.taskThread.kind");
   if (
     explicit === "update" ||
     explicit === "defect" ||

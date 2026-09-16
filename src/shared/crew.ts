@@ -419,7 +419,7 @@ export const readReviewVerdict = (
 };
 
 /** Domain separator for the subject hash, so hashes never collide across kinds. */
-export const VERDICT_SUBJECT_HASH_DOMAIN = "vellum/crew/verdict-subject/v1";
+export const VERDICT_SUBJECT_HASH_DOMAIN = "junto/crew/verdict-subject/v1";
 
 /**
  * The ordered, canonical payload the subject hash is computed over. The

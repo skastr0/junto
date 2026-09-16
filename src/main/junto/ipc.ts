@@ -859,7 +859,7 @@ export const registerJuntoIpc = (): void => {
                 metadata: {
                   taskComment: true,
                   fromSeat: "operator",
-                  "vellum.taskThread.kind": "comment",
+                  "junto.taskThread.kind": "comment",
                 },
               }),
             );

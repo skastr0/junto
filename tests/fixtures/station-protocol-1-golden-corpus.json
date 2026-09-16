@@ -391,7 +391,7 @@
         "seq": "1"
       },
       "originAt": "2026-08-01T12:00:00.000Z",
-      "contentSha256": "6ffbc5112094c345079e527db90903fa4644df65aeea1400f5fd6af78ad7f701",
+      "contentSha256": "bd95867030595f10bb40a8e30dc618f0f2524c43115655fc4522bd148483fbfa",
       "body": {
         "operation": "task.describe",
         "task": {
@@ -408,7 +408,7 @@
                 }
               ],
               "taskId": "task-01",
-              "contextId": "VellumCommand"
+              "contextId": "Junto"
             }
           ]
         }
@@ -661,7 +661,7 @@
       },
       "predecessor": null,
       "originAt": "2026-08-01T12:00:00.000Z",
-      "contentSha256": "46d6ff0b72f1211b1d9b6f2f208e8aa1224ac1615d71b41a3f13aad67343e0fe",
+      "contentSha256": "d03ad8c0547e1387735ee77d43fa2d821e40d421f886085a7b793b1b0f0e9d72",
       "body": {
         "operation": "message.append",
         "message": {
@@ -673,7 +673,7 @@
               "text": "Task finished successfully"
             }
           ],
-          "contextId": "VellumCommand"
+          "contextId": "Junto"
         },
         "sentBy": {
           "seatId": "seat_0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",

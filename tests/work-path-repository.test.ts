@@ -177,7 +177,7 @@ describe("task path persistence", () => {
       ),
     );
     const parsed = JSON.parse(row!.metadata_json) as Record<string, unknown>;
-    expect(parsed["vellum.tasks"]).toBeDefined();
+    expect(parsed["junto.tasks"]).toBeDefined();
     expect(parsed.origin).toBe("test");
   });
 
@@ -198,7 +198,7 @@ describe("task path persistence", () => {
                 parts: [{ kind: "text", text: "forged" }],
               },
             ],
-            metadata: { "vellum.tasks": { epoch: 9 } },
+            metadata: { "junto.tasks": { epoch: 9 } },
           },
           originAt: observedAt,
           receivedAt: observedAt,
@@ -451,7 +451,7 @@ describe("task path persistence", () => {
       }),
     );
     const promoted = await taskAt(s2, "task-gated");
-    expect(promoted?.metadata?.["vellum.tasks.approvedEpoch"]).toBe(0);
+    expect(promoted?.metadata?.["junto.tasks.approvedEpoch"]).toBe(0);
     expect(promoted?.state).toBe("submitted");
   });
 

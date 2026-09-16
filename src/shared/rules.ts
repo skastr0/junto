@@ -363,7 +363,7 @@ export type TaskAdmissionState =
   | "operator";
 
 /** Epoch-scoped operator approval marker. */
-export const TASK_APPROVED_METADATA_KEY = "vellum.tasks.approvedEpoch";
+export const TASK_APPROVED_METADATA_KEY = "junto.tasks.approvedEpoch";
 
 export const taskApproved = (task: Task): boolean =>
   task.metadata?.[TASK_APPROVED_METADATA_KEY] === taskEpoch(task);

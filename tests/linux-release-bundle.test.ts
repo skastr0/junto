@@ -443,7 +443,7 @@ const createFixture = async (options: {
     rendererSeccomp: "filtering",
     userNamespaceIsolation: true,
     controlMaterialOwnerOnly: true,
-    vellumTcpListeners: 0,
+    juntoTcpListeners: 0,
   };
   const remoteQualificationSecurity = {
     runtime: "displayless-node",
@@ -451,7 +451,7 @@ const createFixture = async (options: {
     chromiumRendererProcesses: 0,
     displayEnvironment: "unset",
     controlMaterialOwnerOnly: true,
-    vellumTcpListeners: 0,
+    juntoTcpListeners: 0,
   };
   const manifestBinding = {
     file: STATION_QUALIFICATION_MANIFEST_FILE,

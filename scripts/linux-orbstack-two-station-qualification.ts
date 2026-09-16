@@ -3085,7 +3085,7 @@ type CommandCenterSecurityObservation = {
   readonly rendererCount: number;
   readonly userNamespaceIsolation: true;
   readonly controlMaterialOwnerOnly: true;
-  readonly vellumTcpListeners: 0;
+  readonly juntoTcpListeners: 0;
   readonly debugAuthority: false;
 };
 
@@ -3096,7 +3096,7 @@ type RemoteSecurityObservation = {
   readonly chromiumRendererProcesses: 0;
   readonly displayEnvironment: "unset";
   readonly controlMaterialOwnerOnly: true;
-  readonly vellumTcpListeners: 0;
+  readonly juntoTcpListeners: 0;
   readonly debugAuthority: false;
 };
 
@@ -3317,7 +3317,7 @@ const observeCommandCenterRuntimeSecurity = async (
     rendererCount: renderers.length,
     userNamespaceIsolation: true,
     controlMaterialOwnerOnly: true,
-    vellumTcpListeners: 0,
+    juntoTcpListeners: 0,
     debugAuthority: false,
   };
 };
@@ -3428,7 +3428,7 @@ const observeRemoteDisplaylessSecurity = async (
     chromiumRendererProcesses: 0,
     displayEnvironment: "unset",
     controlMaterialOwnerOnly: true,
-    vellumTcpListeners: 0,
+    juntoTcpListeners: 0,
     debugAuthority: false,
   };
 };
@@ -3670,7 +3670,7 @@ const observe = async (
             commandCenterSecurity.userNamespaceIsolation,
           controlMaterialOwnerOnly:
             commandCenterSecurity.controlMaterialOwnerOnly,
-          vellumTcpListeners: commandCenterSecurity.vellumTcpListeners,
+          juntoTcpListeners: commandCenterSecurity.juntoTcpListeners,
         },
         remote: {
           runtime: remoteSecurity.runtime,
@@ -3680,7 +3680,7 @@ const observe = async (
           displayEnvironment: remoteSecurity.displayEnvironment,
           controlMaterialOwnerOnly:
             remoteSecurity.controlMaterialOwnerOnly,
-          vellumTcpListeners: remoteSecurity.vellumTcpListeners,
+          juntoTcpListeners: remoteSecurity.juntoTcpListeners,
         },
       },
       evidence: {
