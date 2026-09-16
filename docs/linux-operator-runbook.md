@@ -14,11 +14,11 @@ particular candidate is already published.
 Follow the exact commands in the
 [desktop install guide](linux-command-center-alpha.md#install-an-official-desktop-alpha)
 and the current [Linux desktop bootstrap guide](linux-desktop-bootstrap.md).
-Obtain the archive, signed descriptor and source index through the official
+Obtain the archive and signed descriptor through the official
 download page. Authenticate first install with an independently obtained
 bootstrap or a reviewed source checkout before any candidate-archive code runs.
 Do not extract the archive or execute its bundled CLI. The bootstrap
-`--release ... --archive ... --sources ...` admits the signed inputs with
+`--release ... --archive ...` admits the signed inputs with
 embedded release trust and installs a fresh managed generation. It refuses
 an existing managed launcher and never launches the app or opens its database.
 
@@ -37,8 +37,8 @@ See the [desktop sandbox guide](linux-command-center-alpha.md#boundary).
 ## Automatic desktop updates
 
 Managed official installations automatically check and download the signed
-alpha feed at `/linux/x64/alpha.json`. The descriptor binds its archive and
-corresponding-source index. Signature, authorized signing time, current key
+alpha feed at `/linux/x64/alpha.json`. The descriptor binds its archive.
+Signature, authorized signing time, current key
 trust/revocation, target, version, ownership and digest checks must pass before
 a candidate can be staged. Desktop descriptors do not expire. A stale feed
 can withhold newer versions; it cannot substitute bytes or roll the installed

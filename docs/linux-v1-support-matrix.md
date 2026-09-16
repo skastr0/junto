@@ -18,7 +18,6 @@ been published.
 | Sandbox | Chromium sandbox with reviewed host-specific preparation if needed | No root launch, global policy weakening or sandbox bypass |
 | Updates | Signed `/linux/x64/alpha.json`; automatic check/download, explicit Restart | Managed official installations only |
 | Source builds / loose archives | Build and launch locally | Do not gain managed update eligibility by extraction |
-| Corresponding source | `/linux/x64/sources/<version>/sources.json` | Bound to the exact released archive |
 | State | One app-owned `~/.junto/state/junto.db` | Install/update never copies, replaces or separately opens it |
 | Maturity | Alpha | Does not imply Fleet Beta or production qualification |
 

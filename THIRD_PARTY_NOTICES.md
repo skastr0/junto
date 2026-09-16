@@ -18,9 +18,9 @@ the application package. The experimental standalone Remote package also include
 the license supplied with its official Node.js runtime archive.
 
 The compiled control CLI embeds Bun 1.3.13, including statically linked components
-with their own licenses. [Version-bound Bun notices and source instructions](third_party/bun-1.3.13/README.md)
+with their own licenses. [Version-bound Bun notices](third_party/bun-1.3.13/README.md)
 travel with the desktop package. They include the LGPL JavaScriptCore/WebKit and
-TinyCC terms and corresponding source/rebuild routes; the embedded runtime is not
+TinyCC terms; the embedded runtime is not
 covered solely by Bun's MIT declaration or this project's Apache license.
 
 Other runtime libraries include React, Effect, XYFlow, xterm.js, Lucide, node-pty,

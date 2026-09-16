@@ -5,8 +5,8 @@ Until a bootstrap tag is published and a fresh-host qualification receipt
 exists, do not treat any GitHub Release as an official first-install verifier.
 
 Official Linux desktop first install is authenticated outside the candidate
-archive. The website may host the archive, signed `release.json`, and
-`sources.json`. It is not the authority for which verifier to run, which
+archive. The website may host the archive and signed `release.json`.
+It is not the authority for which verifier to run, which
 release-trust pins to use, or how to bypass verification.
 
 The packaged application CLI does not install Linux desktop. The incumbent
@@ -33,7 +33,7 @@ Prerequisites: independently trusted `curl` and GitHub CLI `gh` 2.68.0 or
 newer. Do not obtain `gh` from the candidate archive or
 https://juntoagents.com/download.
 
-Download the three payload files into a new private directory. From that
+Download the signed release and archive into a new private directory. From that
 directory:
 
 ```sh
@@ -73,8 +73,7 @@ directory:
   chmod 0700 "$BOOTSTRAP"
   "./$BOOTSTRAP" \
     --release "$PWD/release.json" \
-    --archive "$PWD/$ALPHA_ARCHIVE" \
-    --sources "$PWD/sources.json"
+    --archive "$PWD/$ALPHA_ARCHIVE"
 )
 ```
 
@@ -114,8 +113,7 @@ the GitHub repository or its release authority stops both paths.
   bun install --frozen-lockfile
   bun scripts/install-linux-desktop.ts \
     --release "$INPUTS/release.json" \
-    --archive "$INPUTS/junto-runtime-$ALPHA_VERSION-linux-x64.tar.gz" \
-    --sources "$INPUTS/sources.json"
+    --archive "$INPUTS/junto-runtime-$ALPHA_VERSION-linux-x64.tar.gz"
 )
 ```
 
@@ -130,11 +128,8 @@ checkout, not the downloads directory.
   force flags.
 - It does not install through apt, `.deb`, `/opt`, or any privileged helper.
 - GitHub Releases for the bootstrap are not the application update feed. A
-  qualified bootstrap publication includes the executable, its attestation, the
-  relink application object (`-relink.js`), CLI notices, Bun 1.3.13 runtime
-  notices, matching source archive, and `RELINK.md`. Corresponding Bun/WebKit
-  source archives are prepared with `scripts/prepare-runtime-sources.ts` from
-  the extracted source tree; they are not stored in git.
+  qualified bootstrap publication includes the executable, its SHA-256, and its
+  attestation.
 
 Existing alpha installations are not retroactively authenticated by publishing
 a bootstrap. Trusted incumbents keep using the in-app updater.

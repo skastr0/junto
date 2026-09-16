@@ -23,7 +23,7 @@ actively developed by a solo maintainer. Reports and proposals go through
 | Windows | No supported build or release lane. |
 
 The [official download page](https://juntoagents.com/download) lists available
-builds, signed Linux metadata, and corresponding source downloads. Official
+builds and signed Linux metadata. Official
 automatic updates use the maintainer-run release feed. Updates download
 in the background and offer an explicit restart when ready. The source repository
 is not an npm package, and GitHub Releases are not the application update feed.

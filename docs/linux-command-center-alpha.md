@@ -11,7 +11,7 @@ qualification does not promote Fleet to Beta or either surface to production.
 
 First install is authenticated by an independently obtained bootstrap, not by
 the downloaded archive or the download-page checksum. The website may host the
-archive, signed `release.json`, and corresponding-source `sources.json`; it is
+archive and signed `release.json`; it is
 not the authority for which verifier to run, which trust pins to use, or how to
 bypass verification. Follow the current
 [Linux desktop bootstrap guide](linux-desktop-bootstrap.md) on GitHub for the
@@ -19,7 +19,7 @@ approved bootstrap tag, source commit, and exact commands. If that guide says
 the bootstrap or installer is being prepared, use the source-build instructions
 below or wait; do not extract the archive or execute its bundled CLI.
 
-Download the three payload files into a new private directory. Close any
+Download the signed release and archive into a new private directory. Close any
 previously extracted Junto desktop before installing or launching the
 managed copy. Do not extract the archive and do not run code from it. In that
 download directory, replace the approved values from the current GitHub guide:
@@ -61,15 +61,14 @@ download directory, replace the approved values from the current GitHub guide:
   chmod 0700 "$BOOTSTRAP"
   "./$BOOTSTRAP" \
     --release "$PWD/release.json" \
-    --archive "$PWD/$ALPHA_ARCHIVE" \
-    --sources "$PWD/sources.json"
+    --archive "$PWD/$ALPHA_ARCHIVE"
 )
 ```
 
 Obtain `gh` (2.68.0 or newer) from an independently trusted host source, not
 from the candidate archive or the Junto download page. Stop on an
 attestation or signature mismatch. The bootstrap then verifies the signed
-descriptor and exact archive/source inputs with its embedded release trust,
+descriptor and exact archive with its embedded release trust,
 stages an immutable owner-local generation and creates the stable launcher and
 user desktop entry. It refuses an existing managed installation. It does not
 launch the app, open product state, update a running release or acquire
@@ -79,7 +78,7 @@ executing downloaded code; that checksum was not independent authentication
 and is not a fallback.
 
 From a reviewed, commit-pinned source checkout with independently trusted Bun
-1.3.13, `bun scripts/install-linux-desktop.ts` accepts the same three flags and
+1.3.13, `bun scripts/install-linux-desktop.ts` accepts the same two flags and
 invokes the same first-install API. That source fallback is documented in the
 bootstrap guide.
 
@@ -112,8 +111,7 @@ directories are reported, not deleted. Staging refuses when free space is below
 the expansion reserve. First-install commands are not a cleanup mechanism.
 
 The signed descriptor lives at `/linux/x64/<version>/release.json`; the feed is
-`/linux/x64/alpha.json`, and the matching source index is
-`/linux/x64/sources/<version>/sources.json` under the existing release Worker.
+`/linux/x64/alpha.json` under the existing release Worker.
 See the [operator runbook](linux-operator-runbook.md) for refusal and recovery
 behavior.
 
