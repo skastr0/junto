@@ -1076,7 +1076,7 @@ const createRendererFailureWindow = (): BrowserWindow => {
     height: 360,
     minWidth: 520,
     minHeight: 300,
-    title: "Vellum Command recovery",
+    title: "Junto recovery",
     backgroundColor: DARK_RUNTIME.ground,
     ...e2eMainWindowOptions(e2ePresentation),
     webPreferences: {
@@ -1097,7 +1097,7 @@ const createRendererFailureWindow = (): BrowserWindow => {
   failureWindow.on("closed", () => {
     if (rendererFailureWindow === failureWindow) rendererFailureWindow = undefined;
   });
-  const html = `<!doctype html><meta charset="utf-8"><title>Vellum Command recovery</title><style>html{color-scheme:dark;background:${DARK_RUNTIME.ground};color:${DARK_RUNTIME.ink};font:15px system-ui}body{max-width:52ch;margin:72px auto;padding:0 28px}h1{font-size:22px}p{line-height:1.55;color:${DARK_RUNTIME["ink-2"]}}</style><h1>Vellum Command could not render its workspace.</h1><p>A trusted workspace could not be restored safely. Quit and reopen Vellum Command; your canvas documents and local sessions were not deleted.</p>`;
+  const html = `<!doctype html><meta charset="utf-8"><title>Junto recovery</title><style>html{color-scheme:dark;background:${DARK_RUNTIME.ground};color:${DARK_RUNTIME.ink};font:15px system-ui}body{max-width:52ch;margin:72px auto;padding:0 28px}h1{font-size:22px}p{line-height:1.55;color:${DARK_RUNTIME["ink-2"]}}</style><h1>Junto could not render its workspace.</h1><p>A trusted workspace could not be restored safely. Quit and reopen Junto; your canvas documents and local sessions were not deleted.</p>`;
   void failureWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
   if (!e2eIsolateFocus) {
     failureWindow.show();

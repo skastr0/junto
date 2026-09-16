@@ -49,7 +49,7 @@ export const renderUserlandLinuxService = ({
   const launcher = `${release}/resources/systemd/vellum-command-remote-launch`;
   const remote = `${release}/resources/bin/vellum-command-remote`;
   return `[Unit]
-Description=Vellum Command Remote headless station
+Description=Junto Remote headless station
 After=default.target
 StartLimitIntervalSec=60
 StartLimitBurst=3
@@ -120,8 +120,8 @@ const metadata: StationSupervisorMetadata = Object.freeze({
   displayName: "systemd user service",
   serviceLabel: VELLUM_COMMAND_SYSTEMD_USER_UNIT,
   recovery: Object.freeze({
-    title: "Repair Vellum Command Remote supervision",
-    detail: "Install or repair the Vellum Command Remote user service on this host.",
+    title: "Repair Junto Remote supervision",
+    detail: "Install or repair the Junto Remote user service on this host.",
   }),
 });
 

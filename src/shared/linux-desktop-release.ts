@@ -21,7 +21,7 @@ export const LINUX_DESKTOP_MAX_SOURCE_INDEX_BYTES = 1_048_576;
 export const LINUX_DESKTOP_MAX_METADATA_BYTES = 65_536;
 export const LINUX_DESKTOP_CLOCK_SKEW_MS = 5 * 60 * 1_000;
 export const LINUX_DESKTOP_SIGNATURE_DOMAIN =
-  "Vellum Command Linux desktop alpha release v1\n";
+  "Junto Linux desktop alpha release v1\n";
 
 export const LINUX_DESKTOP_TARGET = Object.freeze(
   {
@@ -36,7 +36,7 @@ export const LINUX_DESKTOP_TARGET = Object.freeze(
 
 export interface LinuxDesktopReleaseDescriptor {
   readonly schema: typeof LINUX_DESKTOP_RELEASE_SCHEMA;
-  readonly product: "Vellum Command";
+  readonly product: "Junto";
   readonly channel: "alpha";
   readonly version: string;
   readonly sourceRevision: string;
@@ -170,7 +170,7 @@ export const decodeLinuxDesktopReleaseDescriptor = (
   ], "Linux desktop descriptor");
   if (
     descriptor.schema !== LINUX_DESKTOP_RELEASE_SCHEMA ||
-    descriptor.product !== "Vellum Command" || descriptor.channel !== "alpha"
+    descriptor.product !== "Junto" || descriptor.channel !== "alpha"
   ) {
     throw new Error("unsupported Linux desktop release identity");
   }
@@ -224,7 +224,7 @@ export const decodeLinuxDesktopReleaseDescriptor = (
   }
   return Object.freeze({
     schema: LINUX_DESKTOP_RELEASE_SCHEMA,
-    product: "Vellum Command",
+    product: "Junto",
     channel: "alpha",
     version,
     sourceRevision: descriptor.sourceRevision,

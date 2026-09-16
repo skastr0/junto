@@ -176,7 +176,7 @@ export const finalizeInstallAfterQuiesce = (input: {
         return updateError(
           "install-refused",
           activated
-            ? "The new release was activated but could not restart. Quit and launch Vellum Command from its installed desktop launcher; the previous release cannot be restored."
+            ? "The new release was activated but could not restart. Quit and launch Junto from its installed desktop launcher; the previous release cannot be restored."
             : cause instanceof Error
             ? `quitAndInstall failed: ${cause.message}`
             : "quitAndInstall failed",

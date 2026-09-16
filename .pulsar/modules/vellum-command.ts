@@ -10,7 +10,7 @@ import {
 } from "@skastr0/pulsar-project-module-sdk"
 
 /**
- * Vellum Command repository calibration.
+ * Junto repository calibration.
  *
  * Not Pulsar product default behavior. Encodes this repo's process-boundary
  * and factory-physics layout so size/nesting pressure does not punish
@@ -118,7 +118,7 @@ export default defineProjectModule({
           return classifyArchitectureRole(current, runtime, rule.role, {
             ruleId: ARCHITECTURE_ROLE_RULE_ID,
             reason:
-              "Vellum Command classifies Electron main, renderer, preload, CLI, and frozen shared contracts so size and nesting detectors interpret process-boundary code as integration rather than generic taste.",
+              "Junto classifies Electron main, renderer, preload, CLI, and frozen shared contracts so size and nesting detectors interpret process-boundary code as integration rather than generic taste.",
             evidence: [
               { kind: "path", value: current.value.path },
               { kind: "architecture-role", value: rule.role },

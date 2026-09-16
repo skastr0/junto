@@ -69,7 +69,7 @@ const trust = makeTrust();
 const descriptor = (version = "0.2.1"): LinuxDesktopReleaseDescriptor =>
   decodeLinuxDesktopReleaseDescriptor({
     schema: LINUX_DESKTOP_RELEASE_SCHEMA,
-    product: "Vellum Command",
+    product: "Junto",
     channel: "alpha",
     version,
     sourceRevision: "a".repeat(40),

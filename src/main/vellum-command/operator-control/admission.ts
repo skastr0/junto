@@ -10,7 +10,7 @@ import {
 /**
  * The operator socket is an explicitly enabled same-owner surface, not a
  * human-authentication boundary. This admission check prevents a registered
- * Vellum Command agent or terminal process tree from accidentally exercising it.
+ * Junto agent or terminal process tree from accidentally exercising it.
  *
  * An incomplete ancestry walk is not evidence that a peer is outside a
  * registered tree. Fail closed on every missing parent, cycle, and depth

@@ -4,7 +4,7 @@ import { decodeOverseerHostAssignment, type OverseerHostEvent, type OverseerHost
 import { requestBackendResponse, runOverseerTurn } from "./session";
 
 const title = (state: "idle" | "working" | "attention") =>
-  process.stdout.write(`\u001b]0;Vellum Command Overseer ${state}\u0007`);
+  process.stdout.write(`\u001b]0;Junto Overseer ${state}\u0007`);
 
 /** The packaged CLI is the managed occupant itself; no second agent or authority is minted here. */
 export const runOverseerHost = async (_args: readonly string[]): Promise<void> => {
@@ -18,7 +18,7 @@ export const runOverseerHost = async (_args: readonly string[]): Promise<void> =
     runtime.runPromise(Effect.flatMap(WorkSocket, (socket) => socket.call(op, args, 25_000)), { signal });
   const report = (run: OverseerHostRun, event: OverseerHostEvent) =>
     call("overseer.live", { type: "event", sessionId: run.sessionId, requestId: run.requestId, intentRevision: run.intentRevision, event }).then(() => undefined);
-  process.stdout.write("Vellum Command Overseer is ready. Start a live conversation from its command card.\n");
+  process.stdout.write("Junto Overseer is ready. Start a live conversation from its command card.\n");
   title("idle");
   try {
     while (!shutdown.signal.aborted) {

@@ -6,7 +6,7 @@ import { compiledMacSigningPolicy } from "../mac-signing-policy";
 import { updateError } from "./errors";
 
 /** Product identity — must match production packaging and deploy-darwin. */
-const PRODUCT_NAME = "Vellum Command";
+const PRODUCT_NAME = "Junto";
 const APP_BUNDLE_NAME = `${PRODUCT_NAME}.app`;
 const BUNDLE_IDENTIFIER = "skastr0.vellumcommand";
 const ADMIT_TIMEOUT_MS = 30_000;
@@ -124,7 +124,7 @@ export const admitStagedMacApp = async (
         execMeta.isSymbolicLink()
       ) {
         throw new Error(
-          "staged app Info.plist and Vellum Command executable must be regular files",
+          "staged app Info.plist and Junto executable must be regular files",
         );
       }
       await access(executablePath, fsConstants.X_OK);

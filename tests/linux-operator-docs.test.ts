@@ -217,7 +217,7 @@ describe("Linux desktop alpha and gated Fleet operator documentation", () => {
       "No administrator-password flow, privileged bridge, root journal or parallel system installer is permitted",
     );
     expect(host).toContain(
-      "Vellum Command never invokes `sudo`, accepts an administrator password",
+      "Junto never invokes `sudo`, accepts an administrator password",
     );
     expect(host).toContain(
       "write application releases under `/opt`, `/usr`, `/var/lib`, or another system-owned location as part of the canonical lane",

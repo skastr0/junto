@@ -6,7 +6,7 @@ import { Button, IconButton, Input } from "../ui";
 
 // Checks are deterministic task gates, and the seat runs
 // them: the check op executes each command in the seat's own
-// environment and submits the exit code. Vellum Command never schedules or
+// environment and submits the exit code. Junto never schedules or
 // runs them itself. Exit 0 is green.
 
 function CheckRow({

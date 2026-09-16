@@ -79,9 +79,9 @@ describe("Linux Command Center Alpha AppArmor boundary", () => {
     );
     expect(text).toContain("This file is external host preparation only");
     expect(text).toContain(
-      "intentionally excluded from the Vellum Command package, signed rootless payload, installer, updater, and runtime resources",
+      "intentionally excluded from the Junto package, signed rootless payload, installer, updater, and runtime resources",
     );
-    expect(text).toContain("Vellum Command never invokes `sudo`");
+    expect(text).toContain("Junto never invokes `sudo`");
     expect(text).toContain(
       "An operator or host administrator separately reviews and installs the exact checked-in file",
     );

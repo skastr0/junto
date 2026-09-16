@@ -42,9 +42,9 @@ export const defaultOperatorTimeout = (op: OperatorOpName): number => {
 
 const runtimeDown = () =>
   new RuntimeDown({
-    message: "Vellum Command operator control is unavailable",
+    message: "Junto operator control is unavailable",
     next_step:
-      "launch Vellum Command with `--vellum-command-operator-control`, then retry this command",
+      "launch Junto with `--vellum-command-operator-control`, then retry this command",
   });
 
 const appendBounded = (

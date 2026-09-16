@@ -4,7 +4,7 @@
  *
  * Kimi has no system-prompt flag: the way to brief a seat before its first turn
  * is a Markdown agent definition whose body becomes the system prompt. So the
- * compiled doctrine is written to a file Vellum Command owns —
+ * compiled doctrine is written to a file Junto owns —
  * `<VELLUM_COMMAND_HOME>/.vellum-command/content/agent-files/<seat>.md` — and the
  * path is handed to the harness. The operator's project is never written to.
  *
@@ -35,7 +35,7 @@ import { resolveVellumCommandHome } from "@shared/vellum-home";
 export const AGENT_FILE_NAME = "vellum-command-seat" as const;
 
 export const AGENT_FILE_DESCRIPTION =
-  "Factory seat doctrine and CLI contract for this Vellum Command seat." as const;
+  "Factory seat doctrine and CLI contract for this Junto seat." as const;
 
 /** Root of the per-seat ephemeral agent-definition tree. */
 export const agentFileRoot = (
@@ -53,7 +53,7 @@ export const agentFileKey = (seatRef: string): string | undefined => {
   return sanitized;
 };
 
-/** File Vellum Command hands to the harness (no filesystem access). */
+/** File Junto hands to the harness (no filesystem access). */
 export const agentFilePathFor = (
   seatRef: string,
   home: string = resolveVellumCommandHome(),

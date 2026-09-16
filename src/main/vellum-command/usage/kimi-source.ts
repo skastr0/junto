@@ -501,7 +501,7 @@ const baseHeaders = (token: string, kind: KimiCredential["kind"]): Record<string
   const headers: Record<string, string> = {
     Authorization: `Bearer ${token}`,
     Accept: "application/json",
-    "User-Agent": "Vellum Command",
+    "User-Agent": "Junto",
   };
   if (kind === "web-token") {
     // Connect-protocol web request conventions.

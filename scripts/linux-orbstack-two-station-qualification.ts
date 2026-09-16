@@ -1092,7 +1092,7 @@ const verifyPackageAbsent = async (
   );
   if (result.exitCode !== 0) {
     throw new Error(
-      `${machine.name} is not pristine: a Vellum Command userland runtime is already present`,
+      `${machine.name} is not pristine: a Junto userland runtime is already present`,
     );
   }
 };
@@ -1204,7 +1204,7 @@ const startPackagedRuntime = async (
     executor,
     orbctlPath,
     machine,
-    `reload Vellum Command user unit on ${machine.name}`,
+    `reload Junto user unit on ${machine.name}`,
     "/usr/bin/systemctl",
     ["--user", "daemon-reload"],
   );
@@ -1212,7 +1212,7 @@ const startPackagedRuntime = async (
     executor,
     orbctlPath,
     machine,
-    `start packaged Vellum Command runtime on ${machine.name}`,
+    `start packaged Junto runtime on ${machine.name}`,
     "/usr/bin/systemctl",
     ["--user", "--no-block", "start", "vellum-command-remote.service"],
   );
@@ -3066,7 +3066,7 @@ const parseServiceFields = (
     !/^\/[\x21-\x7e]+$/u.test(fields.ControlGroup ?? "") ||
     !/^[0-9a-f]{32}$/u.test(fields.InvocationID ?? "")
   ) {
-    throw new Error(`packaged Vellum Command service is not ready on ${machineName}`);
+    throw new Error(`packaged Junto service is not ready on ${machineName}`);
   }
   return {
     ActiveState: "active",
@@ -3184,16 +3184,16 @@ const observeCommandCenterRuntimeSecurity = async (
     executor,
     orbctlPath,
     machine,
-    `observe Vellum Command process tree on ${machine.name}`,
+    `observe Junto process tree on ${machine.name}`,
     "/bin/ps",
     ["-eo", "pid=,ppid=,args="],
   );
   const descendants = descendantRows(mainPid, parseProcessRows(processes.stdout));
   if (descendants.length < 2) {
-    throw new Error(`packaged Vellum Command process tree is incomplete on ${machine.name}`);
+    throw new Error(`packaged Junto process tree is incomplete on ${machine.name}`);
   }
   if (hasDebugAuthority(descendants)) {
-    throw new Error(`packaged Vellum Command exposed debug authority on ${machine.name}`);
+    throw new Error(`packaged Junto exposed debug authority on ${machine.name}`);
   }
   if (
     descendants.some((row) =>
@@ -3202,13 +3202,13 @@ const observeCommandCenterRuntimeSecurity = async (
       )
     )
   ) {
-    throw new Error(`packaged Vellum Command disabled Chromium sandboxing on ${machine.name}`);
+    throw new Error(`packaged Junto disabled Chromium sandboxing on ${machine.name}`);
   }
   const renderers = descendants.filter((row) =>
     /(?:^|\s)--type=renderer(?:=|\s|$)/u.test(row.command)
   );
   if (renderers.length === 0) {
-    throw new Error(`packaged Vellum Command has no renderer on ${machine.name}`);
+    throw new Error(`packaged Junto has no renderer on ${machine.name}`);
   }
   const rootNamespace = await runGuest(
     executor,

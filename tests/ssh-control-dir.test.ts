@@ -25,7 +25,7 @@ describe("SSH mux control directory", () => {
     expect(muxControlPathFitsUnixLimit(dir)).toBe(true);
   });
 
-  it("isolates mux dirs by Vellum Command home and uid", () => {
+  it("isolates mux dirs by Junto home and uid", () => {
     const prod = sshMuxControlDir("/Users/operator", 501);
     const dev = sshMuxControlDir("/Users/operator/.vellum-command-dev", 501);
     const other = sshMuxControlDir("/Users/operator", 502);

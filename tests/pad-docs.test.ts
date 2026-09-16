@@ -23,7 +23,7 @@ describe("pad operator and agent docs", () => {
 
   it("docs/pad.md matches shipped ports, CLI verbs, and refusals", async () => {
     const guide = await readPadGuide();
-    expect(guide).toContain("Vellum Command pad");
+    expect(guide).toContain("Junto pad");
     expect(guide).toContain("pad.read");
     expect(guide).toContain("pad.patch");
     for (const verb of ["read", "patch", "digest", "svg", "look-here", "get", "tagged"]) {

@@ -33,7 +33,7 @@ export const ensureTerminalRunning = async (
     }
     const api = getVellumCommandApi();
     if (!api?.terminalCreate) {
-      return { ok: false, message: "terminal API unavailable — restart Vellum Command" };
+      return { ok: false, message: "terminal API unavailable — restart Junto" };
     }
     try {
       // Commit the debounced canvas write first: Remote seat admission in
@@ -95,7 +95,7 @@ export const ensureTerminalRunning = async (
   }
   const api = getVellumCommandApi();
   if (!api?.terminalCreate) {
-    return { ok: false, message: "terminal API unavailable — restart Vellum Command" };
+    return { ok: false, message: "terminal API unavailable — restart Junto" };
   }
 
   // Geography keeps its attach-or-create shortcut. Actor occupation above is

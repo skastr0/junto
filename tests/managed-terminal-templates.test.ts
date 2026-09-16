@@ -97,7 +97,7 @@ describe("managed-terminal templates (data)", () => {
   });
 
   it("no template prefix carries an appearance or preference flag", () => {
-    // A seat Vellum Command starts must present the same experience as the harness
+    // A seat Junto starts must present the same experience as the harness
     // started by hand. These flags have a home in the harness's own config, so
     // one here would override the operator's file for factory seats only —
     // which is exactly how grok ended up rendering scrollback-native with the

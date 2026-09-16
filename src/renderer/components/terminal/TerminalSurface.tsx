@@ -1122,7 +1122,7 @@ export function TerminalSurface({
     );
 
     // Live appearance protocol: OSC 10/11 via xterm theme; CSI ?996n / ?2031
-    // / live ?997 reports. Policy from settings (follow Vellum Command default).
+    // / live ?997 reports. Policy from settings (follow Junto default).
     const agentAppearance =
       state$.settings.peek().appearance.agentAppearance === "agent"
         ? "agent"
@@ -1225,7 +1225,7 @@ export function TerminalSurface({
     };
   }, []);
 
-  // Live theme swap: re-apply Vellum Command palette + optional CSI ?997 report.
+  // Live theme swap: re-apply Junto palette + optional CSI ?997 report.
   useEffect(
     () =>
       themeMode$.onChange(({ value }) => {

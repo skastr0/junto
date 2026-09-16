@@ -154,7 +154,7 @@ export const auditSandboxedRenderers = async (
     /(?:^|\s)--type=renderer(?:=|\s|$)/u.test(row.command),
   );
   if (renderers.length === 0) {
-    throw new Error("packaged Vellum Command did not start a renderer");
+    throw new Error("packaged Junto did not start a renderer");
   }
   await Promise.all(
     renderers.map(async (renderer) => {
@@ -181,7 +181,7 @@ export const validateLinuxSandboxCapability = (input: {
       input.appArmorCurrent === undefined ||
       !/^vellum-command(?:\s|\(|$)/u.test(input.appArmorCurrent.trim())
     ) {
-      throw new Error("packaged Vellum Command did not enter its installed AppArmor profile");
+      throw new Error("packaged Junto did not enter its installed AppArmor profile");
     }
     return "apparmor";
   }
@@ -367,7 +367,7 @@ export const smokeLinuxCiPackagedRuntime = async (
   try {
     runtimeLease = processPlane.spawnGroup({
       source: "linux-ci-packaged-runtime-smoke",
-      purpose: "verify installed Linux Vellum Command runtime",
+      purpose: "verify installed Linux Junto runtime",
       command: executable,
       args: [`--user-data-dir=${userData}`],
       cwd: tempRoot,
@@ -384,7 +384,7 @@ export const smokeLinuxCiPackagedRuntime = async (
     }
     const rootPid = runtimeLease.io.pidForDiagnostics;
     if (rootPid === undefined) {
-      throw new Error("packaged Vellum Command did not produce a diagnostic pid");
+      throw new Error("packaged Junto did not produce a diagnostic pid");
     }
     const output = boundedOutput(runtimeLease);
     let runtimeRows: ReadonlyArray<ProcessRow> = [];
@@ -393,7 +393,7 @@ export const smokeLinuxCiPackagedRuntime = async (
       const terminal = lifecycle.terminal();
       if (terminal !== undefined) {
         throw new Error(
-          `packaged Vellum Command closed during startup (code=${String(terminal.code)}, signal=${String(terminal.signal)})`,
+          `packaged Junto closed during startup (code=${String(terminal.code)}, signal=${String(terminal.signal)})`,
         );
       }
       runtimeRows = descendantRows(rootPid, currentProcessRows());
@@ -409,10 +409,10 @@ export const smokeLinuxCiPackagedRuntime = async (
     });
 
     if (output.overflowed()) {
-      throw new Error("packaged Vellum Command exceeded the smoke output budget");
+      throw new Error("packaged Junto exceeded the smoke output budget");
     }
     if (hasDebugAuthority(runtimeRows)) {
-      throw new Error("packaged Vellum Command descendants exposed debug authority");
+      throw new Error("packaged Junto descendants exposed debug authority");
     }
     const sandbox = await auditSandboxedRenderers(
       runtimeRows,
@@ -507,7 +507,7 @@ export const smokeLinuxCiPackagedRuntime = async (
       "linux-ci-packaged-runtime-smoke-complete",
     );
     if (!shutdown.attempted || shutdown.via !== "child.kill") {
-      throw new Error("packaged Vellum Command shutdown lost exact leader authority");
+      throw new Error("packaged Junto shutdown lost exact leader authority");
     }
     const terminal = await lifecycle.waitForClose(SHUTDOWN_TIMEOUT_MS);
     if (
@@ -516,7 +516,7 @@ export const smokeLinuxCiPackagedRuntime = async (
       terminal.signal !== null
     ) {
       throw new Error(
-        `packaged Vellum Command did not complete normal SIGTERM shutdown (code=${String(terminal.code)}, signal=${String(terminal.signal)}, error=${terminal.error?.message ?? "none"})`,
+        `packaged Junto did not complete normal SIGTERM shutdown (code=${String(terminal.code)}, signal=${String(terminal.signal)}, error=${terminal.error?.message ?? "none"})`,
       );
     }
     await waitUntil(

@@ -9,7 +9,7 @@
   },
   "machO": [
     {
-      "path": "Contents/MacOS/Vellum Command",
+      "path": "Contents/MacOS/Junto",
       "identifier": "skastr0.vellumcommand",
       "profile": "jit"
     },
@@ -109,22 +109,22 @@
       "profile": "none"
     },
     {
-      "path": "Contents/Frameworks/Vellum Command Helper (Renderer).app/Contents/MacOS/Vellum Command Helper (Renderer)",
+      "path": "Contents/Frameworks/Junto Helper (Renderer).app/Contents/MacOS/Junto Helper (Renderer)",
       "identifier": "skastr0.vellumcommand.helper.Renderer",
       "profile": "jit"
     },
     {
-      "path": "Contents/Frameworks/Vellum Command Helper (GPU).app/Contents/MacOS/Vellum Command Helper (GPU)",
+      "path": "Contents/Frameworks/Junto Helper (GPU).app/Contents/MacOS/Junto Helper (GPU)",
       "identifier": "skastr0.vellumcommand.helper.GPU",
       "profile": "jit"
     },
     {
-      "path": "Contents/Frameworks/Vellum Command Helper (Plugin).app/Contents/MacOS/Vellum Command Helper (Plugin)",
+      "path": "Contents/Frameworks/Junto Helper (Plugin).app/Contents/MacOS/Junto Helper (Plugin)",
       "identifier": "skastr0.vellumcommand.helper.Plugin",
       "profile": "none"
     },
     {
-      "path": "Contents/Frameworks/Vellum Command Helper.app/Contents/MacOS/Vellum Command Helper",
+      "path": "Contents/Frameworks/Junto Helper.app/Contents/MacOS/Junto Helper",
       "identifier": "skastr0.vellumcommand.helper",
       "profile": "jit"
     }

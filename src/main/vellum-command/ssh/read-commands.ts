@@ -6,7 +6,7 @@
  * remote-plan.ts. Free-form executable+args (including
  * `/bin/sh -c …`) is unrepresentable here — that is the seal.
  *
- * Doctrine: brand means “safe product operation,” not merely “created by Vellum Command.”
+ * Doctrine: brand means “safe product operation,” not merely “created by Junto.”
  */
 
 import { Effect, Schema } from "effect";
@@ -32,7 +32,7 @@ const SAFE_ABS_PATH = /^\/(?:[A-Za-z0-9._+-]+\/)*[A-Za-z0-9._+-]+$/u;
 
 /** Single packaged CLI binary — station/browser/content-transfer are subcommands. */
 export const DARWIN_PACKAGED_CLI_EXECUTABLE =
-  "/Applications/Vellum Command.app/Contents/Resources/bin/vellum-command";
+  "/Applications/Junto.app/Contents/Resources/bin/vellum-command";
 /** @deprecated Use DARWIN_PACKAGED_CLI_EXECUTABLE — same binary. */
 export const DARWIN_PACKAGED_STATION_EXECUTABLE = DARWIN_PACKAGED_CLI_EXECUTABLE;
 /** @deprecated Use DARWIN_PACKAGED_CLI_EXECUTABLE — same binary. */
@@ -40,7 +40,7 @@ export const DARWIN_PACKAGED_BROWSER_EXECUTABLE = DARWIN_PACKAGED_CLI_EXECUTABLE
 /** @deprecated Use DARWIN_PACKAGED_CLI_EXECUTABLE — same binary. */
 export const DARWIN_PACKAGED_CONTENT_EXECUTABLE = DARWIN_PACKAGED_CLI_EXECUTABLE;
 export const DARWIN_PACKAGED_APP_EXECUTABLE =
-  "/Applications/Vellum Command.app/Contents/MacOS/Vellum Command";
+  "/Applications/Junto.app/Contents/MacOS/Junto";
 export { STATION_PROTOCOL_NEGOTIATION_ARG, STATION_STDIO_COMMAND, CONTENT_TRANSFER_COMMAND };
 
 /** negotiation is the enroll/preface helper; session is the peer helper. */
@@ -164,7 +164,7 @@ const decodeRemotePackagedPlatform = (
       endpoint,
       reason: canonicalUnsupported ? "unsupported" : "malformed",
       message: canonicalUnsupported
-        ? "remote platform does not have the Vellum Command Remote package installed"
+        ? "remote platform does not have the Junto Remote package installed"
         : "remote platform probe did not return one canonical uname record",
     }),
   );
@@ -291,7 +291,7 @@ export const remoteDarwinIncomingExists = (): Effect.Effect<
 > =>
   makeRemoteCommand("/bin/test", [
     "-d",
-    "/Applications/Vellum Command.app.incoming",
+    "/Applications/Junto.app.incoming",
   ]);
 
 export const remoteDarwinLaunchAgentIncomingRemove = (

@@ -348,7 +348,7 @@
     "verifiedAtUtc": "2026-09-14T01:48:34.169028+00:00",
     "sourceCommit": "eefaafff30d151c8c28f65d873d9c73bb18d3ae1",
     "version": "0.2.1",
-    "runningProcess": "66717 Sun Sep 13 22:46:23 2026     /Applications/Vellum Command.app/Contents/MacOS/Vellum Command",
+    "runningProcess": "66717 Sun Sep 13 22:46:23 2026     /Applications/Junto.app/Contents/MacOS/Junto",
     "installedAndReleaseAsarSha256": "b8a42f8181c3cea30f1c8ebace3ff0d9861e5bcd6399bd40546dd1a6f4134d24",
     "mainPayloadSha256": "08ee8d5b21e02128abc4308da7558b63de75d54862d6a94acbb91eb8c637be8f",
     "nativeCanvasObserved": true,

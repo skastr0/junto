@@ -168,7 +168,7 @@ const fetchWhamUsage = async (
   const headers: Record<string, string> = {
     Authorization: `Bearer ${bearerToken}`,
     Accept: "application/json",
-    "User-Agent": "Vellum Command",
+    "User-Agent": "Junto",
   };
   // ChatGPT-Account-Id selects the workspace when the credential spans several.
   if (accountId !== undefined) headers["ChatGPT-Account-Id"] = accountId;

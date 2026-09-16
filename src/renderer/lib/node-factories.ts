@@ -387,7 +387,7 @@ export const makePadNode = (x: number, y: number): TextNode => {
 };
 
 
-/** Vellum Command-owned terminal node. Session starts on create / open (no card Start). */
+/** Junto-owned terminal node. Session starts on create / open (no card Start). */
 export const makeTerminalNode = (
   x: number,
   y: number,

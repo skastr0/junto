@@ -534,7 +534,7 @@ export class ManagedTerminalDrive {
    * Monotonic shutdown cut for product automation.
    *
    * Existing PTY processes and their host generations remain alive. This
-   * drive only drops its Vellum Command-owned write authority: queued text resolves
+   * drive only drops its Junto-owned write authority: queued text resolves
    * refused, stall retries are canceled, delayed preflight continuations
    * become stale, and no later paste/CR/interrupt reaches the writer.
    */

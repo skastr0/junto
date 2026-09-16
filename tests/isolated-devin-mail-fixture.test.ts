@@ -55,7 +55,7 @@ const fixture = async () => {
 describe("isolated real-harness CLI provisioning", () => {
   it("fails before any sandbox seeding when the build is absent", async () => {
     const f = await fixture();
-    await expect(seedIsolatedVellumCli(f.sandbox, f.repoRoot)).rejects.toThrow("no compiled Vellum Command CLI");
+    await expect(seedIsolatedVellumCli(f.sandbox, f.repoRoot)).rejects.toThrow("no compiled Junto CLI");
     expect(existsSync(f.sandbox.homeDir)).toBe(false);
   });
 

@@ -79,7 +79,7 @@ describe("Main Fleet compatibility IPC projection", () => {
     const doctor = Schema.decodeUnknownSync(DoctorReport)({
       checkedAt: "2026-08-18T12:00:00.000Z",
       station: {
-        name: "Vellum Command",
+        name: "Junto",
         version: "0.1.14",
         userDataPath: "/tmp/vellum-command",
       },

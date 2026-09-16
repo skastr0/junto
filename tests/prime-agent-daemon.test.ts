@@ -411,7 +411,7 @@ describe("Prime Agent daemon plane", () => {
     );
     expect(wrapper).not.toContain("; touch /tmp/not-interpolated");
     expect(wrapper).not.toContain(first.socketPath);
-    expect(wrapper).toContain("Vellum Command:");
+    expect(wrapper).toContain("Junto:");
 
     await first.stop("test_cleanup");
     await second.stop("test_cleanup");
@@ -436,7 +436,7 @@ describe("Prime Agent daemon plane", () => {
         bindingId: `reserved-${args[0]}`,
         epoch: "epoch-reserved",
         launch: launch({ args }),
-      })).toThrow(/reserve .* for Vellum Command/u);
+      })).toThrow(/reserve .* for Junto/u);
     }
     expect(plane.spawns).toEqual([]);
     expect(reporter.registrations).toEqual([]);

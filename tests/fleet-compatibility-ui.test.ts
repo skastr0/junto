@@ -91,7 +91,7 @@ describe("Fleet compatibility truth consumers", () => {
     const baseReport = {
       checkedAt: observedAt,
       station: {
-        name: "Vellum Command",
+        name: "Junto",
         version: "0.1.14",
         userDataPath: "/tmp/vellum-command",
       },

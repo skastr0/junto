@@ -1,5 +1,5 @@
 name: Bug report
-description: Report a reproducible problem in Vellum Command.
+description: Report a reproducible problem in Junto.
 body:
   - type: markdown
     attributes:

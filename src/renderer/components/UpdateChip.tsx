@@ -55,7 +55,7 @@ export function UpdateChip() {
       disabled={busy || installing}
       title={
         version
-          ? `Restart to install Vellum Command ${version}`
+          ? `Restart to install Junto ${version}`
           : "Restart to install the downloaded update"
       }
       aria-label={

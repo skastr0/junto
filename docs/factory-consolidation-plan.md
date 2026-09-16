@@ -28,7 +28,7 @@ is not in this plan.
 type FactoryRole = "actor" | "sink" | "scheduler" | "geography"
 
 // ── The kinds. Closed. One actor. ───────────────────────────────────────────
-type ActorKind     = "agent"                                      // Vellum Command-spawned template terminal
+type ActorKind     = "agent"                                      // Junto-spawned template terminal
 type SinkKind      = "task" | "requests" | "artifacts" | "page"
 type SchedulerKind = "watcher" | "timer"
 type GeographyKind = "note" | "file" | "link" | "region" | "terminal"
@@ -59,7 +59,7 @@ tests.
 > **ACP is a transport, never a kind.** It is not in the kind vocabulary and never
 > was — the `agent` kind that exists today is a node whose transport happened to
 > be ACP, and describing it as "the ACP kind" is the conflation this plan exists
-> to kill. `agent` now names the Vellum Command-spawned template terminal, whose transport
+> to kill. `agent` now names the Junto-spawned template terminal, whose transport
 > is a PTY. In the future ACP is the transport that will carry the `worker` node
 > (the native agent UI) — which is why `worker` is reserved and why ACP's removal
 > here is a removal of a *hidden node surface*, not a ruling against the protocol.
@@ -150,7 +150,7 @@ owner).
 | D1 | today's `agent` + `herdr` as separate actor kinds; one actor kind remains, named `agent`; `herdr` → `role: "geography"` | an ACP-backed node was once the actor | `physics/kinds.ts:38-40` |
 | D2 | `sanitizeActorSurfacePorts` — the decoder that deletes an actor's entity | invented to validate "one kind requires another kind's fields" | `canvas.ts:559-592` |
 | D3 | ~~ACP subsystem~~ → **kept, severed.** Its factory coupling dies: no kind, no seat, no ports, no participation in any capability decision. The UI and transport stay, hidden and inert. | it was wired into physics to be reachable | `main/vellum-command/chat/` (+ IPC channels, renderer chat dir) |
-| D4 | Route tokens + the second admission path | Tier 3 for callers with no local Vellum Command | `work/route-tokens.ts`, `work/live-seat.ts:26,76`, `work/control.ts:194-266` |
+| D4 | Route tokens + the second admission path | Tier 3 for callers with no local Junto | `work/route-tokens.ts`, `work/live-seat.ts:26,76`, `work/control.ts:194-266` |
 | D5 | `RuntimeTier`, `PORT_TIER_FLOOR`, `tierAllowsPort`, `ActorClass`, `External`/`Facility` placements | the retired Tier 1–4 model, gating ports inside physics | `physics/placement.ts:20-30,63-81`; `admit.ts:200-207` |
 | D6 | Opt-in prism plugin + its install plane + Fleet UI section | the retired opt-in tier | `packages/vellum-plugin/`, `main/vellum-command/plugin-install/` (12 files), `FleetDetailPanel.tsx:386-418`, `hosts/ipc.ts:562` |
 | D7 | `ProcessPrincipalKind` 3 kinds × 3 optional ids → one `Principal` | one per actor kind | `process-identity.ts:19-32`, `caller-resolve.ts:51-53` |

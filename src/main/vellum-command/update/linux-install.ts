@@ -28,7 +28,7 @@ import {
 import { admitPackagedUpdateIdentity } from "./package-update-identity";
 
 const RELEASE_NAME = LINUX_DESKTOP_GENERATION_NAME;
-const MANAGED_LAUNCHER = "# Vellum Command managed Linux desktop launcher";
+const MANAGED_LAUNCHER = "# Junto managed Linux desktop launcher";
 const STAGED: unique symbol = Symbol("StagedLinuxDesktopRelease");
 
 export interface StagedLinuxDesktopRelease {
@@ -126,7 +126,7 @@ const launcherPath = (home: string): string => join(home, ".local/bin/vellum-com
 const desktopPath = (home: string): string => join(home, ".local/share/applications/vellum-command.desktop");
 const desktopBody = (home: string): string => {
   const executable = launcherPath(home).replaceAll("\\", "\\\\").replaceAll('"', '\\"').replaceAll("`", "\\`").replaceAll("$", "\\$").replaceAll("%", "%%");
-  return `[Desktop Entry]\nType=Application\nName=Vellum Command\nComment=Vellum Command desktop\nExec="${executable}" %U\nTerminal=false\nCategories=Development;\nStartupWMClass=vellum-command\n`;
+  return `[Desktop Entry]\nType=Application\nName=Junto\nComment=Junto desktop\nExec="${executable}" %U\nTerminal=false\nCategories=Development;\nStartupWMClass=vellum-command\n`;
 };
 
 const readOwnedFile = async (path: string): Promise<{ readonly body: string; readonly stat: Stats } | undefined> => {

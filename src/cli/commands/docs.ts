@@ -154,7 +154,7 @@ const docsShowCommand = Command.make(
 ).pipe(Command.withDescription("Show one documentation topic"));
 
 export const docsCommand = Command.make("docs").pipe(
-  Command.withDescription("Vellum Command documentation — the full doctrine and node catalog"),
+  Command.withDescription("Junto documentation — the full doctrine and node catalog"),
   Command.withSubcommands([
     docsListCommand,
     docsDoctrineCommand,

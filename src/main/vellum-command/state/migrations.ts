@@ -1067,7 +1067,7 @@ const requireIdentity = (
 ): void => {
   if (!sameIdentity(actual, expected)) {
     throw new Error(
-      `${label} identity is not a recognized Vellum Command schema`,
+      `${label} identity is not a recognized Junto schema`,
     );
   }
 };
@@ -1637,7 +1637,7 @@ export const stateSchemaAdvanceRequired = (
 };
 
 /**
- * Initialize, adopt, or migrate the sole Vellum Command database in one transaction.
+ * Initialize, adopt, or migrate the sole Junto database in one transaction.
  *
  * `user_version = 0` is not a wildcard for arbitrary old databases. A
  * non-empty version-zero database must match the frozen v1 witness exactly.

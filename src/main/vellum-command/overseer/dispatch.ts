@@ -65,7 +65,7 @@ export const executeOverseer = Effect.fn("overseer.execute")(function* (
     return failed(request, {
       type: "ScopeError",
       message:
-        `overseer ${request.operation} is disabled in this Vellum Command build`,
+        `overseer ${request.operation} is disabled in this Junto build`,
       details: {
         retryable: false,
         missing: "feature enabled in this build",

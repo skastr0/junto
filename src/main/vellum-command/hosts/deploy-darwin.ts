@@ -1,5 +1,5 @@
 /**
- * Darwin package glue: admit, script, and activate Vellum Command.app over SSH.
+ * Darwin package glue: admit, script, and activate Junto.app over SSH.
  * HostRuntime owns observe → gap → act; HostOps layers call into this file.
  */
 
@@ -50,7 +50,7 @@ import {
   isSafeRemoteHomePath,
 } from "./remote-home";
 
-const PRODUCT_NAME = "Vellum Command";
+const PRODUCT_NAME = "Junto";
 const APP_BUNDLE_NAME = `${PRODUCT_NAME}.app`;
 const LABEL = "skastr0.vellumcommand";
 const DEPLOY_TIMEOUT_MS = 20 * 60 * 1000;
@@ -254,7 +254,7 @@ export const admitLiveAppArtifact = async (
   const resolved = appPath?.trim() || resolveLocalAppBundle();
   if (!resolved) {
     throw new Error(
-      "no local Vellum Command.app found — package/install on Command Center first (/Applications or release/mac-arm64)",
+      "no local Junto.app found — package/install on Command Center first (/Applications or release/mac-arm64)",
     );
   }
   const localApp = await admitLocalAppBundle(resolved);
@@ -323,10 +323,10 @@ export const validateLocalBundleProvenance = (input: {
     throw new Error(`local bundle must be named ${APP_BUNDLE_NAME}`);
   }
   if (input.bundleIdentifier.trim() !== LABEL) {
-    throw new Error("local bundle identifier does not match Vellum Command");
+    throw new Error("local bundle identifier does not match Junto");
   }
   if (input.bundleExecutable.trim() !== PRODUCT_NAME) {
-    throw new Error("local bundle executable identity does not match Vellum Command");
+    throw new Error("local bundle executable identity does not match Junto");
   }
   const bundleVersion = input.bundleVersion.trim();
   if (!/^[0-9A-Za-z][0-9A-Za-z._+-]{0,63}$/u.test(bundleVersion)) {
@@ -339,13 +339,13 @@ export const validateLocalBundleProvenance = (input: {
     throw new Error("code signature executable path does not match the bundle");
   }
   if (singleCodesignValue(input.codesignMetadata, "Identifier") !== LABEL) {
-    throw new Error("code signature identifier does not match Vellum Command");
+    throw new Error("code signature identifier does not match Junto");
   }
   if (
     singleCodesignValue(input.codesignMetadata, "TeamIdentifier") !==
     policy.teamIdentifier
   ) {
-    throw new Error("code signature team does not match Vellum Command");
+    throw new Error("code signature team does not match Junto");
   }
   const codeDirectories = input.codesignMetadata
     .split(/\r?\n/u)
@@ -362,7 +362,7 @@ export const validateLocalBundleProvenance = (input: {
     .filter((line) => line.startsWith("Authority="))
     .map((line) => line.slice("Authority=".length).trim());
   if (authorities[0] !== policy.signingAuthority) {
-    throw new Error("code signature authority does not match Vellum Command policy");
+    throw new Error("code signature authority does not match Junto policy");
   }
   const signatureSize = singleCodesignValue(
     input.codesignMetadata,
@@ -587,14 +587,14 @@ export const parseDeployTransferResult = (input: {
     return {
       ok: true,
       phase: "enrollment",
-      detail: "Vellum Command is installed and waiting to join the fleet",
+      detail: "Junto is installed and waiting to join the fleet",
     };
   }
   if (/^STATION_READY pid=[1-9][0-9]* term=1 browser=1$/mu.test(input.stdout)) {
     return {
       ok: true,
       phase: "runtime",
-      detail: "Vellum Command is running on this Mac",
+      detail: "Junto is running on this Mac",
     };
   }
   const diagnostic = input.stderr.trim() || input.stdout.trim();
@@ -602,7 +602,7 @@ export const parseDeployTransferResult = (input: {
     ok: false,
     detail:
       diagnostic.slice(0, 900) ||
-      "Vellum Command install did not prove enrollment or runtime readiness",
+      "Junto install did not prove enrollment or runtime readiness",
   };
 };
 
@@ -613,7 +613,7 @@ export const parseRuntimeActivateResult = (input: {
   if (/^STATION_READY pid=[1-9][0-9]* term=1 browser=1$/mu.test(input.stdout)) {
     return {
       ok: true,
-      detail: "Vellum Command is running on this Mac",
+      detail: "Junto is running on this Mac",
     };
   }
   const diagnostic = input.stderr.trim() || input.stdout.trim();
@@ -621,7 +621,7 @@ export const parseRuntimeActivateResult = (input: {
     ok: false,
     detail:
       diagnostic.slice(0, 900) ||
-      "Vellum Command did not prove it is running on this Mac",
+      "Junto did not prove it is running on this Mac",
   };
 };
 
@@ -902,7 +902,7 @@ ${programArguments}
   const plistB64 = Buffer.from(plistBody, "utf8").toString("base64");
 
   // Every interpolated path is a shell-safe literal. APP/IN/EXE are compile-
-  // time product paths; remoteHome only scopes Vellum Command's own plist/log/sockets.
+  // time product paths; remoteHome only scopes Junto's own plist/log/sockets.
   return `
 set -euo pipefail
 umask 022
@@ -1738,7 +1738,7 @@ else
 fi
 
 # Ask launchd to retire an admitted old generation. bootout delivers the
-# process signal consumed by Vellum Command's bounded graceful-shutdown path;
+# process signal consumed by Junto's bounded graceful-shutdown path;
 # avoiding Apple Events means deployment never raises an Automation prompt.
 # A first install has no incumbent and does not issue a speculative bootout.
 # The command is not treated as proof; bounded observation below remains the

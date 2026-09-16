@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Observe the peer PID of a Unix-domain socket inherited as fd 0.
 
-Used by Vellum Command's local work and browser control planes for process-bind
+Used by Junto's local work and browser control planes for process-bind
 identity. Node/Electron has no portable SO_PEERCRED / LOCAL_PEERPID binding;
 this helper dups stdin (the connection fd) and reads the kernel credential.
 

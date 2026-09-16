@@ -4,7 +4,7 @@ import { requiredChecks } from "./rules";
 import { flowDestinations } from "./flow-graph";
 import { CHECK_OUTPUT_TAIL_MAX_BYTES, CheckSide } from "./work-model";
 
-// Agent-run task checks. Vellum Command resolves the applicable commands and
+// Agent-run task checks. Junto resolves the applicable commands and
 // records submitted results; it never runs a check autonomously.
 
 export const CHECK_TIMEOUT_MS = 5 * 60 * 1000;

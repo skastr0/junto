@@ -59,7 +59,7 @@ const SOURCE_COMMIT = /^[0-9a-f]{40}$/u;
 const SHA256 = /^[0-9a-f]{64}$/u;
 const UUID =
   /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
-const PRODUCT_NAME = "Vellum Command" as const;
+const PRODUCT_NAME = "Junto" as const;
 
 export type HistoricalPackageComparison = {
   readonly schema: "vellum-command/package-runtime-historical-comparison/v1";
@@ -398,7 +398,7 @@ export const plantHistoricalStaleRemote = async (input: {
   // Keep its historical values isolated from the live source-facts capability.
   const provenance: PackageRuntimeProvenance = {
     schema: PACKAGE_RUNTIME_PROVENANCE_SCHEMA,
-    product: "Vellum Command",
+    product: "Junto",
     runtime: "linux-remote",
     appVersion: input.comparison.release.appVersion,
     sourceCommit: input.comparison.release.sourceComparisonCommit,

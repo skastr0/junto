@@ -247,8 +247,8 @@ function AppearanceSection() {
             [
               {
                 key: "follow" as const,
-                label: "Follow Vellum Command",
-                hint: "Recommended. Terminals use Vellum Command colours and the live appearance protocol.",
+                label: "Follow Junto",
+                hint: "Recommended. Terminals use Junto colours and the live appearance protocol.",
               },
               {
                 key: "agent" as const,
@@ -351,7 +351,7 @@ function BrowserSection() {
         kind: "success",
         message: result.data.recovery === "complete"
           ? `Profile ${result.data.profileId} wiped. Storage removal is complete.`
-          : `Profile ${result.data.profileId} is isolated. Restart Vellum Command to finish disk removal.`,
+          : `Profile ${result.data.profileId} is isolated. Restart Junto to finish disk removal.`,
       });
       setSelectedProfile(undefined);
       setConfirmation("");
@@ -566,8 +566,8 @@ function AdvancedSection() {
         />
       </FieldRow>
       {usesAppleLoginItems ? (
-        <FieldRow label="Start Vellum Command at login" hint="macOS Login Items">
-          <input type="checkbox" checked={openAtLogin} disabled={loginItemLoading || loginItemBusy} aria-label="Start Vellum Command at login" onChange={(event) => void onToggleLoginItem(event.target.checked)} />
+        <FieldRow label="Start Junto at login" hint="macOS Login Items">
+          <input type="checkbox" checked={openAtLogin} disabled={loginItemLoading || loginItemBusy} aria-label="Start Junto at login" onChange={(event) => void onToggleLoginItem(event.target.checked)} />
         </FieldRow>
       ) : startupProvider === "systemd-supervision" ? (
         <FieldRow label="Startup" hint="Remotes on Linux run as a systemd user service.">
@@ -621,7 +621,7 @@ function InstallationFacts() {
             : "App version and platform for this installation."}
         </span>
       </div>
-      <FieldRow label="App version" hint="currently running Vellum Command">
+      <FieldRow label="App version" hint="currently running Junto">
         <span style={{ color: INK, fontSize: 13 }}>{status.currentVersion}</span>
       </FieldRow>
       {DEV_TOOLS_ENABLED ? (
@@ -651,7 +651,7 @@ function InstallationFacts() {
               {station.hostId.length > 0 ? station.hostId : "—"}
             </span>
           </FieldRow>
-          <FieldRow label="Data location" hint="where Vellum Command stores its data">
+          <FieldRow label="Data location" hint="where Junto stores its data">
             <span className="settings-mono-value" style={{ color: INK, fontSize: 12 }}>
               ~/.vellum-command/state/vellum-command.db
             </span>
@@ -704,7 +704,7 @@ function UpdatesSection() {
 
   return (
     <div className="settings-section">
-      <FieldRow label="Installed version" hint="currently running Vellum Command">
+      <FieldRow label="Installed version" hint="currently running Junto">
         <span style={{ color: INK, fontSize: 13 }}>{status.currentVersion}</span>
       </FieldRow>
       <FieldRow label="Application updates" hint={summary}>
@@ -831,7 +831,7 @@ function StateRecoveryControls() {
       setSelectedId(undefined);
       setNotice({
         kind: "error",
-        message: "Vellum Command could not read verified state backups.",
+        message: "Junto could not read verified state backups.",
       });
     } finally {
       setLoading(false);
@@ -872,7 +872,7 @@ function StateRecoveryControls() {
     } catch {
       setNotice({
         kind: "error",
-        message: "Vellum Command could not export the verified state backup.",
+        message: "Junto could not export the verified state backup.",
       });
     } finally {
       setExporting(false);
@@ -1068,7 +1068,7 @@ function StationSection() {
       </FieldRow>
       <FieldRow
         label="Allow remote managed installs"
-        hint="Deploy and update Vellum Command on enrolled Remotes. Off until you opt in; an old default-on value is not treated as consent."
+        hint="Deploy and update Junto on enrolled Remotes. Off until you opt in; an old default-on value is not treated as consent."
       >
         <input
           type="checkbox"
@@ -1180,7 +1180,7 @@ export function SettingsPanel() {
           <div className="settings-panel__title">
             <Settings2 size={16} style={{ color: HUE.amber }} />
             <div>
-              <div className="settings-panel__eyebrow">Vellum Command</div>
+              <div className="settings-panel__eyebrow">Junto</div>
               <strong style={{ color: INK }}>Settings</strong>
             </div>
           </div>

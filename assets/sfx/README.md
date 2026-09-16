@@ -1,4 +1,4 @@
-# Vellum Command UI sounds
+# Junto UI sounds
 
 Three original, offline UI cues. The synthesis source and generated WAV files
 are project-owned material distributed under the root Apache-2.0 license.

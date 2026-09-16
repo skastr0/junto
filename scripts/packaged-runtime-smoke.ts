@@ -148,14 +148,14 @@ export const hasDebugAuthority = (rows: ReadonlyArray<ProcessRow>): boolean =>
 
 export const assertNoLiveVellumRuntime = (
   rows: ReadonlyArray<ProcessRow>,
-  bundleRoots: ReadonlyArray<string> = ["/Applications/Vellum Command.app"],
+  bundleRoots: ReadonlyArray<string> = ["/Applications/Junto.app"],
 ): void => {
   const prefixes = bundleRoots.map((root) => `${root}/Contents/`);
   const running = rows.some((row) =>
     prefixes.some((prefix) => row.command.startsWith(prefix)),
   );
   if (running) {
-    throw new Error("a Vellum Command runtime is already running; close it before packaged smoke");
+    throw new Error("a Junto runtime is already running; close it before packaged smoke");
   }
 };
 
@@ -205,7 +205,7 @@ export const assertNoTcpListeners = (
   stdout: string,
 ): void => {
   if (status !== 1 || stdout.trim().length !== 0) {
-    throw new Error("packaged Vellum Command descendants exposed a TCP listener");
+    throw new Error("packaged Junto descendants exposed a TCP listener");
   }
 };
 
@@ -411,7 +411,7 @@ const currentProcessRows = (): ReadonlyArray<ProcessRow> => {
 
 const preflightRuntime = (requestedAppPath: string): void => {
   assertNoLiveVellumRuntime(currentProcessRows(), [
-    "/Applications/Vellum Command.app",
+    "/Applications/Junto.app",
     requestedAppPath,
   ]);
   const launchAgent = runFixed("/bin/launchctl", [
@@ -419,7 +419,7 @@ const preflightRuntime = (requestedAppPath: string): void => {
     `gui/${String(currentUid())}/skastr0.vellumcommand`,
   ]);
   if (launchAgent.status === 0) {
-    throw new Error("the Vellum Command LaunchAgent is loaded; unload it before packaged smoke");
+    throw new Error("the Junto LaunchAgent is loaded; unload it before packaged smoke");
   }
 };
 
@@ -562,7 +562,7 @@ export const observeSpawnedRuntimeLease = (
     if (observedTerminal !== undefined) return Promise.resolve(observedTerminal);
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
-        reject(new Error("packaged Vellum Command did not close inside the shutdown bound"));
+        reject(new Error("packaged Junto did not close inside the shutdown bound"));
       }, timeoutMs);
       void lease.io.closed.then(({ code, signal }) => {
         clearTimeout(timer);
@@ -594,7 +594,7 @@ export const terminateSpawnedRuntime = async (
         await lifecycle.waitForClose(shutdownTimeoutMs);
         return;
       } catch {
-        throw new Error("packaged Vellum Command cleanup could not signal its owned process");
+        throw new Error("packaged Junto cleanup could not signal its owned process");
       }
     }
   }
@@ -606,8 +606,8 @@ export const terminateSpawnedRuntime = async (
     if (!forced.attempted || forced.via !== expectedVia) {
       throw new Error(
         lease.mode === "group"
-          ? "packaged Vellum Command cleanup refused an unverified forced group signal"
-          : "packaged Vellum Command cleanup could not force its exact child handle",
+          ? "packaged Junto cleanup refused an unverified forced group signal"
+          : "packaged Junto cleanup could not force its exact child handle",
       );
     }
     await lifecycle.waitForClose(shutdownTimeoutMs);
@@ -749,11 +749,11 @@ export const smokePackagedRuntime = async (
     throw new Error("packaged runtime smoke is supported only on macOS");
   }
   const appPath = await realpath(path.resolve(requestedAppPath));
-  if (path.basename(appPath) !== "Vellum Command.app") {
-    throw new Error("packaged runtime smoke requires Vellum Command.app");
+  if (path.basename(appPath) !== "Junto.app") {
+    throw new Error("packaged runtime smoke requires Junto.app");
   }
   preflightRuntime(appPath);
-  const executable = path.join(appPath, "Contents", "MacOS", "Vellum Command");
+  const executable = path.join(appPath, "Contents", "MacOS", "Junto");
   const packagedCli = path.join(appPath, "Contents", "Resources", "bin", "vellum-command");
   await Promise.all([stat(executable), stat(packagedCli)]);
 
@@ -813,7 +813,7 @@ export const smokePackagedRuntime = async (
   try {
     const launched = processPlane.spawnGroup({
       source: "packaged-runtime-smoke",
-      purpose: "verify packaged Vellum Command runtime",
+      purpose: "verify packaged Junto runtime",
       command: executable,
       args: [`--user-data-dir=${userData}`],
       cwd: tempRoot,
@@ -843,7 +843,7 @@ export const smokePackagedRuntime = async (
     }, SMOKE_TIMEOUT_MS);
     const output = drainBounded(launched.io);
     const rootPid = launched.io.pidForDiagnostics;
-    if (rootPid === undefined) throw new Error("packaged Vellum Command did not produce a process id");
+    if (rootPid === undefined) throw new Error("packaged Junto did not produce a process id");
     const controlHome = isolatedHome;
 
     let runtimeRows: ReadonlyArray<ProcessRow> = [];
@@ -851,7 +851,7 @@ export const smokePackagedRuntime = async (
       const terminal = lifecycle.terminal();
       if (terminal !== undefined) {
         throw new Error(
-          `packaged Vellum Command closed before process roles (code=${String(terminal.code)}, signal=${String(terminal.signal)}, error=${terminal.error?.message ?? "none"})`,
+          `packaged Junto closed before process roles (code=${String(terminal.code)}, signal=${String(terminal.signal)}, error=${terminal.error?.message ?? "none"})`,
         );
       }
       runtimeRows = descendantRows(rootPid, currentProcessRows());
@@ -863,7 +863,7 @@ export const smokePackagedRuntime = async (
     const workSocket = workControlSocketPath(workHome);
     const workToken = workControlTokenPath(workHome);
     await waitUntil("normal application controls", STARTUP_TIMEOUT_MS, async () => {
-      if (lifecycle.terminal() !== undefined) throw new Error("Vellum Command closed before normal application startup");
+      if (lifecycle.terminal() !== undefined) throw new Error("Junto closed before normal application startup");
       return await pathExists(workSocket) && await pathExists(workToken);
     });
     const [socketMetadata, tokenMetadata] = await Promise.all([lstat(workSocket), lstat(workToken)]);
@@ -876,11 +876,11 @@ export const smokePackagedRuntime = async (
     const terminalAfterAdmission = lifecycle.terminal();
     if (terminalAfterAdmission !== undefined) {
       throw new Error(
-        `packaged Vellum Command closed after normal application startup (code=${String(terminalAfterAdmission.code)}, signal=${String(terminalAfterAdmission.signal)}, error=${terminalAfterAdmission.error?.message ?? "none"}, phase=${output.startupMarker()})`,
+        `packaged Junto closed after normal application startup (code=${String(terminalAfterAdmission.code)}, signal=${String(terminalAfterAdmission.signal)}, error=${terminalAfterAdmission.error?.message ?? "none"}, phase=${output.startupMarker()})`,
       );
     }
     if (hasDebugAuthority(runtimeRows)) {
-      throw new Error("packaged Vellum Command descendants exposed debugger authority");
+      throw new Error("packaged Junto descendants exposed debugger authority");
     }
     knownRows = runtimeRows;
     const knownPids = knownRows.map((row) => row.pid);
@@ -895,7 +895,7 @@ export const smokePackagedRuntime = async (
     ]);
     assertNoTcpListeners(listeners.status, listeners.stdout);
     if (output.overflowed()) {
-      throw new Error("packaged Vellum Command exceeded the bounded smoke output budget");
+      throw new Error("packaged Junto exceeded the bounded smoke output budget");
     }
 
     if (watchdogFailure !== undefined) throw new Error(watchdogFailure);
@@ -904,15 +904,15 @@ export const smokePackagedRuntime = async (
       "packaged-smoke-normal-shutdown",
     );
     if (!shutdownSignal.attempted || shutdownSignal.via !== "child.kill") {
-      throw new Error("packaged Vellum Command normal shutdown lost exact leader authority");
+      throw new Error("packaged Junto normal shutdown lost exact leader authority");
     }
     const exited = await lifecycle.waitForClose(SHUTDOWN_TIMEOUT_MS);
     if (exited.error !== undefined) {
-      throw new Error(`packaged Vellum Command reported a child lifecycle error: ${exited.error.message}`);
+      throw new Error(`packaged Junto reported a child lifecycle error: ${exited.error.message}`);
     }
     if (exited.code !== 0 || exited.signal !== null) {
       throw new Error(
-        `packaged Vellum Command did not complete its normal SIGTERM contract (code=${String(exited.code)}, signal=${String(exited.signal)})`,
+        `packaged Junto did not complete its normal SIGTERM contract (code=${String(exited.code)}, signal=${String(exited.signal)})`,
       );
     }
     let shutdownSocketGone = false;
@@ -959,7 +959,7 @@ export const smokePackagedRuntime = async (
       realRootEvents !== 0 ||
       beforeSnapshots.some((snapshot, index) => !sameSnapshot(snapshot, afterSnapshots[index]))
     ) {
-      throw new Error("packaged runtime smoke changed a real Vellum Command root");
+      throw new Error("packaged runtime smoke changed a real Junto root");
     }
 
     success = {
@@ -1010,7 +1010,7 @@ const invokedPath = process.argv[1] === undefined ? "" : path.resolve(process.ar
 if (invokedPath === modulePath) {
   const requestedPath = process.argv[2];
   if (requestedPath === undefined || process.argv.length !== 3) {
-    console.error("usage: bun scripts/packaged-runtime-smoke.ts /path/to/Vellum Command.app");
+    console.error("usage: bun scripts/packaged-runtime-smoke.ts /path/to/Junto.app");
     process.exitCode = 2;
   } else {
     smokePackagedRuntime(requestedPath)

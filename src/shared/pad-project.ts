@@ -1,5 +1,5 @@
 /**
- * Vellum Command pad projections. Deterministic, no DOM.
+ * Junto pad projections. Deterministic, no DOM.
  */
 import { Result, Schema } from "effect";
 import {

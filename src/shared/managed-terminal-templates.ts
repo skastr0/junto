@@ -80,7 +80,7 @@ export type ArgvSpec = {
    * Fixed argv prefix after the binary — STRUCTURAL ONLY (Hermes: `chat --tui`
    * selects the interactive TUI; without it the binary is headless).
    *
-   * A seat Vellum Command starts must present the same experience as the operator
+   * A seat Junto starts must present the same experience as the operator
    * running the harness by hand, so this slot may never carry an appearance or
    * preference flag. Those live in the harness's own config (Grok reads
    * `~/.grok/config.toml`), and a flag here silently overrides the operator's
@@ -152,7 +152,7 @@ export type ArgvSpec = {
   readonly sessionIdFlag?: string;
   /**
    * Resume shape — always with an explicit session id. Never `--continue` / `-c`
-   * (id-less "latest session" is not a Vellum Command feature).
+   * (id-less "latest session" is not a Junto feature).
    * - `flag` — `--resume <id>` / `-r <id>` / `-S <id>` / `--session <id>`
    * - `subcommand` — `codex resume <id>` (binary args become resume …)
    */
@@ -174,7 +174,7 @@ export type ArgvSpec = {
    * directory added to the workspace — so doctrine ships as an app-owned
    * ephemeral directory instead of an argv string.
    *
-   * Vellum Command mounts ONLY its own directory
+   * Junto mounts ONLY its own directory
    * (`<VELLUM_COMMAND_HOME>/.vellum-command/content/agent-rules/<seat>/`): the
    * operator's workspace is never written to, and the loaded context cites the
    * app-owned path as its origin. Official agy 1.2.1 best-practices also parse
@@ -228,10 +228,10 @@ export const reinjectableOnResume = (
  * every managed spawn. Verified traps:
  * - launching from inside a Claude session silently disables the child's
  *   transcript persistence and excludes it from `--resume`;
- * - launching Vellum Command from inside a Prime Agent worker exports
+ * - launching Junto from inside a Prime Agent worker exports
  *   PI_CODING_AGENT, which must not classify a new harness process as nested;
  * - agent/tooling parents commonly export NO_COLOR for their own logs, which
- *   disables the managed harness TUI even though Vellum Command provides a
+ *   disables the managed harness TUI even though Junto provides a
  *   truecolor xterm PTY.
  */
 export const SPAWN_ENV_SCRUB: readonly string[] = [
@@ -281,7 +281,7 @@ export const SPAWN_ENV_SCRUB: readonly string[] = [
 /**
  * Prefixes reserved for harness-internal process roles. Scrub the namespace,
  * rather than today's known keys, so a future Prime Agent worker marker cannot
- * make Vellum Command's app-owned foreground daemon masquerade as a worker.
+ * make Junto's app-owned foreground daemon masquerade as a worker.
  */
 export const SPAWN_ENV_SCRUB_PREFIXES: readonly string[] = [
   "PRIME_AGENT_INTERNAL_",
@@ -951,7 +951,7 @@ export const GROK_TEMPLATE: ManagedTerminalTemplate = {
  * - Trap: the `hermes resume` SUBCOMMAND lifts an ESTOP sentinel; it is not
  *   session resume. This template resumes by flag and never by subcommand.
  *
- * `chat --tui` stays the prefix: a Vellum Command seat is a visible TUI on a
+ * `chat --tui` stays the prefix: a Junto seat is a visible TUI on a
  * real PTY. On 0.21.0, `-q` on a TTY seeds an interactive session; the
  * headless answer-and-exit path is `--oneshot` / `-Q` / non-TTY.
  *
@@ -1076,7 +1076,7 @@ export const PI_TEMPLATE: ManagedTerminalTemplate = {
  * Verified 0.7.1: positional prompt; --thinking effort (7 levels); resume
  * `-r <path|id>` / `-c` (no pin flag — capture from reporter / list --json);
  * --append-system-prompt repeatable; no permission-mode flag (--autonomous is
- * unattended mode, not an approval enum). Vellum Command owns one isolated
+ * unattended mode, not an approval enum). Junto owns one isolated
  * foreground daemon per live binding. Its unique --daemon-socket is runtime
  * launch state and must never enter this authorial argv template.
  *
@@ -1140,7 +1140,7 @@ export const PRIME_AGENT_TEMPLATE: ManagedTerminalTemplate = {
  * Verified 0.29.0: NO argv prompt slot in the TUI (promptMode "none"); -m model;
  * --yolo/--auto approval (no enum); resume `-S <id>` (never bare `-S` / `-c`);
  * no pin. 20-event JSON-stdin hooks (PermissionRequest→blocked) live in the
- * user's config, so Vellum Command never installs them (badge hooks: false).
+ * user's config, so Junto never installs them (badge hooks: false).
  *
  * Re-probed 0.34.0 (2026-09-11):
  * - The TUI starts without a session (changelog 0.33.0). A trusted-cwd welcome
@@ -1462,7 +1462,7 @@ export const CURSOR_TEMPLATE: ManagedTerminalTemplate = {
  *   `agy --version` and GitHub latest are both 1.2.1.
  * - Official best-practices now say a workspace-root `AGENTS.md` or
  *   `GEMINI.md` is parsed on startup. That contradicts the 1.1.20
- *   cwd-negative receipt. Vellum Command still mounts ONLY the app-owned
+ *   cwd-negative receipt. Junto still mounts ONLY the app-owned
  *   rules dir via `--add-dir` and never writes the operator workspace.
  *   Whether the `--add-dir` mount itself is still obeyed on 1.2.1 is
  *   UNVERIFIED (flag exists; canary not re-run).
@@ -1528,7 +1528,7 @@ export const AGY_TEMPLATE: ManagedTerminalTemplate = {
  * Verified against 0.0.1787664850-g921ac7 by driving the real TUI in a PTY:
  * - `amp threads new --visibility private` printed one `T-<uuid>` and exited;
  * - `amp --no-ide -m <mode> threads continue <T-id>` opens the interactive TUI
- *   on that exact thread. `--no-ide` keeps a Vellum Command-spawned seat from
+ *   on that exact thread. `--no-ide` keeps a Junto-spawned seat from
  *   attaching the operator's editor selection to every message;
  * - the one dial is `-m low|medium|high|ultra` (model + system prompt + tools
  *   together) — Amp exposes no model flag and no independent effort;
@@ -1615,7 +1615,7 @@ export const AMP_TEMPLATE: ManagedTerminalTemplate = {
  * and was not installed here — 0.0.8 spawn / capture was not re-smoked.
  * - `-r` opens the saved-session picker, not "latest". Never emit it.
  * - 0.0.8 adds `--full-access` / `--yolo` argv permission dials (official CLI
- *   docs). Installed 0.0.7 rejects them as unknown subcommands. Vellum Command
+ *   docs). Installed 0.0.7 rejects them as unknown subcommands. Junto
  *   must not emit those flags. The env dial (`FX_PERMISSION_MODE`) stays the
  *   seat path. No permission default.
  * - 0.0.8 mints 12-character url-safe session ids; legacy `<ms>-<ns>-<hex>`
@@ -1626,7 +1626,7 @@ export const AMP_TEMPLATE: ManagedTerminalTemplate = {
  *   `fx ask --system TEXT` is one-shot only. Seats stay on plain `fx`.
  *
  * No permission default: fx's stock `auto` mode runs tool calls that cost the
- * operator money, and picking that for them is not Vellum Command's call.
+ * operator money, and picking that for them is not Junto's call.
  */
 export const FX_TEMPLATE: ManagedTerminalTemplate = {
   harness: "fx",
@@ -1688,7 +1688,7 @@ export const FX_TEMPLATE: ManagedTerminalTemplate = {
  * prints `omp/18.1.16`):
  * - `--append-system-prompt` is last-write-wins, not repeatable. Help does
  *   not say "can be used multiple times" (unlike `--hook`). Installed
- *   `flag-tables.ts` assigns a single string. Vellum Command already emits
+ *   `flag-tables.ts` assigns a single string. Junto already emits
  *   one flag; doctrine is one joined body, never two argv fragments.
  * - Session cwd encoding is three-way (installed `session-paths.ts`):
  *   home-relative `-…` (`-Projects-vellum`), cwd under `os.tmpdir()` is
@@ -1745,7 +1745,7 @@ export const OMP_TEMPLATE: ManagedTerminalTemplate = {
 /** App-owned structured controller. Its tool calls still enter the process-bound Work socket. */
 export const VELLUM_OVERSEER_TEMPLATE: ManagedTerminalTemplate = {
   harness: "vellum-overseer",
-  displayName: "Vellum Command Overseer",
+  displayName: "Junto Overseer",
   argvSpec: {
     binary: "vellum-command",
     prefix: ["overseer-host"],

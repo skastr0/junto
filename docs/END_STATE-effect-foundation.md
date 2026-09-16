@@ -1,4 +1,4 @@
-# END_STATE — Effect foundation (Vellum Command main)
+# END_STATE — Effect foundation (Junto main)
 
 **Goal:** make the main process a real Effect program so factory claims and product expansion are not quicksand.
 

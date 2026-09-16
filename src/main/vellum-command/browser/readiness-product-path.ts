@@ -15,7 +15,7 @@ import type {
   BrowserReadinessSyntheticPage,
 } from "./readiness-probe";
 
-const SYNTHETIC_BODY = "<!doctype html><title>Vellum Command readiness</title><main>ready</main>";
+const SYNTHETIC_BODY = "<!doctype html><title>Junto readiness</title><main>ready</main>";
 const PNG_SIGNATURE = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 
 export interface BrowserReadinessProductPathDependencies {
@@ -284,7 +284,7 @@ export const makeElectronBrowserReadinessProductPath = (
           },
           evaluate: async (operationSignal: AbortSignal): Promise<boolean> => {
             if (operationSignal.aborted || pageClosed || view!.executeJavaScript === undefined) return false;
-            return successfulEval(await view!.executeJavaScript("document.title === 'Vellum Command readiness'"));
+            return successfulEval(await view!.executeJavaScript("document.title === 'Junto readiness'"));
           },
           screenshot: async (operationSignal: AbortSignal): Promise<boolean> => {
             if (operationSignal.aborted || pageClosed || view!.capturePagePng === undefined) return false;

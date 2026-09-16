@@ -924,7 +924,7 @@ export const makeOperatorCoordinator = (
     if (!FLEET_UI_ENABLED) {
       throw new OperatorCoordinatorError(
         "runtime_down",
-        "Fleet operations are disabled in this Vellum Command build",
+        "Fleet operations are disabled in this Junto build",
       );
     }
 

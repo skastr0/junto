@@ -16,7 +16,7 @@ const metadata: StationSupervisorMetadata = Object.freeze({
   displayName: "Standalone",
   recovery: Object.freeze({
     title: "Supervised startup is unavailable",
-    detail: "Run Vellum Command as a regular desktop app on this platform.",
+    detail: "Run Junto as a regular desktop app on this platform.",
   }),
 });
 

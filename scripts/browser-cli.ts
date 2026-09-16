@@ -41,7 +41,7 @@ usage:
   bun run browser <command> [args] [--json]
 
 auth:
-  process-bind only — run as a child of a live Vellum Command agent (ACP)
+  process-bind only — run as a child of a live Junto agent (ACP)
   doctor needs only the owner-local transport token
 
 commands:
@@ -207,7 +207,7 @@ const httpOverSocket = (
       // a reset after acceptance means the server failed mid-response.
       settle(
         isRuntimeDownTransportError(error)
-          ? controlErr("runtime_down", "Vellum Command app is not running")
+          ? controlErr("runtime_down", "Junto app is not running")
           : controlErr("failed", "browser control request failed"),
       );
     });
@@ -233,7 +233,7 @@ const parseArgs = (
   const json = commandArgv.includes("--json");
   commandArgv = commandArgv.filter((value) => value !== "--json");
   if (commandArgv.includes("--path")) {
-    return { error: "shot does not accept --path; Vellum Command owns screenshot destinations" };
+    return { error: "shot does not accept --path; Junto owns screenshot destinations" };
   }
   // Retired remote Station-browser surface: exit before token/socket/network.
   if (
@@ -334,7 +334,7 @@ export const runBrowserCli = async (
   rawArgv: ReadonlyArray<string> = process.argv.slice(2),
 ): Promise<void> => {
   if (!BROWSER_ENABLED) {
-    console.error("Browser is disabled in this Vellum Command build");
+    console.error("Browser is disabled in this Junto build");
     process.exit(2);
   }
   // Hidden station wrapper and station-trust exit before any transport.

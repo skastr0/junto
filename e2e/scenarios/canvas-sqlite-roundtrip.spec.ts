@@ -79,7 +79,7 @@ test("operator UI write round-trips through main IPC and survives renderer reloa
       () =>
         page.evaluate(async (name) => {
           const api = window.vellumCommand;
-          if (!api) throw new Error("Vellum Command preload bridge is unavailable");
+          if (!api) throw new Error("Junto preload bridge is unavailable");
           const result = await api.readCanvas(name);
           const written = result.doc.nodes.find(
             (candidate) => candidate.id === "n1",
@@ -106,7 +106,7 @@ test("canvas list/read/write product paths persist through the unified SQLite au
   const result = await page.evaluate(
     async ({ name, addedText }) => {
       const api = window.vellumCommand;
-      if (!api) throw new Error("Vellum Command preload bridge is unavailable");
+      if (!api) throw new Error("Junto preload bridge is unavailable");
 
       const before = await api.readCanvas(name);
       const next = {

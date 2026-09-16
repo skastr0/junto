@@ -1,4 +1,4 @@
-# Vellum Command fresh-mail qualification
+# Junto fresh-mail qualification
 
 This extends the [native submission proof](pty-native-submission-2026-09-14.md)
 with fresh task-comment mail on both already-running Devin seats. Both
@@ -132,7 +132,7 @@ The running-byte proof was repeated after native qualification:
 
 | Identity | Verified value |
 |---|---|
-| Running process | PID `41562`, `/Applications/Vellum Command.app/Contents/MacOS/Vellum Command` |
+| Running process | PID `41562`, `/Applications/Junto.app/Contents/MacOS/Junto` |
 | Source | `ce3c10ae7a4efb47fb2bac3d3617bb80c66328aa` |
 | Runtime cohort | `497b9c6d-5456-4eba-9380-9ca7e3d2da2b` |
 | Open installed archive inode | `310714975`, confirmed in the running PID's open files |

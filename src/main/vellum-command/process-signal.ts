@@ -14,8 +14,8 @@ export interface OwnedProcess { readonly [OwnedProcessTypeId]: typeof OwnedProce
 
 export const KillablePid = Schema.Number.pipe(Schema.check(Schema.isInt()), 
   Schema.check(Schema.isGreaterThan(1)),
-  Schema.check(Schema.makeFilter((pid) => pid !== globalThis.process.pid, { message: "pid must not be the Vellum Command process" })),
-  Schema.check(Schema.makeFilter((pid) => pid !== globalThis.process.ppid, { message: "pid must not be Vellum Command's parent process" })),
+  Schema.check(Schema.makeFilter((pid) => pid !== globalThis.process.pid, { message: "pid must not be the Junto process" })),
+  Schema.check(Schema.makeFilter((pid) => pid !== globalThis.process.ppid, { message: "pid must not be Junto's parent process" })),
   Schema.brand("KillablePid"),
 );
 export type KillablePid = typeof KillablePid.Type;
@@ -202,7 +202,7 @@ export const signalOwned = (process: OwnedProcess, signal: TerminatingSignal): S
     return { attempted: false, decision: { ok: false, reason: "group-epoch-mismatch" }, via: "none" };
   }
   try {
-    // Sole terminating process.kill in Vellum Command: negative verified group leader only.
+    // Sole terminating process.kill in Junto: negative verified group leader only.
     globalThis.process.kill(-rec.pid, signal);
     return { attempted: true, decision: { ok: true, mode: "group" }, via: "process.kill-group" };
   } catch {

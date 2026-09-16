@@ -441,7 +441,7 @@ export function ProvidersSettingsSection() {
       {LIVE_OVERSEER_ENABLED && <LiveProviderCard />}
       <p className="settings-note" role="note">
         Provider access is off by default. Enable only a source you want
-        Vellum Command to read. Usage sources refresh every five minutes.
+        Junto to read. Usage sources refresh every five minutes.
         Hermes host snapshots, when separately enabled, poll every minute.
         Each card names the local data and network access it may use. Stored
         values stay in this installation's credential vault, are shown masked, and are

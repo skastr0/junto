@@ -16,7 +16,7 @@ const allowed = new Set([
   "src/main/vellum-command/state/schema-version-probe.ts",
   // Install-local ledger (install-ops.db) — not product state; separate opener.
   "src/main/vellum-command/install-ops/engine.ts",
-  // Read-only external harness receipts; never Vellum Command product state.
+  // Read-only external harness receipts; never Junto product state.
   "src/main/vellum-command/term/session-existence.ts",
 ]);
 

@@ -1,4 +1,4 @@
-# Vellum Command Linux operator runbook
+# Junto Linux operator runbook
 
 **Status:** Ubuntu 24.04 x64 desktop alpha. Fleet Remote is unreleased,
 experimental and feature-gated, with separate Beta qualification.
@@ -118,7 +118,7 @@ diagnostic dumps.
 
 ## Removal and repair
 
-Quit Vellum Command normally before removing an installation. Removal may
+Quit Junto normally before removing an installation. Removal may
 retire only the selected owner-local application generations, launcher and
 desktop entry; it must preserve product state and profiles. This release guide
 does not provide a broad recursive-delete or data-reset command.

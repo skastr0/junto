@@ -18,7 +18,7 @@ const VellumLaunchAgentTargetTypeId: unique symbol = Symbol(
   "@vellum-command/VellumLaunchAgentTarget",
 );
 
-/** Opaque authority to address only this user's Vellum Command LaunchAgent. */
+/** Opaque authority to address only this user's Junto LaunchAgent. */
 export interface VellumLaunchAgentTarget {
   readonly [VellumLaunchAgentTargetTypeId]:
     typeof VellumLaunchAgentTargetTypeId;
@@ -252,7 +252,7 @@ export const createLaunchctlRunner = (
         ok: false,
         failure: failure(
           "invalid-target",
-          "missing Vellum Command launch-agent target authority",
+          "missing Junto launch-agent target authority",
         ),
       });
     }

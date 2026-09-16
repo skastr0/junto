@@ -517,7 +517,7 @@ export const applyCanvasBatch = (
         };
         const gated = gatedKindOf(node);
         if (gated !== undefined) {
-          return reject("Forbidden", `kind "${gated}" is disabled in this Vellum Command build`);
+          return reject("Forbidden", `kind "${gated}" is disabled in this Junto build`);
         }
         if (nodes.has(node.id)) return reject("InvalidArguments", `node "${node.id}" already exists`);
         nodes.set(node.id, node);
@@ -530,7 +530,7 @@ export const applyCanvasBatch = (
         if (node === undefined) return reject("NotFound", `node "${step.nodeId}" was not found`);
         const gated = gatedKindOf(node);
         if (gated !== undefined) {
-          return reject("Forbidden", `kind "${gated}" is disabled in this Vellum Command build`);
+          return reject("Forbidden", `kind "${gated}" is disabled in this Junto build`);
         }
         nodes.set(node.id, step.operation === "node.configure"
           ? applyNodeChanges(node, step.changes)
@@ -545,7 +545,7 @@ export const applyCanvasBatch = (
           gatedKindOf(nodes.get(edge.fromNode)) !== undefined ||
           gatedKindOf(nodes.get(edge.toNode)) !== undefined
         ) {
-          return reject("Forbidden", "edge touches a kind disabled in this Vellum Command build");
+          return reject("Forbidden", "edge touches a kind disabled in this Junto build");
         }
         if (edges.has(edge.id)) return reject("InvalidArguments", `edge "${edge.id}" already exists`);
         edges.set(edge.id, edge);
@@ -562,7 +562,7 @@ export const applyCanvasBatch = (
             gatedKindOf(nodes.get(edge.fromNode)) !== undefined ||
             gatedKindOf(nodes.get(edge.toNode)) !== undefined
           ) {
-            return reject("Forbidden", "edge touches a kind disabled in this Vellum Command build");
+            return reject("Forbidden", "edge touches a kind disabled in this Junto build");
           }
           edges.set(edge.id, applyEdgeChanges(edge, step.changes));
         }

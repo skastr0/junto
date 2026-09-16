@@ -5,7 +5,7 @@ Status: **landed** (2026-08-05) — phase 0 `7d2c4be4`, phase 1
 enforcement layer (sync test, contrast test, lint guard) remains
 **tabled — build later**. The name "deep-field" is retired from code and
 internal docs; marketing copy (README, assets/brand) keeps it pending an
-editorial decision. The system is just the Vellum Command design system;
+editorial decision. The system is just the Junto design system;
 its modes are `dark` and `bright`.
 
 Scope: renderer design system, runtime palette consumers, SVG export,

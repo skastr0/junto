@@ -289,7 +289,7 @@ const probeSshHost = (
         const network = yield* probeSshNetwork(ssh, host);
         if (network === "up") {
           reachability = "reachable";
-          operatorDetail = `${host.label}: On the network. Vellum Command is not answering.`;
+          operatorDetail = `${host.label}: On the network. Junto is not answering.`;
         }
       }
       const recovery = stationRecoveryForRemote({
@@ -328,7 +328,7 @@ const probeSshHost = (
     const station = result.receipt.remoteStatus;
     const configuration = station.configuration;
     const parts = [
-      `Vellum Command ${station.state}`,
+      `Junto ${station.state}`,
       `installation ${station.installationId}`,
     ];
     const protocol = result.status.protocol;
@@ -571,7 +571,7 @@ export const runRemoteHostsDoctorSnapshot = (
       ? hosts.filter((host) => host.kind === "remote")
       : [];
     if (!FLEET_UI_ENABLED && hosts.some((host) => host.kind === "remote")) {
-      lines.push("remote host probing is disabled in this Vellum Command build");
+      lines.push("remote host probing is disabled in this Junto build");
     }
     if (remoteHosts.length > 0) {
       const sshBinaryOk = yield* Effect.tryPromise({

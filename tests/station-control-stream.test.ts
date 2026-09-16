@@ -135,7 +135,7 @@ const makeServer = async (options: {
   readonly admitRequest?: StationControlRequestAdmission;
 } = {}): Promise<ServerFixture> => {
   // macOS Unix-domain socket paths are capped at 104 bytes; keep fixture
-  // roots short now that station homes use the canonical Vellum Command name.
+  // roots short now that station homes use the canonical Junto name.
   const root = await mkdtemp(join(tmpdir(), "vcs-"));
   roots.push(root);
   let handled = 0;

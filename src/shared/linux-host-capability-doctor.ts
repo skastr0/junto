@@ -570,7 +570,7 @@ const projectCoreCheck = (facts: Facts): LinuxHostCapabilityCheck => {
       remediation(
         "administrator",
         PACKAGES,
-        "Install the missing core userland packages outside Vellum Command, then re-run Doctor.",
+        "Install the missing core userland packages outside Junto, then re-run Doctor.",
       ),
     );
   }
@@ -589,7 +589,7 @@ const projectCoreCheck = (facts: Facts): LinuxHostCapabilityCheck => {
       remediation(
         "administrator",
         PACKAGES,
-        "Install the missing core libraries outside Vellum Command, then re-run Doctor.",
+        "Install the missing core libraries outside Junto, then re-run Doctor.",
       ),
     );
   }
@@ -680,7 +680,7 @@ const projectUserSystemdCheck = (facts: Facts): LinuxHostCapabilityCheck => {
       remediation(
         "administrator",
         PACKAGES,
-        "Install systemd user tools on the supported distribution outside Vellum Command.",
+        "Install systemd user tools on the supported distribution outside Junto.",
       ),
     );
   }
@@ -711,7 +711,7 @@ const projectPersistenceCheck = (facts: Facts): LinuxHostCapabilityCheck => {
       remediation(
         "administrator",
         LINGER,
-        "Enable lingering outside Vellum Command only if unattended reboot return is required.",
+        "Enable lingering outside Junto only if unattended reboot return is required.",
       ),
     );
   }
@@ -828,7 +828,7 @@ const projectSandboxCheck = (facts: Facts): LinuxHostCapabilityCheck => {
       remediation(
         "administrator",
         SANDBOX,
-        "Do not disable the sandbox; repair the qualified path outside Vellum Command.",
+        "Do not disable the sandbox; repair the qualified path outside Junto.",
       ),
     );
   }

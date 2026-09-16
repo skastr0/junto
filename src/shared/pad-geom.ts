@@ -1,5 +1,5 @@
 /**
- * Vellum Command pad geometry. Numbers in, numbers out.
+ * Junto pad geometry. Numbers in, numbers out.
  */
 import { Schema } from "effect";
 import type {

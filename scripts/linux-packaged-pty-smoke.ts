@@ -390,7 +390,7 @@ export const smokeLinuxPackagedPty = async (
   try {
     runtimeLease = processPlane.spawnGroup({
       source: "linux-packaged-pty-smoke",
-      purpose: "verify packaged Vellum Command terminal runtime",
+      purpose: "verify packaged Junto terminal runtime",
       command: executable,
       args: ["--vellum-headless", `--user-data-dir=${userData}`],
       cwd: tempRoot,
@@ -411,7 +411,7 @@ export const smokeLinuxPackagedPty = async (
       const terminal = lifecycle?.terminal();
       if (terminal !== undefined) {
         throw new Error(
-          `packaged Vellum Command closed before terminal control startup (code=${String(terminal.code)}, signal=${String(terminal.signal)}, output=${output.tail()})`,
+          `packaged Junto closed before terminal control startup (code=${String(terminal.code)}, signal=${String(terminal.signal)}, output=${output.tail()})`,
         );
       }
       return (await pathExists(socketPath)) && (await pathExists(tokenPath));
@@ -428,7 +428,7 @@ export const smokeLinuxPackagedPty = async (
       throw new Error("packaged terminal control client did not close cleanly");
     }
     if (output.overflowed()) {
-      throw new Error("packaged Vellum Command exceeded the bounded smoke output budget");
+      throw new Error("packaged Junto exceeded the bounded smoke output budget");
     }
 
     const shutdown = processPlane.terminate(
@@ -436,15 +436,15 @@ export const smokeLinuxPackagedPty = async (
       "linux-packaged-pty-smoke-normal-shutdown",
     );
     if (!shutdown.attempted || shutdown.via !== "child.kill") {
-      throw new Error("packaged Vellum Command shutdown lost exact leader authority");
+      throw new Error("packaged Junto shutdown lost exact leader authority");
     }
     const terminal = await lifecycle.waitForClose(SHUTDOWN_TIMEOUT_MS);
     if (terminal.error !== undefined) {
-      throw new Error(`packaged Vellum Command lifecycle error: ${terminal.error.message}`);
+      throw new Error(`packaged Junto lifecycle error: ${terminal.error.message}`);
     }
     if (terminal.code !== 0 || terminal.signal !== null) {
       throw new Error(
-        `packaged Vellum Command did not complete its normal SIGTERM contract (code=${String(terminal.code)}, signal=${String(terminal.signal)}, output=${output.tail()})`,
+        `packaged Junto did not complete its normal SIGTERM contract (code=${String(terminal.code)}, signal=${String(terminal.signal)}, output=${output.tail()})`,
       );
     }
     await waitUntil("terminal control cleanup", SHUTDOWN_TIMEOUT_MS, async () =>

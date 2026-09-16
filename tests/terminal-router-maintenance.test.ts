@@ -150,7 +150,7 @@ describe("TerminalRouter listAll occupancy", () => {
     installRemoteEntry(router, client);
 
     await expect(router.listAll()).rejects.toThrow(
-      /Vellum Command is not answering on studio/,
+      /Junto is not answering on studio/,
     );
   });
 });

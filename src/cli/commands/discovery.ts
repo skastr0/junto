@@ -124,7 +124,7 @@ export const doctorCommand = Command.make(
               ok: false,
               details: {
                 error: live.failure.message,
-                hint: "CLI must run under a live Vellum Command agent process (process-bind)",
+                hint: "CLI must run under a live Junto agent process (process-bind)",
               },
             });
           }

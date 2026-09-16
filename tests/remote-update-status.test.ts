@@ -152,7 +152,7 @@ describe("remoteUpdatePhaseFromDeployJob", () => {
       remoteUpdatePhaseFromDeployJob({
         job: {
           status: "running",
-          stages: ["Copying Vellum Command"],
+          stages: ["Copying Junto"],
           copy: { payloadComplete: false },
         },
       }),

@@ -1,7 +1,7 @@
 {
   "schema": "vellum-command/package-runtime-historical-comparison/v1",
   "classification": "historical-comparison-only",
-  "product": "Vellum Command",
+  "product": "Junto",
   "release": {
     "appVersion": "0.1.14",
     "currentStateSchemaVersion": 18,

@@ -424,7 +424,7 @@ const recoveryForRemote = (input: {
   if (!input.stationAvailable) {
     return {
       kind: "runtime-down",
-      nextStep: "Start the supervised Vellum Command Remote, then retry the link test.",
+      nextStep: "Start the supervised Junto Remote, then retry the link test.",
     };
   }
   if (input.readinessFailed || input.stale) {

@@ -47,7 +47,7 @@ export const REMOTE_PROVENANCE_PACKAGED_RELATIVE =
 export const REMOTE_PAYLOAD_PACKAGED_RELATIVE =
   "resources/app-remote/vellum-command-remote.js" as const;
 
-const PRODUCT_NAME = "Vellum Command" as const;
+const PRODUCT_NAME = "Junto" as const;
 const SOURCE_COMMIT = /^[0-9a-f]{40}$/u;
 const SHA256 = /^[0-9a-f]{64}$/u;
 const UUID =
@@ -756,7 +756,7 @@ export const decodePackageRuntimeProvenance = (
     throw new Error("invalid runtime provenance schema");
   }
   if (record.product !== PRODUCT_NAME) {
-    throw new Error("runtime provenance product is not Vellum Command");
+    throw new Error("runtime provenance product is not Junto");
   }
   const runtime = requireRuntime(record.runtime);
   const state = requiredRecord(record.state, "runtime provenance state");

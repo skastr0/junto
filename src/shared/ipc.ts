@@ -181,7 +181,7 @@ export const IPC_CHANNELS = {
   hostsDeployJobChanged: "vellum-command:hosts-deploy-job-changed",
   /** Effective Remote deploy capability (RELEASE ∩ operator ∩ role). */
   hostsDeployCapabilities: "vellum-command:hosts-deploy-capabilities",
-  // Optional, user-owned Box CLI provider. Vellum Command never imports account inventory.
+  // Optional, user-owned Box CLI provider. Junto never imports account inventory.
   boxAvailability: "vellum-command:box-availability",
   boxListOwned: "vellum-command:box-list-owned",
   boxCreate: "vellum-command:box-create",
@@ -189,7 +189,7 @@ export const IPC_CHANNELS = {
   boxPrepareSsh: "vellum-command:box-prepare-ssh",
   boxStop: "vellum-command:box-stop",
   boxResume: "vellum-command:box-resume",
-  /** Drop Vellum Command ownership + fleet host; does not destroy the provider Box. */
+  /** Drop Junto ownership + fleet host; does not destroy the provider Box. */
   boxDetach: "vellum-command:box-detach",
   // main -> renderer freshness challenge; renderer -> main bootstrap receipt.
   // The opaque challenge is generation identity, never product authority.
@@ -854,9 +854,9 @@ export interface VellumCommandHostsApi {
   readonly hostsUpsert: (host: unknown) => Promise<HostsOpResult>;
   readonly hostsRemove: (id: string) => Promise<HostsOpResult>;
   readonly hostsTest: (id: string) => Promise<HostsTestResult>;
-  /** Install / configure Vellum Command Remote station settings on a registered remote host. */
+  /** Install / configure Junto Remote station settings on a registered remote host. */
   readonly hostsConfigureRemote: (id: string) => Promise<HostsConfigureRemoteResult>;
-  /** Install/update Vellum Command.app on remote + start station (term control ready). */
+  /** Install/update Junto.app on remote + start station (term control ready). */
   readonly hostsDeployRemote: (
     input: HostsDeployRemoteInput,
   ) => Promise<HostsDeployRemoteResult>;
@@ -878,7 +878,7 @@ export interface VellumCommandHostsApi {
   readonly boxPrepareSsh: (boxId: string) => Promise<BoxFleetResult>;
   readonly boxStop: (boxId: string) => Promise<BoxFleetResult>;
   readonly boxResume: (boxId: string) => Promise<BoxFleetResult>;
-  /** Remove from Vellum Command ownership + fleet only; Box account machine remains. */
+  /** Remove from Junto ownership + fleet only; Box account machine remains. */
   readonly boxDetach: (boxId: string) => Promise<BoxFleetResult>;
 }
 

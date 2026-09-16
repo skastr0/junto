@@ -48,9 +48,9 @@ export type HostRuntimeBlocker = typeof HostRuntimeBlocker.Type;
 /** One English sentence each. Deploy stops and asks the operator. */
 export const HOST_RUNTIME_HARD_BLOCKER_COPY = {
   "quit-app":
-    "Quit the Vellum Command window you opened by hand, then Deploy again.",
+    "Quit the Junto window you opened by hand, then Deploy again.",
   "login-session":
-    "This machine has no login session, so Vellum Command cannot start.",
+    "This machine has no login session, so Junto cannot start.",
   disk: "This machine is out of disk space.",
   auth: "This machine refused SSH — check Tailscale SSH and that this user can log in.",
 } as const;
@@ -159,13 +159,13 @@ export const hostRuntimeGapCopy = (
     return "Still reaching this machine. Deploy keeps trying while SSH answers.";
   }
   if (gap === "needInstall") {
-    return "Vellum Command is not installed on this machine yet.";
+    return "Junto is not installed on this machine yet.";
   }
   if (gap === "needConfigure") {
-    return "Vellum Command is on this machine and still needs to join the fleet.";
+    return "Junto is on this machine and still needs to join the fleet.";
   }
   if (gap === "needRestart") {
-    return "Updating Vellum Command on this machine. Pairing stays as it is.";
+    return "Updating Junto on this machine. Pairing stays as it is.";
   }
-  return "Vellum Command can take work on this machine.";
+  return "Junto can take work on this machine.";
 };

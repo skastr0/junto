@@ -189,7 +189,7 @@ describe("work-sink product gates", () => {
       expect(Result.isFailure(denied)).toBe(true);
       if (Result.isFailure(denied)) {
         expect(denied.failure.message).toMatch(
-          /disabled in this Vellum Command build/u,
+          /disabled in this Junto build/u,
         );
         expect(denied.failure.details?.missing).toBe(
           "feature enabled in this build",
@@ -288,7 +288,7 @@ describe("work-sink product gates", () => {
         );
         expect(runtime.status, `${group} should refuse`).toBe(2);
         expect(runtime.stderr).toContain(
-          "disabled in this Vellum Command build",
+          "disabled in this Junto build",
         );
       }
     },

@@ -77,7 +77,7 @@ describe("Linux OrbStack two-station qualification (userland archive)", () => {
     const source = readFileSync(SCRIPT, "utf8");
     expect(source).not.toMatch(/\/usr\/bin\/dpkg(?:-query)?\b/u);
     expect(source).not.toMatch(/\/usr\/bin\/apt-get\b/u);
-    expect(source).not.toMatch(/\/opt\/Vellum Command\b/u);
+    expect(source).not.toMatch(/\/opt\/Junto\b/u);
     expect(source).not.toMatch(/vellum-release-bridge|vellum-release-installer/u);
     expect(source).not.toMatch(/admin-password|passwordless sudo/u);
     expect(source).toContain("userland");

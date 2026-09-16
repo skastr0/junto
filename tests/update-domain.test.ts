@@ -52,7 +52,7 @@ describe("update domain", () => {
       version: "0.2.0",
       downloadedFile: "/tmp/update.zip",
       archiveSha256: "c".repeat(64),
-      stagedAppPath: "/tmp/Vellum Command.app/Contents/MacOS/Vellum Command",
+      stagedAppPath: "/tmp/Junto.app/Contents/MacOS/Junto",
     });
     expect(canOperatorInstall(withStage)).toBe(true);
     expect(canAuthorizeInstall(withStage)).toBe(true);

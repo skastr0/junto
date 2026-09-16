@@ -72,7 +72,7 @@ export const installLinuxDesktop = async (
     executable_path: staged.executablePath,
     launched: false,
     next_step:
-      "Close any running Vellum Command app, then open ~/.local/bin/vellum-command-desktop. Future updates are installed from the app.",
+      "Close any running Junto app, then open ~/.local/bin/vellum-command-desktop. Future updates are installed from the app.",
   };
 };
 
@@ -81,7 +81,7 @@ export type LinuxDesktopBootstrapArgs =
   | { readonly kind: "version" }
   | { readonly kind: "install"; readonly release: string; readonly archive: string; readonly sources: string };
 
-const HELP = `Vellum Command Linux desktop bootstrap ${LINUX_DESKTOP_BOOTSTRAP_VERSION}
+const HELP = `Junto Linux desktop bootstrap ${LINUX_DESKTOP_BOOTSTRAP_VERSION}
 
 Authenticate signed first-install inputs with this independently obtained
 program. Do not extract or execute the candidate archive.

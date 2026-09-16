@@ -1,5 +1,5 @@
-// Canonical, locator-only references to nodes in Vellum Command canvas documents.
-// A Vellum Command URI identifies a document-local node; it carries no authority and
+// Canonical, locator-only references to nodes in Junto canvas documents.
+// A Junto URI identifies a document-local node; it carries no authority and
 // never encodes an action, URL, browser profile, token, path, or capability.
 
 import { isCanonicalCanvasName } from "./canvas-name";
@@ -99,33 +99,33 @@ export const parseNodeRef = (input: string): NodeRefSchemaIssue => {
     new TextEncoder().encode(input).byteLength > MAX_URI_LENGTH ||
     CONTROL_CHARACTER.test(input)
   ) {
-    return fail("shape", "Vellum Command reference is empty, oversized, or contains control characters");
+    return fail("shape", "Junto reference is empty, oversized, or contains control characters");
   }
 
   const schemeEnd = input.indexOf("://");
   if (schemeEnd < 0 || input.slice(0, schemeEnd) !== SCHEME) {
-    return fail("scheme", "Vellum Command reference must use the lowercase vellum-command scheme");
+    return fail("scheme", "Junto reference must use the lowercase vellum-command scheme");
   }
 
   const afterScheme = input.slice(schemeEnd + 3);
   const authorityEnd = afterScheme.indexOf("/");
   if (authorityEnd < 0 || afterScheme.slice(0, authorityEnd) !== AUTHORITY) {
-    return fail("authority", "Vellum Command reference authority must be exactly canvas");
+    return fail("authority", "Junto reference authority must be exactly canvas");
   }
   if (input.includes("#")) {
-    return fail("shape", "Vellum Command references do not accept fragments");
+    return fail("shape", "Junto references do not accept fragments");
   }
 
   const pathAndQuery = afterScheme.slice(authorityEnd + 1);
   const queryStart = pathAndQuery.indexOf("?");
   if (queryStart < 0 || pathAndQuery.indexOf("?", queryStart + 1) >= 0) {
-    return fail("shape", "Vellum Command reference must contain exactly one node query");
+    return fail("shape", "Junto reference must contain exactly one node query");
   }
 
   const canvasName = pathAndQuery.slice(0, queryStart);
   const query = pathAndQuery.slice(queryStart + 1);
   if (canvasName.includes("/") || query.includes("&") || !query.startsWith("node=")) {
-    return fail("shape", "Vellum Command reference must be /<canvas-name>?node=<node-id>");
+    return fail("shape", "Junto reference must be /<canvas-name>?node=<node-id>");
   }
   const encodedNodeId = query.slice("node=".length);
   if (encodedNodeId.length === 0) {
@@ -153,7 +153,7 @@ export const parseNodeRef = (input: string): NodeRefSchemaIssue => {
     return fail("encoding", "node id is not valid Unicode");
   }
   if (canonical !== input) {
-    return fail("canonical", "Vellum Command reference is not in canonical form", canonical);
+    return fail("canonical", "Junto reference is not in canonical form", canonical);
   }
   return { ok: true, value };
 };

@@ -137,7 +137,7 @@ describe("operator deployment coordinator", () => {
       Layer.succeed(AppInfoService, {
         ...stub(AppInfoService),
         stationInfo: Effect.succeed({
-          name: "Vellum Command",
+          name: "Junto",
           version: "0.0.0",
           userDataPath: "/tmp",
         }),
@@ -218,7 +218,7 @@ describe("operator deployment coordinator", () => {
       Layer.succeed(AppInfoService, {
         ...stub(AppInfoService),
         stationInfo: Effect.succeed({
-          name: "Vellum Command",
+          name: "Junto",
           version: "0.0.0",
           userDataPath: "/tmp",
         }),
@@ -424,7 +424,7 @@ describe("operator deployment coordinator", () => {
       Layer.succeed(AppInfoService, {
         ...stub(AppInfoService),
         stationInfo: Effect.succeed({
-          name: "Vellum Command",
+          name: "Junto",
           version: "0.0.0",
           userDataPath: "/tmp",
         }),
@@ -460,7 +460,7 @@ describe("operator deployment coordinator", () => {
               reconciled = `${hostId}:${request.intent}`;
               return Effect.succeed({
                 ok: true,
-                detail: "Vellum Command is running on this Mac",
+                detail: "Junto is running on this Mac",
                 stages: [],
                 disposition: "ready",
                 outcome: "ready",
@@ -477,7 +477,7 @@ describe("operator deployment coordinator", () => {
     expect(reconciled).toBe("studio:deploy");
     expect(result.ok).toBe(true);
     expect(result.detail).toContain("Remote station configured");
-    expect(result.detail).toContain("Vellum Command is running on this Mac");
+    expect(result.detail).toContain("Junto is running on this Mac");
   });
 
   it("Configure reports truthfully when the runtime does not transition", async () => {
@@ -521,7 +521,7 @@ describe("operator deployment coordinator", () => {
               Effect.succeed({
                 ok: false,
                 detail:
-                  "Studio: package activation deferred — 2 Vellum Command terminal session(s) active.",
+                  "Studio: package activation deferred — 2 Junto terminal session(s) active.",
                 code: "conflict",
                 message: "close the active terminal sessions",
                 stages: [],

@@ -717,7 +717,7 @@ const requestJson = async (
     }
     const authFlavored =
       response.status === 401 || response.status === 403
-        ? " — local server rejected Vellum Command (auth)"
+        ? " — local server rejected Junto (auth)"
         : "";
     throw new Error(
       redactSecrets(`HTTP ${response.status}${authFlavored}: ${detail}` || `HTTP ${response.status}`, secrets),

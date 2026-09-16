@@ -6,7 +6,7 @@ import { resolveSpec } from "./physics/kinds";
 import type { HostId } from "./remote-hosts";
 
 /**
- * Station plane: this machine's durable role in a Vellum Command fleet.
+ * Station plane: this machine's durable role in a Junto fleet.
  *
  * Product nouns (not board vocabulary):
  * - Command Center — human authors the canvas; manages fleet via host registry.
@@ -120,7 +120,7 @@ export const isValidStationHostId = (value: string): boolean =>
 // full Remote deploy of the agent is later work — not this module.
 // ---------------------------------------------------------------------------
 
-/** Whether the Vellum Command LaunchAgent is loaded for this user domain. */
+/** Whether the Junto LaunchAgent is loaded for this user domain. */
 export type SupervisedInstallState = "installed" | "absent" | "unknown";
 
 export type SupervisedRuntimeInput = {

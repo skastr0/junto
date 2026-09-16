@@ -1,7 +1,7 @@
 # Bun 1.3.13 runtime notices and corresponding source
 
 The compiled `vellum-command` control executable contains the stock Bun runtime.
-These files travel with that executable in Vellum Command distributions. They
+These files travel with that executable in Junto distributions. They
 retain upstream license text; Apache-2.0 does not replace these component licenses.
 
 The runtime is Bun **1.3.13**, source commit
@@ -67,7 +67,7 @@ file bytes, paths, executable modes, and symlink targets. Their catalog checksum
 identify those reproducible archives. The five affected source trees were checked
 against the immutable upstream Git trees when these digests were established.
 
-No runtime source archive is committed to the Vellum Command repository.
+No runtime source archive is committed to the Junto repository.
 
 Release preparation downloads these materials into a separate local directory:
 
@@ -78,7 +78,7 @@ bun scripts/prepare-runtime-sources.ts --directory /path/to/runtime-sources --ca
 The preparer verifies the catalog, rejects unexpected directory entries and
 symlinks, and writes `runtime-sources.json`. A changed or incomplete archive is a
 failure. Release preparation then combines that index with the exact
-Vellum Command source commit, the bundled CLI JavaScript payload, its input receipt,
+Junto source commit, the bundled CLI JavaScript payload, its input receipt,
 notices, and `RELINK.md`. The publisher requires the source files and uploads
 them beside the versioned binary downloads before making a feed available. This
 is actual same-place source download access, rather than a future written offer.
@@ -98,7 +98,7 @@ invented or substituted from an unrelated package.
 ## Rebuilding with a changed runtime library
 
 JavaScriptCore / WebKit and TinyCC carry LGPL obligations, including the ability
-to rebuild with a changed library. Publishing Vellum Command source does not
+to rebuild with a changed library. Publishing Junto source does not
 turn these components into MIT-only dependencies. Retain their full licenses and
 the version-specific source and rebuild information with binary distributions.
 The procedure below records the native rebuild route. A full local WebKit or
@@ -150,7 +150,7 @@ a claim of byte-identical reproduction of the stock Linux executable.
 To restore lol-html's Cargo registry inputs from the source downloads, run:
 
 ```sh
-python3 /path/to/Vellum-Command-source/third_party/bun-1.3.13/restore-cargo-sources.py /path/to/runtime-sources /path/to/new-cargo-source-directory
+python3 /path/to/Junto-source/third_party/bun-1.3.13/restore-cargo-sources.py /path/to/runtime-sources /path/to/new-cargo-source-directory
 cargo metadata --offline --locked --format-version 1 --config /path/to/new-cargo-source-directory/cargo-source-config.toml --manifest-path /path/to/bun-source/vendor/lolhtml/c-api/Cargo.toml
 ```
 
@@ -162,12 +162,12 @@ or the local source checkout's `.cargo/config.toml`. The matching lol-html
 archive supplies its root and `c-api` manifests and lockfile.
 
 The source download's `RELINK.md` provides the primary final linking step:
-compile the supplied `Vellum-Command-<version>-cli.js` payload with the rebuilt
+compile the supplied `Junto-<version>-cli.js` payload with the rebuilt
 Bun executable. That payload includes the application code and its bundled
 JavaScript dependencies, with a hash-bound receipt and notices, and does not
 require regenerating it from a package registry.
 
-For development from the matching Vellum Command source checkout, the CLI build
+For development from the matching Junto source checkout, the CLI build
 script can also be invoked with the resulting Bun executable:
 
 ```sh
@@ -179,5 +179,5 @@ target. In this Bun release, the default native compile path copies the running
 Bun executable before attaching the application module graph
 ([upstream implementation](https://github.com/oven-sh/bun/blob/bf2e2cecf27e800962b1e7f03d66278f9d5d2e79/src/StandaloneModuleGraph.zig#L1139)).
 This preserves a route to a CLI containing the rebuilt runtime. Official
-Vellum Command releases continue to use stock Bun; rebuilding with library
+Junto releases continue to use stock Bun; rebuilding with library
 changes is a recipient's independent build.

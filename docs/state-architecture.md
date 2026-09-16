@@ -7,7 +7,7 @@ coordination, scheduling, backup, and process ownership
 
 **Protocol:** [vellum-protocol.md](vellum-protocol.md)
 
-Vellum Command has one storage architecture:
+Junto has one storage architecture:
 
 ```text
 one installation
@@ -204,7 +204,7 @@ that move with dual reads or dual writes.
 
 ## Canvas and history
 
-The canvas document remains JSON Canvas 1.0 plus Vellum Command's `ether` extension,
+The canvas document remains JSON Canvas 1.0 plus Junto's `ether` extension,
 but its live representation is stored in SQLite:
 
 - `canvas_generations` records the logical generation, cause, creation time,
@@ -326,7 +326,7 @@ Remote may initiate only `report` on that same duplex session. It never dials
 Command Center or another Remote. OpenSSH authenticates the Remote host and
 operator account. The fixed helper's owner-local socket handoff is trusted
 same-user containment, not cryptographic proof of the SSH peer inside Electron
-main. Vellum Command adds no bearer token, pairing secret, or parallel credential
+main. Junto adds no bearer token, pairing secret, or parallel credential
 store; main strict-decodes and authorizes every request.
 
 Session loss does not create a second polling protocol. Each side reconnects
@@ -397,7 +397,7 @@ affect only how soon an update is observed.
 `everyMinutes` timers use an explicit coalescing catch-up rule: after a delayed
 or sleeping interval, evaluate at most one firing and advance to the latest due
 slot. A newly discovered or restarted timer begins one interval in the future,
-so restart does not create a latent pulse. Vellum Command currently has no
+so restart does not create a latent pulse. Junto currently has no
 absolute-time timer kind. Any future timer kind must define its stale and
 catch-up policy in schema and tests before runtime integration.
 
@@ -426,7 +426,7 @@ The bounded forward-recovery surface is inventory and export:
 This is portability and forensic evidence, not restore. No product path
 replaces `vellum-command.db`, launches an older binary, or downgrades installed state.
 Copying the live database, its WAL, its shared-memory file, or the wider
-`~/.vellum-command` directory is not a coherent product backup. Vellum Command currently has
+`~/.vellum-command` directory is not a coherent product backup. Junto currently has
 no restore surface.
 
 Any app-owned backup protects only the current SQLite architecture. It does

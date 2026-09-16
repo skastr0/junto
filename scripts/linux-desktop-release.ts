@@ -53,7 +53,7 @@ export type LinuxDesktopReleaseCommand =
       readonly now?: string;
     };
 
-export const LINUX_DESKTOP_RELEASE_HELP = `Vellum Command Linux desktop release tools
+export const LINUX_DESKTOP_RELEASE_HELP = `Junto Linux desktop release tools
 
 prepare --archive PATH --sources PATH --version X.Y.Z --source-revision SHA
         --created-at ISO --output PATH
@@ -203,7 +203,7 @@ export const prepareLinuxDesktopRelease = async (
   });
   const descriptor = decodeLinuxDesktopReleaseDescriptor({
     schema: "vellum-command/linux-desktop-release/v1",
-    product: "Vellum Command",
+    product: "Junto",
     channel: "alpha",
     version: input.version,
     sourceRevision: input.sourceRevision,

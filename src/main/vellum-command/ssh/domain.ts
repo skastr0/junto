@@ -2,7 +2,7 @@ import { Effect, Schema } from "effect";
 
 const ENDPOINT_PATTERN = /^(?!-)[A-Za-z0-9._:@%+\[\]-]+$/;
 // OpenSSH receives one shell-quoted argv record, so an absolute package path
-// may contain ordinary spaces (for example `Vellum Command.app`). Control
+// may contain ordinary spaces (for example `Junto.app`). Control
 // characters and leading option syntax remain non-admissible.
 const EXECUTABLE_PATTERN = /^(?!-)[^\u0000-\u001f\u007f]+$/u;
 
@@ -226,7 +226,7 @@ const remoteCommandBytes = (executable: string, args: ReadonlyArray<string>): nu
  * Low-level mint: bounds check + WeakMap brand only.
  *
  * **@internal** — not a product safety boundary and **not** on the public
- * `ssh` barrel (`ssh/index.ts`). Brand means “created inside Vellum Command’s SSH
+ * `ssh` barrel (`ssh/index.ts`). Brand means “created inside Junto’s SSH
  * kernel,” not “safe product operation.” Only:
  * - `ssh/remote-plan.ts` (named plan compilers)
  * - `ssh/read-commands.ts` (closed allowlisted read constructors)

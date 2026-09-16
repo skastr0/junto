@@ -1,4 +1,4 @@
-# Vellum Command pad
+# Junto pad
 
 Operator and wired agents share one page. The operator marks. The agent
 sees the same page (SVG + digest + look-here crop) and patches named
@@ -50,7 +50,7 @@ only. `@` cannot name an unwired agent.
 ### Images
 
 Bytes never live in pad JSON. The operator picks, pastes, or drops an
-image. Vellum Command stores a `ContentRef`. Agents may not upsert
+image. Junto stores a `ContentRef`. Agents may not upsert
 images.
 
 ### Ink

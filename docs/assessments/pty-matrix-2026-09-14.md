@@ -1,4 +1,4 @@
-# Vellum Command PTY matrix assessment
+# Junto PTY matrix assessment
 
 Assessment target: `eefaafff30d151c8c28f65d873d9c73bb18d3ae1`, 2026-09-14 UTC.
 This is an engineering assessment, not a claim that the reported production defect is fixed.

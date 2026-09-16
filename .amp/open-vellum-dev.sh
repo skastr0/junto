@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Launch the Vellum Command dev app on the orb Desktop, in the foreground.
+# Launch the Junto dev app on the orb Desktop, in the foreground.
 # Launched via amp-desktop-run, the Desktop supplies DISPLAY/Wayland/audio;
 # do not set display variables here.
 #

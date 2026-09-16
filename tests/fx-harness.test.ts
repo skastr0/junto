@@ -266,7 +266,7 @@ describe("fx launch shape", () => {
     expect(FX_TEMPLATE.capabilityBadges.sessionId).toBe("capture");
     expect(FX_TEMPLATE.argvSpec.promptMode).toBe("none");
     // Seat dials stay in the environment. 0.0.8 adds --full-access / --yolo
-    // argv; Vellum Command must not emit them.
+    // argv; Junto must not emit them.
     expect(FX_TEMPLATE.argvSpec.modelFlag).toBeUndefined();
     expect(FX_TEMPLATE.argvSpec.effortFlag).toBeUndefined();
     expect(FX_TEMPLATE.argvSpec.permissionModeFlag).toBeUndefined();

@@ -20,7 +20,7 @@ the bootstrap or installer is being prepared, use the source-build instructions
 below or wait; do not extract the archive or execute its bundled CLI.
 
 Download the three payload files into a new private directory. Close any
-previously extracted Vellum Command desktop before installing or launching the
+previously extracted Junto desktop before installing or launching the
 managed copy. Do not extract the archive and do not run code from it. In that
 download directory, replace the approved values from the current GitHub guide:
 
@@ -67,7 +67,7 @@ download directory, replace the approved values from the current GitHub guide:
 ```
 
 Obtain `gh` (2.68.0 or newer) from an independently trusted host source, not
-from the candidate archive or the Vellum Command download page. Stop on an
+from the candidate archive or the Junto download page. Stop on an
 attestation or signature mismatch. The bootstrap then verifies the signed
 descriptor and exact archive/source inputs with its embedded release trust,
 stages an immutable owner-local generation and creates the stable launcher and
@@ -164,11 +164,11 @@ uses AppArmor ABI 4.0, imports `tunables/global`, names the profile
 no second rule in the profile body.
 
 This file is external host preparation only. It is intentionally excluded from
-the Vellum Command package, signed rootless payload, installer, updater, and
-runtime resources. Vellum Command never invokes `sudo`, loads or installs this
+the Junto package, signed rootless payload, installer, updater, and
+runtime resources. Junto never invokes `sudo`, loads or installs this
 profile, asks for administrator credentials, or edits host policy. An operator
 or host administrator separately reviews and installs the exact checked-in
-file. Installing the policy does not move the executable or any Vellum Command
+file. Installing the policy does not move the executable or any Junto
 state into a root-owned location; the application package remains rootless.
 
 ## Review and load the exact policy
@@ -215,7 +215,7 @@ wait "$ALPHA_PID"
 ```
 
 Confirm that the window opens natively and that the label is
-`vellum-command (unconfined)`. Close Vellum Command normally so `wait` returns.
+`vellum-command (unconfined)`. Close Junto normally so `wait` returns.
 A missing profile, a different label, or a Chromium namespace failure is a
 failed Alpha test, not permission to weaken the host.
 
@@ -239,7 +239,7 @@ wait "$ALPHA_PID"
 ```
 
 Confirm that the window opens through native Wayland and that the label is
-`vellum-command (unconfined)`. Close Vellum Command normally so `wait` returns.
+`vellum-command (unconfined)`. Close Junto normally so `wait` returns.
 Record the Ubuntu version, display session, installed Alpha version, policy
 file digest, label, and result as qualification evidence.
 
@@ -247,7 +247,7 @@ file digest, label, and result as qualification evidence.
 
 Never add `--no-sandbox` or `--disable-setuid-sandbox`, change a global
 user-namespace sysctl, install or alter a setuid Chromium sandbox, disable
-AppArmor, run the Vellum Command executable as root, or broaden the profile.
+AppArmor, run the Junto executable as root, or broaden the profile.
 The exact `userns,` grant is the Alpha sandbox boundary. If it does not work on
 the stock Ubuntu 24.04 host, stop qualification and retain the failure.
 
@@ -262,5 +262,5 @@ sudo apparmor_parser -R "$PROFILE_DESTINATION"
 sudo rm -- "$PROFILE_DESTINATION"
 ```
 
-Removal does not uninstall or mutate the rootless Vellum Command Alpha bytes.
+Removal does not uninstall or mutate the rootless Junto Alpha bytes.
 A later Alpha test must reinstall the exact reviewed policy before launch.

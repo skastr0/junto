@@ -36,11 +36,11 @@ export interface HostDeployJobSnapshot {
 
 /** Copy / sign / restart / wait — recorded while SSH answers. */
 export const HOST_RUNTIME_REMEDY_STAGE = {
-  copy: "Copying Vellum Command",
-  copyAgain: "Copying Vellum Command again",
-  sign: "Signing Vellum Command",
-  restart: "Restarting Vellum Command",
-  wait: "Waiting for Vellum Command to answer",
+  copy: "Copying Junto",
+  copyAgain: "Copying Junto again",
+  sign: "Signing Junto",
+  restart: "Restarting Junto",
+  wait: "Waiting for Junto to answer",
 } as const;
 
 /** Rough milestone weights for progress bar (labels match appendStage prefixes). */
@@ -54,9 +54,9 @@ export const DEPLOY_STAGE_MILESTONES: ReadonlyArray<{
   { match: /^signed artifact admitted/u, percent: 20 },
   { match: /^preflight ok/u, percent: 30 },
   { match: /^Paused new terminal sessions/u, percent: 35 },
-  { match: /^Copying Vellum Command/u, percent: 40 },
+  { match: /^Copying Junto/u, percent: 40 },
   { match: /^first-install package .+ installed/u, percent: 55 },
-  { match: /^Signing Vellum Command/u, percent: 58 },
+  { match: /^Signing Junto/u, percent: 58 },
   { match: /^starting sealed adopt/u, percent: 60 },
   {
     match: /station configured via enrollment bootstrap/u,
@@ -66,9 +66,9 @@ export const DEPLOY_STAGE_MILESTONES: ReadonlyArray<{
     match: /retrying package activation for work-control readiness/u,
     percent: 75,
   },
-  { match: /^Restarting Vellum Command/u, percent: 80 },
+  { match: /^Restarting Junto/u, percent: 80 },
   { match: /^root-owned transaction .+ committed/u, percent: 85 },
-  { match: /^Waiting for Vellum Command to answer/u, percent: 90 },
+  { match: /^Waiting for Junto to answer/u, percent: 90 },
   { match: /^systemd generation/u, percent: 95 },
 ];
 
@@ -105,7 +105,7 @@ export const percentFromStages = (
   return best;
 };
 
-const COPY_STAGE = /^Copying Vellum Command/u;
+const COPY_STAGE = /^Copying Junto/u;
 /** Copy sits at milestone 40; live bytes fill 40–54 until the payload is gone. */
 export const COPY_PERCENT_FLOOR = 40;
 export const COPY_PERCENT_CEILING = 54;

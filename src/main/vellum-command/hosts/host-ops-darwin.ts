@@ -193,7 +193,7 @@ export const copyDarwinHost = (
 
       const appPath = resolveLocalAppBundle();
       if (appPath === null) {
-        return fail("local Vellum Command.app was not found");
+        return fail("local Junto.app was not found");
       }
       const admission = yield* Effect.tryPromise({
         try: () => admitLocalAppBundle(appPath),

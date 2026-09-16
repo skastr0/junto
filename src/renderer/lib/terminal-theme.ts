@@ -5,7 +5,7 @@ export { colorFgBgFor, schemeDsrFor } from "@shared/theme";
 import { themeFor } from "./theme";
 
 /**
- * Complete Vellum Command xterm theme — ground/ink/cursor/selection plus the
+ * Complete Junto xterm theme — ground/ink/cursor/selection plus the
  * full 16-color ANSI table projected from the shared token source. One look for
  * every terminal surface. Never post-process the terminal with
  * brightness/inversion filters; semantic colors, diffs, and images stay honest.

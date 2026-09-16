@@ -599,7 +599,7 @@ export const textNode = (id: string, text: string, x = 0, y = 0): TextNode => ({
   height: 120,
 });
 
-/** Vellum Command-owned native terminal node (entity.kind terminal + ether.terminal).
+/** Junto-owned native terminal node (entity.kind terminal + ether.terminal).
  * Session starts on open / create — no Start button on the card. */
 export const terminalTextNode = (input: {
   readonly id: string;

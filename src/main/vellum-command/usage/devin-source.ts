@@ -283,7 +283,7 @@ const fetchOnce = async (
     const headers: Record<string, string> = {
       Authorization: `Bearer ${credential.bearerToken}`,
       Accept: "application/json",
-      "User-Agent": "Vellum Command",
+      "User-Agent": "Junto",
     };
     if (credential.internalOrganizationId !== undefined) {
       headers["x-cog-org-id"] = credential.internalOrganizationId;

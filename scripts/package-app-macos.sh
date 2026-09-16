@@ -79,8 +79,8 @@ fi
 CSC_IDENTITY_AUTO_DISCOVERY=false bunx --no-install electron-builder --mac --publish never \
   --config.mac.notarize=false "${SIGN_ARGS[@]}" --config.directories.output="$ATTEMPT_DIR"
 DRAFT_APP="$ATTEMPT_DIR/$APP_OUTPUT_DIR/${PRODUCT_NAME}.app"
-DRAFT_ZIP="$ATTEMPT_DIR/Vellum-Command-${PACKAGE_VERSION}-${TARGET_ARCH}-mac.zip"
-DRAFT_DMG="$ATTEMPT_DIR/Vellum-Command-${PACKAGE_VERSION}-${TARGET_ARCH}-mac.dmg"
+DRAFT_ZIP="$ATTEMPT_DIR/Junto-${PACKAGE_VERSION}-${TARGET_ARCH}-mac.zip"
+DRAFT_DMG="$ATTEMPT_DIR/Junto-${PACKAGE_VERSION}-${TARGET_ARCH}-mac.dmg"
 assert_app_bundle "$DRAFT_APP"
 for candidate in "$DRAFT_ZIP" "$DRAFT_DMG"; do
   if [[ ! -f "$candidate" || -L "$candidate" ]]; then

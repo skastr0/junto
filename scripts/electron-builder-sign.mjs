@@ -31,7 +31,7 @@ const validatePolicies = (runtimePolicy, packagePolicy) => {
     !isRecord(packagePolicy) ||
     typeof packagePolicy.productName !== "string"
   ) {
-    throw new Error("invalid Vellum Command macOS signing policy");
+    throw new Error("invalid Junto macOS signing policy");
   }
   if (
     Object.keys(runtimePolicy.profiles).sort().join(",") !== "jit,none" ||

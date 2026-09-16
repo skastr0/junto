@@ -16,7 +16,7 @@ import { __resetVellumCommandHomeCache } from "../src/shared/vellum-home";
  * Antigravity has no system-prompt flag, so its Tier-A carrier is a DIRECTORY:
  * `--add-dir <dir>` mounts an app-owned dir whose AGENTS.md loads as doctrine.
  * Official 1.2.1 best-practices also parse a workspace-root AGENTS.md /
- * GEMINI.md; Vellum Command still writes only the app-owned dir. The 1.1.20
+ * GEMINI.md; Junto still writes only the app-owned dir. The 1.1.20
  * added-dir canary was not re-run on 1.2.1 (UNVERIFIED).
  */
 describe("agy doctrine rides an app-owned --add-dir rules directory", () => {
@@ -89,7 +89,7 @@ describe("agy doctrine rides an app-owned --add-dir rules directory", () => {
     expect(argv).toContain("--add-dir");
     expect(argv[argv.indexOf("--add-dir") + 1]).toBe(dir);
     const body = fs.readFileSync(path.join(dir!, AGENT_RULES_FILENAME), "utf8");
-    expect(body).toContain("Vellum Command");
+    expect(body).toContain("Junto");
     expect(body).toContain("vellum-command");
     // Tier A: the doctrine is a spawn-time fact, not a typed first message.
     expect(plan?.firstTypedMessage).toBeUndefined();
@@ -138,6 +138,6 @@ describe("agy doctrine rides an app-owned --add-dir rules directory", () => {
     const argv = plan.launch.argv ?? [];
     expect(argv).not.toContain("--add-dir");
     const carried = plan.firstTypedMessage ?? argv[argv.indexOf("-i") + 1];
-    expect(carried).toContain("Vellum Command");
+    expect(carried).toContain("Junto");
   });
 });

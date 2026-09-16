@@ -60,7 +60,7 @@ export function PadDetail({
       }
       const api = getVellumCommandApi();
       if (!api) {
-        setError("Vellum Command work plane is unavailable.");
+        setError("Junto work plane is unavailable.");
         return null;
       }
       const seq = ++readSeqRef.current;
@@ -108,7 +108,7 @@ export function PadDetail({
     async (patches: ReadonlyArray<PadPatch>): Promise<PadCommitOutcome> => {
       const api = getVellumCommandApi();
       if (!api) {
-        return { ok: false, message: "Vellum Command work plane is unavailable." };
+        return { ok: false, message: "Junto work plane is unavailable." };
       }
       setError(null);
       commitInFlightRef.current = true;
@@ -117,7 +117,7 @@ export function PadDetail({
           acceptWorkResult(canvasName(), await api.workPadPatch(canvasName(), node.id, patches)),
         );
         if (!result) {
-          return { ok: false, message: "Vellum Command work plane is unavailable." };
+          return { ok: false, message: "Junto work plane is unavailable." };
         }
         if (!result.ok) {
           return { ok: false, code: result.code, message: result.message };

@@ -29,7 +29,7 @@ const boxId = Schema.decodeUnknownSync(BoxId)("bx_c79mgja6");
 const machine = {
   box: {
     id: boxId,
-    name: "Vellum Command qualification",
+    name: "Junto qualification",
     ip: "203.0.113.8",
     state: "running",
     createdAt: "2026-07-27T00:00:00.000Z",
@@ -196,7 +196,7 @@ describe("Box CLI adapter", () => {
     ]);
     expect(result).toEqual({
       id: boxId,
-      name: "Vellum Command qualification",
+      name: "Junto qualification",
       ip: "203.0.113.8",
       state: "running",
       createdAt: "2026-07-27T00:00:00.000Z",

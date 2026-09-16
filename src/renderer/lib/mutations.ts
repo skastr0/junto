@@ -1014,7 +1014,7 @@ const deleteNodesInternal = async (
       await finishDeleteLeases("aborted");
       if (canvasMutationAdmissionOpen) {
         state$.error.set(
-          "Vellum Command could not fence the managed terminal; the agent node was not deleted.",
+          "Junto could not fence the managed terminal; the agent node was not deleted.",
         );
       }
       return;
@@ -1029,7 +1029,7 @@ const deleteNodesInternal = async (
       if (canvasMutationAdmissionOpen) {
         state$.error.set(
           canvasGenerationMatches()
-            ? "Vellum Command could not stop the managed terminal cleanly; the agent node was not deleted."
+            ? "Junto could not stop the managed terminal cleanly; the agent node was not deleted."
             : "Canvas changed before deletion completed; no nodes were deleted.",
         );
       }
@@ -1040,7 +1040,7 @@ const deleteNodesInternal = async (
       if (canvasMutationAdmissionOpen) {
         state$.error.set(
           canvasGenerationMatches()
-            ? "Vellum Command could not stop the managed terminal cleanly; the agent node was not deleted."
+            ? "Junto could not stop the managed terminal cleanly; the agent node was not deleted."
             : "Canvas changed before deletion completed; no nodes were deleted.",
         );
       }

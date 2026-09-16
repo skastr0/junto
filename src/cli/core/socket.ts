@@ -50,8 +50,8 @@ const readToken = (tokenPath: string) =>
     try: async () => (await readFile(tokenPath, "utf8")).trim(),
     catch: () =>
       new RuntimeDown({
-        message: "work control token unavailable — is Vellum Command running?",
-        next_step: "launch Vellum Command, then `vellum-command doctor`",
+        message: "work control token unavailable — is Junto running?",
+        next_step: "launch Junto, then `vellum-command doctor`",
       }),
   });
 
@@ -141,7 +141,7 @@ const ndjsonCall = (
           new RuntimeDown({
             message:
               error instanceof Error ? error.message : "failed to open work control socket",
-            next_step: "launch Vellum Command, then `vellum-command doctor`",
+            next_step: "launch Junto, then `vellum-command doctor`",
           }),
         ),
       );
@@ -230,8 +230,8 @@ const ndjsonCall = (
         settle(
           Effect.fail(
             new RuntimeDown({
-              message: "Vellum Command app is not running (work socket down)",
-              next_step: "launch Vellum Command, then `vellum-command doctor`",
+              message: "Junto app is not running (work socket down)",
+              next_step: "launch Junto, then `vellum-command doctor`",
             }),
           ),
         );
@@ -268,8 +268,8 @@ export const WorkSocketLive = Layer.succeed(
         if (!token) {
           return yield* Effect.fail(
             new RuntimeDown({
-              message: "work control token empty — is Vellum Command running?",
-              next_step: "launch Vellum Command, then `vellum-command doctor`",
+              message: "work control token empty — is Junto running?",
+              next_step: "launch Junto, then `vellum-command doctor`",
             }),
           );
         }

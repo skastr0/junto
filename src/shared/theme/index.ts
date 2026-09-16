@@ -8,7 +8,7 @@ import {
   THEME_MODES,
 } from "./semantic";
 
-// The one source of truth for the Vellum Command design language. Projections:
+// The one source of truth for the Junto design language. Projections:
 //   - Tailwind theme CSS  -> scripts/theme-build.ts (theme.generated.css)
 //   - TS runtime mirror   -> src/renderer/lib/theme.ts (re-exports this)
 //   - SVG export palette  -> src/shared/svg.ts (imports this)
@@ -109,7 +109,7 @@ export const colorFgBgFor = (mode: ThemeMode): string =>
 
 /**
  * CSI ?997;1n (dark) / ?997;2n (light) — Contour/Kitty colour-scheme DSR.
- * Vellum Command dark ≡ dark scheme; bright ≡ light scheme.
+ * Junto dark ≡ dark scheme; bright ≡ light scheme.
  */
 export const schemeDsrFor = (mode: ThemeMode): string =>
   mode === "bright" ? "\x1b[?997;2n" : "\x1b[?997;1n";

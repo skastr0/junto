@@ -264,14 +264,14 @@ const parseHostOpsCopyPhase = (
     return {
       ok: true,
       phase: "enrollment",
-      detail: "Vellum Command is installed and waiting to join the fleet",
+      detail: "Junto is installed and waiting to join the fleet",
     };
   }
   if (/^STATION_READY pid=[1-9][0-9]* term=1 browser=1$/mu.test(stdout)) {
     return {
       ok: true,
       phase: "runtime",
-      detail: "Vellum Command is running on this Mac",
+      detail: "Junto is running on this Mac",
     };
   }
   const diagnostic = stderr.trim() || stdout.trim();
@@ -279,7 +279,7 @@ const parseHostOpsCopyPhase = (
     ok: false,
     detail:
       diagnostic.slice(0, 900) ||
-      "Vellum Command install did not prove enrollment or runtime readiness",
+      "Junto install did not prove enrollment or runtime readiness",
   };
 };
 
@@ -605,7 +605,7 @@ export const observeRemoteHost = (
               : { priorInstallationId: input.priorInstallationId }),
             blocker: {
               kind: "unsupported",
-              detail: `${host.label} is not macOS or Linux. Vellum Command cannot deploy there.`,
+              detail: `${host.label} is not macOS or Linux. Junto cannot deploy there.`,
             },
           };
         }

@@ -143,7 +143,7 @@ export const WELL_KNOWN_ENTITY_KINDS = [
   "git",
 ] as const;
 
-// Bound Vellum Command-owned terminal work surface (flat session binding).
+// Bound Junto-owned terminal work surface (flat session binding).
 // Document stores stable bindingId + optional launch profile only.
 // Runtime owns epochs/PTYs/presentation — never PIDs, sockets, or scrollback here.
 // onDelete default is detach: removing the card does not kill while the app lives;
@@ -195,7 +195,7 @@ export const resolveTerminalOnDelete = (
 // cookies live in ~/.vellum-command/browser (runtime), never in the canvas document.
 // Native JSON Canvas type remains `link` (url); kind "page" + ether.browser
 // upgrade the node to an in-app session binding. onDelete default is
-// kill-session: deleting the page node closes the Vellum Command-owned session for
+// kill-session: deleting the page node closes the Junto-owned session for
 // that ref (Phase 5). Operators may still author onDelete: "detach" to keep a
 // warm session when removing the card only. Cookies remain profile-local.
 export const BrowserOnDelete = Schema.Literals(["detach", "kill-session"]);

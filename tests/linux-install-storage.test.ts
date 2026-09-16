@@ -67,7 +67,7 @@ const makeAsar = async (root: string, version: string): Promise<Buffer> => {
   const main = Buffer.from(`// harmless packaged fixture\n/* VELLUM_COMMAND_RUNTIME_BUILD_IDENTITY:${Buffer.from(JSON.stringify(buildIdentity)).toString("base64url")} */\n`);
   await writeFile(join(directory, "package.json"), JSON.stringify({ name: "@skastr0/vellum-command", version }));
   await writeFile(join(directory, "out/main/index.js"), main);
-  await writeFile(join(directory, "out/package-runtime-provenance.json"), JSON.stringify({ schema: "vellum-command/package-runtime-provenance/v2", product: "Vellum Command", runtime: "electron-main", appVersion: version, sourceCommit: SOURCE, buildIdentity, state: {}, payload: { packagedPath: "out/main/index.js", bytes: main.length, sha256: sha256(main) } }));
+  await writeFile(join(directory, "out/package-runtime-provenance.json"), JSON.stringify({ schema: "vellum-command/package-runtime-provenance/v2", product: "Junto", runtime: "electron-main", appVersion: version, sourceCommit: SOURCE, buildIdentity, state: {}, payload: { packagedPath: "out/main/index.js", bytes: main.length, sha256: sha256(main) } }));
   const path = `${directory}.asar`;
   await createPackage(directory, path);
   return readFile(path);
@@ -91,7 +91,7 @@ const fixture = async (options: { home?: string; root?: string; version?: string
   await writeFile(archivePath, bytes);
   const filename = `vellum-command-runtime-${version}-linux-x64.tar.gz`;
   const descriptor: LinuxDesktopReleaseDescriptor = {
-    schema: LINUX_DESKTOP_RELEASE_SCHEMA, product: "Vellum Command", channel: "alpha", version, sourceRevision: SOURCE,
+    schema: LINUX_DESKTOP_RELEASE_SCHEMA, product: "Junto", channel: "alpha", version, sourceRevision: SOURCE,
     createdAt: "2026-01-01T00:00:00.000Z", target: LINUX_DESKTOP_TARGET,
     archive: { file: filename, path: `/linux/x64/${filename}`, bytes: bytes.length, sha256: sha256(bytes) },
     sources: { path: `/linux/x64/sources/${version}/sources.json`, bytes: 1, sha256: "b".repeat(64) },

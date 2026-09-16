@@ -1,17 +1,17 @@
-# TUI Horizons — what owning the PTY master buys Vellum Command beyond agent driving
+# TUI Horizons — what owning the PTY master buys Junto beyond agent driving
 
 Scope: terminal automation surface that follows from the settled managed-terminal
-design (Vellum Command spawns the full interactive TUI in a PTY it owns, renders via
+design (Junto spawns the full interactive TUI in a PTY it owns, renders via
 xterm, drives by writing bytes). Not a relitigation of that design. Every
 mechanism below is either read out of this repo, read out of an installed
 dependency's own typings/dist, or cited to a vendor/primary doc.
 
 ---
 
-## 0 - Where Vellum Command actually stands today (read, not assumed)
+## 0 - Where Junto actually stands today (read, not assumed)
 
 Four powers come with the master side: **spawn** (you choose argv + env),
-**read every byte**, **maintain the emulated cell grid**, **write bytes**. Vellum Command
+**read every byte**, **maintain the emulated cell grid**, **write bytes**. Junto
 has 1, 2 and 4 wired. It has **no grid it can reason about** and **no escape-code
 parsing at all**.
 
@@ -36,9 +36,9 @@ Two consequences that shape everything downstream:
    ("keep track of a terminal's state on a remote server where the process is
    hosted" — [npm](https://www.npmjs.com/package/@xterm/headless)) and is *not*
    currently a dependency (`ls node_modules/@xterm/` → `addon-fit`, `xterm` only).
-2. **Vellum Command currently throws away structure it is already receiving.** Every
+2. **Junto currently throws away structure it is already receiving.** Every
    harness and every well-behaved CLI already emits titles, bells, mode switches,
-   and (increasingly) OSC 133 marks into that byte stream. Vellum Command forwards them to
+   and (increasingly) OSC 133 marks into that byte stream. Junto forwards them to
    xterm for painting and discards them as signal. This is the single largest
    cheap win in the whole report.
 
@@ -127,7 +127,7 @@ Same A/B/C/D skeleton plus:
 
 VS Code also accepts OSC 133 and iTerm2 OSC 1337 for compatibility.
 
-### Could Vellum Command inject this into plain terminal nodes?
+### Could Junto inject this into plain terminal nodes?
 
 Yes, and the injection point already exists and is already the right shape:
 `local-host.ts:241–245` merges `{...process.env, ...launch.env, TERM, COLORTERM}`.
@@ -138,7 +138,7 @@ But three constraints from this repo bind the design:
 - **The settled doctrine is ZERO writes to the user's harness config.** That
   doctrine is about *harness* config, and the same logic obviously extends to the
   user's shell rc. So the iTerm2 model (append a `source` line to `~/.zshrc`) is
-  **out**. The kitty/VS Code model — ship Vellum Command's own integration script inside
+  **out**. The kitty/VS Code model — ship Junto's own integration script inside
   the app bundle, point the shell at it via env at spawn, have the script chain to
   the user's real rc, then unset the marker var — is **in**, and is the same
   mechanism both of those terminals ship in production.
@@ -148,7 +148,7 @@ But three constraints from this repo bind the design:
   guaranteed family. Fail-open (no injection, no marks) is the correct failure
   mode, and it degrades to exactly today's behavior.
 - **Marks must be trust-tagged, not trusted.** Any child process can `printf`
-  `\e]133;D;0\a`. Adopt the VS Code nonce discipline: Vellum Command mints a per-session
+  `\e]133;D;0\a`. Adopt the VS Code nonce discipline: Junto mints a per-session
   nonce at spawn, the injected script includes it, and unnonced marks are treated
   as *presentational* (fine for painting a gutter dot) but never as
   *authoritative* (never gate a task-state transition, never satisfy a proof
@@ -168,12 +168,12 @@ collide across vendors ([terminfo.dev](https://terminfo.dev/osc)).
 
 ### Universally emitted, zero adoption cost
 
-| code | form | what it carries | Vellum Command use |
+| code | form | what it carries | Junto use |
 |---|---|---|---|
 | `0` / `2` | `ESC]0;text ST` / `ESC]2;text ST` | window/icon title | **the cheapest state feed there is.** Many TUIs park progress + activity here. xterm.js surfaces it as a first-class event: `onTitleChange: IEvent<string>` (`xterm.d.ts:999–1003`, "OSC 0 or OSC 2") |
 | `7` | `ESC]7;file://HOST/PATH ST` | cwd | per-node cwd badge; correct `cwd` for a station CLI invocation without asking the agent |
 | `8` | `ESC]8;params;url ST … ESC]8;;ST` | hyperlink | clickable URLs from tool output — including the dev-server URL, handed over as data instead of regexed. Not supported by Terminal.app; supported by everything else |
-| `52` | `ESC]52;c;<base64> ST` | clipboard write | a TUI can hand Vellum Command a payload deliberately. Note: clipboard *read* is refused by ghostty/warp/kitty/Terminal.app — treat write-only |
+| `52` | `ESC]52;c;<base64> ST` | clipboard write | a TUI can hand Junto a payload deliberately. Note: clipboard *read* is refused by ghostty/warp/kitty/Terminal.app — treat write-only |
 
 ### Notification / attention family (four competing spellings)
 
@@ -218,7 +218,7 @@ uv/winget/rsync.
 [systemd v257](https://0pointer.net/blog/announcing-systemd-v257.html))
 
 **Ghostty 1.3.0 gotcha:** `RIS` (full reset) now also resets the progress bar —
-i.e. progress state is terminal-lifetime state that a reset clears. Any Vellum Command
+i.e. progress state is terminal-lifetime state that a reset clears. Any Junto
 progress ring must clear on `RIS`, not linger.
 
 Note the collision hazard: `OSC 9` means "notification" (iTerm2) *and*
@@ -234,11 +234,11 @@ Dispatch on the **first sub-parameter**, never on `9` alone.
 `SetKeyLabel=<key>=<value>`, `ShellIntegrationVersion=<v>;<shell>`,
 `Custom=id=<secret>:<pattern>`.
 
-Two of these matter for Vellum Command. **`SetUserVar`** is a generic key→value side
+Two of these matter for Junto. **`SetUserVar`** is a generic key→value side
 channel from any process to the terminal — WezTerm adopted it and fires a
 `user-var-changed` event on it ([wezterm](https://wezterm.org/shell-integration.html)).
 It is the lowest-ceremony way for a *cooperating* tool to publish structured
-state without Vellum Command shipping a protocol. And **`Custom=id=<secret>:<pattern>`**
+state without Junto shipping a protocol. And **`Custom=id=<secret>:<pattern>`**
 is iTerm2 arriving independently at the same nonce answer §1 landed on:
 proprietary sequences authenticated by a shared secret.
 
@@ -248,7 +248,7 @@ This is the finding I did not expect. xterm.js exposes parsed terminal **modes**
 as readable state (`xterm.d.ts:1907–1956`), all verified present in the shipped
 bundle (`grep -o "synchronizedOutputMode\|2026\|1047\|1048\|1049" node_modules/@xterm/xterm/lib/xterm.js` → all hit):
 
-| mode | sequence | what it tells Vellum Command |
+| mode | sequence | what it tells Junto |
 |---|---|---|
 | `synchronizedOutputMode` | `CSI ?2026h` | **"a frame is being composed; do not read yet."** typings: "output is buffered and only rendered when the mode is disabled, allowing for atomic screen updates without tearing." A TUI using it is *handing you exact repaint boundaries* — the correct instant to scrape is the `2026l`. This is a far better idle-detection primitive than a debounce timer. |
 | `bracketedPasteMode` | `CSI ?2004h` | a readline-style input box is live and accepting paste — a direct, protocol-level signal that the input box exists, which is exactly the gate the state-gated typing design needs |
@@ -260,7 +260,7 @@ bundle (`grep -o "synchronizedOutputMode\|2026\|1047\|1048\|1049" node_modules/@
 `bracketedPasteMode` + `synchronizedOutputMode` together are a materially
 stronger, cheaper, and more portable idle/ready detector than screen scraping —
 and they require no cooperation from the harness beyond behaving like a normal
-TUI. Both are already parsed by the emulator Vellum Command already ships; nothing reads
+TUI. Both are already parsed by the emulator Junto already ships; nothing reads
 them.
 
 ---
@@ -340,16 +340,16 @@ Two disciplines that keep this honest:
 
 | system | mechanism | the transferable lesson |
 |---|---|---|
-| **tmux control mode** (`-CC`) | text protocol on stdin/stdout; every command's output fenced by `%begin <ts> <n> <flags>` … `%end`/`%error`; async notifications prefixed `%`: `%output %pane data`, `%extended-output %pane <ms-behind> : data`, `%pane-mode-changed`, `%window-add/-close/-renamed`, `%session-changed`, `%sessions-changed`, `%layout-change`, `%pause`, `%continue`, `%subscription-changed` ([tmux wiki](https://github.com/tmux/tmux/wiki/Control-Mode)) | (a) **fence every request/response so async notifications can interleave safely** — the guard-line pattern; (b) `%pause`/`%continue` + `refresh-client -f pause-after=<s>` + `%extended-output`'s *milliseconds-behind* metric is a **complete flow-control design**, including telling the client how far behind it is. Vellum Command's herdr inbound frames already carry `seq`/`full` (`src/shared/terminal-session-domain.ts:327–336`) but no lag metric and no pause. |
-| **herdr** (third-party, in-tree bridge) | stock NDJSON `terminal session control\|observe`; outbound `terminal.input`/`resize`/`scroll`/`release`, inbound `terminal.frame {bytes, full, seq, width, height}` / `terminal.closed` (`src/shared/terminal-session-domain.ts:245–345`) | frames are already **sequenced and full/delta-tagged** — the wire is diff-ready; nothing on the Vellum Command side consumes the distinction. Per standing rulings herdr stays stock/upstream-only, so its protocol is a *constraint*, not a place to add marks. |
+| **tmux control mode** (`-CC`) | text protocol on stdin/stdout; every command's output fenced by `%begin <ts> <n> <flags>` … `%end`/`%error`; async notifications prefixed `%`: `%output %pane data`, `%extended-output %pane <ms-behind> : data`, `%pane-mode-changed`, `%window-add/-close/-renamed`, `%session-changed`, `%sessions-changed`, `%layout-change`, `%pause`, `%continue`, `%subscription-changed` ([tmux wiki](https://github.com/tmux/tmux/wiki/Control-Mode)) | (a) **fence every request/response so async notifications can interleave safely** — the guard-line pattern; (b) `%pause`/`%continue` + `refresh-client -f pause-after=<s>` + `%extended-output`'s *milliseconds-behind* metric is a **complete flow-control design**, including telling the client how far behind it is. Junto's herdr inbound frames already carry `seq`/`full` (`src/shared/terminal-session-domain.ts:327–336`) but no lag metric and no pause. |
+| **herdr** (third-party, in-tree bridge) | stock NDJSON `terminal session control\|observe`; outbound `terminal.input`/`resize`/`scroll`/`release`, inbound `terminal.frame {bytes, full, seq, width, height}` / `terminal.closed` (`src/shared/terminal-session-domain.ts:245–345`) | frames are already **sequenced and full/delta-tagged** — the wire is diff-ready; nothing on the Junto side consumes the distinction. Per standing rulings herdr stays stock/upstream-only, so its protocol is a *constraint*, not a place to add marks. |
 | **expect / pexpect** | `spawn` in a pty, `expect([patterns…])` with `EOF`/`TIMEOUT` sentinels, `before`/`after`/`match` ([pexpect](https://pexpect.readthedocs.io/en/stable/overview.html)) | the canonical **stream-matching failure modes**: `$` doesn't mean end-of-line (TTYs emit `\r\n`); trailing `+`/`*` match non-greedily; `.*` can match zero chars; the matcher cannot look ahead. Every one of these bites a naive "wait for ready" rule. `expect_exact` exists because regex-on-a-stream is a trap. |
-| **VHS** | `.tape` DSL over `ttyd`; `Wait[+Screen][+Line] [@time] /re/`, `Type`, `Sleep`, `Set`, `Hide`/`Show`, `Screenshot`, `Require`, `Source` | a **recorded macro format that is executable, diffable, and CI-runnable**. Directly transplantable as the Vellum Command terminal-macro format. `Require` (declare dependencies up front) and `Hide`/`Show` (do work without recording it) are both non-obvious and both necessary. |
-| **asciinema v2** | NDJSON: header `{version:2, width, height, timestamp, duration, idle_time_limit, command, title, env, theme}` then `[time, code, data]` with `o` output / `i` input / `m` marker / `r` resize ([docs](https://docs.asciinema.org/manual/asciicast/v2/)) | the **exact schema Vellum Command's journal should have been.** Note `r` resize as a stream event and `m` markers as first-class — Vellum Command's journal already records `output` and `resize` entries with a monotonic `seq` (`local-host.ts:701`, `:526`), so it is ~one field from being valid asciicast, i.e. from being replayable by third-party players. |
-| **Warp blocks** | every command+output is a Block, carrying command / output / exit code / cwd / timing; boundaries from shell integration — originally DCS, moved to OSC ([Warp docs](https://docs.warp.dev/terminal/blocks/block-basics/)) | two hard-won details from their Windows writeup ([blog](https://www.warp.dev/blog/building-warp-on-windows)): ConPTY **dropped unrecognized DCS** entirely, and once on OSC the sequences arrived **interleaved out of order with output** — "the shell sending `START_OSC, hello world, END_OSC` could result in Warp receiving `START_OSC, hell, END_OSC, o world`." They forked ConPTY to force-flush. Also: Warp keeps **separate grids per prompt/command/output**, not one scrolling grid. macOS-only Vellum Command dodges the ConPTY bug, but the architectural point stands: **block-structured state is a different data model from a cell grid, and OSC marks are the seam between them.** |
+| **VHS** | `.tape` DSL over `ttyd`; `Wait[+Screen][+Line] [@time] /re/`, `Type`, `Sleep`, `Set`, `Hide`/`Show`, `Screenshot`, `Require`, `Source` | a **recorded macro format that is executable, diffable, and CI-runnable**. Directly transplantable as the Junto terminal-macro format. `Require` (declare dependencies up front) and `Hide`/`Show` (do work without recording it) are both non-obvious and both necessary. |
+| **asciinema v2** | NDJSON: header `{version:2, width, height, timestamp, duration, idle_time_limit, command, title, env, theme}` then `[time, code, data]` with `o` output / `i` input / `m` marker / `r` resize ([docs](https://docs.asciinema.org/manual/asciicast/v2/)) | the **exact schema Junto's journal should have been.** Note `r` resize as a stream event and `m` markers as first-class — Junto's journal already records `output` and `resize` entries with a monotonic `seq` (`local-host.ts:701`, `:526`), so it is ~one field from being valid asciicast, i.e. from being replayable by third-party players. |
+| **Warp blocks** | every command+output is a Block, carrying command / output / exit code / cwd / timing; boundaries from shell integration — originally DCS, moved to OSC ([Warp docs](https://docs.warp.dev/terminal/blocks/block-basics/)) | two hard-won details from their Windows writeup ([blog](https://www.warp.dev/blog/building-warp-on-windows)): ConPTY **dropped unrecognized DCS** entirely, and once on OSC the sequences arrived **interleaved out of order with output** — "the shell sending `START_OSC, hello world, END_OSC` could result in Warp receiving `START_OSC, hell, END_OSC, o world`." They forked ConPTY to force-flush. Also: Warp keeps **separate grids per prompt/command/output**, not one scrolling grid. macOS-only Junto dodges the ConPTY bug, but the architectural point stands: **block-structured state is a different data model from a cell grid, and OSC marks are the seam between them.** |
 
 ---
 
-## 4 - Product primitives — as Vellum Command nodes, with honest cost
+## 4 - Product primitives — as Junto nodes, with honest cost
 
 Cost is relative to the machinery the managed terminal already implies (owned
 PTY, byte stream, byte writing) **plus** the two additions §0–§3 argue for
@@ -383,7 +383,7 @@ click an in-band answer to the TUI — the cheapest possible `input-required`
 resolution path.
 
 **e) Recorded/replayable terminal macros.**
-Vellum Command already writes a sequenced journal of output+resize and already writes
+Junto already writes a sequenced journal of output+resize and already writes
 bytes to the master. A macro is: record `(input, output, resize)` in asciicast v2
 shape, replay by writing input and gating each step on a VHS-style
 `Wait+Line /re/ @timeout`. Both halves exist; the format and the gate are the
@@ -404,7 +404,7 @@ grounded detail that makes this *not* trivial, from this repo's own dependency:
   `process.stdout.isTTY && !process.env.CI` (`chunks/logger.js:262`). Its clear is
   `rows-2` newlines then `cursorTo(0,0)` + `clearScreenDown`
   (`:241–247`). So: (i) a PTY-hosted dev server *does* clear, where a piped
-  `-p`-style capture never would — Vellum Command inherits a behavior headless invocation
+  `-p`-style capture never would — Junto inherits a behavior headless invocation
   never sees; (ii) the ready line scrolls into scrollback and leaves the
   viewport, so a "read the visible screen" rule goes stale on the first HMR
   restart. **Pin it with `registerMarker` at detection time, don't re-read the
@@ -477,7 +477,7 @@ user sees in their own terminal. Two different truths; pick one deliberately.
 
 **Resize storms.** Resize is expensive at three layers at once: `pty.resize` →
 `SIGWINCH` → the child repaints its whole screen → a large byte burst → the
-emulator reflows. Vellum Command currently journals *and* emits on every resize
+emulator reflows. Junto currently journals *and* emits on every resize
 (`local-host.ts:526–535`), so a drag-resize multiplies through the whole chain.
 Mitigations: debounce/coalesce at the geometry source; treat the burst window as
 "grid not trustworthy" and suppress rule evaluation; note that xterm.js
@@ -508,7 +508,7 @@ passes in the headless grid will not match what the operator sees.
 known unsolved case. Agent TUIs are heavy emoji users; this is a live risk, not a
 theoretical one.
 
-**Escape-sequence framing and trust.** Vellum Command's journal is a **raw byte ring with
+**Escape-sequence framing and trust.** Junto's journal is a **raw byte ring with
 a byte-budget trim** (`local-host.ts:200`, `:875–880`), so a trimmed journal can
 begin mid-escape-sequence and corrupt a replayed grid. A serialized state
 snapshot has no such failure mode. Separately: `registerOscHandler` / DCS payloads

@@ -4,7 +4,7 @@
  * Prime Agent 0.7.1 opens one Unix connection per JSON request, writes one
  * newline-terminated frame, and waits for any response before disconnecting.
  * This plane deliberately implements only the two built-in lifecycle methods
- * Vellum Command needs. The random pane id is the generation capability: no
+ * Junto needs. The random pane id is the generation capability: no
  * caller-supplied binding or epoch ever crosses the socket boundary.
  */
 
@@ -40,7 +40,7 @@ export const PRIME_AGENT_REPORTER_MAX_SESSION_PATH_BYTES = 4 * 1024;
 export const PRIME_AGENT_REPORTER_MAX_CLIENTS = 16;
 
 // Wire tag Prime Agent stamps on every report. Third-party protocol value —
-// matched verbatim, never authored by Vellum Command.
+// matched verbatim, never authored by Junto.
 const PRIME_AGENT_SOURCE = "herdr:pi";
 const PRIME_AGENT_LABEL = "prime-agent";
 const DEFAULT_SHUTDOWN_GRACE_MS = 100;

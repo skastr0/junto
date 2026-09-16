@@ -1,6 +1,6 @@
-# Contributing to Vellum Command
+# Contributing to Junto
 
-Vellum Command is solo-maintained. The contribution channel is
+Junto is solo-maintained. The contribution channel is
 [GitHub issues](https://github.com/skastr0/vellum-command/issues): reproducible bugs,
 documentation corrections, and focused proposals are welcome.
 

@@ -66,7 +66,7 @@ const fixture = async () => {
   const sources = path.join(root, "sources.json");
   const index = {
     schema: "vellum-command/release-sources/v1",
-    product: "Vellum Command",
+    product: "Junto",
     version,
     sourceCommit: sourceRevision,
     access: "same-download-location",

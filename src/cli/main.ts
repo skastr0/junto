@@ -69,7 +69,7 @@ export { earlyDispatchFromArgv } from "./early-dispatch";
 
 export const rootCommand = Command.make(CLI_NAME).pipe(
   Command.withDescription(
-    "Vellum Command agent and direct-operator protocol surfaces (JSON only)",
+    "Junto agent and direct-operator protocol surfaces (JSON only)",
   ),
   Command.withSubcommands([
     pingCommand,
@@ -148,7 +148,7 @@ if (import.meta.main) {
     if (LIVE_OVERSEER_ENABLED) {
       await runOverseerHost(dispatch.args);
     } else {
-      process.stderr.write("Vellum Command live conversation is disabled in this build\n");
+      process.stderr.write("Junto live conversation is disabled in this build\n");
       process.exitCode = 2;
     }
   } else if (dispatch.kind === "browser") {
@@ -164,7 +164,7 @@ if (import.meta.main) {
     (dispatch.args[0] === "fleet" || dispatch.args[0] === "qualification")
   ) {
     process.stderr.write(
-      `vellum-command ${dispatch.args[0]}: disabled in this Vellum Command build\n`,
+      `vellum-command ${dispatch.args[0]}: disabled in this Junto build\n`,
     );
     process.exitCode = 2;
   } else if (
@@ -172,7 +172,7 @@ if (import.meta.main) {
     disabledCliGroup(dispatch.args) !== undefined
   ) {
     process.stderr.write(
-      `vellum-command ${disabledCliGroup(dispatch.args)}: disabled in this Vellum Command build\n`,
+      `vellum-command ${disabledCliGroup(dispatch.args)}: disabled in this Junto build\n`,
     );
     process.exitCode = 2;
   } else if (dispatch.kind === "station-stdio") {

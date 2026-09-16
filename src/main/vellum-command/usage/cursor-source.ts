@@ -569,7 +569,7 @@ export const probeCursorUsage = async (
   const headers = (): Record<string, string> => ({
     Cookie: cookieHeader,
     Accept: "application/json",
-    "User-Agent": "Vellum Command",
+    "User-Agent": "Junto",
   });
 
   try {

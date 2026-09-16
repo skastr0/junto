@@ -44,10 +44,10 @@ describe("compiled macOS release trust", () => {
     vi.stubGlobal("__VELLUM_COMMAND_MAC_SIGNING_IDENTITY__", undefined);
     expect(() => compiledMacSigningPolicy()).toThrow(/release trust is not configured/);
     expect(() => validateLocalBundleProvenance({
-      appPath: "/missing/Vellum Command.app",
-      executablePath: "/missing/Vellum Command.app/Contents/MacOS/Vellum Command",
+      appPath: "/missing/Junto.app",
+      executablePath: "/missing/Junto.app/Contents/MacOS/Junto",
       bundleIdentifier: "skastr0.vellumcommand",
-      bundleExecutable: "Vellum Command",
+      bundleExecutable: "Junto",
       bundleVersion: "0.2.0",
       codesignMetadata: `TeamIdentifier=${team}\nAuthority=${authority}`,
     })).toThrow(/release trust is not configured/);
@@ -56,7 +56,7 @@ describe("compiled macOS release trust", () => {
       expectedPackageState: "absent",
     })).toThrow(/release trust is not configured/);
     const runCommand = vi.fn();
-    await expect(admitStagedMacApp("/missing/Vellum Command.app", { runCommand }))
+    await expect(admitStagedMacApp("/missing/Junto.app", { runCommand }))
       .rejects.toThrow(/release trust is not configured/);
     expect(runCommand).not.toHaveBeenCalled();
   });
@@ -66,15 +66,15 @@ describe("compiled macOS release trust", () => {
     vi.stubGlobal("__VELLUM_COMMAND_MAC_SIGNING_IDENTITY__", authority);
     const root = await mkdtemp(join(tmpdir(), "vellum-command-mac-admit-"));
     try {
-      const appPath = join(root, "Vellum Command.app");
-      const executable = join(appPath, "Contents", "MacOS", "Vellum Command");
+      const appPath = join(root, "Junto.app");
+      const executable = join(appPath, "Contents", "MacOS", "Junto");
       await mkdir(join(appPath, "Contents", "MacOS"), { recursive: true });
       await writeFile(executable, "synthetic signed executable");
       await chmod(executable, 0o700);
       await writeFile(join(appPath, "Contents", "Info.plist"), "synthetic signed plist");
       const runCommand = vi.fn(async (_command: string, args: readonly string[]) => ({
         code: 0, stderr: "", stdout: args.includes("CFBundleIdentifier") ? "skastr0.vellumcommand" :
-          args.includes("CFBundleExecutable") ? "Vellum Command" : args.includes("CFBundleShortVersionString") ? "0.2.0" : "",
+          args.includes("CFBundleExecutable") ? "Junto" : args.includes("CFBundleShortVersionString") ? "0.2.0" : "",
       }));
       await expect(admitStagedMacApp(appPath, { runCommand, expectedVersion: "0.2.1" })).rejects.toThrow(/version does not match/);
       await expect(admitStagedMacApp(appPath, { runCommand, expectedVersion: "0.2.0" })).resolves.toBeUndefined();

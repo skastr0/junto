@@ -152,7 +152,7 @@ test("SHIP station detail shows probe truth and main-owned deploy gating", async
     await expect(detail).toContainText("remote-a");
     await expect(detail.getByText("Remote deploy", { exact: true })).toBeVisible();
     await expect(detail.locator(".fleet-detail__section-label", { hasText: "Linux host" })).toHaveCount(0);
-    const deploy = detail.getByRole("button", { name: "Deploy Vellum Command Remote" });
+    const deploy = detail.getByRole("button", { name: "Deploy Junto Remote" });
     await expect(deploy).toBeDisabled();
     await expect(detail).toContainText(/turned off|disabled/i);
     await expect(detail.getByRole("button", { name: "Configure Remote" })).toBeEnabled();

@@ -184,7 +184,7 @@ export const aggregateGrokUpdates = (files: ReadonlyArray<string>): GrokAggregat
 // Strategy pipeline: CLI credits proxy -> grok.com gRPC-web -> local sessions.
 //
 // Adapter constraint notes: the primary auto-mode strategy spawns an interactive
-// `grok agent stdio` JSON-RPC session, but Vellum Command's shared adapter
+// `grok agent stdio` JSON-RPC session, but Junto's shared adapter
 // plane closes child stdin immediately (exec.ts runCli), so a multi-turn RPC
 // exchange is unrepresentable here - the bearer-token surfaces below are the
 // supported live path, with the local session scan as the honest floor.
@@ -309,7 +309,7 @@ const grokApiHeaders = (accessToken: string): Record<string, string> => ({
   Authorization: `Bearer ${accessToken}`,
   "x-xai-token-auth": "xai-grok-cli",
   Accept: "application/json",
-  "User-Agent": "Vellum Command",
+  "User-Agent": "Junto",
 });
 
 /** Tier 1: CLI credits proxy JSON billing, plus best-effort plan tier from /v1/settings. */
@@ -446,7 +446,7 @@ export const runGrokGrpcWebTier = async (
         "Content-Type": "application/grpc-web+proto",
         "x-grpc-web": "1",
         "x-user-agent": "connect-es/2.1.1",
-        "User-Agent": "Vellum Command",
+        "User-Agent": "Junto",
       },
       body: new Uint8Array([0x00, 0x00, 0x00, 0x00, 0x00]),
       signal: timeoutSignal(FETCH_TIMEOUT_MS, signal),

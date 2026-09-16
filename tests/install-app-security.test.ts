@@ -112,7 +112,7 @@ describe("hardened app installer", () => {
 
   it("fixes production identities and write targets while retaining read-only candidate selection", () => {
     expect(paths).toContain('LABEL="skastr0.vellumcommand"');
-    expect(paths).toContain('PRODUCT_NAME="Vellum Command"');
+    expect(paths).toContain('PRODUCT_NAME="Junto"');
     expect(paths).toContain('APP_BUNDLE_ID="skastr0.vellumcommand"');
     expect(paths).toContain("installer identities are fixed");
     expect(paths).toContain("installer write targets are derived");
@@ -148,9 +148,9 @@ printf '%s\n' "$APP_DST" "$PLIST" "$LOG_DIR" "$BIN_DIR" "$STATE_DATABASE"`,
     expect(result.stderr).toBe("");
     expect(result.status).toBe(0);
     expect(result.stdout.trim().split("\n")).toEqual([
-      join(sandbox, "Applications", "Vellum Command.app"),
+      join(sandbox, "Applications", "Junto.app"),
       join(sandbox, "Library", "LaunchAgents", "skastr0.vellumcommand.plist"),
-      join(sandbox, "Library", "Logs", "Vellum Command"),
+      join(sandbox, "Library", "Logs", "Junto"),
       join(sandbox, ".local", "bin"),
       join(sandbox, ".vellum-command", "state", "vellum-command.db"),
     ]);
@@ -228,7 +228,7 @@ printf '%s\n' "$APP_DST" "$PLIST" "$LOG_DIR" "$BIN_DIR" "$STATE_DATABASE"`,
   });
 
   it.each([
-    ["VELLUM_COMMAND_PRODUCT_NAME", 'Vellum Command"; touch pwned'],
+    ["VELLUM_COMMAND_PRODUCT_NAME", 'Junto"; touch pwned'],
     ["VELLUM_COMMAND_LAUNCHD_LABEL", "../../LaunchAgents/evil"],
     ["VELLUM_COMMAND_APP_ID", ""],
   ])("refuses the ambient identity override %s", (variable, value) => {
@@ -243,8 +243,8 @@ printf '%s\n' "$APP_DST" "$PLIST" "$LOG_DIR" "$BIN_DIR" "$STATE_DATABASE"`,
   it("refuses parent traversal and metacharacters in reusable path validation", () => {
     const sandbox = makeSandbox();
     for (const candidate of [
-      `${sandbox}/Applications/../Vellum Command.app`,
-      `${sandbox}/Applications/evil;name/Vellum Command.app`,
+      `${sandbox}/Applications/../Junto.app`,
+      `${sandbox}/Applications/evil;name/Junto.app`,
     ]) {
       const result = runPaths(
         sandbox,
@@ -302,7 +302,7 @@ safe_remove_install_stage`,
     const stageRoot = join(
       sandbox,
       "Applications",
-      "Vellum Command.app.new.4242",
+      "Junto.app.new.4242",
     );
     symlinkSync(outside, stageRoot, "dir");
     const symlink = runPaths(
@@ -331,7 +331,7 @@ printf retained > "$STAGE_ROOT/marker"
 safe_remove_install_stage`,
     );
     expect(result.status).not.toBe(0);
-    expect(readFileSync(join(sandbox, "Applications", "Vellum Command.app.new.4242", "marker"), "utf8")).toBe(
+    expect(readFileSync(join(sandbox, "Applications", "Junto.app.new.4242", "marker"), "utf8")).toBe(
       "retained",
     );
   });
@@ -359,7 +359,7 @@ cat "$RETIRED_APP/marker"`,
     expect(result.status).toBe(0);
     expect(result.stdout).toBe("foreign");
     expect(result.stderr).toContain(
-      "retiring app is not the exact admitted Vellum Command generation",
+      "retiring app is not the exact admitted Junto generation",
     );
   });
 
@@ -386,7 +386,7 @@ cat "$RETIRED_PLIST"`,
     expect(result.status).toBe(0);
     expect(result.stdout).toBe("foreign");
     expect(result.stderr).toContain(
-      "retiring LaunchAgent plist is not the exact admitted Vellum Command plist",
+      "retiring LaunchAgent plist is not the exact admitted Junto plist",
     );
   });
 
@@ -410,7 +410,7 @@ derive_install_transaction_paths 4242`,
           join(
             sandbox,
             "Applications",
-            `Vellum Command.app.${suffix}.4242`,
+            `Junto.app.${suffix}.4242`,
             "marker",
           ),
           "utf8",
@@ -504,7 +504,7 @@ cat "$APP_DST/marker"`,
     expect(result.status).toBe(0);
     expect(result.stdout).toBe("0\nretained");
     expect(result.stderr).toContain(
-      "current app is not an owned Vellum Command bundle",
+      "current app is not an owned Junto bundle",
     );
   });
 
@@ -553,7 +553,7 @@ cat "$PLIST"`,
     expect(result.status).toBe(0);
     expect(result.stdout).toBe("foreign");
     expect(result.stderr).toContain(
-      "existing LaunchAgent plist is not owned by Vellum Command",
+      "existing LaunchAgent plist is not owned by Junto",
     );
   });
 
@@ -565,10 +565,10 @@ cat "$PLIST"`,
     const program = join(
       sandbox,
       "Applications",
-      "Vellum Command.app",
+      "Junto.app",
       "Contents",
       "MacOS",
-      "Vellum Command",
+      "Junto",
     );
     writeFileSync(
       plist,

@@ -1,6 +1,6 @@
 import { Schema } from "effect";
 
-/** Stable identity of one Vellum Command database installation. */
+/** Stable identity of one Junto database installation. */
 export const InstallationId = Schema.String.pipe(
   Schema.check(Schema.isMinLength(1)),
   Schema.check(Schema.isMaxLength(128)),

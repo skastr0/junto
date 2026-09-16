@@ -88,14 +88,14 @@ export const DARWIN_REMOTE_DEPLOY_DISABLED_DETAIL =
 
 /** Human-readable denial when Linux managed deploy is outside the release surface. */
 export const LINUX_REMOTE_DEPLOY_DISABLED_DETAIL =
-  "Linux Remote managed deployment is not available in this release. Vellum Command currently supports managed hosts on macOS only.";
+  "Linux Remote managed deployment is not available in this release. Junto currently supports managed hosts on macOS only.";
 
 /** Human-readable denial when Box fleet automation is outside the release surface. */
 export const BOX_FLEET_DISABLED_DETAIL =
-  "Box fleet provisioning is not available in this release. Vellum Command currently supports managed hosts on macOS only.";
+  "Box fleet provisioning is not available in this release. Junto currently supports managed hosts on macOS only.";
 
 export const REMOTE_INSTALLS_OPERATOR_DISABLED_DETAIL =
-  "Remote installs are turned off in Settings → Machine. Enable “Allow remote managed installs” to deploy Vellum Command to enrolled Remotes.";
+  "Remote installs are turned off in Settings → Machine. Enable “Allow remote managed installs” to deploy Junto to enrolled Remotes.";
 
 export const NOT_COMMAND_CENTER_DETAIL =
   "Only the Command Center may configure Remotes or deploy packages.";

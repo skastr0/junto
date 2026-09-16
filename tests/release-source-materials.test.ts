@@ -44,7 +44,7 @@ afterEach(() => {
 const fixture = async () => {
   const root = temporary();
   const sourceCommit = "a".repeat(40);
-  const appArchive = `Vellum-Command-0.2.1-${sourceCommit}-source.tar.gz`;
+  const appArchive = `Junto-0.2.1-${sourceCommit}-source.tar.gz`;
   for (const file of [
     appArchive,
     "runtime-sources.json",
@@ -54,17 +54,17 @@ const fixture = async () => {
   ])
     writeFileSync(path.join(root, file), `fixture ${file}`);
   writeFileSync(
-    path.join(root, "Vellum-Command-0.2.1-cli-relink.json"),
+    path.join(root, "Junto-0.2.1-cli-relink.json"),
     JSON.stringify({
       schema: "vellum-command/cli-relink/v1",
       sourceCommit,
       bunVersion: "1.3.13",
       featureProfile: "ship",
       featureFingerprint: "fixture",
-      payload: await fingerprintSourceFile(root, "Vellum-Command-0.2.1-cli.js"),
+      payload: await fingerprintSourceFile(root, "Junto-0.2.1-cli.js"),
       notices: await fingerprintSourceFile(
         root,
-        "Vellum-Command-0.2.1-cli-notices.txt",
+        "Junto-0.2.1-cli-notices.txt",
       ),
     }),
   );
@@ -79,7 +79,7 @@ const fixture = async () => {
   const binaries = [await fingerprintSourceFile(root, "binary.zip")];
   const index = {
     schema: "vellum-command/release-sources/v1",
-    product: "Vellum Command",
+    product: "Junto",
     version: "0.2.1",
     sourceCommit,
     access: "same-download-location",
@@ -320,7 +320,7 @@ describe("corresponding-source release inventory", () => {
       archive.sha256,
     );
     expect(execFileSync("tar", ["-tzf", file], { encoding: "utf8" })).toBe(
-      "Vellum-Command-0.2.1/\nVellum-Command-0.2.1/.gitignore\nVellum-Command-0.2.1/cli.ts\nVellum-Command-0.2.1/package.json\n",
+      "Junto-0.2.1/\nJunto-0.2.1/.gitignore\nJunto-0.2.1/cli.ts\nJunto-0.2.1/package.json\n",
     );
     writeFileSync(path.join(root, "cli.ts"), "dirty\n");
     await expect(

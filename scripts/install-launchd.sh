@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Install Vellum Command as a crash-supervised LaunchAgent (KeepAlive only on non-zero exit).
+# Install Junto as a crash-supervised LaunchAgent (KeepAlive only on non-zero exit).
 #
 #   scripts/install-launchd.sh              build, install to /Applications, load agent
 #   scripts/install-launchd.sh --skip-build reuse existing release app / already-installed
@@ -47,7 +47,7 @@ if [[ "${1:-}" == "--uninstall" ]]; then
     bind_launchd_retirement_root
     /bin/mv -n "$PLIST" "$PLIST_RETIREMENT_ROOT/"
     if [[ -L "$RETIRED_PLIST" || "$(path_identity "$RETIRED_PLIST" 2>/dev/null)" != "$UNINSTALL_PLIST_ID" ]]; then
-      err "retiring LaunchAgent plist identity does not match the admitted Vellum Command plist"
+      err "retiring LaunchAgent plist identity does not match the admitted Junto plist"
       exit 1
     fi
     RETIRED_PLIST_ID="$UNINSTALL_PLIST_ID"
@@ -243,7 +243,7 @@ if [[ -n "$CURRENT_PLIST_ID" ]]; then
   RETIRING_PLIST_ID="$CURRENT_PLIST_ID"
   /bin/mv -n "$PLIST" "$PLIST_RETIREMENT_ROOT/"
   if [[ -L "$RETIRED_PLIST" || "$(path_identity "$RETIRED_PLIST" 2>/dev/null)" != "$RETIRING_PLIST_ID" ]]; then
-    err "retiring LaunchAgent plist identity does not match the admitted Vellum Command plist"
+    err "retiring LaunchAgent plist identity does not match the admitted Junto plist"
     exit 1
   fi
   RETIRED_PLIST_ID="$RETIRING_PLIST_ID"

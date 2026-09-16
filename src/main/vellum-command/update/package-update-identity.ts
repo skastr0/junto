@@ -55,7 +55,7 @@ export const admitPackagedUpdateIdentity = async (input: {
     const payload = record(receipt.payload, "runtime payload identity");
     if (
       pkg.version !== input.version || receipt.schema !== "vellum-command/package-runtime-provenance/v2" ||
-      receipt.product !== "Vellum Command" || receipt.runtime !== "electron-main" || receipt.appVersion !== input.version || receipt.sourceCommit !== input.sourceRevision ||
+      receipt.product !== "Junto" || receipt.runtime !== "electron-main" || receipt.appVersion !== input.version || receipt.sourceCommit !== input.sourceRevision ||
       build.schema !== "vellum-command/runtime-build-identity/v1" || build.runtime !== "electron-main" || build.sourceCommit !== input.sourceRevision ||
       typeof build.cohortNonce !== "string" || !UUID.test(build.cohortNonce) || Object.keys(build).length !== 4 ||
       payload.packagedPath !== MAIN_PATH || typeof payload.sha256 !== "string" || !/^[a-f0-9]{64}$/u.test(payload.sha256)

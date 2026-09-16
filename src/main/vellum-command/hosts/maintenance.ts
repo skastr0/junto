@@ -117,7 +117,7 @@ export const makeLiveHostMaintenanceAuthority = (
         return {
           acquired: true,
           stages: [
-            "Vellum Command is not answering on this machine — no live terminal to pause",
+            "Junto is not answering on this machine — no live terminal to pause",
           ],
         } satisfies HostMaintenanceHold;
       }
@@ -264,7 +264,7 @@ export const makeLiveHostMaintenanceAuthority = (
         }).pipe(Effect.catch(() => Effect.void)),
       );
       stages.push(
-        "Holding terminal sessions closed while Vellum Command updates",
+        "Holding terminal sessions closed while Junto updates",
       );
 
       // 3. Fence the incumbent generation.
@@ -278,11 +278,11 @@ export const makeLiveHostMaintenanceAuthority = (
             `${host.label}: the incumbent generation release fence was not acknowledged — ${fence.failure.message}`,
           );
         }
-        stages.push("Locked the installed Vellum Command for replacement");
+        stages.push("Locked the installed Junto for replacement");
       } else {
         // macOS has no root release fence; the held socket-bound lease keeps
         // the Remote's create admission closed for the whole mutation.
-        stages.push("Locked the installed Vellum Command for replacement");
+        stages.push("Locked the installed Junto for replacement");
       }
 
       return { acquired: true, stages } satisfies HostMaintenanceHold;
@@ -298,7 +298,7 @@ export const maintenanceRefusedDeployResult = (
     const sessions = refusal.activeTerminalSessions ?? 1;
     const detail =
       `${host.label}: package activation deferred — ` +
-      `${sessions} Vellum Command terminal session(s) active. ` +
+      `${sessions} Junto terminal session(s) active. ` +
       REMOTE_UPDATE_IDLE_PRODUCT_COPY;
     return {
       ...failedBeforeMutation(host, detail, {
@@ -315,7 +315,7 @@ export const maintenanceRefusedDeployResult = (
     refusal.reason === "maintenance-held"
       ? `${host.label}: another update is already holding this machine's terminals`
       : refusal.reason === "shutting-down"
-        ? `${host.label}: Vellum Command on this machine is shutting down`
+        ? `${host.label}: Junto on this machine is shutting down`
         : refusal.detail;
   return failedBeforeMutation(host, detail, { code: "conflict" });
 };

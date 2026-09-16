@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * pty-capture.ts — canonical PTY byte-stream capture for the Vellum Command PTY E2E corpus.
+ * pty-capture.ts — canonical PTY byte-stream capture for the Junto PTY E2E corpus.
  *
  * Spawns each real harness TUI inside a node-pty (120x32, TERM=xterm-256color,
  * isolated cwd under /tmp/vellum-capture-cwd/<harness>), drives the canonical
@@ -161,7 +161,7 @@ export const HARNESSES: readonly HarnessDef[] = [
     exitRecipe: ["/exit\r"],
     modals: [{ when: /trust[^\n]{0,40}folder|do you trust/i, reply: "1\r" }],
     env: (home) => ({ CLAUDE_CONFIG_DIR: path.join(home, ".claude") }),
-    note: "bare TUI; no Vellum Command doctrine/env; keychain auth; CLAUDE_CONFIG_DIR isolated",
+    note: "bare TUI; no Junto doctrine/env; keychain auth; CLAUDE_CONFIG_DIR isolated",
   },
   {
     name: "codex", displayName: "Codex",

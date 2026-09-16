@@ -706,7 +706,7 @@ const fetchZenUsage = async (args: FetchApiArgs, signal?: AbortSignal): Promise<
       headers: {
         Authorization: `Bearer ${args.apiKey}`,
         Accept: "application/json",
-        "User-Agent": "Vellum Command",
+        "User-Agent": "Junto",
       },
       signal: timeoutSignal(FETCH_TIMEOUT_MS, signal),
     });

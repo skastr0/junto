@@ -59,7 +59,7 @@ const reader = (
   };
 };
 
-describe("canonical Vellum Command node references", () => {
+describe("canonical Junto node references", () => {
   it("round-trips simple, Unicode, percent, and dot-only node ids", () => {
     const refs: ReadonlyArray<NodeRef> = [
       { canvasName: "portfolio", nodeId: "page-01K123" },
@@ -111,7 +111,7 @@ describe("canonical Vellum Command node references", () => {
   });
 });
 
-describe("Vellum Command node reference resolver", () => {
+describe("Junto node reference resolver", () => {
   it("uses canvas plus node id as identity across collision-prone documents", async () => {
     const canvases = reader({
       alpha: { nodes: [textNode("shared", "page")], edges: [] },

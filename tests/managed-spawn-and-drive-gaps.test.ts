@@ -301,7 +301,7 @@ describe("managed spawn plan", () => {
       true,
     );
     const prompt = plan?.injection.systemPrompt ?? "";
-    expect(prompt).toContain("Vellum Command");
+    expect(prompt).toContain("Junto");
     expect(prompt).not.toContain("Edge contracts");
   });
 

@@ -41,7 +41,7 @@ const deferred = <T>() => {
   return { promise, resolve, reject };
 };
 
-describe("renderer Vellum Command node-reference navigation", () => {
+describe("renderer Junto node-reference navigation", () => {
   it("re-reads the addressed canvas and applies one exact node", async () => {
     const apply = vi.fn();
     const coordinator = makeNodeRefNavigationCoordinator({

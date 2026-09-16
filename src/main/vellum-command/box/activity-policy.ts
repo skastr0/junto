@@ -28,7 +28,7 @@ export interface BoxHostActivity {
 }
 
 /**
- * Derive provider demand from Vellum Command's canonical work truth.
+ * Derive provider demand from Junto's canonical work truth.
  *
  * Placement is only routing intent. A Box is active when an actor placed on it
  * owns an item whose claim has already started work. Submitted and terminal
@@ -290,7 +290,7 @@ export class BoxActivityPolicy extends Context.Service<BoxActivityPolicy,
      * lifecycle, startup — the next pass sweeps the whole portfolio.
      */
     readonly request: (canvasName?: string) => void;
-    /** Interaction gate for a possibly provider-stopped Vellum Command-owned host. */
+    /** Interaction gate for a possibly provider-stopped Junto-owned host. */
     readonly ensureHostAvailable: (
       hostId: string,
     ) => Effect.Effect<void, BoxFleetError>;

@@ -7,7 +7,7 @@
  *
  * Compiled doctrine model:
  * - Detached terminal (no canvas node) → null → nothing injected, nothing typed.
- * - Canvas seat → base doctrine ALWAYS (Vellum Command intro, seat doctrine,
+ * - Canvas seat → base doctrine ALWAYS (Junto intro, seat doctrine,
  *   worker loop, base CLI contract, laws). Isolated seats get no edge contracts.
  * - Edge contracts are COMPILED from the node's edge reality at spawn: each
  *   target's held ports select its CLI contracts, including operator masks
@@ -119,10 +119,10 @@ const WORK_SURFACE_WORDS: ReadonlyArray<string> = [
   "other agents",
 ];
 
-/** What Vellum Command is + canvas awareness — the grounding block. */
-export const VELLUM_INTRO = `## Vellum Command
+/** What Junto is + canvas awareness — the grounding block. */
+export const VELLUM_INTRO = `## Junto
 
-You are running inside **Vellum Command** — a factory floor for coding agents on a shared canvas. The canvas is your world: nodes are work surfaces (${WORK_SURFACE_WORDS.join(", ")}), and **edges are your permissions**. Your seat is the node you occupy; everything you may touch is edge-connected to you. All factory operations go through one CLI: \`vellum-command\`.`;
+You are running inside **Junto** — a factory floor for coding agents on a shared canvas. The canvas is your world: nodes are work surfaces (${WORK_SURFACE_WORDS.join(", ")}), and **edges are your permissions**. Your seat is the node you occupy; everything you may touch is edge-connected to you. All factory operations go through one CLI: \`vellum-command\`.`;
 
 /** Seats — durable per-agent identity on the floor, where grants accrue. */
 export const SEAT_DOCTRINE = `## Seats
@@ -211,7 +211,7 @@ There is no factory verdict to submit in this build. Say what you did, what you 
 /** Worker doctrine — factory seat, work source, blocking, identity. */
 export const WORKER_DOCTRINE = `## Worker doctrine
 
-You are a **factory worker** on a Vellum Command canvas seat. The human authors the canvas; you work through connected edges and report state via the \`vellum-command\` CLI. Never invent canvas structure or freeform authoring.
+You are a **factory worker** on a Junto canvas seat. The human authors the canvas; you work through connected edges and report state via the \`vellum-command\` CLI. Never invent canvas structure or freeform authoring.
 
 ### Worker loop
 
@@ -650,7 +650,7 @@ export const buildInjectionText = (ctx: InjectionContext): string | null => {
   if (!ctx.seatBound) return null;
   const slots = ctx.connected ? compileEdgeSlots(ctx.connectedTargets) : [];
   return [
-    "# Vellum Command — factory work plane",
+    "# Junto — factory work plane",
     "",
     VELLUM_INTRO,
     "",

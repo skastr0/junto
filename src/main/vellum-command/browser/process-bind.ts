@@ -85,7 +85,7 @@ export const resolveBrowserCallerFromProcess = (
     return {
       ok: false,
       denial: "not_connected",
-      message: "missing edge between caller and a page node — draw an edge in Vellum Command",
+      message: "missing edge between caller and a page node — draw an edge in Junto",
     };
   }
 

@@ -587,7 +587,7 @@ export const resolveLaunch = (
   options?: {
     readonly seatInject?: Readonly<Record<string, string>>;
     /**
-     * Active Vellum Command theme for COLORFGBG fallback. Defaults dark —
+     * Active Junto theme for COLORFGBG fallback. Defaults dark —
      * renderer OSC 10/11 + CSI ?996n are the live authority once attached.
      */
     readonly themeMode?: ThemeMode;
@@ -761,7 +761,7 @@ export class LocalSessionHost extends EventEmitter {
   /** Open the actor seat. Its harness is declared, never inferred at spawn. */
   createAgentSeat(input: LocalHostAgentSeatInput): TerminalSessionSummary {
     if (input.harness === "vellum-overseer" && !LIVE_OVERSEER_ENABLED) {
-      throw new Error("Live conversation is disabled in this Vellum Command build");
+      throw new Error("Live conversation is disabled in this Junto build");
     }
     const bindingId = input.bindingId.trim();
     const current = this.sessions.get(bindingId);
@@ -2142,7 +2142,7 @@ export class LocalSessionHost extends EventEmitter {
     });
     // Never fail-closed on resume: if the harness rejected -r, open a fresh pin.
     // Some harnesses die with no printed proof when a session is already owned
-    // by another Vellum Command process (prod + bun run dev side-by-side). Treat
+    // by another Junto process (prod + bun run dev side-by-side). Treat
     // a quick empty exit after resume argv as the same class of miss.
     if (
       rec.resumeAttempt &&

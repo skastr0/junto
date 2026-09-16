@@ -38,7 +38,7 @@ export const liveSeatObservation = (): Effect.Effect<
               details: {
                 retryable: false,
                 next_step:
-                  "the canvas is not open; ask the operator to open it in Vellum Command",
+                  "the canvas is not open; ask the operator to open it in Junto",
               },
             }),
           ),

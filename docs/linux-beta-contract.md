@@ -42,7 +42,7 @@ two-installation, signing, and publication gates. Therefore:
 | Remote | Packaged Node runtime from the same signed userland payload under the Station user's service manager; no display server, Electron, or Chromium dependency |
 | Browser automation | Unavailable on Linux Remote for the first Beta; a future browser sidecar is optional and independent of core health |
 | Install/update | One ordinary-user transaction for first install and later update |
-| Host preparation | Read-only preflight; optional administrator actions remain outside Vellum Command |
+| Host preparation | Read-only preflight; optional administrator actions remain outside Junto |
 | Connectivity | Operator-enrolled OpenSSH route, Command Center to Remote |
 | Durable state | One `~/.vellum-command/state/vellum-command.db` per installation |
 | Fleet control | Fixed Station surface; `pair`, `configure`, `project`, `report`, `status` |
@@ -58,7 +58,7 @@ Once the rootless implementation exists, the shortest valid sequence is:
 
 1. Run read-only host preflight as the intended Station user.
 2. Review each capability finding and decide whether to perform any optional
-   host-administrator action outside Vellum Command.
+   host-administrator action outside Junto.
 3. Rerun preflight; accept **ready with limits** only when the missing
    capabilities are optional for the intended workload.
 4. Verify and install the exact signed payload as the Station user.
@@ -119,7 +119,7 @@ Do not label an artifact beta-ready until native Ubuntu evidence proves:
 - Doctor reports core ready independently while Linux Remote browser
   automation remains explicitly `unavailable`;
 - rootless fresh install, update, interruption handling, removal, and forward
-  repair with no Vellum Command-owned privilege path;
+  repair with no Junto-owned privilege path;
 - optional host preparation is separate, explicit, verifiable, and removable;
 - declined optional preparation produces the documented graceful degradation;
 - desktop Command Center and Remote user service boot the same SQLite schema;

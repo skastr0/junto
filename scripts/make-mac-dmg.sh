@@ -19,7 +19,7 @@ done
 
 assert_app_bundle "$APP_PATH"
 VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP_PATH/Contents/Info.plist")"
-EXPECTED_OUT="$REPO_ROOT/release/Vellum-Command-${VERSION}-arm64-mac.dmg"
+EXPECTED_OUT="$REPO_ROOT/release/Junto-${VERSION}-arm64-mac.dmg"
 [[ "$OUT_PATH" == "$EXPECTED_OUT" && -f "$OUT_PATH" && ! -L "$OUT_PATH" ]] || {
   err "DMG must be the existing version-matched release artifact"; exit 1;
 }

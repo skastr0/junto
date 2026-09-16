@@ -2,7 +2,7 @@
  * App-owned ephemeral rules directory for harnesses that load doctrine from a
  * file rather than a flag (Antigravity `--add-dir`).
  *
- * Provenance is the whole point of the shape: Vellum Command writes ONLY under
+ * Provenance is the whole point of the shape: Junto writes ONLY under
  * its own home (`<VELLUM_COMMAND_HOME>/.vellum-command/content/agent-rules/<seat>/`)
  * and mounts that directory into the seat's workspace. The operator's project
  * is never written to, no foreign `AGENTS.md` is indexed, and the doctrine the
@@ -36,7 +36,7 @@ export const agentRulesDirKey = (seatRef: string): string | undefined => {
   return sanitized;
 };
 
-/** Directory Vellum Command mounts for this seat (no filesystem access). */
+/** Directory Junto mounts for this seat (no filesystem access). */
 export const agentRulesDirFor = (
   seatRef: string,
   home: string = resolveVellumCommandHome(),

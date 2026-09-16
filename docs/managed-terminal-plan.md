@@ -5,13 +5,13 @@ Evidence: [`managed-terminal-verification.md`](managed-terminal-verification.md)
 Supersedes for v1: the retired ACP-first and remote-client proposal preserved at
 [`factory-harness-integration.md`](factory-harness-integration.md). The current
 factory model has one actor runtime and one work admission path: a
-Vellum Command-spawned managed terminal using owner-local process-bind.
+Junto-spawned managed terminal using owner-local process-bind.
 
 ---
 
 ## 1 - The product sentence
 
-**Vellum Command is the canvas for the coding agents you already run.** Not a new agent UI — the terminals you know, on a factory floor you author, driven by a factory you can watch.
+**Junto is the canvas for the coding agents you already run.** Not a new agent UI — the terminals you know, on a factory floor you author, driven by a factory you can watch.
 
 The enemy is friction. Every design call below resolves toward: fewer ways to do one thing, fewer installs, fewer hoops, nothing hidden from the operator's eye.
 
@@ -20,7 +20,7 @@ The enemy is friction. Every design call below resolves toward: fewer ways to do
 Verbatim from the operator; this is the test:
 
 1. Create an agent node. Open it. Use the picker. **It opens fine and I can talk to it.** (Standalone terminal-with-a-harness works, connected to nothing.)
-2. Open an unconnected agent node → the **base doctrine** is injected (Vellum Command intro, seat doctrine, worker loop, base CLI contract) with no edge contracts; detached terminals (no canvas node) get **silence**. Edge contracts are compiled from the node's edge reality at spawn, and injected per-edge as new edges connect (rising-edge slot injection).
+2. Open an unconnected agent node → the **base doctrine** is injected (Junto intro, seat doctrine, worker loop, base CLI contract) with no edge contracts; detached terminals (no canvas node) get **silence**. Edge contracts are compiled from the node's edge reality at spawn, and injected per-edge as new edges connect (rising-edge slot injection).
 3. Create a Claude Code node, connect it to a tasks node, add a task, **start the simulation.**
 4. The task is **claimed by the agent**, which **starts working autonomously.**
 5. Double-click the node → **the already-running TUI**, live, mid-session.
@@ -34,7 +34,7 @@ Nothing ships as beta until this loop runs on all five covered harnesses, includ
 
 | ruling | consequence |
 |---|---|
-| **Managed terminal is the only v1 agent surface** — full interactive TUI in a Vellum Command-owned PTY | no headless worker drive (`claude -p`, `codex exec`) — that would be "a different UI leveraging their harness", which the operator's ToS line forbids |
+| **Managed terminal is the only v1 agent surface** — full interactive TUI in a Junto-owned PTY | no headless worker drive (`claude -p`, `codex exec`) — that would be "a different UI leveraging their harness", which the operator's ToS line forbids |
 | **The terminal node IS the actor — there is exactly one actor kind.** | a terminal is not something a node *has*; it is what the node *is*. One way to build a worker: variation lives in the node's *properties* (harness/profile/model/effort/permission mode), never in a second actor kind and never in *modes* of the action. An **unbound** terminal (no binding yet) is geography, not a second kind. Corrected 2026-07-26: an earlier revision of this row said "Actor = command template. Terminal = geography," which inverted the labels and read as licence for an `agent` kind distinct from `terminal`. See [`factory-consolidation-plan.md`](factory-consolidation-plan.md). |
 | **Zero writes to the user's harness config, ever** | injection is flags + env + project-local files + typed input only |
 | **Synthetic homes (`CODEX_HOME`/`HERMES_HOME`) VETOED** | no symlinked auth, no shadow config trees |
@@ -44,7 +44,7 @@ Nothing ships as beta until this loop runs on all five covered harnesses, includ
 | **ACP is hidden, not removed** | dormant code, revives with the embedded-Worker/native-chat timeline (§14) |
 | **Covered harnesses: Claude Code, Codex, Grok, Hermes, Prime Agent. OpenClaw out.** | Prime Agent is the stock 0.7.1 CLI behind one app-owned daemon per binding. OpenClaw's agent runs in a shared Gateway daemon, so process-bind, interrupt, and injection still break by construction. |
 | **Herdr is a GEOGRAPHY node** (ruling 2026-07-26 — not "legacy", not deleted; just Herdr). Learn from, never fork/vendor. | it keeps its agent-state display for people who want panes without the factory. It holds no seat, no ports, no inbox, and no effort will be made to make it participate. Its detection design is portable; its config-writing installer is not |
-| **No tiers — a node is an ACTOR or it is GEOGRAPHY** (ruling 2026-07-26, supersedes Tier 1/2/3) | actor = a Vellum Command-spawned template terminal, the covered harnesses, full stop. Everything else — raw terminals the user opens, herdr, pages, regions, notes — is geography. **Kind is fixed at node creation and never derived from what process happens to be running.** If answering "is this an actor?" would require runtime inspection, the design is wrong |
+| **No tiers — a node is an ACTOR or it is GEOGRAPHY** (ruling 2026-07-26, supersedes Tier 1/2/3) | actor = a Junto-spawned template terminal, the covered harnesses, full stop. Everything else — raw terminals the user opens, herdr, pages, regions, notes — is geography. **Kind is fixed at node creation and never derived from what process happens to be running.** If answering "is this an actor?" would require runtime inspection, the design is wrong |
 | **A dead agent process never degrades to a clean shell** | an actor terminal whose harness exits goes to an explicit error/restart state. Otherwise an actor silently becomes geography — the exact ambiguity the no-tiers ruling removes. Process is mortal; kind is permanent |
 
 ## 4 - What already exists (verified by code read, 2026-07-26)
@@ -78,7 +78,7 @@ Each phase ends in a commit. Phases 1–2 are the bulk; 3–7 are wiring to surf
 
 - Add `@xterm/headless` (currently absent; only `xterm` + `addon-fit` are present).
 - New `src/main/vellum-command/term/observer/`: one headless terminal per live session, fed from `observeData:698` (the single insertion point — every byte already flows through it with a seq).
-- Register the handlers Vellum Command currently discards (zero OSC/CSI handlers exist in `src/` today):
+- Register the handlers Junto currently discards (zero OSC/CSI handlers exist in `src/` today):
   - **OSC 0/2** title — the primary fallback state feed across the covered harnesses.
   - **OSC 9** — Claude's `9;4;3`/`9;4;0` working flag, Codex's `]9;<msg>` turn-complete, Grok's `9;4` binary.
   - **CSI ?2004** bracketed-paste mode — protocol-level "a readline input box is live"; the truest typing gate.
@@ -135,7 +135,7 @@ Each phase ends in a commit. Phases 1–2 are the bulk; 3–7 are wiring to surf
 - **Spawn env scrubbing (mandatory):** strip the exact shared traps (`CLAUDE_CODE_CHILD_SESSION`, `CLAUDECODE`, `CLAUDE_CODE_ENTRYPOINT`, `PI_CODING_AGENT`, `NO_COLOR`, `FORCE_COLOR`) and every `PRIME_AGENT_INTERNAL_*` key. Apply the same predicate after host injection, so an injected value cannot recreate a nested or internal process role.
 - Inject `PATH` so `dist/vellum-command` resolves, including its canonical `vellum-command browser` dispatcher; inject seat/socket/token env (verified to reach agent shell subprocesses on the original four; Prime Agent receives them through its isolated binding daemon).
 - Session id: pin where possible (Claude `--session-id`, Grok `--session-id`), capture otherwise (Codex: SessionStart hook > `CODEX_THREAD_ID` > notify > rollout; Hermes: `HERMES_SESSION_ID` env; Prime Agent: built-in reporter, with scoped `list --json` as lifecycle evidence). Persisting captured identity on the authoritative seat is required before cold wake; Prime Agent capture is currently process-local diagnostics and no spawn path consumes it.
-- **Prime Agent runtime isolation:** the authorial template remains plain stock argv (`--model`, `--thinking`, `--append-system-prompt`, positional prompt, `-r`). At live spawn only, Vellum Command registers its ready reporter route, owns one foreground wrapper generation per binding, requires the separately installed executable to report version `0.7.1` or newer (`PRIME_AGENT_MINIMUM_VERSION`), then `exec`s `prime-agent --mode daemon --daemon-socket <unique>` in that same generation, binds the exact daemon and PTY generations, and routes the TUI through that socket after bounded command-first `list --json --daemon-socket` probes. The daemon flags are help-visible stock 0.7.1 low-level mode; upstream still calls the daemon internal infrastructure, so Vellum Command invokes the process and imports no private module or removed command hierarchy. The socket is never persisted authorial config. Teardown revokes both identity generations before async cleanup, validates and stops only top-level roots through public exact-socket list/stop, proves the roster empty, then signals the exact owned daemon lease. Signaling the daemon first is unsafe because detached workers can recover a missing supervisor. A replacement is never bound or PID-signaled; uncertain crash cleanup is non-clean and retains its disposable directory.
+- **Prime Agent runtime isolation:** the authorial template remains plain stock argv (`--model`, `--thinking`, `--append-system-prompt`, positional prompt, `-r`). At live spawn only, Junto registers its ready reporter route, owns one foreground wrapper generation per binding, requires the separately installed executable to report version `0.7.1` or newer (`PRIME_AGENT_MINIMUM_VERSION`), then `exec`s `prime-agent --mode daemon --daemon-socket <unique>` in that same generation, binds the exact daemon and PTY generations, and routes the TUI through that socket after bounded command-first `list --json --daemon-socket` probes. The daemon flags are help-visible stock 0.7.1 low-level mode; upstream still calls the daemon internal infrastructure, so Junto invokes the process and imports no private module or removed command hierarchy. The socket is never persisted authorial config. Teardown revokes both identity generations before async cleanup, validates and stops only top-level roots through public exact-socket list/stop, proves the roster empty, then signals the exact owned daemon lease. Signaling the daemon first is unsafe because detached workers can recover a missing supervisor. A replacement is never bound or PID-signaled; uncertain crash cleanup is non-clean and retains its disposable directory.
 - Per-harness spawn traps: Grok **requires a git cwd** (else a modal swallows the prompt); Hermes needs **`chat --tui -q`** (`-z` is headless); Codex resume **does not inherit flags** — re-pass everything; Prime Agent must never fall back to the default shared daemon or global `shutdown`.
 
 **Acceptance:** loop steps 1, 3, 5. Also: template row + capability badges visible in the node UI so a harness with weaker state fidelity is honest about it.
@@ -151,7 +151,7 @@ This is the piece the operator flagged as needing to be strong. **Two tiers, bec
   2. The CLI contract — call **`vellum-command onboard`** at session start and after compaction; the work op table plus `vellum-command browser` for `browser.automate`; errors (`ScopeError`, `ClaimConflict`, `RuntimeDown`, `Blocked`) are ground truth.
   3. Seat context — seat ref, connected targets.
 - **Then the task arrives as a typed prompt** carrying the claim. `vellum-command onboard` returns seat + role + connected targets + claimed task metadata — which is loop step 6 exactly.
-- **Plugin: DROPPED entirely** (operator ruling 2026-07-26 — supersedes the earlier "prune to an opt-in tier"). There is no user-installed tool surface in anyone's harness config. `packages/vellum-plugin/` goes away; the doctrine *text* becomes the injected payload and `tools/shared/work-client.ts` folds into whatever needs the socket. Reason: an opt-in tier re-introduces the ambiguity the no-tiers ruling exists to kill — "this terminal has the integration, so is it an actor?" is a question with no good answer. Injection happens **only** through a Vellum Command-spawned template.
+- **Plugin: DROPPED entirely** (operator ruling 2026-07-26 — supersedes the earlier "prune to an opt-in tier"). There is no user-installed tool surface in anyone's harness config. `packages/vellum-plugin/` goes away; the doctrine *text* becomes the injected payload and `tools/shared/work-client.ts` folds into whatever needs the socket. Reason: an opt-in tier re-introduces the ambiguity the no-tiers ruling exists to kill — "this terminal has the integration, so is it an actor?" is a question with no good answer. Injection happens **only** through a Junto-spawned template.
 
 **Acceptance:** loop steps 2 and 6. Unconnected agent → nothing injected, nothing typed. Connected agent → onboard called by the agent itself, task metadata in its context, visible in the TUI.
 
@@ -188,7 +188,7 @@ Replaces the Codex Bar dependency; per-station, cross-account, and Linux-viable.
 
 Every row below is backed by harness probes — see
 [`managed-terminal-verification.md`](managed-terminal-verification.md) for
-receipts. This is not a current Vellum Command implementation matrix. Release truth
+receipts. This is not a current Junto implementation matrix. Release truth
 lives in `src/shared/managed-terminal-templates.ts`: Prime Agent's built-in
 per-session reporter is the sole zero-write hook feed currently on. Codex
 captures a thread id and cold-wakes with `codex resume <id>`; Hermes proves a
@@ -235,7 +235,7 @@ The consolidation's whole point: **QA scales with template rows, not with surfac
 
 ## 12 - Deferred (explicitly not v1)
 
-- **Embedded Worker (forked Pi)** — tabled until the monotool exists. The dossier (MIT, white-label `piConfig`, `PI_CODING_AGENT_DIR` isolation, injectable credentials, per-message cost) stays valid. This is unrelated to the shipped Prime Agent harness: Vellum Command uses stock stable Prime Agent only and will not fork it.
+- **Embedded Worker (forked Pi)** — tabled until the monotool exists. The dossier (MIT, white-label `piConfig`, `PI_CODING_AGENT_DIR` isolation, injectable credentials, per-message cost) stays valid. This is unrelated to the shipped Prime Agent harness: Junto uses stock stable Prime Agent only and will not fork it.
 - **Cloud workers** — the zero-harness answer; Vouch-shaped, keys server-side, no consumer-ToS exposure. Empty-state should point at it to measure demand.
 - **ACP revival + native chat UI** — arrives with the Worker, not before. Grok's leader lane (a second ACP client can `session/load` a *live TUI's* session and replay its updates) is a promising future observability path.
 - **TUI automation horizons** — dev-server node, log-watcher, exit-code→task state, terminal macros, OSC 133 semantic prompt marks (with nonce discipline: children can forge marks). Cheap once Phases 1–4 land. Two taste rulings deferred: shell-integration injection into plain terminals; command palettes typed into any terminal.

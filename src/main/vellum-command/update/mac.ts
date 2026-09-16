@@ -63,7 +63,7 @@ const toRelease = (info: {
 
 /**
  * Mac Command Center adapter: electron-updater owns feed / download / cache /
- * quitAndInstall. Vellum Command never redirects the feed at runtime.
+ * quitAndInstall. Junto never redirects the feed at runtime.
  */
 export const makeMacUpdateProvider = (options: {
   readonly isPackaged: boolean;

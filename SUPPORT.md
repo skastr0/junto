@@ -1,11 +1,11 @@
-# Support for Vellum Command
+# Support for Junto
 
 Use [GitHub issues](https://github.com/skastr0/vellum-command/issues) for reproducible
 bugs, documentation corrections, and focused proposals. Include the version or
 commit, platform, install channel, enabled experimental features, and a minimal
 reproduction with private details removed.
 
-Vellum Command is solo-maintained. macOS is the primary desktop platform; Linux
+Junto is solo-maintained. macOS is the primary desktop platform; Linux
 desktop is alpha. Fleet and Remote functionality remains experimental. Issue
 reports are reviewed on a best-effort basis without a response-time commitment.
 

@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Official Vellum Command dev entry.
+# Official Junto dev entry.
 #
 # Side-by-side with production:
 # - VELLUM_COMMAND_HOME=~/.vellum-command-dev isolates state + control sockets from ~/.vellum-command
 # - main pins Electron userData under that home so the single-instance lock
-#   does not fight /Applications/Vellum Command.app
+#   does not fight /Applications/Junto.app
 # When production already matches this build's current schema, prod state is
 # copied into the isolated tree so you get real data; otherwise the isolated
 # tree migrates on its own. HOME stays the real user home so child shells and
@@ -20,7 +20,7 @@ source "$ROOT/scripts/linux-display.sh"
 if [[ "$(uname -s)" == "Linux" ]] && ! vellum_use_available_desktop; then
   printf '%s\n' \
     'vellum-command: error: an interactive X11 or Wayland desktop is required' \
-    'Open the orb Desktop before running the Vellum Command development app.' >&2
+    'Open the orb Desktop before running the Junto development app.' >&2
   exit 1
 fi
 

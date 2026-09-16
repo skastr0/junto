@@ -266,7 +266,7 @@ describe("State schema migrations", () => {
           }),
         )
       ).toThrow(
-        /state schema changed after its recorded identity was stamped|not a recognized Vellum Command schema/,
+        /state schema changed after its recorded identity was stamped|not a recognized Junto schema/,
       );
       expect(databaseWitness(database)).toEqual(before);
     } finally {

@@ -1,5 +1,5 @@
 name: Proposal or documentation correction
-description: Explain a focused improvement to Vellum Command.
+description: Explain a focused improvement to Junto.
 body:
   - type: textarea
     id: problem
@@ -17,4 +17,4 @@ body:
       required: true
   - type: markdown
     attributes:
-      value: Vellum Command is solo-maintained. Proposals do not imply an implementation commitment or an invitation to submit a pull request.
+      value: Junto is solo-maintained. Proposals do not imply an implementation commitment or an invitation to submit a pull request.

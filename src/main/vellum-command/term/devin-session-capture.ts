@@ -8,7 +8,7 @@
  *
  * Two facts, both probed on devin 3000.4.16, shape this module:
  *
- * - **The lock PID is not the PID Vellum Command spawned.** `~/.local/bin/devin`
+ * - **The lock PID is not the PID Junto spawned.** `~/.local/bin/devin`
  *   is a shim that runs the versioned binary as a child, and the CHILD writes
  *   the lock. Matching the spawned pid alone never hits; the match is against
  *   the spawned process's descendants.

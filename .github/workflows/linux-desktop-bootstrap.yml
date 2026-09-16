@@ -90,7 +90,7 @@ jobs:
             dist/vellum-command-desktop-bootstrap-linux-x64-relink.json
             dist/vellum-command-desktop-bootstrap-linux-x64-relink-notices.txt
             dist/vellum-command-desktop-bootstrap-linux-x64-bun-notices.tar.gz
-            dist/Vellum-Command-linux-desktop-bootstrap-1.0.0-source.tar.gz
+            dist/Junto-linux-desktop-bootstrap-1.0.0-source.tar.gz
             dist/RELINK.md
           if-no-files-found: error
 
@@ -107,7 +107,7 @@ jobs:
             dist/vellum-command-desktop-bootstrap-linux-x64-relink.json \
             dist/vellum-command-desktop-bootstrap-linux-x64-relink-notices.txt \
             dist/vellum-command-desktop-bootstrap-linux-x64-bun-notices.tar.gz \
-            dist/Vellum-Command-linux-desktop-bootstrap-1.0.0-source.tar.gz \
+            dist/Junto-linux-desktop-bootstrap-1.0.0-source.tar.gz \
             dist/RELINK.md \
             --verify-tag \
             --latest=false \

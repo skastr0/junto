@@ -1,5 +1,5 @@
 // Local term control plane: NDJSON over Unix domain socket.
-// Every Vellum Command station (CC or Remote) listens; CC reaches remote stations by
+// Every Junto station (CC or Remote) listens; CC reaches remote stations by
 // SSH-forwarding this socket.
 
 import { join } from "node:path";

@@ -151,7 +151,7 @@ describe("Linux release artifact identity", () => {
 
   it.each([
     "vellum-command-runtime-0.1.0-linux-arm64.tar.gz",
-    "Vellum Command-0.1.0-x64-linux.AppImage",
+    "Junto-0.1.0-x64-linux.AppImage",
     "vellum-linux-generic.tar.gz",
     "vellum-0.1.0.rpm",
     "vellum-0.1.0.flatpak",

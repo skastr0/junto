@@ -5,10 +5,10 @@ export const vellumOverseerRules: SeatRulePack = {
   harness: "vellum-overseer", version: "1",
   rules: [
     { id: "controller_working", state: "working", priority: 100, region: "osc_title", visibleWorking: true,
-      matchers: { regex: ["^Vellum Command Overseer working$"] } },
+      matchers: { regex: ["^Junto Overseer working$"] } },
     { id: "controller_idle", state: "idle", priority: 100, region: "osc_title", visibleIdle: true,
-      matchers: { regex: ["^Vellum Command Overseer idle$"] } },
+      matchers: { regex: ["^Junto Overseer idle$"] } },
     { id: "controller_attention", state: "attention", priority: 100, region: "osc_title", visibleAttention: true,
-      matchers: { regex: ["^Vellum Command Overseer attention$"] } },
+      matchers: { regex: ["^Junto Overseer attention$"] } },
   ],
 };

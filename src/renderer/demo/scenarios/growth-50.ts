@@ -1,4 +1,4 @@
-// Growth-ladder scenario for the Vellum Command demo engine — active ONLY
+// Growth-ladder scenario for the Junto demo engine — active ONLY
 // under --vellum-demo / VELLUM_COMMAND_DEMO=1 (see @shared/demo). Landing-page demo:
 // a factory that starts with two agents and only ever grows. Each rung
 // introduces one product feature; label overlays are composited in post from

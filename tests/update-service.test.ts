@@ -150,7 +150,7 @@ describe("UpdateService", () => {
         stageDownloaded: () =>
           Effect.succeed({
             stagingRoot: root,
-            appPath: join(root, "Vellum Command.app"),
+            appPath: join(root, "Junto.app"),
             executablePath: join(root, "fake-exec"),
           }),
       }),
@@ -188,7 +188,7 @@ describe("UpdateService", () => {
         stageDownloaded: () =>
           Effect.succeed({
             stagingRoot: root,
-            appPath: join(root, "Vellum Command.app"),
+            appPath: join(root, "Junto.app"),
             executablePath: join(root, "fake-exec"),
           }),
       }),
@@ -239,7 +239,7 @@ describe("UpdateService", () => {
               inFlight -= 1;
               return {
                 stagingRoot: root,
-                appPath: join(root, "Vellum Command.app"),
+                appPath: join(root, "Junto.app"),
                 executablePath: join(root, "fake-exec"),
               };
             },
@@ -297,7 +297,7 @@ describe("UpdateService", () => {
         stageDownloaded: () =>
           Effect.succeed({
             stagingRoot: root,
-            appPath: join(root, "Vellum Command.app"),
+            appPath: join(root, "Junto.app"),
             executablePath: join(root, "fake-exec"),
           }),
       }),
@@ -356,7 +356,7 @@ describe("UpdateService", () => {
         stageDownloaded: () =>
           Effect.succeed({
             stagingRoot: root,
-            appPath: join(root, "Vellum Command.app"),
+            appPath: join(root, "Junto.app"),
             executablePath: join(root, "fake-exec"),
           }),
       }),

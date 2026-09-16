@@ -42,7 +42,7 @@ test("Note focus survives canvas updates and moves to the pinned dock", async ()
 
     await page.evaluate(async (canvas) => {
       const api = window.vellumCommand;
-      if (!api) throw new Error("Vellum Command preload bridge is unavailable");
+      if (!api) throw new Error("Junto preload bridge is unavailable");
       const read = await api.readCanvas(canvas);
       const next = {
         ...read.doc,

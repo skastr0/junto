@@ -1,7 +1,7 @@
 {
   "id": "vellum-command",
   "domain": "typescript",
-  "description": "Vellum Command weighting thesis: machine-safety and unfinished production code dominate; Electron process boundaries and Effect composition are first-class; generic size pressure is secondary.",
+  "description": "Junto weighting thesis: machine-safety and unfinished production code dominate; Electron process boundaries and Effect composition are first-class; generic size pressure is secondary.",
   "signal_overrides": {
     "TS-SL-04": {
       "weight": 1.8,

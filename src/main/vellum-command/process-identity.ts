@@ -462,7 +462,7 @@ export const admitProcessIdentity = (
       ok: false,
       denial: "process_unbound",
       message:
-        "connecting process is not a registered agent process — open the agent in Vellum Command first",
+        "connecting process is not a registered agent process — open the agent in Junto first",
     };
   }
   return { ok: true, peerPid, principal };

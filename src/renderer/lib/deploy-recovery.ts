@@ -11,5 +11,5 @@ export const deployRecoveryGuidance = (
 
   const sessionLabel =
     recoveryAction.activeTerminalSessions === 1 ? "session" : "sessions";
-  return `Close ${recoveryAction.activeTerminalSessions} active Vellum Command terminal ${sessionLabel}, then retry deployment.`;
+  return `Close ${recoveryAction.activeTerminalSessions} active Junto terminal ${sessionLabel}, then retry deployment.`;
 };

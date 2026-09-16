@@ -1,6 +1,6 @@
 # Third-party notices
 
-Project-owned Vellum Command source and artwork are made available under the root
+Project-owned Junto source and artwork are made available under the root
 [Apache-2.0 license](LICENSE), to the extent of the project's rights in them.
 Third-party components retain their original copyright and license notices.
 

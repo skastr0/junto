@@ -1,14 +1,14 @@
 <p align="center">
-  <img src="assets/brand/vellum-command-icon.png" alt="Vellum Command" width="128" height="128" />
+  <img src="assets/brand/vellum-command-icon.png" alt="Junto" width="128" height="128" />
 </p>
 
-# Vellum Command
+# Junto
 
 A desktop workspace for agents, terminals, browser pages, and shared work on a
 spatial canvas. You draw the relationships; attached agents use the tools those
 relationships allow.
 
-Vellum Command is free, open-source software under [Apache-2.0](LICENSE). It is
+Junto is free, open-source software under [Apache-2.0](LICENSE). It is
 actively developed by a solo maintainer. Reports and proposals go through
 [issues](https://github.com/skastr0/vellum-command/issues); see
 [CONTRIBUTING.md](CONTRIBUTING.md) and [SUPPORT.md](SUPPORT.md).
@@ -92,7 +92,7 @@ packages keep the ordinary manual source-build workflow.
 
 ## Use the workspace
 
-1. Open Vellum Command and choose the local Command Center role when prompted.
+1. Open Junto and choose the local Command Center role when prompted.
 2. Add agent seats, terminals, pages, tasks, and notes to the canvas.
 3. Connect nodes with the relationship you want, such as an agent contributing to
    a task queue or navigating a page.

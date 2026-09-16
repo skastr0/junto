@@ -106,7 +106,7 @@ export class BoxFleetService extends Context.Service<BoxFleetService,
       boxId: string,
     ) => Effect.Effect<BoxResource, BoxFleetError>;
     /**
-     * Remove Vellum Command ownership + fleet host. Provider Box is left alone
+     * Remove Junto ownership + fleet host. Provider Box is left alone
      * (stopped/running at account). Use Box dashboard to destroy machines.
      */
     readonly detach: (

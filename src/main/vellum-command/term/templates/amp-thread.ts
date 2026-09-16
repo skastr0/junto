@@ -1,7 +1,7 @@
 /**
  * Amp thread provisioning — the public CLI, and nothing else.
  *
- * An Amp seat's session id is not a value Vellum Command may invent: Amp mints
+ * An Amp seat's session id is not a value Junto may invent: Amp mints
  * it. `amp threads new --visibility private` prints one thread receipt and
  * exits. On 0.0.1789113641 that receipt is a sole
  * `https://ampcode.com/threads/T-<uuid>` line; older binaries print a bare
@@ -107,7 +107,7 @@ const runAmp = async (
 /**
  * Mint one private Amp thread and return its id.
  *
- * Private is the only visibility Vellum Command asks for: a seat provisioned
+ * Private is the only visibility Junto asks for: a seat provisioned
  * by the factory must not publish anything to a workspace or a group on the
  * operator's behalf.
  */

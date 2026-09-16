@@ -58,7 +58,7 @@ describe("browser hard product gate", () => {
       expect(runtime.status).toBe(2);
       expect(runtime.stdout).toBe("");
       expect(runtime.stderr).toContain(
-        "Browser is disabled in this Vellum Command build",
+        "Browser is disabled in this Junto build",
       );
     },
   );

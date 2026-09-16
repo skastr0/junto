@@ -87,7 +87,7 @@ export const portSet = (...ports: ReadonlyArray<Port>): HashSet.HashSet<Port> =>
 // role variant instead of every call site re-deciding from a parallel list.
 
 // Exactly one actor kind, and it is a single literal — the invariant lives here
-// at construction, not in a doc or a test. `agent` is the Vellum Command-spawned
+// at construction, not in a doc or a test. `agent` is the Junto-spawned
 // template seat. Raw user terminal is a **sink** (tmux-like resource), not an actor.
 // Literals (not single Literal) so `.literals` stays available for kind tables.
 export const ActorKind = Schema.Literals(["agent" as const]);

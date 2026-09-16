@@ -22,12 +22,12 @@ describe("validateReleaseZipArtifactInput", () => {
   it("admits a canonical absolute zip path + sha256", () => {
     expect(
       validateReleaseZipArtifactInput({
-        zipPath: "/tmp/release/Vellum Command-0.1.0-arm64-mac.zip",
+        zipPath: "/tmp/release/Junto-0.1.0-arm64-mac.zip",
         sha256: SHA,
         version: "0.1.0",
       }),
     ).toEqual({
-      zipPath: "/tmp/release/Vellum Command-0.1.0-arm64-mac.zip",
+      zipPath: "/tmp/release/Junto-0.1.0-arm64-mac.zip",
       sha256: SHA,
       version: "0.1.0",
     });

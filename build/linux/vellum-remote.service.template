@@ -1,5 +1,5 @@
 [Unit]
-Description=Vellum Command Remote headless station
+Description=Junto Remote headless station
 After=default.target
 StartLimitIntervalSec=60
 StartLimitBurst=3

@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-# Notarize + staple a packaged Vellum Command macOS release (repeatable ship step).
+# Notarize + staple a packaged Junto macOS release (repeatable ship step).
 #
 #   scripts/notarize-app.sh
 #   scripts/notarize-app.sh --zip PATH --app PATH
 #   scripts/notarize-app.sh --skip-spctl   # skip Gatekeeper assess (CI edge cases)
 #
 # Prerequisites:
-#   - Packaged release: release/mac-*/Vellum Command.app +
-#     release/Vellum-Command-*-mac.zip (or legacy Vellum Command-*-mac.zip)
+#   - Packaged release: release/mac-*/Junto.app +
+#     release/Junto-*-mac.zip (or legacy Junto-*-mac.zip)
 #     (from scripts/build-app.sh / bun run app:build)
 #   - `asc` authenticated (asc doctor) with Notary API access
 #   - Developer ID-signed app (already enforced by packaging)
@@ -26,7 +26,7 @@
 # (re-submits; Apple is idempotent on content hash when applicable).
 #
 # After staple, rebuild the human DMG via scripts/make-mac-dmg.sh so the
-# volume root is Vellum Command.app + Applications (not a nested mac-arm64
+# volume root is Junto.app + Applications (not a nested mac-arm64
 # folder from electron-builder --prepackaged).
 set -euo pipefail
 
@@ -136,9 +136,9 @@ assert_release_zip_capability() {
   }
   base="$(basename "$path")"
   # Accept both legacy spaced names (PRODUCT_NAME) and locked production
-  # artifactName (package.json / release feed: Vellum-Command-*-mac.zip).
-  [[ "$base" == "${PRODUCT_NAME}-"*-mac.zip || "$base" == "Vellum-Command-"*-mac.zip ]] || {
-    err "zip must be a Vellum Command macOS release artifact"
+  # artifactName (package.json / release feed: Junto-*-mac.zip).
+  [[ "$base" == "${PRODUCT_NAME}-"*-mac.zip || "$base" == "Junto-"*-mac.zip ]] || {
+    err "zip must be a Junto macOS release artifact"
     return 1
   }
 }
@@ -509,7 +509,7 @@ xcrun stapler validate "$STAGED_APP"
 
 log "re-zipping stapled app into exclusive staging …"
 # Zip cannot hold a staple; ship the ticket inside a fresh archive of the stapled .app.
-# Parent of .app is the directory to zip from so the archive root is Vellum Command.app.
+# Parent of .app is the directory to zip from so the archive root is Junto.app.
 app_parent="$STAGING_DIR"
 app_base="$(basename "$STAGED_APP")"
 (
@@ -567,7 +567,7 @@ APP_VERSION="$(
   /usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' \
     "$APP_PATH/Contents/Info.plist" 2>/dev/null || printf '0.0.0'
 )"
-DMG_PATH="$RELEASE_ROOT/Vellum-Command-${APP_VERSION}-arm64-mac.dmg"
+DMG_PATH="$RELEASE_ROOT/Junto-${APP_VERSION}-arm64-mac.dmg"
 bash "$SCRIPT_DIR/make-mac-dmg.sh" \
   --app "$APP_PATH" \
   --out "$DMG_PATH" \

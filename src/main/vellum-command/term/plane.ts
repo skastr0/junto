@@ -55,7 +55,7 @@ export interface TermPlaneStartOptions {
 
 export interface TermProductAutomationSuspension {
   /**
-   * Drop Vellum Command-owned attach/write/retry authority without signaling the PTY
+   * Drop Junto-owned attach/write/retry authority without signaling the PTY
    * process. Implementations must be monotonic and idempotent.
    */
   readonly suspend: () => void;

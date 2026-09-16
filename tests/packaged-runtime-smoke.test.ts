@@ -105,7 +105,7 @@ const spawnGroupLease = (
   const lease = plane.spawnGroup({
     source: "packaged-runtime-smoke-test",
     purpose: "test packaged runtime",
-    command: "/Applications/Vellum Command.app/Contents/MacOS/Vellum Command",
+    command: "/Applications/Junto.app/Contents/MacOS/Junto",
   });
   return { plane, lease };
 };
@@ -132,12 +132,12 @@ afterEach(async () => {
 });
 
 const processFixture = `
-  900 1 /release/Vellum Command.app/Contents/MacOS/Vellum Command --user-data-dir=/tmp/isolated
-  904 900 /release/Vellum Command.app/Contents/Frameworks/Vellum Command Helper.app/Contents/MacOS/Vellum Command Helper --type=utility
-  902 900 /release/Vellum Command.app/Contents/Frameworks/Vellum Command Helper.app/Contents/MacOS/Vellum Command Helper --type=gpu-process
+  900 1 /release/Junto.app/Contents/MacOS/Junto --user-data-dir=/tmp/isolated
+  904 900 /release/Junto.app/Contents/Frameworks/Junto Helper.app/Contents/MacOS/Junto Helper --type=utility
+  902 900 /release/Junto.app/Contents/Frameworks/Junto Helper.app/Contents/MacOS/Junto Helper --type=gpu-process
   906 1 /usr/bin/unrelated
-  903 900 /release/Vellum Command.app/Contents/Frameworks/Vellum Command Helper (Renderer).app/Contents/MacOS/Vellum Command Helper (Renderer) --type=renderer
-  905 904 /release/Vellum Command.app/Contents/Frameworks/Electron Framework.framework/Helpers/chrome_crashpad_handler
+  903 900 /release/Junto.app/Contents/Frameworks/Junto Helper (Renderer).app/Contents/MacOS/Junto Helper (Renderer) --type=renderer
+  905 904 /release/Junto.app/Contents/Frameworks/Electron Framework.framework/Helpers/chrome_crashpad_handler
 `;
 
 describe("packaged runtime smoke process qualification", () => {
@@ -176,9 +176,9 @@ describe("packaged runtime smoke process qualification", () => {
     ).toBe("other");
   });
 
-  it("rejects live Vellum Command and debugger/CDP authority", () => {
+  it("rejects live Junto and debugger/CDP authority", () => {
     expect(() =>
-      assertNoLiveVellumRuntime(parseProcessRows(processFixture), ["/release/Vellum Command.app"]),
+      assertNoLiveVellumRuntime(parseProcessRows(processFixture), ["/release/Junto.app"]),
     ).toThrow(/already running/u);
     expect(() =>
       assertNoLiveVellumRuntime([
@@ -190,17 +190,17 @@ describe("packaged runtime smoke process qualification", () => {
         {
           pid: 2,
           ppid: 1,
-          command: "/usr/bin/codesign -d /Applications/Vellum Command.app/Contents/MacOS/Vellum Command",
+          command: "/usr/bin/codesign -d /Applications/Junto.app/Contents/MacOS/Junto",
         },
       ]),
     ).not.toThrow();
     expect(
       hasDebugAuthority([
-        { pid: 1, ppid: 0, command: "Vellum Command --remote-debugging-port=9222" },
+        { pid: 1, ppid: 0, command: "Junto --remote-debugging-port=9222" },
       ]),
     ).toBe(true);
     expect(
-      hasDebugAuthority([{ pid: 1, ppid: 0, command: "Vellum Command --inspect-brk=0" }]),
+      hasDebugAuthority([{ pid: 1, ppid: 0, command: "Junto --inspect-brk=0" }]),
     ).toBe(true);
     expect(hasDebugAuthority(parseProcessRows(processFixture))).toBe(false);
   });

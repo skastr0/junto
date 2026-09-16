@@ -9,7 +9,7 @@ describe("shared contracts", () => {
     const report = decode({
       checkedAt: "2026-05-09T00:00:00.000Z",
       station: {
-        name: "Vellum Command",
+        name: "Junto",
         version: "0.1.0",
         userDataPath: "/tmp/vellum-command",
       },

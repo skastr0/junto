@@ -652,7 +652,7 @@ export default async function afterPack(context) {
     );
   }
   if (platform !== "darwin" && platform !== "linux") {
-    throw new Error(`unsupported Vellum Command package platform: ${platform}`);
+    throw new Error(`unsupported Junto package platform: ${platform}`);
   }
   if (
     platform === "linux" &&

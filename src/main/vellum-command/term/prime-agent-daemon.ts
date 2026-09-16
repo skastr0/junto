@@ -91,7 +91,7 @@ if [ "$status" -eq 0 ] && [ $# -eq 3 ]; then
   esac
 fi
 if [ "$admit" -ne 1 ]; then
-  printf '%s\n' "Vellum Command: managed Prime Agent requires version $floor_major.$floor_minor.$floor_patch or newer (found: $version)." >&2
+  printf '%s\n' "Junto: managed Prime Agent requires version $floor_major.$floor_minor.$floor_patch or newer (found: $version)." >&2
   exit 69
 fi
 exec "$prime_agent" --mode daemon --daemon-socket "$socket_path"`;
@@ -118,7 +118,7 @@ while [ "$attempt" -lt 3 ]; do
   attempt=$((attempt + 1))
   sleep 0.1
 done
-printf '%s\n' 'Vellum Command: timed out waiting for the managed Prime Agent daemon.' >&2
+printf '%s\n' 'Junto: timed out waiting for the managed Prime Agent daemon.' >&2
 exit 70`;
 
 const PRIME_AGENT_CLIENT_WRAPPER_ARG0 = "vellum-command-prime-agent";
@@ -360,7 +360,7 @@ const assertManagedClientArgs = (args: readonly string[]): void => {
       arg.startsWith("--mode=")
     ) {
       throw new Error(
-        `Prime Agent managed seats reserve ${arg.split("=", 1)[0]} for Vellum Command`,
+        `Prime Agent managed seats reserve ${arg.split("=", 1)[0]} for Junto`,
       );
     }
   }
@@ -494,7 +494,7 @@ const scrubPrimeAgentDaemonEnv = (
   }
   // Prime Agent's built-in reporter reads these exact variable names to find
   // its socket. Third-party protocol, matched verbatim — not an integration
-  // Vellum Command owns.
+  // Junto owns.
   scrubbed.HERDR_ENV = "1";
   scrubbed.HERDR_SOCKET_PATH = registration.socketPath;
   scrubbed.HERDR_PANE_ID = registration.paneId;

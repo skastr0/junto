@@ -1,6 +1,6 @@
 # tests/pty-e2e — PTY repro harness (keystone)
 
-Deterministic, byte-driven reproduction of Vellum Command's PTY-system defects. **Repro-first:
+Deterministic, byte-driven reproduction of Junto's PTY-system defects. **Repro-first:
 every red test asserts CORRECT behavior (the product law) and fails on current code —
 that failure is the proof. Fixes must turn tests green WITHOUT editing them.**
 

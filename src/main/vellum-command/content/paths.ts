@@ -8,7 +8,7 @@ export const CONTENT_LAYOUT_VERSION = "v1" as const;
 export const CONTENT_DIGEST_ALGORITHM = "sha256" as const;
 
 /**
- * Root of the local content store for one Vellum Command installation.
+ * Root of the local content store for one Junto installation.
  * Default: `<VELLUM_COMMAND_HOME>/.vellum-command/content/v1`.
  */
 export const contentStoreRoot = (home: string = resolveVellumCommandHome()): string =>

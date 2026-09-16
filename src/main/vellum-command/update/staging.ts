@@ -63,7 +63,7 @@ const resolveMacExecutable = (appPath: string): string => {
   }
   // Prefer the product name; fall back to the first binary.
   const preferred =
-    binaries.find((name) => name === "Vellum Command") ?? binaries[0]!;
+    binaries.find((name) => name === "Junto") ?? binaries[0]!;
   const executablePath = join(macos, preferred);
   const info = lstatSync(executablePath);
   if (!info.isFile() || info.isSymbolicLink()) {

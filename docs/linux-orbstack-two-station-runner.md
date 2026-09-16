@@ -38,7 +38,7 @@ The complete qualification contract requires that the runner:
   or `mcookie`, while browser automation remains `unavailable` independently
   from core health;
 - records optional host preparation as a separate external lab action;
-- installs and updates Vellum Command through the exact rootless product transaction;
+- installs and updates Junto through the exact rootless product transaction;
 - drives only fixed packaged Station and qualification operations;
 - never opens SQLite, reproduces Station verbs, accepts an arbitrary guest
   command, or transports an administrator password;
@@ -109,7 +109,7 @@ Observation on both installations must prove:
   without affecting core health;
 - native PTY behavior;
 - owner-only control material;
-- zero Vellum Command TCP/debug listeners;
+- zero Junto TCP/debug listeners;
 - per-capability Doctor status consistent with host-preflight facts;
 - no privileged product process, helper, bridge, journal, password path, or
   system-owned active release.

@@ -551,7 +551,7 @@ export const registerHostsIpc = (
                   message:
                     detached.failure instanceof Error
                       ? detached.failure.message
-                      : "Box could not be detached from Vellum Command",
+                      : "Box could not be detached from Junto",
                 } satisfies HostsOpResult;
               }
               // detach already removed host_registry; reload list for caller.
@@ -630,7 +630,7 @@ export const registerHostsIpc = (
     ),
   );
 
-  // Install / configure Vellum Command Remote on a registered host over existing SSH.
+  // Install / configure Junto Remote on a registered host over existing SSH.
   // Only the Command Center may push remote station stamps (no reverse RPC).
   ipcMain.handle(IPC_CHANNELS.hostsConfigureRemote, (_event, id: unknown) =>
     operatorCoordinator.configureRemote(typeof id === "string" ? id : ""),

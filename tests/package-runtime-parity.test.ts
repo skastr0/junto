@@ -239,7 +239,7 @@ const createSyntheticMacBundle = async (
 ): Promise<{ readonly app: string }> => {
   const { main } = await writeSourceCohort(root);
   const stage = path.join(root, "mac-stage");
-  const app = path.join(root, "Vellum Command.app");
+  const app = path.join(root, "Junto.app");
   await mkdir(path.join(stage, "out/main"), { recursive: true });
   await writeFile(path.join(stage, "out/main/index.js"), main);
   await writeFile(
@@ -1149,7 +1149,7 @@ describe("qualification receipt lifecycle", () => {
     expect(() =>
       decodePackageRuntimeParityReceipt({
         schema: "vellum-command/package-runtime-parity-receipt/v2",
-        product: "Vellum Command",
+        product: "Junto",
         qualification: "fresh-isolated-linux-x64-execution",
         externalCandidatePublished: false,
         qualifiedAt: new Date().toISOString(),
@@ -1202,7 +1202,7 @@ describe("historical probe and official wiring", () => {
     const historical = await loadHistoricalPackageComparison(repoRoot);
     expect(historical.comparison).toMatchObject({
       classification: "historical-comparison-only",
-      product: "Vellum Command",
+      product: "Junto",
       release: {
         appVersion: "0.1.14",
         currentStateSchemaVersion: 18,

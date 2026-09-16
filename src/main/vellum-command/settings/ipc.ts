@@ -169,7 +169,7 @@ export const registerSettingsIpc = (
         suggestedFileName: string,
       ): Promise<StateRecoveryDestinationChoice> => {
         const options: SaveDialogOptions = {
-          title: "Export verified Vellum Command state backup",
+          title: "Export verified Junto state backup",
           buttonLabel: "Export backup",
           defaultPath: suggestedFileName,
           filters: [

@@ -75,7 +75,7 @@ describe("vellum docs catalog", () => {
 
   it("doctrine doc includes the injected body plus expansions", () => {
     const doc = buildDoctrineDoc();
-    expect(doc).toContain("Vellum Command — full doctrine");
+    expect(doc).toContain("Junto — full doctrine");
     expect(doc).toContain("### Why edges are permissions");
     expect(doc).toContain("### Why completion is earned");
     expect(doc).toContain("### Why identity is process-bind");

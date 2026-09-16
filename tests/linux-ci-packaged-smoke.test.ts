@@ -44,16 +44,16 @@ describe("Linux packaged Xvfb smoke contract", () => {
 
   it("checks every renderer and rejects sandbox-disabling switches", async () => {
     const rows: ProcessRow[] = [
-      { pid: 10, ppid: 1, command: "/opt/Vellum Command/vellum-command" },
+      { pid: 10, ppid: 1, command: "/opt/Junto/vellum-command" },
       {
         pid: 11,
         ppid: 10,
-        command: "/opt/Vellum Command/vellum-command --type=renderer",
+        command: "/opt/Junto/vellum-command --type=renderer",
       },
       {
         pid: 12,
         ppid: 10,
-        command: "/opt/Vellum Command/vellum-command --type=renderer",
+        command: "/opt/Junto/vellum-command --type=renderer",
       },
     ];
     const checked: number[] = [];
@@ -73,7 +73,7 @@ describe("Linux packaged Xvfb smoke contract", () => {
         {
           pid: 13,
           ppid: 10,
-          command: "/opt/Vellum Command/vellum-command --no-sandbox",
+          command: "/opt/Junto/vellum-command --no-sandbox",
         },
       ],
       async () => sandboxStatus,

@@ -15,7 +15,7 @@ export function RendererCrashFallback({
       role="alert"
       className="pointer-events-auto mx-auto my-8 grid max-w-md gap-3 rounded-[5px] border border-stroke bg-raise px-6 py-5 text-center"
     >
-      <Eyebrow tone="amber">Vellum Command</Eyebrow>
+      <Eyebrow tone="amber">Junto</Eyebrow>
       <p className="font-display text-[18px] text-ink">{title}</p>
       <p className="max-w-md text-[12px] text-dim">
         The station is still running. This view hit a render error and was

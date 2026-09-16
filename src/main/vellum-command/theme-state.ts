@@ -17,7 +17,7 @@
 import { resolveThemeMode, type ThemeMode } from "@shared/theme";
 
 /**
- * Vellum Command's own default until a preference has been read. Deliberately
+ * Junto's own default until a preference has been read. Deliberately
  * the same initial value the renderer starts from, so nothing observes a
  * different theme depending on which side asked first.
  */

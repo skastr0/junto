@@ -9,7 +9,7 @@
 import { useCallback } from "react";
 import { useStoreApi } from "@xyflow/react";
 
-/** Vellum Command multi-select modifier (matches ReactFlow multiSelectionKeyCode). */
+/** Junto multi-select modifier (matches ReactFlow multiSelectionKeyCode). */
 export function isMultiSelectGesture(
   event: Pick<MouseEvent | PointerEvent | KeyboardEvent, "shiftKey">,
 ): boolean {

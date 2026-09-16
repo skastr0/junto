@@ -14,7 +14,7 @@ export const overseerHostTools = () => OVERSEER_HOST_OPERATIONS.map((operation) 
   return {
     type: "function" as const,
     name: operation.replaceAll(".", "__"),
-    description: `Vellum Command ${operation}. Results are verified service receipts.`,
+    description: `Junto ${operation}. Results are verified service receipts.`,
     // Effect's empty Struct also permits an array; Responses tools require an
     // object at the root. Keep the existing schema for every nonempty contract.
     parameters: operation === "canvas.list"

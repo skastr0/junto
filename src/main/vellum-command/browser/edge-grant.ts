@@ -505,7 +505,7 @@ export const makeEdgeGrantService = (
     if (targets.length === 0) {
       return fail(
         "not_connected",
-        "missing edge between caller and a page node — draw an edge in Vellum Command",
+        "missing edge between caller and a page node — draw an edge in Junto",
       );
     }
     const targetStationDenial = targetsAdmitPhysicalStation(targets);

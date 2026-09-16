@@ -352,7 +352,7 @@ describe("remote hosts doctor", () => {
 
     expect(maxActive).toBe(3);
     expect(report.status).toBe("ok");
-    expect(report.detail).toContain("Vellum Command ready");
+    expect(report.detail).toContain("Junto ready");
   });
 
   it("returns typed observations from Station API status", async () => {

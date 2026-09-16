@@ -53,7 +53,7 @@ const delivery = (nodeId: string, deliveryId: string): NodeRefOpenedDelivery => 
 const loadPreload = async (): Promise<VellumCommandApi> => {
   await import("../src/preload/index");
   const api = electron.exposed.get("vellumCommand") as VellumCommandApi | undefined;
-  if (api === undefined) throw new Error("preload did not expose Vellum Command API");
+  if (api === undefined) throw new Error("preload did not expose Junto API");
   return api;
 };
 

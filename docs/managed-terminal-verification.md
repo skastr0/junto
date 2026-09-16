@@ -5,7 +5,7 @@ Method: every item below was verified by **running the real harness TUI in a PTY
 Raw evidence: the 2026-08 per-harness probe reports, gap-fill rounds and journal verdicts (retired from the repository; this file carries the verified facts) (compact per-item verdicts with pointers). Probe artifacts (`.bin` PTY captures, hook payload dumps) lived in the session scratchpad; the reports quote the load-bearing bytes.
 
 Scope: this map verifies mechanisms exposed by the harness binaries, not
-Vellum Command's current wiring or release status. Current release capability is
+Junto's current wiring or release status. Current release capability is
 recorded by the managed-terminal template badges.
 
 ## Live factory reproduction (2026-09-13)
@@ -116,7 +116,7 @@ guard does not resolve this accepted-delivery identity defect. Commit
 the later native run above exercised two progress notes per worker without
 duplicate claim pastes.
 
-The design being verified: **one agent surface** — a Vellum Command-spawned PTY running the harness's full interactive TUI (never headless), per-session injection via flags/env only (zero writes to user configs), the station CLI as the tool surface (process-bind), state-gated PTY typing as the drive channel, Ctrl+C interrupt, resume-by-id cold wake. Harness templates v1: Claude Code, Codex, Grok, Hermes.
+The design being verified: **one agent surface** — a Junto-spawned PTY running the harness's full interactive TUI (never headless), per-session injection via flags/env only (zero writes to user configs), the station CLI as the tool surface (process-bind), state-gated PTY typing as the drive channel, Ctrl+C interrupt, resume-by-id cold wake. Harness templates v1: Claude Code, Codex, Grok, Hermes.
 
 Versions probed: claude 2.1.220 - codex-cli 0.145.0 - grok build (grok-4.5 era, 2026-07) - hermes (2026-07, gpt-5.4/5.5 era) - herdr master @ c0fb777 (Apache-2.0). Re-verify on major harness updates — several load-bearing behaviors are undocumented.
 
@@ -144,9 +144,9 @@ Spawn env trap (prior probe): scrub `CLAUDE_CODE_CHILD_SESSION`, `CLAUDECODE`, `
 | C2 | Paste then **separate** CR write submits (0–150ms gaps all pass) | ⚠ payload+CR in one write NEVER submits; typed chars need ≥~200ms before CR; mid-turn CR queues a second turn |
 | C3 | Session id capture order: SessionStart hook > `CODEX_THREAD_ID` (agent env) > notify payload > rollout file > `/status` | ⚠ rollout file absent until first turn; `session_index.jsonl` stale |
 | C4 | `codex resume <id>` continues the same session (no fork, no usage) | ⚠ flags NOT inherited on resume — re-pass everything |
-| C5 | Hooks injectable via `-c`; 11 events; PreToolUse deny blocks pre-execution; PermissionRequest deny pre-empts the modal | ⚠ untrusted hook = blocking pre-TUI modal; use Vellum Command-owned `CODEX_HOME` with pre-trusted hash (verified, zero writes to real config; auth symlink works) - ⚠ matcher `"Bash"`, not `"shell"` (silent no-op) |
+| C5 | Hooks injectable via `-c`; 11 events; PreToolUse deny blocks pre-execution; PermissionRequest deny pre-empts the modal | ⚠ untrusted hook = blocking pre-TUI modal; use Junto-owned `CODEX_HOME` with pre-trusted hash (verified, zero writes to real config; auth symlink works) - ⚠ matcher `"Bash"`, not `"shell"` (silent no-op) |
 | C6 | `notify` via `-c`: single event `agent-turn-complete`, JSON payload with thread-id | does not fire on interrupted turns |
-| C7 | Allowlisting: no `-c` path — `$CODEX_HOME/rules/default.rules` `prefix_rule` file; fires unprompted in Vellum Command-owned CODEX_HOME | residual: one probe's ask-everything behavior hypothesized to be Groundwork hooks, not codex (not fully ablation-closed) |
+| C7 | Allowlisting: no `-c` path — `$CODEX_HOME/rules/default.rules` `prefix_rule` file; fires unprompted in Junto-owned CODEX_HOME | residual: one probe's ask-everything behavior hypothesized to be Groundwork hooks, not codex (not fully ablation-closed) |
 | C8 | `codex debug models` enumerates models + per-model effort lists (gpt-5.6-sol/terra/luna, …, incl. `ultra`) | ⚠ `-m` not validated locally — bogus ids proceed |
 | C9 | `/status` shows `Session:`, context %, `Weekly limit: … resets …`, per-model limits; OTLP export works (live sink, token fields per event) | plan/rate-limit fields definitively ABSENT from OTLP — weekly limits are a `/status` scrape |
 | C10 | `/compact` exists; completion = `• Context compacted` + idle title + OSC9 | |
@@ -232,7 +232,7 @@ M2 and M3 are why capture reads the store instead of the screen, and why it
 matches on workspace AND start time (`term/templates/muse-session.ts`) — the
 newest directory on the machine can easily belong to another seat.
 
-M5 is a live gap, not a Muse bug: Vellum Command answers those queries only from
+M5 is a live gap, not a Muse bug: Junto answers those queries only from
 the renderer's xterm surface (`renderer/lib/xterm-appearance.ts`), so a seat the
 factory wakes with no surface attached has nobody to answer it. Until the PTY
 layer answers for every seat regardless of surface, a factory-woken Muse seat
@@ -243,13 +243,13 @@ exits at startup and has no session to capture or resume.
 From the herdr study (master @ c0fb777, Apache-2.0; learn-never-fork):
 - Detection = declarative TOML rule engine, 13 named regions (incl. `prompt_box_body` — literally the "input box idle" predicate), 4 states, priority-ranked, per-harness manifests (all four v1 harnesses covered).
 - **Settled-idle debounce, port verbatim**: 300ms tick → 100ms holding, 3 confirmations, 700ms cap, 800ms blocker heartbeat, 3s post-change grace; debounce ONLY the Working→Idle drop — visible idle chrome publishes immediately.
-- Herdr **reversed its own hooks decision** for Claude/Codex (screen+OSC won; hooks kept only for session-id) — and its hook install writes user configs (exactly Vellum Command's banned move). The target design could use per-invocation hooks without user-config writes; current Vellum Command ships no per-harness hook injection and relies on OSC/grid.
-- Herdr typing has **no gating, no chunking, no dialog avoidance** — a prompt sent while blocked goes into the dialog. Vellum Command's state-gated typing is strictly stronger. Take the 5s `agent_prompt_stalled` check.
+- Herdr **reversed its own hooks decision** for Claude/Codex (screen+OSC won; hooks kept only for session-id) — and its hook install writes user configs (exactly Junto's banned move). The target design could use per-invocation hooks without user-config writes; current Junto ships no per-harness hook injection and relies on OSC/grid.
+- Herdr typing has **no gating, no chunking, no dialog avoidance** — a prompt sent while blocked goes into the dialog. Junto's state-gated typing is strictly stronger. Take the 5s `agent_prompt_stalled` check.
 - OSC titles are untrusted model output: sanitize (256-char cap, strip controls), clear retained evidence on agent change.
 - Skip: config writing, remote unsigned manifest auto-update, literal pattern strings (re-derive from our own e2e captures).
 
 From [`tui-horizons.md`](tui-horizons.md):
-- **Vellum Command currently registers zero OSC/CSI handlers** — every structured signal above arrives and is discarded. Largest cheap win.
+- **Junto currently registers zero OSC/CSI handlers** — every structured signal above arrives and is discarded. Largest cheap win.
 - **The emulated grid is renderer-lifetime-bound** (`TerminalSurface.tsx:207/266`) — state detection must move to a main-process grid (`@xterm/headless`, not yet a dependency). The one real architecture prerequisite.
 - `bracketedPasteMode` (CSI ?2004) is a protocol-level "input box live" gate; `?2026` synchronized-output marks exact repaint boundaries — both already parsed by xterm, read by nothing.
 - Nonce discipline for any future OSC-133-style marks (children can forge marks); alt-buffer has no scrollback; wide-char/resize grid pitfalls documented with citations.

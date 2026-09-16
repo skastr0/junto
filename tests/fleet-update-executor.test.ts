@@ -22,7 +22,7 @@ const remote = (
 
 const okResult: HostsDeployRemoteResult = {
   ok: true,
-  detail: "Vellum Command is on this Mac",
+  detail: "Junto is on this Mac",
   outcome: "ready",
   version: "0.1.1",
   statusRecorded: true,

@@ -843,7 +843,7 @@ const runManualSchedulerFire = async (input: {
   if (!schedulerFeatureEnabled(kind)) {
     return {
       ok: false,
-      message: `${kind} is disabled in this Vellum Command build`,
+      message: `${kind} is disabled in this Junto build`,
     };
   }
   const fireKey = `${input.overseer !== undefined ? "overseer" : "manual"}:${input.canvasName}::${input.sourceNodeId}:${Date.now()}`;
@@ -874,7 +874,7 @@ const runManualSchedulerFire = async (input: {
   if (result.skipped === "disabled") {
     return {
       ok: false,
-      message: `${kind} is disabled in this Vellum Command build`,
+      message: `${kind} is disabled in this Junto build`,
     };
   }
   if (result.skipped === "revoked") {

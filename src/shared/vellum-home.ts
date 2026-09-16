@@ -2,21 +2,21 @@ import { homedir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
 
 /**
- * Vellum Command-specific home directory.
+ * Junto-specific home directory.
  *
- * Vellum Command's state, control sockets, and internal caches live under this
+ * Junto's state, control sockets, and internal caches live under this
  * directory (`<home>/.vellum-command/...`). By default it is the OS user home, but the
  * `VELLUM_COMMAND_HOME` environment variable overrides it. This lets a dev build run
  * with an isolated `.vellum-command` tree while leaving `HOME` (and therefore the shell
  * home seen by child terminals/tools) unchanged.
  *
- * Only Vellum Command-owned paths should use this helper. External tool caches
+ * Only Junto-owned paths should use this helper. External tool caches
  * (`~/.codex`, `~/.hermes`, `~/.claude.json`, etc.) and the shell's `~`
  * resolution intentionally stay on the real `HOME` for predictable behavior.
  *
  * Side-by-side with a production install: official `bun run dev` sets
  * `VELLUM_COMMAND_HOME=~/.vellum-command-dev` and pins Electron `userData` under that tree so
- * the single-instance lock does not fight `/Applications/Vellum Command.app`.
+ * the single-instance lock does not fight `/Applications/Junto.app`.
  */
 
 let cachedVellumCommandHome: string | undefined;
@@ -67,7 +67,7 @@ export const shouldPinUnpackagedElectronUserData = (input: {
   return usableVellumCommandHome(input.vellumHomeEnv) !== undefined;
 };
 
-/** Test hook: clear the memoized Vellum Command home. */
+/** Test hook: clear the memoized Junto home. */
 export const __resetVellumCommandHomeCache = (): void => {
   cachedVellumCommandHome = undefined;
 };

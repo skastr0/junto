@@ -31,7 +31,7 @@ const loadPreload = async (): Promise<VellumCommandApi> => {
     | VellumCommandApi
     | undefined;
   if (api === undefined) {
-    throw new Error("preload did not expose Vellum Command API");
+    throw new Error("preload did not expose Junto API");
   }
   return api;
 };

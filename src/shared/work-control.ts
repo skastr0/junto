@@ -453,7 +453,7 @@ export type TasksRulesView = typeof TasksRulesView.Type;
 
 /**
  * Check submission. The agent CLI executes each command in its own environment
- * and submits only the observed results. Vellum Command never runs a check.
+ * and submits only the observed results. Junto never runs a check.
  */
 export const TasksCheckArgs = Schema.Struct({
   target: Schema.String,

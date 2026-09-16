@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Compile Vellum Command and package for one explicit native target.
+# Compile Junto and package for one explicit native target.
 #
 #   scripts/build-app.sh --target mac|linux [--fast] [--verify] [--sign] [--notarize]
 #   scripts/build-app.sh --compile-only
@@ -67,7 +67,7 @@ if [[ "$SIGN" -eq 1 && "$TARGET" != "mac" ]]; then
 fi
 BUN_EXECUTABLE="$(type -P bun || true)"
 if [[ -z "$BUN_EXECUTABLE" || ! -x "$BUN_EXECUTABLE" ]]; then
-  printf 'vellum-command: error: Bun is required to compile Vellum Command\n' >&2
+  printf 'vellum-command: error: Bun is required to compile Junto\n' >&2
   exit 1
 fi
 if [[ "$SIGN" -eq 1 ]]; then

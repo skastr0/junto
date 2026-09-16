@@ -238,7 +238,7 @@ describe("Linux desktop bootstrap publication contract", () => {
       "vellum-command-desktop-bootstrap-linux-x64-relink.json",
       "vellum-command-desktop-bootstrap-linux-x64-relink-notices.txt",
       "vellum-command-desktop-bootstrap-linux-x64-bun-notices.tar.gz",
-      "Vellum-Command-linux-desktop-bootstrap-1.0.0-source.tar.gz",
+      "Junto-linux-desktop-bootstrap-1.0.0-source.tar.gz",
       "RELINK.md",
     ]);
     const workflow = await readFile(

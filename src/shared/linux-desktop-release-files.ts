@@ -115,7 +115,7 @@ export const verifyLinuxDesktopSourceBinding = async (input: {
     readJsonDigest(input.sourceIndexPath, "source index", LINUX_DESKTOP_MAX_SOURCE_INDEX_BYTES),
   ]);
   const index = record(source.value);
-  if (index.schema !== "vellum-command/release-sources/v1" || index.product !== "Vellum Command" ||
+  if (index.schema !== "vellum-command/release-sources/v1" || index.product !== "Junto" ||
       index.access !== "same-download-location" || !Array.isArray(index.files) || !Array.isArray(index.binaries)) {
     throw new Error("invalid release source index");
   }

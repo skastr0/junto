@@ -258,7 +258,7 @@ const createFixture = async (options: {
         ],
       }],
     }),
-    "CHANGELOG.md": "# Vellum Command 0.1.0\n\nExact Linux release notes.\n",
+    "CHANGELOG.md": "# Junto 0.1.0\n\nExact Linux release notes.\n",
     "source-revision.json": canonical({
       schema: "vellum/source-revision/v1",
       revision: REVISION,

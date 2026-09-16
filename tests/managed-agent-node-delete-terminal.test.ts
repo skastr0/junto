@@ -173,7 +173,7 @@ describe.sequential("managed agent node terminal teardown", () => {
     deleteNode("seat-a");
 
     await vi.waitFor(() => expect(state$.error.peek()).toBe(
-      "Vellum Command could not stop the managed terminal cleanly; the agent node was not deleted.",
+      "Junto could not stop the managed terminal cleanly; the agent node was not deleted.",
     ));
     expect(state$.doc.peek()).toEqual(original);
     expect(chatFinishNodeDelete).toHaveBeenCalledWith(

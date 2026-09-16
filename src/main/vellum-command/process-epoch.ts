@@ -143,7 +143,7 @@ const parseProcessEpochRows = (
 /**
  * Read and validate one complete process table. Any ambiguity fails closed:
  * non-zero ps, stderr, one malformed nonblank row, duplicate pids, or a table
- * without Vellum Command's own pid witness all make the snapshot unavailable.
+ * without Junto's own pid witness all make the snapshot unavailable.
  *
  * Reserved for the two callers that must enumerate process-group members. Its
  * cost scales with the machine's process count, so single-pid questions use
@@ -187,7 +187,7 @@ export const readFullProcessEpochSnapshot = (
  * one row (present), `[]` (a clean read proving the pid is absent), and
  * `undefined` (the observation is unavailable and nothing may be concluded).
  *
- * The full table needs Vellum Command's own pid as a witness because `-axo`
+ * The full table needs Junto's own pid as a witness because `-axo`
  * has no way to say "this table is complete" — a truncated table would read as
  * "the process is gone". A single-pid read replaces that witness with direct
  * evidence and cannot borrow it: macOS `ps` answers a two-pid `-p` list by

@@ -380,8 +380,8 @@ describe("live maintenance acquisition body", () => {
     if (!admission.acquired) return;
     expect(admission.stages).toEqual([
       "Paused new terminal sessions for this update",
-      "Holding terminal sessions closed while Vellum Command updates",
-      "Locked the installed Vellum Command for replacement",
+      "Holding terminal sessions closed while Junto updates",
+      "Locked the installed Junto for replacement",
     ]);
     // The Command Center route cut must land before the direct socket-bound
     // lease is dialed, and every hold releases when the scope closes.

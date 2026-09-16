@@ -55,14 +55,14 @@ afterEach(() => {
 
 describe("refresh-mac-updater-metadata helpers", () => {
   it("sanitizes productName spaces the way electron-builder safe names do", () => {
-    expect(safeArtifactName("Vellum Command-0.1.0-arm64-mac.zip")).toBe(
-      "Vellum-Command-0.1.0-arm64-mac.zip",
+    expect(safeArtifactName("Junto-0.1.0-arm64-mac.zip")).toBe(
+      "Junto-0.1.0-arm64-mac.zip",
     );
-    const candidates = zipUrlCandidates("/release/Vellum Command-0.1.0-arm64-mac.zip");
-    expect(candidates.has("Vellum Command-0.1.0-arm64-mac.zip")).toBe(true);
-    expect(candidates.has("Vellum-Command-0.1.0-arm64-mac.zip")).toBe(true);
-    expect(isZipUpdateUrl("Vellum-Command-0.1.0-arm64-mac.zip", candidates)).toBe(true);
-    expect(isZipUpdateUrl("Vellum-Command-0.1.0-arm64-mac.dmg", candidates)).toBe(false);
+    const candidates = zipUrlCandidates("/release/Junto-0.1.0-arm64-mac.zip");
+    expect(candidates.has("Junto-0.1.0-arm64-mac.zip")).toBe(true);
+    expect(candidates.has("Junto-0.1.0-arm64-mac.zip")).toBe(true);
+    expect(isZipUpdateUrl("Junto-0.1.0-arm64-mac.zip", candidates)).toBe(true);
+    expect(isZipUpdateUrl("Junto-0.1.0-arm64-mac.dmg", candidates)).toBe(false);
   });
 
   it("rewrites only zip entries in latest-mac.yml", () => {
@@ -74,13 +74,13 @@ describe("refresh-mac-updater-metadata helpers", () => {
       [
         "version: 0.1.0",
         "files:",
-        "  - url: Vellum-Command-0.1.0-arm64-mac.zip",
+        "  - url: Junto-0.1.0-arm64-mac.zip",
         "    sha512: old-zip",
         "    size: 1",
-        "  - url: Vellum-Command-0.1.0-arm64-mac.dmg",
+        "  - url: Junto-0.1.0-arm64-mac.dmg",
         "    sha512: old-dmg",
         "    size: 2",
-        "path: Vellum-Command-0.1.0-arm64-mac.zip",
+        "path: Junto-0.1.0-arm64-mac.zip",
         "sha512: old-zip",
         "releaseDate: '2026-01-01T00:00:00.000Z'",
         "",
@@ -90,11 +90,11 @@ describe("refresh-mac-updater-metadata helpers", () => {
     const matched = updateLatestMacYml(
       ymlIn,
       ymlOut,
-      "/release/Vellum Command-0.1.0-arm64-mac.zip",
+      "/release/Junto-0.1.0-arm64-mac.zip",
       99,
       "new-zip-sha",
     );
-    expect(matched).toEqual(["Vellum-Command-0.1.0-arm64-mac.zip"]);
+    expect(matched).toEqual(["Junto-0.1.0-arm64-mac.zip"]);
 
     const doc = yaml.load(readFileSync(ymlOut, "utf8")) as {
       files: Array<{ url: string; sha512: string; size: number }>;
@@ -102,17 +102,17 @@ describe("refresh-mac-updater-metadata helpers", () => {
       sha512: string;
     };
     expect(doc.files[0]).toEqual({
-      url: "Vellum-Command-0.1.0-arm64-mac.zip",
+      url: "Junto-0.1.0-arm64-mac.zip",
       sha512: "new-zip-sha",
       size: 99,
     });
     expect(doc.files[1]).toEqual({
-      url: "Vellum-Command-0.1.0-arm64-mac.dmg",
+      url: "Junto-0.1.0-arm64-mac.dmg",
       sha512: "old-dmg",
       size: 2,
     });
     expect(doc.sha512).toBe("new-zip-sha");
-    expect(doc.path).toBe("Vellum-Command-0.1.0-arm64-mac.zip");
+    expect(doc.path).toBe("Junto-0.1.0-arm64-mac.zip");
   });
 
   it("rejects yml with no matching zip entry", () => {
@@ -126,7 +126,7 @@ describe("refresh-mac-updater-metadata helpers", () => {
       ),
     );
     expect(() =>
-      updateLatestMacYml(ymlIn, ymlOut, "/release/Vellum Command-0.1.0-arm64-mac.zip", 1, "s"),
+      updateLatestMacYml(ymlIn, ymlOut, "/release/Junto-0.1.0-arm64-mac.zip", 1, "s"),
     ).toThrow(/no zip file entry matching/);
   });
 });
@@ -136,7 +136,7 @@ describe("refresh-mac-updater-metadata CLI", () => {
     const dir = temporaryRoot();
     const blockmapOut = join(dir, "out.blockmap");
     const ymlOut = join(dir, "latest-mac.yml");
-    const syntheticZip = join(dir, "Vellum Command-0.1.0-arm64-mac.zip");
+    const syntheticZip = join(dir, "Junto-0.1.0-arm64-mac.zip");
     writeFileSync(syntheticZip, Buffer.alloc(64 * 1024, 7));
     const syntheticYml = join(dir, "in.yml");
     writeFileSync(
@@ -144,13 +144,13 @@ describe("refresh-mac-updater-metadata CLI", () => {
       [
         "version: 0.1.0",
         "files:",
-        "  - url: Vellum-Command-0.1.0-arm64-mac.zip",
+        "  - url: Junto-0.1.0-arm64-mac.zip",
         "    sha512: stale",
         "    size: 1",
-        "  - url: Vellum-Command-0.1.0-arm64-mac.dmg",
+        "  - url: Junto-0.1.0-arm64-mac.dmg",
         "    sha512: dmg-stale",
         "    size: 2",
-        "path: Vellum-Command-0.1.0-arm64-mac.zip",
+        "path: Junto-0.1.0-arm64-mac.zip",
         "sha512: stale",
         "releaseDate: '2026-01-01T00:00:00.000Z'",
         "",
@@ -181,7 +181,7 @@ describe("refresh-mac-updater-metadata CLI", () => {
     };
     expect(payload.ymlUpdated).toBe(true);
     expect(payload.size).toBe(statSync(syntheticZip).size);
-    expect(payload.matchedUrls).toEqual(["Vellum-Command-0.1.0-arm64-mac.zip"]);
+    expect(payload.matchedUrls).toEqual(["Junto-0.1.0-arm64-mac.zip"]);
     expect(statSync(blockmapOut).size).toBeGreaterThan(0);
 
     const independent = createHash("sha512").update(readFileSync(syntheticZip)).digest("base64");

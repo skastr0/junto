@@ -1,5 +1,5 @@
 /**
- * Attach to packaged Vellum Command (`--remote-debugging-port=9229`) and measure
+ * Attach to packaged Junto (`--remote-debugging-port=9229`) and measure
  * selection / pan / idle long-task budgets on the live board.
  */
 const ENDPOINT = process.env.VELLUM_COMMAND_CDP_URL ?? "http://127.0.0.1:9229";

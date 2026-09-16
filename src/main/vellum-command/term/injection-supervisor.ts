@@ -1,7 +1,7 @@
 /**
  * Injection supervisor — event-driven re-engagement for managed seats.
  *
- * Policy: Vellum Command may become more active with a seat's PTY only when it
+ * Policy: Junto may become more active with a seat's PTY only when it
  * can prove the intervention cannot damage the experience. Every intervention
  * goes through the typed decision matrix (term/intervention/policy.ts), which
  * is total and exhaustive; the write-gates (user present/drafted, live

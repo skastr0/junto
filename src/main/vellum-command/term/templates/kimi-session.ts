@@ -12,7 +12,7 @@
  *
  *   ~/.kimi-code/sessions/<workDirKey>/<id>/
  *
- * Live ids are `ses_<uuid>` or `session_<uuid>`. Vellum Command never
+ * Live ids are `ses_<uuid>` or `session_<uuid>`. Junto never
  * installs SessionStart hooks; a structured `session_id` is accepted only
  * when an operator already configured one and the token is a Kimi id.
  *

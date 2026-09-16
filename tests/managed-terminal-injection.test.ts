@@ -351,7 +351,7 @@ describe("resolveManagedLaunchPlan Tier A flags", () => {
       expect(firstTypedMessage).toBeTruthy();
       expect(firstTypedMessage).not.toContain("\n");
       expect(firstTypedMessage).toContain("vellum-command onboard");
-      expect(firstTypedMessage).not.toContain("# Vellum Command");
+      expect(firstTypedMessage).not.toContain("# Junto");
     }
   });
 

@@ -69,7 +69,7 @@ Explicit exclusions:
 - Station-to-Station control;
 - multi-tenant or multi-operator RBAC;
 - SSH, Tailscale, provider, host-administrator, or harness credentials absorbed
-  into Vellum Command;
+  into Junto;
 - app-managed `sudo`, administrator-password, system-package-manager, setuid,
   file-capability, polkit, privileged-daemon, or root-journal paths.
 
@@ -78,7 +78,7 @@ Explicit exclusions:
 The canonical transaction runs entirely as the intended Station user:
 
 1. Read-only preflight records the host, runtime dependencies, security
-   facilities, user service manager, installed Vellum Command payload, state schema,
+   facilities, user service manager, installed Junto payload, state schema,
    and requested capability status.
 2. The exact signed candidate is staged in an owner-only user directory and
    admitted against independently trusted release metadata.
@@ -97,7 +97,7 @@ The canonical transaction runs entirely as the intended Station user:
 
 Command Center may initiate the same transaction on an enrolled Remote through
 the ordinary Station user's OpenSSH route. It transfers only the admitted
-payload and fixed userland protocol. Vellum Command never asks SSH, the app, or a helper
+payload and fixed userland protocol. Junto never asks SSH, the app, or a helper
 to obtain administrator authority.
 
 The desktop layout is defined above. Fleet must separately qualify its
@@ -115,7 +115,7 @@ and Chromium sandbox boundary, including the separately reviewed AppArmor
 preparation where required. For the packaged Node Remote, display, AppArmor,
 user namespaces and browser secret storage apply only to a future browser
 sidecar and are not core readiness prerequisites.
-Vellum Command may show reviewed commands but never executes them or collects their
+Junto may show reviewed commands but never executes them or collects their
 credentials.
 
 Troubleshooting sequence for host-boundary failures is always:
@@ -169,7 +169,7 @@ Linux v1 has no operator restore or downgrade path.
 Boot readiness is structural and belongs to one current user-service
 generation:
 
-1. the Vellum Command user service is active for its current invocation;
+1. the Junto user service is active for its current invocation;
 2. the fixed userland launcher is the supervised main process;
 3. fresh owner-only work and Station control sockets are listening;
 4. the app reports SQLite readiness;
@@ -187,13 +187,13 @@ remains explicitly `unavailable` for the first Beta. Unknown remains unknown.
 ## Fleet contract
 
 OpenSSH is the authenticated Command Center-to-Remote transport. Command Center
-invokes only fixed Vellum Command Station operations and exchanges the five bounded
+invokes only fixed Junto Station operations and exchanges the five bounded
 verbs: `pair`, `configure`, `project`, `report`, and `status`.
 
 No fleet request accepts a remote path, shell body, administrator credential,
 or privilege instruction. A Remote never opens a callback route to Command
 Center or another Remote. Tailscale may provide reachability; it grants no
-Vellum Command authority. Browser and actor control remain host-local.
+Junto authority. Browser and actor control remain host-local.
 
 Installed version skew uses the one Station protocol descriptor. Remote
 Stations are unreleased, so current policy remains protocol 1 with `1/1/1`.
@@ -208,7 +208,7 @@ revision prove:
 
 - first install, same-version adoption, update, interrupted update, and
   forward repair through the ordinary-user lane;
-- no Vellum Command process invokes or retains host-administrator authority;
+- no Junto process invokes or retains host-administrator authority;
 - a stock supported Ubuntu host can reach a truthful preflight result without
   a custom image;
 - the packaged Node Remote starts with `DISPLAY` unset and no `Xvfb`, `xauth`,

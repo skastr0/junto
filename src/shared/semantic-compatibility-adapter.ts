@@ -18,7 +18,7 @@ import { Verb, type VerbGrant } from "./physics/verbs";
  *   or missing required fields.
  *
  * Operational admission law:
- * Under Vellum Command policy, operational admission accepts Exact alone.
+ * Under Junto policy, operational admission accepts Exact alone.
  * Restricted and Unsupported fail closed without projection, Work, ACK, or cursor movement.
  */
 

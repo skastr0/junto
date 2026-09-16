@@ -1,4 +1,4 @@
-# Vellum Command native submission repair
+# Junto native submission repair
 
 The intermittent Devin stuck-chip defect was reproduced on the installed
 production app, corrected in `7d2d6cb1`, and verified on its signed replacement.
@@ -72,7 +72,7 @@ main payload was 4,071,211 bytes with SHA-256
 `7d9d5cc2ca0b02a76e37e2468049647da3726c920af2f2b891e188fc90c1a32f`,
 matching packaged provenance. The running PID held the installed archive's
 inode `310246899`; its executable path was
-`/Applications/Vellum Command.app/Contents/MacOS/Vellum Command`.
+`/Applications/Junto.app/Contents/MacOS/Junto`.
 The previous main PID exited through normal app shutdown before installation.
 The signed build and staged/installed package audits completed successfully.
 These checks identify the actual executable and payload; the app version
@@ -188,4 +188,4 @@ accepted before these launches; it is not a new mail-delivery proof. This
 does not qualify every producer, all fourteen harnesses, Remote execution,
 crash receipt reconciliation, observer freshness, or the full input/resize/
 lifecycle matrix. Herdr's separately reported stuck injections remain
-unqualified by this Vellum Command repair.
+unqualified by this Junto repair.

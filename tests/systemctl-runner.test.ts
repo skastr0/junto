@@ -106,7 +106,7 @@ describe("systemctl runner target and argv boundary", () => {
     });
     expect(processPlane.spawnChild).toHaveBeenNthCalledWith(1, {
       source: "supervision.systemctl-runner",
-      purpose: "show Vellum Command systemd user unit",
+      purpose: "show Junto systemd user unit",
       command: SYSTEMCTL_PATH,
       args: [
         "--user",

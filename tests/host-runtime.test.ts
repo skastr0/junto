@@ -159,7 +159,7 @@ describe("decideHostRuntimeGap", () => {
           package: "absent",
           blocker: {
             kind: "quit-app",
-            detail: "Quit Vellum Command on this machine, then Deploy again.",
+            detail: "Quit Junto on this machine, then Deploy again.",
           },
         }),
         "deploy",
@@ -204,7 +204,7 @@ describe("checkHostRuntime", () => {
     );
     expect(ready.ok).toBe(true);
     expect(ready.detail).toBe(
-      "Vellum Command can take work on this machine.",
+      "Junto can take work on this machine.",
     );
     expect(
       checkHostRuntime(observation({ workAttach: "up", mode: "unenrolled" }))

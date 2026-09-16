@@ -1,5 +1,5 @@
 /**
- * Vellum Command pad IR. applyPatch is the only mutation.
+ * Junto pad IR. applyPatch is the only mutation.
  * Author class is not here — WorkService refuses agent ink/image.
  */
 import { Result, Schema } from "effect";

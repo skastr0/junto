@@ -50,8 +50,8 @@ describe("resolveLocalAppBundle", () => {
 });
 
 describe("validateLocalBundleProvenance", () => {
-  const appPath = "/release/Vellum Command.app";
-  const executablePath = `${appPath}/Contents/MacOS/Vellum Command`;
+  const appPath = "/release/Junto.app";
+  const executablePath = `${appPath}/Contents/MacOS/Junto`;
   const metadata = [
     `Executable=${executablePath}`,
     "Identifier=skastr0.vellumcommand",
@@ -70,7 +70,7 @@ describe("validateLocalBundleProvenance", () => {
     appPath,
     executablePath,
     bundleIdentifier: "skastr0.vellumcommand",
-    bundleExecutable: "Vellum Command",
+    bundleExecutable: "Junto",
     bundleVersion: "0.1.0",
     codesignMetadata: metadata,
     ...overrides,
@@ -80,7 +80,7 @@ describe("validateLocalBundleProvenance", () => {
     expect(validateLocalBundleProvenance(valid())).toEqual({
       appPath,
       bundleIdentifier: "skastr0.vellumcommand",
-      bundleExecutable: "Vellum Command",
+      bundleExecutable: "Junto",
       version: "0.1.0",
       teamIdentifier: "EXAMP12345",
       signingAuthority:
@@ -185,7 +185,7 @@ describe("parseRuntimeActivateResult", () => {
       }),
     ).toEqual({
       ok: true,
-      detail: "Vellum Command is running on this Mac",
+      detail: "Junto is running on this Mac",
     });
   });
 
@@ -223,11 +223,11 @@ describe("buildRemoteDeployScript", () => {
     { kind: "app-tar", expectedPackageState: "absent" },
   );
 
-  it("keeps every destructive remote target fixed to Vellum Command paths", () => {
-    expect(script).toContain("APP='/Applications/Vellum Command.app'");
-    expect(script).toContain("IN='/Applications/Vellum Command.app.incoming'");
+  it("keeps every destructive remote target fixed to Junto paths", () => {
+    expect(script).toContain("APP='/Applications/Junto.app'");
+    expect(script).toContain("IN='/Applications/Junto.app.incoming'");
     expect(script).toContain(
-      "CLI_EXE='/Applications/Vellum Command.app/Contents/Resources/bin/vellum-command'",
+      "CLI_EXE='/Applications/Junto.app/Contents/Resources/bin/vellum-command'",
     );
     const admit = readFileSync(
       new URL("../src/main/vellum-command/hosts/deploy-darwin.ts", import.meta.url),
@@ -542,12 +542,12 @@ describe("remote deploy transaction behavior", () => {
     const bin = join(root, "bin");
     const state = join(root, "state");
     const remoteHome = join(root, "Users", "remote");
-    const appPath = join(root, "Applications", "Vellum Command.app");
+    const appPath = join(root, "Applications", "Junto.app");
     const executablePath = join(
       appPath,
       "Contents",
       "MacOS",
-      "Vellum Command",
+      "Junto",
     );
     const plistPath = join(
       remoteHome,
@@ -680,8 +680,8 @@ describe("remote deploy transaction behavior", () => {
           "done",
           'test -n "$target"',
           'mkdir -p "$target/Contents/MacOS" "$target/Contents/Resources/bin"',
-          "printf 'new-generation' > \"$target/Contents/MacOS/Vellum Command\"",
-          'chmod 755 "$target/Contents/MacOS/Vellum Command"',
+          "printf 'new-generation' > \"$target/Contents/MacOS/Junto\"",
+          'chmod 755 "$target/Contents/MacOS/Junto"',
           'if [ "$FAKE_MISSING_CONTROL_HELPER" != "cli" ]; then',
           "  printf 'cli-helper' > \"$target/Contents/Resources/bin/vellum-command\"",
           '  chmod 755 "$target/Contents/Resources/bin/vellum-command"',
@@ -708,7 +708,7 @@ describe("remote deploy transaction behavior", () => {
           'if [ "$FAKE_EXISTING_APP_INVALID" = "1" ] && [ "$target" = "$FAKE_APP" ]; then exit 1; fi',
           'if [ "$FAKE_CODESIGN_FAIL" = "1" ]; then exit 1; fi',
           'if [ "$1" = "-d" ]; then',
-          '  echo "Executable=$target/Contents/MacOS/Vellum Command" >&2',
+          '  echo "Executable=$target/Contents/MacOS/Junto" >&2',
           '  echo "Identifier=skastr0.vellumcommand" >&2',
           '  echo "CodeDirectory v=20500 flags=0x10000(runtime)" >&2',
           '  echo "Signature size=9055" >&2',
@@ -744,7 +744,7 @@ describe("remote deploy transaction behavior", () => {
           'target="${@: -1}"',
           'case "$*" in',
           '  *CFBundleIdentifier*) echo "skastr0.vellumcommand" ;;',
-          '  *CFBundleExecutable*) echo "Vellum Command" ;;',
+          '  *CFBundleExecutable*) echo "Junto" ;;',
           '  *ProgramArguments.2*) exit 1 ;;',
           '  *ProgramArguments.1*)',
           expectedPackageState === "absent"
@@ -1140,7 +1140,7 @@ describe("remote deploy transaction behavior", () => {
               harness.state,
               "admitted-contents",
               "MacOS",
-              "Vellum Command",
+              "Junto",
             ),
             "utf8",
           ),
@@ -1391,7 +1391,7 @@ describe("deploy transfer lifecycle", () => {
       "remote" as never,
       2,
       "",
-      "--prepared:/Applications/Vellum Command.app.incoming/Vellum Command.app\nENROLLMENT_SOCKET_TIMEOUT pid=9 station=0\n",
+      "--prepared:/Applications/Junto.app.incoming/Junto.app\nENROLLMENT_SOCKET_TIMEOUT pid=9 station=0\n",
     );
     expect(describeDeployTransferFailure(noisy)).toBe(
       "ENROLLMENT_SOCKET_TIMEOUT pid=9 station=0",

@@ -1453,7 +1453,7 @@ export const registerVellumIpc = (): void => {
           if (productAutomationSuspended) return;
           productAutomationSuspended = true;
           checkoutWatch?.stop();
-          // Cut every Vellum Command-owned source before releasing its exact control
+          // Cut every Junto-owned source before releasing its exact control
           // leases. LocalSessionHost.release never signals the PTY process.
           managedDrive.suspend();
           messageDelivery.suspend();

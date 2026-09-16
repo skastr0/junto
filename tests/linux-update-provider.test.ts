@@ -22,12 +22,12 @@ const trust: LinuxDesktopReleaseTrust = { keyring, policy: {
 const target = { platform: "linux", architecture: "x64", osRelease: 'ID=ubuntu\nVERSION_ID="24.04"\n', glibcVersion: "2.39", uid: 501, euid: 501 };
 const archive = Buffer.from("synthetic archive download bytes");
 const sourceIndex = (version = "0.2.1"): Buffer => Buffer.from(JSON.stringify({
-  schema: "vellum-command/release-sources/v1", product: "Vellum Command", access: "same-download-location",
+  schema: "vellum-command/release-sources/v1", product: "Junto", access: "same-download-location",
   version, sourceCommit: "a".repeat(40), files: [{ file: "source.tar.gz", bytes: 10, sha256: "b".repeat(64) }],
   binaries: [{ file: linuxDesktopArchiveName(version), bytes: archive.length, sha256: hash(archive) }],
 }));
 const descriptor = (version = "0.2.1"): LinuxDesktopReleaseDescriptor => ({
-  schema: "vellum-command/linux-desktop-release/v1", product: "Vellum Command", channel: "alpha", version,
+  schema: "vellum-command/linux-desktop-release/v1", product: "Junto", channel: "alpha", version,
   sourceRevision: "a".repeat(40), createdAt: "2026-09-10T00:00:00.000Z", target: LINUX_DESKTOP_TARGET,
   archive: { file: linuxDesktopArchiveName(version), path: `/linux/x64/${linuxDesktopArchiveName(version)}`, bytes: archive.length, sha256: hash(archive) },
   sources: { path: linuxDesktopSourcesPath(version), bytes: sourceIndex(version).length, sha256: hash(sourceIndex(version)) },

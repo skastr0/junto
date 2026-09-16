@@ -69,7 +69,7 @@ const contentMaterializeCommand = Command.make(
         toUndefined(timeout),
       ),
     ),
-).pipe(Command.withDescription("Copy an authorized task ContentRef into its Vellum Command task workspace"));
+).pipe(Command.withDescription("Copy an authorized task ContentRef into its Junto task workspace"));
 
 export const contentCommand = Command.make("content").pipe(
   Command.withDescription("Authorized task content access"),

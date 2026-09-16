@@ -84,7 +84,7 @@ identity model.
 
 | Property | Target (Phase 5) | Current | Status |
 |----------|------------------|---------|--------|
-| Delete page → close owned session | Always close Vellum Command-owned session for that page ref | Default `ether.browser.onDelete` is **`kill-session`** (Phase 5); operators may author `detach` | **Met** (default) |
+| Delete page → close owned session | Always close Junto-owned session for that page ref | Default `ether.browser.onDelete` is **`kill-session`** (Phase 5); operators may author `detach` | **Met** (default) |
 | Detach path | (if kept) must not leave automatable session under deleted ref | Detach: `closeDockBrowser` removes dock surface; warm session may remain until explicit stop / pool policy | **Partial** |
 | Kill path | Exact-handle stop before document mutation | `stopDockBrowser` → `browserStop`; failure **blocks** node delete | **Met** when policy is `kill-session` |
 | Edge revoke vs session | Edge delete denies control; session may still exist until page policy | Edge revoke is independent of session close | **Partial** (by design for edge-only; Phase 5 wants page delete stronger) |
@@ -101,7 +101,7 @@ identity model.
 
 | Actor kind | Target | Current on node delete | Status |
 |------------|--------|------------------------|--------|
-| **agent** (ACP) | Unbind process-bind + revoke tools + terminate OwnedProcess (tier 1/2 Vellum Command-owned) | Node delete calls `closeChat(agentKey)` → unbind + ACP client teardown | **Met** (delete path) |
+| **agent** (ACP) | Unbind process-bind + revoke tools + terminate OwnedProcess (tier 1/2 Junto-owned) | Node delete calls `closeChat(agentKey)` → unbind + ACP client teardown | **Met** (delete path) |
 | **terminal** (native) | Same as machine-safety OwnedProcess | Default detach while app lives; quit path uses process plane | **Partial** |
 | Process-bind on chat close / exit | Unbind so CLI cannot retain seat | `unbindLocalProcess` / `unbindAgentKey` on close and lifecycle exit | **Met** (lifecycle path, not node-delete path) |
 | Termination mechanism | OwnedProcess only — never bare pid | `app-process-plane` → `signalOwned` / `signalOwnedGroupLeader` | **Met** when terminate is invoked |
@@ -159,7 +159,7 @@ into a host-destructive call without minting OwnedProcess at spawn.
 - **Impact:** Operator believes removing the agent card stops the agent; ACP
   child and process-bind can survive until chat close/quit.
 - **Target:** revoke admission → graceful terminate OwnedProcess → verify exit
-  (security doctrine tier 1/2 Vellum Command-owned).
+  (security doctrine tier 1/2 Junto-owned).
 - **Slice:** on agent node delete (and optionally agent node unbind from
   canvas), main path: `chatClose(agentKey)` / process-plane terminate for the
   bound local session only; never bare pid. Keep remote ACP honesty (tier /
@@ -198,7 +198,7 @@ into a host-destructive call without minting OwnedProcess at spawn.
 
 - **Impact:** Medium for remote panes (detach is intentional product history).
 - **Slice:** treat an attached terminal as often **externally attached** (doctrine tier
-  language): revoke Vellum Command capability always; kill only on explicit policy or
+  language): revoke Junto capability always; kill only on explicit policy or
   OwnedProcess. Document rather than force-kill remote tmux.
 
 ---
@@ -215,7 +215,7 @@ Ordered for Phase 5 exit without a rewrite fantasy.
    terminate for local).
 3. Tests: delete agent node → process-identity unbound → work control
    `AuthError` process_unbound; local child exit receipt via OwnedProcess only.
-4. Remote agents: close Vellum Command session; report if provider process is external.
+4. Remote agents: close Junto session; report if provider process is external.
 
 ### Slice B — Page delete session policy (S1)
 

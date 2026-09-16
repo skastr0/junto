@@ -133,14 +133,14 @@ const probePipTitle = (probe?: FleetProbeState): string => {
     return "On the network — update required";
   }
   if (protocol?.compatibility === "deprecated") {
-    return `On the network — this Vellum Command build is old`;
+    return `On the network — this Junto build is old`;
   }
   switch (probe?.status) {
     case "probing":
       return "probing link";
     case "reachable":
       if (probe.observation?.station === undefined) {
-        return "On the network — Vellum Command is not answering";
+        return "On the network — Junto is not answering";
       }
       return probe.latencyMs !== undefined
         ? `On the network — ${probe.latencyMs} ms`

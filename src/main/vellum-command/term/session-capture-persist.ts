@@ -2,7 +2,7 @@
  * Capture → proof → canvas. The half of the cold-resume loop that was missing.
  *
  * A capture harness (Codex, Kimi, Muse, Devin, Cursor, Antigravity, Prime
- * Agent) never accepts a session id from Vellum Command: it mints its own and
+ * Agent) never accepts a session id from Junto: it mints its own and
  * announces it — in a hook payload, an env echo, or a labeled card once one
  * exists. Kimi 0.34.0+ starts with a blank welcome-card `Session:` line; that
  * spawn card is not a receipt. The id is scraped later if the card fills,

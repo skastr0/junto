@@ -2,7 +2,7 @@
  * The seat's thread, minted before the seat exists.
  *
  * A provision-session harness (Amp) cannot have its session id invented by
- * Vellum Command the way a pin harness can: the id names a thread that lives
+ * Junto the way a pin harness can: the id names a thread that lives
  * on the harness's side, and only the harness's own CLI can create one. So the
  * node's `ether.terminal.sessionId` is filled in here — once — before any PTY
  * opens, and every later wake resumes that exact thread.

@@ -1,16 +1,17 @@
 #!/usr/bin/env bun
 /**
- * Product brand lint — bare product token without "Command" is forbidden.
+ * Product brand lint — the retired Vellum brand mark is forbidden in prose.
  *
- * Public product name is **Vellum Command**. The capital-V product token must
- * be immediately followed by ` Command` or `-Command` (artifact prefix).
+ * Public product name is **Junto**. Any word-bounded capital-V `Vellum`
+ * token is a violation: bare `Vellum`, `Vellum Command`, and
+ * `Vellum-Command` are all retired and must be rewritten.
  *
- * Not in scope (word-boundary / casing):
- * - identifiers glued on: VellumCommandApi, resolveVellumCommandHome
+ * Not in scope (word-boundary / casing; renamed by the sweep commits):
+ * - glued camelCase identifiers: VellumCommandApi, resolveVellumCommandHome
  * - lowercase paths / bins: ~/.vellum-command/, vellum-command.db, dist/vellum-command
  * - env / package keys: VELLUM_COMMAND_*, @skastr0/vellum-command
  * - hyphenated internal protocol/header tokens: X-Vellum-Command-Content-State
- *   (local wire labels, not product brand — do not rename for lint alone)
+ *   (local wire labels, not product brand — retired by the protocol commit)
  *
  * Run: `bun run lint:product-name`
  * Exit 0 = clean; exit 1 = violations printed.
@@ -21,8 +22,8 @@ import { fileURLToPath } from "node:url";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
-/** Bare product token: capital-V product word not followed by " Command" or "-Command". */
-const BARE_PRODUCT = /\bVellum\b(?! Command)(?!-Command)/g;
+/** Retired brand mark: any word-bounded capital-V `Vellum` token. */
+const BARE_PRODUCT = /\bVellum\b/g;
 
 const SKIP_DIR_NAMES = new Set([
   ".git",
@@ -92,13 +93,14 @@ const ROOT_TEXT_FILES = new Set([
 
 /**
  * Line-level allow patterns for technical / non-brand uses that still contain
- * the bare word. Keep this list tiny — prefer rewriting to "Vellum Command".
+ * the retired mark. Keep this list tiny — prefer rewriting the prose.
  */
 const LINE_ALLOW: readonly RegExp[] = [
-  // This file encodes the forbidden bare token in its pattern source.
-  /BARE_PRODUCT|lint-product-name|bare product token/i,
+  // This file encodes the forbidden token in its pattern source.
+  /BARE_PRODUCT|lint-product-name|retired brand mark|retired mark/i,
   // Local/internal header and protocol token labels (not user-facing brand).
-  // e.g. X-Vellum-Content-State — keep stable; do not force Vellum Command here.
+  // e.g. X-Vellum-Content-State — retired by the protocol commit, allowed here
+  // only until that family is renamed.
   /\bX-Vellum-[A-Za-z0-9-]+\b/,
 ];
 
@@ -174,12 +176,12 @@ async function main(): Promise<number> {
   }
 
   if (allHits.length === 0) {
-    console.log("lint:product-name — ok (product brand is fully qualified)");
+    console.log("lint:product-name — ok (no retired brand mark in prose)");
     return 0;
   }
 
   console.error(
-    `lint:product-name — ${allHits.length} bare product-name hit(s). Product name is "Vellum Command".\n`,
+    `lint:product-name — ${allHits.length} retired brand-name hit(s). Product name is "Junto".\n`,
   );
   const byFile = new Map<string, Hit[]>();
   for (const h of allHits) {
@@ -199,7 +201,7 @@ async function main(): Promise<number> {
     }
   }
   console.error(
-    `\nFix: use "Vellum Command" (or Vellum-Command for artifact names). See AGENTS.md § Product brand.`,
+    `\nFix: the product name is "Junto". Rewrite the prose; never reintroduce the retired mark. See AGENTS.md § Product brand.`,
   );
   return 1;
 }

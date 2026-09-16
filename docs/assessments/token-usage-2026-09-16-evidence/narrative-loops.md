@@ -13,7 +13,7 @@ Indexes used: `/tmp/tt-invest/index/{turns,compactions,items,calls}.tsv`. Scratc
 ## Executive arc
 
 1. **The goal was one bug, then one feature set.** The session opens with the operator handing over a
-   prior agent's diagnosis of Vellum Command's PTY message injection (ord 9) and stating the first
+   prior agent's diagnosis of Junto's PTY message injection (ord 9) and stating the first
    criterion: the agent must be able to *see* the app prove injection works, so the operator stops
    being the QA (ord 9, 22:38Z). It ends 37 h later implementing a five-feature "crew" brief — mail,
    prompt, wait, observe, reviews — across all harnesses (ord 10696, 08:30Z).
@@ -70,7 +70,7 @@ the sending seat, which is the fix for peer reports arriving as anonymous user t
 
 | # | ordinal | timestamp (UTC) | ask (verbatim, abbreviated) |
 |---|---|---|---|
-| 1 | 9 | 09-13 22:38:14 | `<context>` (prior agent's report) + *"Right now the PTY system for Vellum Command, for the messages injection is severely lacking, broken, repeating over and over, and very chaotic… Critically, we must establish a beachead in a valid e2e that can actually test the proper implementation. Unless you can _see_ the app… we'll be stuck in this very wasteful loop wher eI'm the QA. That is the first criteria."* |
+| 1 | 9 | 09-13 22:38:14 | `<context>` (prior agent's report) + *"Right now the PTY system for Junto, for the messages injection is severely lacking, broken, repeating over and over, and very chaotic… Critically, we must establish a beachead in a valid e2e that can actually test the proper implementation. Unless you can _see_ the app… we'll be stuck in this very wasteful loop wher eI'm the QA. That is the first criteria."* |
 | 2 | 235 | 22:46:51 | *"cant you just click around it? Or open up a production app instrumented with extreme logs and otel and use @Computer-Use to test it yourself? Ignore the e2e playwright crap, cant you do it?"* |
 | 3 | 1201 | 23:14:47 | *"well, did you do anything or patch anything / write any fixes? What did the QA prove exactly?"* |
 | 4 | 1213 | 23:16:02 | *"ok, what is your thought process here? Is there a bug to be fixed?"* |
@@ -132,7 +132,7 @@ message that opened the turn; `close` is the agent's last assistant message befo
 | # | turn | start→end (UTC) | dur | ord | ask | agent's closing line |
 |---|---|---|---|---|---|---|
 | 1 | 01a09ceb | 09-13 22:38:13→22:44:08 | 5 m | 1..231 | ord 9: "the PTY system … is severely lacking … establish a beachead in a valid e2e … That is the first criteria" | "Confirmed: we do not currently meet your first criterion. … All three relevant E2E scenarios failed." (228) |
-| 2 | 01a09cf3 | 22:46:51→23:12:16 | 25 m | 233..1195 | "cant you just click around it? … use @Computer-Use to test it yourself?" | "Yes. I used Computer Use to drive Vellum Command with real Devin. … We have a confirmed hands-on QA path." (1192) |
+| 2 | 01a09cf3 | 22:46:51→23:12:16 | 25 m | 233..1195 | "cant you just click around it? … use @Computer-Use to test it yourself?" | "Yes. I used Computer Use to drive Junto with real Devin. … We have a confirmed hands-on QA path." (1192) |
 | 3 | 01a09d0d | 23:14:47→23:15:08 | 0 m | 1197..1209 | "did you do anything or patch anything / write any fixes?" | "**No fixes were written.** … The PTY defects remain unfixed." (1206) |
 | 4 | 01a09d0e | 23:16:02→23:16:37 | 0 m | 1211..1221 | "Is there a bug to be fixed?" | "Yes. The bug is failed or uncertain submission turning into repeated pastes and Ctrl+C…" (1218) |
 | 5 | 01a09d14 | 23:22:16→23:27:34 | 5 m | 1224..1360 | "any way things can be more efficient? Like … copying over my production canvas" | "Yes. I should have reused your failing setup immediately. I've now copied your production database…" (1357) |
@@ -235,7 +235,7 @@ Both aborts carry `reason: "interrupted"` in the raw record:
   - 00:45:11 (ord 3134): "I'll close the QA instance, build a fresh production app, and verify the packaged build."
   - 00:45:17–00:46:01: drove the QA app through its own lifecycle via CUA — `manualApp.getAXState`, `manualApp.pressKey('super+q')`, `manualApp.click(251)` to confirm closing four QA terminal sessions (calls 3151, 3156, 3161).
   - 00:45:24: `spawn_agent` `production_build_review` (call 3145).
-  - 00:45:51–00:46:52: read `scripts/build-app.sh`, `scripts/install-app.sh`, `scripts/package-app-macos.sh`, `scripts/package-runtime-provenance.ts`, `scripts/mac-signing-config.mjs`, ran `bun --version`, `security find-identity -v -p codesigning`, `codesign -dv --verbose=4 '/Applications/Vellum Command.app'`, and searched `/tmp` and the bun cache for a pinned Bun (calls 3166, 3176, 3187, 3202, 3214).
+  - 00:45:51–00:46:52: read `scripts/build-app.sh`, `scripts/install-app.sh`, `scripts/package-app-macos.sh`, `scripts/package-runtime-provenance.ts`, `scripts/mac-signing-config.mjs`, ran `bun --version`, `security find-identity -v -p codesigning`, `codesign -dv --verbose=4 '/Applications/Junto.app'`, and searched `/tmp` and the bun cache for a pinned Bun (calls 3166, 3176, 3187, 3202, 3214).
   - 00:46:35 (ord 3201, last message): "The QA app and its local server are closed. I'm using the full signed production build… The build requires Bun 1.3.13; this shell has 1.3.14, so I'm locating the pinned compiler first."
   - Aborted 31 s later, mid-investigation of the toolchain.
 - **What the operator said immediately after (ord 3233, 00:47:16, 10 s later):** *"continue"*
@@ -250,10 +250,10 @@ Both aborts carry `reason: "interrupted"` in the raw record:
 - **Ask (ord 3409):** [screenshot] *"it looks like we still have this issue; I also noticed severe duplication of factory messages, it gets quite bad; let's take a step back perhaps and assess the full functionality, how does this feature works in full, and how can it breaking like this"*
 - **What it was doing in the ~2 min before the abort:**
   - 01:41:59 (ord 3412): "The screenshot shows two cancelled deliveries and another pasted chip still waiting. I'll check which build is running, then trace how factory messages are created, submitted, acknowledged, and retried…"
-  - 01:42:06: `ps -axww` for the Vellum/Electron processes; `rg` for `deliverWorkingClaims|managedTaskDeliveryId|injectPrompt|writePrompt` in `kernel/service.ts` (call 3413).
+  - 01:42:06: `ps -axww` for the Junto/Electron processes; `rg` for `deliverWorkingClaims|managedTaskDeliveryId|injectPrompt|writePrompt` in `kernel/service.ts` (call 3413).
   - 01:42:22 and 01:42:31: `spawn_agent` `factory_message_sources` and `pty_delivery_assessment` (calls 3423, 3429); 01:42:38 `followup_task` to `coverage_review` (call 3435).
-  - 01:42:53 (call 3440): extracted `app.asar` from **both** `/Applications/Vellum Command.app` and `release/mac-arm64/Vellum Command.app` and compared `out/package-runtime-provenance.json` — version, `sourceCommit`, `buildIdentity.cohortNonce`, and whether `out/main/index.js` contains `"written-unresolved"` and `"pty-delivery.jsonl"`.
-  - 01:43:05 and 01:43:12: `cua.getApp('/Applications/Vellum Command.app')` then `getScreenshot()` (calls 3452, 3459).
+  - 01:42:53 (call 3440): extracted `app.asar` from **both** `/Applications/Junto.app` and `release/mac-arm64/Junto.app` and compared `out/package-runtime-provenance.json` — version, `sourceCommit`, `buildIdentity.cohortNonce`, and whether `out/main/index.js` contains `"written-unresolved"` and `"pty-delivery.jsonl"`.
+  - 01:43:05 and 01:43:12: `cua.getApp('/Applications/Junto.app')` then `getScreenshot()` (calls 3452, 3459).
   - 01:43:04 (ord 3451, last message): "One concrete finding: the running `/Applications` app is still build `34b4e3d9`, which has neither the containment fix nor the delivery trace. I built the new copy in `release/` but didn't install it… I'm using the code-reviewer skill to trace the full delivery path."
   - 01:43:28 (call 3466): started reading `kernel/service.ts:575-620` and `:1020-1240`, `managed-pulse-bridge.ts`, and the last lines of `transport.jsonl`/`perf.jsonl`.
   - 01:43:36.600 (call 3476): `send_message` to `pty_delivery_assessment` — the last action before the abort, 0.3 s prior.
@@ -262,7 +262,7 @@ Both aborts carry `reason: "interrupted"` in the raw record:
   installed app was a stale build, and was about to spend the turn tracing duplication in source
   while an old binary was running. The operator aborted and reordered the work. The next turn opens
   with "I confirmed the old installed build is running. I'll quit it, replace
-  `/Applications/Vellum Command.app` with the fresh build, and verify the running…" (ord 3491,
+  `/Applications/Junto.app` with the fresh build, and verify the running…" (ord 3491,
   01:44:16) and reports "The fresh build is now installed, and its signature matches the audited
   release copy. The old process has exited." (ord 3558, 01:45:48). This is the single clearest
   example in the session of an operator interrupt that changed the plan.
@@ -569,7 +569,7 @@ surrounding actions, it is marked **[observed]**.
 - ord 2385 (00:02:50): *"The full suite hit an existing browser-test timeout; I'm rerunning with a
   longer timeout while the live factory continues through Devin's normal tool approvals."*
 - ord 14380 (09-15 10:52:55, a peer report relayed by the operator): *"Grok p16 divide-debug: the
-  ~1m2s failure is LAUNCH, not trust-grid. Exact assertion: AggregateError: Vellum Command e2e launch
+  ~1m2s failure is LAUNCH, not trust-grid. Exact assertion: AggregateError: Junto e2e launch
   failed"*
 - ord 15905 (11:36:26): *"The wider app run finished at 23/26 passing. The three failures are being
   traced individually. The real Devin run stopped before sending mail because its isolated setup had
@@ -625,7 +625,7 @@ surrounding actions, it is marked **[observed]**.
 - ord 14331 (10:48:27): *"I can now see the real Devin failure: it is still at "Do you trust the
   authors of this directory?" while the canvas reports idle. The notice is refused before
   submission."*
-- ord 10228 (16:28:25): *"Vellum Command is showing its normal quit confirmation for four local
+- ord 10228 (16:28:25): *"Junto is showing its normal quit confirmation for four local
   sessions; I'm confirming it so the app can save state and stop its owned processes."*
 
 ### Confusion about the repo / stale state

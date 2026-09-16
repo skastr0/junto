@@ -2,7 +2,7 @@
 
 Last audited: 2026-09-12.
 
-Vellum Command is a developer workstation, not a file indexer. It does not
+Junto is a developer workstation, not a file indexer. It does not
 scan the whole home folder, Photos library, Music library, Downloads,
 Documents, Desktop, mounted volumes, contacts, calendars, camera, microphone,
 or screen. Sensitive content access outside app-owned state must follow an
@@ -30,7 +30,7 @@ that action. Narrow startup metadata/network exceptions are listed below.
   pages are denied media, display capture, devices, downloads, filesystem
   access, popups, and every ambient Chromium permission.
 
-Vellum Command is not App Sandboxed because its core product includes local
+Junto is not App Sandboxed because its core product includes local
 terminals and operator-selected agent CLIs. Those children intentionally run
 with the signed-in user's normal authority. Treat opening a terminal or agent
 as the same trust decision as opening Terminal.app in that directory.
@@ -47,14 +47,14 @@ as the same trust decision as opening Terminal.app in that directory.
 | Working-directory browser | Opening an agent, Git, or region folder picker | One shallow page at a time, beginning at the shown path; hidden folders are suppressed until typed | No recursive walk, watcher, Spotlight query, glob, or background index |
 | Git surface | Creating/opening a Git node for an operator-chosen directory | Repository and Git metadata through read-only status/log/show commands | No untracked-file content scan in status; runs only for the authored Git surface |
 | Terminal or attached agent | Explicitly creating or activating the seat | The selected cwd and whatever the launched shell/CLI accesses | Broad by design; ends with the owned process unless a separately disclosed supervised service is installed |
-| Browser page | Explicitly opening a page node | Vellum Command-owned persistent browser profile and public network destinations | Site cookies/storage persist until the operator wipes that profile; hostile web permissions are denied |
-| SSH/Remote | Explicit enrollment, then reconnect/sync while Command Center runs | OpenSSH configuration/credentials plus app paths on that enrolled Remote | No tailnet-wide file walk; managed package installs default off and stay in disclosed Vellum Command app/service paths |
+| Browser page | Explicitly opening a page node | Junto-owned persistent browser profile and public network destinations | Site cookies/storage persist until the operator wipes that profile; hostile web permissions are denied |
+| SSH/Remote | Explicit enrollment, then reconnect/sync while Command Center runs | OpenSSH configuration/credentials plus app paths on that enrolled Remote | No tailnet-wide file walk; managed package installs default off and stay in disclosed Junto app/service paths |
 | Backup export | Export action and native save dialog | One operator-selected destination | Creates a verified copy and never overwrites an existing file |
 | Login item | Settings checkbox | macOS Login Items state | Off until explicitly enabled; no hidden launch |
 | Updates | Automatic release check after startup; download/install actions remain explicit | Release feed plus staging in temporary/app install paths | No home-content access; launchd shutdown avoids Apple Events and Automation prompts |
 
 The working-directory browser can navigate to protected folders only when the
-operator types or opens those locations. Merely launching Vellum Command does
+operator types or opens those locations. Merely launching Junto does
 not enumerate the home directory. The old general-purpose renderer IPC that
 could enumerate any path was removed; only the explicit terminal/Git/region
 picker remains.

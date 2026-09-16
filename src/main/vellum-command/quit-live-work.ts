@@ -46,7 +46,7 @@ export const buildQuitConfirmPrompt = (snapshot: LiveWorkSnapshot): QuitConfirmP
 
   return {
     type: "warning",
-    title: "Quit Vellum Command?",
+    title: "Quit Junto?",
     message: "Live work is present. Quit pauses the factory for this machine.",
     detail:
       `${inventory}\n\n` +

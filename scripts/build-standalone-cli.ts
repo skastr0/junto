@@ -149,7 +149,7 @@ const main = async (): Promise<void> => {
   );
   const dependencies = collected.dependencies;
   const notices = [
-    "Vellum Command application object\n\n" +
+    "Junto application object\n\n" +
       readFileSync(resolve(root, "LICENSE"), "utf8"),
     ...collected.notices,
   ];

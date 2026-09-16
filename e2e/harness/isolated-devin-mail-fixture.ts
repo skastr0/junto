@@ -23,7 +23,7 @@ export const ISOLATED_DEVIN_CREDENTIAL_REL = ".local/share/devin/credentials.tom
 
 const FIXTURE_REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const CLI_BUILD_HINT =
-  "Build the matching Vellum Command CLI first: VELLUM_COMMAND_FEATURE_PROFILE=all-on bun scripts/build-standalone-cli.ts vellum-command";
+  "Build the matching Junto CLI first: VELLUM_COMMAND_FEATURE_PROFILE=all-on bun scripts/build-standalone-cli.ts vellum-command";
 const CliBuildReceipt = Schema.Struct({
   schema: Schema.Literal("vellum-command/cli-relink/v1"),
   sourceCommit: Schema.String,
@@ -45,7 +45,7 @@ export const seedIsolatedVellumCli = async (
   const source = join(repoRoot, "dist", "vellum-command");
   const receiptSource = `${source}-relink.json`;
   if (!existsSync(source) || !existsSync(receiptSource)) {
-    throw new Error(`Isolated Devin has no compiled Vellum Command CLI. ${CLI_BUILD_HINT}`);
+    throw new Error(`Isolated Devin has no compiled Junto CLI. ${CLI_BUILD_HINT}`);
   }
   const receiptText = await readFile(receiptSource, "utf8");
   let receipt: Schema.Schema.Type<typeof CliBuildReceipt>;

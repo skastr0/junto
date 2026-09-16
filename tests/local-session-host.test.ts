@@ -299,7 +299,7 @@ describe("LocalSessionHost", () => {
     expect(launch.env.COLORFGBG).toBe("15;0");
   });
 
-  it("sets COLORFGBG from the Vellum Command theme mode at spawn", () => {
+  it("sets COLORFGBG from the Junto theme mode at spawn", () => {
     const dark = Result.getOrThrow(
       resolveLaunch({ kind: "terminal" }, { themeMode: "dark" }),
     );

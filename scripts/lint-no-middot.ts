@@ -2,7 +2,7 @@
 /**
  * Forbid U+00B7 MIDDLE DOT in product text surfaces.
  *
- * Operators banned middot staccato from Vellum Command UI and copy. The ban is
+ * Operators banned middot staccato from Junto UI and copy. The ban is
  * a PRODUCT rule: it governs strings a user can see (renderer, shared copy,
  * main-process messages, docs). It does not govern tests, e2e, scripts, or the
  * seat-state rule sources, whose job is to byte-match third-party TUI chrome

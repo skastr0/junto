@@ -504,7 +504,7 @@ export const contentMaterializeSchema: CommandSchemaContract = {
   command: "content materialize",
   schema_id: "content.materialize.input/v1",
   description:
-    "Stream an authorized task ContentRef into a stable Vellum Command task-scoped workspace path.",
+    "Stream an authorized task ContentRef into a stable Junto task-scoped workspace path.",
   schema: ContentMaterializeArgs,
   input_modes: inputModes,
 };

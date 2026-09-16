@@ -186,7 +186,7 @@ describe("hermes badges match state.db reality", () => {
     // and is not session resume.
     expect(HERMES_TEMPLATE.argvSpec.resumeMode).toBe("flag");
     expect(HERMES_TEMPLATE.argvSpec.resumeSubcommand).toBeUndefined();
-    // A Vellum Command seat is a visible TUI on a real PTY.
+    // A Junto seat is a visible TUI on a real PTY.
     expect(HERMES_TEMPLATE.argvSpec.prefix).toEqual(["chat", "--tui"]);
   });
 });

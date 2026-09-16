@@ -1,4 +1,4 @@
-# Vellum Command pad
+# Junto pad
 
 A first-party spatial work sink. The factory canvas stays the ACL.
 The pad is the shared page: images, shapes, ink, pins. Wired agents
@@ -28,7 +28,7 @@ patches named boxes and pins.
 5. Agents may upsert shapes/edges and pin posts. Agents may not
    upsert ink or images. Refuse, do not ignore.
 6. Bytes never live in pad JSON. Images are `ContentRef`.
-7. User-facing strings say **Vellum Command**. Never the bare token.
+7. User-facing strings say **Junto**. Never the bare token.
 8. Stock dependencies only. No tldraw, no Excalidraw, no xyflow
    inside the pad editor. `perfect-freehand` is not v1.
 9. Expand-only SQLite: append `N → N+1`. Read
@@ -240,7 +240,7 @@ editor cancel chain.
 Factory card thumbnail is framed structural React SVG (`PadSvg`) or
 the empty-state glyph. `padToSvg` is the export picture, not an
 HTML sink.
-Theme tokens from `src/shared/theme`. This is a Vellum Command
+Theme tokens from `src/shared/theme`. This is a Junto
 surface: dim command room, not a crayon whiteboard. Resize handles
 are view-stable (4 AABB). Hit slop is view pixels, not scene units.
 

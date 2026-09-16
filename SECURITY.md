@@ -1,6 +1,6 @@
 # Security policy
 
-Vellum Command is actively developed and solo-maintained. Security reports for
+Junto is actively developed and solo-maintained. Security reports for
 the current source and official builds are reviewed on a best-effort basis.
 Linux desktop is alpha; Fleet and Remote stations remain experimental and disabled
 in the default feature profile. Older versions do not receive a separate backport
@@ -34,7 +34,7 @@ creates authority or increases impact beyond the documented trust model.
 ## Distribution and disclosure
 
 Official binaries are linked from the
-[Vellum Command download page](https://vellumcommand.com/download). Official macOS
+[Junto download page](https://vellumcommand.com/download). Official macOS
 builds are signed and notarized; automatic updates use the app's configured
 maintainer-run release feed. Linux first install is authenticated by an
 independently obtained bootstrap or a reviewed source checkout, not by the

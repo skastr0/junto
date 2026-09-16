@@ -34,7 +34,7 @@ first install, source builds and sandbox preparation, and the
 | Core Remote runtime | Packaged Node, without Electron, Chromium, display server, Xvfb, xauth or mcookie | Candidate implementation; separate native signed qualification required |
 | Supervision | Station-user service manager | No root-owned launcher; lifecycle proof required |
 | Readiness | Current invocation, owner-local controls and SQLite readiness | Stale receipts or SSH success are insufficient |
-| Login persistence | Optional externally configured user lingering | Never enabled by Vellum Command |
+| Login persistence | Optional externally configured user lingering | Never enabled by Junto |
 | Host preflight | Read-only per-capability findings | Unknown security facts fail closed |
 | Host preparation | Optional reviewed actions outside the app | Capability-specific degradation where safe |
 | Browser automation | Unavailable in the first Remote Beta | Display/sandbox/secret-storage gaps do not block core Node health |

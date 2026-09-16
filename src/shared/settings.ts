@@ -42,11 +42,11 @@ const positiveInt = (min: number, max: number) =>
 
 /**
  * Managed-agent appearance policy:
- * - `follow` — leverage Vellum Command's xterm theme + live appearance
+ * - `follow` — leverage Junto's xterm theme + live appearance
  *   protocol (recommended).
  * - `agent` — do not re-paint mid-session over agent colours.
  *
- * Neither policy changes how a harness is started. A seat Vellum Command starts must
+ * Neither policy changes how a harness is started. A seat Junto starts must
  * present the same experience as the same harness started by hand, so spawn
  * argv never carries an appearance flag under either policy.
  */
@@ -277,7 +277,7 @@ export type TerminalCursorStyle = typeof TerminalCursorStyle.Type;
 
 /**
  * Bell response. xterm 6 exposes no bell option at all -- only an `onBell`
- * event -- so this is a Vellum Command behaviour the surface wires itself.
+ * event -- so this is a Junto behaviour the surface wires itself.
  * "off" is today's behaviour: nothing subscribes to onBell.
  */
 export const TerminalBell = Schema.Literals(["off", "visual", "sound"]);

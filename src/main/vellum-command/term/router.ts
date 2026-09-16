@@ -3,7 +3,7 @@
  * - local → LocalSessionHost (this process)
  * - remote hostId → TermControlClient via SSH unix-forward of ~/.vellum-command/term/control.sock
  *
- * Remote sessions are owned by the remote Vellum Command station; CC quit does not kill them.
+ * Remote sessions are owned by the remote Junto station; CC quit does not kill them.
  */
 
 import { EventEmitter } from "node:events";
@@ -1019,7 +1019,7 @@ export class TerminalRouter extends EventEmitter {
   ): Promise<RemoteEntry> {
     if (!FLEET_UI_ENABLED) {
       throw new Error(
-        "Remote terminal routing is disabled in this Vellum Command build",
+        "Remote terminal routing is disabled in this Junto build",
       );
     }
     this.assertRouteAdmission(hostId, maintenanceCut);

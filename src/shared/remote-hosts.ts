@@ -108,7 +108,7 @@ export type RemoteHostsDocument = typeof RemoteHostsDocument.Type;
 export const LOCAL_HOST_ID = "local" as const;
 
 /**
- * Surfaces this Vellum Command process always owns. Persisted state may store a local
+ * Surfaces this Junto process always owns. Persisted state may store a local
  * row for presentation (label/hermesId/appearance), but capabilities for local
  * are always this code default.
  */

@@ -22,10 +22,10 @@ const FAMILY_VERB_NOTES = [
 
 export const OVERSEER_SKILL_MARKDOWN = `---
 name: overseer
-description: "Runs Vellum Command overseer operations from a process-bound granted seat. Use for canvas, node, edge, and work-plane command as an overseer agent; also for offline schema, examples, and authority boundaries."
+description: "Runs Junto overseer operations from a process-bound granted seat. Use for canvas, node, edge, and work-plane command as an overseer agent; also for offline schema, examples, and authority boundaries."
 ---
 
-# Vellum Command overseer
+# Junto overseer
 
 JSON-only CLI for a managed agent seat whose operator set \`ether.overseer\` with the human-only toggle. Ordinary agents stay edge-scoped. Overseers do not need edges.
 
@@ -96,7 +96,7 @@ This CLI does **not** claim that a running daemon has a handler for every verb. 
 2. Inspect args: \`vellum-command overseer schema show canvas.create\`
 3. Copy an example: \`vellum-command overseer examples show node.create\`
 4. Run under the live granted agent process (not a random shell).
-5. Prefer \`overseer status\` first. If the socket is down: launch Vellum Command, then \`vellum-command doctor\`.
+5. Prefer \`overseer status\` first. If the socket is down: launch Junto, then \`vellum-command doctor\`.
 6. Mutate with expected canvas/node ids from list/read. Use \`overseer canvas batch\` for a coherent structural edit; task creation and worker actions use their own operations.
 7. On \`Forbidden\` / \`Unsupported\`, stop. Do not retry as the operator.
 

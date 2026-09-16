@@ -4,10 +4,10 @@ import { join } from "node:path";
 
 // Cursor credential discovery (read-only), cheapest first:
 //   0. operator settings (Settings > Providers) - a full Cookie header,
-//      deliberate operator intent in Vellum Command.
+//      deliberate operator intent in Junto.
 //   1. CURSOR_COOKIE env var - a full Cookie header copied from cursor.com.
 //   2. ~/.vellum-command/config/cursor-cookie - same Cookie header format,
-//      operator-managed. Vellum Command never writes this file.
+//      operator-managed. Junto never writes this file.
 //   3. The Cursor desktop app's own session database (state.vscdb), read
 //      with a dependency-free read-only SQLite walker - no sqlite package,
 //      no CLI spawn. Browser-cookie import flows are future work.

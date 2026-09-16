@@ -1,4 +1,4 @@
-// Trailer scenario for the Vellum Command demo engine — active ONLY under
+// Trailer scenario for the Junto demo engine — active ONLY under
 // --vellum-demo / VELLUM_COMMAND_DEMO=1 (see @shared/demo). This file is a pure data
 // builder: fixed deterministic ids, no ulid, no Math.random, no runtime
 // framework. It must not import anything beyond @shared/demo + @shared/canvas.
@@ -527,7 +527,7 @@ if (isDev) {
 
 export const trailer60: DemoScenario = {
   id: "trailer-60",
-  title: "Vellum Command — 60s trailer",
+  title: "Junto — 60s trailer",
   bpm: 110,
   beats,
 };

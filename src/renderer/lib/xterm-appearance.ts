@@ -4,7 +4,7 @@ import { schemeDsrFor } from "@shared/theme";
 import { xtermThemeFor } from "./terminal-theme";
 
 /**
- * Live appearance protocol for Vellum Command terminals.
+ * Live appearance protocol for Junto terminals.
  *
  * - OSC 10/11/12: xterm.js already reports/sets from the loaded ITheme once
  *   `xtermThemeFor` is applied — no custom OSC handlers required.
@@ -17,7 +17,7 @@ import { xtermThemeFor } from "./terminal-theme";
  * as keyboard input (colour reports from xterm use the same channel).
  *
  * Policy:
- * - `follow` (default): re-apply Vellum Command theme on every mode flip.
+ * - `follow` (default): re-apply Junto theme on every mode flip.
  * - `agent`: still answer protocol queries; skip forced theme re-apply so an
  *   agent that painted its own palette is not overwritten mid-session.
  */

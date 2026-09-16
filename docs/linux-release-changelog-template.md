@@ -1,4 +1,4 @@
-# Vellum Command Linux Station Beta candidate
+# Junto Linux Station Beta candidate
 
 STATUS: BETA CANDIDATE TEMPLATE — NOT AUTHORIZED FOR PUBLICATION.
 

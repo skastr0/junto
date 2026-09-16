@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Install a built Vellum Command.app into the fixed /Applications product path.
+# Install a built Junto.app into the fixed /Applications product path.
 #
 #   scripts/install-app.sh                 build then install
 #   scripts/install-app.sh --skip-build    install existing release/*.app
@@ -9,7 +9,7 @@
 #   scripts/install-app.sh --supervised    also (re)load LaunchAgent (crash-only KeepAlive)
 #
 # Station preference (settings.station.supervisedPreferred):
-#   Product intent only — this script never opens Vellum Command's SQLite state.
+#   Product intent only — this script never opens Junto's SQLite state.
 #   StationRoleGate sets supervisedPreferred=true when role=remote. The install
 #   surface for that preference is --supervised (or bun run app:install:supervised).
 #   Settings doctor metadata reports preferred vs LaunchAgent-loaded so Remote
@@ -198,7 +198,7 @@ preflight_cli_link() {
     local existing
     existing="$(readlink "$target")"
     if [[ "$existing" != "$helper" ]]; then
-      err "refusing to replace foreign symlink (not a Vellum Command helper): $target -> $existing"
+      err "refusing to replace foreign symlink (not a Junto helper): $target -> $existing"
       return 1
     fi
   fi
@@ -225,7 +225,7 @@ install_cli_link() {
 install_cli_tools() {
   local work_helper="$APP_DST/Contents/Resources/bin/vellum-command"
   if [[ ! -x "$work_helper" ]]; then
-    err "installed Vellum Command CLI helper missing or not executable"
+    err "installed Junto CLI helper missing or not executable"
     return 1
   fi
   ensure_scoped_directory "CLI directory" "$BIN_DIR"
@@ -366,7 +366,7 @@ bind_unsupervised_incumbent
 unload_launchd
 quit_running_app
 if launchd_loaded || vellum_processes_running; then
-  err "Vellum Command did not quiesce; refusing to replace the app"
+  err "Junto did not quiesce; refusing to replace the app"
   exit 1
 fi
 # Brief settle so control clients exit and release PTYs.

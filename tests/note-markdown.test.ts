@@ -61,7 +61,7 @@ describe("parseBlocks", () => {
   });
 
   it("parses the sample note as a uniform list (no head/body split)", () => {
-    const source = "- Tower Goals + Vellum Command\n- Vellum Command notes with tasks / state";
+    const source = "- Tower Goals + Junto\n- Junto notes with tasks / state";
     const blocks = parseBlocks(source);
     expect(blocks).toHaveLength(1);
     expect(blocks[0]).toMatchObject({ kind: "list", ordered: false });

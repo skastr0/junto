@@ -167,7 +167,7 @@ Ranked by `original_token_count` (`orig`), with what the harness actually delive
 | 2 | 25993 | 1500 | 4764 | 0 | 1500 | 2 | `rg -n -m 8 'non.interactive\|auto mode\|permission.*denied\|…' /tmp/vellum-command-pty-matrix-20260914/preserved-sessions` |
 | 3 | 16992 | 6000 | 7856 | 0 | 6000 | 3 | `git status --short` + `rg --files -g AGENTS.md -g CLAUDE.md -g GROK.md …` + `cat docs/security-doctrine.md` + `cat …/quasar/SKILL.md` (one shell command of a 3-command call; the other two returned 892 and 123 tokens) |
 | 4 | 12321 | 12321 | 4660 | 0 | (var) | 1 | `rg -n 'fail\|Task\|status\|success' /tmp/vellum-command-pty-matrix-20260914/harness-status.json …/shared-status.json` — recovered by hand; the call site is `cmds.map(cmd=>tools.exec_command({cmd,max_output_tokens:1700}))` |
-| 5 | 11511 | 5000 | 13789 | 0 | 5000 | 2 | `cat /tmp/isolated-devin-mail-hold.json; ps -axo pid,ppid,etime,command \| rg '(Electron.app/Contents/MacOS/Electron\|Vellum Command.app/…)'` |
+| 5 | 11511 | 5000 | 13789 | 0 | 5000 | 2 | `cat /tmp/isolated-devin-mail-hold.json; ps -axo pid,ppid,etime,command \| rg '(Electron.app/Contents/MacOS/Electron\|Junto.app/…)'` |
 | 6 | 8401 | 2300 | 4262 | 0 | 2300 | 1 | `wc -c …/prime-finalize/stderr.log` + python heredoc scanning devin CLI logs |
 | 7 | 7966 | 7300 | 4396 | 0 | 7300 | 1 | python heredoc reading `harness-status.json` / `shared-status.json` |
 | 8 | 7088 | 7000 | 3986 | 0 | 7000 | 1 | `rg --files -g AGENTS.md -g CLAUDE.md …` + `cat docs/managed-terminal-verification.md \| head -140` + `cat docs/managed-terminal-plan.md` |
@@ -574,7 +574,7 @@ python3 /tmp/tt-fw/thrash2.py
 |---|---|---|---|---|---|
 | 1 | 20,067 | 12 | 15783..15969 | 341 s (11:32:53 → 11:38:34) | `git status --short` ×5, `herdr agent read w3F:p1H --source visible` ×2 |
 | 2 | 11,358 | 8 | 15310..15392 | 93 s (11:23:14 → 11:24:47) | `herdr agent read w3F:p1H --source visible` ×5, `git status --short` ×2 |
-| 3 | 10,995 | 11 | 3369..3537 | 3,123 s (00:53:00 → 01:45:03) | `git status --short` ×3, `ps -axww … \| rg 'Vellum Command.app/…'` ×2 |
+| 3 | 10,995 | 11 | 3369..3537 | 3,123 s (00:53:00 → 01:45:03) | `git status --short` ×3, `ps -axww … \| rg 'Junto.app/…'` ×2 |
 | 4 | 7,685 | 14 | 14869..15034 | 296 s (11:06:34 → 11:11:30) | `herdr agent send-keys w3F:p16 ctrl+c` ×4, `herdr agent read w3F:p16 --source visible` ×4 |
 | 5 | 6,756 | 8 | 15540..15612 | 85 s (11:27:15 → 11:28:40) | `tail -n 20/30 …crew-qa-…-unit.log` ×4, `git log -3 --oneline` ×2 |
 | 6 | 5,679 | 9 | 6297..6408 | 158 s (03:57:11 → 03:59:49) | `git status --short` ×2, `herdr agent read w3F:p16 …` ×2, `git -C … diff …` ×2 |

@@ -14,7 +14,7 @@ const toUndefined = <A>(value: Option.Option<A>): A | undefined =>
   Option.isSome(value) ? value.value : undefined;
 
 const hostIdArg = Argument.string("id").pipe(
-  Argument.withDescription("Enrolled Vellum Command host id"),
+  Argument.withDescription("Enrolled Junto host id"),
 );
 
 const optionalHostId = Flag.string("id").pipe(

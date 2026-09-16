@@ -324,7 +324,7 @@ export type WorkIdentityAdmission =
 /**
  * Pure work identity admission. One path: the local work-file token proves the
  * caller reached us, and process-bind proves which seat it is. There is no
- * second admission — a caller with no live Vellum Command process has no identity.
+ * second admission — a caller with no live Junto process has no identity.
  */
 export const admitWorkIdentity = (input: {
   readonly localToken: string;
@@ -436,7 +436,7 @@ const mapWorkCode = (
           retryable: false,
           next_step:
             details?.next_step ??
-            "the canvas for this call is not loaded; ask the operator to open it in Vellum Command",
+            "the canvas for this call is not loaded; ask the operator to open it in Junto",
         },
       };
     case "illegal_kind":
@@ -727,7 +727,7 @@ const PREAMBLE_TOOL = Object.freeze({
 const OVERSEER_TOOL = Object.freeze({
   id: "overseer",
   command: "vellum-command overseer skill",
-  description: "Learn Vellum Command canvas and node administration. Human-granted authority; independent of pause/play.",
+  description: "Learn Junto canvas and node administration. Human-granted authority; independent of pause/play.",
 });
 
 const ensureCaller = (
@@ -891,7 +891,7 @@ const dispatchOp = (
           message: e.message,
           details: {
             retryable: false,
-            next_step: "the canvas is not open; ask the operator to open it in Vellum Command",
+            next_step: "the canvas is not open; ask the operator to open it in Junto",
           },
         }),
       ),
@@ -2238,7 +2238,7 @@ const dispatchOp = (
       if (!RELAY_ENABLED) {
         return yield* Effect.fail({
           type: "ScopeError" as const,
-          message: "relay.trigger is disabled in this Vellum Command build",
+          message: "relay.trigger is disabled in this Junto build",
           details: { retryable: false, missing: "relay feature" },
         });
       }
@@ -2548,7 +2548,7 @@ const revokedProcessIdentity = (): WorkErrorBody => ({
     retryable: false,
     missing: "current process identity",
     next_step:
-      "run the command again from the current Vellum Command agent session",
+      "run the command again from the current Junto agent session",
   },
 });
 
@@ -2842,7 +2842,7 @@ export const startWorkControlServer = async (
               admission.message,
               {
                 retryable: true,
-                next_step: "your token is invalid or stale; run `vellum-command doctor`, and if Vellum Command is not running ask the operator to start it",
+                next_step: "your token is invalid or stale; run `vellum-command doctor`, and if Junto is not running ask the operator to start it",
               },
               req.op,
               req.id,
@@ -2859,8 +2859,8 @@ export const startWorkControlServer = async (
               retryable: admission.reason === "peer_pid_unavailable",
               next_step:
                 admission.reason === "process_unbound"
-                  ? "this process was not launched by Vellum Command; only agents started from the canvas can call work ops — ask the operator to start you from an agent node"
-                  : "run the CLI from inside your Vellum Command terminal session, then retry",
+                  ? "this process was not launched by Junto; only agents started from the canvas can call work ops — ask the operator to start you from an agent node"
+                  : "run the CLI from inside your Junto terminal session, then retry",
               missing: "process identity",
             },
             req.op,
@@ -2889,7 +2889,7 @@ export const startWorkControlServer = async (
               message: "live canvas authority is unavailable",
               details: {
                 retryable: true,
-                next_step: "retry shortly; if this persists, ask the operator to check that Vellum Command is running with its canvases loaded",
+                next_step: "retry shortly; if this persists, ask the operator to check that Junto is running with its canvases loaded",
               },
             });
           }
@@ -2946,7 +2946,7 @@ export const startWorkControlServer = async (
             callerResolved.caller.node.ether.terminal.harness === "vellum-overseer";
           if (!LIVE_OVERSEER_ENABLED && (nativeController || req.op === "overseer.live")) {
             return Result.fail<WorkErrorBody>({
-              type: "ScopeError", message: "Live conversation is disabled in this Vellum Command build",
+              type: "ScopeError", message: "Live conversation is disabled in this Junto build",
             });
           }
           const controllerIdentity = (): OverseerHostIdentity | undefined => {
@@ -3025,7 +3025,7 @@ export const startWorkControlServer = async (
             let live: OverseerLiveExecutionConstraint | undefined;
             if (nativeController || decoded.success.live !== undefined) {
               if (!LIVE_OVERSEER_ENABLED) return Result.fail<WorkErrorBody>({
-                type: "ScopeError", message: "Live conversation is disabled in this Vellum Command build",
+                type: "ScopeError", message: "Live conversation is disabled in this Junto build",
               });
               const identity = controllerIdentity();
               if (identity === undefined || options.validateOverseerLive === undefined ||
@@ -3143,7 +3143,7 @@ export const startWorkControlServer = async (
               error.message,
               {
                 retryable: false,
-                next_step: "Vellum Command is shutting down; wait for it to come back, then retry",
+                next_step: "Junto is shutting down; wait for it to come back, then retry",
               },
               req.op,
               req.id,

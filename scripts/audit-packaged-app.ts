@@ -103,10 +103,10 @@ export interface PackageAuditReceipt {
 }
 
 export const EXPECTED_JIT_MACHO_PATHS = [
-  "Contents/MacOS/Vellum Command",
-  "Contents/Frameworks/Vellum Command Helper (Renderer).app/Contents/MacOS/Vellum Command Helper (Renderer)",
-  "Contents/Frameworks/Vellum Command Helper (GPU).app/Contents/MacOS/Vellum Command Helper (GPU)",
-  "Contents/Frameworks/Vellum Command Helper.app/Contents/MacOS/Vellum Command Helper",
+  "Contents/MacOS/Junto",
+  "Contents/Frameworks/Junto Helper (Renderer).app/Contents/MacOS/Junto Helper (Renderer)",
+  "Contents/Frameworks/Junto Helper (GPU).app/Contents/MacOS/Junto Helper (GPU)",
+  "Contents/Frameworks/Junto Helper.app/Contents/MacOS/Junto Helper",
 ] as const;
 
 const MAC_O_MAGICS = new Set([
@@ -190,7 +190,7 @@ export const validatePackageSecurityPolicy = (
     expectedNames.some((name, index) => name !== FUSE_NAMES[index])
   ) {
     throw new Error(
-      `@electron/fuses and the Vellum Command policy disagree on the complete fuse set: library=${expectedNames.join(",")} expected=${FUSE_NAMES.join(",")}`,
+      `@electron/fuses and the Junto policy disagree on the complete fuse set: library=${expectedNames.join(",")} expected=${FUSE_NAMES.join(",")}`,
     );
   }
   if (
@@ -998,7 +998,7 @@ export const auditSourcePackagedApp = async (requestedPath: string) => {
   const appPath = await realpath(requestedPath);
   const policy = PACKAGE_SECURITY_POLICY;
   if (path.basename(appPath) !== `${policy.productName}.app`) {
-    throw new Error("source package must be Vellum Command.app");
+    throw new Error("source package must be Junto.app");
   }
   const asarPath = path.join(appPath, "Contents", "Resources", "app.asar");
   const workCliPath = path.join(appPath, "Contents", "Resources", "bin", "vellum-command");
@@ -1032,7 +1032,7 @@ if (invokedPath === modulePath) {
   const sourceBuild = process.argv[3] === "--source";
   if (requestedPath === undefined || (process.argv.length !== 3 && !(process.argv.length === 4 && sourceBuild))) {
     console.error(
-      "usage: bun scripts/audit-packaged-app.ts /path/to/Vellum Command.app [--source]",
+      "usage: bun scripts/audit-packaged-app.ts /path/to/Junto.app [--source]",
     );
     process.exitCode = 2;
   } else {

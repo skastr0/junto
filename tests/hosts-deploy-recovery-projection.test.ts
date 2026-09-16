@@ -12,7 +12,7 @@ describe("Remote deploy recovery guidance", () => {
         activeTerminalSessions: 1,
       }),
     ).toBe(
-      "Close 1 active Vellum Command terminal session, then retry deployment.",
+      "Close 1 active Junto terminal session, then retry deployment.",
     );
   });
 
@@ -22,7 +22,7 @@ describe("Remote deploy recovery guidance", () => {
         "remote-a: UNSUPERVISED_INCUMBENT_REQUIRES_LAUNCHAGENT exe_pids=333,",
       ),
     ).toBe(
-      "Quit the Vellum Command window you opened by hand, then Deploy again.",
+      "Quit the Junto window you opened by hand, then Deploy again.",
     );
     expect(operatorDeployDetail("supervised Remote runtime ready")).toBe(
       "supervised Remote runtime ready",
@@ -37,6 +37,6 @@ describe("Remote deploy recovery guidance", () => {
     ).toContain("already running");
     expect(
       operatorDeployDetail("Station API ready - installation station-1"),
-    ).toContain("Vellum Command ready");
+    ).toContain("Junto ready");
   });
 });

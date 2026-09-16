@@ -8,7 +8,7 @@ const usage = `vellum-command node references
 usage: bun run ref <command> [args] [--json]
 
 commands:
-  format <canvas-name> <node-id>  print a canonical Vellum Command node reference
+  format <canvas-name> <node-id>  print a canonical Junto node reference
   resolve <vellum-command-uri>    resolve a reference without mutating the canvas`;
 
 type CliError = {

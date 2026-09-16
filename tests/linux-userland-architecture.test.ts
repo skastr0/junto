@@ -27,7 +27,7 @@ const walkTs = async (
 };
 
 describe("Linux userland architecture negatives", () => {
-  it("deploy product code never installs under /opt/vellum or /opt/Vellum Command", async () => {
+  it("deploy product code never installs under /opt/vellum or /opt/Junto", async () => {
     const files = [
       path.join(ROOT, "src/main/vellum-command/hosts/deploy-linux.ts"),
       path.join(ROOT, "src/main/vellum-command/ssh/remote-plan.ts"),

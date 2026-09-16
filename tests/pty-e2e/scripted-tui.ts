@@ -93,7 +93,7 @@ const HISTORY: readonly string[] = [
   "Press esc to interrupt a running turn.",
   "Press ctrl+c at the empty prompt to exit.",
   "",
-  "Vellum Command drive loop owns this seat",
+  "Junto drive loop owns this seat",
   "",
   "Session start",
   "",

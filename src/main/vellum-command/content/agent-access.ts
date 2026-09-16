@@ -102,7 +102,7 @@ const assertInside = (root: string, candidate: string): void => {
   ) {
     throw new ContentStoreError(
       "invalid",
-      "content materialization path escapes the Vellum Command work directory",
+      "content materialization path escapes the Junto work directory",
     );
   }
 };

@@ -1,6 +1,6 @@
 # Live Overseer proof of concept
 
-GPT-Live-1 is the voice interface to a local **Vellum Command Overseer** seat.
+GPT-Live-1 is the voice interface to a local **Junto Overseer** seat.
 The POC answers questions about the current canvas and creates, renames, moves,
 resizes, and connects nodes. A separate configurable backend model selects the
 existing typed tools; the running app applies edits through its canvas owner.
@@ -23,7 +23,7 @@ VELLUM_COMMAND_LIVE_OVERSEER=1 bun run dev
 1. In **Settings → Providers → OpenAI live conversation**, save your OpenAI API
    key. The key uses the existing credential vault. Choose a backend model your
    account can use; the default is `gpt-5.4`, independently of `gpt-live-1`.
-2. On the local Command Center, create an agent with the **Vellum Command
+2. On the local Command Center, create an agent with the **Junto
    Overseer** harness and open its managed session.
 3. Select the seat and choose **Grant overseer** in the bottom command strip.
 4. Choose **Start live conversation**, then start the call inside the panel and

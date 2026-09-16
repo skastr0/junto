@@ -8,7 +8,7 @@
  *   injection — what happened to the marker we pasted into the agent's prompt?
  *   turn      — is the agent mid-turn, or has the turn ended?
  *
- * The injection marker is an opaque token (e.g. `[vc-…]`) that Vellum Command
+ * The injection marker is an opaque token (e.g. `[vc-…]`) that Junto
  * pastes into the agent's prompt box alongside its instruction text. Seeing
  * the marker *in the prompt box* means our text is sitting there pending
  * submit; seeing it *outside* the box means the agent already submitted and

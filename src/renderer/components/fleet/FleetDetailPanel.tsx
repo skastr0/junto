@@ -85,14 +85,14 @@ function reachabilityLine(probe?: FleetProbeState): {
       }
       if (probe.protocol?.compatibility === "deprecated") {
         return {
-          text: `On the network — this Vellum Command build is old`,
+          text: `On the network — this Junto build is old`,
           detail: probe.detail,
           color: HUE.amber,
         };
       }
       if (probe.observation?.station === undefined) {
         return {
-          text: "On the network — Vellum Command is not answering",
+          text: "On the network — Junto is not answering",
           detail: probe.detail,
           color: HUE.amber,
         };
@@ -458,7 +458,7 @@ function StationDetail({ host, probe }: { readonly host: RemoteHost; readonly pr
       return;
     }
     setActionLine(
-      [operatorDeployDetail(result.detail || "Vellum Command is on this Mac"), recovery]
+      [operatorDeployDetail(result.detail || "Junto is on this Mac"), recovery]
         .filter(Boolean)
         .join("\n"),
     );
@@ -555,7 +555,7 @@ function StationDetail({ host, probe }: { readonly host: RemoteHost; readonly pr
             }
             {...activateOnPointerUp(() => void runAction("deploy"))}
           >
-            {deployInFlight ? "deploying…" : "Deploy Vellum Command Remote"}
+            {deployInFlight ? "deploying…" : "Deploy Junto Remote"}
           </Button>
           {!deployEnabled && deployDetail ? (
             <p className="fleet-detail__note">{deployDetail}</p>

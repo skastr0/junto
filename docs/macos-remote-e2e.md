@@ -6,7 +6,7 @@ recorded two-host pass for the next packaged build
 Capture and interpret every run through
 [Fleet observability and qualification](fleet-observability.md).
 
-Command Center (this Mac) deploys the **same** `Vellum Command.app` to a **macOS**
+Command Center (this Mac) deploys the **same** `Junto.app` to a **macOS**
 remote (e.g. Mac mini), starts it under LaunchAgent, and uses SSH for the
 Station API and for terminal capability sockets.
 
@@ -24,9 +24,9 @@ mutable row and event has one installation authority home.
 ## Prerequisites
 
 1. **Command Center** is macOS, role `command-center`, with a local app bundle:
-   - `/Applications/Vellum Command.app`, or
+   - `/Applications/Junto.app`, or
    - packaged self, or
-   - `release/mac-arm64/Vellum Command.app`
+   - `release/mac-arm64/Junto.app`
 2. **Remote** is macOS, SSH works (`ssh <endpoint>` BatchMode), user can write
    `/Applications` (or admin once), GUI session available for LaunchAgent/`open`.
 3. Remote host registered in Settings → Hosts with capabilities including
@@ -118,10 +118,10 @@ packaged app digest before treating the path as qualified.
 
 | Symptom | Likely cause |
 |---------|----------------|
-| no local Vellum Command.app | Install/package on CC first |
+| no local Junto.app | Install/package on CC first |
 | remote not Darwin | Linux host — use Linux station track |
 | SSH warm failed | ControlPath too long, host key, keys, or `~/.ssh/config` — read the OpenSSH detail on the deploy step |
-| TERM_SOCK_TIMEOUT | App didn’t start; check remote logs under `~/Library/Logs/Vellum Command/` |
+| TERM_SOCK_TIMEOUT | App didn’t start; check remote logs under `~/Library/Logs/Junto/` |
 | browser sock missing | Activation is incomplete; check the Remote error log and browser composition readiness |
 
 ## Code map

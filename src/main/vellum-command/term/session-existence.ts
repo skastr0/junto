@@ -1,7 +1,7 @@
 /**
  * External harness-session proof for cold resume.
  *
- * Proof is filesystem (or future CLI) evidence only — never Vellum Command's
+ * Proof is filesystem (or future CLI) evidence only — never Junto's
  * process-local capture cache or canvas mint. Absence or IO failure is
  * not-proven (fail-open to pin / fresh session).
  */

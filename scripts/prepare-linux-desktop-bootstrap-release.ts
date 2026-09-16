@@ -21,7 +21,7 @@ export const linuxDesktopBootstrapReleaseAssets = (
   `${LINUX_DESKTOP_BOOTSTRAP_NAME}-relink.json`,
   `${LINUX_DESKTOP_BOOTSTRAP_NAME}-relink-notices.txt`,
   `${LINUX_DESKTOP_BOOTSTRAP_NAME}-bun-notices.tar.gz`,
-  `Vellum-Command-linux-desktop-bootstrap-${version}-source.tar.gz`,
+  `Junto-linux-desktop-bootstrap-${version}-source.tar.gz`,
   "RELINK.md",
 ];
 
@@ -91,19 +91,19 @@ export const prepareLinuxDesktopBootstrapRelease = (input: {
 
   const sourceArchive = resolve(
     dist,
-    `Vellum-Command-linux-desktop-bootstrap-${LINUX_DESKTOP_BOOTSTRAP_VERSION}-source.tar.gz`,
+    `Junto-linux-desktop-bootstrap-${LINUX_DESKTOP_BOOTSTRAP_VERSION}-source.tar.gz`,
   );
   run("git", [
     "-C",
     root,
     "archive",
     "--format=tar.gz",
-    `--prefix=Vellum-Command-linux-desktop-bootstrap-${LINUX_DESKTOP_BOOTSTRAP_VERSION}/`,
+    `--prefix=Junto-linux-desktop-bootstrap-${LINUX_DESKTOP_BOOTSTRAP_VERSION}/`,
     `--output=${sourceArchive}`,
     input.commit,
   ]);
 
-  const recipe = `# Rebuilding the Vellum Command Linux desktop bootstrap
+  const recipe = `# Rebuilding the Junto Linux desktop bootstrap
 
 This download contains the exact dependency-bundled application object compiled
 into bootstrap ${LINUX_DESKTOP_BOOTSTRAP_VERSION}. Its digest, feature profile
@@ -111,7 +111,7 @@ and compiler version are recorded in ${LINUX_DESKTOP_BOOTSTRAP_NAME}-relink.json
 application and bundled JavaScript dependency licenses are in
 ${LINUX_DESKTOP_BOOTSTRAP_NAME}-relink-notices.txt. Native Bun 1.3.13 runtime
 notices travel in ${LINUX_DESKTOP_BOOTSTRAP_NAME}-bun-notices.tar.gz. The matching
-source tree is Vellum-Command-linux-desktop-bootstrap-${LINUX_DESKTOP_BOOTSTRAP_VERSION}-source.tar.gz.
+source tree is Junto-linux-desktop-bootstrap-${LINUX_DESKTOP_BOOTSTRAP_VERSION}-source.tar.gz.
 
 Corresponding Bun/WebKit/TinyCC source archives are not stored in git. From the
 extracted source tree, prepare them with:

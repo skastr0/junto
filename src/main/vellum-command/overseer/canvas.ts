@@ -608,7 +608,7 @@ const handleNodeCreate = (
         ok: false,
         error: fail(
           "ScopeError",
-          `kind "${gated}" is disabled in this Vellum Command build`,
+          `kind "${gated}" is disabled in this Junto build`,
         ),
       };
     }
@@ -668,7 +668,7 @@ const mutateExistingNode = (
         ok: false,
         error: fail(
           "ScopeError",
-          `kind "${gated}" is disabled in this Vellum Command build`,
+          `kind "${gated}" is disabled in this Junto build`,
         ),
       };
     }
@@ -886,7 +886,7 @@ const handleEdgeConnect = (
         ok: false,
         error: fail(
           "ScopeError",
-          "edge touches a kind disabled in this Vellum Command build",
+          "edge touches a kind disabled in this Junto build",
         ),
       };
     }
@@ -959,7 +959,7 @@ const handleEdgeConfigure = (
         ok: false,
         error: fail(
           "ScopeError",
-          "edge touches a kind disabled in this Vellum Command build",
+          "edge touches a kind disabled in this Junto build",
         ),
       };
     }

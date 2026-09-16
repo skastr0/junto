@@ -64,7 +64,7 @@ export interface OpenAiLiveConnection {
 export class OpenAiLiveConnectionError extends Error {
   constructor(readonly code: "invalid-input" | "startup-failed" | "startup-timeout" | "aborted" | "not-open" | "invalid-context") {
     // Never forward HTTP bodies, WebSocket errors, or credential-bearing causes.
-    super(`Vellum Command live connection: ${code}.`);
+    super(`Junto live connection: ${code}.`);
     this.name = "OpenAiLiveConnectionError";
   }
 }

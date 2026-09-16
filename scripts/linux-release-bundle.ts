@@ -93,7 +93,7 @@ export interface LinuxReleaseFile {
 export interface LinuxReleaseManifest {
   readonly schema: "vellum/linux-release-manifest/v7";
   readonly release: {
-    readonly product: "Vellum Command";
+    readonly product: "Junto";
     readonly version: string;
     readonly channel: "stable";
     readonly createdAt: string;
@@ -145,7 +145,7 @@ export interface LinuxQualificationCandidateManifest {
   readonly purpose: typeof LINUX_QUALIFICATION_CANDIDATE_PURPOSE;
   readonly publishable: false;
   readonly release: {
-    readonly product: "Vellum Command";
+    readonly product: "Junto";
     readonly version: string;
     readonly createdAt: string;
     readonly expiresAt: string;
@@ -918,7 +918,7 @@ export const decodeLinuxReleaseManifest = (
     ],
     "release identity",
   );
-  if (release.product !== "Vellum Command" || release.channel !== "stable") {
+  if (release.product !== "Junto" || release.channel !== "stable") {
     throw new Error("unsupported Linux release product or channel");
   }
   const version = requireSemver(release.version, "release version");
@@ -1021,7 +1021,7 @@ export const decodeLinuxReleaseManifest = (
   return {
     schema: "vellum/linux-release-manifest/v7",
     release: {
-      product: "Vellum Command",
+      product: "Junto",
       version,
       channel: "stable",
       createdAt,
@@ -1090,7 +1090,7 @@ export const decodeLinuxQualificationCandidateManifest = (
     ["product", "version", "createdAt", "expiresAt"],
     "Linux qualification candidate identity",
   );
-  if (release.product !== "Vellum Command") {
+  if (release.product !== "Junto") {
     throw new Error("unsupported Linux qualification candidate product");
   }
   const version = requireSemver(
@@ -1240,7 +1240,7 @@ export const decodeLinuxQualificationCandidateManifest = (
     purpose: LINUX_QUALIFICATION_CANDIDATE_PURPOSE,
     publishable: false,
     release: {
-      product: "Vellum Command",
+      product: "Junto",
       version,
       createdAt,
       expiresAt,
@@ -2762,7 +2762,7 @@ export const createLinuxQualificationCandidateManifest = async (input: {
     purpose: LINUX_QUALIFICATION_CANDIDATE_PURPOSE,
     publishable: false,
     release: {
-      product: "Vellum Command",
+      product: "Junto",
       version,
       createdAt,
       expiresAt,
@@ -2877,7 +2877,7 @@ export const createLinuxReleaseManifest = async (input: {
   const manifest: LinuxReleaseManifest = {
     schema: "vellum/linux-release-manifest/v7",
     release: {
-      product: "Vellum Command",
+      product: "Junto",
       version,
       channel: "stable",
       createdAt,

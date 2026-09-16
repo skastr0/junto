@@ -7,7 +7,7 @@ report convergence, actor and sink placement, and macOS Command Center to
 Remote qualification
 
 **Architecture:** [Fleet and Station architecture](fleet-station-architecture.md)
-and [Vellum Command protocol](vellum-protocol.md)
+and [Junto protocol](vellum-protocol.md)
 
 ## What a green Fleet view proves
 
@@ -76,7 +76,7 @@ identity appears in every complete projection.
 
 ### Doctor
 
-From a process-bound Vellum Command agent, run:
+From a process-bound Junto agent, run:
 
 ```sh
 vellum-command doctor
@@ -96,7 +96,7 @@ Interpret severity as follows:
 | `error` | identity conflict, unreachable route, expired lease, or another fail-closed condition |
 | fleet-blind | Command Center cannot obtain current Remote Station truth; retained facts are history only |
 
-Unknown stays unknown. Vellum Command never turns a cached receipt into live
+Unknown stays unknown. Junto never turns a cached receipt into live
 health.
 
 ### Remote logs and supervised process
@@ -104,8 +104,8 @@ health.
 The managed macOS Remote LaunchAgent writes:
 
 ```text
-~/Library/Logs/Vellum Command/vellum-command.out.log
-~/Library/Logs/Vellum Command/vellum-command.err.log
+~/Library/Logs/Junto/vellum-command.out.log
+~/Library/Logs/Junto/vellum-command.err.log
 ```
 
 Use logs only after Fleet has named the failing layer. Logs are supporting

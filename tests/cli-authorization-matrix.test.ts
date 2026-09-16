@@ -6,7 +6,7 @@ import {
 } from "./cli-authorization-matrix";
 
 describe("CLI authorization matrix", () => {
-  it("classifies every current Vellum Command CLI subcommand into a conformance lane", () => {
+  it("classifies every current Junto CLI subcommand into a conformance lane", () => {
     const manifest = cliCoverageManifest();
     expect(manifest.length).toBeGreaterThan(0);
     expect(new Set(manifest.map(({ commandId }) => commandId)).size).toBe(manifest.length);

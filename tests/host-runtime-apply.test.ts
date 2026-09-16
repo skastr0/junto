@@ -27,7 +27,7 @@ const readyCopy = (extra: Partial<HostOpsCopy> = {}): HostOpsCopy => ({
   exit: 0,
   stdout: "STATION_READY pid=12 term=1 browser=1\n",
   stderr: "",
-  localApp: "/Applications/Vellum Command.app",
+  localApp: "/Applications/Junto.app",
   expectedPackage: "present",
   after: {
     package: "present",
@@ -66,7 +66,7 @@ const configured: HostOpsConfigure = {
 
 const darwinActivate: HostOpsActivate = {
   ok: true,
-  detail: "Vellum Command is running on this Mac",
+  detail: "Junto is running on this Mac",
   stages: [],
   disposition: "ready",
   observedAt,
@@ -219,7 +219,7 @@ describe("HostRuntime apply over HostOps", () => {
     expect(activate).toHaveBeenCalledOnce();
     expect(result.ok).toBe(true);
     expect(result.role).toBe("remote");
-    expect(result.detail).toContain("Vellum Command is running on this Mac");
+    expect(result.detail).toContain("Junto is running on this Mac");
     expectRemedyStages(result.stages, [HOST_RUNTIME_REMEDY_STAGE.sign]);
   });
 
@@ -345,7 +345,7 @@ describe("HostRuntime apply over HostOps", () => {
     expect(activate).not.toHaveBeenCalled();
     expect(result.ok).toBe(false);
     expect(result.detail).toBe(
-      "Quit the Vellum Command window you opened by hand, then Deploy again.",
+      "Quit the Junto window you opened by hand, then Deploy again.",
     );
     expect(result.stages).toContain(HOST_RUNTIME_REMEDY_STAGE.copy);
     expect(result.stages).not.toContain(HOST_RUNTIME_REMEDY_STAGE.restart);
@@ -453,7 +453,7 @@ describe("HostRuntime apply over HostOps", () => {
     expect(activate).not.toHaveBeenCalled();
     expect(result.ok).toBe(false);
     expect(result.detail).toBe(
-      "This machine has no login session, so Vellum Command cannot start.",
+      "This machine has no login session, so Junto cannot start.",
     );
     expect(result.stages).toContain(HOST_RUNTIME_REMEDY_STAGE.copy);
     expect(result.stages).not.toContain(HOST_RUNTIME_REMEDY_STAGE.restart);

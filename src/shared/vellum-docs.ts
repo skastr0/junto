@@ -1,5 +1,5 @@
 /**
- * Vellum Command documentation catalog — the CLI as the infinite knowledge
+ * Junto documentation catalog — the CLI as the infinite knowledge
  * base. The injected doctrine stays compact and points here; the CLI carries
  * the full doctrine, the complete per-node-kind documentation (role, ports,
  * data models, events), and the concepts. Generated from the physics registry
@@ -294,7 +294,7 @@ export const buildDoctrineDoc = (): string => {
     })),
   });
   return [
-    "# Vellum Command — full doctrine",
+    "# Junto — full doctrine",
     "",
     "This is the complete doctrine. The injected system prompt is a compact",
     "edge-compiled subset of it; every law below expands what the injection",
@@ -326,7 +326,7 @@ export const buildDoctrineDoc = (): string => {
         "",
       ]),
     "### Why identity is process-bind",
-    "Your seat's identity is its process tree under Vellum Command, proven by the",
+    "Your seat's identity is its process tree under Junto, proven by the",
     "OS (peer PID). No API key, no client-supplied identity, no env-var authority.",
     "The token is file-backed (0600) and never travels in env or argv.",
     "",
@@ -393,7 +393,7 @@ export const buildConceptsDoc = (): string =>
     ...COMPLETION_CONCEPT,
     "",
     "## Process-bind identity",
-    "Identity is the process tree under Vellum Command, proven by the OS. Env is",
+    "Identity is the process tree under Junto, proven by the OS. Env is",
     "context only, never authority.",
     "",
     "## Errors as ground truth",
@@ -402,7 +402,7 @@ export const buildConceptsDoc = (): string =>
     "invent around an error.",
     "",
     "## The intervention ladder",
-    "Vellum Command may become more active with a seat's PTY only when it can",
+    "Junto may become more active with a seat's PTY only when it can",
     "prove the intervention cannot damage the experience: never near user input,",
     "never into a draft, never into a modal, one live injection at a time.",
     "Escalation is a canvas event, never a PTY write.",

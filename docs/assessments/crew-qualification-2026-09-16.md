@@ -10,7 +10,7 @@ historical receipts retain their original scope.
 
 Root built from clean, committed source
 `8316dadabe4323ca814dca261668474aed309511`, signed and installed
-Vellum Command **0.3.0** at `/Applications/Vellum Command.app`. The package
+Junto **0.3.0** at `/Applications/Junto.app`. The package
 contains schema **24** and the additive **23 to 24** migration. Build cohort:
 `292ea24d-176d-4461-bce3-ef6e1056aeec`.
 

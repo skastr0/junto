@@ -118,7 +118,7 @@ const shouldScrubSpawnEnvKey = (key: string): boolean =>
  * Strip ambient nested-session and internal-role markers before a managed
  * spawn. In particular, every PRIME_AGENT_INTERNAL_* key is reserved to the
  * stock Prime Agent runtime; no current or future internal role may cross the
- * Vellum Command launch boundary.
+ * Junto launch boundary.
  */
 export const scrubSpawnEnv = (
   env: Readonly<Record<string, string | undefined>>,
@@ -154,7 +154,7 @@ export const buildSpawnEnv = (
  * Emitted last, over the ambient value, so a seat launched from inside another
  * session runs on the dials the operator picked for IT. A dial the picker left
  * unset is omitted entirely — the harness's own default is a real answer, and
- * inventing one here would be Vellum Command choosing a model, or a permission
+ * inventing one here would be Junto choosing a model, or a permission
  * mode that spends money, on the operator's behalf.
  */
 const envDials = (
@@ -173,7 +173,7 @@ const envDials = (
 };
 
 /**
- * Id-less "continue last session" flags. Not a Vellum Command feature.
+ * Id-less "continue last session" flags. Not a Junto feature.
  * `-c` is in this set only as a *resume* flag (Claude/Kimi/Devin continue).
  * Codex still uses `-c` for config keys — that is not resume.
  */
@@ -190,7 +190,7 @@ const IDLESS_SESSION_CONTINUE_FLAGS: ReadonlySet<string> = new Set([
  *
  * NOT `-r`: it is fx's saved-session picker but the NAMED resume flag for
  * hermes, prime-agent, devin, grok and pi, and this guard sees argv without
- * knowing whose it is. Vellum Command never emits a bare `-r` — argv carries a
+ * knowing whose it is. Junto never emits a bare `-r` — argv carries a
  * resume flag only with an id attached — so banning it here would only break
  * the harnesses that use it properly.
  */

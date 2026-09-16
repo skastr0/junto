@@ -1,6 +1,6 @@
-# AGENTS.md — Vellum Command
+# AGENTS.md — Junto
 
-**Vellum Command** is a desktop station (Electron + Effect + React) that
+**Junto** is a desktop station (Electron + Effect + React) that
 renders a **portfolio canvas**: agents, work surfaces, notes, and regions as
 spatial nodes; dependencies/blockers/relationships as edges; named regions as
 geography. The current canvas serialization is a
@@ -9,19 +9,19 @@ geography. The current canvas serialization is a
 
 ## Product brand — hard invariant
 
-**The product name is Vellum Command. Never the short form without Command.**
+**The product name is Junto. Never the short form without Command.**
 
 A different product owns the short one-word name. This app, brand, and every
-public or user-facing string must use the full name **Vellum Command** only.
+public or user-facing string must use the full name **Junto** only.
 
 | Surface | Rule |
 |---|---|
-| UI, dialogs, toasts, recovery HTML | `Vellum Command` |
-| CLI hints, doctor, next_step copy | `Vellum Command` |
-| README, PRODUCT, marketing, store | `Vellum Command` |
-| Agent docs (this file, CLAUDE.md) | `Vellum Command` |
-| macOS app / executable | `Vellum Command.app` |
-| Release artifacts | `Vellum-Command-…` |
+| UI, dialogs, toasts, recovery HTML | `Junto` |
+| CLI hints, doctor, next_step copy | `Junto` |
+| README, PRODUCT, marketing, store | `Junto` |
+| Agent docs (this file, CLAUDE.md) | `Junto` |
+| macOS app / executable | `Junto.app` |
+| Release artifacts | `Junto-…` |
 | Code identifiers / source paths | unchanged — not brand |
 
 **Renamed runtime surfaces:** `VellumCommandApi`, `resolveVellumCommandHome`, `~/.vellum-command/`,
@@ -38,14 +38,14 @@ followed by ` Command` or `-Command` is a lint error. Wired into `bun run verify
 Constant: `src/shared/product-name.ts` (`PRODUCT_NAME`).
 
 **PR test:** would a stranger reading only this string think the product is the
-short one-word name? If yes, rewrite to **Vellum Command**.
+short one-word name? If yes, rewrite to **Junto**.
 
 ## Security doctrine — read first
 
 [`docs/security-doctrine.md`](docs/security-doctrine.md) is the governing
-product trust model. It defines Vellum Command as a single-operator factory,
+product trust model. It defines Junto as a single-operator factory,
 attached agents as trusted but fallible, edges as enforceable operator intent
-inside Vellum Command, and Stations as single-home executors of Command Center
+inside Junto, and Stations as single-home executors of Command Center
 intent. If a review, backlog item, test, or older architecture note conflicts
 with it, the conflict is migration work. This fresh-app rename has no old-home
 importers, dual writers, or internal runtime aliases. Station protocol
@@ -189,7 +189,7 @@ State v3; its prerelease status is not a reason to downgrade it.
 
 **Ordinary agents never write the canvas.** The canvas is human-authored in
 Command Center. Ordinary agents consume compiled projections and local
-Vellum Command tools under edge-scoped work control.
+Junto tools under edge-scoped work control.
 
 **Overseer exception (narrow).** A human may toggle overseer on an existing
 managed agent seat. That seat keeps the `agent` kind, gains a distinctive UI,
@@ -219,17 +219,17 @@ To **read the board as an agent**: `bun run digest` (text) or `bun run render` t
 
 ### Work plane (agent mutations)
 
-While Vellum Command is running, agents talk to the **local** work control socket, not
+While Junto is running, agents talk to the **local** work control socket, not
 to an exported document or the database:
 
 | surface | detail |
 |---|---|
 | CLI | `dist/vellum-command` (`bun run cli:build`) — `ping`, `doctor`, `capabilities`, `onboard`, `tasks`, `msg`, `request`, `artifact`, board ops; overseer seats also `overseer` |
 | Socket | `~/.vellum-command/work/control.sock` + bearer token `~/.vellum-command/work/token` |
-| Identity | **process-bind** — CLI must run as a descendant of a live Vellum Command agent (ACP) process. Main registers those PIDs; control admits via Unix peer PID (+ PPID walk). No client-supplied nodeRef / `VELLUM_COMMAND_NODE_REF` identity claim. |
+| Identity | **process-bind** — CLI must run as a descendant of a live Junto agent (ACP) process. Main registers those PIDs; control admits via Unix peer PID (+ PPID walk). No client-supplied nodeRef / `VELLUM_COMMAND_NODE_REF` identity claim. |
 | Authz | **edges** — ordinary agents only act on connected nodes (kernel-enforced ScopeError otherwise); board ports are distinct (`board.create_topic` vs `board.post`). An overseer bypasses edge scope for closed `overseer` ops after live grant admission; pause/blocked do not deny those ops. |
 
-**How to use:** open the agent chat in Vellum Command so the process is registered, then run `dist/vellum-command` from that agent/tooling tree. `onboard` / `capabilities` report the live edge contract for the admitted principal.
+**How to use:** open the agent chat in Junto so the process is registered, then run `dist/vellum-command` from that agent/tooling tree. `onboard` / `capabilities` report the live edge contract for the admitted principal.
 
 Browser control (`vellum-command browser` / `bun run browser`) uses the same process-bind
 identity on protected routes. There is **no enable-grant ceremony** and no client
@@ -394,7 +394,7 @@ station when work must survive Command Center quit.
 **Named session resume law** — a seat resumes one explicit harness session id,
 or it starts fresh. There is no "continue whatever was last." Harness
 `--continue`, bare `--resume`, and latest-session pickers are not a
-Vellum Command feature and must never be emitted. Code:
+Junto feature and must never be emitted. Code:
 `src/shared/managed-terminal-launch.ts`.
 
 **Focus surfaces** — centered, measure-constrained overlays for single-subject work (one agent, one terminal, one page). Prefer these over full-bleed or stage-split when the interaction is deep and solitary. Shell: `FocusSurface` (`src/renderer/components/FocusSurface.tsx`); measures + math: `src/renderer/lib/focus-measure.ts`.
@@ -438,9 +438,9 @@ Remote remains deliberately displayless.
 
 ## Machine safety (architecture north star)
 
-**Vellum Command must never threaten the user's machine.** Host-destructive power is not
+**Junto must never threaten the user's machine.** Host-destructive power is not
 “handled carefully in tests” — it is made **unrepresentable** without a capability
-Vellum Command mints when it owns the resource.
+Junto mints when it owns the resource.
 
 - **Law:** no ambient `kill(pid)` / open host wipe APIs. Domain types + Effect
   Schema + branded handles only.
@@ -460,7 +460,7 @@ seat. Roles derive from entity kind — never authorial `ether.role`. Capability
 phase, and attention/occupancy are separate planes.
 
 - **The law:** four derived physics roles, and **exactly one actor kind — `agent`**, the
-  Vellum Command-spawned template terminal. A raw user-opened terminal is
+  Junto-spawned template terminal. A raw user-opened terminal is
   `geography/"terminal"`; `worker` is reserved for a future native agent UI and
   must not appear as a kind. Geography holds no seat, no ports, no inbox, and no
   work claim — but it *may* display agent state, because display is not a factory

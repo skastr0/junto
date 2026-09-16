@@ -12,7 +12,7 @@ describe("RendererCrashFallback", () => {
         onReload={() => undefined}
       />,
     );
-    expect(html).toContain("Vellum Command");
+    expect(html).toContain("Junto");
     expect(html).toContain("The station is still running");
     expect(html).toContain("Reload this view");
     expect(html).not.toContain("h-full");

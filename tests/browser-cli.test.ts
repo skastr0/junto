@@ -270,7 +270,7 @@ describe("packaged browser CLI contract", () => {
       ok: false,
       error: {
         _tag: "runtime_down",
-        message: "Vellum Command app is not running",
+        message: "Junto app is not running",
       },
     });
   });
@@ -287,14 +287,14 @@ describe("packaged browser CLI contract", () => {
       ok: false,
       error: {
         _tag: "runtime_down",
-        message: "Vellum Command app is not running",
+        message: "Junto app is not running",
       },
     });
   });
 });
 
 describe("browser CLI packaging contract", () => {
-  it("packages one CLI and installs only the Vellum Command", async () => {
+  it("packages one CLI and installs only the Junto", async () => {
     const pkg = JSON.parse(await readFile(join(repoRoot, "package.json"), "utf8")) as {
       readonly build: {
         readonly files: ReadonlyArray<string>;

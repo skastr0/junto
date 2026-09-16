@@ -1,7 +1,7 @@
 # Token usage assessment — Codex session `01a09ce9` and its sub-agent fleet
 
 Date: 2026-09-16
-Subject: `codex resume 01a09ce9-ea56-7123-8596-5aa8368e82db` (Vellum Command PTY injection → crew brief)
+Subject: `codex resume 01a09ce9-ea56-7123-8596-5aa8368e82db` (Junto PTY injection → crew brief)
 Method: three-agent Herdr investigation (`w3F:tC`), raw-rollout forensics. Evidence in
 `docs/assessments/token-usage-2026-09-16-evidence/`.
 
