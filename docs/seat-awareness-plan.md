@@ -87,6 +87,25 @@ reference`. Model probabilities are not `AgentSeatConfidence`.
   deterministic observations + question-pack version + model + temporal bucket. Never
   `seq` alone. Responses from retired epochs are rejected. Retained advisory content
   expires in about five minutes; a cache hit is not a new assessment.
+
+**Window digest and freshness (decided 2026-09-17, after workstream D measured the risk).**
+`windowDigest` is a **coarse material screen revision**, never a per-burst value:
+
+- It is computed from the bounded, redacted evidence after **normalizing volatile chrome**:
+  spinner and animation frames, elapsed-time counters, token counters, cursor position,
+  byte and sequence counters, and repaints that leave the visible text identical.
+- It is republished only when the normalized revision changes, and at most once per
+  coalescing window. A seat printing continuously must not churn its digest on every burst,
+  or a fresh judgment would read as stale within seconds on exactly the seats that work.
+- The evidence digest, the cache key, and the staleness comparison are the **same
+  normalization**, exported once by the projection (workstream C) and consumed by the
+  scheduler (B) and the renderer (D). Two normalizations that disagree is the bug to avoid.
+- **Freshness has two axes.** The excerpt is current only when its evidence digest equals
+  the live window digest; otherwise it reads "last observed at <age>", never relabelled.
+  The judgment (activity and concerns) stays `current` while within the TTL **and** the
+  assessment belongs to the same control-state turn as the live seat, so a busy working
+  seat keeps a useful label while its excerpt ages honestly. An assessment from a previous
+  turn is `stale`.
 - **Starting acceptance policy (to calibrate, not a guarantee)**: choice accepted when
   confidence >= 0.8 and top probability >= 0.8; noul concerns accepted at >= 0.9;
   otherwise abstain and say so. Independently evaluated questions are not independent
