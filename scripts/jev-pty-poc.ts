@@ -684,7 +684,67 @@ const adversarial: ReadonlyArray<Adversarial> = [
   },
 ];
 
-const runAdversarial = async (budget: Budget, rows: Row[]): Promise<void> => {
+/**
+ * Workstream C's proposed experiment, run against real evidence rather than a
+ * hand-built screen: the grok capture whose turn was CANCELLED ends with the
+ * cancellation notice while the dialog text is still on screen. That is the
+ * opposite end of the freshness axis from the measured live-versus-scrolled
+ * pair: a dialog that is visible but already dead. If the pack fires approval
+ * here, the question needs the cancelled case named explicitly.
+ */
+const runCancelledDialogProbe = async (
+  captures: ReadonlyArray<Capture>,
+  budget: Budget,
+  rows: Row[],
+): Promise<void> => {
+  const capture = captures.find(
+    (c) => c.harness === "grok" && c.scenario === "permission-returns-idle",
+  );
+  if (!capture) {
+    console.log("cancelled-dialog probe: grok/permission-returns-idle is not in the corpus");
+    return;
+  }
+  const seen = await observe(capture.harness, capture.blob, undefined, capture.cols, capture.rows);
+  const { text, ids } = idLines(seen.screen);
+  const run = await budget.ask(
+    {
+      harness: capture.harness,
+      scenario: capture.scenario,
+      checkpoint: "cancelled-dialog",
+      signals: { title: seen.title, osc9: seen.osc9 },
+      screen: text,
+    },
+    ids,
+  );
+  const passed = !run.answer.accepted.concerns.includes("approval_requested");
+  rows.push({
+    phase: "adversarial",
+    case: "permission-cancelled-real-capture",
+    intent: "A visible but already-cancelled dialog must NOT read as a live approval request",
+    expected: "approval_requested NOT accepted",
+    passed,
+    jevActivity: run.answer.activity.value,
+    jevConcerns: run.answer.accepted.concerns,
+    jevApproval: run.answer.approval_requested,
+    jevAnswer: run.answer.answer_requested,
+    model: run.model,
+    inputTokens: run.inputTokens,
+    latencyMs: run.latencyMs,
+    costUsd: run.costUsd,
+  });
+  console.log(
+    `adversarial permission-cancelled-real-capture: ${passed ? "PASS" : "FAIL"} ` +
+      `(expected approval_requested NOT accepted) approval=${run.answer.approval_requested.toFixed(2)} ` +
+      `answer=${run.answer.answer_requested.toFixed(2)} concerns=[${run.answer.accepted.concerns.join(",")}] ` +
+      `${run.latencyMs}ms ${run.inputTokens}tok`,
+  );
+};
+
+const runAdversarial = async (
+  budget: Budget,
+  rows: Row[],
+  captures: ReadonlyArray<Capture>,
+): Promise<void> => {
   for (const item of adversarial) {
     const { text, ids } = idLines(item.screen);
     const run = await budget.ask(
@@ -724,6 +784,7 @@ const runAdversarial = async (budget: Budget, rows: Row[]): Promise<void> => {
         `error=${run.answer.execution_error.toFixed(2)} rep=${run.answer.repetition.value}`,
     );
   }
+  await runCancelledDialogProbe(captures, budget, rows);
 };
 
 /**
@@ -837,7 +898,7 @@ const main = async (): Promise<void> => {
     else console.log("corpus: skipped, TYPESAFE_API_KEY is not set");
   }
   if (mode === "adversarial" || mode === "all") {
-    if (budget.enabled) await runAdversarial(budget, rows);
+    if (budget.enabled) await runAdversarial(budget, rows, captures);
     else console.log("adversarial: skipped, TYPESAFE_API_KEY is not set");
   }
   if (mode === "permutation" || mode === "all") {
