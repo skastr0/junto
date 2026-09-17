@@ -266,6 +266,51 @@ describe("fresh, stale, abstained, and unavailable states", () => {
     expect(budget).toContain("assessment budget spent");
   });
 
+  it("names the gate-off reason, and keeps it distinct from not assessed and from a missing key", () => {
+    // The day-one impression for every install with the sidecar disabled. The
+    // gate publishes unavailable/not_configured rather than nothing, so the card
+    // says the sidecar is off instead of leaving the operator to read NOT
+    // ASSESSED as "pending". Three genuinely different facts, three renders.
+    const disabled = render({
+      assessment: assessment({
+        bindingId: "b1",
+        availability: "unavailable",
+        activity: null,
+        selectedLineId: null,
+        unavailableReason: "not_configured",
+      }),
+    });
+    expect(disabled).toContain('data-seat-awareness="unavailable"');
+    expect(disabled).toContain("UNAVAILABLE");
+    expect(disabled).toContain("AI assessment unavailable: the sidecar is not configured");
+    expect(disabled).toContain("Working");
+    expect(disabled).not.toContain("NOT ASSESSED");
+    expect(disabled).not.toContain("NO JUDGMENT");
+    expect(disabled).not.toContain("Likely");
+
+    const enabledNoKey = render({
+      assessment: assessment({
+        bindingId: "b1",
+        availability: "unavailable",
+        activity: null,
+        selectedLineId: null,
+        unavailableReason: "missing_key",
+      }),
+    });
+    expect(enabledNoKey).toContain("AI assessment unavailable: no API key configured");
+
+    // No observation yet for this binding: the renderer's own derivation, and a
+    // different claim from the sidecar being off.
+    const notYet = render();
+    expect(notYet).toContain('data-seat-awareness="not_assessed"');
+    expect(notYet).toContain("NOT ASSESSED");
+    expect(notYet).toContain("recent terminal output available");
+
+    const copy = [disabled, enabledNoKey, notYet];
+    expect(new Set(copy).size).toBe(3);
+    expect(disabled).not.toContain("recent terminal output available");
+  });
+
   it("still shows the deterministic status with no assessment at all", () => {
     const html = render();
     expect(html).toContain('data-seat-awareness="not_assessed"');

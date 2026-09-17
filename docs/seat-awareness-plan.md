@@ -109,6 +109,15 @@ first version of this paragraph was false: the decoder normalized an absent fiel
 which supports the strong claim, so the stated safe direction was the unsafe one until the
 decode was fixed.
 
+**The disabled sidecar says so.** With awareness disabled the wiring constructs no client, and
+the scheduler publishes one judgment-free `unavailable` notice with reason `not_configured`, so
+the card reads UNAVAILABLE and names the reason. `NOT ASSESSED` stays reserved for a running
+sidecar with no observation for that binding yet, because an operator who never enabled
+awareness would read that as pending rather than off. A gate-off notice is never cached and can
+never age into stale. The renderer is deliberately not told about enrollment: it is a
+control-plane fact, and the advisory plane must not need it. A missing key while enrolled
+publishes `missing_key` instead, so the two reasons stay distinguishable on the surface.
+
 **Two guards that point the safe way.** If a producer contradicts itself by listing a concern
 as both decisively absent and unanswered, the unanswered entry is kept and the claim stays
 weak: dropping it can empty the list, and an empty list is what licenses the strong claim, so
