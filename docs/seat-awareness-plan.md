@@ -333,3 +333,51 @@ The parent thread owns the shared schema, `package.json` and the lockfile, exist
 observer and runtime wiring, IPC and preload, credential and privacy handling, the live
 key and budget, integration, and the ship decision. No workstream edits another's files;
 contract changes come back to the parent.
+
+## 9 - Collaboration (shipped 2026-09-17): a seat asks a peer
+
+The fleet's own coordination problem is not knowing *what* each seat is doing, it is
+knowing *who to ask*. A seat that is blocked, looping or waiting on an answer holds a
+question; another seat on the canvas often holds the answer. The product now closes that
+loop with machinery the fleet already had.
+
+**What the operator sees.** Hovering an agent card shows a collaboration block under the
+awareness card: `Iris can help`, why it is that peer, the exact question the request will
+carry, and one button, `Ask Iris`. Clicking it turns the suggestion into an open thread on
+the same card, `Iris [asked] waiting for a reply`, and stops offering that peer until it
+answers. When the reply lands, the thread reads `answered` with the reply text.
+
+**What the click does.** It appends one mailbox message to the peer, through
+`workSystemMailboxNotify`, on the operator's authority. The message carries the question,
+the reason, the asking seat's own screen lines, and the exact `junto msg reply` command
+that answers it, including its own message id. Delivery is the existing crew-mail path, so
+a busy seat queues the notice and a cold seat is woken by it. Nothing is sent without the
+click: the awareness sidecar can suggest a peer and phrase the question, but it cannot
+reach a mailbox.
+
+**Where the suggestion comes from.** Deterministic first, so it works with the model gate
+off: peers are agent seats on the same canvas, excluding the asking seat, seats with no
+binding, seats that have left, and seats already holding an unanswered request. Ranking is
+a topic overlap between the asking seat's own evidence (its label, its control detail, its
+excerpt, its concerns, its recent mail) and the peer's (label, activity, excerpt, recent
+mail), with a bonus for an available seat. The awareness judgments improve the copy when
+the sidecar is enrolled: a peer whose own screen carries the topic is described as such,
+and the basis is recorded as `awareness` rather than `fleet`.
+
+**The return path.** A reply is any message in the document carrying
+`metadata.inReplyTo` equal to the request id, which is exactly what `junto msg reply`
+stamps. Threads are read from the same canvas projection the crew-mail surface already
+paints, so a thread cannot claim something the mailbox does not say. A request that has
+just been sent is held in renderer state until the projection catches up, and a
+document-derived thread always wins over that local copy.
+
+**Not in this slice.** Standing instructions ("when this seat goes idle, ask Iris"), a
+fleet-wide coordination inbox, duplicate-work detection, semantic recall of past rescues,
+and reply notifications while the source seat is not hovered. The first is the natural
+next step: the same request, dispatched by a stored trigger instead of a click.
+
+**Known gap in the awareness wiring.** `SeatAwarenessHover` is still mounted inside the
+terminal card body, which `NodeShell` clips, so on a terminal card it is in the DOM but
+never painted. The collaboration block avoids this through the shell's new `overlay` slot;
+moving the awareness hover into the same slot is a small change in `TextNode`.
+
