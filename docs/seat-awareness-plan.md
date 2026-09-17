@@ -81,6 +81,24 @@ constructed responses: zero collisions, and a bar sweep at 0.1 and 0.1000001 pro
 absence then silence, with no value producing both. The renderer still pins the guard at
 ingest and at presentation, and the raised concern wins if it ever fires.
 
+**"Checked and clear" needs the band and the availability together.** The strong claim was
+overreaching: the surface said it whenever any concern was ruled out, which on a real quiet
+row can be one concern out of four with the rest in the silent band, so "I answered every
+question" and "I answered one" rendered the same card. The assessment now carries
+`unansweredConcerns`: the concern questions that were asked and not decisively answered, in
+pack order. Workstream C derives it by testing decisiveness rather than by filtering
+abstentions, because a missing answer produces no abstention entry and an abstentions-only
+filter would report empty on a partial response, which is the same hole one layer down. So
+three ways a concern goes unanswered are all covered: the band, a model decline for
+insufficient evidence, and no answer arriving for a question that was asked. A question the
+pack could not ask is excluded by construction, by checking the request's own asked set, not
+by inspecting reasons. The copy rule is two-state and needs both facts: **checked and clear
+only when `unansweredConcerns` is empty AND availability is `current`**; an abstained or
+unavailable assessment also has an empty list, and there no concern was decisively answered
+at all. Anything else is the weaker **no concern raised**. Omitting the field decodes to
+empty, so a version skew between producer and renderer degrades to the weaker claim rather
+than to a false strong one.
+
 Every accepted judgment carries provenance: `bindingId, epoch, sourceSeq, evidenceHash,
 observedAt, questionPackVersion, requestedModel, returnedModel, answers, evidence line
 reference`. Model probabilities are not `AgentSeatConfidence`.

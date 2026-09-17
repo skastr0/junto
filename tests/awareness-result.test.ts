@@ -385,6 +385,123 @@ describe("awareness provenance and line-id resolution", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Unanswered concerns — the "checked and clear" gate
+// ---------------------------------------------------------------------------
+
+describe("awareness unanswered concerns", () => {
+  /** Every askable concern answered decisively: present at 0.97, absent at 0.02. */
+  const decisiveConcernAnswers = (request: AwarenessRequestState) => [
+    noul(request, "concern.approval_requested", 0.97),
+    noul(request, "concern.answer_requested", 0.02),
+    noul(request, "concern.access_problem", 0.03),
+    noul(request, "concern.execution_error", 0.97),
+  ];
+
+  it("is empty when every concern the pack could ask was decisively answered", () => {
+    const request = plain();
+    const assessment = respond(request, decisiveConcernAnswers(request));
+
+    // The comparison question was never askable here (no temporal pair), and
+    // that is not a decline: the strong claim still stands.
+    expect(request.skipped.map((skip) => skip.questionId)).toEqual(["concern.repetition"]);
+    expect(assessment.unansweredConcerns).toEqual([]);
+    expect(assessment.concerns.map((concern) => concern.concern)).toEqual([
+      "approval_requested",
+      "execution_error",
+    ]);
+  });
+
+  it("lists a concern that sat in the indecisive band", () => {
+    const request = plain();
+    const assessment = respond(request, [
+      noul(request, "concern.approval_requested", 0.97),
+      noul(request, "concern.answer_requested", 0.02),
+      noul(request, "concern.access_problem", 0.03),
+      // One concern decided, one in the band: the card must claim the weaker
+      // "no concern raised" rather than "checked and clear".
+      noul(request, "concern.execution_error", 0.5),
+    ]);
+
+    expect(assessment.unansweredConcerns).toEqual(["execution_error"]);
+    expect(assessment.concerns.map((concern) => concern.concern)).toEqual(["approval_requested"]);
+  });
+
+  it("lists a concern the model declined as insufficient evidence", () => {
+    const request = paired();
+    const assessment = respond(request, [
+      ...decisiveConcernAnswers(request),
+      choice(request, "concern.repetition", "insufficient_evidence", 0.95, {
+        repeats: 0.02,
+        different: 0.03,
+        insufficient_evidence: 0.95,
+      }),
+    ]);
+
+    expect(assessment.unansweredConcerns).toEqual(["repetition"]);
+    expect(assessment.abstentions).toEqual([
+      {
+        questionId: "concern.repetition",
+        reason: "model_reported_insufficient_evidence",
+        detail: "the model selected insufficient_evidence",
+      },
+    ]);
+  });
+
+  it("lists a concern that was asked and never answered at all", () => {
+    const request = plain();
+    // The rule is "every concern the pack could ask was decisively answered", so
+    // a missing answer is not a settled concern either.
+    const assessment = respond(request, [noul(request, "concern.approval_requested", 0.97)]);
+
+    expect(assessment.unansweredConcerns).toEqual([
+      "answer_requested",
+      "access_problem",
+      "execution_error",
+    ]);
+  });
+
+  it("never lists a concern the pack could not ask", () => {
+    const request = plain();
+    // Only the comparison question is unaskable here, and it stays out of the
+    // list even though nothing answered it.
+    const assessment = respond(request, [noul(request, "concern.approval_requested", 0.97)]);
+    expect(assessment.unansweredConcerns).not.toContain("repetition");
+    expect(request.skipped.map((skip) => skip.questionId)).toEqual(["concern.repetition"]);
+  });
+
+  it("ignores abstentions that are not concerns", () => {
+    const request = plain();
+    const assessment = respond(request, [
+      ...decisiveConcernAnswers(request),
+      // An activity property in the band and a highlight below its bar are not
+      // concerns and must not block the strong claim.
+      noul(request, "activity.command_executing", 0.5),
+      choice(request, "highlight.line", "L000", 0.6, { L000: 0.6, NONE: 0.4 }),
+    ]);
+
+    expect(assessment.unansweredConcerns).toEqual([]);
+    // The band abstentions exist (plus the skipped comparison question), and
+    // none of them is a concern.
+    expect(assessment.abstentions.map((abstention) => abstention.questionId).sort()).toEqual([
+      "activity.command_executing",
+      "concern.repetition",
+      "highlight.line",
+    ]);
+  });
+
+  it("is empty on an unavailable assessment, which carries no answers", () => {
+    const assessment = projectAwarenessUnavailable({
+      bindingId: "seat-1",
+      epoch: "e1",
+      sourceSeq: "42",
+      observedAt: OBSERVED_AT,
+      reason: "transport_error",
+    });
+    expect(assessment.unansweredConcerns).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Answer validation
 // ---------------------------------------------------------------------------
 

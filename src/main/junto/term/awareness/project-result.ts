@@ -17,6 +17,10 @@
  *     kept distinct from `unavailable` (no usable answer could be obtained at
  *     all). A Noul publishes PRESENT at or above its positive bar and ABSENT at
  *     or below its negative bar; only the band between abstains;
+ *   - `unansweredConcerns`: the concern questions that were asked and not
+ *     decisively answered, which is what separates "checked and clear" from the
+ *     weaker "no concern raised". A question the pack could not ask at all is
+ *     not a decline and is not listed;
  *   - provenance: binding id, epoch, source sequence, evidence hash, observed
  *     time, question-pack version, requested and returned model, and the
  *     evidence line a highlight refers to.
@@ -245,6 +249,21 @@ export type AwarenessAssessment = {
   /** Accepted ABSENT verdicts, for concerns and activity properties alike. */
   readonly negatives: readonly NegativeVerdict[];
   readonly highlight?: HighlightProjection;
+  /**
+   * The concerns the pack ASKED about but did not get a decisive answer for.
+   * Three ways in: the question sat in the indecisive band, the model declined
+   * it as insufficient_evidence, or no answer arrived for it at all.
+   *
+   * A question the pack could not ask at all is deliberately NOT here. Being
+   * unable to ask (no temporal pair to compare, no evidence lines) is a
+   * different fact from declining to answer, and listing it would deny the
+   * strong claim on nearly every single-window screen.
+   *
+   * The rule this enables: EMPTY means every concern the pack could ask was
+   * decisively answered, which is the only case that supports "checked and
+   * clear"; non-empty means the weaker "no concern raised".
+   */
+  readonly unansweredConcerns: readonly AiConcernValue[];
   readonly abstentions: readonly Abstention[];
   readonly rejections: readonly Rejection[];
   /** Set only when `availability` is `unavailable`. */
@@ -325,6 +344,7 @@ export const projectAwarenessUnavailable = (input: ProvenanceInput & {
   activity: { value: "indeterminate", reason: input.reason, signals: [] },
   concerns: [],
   negatives: [],
+  unansweredConcerns: [],
   abstentions: [],
   rejections: [],
   unavailableReason: input.reason,
@@ -707,6 +727,26 @@ export const projectAwarenessAnswers = (
     }
   }
 
+  // Concerns the pack ASKED about and did not settle. Decisiveness is the test,
+  // not the presence of an abstention entry, so this covers all three ways a
+  // concern can go unanswered: the indecisive band, a model decline for
+  // insufficient evidence, and an answer that never arrived at all. A question
+  // the pack could not ask (the comparison question without a temporal pair) is
+  // excluded by `requestedById`, because being unable to ask is a different
+  // fact from declining to answer.
+  const decided = new Set<string>([
+    ...acceptedNouls.keys(),
+    ...negatives.map((verdict) => verdict.questionId),
+    ...acceptedChoices.keys(),
+  ]);
+  const unansweredConcerns: AiConcernValue[] = [];
+  for (const question of AWARENESS_QUESTIONS) {
+    if (question.concern === undefined) continue;
+    if (!requestedById.has(question.id)) continue;
+    if (decided.has(question.id)) continue;
+    unansweredConcerns.push(question.concern);
+  }
+
   // The highlight is not a concern; interpret it separately.
   const highlightChoice = acceptedChoices.get("highlight.line");
   if (highlightChoice !== undefined) {
@@ -765,6 +805,7 @@ export const projectAwarenessAnswers = (
     activity,
     concerns,
     negatives,
+    unansweredConcerns,
     ...(highlight !== undefined ? { highlight } : {}),
     abstentions,
     rejections,
