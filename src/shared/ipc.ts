@@ -247,6 +247,10 @@ export const IPC_CHANNELS = {
   /** Main → renderer: managed-agent seat state (idle/working/attention/unknown). */
   agentSeatStateSnapshot: "junto:agent-seat-state-snapshot",
   agentSeatStateChanged: "junto:agent-seat-state-changed",
+  /** Renderer → main: seat-awareness hydration read (advisory sidecar). */
+  seatAwarenessSnapshot: "junto:seat-awareness-snapshot",
+  /** Main → renderer: one advisory seat-awareness event (display only). */
+  seatAwarenessChanged: "junto:seat-awareness",
   browserSessionChanged: "junto:browser-session-changed",
   // Developer observability ring (process-local; UI gated by advanced.logsExplorer)
   observabilityQuery: "junto:observability-query",
@@ -1226,6 +1230,15 @@ export interface JuntoTerminalApi {
   /** Main → renderer: managed-agent seat state (idle/working/attention/unknown). */
   readonly onAgentSeatStateChanged: (
     listener: (event: AgentSeatStateEvent) => void,
+  ) => () => void;
+  /**
+   * Current advisory seat-awareness projection for renderer restart hydration.
+   * Decoded strictly by the renderer contract; main owns the producer shape.
+   */
+  readonly seatAwarenessSnapshot: () => Promise<ReadonlyArray<unknown>>;
+  /** Main → renderer: one advisory seat-awareness event (display only). */
+  readonly onSeatAwarenessChanged: (
+    listener: (event: unknown) => void,
   ) => () => void;
 }
 

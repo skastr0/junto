@@ -813,6 +813,10 @@ const terminalApi: JuntoTerminalApi = {
     invoke(IPC_CHANNELS.agentSeatStateSnapshot, IPC_TIMEOUT_MS),
   onAgentSeatStateChanged: (listener) =>
     subscribe(IPC_CHANNELS.agentSeatStateChanged, listener),
+  seatAwarenessSnapshot: () =>
+    invoke(IPC_CHANNELS.seatAwarenessSnapshot, IPC_TIMEOUT_MS),
+  onSeatAwarenessChanged: (listener) =>
+    subscribe(IPC_CHANNELS.seatAwarenessChanged, listener),
 };
 
 const gitApi: JuntoGitApi = {
