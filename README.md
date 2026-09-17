@@ -4,15 +4,16 @@
 
 # Junto
 
-**Give each of your coding agents a seat. Let them see each other.**
+**Make your agents work together.**
 
-Junto is a free, open-source desktop app for running several coding agents at
-once, together, on one canvas. Claude Code, Codex, Grok, Cursor, Amp, Devin,
-and more sit side by side as permanent seats. You draw who can talk to whom.
-They mail each other, keep their sessions across restarts, and never touch your
-harness config.
+Junto puts every coding agent you run on one visual canvas, as a permanent
+seat. You draw the structure: who sits where, who talks to whom. The agents
+work inside it, together, across as many sessions, repos, and workloads as you
+give them. Dozens or hundreds of sessions become one picture you can take in at
+a glance, and the structure you draw is what moves the agents toward better
+work.
 
-macOS on Apple silicon. Linux desktop in alpha. Apache-2.0. No account.
+Free, open source, private, and local. Your agents, your machine.
 
 [Download](https://juntoagents.com/download) | [Website](https://juntoagents.com) | [Docs](https://juntoagents.com/docs) | [Issues](https://github.com/skastr0/junto/issues)
 
@@ -23,11 +24,16 @@ When you want two agents on the same problem, you become the relay: copy from
 one tab, paste into the other, remember which is which, and lose all of it when
 the session ends.
 
+The real cost is attention. Past a handful of sessions you can no longer see
+what is going on, so you cannot tell who is stuck, who is done, and who is
+waiting on you. Neither can the agents. They cannot see each other at all.
+
 Junto turns each agent into a seat. A seat is a named, permanent identity on a
 canvas, with its own harness, its own working directory, and its own resumable
 session. Seats stay where you put them. Close the app, come back, and the same
 agent picks up the same session. Draw a line between two seats and they can
-send each other mail. You watch all of it in one window.
+send each other mail. You see the whole crew in one window, and the agents see
+each other.
 
 ## The insight
 
