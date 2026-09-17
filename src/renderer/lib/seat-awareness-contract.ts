@@ -157,11 +157,28 @@ export type SeatAwarenessAssessment = {
   readonly observedAt: number;
   readonly activity: SeatAwarenessActivity | null;
   readonly concerns: readonly SeatAwarenessConcern[];
+  /**
+   * Accepted absences: concerns the model decisively ruled out, each with the
+   * probability that grounded the call. A non-empty list with no concerns is
+   * "checked and clear", which is a different claim from "not assessed" and
+   * must not render as no judgment. Activity absences are control-plane
+   * cross-checks and never travel here. Optional on the wire: a producer that
+   * does not report absences yet omits the field, and decode normalizes that
+   * to an empty list.
+   */
+  readonly absences?: readonly SeatAwarenessAbsence[];
   /** The mapping captured for THIS observation — the only excerpt source. */
   readonly evidence: SeatAwarenessEvidenceWindow;
   /** The line the model selected, or null when it selected none. */
   readonly selectedLineId: string | null;
   readonly unavailableReason: SeatAwarenessUnavailableReason | null;
+};
+
+/** One concern the model decisively ruled out for this observation. */
+export type SeatAwarenessAbsence = {
+  readonly concern: SeatAwarenessConcern;
+  /** The Noul probability behind the absence, at or below the negative bar. */
+  readonly probability: number;
 };
 
 /** The evidence window changed. No judgment; only the live digest moves. */
@@ -237,6 +254,23 @@ const decodeAssessment = (raw: unknown): SeatAwarenessAssessment | undefined => 
   }
   const evidence = decodeEvidence(raw.evidence);
   if (!evidence) return undefined;
+  // Additive field: a producer that does not report absences yet sends none,
+  // which is not the same as "checked and clear". Anything present must be
+  // well formed or the whole assessment is refused.
+  const absences: SeatAwarenessAbsence[] = [];
+  if (raw.absences !== undefined) {
+    if (!Array.isArray(raw.absences)) return undefined;
+    for (const absence of raw.absences) {
+      if (!isRecord(absence)) return undefined;
+      if (typeof absence.concern !== "string" || !CONCERN_SET.has(absence.concern))
+        return undefined;
+      if (!isFiniteNumber(absence.probability)) return undefined;
+      absences.push({
+        concern: absence.concern as SeatAwarenessConcern,
+        probability: absence.probability,
+      });
+    }
+  }
   if (raw.selectedLineId !== null && !isNonEmptyString(raw.selectedLineId))
     return undefined;
   const reason =
@@ -252,6 +286,7 @@ const decodeAssessment = (raw: unknown): SeatAwarenessAssessment | undefined => 
     observedAt: raw.observedAt,
     activity: raw.activity === null ? null : (raw.activity as SeatAwarenessActivity),
     concerns,
+    absences,
     evidence,
     selectedLineId: raw.selectedLineId === null ? null : raw.selectedLineId,
     // A reason is only meaningful for an honest failure; never carry one on a

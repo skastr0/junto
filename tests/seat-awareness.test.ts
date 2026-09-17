@@ -74,6 +74,7 @@ const assessment = (
   observedAt: T0,
   activity: "testing",
   concerns: [],
+  absences: [],
   evidence: {
     digest: "w1",
     capturedAt: T0,
