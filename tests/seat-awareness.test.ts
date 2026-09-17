@@ -29,6 +29,7 @@ import {
   SEAT_AWARENESS_TTL_MS,
   SEAT_AWARENESS_UNAVAILABLE_REASONS,
   decodeSeatAwarenessEvent,
+  type SeatAwarenessAbsence,
   type SeatAwarenessAssessment,
   type SeatAwarenessAssessmentEvent,
   type SeatAwarenessEvidenceLine,
@@ -37,8 +38,8 @@ import {
 } from "../src/renderer/lib/seat-awareness-contract";
 import {
   SEAT_AWARENESS_ACTIVITY_COPY,
-  SEAT_AWARENESS_EXCERPT_STABILITY_MS,
   SEAT_AWARENESS_ATTRIBUTION,
+  SEAT_AWARENESS_CLEAR_LINE,
   SEAT_AWARENESS_AVAILABILITY_COPY,
   SEAT_AWARENESS_CONCERN_COPY,
   SEAT_AWARENESS_NEUTRAL_LINE,
@@ -51,14 +52,12 @@ import {
   sanitizeTerminalText,
   seatAwareness$,
   seatAwarenessAvailability,
-  seatAwarenessExcerptFreshness,
   seatAwarenessTurnLive,
   seatAwarenessView,
   seatAwarenessViewForBinding,
   subscribeSeatAwareness,
   windowDigestForBinding,
   type SeatAwarenessControl,
-  type SeatAwarenessLiveWindow,
 } from "../src/renderer/lib/seat-awareness";
 
 const T0 = 1_700_000_000_000;
@@ -106,16 +105,6 @@ const windowEvent = (
   windowCapturedAt: at,
   at,
 });
-
-/**
- * A live evidence revision. The default stability clock is a minute old, so the
- * excerpt stability floor is satisfied; pass a recent `stableSince` to model a
- * revision that has only just appeared.
- */
-const liveWindow = (
-  digest: string,
-  stableSince: number = T0 - 60_000,
-): SeatAwarenessLiveWindow => ({ digest, stableSince });
 
 const control = (partial?: Partial<SeatAwarenessControl>): SeatAwarenessControl => ({
   state: "working",
@@ -256,6 +245,50 @@ describe("decodeSeatAwarenessEvent", () => {
         ),
       ),
     ).toBeUndefined();
+  });
+
+  it("normalizes accepted absences, and refuses a malformed one whole", () => {
+    const base = assessment({ bindingId: "b1" });
+    // Absent on the wire normalizes to empty — which is not "checked and clear".
+    const omitted = decodeSeatAwarenessEvent(assessmentEvent(base));
+    expect(omitted?.kind === "assessment" && omitted.assessment.absences).toEqual([]);
+    const { absences: _dropped, ...withoutAbsences } = base;
+    const omittedRaw = decodeSeatAwarenessEvent(
+      assessmentEvent(withoutAbsences as SeatAwarenessAssessment),
+    );
+    expect(omittedRaw?.kind === "assessment" && omittedRaw.assessment.absences).toEqual([]);
+
+    const carried = decodeSeatAwarenessEvent(
+      assessmentEvent({
+        ...base,
+        activity: null,
+        selectedLineId: null,
+        absences: [
+          { concern: "execution_error", probability: 0.04 },
+          { concern: "repetition", probability: 0.1 },
+        ],
+      }),
+    );
+    expect(carried?.kind === "assessment" && carried.assessment.absences).toEqual([
+      { concern: "execution_error", probability: 0.04 },
+      { concern: "repetition", probability: 0.1 },
+    ]);
+
+    for (const bad of [
+      "no",
+      [{}],
+      [{ concern: "vibes", probability: 0.1 }],
+      [{ concern: "repetition" }],
+      [{ concern: "repetition", probability: "0.1" }],
+      [{ concern: "repetition", probability: Number.NaN }],
+    ]) {
+      expect(
+        decodeSeatAwarenessEvent(
+          assessmentEvent({ ...base, absences: bad as unknown as SeatAwarenessAbsence[] }),
+        ),
+        JSON.stringify(bad),
+      ).toBeUndefined();
+    }
   });
 
   it("keeps an unavailable reason only on an honest failure", () => {
@@ -405,199 +438,133 @@ describe("freshness axes", () => {
   const idleControl = control({ state: "idle", label: "Idle", tone: "steel" });
 
   it("keeps the judgment current while the turn lives, even as the digest churns", () => {
-    // The failure the split exists to prevent: a continuously printing seat
-    // moves its digest on every burst, and the label must survive that.
+    // The failure the one currency axis exists to prevent: a continuously
+    // printing seat moves its revision on every burst, and the label must
+    // survive that.
     const stored = assessment({ bindingId: "b1" });
     const view = seatAwarenessView({
       control: workingControl,
       assessment: stored,
-      window: liveWindow("w7"),
       now: T0 + 4 * 60_000,
     });
     expect(view.availability).toBe("current");
     expect(view.judgmentFreshness).toBe("current");
     expect(view.aiLabel).toBe("Likely testing");
     expect(view.freshness).toBe("AI assessment, observed 4m ago");
-    // Only the quoted screen is withdrawn, and it is stamped with its own age.
-    expect(view.excerptFreshness).toBe("last_observed");
-    expect(view.excerptLabel).toBe("terminal excerpt (last observed at 4m ago)");
+    // The excerpt makes no currency claim at all: it is a quotation attributed
+    // to the age of the screen it was read from.
     expect(view.excerpt).toBe("3 tests failed in auth.spec.ts");
+    expect(view.excerptLabel).toBe("terminal excerpt (observed 4m ago)");
   });
 
-  it("is current only on an exact live digest match that has held", () => {
+  it("never claims the excerpt is current, whatever the live revision is", () => {
+    // Whatever the producer reports, and however exactly it matches, the
+    // excerpt label is an age and nothing else. A digest-based claim could not
+    // be both stable and true on a busy seat, so there is none to make.
     const stored = assessment({ bindingId: "b1" });
-    const at = { now: T0 } as const;
-    expect(
-      seatAwarenessExcerptFreshness(stored, { ...at, window: liveWindow("w1") }),
-    ).toBe("current");
-    expect(
-      seatAwarenessExcerptFreshness(stored, { ...at, window: liveWindow("w2") }),
-    ).toBe("last_observed");
-    expect(
-      seatAwarenessExcerptFreshness(stored, { ...at, window: liveWindow("w1 ") }),
-    ).toBe("last_observed");
-    // A match whose revision has only just appeared is not yet evidence of
-    // currency: the screen is still moving.
-    expect(
-      seatAwarenessExcerptFreshness(stored, {
-        ...at,
-        window: liveWindow("w1", T0 - 1_000),
-      }),
-    ).toBe("last_observed");
-    // Exactly at the floor, and beyond it, the claim is supported.
-    expect(
-      seatAwarenessExcerptFreshness(stored, {
-        ...at,
-        window: liveWindow("w1", T0 - SEAT_AWARENESS_EXCERPT_STABILITY_MS),
-      }),
-    ).toBe("current");
-    // No live window cannot prove a match, so it never reads as current.
-    expect(seatAwarenessExcerptFreshness(stored, at)).toBe("last_observed");
-    expect(
-      seatAwarenessExcerptFreshness(stored, { ...at, window: undefined }),
-    ).toBe("last_observed");
-    // The floor is overridable, including to 0 for the unfloored rule.
-    expect(
-      seatAwarenessExcerptFreshness(stored, {
-        ...at,
-        window: liveWindow("w1", T0),
-        stabilityMs: 0,
-      }),
-    ).toBe("current");
-  });
-
-  it("holds a busy seat's excerpt steady instead of switching twice per revision", () => {
-    // A seat printing a new material revision every two seconds, with a
-    // digest-keyed scheduler observing each one — the cadence that produced the
-    // flicker. Count eyebrow switches the operator would see with the hover open.
-    const switches = (stabilityMs: number): number => {
-      resetSeatAwareness();
-      let count = 0;
-      let previous: string | null = null;
-      const sample = (now: number) => {
-        const view = seatAwarenessViewForBinding({
-          bindingId: "b1",
-          control: control(),
-          now,
-          stabilityMs,
-        });
-        if (previous !== null && view.excerptLabel !== previous) count += 1;
-        previous = view.excerptLabel;
-      };
-      for (let step = 0; step < 30; step += 1) {
-        const at = T0 + step * 2_000;
-        const digest = `rev-${step}`;
-        applySeatAwarenessEvent(windowEvent("b1", digest, at));
-        sample(at);
-        applySeatAwarenessEvent(
-          assessmentEvent(
-            assessment({
-              bindingId: "b1",
-              assessmentId: `a-${step}`,
-              observedAt: at,
-              evidence: { digest, capturedAt: at, lines: [line("l1", "3 tests failed")] },
-            }),
-            { at, windowDigest: digest },
-          ),
-        );
-        sample(at);
-      }
-      return count;
-    };
-    // Unfloored: the label flips on every revision and every new observation.
-    expect(switches(0)).toBe(58);
-    // Floored: the busy seat settles on one stable state for the whole minute.
-    expect(switches(SEAT_AWARENESS_EXCERPT_STABILITY_MS)).toBe(0);
-    // A quiet seat is unaffected: its revision has already held past the floor,
-    // so a fresh observation is current immediately and never flips.
+    for (const now of [T0, T0 + 1_000, T0 + 59_000, T0 + 4 * 60_000]) {
+      const view = seatAwarenessView({ control: workingControl, assessment: stored, now });
+      expect(view.excerptLabel, String(now)).toBe(
+        `terminal excerpt (observed ${formatSeatAwarenessAge(now - T0)})`,
+      );
+      expect(view.excerptLabel, String(now)).not.toBe("terminal excerpt");
+    }
+    // A live revision, matching or not, changes nothing about the excerpt.
     resetSeatAwareness();
-    applySeatAwarenessEvent(windowEvent("b1", "rev-quiet", T0 - 120_000));
-    applySeatAwarenessEvent(
-      assessmentEvent(
-        assessment({ bindingId: "b1", evidence: { digest: "rev-quiet", capturedAt: T0, lines: [line("l1", "3 tests failed")] } }),
-        { at: T0, windowDigest: "rev-quiet" },
-      ),
-    );
-    const quiet = seatAwarenessViewForBinding({ bindingId: "b1", control: control(), now: T0 });
-    expect(quiet.excerptFreshness).toBe("current");
-    expect(quiet.excerptLabel).toBe("terminal excerpt");
-  });
-
-  it("keeps the excerpt current while the judgment is stale", () => {
-    // The digest still matches, so the quoted screen is the screen; what aged
-    // out is the judgment, because the seat settled.
-    const view = seatAwarenessView({
-      control: idleControl,
-      assessment: assessment({ bindingId: "b1" }),
-      window: liveWindow("w1"),
-      now: T0 + 20_000,
+    applySeatAwarenessEvent(windowEvent("b1", "matching", T0 + 1_000));
+    applySeatAwarenessEvent(assessmentEvent(stored, { at: T0 + 1_000, windowDigest: "matching" }));
+    const matched = seatAwarenessViewForBinding({
+      bindingId: "b1",
+      control: workingControl,
+      now: T0 + 8_000,
     });
-    expect(view.availability).toBe("stale");
-    expect(view.judgmentFreshness).toBe("stale");
-    expect(view.freshness).toBe("AI assessment, last observed 20s ago");
-    expect(view.excerptFreshness).toBe("current");
-    expect(view.excerptLabel).toBe("terminal excerpt");
+    resetSeatAwareness();
+    applySeatAwarenessEvent(windowEvent("b1", "moved-on", T0 + 1_000));
+    applySeatAwarenessEvent(assessmentEvent(stored, { at: T0 + 1_000, windowDigest: "moved-on" }));
+    const moved = seatAwarenessViewForBinding({
+      bindingId: "b1",
+      control: workingControl,
+      now: T0 + 8_000,
+    });
+    expect(matched.excerptLabel).toBe("terminal excerpt (observed 8s ago)");
+    expect(moved.excerptLabel).toBe(matched.excerptLabel);
+    expect(moved.judgmentFreshness).toBe(matched.judgmentFreshness);
   });
 
-  it("expires the judgment at the enrichment lifetime while the turn still lives", () => {
-    const stored = assessment({ bindingId: "b1" });
+  it("keeps the excerpt label steady through a busy seat's revisions", () => {
+    // A seat printing a new material revision every two seconds, with a
+    // digest-keyed scheduler observing each one. The eyebrow is sampled after
+    // every event, which is what an open hover would re-render on. It never
+    // switches state: the label only carries the age of its own observation,
+    // and a fresh observation every couple of seconds keeps that age inside one
+    // formatting bucket.
+    resetSeatAwareness();
+    let switches = 0;
+    let previous: string | null = null;
+    for (let step = 0; step < 30; step += 1) {
+      const at = T0 + step * 2_000;
+      const digest = `rev-${step}`;
+      applySeatAwarenessEvent(windowEvent("b1", digest, at));
+      applySeatAwarenessEvent(
+        assessmentEvent(
+          assessment({
+            bindingId: "b1",
+            assessmentId: `a-${step}`,
+            observedAt: at,
+            evidence: { digest, capturedAt: at, lines: [line("l1", "3 tests failed")] },
+          }),
+          { at, windowDigest: digest },
+        ),
+      );
+      const view = seatAwarenessViewForBinding({
+        bindingId: "b1",
+        control: workingControl,
+        now: at,
+      });
+      if (previous !== null && view.excerptLabel !== previous) switches += 1;
+      previous = view.excerptLabel;
+    }
+    // One minute of a seat printing every two seconds: zero switches.
+    expect(switches).toBe(0);
+    expect(previous).toBe("terminal excerpt (observed just now)");
+  });
+
+  it("treats a decisive negative as a judgment, not an abstention", () => {
+    // Accepted absences are a claim. Only an observation with neither a finding
+    // nor absences is an abstention.
+    const clear = assessment({
+      bindingId: "b1",
+      activity: null,
+      concerns: [],
+      selectedLineId: null,
+      absences: [{ concern: "execution_error", probability: 0.04 }],
+    });
     expect(
-      seatAwarenessAvailability(stored, {
-        now: T0 + SEAT_AWARENESS_TTL_MS - 1,
-        controlState: "working",
-      }),
+      seatAwarenessAvailability(clear, { now: T0 + 1_000, controlState: "working" }),
     ).toBe("current");
+    // It is still a judgment, so it ages like one.
     expect(
-      seatAwarenessAvailability(stored, {
+      seatAwarenessAvailability(clear, {
         now: T0 + SEAT_AWARENESS_TTL_MS,
         controlState: "working",
       }),
     ).toBe("stale");
-  });
-
-  it("ages the judgment out when the seat has left the turn", () => {
-    const stored = assessment({ bindingId: "b1" });
-    for (const state of ["working", "attention"] as const) {
-      expect(seatAwarenessTurnLive(state), state).toBe(true);
-      expect(
-        seatAwarenessAvailability(stored, { now: T0 + 1_000, controlState: state }),
-        state,
-      ).toBe("current");
-    }
-    for (const state of ["idle", "done", "gone"] as const) {
-      expect(seatAwarenessTurnLive(state), state).toBe(false);
-      expect(
-        seatAwarenessAvailability(stored, { now: T0 + 1_000, controlState: state }),
-        state,
-      ).toBe("stale");
-    }
-    // `unknown` and an absent state cannot prove the turn ended — the same
-    // "never claim more than the evidence shows" rule as the excerpt axis.
-    for (const state of ["unknown", undefined] as const) {
-      expect(seatAwarenessTurnLive(state), String(state)).toBe(true);
-      expect(
-        seatAwarenessAvailability(stored, { now: T0 + 1_000, controlState: state }),
-        String(state),
-      ).toBe("current");
-    }
-  });
-
-  it("keeps a canonical attention seat's judgment inside the turn", () => {
-    // The highest-value case: a seat waiting on the operator keeps its label.
-    const view = seatAwarenessView({
-      control: control({ state: "attention", label: "needs operator input", tone: "amber" }),
-      assessment: assessment({
-        bindingId: "b1",
-        activity: null,
-        concerns: ["approval_requested"],
-      }),
-      window: liveWindow("w1"),
-      now: T0 + 60_000,
-    });
-    expect(view.availability).toBe("current");
-    expect(view.judgmentFreshness).toBe("current");
-    expect(view.aiLabel).toBe("AI suggests checking approval");
-    expect(view.canonicalAttention).toBe(true);
+    expect(
+      seatAwarenessAvailability(clear, { now: T0 + 1_000, controlState: "idle" }),
+    ).toBe("stale");
+    // And an empty absence list is not a claim at all.
+    expect(
+      seatAwarenessAvailability(
+        assessment({ bindingId: "b1", activity: null, concerns: [], absences: [] }),
+        { now: T0 + 1_000, controlState: "working" },
+      ),
+    ).toBe("abstained");
+    expect(
+      seatAwarenessAvailability(
+        assessment({ bindingId: "b1", activity: null, concerns: [] }),
+        { now: T0 + 1_000, controlState: "working" },
+      ),
+    ).toBe("abstained");
   });
 
   it("passes abstention and failure through — neither claims currency", () => {
@@ -638,15 +605,14 @@ describe("presentation", () => {
     const view = seatAwarenessView({
       control: control(),
       assessment: assessment({ bindingId: "b1" }),
-      window: liveWindow("w1"),
       now: T0 + 8_000,
     });
     expect(view.sentence).toBe(
-      "Likely testing - terminal excerpt: '3 tests failed in auth.spec.ts' - AI assessment, observed 8s ago",
+      "Likely testing - terminal excerpt (observed 8s ago): '3 tests failed in auth.spec.ts' - AI assessment, observed 8s ago",
     );
     expect(view.availability).toBe("current");
     expect(view.excerpt).toBe("3 tests failed in auth.spec.ts");
-    expect(view.excerptLabel).toBe("terminal excerpt");
+    expect(view.excerptLabel).toBe("terminal excerpt (observed 8s ago)");
     expect(view.freshness).toBe("AI assessment, observed 8s ago");
     expect(view.attribution).toBe(SEAT_AWARENESS_ATTRIBUTION);
   });
@@ -660,12 +626,11 @@ describe("presentation", () => {
         concerns: ["approval_requested"],
         evidence: { digest: "w1", capturedAt: T0, lines: [line("l1", "Allow this command to run?")] },
       }),
-      window: liveWindow("w1"),
       now: T0,
     });
     expect(view.aiLabel).toBe("AI suggests checking approval");
     expect(view.sentence).toBe(
-      "AI suggests checking approval - terminal excerpt: 'Allow this command to run?' - AI assessment, observed just now",
+      "AI suggests checking approval - terminal excerpt (observed just now): 'Allow this command to run?' - AI assessment, observed just now",
     );
     // Canonical attention is echoed unchanged, never replaced by the answer.
     expect(view.control.state).toBe("attention");
@@ -718,20 +683,98 @@ describe("presentation", () => {
     }
   });
 
-  it("never relabels a moved screen as current", () => {
+  it("says checked and clear for a decisive negative, distinguishably", () => {
+    const clear = seatAwarenessView({
+      control: control(),
+      assessment: assessment({
+        bindingId: "b1",
+        activity: null,
+        concerns: [],
+        selectedLineId: null,
+        absences: [{ concern: "execution_error", probability: 0.04 }],
+      }),
+      now: T0 + 8_000,
+    });
+    expect(clear.cleared).toBe(true);
+    expect(clear.availability).toBe("current");
+    expect(clear.availabilityLabel).toBe("CURRENT");
+    expect(clear.availabilityLine).toBe(SEAT_AWARENESS_CLEAR_LINE);
+    expect(clear.sentence).toBe(
+      "checked and clear - AI assessment, observed 8s ago",
+    );
+    expect(clear.aiLabel).toBeNull();
+    expect(clear.judgmentFreshness).toBe("current");
+
+    // A stale decisive negative keeps the claim and withdraws only its currency.
+    const staleClear = seatAwarenessView({
+      control: control({ state: "idle", label: "Idle", tone: "steel" }),
+      assessment: assessment({
+        bindingId: "b1",
+        activity: null,
+        concerns: [],
+        selectedLineId: null,
+        absences: [{ concern: "execution_error", probability: 0.04 }],
+      }),
+      now: T0 + 8_000,
+    });
+    expect(staleClear.cleared).toBe(true);
+    expect(staleClear.availability).toBe("stale");
+    expect(staleClear.availabilityLabel).toBe("LAST OBSERVED");
+    expect(staleClear.availabilityLine).toBe(SEAT_AWARENESS_CLEAR_LINE);
+    expect(staleClear.sentence).toBe(
+      "checked and clear - AI assessment, last observed 8s ago",
+    );
+
+    // The three "nothing to report" states never share copy.
+    const abstained = seatAwarenessView({
+      control: control(),
+      assessment: assessment({
+        bindingId: "b1",
+        availability: "abstained",
+        activity: null,
+        selectedLineId: null,
+      }),
+      now: T0,
+    });
+    const absent = seatAwarenessView({ control: control(), now: T0 });
+    const failed = seatAwarenessView({
+      control: control(),
+      assessment: assessment({
+        bindingId: "b1",
+        availability: "unavailable",
+        activity: null,
+        selectedLineId: null,
+        unavailableReason: "budget_exhausted",
+      }),
+      now: T0,
+    });
+    // The decisive negative never shares the neutral line or the failure copy.
+    // Abstention and not-assessed do share the neutral line by design — they are
+    // told apart by their chip, which is why all four chips must differ.
+    expect(clear.availabilityLine).not.toBe(abstained.availabilityLine);
+    expect(clear.availabilityLine).not.toBe(failed.availabilityLine);
+    expect(abstained.availabilityLine).toBe(SEAT_AWARENESS_NEUTRAL_LINE);
+    expect(absent.availabilityLine).toBe(SEAT_AWARENESS_NEUTRAL_LINE);
+    const labels = [clear, abstained, absent, failed].map((view) => view.availabilityLabel);
+    expect(new Set(labels).size).toBe(4);
+    expect(labels).toEqual(["CURRENT", "NO JUDGMENT", "NOT ASSESSED", "UNAVAILABLE"]);
+    expect(abstained.cleared).toBe(false);
+    expect(absent.cleared).toBe(false);
+    expect(failed.cleared).toBe(false);
+  });
+
+  it("attributes the excerpt to its own observation age", () => {
     const view = seatAwarenessView({
       control: control(),
       assessment: assessment({ bindingId: "b1" }),
-      window: liveWindow("w2"),
       now: T0 + 60_000,
     });
-    expect(view.excerptFreshness).toBe("last_observed");
-    expect(view.excerptLabel).toBe("terminal excerpt (last observed at 1m ago)");
-    expect(view.sentence).toContain("last observed at 1m ago");
-    expect(view.sentence).not.toContain("observed at 1m ago: '");
-    // The extractive excerpt is still shown, stamped with the screen it came from.
+    expect(view.excerptLabel).toBe("terminal excerpt (observed 1m ago)");
+    expect(view.sentence).toContain("terminal excerpt (observed 1m ago)");
+    expect(view.sentence).not.toContain("terminal excerpt:");
+    // The extractive excerpt is still shown, attributed to the screen it came from.
     expect(view.excerpt).toBe("3 tests failed in auth.spec.ts");
-    // The judgment survives the screen churn — that is the point of the split.
+    // The judgment survives the screen churn — that is what carries currency.
     expect(view.judgmentFreshness).toBe("current");
     expect(view.freshness).toBe("AI assessment, observed 1m ago");
   });
@@ -740,7 +783,6 @@ describe("presentation", () => {
     const view = seatAwarenessView({
       control: control(),
       assessment: assessment({ bindingId: "b1", activity: null, concerns: [], selectedLineId: null }),
-      window: liveWindow("w1"),
       now: T0,
     });
     expect(view.aiLabel).toBeNull();
@@ -764,7 +806,6 @@ describe("presentation", () => {
       seatAwarenessView({
         control: control(),
         assessment: value,
-        window: liveWindow(value.evidence.digest),
         now: T0,
       });
     expect(viewFor(first).excerpt).toBe("first screen line");
@@ -786,6 +827,7 @@ describe("presentation", () => {
       ...Object.values(SEAT_AWARENESS_CONCERN_COPY),
       ...Object.values(SEAT_AWARENESS_UNAVAILABLE_COPY),
       SEAT_AWARENESS_NEUTRAL_LINE,
+      SEAT_AWARENESS_CLEAR_LINE,
     ];
     for (const copy of aiCopy) {
       const lowered = copy.toLowerCase();
@@ -797,7 +839,6 @@ describe("presentation", () => {
       const view = seatAwarenessView({
         control: control({ state: "attention", label: "needs operator input", tone: "amber" }),
         assessment: assessment({ bindingId: "b1", activity, concerns: [] }),
-        window: liveWindow("w1"),
         now: T0,
       });
       expect(view.aiLabel).toBe(SEAT_AWARENESS_ACTIVITY_COPY[activity]);
@@ -807,7 +848,6 @@ describe("presentation", () => {
       const view = seatAwarenessView({
         control: control({ state: "attention", label: "needs operator input", tone: "amber" }),
         assessment: assessment({ bindingId: "b1", activity: null, concerns: [concern] }),
-        window: liveWindow("w1"),
         now: T0,
       });
       expect(view.aiLabel).toBe(SEAT_AWARENESS_CONCERN_COPY[concern]);
@@ -828,7 +868,6 @@ describe("presentation", () => {
             evidence: { digest: "w1", capturedAt: T0, lines: [line("l1", `run ${MIDDLE_DOT} test`)] },
             unavailableReason: availability === "unavailable" ? "provider_failure" : null,
           }),
-          window: liveWindow("w1"),
           now: T0 + 8_000,
         });
         sentences.push(view.sentence, view.availabilityLine, view.availabilityLabel);
@@ -838,6 +877,7 @@ describe("presentation", () => {
     for (const value of Object.values(SEAT_AWARENESS_CONCERN_COPY)) sentences.push(value);
     for (const value of Object.values(SEAT_AWARENESS_UNAVAILABLE_COPY)) sentences.push(value);
     for (const value of Object.values(SEAT_AWARENESS_AVAILABILITY_COPY)) sentences.push(value);
+    sentences.push(SEAT_AWARENESS_CLEAR_LINE);
     for (const sentence of sentences) {
       expect(sentence).not.toContain(MIDDLE_DOT);
     }
@@ -848,7 +888,6 @@ describe("presentation", () => {
         bindingId: "b1",
         evidence: { digest: "w1", capturedAt: T0, lines: [line("l1", `npm ${MIDDLE_DOT} run build`)] },
       }),
-      window: liveWindow("w1"),
       now: T0,
     });
     expect(view.excerpt).toBe("npm run build");
@@ -884,7 +923,6 @@ describe("excerpt hygiene", () => {
         bindingId: "b1",
         evidence: { digest: "w1", capturedAt: T0, lines: [line("l1", "z".repeat(2_000))] },
       }),
-      window: liveWindow("w1"),
       now: T0,
     });
     expect((view.excerpt ?? "").length).toBeLessThanOrEqual(SEAT_AWARENESS_MAX_EXCERPT_CHARS);
@@ -909,45 +947,39 @@ describe("authority boundary", () => {
       "byBindingId",
       "rev",
       "windowDigestByBindingId",
-      "windowStableSinceByBindingId",
     ]);
     expect(Object.keys(seatAwareness$.byBindingId.peek())).toEqual(["b1"]);
   });
 
-  it("keeps the two freshness axes independent", () => {
+  it("claims currency on the judgment only, never on the excerpt", () => {
     const stored = assessment({ bindingId: "b1" });
     const working = control();
     const idle = control({ state: "idle", label: "Idle", tone: "steel" });
-    // Digest churn moves the excerpt axis and leaves the judgment axis alone.
-    const matched = seatAwarenessView({
+    // The live revision cannot move any presentation state.
+    const matched = seatAwarenessView({ control: working, assessment: stored, now: T0 });
+    resetSeatAwareness();
+    applySeatAwarenessEvent(windowEvent("b1", "moved-on", T0));
+    applySeatAwarenessEvent(assessmentEvent(stored, { at: T0, windowDigest: "moved-on" }));
+    const moved = seatAwarenessViewForBinding({
+      bindingId: "b1",
       control: working,
-      assessment: stored,
-      window: liveWindow("w1"),
       now: T0,
     });
-    const moved = seatAwarenessView({
-      control: working,
-      assessment: stored,
-      window: liveWindow("w9"),
-      now: T0,
-    });
-    expect(matched.excerptFreshness).toBe("current");
-    expect(moved.excerptFreshness).toBe("last_observed");
     expect(moved.availability).toBe(matched.availability);
     expect(moved.judgmentFreshness).toBe(matched.judgmentFreshness);
     expect(moved.aiLabel).toBe(matched.aiLabel);
     expect(moved.freshness).toBe(matched.freshness);
+    expect(moved.excerptLabel).toBe(matched.excerptLabel);
     // The control state moves the judgment axis and leaves the excerpt alone.
     const settled = seatAwarenessView({
       control: idle,
       assessment: stored,
-      window: liveWindow("w1"),
       now: T0,
     });
     expect(settled.judgmentFreshness).toBe("stale");
-    expect(settled.excerptFreshness).toBe("current");
+    expect(settled.excerptLabel).toBe("terminal excerpt (observed just now)");
     expect(settled.aiLabel).toBe("Likely testing");
-    // Neither axis can reach the canonical control plane.
+    // Nothing awareness does can reach the canonical control plane.
     expect(settled.control.state).toBe("idle");
     expect(settled.control.label).toBe("Idle");
   });

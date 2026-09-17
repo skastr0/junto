@@ -17,7 +17,10 @@
  * With no assessment (or an abstained/failed one) the control plane still
  * renders and the AI plane degrades to a neutral or honest line. The excerpt is
  * inert text from the evidence window captured for that observation — bounded,
- * sanitized on ingest, never a link, never an instruction.
+ * sanitized on ingest, never a link, never an instruction. It carries the age of
+ * the screen it was read from rather than a currency claim: no digest-based
+ * claim can be both stable and true on a busy seat, so the judgment is what
+ * claims currency.
  */
 
 import type { ReactNode } from "react";
@@ -28,7 +31,6 @@ import {
   SEAT_AWARENESS_TERMINAL_ATTRIBUTION,
   seatAwarenessView,
   type SeatAwarenessControl,
-  type SeatAwarenessLiveWindow,
 } from "../../lib/seat-awareness";
 import { Chip, Eyebrow, OverlayHeader, StatusDot } from "../ui";
 
@@ -36,7 +38,6 @@ export function SeatAwarenessHover({
   bindingId,
   control,
   assessment,
-  window,
   now,
   className,
 }: {
@@ -45,15 +46,12 @@ export function SeatAwarenessHover({
   /** Canonical deterministic status. Awareness never replaces it. */
   readonly control: SeatAwarenessControl;
   readonly assessment?: SeatAwarenessAssessment | undefined;
-  /** Live evidence revision, so an excerpt from an older screen reads stale. */
-  readonly window?: SeatAwarenessLiveWindow | undefined;
   readonly now?: number | undefined;
   readonly className?: string | undefined;
 }): ReactNode {
   const view = seatAwarenessView({
     control,
     assessment,
-    window,
     now: now ?? Date.now(),
   });
 
@@ -67,7 +65,7 @@ export function SeatAwarenessHover({
       data-awareness-attention={view.canonicalAttention ? "true" : undefined}
       data-awareness-ai-label={view.aiLabel ?? undefined}
       data-awareness-judgment={view.judgmentFreshness ?? undefined}
-      data-awareness-excerpt={view.excerptFreshness ?? undefined}
+      data-awareness-cleared={view.cleared ? "true" : undefined}
       className={[
         "w-[320px] overflow-hidden rounded-md border border-stroke bg-raise shadow-lg shadow-black/40",
         className ?? "",
@@ -91,9 +89,11 @@ export function SeatAwarenessHover({
         }
       />
       <div className="flex flex-col gap-2 px-3.5 py-2.5">
-        {view.aiLabel ? (
+        {view.judgmentFreshness ? (
           <div className="flex flex-col gap-1">
-            <p className="text-[12px] leading-snug text-ink">{view.aiLabel}</p>
+            <p className="text-[12px] leading-snug text-ink">
+              {view.aiLabel ?? view.availabilityLine}
+            </p>
             {view.concernTexts.length > 1 ? (
               <div className="flex flex-wrap gap-1">
                 {view.concernTexts.slice(1).map((text) => (

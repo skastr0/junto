@@ -46,12 +46,14 @@
  *               evidence window it was derived from. The excerpt is resolved
  *               against THAT mapping only.
  *
- * The digest drives the excerpt axis, not the judgment axis. An excerpt is
- * current only on an exact digest match and is otherwise shown as last
- * observed; the activity and concerns stay current while they are within the
- * TTL and belong to the live control-state turn. A continuously printing seat
- * therefore keeps a useful label while its excerpt is honestly attributed to
- * the older screen it was read from.
+ * The digest drives nothing in presentation. The activity and concerns stay
+ * current while they are within the TTL and belong to the live control-state
+ * turn; the excerpt makes no currency claim at all and is shown as an
+ * age-attributed quotation. A digest-based currency claim cannot be both stable
+ * and true on a busy seat (unfloored it flickers about once a second; any floor
+ * long enough to stop that exceeds the longest observed gap between material
+ * revisions), so the renderer holds the revision for the channel's landing zone
+ * and the recorded containment upgrade, and claims nothing from it.
  */
 
 import type { AgentSeatState } from "@shared/agent-seat-state";
@@ -163,8 +165,8 @@ export type SeatAwarenessAssessment = {
    * "checked and clear", which is a different claim from "not assessed" and
    * must not render as no judgment. Activity absences are control-plane
    * cross-checks and never travel here. Optional on the wire: a producer that
-   * does not report absences yet omits the field, and decode normalizes that
-   * to an empty list.
+   * does not report absences yet omits the field, and decode normalizes that to
+   * an empty list.
    */
   readonly absences?: readonly SeatAwarenessAbsence[];
   /** The mapping captured for THIS observation — the only excerpt source. */
@@ -255,8 +257,8 @@ const decodeAssessment = (raw: unknown): SeatAwarenessAssessment | undefined => 
   const evidence = decodeEvidence(raw.evidence);
   if (!evidence) return undefined;
   // Additive field: a producer that does not report absences yet sends none,
-  // which is not the same as "checked and clear". Anything present must be
-  // well formed or the whole assessment is refused.
+  // which is not the same as "checked and clear". Anything present must be well
+  // formed or the whole assessment is refused.
   const absences: SeatAwarenessAbsence[] = [];
   if (raw.absences !== undefined) {
     if (!Array.isArray(raw.absences)) return undefined;

@@ -30,9 +30,7 @@ import {
   awarenessForBinding,
   resetSeatAwareness,
   seatAwarenessViewForBinding,
-  liveWindowForBinding,
   type SeatAwarenessControl,
-  type SeatAwarenessLiveWindow,
 } from "../src/renderer/lib/seat-awareness";
 
 const T0 = 1_700_000_000_000;
@@ -68,16 +66,6 @@ const working: SeatAwarenessControl = {
   tone: "cyan",
 };
 
-/**
- * A live evidence revision. The default stability clock is a minute old, so the
- * excerpt stability floor is satisfied; pass a recent `stableSince` to model a
- * revision that has only just appeared.
- */
-const liveWindow = (
-  digest: string,
-  stableSince: number = T0 - 60_000,
-): SeatAwarenessLiveWindow => ({ digest, stableSince });
-
 const render = (
   props: Partial<Parameters<typeof SeatAwarenessHover>[0]> = {},
 ): string =>
@@ -101,56 +89,94 @@ afterEach(() => {
 });
 
 describe("fresh, stale, abstained, and unavailable states", () => {
-  it("renders attribution, label, excerpt, and freshness when fresh", () => {
+  it("renders attribution, label, an age-attributed excerpt, and freshness", () => {
     const html = render({
       assessment: assessment({ bindingId: "b1" }),
-      window: liveWindow("w1"),
     });
     expect(html).toContain('data-seat-awareness="current"');
     expect(html).toContain("AI assessment");
     expect(html).toContain("Likely testing");
-    expect(html).toContain("terminal excerpt");
+    expect(html).toContain("terminal excerpt (observed 8s ago)");
     expect(html).toContain("3 tests failed in auth.spec.ts");
     expect(html).toContain("AI assessment, observed 8s ago");
     expect(html).toContain("CURRENT");
     expect(html).toContain('data-awareness-judgment="current"');
-    expect(html).toContain('data-awareness-excerpt="current"');
+    // The excerpt carries no currency claim, so it has no currency state.
+    expect(html).not.toContain("data-awareness-excerpt");
+    expect(html).not.toContain(">terminal excerpt<");
   });
 
-  it("keeps the label current while the excerpt is last observed", () => {
-    // The split: a continuously printing seat churns its digest, and only the
-    // quoted screen is withdrawn. The label survives.
+  it("attributes the excerpt to its own observation age, whatever the screen did", () => {
+    // The ordinary case: the excerpt is a quotation with an age. A live
+    // revision that moved on, or one that matches exactly, changes nothing
+    // about it — the judgment is what claims currency.
     const html = render({
       control: { state: "working", label: "Working", tone: "cyan" },
       assessment: assessment({ bindingId: "b1" }),
-      window: liveWindow("w2"),
     });
     expect(html).toContain('data-seat-awareness="current"');
     expect(html).toContain('data-awareness-judgment="current"');
-    expect(html).toContain('data-awareness-excerpt="last_observed"');
     expect(html).toContain("Likely testing");
     expect(html).toContain("AI assessment, observed 8s ago");
     expect(html).toContain("CURRENT");
-    expect(html).toContain("terminal excerpt (last observed at 8s ago)");
+    expect(html).toContain("terminal excerpt (observed 8s ago)");
     expect(html).toContain("3 tests failed in auth.spec.ts");
-    expect(html).not.toContain("AI assessment, last observed");
+    expect(html).not.toContain("last observed");
   });
 
   it("marks the judgment stale when the seat has left the turn", () => {
     const html = render({
       control: { state: "idle", label: "Idle", tone: "steel" },
       assessment: assessment({ bindingId: "b1" }),
-      window: liveWindow("w1"),
     });
     expect(html).toContain('data-seat-awareness="stale"');
     expect(html).toContain('data-awareness-judgment="stale"');
     expect(html).toContain("LAST OBSERVED");
     expect(html).toContain("AI assessment, last observed 8s ago");
     expect(html).not.toContain("AI assessment, observed 8s ago");
-    // The digest still matches, so the excerpt itself stays current.
-    expect(html).toContain('data-awareness-excerpt="current"');
-    expect(html).toContain("terminal excerpt");
+    // The excerpt is unaffected: it is still its own observation, with its age.
+    expect(html).toContain("terminal excerpt (observed 8s ago)");
     expect(html).not.toContain("last observed at");
+  });
+
+  it("says checked and clear for a decisive negative, not no judgment", () => {
+    const html = render({
+      assessment: assessment({
+        bindingId: "b1",
+        activity: null,
+        concerns: [],
+        selectedLineId: null,
+        absences: [{ concern: "execution_error", probability: 0.04 }],
+      }),
+    });
+    expect(html).toContain('data-awareness-cleared="true"');
+    expect(html).toContain('data-awareness-judgment="current"');
+    expect(html).toContain("checked and clear");
+    expect(html).toContain("AI assessment, observed 8s ago");
+    expect(html).toContain("CURRENT");
+    // The wrong claim is gone: this is a judgment, not an abstention.
+    expect(html).not.toContain("NO JUDGMENT");
+    expect(html).not.toContain("recent terminal output available");
+    // And it is not the deterministic fallback either.
+    expect(html).not.toContain("NOT ASSESSED");
+  });
+
+  it("keeps a stale decisive negative clear while withdrawing its currency", () => {
+    const html = render({
+      control: { state: "idle", label: "Idle", tone: "steel" },
+      assessment: assessment({
+        bindingId: "b1",
+        activity: null,
+        concerns: [],
+        selectedLineId: null,
+        absences: [{ concern: "repetition", probability: 0.1 }],
+      }),
+    });
+    expect(html).toContain('data-awareness-cleared="true"');
+    expect(html).toContain('data-awareness-judgment="stale"');
+    expect(html).toContain("checked and clear");
+    expect(html).toContain("AI assessment, last observed 8s ago");
+    expect(html).toContain("LAST OBSERVED");
   });
 
   it("renders an abstention as the deterministic status plus a neutral line", () => {
@@ -161,7 +187,6 @@ describe("fresh, stale, abstained, and unavailable states", () => {
         activity: null,
         selectedLineId: null,
       }),
-      window: liveWindow("w1"),
     });
     expect(html).toContain('data-seat-awareness="abstained"');
     expect(html).toContain("NO JUDGMENT");
@@ -231,7 +256,6 @@ describe("authority boundary at presentation", () => {
         pulse: activity.mode === "pulse",
       },
       assessment: assessment({ bindingId: "b1", activity: "testing" }),
-      window: liveWindow("w1"),
     });
     expect(html).toContain("needs operator input");
     expect(html).toContain("var(--color-amber)");
@@ -273,7 +297,6 @@ describe("authority boundary at presentation", () => {
         bindingId="b1"
         control={view.control}
         assessment={awarenessForBinding("b1")}
-        window={liveWindowForBinding("b1")}
         now={T0 + 8_000}
       />,
     );
@@ -294,7 +317,6 @@ describe("authority boundary at presentation", () => {
         detail: "stalled - needs operator look",
       },
       assessment: assessment({ bindingId: "b1", activity: "testing" }),
-      window: liveWindow("w1"),
     });
     expect(html).toContain('data-awareness-control-state="attention"');
     expect(html).toContain('data-awareness-attention="true"');
@@ -320,7 +342,6 @@ describe("authority boundary at presentation", () => {
     render({
       control: { state: "done", label: "Ready - waiting for review", tone: "green", pulse: true },
       assessment: assessment({ bindingId: "b1" }),
-      window: liveWindow("w1"),
     });
     expect(agentSeat$.needsLookByBindingId["b1"].peek()).toBe(true);
     expect(agentSeat$.byBindingId["b1"].peek()?.state).toBe("idle");
@@ -353,7 +374,6 @@ describe("excerpt rendering", () => {
           ],
         },
       }),
-      window: liveWindow("w1"),
     });
     expect(html).not.toContain("<script>");
     expect(html).toContain("&lt;script&gt;");
@@ -373,7 +393,6 @@ describe("excerpt rendering", () => {
           lines: [line("l1", `npm ${MIDDLE_DOT} run build`)],
         },
       }),
-      window: liveWindow("w1"),
     });
     expect(html).not.toContain(MIDDLE_DOT);
     expect(html).toContain("npm run build");
@@ -382,7 +401,6 @@ describe("excerpt rendering", () => {
   it("shows no excerpt when the selected line is not in this observation's window", () => {
     const html = render({
       assessment: assessment({ bindingId: "b1", selectedLineId: "missing" }),
-      window: liveWindow("w1"),
     });
     expect(html).not.toContain("terminal excerpt");
     expect(html).toContain("Likely testing");
@@ -394,7 +412,6 @@ describe("design system", () => {
   it("composes the shared primitives and tokens with no hardcoded palette", () => {
     const html = render({
       assessment: assessment({ bindingId: "b1", concerns: ["approval_requested", "repetition"] }),
-      window: liveWindow("w1"),
     });
     for (const token of [
       "bg-raise",
