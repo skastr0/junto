@@ -211,14 +211,29 @@ export type AssessmentProvenance = {
   readonly gaps: readonly string[];
 };
 
-export type UnavailableReason =
-  | "no_answers"
-  | "transport_error"
-  | "model_error"
-  | "malformed_answers"
-  | "answers_rejected"
-  | "pack_version_mismatch"
-  | "not_configured";
+/**
+ * Why no usable answer could be obtained, in the validation boundary's own
+ * vocabulary. The scheduler maps these onto the producer's four
+ * (`missing_key | provider_failure | budget_exhausted | not_configured`);
+ * `not_configured` and `budget_exhausted` are shared verbatim, so a refusal
+ * needs no special case on either side.
+ *
+ * `budget_exhausted` is a cap or budget refusal: the sidecar chose not to ask.
+ * It produces exactly the same shape as every other reason here — an
+ * `unavailable` assessment carrying this reason and no verdict — so a refusal
+ * never has to be synthesized from a side channel.
+ */
+export const UNAVAILABLE_REASONS = [
+  "no_answers",
+  "transport_error",
+  "model_error",
+  "malformed_answers",
+  "answers_rejected",
+  "pack_version_mismatch",
+  "budget_exhausted",
+  "not_configured",
+] as const;
+export type UnavailableReason = (typeof UNAVAILABLE_REASONS)[number];
 
 export type AwarenessAssessment = {
   /** Literal cement: this value is display input, never a control input. */
@@ -295,6 +310,10 @@ const buildProvenance = (input: ProvenanceInput): AssessmentProvenance => {
  * No usable answer could be obtained. Distinct from `abstained` by contract:
  * `unavailable` means the sidecar could not get an answer at all, so the
  * display must not imply the model looked and declined.
+ *
+ * A cap or budget refusal (`budget_exhausted`) is this same shape: the reason
+ * says the sidecar chose not to ask, and the axes stay empty. There is no
+ * refusal verdict, because a refusal is not a judgment about the seat.
  */
 export const projectAwarenessUnavailable = (input: ProvenanceInput & {
   readonly reason: UnavailableReason;

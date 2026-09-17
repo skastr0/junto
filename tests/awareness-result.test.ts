@@ -19,6 +19,7 @@ import {
   type AwarenessRequestState,
 } from "../src/main/junto/term/awareness/select-input";
 import {
+  UNAVAILABLE_REASONS,
   projectAwarenessAnswers,
   projectAwarenessUnavailable,
   resolveEvidenceLineId,
@@ -147,6 +148,60 @@ describe("awareness assessment states", () => {
     // An abstention would mean the model answered and declined. It did not.
     expect(assessment.abstentions).toEqual([]);
     expect(assessment.provenance.gaps).toEqual([]);
+  });
+
+  it("projects a cap or budget refusal as an unavailable assessment with no verdict", () => {
+    const assessment = projectAwarenessUnavailable({
+      bindingId: "seat-1",
+      epoch: "e1",
+      sourceSeq: "42",
+      observedAt: OBSERVED_AT,
+      evidenceHash: "abc",
+      packVersion: AWARENESS_PACK_VERSION,
+      reason: "budget_exhausted",
+      detail: "seat call cap",
+    });
+
+    expect(assessment.availability).toBe("unavailable");
+    expect(assessment.unavailableReason).toBe("budget_exhausted");
+    expect(assessment.unavailableDetail).toBe("seat call cap");
+    // A refusal is not a judgment about the seat, so no axis carries anything.
+    expect(assessment.activity).toEqual({
+      value: "indeterminate",
+      reason: "budget_exhausted",
+      signals: [],
+    });
+    expect(assessment.concerns).toEqual([]);
+    expect(assessment.negatives).toEqual([]);
+    expect(assessment.highlight).toBeUndefined();
+    expect(assessment.abstentions).toEqual([]);
+    expect(assessment.rejections).toEqual([]);
+    expect(assessment.advisory).toBe(true);
+    // Provenance still names the observation the refusal belongs to.
+    expect(assessment.provenance.bindingId).toBe("seat-1");
+    expect(assessment.provenance.epoch).toBe("e1");
+    expect(assessment.provenance.sourceSeq).toBe("42");
+    expect(assessment.provenance.observedAt).toBe(OBSERVED_AT);
+  });
+
+  it("gives every unavailable reason the same no-verdict shape", () => {
+    for (const reason of UNAVAILABLE_REASONS) {
+      const assessment = projectAwarenessUnavailable({
+        bindingId: "seat-1",
+        epoch: "e1",
+        sourceSeq: "42",
+        observedAt: OBSERVED_AT,
+        reason,
+      });
+      expect(assessment.availability, reason).toBe("unavailable");
+      expect(assessment.unavailableReason, reason).toBe(reason);
+      expect(assessment.activity.value, reason).toBe("indeterminate");
+      expect(assessment.concerns, reason).toEqual([]);
+      expect(assessment.negatives, reason).toEqual([]);
+      expect(assessment.abstentions, reason).toEqual([]);
+      expect(assessment.rejections, reason).toEqual([]);
+      expect(assessment.advisory, reason).toBe(true);
+    }
   });
 
   it("treats an empty answer list as unavailable, not as an abstention", () => {

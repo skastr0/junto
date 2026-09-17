@@ -45,6 +45,7 @@ import {
   formatEvidenceLineId,
   type NoulQuestion,
 } from "../src/main/junto/term/awareness/questions";
+import { UNAVAILABLE_REASONS } from "../src/main/junto/term/awareness/project-result";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -143,6 +144,25 @@ describe("awareness authority boundary", () => {
     // seat left the turn) are renderer derivations and never travel, so the
     // producer publishes exactly these three.
     expect([...ASSESSMENT_AVAILABILITY_VALUES]).toEqual(["current", "abstained", "unavailable"]);
+  });
+
+  it("pins the unavailable reasons the projection can report", () => {
+    // The validation boundary's vocabulary. The scheduler maps these onto the
+    // producer's four (`missing_key | provider_failure | budget_exhausted |
+    // not_configured`); `not_configured` and `budget_exhausted` are shared
+    // verbatim, so a cap or budget refusal travels as itself rather than as a
+    // synthesized side channel.
+    expect([...UNAVAILABLE_REASONS]).toEqual([
+      "no_answers",
+      "transport_error",
+      "model_error",
+      "malformed_answers",
+      "answers_rejected",
+      "pack_version_mismatch",
+      "budget_exhausted",
+      "not_configured",
+    ]);
+    expect(new Set(UNAVAILABLE_REASONS).size).toBe(UNAVAILABLE_REASONS.length);
   });
 
   it("phrases every concern as a suggestion, never as a control state", () => {
