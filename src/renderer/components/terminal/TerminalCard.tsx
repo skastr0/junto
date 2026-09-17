@@ -270,8 +270,8 @@ export function TerminalCard({
       </div>
       {/*
        * Glance surface only: the advisory hover is revealed on card hover and
-       * carries no control. It lives outside the clipped card body so the
-       * popover is not cut off by the card's own overflow.
+       * carries no control. Collaboration is the seat's own surface and is
+       * offered on both seat node kinds through the shell's overlay slot.
        */}
       <div className="absolute left-0 top-full z-50 hidden pt-1 group-hover:block">
         <SeatAwarenessHover

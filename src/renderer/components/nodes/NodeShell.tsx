@@ -1,4 +1,9 @@
-import { useEffect, type CSSProperties, type ReactNode } from "react";
+import {
+  useEffect,
+  type CSSProperties,
+  type MouseEvent,
+  type ReactNode,
+} from "react";
 import {
   Handle,
   NodeResizer,
@@ -405,6 +410,14 @@ export function NodeShell({
   bare = false,
   /** Full crew toolbar vs delete-only (labels). */
   toolbar = "full",
+  /**
+   * Rendered after the clipped body, inside the shell's own overflow-visible
+   * box. A hover popover belongs here: the body clips its children, so an
+   * overlay mounted inside the card is painted away.
+   */
+  overlay,
+  onHoverEnter,
+  onHoverLeave,
 
   children,
 }: {
@@ -421,6 +434,9 @@ export function NodeShell({
   readonly showHandles?: boolean;
   readonly bare?: boolean;
   readonly toolbar?: "full" | "minimal";
+  readonly overlay?: ReactNode;
+  readonly onHoverEnter?: () => void;
+  readonly onHoverLeave?: (event: MouseEvent<HTMLDivElement>) => void;
 
   readonly children: ReactNode;
 }) {
@@ -559,6 +575,8 @@ export function NodeShell({
   return (
     <div
       className={`junto-node group relative flex h-full w-full flex-col overflow-visible ${bare ? "junto-node--bare rounded-sm px-1 py-0.5" : "rounded-[10px] px-3.5 py-3"} ${shellBlocked ? "junto-blocker" : ""}`}
+      onMouseEnter={onHoverEnter}
+      onMouseLeave={onHoverLeave}
       data-node-kind={node.ether?.entity?.kind ?? node.type}
       data-bare={bare ? "true" : undefined}
       data-blocked={shellBlocked ? "true" : undefined}
@@ -656,6 +674,7 @@ export function NodeShell({
       <div className="junto-node__body min-h-0 flex-1 overflow-hidden">
         <div className="h-full min-h-0 overflow-hidden">{children}</div>
       </div>
+      {overlay}
     </div>
   );
 }

@@ -1,4 +1,9 @@
-import { useEffect, useRef, useState } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type MouseEvent as ReactMouseEvent,
+} from "react";
 import { use$ } from "@legendapp/state/react";
 import type { NodeProps } from "@xyflow/react";
 import { Gauge, Radio, Settings2, Timer } from "lucide-react";
@@ -42,7 +47,13 @@ import { getJuntoApi } from "../../lib/junto-api";
 import { HarnessMark } from "../HarnessMark";
 import { OverseerMark } from "../OverseerMark";
 import { isOverseerSeat } from "../../lib/overseer-set";
+import { SeatCollaborationBlock } from "../terminal/SeatCollaborationBlock";
 import { TerminalCard } from "../terminal/TerminalCard";
+import {
+  closeSeatCollaboration,
+  openSeatCollaboration,
+  seatCollaborationUi$,
+} from "../../lib/seat-collaboration";
 import { TerminalToolbarActions } from "../terminal/TerminalToolbarActions";
 import { AgentChatToolbarActions } from "../chat/AgentChatToolbarActions";
 import { FirstLineRenameInput } from "./FirstLineRenameInput";
@@ -494,6 +505,31 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
 
   const labelHue = node.color ? accentColor(node.color) : INK;
 
+  // Collaboration is an agent seat's own surface: a peer is another agent seat
+  // on this canvas. It renders through the shell's overlay slot, which sits
+  // outside the clipped card body.
+  const seatNode = isAgent;
+  const collaborationOpen = use$(seatCollaborationUi$.openNodeId) === node.id;
+  // Visibility is the store, not `group-hover`: the slot is opened by the
+  // same hover that sets it, so the two can never disagree, and a capture of
+  // the page cannot show one state while the other is true.
+  const collaborationOverlay = seatNode ? (
+    <div
+      className={collaborationOpen ? "absolute left-0 top-full z-50 pt-1" : "hidden"}
+      data-collaboration-overlay={collaborationOpen ? "open" : undefined}
+    >
+      {collaborationOpen ? <SeatCollaborationBlock nodeId={node.id} /> : null}
+    </div>
+  ) : undefined;
+  const closeOnLeave = (event: ReactMouseEvent<HTMLDivElement>) => {
+    // A rebuilt card can deliver a leave for a pointer that never moved (the
+    // node is replaced under the cursor and the browser reports no related
+    // target). That leave is not the operator leaving the card.
+    const next: unknown = event.relatedTarget;
+    if (next === null || next === undefined) return;
+    if (next instanceof Node && event.currentTarget.contains(next)) return;
+    closeSeatCollaboration(node.id);
+  };
 
   return (
     <NodeShell
@@ -505,6 +541,9 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
       showHandles={!isLabel && !isGitNode(node)}
       bare={isLabel}
       toolbar={isLabel ? "minimal" : "full"}
+      overlay={collaborationOverlay}
+      onHoverEnter={seatNode ? () => openSeatCollaboration(node.id) : undefined}
+      onHoverLeave={seatNode ? closeOnLeave : undefined}
       toolbarExtras={
         managedTerminal ? (
           <TerminalToolbarActions node={node} />
