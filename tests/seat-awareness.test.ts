@@ -74,6 +74,7 @@ const assessment = (
   activity: "testing",
   concerns: [],
   absences: [],
+  unansweredConcerns: [],
   evidence: {
     digest: "w1",
     capturedAt: T0,
@@ -808,6 +809,52 @@ describe("presentation", () => {
     expect(abstained.cleared).toBe(false);
     expect(absent.cleared).toBe(false);
     expect(failed.cleared).toBe(false);
+  });
+
+  it("ranks the headline: concern, determinate activity, checked and clear, activity unclear", () => {
+    // The contract's headline ranking, pinned in one place so a later
+    // "simplification" into replacement fails here first. The clear fact is
+    // never dropped; only its rank changes.
+    const rank = (partial: Partial<SeatAwarenessAssessment>) =>
+      seatAwarenessView({
+        control: control(),
+        assessment: assessment({ bindingId: "b1", ...partial }),
+        now: T0 + 8_000,
+      });
+    const absence: SeatAwarenessAbsence = { concern: "repetition", probability: 0.08 };
+
+    // 1. A raised concern beats everything below it, and clears nothing.
+    const concernFirst = rank({
+      activity: "testing",
+      concerns: ["approval_requested"],
+      absences: [absence],
+    });
+    expect(concernFirst.aiLabel).toBe("AI suggests checking approval");
+    expect(concernFirst.clearNote).toBeNull();
+    expect(concernFirst.cleared).toBe(false);
+
+    // 2. A determinate activity beats the clear fact, which stays visible.
+    const activityFirst = rank({ activity: "testing", concerns: [], absences: [absence] });
+    expect(activityFirst.aiLabel).toBe("Likely testing");
+    expect(activityFirst.clearNote).toBe(SEAT_AWARENESS_CLEAR_LINE);
+
+    // 3. Checked and clear beats an indeterminate activity.
+    const clearFirst = rank({ activity: "indeterminate", concerns: [], absences: [absence] });
+    expect(clearFirst.aiLabel).toBe(SEAT_AWARENESS_CLEAR_LINE);
+    expect(clearFirst.clearNote).toBeNull();
+
+    // 4. An indeterminate activity is the last rung, never a finding.
+    const unclear = rank({ activity: "indeterminate", concerns: [], absences: [] });
+    expect(unclear.aiLabel).toBe("Activity unclear");
+    expect(unclear.cleared).toBe(false);
+
+    // Every rung is a judgment, so availability never falls back to abstention
+    // and the deterministic fallback never fires for any of them.
+    for (const view of [concernFirst, activityFirst, clearFirst, unclear]) {
+      expect(view.judgmentFreshness).toBe("current");
+      expect(view.availabilityLabel).toBe("CURRENT");
+      expect(view.availabilityLine).toBe(SEAT_AWARENESS_NEUTRAL_LINE);
+    }
   });
 
   it("does not let the projection's indeterminate activity pre-empt a decisive negative", () => {

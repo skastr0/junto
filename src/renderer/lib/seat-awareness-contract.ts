@@ -169,6 +169,17 @@ export type SeatAwarenessAssessment = {
    * an empty list.
    */
   readonly absences?: readonly SeatAwarenessAbsence[];
+  /**
+   * Concerns whose question was asked but not decisively answered: the model's
+   * probability fell inside the band between the two bars, or it declined for
+   * insufficient evidence. Empty means every concern the pack could ask was
+   * decisively answered, which is the only case that supports the strong
+   * "checked and clear" claim. A non-empty list means the weaker claim: nothing
+   * was raised, but some questions were not answered at all. A question the
+   * pack could not ask (the temporal pair is missing) is not listed, because
+   * that is a different fact from declining to answer.
+   */
+  readonly unansweredConcerns?: readonly SeatAwarenessConcern[];
   /** The mapping captured for THIS observation — the only excerpt source. */
   readonly evidence: SeatAwarenessEvidenceWindow;
   /** The line the model selected, or null when it selected none. */
@@ -275,6 +286,14 @@ const decodeAssessment = (raw: unknown): SeatAwarenessAssessment | undefined => 
   }
   if (raw.selectedLineId !== null && !isNonEmptyString(raw.selectedLineId))
     return undefined;
+  const unansweredConcerns: SeatAwarenessConcern[] = [];
+  if (raw.unansweredConcerns !== undefined) {
+    if (!Array.isArray(raw.unansweredConcerns)) return undefined;
+    for (const concern of raw.unansweredConcerns) {
+      if (typeof concern !== "string" || !CONCERN_SET.has(concern)) return undefined;
+      unansweredConcerns.push(concern as SeatAwarenessConcern);
+    }
+  }
   const reason =
     typeof raw.unavailableReason === "string" &&
     UNAVAILABLE_SET.has(raw.unavailableReason)
@@ -289,6 +308,7 @@ const decodeAssessment = (raw: unknown): SeatAwarenessAssessment | undefined => 
     activity: raw.activity === null ? null : (raw.activity as SeatAwarenessActivity),
     concerns,
     absences,
+    unansweredConcerns,
     evidence,
     selectedLineId: raw.selectedLineId === null ? null : raw.selectedLineId,
     // A reason is only meaningful for an honest failure; never carry one on a
