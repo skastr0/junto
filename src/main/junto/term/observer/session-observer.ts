@@ -640,6 +640,22 @@ export class SessionObserver {
     return this.buildWindow(lines);
   }
 
+  /**
+   * Sync read-only window over retained scrollback + viewport, as of the last
+   * settled write: the same grid `snapshotNow()` shows, with the same clip
+   * report `readWindow` gives.
+   *
+   * Background analysis (the seat-awareness sidecar) must never force
+   * settlement. `readWindow` awaits `settled()`, which deliberately bypasses
+   * the sampling floor, so a periodic observer read would turn analysis into a
+   * parser scheduling change. This is the non-flushing form; `isSettled()` says
+   * whether bytes fed so far are still missing from it, and the returned `seq`
+   * always names the grid it shows.
+   */
+  readWindowNow(lines: number): ObserverGridWindow {
+    return this.buildWindow(lines);
+  }
+
   private buildWindow(lines: number): ObserverGridWindow {
     const cols = this.term.cols;
     const rows = this.term.rows;
