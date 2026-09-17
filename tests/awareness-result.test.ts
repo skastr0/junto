@@ -252,6 +252,33 @@ describe("awareness provenance and line-id resolution", () => {
     expect(assessment.highlight).toBeUndefined();
   });
 
+  it("accepts an answer from a material-equivalent observation", () => {
+    // Same material screen, a different spinner frame and a different PTY
+    // sequence. The digest is the same by design, the line count is unchanged,
+    // and the ids therefore resolve positionally — so this answer belongs to
+    // this evidence and is not a mismatch.
+    const a = selectAwarenessInput(windowOf(["⠂ Thinking…", "alpha", "beta"]));
+    const b = selectAwarenessInput(
+      windowOf(["⠐ Thinking…", "alpha", "beta"], { seq: 777n }),
+    );
+    expect(b.evidenceHash).toBe(a.evidenceHash);
+    expect(b.evidenceLines.length).toBe(a.evidenceLines.length);
+
+    const assessment = respond(a, [
+      noul(b, "concern.approval_requested", 0.97),
+      choice(b, "highlight.line", "L002", 0.9, { L002: 0.9, NONE: 0.1 }),
+    ]);
+    expect(assessment.availability).toBe("current");
+    expect(assessment.concerns.map((c) => c.concern)).toEqual(["approval_requested"]);
+    // The line resolves to THIS observation's mapping text.
+    expect(assessment.highlight).toEqual({
+      kind: "line",
+      lineId: "L002",
+      text: "beta",
+      sourceIndex: 2,
+    });
+  });
+
   it("rejects an answer with no evidence hash at all", () => {
     const request = plain();
     const assessment = respond(request, [

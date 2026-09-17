@@ -10,8 +10,8 @@
  *     (never the latest screen), so a stale id cannot resolve to newer text;
  *   - rejection of ids outside the mapping, non-finite or out-of-range
  *     probabilities, unpermitted options, answers for questions that were not
- *     asked, answers computed from different evidence, and answers from a
- *     different question pack;
+ *     asked, answers computed from materially different evidence, and answers
+ *     from a different question pack;
  *   - the acceptance bar, with `abstained` (the model answered and nothing met
  *     the bar, or the evidence a question needs was absent) kept distinct from
  *     `unavailable` (no usable answer could be obtained at all);
@@ -58,7 +58,13 @@ import type { AwarenessRequestState, EvidenceLine } from "./select-input";
  */
 export type RawAwarenessAnswer = {
   readonly questionId?: unknown;
-  /** Provenance echo: the evidence hash this answer was computed from. */
+  /**
+   * Provenance echo: the window digest this answer was computed from
+   * (`computeWindowDigest`). Two observations of the same material screen share
+   * it by design, and normalization is line-preserving, so an answer that
+   * echoes a material-equivalent observation still belongs to this evidence and
+   * its line ids resolve to the same positions.
+   */
   readonly evidenceHash?: unknown;
   /** Per-answer overrides of the response-level model provenance. */
   readonly requestedModel?: unknown;
@@ -444,8 +450,11 @@ export const projectAwarenessAnswers = (
       continue;
     }
 
-    // Provenance echo first: an answer computed from different evidence must
-    // never be resolved against this observation's line mapping.
+    // Provenance echo first: an answer computed from MATERIALLY different
+    // evidence must never be resolved against this observation's line mapping.
+    // The digest is coarse (volatile chrome normalized), so a material-equivalent
+    // observation passes here on purpose; the line-id membership check below is
+    // what keeps resolution honest within it.
     const answerHash = asNonEmptyString(raw.evidenceHash);
     if (answerHash === undefined) {
       reject(questionId, "missing_evidence_hash", "answer carried no evidence hash");

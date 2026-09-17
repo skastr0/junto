@@ -26,7 +26,29 @@
  *   - Redaction removes the secret and path shapes this module knows. It is NOT
  *     a confidentiality guarantee, and the report says exactly that.
  *   - The projection is pure and deterministic: same window and options in,
- *     same bytes and same evidence hash out.
+ *     same bytes and same window digest out.
+ *
+ * WINDOW DIGEST (shared with the scheduler and the renderer)
+ * ---------------------------------------------------------
+ * `computeWindowDigest` is a COARSE MATERIAL SCREEN REVISION over the bounded,
+ * redacted evidence, after normalizing volatile chrome (spinner and animation
+ * frames, elapsed-time and token counters, cursor position, byte and sequence
+ * counters, and repaints that leave the visible text identical). It is exported
+ * as the single normalization the scheduler's cache key and the renderer's
+ * staleness comparison both call: two normalizations that disagree is the bug
+ * this exists to prevent.
+ *
+ * It is deliberately NOT a per-burst value. A seat printing continuously must
+ * not churn its digest on every burst, or a fresh judgment would read as stale
+ * within seconds on exactly the seats that work. So the digest excludes the PTY
+ * sequence and the wall clock, and includes the observation identity (binding
+ * and generation) so an answer from a retired epoch is never mistaken for one
+ * from the live session.
+ *
+ * Normalization is LINE-PRESERVING: it rewrites lines, never adds, removes, or
+ * reorders them. Two cuts that share a digest therefore have the same line
+ * count, so a line id resolves to the same position in either mapping and the
+ * only textual difference between them is volatile chrome.
  *
  * AUTHORITY
  * ---------
@@ -190,6 +212,13 @@ export type AwarenessRequestState = {
   readonly sourceSeq: string;
   readonly observedAt: number;
   /** sha256 over the observation identity and the exact evidence lines sent. */
+  /**
+   * Coarse material revision of the evidence (`computeWindowDigest`): volatile
+   * chrome normalized, PTY sequence and wall clock excluded, so a spinner frame
+   * or a counter tick does not change it. An answer echoes this value, and a
+   * material-equivalent observation is interchangeable for resolution because
+   * normalization is line-preserving.
+   */
   readonly evidenceHash: string;
   /** The evidence as sent: `L000| text` lines joined by newline. */
   readonly evidenceBlock: string;
@@ -559,6 +588,191 @@ const renderEvidenceBlock = (lines: readonly EvidenceLine[]): string =>
 const sha256Hex = (value: unknown): string =>
   createHash("sha256").update(canonicalJson(value), "utf8").digest("hex");
 
+// ---------------------------------------------------------------------------
+// Window digest — the one normalization shared by cache key and staleness
+// ---------------------------------------------------------------------------
+
+/**
+ * Bump when any rule in `VOLATILE_CHROME_RULES` changes shape. The version is
+ * part of the digest input, so a rule change invalidates every cache key and
+ * staleness comparison computed under the old rules instead of silently reusing
+ * a value that now means something different.
+ */
+export const WINDOW_DIGEST_VERSION = 1;
+
+export type VolatileChromeRule = {
+  readonly id: string;
+  readonly pattern: string;
+  readonly flags: string;
+  readonly replace: string;
+  readonly why: string;
+};
+
+/**
+ * Volatile chrome, in declared order. Each rule rewrites ONE line in place and
+ * must never change the line count. Patterns are stored as source strings and
+ * compiled per call so no global-regex state can leak between observations.
+ *
+ * The discipline is one-sided: a rule that fails to normalize some volatile
+ * frame costs a redundant judgment, while a rule that swallows a material
+ * difference hides real news. So every rule targets a recognized counter or
+ * frame shape, and `tests/awareness-digest.test.ts` pins the material cases
+ * (test counts, error text, payload lines, file paths) as digest-changing.
+ */
+export const VOLATILE_CHROME_RULES: readonly VolatileChromeRule[] = [
+  {
+    id: "braille_animation_frames",
+    pattern: "[\u2800-\u28ff]+",
+    flags: "gu",
+    replace: "*",
+    why: "braille cells are the spinner alphabet on Claude, Amp, Muse, OMP, and Codex; the frame is pure animation",
+  },
+  {
+    id: "status_glyph_frames",
+    pattern: "[\u2722\u2733\u2736\u2737\u273b\u273d\u273e\u273f\u2740\u2741]+",
+    flags: "gu",
+    replace: "*",
+    why: "the Claude-family working-status glyph churns between frames while the status text beside it stays the same",
+  },
+  {
+    id: "elapsed_seconds_after_preposition",
+    pattern: "\\b(for|in)\\s+\\d+(?:\\.\\d+)?\\s*(?:ms|s|m|h)\\b",
+    flags: "gu",
+    replace: "$1 <t>",
+    why: "elapsed-time counter (`Churned for 2s`, `completed in 12s`)",
+  },
+  {
+    id: "elapsed_seconds_in_parenthesis",
+    pattern: "\\(\\s*\\d+(?:\\.\\d+)?\\s*s\\b",
+    flags: "gu",
+    replace: "(<t>",
+    why: "Claude's status line leads with a live duration: `(2s \u00b7 \u2193 102 tokens \u00b7 thinking)`",
+  },
+  {
+    id: "elapsed_seconds_after_dot",
+    pattern: "\\u00b7\\s*\\d+(?:\\.\\d+)?\\s*s\\b",
+    flags: "gu",
+    replace: "\u00b7 <t>",
+    why: "the same status line's second duration, after the separator",
+  },
+  {
+    id: "interrupt_footer_seconds",
+    pattern: "\\b\\d+(?:\\.\\d+)?s\\s*\\(esc (?:twice )?to interrupt\\)",
+    flags: "gu",
+    replace: "<t> (esc to interrupt)",
+    why: "pi and devin print a live turn timer in their footer",
+  },
+  {
+    id: "context_token_ratio",
+    pattern: "Context:\\s*\\d+(?:\\.\\d+)?k?\\s*/\\s*\\d+(?:\\.\\d+)?k?",
+    flags: "giu",
+    replace: "Context: <n>/<n>",
+    why: "a context meter's numerator and limit move every turn; the label is kept so the line still reads as a context meter",
+  },
+  {
+    id: "token_counters",
+    pattern: "\\b\\d+(?:\\.\\d+)?k?\\s*tokens?\\b",
+    flags: "giu",
+    replace: "<tokens>",
+    why: "token counters (`\u2193 102 tokens`, `44k tokens`)",
+  },
+  {
+    id: "percent_of_limit",
+    pattern: "\\b\\d+(?:\\.\\d+)?%\\s*/\\s*\\d+(?:\\.\\d+)?[KM]?\\b",
+    flags: "gu",
+    replace: "<pct>/<limit>",
+    why: "context meters (`0.0%/400k`, `21%/1M`)",
+  },
+  {
+    id: "percent_meters",
+    pattern: "\\b\\d+(?:\\.\\d+)?%",
+    flags: "gu",
+    replace: "<pct>",
+    why: "progress and context percentages",
+  },
+  {
+    id: "cost_meters",
+    pattern: "\\$\\d+(?:\\.\\d+)?|\\$\\s*[.\\u00b7]{2,}",
+    flags: "gu",
+    replace: "<$>",
+    why: "the cost meter (`$0.00`, `$\u00b7\u00b7\u00b7\u00b7`)",
+  },
+  {
+    id: "relative_ages",
+    pattern: "\\(\\s*\\d+\\s*m ago\\s*\\)|\\b\\d+x usage\\b",
+    flags: "gu",
+    replace: "(<ago>)",
+    why: "relative timestamps and usage multipliers (`(5m ago)`, `1x usage`)",
+  },
+  {
+    id: "byte_and_sequence_counters",
+    pattern: "\\b\\d+(?:\\.\\d+)?\\s*(?:bytes?|KB|MB|GB)\\b|\\b(seq|sequence|offset)\\s*[:=]\\s*\\d+\\b",
+    flags: "giu",
+    replace: "<bytes>",
+    why: "byte and sequence counters, which move with every burst",
+  },
+  {
+    id: "block_cursor_runs",
+    pattern: "[\u2588\u2589\u258a\u258b\u258c\u258d\u258e\u258f\u2590\u2591\u2592\u2593]+",
+    flags: "gu",
+    replace: "",
+    why: "a block-glyph run is the cursor cell or a scrollbar column, and both move with position rather than content; removing the run is what makes a repaint with identical visible text digest-equal. The cost is that the PRESENCE of such a run is erased too, which is deliberate: a bar appearing or vanishing is a control transition the scheduler already triggers on, not a material text change",
+  },
+  {
+    id: "trailing_padding",
+    pattern: "[ \\t]+$",
+    flags: "gu",
+    replace: "",
+    why: "a repaint that pads a line to the same visible text must not read as a change",
+  },
+];
+
+/** Rewrite one evidence line into its volatile-chrome-normalized form. */
+export const normalizeVolatileChrome = (text: string): string => {
+  let current = text;
+  for (const rule of VOLATILE_CHROME_RULES) {
+    const re = new RegExp(rule.pattern, rule.flags);
+    current = current.replace(re, (...args: unknown[]) => {
+      const groups = args.slice(1, -2).map((value) => String(value ?? ""));
+      return expandReplacement(rule.replace, groups);
+    });
+  }
+  return current;
+};
+
+export type WindowDigestInput = {
+  /** Observation identity: two seats and two generations never share a digest. */
+  readonly bindingId: string;
+  readonly epoch: string;
+  /** The bounded, redacted evidence lines exactly as sent. */
+  readonly lines: readonly Pick<EvidenceLine, "text">[];
+};
+
+/**
+ * The coarse material screen revision for one observation.
+ *
+ * This is the single function the scheduler's cache key and the renderer's
+ * staleness comparison call. It deliberately excludes the PTY sequence and the
+ * wall clock: a burst of new output that does not change the visible material
+ * must not move the digest, or every fresh judgment would read as stale within
+ * seconds on a continuously printing seat.
+ */
+export const computeWindowDigest = (input: WindowDigestInput): string =>
+  sha256Hex(windowDigestMaterial(input));
+
+/**
+ * The exact value the digest is taken over. Exported so a caller (or a test) can
+ * see that the rule-set version participates: changing a rule changes the
+ * digest of unchanged evidence, which is what makes a stale cache key
+ * impossible to reuse by accident.
+ */
+export const windowDigestMaterial = (input: WindowDigestInput): unknown => ({
+  version: WINDOW_DIGEST_VERSION,
+  bindingId: input.bindingId,
+  epoch: input.epoch,
+  lines: input.lines.map((line) => normalizeVolatileChrome(line.text)),
+});
+
 type BuildInput = {
   readonly window: AwarenessEvidenceWindow;
   readonly caps: {
@@ -682,11 +896,10 @@ const assembleRequest = (input: BuildInput): AwarenessRequestState => {
     epoch: window.epoch,
     sourceSeq: window.seq.toString(),
     observedAt: window.observedAt,
-    evidenceHash: sha256Hex({
+    evidenceHash: computeWindowDigest({
       bindingId: window.bindingId,
       epoch: window.epoch,
-      sourceSeq: window.seq.toString(),
-      lines: evidenceLines.map((line) => [line.id, line.text]),
+      lines: evidenceLines,
     }),
     evidenceBlock,
     evidenceLines,
