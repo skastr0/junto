@@ -21,7 +21,6 @@ import {
 import {
   projectAwarenessAnswers,
   projectAwarenessUnavailable,
-  projectNotAssessed,
   resolveEvidenceLineId,
   type RawAwarenessAnswer,
   type RawAwarenessResponse,
@@ -108,7 +107,6 @@ const respond = (
       answers,
       ...overrides,
     },
-    { nowMs: request.observedAt },
   );
 
 const reasons = (assessment: { readonly rejections: readonly { reason: string }[] }) =>
@@ -130,21 +128,6 @@ const REPETITION_SKIP = {
 // ---------------------------------------------------------------------------
 
 describe("awareness assessment states", () => {
-  it("reports not_assessed without implying the model looked", () => {
-    const assessment = projectNotAssessed({
-      bindingId: "seat-1",
-      epoch: "e1",
-      sourceSeq: "42",
-      observedAt: OBSERVED_AT,
-    });
-    expect(assessment.availability).toBe("not_assessed");
-    expect(assessment.advisory).toBe(true);
-    expect(assessment.concerns).toEqual([]);
-    expect(assessment.abstentions).toEqual([]);
-    expect(assessment.activity.value).toBe("indeterminate");
-    expect(assessment.provenance.gaps).toContain("requested_model");
-  });
-
   it("keeps unavailable distinct from abstained", () => {
     const assessment = projectAwarenessUnavailable({
       bindingId: "seat-1",
@@ -319,11 +302,9 @@ describe("awareness provenance and line-id resolution", () => {
 
   it("records which provenance fields the transport did not supply", () => {
     const request = plain();
-    const assessment = projectAwarenessAnswers(
-      request,
-      { answers: [noul(request, "concern.approval_requested", 0.97)] },
-      { nowMs: request.observedAt },
-    );
+    const assessment = projectAwarenessAnswers(request, {
+      answers: [noul(request, "concern.approval_requested", 0.97)],
+    });
     expect(assessment.availability).toBe("current");
     expect(assessment.provenance.gaps).toEqual(["requested_model", "returned_model"]);
     expect(assessment.provenance.requestedModel).toBeUndefined();
@@ -332,20 +313,16 @@ describe("awareness provenance and line-id resolution", () => {
 
   it("reads the model from the answer when the response omits it", () => {
     const request = plain();
-    const assessment = projectAwarenessAnswers(
-      request,
-      {
-        packVersion: request.packVersion,
-        answers: [
-          {
-            ...noul(request, "concern.approval_requested", 0.97),
-            requestedModel: "systemone",
-            returnedModel: "jev-1.13.0",
-          },
-        ],
-      },
-      { nowMs: request.observedAt },
-    );
+    const assessment = projectAwarenessAnswers(request, {
+      packVersion: request.packVersion,
+      answers: [
+        {
+          ...noul(request, "concern.approval_requested", 0.97),
+          requestedModel: "systemone",
+          returnedModel: "jev-1.13.0",
+        },
+      ],
+    });
     expect(assessment.provenance.requestedModel).toBe("systemone");
     expect(assessment.provenance.returnedModel).toBe("jev-1.13.0");
     expect(assessment.provenance.gaps).toEqual([]);
@@ -551,9 +528,93 @@ describe("awareness acceptance and combination", () => {
         questionId: "concern.approval_requested",
         reason: "below_acceptance_bar",
         probability: 0.5,
-        detail: "probability 0.5 is below the 0.9 bar",
+        detail: "probability 0.5 is inside the indecisive band (0.1, 0.9)",
       },
     ]);
+  });
+
+  it("pins both Noul bars: present at 0.9, absent at 0.1, the band between abstains", () => {
+    const request = plain();
+    const cases: ReadonlyArray<{ readonly p: number; readonly verdict: "present" | "absent" | "band" }> = [
+      { p: 0.99, verdict: "present" },
+      { p: 0.9, verdict: "present" },
+      { p: 0.89, verdict: "band" },
+      { p: 0.5, verdict: "band" },
+      { p: 0.11, verdict: "band" },
+      { p: 0.1, verdict: "absent" },
+      { p: 0.02, verdict: "absent" },
+      { p: 0, verdict: "absent" },
+    ];
+    for (const entry of cases) {
+      const assessment = respond(request, [noul(request, "concern.approval_requested", entry.p)]);
+      if (entry.verdict === "present") {
+        expect(assessment.concerns.map((c) => c.concern), `p=${entry.p}`).toEqual([
+          "approval_requested",
+        ]);
+        expect(assessment.negatives, `p=${entry.p}`).toEqual([]);
+      } else if (entry.verdict === "absent") {
+        expect(assessment.concerns, `p=${entry.p}`).toEqual([]);
+        expect(assessment.negatives.map((n) => n.probability), `p=${entry.p}`).toEqual([entry.p]);
+      } else {
+        expect(assessment.concerns, `p=${entry.p}`).toEqual([]);
+        expect(assessment.negatives, `p=${entry.p}`).toEqual([]);
+        expect(
+          assessment.abstentions.some(
+            (a) => a.questionId === "concern.approval_requested" && a.reason === "below_acceptance_bar",
+          ),
+          `p=${entry.p}`,
+        ).toBe(true);
+      }
+    }
+  });
+
+  it("marks an activity absence as a cross-check, never as a displayed state", () => {
+    const request = plain();
+    const assessment = respond(request, [
+      noul(request, "activity.command_executing", 0.02),
+      noul(request, "activity.reading_existing_material", 0.04),
+    ]);
+
+    // The absence is recorded and flagged for the control-plane cross-check.
+    expect(assessment.negatives).toEqual([
+      {
+        questionId: "activity.command_executing",
+        activity: "running_command",
+        probability: 0.02,
+        display: "AI found no command running",
+        crossCheckOnly: true,
+      },
+      {
+        questionId: "activity.reading_existing_material",
+        activity: "investigating",
+        probability: 0.04,
+        display: "AI found no read-only exploration",
+        crossCheckOnly: true,
+      },
+    ]);
+    // It never becomes an activity label: the engine owns idle versus working.
+    expect(assessment.activity.value).toBe("indeterminate");
+    expect(assessment.activity.signals).toEqual([]);
+    expect(assessment.activity.reason).toBe("every_activity_property_absent");
+    expect(assessment.concerns).toEqual([]);
+    // Decisive absences still make the assessment current: the surface, not the
+    // producer, decides how much of that to display.
+    expect(assessment.availability).toBe("current");
+  });
+
+  it("reports current, not not_assessed, when every answer was a decisive absence", () => {
+    const request = plain();
+    const assessment = respond(request, [
+      noul(request, "concern.approval_requested", 0.02),
+      noul(request, "activity.command_executing", 0.03),
+    ]);
+
+    // An assessment exists and is decisive; "checked and clear" is a different
+    // fact from `not_assessed` (nothing was ever received).
+    expect(assessment.availability).toBe("current");
+    expect(assessment.negatives.length).toBe(2);
+    expect(assessment.abstentions).toEqual([REPETITION_SKIP]);
+    expect(assessment.rejections).toEqual([]);
   });
 
   it("records a confident absence as a negative, not an abstention", () => {
@@ -566,6 +627,7 @@ describe("awareness acceptance and combination", () => {
         concern: "approval_requested",
         probability: 0.03,
         display: "AI found no approval prompt",
+        crossCheckOnly: false,
       },
     ]);
     expect(assessment.abstentions).toEqual([REPETITION_SKIP]);
@@ -667,6 +729,7 @@ describe("awareness acceptance and combination", () => {
         concern: "repetition",
         probability: 0.95,
         display: "AI found no repeat",
+        crossCheckOnly: false,
       },
     ]);
 
@@ -689,27 +752,23 @@ describe("awareness acceptance and combination", () => {
     expect(unsure.availability).toBe("abstained");
   });
 
-  it("marks an accepted assessment stale once it is older than the budget", () => {
+  it("never reports a display freshness of its own", () => {
+    // The producer holds no clock for the display and no control-plane turn, so
+    // `stale` and `not_assessed` are the renderer's to derive. The same response
+    // is the same assessment however long it has been showing.
     const request = plain();
-    const fresh = respond(request, [noul(request, "concern.approval_requested", 0.97)]);
-    const stale = projectAwarenessAnswers(
-      request,
-      {
-        packVersion: request.packVersion,
-        answers: [noul(request, "concern.approval_requested", 0.97)],
-      },
-      { nowMs: request.observedAt + 31_000, freshnessBudgetMs: 30_000 },
-    );
-    expect(fresh.availability).toBe("current");
-    expect(stale.availability).toBe("stale");
-    // Staleness never changes what was accepted.
-    expect(stale.concerns).toEqual(fresh.concerns);
+    const assessment = respond(request, [noul(request, "concern.approval_requested", 0.97)]);
+    expect(assessment.availability).toBe("current");
+    expect(ASSESSMENT_AVAILABILITY_VALUES).not.toContain("stale");
+    expect(ASSESSMENT_AVAILABILITY_VALUES).not.toContain("not_assessed");
+    // An old observation is still the same verdict, and its age travels in
+    // provenance rather than as a downgraded availability.
+    expect(assessment.provenance.observedAt).toBe(OBSERVED_AT);
   });
 
   it("only ever reports availability from the frozen set", () => {
     const request = plain();
     const states = [
-      projectNotAssessed({ bindingId: "b", epoch: "e", sourceSeq: "1", observedAt: 0 }),
       projectAwarenessUnavailable({
         bindingId: "b",
         epoch: "e",
@@ -720,6 +779,8 @@ describe("awareness acceptance and combination", () => {
       respond(request, []),
       respond(request, [noul(request, "concern.approval_requested", 0.5)]),
       respond(request, [noul(request, "concern.approval_requested", 0.97)]),
+      // Every answer a decisive absence: an assessment exists, so it is current.
+      respond(request, [noul(request, "activity.command_executing", 0.02)]),
     ];
     for (const assessment of states) {
       expect(ASSESSMENT_AVAILABILITY_VALUES).toContain(assessment.availability);

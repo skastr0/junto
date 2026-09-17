@@ -612,7 +612,10 @@ describe("awareness request state", () => {
     // temporal pair.
     expect(state.questions.length).toBe(11);
     const noul = state.questions.find((q) => q.kind === "noul");
-    expect(noul?.acceptance).toEqual({ minNoulProbability: 0.9 });
+    expect(noul?.acceptance).toEqual({
+      minNoulProbability: 0.9,
+      maxNoulAbsenceProbability: 0.1,
+    });
     const highlight = state.questions.find((q) => q.id === "highlight.line");
     expect(highlight?.optionIds).toEqual(["L000", "L001", "NONE"]);
     expect(highlight?.acceptance).toEqual({ minConfidence: 0.8, minTopProbability: 0.8 });

@@ -89,18 +89,26 @@ export type AiConcernValue =
   | "repetition";
 
 /**
- * Whether an assessment exists, is fresh, or was declined.
- * `unavailable` is "we could not obtain a usable answer" (transport, model, or
- * malformed answers); `abstained` is "the model answered and nothing met the
- * bar, or the evidence a question needs was not supplied". They are different
- * facts and the display must not merge them.
+ * What the PRODUCER publishes about an assessment. Exactly three values, which
+ * is the set the renderer's wire contract accepts.
+ *
+ * Two further values belong to the renderer and never travel:
+ *   - `not_assessed` — no assessment was received at all;
+ *   - `stale` — an assessment whose judgment is no longer current because it
+ *     expired or the seat left the turn it describes.
+ * The renderer derives both, because both depend on facts this projection does
+ * not hold: how long the display has been showing the assessment, and whether
+ * the seat is still in the same control-state turn.
+ *
+ * `current` means at least one DECISIVE verdict was produced — present or
+ * absent, from any question — which is what lets the surface tell "checked and
+ * clear" from "not assessed". `abstained` means no decisive verdict was
+ * produced: every answer sat between the bars, or the questions the evidence
+ * could not support were skipped. `unavailable` means no decisive verdict was
+ * produced and at least one answer was unusable, so no answer could be obtained
+ * at all. They are different facts and the display must not merge them.
  */
-export type AssessmentAvailability =
-  | "not_assessed"
-  | "current"
-  | "stale"
-  | "abstained"
-  | "unavailable";
+export type AssessmentAvailability = "current" | "abstained" | "unavailable";
 
 export const AI_ACTIVITY_VALUES: readonly AiActivityValue[] = [
   "investigating",
@@ -121,9 +129,7 @@ export const AI_CONCERN_VALUES: readonly AiConcernValue[] = [
 ] as const;
 
 export const ASSESSMENT_AVAILABILITY_VALUES: readonly AssessmentAvailability[] = [
-  "not_assessed",
   "current",
-  "stale",
   "abstained",
   "unavailable",
 ] as const;
@@ -153,18 +159,49 @@ export const CONCERN_ABSENT_DISPLAY: Readonly<Record<AiConcernValue, string>> = 
   repetition: "AI found no repeat",
 };
 
+/**
+ * Absence phrases for the activity properties. An activity absence is a
+ * CROSS-CHECK against the control plane, never a displayed state: the
+ * deterministic engine already owns idle versus working, so these phrases exist
+ * for the audit trail and for that cross-check rather than for the surface.
+ */
+export const ACTIVITY_ABSENT_DISPLAY: Readonly<Record<AiActivityValue, string>> = {
+  investigating: "AI found no read-only exploration",
+  editing: "AI found no file writes",
+  running_command: "AI found no command running",
+  testing: "AI found no test run",
+  reviewing: "AI found no change under review",
+  reporting: "AI found no report in progress",
+  indeterminate: "AI found no activity signal",
+};
+
 // ---------------------------------------------------------------------------
 // Acceptance thresholds — the one place a human calibrates this pack
 // ---------------------------------------------------------------------------
 
 /**
- * Starting acceptance policy, to calibrate rather than to trust:
+ * Starting acceptance policy, to calibrate rather than to trust. A Noul is
+ * TWO-SIDED:
  *
- *   - a Choice is accepted at confidence >= 0.8 AND top probability >= 0.8;
- *   - a Noul is accepted at probability >= 0.9 (the measured narrow-Noul bar:
- *     9/10 raw agreement, 7/10 accepted);
- *   - anything else abstains and the abstention is reported, never silently
- *     dropped and never rounded up into a concern.
+ *   - at or above `noulPositiveProbability` the property is published PRESENT;
+ *   - at or below `noulNegativeProbability` it is published ABSENT, as a
+ *     negative verdict: for a concern that is an accepted absence (which is
+ *     what lets the surface tell "checked and clear" from "not assessed"), and
+ *     for an activity property it is a cross-check against the control plane
+ *     rather than a displayed state;
+ *   - only the band between the two bars abstains, and the abstention is
+ *     reported, never silently dropped and never rounded up into a concern.
+ *
+ * A Choice is accepted at confidence >= `choiceConfidence` AND top probability
+ * >= `choiceTopProbability`; a concern expressed as a Choice is held to the
+ * Noul bars.
+ *
+ * Why two-sided: the held-out evaluation over 42 checkpoints (workstream A's
+ * harness, 42 calls, model jev-1.13.0) found the concern questions wrong zero
+ * times at every threshold tested, while a one-sided pack threw away half of
+ * every Noul. `turn_in_progress` published 1 answer above 0.9 while 28 answers
+ * at or below 0.2 were all correct with zero errors. A Noul that can only say
+ * "yes" is discarding its most reliable half.
  *
  * Independently evaluated questions are NOT independent evidence: never
  * multiply their probabilities. Combination is a fixed precedence in code
@@ -172,8 +209,10 @@ export const CONCERN_ABSENT_DISPLAY: Readonly<Record<AiConcernValue, string>> = 
  * number for that one question.
  */
 export const AWARENESS_ACCEPTANCE = {
-  /** Noul acceptance bar. */
-  noulProbability: 0.9,
+  /** Positive Noul verdict: publish the property as PRESENT at or above this. */
+  noulPositiveProbability: 0.9,
+  /** Negative Noul verdict: publish the property as ABSENT at or below this. */
+  noulNegativeProbability: 0.1,
   /** Choice acceptance bar: model confidence in the selection. */
   choiceConfidence: 0.8,
   /** Choice acceptance bar: probability mass on the selected option. */
@@ -184,8 +223,10 @@ export const AWARENESS_ACCEPTANCE = {
 export type AcceptancePolicy = "noul" | "choice" | "concern_choice";
 
 export type AcceptanceThresholds = {
-  /** Minimum Noul probability. Absent for Choices. */
+  /** Minimum Noul probability for a PRESENT verdict. Absent for Choices. */
   readonly minNoulProbability?: number;
+  /** Maximum Noul probability for an ABSENT verdict. Absent for Choices. */
+  readonly maxNoulAbsenceProbability?: number;
   /** Minimum Choice confidence. Absent for Nouls. */
   readonly minConfidence?: number;
   /** Minimum probability on the selected Choice option. Absent for Nouls. */
@@ -194,7 +235,10 @@ export type AcceptanceThresholds = {
 
 /** Resolved thresholds per policy. Derived from AWARENESS_ACCEPTANCE. */
 export const ACCEPTANCE_POLICIES: Readonly<Record<AcceptancePolicy, AcceptanceThresholds>> = {
-  noul: { minNoulProbability: AWARENESS_ACCEPTANCE.noulProbability },
+  noul: {
+    minNoulProbability: AWARENESS_ACCEPTANCE.noulPositiveProbability,
+    maxNoulAbsenceProbability: AWARENESS_ACCEPTANCE.noulNegativeProbability,
+  },
   choice: {
     minConfidence: AWARENESS_ACCEPTANCE.choiceConfidence,
     minTopProbability: AWARENESS_ACCEPTANCE.choiceTopProbability,
@@ -203,13 +247,10 @@ export const ACCEPTANCE_POLICIES: Readonly<Record<AcceptancePolicy, AcceptanceTh
     // A concern is held to the Noul bar even when it is expressed as a Choice:
     // "is this repeating" is the same kind of snap judgment as "is a failure
     // live", and the measured false positive came from answering it cheaply.
-    minConfidence: AWARENESS_ACCEPTANCE.noulProbability,
-    minTopProbability: AWARENESS_ACCEPTANCE.noulProbability,
+    minConfidence: AWARENESS_ACCEPTANCE.noulPositiveProbability,
+    minTopProbability: AWARENESS_ACCEPTANCE.noulPositiveProbability,
   },
 };
-
-/** How long an accepted assessment stays `current` before it reads `stale`. */
-export const AWARENESS_FRESHNESS_BUDGET_MS = 30_000;
 
 // ---------------------------------------------------------------------------
 // Evidence contract (format shared with the projection)

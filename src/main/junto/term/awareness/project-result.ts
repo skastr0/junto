@@ -12,9 +12,11 @@
  *     probabilities, unpermitted options, answers for questions that were not
  *     asked, answers computed from materially different evidence, and answers
  *     from a different question pack;
- *   - the acceptance bar, with `abstained` (the model answered and nothing met
- *     the bar, or the evidence a question needs was absent) kept distinct from
- *     `unavailable` (no usable answer could be obtained at all);
+ *   - the two-sided acceptance bar, with `abstained` (the model answered and
+ *     only the indecisive band, or the evidence a question needs was absent)
+ *     kept distinct from `unavailable` (no usable answer could be obtained at
+ *     all). A Noul publishes PRESENT at or above its positive bar and ABSENT at
+ *     or below its negative bar; only the band between abstains;
  *   - provenance: binding id, epoch, source sequence, evidence hash, observed
  *     time, question-pack version, requested and returned model, and the
  *     evidence line a highlight refers to.
@@ -26,6 +28,15 @@
  * the narrow activity Nouls (see ACTIVITY_DERIVATION); each reported
  * probability is the model's own number for that one question, unchanged.
  *
+ * AVAILABILITY OWNERSHIP
+ * ----------------------
+ * This module publishes exactly `current | abstained | unavailable`. The two
+ * other values of the axis belong to the renderer and never travel: it derives
+ * `not_assessed` (nothing received at all) and `stale` (an assessment whose
+ * judgment expired, or whose seat left the turn it describes). Neither is
+ * computable here — this module runs on a response that was just received and
+ * holds no clock for the display and no control-plane turn.
+ *
  * AUTHORITY
  * ---------
  * The assessment is display input and nothing else. It is not a control state,
@@ -34,8 +45,8 @@
  */
 
 import {
+  ACTIVITY_ABSENT_DISPLAY,
   ACTIVITY_DERIVATION,
-  AWARENESS_FRESHNESS_BUDGET_MS,
   AWARENESS_QUESTIONS,
   CONCERN_ABSENT_DISPLAY,
   CONCERN_DISPLAY,
@@ -131,12 +142,24 @@ export type Abstention = {
   readonly detail: string;
 };
 
-/** An accepted answer that resolved a concern to ABSENT. Display only. */
-export type ConcernNegative = {
+/**
+ * An accepted ABSENT verdict: the model answered below the negative bar, so the
+ * property is confidently absent. Display only; nothing is cleared.
+ *
+ * `crossCheckOnly` is true for an activity property, whose absence is a
+ * cross-check against the control plane rather than a displayed state — the
+ * deterministic engine already owns idle versus working. A concern's absence is
+ * the surface's "checked and clear".
+ */
+export type NegativeVerdict = {
   readonly questionId: string;
-  readonly concern: AiConcernValue;
+  /** Set when the question is a concern. */
+  readonly concern?: AiConcernValue;
+  /** Set when the question is an activity property. */
+  readonly activity?: AiActivityValue;
   readonly probability: number;
   readonly display: string;
+  readonly crossCheckOnly: boolean;
 };
 
 export type ActivitySignal = {
@@ -204,8 +227,8 @@ export type AwarenessAssessment = {
   readonly packVersion: string;
   readonly activity: ActivityProjection;
   readonly concerns: readonly ConcernProjection[];
-  /** Accepted answers that resolved a concern to absent. */
-  readonly negatives: readonly ConcernNegative[];
+  /** Accepted ABSENT verdicts, for concerns and activity properties alike. */
+  readonly negatives: readonly NegativeVerdict[];
   readonly highlight?: HighlightProjection;
   readonly abstentions: readonly Abstention[];
   readonly rejections: readonly Rejection[];
@@ -236,12 +259,6 @@ const LINE_ID_SHAPE = /^L\d+$/u;
 // ---------------------------------------------------------------------------
 // Construction helpers
 // ---------------------------------------------------------------------------
-
-const NOT_ASSESSED_ACTIVITY: ActivityProjection = {
-  value: "indeterminate",
-  reason: "not_assessed",
-  signals: [],
-};
 
 type ProvenanceInput = {
   readonly bindingId: string;
@@ -275,27 +292,6 @@ const buildProvenance = (input: ProvenanceInput): AssessmentProvenance => {
 };
 
 /**
- * Awareness is not running for this seat, or has not been asked yet. This is
- * the initial state and it is NOT an abstention: nothing was assessed.
- */
-export const projectNotAssessed = (input: {
-  readonly bindingId: string;
-  readonly epoch: string;
-  readonly sourceSeq: string;
-  readonly observedAt: number;
-}): AwarenessAssessment => ({
-  advisory: true,
-  availability: "not_assessed",
-  packVersion: "unknown",
-  activity: NOT_ASSESSED_ACTIVITY,
-  concerns: [],
-  negatives: [],
-  abstentions: [],
-  rejections: [],
-  provenance: buildProvenance(input),
-});
-
-/**
  * No usable answer could be obtained. Distinct from `abstained` by contract:
  * `unavailable` means the sidecar could not get an answer at all, so the
  * display must not imply the model looked and declined.
@@ -321,13 +317,6 @@ export const projectAwarenessUnavailable = (input: ProvenanceInput & {
 // Projection
 // ---------------------------------------------------------------------------
 
-export type ProjectAwarenessOptions = {
-  /** Wall clock for the freshness decision. */
-  readonly nowMs?: number;
-  /** How long an accepted assessment stays `current`. */
-  readonly freshnessBudgetMs?: number;
-};
-
 const asFiniteNumber = (value: unknown): number | undefined =>
   typeof value === "number" && Number.isFinite(value) ? value : undefined;
 
@@ -338,23 +327,24 @@ const asNonEmptyString = (value: unknown): string | undefined =>
  * Project raw answers into an assessment.
  *
  * Acceptance, stated once so the display never has to guess:
+ *   - a Noul is TWO-SIDED. At or above its positive bar the property is
+ *     published present; at or below its negative bar it is published absent as
+ *     a negative verdict, so "the model looked and found nothing" is not
+ *     confused with "nothing was assessed"; only the band between the bars is
+ *     an abstention, and the abstention carries the model's own number so the
+ *     information survives without inventing a second acceptance path.
  *   - a concern is SHOWN only at or above its question's bar (0.9 for a Noul
  *     concern and for the concern Choice; 0.8 confidence plus 0.8 top
- *     probability for the highlight);
- *   - an accepted answer that resolves a concern to absent is reported as a
- *     negative, so "the model looked and found nothing" is not confused with
- *     "nothing was assessed";
- *   - anything between is an abstention carrying the model's own number, so the
- *     information survives without inventing a second acceptance path.
+ *     probability for the highlight).
+ *
+ * No clock is read here. Display freshness (`stale`) and cache retention belong
+ * to the renderer and the scheduler; this module reports what one response
+ * means for one observation, and nothing about how long it has been showing.
  */
 export const projectAwarenessAnswers = (
   request: AwarenessRequestState,
   response: RawAwarenessResponse,
-  opts: ProjectAwarenessOptions = {},
 ): AwarenessAssessment => {
-  const nowMs = opts.nowMs ?? Date.now();
-  const freshnessBudgetMs = opts.freshnessBudgetMs ?? AWARENESS_FRESHNESS_BUDGET_MS;
-
   const unavailable = (reason: UnavailableReason, detail: string): AwarenessAssessment =>
     projectAwarenessUnavailable({
       bindingId: request.bindingId,
@@ -394,7 +384,7 @@ export const projectAwarenessAnswers = (
 
   const rejections: Rejection[] = [];
   const abstentions: Abstention[] = [];
-  const negatives: ConcernNegative[] = [];
+  const negatives: NegativeVerdict[] = [];
   const acceptedNouls = new Map<string, number>();
   const acceptedChoices = new Map<string, { readonly optionId: string; readonly probability: number }>();
   const answered = new Set<string>();
@@ -498,25 +488,36 @@ export const projectAwarenessAnswers = (
         reject(questionId, "probability_out_of_range", `probability ${probability} is outside [0, 1]`);
         continue;
       }
-      const bar = requested.acceptance.minNoulProbability ?? 1;
-      if (probability >= bar) {
+      // Two-sided: a Noul that can only say "yes" throws away its most
+      // reliable half (measured: 28 correct answers at or below 0.2 against one
+      // above 0.9). Absence is an accepted verdict, not a silence.
+      const presentBar = requested.acceptance.minNoulProbability ?? 1;
+      const absentBar = requested.acceptance.maxNoulAbsenceProbability ?? 0;
+      if (probability >= presentBar) {
         acceptedNouls.set(questionId, probability);
-      } else if (probability <= 1 - bar && question.concern !== undefined) {
-        // Confident absence of a CONCERN: an accepted negative, not an
-        // abstention. Activity properties have no negative report: a property
-        // that is confidently absent is simply not part of the activity axis.
+      } else if (probability <= absentBar) {
         negatives.push({
           questionId,
-          concern: question.concern,
+          ...(question.concern !== undefined ? { concern: question.concern } : {}),
+          ...(question.activity !== undefined ? { activity: question.activity } : {}),
           probability,
-          display: CONCERN_ABSENT_DISPLAY[question.concern],
+          display:
+            question.concern !== undefined
+              ? CONCERN_ABSENT_DISPLAY[question.concern]
+              : ACTIVITY_ABSENT_DISPLAY[question.activity ?? "indeterminate"],
+          // A concern's absence is the surface's "checked and clear"; an
+          // activity property's absence is a cross-check for the control plane,
+          // which already owns idle versus working.
+          crossCheckOnly: question.concern === undefined,
         });
-      } else if (probability > 1 - bar) {
+      } else {
         abstentions.push({
           questionId,
           reason: "below_acceptance_bar",
           probability,
-          detail: `probability ${probability} is below the ${bar} bar`,
+          detail:
+            `probability ${probability} is inside the indecisive band ` +
+            `(${absentBar}, ${presentBar})`,
         });
       }
       continue;
@@ -628,6 +629,10 @@ export const projectAwarenessAnswers = (
     signals.push({ questionId: entry.questionId, value: entry.value, probability });
   }
   const winner = signals[0];
+  // The reason distinguishes "no property was present but every one was
+  // decisively absent" from "the model declined to say", because only the first
+  // is a usable cross-check for the control plane.
+  const activityAbsences = negatives.filter((entry) => entry.activity !== undefined).length;
   const activity: ActivityProjection = winner
     ? {
         value: winner.value,
@@ -635,7 +640,14 @@ export const projectAwarenessAnswers = (
         probability: winner.probability,
         signals,
       }
-    : { value: "indeterminate", reason: "no_activity_property_accepted", signals };
+    : {
+        value: "indeterminate",
+        reason:
+          activityAbsences > 0
+            ? "every_activity_property_absent"
+            : "no_activity_property_accepted",
+        signals,
+      };
 
   const concerns: ConcernProjection[] = [];
   for (const question of AWARENESS_QUESTIONS) {
@@ -671,6 +683,7 @@ export const projectAwarenessAnswers = (
         concern,
         probability: choice.probability,
         display: CONCERN_ABSENT_DISPLAY[concern],
+        crossCheckOnly: false,
       });
     }
   }
@@ -702,20 +715,28 @@ export const projectAwarenessAnswers = (
 
   // ---- availability -----------------------------------------------------
 
-  const acceptedCount =
-    (activity.probability === undefined ? 0 : 1) + concerns.length + (highlight === undefined ? 0 : 1);
+  // A DECISIVE verdict is a present or absent answer about the evidence, from
+  // any question. Decisiveness — not the presence of a displayed label — is what
+  // makes an assessment current, so an all-absence assessment reads as "checked
+  // and clear" rather than as a refusal, and an unrelated skipped question
+  // cannot mask verdicts that did land.
+  const decisiveCount =
+    (activity.probability === undefined ? 0 : 1) +
+    concerns.length +
+    negatives.length +
+    (highlight === undefined ? 0 : 1);
 
   let availability: AssessmentAvailability;
   let unavailableReason: UnavailableReason | undefined;
-  if (acceptedCount > 0) {
-    availability = nowMs - request.observedAt > freshnessBudgetMs ? "stale" : "current";
+  if (decisiveCount > 0) {
+    availability = "current";
   } else if (rejections.length > 0) {
     availability = "unavailable";
     unavailableReason = "answers_rejected";
-  } else if (abstentions.length > 0) {
-    availability = "abstained";
   } else {
-    availability = "not_assessed";
+    // Nothing decisive and nothing rejected: every answer sat in the indecisive
+    // band, or the questions the evidence could not support were skipped.
+    availability = "abstained";
   }
 
   return {

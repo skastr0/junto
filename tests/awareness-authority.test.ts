@@ -33,7 +33,6 @@ import {
   AI_CONCERN_VALUES,
   ASSESSMENT_AVAILABILITY_VALUES,
   AWARENESS_ACCEPTANCE,
-  AWARENESS_FRESHNESS_BUDGET_MS,
   AWARENESS_PACK_VERSION,
   AWARENESS_QUESTIONS,
   AWARENESS_QUESTION_IDS,
@@ -123,7 +122,7 @@ describe("awareness authority boundary", () => {
     expect(violations).toEqual([]);
   });
 
-  it("declares the frozen read-only axes exactly", () => {
+  it("declares the read-only axes exactly, publishing only the three values the wire accepts", () => {
     expect([...AI_ACTIVITY_VALUES]).toEqual([
       "investigating",
       "editing",
@@ -140,13 +139,10 @@ describe("awareness authority boundary", () => {
       "execution_error",
       "repetition",
     ]);
-    expect([...ASSESSMENT_AVAILABILITY_VALUES]).toEqual([
-      "not_assessed",
-      "current",
-      "stale",
-      "abstained",
-      "unavailable",
-    ]);
+    // `not_assessed` (nothing received) and `stale` (display freshness, or the
+    // seat left the turn) are renderer derivations and never travel, so the
+    // producer publishes exactly these three.
+    expect([...ASSESSMENT_AVAILABILITY_VALUES]).toEqual(["current", "abstained", "unavailable"]);
   });
 
   it("phrases every concern as a suggestion, never as a control state", () => {
@@ -162,14 +158,12 @@ describe("awareness authority boundary", () => {
 describe("awareness question pack", () => {
   it("is versioned in one place", () => {
     expect(AWARENESS_PACK_VERSION).toBe("awareness-pack/1");
-    // The freshness budget is a pack constant too, so the projection cannot
-    // drift from the number a human calibrated.
-    expect(AWARENESS_FRESHNESS_BUDGET_MS).toBe(30_000);
   });
 
-  it("keeps every threshold in the one acceptance block", () => {
+  it("keeps every threshold in the one acceptance block, with both Noul bars", () => {
     expect(AWARENESS_ACCEPTANCE).toEqual({
-      noulProbability: 0.9,
+      noulPositiveProbability: 0.9,
+      noulNegativeProbability: 0.1,
       choiceConfidence: 0.8,
       choiceTopProbability: 0.8,
     });
@@ -178,9 +172,14 @@ describe("awareness question pack", () => {
     for (const question of AWARENESS_QUESTIONS) {
       expect(ACCEPTANCE_POLICIES[question.acceptance]).toBe(acceptanceThresholdsFor(question));
     }
-    expect(ACCEPTANCE_POLICIES.noul).toEqual({ minNoulProbability: 0.9 });
+    // A Noul is two-sided: present at or above the positive bar, absent at or
+    // below the negative one, and only the band between abstains.
+    expect(ACCEPTANCE_POLICIES.noul).toEqual({
+      minNoulProbability: 0.9,
+      maxNoulAbsenceProbability: 0.1,
+    });
     expect(ACCEPTANCE_POLICIES.choice).toEqual({ minConfidence: 0.8, minTopProbability: 0.8 });
-    // A concern expressed as a Choice is held to the Noul bar.
+    // A concern expressed as a Choice is held to the Noul positive bar.
     expect(ACCEPTANCE_POLICIES.concern_choice).toEqual({
       minConfidence: 0.9,
       minTopProbability: 0.9,
@@ -237,6 +236,19 @@ describe("awareness question pack", () => {
     expect(MAX_EVIDENCE_CANDIDATE_LINES + 1).toBeLessThanOrEqual(255);
     expect(formatEvidenceLineId(0)).toBe("L000");
     expect(formatEvidenceLineId(127)).toBe("L127");
+  });
+
+  it("classifies every Noul as a concern or an activity property", () => {
+    // A Noul's absence has to mean something: a concern's absence is the
+    // surface's "checked and clear", and an activity property's absence is a
+    // control-plane cross-check. An unclassified Noul would have neither role.
+    for (const question of AWARENESS_QUESTIONS) {
+      if (question.kind !== "noul") continue;
+      expect(
+        question.concern !== undefined || question.activity !== undefined,
+        question.id,
+      ).toBe(true);
+    }
   });
 
   it("combines activity by a declared precedence over narrow properties", () => {
