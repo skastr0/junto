@@ -79,6 +79,13 @@ import {
   rulePackFor,
   seatStateRuntime,
 } from "./term/agent-state";
+import {
+  resolveSeatAwarenessGate,
+  seatAwarenessApiKey,
+  seatAwarenessEnrolled,
+  seatAwarenessPlane,
+  SEAT_AWARENESS_ENV,
+} from "./term/seat-awareness";
 import { isHarnessId } from "@shared/managed-terminal-templates";
 import { mergeSeatStateSnapshot } from "./term/remote-seat-state";
 import { homedir } from "node:os";
@@ -533,6 +540,13 @@ export const registerJuntoIpc = (): void => {
   // wins if the same binding appears in both (they should not).
   privilegedIpc.handle(IPC_CHANNELS.agentSeatStateSnapshot, () =>
     mergeSeatStateSnapshot(seatStateRuntime.currentEvents()),
+  );
+
+  // Advisory seat-awareness projection. Display only: a renderer restart
+  // rehydrates the latest window revision and judgment per binding, and the
+  // renderer's decoder refuses anything it does not recognize.
+  privilegedIpc.handle(IPC_CHANNELS.seatAwarenessSnapshot, () =>
+    seatAwarenessPlane.currentEvents(),
   );
 
   // Factory pause plane — canvas-level switch. start is idempotent hydration,
@@ -1320,6 +1334,20 @@ export const registerJuntoIpc = (): void => {
       // Observer → seat state machine → idle gate for drive typing.
       // Fail closed: unknown/unbound seats are not idle (never type into dialogs).
       seatStateRuntime.start();
+      // Advisory seat-awareness sidecar. Enrollment is a settings decision: a
+      // discovered key is not consent. Off builds no client and publishes one
+      // honest not_configured notice per observed binding; on with no key
+      // publishes missing_key. Display only, and never on the terminal path.
+      seatAwarenessPlane.subscribe((event) =>
+        broadcast(IPC_CHANNELS.seatAwarenessChanged, event),
+      );
+      seatAwarenessPlane.start({
+        enabled: resolveSeatAwarenessGate({
+          env: process.env[SEAT_AWARENESS_ENV],
+          enrolled: seatAwarenessEnrolled(stationForSeed),
+        }).enabled,
+        apiKey: seatAwarenessApiKey(),
+      });
       // Single shared destination-drive recipe (managed-drive-factory);
       // this callsite only supplies Command Center evidence sources.
       const managedDrive = createManagedTerminalDrive({

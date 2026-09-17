@@ -1,4 +1,5 @@
 import { seatStateRuntime } from "./agent-state";
+import { seatAwarenessPlane } from "./seat-awareness";
 import { LocalSessionHost } from "./local-host";
 import { linuxReleaseFenceActive } from "./release-fence";
 import { TerminalNodeDeleteService } from "./node-delete";
@@ -244,6 +245,7 @@ export class TermPlane {
     this.shuttingDown = true;
     this.shutdownReason = reason;
     seatStateRuntime.stop();
+    seatAwarenessPlane.stop();
     this.suspendProductAutomation();
     this.startLocalShutdown(reason);
     this.router.beginShutdown();
