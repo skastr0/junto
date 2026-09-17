@@ -41,6 +41,7 @@ import {
   type AwarenessTransportFailure,
   type AwarenessTransportFailureKind,
 } from "./jev-client";
+import type { AiConcernValue } from "./questions";
 import type { AwarenessAssessment } from "./project-result";
 import type {
   AwarenessEvidenceWindow,
@@ -138,6 +139,17 @@ export type AwarenessPublishedUnavailableReason =
   | "budget_exhausted"
   | "not_configured";
 
+/**
+ * One concern the model decisively ruled out for this observation, in the
+ * renderer's own vocabulary. A non-empty list with no concerns is "checked and
+ * clear", which is a different claim from "not assessed".
+ */
+export type AwarenessAbsence = {
+  readonly concern: AiConcernValue;
+  /** The Noul probability behind the absence, at or below the negative bar. */
+  readonly probability: number;
+};
+
 /** Internal deterministic status. Diagnostics and doctor only. */
 export type AwarenessAdvisoryStatus =
   /** No key: awareness is not running. */
@@ -162,6 +174,7 @@ export type AwarenessAdvisoryStatus =
  * `SeatAwarenessWindowEvent`.
  *
  *   assessmentId, availability, unavailableReason   -> assessment.availability
+ *   absences                                        -> assessment.absences
  *   assessment.provenance.observedAt                -> assessment.observedAt
  *   assessment.activity.value                       -> assessment.activity
  *   assessment.concerns[].concern                   -> assessment.concerns
@@ -177,6 +190,12 @@ export type AwarenessAdvisory = {
   /** Stable id of the observation. A replayed cache hit keeps its own. */
   readonly assessmentId: string | undefined;
   readonly assessment: AwarenessAssessment | undefined;
+  /**
+   * Concern absences: what the model looked at and decisively ruled out. Empty
+   * means nothing was ruled out, not that nothing was assessed. Activity
+   * absences are control-plane cross-checks and never appear here.
+   */
+  readonly absences: readonly AwarenessAbsence[];
   /** The judged observation's id -> line mapping: the only excerpt source. */
   readonly evidenceLines: readonly EvidenceLine[];
   /** Digest of the window the displayed assessment was made against. */
@@ -209,6 +228,7 @@ const emptyAdvisory = (
   epoch: undefined,
   assessmentId: undefined,
   assessment: undefined,
+  absences: [],
   evidenceLines: [],
   evidenceDigest: undefined,
   windowDigest: undefined,
@@ -236,6 +256,7 @@ const advisorySignature = (advisory: AwarenessAdvisory): string =>
     advisory.windowCapturedAt ?? "",
     advisory.evidenceDigest ?? "",
     advisory.trigger ?? "",
+    advisory.absences.map((absence) => `${absence.concern}:${absence.probability}`).join(","),
     advisory.evidenceLines.map((line) => `${line.id}=${line.text}`).join("\u0001"),
     advisory.assessment === undefined
       ? ""
@@ -582,6 +603,21 @@ export const makeAwarenessScheduler = (deps: AwarenessSchedulerDeps): AwarenessS
     }
   };
 
+  /**
+   * Accepted absences for the display. A concern's absence is the surface's
+   * "checked and clear"; an activity property's absence is a cross-check the
+   * control plane already owns, so it never travels.
+   */
+  const absencesFor = (assessment: AwarenessAssessment | undefined): readonly AwarenessAbsence[] => {
+    if (assessment === undefined) return [];
+    const absences: AwarenessAbsence[] = [];
+    for (const negative of assessment.negatives) {
+      if (negative.crossCheckOnly || negative.concern === undefined) continue;
+      absences.push({ concern: negative.concern, probability: negative.probability });
+    }
+    return absences;
+  };
+
   const buildAdvisory = (seat: Seat): AwarenessAdvisory => {
     const t = now();
     const retained = retainedNow(seat, t);
@@ -605,6 +641,7 @@ export const makeAwarenessScheduler = (deps: AwarenessSchedulerDeps): AwarenessS
       epoch: seat.generation,
       assessmentId: retained?.assessmentId,
       assessment: retained?.assessment,
+      absences: absencesFor(retained?.assessment),
       evidenceLines: retained?.evidenceLines ?? [],
       evidenceDigest: retained?.evidenceDigest,
       windowDigest: seat.windowDigest,

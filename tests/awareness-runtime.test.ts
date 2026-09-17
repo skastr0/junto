@@ -437,15 +437,6 @@ describe("measured observer callback overhead", () => {
 });
 
 describe("real observer plane integration", () => {
-  /** The plane passthrough the parent's IPC wiring needs: one line each. */
-  const planePort = (plane: TerminalObserverPlane) => ({
-    subscribeAll: (listener: Parameters<typeof plane.subscribeAll>[0]) =>
-      plane.subscribeAll(listener),
-    snapshot: (bindingId: string) => plane.snapshot(bindingId),
-    readWindowNow: (bindingId: string, lines: number) =>
-      plane.get(bindingId)?.readWindowNow(lines),
-  });
-
   const realHarness = (bindingId: string) => {
     const plane = new TerminalObserverPlane();
     const observer = plane.attach({ bindingId, epoch: "e1", cols: 80, rows: 24 });
@@ -466,7 +457,9 @@ describe("real observer plane integration", () => {
       random: () => 0.5,
     });
     const runtime = makeAwarenessRuntime({
-      plane: planePort(plane),
+      // The plane itself: `subscribeAll`, the non-flushing `snapshot`, and the
+      // non-flushing `readWindowNow` are exactly the port's shape.
+      plane,
       scheduler,
       seats,
       projection,

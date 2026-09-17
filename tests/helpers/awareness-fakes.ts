@@ -308,9 +308,10 @@ export const abstainedOutcome = (ask: AwarenessAsk): AwarenessAskOutcome => ({
 });
 
 /**
- * An accepted concern plus a confidently absent one: the two-sided Noul the
- * parent's evaluation asked for. The absence is a verdict ("checked and clear"),
- * not an abstention, and must reach the display.
+ * An accepted concern plus a confidently absent one, plus an absent ACTIVITY
+ * property. The concern absence is a verdict ("checked and clear") and must
+ * reach the display; the activity absence is a control-plane cross-check and
+ * must not.
  */
 export const mixedOutcome = (ask: AwarenessAsk): AwarenessAskOutcome => ({
   assessment: projectAwarenessAnswers(ask.request, {
@@ -326,6 +327,12 @@ export const mixedOutcome = (ask: AwarenessAsk): AwarenessAskOutcome => ({
       },
       {
         questionId: "concern.execution_error",
+        evidenceHash: ask.request.evidenceHash,
+        kind: "noul",
+        probability: 0.05,
+      },
+      {
+        questionId: "activity.command_executing",
         evidenceHash: ask.request.evidenceHash,
         kind: "noul",
         probability: 0.05,

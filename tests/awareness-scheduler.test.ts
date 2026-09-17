@@ -31,6 +31,7 @@ import {
   makeManualTimers,
   makeSnapshot,
   mixedOutcome,
+  negativesOnlyOutcome,
   rejectedOutcome,
   type AskRecorder,
   type FakeProjectionPort,
@@ -881,6 +882,22 @@ describe("advisory emission", () => {
     expect(moved.evidenceDigest).toBe(judged);
     expect(moved.windowCapturedAt).toBeDefined();
   });
+  it("publishes concern absences as checked-and-clear, never activity cross-checks", async () => {
+    const h = harness({}, { auto: false, build: negativesOnlyOutcome });
+    h.observe("s1");
+    h.timers.advance(300);
+    h.model.settleAt(0, negativesOnlyOutcome(h.model.calls[0]!.ask));
+    await h.scheduler.drain();
+    const advisory = h.scheduler.advisory("s1");
+    // Nothing is raised, and the seat is not "not assessed": the display can say
+    // the model looked and found nothing.
+    expect(advisory.availability).toBe("current");
+    expect(advisory.assessment?.concerns).toEqual([]);
+    expect(advisory.absences).toEqual([{ concern: "execution_error", probability: 0.05 }]);
+    // Absences are part of the display, so a change in them must reach it.
+    expect(h.advisories.some((entry) => entry.absences.length === 1)).toBe(true);
+  });
+
   it("carries accepted absences so checked-and-clear is distinguishable", async () => {
     const h = harness({}, { auto: false, build: mixedOutcome });
     h.observe("s1");
@@ -894,9 +911,18 @@ describe("advisory emission", () => {
     expect(advisory.assessment?.concerns.map((concern) => concern.concern)).toEqual([
       "approval_requested",
     ]);
+    expect(advisory.absences).toEqual([{ concern: "execution_error", probability: 0.05 }]);
+    // The activity property's absence is a control-plane cross-check: it is
+    // recorded on the assessment and never travels to the display.
     expect(
-      advisory.assessment?.negatives.map((negative) => [negative.concern, negative.probability]),
-    ).toEqual([["execution_error", 0.05]]);
+      advisory.assessment?.negatives.map((negative) => [
+        negative.concern ?? negative.activity,
+        negative.crossCheckOnly,
+      ]),
+    ).toEqual([
+      ["execution_error", false],
+      ["running_command", true],
+    ]);
     // The only abstention is the temporal question the evidence could not
     // support; the negative is not reported as an abstention.
     expect(advisory.assessment?.abstentions.map((entry) => entry.questionId)).toEqual([
