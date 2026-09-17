@@ -16,6 +16,7 @@ import {
   CHOICE_CONFIDENCE_MIN,
   CHOICE_TOP_PROBABILITY_MIN,
   NOUL_ACCEPT_MIN,
+  NOUL_REJECT_MAX,
   type QuestionMap,
 } from "./pack";
 
@@ -137,23 +138,32 @@ export type Verdict = {
  * The starting acceptance policy, applied to one answer.
  *
  * `choice` is accepted only at `confidence >= 0.8` AND top probability
- * `>= 0.8`. Noul has no separate confidence, so the policy's `>= 0.9` is the
- * yes side; this harness also treats `<= 0.1` as an accepted `no`, because a
- * comparison report that can only ever record `yes` measures half the
- * question. That symmetry is this harness's addition, not the parent's
- * constant, and the report labels it as such.
+ * `>= 0.8`, and the named choice must be its own distribution's argmax.
+ *
+ * A Noul is two-sided (the contract decision recorded in
+ * `docs/seat-awareness-plan.md` after the held-out measurement): it publishes
+ * `yes` at `>= 0.9` AND `no` at `<= 0.1`, and only the open band between the
+ * two bars abstains. For a concern the negative is an accepted absence; for
+ * `turn_in_progress` it is a cross-check against the control plane rather than
+ * a displayed state.
  */
 export const applyAcceptance = (
   id: string,
   answer: Answer,
-  opts: { readonly allowedChoices?: readonly string[] } = {},
+  opts: {
+    readonly allowedChoices?: readonly string[];
+    readonly positiveBar?: number;
+    readonly negativeBar?: number;
+  } = {},
 ): Verdict => {
   if (answer.type === "noul") {
-    if (answer.noul >= NOUL_ACCEPT_MIN) {
-      return { id, verdict: "accepted", value: "yes", noul: answer.noul, reason: `noul ${answer.noul} >= ${NOUL_ACCEPT_MIN}` };
+    const positiveBar = opts.positiveBar ?? NOUL_ACCEPT_MIN;
+    const negativeBar = opts.negativeBar ?? NOUL_REJECT_MAX;
+    if (answer.noul >= positiveBar) {
+      return { id, verdict: "accepted", value: "yes", noul: answer.noul, reason: `noul ${answer.noul} >= ${positiveBar}` };
     }
-    if (answer.noul <= 1 - NOUL_ACCEPT_MIN) {
-      return { id, verdict: "accepted", value: "no", noul: answer.noul, reason: `noul ${answer.noul} <= ${1 - NOUL_ACCEPT_MIN}` };
+    if (answer.noul <= negativeBar) {
+      return { id, verdict: "accepted", value: "no", noul: answer.noul, reason: `noul ${answer.noul} <= ${negativeBar}` };
     }
     return { id, verdict: "abstained", noul: answer.noul, reason: `noul ${answer.noul} inside the abstention band` };
   }

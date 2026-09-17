@@ -1,0 +1,529 @@
+{
+  "source": {
+    "path": ".amp/in/artifacts/jev-pty-poc/compare-holdout-2026-09-17T06-29-03-623Z.json",
+    "sha256": "b35d4b9532a212b121e8a4d6926328eef855829329ac5e1634082ad55f20d726",
+    "generatedAt": "2026-09-17T06:29:03.623Z",
+    "model": "jev-1.13.0"
+  },
+  "policy": {
+    "positiveBar": 0.9,
+    "negativeBar": 0.1,
+    "choiceConfidence": 0.8,
+    "choiceTop": 0.8
+  },
+  "labelJoin": {
+    "joined": 40,
+    "storedOnly": 2,
+    "storedOnlyIds": [
+      "devin/mail-notice#869",
+      "kimi/type-echo#6795"
+    ]
+  },
+  "outcomes": [
+    {
+      "id": "activity",
+      "total": 42,
+      "published": 37,
+      "abstained": 5,
+      "correct": 0,
+      "wrong": 3,
+      "unfalsifiable": 0,
+      "vacuous": 34,
+      "labelInsufficient": 0,
+      "coveragePct": 88.1,
+      "accuracyPct": 0,
+      "publishedValues": {
+        "indeterminate": 34,
+        "investigating": 1,
+        "running_command": 2
+      }
+    },
+    {
+      "id": "turn_in_progress",
+      "total": 42,
+      "published": 10,
+      "abstained": 32,
+      "correct": 9,
+      "wrong": 0,
+      "unfalsifiable": 1,
+      "vacuous": 0,
+      "labelInsufficient": 4,
+      "coveragePct": 23.8,
+      "accuracyPct": 100,
+      "publishedValues": {
+        "no": 9,
+        "yes": 1
+      }
+    },
+    {
+      "id": "approval_requested",
+      "total": 42,
+      "published": 33,
+      "abstained": 9,
+      "correct": 14,
+      "wrong": 0,
+      "unfalsifiable": 19,
+      "vacuous": 0,
+      "labelInsufficient": 22,
+      "coveragePct": 78.6,
+      "accuracyPct": 100,
+      "publishedValues": {
+        "yes": 7,
+        "no": 26
+      }
+    },
+    {
+      "id": "answer_requested",
+      "total": 42,
+      "published": 22,
+      "abstained": 20,
+      "correct": 7,
+      "wrong": 0,
+      "unfalsifiable": 15,
+      "vacuous": 0,
+      "labelInsufficient": 31,
+      "coveragePct": 52.4,
+      "accuracyPct": 100,
+      "publishedValues": {
+        "yes": 11,
+        "no": 11
+      }
+    },
+    {
+      "id": "access_problem",
+      "total": 42,
+      "published": 35,
+      "abstained": 7,
+      "correct": 21,
+      "wrong": 0,
+      "unfalsifiable": 14,
+      "vacuous": 0,
+      "labelInsufficient": 15,
+      "coveragePct": 83.3,
+      "accuracyPct": 100,
+      "publishedValues": {
+        "no": 18,
+        "yes": 17
+      }
+    },
+    {
+      "id": "execution_error",
+      "total": 42,
+      "published": 30,
+      "abstained": 12,
+      "correct": 17,
+      "wrong": 0,
+      "unfalsifiable": 13,
+      "vacuous": 0,
+      "labelInsufficient": 18,
+      "coveragePct": 71.4,
+      "accuracyPct": 100,
+      "publishedValues": {
+        "no": 17,
+        "yes": 13
+      }
+    },
+    {
+      "id": "repetition",
+      "total": 42,
+      "published": 13,
+      "abstained": 29,
+      "correct": 8,
+      "wrong": 1,
+      "unfalsifiable": 4,
+      "vacuous": 0,
+      "labelInsufficient": 8,
+      "coveragePct": 31,
+      "accuracyPct": 88.9,
+      "publishedValues": {
+        "no": 5,
+        "insufficient_evidence": 2,
+        "yes": 6
+      }
+    },
+    {
+      "id": "highlight_exists",
+      "total": 42,
+      "published": 15,
+      "abstained": 27,
+      "correct": 15,
+      "wrong": 0,
+      "unfalsifiable": 0,
+      "vacuous": 0,
+      "labelInsufficient": 6,
+      "coveragePct": 35.7,
+      "accuracyPct": 100,
+      "publishedValues": {
+        "yes": 15
+      }
+    },
+    {
+      "id": "highlight_line",
+      "total": 42,
+      "published": 16,
+      "abstained": 26,
+      "correct": 11,
+      "wrong": 0,
+      "unfalsifiable": 5,
+      "vacuous": 0,
+      "labelInsufficient": 15,
+      "coveragePct": 38.1,
+      "accuracyPct": 100,
+      "publishedValues": {
+        "L007": 3,
+        "L027": 7,
+        "L008": 1,
+        "L017": 4,
+        "L021": 1
+      }
+    }
+  ],
+  "crossCheck": {
+    "rows": [
+      {
+        "checkpointId": "claude/mail-notice#3475",
+        "controlState": "idle",
+        "controlReason": "default_known_agent_idle_fallback",
+        "published": "abstain",
+        "noul": 0.12,
+        "agreesWithControl": null
+      },
+      {
+        "checkpointId": "claude/mail-notice#3916",
+        "controlState": "idle",
+        "controlReason": "rule:composer_draft_idle",
+        "published": "no",
+        "noul": 0.08,
+        "agreesWithControl": true
+      },
+      {
+        "checkpointId": "devin/mail-notice#305",
+        "controlState": "idle",
+        "controlReason": "default_known_agent_idle_fallback",
+        "published": "abstain",
+        "noul": 0.17,
+        "agreesWithControl": null
+      },
+      {
+        "checkpointId": "devin/mail-notice#320",
+        "controlState": "idle",
+        "controlReason": "default_known_agent_idle_fallback",
+        "published": "abstain",
+        "noul": 0.16,
+        "agreesWithControl": null
+      },
+      {
+        "checkpointId": "devin/mail-notice#793",
+        "controlState": "attention",
+        "controlReason": "rule:workspace_trust_prompt",
+        "published": "abstain",
+        "noul": 0.15,
+        "agreesWithControl": null
+      },
+      {
+        "checkpointId": "devin/mail-notice#869",
+        "controlState": "idle",
+        "controlReason": "default_known_agent_idle_fallback",
+        "published": "abstain",
+        "noul": 0.16,
+        "agreesWithControl": null
+      },
+      {
+        "checkpointId": "devin/mail-notice#6105",
+        "controlState": "idle",
+        "controlReason": "rule:welcome_prompt_footer",
+        "published": "abstain",
+        "noul": 0.14,
+        "agreesWithControl": null
+      },
+      {
+        "checkpointId": "devin/mail-notice#4594",
+        "controlState": "idle",
+        "controlReason": "default_known_agent_idle_fallback",
+        "published": "yes",
+        "noul": 0.9,
+        "agreesWithControl": false
+      },
+      {
+        "checkpointId": "devin/mail-notice#5357",
+        "controlState": "working",
+        "controlReason": "rule:guide_while_working",
+        "published": "abstain",
+        "noul": 0.8,
+        "agreesWithControl": null
+      },
+      {
+        "checkpointId": "devin/startup-trust#293",
+        "controlState": "idle",
+        "controlReason": "default_known_agent_idle_fallback",
+        "published": "abstain",
+        "noul": 0.12,
+        "agreesWithControl": null
+      },
+      {
+        "checkpointId": "devin/startup-trust#789",
+        "controlState": "attention",
+        "controlReason": "rule:workspace_trust_prompt",
+        "published": "no",
+        "noul": 0.08,
+        "agreesWithControl": true
+      },
+      {
+        "checkpointId": "devin/startup-trust#485",
+        "controlState": "idle",
+        "controlReason": "default_known_agent_idle_fallback",
+        "published": "abstain",
+        "noul": 0.11,
+        "agreesWithControl": null
+      },
+      {
+        "checkpointId": "devin/startup-trust#532",
+        "controlState": "idle",
+        "controlReason": "default_known_agent_idle_fallback",
+        "published": "abstain",
+        "noul": 0.13,
+        "agreesWithControl": null
+      },
+      {
+        "checkpointId": "grok/permission-returns-idle#4400",
+        "controlState": "idle",
+        "controlReason": "rule:osc_title_idle",
+        "published": "no",
+        "noul": 0.1,
+        "agreesWithControl": true
+      },
+      {
+        "checkpointId": "grok/permission-returns-idle#4918",
+        "controlState": "idle",
+        "controlReason": "rule:osc_title_idle",
+        "published": "abstain",
+        "noul": 0.14,
+        "agreesWithControl": null
+      },
+      {
+        "checkpointId": "grok/permission-returns-idle#5436",
+        "controlState": "working",
+        "controlReason": "rule:grid_thinking_working",
+        "published": "abstain",
+        "noul": 0.7,
+        "agreesWithControl": null
+      },
+      {
+        "checkpointId": "grok/permission-returns-idle#6213",
+        "controlState": "working",
+        "controlReason": "rule:grid_thinking_working",
+        "published": "abstain",
+        "noul": 0.85,
+        "agreesWithControl": null
+      },
+      {
+        "checkpointId": "grok/permission-returns-idle#98890",
+        "controlState": "working",
+        "controlReason": "rule:grid_thinking_working",
+        "published": "abstain",
+        "noul": 0.78,
+        "agreesWithControl": null
+      },
+      {
+        "checkpointId": "grok/permission-returns-idle#99925",
+        "controlState": "attention",
+        "controlReason": "rule:option_dialog_attention",
+        "published": "abstain",
+        "noul": 0.59,
+        "agreesWithControl": null
+      },
+      {
+        "checkpointId": "grok/permission-returns-idle#101479",
+        "controlState": "attention",
+        "controlReason": "rule:option_dialog_attention",
+        "published": "abstain",
+        "noul": 0.52,
+        "agreesWithControl": null
+      },
+      {
+        "checkpointId": "hermes/type-echo#9729",
+        "controlState": "idle",
+        "controlReason": "default_known_agent_idle_fallback",
+        "published": "abstain",
+        "noul": 0.22,
+        "agreesWithControl": null
+      },
+      {
+        "checkpointId": "hermes/type-echo#15892",
+        "controlState": "attention",
+        "controlReason": "rule:authentication_failed_attention",
+        "published": "no",
+        "noul": 0.07,
+        "agreesWithControl": true
+      },
+      {
+        "checkpointId": "hermes/type-echo#16216",
+        "controlState": "attention",
+        "controlReason": "rule:authentication_failed_attention",
+        "published": "no",
+        "noul": 0.07,
+        "agreesWithControl": true
+      },
+      {
+        "checkpointId": "hermes/type-echo#129731",
+        "controlState": "attention",
+        "controlReason": "rule:authentication_failed_attention",
+        "published": "no",
+        "noul": 0.08,
+        "agreesWithControl": true
+      },
+      {
+        "checkpointId": "hermes/type-echo#17838",
+        "controlState": "attention",
+        "controlReason": "rule:authentication_failed_attention",
+        "published": "abstain",
+        "noul": 0.11,
+        "agreesWithControl": null
+      },
+      {
+        "checkpointId": "hermes/type-echo#121947",
+        "controlState": "attention",
+        "controlReason": "rule:authentication_failed_attention",
+        "published": "no",
+        "noul": 0.09,
+        "agreesWithControl": true
+      },
+      {
+        "checkpointId": "hermes/type-echo#122920",
+        "controlState": "working",
+        "controlReason": "rule:osc_title_working",
+        "published": "abstain",
+        "noul": 0.51,
+        "agreesWithControl": null
+      },
+      {
+        "checkpointId": "hermes/type-echo#123893",
+        "controlState": "working",
+        "controlReason": "rule:osc_title_working",
+        "published": "abstain",
+        "noul": 0.62,
+        "agreesWithControl": null
+      },
+      {
+        "checkpointId": "kimi/type-echo#3417",
+        "controlState": "idle",
+        "controlReason": "default_known_agent_idle_fallback",
+        "published": "no",
+        "noul": 0.1,
+        "agreesWithControl": true
+      },
+      {
+        "checkpointId": "kimi/type-echo#6775",
+        "controlState": "attention",
+        "controlReason": "rule:model_not_configured_attention",
+        "published": "abstain",
+        "noul": 0.15,
+        "agreesWithControl": null
+      },
+      {
+        "checkpointId": "kimi/type-echo#6795",
+        "controlState": "attention",
+        "controlReason": "rule:model_not_configured_attention",
+        "published": "abstain",
+        "noul": 0.15,
+        "agreesWithControl": null
+      },
+      {
+        "checkpointId": "kimi/type-echo#7144",
+        "controlState": "attention",
+        "controlReason": "rule:model_not_configured_attention",
+        "published": "no",
+        "noul": 0.09,
+        "agreesWithControl": true
+      },
+      {
+        "checkpointId": "kimi/type-echo#7164",
+        "controlState": "attention",
+        "controlReason": "rule:model_not_configured_attention",
+        "published": "abstain",
+        "noul": 0.11,
+        "agreesWithControl": null
+      },
+      {
+        "checkpointId": "kimi/type-echo#7766",
+        "controlState": "attention",
+        "controlReason": "rule:model_not_configured_attention",
+        "published": "abstain",
+        "noul": 0.12,
+        "agreesWithControl": null
+      },
+      {
+        "checkpointId": "muse/startup-idle#1673",
+        "controlState": "idle",
+        "controlReason": "default_known_agent_idle_fallback",
+        "published": "abstain",
+        "noul": 0.13,
+        "agreesWithControl": null
+      },
+      {
+        "checkpointId": "muse/startup-idle#2155",
+        "controlState": "idle",
+        "controlReason": "rule:bare_composer_idle",
+        "published": "abstain",
+        "noul": 0.12,
+        "agreesWithControl": null
+      },
+      {
+        "checkpointId": "pi/startup-idle#13867",
+        "controlState": "idle",
+        "controlReason": "rule:editor_prompt_idle",
+        "published": "abstain",
+        "noul": 0.18,
+        "agreesWithControl": null
+      },
+      {
+        "checkpointId": "pi/type-echo#13917",
+        "controlState": "idle",
+        "controlReason": "rule:editor_prompt_idle",
+        "published": "abstain",
+        "noul": 0.36,
+        "agreesWithControl": null
+      },
+      {
+        "checkpointId": "pi/type-echo#21608",
+        "controlState": "idle",
+        "controlReason": "rule:editor_prompt_idle",
+        "published": "abstain",
+        "noul": 0.33,
+        "agreesWithControl": null
+      },
+      {
+        "checkpointId": "pi/type-echo#23000",
+        "controlState": "idle",
+        "controlReason": "rule:osc_title_idle",
+        "published": "abstain",
+        "noul": 0.21,
+        "agreesWithControl": null
+      },
+      {
+        "checkpointId": "pi/type-echo#23073",
+        "controlState": "idle",
+        "controlReason": "rule:osc_title_idle",
+        "published": "abstain",
+        "noul": 0.18,
+        "agreesWithControl": null
+      },
+      {
+        "checkpointId": "pi/type-echo#29300",
+        "controlState": "idle",
+        "controlReason": "rule:editor_prompt_idle",
+        "published": "abstain",
+        "noul": 0.24,
+        "agreesWithControl": null
+      }
+    ],
+    "summary": {
+      "compared": 10,
+      "publishedYes": 1,
+      "publishedNo": 9,
+      "agreed": 9,
+      "disagreed": 1,
+      "ungrounded": 0
+    }
+  }
+}

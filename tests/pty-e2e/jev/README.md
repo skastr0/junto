@@ -22,9 +22,12 @@ tests/pty-e2e/jev/
   live-client.ts      dependency-free `POST /v1/systemone` client + acceptance
   report.ts           state derivation, live comparison, markdown report
   manifest-file.ts    reads the committed manifest
+  rescore.ts          zero-cost re-scoring of a stored paid report
   generate.ts         rewrites checkpoints.json
   run-live.ts         the entry point the parent calls with a key
   checkpoints.json    the generated manifest (205 checkpoints, 40 captures)
+  holdout-rescore.md  the held-out re-score, from the stored answers, no new calls
+  holdout-rescore.json  the same, as data
   *.test.ts           the suites described under "Validation"
   README.md           this file
 ```
@@ -45,6 +48,12 @@ bun tests/pty-e2e/jev/run-live.ts --split holdout --dry-run
 
 # the paid run (the parent holds the key)
 TYPESAFE_API_KEY=... bun tests/pty-e2e/jev/run-live.ts --split holdout
+
+# re-score a stored paid report at zero cost, with the bar sweep and the
+# control-plane cross-check (needs no key and makes no calls)
+bun tests/pty-e2e/jev/rescore.ts \
+  --report .amp/in/artifacts/jev-pty-poc/compare-holdout-<stamp>.json \
+  --sweep --cross-check --out tests/pty-e2e/jev/holdout-rescore.json
 ```
 
 `--split holdout` is the score that matters; `--split tune` re-scores the
@@ -84,9 +93,9 @@ a stated reason.
 | amp | 17 | live 10, idle 7 | 10 / 7 / 0 | 0 |
 | claude | 18 | live 12, dialog 2, idle 4 | 12 / 6 / 0 | 2 (access, answer) |
 | codex | 37 | live 31, idle 6 | 31 / 6 / 0 | 0 |
-| devin | 20 | live 6, dialog 11, idle 3 | 6 / 14 / 0 | 11 (approval) |
+| devin | 20 | live 6, dialog 11, idle 3 | 6 / 12 / 2 | 11 (approval) |
 | grok | 24 | live 10, dialog 2, idle 12 | 10 / 14 / 0 | 2 (approval, answer) |
-| hermes | 22 | dialog 22 | 0 / 22 / 0 | 22 (access + error) |
+| hermes | 22 | dialog 22 | 0 / 18 / 4 | 22 (access + error) |
 | kimi | 8 | dialog 8 | 0 / 8 / 0 | 8 (access + error) |
 | muse | 28 | live 20, idle 8 | 20 / 8 / 0 | 0 |
 | omp | 25 | live 14, idle 11 | 14 / 11 / 0 | 0 |
@@ -104,7 +113,7 @@ Label totals across all 205 checkpoints:
 | `execution_error` | 30 | 53 | 122 `insufficient_evidence` |
 | `repetition` | 14 | 142 | 49 `insufficient_evidence` |
 | `highlight_exists` | 152 | 13 | 40 `insufficient_evidence` |
-| `highlight_line` | 79 ids, 13 `NONE` | — | 57 `insufficient_evidence` |
+| `highlight_line` | 98 concrete ids, 13 `NONE` | — | 94 `insufficient_evidence` |
 
 ## Coverage gaps the corpus does NOT cover
 
@@ -161,11 +170,15 @@ declared reason; the 21 entries include:
    lines, and only 6 abstain. A full-corpus scan for activity markers
    (`Running`, `Executing`, `Editing`, `Reading`, `Searching`, `tests passed`,
    tool-call syntax) finds none in any rendered live chrome — the single
-   `tool` hit in devin is the words "this tool" in a tips box. The parent's
-   3/10 agreement on `activity` is therefore not a model failure to explain; the
-   question is unanswerable from this evidence, and `indeterminate` is the
-   correct answer. Recommendation: drop `activity` from the pack or capture
-   evidence that paints tool calls.
+   `tool` hit in devin is the words "this tool" in a tips box. The held-out
+   re-score makes the consequence exact: on 42 rows the model published
+   `activity` 37 times, of which **34 are `indeterminate` and only 3 are
+   anything else**. The 34 agreements are agreement on having nothing to say,
+   so they are counted as `vacuous`, never as correct; the 3 non-`indeterminate`
+   answers are ungrounded, because no rendered chrome supports any other
+   option. The earlier 3/10 figure is therefore NOT reported here as a model
+   failure: the question is unanswerable from this evidence, and the pack should
+   drop it or the corpus should capture chrome that paints tool calls.
 
 2. **The `repetition` question is groundable, and the ground truth is mostly
    `no`.** 142 checkpoints label `no` (the two observations differ after
@@ -199,9 +212,14 @@ declared reason; the 21 entries include:
    is always exactly `stallMs` and only real elapsed time can fire the timer.
    Reason two: `progressFingerprint` includes the snapshot `seq`, which advances
    on every PTY write, so any output — including a static spinner repaint —
-   resets the deadline. Deterministic stall coverage needs a fake-timer harness
-   or a clock-injectable deadline; the harness deliberately does not invent one.
-   Both reasons are asserted in `replay.test.ts`.
+   resets the deadline. Both reasons are asserted in `replay.test.ts`.
+   **Recorded as a requirement, so this is not rediscovered:
+   deterministic stall coverage needs a clock-injectable deadline** — either the
+   watchdog's `remaining` computed against an injected clock plus a fake-timer
+   drain, or `TurnProgressWatch` taking a deadline source instead of
+   `setTimeout`. The harness deliberately does not invent a stall the product
+   would not produce, so `stalls` is empty on every replay and a `turn-stalled`
+   attention event is currently unreachable in this harness.
 
 5. **`currentEvents()` is not the event history.** `runner.ts` returns
    `currentEvents()`, one row per live binding. Replaying with a full `onEvent`
@@ -217,7 +235,92 @@ declared reason; the 21 entries include:
    `authority.changed` must be empty. With a fake model returning maximal
    confidence on every question, the digests do not move.
 
-## Held-out split
+7. **A derived negative bar silently narrows the publish band.** The two-sided
+   Noul contract publishes `no` at `<= 0.1`, and `1 - 0.9` is
+   `0.09999999999999998` in IEEE-754. With the bar derived that way, a Noul of
+   exactly `0.1` abstains. The held-out run contains two such answers
+   (`grok/permission-returns-idle#4400` and `kimi/type-echo#3417`), both correct
+   negatives that would have been dropped: `turn_in_progress` would have
+   published 8 instead of 10, and 7 correct negatives instead of 9, cutting its
+   coverage from 23.8% to 19.0%. `NOUL_REJECT_MAX` is now a literal `0.1`, and
+   `rescore.test.ts` asserts the edge.
+
+8. **A re-score must join the stored answers to the CURRENT manifest.** The paid
+   report freezes the labels as they were when it ran, so scoring against them
+   means a label correction can never take effect and the report keeps comparing
+   against ground truth that has moved. `rescore.ts` prefers the manifest and
+   falls back to the frozen label only for checkpoints the manifest no longer
+   lists, reporting how many fell back (2 of 42 in this run).
+
+9. **Three chrome literals were too strict for a mid-paint frame.** A rendered
+   line is caught mid-write at some cuts, so a literal that includes the end of
+   the line misses. `kimi.llm_not_set` required the trailing `to login`, so at
+   cut 6775 the screen showed `Error: LLM not set, send "/login"` and the probe
+   missed it; the model answered `L017` (that line) while the label claimed
+   `L008` was the only signal line, and five "model errors" on `highlight_line`
+   were really one label defect. The literal now stops at the stable prefix, as
+   do `devin.workspace_trust` and `devin.trust_folder`, which dropped a trailing
+   `?` that a partial paint can omit. After the fix those rows reclassify from
+   `wrong` to `unfalsifiable` and `highlight_line` accuracy goes from 72.2% to
+   100% on 11 falsifiable answers.
+
+10. **`highlight_line` can only be grounded when the screen facts single out one
+   line.** The answer space is the window's own ids plus `NONE`, so when two
+   distinct lines carry current signal the "most informative line" is a
+   judgement. `labels.ts` now abstains in that case instead of nominating the
+   first match. That is what moved 94 of the 205 `highlight_line` labels to
+   `insufficient_evidence` and removed the last spurious `highlight_line`
+   errors.
+
+## Held-out re-score (zero cost, from the stored answers)
+
+The parent's paid holdout run (42 calls, 0 errors, 158,545 input and 23,964
+output tokens, $0.006659, p50 136ms, service model `jev-1.13.0`) is stored as
+`.amp/in/artifacts/jev-pty-poc/compare-holdout-2026-09-17T06-29-03-623Z.json`
+(sha256 `b35d4b9532a212b121e8a4d6926328eef855829329ac5e1634082ad55f20d726`, untracked).
+`holdout-rescore.md` is the re-score of those answers under the two-sided
+policy; every number below costs nothing to re-derive. Coverage is
+published / 42 rows.
+
+| question | published | coverage | correct | wrong | accuracy | unfalsifiable | vacuous |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `turn_in_progress` | 10 | 23.8% | 9 | 0 | 100% | 1 | 0 |
+| `approval_requested` | 33 | 78.6% | 14 | 0 | 100% | 19 | 0 |
+| `answer_requested` | 22 | 52.4% | 7 | 0 | 100% | 15 | 0 |
+| `access_problem` | 35 | 83.3% | 21 | 0 | 100% | 14 | 0 |
+| `execution_error` | 30 | 71.4% | 17 | 0 | 100% | 13 | 0 |
+| `highlight_exists` | 15 | 35.7% | 15 | 0 | 100% | 0 | 0 |
+| `repetition` | 13 | 31.0% | 8 | 1 | 88.9% | 4 | 0 |
+| `highlight_line` | 16 | 38.1% | 11 | 0 | 100% | 5 | 0 |
+| `activity` | 37 | 88.1% | 0 | 3 | 0% | 0 | 34 |
+
+Read it as: on the five Nouls that matter (`turn_in_progress` and the four
+concerns) the pack publishes on 10 to 35 rows and is wrong on none of the
+falsifiable ones. The falsifiable evidence is smaller than the raw agreement
+counts suggest — 19 of `approval_requested`'s 33 published answers land on
+checkpoints the corpus cannot ground, so they are `unfalsifiable`, not correct.
+`activity`'s 34 "agreements" are `vacuous` (see finding 1). The only falsifiable
+errors in the whole run are 1 `repetition` and 3 `activity`.
+
+**Bar sweep, same data, zero calls.** Widening the negative bar buys coverage
+with no errors: `turn_in_progress` publishes 10 rows at 0.1, 29 at 0.2, 32 at
+0.3 and 34 at 0.5, with 0 wrong at every point. That is the measurement behind
+the two-sided decision, and it also shows 0.1 is conservative rather than
+calibrated.
+
+**`turn_in_progress` against the control plane.** The contract makes a published
+negative a cross-check rather than a displayed state, so the re-score compares
+it with the seat state the real `SeatStateRuntime` held at the same cut: 10
+published, **9 agreed, 1 disagreed**. The disagreement is
+`devin/mail-notice#4594`, where the model published `yes` (noul 0.90) and the
+control plane was `idle` with `default_known_agent_idle_fallback` — a screen the
+rules never understood, which is precisely the class of seat where an advisory
+cross-check is worth having. The 9 agreements include the whole
+`attention` family (hermes credential failures, kimi's model-not-configured
+panel, devin's trust prompt), so the advisory and the deterministic engine
+agree on every not-working screen except one.
+
+
 
 The parent's paid runs are the tune set: `amp/working-turn`,
 `claude/working-turn`, `codex/startup-idle`, `codex/working-turn`,
@@ -236,6 +339,34 @@ the corpus is reserved (`holdout.ts`), and two tiers are named:
 
 `assertHoldoutDisjoint()` runs in `checkpoints.test.ts`, so a future edit that
 adds a holdout capture to the paid list fails red.
+
+## Known limitations
+
+Recorded so they are not rediscovered:
+
+- **Deterministic stall coverage needs a clock-injectable deadline.** The
+  harness enables the mid-turn watchdog and replays real capture timestamps, and
+  still cannot produce a `turn-stalled` attention event, for the two reasons in
+  finding 4. Closing this needs `TurnProgressWatch` to take a deadline source
+  instead of `setTimeout`, or a fake-timer drain around each `observe`. Until
+  then `stalls` is empty on every replay and a stall is unreachable in this
+  harness.
+- **The 128-line evidence cap never binds.** Every committed capture renders 32
+  rows, so the offered window is `L000`…`L031` and the cap is implemented and
+  asserted but untested against a taller grid.
+- **The re-score depends on an untracked artifact.** The raw answers live in
+  `.amp/in/artifacts/jev-pty-poc/` (gitignored). `holdout-rescore.md` and
+  `holdout-rescore.json` record the source path and its sha256, so the numbers
+  are reviewable, but regenerating them needs that file.
+- **`repetition`'s `no` is a proxy.** "The two observations differ after
+  stripping digits" is not the same claim as "the attempts differ". One
+  falsifiable disagreement (`hermes/type-echo#9729`) is a screen going from a
+  startup notice to the credential error, which the model called a repetition
+  and the label called `no`. Treat it as a candidate label improvement, not a
+  confirmed model error.
+- **`activity` has no evidence surface.** Findings 1 and the re-score both say
+  the same thing: until a capture paints tool calls as live status lines, the
+  Choice cannot be measured.
 
 ## Validation
 
@@ -263,14 +394,28 @@ JUNTO_TEST_FEATURE_PROFILE=all-on bunx vitest run tests/pty-e2e/jev
   `NONE`), the HTTP request/response contract, retry on 429/529 and no retry on
   401, and the acceptance policy including the argument that a named choice
   disagreeing with its own distribution is not an answer.
+- `rescore.test.ts` — the two-sided boundary including the `1 - 0.9` edge, the
+  coverage/error buckets partitioning every published answer, the label join
+  preferring the current manifest over the frozen report, the window bound on
+  `highlight_line`, the bar sweep, and the control-plane cross-check for
+  `turn_in_progress` against the real runtime.
 
-## Next experiment
+## Next experiment (approved)
 
-Widen the activity evidence and re-measure the Choice. Add a capture whose
-harness paints tool calls as live status lines (codex's `• Working (… esc to
-interrupt)` line and omp's `󱊷 Working…` line are the closest existing
-candidates), then re-run `run-live.ts --split holdout-tier2 --class live_turn`
-and read the `activity` row of the agreement table. Prediction, from finding 1:
-`activity` stays at or below chance on this corpus no matter what the
-confidence threshold is, so the Choice should be replaced by a narrower
-`is_tool_running` Noul until a capture paints distinguishable activities.
+Widen the activity evidence and re-measure the Choice, on the held-out split.
+Capture a harness that paints distinguishable activity as live status lines
+(codex's `• Working (… esc to interrupt)` line and omp's `󱊷 Working…` line are
+the closest existing candidates), add the new capture to the corpus, then:
+
+```bash
+bun tests/pty-e2e/jev/generate.ts
+TYPESAFE_API_KEY=... bun tests/pty-e2e/jev/run-live.ts --split holdout-tier2 --class live_turn
+```
+
+and read the `activity` row of the agreement table, this time ignoring `vacuous`
+and watching `correct` / `wrong` / `unfalsifiable`. Prediction, from finding 1:
+on today's corpus `activity` stays at 0 correct and at or below chance no matter
+what the confidence threshold is, so the Choice should be replaced by a narrower
+`is_tool_running` Noul until a capture paints distinguishable activities. The
+experiment is whether a capture that DOES paint them moves the falsifiable
+column; if it does not, the question is beyond the model, not the corpus.

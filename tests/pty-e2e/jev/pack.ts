@@ -68,6 +68,16 @@ export const REPETITION_OPTIONS = {
 export const CHOICE_CONFIDENCE_MIN = 0.8;
 export const CHOICE_TOP_PROBABILITY_MIN = 0.8;
 export const NOUL_ACCEPT_MIN = 0.9;
+/**
+ * The negative bar of the two-sided Noul contract.
+ *
+ * A literal `0.1`, NOT `1 - NOUL_ACCEPT_MIN`: in IEEE-754 double arithmetic
+ * `1 - 0.9` is `0.09999999999999998`, so a derived bar makes a Noul of exactly
+ * `0.1` abstain instead of publishing `no`. The held-out run contained two such
+ * answers, and both were correct. The abstention band is the open interval
+ * `0.1 < p < 0.9`.
+ */
+export const NOUL_REJECT_MAX = 0.1;
 export const USD_PER_INPUT_TOKEN = 0.042 / 1_000_000;
 
 export const REQUESTED_MODEL = "jev-latest";

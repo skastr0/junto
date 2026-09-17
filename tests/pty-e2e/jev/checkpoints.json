@@ -110,7 +110,7 @@
         },
         "highlight_line": {
           "value": "L031",
-          "basis": "the single window line carrying the selecting chrome literal",
+          "basis": "the only window line carrying current signal",
           "literal": "╰ ∼ Sending ───────────────────────────────────────────────────────────────── ◷ ─       ─ <CWD>                     ◷"
         }
       }
@@ -189,7 +189,7 @@
         },
         "highlight_line": {
           "value": "insufficient_evidence",
-          "basis": "the selecting chrome is an OSC title/OSC9 signal, not a window line"
+          "basis": "no screen line carries current signal (the selecting chrome is an OSC title/OSC9)"
         }
       }
     },
@@ -273,8 +273,9 @@
           "literal": "⣤ Coding workspace - amp - <CWD>"
         },
         "highlight_line": {
-          "value": "insufficient_evidence",
-          "basis": "the selecting chrome is an OSC title/OSC9 signal, not a window line"
+          "value": "L031",
+          "basis": "the only window line carrying current signal",
+          "literal": "╰ ∼ Streaming ─────────────────────────────────────────────────────────────── ◷ ─       ─ <CWD>                     ◷"
         }
       }
     },
@@ -350,9 +351,8 @@
           "basis": "the screen carries content, but choosing the single most informative line is a judgement, not a screen fact"
         },
         "highlight_line": {
-          "value": "L031",
-          "basis": "the single window line carrying the selecting chrome literal",
-          "literal": "╰──────────────────────────────────────────────────────────────────────────── ◷ ─       ─ <CWD>                     ◷"
+          "value": "insufficient_evidence",
+          "basis": "no screen line carries current signal (the selecting chrome is an OSC title/OSC9)"
         }
       }
     },
@@ -661,7 +661,7 @@
         },
         "highlight_line": {
           "value": "insufficient_evidence",
-          "basis": "the selecting chrome is an OSC title/OSC9 signal, not a window line"
+          "basis": "no screen line carries current signal (the selecting chrome is an OSC title/OSC9)"
         }
       }
     },
@@ -745,8 +745,9 @@
           "literal": "⢮ Greeting - amp - <CWD>"
         },
         "highlight_line": {
-          "value": "insufficient_evidence",
-          "basis": "the selecting chrome is an OSC title/OSC9 signal, not a window line"
+          "value": "L031",
+          "basis": "the only window line carrying current signal",
+          "literal": "╰ ≈ Streaming ─────────────────────────────────────────────────────────────── ◷ ─       ─ <CWD>                     ◷"
         }
       }
     },
@@ -822,9 +823,8 @@
           "basis": "the screen carries content, but choosing the single most informative line is a judgement, not a screen fact"
         },
         "highlight_line": {
-          "value": "L031",
-          "basis": "the single window line carrying the selecting chrome literal",
-          "literal": "╰──────────────────────────────────────────────────────────────────────────── ◷ ─       ─ <CWD>                     ◷"
+          "value": "insufficient_evidence",
+          "basis": "no screen line carries current signal (the selecting chrome is an OSC title/OSC9)"
         }
       }
     },
@@ -979,7 +979,7 @@
         },
         "highlight_line": {
           "value": "insufficient_evidence",
-          "basis": "the selecting chrome is an OSC title/OSC9 signal, not a window line"
+          "basis": "no screen line carries current signal (the selecting chrome is an OSC title/OSC9)"
         }
       }
     },
@@ -1063,8 +1063,9 @@
           "literal": "⠰ Coding workspace - amp - <CWD>"
         },
         "highlight_line": {
-          "value": "insufficient_evidence",
-          "basis": "the selecting chrome is an OSC title/OSC9 signal, not a window line"
+          "value": "L031",
+          "basis": "the only window line carrying current signal",
+          "literal": "╰ ≈ Streaming ─────────────────────────────────────────────────────────────── ◷ ─       ─ <CWD>                     ◷"
         }
       }
     },
@@ -1142,7 +1143,7 @@
         },
         "highlight_line": {
           "value": "L031",
-          "basis": "the single window line carrying the selecting chrome literal",
+          "basis": "the only window line carrying current signal",
           "literal": "╰ ∼ Streaming ─────────────────────────────────────────────────────────────── ◷ ─       ─ <CWD>                     ◷"
         }
       }
@@ -1221,7 +1222,7 @@
         },
         "highlight_line": {
           "value": "L031",
-          "basis": "the single window line carrying the selecting chrome literal",
+          "basis": "the only window line carrying current signal",
           "literal": "╰ ≈ Sending ───────────────────────────────────────────────────────────────── ◷ ─       ─ <CWD>                     ◷"
         }
       }
@@ -1298,9 +1299,8 @@
           "basis": "the screen carries content, but choosing the single most informative line is a judgement, not a screen fact"
         },
         "highlight_line": {
-          "value": "L031",
-          "basis": "the single window line carrying the selecting chrome literal",
-          "literal": "╰──────────────────────────────────────────────────────────────────────────── ◷ ─       ─ <CWD>                     ◷"
+          "value": "insufficient_evidence",
+          "basis": "no screen line carries current signal (the selecting chrome is an OSC title/OSC9)"
         }
       }
     },
@@ -1384,8 +1384,9 @@
           "literal": "⣿ Coding workspace - amp - <CWD>"
         },
         "highlight_line": {
-          "value": "insufficient_evidence",
-          "basis": "the selecting chrome is an OSC title/OSC9 signal, not a window line"
+          "value": "L031",
+          "basis": "the only window line carrying current signal",
+          "literal": "╰ ≈ Streaming ─────────────────────────────────────────────────────────────── ◷ ─       ─ <CWD>                     ◷"
         }
       }
     },
@@ -1474,7 +1475,7 @@
         },
         "highlight_line": {
           "value": "L019",
-          "basis": "the single window line carrying the selecting chrome literal",
+          "basis": "the only window line carrying current signal",
           "literal": "Select login method:"
         }
       }
@@ -1564,7 +1565,7 @@
         },
         "highlight_line": {
           "value": "L019",
-          "basis": "the single window line carrying the selecting chrome literal",
+          "basis": "the only window line carrying current signal",
           "literal": "Select login method:"
         }
       }
@@ -1641,9 +1642,8 @@
           "basis": "the screen carries content, but choosing the single most informative line is a judgement, not a screen fact"
         },
         "highlight_line": {
-          "value": "L016",
-          "basis": "the single window line carrying the selecting chrome literal",
-          "literal": "⏸ manual mode on · ? for shortcuts · ← for"
+          "value": "insufficient_evidence",
+          "basis": "no screen line carries current signal (the selecting chrome is an OSC title/OSC9)"
         }
       }
     },
@@ -1721,7 +1721,7 @@
         },
         "highlight_line": {
           "value": "insufficient_evidence",
-          "basis": "the selecting chrome is an OSC title/OSC9 signal, not a window line"
+          "basis": "no screen line carries current signal (the selecting chrome is an OSC title/OSC9)"
         }
       }
     },
@@ -1799,7 +1799,7 @@
         },
         "highlight_line": {
           "value": "insufficient_evidence",
-          "basis": "the selecting chrome is an OSC title/OSC9 signal, not a window line"
+          "basis": "no screen line carries current signal (the selecting chrome is an OSC title/OSC9)"
         }
       }
     },
@@ -1884,7 +1884,7 @@
         },
         "highlight_line": {
           "value": "L015",
-          "basis": "the single window line carrying the selecting chrome literal",
+          "basis": "the only window line carrying current signal",
           "literal": "✢ Computing… (1s ·"
         }
       }
@@ -1970,7 +1970,7 @@
         },
         "highlight_line": {
           "value": "L023",
-          "basis": "the single window line carrying the selecting chrome literal",
+          "basis": "the only window line carrying current signal",
           "literal": "✢ Imagining… (2s · ↓ 102 tokens · thinking)"
         }
       }
@@ -2047,9 +2047,8 @@
           "basis": "the screen carries content, but choosing the single most informative line is a judgement, not a screen fact"
         },
         "highlight_line": {
-          "value": "L016",
-          "basis": "the single window line carrying the selecting chrome literal",
-          "literal": "⏸ manual mode on · ? for shortcuts"
+          "value": "insufficient_evidence",
+          "basis": "no screen line carries current signal (the selecting chrome is an OSC title/OSC9)"
         }
       }
     },
@@ -2125,9 +2124,8 @@
           "basis": "the screen carries content, but choosing the single most informative line is a judgement, not a screen fact"
         },
         "highlight_line": {
-          "value": "L016",
-          "basis": "the single window line carrying the selecting chrome literal",
-          "literal": "⏸ manual mode on · ? for shortcuts"
+          "value": "insufficient_evidence",
+          "basis": "no screen line carries current signal (the selecting chrome is an OSC title/OSC9)"
         }
       }
     },
@@ -2205,7 +2203,7 @@
         },
         "highlight_line": {
           "value": "insufficient_evidence",
-          "basis": "the selecting chrome is an OSC title/OSC9 signal, not a window line"
+          "basis": "no screen line carries current signal (the selecting chrome is an OSC title/OSC9)"
         }
       }
     },
@@ -2283,7 +2281,7 @@
         },
         "highlight_line": {
           "value": "insufficient_evidence",
-          "basis": "the selecting chrome is an OSC title/OSC9 signal, not a window line"
+          "basis": "no screen line carries current signal (the selecting chrome is an OSC title/OSC9)"
         }
       }
     },
@@ -2368,7 +2366,7 @@
         },
         "highlight_line": {
           "value": "L015",
-          "basis": "the single window line carrying the selecting chrome literal",
+          "basis": "the only window line carrying current signal",
           "literal": "✢ Computing… (1s ·"
         }
       }
@@ -2447,7 +2445,7 @@
         },
         "highlight_line": {
           "value": "L017",
-          "basis": "the single window line carrying the selecting chrome literal",
+          "basis": "the only window line carrying current signal",
           "literal": "✻ Brewuting… (1s · ↓ 25 tokens · thinking)"
         }
       }
@@ -2524,9 +2522,8 @@
           "basis": "the screen carries content, but choosing the single most informative line is a judgement, not a screen fact"
         },
         "highlight_line": {
-          "value": "L016",
-          "basis": "the single window line carrying the selecting chrome literal",
-          "literal": "⏸ manual mode on · ? for shortcuts · ← for"
+          "value": "insufficient_evidence",
+          "basis": "no screen line carries current signal (the selecting chrome is an OSC title/OSC9)"
         }
       }
     },
@@ -2604,7 +2601,7 @@
         },
         "highlight_line": {
           "value": "insufficient_evidence",
-          "basis": "the selecting chrome is an OSC title/OSC9 signal, not a window line"
+          "basis": "no screen line carries current signal (the selecting chrome is an OSC title/OSC9)"
         }
       }
     },
@@ -2682,7 +2679,7 @@
         },
         "highlight_line": {
           "value": "insufficient_evidence",
-          "basis": "the selecting chrome is an OSC title/OSC9 signal, not a window line"
+          "basis": "no screen line carries current signal (the selecting chrome is an OSC title/OSC9)"
         }
       }
     },
@@ -2767,7 +2764,7 @@
         },
         "highlight_line": {
           "value": "L015",
-          "basis": "the single window line carrying the selecting chrome literal",
+          "basis": "the only window line carrying current signal",
           "literal": "✢ Computing… (1s ·"
         }
       }
@@ -2846,7 +2843,7 @@
         },
         "highlight_line": {
           "value": "L024",
-          "basis": "the single window line carrying the selecting chrome literal",
+          "basis": "the only window line carrying current signal",
           "literal": "✢ Crunching… (1s · ↓ 25 tokens · thinking)"
         }
       }
@@ -2925,7 +2922,7 @@
         },
         "highlight_line": {
           "value": "insufficient_evidence",
-          "basis": "the selecting chrome is an OSC title/OSC9 signal, not a window line"
+          "basis": "no screen line carries current signal (the selecting chrome is an OSC title/OSC9)"
         }
       }
     },
@@ -3003,7 +3000,7 @@
         },
         "highlight_line": {
           "value": "insufficient_evidence",
-          "basis": "the selecting chrome is an OSC title/OSC9 signal, not a window line"
+          "basis": "no screen line carries current signal (the selecting chrome is an OSC title/OSC9)"
         }
       }
     },
@@ -3088,7 +3085,7 @@
         },
         "highlight_line": {
           "value": "insufficient_evidence",
-          "basis": "the selecting chrome is an OSC title/OSC9 signal, not a window line"
+          "basis": "no screen line carries current signal (the selecting chrome is an OSC title/OSC9)"
         }
       }
     },
@@ -3173,7 +3170,7 @@
         },
         "highlight_line": {
           "value": "insufficient_evidence",
-          "basis": "the selecting chrome is an OSC title/OSC9 signal, not a window line"
+          "basis": "no screen line carries current signal (the selecting chrome is an OSC title/OSC9)"
         }
       }
     },
@@ -3251,7 +3248,7 @@
         },
         "highlight_line": {
           "value": "insufficient_evidence",
-          "basis": "the selecting chrome is an OSC title/OSC9 signal, not a window line"
+          "basis": "no screen line carries current signal (the selecting chrome is an OSC title/OSC9)"
         }
       }
     },
@@ -3327,9 +3324,8 @@
           "basis": "the screen carries content, but choosing the single most informative line is a judgement, not a screen fact"
         },
         "highlight_line": {
-          "value": "L018",
-          "basis": "the single window line carrying the selecting chrome literal",
-          "literal": "gpt-5.4-mini low · <CWD>"
+          "value": "insufficient_evidence",
+          "basis": "no screen line carries current signal (the selecting chrome is an OSC title/OSC9)"
         }
       }
     },
@@ -3414,7 +3410,7 @@
         },
         "highlight_line": {
           "value": "L019",
-          "basis": "the single window line carrying the selecting chrome literal",
+          "basis": "the only window line carrying current signal",
           "literal": "• Working (0s • esc to interrupt)"
         }
       }
@@ -3507,7 +3503,7 @@
         },
         "highlight_line": {
           "value": "L026",
-          "basis": "the single window line carrying the selecting chrome literal",
+          "basis": "the only window line carrying current signal",
           "literal": "• Working (0s • esc to interrupt)"
         }
       }
@@ -3600,7 +3596,7 @@
         },
         "highlight_line": {
           "value": "L026",
-          "basis": "the single window line carrying the selecting chrome literal",
+          "basis": "the only window line carrying current signal",
           "literal": "• Working (1s • esc to interrupt)"
         }
       }
@@ -3693,7 +3689,7 @@
         },
         "highlight_line": {
           "value": "L026",
-          "basis": "the single window line carrying the selecting chrome literal",
+          "basis": "the only window line carrying current signal",
           "literal": "• Working (2s • esc to interrupt)"
         }
       }
@@ -3770,9 +3766,8 @@
           "basis": "the screen carries content, but choosing the single most informative line is a judgement, not a screen fact"
         },
         "highlight_line": {
-          "value": "L004",
-          "basis": "the single window line carrying the selecting chrome literal",
-          "literal": "gpt-5.4-mini low ·"
+          "value": "insufficient_evidence",
+          "basis": "no screen line carries current signal (the selecting chrome is an OSC title/OSC9)"
         }
       }
     },
@@ -3857,7 +3852,7 @@
         },
         "highlight_line": {
           "value": "insufficient_evidence",
-          "basis": "the selecting chrome is an OSC title/OSC9 signal, not a window line"
+          "basis": "no screen line carries current signal (the selecting chrome is an OSC title/OSC9)"
         }
       }
     },
@@ -3942,7 +3937,7 @@
         },
         "highlight_line": {
           "value": "insufficient_evidence",
-          "basis": "the selecting chrome is an OSC title/OSC9 signal, not a window line"
+          "basis": "no screen line carries current signal (the selecting chrome is an OSC title/OSC9)"
         }
       }
     },
@@ -4020,7 +4015,7 @@
         },
         "highlight_line": {
           "value": "insufficient_evidence",
-          "basis": "the selecting chrome is an OSC title/OSC9 signal, not a window line"
+          "basis": "no screen line carries current signal (the selecting chrome is an OSC title/OSC9)"
         }
       }
     },
@@ -4098,7 +4093,7 @@
         },
         "highlight_line": {
           "value": "insufficient_evidence",
-          "basis": "the selecting chrome is an OSC title/OSC9 signal, not a window line"
+          "basis": "no screen line carries current signal (the selecting chrome is an OSC title/OSC9)"
         }
       }
     },
@@ -4176,7 +4171,7 @@
         },
         "highlight_line": {
           "value": "insufficient_evidence",
-          "basis": "the selecting chrome is an OSC title/OSC9 signal, not a window line"
+          "basis": "no screen line carries current signal (the selecting chrome is an OSC title/OSC9)"
         }
       }
     },
@@ -4261,7 +4256,7 @@
         },
         "highlight_line": {
           "value": "insufficient_evidence",
-          "basis": "the selecting chrome is an OSC title/OSC9 signal, not a window line"
+          "basis": "no screen line carries current signal (the selecting chrome is an OSC title/OSC9)"
         }
       }
     },
@@ -4346,7 +4341,7 @@
         },
         "highlight_line": {
           "value": "insufficient_evidence",
-          "basis": "the selecting chrome is an OSC title/OSC9 signal, not a window line"
+          "basis": "no screen line carries current signal (the selecting chrome is an OSC title/OSC9)"
         }
       }
     },
@@ -4422,9 +4417,8 @@
           "basis": "the screen carries content, but choosing the single most informative line is a judgement, not a screen fact"
         },
         "highlight_line": {
-          "value": "L020",
-          "basis": "the single window line carrying the selecting chrome literal",
-          "literal": "gpt-5.4-mini low · <CWD>"
+          "value": "insufficient_evidence",
+          "basis": "no screen line carries current signal (the selecting chrome is an OSC title/OSC9)"
         }
       }
     },
@@ -4500,9 +4494,8 @@
           "basis": "the screen carries content, but choosing the single most informative line is a judgement, not a screen fact"
         },
         "highlight_line": {
-          "value": "L004",
-          "basis": "the single window line carrying the selecting chrome literal",
-          "literal": "gpt-5.4-mini low · <CWD>"
+          "value": "insufficient_evidence",
+          "basis": "no screen line carries current signal (the selecting chrome is an OSC title/OSC9)"
         }
       }
     },
@@ -4580,7 +4573,7 @@
         },
         "highlight_line": {
           "value": "insufficient_evidence",
-          "basis": "the selecting chrome is an OSC title/OSC9 signal, not a window line"
+          "basis": "no screen line carries current signal (the selecting chrome is an OSC title/OSC9)"
         }
       }
     },
@@ -4658,7 +4651,7 @@
         },
         "highlight_line": {
           "value": "insufficient_evidence",
-          "basis": "the selecting chrome is an OSC title/OSC9 signal, not a window line"
+          "basis": "no screen line carries current signal (the selecting chrome is an OSC title/OSC9)"
         }
       }
     },
@@ -4743,7 +4736,7 @@
         },
         "highlight_line": {
           "value": "insufficient_evidence",
-          "basis": "the selecting chrome is an OSC title/OSC9 signal, not a window line"
+          "basis": "no screen line carries current signal (the selecting chrome is an OSC title/OSC9)"
         }
       }
     },
@@ -4828,7 +4821,7 @@
         },
         "highlight_line": {
           "value": "L019",
-          "basis": "the single window line carrying the selecting chrome literal",
+          "basis": "the only window line carrying current signal",
           "literal": "• Working (0s • esc to interrupt)"
         }
       }
@@ -4921,7 +4914,7 @@
         },
         "highlight_line": {
           "value": "L026",
-          "basis": "the single window line carrying the selecting chrome literal",
+          "basis": "the only window line carrying current signal",
           "literal": "• Working (0s • esc to interrupt)"
         }
       }
@@ -5014,7 +5007,7 @@
         },
         "highlight_line": {
           "value": "L019",
-          "basis": "the single window line carrying the selecting chrome literal",
+          "basis": "the only window line carrying current signal",
           "literal": "• Working (0s • esc to interrupt)"
         }
       }
@@ -5107,7 +5100,7 @@
         },
         "highlight_line": {
           "value": "L026",
-          "basis": "the single window line carrying the selecting chrome literal",
+          "basis": "the only window line carrying current signal",
           "literal": "• Working (3s • esc to interrupt)"
         }
       }
@@ -5184,9 +5177,8 @@
           "basis": "the screen carries content, but choosing the single most informative line is a judgement, not a screen fact"
         },
         "highlight_line": {
-          "value": "L004",
-          "basis": "the single window line carrying the selecting chrome literal",
-          "literal": "gpt-5.4-mini low ·"
+          "value": "insufficient_evidence",
+          "basis": "no screen line carries current signal (the selecting chrome is an OSC title/OSC9)"
         }
       }
     },
@@ -5264,7 +5256,7 @@
         },
         "highlight_line": {
           "value": "insufficient_evidence",
-          "basis": "the selecting chrome is an OSC title/OSC9 signal, not a window line"
+          "basis": "no screen line carries current signal (the selecting chrome is an OSC title/OSC9)"
         }
       }
     },
@@ -5349,7 +5341,7 @@
         },
         "highlight_line": {
           "value": "insufficient_evidence",
-          "basis": "the selecting chrome is an OSC title/OSC9 signal, not a window line"
+          "basis": "no screen line carries current signal (the selecting chrome is an OSC title/OSC9)"
         }
       }
     },
@@ -5434,7 +5426,7 @@
         },
         "highlight_line": {
           "value": "insufficient_evidence",
-          "basis": "the selecting chrome is an OSC title/OSC9 signal, not a window line"
+          "basis": "no screen line carries current signal (the selecting chrome is an OSC title/OSC9)"
         }
       }
     },
@@ -5519,7 +5511,7 @@
         },
         "highlight_line": {
           "value": "insufficient_evidence",
-          "basis": "the selecting chrome is an OSC title/OSC9 signal, not a window line"
+          "basis": "no screen line carries current signal (the selecting chrome is an OSC title/OSC9)"
         }
       }
     },
@@ -5595,9 +5587,8 @@
           "basis": "the screen carries content, but choosing the single most informative line is a judgement, not a screen fact"
         },
         "highlight_line": {
-          "value": "L018",
-          "basis": "the single window line carrying the selecting chrome literal",
-          "literal": "gpt-5.4-mini low · <CWD>"
+          "value": "insufficient_evidence",
+          "basis": "no screen line carries current signal (the selecting chrome is an OSC title/OSC9)"
         }
       }
     },
@@ -5682,7 +5673,7 @@
         },
         "highlight_line": {
           "value": "L019",
-          "basis": "the single window line carrying the selecting chrome literal",
+          "basis": "the only window line carrying current signal",
           "literal": "• Working (0s • esc to interrupt)"
         }
       }
@@ -5775,7 +5766,7 @@
         },
         "highlight_line": {
           "value": "L026",
-          "basis": "the single window line carrying the selecting chrome literal",
+          "basis": "the only window line carrying current signal",
           "literal": "• Working (0s • esc to interrupt)"
         }
       }
@@ -5868,7 +5859,7 @@
         },
         "highlight_line": {
           "value": "L026",
-          "basis": "the single window line carrying the selecting chrome literal",
+          "basis": "the only window line carrying current signal",
           "literal": "• Working (1s • esc to interrupt)"
         }
       }
@@ -5961,7 +5952,7 @@
         },
         "highlight_line": {
           "value": "L026",
-          "basis": "the single window line carrying the selecting chrome literal",
+          "basis": "the only window line carrying current signal",
           "literal": "• Working (1s • esc to interrupt)"
         }
       }
@@ -6042,7 +6033,7 @@
         },
         "highlight_line": {
           "value": "L007",
-          "basis": "the single window line carrying the selecting chrome literal",
+          "basis": "the only window line carrying current signal",
           "literal": "✱ Do you trust the authors of this directory?"
         }
       }
@@ -6123,7 +6114,7 @@
         },
         "highlight_line": {
           "value": "L007",
-          "basis": "the single window line carrying the selecting chrome literal",
+          "basis": "the only window line carrying current signal",
           "literal": "✱ Do you trust the authors of this directory?"
         }
       }
@@ -6204,24 +6195,24 @@
         },
         "highlight_line": {
           "value": "L007",
-          "basis": "the single window line carrying the selecting chrome literal",
+          "basis": "the only window line carrying current signal",
           "literal": "✱ Do you trust the authors of this directory?"
         }
       }
     },
     {
-      "id": "devin/mail-notice#869",
+      "id": "devin/mail-notice#854",
       "harness": "devin",
       "scenario": "mail-notice",
       "class": "dialog",
       "grid": "fraction",
-      "step": 57,
+      "step": 56,
       "steps": 400,
-      "cut": 869,
-      "cutFraction": 0.142342,
+      "cut": 854,
+      "cutFraction": 0.139885,
       "decodedLength": 6105,
       "rawBytes": 8376,
-      "occurrences": 293,
+      "occurrences": 294,
       "geometry": {
         "cols": 120,
         "rows": 32,
@@ -6238,7 +6229,7 @@
           "role": "dialog",
           "concern": "approval_requested",
           "where": "screen",
-          "matchedText": " ✓ Trust <CWD>?"
+          "matchedText": " ✓ Trust"
         }
       ],
       "window": {
@@ -6255,12 +6246,12 @@
         "turn_in_progress": {
           "value": "no",
           "basis": "no live-turn chrome; a pending-human frame is on screen, which the pack's own false criterion names (\"waiting on a human\")",
-          "literal": " ✓ Trust <CWD>?"
+          "literal": " ✓ Trust"
         },
         "approval_requested": {
           "value": "yes",
           "basis": "concern literal on the rendered screen (devin.trust_folder)",
-          "literal": " ✓ Trust <CWD>?"
+          "literal": " ✓ Trust"
         },
         "answer_requested": {
           "value": "insufficient_evidence",
@@ -6281,12 +6272,12 @@
         "highlight_exists": {
           "value": "yes",
           "basis": "a pending-human frame carries real current signal",
-          "literal": " ✓ Trust <CWD>?"
+          "literal": " ✓ Trust"
         },
         "highlight_line": {
           "value": "L007",
-          "basis": "the single window line carrying the selecting chrome literal",
-          "literal": "✓ Trust <CWD>?"
+          "basis": "the only window line carrying current signal",
+          "literal": "✓ Trust"
         }
       }
     },
@@ -6302,7 +6293,7 @@
       "cutFraction": 1,
       "decodedLength": 6105,
       "rawBytes": 8376,
-      "occurrences": 293,
+      "occurrences": 294,
       "geometry": {
         "cols": 120,
         "rows": 32,
@@ -6366,7 +6357,7 @@
         },
         "highlight_line": {
           "value": "L001",
-          "basis": "the single window line carrying the selecting chrome literal",
+          "basis": "the only window line carrying current signal",
           "literal": "✓ Trust <CWD>?"
         }
       }
@@ -6452,9 +6443,8 @@
           "literal": " ✓ Trust <CWD>?"
         },
         "highlight_line": {
-          "value": "L006",
-          "basis": "the single window line carrying the selecting chrome literal",
-          "literal": "✓ Trust <CWD>?"
+          "value": "insufficient_evidence",
+          "basis": "2 distinct window lines carry current signal, so the single most informative line is a judgement, not a screen fact"
         }
       }
     },
@@ -6539,9 +6529,8 @@
           "literal": " ✓ Trust <CWD>?"
         },
         "highlight_line": {
-          "value": "L002",
-          "basis": "the single window line carrying the selecting chrome literal",
-          "literal": "✓ Trust <CWD>?"
+          "value": "insufficient_evidence",
+          "basis": "2 distinct window lines carry current signal, so the single most informative line is a judgement, not a screen fact"
         }
       }
     },
@@ -6619,7 +6608,7 @@
         },
         "highlight_line": {
           "value": "L027",
-          "basis": "the single window line carrying the selecting chrome literal",
+          "basis": "the only window line carrying current signal",
           "literal": "⡆⠀ Thinking · 0s (esc twice to interrupt)"
         }
       }
@@ -6698,7 +6687,7 @@
         },
         "highlight_line": {
           "value": "L027",
-          "basis": "the single window line carrying the selecting chrome literal",
+          "basis": "the only window line carrying current signal",
           "literal": "⠠⠤ Yapping · 1s (esc twice to interrupt)"
         }
       }
@@ -6775,9 +6764,8 @@
           "basis": "the screen carries content, but choosing the single most informative line is a judgement, not a screen fact"
         },
         "highlight_line": {
-          "value": "L030",
-          "basis": "the single window line carrying the selecting chrome literal",
-          "literal": "SWE-1.6 Slow                                                                            Context: 43k / 200k tokens (21%)"
+          "value": "insufficient_evidence",
+          "basis": "no screen line carries current signal (the selecting chrome is an OSC title/OSC9)"
         }
       }
     },
@@ -6857,7 +6845,7 @@
         },
         "highlight_line": {
           "value": "L007",
-          "basis": "the single window line carrying the selecting chrome literal",
+          "basis": "the only window line carrying current signal",
           "literal": "✱ Do you trust the authors of this directory?"
         }
       }
@@ -6938,7 +6926,7 @@
         },
         "highlight_line": {
           "value": "L007",
-          "basis": "the single window line carrying the selecting chrome literal",
+          "basis": "the only window line carrying current signal",
           "literal": "✱ Do you trust the authors of this directory?"
         }
       }
@@ -7019,7 +7007,7 @@
         },
         "highlight_line": {
           "value": "L007",
-          "basis": "the single window line carrying the selecting chrome literal",
+          "basis": "the only window line carrying current signal",
           "literal": "✱ Do you trust the authors of this directory?"
         }
       }
@@ -7100,7 +7088,7 @@
         },
         "highlight_line": {
           "value": "L007",
-          "basis": "the single window line carrying the selecting chrome literal",
+          "basis": "the only window line carrying current signal",
           "literal": "✱ Do you trust the authors of this directory?"
         }
       }
@@ -7179,7 +7167,7 @@
         },
         "highlight_line": {
           "value": "L027",
-          "basis": "the single window line carrying the selecting chrome literal",
+          "basis": "the only window line carrying current signal",
           "literal": "⡆⠀ Thinking · 0s (esc twice to interrupt)"
         }
       }
@@ -7258,7 +7246,7 @@
         },
         "highlight_line": {
           "value": "L027",
-          "basis": "the single window line carrying the selecting chrome literal",
+          "basis": "the only window line carrying current signal",
           "literal": "⠀⣠ Yapping · 6s (esc twice to interrupt)"
         }
       }
@@ -7335,9 +7323,8 @@
           "basis": "the screen carries content, but choosing the single most informative line is a judgement, not a screen fact"
         },
         "highlight_line": {
-          "value": "L030",
-          "basis": "the single window line carrying the selecting chrome literal",
-          "literal": "SWE-1.6 Slow                                                                            Context: 43k / 200k tokens"
+          "value": "insufficient_evidence",
+          "basis": "no screen line carries current signal (the selecting chrome is an OSC title/OSC9)"
         }
       }
     },
@@ -7415,7 +7402,7 @@
         },
         "highlight_line": {
           "value": "L027",
-          "basis": "the single window line carrying the selecting chrome literal",
+          "basis": "the only window line carrying current signal",
           "literal": "⡆⠀ Thinking · 0s (esc twice to interrupt)"
         }
       }
@@ -7494,7 +7481,7 @@
         },
         "highlight_line": {
           "value": "L027",
-          "basis": "the single window line carrying the selecting chrome literal",
+          "basis": "the only window line carrying current signal",
           "literal": "⠉⠁ Yapping · 2s (esc twice to interrupt)"
         }
       }
@@ -7571,9 +7558,8 @@
           "basis": "the screen carries content, but choosing the single most informative line is a judgement, not a screen fact"
         },
         "highlight_line": {
-          "value": "L030",
-          "basis": "the single window line carrying the selecting chrome literal",
-          "literal": "SWE-1.6 Slow                                                                            Context: 43k / 200k tokens (21%)"
+          "value": "insufficient_evidence",
+          "basis": "no screen line carries current signal (the selecting chrome is an OSC title/OSC9)"
         }
       }
     },
@@ -7649,9 +7635,8 @@
           "basis": "the screen carries content, but choosing the single most informative line is a judgement, not a screen fact"
         },
         "highlight_line": {
-          "value": "L016",
-          "basis": "the single window line carrying the selecting chrome literal",
-          "literal": "Grok 4.5 (low) · 25K / 500K (5%) · ctrl+o"
+          "value": "insufficient_evidence",
+          "basis": "no screen line carries current signal (the selecting chrome is an OSC title/OSC9)"
         }
       }
     },
@@ -7813,7 +7798,7 @@
         },
         "highlight_line": {
           "value": "L017",
-          "basis": "the single window line carrying the selecting chrome literal",
+          "basis": "the only window line carrying current signal",
           "literal": "⠙ Waiting for response… 0.1s                                                                                 0.1s ⇣22.5k"
         }
       }
@@ -7899,7 +7884,7 @@
         },
         "highlight_line": {
           "value": "L029",
-          "basis": "the single window line carrying the selecting chrome literal",
+          "basis": "the only window line carrying current signal",
           "literal": "⠙ Waiting for response… 1.6s                                                                                 1.6s ⇣55.7k"
         }
       }
@@ -8053,9 +8038,8 @@
           "basis": "the screen carries content, but choosing the single most informative line is a judgement, not a screen fact"
         },
         "highlight_line": {
-          "value": "L018",
-          "basis": "the single window line carrying the selecting chrome literal",
-          "literal": "Grok 4.5 (low) · 22K / 500K (4%) · ctrl+o transcript"
+          "value": "insufficient_evidence",
+          "basis": "no screen line carries current signal (the selecting chrome is an OSC title/OSC9)"
         }
       }
     },
@@ -8131,9 +8115,8 @@
           "basis": "the screen carries content, but choosing the single most informative line is a judgement, not a screen fact"
         },
         "highlight_line": {
-          "value": "L019",
-          "basis": "the single window line carrying the selecting chrome literal",
-          "literal": "Grok 4.5 (low) · 22K / 500K (4%) · ctrl+o transcript"
+          "value": "insufficient_evidence",
+          "basis": "no screen line carries current signal (the selecting chrome is an OSC title/OSC9)"
         }
       }
     },
@@ -8218,7 +8201,7 @@
         },
         "highlight_line": {
           "value": "L017",
-          "basis": "the single window line carrying the selecting chrome literal",
+          "basis": "the only window line carrying current signal",
           "literal": "⠙ Waiting for response… 1.2s                                                                                 1.2s ⇣22.5k"
         }
       }
@@ -8304,7 +8287,7 @@
         },
         "highlight_line": {
           "value": "L026",
-          "basis": "the single window line carrying the selecting chrome literal",
+          "basis": "the only window line carrying current signal",
           "literal": "┃◆ Thinking…"
         }
       }
@@ -8394,7 +8377,7 @@
         },
         "highlight_line": {
           "value": "L028",
-          "basis": "the single window line carrying the selecting chrome literal",
+          "basis": "the only window line carrying current signal",
           "literal": "┃  1 (●) Yes, and don't ask again for anything (always-app"
         }
       }
@@ -8484,7 +8467,7 @@
         },
         "highlight_line": {
           "value": "L028",
-          "basis": "the single window line carrying the selecting chrome literal",
+          "basis": "the only window line carrying current signal",
           "literal": "┃  1 (●) Yes, and don't ask again for anything (always-approve mode)"
         }
       }
@@ -8561,9 +8544,8 @@
           "basis": "the screen carries content, but choosing the single most informative line is a judgement, not a screen fact"
         },
         "highlight_line": {
-          "value": "L016",
-          "basis": "the single window line carrying the selecting chrome literal",
-          "literal": "Grok 4.5 (low) · 25K / 500K (5%)pt"
+          "value": "insufficient_evidence",
+          "basis": "no screen line carries current signal (the selecting chrome is an OSC title/OSC9)"
         }
       }
     },
@@ -8716,9 +8698,8 @@
           "basis": "the screen carries content, but choosing the single most informative line is a judgement, not a screen fact"
         },
         "highlight_line": {
-          "value": "L016",
-          "basis": "the single window line carrying the selecting chrome literal",
-          "literal": "Grok 4.5 (low) · 25K / 500K (5%) · ctrl"
+          "value": "insufficient_evidence",
+          "basis": "no screen line carries current signal (the selecting chrome is an OSC title/OSC9)"
         }
       }
     },
@@ -8880,7 +8861,7 @@
         },
         "highlight_line": {
           "value": "L017",
-          "basis": "the single window line carrying the selecting chrome literal",
+          "basis": "the only window line carrying current signal",
           "literal": "⠙ Waiting for response… 0.1s                                                                                 0.0s ⇣22.5k"
         }
       }
@@ -8966,7 +8947,7 @@
         },
         "highlight_line": {
           "value": "L026",
-          "basis": "the single window line carrying the selecting chrome literal",
+          "basis": "the only window line carrying current signal",
           "literal": "⠸ Responding… 0.3s                                                                                           4.9s ⇣47.1k"
         }
       }
@@ -9043,9 +9024,8 @@
           "basis": "the screen carries content, but choosing the single most informative line is a judgement, not a screen fact"
         },
         "highlight_line": {
-          "value": "L019",
-          "basis": "the single window line carrying the selecting chrome literal",
-          "literal": "Grok 4.5 (low) · 22K / 500K (4%) · ctrl+o transcript"
+          "value": "insufficient_evidence",
+          "basis": "no screen line carries current signal (the selecting chrome is an OSC title/OSC9)"
         }
       }
     },
@@ -9130,7 +9110,7 @@
         },
         "highlight_line": {
           "value": "L017",
-          "basis": "the single window line carrying the selecting chrome literal",
+          "basis": "the only window line carrying current signal",
           "literal": "⠙ Waiting for response… 1.2s                                                                                 1.2s ⇣22.5k"
         }
       }
@@ -9216,7 +9196,7 @@
         },
         "highlight_line": {
           "value": "L026",
-          "basis": "the single window line carrying the selecting chrome literal",
+          "basis": "the only window line carrying current signal",
           "literal": "⠸ Responding… 0.3s                                                                                           4.9s ⇣47.1k"
         }
       }
@@ -9293,9 +9273,8 @@
           "basis": "the screen carries content, but choosing the single most informative line is a judgement, not a screen fact"
         },
         "highlight_line": {
-          "value": "L016",
-          "basis": "the single window line carrying the selecting chrome literal",
-          "literal": "Grok 4.5 (low) · 25K / 500K (5%) · ctrl+o tran"
+          "value": "insufficient_evidence",
+          "basis": "no screen line carries current signal (the selecting chrome is an OSC title/OSC9)"
         }
       }
     },
@@ -9457,7 +9436,7 @@
         },
         "highlight_line": {
           "value": "L017",
-          "basis": "the single window line carrying the selecting chrome literal",
+          "basis": "the only window line carrying current signal",
           "literal": "⠙ Waiting for response… 0.1s                                                                                 0.1s ⇣22.5k"
         }
       }
@@ -9543,7 +9522,7 @@
         },
         "highlight_line": {
           "value": "L029",
-          "basis": "the single window line carrying the selecting chrome literal",
+          "basis": "the only window line carrying current signal",
           "literal": "⠙ Responding… 2.5s                                                                                           4.1s ⇣56.2k"
         }
       }
@@ -9640,7 +9619,7 @@
         },
         "highlight_line": {
           "value": "L027",
-          "basis": "the single window line carrying the selecting chrome literal",
+          "basis": "the only window line carrying current signal",
           "literal": "·  error: agent init failed: No Codex credentials stored. Run `hermes auth` to authenticate.                          ┃"
         }
       }
@@ -9737,7 +9716,7 @@
         },
         "highlight_line": {
           "value": "L027",
-          "basis": "the single window line carrying the selecting chrome literal",
+          "basis": "the only window line carrying current signal",
           "literal": "·  error: agent init failed: No Codex credentials stored. Run `hermes auth` to authenticate.                          ┃"
         }
       }
@@ -9835,7 +9814,7 @@
         },
         "highlight_line": {
           "value": "L027",
-          "basis": "the single window line carrying the selecting chrome literal",
+          "basis": "the only window line carrying current signal",
           "literal": "·  error: agent init failed: No Codex credentials stored. Run `hermes auth` to authenticate.                          ┃"
         }
       }
@@ -9933,7 +9912,7 @@
         },
         "highlight_line": {
           "value": "insufficient_evidence",
-          "basis": "3 window lines carry the selecting literal — the target is ambiguous"
+          "basis": "3 window lines carry the same literal — the target is ambiguous"
         }
       }
     },
@@ -10029,7 +10008,7 @@
         },
         "highlight_line": {
           "value": "L027",
-          "basis": "the single window line carrying the selecting chrome literal",
+          "basis": "the only window line carrying current signal",
           "literal": "·  error: agent init failed: No Codex credentials stored. Run `hermes auth` to authenticate.                          ┃"
         }
       }
@@ -10126,7 +10105,7 @@
         },
         "highlight_line": {
           "value": "L027",
-          "basis": "the single window line carrying the selecting chrome literal",
+          "basis": "the only window line carrying current signal",
           "literal": "·  error: agent init failed: No Codex credentials stored. Run `hermes auth` to authenticate.                          ┃"
         }
       }
@@ -10229,9 +10208,8 @@
           "literal": " ·  error: agent init failed: No Codex credentials stored. Run `hermes auth` to authenticate.                          ┃"
         },
         "highlight_line": {
-          "value": "L027",
-          "basis": "the single window line carrying the selecting chrome literal",
-          "literal": "·  error: agent init failed: No Codex credentials stored. Run `hermes auth` to authenticate.                          ┃"
+          "value": "insufficient_evidence",
+          "basis": "2 distinct window lines carry current signal, so the single most informative line is a judgement, not a screen fact"
         }
       }
     },
@@ -10327,7 +10305,7 @@
         },
         "highlight_line": {
           "value": "insufficient_evidence",
-          "basis": "3 window lines carry the selecting literal — the target is ambiguous"
+          "basis": "2 distinct window lines carry current signal, so the single most informative line is a judgement, not a screen fact"
         }
       }
     },
@@ -10416,7 +10394,7 @@
         },
         "highlight_line": {
           "value": "L027",
-          "basis": "the single window line carrying the selecting chrome literal",
+          "basis": "the only window line carrying current signal",
           "literal": "·  error: agent init failed: No Codex credentials stored. Run `hermes auth` to authenticate."
         }
       }
@@ -10513,7 +10491,7 @@
         },
         "highlight_line": {
           "value": "L027",
-          "basis": "the single window line carrying the selecting chrome literal",
+          "basis": "the only window line carrying current signal",
           "literal": "·  error: agent init failed: No Codex credentials stored. Run `hermes auth` to authenticate.                          ┃"
         }
       }
@@ -10611,7 +10589,7 @@
         },
         "highlight_line": {
           "value": "L027",
-          "basis": "the single window line carrying the selecting chrome literal",
+          "basis": "the only window line carrying current signal",
           "literal": "·  error: agent init failed: No Codex credentials stored. Run `hermes auth` to authenticate.                          ┃"
         }
       }
@@ -10709,7 +10687,7 @@
         },
         "highlight_line": {
           "value": "L027",
-          "basis": "the single window line carrying the selecting chrome literal",
+          "basis": "the only window line carrying current signal",
           "literal": "·  error: agent init failed: No Codex credentials stored. Run `hermes auth` to authenticate.                          ┃"
         }
       }
@@ -10806,7 +10784,7 @@
         },
         "highlight_line": {
           "value": "L027",
-          "basis": "the single window line carrying the selecting chrome literal",
+          "basis": "the only window line carrying current signal",
           "literal": "·  error: agent init failed: No Codex credentials stored. Run `hermes auth` to authenticate.                          ┃"
         }
       }
@@ -10903,7 +10881,7 @@
         },
         "highlight_line": {
           "value": "L027",
-          "basis": "the single window line carrying the selecting chrome literal",
+          "basis": "the only window line carrying current signal",
           "literal": "·  error: agent init failed: No Codex credentials stored. Run `hermes auth` to authenticate.                          ┃"
         }
       }
@@ -10993,7 +10971,7 @@
         },
         "highlight_line": {
           "value": "L027",
-          "basis": "the single window line carrying the selecting chrome literal",
+          "basis": "the only window line carrying current signal",
           "literal": "·  error: agent init failed: No Codex credentials stored. Run `hermes auth` to authenticate."
         }
       }
@@ -11090,7 +11068,7 @@
         },
         "highlight_line": {
           "value": "L027",
-          "basis": "the single window line carrying the selecting chrome literal",
+          "basis": "the only window line carrying current signal",
           "literal": "·  error: agent init failed: No Codex credentials stored. Run `hermes auth` to authenticate.                          ┃"
         }
       }
@@ -11188,7 +11166,7 @@
         },
         "highlight_line": {
           "value": "L027",
-          "basis": "the single window line carrying the selecting chrome literal",
+          "basis": "the only window line carrying current signal",
           "literal": "·  error: agent init failed: No Codex credentials stored. Run `hermes auth` to authenticate.                          ┃"
         }
       }
@@ -11286,7 +11264,7 @@
         },
         "highlight_line": {
           "value": "insufficient_evidence",
-          "basis": "2 window lines carry the selecting literal — the target is ambiguous"
+          "basis": "2 window lines carry the same literal — the target is ambiguous"
         }
       }
     },
@@ -11382,7 +11360,7 @@
         },
         "highlight_line": {
           "value": "L027",
-          "basis": "the single window line carrying the selecting chrome literal",
+          "basis": "the only window line carrying current signal",
           "literal": "·  error: agent init failed: No Codex credentials stored. Run `hermes auth` to authenticate.                          ┃"
         }
       }
@@ -11479,7 +11457,7 @@
         },
         "highlight_line": {
           "value": "L027",
-          "basis": "the single window line carrying the selecting chrome literal",
+          "basis": "the only window line carrying current signal",
           "literal": "·  error: agent init failed: No Codex credentials stored. Run `hermes auth` to authenticate.                          ┃"
         }
       }
@@ -11582,9 +11560,8 @@
           "literal": " ·  error: agent init failed: No Codex credentials stored. Run `hermes auth` to authenticate.                          ┃"
         },
         "highlight_line": {
-          "value": "L027",
-          "basis": "the single window line carrying the selecting chrome literal",
-          "literal": "·  error: agent init failed: No Codex credentials stored. Run `hermes auth` to authenticate.                          ┃"
+          "value": "insufficient_evidence",
+          "basis": "2 distinct window lines carry current signal, so the single most informative line is a judgement, not a screen fact"
         }
       }
     },
@@ -11680,7 +11657,7 @@
         },
         "highlight_line": {
           "value": "insufficient_evidence",
-          "basis": "2 window lines carry the selecting literal — the target is ambiguous"
+          "basis": "2 distinct window lines carry current signal, so the single most informative line is a judgement, not a screen fact"
         }
       }
     },
@@ -11760,7 +11737,7 @@
         },
         "highlight_line": {
           "value": "L008",
-          "basis": "the single window line carrying the selecting chrome literal",
+          "basis": "the only window line carrying current signal",
           "literal": "│  Model:     not set, run /login or /provider"
         }
       }
@@ -11848,7 +11825,7 @@
         },
         "highlight_line": {
           "value": "L008",
-          "basis": "the single window line carrying the selecting chrome literal",
+          "basis": "the only window line carrying current signal",
           "literal": "│  Model:     not set, run /login or /provider                                                                       │"
         }
       }
@@ -11865,7 +11842,7 @@
       "cutFraction": 0.439995,
       "decodedLength": 7766,
       "rawBytes": 10702,
-      "occurrences": 174,
+      "occurrences": 173,
       "geometry": {
         "cols": 120,
         "rows": 32,
@@ -11929,8 +11906,96 @@
         },
         "highlight_line": {
           "value": "L008",
-          "basis": "the single window line carrying the selecting chrome literal",
+          "basis": "the only window line carrying current signal",
           "literal": "│  Model:     not set, run /login or /provider"
+        }
+      }
+    },
+    {
+      "id": "kimi/type-echo#6756",
+      "harness": "kimi",
+      "scenario": "type-echo",
+      "class": "dialog",
+      "grid": "fraction",
+      "step": 348,
+      "steps": 400,
+      "cut": 6756,
+      "cutFraction": 0.869946,
+      "decodedLength": 7766,
+      "rawBytes": 10702,
+      "occurrences": 173,
+      "geometry": {
+        "cols": 120,
+        "rows": 32,
+        "source": "kimi/manifest.json pty.cols/pty.rows"
+      },
+      "signals": {
+        "title": "",
+        "osc9": ""
+      },
+      "matches": [
+        {
+          "probeId": "kimi.model_not_set",
+          "kind": "dialog",
+          "role": "dialog",
+          "concern": "access_problem",
+          "where": "screen",
+          "matchedText": " │  Model:     not set, run /login or /provider                                                                       │"
+        },
+        {
+          "probeId": "kimi.prompt_footer",
+          "kind": "dialog",
+          "role": "settled_idle",
+          "where": "screen",
+          "matchedText": "   No session yet — one will be created on your first message."
+        }
+      ],
+      "window": {
+        "totalLines": 32,
+        "candidateLines": 32,
+        "firstId": "L000",
+        "lastId": "L031"
+      },
+      "labels": {
+        "activity": {
+          "value": "indeterminate",
+          "basis": "no activity-class marker on the harness's own live-status lines; the pack's `indeterminate` option covers exactly this"
+        },
+        "turn_in_progress": {
+          "value": "no",
+          "basis": "no live-turn chrome; a pending-human frame is on screen, which the pack's own false criterion names (\"waiting on a human\")",
+          "literal": " │  Model:     not set, run /login or /provider                                                                       │"
+        },
+        "approval_requested": {
+          "value": "insufficient_evidence",
+          "basis": "no concern literal on screen and no settled idle chrome to ground an absence"
+        },
+        "answer_requested": {
+          "value": "insufficient_evidence",
+          "basis": "no concern literal on screen and no settled idle chrome to ground an absence"
+        },
+        "access_problem": {
+          "value": "yes",
+          "basis": "concern literal on the rendered screen (kimi.model_not_set)",
+          "literal": " │  Model:     not set, run /login or /provider                                                                       │"
+        },
+        "execution_error": {
+          "value": "insufficient_evidence",
+          "basis": "no concern literal on screen and no settled idle chrome to ground an absence"
+        },
+        "repetition": {
+          "value": "no",
+          "basis": "the two observations differ after normalisation — the pack's own `no` criterion"
+        },
+        "highlight_exists": {
+          "value": "yes",
+          "basis": "a pending-human frame carries real current signal",
+          "literal": " │  Model:     not set, run /login or /provider                                                                       │"
+        },
+        "highlight_line": {
+          "value": "L008",
+          "basis": "the only window line carrying current signal",
+          "literal": "│  Model:     not set, run /login or /provider                                                                       │"
         }
       }
     },
@@ -11946,95 +12011,7 @@
       "cutFraction": 0.872392,
       "decodedLength": 7766,
       "rawBytes": 10702,
-      "occurrences": 174,
-      "geometry": {
-        "cols": 120,
-        "rows": 32,
-        "source": "kimi/manifest.json pty.cols/pty.rows"
-      },
-      "signals": {
-        "title": "",
-        "osc9": ""
-      },
-      "matches": [
-        {
-          "probeId": "kimi.model_not_set",
-          "kind": "dialog",
-          "role": "dialog",
-          "concern": "access_problem",
-          "where": "screen",
-          "matchedText": " │  Model:     not set, run /login or /provider                                                                       │"
-        },
-        {
-          "probeId": "kimi.prompt_footer",
-          "kind": "dialog",
-          "role": "settled_idle",
-          "where": "screen",
-          "matchedText": "   No session yet — one will be created on your first message."
-        }
-      ],
-      "window": {
-        "totalLines": 32,
-        "candidateLines": 32,
-        "firstId": "L000",
-        "lastId": "L031"
-      },
-      "labels": {
-        "activity": {
-          "value": "indeterminate",
-          "basis": "no activity-class marker on the harness's own live-status lines; the pack's `indeterminate` option covers exactly this"
-        },
-        "turn_in_progress": {
-          "value": "no",
-          "basis": "no live-turn chrome; a pending-human frame is on screen, which the pack's own false criterion names (\"waiting on a human\")",
-          "literal": " │  Model:     not set, run /login or /provider                                                                       │"
-        },
-        "approval_requested": {
-          "value": "insufficient_evidence",
-          "basis": "no concern literal on screen and no settled idle chrome to ground an absence"
-        },
-        "answer_requested": {
-          "value": "insufficient_evidence",
-          "basis": "no concern literal on screen and no settled idle chrome to ground an absence"
-        },
-        "access_problem": {
-          "value": "yes",
-          "basis": "concern literal on the rendered screen (kimi.model_not_set)",
-          "literal": " │  Model:     not set, run /login or /provider                                                                       │"
-        },
-        "execution_error": {
-          "value": "insufficient_evidence",
-          "basis": "no concern literal on screen and no settled idle chrome to ground an absence"
-        },
-        "repetition": {
-          "value": "no",
-          "basis": "the two observations differ after normalisation — the pack's own `no` criterion"
-        },
-        "highlight_exists": {
-          "value": "yes",
-          "basis": "a pending-human frame carries real current signal",
-          "literal": " │  Model:     not set, run /login or /provider                                                                       │"
-        },
-        "highlight_line": {
-          "value": "L008",
-          "basis": "the single window line carrying the selecting chrome literal",
-          "literal": "│  Model:     not set, run /login or /provider                                                                       │"
-        }
-      }
-    },
-    {
-      "id": "kimi/type-echo#6795",
-      "harness": "kimi",
-      "scenario": "type-echo",
-      "class": "dialog",
-      "grid": "fraction",
-      "step": 350,
-      "steps": 400,
-      "cut": 6795,
-      "cutFraction": 0.874968,
-      "decodedLength": 7766,
-      "rawBytes": 10702,
-      "occurrences": 19,
+      "occurrences": 20,
       "geometry": {
         "cols": 120,
         "rows": 32,
@@ -12059,7 +12036,7 @@
           "role": "dialog",
           "concern": "execution_error",
           "where": "screen",
-          "matchedText": "   Error: LLM not set, send \"/login\" to login"
+          "matchedText": "   Error: LLM not set, send \"/login\""
         },
         {
           "probeId": "kimi.prompt_footer",
@@ -12101,7 +12078,7 @@
         "execution_error": {
           "value": "yes",
           "basis": "concern literal on the rendered screen (kimi.llm_not_set)",
-          "literal": "   Error: LLM not set, send \"/login\" to login"
+          "literal": "   Error: LLM not set, send \"/login\""
         },
         "repetition": {
           "value": "no",
@@ -12113,9 +12090,8 @@
           "literal": " │  Model:     not set, run /login or /provider                                                                       │"
         },
         "highlight_line": {
-          "value": "L008",
-          "basis": "the single window line carrying the selecting chrome literal",
-          "literal": "│  Model:     not set, run /login or /provider                                                                       │"
+          "value": "insufficient_evidence",
+          "basis": "2 distinct window lines carry current signal, so the single most informative line is a judgement, not a screen fact"
         }
       }
     },
@@ -12131,7 +12107,7 @@
       "cutFraction": 0.919907,
       "decodedLength": 7766,
       "rawBytes": 10702,
-      "occurrences": 19,
+      "occurrences": 20,
       "geometry": {
         "cols": 120,
         "rows": 32,
@@ -12210,9 +12186,8 @@
           "literal": " │  Model:     not set, run /login or /provider                                                                       │"
         },
         "highlight_line": {
-          "value": "L008",
-          "basis": "the single window line carrying the selecting chrome literal",
-          "literal": "│  Model:     not set, run /login or /provider                                                                       │"
+          "value": "insufficient_evidence",
+          "basis": "2 distinct window lines carry current signal, so the single most informative line is a judgement, not a screen fact"
         }
       }
     },
@@ -12308,9 +12283,8 @@
           "literal": " │  Model:     not set, run /login or /provider                                                                       │"
         },
         "highlight_line": {
-          "value": "L008",
-          "basis": "the single window line carrying the selecting chrome literal",
-          "literal": "│  Model:     not set, run /login or /provider                                                                       │"
+          "value": "insufficient_evidence",
+          "basis": "2 distinct window lines carry current signal, so the single most informative line is a judgement, not a screen fact"
         }
       }
     },
@@ -12406,9 +12380,8 @@
           "literal": " │  Model:     not set, run /login or /provider                                                                       │"
         },
         "highlight_line": {
-          "value": "L008",
-          "basis": "the single window line carrying the selecting chrome literal",
-          "literal": "│  Model:     not set, run /login or /provider                                                                       │"
+          "value": "insufficient_evidence",
+          "basis": "2 distinct window lines carry current signal, so the single most informative line is a judgement, not a screen fact"
         }
       }
     },
@@ -12484,9 +12457,8 @@
           "basis": "the screen carries content, but choosing the single most informative line is a judgement, not a screen fact"
         },
         "highlight_line": {
-          "value": "L006",
-          "basis": "the single window line carrying the selecting chrome literal",
-          "literal": "── Voice input (⌥ + v to start) ────────────────────────────────────────────────────────────────────────────"
+          "value": "insufficient_evidence",
+          "basis": "no screen line carries current signal (the selecting chrome is an OSC title/OSC9)"
         }
       }
     },
@@ -12562,9 +12534,8 @@
           "basis": "the screen carries content, but choosing the single most informative line is a judgement, not a screen fact"
         },
         "highlight_line": {
-          "value": "L000",
-          "basis": "the single window line carrying the selecting chrome literal",
-          "literal": "── Voice input (⌥ + v to start) ────────────────────────────────────────────────────────────────────────────────────────"
+          "value": "insufficient_evidence",
+          "basis": "no screen line carries current signal (the selecting chrome is an OSC title/OSC9)"
         }
       }
     },
@@ -12649,7 +12620,7 @@
         },
         "highlight_line": {
           "value": "insufficient_evidence",
-          "basis": "the selecting chrome is an OSC title/OSC9 signal, not a window line"
+          "basis": "no screen line carries current signal (the selecting chrome is an OSC title/OSC9)"
         }
       }
     },
@@ -12734,7 +12705,7 @@
         },
         "highlight_line": {
           "value": "insufficient_evidence",
-          "basis": "the selecting chrome is an OSC title/OSC9 signal, not a window line"
+          "basis": "no screen line carries current signal (the selecting chrome is an OSC title/OSC9)"
         }
       }
     },
@@ -12826,7 +12797,7 @@
         },
         "highlight_line": {
           "value": "L026",
-          "basis": "the single window line carrying the selecting chrome literal",
+          "basis": "the only window line carrying current signal",
           "literal": "◇ Working (0s · esc to interrupt)"
         }
       }
@@ -12919,7 +12890,7 @@
         },
         "highlight_line": {
           "value": "L029",
-          "basis": "the single window line carrying the selecting chrome literal",
+          "basis": "the only window line carrying current signal",
           "literal": "◈ Thinking (1s · esc to interrupt)"
         }
       }
@@ -12998,7 +12969,7 @@
         },
         "highlight_line": {
           "value": "insufficient_evidence",
-          "basis": "the selecting chrome is an OSC title/OSC9 signal, not a window line"
+          "basis": "no screen line carries current signal (the selecting chrome is an OSC title/OSC9)"
         }
       }
     },
@@ -13076,7 +13047,7 @@
         },
         "highlight_line": {
           "value": "insufficient_evidence",
-          "basis": "the selecting chrome is an OSC title/OSC9 signal, not a window line"
+          "basis": "no screen line carries current signal (the selecting chrome is an OSC title/OSC9)"
         }
       }
     },
@@ -13168,7 +13139,7 @@
         },
         "highlight_line": {
           "value": "L029",
-          "basis": "the single window line carrying the selecting chrome literal",
+          "basis": "the only window line carrying current signal",
           "literal": "◆ Thinking (1s · esc to interrupt)"
         }
       }
@@ -13261,7 +13232,7 @@
         },
         "highlight_line": {
           "value": "L029",
-          "basis": "the single window line carrying the selecting chrome literal",
+          "basis": "the only window line carrying current signal",
           "literal": "◈ Thinking (1s · esc to interrupt)"
         }
       }
@@ -13338,9 +13309,8 @@
           "basis": "the screen carries content, but choosing the single most informative line is a judgement, not a screen fact"
         },
         "highlight_line": {
-          "value": "L006",
-          "basis": "the single window line carrying the selecting chrome literal",
-          "literal": "── Voice input (⌥ + v to start)"
+          "value": "insufficient_evidence",
+          "basis": "no screen line carries current signal (the selecting chrome is an OSC title/OSC9)"
         }
       }
     },
@@ -13416,9 +13386,8 @@
           "basis": "the screen carries content, but choosing the single most informative line is a judgement, not a screen fact"
         },
         "highlight_line": {
-          "value": "L006",
-          "basis": "the single window line carrying the selecting chrome literal",
-          "literal": "── Voice input (⌥ + v to start) ────────────────────────────────────────────────────────────────────────────────────────"
+          "value": "insufficient_evidence",
+          "basis": "no screen line carries current signal (the selecting chrome is an OSC title/OSC9)"
         }
       }
     },
@@ -13494,9 +13463,8 @@
           "basis": "the screen carries content, but choosing the single most informative line is a judgement, not a screen fact"
         },
         "highlight_line": {
-          "value": "L006",
-          "basis": "the single window line carrying the selecting chrome literal",
-          "literal": "── Voice input (⌥ + v to start)"
+          "value": "insufficient_evidence",
+          "basis": "no screen line carries current signal (the selecting chrome is an OSC title/OSC9)"
         }
       }
     },
@@ -13581,7 +13549,7 @@
         },
         "highlight_line": {
           "value": "insufficient_evidence",
-          "basis": "the selecting chrome is an OSC title/OSC9 signal, not a window line"
+          "basis": "no screen line carries current signal (the selecting chrome is an OSC title/OSC9)"
         }
       }
     },
@@ -13666,7 +13634,7 @@
         },
         "highlight_line": {
           "value": "insufficient_evidence",
-          "basis": "the selecting chrome is an OSC title/OSC9 signal, not a window line"
+          "basis": "no screen line carries current signal (the selecting chrome is an OSC title/OSC9)"
         }
       }
     },
@@ -13758,7 +13726,7 @@
         },
         "highlight_line": {
           "value": "L008",
-          "basis": "the single window line carrying the selecting chrome literal",
+          "basis": "the only window line carrying current signal",
           "literal": "◇ Working (0s · esc to interrupt)"
         }
       }
@@ -13851,7 +13819,7 @@
         },
         "highlight_line": {
           "value": "L010",
-          "basis": "the single window line carrying the selecting chrome literal",
+          "basis": "the only window line carrying current signal",
           "literal": "◆ Working (1s · esc to interrupt)"
         }
       }
@@ -13944,7 +13912,7 @@
         },
         "highlight_line": {
           "value": "L008",
-          "basis": "the single window line carrying the selecting chrome literal",
+          "basis": "the only window line carrying current signal",
           "literal": "◇ Working (0s · esc to interrupt)"
         }
       }
@@ -14037,7 +14005,7 @@
         },
         "highlight_line": {
           "value": "L008",
-          "basis": "the single window line carrying the selecting chrome literal",
+          "basis": "the only window line carrying current signal",
           "literal": "◇ Thinking (0s · esc to interrupt)"
         }
       }
@@ -14114,9 +14082,8 @@
           "basis": "the screen carries content, but choosing the single most informative line is a judgement, not a screen fact"
         },
         "highlight_line": {
-          "value": "L010",
-          "basis": "the single window line carrying the selecting chrome literal",
-          "literal": "── Voice input (⌥ + v to start) ────────────────────────────────────────────────────────────────────────────────────────"
+          "value": "insufficient_evidence",
+          "basis": "no screen line carries current signal (the selecting chrome is an OSC title/OSC9)"
         }
       }
     },
@@ -14192,9 +14159,8 @@
           "basis": "the screen carries content, but choosing the single most informative line is a judgement, not a screen fact"
         },
         "highlight_line": {
-          "value": "L006",
-          "basis": "the single window line carrying the selecting chrome literal",
-          "literal": "── Voice input (⌥ + v to start)"
+          "value": "insufficient_evidence",
+          "basis": "no screen line carries current signal (the selecting chrome is an OSC title/OSC9)"
         }
       }
     },
@@ -14270,9 +14236,8 @@
           "basis": "the screen carries content, but choosing the single most informative line is a judgement, not a screen fact"
         },
         "highlight_line": {
-          "value": "L006",
-          "basis": "the single window line carrying the selecting chrome literal",
-          "literal": "── Voice input (⌥ + v to start) ────────────────────────────────────────────────────────────────────────────────────────"
+          "value": "insufficient_evidence",
+          "basis": "no screen line carries current signal (the selecting chrome is an OSC title/OSC9)"
         }
       }
     },
@@ -14357,7 +14322,7 @@
         },
         "highlight_line": {
           "value": "insufficient_evidence",
-          "basis": "the selecting chrome is an OSC title/OSC9 signal, not a window line"
+          "basis": "no screen line carries current signal (the selecting chrome is an OSC title/OSC9)"
         }
       }
     },
@@ -14442,7 +14407,7 @@
         },
         "highlight_line": {
           "value": "insufficient_evidence",
-          "basis": "the selecting chrome is an OSC title/OSC9 signal, not a window line"
+          "basis": "no screen line carries current signal (the selecting chrome is an OSC title/OSC9)"
         }
       }
     },
@@ -14534,7 +14499,7 @@
         },
         "highlight_line": {
           "value": "L008",
-          "basis": "the single window line carrying the selecting chrome literal",
+          "basis": "the only window line carrying current signal",
           "literal": "◇ Working (0s · esc to interrupt)"
         }
       }
@@ -14620,7 +14585,7 @@
         },
         "highlight_line": {
           "value": "L012",
-          "basis": "the single window line carrying the selecting chrome literal",
+          "basis": "the only window line carrying current signal",
           "literal": "◈ Thinking (1s · esc to interrupt)"
         }
       }
@@ -14713,7 +14678,7 @@
         },
         "highlight_line": {
           "value": "L008",
-          "basis": "the single window line carrying the selecting chrome literal",
+          "basis": "the only window line carrying current signal",
           "literal": "◇ Thinking (0s · esc to interrupt)"
         }
       }
@@ -14806,7 +14771,7 @@
         },
         "highlight_line": {
           "value": "L008",
-          "basis": "the single window line carrying the selecting chrome literal",
+          "basis": "the only window line carrying current signal",
           "literal": "◈ Thinking (1s · esc to interrupt)"
         }
       }
@@ -14884,7 +14849,7 @@
         },
         "highlight_line": {
           "value": "insufficient_evidence",
-          "basis": "the selecting chrome is an OSC title/OSC9 signal, not a window line"
+          "basis": "no screen line carries current signal (the selecting chrome is an OSC title/OSC9)"
         }
       }
     },
@@ -14961,7 +14926,7 @@
         },
         "highlight_line": {
           "value": "insufficient_evidence",
-          "basis": "the selecting chrome is an OSC title/OSC9 signal, not a window line"
+          "basis": "no screen line carries current signal (the selecting chrome is an OSC title/OSC9)"
         }
       }
     },
@@ -15123,7 +15088,7 @@
         },
         "highlight_line": {
           "value": "L027",
-          "basis": "the single window line carrying the selecting chrome literal",
+          "basis": "the only window line carrying current signal",
           "literal": "󱊷 Working…"
         }
       }
@@ -15209,7 +15174,7 @@
         },
         "highlight_line": {
           "value": "L026",
-          "basis": "the single window line carrying the selecting chrome literal",
+          "basis": "the only window line carrying current signal",
           "literal": "󱊷 Working…"
         }
       }
@@ -15288,7 +15253,7 @@
         },
         "highlight_line": {
           "value": "insufficient_evidence",
-          "basis": "the selecting chrome is an OSC title/OSC9 signal, not a window line"
+          "basis": "no screen line carries current signal (the selecting chrome is an OSC title/OSC9)"
         }
       }
     },
@@ -15366,7 +15331,7 @@
         },
         "highlight_line": {
           "value": "insufficient_evidence",
-          "basis": "the selecting chrome is an OSC title/OSC9 signal, not a window line"
+          "basis": "no screen line carries current signal (the selecting chrome is an OSC title/OSC9)"
         }
       }
     },
@@ -15443,7 +15408,7 @@
         },
         "highlight_line": {
           "value": "insufficient_evidence",
-          "basis": "the selecting chrome is an OSC title/OSC9 signal, not a window line"
+          "basis": "no screen line carries current signal (the selecting chrome is an OSC title/OSC9)"
         }
       }
     },
@@ -15520,7 +15485,7 @@
         },
         "highlight_line": {
           "value": "insufficient_evidence",
-          "basis": "the selecting chrome is an OSC title/OSC9 signal, not a window line"
+          "basis": "no screen line carries current signal (the selecting chrome is an OSC title/OSC9)"
         }
       }
     },
@@ -15597,7 +15562,7 @@
         },
         "highlight_line": {
           "value": "insufficient_evidence",
-          "basis": "the selecting chrome is an OSC title/OSC9 signal, not a window line"
+          "basis": "no screen line carries current signal (the selecting chrome is an OSC title/OSC9)"
         }
       }
     },
@@ -15759,7 +15724,7 @@
         },
         "highlight_line": {
           "value": "L029",
-          "basis": "the single window line carrying the selecting chrome literal",
+          "basis": "the only window line carrying current signal",
           "literal": "󱊷 Working…"
         }
       }
@@ -15845,7 +15810,7 @@
         },
         "highlight_line": {
           "value": "L026",
-          "basis": "the single window line carrying the selecting chrome literal",
+          "basis": "the only window line carrying current signal",
           "literal": "󱊷 Working…"
         }
       }
@@ -15924,7 +15889,7 @@
         },
         "highlight_line": {
           "value": "insufficient_evidence",
-          "basis": "the selecting chrome is an OSC title/OSC9 signal, not a window line"
+          "basis": "no screen line carries current signal (the selecting chrome is an OSC title/OSC9)"
         }
       }
     },
@@ -16002,7 +15967,7 @@
         },
         "highlight_line": {
           "value": "insufficient_evidence",
-          "basis": "the selecting chrome is an OSC title/OSC9 signal, not a window line"
+          "basis": "no screen line carries current signal (the selecting chrome is an OSC title/OSC9)"
         }
       }
     },
@@ -16087,7 +16052,7 @@
         },
         "highlight_line": {
           "value": "L026",
-          "basis": "the single window line carrying the selecting chrome literal",
+          "basis": "the only window line carrying current signal",
           "literal": "󱊷 Working…"
         }
       }
@@ -16173,7 +16138,7 @@
         },
         "highlight_line": {
           "value": "L026",
-          "basis": "the single window line carrying the selecting chrome literal",
+          "basis": "the only window line carrying current signal",
           "literal": "󱊷 Working…"
         }
       }
@@ -16251,7 +16216,7 @@
         },
         "highlight_line": {
           "value": "insufficient_evidence",
-          "basis": "the selecting chrome is an OSC title/OSC9 signal, not a window line"
+          "basis": "no screen line carries current signal (the selecting chrome is an OSC title/OSC9)"
         }
       }
     },
@@ -16328,7 +16293,7 @@
         },
         "highlight_line": {
           "value": "insufficient_evidence",
-          "basis": "the selecting chrome is an OSC title/OSC9 signal, not a window line"
+          "basis": "no screen line carries current signal (the selecting chrome is an OSC title/OSC9)"
         }
       }
     },
@@ -16567,7 +16532,7 @@
         },
         "highlight_line": {
           "value": "L027",
-          "basis": "the single window line carrying the selecting chrome literal",
+          "basis": "the only window line carrying current signal",
           "literal": "󱊷 Working…"
         }
       }
@@ -16653,7 +16618,7 @@
         },
         "highlight_line": {
           "value": "L026",
-          "basis": "the single window line carrying the selecting chrome literal",
+          "basis": "the only window line carrying current signal",
           "literal": "󱊷 Working…"
         }
       }
@@ -16732,7 +16697,7 @@
         },
         "highlight_line": {
           "value": "insufficient_evidence",
-          "basis": "the selecting chrome is an OSC title/OSC9 signal, not a window line"
+          "basis": "no screen line carries current signal (the selecting chrome is an OSC title/OSC9)"
         }
       }
     },
@@ -16810,7 +16775,7 @@
         },
         "highlight_line": {
           "value": "insufficient_evidence",
-          "basis": "the selecting chrome is an OSC title/OSC9 signal, not a window line"
+          "basis": "no screen line carries current signal (the selecting chrome is an OSC title/OSC9)"
         }
       }
     },
@@ -16886,9 +16851,8 @@
           "basis": "the screen carries content, but choosing the single most informative line is a judgement, not a screen fact"
         },
         "highlight_line": {
-          "value": "L031",
-          "basis": "the single window line carrying the selecting chrome literal",
-          "literal": "0.0%/400k (auto)"
+          "value": "insufficient_evidence",
+          "basis": "no screen line carries current signal (the selecting chrome is an OSC title/OSC9)"
         }
       }
     },
@@ -16964,9 +16928,8 @@
           "basis": "the screen carries content, but choosing the single most informative line is a judgement, not a screen fact"
         },
         "highlight_line": {
-          "value": "L031",
-          "basis": "the single window line carrying the selecting chrome literal",
-          "literal": "0.0%/400k (auto)"
+          "value": "insufficient_evidence",
+          "basis": "no screen line carries current signal (the selecting chrome is an OSC title/OSC9)"
         }
       }
     },
@@ -17062,7 +17025,7 @@
         },
         "highlight_line": {
           "value": "L027",
-          "basis": "the single window line carrying the selecting chrome literal",
+          "basis": "the only window line carrying current signal",
           "literal": "Error: No API key found for builtin-mock-responses."
         }
       }
@@ -17152,7 +17115,7 @@
         },
         "highlight_line": {
           "value": "L021",
-          "basis": "the single window line carrying the selecting chrome literal",
+          "basis": "the only window line carrying current signal",
           "literal": "Error: No API key found for builtin-mock-responses."
         }
       }
@@ -17243,7 +17206,7 @@
         },
         "highlight_line": {
           "value": "L021",
-          "basis": "the single window line carrying the selecting chrome literal",
+          "basis": "the only window line carrying current signal",
           "literal": "Error: No API key found for builtin-mock-responses."
         }
       }
@@ -17341,7 +17304,7 @@
         },
         "highlight_line": {
           "value": "L017",
-          "basis": "the single window line carrying the selecting chrome literal",
+          "basis": "the only window line carrying current signal",
           "literal": "Error: No API key found for builtin-mock-responses."
         }
       }

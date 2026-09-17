@@ -31,7 +31,7 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import type { AgentSeatStateEvent } from "../../../src/shared/agent-seat-state";
+import type { AgentSeatState, AgentSeatStateEvent } from "../../../src/shared/agent-seat-state";
 import { SessionObserver } from "../../../src/main/junto/term/observer";
 import type { ObserverGridSnapshot } from "../../../src/main/junto/term/observer/types";
 import { SeatStateRuntime } from "../../../src/main/junto/term/agent-state/runtime";
@@ -72,6 +72,14 @@ export type ReplayStep = {
   /** Capture-relative elapsed ms at this cut (`clockMs - clockBaseMs`). */
   readonly atMs: number;
   readonly snapshot: ObserverGridSnapshot;
+  /**
+   * The deterministic control plane's published state at this cut. Exposed so
+   * an advisory answer can be CROSS-CHECKED against it (the contract's job for
+   * a `turn_in_progress` negative) without a second replay. It is never an
+   * input to a label: `labels.ts` cannot reach this module.
+   */
+  readonly seatState: AgentSeatState | undefined;
+  readonly seatReason: string | undefined;
 };
 
 export type ReplayTrace = {
@@ -278,6 +286,7 @@ export const replayCapture = async (opts: ReplayOptions): Promise<ReplayTrace> =
       rt.observe(snapshot);
 
       stepsVisited += 1;
+      const slot = rt.machine.getSlot(BINDING_ID);
       opts.onStep?.({
         grid: entry.grid,
         step: entry.step,
@@ -286,6 +295,8 @@ export const replayCapture = async (opts: ReplayOptions): Promise<ReplayTrace> =
         cutFraction: entry.cut / decodedLength,
         atMs: clockMs - firstTimestampMs,
         snapshot,
+        seatState: slot?.state,
+        seatReason: slot?.reason,
       });
     }
 

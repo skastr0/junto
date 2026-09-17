@@ -147,11 +147,6 @@ export type LabelInput = {
   readonly earlierLines: readonly string[] | undefined;
 };
 
-const topMatch = (matches: readonly ChromeMatch[]): ChromeMatch | undefined => {
-  const rank: Record<CheckpointClass, number> = { dialog: 0, live_turn: 1, settled_idle: 2 };
-  return [...matches].sort((a, b) => rank[a.role] - rank[b.role])[0];
-};
-
 const concernMatch = (
   matches: readonly ChromeMatch[],
   concern: ConcernId,
@@ -171,7 +166,6 @@ const activityCandidates = (
 
 export const labelCheckpoint = (input: LabelInput): LabelVector => {
   const { matches, lines, window: win, earlierLines } = input;
-  const top = topMatch(matches);
   const liveTurn = matches.find((m) => m.kind === "live_turn");
   const pendingDialog = matches.find((m) => m.role === "dialog");
   const settledIdle = matches.find((m) => m.role === "settled_idle");
@@ -302,19 +296,32 @@ export const labelCheckpoint = (input: LabelInput): LabelVector => {
               };
 
   // ---- highlight_line ---------------------------------------------------
+  // The answer space is the window's own ids plus NONE, so a grounded label can
+  // only name a line the screen FACTS single out. When more than one line
+  // carries current signal the "most informative line" is a judgement, and the
+  // label abstains instead of pretending one of them is the truth.
+  const signalLines = [
+    ...new Set(
+      matches
+        .filter((m) => m.where === "screen" && m.role !== "settled_idle")
+        .map((m) => m.matchedText.trim()),
+    ),
+  ];
   let highlightLine: Label;
   if (highlightExists.value === "no") {
     highlightLine = { value: "NONE", basis: "nothing worth surfacing (see highlight_exists)" };
-  } else if (top === undefined || top.where !== "screen") {
+  } else if (signalLines.length === 0) {
     highlightLine = {
       value: INSUFFICIENT,
-      basis:
-        top === undefined
-          ? "no chrome match to point at"
-          : "the selecting chrome is an OSC title/OSC9 signal, not a window line",
+      basis: "no screen line carries current signal (the selecting chrome is an OSC title/OSC9)",
+    };
+  } else if (signalLines.length > 1) {
+    highlightLine = {
+      value: INSUFFICIENT,
+      basis: `${signalLines.length} distinct window lines carry current signal, so the single most informative line is a judgement, not a screen fact`,
     };
   } else {
-    const wanted = top.matchedText.trim();
+    const wanted = signalLines[0]!;
     const hits = win.lines
       .map((line, i) => ({ id: win.ids[i]!, line: line.trim() }))
       .filter((entry) => entry.line === wanted || entry.line.includes(wanted));
@@ -322,12 +329,12 @@ export const labelCheckpoint = (input: LabelInput): LabelVector => {
       hits.length === 1
         ? {
             value: hits[0]!.id,
-            basis: "the single window line carrying the selecting chrome literal",
+            basis: "the only window line carrying current signal",
             literal: wanted,
           }
         : {
             value: INSUFFICIENT,
-            basis: `${hits.length} window lines carry the selecting literal — the target is ambiguous`,
+            basis: `${hits.length} window lines carry the same literal — the target is ambiguous`,
           };
   }
 
