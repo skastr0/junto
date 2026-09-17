@@ -28,6 +28,7 @@ import {
   SEAT_AWARENESS_TERMINAL_ATTRIBUTION,
   seatAwarenessView,
   type SeatAwarenessControl,
+  type SeatAwarenessLiveWindow,
 } from "../../lib/seat-awareness";
 import { Chip, Eyebrow, OverlayHeader, StatusDot } from "../ui";
 
@@ -35,7 +36,7 @@ export function SeatAwarenessHover({
   bindingId,
   control,
   assessment,
-  windowDigest,
+  window,
   now,
   className,
 }: {
@@ -44,15 +45,15 @@ export function SeatAwarenessHover({
   /** Canonical deterministic status. Awareness never replaces it. */
   readonly control: SeatAwarenessControl;
   readonly assessment?: SeatAwarenessAssessment | undefined;
-  /** Live evidence digest, so a judgment from an older screen reads stale. */
-  readonly windowDigest?: string | undefined;
+  /** Live evidence revision, so an excerpt from an older screen reads stale. */
+  readonly window?: SeatAwarenessLiveWindow | undefined;
   readonly now?: number | undefined;
   readonly className?: string | undefined;
 }): ReactNode {
   const view = seatAwarenessView({
     control,
     assessment,
-    windowDigest,
+    window,
     now: now ?? Date.now(),
   });
 

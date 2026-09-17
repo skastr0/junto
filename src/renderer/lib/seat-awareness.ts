@@ -11,13 +11,14 @@
  *   1. strict ingest of the awareness channel (`decodeSeatAwarenessEvent`) plus
  *      hygiene — every evidence line is sanitized and bounded before it can
  *      ever reach a render
- *   2. the latest observation per binding, plus the live evidence digest
+ *   2. the latest observation per binding, plus the live evidence revision and
+ *      when it began
  *   3. two independent freshness axes. The excerpt is current only on an exact
- *      digest match and is otherwise shown as last observed, because it is
- *      quoted screen text. The judgment (activity + concerns) stays current
- *      while it is within the enrichment lifetime and belongs to the live
- *      control-state turn, so a continuously printing seat keeps a useful label
- *      even though its screen keeps moving
+ *      digest match that has held for the stability floor, and is otherwise
+ *      shown as last observed, because it is quoted screen text. The judgment
+ *      (activity + concerns) stays current while it is within the enrichment
+ *      lifetime and belongs to the live control-state turn, so a continuously
+ *      printing seat keeps a useful label even though its screen keeps moving
  *   4. availability derivation: `not_assessed` (nothing yet) and `stale`
  *      (expired, or the seat left the turn) are renderer facts, never wire
  *      facts
@@ -63,6 +64,27 @@ export const SEAT_AWARENESS_TERMINAL_ATTRIBUTION = "terminal";
 export const SEAT_AWARENESS_ATTRIBUTION = "AI assessment";
 export const SEAT_AWARENESS_NEUTRAL_LINE = "recent terminal output available";
 export const SEAT_AWARENESS_UNAVAILABLE_FALLBACK = "AI assessment unavailable";
+
+/**
+ * Excerpt stability floor. An excerpt may be called current only once the live
+ * revision it matches has held for this long.
+ *
+ * Why it exists: an exact-match rule alone flickers on a busy seat, because
+ * every new material revision both supersedes the previous excerpt and (with a
+ * digest-keyed cache) produces a new observation whose excerpt matches for a
+ * moment before the next revision lands. Measured on a seat printing every two
+ * seconds, that is roughly two eyebrow switches per revision.
+ *
+ * Requiring the match to have held is strictly stronger evidence than requiring
+ * it to hold right now, so this never overclaims: a transient match is shown as
+ * last observed, which is the honest reading of a screen that is still moving.
+ * A quiet seat is unaffected — its revision has already held for longer than the
+ * floor, so a fresh observation is current immediately.
+ *
+ * 0 disables the floor. Once the producer publishes whether the evidence is
+ * still on screen, that is the real signal and this floor can go to 0.
+ */
+export const SEAT_AWARENESS_EXCERPT_STABILITY_MS = 10_000;
 
 /**
  * Code-composed labels. Every one of these is hedged or attributed on purpose:
@@ -129,6 +151,12 @@ export type SeatAwarenessStore = {
   /** Live evidence digest by bindingId — newest window the producer reported. */
   readonly windowDigestByBindingId: Record<string, string | undefined>;
   /**
+   * When the live evidence revision began, by bindingId. The excerpt stability
+   * clock: a revision that has only just appeared cannot support a "current"
+   * claim, however exactly it matches.
+   */
+  readonly windowStableSinceByBindingId: Record<string, number | undefined>;
+  /**
    * Monotonic apply counter. Nested Legend writes on `byBindingId[id]` keep
    * the parent object identity, so React `use$(byBindingId)` effects miss
    * in-place replacements. Depend on `rev` instead.
@@ -139,6 +167,7 @@ export type SeatAwarenessStore = {
 export const seatAwareness$ = observable<SeatAwarenessStore>({
   byBindingId: {},
   windowDigestByBindingId: {},
+  windowStableSinceByBindingId: {},
   rev: 0,
 });
 
@@ -228,7 +257,13 @@ export const applySeatAwarenessEvent = (event: SeatAwarenessEvent): void => {
   if (appliedAt !== undefined && event.at < appliedAt) return;
   appliedAtByBindingId.set(bindingId, event.at);
 
+  // A digest that differs from the one we held starts a new revision, which
+  // restarts the excerpt stability clock. The same digest again does not.
+  const previousDigest = seatAwareness$.windowDigestByBindingId[bindingId].peek();
   seatAwareness$.windowDigestByBindingId[bindingId].set(event.windowDigest);
+  if (previousDigest !== event.windowDigest) {
+    seatAwareness$.windowStableSinceByBindingId[bindingId].set(event.at);
+  }
   if (event.kind === "assessment") {
     const current = seatAwareness$.byBindingId[bindingId].peek();
     if (!current || event.assessment.observedAt >= current.observedAt) {
@@ -252,6 +287,20 @@ export const windowDigestForBinding = (
 ): string | undefined => {
   if (!bindingId) return undefined;
   return seatAwareness$.windowDigestByBindingId[bindingId].peek();
+};
+
+/**
+ * The live evidence revision, with the clock the excerpt floor reads. Absent
+ * until the producer has reported a window for this binding.
+ */
+export const liveWindowForBinding = (
+  bindingId: string | undefined,
+): SeatAwarenessLiveWindow | undefined => {
+  if (!bindingId) return undefined;
+  const digest = seatAwareness$.windowDigestByBindingId[bindingId].peek();
+  const stableSince = seatAwareness$.windowStableSinceByBindingId[bindingId].peek();
+  if (digest === undefined || stableSince === undefined) return undefined;
+  return { digest, stableSince };
 };
 
 // --- IPC ---------------------------------------------------------------------
@@ -372,9 +421,20 @@ export const seatAwarenessTurnLive = (
 ): boolean => state !== "idle" && state !== "done" && state !== "gone";
 
 /**
- * The excerpt axis: current only on an exact match against the live window
- * digest, otherwise last observed. A missing live digest cannot prove a match,
- * so it is never relabelled current.
+ * The live evidence revision an excerpt may be compared against, plus when that
+ * revision began. Both facts travel together because a match without a stability
+ * clock cannot support a "current" claim.
+ */
+export type SeatAwarenessLiveWindow = {
+  readonly digest: string;
+  readonly stableSince: number;
+};
+
+/**
+ * The excerpt axis: current only on an exact match against the live window, and
+ * only once that live revision has held for the stability floor. Otherwise last
+ * observed. A missing live window cannot prove a match, so it is never relabelled
+ * current.
  *
  * This layer never derives a digest — it compares the two it was handed, both
  * produced by the projection, so it cannot drift from the one normalization
@@ -382,12 +442,18 @@ export const seatAwarenessTurnLive = (
  */
 export const seatAwarenessExcerptFreshness = (
   assessment: SeatAwarenessAssessment,
-  input: { readonly windowDigest?: string | undefined },
-): SeatAwarenessExcerptFreshness =>
-  input.windowDigest !== undefined &&
-  input.windowDigest === assessment.evidence.digest
-    ? "current"
-    : "last_observed";
+  input: {
+    readonly window?: SeatAwarenessLiveWindow | undefined;
+    readonly now: number;
+    /** Stability floor override; 0 disables it. */
+    readonly stabilityMs?: number | undefined;
+  },
+): SeatAwarenessExcerptFreshness => {
+  const live = input.window;
+  if (!live || live.digest !== assessment.evidence.digest) return "last_observed";
+  const floor = input.stabilityMs ?? SEAT_AWARENESS_EXCERPT_STABILITY_MS;
+  return input.now - live.stableSince >= floor ? "current" : "last_observed";
+};
 
 // --- presentation ------------------------------------------------------------
 
@@ -448,9 +514,11 @@ export type SeatAwarenessView = {
 export type SeatAwarenessPresentationInput = {
   readonly control: SeatAwarenessControl;
   readonly assessment?: SeatAwarenessAssessment | undefined;
-  /** Live evidence digest for the binding — the excerpt axis. */
-  readonly windowDigest?: string | undefined;
+  /** Live evidence revision for the binding — the excerpt axis. */
+  readonly window?: SeatAwarenessLiveWindow | undefined;
   readonly now: number;
+  /** Stability floor override; 0 disables it. */
+  readonly stabilityMs?: number | undefined;
 };
 
 const DEFAULT_CONTROL_TONE: ActivityTone = "steel";
@@ -474,7 +542,11 @@ const resolveExcerpt = (
 /** The excerpt with its own axis: the text, its freshness, and its label. */
 const resolveExcerptDisplay = (
   assessment: SeatAwarenessAssessment,
-  input: { readonly now: number; readonly windowDigest?: string | undefined },
+  input: {
+    readonly now: number;
+    readonly window?: SeatAwarenessLiveWindow | undefined;
+    readonly stabilityMs?: number | undefined;
+  },
 ): {
   readonly text: string;
   readonly freshness: SeatAwarenessExcerptFreshness;
@@ -534,7 +606,8 @@ export const seatAwarenessView = (
   const excerptDisplay = judgment
     ? resolveExcerptDisplay(judgment, {
         now: input.now,
-        windowDigest: input.windowDigest,
+        window: input.window,
+        stabilityMs: input.stabilityMs,
       })
     : null;
   const excerpt = excerptDisplay?.text ?? null;
@@ -586,18 +659,22 @@ export const seatAwarenessViewForBinding = (input: {
   readonly bindingId: string | undefined;
   readonly control: SeatAwarenessControl;
   readonly now?: number;
+  /** Stability floor override; 0 disables it. */
+  readonly stabilityMs?: number | undefined;
 }): SeatAwarenessView =>
   seatAwarenessView({
     control: input.control,
     assessment: awarenessForBinding(input.bindingId),
-    windowDigest: windowDigestForBinding(input.bindingId),
+    window: liveWindowForBinding(input.bindingId),
     now: input.now ?? Date.now(),
+    stabilityMs: input.stabilityMs,
   });
 
 /** Test / unmount helper — clear store + allow re-subscribe. */
 export const resetSeatAwareness = (): void => {
   seatAwareness$.byBindingId.set({});
   seatAwareness$.windowDigestByBindingId.set({});
+  seatAwareness$.windowStableSinceByBindingId.set({});
   seatAwareness$.rev.set(0);
   appliedAtByBindingId.clear();
   if (activeUnsubscribe) {

@@ -37,6 +37,7 @@ import {
 } from "../src/renderer/lib/seat-awareness-contract";
 import {
   SEAT_AWARENESS_ACTIVITY_COPY,
+  SEAT_AWARENESS_EXCERPT_STABILITY_MS,
   SEAT_AWARENESS_ATTRIBUTION,
   SEAT_AWARENESS_AVAILABILITY_COPY,
   SEAT_AWARENESS_CONCERN_COPY,
@@ -53,9 +54,11 @@ import {
   seatAwarenessExcerptFreshness,
   seatAwarenessTurnLive,
   seatAwarenessView,
+  seatAwarenessViewForBinding,
   subscribeSeatAwareness,
   windowDigestForBinding,
   type SeatAwarenessControl,
+  type SeatAwarenessLiveWindow,
 } from "../src/renderer/lib/seat-awareness";
 
 const T0 = 1_700_000_000_000;
@@ -102,6 +105,16 @@ const windowEvent = (
   windowCapturedAt: at,
   at,
 });
+
+/**
+ * A live evidence revision. The default stability clock is a minute old, so the
+ * excerpt stability floor is satisfied; pass a recent `stableSince` to model a
+ * revision that has only just appeared.
+ */
+const liveWindow = (
+  digest: string,
+  stableSince: number = T0 - 60_000,
+): SeatAwarenessLiveWindow => ({ digest, stableSince });
 
 const control = (partial?: Partial<SeatAwarenessControl>): SeatAwarenessControl => ({
   state: "working",
@@ -397,7 +410,7 @@ describe("freshness axes", () => {
     const view = seatAwarenessView({
       control: workingControl,
       assessment: stored,
-      windowDigest: "w7",
+      window: liveWindow("w7"),
       now: T0 + 4 * 60_000,
     });
     expect(view.availability).toBe("current");
@@ -410,14 +423,103 @@ describe("freshness axes", () => {
     expect(view.excerpt).toBe("3 tests failed in auth.spec.ts");
   });
 
-  it("is current only on an exact live digest match", () => {
+  it("is current only on an exact live digest match that has held", () => {
     const stored = assessment({ bindingId: "b1" });
-    expect(seatAwarenessExcerptFreshness(stored, { windowDigest: "w1" })).toBe("current");
-    expect(seatAwarenessExcerptFreshness(stored, { windowDigest: "w2" })).toBe("last_observed");
-    expect(seatAwarenessExcerptFreshness(stored, { windowDigest: "w1 " })).toBe("last_observed");
-    // No live digest cannot prove a match, so it never reads as current.
-    expect(seatAwarenessExcerptFreshness(stored, {})).toBe("last_observed");
-    expect(seatAwarenessExcerptFreshness(stored, { windowDigest: undefined })).toBe("last_observed");
+    const at = { now: T0 } as const;
+    expect(
+      seatAwarenessExcerptFreshness(stored, { ...at, window: liveWindow("w1") }),
+    ).toBe("current");
+    expect(
+      seatAwarenessExcerptFreshness(stored, { ...at, window: liveWindow("w2") }),
+    ).toBe("last_observed");
+    expect(
+      seatAwarenessExcerptFreshness(stored, { ...at, window: liveWindow("w1 ") }),
+    ).toBe("last_observed");
+    // A match whose revision has only just appeared is not yet evidence of
+    // currency: the screen is still moving.
+    expect(
+      seatAwarenessExcerptFreshness(stored, {
+        ...at,
+        window: liveWindow("w1", T0 - 1_000),
+      }),
+    ).toBe("last_observed");
+    // Exactly at the floor, and beyond it, the claim is supported.
+    expect(
+      seatAwarenessExcerptFreshness(stored, {
+        ...at,
+        window: liveWindow("w1", T0 - SEAT_AWARENESS_EXCERPT_STABILITY_MS),
+      }),
+    ).toBe("current");
+    // No live window cannot prove a match, so it never reads as current.
+    expect(seatAwarenessExcerptFreshness(stored, at)).toBe("last_observed");
+    expect(
+      seatAwarenessExcerptFreshness(stored, { ...at, window: undefined }),
+    ).toBe("last_observed");
+    // The floor is overridable, including to 0 for the unfloored rule.
+    expect(
+      seatAwarenessExcerptFreshness(stored, {
+        ...at,
+        window: liveWindow("w1", T0),
+        stabilityMs: 0,
+      }),
+    ).toBe("current");
+  });
+
+  it("holds a busy seat's excerpt steady instead of switching twice per revision", () => {
+    // A seat printing a new material revision every two seconds, with a
+    // digest-keyed scheduler observing each one — the cadence that produced the
+    // flicker. Count eyebrow switches the operator would see with the hover open.
+    const switches = (stabilityMs: number): number => {
+      resetSeatAwareness();
+      let count = 0;
+      let previous: string | null = null;
+      const sample = (now: number) => {
+        const view = seatAwarenessViewForBinding({
+          bindingId: "b1",
+          control: control(),
+          now,
+          stabilityMs,
+        });
+        if (previous !== null && view.excerptLabel !== previous) count += 1;
+        previous = view.excerptLabel;
+      };
+      for (let step = 0; step < 30; step += 1) {
+        const at = T0 + step * 2_000;
+        const digest = `rev-${step}`;
+        applySeatAwarenessEvent(windowEvent("b1", digest, at));
+        sample(at);
+        applySeatAwarenessEvent(
+          assessmentEvent(
+            assessment({
+              bindingId: "b1",
+              assessmentId: `a-${step}`,
+              observedAt: at,
+              evidence: { digest, capturedAt: at, lines: [line("l1", "3 tests failed")] },
+            }),
+            { at, windowDigest: digest },
+          ),
+        );
+        sample(at);
+      }
+      return count;
+    };
+    // Unfloored: the label flips on every revision and every new observation.
+    expect(switches(0)).toBe(58);
+    // Floored: the busy seat settles on one stable state for the whole minute.
+    expect(switches(SEAT_AWARENESS_EXCERPT_STABILITY_MS)).toBe(0);
+    // A quiet seat is unaffected: its revision has already held past the floor,
+    // so a fresh observation is current immediately and never flips.
+    resetSeatAwareness();
+    applySeatAwarenessEvent(windowEvent("b1", "rev-quiet", T0 - 120_000));
+    applySeatAwarenessEvent(
+      assessmentEvent(
+        assessment({ bindingId: "b1", evidence: { digest: "rev-quiet", capturedAt: T0, lines: [line("l1", "3 tests failed")] } }),
+        { at: T0, windowDigest: "rev-quiet" },
+      ),
+    );
+    const quiet = seatAwarenessViewForBinding({ bindingId: "b1", control: control(), now: T0 });
+    expect(quiet.excerptFreshness).toBe("current");
+    expect(quiet.excerptLabel).toBe("terminal excerpt");
   });
 
   it("keeps the excerpt current while the judgment is stale", () => {
@@ -426,7 +528,7 @@ describe("freshness axes", () => {
     const view = seatAwarenessView({
       control: idleControl,
       assessment: assessment({ bindingId: "b1" }),
-      windowDigest: "w1",
+      window: liveWindow("w1"),
       now: T0 + 20_000,
     });
     expect(view.availability).toBe("stale");
@@ -488,7 +590,7 @@ describe("freshness axes", () => {
         activity: null,
         concerns: ["approval_requested"],
       }),
-      windowDigest: "w1",
+      window: liveWindow("w1"),
       now: T0 + 60_000,
     });
     expect(view.availability).toBe("current");
@@ -535,7 +637,7 @@ describe("presentation", () => {
     const view = seatAwarenessView({
       control: control(),
       assessment: assessment({ bindingId: "b1" }),
-      windowDigest: "w1",
+      window: liveWindow("w1"),
       now: T0 + 8_000,
     });
     expect(view.sentence).toBe(
@@ -557,7 +659,7 @@ describe("presentation", () => {
         concerns: ["approval_requested"],
         evidence: { digest: "w1", capturedAt: T0, lines: [line("l1", "Allow this command to run?")] },
       }),
-      windowDigest: "w1",
+      window: liveWindow("w1"),
       now: T0,
     });
     expect(view.aiLabel).toBe("AI suggests checking approval");
@@ -619,7 +721,7 @@ describe("presentation", () => {
     const view = seatAwarenessView({
       control: control(),
       assessment: assessment({ bindingId: "b1" }),
-      windowDigest: "w2",
+      window: liveWindow("w2"),
       now: T0 + 60_000,
     });
     expect(view.excerptFreshness).toBe("last_observed");
@@ -637,7 +739,7 @@ describe("presentation", () => {
     const view = seatAwarenessView({
       control: control(),
       assessment: assessment({ bindingId: "b1", activity: null, concerns: [], selectedLineId: null }),
-      windowDigest: "w1",
+      window: liveWindow("w1"),
       now: T0,
     });
     expect(view.aiLabel).toBeNull();
@@ -658,7 +760,12 @@ describe("presentation", () => {
       selectedLineId: "shared",
     });
     const viewFor = (value: SeatAwarenessAssessment) =>
-      seatAwarenessView({ control: control(), assessment: value, windowDigest: value.evidence.digest, now: T0 });
+      seatAwarenessView({
+        control: control(),
+        assessment: value,
+        window: liveWindow(value.evidence.digest),
+        now: T0,
+      });
     expect(viewFor(first).excerpt).toBe("first screen line");
     expect(viewFor(second).excerpt).toBe("second screen line");
 
@@ -689,7 +796,7 @@ describe("presentation", () => {
       const view = seatAwarenessView({
         control: control({ state: "attention", label: "needs operator input", tone: "amber" }),
         assessment: assessment({ bindingId: "b1", activity, concerns: [] }),
-        windowDigest: "w1",
+        window: liveWindow("w1"),
         now: T0,
       });
       expect(view.aiLabel).toBe(SEAT_AWARENESS_ACTIVITY_COPY[activity]);
@@ -699,7 +806,7 @@ describe("presentation", () => {
       const view = seatAwarenessView({
         control: control({ state: "attention", label: "needs operator input", tone: "amber" }),
         assessment: assessment({ bindingId: "b1", activity: null, concerns: [concern] }),
-        windowDigest: "w1",
+        window: liveWindow("w1"),
         now: T0,
       });
       expect(view.aiLabel).toBe(SEAT_AWARENESS_CONCERN_COPY[concern]);
@@ -720,7 +827,7 @@ describe("presentation", () => {
             evidence: { digest: "w1", capturedAt: T0, lines: [line("l1", `run ${MIDDLE_DOT} test`)] },
             unavailableReason: availability === "unavailable" ? "provider_failure" : null,
           }),
-          windowDigest: "w1",
+          window: liveWindow("w1"),
           now: T0 + 8_000,
         });
         sentences.push(view.sentence, view.availabilityLine, view.availabilityLabel);
@@ -740,7 +847,7 @@ describe("presentation", () => {
         bindingId: "b1",
         evidence: { digest: "w1", capturedAt: T0, lines: [line("l1", `npm ${MIDDLE_DOT} run build`)] },
       }),
-      windowDigest: "w1",
+      window: liveWindow("w1"),
       now: T0,
     });
     expect(view.excerpt).toBe("npm run build");
@@ -776,7 +883,7 @@ describe("excerpt hygiene", () => {
         bindingId: "b1",
         evidence: { digest: "w1", capturedAt: T0, lines: [line("l1", "z".repeat(2_000))] },
       }),
-      windowDigest: "w1",
+      window: liveWindow("w1"),
       now: T0,
     });
     expect((view.excerpt ?? "").length).toBeLessThanOrEqual(SEAT_AWARENESS_MAX_EXCERPT_CHARS);
@@ -801,6 +908,7 @@ describe("authority boundary", () => {
       "byBindingId",
       "rev",
       "windowDigestByBindingId",
+      "windowStableSinceByBindingId",
     ]);
     expect(Object.keys(seatAwareness$.byBindingId.peek())).toEqual(["b1"]);
   });
@@ -813,13 +921,13 @@ describe("authority boundary", () => {
     const matched = seatAwarenessView({
       control: working,
       assessment: stored,
-      windowDigest: "w1",
+      window: liveWindow("w1"),
       now: T0,
     });
     const moved = seatAwarenessView({
       control: working,
       assessment: stored,
-      windowDigest: "w9",
+      window: liveWindow("w9"),
       now: T0,
     });
     expect(matched.excerptFreshness).toBe("current");
@@ -832,7 +940,7 @@ describe("authority boundary", () => {
     const settled = seatAwarenessView({
       control: idle,
       assessment: stored,
-      windowDigest: "w1",
+      window: liveWindow("w1"),
       now: T0,
     });
     expect(settled.judgmentFreshness).toBe("stale");
