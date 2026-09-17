@@ -121,6 +121,12 @@ import { isTrustedMainWebContents } from "./trusted-main-webcontents";
 import { trustedRendererIpc } from "./trusted-main-webcontents";
 import type { WorkMetadata, Part, TaskState } from "@shared/canvas";
 import { makeUserMessage } from "@shared/task";
+import {
+  collaborationRequestMetadata,
+  composeCollaborationRequestText,
+  normalizeSeatCollaborationAsk,
+  type SeatCollaborationAskResult,
+} from "@shared/seat-collaboration";
 import { actorDeliverySurfaceOf } from "@shared/actor-surface";
 import { mailExtensionMetadata } from "@shared/crew";
 import { operatorActorRef } from "@shared/work-reference";
@@ -547,6 +553,87 @@ export const registerJuntoIpc = (): void => {
   // renderer's decoder refuses anything it does not recognize.
   privilegedIpc.handle(IPC_CHANNELS.seatAwarenessSnapshot, () =>
     seatAwarenessPlane.currentEvents(),
+  );
+
+  // Seat collaboration — one seat asks a peer for help. The request is an
+  // ordinary mailbox message, so delivery, wakes and the reply path are the
+  // ones crew mail already owns; this handler only composes and validates it.
+  // Operator-originated: the awareness sidecar can suggest a peer, but nothing
+  // reaches a seat's mailbox unless the operator asks for it.
+  privilegedIpc.handle(
+    IPC_CHANNELS.seatCollaborationAsk,
+    (_event, input: unknown): Promise<SeatCollaborationAskResult> => {
+      const normalized = normalizeSeatCollaborationAsk(input);
+      if (!normalized.ok) return Promise.resolve(normalized);
+      const draft = normalized.draft;
+      return runMainAuthoring(
+        "ipc.work.collaboration-ask",
+        async (): Promise<SeatCollaborationAskResult> =>
+          AppRuntime.runPromise(
+            Effect.gen(function* () {
+              yield* denyUnlessCommandCenterAuthorial;
+              const canvases = yield* CanvasesService;
+              const read = yield* Effect.result(
+                canvases.read(draft.canvas, "ipc.work.collaboration-ask"),
+              );
+              if (read._tag === "Failure") {
+                return {
+                  ok: false as const,
+                  error: `canvas ${JSON.stringify(draft.canvas)} could not be read`,
+                };
+              }
+              const nodes = read.success.doc.nodes;
+              const source = nodes.find((node) => node.id === draft.sourceNodeId);
+              const target = nodes.find((node) => node.id === draft.targetNodeId);
+              if (source === undefined) {
+                return {
+                  ok: false as const,
+                  error: `seat ${JSON.stringify(draft.sourceNodeId)} is not on this canvas`,
+                };
+              }
+              if (target === undefined) {
+                return {
+                  ok: false as const,
+                  error: `seat ${JSON.stringify(draft.targetNodeId)} is not on this canvas`,
+                };
+              }
+              if (target.ether?.entity?.kind !== "agent") {
+                return {
+                  ok: false as const,
+                  error: "a collaboration request can only be sent to an agent seat",
+                };
+              }
+              const work = yield* WorkService;
+              const requestId = ulid();
+              const result = yield* work.workSystemMailboxNotify(
+                draft.canvas,
+                draft.targetNodeId,
+                makeUserMessage({
+                  messageId: requestId,
+                  text: composeCollaborationRequestText(draft, requestId),
+                  contextId: draft.canvas,
+                  metadata: collaborationRequestMetadata(draft, requestId),
+                }),
+              );
+              if (!result.ok) {
+                return { ok: false as const, error: result.message };
+              }
+              return {
+                ok: true as const,
+                requestId,
+                doc: result.doc,
+                revision: result.revision,
+              };
+            }),
+          ),
+      ).catch((error: unknown) => ({
+        ok: false as const,
+        error:
+          error instanceof Error
+            ? error.message
+            : "collaboration request could not be sent",
+      }));
+    },
   );
 
   // Factory pause plane — canvas-level switch. start is idempotent hydration,

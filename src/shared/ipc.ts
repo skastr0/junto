@@ -22,6 +22,10 @@ import type {
   EtherFlag,
 } from "./canvas";
 import type { TaskAdmission, TaskPathArm, TaskRule } from "./work-model";
+import type {
+  SeatCollaborationAskResult,
+  SeatCollaborationDraft,
+} from "./seat-collaboration";
 import type { WorkErrorDetails } from "./work-control";
 import type { ContentRef } from "./content";
 import type {
@@ -251,6 +255,11 @@ export const IPC_CHANNELS = {
   seatAwarenessSnapshot: "junto:seat-awareness-snapshot",
   /** Main → renderer: one advisory seat-awareness event (display only). */
   seatAwarenessChanged: "junto:seat-awareness",
+  /**
+   * Renderer → main: ask one seat for help. Appends a mailbox request the peer
+   * answers with ordinary crew mail. Operator-originated, not model-owned.
+   */
+  seatCollaborationAsk: "junto:seat-collaboration-ask",
   browserSessionChanged: "junto:browser-session-changed",
   // Developer observability ring (process-local; UI gated by advanced.logsExplorer)
   observabilityQuery: "junto:observability-query",
@@ -1240,6 +1249,13 @@ export interface JuntoTerminalApi {
   readonly onSeatAwarenessChanged: (
     listener: (event: unknown) => void,
   ) => () => void;
+  /**
+   * Ask one seat for help: append a collaboration request to its mailbox. The
+   * peer answers with ordinary crew mail, which is what the return path reads.
+   */
+  readonly seatCollaborationAsk: (
+    input: SeatCollaborationDraft,
+  ) => Promise<SeatCollaborationAskResult>;
 }
 
 // --- demo/scripting engine (--junto-demo only) ------------------------------

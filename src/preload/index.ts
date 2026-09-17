@@ -817,6 +817,8 @@ const terminalApi: JuntoTerminalApi = {
     invoke(IPC_CHANNELS.seatAwarenessSnapshot, IPC_TIMEOUT_MS),
   onSeatAwarenessChanged: (listener) =>
     subscribe(IPC_CHANNELS.seatAwarenessChanged, listener),
+  seatCollaborationAsk: (input) =>
+    invoke(IPC_CHANNELS.seatCollaborationAsk, IPC_TIMEOUT_MS, input),
 };
 
 const gitApi: JuntoGitApi = {

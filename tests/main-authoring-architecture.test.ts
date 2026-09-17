@@ -62,6 +62,9 @@ describe("main authoring architecture", () => {
       "ipc.work.board-notify",
       "ipc.work.board-post",
       "ipc.work.board-topic-create",
+      // Seat collaboration: the operator asks a peer for help, which appends
+      // mail to that seat's mailbox.
+      "ipc.work.collaboration-ask",
       "ipc.work.message-append",
       "ipc.work.pad-patch",
       "ipc.work.request-resolve",

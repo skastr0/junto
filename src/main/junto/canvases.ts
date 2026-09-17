@@ -202,6 +202,7 @@ export type CanvasReadTag =
   | "ipc.readCanvas"
   | "ipc.rendererActor"
   | "ipc.terminalManagedPrompt"
+  | "ipc.work.collaboration-ask"
   | "kernel.hydrateDoc"
   | "kernel.resyncDoc"
   | "kernel.wakeManagedSeat"

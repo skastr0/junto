@@ -43,6 +43,7 @@ export const MAIN_AUTHORING_LABELS = [
   "ipc.work.board-mark-read",
   "ipc.work.board-notify",
   "ipc.work.pad-patch",
+  "ipc.work.collaboration-ask",
   "delivery.message-stamp",
   "delivery.board-wake",
   "review.checkout",
