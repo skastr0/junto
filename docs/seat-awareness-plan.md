@@ -227,6 +227,19 @@ honest negatives:
   above fixes: `turn_in_progress` at or below 0.2 published 28 correct answers with zero
   errors while the yes side published 1.
 
+**Harness lessons live with the harness.** `tests/pty-e2e/jev/README.md` carries the four
+measured traps that cost real time, in the order they cost it: the sync fake-timer advance
+fails silently because the grid never absorbs the write and the snapshot never settles, so
+use the async variant with a zero-length per-feed drain; a derived Noul negative bar of
+`1 - 0.9` is 0.09999999999999998 and silently abstains at exactly 0.1, which cost two of
+nine correct negatives; the 7-way activity Choice has no ground truth in this corpus; and a
+re-score must join stored answers to the current manifest labels, or a label correction can
+never take effect. The manifest stays reproducible from the CLI with no test runner, which
+is why the stall frames are pinned by a test rather than carried in the manifest: a stall
+frame's label depends on injected time, so the same capture would label differently in
+different environments. The honest shape of a stalled checkpoint is a capture holding a
+real silence longer than the threshold.
+
 ## 8 - Workstream ownership
 
 | workstream | owns (new files only) | must not touch |

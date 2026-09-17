@@ -383,6 +383,16 @@ Recorded so they are not rediscovered:
   real-timer trace. The driven-clock trace is a different trace of the same
   capture: compare digests only within one timer mode. The pinned stall case in
   `replay.test.ts` is the only place a `turn-stalled` event is produced.
+- **Stall frames are deliberately NOT checkpoints (decision, not an oversight).**
+  A stalled working screen is a real labelled situation, so the obvious next
+  move is to drive the generator's clock and promote those cuts into the
+  manifest. Do not: a stall frame's label depends on INJECTED time, so the same
+  capture would label differently in different environments, and the drift test
+  would either rot or start lying about reproducibility. The manifest has to stay
+  reproducible from the CLI with no test runner, which is why `generate.ts`
+  takes no timer driver. The honest shape of a stalled checkpoint is a capture
+  that contains a REAL silence longer than the threshold, taken from a live seat
+  — a capture-side change for a future run, not a generator change now.
 - **The 128-line evidence cap never binds.** Every committed capture renders 32
   rows, so the offered window is `L000`…`L031` and the cap is implemented and
   asserted but untested against a taller grid.
@@ -453,3 +463,13 @@ what the confidence threshold is, so the Choice should be replaced by a narrower
 `is_tool_running` Noul until a capture paints distinguishable activities. The
 experiment is whether a capture that DOES paint them moves the falsifiable
 column; if it does not, the question is beyond the model, not the corpus.
+
+### Second candidate, capture-side
+
+A stalled checkpoint cannot come from the generator (see the last Known
+limitation), so the only way to label a real stall is to capture one: record a
+seat that goes quiet for longer than `turnStallMs` while its live-turn chrome is
+on screen, with no write in between. That capture would then carry a stalled
+working frame whose label is a screen fact rather than an injected-clock
+artefact, and `generate.ts` would pick it up unchanged. Both experiments are
+capture-side work, so they can share one recording pass.
