@@ -122,6 +122,15 @@ first version of this paragraph was false: the decoder normalized an absent fiel
 which supports the strong claim, so the stated safe direction was the unsafe one until the
 decode was fixed.
 
+**Jev is on by default (2026-09-17, operator decision).** The sidecar is the product, so a
+fresh install runs it; the setting is an opt-out (`advanced.seatAwareness: false`), surfaced
+in Settings as "Seat awareness (Jev)". The operator's reasoning: an experience that is
+substantially better with Jev and merely functional without it is not a reason to ship the
+functional version by default. What remains true is the honesty about each unavailable
+state, below. The privacy consequence is stated plainly and is the reason the opt-out is
+one click: with the sidecar on, bounded terminal text leaves the machine for enrolled local
+managed seats.
+
 **The disabled sidecar says so.** With awareness disabled the wiring constructs no client, and
 the scheduler publishes one judgment-free `unavailable` notice with reason `not_configured`, so
 the card reads UNAVAILABLE and names the reason. `NOT ASSESSED` stays reserved for a running
@@ -253,7 +262,8 @@ existing app-owned store. Keys never enter IPC, artifacts, or logs.
 - **PoC exit**: every displayed excerpt resolves to supplied evidence; accepted concerns
   meet a predeclared precision bar (initially 95%) with counts; enrichment is useful in at
   least 80% of displayed highlights as rated by the operator; freshness, cost, and failure
-  behavior meet the envelope; enrollment is explicit; no raw terminal text in ordinary logs.
+  behavior meet the envelope; the opt-out is reachable and reversible in Settings; no raw
+  terminal text in ordinary logs.
 
 ## 7 - Measured so far (2026-09-17, `scripts/jev-pty-poc.ts`)
 
@@ -355,7 +365,8 @@ a busy seat queues the notice and a cold seat is woken by it. Nothing is sent wi
 click: the awareness sidecar can suggest a peer and phrase the question, but it cannot
 reach a mailbox.
 
-**Where the suggestion comes from.** Deterministic first, so it works with the model gate
+**Where the suggestion comes from.** The ranking runs on the deterministic facts first, so it
+still produces a peer and a question when the sidecar is off or has no key (the model gate
 off: peers are agent seats on the same canvas, excluding the asking seat, seats with no
 binding, seats that have left, and seats already holding an unanswered request. Ranking is
 a topic overlap between the asking seat's own evidence (its label, its control detail, its

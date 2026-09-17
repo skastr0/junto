@@ -123,10 +123,11 @@ export const AdvancedSettings = Schema.Struct({
     ),
   ),
   /**
-   * Seat-awareness enrollment. A discovered environment key is not consent:
-   * absent or false means the advisory sidecar constructs no Jev client and
-   * publishes an honest `not_configured` notice instead. Optional so installed
-   * rows written before this field still decode (absent ≡ false, the default).
+   * Seat-awareness enrollment. The sidecar is ON unless this is explicitly
+   * false: it is the product, not an add-on. A discovered environment key is
+   * still not consent, so `false` builds no Jev client at all and publishes an
+   * honest `not_configured` notice instead. Optional so installed rows written
+   * before this field still decode (absent ≡ true, the product default).
    */
   seatAwareness: Schema.optionalKey(Schema.Boolean),
 });
@@ -862,7 +863,7 @@ export const defaultAdvanced = (): AdvancedSettings => ({
   openLastCanvas: true,
   logsExplorer: false,
   toolDirectories: [],
-  seatAwareness: false,
+  seatAwareness: true,
 });
 
 export const defaultHarnesses = (): HarnessesSettings => ({

@@ -59,9 +59,20 @@ export const SEAT_AWARENESS_API_KEY_ENV = "TYPESAFE_API_KEY";
 export type SeatAwarenessGateSource = "env-on" | "env-off" | "settings" | "default";
 
 /**
- * Resolve the enrollment gate. The environment override wins so a developer can
- * flip the sidecar without editing durable settings; absent an override, only
- * an explicit settings enrollment turns it on. Anything else is off.
+ * Resolve the enrollment gate.
+ *
+ * Jev is ON by default: a card that can say what a seat is doing and who could
+ * help is the experience, and a build that hides it behind an opt-in is a build
+ * nobody sees. A discovered environment key is still not consent, so the gate
+ * remains a real decision — it is now an opt-OUT rather than an opt-in.
+ *
+ *   JUNTO_AWARENESS=on|off  dev override, wins outright
+ *   settings false          the operator turned it off
+ *   anything else           on, including an absent field on an installed row
+ *
+ * Off builds no client at all and publishes one honest `not_configured` notice
+ * per observed binding; on with no key constructs no client either and
+ * publishes `missing_key`. Neither path touches a terminal.
  */
 export const resolveSeatAwarenessGate = (input: {
   readonly env: string | undefined;
@@ -70,13 +81,13 @@ export const resolveSeatAwarenessGate = (input: {
   const env = input.env?.trim().toLowerCase();
   if (env === "on") return { enabled: true, source: "env-on" };
   if (env === "off") return { enabled: false, source: "env-off" };
-  if (input.enrolled === true) return { enabled: true, source: "settings" };
-  return { enabled: false, source: "default" };
+  if (input.enrolled === false) return { enabled: false, source: "settings" };
+  return { enabled: true, source: input.enrolled === true ? "settings" : "default" };
 };
 
-/** The settings enrollment flag. Absent ≡ off (the product default). */
+/** The settings enrollment flag. Absent ≡ on; only an explicit false opts out. */
 export const seatAwarenessEnrolled = (settings: Settings): boolean =>
-  settings.advanced.seatAwareness === true;
+  settings.advanced.seatAwareness !== false;
 
 export const seatAwarenessApiKey = (
   env: NodeJS.ProcessEnv = process.env,

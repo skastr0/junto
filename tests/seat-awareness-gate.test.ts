@@ -1,9 +1,10 @@
 /**
- * Seat-awareness enrollment gate — the two decided first impressions.
+ * Seat-awareness enrollment gate — Jev is on by default, and off is an opt-out.
  *
- * A discovered environment key is not consent. This pins the gate resolution,
- * the settings-backed enrollment flag, and the two disabled paths end to end
- * through the composed plane:
+ * The sidecar is the product, so a fresh install runs it; what remains is a
+ * real decision to turn it off. This pins the gate resolution, the
+ * settings-backed flag, and the two disabled paths end to end through the
+ * composed plane:
  *
  *   off            no client is constructed, and every observed binding gets
  *                  exactly one judgment-free `not_configured` notice.
@@ -41,20 +42,20 @@ const settingsWith = (seatAwareness: boolean | undefined): Settings => {
 };
 
 describe("resolveSeatAwarenessGate", () => {
-  it("defaults off when nothing is enrolled and no override is set", () => {
+  it("defaults on when nothing is set: the sidecar is the product", () => {
     expect(resolveSeatAwarenessGate({ env: undefined, enrolled: undefined })).toEqual({
-      enabled: false,
+      enabled: true,
       source: "default",
     });
-    expect(resolveSeatAwarenessGate({ env: undefined, enrolled: false })).toEqual({
-      enabled: false,
-      source: "default",
+    expect(resolveSeatAwarenessGate({ env: undefined, enrolled: true })).toEqual({
+      enabled: true,
+      source: "settings",
     });
   });
 
-  it("turns on only for an explicit settings enrollment", () => {
-    expect(resolveSeatAwarenessGate({ env: undefined, enrolled: true })).toEqual({
-      enabled: true,
+  it("turns off only for an explicit opt-out", () => {
+    expect(resolveSeatAwarenessGate({ env: undefined, enrolled: false })).toEqual({
+      enabled: false,
       source: "settings",
     });
   });
@@ -76,14 +77,15 @@ describe("resolveSeatAwarenessGate", () => {
       enabled: true,
       source: "settings",
     });
-    expect(resolveSeatAwarenessGate({ env: "1", enrolled: undefined }).enabled).toBe(false);
+    expect(resolveSeatAwarenessGate({ env: "1", enrolled: undefined }).enabled).toBe(true);
+    expect(resolveSeatAwarenessGate({ env: "1", enrolled: false }).enabled).toBe(false);
   });
 
-  it("reads the settings enrollment flag, absent meaning off", () => {
-    expect(seatAwarenessEnrolled(defaultSettings())).toBe(false);
-    expect(seatAwarenessEnrolled(settingsWith(undefined))).toBe(false);
-    expect(seatAwarenessEnrolled(settingsWith(false))).toBe(false);
+  it("reads the settings flag, absent meaning on and false the opt-out", () => {
+    expect(seatAwarenessEnrolled(defaultSettings())).toBe(true);
+    expect(seatAwarenessEnrolled(settingsWith(undefined))).toBe(true);
     expect(seatAwarenessEnrolled(settingsWith(true))).toBe(true);
+    expect(seatAwarenessEnrolled(settingsWith(false))).toBe(false);
   });
 
   it("discovers the provider key from the environment without requiring it", () => {
