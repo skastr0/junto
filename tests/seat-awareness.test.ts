@@ -356,6 +356,54 @@ describe("seat awareness store", () => {
     expect(awarenessForBinding("b1")?.assessmentId).toBe("second");
   });
 
+  it("lets a raised concern win over an absence for the same concern", () => {
+    // The projection's two lists are mutually exclusive by construction, so this
+    // cannot arrive from a well-behaved producer. The rule is pinned anyway: a
+    // card must never say "AI suggests checking approval" and "checked and
+    // clear" about the same concern, and a raised concern is never suppressed.
+    applySeatAwarenessEvent(
+      assessmentEvent(
+        assessment({
+          bindingId: "b1",
+          activity: null,
+          concerns: ["approval_requested"],
+          absences: [
+            { concern: "approval_requested", probability: 0.02 },
+            { concern: "repetition", probability: 0.08 },
+            { concern: "repetition", probability: 0.09 },
+          ],
+        }),
+      ),
+    );
+    const stored = awarenessForBinding("b1");
+    expect(stored?.concerns).toEqual(["approval_requested"]);
+    expect(stored?.absences).toEqual([{ concern: "repetition", probability: 0.08 }]);
+    const view = seatAwarenessViewForBinding({
+      bindingId: "b1",
+      control: control(),
+      now: T0,
+    });
+    expect(view.cleared).toBe(false);
+    expect(view.aiLabel).toBe("AI suggests checking approval");
+    expect(view.sentence).not.toContain(SEAT_AWARENESS_CLEAR_LINE);
+
+    // And the view refuses the collision by construction even when a caller
+    // hands it an assessment that never passed ingest.
+    const direct = seatAwarenessView({
+      control: control(),
+      assessment: assessment({
+        bindingId: "b1",
+        activity: null,
+        concerns: ["approval_requested"],
+        absences: [{ concern: "approval_requested", probability: 0.02 }],
+      }),
+      now: T0,
+    });
+    expect(direct.cleared).toBe(false);
+    expect(direct.aiLabel).toBe("AI suggests checking approval");
+    expect(direct.availabilityLine).not.toBe(SEAT_AWARENESS_CLEAR_LINE);
+  });
+
   it("sanitizes and bounds every evidence line before any render can read it", () => {
     const hostile = [
       "before \u001b]8;;http://evil.example\u0007link\u001b]8;;\u0007 after",
@@ -698,11 +746,11 @@ describe("presentation", () => {
     expect(clear.cleared).toBe(true);
     expect(clear.availability).toBe("current");
     expect(clear.availabilityLabel).toBe("CURRENT");
-    expect(clear.availabilityLine).toBe(SEAT_AWARENESS_CLEAR_LINE);
+    expect(clear.aiLabel).toBe(SEAT_AWARENESS_CLEAR_LINE);
+    expect(clear.clearNote).toBeNull();
     expect(clear.sentence).toBe(
       "checked and clear - AI assessment, observed 8s ago",
     );
-    expect(clear.aiLabel).toBeNull();
     expect(clear.judgmentFreshness).toBe("current");
 
     // A stale decisive negative keeps the claim and withdraws only its currency.
@@ -720,12 +768,14 @@ describe("presentation", () => {
     expect(staleClear.cleared).toBe(true);
     expect(staleClear.availability).toBe("stale");
     expect(staleClear.availabilityLabel).toBe("LAST OBSERVED");
-    expect(staleClear.availabilityLine).toBe(SEAT_AWARENESS_CLEAR_LINE);
+    expect(staleClear.aiLabel).toBe(SEAT_AWARENESS_CLEAR_LINE);
     expect(staleClear.sentence).toBe(
       "checked and clear - AI assessment, last observed 8s ago",
     );
 
-    // The three "nothing to report" states never share copy.
+    // The three "nothing to report" states never share copy. Abstention and
+    // not-assessed do share the neutral line by design — they are told apart by
+    // their chip, which is why all four chips must differ.
     const abstained = seatAwarenessView({
       control: control(),
       assessment: assessment({
@@ -748,19 +798,74 @@ describe("presentation", () => {
       }),
       now: T0,
     });
-    // The decisive negative never shares the neutral line or the failure copy.
-    // Abstention and not-assessed do share the neutral line by design — they are
-    // told apart by their chip, which is why all four chips must differ.
-    expect(clear.availabilityLine).not.toBe(abstained.availabilityLine);
-    expect(clear.availabilityLine).not.toBe(failed.availabilityLine);
+    expect(clear.availabilityLine).toBe(SEAT_AWARENESS_NEUTRAL_LINE);
     expect(abstained.availabilityLine).toBe(SEAT_AWARENESS_NEUTRAL_LINE);
     expect(absent.availabilityLine).toBe(SEAT_AWARENESS_NEUTRAL_LINE);
+    expect(clear.aiLabel).not.toBe(failed.availabilityLine);
     const labels = [clear, abstained, absent, failed].map((view) => view.availabilityLabel);
     expect(new Set(labels).size).toBe(4);
     expect(labels).toEqual(["CURRENT", "NO JUDGMENT", "NOT ASSESSED", "UNAVAILABLE"]);
     expect(abstained.cleared).toBe(false);
     expect(absent.cleared).toBe(false);
     expect(failed.cleared).toBe(false);
+  });
+
+  it("does not let the projection's indeterminate activity pre-empt a decisive negative", () => {
+    // The projection publishes `indeterminate` whenever no activity property
+    // won, which is every assessment that has no activity finding. Read as a
+    // finding it would take the headline and the decisive negative would never
+    // render, which is what the real corpus showed before this rule.
+    const clear = seatAwarenessView({
+      control: control(),
+      assessment: assessment({
+        bindingId: "b1",
+        activity: "indeterminate",
+        concerns: [],
+        selectedLineId: null,
+        absences: [{ concern: "execution_error", probability: 0.04 }],
+      }),
+      now: T0 + 8_000,
+    });
+    expect(clear.cleared).toBe(true);
+    expect(clear.aiLabel).toBe(SEAT_AWARENESS_CLEAR_LINE);
+    expect(clear.clearNote).toBeNull();
+
+    // With nothing ruled out, `indeterminate` is still the honest headline.
+    const unclear = seatAwarenessView({
+      control: control(),
+      assessment: assessment({
+        bindingId: "b1",
+        activity: "indeterminate",
+        concerns: [],
+        selectedLineId: null,
+        absences: [],
+      }),
+      now: T0 + 8_000,
+    });
+    expect(unclear.cleared).toBe(false);
+    expect(unclear.aiLabel).toBe("Activity unclear");
+    expect(unclear.judgmentFreshness).toBe("current");
+    expect(unclear.availabilityLabel).toBe("CURRENT");
+  });
+
+  it("keeps the cleared fact on the surface when a finding takes the headline", () => {
+    const view = seatAwarenessView({
+      control: control(),
+      assessment: assessment({
+        bindingId: "b1",
+        activity: "testing",
+        concerns: [],
+        selectedLineId: null,
+        absences: [{ concern: "repetition", probability: 0.08 }],
+      }),
+      now: T0 + 8_000,
+    });
+    expect(view.cleared).toBe(true);
+    expect(view.aiLabel).toBe("Likely testing");
+    expect(view.clearNote).toBe(SEAT_AWARENESS_CLEAR_LINE);
+    expect(view.sentence).toBe(
+      "Likely testing - checked and clear - AI assessment, observed 8s ago",
+    );
   });
 
   it("attributes the excerpt to its own observation age", () => {

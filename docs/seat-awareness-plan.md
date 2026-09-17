@@ -62,6 +62,25 @@ generation invalidation, not an AI conclusion; `done` stays the renderer's idle+
 derivation and hovering never marks a seat seen; an unavailable provider never lowers
 canonical attention.
 
+**`indeterminate` is not a finding (decided 2026-09-17 from a real-wire defect).** The
+projection publishes `activity: "indeterminate"` whenever no activity property was
+established, which is a different fact from the model answering indeterminate. So
+`indeterminate` makes an observation a judgment, but it is never a finding: it does not take
+the headline and it never pre-empts a decisive negative. Workstream D found this on the real
+chain, where a decisive negative for every concern rendered "Activity unclear" and the
+clear fact never surfaced; the renderer now ranks headline claims as concern, then a
+determinate activity, then checked and clear, then activity unclear, and shows a clear fact
+as a secondary line beneath any stronger finding rather than replacing it. No finding is
+ever hidden by a clear one.
+
+**A concern and its absence never coexist.** Each Noul answer lands in exactly one branch of
+the projection (at or above the present bar, at or below the absent bar, or the silent band
+between), and the concerns list is built by reading only the accepted map, so the wire
+cannot carry both for one concern from one observation. Measured on ten real captures with
+constructed responses: zero collisions, and a bar sweep at 0.1 and 0.1000001 produces
+absence then silence, with no value producing both. The renderer still pins the guard at
+ingest and at presentation, and the raised concern wins if it ever fires.
+
 Every accepted judgment carries provenance: `bindingId, epoch, sourceSeq, evidenceHash,
 observedAt, questionPackVersion, requestedModel, returnedModel, answers, evidence line
 reference`. Model probabilities are not `AgentSeatConfidence`.

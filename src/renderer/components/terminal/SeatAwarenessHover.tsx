@@ -94,6 +94,9 @@ export function SeatAwarenessHover({
             <p className="text-[12px] leading-snug text-ink">
               {view.aiLabel ?? view.availabilityLine}
             </p>
+            {view.clearNote ? (
+              <p className="text-[10px] text-faint">{view.clearNote}</p>
+            ) : null}
             {view.concernTexts.length > 1 ? (
               <div className="flex flex-wrap gap-1">
                 {view.concernTexts.slice(1).map((text) => (

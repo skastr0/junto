@@ -212,6 +212,13 @@ const sanitizeEvidenceLineText = (raw: string): string =>
  * Ingest hygiene: bound the window, sanitize every line, dedupe and bound the
  * concerns and the accepted absences. Runs once, before an observation can be
  * read by any renderer.
+ *
+ * The projection builds its concerns from accepted Noul answers only and its
+ * absences from rejected ones, so the two lists are mutually exclusive by
+ * construction. The rule is pinned here anyway because the failure it prevents
+ * is a card that says both things at once: if a concern and an absence ever
+ * arrive for the same concern, the concern wins and the absence is dropped. A
+ * raised concern is never suppressed by an absence.
  */
 const sanitizeAssessment = (
   assessment: SeatAwarenessAssessment,
@@ -220,8 +227,10 @@ const sanitizeAssessment = (
   for (const concern of assessment.concerns) {
     if (!concerns.includes(concern)) concerns.push(concern);
   }
+  const raised = new Set(concerns);
   const absences: SeatAwarenessAbsence[] = [];
   for (const absence of assessment.absences ?? []) {
+    if (raised.has(absence.concern)) continue;
     if (absences.some((entry) => entry.concern === absence.concern)) continue;
     absences.push({ concern: absence.concern, probability: absence.probability });
   }
@@ -448,6 +457,12 @@ export type SeatAwarenessView = {
    * abstention — the surface says checked and clear rather than no judgment.
    */
   readonly cleared: boolean;
+  /**
+   * "checked and clear" shown beneath a headline finding, when a determinate
+   * activity took the headline. Null when the clear line is already the
+   * headline, or when there is nothing clear to report.
+   */
+  readonly clearNote: string | null;
   /** Absences behind a decisive negative, for provenance and tests. */
   readonly absences: readonly SeatAwarenessAbsence[];
   /** Extractive excerpt from THIS observation's window; never generated. */
@@ -541,13 +556,29 @@ export const seatAwarenessView = (
   const activityLabel = judgment?.activity
     ? SEAT_AWARENESS_ACTIVITY_COPY[judgment.activity]
     : null;
+  // `indeterminate` is the projection's "no activity property won" marker and
+  // travels on every assessment that has no activity finding, so it must never
+  // be read as a finding: it would otherwise pre-empt a decisive negative.
+  const activityFindingLabel =
+    judgment?.activity !== null &&
+    judgment?.activity !== undefined &&
+    judgment.activity !== "indeterminate"
+      ? SEAT_AWARENESS_ACTIVITY_COPY[judgment.activity]
+      : null;
   const concerns = judgment?.concerns ?? [];
   const concernTexts = concerns.map((concern) => SEAT_AWARENESS_CONCERN_COPY[concern]);
-  const aiLabel = concernTexts[0] ?? activityLabel ?? null;
   // A decisive negative: the model answered, and the answer was "nothing to
   // report". Distinct from an abstention, which is no answer at all.
   const absences = judgment?.absences ?? [];
-  const cleared = judgment !== undefined && aiLabel === null && absences.length > 0;
+  const clearLine =
+    judgment !== undefined && concerns.length === 0 && absences.length > 0
+      ? SEAT_AWARENESS_CLEAR_LINE
+      : null;
+  const aiLabel =
+    concernTexts[0] ?? activityFindingLabel ?? clearLine ?? activityLabel ?? null;
+  // When a real finding takes the headline, the cleared fact is still on the
+  // surface rather than dropped.
+  const clearNote = clearLine !== null && aiLabel !== clearLine ? clearLine : null;
 
   const excerptDisplay = judgment
     ? resolveExcerptDisplay(judgment, { now: input.now })
@@ -566,18 +597,15 @@ export const seatAwarenessView = (
       ? (assessment?.unavailableReason
           ? SEAT_AWARENESS_UNAVAILABLE_COPY[assessment.unavailableReason]
           : SEAT_AWARENESS_UNAVAILABLE_FALLBACK)
-      : cleared
-        ? SEAT_AWARENESS_CLEAR_LINE
-        : SEAT_AWARENESS_NEUTRAL_LINE;
+      : SEAT_AWARENESS_NEUTRAL_LINE;
 
-  const sentenceParts: string[] = [
-    aiLabel ?? (cleared ? SEAT_AWARENESS_CLEAR_LINE : control.label),
-  ];
+  const sentenceParts: string[] = [aiLabel ?? control.label];
+  if (clearNote) sentenceParts.push(clearNote);
   if (excerpt && excerptLabel) {
     sentenceParts.push(`${excerptLabel}: '${excerpt}'`);
   }
   if (freshness) sentenceParts.push(freshness);
-  if (!aiLabel && !cleared) sentenceParts.push(availabilityLine);
+  if (!aiLabel) sentenceParts.push(availabilityLine);
 
   return {
     availability,
@@ -590,7 +618,8 @@ export const seatAwarenessView = (
     concerns,
     concernTexts,
     judgmentFreshness,
-    cleared,
+    cleared: clearLine !== null,
+    clearNote,
     absences,
     excerpt,
     excerptLabel,

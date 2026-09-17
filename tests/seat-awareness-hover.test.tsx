@@ -143,7 +143,7 @@ describe("fresh, stale, abstained, and unavailable states", () => {
     const html = render({
       assessment: assessment({
         bindingId: "b1",
-        activity: null,
+        activity: "indeterminate",
         concerns: [],
         selectedLineId: null,
         absences: [{ concern: "execution_error", probability: 0.04 }],
@@ -159,6 +159,23 @@ describe("fresh, stale, abstained, and unavailable states", () => {
     expect(html).not.toContain("recent terminal output available");
     // And it is not the deterministic fallback either.
     expect(html).not.toContain("NOT ASSESSED");
+  });
+
+  it("keeps the cleared fact visible under a determinate activity", () => {
+    const html = render({
+      assessment: assessment({
+        bindingId: "b1",
+        activity: "testing",
+        concerns: [],
+        selectedLineId: null,
+        absences: [{ concern: "repetition", probability: 0.08 }],
+      }),
+    });
+    expect(html).toContain('data-awareness-cleared="true"');
+    expect(html).toContain("Likely testing");
+    expect(html).toContain("checked and clear");
+    expect(html).toContain("CURRENT");
+    expect(html).not.toContain("NO JUDGMENT");
   });
 
   it("keeps a stale decisive negative clear while withdrawing its currency", () => {
