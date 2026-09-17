@@ -174,6 +174,22 @@ export class TerminalObserverPlane {
     return this.byBinding.get(bindingId)?.readWindow(lines);
   }
 
+  /**
+   * Sync, non-flushing form of `readWindow` for background analysis.
+   *
+   * A sync read cannot interleave with a detach, so the single lookup is
+   * atomic and no retry loop is needed; the returned window carries its own
+   * epoch, so a caller that outlives the generation can still see which one it
+   * read. The seat-awareness scheduler reads through this and never through
+   * `readWindow`, which awaits settlement.
+   */
+  readWindowNow(
+    bindingId: string,
+    lines: number,
+  ): import("./types").ObserverGridWindow | undefined {
+    return this.byBinding.get(bindingId)?.readWindowNow(lines);
+  }
+
   subscribeAll(listener: ObserverListener): () => void {
     this.globalListeners.add(listener);
     // A live PTY may have emitted its only readiness screen before a
