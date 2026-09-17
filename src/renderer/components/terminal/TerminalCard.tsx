@@ -11,6 +11,11 @@ import {
   presentationForSeat,
   subscribeAgentSeatState,
 } from "../../lib/agent-seat-state";
+import {
+  seatAwareness$,
+  subscribeSeatAwareness,
+  type SeatAwarenessControl,
+} from "../../lib/seat-awareness";
 import { isActiveProcessLabel } from "../../lib/activity";
 import {
   cardMark,
@@ -29,6 +34,7 @@ import { renameTerminalNode } from "../../lib/mutations";
 import { ClaimedTaskStrip } from "../nodes/ClaimedTaskStrip";
 import { ExecutionCardHeader } from "../nodes/ExecutionCardHeader";
 import { FirstLineRenameInput } from "../nodes/FirstLineRenameInput";
+import { SeatAwarenessHover } from "./SeatAwarenessHover";
 
 const launchSummary = (
   launch:
@@ -72,6 +78,13 @@ export function TerminalCard({
       native?.bindingId ?? "__junto-terminal-no-binding__"
     ],
   );
+  // Advisory sidecar: display only. The store decodes strictly, so a malformed
+  // or absent producer leaves this undefined and the card renders unchanged.
+  const awarenessAssessment = use$(
+    seatAwareness$.byBindingId[
+      native?.bindingId ?? "__junto-terminal-no-binding__"
+    ],
+  );
   const attentionReasons = useNodeAttentionReasons(node);
 
   const applySession = (next: TerminalSessionSummary | undefined) => {
@@ -100,6 +113,7 @@ export function TerminalCard({
 
   useEffect(() => {
     subscribeAgentSeatState();
+    subscribeSeatAwareness();
     void refresh();
     // Routed by binding, so this card is no longer woken by every other
     // terminal's PTY output. shouldRefreshSessionFromTerminalEvent is a
@@ -199,9 +213,18 @@ export function TerminalCard({
     launchSummary(native.launch);
 
   const complete = activity.mode === "pulse" && activity.tone === "green";
+  // Canonical deterministic status echoed unchanged into the awareness hover.
+  // Awareness never replaces it; canonical attention always wins at display.
+  const awarenessControl: SeatAwarenessControl = {
+    state: presentation ?? seatState,
+    label: activity.label,
+    tone: activity.tone,
+    pulse: activity.mode === "pulse",
+    detail: subtitle,
+  };
   return (
     <div
-      className="group relative flex h-full w-full flex-col justify-between overflow-hidden"
+      className="group relative flex h-full w-full flex-col"
       title="Open terminal"
       data-seat-state={presentation ?? seatState}
       data-exit-reason={exitReason}
@@ -209,40 +232,54 @@ export function TerminalCard({
       data-process-name={processName}
       data-seat-complete={complete ? "true" : undefined}
     >
-      <ExecutionCardHeader
-        decal={
-          <div className="grid size-7 shrink-0 place-items-center rounded-md border border-amber/25 bg-amber/[0.07] text-amber">
-            <SquareTerminal size={15} />
-          </div>
-        }
-        title={
-          renaming && onRenameDone ? (
-            <FirstLineRenameInput
-              initial={label}
-              ariaLabel="Rename terminal"
-              onCommit={commitRename}
-              onDone={onRenameDone}
-            />
-          ) : (
-            <div
-              className="truncate font-mono text-[14px] font-semibold leading-snug text-ink"
-              title={label}
-            >
-              {label}
+      <div className="flex h-full w-full flex-col justify-between overflow-hidden">
+        <ExecutionCardHeader
+          decal={
+            <div className="grid size-7 shrink-0 place-items-center rounded-md border border-amber/25 bg-amber/[0.07] text-amber">
+              <SquareTerminal size={15} />
             </div>
-          )
-        }
-        subtitle={subtitle}
-        activity={
-          seatState === "attention" && seatEvent?.reason
-            ? { ...activity, label: seatEvent.reason }
-            : activity
-        }
-      />
-      <div className="mt-1 truncate text-[10px] tabular-nums text-dim">
-        {native.hostId}
+          }
+          title={
+            renaming && onRenameDone ? (
+              <FirstLineRenameInput
+                initial={label}
+                ariaLabel="Rename terminal"
+                onCommit={commitRename}
+                onDone={onRenameDone}
+              />
+            ) : (
+              <div
+                className="truncate font-mono text-[14px] font-semibold leading-snug text-ink"
+                title={label}
+              >
+                {label}
+              </div>
+            )
+          }
+          subtitle={subtitle}
+          activity={
+            seatState === "attention" && seatEvent?.reason
+              ? { ...activity, label: seatEvent.reason }
+              : activity
+          }
+        />
+        <div className="mt-1 truncate text-[10px] tabular-nums text-dim">
+          {native.hostId}
+        </div>
+        {TASKS_ENABLED ? <ClaimedTaskStrip node={node} /> : null}
       </div>
-      {TASKS_ENABLED ? <ClaimedTaskStrip node={node} /> : null}
+      {/*
+       * Glance surface only: the advisory hover is revealed on card hover and
+       * carries no control. It lives outside the clipped card body so the
+       * popover is not cut off by the card's own overflow.
+       */}
+      <div className="absolute left-0 top-full z-50 hidden pt-1 group-hover:block">
+        <SeatAwarenessHover
+          bindingId={native.bindingId}
+          control={awarenessControl}
+          assessment={awarenessAssessment}
+        />
+      </div>
     </div>
   );
 }

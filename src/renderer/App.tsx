@@ -30,6 +30,7 @@ import { startSettingsBridge, closeSettings } from "./lib/settings-state";
 import { startThemeMode } from "./lib/theme-mode";
 import { startUpdateBridge } from "./lib/update-state";
 import { subscribeAgentSeatState } from "./lib/agent-seat-state";
+import { subscribeSeatAwareness } from "./lib/seat-awareness";
 import { installCompletedNotifyTestHook } from "./lib/completed-task-notify";
 import { installActorMirrorHotkeys } from "./lib/actor-mirrors";
 import { installFocusSwitcherHotkeys } from "./lib/focus-switcher";
@@ -383,6 +384,9 @@ export function App() {
     // Managed-agent seat state (attention/working) — subscribe early so canvas
     // node chrome paints before any TerminalCard mounts.
     const stopAgentSeat = subscribeAgentSeatState();
+    // Advisory seat awareness — same early subscription so a card that mounts
+    // later already holds the latest judgment for its binding.
+    const stopSeatAwareness = subscribeSeatAwareness();
     installCompletedNotifyTestHook();
     // Freeze continuous CSS when the page is hidden / reduced-motion so the
     // GPU helper can drop off the fan curve (fleet closed is not enough).
@@ -438,6 +442,7 @@ export function App() {
       stopSettings?.();
       stopUpdate?.();
       stopAgentSeat?.();
+      stopSeatAwareness?.();
       stopSurfaceMotion();
     };
   }, []);
