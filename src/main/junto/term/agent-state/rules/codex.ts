@@ -58,10 +58,15 @@ export const codexRules: SeatRulePack = {
           // Startup modals (no OSC title): directory trust + hooks review.
           { contains: ["do you trust the files in this folder"] },
           { contains: ["trust this directory"] },
-          // Real codex v0.147.0 directory-trust modal (pre-TUI, blocking):
-          // "Do you trust the contents of this directory?" / "Working with
-          // untrusted contents comes with higher risk of prompt injection."
-          // — captured verbatim (P1 startup-idle fixture).
+          // Codex directory-trust modal (pre-TUI, blocking).
+          // Provenance corrected 2026-09-17: none of these literals is in the
+          // committed codex/startup-idle capture (a scan of its decoded bytes
+          // finds no trust or hooks strings), so the earlier "captured verbatim
+          // (P1 startup-idle fixture)" claim was false and
+          // codex.trust_or_approval is recorded unobserved by the evaluation
+          // harness. The matcher stays because it is fail-closed attention and
+          // costs nothing when absent; ground it with a real capture before
+          // treating it as evidence.
           { contains: ["do you trust the contents of this directory"] },
           { contains: ["working with untrusted contents"] },
           { contains: ["review the hooks that will run"] },
