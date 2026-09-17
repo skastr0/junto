@@ -110,6 +110,16 @@ reference`. Model probabilities are not `AgentSeatConfidence`.
   confidence >= 0.8 and top probability >= 0.8; noul concerns accepted at >= 0.9;
   otherwise abstain and say so. Independently evaluated questions are not independent
   evidence: never multiply their probabilities.
+- **A Noul is two-sided (decided 2026-09-17 from the held-out measurement).** A Noul
+  carries as much information in a confident no as in a confident yes, and the first
+  policy threw the no side away: on the frozen holdout, `turn_in_progress` published
+  1 answer above 0.9 while 28 answers at or below 0.2 were all correct, and every
+  concern question was wrong zero times at every threshold tested. So a Noul publishes
+  a negative verdict at <= 0.1 as well, and only the band between the two bars is an
+  abstention. For concerns, a negative is an accepted absence, which is what lets the
+  surface distinguish "checked and clear" from "not assessed". For `turn_in_progress`,
+  a negative is a cross-check against the control plane rather than a displayed state,
+  because the deterministic engine already owns idle versus working.
 - **Envelope**: 20 to 60 calls per active seat-hour, 2k to 4k input tokens per call,
   hard caps 120 calls/seat/hour and 1000/station/hour, ceilings $0.025/seat/hour,
   $0.20/station/hour, $1/station/day. Provider p50 <= 300ms; event-to-fresh-advisory p50
@@ -162,6 +172,38 @@ existing app-owned store. Keys never enter IPC, artifacts, or logs.
   references it.
 - Choice-option order was stable on a decisive screen (0.91 versus 0.94 confidence, same
   label). The Pulsar order-sensitivity failure did not reproduce here, on one case.
+
+## 7a - Held-out evaluation (2026-09-17, workstream A's harness, run by the parent)
+
+Frozen split, 42 checkpoints over 10 captures reserved before the run, 42 calls, 0 errors,
+158,545 input and 23,964 output tokens, **$0.006659**, p50 136 ms, max 482 ms, model
+`jev-1.13.0`. Deterministic trace digests unchanged before and after the paid calls on all
+9 captures read: the authority boundary held under real traffic.
+
+| question | published (>= 0.9) | correct | wrong | abstained |
+|---|---|---|---|---|
+| approval_requested | 7 | 7 | 0 | 10 |
+| access_problem | 17 | 17 | 0 | 10 |
+| execution_error | 13 | 12 | 0 | 13 |
+| answer_requested | 11 | 3 | 0 | 23 |
+| turn_in_progress | 1 | 0 | 0 | 34 |
+| activity | 37 | 34 (all `indeterminate` against an `indeterminate` label) | 3 | 0 |
+| highlight_line | 13 | 13 | 5 mismatched | 24 |
+
+Read this as precision-first with low coverage, which is the safe direction, plus two
+honest negatives:
+
+- **The concern questions were never wrong**, at any threshold tested, on any checkpoint.
+  Access problems, approval prompts, and live execution failures are the value: those are
+  exactly where the deterministic rules are weakest.
+- **The activity taxonomy produced no grounded signal.** All 42 labels are `indeterminate`
+  because no rendered live chrome in this corpus carries an activity marker, so the 34
+  agreements are agreement on "nothing to say" and the 3 non-`indeterminate` answers are
+  ungrounded. The earlier "3/10 agreement" figure was an unanswerable question, not a model
+  failure. Activity stays marked unmeasured until a capture paints distinguishable work.
+- **The `no` side of every Noul was being discarded**, which is what the two-sided rule
+  above fixes: `turn_in_progress` at or below 0.2 published 28 correct answers with zero
+  errors while the yes side published 1.
 
 ## 8 - Workstream ownership
 
