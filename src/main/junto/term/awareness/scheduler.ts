@@ -196,6 +196,15 @@ export type AwarenessAdvisory = {
    * absences are control-plane cross-checks and never appear here.
    */
   readonly absences: readonly AwarenessAbsence[];
+  /**
+   * Concerns whose question was asked but not decisively answered, exactly as
+   * the projection reported them. Display content about concerns and nothing
+   * else: it never reaches the control plane, and nothing is filtered out of it.
+   * Empty means every concern the pack could ask was decisively answered, which
+   * is the only case that supports the display's strong "checked and clear"
+   * claim.
+   */
+  readonly unansweredConcerns: readonly AiConcernValue[];
   /** The judged observation's id -> line mapping: the only excerpt source. */
   readonly evidenceLines: readonly EvidenceLine[];
   /** Digest of the window the displayed assessment was made against. */
@@ -205,13 +214,6 @@ export type AwarenessAdvisory = {
   readonly windowCapturedAt: number | undefined;
   readonly availability: AwarenessPublishedAvailability | undefined;
   readonly unavailableReason: AwarenessPublishedUnavailableReason | null;
-  /**
-   * Set when a bound declined to spend a call. The published vocabulary has no
-   * member for a cap or budget refusal that no attempt was made for, so the
-   * refusal is reported here in the renderer's own vocabulary and the parent's
-   * IPC decides whether to publish it.
-   */
-  readonly refusal: AwarenessPublishedUnavailableReason | undefined;
   readonly status: AwarenessAdvisoryStatus;
   readonly reason: string | undefined;
   /** A request is coalescing or in flight right now. */
@@ -229,13 +231,13 @@ const emptyAdvisory = (
   assessmentId: undefined,
   assessment: undefined,
   absences: [],
+  unansweredConcerns: [],
   evidenceLines: [],
   evidenceDigest: undefined,
   windowDigest: undefined,
   windowCapturedAt: undefined,
   availability: undefined,
   unavailableReason: null,
-  refusal: undefined,
   status,
   reason,
   pending: false,
@@ -250,13 +252,13 @@ const advisorySignature = (advisory: AwarenessAdvisory): string =>
     advisory.reason ?? "",
     advisory.availability ?? "",
     advisory.unavailableReason ?? "",
-    advisory.refusal ?? "",
     advisory.assessmentId ?? "",
     advisory.windowDigest ?? "",
     advisory.windowCapturedAt ?? "",
     advisory.evidenceDigest ?? "",
     advisory.trigger ?? "",
     advisory.absences.map((absence) => `${absence.concern}:${absence.probability}`).join(","),
+    advisory.unansweredConcerns.join(","),
     advisory.evidenceLines.map((line) => `${line.id}=${line.text}`).join("\u0001"),
     advisory.assessment === undefined
       ? ""
@@ -580,6 +582,25 @@ export const makeAwarenessScheduler = (deps: AwarenessSchedulerDeps): AwarenessS
     return retained.expiresAt > t ? retained : undefined;
   };
 
+  /**
+   * The projection's reason, in the renderer's own vocabulary. `missing_key` is
+   * the producer's word for a key that was never configured, so it is decided by
+   * the caller; everything the projection can report is either the shared
+   * `not_configured`/`budget_exhausted` or a provider failure.
+   */
+  const publishedReasonFor = (
+    reason: AwarenessAssessment["unavailableReason"],
+  ): AwarenessPublishedUnavailableReason => {
+    switch (reason) {
+      case "not_configured":
+        return "not_configured";
+      case "budget_exhausted":
+        return "budget_exhausted";
+      default:
+        return "provider_failure";
+    }
+  };
+
   const publishedFor = (
     assessment: AwarenessAssessment,
   ): { availability: AwarenessPublishedAvailability | undefined; unavailableReason: AwarenessPublishedUnavailableReason | null } => {
@@ -590,9 +611,7 @@ export const makeAwarenessScheduler = (deps: AwarenessSchedulerDeps): AwarenessS
         return {
           availability: "unavailable",
           unavailableReason: deps.modelAvailable
-            ? assessment.unavailableReason === "not_configured"
-              ? "not_configured"
-              : "provider_failure"
+            ? publishedReasonFor(assessment.unavailableReason)
             : "missing_key",
         };
       default:
@@ -642,13 +661,13 @@ export const makeAwarenessScheduler = (deps: AwarenessSchedulerDeps): AwarenessS
       assessmentId: retained?.assessmentId,
       assessment: retained?.assessment,
       absences: absencesFor(retained?.assessment),
+      unansweredConcerns: retained?.assessment.unansweredConcerns ?? [],
       evidenceLines: retained?.evidenceLines ?? [],
       evidenceDigest: retained?.evidenceDigest,
       windowDigest: seat.windowDigest,
       windowCapturedAt: seat.windowCapturedAt,
       availability: published?.availability,
       unavailableReason: published?.unavailableReason ?? null,
-      refusal: seat.refused !== undefined ? "budget_exhausted" : undefined,
       status,
       reason: seat.refused ?? seat.gate ?? seat.lastFailure,
       pending: seat.pending !== undefined || seat.inFlight !== undefined,
@@ -1047,6 +1066,25 @@ export const makeAwarenessScheduler = (deps: AwarenessSchedulerDeps): AwarenessS
     if (refusal !== undefined) {
       refuse(refusal);
       seat.refused = refusal;
+      // A cap or budget bound declined the call, and no call is charged for
+      // saying so. A seat holding a judgment keeps it; a seat with nothing
+      // displayable is owed one honest notice, in the renderer's own vocabulary.
+      if (seat.retained === undefined || !seat.retained.displayable) {
+        seat.retained = {
+          assessment: deps.unavailable({
+            request: state,
+            reason: "budget_exhausted",
+            detail: refusal,
+          }),
+          evidenceLines: state.evidenceLines,
+          evidenceDigest: seat.windowDigest ?? state.evidenceHash,
+          assessmentId: assessmentIdFor(state),
+          observedAt: state.observedAt,
+          expiresAt: t + config.cacheTtlMs,
+          displayable: false,
+        };
+        armExpiryTimer();
+      }
       emit(seat);
       return;
     }

@@ -37,6 +37,7 @@ import {
   type FakeProjectionPort,
   type FakeSeatPort,
   type ManualTimers,
+  unansweredOutcome,
 } from "./helpers/awareness-fakes";
 
 type Harness = {
@@ -419,9 +420,32 @@ describe("caps and budget", () => {
     expect(h.scheduler.stats().refusals["seat call cap"]).toBe(1);
     const refused = h.scheduler.advisory("s1");
     expect(refused.status).toBe("refused");
-    // The renderer's own vocabulary for a refusal no attempt was made for.
-    expect(refused.refusal).toBe("budget_exhausted");
     expect(refused.reason).toBe("seat call cap");
+    // A cap refusal never replaces a judgment the seat already holds.
+    expect(refused.availability).toBe("current");
+    expect(refused.unavailableReason).toBeNull();
+    expect(refused.assessment?.unavailableReason).toBeUndefined();
+  });
+
+  it("publishes a budget refusal as a real unavailable assessment when nothing is displayable", async () => {
+    const pricing = { inputUsdPerMTokens: 0.042, outputUsdPerMTokens: 0 };
+    const h = harness({ seatUsdPerHour: 0, pricing });
+    h.observe("s1", "screen 1");
+    h.timers.advance(300);
+    await h.scheduler.drain();
+
+    // The bound declined before sending: no call, no charge.
+    expect(h.model.count()).toBe(0);
+    expect(h.scheduler.stats().refusals["seat budget"]).toBe(1);
+    const refused = h.scheduler.advisory("s1");
+    expect(refused.status).toBe("refused");
+    expect(refused.reason).toBe("seat budget");
+    // One vocabulary end to end: the refusal is a real assessment the parent's
+    // IPC forwards as it stands, with no reason of its own to synthesize.
+    expect(refused.availability).toBe("unavailable");
+    expect(refused.unavailableReason).toBe("budget_exhausted");
+    expect(refused.assessment?.availability).toBe("unavailable");
+    expect(refused.assessment?.unavailableReason).toBe("budget_exhausted");
   });
 
   it("stops the station at its hourly call cap", async () => {
@@ -896,6 +920,36 @@ describe("advisory emission", () => {
     expect(advisory.absences).toEqual([{ concern: "execution_error", probability: 0.05 }]);
     // Absences are part of the display, so a change in them must reach it.
     expect(h.advisories.some((entry) => entry.absences.length === 1)).toBe(true);
+  });
+
+  it("carries unanswered concerns unfiltered so the weak claim is not read as clear", async () => {
+    const h = harness({}, { auto: false, build: unansweredOutcome });
+    h.observe("s1");
+    h.timers.advance(300);
+    h.model.settleAt(0, unansweredOutcome(h.model.calls[0]!.ask));
+    await h.scheduler.drain();
+    const advisory = h.scheduler.advisory("s1");
+    expect(advisory.availability).toBe("current");
+    // One concern was ruled out and two were asked without an answer, so the
+    // display must not claim checked and clear: both lists travel together.
+    expect(advisory.absences).toEqual([{ concern: "execution_error", probability: 0.05 }]);
+    // The projection's own list, unfiltered and in its own order.
+    expect(advisory.unansweredConcerns).toEqual(["answer_requested", "access_problem"]);
+    // Display content about concerns, so a change in it must reach the display.
+    expect(h.advisories.some((entry) => entry.unansweredConcerns.length === 2)).toBe(true);
+  });
+
+  it("claims nothing unanswered before an assessment, and nothing from a failure", async () => {
+    const h = harness({}, { auto: false });
+    expect(h.scheduler.advisory("s1").unansweredConcerns).toEqual([]);
+    h.observe("s1");
+    h.timers.advance(300);
+    h.model.failWith("transport");
+    await h.scheduler.drain();
+    const failed = h.scheduler.advisory("s1");
+    // A failure notice carries no verdict, so it claims nothing about concerns.
+    expect(failed.availability).toBe("unavailable");
+    expect(failed.unansweredConcerns).toEqual([]);
   });
 
   it("carries accepted absences so checked-and-clear is distinguishable", async () => {

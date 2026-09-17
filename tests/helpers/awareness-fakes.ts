@@ -362,6 +362,33 @@ export const negativesOnlyOutcome = (ask: AwarenessAsk): AwarenessAskOutcome => 
   usage: { inputTokens: 1_200, outputTokens: 40 },
 });
 
+/**
+ * A ruled-out concern plus an unanswered-concern list: the "nothing raised, but
+ * not everything was answered" case the display must not read as checked and
+ * clear. The list is pinned rather than derived, so the advisory's pass-through
+ * can be asserted without depending on the projection's own derivation.
+ */
+export const unansweredOutcome = (ask: AwarenessAsk): AwarenessAskOutcome => ({
+  assessment: {
+    ...projectAwarenessAnswers(ask.request, {
+      packVersion: ask.request.packVersion,
+      requestedModel: "jev-test",
+      returnedModel: "jev-test-1",
+      answers: [
+        {
+          questionId: "concern.execution_error",
+          evidenceHash: ask.request.evidenceHash,
+          kind: "noul",
+          probability: 0.05,
+        },
+      ],
+    }),
+    unansweredConcerns: ["answer_requested", "access_problem"],
+  },
+  failure: undefined,
+  usage: { inputTokens: 1_200, outputTokens: 40 },
+});
+
 /** Answers the projection rejects outright: a real `unavailable` assessment. */
 export const rejectedOutcome = (ask: AwarenessAsk): AwarenessAskOutcome => ({
   assessment: projectAwarenessAnswers(
