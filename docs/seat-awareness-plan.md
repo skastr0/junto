@@ -95,9 +95,13 @@ pack could not ask is excluded by construction, by checking the request's own as
 by inspecting reasons. The copy rule is two-state and needs both facts: **checked and clear
 only when `unansweredConcerns` is empty AND availability is `current`**; an abstained or
 unavailable assessment also has an empty list, and there no concern was decisively answered
-at all. Anything else is the weaker **no concern raised**. Omitting the field decodes to
-empty, so a version skew between producer and renderer degrades to the weaker claim rather
-than to a false strong one.
+at all. Anything else is the weaker **no concern raised**. Absent and empty are deliberately
+not the same: decode leaves an omitted field undefined rather than normalizing it, and the
+strong claim requires a present empty list, so a version skew between producer and renderer
+degrades to the weaker claim rather than to a false strong one. Workstream B caught that my
+first version of this paragraph was false: the decoder normalized an absent field to empty,
+which supports the strong claim, so the stated safe direction was the unsafe one until the
+decode was fixed.
 
 Every accepted judgment carries provenance: `bindingId, epoch, sourceSeq, evidenceHash,
 observedAt, questionPackVersion, requestedModel, returnedModel, answers, evidence line

@@ -178,6 +178,12 @@ export type SeatAwarenessAssessment = {
    * was raised, but some questions were not answered at all. A question the
    * pack could not ask (the temporal pair is missing) is not listed, because
    * that is a different fact from declining to answer.
+   *
+   * Absent and empty are not the same: an empty list is what supports the
+   * strong claim, so decode leaves an omitted field undefined rather than
+   * normalizing it, and a consumer must require a present empty list. Omitting
+   * the field therefore degrades to the weaker claim, which is the safe
+   * direction for a producer and renderer that disagree.
    */
   readonly unansweredConcerns?: readonly SeatAwarenessConcern[];
   /** The mapping captured for THIS observation — the only excerpt source. */
@@ -287,8 +293,10 @@ const decodeAssessment = (raw: unknown): SeatAwarenessAssessment | undefined => 
   if (raw.selectedLineId !== null && !isNonEmptyString(raw.selectedLineId))
     return undefined;
   const unansweredConcerns: SeatAwarenessConcern[] = [];
+  let sawUnansweredConcerns = false;
   if (raw.unansweredConcerns !== undefined) {
     if (!Array.isArray(raw.unansweredConcerns)) return undefined;
+    sawUnansweredConcerns = true;
     for (const concern of raw.unansweredConcerns) {
       if (typeof concern !== "string" || !CONCERN_SET.has(concern)) return undefined;
       unansweredConcerns.push(concern as SeatAwarenessConcern);
@@ -308,7 +316,9 @@ const decodeAssessment = (raw: unknown): SeatAwarenessAssessment | undefined => 
     activity: raw.activity === null ? null : (raw.activity as SeatAwarenessActivity),
     concerns,
     absences,
-    unansweredConcerns,
+    // Absent stays absent: an empty list is what supports the strong claim, so
+    // an omitted field must not be read as "every question was answered".
+    ...(sawUnansweredConcerns ? { unansweredConcerns } : {}),
     evidence,
     selectedLineId: raw.selectedLineId === null ? null : raw.selectedLineId,
     // A reason is only meaningful for an honest failure; never carry one on a
