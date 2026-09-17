@@ -245,6 +245,8 @@ describe("awareness window digest — volatile chrome normalizes to one digest",
     { why: "which menu option is highlighted", a: "❯ 1. Yes", b: "❯ 3. No" },
     { why: "the status verb", a: "✻ Churned for 2s", b: "✻ Imagining…" },
     { why: "a line added", a: "$ npm test\nFAIL src/a.test.ts", b: "$ npm test\nFAIL src/a.test.ts\nError: boom" },
+    { why: "a byte count versus a sequence counter", a: "seq: 1234", b: "wrote 1234 bytes" },
+    { why: "an age versus a usage multiplier", a: "Prior session (5m ago)", b: "Prior session (1x usage)" },
   ];
 
   for (const entry of materialCases) {
@@ -274,6 +276,47 @@ describe("awareness window digest — volatile chrome normalizes to one digest",
       // A line-level rewrite can never change the line count.
       expect(once.includes("\n")).toBe(false);
     }
+  });
+
+  /**
+   * The scheduler uses this digest as cache key material, so a change to the
+   * normalization or to the digest input must be a deliberate, visible edit.
+   * This pinned value fails the moment either moves, and the fix is to bump
+   * `WINDOW_DIGEST_VERSION` in the same change, which is what invalidates every
+   * cache entry computed under the old rules.
+   *
+   * The normalized forms are pinned beside the digest so a failure says WHICH
+   * class moved, not just that the digest changed.
+   */
+  it("pins the digest of a fixed sample as cache-key cement", () => {
+    const lines = [
+      "⠂ Thinking…",
+      "✢ Imagining… (2s · ↓ 102 tokens · thinking)",
+      "Context: 44k / 200k tokens (21%)",
+      " ┃ PASTE_LINE_30                     █",
+      "Tests  2 failed | 8 passed",
+      "seq: 1234",
+      "wrote 45687 bytes",
+      "Prior capture session (5m ago) · synth-model-1 (1x usage)",
+    ];
+    expect(WINDOW_DIGEST_VERSION).toBe(1);
+    expect(lines.map(normalizeVolatileChrome)).toEqual([
+      "* Thinking…",
+      "* Imagining… (<t> · ↓ <tokens> · thinking)",
+      "Context: <n>/<n> tokens (<pct>)",
+      " ┃ PASTE_LINE_30",
+      "Tests  2 failed | 8 passed",
+      "seq: <n>",
+      "wrote <bytes>",
+      "Prior capture session (<ago>) · synth-model-1 (<usage>)",
+    ]);
+    expect(
+      computeWindowDigest({
+        bindingId: "seat-1",
+        epoch: "e1",
+        lines: lines.map((text) => ({ text })),
+      }),
+    ).toBe("783f835c52e0cd9aa8505321b1e69b66706be2177ee4d3b6302ec14e4f1b3155");
   });
 
   it("participates the rule-set version, so a rule change cannot reuse an old key", () => {
