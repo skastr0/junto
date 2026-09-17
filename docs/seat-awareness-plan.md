@@ -106,6 +106,28 @@ reference`. Model probabilities are not `AgentSeatConfidence`.
   assessment belongs to the same control-state turn as the live seat, so a busy working
   seat keeps a useful label while its excerpt ages honestly. An assessment from a previous
   turn is `stale`.
+
+**The excerpt never claims currency (revised 2026-09-17, after measurement).** Two
+independent measurements agree that a busy seat changes its material revision about once
+per second: workstream D replayed an 88-second real test run and saw 56.4 revisions per
+minute at a one-second cadence, and the parent replayed nine corpus captures through the
+real observer with the projection's own normalization and measured material revision gaps
+of p50 1s, p75 3.25s, p90 4.5s, max 7.75s across 32 gaps, with 53% at or below one second.
+No digest-based currency claim can therefore be both stable and true: unfloored the label
+flickers about once a second, and any stability floor long enough to stop the flicker
+(10s, versus a maximum observed gap of 7.75s) leaves the excerpt reading last observed for
+the whole turn. So the excerpt is always an age-attributed quotation from its own
+observation, and the judgment axis carries the currency claim. The stability floor stays
+as an exported constant at 10s for the transition, and goes to zero once the stronger
+claim below lands.
+
+**Documented upgrade, not built:** producer-side containment, which would let the excerpt
+claim "still on screen" honestly. The shape is `evidenceStillPresent(assessment,
+liveWindow)` as a pure predicate in the projection, returning false on a different
+binding, epoch, or generation, published by the scheduler as `liveAssessmentId` on the
+window event so the renderer compares two ids it was handed and never sees evidence. It is
+the right claim to make when the excerpt's presence on screen is what the operator needs;
+it costs one wire field and three coordinated changes, so it waits for that need.
 - **Starting acceptance policy (to calibrate, not a guarantee)**: choice accepted when
   confidence >= 0.8 and top probability >= 0.8; noul concerns accepted at >= 0.9;
   otherwise abstain and say so. Independently evaluated questions are not independent
