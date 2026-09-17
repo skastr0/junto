@@ -122,6 +122,13 @@ export const AdvancedSettings = Schema.Struct({
       Schema.check(Schema.isMaxLength(TOOL_DIRECTORIES_MAX)),
     ),
   ),
+  /**
+   * Seat-awareness enrollment. A discovered environment key is not consent:
+   * absent or false means the advisory sidecar constructs no Jev client and
+   * publishes an honest `not_configured` notice instead. Optional so installed
+   * rows written before this field still decode (absent ≡ false, the default).
+   */
+  seatAwareness: Schema.optionalKey(Schema.Boolean),
 });
 export type AdvancedSettings = typeof AdvancedSettings.Type;
 
@@ -676,6 +683,7 @@ export const AdvancedPatch = Schema.Struct({
       Schema.check(Schema.isMaxLength(TOOL_DIRECTORIES_MAX)),
     ),
   ),
+  seatAwareness: Schema.optionalKey(Schema.Boolean),
 });
 export type AdvancedPatch = typeof AdvancedPatch.Type;
 
@@ -854,6 +862,7 @@ export const defaultAdvanced = (): AdvancedSettings => ({
   openLastCanvas: true,
   logsExplorer: false,
   toolDirectories: [],
+  seatAwareness: false,
 });
 
 export const defaultHarnesses = (): HarnessesSettings => ({
