@@ -906,6 +906,29 @@ describe("advisory emission", () => {
     expect(moved.evidenceDigest).toBe(judged);
     expect(moved.windowCapturedAt).toBeDefined();
   });
+
+  it("does not republish the window for a repaint that only moved chrome", async () => {
+    const h = harness({}, { auto: false });
+    h.observe("s1", "screen a");
+    h.timers.advance(300);
+    h.model.settleAt(0, currentOutcome(h.model.calls[0]!.ask));
+    await h.scheduler.drain();
+    const judged = h.scheduler.advisory("s1");
+    const before = h.advisories.length;
+
+    // The same material screen, repainted: new grid sequences, one unchanged
+    // normalized digest. The window's digest and capture time move together, so
+    // neither moves and nothing reaches the display.
+    h.timers.advance(5_000);
+    for (let i = 0; i < 20; i += 1) h.observe("s1", "screen a");
+    await h.scheduler.drain();
+    const after = h.scheduler.advisory("s1");
+    expect(after.windowDigest).toBe(judged.windowDigest);
+    expect(after.windowCapturedAt).toBe(judged.windowCapturedAt);
+    expect(h.advisories.length).toBe(before);
+    expect(h.model.count()).toBe(1);
+  });
+
   it("publishes concern absences as checked-and-clear, never activity cross-checks", async () => {
     const h = harness({}, { auto: false, build: negativesOnlyOutcome });
     h.observe("s1");

@@ -1319,9 +1319,14 @@ export const makeAwarenessScheduler = (deps: AwarenessSchedulerDeps): AwarenessS
         current.projectedSeq = window.seq;
         // `evidenceHash` is C's `computeWindowDigest` output: the single
         // normalization the cache key, the material-change trigger, and the
-        // renderer's staleness comparison all read.
-        current.windowDigest = projection.state.evidenceHash;
-        current.windowCapturedAt = projection.state.observedAt;
+        // renderer's staleness comparison all read. The capture time is paired
+        // with it: the window event says "this material revision was captured
+        // at this time", so a repaint that normalizes away moves neither half.
+        const digest = projection.state.evidenceHash;
+        if (current.windowDigest === undefined || digest !== current.windowDigest) {
+          current.windowDigest = digest;
+          current.windowCapturedAt = projection.state.observedAt;
+        }
       } catch (error) {
         console.error("[awareness] projection port failed:", error);
         return;
