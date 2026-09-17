@@ -16,29 +16,42 @@ narrow typed questions and returns constrained answers with calibrated probabili
 Base functionality never depends on it: with no key, no network, or a failed provider,
 Junto behaves exactly as it does today.
 
-## 2 - Authority boundary (the law of this feature)
+## 2 - Authority boundary (revised 2026-09-17: the AI drives)
 
-For identical terminal, lifecycle, and operator inputs:
+The sidecar **drives seat state**. It is not decoration: the judgments below become the seat's
+state, its health, and an input to the delivery gate. What the operator asked for, and what the
+measurements now support, is exactly this: a refinement of the PTY subsystem that makes it more
+reactive and more intelligent than chrome rules can be.
 
-> Enabling Jev, changing its answers, or making it unavailable must not change the
-> deterministic seat events, managed write decisions, submitted bytes, delivery receipts,
-> occupancy, or `needsLook`.
+The AI drives:
 
-Therefore Jev may never:
+- **seat state** — `blocked_on_access | waiting_on_approval | waiting_on_answer | error_looping |
+  execution_failed | reviewing | editing | testing | running_command | investigating | unclear`,
+  none of which the deterministic rule packs can compute from chrome alone;
+- **seat health** — `attention | degraded | active | clear | unknown`, derived from the same
+  judgments and rolled up for the canvas;
+- **the delivery hold** — fail-closed, described below.
 
-- feed `evaluate()`, `SeatStateMachine`, or the composer verdict;
-- veto, release, acknowledge, or retry a delivery;
-- set or clear a flag, mark a seat seen, or author canvas state;
-- change `seat.wait`, `seat.read.state`, the canvas digest, or any work-plane row;
-- be the reason delivery stops or starts.
+Three bounds remain, and each is measured rather than cautious:
 
-AI output is **attributed advisory display**, never authority. A concern is presented as
-"AI suggests checking approval", never as a canonical `attention` transition. Canonical
-attention always wins at presentation and is never downgraded.
+1. **A proven dialog is not downgraded.** If the deterministic engine publishes `attention` for
+   a seat, an AI reading of the same screen cannot replace it: the derived state is reported as
+   detail and the control state stands. The screen proves a dialog; the model guesses at intent.
+2. **There is no AI idle.** The model never gets to say a seat is idle, because a wrong idle is
+   the one answer that could release automation. Absence of a judgment means the deterministic
+   state is the state.
+3. **The AI may hold a delivery closed, never open one.** A wrong hold costs a delayed prompt; a
+   wrong release types into a dialog. Pulsar measured the hazard directly: swapping two
+   alternatives flipped a verdict with the candidate unchanged, so a single-shot judgment is not
+   a stable basis for releasing an irreversible action. The hold is an additional gate input,
+   never a substitute for the deterministic one, and it is never the reason a delivery proceeds.
 
-Consequence, stated plainly: the paid feature improves **awareness**, not typing-safety
-guarantees. If an operator later wants an AI warning to gate delivery, that is a separate
-control-policy decision, not this feature.
+Base functionality never depends on it: with no key, no network, or a failed provider, the
+deterministic state is the state, and the canvas keeps working.
+
+Jev still may not author canvas documents, set or clear flags, mark a seat seen, acknowledge a
+submission, or write work-plane rows. Those are control-plane powers, and none of them is needed
+for the seat to be reactive.
 
 ## 3 - Observations (orthogonal, never a fatter enum)
 
