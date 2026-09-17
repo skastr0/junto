@@ -45,22 +45,52 @@ export const BINDING_ID = "seat-1";
 export const EPOCH = "e1";
 
 /**
- * The mid-turn watchdog runs here with the product's own `TurnProgressWatch` on
- * real timers — the runner disables it. Two measured facts follow, and the
- * harness records them instead of inventing a stall the product would not
- * produce (see `replay.test.ts`):
+ * The mid-turn watchdog runs here with the product's own `TurnProgressWatch` —
+ * the runner disables it. Two measured facts decide whether it can ever fire:
  *
  *  1. `TurnProgressWatch.arm`/`noteProgress` stamp `lastProgressAt = now()` and
  *     then compute `remaining = stallMs - (now() - lastProgressAt)`, so
- *     `remaining` is always exactly `stallMs` and only REAL elapsed time can
- *     fire the timer. A replayed clock never reaches the deadline.
+ *     `remaining` is always exactly `stallMs`: the deadline is always measured
+ *     from the last observation, and only elapsed TIME can reach it. A replayed
+ *     clock alone therefore never fires it.
  *  2. `progressFingerprint` includes the snapshot `seq`, which advances on every
  *     PTY write, so any output at all — including a static spinner repaint —
- *     resets the deadline.
+ *     counts as progress and resets the deadline.
  *
- * Replay-based stall coverage therefore needs a fake-timer harness or a
- * clock-injectable deadline. Neither is this module's to add.
+ * Together those mean a stall needs a gap in OBSERVATIONS, not merely a gap in
+ * the harness's own sampling. Supplying `timers` closes the gap: the replay then
+ * ramps the fake clock in slices alongside the recorded clock, so a recorded
+ * silence longer than `turnStallMs` reaches the deadline and the product's own
+ * `fireTurnStalled` publishes `turn-stalled` — the last deterministic path this
+ * harness could not exercise. `tests/turn-progress-watch.test.ts` drives the
+ * watch the same way; the driver lives in the test so this module keeps no
+ * dependency on a test runner.
  */
+
+/**
+ * A clock the harness does not own, advanced in lockstep with the recorded one.
+ * Supplied by the caller so `replay.ts` needs no test-runner import: a vitest
+ * caller passes `vi.useFakeTimers()` / `vi.advanceTimersByTime`, a CLI caller
+ * passes nothing and gets real timers.
+ */
+export type ReplayTimers = {
+  readonly install?: () => void;
+  readonly uninstall?: () => void;
+  /**
+   * Advance the driven clock by `ms`, running whatever becomes due.
+   *
+   * Must be the ASYNC advance (`vi.advanceTimersByTimeAsync`): the observer's
+   * `settled()` awaits a promise resolved from xterm's write callback, and
+   * xterm schedules the first parse of a write with `setTimeout`. The sync
+   * advance runs that callback without draining the microtask queue, so the
+   * write never lands and `snapshot()` never settles. `advance(0)` is the
+   * drain used after each feed.
+   */
+  readonly advance: (ms: number) => void | Promise<void>;
+};
+
+/** How finely the driven clock is ramped while a recorded gap is replayed. */
+export const TIMER_SLICE_MS = 250;
 
 export type ReplayStep = {
   readonly grid: StepGrid;
@@ -96,6 +126,8 @@ export type ReplayTrace = {
     readonly elapsedMs: number;
   };
   readonly watchdog: "enabled";
+  /** `fake` when a timer driver was supplied, `real` otherwise. */
+  readonly timers: "fake" | "real";
   readonly turnStallMs: number;
   /** Epoch-ms base the replayed clock is anchored to (the capture's first `t`). */
   readonly clockBaseMs: number;
@@ -204,6 +236,8 @@ export type ReplayOptions = {
   readonly scenario: string;
   readonly fractionSteps?: number;
   readonly turnStallMs?: number;
+  /** Drive `setTimeout` from the recorded clock. Omit for real timers. */
+  readonly timers?: ReplayTimers;
   /** Consume each sampled step. Snapshots are not retained after it returns. */
   readonly onStep?: (step: ReplayStep) => void;
 };
@@ -222,6 +256,7 @@ export const replayCapture = async (opts: ReplayOptions): Promise<ReplayTrace> =
   const geometry = captureGeometry(opts.harness);
   const fractionSteps = opts.fractionSteps ?? DEFAULT_FRACTION_STEPS;
   const turnStallMs = opts.turnStallMs ?? DEFAULT_TURN_STALL_MS;
+  const timers = opts.timers;
 
   const { parts, at } = decodeEvents(fixture.events);
   const blob = parts.join("");
@@ -246,6 +281,7 @@ export const replayCapture = async (opts: ReplayOptions): Promise<ReplayTrace> =
   // Anchored to the capture's first timestamp: `bind` publishes immediately, and
   // an event stamped 0 would be dropped by `currentEvents()` (`lastPublishedAt > 0`).
   let clockMs = firstTimestampMs;
+  timers?.install?.();
   const obs = new SessionObserver({
     bindingId: BINDING_ID,
     epoch: EPOCH,
@@ -275,13 +311,37 @@ export const replayCapture = async (opts: ReplayOptions): Promise<ReplayTrace> =
       // the last write fully inside the prefix. Anchoring to the raw timestamp
       // (rather than to zero) keeps `currentEvents()` — which drops events
       // published at `at === 0` — honest about a capture that starts at t=0.
+      const priorClockMs = clockMs;
       while (eventCursor < eventEnds.length && eventEnds[eventCursor]! <= entry.cut) {
         clockMs = at[eventCursor]!;
         eventCursor += 1;
       }
+      // With a driven clock, replay the recorded gap in slices rather than as one
+      // jump, so a stall is stamped when its deadline passes and not when the
+      // next write happens to arrive.
+      if (timers !== undefined && clockMs > priorClockMs) {
+        const targetClockMs = clockMs;
+        let ramped = priorClockMs;
+        while (targetClockMs - ramped > TIMER_SLICE_MS) {
+          ramped += TIMER_SLICE_MS;
+          clockMs = ramped;
+          await timers.advance(TIMER_SLICE_MS);
+        }
+        const remainder = targetClockMs - ramped;
+        clockMs = targetClockMs;
+        if (remainder > 0) await timers.advance(remainder);
+      }
       seq += 1n;
       obs.feed(blob.slice(fedTo, entry.cut), seq);
       fedTo = entry.cut;
+      // Let the driven clock absorb the write before reading the grid: a zero
+      // delay advance runs xterm's pending parse and drains its microtasks
+      // without moving the clock, so no stall can be fabricated here.
+      if (timers !== undefined) {
+        for (let drain = 0; drain < 8 && !obs.isSettled(); drain += 1) {
+          await timers.advance(0);
+        }
+      }
       const snapshot = await obs.snapshot();
       rt.observe(snapshot);
 
@@ -316,6 +376,7 @@ export const replayCapture = async (opts: ReplayOptions): Promise<ReplayTrace> =
         elapsedMs,
       },
       watchdog: "enabled",
+      timers: timers === undefined ? "real" : "fake",
       turnStallMs,
       clockBaseMs: firstTimestampMs,
       trace,
@@ -338,5 +399,6 @@ export const replayCapture = async (opts: ReplayOptions): Promise<ReplayTrace> =
   } finally {
     rt.stop();
     obs.dispose();
+    timers?.uninstall?.();
   }
 };

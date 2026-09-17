@@ -163,6 +163,24 @@ declared reason; the 21 entries include:
   window is `L000`…`L031`. The cap is implemented and asserted, but it is not
   exercised by this corpus.
 
+## Contract dispositions recorded
+
+- **`highlight_exists` is in scope as a two-sided Noul** (the parent's decision
+  after this harness raised it as the one Noul with no named disposition). Its
+  negative means "no line is worth surfacing", which is a claim about display
+  content rather than about control, so it is an accepted absence with
+  `crossCheckOnly` false, exactly like a concern absence. Behaviour here is
+  unchanged: the label already publishes `no` only when the screen holds nothing
+  but chrome, and on the held-out data the question published 15 answers, all
+  correct, none wrong.
+- **The Noul bars stay at 0.9 / 0.1.** The sweep that showed wider negative bars
+  buy coverage with no errors was measured on the same 42 rows that produced the
+  two-sided rule, so moving the bar there would be fitting the rule to its own
+  data. The sweep is the first thing to re-run on the next fresh split.
+- **`turn_in_progress` has no displayed negative.** A published `no` is a
+  cross-check against the control plane (see the re-score section), because the
+  deterministic engine already owns idle versus working.
+
 ## Measured findings
 
 1. **The 7-way `activity` Choice has no ground truth in this corpus.** 199 of
@@ -202,24 +220,39 @@ declared reason; the 21 entries include:
    and the rule engine agree here, which is the cleanest available calibration
    point for `approval_requested`.
 
-4. **The mid-turn watchdog cannot be exercised by replaying timestamps — for
-   two independent reasons.** `replay.ts` enables the watchdog (the runner
-   disables it) and drives `now()` from the capture's recorded timestamps, and
-   a capture spanning 84s of replayed time with a 5s threshold still publishes
-   no `turn-stalled`. Reason one:
-   `TurnProgressWatch.arm`/`noteProgress` stamp `lastProgressAt = now()` and
-   then compute `remaining = stallMs - (now() - lastProgressAt)`, so `remaining`
-   is always exactly `stallMs` and only real elapsed time can fire the timer.
-   Reason two: `progressFingerprint` includes the snapshot `seq`, which advances
-   on every PTY write, so any output — including a static spinner repaint —
-   resets the deadline. Both reasons are asserted in `replay.test.ts`.
-   **Recorded as a requirement, so this is not rediscovered:
-   deterministic stall coverage needs a clock-injectable deadline** — either the
-   watchdog's `remaining` computed against an injected clock plus a fake-timer
-   drain, or `TurnProgressWatch` taking a deadline source instead of
-   `setTimeout`. The harness deliberately does not invent a stall the product
-   would not produce, so `stalls` is empty on every replay and a `turn-stalled`
-   attention event is currently unreachable in this harness.
+4. **The mid-turn watchdog was unreachable from a replayed clock, and a driven
+   clock closes it.** `replay.ts` enables the watchdog (the runner disables it)
+   and drives `now()` from the capture's recorded timestamps, and a capture
+   spanning 84s of replayed time with a 5s threshold still published no
+   `turn-stalled`. Two product properties explain it. Reason one:
+   `TurnProgressWatch.arm`/`noteProgress` stamp `lastProgressAt = now()` and then
+   compute `remaining = stallMs - (now() - lastProgressAt)`, so `remaining` is
+   always exactly `stallMs` and the deadline is always measured from the last
+   observation. Reason two: `progressFingerprint` includes the snapshot `seq`,
+   which advances on every PTY write, so any output — including a static spinner
+   repaint — counts as progress and resets the deadline. Together they mean a
+   stall needs a gap in OBSERVATIONS, not merely a gap in the harness's sampling.
+
+   Passing `timers` (a driven clock) makes it reachable: the replay ramps the
+   fake clock in 250ms slices alongside the recorded clock, and a recorded
+   silence longer than `turnStallMs` reaches the deadline. Pinned in
+   `replay.test.ts` on `grok/working-turn` at a 5s threshold: **exactly one
+   stall**, `reason: turn-stalled`, `state: attention`, `confidence: high`,
+   landing within one slice of the deadline after the last working observation,
+   with the same capture and threshold producing **zero** stalls under real
+   timers. This is the last deterministic path the A/B acceptance could not
+   exercise.
+
+   One measured requirement for anyone extending it: the driven clock must use
+   the ASYNC advance. `vi.advanceTimersByTime` runs xterm's write-scheduler
+   callback without draining microtasks, so the grid never absorbs the write and
+   `snapshot()` never settles — proved by `isSettled()` staying false and the
+   grid staying empty through both `advanceTimersByTime(1000)` and
+   `runAllTimers()`, then the text appearing the moment real timers return.
+   `vi.advanceTimersByTimeAsync` works, and `advance(0)` is the per-feed drain.
+   The residual product note stands: a static repaint resetting the stall
+   deadline is real behaviour, and workstream C's material-revision
+   normalization is the thing to reuse if it is ever changed.
 
 5. **`currentEvents()` is not the event history.** `runner.ts` returns
    `currentEvents()`, one row per live binding. Replaying with a full `onEvent`
@@ -344,13 +377,12 @@ adds a holdout capture to the paid list fails red.
 
 Recorded so they are not rediscovered:
 
-- **Deterministic stall coverage needs a clock-injectable deadline.** The
-  harness enables the mid-turn watchdog and replays real capture timestamps, and
-  still cannot produce a `turn-stalled` attention event, for the two reasons in
-  finding 4. Closing this needs `TurnProgressWatch` to take a deadline source
-  instead of `setTimeout`, or a fake-timer drain around each `observe`. Until
-  then `stalls` is empty on every replay and a stall is unreachable in this
-  harness.
+- **The driven clock is opt-in, so the recorded trace never contains a stall.**
+  `generate.ts`, `rescore.ts` and `run-live.ts` run with real timers, so their
+  `stalls` list is always empty and the trace digest they record is the
+  real-timer trace. The driven-clock trace is a different trace of the same
+  capture: compare digests only within one timer mode. The pinned stall case in
+  `replay.test.ts` is the only place a `turn-stalled` event is produced.
 - **The 128-line evidence cap never binds.** Every committed capture renders 32
   rows, so the offered window is `L000`…`L031` and the cap is implemented and
   asserted but untested against a taller grid.
@@ -384,8 +416,10 @@ JUNTO_TEST_FEATURE_PROFILE=all-on bunx vitest run tests/pty-e2e/jev
   `JEV_DRIFT_HARNESSES`).
 - `replay.test.ts` — controlled time (every `at` is a recorded capture
   timestamp; the clock reaches the capture's elapsed span), the full event
-  history vs the projection, the watchdog findings, geometry enforcement,
-  grid construction, and determinism across two replays.
+  history vs the projection, geometry enforcement, grid construction,
+  determinism across two replays, and the mid-turn watchdog: unreachable under
+  real timers, reachable under a driven clock, with the pinned `turn-stalled`
+  case landing on the deadline.
 - `authority.test.ts` — no awareness file imports the control path; the label
   path cannot reach the runtime module; labels are pure; and a paid run leaves
   every trace digest unchanged.

@@ -7,11 +7,37 @@
  * `checkpoints.test.ts`.
  */
 
-import { describe, expect, it } from "vitest";
-import { progressFingerprint } from "../../../src/main/junto/term/agent-state/turn-progress-watch";
+import { describe, expect, it, vi } from "vitest";
+import {
+  TURN_STALLED_REASON,
+  progressFingerprint,
+} from "../../../src/main/junto/term/agent-state/turn-progress-watch";
 import { loadP1Fixture } from "../runner";
-import { buildGrid, captureGeometry, decodeEvents, digestTrace, replayCapture } from "./replay";
+import {
+  TIMER_SLICE_MS,
+  buildGrid,
+  captureGeometry,
+  decodeEvents,
+  digestTrace,
+  replayCapture,
+  type ReplayTimers,
+} from "./replay";
 import { firstTraceDivergence } from "./report";
+
+/**
+ * The driven clock. `advanceTimersByTimeAsync`, never the sync variant: the
+ * observer's `settled()` awaits a promise resolved from xterm's write callback,
+ * and xterm schedules the first parse of a write with `setTimeout`. A sync
+ * advance runs that callback without draining microtasks, so the write never
+ * lands and `snapshot()` never settles.
+ */
+const drivenTimers = (): ReplayTimers => ({
+  install: () => vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] }),
+  uninstall: () => vi.useRealTimers(),
+  advance: async (ms) => {
+    await vi.advanceTimersByTimeAsync(ms);
+  },
+});
 
 describe("JR — controlled time", () => {
   it("JR-time: the replayed clock follows the capture's own timestamps", async () => {
@@ -99,7 +125,7 @@ describe("JR — full event history", () => {
 });
 
 describe("JR — the mid-turn watchdog", () => {
-  it("JR-watchdog: enabled, and replayed time cannot reach its deadline", async () => {
+  it("JR-watchdog: enabled, and replayed time alone cannot reach its deadline", async () => {
     const trace = await replayCapture({
       harness: "hermes",
       scenario: "paste-chip",
@@ -107,15 +133,62 @@ describe("JR — the mid-turn watchdog", () => {
       turnStallMs: 5_000,
     });
     expect(trace.watchdog).toBe("enabled");
+    expect(trace.timers).toBe("real");
     expect(trace.turnStallMs).toBe(5_000);
     // The capture spans far more than the threshold, so a clock-driven watchdog
-    // would have stalled. It does not, and both reasons are properties of the
-    // product (TurnProgressWatch, not the harness):
+    // would have stalled. It does not, because the deadline is always measured
+    // from the last observation in REAL time (TurnProgressWatch, not the
+    // harness). Supplying `timers` is what closes that gap, below.
     expect(trace.capture.elapsedMs).toBeGreaterThan(5_000);
     expect(trace.stalls).toEqual([]);
   });
 
-  it("JR-watchdog: the deadline is always stallMs ahead, so only real time can fire it", () => {
+  it("JR-watchdog: a driven clock makes the stall reachable, and it lands on the deadline", async () => {
+    const STALL_MS = 5_000;
+    const steps: Array<{ atMs: number; seatState: string | undefined }> = [];
+    const trace = await replayCapture({
+      harness: "grok",
+      scenario: "working-turn",
+      turnStallMs: STALL_MS,
+      timers: drivenTimers(),
+      onStep: (step) => steps.push({ atMs: step.atMs, seatState: step.seatState }),
+    });
+
+    expect(trace.timers).toBe("fake");
+    // Exactly one stall, so the assertion is about the mechanism and not about
+    // counting coincidences.
+    expect(trace.stalls.length).toBe(1);
+    const stall = trace.stalls[0]!;
+    expect(stall.reason).toBe(TURN_STALLED_REASON);
+    expect(stall.state).toBe("attention");
+    expect(stall.confidence).toBe("high");
+
+    // The stall is stamped when the DEADLINE passes, not when the next write
+    // happens to arrive: the last observation that left the seat working armed
+    // it, and the stall lands within one slice of `stallMs` later.
+    const stallAt = stall.at - trace.clockBaseMs;
+    const armed = [...steps].reverse().find((step) => step.atMs < stallAt && step.seatState === "working");
+    expect(armed, "no working observation armed the watch before the stall").toBeDefined();
+    const silence = stallAt - armed!.atMs;
+    expect(silence).toBeGreaterThanOrEqual(STALL_MS);
+    expect(silence).toBeLessThanOrEqual(STALL_MS + TIMER_SLICE_MS);
+    // The silence is the capture's own, not one the harness invented.
+    expect(stallAt).toBeLessThanOrEqual(trace.capture.elapsedMs);
+    // Never idle: a stall must not drain a managed prompt queue.
+    expect(trace.trace.some((event) => event.state === "idle" && event.at === stall.at)).toBe(false);
+  });
+
+  it("JR-watchdog: the same capture and threshold cannot stall under real timers", async () => {
+    const real = await replayCapture({
+      harness: "grok",
+      scenario: "working-turn",
+      turnStallMs: 5_000,
+    });
+    expect(real.timers).toBe("real");
+    expect(real.stalls).toEqual([]);
+  });
+
+  it("JR-watchdog: the deadline is always stallMs ahead, so only elapsed time can fire it", () => {
     // Reason 1, read off the product: arm/noteProgress stamp
     // `lastProgressAt = now()` before `remaining = stallMs - (now() - lastProgressAt)`.
     // Reason 2: the fingerprint carries `seq`, which advances on every write, so
