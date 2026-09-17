@@ -50,6 +50,8 @@ const assessment = (
   observedAt: T0,
   activity: "testing",
   concerns: [],
+  absences: [],
+  unansweredConcerns: [],
   evidence: {
     digest: "w1",
     capturedAt: T0,
@@ -149,7 +151,7 @@ describe("fresh, stale, abstained, and unavailable states", () => {
         absences: [{ concern: "execution_error", probability: 0.04 }],
       }),
     });
-    expect(html).toContain('data-awareness-cleared="true"');
+    expect(html).toContain('data-awareness-cleared="checked_and_clear"');
     expect(html).toContain('data-awareness-judgment="current"');
     expect(html).toContain("checked and clear");
     expect(html).toContain("AI assessment, observed 8s ago");
@@ -171,14 +173,34 @@ describe("fresh, stale, abstained, and unavailable states", () => {
         absences: [{ concern: "repetition", probability: 0.08 }],
       }),
     });
-    expect(html).toContain('data-awareness-cleared="true"');
+    expect(html).toContain('data-awareness-cleared="checked_and_clear"');
     expect(html).toContain("Likely testing");
     expect(html).toContain("checked and clear");
     expect(html).toContain("CURRENT");
     expect(html).not.toContain("NO JUDGMENT");
   });
 
-  it("keeps a stale decisive negative clear while withdrawing its currency", () => {
+  it("shows the weaker clear claim when the producer never reported the unanswered list", () => {
+    // Absent and empty are different claims on the rendered surface too: a
+    // producer that stayed silent about which questions went unanswered can only
+    // support "no concern raised", never "checked and clear".
+    const { unansweredConcerns: _absent, ...silent } = assessment({
+      bindingId: "b1",
+      activity: "indeterminate",
+      concerns: [],
+      selectedLineId: null,
+      absences: [{ concern: "approval_requested", probability: 0.06 }],
+    });
+    const html = render({ assessment: silent as SeatAwarenessAssessment });
+    expect(html).toContain('data-awareness-cleared="no_concern_raised"');
+    expect(html).toContain('data-awareness-judgment="current"');
+    expect(html).toContain("no concern raised");
+    expect(html).toContain("CURRENT");
+    expect(html).not.toContain("checked and clear");
+    expect(html).not.toContain("NO JUDGMENT");
+  });
+
+  it("keeps a stale decisive negative honest: the claim stays, the currency goes", () => {
     const html = render({
       control: { state: "idle", label: "Idle", tone: "steel" },
       assessment: assessment({
@@ -189,11 +211,14 @@ describe("fresh, stale, abstained, and unavailable states", () => {
         absences: [{ concern: "repetition", probability: 0.1 }],
       }),
     });
-    expect(html).toContain('data-awareness-cleared="true"');
+    expect(html).toContain('data-awareness-cleared="checked_and_clear"');
     expect(html).toContain('data-awareness-judgment="stale"');
     expect(html).toContain("checked and clear");
     expect(html).toContain("AI assessment, last observed 8s ago");
     expect(html).toContain("LAST OBSERVED");
+    // The weaker claim would assert that some question went unanswered, which is
+    // false for a complete assessment that has merely aged.
+    expect(html).not.toContain("no concern raised");
   });
 
   it("renders an abstention as the deterministic status plus a neutral line", () => {

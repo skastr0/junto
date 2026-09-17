@@ -93,9 +93,15 @@ three ways a concern goes unanswered are all covered: the band, a model decline 
 insufficient evidence, and no answer arriving for a question that was asked. A question the
 pack could not ask is excluded by construction, by checking the request's own asked set, not
 by inspecting reasons. The copy rule is two-state and needs both facts: **checked and clear
-only when `unansweredConcerns` is empty AND availability is `current`**; an abstained or
-unavailable assessment also has an empty list, and there no concern was decisively answered
-at all. Anything else is the weaker **no concern raised**. Absent and empty are deliberately
+only when `unansweredConcerns` is a present empty list AND a judgment exists** (current or
+stale); an abstained or unavailable assessment has no judgment at all, so it cannot reach the
+clear branch. Anything else is the weaker **no concern raised**. Currency is deliberately not
+one of the facts, revised 2026-09-17 after workstream D implemented the stricter version and
+flagged the consequence: a decisive negative is a finding, and a determinate finding keeps
+its label when the judgment ages, with the chip carrying LAST OBSERVED. Requiring currency
+would have rendered an aged but complete assessment as **no concern raised**, whose meaning
+is "some questions went unanswered" — a factual misstatement about evidence that was fully
+answered. Absent and empty are deliberately
 not the same: decode leaves an omitted field undefined rather than normalizing it, and the
 strong claim requires a present empty list, so a version skew between producer and renderer
 degrades to the weaker claim rather than to a false strong one. Workstream B caught that my

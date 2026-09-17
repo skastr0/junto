@@ -65,7 +65,7 @@ export function SeatAwarenessHover({
       data-awareness-attention={view.canonicalAttention ? "true" : undefined}
       data-awareness-ai-label={view.aiLabel ?? undefined}
       data-awareness-judgment={view.judgmentFreshness ?? undefined}
-      data-awareness-cleared={view.cleared ? "true" : undefined}
+      data-awareness-cleared={view.clearClaim ?? undefined}
       className={[
         "w-[320px] overflow-hidden rounded-md border border-stroke bg-raise shadow-lg shadow-black/40",
         className ?? "",

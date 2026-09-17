@@ -76,6 +76,12 @@ export const SEAT_AWARENESS_UNAVAILABLE_FALLBACK = "AI assessment unavailable";
  * a claim, not an abstention, so it never shares copy with "no judgment".
  */
 export const SEAT_AWARENESS_CLEAR_LINE = "checked and clear";
+/**
+ * The weaker true claim: nothing was raised, but some concern question went
+ * unanswered, so "checked and clear" would claim more than the model
+ * established. Two states, never one blurred into the other.
+ */
+export const SEAT_AWARENESS_NO_CONCERN_RAISED_LINE = "no concern raised";
 
 /**
  * Code-composed labels. Every one of these is hedged or attributed on purpose:
@@ -234,10 +240,28 @@ const sanitizeAssessment = (
     if (absences.some((entry) => entry.concern === absence.concern)) continue;
     absences.push({ concern: absence.concern, probability: absence.probability });
   }
+  // "Unanswered" means asked but not decisively answered, so it is disjoint
+  // from both a raised concern and an accepted absence. An entry that is also
+  // decisively answered is dropped rather than allowed to weaken the claim.
+  const answered = new Set<SeatAwarenessConcern>([
+    ...concerns,
+    ...absences.map((absence) => absence.concern),
+  ]);
+  // Presence survives sanitizing: an omitted list means the producer never
+  // reported, so it stays absent and the view can only make the weaker claim.
+  // Flattening it to empty here would hand the strong "checked and clear" claim
+  // to a producer that never asserted it.
+  const unanswered =
+    assessment.unansweredConcerns === undefined
+      ? undefined
+      : [...new Set(assessment.unansweredConcerns)]
+          .filter((concern) => !answered.has(concern))
+          .slice(0, SEAT_AWARENESS_MAX_CONCERNS);
   return {
     ...assessment,
     concerns: concerns.slice(0, SEAT_AWARENESS_MAX_CONCERNS),
     absences: absences.slice(0, SEAT_AWARENESS_MAX_CONCERNS),
+    unansweredConcerns: unanswered,
     evidence: {
       digest: assessment.evidence.digest,
       capturedAt: assessment.evidence.capturedAt,
@@ -438,6 +462,23 @@ export type SeatAwarenessResolvedControl = {
 /** Judgment axis (activity + concerns): the turn plus the enrichment lifetime. */
 export type SeatAwarenessJudgmentFreshness = "current" | "stale";
 
+/**
+ * How strong the decisive negative is. `checked_and_clear` needs two facts: a
+ * judgment exists, and the producer reported an empty unanswered list, so every
+ * askable concern was decisively answered. Anything else in the clear branch
+ * supports only `no_concern_raised`, which is weaker and still true: some
+ * questions went unanswered, or the producer never said.
+ *
+ * Currency is deliberately NOT one of the facts. A determinate finding keeps
+ * its label when the judgment ages; the chip carries the currency claim and the
+ * reader sees LAST OBSERVED. A decisive negative is a finding too, so it keeps
+ * its label the same way. Requiring currency here would have rendered an aged
+ * but complete assessment as `no_concern_raised`, whose meaning is "some
+ * questions went unanswered" — a factual misstatement about evidence that was
+ * fully answered.
+ */
+export type SeatAwarenessClearClaim = "checked_and_clear" | "no_concern_raised";
+
 export type SeatAwarenessView = {
   readonly availability: SeatAwarenessAvailability;
   readonly availabilityLabel: string;
@@ -455,8 +496,11 @@ export type SeatAwarenessView = {
   /**
    * Decisive negative: accepted absences and no concerns. A judgment, not an
    * abstention — the surface says checked and clear rather than no judgment.
+   * Null when nothing was decisively ruled out.
    */
-  readonly cleared: boolean;
+  readonly clearClaim: SeatAwarenessClearClaim | null;
+  /** Concerns whose question was asked but not decisively answered. */
+  readonly unansweredConcerns: readonly SeatAwarenessConcern[];
   /**
    * "checked and clear" shown beneath a headline finding, when a determinate
    * activity took the headline. Null when the clear line is already the
@@ -568,17 +612,32 @@ export const seatAwarenessView = (
   const concerns = judgment?.concerns ?? [];
   const concernTexts = concerns.map((concern) => SEAT_AWARENESS_CONCERN_COPY[concern]);
   // A decisive negative: the model answered, and the answer was "nothing to
-  // report". Distinct from an abstention, which is no answer at all.
+  // report". Distinct from an abstention, which is no answer at all. The claim
+  // is two-state and needs TWO facts for the strong half: a judgment exists, and
+  // the producer reported a present empty unanswered list, so every askable
+  // concern was decisively answered. An omitted list means the producer never
+  // reported, so it supports only the weaker claim. Currency is not one of the
+  // facts: the chip carries it, exactly as a determinate finding keeps its label
+  // when the judgment ages.
   const absences = judgment?.absences ?? [];
-  const clearLine =
+  const unanswered = judgment?.unansweredConcerns;
+  const clearClaim: SeatAwarenessClearClaim | null =
     judgment !== undefined && concerns.length === 0 && absences.length > 0
-      ? SEAT_AWARENESS_CLEAR_LINE
+      ? unanswered !== undefined && unanswered.length === 0
+        ? "checked_and_clear"
+        : "no_concern_raised"
       : null;
+  const clearCopy =
+    clearClaim === "checked_and_clear"
+      ? SEAT_AWARENESS_CLEAR_LINE
+      : clearClaim === "no_concern_raised"
+        ? SEAT_AWARENESS_NO_CONCERN_RAISED_LINE
+        : null;
   const aiLabel =
-    concernTexts[0] ?? activityFindingLabel ?? clearLine ?? activityLabel ?? null;
+    concernTexts[0] ?? activityFindingLabel ?? clearCopy ?? activityLabel ?? null;
   // When a real finding takes the headline, the cleared fact is still on the
   // surface rather than dropped.
-  const clearNote = clearLine !== null && aiLabel !== clearLine ? clearLine : null;
+  const clearNote = clearCopy !== null && aiLabel !== clearCopy ? clearCopy : null;
 
   const excerptDisplay = judgment
     ? resolveExcerptDisplay(judgment, { now: input.now })
@@ -618,9 +677,12 @@ export const seatAwarenessView = (
     concerns,
     concernTexts,
     judgmentFreshness,
-    cleared: clearLine !== null,
+    clearClaim,
     clearNote,
     absences,
+    // Display list only: presence is consumed by the claim above, so the view
+    // can flatten here without weakening anything.
+    unansweredConcerns: unanswered ?? [],
     excerpt,
     excerptLabel,
     freshness,

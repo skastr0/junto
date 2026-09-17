@@ -32,6 +32,7 @@ import {
   type SeatAwarenessAbsence,
   type SeatAwarenessAssessment,
   type SeatAwarenessAssessmentEvent,
+  type SeatAwarenessConcern,
   type SeatAwarenessEvidenceLine,
   type SeatAwarenessEvent,
   type SeatAwarenessWindowEvent,
@@ -40,6 +41,7 @@ import {
   SEAT_AWARENESS_ACTIVITY_COPY,
   SEAT_AWARENESS_ATTRIBUTION,
   SEAT_AWARENESS_CLEAR_LINE,
+  SEAT_AWARENESS_NO_CONCERN_RAISED_LINE,
   SEAT_AWARENESS_AVAILABILITY_COPY,
   SEAT_AWARENESS_CONCERN_COPY,
   SEAT_AWARENESS_NEUTRAL_LINE,
@@ -292,6 +294,52 @@ describe("decodeSeatAwarenessEvent", () => {
     }
   });
 
+  it("keeps an omitted unanswered list absent, and refuses a malformed one whole", () => {
+    const base = assessment({ bindingId: "b1" });
+    const { unansweredConcerns: _dropped, ...withoutUnanswered } = base;
+    // Absent on the wire stays absent: the producer never reported, which is a
+    // different fact from asserting that nothing was left unanswered.
+    const omittedRaw = decodeSeatAwarenessEvent(
+      assessmentEvent(withoutUnanswered as SeatAwarenessAssessment),
+    );
+    expect(
+      omittedRaw?.kind === "assessment" && omittedRaw.assessment.unansweredConcerns,
+    ).toBeUndefined();
+    expect(
+      "unansweredConcerns" in
+        (omittedRaw?.kind === "assessment" ? omittedRaw.assessment : {}),
+    ).toBe(false);
+    // A present empty list is the producer's own assertion and survives decode.
+    const presentEmpty = decodeSeatAwarenessEvent(
+      assessmentEvent({ ...base, unansweredConcerns: [] }),
+    );
+    expect(
+      presentEmpty?.kind === "assessment" && presentEmpty.assessment.unansweredConcerns,
+    ).toEqual([]);
+
+    const carried = decodeSeatAwarenessEvent(
+      assessmentEvent({
+        ...base,
+        activity: null,
+        selectedLineId: null,
+        absences: [{ concern: "approval_requested", probability: 0.06 }],
+        unansweredConcerns: ["answer_requested", "access_problem"],
+      }),
+    );
+    expect(
+      carried?.kind === "assessment" && carried.assessment.unansweredConcerns,
+    ).toEqual(["answer_requested", "access_problem"]);
+
+    for (const bad of ["no", [{}], ["vibes"], [7], [null]]) {
+      expect(
+        decodeSeatAwarenessEvent(
+          assessmentEvent({ ...base, unansweredConcerns: bad as unknown as SeatAwarenessConcern[] }),
+        ),
+        JSON.stringify(bad),
+      ).toBeUndefined();
+    }
+  });
+
   it("keeps an unavailable reason only on an honest failure", () => {
     const judged = assessment({
       bindingId: "b1",
@@ -384,7 +432,7 @@ describe("seat awareness store", () => {
       control: control(),
       now: T0,
     });
-    expect(view.cleared).toBe(false);
+    expect(view.clearClaim).toBeNull();
     expect(view.aiLabel).toBe("AI suggests checking approval");
     expect(view.sentence).not.toContain(SEAT_AWARENESS_CLEAR_LINE);
 
@@ -400,7 +448,7 @@ describe("seat awareness store", () => {
       }),
       now: T0,
     });
-    expect(direct.cleared).toBe(false);
+    expect(direct.clearClaim).toBeNull();
     expect(direct.aiLabel).toBe("AI suggests checking approval");
     expect(direct.availabilityLine).not.toBe(SEAT_AWARENESS_CLEAR_LINE);
   });
@@ -538,6 +586,43 @@ describe("freshness axes", () => {
     expect(matched.excerptLabel).toBe("terminal excerpt (observed 8s ago)");
     expect(moved.excerptLabel).toBe(matched.excerptLabel);
     expect(moved.judgmentFreshness).toBe(matched.judgmentFreshness);
+  });
+
+  it("does not let a chrome-only repaint refresh the excerpt age", () => {
+    // The producer moves the window capture time only when the material
+    // revision moves, so a repaint that leaves the digest identical can no
+    // longer restamp the evidence as fresher than it is. Pinned here because the
+    // excerpt age is a claim about the screen the model actually read: a spinner
+    // frame or a counter tick must not age it down.
+    resetSeatAwareness();
+    const stored = assessment({ bindingId: "b1" });
+    applySeatAwarenessEvent(assessmentEvent(stored, { at: T0, windowDigest: "w1" }));
+    const before = seatAwarenessViewForBinding({
+      bindingId: "b1",
+      control: workingControl,
+      now: T0 + 30_000,
+    });
+    // A repaint-only emission: same material digest, newer emission time.
+    applySeatAwarenessEvent(windowEvent("b1", "w1", T0 + 30_000));
+    const repaint = seatAwarenessViewForBinding({
+      bindingId: "b1",
+      control: workingControl,
+      now: T0 + 30_000,
+    });
+    expect(repaint.excerptLabel).toBe(before.excerptLabel);
+    expect(repaint.excerptLabel).toBe("terminal excerpt (observed 30s ago)");
+    expect(repaint.freshness).toBe(before.freshness);
+    expect(repaint.judgmentFreshness).toBe("current");
+    // A material revision still only ages the excerpt from its own observation:
+    // the age follows the assessment's evidence, never the window event.
+    applySeatAwarenessEvent(windowEvent("b1", "w2", T0 + 31_000));
+    const material = seatAwarenessViewForBinding({
+      bindingId: "b1",
+      control: workingControl,
+      now: T0 + 31_000,
+    });
+    expect(material.excerptLabel).toBe("terminal excerpt (observed 31s ago)");
+    expect(material.excerpt).toBe(before.excerpt);
   });
 
   it("keeps the excerpt label steady through a busy seat's revisions", () => {
@@ -744,7 +829,7 @@ describe("presentation", () => {
       }),
       now: T0 + 8_000,
     });
-    expect(clear.cleared).toBe(true);
+    expect(clear.clearClaim).toBe("checked_and_clear");
     expect(clear.availability).toBe("current");
     expect(clear.availabilityLabel).toBe("CURRENT");
     expect(clear.aiLabel).toBe(SEAT_AWARENESS_CLEAR_LINE);
@@ -766,7 +851,10 @@ describe("presentation", () => {
       }),
       now: T0 + 8_000,
     });
-    expect(staleClear.cleared).toBe(true);
+    // A decisive negative is a finding, so an aged judgment keeps the claim and
+    // withdraws only its currency: the chip says LAST OBSERVED while the body
+    // still says checked and clear.
+    expect(staleClear.clearClaim).toBe("checked_and_clear");
     expect(staleClear.availability).toBe("stale");
     expect(staleClear.availabilityLabel).toBe("LAST OBSERVED");
     expect(staleClear.aiLabel).toBe(SEAT_AWARENESS_CLEAR_LINE);
@@ -806,9 +894,226 @@ describe("presentation", () => {
     const labels = [clear, abstained, absent, failed].map((view) => view.availabilityLabel);
     expect(new Set(labels).size).toBe(4);
     expect(labels).toEqual(["CURRENT", "NO JUDGMENT", "NOT ASSESSED", "UNAVAILABLE"]);
-    expect(abstained.cleared).toBe(false);
-    expect(absent.cleared).toBe(false);
-    expect(failed.cleared).toBe(false);
+    expect(abstained.clearClaim).toBeNull();
+    expect(absent.clearClaim).toBeNull();
+    expect(failed.clearClaim).toBeNull();
+  });
+
+  it("needs a present empty unanswered list AND a current judgment for the strong claim", () => {
+    const decisive: Partial<SeatAwarenessAssessment> & { bindingId: string } = {
+      bindingId: "b1",
+      activity: "indeterminate",
+      concerns: [],
+      selectedLineId: null,
+      absences: [{ concern: "approval_requested", probability: 0.06 }],
+    };
+    const claimFor = (
+      partial: Partial<SeatAwarenessAssessment>,
+      controlState?: "working" | "idle",
+    ) =>
+      seatAwarenessView({
+        control: control(
+          controlState ? { state: controlState, label: controlState, tone: "cyan" } : undefined,
+        ),
+        assessment: assessment({ ...decisive, ...partial }),
+        now: T0 + 8_000,
+      }).clearClaim;
+
+    // All three facts: current, and a present empty list from the producer.
+    expect(claimFor({ unansweredConcerns: [] })).toBe("checked_and_clear");
+    // A concern left unanswered downgrades it.
+    expect(claimFor({ unansweredConcerns: ["repetition"] })).toBe("no_concern_raised");
+    // An aged judgment keeps the strong claim: currency belongs to the chip.
+    expect(claimFor({ unansweredConcerns: [] }, "idle")).toBe("checked_and_clear");
+    // Both missing is still the weaker claim, never the strong one.
+    expect(claimFor({ unansweredConcerns: ["repetition"] }, "idle")).toBe("no_concern_raised");
+  });
+
+  it("never lets a producer that stayed silent claim checked and clear", () => {
+    // The trap in the other direction: an omitted list means the producer never
+    // reported which questions went unanswered, so the absence of the field
+    // cannot be read as the producer asserting that none did. Only a PRESENT
+    // empty list supports the strong claim.
+    const decisive = {
+      bindingId: "b1",
+      activity: "indeterminate",
+      concerns: [],
+      selectedLineId: null,
+      absences: [{ concern: "approval_requested", probability: 0.06 }],
+    } satisfies Partial<SeatAwarenessAssessment> & { bindingId: string };
+    const { unansweredConcerns: _absent, ...withoutUnanswered } = assessment(decisive);
+    const silent = withoutUnanswered as SeatAwarenessAssessment;
+    expect(silent.unansweredConcerns).toBeUndefined();
+
+    const silentView = seatAwarenessView({
+      control: control(),
+      assessment: silent,
+      now: T0 + 8_000,
+    });
+    expect(silentView.availability).toBe("current");
+    expect(silentView.judgmentFreshness).toBe("current");
+    expect(silentView.clearClaim).toBe("no_concern_raised");
+    expect(silentView.aiLabel).toBe(SEAT_AWARENESS_NO_CONCERN_RAISED_LINE);
+    expect(silentView.sentence).not.toContain(SEAT_AWARENESS_CLEAR_LINE);
+
+    const asserted = seatAwarenessView({
+      control: control(),
+      assessment: { ...silent, unansweredConcerns: [] },
+      now: T0 + 8_000,
+    });
+    expect(asserted.clearClaim).toBe("checked_and_clear");
+    expect(asserted.aiLabel).toBe(SEAT_AWARENESS_CLEAR_LINE);
+
+    // Ingest must not flatten the absence into the empty list on the way in.
+    resetSeatAwareness();
+    applySeatAwarenessEvent(assessmentEvent(silent));
+    expect(awarenessForBinding("b1")?.unansweredConcerns).toBeUndefined();
+    const storedView = seatAwarenessViewForBinding({
+      bindingId: "b1",
+      control: control(),
+      now: T0 + 8_000,
+    });
+    expect(storedView.clearClaim).toBe("no_concern_raised");
+  });
+
+  it("never lets an abstention or a failure claim clear, whatever it carries", () => {
+    // The trap the refinement names: an abstained or unavailable assessment
+    // carries an empty unanswered list, so "empty list" alone would let it
+    // claim clear. Nothing decisively answered means no clear claim at all.
+    for (const availability of ["abstained", "unavailable"] as const) {
+      const view = seatAwarenessView({
+        control: control(),
+        assessment: assessment({
+          bindingId: "b1",
+          availability,
+          activity: null,
+          concerns: [],
+          selectedLineId: null,
+          absences: [{ concern: "approval_requested", probability: 0.06 }],
+          unansweredConcerns: [],
+          unavailableReason: availability === "unavailable" ? "provider_failure" : null,
+        }),
+        now: T0 + 8_000,
+      });
+      expect(view.clearClaim, availability).toBeNull();
+      expect(view.aiLabel, availability).toBeNull();
+      expect(view.clearNote, availability).toBeNull();
+      expect(view.judgmentFreshness, availability).toBeNull();
+      expect(view.availabilityLabel, availability).toBe(
+        availability === "abstained" ? "NO JUDGMENT" : "UNAVAILABLE",
+      );
+      expect(view.sentence, availability).not.toContain(SEAT_AWARENESS_CLEAR_LINE);
+      expect(view.sentence, availability).not.toContain(SEAT_AWARENESS_NO_CONCERN_RAISED_LINE);
+    }
+    // The same is true of a wire-current observation with nothing in it, which
+    // is an abstention once the renderer has read it.
+    const empty = seatAwarenessView({
+      control: control(),
+      assessment: assessment({
+        bindingId: "b1",
+        activity: null,
+        concerns: [],
+        selectedLineId: null,
+        absences: [],
+        unansweredConcerns: [],
+      }),
+      now: T0 + 8_000,
+    });
+    expect(empty.availability).toBe("abstained");
+    expect(empty.clearClaim).toBeNull();
+    expect(empty.availabilityLabel).toBe("NO JUDGMENT");
+  });
+
+  it("downgrades the clear claim when a concern question went unanswered", () => {
+    const base = assessment({
+      bindingId: "b1",
+      activity: "indeterminate",
+      concerns: [],
+      selectedLineId: null,
+      absences: [{ concern: "approval_requested", probability: 0.06 }],
+    });
+    const allAnswered = seatAwarenessView({ control: control(), assessment: base, now: T0 + 8_000 });
+    expect(allAnswered.clearClaim).toBe("checked_and_clear");
+    expect(allAnswered.aiLabel).toBe(SEAT_AWARENESS_CLEAR_LINE);
+
+    // The real band shape: approval decisively absent, the others unanswered.
+    const banded = seatAwarenessView({
+      control: control(),
+      assessment: {
+        ...base,
+        unansweredConcerns: ["answer_requested", "access_problem", "execution_error"],
+      },
+      now: T0 + 8_000,
+    });
+    expect(banded.clearClaim).toBe("no_concern_raised");
+    expect(banded.aiLabel).toBe(SEAT_AWARENESS_NO_CONCERN_RAISED_LINE);
+    expect(banded.sentence).toBe("no concern raised - AI assessment, observed 8s ago");
+    // The weaker claim never wears the stronger claim's words.
+    expect(banded.sentence).not.toContain(SEAT_AWARENESS_CLEAR_LINE);
+    expect(banded.unansweredConcerns).toEqual([
+      "answer_requested",
+      "access_problem",
+      "execution_error",
+    ]);
+
+    // Under a determinate activity the downgraded claim is still shown, beneath.
+    const bandedFinding = seatAwarenessView({
+      control: control(),
+      assessment: {
+        ...base,
+        activity: "testing",
+        unansweredConcerns: ["repetition"],
+      },
+      now: T0 + 8_000,
+    });
+    expect(bandedFinding.aiLabel).toBe("Likely testing");
+    expect(bandedFinding.clearNote).toBe(SEAT_AWARENESS_NO_CONCERN_RAISED_LINE);
+    expect(bandedFinding.clearClaim).toBe("no_concern_raised");
+
+    // A raised concern still wins outright, and clears nothing.
+    const raised = seatAwarenessView({
+      control: control(),
+      assessment: {
+        ...base,
+        concerns: ["approval_requested"],
+        unansweredConcerns: ["repetition"],
+      },
+      now: T0 + 8_000,
+    });
+    expect(raised.clearClaim).toBeNull();
+    expect(raised.aiLabel).toBe("AI suggests checking approval");
+    expect(raised.clearNote).toBeNull();
+  });
+
+  it("keeps unanswered disjoint from decisively answered concerns", () => {
+    // "Unanswered" means asked but not decisively answered, so an entry that is
+    // also raised or absent is dropped rather than allowed to weaken the claim.
+    applySeatAwarenessEvent(
+      assessmentEvent(
+        assessment({
+          bindingId: "b1",
+          activity: "indeterminate",
+          concerns: ["approval_requested"],
+          selectedLineId: null,
+          absences: [
+            { concern: "repetition", probability: 0.08 },
+            { concern: "execution_error", probability: 0.09 },
+          ],
+          unansweredConcerns: [
+            "approval_requested",
+            "repetition",
+            "access_problem",
+            "access_problem",
+          ],
+        }),
+      ),
+    );
+    const stored = awarenessForBinding("b1");
+    expect(stored?.unansweredConcerns).toEqual(["access_problem"]);
+    // And the dropped entry does not silently weaken a claim it contradicts.
+    const view = seatAwarenessViewForBinding({ bindingId: "b1", control: control(), now: T0 });
+    expect(view.aiLabel).toBe("AI suggests checking approval");
+    expect(view.clearClaim).toBeNull();
   });
 
   it("ranks the headline: concern, determinate activity, checked and clear, activity unclear", () => {
@@ -831,7 +1136,7 @@ describe("presentation", () => {
     });
     expect(concernFirst.aiLabel).toBe("AI suggests checking approval");
     expect(concernFirst.clearNote).toBeNull();
-    expect(concernFirst.cleared).toBe(false);
+    expect(concernFirst.clearClaim).toBeNull();
 
     // 2. A determinate activity beats the clear fact, which stays visible.
     const activityFirst = rank({ activity: "testing", concerns: [], absences: [absence] });
@@ -846,7 +1151,7 @@ describe("presentation", () => {
     // 4. An indeterminate activity is the last rung, never a finding.
     const unclear = rank({ activity: "indeterminate", concerns: [], absences: [] });
     expect(unclear.aiLabel).toBe("Activity unclear");
-    expect(unclear.cleared).toBe(false);
+    expect(unclear.clearClaim).toBeNull();
 
     // Every rung is a judgment, so availability never falls back to abstention
     // and the deterministic fallback never fires for any of them.
@@ -873,7 +1178,7 @@ describe("presentation", () => {
       }),
       now: T0 + 8_000,
     });
-    expect(clear.cleared).toBe(true);
+    expect(clear.clearClaim).toBe("checked_and_clear");
     expect(clear.aiLabel).toBe(SEAT_AWARENESS_CLEAR_LINE);
     expect(clear.clearNote).toBeNull();
 
@@ -889,7 +1194,7 @@ describe("presentation", () => {
       }),
       now: T0 + 8_000,
     });
-    expect(unclear.cleared).toBe(false);
+    expect(unclear.clearClaim).toBeNull();
     expect(unclear.aiLabel).toBe("Activity unclear");
     expect(unclear.judgmentFreshness).toBe("current");
     expect(unclear.availabilityLabel).toBe("CURRENT");
@@ -907,7 +1212,7 @@ describe("presentation", () => {
       }),
       now: T0 + 8_000,
     });
-    expect(view.cleared).toBe(true);
+    expect(view.clearClaim).toBe("checked_and_clear");
     expect(view.aiLabel).toBe("Likely testing");
     expect(view.clearNote).toBe(SEAT_AWARENESS_CLEAR_LINE);
     expect(view.sentence).toBe(
@@ -980,6 +1285,7 @@ describe("presentation", () => {
       ...Object.values(SEAT_AWARENESS_UNAVAILABLE_COPY),
       SEAT_AWARENESS_NEUTRAL_LINE,
       SEAT_AWARENESS_CLEAR_LINE,
+  SEAT_AWARENESS_NO_CONCERN_RAISED_LINE,
     ];
     for (const copy of aiCopy) {
       const lowered = copy.toLowerCase();
@@ -1030,6 +1336,7 @@ describe("presentation", () => {
     for (const value of Object.values(SEAT_AWARENESS_UNAVAILABLE_COPY)) sentences.push(value);
     for (const value of Object.values(SEAT_AWARENESS_AVAILABILITY_COPY)) sentences.push(value);
     sentences.push(SEAT_AWARENESS_CLEAR_LINE);
+    sentences.push(SEAT_AWARENESS_NO_CONCERN_RAISED_LINE);
     for (const sentence of sentences) {
       expect(sentence).not.toContain(MIDDLE_DOT);
     }
