@@ -452,6 +452,74 @@ describe("collaboration peer suggestions", () => {
     expect(unknownPeer?.why).toBe("connected, no live turn");
   });
 
+  it("says the same thing blunter without the sidecar and sharper with it", () => {
+    // The same two seats, described twice: once with no awareness judgment at
+    // all (the gate-off product) and once with the sidecar's own published
+    // facts. This is the whole of what the model adds to the ranking.
+    const blindSource: CollaborationSeatFacts = {
+      nodeId: "builder",
+      bindingId: "b-builder",
+      label: "Builder",
+      state: "working",
+      detail: "seated",
+      activity: null,
+      concerns: [],
+      availability: "not_assessed",
+      excerpt: null,
+      mail: [],
+    };
+    const blindPeer: CollaborationSeatFacts = {
+      nodeId: "iris",
+      bindingId: "b-iris",
+      label: "Iris",
+      state: "idle",
+      detail: undefined,
+      activity: null,
+      concerns: [],
+      availability: "not_assessed",
+      excerpt: null,
+      mail: [],
+    };
+    const blind = collaborationPeerSuggestions({
+      source: blindSource,
+      fleet: [blindSource, blindPeer],
+    });
+    expect(blind[0]?.basis).toBe("fleet");
+    expect(blind[0]?.why).toBe("connected and idle");
+    // The only topic the deterministic path can offer is the card's own
+    // subtitle. It is a real fact and a poor question.
+    expect(blind[0]?.question).toBe('Have you worked on "seated"? What did you find?');
+
+    const seenSource: CollaborationSeatFacts = {
+      ...blindSource,
+      activity: "editing",
+      concerns: ["execution_error"],
+      availability: "current",
+      excerpt: "retry contract identity mismatch on line 42",
+    };
+    const seenPeer: CollaborationSeatFacts = {
+      ...blindPeer,
+      activity: "editing",
+      availability: "current",
+      excerpt: "patched the retry contract identity check",
+    };
+    const seen = collaborationPeerSuggestions({
+      source: seenSource,
+      fleet: [seenSource, seenPeer],
+    });
+    expect(seen[0]?.basis).toBe("awareness");
+    expect(seen[0]?.why).toBe(
+      "connected, Likely editing, and its own screen mentions contract",
+    );
+    expect(seen[0]?.question).toBe(
+      'Have you hit this failure with "contract" before, and how did you get past it?',
+    );
+    // Same click, same mail, same thread: only the copy and the ordering
+    // improve. The action does not depend on the sidecar.
+    expect(collaborationDraft({ canvas: "main", source: seenSource, peer: seen[0]! }))
+      .toMatchObject({ targetNodeId: "iris", sourceNodeId: "builder" });
+  });
+
   it("is deterministic and bounded", () => {
     const fleet = [source()];
     for (let index = 0; index < 6; index += 1) {
