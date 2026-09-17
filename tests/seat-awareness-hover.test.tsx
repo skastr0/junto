@@ -102,20 +102,44 @@ describe("fresh, stale, abstained, and unavailable states", () => {
     expect(html).toContain("3 tests failed in auth.spec.ts");
     expect(html).toContain("AI assessment, observed 8s ago");
     expect(html).toContain("CURRENT");
-    expect(html).not.toContain('data-awareness-degraded="true"');
+    expect(html).toContain('data-awareness-judgment="current"');
+    expect(html).toContain('data-awareness-excerpt="current"');
   });
 
-  it("renders a moved or expired answer as last observed, never current", () => {
+  it("keeps the label current while the excerpt is last observed", () => {
+    // The split: a continuously printing seat churns its digest, and only the
+    // quoted screen is withdrawn. The label survives.
     const html = render({
+      control: { state: "working", label: "Working", tone: "cyan" },
       assessment: assessment({ bindingId: "b1" }),
       windowDigest: "w2",
     });
-    expect(html).toContain('data-seat-awareness="stale"');
-    expect(html).toContain("LAST OBSERVED");
-    expect(html).toContain("AI assessment, last observed");
-    expect(html).not.toContain("AI assessment, observed 8s ago");
-    // The extractive excerpt survives; only its currency is withdrawn.
+    expect(html).toContain('data-seat-awareness="current"');
+    expect(html).toContain('data-awareness-judgment="current"');
+    expect(html).toContain('data-awareness-excerpt="last_observed"');
+    expect(html).toContain("Likely testing");
+    expect(html).toContain("AI assessment, observed 8s ago");
+    expect(html).toContain("CURRENT");
+    expect(html).toContain("terminal excerpt (last observed at 8s ago)");
     expect(html).toContain("3 tests failed in auth.spec.ts");
+    expect(html).not.toContain("AI assessment, last observed");
+  });
+
+  it("marks the judgment stale when the seat has left the turn", () => {
+    const html = render({
+      control: { state: "idle", label: "Idle", tone: "steel" },
+      assessment: assessment({ bindingId: "b1" }),
+      windowDigest: "w1",
+    });
+    expect(html).toContain('data-seat-awareness="stale"');
+    expect(html).toContain('data-awareness-judgment="stale"');
+    expect(html).toContain("LAST OBSERVED");
+    expect(html).toContain("AI assessment, last observed 8s ago");
+    expect(html).not.toContain("AI assessment, observed 8s ago");
+    // The digest still matches, so the excerpt itself stays current.
+    expect(html).toContain('data-awareness-excerpt="current"');
+    expect(html).toContain("terminal excerpt");
+    expect(html).not.toContain("last observed at");
   });
 
   it("renders an abstention as the deterministic status plus a neutral line", () => {

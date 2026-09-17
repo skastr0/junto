@@ -26,18 +26,32 @@
  * `not_assessed` and `stale` are renderer derivations and never travel on the
  * wire: an assessment is published as `current`, `abstained`, or
  * `unavailable`, and the store ages it out (about five minutes) or degrades
- * it when the evidence window it was derived from is no longer the live one.
- * A cache hit is not a new assessment — `observedAt` stays the original
- * observation, so freshness can never be reset by replaying a cached answer.
+ * it when the seat has left the turn it describes. A cache hit is not a new
+ * assessment — `observedAt` stays the original observation, so freshness can
+ * never be reset by replaying a cached answer.
  *
  * Two event kinds travel on one channel:
  *   window      the evidence window for a binding changed. Cheap, no model
- *               call. The store records the live digest so a judgment derived
- *               from an older screen can be shown as "last observed" instead
- *               of being relabelled current.
+ *               call. `windowDigest` is a coarse material screen revision —
+ *               volatile chrome (spinner and animation frames, elapsed-time and
+ *               token counters, cursor position, byte and sequence counters,
+ *               repaints that leave the visible text identical) is normalized
+ *               out, and it is republished only when that normalized revision
+ *               changes, at most once per coalescing window. The evidence
+ *               digest, the scheduler's cache key, and the renderer's excerpt
+ *               comparison must be that same normalization, exported once by
+ *               the projection. The renderer never derives a digest: it only
+ *               compares the two it was handed, so it cannot drift from it.
  *   assessment  one judgment (or abstention, or failure) plus the id-tagged
  *               evidence window it was derived from. The excerpt is resolved
  *               against THAT mapping only.
+ *
+ * The digest drives the excerpt axis, not the judgment axis. An excerpt is
+ * current only on an exact digest match and is otherwise shown as last
+ * observed; the activity and concerns stay current while they are within the
+ * TTL and belong to the live control-state turn. A continuously printing seat
+ * therefore keeps a useful label while its excerpt is honestly attributed to
+ * the older screen it was read from.
  */
 
 import type { AgentSeatState } from "@shared/agent-seat-state";
@@ -48,7 +62,10 @@ export const SEAT_AWARENESS_CHANNEL = "junto:seat-awareness" as const;
 export const SEAT_AWARENESS_SNAPSHOT_CHANNEL =
   "junto:seat-awareness-snapshot" as const;
 
-/** Enrichment lifetime. Past this the answer is `stale`, never current. */
+/**
+ * Enrichment lifetime for the judgment axis. Past this the activity and
+ * concerns are `stale`, never current, however the seat is behaving.
+ */
 export const SEAT_AWARENESS_TTL_MS = 5 * 60_000;
 
 /** Ingest bounds. The evidence window is terminal text; it is never trusted. */

@@ -65,7 +65,8 @@ export function SeatAwarenessHover({
       data-awareness-control-state={view.control.state}
       data-awareness-attention={view.canonicalAttention ? "true" : undefined}
       data-awareness-ai-label={view.aiLabel ?? undefined}
-      data-awareness-degraded={view.degraded ? "true" : undefined}
+      data-awareness-judgment={view.judgmentFreshness ?? undefined}
+      data-awareness-excerpt={view.excerptFreshness ?? undefined}
       className={[
         "w-[320px] overflow-hidden rounded-md border border-stroke bg-raise shadow-lg shadow-black/40",
         className ?? "",
@@ -111,7 +112,7 @@ export function SeatAwarenessHover({
         {view.excerpt ? (
           <div className="border-t border-stroke pt-2">
             <Eyebrow tone="faint" size="xs">
-              {SEAT_AWARENESS_EXCERPT_LABEL}
+              {view.excerptLabel ?? SEAT_AWARENESS_EXCERPT_LABEL}
             </Eyebrow>
             <p className="mt-0.5 break-words font-mono text-[11px] leading-snug text-ink">
               {view.excerpt}

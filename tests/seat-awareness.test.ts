@@ -50,6 +50,8 @@ import {
   sanitizeTerminalText,
   seatAwareness$,
   seatAwarenessAvailability,
+  seatAwarenessExcerptFreshness,
+  seatAwarenessTurnLive,
   seatAwarenessView,
   subscribeSeatAwareness,
   windowDigestForBinding,
@@ -384,44 +386,131 @@ describe("seat awareness store", () => {
   });
 });
 
-describe("availability", () => {
-  it("is not_assessed with no observation and current while fresh", () => {
-    expect(seatAwarenessAvailability(undefined, { now: T0 })).toBe("not_assessed");
-    expect(
-      seatAwarenessAvailability(assessment({ bindingId: "b1" }), {
-        now: T0 + 1_000,
-        windowDigest: "w1",
-      }),
-    ).toBe("current");
+describe("freshness axes", () => {
+  const workingControl = control();
+  const idleControl = control({ state: "idle", label: "Idle", tone: "steel" });
+
+  it("keeps the judgment current while the turn lives, even as the digest churns", () => {
+    // The failure the split exists to prevent: a continuously printing seat
+    // moves its digest on every burst, and the label must survive that.
+    const stored = assessment({ bindingId: "b1" });
+    const view = seatAwarenessView({
+      control: workingControl,
+      assessment: stored,
+      windowDigest: "w7",
+      now: T0 + 4 * 60_000,
+    });
+    expect(view.availability).toBe("current");
+    expect(view.judgmentFreshness).toBe("current");
+    expect(view.aiLabel).toBe("Likely testing");
+    expect(view.freshness).toBe("AI assessment, observed 4m ago");
+    // Only the quoted screen is withdrawn, and it is stamped with its own age.
+    expect(view.excerptFreshness).toBe("last_observed");
+    expect(view.excerptLabel).toBe("terminal excerpt (last observed at 4m ago)");
+    expect(view.excerpt).toBe("3 tests failed in auth.spec.ts");
   });
 
-  it("expires at the enrichment lifetime, never before", () => {
+  it("is current only on an exact live digest match", () => {
+    const stored = assessment({ bindingId: "b1" });
+    expect(seatAwarenessExcerptFreshness(stored, { windowDigest: "w1" })).toBe("current");
+    expect(seatAwarenessExcerptFreshness(stored, { windowDigest: "w2" })).toBe("last_observed");
+    expect(seatAwarenessExcerptFreshness(stored, { windowDigest: "w1 " })).toBe("last_observed");
+    // No live digest cannot prove a match, so it never reads as current.
+    expect(seatAwarenessExcerptFreshness(stored, {})).toBe("last_observed");
+    expect(seatAwarenessExcerptFreshness(stored, { windowDigest: undefined })).toBe("last_observed");
+  });
+
+  it("keeps the excerpt current while the judgment is stale", () => {
+    // The digest still matches, so the quoted screen is the screen; what aged
+    // out is the judgment, because the seat settled.
+    const view = seatAwarenessView({
+      control: idleControl,
+      assessment: assessment({ bindingId: "b1" }),
+      windowDigest: "w1",
+      now: T0 + 20_000,
+    });
+    expect(view.availability).toBe("stale");
+    expect(view.judgmentFreshness).toBe("stale");
+    expect(view.freshness).toBe("AI assessment, last observed 20s ago");
+    expect(view.excerptFreshness).toBe("current");
+    expect(view.excerptLabel).toBe("terminal excerpt");
+  });
+
+  it("expires the judgment at the enrichment lifetime while the turn still lives", () => {
     const stored = assessment({ bindingId: "b1" });
     expect(
-      seatAwarenessAvailability(stored, { now: T0 + SEAT_AWARENESS_TTL_MS - 1, windowDigest: "w1" }),
+      seatAwarenessAvailability(stored, {
+        now: T0 + SEAT_AWARENESS_TTL_MS - 1,
+        controlState: "working",
+      }),
     ).toBe("current");
     expect(
-      seatAwarenessAvailability(stored, { now: T0 + SEAT_AWARENESS_TTL_MS, windowDigest: "w1" }),
+      seatAwarenessAvailability(stored, {
+        now: T0 + SEAT_AWARENESS_TTL_MS,
+        controlState: "working",
+      }),
     ).toBe("stale");
   });
 
-  it("is stale when the screen it was derived from has moved on", () => {
-    expect(
-      seatAwarenessAvailability(assessment({ bindingId: "b1" }), {
-        now: T0 + 1_000,
-        windowDigest: "w2",
+  it("ages the judgment out when the seat has left the turn", () => {
+    const stored = assessment({ bindingId: "b1" });
+    for (const state of ["working", "attention"] as const) {
+      expect(seatAwarenessTurnLive(state), state).toBe(true);
+      expect(
+        seatAwarenessAvailability(stored, { now: T0 + 1_000, controlState: state }),
+        state,
+      ).toBe("current");
+    }
+    for (const state of ["idle", "done", "gone"] as const) {
+      expect(seatAwarenessTurnLive(state), state).toBe(false);
+      expect(
+        seatAwarenessAvailability(stored, { now: T0 + 1_000, controlState: state }),
+        state,
+      ).toBe("stale");
+    }
+    // `unknown` and an absent state cannot prove the turn ended — the same
+    // "never claim more than the evidence shows" rule as the excerpt axis.
+    for (const state of ["unknown", undefined] as const) {
+      expect(seatAwarenessTurnLive(state), String(state)).toBe(true);
+      expect(
+        seatAwarenessAvailability(stored, { now: T0 + 1_000, controlState: state }),
+        String(state),
+      ).toBe("current");
+    }
+  });
+
+  it("keeps a canonical attention seat's judgment inside the turn", () => {
+    // The highest-value case: a seat waiting on the operator keeps its label.
+    const view = seatAwarenessView({
+      control: control({ state: "attention", label: "needs operator input", tone: "amber" }),
+      assessment: assessment({
+        bindingId: "b1",
+        activity: null,
+        concerns: ["approval_requested"],
       }),
-    ).toBe("stale");
+      windowDigest: "w1",
+      now: T0 + 60_000,
+    });
+    expect(view.availability).toBe("current");
+    expect(view.judgmentFreshness).toBe("current");
+    expect(view.aiLabel).toBe("AI suggests checking approval");
+    expect(view.canonicalAttention).toBe(true);
   });
 
   it("passes abstention and failure through — neither claims currency", () => {
     const abstained = assessment({ bindingId: "b1", availability: "abstained", activity: null, selectedLineId: null });
     const failed = assessment({ bindingId: "b1", availability: "unavailable", activity: null, selectedLineId: null });
     expect(
-      seatAwarenessAvailability(abstained, { now: T0 + SEAT_AWARENESS_TTL_MS * 4 }),
+      seatAwarenessAvailability(abstained, {
+        now: T0 + SEAT_AWARENESS_TTL_MS * 4,
+        controlState: "idle",
+      }),
     ).toBe("abstained");
     expect(
-      seatAwarenessAvailability(failed, { now: T0 + SEAT_AWARENESS_TTL_MS * 4 }),
+      seatAwarenessAvailability(failed, {
+        now: T0 + SEAT_AWARENESS_TTL_MS * 4,
+        controlState: "idle",
+      }),
     ).toBe("unavailable");
   });
 
@@ -433,7 +522,10 @@ describe("availability", () => {
     const stored = awarenessForBinding("b1");
     expect(stored?.observedAt).toBe(T0);
     expect(
-      seatAwarenessAvailability(stored, { now: T0 + 600_000, windowDigest: "w1" }),
+      seatAwarenessAvailability(stored, {
+        now: T0 + 600_000,
+        controlState: "working",
+      }),
     ).toBe("stale");
   });
 });
@@ -530,14 +622,15 @@ describe("presentation", () => {
       windowDigest: "w2",
       now: T0 + 60_000,
     });
-    expect(view.availability).toBe("stale");
-    expect(view.degraded).toBe(true);
-    expect(view.availabilityLabel).toBe("LAST OBSERVED");
-    expect(view.freshness).toBe("AI assessment, last observed 1m ago");
-    expect(view.sentence).toContain("last observed");
-    expect(view.sentence).not.toContain("observed 1m ago -");
-    // The extractive excerpt is still shown, attributed to the older screen.
+    expect(view.excerptFreshness).toBe("last_observed");
+    expect(view.excerptLabel).toBe("terminal excerpt (last observed at 1m ago)");
+    expect(view.sentence).toContain("last observed at 1m ago");
+    expect(view.sentence).not.toContain("observed at 1m ago: '");
+    // The extractive excerpt is still shown, stamped with the screen it came from.
     expect(view.excerpt).toBe("3 tests failed in auth.spec.ts");
+    // The judgment survives the screen churn — that is the point of the split.
+    expect(view.judgmentFreshness).toBe("current");
+    expect(view.freshness).toBe("AI assessment, observed 1m ago");
   });
 
   it("presents a current observation with no accepted judgment as an abstention", () => {
@@ -712,18 +805,41 @@ describe("authority boundary", () => {
     expect(Object.keys(seatAwareness$.byBindingId.peek())).toEqual(["b1"]);
   });
 
-  it("derives availability without consulting any control state", () => {
-    // Same assessment, opposite control states, identical availability.
+  it("keeps the two freshness axes independent", () => {
     const stored = assessment({ bindingId: "b1" });
-    const working = seatAwarenessView({ control: control(), assessment: stored, windowDigest: "w1", now: T0 });
-    const attention = seatAwarenessView({
-      control: control({ state: "attention", label: "needs operator input", tone: "amber" }),
+    const working = control();
+    const idle = control({ state: "idle", label: "Idle", tone: "steel" });
+    // Digest churn moves the excerpt axis and leaves the judgment axis alone.
+    const matched = seatAwarenessView({
+      control: working,
       assessment: stored,
       windowDigest: "w1",
       now: T0,
     });
-    expect(working.availability).toBe(attention.availability);
-    expect(working.aiLabel).toBe(attention.aiLabel);
-    expect(attention.control.label).toBe("needs operator input");
+    const moved = seatAwarenessView({
+      control: working,
+      assessment: stored,
+      windowDigest: "w9",
+      now: T0,
+    });
+    expect(matched.excerptFreshness).toBe("current");
+    expect(moved.excerptFreshness).toBe("last_observed");
+    expect(moved.availability).toBe(matched.availability);
+    expect(moved.judgmentFreshness).toBe(matched.judgmentFreshness);
+    expect(moved.aiLabel).toBe(matched.aiLabel);
+    expect(moved.freshness).toBe(matched.freshness);
+    // The control state moves the judgment axis and leaves the excerpt alone.
+    const settled = seatAwarenessView({
+      control: idle,
+      assessment: stored,
+      windowDigest: "w1",
+      now: T0,
+    });
+    expect(settled.judgmentFreshness).toBe("stale");
+    expect(settled.excerptFreshness).toBe("current");
+    expect(settled.aiLabel).toBe("Likely testing");
+    // Neither axis can reach the canonical control plane.
+    expect(settled.control.state).toBe("idle");
+    expect(settled.control.label).toBe("Idle");
   });
 });

@@ -11,12 +11,18 @@
  *   1. strict ingest of the awareness channel (`decodeSeatAwarenessEvent`) plus
  *      hygiene — every evidence line is sanitized and bounded before it can
  *      ever reach a render
- *   2. the latest observation per binding, plus the live evidence digest so a
- *      judgment derived from an older screen reads as "last observed"
- *   3. availability derivation: `not_assessed` (nothing yet) and `stale`
- *      (expired or screen moved on) are renderer facts, never wire facts
- *   4. the composed copy: a code-composed label, an extractive excerpt resolved
- *      against the mapping captured for THAT observation, and a timestamp
+ *   2. the latest observation per binding, plus the live evidence digest
+ *   3. two independent freshness axes. The excerpt is current only on an exact
+ *      digest match and is otherwise shown as last observed, because it is
+ *      quoted screen text. The judgment (activity + concerns) stays current
+ *      while it is within the enrichment lifetime and belongs to the live
+ *      control-state turn, so a continuously printing seat keeps a useful label
+ *      even though its screen keeps moving
+ *   4. availability derivation: `not_assessed` (nothing yet) and `stale`
+ *      (expired, or the seat left the turn) are renderer facts, never wire
+ *      facts
+ *   5. the composed copy: a code-composed label, an extractive excerpt resolved
+ *      against the mapping captured for THAT observation, and timestamps
  *
  * Deterministic fallback is mandatory: with no assessment (or while one is
  * stale) the surface still shows the existing deterministic status plus a
@@ -318,25 +324,70 @@ export const formatSeatAwarenessAge = (ageMs: number): string => {
 };
 
 /**
- * Effective availability at `now`. `not_assessed` is the absence of an
- * observation; `stale` is an observation that expired (about five minutes) or
- * that was made against a screen the live window digest has since replaced.
- * Abstentions and failures stay themselves — there is no enrichment to expire,
- * and neither one ever claims currency.
+ * Effective availability at `now` — the judgment axis (activity + concerns).
+ * `not_assessed` is the absence of an observation; `stale` is an observation
+ * whose judgment is no longer current because it expired (about five minutes)
+ * or because the seat has left the turn it describes. Abstentions and failures
+ * stay themselves — there is no enrichment to expire, and neither one ever
+ * claims currency.
+ *
+ * The evidence digest deliberately plays no part here: a continuously printing
+ * seat churns its screen without ending its turn, and an excerpt-only
+ * degradation must not be allowed to throw away a still-useful label.
  */
 export const seatAwarenessAvailability = (
   assessment: SeatAwarenessAssessment | undefined,
-  input: { readonly now: number; readonly windowDigest?: string | undefined },
+  input: {
+    readonly now: number;
+    /** Live canonical control state — the turn the judgment must belong to. */
+    readonly controlState?: SeatAwarenessControlState | undefined;
+  },
 ): SeatAwarenessAvailability => {
   if (!assessment) return "not_assessed";
   if (assessment.availability !== "current") return assessment.availability;
+  // A `current` observation with neither activity nor concern carries no
+  // judgment to age: present it as an abstention.
+  if (assessment.activity === null && assessment.concerns.length === 0) {
+    return "abstained";
+  }
   const expired = input.now - assessment.observedAt >= SEAT_AWARENESS_TTL_MS;
-  const screenMoved =
-    input.windowDigest !== undefined &&
-    input.windowDigest !== assessment.evidence.digest;
-  if (expired || screenMoved) return "stale";
+  if (expired || !seatAwarenessTurnLive(input.controlState)) return "stale";
   return "current";
 };
+
+/**
+ * Live turns. A judgment describes work in progress, so it stays current while
+ * the seat is still in that turn — `working` (a turn under way) or `attention`
+ * (a turn waiting on the operator) — and becomes stale once the seat settles
+ * (`idle`, `done`) or is vacated (`gone`).
+ *
+ * Only those three settling states prove the turn ended. `unknown` and an
+ * absent state prove nothing, so they never claim staleness. That is the same
+ * rule the excerpt axis follows: never claim more than the evidence shows. A
+ * new control state must be decided here deliberately rather than defaulting
+ * into a degradation.
+ */
+export const seatAwarenessTurnLive = (
+  state: SeatAwarenessControlState | undefined,
+): boolean => state !== "idle" && state !== "done" && state !== "gone";
+
+/**
+ * The excerpt axis: current only on an exact match against the live window
+ * digest, otherwise last observed. A missing live digest cannot prove a match,
+ * so it is never relabelled current.
+ *
+ * This layer never derives a digest — it compares the two it was handed, both
+ * produced by the projection, so it cannot drift from the one normalization
+ * that also serves the evidence digest and the scheduler's cache key.
+ */
+export const seatAwarenessExcerptFreshness = (
+  assessment: SeatAwarenessAssessment,
+  input: { readonly windowDigest?: string | undefined },
+): SeatAwarenessExcerptFreshness =>
+  input.windowDigest !== undefined &&
+  input.windowDigest === assessment.evidence.digest
+    ? "current"
+    : "last_observed";
 
 // --- presentation ------------------------------------------------------------
 
@@ -362,6 +413,11 @@ export type SeatAwarenessResolvedControl = {
   readonly detail: string | undefined;
 };
 
+/** Judgment axis (activity + concerns): the turn plus the enrichment lifetime. */
+export type SeatAwarenessJudgmentFreshness = "current" | "stale";
+/** Excerpt axis: an exact live window digest match, or an older screen. */
+export type SeatAwarenessExcerptFreshness = "current" | "last_observed";
+
 export type SeatAwarenessView = {
   readonly availability: SeatAwarenessAvailability;
   readonly availabilityLabel: string;
@@ -374,14 +430,17 @@ export type SeatAwarenessView = {
   readonly activityLabel: string | null;
   readonly concerns: readonly SeatAwarenessConcern[];
   readonly concernTexts: readonly string[];
+  /** Judgment freshness; null when no judgment was accepted. */
+  readonly judgmentFreshness: SeatAwarenessJudgmentFreshness | null;
   /** Extractive excerpt from THIS observation's window; never generated. */
   readonly excerpt: string | null;
+  /** Excerpt freshness; null when there is no excerpt. */
+  readonly excerptFreshness: SeatAwarenessExcerptFreshness | null;
+  /** "terminal excerpt", or the same with a last-observed stamp. */
   readonly excerptLabel: string | null;
   readonly freshness: string | null;
   /** Neutral / honest line shown when no judgment was accepted. */
   readonly availabilityLine: string;
-  /** True when the judgment describes a screen that has since moved on. */
-  readonly degraded: boolean;
   /** One-line composition for aria and title. */
   readonly sentence: string;
 };
@@ -389,7 +448,7 @@ export type SeatAwarenessView = {
 export type SeatAwarenessPresentationInput = {
   readonly control: SeatAwarenessControl;
   readonly assessment?: SeatAwarenessAssessment | undefined;
-  /** Live evidence digest for the binding. */
+  /** Live evidence digest for the binding — the excerpt axis. */
   readonly windowDigest?: string | undefined;
   readonly now: number;
 };
@@ -412,6 +471,31 @@ const resolveExcerpt = (
   return text.length > 0 ? text : null;
 };
 
+/** The excerpt with its own axis: the text, its freshness, and its label. */
+const resolveExcerptDisplay = (
+  assessment: SeatAwarenessAssessment,
+  input: { readonly now: number; readonly windowDigest?: string | undefined },
+): {
+  readonly text: string;
+  readonly freshness: SeatAwarenessExcerptFreshness;
+  readonly label: string;
+} | null => {
+  const text = resolveExcerpt(assessment);
+  if (!text) return null;
+  const freshness = seatAwarenessExcerptFreshness(assessment, input);
+  return {
+    text,
+    freshness,
+    // The age is the window's own capture time: when this screen text existed.
+    label:
+      freshness === "current"
+        ? SEAT_AWARENESS_EXCERPT_LABEL
+        : `${SEAT_AWARENESS_EXCERPT_LABEL} (last observed at ${formatSeatAwarenessAge(
+            input.now - assessment.evidence.capturedAt,
+          )})`,
+  };
+};
+
 export const seatAwarenessView = (
   input: SeatAwarenessPresentationInput,
 ): SeatAwarenessView => {
@@ -425,19 +509,20 @@ export const seatAwarenessView = (
   const assessment = input.assessment;
   const availability = seatAwarenessAvailability(assessment, {
     now: input.now,
-    windowDigest: input.windowDigest,
+    controlState: control.state,
   });
-  // A judgment only exists when the model actually answered something. A
-  // `current` observation with neither activity nor concern is presented as an
-  // abstention rather than as an empty judgment, and a failure has none by
-  // definition.
+  // A judgment exists exactly when the availability is one of the two judged
+  // states — one source of truth for "did the model actually answer".
   const judgment =
     assessment !== undefined &&
-    availability !== "abstained" &&
-    availability !== "unavailable" &&
-    (assessment.activity !== null || assessment.concerns.length > 0)
+    (availability === "current" || availability === "stale")
       ? assessment
       : undefined;
+  const judgmentFreshness: SeatAwarenessJudgmentFreshness | null = judgment
+    ? availability === "stale"
+      ? "stale"
+      : "current"
+    : null;
 
   const activityLabel = judgment?.activity
     ? SEAT_AWARENESS_ACTIVITY_COPY[judgment.activity]
@@ -446,11 +531,19 @@ export const seatAwarenessView = (
   const concernTexts = concerns.map((concern) => SEAT_AWARENESS_CONCERN_COPY[concern]);
   const aiLabel = concernTexts[0] ?? activityLabel ?? null;
 
-  const excerpt = judgment ? resolveExcerpt(judgment) : null;
+  const excerptDisplay = judgment
+    ? resolveExcerptDisplay(judgment, {
+        now: input.now,
+        windowDigest: input.windowDigest,
+      })
+    : null;
+  const excerpt = excerptDisplay?.text ?? null;
+  const excerptFreshness = excerptDisplay?.freshness ?? null;
+  const excerptLabel = excerptDisplay?.label ?? null;
 
   const freshness = judgment
     ? `${SEAT_AWARENESS_ATTRIBUTION}, ${
-        availability === "stale" ? "last observed" : "observed"
+        judgmentFreshness === "stale" ? "last observed" : "observed"
       } ${formatSeatAwarenessAge(input.now - judgment.observedAt)}`
     : null;
 
@@ -462,8 +555,8 @@ export const seatAwarenessView = (
       : SEAT_AWARENESS_NEUTRAL_LINE;
 
   const sentenceParts: string[] = [aiLabel ?? control.label];
-  if (excerpt) {
-    sentenceParts.push(`${SEAT_AWARENESS_EXCERPT_LABEL}: '${excerpt}'`);
+  if (excerpt && excerptLabel) {
+    sentenceParts.push(`${excerptLabel}: '${excerpt}'`);
   }
   if (freshness) sentenceParts.push(freshness);
   if (!aiLabel) sentenceParts.push(availabilityLine);
@@ -478,11 +571,12 @@ export const seatAwarenessView = (
     activityLabel,
     concerns,
     concernTexts,
+    judgmentFreshness,
     excerpt,
-    excerptLabel: excerpt ? SEAT_AWARENESS_EXCERPT_LABEL : null,
+    excerptFreshness,
+    excerptLabel,
     freshness,
     availabilityLine,
-    degraded: availability === "stale",
     sentence: sentenceParts.join(" - "),
   };
 };
