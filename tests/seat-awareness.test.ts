@@ -1085,35 +1085,74 @@ describe("presentation", () => {
     expect(raised.clearNote).toBeNull();
   });
 
-  it("keeps unanswered disjoint from decisively answered concerns", () => {
-    // "Unanswered" means asked but not decisively answered, so an entry that is
-    // also raised or absent is dropped rather than allowed to weaken the claim.
+  it("never strengthens the claim by resolving a contradictory unanswered entry", () => {
+    // "Unanswered" means asked but not decisively answered, so a well-behaved
+    // producer keeps it disjoint from a raised concern and an accepted absence.
+    // A contradictory entry is kept rather than dropped, because dropping it can
+    // EMPTY the list, and a present empty list is exactly what licenses the
+    // strong "checked and clear" claim. Resolving the contradiction upward is
+    // the unsafe direction; keeping the entry leaves the weaker fact, which is
+    // true under either reading. Dedupe and the cap still apply.
     applySeatAwarenessEvent(
       assessmentEvent(
         assessment({
           bindingId: "b1",
           activity: "indeterminate",
-          concerns: ["approval_requested"],
+          concerns: [],
           selectedLineId: null,
-          absences: [
-            { concern: "repetition", probability: 0.08 },
-            { concern: "execution_error", probability: 0.09 },
-          ],
-          unansweredConcerns: [
-            "approval_requested",
-            "repetition",
-            "access_problem",
-            "access_problem",
-          ],
+          absences: [{ concern: "approval_requested", probability: 0.06 }],
+          // Every listed entry is also decisively absent. Dropping them would
+          // turn this into a present empty list and claim "checked and clear".
+          unansweredConcerns: ["approval_requested", "approval_requested"],
         }),
       ),
     );
     const stored = awarenessForBinding("b1");
-    expect(stored?.unansweredConcerns).toEqual(["access_problem"]);
-    // And the dropped entry does not silently weaken a claim it contradicts.
+    expect(stored?.unansweredConcerns).toEqual(["approval_requested"]);
     const view = seatAwarenessViewForBinding({ bindingId: "b1", control: control(), now: T0 });
-    expect(view.aiLabel).toBe("AI suggests checking approval");
-    expect(view.clearClaim).toBeNull();
+    expect(view.clearClaim).toBe("no_concern_raised");
+    expect(view.aiLabel).toBe(SEAT_AWARENESS_NO_CONCERN_RAISED_LINE);
+    expect(view.sentence).not.toContain(SEAT_AWARENESS_CLEAR_LINE);
+
+    // The same assessment without the contradictory entry is still allowed the
+    // strong claim, so the guard does not weaken a clean producer.
+    applySeatAwarenessEvent(
+      assessmentEvent(
+        assessment({
+          bindingId: "b3",
+          activity: "indeterminate",
+          concerns: [],
+          selectedLineId: null,
+          absences: [{ concern: "approval_requested", probability: 0.06 }],
+          unansweredConcerns: [],
+        }),
+      ),
+    );
+    expect(
+      seatAwarenessViewForBinding({ bindingId: "b3", control: control(), now: T0 }).clearClaim,
+    ).toBe("checked_and_clear");
+
+    // A raised concern still wins outright and clears nothing, so keeping the
+    // entry costs nothing on the branch that never runs.
+    applySeatAwarenessEvent(
+      assessmentEvent(
+        assessment({
+          bindingId: "b2",
+          activity: "indeterminate",
+          concerns: ["approval_requested"],
+          selectedLineId: null,
+          absences: [{ concern: "repetition", probability: 0.08 }],
+          unansweredConcerns: ["approval_requested", "access_problem"],
+        }),
+      ),
+    );
+    const raisedView = seatAwarenessViewForBinding({
+      bindingId: "b2",
+      control: control(),
+      now: T0,
+    });
+    expect(raisedView.aiLabel).toBe("AI suggests checking approval");
+    expect(raisedView.clearClaim).toBeNull();
   });
 
   it("ranks the headline: concern, determinate activity, checked and clear, activity unclear", () => {

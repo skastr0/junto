@@ -109,6 +109,17 @@ first version of this paragraph was false: the decoder normalized an absent fiel
 which supports the strong claim, so the stated safe direction was the unsafe one until the
 decode was fixed.
 
+**Two guards that point the safe way.** If a producer contradicts itself by listing a concern
+as both decisively absent and unanswered, the unanswered entry is kept and the claim stays
+weak: dropping it can empty the list, and an empty list is what licenses the strong claim, so
+resolving the contradiction in favour of the stronger claim would be the unsafe direction. The
+weaker fact is true under either reading. A raised concern needs no such guard, because the
+clear branch is unreachable while any concern is raised. Separately, the omitted-field path is
+a guard rather than a live path today: the projection's and the scheduler's assessments both
+always carry a present list, empty on a failure, so nothing in the running system omits the
+field; the undefined branch exists for a future or skewed producer, and workstream D corrected
+their own earlier framing to say so.
+
 Every accepted judgment carries provenance: `bindingId, epoch, sourceSeq, evidenceHash,
 observedAt, questionPackVersion, requestedModel, returnedModel, answers, evidence line
 reference`. Model probabilities are not `AgentSeatConfidence`.

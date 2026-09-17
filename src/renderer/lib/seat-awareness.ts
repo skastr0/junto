@@ -240,13 +240,15 @@ const sanitizeAssessment = (
     if (absences.some((entry) => entry.concern === absence.concern)) continue;
     absences.push({ concern: absence.concern, probability: absence.probability });
   }
-  // "Unanswered" means asked but not decisively answered, so it is disjoint
-  // from both a raised concern and an accepted absence. An entry that is also
-  // decisively answered is dropped rather than allowed to weaken the claim.
-  const answered = new Set<SeatAwarenessConcern>([
-    ...concerns,
-    ...absences.map((absence) => absence.concern),
-  ]);
+  // "Unanswered" means asked but not decisively answered, so a well-behaved
+  // producer keeps it disjoint from both a raised concern and an accepted
+  // absence. A contradictory entry is deliberately NOT dropped: dropping it can
+  // empty the list, and an empty list is what licenses the strong "checked and
+  // clear" claim, so resolving the contradiction in favour of the stronger claim
+  // would be the unsafe direction. Keeping it leaves the claim weak, which is
+  // true under either reading of the contradiction. A raised concern needs no
+  // help here: the clear branch is unreachable while any concern is raised.
+  //
   // Presence survives sanitizing: an omitted list means the producer never
   // reported, so it stays absent and the view can only make the weaker claim.
   // Flattening it to empty here would hand the strong "checked and clear" claim
@@ -254,9 +256,7 @@ const sanitizeAssessment = (
   const unanswered =
     assessment.unansweredConcerns === undefined
       ? undefined
-      : [...new Set(assessment.unansweredConcerns)]
-          .filter((concern) => !answered.has(concern))
-          .slice(0, SEAT_AWARENESS_MAX_CONCERNS);
+      : [...new Set(assessment.unansweredConcerns)].slice(0, SEAT_AWARENESS_MAX_CONCERNS);
   return {
     ...assessment,
     concerns: concerns.slice(0, SEAT_AWARENESS_MAX_CONCERNS),
