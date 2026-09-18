@@ -408,6 +408,15 @@ install_cli_tools
 log "installed $APP_DST"
 log "installed CDHash $INSTALLED_CDHASH"
 
+# The release candidate shares the installed bundle identifier. Left registered,
+# LaunchServices can resolve com.skastr0.junto (open -a, URL schemes, login
+# items) to the build output instead of /Applications. Unregister it; the
+# canonical registration is the installed copy alone.
+LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
+if [[ "$APP_SRC" != "$APP_DST" && -x "$LSREGISTER" ]]; then
+  "$LSREGISTER" -u "$APP_SRC" >/dev/null 2>&1 || true
+fi
+
 if [[ "$SUPERVISED" -eq 0 && "$LAUNCHD_WAS_LOADED" -eq 1 ]]; then
   resume_launchd_job
 fi
