@@ -47,6 +47,7 @@ import { getJuntoApi } from "../../lib/junto-api";
 import { HarnessMark } from "../HarnessMark";
 import { OverseerMark } from "../OverseerMark";
 import { isOverseerSeat } from "../../lib/overseer-set";
+import { SeatAwarenessHoverForNode } from "../terminal/SeatAwarenessHoverForNode";
 import { SeatCollaborationBlock } from "../terminal/SeatCollaborationBlock";
 import { TerminalCard } from "../terminal/TerminalCard";
 import {
@@ -505,10 +506,11 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
 
   const labelHue = node.color ? accentColor(node.color) : INK;
 
-  // Collaboration is an agent seat's own surface: a peer is another agent seat
-  // on this canvas. It renders through the shell's overlay slot, which sits
-  // outside the clipped card body.
-  const seatNode = isAgent;
+  // Both node kinds hold a seat, and the awareness plane observes both, so both
+  // get the advisory hover. Collaboration is an agent seat's own surface: a
+  // peer is another agent seat on this canvas. Everything renders through the
+  // shell's overlay slot, which sits outside the clipped card body.
+  const seatNode = managedTerminal || isAgent;
   const collaborationOpen = use$(seatCollaborationUi$.openNodeId) === node.id;
   // Visibility is the store, not `group-hover`: the slot is opened by the
   // same hover that sets it, so the two can never disagree, and a capture of
@@ -518,7 +520,16 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
       className={collaborationOpen ? "absolute left-0 top-full z-50 pt-1" : "hidden"}
       data-collaboration-overlay={collaborationOpen ? "open" : undefined}
     >
-      {collaborationOpen ? <SeatCollaborationBlock nodeId={node.id} /> : null}
+      {collaborationOpen ? (
+        <>
+          {/* The advisory hover first: it is the status echo, collaboration is
+              the action. Both live outside the clipped card body. */}
+          <SeatAwarenessHoverForNode node={node} graphBlocked={data.blocked} />
+          {isAgent ? (
+            <SeatCollaborationBlock nodeId={node.id} className="mt-1" />
+          ) : null}
+        </>
+      ) : null}
     </div>
   ) : undefined;
   const closeOnLeave = (event: ReactMouseEvent<HTMLDivElement>) => {

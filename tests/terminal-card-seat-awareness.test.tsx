@@ -2,14 +2,19 @@
  * TerminalCard + seat awareness — the mount.
  *
  * The sidecar's whole product is a card surface, so this renders the real card
- * to static markup (the repository's renderer workflow: no jsdom, no effects)
- * with an assessment seeded into the store, and holds the wiring invariants:
+ * and the real hover-for-a-node to static markup (the repository's renderer
+ * workflow: no jsdom, no effects) with an assessment seeded into the store, and
+ * holds the wiring invariants:
  *
- *   - the card subscribes the awareness store where the agent seat state
- *     subscription lives, and the hover is mounted on the card;
- *   - the hover receives the canonical deterministic status unchanged;
+ *   - the card body and the hover derive the canonical deterministic status
+ *     through ONE function (`seatCardStatus`), so the echo cannot drift;
+ *   - the hover is mounted for the node's binding and carries its assessment;
  *   - the card still renders its deterministic chrome with no assessment;
  *   - no U+00B7 anywhere in the rendered copy.
+ *
+ * That the hover is not a child of the card body is a paint property, not a
+ * markup one: the node shell clips its children, so `e2e/scenarios/
+ * seat-awareness-card.spec.ts` is what proves it paints.
  */
 
 import { renderToStaticMarkup } from "react-dom/server";
@@ -17,6 +22,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { AgentSeatStateEvent } from "../src/shared/agent-seat-state";
 import type { CanvasNode } from "../src/shared/canvas";
 import { TerminalCard } from "../src/renderer/components/terminal/TerminalCard";
+import { SeatAwarenessHoverForNode } from "../src/renderer/components/terminal/SeatAwarenessHoverForNode";
 import {
   applySeatAwarenessEvent,
   resetSeatAwareness,
@@ -83,6 +89,15 @@ afterEach(() => {
   resetSeatAwareness();
 });
 
+/** The card body and the hover for one node, as the node shell renders them. */
+const renderSeat = (node: CanvasNode): string =>
+  renderToStaticMarkup(
+    <>
+      <TerminalCard node={node} />
+      <SeatAwarenessHoverForNode node={node} />
+    </>,
+  );
+
 describe("TerminalCard seat awareness", () => {
   it("mounts the hover with the assessment and echoes the deterministic status", () => {
     applyAgentSeatStateEvent(seatEvent("working"));
@@ -92,9 +107,7 @@ describe("TerminalCard seat awareness", () => {
       windowDigest: "w1",
       at: Date.now(),
     });
-    const html = renderToStaticMarkup(
-      <TerminalCard node={terminalNode("n1", "b1")} />,
-    );
+    const html = renderSeat(terminalNode("n1", "b1"));
     // The canonical deterministic status is on the card and echoed unchanged.
     expect(html).toContain('data-seat-state="working"');
     expect(html).toContain('data-awareness-control-state="working"');
@@ -109,9 +122,7 @@ describe("TerminalCard seat awareness", () => {
 
   it("renders the deterministic card unchanged when no assessment exists", () => {
     applyAgentSeatStateEvent(seatEvent("idle"));
-    const html = renderToStaticMarkup(
-      <TerminalCard node={terminalNode("n1", "b1")} />,
-    );
+    const html = renderSeat(terminalNode("n1", "b1"));
     expect(html).toContain('data-seat-state="idle"');
     expect(html).toContain('data-awareness-control-state="idle"');
     // The hover is mounted but claims nothing it cannot support.
@@ -137,9 +148,7 @@ describe("TerminalCard seat awareness", () => {
       windowDigest: "unobserved",
       at: Date.now(),
     });
-    const html = renderToStaticMarkup(
-      <TerminalCard node={terminalNode("n1", "b1")} />,
-    );
+    const html = renderSeat(terminalNode("n1", "b1"));
     expect(html).toContain('data-seat-awareness="unavailable"');
     expect(html).toContain("AI assessment unavailable: the sidecar is not configured");
     expect(html).not.toContain("NOT ASSESSED");

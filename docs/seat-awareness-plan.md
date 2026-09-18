@@ -387,8 +387,13 @@ fleet-wide coordination inbox, duplicate-work detection, semantic recall of past
 and reply notifications while the source seat is not hovered. The first is the natural
 next step: the same request, dispatched by a stored trigger instead of a click.
 
-**Known gap in the awareness wiring.** `SeatAwarenessHover` is still mounted inside the
-terminal card body, which `NodeShell` clips, so on a terminal card it is in the DOM but
-never painted. The collaboration block avoids this through the shell's new `overlay` slot;
-moving the awareness hover into the same slot is a small change in `TextNode`.
+**The hover paints (fixed 2026-09-17).** The advisory hover was mounted inside the card
+body, which `NodeShell` clips: it was in the DOM with a real box and was painted away, so
+the entire operator-facing half of the sidecar (activity, concerns, excerpt, freshness,
+the clear claim) reached the renderer and was displayed by nothing. Component tests and the
+preview both rendered the hover directly, which is why neither caught it. Both seat node
+kinds now render the hover through the shell's overlay slot, the card body and the hover
+derive their status through one function (`seatCardStatus`) so the echo cannot drift, and
+`e2e/scenarios/seat-awareness-card.spec.ts` asserts a hit test inside the hover's own box,
+because `toBeVisible()` passes for a clipped element.
 

@@ -98,9 +98,11 @@ test("a seat asks a peer for help and the request lands in the peer mailbox", as
 }) => {
   test.setTimeout(240_000);
   const { page, sandbox } = junto;
-  // A taller window than the harness default: the collaboration panel hangs
-  // below the card, and the capture should show all of it.
-  await page.setViewportSize({ width: 1440, height: 1150 });
+  // A taller window than the harness default: the seat overlay stacks the
+  // awareness hover above the collaboration panel, both hanging below the card,
+  // and the capture should show all of it without the station bar covering the
+  // action.
+  await page.setViewportSize({ width: 1440, height: 1400 });
   const builder = page.locator(".react-flow__node", { hasText: "Builder" });
   await expect(builder).toBeVisible({ timeout: 60_000 });
 

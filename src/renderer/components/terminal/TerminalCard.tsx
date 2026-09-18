@@ -3,24 +3,11 @@ import { use$ } from "@legendapp/state/react";
 import { SquareTerminal } from "lucide-react";
 import type { CanvasNode } from "@shared/canvas";
 import { TASKS_ENABLED } from "@shared/features";
-import { isHarnessId } from "@shared/managed-terminal-templates";
 import type { TerminalSessionSummary } from "@shared/terminal";
 import { resolveTerminalBinding } from "@shared/terminal";
-import {
-  agentSeat$,
-  presentationForSeat,
-  subscribeAgentSeatState,
-} from "../../lib/agent-seat-state";
-import {
-  seatAwareness$,
-  subscribeSeatAwareness,
-  type SeatAwarenessControl,
-} from "../../lib/seat-awareness";
-import { isActiveProcessLabel } from "../../lib/activity";
-import {
-  cardMark,
-  seatFactsForNode,
-} from "../../lib/seat-projections";
+import { agentSeat$, subscribeAgentSeatState } from "../../lib/agent-seat-state";
+import { subscribeSeatAwareness } from "../../lib/seat-awareness";
+import { seatCardStatus } from "../../lib/seat-card-status";
 import { useNodeAttentionReasons } from "../../lib/occupancy-feed";
 import { terminal$ } from "../../lib/terminal-state";
 import { onTerminalEvent } from "../../lib/terminal-events";
@@ -34,23 +21,17 @@ import { renameTerminalNode } from "../../lib/mutations";
 import { ClaimedTaskStrip } from "../nodes/ClaimedTaskStrip";
 import { ExecutionCardHeader } from "../nodes/ExecutionCardHeader";
 import { FirstLineRenameInput } from "../nodes/FirstLineRenameInput";
-import { SeatAwarenessHover } from "./SeatAwarenessHover";
-
-const launchSummary = (
-  launch:
-    { readonly kind: string; readonly argv?: readonly string[] } | undefined,
-): string => {
-  if (!launch) return "shell";
-  if (launch.kind === "command" && launch.argv?.length)
-    return launch.argv.join(" ");
-  return launch.kind;
-};
 
 /**
  * Terminal node body — identity + status only.
  * Open via double-click or the selection toolbar (TerminalToolbarActions).
  * No Start/Open/Kill buttons on the card.
  * Managed-agent seat state paints attention (amber + !) / working (cyan).
+ *
+ * The card body derives its status through `seatCardStatus`, the same function
+ * the awareness hover reads, so the hover can never echo a status the card does
+ * not show. The hover itself renders into the node shell's overlay slot: this
+ * body is clipped, so a hover mounted here is painted away.
  */
 export function TerminalCard({
   node,
@@ -75,13 +56,6 @@ export function TerminalCard({
   );
   const needsLook = use$(
     agentSeat$.needsLookByBindingId[
-      native?.bindingId ?? "__junto-terminal-no-binding__"
-    ],
-  );
-  // Advisory sidecar: display only. The store decodes strictly, so a malformed
-  // or absent producer leaves this undefined and the card renders unchanged.
-  const awarenessAssessment = use$(
-    seatAwareness$.byBindingId[
       native?.bindingId ?? "__junto-terminal-no-binding__"
     ],
   );
@@ -147,89 +121,32 @@ export function TerminalCard({
     };
   }, [native?.bindingId, native?.hostId, running]);
 
-  if (!native)
+  const status = seatCardStatus({
+    node,
+    seatEvent,
+    needsLook: needsLook === true,
+    session,
+    graphBlocked,
+    attentionReasons,
+  });
+  if (status === undefined)
     return <div className="text-[11px] text-dim">unbound terminal</div>;
 
-  const rawText = node.type === "text" ? node.text : "";
-  const firstLine = rawText.split("\n")[0]?.trim() ?? "";
-  // Prefer the authorial first line (what rename writes). ether.terminal.label
-  // is a spawn-time fallback only — never let it hide a successful rename.
-  const label = firstLine || native.label || "terminal";
+  if (native === undefined)
+    return <div className="text-[11px] text-dim">unbound terminal</div>;
+  const { label, presentation, seatState, subtitle, activity, complete } = status;
   const commitRename = (nextFirst: string) => {
     renameTerminalNode(node.id, nextFirst);
   };
-  const seatState = seatEvent?.state;
-  const presentation = presentationForSeat(seatState, needsLook === true);
-  const exitReason = session?.exitReason;
-  const exitMessage = session?.exitMessage;
-  const processLive =
-    session?.status === "running" || session?.status === "starting";
-  // Foreground label only — never launch argv basename (zsh) as "the process".
-  // Idle shell OSC titles (user@host:path) are filtered by isActiveProcessLabel.
-  const processName =
-    session?.processName?.trim() || session?.title?.trim() || undefined;
-  const activeProcess =
-    session?.status === "starting" ||
-    (session?.status === "running" && isActiveProcessLabel(processName));
-  const harness =
-    typeof node.ether?.terminal?.harness === "string"
-      ? node.ether.terminal.harness
-      : undefined;
-  const managedSeat = harness !== undefined && isHarnessId(harness);
-  const activity = cardMark(
-    seatFactsForNode({
-      nodeId: node.id,
-      seatEvent,
-      session,
-      needsLook: needsLook === true,
-      graphBlocked,
-      flags: node.ether?.flags,
-      attentionReasons,
-      managedSeat,
-    }),
-  );
-  // Prefer spawn-failure / attention reason over the raw launch argv line.
-  // turn-stalled keeps operator-facing "stalled" wording (not raw reason id).
-  const attentionSubtitle =
-    seatState === "attention"
-      ? seatEvent?.reason === "turn-stalled" ||
-        seatEvent?.reason === "prompt-stalled"
-        ? "stalled — needs operator look"
-        : seatEvent?.reason
-      : undefined;
-  // Process line only when a non-shell command is running — not shell pid chrome.
-  const processSubtitle =
-    activeProcess && processName
-      ? session?.pid !== undefined
-        ? `${processName} — pid ${session.pid}`
-        : processName
-      : undefined;
-  const subtitle =
-    (exitReason && exitMessage) ||
-    attentionSubtitle ||
-    processSubtitle ||
-    (presentation === "done" ? "ready — review response" : undefined) ||
-    (processLive && !activeProcess ? "seated" : undefined) ||
-    launchSummary(native.launch);
 
-  const complete = activity.mode === "pulse" && activity.tone === "green";
-  // Canonical deterministic status echoed unchanged into the awareness hover.
-  // Awareness never replaces it; canonical attention always wins at display.
-  const awarenessControl: SeatAwarenessControl = {
-    state: presentation ?? seatState,
-    label: activity.label,
-    tone: activity.tone,
-    pulse: activity.mode === "pulse",
-    detail: subtitle,
-  };
   return (
     <div
       className="group relative flex h-full w-full flex-col"
       title="Open terminal"
       data-seat-state={presentation ?? seatState}
-      data-exit-reason={exitReason}
-      data-process-live={processLive ? "true" : undefined}
-      data-process-name={processName}
+      data-exit-reason={session?.exitReason}
+      data-process-live={status.processLive ? "true" : undefined}
+      data-process-name={status.processName}
       data-seat-complete={complete ? "true" : undefined}
     >
       <div className="flex h-full w-full flex-col justify-between overflow-hidden">
@@ -267,18 +184,6 @@ export function TerminalCard({
           {native.hostId}
         </div>
         {TASKS_ENABLED ? <ClaimedTaskStrip node={node} /> : null}
-      </div>
-      {/*
-       * Glance surface only: the advisory hover is revealed on card hover and
-       * carries no control. Collaboration is the seat's own surface and is
-       * offered on both seat node kinds through the shell's overlay slot.
-       */}
-      <div className="absolute left-0 top-full z-50 hidden pt-1 group-hover:block">
-        <SeatAwarenessHover
-          bindingId={native.bindingId}
-          control={awarenessControl}
-          assessment={awarenessAssessment}
-        />
       </div>
     </div>
   );
