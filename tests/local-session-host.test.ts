@@ -434,6 +434,10 @@ describe("LocalSessionHost", () => {
           expect(resolved.failure).toMatchObject({
             code: "agent_launch_unresolvable",
           });
+          // The stubs above guarantee the harness resolves, so the home rule is
+          // the only thing left that can refuse these seats. Asserting the
+          // reason keeps the test from going green for a different one.
+          expect(resolved.failure.reason).toContain("operator home");
         }
       }
       const missing = resolveLaunch({
