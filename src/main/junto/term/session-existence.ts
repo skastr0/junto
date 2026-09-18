@@ -621,8 +621,17 @@ export const isHarnessResumeFailureText = (text: string): boolean => {
   return false;
 };
 
+/**
+ * The pin harnesses: the four whose template declares a `sessionIdFlag`, so
+ * their session id can be read back off spawn argv. This tuple is the type.
+ * Each harness's binary comes from its template rather than a second list, so
+ * renaming a CLI cannot leave a stale name behind: Cursor's moved from the
+ * `agent` compatibility alias to its own `cursor-agent`.
+ */
+const PIN_HARNESSES = ["claude", "grok", "pi", "cursor"] as const;
+
 export type HarnessSessionArgv = {
-  readonly harness: "grok" | "claude" | "pi" | "cursor";
+  readonly harness: (typeof PIN_HARNESSES)[number];
   readonly sessionId: string;
   readonly mode: "pin" | "resume";
 };
@@ -632,11 +641,9 @@ const pinHarnessFromBinary = (
 ): HarnessSessionArgv["harness"] | undefined => {
   if (!file) return undefined;
   const name = basename(file);
-  if (name === "grok") return "grok";
-  if (name === "claude") return "claude";
-  if (name === "pi") return "pi";
-  // Cursor's binary is `agent`; it pins with `--new-session-id`.
-  if (name === "agent") return "cursor";
+  for (const harness of PIN_HARNESSES) {
+    if (templateFor(harness).argvSpec.binary === name) return harness;
+  }
   return undefined;
 };
 

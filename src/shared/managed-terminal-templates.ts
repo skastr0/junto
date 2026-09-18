@@ -1360,7 +1360,7 @@ export const isSandboxGatedPermissionMode = (mode: string): boolean =>
   mode === "autonomous";
 
 /**
- * Cursor Agent CLI (binary: `agent`) — Tier B, session PIN, grid feed.
+ * Cursor Agent CLI (binary: `cursor-agent`) — Tier B, session PIN, grid feed.
  * Verified 2026.08.11: positional prompt; --model; --yolo/--force allow-all;
  * --resume <id> named only; --trust skips the workspace-trust modal. No public
  * system-prompt flag.
@@ -1388,13 +1388,27 @@ export const isSandboxGatedPermissionMode = (mode: string): boolean =>
  * - `resumeReinjection: "re-pass"` is the 2026-08 receipt. `--model` is
  *   parsed on resume; typed TUI doctrine re-brief was not re-smoked
  *   (UNVERIFIED).
+ *
+ * Binary name re-probed 2026.09.15-d2fe57e (2026-09-18):
+ * - The installer links BOTH `agent` and `cursor-agent` at the same target, so
+ *   `agent` is a compatibility alias, not the binary's name. Grok's installer
+ *   claims that same alias for itself, which made `agent` resolve to whichever
+ *   harness installed last: a machine with Grok and no Cursor seated Cursor on
+ *   Grok's CLI. The template now resolves `cursor-agent`, the vendor's own
+ *   name, so neither harness can shadow the other.
+ * - On that build `--trust`, `--model`, `--yolo`/`--force`, and `--resume`
+ *   still answer `--help`, and the hidden `--new-session-id` still parses (it
+ *   rejects a non-v4 UUID rather than reporting an unknown option). Flag
+ *   surface only: the model-slug and live-pin behavior above were NOT
+ *   re-smoked on this build, so `probedVersion` stays at the fully-probed
+ *   2026.09.10-fd3934a.
  */
 export const CURSOR_TEMPLATE: ManagedTerminalTemplate = {
   harness: "cursor",
   displayName: "Cursor Agent",
   probedVersion: "2026.09.10-fd3934a",
   argvSpec: {
-    binary: "agent",
+    binary: "cursor-agent",
     prefix: ["--trust"],
     promptMode: "positional",
     modelFlag: "--model",

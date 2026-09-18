@@ -285,9 +285,9 @@ describe("reclaiming an orphaned cursor pin", () => {
 
   it("reads the pin off argv the harness actually uses", () => {
     expect(
-      parseHarnessSessionArgv(["agent", "--trust", "--new-session-id", sid]),
+      parseHarnessSessionArgv(["cursor-agent", "--trust", "--new-session-id", sid]),
     ).toEqual({ harness: "cursor", sessionId: sid, mode: "pin" });
-    expect(parseHarnessSessionArgv(["agent", "--resume", sid])).toEqual({
+    expect(parseHarnessSessionArgv(["cursor-agent", "--resume", sid])).toEqual({
       harness: "cursor",
       sessionId: sid,
       mode: "resume",
@@ -299,21 +299,21 @@ describe("reclaiming an orphaned cursor pin", () => {
     seedCursorChat(home, sid);
     __setSessionExistenceHomeForTest(home);
     expect(
-      reclaimOrphanedHarnessArgv(["agent", "--trust", "--new-session-id", sid]),
-    ).toEqual(["agent", "--trust", "--resume", sid]);
+      reclaimOrphanedHarnessArgv(["cursor-agent", "--trust", "--new-session-id", sid]),
+    ).toEqual(["cursor-agent", "--trust", "--resume", sid]);
   });
 
   it("leaves an unproven pin alone", () => {
     __setSessionExistenceHomeForTest(tempHome());
     expect(
-      reclaimOrphanedHarnessArgv(["agent", "--trust", "--new-session-id", sid]),
-    ).toEqual(["agent", "--trust", "--new-session-id", sid]);
+      reclaimOrphanedHarnessArgv(["cursor-agent", "--trust", "--new-session-id", sid]),
+    ).toEqual(["cursor-agent", "--trust", "--new-session-id", sid]);
   });
 
   it("does not confuse another harness's pin flag with cursor's", () => {
     // Cursor's own flag is `--new-session-id`; `--session-id` is not its pin.
     expect(
-      parseHarnessSessionArgv(["agent", "--session-id", sid]),
+      parseHarnessSessionArgv(["cursor-agent", "--session-id", sid]),
     ).toBeUndefined();
     expect(templateFor("claude").argvSpec.sessionIdFlag).toBe("--session-id");
   });

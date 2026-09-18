@@ -291,7 +291,7 @@ describe("managed-terminal templates (data)", () => {
     expect(CURSOR_TEMPLATE.displayName).toBe("Cursor Agent");
     expect(CURSOR_TEMPLATE.injectionSpec.tier).toBe("B");
     expect(CURSOR_TEMPLATE.argvSpec).toMatchObject({
-      binary: "agent",
+      binary: "cursor-agent",
       prefix: ["--trust"],
       promptMode: "positional",
       modelFlag: "--model",
@@ -1131,7 +1131,7 @@ describe("resolveManagedLaunch argv", () => {
       bareAmbient,
     );
     expect(launch.argv).toEqual([
-      "agent",
+      "cursor-agent",
       "--trust",
       "--model",
       "auto",
@@ -1139,7 +1139,7 @@ describe("resolveManagedLaunch argv", () => {
       "fix tests",
     ]);
     const bare = resolveManagedLaunch("cursor", {}, bareAmbient);
-    expect(bare.argv).toEqual(["agent", "--trust"]);
+    expect(bare.argv).toEqual(["cursor-agent", "--trust"]);
   });
 
   it("cursor resume re-passes --model via --resume <id>", () => {
@@ -1149,7 +1149,7 @@ describe("resolveManagedLaunch argv", () => {
       bareAmbient,
     );
     expect(launch.argv).toEqual([
-      "agent",
+      "cursor-agent",
       "--trust",
       "--resume",
       "chat-abc",
@@ -1166,7 +1166,7 @@ describe("resolveManagedLaunch argv", () => {
       bareAmbient,
     );
     expect(launch.argv).toEqual([
-      "agent",
+      "cursor-agent",
       "--trust",
       "--model",
       "claude-opus-4-8-high",
