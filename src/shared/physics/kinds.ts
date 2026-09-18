@@ -44,7 +44,13 @@ export const ACTOR_ACTOR_INBOX_PORTS: ReadonlyArray<Port> = [
   "verdict.post",
 ];
 
-const msgOffers = portSet(...ACTOR_ACTOR_INBOX_PORTS);
+// Verdicts review the work of a task board; without the tasks surface the
+// port has no runnable target, so it leaves the actor inbox with the gate.
+const msgOffers = portSet(
+  ...ACTOR_ACTOR_INBOX_PORTS.filter(
+    (port) => port !== "verdict.post" || TASKS_ENABLED,
+  ),
+);
 const taskOffers = TASKS_ENABLED
   ? portSet(
     "tasks.list",

@@ -294,6 +294,8 @@ export const productNodeKindEnabled = (kind: string | undefined): boolean => {
  * docs, capability inventories) rather than node kinds.
  */
 export const productPortEnabled = (port: string): boolean => {
+  // A verdict reviews a task board: no tasks, no review target.
+  if (port === "verdict.post") return TASKS_ENABLED;
   if (port.startsWith("tasks.")) return TASKS_ENABLED;
   if (port.startsWith("content.")) return TASKS_ENABLED;
   if (port.startsWith("board.")) return BOARD_ENABLED;

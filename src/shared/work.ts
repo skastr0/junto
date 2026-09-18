@@ -16,6 +16,7 @@ import type {
   CompletionEvidence,
   Visit,
 } from "./work-model";
+import { productPortEnabled } from "./features";
 import { resolveTaskAdmission } from "./work-model";
 import type { ActorRef } from "./work-protocol";
 import {
@@ -168,9 +169,11 @@ const requireSink = <K extends SinkKind>(
  */
 const requireMessageInbox = (node: CanvasNode): void => {
   const actor = requireActor(node, "an actor inbox");
-  const holdsInbox = ACTOR_ACTOR_INBOX_PORTS.every((port) =>
-    HashSet.has(actor.offers, port),
-  );
+  // The required inbox is the enabled vocabulary: a gated port (verdict.post
+  // without tasks) is absent from every actor's offers in this build.
+  const holdsInbox = ACTOR_ACTOR_INBOX_PORTS
+    .filter((port) => productPortEnabled(port))
+    .every((port) => HashSet.has(actor.offers, port));
   if (!holdsInbox) throw illegalKind(node, "an actor inbox");
 };
 

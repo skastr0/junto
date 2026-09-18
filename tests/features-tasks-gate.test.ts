@@ -4,7 +4,10 @@ import { describe, expect, it } from "vitest";
 import { Result } from "effect";
 import type { CanvasDoc } from "../src/shared/canvas";
 import { resolveBuildFeatures } from "../scripts/build-features";
-import { TASKS_ENABLED } from "../src/shared/features";
+import {
+  productPortEnabled,
+  TASKS_ENABLED,
+} from "../src/shared/features";
 import { contractOf, canvasDocToCapabilityView, pairIsClaimable } from "../src/shared/physics";
 import { isClaimableTaskSink } from "../src/shared/factory-tick";
 import {
@@ -107,6 +110,12 @@ describe("task-surface product gates", () => {
           "feature enabled in this build",
         );
       }
+
+      // A verdict reviews a task board: the port leaves the actor inbox and
+      // the actor op vocabulary with the tasks surface.
+      expect(productPortEnabled("verdict.post")).toBe(false);
+      expect(contractOf("agent")?.ports ?? []).not.toContain("verdict.post");
+      expect(opsForKind("agent")).not.toContain("verdict.post");
 
       expect(allSchemas.filter((s) => taskCommand(s.command_id))).toEqual([]);
       expect(allExamples.filter((e) => taskCommand(e.command_id))).toEqual([]);
@@ -211,6 +220,10 @@ describe("task-surface product gates", () => {
       OVERSEER_CATALOG.some((entry) => entry.family === "tasks"),
     ).toBe(true);
     expect(NODE_DOCS.some((doc) => doc.kind === "task")).toBe(true);
+
+    expect(productPortEnabled("verdict.post")).toBe(true);
+    expect(contractOf("agent")?.ports ?? []).toContain("verdict.post");
+    expect(opsForKind("agent")).toContain("verdict.post");
 
     expect(WORKER_DOCTRINE).toContain("### Pull from the board");
     expect(WORKER_DOCTRINE).toContain("### Completion is earned");

@@ -20,7 +20,11 @@ import type { WorkErrorBody, WorkOpName } from "@shared/work-control";
 import { OPERATOR_SEAT_ID } from "@shared/work-reference";
 import type { ActorRef } from "@shared/work-protocol";
 import { Result, Match } from "effect";
-import { productNodeKindEnabled, RELAY_ENABLED } from "@shared/features";
+import {
+  productNodeKindEnabled,
+  RELAY_ENABLED,
+  TASKS_ENABLED,
+} from "@shared/features";
 import { tasksNodeName } from "@shared/tasks-node-identity";
 
 // Edges are the capability system. Kernel-enforced per call via factory physics
@@ -373,7 +377,9 @@ const MSG_OPS: ReadonlyArray<WorkOpName> = [
   "msg.prompt",
   "seat.wait",
   "seat.read",
-  "verdict.post",
+  // Verdicts target a task board; without the tasks surface the op leaves
+  // the actor vocabulary with the port that carried it.
+  ...(TASKS_ENABLED ? (["verdict.post"] as const) : []),
   "msg.read",
   "msg.reply",
   "msg.react",
