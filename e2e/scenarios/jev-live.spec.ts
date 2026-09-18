@@ -39,6 +39,9 @@ test.use({
     extraEnv: {
       ...(API_KEY === "" ? {} : { TYPESAFE_API_KEY: API_KEY }),
       JUNTO_AWARENESS: "on",
+      // The provider call trace: this spec counts real calls, so it asks main
+      // to say when one happened.
+      JUNTO_AWARENESS_TRACE: "1",
     },
     seedCanvases: {
       jevlive: canvasDoc([
@@ -60,6 +63,11 @@ test("a real screen produces a real Jev judgment that the card paints", async ({
 }) => {
   test.setTimeout(420_000);
   const { page } = junto;
+  // The provider call log from main: an exact count of real Jev calls, not an
+  // inference from the UI.
+  const callLog: string[] = [];
+  junto.app.process().stdout?.on("data", (chunk: Buffer) => callLog.push(String(chunk)));
+  junto.app.process().stderr?.on("data", (chunk: Buffer) => callLog.push(String(chunk)));
   test.skip(
     !LIVE || API_KEY === "",
     "live Jev run: set JUNTO_LIVE_JEV=1 and TYPESAFE_API_KEY",
@@ -165,7 +173,14 @@ test("a real screen produces a real Jev judgment that the card paints", async ({
   // A real judgment about a real screen: the sidecar looked and answered.
   expect(readout.judgment).toBe("current");
   expect(readout.aiLabel ?? "").not.toBe("");
+  const providerCalls = callLog
+    .join("")
+    .split("\n")
+    .filter((line) => line.includes("[jev-call]"));
+  console.log("JEV LIVE CALLS " + String(providerCalls.length));
+  for (const line of providerCalls) console.log("  " + line.slice(line.indexOf("[jev-call]")));
   console.log(
     "JEV LIVE CHIPS " + JSON.stringify(readout.chips.filter((chip) => chip !== readout.aiLabel)),
   );
+  expect(providerCalls.length).toBeGreaterThanOrEqual(2);
 });

@@ -418,6 +418,9 @@ const unavailableAssessment = (
     detail,
   });
 
+/** Opt-in call trace: `JUNTO_AWARENESS_TRACE=1` logs one line per provider call. */
+export const JEV_TRACE_ENV = "JUNTO_AWARENESS_TRACE";
+
 export const makeAwarenessModel = (options: JevClientOptions): AwarenessModelShape => {
   const apiKey = options.apiKey?.trim();
   const model = options.model?.trim() || DEFAULT_AWARENESS_MODEL;
@@ -464,6 +467,21 @@ export const makeAwarenessModel = (options: JevClientOptions): AwarenessModelSha
   };
 
   const runAsk = async (ask: AwarenessAsk, signal: AbortSignal): Promise<AwarenessAskOutcome> => {
+    // Cost visibility, off by default: one line per real provider call, so an
+    // operator (or a live test) can count calls and see what each one was
+    // asked about without reading the provider's dashboard. No prompt text and
+    // no key ever reaches this line.
+    if (process.env[JEV_TRACE_ENV] === "1") {
+      console.log(
+        "[jev-call] " +
+          JSON.stringify({
+            bindingId: ask.request.bindingId,
+            questions: ask.request.questions.length,
+            evidenceLines: ask.request.evidenceLines.length,
+            at: Date.now(),
+          }),
+      );
+    }
     const resolved = resolveClient();
     if (resolved === undefined) {
       const transport = clientFailure ?? failure("unavailable", "the Jev client is unavailable", undefined);
