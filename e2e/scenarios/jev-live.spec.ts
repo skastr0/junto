@@ -58,6 +58,110 @@ test.use({
   },
 });
 
+/**
+ * The dialog screen a real harness showed, verbatim from the paid holdout run
+ * (`devin/startup-trust#293`), where the model read it as approval_requested
+ * 0.94 and answer_requested 0.96. Same lines, live seat: does the verdict reach
+ * the delivery gate?
+ */
+const DIALOG_SCREEN =
+  // Echo off and a clear first, so the typed command line is not part of the
+  // screen: the corpus checkpoint had no such line, and leaving one in would
+  // compare the model against a screen it was never scored on.
+  "stty -echo; clear; printf '\\nWelcome to Devin CLI!\\n \u2713 Logged in as <EMAIL>.\\n" +
+  "\u2713 Organization: Guilherme Castro\\n" +
+  "You are all set. Run devin to get started.\\n" +
+  " \u2731 Do you trust the authors of this directory?\\n'; stty echo";
+
+/**
+ * Why this is skipped: a raw shell cannot reproduce a blocked harness dialog.
+ *
+ * Measured live: the corpus screen `devin/startup-trust#293` (real Devin TUI)
+ * scored approval_requested 0.94 and answer_requested 0.96. The same lines
+ * printed into a shell scored approval 0.03, decisively absent, twice — and the
+ * excerpt on the card quoted "Do you trust the authors of this directory?", so
+ * the model read the line and still called it clear. It is right to: a menu
+ * printed above a live shell prompt is not a seat blocked at a dialog, and the
+ * prompt is what says so. Producing a real hold needs a managed seat running a
+ * harness, which is the next experiment, not this spec.
+ */
+test("a real dialog screen produces a verdict that holds the delivery gate", async ({
+  junto,
+}) => {
+  test.setTimeout(420_000);
+  const { page } = junto;
+  test.skip(
+    !LIVE || API_KEY === "",
+    "live Jev run: set JUNTO_LIVE_JEV=1 and TYPESAFE_API_KEY",
+  );
+  test.fixme(
+    true,
+    "needs a managed harness seat: a raw shell prompt is correctly judged not blocked",
+  );
+  const holdLog: string[] = [];
+  junto.app.process().stdout?.on("data", (chunk: Buffer) => holdLog.push(String(chunk)));
+  junto.app.process().stderr?.on("data", (chunk: Buffer) => holdLog.push(String(chunk)));
+
+  await page.setViewportSize({ width: 1440, height: 1200 });
+  const node = page.locator(".react-flow__node", { hasText: LABEL });
+  await expect(node).toBeVisible({ timeout: 60_000 });
+  await node.dblclick();
+  await page.evaluate(() => {
+    const target = window as unknown as {
+      __jevEvents?: unknown[];
+      junto?: {
+        onSeatAwarenessChanged?: (listener: (event: unknown) => void) => () => void;
+      };
+    };
+    target.__jevEvents = [];
+    target.junto?.onSeatAwarenessChanged?.((event: unknown) => {
+      target.__jevEvents?.push(event);
+    });
+  });
+  const surface = page.locator(".native-terminal-surface");
+  await expect(surface).toBeVisible({ timeout: 60_000 });
+  await surface.locator(".xterm-screen").click();
+  await page.keyboard.type(DIALOG_SCREEN);
+  await page.keyboard.press("Enter");
+  await page.waitForTimeout(2_000);
+  await surface.getByRole("button", { name: "Close" }).click();
+  await expect(surface).toBeHidden({ timeout: 20_000 });
+
+  // Ask about the screen now, then let the floor expire: the second judgment is
+  // the one about the dialog that is actually on screen.
+  await node.hover();
+  await page.waitForTimeout(75_000);
+  await node.hover();
+  await page.waitForTimeout(5_000);
+
+  const wire = await page.evaluate(
+    () => (window as unknown as { __jevEvents?: unknown[] }).__jevEvents ?? [],
+  );
+  const judgments = (wire as ReadonlyArray<{ kind?: string; assessment?: Record<string, unknown> }>)
+    .filter((event) => event.kind === "assessment")
+    .map((event) => ({
+      availability: event.assessment?.["availability"],
+      activity: (event.assessment?.["activity"] as { value?: string } | undefined)?.value,
+      concerns: (event.assessment?.["concerns"] as ReadonlyArray<{ concern?: string; probability?: number }> | undefined)?.map((c) => `${c.concern}:${c.probability}`),
+      absences: (event.assessment?.["absences"] as ReadonlyArray<{ concern?: string; probability?: number }> | undefined)?.map((c) => `${c.concern}:${c.probability}`),
+    }));
+  console.log("JEV LIVE DIALOG WIRE " + JSON.stringify(judgments).slice(0, 900));
+  const holds = holdLog
+    .join("")
+    .split("\n")
+    .filter((line) => line.includes("[jev-hold]"));
+  const calls = holdLog
+    .join("")
+    .split("\n")
+    .filter((line) => line.includes("[jev-call]"));
+  console.log("JEV LIVE DIALOG CALLS " + String(calls.length));
+  for (const line of calls) console.log("  " + line.slice(line.indexOf("[jev-call]")));
+  console.log("JEV LIVE HOLDS " + String(holds.length));
+  for (const line of holds) console.log("  " + line.slice(line.indexOf("[jev-hold]")));
+  expect(holds.length).toBeGreaterThan(0);
+  expect(holds.join(" ")).toContain("waiting_on_approval");
+});
+
 test("a real screen produces a real Jev judgment that the card paints", async ({
   junto,
 }) => {

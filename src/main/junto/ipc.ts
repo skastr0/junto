@@ -79,6 +79,7 @@ import {
   rulePackFor,
   seatStateRuntime,
 } from "./term/agent-state";
+import { awarenessSeatHold } from "./term/awareness/seat-hold";
 import {
   resolveSeatAwarenessGate,
   seatAwarenessApiKey,
@@ -1441,7 +1442,12 @@ export const registerJuntoIpc = (): void => {
         write: (bindingId, data) =>
           !productAutomationSuspended &&
           termPlane.host.writeManagedSeat(bindingId, data),
-        isSeatIdle: (bindingId) => seatStateRuntime.isSeatIdle(bindingId),
+        // Deterministic idle AND not held by the AI verdict. The AI can only
+        // make this stricter: a seat Jev judges blocked on an approval is not
+        // typed into, and a seat it says nothing about behaves as before.
+        isSeatIdle: (bindingId) =>
+          seatStateRuntime.isSeatIdle(bindingId) &&
+          !awarenessSeatHold.holds(bindingId),
         seatState: (bindingId) => seatStateRuntime.getState(bindingId),
         // Only Grok has the clipboard-image TUI trap. Electron exposes the
         // pasteboard format list without decoding its payload; all other

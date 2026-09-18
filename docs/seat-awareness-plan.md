@@ -378,6 +378,33 @@ call it decisively, the claim degrades to the weaker one, and the operator sees 
 line with its age. `e2e/scenarios/jev-live.spec.ts` runs this and is opt-in
 (`JUNTO_LIVE_JEV=1`) because it spends money on a real provider.
 
+## 8b - Exercised at volume, live (2026-09-18)
+
+The held-out split, paid, against real harness captures: **42 calls, 18.5s wall clock at
+concurrency 4, p50 130 ms per call, max 311 ms, 158,520 input tokens, $0.0067 total**.
+Six mismatches over 42 checkpoints and nine questions; on the concern questions that carry
+the product, 2 wrong out of 65 accepted answers (approval 1, repetition 1; answer_requested,
+access_problem and execution_error were never wrong). The deterministic trace was re-read
+before and after the paid calls and was unchanged on all nine captures, so the model plane
+still cannot touch the control path.
+
+**Jev now drives one thing.** `awareness/seat-hold.ts` turns each advisory into the seat
+verdict the drive reads: `isSeatIdle` is now `deterministic idle AND not AI-held`, so a seat
+Jev judges blocked on an approval or an access problem is not typed into. The direction is
+deliberate and tested: the AI can only add a hold, never open one, and every unknown (no
+verdict, a refusal, the gate off, an abstention, a seat the sidecar has not observed)
+clears it. A failure is reported and not held: an execution failure is degraded, not a
+dialog, and the seat can still take a prompt.
+
+**What the live runs showed about the concern bar.** The corpus dialog screen
+`devin/startup-trust#293` scores approval_requested 0.94 and answer_requested 0.96. The same
+lines printed into a live shell score approval 0.03, twice, decisively absent, and the
+card's excerpt quotes "Do you trust the authors of this directory?" — the model read the
+line and still called the seat clear. It is right: a menu printed above a live shell prompt
+is not a seat blocked at a dialog, and the prompt is the tell. The consequence for
+measurement is that a raw shell cannot exercise the holding path; that needs a managed seat
+running a harness.
+
 ## 9 - Collaboration (shipped 2026-09-17): a seat asks a peer
 
 The fleet's own coordination problem is not knowing *what* each seat is doing, it is
