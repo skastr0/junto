@@ -39,7 +39,11 @@ run_installer() {
 }
 
 install_npm_package() {
-  npm install -g --no-fund --no-audit "$1"
+  # Install into the app's own known harness directory rather than the system
+  # prefix: `knownHarnessInstallDirs` (harness-install.ts) resolves
+  # `~/.local/bin` on the seat search path even when a narrowed seat PATH omits
+  # the system dirs, which is also where the vendor installers below land.
+  npm install -g --prefix "$HOME/.local" --no-fund --no-audit "$1"
 }
 
 # ── Harness table ──────────────────────────────────────────────────────────
@@ -72,7 +76,7 @@ harness_binary() {
     kimi) printf 'kimi' ;;
     muse) printf 'muse' ;;
     devin) printf 'devin' ;;
-    cursor) printf 'agent' ;;
+    cursor) printf 'cursor-agent' ;;
     agy) printf 'agy' ;;
     amp) printf 'amp' ;;
     fx) printf 'fx' ;;
@@ -124,10 +128,7 @@ harness_install() {
 }
 
 # A harness binary can land outside the directories the orb PATH already
-# carries, and one vendor installer can claim a name another harness owns.
-# Grok's installer links `agent` as an alias for itself, and `agent` is the
-# Cursor Agent binary this repo's cursor template resolves, so a grok-only
-# orb would seat Cursor with Grok's CLI. Reject that resolution by identity.
+# carries, so report the resolved path rather than assuming PATH found it.
 resolve_binary() {
   local binary="$1" found candidate
   found="$(command -v "$binary" 2>/dev/null || true)"
@@ -148,23 +149,10 @@ resolve_binary() {
   return 1
 }
 
-harness_binary_is_foreign() {
-  local harness="$1" resolved="$2"
-  case "$harness" in
-    cursor)
-      case "$(readlink -f "$resolved" 2>/dev/null)" in
-        "$HOME/.grok/"*) return 0 ;;
-      esac
-      ;;
-  esac
-  return 1
-}
-
 harness_resolved() {
   local harness="$1" binary resolved
   binary="$(harness_binary "$harness")"
   resolved="$(resolve_binary "$binary")" || return 1
-  harness_binary_is_foreign "$harness" "$resolved" && return 1
   printf '%s' "$resolved"
 }
 
@@ -172,27 +160,58 @@ harness_resolved() {
 #
 # What each harness reads to authenticate without a browser. Env vars are the
 # orb's own; the file paths are where the harness caches a completed login.
-# Provider-agnostic harnesses (pi, omp, prime-agent, hermes) accept any of the
-# model-provider keys their catalogs carry, so the check names the common ones.
+#
+# The lists come from each harness's own provider table: the env var name
+# appears in the shipped binary or package (pi documents the same table in
+# docs/providers.md). A name present there means the harness accepts that key,
+# not that a given key is entitled to a given model.
+#
+# Provider-agnostic harnesses take any key their catalog carries, so the
+# aggregators are listed beside the first-party ones. `OPENROUTER_API_KEY`,
+# `AI_GATEWAY_API_KEY`, and `OPENCODE_API_KEY` each cover several harnesses at
+# once, which is why they are worth holding even when no single harness needs
+# them.
 
 harness_credential_env() {
   case "$1" in
     claude) printf 'CLAUDE_CODE_OAUTH_TOKEN ANTHROPIC_API_KEY' ;;
     codex) printf 'OPENAI_API_KEY' ;;
     grok) printf 'XAI_API_KEY' ;;
-    hermes) printf 'ANTHROPIC_API_KEY OPENAI_API_KEY GEMINI_API_KEY OPENROUTER_API_KEY' ;;
-    pi) printf 'ANTHROPIC_API_KEY OPENAI_API_KEY GEMINI_API_KEY XAI_API_KEY OPENROUTER_API_KEY MOONSHOT_API_KEY' ;;
-    prime-agent) printf 'ANTHROPIC_API_KEY OPENAI_API_KEY GEMINI_API_KEY OPENROUTER_API_KEY' ;;
-    kimi) printf 'KIMI_API_KEY MOONSHOT_API_KEY ANTHROPIC_API_KEY OPENAI_API_KEY' ;;
-    muse) printf 'META_API_KEY ANTHROPIC_API_KEY OPENAI_API_KEY OPENROUTER_API_KEY' ;;
+    hermes) printf 'ANTHROPIC_API_KEY OPENAI_API_KEY GEMINI_API_KEY OPENROUTER_API_KEY AI_GATEWAY_API_KEY' ;;
+    pi) printf 'ANTHROPIC_API_KEY OPENAI_API_KEY GEMINI_API_KEY XAI_API_KEY OPENROUTER_API_KEY AI_GATEWAY_API_KEY OPENCODE_API_KEY KIMI_API_KEY MOONSHOT_API_KEY' ;;
+    prime-agent) printf 'ANTHROPIC_API_KEY OPENAI_API_KEY GEMINI_API_KEY OPENROUTER_API_KEY AI_GATEWAY_API_KEY OPENCODE_API_KEY' ;;
+    kimi) printf 'KIMI_API_KEY MOONSHOT_API_KEY OPENROUTER_API_KEY AI_GATEWAY_API_KEY OPENCODE_API_KEY ANTHROPIC_API_KEY OPENAI_API_KEY' ;;
+    muse) printf 'META_API_KEY OPENROUTER_API_KEY ANTHROPIC_API_KEY OPENAI_API_KEY' ;;
     devin) printf 'WINDSURF_API_KEY OPENAI_API_KEY' ;;
     cursor) printf 'CURSOR_API_KEY' ;;
     agy) printf 'GEMINI_API_KEY GOOGLE_API_KEY' ;;
     amp) printf 'AMP_API_KEY' ;;
     fx) printf 'AI_GATEWAY_API_KEY ANTHROPIC_API_KEY OPENAI_API_KEY' ;;
-    omp) printf 'ANTHROPIC_API_KEY OPENAI_API_KEY GEMINI_API_KEY XAI_API_KEY OPENROUTER_API_KEY' ;;
+    omp) printf 'ANTHROPIC_API_KEY OPENAI_API_KEY GEMINI_API_KEY XAI_API_KEY OPENROUTER_API_KEY AI_GATEWAY_API_KEY OPENCODE_API_KEY' ;;
     *) return 1 ;;
   esac
+}
+
+# Keys that unlock more than one harness, derived from the table above so the
+# two cannot drift apart.
+AGGREGATOR_KEYS=(
+  OPENROUTER_API_KEY
+  AI_GATEWAY_API_KEY
+  OPENCODE_API_KEY
+)
+
+report_aggregator_coverage() {
+  local variable harness covered
+  for variable in "${AGGREGATOR_KEYS[@]}"; do
+    covered=()
+    for harness in "${HARNESS_IDS[@]}"; do
+      case " $(harness_credential_env "$harness") " in
+        *" $variable "*) covered+=("$harness") ;;
+      esac
+    done
+    printf '[harness-auth] %-18s covers %d: %s\n' \
+      "$variable" "${#covered[@]}" "${covered[*]}"
+  done
 }
 
 # Files that hold a completed login. Only the ones whose mere existence is the
@@ -239,7 +258,7 @@ report_credentials() {
     if [[ -n "$evidence" ]]; then
       printf '[harness-auth] %-12s ready via %s\n' "$harness" "$evidence"
     else
-      printf '[harness-auth] %-12s needs %s%s%s\n' \
+      printf '[harness-auth] %-12s needs one of %s%s%s\n' \
         "$harness" \
         "$(harness_credential_env "$harness")" \
         "$([[ -n "$file" ]] && printf ' or a login at %s' "$file")" \
@@ -290,6 +309,7 @@ printf '[harness] %d already present: %s\n' "${#skipped[@]}" "${skipped[*]:-none
 printf '[harness] %d installed: %s\n' "${#installed[@]}" "${installed[*]:-none}"
 
 report_credentials
+report_aggregator_coverage
 
 if [[ "${#failed[@]}" -gt 0 ]]; then
   printf '[harness] %d failed: %s\n' "${#failed[@]}" "${failed[*]}" >&2
