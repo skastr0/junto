@@ -23,6 +23,7 @@ import {
   makeFakeTerminalProcessAuthority,
   type FakeTerminalProcessAuthority,
 } from "./helpers/fake-terminal-process-authority";
+import { installHermeticHarnessBins } from "./helpers/hermetic-harness-bins";
 import {
   getCapturedSessionId,
   resetSessionIdStoreForTest,
@@ -43,6 +44,7 @@ import type { PrimeAgentReporterReport } from "../src/main/junto/term/prime-agen
 
 const hosts: LocalSessionHost[] = [];
 const syntheticEpochs = new Map<number, string>();
+let restoreHarnessBins: () => void = () => undefined;
 
 const trackSyntheticPid = (pid: number): number => {
   syntheticEpochs.set(pid, `synthetic-${pid}`);
@@ -59,6 +61,9 @@ const makeSyntheticIdentityMap = () => makeProcessIdentityMap({
 beforeEach(() => {
   syntheticEpochs.clear();
   resetSessionIdStoreForTest();
+  // Seat launches resolve their harness against the operator's install dirs and
+  // fail closed when it is missing; keep that independent of the host machine.
+  restoreHarnessBins = installHermeticHarnessBins();
   setProcessEpochReaderForTests({
     snapshot: () => [...syntheticEpochs].map(([pid, startKey]) => ({
       pid,
@@ -76,6 +81,7 @@ beforeEach(() => {
 afterEach(async () => {
   vi.useRealTimers();
   vi.unstubAllEnvs();
+  restoreHarnessBins();
   for (const host of hosts.splice(0)) {
     await host.shutdownAll("test_cleanup");
   }
@@ -399,7 +405,7 @@ describe("LocalSessionHost", () => {
     const link = join(alias, "home-link");
     symlinkSync(home, link);
     try {
-      // APFS folds case: a case-flipped spelling still chdirs into home.
+      // APFS/NTFS fold case: a case-flipped spelling still chdirs into home.
       const caseFlipped = home.replace(/[a-z]/i, (c) =>
         c === c.toLowerCase() ? c.toUpperCase() : c.toLowerCase(),
       );
@@ -410,7 +416,11 @@ describe("LocalSessionHost", () => {
         join(home, "..", basename(home)),
         "~",
         link,
-        caseFlipped,
+        // Only the case-folding platforms resolve this spelling back to home;
+        // on a case-sensitive filesystem it names a different directory.
+        ...(process.platform === "darwin" || process.platform === "win32"
+          ? [caseFlipped]
+          : []),
       ];
       for (const cwd of cwds) {
         const resolved = resolveLaunch({

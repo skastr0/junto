@@ -28,8 +28,10 @@ import {
 import { TERM_CONTROL_PROTOCOL } from "../src/shared/term-control";
 import { SeatIdentityConflictError } from "../src/shared/terminal-seat-occupancy";
 import { makeFakeTerminalProcessAuthority } from "./helpers/fake-terminal-process-authority";
+import { installHermeticHarnessBins } from "./helpers/hermetic-harness-bins";
 
 const cleanups: Array<() => Promise<void> | void> = [];
+let restoreHarnessBins: () => void = () => undefined;
 
 /** These tests exercise the wire protocol, not the projection barrier. */
 const passThroughAdmission = () => Effect.void;
@@ -41,6 +43,9 @@ const actorSpawnIntent = () => ({
 } as const);
 
 beforeEach(() => {
+  // Seat launches resolve their harness against the operator's install dirs and
+  // fail closed when it is missing; keep that independent of the host machine.
+  restoreHarnessBins = installHermeticHarnessBins();
   setProcessEpochReaderForTests({
     snapshot: () => [
       {
@@ -57,6 +62,7 @@ afterEach(async () => {
   while (cleanups.length > 0) {
     await cleanups.pop()?.();
   }
+  restoreHarnessBins();
   __setSessionExistenceHomeForTest(undefined);
   resetFirstTypedForTest();
   setProcessEpochReaderForTests(undefined);

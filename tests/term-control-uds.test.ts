@@ -20,10 +20,15 @@ import {
 } from "../src/main/junto/process-identity";
 import { setProcessEpochReaderForTests } from "../src/main/junto/process-epoch";
 import { makeFakeTerminalProcessAuthority } from "./helpers/fake-terminal-process-authority";
+import { installHermeticHarnessBins } from "./helpers/hermetic-harness-bins";
 
 const cleanups: Array<() => Promise<void> | void> = [];
+let restoreHarnessBins: () => void = () => undefined;
 
 beforeEach(() => {
+  // Seat launches resolve their harness against the operator's install dirs and
+  // fail closed when it is missing; keep that independent of the host machine.
+  restoreHarnessBins = installHermeticHarnessBins();
   setProcessEpochReaderForTests({
     snapshot: () => [{
       pid: 9001,
@@ -38,6 +43,7 @@ afterEach(async () => {
   while (cleanups.length > 0) {
     await cleanups.pop()?.();
   }
+  restoreHarnessBins();
   setProcessEpochReaderForTests(undefined);
   setProcessIdentityMapForTests(undefined);
 });

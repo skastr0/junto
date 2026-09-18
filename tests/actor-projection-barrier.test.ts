@@ -44,6 +44,7 @@ import {
 import { setProcessEpochReaderForTests } from "../src/main/junto/process-epoch";
 import { makeFakeTerminalProcessAuthority } from "./helpers/fake-terminal-process-authority";
 import type { FakeTerminalProcessAuthority } from "./helpers/fake-terminal-process-authority";
+import { installHermeticHarnessBins } from "./helpers/hermetic-harness-bins";
 
 const SHA = "b".repeat(64);
 
@@ -205,6 +206,7 @@ describe("projectionAdmissionOutcomeOf", () => {
 describe("ActorSeatOccupy Remote projection barrier", () => {
   const hosts: LocalSessionHost[] = [];
   const syntheticEpochs = new Map<number, string>();
+  let restoreHarnessBins: () => void = () => undefined;
 
   /**
    * Barrier tests prove admission, never shutdown timing. Stubborn synthetic
@@ -241,6 +243,9 @@ describe("ActorSeatOccupy Remote projection barrier", () => {
 
   beforeEach(() => {
     syntheticEpochs.clear();
+    // Seat launches resolve their harness against the operator's install dirs
+    // and fail closed when it is missing; keep that independent of the host.
+    restoreHarnessBins = installHermeticHarnessBins();
     setProcessEpochReaderForTests({
       snapshot: () =>
         [...syntheticEpochs].map(([pid, startKey]) => ({
@@ -256,6 +261,7 @@ describe("ActorSeatOccupy Remote projection barrier", () => {
     for (const host of hosts.splice(0)) {
       await host.shutdownAll("test_cleanup");
     }
+    restoreHarnessBins();
     setProcessEpochReaderForTests(undefined);
     setProcessIdentityMapForTests(undefined);
   });

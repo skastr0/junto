@@ -26,9 +26,11 @@ import { setProcessEpochReaderForTests } from "../src/main/junto/process-epoch";
 import { __setSessionExistenceHomeForTest } from "../src/main/junto/term/session-existence";
 import { makeFakeTerminalProcessAuthority } from "./helpers/fake-terminal-process-authority";
 import type { FakeTerminalProcessAuthority } from "./helpers/fake-terminal-process-authority";
+import { installHermeticHarnessBins } from "./helpers/hermetic-harness-bins";
 
 const hosts: LocalSessionHost[] = [];
 const syntheticEpochs = new Map<number, string>();
+let restoreHarnessBins: () => void = () => undefined;
 
 /**
  * Every host here proves seat-process selection, never shutdown timing, so
@@ -84,6 +86,9 @@ const remoteSummary = (
 
 beforeEach(() => {
   syntheticEpochs.clear();
+  // Seat launches resolve their harness against the operator's install dirs and
+  // fail closed when it is missing; keep that independent of the host machine.
+  restoreHarnessBins = installHermeticHarnessBins();
   setProcessEpochReaderForTests({
     snapshot: () =>
       [...syntheticEpochs].map(([pid, startKey]) => ({
@@ -99,6 +104,7 @@ afterEach(async () => {
   for (const host of hosts.splice(0)) {
     await host.shutdownAll("test_cleanup");
   }
+  restoreHarnessBins();
   setProcessEpochReaderForTests(undefined);
   setProcessIdentityMapForTests(undefined);
 });
