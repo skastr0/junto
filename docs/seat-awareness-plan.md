@@ -405,6 +405,36 @@ is not a seat blocked at a dialog, and the prompt is the tell. The consequence f
 measurement is that a raw shell cannot exercise the holding path; that needs a managed seat
 running a harness.
 
+## 8c - Two packs, one product (open, found 2026-09-18)
+
+The evaluation harness and the product do not ask the same questions, and that is not
+cosmetic:
+
+| | harness (`tests/pty-e2e/jev/pack.ts`) | product (`awareness/questions.ts`) |
+|---|---|---|
+| questions | 9 | 12 |
+| activity | one 7-way Choice | six narrow Nouls combined by precedence |
+| turn_in_progress | a Noul | absent |
+| Noul criteria | true/false text per question | none sent |
+| evidence | a window PAIR (earlier + now) | one window plus a within-window note |
+
+Every calibration number in this document (the held-out run, "concerns never wrong", the
+per-axis agreement) was produced with the harness pack. **None of it has been measured for
+the pack that ships.** The two can disagree on identical bytes, and the disagreement is
+large enough to change a decision: the same screen scored access_problem 0.98 through the
+harness request and 0.02 through the product request, and the 0.02 was the product's own
+bug (a composer rule deleting the error block, fixed in `select-input`). After that fix the
+product request answers 0.96 on the same screen.
+
+The open work is one of:
+- **align** the product's pack to the frozen evaluated pack (prompts, criteria, question
+  set, and the pair), so the measurements describe the product; or
+- **evaluate the product's own pack**, by running the harness's windows through the
+  product's request builder and scoring against the same labels.
+
+Until one of those is done, treat the numbers above as describing the harness, not the
+product, and treat the concern bar as unvalidated for what ships.
+
 ## 9 - Collaboration (shipped 2026-09-17): a seat asks a peer
 
 The fleet's own coordination problem is not knowing *what* each seat is doing, it is
