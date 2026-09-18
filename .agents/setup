@@ -64,4 +64,24 @@ install_dependencies() {
 
 install_dependencies .
 
+# The 15th harness, `junto-overseer`, is this repository's own CLI: its template
+# resolves `junto`, and a seat only finds it when `dist/junto` exists
+# (src/main/junto/term/templates/seat-env.ts). Building it here also gives every
+# other seat the work-plane CLI on its PATH. LIVE_OVERSEER matches the app-side
+# gate, and the flag only compiles the command in; a human grant still decides
+# whether any seat may use it.
+printf '[setup] Building the standalone junto CLI\n'
+JUNTO_LIVE_OVERSEER=1 bun run cli:build
+
+# Every harness Junto can seat, so the orb can exercise the whole range.
+# Non-fatal by design: a vendor installer being down must not cost the orb its
+# repo checkout. The script prints its own per-harness summary.
+if [[ "${JUNTO_SKIP_HARNESS_INSTALL:-}" == "1" ]]; then
+  printf '[setup] Skipping harness installs (JUNTO_SKIP_HARNESS_INSTALL=1)\n'
+else
+  printf '[setup] Installing agent harnesses\n'
+  bash "$repo_root/.agents/install-harnesses.sh" || \
+    printf '[setup] warning: some harnesses did not install; see the summary above\n' >&2
+fi
+
 printf '[setup] Complete\n'
