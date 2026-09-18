@@ -425,12 +425,25 @@ const GLYPH_TAIL_LINES = 10;
  * glyph, then the rounded border pair Amp draws. A grid none of those describe
  * reports `none` and excludes nothing: an ungrounded guess would silently drop
  * real evidence, and a leak is reported honestly instead.
+ *
+ * Measured exception (2026-09-18): a screen with several decorative rules and
+ * an error panel below them — `pi` printing "Error: No API key found for
+ * builtin-mock-responses." — matched the rule branch, and the whole error block
+ * was dropped as a composer body. The model was then asked whether the seat was
+ * blocked on access with the credential failure deleted from the evidence, and
+ * answered "no" at 0.02 on a screen that says the key is missing. A composer box
+ * is an input box: it holds the operator's draft, never an error report. So a
+ * candidate range that carries a failure marker is not a composer, and the
+ * exclusion declines rather than drop it.
  */
 export const detectComposerExclusion = (
   lines: readonly string[],
 ): ComposerExclusion => {
   const none: ComposerExclusion = { rule: "none", from: lines.length, to: lines.length };
   if (lines.length === 0) return none;
+
+  const carriesFailure = (from: number, to: number): boolean =>
+    lines.slice(from, to).some((line) => FAILURE_MARKERS.some((marker) => marker.test(line)));
 
   let ruleCount = 0;
   let secondToLastRule = -1;
@@ -443,10 +456,16 @@ export const detectComposerExclusion = (
     }
   }
   if (ruleCount >= 2 && secondToLastRule >= 0) {
-    return { rule: "prompt_box_body", from: secondToLastRule + 1, to: lines.length };
+    const from = secondToLastRule + 1;
+    if (!carriesFailure(from, lines.length)) {
+      return { rule: "prompt_box_body", from, to: lines.length };
+    }
   }
   if (ruleCount === 1 && lastRule >= 0) {
-    return { rule: "after_last_horizontal_rule", from: lastRule + 1, to: lines.length };
+    const from = lastRule + 1;
+    if (!carriesFailure(from, lines.length)) {
+      return { rule: "after_last_horizontal_rule", from, to: lines.length };
+    }
   }
 
   // Rounded box (Amp): the bottom-most non-blank line closes the box.
