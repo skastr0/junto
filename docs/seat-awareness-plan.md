@@ -344,6 +344,40 @@ observer and runtime wiring, IPC and preload, credential and privacy handling, t
 key and budget, integration, and the ship decision. No workstream edits another's files;
 contract changes come back to the parent.
 
+## 8a - Measured live in the app (2026-09-17)
+
+The first live run: a real PTY, a real key, one seat, a real screen. It found a defect
+that no unit test and no corpus capture had caught, and the fix is in the scheduler.
+
+**The defect.** The interval floor (`workingTextIntervalMs`, 60 s) suppresses an ask when a
+material revision arrives too soon after the last one. The suppressed revision was only
+re-examined on the *next observation*, so a seat that changed and then went quiet — a
+blocked dialog, a finished turn — was never asked about it. Live: a seat printed an
+approval menu and blocked on `read`; the judgment on the card stayed "checked and clear"
+about the bare `$` prompt it had been asked about a minute earlier, with the model's own
+numbers for that empty screen (approval 0.02, access 0.02, answer 0.09, execution 0.03) and
+`unansweredConcerns: []`, which is the *strong* claim. The card was confidently clear about
+a screen that no longer existed.
+
+**The fix.** A material revision suppressed by the floor arms one timer per seat for that
+digest; it fires when the floor expires and asks if that revision is still the newest. It
+does not fire when bytes kept arriving (the ordinary path owns that), it does not stack on
+a pending or in-flight ask, and it does not retry a refusal. Falsified the usual way: with
+the arm removed, the new test reads one call where it should read two.
+
+**What the same seat said after the fix**, about the real menu (evidence: the command echo,
+`JEV-LIVE-PROBE`, "Do you want to allow this action?", the two options):
+
+| judgment | evidence it read | result |
+|---|---|---|
+| before the fix | `$` and 31 blank rows | `checked and clear`; approval 0.02, access 0.02, answer 0.09, execution 0.03; unanswered empty |
+| after the fix | the rendered menu | `no concern raised`; access 0.03 and execution 0.04 decisively absent, **approval and answer unanswered**; excerpt "Do you want to allow this action?" |
+
+That is the design working end to end: on a real blocked approval the model declines to
+call it decisively, the claim degrades to the weaker one, and the operator sees the quoted
+line with its age. `e2e/scenarios/jev-live.spec.ts` runs this and is opt-in
+(`JUNTO_LIVE_JEV=1`) because it spends money on a real provider.
+
 ## 9 - Collaboration (shipped 2026-09-17): a seat asks a peer
 
 The fleet's own coordination problem is not knowing *what* each seat is doing, it is

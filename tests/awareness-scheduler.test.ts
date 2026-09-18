@@ -166,6 +166,26 @@ describe("trigger discipline", () => {
     expect(h.model.count()).toBe(1);
   });
 
+  it("asks about a material revision that arrived while the floor was closed, even if the seat then goes quiet", async () => {
+    const h = harness();
+    h.observe("s1");
+    h.timers.advance(300);
+    await h.scheduler.drain();
+    expect(h.model.count()).toBe(1);
+
+    // The screen changes inside the interval floor: the ask is suppressed.
+    h.observe("s1", `${EVIDENCE_TEXT}\n12 tests failed in auth.spec.ts`);
+    h.timers.advance(300);
+    await h.scheduler.drain();
+    expect(h.model.count()).toBe(1);
+
+    // No further bytes arrive — the seat is blocked on the dialog it just
+    // printed. The floor expiring is the only event left, and it must ask.
+    h.timers.advance(61_000);
+    await h.scheduler.drain();
+    expect(h.model.count()).toBe(2);
+  });
+
   it("never triggers on an attention heartbeat", async () => {
     const h = harness();
     h.observe("s1");
@@ -417,7 +437,11 @@ describe("caps and budget", () => {
     }
 
     expect(h.model.count()).toBe(2);
-    expect(h.scheduler.stats().refusals["seat call cap"]).toBe(1);
+    // Two refusals, not one: each round suppresses a material revision behind
+    // the interval floor, and when the floor expires the scheduler makes that
+    // attempt even though the seat then goes quiet. Both attempts are real asks
+    // the cap declined; the cap still holds the seat at two calls.
+    expect(h.scheduler.stats().refusals["seat call cap"]).toBe(2);
     const refused = h.scheduler.advisory("s1");
     expect(refused.status).toBe("refused");
     expect(refused.reason).toBe("seat call cap");

@@ -430,6 +430,20 @@ type Seat = {
   lastEpisode: string | undefined;
   lastDigest: string | undefined;
   lastDigestAskedAt: number | undefined;
+  /**
+   * Armed when the interval floor suppresses a material revision.
+   *
+   * Without it the re-ask depends on another observation arriving, and a seat
+   * that goes quiet right after the change (a blocked dialog, a finished turn)
+   * is never asked about it. Measured live: a seat whose screen changed during
+   * the floor kept a judgment about the command line it had typed.
+   */
+  floorRecheck: unknown;
+  floorRecheckDigest: string | undefined;
+  /** Observation count when the recheck was armed, so it can tell quiet from busy. */
+  floorRecheckAt: number;
+  /** Observations seen for this seat, ever. */
+  observations: number;
   // coalescing
   pending: Pending | undefined;
   pendingTimer: unknown;
@@ -869,6 +883,62 @@ export const makeAwarenessScheduler = (deps: AwarenessSchedulerDeps): AwarenessS
     seat.pendingTimer = undefined;
   };
 
+  const clearFloorRecheck = (seat: Seat): void => {
+    if (seat.floorRecheck !== undefined) timers.clearTimeout(seat.floorRecheck);
+    seat.floorRecheck = undefined;
+    seat.floorRecheckDigest = undefined;
+  };
+
+  /**
+   * A material revision arrived while the interval floor was still closed.
+   *
+   * The floor exists so a busy seat cannot buy a call per repaint. But the
+   * re-ask must not depend on more bytes: the screen that changed is often the
+   * screen that then goes quiet. One timer per seat, for the digest that was
+   * suppressed, fires when the floor expires and asks if that revision is still
+   * the newest one.
+   */
+  const armFloorRecheck = (
+    seat: Seat,
+    digest: string,
+    askedAt: number | undefined,
+  ): void => {
+    if (seat.floorRecheck !== undefined && seat.floorRecheckDigest === digest) return;
+    // A bound already declined to spend on this seat. The refusal is published
+    // and the seat's next transition re-drives it; a timer must not retry it.
+    if (seat.refused !== undefined) return;
+    clearFloorRecheck(seat);
+    const dueAt = (askedAt ?? now()) + config.workingTextIntervalMs;
+    seat.floorRecheckDigest = digest;
+    seat.floorRecheckAt = seat.observations;
+    seat.floorRecheck = timers.setTimeout(() => {
+      seat.floorRecheck = undefined;
+      seat.floorRecheckDigest = undefined;
+      if (seat.refused !== undefined) return;
+      // Bytes kept arriving after the suppression: the ordinary path owns this
+      // material change, and this timer exists only for the seat that went
+      // quiet. Without this guard a busy seat would get a second attempt (and a
+      // second refusal) for the same revision.
+      if (seat.observations !== seat.floorRecheckAt) return;
+      const latest = seat.windowDigest;
+      if (latest === undefined || latest === seat.lastDigest) return;
+      // Something already queued or in flight will ask; this timer exists only
+      // to cover the case where nothing else will, so it never adds an attempt
+      // (and never an extra refusal) on top of one.
+      if (seat.pending !== undefined || seat.inFlight !== undefined) return;
+      const t = now();
+      if (
+        t - (seat.lastDigestAskedAt ?? Number.NEGATIVE_INFINITY) <
+        config.workingTextIntervalMs
+      ) {
+        return;
+      }
+      seat.lastDigest = latest;
+      seat.lastDigestAskedAt = t;
+      enqueue(seat, "working-text");
+    }, Math.max(0, dueAt - now()));
+  };
+
   const armPendingTimer = (seat: Seat): void => {
     const pending = seat.pending;
     if (pending === undefined) return;
@@ -1228,6 +1298,10 @@ export const makeAwarenessScheduler = (deps: AwarenessSchedulerDeps): AwarenessS
       lastEpisode: undefined,
       lastDigest: undefined,
       lastDigestAskedAt: undefined,
+      floorRecheck: undefined,
+      floorRecheckDigest: undefined,
+      floorRecheckAt: 0,
+      observations: 0,
       pending: undefined,
       pendingTimer: undefined,
       coalesceReady: false,
@@ -1302,6 +1376,7 @@ export const makeAwarenessScheduler = (deps: AwarenessSchedulerDeps): AwarenessS
       seat.generation = snapshot.epoch;
     }
     const current = seat;
+    current.observations += 1;
 
     const facts = readFacts(snapshot.bindingId);
     if (facts === undefined) return;
@@ -1361,16 +1436,19 @@ export const makeAwarenessScheduler = (deps: AwarenessSchedulerDeps): AwarenessS
     const digest = current.windowDigest;
     if (digest !== undefined) {
       const first = current.lastDigest === undefined;
+      const askedAt = current.lastDigestAskedAt;
       const floorPassed =
-        t - (current.lastDigestAskedAt ?? Number.NEGATIVE_INFINITY) >=
-        config.workingTextIntervalMs;
+        t - (askedAt ?? Number.NEGATIVE_INFINITY) >= config.workingTextIntervalMs;
       if (first || (digest !== current.lastDigest && floorPassed)) {
         current.lastDigest = digest;
         // The first screen of a generation is already an ask, so it starts the
         // interval clock rather than spending a second trigger on the same
         // material.
         current.lastDigestAskedAt = t;
+        clearFloorRecheck(current);
         if (!first) enqueue(current, "working-text");
+      } else if (!first && digest !== current.lastDigest) {
+        armFloorRecheck(current, digest, askedAt);
       }
     }
 
@@ -1413,6 +1491,7 @@ export const makeAwarenessScheduler = (deps: AwarenessSchedulerDeps): AwarenessS
       const seat = seats.get(bindingId);
       if (seat === undefined) return;
       clearPendingTimer(seat);
+      clearFloorRecheck(seat);
       seat.pending = undefined;
       if (seat.inFlight !== undefined) {
         seat.inFlight.controller.abort();
