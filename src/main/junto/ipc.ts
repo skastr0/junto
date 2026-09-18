@@ -30,6 +30,7 @@ import {
   PAD_ENABLED,
   RELAY_ENABLED,
   REQUESTS_ENABLED,
+  SEAT_AWARENESS_ENABLED,
   TASKS_ENABLED,
   USAGE_ENABLED,
 } from "@shared/features";
@@ -564,6 +565,12 @@ export const registerJuntoIpc = (): void => {
   privilegedIpc.handle(
     IPC_CHANNELS.seatCollaborationAsk,
     (_event, input: unknown): Promise<SeatCollaborationAskResult> => {
+      if (!SEAT_AWARENESS_ENABLED) {
+        return Promise.resolve({
+          ok: false as const,
+          error: "seat collaboration is not enabled in this build",
+        });
+      }
       const normalized = normalizeSeatCollaborationAsk(input);
       if (!normalized.ok) return Promise.resolve(normalized);
       const draft = normalized.draft;

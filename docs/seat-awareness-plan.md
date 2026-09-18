@@ -122,14 +122,22 @@ first version of this paragraph was false: the decoder normalized an absent fiel
 which supports the strong claim, so the stated safe direction was the unsafe one until the
 decode was fixed.
 
-**Jev is on by default (2026-09-17, operator decision).** The sidecar is the product, so a
-fresh install runs it; the setting is an opt-out (`advanced.seatAwareness: false`), surfaced
-in Settings as "Seat awareness (Jev)". The operator's reasoning: an experience that is
-substantially better with Jev and merely functional without it is not a reason to ship the
-functional version by default. What remains true is the honesty about each unavailable
-state, below. The privacy consequence is stated plainly and is the reason the opt-out is
-one click: with the sidecar on, bounded terminal text leaves the machine for enrolled local
-managed seats.
+**One gate, off in the ship profile (2026-09-18).** The whole subsystem — the advisory
+sidecar, the hover that paints its judgment, the peer-help request and its thread, and the
+AI hold on the delivery gate — is one compile-time feature gate,
+`SEAT_AWARENESS_ENABLED` / `JUNTO_SEAT_AWARENESS`, and it is **off** in `SHIP_FEATURES`.
+A ship build constructs no client, observes nothing, renders no surface and refuses the
+collaboration action, so it behaves exactly as it did before the feature existed; the
+all-on profile turns it on for development, and `JUNTO_SEAT_AWARENESS=1` turns it on for a
+single build. Inside the gate, `advanced.seatAwareness` remains the operator's runtime
+opt-out and `JUNTO_AWARENESS=on|off` the dev override, so an enabled build still has a
+switch the operator owns.
+
+The reason for a dark gate rather than a default-on setting is the open question in 8c:
+the calibration numbers describe the harness pack, not the pack that ships, and the hold
+can defer an operator prompt. Neither belongs in a ship build until it is measured on its
+own terms. The privacy consequence is unchanged and stated plainly: with the gate on,
+bounded terminal text leaves the machine for enrolled local managed seats.
 
 **The disabled sidecar says so.** With awareness disabled the wiring constructs no client, and
 the scheduler publishes one judgment-free `unavailable` notice with reason `not_configured`, so

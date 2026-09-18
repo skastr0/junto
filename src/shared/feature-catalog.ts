@@ -127,6 +127,21 @@ export const FEATURE_CATALOG = {
     env: "JUNTO_HARNESS_SETTINGS",
     define: "__JUNTO_HARNESS_SETTINGS_ENABLED__",
   },
+  /**
+   * Seat awareness (Jev) and seat collaboration: the advisory sidecar, the
+   * hover that paints its judgment, the peer-help request and its thread, and
+   * the AI hold on the delivery gate.
+   *
+   * Ship profile OFF. The whole subsystem ships dark and is turned on for a
+   * build with `JUNTO_SEAT_AWARENESS=1` (or the all-on profile). With it off
+   * the sidecar constructs no client, publishes nothing, renders no surface and
+   * refuses the collaboration action, so a ship build behaves exactly as it did
+   * before any of it existed.
+   */
+  seatAwareness: {
+    env: "JUNTO_SEAT_AWARENESS",
+    define: "__JUNTO_SEAT_AWARENESS_ENABLED__",
+  },
 } as const;
 
 export type FeatureKey = keyof typeof FEATURE_CATALOG;
@@ -155,6 +170,7 @@ export const SHIP_FEATURES: FeatureSet = {
   liveOverseer: false,
   hermesIntegration: false,
   devTools: false,
+  seatAwareness: false,
   harnessHermes: true,
   harnessKimi: true,
   harnessMuse: true,
@@ -182,6 +198,7 @@ export const ALL_FEATURES: FeatureSet = {
   liveOverseer: true,
   hermesIntegration: true,
   devTools: true,
+  seatAwareness: true,
   harnessHermes: true,
   harnessKimi: true,
   harnessMuse: true,

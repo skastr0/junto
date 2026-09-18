@@ -30,6 +30,7 @@
 
 import { Context, Effect, Exit, Layer, Scope } from "effect";
 import type { AgentSeatState } from "@shared/agent-seat-state";
+import { SEAT_AWARENESS_ENABLED } from "@shared/features";
 import type { Settings } from "@shared/settings";
 import type { SeatAwarenessEvent } from "@renderer/lib/seat-awareness-contract";
 import { seatStateRuntime } from "./agent-state";
@@ -273,6 +274,15 @@ export const makeSeatAwarenessPlane = (): SeatAwarenessPlane => {
   return {
     start: (options) => {
       if (started) return;
+      // The build gate is the master switch and it is off in the ship profile:
+      // with it off nothing is constructed, nothing is observed, and no notice
+      // is published — the seat surfaces are hidden, so a gate-off notice would
+      // be a fact about a feature this build does not have.
+      if (!SEAT_AWARENESS_ENABLED) {
+        started = true;
+        enabled = false;
+        return;
+      }
       started = true;
       enabled = options.enabled;
       const plane = options.plane ?? terminalObserverPlane;

@@ -33,6 +33,10 @@ describe("compile-time feature profiles", () => {
       liveOverseer: false,
       hermesIntegration: false,
       devTools: false,
+      // Seat awareness (Jev) and seat collaboration ship dark: the sidecar,
+      // its hover, the peer-help request and the AI hold are one gate, off
+      // until a build turns them on.
+      seatAwareness: false,
       // Every managed harness ships ON; each gate remains the way back off.
       // The Hermes TUI seat is one of them; only the ACP integration stays off.
       harnessHermes: true,

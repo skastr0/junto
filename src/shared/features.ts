@@ -34,6 +34,7 @@ declare const __JUNTO_HARNESS_AMP_ENABLED__: boolean | undefined;
 declare const __JUNTO_HARNESS_OMP_ENABLED__: boolean | undefined;
 declare const __JUNTO_HARNESS_PRIME_AGENT_ENABLED__: boolean | undefined;
 declare const __JUNTO_HARNESS_SETTINGS_ENABLED__: boolean | undefined;
+declare const __JUNTO_SEAT_AWARENESS_ENABLED__: boolean | undefined;
 
 const envEnabled = (key: string): boolean => {
   try {
@@ -221,6 +222,21 @@ export const HARNESS_SETTINGS_ENABLED: boolean =
     ? __JUNTO_HARNESS_SETTINGS_ENABLED__
     : envEnabled("JUNTO_HARNESS_SETTINGS");
 
+/**
+ * Seat awareness (Jev) and seat collaboration — the advisory sidecar, its hover,
+ * the peer-help request, and the AI hold on the delivery gate.
+ *
+ * OFF in the ship profile. The whole subsystem is one gate: with it off, no
+ * client is constructed, nothing is observed, no surface renders and the
+ * collaboration action is refused, so the build behaves as it did before the
+ * feature existed. Turn it on for a build with `JUNTO_SEAT_AWARENESS=1`, or with
+ * the all-on profile for a development run.
+ */
+export const SEAT_AWARENESS_ENABLED: boolean =
+  typeof __JUNTO_SEAT_AWARENESS_ENABLED__ === "boolean"
+    ? __JUNTO_SEAT_AWARENESS_ENABLED__
+    : envEnabled("JUNTO_SEAT_AWARENESS");
+
 export const BUILD_FEATURES = {
   cron: CRON_ENABLED,
   relay: RELAY_ENABLED,
@@ -246,6 +262,7 @@ export const BUILD_FEATURES = {
   harnessOmp: HARNESS_OMP_ENABLED,
   harnessPrimeAgent: HARNESS_PRIME_AGENT_ENABLED,
   harnessSettings: HARNESS_SETTINGS_ENABLED,
+  seatAwareness: SEAT_AWARENESS_ENABLED,
 } as const;
 
 /** Whether an authored scheduler kind has a live product surface in this build. */

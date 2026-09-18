@@ -44,6 +44,7 @@ import {
 import { terminal$ } from "../../lib/terminal-state";
 import { openNoteSurface } from "../../lib/dock-state";
 import { getJuntoApi } from "../../lib/junto-api";
+import { SEAT_AWARENESS_ENABLED } from "@shared/features";
 import { HarnessMark } from "../HarnessMark";
 import { OverseerMark } from "../OverseerMark";
 import { isOverseerSeat } from "../../lib/overseer-set";
@@ -510,7 +511,7 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
   // get the advisory hover. Collaboration is an agent seat's own surface: a
   // peer is another agent seat on this canvas. Everything renders through the
   // shell's overlay slot, which sits outside the clipped card body.
-  const seatNode = managedTerminal || isAgent;
+  const seatNode = SEAT_AWARENESS_ENABLED && (managedTerminal || isAgent);
   const collaborationOpen = use$(seatCollaborationUi$.openNodeId) === node.id;
   // Visibility is the store, not `group-hover`: the slot is opened by the
   // same hover that sets it, so the two can never disagree, and a capture of
