@@ -19,6 +19,7 @@ import type {
   TextNode,
 } from "../../src/shared/canvas";
 import { verbsForPair, type Verb } from "../../src/shared/physics/verbs";
+import { resolveManagedLaunch } from "../../src/shared/managed-terminal-launch";
 import { mirrorRequestsText } from "../../src/shared/task";
 import {
   CanvasesLive,
@@ -635,32 +636,49 @@ export const terminalTextNode = (input: {
 
 /** A managed agent seat for scripted scenarios.
  * `key` is the process-bind agent key (`<host>:<profile>`); the same stable
- * key is its fixture binding identity. */
+ * key is its fixture binding identity.
+ *
+ * The seat carries the document launch the authoring path writes (template
+ * argv plus a chosen folder). Main refuses a managed agent seat with no
+ * working directory — its cwd would otherwise fall back to the operator home —
+ * so a fixture seat that omitted one could never spawn. The default folder is
+ * the temp root: it always exists and is never the sandbox home. */
 export const agentTextNode = (input: {
   readonly id: string;
   readonly key: string;
   readonly label: string;
   readonly host?: string;
   readonly harness?: import("../../src/shared/managed-terminal-templates").HarnessId;
+  readonly cwd?: string;
   readonly x?: number;
   readonly y?: number;
-}): TextNode => ({
-  id: input.id,
-  type: "text",
-  text: input.label,
-  x: input.x ?? 0,
-  y: input.y ?? 0,
-  width: 240,
-  height: 96,
-  ether: {
-    entity: { kind: "agent", name: input.key },
-    host: input.host ?? "local",
-    terminal: {
-      bindingId: input.key,
-      harness: input.harness ?? "codex",
+}): TextNode => {
+  const harness = input.harness ?? "codex";
+  const cwd = input.cwd ?? tmpdir();
+  const launch = resolveManagedLaunch(
+    harness,
+    { cwd, injection: { seatBound: false, connected: false } },
+    {},
+  );
+  return {
+    id: input.id,
+    type: "text",
+    text: input.label,
+    x: input.x ?? 0,
+    y: input.y ?? 0,
+    width: 240,
+    height: 96,
+    ether: {
+      entity: { kind: "agent", name: input.key },
+      host: input.host ?? "local",
+      terminal: {
+        bindingId: input.key,
+        harness,
+        launch: { ...launch, cwd },
+      },
     },
-  },
-});
+  };
+};
 
 export const canvasDoc = (
   nodes: readonly CanvasNode[],

@@ -683,12 +683,22 @@ export const resolveLaunch = (
     if (file === undefined) {
       return Result.fail(unresolvable("the seat's launch profile carries no argv"));
     }
+    // A managed agent seat must name its own working directory. resolveCwd
+    // falls back to the operator home, which the refusal below rejects — so a
+    // seat that never chose a folder would be refused under the home rule and
+    // report the wrong problem. Name the real one: the authoring path requires
+    // a folder, and a seat without one has nothing to run in.
+    if (!launch.cwd?.trim()) {
+      return Result.fail(
+        unresolvable("the seat has no working directory — choose a folder for this seat"),
+      );
+    }
     // An agent seat rooted at the operator home turns the harness's own file
     // tools (rg --files, find) into a whole-home sweep whose access macOS
-    // bills to Junto's TCC responsible-process identity. Missing and literal
-    // `~` cwds both land there via resolveCwd's fallback; refuse them. A
-    // terminal seat keeps the fallback — it is a user-driven shell with the
-    // same semantics as Terminal.app.
+    // bills to Junto's TCC responsible-process identity. A literal `~` cwd
+    // lands there via expandTerminalCwd; refuse it. A terminal seat keeps the
+    // fallback — it is a user-driven shell with the same semantics as
+    // Terminal.app.
     const homeRoot = process.env.HOME || os.homedir();
     if (isAbsolute(homeRoot) && sameResolvedDirectory(cwd, homeRoot)) {
       return Result.fail(

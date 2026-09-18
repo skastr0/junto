@@ -88,6 +88,30 @@ const openFolderPicker = async (
   return picker;
 };
 
+/**
+ * Give the next agent a working directory. A managed agent seat must name one —
+ * main refuses a seat whose cwd would fall back to the operator home — so the
+ * deck opens this picker instead of creating a seat that cannot start.
+ */
+const chooseWorkingDirectory = async (
+  page: Page,
+  deck: Locator,
+  folder = "src",
+): Promise<void> => {
+  const picker = await openFolderPicker(page, deck);
+  const input = picker.getByLabel("Agent working directory");
+  await input.fill(`${REPO_ROOT}/`);
+  const listing = picker.getByRole("list", {
+    name: `Folders in ${REPO_ROOT}`,
+  });
+  await expect(listing).toBeVisible({ timeout: 10_000 });
+  await listing.getByRole("button", { name: `Select ${folder}` }).click();
+  await expect(input).toHaveValue(join(REPO_ROOT, folder));
+  await picker
+    .getByRole("button", { name: "Close folder picker" })
+    .click();
+};
+
 test("Mode Deck exposes the searchable catalog and keeps launch context dense at the foot of the agent pane", async () => {
   const junto = await seededLaunch();
 
@@ -641,6 +665,7 @@ test("column type-ahead scrolls to an offscreen model and selects its effort", a
   try {
     const { page } = junto;
     const deck = await openModeDeck(page);
+    await chooseWorkingDirectory(page, deck);
     await searchBox(page).press("ArrowDown");
     await page.keyboard.press("Enter");
     const models = await waitForClaudeModels(page);
@@ -683,6 +708,7 @@ test("Use harness defaults creates one Kimi agent when no models are available",
   try {
     const { page } = junto;
     const deck = await openModeDeck(page);
+    await chooseWorkingDirectory(page, deck);
     const kimi = deck.getByRole("button", { name: "Kimi Code", exact: true });
     await expect(kimi).toBeVisible();
     await kimi.focus();

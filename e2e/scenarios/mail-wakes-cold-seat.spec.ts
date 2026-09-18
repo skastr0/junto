@@ -15,13 +15,30 @@
  */
 import { execFileSync } from "node:child_process";
 import { DatabaseSync } from "node:sqlite";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { CanvasDoc } from "../../src/shared/canvas";
+import { resolveManagedLaunch } from "../../src/shared/managed-terminal-launch";
 import { expect, launchJunto, test } from "../harness/launch";
 
 const SEAT_ID = "agent-wake-target";
 /** Resolved at runtime: the canvas the app booted on. */
 let CANVAS = "";
+
+// The seat's folder. Main refuses a managed agent seat with no working
+// directory (its cwd would otherwise fall back to the operator home), and the
+// canvas is played before the first edge lands, so the seat can be woken while
+// still unconnected — it needs the same document launch the authoring path
+// writes, argv included.
+const SEAT_CWD = tmpdir();
+const seatLaunch = {
+  ...resolveManagedLaunch(
+    "claude",
+    { cwd: SEAT_CWD, injection: { seatBound: false, connected: false } },
+    {},
+  ),
+  cwd: SEAT_CWD,
+};
 
 const seatDoc: CanvasDoc = {
   nodes: [
@@ -36,7 +53,11 @@ const seatDoc: CanvasDoc = {
       ether: {
         entity: { kind: "agent", name: "local:wake-target" },
         host: "local",
-        terminal: { bindingId: "wake-target-binding", harness: "claude" },
+        terminal: {
+          bindingId: "wake-target-binding",
+          harness: "claude",
+          launch: seatLaunch,
+        },
       },
     },
     ...[1, 2, 3].map((n) => ({

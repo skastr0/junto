@@ -94,6 +94,9 @@ export function NodePaletteModeDeck({
   const [launchContext, setLaunchContext] = useState<AgentLaunchContextValue>(
     defaultAgentLaunchContext,
   );
+  // Owned here so a create attempt with no working directory can open the
+  // picker (see configureAgent) instead of minting a seat that cannot start.
+  const [folderOpen, setFolderOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const deckRef = useRef<HTMLElement>(null);
   const cascadeDismissRef = useRef<CascadeDismiss | null>(null);
@@ -139,6 +142,14 @@ export function NodePaletteModeDeck({
   };
 
   const configureAgent = useCallback((choices: AgentConfigurationChoices) => {
+    // A managed agent seat must name its working directory: main refuses a
+    // seat without one, since the fallback is the operator home. Answer the
+    // create attempt with the folder picker rather than minting a seat that
+    // can only fail at spawn.
+    if (!launchContext.cwd.trim()) {
+      setFolderOpen(true);
+      return;
+    }
     const withDefaults = withHarnessSettingsDefaults(
       choices,
       state$.settings.get(),
@@ -212,6 +223,8 @@ export function NodePaletteModeDeck({
             <AgentLaunchContext
               position={agentPosition}
               onChange={setLaunchContext}
+              folderOpen={folderOpen}
+              onFolderOpenChange={setFolderOpen}
               className="node-deck__launch-context"
             />
           </div>

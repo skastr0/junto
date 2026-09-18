@@ -41,6 +41,14 @@ export type AgentLaunchContextProps = {
   readonly position: { readonly x: number; readonly y: number };
   /** Called whenever the choices ready for the next agent change. */
   readonly onChange: (value: AgentLaunchContextValue) => void;
+  /**
+   * Folder-picker visibility is owned by the caller so a create attempt with no
+   * working directory can open it: a managed agent seat without a folder has
+   * nothing to run in, and main refuses one whose cwd would fall back to the
+   * operator home.
+   */
+  readonly folderOpen: boolean;
+  readonly onFolderOpenChange: (open: boolean) => void;
   readonly initialHostId?: string;
   readonly className?: string;
 };
@@ -66,6 +74,8 @@ const centerOf = (position: AgentLaunchContextProps["position"]) => ({
 export function AgentLaunchContext({
   position,
   onChange,
+  folderOpen,
+  onFolderOpenChange,
   initialHostId,
   className,
 }: AgentLaunchContextProps) {
@@ -87,7 +97,6 @@ export function AgentLaunchContext({
   const [useRegionDefault, setUseRegionDefault] = useState(Boolean(regionDefaultPath));
   const [cwd, setCwd] = useState(() => regionPath ?? "");
   const [folderSeed, setFolderSeed] = useState(() => regionPath ?? "~");
-  const [folderOpen, setFolderOpen] = useState(false);
 
   useEffect(() => {
     if (!FLEET_UI_ENABLED) return;
@@ -127,18 +136,18 @@ export function AgentLaunchContext({
   useEffect(() => {
     if (!folderOpen) return;
     const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setFolderOpen(false);
+      if (event.key === "Escape") onFolderOpenChange(false);
     };
     window.addEventListener("keydown", closeOnEscape);
     return () => window.removeEventListener("keydown", closeOnEscape);
-  }, [folderOpen]);
+  }, [folderOpen, onFolderOpenChange]);
 
   const selectHost = (nextHostId: string) => {
     const nextSeed = resolveRegionCwd(doc, center.x, center.y, nextHostId) ?? "~";
     setHostId(nextHostId);
     setCwd(nextSeed === "~" ? "" : nextSeed);
     setFolderSeed(nextSeed);
-    setFolderOpen(false);
+    onFolderOpenChange(false);
   };
 
   const toggleRegionDefault = (checked: boolean) => {
@@ -180,7 +189,7 @@ export function AgentLaunchContext({
                 <FolderOpen size={14} className="text-cyan" />
                 Choose starting folder
               </div>
-              <IconButton aria-label="Close folder picker" title="Close" onClick={() => setFolderOpen(false)}>
+              <IconButton aria-label="Close folder picker" title="Close" onClick={() => onFolderOpenChange(false)}>
                 <X size={14} />
               </IconButton>
             </div>
@@ -242,7 +251,7 @@ export function AgentLaunchContext({
               aria-haspopup="dialog"
               aria-expanded={folderOpen}
               aria-label="Choose starting folder"
-              onClick={() => setFolderOpen((open) => !open)}
+              onClick={() => onFolderOpenChange(!folderOpen)}
             >
               <span className="min-w-0 truncate font-mono text-[11px]">{cwd || "choose folder"}</span>
               <ChevronDown size={13} className="shrink-0" />
