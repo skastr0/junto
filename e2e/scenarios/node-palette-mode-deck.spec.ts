@@ -85,6 +85,14 @@ const openFolderPicker = async (
 
   const picker = page.getByRole("dialog", { name: "Choose starting folder" });
   await expect(picker).toBeVisible();
+  // The picker reads its seed path on mount and rewrites the input when that
+  // read lands. Typing before it settles appends to the rewritten value
+  // instead of replacing it — `fill` selects all, the rewrite collapses the
+  // selection, and the insert lands at the end of a home-joined path. Wait for
+  // the first read to settle (a listing, or the read error) before typing.
+  await expect(
+    picker.locator("ul, [role='alert']").first(),
+  ).toBeVisible({ timeout: 10_000 });
   return picker;
 };
 
@@ -369,6 +377,40 @@ test("one agent-row click creates exactly one configured agent without a legacy 
           }));
       });
     }).toEqual([{ harness: "claude", cwd: join(REPO_ROOT, "src") }]);
+  } finally {
+    await junto.close();
+  }
+});
+
+test("a create attempt with no working directory opens the folder picker instead of minting a seat", async () => {
+  const junto = await seededLaunch({
+    seedCanvases: { portfolio: canvasDoc([]) },
+    seedHarnessInstalls: [...SEEDED_HARNESSES, "kimi"],
+  });
+
+  try {
+    const { page } = junto;
+    const deck = await openModeDeck(page);
+    const canvasNodes = page.locator(".react-flow__node");
+    const before = await canvasNodes.count();
+
+    // Kimi offers a single "Use harness defaults" row, so one activation
+    // reaches the create step with no model choice in the way.
+    const kimi = deck.getByRole("button", { name: "Kimi Code", exact: true });
+    await kimi.focus();
+    await page.keyboard.press("Enter");
+    const menu = page.getByRole("menu", { name: "Kimi Code models" });
+    await menu
+      .getByRole("menuitem", { name: "Use harness defaults" })
+      .press("Enter");
+
+    // A managed agent seat must name a working directory, so the create
+    // attempt answers with the picker and the deck stays open on no new node.
+    await expect(
+      page.getByRole("dialog", { name: "Choose starting folder" }),
+    ).toBeVisible();
+    await expect(deck).toHaveCount(1);
+    await expect(canvasNodes).toHaveCount(before);
   } finally {
     await junto.close();
   }
