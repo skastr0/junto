@@ -23,65 +23,38 @@ install_system_packages() {
   sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "${missing[@]}"
 }
 
+locate_orb_setup() {
+  local candidate
+  for candidate in \
+    "${repo_root}/../repos/orb-setup" \
+    "${repo_root}/../repos/skastr0/orb-setup" \
+    "${repo_root}/../orb-setup"; do
+    if [[ -x "${candidate}/bin/setup.sh" ]]; then
+      printf '%s' "$(cd "$candidate" && pwd)"
+      return 0
+    fi
+  done
+  return 1
+}
+
 if [[ -n "${AMP_DIRECT_DESKTOP:-}" ]]; then
   printf '[setup] Amp Desktop supported; native X11/Wayland is preferred when active\n'
 fi
-# Keep Xvfb available for OrbStack, CI, and orb work before the interactive
-# Desktop session starts. Runtime detection in scripts/run-e2e.sh chooses the
-# live desktop first and falls back only when none is available.
 install_system_packages
 
-bun_version="$(sed -n 's/.*"packageManager": "bun@\([^"]*\)".*/\1/p' package.json)"
-if [[ -z "$bun_version" ]]; then
-  printf '[setup] error: package.json must declare packageManager as bun@<version>\n' >&2
+orb_setup="$(locate_orb_setup)" || {
+  printf '[setup] error: orb-setup checkout not found next to this repository\n' >&2
   exit 1
-fi
-
-if ! command -v bun >/dev/null 2>&1 || [[ "$(bun --version)" != "$bun_version" ]]; then
-  printf '[setup] Installing Bun %s\n' "$bun_version"
-  export BUN_INSTALL="${BUN_INSTALL:-$HOME/.bun}"
-  curl -fsSL https://bun.sh/install | bash -s -- "bun-v${bun_version}"
-
-  mkdir -p "$HOME/.local/bin"
-  ln -sfn "$BUN_INSTALL/bin/bun" "$HOME/.local/bin/bun"
-  ln -sfn "$BUN_INSTALL/bin/bunx" "$HOME/.local/bin/bunx"
-  export PATH="$HOME/.local/bin:$PATH"
-fi
-
-printf '[setup] Using Bun %s\n' "$(bun --version)"
-
-install_dependencies() {
-  local directory="$1"
-  local started_at=$SECONDS
-
-  printf '[setup] Installing dependencies in %s\n' "$directory"
-  (
-    cd "$repo_root/$directory"
-    bun install --frozen-lockfile
-  )
-  printf '[setup] Dependencies ready in %s (%ss)\n' "$directory" "$((SECONDS - started_at))"
 }
+printf '[setup] Using shared runtime at %s\n' "$orb_setup"
+bash "${orb_setup}/bin/setup.sh"
+export PATH="${HOME}/.local/bin:${HOME}/.bun/bin:${PATH}"
 
-install_dependencies .
+printf '[setup] Installing Junto dependencies\n'
+bun install --frozen-lockfile
 
-# The 15th harness, `junto-overseer`, is this repository's own CLI: its template
-# resolves `junto`, and a seat only finds it when `dist/junto` exists
-# (src/main/junto/term/templates/seat-env.ts). Building it here also gives every
-# other seat the work-plane CLI on its PATH. LIVE_OVERSEER matches the app-side
-# gate, and the flag only compiles the command in; a human grant still decides
-# whether any seat may use it.
+# The 15th harness, junto-overseer, is this repository's own CLI.
 printf '[setup] Building the standalone junto CLI\n'
 JUNTO_LIVE_OVERSEER=1 bun run cli:build
-
-# Every harness Junto can seat, so the orb can exercise the whole range.
-# Non-fatal by design: a vendor installer being down must not cost the orb its
-# repo checkout. The script prints its own per-harness summary.
-if [[ "${JUNTO_SKIP_HARNESS_INSTALL:-}" == "1" ]]; then
-  printf '[setup] Skipping harness installs (JUNTO_SKIP_HARNESS_INSTALL=1)\n'
-else
-  printf '[setup] Installing agent harnesses\n'
-  bash "$repo_root/.agents/install-harnesses.sh" || \
-    printf '[setup] warning: some harnesses did not install; see the summary above\n' >&2
-fi
 
 printf '[setup] Complete\n'
