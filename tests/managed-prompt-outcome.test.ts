@@ -53,19 +53,13 @@ const refusedOutcome = (
 });
 
 describe("managed-prompt admission and reason mapping", () => {
-  it("admits idle plus empty plus short, refuses busy and oversize", () => {
-    expect(
-      admitImmediatePrompt({ idle: true, composerEmpty: true, bodyChars: 10 }),
-    ).toEqual({ admitted: true });
-    expect(
-      admitImmediatePrompt({ idle: false, composerEmpty: true, bodyChars: 10 }),
-    ).toEqual({ admitted: false, reason: "seat-busy" });
-    expect(
-      admitImmediatePrompt({ idle: true, composerEmpty: false, bodyChars: 10 }),
-    ).toEqual({ admitted: false, reason: "seat-busy" });
-    expect(
-      admitImmediatePrompt({ idle: true, composerEmpty: true, bodyChars: 161 }),
-    ).toEqual({ admitted: false, reason: "over-limit" });
+  it("admits a short body whatever the seat is doing, refuses oversize", () => {
+    expect(admitImmediatePrompt({ bodyChars: 10 })).toEqual({ admitted: true });
+    expect(admitImmediatePrompt({ bodyChars: 160 })).toEqual({ admitted: true });
+    expect(admitImmediatePrompt({ bodyChars: 161 })).toEqual({
+      admitted: false,
+      reason: "over-limit",
+    });
   });
 
   it("maps drive refusals to the closed durable reason; cuts record nothing", () => {
@@ -83,6 +77,8 @@ describe("managed-prompt admission and reason mapping", () => {
       "written-no-evidence",
     );
     expect(mailAttemptReasonOfRefusal("over-limit")).toBe("oversize");
+    // The removed idle and settle gates' reasons are history only.
+    expect(mailAttemptReasonOfRefusal("not-ready")).toBe("seat-busy");
     expect(mailAttemptReasonOfRefusal("cancelled")).toBeUndefined();
     expect(mailAttemptReasonOfRefusal("suspended")).toBeUndefined();
   });
@@ -549,9 +545,7 @@ describe("MessageDeliveryService outcome policy", () => {
         };
       },
       seatDeliverySnapshot: async () => ({
-        idle: true,
         generationKey: "gen-7",
-        operatorDraft: false,
       }),
     };
     let clock = 100_000;
@@ -567,12 +561,8 @@ describe("MessageDeliveryService outcome policy", () => {
       },
     });
     // One wrote-physical attempt with no acknowledgement: the ledger holds
-    // the uncertainty durably. The flush lets the first consult start the
-    // settle clock before it is advanced.
+    // the uncertainty durably.
     service.notifyAppended("c", "agent", userMsg("m1"));
-    await flushDelivery();
-    clock += 2_000;
-    service.onManagedTerminalIdle("bind-profile-13");
     await flushDelivery();
     expect(calls).toBe(1);
     expect(
@@ -590,17 +580,11 @@ describe("MessageDeliveryService outcome policy", () => {
       false,
     );
     // An explicit resume opens exactly one fresh intent and releases the
-    // seat hold. Resume re-settles the seats (no paste mid-resume paint),
-    // so the immediate sweep cannot spend the grant yet; the next settled
-    // re-drive spends it on exactly one retry — then silence again.
+    // seat hold; its sweep spends it on exactly one retry — then silence.
     service.onResumedCanvas("c");
     await flushDelivery();
     expect(ledger.calls).toContain("grant:m1");
     expect(released).toEqual(["bind-profile-13"]);
-    expect(calls).toBe(1);
-    clock += 2_000;
-    service.onManagedTerminalIdle("bind-profile-13");
-    await flushDelivery();
     expect(calls).toBe(2);
     expect(await store.hasAcceptedMessageDelivery("c", "agent", "m1")).toBe(
       false,
@@ -611,14 +595,13 @@ describe("MessageDeliveryService outcome policy", () => {
     // A second explicit resume authorizes exactly one more retry.
     service.onResumedCanvas("c");
     await flushDelivery();
-    expect(calls).toBe(2);
-    clock += 2_000;
+    expect(calls).toBe(3);
     service.onManagedTerminalIdle("bind-profile-13");
     await flushDelivery();
     expect(calls).toBe(3);
   });
 
-  it("plain immediate busy stays immediate with no notice marker", async () => {
+  it("plain immediate refused by the drive stays immediate with no notice marker", async () => {
     const seat = `seat_${"a".repeat(64)}`;
     const promptMsg = userMsg("p1", " please review", {
       metadata: {
@@ -630,32 +613,27 @@ describe("MessageDeliveryService outcome policy", () => {
     });
     const store = makeStore({ c: agentDoc([promptMsg]) });
     const ledger = makeLedger();
-    let busy = true;
+    // A dialog on screen: the drive refuses before any byte.
+    let dialog = true;
     let calls = 0;
     const transport: MessageDeliveryTransport = {
       wakeManagedSeat: async () => true,
-      seatDeliverySnapshot: async () => ({
-        idle: !busy,
-        generationKey: "gen-7",
-        operatorDraft: false,
-      }),
+      seatDeliverySnapshot: async () => ({ generationKey: "gen-7" }),
       sendManagedTerminalPrompt: async () => {
         calls += 1;
-        return submittedOutcome();
+        return dialog ? refusedOutcome() : submittedOutcome();
       },
     };
-    let clock = 100_000;
     const service = new MessageDeliveryService();
     service.configure({
       transport,
       store,
       attempts: ledger,
-      now: () => clock,
       timers: { set: () => ({}), clear: () => {} },
     });
-    // The seat is working: the plain immediate prompt refuses seat-busy and
-    // persists no fallback marker — a busy refusal never auto-degrades to
-    // notice. The row stays durable immediate, retryable under the same id.
+    // The drive refuses seat-busy and no fallback marker is persisted — a
+    // refusal never auto-degrades a prompt to notice. The row stays durable
+    // immediate, retryable under the same id.
     const deferred = await service.prompt({
       canvas: "c",
       nodeId: "agent",
@@ -663,33 +641,22 @@ describe("MessageDeliveryService outcome policy", () => {
     });
     expect(deferred).toMatchObject({
       policy: "immediate",
-      outcome: { status: "refused", reason: "seat-busy" },
+      outcome: { status: "refused", reason: "seat-busy", wrotePhysicalBytes: false },
     });
     expect(
       ledger.calls.some((call) => call.startsWith("fallback:")),
     ).toBe(false);
-    expect(calls).toBe(0);
-    // The seat idles and settles: with no marker the row stays
-    // explicit-only and the automatic scans never touch the transport.
-    busy = false;
-    clock += 2_000;
+    expect(calls).toBe(1);
+    // With no marker the row stays explicit-only: automatic scans never
+    // touch the transport.
+    dialog = false;
     service.onManagedTerminalIdle("bind-profile-13");
     await flushDelivery();
-    clock += 2_000;
-    service.onManagedTerminalIdle("bind-profile-13");
-    await flushDelivery();
-    expect(calls).toBe(0);
+    expect(calls).toBe(1);
     expect(await store.hasAcceptedMessageDelivery("c", "agent", "p1")).toBe(
       false,
     );
-    // Explicit-only rows do not consult the automatic seat gate. The first
-    // same-id retry observes idle and starts settle, then the next submits.
-    expect(await service.prompt({
-      canvas: "c",
-      nodeId: "agent",
-      messageId: "p1",
-    })).toMatchObject({ outcome: { status: "refused", reason: "seat-busy", wrotePhysicalBytes: false } });
-    clock += 2_000;
+    // The same-id explicit retry submits.
     const retry = await service.prompt({
       canvas: "c",
       nodeId: "agent",
@@ -698,7 +665,7 @@ describe("MessageDeliveryService outcome policy", () => {
     expect(retry).toMatchObject({
       outcome: { status: "submitted" },
     });
-    expect(calls).toBe(1);
+    expect(calls).toBe(2);
   });
 
   it("explicit fallback persists its marker write-ahead and the notice path delivers it", async () => {
@@ -713,32 +680,26 @@ describe("MessageDeliveryService outcome policy", () => {
     });
     const store = makeStore({ c: agentDoc([promptMsg]) });
     const ledger = makeLedger();
-    let busy = true;
+    let dialog = true;
     let calls = 0;
     const transport: MessageDeliveryTransport = {
       wakeManagedSeat: async () => true,
-      seatDeliverySnapshot: async () => ({
-        idle: !busy,
-        generationKey: "gen-7",
-        operatorDraft: false,
-      }),
+      seatDeliverySnapshot: async () => ({ generationKey: "gen-7" }),
       sendManagedTerminalPrompt: async () => {
         calls += 1;
-        return submittedOutcome();
+        return dialog ? refusedOutcome() : submittedOutcome();
       },
     };
-    let clock = 100_000;
     const service = new MessageDeliveryService();
     service.configure({
       transport,
       store,
       attempts: ledger,
-      now: () => clock,
       timers: { set: () => ({}), clear: () => {} },
     });
-    // The seat is working: the explicit notice fallback refuses seat-busy
-    // but persists its marker write-ahead — before any gate or transport —
-    // so a crash cannot lose the operator's request.
+    // The drive refuses (a dialog is up), but the explicit notice fallback
+    // persists its marker write-ahead — before the transport — so a crash
+    // cannot lose the operator's request.
     const deferred = await service.prompt({
       canvas: "c",
       nodeId: "agent",
@@ -750,25 +711,18 @@ describe("MessageDeliveryService outcome policy", () => {
       outcome: { status: "refused", reason: "seat-busy" },
     });
     expect(ledger.calls[0]).toBe("fallback:p1");
-    expect(calls).toBe(0);
-    // The seat idles: the first idle observation starts the settle clock,
-    // so the notice path re-admits the marked row but cannot paste yet.
-    busy = false;
-    clock += 2_000;
-    service.onManagedTerminalIdle("bind-profile-13");
-    await flushDelivery();
-    expect(calls).toBe(0);
-    // Settled: the notice path delivers the marked row exactly once.
-    clock += 2_000;
-    service.onManagedTerminalIdle("bind-profile-13");
-    await flushDelivery();
     expect(calls).toBe(1);
+    // The dialog closes: the notice path delivers the marked row exactly once.
+    dialog = false;
+    service.onManagedTerminalIdle("bind-profile-13");
+    await flushDelivery();
+    expect(calls).toBe(2);
     expect(await store.hasAcceptedMessageDelivery("c", "agent", "p1")).toBe(
       true,
     );
     service.onManagedTerminalIdle("bind-profile-13");
     await flushDelivery();
-    expect(calls).toBe(1);
+    expect(calls).toBe(2);
   });
 
   it("over-limit prompt verdicts never persist a fallback marker", async () => {
@@ -787,9 +741,7 @@ describe("MessageDeliveryService outcome policy", () => {
     const transport: MessageDeliveryTransport = {
       wakeManagedSeat: async () => true,
       seatDeliverySnapshot: async () => ({
-        idle: true,
         generationKey: "gen-7",
-        operatorDraft: false,
       }),
       sendManagedTerminalPrompt: async () => {
         calls += 1;
@@ -860,9 +812,7 @@ describe("MessageDeliveryService outcome policy", () => {
         return submittedOutcome();
       },
       seatDeliverySnapshot: async () => ({
-        idle: true,
         generationKey: "gen-7",
-        operatorDraft: false,
       }),
     };
     let clock = 100_000;
@@ -884,26 +834,12 @@ describe("MessageDeliveryService outcome policy", () => {
       now: () => clock,
     });
     service.notifyAppended("c", "agent", userMsg("m1"));
-    await new Promise((r) => setTimeout(r, 25));
-    // First pass only starts the settle clock: the refusal is durable
-    // (enqueued plus refused/not-settled) but nothing transports yet.
-    expect(seen).toEqual(["enqueue"]);
-    expect(ledger.records).toEqual([
-      {
-        messageId: "m1",
-        set: { refusedAt: expect.any(String), refusedReason: "not-settled" },
-      },
-    ]);
-    clock += 2_000;
-    service.onManagedTerminalIdle("bind-profile-13");
     await new Promise((r) => setTimeout(r, 50));
-    // Intent witness lands immediately before the physical write.
-    expect(seen).toEqual(["enqueue", "enqueue", "mark", "transport"]);
+    // The first pass delivers: no settle wait, no refusal row for mail that
+    // was never refused. The intent witness lands immediately before the
+    // physical write.
+    expect(seen).toEqual(["enqueue", "mark", "transport"]);
     expect(ledger.records).toEqual([
-      {
-        messageId: "m1",
-        set: { refusedAt: expect.any(String), refusedReason: "not-settled" },
-      },
       { messageId: "m1", set: { notifiedAt: expect.any(String) } },
     ]);
     expect(await store.hasAcceptedMessageDelivery("c", "agent", "m1")).toBe(
@@ -948,7 +884,7 @@ describe("MessageDeliveryService outcome policy", () => {
       false,
     );
     // The explicit call delivers the same durable row with the full-body
-    // immediate payload and no drive queue.
+    // immediate payload into an idle or working seat.
     const result = await service.prompt({
       canvas: "c",
       nodeId: "agent",
@@ -962,7 +898,7 @@ describe("MessageDeliveryService outcome policy", () => {
     expect(seenPayloads[1]?.startsWith("mail from ")).toBe(true);
     expect(seenPayloads[1]).toContain("act now");
     expect(seenOptions).toContainEqual(
-      expect.objectContaining({ queueIfBusy: false }),
+      expect.objectContaining({ whileWorking: true }),
     );
     expect(await store.hasAcceptedMessageDelivery("c", "agent", "p1")).toBe(
       true,
@@ -996,24 +932,12 @@ describe("MessageDeliveryService outcome policy", () => {
         return submittedOutcome();
       },
       seatDeliverySnapshot: async () => ({
-        idle: true,
         generationKey: "gen-7",
-        operatorDraft: false,
       }),
     };
     let clock = 100_000;
     const service = new MessageDeliveryService();
     service.configure({ transport, store, attempts: ledger, now: () => clock });
-    // First call starts the settle clock and refuses retryable SeatBusy.
-    const settling = await service.prompt({
-      canvas: "c",
-      nodeId: "agent",
-      messageId: "p1",
-    });
-    expect(settling).toMatchObject({
-      outcome: { status: "refused", reason: "seat-busy" },
-    });
-    clock += 2_000;
     const result = await service.prompt({
       canvas: "c",
       nodeId: "agent",
@@ -1025,10 +949,6 @@ describe("MessageDeliveryService outcome policy", () => {
     });
     expect(calls).toBe(0);
     expect(ledger.records).toEqual([
-      {
-        messageId: "p1",
-        set: { refusedAt: expect.any(String), refusedReason: "not-settled" },
-      },
       {
         messageId: "p1",
         set: { refusedAt: expect.any(String), refusedReason: "oversize" },
@@ -1065,17 +985,12 @@ describe("MessageDeliveryService outcome policy", () => {
           return submittedOutcome();
         },
         seatDeliverySnapshot: async () => ({
-          idle: true,
           generationKey: "gen-7",
-          operatorDraft: false,
         }),
       };
       let clock = 100_000;
       const service = new MessageDeliveryService();
       service.configure({ transport, store, attempts: ledger, now: () => clock });
-      // First call starts the settle clock and refuses retryable SeatBusy.
-      await service.prompt({ canvas: "c", nodeId: "agent", messageId: "p1" });
-      clock += 2_000;
       const result = await service.prompt({
         canvas: "c",
         nodeId: "agent",
@@ -1119,17 +1034,12 @@ describe("MessageDeliveryService outcome policy", () => {
         return submittedOutcome();
       },
       seatDeliverySnapshot: async () => ({
-        idle: true,
         generationKey: "gen-7",
-        operatorDraft: false,
       }),
     };
     let clock = 100_000;
     const service = new MessageDeliveryService();
     service.configure({ transport, store, attempts: ledger, now: () => clock });
-    // First call starts the settle clock and refuses retryable SeatBusy.
-    await service.prompt({ canvas: "c", nodeId: "agent", messageId: "p1" });
-    clock += 2_000;
     // A durable acceptance from an earlier process turns this call into a
     // stamp-only replay: the over-limit body must not refuse it.
     ledger.setNotified("p1");
@@ -1207,9 +1117,7 @@ describe("MessageDeliveryService outcome policy", () => {
         return submittedOutcome();
       },
       seatDeliverySnapshot: async () => ({
-        idle: true,
         generationKey: "gen-7",
-        operatorDraft: false,
       }),
     };
     let clock = 100_000;
@@ -1235,11 +1143,7 @@ describe("MessageDeliveryService outcome policy", () => {
       },
       now: () => clock,
     });
-    clock += 2_000;
-    // First call starts the settle clock; the second passes the gate and
-    // finds the ledger-notified row, stamping without pasting.
-    await service.prompt({ canvas: "c", nodeId: "agent", messageId: "p1" });
-    clock += 2_000;
+    // The call finds the ledger-notified row and stamps without pasting.
     const result = await service.prompt({
       canvas: "c",
       nodeId: "agent",
@@ -1290,37 +1194,31 @@ describe("operatorPrompt boundary re-drive", () => {
     expect(seenPayloads[0]?.startsWith("mail from operator")).toBe(true);
     expect(seenPayloads[0]).toContain("deliver now");
     expect(seenOptions).toContainEqual(
-      expect.objectContaining({ queueIfBusy: false }),
+      expect.objectContaining({ whileWorking: true }),
     );
     expect(await store.hasAcceptedMessageDelivery("c", "agent", "op1")).toBe(
       true,
     );
   });
 
-  it("gate refusal leaves the row pending without burning transport attempts", async () => {
+  it("a seat with no live generation leaves the row pending without burning transport attempts", async () => {
     const prompt = operatorPromptMsg("op1");
     const store = makeStore({ c: agentDoc([prompt]) });
     const ledger = makeLedger();
-    let idle = false;
+    let up = false;
     let calls = 0;
     const transport: MessageDeliveryTransport = {
-      seatDeliverySnapshot: async () => ({
-        idle,
-        generationKey: "gen-7",
-        operatorDraft: false,
-      }),
+      seatDeliverySnapshot: async () => (up ? { generationKey: "gen-7" } : undefined),
       sendManagedTerminalPrompt: async () => {
         calls += 1;
         return submittedOutcome();
       },
     };
-    let clock = 100_000;
     const service = new MessageDeliveryService();
     service.configure({
       transport,
       store,
       attempts: ledger,
-      now: () => clock,
       timers: { set: () => ({}), clear: () => {} },
     });
     service.notifyAppended("c", "agent", prompt);
@@ -1332,11 +1230,9 @@ describe("operatorPrompt boundary re-drive", () => {
     expect(
       ledger.calls.some((call) => call.startsWith("mark:")),
     ).toBe(false);
-    idle = true;
-    clock += 2_000;
-    service.onManagedTerminalIdle("bind-profile-13");
-    await flushDelivery();
-    clock += 2_000;
+    // Waiting for a seat to come up is not a refusal: no ledger row.
+    expect(ledger.records).toEqual([]);
+    up = true;
     service.onManagedTerminalIdle("bind-profile-13");
     await flushDelivery();
     expect(calls).toBe(1);

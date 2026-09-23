@@ -26,7 +26,6 @@ import {
   factoryPulseTransport,
   factorySeatPaused,
   makeFactoryFirstTypedKick,
-  makeFactoryMailTurnObserver,
   makeFactoryWriteManagedPrompt,
   wireFactorySupervisor,
   type FactoryDeliveryDrive,
@@ -505,16 +504,14 @@ describe("factoryMailTransport", () => {
     },
   );
 
-  it("refuses raw paste and gates managed sends on the drive", async () => {
+  it("refuses raw paste and leaves every screen guard to the drive", async () => {
     const drive = fakeDrive();
     const transport = factoryMailTransport({
       kernel: { wakeManagedSeat: () => true },
       write: makeFactoryWriteManagedPrompt(drive, () => true),
       drive,
       seatSnapshot: () => ({
-        idle: true,
         generationKey: "g1",
-        operatorDraft: false,
       }),
     });
     expect(transport.sendTerminalPaste?.("b1", "x", "m1")).toBe(false);
@@ -523,7 +520,7 @@ describe("factoryMailTransport", () => {
     expect(transport.pasteWriteCount?.("b1")).toBe(7);
     await expect(
       Promise.resolve(transport.seatDeliverySnapshot?.("b1")),
-    ).resolves.toMatchObject({ idle: true, generationKey: "g1" });
+    ).resolves.toEqual({ generationKey: "g1" });
   });
 });
 
@@ -614,34 +611,12 @@ describe("factorySeatPaused", () => {
 });
 
 describe("composeFactoryDelivery", () => {
-  it("opens mail windows on real working turns, not refreshes or permission resumes", () => {
-    const starts: string[] = [];
-    const observe = makeFactoryMailTurnObserver({
-      onManagedTerminalTurnStart: (bindingId) => { starts.push(bindingId); },
-    });
-    const event = {
-      bindingId: "b", epoch: "e1", reason: "screen", confidence: "high" as const, at: 1,
-    };
-    observe({ ...event, state: "working" });
-    observe({ ...event, state: "working", reason: "new-footer" });
-    observe({ ...event, state: "attention" });
-    observe({ ...event, state: "working" });
-    expect(starts).toEqual(["b"]);
-    observe({ ...event, state: "idle" });
-    observe({ ...event, state: "working" });
-    expect(starts).toEqual(["b", "b"]);
-    observe({ ...event, state: "gone" });
-    observe({ ...event, epoch: "e2", state: "working" });
-    expect(starts).toEqual(["b", "b", "b"]);
-  });
-
   const harness = () => {
     const drive = fakeDrive();
     const seatListeners: Array<(event: never) => void> = [];
     const composerListeners: Array<(bindingId: string) => void> = [];
     const pauseListeners: PauseChangeListener[] = [];
     const idle: string[] = [];
-    const turns: string[] = [];
     const composerEmpty: string[] = [];
     const resumed: string[] = [];
     const booted: string[] = [];
@@ -690,7 +665,6 @@ describe("composeFactoryDelivery", () => {
       escalate: () => {},
       mail: {
         configure: () => {},
-        onManagedTerminalTurnStart: (bindingId) => { turns.push(bindingId); },
         onManagedTerminalIdle: (b) => {
           idle.push(b);
         },
@@ -728,7 +702,6 @@ describe("composeFactoryDelivery", () => {
       composerListeners,
       pauseListeners,
       idle,
-      turns,
       composerEmpty,
       resumed,
       booted,
@@ -757,7 +730,6 @@ describe("composeFactoryDelivery", () => {
     h.pauseListeners[0]("canvas", PAUSED_CANVAS, { ...PAUSED_CANVAS, playing: true, everPlayed: true });
     expect(h.idle).toEqual(["b1"]);
     expect(h.noted).toHaveLength(3);
-    expect(h.turns).toEqual(["b1"]);
     expect(h.cleared).toEqual(["b2"]);
     expect(h.composerEmpty).toEqual(["b1"]);
     expect(h.resumed).toEqual(["canvas"]);
@@ -819,7 +791,6 @@ describe("composeFactoryDelivery", () => {
       mail: {
         configure: () => {},
         onManagedTerminalIdle: () => {},
-        onManagedTerminalTurnStart: () => {},
         onComposerEmpty: () => {},
         onResumedCanvas: () => {},
         onBooted: () => {},
@@ -874,7 +845,6 @@ describe("composeFactoryDelivery", () => {
       mail: {
         configure: () => {},
         onManagedTerminalIdle: () => {},
-        onManagedTerminalTurnStart: () => {},
         onComposerEmpty: () => {},
         onResumedCanvas: () => {},
         onBooted: () => {},

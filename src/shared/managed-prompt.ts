@@ -190,7 +190,7 @@ export const mailAttemptReasonOfRefusal = (
     case "clipboard-unsafe":
       return "operator-interlock";
     case "not-ready":
-      return "not-idle";
+      return "seat-busy";
     case "queue-timeout":
       return "seat-busy";
     case "multiline-refused":
@@ -210,25 +210,18 @@ export const MANAGED_PROMPT_IMMEDIATE_MAX = MESSAGE_PTY_FULL_BODY_MAX;
 
 export type ImmediatePromptAdmission =
   | { readonly admitted: true }
-  | { readonly admitted: false; readonly reason: "seat-busy" | "over-limit" };
+  | { readonly admitted: false; readonly reason: "over-limit" };
 
 /**
- * Immediate-prompt admission: idle plus a proven-empty composer plus a short
- * body. Busy or drafted seats refuse retryable SeatBusy (the caller waits,
- * then retries the same durable row — never a new message); oversize bodies
+ * Immediate-prompt admission: a short body. The seat's state is not a
+ * question here — a prompt goes to an idle or working seat like any mail,
+ * and the drive alone refuses a draft or dialog screen. Oversize bodies
  * refuse over-limit. Ordinary-notice fallback happens only on explicit
  * request, never implicitly.
  */
 export const admitImmediatePrompt = (input: {
-  readonly idle: boolean;
-  readonly composerEmpty: boolean;
   readonly bodyChars: number;
-}): ImmediatePromptAdmission => {
-  if (input.bodyChars > MANAGED_PROMPT_IMMEDIATE_MAX) {
-    return { admitted: false, reason: "over-limit" };
-  }
-  if (!input.idle || !input.composerEmpty) {
-    return { admitted: false, reason: "seat-busy" };
-  }
-  return { admitted: true };
-};
+}): ImmediatePromptAdmission =>
+  input.bodyChars > MANAGED_PROMPT_IMMEDIATE_MAX
+    ? { admitted: false, reason: "over-limit" }
+    : { admitted: true };

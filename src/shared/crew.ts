@@ -174,6 +174,9 @@ export const MailAttemptReason = Schema.Literals([
   "composer-draft",
   "composer-unreadable",
   "operator-interlock",
+  // History only: the removed idle and settle gates wrote these. The
+  // expand-only schema and decode-admits-history keep them readable; no
+  // current path writes them.
   "not-idle",
   "not-settled",
   "paused",

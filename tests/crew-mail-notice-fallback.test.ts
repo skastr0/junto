@@ -7,12 +7,12 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { CanvasDoc, Message } from "../src/shared/canvas";
 import { InstallationId } from "../src/shared/installation-id";
 import type { ActorRef } from "../src/shared/work-protocol";
+import type { ManagedPromptOutcome } from "../src/shared/managed-prompt";
 import { compileActorSeatRegistry } from "../src/main/junto/station/actor-seat-compiler";
 import { makeStateEngineLive, StateEngine } from "../src/main/junto/state/engine";
 import { CrewRepository, CrewRepositoryLive } from "../src/main/junto/work/crew-repository";
 import { makeMailAttemptStore } from "../src/main/junto/work/mail-attempt-store";
 import {
-  MESSAGE_DELIVERY_SETTLE_MS,
   MessageDeliveryService,
   type MessageDeliveryAttemptStore,
   type MessageDeliveryStore,
@@ -101,8 +101,18 @@ const flush = async (): Promise<void> => {
   for (let i = 0; i < 12; i += 1) await new Promise((r) => setTimeout(r, 0));
 };
 
+const dialogRefusal = (): ManagedPromptOutcome => ({
+  status: "refused",
+  reason: "seat-busy",
+  bindingGeneration: 0,
+  writesBefore: 0,
+  writesAfter: 0,
+  pasteWrites: 0,
+  wrotePhysicalBytes: false,
+});
+
 describe("durable notice fallback and generation-fenced resume", () => {
-  it("explicit fallback remains marked after busy refusal and database reopen", async () => {
+  it("explicit fallback remains marked after a drive refusal and database reopen", async () => {
     const directory = join(root, "explicit-fallback-restart");
     let live = await openFixture(directory);
     const messageId = "explicit-fallback";
@@ -114,11 +124,10 @@ describe("durable notice fallback and generation-fenced resume", () => {
       transport: {
         wakeManagedSeat: async () => true,
         seatDeliverySnapshot: async () => ({
-          idle: false, operatorDraft: false, generationKey: "generation-1",
+          generationKey: "generation-1",
         }),
-        sendManagedTerminalPrompt: async () => {
-          throw new Error("must not send while busy");
-        },
+        // A dialog on screen: the drive refuses before any byte.
+        sendManagedTerminalPrompt: async () => dialogRefusal(),
       },
     });
     const refused = await service.prompt({ canvas, nodeId, messageId, fallback: "notice" });
@@ -149,14 +158,13 @@ describe("durable notice fallback and generation-fenced resume", () => {
           attempts: live.store, store: storeFor(recipientDoc([promptMessage(messageId)])),
           now: () => clock, timers: { set: () => ({}), clear: () => {} },
           transport: {
-            seatDeliverySnapshot: () => ({ idle: true, operatorDraft: false, generationKey: generation }),
+            seatDeliverySnapshot: () => ({ generationKey: generation }),
             sendManagedTerminalPrompt: (id, text) => drive.writePrompt(id, text, { awaitTurnStart: false }),
           },
         });
         try {
           restarted.onManagedTerminalIdle(bindingId);
           await flush();
-          clock += MESSAGE_DELIVERY_SETTLE_MS;
           restarted.onManagedTerminalIdle(bindingId);
           await flush();
           expect(pastes).toHaveLength(1);
@@ -186,11 +194,10 @@ describe("durable notice fallback and generation-fenced resume", () => {
       timers: { set: () => ({}), clear: () => {} },
       transport: {
         seatDeliverySnapshot: async () => ({
-          idle: false, operatorDraft: false, generationKey: "generation-1",
+          generationKey: "generation-1",
         }),
-        sendManagedTerminalPrompt: async () => {
-          throw new Error("must not send while busy");
-        },
+        // A dialog on screen: the drive refuses before any byte.
+        sendManagedTerminalPrompt: async () => dialogRefusal(),
       },
     });
     try {
@@ -255,7 +262,7 @@ describe("durable notice fallback and generation-fenced resume", () => {
       },
       transport: {
         seatDeliverySnapshot: async () => ({
-          idle: true, operatorDraft: false, generationKey: "current-generation",
+          generationKey: "current-generation",
         }),
         sendManagedTerminalPrompt: async () => {
           throw new Error("unsettled resume must not send");
@@ -403,7 +410,7 @@ describe("durable notice fallback and generation-fenced resume", () => {
       timers: { set: () => ({}), clear: () => {} },
       releaseSeatHold: (_id, grantedGeneration) => { releases.push(grantedGeneration); },
       transport: {
-        seatDeliverySnapshot: () => ({ idle: false, operatorDraft: false, generationKey: generation }),
+        seatDeliverySnapshot: () => ({ generationKey: generation }),
         sendManagedTerminalPrompt: async () => { throw new Error("busy replacement wrote"); },
       },
     });
@@ -463,31 +470,27 @@ describe("durable notice fallback and generation-fenced resume", () => {
         drive.releaseWrittenUnresolved(id);
       },
       transport: {
-        seatDeliverySnapshot: () => ({ idle: true, operatorDraft: false, generationKey: current.generation }),
+        seatDeliverySnapshot: () => ({ generationKey: current.generation }),
         sendManagedTerminalPrompt: (id, text) => drive.writePrompt(id, text, { awaitTurnStart: false }),
       },
     });
     try {
       service.onManagedTerminalIdle(bindingId);
       await flush();
-      clock += MESSAGE_DELIVERY_SETTLE_MS;
       service.onManagedTerminalIdle(bindingId);
       await flush();
       expect(pastes).toBe(1);
       expect(releases).toEqual([]);
+      // The explicit resume grants, releases the hold, and its sweep spends
+      // the grant on exactly one retry.
+      pending = false;
       service.onResumedCanvas(canvas);
       await flush();
       expect(releases).toEqual([current.generation]);
-      expect(pastes).toBe(1);
-      pending = false;
-      clock += MESSAGE_DELIVERY_SETTLE_MS;
-      service.onManagedTerminalIdle(bindingId);
-      await flush();
       expect(pastes).toBe(2);
       expect((await fixture.store.attempt(current))?.facts.notifiedAt).toBeDefined();
       service.onResumedCanvas(canvas);
       await flush();
-      clock += MESSAGE_DELIVERY_SETTLE_MS;
       service.onManagedTerminalIdle(bindingId);
       await flush();
       expect(pastes).toBe(2);
@@ -514,7 +517,7 @@ describe("durable notice fallback and generation-fenced resume", () => {
             if (mode === "failed") throw new Error("snapshot unavailable");
             return undefined;
           }
-          return { idle: false, operatorDraft: false, generationKey: "generation-1" };
+          return { generationKey: "generation-1" };
         },
         sendManagedTerminalPrompt: async () => { throw new Error("unknown generation wrote"); },
       },

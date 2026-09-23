@@ -5,6 +5,7 @@ import { isMessageDelivered } from "../src/shared/message-delivery";
 import {
   MESSAGE_DELIVERY_INDEX_RECONCILE_MS,
   MessageDeliveryService,
+  type ManagedTerminalPromptOptions,
   type MessageDeliveryStore,
   type MessageDeliveryTransport,
 } from "../src/main/junto/work/message-delivery";
@@ -468,349 +469,6 @@ describe("MessageDeliveryService", () => {
     expect(payloads).toHaveLength(2);
   });
 
-  it("spends one notice per observed turn and re-opens on turn-start", async () => {
-    let docs!: Map<string, CanvasDoc>;
-    const store = makeStore({ c: agentDoc([userMsg("m1", "one")]) }, {
-      onDocs: (current) => {
-        docs = current;
-      },
-    });
-    const payloads: string[] = [];
-    const service = new MessageDeliveryService();
-    service.configure({
-      transport: {
-        wakeManagedSeat: async () => true,
-        sendManagedTerminalPrompt: async (_bindingId, text) => {
-          payloads.push(text);
-          return submittedOutcome();
-        },
-      },
-      store,
-    });
-    const append = (id: string): void => {
-      const msg = userMsg(id, id);
-      const doc = docs.get("c")!;
-      const node = doc.nodes.find((n) => n.id === "agent")!;
-      docs.set("c", {
-        ...doc,
-        nodes: doc.nodes.map((n) =>
-          n.id === "agent"
-            ? {
-              ...node,
-              ether: {
-                ...(node.ether ?? {}),
-                messages: {
-                  items: [...(node.ether?.messages?.items ?? []), msg],
-                },
-              },
-            }
-            : n,
-        ),
-      });
-      service.notifyAppended("c", "agent", msg);
-    };
-
-    // Boot backlog goes out with no observed turn (no window, no budget).
-    service.onBooted();
-    await waitUntil(() => payloads.length === 1);
-
-    // First observed turn opens window 1; the next notice spends it.
-    service.onManagedTerminalTurnStart("bind-profile-13");
-    append("m2");
-    await waitUntil(() => payloads.length === 2);
-
-    // Same window: a further notice stays pending with no transport hit.
-    append("m3");
-    await flushDelivery();
-    expect(payloads).toHaveLength(2);
-    expect(await store.hasAcceptedMessageDelivery("c", "agent", "m3")).toBe(
-      false,
-    );
-
-    // Next observed turn re-opens: the held notice goes out on idle.
-    service.onManagedTerminalTurnStart("bind-profile-13");
-    service.onManagedTerminalIdle("bind-profile-13");
-    await waitUntil(() => payloads.length === 3);
-    expect(payloads[2]).toContain("m3");
-    expect(await store.hasAcceptedMessageDelivery("c", "agent", "m3")).toBe(
-      true,
-    );
-  });
-
-  it("budgets the initial window: one pre-turn notice, the next waits for turn-start", async () => {
-    let docs!: Map<string, CanvasDoc>;
-    const store = makeStore({ c: agentDoc([userMsg("m1", "one")]) }, {
-      onDocs: (current) => {
-        docs = current;
-      },
-    });
-    const payloads: string[] = [];
-    const service = new MessageDeliveryService();
-    service.configure({
-      transport: {
-        wakeManagedSeat: async () => true,
-        sendManagedTerminalPrompt: async (_bindingId, text) => {
-          payloads.push(text);
-          return submittedOutcome();
-        },
-      },
-      store,
-    });
-    const append = (id: string, text: string): void => {
-      const msg = userMsg(id, text);
-      const doc = docs.get("c")!;
-      const node = doc.nodes.find((n) => n.id === "agent")!;
-      docs.set("c", {
-        ...doc,
-        nodes: doc.nodes.map((n) =>
-          n.id === "agent"
-            ? {
-              ...node,
-              ether: {
-                ...(node.ether ?? {}),
-                messages: {
-                  items: [...(node.ether?.messages?.items ?? []), msg],
-                },
-              },
-            }
-            : n,
-        ),
-      });
-      service.notifyAppended("c", "agent", msg);
-    };
-    service.onBooted();
-    await waitUntil(() => payloads.length === 1);
-
-    // Epoch 0 is a real budget: the second pre-turn notice stays pending.
-    append("m2", "two");
-    await flushDelivery();
-    expect(payloads).toHaveLength(1);
-    expect(await store.hasAcceptedMessageDelivery("c", "agent", "m2")).toBe(
-      false,
-    );
-
-    // The first observed turn-start opens the next window: it goes out.
-    service.onManagedTerminalTurnStart("bind-profile-13");
-    service.onManagedTerminalIdle("bind-profile-13");
-    await waitUntil(() => payloads.length === 2);
-    expect(payloads[1]).toContain("two");
-  });
-
-  it("a working event during initialization opens the first window intact", async () => {
-    // The seat is already working when the service first sees it: the
-    // turn-start opens epoch 1 before any gate consult, and the first
-    // sighting of the initial generation must not reset it.
-    let docs!: Map<string, CanvasDoc>;
-    const store = makeStore({ c: agentDoc([userMsg("m1", "one")]) }, {
-      onDocs: (current) => {
-        docs = current;
-      },
-    });
-    let clock = 100_000;
-    const payloads: string[] = [];
-    const service = new MessageDeliveryService();
-    service.configure({
-      transport: {
-        wakeManagedSeat: async () => true,
-        seatDeliverySnapshot: async () => ({
-          idle: true,
-          generationKey: "g1",
-          operatorDraft: false,
-        }),
-        sendManagedTerminalPrompt: async (_bindingId, text) => {
-          payloads.push(text);
-          return submittedOutcome();
-        },
-      },
-      store,
-      now: () => clock,
-    });
-    const append = (id: string): void => {
-      const msg = userMsg(id, id);
-      const doc = docs.get("c")!;
-      const node = doc.nodes.find((n) => n.id === "agent")!;
-      docs.set("c", {
-        ...doc,
-        nodes: doc.nodes.map((n) =>
-          n.id === "agent"
-            ? {
-              ...node,
-              ether: {
-                ...(node.ether ?? {}),
-                messages: {
-                  items: [...(node.ether?.messages?.items ?? []), msg],
-                },
-              },
-            }
-            : n,
-        ),
-      });
-      service.notifyAppended("c", "agent", msg);
-    };
-    service.onManagedTerminalTurnStart("bind-profile-13");
-    service.notifyAppended("c", "agent", userMsg("m1", "one"));
-    await flushDelivery();
-    clock += 2_000;
-    service.onManagedTerminalIdle("bind-profile-13");
-    await waitUntil(() => payloads.length === 1);
-    // Epoch 1 spent by m1: m2 waits for the next turn-start.
-    append("m2");
-    service.onManagedTerminalIdle("bind-profile-13");
-    await flushDelivery();
-    expect(payloads).toHaveLength(1);
-    service.onManagedTerminalTurnStart("bind-profile-13");
-    service.onManagedTerminalIdle("bind-profile-13");
-    await waitUntil(() => payloads.length === 2);
-    expect(payloads[1]).toContain("m2");
-  });
-
-  it("charges the admission window when turn-start fires mid-flight", async () => {
-    let docs!: Map<string, CanvasDoc>;
-    const store = makeStore({ c: agentDoc([userMsg("m1", "one")]) }, {
-      onDocs: (current) => {
-        docs = current;
-      },
-    });
-    const payloads: string[] = [];
-    const service = new MessageDeliveryService();
-    service.configure({
-      transport: {
-        wakeManagedSeat: async () => true,
-        sendManagedTerminalPrompt: async (bindingId, text) => {
-          payloads.push(text);
-          // The real drive emits working/turn-start BEFORE resolving
-          // submitted. The spend must hit the admission window (epoch 0),
-          // never the window this opens (epoch 1). Only the first send
-          // opens a window, so the test also pins the normal spend below.
-          if (payloads.length === 1) {
-            service.onManagedTerminalTurnStart(bindingId);
-          }
-          return submittedOutcome();
-        },
-      },
-      store,
-    });
-    const append = (id: string): void => {
-      const msg = userMsg(id, id);
-      const doc = docs.get("c")!;
-      const node = doc.nodes.find((n) => n.id === "agent")!;
-      docs.set("c", {
-        ...doc,
-        nodes: doc.nodes.map((n) =>
-          n.id === "agent"
-            ? {
-              ...node,
-              ether: {
-                ...(node.ether ?? {}),
-                messages: {
-                  items: [...(node.ether?.messages?.items ?? []), msg],
-                },
-              },
-            }
-            : n,
-        ),
-      });
-      service.notifyAppended("c", "agent", msg);
-    };
-    service.onBooted();
-    await waitUntil(() => payloads.length === 1);
-
-    // Fresh mail in the window the mid-flight turn-start opened goes out
-    // exactly once on the next idle — the spend stayed on epoch 0.
-    append("m2");
-    service.onManagedTerminalIdle("bind-profile-13");
-    await waitUntil(() => payloads.length === 2);
-    expect(payloads[1]).toContain("m2");
-
-    // And window 1 is now spent by m2: a third notice waits for turn 2.
-    append("m3");
-    service.onManagedTerminalIdle("bind-profile-13");
-    await flushDelivery();
-    expect(payloads).toHaveLength(2);
-    service.onManagedTerminalTurnStart("bind-profile-13");
-    service.onManagedTerminalIdle("bind-profile-13");
-    await waitUntil(() => payloads.length === 3);
-  });
-
-  it("resets the turn window on a terminal generation cut", async () => {
-    let docs!: Map<string, CanvasDoc>;
-    const store = makeStore({ c: agentDoc([userMsg("m1", "one")]) }, {
-      onDocs: (current) => {
-        docs = current;
-      },
-    });
-    let generationKey = "g1";
-    let clock = 100_000;
-    const payloads: string[] = [];
-    const service = new MessageDeliveryService();
-    service.configure({
-      transport: {
-        wakeManagedSeat: async () => true,
-        seatDeliverySnapshot: async () => ({
-          idle: true,
-          generationKey,
-          operatorDraft: false,
-        }),
-        sendManagedTerminalPrompt: async (_bindingId, text) => {
-          payloads.push(text);
-          return submittedOutcome();
-        },
-      },
-      store,
-      now: () => clock,
-    });
-    const append = (id: string): void => {
-      const msg = userMsg(id, id);
-      const doc = docs.get("c")!;
-      const node = doc.nodes.find((n) => n.id === "agent")!;
-      docs.set("c", {
-        ...doc,
-        nodes: doc.nodes.map((n) =>
-          n.id === "agent"
-            ? {
-              ...node,
-              ether: {
-                ...(node.ether ?? {}),
-                messages: {
-                  items: [...(node.ether?.messages?.items ?? []), msg],
-                },
-              },
-            }
-            : n,
-        ),
-      });
-      service.notifyAppended("c", "agent", msg);
-    };
-
-    // Settle, then deliver m1 and spend window 1 on m2. The flush lets the
-    // fire-and-forget first consult start the settle clock BEFORE it is
-    // advanced — without the drain both consults see the same fake time and
-    // settle never elapses.
-    service.notifyAppended("c", "agent", userMsg("m1", "one"));
-    await flushDelivery();
-    clock += 2_000;
-    service.onManagedTerminalIdle("bind-profile-13");
-    await waitUntil(() => payloads.length === 1);
-    service.onManagedTerminalTurnStart("bind-profile-13");
-    append("m2");
-    await waitUntil(() => payloads.length === 2);
-    append("m3");
-    await flushDelivery();
-    expect(payloads).toHaveLength(2);
-
-    // The seat restarts (generation cut): the window resets, so the held
-    // notice goes out once the new generation settles — no turn-start needed.
-    generationKey = "g2";
-    clock += 2_000;
-    service.onManagedTerminalIdle("bind-profile-13");
-    await flushDelivery();
-    expect(payloads).toHaveLength(2);
-    clock += 2_000;
-    service.onManagedTerminalIdle("bind-profile-13");
-    await waitUntil(() => payloads.length === 3);
-    expect(payloads[2]).toContain("m3");
-  });
-
   it("onResumedCanvas re-drives only the named canvas", async () => {
     const docFor = (bindingId: string, msg: Message): CanvasDoc => ({
       nodes: [
@@ -932,7 +590,6 @@ describe("MessageDeliveryService", () => {
     service.onResumedCanvas("c");
     // Budget law: the batch spent the window; the turn the paste started
     // opens the next one for the post-batch message.
-    service.onManagedTerminalTurnStart("bind-profile-13");
 
     await waitUntil(() =>
       store.hasAcceptedMessageDelivery("c", "agent", "b-two"),
@@ -1166,7 +823,7 @@ describe("MessageDeliveryService", () => {
     await waitUntil(() => store.hasAcceptedMessageDelivery("c", "terminal", msg.messageId));
   });
 
-  it("factory mail never interrupts and always summarizes", async () => {
+  it("factory mail writes into an idle or working seat and always summarizes", async () => {
     const msg = userMsg("mail-steer", "interrupt the turn", {
       metadata: { factoryMail: true },
     });
@@ -1174,13 +831,13 @@ describe("MessageDeliveryService", () => {
     const calls: Array<{
       readonly bindingId: string;
       readonly text: string;
-      readonly interruptIfBusy: boolean | undefined;
+      readonly whileWorking: boolean | undefined;
     }> = [];
     const service = new MessageDeliveryService();
     service.configure({
       transport: {
         sendManagedTerminalPrompt: async (bindingId, text, options) => {
-          calls.push({ bindingId, text, interruptIfBusy: options?.interruptIfBusy });
+          calls.push({ bindingId, text, whileWorking: options?.whileWorking });
           return submittedOutcome();
         },
       },
@@ -1191,8 +848,9 @@ describe("MessageDeliveryService", () => {
     await waitUntil(() => calls.length === 1);
     expect(calls).toHaveLength(1);
     expect(calls[0]?.bindingId).toBe("bind-profile-13");
-    // Mail never interrupts a live turn — ordinary or factory.
-    expect(calls[0]?.interruptIfBusy).toBeUndefined();
+    // Mail is never gated on the seat's turn: the drive may write mid-turn
+    // and the harness queues or steers it.
+    expect(calls[0]?.whileWorking).toBe(true);
     // Factory mail always summarizes — full body never rides the PTY.
     expect(calls[0]?.text).toContain("mail-steer");
     expect(calls[0]?.text).toContain("msg read");
@@ -1279,13 +937,13 @@ describe("MessageDeliveryService", () => {
     );
   });
 
-  it("does not steer system mailbox notices", async () => {
+  it("delivers system mailbox notices like any mail, with no steering of its own", async () => {
     const msg = userMsg("mail-notice", "link enabled", {
       metadata: { msgSendEnabled: true, factoryLink: true },
     });
     const store = makeStore({ c: agentDoc([msg]) });
     let called = false;
-    let options: { readonly interruptIfBusy?: boolean } | undefined;
+    let options: ManagedTerminalPromptOptions | undefined;
     const service = new MessageDeliveryService();
     service.configure({
       transport: {
@@ -1300,7 +958,7 @@ describe("MessageDeliveryService", () => {
 
     service.notifyAppended("c", "agent", msg);
     await waitUntil(() => called);
-    expect(options).toBeUndefined();
+    expect(options).toEqual({ whileWorking: true });
   });
 
   it("managed terminal idle gate leave pending until onManagedTerminalIdle", async () => {
@@ -1629,16 +1287,15 @@ describe("MessageDeliveryService", () => {
     expect(singles[0]).toBe("[message - user] solo latest");
   });
 
-  it("operator-draft gate holds mail without burning a transport attempt", async () => {
+  it("a drive draft refusal holds mail without burning a transport attempt", async () => {
     const msg = userMsg("draft-block", "should wait");
     const store = makeStore({ c: agentDoc([msg]) });
-    let sends = 0;
-    let now = 1_000;
+    let draft = true;
+    let attempts = 0;
+    let submitted = 0;
     const service = new MessageDeliveryService();
-    let operatorDraft = false;
     const scheduled: Array<{ readonly fn: () => void; readonly ms: number }> = [];
     service.configure({
-      now: () => now,
       timers: {
         set: (fn, ms) => {
           scheduled.push({ fn, ms });
@@ -1648,54 +1305,48 @@ describe("MessageDeliveryService", () => {
       },
       transport: {
         wakeManagedSeat: async () => true,
-        seatDeliverySnapshot: () => ({
-          idle: true,
-          generationKey: "ep1",
-          operatorDraft,
-        }),
+        seatDeliverySnapshot: () => ({ generationKey: "ep1" }),
+        // The drive reads the screen: an operator draft refuses before any
+        // byte (composer-not-empty), never a paste onto their text.
         sendManagedTerminalPrompt: async () => {
-          sends += 1;
+          attempts += 1;
+          if (draft) {
+            return { ...refusedOutcome(), reason: "composer-not-empty" } as ManagedPromptOutcome;
+          }
+          submitted += 1;
           return submittedOutcome();
         },
       },
       store,
     });
 
-    // First consult arms settle (not-settled) + timer.
     service.notifyAppended("c", "agent", msg);
-    await new Promise((r) => setTimeout(r, 30));
-    expect(sends).toBe(0);
-    expect(scheduled.length).toBe(1);
-
-    // Past settle, but operator is drafting — still no paste.
-    now = 1_000 + 2_000;
-    operatorDraft = true;
-    scheduled[0]!.fn();
-    await new Promise((r) => setTimeout(r, 30));
-    expect(sends).toBe(0);
+    await waitUntil(() => attempts === 1);
+    expect(submitted).toBe(0);
     expect(await store.hasAcceptedMessageDelivery("c", "agent", "draft-block")).toBe(
       false,
     );
-    expect(scheduled.length).toBeGreaterThanOrEqual(2);
+    // A clean refusal arms a retry of its own.
+    await waitUntil(() => scheduled.length === 1);
 
-    // Operator cleared the box — gate retry delivers without a fake idle event.
-    operatorDraft = false;
+    // Operator cleared the box — the retry delivers without a fake idle event.
+    draft = false;
     scheduled[scheduled.length - 1]!.fn();
-    await waitUntil(() => sends === 1);
+    await waitUntil(() => submitted === 1);
     await waitUntil(() =>
       store.hasAcceptedMessageDelivery("c", "agent", "draft-block"),
     );
   });
 
-  it("not-settled gate retries via timer without a further idle event", async () => {
-    const msg = userMsg("settle", "after quiet");
+  it("a seat with no live generation retries via timer without a further idle event", async () => {
+    const msg = userMsg("settle", "after start");
     const store = makeStore({ c: agentDoc([msg]) });
     let sends = 0;
-    let now = 1000;
+    let up = false;
     const scheduled: Array<{ readonly fn: () => void; readonly ms: number }> = [];
     const service = new MessageDeliveryService();
     service.configure({
-      now: () => now,
+      random: () => 0.5,
       timers: {
         set: (fn, ms) => {
           scheduled.push({ fn, ms });
@@ -1705,11 +1356,7 @@ describe("MessageDeliveryService", () => {
       },
       transport: {
         wakeManagedSeat: async () => true,
-        seatDeliverySnapshot: () => ({
-          idle: true,
-          generationKey: "ep-settle",
-          operatorDraft: false,
-        }),
+        seatDeliverySnapshot: () => (up ? { generationKey: "ep-up" } : undefined),
         sendManagedTerminalPrompt: async () => {
           sends += 1;
           return submittedOutcome();
@@ -1719,14 +1366,12 @@ describe("MessageDeliveryService", () => {
     });
 
     service.notifyAppended("c", "agent", msg);
-    await new Promise((r) => setTimeout(r, 30));
-    // First consult sets idleSince and arms settle timer — no send yet.
+    await waitUntil(() => scheduled.length === 1);
     expect(sends).toBe(0);
-    expect(scheduled.length).toBe(1);
-    expect(scheduled[0]!.ms).toBeGreaterThanOrEqual(1_500);
+    expect(scheduled[0]!.ms).toBe(1_500);
 
-    // Advance clock past settle and fire the timer (no second idle event).
-    now = 1000 + 1_600;
+    // The seat comes up; the timer delivers with no second event.
+    up = true;
     scheduled[0]!.fn();
     await waitUntil(() => sends === 1);
   });
@@ -1837,7 +1482,6 @@ describe("MessageDeliveryService", () => {
     service.onResumedCanvas("c");
     // Budget law: the batch spent the window; the turn the paste started
     // opens the next one for the post-batch message.
-    service.onManagedTerminalTurnStart("bind-profile-13");
     await waitUntil(async () =>
       (await store.hasAcceptedMessageDelivery("c", "agent", "b1")) &&
       (await store.hasAcceptedMessageDelivery("c", "agent", "b2")),
@@ -1857,15 +1501,13 @@ describe("MessageDeliveryService", () => {
     expect(sends).toHaveLength(2);
   });
 
-  it("request-response respects the seat delivery gate", async () => {
+  it("request-response waits for a live seat generation", async () => {
     const store = makeStore({ c: agentDoc([]) });
     let sends = 0;
-    let operatorDraft = true;
-    let now = 5_000;
+    let up = false;
     const scheduled: Array<{ readonly fn: () => void }> = [];
     const service = new MessageDeliveryService();
     service.configure({
-      now: () => now,
       timers: {
         set: (fn) => {
           scheduled.push({ fn });
@@ -1875,11 +1517,7 @@ describe("MessageDeliveryService", () => {
       },
       transport: {
         wakeManagedSeat: async () => true,
-        seatDeliverySnapshot: () => ({
-          idle: true,
-          generationKey: "ep-req",
-          operatorDraft,
-        }),
+        seatDeliverySnapshot: () => (up ? { generationKey: "ep-req" } : undefined),
         sendManagedTerminalPrompt: async () => {
           sends += 1;
           return submittedOutcome();
@@ -1897,9 +1535,8 @@ describe("MessageDeliveryService", () => {
     await new Promise((r) => setTimeout(r, 30));
     expect(sends).toBe(0);
 
-    operatorDraft = false;
-    now += 3_000;
-    // Fire gate retry.
+    up = true;
+    // Fire the retry.
     if (scheduled.length > 0) scheduled[scheduled.length - 1]!.fn();
     await waitUntil(() => sends === 1);
   });
@@ -2097,12 +1734,8 @@ describe("MessageDeliveryService", () => {
       },
       transport: {
         wakeManagedSeat: async () => true,
-        // Busy forever — the poll condition never clears on its own.
-        seatDeliverySnapshot: () => ({
-          idle: false,
-          generationKey: "ep-busy",
-          operatorDraft: false,
-        }),
+        // Never up — the poll condition never clears on its own.
+        seatDeliverySnapshot: () => undefined,
         sendManagedTerminalPrompt: async () => submittedOutcome(),
       },
       store,
@@ -2150,11 +1783,7 @@ describe("MessageDeliveryService", () => {
       },
       transport: {
         wakeManagedSeat: async () => true,
-        seatDeliverySnapshot: () => ({
-          idle: false,
-          generationKey: "ep-jitter",
-          operatorDraft: false,
-        }),
+        seatDeliverySnapshot: () => undefined,
         sendManagedTerminalPrompt: async () => submittedOutcome(),
       },
       store,
@@ -2164,41 +1793,6 @@ describe("MessageDeliveryService", () => {
     await waitUntil(() => armed.length === 1);
     // 20% symmetric spread around the base: floor at random() = 0.
     expect(armed[0]).toBe(1_200);
-  });
-
-  it("the settle deadline never backs off, only spreads forward", async () => {
-    const msg = userMsg("settle-2", "quiet");
-    const store = makeStore({ c: agentDoc([msg]) });
-    const armed: number[] = [];
-    let now = 5_000;
-    const service = new MessageDeliveryService();
-    service.configure({
-      now: () => now,
-      random: () => 1,
-      timers: {
-        set: (_fn, ms) => {
-          armed.push(ms);
-          return armed.length - 1;
-        },
-        clear: () => undefined,
-      },
-      transport: {
-        wakeManagedSeat: async () => true,
-        seatDeliverySnapshot: () => ({
-          idle: true,
-          generationKey: "ep-settle-2",
-          operatorDraft: false,
-        }),
-        sendManagedTerminalPrompt: async () => submittedOutcome(),
-      },
-      store,
-    });
-
-    service.notifyAppended("c", "agent", msg);
-    await waitUntil(() => armed.length === 1);
-    // The settle point is a known instant: fire at it, spread only forward.
-    expect(armed[0]).toBeGreaterThanOrEqual(1_500);
-    expect(armed[0]).toBeLessThanOrEqual(1_500 + 10 + 150);
   });
 
   // ── One seat transition costs the delta, not the world ───────────────────
@@ -2494,44 +2088,38 @@ describe("composer gate and the bounded edge-map claim", () => {
   });
 
   it("a composer hold does NOT burn the bounded edge-map claim; the empty boundary delivers it", async () => {
-    // The battery-caught wedge: idle publishes at the turn boundary before
-    // the composer repaint settles, the notice's ONE per-topology transport
-    // claim is burned by a refused attempt, and the notice parks until the
-    // canvas map changes. The gate must hold (no claim burn) while the
-    // composer is not proven empty, and deliver on the empty boundary.
+    // The battery-caught wedge: the notice's ONE per-topology transport claim
+    // is burned by a refused attempt and the notice parks until the canvas
+    // map changes. A clean draft refusal from the drive must not burn it,
+    // and the empty-composer boundary delivers it.
     const msg = userMsg(ulid(), "[crew - map] edge contracts changed — Added: tasks", {
       metadata: { edgeMapChange: true, addedIds: ["tasks"] },
     });
     const store = makeStore({ c: edgeDoc([msg]) });
     const sent: string[] = [];
     let composerEmpty = false;
+    let attempts = 0;
     const transport: MessageDeliveryTransport = {
       sendTerminalPaste: () => false,
       sendManagedTerminalPrompt: async (_bindingId, text) => {
+        attempts += 1;
+        if (!composerEmpty) return { ...refusedOutcome(), reason: "composer-not-empty" } as ManagedPromptOutcome;
         sent.push(text);
         return submittedOutcome();
       },
       seatDeliverySnapshot: () => ({
-        idle: true,
         generationKey: "g1",
-        operatorDraft: !composerEmpty,
       }),
     };
     const service = new MessageDeliveryService();
-    // now(): far past the settle window so the idle-settle gate passes.
-    let now = 100_000;
-    service.configure({ transport, store, now: () => now });
+    service.configure({
+      transport,
+      store,
+      timers: { set: () => ({}), clear: () => {} },
+    });
 
     service.notifyAppended("c", "agent", msg);
-    await new Promise((r) => setTimeout(r, 20));
-    expect(sent, "held: idle not settled yet").toEqual([]);
-
-    // Past the idle-settle window with the composer STILL not proven empty:
-    // the draft hold alone must refuse, and refuse without burning the
-    // notice's one per-topology transport claim.
-    now += 10_000;
-    service.onManagedTerminalIdle("bind-profile-13");
-    await new Promise((r) => setTimeout(r, 20));
+    await waitUntil(() => attempts === 1);
     expect(sent, "held: composer not proven empty").toEqual([]);
 
     // Composer proven empty on screen — the boundary the notice waits on.
@@ -2615,9 +2203,7 @@ describe("bounded re-drive marks and the PTY write truth", () => {
       },
       pasteWriteCount: () => writes,
       seatDeliverySnapshot: () => ({
-        idle: true,
         generationKey: "g1",
-        operatorDraft: false,
       }),
     };
     const service = new MessageDeliveryService();
@@ -2655,9 +2241,7 @@ describe("bounded re-drive marks and the PTY write truth", () => {
       },
       pasteWriteCount: () => writes,
       seatDeliverySnapshot: () => ({
-        idle: true,
         generationKey: "g1",
-        operatorDraft: false,
       }),
     };
     const service = new MessageDeliveryService();
@@ -2789,7 +2373,6 @@ describe("batch attempt accounting and accepted-batch recovery", () => {
       userMsg("u3", "third"),
       userMsg("u4", "fourth"),
     ]);
-    service.onManagedTerminalTurnStart("bind-profile-13");
     service.onBooted();
     await waitUntil(() => sent.length === 2);
     expect(sent[1]).toContain("2 unread");
@@ -2845,7 +2428,6 @@ describe("batch attempt accounting and accepted-batch recovery", () => {
       userMsg("b3", "third"),
       userMsg("b4", "fourth"),
     ]);
-    service.onManagedTerminalTurnStart("bind-profile-13");
     service.onBooted();
     await waitUntil(() => payloads.length === 2);
     expect(payloads[1]).toContain("2 unread");
@@ -2905,7 +2487,6 @@ describe("batch attempt accounting and accepted-batch recovery", () => {
     ]);
     // Budget law: the first batch spent the window; the turn it started
     // opens the next one for the fresh batch.
-    service.onManagedTerminalTurnStart("bind-profile-13");
     service.onBooted();
     await waitUntil(() => sent.length === 2);
     expect(sent[1]).toContain("2 unread");
@@ -2952,7 +2533,6 @@ describe("batch attempt accounting and accepted-batch recovery", () => {
     service.onResumedCanvas("c");
     // Budget law: the batch spent the window; the turn the paste started
     // opens the next one for the look-alike message.
-    service.onManagedTerminalTurnStart("bind-profile-13");
     await waitUntil(async () =>
       (await store.hasAcceptedMessageDelivery("c", "agent", "same-1")) &&
       (await store.hasAcceptedMessageDelivery("c", "agent", "same-2")),

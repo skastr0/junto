@@ -74,12 +74,9 @@ export type FactoryDeliveryPause = {
   readonly subscribe: (listener: PauseChangeListener) => () => void;
 };
 
+/** The seat's live generation; undefined while none is up. */
 export type FactoryDeliverySeatSnapshot =
-  | {
-      readonly idle: boolean;
-      readonly generationKey: string;
-      readonly operatorDraft: boolean;
-    }
+  | { readonly generationKey: string }
   | undefined;
 
 export type FactoryDeliveryEvents = {
@@ -114,35 +111,10 @@ export type FactoryDeliveryMail = {
     ) => boolean;
   }) => void;
   readonly onManagedTerminalIdle: (bindingId: string) => void;
-  readonly onManagedTerminalTurnStart: (bindingId: string) => void;
   readonly onComposerEmpty: (bindingId: string) => void;
   readonly onResumedCanvas: (canvas: string) => void;
   readonly onBooted: () => void;
   readonly suspend: () => void;
-};
-
-/** Working flag refreshes and permission resumes do not start another turn. */
-export const makeFactoryMailTurnObserver = (
-  mail: Pick<FactoryDeliveryMail, "onManagedTerminalTurnStart">,
-): ((event: AgentSeatStateEvent) => void) => {
-  const turns = new Map<string, { epoch: string; started: boolean; idle: boolean }>();
-  return (event) => {
-    if (event.state === "gone") {
-      turns.delete(event.bindingId);
-      return;
-    }
-    let turn = turns.get(event.bindingId);
-    if (turn === undefined || turn.epoch !== event.epoch) {
-      turn = { epoch: event.epoch, started: false, idle: false };
-      turns.set(event.bindingId, turn);
-    }
-    if (event.state === "idle") turn.idle = true;
-    if (event.state === "working" && (!turn.started || turn.idle)) {
-      turn.started = true;
-      turn.idle = false;
-      mail.onManagedTerminalTurnStart(event.bindingId);
-    }
-  };
 };
 
 export type FactoryDeliveryPulse = {
@@ -302,10 +274,8 @@ export const factoryBoardTransport = (input: {
 
 /**
  * Mailbox transport through the destination drive. Raw geography shells get
- * no auto-submit; managed seats get paste+CR via the idle-gated drive. The
- * gate snapshot must prove an EMPTY composer — a visible operator draft, a
- * stuck paste chip, or an unreadable composer holds mail, the same verdict
- * the drive enforces at the paste boundary.
+ * no auto-submit; managed seats get paste+CR into an idle or working seat.
+ * The drive alone reads the screen at the paste boundary (draft, dialog).
  */
 export const factoryMailTransport = (input: {
   readonly kernel: FactoryDeliveryKernel;
@@ -425,7 +395,6 @@ export const composeFactoryDelivery = (
     });
   }
   const unsubs: Array<() => void> = [];
-  const observeMailTurn = mail === undefined ? undefined : makeFactoryMailTurnObserver(mail.service);
   unsubs.push(
     wireFactorySupervisor({
       supervisor: input.supervisor,
@@ -436,7 +405,6 @@ export const composeFactoryDelivery = (
   );
   unsubs.push(
     input.events.subscribeSeatState((event) => {
-      observeMailTurn?.(event);
       input.supervisor.noteSeatState(event);
       if (event.state === "gone") {
         input.firstTyped.clearDeliveredForBinding(event.bindingId);

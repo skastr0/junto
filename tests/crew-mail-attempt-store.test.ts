@@ -13,7 +13,6 @@ import { makeStateEngineLive, StateEngine } from "../src/main/junto/state/engine
 import { CrewRepository, CrewRepositoryLive } from "../src/main/junto/work/crew-repository";
 import { makeMailAttemptStore } from "../src/main/junto/work/mail-attempt-store";
 import {
-  MESSAGE_DELIVERY_SETTLE_MS,
   MessageDeliveryService,
   type MessageDeliveryAttemptStore,
   type MessageDeliveryStore,
@@ -106,11 +105,9 @@ const delivery = (input: {
   const service = new MessageDeliveryService();
   service.configure({
     attempts: input.attempts, store, now: () => now,
-    // Exercise the real settle gate by advancing its injected clock between
-    // explicit attempts; no background retry or wall-clock sleep is needed.
     timers: { set: () => ({}), clear: () => {} },
     transport: {
-      seatDeliverySnapshot: () => ({ idle: true, operatorDraft: false, generationKey: input.generation }),
+      seatDeliverySnapshot: () => ({ generationKey: input.generation }),
       sendManagedTerminalPrompt: async (receivedBinding) => {
         expect(receivedBinding).toBe(bindingId);
         return input.write();
@@ -120,11 +117,7 @@ const delivery = (input: {
   return {
     service,
     receipts: () => receipts,
-    attempt: async () => {
-      await service.prompt({ canvas, nodeId, messageId: input.messageId });
-      now += MESSAGE_DELIVERY_SETTLE_MS;
-      return service.prompt({ canvas, nodeId, messageId: input.messageId });
-    },
+    attempt: () => service.prompt({ canvas, nodeId, messageId: input.messageId }),
   };
 };
 

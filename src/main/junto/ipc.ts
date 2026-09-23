@@ -113,7 +113,6 @@ import {
   factoryPulseTransport,
   factorySeatPaused,
   makeFactoryFirstTypedKick,
-  makeFactoryMailTurnObserver,
   wireFactorySupervisor,
 } from "./term/factory-delivery-composition";
 import { terminalObserverPlane } from "./term/observer";
@@ -1815,9 +1814,7 @@ export const registerJuntoIpc = (): void => {
           managedPulseReadyCancels.set(bindingId, { epoch, cancel });
         }
       }, { replayCurrentSessions: true });
-      const observeMailTurn = makeFactoryMailTurnObserver(messageDelivery);
       seatStateRuntime.subscribe((event) => {
-        observeMailTurn(event);
         broadcast(IPC_CHANNELS.agentSeatStateChanged, event);
         // Injection supervisor: event-driven re-engagement policy.
         injectionSupervisor.noteSeatState(event);
@@ -1919,9 +1916,8 @@ export const registerJuntoIpc = (): void => {
           kernel,
           write: writeManagedPrompt,
           drive: managedDrive,
-          // Settled idle + do not paste over a live operator (recent
-          // keystrokes or a stuck paste chip). Generation-lifetime typing
-          // is not draft — a human-driven seat would never drain mail.
+          // Liveness only: mail goes to an idle or a working seat alike. The
+          // drive reads the screen (draft, dialog) at the paste boundary.
           seatSnapshot: (bindingId) => {
             const live = termPlane.host.get(bindingId);
             if (
@@ -1930,17 +1926,7 @@ export const registerJuntoIpc = (): void => {
             ) {
               return undefined;
             }
-            return {
-              idle: seatStateRuntime.isSeatIdle(bindingId),
-              generationKey: live.epoch,
-              // Screen truth: the harness's composer probes must prove an
-              // EMPTY box. A visible operator draft, a stuck paste chip, and
-              // an unreadable composer all hold mail — the same verdict the
-              // drive enforces at the paste boundary, so the gate can never
-              // pass a message the transport is about to refuse.
-              operatorDraft:
-                seatStateRuntime.composerVerdict(bindingId) !== "empty",
-            };
+            return { generationKey: live.epoch };
           },
         }),
         store: {

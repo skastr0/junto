@@ -332,9 +332,7 @@ describe("crew mail delivery — process-boundary adversarial", () => {
         first.configure({
           transport: {
             seatDeliverySnapshot: () => ({
-              idle: true,
               generationKey: "g1",
-              operatorDraft: false,
             }),
             sendManagedTerminalPrompt: async () => {
               sends += 1;
@@ -369,9 +367,7 @@ describe("crew mail delivery — process-boundary adversarial", () => {
         second.configure({
           transport: {
             seatDeliverySnapshot: () => ({
-              idle: true,
               generationKey: "g1",
-              operatorDraft: false,
             }),
             sendManagedTerminalPrompt: async () => {
               sends += 1;
@@ -421,9 +417,7 @@ describe("crew mail delivery — process-boundary adversarial", () => {
         first.configure({
           transport: {
             seatDeliverySnapshot: () => ({
-              idle: true,
               generationKey: "g1",
-              operatorDraft: false,
             }),
             sendManagedTerminalPrompt: async (_b, text) => {
               sends.push(text);
@@ -459,9 +453,7 @@ describe("crew mail delivery — process-boundary adversarial", () => {
         second.configure({
           transport: {
             seatDeliverySnapshot: () => ({
-              idle: true,
               generationKey: "g1",
-              operatorDraft: false,
             }),
             sendManagedTerminalPrompt: async (_b, text) => {
               sends.push(text);
@@ -501,9 +493,7 @@ describe("crew mail delivery — process-boundary adversarial", () => {
         transport: {
           pasteWriteCount: () => writes,
           seatDeliverySnapshot: () => ({
-            idle: true,
             generationKey: generation,
-            operatorDraft: false,
           }),
           sendManagedTerminalPrompt: async () => {
             requests += 1;
@@ -550,11 +540,10 @@ describe("crew mail delivery — process-boundary adversarial", () => {
     }
   });
 
-  // Contract: "at most one automatic notice is admitted per seat turn
-  // window." The window opens on an observed turn-start; a wrote-physical
-  // notice spends it; the next turn-start releases what parked.
+  // Ruling: mail is never gated. Every notice goes out as it arrives; the
+  // harness queues or steers anything typed during a turn.
   it(
-    "one notice per observed turn window — the second holds until the next turn-start",
+    "every notice goes out as it arrives, with no per-turn budget",
     async () => {
       const firstMsg = userMsg("win-1", "first");
       const secondMsg = userMsg("win-2", "second");
@@ -571,19 +560,9 @@ describe("crew mail delivery — process-boundary adversarial", () => {
           },
           store,
         });
-        // An observed turn-start opens the one-notice window.
-        service.onManagedTerminalTurnStart("bind-profile-13");
         service.notifyAppended("c", "agent", firstMsg);
         await waitUntil(() => sends.length === 1);
-        // Same window: the second notice parks with no ledger write even
-        // though the seat reads idle.
         service.notifyAppended("c", "agent", secondMsg);
-        await settle(60);
-        expect(sends).toHaveLength(1);
-        // The next observed turn-start releases the parked notice on the
-        // following idle re-drive.
-        service.onManagedTerminalTurnStart("bind-profile-13");
-        service.onManagedTerminalIdle("bind-profile-13");
         await waitUntil(() => sends.length === 2);
         expect(sends).toHaveLength(2);
       } finally {
@@ -646,9 +625,7 @@ describe("crew mail delivery — process-boundary adversarial", () => {
         first.configure({
           transport: {
             seatDeliverySnapshot: () => ({
-              idle: true,
               generationKey: "g1",
-              operatorDraft: false,
             }),
             sendManagedTerminalPrompt: async (_b, text) => {
               sends.push(text);
@@ -683,9 +660,7 @@ describe("crew mail delivery — process-boundary adversarial", () => {
         second.configure({
           transport: {
             seatDeliverySnapshot: () => ({
-              idle: true,
               generationKey: "g1",
-              operatorDraft: false,
             }),
             sendManagedTerminalPrompt: async (_b, text) => {
               sends.push(text);

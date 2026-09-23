@@ -473,12 +473,7 @@ const runProductBoot = async (): Promise<void> => {
       ) {
         return undefined;
       }
-      return {
-        idle: seatStateRuntime.isSeatIdle(bindingId),
-        generationKey: live.epoch,
-        operatorDraft:
-          seatStateRuntime.composerVerdict(bindingId) !== "empty",
-      };
+      return { generationKey: live.epoch };
     },
   });
   handles.delivery = { dispose: () => remoteDelivery.dispose() };

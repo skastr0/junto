@@ -35,10 +35,10 @@ import {
 } from "@shared/managed-prompt";
 
 /**
- * Quiet time after a generation first becomes idle before mail may paste.
- * Prevents open-to-continue from racing the load/resume paint with a dump.
+ * First re-drive delay after a delivery could not run (seat not up yet, a
+ * draft or dialog on screen). Repeated polls back off from here.
  */
-export const MESSAGE_DELIVERY_SETTLE_MS = 1_500;
+export const MESSAGE_DELIVERY_RETRY_MS = 1_500;
 
 /**
  * Ceiling for the backed-off gate re-poll. Defense in depth only: the cadence
@@ -66,19 +66,12 @@ export const MESSAGE_DELIVERY_GATE_RETRY_MAX_MS = 12_000;
 export const MESSAGE_DELIVERY_INDEX_RECONCILE_MS = 60_000;
 /** Spread simultaneous seats off one tick so N refusals are not one block. */
 const GATE_RETRY_JITTER_FRACTION = 0.2;
-/** Deadline retries may be spread later, never earlier — the settle is a floor. */
-const GATE_DEADLINE_SPREAD_MS = 150;
 
 /**
- * Why a gate retry is being armed.
- *
- * `deadline` is a wait for a known instant (the settle point). It must fire at
- * that instant, so it never backs off — only a small forward spread.
- * `poll` is a re-ask of a condition with no known clearing time (busy seat,
- * seat not up, operator typing). Repeated polls back off.
+ * Seat liveness for delivery. Mail is never gated on what the agent is
+ * doing: an idle and a working seat both take mail, and the harness queues
+ * or steers it by its own rules. Only a seat with no live generation waits.
  */
-type GateRetryKind = "deadline" | "poll";
-
 export type SeatDeliveryGateResult =
   | {
       readonly allow: true;
@@ -89,10 +82,7 @@ export type SeatDeliveryGateResult =
        */
       readonly generationKey?: string;
     }
-  | {
-      readonly allow: false;
-      readonly reason: "not-idle" | "not-settled" | "operator-draft" | "unavailable";
-    };
+  | { readonly allow: false; readonly reason: "unavailable" };
 
 export type MessageDeliveryTransport = {
   /** Start a local lazy managed seat before the first delivery attempt. */
@@ -103,12 +93,11 @@ export type MessageDeliveryTransport = {
   /** Paste without submitting (raw geography shells only). */
   readonly sendTerminalPaste?: (bindingId: string, text: string, messageId: string) => boolean;
   /**
-   * Managed-terminal drive: paste+CR into an agent seat PTY, idle-gated by
-   * default. Explicit factory mail may request one busy-turn interrupt.
-   * Ordinary mail never interrupts. Resolves the discriminated attempt
-   * outcome: submitted (receiptable), refused-before-write (retryable, no
-   * bytes on the PTY), or written-unresolved (visible, same generation must
-   * not replay). Only submitted follows a turn-start acknowledgement.
+   * Managed-terminal drive: paste+CR into an agent seat PTY, idle or mid-turn
+   * alike (the harness queues or steers mail typed during a turn). Resolves
+   * the discriminated attempt outcome: submitted (receiptable),
+   * refused-before-write (retryable, no bytes on the PTY), or
+   * written-unresolved (visible, same generation must not replay).
    */
   readonly sendManagedTerminalPrompt?: (
     bindingId: string,
@@ -124,45 +113,30 @@ export type MessageDeliveryTransport = {
    */
   readonly pasteWriteCount?: (bindingId: string) => number;
   /**
-   * Live seat snapshot for the product delivery gate. Absent → allow
-   * (unit tests without a host). Operator draft must never be overwritten;
-   * settle waits MESSAGE_DELIVERY_SETTLE_MS after first idle for the epoch.
+   * The seat's live generation, or undefined while no generation is up.
+   * Absent → allow (unit tests without a host). Screen guards (draft,
+   * dialog) belong to the drive, which reads the grid at the paste moment.
    */
   readonly seatDeliverySnapshot?: (
     bindingId: string,
   ) =>
-    | {
-        readonly idle: boolean;
-        readonly generationKey: string;
-        readonly operatorDraft: boolean;
-      }
+    | SeatDeliverySnapshot
     | undefined
-    | Promise<
-        | {
-            readonly idle: boolean;
-            readonly generationKey: string;
-            readonly operatorDraft: boolean;
-          }
-        | undefined
-      >;
+    | Promise<SeatDeliverySnapshot | undefined>;
+};
+
+export type SeatDeliverySnapshot = {
+  readonly generationKey: string;
 };
 
 export type ManagedTerminalPromptOptions = {
   /** Allow the drive to retain a prompt while a freshly-woken seat reaches idle. */
   readonly ready?: boolean;
   /**
-   * Allow the drive to retain a busy prompt for a later idle transition.
-   * Immediate-policy prompts pass false so a busy seat refuses fast with a
-   * retryable SeatBusy instead of parking behind the ordinary queue.
+   * Write into a working seat as well as an idle one. Every mail write sets
+   * it; the drive never parks it, so a refusal returns here to retry.
    */
-  readonly queueIfBusy?: boolean;
-  /**
-   * Retained for transport-struct compatibility only. Mail never sets it:
-   * ordinary mail and prompts never interrupt a live turn — a busy seat
-   * refuses retryable SeatBusy and the caller waits, then retries the same
-   * durable row.
-   */
-  readonly interruptIfBusy?: boolean;
+  readonly whileWorking?: boolean;
   /** Caller abort, threaded through to the drive's own abort handling. */
   readonly signal?: AbortSignal;
 };
@@ -507,19 +481,6 @@ export class MessageDeliveryService {
    */
   private readonly transportUnresolved = new Map<string, string>();
   /**
-   * One-notice-per-turn budget. A window runs from boot (epoch 0) or an
-   * observed working/turn-start transition to the next turn-start; only
-   * onManagedTerminalTurnStart opens a new window, and a terminal generation
-   * cut resets it (back to no observed turn). The epoch counts observed
-   * turns per binding; the spent map records the epoch in which a notice
-   * already went out. Spends charge the epoch captured at admission, never
-   * the epoch current when the async outcome resolves. Refused pre-write
-   * attempts spend nothing — no byte, no budget. The explicit prompt()
-   * path is exempt.
-   */
-  private readonly turnEpochByBinding = new Map<string, number>();
-  private readonly noticeSpentByBinding = new Map<string, number>();
-  /**
    * Immutable membership of each batch whose transport was accepted. A later
    * recovery may see newer pending mail on the same seat, but that mail was not
    * part of the accepted payload and must never receive its receipt here.
@@ -564,16 +525,11 @@ export class MessageDeliveryService {
   private static readonly WAKE_RETRY_BASE_MS = 45_000;
   /** One refusal log per pending message, not one per idle-scan re-attempt. */
   private readonly wakeRefusalLogged = new Set<string>();
-  /**
-   * Per generationKey: first time we observed idle for this generation
-   * (set when gate is consulted and seat is idle). Cleared on generation flip.
-   */
-  private readonly idleSinceByGeneration = new Map<string, number>();
   private readonly lastGenerationKey = new Map<string, string>();
   /**
-   * Deferred re-scan for not-settled / unavailable / operator-draft so an
-   * already-idle seat (no further idle transition) still receives mail.
-   * Keyed by bindingId — one timer per seat.
+   * Deferred re-scan after a delivery could not run (seat not up, or the
+   * drive refused a draft or dialog screen) so a seat with no further state
+   * transition still receives mail. Keyed by bindingId — one timer per seat.
    */
   private readonly gateRetryTimers = new Map<string, unknown>();
   /**
@@ -678,10 +634,7 @@ export class MessageDeliveryService {
     this.pendingRequestResponses.clear();
     this.clearWakeRetries();
     this.wakeRefusalLogged.clear();
-    this.idleSinceByGeneration.clear();
     this.lastGenerationKey.clear();
-    this.turnEpochByBinding.clear();
-    this.noticeSpentByBinding.clear();
     this.clearGateRetries();
     this.clearPendingIndex();
     this.transport = undefined;
@@ -721,7 +674,6 @@ export class MessageDeliveryService {
     this.pendingRequestResponses.clear();
     this.clearWakeRetries();
     this.wakeRefusalLogged.clear();
-    this.idleSinceByGeneration.clear();
     this.lastGenerationKey.clear();
     this.clearGateRetries();
     this.clearPendingIndex();
@@ -823,23 +775,12 @@ export class MessageDeliveryService {
   }
 
   /**
-   * Delay for the next gate re-drive.
-   *
-   * `deadline` — the settle point is a known instant, so it fires on time and
-   * only spreads FORWARD by a sub-tick amount; pulling it earlier would break
-   * the settle guarantee.
-   * `poll` — nothing says when the condition clears, so consecutive refusals
-   * double the wait up to the ceiling. Jitter is symmetric so a floor of seats
-   * refusing together stops landing on one tick (and one block).
+   * Delay for the next re-drive. Nothing says when a draft clears or a seat
+   * comes up, so consecutive refusals double the wait up to the ceiling.
+   * Jitter is symmetric so a floor of seats refusing together stops landing on
+   * one tick (and one block).
    */
-  private gateRetryDelay(
-    kind: GateRetryKind,
-    bindingId: string,
-    requestedMs: number,
-  ): number {
-    if (kind === "deadline") {
-      return Math.max(10, requestedMs + this.random() * GATE_DEADLINE_SPREAD_MS);
-    }
+  private gateRetryDelay(bindingId: string, requestedMs: number): number {
     const streak = this.gateRefusalStreak.get(bindingId) ?? 0;
     this.gateRefusalStreak.set(bindingId, streak + 1);
     const backedOff = Math.min(
@@ -851,14 +792,10 @@ export class MessageDeliveryService {
   }
 
   /**
-   * Re-drive one binding after a gate refusal without waiting for a seat-state
-   * transition (already-idle seats never re-fire onManagedTerminalIdle).
+   * Re-drive one binding after a refusal without waiting for a seat-state
+   * transition (a seat that stays in one state never re-fires an event).
    */
-  private scheduleGateRetry(
-    bindingId: string,
-    delayMs: number,
-    kind: GateRetryKind,
-  ): void {
+  private scheduleGateRetry(bindingId: string, delayMs: number): void {
     if (this.gateRetryTimers.has(bindingId)) return;
     const generation = this.lifecycleGeneration;
     const handle = this.timers.set(() => {
@@ -867,7 +804,7 @@ export class MessageDeliveryService {
       void this.deliverForBinding(bindingId);
       // Request-response shares the seat gate; re-drive those too.
       void this.retryRequestResponses(bindingId);
-    }, this.gateRetryDelay(kind, bindingId, delayMs));
+    }, this.gateRetryDelay(bindingId, delayMs));
     this.gateRetryTimers.set(bindingId, handle);
   }
 
@@ -988,40 +925,22 @@ export class MessageDeliveryService {
       }
       const gate = await this.evaluateSeatGate(target.bindingId);
       if (!gate.allow) {
-        await this.recordGateRefusal(
-          input.canvas,
-          input.nodeId,
-          live,
-          target.bindingId,
-          gate.reason,
-        );
-        const reason: ManagedPromptRefusalReason =
-          gate.reason === "operator-draft"
-            ? "composer-not-empty"
-            : gate.reason === "unavailable"
-              ? "not-ready"
-              : "seat-busy";
-        // Gate deferral ("not now", not "never"). A plain immediate prompt
-        // stays immediate — the deferral never auto-degrades it to notice.
-        // An explicit notice fallback already persisted its marker
-        // write-ahead at entry, so the idle scan re-admits the row.
-        return { outcome: this.refusedWithoutWrite(reason), policy };
+        // No live seat generation yet ("not now", not "never"). A plain
+        // immediate prompt stays immediate; an explicit notice fallback
+        // already persisted its marker write-ahead, so the scan re-admits it.
+        return { outcome: this.refusedWithoutWrite("not-ready"), policy };
       }
       // Immediate prompts carry the full body under the server sender
-      // envelope and refuse fast on a busy seat; an explicit notice
-      // fallback uses the ordinary summary builder and may park.
+      // envelope; an explicit notice fallback uses the ordinary summary
+      // builder. Both write into an idle or working seat alike.
       const payload =
         policy === "immediate"
           ? composeImmediatePromptPayload(live)
           : composeMessageDeliveryPayload(live);
-      const promptOptions =
-        policy === "immediate"
-          ? { queueIfBusy: false, signal: input.signal }
-          : transport.wakeManagedSeat
-            ? { ready: true, signal: input.signal }
-            : input.signal
-              ? { signal: input.signal }
-              : undefined;
+      const promptOptions = {
+        ...(transport.wakeManagedSeat ? { ready: true } : {}),
+        ...(input.signal ? { signal: input.signal } : {}),
+      };
       const seatGeneration = gate.generationKey;
       const prep = await this.prepareAttempt(
         input.canvas,
@@ -1047,8 +966,6 @@ export class MessageDeliveryService {
         // cap never applies.
         !stampOnly &&
         admitImmediatePrompt({
-          idle: true,
-          composerEmpty: true,
           // The 160 cap counts BODY characters only: strip the server
           // sender envelope (the payload's first line) before counting.
           bodyChars:
@@ -1214,9 +1131,8 @@ export class MessageDeliveryService {
   }
 
   /**
-   * Managed seat became idle — re-drive pending for that binding.
-   * Phase 2 state machine (or ManagedTerminalDrive.onSeatIdle) should call this
-   * so idle-gated prompts that returned false while busy can land.
+   * Managed seat became idle — re-drive pending for that binding. Mail does
+   * not wait for idle, but a refusal (a dialog, a draft) often clears here.
    */
   onManagedTerminalIdle(bindingId: string): void {
     if (this.suspended) return;
@@ -1231,25 +1147,6 @@ export class MessageDeliveryService {
   onComposerEmpty(bindingId: string): void {
     if (this.suspended) return;
     this.onSeatStateChanged(bindingId);
-  }
-
-  /**
-   * The seat observably started a turn (working/turn-start transition on the
-   * runtime state event sequence). Opens a fresh one-notice-per-turn window:
-   * one notice may go out before the next observed turn-start. Idle
-   * callbacks, gate retries, and resets NEVER open a window — only this
-   * signal does. A terminal generation cut RESETS the window (back to no
-   * observed turn) instead of opening one. The composition must wire this to
-   * actual state transitions, never synthesize it from idle, polling, or
-   * admission checks.
-   */
-  onManagedTerminalTurnStart(bindingId: string): void {
-    if (this.suspended) return;
-    this.turnEpochByBinding.set(
-      bindingId,
-      (this.turnEpochByBinding.get(bindingId) ?? 0) + 1,
-    );
-    this.noticeSpentByBinding.delete(bindingId);
   }
 
   /**
@@ -1420,10 +1317,8 @@ export class MessageDeliveryService {
   }
 
   /**
-   * Re-settle this canvas's seats (so mail does not fire mid-resume paint),
-   * then re-drive the canvas alone. Generation-keyed settle state cannot be
-   * scoped synchronously, so this canvas's bindings resolve from the
-   * document first.
+   * Reset this canvas's retry backoff, then re-drive the canvas alone. The
+   * canvas's bindings resolve from the document first.
    */
   private async resumeCanvasSweep(canvas: string): Promise<void> {
     const generation = this.lifecycleGeneration;
@@ -1436,10 +1331,6 @@ export class MessageDeliveryService {
         for (const node of doc.nodes) {
           const bindingId = deliveryTargetOf(node)?.bindingId;
           if (bindingId === undefined) continue;
-          const seatGeneration = this.lastGenerationKey.get(bindingId);
-          if (seatGeneration !== undefined) {
-            this.idleSinceByGeneration.delete(seatGeneration);
-          }
           this.gateRefusalStreak.delete(bindingId);
           const timer = this.gateRetryTimers.get(bindingId);
           if (timer !== undefined) {
@@ -1884,69 +1775,25 @@ export class MessageDeliveryService {
   ): Promise<SeatDeliveryGateResult> {
     const transport = this.transport;
     if (!transport?.seatDeliverySnapshot) return { allow: true };
-    let snap:
-      | {
-          readonly idle: boolean;
-          readonly generationKey: string;
-          readonly operatorDraft: boolean;
-        }
-      | undefined;
+    let snap: SeatDeliverySnapshot | undefined;
     try {
       snap = await transport.seatDeliverySnapshot(bindingId);
     } catch {
-      this.scheduleGateRetry(bindingId, MESSAGE_DELIVERY_SETTLE_MS, "poll");
-      return { allow: false, reason: "unavailable" };
+      snap = undefined;
     }
     if (!snap) {
       // Starting/restarting — short retry, not permanent strand.
-      this.scheduleGateRetry(bindingId, MESSAGE_DELIVERY_SETTLE_MS, "poll");
+      this.scheduleGateRetry(bindingId, MESSAGE_DELIVERY_RETRY_MS);
       return { allow: false, reason: "unavailable" };
     }
-
-    const prevKey = this.lastGenerationKey.get(bindingId);
-    if (prevKey !== snap.generationKey) {
-      if (prevKey !== undefined) this.idleSinceByGeneration.delete(prevKey);
+    if (this.lastGenerationKey.get(bindingId) !== snap.generationKey) {
       this.lastGenerationKey.set(bindingId, snap.generationKey);
-      this.idleSinceByGeneration.delete(snap.generationKey);
       // New generation is a real state change — start polling fresh.
       this.gateRefusalStreak.delete(bindingId);
-      // A generation cut resets the one-notice-per-turn window; it never
-      // opens one. Gate retries and resets never touch this state.
-      if (prevKey !== undefined) this.resetTurnWindow(bindingId);
     }
-
-    if (!snap.idle) {
-      this.idleSinceByGeneration.delete(snap.generationKey);
-      // Working seat will re-drive on idle transition; also timer as backstop.
-      this.scheduleGateRetry(bindingId, MESSAGE_DELIVERY_SETTLE_MS, "poll");
-      return { allow: false, reason: "not-idle" };
-    }
-
-    const nowMs = this.now();
-    let idleSince = this.idleSinceByGeneration.get(snap.generationKey);
-    if (idleSince === undefined) {
-      idleSince = nowMs;
-      this.idleSinceByGeneration.set(snap.generationKey, idleSince);
-    }
-    const elapsed = nowMs - idleSince;
-    if (elapsed < MESSAGE_DELIVERY_SETTLE_MS) {
-      this.scheduleGateRetry(
-        bindingId,
-        MESSAGE_DELIVERY_SETTLE_MS - elapsed + 10,
-        "deadline",
-      );
-      return { allow: false, reason: "not-settled" };
-    }
-
-    if (snap.operatorDraft) {
-      // The screen does not prove an empty composer (operator draft, stuck
-      // chip, or unreadable box) — retry later; never paste over it.
-      this.scheduleGateRetry(bindingId, MESSAGE_DELIVERY_SETTLE_MS, "poll");
-      return { allow: false, reason: "operator-draft" };
-    }
-    this.gateRefusalStreak.delete(bindingId);
     return { allow: true, generationKey: snap.generationKey };
   }
+
 
   private async acceptDeliveryAndMaybeRead(
     store: MessageDeliveryStore,
@@ -2160,23 +2007,14 @@ export class MessageDeliveryService {
         if (attempts >= MessageDeliveryService.MAX_TRANSPORT_ATTEMPTS) {
           return;
         }
-        // Settled idle + operator-keystroke draft gate.
-        // Gate failure is not a transport failure — do not burn attempts or
-        // edge-map claims (claim is recorded only after the gate allows).
+        // Seat liveness only. A seat with no live generation is not a
+        // transport failure — do not burn attempts or edge-map claims (the
+        // claim is recorded only after the gate allows).
         const gate = await this.evaluateSeatGate(target.bindingId);
-        if (!gate.allow) {
-          await this.recordGateRefusal(
-            canvas,
-            nodeId,
-            live,
-            target.bindingId,
-            gate.reason,
-          );
-          return;
-        }
+        if (!gate.allow) return;
 
         // Edge-map notice law (bounded re-drive + stale re-validation):
-        // AFTER the gate so a not-settled first consult cannot burn the claim.
+        // AFTER the gate so a seat that is not up cannot burn the claim.
         let claimSetThisPass = false;
         if (live.metadata?.edgeMapChange === true) {
           const addedIds = edgeMapAddedIds(live);
@@ -2201,42 +2039,10 @@ export class MessageDeliveryService {
           extension?.mailKind === "prompt" && !noticeFallback
             ? "immediate"
             : "notice";
-        // Mail never interrupts a live turn — ordinary or prompt. A busy
-        // seat refuses retryable SeatBusy; immediate prompts additionally
-        // refuse fast instead of parking behind the ordinary queue.
-        const promptOptions =
-          transport.wakeManagedSeat || policy === "immediate"
-            ? {
-                ...(transport.wakeManagedSeat ? { ready: true } : {}),
-                ...(policy === "immediate" ? { queueIfBusy: false } : {}),
-              }
-            : undefined;
+        const promptOptions = transport.wakeManagedSeat
+          ? { ready: true }
+          : undefined;
         const seatGeneration = gate.generationKey;
-        // One-notice-per-turn: a spent window leaves the message pending
-        // for the next observed turn-start — no ledger write, no refusal
-        // fact, no spend. Post-gate on purpose: the gate is what detects a
-        // generation cut and resets the window. The explicit prompt() path
-        // is exempt, as is an operator-granted retry whose fresh intent is
-        // still open (exactly one bypass per grant).
-        if (
-          policy === "notice" &&
-          this.isTurnBudgetSpent(target.bindingId) &&
-          !(await this.isGrantOpenForRetry(
-            canvas,
-            nodeId,
-            live.messageId,
-            seatGeneration,
-          ))
-        ) {
-          return;
-        }
-        // Charge window, captured at admission: the drive may emit
-        // turn-start (opening a new window) before the async outcome
-        // resolves, and the spend must hit THIS window, never the new one.
-        const chargeEpoch =
-          policy === "notice"
-            ? (this.turnEpochByBinding.get(target.bindingId) ?? 0)
-            : undefined;
         const prep = await this.prepareAttempt(
           canvas,
           nodeId,
@@ -2310,16 +2116,6 @@ export class MessageDeliveryService {
           }
         }
           if (outcome === undefined) return;
-          // A wrote-physical notice attempt spends its captured charge
-          // window whatever the acknowledgement outcome. Clean pre-write
-          // refusals spend nothing.
-          if (
-            policy === "notice" &&
-            outcome.wrotePhysicalBytes &&
-            chargeEpoch !== undefined
-          ) {
-            this.spendTurnBudget(target.bindingId, chargeEpoch, seatGeneration);
-          }
           if (outcome.status !== "submitted") {
             // Unresolved stays receiptless and pending with the no-replay
             // marks below: neither transport nor receipt on the next idle —
@@ -2346,11 +2142,7 @@ export class MessageDeliveryService {
               !outcome.wrotePhysicalBytes &&
               this.isRetryableRefusal(outcome.reason)
             ) {
-              this.scheduleGateRetry(
-                target.bindingId,
-                MESSAGE_DELIVERY_SETTLE_MS,
-                "poll",
-              );
+              this.scheduleGateRetry(target.bindingId, MESSAGE_DELIVERY_RETRY_MS);
             }
             return;
           }
@@ -2522,7 +2314,7 @@ export class MessageDeliveryService {
         // A single message never needs the batch slot; a fresh payload does.
         // Held mail has no seat transition of its own to wait on, so re-poll.
         if (anyOpen && unclaimed.length > 1) {
-          this.scheduleGateRetry(target.bindingId, MESSAGE_DELIVERY_SETTLE_MS, "poll");
+          this.scheduleGateRetry(target.bindingId, MESSAGE_DELIVERY_RETRY_MS);
           return;
         }
       }
@@ -2559,37 +2351,10 @@ export class MessageDeliveryService {
       const gate = await this.evaluateSeatGate(target.bindingId);
       if (!gate.allow) return;
 
-      // Mail never interrupts a live turn — batches are ordinary notices.
       const promptOptions = transport.wakeManagedSeat
         ? { ready: true }
         : undefined;
       const seatGeneration = gate.generationKey;
-
-      // One-notice-per-turn: one batched payload is one notice. A spent
-      // window leaves the members pending — checked before the durable
-      // enqueue, so no ledger write is burned on a deferred batch. The
-      // finally below releases the reservations this return skips. An
-      // operator-granted retry bypasses like a single (exactly one bypass
-      // per grant).
-      if (this.isTurnBudgetSpent(target.bindingId)) {
-        let granted = false;
-        for (const unclaimedMember of unclaimed) {
-          if (
-            await this.isGrantOpenForRetry(
-              canvas,
-              nodeId,
-              unclaimedMember.messageId,
-              seatGeneration,
-            )
-          ) {
-            granted = true;
-            break;
-          }
-        }
-        if (!granted) return;
-      }
-      // Charge window, captured at admission (see attemptOne).
-      const chargeEpoch = this.turnEpochByBinding.get(target.bindingId) ?? 0;
 
       // Durable membership before any member transport: atomic commit,
       // then partition out held (same-generation uncertainty) and
@@ -2719,11 +2484,6 @@ export class MessageDeliveryService {
         }
       }
       if (outcome === undefined) return;
-      // One batched payload is one notice: a wrote-physical batch spends
-      // its captured charge window whatever the acknowledgement outcome.
-      if (outcome.wrotePhysicalBytes) {
-        this.spendTurnBudget(target.bindingId, chargeEpoch, seatGeneration);
-      }
       if (outcome.status !== "submitted") {
         for (const message of members) {
           await this.recordAttemptOutcome(
@@ -2745,11 +2505,7 @@ export class MessageDeliveryService {
           outcome.reason !== undefined &&
           this.isRetryableRefusal(outcome.reason)
         ) {
-          this.scheduleGateRetry(
-            target.bindingId,
-            MESSAGE_DELIVERY_SETTLE_MS,
-            "poll",
-          );
+          this.scheduleGateRetry(target.bindingId, MESSAGE_DELIVERY_RETRY_MS);
         }
         return;
       }
@@ -2857,7 +2613,12 @@ export class MessageDeliveryService {
   ): Promise<ManagedPromptOutcome> {
     // Managed drive (paste+CR) preferred; raw paste only for geography shells.
     if (transport.sendManagedTerminalPrompt) {
-      return transport.sendManagedTerminalPrompt(target.bindingId, payload, options);
+      // Mail is never gated on what the agent is doing: the drive writes into
+      // an idle or a working seat, and the harness queues or steers it.
+      return transport.sendManagedTerminalPrompt(target.bindingId, payload, {
+        ...options,
+        whileWorking: true,
+      });
     }
     const ok =
       transport.sendTerminalPaste?.(target.bindingId, payload, messageId) ?? false;
@@ -3002,85 +2763,6 @@ export class MessageDeliveryService {
   }
 
   /**
-   * Durably record a gate refusal when the gate observed a seat generation.
-   * Gate refusals otherwise leave no ledger trace (no transport ran), so a
-   * busy composer would be invisible. Best-effort: a ledger failure keeps
-   * the message pending exactly as before.
-   *
-   * A refusal that never reached the transport must not spend an
-   * operator-opened grant: recording would close the open intent
-   * (`resolved_seq = attempt_seq`) and the authorized retry would never
-   * run. The message stays pending and the unspent grant stays open.
-   */
-  private async recordGateRefusal(
-    canvas: string,
-    nodeId: string,
-    live: Message,
-    bindingId: string,
-    reason: "not-idle" | "not-settled" | "operator-draft" | "unavailable",
-  ): Promise<void> {
-    const ledger = this.attempts;
-    if (!ledger) return;
-    const generation = this.lastGenerationKey.get(bindingId);
-    if (generation === undefined) return;
-    try {
-      const prior = await ledger.attempt?.({
-        canvas,
-        nodeId,
-        messageId: live.messageId,
-        generation,
-      });
-      if (
-        (prior?.attemptSeq ?? 0) > (prior?.resolvedSeq ?? 0)
-      ) {
-        return;
-      }
-    } catch {
-      // Fall through and record: visibility outranks grant preservation
-      // when the ledger cannot be read.
-    }
-    const policy: MailDeliveryPolicy =
-      readMailExtension(live.metadata)?.mailKind === "prompt"
-        ? "immediate"
-        : "notice";
-    const refusedReason: MailAttemptReason =
-      reason === "operator-draft"
-        ? "composer-draft"
-        : reason === "unavailable"
-          ? "no-lease"
-          : reason;
-    const at = new Date(this.now()).toISOString();
-    const counter = this.transport?.pasteWriteCount?.(bindingId);
-    try {
-      await ledger.enqueueAttempt({
-        canvas,
-        nodeId,
-        messageId: live.messageId,
-        generation,
-        policy,
-      });
-      await ledger.recordAttempt({
-        canvas,
-        nodeId,
-        messageId: live.messageId,
-        generation,
-        set: { refusedAt: at, refusedReason },
-        ...(counter === undefined
-          ? {}
-          : {
-              write: {
-                writesBefore: counter,
-                writesAfter: counter,
-                at,
-              },
-            }),
-      });
-    } catch {
-      // Observability only; the message stays pending.
-    }
-  }
-
-  /**
    * Durable pre-transport gate for one attempt. Enqueues before any write
    * (fail-closed on ledger failure), then reads back the row: a
    * same-generation uncertainty without acceptance holds (no transport, no
@@ -3181,42 +2863,6 @@ export class MessageDeliveryService {
       pasteWrites: 0,
       wrotePhysicalBytes: false,
     };
-  }
-
-  /** True when a notice already went out in this binding's current window. */
-  private isTurnBudgetSpent(bindingId: string): boolean {
-    const epoch = this.turnEpochByBinding.get(bindingId) ?? 0;
-    // The initial epoch is a real budget: at most one notice per continuous
-    // idle window from boot, until the first observed turn-start opens the
-    // next window.
-    return this.noticeSpentByBinding.get(bindingId) === epoch;
-  }
-
-  /**
-   * A terminal generation cut RESETS the one-notice-per-turn window: the new
-   * seat has no observed turn, so the budget is inapplicable until its first
-   * turn-start. Called from the seat gate, which already detects the cut.
-   */
-  private resetTurnWindow(bindingId: string): void {
-    this.turnEpochByBinding.delete(bindingId);
-    this.noticeSpentByBinding.delete(bindingId);
-  }
-
-  /**
-   * Spend a captured charge window after a wrote-physical attempt. The epoch
-   * is captured at admission (post-gate), never read after the async drive
-   * outcome: the drive emits working/turn-start BEFORE resolving submitted,
-   * so charging the current epoch would burn the NEW window and strand the
-   * next fresh mail. A generation cut mid-flight retires the charge with the
-   * old seat — a spend never crosses seats.
-   */
-  private spendTurnBudget(
-    bindingId: string,
-    chargeEpoch: number,
-    generation: string | undefined,
-  ): void {
-    if (this.lastGenerationKey.get(bindingId) !== generation) return;
-    this.noticeSpentByBinding.set(bindingId, chargeEpoch);
   }
 
   /** Pre-write refusals worth a bounded gate re-drive (a wait may clear them). */
