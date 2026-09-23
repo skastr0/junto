@@ -105,8 +105,8 @@ export const introSlides = (mac: boolean): ReadonlyArray<IntroSlide> => [
       <>
         <p>
           Double-click an agent to open its terminal. Every launch starts
-          paused: press play when you want the canvas to deliver messages and
-          hand out tasks on its own.
+          paused: press play when you want the canvas to deliver messages
+          between your agents.
         </p>
       </>
     ),
