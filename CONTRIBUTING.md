@@ -40,6 +40,6 @@ local state, credentials, private endpoints, or scanner output in the patch.
 
 ## Security and support
 
-Use [SECURITY.md](SECURITY.md) for private vulnerability reports.
-[SUPPORT.md](SUPPORT.md) describes the project's support boundaries. Issues are
-reviewed on a best-effort basis; no response time or implementation is promised.
+Report vulnerabilities as GitHub issues following [SECURITY.md](SECURITY.md).
+Junto is a side project: there is no support channel, response time, or
+promised implementation. See [SUPPORT.md](SUPPORT.md).

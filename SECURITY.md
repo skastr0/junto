@@ -1,19 +1,17 @@
 # Security policy
 
-Junto is actively developed and solo-maintained. Security reports for
-the current source and official builds are reviewed on a best-effort basis.
-Linux desktop is alpha; Fleet and Remote stations remain experimental and disabled
-in the default feature profile. Older versions do not receive a separate backport
-or support commitment.
+Junto is a side project with one maintainer, not a hosted service. There is
+no support email, security mailbox, or private support channel. Linux desktop is
+alpha; Fleet and Remote stations remain experimental and disabled in the default
+feature profile. Older versions do not receive backports.
 
-## Private reports
+## Reporting a vulnerability
 
-Email **support@juntoagents.com**. Do not publish vulnerability details in a
-GitHub issue or pull request.
-
-Include the affected version or commit, platform, build channel, enabled feature
-profile, reproduction steps, and expected impact. Redact credentials, personal
-data, and unrelated operational details from logs and examples.
+Open a [GitHub issue](https://github.com/skastr0/junto/issues) titled as a
+security report. Describe the affected area, the version or commit, platform,
+build channel, enabled feature profile, and expected impact. Leave out working
+exploit code, credentials, personal data, and unrelated logs; the maintainer
+will ask in the issue for anything more that is needed.
 
 ## Scope
 
@@ -43,5 +41,5 @@ download-page checksum or the archive's bundled CLI. Source availability does
 not make arbitrary third-party builds official. GitHub Releases are not the
 automatic update feed; they may host the attested Linux first-install bootstrap.
 
-The maintainer coordinates disclosure around severity, available fixes, and user
-impact. No response-time SLA or bug bounty is promised.
+Fixes land when the maintainer gets to them. There is no response time and no
+bug bounty.

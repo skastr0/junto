@@ -263,11 +263,11 @@ of commits.
 
 ## Project
 
-Junto is actively developed by a solo maintainer. Reports and proposals go
-through [issues](https://github.com/skastr0/junto/issues); see
-[CONTRIBUTING.md](CONTRIBUTING.md) and [SUPPORT.md](SUPPORT.md).
-
-Report suspected vulnerabilities privately through [SECURITY.md](SECURITY.md).
+Junto is a side project with one maintainer. There is no support email or
+support channel. Bug reports, vulnerability reports, and proposals go through
+[GitHub issues](https://github.com/skastr0/junto/issues); see
+[SECURITY.md](SECURITY.md), [CONTRIBUTING.md](CONTRIBUTING.md), and
+[SUPPORT.md](SUPPORT.md).
 The trust model is one operator with trusted but fallible attached agents; the
 app enforces its own process, edge, peer, and update boundaries.
 

@@ -4,7 +4,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        For security vulnerabilities, email support@juntoagents.com instead.
+        For a security vulnerability, follow SECURITY.md: describe the area and impact, without working exploit code.
         Remove credentials, personal paths, hostnames, and unrelated logs from reports.
   - type: input
     id: version
