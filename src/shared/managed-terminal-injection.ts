@@ -374,7 +374,7 @@ ${rowsFor(targets, [
   ["msg.list", `| read target thread | \`junto msg list '{"target":"${t}"}'\` |`],
   ["msg.send", `| send durable mail | \`junto msg send '{"target":"${t}","text":"..."}'\` |`],
   ["msg.send", `| reply | \`junto msg reply '{"target":"${t}","text":"...","inReplyTo":"<msgId>"}'\` |`],
-  ["msg.prompt", `| immediate turn (port msg.prompt) | \`junto msg prompt '{"target":"${t}","text":"..."}'\` — requires a local idle peer with an empty composer; never interrupts |`],
+  ["msg.prompt", `| immediate turn (port msg.prompt) | \`junto msg prompt '{"target":"${t}","text":"..."}'\` — delivered to a local peer whether it is idle or mid-turn; its harness queues or steers it |`],
   ["seat.wait", `| wait (port seat.wait) | \`junto seat wait ${t} --until idle --timeout 30s\` — also supports attention, working, or gone |`],
   ["terminal.read", `| observe (port terminal.read) | \`junto seat read ${t} --lines 40\` — settled grid, with state, reason, confidence and generation; output activity alone is not readiness |`],
 ])}
@@ -384,7 +384,7 @@ Own inbox: \`junto msg list\` marks listed mail read; \`junto msg react '{"messa
 Crew prompt, sent receipts, seat wait and seat read require a configured Command Center. Prompt/wait/read require a local peer, and are unavailable for Remote seats. Ordinary durable mail remains available through its own grants.
 ${hasPort(targets, "msg.send") || hasPort(targets, "msg.prompt") ? "\nInspect sent delivery/read/reply facts with `junto msg sent`; notification, read and reply are separate evidence. A successful enqueue is not proof of submission." : ""}
 ${hasPort(targets, "msg.prompt") ? `
-Prompt outcomes are named: submitted, refused, or unresolved. After a pre-write refusal, wait for readiness and retry the returned messageId with \`junto msg prompt '{"target":"${t}","messageId":"<messageId>"}'\`. An unresolved write is uncertain: inspect the peer and sent facts; never create a replacement prompt or repaste automatically. Notice fallback is explicit: add \`"fallback":"notice"\` only when durable mail is acceptable.` : ""}`;
+Prompt outcomes are named: submitted, refused, or unresolved. A pre-write refusal means a draft or dialog was on the peer's screen; retry the returned messageId with \`junto msg prompt '{"target":"${t}","messageId":"<messageId>"}'\`. An unresolved write is uncertain: inspect the peer and sent facts; never create a replacement prompt or repaste automatically. Notice fallback is explicit: add \`"fallback":"notice"\` only when durable mail is acceptable.` : ""}`;
 };
 
 const reviewsSlot = (targets: readonly InjectionConnectedTarget[]): string => {

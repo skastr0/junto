@@ -1690,7 +1690,7 @@ const dispatchOp = (
           type: outcome.reason === "over-limit" ? "InputError" : "SeatBusy",
           message: outcome.reason === "over-limit" ? "Prompt exceeds the immediate body limit" : "The recipient cannot accept an immediate prompt yet",
           details: { messageId, target: input.target, reason: outcome.reason, retryable: true,
-            next_step: `retry the same messageId ${messageId} when idle, or request fallback notice` },
+            next_step: `retry the same messageId ${messageId} once the recipient's screen shows no draft or dialog, or request fallback notice` },
         });
       }
       return { messageId, policy: result.policy, delivery: {

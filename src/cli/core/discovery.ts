@@ -951,7 +951,7 @@ const declaredExamples: ReadonlyArray<CommandExample> = [
     command_id: "msg.prompt",
     command: "msg prompt",
     name: "request a short immediate prompt",
-    description: "Requires msg.prompt and an idle seat with an empty composer; never interrupts.",
+    description: "Requires msg.prompt. Delivered whether the seat is idle or mid-turn; its harness queues or steers it.",
     input: { target: "seat-b", text: "Please review the API contract." },
     args: ["msg", "prompt", '{"target":"seat-b","text":"Please review the API contract."}'],
   },

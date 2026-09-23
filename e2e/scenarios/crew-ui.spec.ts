@@ -97,9 +97,9 @@ test("crew ui [fake-tui]: the mail ledger renders truthful delivery on every row
       "No mail yet",
     );
 
-    // Cold first contact: a transient not-settled refusal may coalesce on
-    // the same attempt row, but the landed write ranks above it — the row
-    // must tell the truth about the notification, not the earlier refusal.
+    // Cold first contact: a transient refusal (the seat still painting) may
+    // coalesce on the same attempt row, but the landed write ranks above it —
+    // the row must tell the truth about the notification, not the refusal.
     const send = await seatAHandle.op("msg.send", {
       target: B,
       text: "peer mail: ledger shows me",
@@ -110,8 +110,8 @@ test("crew ui [fake-tui]: the mail ledger renders truthful delivery on every row
         async () =>
           (await crewMailAttempts(page, CANVAS, B))
             .find((row) => row.messageId === messageId)?.notifiedAt,
-        // Cold first contact can refuse not-settled once and retry — the
-        // stamp follows the delivery pipeline's own settle window.
+        // Cold first contact can refuse once and retry — the stamp follows
+        // the delivery pipeline's own retry.
         { timeout: 60_000, intervals: [250, 500, 1_000] },
       )
       .not.toBeUndefined();

@@ -195,7 +195,7 @@ describe("crew doctrine compiled from authored grants", () => {
     expect(compiled.text).toContain("Crew prompt, sent receipts, seat wait and seat read require a configured Command Center");
     expect(compiled.text).toContain("Prompt/wait/read require a local peer, and are unavailable for Remote seats");
     expect(compiled.text).toContain("Ordinary durable mail remains available through its own grants");
-    expect(compiled.text).toContain("local idle peer with an empty composer; never interrupts");
+    expect(compiled.text).toContain("delivered to a local peer whether it is idle or mid-turn; its harness queues or steers it");
   });
 
   it("retains compiled ports across the host-finalized spawn wire and refuses unknown ports", () => {
