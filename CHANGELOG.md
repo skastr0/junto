@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Drop the support email. The startup data-store failure dialog, SECURITY.md,
+  and the issue templates send every report to GitHub issues.
 - Name the real reason a seat could not start ("Codex could not start: the
   folder ~/x does not exist") instead of a bare "failed to start".
 - Strip Electron's template camera, Bluetooth, and audio-capture purpose
