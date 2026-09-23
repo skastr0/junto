@@ -10,6 +10,14 @@ if [[ -n "${AMP_DIRECT_DESKTOP:-}" ]]; then
   printf '[resume] Amp Desktop supported; GUI commands will attach when its session is active\n'
 fi
 
+# Tailnet enrollment is optional. The shared orb runtime joins the maintainer's
+# tailnet only when the orb environment carries its configuration; a fork or a
+# checkout without it resumes here without the private runtime.
+if [[ -z "${TAILSCALE_CLIENT_ID:-}${TAILSCALE_AUDIENCE:-}${QUASAR_SERVER_URL:-}" ]]; then
+  printf '[resume] No tailnet configuration present; skipping Tailscale enrollment\n'
+  exit 0
+fi
+
 locate_orb_setup() {
   local candidate
   for candidate in \

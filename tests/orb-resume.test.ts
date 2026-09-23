@@ -1,114 +1,120 @@
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  copyFileSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
+// Hermetic: the resume hook runs from a scratch checkout, and the shared orb
+// runtime it delegates to is a stub sibling. The runtime's own tailnet
+// behavior belongs to orb-setup and is not exercised here.
 describe("orb resume", () => {
-  let home: string;
+  let root: string;
+  let script: string;
+  let calls: string;
   let env: NodeJS.ProcessEnv;
 
-  beforeEach(() => {
-    home = mkdtempSync(join(tmpdir(), "junto-orb-resume-"));
-    const bin = join(home, ".local/bin");
+  const installRuntime = (relative: string, exitCode = 0): void => {
+    const bin = join(root, relative, "bin");
     mkdirSync(bin, { recursive: true });
-    // Explicit exits: on macOS bash 3.2 a failing [[ ]] does not trip set -e.
-    const stub = `#!/usr/bin/env bash
-set -euo pipefail
-name="$(basename "$0")"
-printf '%s %s\\n' "$name" "$*" >> "$HOME/calls"
-case "$name" in
-  sudo) exec "$@" ;;
-  systemctl) [[ "$*" == 'enable --now tailscaled' ]] || exit 1 ;;
-  amp)
-    [[ "$*" == 'orb id-token --audience test-audience --subject-scope project' ]] || exit 1
-    [[ "\${FAIL_AT:-}" != mint ]] || exit 1
-    printf 'test-oidc-token'
-    ;;
-  tailscale)
-    [[ "$(cat)" == test-oidc-token ]] || exit 1
-    [[ "\${FAIL_AT:-}" != join ]] || exit 1
-    ;;
-  curl)
-    [[ "\${FAIL_AT:-}" != health ]] || exit 1
-    printf '{"ok":true}'
-    ;;
-esac
-`;
-    for (const name of ["sudo", "systemctl", "amp", "tailscale", "curl"]) {
-      writeFileSync(join(bin, name), stub, { mode: 0o755 });
-    }
+    writeFileSync(
+      join(bin, "resume.sh"),
+      `#!/usr/bin/env bash
+printf 'resume.sh %s\\n' "$(basename "$(cd "$(dirname "$0")/.." && pwd)")" >> "${calls}"
+printf '[orb-setup] stub resumed\\n'
+exit ${exitCode}
+`,
+      { mode: 0o755 },
+    );
+  };
+
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), "junto-orb-resume-"));
+    const agents = join(root, "junto", ".agents");
+    mkdirSync(agents, { recursive: true });
+    script = join(agents, "resume");
+    copyFileSync(resolve(".agents/resume"), script);
+    calls = join(root, "calls");
+    writeFileSync(calls, "");
     env = {
-      HOME: home,
+      HOME: join(root, "home"),
       PATH: "/usr/bin:/bin",
       AMP_DIRECT_DESKTOP: "1",
       TAILSCALE_CLIENT_ID: "test-client",
       TAILSCALE_AUDIENCE: "test-audience",
       QUASAR_SERVER_URL: "https://quasar.example/",
     };
-    writeFileSync(join(home, "calls"), "");
   });
 
-  afterEach(() => rmSync(home, { recursive: true, force: true }));
+  afterEach(() => rmSync(root, { recursive: true, force: true }));
 
-  function resume() {
-    return spawnSync("/bin/bash", ["-x", resolve(".agents/resume")], {
+  const resume = () =>
+    spawnSync("/bin/bash", ["-x", script], {
       env,
       encoding: "utf8",
       timeout: 5000,
     });
-  }
 
-  it("resumes without any private service when no tailnet configuration is present", () => {
+  it("resumes without any private runtime when no tailnet configuration is present", () => {
     delete env.TAILSCALE_CLIENT_ID;
     delete env.TAILSCALE_AUDIENCE;
     delete env.QUASAR_SERVER_URL;
+    installRuntime("orb-setup");
     const result = resume();
     expect(result.status, result.stderr).toBe(0);
     expect(result.stdout).toContain("Amp Desktop supported");
     expect(result.stdout).toContain("skipping Tailscale enrollment");
-    expect(readFileSync(join(home, "calls"), "utf8")).toBe("");
+    expect(readFileSync(calls, "utf8")).toBe("");
   });
 
-  it("mints on every resume without restarting or logging the token", () => {
-    for (let i = 0; i < 2; i++) {
+  it.each(["repos/orb-setup", "repos/skastr0/orb-setup", "orb-setup"])(
+    "delegates to the shared runtime at ../%s",
+    (relative) => {
+      installRuntime(relative);
       const result = resume();
       expect(result.status, result.stderr).toBe(0);
       expect(result.stdout).toContain("Amp Desktop supported");
-      expect(result.stdout + result.stderr).not.toContain("test-oidc-token");
-    }
-    const calls = readFileSync(join(home, "calls"), "utf8");
-    expect(calls.match(/^amp /gm)).toHaveLength(2);
-    expect(calls).not.toContain("restart");
-    expect(calls).not.toContain("test-oidc-token");
-    expect(calls).toContain("--client-id=test-client?ephemeral=true&preauthorized=true");
-    expect(calls).toContain("--id-token=file:/dev/stdin --advertise-tags=tag:amp-orb");
-    expect(calls).toContain("--proto =https --max-time 60 https://quasar.example/health");
-  });
-
-  it.each(["TAILSCALE_CLIENT_ID", "TAILSCALE_AUDIENCE", "QUASAR_SERVER_URL"])(
-    "fails before authentication when only %s is missing",
-    (name) => {
-      delete env[name];
-      expect(resume().status).not.toBe(0);
-      expect(readFileSync(join(home, "calls"), "utf8")).toBe("");
+      expect(result.stdout).toContain("[orb-setup] stub resumed");
+      expect(readFileSync(calls, "utf8")).toBe("resume.sh orb-setup\n");
     },
   );
 
-  it("rejects plaintext health URLs before authentication", () => {
-    env.QUASAR_SERVER_URL = "http://quasar.example";
-    expect(resume().status).not.toBe(0);
-    expect(readFileSync(join(home, "calls"), "utf8")).toBe("");
+  it("prefers the first candidate when several checkouts exist", () => {
+    installRuntime("orb-setup");
+    installRuntime("repos/orb-setup");
+    expect(resume().status).toBe(0);
+    expect(readFileSync(calls, "utf8").trim().split("\n")).toHaveLength(1);
   });
 
-  it.each(["mint", "join", "health"])("propagates %s failures", (stage) => {
-    env.FAIL_AT = stage;
+  it("treats partial tailnet configuration as a join request", () => {
+    delete env.TAILSCALE_AUDIENCE;
+    delete env.QUASAR_SERVER_URL;
+    installRuntime("orb-setup");
+    expect(resume().status).toBe(0);
+    expect(readFileSync(calls, "utf8")).toBe("resume.sh orb-setup\n");
+  });
+
+  it("fails clearly when tailnet configuration is present but the runtime is missing", () => {
     const result = resume();
     expect(result.status).not.toBe(0);
-    expect(result.stdout).not.toContain("Quasar reachable");
-    expect(result.stdout + result.stderr).not.toContain("test-oidc-token");
-    if (stage !== "health") {
-      expect(readFileSync(join(home, "calls"), "utf8")).not.toMatch(/^curl /m);
-    }
+    expect(result.stderr).toContain("orb-setup checkout not found");
+  });
+
+  it("propagates a runtime failure", () => {
+    installRuntime("orb-setup", 7);
+    expect(resume().status).toBe(7);
+  });
+
+  it("never traces itself even under bash -x", () => {
+    installRuntime("orb-setup");
+    const result = resume();
+    expect(result.status).toBe(0);
+    expect(result.stderr).toBe("+ set +x\n");
   });
 });
