@@ -16,6 +16,7 @@ import {
   validateInfoPlist,
   validatePackageSecurityPolicy,
 } from "../scripts/audit-packaged-app";
+import { EXPECTED_APP_TRANSPORT_SECURITY } from "../scripts/mac-info-plist-policy.mjs";
 
 const signing = {
   teamIdentifier: "EXAMP12345",
@@ -180,6 +181,8 @@ describe("ASAR integrity audit", () => {
     CFBundleIdentifier: "com.skastr0.junto",
     CFBundleExecutable: "Junto",
     LSMinimumSystemVersion: "13.0",
+    NSMicrophoneUsageDescription: "Use your microphone for live conversations.",
+    NSAppTransportSecurity: EXPECTED_APP_TRANSPORT_SECURITY,
     ElectronAsarIntegrity: {
       "Resources/app.asar": {
         algorithm: "SHA256",
@@ -208,6 +211,40 @@ describe("ASAR integrity audit", () => {
         hash,
       ),
     ).toThrow(/minimum system version mismatch/u);
+  });
+
+  it("refuses Electron template privacy purpose strings", () => {
+    for (const key of [
+      "NSCameraUsageDescription",
+      "NSBluetoothAlwaysUsageDescription",
+      "NSBluetoothPeripheralUsageDescription",
+      "NSAudioCaptureUsageDescription",
+    ]) {
+      expect(() =>
+        validateInfoPlist({ ...plist, [key]: "This app needs access" }, hash),
+      ).toThrow(new RegExp(`unused privacy purpose strings: ${key}`, "u"));
+    }
+  });
+
+  it("pins App Transport Security to the loopback updater exception", () => {
+    expect(() =>
+      validateInfoPlist({ ...plist, NSAppTransportSecurity: undefined }, hash),
+    ).toThrow(/App Transport Security/u);
+    expect(() =>
+      validateInfoPlist(
+        {
+          ...plist,
+          NSAppTransportSecurity: {
+            ...EXPECTED_APP_TRANSPORT_SECURITY,
+            NSExceptionDomains: {
+              ...(EXPECTED_APP_TRANSPORT_SECURITY.NSExceptionDomains as object),
+              "example.com": {},
+            },
+          },
+        },
+        hash,
+      ),
+    ).toThrow(/App Transport Security/u);
   });
 
   it("hashes the raw ASAR header string rather than whole archive bytes", () => {

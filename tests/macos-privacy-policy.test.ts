@@ -12,6 +12,10 @@ import {
   sanitizeFleetConsent,
 } from "../src/shared/settings";
 import { decodeStoredSettings } from "../src/main/junto/settings/state-schema";
+import {
+  PERMITTED_USAGE_DESCRIPTIONS,
+  unpermittedUsageDescriptions,
+} from "../scripts/mac-info-plist-policy.mjs";
 
 const read = (path: string): string => readFileSync(path, "utf8");
 
@@ -45,6 +49,32 @@ describe("macOS privacy policy", () => {
       /askForMediaAccess|requestMediaAccess|desktopCapturer|systemPreferences\.getMediaAccessStatus/u,
     );
     expect(runtime).not.toMatch(/tell application|\/usr\/bin\/osascript/u);
+  });
+
+  it("strips Electron's template purpose strings from the packaged Info.plist", () => {
+    // Electron's own Info.plist is the base electron-builder extends. Every
+    // purpose string it or package.json declares, minus the afterPack strip,
+    // is what the signed bundle declares.
+    const template = read("node_modules/electron/dist/Electron.app/Contents/Info.plist");
+    const declared = [
+      ...template.matchAll(/<key>(NS[A-Za-z]+UsageDescription)<\/key>/gu),
+      ...read("package.json").matchAll(/"(NS[A-Za-z]+UsageDescription)"/gu),
+    ].map(([, key]) => key!);
+    expect(declared).toContain("NSCameraUsageDescription");
+    const stripped = new Set(unpermittedUsageDescriptions(declared));
+    expect([...new Set(declared.filter((key) => !stripped.has(key)))]).toEqual([
+      "NSMicrophoneUsageDescription",
+    ]);
+    expect(PERMITTED_USAGE_DESCRIPTIONS).toEqual(["NSMicrophoneUsageDescription"]);
+    expect(read("scripts/electron-builder-after-pack.mjs")).toContain(
+      "await stripUnpermittedUsageDescriptions(executablePath)",
+    );
+  });
+
+  it("documents App Transport Security as the loopback updater exception only", () => {
+    const doc = read("docs/macos-privacy.md");
+    expect(doc).toContain("NSAllowsArbitraryLoads");
+    expect(doc).toContain("127.0.0.1");
   });
 
   it("defaults every cross-provider reader off", () => {

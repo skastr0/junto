@@ -19,6 +19,10 @@ import {
   getCurrentFuseWire,
   type FuseConfig,
 } from "@electron/fuses";
+import {
+  isExpectedAppTransportSecurity,
+  unpermittedUsageDescriptions,
+} from "./mac-info-plist-policy.mjs";
 import { resolveMacSigningConfig, type MacSigningConfig } from "./mac-signing-config.mjs";
 import rawPolicy from "./package-security-policy.json";
 import rawRuntimePolicy from "./macos-runtime-policy.json";
@@ -84,6 +88,7 @@ interface PackageInfoPlist {
   readonly CFBundleExecutable?: unknown;
   readonly LSMinimumSystemVersion?: unknown;
   readonly ElectronAsarIntegrity?: unknown;
+  readonly NSAppTransportSecurity?: unknown;
 }
 
 export interface PackageAuditReceipt {
@@ -482,6 +487,17 @@ export const validateInfoPlist = (
   if (plist.LSMinimumSystemVersion !== policy.minimumSystemVersion) {
     throw new Error(
       `Info.plist minimum system version mismatch: got ${String(plist.LSMinimumSystemVersion)} want ${policy.minimumSystemVersion}`,
+    );
+  }
+  const unpermitted = unpermittedUsageDescriptions(Object.keys(plist));
+  if (unpermitted.length > 0) {
+    throw new Error(
+      `Info.plist declares unused privacy purpose strings: ${unpermitted.join(", ")}`,
+    );
+  }
+  if (!isExpectedAppTransportSecurity(plist.NSAppTransportSecurity)) {
+    throw new Error(
+      "Info.plist App Transport Security is not the loopback updater exception",
     );
   }
   if (!isRecord(plist.ElectronAsarIntegrity)) {

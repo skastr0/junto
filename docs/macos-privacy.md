@@ -18,8 +18,19 @@ that action. Narrow startup metadata/network exceptions are listed below.
   `com.apple.security.device.audio-input` for Live conversations. The custom
   signer assigns this profile only to its existing Electron roles. The CLI
   and native libraries keep the empty profile and inherited plist.
-- The package declares only `NSMicrophoneUsageDescription`. Live conversations
+- The package declares only `NSMicrophoneUsageDescription`. Electron's
+  template Info.plist also carries camera, Bluetooth, and audio-capture
+  purpose strings; the afterPack hook strips them before signing
+  (`scripts/mac-info-plist-policy.mjs`), and the packaged-app audit refuses
+  a bundle that still declares one. Live conversations
   are behind `JUNTO_LIVE_OVERSEER`, off in the shipping profile.
+- App Transport Security keeps electron-builder's loopback updater
+  exception: `NSAllowsLocalNetworking`, `localhost` and `127.0.0.1`
+  exceptions, and `NSAllowsArbitraryLoads`. ATS governs only Foundation
+  networking, not Chromium or Node traffic. Junto's only Foundation client
+  is Squirrel.Mac, which installs an update by fetching it from
+  electron-updater's `http://127.0.0.1` proxy. The audit pins this exact
+  dictionary so it cannot widen.
   Microphone access begins only when the operator starts a call in an enabled
   build, and its tracks stop when the call ends. The runtime has no camera,
   screen capture, location, contacts, calendar,

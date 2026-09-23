@@ -8,8 +8,10 @@ import {
   unlink,
   writeFile,
 } from "node:fs/promises";
+import { execFile } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
 import {
   flipFuses,
   FuseState,
@@ -17,6 +19,7 @@ import {
   FuseVersion,
   getCurrentFuseWire,
 } from "@electron/fuses";
+import { unpermittedUsageDescriptions } from "./mac-info-plist-policy.mjs";
 
 const POLICY_PATH = fileURLToPath(
   new URL("./package-security-policy.json", import.meta.url),
@@ -641,6 +644,28 @@ const closeLinuxArtifact = async (artifact) => {
   if (failure !== undefined) throw failure.reason;
 };
 
+const execFileAsync = promisify(execFile);
+const PLUTIL = "/usr/bin/plutil";
+
+// Electron's template declares camera, Bluetooth, and audio-capture purpose
+// strings Junto never uses. Strip them before signing so the bundle declares
+// only mac-info-plist-policy.mjs PERMITTED_USAGE_DESCRIPTIONS.
+const stripUnpermittedUsageDescriptions = async (appPath) => {
+  const infoPlist = path.join(appPath, "Contents", "Info.plist");
+  const { stdout } = await execFileAsync(PLUTIL, [
+    "-convert",
+    "json",
+    "-o",
+    "-",
+    infoPlist,
+  ]);
+  for (const key of unpermittedUsageDescriptions(
+    Object.keys(JSON.parse(stdout)),
+  )) {
+    await execFileAsync(PLUTIL, ["-remove", key, infoPlist]);
+  }
+};
+
 export default async function afterPack(context) {
   const platform = context.electronPlatformName;
   const policy = await loadPolicy();
@@ -729,7 +754,10 @@ export default async function afterPack(context) {
       platform === "darwin"
         ? path.join(context.appOutDir, `${productFilename}.app`)
         : procDescriptorPath(linuxArtifact.executable.handle);
-    if (platform === "darwin") await access(executablePath);
+    if (platform === "darwin") {
+      await access(executablePath);
+      await stripUnpermittedUsageDescriptions(executablePath);
+    }
 
     const fuseConfig = {
       version: FuseVersion.V1,
