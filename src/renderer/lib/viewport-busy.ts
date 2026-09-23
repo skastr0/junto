@@ -4,10 +4,18 @@
 // setNodes rebuilds, rollup publishes, and CSS transitions so
 // the RF transform path stays free of competing React work.
 //
-// Mark on move start / continuous move; release after a short hold past
+// Mark on move start / continuous move; release after a hold past
 // panOnScroll's end debounce. An inactivity watchdog guarantees we never stick
 // busy if onMoveEnd is dropped; every mark refreshes it, so a continuous
 // gesture never force-releases mid-pan.
+//
+// The hold is gesture-scoped. A short camera move (fitView, focus, one wheel
+// tick) releases after the short end hold. A sustained gesture releases only
+// after a longer quiet bridge: operator input arrives in bursts (wheel notches,
+// trackpad micro-pauses), and each gap past the short hold used to drop and
+// re-latch the gate mid-gesture. Every drop resumed every paused animation for
+// one hold window, then froze it again, which read as the whole board
+// strobing while the operator panned.
 //
 // Rendering policy is decoupled from this gate: the viewport's compositor
 // promotion (will-change on .react-flow__viewport) is STABLE for the canvas
@@ -37,6 +45,14 @@ export const VIEWPORT_BUSY_ATTR = "data-viewport-busy";
 
 /** Hold past panOnScroll's ~150ms end debounce so consecutive ticks stay frozen. */
 export const VIEWPORT_BUSY_END_HOLD_MS = 160;
+/** Busy this long counts as a sustained operator gesture, not a single camera move. */
+export const VIEWPORT_BUSY_SUSTAINED_MS = 200;
+/**
+ * Release hold for a sustained gesture. It bridges the pauses between input
+ * bursts inside one gesture, so the gate releases once when the operator stops
+ * rather than once per burst.
+ */
+export const VIEWPORT_BUSY_GESTURE_HOLD_MS = 480;
 /**
  * Inactivity timeout — sustained silence while busy force-releases the gate so
  * deferred work flushes even when onMoveEnd is lost. Every mark refreshes it:
@@ -52,6 +68,8 @@ const IDLE_MS = VIEWPORT_BUSY_IDLE_MS;
 
 let endTimer: ReturnType<typeof setTimeout> | undefined;
 let idleTimer: ReturnType<typeof setTimeout> | undefined;
+/** When the current busy gesture latched; undefined while idle. */
+let busySince: number | undefined;
 
 const clearEndTimer = (): void => {
   if (endTimer === undefined) return;
@@ -73,6 +91,7 @@ const syncDom = (): void => {
 const setIdle = (): void => {
   clearEndTimer();
   clearIdleTimer();
+  busySince = undefined;
   if (viewportBusy$.peek()) {
     viewportBusy$.set(false);
     canvasPerformance.recordViewportBusy(false);
@@ -92,6 +111,7 @@ export const markViewportBusy = (): void => {
     idleTimer = undefined;
     setIdle();
   }, IDLE_MS);
+  busySince ??= Date.now();
   if (!viewportBusy$.peek()) {
     viewportBusy$.set(true);
     canvasPerformance.recordViewportBusy(true);
@@ -99,13 +119,19 @@ export const markViewportBusy = (): void => {
   syncDom();
 };
 
-/** Schedule release after END_HOLD_MS of no further marks. */
+/** Release hold for the current gesture: short for a camera move, a bridge for a sustained gesture. */
+const releaseHoldMs = (): number =>
+  busySince !== undefined && Date.now() - busySince >= VIEWPORT_BUSY_SUSTAINED_MS
+    ? VIEWPORT_BUSY_GESTURE_HOLD_MS
+    : END_HOLD_MS;
+
+/** Schedule release after the gesture's hold of no further marks. */
 export const releaseViewportBusy = (): void => {
   clearEndTimer();
   endTimer = setTimeout(() => {
     endTimer = undefined;
     setIdle();
-  }, END_HOLD_MS);
+  }, releaseHoldMs());
 };
 
 /**

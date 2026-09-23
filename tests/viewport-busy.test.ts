@@ -2,7 +2,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   VIEWPORT_BUSY_ATTR,
   VIEWPORT_BUSY_END_HOLD_MS,
+  VIEWPORT_BUSY_GESTURE_HOLD_MS,
   VIEWPORT_BUSY_IDLE_MS,
+  VIEWPORT_BUSY_SUSTAINED_MS,
   markViewportBusy,
   releaseViewportBusy,
   resetViewportBusy,
@@ -61,6 +63,55 @@ describe("viewportBusy$", () => {
     }
     // Sustained silence is the only forced release.
     vi.advanceTimersByTime(VIEWPORT_BUSY_IDLE_MS + 1);
+    expect(viewportBusy$.peek()).toBe(false);
+  });
+
+  it("releases a bursty gesture once, not once per burst", () => {
+    vi.useFakeTimers();
+    const transitions: boolean[] = [];
+    const stop = viewportBusy$.onChange(({ value }) => transitions.push(value));
+
+    // The e2e bursty wheel shape: ~260ms of 12ms wheel ticks, then ~340ms of
+    // silence. React Flow calls onMoveEnd 150ms after the last tick. The old
+    // fixed 160ms hold dropped the gate in every gap.
+    for (let burst = 0; burst < 7; burst += 1) {
+      markViewportBusy();
+      for (let tick = 0; tick < 22; tick += 1) {
+        vi.advanceTimersByTime(12);
+        markViewportBusy();
+      }
+      vi.advanceTimersByTime(150);
+      releaseViewportBusy();
+      vi.advanceTimersByTime(190);
+      expect(viewportBusy$.peek()).toBe(true);
+    }
+
+    vi.advanceTimersByTime(VIEWPORT_BUSY_GESTURE_HOLD_MS);
+    expect(viewportBusy$.peek()).toBe(false);
+    expect(transitions).toEqual([true, false]);
+    stop();
+  });
+
+  it("uses the short hold for a camera move and the bridge hold for a sustained gesture", () => {
+    vi.useFakeTimers();
+    markViewportBusy();
+    releaseViewportBusy();
+    vi.advanceTimersByTime(VIEWPORT_BUSY_END_HOLD_MS + 1);
+    expect(viewportBusy$.peek()).toBe(false);
+
+    markViewportBusy();
+    vi.advanceTimersByTime(VIEWPORT_BUSY_SUSTAINED_MS);
+    markViewportBusy();
+    releaseViewportBusy();
+    vi.advanceTimersByTime(VIEWPORT_BUSY_GESTURE_HOLD_MS - 1);
+    expect(viewportBusy$.peek()).toBe(true);
+    vi.advanceTimersByTime(2);
+    expect(viewportBusy$.peek()).toBe(false);
+
+    // The next gesture starts short again: sustained state is per gesture.
+    markViewportBusy();
+    releaseViewportBusy();
+    vi.advanceTimersByTime(VIEWPORT_BUSY_END_HOLD_MS + 1);
     expect(viewportBusy$.peek()).toBe(false);
   });
 
