@@ -24,6 +24,11 @@ that action. Narrow startup metadata/network exceptions are listed below.
   (`scripts/mac-info-plist-policy.mjs`), and the packaged-app audit refuses
   a bundle that still declares one. Live conversations
   are behind `JUNTO_LIVE_OVERSEER`, off in the shipping profile.
+  Microphone access begins only when the operator starts a call in an enabled
+  build, and its tracks stop when the call ends. The runtime has no camera,
+  screen capture, location, contacts, calendar,
+  reminders, Photos, media-library, Bluetooth, Accessibility, Input
+  Monitoring, Apple Events, or Full Disk Access request API.
 - App Transport Security keeps electron-builder's loopback updater
   exception: `NSAllowsLocalNetworking`, `localhost` and `127.0.0.1`
   exceptions, and `NSAllowsArbitraryLoads`. ATS governs only Foundation
@@ -31,11 +36,6 @@ that action. Narrow startup metadata/network exceptions are listed below.
   is Squirrel.Mac, which installs an update by fetching it from
   electron-updater's `http://127.0.0.1` proxy. The audit pins this exact
   dictionary so it cannot widen.
-  Microphone access begins only when the operator starts a call in an enabled
-  build, and its tracks stop when the call ends. The runtime has no camera,
-  screen capture, location, contacts, calendar,
-  reminders, Photos, media-library, Bluetooth, Accessibility, Input
-  Monitoring, Apple Events, or Full Disk Access request API.
 - The trusted renderer may write the clipboard and, in Live-enabled builds,
   request audio-only microphone access. Third-party browser
   pages are denied media, display capture, devices, downloads, filesystem
