@@ -376,75 +376,69 @@ describe("ManagedTerminalDrive", () => {
     ]);
   });
 
-  it("mail steering interrupts a busy seat once, then drains prompts at idle", async () => {
+  it("mail writes into a working seat and accepts once the harness takes the text", async () => {
+    vi.useFakeTimers();
     idle = false;
-    drive = makeDrive({ write: acknowledgeSubmit });
-
-    const first = drive.writePrompt("b1", "mail one", { interruptIfBusy: true });
-    const second = drive.writePrompt("b1", "mail two", { interruptIfBusy: true });
-    await flushMicrotasks(4);
-
-    expect(writes).toEqual([{ bindingId: "b1", data: INTERRUPT_BYTE }]);
-    expect(drive.queuedCount("b1")).toBe(2);
-
-    idle = true;
-    drive.onSeatIdle("b1");
-    await expect(first).resolves.toMatchObject({ status: "submitted" });
-    expect(writes.map((w) => w.data)).toEqual([
-      INTERRUPT_BYTE,
-      encodeBracketedPaste("mail one"),
-      CR,
-    ]);
-
-    drive.onSeatIdle("b1");
-    await expect(second).resolves.toMatchObject({ status: "submitted" });
-    expect(writes.map((w) => w.data)).toEqual([
-      INTERRUPT_BYTE,
-      encodeBracketedPaste("mail one"),
-      CR,
-      encodeBracketedPaste("mail two"),
-      CR,
-    ]);
-  });
-
-  it("mail steering never interrupts an idle seat", async () => {
-    drive = makeDrive({ write: acknowledgeSubmit });
-    await expect(
-      drive.writePrompt("b1", "mail", { interruptIfBusy: true }),
-    ).resolves.toMatchObject({ status: "submitted" });
-    expect(writes).toEqual([
-      { bindingId: "b1", data: encodeBracketedPaste("mail") },
-      { bindingId: "b1", data: CR },
-    ]);
-  });
-
-  it("does not strand mail when idle arrives before the interrupt write settles", async () => {
-    idle = false;
-    let releaseInterrupt!: (ok: boolean) => void;
-    const interruptWritten = new Promise<boolean>((resolve) => {
-      releaseInterrupt = resolve;
-    });
+    let pending = false;
     drive = makeDrive({
+      isSeatWorking: () => true,
+      pendingText: () => pending,
       write: (bindingId, data) => {
         writes.push({ bindingId, data });
-        if (data === CR) drive.onTurnStart(bindingId);
-        return data === INTERRUPT_BYTE ? interruptWritten : true;
+        // The harness queues typed input mid-turn: the paste sits in the box,
+        // the CR takes it out, and no turn starts.
+        pending = data !== CR;
+        return true;
       },
     });
 
-    const mail = drive.writePrompt("b1", "mail", { interruptIfBusy: true });
-    await flushMicrotasks(3);
-    expect(writes).toEqual([{ bindingId: "b1", data: INTERRUPT_BYTE }]);
-
-    idle = true;
-    drive.onSeatIdle("b1");
-    releaseInterrupt(true);
+    const mail = drive.writePrompt("b1", "mail", { whileWorking: true });
+    await vi.advanceTimersByTimeAsync(1_000);
     await expect(mail).resolves.toMatchObject({ status: "submitted" });
-    expect(writes.map((w) => w.data)).toEqual([
-      INTERRUPT_BYTE,
-      encodeBracketedPaste("mail"),
-      CR,
-    ]);
+    expect(writes.map((w) => w.data)).toEqual([encodeBracketedPaste("mail"), CR]);
+    expect(writes.map((w) => w.data)).not.toContain(INTERRUPT_BYTE);
+    expect(drive.queuedCount("b1")).toBe(0);
+  });
+
+  it("mail never writes into a seat in attention, such as an open approval dialog", async () => {
+    idle = false;
+    drive = makeDrive({ isSeatWorking: () => false });
+    await expect(
+      drive.writePrompt("b1", "mail", { whileWorking: true }),
+    ).resolves.toMatchObject({ status: "refused", reason: "seat-busy", wrotePhysicalBytes: false });
+    expect(writes).toEqual([]);
+    // The caller owns the retry: nothing is parked in the drive.
+    expect(drive.queuedCount("b1")).toBe(0);
+  });
+
+  it("mail into a working seat never types onto an operator draft", async () => {
+    idle = false;
+    drive = makeDrive({ isSeatWorking: () => true, composerVerdict: () => "draft" });
+    await expect(
+      drive.writePrompt("b1", "mail", { whileWorking: true }),
+    ).resolves.toMatchObject({ status: "refused", reason: "composer-not-empty" });
+    expect(writes).toEqual([]);
+  });
+
+  it("a working-seat write whose text never leaves the composer is unresolved, never replayed", async () => {
+    vi.useFakeTimers();
+    idle = false;
+    drive = makeDrive({ isSeatWorking: () => true, pendingText: () => true });
+    const mail = drive.writePrompt("b1", "mail", { whileWorking: true });
+    await vi.advanceTimersByTimeAsync(2_000);
+    await expect(mail).resolves.toMatchObject({ status: "unresolved", wrotePhysicalBytes: true });
+    await expect(
+      drive.writePrompt("b1", "mail again", { whileWorking: true }),
+    ).resolves.toMatchObject({ status: "refused", reason: "written-unresolved" });
+  });
+
+  it("without whileWorking a working seat still waits for idle", async () => {
+    idle = false;
+    drive = makeDrive({ isSeatWorking: () => true });
+    await expect(
+      drive.writePrompt("b1", "pulse", { queueIfBusy: false }),
+    ).resolves.toMatchObject({ status: "refused", reason: "seat-busy" });
+    expect(writes).toEqual([]);
   });
 
   it("refuses a non-queuing busy prompt without writing it on a later idle transition", async () => {
@@ -1123,25 +1117,6 @@ describe("composer verdict gate (screen truth)", () => {
     expect(drive.queuedCount("b1")).toBe(0);
   });
 
-  it("mail steering never sends Ctrl+C while the composer is not proven empty", async () => {
-    idle = false;
-    verdict = "draft";
-    drive = makeDrive();
-    const pending = drive.writePrompt("b1", "mail", { interruptIfBusy: true });
-    await Promise.resolve();
-    await Promise.resolve();
-    // No interrupt byte — Ctrl+C would wipe the operator's draft.
-    expect(writes).toEqual([]);
-    idle = true;
-    verdict = "empty";
-    drive.onComposerClear("b1");
-    await expect(pending).resolves.toMatchObject({ status: "submitted" });
-    expect(writes.map((w) => w.data)).toEqual([
-      encodeBracketedPaste("mail"),
-      CR,
-    ]);
-  });
-
   it("a verdict flip between drain and paste refuses at the boundary", async () => {
     drive = makeDrive();
     const seen: string[] = [];
@@ -1565,7 +1540,7 @@ describe("written-unresolved submission guard", () => {
     await vi.advanceTimersByTimeAsync(60_000);
     drive.suspend();
     drive.resetForTest();
-    await expect(drive.writePrompt("stalled", "retry", { interruptIfBusy: true })).resolves.toMatchObject({ status: "refused", reason: "written-unresolved" });
+    await expect(drive.writePrompt("stalled", "retry", { whileWorking: true })).resolves.toMatchObject({ status: "refused", reason: "written-unresolved" });
     expect(writes).toHaveLength(4);
     await expect(drive.writePrompt("unrelated", "still works")).resolves.toMatchObject({ status: "submitted" });
     expect(writes.slice(4).map(({ bindingId }) => bindingId)).toEqual(["unrelated", "unrelated"]);
@@ -1653,7 +1628,7 @@ describe("written-unresolved submission guard", () => {
       assertClipboardSafe: () => ++checks === 1 ? preflight : true,
       write: (_bindingId, data) => { writes.push(data); return true; },
     });
-    const waiting = drive.writePrompt("seat", "waiting mail", { interruptIfBusy: true });
+    const waiting = drive.writePrompt("seat", "waiting mail", { whileWorking: true });
     await expect(drive.writePrompt("seat", "first\nprompt")).resolves.toMatchObject({ status: "unresolved", reason: "chip-pending" });
     idle = false;
     finishPreflight(true);
@@ -1675,7 +1650,7 @@ describe("written-unresolved submission guard", () => {
     const first = drive.writePrompt("seat", "already working");
     await vi.advanceTimersByTimeAsync(10);
     await expect(first).resolves.toMatchObject({ status: "unresolved", reason: "chip-pending" });
-    await expect(drive.writePrompt("seat", "mail", { interruptIfBusy: true })).resolves.toMatchObject({ status: "refused", reason: "written-unresolved" });
+    await expect(drive.writePrompt("seat", "mail", { whileWorking: true })).resolves.toMatchObject({ status: "refused", reason: "written-unresolved" });
     expect(writes).toEqual([encodeBracketedPaste("already working")]);
   });
 

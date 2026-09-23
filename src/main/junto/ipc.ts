@@ -1456,6 +1456,11 @@ export const registerJuntoIpc = (): void => {
           seatStateRuntime.isSeatIdle(bindingId) &&
           !awarenessSeatHold.holds(bindingId),
         seatState: (bindingId) => seatStateRuntime.getState(bindingId),
+        // Mail into a live turn. The AI hold binds here too: a seat Jev
+        // judges blocked on an approval is never typed into.
+        isSeatWorking: (bindingId) =>
+          seatStateRuntime.getState(bindingId) === "working" &&
+          !awarenessSeatHold.holds(bindingId),
         // Only Grok has the clipboard-image TUI trap. Electron exposes the
         // pasteboard format list without decoding its payload; all other
         // harnesses bypass this preflight entirely.
@@ -1513,7 +1518,7 @@ export const registerJuntoIpc = (): void => {
         options?: {
           readonly queueTimeoutMs?: number;
           readonly ready?: boolean;
-          readonly interruptIfBusy?: boolean;
+          readonly whileWorking?: boolean;
           /** See ManagedTerminalDrive WritePromptOptions.awaitTurnStart. */
           readonly awaitTurnStart?: boolean;
         },

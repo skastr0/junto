@@ -51,7 +51,7 @@ export type FactoryDeliveryDrive = {
 export type FactoryWritePromptOptions = {
   readonly queueTimeoutMs?: number;
   readonly ready?: boolean;
-  readonly interruptIfBusy?: boolean;
+  readonly whileWorking?: boolean;
   readonly awaitTurnStart?: boolean;
 };
 
