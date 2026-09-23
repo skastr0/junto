@@ -47,6 +47,7 @@ import { RemoteStationFace } from "./components/remote/RemoteStationFace";
 import { RendererErrorBoundary } from "./components/RendererErrorBoundary";
 
 import { SettingsPanel } from "./components/SettingsPanel";
+import { FirstRunIntro } from "./components/onboarding/FirstRunIntro";
 import { DigestPanel } from "./components/DigestPanel";
 import { ObservabilityPanel } from "./components/ObservabilityPanel";
 import {
@@ -590,6 +591,7 @@ export function App() {
           </Suspense>
         ) : null}
         <DemoLayer />
+        <FirstRunIntro />
         </div>
         <WorkSurfaceDock />
       </div>

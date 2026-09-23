@@ -1,0 +1,236 @@
+/* First-run introduction (FirstRunIntro.tsx). Rides the FocusSurface prose
+   plate; every color is a theme token so dark and bright both hold. */
+
+.focus-surface__panel.first-run-intro {
+  width: min(560px, calc(100vw - 32px));
+  max-height: min(86vh, 720px);
+  background: var(--color-raise);
+}
+
+.first-run-intro__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px 0 22px;
+}
+.first-run-intro__brand {
+  color: var(--color-amber);
+  font-family: var(--font-display);
+  font-size: 13px;
+  letter-spacing: .22em;
+  text-transform: uppercase;
+}
+
+.first-run-intro__slide {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 18px 28px 6px;
+  animation: first-run-intro-slide 220ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+@keyframes first-run-intro-slide {
+  from { opacity: 0; transform: translateX(10px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+.first-run-intro__art { margin-bottom: 22px; }
+.first-run-intro__title {
+  margin: 0 0 12px;
+  color: var(--color-ink);
+  font-family: var(--font-display);
+  font-size: 24px;
+  font-weight: 500;
+  letter-spacing: .1em;
+  line-height: 1.15;
+  text-transform: uppercase;
+  text-wrap: balance;
+}
+.first-run-intro__body {
+  color: var(--color-ink-2);
+  font-size: 13px;
+  line-height: 1.6;
+  text-wrap: pretty;
+}
+.first-run-intro__body p { margin: 0; max-width: 62ch; }
+.first-run-intro__body p + p { margin-top: 10px; }
+
+/* Slide 1: two seats joined by one wire. */
+.intro-art--canvas {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  padding: 26px 12px;
+  border: 1px solid var(--color-overlay-4);
+  border-radius: 10px;
+  background:
+    radial-gradient(circle, var(--color-overlay-3) 1px, transparent 1.2px) 0 0 / 16px 16px,
+    var(--color-inset);
+}
+.intro-seat {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 128px;
+  padding: 9px 12px 9px 9px;
+  border: 1px solid var(--color-stroke);
+  border-radius: 9px;
+  background: var(--color-raise-2);
+  box-shadow: 0 6px 18px var(--color-shadow-2);
+}
+.intro-seat__text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.intro-seat__label { color: var(--color-ink); font-family: var(--font-mono); font-size: 11px; }
+.intro-seat__status {
+  color: var(--color-dim);
+  font-size: 9px;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+}
+.intro-wire {
+  position: relative;
+  flex: 1 1 auto;
+  max-width: 150px;
+  min-width: 64px;
+  height: 2px;
+  background: var(--color-amber);
+}
+.intro-wire::before,
+.intro-wire::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--color-amber);
+  transform: translateY(-50%);
+}
+.intro-wire::before { left: -3px; }
+.intro-wire::after { right: -3px; }
+.intro-wire__verb {
+  position: absolute;
+  left: 50%;
+  bottom: 7px;
+  transform: translateX(-50%);
+  color: var(--color-amber);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+/* Slide 2: the real sequence, one row per step. */
+.intro-steps {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: intro-step;
+}
+.intro-steps__row {
+  display: grid;
+  grid-template-columns: 22px 104px 1fr;
+  align-items: baseline;
+  gap: 10px;
+  padding: 11px 12px;
+  border-radius: 7px;
+  background: var(--color-overlay-1);
+  color: var(--color-ink-2);
+  font-size: 13px;
+  line-height: 1.5;
+  counter-increment: intro-step;
+}
+.intro-steps__row::before {
+  content: counter(intro-step);
+  color: var(--color-amber);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+.intro-steps__row strong { color: var(--color-ink); font-weight: 600; }
+.intro-steps__row .help-map__kbd { font-size: 10px; }
+
+/* Slide 3: a quiet stand-in for the macOS consent sheet. */
+.intro-art--prompt {
+  display: flex;
+  justify-content: center;
+  padding: 22px 12px;
+  border: 1px solid var(--color-overlay-4);
+  border-radius: 10px;
+  background: var(--color-inset);
+}
+.intro-prompt {
+  width: min(300px, 100%);
+  padding: 16px 16px 12px;
+  border: 1px solid var(--color-stroke);
+  border-radius: 12px;
+  background: var(--color-raise-2);
+  box-shadow: 0 10px 28px var(--color-shadow-1);
+  text-align: center;
+}
+.intro-prompt__title {
+  margin: 0 0 14px;
+  color: var(--color-ink);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.45;
+}
+.intro-prompt__actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.intro-prompt__button {
+  padding: 5px 0;
+  border: 1px solid var(--color-stroke);
+  border-radius: 6px;
+  background: var(--color-overlay-2);
+  color: var(--color-ink);
+  font-size: 11px;
+}
+.intro-prompt__button--default {
+  border-color: color-mix(in oklab, var(--color-cyan) 55%, transparent);
+  background: color-mix(in oklab, var(--color-cyan) 22%, transparent);
+}
+
+.first-run-intro__foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 22px 18px 28px;
+}
+.first-run-intro__dots { display: flex; gap: 4px; }
+.first-run-intro__dot {
+  width: 22px;
+  height: 18px;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  cursor: pointer;
+}
+.first-run-intro__dot::before {
+  content: "";
+  display: block;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--color-overlay-4);
+  transition: background 180ms ease-out;
+}
+.first-run-intro__dot:hover::before { background: var(--color-stroke-hi); }
+.first-run-intro__dot.is-active::before { background: var(--color-amber); }
+.first-run-intro__dot:focus-visible { outline: 2px solid var(--color-focus-ring); outline-offset: 2px; border-radius: 3px; }
+.first-run-intro__nav { display: flex; gap: 8px; }
+
+@media (max-width: 520px) {
+  .intro-steps__row { grid-template-columns: 18px 1fr; }
+  .intro-steps__row .help-map__kbd { grid-column: 2; }
+  .intro-steps__row > span { grid-column: 2; }
+}
+
+/* The surface motion gate pauses animations while the window is hidden; a
+   paused entrance would hold the text half faded, so skip it instead. */
+html[data-surface-motion="paused"] .first-run-intro__slide { animation: none !important; }
+html[data-surface-motion="paused"] .first-run-intro__dot::before { transition: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  .first-run-intro__slide { animation: none; }
+  .first-run-intro__dot::before { transition: none; }
+}

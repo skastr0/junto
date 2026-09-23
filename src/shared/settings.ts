@@ -130,6 +130,12 @@ export const AdvancedSettings = Schema.Struct({
    * before this field still decode (absent ≡ true, the product default).
    */
   seatAwareness: Schema.optionalKey(Schema.Boolean),
+  /**
+   * The first-run introduction has been finished or skipped. Optional so rows
+   * written before the introduction existed still decode; absent means not
+   * seen, so an upgrade shows it once too.
+   */
+  onboardingSeen: Schema.optionalKey(Schema.Boolean),
 });
 export type AdvancedSettings = typeof AdvancedSettings.Type;
 
@@ -685,6 +691,7 @@ export const AdvancedPatch = Schema.Struct({
     ),
   ),
   seatAwareness: Schema.optionalKey(Schema.Boolean),
+  onboardingSeen: Schema.optionalKey(Schema.Boolean),
 });
 export type AdvancedPatch = typeof AdvancedPatch.Type;
 

@@ -15,6 +15,7 @@ export const startSettingsBridge = (): (() => void) | undefined => {
 
   const unsub = window.junto.onSettingsChanged((settings) => {
     state$.settings.set(settings);
+    state$.settingsReady.set(true);
     state$.settingsError.set("");
   });
 
@@ -24,6 +25,7 @@ export const startSettingsBridge = (): (() => void) | undefined => {
       const result = await window.junto!.settingsGet();
       if (result.ok && result.settings) {
         state$.settings.set(result.settings);
+        state$.settingsReady.set(true);
         state$.settingsError.set("");
       } else {
         state$.settingsError.set(result.message ?? "failed to load settings");

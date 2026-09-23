@@ -116,6 +116,11 @@ export interface LaunchOptions {
    * a spec asks for it (`--force-device-scale-factor=1.5`).
    */
   readonly electronArgs?: ReadonlyArray<string>;
+  /**
+   * Leave the first-run introduction up. Every other launch marks it seen
+   * before the spec runs, so scenarios meet the canvas, not the tour.
+   */
+  readonly firstRunIntro?: boolean;
 }
 
 export interface JuntoWorld {
@@ -562,6 +567,16 @@ export const launchJunto = async (options: LaunchOptions = {}): Promise<JuntoHan
         for (const win of BrowserWindow.getAllWindows()) {
           if (!win.isDestroyed() && win.isVisible()) win.hide();
         }
+      });
+    }
+
+    if (options.firstRunIntro !== true) {
+      // Through the same settings IPC the introduction itself writes; the
+      // push closes it if the renderer painted it first. A Remote station
+      // face has no introduction and no settings writer to wait for.
+      await page.waitForFunction(() => Boolean(window.junto?.settingsPatch), undefined, { timeout: 30_000 });
+      await page.evaluate(async () => {
+        await window.junto?.settingsPatch({ advanced: { onboardingSeen: true } });
       });
     }
 

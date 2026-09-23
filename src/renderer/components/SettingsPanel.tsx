@@ -28,6 +28,7 @@ import {
   resetSettings,
   setStationTopology,
 } from "../lib/settings-state";
+import { openIntro } from "../lib/first-run-intro";
 import {
   checkForUpdates,
   restartAndInstallUpdate,
@@ -529,6 +530,20 @@ function AdvancedSection() {
   return (
     <div className="settings-section">
       <InstallationFacts />
+      <FieldRow
+        label="Introduction"
+        hint="the short tour from first launch: what Junto is, how to start an agent, and why macOS may name Junto"
+      >
+        <Button
+          size="sm"
+          onClick={() => {
+            closeSettings();
+            openIntro();
+          }}
+        >
+          show again
+        </Button>
+      </FieldRow>
       {DEV_TOOLS_ENABLED ? (
         <FieldRow
           label="Logs explorer"

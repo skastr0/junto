@@ -82,6 +82,12 @@ export const state$ = observable({
   settings: EMPTY_SETTINGS as Settings,
   settingsOpen: false,
   settingsLoading: false,
+  /** True once the durable settings row has hydrated (not the default stand-in). */
+  settingsReady: false,
+  /** First-run introduction reopened on request (help map, Settings). */
+  introOpen: false,
+  /** Finished or skipped this session, so a failed seen-flag write never loops. */
+  introDismissed: false,
   /** Developer logs explorer (gated by advanced.logsExplorer). */
   observabilityOpen: false,
   settingsError: "",

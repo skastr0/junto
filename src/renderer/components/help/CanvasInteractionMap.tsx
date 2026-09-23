@@ -1,4 +1,5 @@
 import {
+  Button,
   HelpMap,
   HelpMapGroup,
   HelpMapKeys,
@@ -6,6 +7,7 @@ import {
   HelpMapPrimerBlock,
   type HelpMapKeyRow,
 } from "../ui";
+import { openIntro } from "../../lib/first-run-intro";
 
 /** Canvas pointer / gesture inventory — single source for the interaction map. */
 export const CANVAS_HELP_POINTER: ReadonlyArray<HelpMapKeyRow> = [
@@ -61,6 +63,20 @@ export function CanvasInteractionMap({ onClose }: { readonly onClose: () => void
       closeLabel="Close interaction help"
       onClose={onClose}
     >
+      <HelpMapGroup label="new here" aria-label="Introduction">
+        <div className="help-map__intro">
+          <span>What Junto is, how to start an agent, and why macOS may name Junto.</span>
+          <Button
+            size="sm"
+            onClick={() => {
+              onClose();
+              openIntro();
+            }}
+          >
+            show the introduction
+          </Button>
+        </div>
+      </HelpMapGroup>
       <HelpMapGroup label="how the canvas works" aria-label="How the canvas works">
         <HelpMapPrimer>
           <HelpMapPrimerBlock lead="wires">
