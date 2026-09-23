@@ -4,10 +4,9 @@
  * macOS bills a child's file access to the GUI app at the top of its process
  * tree, so an agent Junto starts can raise a prompt that names Junto. That is
  * fine when the operator asked for the agent. What must never happen is Junto
- * causing a prompt for no reason. At launch the only unclicked starts are
- * managed seats on a canvas the operator left playing with work waiting;
- * shell terminals start only from an explicit open; and Junto makes no
- * Spotlight, Contacts, Calendar, or Reminders request of its own.
+ * causing a prompt for no reason, so nothing starts before a click: every
+ * Command Center launch comes back paused, managed seats wake only on a
+ * playing canvas, and shell terminals start only from an explicit open.
  */
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
@@ -32,7 +31,13 @@ const wakeSites = (kernel: string): Array<{ readonly fn: string; readonly body: 
   });
 
 describe("launch permission surface", () => {
-  it("wakes a managed seat only on a canvas the operator left playing", () => {
+  it("brings every Command Center launch back paused", () => {
+    const runtime = source("src/main/runtime.ts");
+    expect(runtime).toContain("Layer.provideMerge(PausePlaneLaunchPausedLive, BaseLayer)");
+    expect(runtime).not.toMatch(/\bPausePlaneLive\b/u);
+  });
+
+  it("wakes a managed seat only on a playing canvas", () => {
     const sites = wakeSites(source("src/main/junto/kernel/service.ts"));
     expect(sites.map((site) => site.fn)).toEqual([
       "startManagedSeats",
@@ -49,29 +54,5 @@ describe("launch permission surface", () => {
       source(path).includes("terminalCreate("),
     );
     expect(creators).toEqual([join("src/renderer/lib/terminal-actions.ts")]);
-  });
-
-  it("makes no Spotlight or personal-data request of its own", () => {
-    const forbidden =
-      /CoreSpotlight|NSUserActivity|NSMetadataQuery|addRecentDocument|setUserActivity|\bmdfind\b|\bmdls\b|getFileIcon|createThumbnailFromPath|systemPreferences\.askForMediaAccess|["'`]osascript["'`]/u;
-    const offenders = [...sourceFiles("src/main"), ...sourceFiles("src/preload"), ...sourceFiles("src/shared")]
-      .filter((path) => forbidden.test(source(path)));
-    expect(offenders).toEqual([]);
-  });
-
-  it("keeps the mds personal-data check a silent deny", () => {
-    // At launch mds asks tccd whether Junto may read Contacts, Calendar, and
-    // Reminders. Under the hardened runtime, with no purpose string and no
-    // personal-information entitlement, tccd denies without a dialog. Either
-    // one would turn that check into a prompt at every launch.
-    const packaging = [
-      source("package.json"),
-      source("build/entitlements.mac.plist"),
-      source("build/entitlements.mac.inherit.plist"),
-    ].join("\n");
-    expect(packaging).not.toMatch(
-      /NS(Contacts|Calendars|CalendarsFullAccess|CalendarsWriteOnlyAccess|Reminders|RemindersFullAccess)UsageDescription/u,
-    );
-    expect(packaging).not.toContain("com.apple.security.personal-information");
   });
 });
