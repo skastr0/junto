@@ -5,6 +5,7 @@
  * worker-capped so tsc and electron-vite still get CPU.
  */
 import { spawn } from "node:child_process";
+import { readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -62,6 +63,19 @@ await allMustPass([
 
 const vitestWorkers = process.env.CI === "true" ? "2" : "4";
 
+// Every feature gate test runs in the ship profile. Discovered, not listed:
+// a gate added after this file was last edited must not skip CI.
+const shipProfileTests = (): string[] =>
+  readdirSync(join(ROOT, "tests"))
+    .filter(
+      (name) =>
+        name === "features-build-profile.test.ts" ||
+        name === "features-ui-gates.test.ts" ||
+        /^features-[a-z0-9-]+-gate\.test\.ts$/u.test(name),
+    )
+    .sort()
+    .map((name) => `tests/${name}`);
+
 // electron-vite must not run beside tests: both download Electron and write
 // under out/.
 await allMustPass([
@@ -76,20 +90,7 @@ await allMustPass([
 await allMustPass([
   {
     name: "test:features:ship",
-    cmd: [
-      "vitest",
-      "run",
-      "tests/features-build-profile.test.ts",
-      "tests/features-browser-gate.test.ts",
-      "tests/features-dev-tools-gate.test.ts",
-      "tests/features-fleet-gate.test.ts",
-      "tests/features-harness-gate.test.ts",
-      "tests/features-harness-settings-gate.test.ts",
-      "tests/features-hermes-integration-gate.test.ts",
-      "tests/features-scheduler-gate.test.ts",
-      "tests/features-ui-gates.test.ts",
-      "tests/features-usage-gate.test.ts",
-    ],
+    cmd: ["vitest", "run", ...shipProfileTests()],
     env: { JUNTO_TEST_FEATURE_PROFILE: "ship" },
   },
 ]);
