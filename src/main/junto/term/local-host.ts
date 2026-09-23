@@ -14,7 +14,11 @@ import { Result } from "effect";
 import { LIVE_OVERSEER_ENABLED } from "@shared/features";
 import type { ManagedSpawnIntent } from "@shared/managed-terminal-launch";
 import type { HarnessId } from "@shared/managed-terminal-templates";
-import { classifySpawnFailure } from "@shared/spawn-failure";
+import {
+  classifySpawnFailure,
+  LaunchRefusedError,
+  launchRefusalCopy,
+} from "@shared/spawn-failure";
 import type { TerminalLaunch, TerminalSessionSummary } from "@shared/terminal";
 import { colorFgBgFor, type ThemeMode } from "@shared/theme";
 import { currentThemeMode } from "../theme-state";
@@ -550,6 +554,24 @@ const resolveCwd = (launch: TerminalLaunch | undefined): string => {
   return expanded;
 };
 
+/** Operator-home paths read as `~/…` on a seat card. */
+const displayPath = (path: string): string => {
+  const home = os.homedir();
+  if (home && (path === home || path.startsWith(`${home}/`))) {
+    return `~${path.slice(home.length)}`;
+  }
+  return path;
+};
+
+/** The typed refusal for a launch cwd that is missing or not a directory. */
+const unusableCwdError = (cwd: string): LaunchRefusedError =>
+  new LaunchRefusedError({
+    operatorReason: existsSync(cwd)
+      ? launchRefusalCopy.notAFolder(displayPath(cwd))
+      : launchRefusalCopy.folderMissing(displayPath(cwd)),
+    detail: `working directory is not a usable directory: ${cwd}`,
+  });
+
 /** True when the path is an existing directory the child can start in. */
 const isUsableCwd = (cwd: string): boolean => {
   try {
@@ -585,6 +607,10 @@ export type AgentLaunchUnresolvable = {
   readonly code: "agent_launch_unresolvable";
   readonly harness: HarnessId;
   readonly reason: string;
+  /** Plain copy completing "{Harness} could not start: …" on the seat card. */
+  readonly operatorReason: string;
+  /** The harness binary itself is absent (cli-missing, not spawn_failed). */
+  readonly missingExecutable?: true;
 };
 
 export type ResolvedLaunch = {
@@ -670,18 +696,32 @@ export const resolveLaunch = (
   );
 
   if (seat.kind === "agent") {
-    const unresolvable = (reason: string): AgentLaunchUnresolvable => ({
+    const unresolvable = (
+      reason: string,
+      operatorReason: string,
+      missingExecutable?: true,
+    ): AgentLaunchUnresolvable => ({
       code: "agent_launch_unresolvable",
       harness: seat.harness,
       reason,
+      operatorReason,
+      ...(missingExecutable ? { missingExecutable } : {}),
     });
-    if (!launch) return Result.fail(unresolvable("the seat carries no launch profile"));
+    if (!launch) {
+      return Result.fail(
+        unresolvable("the seat carries no launch profile", launchRefusalCopy.launchIncomplete),
+      );
+    }
     if (launch.kind === "shell") {
-      return Result.fail(unresolvable("the seat's launch profile is a shell"));
+      return Result.fail(
+        unresolvable("the seat's launch profile is a shell", launchRefusalCopy.launchIncomplete),
+      );
     }
     const file = argv[0];
     if (file === undefined) {
-      return Result.fail(unresolvable("the seat's launch profile carries no argv"));
+      return Result.fail(
+        unresolvable("the seat's launch profile carries no argv", launchRefusalCopy.launchIncomplete),
+      );
     }
     // A managed agent seat must name its own working directory. resolveCwd
     // falls back to the operator home, which the refusal below rejects — so a
@@ -690,7 +730,10 @@ export const resolveLaunch = (
     // a folder, and a seat without one has nothing to run in.
     if (!launch.cwd?.trim()) {
       return Result.fail(
-        unresolvable("the seat has no working directory — choose a folder for this seat"),
+        unresolvable(
+          "the seat has no working directory — choose a folder for this seat",
+          launchRefusalCopy.noFolder,
+        ),
       );
     }
     // An agent seat rooted at the operator home turns the harness's own file
@@ -704,6 +747,7 @@ export const resolveLaunch = (
       return Result.fail(
         unresolvable(
           "the seat's working directory is missing or resolves to the operator home",
+          launchRefusalCopy.homeFolder,
         ),
       );
     }
@@ -726,7 +770,11 @@ export const resolveLaunch = (
       (!isAbsolute(fileTarget) || existsSync(fileTarget))
     ) {
       return Result.fail(
-        unresolvable(`the harness binary "${file}" was not found on the seat PATH`),
+        unresolvable(
+          `the harness binary "${file}" was not found on the seat PATH`,
+          `the harness binary "${file}" was not found`,
+          true,
+        ),
       );
     }
     return Result.succeed({
@@ -1078,9 +1126,11 @@ export class LocalSessionHost extends EventEmitter {
       // state on its node. It never falls through to a shell.
       this.failBeforeOwnership(
         rec,
-        new Error(
-          `${resolved.failure.harness} seat launch unresolvable: ${resolved.failure.reason}`,
-        ),
+        new LaunchRefusedError({
+          operatorReason: resolved.failure.operatorReason,
+          detail: `${resolved.failure.harness} seat launch unresolvable: ${resolved.failure.reason}`,
+          ...(resolved.failure.missingExecutable ? { missingExecutable: true } : {}),
+        }),
       );
       return this.summaryOf(rec);
     }
@@ -1096,10 +1146,7 @@ export class LocalSessionHost extends EventEmitter {
       // node-pty exits the child with code 1 and no output for a missing or
       // non-directory cwd (including a literal unexpanded `~/…` before expand).
       // Fail before ownership so the journal names the path.
-      this.failBeforeOwnership(
-        rec,
-        new Error(`working directory is not a usable directory: ${launch.cwd}`),
-      );
+      this.failBeforeOwnership(rec, unusableCwdError(launch.cwd));
       return this.summaryOf(rec);
     }
 
@@ -1137,9 +1184,7 @@ export class LocalSessionHost extends EventEmitter {
     }
 
     if (!isUsableCwd(terminalLaunch.cwd)) {
-      const error = new Error(
-        `working directory is not a usable directory: ${terminalLaunch.cwd}`,
-      );
+      const error = unusableCwdError(terminalLaunch.cwd);
       this.revokeProcessIdentities(rec);
       this.requestPrimeDaemonStop(rec, "prime_daemon_launch_invalid");
       this.failBeforeOwnership(rec, error);

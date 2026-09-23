@@ -343,6 +343,29 @@ describe("LocalSessionHost", () => {
     ).toContain("working directory is not a usable directory");
   });
 
+  it("names a missing agent seat folder on the seat card", () => {
+    const fake = makeFakeTerminalProcessAuthority(() => ({
+      pid: trackSyntheticPid(42_902),
+    }));
+    const host = hostWith(fake);
+    const missing = join(homedir(), "definitely-missing-junto-seat-folder");
+
+    const summary = host.createAgentSeat({
+      bindingId: "seat-missing-folder",
+      harness: "codex",
+      agentKey: "local:codex",
+      launch: { kind: "harness", argv: ["sh"], cwd: missing },
+    });
+
+    expect(summary).toMatchObject({
+      status: "exited",
+      exitReason: "spawn_failed",
+      exitMessage:
+        "Codex could not start: the folder ~/definitely-missing-junto-seat-folder does not exist",
+    });
+    expect(fake.controllers).toHaveLength(0);
+  });
+
   it("rejects a missing or non-absolute shell before process spawn", () => {
     expect(() =>
       resolveLaunch({ kind: "terminal", launch: { kind: "shell", argv: ["sh"] } }),
@@ -559,13 +582,13 @@ describe("LocalSessionHost", () => {
     // never a raw errno dump and never idle "stopped" semantics on the wire.
     expect(summary).toMatchObject({
       exitReason: "spawn_failed",
-      exitMessage: "Claude Code failed to start",
+      exitMessage: "Claude Code could not start: its launch settings are incomplete",
     });
     expect(
       attached.journal
         .map((entry) => (entry.type === "output" ? entry.data : ""))
         .join(""),
-    ).toContain("Claude Code failed to start");
+    ).toContain("Claude Code could not start: its launch settings are incomplete");
   });
 
   it("classifies ENOENT spawn as cli-missing with harness display name", async () => {

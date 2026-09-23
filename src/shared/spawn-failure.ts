@@ -26,8 +26,52 @@ export type ClassifiedSpawnFailure = {
 
 const MISSING_CLI_RE = /ENOENT|not found|command not found|posix_spawnp failed/i;
 
+/**
+ * Plain operator copy for the launches Junto refuses before spawning. Each
+ * one completes the sentence "{Harness} could not start: …".
+ */
+export const launchRefusalCopy = {
+  noFolder: "no folder is chosen for this seat",
+  homeFolder: "its folder is your home folder, choose a project folder instead",
+  folderMissing: (path: string): string => `the folder ${path} does not exist`,
+  notAFolder: (path: string): string => `${path} is not a folder`,
+  launchIncomplete: "its launch settings are incomplete",
+} as const;
+
+/**
+ * A launch Junto refused before spawning anything. `operatorReason` is the
+ * plain copy the seat card shows; the message keeps the technical detail for
+ * the journal.
+ */
+export class LaunchRefusedError extends Error {
+  readonly operatorReason: string;
+  /** The harness binary itself is absent: classifies as cli-missing. */
+  readonly missingExecutable: boolean;
+
+  constructor(input: {
+    readonly operatorReason: string;
+    readonly detail: string;
+    readonly missingExecutable?: boolean;
+  }) {
+    super(input.detail);
+    this.name = "LaunchRefusedError";
+    this.operatorReason = input.operatorReason;
+    this.missingExecutable = input.missingExecutable === true;
+  }
+}
+
+/** Longest raw error line a seat card shows when Junto has no plain copy for it. */
+const RAW_REASON_MAX = 160;
+
+/** First line of a raw error, bounded for a card subtitle. */
+const rawReasonLine = (raw: string): string => {
+  const line = raw.split(/\r?\n/, 1)[0]?.trim() ?? "";
+  return line.length > RAW_REASON_MAX ? `${line.slice(0, RAW_REASON_MAX - 1)}…` : line;
+};
+
 /** True when an error (or its cause chain) indicates a missing executable. */
 export const isMissingExecutableError = (error: unknown): boolean => {
+  if (error instanceof LaunchRefusedError) return error.missingExecutable;
   let current: unknown = error;
   for (let depth = 0; depth < 4 && current; depth += 1) {
     if (typeof current === "object" && current !== null) {
@@ -100,13 +144,18 @@ export const classifySpawnFailure = (
     };
   }
 
-  // Unresolvable launch / bad cwd / other pre-ownership failures.
-  const message = display
-    ? `${display} failed to start`
-    : "failed to start";
+  // Refused launch / bad folder / other pre-ownership failures. The card
+  // names the real reason: a bare "failed to start" left the operator nothing
+  // to act on while the cause sat in an unrendered journal line.
+  const subject = display ?? "The seat";
+  const reasonCopy =
+    error instanceof LaunchRefusedError ? error.operatorReason : rawReasonLine(raw);
+  const message = reasonCopy
+    ? `${subject} could not start: ${reasonCopy}`
+    : `${subject} could not start`;
   return {
     reason: "spawn_failed",
     message,
-    journal: `${message}: ${raw}`,
+    journal: raw && raw !== reasonCopy ? `${message}. (${raw})` : message,
   };
 };
