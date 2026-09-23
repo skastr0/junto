@@ -104,9 +104,9 @@ export const introSlides = (mac: boolean): ReadonlyArray<IntroSlide> => [
     body: (
       <>
         <p>
-          Double-click an agent to open its terminal. A new canvas starts
-          paused: press play when you want it to deliver messages and hand out
-          tasks on its own.
+          Double-click an agent to open its terminal. Every launch starts
+          paused: press play when you want the canvas to deliver messages and
+          hand out tasks on its own.
         </p>
       </>
     ),

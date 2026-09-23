@@ -168,7 +168,8 @@ exports are outputs, never inputs the app watches.
 
 **Play and pause.** A playing canvas starts a seat on its own only when work
 is waiting for that seat; other seats resume their session when you open
-them. A paused canvas starts nothing on its own. Local terminal processes
+them. A paused canvas starts nothing on its own, and every launch comes back
+paused, so nothing runs until you press play. Local terminal processes
 belong to the app and stop when it quits.
 
 **Overseer.** A human-toggled switch on one seat. That agent may author the

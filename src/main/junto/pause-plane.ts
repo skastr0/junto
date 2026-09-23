@@ -13,6 +13,11 @@ import { FactoryPauseRepository } from "./pause/repository";
 //
 // Fail closed, fail loud: unreadable SQLite state leaves every canvas paused
 // and refuses writes so corrupt state is never clobbered.
+//
+// LAUNCH (Command Center): every launch comes back paused. A canvas left
+// playing would otherwise start agent seats before the operator did anything,
+// and macOS names Junto on whatever those agents read. Play is re-pressed once
+// per launch; everPlayed survives, so no first-play confirmation repeats.
 
 /** A pause state mutation that could not land durably. */
 export class PauseStateError extends Schema.TaggedError<PauseStateError>()(
@@ -60,7 +65,16 @@ type PlaneMemory = {
   readonly fault: string | undefined;
 };
 
-export const PausePlaneLive = Layer.effect(
+export interface PausePlaneOptions {
+  /**
+   * Restore a canvas's recorded play state at start. False pauses every
+   * playing canvas durably before any reader sees it (the Command Center
+   * launch law); true keeps the record (headless Remote stations, suites).
+   */
+  readonly resumePlayAtLaunch: boolean;
+}
+
+export const makePausePlaneLive = (options: PausePlaneOptions) => Layer.effect(
   PausePlane,
   Effect.gen(function* () {
     const repository = yield* FactoryPauseRepository;
@@ -89,9 +103,27 @@ export const PausePlaneLive = Layer.effect(
         yield* Ref.update(memory, (current) => ({ ...current, fault }));
         return;
       }
+      let canvases = read.success;
+      if (!options.resumePlayAtLaunch) {
+        const held = new Map(canvases);
+        for (const [canvas, state] of canvases) {
+          if (!state.playing) continue;
+          const paused = yield* Effect.result(repository.setPlaying(canvas, false));
+          if (Result.isFailure(paused)) {
+            const fault = `pause at launch not saved: ${paused.failure.message}`;
+            yield* Effect.sync(() =>
+              console.error(`[pause] ${fault} — every canvas reads paused; writes refused`),
+            );
+            yield* Ref.update(memory, (current) => ({ ...current, fault }));
+            return;
+          }
+          held.set(canvas, paused.success);
+        }
+        canvases = held;
+      }
       yield* Ref.update(memory, (current) => ({
         ...current,
-        canvases: read.success,
+        canvases,
       }));
     });
 
@@ -167,3 +199,9 @@ export const PausePlaneLive = Layer.effect(
     };
   }),
 );
+
+/** Restores recorded play state: headless Remote stations and suites. */
+export const PausePlaneLive = makePausePlaneLive({ resumePlayAtLaunch: true });
+
+/** Command Center: every launch comes back paused until the operator plays. */
+export const PausePlaneLaunchPausedLive = makePausePlaneLive({ resumePlayAtLaunch: false });

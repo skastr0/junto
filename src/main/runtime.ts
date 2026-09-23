@@ -48,7 +48,7 @@ import {
 } from "./junto/term/native-readiness";
 import { KernelLive, KernelService } from "./junto/kernel/service";
 import { KernelStateRepositoryLive } from "./junto/kernel/repository";
-import { PausePlaneLive } from "./junto/pause-plane";
+import { PausePlaneLaunchPausedLive } from "./junto/pause-plane";
 import { FactoryPauseRepositoryLive } from "./junto/pause/repository";
 import { SchedulerRepositoryLive } from "./junto/scheduler/repository";
 import { WorkLive } from "./junto/work/service";
@@ -291,7 +291,8 @@ const BaseLayer = Layer.mergeAll(
 
 // Pause plane sits between the base services and the acting planes so the
 // kernel, work control, and IPC all share ONE born-paused switch instance.
-const BaseWithPauseLive = Layer.provideMerge(PausePlaneLive, BaseLayer);
+// Every Command Center launch comes back paused (pause-plane.ts LAUNCH).
+const BaseWithPauseLive = Layer.provideMerge(PausePlaneLaunchPausedLive, BaseLayer);
 
 // Base owns StationRepository; provide it into the per-call actor WHEN while
 // retaining ActorSeatOccupy as a root service for KernelLive and other ingress.
