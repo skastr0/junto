@@ -10,12 +10,25 @@
 import { Effect } from "effect";
 import { digestCanvas } from "../../src/shared/digest";
 import { executionGraphContextFromActorRefs } from "../../src/shared/graph";
-import { readCanvasThroughControl } from "../../src/main/junto/canvas-control/client";
+import {
+  listCanvasesThroughControl,
+  readCanvasThroughControl,
+} from "../../src/main/junto/canvas-control/client";
 
 const canvas = process.argv[2];
 if (!canvas || !process.env.JUNTO_CANVAS_CONTROL_HOME) {
-  console.error("witness: usage: JUNTO_CANVAS_CONTROL_HOME=<dir> bun e2e/qa/witness.ts <canvas>");
+  console.error("witness: usage: JUNTO_CANVAS_CONTROL_HOME=<dir> bun e2e/qa/witness.ts <canvas|--list>");
   process.exit(2);
+}
+
+if (canvas === "--list") {
+  const listed = await Effect.runPromise(Effect.result(listCanvasesThroughControl({ timeoutMs: 10_000 })));
+  if (listed._tag === "Failure") {
+    console.error(`witness: ${listed.failure.message}`);
+    process.exit(1);
+  }
+  process.stdout.write(JSON.stringify(listed.success));
+  process.exit(0);
 }
 
 const result = await Effect.runPromise(Effect.result(readCanvasThroughControl(canvas, { timeoutMs: 10_000 })));
