@@ -5,7 +5,7 @@ import {
   OPERATOR_STATE_DIR_DISPLAY,
   runStartupStateFailureDialog,
   sanitizeTechnicalErrorFragment,
-  SUPPORT_EMAIL,
+  ISSUES_URL,
 } from "../src/main/junto/state/startup-state-failure-dialog";
 import { PRODUCT_NAME } from "../src/shared/product-name";
 
@@ -73,7 +73,7 @@ describe("buildStartupStateFailureCopy", () => {
     expect(copy.message).not.toMatch(/stateengine|pragma|user_version|schema/i);
 
     expect(copy.detail).toContain(OPERATOR_STATE_DIR_DISPLAY);
-    expect(copy.detail).toContain(SUPPORT_EMAIL);
+    expect(copy.detail).toContain(ISSUES_URL);
     expect(copy.detail).toMatch(/was not deleted/i);
     expect(copy.detail).toMatch(/Technical:/);
     expect(copy.detail).toContain("state schema identity mismatch");
@@ -144,7 +144,7 @@ describe("runStartupStateFailureDialog", () => {
     expect(box.title).toBe("Could not start");
     expect(box.message).toBe(`${PRODUCT_NAME} could not open its data store`);
     expect(box.detail).toContain(OPERATOR_STATE_DIR_DISPLAY);
-    expect(box.detail).toContain(SUPPORT_EMAIL);
+    expect(box.detail).toContain(ISSUES_URL);
     expect(box.detail).not.toMatch(/reset|wipe|delete.*data|format/i);
     // Title/message stay free of schema internals; detail may carry the technical fragment.
     expect(box.title).not.toMatch(/schema|user_version|PRAGMA|StateEngine/i);

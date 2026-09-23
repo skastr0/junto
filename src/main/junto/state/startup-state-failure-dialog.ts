@@ -2,8 +2,8 @@
  * Customer-facing recovery when product startup cannot open durable state.
  *
  * Mirrors startup-schema-recovery: headless stays log+quit; GUI gets a native
- * error dialog with plain-language copy, data-safe reassurance, a support
- * pointer, and a sanitized technical fragment. Never offers wipe/reset.
+ * error dialog with plain-language copy, data-safe reassurance, a pointer to
+ * GitHub issues, and a sanitized technical fragment. Never offers wipe/reset.
  */
 
 import { dialog } from "electron";
@@ -12,7 +12,8 @@ import { PRODUCT_NAME } from "@shared/product-name";
 /** Operator-facing location of the sole durable store (tilde form). */
 export const OPERATOR_STATE_DIR_DISPLAY = "~/.junto/state/" as const;
 
-export const SUPPORT_EMAIL = "support@juntoagents.com" as const;
+/** Junto has no support email; problems are reported as GitHub issues. */
+export const ISSUES_URL = "https://github.com/skastr0/junto/issues" as const;
 
 const TECHNICAL_FRAGMENT_MAX = 280;
 
@@ -59,7 +60,7 @@ const firstLine = (value: string): string =>
   value.split(/\r?\n/u)[0]?.trim() ?? "";
 
 /**
- * Flatten unknown startup failures into a single support-facing string.
+ * Flatten unknown startup failures into a single report-ready string.
  * Prefers tagged StateEngineError.message when present.
  */
 export const extractStartupFailureText = (error: unknown): string => {
@@ -140,7 +141,7 @@ export const buildStartupStateFailureCopy = (input: {
     "",
     `Your data was not deleted. It is still on disk at ${stateDir}`,
     "",
-    `Email ${SUPPORT_EMAIL} with the technical details below if this keeps happening.`,
+    `If this keeps happening, open an issue at ${ISSUES_URL} with the technical details below.`,
     "",
     `Technical: ${technical}`,
   ].join("\n");
