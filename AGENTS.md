@@ -364,6 +364,17 @@ The renderer has one visual language with two modes — `dark` (default) and `br
 
 The **E2E design-audit loop** (`e2e/scenarios/design-audit.spec.ts`) drives every reachable surface with seeded fixtures + fake hermes/codexbar and screenshots them to `test-results/design-audit/`. It is an explicit capture tool (`bun run test:e2e:audit`), not a routine gate: a local visual change needs the relevant surface spec's screenshots, not every surface; broad theme/shell changes can justify the full audit. Screenshots are disposable test output and must never be committed.
 
+The **T0 QA driver** (`bun run qa:t0`) drives the built app's GUI under the same harness and judges it with deterministic oracles instead of screenshots. It makes no model calls.
+
+- **Registry.** `e2e/qa/registry.ts` lists the surfaces (every node kind, edge verb, the palette and settings), the actions that reach them, and the invariants each probe must hold. The context axes are theme, device scale and window size.
+- **Sampling.** `e2e/qa/pairwise.ts` samples the space pairwise, never the full cross product.
+- **Oracle.** `e2e/qa/oracle.ts` compares two witnesses: the screen, and the running app's own projection. The projection is the compiled canvas and digest, read through the sandbox's canvas control socket by `e2e/qa/witness.ts`. A mismatch is a finding.
+- **Ledger.** Findings land in `test-results/qa-ledger.json`, one entry per fingerprint. The fingerprint is surface, action, invariant and a normalized signature; context is excluded.
+- **Flake gate.** Any probe that saw a violation reruns twice in fresh launches. A finding is `confirmed` only if it reproduces in 2 of its 3 attempts; otherwise it is `flaky`. Evidence screenshots go under `test-results/qa-t0/`.
+- **Filtering.** `bun scripts/qa-t0.ts --only <probe-id substring>` reuses the current build.
+- **Gate status.** It is not part of `verify`. Findings never fail the command; only lost probes do.
+- **Ledger lifetime.** Any Playwright e2e run empties `test-results/`, so the cross-run merge only survives between consecutive QA runs.
+
 On Linux, `bun run dev` and `scripts/run-e2e.sh` use an existing X11 or
 Wayland session. In Amp orbs they attach to the active orb Desktop even though
 the agent shell does not inherit its display variables. E2E falls back to
