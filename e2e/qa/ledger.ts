@@ -1,5 +1,5 @@
 /**
- * T0 QA ledger: deterministic fingerprints, the 2-of-3 flake gate, and a
+ * QA ledger, shared by every tier: deterministic fingerprints, the 2-of-3 flake gate, and a
  * merge that keeps one entry per fingerprint across runs.
  *
  * A fingerprint names the defect, not the run: surface, action, invariant, and
@@ -8,9 +8,14 @@
  * fingerprint, so the same defect seen under two contexts is one finding.
  */
 import { createHash } from "node:crypto";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
 import type { Violation } from "./oracle";
 
 export const LEDGER_SCHEMA = "junto.qa-ledger/v1";
+
+/** t0: scripted e2e probes; t1: scripted Cua Driver on the packaged app; explore: Jev-chosen Cua probes. */
+export type Tier = "t0" | "t1" | "explore";
 
 export interface ProbeContext {
   readonly theme: string;
@@ -20,6 +25,8 @@ export interface ProbeContext {
 
 /** One probe execution, as the spec writes it. */
 export interface AttemptRecord {
+  /** Absent on T0 records, which predate the other tiers. */
+  readonly tier?: Tier;
   readonly attempt: number;
   readonly probeId: string;
   readonly surface: string;
@@ -34,6 +41,7 @@ export type FindingStatus = "confirmed" | "flaky";
 
 export interface Finding {
   readonly fingerprint: string;
+  readonly tier: Tier;
   readonly status: FindingStatus;
   readonly surface: string;
   readonly action: string;
@@ -51,6 +59,7 @@ export interface Finding {
 }
 
 export interface RunSummary {
+  readonly tier: Tier;
   readonly runId: string;
   readonly startedAt: string;
   readonly finishedAt: string;
@@ -99,6 +108,7 @@ export const probesToRerun = (records: ReadonlyArray<AttemptRecord>): string[] =
  */
 export const foldFindings = (records: ReadonlyArray<AttemptRecord>, now: string): Finding[] => {
   interface Acc {
+    tier: Tier;
     surface: string;
     action: string;
     violation: Violation;
@@ -112,7 +122,14 @@ export const foldFindings = (records: ReadonlyArray<AttemptRecord>, now: string)
       const fingerprint = fingerprintOf(record.surface, record.action, violation);
       let acc = byFingerprint.get(fingerprint);
       if (!acc) {
-        acc = { surface: record.surface, action: record.action, violation, contexts: new Set(), seen: new Map() };
+        acc = {
+          tier: record.tier ?? "t0",
+          surface: record.surface,
+          action: record.action,
+          violation,
+          contexts: new Set(),
+          seen: new Map(),
+        };
         byFingerprint.set(fingerprint, acc);
       }
       acc.contexts.add(contextKey(record.context));
@@ -133,6 +150,7 @@ export const foldFindings = (records: ReadonlyArray<AttemptRecord>, now: string)
     }
     findings.push({
       fingerprint,
+      tier: acc.tier,
       status: best.filter(Boolean).length >= 2 ? "confirmed" : "flaky",
       surface: acc.surface,
       action: acc.action,
@@ -184,4 +202,18 @@ export const mergeLedger = (
   );
   const runs = [...(prior?.runs ?? []), { ...run, findings: { ...run.findings, new: newCount } }].slice(-20);
   return { ledger: { schema: LEDGER_SCHEMA, updatedAt: now, runs, findings }, newCount };
+};
+
+/** Merge one run into the ledger file on disk; returns how many fingerprints were new. */
+export const writeRun = (
+  ledgerPath: string,
+  run: RunSummary,
+  findings: ReadonlyArray<Finding>,
+  now: string,
+): number => {
+  const prior = existsSync(ledgerPath) ? (JSON.parse(readFileSync(ledgerPath, "utf8")) as Ledger) : undefined;
+  const { ledger, newCount } = mergeLedger(prior, run, findings, now);
+  mkdirSync(dirname(ledgerPath), { recursive: true });
+  writeFileSync(ledgerPath, `${JSON.stringify(ledger, null, 2)}\n`);
+  return newCount;
 };

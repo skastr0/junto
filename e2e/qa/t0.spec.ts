@@ -20,6 +20,7 @@ import {
   normalizeText,
   readAppWitness,
   readRenderedNodes,
+  titleCandidates,
   type AppWitness,
   type Violation,
 } from "./oracle";
@@ -163,7 +164,8 @@ const selectionChecks = async (
   if (surface.kind === "node" && surface.target) {
     const title = witness.titles.get(surface.target);
     const bar = normalizeText((await page.locator(".rts-shell").first().textContent().catch(() => "")) ?? "");
-    if (title && !bar.includes(normalizeText(title))) {
+    const node = witness.doc.nodes.find((candidate) => candidate.id === surface.target);
+    if (title && !titleCandidates(node, title).some((candidate) => bar.includes(candidate))) {
       out.push({
         invariant: "selection-parity",
         signature: `${surface.id}: rts bar lacks digest title`,

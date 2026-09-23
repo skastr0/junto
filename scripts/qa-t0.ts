@@ -15,21 +15,16 @@
  *   bun scripts/qa-t0.ts --only node:tasks   # reuse the current build, filter probe ids
  */
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import {
-  foldFindings,
-  mergeLedger,
-  probesToRerun,
-  type AttemptRecord,
-  type Ledger,
-  type RunSummary,
-} from "../e2e/qa/ledger";
+import { foldFindings, probesToRerun, writeRun, type AttemptRecord, type RunSummary } from "../e2e/qa/ledger";
 import { pairwisePlan, type Probe } from "../e2e/qa/pairwise";
 import type { Chunk, ChunkFile } from "../e2e/qa/t0.spec";
 
 const REPO_ROOT = join(import.meta.dir, "..");
-const OUT_DIR = join(REPO_ROOT, "test-results", "qa-t0");
+// Run artifacts live outside test-results/: any Playwright run in the shared
+// worktree empties that directory at start, even mid-run.
+const OUT_DIR = mkdtempSync("/tmp/junto-qa-t0-");
 const LEDGER_PATH = join(REPO_ROOT, "test-results", "qa-ledger.json");
 const CHUNK_SIZE = 8;
 
@@ -90,10 +85,7 @@ const gitCommit = (): string => {
 
 const main = (): void => {
   const startedAt = new Date();
-  for (const entry of existsSync(OUT_DIR) ? readdirSync(OUT_DIR) : []) {
-    rmSync(join(OUT_DIR, entry), { recursive: true, force: true });
-  }
-  mkdirSync(OUT_DIR, { recursive: true });
+  console.log(`qa:t0: run artifacts in ${OUT_DIR}`);
 
   const plan = pairwisePlan();
   const probes = only ? plan.probes.filter((probe) => probe.id.includes(only)) : plan.probes;
@@ -131,6 +123,7 @@ const main = (): void => {
   const findings = foldFindings(records, now);
   const firstAttempt = records.filter((record) => record.attempt === 1);
   const run: RunSummary = {
+    tier: "t0",
     runId: `qa-t0-${startedAt.toISOString()}`,
     startedAt: startedAt.toISOString(),
     finishedAt: now,
@@ -147,9 +140,7 @@ const main = (): void => {
     },
     harnessFailures: missing,
   };
-  const prior = existsSync(LEDGER_PATH) ? (JSON.parse(readFileSync(LEDGER_PATH, "utf8")) as Ledger) : undefined;
-  const { ledger, newCount } = mergeLedger(prior, run, findings, now);
-  writeFileSync(LEDGER_PATH, `${JSON.stringify(ledger, null, 2)}\n`);
+  const newCount = writeRun(LEDGER_PATH, run, findings, now);
 
   console.log("");
   console.log(`qa:t0: ${(run.durationMs / 1000).toFixed(0)}s, ${run.probeExecutions} probe executions, ${run.probesClean}/${firstAttempt.length} clean on attempt 1`);

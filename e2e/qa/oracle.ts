@@ -62,18 +62,30 @@ const entityTitles = (doc: CanvasDoc, digest: string): Map<string, string> => {
  * helper runs under bun (see witness.ts) and is pinned to the sandbox's
  * control directory, so it can never reach an operator's live app.
  */
-export const readAppWitness = async (sandbox: Sandbox, canvas: string): Promise<AppWitness> => {
-  const { stdout } = await run(process.env.BUN_BIN ?? "bun", [WITNESS, canvas], {
+export const readAppWitness = (sandbox: Sandbox, canvas: string): Promise<AppWitness> =>
+  readWitnessAt(sandbox.homeDir, canvas);
+
+const witnessCall = async (home: string, arg: string): Promise<string> => {
+  const { stdout } = await run(process.env.BUN_BIN ?? "bun", [WITNESS, arg], {
     env: {
       ...process.env,
-      HOME: sandbox.homeDir,
-      JUNTO_HOME: sandbox.homeDir,
-      JUNTO_CANVAS_CONTROL_HOME: join(sandbox.homeDir, ".junto", "canvas"),
+      HOME: home,
+      JUNTO_HOME: home,
+      JUNTO_CANVAS_CONTROL_HOME: join(home, ".junto", "canvas"),
     },
     maxBuffer: 64 * 1024 * 1024,
     timeout: 20_000,
   });
-  const read = JSON.parse(stdout) as { readonly doc: CanvasDoc; readonly digest: string };
+  return stdout;
+};
+
+/** Canvas names the app under `home` reports through its control socket. */
+export const listCanvasesAt = async (home: string): Promise<string[]> =>
+  (JSON.parse(await witnessCall(home, "--list")) as Array<{ readonly name: string }>).map((entry) => entry.name);
+
+/** Same projection as readAppWitness, for an app started with HOME=`home` (the packaged tiers). */
+export const readWitnessAt = async (home: string, canvas: string): Promise<AppWitness> => {
+  const read = JSON.parse(await witnessCall(home, canvas)) as { readonly doc: CanvasDoc; readonly digest: string };
   const docHash = createHash("sha256")
     .update(canonical({ nodes: read.doc.nodes, edges: read.doc.edges }))
     .digest("hex");
@@ -96,7 +108,7 @@ export const normalizeText = (text: string): string =>
   text.normalize("NFKC").replace(/\s+/g, " ").trim().toLowerCase();
 
 /** A link card may render only the host; the document holds the full URL. */
-const titleCandidates = (node: CanvasNode | undefined, title: string): string[] => {
+export const titleCandidates = (node: CanvasNode | undefined, title: string): string[] => {
   const out = [title];
   if (node?.type === "link") {
     try {
