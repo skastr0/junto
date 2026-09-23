@@ -17,6 +17,12 @@ const ISOLATE_HINTS = [
   /vi\.mock\(/,
   /process\.env\.\w+\s*=/,
   /\b(spawnSync|execFileSync|execSync|Bun\.spawn)\b/,
+  // Async children too: an in-flight child, its exit handlers, and the
+  // process-signal registry leak across files in a reused worker, and a
+  // timed-out child test there fails nondeterministically.
+  /from ["']node:child_process["']/,
+  /\bProcessSpawnerLive\b/,
+  /from ["'][./]*\/src\/main\/junto\/process-signal["']/,
   /makeFakeTerminalProcessAuthority/,
   /LocalSessionHost/,
   /node:sqlite/,
