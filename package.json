@@ -43,6 +43,7 @@
     "test:e2e": "JUNTO_FEATURE_PROFILE=all-on electron-vite build && scripts/run-e2e.sh e2e/scenarios/free-startup.spec.ts",
     "test:e2e:fast": "scripts/run-e2e.sh",
     "test:e2e:full": "JUNTO_FEATURE_PROFILE=all-on electron-vite build && scripts/run-e2e.sh --all",
+    "qa:t0": "JUNTO_FEATURE_PROFILE=all-on electron-vite build && bun scripts/qa-t0.ts",
     "test:e2e:perf": "JUNTO_FEATURE_PROFILE=all-on electron-vite build && scripts/run-e2e.sh e2e/scenarios/canvas-interaction-perf.spec.ts",
     "test:browser:electron": "bun scripts/browser-electron-containment-probe.ts",
     "test:browser:crash-recovery": "bun scripts/browser-electron-renderer-crash-recovery-probe.ts",
