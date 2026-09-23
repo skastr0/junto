@@ -54,7 +54,18 @@ in the TCC log as `accessing=<child binary>` with `responsible=com.skastr0.junto
 The seat inherits Junto's granted folders until the seat's own process tree
 ends; Junto cannot disclaim responsibility from pure Node/Electron, so the
 only mitigations are scoping which seats run, refusing home-rooted agent
-seats, and this disclosure.
+seats, and saying so. The first-run introduction tells the operator, before
+any agent starts, that agents run with their permissions, that macOS may name
+Junto when one reads a protected place, and that each prompt can be allowed
+or denied.
+
+**Launch.** Before any click, the only children Junto starts are managed agent
+seats on a canvas the operator left playing, and only when work is waiting
+for them. Shell terminals start only when the operator opens one. At launch
+macOS's metadata service asks whether Junto may read Contacts, Calendar, and
+Reminders; Junto makes no such request itself, and with no purpose string and
+no personal-information entitlement the hardened runtime denies it without a
+dialog. `tests/launch-permission-surface.test.ts` holds all three.
 
 ## Access inventory
 
@@ -67,7 +78,7 @@ seats, and this disclosure.
 | Provider usage | Per-provider toggle in Settings | Only the enabled provider's disclosed credentials, cache, session data, process data, and network endpoints | All sources default off; usage sources refresh every five minutes; Hermes host snapshots poll every minute when separately enabled; revocation clears the row immediately and stops future polls |
 | Working-directory browser | Opening an agent, Git, or region folder picker | One shallow page at a time, beginning at the shown path; hidden folders are suppressed until typed | No recursive walk, watcher, Spotlight query, glob, or background index |
 | Git surface | Creating/opening a Git node for an operator-chosen directory | Repository and Git metadata through read-only status/log/show commands | No untracked-file content scan in status; runs only for the authored Git surface |
-| Terminal or attached agent | Explicitly creating or activating the seat, or auto-occupying a playing canvas's seats at launch | The selected cwd and whatever the launched shell/CLI accesses | Broad by design; ends with the owned process unless a separately disclosed supervised service is installed. A managed agent seat must name a working directory and is refused when it resolves to the operator home |
+| Terminal or attached agent | Explicitly creating or activating the seat, or, at launch, waking a seat whose canvas the operator left playing and whose work is waiting | The selected cwd and whatever the launched shell/CLI accesses | Broad by design; ends with the owned process unless a separately disclosed supervised service is installed. A managed agent seat must name a working directory and is refused when it resolves to the operator home |
 | Browser page | Explicitly opening a page node | Junto-owned persistent browser profile and public network destinations; managed-page downloads are denied outright, and the app's own session download path is pinned under app state so it never resolves `~/Downloads` | Site cookies/storage persist until the operator wipes that profile; hostile web permissions are denied |
 | SSH/Remote | Explicit enrollment, then reconnect/sync while Command Center runs | OpenSSH configuration/credentials plus app paths on that enrolled Remote | No tailnet-wide file walk; managed package installs default off and stay in disclosed Junto app/service paths |
 | Backup export | Export action and native save dialog | One operator-selected destination | Creates a verified copy and never overwrites an existing file |
@@ -87,9 +98,10 @@ install roots, and a short list of known paths such as `~/.local/bin` and
 version-manager `shims` directory must additionally answer a bounded
 `--version` probe, so a dead shim cannot shadow a real binary; that probe runs
 the shim itself, briefly, under Junto's identity. Detection and launch share
-that resolution. Opening one harness's options may read that harness's one
-model cache or run its model-list command. This happens only in the open agent
-picker, not at app startup or in the background.
+that resolution, so the probe also runs when a seat launches, including a
+seat woken at launch on a playing canvas; it never runs as a background scan.
+Opening one harness's options may read that harness's one model cache or run
+its model-list command, and that happens only in the open agent picker.
 
 ## Provider access disclosures
 
