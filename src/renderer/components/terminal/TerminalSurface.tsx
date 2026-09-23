@@ -49,6 +49,7 @@ import {
   terminalSurfaceEyebrow,
 } from "../../lib/terminal-kill-ux";
 import { ensureTerminalRunning } from "../../lib/terminal-actions";
+import { seatDeadReason, seatRecoveryDecision } from "../../lib/seat-recovery";
 import { onTerminalEvent } from "../../lib/terminal-events";
 import { actorRailsOpen, terminal$ } from "../../lib/terminal-state";
 import {
@@ -694,6 +695,12 @@ export function TerminalSurface({
    */
   const operatorStopped = useRef(false);
   const autoWakes = useRef(0);
+  /**
+   * Consecutive attaches that landed on a dead generation, across attach-effect
+   * runs. Each run re-arms its own spinner, so only this budget can stop a seat
+   * that dies on every start from repainting "starting new session" forever.
+   */
+  const deadGenerations = useRef(0);
   const canvasName = use$(state$.canvasName);
   const doc = use$(state$.doc);
   const actorRefs = use$(state$.actorRefs);
@@ -1538,6 +1545,22 @@ export function TerminalSurface({
             // Wait for a generation with a DIFFERENT epoch before giving up, and
             // hold the loading state so nothing flashes in between.
             if (sawExit && agentSeat && !operatorStopped.current) {
+              deadGenerations.current += 1;
+              if (seatRecoveryDecision(deadGenerations.current) === "settle") {
+                // Out of budget: settle into the stopped state with the
+                // host's own reason. A status other than "exited" also keeps
+                // the lazy wake below from starting the cycle again.
+                void (async () => {
+                  const live = await api
+                    .terminalGet?.(bindingId, hostId)
+                    .catch(() => undefined);
+                  if (!alive) return;
+                  setStatus(live?.exitMessage?.trim() || "could not start");
+                  setKillPhase("stopped");
+                  setLoadPhase(null);
+                })();
+                return;
+              }
               const deadEpoch = result.lease.epoch;
               void (async () => {
                 const deadline = Date.now() + 8_000;
@@ -1566,6 +1589,8 @@ export function TerminalSurface({
               })();
               return;
             }
+            // A live attach proves the seat can start: refill the budget.
+            if (!sawExit) deadGenerations.current = 0;
             // Retained exited generations may expose their final raw journal.
             // Never paint those as a live control lease.
             setStatus(sawExit ? "exited" : "control");
@@ -1791,6 +1816,7 @@ export function TerminalSurface({
     if (reopenPending) return;
     operatorStopped.current = false;
     autoWakes.current = 0;
+    deadGenerations.current = 0;
     setReopenPending(true);
     // Agent seats: attach effect owns ensure + load spinner. Geography shells
     // still ensure here so attach finds a live generation.
@@ -1849,11 +1875,11 @@ export function TerminalSurface({
    * classified exit reason, or whatever the last status said. The generic
    * headline alone gives the operator nothing to act on.
    */
-  const deadReason = [deadInfo.reason, deadInfo.message, status !== "exited" ? status : ""]
-    .map((part) => (typeof part === "string" ? part.trim() : ""))
-    .filter((part) => part.length > 0)
-    .join(" — ")
-    .slice(0, 300);
+  const deadReason = seatDeadReason({
+    reason: deadInfo.reason,
+    message: deadInfo.message,
+    status,
+  });
   const releaseClaim = async (): Promise<void> => {
     if (!claimedTask || releasePending) return;
     setReleasePending(true);
@@ -1908,7 +1934,12 @@ export function TerminalSurface({
     // so bring it back instead of painting a dead end. Bounded so a seat that
     // cannot start (missing CLI, bad launch) still settles into the stopped
     // state rather than spinning.
-    if (agentSeat && !operatorStopped.current && autoWakes.current < 2) {
+    if (
+      agentSeat &&
+      !operatorStopped.current &&
+      autoWakes.current < 2 &&
+      seatRecoveryDecision(deadGenerations.current) === "recover"
+    ) {
       autoWakes.current += 1;
       setKillPhase("idle");
       setLoadPhase(initialSessionLoadPhase({ agentSeat, sessionId: pinSessionId }));
