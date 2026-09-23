@@ -272,8 +272,7 @@ export class PackagedApp {
         detail += `; not delivered: ${error.message}`;
       });
     }
-    if (!delivered && this.alive()) process.kill(this.pid, "SIGTERM");
-    while (Date.now() - started < timeoutMs) {
+    while (delivered && Date.now() - started < timeoutMs) {
       if (!this.alive()) return { clean: true, delivered, ms: Date.now() - started, detail };
       await Bun.sleep(200);
     }
