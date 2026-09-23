@@ -15,7 +15,7 @@ work.
 
 Free, open source, private, and local. Your agents, your machine.
 
-[Download](https://juntoagents.com/download) | [Website](https://juntoagents.com) | [Docs](https://juntoagents.com/docs) | [Issues](https://github.com/skastr0/junto/issues)
+[Download](https://juntoagents.com/download) | [Website](https://juntoagents.com) | [Docs](docs/) | [Issues](https://github.com/skastr0/junto/issues)
 
 ## Why Junto
 
@@ -97,9 +97,11 @@ flowchart LR
 ## Install
 
 1. Download the macOS build from [juntoagents.com/download](https://juntoagents.com/download).
-   Open the DMG and drag Junto to Applications. Official builds are signed and
-   notarized. macOS 13 or later, Apple silicon.
-2. Open Junto and choose the local Command Center role when asked.
+   Open the DMG and drag Junto to Applications. The official release process
+   signs every macOS build with a Developer ID certificate and notarizes it
+   with Apple before publishing it. macOS 13 or later, Apple silicon.
+2. Open Junto. A fresh install sets itself up as the local Command Center;
+   there is no role to choose.
 3. Add a seat, pick a harness you already have installed, pick a folder, and
    start it.
 
@@ -164,8 +166,9 @@ injected mid-thought, and mail is durable until read.
 **State is one local file.** `~/.junto/state/junto.db`, SQLite. JSON Canvas
 exports are outputs, never inputs the app watches.
 
-**Play and pause.** A playing canvas re-occupies its seats when the app
-launches. A paused canvas starts nothing on its own. Local terminal processes
+**Play and pause.** A playing canvas starts a seat on its own only when work
+is waiting for that seat; other seats resume their session when you open
+them. A paused canvas starts nothing on its own. Local terminal processes
 belong to the app and stop when it quits.
 
 **Overseer.** A human-toggled switch on one seat. That agent may author the
@@ -215,8 +218,10 @@ bun run app:build:linux    # local Linux desktop package, run on Linux
 
 Local packages are development builds without a signing identity. Automatic
 updates and Remote package admission require the official signing identity
-compiled into an official build. The maintainer's signing, notarization, and
-publication tooling lives in a private distribution repository. GitHub
+compiled into an official build. The signing and notarization steps live in
+this repository (`bun run app:build:ship`, `scripts/notarize-app.sh`) and
+need the maintainer's Developer ID and Apple notary credentials. Publication
+to the update feed lives in a private distribution repository. GitHub
 Releases are not the application update feed.
 
 ## Agent tools

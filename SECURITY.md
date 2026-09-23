@@ -34,8 +34,9 @@ creates authority or increases impact beyond the documented trust model.
 ## Distribution and disclosure
 
 Official binaries are linked from the
-[Junto download page](https://juntoagents.com/download). Official macOS
-builds are signed and notarized; automatic updates use the app's configured
+[Junto download page](https://juntoagents.com/download). The official release
+process signs every macOS build with a Developer ID certificate and notarizes
+it with Apple before publishing it; automatic updates use the app's configured
 maintainer-run release feed. Linux first install is authenticated by an
 independently obtained bootstrap or a reviewed source checkout, not by the
 download-page checksum or the archive's bundled CLI. Source availability does
