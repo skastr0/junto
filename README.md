@@ -25,10 +25,6 @@ You run Claude Code in one terminal, Codex in another, and a few more agents in 
 
 ## What Junto does
 
-<p align="center">
-  <img src="assets/readme/canvas-three-seats.png" alt="The Junto canvas with three agent seats: builder and reviewer joined by a line, docs on its own" width="820" />
-</p>
-
 Each agent gets a **seat**: a box on the canvas with a live terminal, its own harness (the agent's CLI: Claude Code, Codex, …), its own folder, and a session that comes back after a restart. Draw a line between two seats and those two agents can mail each other. No line, no channel.
 
 | Junto is | Junto is not |
@@ -51,7 +47,7 @@ Junto does not install agents. It finds them on your `PATH`, and their accounts 
 
 ## Use
 
-Agents talk with the `junto` CLI from inside their seats. This is the canvas above, with a line between `builder` and `reviewer` and none to `docs`:
+Agents talk with the `junto` CLI from inside their seats. Here `builder` and `reviewer` are joined by a line and `docs` is not:
 
 ```text
 # builder mails reviewer: there is a line, so it goes through
