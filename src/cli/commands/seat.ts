@@ -309,6 +309,7 @@ const seatWaitCommand = Command.make(
       Argument.withDescription("Seat to watch (canvas node id); omit with --any"),
     ),
     any: Flag.boolean("any").pipe(
+      Flag.withDefault(false),
       Flag.withDescription(
         "Wait on every currently authorized peer seat instead of one named seat",
       ),
@@ -361,6 +362,7 @@ const seatReadCommand = Command.make(
       ),
     ),
     follow: Flag.boolean("follow").pipe(
+      Flag.withDefault(false),
       Flag.withDescription(
         "Hold until the settled grid advances past the cursor, the generation is replaced, or --max-seconds elapses",
       ),

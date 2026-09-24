@@ -305,7 +305,7 @@ const msgSendCommand = Command.make(
   {
     input: jsonInputArg,
     text: Argument.string("text").pipe(Argument.optional),
-    prompt: Flag.boolean("prompt"),
+    prompt: Flag.boolean("prompt").pipe(Flag.withDefault(false)),
     fallback: Flag.string("fallback").pipe(Flag.optional),
     retry: Flag.string("retry").pipe(Flag.optional),
     concurrency: concurrencyOption,
