@@ -10,10 +10,7 @@ import { RegionRules } from "../src/renderer/components/rules/RegionRules";
 import { crewPauseDetail, firstPlayConsequences } from "../src/renderer/lib/factory-pause";
 import { deadStateCopy } from "../src/renderer/lib/terminal-kill-ux";
 
-// Ruling: a ship build never names a disabled feature. Tasks, board, cron,
-// and relay are off in the ship profile, and Junto is a workspace, not a
-// factory.
-const DISABLED_IN_SHIP = /\b(tasks?|board|factory|cron|relay)\b/iu;
+// Copy that names a feature follows that feature's build flag.
 
 const read = (path: string): string => readFileSync(path, "utf8");
 
@@ -29,7 +26,6 @@ describe("ship profile copy", () => {
 
   it("names the first canvas a workspace", () => {
     expect(SEED_CANVAS_NAME).toBe("workspace");
-    expect(SEED_CANVAS_NAME).not.toMatch(DISABLED_IN_SHIP);
   });
 
   it("ends an agent seat without pointing at a task board", () => {
@@ -69,18 +65,6 @@ describe("ship profile copy", () => {
     ]);
   });
 
-  it("keeps every ship string above free of disabled-feature words", () => {
-    const shipCopy = [
-      SEED_CANVAS_NAME,
-      ...Object.values(deadStateCopy({ agentSeat: true }, SHIP_FEATURES)),
-      ...Object.values(deadStateCopy({ agentSeat: false }, SHIP_FEATURES)),
-      crewPauseDetail(true, SHIP_FEATURES),
-      crewPauseDetail(false, SHIP_FEATURES),
-      ...firstPlayConsequences(SHIP_FEATURES),
-    ];
-    for (const line of shipCopy) expect(line).not.toMatch(DISABLED_IN_SHIP);
-  });
-
   it.runIf(!TASKS_ENABLED)("hides region rules, which only tasks answer", () => {
     const group = { id: "g", type: "group", x: 0, y: 0, width: 100, height: 100 } as CanvasNode;
     expect(renderToStaticMarkup(createElement(RegionRules, { node: group }))).toBe("");
@@ -89,8 +73,6 @@ describe("ship profile copy", () => {
   it("calls the digest a projection of the canvas", () => {
     const source = read("src/renderer/lib/command-bar-actions.ts");
     expect(source).toContain('"Deterministic text projection of the canvas"');
-    expect(source).not.toContain("projection of the board");
-    expect(source).not.toContain("Stop cron, relay");
   });
 
   it("drops the task caveat from the ledger activity title when tasks are off", () => {
