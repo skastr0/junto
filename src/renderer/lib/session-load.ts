@@ -88,9 +88,10 @@ export const sessionLoadPresentation = (input: {
 };
 
 /**
- * First active load phase for an actor seat open.
- * Pin present → resume; no pin → start fresh; unknown pin string empty after
- * trim is treated as finding. Non-agent shells skip to attach.
+ * First active load phase for an actor seat open, before the host answers.
+ * A pinned session id only names the session a seat would use; it never
+ * proves one exists, so a pinned seat is "finding" until the host says
+ * whether it resumed. No pin starts fresh. Non-agent shells skip to attach.
  */
 export const initialSessionLoadPhase = (input: {
   readonly agentSeat: boolean;
@@ -100,10 +101,13 @@ export const initialSessionLoadPhase = (input: {
   if (input.sessionId === undefined || input.sessionId === null) {
     return "starting";
   }
-  const sid = input.sessionId.trim();
-  if (!sid) return "finding";
-  return "resuming";
+  return "finding";
 };
+
+/** Load phase once the host started a generation: resume only when it proved one. */
+export const startedSessionLoadPhase = (input: {
+  readonly resuming: boolean;
+}): SessionLoadPhase => (input.resuming ? "resuming" : "starting");
 
 /** True while the stage should show the load spinner (not live, not dead). */
 export const isSessionLoadActive = (

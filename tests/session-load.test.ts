@@ -3,6 +3,7 @@ import {
   initialSessionLoadPhase,
   isSessionLoadActive,
   sessionLoadPresentation,
+  startedSessionLoadPhase,
 } from "../src/renderer/lib/session-load";
 
 describe("sessionLoadPresentation", () => {
@@ -36,14 +37,21 @@ describe("initialSessionLoadPhase", () => {
     ).toBe("attaching");
   });
 
-  it("agent with pin resumes; without pin starts new; blank pin finds", () => {
+  it("a pin alone never reads as resuming; without a pin the seat starts new", () => {
     expect(
       initialSessionLoadPhase({ agentSeat: true, sessionId: "abc" }),
-    ).toBe("resuming");
+    ).toBe("finding");
     expect(initialSessionLoadPhase({ agentSeat: true })).toBe("starting");
     expect(initialSessionLoadPhase({ agentSeat: true, sessionId: "  " })).toBe(
       "finding",
     );
+  });
+});
+
+describe("startedSessionLoadPhase", () => {
+  it("resumes only when the host resumed a session", () => {
+    expect(startedSessionLoadPhase({ resuming: true })).toBe("resuming");
+    expect(startedSessionLoadPhase({ resuming: false })).toBe("starting");
   });
 });
 

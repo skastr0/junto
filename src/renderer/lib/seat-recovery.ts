@@ -1,29 +1,10 @@
 /**
- * Recovery budget for an open agent seat surface.
+ * Why an open agent seat stopped, in words the operator can act on.
  *
- * An agent seat is lazy: opening it re-ensures a live generation, and an
- * attach that lands on an exited generation waits for its replacement. A seat
- * that cannot start at all (a missing folder, a missing harness) produces a
- * new dead generation on every attempt. Each attempt is a fresh attach-effect
- * run, and every run re-arms its own spinner and stuck timer, so without a
- * budget that outlives the runs the surface said "starting new session"
- * forever and never reached a stopped state.
- *
- * The budget counts consecutive dead generations across attach-effect runs.
- * A live attach or an operator Reopen resets it.
+ * A seat whose generation dies settles into the stopped state on the first
+ * failure and shows this reason; the only generation the surface follows
+ * without a click is the host's own fail-open replacement of a dead resume.
  */
-
-/** Consecutive dead generations an open surface recovers through before it settles. */
-export const SEAT_RECOVERY_LIMIT = 2;
-
-export type SeatRecoveryDecision = "recover" | "settle";
-
-/**
- * Decide what to do after another attach landed on a dead generation.
- * `deadGenerations` counts that attach.
- */
-export const seatRecoveryDecision = (deadGenerations: number): SeatRecoveryDecision =>
-  deadGenerations > SEAT_RECOVERY_LIMIT ? "settle" : "recover";
 
 /** Plain copy for a classified exit reason when the host sent no message. */
 const EXIT_REASON_COPY: Readonly<Record<string, string>> = {

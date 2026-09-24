@@ -49,7 +49,7 @@ import {
   terminalSurfaceEyebrow,
 } from "../../lib/terminal-kill-ux";
 import { ensureTerminalRunning } from "../../lib/terminal-actions";
-import { seatDeadReason, seatRecoveryDecision } from "../../lib/seat-recovery";
+import { seatDeadReason } from "../../lib/seat-recovery";
 import { onTerminalEvent } from "../../lib/terminal-events";
 import { actorRailsOpen, terminal$ } from "../../lib/terminal-state";
 import {
@@ -57,6 +57,7 @@ import {
   isSessionLoadActive,
   SESSION_LOAD_STUCK_MS,
   sessionLoadPresentation,
+  startedSessionLoadPhase,
   type SessionLoadPhase,
 } from "../../lib/session-load";
 import { TASKS_ENABLED } from "@shared/features";
@@ -689,18 +690,12 @@ export function TerminalSurface({
   const [deadInfo, setDeadInfo] = useState<{ reason?: string; message?: string }>({});
   const killArmTimer = useRef<number | null>(null);
   /**
-   * An agent seat is LAZY. A dead seat is not a broken thing that needs a
-   * human to press a button — it is a cold seat, and looking at it is demand.
-   * Only an explicit operator Stop keeps it down; everything else wakes.
+   * An agent seat is LAZY: opening a cold seat is demand, so the attach effect
+   * starts it. A generation that dies while open is different: it settles at
+   * once with the host's reason, and Reopen is the operator's retry. Only
+   * the host's own fail-open replacement is followed without a click.
    */
   const operatorStopped = useRef(false);
-  const autoWakes = useRef(0);
-  /**
-   * Consecutive attaches that landed on a dead generation, across attach-effect
-   * runs. Each run re-arms its own spinner, so only this budget can stop a seat
-   * that dies on every start from repainting "starting new session" forever.
-   */
-  const deadGenerations = useRef(0);
   const canvasName = use$(state$.canvasName);
   const doc = use$(state$.doc);
   const actorRefs = use$(state$.actorRefs);
@@ -1443,6 +1438,30 @@ export function TerminalSurface({
       if (fresh.length > 0) term.write(fresh.join(""));
     };
 
+    /**
+     * A generation at `deadEpoch` ended while this surface wanted it. Follow a
+     * live replacement the host already started; otherwise settle into the
+     * stopped state with the host's reason.
+     */
+    const followOrSettle = async (deadEpoch: string | undefined): Promise<void> => {
+      const live = await api
+        .terminalGet?.(bindingId, hostId)
+        .catch(() => undefined);
+      if (!alive) return;
+      const replaced =
+        (live?.status === "running" || live?.status === "starting") &&
+        live.epoch !== undefined &&
+        live.epoch !== deadEpoch;
+      if (replaced) {
+        setKillPhase("idle");
+        setAttachKey((key) => key + 1);
+        return;
+      }
+      setStatus(live?.exitMessage?.trim() || "could not start");
+      setKillPhase("stopped");
+      setLoadPhase(null);
+    };
+
     const offEvent = onTerminalEvent((raw) => {
       const event = raw as LiveEvent;
       if (event.bindingId !== bindingId) return;
@@ -1456,9 +1475,11 @@ export function TerminalSurface({
       if (event.epoch !== epochRef.current) return;
       if (event.type === "output") writeOutput(event);
       if (event.type === "exit") {
-        // Lazy seat: a generation ending is not the seat ending. Unless the
-        // operator stopped it, re-attach (which re-ensures a live generation)
-        // rather than latching a dead card the operator has to dismiss.
+        if (agentSeat && !operatorStopped.current) {
+          // The host's reason, or its fail-open replacement, is one read away.
+          void followOrSettle(event.epoch);
+          return;
+        }
         setStatus("exited");
         setKillPhase("stopped");
         setLoadPhase(null);
@@ -1522,75 +1543,17 @@ export function TerminalSurface({
               if (event.type === "exit") sawExit = true;
             }
             discardPending();
-            // An attach that lands on an EXITED generation is not a dead seat.
-            // ensureTerminalRunning ran just above, and createAgentSeat only
-            // reuses a record that is still alive — so re-running the attach
-            // spawns a fresh generation. That is precisely what the Reopen
-            // button does (it sets killPhase idle and bumps attachKey, nothing
-            // more), which is why Reopen always worked while the first open
-            // painted a dead card over a seat that was never broken.
-            //
-            // An agent seat is lazy: opening it IS the demand signal, so it
-            // recovers itself instead of asking for a click. Bounded so a seat
-            // that genuinely cannot start still settles into the stopped state.
-            // A failed resume is not a dead seat. When a resume generation dies
-            // with harness proof the session is gone, the host mints a fresh pin
-            // and respawns it (local-host maybeFailOpenAfterResumeFailure,
-            // deferred via queueMicrotask). The attach we just finished can land
-            // on that dying resume generation, so declaring the seat dead here
-            // races a replacement already on its way — which is exactly why
-            // Reopen looked instant: the new generation was ALREADY running, and
-            // the click only re-attached to it.
-            //
-            // Wait for a generation with a DIFFERENT epoch before giving up, and
-            // hold the loading state so nothing flashes in between.
+            // An attach that lands on an EXITED generation is a failed start
+            // unless the host already replaced it. The one replacement is the
+            // host's fail-open after a dead resume (local-host
+            // maybeFailOpenAfterResumeFailure), which spawns on the exit stack,
+            // so a single read of the binding head tells the two apart.
+            // Anything else settles now with the host's reason: a seat that
+            // cannot start says why on the first failure, not after retries.
             if (sawExit && agentSeat && !operatorStopped.current) {
-              deadGenerations.current += 1;
-              if (seatRecoveryDecision(deadGenerations.current) === "settle") {
-                // Out of budget: settle into the stopped state with the
-                // host's own reason. A status other than "exited" also keeps
-                // the lazy wake below from starting the cycle again.
-                void (async () => {
-                  const live = await api
-                    .terminalGet?.(bindingId, hostId)
-                    .catch(() => undefined);
-                  if (!alive) return;
-                  setStatus(live?.exitMessage?.trim() || "could not start");
-                  setKillPhase("stopped");
-                  setLoadPhase(null);
-                })();
-                return;
-              }
-              const deadEpoch = result.lease.epoch;
-              void (async () => {
-                const deadline = Date.now() + 8_000;
-                while (alive && Date.now() < deadline) {
-                  const live = await api
-                    .terminalGet?.(bindingId, hostId)
-                    .catch(() => undefined);
-                  const status = live?.status;
-                  const epoch = (live as { readonly epoch?: string } | undefined)?.epoch;
-                  if (
-                    (status === "running" || status === "starting") &&
-                    epoch !== undefined &&
-                    epoch !== deadEpoch
-                  ) {
-                    if (!alive) return;
-                    setKillPhase("idle");
-                    setAttachKey((key) => key + 1);
-                    return;
-                  }
-                  await new Promise((resolve) => setTimeout(resolve, 200));
-                }
-                if (!alive) return;
-                setStatus("exited");
-                setKillPhase("stopped");
-                setLoadPhase(null);
-              })();
+              void followOrSettle(result.lease.epoch);
               return;
             }
-            // A live attach proves the seat can start: refill the budget.
-            if (!sawExit) deadGenerations.current = 0;
             // Retained exited generations may expose their final raw journal.
             // Never paint those as a live control lease.
             setStatus(sawExit ? "exited" : "control");
@@ -1696,12 +1659,17 @@ export function TerminalSurface({
        *
        * Polling the host removes the race instead of racing faster.
        */
-      const awaitLiveGeneration = async (): Promise<void> => {
+      const awaitLiveGeneration = async (
+        startedEpoch: string | undefined,
+      ): Promise<void> => {
         const deadline = Date.now() + 10_000;
         while (alive && Date.now() < deadline) {
           const live = await api.terminalGet?.(bindingId, hostId).catch(() => undefined);
           const status = live?.status;
           if (status === "running" || status === "starting") return;
+          // The generation ensure started already died: attach to it now so
+          // its reason shows at once instead of after the deadline.
+          if (startedEpoch !== undefined && live?.epoch === startedEpoch) return;
           await new Promise((resolve) => setTimeout(resolve, 150));
         }
       };
@@ -1715,7 +1683,19 @@ export function TerminalSurface({
             setKillPhase("stopped");
             return;
           }
-          await awaitLiveGeneration();
+          // Only the host knows whether a session exists: a pinned id on a
+          // brand-new seat is a fresh start, not a resume.
+          const started = startedSessionLoadPhase({
+            resuming: result.resuming === true,
+          });
+          setLoadPhase((prev) => (prev === "stuck" ? "stuck" : started));
+          setStatus(
+            sessionLoadPresentation({
+              phase: started,
+              sessionId: pinSessionId,
+            }).label,
+          );
+          await awaitLiveGeneration(result.epoch);
           if (!alive) return;
           runAttach();
         },
@@ -1815,8 +1795,6 @@ export function TerminalSurface({
   const reopenProcess = async (): Promise<void> => {
     if (reopenPending) return;
     operatorStopped.current = false;
-    autoWakes.current = 0;
-    deadGenerations.current = 0;
     setReopenPending(true);
     // Agent seats: attach effect owns ensure + load spinner. Geography shells
     // still ensure here so attach finds a live generation.
@@ -1926,35 +1904,6 @@ export function TerminalSurface({
       alive = false;
     };
   }, [status, killPhase, bindingId, hostId]);
-
-  useEffect(() => {
-    if (status !== "exited") return;
-    // Lazy wake: the seat died with the app, crashed, or was never started in
-    // this process — it does not matter which. Opening it is the demand signal,
-    // so bring it back instead of painting a dead end. Bounded so a seat that
-    // cannot start (missing CLI, bad launch) still settles into the stopped
-    // state rather than spinning.
-    if (
-      agentSeat &&
-      !operatorStopped.current &&
-      autoWakes.current < 2 &&
-      seatRecoveryDecision(deadGenerations.current) === "recover"
-    ) {
-      autoWakes.current += 1;
-      setKillPhase("idle");
-      setLoadPhase(initialSessionLoadPhase({ agentSeat, sessionId: pinSessionId }));
-      setStatus(
-        sessionLoadPresentation({
-          phase: initialSessionLoadPhase({ agentSeat, sessionId: pinSessionId }),
-          sessionId: pinSessionId,
-        }).label,
-      );
-      setAttachKey((key) => key + 1);
-      return;
-    }
-    setKillPhase("stopped");
-    setLoadPhase(null);
-  }, [status, agentSeat, pinSessionId]);
 
   return (
     <div
