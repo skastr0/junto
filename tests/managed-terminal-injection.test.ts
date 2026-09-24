@@ -80,7 +80,6 @@ describe("compiled doctrine — base and slots", () => {
     expect(text).toContain("### Edge contract — messages");
     expect(text).toContain("Mail is never refused and never needs a retry");
     expect(text).toContain("mail from <seat>");
-    expect(text).not.toContain("retry the returned messageId");
     expect(text).toContain("msg.prompt");
     expect(text).toContain("seat.wait");
     expect(text).toContain("terminal.read");

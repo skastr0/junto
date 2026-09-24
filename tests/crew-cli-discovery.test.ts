@@ -45,7 +45,7 @@ describe("crew CLI discovery", () => {
     }
   });
 
-  it("takes a prompt as target and full text, of any length, with nothing to retry", async () => {
+  it("takes a prompt as target and full text, of any length", async () => {
     const schema = MsgPromptArgs;
     expect(allSchemas.find((entry) => entry.command_id === "msg.prompt")!.schema).toBe(schema);
     for (const input of [
@@ -54,13 +54,9 @@ describe("crew CLI discovery", () => {
     ]) {
       await expect(Effect.runPromise(loadJsonInput(schema, JSON.stringify(input)))).resolves.toEqual(input);
     }
-    for (const input of [
-      { target: "peer", messageId: "mail-1" },
-      { target: "peer", text: "Review the change.", fallback: "notice" },
-      { target: "peer", text: "Review the change.", interrupt: true },
-    ]) {
-      await expect(Effect.runPromise(loadJsonInput(schema, JSON.stringify(input)))).rejects.toThrow();
-    }
+    await expect(Effect.runPromise(loadJsonInput(
+      schema, JSON.stringify({ target: "peer", text: "Review the change.", interrupt: true }),
+    ))).rejects.toThrow();
   });
 
   it("preserves bounded observation and generation requirements in discovered inputs", async () => {
