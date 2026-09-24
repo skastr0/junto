@@ -29,7 +29,7 @@ You run Claude Code in one terminal, Codex in another, and a few more agents in 
   <img src="assets/readme/canvas-three-seats.png" alt="The Junto canvas with three agent seats: builder and reviewer joined by a line, docs on its own" width="820" />
 </p>
 
-Each agent gets a **seat**: a box on the canvas with a live terminal, its own harness, its own folder, and a session that comes back after a restart. Draw a line between two seats and those two agents can mail each other. No line, no channel.
+Each agent gets a **seat**: a box on the canvas with a live terminal, its own harness (the agent's CLI: Claude Code, Codex, …), its own folder, and a session that comes back after a restart. Draw a line between two seats and those two agents can mail each other. No line, no channel.
 
 | Junto is | Junto is not |
 | --- | --- |
@@ -54,20 +54,22 @@ Junto does not install agents. It finds them on your `PATH`, and their accounts 
 Agents talk with the `junto` CLI from inside their seats. This is the canvas above, with a line between `builder` and `reviewer` and none to `docs`:
 
 ```text
-builder$ junto msg send '{"target":"reviewer","text":"auth refactor is up, please review src/auth"}'
-{"ok":true,"command":"msg send","data":{"outcome":"succeeded","total":1,"success_count":1,
-  "results":[{"index":0,"ok":true,"data":{"messageId":"01M395YAEGXJ0JVC210CDH50CD", …}}]}}
+# builder mails reviewer: there is a line, so it goes through
+builder$ junto msg send --no-prompt '{"target":"reviewer","text":"auth refactor is up, please review src/auth"}'
+{"ok":true,"command":"msg send","data":{"outcome":"succeeded", …}}
 
+# reviewer reads it
 reviewer$ junto msg list
-{"ok":true,"command":"msg list","data":{"target":"reviewer","items":[{"messageId":"01M395YAEGXJ0JVC210CDH50CD",
-  "parts":[{"kind":"text","text":"auth refactor is up, please review src/auth"}],"senderName":"builder", …}]}}
+{"ok":true,"command":"msg list","data":{"target":"reviewer","items":[{ …
+  "parts":[{"kind":"text","text":"auth refactor is up, please review src/auth"}], … "senderName":"builder", …}]}}
 
-docs$ junto msg send '{"target":"builder","text":"can I see your diff?"}'
-{"ok":true,"command":"msg send","data":{"outcome":"failed","total":1,"success_count":0,"error_count":1,
-  "results":[{"index":0,"ok":false,"error":{"type":"ScopeError","message":"target \"builder\" is not visible from \"docs\" — no edge …"}}]}}
+# docs has no line to builder, so Junto refuses
+docs$ junto msg send --no-prompt '{"target":"builder","text":"can I see your diff?"}'
+{"ok":true,"command":"msg send","data":{"outcome":"failed", … "error":{"type":"ScopeError",
+  "message":"target \"builder\" is not visible from \"docs\" — no edge …"}}]}}
 ```
 
-In 0.3.2, `junto msg send` needs `--no-prompt` (`junto msg send --no-prompt '{…}'`). The next release drops that requirement.
+0.3.2 needs `--no-prompt` on `junto msg send`. The next release makes it optional.
 
 The full command list is in [How Junto works](docs/how-junto-works.md#the-cli).
 
@@ -89,12 +91,12 @@ flowchart LR
 ```
 
 - A seat runs the harness's own binary in a terminal Junto manages, and resumes that harness's session by id.
-- A `messages` line grants the two seats mail access to each other. Nothing else does.
+- A `messages` line lets the two seats message each other. Nothing else does.
 - The CLI reaches the app over a local socket. The app admits a caller only if its process was started from a seat, so there is no token to copy.
 - The receiver gets one short notice in its terminal and reads the mail when it is ready. Mail stays until it is read.
 - Every launch comes back paused. Nothing runs until you press play.
 
-Supported harnesses: Claude Code, Codex, Grok, Pi, Devin, Cursor Agent, Antigravity, fx, Prime Agent, Hermes, Kimi Code, Muse, Amp, and Oh My Pi. Details, the overseer switch, and what Junto touches on your machine: [How Junto works](docs/how-junto-works.md).
+Supported harnesses: Claude Code, Codex, Grok, Pi, Devin, Cursor Agent, Antigravity, fx, Prime Agent, Hermes, Kimi Code, Muse, Amp, and Oh My Pi. Details and what Junto touches on your machine: [How Junto works](docs/how-junto-works.md).
 
 ## Where it fits
 
