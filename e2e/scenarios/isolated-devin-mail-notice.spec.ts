@@ -1,8 +1,10 @@
 /**
- * Isolated real-Devin mail observation [real-harness]. A real settled prompt
- * precedes fresh mail, then a second notice on the same warm generation; the
- * app projection must eventually report a read or a durable refusal/unresolved
- * fact for each. A queued row alone never passes.
+ * Isolated real-Devin mail observation [real-harness]. A real Devin seat
+ * settles at an empty prompt, then receives fresh mail, then a second notice
+ * on the same warm generation, sent at once whatever the seat is doing. Each
+ * msg.send must answer delivered, the app projection must carry the
+ * deliveredAt receipt and then a readAt receipt, and the trace must show
+ * exactly one mail paste per message on the Devin binding.
  *
  * ISOLATED_DEVIN_HOLD=1 exposes the live app for Computer Use after observation
  * (also on failure). Final evidence is collected after the bounded hold and
@@ -18,12 +20,11 @@ import { Schema } from "effect";
 import type { Page } from "@playwright/test";
 import { promptBoxBody } from "../../src/main/junto/term/observer/regions";
 import type { Message } from "../../src/shared/work-model";
-import { readMailAttemptFacts, type MailAttemptFacts } from "../../src/shared/crew";
 import { composeMessageDeliveryPayload } from "../../src/shared/message-delivery";
 import { SeatReadResult } from "../../src/shared/seat-control";
 import { transportLogDirectory } from "../../src/shared/transport-trace";
 import { expect, launchJunto, test } from "../harness/launch";
-import { crewMessagePasteWrites, crewPlayFactory, crewSeat, type CrewSeat } from "../harness/crew-fixture";
+import { crewPlayFactory, crewSeat, type CrewSeat } from "../harness/crew-fixture";
 import { HARNESS_MAIL_TRANSPORT } from "../../src/shared/managed-terminal-templates";
 import {
   ISOLATED_DEVIN_CREDENTIAL_REL,
@@ -155,21 +156,42 @@ const occupyDevinOnce = async (page: Page) => {
   throw new Error("Real Devin never ran after one terminalCreate");
 };
 
+const receiptAt = (value: unknown, key: string): number | undefined => {
+  if (value === undefined) return undefined;
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) throw new Error(`Invalid projected ${key} receipt`);
+  return value;
+};
+
+/** The message's receipts: typed into the seat (deliveredAt), then read (readAt). */
 const outcomeOf = (message: Message | undefined) => {
-  const readAt = message?.metadata?.readAt;
-  const attempt = readMailAttemptFacts(message?.metadata);
-  if (readAt !== undefined) {
-    if (typeof readAt !== "number" || !Number.isFinite(readAt) || readAt <= 0) throw new Error("Invalid projected readAt receipt");
-    return { kind: "read" as const, readAt };
+  const deliveredAt = receiptAt(message?.metadata?.deliveredAt, "deliveredAt");
+  const readAt = receiptAt(message?.metadata?.readAt, "readAt");
+  if (readAt !== undefined) return { kind: "read" as const, deliveredAt, readAt };
+  if (deliveredAt !== undefined) return { kind: "delivered" as const, deliveredAt };
+  return { kind: message === undefined ? "missing-message" as const : "waiting" as const };
+};
+
+/**
+ * Successful paste writes inside the drive's mail writes on the Devin
+ * binding. The trace carries no message id for mail, so this counts every
+ * mail paste on the binding; the probe sends nothing else through it.
+ */
+const mailPastes = (homeDir: string): number => {
+  const logs = transportLogDirectory(homeDir);
+  if (existsSync(join(logs, "pty-delivery.jsonl.1"))) {
+    throw new Error("PTY trace rotated; the complete mail write history is unavailable");
   }
-  // Proven notification supersedes historical uncertainty and refusal, while
-  // still requiring a separate read receipt for this probe.
-  if (attempt?.notifiedAt !== undefined) return { kind: "awaiting-read" as const, notifiedAt: attempt.notifiedAt };
-  if (attempt?.unresolvedAt !== undefined) return { kind: "unresolved" as const, at: attempt.unresolvedAt, generation: attempt.generation };
-  if (attempt?.refusedAt !== undefined && attempt.refusedReason !== undefined) {
-    return { kind: "refused" as const, at: attempt.refusedAt, reason: attempt.refusedReason, generation: attempt.generation };
+  let inMail = false;
+  let pastes = 0;
+  for (const line of readFileSync(join(logs, "pty-delivery.jsonl"), "utf8").split("\n")) {
+    if (line.length === 0) continue;
+    const row = JSON.parse(line) as { bindingId?: unknown; event?: unknown; fields?: { stage?: unknown; ok?: unknown } };
+    if (row.bindingId !== DEVIN_BINDING) continue;
+    if (row.event === "mail.begin") inMail = true;
+    else if (row.event === "mail.end") inMail = false;
+    else if (inMail && row.event === "write.end" && row.fields?.stage === "paste" && row.fields.ok === true) pastes += 1;
   }
-  return { kind: message === undefined ? "missing-message" as const : "pending" as const };
+  return pastes;
 };
 
 const observed = async <T>(body: () => Promise<T>) => {
@@ -177,26 +199,7 @@ const observed = async <T>(body: () => Promise<T>) => {
   catch (error) { return { ok: false as const, error: String(error) }; }
 };
 
-test("isolated Devin evidence: notification supersedes uncertainty without implying read", () => {
-  const stamp = "2026-09-15T11:00:00.000Z";
-  const attempt = {
-    generation: "recipient-generation", queuedAt: stamp,
-    unresolvedAt: stamp, refusedAt: stamp, refusedReason: "not-settled",
-  } satisfies MailAttemptFacts;
-  const message: Message = {
-    messageId: "rank-proof", role: "user", parts: [{ kind: "text", text: "Check notification ranking" }],
-    metadata: attempt,
-  };
-  expect(outcomeOf(message).kind).toBe("unresolved");
-  const notified = { ...message, metadata: { ...attempt, notifiedAt: stamp } };
-  expect(outcomeOf(notified)).toEqual({ kind: "awaiting-read", notifiedAt: stamp });
-  expect(notified.metadata.unresolvedAt).toBe(stamp);
-  expect(notified.metadata.refusedAt).toBe(stamp);
-  expect(outcomeOf({ ...notified, metadata: { ...notified.metadata, readAt: 1 } }))
-    .toEqual({ kind: "read", readAt: 1 });
-});
-
-test("isolated Devin [real-harness]: settled seat reaches readAt or a durable named failure", async () => {
+test("isolated Devin [real-harness]: delivered mail reaches readAt", async () => {
   if (!Number.isFinite(HOLD_MS) || HOLD_MS < 0 || HOLD_MS > 600_000) throw new Error("ISOLATED_DEVIN_HOLD_MS must be between 0 and 600000");
   test.setTimeout((HOLD ? HOLD_MS : 0) + 630_000);
   if (!existsSync(operatorCred)) test.skip(true, "no operator Devin credentials.toml to seed");
@@ -312,24 +315,24 @@ test("isolated Devin [real-harness]: settled seat reaches readAt or a durable na
       const sendAndObserve = async (nonce: string, slot: 1 | 2) => {
         const send = await sender.op("msg.send", { target: ISOLATED_DEVIN_RECEIVER_ID, text: nonce });
         if (!send.ok) throw new Error(`msg.send failed: ${JSON.stringify(send.error)}`);
-        const id = (send.data as { messageId?: string } | undefined)?.messageId;
+        const sent = send.data as { messageId?: string; delivery?: string } | undefined;
+        const id = sent?.messageId;
         if (typeof id !== "string" || id.length === 0) throw new Error("msg.send did not return a messageId");
         // Record the durable id before polling so a timed-out observation
         // still preserves which message was actually sent.
         if (slot === 1) messageId = id; else messageId2 = id;
-        writeHold({ phase: "observing-mail", readyEvidence: artifact("ready-before-send.json") });
+        if (sent?.delivery !== "delivered") throw new Error(`msg.send answered delivery=${String(sent?.delivery)} for a live seat`);
+        writeHold({ phase: "observing-mail", delivery: sent.delivery, readyEvidence: artifact("ready-before-send.json") });
         const until = Date.now() + OBSERVE_MS;
-        let outcome: ReturnType<typeof outcomeOf> = { kind: "pending" };
+        let outcome: ReturnType<typeof outcomeOf> = { kind: "waiting" };
         while (Date.now() < until) {
           outcome = outcomeOf((await projectedMessages(page)).find((item) => item.messageId === id));
           writeHold({ phase: "observing-mail", outcome });
-          if (outcome.kind === "read" || outcome.kind === "unresolved") break;
-          // A pre-write refusal can be followed by a successful readiness retry.
-          // Give the full observation window before accepting that durable fact.
+          if (outcome.kind === "read") break;
           await page.waitForTimeout(500);
         }
-        if (!["read", "unresolved", "refused"].includes(outcome.kind)) {
-          throw new Error(`No read receipt or durable named failure after ${OBSERVE_MS}ms: ${JSON.stringify(outcome)}`);
+        if (outcome.kind !== "read") {
+          throw new Error(`No read receipt after ${OBSERVE_MS}ms: ${JSON.stringify(outcome)}`);
         }
         return { messageId: id, outcome };
       };
@@ -337,15 +340,14 @@ test("isolated Devin [real-harness]: settled seat reaches readAt or a durable na
       writeHold({ phase: "first-outcome", outcome: first.outcome });
       // A second notice on the same warm generation is part of qualification.
       // If the seat already moved or exited, record the precise reason instead
-      // of forcing a send; the run then stays unqualified evidence.
+      // of forcing a send; the run then stays unqualified evidence. The seat
+      // may still be working on the first mail: the notice is typed at once
+      // and Devin queues or steers it.
       const warm = await page.evaluate(async (id) => window.junto!.terminalGet(id), DEVIN_BINDING);
       if (warm?.status !== "running" || warm.epoch !== occupied.epoch) {
         secondNoticeSkipped = `seat-not-warm status=${warm?.status ?? "gone"} epoch=${warm?.epoch ?? "none"}`;
       } else {
         try {
-          // The seat may still be working on the first mail. Re-arm on a
-          // stable empty composer of the same epoch before the second send.
-          await awaitReady();
           const second = await sendAndObserve(`isolated-devin-mail-warm ${Date.now()}`, 2);
           outcome2 = second.outcome;
         } catch (error) {
@@ -374,7 +376,7 @@ test("isolated Devin [real-harness]: settled seat reaches readAt or a durable na
 
     // END evidence: every source is read after observation/hold, while the
     // app still owns its database. Failed sources stay explicit, never empty.
-    const [mail, mail2, grid, session, pasteCount, pasteCount2, screenshot] = await Promise.all([
+    const [mail, mail2, grid, session, pasteCount, screenshot] = await Promise.all([
       observed(async () => (await projectedMessages(page)).find((item) => item.messageId === messageId)),
       observed(async () => {
         if (messageId2 === undefined) throw new Error(secondNoticeSkipped ?? "No second notice was sent");
@@ -382,14 +384,7 @@ test("isolated Devin [real-harness]: settled seat reaches readAt or a durable na
       }),
       observed(() => readDevin(sender)),
       observed(() => page.evaluate(async (id) => window.junto!.terminalGet(id), DEVIN_BINDING)),
-      observed(async () => {
-        if (messageId === undefined) throw new Error("No message was sent");
-        return crewMessagePasteWrites(page, sandbox, ISOLATED_DEVIN_MAIL_CANVAS, ISOLATED_DEVIN_RECEIVER_ID, messageId);
-      }),
-      observed(async () => {
-        if (messageId2 === undefined) throw new Error(secondNoticeSkipped ?? "No second notice was sent");
-        return crewMessagePasteWrites(page, sandbox, ISOLATED_DEVIN_MAIL_CANVAS, ISOLATED_DEVIN_RECEIVER_ID, messageId2);
-      }),
+      observed(async () => mailPastes(sandbox.homeDir)),
       observed(async () => {
         const path = artifact("seat-final.png");
         await page.screenshot({ path, fullPage: true });
@@ -404,10 +399,9 @@ test("isolated Devin [real-harness]: settled seat reaches readAt or a durable na
     const payload2 = await observed(async () => mail2.ok && mail2.value !== undefined ? composeMessageDeliveryPayload(mail2.value) : undefined);
     const facts = {
       at: new Date().toISOString(), messageId, mail, outcome: finalOutcome, session,
-      physicalPastes: pasteCount.ok ? pasteCount.value : null, pasteEvidence: pasteCount,
+      mailPastes: pasteCount.ok ? pasteCount.value : null, pasteEvidence: pasteCount,
       secondNotice: {
         messageId: messageId2, mail: mail2, outcome: finalOutcome2, skipped: secondNoticeSkipped,
-        physicalPastes: pasteCount2.ok ? pasteCount2.value : null, pasteEvidence: pasteCount2,
         payloadSha256: payload2.ok && payload2.value !== undefined ? createHash("sha256").update(payload2.value).digest("hex") : undefined,
         payloadError: payload2.ok ? undefined : payload2.error,
       },
@@ -431,18 +425,13 @@ test("isolated Devin [real-harness]: settled seat reaches readAt or a durable na
     expect(session.ok && session.value?.epoch).toBe(occupied!.epoch);
     expect(pasteCount.ok, JSON.stringify(pasteCount)).toBe(true);
     if (!pasteCount.ok) throw new Error(pasteCount.error);
-    expect(pasteCount.value, "Repeated accepted paste of the same fresh mail").toBeLessThanOrEqual(1);
-    expect(["read", "unresolved", "refused"]).toContain(finalOutcome?.kind);
-    if (finalOutcome?.kind === "unresolved") expect(pasteCount.value).toBe(1);
-    if (finalOutcome?.kind === "refused") expect(pasteCount.value).toBe(0);
+    expect(pasteCount.value, "One mail paste per sent message").toBe(messageId2 === undefined ? 1 : 2);
+    expect(finalOutcome?.kind).toBe("read");
+    expect(finalOutcome?.deliveredAt).toBeDefined();
     if (messageId2 !== undefined) {
       expect(mail2.ok, JSON.stringify(mail2)).toBe(true);
-      expect(pasteCount2.ok, JSON.stringify(pasteCount2)).toBe(true);
-      if (!pasteCount2.ok) throw new Error(pasteCount2.error);
-      expect(pasteCount2.value, "Repeated accepted paste of the warm-seat mail").toBeLessThanOrEqual(1);
-      expect(["read", "unresolved", "refused"]).toContain(finalOutcome2?.kind);
-      if (finalOutcome2?.kind === "unresolved") expect(pasteCount2.value).toBe(1);
-      if (finalOutcome2?.kind === "refused") expect(pasteCount2.value).toBe(0);
+      expect(finalOutcome2?.kind).toBe("read");
+      expect(finalOutcome2?.deliveredAt).toBeDefined();
     }
     expect(HARNESS_MAIL_TRANSPORT.devin.typedNoticeQualified).toBe(qualificationAtStart);
   } finally {

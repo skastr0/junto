@@ -103,7 +103,16 @@ export const STATE_SCHEMA_V1_IDENTITY = {
     "5486e207e1571e17f4e726891ea30ed165eec95324e5c5ba27d946e44330e382",
 } as const satisfies VerifiedStateSchemaIdentity;
 
-export const CURRENT_STATE_SCHEMA_VERSION = 1;
+/**
+ * Version 2 retires the mail delivery ledger: mail is typed into its seat at
+ * once, with no attempts, refusals, or fallback to record.
+ */
+export const STATE_SCHEMA_V2_IDENTITY = {
+  actualSchemaSha256:
+    "a28acec6845e2cd35e9b22e5e1d29eac754674fbe9401f77339d94f42bfbddd1",
+} as const satisfies VerifiedStateSchemaIdentity;
+
+export const CURRENT_STATE_SCHEMA_VERSION = 2;
 
 /**
  * Stable alias for the head identity so tests and tooling never rename an
@@ -111,14 +120,30 @@ export const CURRENT_STATE_SCHEMA_VERSION = 1;
  * above after any schema change.
  */
 export const CURRENT_STATE_SCHEMA_IDENTITY: VerifiedStateSchemaIdentity =
-  STATE_SCHEMA_V1_IDENTITY;
+  STATE_SCHEMA_V2_IDENTITY;
 
 /**
- * Empty at the version-1 re-baseline: Junto version 1 is composed fresh and
- * adopted, never reached by chain. The next schema change appends the first
- * step here.
+ * Junto version 1 is composed fresh and adopted, never reached by chain; each
+ * later schema change appends its step here.
  */
-export const STATE_SCHEMA_MIGRATIONS: ReadonlyArray<StateSchemaMigration> = [];
+export const STATE_SCHEMA_MIGRATIONS: ReadonlyArray<StateSchemaMigration> = [
+  {
+    fromVersion: 1,
+    toVersion: 2,
+    name: "retire the mail delivery ledger",
+    safety: STATE_SCHEMA_CONSOLIDATE_SAFETY,
+    fromIdentity: STATE_SCHEMA_V1_IDENTITY,
+    // Transport bookkeeping with no successor: whether a message reached its
+    // seat lives in work_delivery_receipts, which this step leaves untouched.
+    removesTables: ["work_mail_attempts", "work_mail_notice_fallback"],
+    migrate: (database) => {
+      database.exec(`
+        DROP TABLE work_mail_attempts;
+        DROP TABLE work_mail_notice_fallback;
+      `);
+    },
+  },
+];
 
 export const STATE_SCHEMA_MIGRATION_PLAN: StateSchemaMigrationPlan = {
   baselineVersion: 1,
@@ -620,8 +645,8 @@ export const validateStateSchemaMigrationPlan = (
         migration.safety !== STATE_SCHEMA_CONSOLIDATE_SAFETY) ||
       ((migration.removesTables?.length ?? 0) > 0) !==
         (migration.safety === STATE_SCHEMA_CONSOLIDATE_SAFETY) ||
-      ((migration.correctiveWriteTables?.length ?? 0) > 0) !==
-        (migration.safety === STATE_SCHEMA_CONSOLIDATE_SAFETY)
+      ((migration.correctiveWriteTables?.length ?? 0) > 0 &&
+        migration.safety !== STATE_SCHEMA_CONSOLIDATE_SAFETY)
     ) {
       throw new Error(
         `invalid state schema migration ${migration.fromVersion} -> ${migration.toVersion}`,

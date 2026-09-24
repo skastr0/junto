@@ -31,8 +31,8 @@ import {
   type OverseerHostRequest,
 } from "@shared/overseer-host-control";
 import type { OverseerHostIdentity, OverseerLiveExecutionConstraint } from "../overseer/live/execution";
-import { mailDisplayFactsOf, sortMessagesNewestFirst } from "@shared/message-delivery";
-import { deriveMailDisplayState, mailExtensionMetadata, type MailSenderStamp } from "@shared/crew";
+import { sortMessagesNewestFirst } from "@shared/message-delivery";
+import { mailExtensionMetadata, type MailSenderStamp } from "@shared/crew";
 import { seatStateRuntime } from "../term/agent-state";
 import { probeManagedHarnessInstalls } from "../term/templates/harness-install";
 import type { BoardAuthor, Task } from "@shared/work-model";

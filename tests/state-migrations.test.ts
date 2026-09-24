@@ -10,8 +10,8 @@ import {
 import {
   STATE_SCHEMA_IDENTITY_SQL,
   STATE_SCHEMA_SQL,
-  STATE_SCHEMA_V1_SQL,
 } from "../src/main/junto/state/schema";
+import { STATE_SCHEMA_V1_SQL } from "./fixtures/state-v1/schema";
 import {
   expectedStateSchemaIdentity,
   verifyAndStampStateSchema,

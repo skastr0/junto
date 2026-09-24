@@ -23,8 +23,8 @@ import { createVerifiedStateBackup } from "../src/main/junto/state/backup";
 import {
   STATE_SCHEMA_IDENTITY_SQL,
   STATE_SCHEMA_SQL,
-  STATE_SCHEMA_V1_SQL,
 } from "../src/main/junto/state/schema";
+import { STATE_SCHEMA_V1_SQL } from "./fixtures/state-v1/schema";
 import { CURRENT_STATE_SCHEMA_VERSION } from "../src/main/junto/state/migrations";
 import {
   RETIRED_SOURCE_SCHEMA_SHA256,

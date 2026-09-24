@@ -625,10 +625,14 @@ describe("package source facts", () => {
     }
   });
 
-  it("admits the repository's actual baseline schema facts", async () => {
+  it("admits the repository's actual schema facts", async () => {
     const facts = await readPackageSchemaFacts(repoRoot);
-    expect(facts.currentStateSchemaVersion).toBe(1);
-    expect(facts.migrationHead).toBeNull();
+    expect(facts.currentStateSchemaVersion).toBe(2);
+    expect(facts.migrationHead).toEqual({
+      fromVersion: 1,
+      toVersion: 2,
+      name: "retire the mail delivery ledger",
+    });
   });
 
   it("accepts two independently read facts with the same source values", async () => {

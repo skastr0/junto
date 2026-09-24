@@ -25,9 +25,7 @@ import {
 import {
   STATE_SCHEMA_V1_IDENTITY,
 } from "../../../src/main/junto/state/migrations";
-import {
-  STATE_SCHEMA_V1_SQL,
-} from "../../../src/main/junto/state/schema";
+import { STATE_SCHEMA_V1_SQL } from "./schema";
 import {
   expectedStateSchemaIdentity,
 } from "../../../src/main/junto/state/schema-identity";

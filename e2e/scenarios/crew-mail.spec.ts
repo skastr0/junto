@@ -1,31 +1,37 @@
 /**
- * Crew mail — truthful delivery states over a messages edge [fake-tui].
+ * Mail — every message typed into the recipient seat at once, over a
+ * messages edge [fake-tui].
  *
  * Two fake-tui seats on one generated canvas, one real messages edge
  * between them. Sends ride the real work-control socket from inside the
  * admitted seat process; delivery rides the real drive onto the seat's
- * PTY. Evidence comes from the app's projected mailbox and current-generation
- * transport facts, correlated successful paste writes in the PTY trace, and
- * the fake's own stdin log for the received payload.
+ * PTY. msg.send types one short notice line,
+ * `mail from <sender> — <preview> — junto msg read <id>`, and answers
+ * { messageId, delivery }: "delivered" once the line is on the seat,
+ * "waiting" when the seat is not up yet. Evidence comes from the op's
+ * `delivery` field, the app's projected mailbox and `deliveredAt` receipt,
+ * and the fake's own stdin log (one bracketed paste of the exact payload).
  *
  * Laws covered:
- *   1. after a send, the projected inbox contains the message and its
- *      queued/notified timestamps;
- *   2. a notified message has one correlated successful PTY paste and
- *      the fake receives the notice payload;
- *   3. a written-but-unacknowledged paste is `unresolved`, never re-pasted
- *      on the same recipient generation, and never laundered into
- *      delivered;
- *   4. msg.sent reports the sender's own receipts without marking the
- *      recipient mailbox read.
+ *   1. a sent message is delivered at once: the op answers delivered, the
+ *      projected receipt carries deliveredAt, and the seat's input took
+ *      exactly one paste of the notice payload;
+ *   2. msg.sent reports the sender's own receipts without marking the
+ *      recipient mailbox read; read and reply state stay truthful across
+ *      the pair;
+ *   3. the edge grant is authorization: masking msg.send off the edge
+ *      refuses the send with ScopeError, and removing the edge closes
+ *      further sends.
  *
  * Seats are fake-tui: deterministic screen control, labelled honestly.
  */
+import type { Page } from "@playwright/test";
+import type { Message } from "../../src/shared/canvas";
+import { readMailExtension } from "../../src/shared/crew";
+import { composeMessageDeliveryPayload } from "../../src/shared/message-delivery";
 import { expect, launchJunto, test } from "../harness/launch";
 import {
-  crewMailAttempts,
   crewMessageCount,
-  crewMessagePasteWrites,
   crewReceipts,
   crewMutateCanvas,
   crewOccupySeat,
@@ -35,6 +41,7 @@ import {
   crewDoc,
   crewMessagesEdge,
   installCrewSeatHarness,
+  type CrewSeat,
   type WorkEnvelope,
 } from "../harness/crew-fixture";
 
@@ -62,7 +69,7 @@ const launch = () =>
     extraEnv: { JUNTO_PTY_TRACE: "1" },
   });
 
-/** [delivery]/[wake] lines from the sandbox app's own main log. */
+/** [delivery] lines from the sandbox app's own main log. */
 const mainLogOf = (junto: Awaited<ReturnType<typeof launchJunto>>): (() => string) => {
   const lines: string[] = [];
   const proc = junto.app.process();
@@ -72,23 +79,60 @@ const mainLogOf = (junto: Awaited<ReturnType<typeof launchJunto>>): (() => strin
     lines
       .join("")
       .split("\n")
-      .filter((line) => line.includes("[delivery]") || line.includes("[wake]"))
+      .filter((line) => line.includes("[delivery]"))
       .join("\n");
 };
 
-test("crew mail [fake-tui]: sent mail projects notified delivery with one PTY paste", async () => {
+/** B's live seat state, as A reads it over the edge. */
+const seatStateOf = async (from: CrewSeat): Promise<string> => {
+  const read = await from.op("seat.read", { target: B, lines: 10 });
+  if (!read.ok) return "unreadable";
+  const state = (read.data as { state?: unknown } | undefined)?.state;
+  return typeof state === "string" ? state : "unknown";
+};
+
+/** The stored message as the app projects it on B's mailbox. */
+const projectedMessage = async (page: Page, messageId: string): Promise<Message> => {
+  const doc = await page.evaluate(
+    async (name) => (await window.junto!.readCanvas(name)).doc,
+    CANVAS,
+  );
+  const message = doc.nodes
+    .find((node) => node.id === B)
+    ?.ether?.messages?.items.find((item) => item.messageId === messageId);
+  if (message === undefined) throw new Error(`Missing projected message ${messageId}`);
+  return message;
+};
+
+/** Bracketed pastes of exactly this payload in the seat's raw PTY input. */
+const pastesOf = (stdin: string, payload: string): number =>
+  stdin.split(`\x1b[200~${payload}\x1b[201~`).length - 1;
+
+const deliveredAtOf = async (page: Page, messageId: string): Promise<number | undefined> =>
+  (await crewReceipts(page, CANVAS, B)).find((row) => row.messageId === messageId)
+    ?.deliveredAt;
+
+/** Occupy both seats and wait until B's seat reads idle. */
+const boot = async (junto: Awaited<ReturnType<typeof launch>>) => {
+  const { page, sandbox } = junto;
+  await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
+  await crewPlayFactory(page);
+  const seatAHandle = crewSeat(sandbox, CANVAS, A);
+  const seatBHandle = crewSeat(sandbox, CANVAS, B);
+  await crewOccupySeat(page, CANVAS, seatA, seatAHandle);
+  await crewOccupySeat(page, CANVAS, seatB, seatBHandle);
+  await expect
+    .poll(() => seatStateOf(seatAHandle), { timeout: 30_000 })
+    .toBe("idle");
+  return { page, sandbox, seatAHandle, seatBHandle };
+};
+
+test("mail [fake-tui]: sent mail is delivered at once with one PTY paste", async () => {
   test.setTimeout(240_000);
   const junto = await launch();
-  const wakeLog = mainLogOf(junto);
+  const deliveryLog = mainLogOf(junto);
   try {
-    const { page, sandbox } = junto;
-    await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
-    await crewPlayFactory(page);
-
-    const seatAHandle = crewSeat(sandbox, CANVAS, A);
-    const seatBHandle = crewSeat(sandbox, CANVAS, B);
-    await crewOccupySeat(page, CANVAS, seatA, seatAHandle);
-    await crewOccupySeat(page, CANVAS, seatB, seatBHandle);
+    const { page, seatAHandle, seatBHandle } = await boot(junto);
 
     const send = await seatAHandle.op("msg.send", {
       target: B,
@@ -97,24 +141,19 @@ test("crew mail [fake-tui]: sent mail projects notified delivery with one PTY pa
     const data = opData(send);
     const messageId = data.messageId as string;
     expect(typeof messageId).toBe("string");
+    expect(data.delivery).toBe("delivered");
 
-    // The live projection contains the sent message; this after-send read
-    // makes no claim about ordering relative to the physical paste.
     await expect
       .poll(() => crewMessageCount(page, CANVAS, B), { timeout: 15_000 })
       .toBeGreaterThanOrEqual(1);
 
-    // Current-generation transport facts are read through the app.
+    // The receipt is the delivery fact, read through the app.
     await expect
-      .poll(
-        async () =>
-          (await crewMailAttempts(page, CANVAS, B)).filter(
-            (row) =>
-              row.messageId === messageId && row.notifiedAt !== undefined,
-          ).length,
-        { timeout: 60_000, intervals: [250, 500, 1_000] },
-      )
-      .toBe(1)
+      .poll(() => deliveredAtOf(page, messageId), {
+        timeout: 60_000,
+        intervals: [250, 500, 1_000],
+      })
+      .toBeDefined()
       .catch(async (cause: unknown) => {
         const sources = ["seat.read B", "events B", "stdin B", "receipts B"];
         const evidence = await Promise.allSettled([
@@ -130,37 +169,31 @@ test("crew mail [fake-tui]: sent mail projects notified delivery with one PTY pa
             : { status: result.status, error: String(result.reason) }),
         }));
         throw new Error(
-          `attempt never notified.\n[delivery log]\n${wakeLog()}\n` +
+          `message never delivered.\n[delivery log]\n${deliveryLog()}\n` +
             `[diagnostics]\n${JSON.stringify(diagnostics, null, 2)}`,
           { cause },
         );
       });
-    const [attempt] = (await crewMailAttempts(page, CANVAS, B)).filter(
-      (row) => row.messageId === messageId,
-    );
-    expect(attempt?.mailKind).toBe("notice");
-    expect(attempt?.queuedAt).toBeDefined();
-    expect(attempt?.unresolvedAt).toBeUndefined();
-    expect(attempt?.generation).toBeTruthy();
-    await expect.poll(
-      () => crewMessagePasteWrites(page, sandbox, CANVAS, B, messageId),
-      { timeout: 15_000 },
-    ).toBe(1);
 
-    // Physical truth: the fake received the notice payload on its PTY.
+    // The notice line: sender, preview, and the pointer to the full body.
+    const message = await projectedMessage(page, messageId);
+    expect(readMailExtension(message.metadata)?.mailKind).toBe("notice");
+    const payload = composeMessageDeliveryPayload(message);
+    expect(payload.startsWith(`mail from ${A}`)).toBe(true);
+    expect(payload).toContain("peer mail: checksum 42");
+    expect(payload.endsWith(`junto msg read ${messageId}`)).toBe(true);
+
+    // Physical truth: the fake's input took exactly one paste of that line.
     await expect
-      .poll(async () => await seatBHandle.stdinLog(), { timeout: 10_000 })
-      .toContain("peer mail: checksum 42");
+      .poll(async () => pastesOf(await seatBHandle.stdinLog(), payload), {
+        timeout: 10_000,
+      })
+      .toBe(1);
 
-    // Law 4 — msg.sent reads sender receipts only; B's mailbox stays unread
-    // until B itself lists or marks it.
-    await expect.poll(
-      async () => (await crewReceipts(page, CANVAS, B))
-        .find((row) => row.messageId === messageId)?.deliveredAt,
-      { timeout: 15_000 },
-    ).toBeDefined();
+    // msg.sent reads sender receipts only; B's mailbox stays unread until
+    // B itself lists or marks it.
     const beforeSent = (await crewReceipts(page, CANVAS, B)).find((row) => row.messageId === messageId);
-    expect(beforeSent).toBeDefined();
+    expect(beforeSent?.deliveredAt).toBeDefined();
     expect(beforeSent?.readAt).toBeUndefined();
     const sent = await seatAHandle.op("msg.sent", {});
     const sentData = opData(sent);
@@ -178,111 +211,11 @@ test("crew mail [fake-tui]: sent mail projects notified delivery with one PTY pa
   }
 });
 
-test("crew mail [fake-tui]: unacknowledged paste is unresolved and never re-pasted", async () => {
-  test.setTimeout(240_000);
-  const junto = await launch();
-  const wakeLog = mainLogOf(junto);
-  try {
-    const { page, sandbox } = junto;
-    await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
-    await crewPlayFactory(page);
-
-    const seatAHandle = crewSeat(sandbox, CANVAS, A);
-    const seatBHandle = crewSeat(sandbox, CANVAS, B);
-    await crewOccupySeat(page, CANVAS, seatA, seatAHandle);
-    await crewOccupySeat(page, CANVAS, seatB, seatBHandle);
-
-    // The fake swallows every submission: bytes reach the PTY, no
-    // turn-start ever repaints — the unresolved class, deterministically.
-    await seatBHandle.control({ submit: "ignore", paste: "swallow" });
-
-    const send = await seatAHandle.op("msg.send", {
-      target: B,
-      text: "peer mail: sink this one",
-    });
-    const data = opData(send);
-    const messageId = data.messageId as string;
-
-    // Observe the inbox and unresolved outcome through the live projection.
-    await expect
-      .poll(() => crewMessageCount(page, CANVAS, B), { timeout: 15_000 })
-      .toBeGreaterThanOrEqual(1);
-    await expect
-      .poll(
-        async () =>
-          (await crewMailAttempts(page, CANVAS, B)).filter(
-            (row) =>
-              row.messageId === messageId && row.unresolvedAt !== undefined,
-          ).length,
-        { timeout: 90_000, intervals: [500, 1_000, 2_000] },
-      )
-      .toBe(1)
-      .catch(async (cause: unknown) => {
-        const sources = ["seat.read B", "events B", "stdin B", "receipts B"];
-        const evidence = await Promise.allSettled([
-          seatAHandle.op("seat.read", { target: B, lines: 30 }),
-          seatBHandle.events(),
-          seatBHandle.stdinLog(),
-          crewReceipts(page, CANVAS, B),
-        ]);
-        const diagnostics = evidence.map((result, index) => ({
-          source: sources[index],
-          ...(result.status === "fulfilled"
-            ? { status: result.status, value: result.value }
-            : { status: result.status, error: String(result.reason) }),
-        }));
-        throw new Error(
-          `attempt never stamped unresolved.\n[delivery log]\n${wakeLog()}\n` +
-            `[diagnostics]\n${JSON.stringify(diagnostics, null, 2)}`,
-          { cause },
-        );
-      });
-    const [attempt] = (await crewMailAttempts(page, CANVAS, B)).filter(
-      (row) => row.messageId === messageId,
-    );
-    expect(attempt?.mailKind).toBe("notice");
-    expect(attempt?.notifiedAt).toBeUndefined();
-    expect(attempt?.attemptedAt).toBeDefined();
-    expect(attempt?.generation).toBeTruthy();
-    await expect.poll(
-      () => crewMessagePasteWrites(page, sandbox, CANVAS, B, messageId),
-      { timeout: 15_000 },
-    ).toBe(1);
-
-    // Redraw and wait on the same generation. The projection identifies
-    // that generation; the trace counts physical pastes across the interval.
-    await seatBHandle.control({ screen: { mode: "idle" } });
-    await seatBHandle.print("still there");
-    await new Promise((resolve) => setTimeout(resolve, 6_000));
-    const current = (await crewMailAttempts(page, CANVAS, B)).find(
-      (row) => row.messageId === messageId,
-    );
-    expect(current?.generation).toBe(attempt!.generation);
-    expect(current?.unresolvedAt).toBe(attempt!.unresolvedAt);
-    expect(current?.notifiedAt).toBeUndefined();
-    await expect.poll(
-      () => crewMessagePasteWrites(page, sandbox, CANVAS, B, messageId),
-      { timeout: 15_000 },
-    ).toBe(1);
-    const stdin = await seatBHandle.stdinLog();
-    expect(stdin).toContain("sink this one");
-  } finally {
-    await junto.close();
-  }
-});
-
 test("crew mail [fake-tui]: read and reply state stay truthful across the pair", async () => {
   test.setTimeout(240_000);
   const junto = await launch();
   try {
-    const { page, sandbox } = junto;
-    await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
-    await crewPlayFactory(page);
-
-    const seatAHandle = crewSeat(sandbox, CANVAS, A);
-    const seatBHandle = crewSeat(sandbox, CANVAS, B);
-    await crewOccupySeat(page, CANVAS, seatA, seatAHandle);
-    await crewOccupySeat(page, CANVAS, seatB, seatBHandle);
+    const { page, seatAHandle, seatBHandle } = await boot(junto);
 
     const send = await seatAHandle.op("msg.send", {
       target: B,
@@ -290,16 +223,10 @@ test("crew mail [fake-tui]: read and reply state stay truthful across the pair",
     });
     const data = opData(send);
     const messageId = data.messageId as string;
+    expect(data.delivery).toBe("delivered");
     await expect
-      .poll(
-        async () =>
-          (await crewMailAttempts(page, CANVAS, B)).filter(
-            (row) =>
-              row.messageId === messageId && row.notifiedAt !== undefined,
-          ).length,
-        { timeout: 60_000 },
-      )
-      .toBe(1);
+      .poll(() => deliveredAtOf(page, messageId), { timeout: 60_000 })
+      .toBeDefined();
 
     // B lists its own mailbox — the peer mail is there, addressed to B.
     const list = await seatBHandle.op("msg.list", {});
@@ -399,20 +326,13 @@ test("crew mail [fake-tui]: removing the edge mid-flight closes further sends", 
   test.setTimeout(240_000);
   const junto = await launch();
   try {
-    const { page, sandbox } = junto;
-    await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
-    await crewPlayFactory(page);
-
-    const seatAHandle = crewSeat(sandbox, CANVAS, A);
-    const seatBHandle = crewSeat(sandbox, CANVAS, B);
-    await crewOccupySeat(page, CANVAS, seatA, seatAHandle);
-    await crewOccupySeat(page, CANVAS, seatB, seatBHandle);
+    const { page, seatAHandle } = await boot(junto);
 
     const first = await seatAHandle.op("msg.send", {
       target: B,
       text: "peer mail: before the cut",
     });
-    expect(first.ok).toBe(true);
+    expect(opData(first).delivery).toBe("delivered");
 
     // Operator removes the edge through the real authoring path.
     await crewMutateCanvas(page, CANVAS, (doc) => ({

@@ -173,9 +173,7 @@ import {
 } from "./reviews";
 import { readCommandCenterPortfolio } from "../canvases";
 import {
-  mailAttemptFactsMetadata,
   readMailExtension,
-  type MailAttemptFacts,
   type MailSenderStamp,
   type ReviewVerdict,
 } from "../../../shared/crew";
@@ -3098,54 +3096,11 @@ const loadMessageReceiptAcceptedAtMap = (
   return map;
 };
 
-/**
- * The newest durably queued recipient generation for each message, in one
- * sink query. A late update to an older generation cannot replace a newer
- * attempt: generation selection uses its original queued stamp, not updated_at.
- */
-const loadMessageAttemptFactsMap = (
-  reader: StateReader,
-  sink: SinkRefValue,
-): ReadonlyMap<string, MailAttemptFacts> => {
-  const rows = reader.all<StateRow & {
-    readonly message_id: string;
-    readonly recipient_generation: string;
-    readonly queued_at: string;
-    readonly attempted_at: string | null;
-    readonly notified_at: string | null;
-    readonly unresolved_at: string | null;
-    readonly refused_at: string | null;
-    readonly refused_reason: MailAttemptFacts["refusedReason"] | null;
-  }>(
-    `SELECT message_id, recipient_generation, queued_at, attempted_at,
-            notified_at, unresolved_at, refused_at, refused_reason
-     FROM work_mail_attempts
-     WHERE canvas_name = ? AND node_id = ?
-     ORDER BY message_id, queued_at DESC, recipient_generation DESC, recipient_seat_id DESC`,
-    [sink.canvasName, sink.nodeId],
-  );
-  const map = new Map<string, MailAttemptFacts>();
-  for (const row of rows) {
-    if (map.has(row.message_id)) continue;
-    map.set(row.message_id, {
-      generation: row.recipient_generation,
-      queuedAt: row.queued_at,
-      ...(row.attempted_at === null ? {} : { attemptedAt: row.attempted_at }),
-      ...(row.notified_at === null ? {} : { notifiedAt: row.notified_at }),
-      ...(row.unresolved_at === null ? {} : { unresolvedAt: row.unresolved_at }),
-      ...(row.refused_at === null ? {} : { refusedAt: row.refused_at }),
-      ...(row.refused_reason === null ? {} : { refusedReason: row.refused_reason }),
-    });
-  }
-  return map;
-};
-
 const loadInbox = (
   reader: StateReader,
   sink: SinkRefValue,
 ): ReadonlyArray<MessageValue> => {
   const receipts = loadMessageReceiptAcceptedAtMap(reader, sink);
-  const attempts = loadMessageAttemptFactsMap(reader, sink);
   return reader
     .all<MessageRow>(
       `
@@ -3165,7 +3120,6 @@ const loadInbox = (
     )
     .map((row) => {
       const message = messageFromRow(row);
-      const attempt = attempts.get(row.message_id);
       const deliveredAt = receipts.get(
         mailboxMessageDeliveryId(sink.canvasName, sink.nodeId, row.message_id),
       );
@@ -3181,7 +3135,6 @@ const loadInbox = (
         ),
       );
       if (
-        attempt === undefined &&
         deliveredAt === undefined &&
         readAt === undefined &&
         ackAt === undefined
@@ -3192,7 +3145,6 @@ const loadInbox = (
         ...message,
         metadata: {
           ...(message.metadata ?? {}),
-          ...(attempt === undefined ? {} : mailAttemptFactsMetadata(attempt)),
           ...(deliveredAt !== undefined ? { deliveredAt } : {}),
           ...(readAt !== undefined ? { readAt } : {}),
           ...(ackAt !== undefined

@@ -58,14 +58,12 @@ export const STATE_SCHEMA_IDENTITY_SQL = `
 `;
 
 /**
- * Junto schema version 1 is the single durable baseline: the product rename
- * re-baselines the whole schema at its current shape, with the relational
- * canvas authority, head-basis fact resolution, crew mail-attempt and
- * review-verdict tables, the Live journal, and credential bindings composed
- * directly. There is no historical chain beneath it; the next schema change
- * appends `1 -> 2`.
+ * The current durable schema, composed directly: relational canvas
+ * authority, head-basis fact resolution, review verdicts, the Live journal,
+ * and credential bindings. Version 1 was the product-rename baseline; each
+ * later change is a forward step in `migrations.ts`.
  */
-export const STATE_SCHEMA_V1_FRAGMENTS = [
+export const STATE_SCHEMA_FRAGMENTS = [
   STATE_SCHEMA_IDENTITY_SQL,
   CANVAS_AUTHORITY_SCHEMA_SQL,
   BROWSER_PROFILES_STATE_SCHEMA_SQL,
@@ -98,13 +96,12 @@ export const STATE_SCHEMA_V1_FRAGMENTS = [
   CREW_STATE_SCHEMA_SQL,
 ] as const;
 
-export const STATE_SCHEMA_V1_SQL = withoutProposalStorage(
-  STATE_SCHEMA_V1_FRAGMENTS.join("\n"),
-);
 
 /**
  * Fresh-install and final-verification target for the current version.
  * Historical DDL belongs in forward migrations, never in compatibility
  * branches inside these fragments.
  */
-export const STATE_SCHEMA_SQL = STATE_SCHEMA_V1_SQL;
+export const STATE_SCHEMA_SQL = withoutProposalStorage(
+  STATE_SCHEMA_FRAGMENTS.join("\n"),
+);

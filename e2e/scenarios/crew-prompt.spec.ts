@@ -1,39 +1,39 @@
 /**
- * Crew prompts — immediate full-body delivery over a messages edge
- * [fake-tui].
+ * Prompt mail — the full body typed into the recipient seat at once, over a
+ * messages edge [fake-tui].
  *
- * msg.prompt stores a prompt and requests immediate delivery through the
- * managed drive. Evidence uses the app's projected current-generation
- * timestamps, correlated successful paste writes in the PTY trace, and
- * the fake's stdin log for the received payload. The fake-tui seats give
- * deterministic control over the admission classes the drive
- * distinguishes: idle+empty composer (notified), working seat
- * (retryable SeatBusy), drafted composer (retryable SeatBusy), oversize
- * body (InputError, never typed), and written-but-unacknowledged
- * (unresolved — never re-pasted on the same generation).
+ * msg.prompt (the op behind `junto msg send --prompt`) stores a prompt and
+ * types `mail from <sender>\n<full body>` into the recipient's input and
+ * submits it, whatever the seat is doing. The harness queues or steers what
+ * it receives. The op answers { messageId, delivery }: "delivered" once the
+ * text is on the seat, "waiting" when the seat is not up yet.
+ *
+ * Evidence: the op's `delivery` field, the projected `deliveredAt` receipt,
+ * the fake's stdin log (one bracketed paste of the exact payload), and the
+ * fake's submit event (the composer text the CR submitted, by hash). The
+ * fake-tui seats give deterministic control over what the seat is doing
+ * when the prompt lands: idle, working, or holding an operator draft.
  *
  * Laws covered:
- *   1. an idle empty seat takes the full body — the PTY shows
- *      "mail from <seat>" + the body, never a msg-read pointer;
- *   2. busy/drafted/settling seats refuse retryable SeatBusy — the
- *      durable messageId survives the refusal and the SAME row retries;
- *   3. fallback:"notice" retains the same durable row and delivers the
- *      ordinary notice form (summary + msg-read pointer), not the body;
- *   4. a paste without turn-start evidence is unresolved — the generation
- *      stays unchanged and the trace still counts one paste after redraw;
- *   5. a prompt retry must name this seat's own prompt for this
- *      recipient — anything else is ScopeError;
- *   6. an immediate body past the limit refuses InputError before any
- *      byte reaches the PTY.
+ *   1. an idle seat takes the full body: one paste of the exact
+ *      "mail from <seat>" + body payload, submitted, and receipted;
+ *   2. a working seat takes the prompt at once, typed while it works;
+ *   3. a composer holding a draft takes the prompt at once, typed after
+ *      the draft and submitted with it;
+ *   4. a body of any length is typed in full.
  *
  * Seats are fake-tui: deterministic screen control, labelled honestly.
  */
+import { createHash } from "node:crypto";
+import type { Page } from "@playwright/test";
+import type { Message } from "../../src/shared/canvas";
+import { readMailExtension } from "../../src/shared/crew";
+import { composeImmediatePromptPayload } from "../../src/shared/message-delivery";
 import { expect, launchJunto, test } from "../harness/launch";
 import {
-  crewMailAttempts,
-  crewMessagePasteWrites,
   crewOccupySeat,
   crewPlayFactory,
+  crewReceipts,
   crewSeat,
   crewSeatNode,
   crewDoc,
@@ -60,14 +60,6 @@ const opData = (env: WorkEnvelope): Record<string, unknown> => {
   return (env.data ?? {}) as Record<string, unknown>;
 };
 
-const attemptRows = async (
-  page: Parameters<typeof crewMailAttempts>[0],
-  messageId: string,
-) =>
-  (await crewMailAttempts(page, CANVAS, B)).filter(
-    (r) => r.messageId === messageId,
-  );
-
 const launch = () =>
   launchJunto({
     seedCanvases: { [CANVAS]: promptDoc },
@@ -86,362 +78,186 @@ const boot = async (junto: Awaited<ReturnType<typeof launch>>) => {
   return { page, sandbox, a, b };
 };
 
-const sleep = (ms: number): Promise<void> =>
-  new Promise((resolve) => setTimeout(resolve, ms));
-
-/**
- * Retryable gate-refusal reasons under the SeatBusy type. Every gate
- * refusal reports retryable:true, so the reason is the discriminator:
- * these mean "the seat is not settled/ready yet" — keep retrying the
- * SAME messageId. composer-not-empty and over-limit are terminal for a
- * given attempt and must surface to the caller.
- */
-const SETTLING_REASONS = new Set([
-  "seat-busy",
-  "not-ready",
-  "unavailable",
-  "paused",
-]);
-
-const isSettlingRefusal = (
-  env: WorkEnvelope,
-): env is Extract<WorkEnvelope, { readonly ok: false }> =>
-  !env.ok &&
-  env.error.type === "SeatBusy" &&
-  typeof env.error.details?.reason === "string" &&
-  SETTLING_REASONS.has(env.error.details.reason as string);
-
-/**
- * Retry a durable prompt row until the drive resolves it. SeatBusy with a
- * settling reason retries the SAME messageId; ok envelopes (notified or
- * unresolved) and non-settling errors surface to the caller.
- */
-const retryPrompt = async (
-  seat: CrewSeat,
-  target: string,
-  messageId: string,
-  extra?: { readonly fallback?: "notice" },
-): Promise<WorkEnvelope> => {
-  const deadline = Date.now() + 60_000;
-  let last: WorkEnvelope | undefined;
-  while (Date.now() < deadline) {
-    last = await seat.op(
-      "msg.prompt",
-      { target, messageId, ...extra },
-      { timeoutMs: 60_000 },
-    );
-    if (last.ok) return last;
-    if (!isSettlingRefusal(last)) return last;
-    await sleep(800);
-  }
-  throw new Error(`prompt retry never resolved: ${JSON.stringify(last)}`);
+/** B's live seat read, as A sees it over the edge. */
+const readSeat = async (
+  from: CrewSeat,
+): Promise<{ readonly state: string; readonly text: string }> => {
+  const read = await from.op("seat.read", { target: B, lines: 20 });
+  if (!read.ok) return { state: "unreadable", text: "" };
+  const data = (read.data ?? {}) as { state?: unknown; text?: unknown };
+  return {
+    state: typeof data.state === "string" ? data.state : "unknown",
+    text: typeof data.text === "string" ? data.text : "",
+  };
 };
 
-/**
- * First-call prompt honoring the real caller contract: a refusal must
- * be retryable SeatBusy carrying the durable row id, and the retry
- * addresses that same row. Returns the row id and the final delivery.
- */
-const promptUntilNotified = async (
-  seat: CrewSeat,
-  args: {
-    readonly target: string;
-    readonly text: string;
-    readonly fallback?: "notice";
-  },
-): Promise<{ readonly messageId: string; readonly data: Record<string, unknown> }> => {
-  const first = await seat.op("msg.prompt", args);
-  if (first.ok) {
-    const data = opData(first);
-    return { messageId: data.messageId as string, data };
-  }
-  // A fresh generation's first prompt can take one settle-window
-  // refusal — retryable, never a new message.
-  expect(isSettlingRefusal(first), JSON.stringify(first)).toBe(true);
-  expect(first.error.details?.retryable).toBe(true);
-  const messageId = first.error.details?.messageId as string;
-  expect(typeof messageId).toBe("string");
-  const last = await retryPrompt(
-    seat,
-    args.target,
-    messageId,
-    args.fallback !== undefined ? { fallback: args.fallback } : undefined,
+/** The stored prompt as the app projects it on B's mailbox. */
+const projectedMessage = async (page: Page, messageId: string): Promise<Message> => {
+  const doc = await page.evaluate(
+    async (name) => (await window.junto!.readCanvas(name)).doc,
+    CANVAS,
   );
-  const data = opData(last);
-  expect((data.delivery as { state: string }).state).toBe("notified");
-  return { messageId: data.messageId as string, data };
+  const message = doc.nodes
+    .find((node) => node.id === B)
+    ?.ether?.messages?.items.find((item) => item.messageId === messageId);
+  if (message === undefined) throw new Error(`Missing projected prompt ${messageId}`);
+  return message;
+};
+
+const BRACKETED_PASTE_START = "\x1b[200~";
+const BRACKETED_PASTE_END = "\x1b[201~";
+
+/** Bracketed pastes of exactly this payload in the seat's raw PTY input. */
+const pastesOf = (stdin: string, payload: string): number =>
+  stdin.split(`${BRACKETED_PASTE_START}${payload}${BRACKETED_PASTE_END}`).length - 1;
+
+const sha256 = (text: string): string =>
+  createHash("sha256").update(text).digest("hex");
+
+/** Hashes of every non-empty composer text the fake submitted on CR. */
+const submittedHashes = async (seat: CrewSeat): Promise<ReadonlyArray<string>> =>
+  (await seat.events())
+    .filter((event) => event.event === "submit" && Number(event.textLength) > 0)
+    .map((event) => String(event.textSha256));
+
+/**
+ * Send a prompt from A to B and prove it was typed at once: the op answers
+ * delivered, the receipt is stamped, and B's input took exactly one paste
+ * of the full "mail from <sender>" + body payload.
+ */
+const promptDelivered = async (
+  page: Page,
+  a: CrewSeat,
+  b: CrewSeat,
+  text: string,
+): Promise<{ readonly messageId: string; readonly payload: string }> => {
+  const data = opData(await a.op("msg.prompt", { target: B, text }));
+  const messageId = data.messageId as string;
+  expect(typeof messageId).toBe("string");
+  expect(data.delivery).toBe("delivered");
+
+  const message = await projectedMessage(page, messageId);
+  expect(readMailExtension(message.metadata)?.mailKind).toBe("prompt");
+  const payload = composeImmediatePromptPayload(message);
+  expect(payload.startsWith(`mail from ${A}\n`)).toBe(true);
+  expect(payload.endsWith(text)).toBe(true);
+
+  await expect
+    .poll(
+      async () =>
+        (await crewReceipts(page, CANVAS, B)).find((row) => row.messageId === messageId)
+          ?.deliveredAt,
+      { timeout: 15_000 },
+    )
+    .toBeDefined();
+  await expect
+    .poll(async () => pastesOf(await b.stdinLog(), payload), { timeout: 10_000 })
+    .toBe(1);
+  return { messageId, payload };
 };
 
 test("crew prompt [fake-tui]: idle seat takes the full body immediately", async () => {
   test.setTimeout(240_000);
   const junto = await launch();
   try {
-    const { page, sandbox, a, b } = await boot(junto);
-
-    const { messageId, data } = await promptUntilNotified(a, {
-      target: B,
-      text: "prompt: rotate the keys now",
-    });
-    expect((data.delivery as { state: string }).state).toBe("notified");
-
-    // Projected prompt facts identify the outcome; the trace independently
-    // proves one successful paste of the exact immediate payload.
-    const [attempt] = await attemptRows(page, messageId);
-    expect(attempt?.mailKind).toBe("prompt");
-    expect(attempt?.notifiedAt).toBeDefined();
-    expect(attempt?.unresolvedAt).toBeUndefined();
-    expect(attempt?.attemptedAt).toBeDefined();
-    await expect.poll(
-      () => crewMessagePasteWrites(page, sandbox, CANVAS, B, messageId, "immediate"),
-      { timeout: 15_000 },
-    ).toBe(1);
-
-    // Full-body form: "mail from <seat>" + the body, no read pointer.
+    const { page, a, b } = await boot(junto);
     await expect
-      .poll(async () => await b.stdinLog(), { timeout: 10_000 })
-      .toContain("mail from seat-a");
-    const stdin = await b.stdinLog();
-    expect(stdin).toContain("rotate the keys now");
-    expect(stdin).not.toContain("msg read");
+      .poll(async () => (await readSeat(a)).state, { timeout: 30_000 })
+      .toBe("idle");
+
+    const { payload } = await promptDelivered(
+      page,
+      a,
+      b,
+      "prompt: rotate the keys now",
+    );
+
+    // The empty composer took the whole payload and the CR submitted it.
+    await expect
+      .poll(() => submittedHashes(b), { timeout: 10_000 })
+      .toContain(sha256(payload));
   } finally {
     await junto.close();
   }
 });
 
-test("crew prompt [fake-tui]: busy seat refuses SeatBusy, same row retries clean", async () => {
-  test.setTimeout(300_000);
+test("prompt [fake-tui]: working seat takes the prompt at once", async () => {
+  test.setTimeout(240_000);
   const junto = await launch();
   try {
-    const { page, sandbox, a, b } = await boot(junto);
+    const { page, a, b } = await boot(junto);
 
-    // Park the seat in Working — an immediate prompt must refuse, not queue.
+    // B is mid-turn when the prompt lands; the harness queues or steers it.
     await b.control({ screen: { mode: "working" } });
-    await sleep(1_500);
-
-    const res = await a.op("msg.prompt", {
-      target: B,
-      text: "prompt: hold while busy",
-    });
-    expect(res.ok).toBe(false);
-    if (res.ok) return;
-    expect(res.error.type).toBe("SeatBusy");
-    expect(res.error.details?.retryable).toBe(true);
-    const messageId = res.error.details?.messageId as string;
-    expect(typeof messageId).toBe("string");
-
-    // The durable prompt row exists — the refusal did not eat the body.
-    // Free the seat and retry the SAME durable row: the repaint makes B
-    // newly idle, so the first retries settle-refuse before the drive is
-    // admitted — the helper rides that out on the same messageId.
-    await b.control({ screen: { mode: "idle" } });
-    const last = await retryPrompt(a, B, messageId);
-    const data = opData(last);
-    expect((data.delivery as { state: string }).state).toBe("notified");
-
-    const [attempt] = await attemptRows(page, messageId);
-    expect(attempt?.mailKind).toBe("prompt");
-    expect(attempt?.notifiedAt).toBeDefined();
-    await expect.poll(
-      () => crewMessagePasteWrites(page, sandbox, CANVAS, B, messageId, "immediate"),
-      { timeout: 15_000 },
-    ).toBe(1);
-
     await expect
-      .poll(async () => await b.stdinLog(), { timeout: 10_000 })
-      .toContain("hold while busy");
-  } finally {
-    await junto.close();
-  }
-});
+      .poll(async () => (await readSeat(a)).state, { timeout: 30_000 })
+      .toBe("working");
 
-test("crew prompt [fake-tui]: drafted composer refuses SeatBusy, no bytes typed", async () => {
-  test.setTimeout(240_000);
-  const junto = await launch();
-  try {
-    const { a, b } = await boot(junto);
+    const { payload } = await promptDelivered(
+      page,
+      a,
+      b,
+      "prompt: take this while you work",
+    );
 
-    // An operator half-typed into the composer — prompt must not paste over it.
-    await b.control({ screen: { mode: "draft", text: "half-typed thought" } });
-    await sleep(1_500);
-
-    // The gate consults settle before the composer verdict, so the first
-    // eval on this generation can still refuse plain seat-busy — retry the
-    // same row until the composer verdict is what answers.
-    const first = await a.op("msg.prompt", {
-      target: B,
-      text: "prompt: do not paste over the draft",
-    });
-    expect(first.ok).toBe(false);
-    if (first.ok) return;
-    expect(first.error.type).toBe("SeatBusy");
-    expect(first.error.details?.retryable).toBe(true);
-    const messageId = first.error.details?.messageId as string;
-    expect(typeof messageId).toBe("string");
-    const last = isSettlingRefusal(first)
-      ? await retryPrompt(a, B, messageId)
-      : first;
-    expect(last.ok).toBe(false);
-    if (last.ok) return;
-    expect(last.error.type).toBe("SeatBusy");
-    expect(last.error.details?.reason).toBe("composer-not-empty");
-
-    // No prompt bytes reached the PTY.
-    const stdin = await b.stdinLog();
-    expect(stdin).not.toContain("do not paste over the draft");
-  } finally {
-    await junto.close();
-  }
-});
-
-test("crew prompt [fake-tui]: fallback notice delivers the pointer form on the same row", async () => {
-  test.setTimeout(300_000);
-  const junto = await launch();
-  try {
-    const { page, sandbox, a, b } = await boot(junto);
-
-    // Explicit fallback: the same durable row delivers ordinary-notice
-    // form — one summary line with a msg-read pointer, not the body.
-    const { messageId, data } = await promptUntilNotified(a, {
-      target: B,
-      text: "prompt: fall back to notice",
-      fallback: "notice",
-    });
-    expect((data.delivery as { state: string }).state).toBe("notified");
-
-    const [attempt] = await attemptRows(page, messageId);
-    // The stored message remains a prompt; fallback chooses the notice
-    // payload form, whose exact paste is counted separately in the trace.
-    expect(attempt?.mailKind).toBe("prompt");
-    expect(attempt?.notifiedAt).toBeDefined();
-    expect(attempt?.unresolvedAt).toBeUndefined();
-    await expect.poll(
-      () => crewMessagePasteWrites(page, sandbox, CANVAS, B, messageId, "notice"),
-      { timeout: 15_000 },
-    ).toBe(1);
-
+    // Typed and submitted while B was working.
     await expect
-      .poll(async () => await b.stdinLog(), { timeout: 10_000 })
-      .toContain(`msg read ${messageId}`);
-    const stdin = await b.stdinLog();
-    expect(stdin).toContain("mail from seat-a");
-    // Notice form carries a preview + pointer, never the raw full body
-    // on its own line the way the immediate payload does.
-    expect(stdin).not.toContain("\nprompt: fall back to notice");
+      .poll(() => submittedHashes(b), { timeout: 10_000 })
+      .toContain(sha256(payload));
+    expect((await readSeat(a)).state).toBe("working");
   } finally {
     await junto.close();
   }
 });
 
-test("crew prompt [fake-tui]: unacknowledged paste is unresolved, never replayed", async () => {
-  test.setTimeout(300_000);
-  const junto = await launch();
-  try {
-    const { page, sandbox, a, b } = await boot(junto);
-
-    // The fake keeps the pasted text in its composer and never repaints
-    // Working — the written-no-evidence class, deterministically.
-    await b.control({ submit: "hold" });
-
-    // First call settles-refuses (SeatBusy) on a fresh generation; the
-    // retry's paste is the one the fake strands. The unresolved outcome
-    // is an ok envelope — the write happened, the turn-start did not.
-    const first = await a.op("msg.prompt", {
-      target: B,
-      text: "prompt: strand me in the composer",
-    });
-    let messageId: string;
-    let data: Record<string, unknown>;
-    if (first.ok) {
-      data = opData(first);
-      messageId = data.messageId as string;
-    } else {
-      expect(first.error.type).toBe("SeatBusy");
-      messageId = first.error.details?.messageId as string;
-      expect(typeof messageId).toBe("string");
-      const last = await retryPrompt(a, B, messageId);
-      data = opData(last);
-    }
-    const deliveryState = (data.delivery as { state: string }).state;
-    expect(deliveryState).toBe("unresolved");
-
-    const [attempt] = await attemptRows(page, messageId);
-    expect(attempt?.mailKind).toBe("prompt");
-    expect(attempt?.unresolvedAt).toBeDefined();
-    expect(attempt?.notifiedAt).toBeUndefined();
-    expect(attempt?.attemptedAt).toBeDefined();
-    expect(attempt?.generation).toBeTruthy();
-    await expect.poll(
-      () => crewMessagePasteWrites(page, sandbox, CANVAS, B, messageId, "immediate"),
-      { timeout: 15_000 },
-    ).toBe(1);
-
-    // The current projection proves generation identity, not attempt history.
-    // After redraw and a wait, the trace must still count one physical paste.
-    await b.control({ screen: { mode: "idle" }, submit: "ack" });
-    await b.print("poke");
-    await sleep(8_000);
-    const [current] = await attemptRows(page, messageId);
-    expect(current?.generation).toBe(attempt!.generation);
-    expect(current?.unresolvedAt).toBe(attempt!.unresolvedAt);
-    expect(current?.notifiedAt).toBeUndefined();
-    await expect.poll(
-      () => crewMessagePasteWrites(page, sandbox, CANVAS, B, messageId, "immediate"),
-      { timeout: 15_000 },
-    ).toBe(1);
-    const stdin = await b.stdinLog();
-    expect(stdin).toContain("strand me in the composer");
-  } finally {
-    await junto.close();
-  }
-});
-
-test("crew prompt [fake-tui]: retry must name this seat's own prompt", async () => {
+test("prompt [fake-tui]: composer holding a draft takes the prompt at once", async () => {
   test.setTimeout(240_000);
   const junto = await launch();
   try {
-    const { a } = await boot(junto);
+    const { page, a, b } = await boot(junto);
 
-    // A invented message id — not a prompt this seat created for B.
-    const forged = await a.op("msg.prompt", {
-      target: B,
-      messageId: "01JFORGED00000000000000000",
-    });
-    expect(forged.ok).toBe(false);
-    if (forged.ok) return;
-    expect(forged.error.type).toBe("ScopeError");
+    // An operator half-typed into B's composer before the prompt landed.
+    const draft = "half-typed thought";
+    await b.control({ screen: { mode: "draft", text: draft } });
+    await expect
+      .poll(async () => (await readSeat(a)).text, { timeout: 30_000 })
+      .toContain(draft);
+
+    const { payload } = await promptDelivered(
+      page,
+      a,
+      b,
+      "prompt: land on top of the draft",
+    );
+
+    // The prompt went in after the draft and the CR submitted both.
+    await expect
+      .poll(() => submittedHashes(b), { timeout: 10_000 })
+      .toContain(sha256(`${draft}${payload}`));
   } finally {
     await junto.close();
   }
 });
 
-test("crew prompt [fake-tui]: oversize immediate body refuses before any byte", async () => {
+test("prompt [fake-tui]: a long body is typed in full", async () => {
   test.setTimeout(240_000);
   const junto = await launch();
   try {
-    const { a, b } = await boot(junto);
+    const { page, a, b } = await boot(junto);
+    await expect
+      .poll(async () => (await readSeat(a)).state, { timeout: 30_000 })
+      .toBe("idle");
 
-    // The immediate limit bounds the pasted payload, so a body that
-    // pushes the envelope over refuses as an input error — never typed.
-    // The gate runs before the body admission check, so a fresh
-    // generation can settle-refuse first: retry the same row until the
-    // body check is what answers.
-    const first = await a.op("msg.prompt", {
-      target: B,
-      text: `prompt: ${"x".repeat(400)}`,
-    });
-    let last = first;
-    if (isSettlingRefusal(first)) {
-      const messageId = first.error.details?.messageId as string;
-      expect(typeof messageId).toBe("string");
-      last = await retryPrompt(a, B, messageId);
-    }
-    expect(last.ok).toBe(false);
-    if (last.ok) return;
-    expect(last.error.type).toBe("InputError");
-    expect(last.error.details?.reason).toBe("over-limit");
+    const text = `prompt: ${"step through the long body; ".repeat(16)}end of body`;
+    expect(text.length).toBeGreaterThan(160);
 
-    const stdin = await b.stdinLog();
-    expect(stdin).not.toContain("xxxx");
+    const { payload } = await promptDelivered(page, a, b, text);
+
+    // Every character reached the composer, and the CR submitted all of it.
+    expect(await b.stdinLog()).toContain(text);
+    await expect
+      .poll(() => submittedHashes(b), { timeout: 10_000 })
+      .toContain(sha256(payload));
   } finally {
     await junto.close();
   }

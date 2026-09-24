@@ -96,9 +96,7 @@ describe("entity identity laws", () => {
 });
 
 describe("canvas entity registry", () => {
-  it("opens at the version-1 baseline schema", async () => {
-    expect(CURRENT_STATE_SCHEMA_VERSION).toBe(1);
-
+  it("opens a fresh database at the current schema", async () => {
     const root = await mkdtemp(join(tmpdir(), "junto-entity-fresh-"));
     roots.push(root);
     const stateDirectory = join(root, "state");

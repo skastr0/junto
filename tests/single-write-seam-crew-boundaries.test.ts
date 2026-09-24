@@ -53,8 +53,6 @@ type Register = {
 const register = JSON.parse(readFileSync(REGISTER, "utf8")) as Register;
 
 const CREW_TABLES = [
-  "work_mail_attempts",
-  "work_mail_notice_fallback",
   "work_review_checkout_observations",
   "work_review_receipts",
   "work_review_verdicts",
@@ -66,7 +64,7 @@ const workSchema = "src/main/junto/work/state-schema.ts";
 const workRepository = "src/main/junto/work/repository.ts";
 
 describe("crew boundaries in the single-write-seam register", () => {
-  it("registers the crew repository as the one writer of its five tables", () => {
+  it("registers the crew repository as the one writer of its three tables", () => {
     const seams = register.mutationSeams.filter((entry) => entry.path === crewRepository);
     expect(seams).toHaveLength(1);
     const seam = seams[0]!;
@@ -95,7 +93,7 @@ describe("crew boundaries in the single-write-seam register", () => {
     expect(seams).toHaveLength(1);
     expect(seams[0]!.kind).toBe("permanent");
     expect(seams[0]!.tables).toEqual(["work_canvas_revisions"]);
-    expect(seams[0]!.reason).toContain("SQLite triggers");
+    expect(seams[0]!.reason).toContain("SQLite trigger");
 
     const shared = register.sharedTableExceptions.filter(
       (entry) => entry.table === "work_canvas_revisions",
@@ -139,7 +137,6 @@ describe("crew boundaries in the single-write-seam register", () => {
     expect(entries).toHaveLength(1);
     expect([...entries[0]!.reasons].sort()).toEqual([
       "crew.checkout-observation",
-      "crew.mail-attempt",
       "crew.review-receipt",
       "crew.review-verdict",
     ]);

@@ -12,37 +12,6 @@ import {
 } from "./actor-surface";
 import { isGroup } from "./graph";
 import { resolveSpec, roleOf } from "./physics";
-import { normalizeDisplayTimestamp, readMailAttemptFacts } from "./crew";
-
-/** Project stored transport and recipient receipt facts without inventing ACKs. */
-export const mailDisplayFactsOf = (message: Message) => {
-  const metadata = message.metadata;
-  const transport = readMailAttemptFacts(metadata);
-  const stamp = (value: unknown): string | undefined =>
-    typeof value === "string" || (typeof value === "number" && Number.isFinite(value))
-      ? normalizeDisplayTimestamp(value)
-      : undefined;
-  let reactedAt = stamp(metadata?.reactedAt);
-  if (Array.isArray(metadata?.reactions)) {
-    for (const reaction of metadata.reactions) {
-      if (reaction !== null && typeof reaction === "object" &&
-          "kind" in reaction && reaction.kind === "ack" && "at" in reaction) {
-        reactedAt = stamp(reaction.at) ?? reactedAt;
-      }
-    }
-  }
-  return {
-    queuedAt: transport?.queuedAt,
-    notifiedAt: transport?.notifiedAt ?? stamp(metadata?.deliveredAt),
-    unresolvedAt: transport?.unresolvedAt,
-    refusedAt: transport?.refusedAt,
-    refusedReason: transport?.refusedReason,
-    readAt: stamp(metadata?.readAt),
-    repliedAt: stamp(metadata?.repliedAt),
-    reactedAt,
-    generation: transport?.generation,
-  };
-};
 
 const ULID_PATTERN = /^[0-9A-HJKMNP-TV-Z]{26}$/;
 

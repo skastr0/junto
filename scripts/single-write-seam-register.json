@@ -70,7 +70,7 @@
       "tables": [
         "work_canvas_revisions"
       ],
-      "reason": "Crew DDL contributes exactly three revision-counter INSERTs inside SQLite triggers: mail-attempt INSERT, mail-attempt UPDATE, and task-verdict INSERT. Each invalidates the affected canvas projection in the same transaction as its crew row. No application statement writes the derived counter, and this declaration owns no crew storage table."
+      "reason": "Crew DDL contributes exactly one revision-counter INSERT inside a SQLite trigger: task-verdict INSERT. It invalidates the affected canvas projection in the same transaction as its crew row. No application statement writes the derived counter, and this declaration owns no crew storage table."
     },
     {
       "path": "src/main/junto/work/journal.ts",
@@ -144,13 +144,11 @@
       "path": "src/main/junto/work/crew-repository.ts",
       "kind": "debt",
       "tables": [
-        "work_mail_attempts",
-        "work_mail_notice_fallback",
         "work_review_checkout_observations",
         "work_review_receipts",
         "work_review_verdicts"
       ],
-      "reason": "Crew durable store: mail delivery attempts, explicit notice-fallback grants and review verdicts over the one product StateEngine, receiving its StateWriter from the engine that owns the transaction. An attempt is enqueued before any transport action and stamped set-once afterwards, so no fact clears another. A notice-fallback grant persists the authorized deferral for one message and recipient seat across generations. Verdicts are immutable rows keyed by verdict id, task identity, epoch and subject hash. No other seam writes these five tables.",
+      "reason": "Crew durable store: review verdicts, review receipts and checkout observations over the one product StateEngine, receiving its StateWriter from the engine that owns the transaction. Verdicts are immutable rows keyed by verdict id, task identity, epoch and subject hash. No other seam writes these three tables.",
       "retire": "IN-MEMORY WORLD: retire when the in-memory factory world owns the crew projection and this file's only write is the journal append."
     },
     {
@@ -409,7 +407,7 @@
       "alsoWrittenBy": [
         "src/main/junto/work/crew-schema.ts"
       ],
-      "reason": "Both DDL modules declare SQLite triggers for the same derived canvas revision counter. Work DDL covers journal-backed projections; crew DDL adds only mail-attempt insert/update and task-verdict insert invalidation. The runtime mutation seam still refuses every application write to this table.",
+      "reason": "Both DDL modules declare SQLite triggers for the same derived canvas revision counter. Work DDL covers journal-backed projections; crew DDL adds only task-verdict insert invalidation. The runtime mutation seam still refuses every application write to this table.",
       "retire": "Consolidate current revision-trigger declarations under work/state-schema.ts while preserving frozen migration SQL, then remove this exception when crew-schema.ts no longer contains these trigger bodies."
     },
     {
@@ -1123,11 +1121,10 @@
       "path": "src/main/junto/work/crew-repository.ts",
       "reasons": [
         "crew.checkout-observation",
-        "crew.mail-attempt",
         "crew.review-receipt",
         "crew.review-verdict"
       ],
-      "reason": "The crew durable store writes Command Center-local operational state that must never replicate: per-generation mail delivery attempts, durable message-and-seat notice-fallback grants under the same crew.mail-attempt reason, immutable seat-stamped review verdicts, receipt-feed dedupe rows, and coalesced checkout commit observations. None is a work transition, so each write declares the reason it escapes under at its call site.",
+      "reason": "The crew durable store writes Command Center-local operational state that must never replicate: immutable seat-stamped review verdicts, receipt-feed dedupe rows, and coalesced checkout commit observations. None is a work transition, so each write declares the reason it escapes under at its call site.",
       "retire": "Never while the crew stores are Command Center-homed; if any of them ever replicates, mint its fact and materialize it, then shrink this entry to the reasons that remain."
     }
   ]

@@ -5,7 +5,7 @@ import { DatabaseSync } from "node:sqlite";
 import { ManagedRuntime } from "effect";
 import { afterEach, describe, expect, it } from "vitest";
 import { makeStateEngineLive, StateEngine } from "../src/main/junto/state/engine";
-import { CURRENT_STATE_SCHEMA_VERSION } from "../src/main/junto/state/migrations";
+import { CURRENT_STATE_SCHEMA_VERSION, STATE_SCHEMA_MIGRATIONS } from "../src/main/junto/state/migrations";
 import { assertLiveRequestCurrent, makeLiveRepository, operationArgsHash, transitionLiveOperationInTransaction, type LiveRequestCorrelation } from "../src/main/junto/overseer/live/repository";
 
 const roots: string[] = [];
@@ -149,19 +149,21 @@ describe("durable Live journal", () => {
     expect(await runtime.runPromise(repository.getOperation(operationInput.operationId))).toMatchObject({ status: "unknown" });
   });
 
-  it("opens the populated v1 fixture and retains every row including immutable Work logs", async () => {
+  it("opens the populated v1 fixture and retains every kept table's rows including immutable Work logs", async () => {
     const path = await tempPath();
     await copyFile(new URL("./fixtures/state-v1/remote-v1.db", import.meta.url), path);
     const baseline = new DatabaseSync(path);
     let before: Record<string, unknown[]>;
     try {
       const tables = baseline.prepare("SELECT name FROM sqlite_schema WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name <> 'state_schema_identity' ORDER BY name").all();
-      before = Object.fromEntries(tables.map((row) => [String(row.name), baseline.prepare(`SELECT * FROM "${String(row.name).replaceAll('"', '""')}"`).all()]));
+      const retired = new Set(STATE_SCHEMA_MIGRATIONS.flatMap((step) => step.removesTables ?? []));
+      before = Object.fromEntries(tables
+        .filter((row) => !retired.has(String(row.name)))
+        .map((row) => [String(row.name), baseline.prepare(`SELECT * FROM "${String(row.name).replaceAll('"', '""')}"`).all()]));
       for (const table of ["work_events", "work_commands", "work_facts", "work_dispositions"]) expect(before[table]!.length).toBeGreaterThan(0);
     } finally { baseline.close(); }
     const { runtime, state } = await open(path);
     expect(state.info.schemaVersion).toBe(CURRENT_STATE_SCHEMA_VERSION);
-    expect(CURRENT_STATE_SCHEMA_VERSION).toBe(1);
     const after = await runtime.runPromise(state.read("test.live-baseline-preservation", (reader) => Object.fromEntries(
       Object.keys(before).map((table) => [table, reader.all(`SELECT * FROM "${table.replaceAll('"', '""')}"`)]))));
     expect(after).toEqual(before);

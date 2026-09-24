@@ -5,7 +5,6 @@ import {
   composeMessageDeliveryPayload,
   composeImmediatePromptPayload,
   composeMessageDeliverySummary,
-  mailDisplayFactsOf,
   deliveryTargetOf,
   isFactoryMailMessage,
   isForeignMessage,
@@ -51,23 +50,6 @@ const terminalNode = (messages: ReadonlyArray<Message> = []): CanvasDoc["nodes"]
 });
 
 describe("message-delivery pure helpers", () => {
-  it("projects legacy notification and preserved uncertainty without inventing a read", () => {
-    const at = "2026-09-15T00:00:00.000Z";
-    const deliveredAt = Date.parse(at);
-    const legacy = mailDisplayFactsOf(userMsg({ metadata: { deliveredAt } }));
-    expect(legacy.notifiedAt).toBe(at);
-    expect(legacy.readAt).toBeUndefined();
-    const facts = mailDisplayFactsOf(userMsg({ metadata: {
-      deliveredAt, generation: "binding-e1", queuedAt: at, unresolvedAt: at,
-      refusedAt: at, refusedReason: "seat-busy", readAt: deliveredAt,
-      reactions: [{ kind: "ack", at: deliveredAt }],
-    } }));
-    expect(facts).toMatchObject({
-      notifiedAt: at, unresolvedAt: at, refusedAt: at, refusedReason: "seat-busy",
-      readAt: at, reactedAt: at, generation: "binding-e1",
-    });
-  });
-
   it("strips recognized current envelopes without dropping other sender-like prose", () => {
     const message = userMsg({
       metadata: { factoryMail: true, fromSeat: "seat-a", senderName: "Peer Reviewer" },

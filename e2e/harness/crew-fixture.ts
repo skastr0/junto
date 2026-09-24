@@ -32,7 +32,7 @@ import type { Page } from "@playwright/test";
 import type { PtyDeliveryTraceEvent } from "../../src/main/junto/term/drive/pty-delivery-trace";
 import type { CanvasDoc, CanvasEdge, CanvasNode, TextNode } from "../../src/shared/canvas";
 import type { GroupNode } from "../../src/shared/canvas";
-import { readMailAttemptFacts, readMailExtension, type MailAttemptFacts, type MailExtension, type ReviewVerdict } from "../../src/shared/crew";
+import { type ReviewVerdict } from "../../src/shared/crew";
 import { composeImmediatePromptPayload, composeMessageDeliveryPayload } from "../../src/shared/message-delivery";
 import type { Port } from "../../src/shared/physics/schema";
 import type { Verb } from "../../src/shared/physics/verbs";
@@ -410,8 +410,7 @@ setInterval(drainFeed, 60);
 // the bracket submits the composer:
 //   ack     -> the text scrolls to the transcript, the composer empties and
 //              the Working status repaints (a real turn-start);
-//   hold    -> nothing clears: the pasted text stays pending in the composer
-//              (written-but-unacknowledged, the unresolved class);
+//   hold    -> nothing clears: the pasted text stays pending in the composer;
 //   ignore  -> no answer at all — the bytes sit on screen, no repaint.
 let inPaste = false;
 let inputTail = "";
@@ -912,37 +911,6 @@ const crewMessages = async (
   return node.ether?.messages?.items ?? [];
 };
 
-export type CrewMailAttempt = MailAttemptFacts & {
-  readonly messageId: string;
-  readonly mailKind?: MailExtension["mailKind"];
-};
-
-/**
- * Latest durably queued generation per message, as projected by main. This is
- * not the full attempt ledger: policy, batch ids and physical counters are not
- * exposed by readCanvas. Receipt timestamps are read independently below.
- */
-export const crewMailAttempts = async (
-  page: Page,
-  canvas: string,
-  nodeId: string,
-): Promise<ReadonlyArray<CrewMailAttempt>> =>
-  (await crewMessages(page, canvas, nodeId)).flatMap((message) => {
-    const facts = readMailAttemptFacts(message.metadata);
-    if (facts === undefined) {
-      if (message.metadata?.generation !== undefined || message.metadata?.queuedAt !== undefined) {
-        throw new Error(`Invalid projected mail attempt for ${message.messageId}`);
-      }
-      return [];
-    }
-    const extension = readMailExtension(message.metadata);
-    return [{
-      messageId: message.messageId,
-      ...facts,
-      ...(extension === undefined ? {} : { mailKind: extension.mailKind }),
-    }];
-  });
-
 /** Task-subject chains only; standalone commit verdicts are not a canvas projection. */
 export const crewVerdicts = async (
   page: Page,
@@ -973,7 +941,7 @@ const receiptTimestamp = (value: unknown, key: string, messageId: string): numbe
   return value;
 };
 
-/** Accepted receipt facts from main; attempt.notifiedAt never substitutes for a receipt. */
+/** Accepted receipt facts from main: deliveredAt is the only delivery fact. */
 export const crewReceipts = async (
   page: Page,
   canvas: string,
@@ -1054,7 +1022,7 @@ export const crewMessagePasteWrites = async (
   canvas: string,
   nodeId: string,
   messageId: string,
-  policy: "notice" | "immediate" = "notice",
+  kind: "notice" | "prompt" = "notice",
 ): Promise<number> => {
   const message = (await crewMessages(page, canvas, nodeId))
     .find((candidate) => candidate.messageId === messageId);
@@ -1065,7 +1033,7 @@ export const crewMessagePasteWrites = async (
   [canvas, nodeId] as const);
   if (bindings.length !== 1) throw new Error(`Expected one live crew binding for ${canvas}/${nodeId}; found ${bindings.length}`);
   const bindingId = bindings[0]!.bindingId;
-  const payload = policy === "immediate"
+  const payload = kind === "prompt"
     ? composeImmediatePromptPayload(message)
     : composeMessageDeliveryPayload(message);
   const hash = createHash("sha256").update(payload).digest("hex");

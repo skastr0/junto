@@ -11,8 +11,7 @@ import { CrewRepository, CrewRepositoryLive, subjectHashOf } from "../src/main/j
 import { mailboxMessageDeliveryId, mailboxMessageReactId, mailboxMessageReadId } from "../src/main/junto/work/mailbox-receipts";
 import { createAuthorialTaskDependencyScopeCapability, WorkRepository, WorkRepositoryLive } from "../src/main/junto/work/repository";
 import type { CanvasDoc } from "../src/shared/canvas";
-import { readMailAttemptFacts, type ReviewVerdict } from "../src/shared/crew";
-import { mailDisplayFactsOf } from "../src/shared/message-delivery";
+import { type ReviewVerdict } from "../src/shared/crew";
 import type { CompletionEvidence, Task } from "../src/shared/work-model";
 import { IntentFactBasis } from "../src/shared/work-protocol";
 
@@ -133,9 +132,6 @@ const openFixture = async () => {
     task: { id, state: "submitted", epoch: 2, history: [{ messageId: `brief-${id}`, role: "user", parts: [{ kind: "text", text: "Review the exact evidence" }] }], ...(metadata ? { metadata } : {}) },
     originAt: iso(0), receivedAt: iso(0),
   }));
-  const attemptKey = (messageId: string, recipientGeneration = "generation-a") => ({
-    sink: mailSink, messageId, recipientSeatId: recipient.seatId, recipientGeneration,
-  });
   const verdict = (
     id: string, taskId: string, epoch: number, hash: string,
     kind: ReviewVerdict["kind"], postedAtMs: number,
@@ -146,70 +142,11 @@ const openFixture = async () => {
     subjectHash: hash, epoch, findings: kind === "blocking" ? ["Repair the boundary"] : [],
     refs: [{ kind: "commit", sha: "a".repeat(40) }], postedAtMs,
   });
-  return { runtime, canvases, work, crew, state, queries, author, recipient, basis, dependencyScope, read, message, task, appendMessage, createTask, attemptKey, verdict };
+  return { runtime, canvases, work, crew, state, queries, author, recipient, basis, dependencyScope, read, message, task, appendMessage, createTask, verdict };
 };
 
 describe("Crew facts in the actual CanvasesService overlay", () => {
-  it("announces committed attempt facts to canvas subscribers without publishing failed or no-op writes", async () => {
-    const f = await openFixture();
-    await f.appendMessage("live-attempt");
-    const notices: string[] = [];
-    const unsubscribe = f.canvases.subscribeChanges((canvas) => notices.push(canvas));
-    const key = f.attemptKey("live-attempt");
-    try {
-      await f.runtime.runPromise(f.crew.enqueueAttempt({ ...key, policy: "notice", at: iso(10) }));
-      expect(notices.splice(0)).toEqual([CANVAS]);
-      await f.runtime.runPromise(f.crew.enqueueAttempt({ ...key, policy: "notice", at: iso(10) }));
-      expect(notices).toEqual([]);
-
-      await f.runtime.runPromise(f.crew.recordAttempt({ ...key, outcome: { kind: "unresolved", at: iso(11) } }));
-      expect(notices.splice(0)).toEqual([CANVAS]);
-      expect(mailDisplayFactsOf(await f.message("live-attempt")).unresolvedAt).toBe(iso(11));
-
-      await expect(f.runtime.runPromise(f.crew.recordAttempt({
-        ...f.attemptKey("missing"), outcome: { kind: "notified", at: iso(12) },
-      }))).rejects.toThrow("attempt row missing");
-      expect(notices).toEqual([]);
-
-      await f.runtime.runPromise(f.crew.markAttempted({ ...key, at: iso(13) }));
-      expect(notices.splice(0)).toEqual([CANVAS]);
-      await f.runtime.runPromise(f.crew.reconcileUnresolvedAttempts(iso(14)));
-      expect(notices.splice(0)).toEqual([CANVAS]);
-      await f.runtime.runPromise(f.crew.reconcileUnresolvedAttempts(iso(15)));
-      expect(notices).toEqual([]);
-    } finally {
-      unsubscribe();
-    }
-  });
-
-  it("refreshes attempts without receipts and keeps the newest queued generation after a late old-generation outcome", async () => {
-    const f = await openFixture();
-    await f.appendMessage("attempt-only");
-    expect(readMailAttemptFacts((await f.message("attempt-only")).metadata)).toBeUndefined();
-    const oldKey = f.attemptKey("attempt-only", "generation-z-old");
-    await f.runtime.runPromise(f.crew.enqueueAttempt({ ...oldKey, policy: "notice", at: iso(10) }));
-    expect.soft(readMailAttemptFacts((await f.message("attempt-only")).metadata)).toEqual({ generation: oldKey.recipientGeneration, queuedAt: iso(10) });
-    await f.runtime.runPromise(f.crew.markAttempted({ ...oldKey, at: iso(11) }));
-    expect.soft(readMailAttemptFacts((await f.message("attempt-only")).metadata)?.attemptedAt).toBe(iso(11));
-    await f.runtime.runPromise(f.crew.recordAttempt({ ...oldKey, outcome: { kind: "unresolved", at: iso(12) } }));
-    expect.soft(mailDisplayFactsOf(await f.message("attempt-only"))).toMatchObject({ unresolvedAt: iso(12) });
-
-    const currentKey = f.attemptKey("attempt-only", "generation-a-new");
-    await f.runtime.runPromise(f.crew.enqueueAttempt({ ...currentKey, policy: "notice", at: iso(20) }));
-    await f.runtime.runPromise(f.crew.recordAttempt({ ...currentKey, outcome: { kind: "refused", at: iso(21), reason: "seat-busy" } }));
-    // The same message id elsewhere and a later mutation of the old generation
-    // must not replace the current recipient's facts.
-    await f.runtime.runPromise(f.crew.enqueueAttempt({ ...currentKey, sink: { ...mailSink, nodeId: "other-recipient" }, policy: "notice", at: iso(100) }));
-    await f.runtime.runPromise(f.crew.recordAttempt({ ...oldKey, outcome: { kind: "notified", at: iso(200) } }));
-    const projected = await f.message("attempt-only");
-    expect(readMailAttemptFacts(projected.metadata)).toEqual({ generation: currentKey.recipientGeneration, queuedAt: iso(20), refusedAt: iso(21), refusedReason: "seat-busy" });
-    expect(projected.metadata).toMatchObject({ note: "keep original metadata", fromSeat: f.author.seatId });
-    expect(projected.metadata?.deliveredAt).toBeUndefined();
-    expect(projected.metadata?.readAt).toBeUndefined();
-    expect(mailDisplayFactsOf(projected).notifiedAt).toBeUndefined();
-  });
-
-  it("preserves transport facts alongside independently timestamped delivery, read and reaction receipts", async () => {
+  it("projects independently timestamped delivery, read and reaction receipts onto the message", async () => {
     const f = await openFixture();
     const id = "attempt-and-receipts";
     await f.appendMessage(id);
@@ -223,20 +160,13 @@ describe("Crew facts in the actual CanvasesService overlay", () => {
         receipt: { deliveryId, deliveredItem: { kind: "message", itemId: id, sink: mailSink }, actor: f.recipient, acceptedAt: at },
       }));
     }
-    const before = await f.message(id);
-    expect(before.metadata?.readAt).toBe(Date.parse(iso(2)));
-    const key = f.attemptKey(id);
-    await f.runtime.runPromise(f.crew.enqueueAttempt({ ...key, policy: "immediate", at: iso(10) }));
-    await f.runtime.runPromise(f.crew.markAttempted({ ...key, at: iso(11) }));
-    for (const outcome of [
-      { kind: "notified" as const, at: iso(12) },
-      { kind: "unresolved" as const, at: iso(13) },
-      { kind: "refused" as const, at: iso(14), reason: "not-settled" as const },
-    ]) await f.runtime.runPromise(f.crew.recordAttempt({ ...key, outcome }));
     const after = await f.message(id);
-    expect(readMailAttemptFacts(after.metadata)).toEqual({ generation: key.recipientGeneration, queuedAt: iso(10), attemptedAt: iso(11), notifiedAt: iso(12), unresolvedAt: iso(13), refusedAt: iso(14), refusedReason: "not-settled" });
-    expect(after.metadata).toMatchObject({ deliveredAt: Date.parse(iso(1)), readAt: Date.parse(iso(2)), reactions: [{ kind: "ack", at: Date.parse(iso(3)) }] });
-    expect(mailDisplayFactsOf(after)).toMatchObject({ notifiedAt: iso(12), readAt: iso(2), reactedAt: iso(3), unresolvedAt: iso(13), refusedAt: iso(14) });
+    expect(after.metadata).toMatchObject({
+      note: "keep original metadata",
+      deliveredAt: Date.parse(iso(1)),
+      readAt: Date.parse(iso(2)),
+      reactions: [{ kind: "ack", at: Date.parse(iso(3)) }],
+    });
   });
 
   it("refreshes the full exact-identity verdict chain and recomputes the current subject from task evidence", async () => {
@@ -296,21 +226,17 @@ describe("Crew facts in the actual CanvasesService overlay", () => {
     expect((await f.task(id)).verdicts).toEqual([...history, currentVerdict]);
   });
 
-  it("loads mailbox attempts and task verdicts in a fixed number of queries as their lanes grow", async () => {
+  it("loads task verdicts in a fixed number of queries as the lane grows", async () => {
     const f = await openFixture();
-    const counts = () => [
-      ["work_mail_attempts", mailSink.nodeId],
-      ["work_review_verdicts", taskSink.nodeId],
-    ].map(([table, nodeId]) => f.queries.filter(({ sql, bindings }) =>
-      new RegExp(`\\bFROM\\s+${table}\\b`, "i").test(sql) &&
-      Array.isArray(bindings) && bindings[0] === CANVAS && bindings[1] === nodeId,
-    ).length);
+    const counts = () => f.queries.filter(({ sql, bindings }) =>
+      /\bFROM\s+work_review_verdicts\b/i.test(sql) &&
+      Array.isArray(bindings) && bindings[0] === CANVAS && bindings[1] === taskSink.nodeId,
+    ).length;
     const grow = async (from: number, until: number) => {
       for (let n = from; n < until; n++) {
         const id = `batch-${n}`;
         await f.appendMessage(id);
         await f.createTask(id);
-        await f.runtime.runPromise(f.crew.enqueueAttempt({ ...f.attemptKey(id), policy: "notice", at: iso(n + 1) }));
         await f.runtime.runPromise(f.crew.postVerdict(f.verdict(`verdict-${id}`, id, 1, `hash-${n}`, "green", n + 1)));
       }
       f.queries.length = 0;
@@ -320,12 +246,11 @@ describe("Crew facts in the actual CanvasesService overlay", () => {
       const tasks = projected.nodes.find((node) => node.id === taskSink.nodeId)?.ether?.tasks?.items;
       expect(tasks).toHaveLength(until);
       for (let n = 0; n < until; n++) {
-        expect(readMailAttemptFacts(messages?.find((message) => message.messageId === `batch-${n}`)?.metadata)?.queuedAt).toBe(iso(n + 1));
         expect(tasks?.find((task) => task.id === `batch-${n}`)?.verdicts?.map((verdict) => verdict.verdictId)).toEqual([`verdict-batch-${n}`]);
       }
       return counts();
     };
-    expect(await grow(0, 1)).toEqual([1, 1]);
-    expect(await grow(1, 8)).toEqual([1, 1]);
+    expect(await grow(0, 1)).toBe(1);
+    expect(await grow(1, 8)).toBe(1);
   });
 });

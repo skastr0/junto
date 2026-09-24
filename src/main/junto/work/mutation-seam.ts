@@ -85,11 +85,9 @@ export const WORK_PLANE_TABLE_ROLES: ReadonlyMap<string, WorkPlaneTableRole> =
     ["work_messages", "projection"],
     ["work_artifacts", "projection"],
     ["work_delivery_receipts", "projection"],
-    // Crew mail/review stores: durable Command Center-local operational state
+    // Crew review stores: durable Command Center-local operational state
     // written directly (never materialized from the replicated journal), so
     // every write declares an unjournaledWorkMutation(...) reason below.
-    ["work_mail_attempts", "projection"],
-    ["work_mail_notice_fallback", "projection"],
     ["work_review_verdicts", "projection"],
     ["work_review_receipts", "projection"],
     ["work_review_checkout_observations", "projection"],
@@ -153,19 +151,6 @@ export const UNJOURNALED_WORK_REASONS = {
     retire:
       "Never — but `bun run lint:single-write-seam` forbids this reason under " +
       "src/, so it can only ever appear in tests and fixtures.",
-  },
-  "crew.mail-attempt": {
-    why:
-      "Mail delivery attempts (work_mail_attempts) and notice-fallback " +
-      "markers (work_mail_notice_fallback) are Command Center-local " +
-      "transport state — queued/attempted/notified/unresolved/refused per " +
-      "recipient generation, plus the authorizing deferral that re-admits " +
-      "an explicit-only prompt row to the notice path. They mint no fact " +
-      "because a delivery attempt is not a work transition and must never " +
-      "replicate to another installation.",
-    retire:
-      "Never while mail delivery is Command Center-homed; if attempts ever " +
-      "replicate, mint a delivery-attempt fact and materialize it instead.",
   },
   "crew.review-verdict": {
     why:
@@ -522,7 +507,6 @@ export const CANVAS_REVISION_TABLES: ReadonlySet<string> = new Set([
   "work_board_topics",
   "work_delivery_receipts",
   "work_events",
-  "work_mail_attempts",
   "work_messages",
   "work_pad_meta",
   "work_pad_posts",

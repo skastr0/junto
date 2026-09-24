@@ -460,10 +460,12 @@ phase, and attention/occupancy are separate planes.
 
 Two kinds of migration exist and they never mix:
 
-1. **Schema evolution** — expand-only DDL steps in
+1. **Schema evolution** — DDL steps in
    `src/main/junto/state/migrations.ts`: versioned (`user_version` N→N+1),
-   identity-witnessed, one startup transaction, authorizer-guarded. A schema
-   step adds tables/columns/triggers; it never rewrites rows.
+   identity-witnessed, one startup transaction, authorizer-guarded. An
+   expand-only step adds tables/columns/triggers and never rewrites rows; a
+   consolidate step may also drop exactly the tables it names in
+   `removesTables` (1 -> 2 retired the mail delivery ledger this way).
 2. **Data backfills** — marker-gated, idempotent walks that run after
    StateEngine is up (e.g. `content/inline-media-migration.ts`). Completeness
    markers live in install-ops (`install-ops.db` / `InstallOpsService`), not

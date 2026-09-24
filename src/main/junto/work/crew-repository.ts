@@ -1,17 +1,9 @@
 /**
- * Durable store for crew mail delivery attempts and review verdicts, over the
- * one product StateEngine (no second database, no extra connection). It shares
- * the same runtime as the Work repository: `CrewRepositoryLive` depends on the
- * StateEngine service the rest of the process already provides.
- *
- * Delivery attempts are the transport truth per (message, recipient seat,
- * recipient generation). They are enqueued (durably) before any transport
- * action, an intent witness (`attemptedAt`) is stamped immediately before the
- * physical write, and the terminal facts are stamped set-once afterwards so no
- * fact ever clears another. Recovery maps a crashed intent (attempted, no
- * outcome) to `unresolved`, preserving uncertainty and preventing a blind
- * same-generation replay. Exactly-once across an external-TUI crash is not
- * promised.
+ * Durable store for crew review verdicts, review receipts, and checkout
+ * observations, over the one product StateEngine (no second database, no
+ * extra connection). It shares the same runtime as the Work repository:
+ * `CrewRepositoryLive` depends on the StateEngine service the rest of the
+ * process already provides.
  *
  * Review verdicts are immutable rows keyed by a unique verdict id, bound to the
  * full task identity plus epoch plus canonical subject hash. The gate query
@@ -28,9 +20,6 @@ import {
   type UnjournaledWorkReason,
 } from "./mutation-seam";
 import {
-  DeliveryAttempt,
-  MailAttemptReason,
-  MailDeliveryPolicy,
   ReviewVerdict,
   VERDICT_SUBJECT_HASH_DOMAIN,
 } from "../../../shared/crew";
@@ -59,45 +48,6 @@ const toCrewError = (operation: string, error: unknown): CrewRepositoryError =>
 export type CrewSink = {
   readonly canvasName: string;
   readonly nodeId: string;
-};
-
-export type EnqueueAttemptInput = {
-  readonly sink: CrewSink;
-  readonly messageId: string;
-  readonly recipientSeatId: string;
-  readonly recipientGeneration: string;
-  readonly policy: MailDeliveryPolicy;
-  readonly batchId?: string;
-  readonly at: string;
-};
-
-export type AttemptOutcome =
-  | { readonly kind: "notified"; readonly at: string }
-  | { readonly kind: "unresolved"; readonly at: string }
-  | {
-      readonly kind: "refused";
-      readonly at: string;
-      readonly reason: typeof MailAttemptReason.Type;
-    };
-
-export type RecordAttemptInput = {
-  readonly sink: CrewSink;
-  readonly messageId: string;
-  readonly recipientSeatId: string;
-  readonly recipientGeneration: string;
-  readonly outcome: AttemptOutcome;
-  readonly write?: {
-    readonly writesBefore: number;
-    readonly writesAfter: number;
-    readonly at: string;
-  };
-};
-
-export type AttemptKey = {
-  readonly sink: CrewSink;
-  readonly messageId: string;
-  readonly recipientSeatId: string;
-  readonly recipientGeneration: string;
 };
 
 export type VerdictSubjectIdentity =
@@ -141,7 +91,6 @@ export type CheckoutObservationInput = {
   readonly observedAt: string;
 };
 
-const decodeAttempt = Schema.decodeUnknownSync(DeliveryAttempt);
 const decodeVerdict = Schema.decodeUnknownSync(ReviewVerdict);
 
 /**
@@ -172,81 +121,6 @@ export const anyReviewerLatestGreen = (
   }
   return false;
 };
-
-type AttemptRow = {
-  readonly canvas_name: string;
-  readonly node_id: string;
-  readonly message_id: string;
-  readonly recipient_seat_id: string;
-  readonly recipient_generation: string;
-  readonly policy: string;
-  readonly batch_id: string | null;
-  readonly queued_at: string;
-  readonly attempted_at: string | null;
-  readonly notified_at: string | null;
-  readonly unresolved_at: string | null;
-  readonly refused_at: string | null;
-  readonly refused_reason: string | null;
-  readonly writes_before: number | null;
-  readonly writes_after: number | null;
-  readonly write_at: string | null;
-  readonly attempt_seq: number;
-  readonly resolved_seq: number;
-};
-
-const attemptFromRow = (row: AttemptRow): typeof DeliveryAttempt.Type =>
-  decodeAttempt({
-    messageId: row.message_id,
-    attemptSeq: row.attempt_seq,
-    resolvedSeq: row.resolved_seq,
-    recipient: {
-      seat: {
-        seatId: row.recipient_seat_id,
-        canvasName: row.canvas_name,
-        nodeId: row.node_id,
-      },
-      generation: row.recipient_generation,
-    },
-    policy: row.policy,
-    ...(row.batch_id !== null ? { batchId: row.batch_id } : {}),
-    facts: {
-      generation: row.recipient_generation,
-      queuedAt: row.queued_at,
-      ...(row.attempted_at !== null ? { attemptedAt: row.attempted_at } : {}),
-      ...(row.notified_at !== null ? { notifiedAt: row.notified_at } : {}),
-      ...(row.unresolved_at !== null ? { unresolvedAt: row.unresolved_at } : {}),
-      ...(row.refused_at !== null ? { refusedAt: row.refused_at } : {}),
-      ...(row.refused_reason !== null ? { refusedReason: row.refused_reason } : {}),
-    },
-    ...(row.writes_before !== null &&
-    row.writes_after !== null &&
-    row.write_at !== null
-      ? {
-          write: {
-            writesBefore: row.writes_before,
-            writesAfter: row.writes_after,
-            at: row.write_at,
-          },
-        }
-      : {}),
-  });
-
-const readAttemptRow = (
-  reader: StateReader,
-  key: AttemptKey,
-): AttemptRow | undefined =>
-  reader.get<AttemptRow>(
-    `SELECT * FROM work_mail_attempts
-     WHERE canvas_name = ? AND node_id = ? AND message_id = ?
-       AND recipient_seat_id = ? AND recipient_generation = ?`,
-    [
-      key.sink.canvasName,
-      key.sink.nodeId,
-      key.messageId,
-      key.recipientSeatId,
-      key.recipientGeneration,
-    ],
-  );
 
 type VerdictRow = {
   readonly verdict_id: string;
@@ -432,79 +306,6 @@ export const applyReviewReceiptWrite = (
 };
 
 export type CrewRepositoryShape = {
-  /** Durable queued row before any transport action. Idempotent per key. */
-  readonly enqueueAttempt: (
-    input: EnqueueAttemptInput,
-  ) => Effect.Effect<
-    { readonly attempt: typeof DeliveryAttempt.Type; readonly created: boolean },
-    CrewRepositoryError
-  >;
-  /** Atomic durable membership for a batched notify: all members before transport. */
-  readonly enqueueBatch: (input: {
-    readonly members: ReadonlyArray<EnqueueAttemptInput>;
-  }) => Effect.Effect<ReadonlyArray<typeof DeliveryAttempt.Type>, CrewRepositoryError>;
-  /** Stamp the intent witness immediately BEFORE the physical write. Set-once. */
-  readonly markAttempted: (
-    input: AttemptKey & { readonly at: string },
-  ) => Effect.Effect<void, CrewRepositoryError>;
-  /** Stamp a terminal outcome and optional write evidence. Each fact set-once. */
-  readonly recordAttempt: (
-    input: RecordAttemptInput,
-  ) => Effect.Effect<typeof DeliveryAttempt.Type, CrewRepositoryError>;
-  readonly attempt: (
-    key: AttemptKey,
-  ) => Effect.Effect<typeof DeliveryAttempt.Type | undefined, CrewRepositoryError>;
-  readonly attemptsForMessage: (
-    sink: CrewSink,
-    messageId: string,
-  ) => Effect.Effect<ReadonlyArray<typeof DeliveryAttempt.Type>, CrewRepositoryError>;
-  /** True if any generation of this message to this seat reached notified. */
-  readonly hasNotifiedAcrossGenerations: (
-    sink: CrewSink,
-    messageId: string,
-    recipientSeatId: string,
-  ) => Effect.Effect<boolean, CrewRepositoryError>;
-  /**
-   * Boot recovery: a crashed intent (attempted, no terminal outcome) becomes
-   * unresolved. Returns how many rows were reconciled.
-   */
-  readonly reconcileUnresolvedAttempts: (
-    at: string,
-  ) => Effect.Effect<number, CrewRepositoryError>;
-  /**
-   * Operator-authorized fresh attempt for a same-generation held row: opens
-   * a new intent (attempt_seq += 1) WITHOUT clearing any fact, so history
-   * stays visible. Only a closed held row grants (unresolved, un-notified,
-   * attempt_seq = resolved_seq); returns whether a grant was issued. The
-   * next attempt closes the opened intent with its outcome.
-   */
-  readonly grantHeldAttempt: (
-    input: AttemptKey & { readonly at: string },
-  ) => Effect.Effect<boolean, CrewRepositoryError>;
-  /** Held (unresolved, un-notified) rows for one canvas, oldest first. */
-  readonly listHeldAttempts: (
-    canvasName: string,
-  ) => Effect.Effect<ReadonlyArray<typeof DeliveryAttempt.Type>, CrewRepositoryError>;
-  /**
-   * Persist a notice-fallback marker (idempotent): an authorizing deferral
-   * re-admits an explicit-only prompt-kind row to the ordinary notice path.
-   * Returns whether the marker was created.
-   */
-  readonly grantNoticeFallback: (
-    input: {
-      readonly sink: CrewSink;
-      readonly messageId: string;
-      readonly recipientSeatId: string;
-      readonly reason: string;
-      readonly at: string;
-    },
-  ) => Effect.Effect<boolean, CrewRepositoryError>;
-  /** True when a fallback marker exists for this message and seat. */
-  readonly hasNoticeFallback: (
-    sink: CrewSink,
-    messageId: string,
-    recipientSeatId: string,
-  ) => Effect.Effect<boolean, CrewRepositoryError>;
   /** Post a verdict in its own transaction. Immutable, idempotent by id. */
   readonly postVerdict: (
     verdict: typeof ReviewVerdict.Type,
@@ -576,309 +377,6 @@ export const CrewRepositoryLive = Layer.effect(
         })),
         Effect.map(({ value }) => value),
       );
-
-    const insertQueued = (writer: StateWriter, input: EnqueueAttemptInput): void => {
-      writer.run(
-        `INSERT OR IGNORE INTO work_mail_attempts(
-           canvas_name, node_id, message_id, recipient_seat_id,
-           recipient_generation, policy, batch_id, queued_at, updated_at
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [
-          input.sink.canvasName,
-          input.sink.nodeId,
-          input.messageId,
-          input.recipientSeatId,
-          input.recipientGeneration,
-          input.policy,
-          input.batchId ?? null,
-          input.at,
-          input.at,
-        ],
-      );
-    };
-
-    const enqueueAttempt: CrewRepositoryShape["enqueueAttempt"] = (input) =>
-      writeTx("crew.enqueueAttempt", (writer) =>
-        unjournaledWorkMutation("crew.mail-attempt", () => {
-          const before = readAttemptRow(writer, input);
-          insertQueued(writer, input);
-          const row = readAttemptRow(writer, input);
-          if (row === undefined) {
-            throw new Error("attempt row missing after enqueue");
-          }
-          return { attempt: attemptFromRow(row), created: before === undefined };
-        }), [input.sink]);
-
-    const enqueueBatch: CrewRepositoryShape["enqueueBatch"] = (input) =>
-      writeTx("crew.enqueueBatch", (writer) =>
-        unjournaledWorkMutation("crew.mail-attempt", () => {
-          const out: Array<typeof DeliveryAttempt.Type> = [];
-          for (const member of input.members) {
-            insertQueued(writer, member);
-            // Associate the batch id onto the row whether it was just created or
-            // already queued/refused by a prior individual attempt, so an
-            // existing member joins this batch. Other facts (queued_at, the
-            // refusal facts, intent seq) are preserved; the batch id is the
-            // current batch (latest batch wins on a re-batch).
-            if (member.batchId !== undefined) {
-              writer.run(
-                `UPDATE work_mail_attempts SET batch_id = ?, updated_at = ?
-                 WHERE canvas_name = ? AND node_id = ? AND message_id = ?
-                   AND recipient_seat_id = ? AND recipient_generation = ?`,
-                [
-                  member.batchId,
-                  member.at,
-                  member.sink.canvasName,
-                  member.sink.nodeId,
-                  member.messageId,
-                  member.recipientSeatId,
-                  member.recipientGeneration,
-                ],
-              );
-            }
-            const row = readAttemptRow(writer, member);
-            if (row === undefined) {
-              throw new Error("batch member row missing after enqueue");
-            }
-            out.push(attemptFromRow(row));
-          }
-          return out;
-        }), input.members.map((member) => member.sink));
-
-    const markAttempted: CrewRepositoryShape["markAttempted"] = (input) =>
-      writeTx("crew.markAttempted", (writer) =>
-        unjournaledWorkMutation("crew.mail-attempt", () => {
-          writer.run(
-            `UPDATE work_mail_attempts
-               SET attempt_seq = attempt_seq + 1,
-                   attempted_at = coalesce(attempted_at, ?),
-                   updated_at = ?
-             WHERE canvas_name = ? AND node_id = ? AND message_id = ?
-               AND recipient_seat_id = ? AND recipient_generation = ?`,
-            [
-              input.at,
-              input.at,
-              input.sink.canvasName,
-              input.sink.nodeId,
-              input.messageId,
-              input.recipientSeatId,
-              input.recipientGeneration,
-            ],
-          );
-        }), [input.sink]);
-
-    const recordAttempt: CrewRepositoryShape["recordAttempt"] = (input) =>
-      writeTx("crew.recordAttempt", (writer) =>
-        unjournaledWorkMutation("crew.mail-attempt", () => {
-          const outcome = input.outcome;
-          const notifiedAt = outcome.kind === "notified" ? outcome.at : null;
-          const unresolvedAt = outcome.kind === "unresolved" ? outcome.at : null;
-          const refusedAt = outcome.kind === "refused" ? outcome.at : null;
-          const refusedReason = outcome.kind === "refused" ? outcome.reason : null;
-          const at = outcome.at;
-          writer.run(
-            `UPDATE work_mail_attempts SET
-               notified_at = coalesce(notified_at, ?),
-               unresolved_at = coalesce(unresolved_at, ?),
-               refused_at = coalesce(refused_at, ?),
-               refused_reason = coalesce(refused_reason, ?),
-               writes_before = coalesce(writes_before, ?),
-               writes_after = coalesce(writes_after, ?),
-               write_at = coalesce(write_at, ?),
-               resolved_seq = attempt_seq,
-               updated_at = ?
-             WHERE canvas_name = ? AND node_id = ? AND message_id = ?
-               AND recipient_seat_id = ? AND recipient_generation = ?`,
-            [
-              notifiedAt,
-              unresolvedAt,
-              refusedAt,
-              refusedReason,
-              input.write?.writesBefore ?? null,
-              input.write?.writesAfter ?? null,
-              input.write?.at ?? null,
-              at,
-              input.sink.canvasName,
-              input.sink.nodeId,
-              input.messageId,
-              input.recipientSeatId,
-              input.recipientGeneration,
-            ],
-          );
-          const row = readAttemptRow(writer, input);
-          if (row === undefined) {
-            throw new Error("attempt row missing on recordAttempt");
-          }
-          return attemptFromRow(row);
-        }), [input.sink]);
-
-    const attempt: CrewRepositoryShape["attempt"] = (key) =>
-      state
-        .read("crew.attempt", (reader) => {
-          const row = readAttemptRow(reader, key);
-          return row === undefined ? undefined : attemptFromRow(row);
-        })
-        .pipe(Effect.mapError((error) => toCrewError("crew.attempt", error)));
-
-    const attemptsForMessage: CrewRepositoryShape["attemptsForMessage"] = (
-      sink,
-      messageId,
-    ) =>
-      state
-        .read("crew.attemptsForMessage", (reader) =>
-          reader
-            .all<AttemptRow>(
-              `SELECT * FROM work_mail_attempts
-               WHERE canvas_name = ? AND node_id = ? AND message_id = ?
-               ORDER BY queued_at, recipient_generation`,
-              [sink.canvasName, sink.nodeId, messageId],
-            )
-            .map(attemptFromRow),
-        )
-        .pipe(
-          Effect.mapError((error) =>
-            toCrewError("crew.attemptsForMessage", error),
-          ),
-        );
-
-    const hasNotifiedAcrossGenerations: CrewRepositoryShape["hasNotifiedAcrossGenerations"] =
-      (sink, messageId, recipientSeatId) =>
-        state
-          .read("crew.hasNotifiedAcrossGenerations", (reader) => {
-            const row = reader.get<{ readonly n: number }>(
-              `SELECT count(*) AS n FROM work_mail_attempts
-               WHERE canvas_name = ? AND node_id = ? AND message_id = ?
-                 AND recipient_seat_id = ? AND notified_at IS NOT NULL`,
-              [sink.canvasName, sink.nodeId, messageId, recipientSeatId],
-            );
-            return (row?.n ?? 0) > 0;
-          })
-          .pipe(
-            Effect.mapError((error) =>
-              toCrewError("crew.hasNotifiedAcrossGenerations", error),
-            ),
-          );
-
-    const reconcileUnresolvedAttempts: CrewRepositoryShape["reconcileUnresolvedAttempts"] =
-      (at) =>
-        writeTx("crew.reconcileUnresolvedAttempts", (writer) =>
-        unjournaledWorkMutation("crew.mail-attempt", () => {
-            // An open physical intent (attempt_seq > resolved_seq) that never
-            // recorded an outcome is a crash: reopen it as unresolved and close
-            // it, WITHOUT clearing a prior refused_at fact. A clean queued row
-            // (never attempted: attempt_seq = 0) is left alone.
-            const result = writer.run(
-              `UPDATE work_mail_attempts
-                 SET unresolved_at = coalesce(unresolved_at, ?),
-                     resolved_seq = attempt_seq,
-                     updated_at = ?
-               WHERE attempt_seq > resolved_seq`,
-              [at, at],
-            );
-            return Number(result.changes ?? 0);
-          }), (writer) => writer.all<{ canvas_name: string; node_id: string }>(
-            "SELECT DISTINCT canvas_name, node_id FROM work_mail_attempts WHERE attempt_seq > resolved_seq",
-          ).map((row) => ({ canvasName: row.canvas_name, nodeId: row.node_id })));
-
-    const grantHeldAttempt: CrewRepositoryShape["grantHeldAttempt"] = (input) =>
-      writeTx("crew.grantHeldAttempt", (writer) =>
-        unjournaledWorkMutation("crew.mail-attempt", () => {
-          // Open exactly one fresh intent on a closed held row. No fact is
-          // cleared: the prior uncertainty stays visible, and the next
-          // attempt's outcome closes the opened intent. Already-open,
-          // notified, or non-held rows grant nothing (changes = 0).
-          const result = writer.run(
-            `UPDATE work_mail_attempts
-               SET attempt_seq = attempt_seq + 1,
-                   updated_at = ?
-             WHERE canvas_name = ? AND node_id = ? AND message_id = ?
-               AND recipient_seat_id = ? AND recipient_generation = ?
-               AND unresolved_at IS NOT NULL
-               AND notified_at IS NULL
-               AND attempt_seq = resolved_seq`,
-            [
-              input.at,
-              input.sink.canvasName,
-              input.sink.nodeId,
-              input.messageId,
-              input.recipientSeatId,
-              input.recipientGeneration,
-            ],
-          );
-          return Number(result.changes ?? 0) === 1;
-        }), [input.sink]);
-
-    const listHeldAttempts: CrewRepositoryShape["listHeldAttempts"] = (canvasName) =>
-      state
-        .read("crew.listHeldAttempts", (reader) =>
-          reader
-            .all<AttemptRow>(
-              `SELECT * FROM work_mail_attempts
-               WHERE canvas_name = ? AND unresolved_at IS NOT NULL
-                 AND notified_at IS NULL
-               ORDER BY updated_at, message_id`,
-              [canvasName],
-            )
-            .map(attemptFromRow),
-        )
-        .pipe(
-          Effect.mapError((error) =>
-            toCrewError("crew.listHeldAttempts", error),
-          ),
-        );
-
-    const grantNoticeFallback: CrewRepositoryShape["grantNoticeFallback"] = (input) =>
-      writeTx("crew.grantNoticeFallback", (writer) =>
-        unjournaledWorkMutation("crew.mail-attempt", () => {
-          const before = writer.get<{ readonly message_id: string }>(
-            `SELECT message_id FROM work_mail_notice_fallback
-             WHERE canvas_name = ? AND node_id = ? AND message_id = ?
-               AND recipient_seat_id = ?`,
-            [
-              input.sink.canvasName,
-              input.sink.nodeId,
-              input.messageId,
-              input.recipientSeatId,
-            ],
-          );
-          writer.run(
-            `INSERT OR IGNORE INTO work_mail_notice_fallback(
-               canvas_name, node_id, message_id, recipient_seat_id,
-               reason, granted_at, updated_at
-             ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-            [
-              input.sink.canvasName,
-              input.sink.nodeId,
-              input.messageId,
-              input.recipientSeatId,
-              input.reason,
-              input.at,
-              input.at,
-            ],
-          );
-          return before === undefined;
-        }), [input.sink]);
-
-    const hasNoticeFallback: CrewRepositoryShape["hasNoticeFallback"] = (
-      sink,
-      messageId,
-      recipientSeatId,
-    ) =>
-      state
-        .read("crew.hasNoticeFallback", (reader) => {
-          const row = reader.get<{ readonly message_id: string }>(
-            `SELECT message_id FROM work_mail_notice_fallback
-             WHERE canvas_name = ? AND node_id = ? AND message_id = ?
-               AND recipient_seat_id = ?`,
-            [sink.canvasName, sink.nodeId, messageId, recipientSeatId],
-          );
-          return row !== undefined;
-        })
-        .pipe(
-          Effect.mapError((error) =>
-            toCrewError("crew.hasNoticeFallback", error),
-          ),
-        );
 
     const postVerdict: CrewRepositoryShape["postVerdict"] = (verdict) =>
       writeTx("crew.postVerdict", (writer) =>
@@ -998,18 +496,6 @@ export const CrewRepositoryLive = Layer.effect(
         );
 
     return {
-      enqueueAttempt,
-      enqueueBatch,
-      markAttempted,
-      recordAttempt,
-      attempt,
-      attemptsForMessage,
-      hasNotifiedAcrossGenerations,
-      reconcileUnresolvedAttempts,
-      grantHeldAttempt,
-      listHeldAttempts,
-      grantNoticeFallback,
-      hasNoticeFallback,
       postVerdict,
       verdictsForSubject,
       currentGreenExists,
