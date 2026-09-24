@@ -28,7 +28,7 @@ describe("buildFactoryClaimPrompt", () => {
     });
     const text = buildFactoryClaimPrompt({ boardId: sink, task });
 
-    expect(text).toContain(`[crew claim] task ${task.id}: Ship task briefing contract`);
+    expect(text).toContain(`Task claimed ${task.id}: Ship task briefing contract`);
     expect(text).toContain(`Board target (Tasks node id): ${sink}`);
     expect(text).toContain(`Task id: ${task.id}`);
     expect(text).toContain(`junto tasks list '{"target":"${sink}"}'`);

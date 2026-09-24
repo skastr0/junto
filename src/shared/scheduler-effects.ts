@@ -161,7 +161,7 @@ export const defaultInjectPromptText = (
       ? source.text.trim().split("\n")[0]!
       : kind;
   const status = fireStatus ? ` (${fireStatus})` : "";
-  return `[crew] ${label} fired${status}`;
+  return `Scheduler ${label} fired${status}`;
 };
 
 export type RelayEvaluation = {

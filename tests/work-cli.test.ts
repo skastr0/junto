@@ -485,7 +485,7 @@ describe("schema/examples from validating schemas", () => {
       expect(schema?.schema_id).toBe(`${verb}.input/v1`);
       expect(schema?.description).toMatch(/grant pad\.(read|patch)/);
     }
-    expect(padReadSchema.description).toMatch(/never write the crew canvas/i);
+    expect(padReadSchema.description).toMatch(/never write the canvas/i);
     expect(padPatchSchema.description).toMatch(/ink or image/i);
     expect(padPatchSchema.description).toMatch(/inbound actor/i);
     expect(padLookHereSchema.description).toMatch(/unwired/i);

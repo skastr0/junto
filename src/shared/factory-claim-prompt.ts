@@ -281,7 +281,7 @@ export const buildFactoryClaimPrompt = (
   };
 
   return [
-    `[crew claim] task ${task.id}: ${brief}`,
+    `Task claimed ${task.id}: ${brief}`,
     "",
     "This task is claimed by you.",
     `Board target (Tasks node id): ${boardId}`,

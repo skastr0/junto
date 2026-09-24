@@ -118,7 +118,7 @@ describe("factory physics architecture", () => {
       "utf8",
     );
     expect(kernel).toContain("buildFactoryClaimPrompt");
-    expect(claimPrompt).toContain("[crew claim]");
+    expect(claimPrompt).toContain("Task claimed");
     expect(claimPrompt).toContain("junto tasks list");
     expect(claimPrompt).toContain("junto tasks update");
     expect(claimPrompt).toContain('"target"');

@@ -190,28 +190,22 @@ describe("edge-map change injection", () => {
     expect(planEdgeMapChanges(same, same)).toEqual([]);
   });
 
-  it("composes a compact ids-only map-change notice (no contract tables)", () => {
-    // law-aligned: inline contract sections ("### Edge contract — tasks",
-    // "junto tasks list") → ids-only one-liner; contracts live in
-    // `junto onboard` / `junto capabilities` (PROTO-5).
+  it("names what the seat can now reach and no longer reach, in one line", () => {
     const text = composeEdgeMapChangeNotice({
       seatId: "seat-a",
-      added: [{ id: "n-tasks", kind: "task" }],
+      added: [{ id: "n-tasks", kind: "task" }, { id: "bravo", kind: "agent" }],
       removed: [{ id: "n-req", kind: "requests" }],
     });
-    expect(text).toContain("[crew - map]");
-    expect(text).toContain("n-tasks");
-    expect(text).toContain("Removed: `n-req`");
-    expect(text).not.toContain("### Edge contract");
-    expect(text).not.toContain("| intent | command |");
-    expect(text).not.toContain("tasks list");
-    expect(text).not.toContain("### Edge contract — requests");
+    expect(text).toBe(
+      "Your connections changed. You can now reach `n-tasks` (task), `bravo` (agent). " +
+        "You can no longer reach `n-req` (requests). Run `junto capabilities` for details.",
+    );
   });
 
-  it("map-unchanged notice is a one-line orient hint", () => {
-    const text = composeEdgeMapChangeNotice({ seatId: "s", added: [], removed: [] });
-    expect(text).toContain("edge map unchanged");
-    expect(text.split("\n").length).toBe(1);
+  it("says plainly when nothing changed", () => {
+    expect(composeEdgeMapChangeNotice({ seatId: "s", added: [], removed: [] })).toBe(
+      "Your connections did not change. Run `junto capabilities` to see them.",
+    );
   });
 });
 

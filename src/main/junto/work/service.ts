@@ -797,7 +797,7 @@ export const WorkLive = Layer.effect(
         ? Effect.void
         : Effect.fail(new WorkServiceError({
             code: "scope_error",
-            message: "crew operations require a configured Command Center",
+            message: "this command requires a configured Command Center",
             details: { reason: "crew-command-center-only", retryable: false },
           }))),
       Effect.mapError((error) => error.code === "scope_error" ? error : new WorkServiceError({
