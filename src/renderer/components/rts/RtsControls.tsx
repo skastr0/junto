@@ -32,6 +32,7 @@ import {
   FLEET_UI_ENABLED,
   RELAY_ENABLED,
   productNodeKindEnabled,
+  productVerbEnabled,
 } from "@shared/features";
 import { type PauseScope } from "@shared/pause";
 import { compileVerb, verbsForPair, type PortName, type Verb } from "@shared/physics";
@@ -225,7 +226,7 @@ const edgeVerbView = (doc: CanvasDoc, edge: CanvasEdge): EdgeVerbView => {
       : verbsForPair(
           fromNode?.ether?.entity?.kind,
           toNode?.ether?.entity?.kind,
-        ).find((candidate) => candidate !== verb);
+        ).find((candidate) => candidate !== verb && productVerbEnabled(candidate));
   return {
     verb,
     sibling,

@@ -30,6 +30,7 @@ import {
   findNode,
   flowCycleIfInvalid,
   gatedKindOf,
+  gatedVerbOf,
   nativeDeleteResourcesOf,
   nodeGeometry,
   nodeHasOverseerGrant,
@@ -46,6 +47,7 @@ import type { WorkErrorBody } from "@shared/work-control";
 import { actorRefResolverFromProjection } from "@shared/graph";
 import type { ActorRef } from "@shared/work-protocol";
 import { defaultVerbForPair } from "@shared/physics";
+import { productVerbEnabled } from "@shared/features";
 import {
   CanvasError,
   CanvasesService,
@@ -843,17 +845,21 @@ const handleEdgeVerbs = (
     }
     const fromNode = findNode(read.doc, args.fromNode);
     const toNode = findNode(read.doc, args.toNode);
-    const verbs = verbsForEndpoints(fromNode, toNode);
+    const verbs = verbsForEndpoints(fromNode, toNode).filter(productVerbEnabled);
+    const pairDefault = defaultVerbForPair(
+      fromNode === undefined || fromNode.type === "group"
+        ? undefined
+        : fromNode.ether?.entity?.kind,
+      toNode === undefined || toNode.type === "group"
+        ? undefined
+        : toNode.ether?.entity?.kind,
+    );
     return {
       verbs,
-      default: defaultVerbForPair(
-        fromNode === undefined || fromNode.type === "group"
-          ? undefined
-          : fromNode.ether?.entity?.kind,
-        toNode === undefined || toNode.type === "group"
-          ? undefined
-          : toNode.ether?.entity?.kind,
-      ),
+      default:
+        pairDefault !== undefined && productVerbEnabled(pairDefault)
+          ? pairDefault
+          : verbs[0],
     };
   });
 
@@ -887,6 +893,15 @@ const handleEdgeConnect = (
         error: fail(
           "ScopeError",
           "edge touches a kind disabled in this Junto build",
+        ),
+      };
+    }
+    if (gatedVerbOf(draft.verb) !== undefined) {
+      return {
+        ok: false,
+        error: fail(
+          "ScopeError",
+          `verb "${draft.verb}" is disabled in this Junto build`,
         ),
       };
     }
@@ -960,6 +975,15 @@ const handleEdgeConfigure = (
         error: fail(
           "ScopeError",
           "edge touches a kind disabled in this Junto build",
+        ),
+      };
+    }
+    if (changes.verb !== existing.ether?.verb && gatedVerbOf(changes.verb) !== undefined) {
+      return {
+        ok: false,
+        error: fail(
+          "ScopeError",
+          `verb "${changes.verb}" is disabled in this Junto build`,
         ),
       };
     }

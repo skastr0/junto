@@ -3,7 +3,7 @@
  * self-preservation. Main owns transactions; this module does not touch SQLite.
  */
 import { Result } from "effect";
-import { productNodeKindEnabled } from "./features";
+import { productNodeKindEnabled, productVerbEnabled } from "./features";
 import {
   decodeCanvasDoc,
   type CanvasDoc,
@@ -423,6 +423,13 @@ export const gatedKindOf = (node: CanvasNode | undefined): string | undefined =>
   return kind !== undefined && !productNodeKindEnabled(kind) ? kind : undefined;
 };
 
+/**
+ * The verb a new or re-verbed edge names, when this build's product gates
+ * hide it. Stored edges keep their verb; only authoring one is refused.
+ */
+export const gatedVerbOf = (verb: Verb | undefined): Verb | undefined =>
+  verb !== undefined && !productVerbEnabled(verb) ? verb : undefined;
+
 export const edgeVerbAdmitted = (
   fromNode: CanvasNode | undefined,
   toNode: CanvasNode | undefined,
@@ -547,6 +554,9 @@ export const applyCanvasBatch = (
         ) {
           return reject("Forbidden", "edge touches a kind disabled in this Junto build");
         }
+        if (gatedVerbOf(verb) !== undefined) {
+          return reject("Forbidden", `verb "${verb}" is disabled in this Junto build`);
+        }
         if (edges.has(edge.id)) return reject("InvalidArguments", `edge "${edge.id}" already exists`);
         edges.set(edge.id, edge);
         results.push({ operation: step.operation, edgeId: edge.id });
@@ -563,6 +573,10 @@ export const applyCanvasBatch = (
             gatedKindOf(nodes.get(edge.toNode)) !== undefined
           ) {
             return reject("Forbidden", "edge touches a kind disabled in this Junto build");
+          }
+          const verb = step.changes.verb;
+          if (verb !== edge.ether?.verb && gatedVerbOf(verb) !== undefined) {
+            return reject("Forbidden", `verb "${verb}" is disabled in this Junto build`);
           }
           edges.set(edge.id, applyEdgeChanges(edge, step.changes));
         }

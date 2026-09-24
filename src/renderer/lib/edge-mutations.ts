@@ -8,7 +8,7 @@ import {
   type PortName,
   type Verb,
 } from "@shared/physics";
-import { productNodeKindEnabled } from "@shared/features";
+import { productNodeKindEnabled, productVerbEnabled } from "@shared/features";
 import { validateFlowDag, type FlowCycleError } from "@shared/flow-graph";
 import { persistPortMaskEther } from "./crew-port-mask";
 import { isGitNode, isLabelNode, nodeTitle } from "./presentation";
@@ -76,9 +76,11 @@ export const verbsForDraw = (
   ) {
     return NO_DRAW_VERBS;
   }
-  const drawn = verbsForPair(fromKind, toKind);
+  // A gated verb leaves the offer, so two seats with reviews off hold one
+  // verb, show no landing zones, and connect as messages.
+  const drawn = verbsForPair(fromKind, toKind).filter(productVerbEnabled);
   if (drawn.length > 0) return { verbs: drawn, reversed: false };
-  const flipped = verbsForPair(toKind, fromKind);
+  const flipped = verbsForPair(toKind, fromKind).filter(productVerbEnabled);
   return flipped.length > 0 ? { verbs: flipped, reversed: true } : NO_DRAW_VERBS;
 };
 
