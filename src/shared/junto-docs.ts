@@ -336,9 +336,9 @@ export const buildDoctrineDoc = (): string => {
     "writes to your harness. The doctrine is the pointer; the CLI is the map.",
     "",
     "### The operational events",
-    `Beyond the doctrine you receive: ${TASKS_ENABLED ? "claim notices (task data at claim), " : ""}orient`,
-    "notices (re-grounding), repair notes (environment fixes), and crew mail.",
-    "All are compact; the",
+    `Beyond the doctrine you receive: ${TASKS_ENABLED ? "claim notices (task data at claim), " : ""}edge`,
+    "map-change notices (contracts added/removed), orient notices (re-grounding),",
+    "repair notes (environment fixes), and crew mail. All are compact; the",
     "full context is always one `onboard` away.",
     "",
   ].join("\n");
