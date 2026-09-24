@@ -3,7 +3,12 @@
  * `bun run qa:t1` — scripted Cua Driver checks of the packaged Junto.app, for
  * the surfaces only a packaged build has: first launch into an empty home,
  * the native menu bar, the About panel, macOS permission prompts Junto itself
- * causes, reload, and quit + relaunch. No model is called.
+ * causes, reload, quit + relaunch, and the first start of a Claude Code and a
+ * Hermes seat added through the deck with the default folder in a fresh home
+ * (the harness's own screen within 45s, never "resuming", never stuck, and the
+ * ended card's reason when a seat dies). After each attempt it reads the
+ * unified log for TCC requests attributed to com.skastr0.junto at the pids it
+ * launched; every non-preflight request is a finding. No model is called.
  *
  * One `cua-driver mcp` connection serves the whole run, with the agent cursor
  * overlay off. The app runs from a throwaway HOME under /tmp. Findings fold
@@ -26,15 +31,20 @@ import { foldFindings, writeRun, type AttemptRecord, type RunSummary } from "../
 import { listCanvasesAt, normalizeText, readWitnessAt, type Violation } from "../e2e/qa/oracle";
 import {
   appVersion,
+  findByLabel,
   LaunchError,
+  linkHarnessBinaries,
   makeRoot,
   PackagedApp,
   resolveTargetApp,
   seedScene,
+  terminalRows,
   windowIds,
+  type AxElement,
   type Observation,
 } from "../e2e/qa/packaged";
 import { QA_CANVAS } from "../e2e/qa/registry";
+import { readTccRequests, tccAsker } from "../e2e/qa/tcc";
 
 const REPO_ROOT = join(import.meta.dir, "..");
 // Run artifacts live outside test-results/: any Playwright run in the shared
@@ -103,6 +113,231 @@ const noDevMenu = (observation: Observation): Violation[] => {
       ];
 };
 
+// --- seat start ----------------------------------------------------------------
+
+interface SeatHarness {
+  /** Template id, as the canvas document records it. */
+  readonly harness: string;
+  /** The deck row and the card title. */
+  readonly name: string;
+  readonly binary: string;
+  /** Text only the harness draws once it is up: its composer, a menu, or a first-run screen. */
+  readonly prompt: RegExp;
+}
+
+const SEAT_HARNESSES: ReadonlyArray<SeatHarness> = [
+  {
+    harness: "claude",
+    name: "Claude Code",
+    binary: "claude",
+    prompt: /^\s*[❯>](?:\s|$)|\? for shortcuts|enter to (?:select|confirm)|esc to cancel|arrow keys to navigate|do you trust|login method|text style/im,
+  },
+  {
+    harness: "hermes",
+    name: "Hermes",
+    binary: "hermes",
+    prompt: /^\s*❯(?:\s|$)|\bready\b|enter to (?:select|confirm)|↑\/↓ to select/im,
+  },
+];
+const SEAT_PROMPT_MS = 45_000;
+const LOAD_LABEL = /^(?:finding session|starting new session|resuming\b.*|attaching|stuck — still loading)$/;
+const DEAD_HEADLINE = /^(?:Agent|Process) stopped$/;
+const DEAD_BOILERPLATE = new Set(["ended", "The last output stays frozen below.", "If it still held a task, unassign it from the task board."]);
+
+const checked = (element: AxElement): boolean => element.value === true || element.value === 1 || element.value === "1";
+
+/**
+ * Settings > Terminal > Screen reader mode, so xterm's rows reach the AX tree
+ * and the probe can read what the harness drew. A preference, not state the
+ * seat start depends on.
+ */
+const enableScreenReader = async (app: PackagedApp): Promise<boolean> => {
+  const open = await app.waitFor((o) => findByLabel(o, "AXButton", "Open settings"), 10_000);
+  if (!open) return false;
+  await app.press(open);
+  const section = await app.waitFor((o) => findByLabel(o, "AXButton", /^Terminal\b/), 10_000);
+  if (!section) return false;
+  await app.press(section);
+  const toggle = await app.waitFor((o) => findByLabel(o, "AXCheckBox", "Screen reader mode"), 10_000);
+  if (!toggle) return false;
+  if (!checked(toggle)) await app.press(toggle);
+  const on = await app.waitFor((o) => {
+    const now = findByLabel(o, "AXCheckBox", "Screen reader mode");
+    return now && checked(now) ? now : undefined;
+  }, 5_000);
+  const close = findByLabel(await app.observe(), "AXButton", "Close settings");
+  if (close) await app.press(close);
+  else await app.pressEscape();
+  return on !== undefined;
+};
+
+interface SeatNode {
+  readonly id: string;
+  readonly cwd?: string;
+}
+
+/** Agent seats of one harness in every canvas, as the app's own control socket reports them. */
+const agentSeats = async (home: string, harness: string): Promise<SeatNode[]> => {
+  const seats: SeatNode[] = [];
+  for (const name of await listCanvasesAt(home)) {
+    const { doc } = await readWitnessAt(home, name);
+    for (const node of doc.nodes) {
+      const terminal = node.ether?.terminal as { harness?: string; launch?: { cwd?: string } } | undefined;
+      if (node.ether?.entity?.kind === "agent" && terminal?.harness === harness) {
+        seats.push({ id: node.id, cwd: terminal.launch?.cwd });
+      }
+    }
+  }
+  return seats;
+};
+
+const waitForNewSeat = async (home: string, harness: string, before: ReadonlyArray<SeatNode>, timeoutMs: number): Promise<SeatNode | undefined> => {
+  const known = new Set(before.map((seat) => seat.id));
+  const deadline = Date.now() + timeoutMs;
+  do {
+    const fresh = (await agentSeats(home, harness)).find((seat) => !known.has(seat.id));
+    if (fresh) return fresh;
+    await Bun.sleep(500);
+  } while (Date.now() < deadline);
+  return undefined;
+};
+
+/** The ended card's own lines between its headline and its buttons, boilerplate dropped. */
+const deadReason = (texts: ReadonlyArray<string>, headline: number): string => {
+  const lines: string[] = [];
+  for (const text of texts.slice(headline + 1)) {
+    const line = text.trim();
+    if (line === "Reopen" || line === "Close view" || line === "Opening…") break;
+    if (line !== "" && !DEAD_BOILERPLATE.has(line)) lines.push(line);
+  }
+  return lines.join(" | ") || "(no reason shown)";
+};
+
+/**
+ * Add one agent through the deck the way a new user does (choose the agent,
+ * accept the folder the picker offers, choose it again), open its card, and
+ * watch the first start: the load label, the ended card, and the harness's
+ * own screen in the terminal rows.
+ */
+const addAndOpenSeat = async (
+  app: PackagedApp,
+  seat: SeatHarness,
+  rowsReadable: boolean,
+): Promise<{ readonly violations: Violation[]; readonly evidence: string }> => {
+  const violations: Violation[] = [];
+  const notes: string[] = [];
+  const flag = (invariant: string, signature: string, detail: string): void => {
+    violations.push({ invariant, signature: `${seat.name}: ${signature}`, detail });
+  };
+  const done = () => ({ violations, evidence: notes.join("; ") });
+
+  const add = await app.waitFor((o) => findByLabel(o, "AXButton", "Add canvas item"), 10_000);
+  if (!add) {
+    flag("surface-appears", "no Add canvas item control", "no AXButton \"Add canvas item\" in the main window");
+    return done();
+  }
+  await app.press(add);
+  const rowOf = (o: Observation) => findByLabel(o, "AXButton", seat.name);
+  const row = await app.waitFor(rowOf, 10_000);
+  if (!row) {
+    flag("surface-appears", "not offered in the add item deck", `${seat.binary} is linked into ~/.local/bin but the deck has no "${seat.name}" row`);
+    return done();
+  }
+  const before = await agentSeats(app.home, seat.harness);
+  await app.press(row);
+  // With no folder chosen the deck answers with the folder picker, which seeds
+  // itself with the home folder: that seed is the default folder.
+  let created = await waitForNewSeat(app.home, seat.harness, before, 2_000);
+  if (!created) {
+    const listing = await app.waitFor((o) => findByLabel(o, "AXList", /^Folders in /), 10_000);
+    if (!listing) {
+      flag("surface-appears", "choosing the agent opened neither a seat nor the folder picker", "no \"Folders in\" listing within 10s");
+      return done();
+    }
+    notes.push(`default folder ${listing.label!.slice("Folders in ".length)}`);
+    const again = await app.waitFor(rowOf, 5_000);
+    if (again) {
+      await app.press(again);
+      created = await waitForNewSeat(app.home, seat.harness, before, 10_000);
+    }
+  }
+  if (!created) {
+    flag("seat-created", "choosing the agent with the default folder created no seat", notes.join("; ") || "no picker seen");
+    return done();
+  }
+  notes.push(`seat ${created.id} cwd ${created.cwd ?? "(none)"}`);
+
+  // Open the card. The deck closes on create; skip the top bar and the RTS bar.
+  const main = (await app.windows()).find((w) => w.window_id === app.windowId);
+  const card = await app.waitFor((o) => {
+    if (findByLabel(o, "AXButton", "Close add canvas item")) return undefined;
+    return o.elements.find((e) => {
+      const text = [e.label, typeof e.value === "string" ? e.value : undefined].find((t) => t?.startsWith(seat.name));
+      if (!text || !e.frame || !main) return false;
+      return e.frame.y > main.bounds.y + 80 && e.frame.y < main.bounds.y + main.bounds.height - 140;
+    });
+  }, 10_000);
+  if (!card) {
+    flag("surface-appears", "new seat has no card on the canvas", `seat ${created.id}`);
+    return done();
+  }
+  await app.pointerClick(card, 2);
+
+  const phases: string[] = [];
+  let reached: string | undefined;
+  let ended: string | undefined;
+  let spinning = false;
+  let lastRows: string[] = [];
+  const opened = Date.now();
+  while (Date.now() - opened < SEAT_PROMPT_MS) {
+    const observation = await app.observe();
+    const spinner = observation.elements.find((e) => e.label !== undefined && LOAD_LABEL.test(e.label));
+    spinning = spinner !== undefined;
+    if (spinner && phases.at(-1) !== spinner.label) phases.push(spinner.label!);
+    const headline = observation.texts.findIndex((text) => DEAD_HEADLINE.test(text.trim()));
+    if (headline >= 0) {
+      ended = deadReason(observation.texts, headline);
+      break;
+    }
+    const rows = terminalRows(observation);
+    if (rows.length > 0) lastRows = rows;
+    const match = spinning ? null : seat.prompt.exec(rows.join("\n"));
+    if (match) {
+      reached = match[0].trim();
+      break;
+    }
+    await Bun.sleep(150);
+  }
+  const ms = Date.now() - opened;
+  const trail = `phases ${phases.join(" > ") || "(none seen)"}`;
+  const screen = lastRows.length > 0 ? `last rows: ${lastRows.slice(-6).map((r) => `"${r}"`).join(" ")}` : "no terminal rows";
+  notes.push(trail);
+
+  if (phases.some((phase) => phase.startsWith("resuming"))) {
+    flag("first-start-fresh", "first start shows resuming", trail);
+  }
+  if (phases.some((phase) => phase.startsWith("stuck"))) {
+    flag("no-stuck-spinner", "load spinner went stuck", `${trail}; ${ms}ms`);
+  }
+  if (ended !== undefined) {
+    notes.push(`ended after ${ms}ms: ${ended}`);
+    flag("seat-starts", `seat ended on first start: ${ended.slice(0, 160)}`, `${ended}; ${trail}; ${screen}`);
+  } else if (reached !== undefined) {
+    notes.push(`prompt "${reached}" after ${ms}ms`);
+  } else if (rowsReadable) {
+    flag("reaches-prompt", `no harness prompt within ${SEAT_PROMPT_MS / 1000}s`, `${trail}; ${spinning ? "spinner still up" : "no spinner"}; ${screen}`);
+  } else {
+    notes.push(`prompt not observable (screen reader mode off); ${spinning ? "spinner still up" : "no spinner"} after ${ms}ms`);
+  }
+  notes.push(screen);
+
+  const close = findByLabel(await app.observe(), "AXButton", "Close view");
+  if (close) await app.press(close);
+  else await app.pressEscape();
+  await Bun.sleep(500);
+  return done();
+};
+
 // --- the sequence -------------------------------------------------------------
 
 interface Step {
@@ -110,9 +345,11 @@ interface Step {
   readonly action: string;
   readonly started: number;
   readonly violations: Violation[];
+  evidence?: string;
 }
 
-const runSequence = async (driver: CuaDriver, appPath: string, attempt: number): Promise<AttemptRecord[]> => {
+/** `pids` collects every app process this attempt launched, for the TCC read. */
+const runSequence = async (driver: CuaDriver, appPath: string, attempt: number, pids: Set<number>): Promise<AttemptRecord[]> => {
   const records: AttemptRecord[] = [];
   const context = { theme: "system", scale: 0, viewport: "packaged" };
   const finish = (step: Step): void => {
@@ -125,6 +362,7 @@ const runSequence = async (driver: CuaDriver, appPath: string, attempt: number):
       context,
       durationMs: Date.now() - step.started,
       violations: step.violations,
+      ...(step.evidence ? { evidence: step.evidence } : {}),
     });
   };
   const guard = async (step: Step, body: () => Promise<void>): Promise<void> => {
@@ -145,8 +383,10 @@ const runSequence = async (driver: CuaDriver, appPath: string, attempt: number):
     const before = await windowIds(driver);
     try {
       app = await PackagedApp.launch(driver, appPath, emptyRoot);
+      pids.add(app.pid);
     } catch (error) {
       if (error instanceof LaunchError) {
+        if (error.pid) pids.add(error.pid);
         firstLaunch.violations.push({ invariant: "surface-appears", signature: `first launch: ${error.message}`, detail: error.message });
         if (error.pid) await driver.call("kill_app", { pid: error.pid }).catch(() => {});
         return;
@@ -257,6 +497,7 @@ const runSequence = async (driver: CuaDriver, appPath: string, attempt: number):
   await guard(sceneLaunch, async () => {
     const before = await windowIds(driver);
     seeded = await PackagedApp.launch(driver, appPath, seededRoot);
+    pids.add(seeded.pid);
     await Bun.sleep(3_000);
     const witness = await readWitnessAt(seeded.home, QA_CANVAS);
     baseline = witness.docHash;
@@ -322,6 +563,7 @@ const runSequence = async (driver: CuaDriver, appPath: string, attempt: number):
         relaunch.violations.push({ invariant: "quits-cleanly", signature: "scene home: quit did not exit", detail: `${result.detail} after ${result.ms}ms; killed` });
       }
       const again = await PackagedApp.launch(driver, appPath, seededRoot);
+      pids.add(again.pid);
       seeded = again;
       await Bun.sleep(3_000);
       const after = await readWitnessAt(again.home, QA_CANVAS);
@@ -339,7 +581,88 @@ const runSequence = async (driver: CuaDriver, appPath: string, attempt: number):
     await seeded.quit().catch(() => undefined);
   }
 
-  for (const root of [emptyRoot, seededRoot]) rmSync(root, { recursive: true, force: true });
+  // C. A fresh home with the harness CLIs installed: add a Claude Code and a
+  // Hermes seat through the deck with the default folder, open each, and
+  // watch the first start.
+  const seatRoot = makeRoot("t1-seats");
+  const missing = linkHarnessBinaries(seatRoot, SEAT_HARNESSES.map((seat) => seat.binary));
+  let seatApp: PackagedApp | undefined;
+  let rowsReadable = false;
+  const seatSetup: Step = { surface: "seat:setup", action: "prepare", started: Date.now(), violations: [] };
+  await guard(seatSetup, async () => {
+    seatApp = await PackagedApp.launch(driver, appPath, seatRoot);
+    pids.add(seatApp.pid);
+    // The first-run introduction, when this build has one.
+    const skip = await seatApp.waitFor((o) => findByLabel(o, "AXButton", /^skip$/i), 5_000);
+    if (skip) await seatApp.press(skip);
+    rowsReadable = await enableScreenReader(seatApp);
+    if (!rowsReadable) {
+      seatSetup.violations.push({
+        invariant: "probe-error",
+        signature: "terminal screen reader mode not reachable",
+        detail: "Open settings > Terminal > Screen reader mode did not turn on; terminal rows are unreadable",
+      });
+    }
+  });
+  for (const seat of SEAT_HARNESSES) {
+    const step: Step = { surface: `seat:${seat.harness}`, action: "add-open", started: Date.now(), violations: [] };
+    await guard(step, async () => {
+      if (!seatApp) throw new Error("the seat home did not launch");
+      if (missing.includes(seat.binary)) {
+        step.violations.push({ invariant: "probe-error", signature: `${seat.binary} is not installed on this machine`, detail: `command -v ${seat.binary} found nothing` });
+        return;
+      }
+      const result = await addAndOpenSeat(seatApp, seat, rowsReadable);
+      step.violations.push(...result.violations);
+      step.evidence = result.evidence;
+    });
+  }
+  if (seatApp) await seatApp.quit().catch(() => undefined);
+
+  for (const root of [emptyRoot, seededRoot, seatRoot]) rmSync(root, { recursive: true, force: true });
+  return records;
+};
+
+/**
+ * One record for the TCC requests this attempt's app processes caused. A
+ * preflight only reads the current answer and cannot prompt, so it is
+ * evidence; any other request can put a prompt in front of the user and is a
+ * violation. The full capture lands in the run directory.
+ */
+const tccRecord = async (attempt: number, since: Date, until: Date, pids: ReadonlySet<number>): Promise<AttemptRecord> => {
+  // tccd's lines reach the log store a moment after the fact.
+  await Bun.sleep(2_000);
+  const capture = readTccRequests(since, until, pids);
+  await Bun.write(join(OUT_DIR, `tcc-attempt-${attempt}.json`), `${JSON.stringify({ pids: [...pids], ...capture }, null, 2)}\n`);
+  const violations: Violation[] = capture.error
+    ? [{ invariant: "probe-error", signature: "unified log unreadable", detail: capture.error }]
+    : capture.requests
+        .filter((request) => request.preflight === false)
+        .map((request) => ({
+          invariant: "no-tcc-request",
+          signature: `${request.service ?? "unknown service"} requested for ${tccAsker(request)}`,
+          detail: `${request.at} msgID ${request.msgId} authValue ${request.authValue ?? "?"} authReason ${request.authReason ?? "?"}; ${request.processes.map((p) => `${p.role} ${p.identifier} (${p.pid})`).join(", ")}`,
+        }));
+  const preflights = capture.requests.filter((request) => request.preflight !== false);
+  const services = [...new Set(preflights.map((request) => `${request.service ?? "?"} for ${tccAsker(request)}`))];
+  return {
+    tier: "t1",
+    attempt,
+    probeId: "os:tcc/watch",
+    surface: "os:tcc",
+    action: "watch",
+    context: { theme: "system", scale: 0, viewport: "packaged" },
+    durationMs: until.getTime() - since.getTime(),
+    violations,
+    evidence: `${capture.requests.length} Junto-attributed requests from pids ${[...pids].join(",")} (${preflights.length} preflight: ${services.join(", ") || "none"}); ${capture.otherJunto} from other Junto instances ignored`,
+  };
+};
+
+const runAttempt = async (driver: CuaDriver, appPath: string, attempt: number): Promise<AttemptRecord[]> => {
+  const pids = new Set<number>();
+  const since = new Date();
+  const records = await runSequence(driver, appPath, attempt, pids);
+  records.push(await tccRecord(attempt, since, new Date(), pids));
   return records;
 };
 
@@ -352,11 +675,11 @@ const main = async (): Promise<void> => {
   const driver = await CuaDriver.connect("junto-qa-t1");
   const records: AttemptRecord[] = [];
   try {
-    records.push(...(await runSequence(driver, target.path, 1)));
+    records.push(...(await runAttempt(driver, target.path, 1)));
     if (records.some((record) => record.violations.length > 0)) {
       for (const attempt of [2, 3]) {
         console.log(`qa:t1: attempt ${attempt} (flake gate)`);
-        records.push(...(await runSequence(driver, target.path, attempt)));
+        records.push(...(await runAttempt(driver, target.path, attempt)));
       }
     }
   } finally {
@@ -392,6 +715,9 @@ const main = async (): Promise<void> => {
   console.log(`qa:t1: ${run.findings.confirmed} confirmed, ${run.findings.flaky} flaky, ${newCount} new -> ${LEDGER_PATH}`);
   for (const finding of findings) {
     console.log(`  ${finding.status} ${finding.fingerprint} ${finding.invariant} ${finding.surface}: ${finding.signature}`);
+  }
+  for (const record of first.filter((r) => r.evidence)) {
+    console.log(`  ${record.surface}: ${record.evidence}`);
   }
 };
 

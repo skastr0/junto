@@ -385,7 +385,7 @@ Two further tiers drive the **packaged** app through [Cua Driver](https://cua.ai
 
 | Tier | Command | What it does |
 |---|---|---|
-| T1 | `bun run qa:t1` | Scripted, no model. Covers first launch into an empty home, the native menu bar (product-name spelling, no developer items), the About panel, macOS prompts that name Junto, View > Reload, and quit + relaunch. The app's control socket is the second witness. |
+| T1 | `bun run qa:t1` | Scripted, no model. Covers first launch into an empty home, the native menu bar (product-name spelling, no developer items), the About panel, macOS prompts that name Junto, View > Reload, quit + relaunch, and the first start of a Claude Code and a Hermes seat added with the default folder in a fresh home (harness screen within 45s, no "resuming", no stuck spinner, ended-card reason recorded; terminal rows read through Terminal > Screen reader mode). Each attempt also reads `/usr/bin/log` for TCC requests attributed to `com.skastr0.junto` at its own pids: non-preflight requests are findings, the full capture is `tcc-attempt-N.json` in the run directory. The app's control socket is the second witness. |
 | Explore | `TYPESAFE_API_KEY=… bun run qa:explore --budget N` | Cua's jev-use pattern. Code builds a read-only candidate table from the registry and the live AX tree; Jev picks one id; the driver runs one action; the result is verified against the app's own document. A step with a violation is replayed twice for the flake gate. `--mock` runs without a key. |
 
 On Linux, `bun run dev` and `scripts/run-e2e.sh` use an existing X11 or

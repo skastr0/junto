@@ -10,7 +10,7 @@
  * persistent driver connection.
  */
 import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, statSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
 import { CuaDriver, type Json } from "./cua";
 
@@ -246,6 +246,17 @@ export class PackagedApp {
     return this.driver.call("click", { element_token: element.element_token, pid: this.pid });
   }
 
+  /** Observe until `find` returns an element, or undefined after `timeoutMs`. */
+  async waitFor(find: (observation: Observation) => AxElement | undefined, timeoutMs: number): Promise<AxElement | undefined> {
+    const deadline = Date.now() + timeoutMs;
+    do {
+      const found = find(await this.observe());
+      if (found) return found;
+      await Bun.sleep(250);
+    } while (Date.now() < deadline);
+    return undefined;
+  }
+
   invokeMenu(path: ReadonlyArray<string>): Promise<Json> {
     return this.driver.call("invoke_menu", { pid: this.pid, window_id: this.windowId, path });
   }
@@ -317,6 +328,62 @@ export class LaunchError extends Error {
     super(message);
   }
 }
+
+/** The first element with `role` whose label passes `match`. */
+export const findByLabel = (
+  observation: Observation,
+  role: string,
+  match: string | RegExp,
+): AxElement | undefined =>
+  observation.elements.find(
+    (e) => e.role === role && e.label !== undefined && (typeof match === "string" ? e.label === match : match.test(e.label)),
+  );
+
+/**
+ * Terminal rows as xterm's screen reader mode exposes them: an unlabeled
+ * list (role=list, one listitem per row) whose text is the grid. Needs the
+ * Terminal "Screen reader mode" setting on; xterm renders to a canvas
+ * otherwise, and the stage is aria-hidden while a load or ended card covers it.
+ * Rows come back trimmed, blank rows dropped.
+ */
+export const terminalRows = (observation: Observation): string[] => {
+  const { elements } = observation;
+  const children = new Map<number, AxElement[]>();
+  for (const element of elements) {
+    if (element.parent_index === undefined) continue;
+    const list = children.get(element.parent_index) ?? [];
+    list.push(element);
+    children.set(element.parent_index, list);
+  }
+  const textOf = (element: AxElement): string => {
+    const own = [element.label, typeof element.value === "string" ? element.value : undefined].find((t) => t && t.trim() !== "");
+    if (own) return own;
+    return (children.get(element.element_index) ?? []).map(textOf).filter((t) => t !== "").join(" ");
+  };
+  // A grid has one row per terminal line; short unlabeled lists are other chrome.
+  const grids = elements.filter((e) => e.role === "AXList" && !e.label && (children.get(e.element_index)?.length ?? 0) >= 8);
+  return grids.flatMap((grid) => (children.get(grid.element_index) ?? []).map((row) => textOf(row).trim())).filter((row) => row !== "");
+};
+
+/**
+ * Make harness CLIs resolvable in a throwaway home the way a user's own
+ * install is: symlinks in `<home>/.local/bin`, a directory Junto's harness
+ * probe always searches. Returns the binaries this machine does not have.
+ */
+export const linkHarnessBinaries = (root: string, binaries: ReadonlyArray<string>): string[] => {
+  const bin = join(root, "home/.local/bin");
+  mkdirSync(bin, { recursive: true });
+  const missing: string[] = [];
+  for (const binary of binaries) {
+    const found = spawnSync("/bin/sh", ["-c", `command -v ${binary}`], { encoding: "utf8" }).stdout.trim();
+    if (!found) {
+      missing.push(binary);
+      continue;
+    }
+    symlinkSync(realpathSync(found), join(bin, binary));
+  }
+  return missing;
+};
 
 /** Every window id on the desktop now, so later prompts can be told apart. */
 export const windowIds = async (driver: CuaDriver): Promise<Set<number>> =>
