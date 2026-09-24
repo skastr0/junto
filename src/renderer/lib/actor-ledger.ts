@@ -6,7 +6,7 @@
  * Mailbox facts come from `ether.messages` on the actor node itself:
  *   - sender: `metadata.senderNodeId`, else `fromSeat` when that is a node id
  *   - read: `metadata.readAt` (listed or marked read)
- *   - delivery display is derived from preserved attempt timestamps
+ *   - delivery: `metadata.deliveredAt` (written into the seat), else waiting
  *   - age: the messageId is a ULID — its timestamp is birth time
  */
 import type { CanvasDoc, CanvasNode } from "@shared/canvas";
@@ -24,7 +24,7 @@ import {
   resolveMailSenderStamp,
   stripMailEnvelope,
   type MailCounts,
-  type MailDeliveryDisplay,
+  type MailDelivery,
   type MailEvidenceRef,
   type MailKind,
 } from "./crew-mail-view";
@@ -43,14 +43,9 @@ export type MailRow = {
   readonly body: string;
   readonly subject: string | undefined;
   readonly kind: MailKind | undefined;
-  readonly display: MailDeliveryDisplay;
-  readonly delivery: MailDeliveryDisplay;
-  readonly deliveryReason: string | undefined;
-  readonly generation: string | undefined;
+  readonly delivery: MailDelivery;
   readonly refs: ReadonlyArray<MailEvidenceRef>;
-  readonly delivered: boolean;
   readonly read: boolean;
-  readonly unresolved: boolean;
   readonly taskId: string | undefined;
 };
 
@@ -71,7 +66,7 @@ const toMailRow = (doc: CanvasDoc, message: Message): MailRow => {
   const rawBody = textOfParts(message.parts);
   const body = stripFactoryMailPrefix(rawBody, message);
   const sentAtMs = messageIdTimeMs(message.messageId);
-  const view = crewMailViewOf(message, sentAtMs);
+  const view = crewMailViewOf(message);
   const firstLine =
     (view.subject ?? body.split(/\r?\n/, 1)[0]?.trim()) || "";
   return {
@@ -87,14 +82,9 @@ const toMailRow = (doc: CanvasDoc, message: Message): MailRow => {
     body,
     subject: view.subject,
     kind: view.kind,
-    display: view.display,
-    delivery: view.display,
-    deliveryReason: view.displayReason,
-    generation: view.facts.generation,
+    delivery: view.delivery,
     refs: view.refs,
-    delivered: view.facts.notifiedAt !== undefined,
-    read: view.facts.readAt !== undefined,
-    unresolved: view.display === "unresolved",
+    read: view.read,
     taskId: message.taskId,
   };
 };

@@ -25,7 +25,6 @@ import {
   type ActorEdgeRow,
 } from "../../lib/actor-edges";
 import { mailboxRows, unreadMailByPeer } from "../../lib/actor-ledger";
-import { unresolvedMailByPeer } from "../../lib/crew-mail-view";
 import { isMirrorablePeer, openActorMirror } from "../../lib/actor-mirrors";
 import { agentSeat$, bindingIdForNode } from "../../lib/agent-seat-state";
 import { isHarnessId } from "@shared/managed-terminal-templates";
@@ -109,7 +108,6 @@ function EdgeCard({
   actorNodeId,
   zone,
   unreadFromPeer,
-  unresolvedFromPeer,
 }: {
   readonly row: ActorEdgeRow;
   readonly peer: CanvasNode | undefined;
@@ -117,8 +115,6 @@ function EdgeCard({
   readonly zone: "focus" | "pinned";
   /** Inbound mail from this peer the seat has not read yet. */
   readonly unreadFromPeer: number;
-  /** Inbound writes from this peer still unresolved. */
-  readonly unresolvedFromPeer: number;
 }) {
   const mirror = isMirrorablePeer(peer);
   const bindingId = mirror ? bindingIdForNode(peer) : undefined;
@@ -208,16 +204,6 @@ function EdgeCard({
                   {unreadFromPeer}
                 </span>
               ) : null}
-              {unresolvedFromPeer > 0 ? (
-                <span
-                  className="actor-edges-glance__mail-count"
-                  data-testid="seat-unresolved-mail"
-                  data-peer-id={row.peerId}
-                  title={`${unresolvedFromPeer} unresolved write${unresolvedFromPeer === 1 ? "" : "s"} from ${row.peerTitle}`}
-                >
-                  {unresolvedFromPeer}
-                </span>
-              ) : null}
               {activity ? (
                 <ActivityMark
                   mode={activity.mode}
@@ -291,18 +277,11 @@ export function ActorEdgesGlance({
     const live = doc.nodes.find((n) => n.id === node.id);
     return unreadMailByPeer(live ? mailboxRows(doc, live) : []);
   }, [doc, node.id, isActor]);
-  const unresolvedByPeer = useMemo(() => {
-    if (!isActor) return new Map<string, number>();
-    const live = doc.nodes.find((n) => n.id === node.id);
-    return unresolvedMailByPeer(live ? mailboxRows(doc, live) : []);
-  }, [doc, node.id, isActor]);
 
   if (!isActor || rows.length === 0) return null;
 
   const listId = `actor-connections-list-${node.id}`;
   const hasMirrors = rows.some((row) => isMirrorablePeer(peersById.get(row.peerId)));
-  let unresolvedTotal = 0;
-  for (const count of unresolvedByPeer.values()) unresolvedTotal += count;
 
   return (
     <aside
@@ -333,15 +312,6 @@ export function ActorEdgesGlance({
             <span className="actor-edges-glance__count" aria-hidden>
               {rows.length}
             </span>
-            {unresolvedTotal > 0 ? (
-              <span
-                className="actor-edges-glance__mail-count"
-                data-testid="seat-unresolved-mail-total"
-                title={`${unresolvedTotal} unresolved writes`}
-              >
-                {unresolvedTotal}
-              </span>
-            ) : null}
           </>
         ) : (
           <IconButton
@@ -368,7 +338,6 @@ export function ActorEdgesGlance({
                 actorNodeId={node.id}
                 zone={zone}
                 unreadFromPeer={unreadByPeer.get(row.peerId) ?? 0}
-                unresolvedFromPeer={unresolvedByPeer.get(row.peerId) ?? 0}
               />
             ))}
           </ul>

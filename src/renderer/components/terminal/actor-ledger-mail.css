@@ -6,14 +6,6 @@
   min-width: 0;
 }
 
-.actor-ledger__mail-item--unresolved {
-  border-color: color-mix(in srgb, var(--color-amber) 42%, var(--color-stroke));
-}
-
-.actor-ledger__mail-item--refused {
-  border-color: color-mix(in srgb, var(--color-crimson) 42%, var(--color-stroke));
-}
-
 .actor-ledger__mail-subject {
   min-width: 0;
   overflow: hidden;
@@ -24,7 +16,6 @@
   font-weight: 500;
 }
 
-.actor-ledger__mail-reason,
 .actor-ledger__mail-refs {
   margin: 0;
   padding: 0 8px 8px;
@@ -37,8 +28,4 @@
   color: var(--color-cyan);
   font-family: var(--font-mono), ui-monospace, monospace;
   font-size: 10px;
-}
-
-.actor-ledger__count--unresolved {
-  color: var(--color-amber);
 }

@@ -85,17 +85,14 @@ describe("mailboxRows", () => {
     expect(row.body).toBe("line one\nline two");
   });
 
-  it("strips the current mail envelope and derives delivery from facts", () => {
+  it("strips the current mail envelope and reads delivery from the receipt", () => {
     const notice = mail(T0, {
       text: "mail from bravo please read 01ARZ3NDEKTS\nbody",
       metadata: {
         fromSeat: "bravo",
         mailKind: "notice",
         subject: "Standup",
-        generation: "gen-1",
-        queuedAt: "2026-01-01T00:00:00.000Z",
-        notifiedAt: "2026-01-01T00:00:10.000Z",
-        unresolvedAt: "2026-01-01T00:00:20.000Z",
+        deliveredAt: T0 + 10_000,
       },
     });
     const doc = docOf([agent("hub", "Hub", [notice])]);
@@ -103,27 +100,14 @@ describe("mailboxRows", () => {
     expect(row.body).toBe("please read 01ARZ3NDEKTS\nbody");
     expect(row.subject).toBe("Standup");
     expect(row.kind).toBe("notice");
-    expect(row.delivery).toBe("notified");
-    expect(row.unresolved).toBe(false);
-    expect(row.delivered).toBe(true);
+    expect(row.delivery).toBe("delivered");
   });
 
   it("maps delivery receipts and roles", () => {
     const unread = mail(T0, {});
-    const deliveredUnread = mail(T0 + 1000, {
-      metadata: {
-        generation: "gen-1",
-        queuedAt: "2026-01-01T00:00:00.000Z",
-        notifiedAt: "2026-01-01T00:00:02.000Z",
-      },
-    });
+    const deliveredUnread = mail(T0 + 1000, { metadata: { deliveredAt: T0 + 2000 } });
     const read = mail(T0 + 2000, {
-      metadata: {
-        generation: "gen-1",
-        queuedAt: "2026-01-01T00:00:00.000Z",
-        notifiedAt: "2026-01-01T00:00:03.000Z",
-        readAt: T0 + 4000,
-      },
+      metadata: { deliveredAt: T0 + 3000, readAt: T0 + 4000 },
     });
     const note = mail(T0 + 3000, { role: "agent" });
     const doc = docOf([agent("hub", "Hub", [unread, deliveredUnread, read, note])]);
@@ -131,14 +115,14 @@ describe("mailboxRows", () => {
     const byId = new Map(rows.map((r) => [r.messageId, r] as const));
     expect(byId.get(unread.messageId)).toMatchObject({
       direction: "in",
-      delivered: false,
+      delivery: "waiting",
       read: false,
     });
     expect(byId.get(deliveredUnread.messageId)).toMatchObject({
-      delivered: true,
+      delivery: "delivered",
       read: false,
     });
-    expect(byId.get(read.messageId)).toMatchObject({ delivered: true, read: true });
+    expect(byId.get(read.messageId)).toMatchObject({ delivery: "delivered", read: true });
     expect(byId.get(note.messageId)).toMatchObject({ direction: "note" });
   });
 
@@ -224,7 +208,7 @@ describe("mailboxCounts", () => {
     const note = mail(T0 + 3000, { role: "agent" });
     const doc = docOf([agent("hub", "Hub", [unread, deliveredUnread, read, note])]);
     const counts = mailboxCounts(mailboxRows(doc, doc.nodes[0]!));
-    expect(counts).toEqual({ total: 4, unread: 2, unresolved: 0 });
+    expect(counts).toEqual({ total: 4, unread: 2 });
   });
 });
 

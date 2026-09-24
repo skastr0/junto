@@ -4,22 +4,17 @@
  * without the seat harness.
  *
  * Laws covered:
- *   1. the actor ledger renders each durable delivery state it is fed —
- *      refused, notified, read, written-but-unacknowledged — with the mail
- *      kind and the unresolved flag on the row and an unresolved header
- *      count;
- *   2. the connections rail counts unresolved writes per peer on the drawn
- *      edge;
- *   3. the relation surface renders the compiled port chips of a messages
+ *   1. the actor ledger shows each mail row as delivered once written into
+ *      the seat, or waiting for a seat that is not running, with its kind;
+ *   2. the relation surface renders the compiled port chips of a messages
  *      edge — granted vs masked — and a chip click rewrites ether.mask
  *      through the normal operator path;
- *   4. task detail shows the requires-review authoring (required, waiting
+ *   3. task detail shows the requires-review authoring (required, waiting
  *      for green) and the verdict chain tracks posted verdicts, ageing
  *      prior-epoch rows as send-backs bump the task epoch.
  */
 import { expect, launchJunto, test } from "../harness/launch";
 import {
-  crewMailAttempts,
   crewManagesEdge,
   crewMessagesEdge,
   crewOccupySeat,
@@ -58,7 +53,7 @@ const opData = (env: WorkEnvelope): Record<string, unknown> => {
 };
 
 // ---------------------------------------------------------------------------
-// 1-2. mail ledger rows + glance chips
+// 1. mail ledger rows
 // ---------------------------------------------------------------------------
 
 test("crew ui [fake-tui]: the mail ledger renders truthful delivery on every row", async () => {
@@ -97,119 +92,47 @@ test("crew ui [fake-tui]: the mail ledger renders truthful delivery on every row
       "No mail yet",
     );
 
-    // Cold first contact: a transient refusal (the seat still painting) may
-    // coalesce on the same attempt row, but the landed write ranks above it —
-    // the row must tell the truth about the notification, not the refusal.
+    // Mail is written into the recipient's input at once; the row says so.
     const send = await seatAHandle.op("msg.send", {
       target: B,
       text: "peer mail: ledger shows me",
     });
     const messageId = opData(send).messageId as string;
-    await expect
-      .poll(
-        async () =>
-          (await crewMailAttempts(page, CANVAS, B))
-            .find((row) => row.messageId === messageId)?.notifiedAt,
-        // Cold first contact can refuse once and retry — the stamp follows
-        // the delivery pipeline's own retry.
-        { timeout: 60_000, intervals: [250, 500, 1_000] },
-      )
-      .not.toBeUndefined();
-
     const row = ledger.locator(
       `[data-testid="${CREW_UI_SELECTORS.mailRow}"][data-message-id="${messageId}"]`,
     );
-    await expect(row).toHaveAttribute("data-delivery", "notified");
+    await expect(row).toHaveAttribute("data-delivery", "delivered", {
+      timeout: 60_000,
+    });
     await expect(row).toHaveAttribute("data-mail-kind", "notice");
-    await expect(row).not.toHaveAttribute("data-unresolved", "true");
 
-    // The recipient's read-ack moves the same row to read — never a second row.
+    // The recipient's read-ack settles the same row, never a second one.
     const read = await seatBHandle.op("msg.read", { messageId });
     expect(read.ok, JSON.stringify(read)).toBe(true);
-    await expect(row).toHaveAttribute("data-delivery", "read");
+    await expect(row).not.toHaveClass(/actor-ledger__mail-item--unread/);
+    await expect(row).toHaveAttribute("data-delivery", "delivered");
     await expect(row).toHaveCount(1);
 
-    // A write the seat never acknowledges is unresolved — the ledger says so
-    // on the row, in the header count, and on the peer chip in the rail.
-    // The first mail's ack left the fake in its Working frame; an idle
-    // request returns it so the swallowed write can actually land.
-    await seatBHandle.control({
-      screen: { mode: "idle" },
-      submit: "ignore",
-      paste: "swallow",
-    });
-    const swallowed = await seatAHandle.op("msg.send", {
-      target: B,
-      text: "peer mail: swallowed write",
-    });
-    const swallowedId = opData(swallowed).messageId as string;
-    await expect
-      .poll(
-        async () =>
-          (await crewMailAttempts(page, CANVAS, B))
-            .find((entry) => entry.messageId === swallowedId)?.unresolvedAt,
-        // Written-but-unacknowledged is stamped after the drive's ack
-        // observation window — same evidence window crew-mail uses.
-        { timeout: 90_000, intervals: [500, 1_000, 2_000] },
-      )
-      .not.toBeUndefined();
-
-    const unresolvedRow = ledger.locator(
-      `[data-testid="${CREW_UI_SELECTORS.mailRow}"][data-message-id="${swallowedId}"]`,
-    );
-    await expect(unresolvedRow).toHaveAttribute("data-delivery", "unresolved", {
-      timeout: 15_000,
-    });
-    await expect(unresolvedRow).toHaveAttribute("data-unresolved", "true");
-    await expect(
-      ledger.getByTestId(CREW_UI_SELECTORS.mailUnresolved),
-    ).toHaveText("1");
-
-    // The connections rail carries the same count against the drawn edge.
-    // It may already be open; only the collapsed rail shows the expand key.
-    const glance = front.getByTestId(CREW_UI_SELECTORS.edgesGlance);
-    const expandToggle = glance.getByRole("button", {
-      name: /Expand connections/,
-    });
-    if ((await expandToggle.count()) > 0) {
-      await expandToggle.click();
-    }
-    await expect(
-      glance.locator(
-        `[data-testid="${CREW_UI_SELECTORS.seatUnresolvedMail}"][data-peer-id="${A}"]`,
-      ),
-    ).toHaveText("1");
-    await expect(
-      glance.getByTestId(CREW_UI_SELECTORS.seatUnresolvedMailTotal),
-    ).toHaveText("1");
-
-    // A send the seat can never take is refused, not parked forever: kill
-    // the recipient and the consult stamps the refusal durably.
+    // A seat whose process is gone cannot take mail yet: the row waits for it.
     await seatBHandle.control({ exit: 0 });
-    const refused = await seatAHandle.op("msg.send", {
+    const waiting = await seatAHandle.op("msg.send", {
       target: B,
       text: "peer mail: seat is gone",
     });
-    const refusedId = opData(refused).messageId as string;
-    await expect
-      .poll(async () =>
-        (await crewMailAttempts(page, CANVAS, B))
-          .find((entry) => entry.messageId === refusedId)?.refusedAt,
-        { timeout: 30_000 },
-      )
-      .not.toBeUndefined();
-    const refusedRow = ledger.locator(
-      `[data-testid="${CREW_UI_SELECTORS.mailRow}"][data-message-id="${refusedId}"]`,
+    const waitingId = opData(waiting).messageId as string;
+    const waitingRow = ledger.locator(
+      `[data-testid="${CREW_UI_SELECTORS.mailRow}"][data-message-id="${waitingId}"]`,
     );
-    await expect(refusedRow).toHaveAttribute("data-delivery", "refused");
-    await expect(refusedRow).not.toHaveAttribute("data-unresolved", "true");
+    await expect(waitingRow).toHaveAttribute("data-delivery", "waiting", {
+      timeout: 15_000,
+    });
   } finally {
     await junto.close();
   }
 });
 
 // ---------------------------------------------------------------------------
-// 3. port-mask chips on the relation surface
+// 2. port-mask chips on the relation surface
 // ---------------------------------------------------------------------------
 
 test("crew ui: the relation surface paints granted and masked ports from ether.mask", async () => {
@@ -267,7 +190,7 @@ test("crew ui: the relation surface paints granted and masked ports from ether.m
 });
 
 // ---------------------------------------------------------------------------
-// 4. requires-review authoring + verdict chain on the task detail
+// 3. requires-review authoring + verdict chain on the task detail
 // ---------------------------------------------------------------------------
 
 test("crew ui [fake-tui]: task detail arms the review gate and chains posted verdicts", async () => {

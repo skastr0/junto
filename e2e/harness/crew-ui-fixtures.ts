@@ -8,11 +8,7 @@ import type { Message, Rule } from "../../src/shared/work-model";
 import { verbEdge } from "./sandbox";
 
 export const CREW_UI_SELECTORS = {
-  seatUnresolvedMail: "seat-unresolved-mail",
-  seatUnresolvedMailTotal: "seat-unresolved-mail-total",
-  edgesGlance: "actor-edges-glance",
   mailRow: "actor-ledger-mail-row",
-  mailUnresolved: "actor-ledger-mail-unresolved",
   mailFolded: "actor-ledger-mail-folded",
   ledger: "actor-ledger",
   taskDetail: "task-detail",

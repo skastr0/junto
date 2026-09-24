@@ -1,45 +1,27 @@
 /**
- * Operator mail projection — typed view of one attempt's preserved facts.
- *
- * Transport timestamps and read / reply / reaction timestamps never erase
- * one another. The chip the ledger paints is derived from those facts.
- * Nothing here invents a status the document did not record.
+ * Operator mail projection: sender, kind, subject, refs, and one plain
+ * delivery state. Mail is delivered once its text is written into the
+ * recipient's input; until then it waits for the seat to start. Nothing here
+ * invents a status the document did not record.
  */
 import type { CanvasDoc } from "@shared/canvas";
 import type { Message } from "@shared/work-model";
 import {
-  mailDisplayFactsOf,
+  isMessageDelivered,
+  isMessageRead,
   stripFactoryEnvelope,
 } from "@shared/message-delivery";
 import {
-  deriveMailDisplayState,
   readMailEvidenceRef,
   readMailExtension,
-  type MailAttemptReason,
-  type MailDisplayFacts,
-  type MailDisplayState,
   type MailEvidenceRef,
   type MailKind,
 } from "@shared/crew";
 
 export type { MailEvidenceRef, MailKind };
-export type MailDeliveryDisplay = MailDisplayState;
 
-/** Ledger view: ISO transport stamps plus ISO receipt stamps. Not a schema. */
-export type MailViewFacts = {
-  readonly queuedAt: string | undefined;
-  readonly notifiedAt: string | undefined;
-  readonly unresolvedAt: string | undefined;
-  readonly refusedAt: string | undefined;
-  readonly refusedReason: MailAttemptReason | undefined;
-  readonly readAt: string | undefined;
-  readonly repliedAt: string | undefined;
-  readonly reactedAt: string | undefined;
-  readonly generation: string | undefined;
-};
-
-/** @deprecated use MailViewFacts — kept for existing ledger imports. */
-export type MailAttemptFacts = MailViewFacts;
+/** Written into the recipient's input, or waiting for its seat to start. */
+export type MailDelivery = "delivered" | "waiting";
 
 const nonempty = (value: unknown): string | undefined =>
   typeof value === "string" && value.trim() ? value.trim() : undefined;
@@ -63,42 +45,11 @@ export const parseMailEvidenceRefs = (
   return refs;
 };
 
-/**
- * Single source: deriveMailDisplayState. Receipts outrank transport.
- * Proven notification outranks unresolved and refused. Without notifiedAt,
- * unresolved outranks a no-write refusal.
- */
-export const deriveMailDisplay = (
-  facts: MailViewFacts,
-): MailDeliveryDisplay =>
-  deriveMailDisplayState({
-    queuedAt: facts.queuedAt,
-    notifiedAt: facts.notifiedAt,
-    unresolvedAt: facts.unresolvedAt,
-    refusedAt: facts.refusedAt,
-    readAt: facts.readAt,
-    repliedAt: facts.repliedAt,
-    reactedAt: facts.reactedAt,
-  } satisfies MailDisplayFacts);
+export const mailDeliveryOf = (message: Message): MailDelivery =>
+  isMessageDelivered(message) ? "delivered" : "waiting";
 
-export const mailDisplayLabel = (display: MailDeliveryDisplay): string => {
-  switch (display) {
-    case "queued":
-      return "queued";
-    case "notified":
-      return "notified";
-    case "unresolved":
-      return "unresolved";
-    case "refused":
-      return "refused";
-    case "read":
-      return "read";
-    case "replied":
-      return "replied";
-    case "reacted":
-      return "reacted";
-  }
-};
+export const mailDeliveryLabel = (delivery: MailDelivery): string =>
+  delivery === "delivered" ? "delivered" : "waiting for seat";
 
 export const mailKindLabel = (kind: MailKind): string => {
   switch (kind) {
@@ -139,15 +90,6 @@ export const mailKindOf = (message: Message): MailKind | undefined => {
   if (isMailKind(explicit)) return explicit;
   return undefined;
 };
-
-/**
- * UI labels over the shared projection. Rank and stamps live in
- * mailDisplayFactsOf — not a second renderer authority.
- */
-export const mailAttemptFactsOf = (
-  message: Message,
-  _queuedAt: number | undefined,
-): MailViewFacts => mailDisplayFactsOf(message);
 
 export const mailSubjectOf = (message: Message): string | undefined => {
   const extension = readMailExtension(message.metadata);
@@ -219,72 +161,36 @@ export type CrewMailView = {
   readonly messageId: string;
   readonly kind: MailKind | undefined;
   readonly subject: string | undefined;
-  readonly facts: MailViewFacts;
-  readonly display: MailDeliveryDisplay;
-  readonly displayReason: string | undefined;
+  readonly delivery: MailDelivery;
+  readonly read: boolean;
   readonly refs: ReadonlyArray<MailEvidenceRef>;
 };
 
-export const crewMailViewOf = (
-  message: Message,
-  queuedAt: number | undefined,
-): CrewMailView => {
-  const facts = mailAttemptFactsOf(message, queuedAt);
-  const display = deriveMailDisplay(facts);
-  return {
-    messageId: message.messageId,
-    kind: mailKindOf(message),
-    subject: mailSubjectOf(message),
-    facts,
-    display,
-    displayReason: display === "refused" ? facts.refusedReason : undefined,
-    refs: mailRefsOf(message),
-  };
-};
+export const crewMailViewOf = (message: Message): CrewMailView => ({
+  messageId: message.messageId,
+  kind: mailKindOf(message),
+  subject: mailSubjectOf(message),
+  delivery: mailDeliveryOf(message),
+  read: isMessageRead(message),
+  refs: mailRefsOf(message),
+});
 
 export type MailCounts = {
   readonly total: number;
   readonly unread: number;
-  readonly unresolved: number;
 };
 
 export const countMailViews = (
   views: ReadonlyArray<{
     readonly direction: "in" | "note";
-    readonly display: MailDeliveryDisplay;
     readonly read: boolean;
   }>,
 ): MailCounts => {
   let unread = 0;
-  let unresolved = 0;
   for (const view of views) {
-    if (view.direction !== "in") continue;
-    if (!view.read) unread += 1;
-    if (view.display === "unresolved") unresolved += 1;
+    if (view.direction === "in" && !view.read) unread += 1;
   }
-  return { total: views.length, unread, unresolved };
-};
-
-/** Sender node ids whose inbound attempts are still unresolved. */
-export const unresolvedMailByPeer = (
-  rows: ReadonlyArray<{
-    readonly direction: "in" | "note";
-    readonly display: MailDeliveryDisplay;
-    readonly fromNodeId: string | undefined;
-  }>,
-): ReadonlyMap<string, number> => {
-  const counts = new Map<string, number>();
-  for (const row of rows) {
-    if (
-      row.direction !== "in" ||
-      row.display !== "unresolved" ||
-      row.fromNodeId === undefined
-    ) {
-      continue;
-    }
-    counts.set(row.fromNodeId, (counts.get(row.fromNodeId) ?? 0) + 1);
-  }
-  return counts;
+  return { total: views.length, unread };
 };
 
 export const resolveSenderLabel = (
