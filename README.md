@@ -71,26 +71,7 @@ The full command list is in [How Junto works](docs/how-junto-works.md#the-cli).
 
 ## How it works
 
-```mermaid
-flowchart LR
-  subgraph canvas [Canvas]
-    B["builder<br/>Codex in ~/app"]
-    R["reviewer<br/>Claude Code in ~/app"]
-    D["docs<br/>Grok in ~/docs"]
-  end
-  B <-- "messages line" --> R
-  B -- "junto msg send" --> J["Junto app<br/>~/.junto/work/control.sock"]
-  J -- "stores mail" --> DB[("~/.junto/state/junto.db")]
-  J -- "one notice line" --> R
-  R -- "junto msg list" --> J
-  D -.->|"no line: ScopeError"| J
-```
-
-- A seat runs the harness's own binary in a terminal Junto manages, and resumes that harness's session by id.
-- A `messages` line lets the two seats message each other. Nothing else does.
-- The CLI reaches the app over a local socket. The app admits a caller only if its process was started from a seat, so there is no token to copy.
-- The receiver gets one short notice in its terminal and reads the mail when it is ready. Mail stays until it is read.
-- Every launch comes back paused. Nothing runs until you press play.
+Each seat runs the agent's own CLI in a terminal Junto keeps open, and resumes the same session after a restart. A `messages` line between two seats is the only thing that lets them message each other. The `junto` CLI talks to the app over a local socket, and the app only answers processes it started from a seat, so there is no token to copy. The receiver gets one short notice in its terminal and reads the mail when it is ready; mail stays until it is read. Every launch comes back paused, and nothing runs until you press play.
 
 Supported harnesses: Claude Code, Codex, Grok, Pi, Devin, Cursor Agent, Antigravity, fx, Prime Agent, Hermes, Kimi Code, Muse, Amp, and Oh My Pi. Details and what Junto touches on your machine: [How Junto works](docs/how-junto-works.md).
 
