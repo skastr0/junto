@@ -124,6 +124,7 @@ import {
   installProcessSignalTermination,
   runNormalQuitPreparation,
 } from "./junto/process-signal-termination";
+import { createQuitPhaseLog } from "./junto/quit-phase-log";
 import {
   isTrustedMainWebContents,
   setTrustedMainWebContents,
@@ -1886,6 +1887,9 @@ const beginShutdownAdmission = (reason: string): void => {
   appProcessPlane.beginShutdown();
 };
 
+/** Logged per-phase quit timing; observation only, never a gate. */
+const quitPhases = createQuitPhaseLog();
+
 const logUnfinishedDrain = (
   stage: string,
   report: Awaited<ReturnType<typeof mainAuthoringGate.drain>>,
@@ -1913,11 +1917,16 @@ const flushCanvasOnQuit = async (): Promise<void> => {
   // Waiting for its canvas flush would strand quit on unopened product IPC.
   if (!productRuntimeStarted) return;
   mainAuthoringGate.beginFinalFlush();
-  logUnfinishedDrain("pre-flush", await mainAuthoringGate.drain(QUIT_DRAIN_TIMEOUT_MS));
+  logUnfinishedDrain(
+    "pre-flush",
+    await quitPhases.time("pre-flush authoring drain", () =>
+      mainAuthoringGate.drain(QUIT_DRAIN_TIMEOUT_MS)),
+  );
   const mainWindow = trustedMainWindow;
   if (mainWindow !== undefined && !mainWindow.isDestroyed()) {
     try {
-      await requestCanvasQuiesceAndFlush(mainWindow);
+      await quitPhases.time("renderer canvas quiesce+flush", () =>
+        requestCanvasQuiesceAndFlush(mainWindow));
     } catch (error) {
       if (error instanceof CanvasQuiesceAndFlushError && error.saveFailed) throw error;
       console.error(
@@ -1928,7 +1937,11 @@ const flushCanvasOnQuit = async (): Promise<void> => {
     }
   }
   mainAuthoringGate.close();
-  logUnfinishedDrain("post-flush", await mainAuthoringGate.drain(QUIT_DRAIN_TIMEOUT_MS));
+  logUnfinishedDrain(
+    "post-flush",
+    await quitPhases.time("post-flush authoring drain", () =>
+      mainAuthoringGate.drain(QUIT_DRAIN_TIMEOUT_MS)),
+  );
 };
 
 let runtimeDetachedForQuit = false;
@@ -2144,19 +2157,34 @@ const requireCleanAppProcessShutdown = async (): Promise<void> => {
 };
 
 const drainRuntimeOnQuit = async (reason: string): Promise<void> => {
+  const { lap } = quitPhases;
+  quitPhases.mark("runtime dispose begins");
   await overseerLiveShutdown;
+  lap("dispose: overseer live");
   await requireCleanOperatorControlShutdown();
+  lap("dispose: operator control");
   await requireCleanTermPlaneShutdown(reason);
+  lap("dispose: terminal plane");
   await requireCleanCanvasControlShutdown();
+  lap("dispose: canvas control");
   await requireCleanStationRemoteReportPumpShutdown();
+  lap("dispose: station report pump");
   await requireCleanStationFleetPropagationShutdown();
+  lap("dispose: station fleet propagation");
   await requireCleanStationControlShutdown();
+  lap("dispose: station control");
   await requireCleanWorkControlShutdown();
+  lap("dispose: work control");
   await requireCleanHostOperationsShutdown();
+  lap("dispose: host operations");
   await requireCleanBrowserShutdown(reason);
+  lap("dispose: browser");
   await requireCleanHermesShutdown();
+  lap("dispose: hermes");
   await requireCleanAdapterShutdown();
+  lap("dispose: adapters");
   await requireCleanAppProcessShutdown();
+  lap("dispose: app processes");
 };
 
 const disposeRuntime = (): Promise<void> => {
@@ -2165,6 +2193,7 @@ const disposeRuntime = (): Promise<void> => {
   // Sole AppRuntime.dispose — do not construct a second runtime after this.
   runtimeDispose ??= drainRuntimeOnQuit(shutdownReason)
     .then(() => AppRuntime.dispose())
+    .then(() => quitPhases.lap("dispose: effect runtime"))
     .finally(releaseDemoRuntimeIsolation)
     .catch((error) => {
       console.error("[runtime] dispose failed:", error);
@@ -2195,7 +2224,8 @@ const disposeRuntimeFailClosed = (reason: string): Promise<void> => {
 /** An app exit is authorized only after every owned local child reports exit. */
 const requireCleanLocalTerminalShutdown = async (reason: string): Promise<void> => {
   beginShutdownAdmission(reason);
-  await requireCleanTermPlaneShutdown(reason);
+  await quitPhases.time(`terminal drain (${reason})`, () =>
+    requireCleanTermPlaneShutdown(reason));
 };
 
 // Electron app.exit() bypasses before-quit and will-quit. Every direct exit
@@ -2282,6 +2312,7 @@ const invalidateQuitConfirm = (): void => {
 };
 
 app.on("before-quit", (event) => {
+  quitPhases.mark(runtimeDisposed ? "before-quit (runtime disposed)" : "before-quit");
   if (runtimeDisposed) return;
   event.preventDefault();
   // A signal owns the global quit sequence until its terminal + renderer
@@ -2428,6 +2459,7 @@ app.on("before-quit", (event) => {
 });
 
 app.on("will-quit", () => {
+  quitPhases.mark("will-quit");
   detachRuntimeOnQuit("will-quit");
 });
 
@@ -2437,6 +2469,7 @@ app.on("will-quit", () => {
 installProcessSignalTermination({
   app,
   cleanup: async (signal) => {
+    quitPhases.mark(`signal ${signal}`);
     const signalClaim = quitPreparationArbiter.claimSignal();
     if (signalClaim === "joined-normal") {
       // Normal quit already committed renderer destruction + runtime detach
@@ -2515,6 +2548,10 @@ installProcessSignalTermination({
   // after the renderer has acknowledged a durable canvas flush. Runtime
   // disposal may itself hang; once the document is safe, the bounded fallback
   // can still terminate that native/service teardown stall.
-  allowForceExit: () =>
-    signalQuitState.forceExitAllowed() || quitPreparationArbiter.committed(),
+  allowForceExit: () => {
+    const allowed =
+      signalQuitState.forceExitAllowed() || quitPreparationArbiter.committed();
+    quitPhases.mark(`signal exit fallback fired (force exit ${allowed ? "allowed" : "refused"})`);
+    return allowed;
+  },
 });
