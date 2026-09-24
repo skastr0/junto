@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.3.4 — 2026-09-24
+
 - Drop the support email. The startup data-store failure dialog, SECURITY.md,
   and the issue templates send every report to GitHub issues.
 - Name the real reason a seat could not start ("Codex could not start: the
