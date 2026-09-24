@@ -376,65 +376,85 @@ describe("ManagedTerminalDrive", () => {
     ]);
   });
 
-  it("mail writes into a working seat and accepts once the harness takes the text", async () => {
-    vi.useFakeTimers();
+  it("mail types into a working seat without waiting, and submits it", async () => {
     idle = false;
-    let pending = false;
-    drive = makeDrive({
-      isSeatWorking: () => true,
-      pendingText: () => pending,
-      write: (bindingId, data) => {
-        writes.push({ bindingId, data });
-        // The harness queues typed input mid-turn: the paste sits in the box,
-        // the CR takes it out, and no turn starts.
-        pending = data !== CR;
-        return true;
-      },
-    });
-
-    const mail = drive.writePrompt("b1", "mail", { whileWorking: true });
-    await vi.advanceTimersByTimeAsync(1_000);
-    await expect(mail).resolves.toMatchObject({ status: "submitted" });
+    drive = makeDrive();
+    await expect(drive.writeMail("b1", "mail")).resolves.toBe(true);
     expect(writes.map((w) => w.data)).toEqual([encodeBracketedPaste("mail"), CR]);
     expect(writes.map((w) => w.data)).not.toContain(INTERRUPT_BYTE);
-    expect(drive.queuedCount("b1")).toBe(0);
   });
 
-  it("mail never writes into a seat in attention, such as an open approval dialog", async () => {
+  it("mail types into any screen: a dialog, a draft, an unreadable composer", async () => {
     idle = false;
-    drive = makeDrive({ isSeatWorking: () => false });
-    await expect(
-      drive.writePrompt("b1", "mail", { whileWorking: true }),
-    ).resolves.toMatchObject({ status: "refused", reason: "seat-busy", wrotePhysicalBytes: false });
-    expect(writes).toEqual([]);
-    // The caller owns the retry: nothing is parked in the drive.
-    expect(drive.queuedCount("b1")).toBe(0);
+    for (const verdict of ["draft", null] as const) {
+      writes.length = 0;
+      drive = makeDrive({ composerVerdict: () => verdict });
+      await expect(drive.writeMail("b1", "mail")).resolves.toBe(true);
+      expect(writes.map((w) => w.data)).toEqual([encodeBracketedPaste("mail"), CR]);
+    }
   });
 
-  it("mail into a working seat never types onto an operator draft", async () => {
-    idle = false;
-    drive = makeDrive({ isSeatWorking: () => true, composerVerdict: () => "draft" });
-    await expect(
-      drive.writePrompt("b1", "mail", { whileWorking: true }),
-    ).resolves.toMatchObject({ status: "refused", reason: "composer-not-empty" });
-    expect(writes).toEqual([]);
-  });
-
-  it("a working-seat write whose text never leaves the composer is unresolved, never replayed", async () => {
+  it("mail is typed even after an unresolved write holds gated prompts", async () => {
     vi.useFakeTimers();
-    idle = false;
-    drive = makeDrive({ isSeatWorking: () => true, pendingText: () => true });
-    const mail = drive.writePrompt("b1", "mail", { whileWorking: true });
-    await vi.advanceTimersByTimeAsync(2_000);
-    await expect(mail).resolves.toMatchObject({ status: "unresolved", wrotePhysicalBytes: true });
-    await expect(
-      drive.writePrompt("b1", "mail again", { whileWorking: true }),
-    ).resolves.toMatchObject({ status: "refused", reason: "written-unresolved" });
+    drive = makeDrive({ stallWatch: true, pendingText: () => true });
+    const stuck = drive.writePrompt("b1", "doctrine");
+    await vi.advanceTimersByTimeAsync(1_000);
+    await expect(stuck).resolves.toMatchObject({ status: "unresolved" });
+    await expect(drive.writeMail("b1", "mail")).resolves.toBe(true);
+    expect(writes.slice(-2).map((w) => w.data)).toEqual([encodeBracketedPaste("mail"), CR]);
   });
 
-  it("without whileWorking a working seat still waits for idle", async () => {
+  it("mail to Hermes arrives on one line, since Hermes cannot submit a multiline paste", async () => {
+    drive = makeDrive({ harnessFor: () => "hermes" });
+    await expect(drive.writeMail("b1", "mail from A\nfirst line\n  second")).resolves.toBe(true);
+    expect(writes.map((w) => w.data)).toEqual([
+      encodeBracketedPaste("mail from A first line second"),
+      CR,
+    ]);
+  });
+
+  it("mail waits out Grok's post-spawn window instead of losing the paste", async () => {
+    vi.useFakeTimers();
+    drive = makeDrive();
+    drive.markSpawned("b1", 1_500);
+    const mail = drive.writeMail("b1", "mail");
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(writes).toEqual([]);
+    await vi.advanceTimersByTimeAsync(600);
+    await expect(mail).resolves.toBe(true);
+    expect(writes.map((w) => w.data)).toEqual([encodeBracketedPaste("mail"), CR]);
+  });
+
+  it("mail never interleaves with another write already on the PTY", async () => {
+    vi.useFakeTimers();
+    drive = makeDrive({ stallWatch: true, stallTimeoutMs: 100 });
+    const prompt = drive.writePrompt("b1", "pulse");
+    await vi.advanceTimersByTimeAsync(0);
+    const mail = drive.writeMail("b1", "mail");
+    await vi.advanceTimersByTimeAsync(10);
+    expect(writes.map((w) => w.data)).toEqual([encodeBracketedPaste("pulse"), CR]);
+    drive.onTurnStart("b1");
+    await prompt;
+    await vi.advanceTimersByTimeAsync(10);
+    await expect(mail).resolves.toBe(true);
+    expect(writes.map((w) => w.data)).toEqual([
+      encodeBracketedPaste("pulse"),
+      CR,
+      encodeBracketedPaste("mail"),
+      CR,
+    ]);
+  });
+
+  it("mail writes nothing once automation is suspended", async () => {
+    drive = makeDrive();
+    drive.suspend();
+    await expect(drive.writeMail("b1", "mail")).resolves.toBe(false);
+    expect(writes).toEqual([]);
+  });
+
+  it("a gated prompt still waits for idle", async () => {
     idle = false;
-    drive = makeDrive({ isSeatWorking: () => true });
+    drive = makeDrive();
     await expect(
       drive.writePrompt("b1", "pulse", { queueIfBusy: false }),
     ).resolves.toMatchObject({ status: "refused", reason: "seat-busy" });
@@ -1540,7 +1560,7 @@ describe("written-unresolved submission guard", () => {
     await vi.advanceTimersByTimeAsync(60_000);
     drive.suspend();
     drive.resetForTest();
-    await expect(drive.writePrompt("stalled", "retry", { whileWorking: true })).resolves.toMatchObject({ status: "refused", reason: "written-unresolved" });
+    await expect(drive.writePrompt("stalled", "retry", { queueIfBusy: false })).resolves.toMatchObject({ status: "refused", reason: "written-unresolved" });
     expect(writes).toHaveLength(4);
     await expect(drive.writePrompt("unrelated", "still works")).resolves.toMatchObject({ status: "submitted" });
     expect(writes.slice(4).map(({ bindingId }) => bindingId)).toEqual(["unrelated", "unrelated"]);
@@ -1628,7 +1648,7 @@ describe("written-unresolved submission guard", () => {
       assertClipboardSafe: () => ++checks === 1 ? preflight : true,
       write: (_bindingId, data) => { writes.push(data); return true; },
     });
-    const waiting = drive.writePrompt("seat", "waiting mail", { whileWorking: true });
+    const waiting = drive.writePrompt("seat", "waiting pulse", { queueIfBusy: false });
     await expect(drive.writePrompt("seat", "first\nprompt")).resolves.toMatchObject({ status: "unresolved", reason: "chip-pending" });
     idle = false;
     finishPreflight(true);
@@ -1650,7 +1670,7 @@ describe("written-unresolved submission guard", () => {
     const first = drive.writePrompt("seat", "already working");
     await vi.advanceTimersByTimeAsync(10);
     await expect(first).resolves.toMatchObject({ status: "unresolved", reason: "chip-pending" });
-    await expect(drive.writePrompt("seat", "mail", { whileWorking: true })).resolves.toMatchObject({ status: "refused", reason: "written-unresolved" });
+    await expect(drive.writePrompt("seat", "pulse", { queueIfBusy: false })).resolves.toMatchObject({ status: "refused", reason: "written-unresolved" });
     expect(writes).toEqual([encodeBracketedPaste("already working")]);
   });
 

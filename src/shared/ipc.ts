@@ -1171,10 +1171,10 @@ export interface JuntoGitApi {
   readonly gitShow: (cwd: string, sha: string) => Promise<GitShowResult>;
 }
 
+/** submitted = typed into the seat; queued = waiting for the seat to start. */
 export type TerminalManagedPromptDisposition =
   | "submitted"
   | "queued"
-  | "unresolved"
   | "failed";
 
 export type TerminalManagedPromptResult = {

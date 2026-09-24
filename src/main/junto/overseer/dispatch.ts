@@ -35,7 +35,7 @@ const errorType = (type: WorkErrorBody["type"]): OverseerErrorType => {
     case "InputError": case "ProtocolError": return "InvalidArguments";
     case "ClaimConflict": case "InvalidTransition": return "Conflict";
     case "RuntimeDown": case "Timeout": return "RuntimeDown";
-    case "Paused": case "Blocked": case "SeatBusy": return "Conflict";
+    case "Paused": case "Blocked": return "Conflict";
     case "InternalError": return "InternalError";
   }
 };

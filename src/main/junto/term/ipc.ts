@@ -14,7 +14,6 @@ import {
 } from "@shared/managed-terminal-templates";
 import { managedHarnessEnabled } from "@shared/features";
 import { resolveTerminalBinding } from "@shared/terminal";
-import { messageDelivery } from "../work/message-delivery";
 import type { ControlLease, LocalHostEvent } from "./local-host";
 import { TerminalStreamCoalescer, terminalBindingKey } from "./stream-coalescer";
 import type { TermPlane } from "./plane";
@@ -463,7 +462,6 @@ export const registerTerminalIpc = (
     if (result.lease.mode === "control") {
       controlByBinding.set(result.lease.bindingId, leaseId);
     }
-    messageDelivery.onTerminalAttached(result.lease.bindingId);
     return result;
   });
 

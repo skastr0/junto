@@ -32,11 +32,6 @@ export type ManagedDriveFactoryDeps = {
   readonly write: TerminalWriter;
   readonly isSeatIdle: SeatIdleLookup;
   readonly seatState: (bindingId: string) => AgentSeatState | undefined;
-  /**
-   * Mid-turn seat a mail write may land in. Defaults to the seat state
-   * reading "working"; a composition with a stricter hold passes its own.
-   */
-  readonly isSeatWorking?: SeatIdleLookup;
   readonly onAttention: DriveAttentionCallback;
   readonly snapshot: (bindingId: string) => ManagedDriveSnapshot | undefined;
   readonly composerVerdict: ComposerVerdictLookup;
@@ -54,12 +49,6 @@ export const createManagedTerminalDrive = (
     // prove an empty composer, so nothing is admitted until one paints.
     isSeatIdle: (bindingId) =>
       deps.snapshot(bindingId) !== undefined && deps.isSeatIdle(bindingId),
-    // Mail writes into a live turn and lets the harness queue or steer it.
-    // Working is the only non-idle state admitted: attention (an approval or
-    // other dialog), unknown, and gone never are. No screen, no admission.
-    isSeatWorking: (bindingId) =>
-      deps.snapshot(bindingId) !== undefined &&
-      (deps.isSeatWorking?.(bindingId) ?? deps.seatState(bindingId) === "working"),
     // Admission requires strong idle evidence. After our paste, its draft
     // may replace that chrome (e.g. Devin's welcome placeholder). Continue
     // only with an actual idle destination and positive evidence of our

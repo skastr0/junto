@@ -10,7 +10,6 @@ import {
 import { loadJsonInput } from "../src/cli/core/json";
 import { MsgPromptArgs, MsgSentArgs, VerdictPostArgs } from "../src/shared/work-control";
 import { SeatReadArgs, SeatWaitArgs, TaskWaitArgs } from "../src/shared/seat-control";
-import { MANAGED_PROMPT_IMMEDIATE_MAX } from "../src/shared/managed-prompt";
 
 const crewSchemas = [
   ["msg.prompt", MsgPromptArgs],
@@ -29,7 +28,7 @@ describe("crew CLI discovery", () => {
     expect(contract.schema).toBe(schema);
     const rendered = renderSchemaContract(contract);
     expect(rendered.input_modes).toEqual(["inline-json", "@file", "stdin"]);
-    expect(rendered.accepts_batch).toBe(id === "verdict.post");
+    expect(rendered.accepts_batch).toBe(id === "verdict.post" || id === "msg.prompt");
     expect(rendered.schema).toEqual(Schema.toJsonSchemaDocument(schema).schema);
 
     const capabilities = commandCapabilities.filter((entry) => entry.command_id === id);
@@ -40,31 +39,25 @@ describe("crew CLI discovery", () => {
     expect(capabilities[0]!.examples).toEqual(examples);
     for (const example of examples) {
       expect(Result.isSuccess(Schema.decodeUnknownResult(schema)(example.input))).toBe(true);
-      expect(example.args?.slice(0, 2).join(" ")).toBe(contract.command);
+      expect(example.args?.slice(0, contract.command.split(" ").length).join(" ")).toBe(contract.command);
       const jsonArgument = example.args?.find((arg) => arg.startsWith("{"));
       if (jsonArgument !== undefined) expect(JSON.parse(jsonArgument)).toEqual(example.input);
     }
   });
 
-  it("keeps prompt creation and retry disjoint through the public JSON loader", async () => {
+  it("takes a prompt as target and full text, of any length, with nothing to retry", async () => {
     const schema = MsgPromptArgs;
     expect(allSchemas.find((entry) => entry.command_id === "msg.prompt")!.schema).toBe(schema);
     for (const input of [
       { target: "peer", text: "Review the change." },
-      { target: "peer", messageId: "mail-1", fallback: "notice" },
-      // Oversize bodies remain valid durable input: admission decides refusal
-      // or the explicitly requested notice fallback after the row exists.
-      { target: "peer", text: "a".repeat(MANAGED_PROMPT_IMMEDIATE_MAX + 1), fallback: "notice" },
+      { target: "peer", text: "a".repeat(5_000) },
     ]) {
       await expect(Effect.runPromise(loadJsonInput(schema, JSON.stringify(input)))).resolves.toEqual(input);
     }
     for (const input of [
-      { target: "peer", messageId: "mail-1", text: "Replacement body" },
-      { target: "peer", messageId: "mail-1", subject: "Replacement subject" },
-      { target: "peer", messageId: "mail-1", refs: [] },
-      { target: "peer", messageId: "" },
+      { target: "peer", messageId: "mail-1" },
+      { target: "peer", text: "Review the change.", fallback: "notice" },
       { target: "peer", text: "Review the change.", interrupt: true },
-      { target: "peer", text: "Review the change.", fallback: "interrupt" },
     ]) {
       await expect(Effect.runPromise(loadJsonInput(schema, JSON.stringify(input)))).rejects.toThrow();
     }
@@ -97,7 +90,7 @@ describe("crew CLI discovery", () => {
       { target: "wrong-vocabulary", grants: ["seat.read", "reviews"] },
     ];
     const expected = [
-      { ...connected[0], invocations: [{ port: "msg.prompt", command: "junto msg prompt", discover: "junto schema show msg.prompt" }] },
+      { ...connected[0], invocations: [{ port: "msg.prompt", command: "junto msg send --prompt", discover: "junto schema show msg.prompt" }] },
       { ...connected[1], invocations: [{ port: "seat.wait", command: "junto seat wait", discover: "junto schema show seat.wait" }] },
       { ...connected[2], invocations: [{ port: "terminal.read", command: "junto seat read", discover: "junto schema show seat.read" }] },
       { ...connected[3], invocations: [{ port: "verdict.post", command: "junto verdict post", discover: "junto schema show verdict.post" }] },

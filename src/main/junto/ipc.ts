@@ -7,7 +7,7 @@ import {
   type WorkOpResult,
 } from "@shared/ipc";
 import type { CanvasDoc } from "@shared/canvas";
-import { pauseWasResumed, type PauseScope } from "@shared/pause";
+import type { PauseScope } from "@shared/pause";
 import { digestCanvas } from "@shared/digest";
 import { mergePortfolioInto } from "@shared/portfolio";
 import { AppRuntime } from "../runtime";
@@ -52,13 +52,9 @@ import { UsageService } from "./usage/usage-service";
 import { WorkService } from "./work/service";
 import { ContentService } from "./content/service";
 import { messageDelivery } from "./work/message-delivery";
-import {
-  mailboxMessageDeliveryId,
-  mailboxMessageReadId,
-} from "./work/mailbox-receipts";
+import { mailboxMessageDeliveryId } from "./work/mailbox-receipts";
 import { WorkRepository } from "./work/repository";
 import { CrewRepository } from "./work/crew-repository";
-import { makeMailAttemptStore } from "./work/mail-attempt-store";
 import { makeCheckoutWatchComposition } from "./work/checkout-watch-composition";
 import type { CheckoutWatchSupervisor } from "./work/checkout-watch-live";
 import { kernelRecordFromSnapshot } from "@shared/station-status";
@@ -108,9 +104,7 @@ import {
 import {
   factoryBoardTransport,
   factoryDeliveryReadTag,
-  factoryMailTransport,
   factoryPulseTransport,
-  factorySeatPaused,
   makeFactoryFirstTypedKick,
   wireFactorySupervisor,
 } from "./term/factory-delivery-composition";
@@ -130,7 +124,6 @@ import {
 import { actorDeliverySurfaceOf } from "@shared/actor-surface";
 import { mailExtensionMetadata } from "@shared/crew";
 import { operatorActorRef } from "@shared/work-reference";
-import { mapPromptResultToVerdict } from "./work/operator-prompt-verdict";
 import { ulid } from "ulid";
 import type { PadPatch } from "@shared/pad";
 import type { BoardPost } from "@shared/work-model";
@@ -1445,11 +1438,6 @@ export const registerJuntoIpc = (): void => {
           seatStateRuntime.isSeatIdle(bindingId) &&
           !awarenessSeatHold.holds(bindingId),
         seatState: (bindingId) => seatStateRuntime.getState(bindingId),
-        // Mail into a live turn. The AI hold binds here too: a seat Jev
-        // judges blocked on an approval is never typed into.
-        isSeatWorking: (bindingId) =>
-          seatStateRuntime.getState(bindingId) === "working" &&
-          !awarenessSeatHold.holds(bindingId),
         // Only Grok has the clipboard-image TUI trap. Electron exposes the
         // pasteboard format list without decoding its payload; all other
         // harnesses bypass this preflight entirely.
@@ -1507,7 +1495,6 @@ export const registerJuntoIpc = (): void => {
         options?: {
           readonly queueTimeoutMs?: number;
           readonly ready?: boolean;
-          readonly whileWorking?: boolean;
           /** See ManagedTerminalDrive WritePromptOptions.awaitTurnStart. */
           readonly awaitTurnStart?: boolean;
         },
@@ -1562,14 +1549,6 @@ export const registerJuntoIpc = (): void => {
         snapshotText: (bindingId) =>
           terminalObserverPlane.snapshot(bindingId)?.text,
       });
-      // The composer went visibly empty (operator submitted or cleared, or a
-      // repaint settled): release the queued prompts that waited on it.
-      seatStateRuntime.subscribeComposerVerdict((bindingId, verdict) => {
-        if (verdict !== "empty") return;
-        // Deliveries refused at the turn boundary (idle published before the
-        // composer repaint settled) wait on exactly this boundary.
-        messageDelivery.onComposerEmpty(bindingId);
-      });
       const productAutomationSuspension = Object.freeze({
         suspend: (): void => {
           if (productAutomationSuspended) return;
@@ -1592,9 +1571,9 @@ export const registerJuntoIpc = (): void => {
       // Post-spawn session capture for harnesses that mint an id and never
       // print it (Muse, fx). Home is read lazily so a test seam can move it.
       const seatSessionCapture = new SeatSessionCapture(() => homedir());
-      // Operator multi-prompt (RTS): durable prompt-mail, then immediate
-      // delivery. Busy seats queue at the mailbox — never the drive park.
-      // Wake lives on attemptOne (including bounded wake retry).
+      // Operator multi-prompt (RTS): the operator's text is prompt mail from
+      // the operator, delivered like any other mail — at once when the seat
+      // is live, else when it comes up.
       privilegedIpc.handle(
         IPC_CHANNELS.terminalManagedPrompt,
         async (
@@ -1642,7 +1621,6 @@ export const registerJuntoIpc = (): void => {
             contextId: canvasName,
             metadata: {
               factoryMail: true,
-              operatorPrompt: true,
               ...mailExtensionMetadata({
                 mailKind: "prompt",
                 fromSeat: sender.seatId,
@@ -1706,12 +1684,12 @@ export const registerJuntoIpc = (): void => {
               };
             }
             const liveId = appended.data.messageId;
-            const result = await messageDelivery.prompt({
-              canvas: canvasName,
-              nodeId,
+            const state = await messageDelivery.deliver(canvasName, nodeId, liveId);
+            return {
+              ok: true as const,
+              disposition: state === "delivered" ? "submitted" as const : "queued" as const,
               messageId: liveId,
-            });
-            return mapPromptResultToVerdict(result, liveId);
+            };
           } catch (error) {
             return {
               ok: false as const,
@@ -1855,12 +1833,10 @@ export const registerJuntoIpc = (): void => {
             });
           }
         }
-        if (event.state === "idle") {
-          // FirstTyped doctrine kick and the drive idle drain run in the
-          // shared runtime attach above (hook before drain); this feed keeps
-          // only message delivery.
-          messageDelivery.onManagedTerminalIdle(event.bindingId);
-        }
+        // Any live state means the seat's terminal is up: write the mail
+        // that waited for it. FirstTyped doctrine and the drive idle drain
+        // run in the shared runtime attach above.
+        if (event.state !== "gone") messageDelivery.onSeatLive(event.bindingId);
       });
       // Kernel pulses for managed seats (not ACP).
       setManagedPulseDeliver(
@@ -1877,48 +1853,25 @@ export const registerJuntoIpc = (): void => {
         factoryBoardTransport({ kernel, write: writeManagedPrompt }),
       );
 
-      // Message nudge channel: ether.messages -> live managed terminal seats.
-      // Retry only on session-live / seat-idle (no polling store).
-      // Shared recipe — the Node Remote configures the same transport
-      // through its own destination drive (see factory-delivery-composition).
+      // Mail: every pending message is typed into its seat at once, whatever
+      // the seat is doing; mail for a seat that is not up waits for it.
       const crew = yield* CrewRepository;
-      // Reconcile only prior-process intents, before enabling any new writes.
-      // A delayed boot sweep must never mistake a live attempt for a crash.
-      yield* crew.reconcileUnresolvedAttempts(new Date().toISOString());
-      const attempts = makeMailAttemptStore({
-        repository: crew,
-        run: (effect) => AppRuntime.runPromise(effect),
-        resolveSeat: (canvas, nodeId) => AppRuntime.runPromise(Effect.gen(function* () {
-          const read = yield* canvases.read(canvas, "ipc.deliveryAccept");
-          const actors = read.actorRefs.filter((actor) => actor.canvasName === canvas && actor.nodeId === nodeId);
-          if (actors.length !== 1) return yield* Effect.fail(new Error("Mail recipient seat is unavailable"));
-          return actors[0]!;
-        })),
-      });
       messageDelivery.configure({
-        attempts,
-        releaseSeatHold: (bindingId, generation) => {
-          if (termPlane.host.get(bindingId)?.epoch === generation) {
-            managedDrive.releaseWrittenUnresolved(bindingId);
-          }
-        },
-        transport: factoryMailTransport({
-          kernel,
-          write: writeManagedPrompt,
-          drive: managedDrive,
-          // Liveness only: mail goes to an idle or a working seat alike. The
-          // drive reads the screen (draft, dialog) at the paste boundary.
-          seatSnapshot: (bindingId) => {
-            const live = termPlane.host.get(bindingId);
-            if (
-              !live ||
-              (live.status !== "running" && live.status !== "starting")
-            ) {
-              return undefined;
-            }
-            return { generationKey: live.epoch };
+        transport: {
+          // Physical only: a live process whose terminal is up.
+          seatLive: (bindingId) => {
+            if (productAutomationSuspended) return false;
+            if (termPlane.host.get(bindingId)?.status !== "running") return false;
+            const state = seatStateRuntime.getState(bindingId);
+            return (
+              state === "idle" ||
+              state === "working" ||
+              state === "attention" ||
+              terminalObserverPlane.snapshot(bindingId)?.signals.modes.bracketedPaste === true
+            );
           },
-        }),
+          writeMail: (bindingId, text) => managedDrive.writeMail(bindingId, text),
+        },
         store: {
           listCanvasNames: () =>
             AppRuntime.runPromise(
@@ -1931,41 +1884,6 @@ export const registerJuntoIpc = (): void => {
                 Effect.catch(() => Effect.succeed(undefined as CanvasDoc | undefined)),
               ),
             ),
-          // Deliberately NOT error-swallowing: `undefined` here must mean the
-          // node is gone, so delivery can retire queued work for it. A failed
-          // read has to reject and leave that work queued.
-          readNodeStructure: (name, nodeId) =>
-            AppRuntime.runPromise(
-              canvases
-                .readNodeStructure(name, nodeId, "delivery.route")
-                .pipe(
-                  Effect.map((found) =>
-                    found === undefined
-                      ? undefined
-                      : { node: found.node, structure: found.structure },
-                  ),
-                ),
-            ),
-          hasAcceptedMessageDelivery: (canvas, nodeId, messageId) =>
-            AppRuntime.runPromise(
-              Effect.gen(function* () {
-                const repo = yield* WorkRepository;
-                return yield* repo.hasAcceptedDelivery(
-                  { canvasName: canvas, nodeId },
-                  mailboxMessageDeliveryId(canvas, nodeId, messageId),
-                );
-              }).pipe(Effect.catch(() => Effect.succeed(false))),
-            ),
-          hasAcceptedMessageRead: (canvas, nodeId, messageId) =>
-            AppRuntime.runPromise(
-              Effect.gen(function* () {
-                const repo = yield* WorkRepository;
-                return yield* repo.hasAcceptedDelivery(
-                  { canvasName: canvas, nodeId },
-                  mailboxMessageReadId(canvas, nodeId, messageId),
-                );
-              }).pipe(Effect.catch(() => Effect.succeed(false))),
-            ),
           acceptMessageDelivery: (canvas, nodeId, messageId) =>
             stampMailboxReceipt(
               mailboxMessageDeliveryId(canvas, nodeId, messageId),
@@ -1973,28 +1891,12 @@ export const registerJuntoIpc = (): void => {
               nodeId,
               messageId,
             ),
-          acceptMessageRead: (canvas, nodeId, messageId) =>
-            stampMailboxReceipt(
-              mailboxMessageReadId(canvas, nodeId, messageId),
-              canvas,
-              nodeId,
-              messageId,
-            ),
         },
-        // Pause law (@shared/pause): canvas paused OR node paused OR any
-        // containing region paused keeps the message pending, never sent.
-        seatPaused: (canvas, doc, nodeId) =>
-          factorySeatPaused(pause, canvas, doc, nodeId),
       });
-      // A canvas flipping to playing (or a node/region unpausing inside a
-      // playing canvas) re-drives every message held pending while paused.
-      pause.subscribe((canvas, previous, current) => {
-        if (pauseWasResumed(previous, current)) messageDelivery.onResumedCanvas(canvas);
-      });
-      // Boot rescan: pending mail from a previous process lifetime has no
-      // attach/idle event left — deliver the durable backlog once the canvas
-      // and station planes have settled. Every gate re-checks inside.
-      setTimeout(() => messageDelivery.onBooted(), 10_000);
+      // Boot scan: mail pending from a previous process lifetime has no
+      // append event left — deliver the backlog once the canvas and station
+      // planes have settled.
+      setTimeout(() => void messageDelivery.onBooted(), 10_000);
 
       const workRepository = yield* WorkRepository;
       checkoutWatch = makeCheckoutWatchComposition({

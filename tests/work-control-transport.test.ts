@@ -45,8 +45,6 @@ import { makeInstallOpsLive } from "../src/main/junto/install-ops/engine";
 import { StationRepositoryLive } from "../src/main/junto/station/repository";
 import {
   StationFleetTargetRepositoryLive,
-  StationFleetTargetRepository,
-  StationFleetTargetIdentity,
 } from "../src/main/junto/station/fleet-target-repository";
 import {
   StationLivePeerRegistryLive,
@@ -1845,138 +1843,42 @@ describe("work control transport", () => {
     expect(raw).not.toContain(token());
   });
 
-  it("persists a prompt before transport and retries that same durable body", async () => {
+  it("persists a prompt and hands it to the one mail path, which reports delivered", async () => {
     const server = servers[0]!;
     const runtime = runtimes.at(-1)!;
     const canvases = await addPromptPeer(runtime);
-    const seen: string[] = [];
-    const prompt = vi.spyOn(messageDelivery, "prompt").mockImplementation(async (input) => {
-      const read = await runtime.runPromise(canvases.read("work-cli"));
-      const row = read.doc.nodes.find((node) => node.id === "peer")?.ether?.messages?.items.find((item) => item.messageId === input.messageId);
+    const deliver = vi.spyOn(messageDelivery, "deliver").mockImplementation(async (canvas, nodeId, messageId) => {
+      const read = await runtime.runPromise(canvases.read(canvas));
+      const row = read.doc.nodes.find((node) => node.id === nodeId)?.ether?.messages?.items.find((item) => item.messageId === messageId);
       expect(row?.parts).toEqual([{ kind: "text", text: "Review the patch" }]);
       expect(row?.metadata).toMatchObject({ mailKind: "prompt", senderNodeId: "agent" });
       expect(row?.metadata?.fromSeat).toMatch(/^seat_[a-f0-9]{64}$/);
-      seen.push(input.messageId);
-      return {
-        policy: "immediate",
-        outcome: { status: "refused", reason: "seat-busy", bindingGeneration: 1,
-          writesBefore: 0, writesAfter: 0, pasteWrites: 0, wrotePhysicalBytes: false },
-      };
-    });
-    try {
-      const first = await call(server.socketPath, {
-        token: token(), op: "msg.prompt", args: { target: "peer", text: "Review the patch" },
-      }) as { ok: false; error: { type: string; details: { messageId: string } } };
-      expect(first.ok).toBe(false);
-      expect(first.error.type).toBe("SeatBusy");
-      const messageId = first.error.details.messageId;
-      expect(messageId).toEqual(expect.any(String));
-      const retry = await call(server.socketPath, {
-        token: token(), op: "msg.prompt", args: { target: "peer", messageId },
-      }) as { ok: false; error: { details: { messageId: string } } };
-      expect(retry.error.details.messageId).toBe(messageId);
-      expect(seen).toEqual([messageId, messageId]);
-      const read = await runtime.runPromise(canvases.read("work-cli"));
-      expect(read.doc.nodes.find((node) => node.id === "peer")?.ether?.messages?.items).toHaveLength(1);
-      const altered = await call(server.socketPath, {
-        token: token(), op: "msg.prompt", args: { target: "peer", messageId, text: "changed" },
-      }) as { ok: boolean };
-      expect(altered.ok).toBe(false);
-      expect(prompt).toHaveBeenCalledTimes(2);
-    } finally { prompt.mockRestore(); }
-  });
-
-  it("returns the recipient read receipt when a prompt is already settled", async () => {
-    const server = servers[0]!;
-    const runtime = runtimes.at(-1)!;
-    const canvases = await addPromptPeer(runtime);
-    const work = await runtime.runPromise(WorkService);
-    const prompt = vi.spyOn(messageDelivery, "prompt").mockImplementation(async (input) => {
-      const read = await runtime.runPromise(canvases.read("work-cli"));
-      const recipient = read.actorRefs.find((actor) => actor.nodeId === "peer")!;
-      const receipt = await runtime.runPromise(work.workMessageMarkRead(
-        "work-cli", "peer", input.messageId, recipient,
-      ));
-      expect(receipt.ok).toBe(true);
-      return { unavailable: "settled" };
+      return "delivered";
     });
     try {
       const sent = await call(server.socketPath, {
-        token: token(), op: "msg.prompt", args: { target: "peer", text: "Already read" },
-      }) as { ok: boolean; data: { messageId: string; delivery: { state: string } } };
+        token: token(), op: "msg.prompt", args: { target: "peer", text: "Review the patch" },
+      }) as { ok: true; data: { messageId: string; delivery: string } };
       expect(sent.ok).toBe(true);
-      expect(sent.data.delivery.state).toBe("read");
-      const retry = await call(server.socketPath, {
-        token: token(), op: "msg.prompt", args: { target: "peer", messageId: sent.data.messageId },
-      }) as { ok: boolean; data: { messageId: string; delivery: { state: string } } };
-      expect(retry.ok).toBe(true);
-      expect(retry.data).toMatchObject({ messageId: sent.data.messageId, delivery: { state: "read" } });
-      const read = await runtime.runPromise(canvases.read("work-cli"));
-      expect(read.doc.nodes.find((node) => node.id === "peer")?.ether?.messages?.items).toHaveLength(1);
-    } finally { prompt.mockRestore(); }
+      expect(sent.data.delivery).toBe("delivered");
+      expect(deliver).toHaveBeenCalledWith("work-cli", "peer", sent.data.messageId);
+    } finally { deliver.mockRestore(); }
   });
 
-  it("refuses a Remote-placed prompt recipient before creating mail", async () => {
-    const runtime = runtimes.at(-1)!;
-    const canvases = await addPromptPeer(runtime);
-    const targets = await runtime.runPromise(StationFleetTargetRepository);
-    await runtime.runPromise(targets.bind(Schema.decodeUnknownSync(StationFleetTargetIdentity)({
-      hostId: "remote-test", stationInstallationId: "remote-test-installation",
-    })));
-    const current = await runtime.runPromise(canvases.read("work-cli"));
-    await runtime.runPromise(canvases.write("work-cli", {
-      ...current.doc,
-      nodes: current.doc.nodes.map((node) => node.id === "peer" ? { ...node, ether: { ...node.ether, host: "remote-test" } } : node),
-    }));
-    const result = await call(servers[0]!.socketPath, {
-      token: token(), op: "msg.prompt", args: { target: "peer", text: "Review now" },
-    });
-    expect(result).toMatchObject({ ok: false, error: { type: "ScopeError", details: { reason: "crew-local-seat-only" } } });
-    const read = await runtime.runPromise(canvases.read("work-cli"));
-    expect(read.doc.nodes.find((node) => node.id === "peer")?.ether?.messages?.items ?? []).toHaveLength(0);
-  });
-
-  it("revokes an in-flight prompt when its edge is removed and retains its durable row", async () => {
+  it("never refuses a prompt: a seat that is not up gets it when it starts", async () => {
     const server = servers[0]!;
     const runtime = runtimes.at(-1)!;
     const canvases = await addPromptPeer(runtime);
-    const started = deferred<{ messageId: string; signal?: AbortSignal }>();
-    const aborted = deferred<void>();
-    const prompt = vi.spyOn(messageDelivery, "prompt").mockImplementation((input) => {
-      started.resolve(input);
-      return new Promise((resolve) => {
-        const stop = () => {
-          aborted.resolve();
-          resolve({ policy: "immediate", outcome: {
-            status: "refused", reason: "cancelled", bindingGeneration: 1,
-            writesBefore: 0, writesAfter: 0, pasteWrites: 0, wrotePhysicalBytes: false,
-          } });
-        };
-        if (input.signal?.aborted) stop();
-        else input.signal?.addEventListener("abort", stop, { once: true });
-      });
-    });
+    const deliver = vi.spyOn(messageDelivery, "deliver").mockResolvedValue("waiting");
     try {
-      const pending = call(server.socketPath, {
-        token: token(), op: "msg.prompt", args: { target: "peer", text: "Review the patch" },
-      });
-      const delivery = await started.promise;
-      const current = await runtime.runPromise(canvases.read("work-cli"));
-      await runtime.runPromise(canvases.write("work-cli", {
-        ...current.doc, edges: current.doc.edges.filter((edge) => edge.id !== "prompt-edge"),
-      }));
-      const result = await pending as { ok: false; error: { type: string; details: { messageId: string } } };
-      expect(result).toMatchObject({ ok: false, error: { type: "ScopeError", details: { messageId: delivery.messageId } } });
-      await aborted.promise;
-      expect(delivery.signal?.aborted).toBe(true);
+      const sent = await call(server.socketPath, {
+        token: token(), op: "msg.prompt", args: { target: "peer", text: "Later is fine" },
+      }) as { ok: true; data: { messageId: string; delivery: string } };
+      expect(sent.ok).toBe(true);
+      expect(sent.data.delivery).toBe("waiting");
       const read = await runtime.runPromise(canvases.read("work-cli"));
       expect(read.doc.nodes.find((node) => node.id === "peer")?.ether?.messages?.items).toHaveLength(1);
-      const denied = await call(server.socketPath, {
-        token: token(), op: "msg.prompt", args: { target: "peer", messageId: delivery.messageId },
-      }) as { ok: boolean };
-      expect(denied.ok).toBe(false);
-      expect(prompt).toHaveBeenCalledTimes(1);
-    } finally { prompt.mockRestore(); }
+    } finally { deliver.mockRestore(); }
   });
 
   it("msg.list own inbox marks listed mail read and surfaces sent readAt", async () => {

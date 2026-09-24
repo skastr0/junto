@@ -75,10 +75,9 @@ describe("compiled doctrine — base and slots", () => {
     expect(text).toContain(`junto escalate '{"target":"req-1"`);
     // msg slot
     expect(text).toContain("### Edge contract — messages");
-    expect(text).toContain("pull-only");
-    expect(text).toContain("not a live-qualified delivery channel");
+    expect(text).toContain("Mail is never refused and never needs a retry");
     expect(text).toContain("mail from <seat>");
-    expect(text).toContain("[factory mail from …]");
+    expect(text).not.toContain("retry the returned messageId");
     expect(text).toContain("msg.prompt");
     expect(text).toContain("seat.wait");
     expect(text).toContain("terminal.read");

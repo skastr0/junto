@@ -1,12 +1,11 @@
 /**
- * Focused composition tests: the five factory delivery paths (pulse, mail,
+ * Focused composition tests: the four factory delivery paths (pulse,
  * supervisor, board, first-typed) all reach the seat through the destination
  * drive. No raw PTY bypass exists in the shared recipe.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { WritePromptOptions } from "../src/main/junto/term/drive";
 import type { ManagedPromptOutcome } from "../src/shared/managed-prompt";
-import { PAUSED_CANVAS, type PauseChangeListener } from "../src/shared/pause";
 import { createManagedTerminalDrive } from "../src/main/junto/term/drive/managed-drive-factory";
 import { InjectionSupervisor } from "../src/main/junto/term/injection-supervisor";
 import {
@@ -17,14 +16,11 @@ import {
   resetFirstTypedForTest,
   takeFirstTypedEntryIfCurrent,
 } from "../src/main/junto/term/first-typed";
-import { MessageDeliveryService } from "../src/main/junto/work/message-delivery";
 import {
   composeFactoryDelivery,
   factoryBoardTransport,
   factoryDeliveryReadTag,
-  factoryMailTransport,
   factoryPulseTransport,
-  factorySeatPaused,
   makeFactoryFirstTypedKick,
   makeFactoryWriteManagedPrompt,
   wireFactorySupervisor,
@@ -38,7 +34,6 @@ type FakeDrive = {
     text: string,
     options: WritePromptOptions,
   ) => Promise<ManagedPromptOutcome>;
-  pasteWriteCount: (bindingId: string) => number;
 };
 
 const submitted = (): ManagedPromptOutcome => ({
@@ -77,7 +72,6 @@ const fakeDrive = (): FakeDrive => {
       writes.push({ bindingId, text, options });
       return Promise.resolve(submitted());
     },
-    pasteWriteCount: () => 7,
   };
 };
 
@@ -486,44 +480,6 @@ describe("factoryBoardTransport", () => {
   });
 });
 
-describe("factoryMailTransport", () => {
-  it.each([submitted(), refused(), unresolved()])(
-    "retains the full $status outcome for the durable mail ledger",
-    async (outcome) => {
-      const drive = fakeDrive();
-      drive.writePrompt = () => Promise.resolve(outcome);
-      const transport = factoryMailTransport({
-        kernel: { wakeManagedSeat: () => true },
-        write: makeFactoryWriteManagedPrompt(drive, () => true),
-        drive,
-        seatSnapshot: () => undefined,
-      });
-      await expect(
-        transport.sendManagedTerminalPrompt?.("b1", "mail body", {}),
-      ).resolves.toBe(outcome);
-    },
-  );
-
-  it("refuses raw paste and leaves every screen guard to the drive", async () => {
-    const drive = fakeDrive();
-    const transport = factoryMailTransport({
-      kernel: { wakeManagedSeat: () => true },
-      write: makeFactoryWriteManagedPrompt(drive, () => true),
-      drive,
-      seatSnapshot: () => ({
-        generationKey: "g1",
-      }),
-    });
-    expect(transport.sendTerminalPaste?.("b1", "x", "m1")).toBe(false);
-    await transport.sendManagedTerminalPrompt?.("b1", "mail body", {});
-    expect(drive.writes).toHaveLength(1);
-    expect(transport.pasteWriteCount?.("b1")).toBe(7);
-    await expect(
-      Promise.resolve(transport.seatDeliverySnapshot?.("b1")),
-    ).resolves.toEqual({ generationKey: "g1" });
-  });
-});
-
 describe("wireFactorySupervisor", () => {
   it.each([submitted(), refused(), unresolved()])(
     "only accepts a submitted supervisor notice, outcome $status",
@@ -590,64 +546,25 @@ describe("factoryDeliveryReadTag", () => {
   it("names every read site distinctly", () => {
     expect(factoryDeliveryReadTag("scan")).toBe("delivery.scan");
     expect(factoryDeliveryReadTag("attempt")).toBe("delivery.attempt");
-    expect(factoryDeliveryReadTag("batch")).toBe("delivery.batch");
-  });
-});
-
-describe("factorySeatPaused", () => {
-  it("applies the pause law to the plane snapshot", () => {
-    const doc = { nodes: [], edges: [] } as unknown as Parameters<
-      typeof factorySeatPaused
-    >[2];
-    expect(
-      factorySeatPaused(
-        { stateFor: () => ({ playing: false }) } as never,
-        "c",
-        doc,
-        "n1",
-      ),
-    ).toBe(true);
   });
 });
 
 describe("composeFactoryDelivery", () => {
-  const harness = () => {
+  const harness = (armed = new Map<string, string>()) => {
     const drive = fakeDrive();
     const seatListeners: Array<(event: never) => void> = [];
-    const composerListeners: Array<(bindingId: string) => void> = [];
-    const pauseListeners: PauseChangeListener[] = [];
-    const idle: string[] = [];
-    const composerEmpty: string[] = [];
-    const resumed: string[] = [];
-    const booted: string[] = [];
     const noted: unknown[] = [];
     const cleared: string[] = [];
-    const scheduled: Array<{ ms: number }> = [];
     const unsubs: string[] = [];
     const composed = composeFactoryDelivery({
       drive,
       driveReady: () => true,
       kernel: { wakeManagedSeat: () => true },
-      pause: {
-        stateFor: () => ({ playing: true }) as never,
-        subscribe: (listener) => {
-          pauseListeners.push(listener);
-          return () => {
-            unsubs.push("pause");
-          };
-        },
-      },
       events: {
         subscribeSeatState: (listener) => {
           seatListeners.push(listener as (event: never) => void);
           return () => {
             unsubs.push("seat");
-          };
-        },
-        subscribeComposerEmpty: (listener) => {
-          composerListeners.push(listener);
-          return () => {
-            unsubs.push("composer");
           };
         },
         subscribeSnapshots: () => () => {
@@ -663,140 +580,6 @@ describe("composeFactoryDelivery", () => {
         onSnapshot: () => {},
       },
       escalate: () => {},
-      mail: {
-        configure: () => {},
-        onManagedTerminalIdle: (b) => {
-          idle.push(b);
-        },
-        onComposerEmpty: (b) => {
-          composerEmpty.push(b);
-        },
-        onResumedCanvas: (canvas) => {
-          resumed.push(canvas);
-        },
-        onBooted: () => {
-          booted.push("booted");
-        },
-        suspend: () => {},
-      },
-      store: {} as never,
-      pulse: { setDeliver: () => {} },
-      board: { configure: () => {} },
-      firstTyped: {
-        peekEntry: () => undefined,
-        takeEntryIfCurrent: () => undefined,
-        clearDeliveredForBinding: (b) => {
-          cleared.push(b);
-        },
-      },
-      seatSnapshot: () => undefined,
-      scheduleBootRescan: (fn, ms) => {
-        scheduled.push({ ms });
-        fn();
-      },
-    });
-    return {
-      drive,
-      composed,
-      seatListeners,
-      composerListeners,
-      pauseListeners,
-      idle,
-      composerEmpty,
-      resumed,
-      booted,
-      noted,
-      cleared,
-      scheduled,
-      unsubs,
-    };
-  };
-
-  it("drives mail lifecycle from seat, composer, pause, and boot events", () => {
-    const h = harness();
-    h.seatListeners[0]({
-      bindingId: "b1",
-      state: "working",
-    } as never);
-    h.seatListeners[0]({
-      bindingId: "b1",
-      state: "idle",
-    } as never);
-    h.seatListeners[0]({
-      bindingId: "b2",
-      state: "gone",
-    } as never);
-    h.composerListeners[0]("b1");
-    h.pauseListeners[0]("canvas", PAUSED_CANVAS, { ...PAUSED_CANVAS, playing: true, everPlayed: true });
-    expect(h.idle).toEqual(["b1"]);
-    expect(h.noted).toHaveLength(3);
-    expect(h.cleared).toEqual(["b2"]);
-    expect(h.composerEmpty).toEqual(["b1"]);
-    expect(h.resumed).toEqual(["canvas"]);
-    expect(h.booted).toEqual(["booted"]);
-    expect(h.scheduled).toEqual([{ ms: 10_000 }]);
-  });
-
-  it("holds mail while its canvas is paused", () => {
-    const h = harness();
-    expect(h.composed).toBeDefined();
-    expect(h.drive.writes).toHaveLength(0);
-  });
-
-  it("does not resume mail on repeated play or newly paused members", () => {
-    const h = harness();
-    const playing = { ...PAUSED_CANVAS, playing: true, everPlayed: true };
-    h.pauseListeners[0]("a", playing, playing);
-    const nodePaused = { ...playing, pausedNodes: ["n1"] };
-    h.pauseListeners[0]("a", playing, nodePaused);
-    h.pauseListeners[0]("a", nodePaused, PAUSED_CANVAS);
-    expect(h.resumed).toEqual([]);
-    h.pauseListeners[0]("b", nodePaused, playing);
-    expect(h.resumed).toEqual(["b"]);
-  });
-
-  it("dispose closes every subscription it opened", () => {
-    const h = harness();
-    h.composed.dispose();
-    expect(h.unsubs).toEqual(
-      expect.arrayContaining(["seat", "composer", "pause", "snapshots"]),
-    );
-  });
-
-  it("exposes a doctrine kick for the runtime pre-idle hook", async () => {
-    const drive = fakeDrive();
-    const h = harness();
-    void h;
-    const armed = new Map([["b9", "doctrine"]]);
-    const { kickFirstTyped } = composeFactoryDelivery({
-      drive,
-      driveReady: () => true,
-      kernel: { wakeManagedSeat: () => true },
-      pause: {
-        stateFor: () => ({ playing: true }) as never,
-        subscribe: () => () => {},
-      },
-      events: {
-        subscribeSeatState: () => () => {},
-        subscribeComposerEmpty: () => () => {},
-        subscribeSnapshots: () => () => {},
-      },
-      supervisor: {
-        setWriter: () => {},
-        setEscalationHandler: () => {},
-        noteSeatState: () => {},
-        onSnapshot: () => {},
-      },
-      escalate: () => {},
-      mail: {
-        configure: () => {},
-        onManagedTerminalIdle: () => {},
-        onComposerEmpty: () => {},
-        onResumedCanvas: () => {},
-        onBooted: () => {},
-        suspend: () => {},
-      },
-      store: {} as never,
       pulse: { setDeliver: () => {} },
       board: { configure: () => {} },
       firstTyped: {
@@ -805,66 +588,35 @@ describe("composeFactoryDelivery", () => {
           return text === undefined ? undefined : { text, seq: 1 };
         },
         takeEntryIfCurrent: (b, s) => (s === 1 ? armed.get(b) : undefined),
-        clearDeliveredForBinding: () => {},
+        clearDeliveredForBinding: (b) => {
+          cleared.push(b);
+        },
       },
-      seatSnapshot: () => undefined,
-      scheduleBootRescan: () => {},
     });
-    kickFirstTyped("b9");
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(
-      drive.writes.some(
-        (w) => w.bindingId === "b9" && w.text === "doctrine",
-      ),
-    ).toBe(true);
+    return { drive, composed, seatListeners, noted, cleared, unsubs };
+  };
+
+  it("notes every seat state and clears doctrine when a seat is gone", () => {
+    const h = harness();
+    h.seatListeners[0]({ bindingId: "b1", state: "working" } as never);
+    h.seatListeners[0]({ bindingId: "b2", state: "gone" } as never);
+    expect(h.noted).toHaveLength(2);
+    expect(h.cleared).toEqual(["b2"]);
   });
 
-  it("uses the injected boot delay when provided", () => {
-    const drive = fakeDrive();
-    const seen: number[] = [];
-    composeFactoryDelivery({
-      drive,
-      driveReady: () => true,
-      kernel: { wakeManagedSeat: () => true },
-      pause: {
-        stateFor: () => ({ playing: true }) as never,
-        subscribe: () => () => {},
-      },
-      events: {
-        subscribeSeatState: () => () => {},
-        subscribeComposerEmpty: () => () => {},
-        subscribeSnapshots: () => () => {},
-      },
-      supervisor: {
-        setWriter: () => {},
-        setEscalationHandler: () => {},
-        noteSeatState: () => {},
-        onSnapshot: () => {},
-      },
-      escalate: () => {},
-      mail: {
-        configure: () => {},
-        onManagedTerminalIdle: () => {},
-        onComposerEmpty: () => {},
-        onResumedCanvas: () => {},
-        onBooted: () => {},
-        suspend: () => {},
-      },
-      store: {} as never,
-      pulse: { setDeliver: () => {} },
-      board: { configure: () => {} },
-      firstTyped: {
-        peekEntry: () => undefined,
-        takeEntryIfCurrent: () => undefined,
-        clearDeliveredForBinding: () => {},
-      },
-      seatSnapshot: () => undefined,
-      bootRescanMs: 5_000,
-      scheduleBootRescan: (_fn, ms) => {
-        seen.push(ms);
-      },
-    });
-    expect(seen).toEqual([5_000]);
+  it("dispose closes every subscription it opened", () => {
+    const h = harness();
+    h.composed.dispose();
+    expect(h.unsubs).toEqual(expect.arrayContaining(["seat", "snapshots"]));
+  });
+
+  it("exposes a doctrine kick for the runtime pre-idle hook", async () => {
+    const h = harness(new Map([["b9", "doctrine"]]));
+    h.composed.kickFirstTyped("b9");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(
+      h.drive.writes.some((w) => w.bindingId === "b9" && w.text === "doctrine"),
+    ).toBe(true);
   });
 });
 
@@ -975,38 +727,6 @@ describe("real destination-drive composition", () => {
       .map((w) => w.data)
       .join("");
     expect(payload).toContain("supervisor nudge");
-  });
-
-  it("accepts the composed mail transport on the real delivery class", async () => {
-    const d = boot();
-    const delivery = new MessageDeliveryService();
-    const write = makeFactoryWriteManagedPrompt(d, () => true);
-    delivery.configure({
-      transport: factoryMailTransport({
-        kernel: { wakeManagedSeat: () => true },
-        write,
-        drive: d,
-        seatSnapshot: () => undefined,
-      }),
-      store: {
-        listCanvasNames: () => Promise.resolve([]),
-        readDoc: () => Promise.resolve(undefined),
-        readNodeStructure: () => Promise.resolve(undefined),
-        hasAcceptedMessageDelivery: () => Promise.resolve(false),
-        hasAcceptedMessageRead: () => Promise.resolve(false),
-        acceptMessageDelivery: () => Promise.resolve(true),
-        acceptMessageRead: () => Promise.resolve(true),
-      },
-      seatPaused: () => false,
-    });
-    delivery.onManagedTerminalIdle("real-b4");
-    delivery.onComposerEmpty("real-b4");
-    delivery.onResumedCanvas("canvas");
-    await new Promise((resolve) => setTimeout(resolve, 50));
-    // Empty world: nothing to send, and no raw write escapes the drive.
-    expect(writes).toHaveLength(0);
-    delivery.suspend();
-    delivery.resetForTest();
   });
 
   it("sends board wakes through the real drive", async () => {

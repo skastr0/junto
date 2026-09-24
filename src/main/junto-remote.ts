@@ -15,7 +15,6 @@ import {
   remoteAppVersion,
   RemoteRuntime,
 } from "./remote-runtime";
-import { PausePlane } from "./junto/pause-plane";
 import { configureBoardDelivery } from "./junto/work/board-delivery";
 import { setManagedPulseDeliver } from "./junto/term/managed-pulse-bridge";
 import { injectionSupervisor } from "./junto/term/injection-supervisor";
@@ -429,27 +428,17 @@ const runProductBoot = async (): Promise<void> => {
       snapshot: terminalObserverPlane.snapshot(bindingId),
     });
   };
-  const remotePause = await RemoteRuntime.runPromise(PausePlane);
   // Factory delivery composition: kernel pulses, the injection supervisor,
   // board wakes, and first-typed doctrine reach Remote seats through this
   // installation's destination drive — the same shared recipe as Command
-  // Center, no raw PTY bypass. Mailbox mail is explicitly uncomposed:
-  // actor mailboxes are CC-homed and a Remote never materializes
-  // message.append, so no local store read can source pending mail. Mail
-  // stays unsupported here until a CC-authoritative pending-delivery input
-  // exists; nothing below claims mail completion.
+  // Center, no raw PTY bypass. Mailbox mail is Command Center-only: actor
+  // mailboxes are CC-homed and a Remote never materializes message.append.
   const remoteDelivery = composeFactoryDelivery({
     drive: remoteDrive,
     driveReady: remoteDriveReady,
     kernel: kernelForDelivery,
-    pause: remotePause,
     events: {
       subscribeSeatState: (listener) => seatStateRuntime.subscribe(listener),
-      subscribeComposerEmpty: (listener) =>
-        seatStateRuntime.subscribeComposerVerdict((bindingId, verdict) => {
-          if (verdict !== "empty") return;
-          listener(bindingId);
-        }),
       subscribeSnapshots: (listener) =>
         terminalObserverPlane.subscribeGlobal(listener),
     },
@@ -464,16 +453,6 @@ const runProductBoot = async (): Promise<void> => {
       peekEntry: peekFirstTypedEntry,
       takeEntryIfCurrent: takeFirstTypedEntryIfCurrent,
       clearDeliveredForBinding,
-    },
-    seatSnapshot: (bindingId) => {
-      const live = termPlane.host.get(bindingId);
-      if (
-        !live ||
-        (live.status !== "running" && live.status !== "starting")
-      ) {
-        return undefined;
-      }
-      return { generationKey: live.epoch };
     },
   });
   handles.delivery = { dispose: () => remoteDelivery.dispose() };

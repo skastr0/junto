@@ -1,47 +1,15 @@
 /**
- * Managed-prompt contract — the canonical delivery outcome vocabulary for the
- * drive and the delivery service.
- *
- * Mail evidence refs, mail kinds, attempt reasons, write evidence, recipient
- * generations, and the display derivation are the canonical storage-lane
- * domain (`@shared/crew`): this module re-exports them and adds only the
- * transport-internal outcome the drive resolves per attempt. Do not mint
- * parallel keys here — readers use the crew names, writers write them.
- *
- * Display state is derived from facts, never stored.
+ * Managed-prompt contract: the outcome vocabulary the drive resolves for each
+ * gated write (pulses, doctrine, board, overseer). Mail does not use it: mail
+ * goes through the drive's `writeMail`, which never refuses.
  */
 
-export {
-  deriveMailDisplayState,
-  mailExtensionMetadata,
-  readMailExtension,
-  type DeliveryAttempt,
-  type MailAttemptFacts,
-  type MailAttemptReason,
-  type MailDeliveryPolicy,
-  type MailDisplayFacts,
-  type MailDisplayState,
-  type MailEvidenceRef,
-  type MailExtension,
-  type MailKind,
-  type MailSenderStamp,
-  type MailWriteEvidence,
-  type RecipientGeneration,
-  type ReviewVerdict,
-  type VerdictKind,
-  type VerdictSubject,
-} from "./crew";
-
 import { Schema } from "effect";
-import type { MailAttemptReason } from "./crew";
-import { MESSAGE_PTY_FULL_BODY_MAX } from "./message-delivery";
 
 /**
- * Pre-write refusal reasons (transport-internal detail). Every one means no
- * prompt byte reached the PTY on this attempt, so the attempt is retryable
- * without replay risk. Mapped to the closed {@link MailAttemptReason} at the
- * durable record boundary — the drive keeps the finer cause, the ledger
- * keeps the canonical reason.
+ * Pre-write refusal reasons for a gated write. Every one means no prompt byte
+ * reached the PTY on this attempt, so the caller may retry without replay
+ * risk.
  */
 export const ManagedPromptRefusalReason = Schema.Literals([
   "seat-busy",
@@ -55,15 +23,14 @@ export const ManagedPromptRefusalReason = Schema.Literals([
   "queue-timeout",
   "cancelled",
   "suspended",
-  "over-limit",
 ]);
 export type ManagedPromptRefusalReason =
   typeof ManagedPromptRefusalReason.Type;
 
 /**
  * Written-but-unreceipted reasons. Bytes reached the PTY without turn-start
- * evidence, so the same generation must never replay them — only a new
- * recipient generation, an explicit resume batch, or operator action may.
+ * evidence, so the same generation must never replay them; only a new
+ * generation may.
  */
 export const ManagedPromptUnresolvedReason = Schema.Literals([
   "no-turn-start",
@@ -74,14 +41,11 @@ export type ManagedPromptUnresolvedReason =
 
 /**
  * Canonical result of one managed write attempt. The facts ride every
- * variant so the delivery layer can apply the transport policy without
- * re-reading drive internals:
- * - `bindingGeneration` — the drive terminal-epoch cut the attempt ran
- *   under (transport-internal; the durable attempt identity uses the
- *   recipient seat generation string, a distinct field);
+ * variant so a caller can decide on a retry without re-reading drive
+ * internals:
+ * - `bindingGeneration` — the drive terminal-epoch cut the attempt ran under;
  * - `writesBefore` / `writesAfter` — the drive paste-envelope counter
- *   around the attempt; `after > before` proves bytes reached the PTY and
- *   feeds `MailWriteEvidence` directly;
+ *   around the attempt; `after > before` proves bytes reached the PTY;
  * - `pasteWrites` — envelopes written by this attempt (`after - before`);
  * - `wrotePhysicalBytes` — any prompt byte reached the PTY on this attempt.
  */
@@ -169,59 +133,3 @@ export const isPromptRefused = (
 export const outcomeWrotePhysical = (
   outcome: ManagedPromptOutcome,
 ): boolean => outcome.wrotePhysicalBytes;
-
-/**
- * Map a transport-internal refusal to the closed durable reason. Lifecycle
- * cuts (`cancelled`, `suspended`) map to undefined: they are not transport
- * verdicts, so they record nothing and leave the message pending.
- */
-export const mailAttemptReasonOfRefusal = (
-  reason: ManagedPromptRefusalReason,
-): MailAttemptReason | undefined => {
-  switch (reason) {
-    case "seat-busy":
-      return "seat-busy";
-    case "composer-not-empty":
-      return "composer-draft";
-    case "composer-unreadable":
-      return "composer-unreadable";
-    case "operator-active":
-      return "operator-interlock";
-    case "clipboard-unsafe":
-      return "operator-interlock";
-    case "not-ready":
-      return "seat-busy";
-    case "queue-timeout":
-      return "seat-busy";
-    case "multiline-refused":
-      return "oversize";
-    case "over-limit":
-      return "oversize";
-    case "written-unresolved":
-      return "written-no-evidence";
-    case "cancelled":
-    case "suspended":
-      return undefined;
-  }
-};
-
-/** Immediate-prompt body bound: a prompt pastes full-body only when short. */
-export const MANAGED_PROMPT_IMMEDIATE_MAX = MESSAGE_PTY_FULL_BODY_MAX;
-
-export type ImmediatePromptAdmission =
-  | { readonly admitted: true }
-  | { readonly admitted: false; readonly reason: "over-limit" };
-
-/**
- * Immediate-prompt admission: a short body. The seat's state is not a
- * question here — a prompt goes to an idle or working seat like any mail,
- * and the drive alone refuses a draft or dialog screen. Oversize bodies
- * refuse over-limit. Ordinary-notice fallback happens only on explicit
- * request, never implicitly.
- */
-export const admitImmediatePrompt = (input: {
-  readonly bodyChars: number;
-}): ImmediatePromptAdmission =>
-  input.bodyChars > MANAGED_PROMPT_IMMEDIATE_MAX
-    ? { admitted: false, reason: "over-limit" }
-    : { admitted: true };

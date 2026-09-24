@@ -17,7 +17,6 @@ import {
   SHEET_ENABLED,
   TASKS_ENABLED,
 } from "../../shared/features";
-import { MANAGED_PROMPT_IMMEDIATE_MAX } from "../../shared/managed-prompt";
 import { SeatReadArgs, SeatWaitArgs, TaskWaitArgs } from "../../shared/seat-control";
 import {
   ArtifactPublishCliArgs,
@@ -174,7 +173,7 @@ const PAD_PATCH_INVOCATION: CapabilityInvocation = {
 const CREW_INVOCATIONS: ReadonlyArray<CapabilityInvocation> = [
   {
     port: "msg.prompt",
-    command: "junto msg prompt",
+    command: "junto msg send --prompt",
     discover: "junto schema show msg.prompt",
   },
   {
@@ -359,7 +358,8 @@ export const msgSendSchema: CommandSchemaContract = {
   command_id: "msg.send",
   command: "msg send",
   schema_id: "msg.send.input/v1",
-  description: "Append a message to a connected node.",
+  description:
+    "Mail a connected seat. A short \"mail from\" line pointing at msg read is typed into its input at once, whatever it is doing; a seat that is not up gets it when it starts.",
   schema: MsgSendArgs,
   accepts_batch: true,
   input_modes: inputModes,
@@ -367,11 +367,12 @@ export const msgSendSchema: CommandSchemaContract = {
 
 export const msgPromptSchema: CommandSchemaContract = {
   command_id: "msg.prompt",
-  command: "msg prompt",
+  command: "msg send --prompt",
   schema_id: "msg.prompt.input/v1",
   description:
-    `Request immediate full-body delivery through msg.prompt, without automatic interruption. Bodies over ${MANAGED_PROMPT_IMMEDIATE_MAX} characters return InputError (oversize), unless fallback: notice is explicit. Create with text, or retry the existing messageId without replacing its body. A timeout after dispatch is uncertain: inspect msg sent before retrying; never recreate blindly.`,
+    "Mail a connected seat as a prompt: the full text is typed into its input and submitted at once, whatever it is doing; its harness queues or steers it. A seat that is not up gets it when it starts.",
   schema: MsgPromptArgs,
+  accepts_batch: true,
   input_modes: inputModes,
 };
 
@@ -949,26 +950,11 @@ const declaredExamples: ReadonlyArray<CommandExample> = [
   },
   {
     command_id: "msg.prompt",
-    command: "msg prompt",
-    name: "request a short immediate prompt",
-    description: "Requires msg.prompt. Delivered whether the seat is idle or mid-turn; its harness queues or steers it.",
+    command: "msg send --prompt",
+    name: "prompt a connected seat",
+    description: "Requires msg.prompt. The full text lands in the seat's input at once, idle or mid-turn; its harness queues or steers it.",
     input: { target: "seat-b", text: "Please review the API contract." },
-    args: ["msg", "prompt", '{"target":"seat-b","text":"Please review the API contract."}'],
-  },
-  {
-    command_id: "msg.prompt",
-    command: "msg prompt",
-    name: "retry an existing prompt",
-    description: "After a pre-write refusal, wait for readiness and retry the returned messageId. Do not send a replacement body.",
-    input: { target: "seat-b", messageId: "msg_01" },
-    args: ["msg", "prompt", '{"target":"seat-b","messageId":"msg_01"}'],
-  },
-  {
-    command_id: "msg.prompt",
-    command: "msg prompt",
-    name: "explicitly allow notice fallback",
-    input: { target: "seat-b", text: "Please review the API contract.", fallback: "notice" },
-    args: ["msg", "prompt", '{"target":"seat-b","text":"Please review the API contract.","fallback":"notice"}'],
+    args: ["msg", "send", "--prompt", '{"target":"seat-b","text":"Please review the API contract."}'],
   },
   {
     command_id: "msg.sent",
@@ -1508,11 +1494,16 @@ const declaredCapabilities: ReadonlyArray<CommandCapability> = [
   },
   {
     command_id: "msg.prompt",
-    command: "msg prompt",
+    command: "msg send --prompt",
     category: "workflow",
-    description: "Attempt a short immediate prompt or retry its existing messageId, without automatic interruption.",
+    description: "Send a message whose full text is typed into the seat's input (batch-capable).",
     schemas: [msgPromptSchema],
     examples: allExamples.filter((e) => e.command_id === "msg.prompt"),
+    batch: {
+      accepts_batch: true,
+      default_concurrency: DEFAULT_BATCH_CONCURRENCY,
+      supports_concurrency_option: true,
+    },
   },
   {
     command_id: "msg.sent",

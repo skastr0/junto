@@ -371,19 +371,17 @@ const msgSlot = (targets: readonly InjectionConnectedTarget[]): string => {
 |---|---|
 ${rowsFor(targets, [
   ["msg.list", `| read target thread | \`junto msg list '{"target":"${t}"}'\` |`],
-  ["msg.send", `| send durable mail | \`junto msg send '{"target":"${t}","text":"..."}'\` |`],
+  ["msg.send", `| send mail | \`junto msg send '{"target":"${t}","text":"..."}'\` — a short \`mail from <you>\` line lands in their input at once, pointing at \`junto msg read\` |`],
   ["msg.send", `| reply | \`junto msg reply '{"target":"${t}","text":"...","inReplyTo":"<msgId>"}'\` |`],
-  ["msg.prompt", `| immediate turn (port msg.prompt) | \`junto msg prompt '{"target":"${t}","text":"..."}'\` — delivered to a local peer whether it is idle or mid-turn; its harness queues or steers it |`],
+  ["msg.prompt", `| prompt (port msg.prompt) | \`junto msg send --prompt '{"target":"${t}","text":"..."}'\` — the full text lands in their input at once, idle or mid-turn; their harness queues or steers it |`],
   ["seat.wait", `| wait (port seat.wait) | \`junto seat wait ${t} --until idle --timeout 30s\` — also supports attention, working, or gone |`],
   ["terminal.read", `| observe (port terminal.read) | \`junto seat read ${t} --lines 40\` — settled grid, with state, reason, confidence and generation; output activity alone is not readiness |`],
 ])}
 
-Own inbox: \`junto msg list\` marks listed mail read; \`junto msg react '{"messageId":"<msgId>"}'\` acknowledges without a reply. Mailbox delivery is pull-only (T3): check it at turn boundaries. Typed-notice paste is harness support, not a live-qualified delivery channel. Kinds are \`notice\`, \`prompt\`, and \`receipt\`; a typed notice says \`mail from <seat>\` (older rows may say \`[factory mail from …]\`). Avoid acknowledgement loops.
+Own inbox: \`junto msg list\` marks listed mail read; \`junto msg react '{"messageId":"<msgId>"}'\` acknowledges without a reply. Mail is never refused and never needs a retry: it is typed into the recipient's input at once, whatever the recipient is doing, and a recipient whose seat is not up gets it when the seat starts. Kinds are \`notice\`, \`prompt\`, and \`receipt\`; a typed notice says \`mail from <seat>\`. Avoid acknowledgement loops.
 
-Crew prompt, sent receipts, seat wait and seat read require a configured Command Center. Prompt/wait/read require a local peer, and are unavailable for Remote seats. Ordinary durable mail remains available through its own grants.
-${hasPort(targets, "msg.send") || hasPort(targets, "msg.prompt") ? "\nInspect sent delivery/read/reply facts with `junto msg sent`; notification, read and reply are separate evidence. A successful enqueue is not proof of submission." : ""}
-${hasPort(targets, "msg.prompt") ? `
-Prompt outcomes are named: submitted, refused, or unresolved. A pre-write refusal means a draft or dialog was on the peer's screen; retry the returned messageId with \`junto msg prompt '{"target":"${t}","messageId":"<messageId>"}'\`. An unresolved write is uncertain: inspect the peer and sent facts; never create a replacement prompt or repaste automatically. Notice fallback is explicit: add \`"fallback":"notice"\` only when durable mail is acceptable.` : ""}`;
+Seat wait and seat read require a local peer, and are unavailable for Remote seats.
+${hasPort(targets, "msg.send") || hasPort(targets, "msg.prompt") ? "\nA send answers `delivered` (typed into their input) or `waiting` (their seat is not up yet). Inspect delivered, read and reply facts with `junto msg sent`; each is separate evidence." : ""}`;
 };
 
 const reviewsSlot = (targets: readonly InjectionConnectedTarget[]): string => {

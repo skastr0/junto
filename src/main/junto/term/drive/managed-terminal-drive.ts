@@ -5,9 +5,10 @@
  * spacing, submission acknowledgement.
  * Does not own: PTY leases, seat state machine (injected lookups).
  *
- * Fail-closed: an unwritable seat or screen → bounded queue or immediate
- * refusal by caller policy. Mail (`whileWorking`) also writes into a working
- * seat and lets the harness queue or steer it.
+ * Fail-closed for gated writes (pulses, doctrine, board, overseer): an
+ * unwritable seat or screen → bounded queue or immediate refusal by caller
+ * policy. Mail is not gated: `writeMail` types into the seat whatever it is
+ * doing and lets the harness queue or steer it.
  */
 
 import {
@@ -40,9 +41,6 @@ import type {
 } from "@shared/managed-prompt";
 
 export type {
-  MailDisplayState,
-  MailEvidenceRef,
-  MailKind,
   ManagedPromptOutcome,
   ManagedPromptOutcomeFacts,
   ManagedPromptRefusalReason,
@@ -159,15 +157,6 @@ export type WritePromptOptions = {
    */
   readonly readyAfterMs?: number;
   /**
-   * Mail: a WORKING seat is as writable as an idle one. The harness queues or
-   * steers text typed mid-turn by its own rules; Junto adds no wait of its
-   * own. Acceptance is the harness taking the text out of the composer, since
-   * a queued message starts no turn. Every screen guard still applies: a
-   * draft, an unreadable composer, or an attention state (an approval
-   * dialog) is never typed into.
-   */
-  readonly whileWorking?: boolean;
-  /**
    * When false, retain the extra firstTyped paint settles after paste+CR.
    * Every accepted paste still needs positive submission evidence within
    * the bounded acknowledgement wait; an empty composer alone proves none.
@@ -176,17 +165,14 @@ export type WritePromptOptions = {
   readonly awaitTurnStart?: boolean;
 };
 
-/**
- * A working seat takes a write into its own queue or steer, so no turn starts.
- * Its composer letting go of our text is the acceptance evidence, trusted only
- * after this floor so observer paint lag cannot read a pre-paste empty box as
- * taken.
- */
-export const WORKING_WRITE_ACCEPT_FLOOR_MS = 250;
-const WORKING_WRITE_POLL_MS = 50;
-
 /** Grok TUI trap: paste before ~1.5s post-spawn is swallowed. */
 export const GROK_MIN_POST_SPAWN_MS = 1_500;
+
+const delay = (ms: number): Promise<void> =>
+  new Promise<void>((resolve) => {
+    const timer = setTimeout(resolve, ms);
+    timer.unref?.();
+  });
 
 type QueuedPrompt = {
   readonly text: string;
@@ -209,11 +195,6 @@ type PendingTurn = {
 export type ManagedTerminalDriveOptions = {
   readonly write: TerminalWriter;
   readonly isSeatIdle: SeatIdleLookup;
-  /**
-   * Seat is mid-turn on a readable screen (working, not attention). Only
-   * `whileWorking` writes consult it. Absent = no working seat is writable.
-   */
-  readonly isSeatWorking?: SeatIdleLookup;
   /** Continue an accepted paste despite its draft replacing idle chrome. */
   readonly canContinueSubmission?: (bindingId: string, text: string) => boolean;
   readonly onAttention?: DriveAttentionCallback;
@@ -261,7 +242,6 @@ export type ManagedTerminalDriveOptions = {
 export class ManagedTerminalDrive {
   private readonly writeFn: TerminalWriter;
   private readonly isSeatIdle: SeatIdleLookup;
-  private readonly isSeatWorking: SeatIdleLookup;
   private readonly canContinueSubmission: SeatIdleLookup;
   private readonly onAttention: DriveAttentionCallback | undefined;
   private readonly assertClipboardSafe: ClipboardSafeAssert | undefined;
@@ -315,7 +295,6 @@ export class ManagedTerminalDrive {
   constructor(options: ManagedTerminalDriveOptions) {
     this.tracer = createPtyDeliveryTracer(options.onTrace);
     this.writeFn = options.write;
-    this.isSeatWorking = options.isSeatWorking ?? (() => false);
     this.isSeatIdle = (bindingId) => {
       const idle = options.isSeatIdle(bindingId);
       this.tracer?.event(bindingId, "evidence", { probe: "idle", value: idle });
@@ -478,11 +457,10 @@ export class ManagedTerminalDrive {
     bindingId: string,
     bindingGeneration: number,
     writesBefore: number,
-    whileWorking = false,
   ): ManagedPromptRefusalReason {
     if (this.writtenUnresolved.has(bindingId)) return "written-unresolved";
     if (
-      !this.admitsWrite(bindingId, whileWorking) ||
+      !this.isSeatIdle(bindingId) ||
       this.writing.has(bindingId) ||
       this.pendingTurns.has(bindingId)
     ) {
@@ -504,9 +482,9 @@ export class ManagedTerminalDrive {
    * the screen to prove anything at all. The interlock latches cover the
    * observer's blind window between keystroke and repaint.
    */
-  private mustWait(bindingId: string, whileWorking = false): boolean {
+  private mustWait(bindingId: string): boolean {
     const waiting = (
-      !this.admitsWrite(bindingId, whileWorking) ||
+      !this.isSeatIdle(bindingId) ||
       this.writing.has(bindingId) ||
       this.pendingTurns.has(bindingId) ||
       this.composerBlocked(bindingId) ||
@@ -514,15 +492,6 @@ export class ManagedTerminalDrive {
     );
     this.traceState(bindingId, "gate", { gate: "must-wait", waiting });
     return waiting;
-  }
-
-  /**
-   * The seat state a write may land in: idle, or mid-turn for a
-   * `whileWorking` write. Attention (an approval or other dialog), unknown,
-   * and gone are never writable.
-   */
-  private admitsWrite(bindingId: string, whileWorking: boolean): boolean {
-    return this.isSeatIdle(bindingId) || (whileWorking && this.isSeatWorking(bindingId));
   }
 
   /**
@@ -650,6 +619,71 @@ export class ManagedTerminalDrive {
     ));
   }
 
+  /**
+   * Mail: type the text into the seat's input and submit it, whatever the
+   * seat is doing — idle, mid-turn, or showing a dialog. The harness queues
+   * or steers what it receives; the drive adds no admission of its own.
+   *
+   * The only waits are physical: Grok swallows a paste inside its post-spawn
+   * window, and another drive write already on this PTY must finish before
+   * these bytes start, or the two envelopes interleave. Hermes cannot submit
+   * a multiline paste (the chip never collapses), so its newlines become
+   * spaces. Resolves true once the paste and its CR reached the PTY; false
+   * only when the seat has no live generation to write into.
+   */
+  async writeMail(bindingId: string, text: string): Promise<boolean> {
+    const generation = this.lifecycleGeneration;
+    if (!this.active(generation)) return false;
+    const body = hermesRefusesMultilinePaste(this.harnessFor?.(bindingId), text)
+      ? text.replace(/\s*\n\s*/g, " ")
+      : text;
+    const readyInMs = (this.readyAfter.get(bindingId) ?? 0) - this.now();
+    if (readyInMs > 0) await delay(readyInMs);
+    while (this.writing.has(bindingId)) {
+      await delay(Math.max(1, this.pasteToCrSettleMs));
+      if (!this.active(generation)) return false;
+    }
+    const bindingGeneration = this.bindingGenerations.get(bindingId) ?? 0;
+    this.writing.add(bindingId);
+    this.traceState(bindingId, "mail.begin");
+    try {
+      return await this.withOperatorHold(bindingId, async () => {
+        const [paste, cr] = buildPromptWriteSequence(body);
+        if (!(await Promise.resolve(this.writeTraced(bindingId, paste, "paste")))) {
+          return false;
+        }
+        this.pasteWrites.set(bindingId, (this.pasteWrites.get(bindingId) ?? 0) + 1);
+        if (!this.activeBinding(bindingId, generation, bindingGeneration)) return false;
+        this.lastWrittenText.set(bindingId, body);
+        // Paste-end must settle before the CR, or Claude/Devin keep a stuck
+        // "[Pasted text …]" chip; a CR inside a resize repaint is eaten.
+        if (!(await this.settle(bindingId, generation, bindingGeneration))) return false;
+        if (this.interlock.resizeActive(bindingId)) {
+          await this.awaitResizeQuiet(bindingId, generation, bindingGeneration);
+        }
+        if (!(await Promise.resolve(this.writeTraced(bindingId, cr, "submit-cr")))) {
+          return false;
+        }
+        // Ink TUIs collapse a multiline paste into a chip that only a second
+        // CR submits.
+        if (
+          payloadMayChip(body) &&
+          (this.pasteChip !== undefined || this.pendingText !== undefined) &&
+          (await this.settle(bindingId, generation, bindingGeneration)) &&
+          this.chipVisible(bindingId)
+        ) {
+          await this.writeSubmitCr(bindingId, generation, bindingGeneration);
+        }
+        return true;
+      });
+    } finally {
+      this.traceState(bindingId, "mail.end");
+      if ((this.bindingGenerations.get(bindingId) ?? 0) === bindingGeneration) {
+        this.writing.delete(bindingId);
+      }
+    }
+  }
+
   private async writePromptInternal(
     bindingId: string,
     text: string,
@@ -672,11 +706,7 @@ export class ManagedTerminalDrive {
       return this.refusePrompt(bindingId, bindingGeneration, writesBefore, "written-unresolved");
     }
     const ready = opts.ready ?? true;
-    const whileWorking = opts.whileWorking === true;
-    // A working-seat write never parks raw text in the drive: its caller
-    // owns the retry, so a queued entry cannot outlive the seat state that
-    // admitted it.
-    const queueIfBusy = whileWorking ? false : (opts.queueIfBusy ?? true);
+    const queueIfBusy = opts.queueIfBusy ?? true;
     const awaitTurnStart = opts.awaitTurnStart ?? this.stallWatch;
     if (this.refuseHermesMultiline(bindingId, text)) {
       return this.refusePrompt(bindingId, bindingGeneration, writesBefore, "multiline-refused");
@@ -686,12 +716,12 @@ export class ManagedTerminalDrive {
       return this.refusePrompt(bindingId, bindingGeneration, writesBefore, "not-ready");
     }
 
-    if (!queueIfBusy && this.mustWait(bindingId, whileWorking)) {
+    if (!queueIfBusy && this.mustWait(bindingId)) {
       return this.refusePrompt(
         bindingId,
         bindingGeneration,
         writesBefore,
-        this.gatePromptRefusal(bindingId, bindingGeneration, writesBefore, whileWorking),
+        this.gatePromptRefusal(bindingId, bindingGeneration, writesBefore),
       );
     }
 
@@ -746,13 +776,13 @@ export class ManagedTerminalDrive {
     if (this.refuseWrittenUnresolved(bindingId)) {
       return this.refusePrompt(bindingId, bindingGeneration, writesBefore, "written-unresolved");
     }
-    if (this.mustWait(bindingId, whileWorking)) {
+    if (this.mustWait(bindingId)) {
       if (!queueIfBusy) {
         return this.refusePrompt(
           bindingId,
           bindingGeneration,
           writesBefore,
-          this.gatePromptRefusal(bindingId, bindingGeneration, writesBefore, whileWorking),
+          this.gatePromptRefusal(bindingId, bindingGeneration, writesBefore),
         );
       }
       if (!this.activeBinding(bindingId, generation, bindingGeneration, signal)) {
@@ -769,7 +799,7 @@ export class ManagedTerminalDrive {
       // Preflight awaits can outlive the seat's idle transition. Do not miss
       // that boundary and strand the prompt in a queue that was drained just
       // before this call resumed.
-      if (!this.mustWait(bindingId, whileWorking)) {
+      if (!this.mustWait(bindingId)) {
         return this.executePrompt(
           bindingId,
           text,
@@ -778,7 +808,6 @@ export class ManagedTerminalDrive {
           awaitTurnStart,
           signal,
           evidence,
-          whileWorking,
         );
       }
       const timeoutMs = opts.queueTimeoutMs ?? this.queueTimeoutMs;
@@ -840,7 +869,6 @@ export class ManagedTerminalDrive {
       awaitTurnStart,
       signal,
       evidence,
-      whileWorking,
     );
   }
 
@@ -1106,7 +1134,6 @@ export class ManagedTerminalDrive {
     awaitTurnStart: boolean = this.stallWatch,
     signal?: AbortSignal,
     evidence: { wrote: boolean } = { wrote: false },
-    whileWorking = false,
   ): Promise<ManagedPromptOutcome> {
     const writesBefore = this.pasteWrites.get(bindingId) ?? 0;
     if (!this.activeBinding(bindingId, generation, bindingGeneration, signal)) {
@@ -1122,7 +1149,7 @@ export class ManagedTerminalDrive {
     }
     // Re-check the seat immediately before paste — observer can flip to a
     // dialog after the outer gate and before the physical write.
-    if (!this.admitsWrite(bindingId, whileWorking)) {
+    if (!this.isSeatIdle(bindingId)) {
       this.onAttention?.(bindingId, "not-ready");
       return this.refusePrompt(bindingId, bindingGeneration, writesBefore, "seat-busy");
     }
@@ -1144,7 +1171,7 @@ export class ManagedTerminalDrive {
       // writable state or the composer stopped being provably empty (operator
       // typing burst, dialog repaint). Only BEFORE our own paste — after it,
       // our chip is legitimately in the box.
-      if (!this.admitsWrite(bindingId, whileWorking)) {
+      if (!this.isSeatIdle(bindingId)) {
         this.onAttention?.(bindingId, "not-ready");
         return refuseNow("seat-busy");
       }
@@ -1185,9 +1212,6 @@ export class ManagedTerminalDrive {
         }
         return refuseNow("operator-active");
       }
-      // Admitted into a live turn: the harness will queue or steer this text,
-      // so acceptance is read from the composer, not from a turn start.
-      const admittedWorking = whileWorking && !this.isSeatIdle(bindingId);
       const turnStartCount = this.turnStartCounts.get(bindingId) ?? 0;
       const compactNoopCount = this.compactNoopCounts.get(bindingId) ?? 0;
       const inputVersion = this.interlock.inputVersion(bindingId);
@@ -1215,7 +1239,6 @@ export class ManagedTerminalDrive {
               // A cut plus replacement writes can never rewrite it.
               evidence.wrote = true;
             },
-            admittedWorking,
           );
           if (!this.activeBinding(bindingId, generation, bindingGeneration, signal)) {
             return { kind: "inactive" };
@@ -1233,7 +1256,6 @@ export class ManagedTerminalDrive {
             generation,
             bindingGeneration,
             signal,
-            admittedWorking,
           );
           if (!this.activeBinding(bindingId, generation, bindingGeneration, signal)) {
             return { kind: "inactive" };
@@ -1284,21 +1306,13 @@ export class ManagedTerminalDrive {
       ) {
         return confirmSubmitted();
       }
-      const started = admittedWorking
-        ? await this.awaitWorkingWriteTaken(
-            bindingId,
-            turnStartCount,
-            generation,
-            bindingGeneration,
-            signal,
-          )
-        : await this.awaitTurnStart(
-            bindingId,
-            text,
-            generation,
-            bindingGeneration,
-            signal,
-          );
+      const started = await this.awaitTurnStart(
+        bindingId,
+        text,
+        generation,
+        bindingGeneration,
+        signal,
+      );
       if (!this.activeBinding(bindingId, generation, bindingGeneration, signal)) {
         return this.inactivePrompt(
           bindingId,
@@ -1341,7 +1355,7 @@ export class ManagedTerminalDrive {
         return strandNow();
       }
       if (
-        this.mayContinueSubmission(bindingId, admittedWorking) &&
+        this.canContinueSubmission(bindingId) &&
         this.pendingOnScreen(bindingId) &&
         this.interlock.inputVersion(bindingId) === inputVersion &&
         !this.interlock.inputActive(bindingId)
@@ -1370,21 +1384,13 @@ export class ManagedTerminalDrive {
         if ((this.turnStartCounts.get(bindingId) ?? 0) !== turnStartCount) {
           return confirmSubmitted();
         }
-        const startedRetry = admittedWorking
-          ? await this.awaitWorkingWriteTaken(
-              bindingId,
-              turnStartCount,
-              generation,
-              bindingGeneration,
-              signal,
-            )
-          : await this.awaitTurnStart(
-              bindingId,
-              text,
-              generation,
-              bindingGeneration,
-              signal,
-            );
+        const startedRetry = await this.awaitTurnStart(
+          bindingId,
+          text,
+          generation,
+          bindingGeneration,
+          signal,
+        );
         if (!this.activeBinding(bindingId, generation, bindingGeneration, signal)) {
           return this.inactivePrompt(
             bindingId,
@@ -1505,23 +1511,6 @@ export class ManagedTerminalDrive {
     return true;
   }
 
-  /**
-   * Same-generation explicit-resume authorization outlet: release this
-   * binding's written-unresolved hold so one operator-authorized retry can
-   * paste. The caller guarantees a durable retry grant opened a new ledger
-   * intent first — this never fires on idle, pulse, or ordinary scans.
-   * Returns whether a hold was actually held.
-   */
-  releaseWrittenUnresolved(bindingId: string): boolean {
-    if (!this.writtenUnresolved.has(bindingId)) return false;
-    this.writtenUnresolved.delete(bindingId);
-    this.traceState(bindingId, "delivery.verdict", {
-      verdict: "resumed-authorized-retry",
-      reason: "written-unresolved",
-    });
-    return true;
-  }
-
   private async writePasteAndCr(
     bindingId: string,
     text: string,
@@ -1529,13 +1518,12 @@ export class ManagedTerminalDrive {
     bindingGeneration: number,
     signal: AbortSignal | undefined,
     onPasteAccepted: () => void,
-    admittedWorking = false,
   ): Promise<boolean> {
     if (!this.activeBinding(bindingId, generation, bindingGeneration, signal)) {
       return false;
     }
     // Final seat gate at the paste boundary (no durable receipt if refused).
-    if (!this.admitsWrite(bindingId, admittedWorking)) {
+    if (!this.isSeatIdle(bindingId)) {
       return false;
     }
     // Second line: a queued drain must not sneak a Hermes chip through.
@@ -1573,7 +1561,7 @@ export class ManagedTerminalDrive {
     }
     // Our own draft can replace idle chrome during settle. Continue the
     // accepted submission using its evidence, never the empty-seat gate.
-    if (!this.mayContinueSubmission(bindingId, admittedWorking)) return false;
+    if (!this.canContinueSubmission(bindingId)) return false;
     // …then a SEPARATE CR write. Never join; never LF.
     if (!(await Promise.resolve(this.writeTraced(bindingId, cr, "submit-cr")))) return false;
     return this.activeBinding(bindingId, generation, bindingGeneration, signal);
@@ -1591,13 +1579,12 @@ export class ManagedTerminalDrive {
     generation: number,
     bindingGeneration: number,
     signal?: AbortSignal,
-    admittedWorking = false,
   ): Promise<boolean> {
     this.traceState(bindingId, "chip.evaluate", { payloadMayChip: payloadMayChip(text) });
     if (!payloadMayChip(text)) return false;
     if (!this.pasteChip && !this.pendingText) return false;
     if (
-      await this.tryChipSubmitCr(bindingId, generation, bindingGeneration, signal, admittedWorking)
+      await this.tryChipSubmitCr(bindingId, generation, bindingGeneration, signal)
     ) {
       return true;
     }
@@ -1612,7 +1599,6 @@ export class ManagedTerminalDrive {
         generation,
         bindingGeneration,
         signal,
-        admittedWorking,
       );
     }
     return false;
@@ -1623,7 +1609,6 @@ export class ManagedTerminalDrive {
     generation: number,
     bindingGeneration: number,
     signal?: AbortSignal,
-    admittedWorking = false,
   ): Promise<boolean> {
     if (!this.activeBinding(bindingId, generation, bindingGeneration, signal)) {
       return false;
@@ -1634,7 +1619,7 @@ export class ManagedTerminalDrive {
     ) {
       return false;
     }
-    if (!this.mayContinueSubmission(bindingId, admittedWorking)) return false;
+    if (!this.canContinueSubmission(bindingId)) return false;
     if (!this.chipVisible(bindingId)) return false;
     return this.writeSubmitCr(bindingId, generation, bindingGeneration, signal);
   }
@@ -1713,51 +1698,6 @@ export class ManagedTerminalDrive {
       const accepted = await Promise.resolve(this.writeTraced(bindingId, CR, stage));
       return accepted && this.activeBinding(bindingId, generation, bindingGeneration, signal);
     });
-  }
-
-  /**
-   * Continue our own accepted paste (chip or recovery CR). An idle admission
-   * uses the destination's idle evidence; a working admission continues only
-   * while the seat is still mid-turn on a readable screen.
-   */
-  private mayContinueSubmission(bindingId: string, admittedWorking: boolean): boolean {
-    return (
-      this.canContinueSubmission(bindingId) ||
-      (admittedWorking && this.isSeatWorking(bindingId))
-    );
-  }
-
-  /**
-   * Acceptance for a write admitted into a live turn: a turn start, or the
-   * composer letting go of our text after the paint-lag floor (the harness
-   * queued or steered it). Without pending-text evidence nothing is proven.
-   */
-  private async awaitWorkingWriteTaken(
-    bindingId: string,
-    turnStartCount: number,
-    generation: number,
-    bindingGeneration: number,
-    signal?: AbortSignal,
-  ): Promise<boolean> {
-    // Counted in polls, not read off the clock: the window is timer time.
-    const windowMs = Math.max(this.stallTimeoutMs, WORKING_WRITE_ACCEPT_FLOOR_MS);
-    this.traceState(bindingId, "turn.wait", { timeoutMs: windowMs, working: true });
-    for (let waited = 0; ; waited += WORKING_WRITE_POLL_MS) {
-      if (!this.activeBinding(bindingId, generation, bindingGeneration, signal)) return false;
-      if ((this.turnStartCounts.get(bindingId) ?? 0) !== turnStartCount) return true;
-      if (
-        waited >= WORKING_WRITE_ACCEPT_FLOOR_MS &&
-        this.pendingText !== undefined &&
-        !this.pendingOnScreen(bindingId)
-      ) {
-        return true;
-      }
-      if (waited >= windowMs) return false;
-      await new Promise<void>((resolve) => {
-        const timer = setTimeout(resolve, WORKING_WRITE_POLL_MS);
-        timer.unref?.();
-      });
-    }
   }
 
   private awaitTurnStart(

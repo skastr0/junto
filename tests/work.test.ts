@@ -1911,16 +1911,7 @@ describe("WorkService — request resolve nudge and duplicate settle", () => {
       name === canvasName
         ? (await workRuntime.runPromise(canvases.read(name))).doc
         : undefined,
-    readNodeStructure: async (name: string, nodeId: string) => {
-      if (name !== canvasName) return undefined;
-      const { doc } = await workRuntime.runPromise(canvases.read(name));
-      const node = doc.nodes.find((candidate) => candidate.id === nodeId);
-      return node === undefined ? undefined : { node, structure: doc };
-    },
-    hasAcceptedMessageDelivery: async () => false,
-    hasAcceptedMessageRead: async () => false,
     acceptMessageDelivery: async () => true,
-    acceptMessageRead: async () => true,
   });
 
   const raiseFromSender = async (name: string) => {
@@ -1956,9 +1947,10 @@ describe("WorkService — request resolve nudge and duplicate settle", () => {
     const writes: Array<{ bindingId: string; text: string }> = [];
     messageDelivery.configure({
       transport: {
-        sendManagedTerminalPrompt: async (bindingId, text) => {
+        seatLive: () => true,
+        writeMail: async (bindingId, text) => {
           writes.push({ bindingId, text });
-          return { status: "submitted", bindingGeneration: 0, writesBefore: 0, writesAfter: 1, pasteWrites: 1, wrotePhysicalBytes: true };
+          return true;
         },
       },
       store: deliveryStore(name),
@@ -1998,9 +1990,10 @@ describe("WorkService — request resolve nudge and duplicate settle", () => {
     const writes: Array<{ bindingId: string; text: string }> = [];
     messageDelivery.configure({
       transport: {
-        sendManagedTerminalPrompt: async (bindingId, text) => {
+        seatLive: () => true,
+        writeMail: async (bindingId, text) => {
           writes.push({ bindingId, text });
-          return { status: "submitted", bindingGeneration: 0, writesBefore: 0, writesAfter: 1, pasteWrites: 1, wrotePhysicalBytes: true };
+          return true;
         },
       },
       store: deliveryStore(name),

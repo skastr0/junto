@@ -61,7 +61,6 @@ describe("multiPromptAgents", () => {
     await expect(multiPromptAgents([], "hi", { writePrompt })).resolves.toEqual({
       sent: 0,
       queued: [],
-      unresolved: [],
       failed: [],
     });
     await expect(
@@ -70,7 +69,7 @@ describe("multiPromptAgents", () => {
         "  ",
         { writePrompt },
       ),
-    ).resolves.toEqual({ sent: 0, queued: [], unresolved: [], failed: [] });
+    ).resolves.toEqual({ sent: 0, queued: [], failed: [] });
     expect(writePrompt).not.toHaveBeenCalled();
   });
 
@@ -128,15 +127,6 @@ describe("multiPromptAgents", () => {
         ok: true,
         disposition: "queued",
         messageId: "m-queued",
-        reason: "seat-busy",
-      },
-      "bind-c": {
-        ok: false,
-        disposition: "unresolved",
-        messageId: "m-hold",
-        reason: "no-turn-start",
-        error:
-          "Prompt submission is unconfirmed. Inspect the terminal before retrying.",
       },
       "bind-d": {
         ok: false,
@@ -154,7 +144,6 @@ describe("multiPromptAgents", () => {
       [
         { nodeId: "1", bindingId: "bind-a", agentKey: "local:a" },
         { nodeId: "2", bindingId: "bind-b", agentKey: "local:b" },
-        { nodeId: "3", bindingId: "bind-c", agentKey: "local:c" },
         { nodeId: "4", bindingId: "bind-d", agentKey: "remote:d" },
       ],
       "broadcast",
@@ -166,19 +155,8 @@ describe("multiPromptAgents", () => {
       {
         nodeId: "2",
         agentKey: "local:b",
-        error: "queued at seat",
-        reason: "seat-busy",
+        error: "waiting for the seat to start",
         messageId: "m-queued",
-      },
-    ]);
-    expect(result.unresolved).toEqual([
-      {
-        nodeId: "3",
-        agentKey: "local:c",
-        error:
-          "Prompt submission is unconfirmed. Inspect the terminal before retrying.",
-        reason: "no-turn-start",
-        messageId: "m-hold",
       },
     ]);
     expect(result.failed).toEqual([
@@ -189,7 +167,7 @@ describe("multiPromptAgents", () => {
       },
     ]);
     expect(formatMultiPromptStatus(result)).toBe(
-      "sent 1 — queued 1 — failed 1 — unconfirmed 1 — local:b, local:c, remote:d",
+      "sent 1 — queued 1 — failed 1 — local:b, remote:d",
     );
   });
 });
@@ -200,7 +178,6 @@ describe("formatMultiPromptStatus", () => {
       formatMultiPromptStatus({
         sent: 2,
         queued: [{ nodeId: "q", agentKey: "local:busy" }],
-        unresolved: [],
         failed: [],
       }),
     ).toBe("sent 2 — queued 1 — failed 0 — local:busy");
@@ -208,7 +185,6 @@ describe("formatMultiPromptStatus", () => {
       formatMultiPromptStatus({
         sent: 3,
         queued: [],
-        unresolved: [],
         failed: [],
       }),
     ).toBe("sent 3 — queued 0 — failed 0");

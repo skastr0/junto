@@ -2,15 +2,13 @@
  * Shared factory-delivery composition.
  *
  * The product delivery paths — kernel pulses, the injection supervisor,
- * board wakes, and first-typed doctrine, plus mailbox mail where its input
- * exists — all reach a managed seat PTY through one destination drive.
- * Command Center wires all five in `ipc.ts`; the packaged Node Remote
- * wires the four locally-sourced paths through its own destination drive
- * and leaves mail explicitly uncomposed (actor mailboxes are CC-homed; a
- * Remote never materializes message.append, so no local store read can
- * source pending mail). Both callsites supply their own evidence sources
- * (runtime, kernel, canvases, pause); this module owns only the shared
- * recipe, so neither side can drift into a raw PTY bypass.
+ * board wakes, and first-typed doctrine — all reach a managed seat PTY
+ * through one destination drive. Command Center and the packaged Node
+ * Remote both compose them here; mailbox mail is Command Center-only (actor
+ * mailboxes are CC-homed) and is wired beside this in `ipc.ts` through the
+ * drive's `writeMail`. Both callsites supply their own evidence sources
+ * (runtime, kernel, canvases); this module owns only the shared recipe, so
+ * neither side can drift into a raw PTY bypass.
  *
  * Product supervisory layers stay at their own callsites and are not part of
  * the drive lifecycle runtime (`managed-drive-runtime.ts`): this module is
@@ -21,9 +19,7 @@
  */
 
 import type { AgentSeatStateEvent } from "@shared/agent-seat-state";
-import type { CanvasDoc } from "@shared/canvas";
 import { isPromptSubmitted, type ManagedPromptOutcome } from "@shared/managed-prompt";
-import { pauseWasResumed, seatPaused, type CanvasPauseState, type PauseChangeListener } from "@shared/pause";
 import type { WritePromptOptions } from "./drive";
 import type { ObserverGridSnapshot } from "./observer/types";
 import {
@@ -31,11 +27,7 @@ import {
   type ManagedPulseDeliver,
 } from "./managed-pulse-bridge";
 import type { BoardDeliveryTransport } from "../work/board-delivery";
-import type {
-  MessageDeliveryReadSite,
-  MessageDeliveryStore,
-  MessageDeliveryTransport,
-} from "../work/message-delivery";
+import type { MessageDeliveryReadSite } from "../work/message-delivery";
 import type { CanvasReadTag } from "../canvases";
 
 /** Minimal drive surface every delivery path needs. */
@@ -45,13 +37,11 @@ export type FactoryDeliveryDrive = {
     text: string,
     options: WritePromptOptions,
   ) => Promise<ManagedPromptOutcome>;
-  readonly pasteWriteCount: (bindingId: string) => number;
 };
 
 export type FactoryWritePromptOptions = {
   readonly queueTimeoutMs?: number;
   readonly ready?: boolean;
-  readonly whileWorking?: boolean;
   readonly awaitTurnStart?: boolean;
 };
 
@@ -69,22 +59,9 @@ export type FactoryDeliveryKernel = {
   ) => boolean | Promise<boolean>;
 };
 
-export type FactoryDeliveryPause = {
-  readonly stateFor: (canvas: string) => CanvasPauseState;
-  readonly subscribe: (listener: PauseChangeListener) => () => void;
-};
-
-/** The seat's live generation; undefined while none is up. */
-export type FactoryDeliverySeatSnapshot =
-  | { readonly generationKey: string }
-  | undefined;
-
 export type FactoryDeliveryEvents = {
   readonly subscribeSeatState: (
     listener: (event: AgentSeatStateEvent) => void,
-  ) => () => void;
-  readonly subscribeComposerEmpty: (
-    listener: (bindingId: string) => void,
   ) => () => void;
   readonly subscribeSnapshots: (listener: (snap: ObserverGridSnapshot) => void) => () => void;
 };
@@ -98,23 +75,6 @@ export type FactoryDeliverySupervisor = {
   ) => void;
   readonly noteSeatState: (event: AgentSeatStateEvent) => void;
   readonly onSnapshot: (snap: ObserverGridSnapshot) => void;
-};
-
-export type FactoryDeliveryMail = {
-  readonly configure: (input: {
-    readonly transport: MessageDeliveryTransport;
-    readonly store: MessageDeliveryStore;
-    readonly seatPaused?: (
-      canvas: string,
-      doc: CanvasDoc,
-      nodeId: string,
-    ) => boolean;
-  }) => void;
-  readonly onManagedTerminalIdle: (bindingId: string) => void;
-  readonly onComposerEmpty: (bindingId: string) => void;
-  readonly onResumedCanvas: (canvas: string) => void;
-  readonly onBooted: () => void;
-  readonly suspend: () => void;
 };
 
 export type FactoryDeliveryPulse = {
@@ -152,18 +112,8 @@ export const factoryDeliveryReadTag = (
       return "delivery.scan";
     case "attempt":
       return "delivery.attempt";
-    case "batch":
-      return "delivery.batch";
   }
 };
-
-/** Pause law (@shared/pause) against a pause plane snapshot. */
-export const factorySeatPaused = (
-  pause: FactoryDeliveryPause,
-  canvas: string,
-  doc: CanvasDoc,
-  nodeId: string,
-): boolean => seatPaused(pause.stateFor(canvas), doc, nodeId);
 
 /**
  * Managed-prompt writer with a readiness default: explicit `ready` wins,
@@ -273,28 +223,6 @@ export const factoryBoardTransport = (input: {
 });
 
 /**
- * Mailbox transport through the destination drive. Raw geography shells get
- * no auto-submit; managed seats get paste+CR into an idle or working seat.
- * The drive alone reads the screen at the paste boundary (draft, dialog).
- */
-export const factoryMailTransport = (input: {
-  readonly kernel: FactoryDeliveryKernel;
-  readonly write: FactoryWritePrompt;
-  readonly drive: FactoryDeliveryDrive;
-  readonly seatSnapshot: (
-    bindingId: string,
-  ) => FactoryDeliverySeatSnapshot | Promise<FactoryDeliverySeatSnapshot>;
-}): MessageDeliveryTransport => ({
-  wakeManagedSeat: (canvas, nodeId) =>
-    input.kernel.wakeManagedSeat(canvas, nodeId),
-  sendTerminalPaste: (_bindingId, _text, _messageId) => false,
-  sendManagedTerminalPrompt: (bindingId, text, options) =>
-    input.write(bindingId, text, options),
-  pasteWriteCount: (bindingId) => input.drive.pasteWriteCount(bindingId),
-  seatDeliverySnapshot: (bindingId) => input.seatSnapshot(bindingId),
-});
-
-/**
  * Supervisor re-delivery through the destination drive. Returns the
  * snapshot-subscription teardown — the composition owns it, so dispose
  * closes every subscription this module opened.
@@ -322,28 +250,12 @@ export type ComposeFactoryDeliveryInput = {
   readonly drive: FactoryDeliveryDrive;
   readonly driveReady: (bindingId: string) => boolean;
   readonly kernel: FactoryDeliveryKernel;
-  readonly pause: FactoryDeliveryPause;
   readonly events: FactoryDeliveryEvents;
   readonly supervisor: FactoryDeliverySupervisor;
   readonly escalate: (bindingId: string, reason: string) => void;
-  /**
-   * Mailbox mail is Command Center-only: actor mailboxes are CC-homed and
-   * a Remote never materializes message.append, so no local store read can
-   * source pending mail there. A runtime without a CC-authoritative pending
-   * delivery input omits both; the composition then wires
-   * pulse/supervisor/board/firstTyped only and claims no mail completion.
-   */
-  readonly mail?: FactoryDeliveryMail;
-  readonly store?: MessageDeliveryStore;
   readonly pulse: FactoryDeliveryPulse;
   readonly board: FactoryDeliveryBoard;
   readonly firstTyped: FactoryDeliveryFirstTyped;
-  readonly seatSnapshot: (
-    bindingId: string,
-  ) => FactoryDeliverySeatSnapshot | Promise<FactoryDeliverySeatSnapshot>;
-  /** Boot rescan delay for durable backlog (matches Command Center). */
-  readonly bootRescanMs?: number;
-  readonly scheduleBootRescan?: (fn: () => void, ms: number) => void;
 };
 
 export type ComposedFactoryDelivery = {
@@ -353,12 +265,10 @@ export type ComposedFactoryDelivery = {
 };
 
 /**
- * Compose the factory delivery paths through one destination drive. With
- * mail/store supplied this is all five paths; without them (a runtime with
- * no CC-authoritative pending-mail input, such as the Node Remote) it is
- * pulse/supervisor/board/firstTyped with mail explicitly uncomposed.
- * Returns the writer plus the doctrine kick (for the runtime's pre-idle
- * hook) and a dispose closing every subscription this call opened.
+ * Compose pulse, supervisor, board, and first-typed delivery through one
+ * destination drive. Returns the writer plus the doctrine kick (for the
+ * runtime's pre-idle hook) and a dispose closing every subscription this
+ * call opened.
  */
 export const composeFactoryDelivery = (
   input: ComposeFactoryDeliveryInput,
@@ -378,22 +288,6 @@ export const composeFactoryDelivery = (
   input.board.configure(
     factoryBoardTransport({ kernel: input.kernel, write }),
   );
-  const mail = input.mail !== undefined && input.store !== undefined
-    ? { service: input.mail, store: input.store }
-    : undefined;
-  if (mail) {
-    mail.service.configure({
-      transport: factoryMailTransport({
-        kernel: input.kernel,
-        write,
-        drive: input.drive,
-        seatSnapshot: input.seatSnapshot,
-      }),
-      store: mail.store,
-      seatPaused: (canvas, doc, nodeId) =>
-        factorySeatPaused(input.pause, canvas, doc, nodeId),
-    });
-  }
   const unsubs: Array<() => void> = [];
   unsubs.push(
     wireFactorySupervisor({
@@ -409,32 +303,8 @@ export const composeFactoryDelivery = (
       if (event.state === "gone") {
         input.firstTyped.clearDeliveredForBinding(event.bindingId);
       }
-      if (event.state === "idle") {
-        mail?.service.onManagedTerminalIdle(event.bindingId);
-      }
     }),
   );
-  if (mail) {
-    unsubs.push(
-      input.events.subscribeComposerEmpty((bindingId) => {
-        mail.service.onComposerEmpty(bindingId);
-      }),
-    );
-    unsubs.push(
-      input.pause.subscribe((canvas, previous, current) => {
-        if (pauseWasResumed(previous, current)) mail.service.onResumedCanvas(canvas);
-      }),
-    );
-
-    const bootMs = input.bootRescanMs ?? 10_000;
-    if (input.scheduleBootRescan) {
-      input.scheduleBootRescan(() => mail.service.onBooted(), bootMs);
-    } else {
-      const timer = setTimeout(() => mail.service.onBooted(), bootMs);
-      timer.unref?.();
-      unsubs.push(() => clearTimeout(timer));
-    }
-  }
 
   return {
     write,

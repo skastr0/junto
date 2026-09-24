@@ -65,7 +65,7 @@ describe("crew doctrine compiled from authored grants", () => {
     expect(reviewer.intent.injection.connected).toBe(true);
     expect(reviewer.text).toContain("### Edge contract — reviews (authors: `peer`)");
     expect(hasCommand(reviewer.commands, "verdict post ")).toBe(true);
-    for (const prefix of ["msg send ", "msg prompt ", "seat wait ", "seat read ", "tasks show "]) {
+    for (const prefix of ["msg send ", "msg send --prompt ", "seat wait ", "seat read ", "tasks show "]) {
       expect(hasCommand(reviewer.commands, prefix), prefix).toBe(false);
     }
     expect(reviewer.commands).toContain("junto msg list");
@@ -88,15 +88,15 @@ describe("crew doctrine compiled from authored grants", () => {
     ]);
     expect(compiled.intent.injection.connected).toBe(true);
     expect(compiled.commands).toContain(`junto msg send '{"target":"${target}","text":"..."}'`);
-    expect(compiled.commands).toContain(`junto msg prompt '{"target":"${target}","text":"..."}'`);
+    expect(compiled.commands).toContain(`junto msg send --prompt '{"target":"${target}","text":"..."}'`);
     expect(compiled.commands).toContain(`junto seat wait ${target} --until idle --timeout 30s`);
     expect(compiled.commands).toContain(`junto seat read ${target} --lines 40`);
     expect(hasCommand(compiled.commands, "verdict post ")).toBe(false);
   });
 
   it.each([
-    { port: "msg.prompt", command: "msg prompt ", absent: ["msg send ", "msg reply ", "seat wait ", "seat read "] },
-    { port: "terminal.read", command: "seat read ", absent: ["msg send ", "msg reply ", "msg prompt ", "seat wait "] },
+    { port: "msg.prompt", command: "msg send --prompt ", absent: ["msg send '", "msg reply ", "seat wait ", "seat read "] },
+    { port: "terminal.read", command: "seat read ", absent: ["msg send ", "msg reply ", "seat wait "] },
   ] as const)("teaches only $port under an attenuated messages edge", ({ port, command, absent }) => {
     const compiled = compile(peers([peerEdge("messages", "worker", "peer", [port])]));
     expect(targetPorts(compiled, "peer")).toEqual([port]);
@@ -130,7 +130,7 @@ describe("crew doctrine compiled from authored grants", () => {
     expect(compiled.commands.filter((command) => command.startsWith("junto seat read "))).toEqual([
       "junto seat read c-reader --lines 40",
     ]);
-    expect(hasCommand(compiled.commands, "msg prompt ")).toBe(false);
+    expect(hasCommand(compiled.commands, "msg send --prompt ")).toBe(false);
   });
 
   it("unions parallel review and wait grants without reversing review authority", () => {
@@ -185,17 +185,16 @@ describe("crew doctrine compiled from authored grants", () => {
     expect(readOnly.text).not.toContain("### Stage evidence before review");
   });
 
-  it.each(["worker", "peer"])("states Remote prerequisites while preserving durable mail when %s is remote", (remoteId) => {
+  it.each(["worker", "peer"])("states Remote prerequisites and keeps mail when %s is remote", (remoteId) => {
     const compiled = compile(peers([peerEdge("messages")], [
       agent("worker", remoteId === "worker" ? "studio" : "local"),
       agent("peer", remoteId === "peer" ? "studio" : "local"),
     ]));
     expect(compiled.commands).toContain('junto msg send \'{"target":"peer","text":"..."}\'');
     // This pins the advertised prerequisites, not a live Remote execution proof.
-    expect(compiled.text).toContain("Crew prompt, sent receipts, seat wait and seat read require a configured Command Center");
-    expect(compiled.text).toContain("Prompt/wait/read require a local peer, and are unavailable for Remote seats");
-    expect(compiled.text).toContain("Ordinary durable mail remains available through its own grants");
-    expect(compiled.text).toContain("delivered to a local peer whether it is idle or mid-turn; its harness queues or steers it");
+    expect(compiled.text).toContain("Seat wait and seat read require a local peer, and are unavailable for Remote seats");
+    expect(compiled.text).toContain("the full text lands in their input at once, idle or mid-turn; their harness queues or steers it");
+    expect(compiled.text).toContain("Mail is never refused and never needs a retry");
   });
 
   it("retains compiled ports across the host-finalized spawn wire and refuses unknown ports", () => {

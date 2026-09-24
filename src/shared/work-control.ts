@@ -105,7 +105,6 @@ export const WorkErrorType = Schema.Literals(["ScopeError", "ClaimConflict",
 "InternalError",
 "Paused",
 "Blocked",
-"SeatBusy",
 "Timeout",
 "ReviewerIsAuthor",]);
 export type WorkErrorType = typeof WorkErrorType.Type;
@@ -539,21 +538,13 @@ export const MsgSendArgs = Schema.Struct({
 });
 export type MsgSendArgs = typeof MsgSendArgs.Type;
 
-/** Immediate creation and retry are disjoint, so retries cannot replace a body. */
-export const MsgPromptArgs = Schema.Union([
-  Schema.Struct({
-    target: Schema.String,
-    text: Schema.String,
-    subject: Schema.optionalKey(Schema.String),
-    refs: Schema.optionalKey(Schema.Array(MailEvidenceRef)),
-    fallback: Schema.optionalKey(Schema.Literal("notice")),
-  }).annotate({ parseOptions: { onExcessProperty: "error" } }),
-  Schema.Struct({
-    target: Schema.String,
-    messageId: Schema.String.pipe(Schema.check(Schema.isMinLength(1))),
-    fallback: Schema.optionalKey(Schema.Literal("notice")),
-  }).annotate({ parseOptions: { onExcessProperty: "error" } }),
-]);
+/** A prompt writes its full text into the recipient's input; a send writes a notice line. */
+export const MsgPromptArgs = Schema.Struct({
+  target: Schema.String,
+  text: Schema.String,
+  subject: Schema.optionalKey(Schema.String),
+  refs: Schema.optionalKey(Schema.Array(MailEvidenceRef)),
+}).annotate({ parseOptions: { onExcessProperty: "error" } });
 export type MsgPromptArgs = typeof MsgPromptArgs.Type;
 
 /** Read the admitted sender's receipts; never marks the recipient mailbox read. */

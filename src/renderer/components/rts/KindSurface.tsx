@@ -365,7 +365,7 @@ const MultiPromptComposer = memo(
               const result = await multiPromptAgents(targets, text);
               setStatus(formatMultiPromptStatus(result));
               // Keep the draft whenever any seat did not submit so the
-              // operator sees which queued, stayed unconfirmed, or failed.
+              // operator sees which are waiting for their seat or failed.
               return result.sent === targets.length;
             } finally {
               setBusy(false);

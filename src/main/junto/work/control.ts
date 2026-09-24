@@ -1553,150 +1553,33 @@ const dispatchOp = (
       const input = decoded.success;
       const gate = requireTarget(board, caller.nodeId, input.target, op);
       if ("type" in gate) return yield* Effect.fail(gate);
-      const surface = gate.node === undefined ? undefined : actorDeliverySurfaceOf(gate.node);
-      if (surface === undefined || surface.hostId !== "local") {
-        return yield* Effect.fail<WorkErrorBody>({
-          type: "ScopeError", message: "Immediate prompts require a local managed seat",
-          details: { target: input.target, reason: "crew-local-seat-only", retryable: false },
-        });
-      }
+      const text = input.text.trim();
+      if (!text) return yield* Effect.fail<WorkErrorBody>({
+        type: "InputError", message: "text must be non-empty", details: { path: "text", retryable: false },
+      });
       const sender = resolveProcessBoundActorRef(read.actorRefs, caller);
       if (Result.isFailure(sender)) return yield* Effect.fail(sender.failure);
-      let messageId: string;
-      if ("messageId" in input) {
-        messageId = input.messageId;
-        const existing = gate.node?.ether?.messages?.items.find((item) => item.messageId === messageId);
-        const extension = readMailExtension(existing?.metadata);
-        if (existing === undefined || extension?.mailKind !== "prompt" || extension.fromSeat !== sender.success.seatId) {
-          return yield* Effect.fail<WorkErrorBody>({
-            type: "ScopeError",
-            message: "A prompt retry must name a prompt created by this seat for this recipient",
-            details: { messageId, target: input.target, retryable: false },
-          });
-        }
-      } else {
-        const text = input.text.trim();
-        if (!text) return yield* Effect.fail<WorkErrorBody>({
-          type: "InputError", message: "text must be non-empty", details: { path: "text", retryable: false },
-        });
-        messageId = ulid();
-        const message = makeUserMessage({
-          messageId, text, contextId: caller.canvasName,
-          metadata: {
-            factoryMail: true,
-            ...mailExtensionMetadata({
-              ...mailSenderStamp(board, caller, sender.success),
-              mailKind: "prompt",
-              ...(input.subject === undefined ? {} : { subject: input.subject }),
-              ...(input.refs === undefined ? {} : { refs: input.refs }),
-            }),
-          },
-        });
-        const appended = fromWorkResult(yield* work.workMessageAppend(
-          caller.canvasName, input.target, null, message, sender.success,
-        ));
-        if (Result.isFailure(appended)) return yield* Effect.fail(appended.failure);
-      }
-      const delivery = Effect.tryPromise({
-        try: (signal) => messageDelivery.prompt({
-          canvas: caller.canvasName, nodeId: input.target, messageId,
-          signal,
-          ...(input.fallback === undefined ? {} : { fallback: input.fallback }),
-        }),
-        catch: (): WorkErrorBody => ({
-          type: "RuntimeDown", message: "Prompt delivery did not return a confirmed result",
-          details: { messageId, retryable: false, next_step: "inspect msg sent and the recipient terminal before retrying" },
-        }),
+      const messageId = ulid();
+      const message = makeUserMessage({
+        messageId, text, contextId: caller.canvasName,
+        metadata: {
+          factoryMail: true,
+          ...mailExtensionMetadata({
+            ...mailSenderStamp(board, caller, sender.success),
+            mailKind: "prompt",
+            ...(input.subject === undefined ? {} : { subject: input.subject }),
+            ...(input.refs === undefined ? {} : { refs: input.refs }),
+          }),
+        },
       });
-      const result = yield* Effect.scoped(Effect.gen(function* () {
-        let dirty = false;
-        let wake: (() => void) | undefined;
-        // Subscribe before the current-authority read. This also observes a
-        // grant removed while that read is pending, before transport starts.
-        yield* Effect.acquireRelease(
-          Effect.sync(() => canvases.subscribeChanges((name) => {
-            if (name !== caller.canvasName) return;
-            dirty = true;
-            wake?.();
-          })),
-          (stop) => Effect.sync(stop),
-        );
-        const authorize = Effect.gen(function* () {
-          const latest = yield* canvases.read(caller.canvasName, "work.control").pipe(
-            Effect.mapError((error): WorkErrorBody => ({ type: "StaleNodeRef", message: error.message })),
-          );
-          const admitted = requireTarget(latest.doc, caller.nodeId, input.target, op);
-          if ("type" in admitted) return yield* Effect.fail<WorkErrorBody>({
-            ...admitted,
-            details: { ...admitted.details, messageId, retryable: false },
-          });
-          const liveSurface = admitted.node === undefined ? undefined : actorDeliverySurfaceOf(admitted.node);
-          if (liveSurface === undefined || liveSurface.hostId !== "local") {
-            return yield* Effect.fail<WorkErrorBody>({
-              type: "ScopeError", message: "The prompt recipient is no longer a local managed seat",
-              details: { messageId, target: input.target, reason: "crew-local-seat-only", retryable: false },
-            });
-          }
-        });
-        // Drain changes during the read as well as the snapshot it returned.
-        do {
-          dirty = false;
-          yield* authorize;
-        } while (dirty);
-        const watchAuthority = Effect.gen(function* () {
-          while (true) {
-            yield* Effect.callback<void>((resume) => {
-              if (dirty) {
-                dirty = false;
-                resume(Effect.void);
-                return;
-              }
-              const notify = () => { dirty = false; resume(Effect.void); };
-              wake = notify;
-              return Effect.sync(() => { if (wake === notify) wake = undefined; });
-            });
-            yield* authorize;
-          }
-        });
-        return yield* Effect.raceFirst(watchAuthority, delivery);
-      }));
-      if ("unavailable" in result) {
-        if (result.unavailable === "settled") {
-          const latest = yield* canvases.read(caller.canvasName, "work.control").pipe(
-            Effect.mapError((error): WorkErrorBody => ({ type: "StaleNodeRef", message: error.message })),
-          );
-          const current = latest.doc.nodes.find((node) => node.id === input.target)
-            ?.ether?.messages?.items.find((message) => message.messageId === messageId);
-          if (current === undefined) return yield* Effect.fail<WorkErrorBody>({
-            type: "UnknownTarget", message: "The prompt message no longer exists",
-            details: { messageId, target: input.target, retryable: false },
-          });
-          const facts = mailDisplayFactsOf(current);
-          return { messageId, delivery: {
-            state: deriveMailDisplayState(facts), reason: "already-settled",
-            ...(facts.generation === undefined ? {} : { generation: facts.generation }),
-          } };
-        }
-        return yield* Effect.fail<WorkErrorBody>({
-          type: result.unavailable === "paused" ? "Paused" : "SeatBusy",
-          message: "The recipient is not available for an immediate prompt",
-          details: { messageId, target: input.target, reason: result.unavailable, retryable: true,
-            next_step: `wait for this seat, then retry msg.prompt with messageId ${messageId}` },
-        });
-      }
-      const { outcome } = result;
-      if (outcome.status === "refused" && outcome.reason !== "written-unresolved") {
-        return yield* Effect.fail<WorkErrorBody>({
-          type: outcome.reason === "over-limit" ? "InputError" : "SeatBusy",
-          message: outcome.reason === "over-limit" ? "Prompt exceeds the immediate body limit" : "The recipient cannot accept an immediate prompt yet",
-          details: { messageId, target: input.target, reason: outcome.reason, retryable: true,
-            next_step: `retry the same messageId ${messageId} once the recipient's screen shows no draft or dialog, or request fallback notice` },
-        });
-      }
-      return { messageId, policy: result.policy, delivery: {
-        state: outcome.status === "submitted" ? "notified" : "unresolved",
-        ...(outcome.status === "submitted" ? {} : { reason: outcome.reason }),
-      } };
+      const appended = fromWorkResult(yield* work.workMessageAppend(
+        caller.canvasName, input.target, null, message, sender.success,
+      ));
+      if (Result.isFailure(appended)) return yield* Effect.fail(appended.failure);
+      const delivery = yield* Effect.promise(() =>
+        messageDelivery.deliver(caller.canvasName, input.target, messageId),
+      );
+      return { ...exposeWorkMutation(appended.success), messageId, delivery };
     }
 
     if (op === "msg.sent") {
@@ -1760,7 +1643,14 @@ const dispatchOp = (
       );
       const mapped = fromWorkResult(result);
       if (Result.isFailure(mapped)) return yield* Effect.fail(mapped.failure);
-      return { ...exposeWorkMutation(mapped.success), messageId };
+      // Task-scoped messages are the task's comment channel, not mail.
+      if (decoded.success.taskId !== undefined) {
+        return { ...exposeWorkMutation(mapped.success), messageId };
+      }
+      const delivery = yield* Effect.promise(() =>
+        messageDelivery.deliver(caller.canvasName, decoded.success.target, messageId),
+      );
+      return { ...exposeWorkMutation(mapped.success), messageId, delivery };
     }
 
     if (op === "msg.read") {

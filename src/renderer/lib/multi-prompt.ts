@@ -25,7 +25,6 @@ export type MultiPromptSeatNote = {
 export type MultiPromptResult = {
   readonly sent: number;
   readonly queued: ReadonlyArray<MultiPromptSeatNote>;
-  readonly unresolved: ReadonlyArray<MultiPromptSeatNote>;
   readonly failed: ReadonlyArray<MultiPromptSeatNote>;
 };
 
@@ -105,12 +104,8 @@ export const formatMultiPromptStatus = (result: MultiPromptResult): string => {
     `queued ${result.queued.length}`,
     `failed ${result.failed.length}`,
   ];
-  if (result.unresolved.length > 0) {
-    parts.push(`unconfirmed ${result.unresolved.length}`);
-  }
   const keys = [
     ...result.queued.map((item) => item.agentKey),
-    ...result.unresolved.map((item) => item.agentKey),
     ...result.failed.map((item) => item.agentKey),
   ];
   const unique = [...new Set(keys)];
@@ -131,11 +126,10 @@ export async function multiPromptAgents(
 ): Promise<MultiPromptResult> {
   const trimmed = text.trim();
   if (!trimmed || targets.length === 0) {
-    return { sent: 0, queued: [], unresolved: [], failed: [] };
+    return { sent: 0, queued: [], failed: [] };
   }
 
   const queued: MultiPromptSeatNote[] = [];
-  const unresolved: MultiPromptSeatNote[] = [];
   const failed: MultiPromptSeatNote[] = [];
   let sent = 0;
   const canvasName = ops.canvasName?.trim() || undefined;
@@ -154,16 +148,7 @@ export async function multiPromptAgents(
             sent += 1;
             return;
           case "queued":
-            queued.push(seatNote(target, result, "queued at seat"));
-            return;
-          case "unresolved":
-            unresolved.push(
-              seatNote(
-                target,
-                result,
-                "Prompt submission is unconfirmed. Inspect the terminal before retrying.",
-              ),
-            );
+            queued.push(seatNote(target, result, "waiting for the seat to start"));
             return;
           case "failed":
             failed.push(seatNote(target, result, "prompt refused"));
@@ -179,5 +164,5 @@ export async function multiPromptAgents(
     }),
   );
 
-  return { sent, queued, unresolved, failed };
+  return { sent, queued, failed };
 }

@@ -35,7 +35,6 @@ import { materializeArtifactParts } from "../core/artifact-parts";
 import { DEFAULT_BATCH_CONCURRENCY, runMutationBatch } from "../core/batch";
 import { DEFAULT_TIMEOUT_MS } from "../core/constants";
 import { loadJsonInput } from "../core/json";
-import { mailSendInput } from "../core/mail-input";
 import { executeJsonCommand } from "../core/output";
 import { WorkSocket } from "../core/socket";
 
@@ -306,50 +305,26 @@ const msgSendCommand = Command.make(
     input: jsonInputArg,
     text: Argument.string("text").pipe(Argument.optional),
     prompt: Flag.boolean("prompt").pipe(Flag.withDefault(false)),
-    fallback: Flag.string("fallback").pipe(Flag.optional),
-    retry: Flag.string("retry").pipe(Flag.optional),
     concurrency: concurrencyOption,
     timeout: timeoutOption,
   },
-  ({ input, text, prompt, fallback, retry, concurrency, timeout }) =>
+  ({ input, text, prompt, concurrency, timeout }) =>
     executeJsonCommand(
       "msg send",
-      Effect.gen(function* () {
-        const payload = yield* mailSendInput({
-          input, prompt, text: toUndefined(text), retry: toUndefined(retry),
-          fallback: toUndefined(fallback),
-        });
-        if (prompt) {
-          return yield* runMutationBatch({
-            input: payload,
-            concurrency: toUndefined(concurrency) ?? DEFAULT_BATCH_CONCURRENCY,
-            itemSchema: MsgPromptArgs,
-            run: (item) => callDomain("msg.prompt", item, toUndefined(timeout)),
-          });
-        }
-        return yield* runMutationBatch({
-          input: payload,
-          concurrency: toUndefined(concurrency) ?? DEFAULT_BATCH_CONCURRENCY,
-          itemSchema: MsgSendArgs,
-          run: (item) => callDomain("msg.send", item, toUndefined(timeout)),
-        });
+      runMutationBatch({
+        // `msg send <target> <text>` is shorthand for one JSON item.
+        input: Option.match(text, {
+          onNone: () => input,
+          onSome: (body) => JSON.stringify({ target: input, text: body }),
+        }),
+        concurrency: toUndefined(concurrency) ?? DEFAULT_BATCH_CONCURRENCY,
+        itemSchema: prompt ? MsgPromptArgs : MsgSendArgs,
+        run: (item) => callDomain(prompt ? "msg.prompt" : "msg.send", item, toUndefined(timeout)),
       }),
     ),
-).pipe(Command.withDescription("Send durable mail; --prompt attempts an immediate turn (batch-capable)"));
-
-const msgPromptCommand = Command.make(
-  "prompt",
-  { input: jsonInputArg, concurrency: concurrencyOption, timeout: timeoutOption },
-  ({ input, concurrency, timeout }) => executeJsonCommand(
-    "msg prompt",
-    runMutationBatch({
-      input,
-      concurrency: toUndefined(concurrency) ?? DEFAULT_BATCH_CONCURRENCY,
-      itemSchema: MsgPromptArgs,
-      run: (item) => callDomain("msg.prompt", item, toUndefined(timeout)),
-    }),
-  ),
-).pipe(Command.withDescription("Attempt an immediate prompt, or retry its durable messageId"));
+).pipe(Command.withDescription(
+  "Send mail, typed into the seat's input at once: a short notice line, or with --prompt the full text (batch-capable)",
+));
 
 const msgSentCommand = Command.make(
   "sent",
@@ -425,7 +400,6 @@ export const msgCommand = Command.make("msg").pipe(
   Command.withSubcommands([
     msgListCommand,
     msgSendCommand,
-    msgPromptCommand,
     msgSentCommand,
     msgReadCommand,
     msgReplyCommand,

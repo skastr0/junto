@@ -103,7 +103,7 @@ const ndjsonCall = (
           retryable: false,
           operation: mutatingOperation,
           ...(["msg.send", "msg.prompt", "msg.reply"].includes(mutatingOperation)
-            ? { next_step: "inspect msg sent before retrying; reuse the existing messageId and never recreate uncertain mail" }
+            ? { next_step: "inspect msg sent before sending again; the mail may already be in the recipient's mailbox" }
             : {}),
         },
       });
