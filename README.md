@@ -34,7 +34,7 @@ Each agent gets a **seat**: a box on the canvas with a live terminal, its own ha
 | local: everything lives in `~/.junto/` | a config manager: it never writes to `~/.claude`, `~/.codex`, or other harness config |
 | free and open source (Apache-2.0) | a task queue or board |
 
-**Status:** usable, with gaps. Latest release 0.3.2 for macOS 13+ on Apple silicon. Linux desktop is alpha. No Windows.
+Latest release 0.3.2, for macOS 13+ on Apple silicon. On Linux (Ubuntu 24.04 x86-64), build from source. Windows is not supported.
 
 ## Install and first run
 
@@ -65,7 +65,7 @@ docs$ junto msg send --no-prompt '{"target":"builder","text":"can I see your dif
   "message":"target \"builder\" is not visible from \"docs\" — no edge …"}}]}}
 ```
 
-0.3.2 needs `--no-prompt` on `junto msg send`. The next release makes it optional.
+On 0.3.2, `junto msg send` needs `--no-prompt`.
 
 The full command list is in [How Junto works](docs/how-junto-works.md#the-cli).
 

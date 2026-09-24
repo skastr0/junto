@@ -34,7 +34,7 @@ The `junto` CLI talks to the app over a local socket, `~/.junto/work/control.soc
 
 Every command prints JSON. `junto schema` and `junto examples` describe the inputs.
 
-In 0.3.2, `junto msg send`, `junto seat wait`, and `junto seat read` stop with "Missing required flag" unless you pass `--no-prompt`, `--no-any`, or `--no-follow`. The next release makes those flags optional.
+In 0.3.2, `junto msg send`, `junto seat wait`, and `junto seat read` stop with "Missing required flag" unless you pass `--no-prompt`, `--no-any`, or `--no-follow`.
 
 ## Mail
 

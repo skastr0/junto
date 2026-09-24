@@ -46,6 +46,6 @@ bun run test:e2e:fast <spec>   # one GUI spec against an existing build
 bun run test:e2e:full          # full GUI regression suite
 ```
 
-Official builds use the `ship` feature profile. Work in progress (task queues, boards, pads, sheets, browser pages, schedulers, Fleet, Remote, seat awareness, the voice overseer) sits behind flags in [`src/shared/feature-catalog.ts`](../src/shared/feature-catalog.ts) and is off in official builds.
+Official builds use the `ship` feature profile. Other surfaces (task queues, boards, pads, sheets, browser pages, schedulers, Fleet, Remote, seat awareness, the voice overseer) sit behind flags in [`src/shared/feature-catalog.ts`](../src/shared/feature-catalog.ts) and are off in official builds.
 
-Linux desktop is alpha: see [the Linux desktop guide](linux-command-center-alpha.md) and [the bootstrap guide](linux-desktop-bootstrap.md).
+Linux desktop: see [the Linux desktop guide](linux-command-center-alpha.md) and [the bootstrap guide](linux-desktop-bootstrap.md).
