@@ -111,10 +111,6 @@ describe("main authoring architecture", () => {
       // Closed administrative dispatch is still process-bound and gated.
       "src/main/junto/overseer/work.ts",
       "src/main/junto/work/control.ts",
-      // Canvas topology changes emit exactly one compact edge map-change
-      // notice per seat; this is the classified authoring listener, not a
-      // renderer/control ingress.
-      "src/main/junto/work/edge-map-notify.ts",
     ]);
 
     const control = source("src/main/junto/work/control.ts");

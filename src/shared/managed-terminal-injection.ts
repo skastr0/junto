@@ -14,8 +14,8 @@
  *   (task → tasks ops; requests → escalate; artifacts → publish; board → board;
  *   messages → mail; directed reviews → verdict). The agent is never taught
  *   a target command without the corresponding held port.
- * - Mid-session map changes send a compact notice pointing at live grants
- *   (composeEdgeMapChangeNotice / planEdgeMapChanges).
+ * - Mid-session edge changes are read live through `junto onboard` /
+ *   `junto capabilities`; Junto sends no automatic mail about them.
  *
  * Never writes ~/.claude, ~/.codex, ~/.grok, ~/.hermes.
  */
@@ -32,7 +32,6 @@ import {
   REQUESTS_ENABLED,
   TASKS_ENABLED,
 } from "./features";
-import type { CanvasDoc } from "./canvas";
 import type { Port } from "./physics/schema";
 import {
   FEW_SHOT_CLAIM,
@@ -133,7 +132,7 @@ A **seat** is your identity on the canvas: the node you occupy, bound to your pr
 - **Grants** come from each authored edge verb and its operator mask. A mask only removes ports. A messages edge can grant mail, prompts, waits and terminal reads; a directed reviews edge grants \`verdict.post\` only from reviewer to author.${TASKS_ENABLED ? " Task verbs differ on claiming and authoring." : ""} \`capabilities\` gives the actual held ports; a neighboring kind alone proves no permission.
 - **Identity** is process-bind: the OS proves who you are. You cannot claim another seat, and no env var makes you someone else.
 - **Orientation** is one command: \`junto onboard\` returns your seat, role, region briefing, connected targets ${TASKS_ENABLED ? "with grants and their board contracts" : "with their grants"}, and co-members. Re-run it whenever your view may be stale.
-- **Rulings** are operator precedent pinned to a region. They stand over every seat inside it: \`junto rulings\`.\n\n**Map-change notices are informational.** \`[crew - map]\` notices announce grant changes — they are not a command to re-run \`onboard\`/\`capabilities\` every time. Re-orient once at session start and whenever you actually need the live map to act. Idle chatter (ack-for-ack) is wasteful: acknowledge once, then stay quiet until real work or a new request arrives.`;
+- **Rulings** are operator precedent pinned to a region. They stand over every seat inside it: \`junto rulings\`.`;
 
 // ── Worker doctrine (base) ─────────────────────────────────────────────────
 
@@ -647,7 +646,7 @@ export const buildOrientNotice = (seatRef?: string): string =>
  */
 export const EDGE_CONTRACTS_INTRO = `### Edge contracts
 
-The contracts below are **compiled from the edges connected at spawn** — you are only taught the commands your seat is authorized to run. When edges change mid-session, a compact map-change notice names the added/removed targets; the live command set is always \`junto onboard\` / \`junto capabilities\`.`;
+The contracts below are **compiled from the edges connected at spawn** — you are only taught the commands your seat is authorized to run. When edges change mid-session, the live command set is always \`junto onboard\` / \`junto capabilities\`.`;
 
 export const buildInjectionText = (ctx: InjectionContext): string | null => {
   if (!ctx.seatBound) return null;
@@ -677,151 +676,6 @@ export const buildInjectionText = (ctx: InjectionContext): string | null => {
       ? ["", buildRegionBriefingSection(ctx.regionInstruction)]
       : []),
   ].join("\n");
-};
-
-// ── Rising-edge slot injection (mid-session edge connect) ──────────────────
-
-export type EdgeMapChange = {
-  readonly seatId: string;
-  readonly added: readonly InjectionConnectedTarget[];
-  readonly removed: readonly InjectionConnectedTarget[];
-};
-
-/**
- * Compact map-change notice — the operational event the agent asked for:
- * a one-line orient with ids only (Added/Removed). Command recipes and
- * contract tables are NOT in the notice — they live in `junto
- * onboard` / `junto capabilities`, which the notice points at.
- * Never a full doctrine re-injection, never a second doctrine variant.
- */
-export const composeEdgeMapChangeNotice = (change: EdgeMapChange): string => {
-  const fmt = (targets: readonly InjectionConnectedTarget[]): string =>
-    targets.map((t) => `\`${t.id}\``).join(", ");
-  const parts: string[] = [];
-  if (change.added.length > 0) {
-    parts.push(`Added: ${fmt(change.added)}`);
-  }
-  if (change.removed.length > 0) {
-    parts.push(`Removed: ${fmt(change.removed)}`);
-  }
-  if (parts.length === 0) {
-    return "[crew - map] edge map unchanged — re-run `junto capabilities` for the live grant list.";
-  }
-  return `[crew - map] edge contracts changed — ${parts.join(". ")}. Re-run \`junto capabilities\` for the live grant list.`;
-};
-
-/**
- * The complete input this diff reads out of a document: every node's kind by
- * id, first-occurrence-wins exactly as `Array.prototype.find` resolved it.
- *
- * Built once per document instead of re-walked per edge endpoint. The old
- * shape put `doc.nodes.find` inside the per-edge loop and then again inside
- * `isSeat`, so one commit cost O(edges x nodes) — on a 96-node board that is
- * tens of thousands of id comparisons for a diff that is almost always empty.
- */
-const kindsById = (doc: CanvasDoc): ReadonlyMap<string, string | undefined> => {
-  const out = new Map<string, string | undefined>();
-  for (const node of doc.nodes) {
-    // First occurrence wins: `find` returned the first match, and a document
-    // with a duplicated id must keep resolving to the same node it did.
-    if (out.has(node.id)) continue;
-    out.set(node.id, node.ether?.entity?.kind);
-  }
-  return out;
-};
-
-/**
- * True when the two documents carry the same adjacency input.
- *
- * `planEdgeMapChanges` reads exactly three things: the ordered edge endpoints,
- * and each node's id and entity kind in order. When all three match position
- * for position the diff is provably empty, which is why this can short-circuit
- * rather than merely hint. Positional (not set) comparison keeps it sound in
- * the other direction too: a reordered document simply falls through to the
- * full computation and gets the same answer it always did.
- *
- * This is the gate the recompute never had. A canvas commit fires the listener
- * for ANY authorial change, and the overwhelming majority of them are geometry
- * — a dragged node, a resized region — which cannot move a single edge grant.
- */
-const sameEdgeMapInput = (a: CanvasDoc, b: CanvasDoc): boolean => {
-  if (a === b) return true;
-  if (a.edges.length !== b.edges.length) return false;
-  if (a.nodes.length !== b.nodes.length) return false;
-  for (let i = 0; i < a.edges.length; i += 1) {
-    const x = a.edges[i];
-    const y = b.edges[i];
-    if (x.fromNode !== y.fromNode || x.toNode !== y.toNode) return false;
-    // A verb swap moves the compiled grant without moving any endpoint, so
-    // the seat's edge map must be revised for it like any rewiring.
-    if (x.ether?.verb !== y.ether?.verb) return false;
-  }
-  for (let i = 0; i < a.nodes.length; i += 1) {
-    const x = a.nodes[i];
-    const y = b.nodes[i];
-    if (x.id !== y.id) return false;
-    if (x.ether?.entity?.kind !== y.ether?.entity?.kind) return false;
-  }
-  return true;
-};
-
-/**
- * Edge-map diff for actor seats: added AND removed slot-bearing neighbors.
- * Pure — no I/O. Callers skip when `previous` is missing (open / first paint).
- */
-export const planEdgeMapChanges = (
-  previous: CanvasDoc,
-  next: CanvasDoc,
-): ReadonlyArray<EdgeMapChange> => {
-  if (sameEdgeMapInput(previous, next)) return [];
-
-  const previousKinds = kindsById(previous);
-  const nextKinds = kindsById(next);
-  const adjacency = (
-    doc: CanvasDoc,
-    kinds: ReadonlyMap<string, string | undefined>,
-  ): Map<string, InjectionConnectedTarget[]> => {
-    const out = new Map<string, InjectionConnectedTarget[]>();
-    for (const edge of doc.edges) {
-      for (const [a, b] of [
-        [edge.fromNode, edge.toNode],
-        [edge.toNode, edge.fromNode],
-      ] as const) {
-        // Absent node and node-without-kind were both `continue` before and
-        // stay both `continue` now: `get` returns undefined for either.
-        const kind = kinds.get(b);
-        if (kind === undefined || KIND_TO_SLOT[kind] === undefined) continue;
-        const list = out.get(a);
-        const target: InjectionConnectedTarget = { id: b, ...(kind !== undefined ? { kind } : {}) };
-        if (list) list.push(target);
-        else out.set(a, [target]);
-      }
-    }
-    return out;
-  };
-
-  const before = adjacency(previous, previousKinds);
-  const after = adjacency(next, nextKinds);
-  const isSeat = (
-    kinds: ReadonlyMap<string, string | undefined>,
-    id: string,
-  ): boolean => kinds.get(id) === "agent";
-  const key = (t: InjectionConnectedTarget): string => `${t.kind ?? ""}:${t.id}`;
-  const changes: EdgeMapChange[] = [];
-  for (const seatId of new Set([...before.keys(), ...after.keys()])) {
-    if (!isSeat(nextKinds, seatId) && !isSeat(previousKinds, seatId)) continue;
-    const prev = new Set((before.get(seatId) ?? []).map(key));
-    const nextSet = new Set((after.get(seatId) ?? []).map(key));
-    const added = (after.get(seatId) ?? []).filter((t) => !prev.has(key(t)));
-    const removed = (before.get(seatId) ?? []).filter((t) => !nextSet.has(key(t)));
-    if (added.length === 0 && removed.length === 0) continue;
-    changes.push({
-      seatId,
-      added: [...added].sort((a, b) => a.id.localeCompare(b.id)),
-      removed: [...removed].sort((a, b) => a.id.localeCompare(b.id)),
-    });
-  }
-  return changes.sort((a, b) => a.seatId.localeCompare(b.seatId));
 };
 
 // ── Plan (tier + body for spawn / drive) ───────────────────────────────────

@@ -56,7 +56,6 @@ import {
   mailboxMessageDeliveryId,
   mailboxMessageReadId,
 } from "./work/mailbox-receipts";
-import { onCanvasChangeForEdgeMap } from "./work/edge-map-notify";
 import { WorkRepository } from "./work/repository";
 import { CrewRepository } from "./work/crew-repository";
 import { makeMailAttemptStore } from "./work/mail-attempt-store";
@@ -1376,15 +1375,6 @@ export const registerJuntoIpc = (): void => {
       canvases.subscribeChanges((name) => broadcast(IPC_CHANNELS.canvasChanged, name));
       canvases.subscribeChanges(() => {
         Effect.runFork(fleetPropagation.request());
-      });
-      // ONE edge-notification theory: canvas edge changes produce exactly one
-      // compact map-change notice per seat (added contracts inline, removals
-      // as a re-orient hint). The former msg.send-enable link notice was a
-      // second, equivalent notification from a parallel subsystem — removed.
-      canvases.subscribeChanges((name, detail) => {
-        void AppRuntime.runPromise(
-          onCanvasChangeForEdgeMap(name, detail),
-        );
       });
       snapshots.subscribe((state) => broadcast(IPC_CHANNELS.snapshotsChanged, state));
       if (USAGE_ENABLED) {
