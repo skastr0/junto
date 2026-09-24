@@ -17,26 +17,26 @@ You have Claude Code in one terminal and Codex in another, plus three more agent
 | before | with Junto |
 | --- | --- |
 | you copy one agent's output into another's terminal | agents mail each other: `junto msg send`, then `junto msg list` |
-| any agent can be told to reach any other | only seats joined by a line you drew can talk; no line, no channel |
+| nothing limits which agent talks to which | only seats joined by a line you drew can talk; no line, no channel |
 | a session ends with its tab | a seat keeps its harness, folder, and session, and resumes it after a restart |
-| tabs | one canvas showing every seat as idle, working, or waiting for input |
+| you switch tabs to see who is working | one canvas showing every seat as idle, working, or waiting for input |
 
 ## Where it fits
 
-Junto is the shared workspace where agents work together. Each seat runs the harness you already use, with the tools that harness already has.
+Where agents work together. Each seat runs the agent you already use, with the tools it already has.
 
 ## See it run
 
 Run on 2026-09-24, macOS, checkout `c9d4d5cac`.
 
-**Two seats joined by a line mail each other; a seat with no line is refused.** Real `junto` CLI (source build) run from inside seats the app started, driven by the e2e crew fixture with a scripted harness:
+**Two seats joined by a line mail each other; a seat with no line is refused.** Real `junto` CLI (source build) run from inside seats the app started, driven by the e2e crew fixture with a scripted harness (rerun 2026-09-24 with `--no-prompt`, which 0.3.2 needs):
 
 ```text
-builder$ junto msg send '{"target":"reviewer","text":"auth refactor is up, please review src/auth"}'
-{"ok":true,"command":"msg send","data":{"outcome":"succeeded","total":1,"success_count":1, …"messageId":"01M395YAEGXJ0JVC210CDH50CD", …}}
+builder$ junto msg send --no-prompt '{"target":"reviewer","text":"auth refactor is up, please review src/auth"}'
+{"ok":true,"command":"msg send","data":{"outcome":"succeeded","total":1,"success_count":1, …"messageId":"01M397FGRT1FQ53DDJ2PYA0911", …}}
 reviewer$ junto msg list
-{"ok":true,"command":"msg list","data":{"target":"reviewer","items":[{"messageId":"01M395YAEGXJ0JVC210CDH50CD", …"text":"auth refactor is up, please review src/auth"}], …"senderName":"builder", …}}
-docs$ junto msg send '{"target":"builder","text":"can I see your diff?"}'
+{"ok":true,"command":"msg list","data":{"target":"reviewer","items":[{"messageId":"01M397FGRT1FQ53DDJ2PYA0911", …"text":"auth refactor is up, please review src/auth"}], …"senderName":"builder", …}}
+docs$ junto msg send --no-prompt '{"target":"builder","text":"can I see your diff?"}'
 {"ok":true,"command":"msg send","data":{"outcome":"failed", …"error":{"type":"ScopeError","message":"target \"builder\" is not visible from \"docs\" — no edge and not region co-members", …}}}
 ```
 
@@ -137,5 +137,5 @@ Linux desktop: alpha, Ubuntu 24.04 x86-64 from source; the download page says th
 
 - tagline: Your agents, one canvas, talking.
 - short description: A desktop canvas where every coding agent gets a permanent seat, and agents you connect with a line mail each other. Free, open source, macOS.
-- page lede: Junto gives every coding agent you run a permanent seat on one canvas, with its own folder and a session that survives restarts. Draw a line between two seats and those agents mail each other, so you stop copying reports from one terminal to the next.
+- page lede: Each agent you run gets a permanent seat with its own folder and a session that survives restarts. Draw a line between two seats and those two agents can message each other. Free, for macOS on Apple silicon.
 - X post: I kept pasting one agent's report into another agent's terminal. So I built Junto: every agent gets a seat on a canvas, and when I draw a line between two seats, they mail each other. No line, no channel.
