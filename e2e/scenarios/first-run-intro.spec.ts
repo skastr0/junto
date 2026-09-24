@@ -23,12 +23,17 @@ test("a fresh install shows the introduction once and keeps it on request", asyn
     await page.screenshot({ path: `${SHOTS}/2-start.png`, animations: "disabled" });
 
     await page.keyboard.press("ArrowRight");
+    await expect(slide).toHaveAttribute("data-slide", "play");
+    await expect(intro).toContainText("comes back paused");
+    await page.screenshot({ path: `${SHOTS}/3-play.png`, animations: "disabled" });
+
+    await page.keyboard.press("ArrowRight");
     await expect(slide).toHaveAttribute("data-slide", "permissions");
     await expect(intro).toContainText("run with your permissions");
-    await page.screenshot({ path: `${SHOTS}/3-permissions.png`, animations: "disabled" });
+    await page.screenshot({ path: `${SHOTS}/4-permissions.png`, animations: "disabled" });
 
     await page.keyboard.press("ArrowLeft");
-    await expect(slide).toHaveAttribute("data-slide", "start");
+    await expect(slide).toHaveAttribute("data-slide", "play");
 
     await intro.getByTestId("first-run-intro-skip").click();
     await expect(intro).toBeHidden();
@@ -65,7 +70,9 @@ test("the introduction shows in bright mode too", async () => {
     await expect(intro).toBeVisible({ timeout: 30_000 });
     await intro.getByTestId("first-run-intro-next").click();
     await intro.getByTestId("first-run-intro-next").click();
-    await page.screenshot({ path: `${SHOTS}/3-permissions-bright.png`, animations: "disabled" });
+    await page.screenshot({ path: `${SHOTS}/3-play-bright.png`, animations: "disabled" });
+    await intro.getByTestId("first-run-intro-next").click();
+    await page.screenshot({ path: `${SHOTS}/4-permissions-bright.png`, animations: "disabled" });
     await intro.getByTestId("first-run-intro-done").click();
     await expect(intro).toBeHidden();
   } finally {

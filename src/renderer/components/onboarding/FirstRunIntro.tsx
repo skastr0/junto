@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { use$ } from "@legendapp/state/react";
-import { ArrowLeft, ArrowRight } from "lucide-react";
+import { ArrowLeft, ArrowRight, Pause, Play } from "lucide-react";
 import { finishIntro, introVisible } from "../../lib/first-run-intro";
 import { state$ } from "../../lib/state";
 import { FocusSurface } from "../FocusSurface";
@@ -8,10 +8,11 @@ import { HarnessMark } from "../HarnessMark";
 import { Button, Kbd } from "../ui";
 import "./first-run-intro.css";
 
-// First-run introduction. Three slides, shown once on first launch and again
+// First-run introduction. Four slides, shown once on first launch and again
 // only on request (help map, Settings). It says what Junto is, how to start
-// an agent, and, plainly, that agents run with the operator's permissions so
-// macOS may name Junto when one reads a protected folder.
+// an agent, that every launch comes back paused and what play changes, and,
+// plainly, that agents run with the operator's permissions so macOS may name
+// Junto when one reads a protected folder.
 
 interface IntroSlide {
   readonly id: string;
@@ -75,6 +76,22 @@ function PromptArt() {
   );
 }
 
+function PlayPauseArt() {
+  return (
+    <div className="intro-art intro-art--play" aria-hidden>
+      <span className="intro-switch intro-switch--paused">
+        <Pause size={11} fill="currentColor" />
+        paused
+      </span>
+      <ArrowRight size={14} className="intro-switch__arrow" />
+      <span className="intro-switch intro-switch--playing">
+        <Play size={11} fill="currentColor" />
+        playing
+      </span>
+    </div>
+  );
+}
+
 const isMac = (): boolean =>
   typeof document !== "undefined" && document.documentElement.dataset.juntoPlatform === "darwin";
 
@@ -104,9 +121,27 @@ export const introSlides = (mac: boolean): ReadonlyArray<IntroSlide> => [
     body: (
       <>
         <p>
-          Double-click an agent to open its terminal. Every launch starts
-          paused: press play when you want the canvas to deliver messages
-          between your agents.
+          Double-click an agent to open its terminal.
+        </p>
+      </>
+    ),
+  },
+  {
+    id: "play",
+    title: "Play and pause",
+    art: <PlayPauseArt />,
+    body: (
+      <>
+        <p>
+          Every time Junto opens, your workspace comes back paused. Agents keep
+          working in their own terminals, but they cannot message each other or
+          act through Junto.
+        </p>
+        <p>
+          To play, press the <strong>paused</strong> button at the top right of
+          the window, or choose <strong>Play canvas</strong> from the command
+          bar. Messages then flow between agents joined by a wire. Press it
+          again to pause, and that flow stops.
         </p>
       </>
     ),
