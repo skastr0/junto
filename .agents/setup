@@ -50,6 +50,30 @@ printf '[setup] Using shared runtime at %s\n' "$orb_setup"
 bash "${orb_setup}/bin/setup.sh"
 export PATH="${HOME}/.local/bin:${HOME}/.bun/bin:${PATH}"
 
+bun_package_manager="$(node -p 'require("./package.json").packageManager')"
+if [[ "$bun_package_manager" != bun@?* ]]; then
+  printf '[setup] error: package.json must declare packageManager as bun@<version>\n' >&2
+  exit 1
+fi
+bun_version="${bun_package_manager#bun@}"
+
+if ! command -v bun >/dev/null 2>&1 || [[ "$(bun --version)" != "$bun_version" ]]; then
+  printf '[setup] Installing Bun %s\n' "$bun_version"
+  export BUN_INSTALL="${BUN_INSTALL:-$HOME/.bun}"
+  curl -fsSL https://bun.sh/install | bash -s -- "bun-v${bun_version}"
+
+  mkdir -p "$HOME/.local/bin"
+  ln -sfn "$BUN_INSTALL/bin/bun" "$HOME/.local/bin/bun"
+fi
+installed_bun_version="$(bun --version)"
+if [[ "$installed_bun_version" != "$bun_version" ]]; then
+  printf '[setup] error: expected Bun %s, found %s\n' "$bun_version" "$installed_bun_version" >&2
+  exit 1
+fi
+printf '[setup] Using Bun %s\n' "$installed_bun_version"
+mkdir -p "$HOME/.local/bin"
+ln -sfn "$(command -v bun)" "$HOME/.local/bin/bunx"
+
 printf '[setup] Installing Junto dependencies\n'
 bun install --frozen-lockfile
 
