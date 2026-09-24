@@ -1,5 +1,45 @@
 import { batch, observable } from "@legendapp/state";
 import type { CanvasPauseState } from "@shared/pause";
+import type { FeatureSet } from "@shared/feature-catalog";
+import { BUILD_FEATURES } from "@shared/features";
+
+type CrewCopyFeatures = Pick<FeatureSet, "cron" | "relay" | "tasks">;
+
+const joinSpoken = (items: ReadonlyArray<string>): string =>
+  items.length <= 1
+    ? (items[0] ?? "")
+    : `${items.slice(0, -1).join(", ")}${items.length > 2 ? "," : ""} and ${items.at(-1)}`;
+
+/** Command bar detail for the pause switch: names only what this build runs. */
+export const crewPauseDetail = (
+  playing: boolean,
+  features: CrewCopyFeatures = BUILD_FEATURES,
+): string => {
+  const parts = [
+    ...(features.cron ? ["cron"] : []),
+    ...(features.relay ? ["relay"] : []),
+    "agent delivery",
+  ];
+  return `${playing ? "Stop" : "Start"} ${joinSpoken(parts)} on this canvas`;
+};
+
+/** What first play actually does in this build: honest, no softeners. */
+export const firstPlayConsequences = (
+  features: CrewCopyFeatures = BUILD_FEATURES,
+): ReadonlyArray<string> => {
+  const schedulers = [
+    ...(features.cron ? ["Cron"] : []),
+    ...(features.relay ? ["relay"] : []),
+  ];
+  return [
+    ...(schedulers.length > 0
+      ? [`${joinSpoken(schedulers)} nodes start firing, and may spend real agent turns.`]
+      : []),
+    "Agents can act through the Junto CLI.",
+    "Queued messages deliver to their targets.",
+    ...(features.tasks ? ["Queued tasks are handed to free connected agents."] : []),
+  ];
+};
 
 /**
  * Factory pause state machine — the single source of truth for the pause

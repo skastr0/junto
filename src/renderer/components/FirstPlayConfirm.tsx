@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { createPortal } from "react-dom";
 import { Play } from "lucide-react";
+import { firstPlayConsequences } from "../lib/factory-pause";
 import { DIM, GROUND, HUE, INK, INK_2, STROKE, withAlpha } from "../lib/theme";
 
 // First-play confirmation — the explicit operator gate the pause law requires
@@ -9,13 +10,8 @@ import { DIM, GROUND, HUE, INK, INK_2, STROKE, withAlpha } from "../lib/theme";
 // subsequent play/pause toggles are direct. Inline-styled overlay by design —
 // this dialog owns no shared stylesheet surface.
 
-/** What play actually does — honest consequences, no softeners. */
-const CONSEQUENCES: ReadonlyArray<string> = [
-  "Cron and relay nodes start firing, and may spend real agent turns.",
-  "Agents can act through the Junto CLI.",
-  "Queued messages deliver to their targets.",
-  "Queued tasks are handed to free connected agents.",
-];
+/** What play actually does in this build — honest consequences, no softeners. */
+const CONSEQUENCES = firstPlayConsequences();
 
 const LABEL: React.CSSProperties = {
   fontSize: 9,

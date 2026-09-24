@@ -6,6 +6,9 @@
  * Stop = capability-plane terminate (SIGTERM → grace → SIGKILL).
  */
 
+import { type FeatureSet } from "@shared/feature-catalog";
+import { BUILD_FEATURES } from "@shared/features";
+
 export type KillUxPhase = "idle" | "armed" | "stopping" | "stopped";
 
 export type KillActionCopy = {
@@ -75,11 +78,13 @@ export const killActionCopy = (input: {
   };
 };
 
-export const deadStateCopy = (input: {
-  readonly agentSeat: boolean;
-}): DeadStateCopy => ({
+export const deadStateCopy = (
+  input: { readonly agentSeat: boolean },
+  features: Pick<FeatureSet, "tasks"> = BUILD_FEATURES,
+): DeadStateCopy => ({
   headline: input.agentSeat ? "Agent stopped" : "Process stopped",
-  detail: input.agentSeat
+  // Only a build with tasks can have handed the seat one to unassign.
+  detail: input.agentSeat && features.tasks
     ? "If it still held a task, unassign it from the task board."
     : "The last output stays frozen below.",
   reopenLabel: "Reopen",

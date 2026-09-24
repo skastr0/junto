@@ -15,7 +15,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { isCommandCenterAuthoring } from "./canvas-boot";
-import { factoryPause$, toggleFactoryPause } from "./factory-pause";
+import { crewPauseDetail, factoryPause$, toggleFactoryPause } from "./factory-pause";
 import { clearSelection, state$, toggleFlagFilter } from "./state";
 import { openSettings } from "./settings-state";
 
@@ -127,9 +127,7 @@ export const buildCommandBarActions = (): ReadonlyArray<CommandBarAction> => {
     actions.push({
       id: "factory-pause",
       label: playing ? "Pause crew" : "Play crew",
-      detail: playing
-        ? "Stop cron, relay, and agent delivery on this canvas"
-        : "Start cron, relay, and agent delivery on this canvas",
+      detail: crewPauseDetail(playing),
       icon: playing ? Pause : Play,
       run: () => toggleFactoryPause(canvasName),
     });
@@ -156,7 +154,7 @@ export const buildCommandBarActions = (): ReadonlyArray<CommandBarAction> => {
   actions.push({
     id: "open-digest",
     label: "Open canvas digest",
-    detail: "Deterministic text projection of the board",
+    detail: "Deterministic text projection of the canvas",
     icon: ScrollText,
     run: () => void openCanvasDigest(canvasName),
   });

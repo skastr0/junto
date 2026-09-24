@@ -18,6 +18,7 @@ import type { CanvasNode } from "@shared/canvas";
 import type { WorkOpResult } from "@shared/ipc";
 import type { TaskState } from "@shared/work-model";
 import type { WorkSeatRecentOpsFeed } from "@shared/work-recent-ops";
+import { TASKS_ENABLED } from "@shared/features";
 import { isGroup } from "@shared/graph";
 import { resolveSpec, roleOf } from "@shared/physics";
 import {
@@ -792,7 +793,11 @@ export function ActorLedgerPane({
             <section
               className="actor-ledger__section"
               aria-label="Recent activity"
-              title="Identity-backed CLI activity only - task updates are not attributed"
+              title={
+                TASKS_ENABLED
+                  ? "Identity-backed CLI activity only - task updates are not attributed"
+                  : "Identity-backed CLI activity only"
+              }
             >
               <header className="actor-ledger__section-head">
                 <span className="actor-ledger__section-title">activity</span>
