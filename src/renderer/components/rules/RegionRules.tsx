@@ -1,13 +1,11 @@
 import type { CanvasNode, EtherRegionContract } from "@shared/canvas";
 import type { Rule } from "@shared/work-model";
-import { TASKS_ENABLED } from "@shared/features";
 import { setRegionContract } from "../../lib/mutations";
 import { RuleList } from "./RuleList";
 import { RulingList } from "./RulingList";
 
 export function RegionRules({ node }: { readonly node: CanvasNode }) {
-  // Rules and rulings bind tasks inside the region; no tasks, nothing to answer.
-  if (!TASKS_ENABLED || node.type !== "group") return null;
+  if (node.type !== "group") return null;
   const contract = node.ether?.region?.contract;
   const rules = contract?.rules ?? [];
   const rulings = contract?.rulings ?? [];

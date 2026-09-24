@@ -41,7 +41,7 @@ describe("terminal kill UX copy", () => {
     expect(shell.reopenLabel).toBe("Reopen");
     expect(shell.closeViewLabel).toBe("Close view");
 
-    const agent = deadStateCopy({ agentSeat: true }, { tasks: true });
+    const agent = deadStateCopy({ agentSeat: true });
     expect(agent.headline).toBe("Agent stopped");
     expect(agent.detail).toMatch(/unassign/i);
   });
