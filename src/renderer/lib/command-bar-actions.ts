@@ -126,7 +126,7 @@ export const buildCommandBarActions = (): ReadonlyArray<CommandBarAction> => {
   if (authoring && pauseState) {
     actions.push({
       id: "factory-pause",
-      label: playing ? "Pause crew" : "Play crew",
+      label: playing ? "Pause canvas" : "Play canvas",
       detail: playing
         ? "Stop cron, relay, and agent delivery on this canvas"
         : "Start cron, relay, and agent delivery on this canvas",

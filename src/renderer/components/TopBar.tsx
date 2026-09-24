@@ -186,13 +186,13 @@ function FactoryPauseControl({ canvasName }: { readonly canvasName: string }) {
         type="button"
         data-testid="factory-pause"
         data-pause-state={pauseLabel}
-        aria-label={playing ? "Pause crew" : "Play crew"}
+        aria-label={playing ? "Pause canvas" : "Play canvas"}
         title={
           error
             ? `pause switch: ${error}`
             : playing
-              ? "Pause crew"
-              : "Play crew"
+              ? "Pause canvas"
+              : "Play canvas"
         }
         disabled={busy}
         onClick={onClick}

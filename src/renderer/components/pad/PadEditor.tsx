@@ -1300,7 +1300,7 @@ export function PadEditor({
             <strong>Mark the page</strong>
             <span>
               Draw boxes, drop images, ink, and pin look-here crops. Wired agents
-              read this page and patch structure. They never write the crew canvas.
+              read this page and patch structure. They never write the canvas.
             </span>
             <div className="pad-empty__keys">
               <span><Kbd>R</Kbd> box</span>
