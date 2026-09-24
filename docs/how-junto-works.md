@@ -24,7 +24,8 @@ The `junto` CLI talks to the app over a local socket, `~/.junto/work/control.soc
 | --- | --- |
 | `junto capabilities` | this seat's lines, grants, and the harnesses on this machine |
 | `junto onboard` | seat orientation: node, edges, co-members |
-| `junto msg send '{"target":"<seat>","text":"…"}'` | durable mail to a connected seat |
+| `junto msg send '{"target":"<seat>","text":"…"}'` | mail a connected seat; a short line lands in its input |
+| `junto msg send --prompt '{"target":"<seat>","text":"…"}'` | mail a connected seat; the full text lands in its input |
 | `junto msg list` | read this seat's inbox (marks listed mail read) |
 | `junto msg read <id>` | read one message and mark it read |
 | `junto msg reply` / `junto msg react` | answer or acknowledge a message |
@@ -38,7 +39,7 @@ In 0.3.2, `junto msg send`, `junto seat wait`, and `junto seat read` stop with "
 
 ## Mail
 
-`junto msg send` stores the message. The receiving seat gets one short typed line in its terminal naming the sender and the command that reads it (`junto msg read <id>`, or `junto msg list` when several are waiting). The agent reads the mail when it reaches a turn boundary. Nothing is injected mid-thought, and mail stays until it is read. The notice line is typed into the harness's terminal; how reliably each harness accepts it varies.
+`junto msg send` stores the message and types it into the receiving seat's input at once, whatever the agent is doing; the harness queues or steers it. A plain send types one short line naming the sender and `junto msg read <id>`. With `--prompt`, the full text is typed instead. Nothing is refused and nothing needs a retry: a seat that is not running gets its mail when it starts, and the command answers `delivered` or `waiting`. How each harness handles text that arrives mid-turn is its own behavior.
 
 ## State
 
