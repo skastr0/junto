@@ -51,7 +51,8 @@ describe("macOS privacy policy", () => {
     expect(runtime).not.toMatch(/tell application|\/usr\/bin\/osascript/u);
   });
 
-  it("strips Electron's template purpose strings from the packaged Info.plist", () => {
+  // Electron ships its template Info.plist only in the macOS package.
+  it.runIf(process.platform === "darwin")("strips Electron's template purpose strings from the packaged Info.plist", () => {
     // Electron's own Info.plist is the base electron-builder extends. Every
     // purpose string it or package.json declares, minus the afterPack strip,
     // is what the signed bundle declares.
