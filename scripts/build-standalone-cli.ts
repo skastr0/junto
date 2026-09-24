@@ -5,7 +5,7 @@
  * packaged control binaries. A bare `bun run cli:build` must mean the same
  * ship profile as `build-app.sh`, not an ambient source-run profile.
  */
-import { chmodSync, mkdirSync, renameSync } from "node:fs";
+import { chmodSync, mkdirSync, readFileSync, renameSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
@@ -15,6 +15,7 @@ import {
 } from "./build-features";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const appVersion: string = JSON.parse(readFileSync(resolve(root, "package.json"), "utf8")).version;
 
 const controls = {
   "junto": {
@@ -72,6 +73,7 @@ const main = (): void => {
       // @electron/asar selects node:fs outside Electron; this branch is unused in Bun.
       "--external=original-fs",
       ...build.featureDefines,
+      `--define=APP_VERSION=${JSON.stringify(appVersion)}`,
       "--outfile",
       stage,
       resolve(root, build.source),
