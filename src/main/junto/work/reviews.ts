@@ -40,6 +40,7 @@ import {
   type VerdictKind,
   type VerdictSubject,
 } from "@shared/crew";
+import { REVIEWS_ENABLED } from "@shared/features";
 import { taskEpoch, type RuleInForce } from "@shared/rules";
 import { canTransitionTaskState, makeUserMessage } from "@shared/task";
 import type { CompletionEvidence, Message, Task } from "@shared/work-model";
@@ -331,11 +332,13 @@ export const planVerdictPost = (input: {
         "ScopeError",
         REVIEW_REASON_EDGE_MISSING,
         "no current reviews edge from your seat to the author seat",
-        {
-          retryable: false,
-          next_step:
-            "ask the operator to draw a reviews edge from your seat to the author",
-        },
+        REVIEWS_ENABLED
+          ? {
+            retryable: false,
+            next_step:
+              "ask the operator to draw a reviews edge from your seat to the author",
+          }
+          : { retryable: false },
       ),
     };
   }

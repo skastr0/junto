@@ -30,6 +30,7 @@ import {
   BOARD_ENABLED,
   BROWSER_ENABLED,
   REQUESTS_ENABLED,
+  REVIEWS_ENABLED,
   TASKS_ENABLED,
 } from "./features";
 import type { CanvasDoc } from "./canvas";
@@ -130,7 +131,7 @@ export const SEAT_DOCTRINE = `## Seats
 
 A **seat** is your identity on the canvas: the node you occupy, bound to your process. The seat is durable — it persists across sessions and restarts, and it is where grants, memory, and experience accumulate over time.
 
-- **Grants** come from each authored edge verb and its operator mask. A mask only removes ports. A messages edge can grant mail, prompts, waits and terminal reads; a directed reviews edge grants \`verdict.post\` only from reviewer to author.${TASKS_ENABLED ? " Task verbs differ on claiming and authoring." : ""} \`capabilities\` gives the actual held ports; a neighboring kind alone proves no permission.
+- **Grants** come from each authored edge verb and its operator mask. A mask only removes ports. A messages edge can grant mail, prompts, waits and terminal reads${REVIEWS_ENABLED ? "; a directed reviews edge grants \`verdict.post\` only from reviewer to author" : ""}.${TASKS_ENABLED ? " Task verbs differ on claiming and authoring." : ""} \`capabilities\` gives the actual held ports; a neighboring kind alone proves no permission.
 - **Identity** is process-bind: the OS proves who you are. You cannot claim another seat, and no env var makes you someone else.
 - **Orientation** is one command: \`junto onboard\` returns your seat, role, region briefing, connected targets ${TASKS_ENABLED ? "with grants and their board contracts" : "with their grants"}, and co-members. Re-run it whenever your view may be stale.
 - **Rulings** are operator precedent pinned to a region. They stand over every seat inside it: \`junto rulings\`.\n\n**Connection messages are informational.** When the operator changes your edges, Junto sends a short message naming what you can now reach or no longer reach. It is not a command to re-run \`onboard\`/\`capabilities\` every time. Re-orient once at session start and whenever you actually need the live map to act. Idle chatter (ack-for-ack) is wasteful: acknowledge once, then stay quiet until real work or a new request arrives.`;
