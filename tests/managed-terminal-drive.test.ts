@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   BRACKETED_PASTE_END,
@@ -443,6 +444,22 @@ describe("ManagedTerminalDrive", () => {
       encodeBracketedPaste("mail"),
       CR,
     ]);
+  });
+
+  it("traces a mail write like any delivery, keyed by its text", async () => {
+    const trace: PtyDeliveryTraceEvent[] = [];
+    drive = makeDrive({ onTrace: (event) => trace.push(event) });
+    await expect(drive.writeMail("b1", "mail")).resolves.toBe(true);
+    const begin = trace.find((event) => event.event === "delivery.begin");
+    expect(begin?.fields).toMatchObject({
+      mail: true,
+      textSha256: createHash("sha256").update("mail").digest("hex"),
+    });
+    expect(trace).toContainEqual(expect.objectContaining({
+      deliveryId: begin?.deliveryId,
+      event: "write.end",
+      fields: expect.objectContaining({ stage: "paste", ok: true }),
+    }));
   });
 
   it("mail writes nothing once automation is suspended", async () => {

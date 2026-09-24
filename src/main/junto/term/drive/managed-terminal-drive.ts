@@ -631,7 +631,14 @@ export class ManagedTerminalDrive {
    * spaces. Resolves true once the paste and its CR reached the PTY; false
    * only when the seat has no live generation to write into.
    */
-  async writeMail(bindingId: string, text: string): Promise<boolean> {
+  writeMail(bindingId: string, text: string): Promise<boolean> {
+    if (this.tracer === undefined) return this.writeMailInternal(bindingId, text);
+    return this.tracer.prompt(bindingId, text, () => this.harnessFor?.(bindingId), {
+      mail: true,
+    }, () => this.writeMailInternal(bindingId, text));
+  }
+
+  private async writeMailInternal(bindingId: string, text: string): Promise<boolean> {
     const generation = this.lifecycleGeneration;
     if (!this.active(generation)) return false;
     const body = hermesRefusesMultilinePaste(this.harnessFor?.(bindingId), text)
