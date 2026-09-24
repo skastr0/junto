@@ -134,7 +134,6 @@ describe("classifySpawnFailure", () => {
   it("never writes a middle dot into operator copy", () => {
     const copies = [
       launchRefusalCopy.noFolder,
-      launchRefusalCopy.homeFolder,
       launchRefusalCopy.folderMissing("~/x"),
       launchRefusalCopy.notAFolder("~/x"),
       launchRefusalCopy.launchIncomplete,

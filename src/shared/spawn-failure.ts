@@ -32,7 +32,6 @@ const MISSING_CLI_RE = /ENOENT|not found|command not found|posix_spawnp failed/i
  */
 export const launchRefusalCopy = {
   noFolder: "no folder is chosen for this seat",
-  homeFolder: "its folder is your home folder, choose a project folder instead",
   folderMissing: (path: string): string => `the folder ${path} does not exist`,
   notAFolder: (path: string): string => `${path} is not a folder`,
   launchIncomplete: "its launch settings are incomplete",

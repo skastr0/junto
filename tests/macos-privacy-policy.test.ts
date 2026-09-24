@@ -117,7 +117,6 @@ describe("macOS privacy policy", () => {
 
   it("never executes shell startup files for PATH discovery or exposes filesystem enumeration IPC", () => {
     const spawn = read("src/main/junto/adapters/exec.ts");
-    const host = read("src/main/junto/term/local-host.ts");
     const ipc = read("src/shared/ipc.ts");
 
     // No probe name, no shell selection, no login/interactive rc flags, no
@@ -127,10 +126,6 @@ describe("macOS privacy policy", () => {
     expect(spawn).not.toMatch(/process\.env\.SHELL/u);
     expect(spawn).not.toMatch(/\[\s*["'](?:-l|-i|-c|-lc|-ic|-ilc|-lic)["']/u);
     expect(spawn).not.toContain("JUNTO_ENV_BEGIN");
-    // A managed agent seat may never be rooted at the operator home: a
-    // harness's own file tools would sweep Desktop/Documents/Downloads under
-    // Junto's TCC identity.
-    expect(host).toContain("resolves to the operator home");
     expect(ipc).not.toContain("chassis:select-folder");
     expect(ipc).not.toContain("chassis:read-directory");
   });

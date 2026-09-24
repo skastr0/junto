@@ -23,9 +23,8 @@ release carries these changes.
 - Stop running the operator's login shell at startup to discover `PATH`.
   Harness lookup reads version-manager install directories instead, so shell
   startup files no longer run under Junto's macOS privacy identity.
-- Refuse a managed agent seat whose working directory is missing or resolves
-  to the home folder, in every spelling (`~`, trailing slash, case variants),
-  and say which problem it is.
+- Refuse a managed agent seat whose working directory is missing, and say
+  which problem it is.
 - Prefer version-manager alias directories and bound repeated shim probes
   when resolving a harness binary.
 - Pin the browser's session download path under app state so it never

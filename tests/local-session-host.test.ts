@@ -5,8 +5,8 @@ import type {
   AppTerminalLease,
 } from "../src/main/junto/app-process-plane";
 import { homedir, tmpdir } from "node:os";
-import { chmodSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
-import { basename, join } from "node:path";
+import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import {
   expandTerminalCwd,
   LocalSessionHost,
@@ -420,59 +420,6 @@ describe("LocalSessionHost", () => {
       code: "agent_launch_unresolvable",
       harness: "claude",
     });
-  });
-
-  it("refuses an agent seat rooted at the operator home, in every equivalent spelling", () => {
-    const home = homedir();
-    const alias = mkdtempSync(join(tmpdir(), "junto-home-alias-"));
-    const link = join(alias, "home-link");
-    symlinkSync(home, link);
-    try {
-      // APFS/NTFS fold case: a case-flipped spelling still chdirs into home.
-      const caseFlipped = home.replace(/[a-z]/i, (c) =>
-        c === c.toLowerCase() ? c.toUpperCase() : c.toLowerCase(),
-      );
-      const cwds = [
-        home,
-        `${home}/`,
-        join(home, "."),
-        join(home, "..", basename(home)),
-        "~",
-        link,
-        // Only the case-folding platforms resolve this spelling back to home;
-        // on a case-sensitive filesystem it names a different directory.
-        ...(process.platform === "darwin" || process.platform === "win32"
-          ? [caseFlipped]
-          : []),
-      ];
-      for (const cwd of cwds) {
-        const resolved = resolveLaunch({
-          kind: "agent",
-          harness: "codex",
-          agentKey: "local:codex",
-          launch: { kind: "harness", argv: ["codex"], cwd },
-        });
-        expect(Result.isFailure(resolved)).toBe(true);
-        if (Result.isFailure(resolved)) {
-          expect(resolved.failure).toMatchObject({
-            code: "agent_launch_unresolvable",
-          });
-          // The stubs above guarantee the harness resolves, so the home rule is
-          // the only thing left that can refuse these seats. Asserting the
-          // reason keeps the test from going green for a different one.
-          expect(resolved.failure.reason).toContain("operator home");
-        }
-      }
-      const missing = resolveLaunch({
-        kind: "agent",
-        harness: "codex",
-        agentKey: "local:codex",
-        launch: { kind: "harness", argv: ["codex"] },
-      });
-      expect(Result.isFailure(missing)).toBe(true);
-    } finally {
-      rmSync(alias, { recursive: true, force: true });
-    }
   });
 
   it("keeps a terminal seat rooted at the operator home launchable", () => {

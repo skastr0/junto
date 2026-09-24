@@ -6,7 +6,7 @@
  */
 
 import { EventEmitter } from "node:events";
-import { existsSync, realpathSync, statSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 import * as os from "node:os";
 import { basename, isAbsolute, join, resolve } from "node:path";
 import { randomBytes, randomUUID } from "node:crypto";
@@ -581,27 +581,6 @@ const isUsableCwd = (cwd: string): boolean => {
   }
 };
 
-// Canonicalize for the home-seat refusal: realpath collapses `..`, `.`,
-// trailing slashes, and symlinks; resolve() is the fallback when the path
-// does not exist yet (isUsableCwd rejects it on its own afterwards).
-const canonicalDir = (path: string): string => {
-  try {
-    return realpathSync(path);
-  } catch {
-    return resolve(path);
-  }
-};
-
-const sameResolvedDirectory = (left: string, right: string): boolean => {
-  const a = canonicalDir(left);
-  const b = canonicalDir(right);
-  // APFS/NTFS fold case but realpath does not; a case-flipped spelling of the
-  // operator home still lands there on chdir.
-  return process.platform === "darwin" || process.platform === "win32"
-    ? a.toLowerCase() === b.toLowerCase()
-    : a === b;
-};
-
 /** An actor seat whose harness launch does not name an executable argv. */
 export type AgentLaunchUnresolvable = {
   readonly code: "agent_launch_unresolvable";
@@ -733,21 +712,6 @@ export const resolveLaunch = (
         unresolvable(
           "the seat has no working directory — choose a folder for this seat",
           launchRefusalCopy.noFolder,
-        ),
-      );
-    }
-    // An agent seat rooted at the operator home turns the harness's own file
-    // tools (rg --files, find) into a whole-home sweep whose access macOS
-    // bills to Junto's TCC responsible-process identity. A literal `~` cwd
-    // lands there via expandTerminalCwd; refuse it. A terminal seat keeps the
-    // fallback — it is a user-driven shell with the same semantics as
-    // Terminal.app.
-    const homeRoot = process.env.HOME || os.homedir();
-    if (isAbsolute(homeRoot) && sameResolvedDirectory(cwd, homeRoot)) {
-      return Result.fail(
-        unresolvable(
-          "the seat's working directory is missing or resolves to the operator home",
-          launchRefusalCopy.homeFolder,
         ),
       );
     }

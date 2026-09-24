@@ -53,8 +53,7 @@ a computer-use client's Apple Events — not by Junto code. This is observable
 in the TCC log as `accessing=<child binary>` with `responsible=com.skastr0.junto`.
 The seat inherits Junto's granted folders until the seat's own process tree
 ends; Junto cannot disclaim responsibility from pure Node/Electron, so the
-only mitigations are scoping which seats run, refusing home-rooted agent
-seats, and saying so. The first-run introduction tells the operator, before
+only mitigations are scoping which seats run and saying so. The first-run introduction tells the operator, before
 any agent starts, that agents run with their permissions, that macOS may name
 Junto when one reads a protected place, and that each prompt can be allowed
 or denied.
