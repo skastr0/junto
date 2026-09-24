@@ -2,204 +2,105 @@
   <img src="assets/brand/junto-icon.png" alt="Junto" width="128" height="128" />
 </p>
 
-# Junto
+<h1 align="center">Junto</h1>
 
-**Make your agents work together.**
+<p align="center"><strong>Put your coding agents on one canvas and let them talk.</strong></p>
 
-Junto puts every coding agent you run on one visual canvas, as a permanent
-seat. You draw the structure: who sits where, who talks to whom. The agents
-work inside it, together, across as many sessions, repos, and workloads as you
-give them. Dozens or hundreds of sessions become one picture you can take in at
-a glance, and the structure you draw is what moves the agents toward better
-work.
+<p align="center">
+  <a href="https://juntoagents.com/download">Download</a> |
+  <a href="https://juntoagents.com">Website</a> |
+  <a href="docs/how-junto-works.md">Docs</a> |
+  <a href="https://github.com/skastr0/junto/issues">Issues</a>
+</p>
 
-Free, open source, private, and local. Your agents, your machine.
+---
 
-[Download](https://juntoagents.com/download) | [Website](https://juntoagents.com) | [Docs](docs/) | [Issues](https://github.com/skastr0/junto/issues)
+## The pain
 
-## Why Junto
+You run Claude Code in one terminal, Codex in another, and a few more agents in a tmux tab.
 
-Today you run one harness at a time. One terminal, one session, one agent.
-When you want two agents on the same problem, you become the relay: copy from
-one tab, paste into the other, remember which is which, and lose all of it when
-the session ends.
+- **You are the relay.** One agent prints a report and you paste it into the terminal of the agent that needs it.
+- **You lose the picture.** Past a handful of terminals you can't tell who is stuck, who is done, and who is waiting on you.
+- **Sessions die with their tabs.** Restart the machine and you lose where each agent was.
 
-The real cost is attention. Past a handful of sessions you can no longer see
-what is going on, so you cannot tell who is stuck, who is done, and who is
-waiting on you. Neither can the agents. They cannot see each other at all.
+## What Junto does
 
-Junto turns each agent into a seat. A seat is a named, permanent identity on a
-canvas, with its own harness, its own working directory, and its own resumable
-session. Seats stay where you put them. Close the app, come back, and the same
-agent picks up the same session. Draw a line between two seats and they can
-send each other mail. You see the whole crew in one window, and the agents see
-each other.
+<p align="center">
+  <img src="assets/readme/canvas-three-seats.png" alt="The Junto canvas with three agent seats: builder and reviewer joined by a line, docs on its own" width="820" />
+</p>
 
-## The insight
+Each agent gets a **seat**: a box on the canvas with a live terminal, its own harness, its own folder, and a session that comes back after a restart. Draw a line between two seats and those two agents can mail each other. No line, no channel.
 
-We spent months running crews of up to nine agents at a time, then went back
-through the sessions and asked what made the good runs good.
+| Junto is | Junto is not |
+| --- | --- |
+| a desktop canvas where every coding agent is a seat with a live terminal | a new agent or model: it runs the harnesses you already have |
+| mail between agents, over lines you draw | a team or cloud service: one person, one machine, no account |
+| local: everything lives in `~/.junto/` | a config manager: it never writes to `~/.claude`, `~/.codex`, or other harness config |
+| free and open source (Apache-2.0) | a task queue or board |
 
-It was not the model, the harness, the prompts, or the number of agents. Same
-models, same tools, very different outcomes. Prose rules did not help either.
-Agents recited the rules and then broke them under task pressure, again and
-again.
+**Status:** usable, with gaps. Latest release 0.3.2 for macOS 13+ on Apple silicon. Linux desktop is alpha. No Windows.
 
-What worked was structure. When the environment made checking a claim the
-easiest next step, agents checked. When a second agent had to look before
-"done" counted, false "done" stopped. Better work became the path of least
-resistance, so that is where the agents went.
+## Install and first run
 
-That is the bet behind Junto. Do not ask agents to collaborate well. Build the
-room so that collaborating well is the easy thing to do. Seats, visibility, and
-mail are the foundation and they ship today. More of the structure we saw work
-is in the source behind feature flags, and we will write it up as it lands.
+1. Download Junto from [juntoagents.com/download](https://juntoagents.com/download), open the DMG, and drag Junto to Applications. The build is signed and notarized by Apple.
+2. Open Junto and add a seat: pick a harness you already have installed and logged in (`claude`, `codex`, `grok`, …) and a folder.
+3. Add a second seat and draw a line between the two.
+4. Press play, open both seats, and ask one agent to send the other a message.
 
-## What you will see
+Junto does not install agents. It finds them on your `PATH`, and their accounts and costs stay with them.
+
+## Use
+
+Agents talk with the `junto` CLI from inside their seats. This is the canvas above, with a line between `builder` and `reviewer` and none to `docs`:
+
+```text
+builder$ junto msg send '{"target":"reviewer","text":"auth refactor is up, please review src/auth"}'
+{"ok":true,"command":"msg send","data":{"outcome":"succeeded","total":1,"success_count":1,
+  "results":[{"index":0,"ok":true,"data":{"messageId":"01M395YAEGXJ0JVC210CDH50CD", …}}]}}
+
+reviewer$ junto msg list
+{"ok":true,"command":"msg list","data":{"target":"reviewer","items":[{"messageId":"01M395YAEGXJ0JVC210CDH50CD",
+  "parts":[{"kind":"text","text":"auth refactor is up, please review src/auth"}],"senderName":"builder", …}]}}
+
+docs$ junto msg send '{"target":"builder","text":"can I see your diff?"}'
+{"ok":true,"command":"msg send","data":{"outcome":"failed","total":1,"success_count":0,"error_count":1,
+  "results":[{"index":0,"ok":false,"error":{"type":"ScopeError","message":"target \"builder\" is not visible from \"docs\" — no edge …"}}]}}
+```
+
+In 0.3.2, `junto msg send` needs `--no-prompt` (`junto msg send --no-prompt '{…}'`). The next release drops that requirement.
+
+The full command list is in [How Junto works](docs/how-junto-works.md#the-cli).
+
+## How it works
 
 ```mermaid
 flowchart LR
-  subgraph canvas [One canvas]
-    A["Seat: Claude Code<br/>~/app"]
-    B["Seat: Codex<br/>~/app"]
-    C["Seat: Grok<br/>~/docs"]
-    T["Terminal"]
-    N["Note"]
+  subgraph canvas [Canvas]
+    B["builder<br/>Codex in ~/app"]
+    R["reviewer<br/>Claude Code in ~/app"]
+    D["docs<br/>Grok in ~/docs"]
   end
-  A <-- "messages" --> B
-  B <-- "messages" --> C
+  B <-- "messages line" --> R
+  B -- "junto msg send" --> J["Junto app<br/>~/.junto/work/control.sock"]
+  J -- "stores mail" --> DB[("~/.junto/state/junto.db")]
+  J -- "one notice line" --> R
+  R -- "junto msg list" --> J
+  D -.->|"no line: ScopeError"| J
 ```
 
-1. **A canvas.** Every agent is a box with a live terminal inside it.
-2. **Seats.** Each box is one harness, one working directory, one named
-   session. It survives app restarts.
-3. **Lines.** You connect seats. A `messages` line lets two agents mail each
-   other. No line, no channel.
-4. **Mail landing.** When one agent writes to another, a short notice appears
-   in the other agent's terminal, and that agent reads the mail with the
-   `junto` CLI.
-5. **Your view.** Idle, working, waiting for input. Zoom out and see the whole
-   crew at once.
-6. **An overseer, if you want one.** Flip a switch on any seat and that agent
-   can set up the canvas for you.
+- A seat runs the harness's own binary in a terminal Junto manages, and resumes that harness's session by id.
+- A `messages` line grants the two seats mail access to each other. Nothing else does.
+- The CLI reaches the app over a local socket. The app admits a caller only if its process was started from a seat, so there is no token to copy.
+- The receiver gets one short notice in its terminal and reads the mail when it is ready. Mail stays until it is read.
+- Every launch comes back paused. Nothing runs until you press play.
 
-## One harness at a time vs Junto
+Supported harnesses: Claude Code, Codex, Grok, Pi, Devin, Cursor Agent, Antigravity, fx, Prime Agent, Hermes, Kimi Code, Muse, Amp, and Oh My Pi. Details, the overseer switch, and what Junto touches on your machine: [How Junto works](docs/how-junto-works.md).
 
-| | One harness at a time | Junto |
-| --- | --- | --- |
-| Agents | One per terminal, blind to each other | Many, side by side, aware of each other |
-| Identity | A session that ends with the tab | A permanent seat with a resumable session |
-| Talking between agents | You copy and paste | Agents mail each other over the lines you draw |
-| Who decides access | Whatever the prompt says | The canvas. No line, no access |
-| Your config | Per harness, per project | Untouched. Junto changes nothing in it |
-| Overview | Tabs | One canvas |
+## Where it fits
 
-## Install
-
-1. Download the macOS build from [juntoagents.com/download](https://juntoagents.com/download).
-   Open the DMG and drag Junto to Applications. The official release process
-   signs every macOS build with a Developer ID certificate and notarizes it
-   with Apple before publishing it. macOS 13 or later, Apple silicon.
-2. Open Junto. A fresh install sets itself up as the local Command Center;
-   there is no role to choose.
-3. Add a seat, pick a harness you already have installed, pick a folder, and
-   start it.
-
-Linux desktop is alpha, initially Ubuntu 24.04 x86-64 with glibc 2.39. Follow
-[the Linux desktop guide](docs/linux-command-center-alpha.md) and
-[the bootstrap guide](docs/linux-desktop-bootstrap.md). The managed install
-stays inside your account and never asks for administrator credentials.
-
-Junto does not install agents for you. Install and log in to the harnesses you
-want, for example `claude`, `codex`, or `grok`, the way you normally do. Junto
-finds them on your `PATH`. Their accounts and provider costs stay with them.
-
-## What Junto changes in your setup
-
-Nothing.
-
-- Junto never writes to `~/.claude`, `~/.codex`, `~/.grok`, `~/.hermes`, or
-  any other harness config.
-- A seat runs the same binary you run by hand. Junto passes only the dials you
-  chose in the seat (model, effort, permission mode) plus its own instructions,
-  through the harness's system-prompt flag or as the first typed message.
-  Look-and-feel flags are never emitted, so your own settings apply.
-- Everything Junto owns lives in `~/.junto/`. Delete the app and that folder
-  and Junto is gone.
-- Inside a seat's process, and only there, Junto prefixes `PATH` with the
-  `junto` CLI and sets a few `JUNTO_*` variables so the agent can reach the
-  app.
-
-## Supported harnesses
-
-Claude Code, Codex, Grok, Pi, Devin, Cursor Agent, Antigravity, fx, Prime
-Agent, Hermes, Kimi Code, Muse, Amp, and Oh My Pi.
-
-Each harness has a template in the source that records how it launches, how its
-session is named and resumed, and which dials it exposes. Fidelity varies by
-harness and version. `junto doctor` reports what was probed on your machine.
-
-## How Junto works
-
-**The canvas is a document.** A canvas is a [JSON Canvas](https://jsoncanvas.org)
-document. Nodes are agents, terminals, notes, labels, git cards, and regions.
-Edges are relationships. You author it in the app. Agents do not write it,
-unless you make one an overseer.
-
-**A seat is a process with a name.** An agent node bound to a harness gets a
-managed terminal, a real PTY, running that harness in the folder you chose.
-Junto pins or captures the harness's session id and stores it, so the seat
-resumes that exact session, never "whatever ran last".
-
-**Access comes from lines.** An edge compiles into a set of grants. A
-`messages` edge between two agents gives each a mailbox to the other. No edge,
-no grant, and the CLI refuses with a scope error that says so.
-
-**Agents talk through the CLI.** The `junto` CLI talks to the app over a local
-socket. Identity is process-bound: the CLI must be running inside a seat the
-app started. There is no token to paste and nothing to configure.
-
-**Mail is pull-based.** `junto msg send` writes. The receiving seat gets a
-short typed notice in its terminal and reads with `junto msg list`. Nothing is
-injected mid-thought, and mail is durable until read.
-
-**State is one local file.** `~/.junto/state/junto.db`, SQLite. JSON Canvas
-exports are outputs, never inputs the app watches.
-
-**Play and pause.** A playing canvas starts a seat on its own only when work
-is waiting for that seat; other seats resume their session when you open
-them. A paused canvas starts nothing on its own, and every launch comes back
-paused, so nothing runs until you press play. Local terminal processes
-belong to the app and stop when it quits.
-
-**Overseer.** A human-toggled switch on one seat. That agent may author the
-canvas and use every node API without edges. It cannot delete its own seat or
-move your view, and only you can grant or revoke it. See
-[the security doctrine](docs/security-doctrine.md).
-
-## What Junto requires
-
-- macOS 13 or later on Apple silicon, or Ubuntu 24.04 x86-64 (alpha).
-- At least one supported harness installed and logged in.
-- Network access for whatever your harnesses use, and for the update check in
-  official builds.
-
-No account, no activation key, no payment.
-
-## In the source, off by default
-
-Task queues, review verdicts, request escalation, artifacts, shared boards,
-pads, sheets, browser pages, schedulers, Fleet, Remote stations, and the voice
-overseer exist in the source behind feature flags
-([feature-catalog.ts](src/shared/feature-catalog.ts)). They are off in
-official builds until they are good enough to ship. Opening the source does not
-change those defaults.
+Junto is the shared workspace where agents work together. More: [castro.engineer/projects/junto](https://castro.engineer/projects/junto).
 
 ## Build from source
-
-Requirements: Bun 1.3.13 (see `package.json`), Node.js 24.10 or later, macOS or
-Linux with an interactive desktop session, Git, and the platform's native build
-tools.
 
 ```sh
 git clone https://github.com/skastr0/junto.git
@@ -208,70 +109,10 @@ bun install --frozen-lockfile
 bun run dev
 ```
 
-The development app uses `~/.junto-dev/`. The packaged application uses
-`~/.junto/`. To package locally:
-
-```sh
-bun run build              # package locally, skipping source checks
-bun run app:build:mac      # local macOS package, run on macOS
-bun run app:build:linux    # local Linux desktop package, run on Linux
-```
-
-Local packages are development builds without a signing identity. Automatic
-updates and Remote package admission require the official signing identity
-compiled into an official build. The signing and notarization steps live in
-this repository (`bun run app:build:ship`, `scripts/notarize-app.sh`) and
-need the maintainer's Developer ID and Apple notary credentials. Publication
-to the update feed lives in a private distribution repository. GitHub
-Releases are not the application update feed.
-
-## Agent tools
-
-Build the CLI with `bun run cli:build`; the result is `dist/junto`. Packaged
-applications include the same CLI as `bin/junto`.
-
-```sh
-dist/junto doctor
-dist/junto capabilities
-dist/junto onboard
-```
-
-Protected operations require the CLI to run under an agent process registered
-by the running app. Operator projection tools read the running application's
-control socket without opening the product database:
-
-```sh
-bun run canvas:ls
-bun run digest
-bun run render
-```
-
-See [the security doctrine](docs/security-doctrine.md),
-[the Work and Station contract](docs/junto-protocol.md), and
-[the macOS privacy audit](docs/macos-privacy.md) for the detailed boundaries.
-
-## Development checks
-
-```sh
-bun run verify             # lints, typecheck, tests, ship-profile checks, compile
-bun run test:e2e           # all-on GUI smoke: startup spec only
-bun run test:e2e:fast <spec>  # targeted GUI spec against an existing build
-bun run test:e2e:full      # full GUI regression suite (not routine)
-```
-
-Keep generated screenshots, application state, secrets, and scan reports out
-of commits.
+Needs Bun 1.3.13 and Node.js 24.10+. Packaging, the CLI build, and checks: [docs/building.md](docs/building.md).
 
 ## Project
 
-Junto is a side project with one maintainer. There is no support email or
-support channel. Bug reports, vulnerability reports, and proposals go through
-[GitHub issues](https://github.com/skastr0/junto/issues); see
-[SECURITY.md](SECURITY.md), [CONTRIBUTING.md](CONTRIBUTING.md), and
-[SUPPORT.md](SUPPORT.md).
-The trust model is one operator with trusted but fallible attached agents; the
-app enforces its own process, edge, peer, and update boundaries.
+Junto has one maintainer. Bugs, security reports, and proposals go through [GitHub issues](https://github.com/skastr0/junto/issues). See [SECURITY.md](SECURITY.md), [CONTRIBUTING.md](CONTRIBUTING.md), and [SUPPORT.md](SUPPORT.md).
 
-Project-owned source is licensed under [Apache-2.0](LICENSE). Third-party
-software and separately identified assets retain their own notices; see
-[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+Source is licensed under [Apache-2.0](LICENSE). Third-party software keeps its own notices: [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
