@@ -2,7 +2,9 @@ import { createConnection, createServer } from "node:net";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { spawnSync } from "node:child_process";
+import { existsSync } from "node:fs";
+import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import {
   admitProcessIdentity,
   configurePeerPidHelperRoots,
@@ -96,6 +98,14 @@ describe("process identity epoch", () => {
 });
 
 describe("process identity peer PID (real UDS)", () => {
+  // The helper has a 2 s budget. A cold /usr/bin/python3 (the Xcode shim on a
+  // fresh macOS runner) can spend that on startup alone, so warm it first and
+  // let the budget measure the helper.
+  beforeAll(() => {
+    const python = ["/usr/bin/python3", "/bin/python3"].find((path) => existsSync(path));
+    if (python) spawnSync(python, ["-c", "pass"], { timeout: 30_000 });
+  }, 35_000);
+
   it("reads peer PID via sealed helper on a real Unix socket", async () => {
     const root = await mkdtemp(join(tmpdir(), "junto-peer-pid-"));
     roots.push(root);
