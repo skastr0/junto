@@ -37,6 +37,8 @@ describe("compile-time feature profiles", () => {
       // its hover, the peer-help request and the AI hold are one gate, off
       // until a build turns them on.
       seatAwareness: false,
+      // Seats connect only as messages; the reviews family is off.
+      reviews: false,
       // Every managed harness ships ON; each gate remains the way back off.
       // The Hermes TUI seat is one of them; only the ACP integration stays off.
       harnessHermes: true,

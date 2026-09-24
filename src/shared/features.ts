@@ -35,6 +35,7 @@ declare const __JUNTO_HARNESS_OMP_ENABLED__: boolean | undefined;
 declare const __JUNTO_HARNESS_PRIME_AGENT_ENABLED__: boolean | undefined;
 declare const __JUNTO_HARNESS_SETTINGS_ENABLED__: boolean | undefined;
 declare const __JUNTO_SEAT_AWARENESS_ENABLED__: boolean | undefined;
+declare const __JUNTO_REVIEWS_ENABLED__: boolean | undefined;
 
 const envEnabled = (key: string): boolean => {
   try {
@@ -237,6 +238,16 @@ export const SEAT_AWARENESS_ENABLED: boolean =
     ? __JUNTO_SEAT_AWARENESS_ENABLED__
     : envEnabled("JUNTO_SEAT_AWARENESS");
 
+/**
+ * The reviews connection family between two seats. Off in the ship profile:
+ * seats connect only as messages. A reviews edge already on a canvas still
+ * decodes and compiles; only authoring the verb is gated.
+ */
+export const REVIEWS_ENABLED: boolean =
+  typeof __JUNTO_REVIEWS_ENABLED__ === "boolean"
+    ? __JUNTO_REVIEWS_ENABLED__
+    : envEnabled("JUNTO_REVIEWS");
+
 export const BUILD_FEATURES = {
   cron: CRON_ENABLED,
   relay: RELAY_ENABLED,
@@ -263,6 +274,7 @@ export const BUILD_FEATURES = {
   harnessPrimeAgent: HARNESS_PRIME_AGENT_ENABLED,
   harnessSettings: HARNESS_SETTINGS_ENABLED,
   seatAwareness: SEAT_AWARENESS_ENABLED,
+  reviews: REVIEWS_ENABLED,
 } as const;
 
 /** Whether an authored scheduler kind has a live product surface in this build. */
@@ -287,6 +299,15 @@ export const productNodeKindEnabled = (kind: string | undefined): boolean => {
   if (kind === "artifacts") return ARTIFACTS_ENABLED;
   return true;
 };
+
+/**
+ * Whether this build may author an edge with this verb. The sibling of
+ * {@link productNodeKindEnabled} for verbs: every surface that offers or
+ * writes a new verb reads it. Stored edges never do; they decode and compile
+ * whatever this says.
+ */
+export const productVerbEnabled = (verb: string): boolean =>
+  verb === "reviews" ? REVIEWS_ENABLED : true;
 
 /**
  * Whether a capability token belongs to a surface this build enabled. The

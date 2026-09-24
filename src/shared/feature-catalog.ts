@@ -142,6 +142,15 @@ export const FEATURE_CATALOG = {
     env: "JUNTO_SEAT_AWARENESS",
     define: "__JUNTO_SEAT_AWARENESS_ENABLED__",
   },
+  /**
+   * The reviews connection family between two seats. Off, seats connect only
+   * as messages: no family choice when drawing, no swap to reviews, and no
+   * authoring path offers the verb. Existing reviews edges still decode.
+   */
+  reviews: {
+    env: "JUNTO_REVIEWS",
+    define: "__JUNTO_REVIEWS_ENABLED__",
+  },
 } as const;
 
 export type FeatureKey = keyof typeof FEATURE_CATALOG;
@@ -171,6 +180,7 @@ export const SHIP_FEATURES: FeatureSet = {
   hermesIntegration: false,
   devTools: false,
   seatAwareness: false,
+  reviews: false,
   harnessHermes: true,
   harnessKimi: true,
   harnessMuse: true,
@@ -199,6 +209,7 @@ export const ALL_FEATURES: FeatureSet = {
   hermesIntegration: true,
   devTools: true,
   seatAwareness: true,
+  reviews: true,
   harnessHermes: true,
   harnessKimi: true,
   harnessMuse: true,
