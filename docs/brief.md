@@ -1,4 +1,4 @@
-# junto — brief
+# Junto — brief
 
 updated: 2026-09-24, version: 0.3.3 (0.3.2 on the download feed), maturity: usable-with-gaps
 
@@ -6,7 +6,7 @@ Maturity: the signed 0.3.2 build downloads and its core (seats, mail over lines,
 
 ## One line
 
-junto puts coding agents on one canvas and lets them talk.
+Junto puts coding agents on one canvas and lets them talk.
 
 ## The pain
 
@@ -14,7 +14,7 @@ You have Claude Code in one terminal and Codex in another, plus three more agent
 
 ## What changes
 
-| before | with junto |
+| before | with Junto |
 | --- | --- |
 | you copy one agent's output into another's terminal | agents mail each other: `junto msg send`, then `junto msg list` |
 | any agent can be told to reach any other | only seats joined by a line you drew can talk; no line, no channel |
@@ -23,11 +23,22 @@ You have Claude Code in one terminal and Codex in another, plus three more agent
 
 ## Where it fits
 
-junto is the shared workspace where agents work together. Each seat runs the harness you already use, with the tools that harness already has.
+Junto is the shared workspace where agents work together. Each seat runs the harness you already use, with the tools that harness already has.
 
 ## See it run
 
 Run on 2026-09-24, macOS, checkout `c9d4d5cac`.
+
+**Two seats joined by a line mail each other; a seat with no line is refused.** Real `junto` CLI (source build) run from inside seats the app started, driven by the e2e crew fixture with a scripted harness:
+
+```text
+builder$ junto msg send '{"target":"reviewer","text":"auth refactor is up, please review src/auth"}'
+{"ok":true,"command":"msg send","data":{"outcome":"succeeded","total":1,"success_count":1, …"messageId":"01M395YAEGXJ0JVC210CDH50CD", …}}
+reviewer$ junto msg list
+{"ok":true,"command":"msg list","data":{"target":"reviewer","items":[{"messageId":"01M395YAEGXJ0JVC210CDH50CD", …"text":"auth refactor is up, please review src/auth"}], …"senderName":"builder", …}}
+docs$ junto msg send '{"target":"builder","text":"can I see your diff?"}'
+{"ok":true,"command":"msg send","data":{"outcome":"failed", …"error":{"type":"ScopeError","message":"target \"builder\" is not visible from \"docs\" — no edge and not region co-members", …}}}
+```
 
 **An agent you did not start from the canvas cannot reach the others.** There is no token to paste; the app checks which process is calling.
 
@@ -59,7 +70,7 @@ source=Notarized Developer ID
 
 ## How it works
 
-Each seat is an agent node on a JSON Canvas document, running its harness in a managed PTY in the folder you chose. The harness templates in `src/shared/managed-terminal-templates.ts` (14, from Claude Code at :767 to Oh My Pi at :1719) record how each one launches and resumes its session. A `messages` line compiles into mail grants for the two seats (`MSG_OPS`, `src/main/junto/work/authz.ts:374-401`). The `junto` CLI calls the app over `~/.junto/work/control.sock`, and the app admits it only if the caller's process descends from a seat it started (`src/main/junto/process-identity.ts:12-13`). The receiving seat gets one typed line in its terminal, `mail from <seat> — N unread — <ids> — junto msg list` (`src/shared/message-delivery.ts:209`), and reads the mail when it is ready. Everything lives in `~/.junto/state/junto.db`; junto writes nothing to `~/.claude`, `~/.codex`, or other harness config (`README.md`, "What Junto changes in your setup").
+Each seat is an agent node on a JSON Canvas document, running its harness in a managed PTY in the folder you chose. The harness templates in `src/shared/managed-terminal-templates.ts` (14, from Claude Code at :767 to Oh My Pi at :1719) record how each one launches and resumes its session. A `messages` line compiles into mail grants for the two seats (`MSG_OPS`, `src/main/junto/work/authz.ts:374-401`). The `junto` CLI calls the app over `~/.junto/work/control.sock`, and the app admits it only if the caller's process descends from a seat it started (`src/main/junto/process-identity.ts:12-13`). The receiving seat gets one typed line in its terminal naming the sender and `junto msg read <id>` (one message) or `junto msg list` (several) (`src/shared/message-delivery.ts:170-209`), and reads the mail when it is ready. Everything lives in `~/.junto/state/junto.db`; Junto writes nothing to `~/.claude`, `~/.codex`, or other harness config (`docs/how-junto-works.md`, "What Junto changes in your setup").
 
 Diagram spec:
 
@@ -109,12 +120,12 @@ Linux desktop: alpha, Ubuntu 24.04 x86-64 from source; the download page says th
 - Mail to a seat that is not running fails its spec twice today: `mail-wakes-cold-seat.spec.ts:118` → `Error: cold wake never receipted.` (`:225`). Mail to a running seat passes.
 - Unit suite: 1 test fails in `tests/awareness-window-calibration.test.ts` (seat awareness, off in official builds), a different case on each of two runs; the runner stops there, so the isolated lane did not run.
 - Timing: the first e2e run today had 4 of 7 specs time out (`Timeout 150000ms exceeded`); the three besides the cold-seat spec passed on an immediate rerun.
-- `junto --version` prints `v0.1.0` in the 0.3.3 app (`src/cli/core/constants.ts:4` fallback).
+- In 0.3.2, `junto msg send '<json>'` stops at `Missing required flag: --prompt` (same for `seat wait --any`, `seat read --follow`); `--no-prompt` works. Effect CLI booleans are required unless defaulted. Fixed in source (`9bc3fd393`), not yet released.
+- `junto --version` prints `v0.1.0` in 0.3.2 and 0.3.3 (`src/cli/core/constants.ts:4` fallback). Fixed in source (`d5e1ed032`), not yet released.
 - `bun run digest` with no argument fails: `canvas "portfolio" is not in the active portfolio` (`scripts/digest.ts:23`).
 - 0.3.3 is signed but not on the update feed; git tags stop at `v0.3.0` and the only GitHub release is 0.1.0, marked pre-release.
 - Off in official builds: tasks, boards, pads, sheets, browser, requests, artifacts, schedulers, Fleet, Remote, seat awareness (`src/shared/feature-catalog.ts`). The GitHub About text still mentions "browser pages, and shared work".
 - The mail notice is typed into the harness's terminal on a best-effort basis per harness (`src/shared/managed-terminal-injection.ts:382`); the specs above use a scripted harness, not a live Claude or Codex.
-- README: "we spent months running crews" overstates it (the nine-agent crews found run 2026-09-13 to 09-15) and uses "we" for a one-person project. `junto doctor` outside a seat shows socket checks only, not the harness probe the README promises.
 
 ## Demo moments
 
@@ -126,5 +137,5 @@ Linux desktop: alpha, Ubuntu 24.04 x86-64 from source; the download page says th
 
 - tagline: Your agents, one canvas, talking.
 - short description: A desktop canvas where every coding agent gets a permanent seat, and agents you connect with a line mail each other. Free, open source, macOS.
-- page lede: junto gives every coding agent you run a permanent seat on one canvas, with its own folder and a session that survives restarts. Draw a line between two seats and those agents mail each other, so you stop copying reports from one terminal to the next.
-- X post: I kept pasting one agent's report into another agent's terminal. So I built junto: every agent gets a seat on a canvas, and when I draw a line between two seats, they mail each other. No line, no channel.
+- page lede: Junto gives every coding agent you run a permanent seat on one canvas, with its own folder and a session that survives restarts. Draw a line between two seats and those agents mail each other, so you stop copying reports from one terminal to the next.
+- X post: I kept pasting one agent's report into another agent's terminal. So I built Junto: every agent gets a seat on a canvas, and when I draw a line between two seats, they mail each other. No line, no channel.
