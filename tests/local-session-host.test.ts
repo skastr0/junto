@@ -1160,6 +1160,68 @@ describe("LocalSessionHost", () => {
     }
   });
 
+  it("reports resuming only for a generation whose launch resumes a session", () => {
+    const priorHome = process.env.JUNTO_HOME;
+    delete process.env.JUNTO_HOME;
+    try {
+      const fake = makeFakeTerminalProcessAuthority((_spec, index) => ({
+        pid: trackSyntheticPid(42_520 + index),
+        exitOnSignal: false,
+      }));
+      const host = hostWith(fake);
+      const fresh = host.createAgentSeat({
+        bindingId: "first-start-pin",
+        harness: "claude",
+        agentKey: "local:claude",
+        launch: {
+          kind: "harness",
+          argv: ["claude", "--session-id", "421f87b3-5a95-474e-9164-85bb2d7d1ac6"],
+          cwd: "/tmp",
+        },
+      });
+      expect(fresh.status).toBe("running");
+      expect(fresh.resuming).toBeUndefined();
+
+      const resumed = host.createAgentSeat({
+        bindingId: "proven-resume",
+        harness: "claude",
+        agentKey: "local:claude",
+        launch: {
+          kind: "harness",
+          argv: ["claude", "--resume", "421f87b3-5a95-474e-9164-85bb2d7d1ac6"],
+          cwd: "/tmp",
+        },
+      });
+      expect(resumed.resuming).toBe(true);
+    } finally {
+      if (priorHome === undefined) delete process.env.JUNTO_HOME;
+      else process.env.JUNTO_HOME = priorHome;
+    }
+  });
+
+  it("records why an agent harness exited on its own", async () => {
+    const fake = makeFakeTerminalProcessAuthority((_spec, index) => ({
+      pid: trackSyntheticPid(42_530 + index),
+      exitOnSignal: false,
+    }));
+    const host = hostWith(fake);
+    const bindingId = "harness-exits";
+    host.createAgentSeat({
+      bindingId,
+      harness: "claude",
+      agentKey: "local:claude",
+      launch: { kind: "harness", argv: ["claude"], cwd: "/tmp" },
+    });
+    fake.controllers[0]?.emitData("Welcome\r\n\x1b[31mError: not logged in\x1b[0m\r\n");
+    fake.controllers[0]?.exit(1);
+
+    await vi.waitFor(() => expect(host.get(bindingId)?.status).toBe("exited"));
+    const dead = host.get(bindingId);
+    expect(dead?.exitMessage).toBe("Claude Code exited with code 1: Error: not logged in");
+    // A natural exit is not a pre-ownership refusal.
+    expect(dead?.exitReason).toBeUndefined();
+  });
+
   it("under JUNTO_HOME does not occupy an already occupied pin generation", () => {
     const priorHome = process.env.JUNTO_HOME;
     delete process.env.JUNTO_HOME;

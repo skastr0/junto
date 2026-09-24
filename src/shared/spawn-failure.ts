@@ -3,8 +3,9 @@
  *
  * Product rule: a missing harness CLI is not "stopped". The canvas must say
  * which harness is missing and that it is not installed on this machine.
- * True post-run exits stay exited/stopped — this module only classifies
- * fail-before-ownership errors.
+ * True post-run exits stay exited/stopped with no reason code; this module
+ * classifies fail-before-ownership errors and words the plain reason a seat
+ * shows when its harness exits on its own.
  */
 
 import {
@@ -157,4 +158,45 @@ export const classifySpawnFailure = (
     message,
     journal: raw && raw !== reasonCopy ? `${message}. (${raw})` : message,
   };
+};
+
+/** Longest last-output line an exit reason quotes. */
+const EXIT_LINE_MAX = 200;
+
+// CSI, OSC (BEL or ST terminated), and two-byte escapes.
+const ESCAPE_RE =
+  /\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[@-_]/g;
+const CONTROL_RE = /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g;
+
+/** Last non-blank line a harness printed, stripped of terminal escapes. */
+export const lastPrintedLine = (output: string): string => {
+  const plain = output.replace(ESCAPE_RE, "").replace(CONTROL_RE, "");
+  const lines = plain.split(/\r\n|\r|\n/);
+  for (let i = lines.length - 1; i >= 0; i -= 1) {
+    const line = lines[i]?.trim() ?? "";
+    if (line.length === 0) continue;
+    return line.length > EXIT_LINE_MAX ? `${line.slice(0, EXIT_LINE_MAX - 1)}…` : line;
+  }
+  return "";
+};
+
+/**
+ * Operator copy for a harness that exited on its own: who exited, how, and
+ * the last thing it printed, which is where a harness states why.
+ */
+export const seatExitMessage = (input: {
+  readonly harness?: HarnessId | string | undefined;
+  readonly code?: number | undefined;
+  readonly signal?: number | undefined;
+  readonly output?: string | undefined;
+}): string => {
+  const subject = harnessDisplayName(input.harness) ?? "The seat";
+  const how =
+    input.signal !== undefined
+      ? `was stopped by signal ${input.signal}`
+      : input.code !== undefined && input.code !== 0
+        ? `exited with code ${input.code}`
+        : "exited";
+  const said = lastPrintedLine(input.output ?? "");
+  return said ? `${subject} ${how}: ${said}` : `${subject} ${how}`;
 };

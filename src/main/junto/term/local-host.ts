@@ -18,6 +18,7 @@ import {
   classifySpawnFailure,
   LaunchRefusedError,
   launchRefusalCopy,
+  seatExitMessage,
 } from "@shared/spawn-failure";
 import type { TerminalLaunch, TerminalSessionSummary } from "@shared/terminal";
 import { colorFgBgFor, type ThemeMode } from "@shared/theme";
@@ -327,10 +328,11 @@ type SessionRec = {
   /** Payload to recreate a pin generation after resume failure. */
   failOpenSeed?: LocalHostAgentSeatInput;
   /**
-   * Pre-ownership failure only. Clean post-run exits leave these unset so
+   * Pre-ownership failure only. Clean post-run exits leave this unset so
    * the canvas keeps the normal stopped/exited grammar.
    */
   exitReason?: "cli-missing" | "spawn_failed";
+  /** The refusal, or how an agent harness exited and what it last printed. */
   exitMessage?: string;
 };
 
@@ -2188,6 +2190,16 @@ export class LocalSessionHost extends EventEmitter {
     });
     rec.lease = undefined;
     rec.exitWitness = undefined;
+    // An agent seat that exits on its own says why at once, in the harness's
+    // own last words; the surface shows this instead of retrying blind.
+    if (rec.harness && !rec.killed) {
+      rec.exitMessage = seatExitMessage({
+        harness: rec.harness,
+        code,
+        signal,
+        output: rec.sessionCaptureTail,
+      });
+    }
     if (current !== rec) return;
     appendTransportTrace({
       plane: "term",
@@ -2597,6 +2609,7 @@ export class LocalSessionHost extends EventEmitter {
       backend: rec.backend,
       ...(rec.exitReason ? { exitReason: rec.exitReason } : {}),
       ...(rec.exitMessage ? { exitMessage: rec.exitMessage } : {}),
+      ...(rec.harness && rec.resumeAttempt ? { resuming: true as const } : {}),
       ...(rec.harness ? { harness: rec.harness } : {}),
       ...(rec.agentKey ? { agentKey: rec.agentKey } : {}),
     };

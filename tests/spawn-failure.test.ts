@@ -5,7 +5,9 @@ import {
   harnessNotInstalledMessage,
   isMissingExecutableError,
   LaunchRefusedError,
+  lastPrintedLine,
   launchRefusalCopy,
+  seatExitMessage,
 } from "../src/shared/spawn-failure";
 
 describe("harnessDisplayName / harnessNotInstalledMessage", () => {
@@ -139,5 +141,29 @@ describe("classifySpawnFailure", () => {
       launchRefusalCopy.launchIncomplete,
     ];
     for (const copy of copies) expect(copy).not.toContain("\u00b7");
+  });
+});
+
+describe("seatExitMessage", () => {
+  it("names the harness, how it exited, and the last line it printed", () => {
+    expect(
+      seatExitMessage({
+        harness: "claude",
+        code: 1,
+        output:
+          "\x1b[?25l\x1b[31mError: Session ID 421f87b3 is already in use.\x1b[0m\r\n\x1b[?25h",
+      }),
+    ).toBe("Claude Code exited with code 1: Error: Session ID 421f87b3 is already in use.");
+    expect(seatExitMessage({ harness: "hermes", code: 0 })).toBe("Hermes exited");
+    expect(seatExitMessage({ harness: "codex", signal: 9, output: "\r\n" })).toBe(
+      "Codex was stopped by signal 9",
+    );
+  });
+
+  it("reads through OSC titles and carriage-return redraws", () => {
+    expect(lastPrintedLine("\x1b]0;claude\x07working\rfailed: no auth\n\n")).toBe(
+      "failed: no auth",
+    );
+    expect(lastPrintedLine("x".repeat(300))).toHaveLength(200);
   });
 });

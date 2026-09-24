@@ -222,8 +222,18 @@ export type TerminalSessionSummary = {
    * `cli-missing` is distinct from idle "stopped" on the canvas.
    */
   readonly exitReason?: "cli-missing" | "spawn_failed";
-  /** Operator-facing explanation when `exitReason` is set. */
+  /**
+   * Operator-facing explanation of why this generation ended: the refusal
+   * when `exitReason` is set, else how an agent harness exited and the last
+   * line it printed.
+   */
   readonly exitMessage?: string;
+  /**
+   * This agent generation's launch resumes a harness session the host proved
+   * exists. Absent on a fresh session, including a seat's first start with a
+   * pinned id.
+   */
+  readonly resuming?: true;
   /** Actor identity stamped when this generation was occupied as a seat. */
   readonly harness?: string;
   readonly agentKey?: string;
