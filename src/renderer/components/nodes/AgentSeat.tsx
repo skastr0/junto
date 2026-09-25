@@ -8,6 +8,7 @@ import { bindingIdForNode } from "../../lib/agent-seat-state";
 import { useSeatSignalRollup } from "../../lib/agent-signals-state";
 import { openSeatSignals } from "../../lib/agent-signals-view";
 import { seatLine } from "../../lib/seat-line";
+import { controlFromActivity, seatRollup } from "../../lib/seat-rollup";
 import { state$ } from "../../lib/state";
 import { useThreadHealthMark } from "../../lib/thread-health";
 import { seatPortraitMood } from "../../lib/portrait-mood";
@@ -32,10 +33,6 @@ const SIGNAL_WORD: Readonly<Record<AgentSignalKind, string>> = {
   feedback: "ready for review",
 };
 
-/** The control state has proven a dialog or a stoppage: amber or crimson in flight. */
-const provenAttention = (activity: ActivitySpec): boolean =>
-  activity.mode === "wave" && (activity.tone === "amber" || activity.tone === "crimson");
-
 export type SeatHealth = {
   readonly health?: ThreadHealthTone;
   readonly value?: ThreadHealthValue;
@@ -56,7 +53,7 @@ export type SeatSignal = {
  * the loudest of them in words: the seat's own signal first, then a spawn
  * failure, then proven attention (needs input, blocked), then the AI's
  * reading (marked as such; it outranks "done", which may really be
- * waiting), then the control state.
+ * waiting), then the control state. The order is seatRollup's.
  * Pure: `AgentSeat` feeds it from the live stores, the gallery from fixtures.
  */
 export function AgentSeatView({
@@ -86,6 +83,13 @@ export function AgentSeatView({
   readonly children?: ReactNode;
 }) {
   const open = signal.worst;
+  // One order for every seat surface (seat-rollup.ts): the minimap and this
+  // line read the same function, so they can never disagree.
+  const rollup = seatRollup({
+    signal: open?.kind,
+    control: controlFromActivity(activity),
+    health: { health: health.health, healthStale: health.healthStale === true, line: health.line },
+  });
   let line: ReactNode;
   if (open) {
     line = (
@@ -97,17 +101,14 @@ export function AgentSeatView({
       </>
     );
   } else if (context) {
+    // A spawn failure is the seat's own fact; it is not a rollup input.
     line = <span className="text-amber">{context}</span>;
-  } else if (provenAttention(activity)) {
-    // Canonical attention always wins at presentation, as it does on the ring.
-    const state = seatLine(activity);
-    line = <span className={state.tone ? TONE_TEXT[state.tone] : "text-dim"}>{state.text}</span>;
-  } else if (health.line) {
+  } else if (rollup?.source === "health") {
     // An AI reading, never the agent's own claim: a quiet prefix, dim ink.
     line = (
       <>
         <span className="mr-1 align-[1px] font-display text-[9px] tracking-[0.12em] text-faint">AI</span>
-        <span className={health.healthStale ? "text-faint" : "text-dim"}>{health.line}</span>
+        <span className={health.healthStale ? "text-faint" : "text-dim"}>{health.line ?? health.health}</span>
       </>
     );
   } else {

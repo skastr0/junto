@@ -62,8 +62,17 @@ describe("AgentSeatView line", () => {
       "wants your input",
     );
     expect(
-      line(seat({ activity: terminalActivity({ seatState: "idle", needsLook: true }), health: { line: "wants your input" } })),
+      line(
+        seat({
+          activity: terminalActivity({ seatState: "idle", needsLook: true }),
+          health: { health: "waiting", line: "wants your input" },
+        }),
+      ),
     ).toBe("AIwants your input");
+  });
+
+  it("a steady reading leaves the line to the control state, as the minimap does", () => {
+    expect(line(seat({ health: { health: "steady", line: "steady" } }))).toBe("working");
   });
 
   it("otherwise the control state in words", () => {
