@@ -26,6 +26,7 @@ import { Dropdown } from "./ui";
 import { CanvasInteractionMap } from "./help/CanvasInteractionMap";
 import { FirstPlayConfirm } from "./FirstPlayConfirm";
 import { UpdateChip } from "./UpdateChip";
+import { OperatorFeedTrigger } from "./feed/OperatorFeed";
 import { UsageHud } from "./UsageHud";
 import { claimFocusOnMount } from "../lib/focus-ownership";
 
@@ -307,6 +308,7 @@ export function TopBar({
       <SaveStatus />
       <div className="station-actions relative ml-auto flex items-center gap-3">
         <UpdateChip />
+        <OperatorFeedTrigger />
         <FactoryPauseControl canvasName={canvasName} />
         {DEV_TOOLS_ENABLED && logsExplorer ? (
           <button

@@ -51,6 +51,7 @@ import { RendererErrorBoundary } from "./components/RendererErrorBoundary";
 import { SettingsPanel } from "./components/SettingsPanel";
 import { FirstRunIntro } from "./components/onboarding/FirstRunIntro";
 import { DigestPanel } from "./components/DigestPanel";
+import { OperatorFeedHost } from "./components/feed/OperatorFeed";
 import { ObservabilityPanel } from "./components/ObservabilityPanel";
 import {
   FLEET_UI_ENABLED,
@@ -582,6 +583,7 @@ export function App() {
         </RendererErrorBoundary>
         <SettingsPanel />
         <DigestPanel />
+        <OperatorFeedHost />
         <ObservabilityPanel />
         {/* Mount fleet only while open — unmount destroys every WebGL machine. */}
         {FLEET_UI_ENABLED && isCommandCenterFleetUi(stationRole) && fleetOpen ? (

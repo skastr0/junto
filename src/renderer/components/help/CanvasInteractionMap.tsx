@@ -38,6 +38,7 @@ export const CANVAS_HELP_POINTER: ReadonlyArray<HelpMapKeyRow> = [
 /** Canvas hotkey inventory — single source for the interaction map. */
 export const CANVAS_HELP_KEYS: ReadonlyArray<HelpMapKeyRow> = [
   { keys: "⌘K - /", action: "open command bar (jump to a node)" },
+  { keys: "⌘I", action: "needs-you feed: every seat waiting on you, by region" },
   { keys: "Escape", action: "close overlays / clear selection" },
   { keys: "⌘Z - ⌘⇧Z", action: "undo - redo" },
   { keys: "⌫ - Del", action: "delete multi or single selection" },

@@ -5,6 +5,7 @@ import {
   CircleSlash,
   Copy,
   Flag,
+  Inbox,
   Layers,
   Maximize,
   Pause,
@@ -18,6 +19,7 @@ import { isCommandCenterAuthoring } from "./canvas-boot";
 import { factoryPause$, toggleFactoryPause } from "./factory-pause";
 import { clearSelection, state$, toggleFlagFilter } from "./state";
 import { openSettings } from "./settings-state";
+import { openOperatorFeed } from "./operator-feed";
 
 /**
  * Command bar quick-actions catalog.
@@ -144,6 +146,15 @@ export const buildCommandBarActions = (): ReadonlyArray<CommandBarAction> => {
       run: () => state$.nodePaletteOpen.set(true),
     });
   }
+
+  actions.push({
+    id: "open-feed",
+    label: "Open needs-you feed",
+    detail: "Every seat waiting on you, by region",
+    icon: Inbox,
+    hotkey: "⌘I",
+    run: openOperatorFeed,
+  });
 
   actions.push({
     id: "open-settings",
