@@ -211,7 +211,7 @@ const healthClock$ = observable(Date.now());
 let clockReaders = 0;
 let clockTimer: ReturnType<typeof setInterval> | undefined;
 
-const useHealthClock = (): number => {
+export const useHealthClock = (): number => {
   useEffect(() => {
     clockReaders += 1;
     if (clockTimer === undefined) {

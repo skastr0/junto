@@ -90,7 +90,7 @@ import {
 import { HUE, themeFor, withAlpha } from "../lib/theme";
 import { themeMode$ } from "../lib/theme-mode";
 import type { MemberSeverity } from "@shared/region-rollup";
-import { minimapFill, signalMark } from "../lib/signal-mark";
+import { minimapNodeColors, useSeatRollups } from "../lib/minimap-seat-colors";
 import { nodeTypes } from "./nodes";
 import { edgeTypes } from "./edges/EtherEdge";
 import { CanvasLoom } from "./edges/CanvasLoom";
@@ -1194,13 +1194,22 @@ function RtsMinimapStack() {
   const lastClickAt = useRef(0);
   const lastClickPos = useRef<{ x: number; y: number } | null>(null);
 
+  // Agent seats paint their seat rollup (signal, proven attention, Jev's
+  // reading, control state), the order their ring and name line use.
+  const seatRollups = useSeatRollups();
+  const ground = minimapTheme.ground!;
   const miniMapNodeColor = useCallback((node: Node): string => {
     const data = node.data as FlowNode["data"] | undefined;
     const canvasNode = data?.node;
     const severity = severityByNodeId[node.id] as MemberSeverity | undefined;
-    if (canvasNode) return minimapFill(canvasNode, severity);
+    if (canvasNode) return minimapNodeColors(canvasNode, severity, seatRollups.get(node.id), ground).fill;
     return HUE.amber;
-  }, [severityByNodeId]);
+  }, [severityByNodeId, seatRollups, ground]);
+  const miniMapNodeStroke = useCallback((node: Node): string => {
+    const data = node.data as FlowNode["data"] | undefined;
+    const severity = severityByNodeId[node.id] as MemberSeverity | undefined;
+    return minimapNodeColors(data?.node, severity, seatRollups.get(node.id), ground).stroke;
+  }, [severityByNodeId, seatRollups, ground]);
 
   // Click = pan camera to that world point; double-click = zoom in on it.
   // Stock MiniMap onClick already yields flow coordinates.
@@ -1245,11 +1254,7 @@ function RtsMinimapStack() {
     <>
       <FactoryMinimap
         nodeColor={miniMapNodeColor}
-        nodeStrokeColor={(node) => {
-          const severity = severityByNodeId[node.id] as MemberSeverity | undefined;
-          if (severity && severity !== "idle") return signalMark(severity).hue;
-          return withAlpha(minimapTheme.ground!, 0.85);
-        }}
+        nodeStrokeColor={miniMapNodeStroke}
         nodeStrokeWidth={1.5}
         maskColor={withAlpha(minimapTheme.ground!, 0.72)}
         onClick={onMiniMapClick}
