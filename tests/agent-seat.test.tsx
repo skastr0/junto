@@ -56,6 +56,16 @@ describe("AgentSeatView line", () => {
     expect(line(seat({ health: { health: "good", line: "going well" } }))).toBe("AIgoing well");
   });
 
+  it("proven attention outranks the AI reading; the reading outranks done", () => {
+    const good = { health: "good" as const, line: "going well" };
+    expect(line(seat({ activity: terminalActivity({ seatState: "attention" }), health: good }))).toBe(
+      "wants your input",
+    );
+    expect(
+      line(seat({ activity: terminalActivity({ seatState: "idle", needsLook: true }), health: { line: "wants your input" } })),
+    ).toBe("AIwants your input");
+  });
+
   it("otherwise the control state in words", () => {
     expect(line(seat({ activity: terminalActivity({ seatState: "attention" }) }))).toBe("wants your input");
     expect(line(seat({ activity: terminalActivity({ seatState: "idle", needsLook: true }) }))).toBe(

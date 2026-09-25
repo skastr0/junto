@@ -46,6 +46,10 @@ const stateLine = (activity: ActivitySpec): { readonly text: string; readonly to
   return { text: activity.label };
 };
 
+/** The control state has proven a dialog or a stoppage: amber or crimson in flight. */
+const provenAttention = (activity: ActivitySpec): boolean =>
+  activity.mode === "wave" && (activity.tone === "amber" || activity.tone === "crimson");
+
 export type SeatHealth = {
   readonly health?: ThreadHealthTone;
   readonly value?: ThreadHealthValue;
@@ -64,7 +68,9 @@ export type SeatSignal = {
  * name, and one line beneath it. The ring is the seat's only status
  * instrument (control state, thread health, declared signal); the line says
  * the loudest of them in words: the seat's own signal first, then a spawn
- * failure, then the AI's reading (marked as such), then the control state.
+ * failure, then proven attention (needs input, blocked), then the AI's
+ * reading (marked as such; it outranks "done", which may really be
+ * waiting), then the control state.
  * Pure: `AgentSeat` feeds it from the live stores, the gallery from fixtures.
  */
 export function AgentSeatView({
@@ -106,6 +112,10 @@ export function AgentSeatView({
     );
   } else if (context) {
     line = <span className="text-amber">{context}</span>;
+  } else if (provenAttention(activity)) {
+    // Canonical attention always wins at presentation, as it does on the ring.
+    const state = stateLine(activity);
+    line = <span className={state.tone ? TONE_TEXT[state.tone] : "text-dim"}>{state.text}</span>;
   } else if (health.line) {
     // An AI reading, never the agent's own claim: a quiet prefix, dim ink.
     line = (
