@@ -641,3 +641,54 @@ describe("awareness request state", () => {
     expect(state.serializedBytes).toBe(Buffer.byteLength(JSON.stringify(state.wire), "utf8"));
   });
 });
+
+// ---------------------------------------------------------------------------
+// Composer exclusion: dialogs and history are evidence (2026-09-25)
+// ---------------------------------------------------------------------------
+
+describe("composer exclusion keeps dialogs and history", () => {
+  const permissionDialog = [
+    "⏺ Bash(rm -rf dist && bun run build)",
+    "",
+    "╭──────────────────────────────────────────────────────────────╮",
+    "│ Bash command                                                 │",
+    "│   rm -rf dist && bun run build                               │",
+    "│ Do you want to proceed?                                      │",
+    "│ ❯ 1. Yes                                                     │",
+    "│   2. Yes, and don't ask again for this command               │",
+    "│   3. No, and tell Claude what to do differently (esc)        │",
+    "╰──────────────────────────────────────────────────────────────╯",
+  ];
+
+  it("keeps a permission dialog drawn as a rounded box", () => {
+    expect(detectComposerExclusion(permissionDialog).rule).toBe("none");
+  });
+
+  it("still excludes a rounded box holding a numbered draft", () => {
+    // A draft may be a numbered list; with no question and no selection
+    // cursor it is still the operator's unsent text and never evidence.
+    const draft = [
+      "⏺ Ready for the next step.",
+      "╭──────────────────────────────────────────────╮",
+      "│ 1. rename the flag                           │",
+      "│ 2. then rerun the tests                      │",
+      "╰──────────────────────────────────────────────╯",
+    ];
+    expect(detectComposerExclusion(draft)).toEqual({ rule: "rounded_bottom_box", from: 1, to: 5 });
+  });
+
+  it("keeps an earlier operator message and the agent's reply below it", () => {
+    const lines = [
+      "⏺ I've updated the login page styles as requested.",
+      "> no, I asked you to fix the login rate limiter, not the page",
+      "⏺ Apologies, I misread that.",
+      "✻ Thinking… (esc to interrupt)",
+    ];
+    expect(detectComposerExclusion(lines).rule).toBe("none");
+  });
+
+  it("still excludes a draft on the bottom prompt glyph", () => {
+    const lines = ["⏺ Done.", "", "> please also update the chan"];
+    expect(detectComposerExclusion(lines)).toEqual({ rule: "bottom_prompt_glyph", from: 2, to: 3 });
+  });
+});

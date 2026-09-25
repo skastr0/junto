@@ -415,6 +415,28 @@ const ROUNDED_TOP_BORDER = /^\s*╭[─┴]/u;
 const ROUNDED_BODY_ROW = /^\s*│.*│\s*$/u;
 /** How far up a ruleless grid the glyph anchor is trusted. */
 const GLYPH_TAIL_LINES = 10;
+/** A numbered choice row ("  2. No"), optionally inside a box border. */
+const MENU_OPTION_ROW = /^\s*(?:│\s*)?(?:❯\s*)?\d+\.\s+\S/u;
+/** The highlighted choice: the selection cursor on a numbered row ("❯ 1. Yes"). */
+const MENU_CURSOR_ROW = /^\s*(?:│\s*)?❯\s*\d+\.\s+\S/u;
+/** The dialog's question ("Do you want to proceed?"), inside or outside a border. */
+const MENU_QUESTION_ROW = /\?\s*(?:│\s*)?$/u;
+/** A harness's own output bullet: agent text, never operator input. */
+const AGENT_OUTPUT_ROW = /^\s*⏺/u;
+
+/**
+ * A dialog asking for a choice: a question, a cursor on a numbered option, and
+ * at least one more numbered option. All three together, because a draft may
+ * hold a numbered list, and a draft must never be sent as evidence.
+ */
+const carriesMenu = (lines: readonly string[], from: number, to: number): boolean => {
+  const range = lines.slice(from, to);
+  return (
+    range.some((line) => MENU_CURSOR_ROW.test(line)) &&
+    range.filter((line) => MENU_OPTION_ROW.test(line)).length >= 2 &&
+    range.some((line) => MENU_QUESTION_ROW.test(line))
+  );
+};
 
 /**
  * The composer region of a grid tail — the lines that are input-box chrome or
@@ -435,6 +457,17 @@ const GLYPH_TAIL_LINES = 10;
  * is an input box: it holds the operator's draft, never an error report. So a
  * candidate range that carries a failure marker is not a composer, and the
  * exclusion declines rather than drop it.
+ *
+ * Two more measured exceptions (2026-09-25, thread-health calibration):
+ *   - a Claude Code permission dialog is a rounded box, so the rounded-box
+ *     branch dropped all of it ("Do you want to proceed?", "❯ 1. Yes") and the
+ *     approval question was asked with the dialog deleted. A composer holds a
+ *     draft, never a numbered menu, so a box carrying two or more option rows
+ *     is a dialog and the exclusion declines.
+ *   - an earlier operator message in history ("> no, I asked you to ...") sat
+ *     inside the glyph tail, and the glyph branch dropped it and every agent
+ *     line below it. The composer is always below the agent's output, so a
+ *     glyph line with an agent output bullet (⏺) under it is history.
  */
 export const detectComposerExclusion = (
   lines: readonly string[],
@@ -474,7 +507,12 @@ export const detectComposerExclusion = (
   if (bottom >= 0 && ROUNDED_BOTTOM_BORDER.test(lines[bottom]!)) {
     let top = bottom - 1;
     while (top >= 0 && ROUNDED_BODY_ROW.test(lines[top]!)) top -= 1;
-    if (top >= 0 && top < bottom - 1 && ROUNDED_TOP_BORDER.test(lines[top]!)) {
+    if (
+      top >= 0 &&
+      top < bottom - 1 &&
+      ROUNDED_TOP_BORDER.test(lines[top]!) &&
+      !carriesMenu(lines, top, bottom + 1)
+    ) {
       return { rule: "rounded_bottom_box", from: top, to: bottom + 1 };
     }
   }
@@ -482,6 +520,8 @@ export const detectComposerExclusion = (
   const tailStart = Math.max(0, lines.length - GLYPH_TAIL_LINES);
   for (let i = lines.length - 1; i >= tailStart; i -= 1) {
     if (PROMPT_GLYPH_LINE.test(lines[i]!)) {
+      const history = lines.slice(i + 1).some((line) => AGENT_OUTPUT_ROW.test(line));
+      if (history) return none;
       return { rule: "bottom_prompt_glyph", from: i, to: lines.length };
     }
   }
