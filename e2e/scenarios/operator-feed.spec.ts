@@ -9,7 +9,7 @@
  *   - ⌘I opens a calm empty feed when nobody is waiting
  *   - open signals group under their region, most urgent region first
  *   - the top bar entry carries the live count
- *   - j selects, Enter opens the inline reply, Esc closes the reply then the feed
+ *   - j / k move the selection, Enter opens the inline reply, Esc closes the reply then the feed
  *   - an answered signal leaves the feed
  */
 import { mkdir } from "node:fs/promises";
@@ -121,8 +121,11 @@ test("the operator feed lists every seat waiting on the operator, by region", as
     await blocked.getByRole("button", { name: "details" }).click();
     await expect(blocked.locator(".operator-feed__detail")).toContainText("tried the read replica");
 
-    // j selects the first card; Enter opens its reply; Esc closes the reply first.
+    // Touching a card selects it; j / k move; Enter opens the reply; Esc closes the reply first.
+    await expect(blocked).toHaveAttribute("aria-current", "true");
     await page.keyboard.press("j");
+    await expect(feed.locator("[data-item-id='signal:sig-escalate']")).toHaveAttribute("aria-current", "true");
+    await page.keyboard.press("k");
     await expect(blocked).toHaveAttribute("aria-current", "true");
     await page.keyboard.press("Enter");
     await expect(blocked.getByLabel("Your reply")).toBeVisible();
