@@ -61,6 +61,7 @@ import type { UpdateApi } from "./update";
 import type { PreambleEvent } from "./preamble";
 import type { WireTrafficEvent } from "./wire-traffic";
 import type { AgentSignal } from "./agent-signals";
+import type { Squad, SquadDeleteResult, SquadResult, SquadSaveInput, SquadsChanged } from "./squads";
 import type { OverseerLiveApi } from "./overseer-live";
 import type { HostDeployJobSnapshot } from "./deploy-job";
 import type {
@@ -114,6 +115,12 @@ export const IPC_CHANNELS = {
   agentSignalRespond: "junto:agent-signal-respond",
   agentSignalDismiss: "junto:agent-signal-dismiss",
   agentSignal: "junto:agent-signal",
+  /** Squads: list, save (create or replace), rename, delete, live list push. */
+  squadsList: "junto:squads-list",
+  squadSave: "junto:squad-save",
+  squadRename: "junto:squad-rename",
+  squadDelete: "junto:squad-delete",
+  squadsChanged: "junto:squads-changed",
   chatOpen: "junto:chat-open",
   chatPrompt: "junto:chat-prompt",
   chatPermission: "junto:chat-permission",
@@ -648,6 +655,12 @@ export interface JuntoApi extends UpdateApi, OverseerLiveApi {
   ) => Promise<AgentSignalOperatorResult>;
   /** Close an open signal without mail. */
   readonly agentSignalDismiss: (signalId: string) => Promise<AgentSignalOperatorResult>;
+  /** The operator's squads (reusable seat templates), by name. */
+  readonly squadsList: () => Promise<ReadonlyArray<Squad>>;
+  /** Create a squad (no id) or replace one's name and template. */
+  readonly squadSave: (input: SquadSaveInput) => Promise<SquadResult>;
+  readonly squadRename: (squadId: string, name: string) => Promise<SquadResult>;
+  readonly squadDelete: (squadId: string) => Promise<SquadDeleteResult>;
   readonly factoryPauseSet: (
     canvas: string,
     scope: PauseScope,
@@ -838,6 +851,8 @@ export interface JuntoApi extends UpdateApi, OverseerLiveApi {
   readonly onWireTraffic?: (listener: (event: WireTrafficEvent) => void) => () => void;
   /** Main → renderer: a signal as it now stands (upsert by signalId). */
   readonly onAgentSignal: (listener: (signal: AgentSignal) => void) => () => void;
+  /** Main → renderer: every squad, after any change. Optional for older bridges. */
+  readonly onSquadsChanged?: (listener: (event: SquadsChanged) => void) => () => void;
   readonly onSnapshotsChanged: (listener: (state: SnapshotState) => void) => () => void;
   readonly onKernelChanged: (listener: (snapshot: KernelSnapshot) => void) => () => void;
   // User settings document (main owns the SQLite row; renderer holds a live projection).
