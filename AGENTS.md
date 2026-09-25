@@ -237,7 +237,7 @@ Edges: `{ "id", "fromNode", "toNode", "ether": { "verb": Verb } }`.
 |---|---|---|
 | agent → agent | `messages` \| `reviews` | msg ports; or directed `verdict.post` |
 | agent → task | `manages` \| `contributes` | task ports (`contributes` adds `tasks.claim`) |
-| agent → requests | `escalates` | `request.escalate` + msg ports |
+| agent → requests | `escalates` | msg ports (raising a hand is the universal `junto escalate`, `blocked`, `feedback`) |
 | agent → artifacts | `publishes` | `artifact.publish` |
 | agent → board | `messages` \| `participates` | board ports; `wake` false / true |
 | agent → pad | `reads` \| `edits` | `pad.read` (`edits` adds `pad.patch`) |

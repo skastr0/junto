@@ -584,6 +584,30 @@ Process binding is automatic attribution of a live process to a seat. It must
 not grow into a user-facing enable ceremony or be described as same-user
 malware containment.
 
+### The one universal capability: agent signals
+
+Raising a hand to the operator is the single deliberate exception to "edges
+are grants", made at the operator's request. Every canvas agent seat may run
+`junto escalate`, `junto blocked`, and `junto feedback`, read its own signals
+and their answers (`junto signal list`), and withdraw its own open signal
+(`junto signal clear`), with no edge, port, or task.
+
+The exception is narrow by construction:
+
+- a signal names no target. The caller is the process-bound seat, and it can
+  raise, read, or withdraw only its own signals;
+- a signal is a durable claim for the operator's eyes (`agent_signals` in
+  `junto.db`). It confers no reach, wakes no other seat, and authors nothing
+  on the canvas;
+- only the operator answers or dismisses. An answer reaches the seat as
+  operator mail through the ordinary delivery path, never as a new grant;
+- a signal is the agent's own claim. Advisory thread-health readings are a
+  separate axis and are never merged into it.
+
+Signals replaced the edge-granted `request.escalate` operation. The
+`escalates` edge verb stays decodable for stored canvases and grants only its
+request thread's messaging.
+
 ### Revocation and deletion
 
 On every reachable runtime, edge deletion or restriction affects the next
