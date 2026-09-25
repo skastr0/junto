@@ -4,11 +4,13 @@ import { Eyebrow } from "./Eyebrow";
 /**
  * Overlay header — the one chrome header for every work-surface panel
  * (terminal, browser, detail readers). Structure:
- *   eyebrow (context hints) / title / status line ----- actions
+ *   [leading] eyebrow (context hints) / title / status line ----- actions
+ * `leading` is an identity mark (agent portrait) set left of the text block.
  * Replaces the cloned browser-modal-header blocks and
  * gives surfaces like the native terminal the same face.
  */
 export function OverlayHeader({
+  leading,
   eyebrow,
   title,
   status,
@@ -16,6 +18,7 @@ export function OverlayHeader({
   className,
   ...rest
 }: {
+  readonly leading?: ReactNode;
   readonly eyebrow?: ReactNode;
   readonly title: ReactNode;
   readonly status?: ReactNode;
@@ -32,7 +35,8 @@ export function OverlayHeader({
         .join(" ")}
       {...rest}
     >
-      <div className="min-w-0">
+      {leading ? <div className="flex shrink-0 items-center">{leading}</div> : null}
+      <div className="min-w-0 flex-1">
         {eyebrow ? <Eyebrow tone="steel">{eyebrow}</Eyebrow> : null}
         <div className="truncate font-mono text-[14px] font-semibold text-ink">{title}</div>
         {status ? <div className="mt-0.5 truncate text-[11px] text-dim">{status}</div> : null}
