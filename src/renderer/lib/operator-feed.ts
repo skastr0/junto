@@ -58,12 +58,14 @@ export const operatorFeedFor = (
 export const useOperatorFeed = (): OperatorFeed => {
   const canvasName = use$(state$.canvasName);
   const doc = use$(state$.doc);
-  const signals = use$(agentSignals$);
+  // A fresh list on every change: the store mutates in place, so its own
+  // identity would never move the memo below.
+  const signals = use$(() => Object.values(agentSignals$.get()));
   const seatRev = use$(agentSeat$.rev);
   const awarenessRev = use$(seatAwareness$.rev);
   const now = useHealthClock();
   return useMemo(
-    () => operatorFeedFor(canvasName, doc, Object.values(signals), now),
+    () => operatorFeedFor(canvasName, doc, signals, now),
     // Seat and awareness stores mutate in place; their revs carry the change.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [canvasName, doc, signals, seatRev, awarenessRev, now],
