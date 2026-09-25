@@ -4,6 +4,7 @@ import {
   type SQLOutputValue,
 } from "node:sqlite";
 import { STATE_SCHEMA_SQL } from "./schema";
+import { AGENT_SIGNALS_STATE_SCHEMA_SQL } from "../signals/state-schema";
 import {
   actualStateSchemaSha256,
   expectedStateSchemaIdentity,
@@ -112,7 +113,16 @@ export const STATE_SCHEMA_V2_IDENTITY = {
     "a28acec6845e2cd35e9b22e5e1d29eac754674fbe9401f77339d94f42bfbddd1",
 } as const satisfies VerifiedStateSchemaIdentity;
 
-export const CURRENT_STATE_SCHEMA_VERSION = 2;
+/**
+ * Version 3 adds agent signals: a seat's durable escalate, blocked, or
+ * feedback claim waiting for the operator's response.
+ */
+export const STATE_SCHEMA_V3_IDENTITY = {
+  actualSchemaSha256:
+    "59a9fd4f9c230fc9e03b340320bc34e8c6c5fbfd7c5646353f35bab11bf9146d",
+} as const satisfies VerifiedStateSchemaIdentity;
+
+export const CURRENT_STATE_SCHEMA_VERSION = 3;
 
 /**
  * Stable alias for the head identity so tests and tooling never rename an
@@ -120,7 +130,7 @@ export const CURRENT_STATE_SCHEMA_VERSION = 2;
  * above after any schema change.
  */
 export const CURRENT_STATE_SCHEMA_IDENTITY: VerifiedStateSchemaIdentity =
-  STATE_SCHEMA_V2_IDENTITY;
+  STATE_SCHEMA_V3_IDENTITY;
 
 /**
  * Junto version 1 is composed fresh and adopted, never reached by chain; each
@@ -141,6 +151,16 @@ export const STATE_SCHEMA_MIGRATIONS: ReadonlyArray<StateSchemaMigration> = [
         DROP TABLE work_mail_attempts;
         DROP TABLE work_mail_notice_fallback;
       `);
+    },
+  },
+  {
+    fromVersion: 2,
+    toVersion: 3,
+    name: "add agent signals",
+    safety: STATE_SCHEMA_MIGRATION_SAFETY,
+    fromIdentity: STATE_SCHEMA_V2_IDENTITY,
+    migrate: (database) => {
+      database.exec(AGENT_SIGNALS_STATE_SCHEMA_SQL);
     },
   },
 ];

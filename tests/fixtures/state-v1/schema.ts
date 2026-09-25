@@ -1,10 +1,19 @@
 /**
- * The frozen version-1 state schema. Version 2 dropped the mail delivery
- * ledger (state migration 1 -> 2), so version 1 is the current schema plus
- * that ledger's DDL, exactly as it shipped. Tests build version-1 databases
- * from this to prove the step.
+ * The frozen version-1 and version-2 state schemas. Version 3 added agent
+ * signals (2 -> 3), so version 2 is the current composition without that
+ * fragment. Version 2 dropped the mail delivery ledger (1 -> 2), so version 1
+ * is version 2 plus that ledger's DDL, exactly as it shipped. Tests build
+ * historical databases from these to prove each step.
  */
-import { STATE_SCHEMA_SQL } from "../../../src/main/junto/state/schema";
+import { STATE_SCHEMA_FRAGMENTS } from "../../../src/main/junto/state/schema";
+import { AGENT_SIGNALS_STATE_SCHEMA_SQL } from "../../../src/main/junto/signals/state-schema";
+import { withoutProposalStorage } from "../../../src/main/junto/work/state-schema";
+
+export const STATE_SCHEMA_V2_SQL = withoutProposalStorage(
+  STATE_SCHEMA_FRAGMENTS.filter(
+    (fragment) => fragment !== AGENT_SIGNALS_STATE_SCHEMA_SQL,
+  ).join("\n"),
+);
 
 const MAIL_LEDGER_V1_SQL = `
   CREATE TABLE IF NOT EXISTS work_mail_attempts (
@@ -118,4 +127,4 @@ const MAIL_LEDGER_V1_SQL = `
     END;
 `;
 
-export const STATE_SCHEMA_V1_SQL = `${STATE_SCHEMA_SQL}\n${MAIL_LEDGER_V1_SQL}`;
+export const STATE_SCHEMA_V1_SQL = `${STATE_SCHEMA_V2_SQL}\n${MAIL_LEDGER_V1_SQL}`;
