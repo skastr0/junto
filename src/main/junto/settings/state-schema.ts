@@ -7,6 +7,7 @@ import {
   CanvasSettings,
   FleetSettings,
   HarnessesSettings,
+  PortraitsSettings,
   KernelSettings,
   LiveSettings,
   ProvidersSettings,
@@ -15,6 +16,7 @@ import {
   StationSettings,
   TerminalSettings,
   defaultHarnesses,
+  defaultPortraits,
   defaultLive,
   defaultProviders,
   defaultTerminal,
@@ -66,6 +68,8 @@ export const StoredSettingsPreferences = Schema.Struct({
   live: Schema.optionalKey(LiveSettings),
   /** Absent on rows written before the Providers settings surface. */
   providers: Schema.optionalKey(ProvidersSettings),
+  /** Absent on rows written before the character editor. */
+  portraits: Schema.optionalKey(PortraitsSettings),
 });
 export type StoredSettingsPreferences =
   typeof StoredSettingsPreferences.Type;
@@ -119,6 +123,7 @@ export const preferencesFromSettings = (
   terminal: settings.terminal ?? defaultTerminal(),
   live: settings.live ?? defaultLive(),
   providers: persistableProviders(settings.providers, options),
+  portraits: settings.portraits ?? defaultPortraits(),
 });
 
 // Decode-admits-history: rows written before the theme rename may carry the
@@ -188,6 +193,7 @@ export const decodeStoredSettings = (
     terminal: prefs.terminal ?? defaultTerminal(),
     live: prefs.live ?? defaultLive(),
     providers: prefs.providers ?? defaultProviders(),
+    portraits: prefs.portraits ?? defaultPortraits(),
     station: decodedTopology.success,
   };
 };
