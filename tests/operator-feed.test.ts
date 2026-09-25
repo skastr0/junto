@@ -128,6 +128,17 @@ describe("buildOperatorFeed", () => {
     expect(bItem?.health).toMatchObject({ value: "waiting_on_operator", tone: "waiting", stale: false });
   });
 
+  it("lets the producer's freshness judgment override the TTL", () => {
+    const old = reading("waiting_on_operator", NOW - 9 * 60_000);
+    const feed = buildOperatorFeed({
+      canvasName: "main",
+      nowMs: NOW,
+      seats: seats({ a: { health: old, healthFresh: true }, b: { health: reading("waiting_on_operator", NOW), healthFresh: false } }),
+      signals: [],
+    });
+    expect(feed.sections.flatMap((s) => s.items.map((i) => i.seat.nodeId))).toEqual(["a"]);
+  });
+
   it("never lets health change a declared item's kind or urgency", () => {
     const feed = buildOperatorFeed({
       canvasName: "main",

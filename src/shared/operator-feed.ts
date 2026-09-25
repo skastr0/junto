@@ -121,6 +121,11 @@ export type FeedSeatInput = {
   /** Proven control state: the seat's screen wants input. */
   readonly attention?: { readonly reason: string; readonly at: number };
   readonly health?: ThreadHealthReading;
+  /**
+   * Freshness judged by the producer (the desktop compares screen digests).
+   * Absent, the reading is fresh while inside THREAD_HEALTH_TTL_MS.
+   */
+  readonly healthFresh?: boolean;
 };
 
 export type OperatorFeedInput = {
@@ -147,7 +152,7 @@ export const feedSeatsFromDoc = (
   options: {
     readonly nameOf: (node: CanvasNode) => string;
     readonly attentionByNodeId?: ReadonlyMap<string, { readonly reason: string; readonly at: number }>;
-    readonly healthByNodeId?: ReadonlyMap<string, ThreadHealthReading>;
+    readonly healthByNodeId?: ReadonlyMap<string, { readonly reading: ThreadHealthReading; readonly fresh?: boolean }>;
   },
 ): ReadonlyArray<FeedSeatInput> =>
   doc.nodes
@@ -165,19 +170,24 @@ export const feedSeatsFromDoc = (
         },
         region: feedRegionFor(doc, node.id),
         ...(attention ? { attention } : {}),
-        ...(health ? { health } : {}),
+        ...(health ? { health: health.reading } : {}),
+        ...(health?.fresh !== undefined ? { healthFresh: health.fresh } : {}),
       };
     });
 
 // --- projection -------------------------------------------------------------
 
-const feedHealth = (reading: ThreadHealthReading, nowMs: number): FeedHealth => ({
+const healthFresh = (entry: FeedSeatInput, nowMs: number): boolean =>
+  entry.healthFresh ??
+  (entry.health !== undefined && nowMs - entry.health.observedAt <= THREAD_HEALTH_TTL_MS);
+
+const feedHealth = (entry: FeedSeatInput, reading: ThreadHealthReading, nowMs: number): FeedHealth => ({
   value: reading.value,
   tone: THREAD_HEALTH_TONE[reading.value],
   label: THREAD_HEALTH_LABEL[reading.value],
   confidence: reading.confidence,
   observedAt: reading.observedAt,
-  stale: nowMs - reading.observedAt > THREAD_HEALTH_TTL_MS,
+  stale: !healthFresh(entry, nowMs),
 });
 
 /** Proven attention, said the way the seat card says it. */
@@ -205,7 +215,7 @@ export const buildOperatorFeed = (input: OperatorFeedInput): OperatorFeed => {
       seat: entry.seat,
       region: entry.region,
       ageMs: Math.max(0, nowMs - item.since),
-      ...(entry.health ? { health: feedHealth(entry.health, nowMs) } : {}),
+      ...(entry.health ? { health: feedHealth(entry, entry.health, nowMs) } : {}),
     });
   };
 
@@ -240,7 +250,7 @@ export const buildOperatorFeed = (input: OperatorFeedInput): OperatorFeed => {
     const reading = entry.health;
     if (!reading || listed.has(entry.seat.nodeId)) continue;
     if (reading.value !== "waiting_on_operator") continue;
-    if (nowMs - reading.observedAt > THREAD_HEALTH_TTL_MS) continue;
+    if (!healthFresh(entry, nowMs)) continue;
     push(entry, {
       itemId: `health:${entry.seat.nodeId}:${reading.provenance.assessmentId}`,
       kind: "health",
