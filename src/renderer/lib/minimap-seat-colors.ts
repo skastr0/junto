@@ -13,19 +13,23 @@
 import { useMemo } from "react";
 import { use$ } from "@legendapp/state/react";
 import type { CanvasNode } from "@shared/canvas";
+import { groupMembers } from "@shared/graph";
 import type { AgentSignalKind, SeatSignalRollup } from "@shared/agent-signals";
 import type { MemberSeverity } from "@shared/region-rollup";
 import { bindingIdForNode } from "./agent-seat-state";
 import { seatSignalRollups$ } from "./agent-signals-state";
 import { activityToneHex, minimapFill, signalMark } from "./signal-mark";
 import { seatAwareness$ } from "./seat-awareness";
-import { seatRollup, type SeatRollup, type SeatRollupTone } from "./seat-rollup";
+import { seatRollup, worseRollup, type SeatRollup, type SeatRollupTone } from "./seat-rollup";
 import { state$ } from "./state";
 import { threadHealthMark, threadHealthView, useHealthClock } from "./thread-health";
 import { withAlpha } from "./theme";
 
 /** A faded Jev reading, as the ring draws it. */
 const STALE_FILL_ALPHA = 0.45;
+/** A region is a tint of its worst member, never a solid block over them. */
+const REGION_FILL_ALPHA = 0.3;
+const STALE_REGION_FILL_ALPHA = 0.16;
 
 const isAgentSeat = (node: CanvasNode): boolean =>
   node.type !== "group" && node.ether?.entity?.kind === "agent";
@@ -41,6 +45,9 @@ export const minimapNodeColors = (
 ): { readonly fill: string; readonly stroke: string } => {
   if (seat !== undefined) {
     const hue = rollupToneHex(seat.tone);
+    if (node?.type === "group") {
+      return { fill: withAlpha(hue, seat.stale ? STALE_REGION_FILL_ALPHA : REGION_FILL_ALPHA), stroke: hue };
+    }
     return { fill: seat.stale ? withAlpha(hue, STALE_FILL_ALPHA) : hue, stroke: hue };
   }
   return {
@@ -49,7 +56,12 @@ export const minimapNodeColors = (
   };
 };
 
-/** Every agent seat's rollup at `now`, from the three stores' current values. */
+/**
+ * Every agent seat's rollup at `now`, from the three stores' current values,
+ * plus each region that holds at least one: the worse of the region's own
+ * control severity and its worst member seat (membership is the canvas's own,
+ * full-rect containment). A region with no rolled-up seat keeps its colours.
+ */
 export const seatRollupsForNodes = (
   nodes: ReadonlyArray<CanvasNode>,
   input: {
@@ -76,6 +88,17 @@ export const seatRollupsForNodes = (
     });
     if (rollup !== undefined) out.set(node.id, rollup);
   }
+  if (out.size === 0) return out;
+  const regions = new Map<string, SeatRollup>();
+  // Membership reads only the nodes; the rest of the document is not needed.
+  for (const [regionId, memberIds] of groupMembers({ nodes } as Parameters<typeof groupMembers>[0])) {
+    let worst: SeatRollup | undefined;
+    for (const id of memberIds) worst = worseRollup(worst, out.get(id));
+    if (worst === undefined) continue;
+    const own = seatRollup({ control: input.severityByNodeId[regionId] as MemberSeverity | undefined });
+    regions.set(regionId, worseRollup(own, worst)!);
+  }
+  for (const [id, rollup] of regions) out.set(id, rollup);
   return out;
 };
 

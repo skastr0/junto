@@ -150,5 +150,21 @@ describe("seatRollupsForNodes", () => {
     expect(rollups.get("thrash")).toMatchObject({ source: "health", tone: "amber", reason: "AI reads thrashing" });
     expect(rollups.get("busy")).toMatchObject({ source: "control", tone: "cyan" });
     expect(rollups.has("quiet")).toBe(false);
+
+    // A region takes its worst member seat, as a tint, and a region with no
+    // rolled-up seat keeps its own colours.
+    const region = (id: string, x: number): CanvasNode =>
+      ({ id, type: "group", label: id, x, y: -50, width: 600, height: 400 }) as unknown as CanvasNode;
+    const tinted = seatRollupsForNodes([...nodes, region("zone", -50), region("empty", 5_000)], {
+      now,
+      severityByNodeId: { thrash: "working", busy: "working", zone: "working" },
+      signalsByNodeId: {},
+      bindingOf: (node) => node.ether?.terminal?.bindingId,
+    });
+    expect(tinted.get("zone")).toMatchObject({ tone: "amber", source: "health" });
+    expect(tinted.has("empty")).toBe(false);
+    const colors = minimapNodeColors(region("zone", -50), "working", tinted.get("zone"), "#101010");
+    expect(colors.stroke).toBe(HUE.amber);
+    expect(colors.fill).not.toBe(HUE.amber);
   });
 });
