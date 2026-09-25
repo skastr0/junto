@@ -21,7 +21,7 @@ import {
   expectedStateSchemaIdentity,
   verifyRecordedStateSchemaIdentity,
 } from "../src/main/junto/state/schema-identity";
-import { STATE_SCHEMA_V3_SQL } from "./fixtures/state-v1/schema";
+import { STATE_SCHEMA_V3_SQL, STATE_SCHEMA_V4_SQL } from "./fixtures/state-v1/schema";
 
 const fixture = fileURLToPath(
   new URL("./fixtures/state-v1/command-center-v1.db", import.meta.url),
@@ -74,6 +74,13 @@ const versionThreePlan = {
   migrations: STATE_SCHEMA_MIGRATIONS.filter((step) => step.toVersion <= 3),
 };
 
+const versionFourPlan = {
+  ...STATE_SCHEMA_MIGRATION_PLAN,
+  currentVersion: 4,
+  currentSchemaSql: STATE_SCHEMA_V4_SQL,
+  migrations: STATE_SCHEMA_MIGRATIONS.filter((step) => step.toVersion <= 4),
+};
+
 describe("state migration 3 -> 4 (squads)", () => {
   it("freezes the version-three witness the step starts from", () => {
     expect(expectedStateSchemaIdentity(STATE_SCHEMA_V3_SQL)).toEqual(
@@ -90,7 +97,7 @@ describe("state migration 3 -> 4 (squads)", () => {
       expect((before.work_events as unknown[]).length).toBeGreaterThan(0);
       expect(before).not.toHaveProperty("squads");
 
-      const result = migrateStateSchema(database);
+      const result = migrateStateSchema(database, versionFourPlan);
       expect(result).toMatchObject({ previousVersion: 3, schemaVersion: 4 });
       expect(verifyRecordedStateSchemaIdentity(database)).toMatchObject(
         STATE_SCHEMA_V4_IDENTITY,

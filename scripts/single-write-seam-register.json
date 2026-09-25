@@ -211,6 +211,23 @@
       "retire": "IN-MEMORY WORLD: retire when the in-memory factory world owns the projection and this file's only write is the journal append."
     },
     {
+      "path": "src/main/junto/portraits/repository.ts",
+      "kind": "debt",
+      "tables": [
+        "portrait_overrides"
+      ],
+      "reason": "Portrait-override seam: the operator's per-seat character customization from the character editor.",
+      "retire": "IN-MEMORY WORLD: retire when the in-memory factory world owns the projection and this file's only write is the journal append."
+    },
+    {
+      "path": "src/main/junto/portraits/state-schema.ts",
+      "kind": "permanent",
+      "tables": [
+        "portrait_overrides"
+      ],
+      "reason": "Frozen copy-forward SQL for state migration 4 -> 5: seeds portrait_overrides from the settings row's portraits.bySeat inside the migration transaction."
+    },
+    {
       "path": "src/main/junto/content/manifest.ts",
       "kind": "debt",
       "tables": [
@@ -526,6 +543,15 @@
       ],
       "reason": "SettingsService owns the live product row. backup.ts writes the same table name only in its private pending backup copy to remove inline provider secrets before publication; it never rewrites the source database.",
       "retire": "Remove the backup-copy writer and this table-name exception once every supported input schema guarantees preferences contain no inline provider secrets."
+    },
+    {
+      "table": "portrait_overrides",
+      "owner": "src/main/junto/portraits/repository.ts",
+      "alsoWrittenBy": [
+        "src/main/junto/portraits/state-schema.ts"
+      ],
+      "reason": "The 4 -> 5 state migration seeds the table once, inside the migration transaction, from the settings row's deprecated portraits.bySeat copy. Every runtime write goes through the repository.",
+      "retire": "When a later consolidate step retires the settings portraits copy, drop the copy-forward SQL from state-schema.ts (the shipped step keeps its own frozen string) and remove this exception."
     }
   ],
   "decodeBoundaries": [

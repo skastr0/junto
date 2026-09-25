@@ -7,6 +7,10 @@ import { STATE_SCHEMA_SQL } from "./schema";
 import { AGENT_SIGNALS_STATE_SCHEMA_SQL } from "../signals/state-schema";
 import { SQUADS_STATE_SCHEMA_SQL } from "../squads/state-schema";
 import {
+  PORTRAIT_OVERRIDES_COPY_FORWARD_SQL,
+  PORTRAIT_OVERRIDES_STATE_SCHEMA_SQL,
+} from "../portraits/state-schema";
+import {
   actualStateSchemaSha256,
   expectedStateSchemaIdentity,
   isFreshStateSchema,
@@ -132,7 +136,16 @@ export const STATE_SCHEMA_V4_IDENTITY = {
     "97562129f02960699181a455e453f0bc38164717bf8afc06006cd820c9d75bbc",
 } as const satisfies VerifiedStateSchemaIdentity;
 
-export const CURRENT_STATE_SCHEMA_VERSION = 4;
+/**
+ * Version 5 adds portrait overrides: per-seat character customization, moved
+ * out of the size-capped settings row (copied forward, settings copy kept).
+ */
+export const STATE_SCHEMA_V5_IDENTITY = {
+  actualSchemaSha256:
+    "062a8908004842d3c82922717802abdc487c5d6bee28b99e9d8dc72c7ec83f2d",
+} as const satisfies VerifiedStateSchemaIdentity;
+
+export const CURRENT_STATE_SCHEMA_VERSION = 5;
 
 /**
  * Stable alias for the head identity so tests and tooling never rename an
@@ -140,7 +153,7 @@ export const CURRENT_STATE_SCHEMA_VERSION = 4;
  * above after any schema change.
  */
 export const CURRENT_STATE_SCHEMA_IDENTITY: VerifiedStateSchemaIdentity =
-  STATE_SCHEMA_V4_IDENTITY;
+  STATE_SCHEMA_V5_IDENTITY;
 
 /**
  * Junto version 1 is composed fresh and adopted, never reached by chain; each
@@ -181,6 +194,19 @@ export const STATE_SCHEMA_MIGRATIONS: ReadonlyArray<StateSchemaMigration> = [
     fromIdentity: STATE_SCHEMA_V3_IDENTITY,
     migrate: (database) => {
       database.exec(SQUADS_STATE_SCHEMA_SQL);
+    },
+  },
+  {
+    fromVersion: 4,
+    toVersion: 5,
+    name: "add portrait overrides",
+    safety: STATE_SCHEMA_MIGRATION_SAFETY,
+    fromIdentity: STATE_SCHEMA_V4_IDENTITY,
+    // Expand and preserve: the new table takes a copy of every seat override
+    // the settings row holds; the settings row itself is left untouched.
+    migrate: (database) => {
+      database.exec(PORTRAIT_OVERRIDES_STATE_SCHEMA_SQL);
+      database.prepare(PORTRAIT_OVERRIDES_COPY_FORWARD_SQL).run(Date.now());
     },
   },
 ];
