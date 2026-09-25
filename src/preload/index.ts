@@ -46,6 +46,7 @@ import {
 } from "@shared/features";
 import type { SnapshotState } from "@shared/entities";
 import type { PreambleEvent } from "@shared/preamble";
+import type { AgentSignal } from "@shared/agent-signals";
 import type { Settings, SettingsOpResult, SettingsPatch, SettingsSectionKey } from "@shared/settings";
 import type { UsageState } from "@shared/usage";
 import type { UpdateStatus } from "@shared/update";
@@ -438,6 +439,12 @@ const juntoApi: Omit<JuntoApi, keyof typeof liveApi | WorkFeatureApiKey> = {
   getKernelState: () => invoke<KernelSnapshot>(IPC_CHANNELS.getKernelState, IPC_TIMEOUT_MS),
   factoryPauseState: (canvas) =>
     invoke(IPC_CHANNELS.factoryPauseState, IPC_TIMEOUT_MS, canvas),
+  agentSignalsList: (canvas) =>
+    invoke(IPC_CHANNELS.agentSignalsList, IPC_TIMEOUT_MS, canvas),
+  agentSignalRespond: (signalId, text) =>
+    invoke(IPC_CHANNELS.agentSignalRespond, IPC_TIMEOUT_MS, signalId, text),
+  agentSignalDismiss: (signalId) =>
+    invoke(IPC_CHANNELS.agentSignalDismiss, IPC_TIMEOUT_MS, signalId),
   factoryPauseSet: (canvas, scope, paused) =>
     invoke(IPC_CHANNELS.factoryPauseSet, IPC_TIMEOUT_MS, canvas, scope, paused),
   regionRollups: (name) =>
@@ -457,6 +464,7 @@ const juntoApi: Omit<JuntoApi, keyof typeof liveApi | WorkFeatureApiKey> = {
   onCanvasQuiesceAndFlushRequested,
   onCanvasChanged: (listener) => subscribe<string>(IPC_CHANNELS.canvasChanged, listener),
   onPreamble: (listener) => subscribe<PreambleEvent>(IPC_CHANNELS.preamble, listener),
+  onAgentSignal: (listener) => subscribe<AgentSignal>(IPC_CHANNELS.agentSignal, listener),
   onSnapshotsChanged: (listener) =>
     subscribe<SnapshotState>(IPC_CHANNELS.snapshotsChanged, listener),
   onKernelChanged: (listener) => subscribe<KernelSnapshot>(IPC_CHANNELS.kernelChanged, listener),

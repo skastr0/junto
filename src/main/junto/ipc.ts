@@ -3,6 +3,7 @@ import { Effect, Schema } from "effect";
 import {
   IPC_CHANNELS,
   type BindingHint,
+  type AgentSignalOperatorResult,
   type FactoryPauseSetResult,
   type WorkOpResult,
 } from "@shared/ipc";
@@ -52,6 +53,12 @@ import { UsageService } from "./usage/usage-service";
 import { WorkService } from "./work/service";
 import { ContentService } from "./content/service";
 import { messageDelivery } from "./work/message-delivery";
+import { AgentSignalRepository } from "./signals/repository";
+import {
+  answerAgentSignal,
+  dismissAgentSignal,
+  listCanvasAgentSignals,
+} from "./signals/operator";
 import { mailboxMessageDeliveryId } from "./work/mailbox-receipts";
 import { onCanvasChangeForEdgeMap } from "./work/edge-map-notify";
 import { WorkRepository } from "./work/repository";
@@ -635,6 +642,46 @@ export const registerJuntoIpc = (): void => {
             : "collaboration request could not be sent",
       }));
     },
+  );
+
+  // Agent signals: the operator reads every seat's claim on a canvas, answers
+  // one (typed into the seat as operator mail, then marked answered), or
+  // dismisses it. Every change is broadcast as the signal now stands.
+  privilegedIpc.handle(IPC_CHANNELS.agentSignalsList, (_event, canvas: string) =>
+    AppRuntime.runPromise(listCanvasAgentSignals(canvas)),
+  );
+  const runSignalOperator = (
+    label: MainAuthoringLabel,
+    program: Effect.Effect<AgentSignalOperatorResult, never, AgentSignalRepository | WorkService>,
+  ): Promise<AgentSignalOperatorResult> =>
+    runMainAuthoring(label, () => AppRuntime.runPromise(program))
+      .then((result) => {
+        if (result.ok) broadcast(IPC_CHANNELS.agentSignal, result.signal);
+        return result;
+      })
+      .catch((error: unknown) => ({
+        ok: false as const,
+        message: error instanceof Error ? error.message : "signal update failed",
+      }));
+  privilegedIpc.handle(
+    IPC_CHANNELS.agentSignalRespond,
+    async (_event, signalId: string, text: string) => {
+      const result = await runSignalOperator(
+        "ipc.work.signal-answer",
+        answerAgentSignal(String(signalId), String(text)),
+      );
+      // The answer is durable mail now; typing it into the seat follows the
+      // ordinary delivery path (at once when live, else when it comes up).
+      if (result.ok && result.messageId !== undefined) {
+        void messageDelivery
+          .deliver(result.signal.canvasName, result.signal.nodeId, result.messageId)
+          .catch(() => undefined);
+      }
+      return result;
+    },
+  );
+  privilegedIpc.handle(IPC_CHANNELS.agentSignalDismiss, (_event, signalId: string) =>
+    runSignalOperator("ipc.work.signal-dismiss", dismissAgentSignal(String(signalId))),
   );
 
   // Factory pause plane — canvas-level switch. start is idempotent hydration,

@@ -59,6 +59,7 @@ import type {
 } from "./state-recovery";
 import type { UpdateApi } from "./update";
 import type { PreambleEvent } from "./preamble";
+import type { AgentSignal } from "./agent-signals";
 import type { OverseerLiveApi } from "./overseer-live";
 import type { HostDeployJobSnapshot } from "./deploy-job";
 import type {
@@ -72,6 +73,10 @@ export type {
   ObservabilityQuery,
   ObservabilitySnapshot,
 } from "./observability";
+
+export type AgentSignalOperatorResult =
+  | { readonly ok: true; readonly signal: AgentSignal; readonly messageId?: string }
+  | { readonly ok: false; readonly message: string };
 
 export const IPC_CHANNELS = {
   liveStart: "junto:live-start",
@@ -101,6 +106,11 @@ export const IPC_CHANNELS = {
   agentMessage: "junto:agent-message",
   /** Main → renderer: one ephemeral agent preamble. */
   preamble: "junto:preamble",
+  /** Agent signals: list per canvas, operator answer / dismiss, live upsert. */
+  agentSignalsList: "junto:agent-signals-list",
+  agentSignalRespond: "junto:agent-signal-respond",
+  agentSignalDismiss: "junto:agent-signal-dismiss",
+  agentSignal: "junto:agent-signal",
   chatOpen: "junto:chat-open",
   chatPrompt: "junto:chat-prompt",
   chatPermission: "junto:chat-permission",
@@ -626,6 +636,15 @@ export interface JuntoApi extends UpdateApi, OverseerLiveApi {
   // Factory pause plane (app-state switch; the factory is born paused and the
   // first play is an explicit operator confirmation — @shared/pause law).
   readonly factoryPauseState: (canvas: string) => Promise<CanvasPauseState>;
+  /** Open signals plus recent history for every seat on the canvas. */
+  readonly agentSignalsList: (canvas: string) => Promise<ReadonlyArray<AgentSignal>>;
+  /** Answer an open signal: delivered to the seat as operator mail. */
+  readonly agentSignalRespond: (
+    signalId: string,
+    text: string,
+  ) => Promise<AgentSignalOperatorResult>;
+  /** Close an open signal without mail. */
+  readonly agentSignalDismiss: (signalId: string) => Promise<AgentSignalOperatorResult>;
   readonly factoryPauseSet: (
     canvas: string,
     scope: PauseScope,
@@ -812,6 +831,8 @@ export interface JuntoApi extends UpdateApi, OverseerLiveApi {
   readonly onCanvasChanged: (listener: (name: string) => void) => () => void;
   /** Optional for older renderer bridges; present in the current preload. */
   readonly onPreamble?: (listener: (event: PreambleEvent) => void) => () => void;
+  /** Main → renderer: a signal as it now stands (upsert by signalId). */
+  readonly onAgentSignal: (listener: (signal: AgentSignal) => void) => () => void;
   readonly onSnapshotsChanged: (listener: (state: SnapshotState) => void) => () => void;
   readonly onKernelChanged: (listener: (snapshot: KernelSnapshot) => void) => () => void;
   // User settings document (main owns the SQLite row; renderer holds a live projection).

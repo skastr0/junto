@@ -1536,6 +1536,16 @@ if (packagedSandboxDisablingSwitch !== undefined) {
           ) return;
           window.webContents.send(IPC_CHANNELS.preamble, event);
         },
+        onAgentSignal: (signal) => {
+          for (const window of BrowserWindow.getAllWindows()) {
+            if (
+              window.isDestroyed() ||
+              window.webContents.isDestroyed() ||
+              !isTrustedMainWebContents(window.webContents)
+            ) continue;
+            window.webContents.send(IPC_CHANNELS.agentSignal, signal);
+          }
+        },
         onOverseer: overseerComposition.onOverseer,
         onOverseerLive: overseerLive?.onHost,
         validateOverseerLive: overseerLive?.validateOperation,

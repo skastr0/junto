@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   AGENT_SIGNAL_MAX_TEXT_LENGTH,
   AgentSignal,
+  composeSignalAnswerMail,
   normalizeSignalText,
   rollupSeatSignals,
   type AgentSignal as AgentSignalT,
@@ -73,5 +74,18 @@ describe("rollupSeatSignals", () => {
       signal({ state: "withdrawn" }),
     ]);
     expect(rollup.size).toBe(0);
+  });
+});
+
+describe("composeSignalAnswerMail", () => {
+  it("names the signal it answers, then the operator's words", () => {
+    expect(
+      composeSignalAnswerMail(
+        { signalId: "01J", kind: "blocked", text: "need the key" },
+        "  it is in 1Password under staging  ",
+      ),
+    ).toBe(
+      'The operator answered your blocked signal (01J): "need the key"\n\nit is in 1Password under staging',
+    );
   });
 });

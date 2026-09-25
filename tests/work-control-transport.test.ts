@@ -74,6 +74,7 @@ import {
 } from "../src/shared/work-protocol";
 
 import { AgentSignalRepositoryLive } from "../src/main/junto/signals/repository";
+import { answerAgentSignal } from "../src/main/junto/signals/operator";
 import type { AgentSignal } from "../src/shared/agent-signals";
 
 const roots: string[] = [];
@@ -1160,6 +1161,36 @@ describe("work control transport", () => {
     })) as { ok: true; data: { signals: AgentSignal[] } };
     expect(cleared.data.signals.map((signal) => signal.state)).toEqual(["withdrawn"]);
     expect(events.map((signal) => signal.state)).toEqual(["open", "withdrawn"]);
+  });
+
+  it("answers a signal as operator mail and refuses a second answer", async () => {
+    const server = servers[0]!;
+    const raised = (await call(server.socketPath, {
+      token: token(),
+      op: "signal.raise",
+      args: { kind: "escalate", text: "pick a database" },
+    })) as { ok: true; data: { signal: AgentSignal } };
+    const runtime = runtimes[runtimes.length - 1]!;
+    const answered = await runtime.runPromise(
+      answerAgentSignal(raised.data.signal.signalId, "use sqlite"),
+    );
+    expect(answered.ok).toBe(true);
+    if (!answered.ok) return;
+    expect(answered.signal.state).toBe("answered");
+    expect(answered.signal.response?.text).toBe("use sqlite");
+    expect(answered.messageId).toBeTypeOf("string");
+
+    const again = await runtime.runPromise(
+      answerAgentSignal(raised.data.signal.signalId, "again"),
+    );
+    expect(again).toEqual({ ok: false, message: "this signal is already answered" });
+
+    const listed = (await call(server.socketPath, {
+      token: token(),
+      op: "signal.list",
+      args: {},
+    })) as { ok: true; data: { signals: AgentSignal[] } };
+    expect(listed.data.signals[0]?.response?.text).toBe("use sqlite");
   });
 
   it("refuses an over-long signal sentence and points at --detail", async () => {

@@ -110,3 +110,23 @@ export const rollupSeatSignals = (
   }
   return out;
 };
+
+const KIND_WORDS: Readonly<Record<AgentSignalKind, string>> = {
+  blocked: "blocked",
+  escalate: "escalate",
+  feedback: "feedback",
+};
+
+/**
+ * The operator's answer as the seat reads it: typed into the seat as operator
+ * mail, naming which of its signals it answers so the agent can match it.
+ */
+export const composeSignalAnswerMail = (
+  signal: Pick<AgentSignal, "signalId" | "kind" | "text">,
+  response: string,
+): string =>
+  [
+    `The operator answered your ${KIND_WORDS[signal.kind]} signal (${signal.signalId}): "${signal.text}"`,
+    "",
+    response.trim(),
+  ].join("\n");
