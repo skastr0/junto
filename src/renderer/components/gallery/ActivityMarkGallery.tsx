@@ -18,6 +18,8 @@ import { themeFor } from "../../lib/theme";
 import { ActivityMark, ActivityMarkFromSpec } from "../ActivityMark";
 import { AgentSeatView, type SeatHealth, type SeatSignal } from "../nodes/AgentSeat";
 import { ExecutionCardHeader } from "../nodes/ExecutionCardHeader";
+import { PreambleBubble } from "../nodes/PreambleBubble";
+import type { PreambleItem, SeatBubble } from "../../lib/preamble-feed";
 import { Button, Eyebrow } from "../ui";
 
 /**
@@ -136,13 +138,22 @@ function Section({ title, hint, children }: { readonly title: string; readonly h
 }
 
 /** A seat in the canvas shell's agent shape (factory-grammar.css), at the default size. */
-function SeatShell({ seat, caption = true }: { readonly seat: Seat; readonly caption?: boolean }) {
+function SeatShell({
+  seat,
+  caption = true,
+  bubble,
+}: {
+  readonly seat: Seat;
+  readonly caption?: boolean;
+  readonly bubble?: SeatBubble;
+}) {
   return (
     <div className="flex flex-col gap-1">
       <div
         className="junto-node"
         data-node-kind="agent"
         style={{
+          position: "relative",
           width: 240,
           height: 72,
           border: "1px solid var(--color-stroke)",
@@ -161,6 +172,7 @@ function SeatShell({ seat, caption = true }: { readonly seat: Seat; readonly cap
           onSignalOpen={() => undefined}
           title={<div className="truncate font-mono text-[14px] font-semibold leading-snug text-ink">{seat.name}</div>}
         />
+        {bubble ? <PreambleBubble nodeId={seat.id} bubble={bubble} /> : null}
       </div>
       {caption ? <span className="pl-2 text-[10px] text-faint">{seat.caption}</span> : null}
     </div>
@@ -240,6 +252,91 @@ function CardRow() {
   );
 }
 
+const FAR = Number.MAX_SAFE_INTEGER;
+const pre = (fields: Partial<PreambleItem> & Pick<PreambleItem, "text" | "provenance" | "action" | "tone">): PreambleItem => ({
+  id: `${fields.action}-${fields.text}`,
+  nodeId: "gallery",
+  expiresAt: FAR,
+  count: 1,
+  more: 0,
+  shownAt: 0,
+  ...fields,
+});
+
+const PREAMBLES: ReadonlyArray<{ readonly seat: Seat; readonly bubble: SeatBubble; readonly caption: string }> = [
+  {
+    seat: SEATS[0]!,
+    bubble: { current: pre({ text: "splitting the migration into two steps", provenance: "agent", action: "say", tone: "second" }) },
+    caption: "the agent's own words",
+  },
+  {
+    seat: SEATS[1]!,
+    bubble: {
+      current: pre({ text: "claimed a task", provenance: "agent", action: "tool", tone: "indigo" }),
+      previous: pre({ text: "checking tasks", provenance: "agent", action: "tool", tone: "steel", count: 3 }),
+    },
+    caption: "tool calls: writes indigo, reads steel; the last one trails",
+  },
+  {
+    seat: SEATS[4]!,
+    bubble: { current: pre({ text: "blocked: needs the prod DB password", provenance: "agent", action: "signal", tone: "crimson" }) },
+    caption: "declared signal, the seat's own claim",
+  },
+  {
+    seat: SEATS[5]!,
+    bubble: { current: pre({ text: "answered: use the staging ids", provenance: "operator", action: "signal-clear", tone: "green" }) },
+    caption: "the operator closed it",
+  },
+  {
+    seat: SEATS[1]!,
+    bubble: { current: pre({ text: "thrashing", provenance: "ai", action: "health", tone: "amber" }) },
+    caption: "the AI's reading, dashed: advisory",
+  },
+  {
+    seat: SEATS[0]!,
+    bubble: { current: pre({ text: "going well", provenance: "ai", action: "health", tone: "green" }) },
+    caption: "good news reads too",
+  },
+  {
+    seat: SEATS[6]!,
+    bubble: {
+      current: pre({ text: "mail from planner: rebase is done, over to you", provenance: "agent", action: "mail-in", tone: "violet", count: 2 }),
+    },
+    caption: "mail across the wires, coalesced",
+  },
+  {
+    seat: SEATS[7]!,
+    bubble: { current: pre({ text: "done, ready for review", provenance: "system", action: "state", tone: "green" }) },
+    caption: "Junto tells state moments, dotted",
+  },
+  {
+    seat: SEATS[3]!,
+    bubble: {
+      current: pre({ text: "waiting on you", provenance: "system", action: "state", tone: "amber" }),
+      previous: pre({ text: "reading a peer's screen", provenance: "agent", action: "tool", tone: "steel" }),
+    },
+    caption: "waiting on you, over what it was doing",
+  },
+  {
+    seat: SEATS[2]!,
+    bubble: { current: pre({ text: "reading the board", provenance: "agent", action: "tool", tone: "steel", more: 4 }) },
+    caption: "a busy seat folds the rest into +N more",
+  },
+];
+
+function PreambleRow() {
+  return (
+    <div className="grid grid-cols-2 gap-x-4 gap-y-[88px] pt-[72px]">
+      {PREAMBLES.map((entry, i) => (
+        <div key={i} className="flex flex-col gap-1">
+          <SeatShell seat={{ ...entry.seat, id: `pre-${String(i)}` }} caption={false} bubble={entry.bubble} />
+          <span className="pl-2 text-[10px] text-faint">{entry.caption}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function Panel({ mode, replay }: { readonly mode: ThemeMode; readonly replay: number }) {
   return (
     <div
@@ -257,6 +354,9 @@ function Panel({ mode, replay }: { readonly mode: ThemeMode; readonly replay: nu
             <SeatShell key={seat.id} seat={seat} />
           ))}
         </div>
+      </Section>
+      <Section title="Preambles" hint="colour is the action; glyph, word and line are who speaks">
+        <PreambleRow />
       </Section>
       <Section title="Ring language" hint="every state, every size">
         <StatesTable replay={replay} />
