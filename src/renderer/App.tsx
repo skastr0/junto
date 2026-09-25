@@ -38,6 +38,7 @@ import { installFocusSwitcherHotkeys } from "./lib/focus-switcher";
 import { reconcileDockFromLiveSessions } from "./lib/dock-state";
 import { startSurfaceMotionGate } from "./lib/surface-motion";
 import { clearPreambles, showPreamble } from "./lib/preamble-state";
+import { startAgentSignalSync } from "./lib/agent-signals-state";
 import { Canvas } from "./components/Canvas";
 import { TopBar } from "./components/TopBar";
 import { CanvasChrome } from "./components/CanvasChrome";
@@ -416,6 +417,7 @@ export function App() {
       if (event.canvasName !== state$.canvasName.peek()) return;
       showPreamble(event);
     });
+    const offAgentSignals = startAgentSignalSync(junto);
 
     const offCanvasFlush = junto.onCanvasFlushRequested(async () => {
       await flushCanvasEdits("navigation");
@@ -440,6 +442,7 @@ export function App() {
       offUsage();
       offCanvas();
       offPreamble?.();
+      offAgentSignals();
       offCanvasFlush();
       offCanvasQuiesceAndFlush();
       stopKernel();

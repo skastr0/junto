@@ -1,4 +1,3 @@
-import { observable } from "@legendapp/state";
 import { use$ } from "@legendapp/state/react";
 import type { CanvasNode } from "@shared/canvas";
 import {
@@ -6,6 +5,12 @@ import {
   type AgentSignal,
   type AgentSignalKind,
 } from "@shared/agent-signals";
+import {
+  agentSignals$,
+  dismissAgentSignal,
+  respondToAgentSignal,
+  type SignalActionResult,
+} from "./agent-signals-state";
 import { requestSectionReveal } from "./sidebar-sections";
 import { state$ } from "./state";
 import { openTerminalSurface } from "./terminal-state";
@@ -73,12 +78,10 @@ export const signalOutcomeLabel = (signal: AgentSignal): string | undefined => {
 };
 
 // --- data source ---------------------------------------------------------
-// Until the signal store lands this holds nothing and the actions report
-// that signals are not wired. Swap `signalSource` for the real store.
+// The renderer signal store (agent-signals-state.ts): a live mirror of main's
+// durable rows for the open canvas, answered and dismissed over IPC.
 
-export type SignalActionResult =
-  | { readonly ok: true }
-  | { readonly ok: false; readonly message: string };
+export type { SignalActionResult };
 
 type SignalSource = {
   readonly all: () => ReadonlyArray<AgentSignal>;
@@ -86,14 +89,10 @@ type SignalSource = {
   readonly dismiss: (signalId: string) => Promise<SignalActionResult>;
 };
 
-const stubSignals$ = observable<Record<string, AgentSignal>>({});
-
-const NOT_WIRED: SignalActionResult = { ok: false, message: "Signals are not connected yet." };
-
 const signalSource: SignalSource = {
-  all: () => Object.values(stubSignals$.get()),
-  respond: async () => NOT_WIRED,
-  dismiss: async () => NOT_WIRED,
+  all: () => Object.values(agentSignals$.get()),
+  respond: respondToAgentSignal,
+  dismiss: dismissAgentSignal,
 };
 
 /** Signals for one seat, ordered for the sidebar, plus its actions. */
