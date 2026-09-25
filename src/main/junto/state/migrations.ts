@@ -5,6 +5,7 @@ import {
 } from "node:sqlite";
 import { STATE_SCHEMA_SQL } from "./schema";
 import { AGENT_SIGNALS_STATE_SCHEMA_SQL } from "../signals/state-schema";
+import { SQUADS_STATE_SCHEMA_SQL } from "../squads/state-schema";
 import {
   actualStateSchemaSha256,
   expectedStateSchemaIdentity,
@@ -122,7 +123,16 @@ export const STATE_SCHEMA_V3_IDENTITY = {
     "59a9fd4f9c230fc9e03b340320bc34e8c6c5fbfd7c5646353f35bab11bf9146d",
 } as const satisfies VerifiedStateSchemaIdentity;
 
-export const CURRENT_STATE_SCHEMA_VERSION = 3;
+/**
+ * Version 4 adds squads: the operator's reusable seat templates, placed from
+ * the add picker.
+ */
+export const STATE_SCHEMA_V4_IDENTITY = {
+  actualSchemaSha256:
+    "97562129f02960699181a455e453f0bc38164717bf8afc06006cd820c9d75bbc",
+} as const satisfies VerifiedStateSchemaIdentity;
+
+export const CURRENT_STATE_SCHEMA_VERSION = 4;
 
 /**
  * Stable alias for the head identity so tests and tooling never rename an
@@ -130,7 +140,7 @@ export const CURRENT_STATE_SCHEMA_VERSION = 3;
  * above after any schema change.
  */
 export const CURRENT_STATE_SCHEMA_IDENTITY: VerifiedStateSchemaIdentity =
-  STATE_SCHEMA_V3_IDENTITY;
+  STATE_SCHEMA_V4_IDENTITY;
 
 /**
  * Junto version 1 is composed fresh and adopted, never reached by chain; each
@@ -161,6 +171,16 @@ export const STATE_SCHEMA_MIGRATIONS: ReadonlyArray<StateSchemaMigration> = [
     fromIdentity: STATE_SCHEMA_V2_IDENTITY,
     migrate: (database) => {
       database.exec(AGENT_SIGNALS_STATE_SCHEMA_SQL);
+    },
+  },
+  {
+    fromVersion: 3,
+    toVersion: 4,
+    name: "add squads",
+    safety: STATE_SCHEMA_MIGRATION_SAFETY,
+    fromIdentity: STATE_SCHEMA_V3_IDENTITY,
+    migrate: (database) => {
+      database.exec(SQUADS_STATE_SCHEMA_SQL);
     },
   },
 ];

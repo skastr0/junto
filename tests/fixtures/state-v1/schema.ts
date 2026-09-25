@@ -1,19 +1,27 @@
 /**
- * The frozen version-1 and version-2 state schemas. Version 3 added agent
- * signals (2 -> 3), so version 2 is the current composition without that
- * fragment. Version 2 dropped the mail delivery ledger (1 -> 2), so version 1
- * is version 2 plus that ledger's DDL, exactly as it shipped. Tests build
- * historical databases from these to prove each step.
+ * The frozen version-1, version-2, and version-3 state schemas. Version 4
+ * added squads (3 -> 4), so version 3 is the current composition without
+ * that fragment. Version 3 added agent signals (2 -> 3), so version 2 is
+ * version 3 without that fragment. Version 2 dropped the mail delivery ledger
+ * (1 -> 2), so version 1 is version 2 plus that ledger's DDL, exactly as it
+ * shipped. Tests build historical databases from these to prove each step.
  */
 import { STATE_SCHEMA_FRAGMENTS } from "../../../src/main/junto/state/schema";
 import { AGENT_SIGNALS_STATE_SCHEMA_SQL } from "../../../src/main/junto/signals/state-schema";
+import { SQUADS_STATE_SCHEMA_SQL } from "../../../src/main/junto/squads/state-schema";
 import { withoutProposalStorage } from "../../../src/main/junto/work/state-schema";
 
-export const STATE_SCHEMA_V2_SQL = withoutProposalStorage(
-  STATE_SCHEMA_FRAGMENTS.filter(
-    (fragment) => fragment !== AGENT_SIGNALS_STATE_SCHEMA_SQL,
-  ).join("\n"),
-);
+const composedWithout = (retired: ReadonlyArray<string>): string =>
+  withoutProposalStorage(
+    STATE_SCHEMA_FRAGMENTS.filter((fragment) => !retired.includes(fragment)).join("\n"),
+  );
+
+export const STATE_SCHEMA_V3_SQL = composedWithout([SQUADS_STATE_SCHEMA_SQL]);
+
+export const STATE_SCHEMA_V2_SQL = composedWithout([
+  SQUADS_STATE_SCHEMA_SQL,
+  AGENT_SIGNALS_STATE_SCHEMA_SQL,
+]);
 
 const MAIL_LEDGER_V1_SQL = `
   CREATE TABLE IF NOT EXISTS work_mail_attempts (

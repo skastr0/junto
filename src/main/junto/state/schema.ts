@@ -34,6 +34,7 @@ import { OPENAI_CREDENTIAL_BINDINGS_SQL, PROVIDER_CREDENTIAL_BINDINGS_SQL } from
 import { OVERSEER_LIVE_STATE_SCHEMA_SQL } from "../overseer/live/state-schema";
 import { CREW_STATE_SCHEMA_SQL } from "../work/crew-schema";
 import { AGENT_SIGNALS_STATE_SCHEMA_SQL } from "../signals/state-schema";
+import { SQUADS_STATE_SCHEMA_SQL } from "../squads/state-schema";
 
 /**
  * Schema identity table: `actual_schema_sha256` is the sole witness (live DDL
@@ -96,6 +97,7 @@ export const STATE_SCHEMA_FRAGMENTS = [
   OVERSEER_LIVE_STATE_SCHEMA_SQL,
   CREW_STATE_SCHEMA_SQL,
   AGENT_SIGNALS_STATE_SCHEMA_SQL,
+  SQUADS_STATE_SCHEMA_SQL,
 ] as const;
 
 
