@@ -38,3 +38,13 @@ export const placeBesideRect = (
     point.x >= MARGIN && point.x <= maxX && point.y >= MARGIN && point.y <= maxY);
   return fits ?? { x: clamp(rect.right, MARGIN, maxX), y: clamp(rect.bottom, MARGIN, maxY) };
 };
+
+/** Top-left at the point (a right-click), clamped into the viewport. */
+export const placeAtPoint = (
+  point: { readonly x: number; readonly y: number },
+  menu: Size,
+  viewport: Size,
+): { readonly x: number; readonly y: number } => ({
+  x: clamp(point.x, MARGIN, viewport.width - menu.width - MARGIN),
+  y: clamp(point.y, MARGIN, viewport.height - menu.height - MARGIN),
+});

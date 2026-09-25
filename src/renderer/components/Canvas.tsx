@@ -1,4 +1,4 @@
-import { Profiler, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Profiler, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   ConnectionMode,
   ControlButton,
@@ -10,13 +10,14 @@ import {
   useEdgesState,
   useNodesState,
   useReactFlow,
+  useStore,
   useStoreApi,
 } from "@xyflow/react";
 import type { Connection, EdgeMouseHandler, FinalConnectionState, Node, OnNodeDrag } from "@xyflow/react";
 import { use$ } from "@legendapp/state/react";
 import type { CanvasDoc, EtherEdgeKind, EtherFlag } from "@shared/canvas";
 import { executionGraphContextFromActorRefs } from "@shared/graph";
-import { Ban, Boxes, Expand, Link2, Plus, ScanLine, SquareDashed, Trash2, X } from "lucide-react";
+import { Ban, Boxes, Expand, Link2, Plus, ScanLine, SquareDashed, Trash2, Unlink, X } from "lucide-react";
 import {
   clearSelection,
   replaceSelection,
@@ -49,7 +50,9 @@ import { nodeTitle } from "../lib/presentation";
 import { isCommandCenterAuthoring } from "../lib/canvas-boot";
 import { AGENT_NODE_SIZE } from "../lib/node-geometry";
 import { addNode, deleteNodes, setFlagForNodes } from "../lib/mutations";
-import { addEdge, connectAllToTarget, connectAllowed, deleteEdges } from "../lib/edge-mutations";
+import { addEdge, connectAllToTarget, connectAllowed, connectMesh, deleteEdges, disconnectWithin, edgeIdsWithin, planConnectMesh } from "../lib/edge-mutations";
+import { agentCountLabel, agentSeatIds } from "../lib/multi-selection";
+import { placeAtPoint, placeBesideRect, type ScreenRect } from "../lib/menu-placement";
 import { dragHoldMemberIds, findOpenPosition, syncPositions } from "../lib/geometry";
 import { resolvePageSpawnDefaults } from "@shared/region-defaults";
 import { resolveAuthoredPageHost } from "../lib/page-authoring";
@@ -958,17 +961,68 @@ function ContextModeDeck({ at, onClose }: { readonly at: { x: number; y: number 
   return <ModeDeckFocus actions={actions} agentPosition={agentPosition} onClose={onClose} />;
 }
 
-// Right-click on (or inside) a live rubber-band selection: a small action
-// menu applying to every currently selected node. Reads the working set fresh
-// off the React Flow instance at action time, per the owner's contract.
-function MultiSelectMenu({ at, onClose }: { readonly at: { x: number; y: number }; readonly onClose: () => void }) {
+/** Where the multi-select menu opens: a right-click point, or the box a rubber-band selection just closed. */
+type MultiMenuAnchor =
+  | { readonly kind: "point"; readonly x: number; readonly y: number }
+  | { readonly kind: "rect"; readonly rect: ScreenRect };
+
+/** One row of the multi-select menu. Agent actions act on the selection's agent seats only. */
+type MultiMenuEntry = {
+  readonly key: string;
+  readonly label: string;
+  readonly detail?: string;
+  readonly ariaLabel: string;
+  readonly icon: ReactNode;
+  readonly disabled?: boolean;
+  readonly onSelect: () => void;
+};
+
+const MultiMenuRow = ({ entry }: { readonly entry: MultiMenuEntry }) => (
+  <button aria-label={entry.ariaLabel} disabled={entry.disabled} onClick={entry.onSelect}>
+    <span className="canvas-action-menu__icon" aria-hidden>{entry.icon}</span>
+    <span><strong>{entry.label}</strong>{entry.detail ? <small>{entry.detail}</small> : null}</span>
+  </button>
+);
+
+// Opens on its own when a rubber-band selection of 2+ nodes ends, or on
+// right-click of a selection: actions applying to every selected node. Reads
+// the working set fresh off the React Flow instance at action time, and closes
+// when that set changes underneath it.
+function MultiSelectMenu({ anchor, onClose }: { readonly anchor: MultiMenuAnchor; readonly onClose: () => void }) {
   const rf = useReactFlow<FlowNode, FlowEdge>();
   useMenuDismiss(true, onClose);
-  const selected = rf.getNodes().filter((node) => node.selected);
-  const count = selected.length;
+  const authoring = isCommandCenterAuthoring(use$(state$.settings.station.role));
+  const selectionKey = useStore((store) => store.nodes.filter((node) => node.selected).map((node) => node.id).join(" "));
+  const openedWith = useRef(selectionKey);
+  useEffect(() => {
+    if (selectionKey !== openedWith.current) onClose();
+  }, [selectionKey, onClose]);
+
+  const hostRef = useRef<HTMLDivElement>(null);
+  const [position, setPosition] = useState<{ readonly x: number; readonly y: number } | null>(null);
+  useLayoutEffect(() => {
+    const host = hostRef.current;
+    if (!host) return;
+    const size = { width: host.offsetWidth, height: host.offsetHeight };
+    const viewport = { width: window.innerWidth, height: window.innerHeight };
+    setPosition(anchor.kind === "rect" ? placeBesideRect(anchor.rect, size, viewport) : placeAtPoint(anchor, size, viewport));
+  }, [anchor]);
+
+  const doc = state$.doc.peek();
+  const selectedIds = new Set(selectionKey.split(" ").filter(Boolean));
+  const count = selectedIds.size;
+  const agentIds = agentSeatIds(doc.nodes.filter((node) => selectedIds.has(node.id)));
+  const agents = agentCountLabel(agentIds.length);
+  const meshAdds = planConnectMesh(agentIds, doc.nodes, doc.edges).toAdd.length;
+  const innerEdges = edgeIdsWithin(agentIds, doc.edges).length;
 
   const run = (mutate: (ids: ReadonlyArray<string>) => void) => {
     mutate(rf.getNodes().filter((node) => node.selected).map((node) => node.id));
+    onClose();
+  };
+  const runOnAgents = (act: (agentIds: ReadonlyArray<string>) => void) => () => {
+    const live = new Set(rf.getNodes().filter((node) => node.selected).map((node) => node.id));
+    act(agentSeatIds(state$.doc.peek().nodes.filter((node) => live.has(node.id))));
     onClose();
   };
 
@@ -986,13 +1040,53 @@ function MultiSelectMenu({ at, onClose }: { readonly at: { x: number; y: number 
     addNode(region, { edit: false, focus: false });
   };
 
+  // Agent actions, in menu order: connect, open, disconnect, stop, check.
+  // Each owner fills its own slot; a null slot renders nothing. The whole
+  // group is absent when the selection holds no agent seat.
+  const agentActions: ReadonlyArray<MultiMenuEntry | null> = agentIds.length === 0 ? [] : [
+    authoring ? {
+      key: "connect",
+      label: "connect",
+      detail: meshAdds === 0 && agentIds.length > 1 ? `${agents}, all connected` : agents,
+      ariaLabel: `Connect ${agents} to each other`,
+      icon: <Link2 size={14} />,
+      disabled: meshAdds === 0,
+      onSelect: runOnAgents(connectMesh),
+    } : null,
+    null, // open: grid focus (grid-focus agent)
+    authoring ? {
+      key: "disconnect",
+      label: "disconnect",
+      detail: `${innerEdges} edge${innerEdges === 1 ? "" : "s"}`,
+      ariaLabel: `Disconnect ${innerEdges} edges between ${agents}`,
+      icon: <Unlink size={14} />,
+      disabled: innerEdges === 0,
+      onSelect: runOnAgents(disconnectWithin),
+    } : null,
+    null, // stop: broadcast prompt (broadcast agent)
+    null, // check: broadcast prompt (broadcast agent)
+  ];
+  const agentRows = agentActions.filter((entry): entry is MultiMenuEntry => entry !== null);
+
+  const nodes = `${count} node${count === 1 ? "" : "s"}`;
+  const selectionActions: ReadonlyArray<MultiMenuEntry> = [
+    { key: "region", label: "create region", detail: "from selection", ariaLabel: "Create region from selection", icon: <SquareDashed size={14} />, onSelect: () => run(createRegionFromSelection) },
+    { key: "flag", label: "flag blocker", detail: nodes, ariaLabel: "Flag blocker", icon: <Ban size={14} />, onSelect: () => run((ids) => setFlagForNodes(ids, "blocker")) },
+    { key: "clear", label: "clear flags", detail: nodes, ariaLabel: "Clear flags", icon: <Ban size={14} />, onSelect: () => run((ids) => setFlagForNodes(ids, null)) },
+    { key: "delete", label: `delete ${nodes}`, ariaLabel: `Delete ${count} nodes`, icon: <Trash2 size={14} />, onSelect: () => run((ids) => deleteNodes(ids)) },
+  ];
+
   return (
-    <div className="canvas-action-menu-host" data-canvas-menu-surface style={{ position: "fixed", left: Math.min(at.x, window.innerWidth - 210), top: Math.min(at.y, window.innerHeight - 200), zIndex: 40 }}>
-      <div className="canvas-action-menu">
-        <button aria-label="Create region from selection" onClick={() => run(createRegionFromSelection)}><span className="canvas-action-menu__icon" aria-hidden><SquareDashed size={14} /></span><span><strong>create region</strong><small>from selection</small></span></button>
-        <button aria-label="Flag blocker" onClick={() => run((ids) => setFlagForNodes(ids, "blocker"))}><span className="canvas-action-menu__icon" aria-hidden><Ban size={14} /></span><span><strong>flag blocker</strong><small>{count} node{count === 1 ? "" : "s"}</small></span></button>
-        <button aria-label="Clear flags" onClick={() => run((ids) => setFlagForNodes(ids, null))}><span className="canvas-action-menu__icon" aria-hidden><Ban size={14} /></span><span><strong>clear flags</strong><small>{count} node{count === 1 ? "" : "s"}</small></span></button>
-        <button aria-label={`Delete ${count} nodes`} onClick={() => run((ids) => deleteNodes(ids))}><span className="canvas-action-menu__icon" aria-hidden><Trash2 size={14} /></span><span><strong>delete {count} node{count === 1 ? "" : "s"}</strong></span></button>
+    <div
+      ref={hostRef}
+      className="canvas-action-menu-host"
+      data-canvas-menu-surface
+      style={{ position: "fixed", left: position?.x ?? 0, top: position?.y ?? 0, zIndex: 40, visibility: position ? "visible" : "hidden" }}
+    >
+      <div className="canvas-action-menu" role="menu" aria-label={`Actions for ${nodes}`}>
+        {agentRows.map((entry) => <MultiMenuRow key={entry.key} entry={entry} />)}
+        {agentRows.length > 0 ? <hr className="canvas-action-menu__rule" /> : null}
+        {selectionActions.map((entry) => <MultiMenuRow key={entry.key} entry={entry} />)}
       </div>
     </div>
   );
@@ -1280,7 +1374,7 @@ function CanvasGraph() {
       window.removeEventListener("junto:new-git", openGit);
     };
   }, []);
-  const [multiMenu, setMultiMenu] = useState<{ x: number; y: number } | null>(null);
+  const [multiMenu, setMultiMenu] = useState<MultiMenuAnchor | null>(null);
   const [connectMenu, setConnectMenu] = useState<{
     readonly x: number;
     readonly y: number;
@@ -1298,10 +1392,11 @@ function CanvasGraph() {
     setConnectMenu(null);
     setCtxMenu(at);
   }, []);
-  const openMultiMenu = useCallback((at: { x: number; y: number }) => {
+  const closeMultiMenu = useCallback(() => setMultiMenu(null), []);
+  const openMultiMenu = useCallback((anchor: MultiMenuAnchor) => {
     setCtxMenu(null);
     setConnectMenu(null);
-    setMultiMenu(at);
+    setMultiMenu(anchor);
   }, []);
   const openConnectMenu = useCallback((
     at: { x: number; y: number },
@@ -1343,7 +1438,7 @@ function CanvasGraph() {
 
     if (selectedCount > 1 && node.selected) {
       event.preventDefault();
-      openMultiMenu({ x: event.clientX, y: event.clientY });
+      openMultiMenu({ kind: "point", x: event.clientX, y: event.clientY });
       return;
     }
     if (!isGroup) return;
@@ -1353,8 +1448,22 @@ function CanvasGraph() {
   // Right-click on the rubber-band selection itself (not a single node).
   const onSelectionContextMenu = useCallback((event: React.MouseEvent) => {
     event.preventDefault();
-    openMultiMenu({ x: event.clientX, y: event.clientY });
+    openMultiMenu({ kind: "point", x: event.clientX, y: event.clientY });
   }, [openMultiMenu]);
+  // A finished rubber-band pick of 2+ nodes opens the menu beside its box.
+  // React Flow fires this only when a marquee actually moved, so shift-click
+  // adds and node drags never reach it. Read after a frame so the controlled
+  // node list carries the final selection.
+  const onSelectionEnd = useCallback(() => {
+    requestAnimationFrame(() => {
+      const selected = rf.getNodes().filter((node) => node.selected);
+      if (selected.length < 2) return;
+      const bounds = rf.getNodesBounds(selected);
+      const topLeft = rf.flowToScreenPosition({ x: bounds.x, y: bounds.y });
+      const bottomRight = rf.flowToScreenPosition({ x: bounds.x + bounds.width, y: bounds.y + bounds.height });
+      openMultiMenu({ kind: "rect", rect: { left: topLeft.x, top: topLeft.y, right: bottomRight.x, bottom: bottomRight.y } });
+    });
+  }, [rf, openMultiMenu]);
   const onPaneClick = useCallback((event: React.MouseEvent) => {
     closeMenus();
     interactions.onPaneClick(event);
@@ -1511,6 +1620,7 @@ function CanvasGraph() {
       onPaneContextMenu={onPaneContextMenu}
       onNodeContextMenu={onNodeContextMenu}
       onSelectionContextMenu={onSelectionContextMenu}
+      onSelectionEnd={onSelectionEnd}
       onDragOver={onDragOver}
       onDrop={onDrop}
       onMoveStart={onMoveStart}
@@ -1567,7 +1677,7 @@ function CanvasGraph() {
       </Panel>
     </ReactFlow>
     {ctxMenu ? <ContextModeDeck at={ctxMenu} onClose={() => setCtxMenu(null)} /> : null}
-    {multiMenu ? <MultiSelectMenu at={multiMenu} onClose={() => setMultiMenu(null)} /> : null}
+    {multiMenu ? <MultiSelectMenu anchor={multiMenu} onClose={closeMultiMenu} /> : null}
     {connectMenu ? (
       <TargetConnectMenu
         at={{ x: connectMenu.x, y: connectMenu.y }}
