@@ -6,6 +6,8 @@ import { loomLanes$, loomRoutes$, loomStrands$ } from "../../lib/loom-view";
 import { LANE_GAP, stitchStrand } from "../../lib/wire-loom";
 import { selectEdge } from "../../lib/state";
 import { EDGE_COLOR } from "../../lib/theme";
+import { WIRE_PULSE_TOKEN, wirePulses$, wirePulseScheduler } from "../../lib/wire-pulse";
+import "./wire-pulse.css";
 
 /**
  * One stroke for every wire: a solid hairline whose only variable is hue.
@@ -16,6 +18,10 @@ import { EDGE_COLOR } from "../../lib/theme";
  * the paint carries exactly one fact: which verb, in the verb's own colour.
  * State (stoppage) and selection stay structural — crimson and opacity — and
  * never mint a second stroke.
+ *
+ * Traffic is the one transient exception: while a delivered message crosses
+ * the wire, a short dash of light runs from sender to receiver and then the
+ * path is gone (wire-pulse). At idle every wire is still one hairline.
  *
  * Hover and selection are the two things a wire has to answer for now that the
  * bottom bar is the whole edge surface: the canvas must say which wire the
@@ -49,6 +55,8 @@ export function EtherEdge({
   const strand = use$(loomStrands$[id]);
   const plannedRoute = use$(loomRoutes$[id]);
   const lane = use$(loomLanes$[id]);
+  // Traffic: set only while a message is crossing this wire (wire-pulse).
+  const pulse = use$(wirePulses$[id]);
 
   // Verb hue, stamped at convert. Stoppage is the one fact allowed to take a
   // wire off its verb colour, because on this canvas crimson means blocked.
@@ -112,6 +120,20 @@ export function EtherEdge({
           ["--wire-hue" as string]: color,
         }}
       />
+      {pulse ? (
+        // A transient second path, only while traffic crosses: at idle the
+        // wire is still one hairline. pathLength 1 lets the stylesheet run
+        // one short dash end to end in either direction.
+        <path
+          key={pulse.seq}
+          d={path}
+          pathLength={1}
+          className="junto-wire-pulse"
+          data-direction={pulse.reverse ? "reverse" : "forward"}
+          style={{ stroke: `var(${WIRE_PULSE_TOKEN[pulse.kind]})` }}
+          onAnimationEnd={() => wirePulseScheduler.end(id, pulse.seq)}
+        />
+      ) : null}
       <EdgeLabelRenderer>
         {/* Edge faces are silent by design: the relationship reads through
             stroke colour, node attention states, and the stoppage rank;

@@ -1,0 +1,46 @@
+/* Wire pulse — one short dash of light running the wire, sender to receiver.
+
+   Exists only while a delivered message is crossing (wire-pulse.ts), so the
+   idle canvas keeps its one hairline per wire. The path is normalised to
+   pathLength 1 and the gap is longer than the path, so exactly one dash
+   travels: it enters at one end hidden (offset past the start) and leaves at
+   the other. Only stroke-dashoffset animates; nothing lays out. */
+path.junto-wire-pulse {
+  fill: none;
+  stroke-width: 2.4;
+  stroke-linecap: round;
+  stroke-dasharray: 0.12 2;
+  pointer-events: none;
+  animation: wire-pulse-forward 900ms cubic-bezier(.45, 0, .55, 1) forwards;
+}
+path.junto-wire-pulse[data-direction="reverse"] {
+  animation-name: wire-pulse-reverse;
+}
+@keyframes wire-pulse-forward {
+  from { stroke-dashoffset: 0.12; }
+  to { stroke-dashoffset: -1; }
+}
+@keyframes wire-pulse-reverse {
+  from { stroke-dashoffset: -1; }
+  to { stroke-dashoffset: 0.12; }
+}
+
+/* Pan and zoom own the compositor; a pulse mid-gesture is not painted. */
+html[data-viewport-busy] .react-flow path.junto-wire-pulse {
+  visibility: hidden;
+}
+
+/* Reduced motion: no travel. The whole wire holds the kind's colour
+   briefly, then clears in one step. */
+@media (prefers-reduced-motion: reduce) {
+  path.junto-wire-pulse,
+  path.junto-wire-pulse[data-direction="reverse"] {
+    stroke-dasharray: none;
+    stroke-width: 1.8;
+    animation: wire-pulse-hold 700ms steps(1, end) forwards;
+  }
+}
+@keyframes wire-pulse-hold {
+  from { opacity: 0.85; }
+  to { opacity: 0; }
+}

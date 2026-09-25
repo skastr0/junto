@@ -94,6 +94,7 @@ import { minimapNodeColors, useSeatRollups } from "../lib/minimap-seat-colors";
 import { nodeTypes } from "./nodes";
 import { edgeTypes } from "./edges/EtherEdge";
 import { CanvasLoom } from "./edges/CanvasLoom";
+import { WirePulseFeed } from "./edges/WirePulseFeed";
 import { RtsBottomBar, saveSelectionToCommandGroup } from "./rts/RtsBottomBar";
 import { SaveToGroupPicker } from "./rts/SaveToGroupPicker";
 import { TerminalWizard, createTerminalAt } from "./terminal/TerminalWizard";
@@ -1704,6 +1705,7 @@ function CanvasGraph() {
           pattern per viewport change, which was worse. Flat ground wins. */}
       <ViewportTransformLease />
       <CanvasLoom edges={edges} />
+      <WirePulseFeed edges={edges} />
       <CanvasMagnifier />
       <CanvasKeyboardPan />
       <RegionGlanceGate />
