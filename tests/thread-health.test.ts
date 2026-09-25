@@ -4,8 +4,8 @@ import {
   THREAD_HEALTH_LABEL,
   THREAD_HEALTH_TONE,
   THREAD_HEALTH_VALUES,
-  decodeThreadHealthReading,
 } from "../src/shared/thread-health";
+import { decodeThreadHealthReading } from "../src/renderer/lib/seat-awareness-contract";
 
 const reading = {
   bindingId: "bind-a",

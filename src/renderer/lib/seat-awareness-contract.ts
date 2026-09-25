@@ -56,9 +56,12 @@
  * and the recorded containment upgrade, and claims nothing from it.
  */
 
-import { Option } from "effect";
+import { Option, Schema } from "effect";
 import type { AgentSeatState } from "@shared/agent-seat-state";
-import { decodeThreadHealthReading, type ThreadHealthReading } from "@shared/thread-health";
+import { ThreadHealthReading } from "@shared/thread-health";
+
+/** Strict decode of the thread-health reading carried on an assessment. */
+export const decodeThreadHealthReading = Schema.decodeUnknownOption(ThreadHealthReading);
 
 /** Main -> renderer: one seat-awareness event. */
 export const SEAT_AWARENESS_CHANNEL = "junto:seat-awareness" as const;

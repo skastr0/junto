@@ -878,6 +878,13 @@
       "retire": "Construct the branded value through a total constructor instead of re-validating a value this process just built."
     },
     {
+      "path": "src/renderer/lib/seat-awareness-contract.ts",
+      "kinds": [
+        "wire"
+      ],
+      "reason": "Decodes the thread-health reading carried on a seat-awareness IPC event from main before the renderer store accepts it."
+    },
+    {
       "path": "src/shared/browser-control.ts",
       "kinds": [
         "codec"

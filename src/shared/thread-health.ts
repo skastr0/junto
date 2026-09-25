@@ -100,8 +100,6 @@ export const ThreadHealthReading = Schema.Struct({
 });
 export type ThreadHealthReading = typeof ThreadHealthReading.Type;
 
-export const decodeThreadHealthReading = Schema.decodeUnknownOption(ThreadHealthReading);
-
 /**
  * A reading older than this is shown as last observed, unless the seat's
  * screen is still materially the one it was observed on (an idle thread that
