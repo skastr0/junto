@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import type { HostDirectorySnapshot } from "../src/shared/host-directory";
 import {
   bestDirectoryCompletion,
+  directoryCompletion,
   directoryFromDraft,
+  expandDraft,
   joinHostPath,
   matchDirectoryEntries,
   parseDirectoryDraft,
@@ -144,5 +146,70 @@ describe("path helpers", () => {
   it("keeps the filesystem root when trimming", () => {
     expect(trimTrailingSlash("/")).toBe("/");
     expect(trimTrailingSlash("/Users/developer/")).toBe("/Users/developer");
+  });
+});
+
+describe("expandDraft", () => {
+  const home = { requested: "~", snapshot };
+
+  it("reads a typed home prefix as the folder it resolved to", () => {
+    expect(expandDraft("~", home)).toBe("/Users/developer");
+    expect(expandDraft("~/", home)).toBe("/Users/developer/");
+    expect(expandDraft("~/Pro", home)).toBe("/Users/developer/Pro");
+  });
+
+  it("leaves text that does not start at the requested path alone", () => {
+    expect(expandDraft("~other/x", home)).toBe("~other/x");
+    expect(expandDraft("/tmp/x", home)).toBe("/tmp/x");
+  });
+
+  it("is the identity without a page or when the request was canonical", () => {
+    expect(expandDraft("~/Pro", undefined)).toBe("~/Pro");
+    expect(
+      expandDraft("/Users/developer/Pro", { requested: "/Users/developer", snapshot }),
+    ).toBe("/Users/developer/Pro");
+  });
+});
+
+describe("directoryCompletion", () => {
+  const page = { requested: "~", snapshot };
+  const projects = entries[2];
+
+  it("completes the folder the word can only mean, ending in a separator", () => {
+    expect(directoryCompletion("/Users/developer/Pro", page)).toBe(
+      "/Users/developer/Projects/",
+    );
+  });
+
+  it("keeps what the user typed ahead of the word, home prefix included", () => {
+    expect(directoryCompletion("~/pro", page)).toBe("~/Projects/");
+  });
+
+  it("suggests nothing while the word is ambiguous", () => {
+    expect(directoryCompletion("/Users/developer/P", page)).toBeUndefined();
+  });
+
+  it("lets the highlighted row win while the word still reaches it", () => {
+    expect(directoryCompletion("/Users/developer/P", page, projects)).toBe(
+      "/Users/developer/Projects/",
+    );
+    expect(directoryCompletion("/Users/developer/", page, projects)).toBe(
+      "/Users/developer/Projects/",
+    );
+    expect(directoryCompletion("/Users/developer/Do", page, projects)).toBe(
+      "/Users/developer/Downloads/",
+    );
+  });
+
+  it("suggests nothing for a draft pointing at another folder", () => {
+    expect(directoryCompletion("/tmp/Pro", page)).toBeUndefined();
+  });
+
+  it("suggests nothing for a bare word with no parent", () => {
+    expect(directoryCompletion("Pro", page)).toBeUndefined();
+  });
+
+  it("suggests nothing before a page has loaded", () => {
+    expect(directoryCompletion("/Users/developer/Pro", undefined)).toBeUndefined();
   });
 });

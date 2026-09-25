@@ -109,11 +109,11 @@ const chooseWorkingDirectory = async (
   const picker = await openFolderPicker(page, deck);
   const input = picker.getByLabel("Agent working directory");
   await input.fill(`${REPO_ROOT}/`);
-  const listing = picker.getByRole("list", {
+  const listing = picker.getByRole("listbox", {
     name: `Folders in ${REPO_ROOT}`,
   });
   await expect(listing).toBeVisible({ timeout: 10_000 });
-  await listing.getByRole("button", { name: `Select ${folder}` }).click();
+  await listing.getByRole("option", { name: folder, exact: true }).click();
   await expect(input).toHaveValue(join(REPO_ROOT, folder));
   await picker
     .getByRole("button", { name: "Close folder picker" })
@@ -282,18 +282,18 @@ test("starting-folder modal reuses live directory browsing and can save a contai
     const input = picker.getByLabel("Agent working directory");
 
     await input.fill(`${REPO_ROOT}/`);
-    const listing = picker.getByRole("list", {
+    const listing = picker.getByRole("listbox", {
       name: `Folders in ${REPO_ROOT}`,
     });
     await expect(listing).toBeVisible({ timeout: 10_000 });
     await expect(
-      listing.getByRole("button", { name: "Select src" }),
+      listing.getByRole("option", { name: "src", exact: true }),
     ).toBeVisible();
     await expect(
-      listing.getByRole("button", { name: "Select tests" }),
+      listing.getByRole("option", { name: "tests", exact: true }),
     ).toBeVisible();
 
-    await listing.getByRole("button", { name: "Select src" }).click();
+    await listing.getByRole("option", { name: "src", exact: true }).click();
     await expect(input).toHaveValue(join(REPO_ROOT, "src"));
 
     const regionDefault = picker.getByRole("checkbox", {
@@ -340,11 +340,11 @@ test("one agent-row click creates exactly one configured agent without a legacy 
     const input = picker.getByLabel("Agent working directory");
 
     await input.fill(`${REPO_ROOT}/`);
-    const listing = picker.getByRole("list", {
+    const listing = picker.getByRole("listbox", {
       name: `Folders in ${REPO_ROOT}`,
     });
     await expect(listing).toBeVisible({ timeout: 10_000 });
-    await listing.getByRole("button", { name: "Select src" }).click();
+    await listing.getByRole("option", { name: "src", exact: true }).click();
     await expect(input).toHaveValue(join(REPO_ROOT, "src"));
     await picker
       .getByRole("button", { name: "Close folder picker" })

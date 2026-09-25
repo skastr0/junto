@@ -108,3 +108,57 @@ export const directoryFromDraft = (
   );
   return entry?.path;
 };
+
+/** A listing and the path that was asked for to get it ("~" answers as the home). */
+export type DirectoryPage = {
+  readonly requested: string;
+  readonly snapshot: HostDirectorySnapshot;
+};
+
+/**
+ * Read typed text against the page that answered it, so "~/Pro" on the page
+ * "~" resolved to means "/Users/developer/Pro". The input keeps what the user
+ * typed; only the reading of it is canonical.
+ */
+export const expandDraft = (
+  draft: string,
+  page: DirectoryPage | undefined,
+): string => {
+  const text = draft.trim();
+  if (!page) return text;
+  const from = trimTrailingSlash(page.requested.trim());
+  const root = page.snapshot.root;
+  if (from === "" || from === "/" || from === root) return text;
+  if (text === from) return root;
+  if (text.startsWith(`${from}/`)) {
+    return joinHostPath(root, text.slice(from.length + 1));
+  }
+  return text;
+};
+
+/**
+ * What accepting the typeahead makes the draft: the typed text up to its last
+ * separator, the folder's real name, and a closing separator, so accepting is
+ * an explicit step into that folder. The highlighted row wins when the word
+ * still reaches it; otherwise only a folder the word can only mean. Undefined
+ * when the draft does not point at this page, or names no parent at all.
+ */
+export const directoryCompletion = (
+  draft: string,
+  page: DirectoryPage | undefined,
+  active?: HostDirectoryEntry,
+): string | undefined => {
+  if (!page) return undefined;
+  const cut = draft.lastIndexOf("/");
+  if (cut < 0) return undefined;
+  const head = draft.slice(0, cut + 1);
+  if (trimTrailingSlash(expandDraft(head, page)) !== page.snapshot.root) {
+    return undefined;
+  }
+  const word = draft.slice(cut + 1);
+  const reaches =
+    active?.kind === "directory" &&
+    active.name.toLowerCase().startsWith(word.toLowerCase());
+  const pick = reaches ? active : bestDirectoryCompletion(page.snapshot.entries, word);
+  return pick ? `${head}${pick.name}/` : undefined;
+};
