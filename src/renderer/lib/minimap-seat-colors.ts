@@ -30,6 +30,12 @@ const STALE_FILL_ALPHA = 0.45;
 /** A region is a tint of its worst member, never a solid block over them. */
 const REGION_FILL_ALPHA = 0.3;
 const STALE_REGION_FILL_ALPHA = 0.16;
+/**
+ * An agent seat with nothing to say keeps its identity hue, quietly: agents are
+ * orange, which sits beside the amber of a seat in trouble, so a full-strength
+ * idle seat would read as a warning on a map painted by health.
+ */
+const QUIET_SEAT_FILL_ALPHA = 0.4;
 
 const isAgentSeat = (node: CanvasNode): boolean =>
   node.type !== "group" && node.ether?.entity?.kind === "agent";
@@ -50,8 +56,10 @@ export const minimapNodeColors = (
     }
     return { fill: seat.stale ? withAlpha(hue, STALE_FILL_ALPHA) : hue, stroke: hue };
   }
+  const quietSeat = node !== undefined && isAgentSeat(node) && (severity === undefined || severity === "idle");
+  const fill = minimapFill(node, severity);
   return {
-    fill: minimapFill(node, severity),
+    fill: quietSeat ? withAlpha(fill, QUIET_SEAT_FILL_ALPHA) : fill,
     stroke: severity && severity !== "idle" ? signalMark(severity).hue : withAlpha(ground, 0.85),
   };
 };

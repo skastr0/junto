@@ -90,6 +90,16 @@ describe("minimapNodeColors", () => {
     expect(stale.fill).toContain("var(--color-amber)");
   });
 
+  it("draws an agent seat with nothing to say quietly, in its identity hue", () => {
+    const agent = { id: "a", type: "text", text: "a", x: 0, y: 0, width: 10, height: 10, ether: { entity: { kind: "agent", name: "a" } } } as CanvasNode;
+    const quiet = minimapNodeColors(agent, undefined, undefined, ground);
+    expect(quiet.fill).toContain("var(--color-orange)");
+    expect(quiet.fill).not.toBe(HUE.orange);
+    // Any other node keeps its identity at full strength.
+    const note = { id: "n", type: "text", text: "n", x: 0, y: 0, width: 10, height: 10, ether: { entity: { kind: "project", name: "p" } } } as CanvasNode;
+    expect(minimapNodeColors(note, undefined, undefined, ground).fill).toBe(HUE.amber);
+  });
+
   it("keeps severity and identity colours for everything that is not a seat", () => {
     expect(minimapNodeColors(undefined, "blocked", undefined, ground)).toMatchObject({ fill: HUE.crimson, stroke: HUE.crimson });
   });
