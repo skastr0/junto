@@ -47,8 +47,10 @@ describe("threadHealthMark", () => {
   it("draws both ends of the spectrum, labelled as an AI reading", () => {
     expect(threadHealthMark(reading("going_well"), { now, freshness: "current" })).toEqual({
       health: "good",
+      value: "going_well",
       healthStale: false,
       label: "AI reads: going well",
+      line: "going well",
     });
     expect(threadHealthMark(reading("stuck"), { now, freshness: "current" }).health).toBe("trouble");
     expect(threadHealthMark(undefined, { now, freshness: "current" }).health).toBeUndefined();
@@ -58,8 +60,10 @@ describe("threadHealthMark", () => {
     const mark = threadHealthMark(reading("thrashing"), { now: T0 + 7 * 60_000, freshness: "stale" });
     expect(mark).toEqual({
       health: "trouble",
+      value: "thrashing",
       healthStale: true,
       label: "AI reads: thrashing, last observed 7m ago",
+      line: "thrashing",
     });
   });
 
@@ -67,7 +71,9 @@ describe("threadHealthMark", () => {
     for (const signal of ["blocked", "escalate"] as const) {
       expect(threadHealthMark(reading("waiting_on_operator"), { now, freshness: "current", signal }).health).toBeUndefined();
       const good = threadHealthMark(reading("succeeding"), { now, freshness: "current", signal });
-      expect(good).toMatchObject({ health: "good", healthStale: true });
+      expect(good).toMatchObject({ health: "good", healthStale: true, line: undefined });
+      // The label line belongs to the declared signal while it is open.
+      expect(threadHealthMark(reading("confused"), { now, freshness: "current", signal }).line).toBeUndefined();
       // Trouble readings stay loud: they add information the declaration lacks.
       expect(threadHealthMark(reading("confused"), { now, freshness: "current", signal }).healthStale).toBe(false);
     }

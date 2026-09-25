@@ -29,6 +29,7 @@ import {
   THREAD_HEALTH_TTL_MS,
   type ThreadHealthReading,
   type ThreadHealthTone,
+  type ThreadHealthValue,
 } from "@shared/thread-health";
 import type { StatusTone } from "../components/ui/StatusDot";
 import { formatSeatAwarenessAge, seatAwareness$ } from "./seat-awareness";
@@ -80,16 +81,31 @@ export const THREAD_HEALTH_STATUS_TONE: Readonly<Record<ThreadHealthTone, Thread
   good: "green",
 };
 
-/** What the card's activity mark draws for health (its rim). */
+/** What the seat's ring and label line draw for health. */
 export type ThreadHealthMark = {
   readonly health: ThreadHealthTone | undefined;
+  /** The exact reading, for ring motion that tells stuck, looping and thrashing apart. */
+  readonly value: ThreadHealthValue | undefined;
   /** Draw quietly: the reading is old, or a declared signal outranks it. */
   readonly healthStale: boolean;
-  /** Title and aria text for the mark; undefined when nothing is drawn. */
+  /** Title and aria text: "AI reads: going well". Undefined when nothing is drawn. */
   readonly label: string | undefined;
+  /**
+   * Short text for the line beneath the seat's name ("going well"). Render it
+   * marked as an AI reading so it never passes for the agent's own claim.
+   * Undefined while a declared blocked or escalate signal is open: the line
+   * then belongs to the signal.
+   */
+  readonly line: string | undefined;
 };
 
-const NO_MARK: ThreadHealthMark = { health: undefined, healthStale: false, label: undefined };
+const NO_MARK: ThreadHealthMark = {
+  health: undefined,
+  value: undefined,
+  healthStale: false,
+  label: undefined,
+  line: undefined,
+};
 
 /** Declared kinds that already tell the operator the seat wants them. */
 const DECLARED_WANTS_OPERATOR: ReadonlySet<AgentSignalKind> = new Set(["blocked", "escalate"]);
@@ -110,8 +126,10 @@ export const threadHealthMark = (
   if (declared && tone === "waiting") return NO_MARK;
   return {
     health: tone,
+    value: reading.value,
     healthStale: input.freshness === "stale" || (declared && tone === "good"),
     label: threadHealthLabel(reading, input.freshness, input.now),
+    line: declared ? undefined : THREAD_HEALTH_LABEL[reading.value],
   };
 };
 
