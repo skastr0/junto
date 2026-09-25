@@ -237,7 +237,6 @@ Edges: `{ "id", "fromNode", "toNode", "ether": { "verb": Verb } }`.
 |---|---|---|
 | agent → agent | `messages` \| `reviews` | msg ports; or directed `verdict.post` |
 | agent → task | `manages` \| `contributes` | task ports (`contributes` adds `tasks.claim`) |
-| agent → requests | `escalates` | msg ports (raising a hand is the universal `junto escalate`, `blocked`, `feedback`) |
 | agent → artifacts | `publishes` | `artifact.publish` |
 | agent → board | `messages` \| `participates` | board ports; `wake` false / true |
 | agent → pad | `reads` \| `edits` | `pad.read` (`edits` adds `pad.patch`) |
@@ -488,6 +487,13 @@ Backfill laws (each one broke, or nearly broke, a real release):
 - **Install-local ledger.** Backfill completeness is install-local
   bookkeeping, not product state — separate Effect layer/service and
   separate on-disk store from `junto.db`.
+- **Canvas-document migrations run before the first authority read.** The
+  decode scrub alone cannot retire grammar that stored canvases still hold:
+  a document that decodes differently from its rows fails its own revision
+  hash and the canvas refuses to load. Rewrite the rows from the canvases
+  bootstrap, prove each touched document from its raw rows first, and commit
+  through `commitPortfolio` as a new generation (e.g.
+  `canvas/retire-escalates.ts`).
 - **Proven against the real schema before it ships.** Every migration or
   backfill ships with a test that runs it on the production DDL — triggers
   active — seeded with historical-shaped rows *including rows in the immutable

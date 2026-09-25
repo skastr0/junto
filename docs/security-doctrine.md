@@ -605,8 +605,12 @@ The exception is narrow by construction:
   separate axis and are never merged into it.
 
 Signals replaced the edge-granted `request.escalate` operation. The
-`escalates` edge verb stays decodable for stored canvases and grants only its
-request thread's messaging.
+`escalates` verb and the `request.escalate` port are retired from the grammar:
+no verb joins an agent to a requests sink, and only an overseer raises a
+request. Stored canvases migrate once at boot (install-ops marker
+`canvas.retire-escalates.v1`): each escalates edge is dropped, never converted
+into an adjacent verb, and a surviving mask loses the retired port, which
+granted nothing.
 
 ### Revocation and deletion
 
