@@ -39,12 +39,32 @@ const TOPPERS = ["none", "cat", "bear", "bunny", "antenna", "sprout", "horns", "
 const EYES = ["dot", "shiny", "happy", "sleepy", "oval", "wink", "line", "sparkle"] as const;
 const MOUTHS = ["smile", "cat", "o", "flat", "grin", "fang", "none", "wobble"] as const;
 const MARKINGS = ["none", "belly", "spots", "cap", "freckles", "none"] as const;
+// The pick lists above are the identity draw; their order is frozen so every
+// seat keeps its face. Kinds only expressions or the editor reach live apart.
+const EXPRESSION_EYES = ["squint"] as const;
+const EXPRESSION_MOUTHS = ["frown"] as const;
+const BROWS = ["none", "level", "raised", "worried", "furrowed", "quizzical"] as const;
+const EXTRAS = ["none", "sweat", "sparkle", "zzz", "question"] as const;
 
 export type PortraitShape = (typeof SHAPES)[number];
 export type PortraitTopper = (typeof TOPPERS)[number];
-export type PortraitEyes = (typeof EYES)[number];
-export type PortraitMouth = (typeof MOUTHS)[number];
+export type PortraitEyes = (typeof EYES)[number] | (typeof EXPRESSION_EYES)[number];
+export type PortraitMouth = (typeof MOUTHS)[number] | (typeof EXPRESSION_MOUTHS)[number];
 export type PortraitMarking = (typeof MARKINGS)[number];
+export type PortraitBrows = (typeof BROWS)[number];
+export type PortraitExtra = (typeof EXTRAS)[number];
+
+/** Every choice the character editor offers, in display order. */
+export const PORTRAIT_OPTIONS = {
+  bodyHue: BODY_HUES.map(([token]) => token),
+  accentHue: [...ACCENT_HUES],
+  shape: [...SHAPES],
+  topper: [...TOPPERS],
+  eyes: [...EYES, ...EXPRESSION_EYES],
+  mouth: [...MOUTHS.filter((mouth) => mouth !== "none"), ...EXPRESSION_MOUTHS, "none"],
+  brows: [...BROWS],
+  marking: MARKINGS.filter((marking, index) => MARKINGS.indexOf(marking) === index),
+} as const satisfies Record<string, ReadonlyArray<string>>;
 
 /** The character, independent of mode and detail: what a seed decides. */
 export interface PortraitGenome {
@@ -63,6 +83,42 @@ export interface PortraitGenome {
   readonly eyeSize: number; // 0..1
   readonly wobble: readonly [number, number, number, number];
   readonly salt: number; // free entropy for small placements
+}
+
+/** A genome plus the traits only customization reaches. */
+export interface PortraitCharacter extends PortraitGenome {
+  readonly brows: PortraitBrows;
+  /** -1 moody .. 0 even .. 1 cheerful: biases dynamic expressions. */
+  readonly temperament: number;
+}
+
+/**
+ * Operator overrides for one seat. Every field is optional; absent means the
+ * identity default. Stored as data, so unknown values fall back to default.
+ */
+export interface PortraitConfig {
+  readonly bodyHue?: string;
+  readonly accentHue?: string;
+  readonly shape?: PortraitShape;
+  readonly topper?: PortraitTopper;
+  readonly eyes?: PortraitEyes;
+  readonly mouth?: PortraitMouth;
+  readonly brows?: PortraitBrows;
+  readonly marking?: PortraitMarking;
+  readonly blush?: boolean;
+  readonly temperament?: number;
+}
+
+/**
+ * A face an expression paints over the character. `base` keeps the
+ * character's own feature, so a seat stays recognizable in every mood.
+ */
+export interface PortraitFace {
+  readonly eyes: PortraitEyes | "base";
+  readonly mouth: PortraitMouth | "base";
+  readonly brows: PortraitBrows | "base";
+  readonly blush: boolean | "base";
+  readonly extra: PortraitExtra;
 }
 
 // --- deterministic randomness ---------------------------------------------
@@ -99,6 +155,51 @@ const pickWeighted = (rand: () => number, items: ReadonlyArray<readonly [string,
   }
   return items[0]?.[0] ?? "amber";
 };
+
+const oneOf = <T extends string>(items: ReadonlyArray<T>, value: unknown): T | undefined =>
+  typeof value === "string" && (items as ReadonlyArray<string>).includes(value) ? (value as T) : undefined;
+
+/** Identity default temperament: a mild lean, drawn apart from the genome. */
+export const defaultTemperament = (seed: string): number => {
+  const rand = mulberry32(fnv1a(`${seed.trim() || "agent"}#temperament`));
+  return Math.round((rand() * 2 - 1) * 0.6 * 100) / 100;
+};
+
+/** The character for a seat: identity genome with operator overrides laid on. */
+export function portraitCharacter(seed: string, config?: PortraitConfig): PortraitCharacter {
+  const genome = portraitGenome(seed);
+  const c = config ?? {};
+  const bodyHue = oneOf(PORTRAIT_OPTIONS.bodyHue, c.bodyHue) ?? genome.bodyHue;
+  let accentHue = oneOf(PORTRAIT_OPTIONS.accentHue, c.accentHue) ?? genome.accentHue;
+  if (c.accentHue === undefined && accentHue === bodyHue) accentHue = bodyHue === "cyan" ? "amber" : "cyan";
+  const temperament =
+    typeof c.temperament === "number" && Number.isFinite(c.temperament)
+      ? clamp(c.temperament, -1, 1)
+      : defaultTemperament(seed);
+  return {
+    ...genome,
+    bodyHue,
+    accentHue,
+    shape: oneOf(SHAPES, c.shape) ?? genome.shape,
+    topper: oneOf(TOPPERS, c.topper) ?? genome.topper,
+    eyes: oneOf(PORTRAIT_OPTIONS.eyes, c.eyes) ?? genome.eyes,
+    mouth: oneOf(PORTRAIT_OPTIONS.mouth, c.mouth) ?? genome.mouth,
+    marking: oneOf(MARKINGS, c.marking) ?? genome.marking,
+    blush: typeof c.blush === "boolean" ? c.blush : genome.blush,
+    brows: oneOf(BROWS, c.brows) ?? "none",
+    temperament,
+  };
+}
+
+/** Stable key for a config: only fields that differ from absent, sorted. */
+export const portraitConfigKey = (config?: PortraitConfig): string =>
+  config
+    ? Object.entries(config)
+        .filter(([, value]) => value !== undefined)
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([key, value]) => `${key}=${String(value)}`)
+        .join(";")
+    : "";
 
 /** Decide the character for a seed. Stable forever for a given seed. */
 export function portraitGenome(seed: string): PortraitGenome {
@@ -138,6 +239,9 @@ interface PortraitPalette {
   readonly ink: string;
   readonly shine: string;
   readonly blush: string;
+  readonly drop: string;
+  readonly spark: string;
+  readonly mute: string;
 }
 
 const clamp = (value: number, min: number, max: number): number => Math.min(max, Math.max(min, value));
@@ -167,6 +271,8 @@ function paletteFor(genome: PortraitGenome, mode: ThemeMode): PortraitPalette {
   const accent = tokenOklch(runtime, genome.accentHue);
   const leaf = tokenOklch(runtime, "green");
   const blush = tokenOklch(runtime, "orange");
+  const cyan = tokenOklch(runtime, "cyan");
+  const gold = tokenOklch(runtime, "gold");
   // Chroma follows the token but is clamped into a pastel band so steel stays
   // a soft grey critter and the loud hues never go neon.
   const chroma = clamp(hue.c * 0.82, 0.03, 0.12);
@@ -182,6 +288,9 @@ function paletteFor(genome: PortraitGenome, mode: ThemeMode): PortraitPalette {
     ink: runtime[dark ? "ground" : "ink"] ?? "#0c0b0a",
     shine: runtime[dark ? "ink" : "raise"] ?? "#ede6da",
     blush: tone(blush, 0.72, clamp(blush.c, 0.1, 0.15)),
+    drop: tone(cyan, 0.86, clamp(cyan.c * 0.7, 0.05, 0.09)),
+    spark: tone(gold, dark ? 0.84 : 0.72, clamp(gold.c, 0.1, 0.14)),
+    mute: runtime.dim ?? "#8a8378",
   };
   paletteCache.set(key, palette);
   return palette;
@@ -422,6 +531,8 @@ function eyeSvg(kind: PortraitEyes, x: number, y: number, r: number, side: numbe
       return side < 0
         ? `<circle cx="${f(x)}" cy="${f(y)}" r="${f(r * 1.15)}" fill="${p.ink}"/>${shine(x + r * 0.4, y - r * 0.45, r * 0.4)}`
         : `<path d="M${f(x - r * 1.2)} ${f(y + r * 0.5)}Q${f(x)} ${f(y - r * 1.4)} ${f(x + r * 1.2)} ${f(y + r * 0.5)}" ${line}/>`;
+    case "squint":
+      return `<ellipse cx="${f(x)}" cy="${f(y + r * 0.15)}" rx="${f(r * 1.1)}" ry="${f(r * 0.5)}" fill="${p.ink}"/>`;
     case "sparkle": {
       const k = r * 1.5;
       return `<path d="M${f(x)} ${f(y - k)}Q${f(x + k * 0.18)} ${f(y - k * 0.18)} ${f(x + k)} ${f(y)}Q${f(x + k * 0.18)} ${f(y + k * 0.18)} ${f(x)} ${f(y + k)}Q${f(x - k * 0.18)} ${f(y + k * 0.18)} ${f(x - k)} ${f(y)}Q${f(x - k * 0.18)} ${f(y - k * 0.18)} ${f(x)} ${f(y - k)}Z" fill="${p.ink}"/>`;
@@ -451,6 +562,76 @@ function mouthSvg(kind: PortraitMouth, x: number, y: number, p: PortraitPalette,
     }
     case "fang":
       return `<path d="M${f(x - 4.5 * k)} ${f(y)}Q${f(x)} ${f(y + 4 * k)} ${f(x + 4.5 * k)} ${f(y)}" ${line}/><path d="M${f(x + 0.6 * k)} ${f(y + 2 * k)}L${f(x + 2 * k)} ${f(y + 5 * k)}L${f(x + 3.2 * k)} ${f(y + 1.4 * k)}Z" fill="${p.shine}" stroke="${p.ink}" stroke-width="${f(s.feature * 0.45)}" stroke-linejoin="round"/>`;
+    case "frown":
+      return `<path d="M${f(x - 4 * k)} ${f(y + 3 * k)}Q${f(x)} ${f(y - 0.6 * k)} ${f(x + 4 * k)} ${f(y + 3 * k)}" ${line}/>`;
+    case "none":
+      return "";
+  }
+}
+
+/** One brow over an eye. `side` is -1 for the left eye; inner is toward the face centre. */
+function browSvg(kind: PortraitBrows, x: number, y: number, r: number, side: number, p: PortraitPalette, s: Stroke): string {
+  if (kind === "none") return "";
+  const half = r * 1.35 + 1.2;
+  const lift = r * 1.1 + 3.2;
+  const by = y - lift;
+  // Inner and outer end heights (positive is up), then a gentle arch.
+  const [inner, outer, arch] =
+    kind === "raised"
+      ? [2.2, 2.2, 1.6]
+      : kind === "worried"
+        ? [2.6, -0.6, 0.4]
+        : kind === "furrowed"
+          ? [-2.4, 1, 0]
+          : kind === "quizzical"
+            ? side > 0
+              ? [2.8, 2.8, 1.8]
+              : [0, 0, 0.6]
+            : [0, 0, 0.8];
+  const innerX = x - side * half;
+  const outerX = x + side * half;
+  const innerY = by - inner;
+  const outerY = by - outer;
+  const midX = (innerX + outerX) / 2;
+  const midY = (innerY + outerY) / 2 - arch;
+  return `<path d="M${f(innerX)} ${f(innerY)}Q${f(midX)} ${f(midY)} ${f(outerX)} ${f(outerY)}" stroke="${p.ink}" stroke-width="${f(s.feature * 0.8)}" stroke-linecap="round" fill="none"/>`;
+}
+
+/** A small mood mark beside the head. Placed inside every crop. */
+function extraSvg(kind: PortraitExtra, body: Body, faceX: number, eyeY: number, p: PortraitPalette, s: Stroke): string {
+  const k = s.scale;
+  const sideX = Math.min(82, body.cx + body.halfWidthAt(eyeY - 6) + 1);
+  switch (kind) {
+    case "sweat": {
+      const x = Math.min(78, sideX - 3);
+      const y = eyeY - 8;
+      const d = `M${f(x)} ${f(y - 5 * k)}Q${f(x + 3.4 * k)} ${f(y)} ${f(x + 3.4 * k)} ${f(y + 1.6 * k)}A${f(3.4 * k)} ${f(3.4 * k)} 0 0 1 ${f(x - 3.4 * k)} ${f(y + 1.6 * k)}Q${f(x - 3.4 * k)} ${f(y)} ${f(x)} ${f(y - 5 * k)}Z`;
+      return `<path d="${d}" fill="${p.drop}" stroke="${p.ink}" stroke-width="${f(s.outline * 0.55)}" stroke-linejoin="round"/>`;
+    }
+    case "sparkle":
+      return [
+        [Math.max(22, body.cx - body.w * 0.95), eyeY - 14, 4.2],
+        [Math.min(80, body.cx + body.w * 0.92), eyeY - 18, 3.2],
+      ]
+        .map(([x, y, r]) => {
+          const q = (r as number) * k;
+          const cx = x as number;
+          const cy = Math.max(22, y as number);
+          return `<path d="M${f(cx)} ${f(cy - q)}Q${f(cx + q * 0.2)} ${f(cy - q * 0.2)} ${f(cx + q)} ${f(cy)}Q${f(cx + q * 0.2)} ${f(cy + q * 0.2)} ${f(cx)} ${f(cy + q)}Q${f(cx - q * 0.2)} ${f(cy + q * 0.2)} ${f(cx - q)} ${f(cy)}Q${f(cx - q * 0.2)} ${f(cy - q * 0.2)} ${f(cx)} ${f(cy - q)}Z" fill="${p.spark}"/>`;
+        })
+        .join("");
+    case "zzz": {
+      const x = Math.min(74, sideX - 4);
+      const y = Math.max(24, eyeY - 12);
+      const z = (zx: number, zy: number, w: number): string =>
+        `<path d="M${f(zx)} ${f(zy)}h${f(w)}l${f(-w)} ${f(w)}h${f(w)}" stroke="${p.mute}" stroke-width="${f(s.feature * 0.6)}" stroke-linecap="round" stroke-linejoin="round" fill="none"/>`;
+      return z(x, y, 4.6 * k) + (s.scale > 1.2 ? "" : z(x + 6, y - 7, 3.4));
+    }
+    case "question": {
+      const x = Math.min(76, sideX - 2);
+      const y = Math.max(24, eyeY - 14);
+      return `<path d="M${f(x - 2.6 * k)} ${f(y - 1.6 * k)}Q${f(x - 2.4 * k)} ${f(y - 5 * k)} ${f(x + 0.4 * k)} ${f(y - 5 * k)}Q${f(x + 3.2 * k)} ${f(y - 4.8 * k)} ${f(x + 3 * k)} ${f(y - 2 * k)}Q${f(x + 2.8 * k)} ${f(y)} ${f(x)} ${f(y + 1.2 * k)}L${f(x)} ${f(y + 2.4 * k)}" stroke="${p.ink}" stroke-width="${f(s.feature * 0.7)}" stroke-linecap="round" stroke-linejoin="round" fill="none"/><circle cx="${f(x)}" cy="${f(y + 5.2 * k)}" r="${f(s.feature * 0.42)}" fill="${p.ink}"/>`;
+    }
     case "none":
       return "";
   }
@@ -470,11 +651,20 @@ export interface PortraitRequest {
   readonly mode: ThemeMode;
   readonly detail: PortraitDetail;
   readonly frame?: PortraitFrame;
+  /** Operator overrides; absent is the identity character. */
+  readonly config?: PortraitConfig;
+  /** A mood face over the character; absent is its own resting face. */
+  readonly face?: PortraitFace;
 }
 
 /** Build the portrait SVG document for a seed. Pure; callers cache by key. */
-export function portraitSvg({ seed, mode, detail, frame: shape = "tile" }: PortraitRequest): string {
-  const genome = portraitGenome(seed);
+export function portraitSvg({ seed, mode, detail, frame: shape = "tile", config, face }: PortraitRequest): string {
+  const genome = portraitCharacter(seed, config);
+  const eyes = face && face.eyes !== "base" ? face.eyes : genome.eyes;
+  const mouth = face && face.mouth !== "base" ? face.mouth : genome.mouth;
+  const brows = face && face.brows !== "base" ? face.brows : genome.brows;
+  const blush = face && face.blush !== "base" ? face.blush : genome.blush;
+  const extra = face?.extra ?? "none";
   const p = paletteFor(genome, mode);
   const s = strokeFor(detail);
   const body = bodyFor(genome);
@@ -483,7 +673,7 @@ export function portraitSvg({ seed, mode, detail, frame: shape = "tile" }: Portr
   const eyeGap = (8.5 + genome.eyeGap * 5) * (detail === "glyph" ? 1.15 : 1);
   const eyeR = (2.5 + genome.eyeSize * 1.3) * s.scale;
   const mouthY = eyeY + 7 + genome.eyeSize * 1.5;
-  const showBlush = genome.blush && detail !== "glyph";
+  const showBlush = blush && detail !== "glyph";
   const clipBody = `<clipPath id="b"><path d="${body.path}"/></clipPath>`;
   const marking = detail === "glyph" && genome.marking === "freckles" ? "" : markingSvg(genome, body, p, faceX, eyeY);
 
@@ -515,9 +705,12 @@ export function portraitSvg({ seed, mode, detail, frame: shape = "tile" }: Portr
           .map((dir) => `<ellipse cx="${f(faceX + dir * (eyeGap + 5))}" cy="${f(eyeY + 6.5)}" rx="5" ry="3" fill="${p.blush}" opacity="0.55"/>`)
           .join("")
       : "",
-    eyeSvg(genome.eyes, faceX - eyeGap, eyeY, eyeR, -1, p, s),
-    eyeSvg(genome.eyes, faceX + eyeGap, eyeY, eyeR, 1, p, s),
-    mouthSvg(genome.mouth, faceX, mouthY, p, s),
+    eyeSvg(eyes, faceX - eyeGap, eyeY, eyeR, -1, p, s),
+    eyeSvg(eyes, faceX + eyeGap, eyeY, eyeR, 1, p, s),
+    browSvg(brows, faceX - eyeGap, eyeY, eyeR, -1, p, s),
+    browSvg(brows, faceX + eyeGap, eyeY, eyeR, 1, p, s),
+    mouthSvg(mouth, faceX, mouthY, p, s),
+    extraSvg(extra, body, faceX, eyeY, p, s),
     `</g></g>`,
     detail === "rich" ? `<rect width="100" height="100" fill="${p.ink}" filter="url(#g)" opacity="0.16"/>` : "",
     `</g></svg>`,
