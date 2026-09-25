@@ -43,7 +43,7 @@ export const setOverseerSeat = async (input: {
   if (typeof api?.canvasOverseerSet !== "function") {
     throw new OverseerSetError("Overseer control is unavailable.");
   }
-  await flushCanvasEdits();
+  await flushCanvasEdits("background");
   const expectedRevision = getCanvasRevision(input.canvasName);
   if (expectedRevision === undefined) {
     throw new OverseerSetError("Reload before changing overseer.");

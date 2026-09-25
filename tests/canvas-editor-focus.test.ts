@@ -12,7 +12,7 @@ describe("canvas editor flush focus boundary", () => {
     const active = { blur, closest };
 
     expect(shouldBlurCanvasFlushTarget(active)).toBe(false);
-    commitCanvasEditorDrafts(active);
+    commitCanvasEditorDrafts("navigation", active);
 
     expect(blur).not.toHaveBeenCalled();
     expect(closest).toHaveBeenCalledWith(CANVAS_DRAFT_FOCUS_SELECTOR);
@@ -24,17 +24,28 @@ describe("canvas editor flush focus boundary", () => {
     const active = { blur, closest };
 
     expect(shouldBlurCanvasFlushTarget(active)).toBe(true);
-    commitCanvasEditorDrafts(active);
+    commitCanvasEditorDrafts("navigation", active);
 
     expect(blur).toHaveBeenCalledOnce();
     expect(closest).toHaveBeenCalledWith(CANVAS_DRAFT_FOCUS_SELECTOR);
+  });
+
+  it("never blurs a canvas draft on a background flush", () => {
+    const blur = vi.fn();
+    const closest = vi.fn(() => ({}));
+    const active = { blur, closest };
+
+    expect(shouldBlurCanvasFlushTarget(active, "background")).toBe(false);
+    commitCanvasEditorDrafts("background", active);
+
+    expect(blur).not.toHaveBeenCalled();
   });
 
   it("does not blur a target that cannot declare canvas draft ownership", () => {
     const blur = vi.fn();
     const active = { blur };
 
-    commitCanvasEditorDrafts(active);
+    commitCanvasEditorDrafts("navigation", active);
 
     expect(blur).not.toHaveBeenCalled();
   });

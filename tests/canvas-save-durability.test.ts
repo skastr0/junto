@@ -137,7 +137,7 @@ describe("renderer canvas save durability", () => {
     try {
       expect(writeCanvas).not.toHaveBeenCalled();
 
-      await flushCanvasEdits();
+      await flushCanvasEdits("navigation");
 
       expect(writeCanvas).toHaveBeenCalledOnce();
       expect(writeCanvas).toHaveBeenCalledWith("alpha", doc("live-modal-draft"), "alpha-r1");

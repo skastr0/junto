@@ -65,7 +65,7 @@ describe("renderer canvas quiesce boundary", () => {
 
     // Ordinary navigation/window flush stays non-quiescing and permits later edits.
     commitDoc(note("normal-flush"));
-    await flushCanvasEdits();
+    await flushCanvasEdits("navigation");
     expect(canvasMutationsQuiesced()).toBe(false);
     expect(writeCanvas).toHaveBeenCalledWith("alpha", note("normal-flush"), "alpha-r1");
 

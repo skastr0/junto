@@ -134,7 +134,7 @@ const openCanvas = async (name: string) => {
     let request: number | undefined;
     state$.canvasLoading.set(true);
     try {
-      await flushCanvasEdits();
+      await flushCanvasEdits("navigation");
       if (canvasMutationsQuiesced()) return;
       request = canvasNavigationClock.begin();
       const result = await window.junto.readCanvas(name);
@@ -195,7 +195,7 @@ const nodeRefNavigation = makeNodeRefNavigationCoordinator({
 });
 
 const externalCanvasReload = makeCanvasExternalReloadCoordinator({
-  flushLocalEdits: flushCanvasEdits,
+  flushLocalEdits: () => flushCanvasEdits("background"),
   readCanvas: async (name) => {
     const junto = window.junto;
     if (!junto) throw new Error("Electron preload bridge is not available.");
@@ -223,7 +223,7 @@ const createCanvas = async (name: string) => {
     let request: number | undefined;
     state$.canvasLoading.set(true);
     try {
-      await flushCanvasEdits();
+      await flushCanvasEdits("navigation");
       if (canvasMutationsQuiesced()) return;
       request = canvasNavigationClock.begin();
       const result = await window.junto.createCanvas(name);
@@ -256,7 +256,7 @@ const deleteCanvas = async (name: string) => {
     state$.canvasLoading.set(true);
     try {
       const wasOpen = state$.canvasName.peek() === name;
-      await flushCanvasEdits();
+      await flushCanvasEdits("navigation");
       if (canvasMutationsQuiesced()) return;
       // Mark the name abandoned after its last pending edit is durable so the
       // delete wins over any already-returning watcher echo.
@@ -315,7 +315,7 @@ export function App() {
       state$.canvasLoading.set(true);
       await runCanvasAuthoringOperation(async () => {
         try {
-          await flushCanvasEdits();
+          await flushCanvasEdits("navigation");
           assertCanvasNavigationAdmitted();
           await nodeRefNavigation.navigate(event);
         } catch (error) {
@@ -416,7 +416,7 @@ export function App() {
     });
 
     const offCanvasFlush = junto.onCanvasFlushRequested(async () => {
-      await flushCanvasEdits();
+      await flushCanvasEdits("navigation");
     });
     const offCanvasQuiesceAndFlush = junto.onCanvasQuiesceAndFlushRequested(async (acknowledgeQuiesced) => {
       try {
