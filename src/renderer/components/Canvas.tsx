@@ -17,7 +17,7 @@ import type { Connection, EdgeMouseHandler, FinalConnectionState, Node, OnNodeDr
 import { use$ } from "@legendapp/state/react";
 import type { CanvasDoc, EtherEdgeKind, EtherFlag } from "@shared/canvas";
 import { executionGraphContextFromActorRefs } from "@shared/graph";
-import { Activity, Ban, Boxes, Expand, LayoutGrid, Link2, OctagonX, Plus, ScanLine, SquareDashed, Trash2, Unlink, X } from "lucide-react";
+import { Activity, Ban, Boxes, Expand, LayoutGrid, Link2, OctagonX, Plus, ScanLine, SquareDashed, Trash2, Unlink, Users, X } from "lucide-react";
 import {
   clearSelection,
   replaceSelection,
@@ -97,6 +97,8 @@ import { CanvasLoom } from "./edges/CanvasLoom";
 import { WirePulseFeed } from "./edges/WirePulseFeed";
 import { RtsBottomBar, saveSelectionToCommandGroup } from "./rts/RtsBottomBar";
 import { SaveToGroupPicker } from "./rts/SaveToGroupPicker";
+import { SquadDialogHost } from "./squads/SquadDialog";
+import { openSaveSquad, placeSquadInSlot } from "../lib/squads-state";
 import { TerminalWizard, createTerminalAt } from "./terminal/TerminalWizard";
 import { openTerminalGrid } from "../lib/terminal-grid-state";
 import { GitWizard, createGitFromRegion } from "./git/GitWizard";
@@ -705,6 +707,10 @@ const makeAddActions = (
     state$.focusNodeId.set(node.id);
     dismiss();
   },
+  addSquad: (squadId) => {
+    void placeSquadInSlot(squadId, positionFor);
+    dismiss();
+  },
   addConfiguredAgent: (choices, position) => {
     const node = makeManagedAgentNode(position.x, position.y, choices);
     addNode(node, { edit: false });
@@ -1095,6 +1101,14 @@ function MultiSelectMenu({ anchor, onClose }: { readonly anchor: MultiMenuAnchor
     } : null,
     broadcastEntry("stop", <OctagonX size={14} />),
     broadcastEntry("check", <Activity size={14} />),
+    authoring ? {
+      key: "squad",
+      label: "save as squad",
+      detail: `${agents}, reusable`,
+      ariaLabel: `Save ${agents} as a squad`,
+      icon: <Users size={14} />,
+      onSelect: runOnAgents((ids) => openSaveSquad(ids)),
+    } : null,
   ];
   const agentRows = agentActions.filter((entry): entry is MultiMenuEntry => entry !== null);
 
@@ -1717,6 +1731,7 @@ function CanvasGraph() {
     </ReactFlow>
     {ctxMenu ? <ContextModeDeck at={ctxMenu} onClose={() => setCtxMenu(null)} /> : null}
     {multiMenu ? <MultiSelectMenu anchor={multiMenu} onClose={closeMultiMenu} /> : null}
+    <SquadDialogHost />
     {connectMenu ? (
       <TargetConnectMenu
         at={{ x: connectMenu.x, y: connectMenu.y }}

@@ -26,12 +26,15 @@ import {
   type NodeCatalogCategory,
   type NodeCatalogEntry,
 } from "./NodeCatalogGrid";
+import { SquadPickerSection } from "../squads/SquadPickerSection";
 import "./node-palette-mode-deck.css";
 import { claimFocus } from "../../lib/focus-ownership";
 
 export type ModeDeckActions = {
   /** Geography only — note (text) and region (group). Page/image use dedicated adders. */
   readonly create: (kind: "text" | "group") => void;
+  /** Place a saved squad (fresh seats, connections, layout). */
+  readonly addSquad: (squadId: string) => void;
   readonly addConfiguredAgent: (
     choices: AgentConfigurationChoices & AgentLaunchContextValue,
     position: { readonly x: number; readonly y: number },
@@ -231,6 +234,7 @@ export function NodePaletteModeDeck({
           </div>
         </aside>
         <div className="node-deck__catalog">
+          <SquadPickerSection query={query} onPlace={actions.addSquad} />
           <div className="node-deck__pane-label"><span>Node catalog</span></div>
           <NodeCatalogGrid
             className="node-deck__catalog-grid"

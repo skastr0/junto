@@ -1,0 +1,171 @@
+/* Squads: portrait rows, the add-picker section, the save dialog, and the
+   manage popover. Tokens only. */
+
+.squad-portraits {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.squad-portraits > * + * {
+  margin-left: -5px;
+}
+
+.squad-portraits__more {
+  margin-left: 4px;
+  color: var(--color-faint);
+  font-family: var(--font-mono);
+  font-size: 9px;
+}
+
+/* --- add picker ------------------------------------------------------------ */
+
+.squad-picker {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.squad-picker__list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(188px, 1fr));
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.squad-picker__item {
+  position: relative;
+  min-width: 0;
+}
+
+.squad-picker__card {
+  display: grid;
+  width: 100%;
+  gap: 4px;
+  border: 1px solid var(--color-stroke);
+  border-radius: 6px;
+  background: var(--color-raise);
+  padding: 8px 32px 8px 9px;
+  color: var(--color-dim);
+  text-align: left;
+  transition: border-color 150ms ease, background 150ms ease, color 150ms ease;
+}
+
+.squad-picker__card:hover,
+.squad-picker__card:focus-visible {
+  border-color: var(--color-stroke-hi);
+  background: var(--color-overlay-2);
+  color: var(--color-ink);
+  outline: none;
+}
+
+.squad-picker__name {
+  overflow: hidden;
+  color: var(--color-ink);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.squad-picker__meta {
+  color: var(--color-faint);
+  font-size: 9px;
+}
+
+.squad-picker__more {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+}
+
+/* --- save dialog ----------------------------------------------------------- */
+
+.squad-dialog {
+  display: grid;
+  gap: 14px;
+  padding: 14px 16px 16px;
+}
+
+.squad-dialog__field {
+  display: grid;
+  gap: 6px;
+  justify-items: start;
+}
+
+.squad-dialog__field > * {
+  width: 100%;
+}
+
+.squad-dialog__field > button {
+  width: auto;
+}
+
+.squad-dialog__hint {
+  color: var(--color-faint);
+  font-size: 10px;
+}
+
+.squad-dialog__option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.squad-dialog__option-name {
+  overflow: hidden;
+  color: var(--color-ink);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.squad-dialog__option small {
+  margin-left: auto;
+  color: var(--color-faint);
+  font-size: 9px;
+  white-space: nowrap;
+}
+
+.squad-dialog__seats {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.squad-dialog__seats li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.squad-dialog__error {
+  margin: 0;
+  color: var(--color-amber);
+  font-size: 11px;
+}
+
+.squad-dialog__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+/* --- manage popover -------------------------------------------------------- */
+
+.squad-manage {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+}
+
+.squad-manage__row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
