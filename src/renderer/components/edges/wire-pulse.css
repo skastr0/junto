@@ -7,9 +7,9 @@
    the other. Only stroke-dashoffset animates; nothing lays out. */
 path.junto-wire-pulse {
   fill: none;
-  stroke-width: 2.4;
+  stroke-width: 3.2;
   stroke-linecap: round;
-  stroke-dasharray: 0.12 2;
+  stroke-dasharray: 0.16 2;
   pointer-events: none;
   animation: wire-pulse-forward 900ms cubic-bezier(.45, 0, .55, 1) forwards;
 }
@@ -17,12 +17,12 @@ path.junto-wire-pulse[data-direction="reverse"] {
   animation-name: wire-pulse-reverse;
 }
 @keyframes wire-pulse-forward {
-  from { stroke-dashoffset: 0.12; }
+  from { stroke-dashoffset: 0.16; }
   to { stroke-dashoffset: -1; }
 }
 @keyframes wire-pulse-reverse {
   from { stroke-dashoffset: -1; }
-  to { stroke-dashoffset: 0.12; }
+  to { stroke-dashoffset: 0.16; }
 }
 
 /* Pan and zoom own the compositor; a pulse mid-gesture is not painted. */
@@ -36,7 +36,7 @@ html[data-viewport-busy] .react-flow path.junto-wire-pulse {
   path.junto-wire-pulse,
   path.junto-wire-pulse[data-direction="reverse"] {
     stroke-dasharray: none;
-    stroke-width: 1.8;
+    stroke-width: 2.4;
     animation: wire-pulse-hold 700ms steps(1, end) forwards;
   }
 }

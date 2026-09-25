@@ -20,11 +20,15 @@ export const WIRE_PULSE_MAX_ACTIVE = 24;
 /** An edge whose animation never reported its end frees itself after this. */
 const STALE_AFTER_MS = WIRE_PULSE_MS + 400;
 
-/** Interaction kind to its theme token: the pulse's only colour. */
+/**
+ * Interaction kind to its theme token: the pulse's only colour. Chosen off
+ * the cold blue of the messages wire it usually runs on: violet mail (the
+ * preamble's mail colour), amber prompts, green answers.
+ */
 export const WIRE_PULSE_TOKEN: Record<WireTrafficKind, string> = {
-  notice: "--color-cyan",
+  notice: "--color-violet",
   prompt: "--color-amber-hi",
-  answer: "--color-violet",
+  answer: "--color-green",
 };
 
 /** The edge fields the mapping reads (a FlowEdge satisfies it). */
