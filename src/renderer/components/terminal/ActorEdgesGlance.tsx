@@ -41,7 +41,9 @@ import {
   setActorRailOpen,
   terminal$,
 } from "../../lib/terminal-state";
-import { ActivityMark } from "../ActivityMark";
+import { useSeatSignalRollup } from "../../lib/agent-signals-state";
+import { useThreadHealthMark } from "../../lib/thread-health";
+import { ActivityMark, ActivityMarkFromSpec } from "../ActivityMark";
 import { AgentPortrait } from "../AgentPortrait";
 import { Chip, Eyebrow, IconButton, SidebarSection } from "../ui";
 
@@ -141,8 +143,12 @@ function EdgeCard({
     | undefined;
   const phase = actorEdgePhaseLabel(row);
   const harness = peer?.ether?.terminal?.harness;
+  const canvasName = use$(state$.canvasName);
+  const rollup = useSeatSignalRollup(canvasName, peer?.id ?? "");
+  const health = useThreadHealthMark(bindingId, rollup?.kind);
+  const agentPeer = peer?.ether?.entity?.kind === "agent";
   const portrait =
-    peer?.ether?.entity?.kind === "agent" ? (
+    agentPeer ? (
       <AgentPortrait
         identity={peer.id}
         harness={typeof harness === "string" && isHarnessId(harness) ? harness : undefined}
@@ -192,6 +198,30 @@ function EdgeCard({
     : null;
   const activity =
     seatActivity !== null && seatActivity.tone !== "steel" ? seatActivity : null;
+  // An agent peer is shown as its seat: the portrait held by its ring, which
+  // carries state, health and signal, so no separate mark beside it.
+  const ringed =
+    agentPeer && peer && seatActivity ? (
+      <ActivityMarkFromSpec
+        spec={seatActivity}
+        size="glance"
+        health={health.health}
+        healthValue={health.value}
+        healthStale={health.healthStale}
+        healthLabel={health.label}
+        signal={rollup?.kind}
+        signalCount={rollup?.openCount}
+        className="actor-edges-glance__seat-mark"
+      >
+        <AgentPortrait
+          identity={peer.id}
+          size={20}
+          frame="round"
+          outline={false}
+          badge={false}
+        />
+      </ActivityMarkFromSpec>
+    ) : undefined;
 
   return (
     <li
@@ -213,7 +243,7 @@ function EdgeCard({
       >
         <EdgeCardBody
           row={row}
-          portrait={portrait}
+          portrait={ringed ?? portrait}
           seatMark={
             <>
               {unreadFromPeer > 0 ? (
@@ -224,7 +254,7 @@ function EdgeCard({
                   {unreadFromPeer}
                 </span>
               ) : null}
-              {activity ? (
+              {activity && !ringed ? (
                 <ActivityMark
                   mode={activity.mode}
                   tone={activity.tone}

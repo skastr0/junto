@@ -22,8 +22,11 @@ import { GREEN, HUE } from "./theme";
 export type ActivityTone = "amber" | "cyan" | "green" | "crimson" | "steel";
 /** wave = clockwise trail - pulse = soft breath (complete) - static = settled */
 export type ActivityMode = "wave" | "pulse" | "static";
-/** node = card corner, inline = chips and rows, seat = the ring around a portrait. */
-export type ActivitySize = "node" | "inline" | "seat";
+/**
+ * node = card corner, inline = chips and rows, seat = the ring around a
+ * canvas portrait, glance = the ring around a small portrait in a list.
+ */
+export type ActivitySize = "node" | "inline" | "seat" | "glance";
 /** Legacy motion nuance for wave states; ActivityMark ignores pattern. */
 export type ActivityPattern = "arrow-up" | "diagonal" | "snake" | "ripple";
 
