@@ -35,6 +35,7 @@ import { FirstLineRenameInput } from "../nodes/FirstLineRenameInput";
 import { TaskBoard } from "./TaskBoard";
 import { ArtifactLibrary, RequestInbox } from "./WorkLedger";
 import "./work-ledger.css";
+import { claimFocusOnMount } from "../../lib/focus-ownership";
 
 /** Same 28px amber tile as terminal / cron / page. */
 function AmberDecal({ children }: { readonly children: ReactNode }) {
@@ -775,7 +776,7 @@ export function BoardDetail({
                   aria-label="Topic title"
                   placeholder="New topic title"
                   value={title}
-                  autoFocus
+                  ref={claimFocusOnMount}
                   maxLength={512}
                   onChange={(e) => setTitle(e.target.value)}
                 />

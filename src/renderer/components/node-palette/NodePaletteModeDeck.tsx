@@ -27,6 +27,7 @@ import {
   type NodeCatalogEntry,
 } from "./NodeCatalogGrid";
 import "./node-palette-mode-deck.css";
+import { claimFocus } from "../../lib/focus-ownership";
 
 export type ModeDeckActions = {
   /** Geography only — note (text) and region (group). Page/image use dedicated adders. */
@@ -103,7 +104,7 @@ export function NodePaletteModeDeck({
   const hintId = useId();
 
   useEffect(() => {
-    inputRef.current?.focus();
+    claimFocus(inputRef.current, "open");
   }, []);
 
   const focusFirstResult = (): void => {
@@ -114,7 +115,7 @@ export function NodePaletteModeDeck({
     );
     for (const candidate of candidates) {
       if (candidate.getClientRects().length === 0) continue;
-      candidate.focus();
+      claimFocus(candidate, "gesture");
       return;
     }
   };

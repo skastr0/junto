@@ -1,4 +1,4 @@
-import type { ButtonHTMLAttributes, ReactNode } from "react";
+import type { ComponentPropsWithRef, ReactNode } from "react";
 
 /**
  * The house button. One component for every clickable action — surface
@@ -41,7 +41,7 @@ export function Button({
   readonly size?: ButtonSize;
   readonly className?: string;
   readonly children: ReactNode;
-} & ButtonHTMLAttributes<HTMLButtonElement>) {
+} & ComponentPropsWithRef<"button">) {
   return (
     <button
       type={type}

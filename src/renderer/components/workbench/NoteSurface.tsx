@@ -20,6 +20,7 @@ import { activateSurfaceOnMouseDown } from "../../lib/pointer-activation";
 import { state$ } from "../../lib/state";
 import type { WorkSurface, WorkZone } from "../../lib/surface-registry";
 import { Button, Eyebrow, IconButton } from "../ui";
+import { claimFocus } from "../../lib/focus-ownership";
 
 /** Save the latest Note draft without changing focus or closing its surface. */
 export const saveNoteSurfaceDraft = (surfaceId: string): void => {
@@ -74,6 +75,7 @@ export function NoteSurface({
         saveAndCloseNoteSurface(surface.id);
       }
     };
+    // focus-law: Escape and Cmd+Enter are this note's own commands.
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [surface.id, visible, zone]);
@@ -108,8 +110,7 @@ export function NoteSurface({
     );
     requestAnimationFrame(() => {
       const caret = start + snippet.length;
-      element.focus();
-      element.setSelectionRange(caret, caret);
+      if (claimFocus(element, "gesture")) element.setSelectionRange(caret, caret);
     });
   };
 

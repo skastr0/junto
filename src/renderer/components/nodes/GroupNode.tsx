@@ -6,6 +6,7 @@ import { AlertTriangle, Crosshair, FolderOpen, Lock, ScrollText, Trash2 } from "
 import type { FlowNode } from "../../lib/convert";
 import { MAX_REGION_DEPTH } from "@shared/graph";
 import { deleteNode, renameGroup } from "../../lib/mutations";
+import { claimFocus } from "../../lib/focus-ownership";
 import { dragHoldMemberIds, resizeNode, syncPositions } from "../../lib/geometry";
 import { state$, toggleConnectionFocus } from "../../lib/state";
 import { accentColor, borderColor, HUE, INK, withAlpha } from "../../lib/theme";
@@ -106,7 +107,6 @@ function RegionLabel({
     return (
       <input
         ref={inputRef}
-        autoFocus
         data-focus-owner="canvas-draft"
         aria-label="Edit region label"
         className="nodrag rounded-sm bg-inset px-2 py-0.5 text-[10px] uppercase tracking-[0.16em] outline-none"
@@ -172,12 +172,15 @@ export function GroupNode({ data, selected }: NodeProps<FlowNode>) {
   const nestedGlance = nestingDepth === 1;
   const glanceable = nestingDepth <= 1 && label.trim().length > 0;
 
+  // Seed and claim once per edit session. A label that changes under the
+  // operator (live reload) must not reset the draft or re-select it.
+  const labelRef = useRef(label);
+  labelRef.current = label;
   useEffect(() => {
     if (!editing) return;
-    setDraft(label);
-    inputRef.current?.focus();
-    inputRef.current?.select();
-  }, [editing, label]);
+    setDraft(labelRef.current);
+    claimFocus(inputRef.current, "open", { select: true });
+  }, [editing]);
 
   useEffect(() => {
     if (!isEditTarget) return;

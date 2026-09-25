@@ -6,6 +6,7 @@
  * segmentation in a raw terminal buffer, so we do not offer a "copy session
  * turns" control (that would invent structure that is not there).
  */
+import { selectDetachedForCopy } from "./focus-ownership";
 
 export type XtermSelectionApi = {
   readonly hasSelection: () => boolean;
@@ -92,7 +93,7 @@ export const defaultClipboardWrite: ClipboardWriter = async (text) => {
   el.style.position = "fixed";
   el.style.left = "-9999px";
   document.body.appendChild(el);
-  el.select();
+  selectDetachedForCopy(el);
   try {
     const ok = document.execCommand("copy");
     if (!ok) throw new Error("execCommand copy failed");

@@ -7,6 +7,7 @@ import { FocusSurface } from "../FocusSurface";
 import { HarnessMark } from "../HarnessMark";
 import { Button, Kbd } from "../ui";
 import "./first-run-intro.css";
+import { claimFocusOnMount } from "../../lib/focus-ownership";
 
 // First-run introduction. Four slides, shown once on first launch and again
 // only on request (help map, Settings). It says what Junto is, how to start
@@ -258,11 +259,11 @@ export function FirstRunIntroSurface({
             </Button>
           ) : null}
           {last ? (
-            <Button variant="primary" size="md" autoFocus onClick={onDone} data-testid="first-run-intro-done">
+            <Button variant="primary" size="md" ref={claimFocusOnMount} onClick={onDone} data-testid="first-run-intro-done">
               Open the canvas
             </Button>
           ) : (
-            <Button variant="primary" size="md" autoFocus onClick={() => setStep(step + 1)} data-testid="first-run-intro-next">
+            <Button variant="primary" size="md" ref={claimFocusOnMount} onClick={() => setStep(step + 1)} data-testid="first-run-intro-next">
               Next
               <ArrowRight size={13} aria-hidden />
             </Button>

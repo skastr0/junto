@@ -27,6 +27,7 @@ import { CanvasInteractionMap } from "./help/CanvasInteractionMap";
 import { FirstPlayConfirm } from "./FirstPlayConfirm";
 import { UpdateChip } from "./UpdateChip";
 import { UsageHud } from "./UsageHud";
+import { claimFocusOnMount } from "../lib/focus-ownership";
 
 function CanvasPicker({
   canvases,
@@ -117,7 +118,7 @@ function CanvasPicker({
             <p>Choose a short name for this canvas.</p>
             <label className="canvas-dialog__field">
               <span>name</span>
-              <input autoFocus aria-label="Canvas name" value={createName} onChange={(event) => createName$.set(event.target.value)} placeholder="research" />
+              <input ref={claimFocusOnMount} aria-label="Canvas name" value={createName} onChange={(event) => createName$.set(event.target.value)} placeholder="research" />
             </label>
             <div className="canvas-dialog__actions">
               <button type="button" className="canvas-dialog__cancel" onClick={closeCreate}>cancel</button>
@@ -132,7 +133,7 @@ function CanvasPicker({
             <h2 id="canvas-delete-title">Delete canvas</h2>
             <p>Permanently delete <strong style={{ color: INK }}>{deleteTarget}</strong>? This cannot be undone.</p>
             <div className="canvas-dialog__actions">
-              <button type="button" className="canvas-dialog__cancel" autoFocus onClick={closeDelete}>cancel</button>
+              <button type="button" className="canvas-dialog__cancel" ref={claimFocusOnMount} onClick={closeDelete}>cancel</button>
               <button type="submit" className="canvas-dialog__danger">delete</button>
             </div>
           </form>

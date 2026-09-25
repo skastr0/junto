@@ -34,6 +34,7 @@ import {
 } from "@shared/physics";
 import { addEdge } from "../lib/edge-mutations";
 import { specOf } from "../lib/node-spec";
+import { releaseFocus } from "../lib/focus-ownership";
 import { commitDoc, editLink, editText, renameGroup, setGitCwd, setNodeHost, setNodeTimer, setNodeWatch, setPageBinding, setRegionDefaults, setRegionHold, toggleFlag } from "../lib/mutations";
 import {
   describeCronExpression,
@@ -251,7 +252,7 @@ export function NodeFieldEditors({ node }: { readonly node: CanvasNode }) {
           onKeyDown={(event) => {
             if (event.key === "Escape") {
               setTextDraft(textValue);
-              event.currentTarget.blur();
+              releaseFocus(event.currentTarget, "gesture");
             }
           }}
         />
@@ -270,11 +271,11 @@ export function NodeFieldEditors({ node }: { readonly node: CanvasNode }) {
             if (event.key === "Enter") {
               event.preventDefault();
               setGitCwd(node.id, gitCwdDraft);
-              event.currentTarget.blur();
+              releaseFocus(event.currentTarget, "gesture");
             }
             if (event.key === "Escape") {
               setGitCwdDraft(gitCwdValue);
-              event.currentTarget.blur();
+              releaseFocus(event.currentTarget, "gesture");
             }
           }}
         />
@@ -288,7 +289,7 @@ export function NodeFieldEditors({ node }: { readonly node: CanvasNode }) {
           </div>
         </div>
       : null}
-    {node.type === "group" ? <label className="inspector-editor"><span>region label</span><input data-focus-owner="canvas-draft" aria-label="Region label" value={groupLabelDraft} placeholder="unnamed region" onChange={(event) => setGroupLabelDraft(event.target.value)} onBlur={commitGroupLabel} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); commitGroupLabel(); event.currentTarget.blur(); } if (event.key === "Escape") { setGroupLabelDraft(groupLabelValue); event.currentTarget.blur(); } }} /></label> : null}
+    {node.type === "group" ? <label className="inspector-editor"><span>region label</span><input data-focus-owner="canvas-draft" aria-label="Region label" value={groupLabelDraft} placeholder="unnamed region" onChange={(event) => setGroupLabelDraft(event.target.value)} onBlur={commitGroupLabel} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); commitGroupLabel(); releaseFocus(event.currentTarget, "gesture"); } if (event.key === "Escape") { setGroupLabelDraft(groupLabelValue); releaseFocus(event.currentTarget, "gesture"); } }} /></label> : null}
     {/* Region dense fields: kind-strip keys are preferred (briefing / page /
         paths). Hold stays on the command card; plate + placement are gone. */}
     {node.type === "group" ? <RegionHoldControl node={node} /> : null}
@@ -391,11 +392,11 @@ export function PageUrlControl({ node }: { readonly node: CanvasNode }) {
             if (event.key === "Enter") {
               event.preventDefault();
               commit();
-              event.currentTarget.blur();
+              releaseFocus(event.currentTarget, "gesture");
             }
             if (event.key === "Escape") {
               setDraft(url);
-              event.currentTarget.blur();
+              releaseFocus(event.currentTarget, "gesture");
             }
           }}
         />
@@ -604,7 +605,7 @@ export function RegionBriefingEditor({ node }: { readonly node: CanvasNode }) {
         onKeyDown={(event) => {
           if (event.key === "Escape") {
             setInstructionDraft(instructionValue);
-            event.currentTarget.blur();
+            releaseFocus(event.currentTarget, "gesture");
           }
         }}
       />
@@ -626,7 +627,7 @@ const commitOnEnter = (onCommit: () => void) => (event: React.KeyboardEvent<HTML
   if (event.key !== "Enter") return;
   event.preventDefault();
   onCommit();
-  event.currentTarget.blur();
+  releaseFocus(event.currentTarget, "gesture");
 };
 
 // stat_threshold: numeric comparison on a bound hermes entity's stat.
@@ -866,12 +867,12 @@ export function TimerEditor({ node }: { readonly node: CanvasNode }) {
             if (event.key === "Enter") {
               event.preventDefault();
               commit();
-              event.currentTarget.blur();
+              releaseFocus(event.currentTarget, "gesture");
             }
             if (event.key === "Escape") {
               setDraft(defaultExpr);
               setError("");
-              event.currentTarget.blur();
+              releaseFocus(event.currentTarget, "gesture");
             }
           }}
           spellCheck={false}

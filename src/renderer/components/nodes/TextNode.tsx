@@ -59,6 +59,7 @@ import {
 import { TerminalToolbarActions } from "../terminal/TerminalToolbarActions";
 import { AgentChatToolbarActions } from "../chat/AgentChatToolbarActions";
 import { FirstLineRenameInput } from "./FirstLineRenameInput";
+import { claimFocus } from "../../lib/focus-ownership";
 import { IconButton } from "../ui";
 import { ExecutionCardHeader } from "./ExecutionCardHeader";
 import {
@@ -431,8 +432,7 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
   useEffect(() => {
     if (editing) {
       setDraft(text);
-      ref.current?.focus();
-      ref.current?.select();
+      claimFocus(ref.current, "open", { select: true });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editing]);
@@ -614,7 +614,6 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
         editing ? (
           <textarea
             ref={ref}
-            autoFocus
             data-focus-owner="canvas-draft"
             aria-label="Edit label"
             className="label-edit-inline nodrag nowheel h-full w-full resize-none bg-transparent font-display outline-none"
@@ -672,7 +671,6 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
 
         <textarea
           ref={ref}
-          autoFocus
           data-focus-owner="canvas-draft"
           aria-label="Edit note"
           className="note-edit-inline nodrag nowheel h-full w-full resize-none bg-transparent font-mono outline-none"

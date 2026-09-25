@@ -27,6 +27,7 @@ import {
   firstCascadeColumn,
   type AgentConfigurationChoices,
 } from "./agent-launch-model";
+import { claimFocus } from "../../lib/focus-ownership";
 
 export type { AgentConfigurationChoices };
 
@@ -102,7 +103,7 @@ const menuitemsIn = (column: Element): HTMLButtonElement[] =>
 
 const focusItem = (item: HTMLButtonElement | undefined): boolean => {
   if (!item) return false;
-  item.focus();
+  claimFocus(item, "gesture");
   item.scrollIntoView({ block: "nearest" });
   return true;
 };

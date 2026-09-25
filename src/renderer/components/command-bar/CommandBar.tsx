@@ -37,6 +37,7 @@ import {
 import { nodeDetail, nodeTitle, nodeTypeLabel } from "../../lib/presentation";
 import { state$ } from "../../lib/state";
 import { Chip, Kbd, type ChipTone } from "../ui";
+import { claimFocus } from "../../lib/focus-ownership";
 
 /**
  * cmd+K command bar — quick node navigation plus a quick-actions mode.
@@ -143,6 +144,9 @@ function CommandBarPanel() {
   const [active, setActive] = useState(0);
   const listRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    claimFocus(inputRef.current, "open");
+  }, []);
 
   // Catalog is rebuilt once per open so labels reflect live state.
   const actions = useMemo(() => buildCommandBarActions(), []);
@@ -259,7 +263,6 @@ function CommandBarPanel() {
           <Search size={14} />
           <input
             ref={inputRef}
-            autoFocus
             role="combobox"
             aria-expanded="true"
             aria-controls="command-bar-list"
@@ -279,7 +282,7 @@ function CommandBarPanel() {
               onPointerDown={(event) => {
                 event.preventDefault();
                 setQuery("");
-                inputRef.current?.focus();
+                claimFocus(inputRef.current, "gesture", { event });
               }}
             >
               <X size={13} />

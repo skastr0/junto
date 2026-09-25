@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { createPortal } from "react-dom";
 import { Play } from "lucide-react";
 import { DIM, GROUND, HUE, INK, INK_2, STROKE, withAlpha } from "../lib/theme";
+import { claimFocusOnMount } from "../lib/focus-ownership";
 
 // First-play confirmation — the explicit operator gate the pause law requires
 // (@shared/pause: the crew is BORN PAUSED; the first play is a human
@@ -101,7 +102,7 @@ export function FirstPlayConfirm({
         <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
           <button
             type="button"
-            autoFocus
+            ref={claimFocusOnMount}
             onClick={onCancel}
             style={{
               ...LABEL,

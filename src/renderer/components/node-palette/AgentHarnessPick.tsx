@@ -40,6 +40,7 @@ import {
   cascadeEnterKey,
   cascadeSideFor,
 } from "./AgentCascadeMenu";
+import { claimFocus } from "../../lib/focus-ownership";
 
 const TAB_CANDIDATES =
   'button, a[href], area[href], input, select, textarea, [tabindex], [contenteditable="true"]';
@@ -130,7 +131,7 @@ export function AgentHarnessPick({
   const exitCascade = useCallback(() => {
     const anchor = agentCascade?.anchor;
     closeCascade();
-    if (anchor?.isConnected) anchor.focus();
+    if (anchor?.isConnected) claimFocus(anchor, "gesture");
   }, [agentCascade?.anchor, closeCascade]);
 
   const tabExitCascade = useCallback(
@@ -146,12 +147,12 @@ export function AgentHarnessPick({
       ).filter(isTabStop);
       const index = candidates.indexOf(anchor);
       if (index < 0) {
-        anchor.focus();
+        claimFocus(anchor, "gesture");
         return;
       }
       const next =
         candidates[(index + delta + candidates.length) % candidates.length];
-      next?.focus();
+      claimFocus(next, "gesture");
     },
     [agentCascade?.anchor, closeCascade],
   );
@@ -269,7 +270,7 @@ export function AgentHarnessPick({
     );
 
   const focusRow = (button: HTMLButtonElement): void => {
-    button.focus();
+    claimFocus(button, "gesture");
     button.scrollIntoView({ block: "nearest" });
   };
 

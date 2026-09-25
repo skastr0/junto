@@ -1,7 +1,6 @@
 import type {
   ComponentPropsWithRef,
   ReactNode,
-  TextareaHTMLAttributes,
 } from "react";
 import { Dropdown, type DropdownOption } from "./Dropdown";
 
@@ -40,7 +39,7 @@ export function Input({
 export function Textarea({
   className,
   ...rest
-}: TextareaHTMLAttributes<HTMLTextAreaElement>) {
+}: ComponentPropsWithRef<"textarea">) {
   return (
     <textarea
       className={[

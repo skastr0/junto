@@ -3,6 +3,7 @@ import { productHostCapabilities } from "@shared/features";
 import { refreshFleet } from "../../lib/fleet-state";
 import { getJuntoApi } from "../../lib/junto-api";
 import { Button, FieldLabel, Input } from "../ui";
+import { claimFocusOnMount } from "../../lib/focus-ownership";
 
 type Capability = "browser" | "terminal" | "hermes";
 
@@ -124,7 +125,7 @@ export function FleetHostForm({
         <FieldLabel>
           label
           <Input
-            autoFocus
+            ref={claimFocusOnMount}
             aria-label="Host label"
             value={label}
             onChange={(event) => setLabel(event.target.value)}

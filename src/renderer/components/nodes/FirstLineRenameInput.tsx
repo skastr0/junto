@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { INK } from "../../lib/theme";
+import { claimFocus } from "../../lib/focus-ownership";
 
 /**
  * Full-width first-line rename field for node cards.
@@ -24,10 +25,7 @@ export function FirstLineRenameInput({
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    const el = inputRef.current;
-    if (!el) return;
-    el.focus();
-    el.select();
+    claimFocus(inputRef.current, "open", { select: true });
   }, []);
 
   const finish = (commit: boolean) => {

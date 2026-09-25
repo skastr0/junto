@@ -130,6 +130,7 @@ import {
   taskAdmissionChoices,
 } from "./task-create-admission";
 import "./task-board.css";
+import { claimFocusOnMount } from "../../lib/focus-ownership";
 
 /** Prefer Artifacts nodes edge-linked to the Tasks node; else first on canvas. */
 const resolveArtifactsNodeId = (
@@ -1057,7 +1058,7 @@ function TaskCard({
               <Input
                 id={`task-title-${task.id}`}
                 value={draft}
-                autoFocus
+                ref={claimFocusOnMount}
                 onChange={(event) => setDraft(event.target.value)}
               />
               <div className="task-board-card__editor-actions">
@@ -1379,7 +1380,7 @@ export function TaskCreateDialog({
                   help="Short outcome shown on the board card."
                 />
                 <Input
-                  autoFocus
+                  ref={claimFocusOnMount}
                   value={title}
                   onChange={(event) => setTitle(event.target.value)}
                   placeholder="What needs doing?"
@@ -1715,7 +1716,7 @@ export function TaskCreateDialog({
             />
             <div className="task-description-focus__body">
               <Textarea
-                autoFocus
+                ref={claimFocusOnMount}
                 value={details}
                 onChange={(event) => setDetails(event.target.value)}
                 placeholder="Context, constraints, expected result…"
@@ -1773,7 +1774,7 @@ export function TaskCreateDialog({
           />
           <div className="task-description-focus__body">
             <Textarea
-              autoFocus
+              ref={claimFocusOnMount}
               value={details}
               onChange={(event) => setDetails(event.target.value)}
               placeholder="Context, constraints, expected result…"
@@ -3057,7 +3058,7 @@ export function TaskBoard({
               aria-label="Search task titles and workers"
               placeholder="Search task titles and workers"
               value={query}
-              autoFocus
+              ref={claimFocusOnMount}
               onChange={(event) => setQuery(event.target.value)}
               onKeyDown={(event) => {
                 if (event.key === "Escape") {

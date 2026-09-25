@@ -12,6 +12,7 @@ import { Input } from "../ui/Field";
 import { IconButton } from "../ui/IconButton";
 import type { IncomingGlance, OutgoingGroupKind } from "./task-path";
 import "./task-path.css";
+import { claimFocusOnMount } from "../../lib/focus-ownership";
 
 /**
  * Admission mark for submitted tasks. Silent for an Immediate task — the card
@@ -133,7 +134,7 @@ export function ApprovalNoteComposer({
         Context for this decision
       </label>
       <Input
-        autoFocus
+        ref={claimFocusOnMount}
         value={note}
         disabled={pending}
         placeholder="What should the next worker focus on?"

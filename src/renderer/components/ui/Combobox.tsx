@@ -8,6 +8,7 @@ import {
 } from "react";
 import { comboboxKeyIntent, ghostSuffix } from "../../lib/combobox";
 import { Input } from "./Field";
+import { claimFocus } from "../../lib/focus-ownership";
 
 /**
  * House typeahead: a text field over an always-visible listbox.
@@ -242,8 +243,8 @@ export function Combobox<T>({
                       .join(" ")}
                     // Keep the caret in the field: the list is a way to keep typing.
                     onMouseDown={(event) => event.preventDefault()}
-                    onClick={() => {
-                      inputRef.current?.focus();
+                    onClick={(event) => {
+                      claimFocus(inputRef.current, "gesture", { event });
                       onOptionClick?.(option);
                     }}
                     onDoubleClick={() => onOptionDoubleClick?.(option)}

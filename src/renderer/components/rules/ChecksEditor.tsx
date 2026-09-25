@@ -3,6 +3,7 @@ import { Plus, X } from "lucide-react";
 import { ulid } from "ulid";
 import type { Check } from "@shared/work-model";
 import { Button, IconButton, Input } from "../ui";
+import { claimFocusOnMount } from "../../lib/focus-ownership";
 
 // Checks are deterministic task gates, and the seat runs
 // them: the check op executes each command in the seat's own
@@ -95,7 +96,7 @@ function CheckDraftRow({
         data-focus-owner="canvas-draft"
         aria-label="New check name"
         className="min-h-[28px] w-[34%] py-1 text-[11px]"
-        autoFocus
+        ref={claimFocusOnMount}
         value={label}
         placeholder="name"
         onChange={(event) => setLabel(event.target.value)}

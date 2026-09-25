@@ -237,7 +237,7 @@ const gestureFromEvent = (event: EventLike): OperatorGesture => ({
 type Focusable = { focus: (options?: FocusOptions) => void };
 
 export type ClaimFocusOptions = {
-  /** Required for cause "gesture": the operator's event being handled. */
+  /** The operator's event being handled, when the call sits in its handler. */
   readonly event?: EventLike;
   /** Select the field's text after focusing (gesture/open only). */
   readonly select?: boolean;
@@ -261,11 +261,13 @@ export const claimFocus = (
   options: ClaimFocusOptions = {},
 ): boolean => {
   if (!target) return false;
+  // A gesture claim names its event when it has one; otherwise (and for
+  // opens) the tracker's last press stands in for it.
   const gesture =
-    cause === "gesture" && options.event
-      ? gestureFromEvent(options.event)
-      : cause === "async"
-        ? null
+    cause === "async"
+      ? null
+      : options.event
+        ? gestureFromEvent(options.event)
         : recentGesture();
   const verdict = evaluateFocusClaim({
     target,

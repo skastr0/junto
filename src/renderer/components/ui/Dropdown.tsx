@@ -10,6 +10,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { Check, ChevronDown } from "lucide-react";
+import { claimFocus } from "../../lib/focus-ownership";
 
 export type DropdownOption = {
   readonly value: string;
@@ -137,12 +138,13 @@ export function Dropdown({
         event.preventDefault();
         event.stopPropagation();
         close();
-        triggerRef.current?.focus();
+        claimFocus(triggerRef.current, "gesture", { event });
       }
     };
     document.addEventListener("pointerdown", onPointerDown);
     // Capture Escape before parent work surfaces so the innermost open layer
     // closes first instead of dismissing the entire surface.
+    // focus-law: Escape-only close of the open menu, which holds focus.
     window.addEventListener("keydown", onKeyDown, true);
     return () => {
       document.removeEventListener("pointerdown", onPointerDown);
@@ -161,7 +163,7 @@ export function Dropdown({
     if (!option || option.disabled) return;
     onChange(option.value);
     close();
-    triggerRef.current?.focus();
+    claimFocus(triggerRef.current, "gesture");
   };
 
   const moveHighlight = (delta: number) => {
@@ -314,7 +316,7 @@ export function Dropdown({
 
   // Focus menu when opened so arrow keys work immediately.
   useEffect(() => {
-    if (open) menuRef.current?.focus();
+    if (open) claimFocus(menuRef.current, "open");
   }, [open, box]);
 
   return (

@@ -119,6 +119,7 @@ import {
   type PadTool,
   type ResizeHandle,
 } from "./pad-editor-model";
+import { claimFocusOnMount } from "../../lib/focus-ownership";
 
 type Gesture =
   | { readonly kind: "idle" }
@@ -1335,7 +1336,7 @@ export function PadEditor({
             className="pad-label-edit"
             style={{ left: labelView.left, top: labelView.top, width: Math.max(72, labelView.width) }}
             value={labelDraft}
-            autoFocus
+            ref={claimFocusOnMount}
             aria-label="Label text"
             onChange={(event) => setLabelDraft(event.target.value)}
             onBlur={() => void finishLabelEdit(true)}

@@ -3,6 +3,7 @@ import { Plus, X } from "lucide-react";
 import { ulid } from "ulid";
 import type { Rule } from "@shared/work-model";
 import { Button, IconButton, Input } from "../ui";
+import { claimFocusOnMount, releaseFocus } from "../../lib/focus-ownership";
 
 function RuleRow({ rule, onChange, onRemove }: {
   readonly rule: Rule;
@@ -22,8 +23,8 @@ function RuleRow({ rule, onChange, onRemove }: {
       placeholder="what must be true before this closes?"
       onChange={(event) => setDraft(event.target.value)} onBlur={commit}
       onKeyDown={(event) => {
-        if (event.key === "Enter") { event.preventDefault(); commit(); event.currentTarget.blur(); }
-        if (event.key === "Escape") { setDraft(rule.text); event.currentTarget.blur(); }
+        if (event.key === "Enter") { event.preventDefault(); commit(); releaseFocus(event.currentTarget, "gesture"); }
+        if (event.key === "Escape") { setDraft(rule.text); releaseFocus(event.currentTarget, "gesture"); }
       }} />
     <IconButton size="sm" tone="danger" aria-label="Remove rule" title="Remove rule" onClick={onRemove}>
       <X size={12} />
@@ -53,7 +54,7 @@ export function RuleList({ rules, label, hint, onChange }: {
         onRemove={() => onChange(rules.filter((_, i) => i !== index))} />
     )}</div> : null}
     {adding ? <div className="mt-2 flex items-center gap-1.5">
-      <Input autoFocus data-focus-owner="canvas-draft" aria-label="New rule text" value={draft}
+      <Input ref={claimFocusOnMount} data-focus-owner="canvas-draft" aria-label="New rule text" value={draft}
         placeholder="what must be true before this closes?"
         onChange={(event) => setDraft(event.target.value)}
         onKeyDown={(event) => { if (event.key === "Enter") add(); if (event.key === "Escape") setAdding(false); }} />
