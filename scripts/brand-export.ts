@@ -6,7 +6,7 @@
 //
 // Commands:
 //   one --out file.svg|.png [--seed S] [--config JSON] [--expression E]
-//       [--mode light|dark] [--frame tile|round] [--detail rich|card|glyph]
+//       [--mode light|dark] [--frame tile|round|bare] [--detail rich|card|glyph]
 //       [--size N]                      one character; seed defaults to Pip
 //   kit --out DIR [--png N]            mascot, expressions, cast, icons, manifest
 //   icon [--root DIR]                  build/icon*.icns + assets/brand/junto-icon.png
@@ -25,7 +25,7 @@ import {
   type PortraitFace,
   type PortraitFrame,
 } from "../src/shared/agent-portrait";
-import { BRAND_EXPRESSIONS, BRAND_FACES, JUNTO_MASCOT } from "../src/shared/brand-mascot";
+import { BRAND_CAST, BRAND_EXPRESSIONS, BRAND_FACES, JUNTO_MASCOT, type BrandCharacter } from "../src/shared/brand-mascot";
 import { EXPRESSION_FACES, PORTRAIT_EXPRESSIONS } from "../src/shared/portrait-expression";
 import { FONT_DISPLAY, hexToOklch, oklchToHex, themeRuntime, type ThemeMode } from "../src/shared/theme";
 
@@ -173,13 +173,15 @@ function iconSvg(appearance: Appearance, pixels = 1024, face?: PortraitFace): st
 
 // --- surfaces -------------------------------------------------------------------
 
-// Cast seeds for brand compositions: picked from the portrait scan for spread
-// of hue, shape, and topper. Pip is never one of them.
-const CAST: ReadonlyArray<string> = [
-  "junto-1", "junto-96", "junto-20", "junto-31", "junto-7", "junto-16", "junto-38", "junto-44",
-  "junto-49", "junto-55", "junto-59", "junto-64", "junto-73", "junto-78", "junto-80", "junto-83",
-  "junto-89", "junto-92", "junto-99", "junto-103", "junto-105", "junto-12", "junto-24", "junto-113",
-];
+const castMember = (seed: string): BrandCharacter => {
+  const member = BRAND_CAST.find((entry) => entry.seed === seed);
+  if (!member) throw new Error(`"${seed}" is not in BRAND_CAST`);
+  return member;
+};
+
+/** A soft contact shadow under a bare critter standing at `ground`. */
+const contact = (cx: number, ground: number, size: number, ink: string): string =>
+  `<ellipse cx="${f(cx)}" cy="${f(ground - size * 0.02)}" rx="${f(size * 0.3)}" ry="${f(size * 0.045)}" fill="${ink}" opacity="0.09"/>`;
 
 // The DMG window is 1280 by 720 points with 128pt icons at (360, 360) and
 // (920, 360) (package.json "dmg"). Pip leads the eye across the arrow; the
@@ -192,11 +194,15 @@ function dmgSvg(): string {
   const peach = amberTone(mode, 0.93, 0.045);
   const mint = oklchToHex({ ...hexToOklch(t.green ?? "#237752"), l: 0.94, c: 0.035 });
   const lilac = oklchToHex({ ...hexToOklch(t.violet ?? "#7a5cc8"), l: 0.94, c: 0.03 });
-  const crew: ReadonlyArray<readonly [seed: string, x: number, size: number, rotate: number, face: PortraitFace | undefined]> = [
-    ["junto-20", 38, 132, -6, EXPRESSION_FACES.sleepy],
-    ["junto-31", 176, 118, 4, undefined],
-    ["junto-96", 1000, 124, -3, EXPRESSION_FACES.happy],
-    ["junto-1", 1128, 130, 6, EXPRESSION_FACES.curious],
+  // The crew stands along the bottom edge in two small groups, facing in.
+  const ground = 706;
+  const crew: ReadonlyArray<readonly [seed: string, x: number, size: number, face: PortraitFace | undefined]> = [
+    ["junto-3", 22, 132, EXPRESSION_FACES.sleepy],
+    ["junto-29", 128, 112, undefined],
+    ["junto-38", 214, 124, EXPRESSION_FACES.happy],
+    ["junto-73", 944, 120, EXPRESSION_FACES.content],
+    ["junto-8", 1040, 128, undefined],
+    ["junto-103", 1146, 118, EXPRESSION_FACES.curious],
   ];
   const arrow = "M 474 356 C 560 318, 720 318, 800 352";
   return [
@@ -213,10 +219,12 @@ function dmgSvg(): string {
     `<ellipse cx="1030" cy="200" rx="380" ry="260" fill="url(#wb)" opacity="0.8"/>`,
     `<ellipse cx="660" cy="640" rx="520" ry="220" fill="url(#wc)" opacity="0.7"/>`,
     `<path d="${arrow}" fill="none" stroke="${ink}" stroke-width="4.5" stroke-linecap="round" stroke-dasharray="1 15" opacity="0.8" marker-end="url(#head)"/>`,
-    `<g filter="url(#soft)">${sticker(PIP, { x: 584, y: 176, size: 112, mode, face: BRAND_FACES.happy, rotate: -4 })}</g>`,
+    // Pip hops the arrow, mid-air: a far, faint shadow on the path below.
+    contact(640, 352, 150, ink),
+    sticker(PIP, { x: 565, y: 150, size: 150, mode, face: BRAND_FACES.happy, frame: "bare", rotate: -6 }),
     `<text x="640" y="120" text-anchor="middle" font-family='${FONT_DISPLAY}' font-weight="600" font-size="30" letter-spacing="5" fill="${ink}">JUNTO</text>`,
     `<text x="640" y="560" text-anchor="middle" font-family='${FONT_DISPLAY}' font-weight="500" font-size="17" letter-spacing="3.4" fill="${ink}" opacity="0.62">DRAG JUNTO INTO APPLICATIONS</text>`,
-    ...crew.map(([seed, x, size, rotate, face]) => `<g filter="url(#soft)">${sticker({ seed }, { x, y: 720 - size * 0.66, size, mode, face, rotate })}</g>`),
+    ...crew.map(([seed, x, size, face]) => contact(x + size / 2, ground, size, ink) + sticker(castMember(seed), { x, y: ground - size, size, mode, face, frame: "bare" })),
     `</svg>`,
   ].join("");
 }
@@ -224,10 +232,10 @@ function dmgSvg(): string {
 // The election board: finalists side by side across the brand expressions.
 const FINALISTS: ReadonlyArray<readonly [name: string, who: Character, note: string]> = [
   ["Pip", PIP, "elected: amber home hue with a sprout, calm, reads at 16px"],
-  ["Tabby", { seed: "junto-1" }, "most charisma, spots get busy small"],
-  ["Mochi", { seed: "junto-96" }, "sweet, but the wide bust crowds an icon"],
-  ["Sprig", { seed: "junto-20" }, "Pip's green cousin, off the home hue"],
-  ["Hop", { seed: "junto-31" }, "ears win the silhouette, cool hue reads cold"],
+  ["Tabby", castMember("junto-1"), "most charisma, but spots and a bowtie clutter small"],
+  ["Cap", castMember("junto-3"), "a lovely shroom, cool violet reads cold as an icon"],
+  ["Rice", castMember("junto-29"), "an onigiri with a fang: funny, not calm"],
+  ["Boo", castMember("junto-103"), "the ghost floats, but its hem blurs at 32px"],
 ];
 
 function boardSvg(): string {
@@ -253,7 +261,8 @@ function boardSvg(): string {
       `<foreignObject x="40" y="${y + 98}" width="190" height="60"><div xmlns="http://www.w3.org/1999/xhtml" style="font:12px Menlo, monospace;color:${ink};opacity:.7">${note}</div></foreignObject>`,
       ...faces.map(([label, face], index) => {
         const x = left + index * (cell + 16);
-        return `${sticker(who, { x, y, size: cell, mode, face })}<text x="${x + cell / 2}" y="${y + cell + 20}" text-anchor="middle" font-family="Menlo, monospace" font-size="12" fill="${ink}" opacity="0.7">${label}</text>`;
+        const frame: PortraitFrame = label === "rest" ? "tile" : "bare";
+        return `${sticker(who, { x, y, size: cell, mode, face, frame })}<text x="${x + cell / 2}" y="${y + cell + 20}" text-anchor="middle" font-family="Menlo, monospace" font-size="12" fill="${ink}" opacity="0.7">${label}</text>`;
       }),
       `<rect x="${left + faces.length * (cell + 16) - 4}" y="${y - 4}" width="${cell + 8}" height="${cell + 8}" rx="36" fill="#0c0b0a"/>`,
       sticker(who, { x: left + faces.length * (cell + 16), y, size: cell, mode: "dark" }),
@@ -294,26 +303,34 @@ async function kit(opts: Record<string, string>): Promise<void> {
   if (!dir) throw new Error("kit: --out DIR is required");
   const pngSize = opts.png ? Number(opts.png) : 0;
   const manifest: Array<Record<string, unknown>> = [];
-  const emit = async (file: string, who: Character, appearance: Appearance, expression?: string): Promise<void> => {
-    const svg = portraitSvg({ ...who, mode: themeMode(appearance), detail: "rich", face: faceFor(expression) });
+  const emit = async (file: string, who: Character, appearance: Appearance, expression?: string, frame: PortraitFrame = "tile"): Promise<void> => {
+    const svg = portraitSvg({ ...who, mode: themeMode(appearance), detail: "rich", face: faceFor(expression), frame });
     write(join(dir, file), svg);
     if (pngSize > 0) await png(svg, pngSize, pngSize, join(dir, file.replace(/\.svg$/, ".png")));
-    manifest.push({ file, seed: who.seed, config: who.config ?? null, expression: expression ?? "rest", mode: appearance });
+    manifest.push({ file, seed: who.seed, config: who.config ?? null, expression: expression ?? "rest", mode: appearance, frame });
   };
+  // Bare critters float on any background; the light outline reads on both.
+  await emit("bare/mascot.svg", PIP, "light", undefined, "bare");
+  for (const expression of [...BRAND_EXPRESSIONS, ...PORTRAIT_EXPRESSIONS]) {
+    await emit(`bare/mascot-${expression}.svg`, PIP, "light", expression, "bare");
+  }
+  for (const [index, member] of BRAND_CAST.entries()) {
+    await emit(`bare/cast-${String(index + 1).padStart(2, "0")}.svg`, member, "light", undefined, "bare");
+  }
   for (const appearance of ["light", "dark"] as const) {
     await emit(`mascot-${appearance}.svg`, PIP, appearance);
     for (const expression of [...BRAND_EXPRESSIONS, ...PORTRAIT_EXPRESSIONS]) {
       await emit(`mascot/${expression}-${appearance}.svg`, PIP, appearance, expression);
     }
-    for (const [index, seed] of CAST.entries()) {
-      await emit(`cast/${String(index + 1).padStart(2, "0")}-${appearance}.svg`, { seed }, appearance);
+    for (const [index, member] of BRAND_CAST.entries()) {
+      await emit(`cast/${String(index + 1).padStart(2, "0")}-${appearance}.svg`, member, appearance);
     }
     await png(iconSvg(appearance), 1024, 1024, join(dir, `icon-${appearance}.png`));
     manifest.push({ file: `icon-${appearance}.png`, mode: appearance, size: 1024 });
   }
   write(
     join(dir, "manifest.json"),
-    `${JSON.stringify({ mascot: JUNTO_MASCOT, brandExpressions: BRAND_EXPRESSIONS, files: manifest }, null, 2)}\n`,
+    `${JSON.stringify({ mascot: JUNTO_MASCOT, brandExpressions: BRAND_EXPRESSIONS, cast: BRAND_CAST, files: manifest }, null, 2)}\n`,
   );
   console.log(`${dir}: ${manifest.length} files`);
 }

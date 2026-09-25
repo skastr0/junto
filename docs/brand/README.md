@@ -8,9 +8,11 @@ the app's home hue; a pip is the seed a fruit grows from, and Junto is where
 small workers grow into a crew. Pip keeps a calm face at every size and its
 leaf stays readable at 16px, where the eared and spotted finalists clutter.
 
-Pip is data, not art: `JUNTO_MASCOT` (seed `pip` plus pinned overrides) and
+Pip is data, not art: `JUNTO_MASCOT` (seed `pip` plus every trait pinned),
 `BRAND_FACES` (happy, working, curious, sleepy, celebrating, each an app
-expression under a brand name) live in `src/shared/brand-mascot.ts`.
+expression under a brand name), and `BRAND_CAST` (24 of the crew, traits
+pinned so a renderer re-roll never moves them) live in
+`src/shared/brand-mascot.ts`.
 
 ## Surfaces
 
@@ -39,8 +41,10 @@ bun scripts/brand-export.ts board   # docs/brand/mascot-election.png
 ```
 
 `kit` writes `mascot-light.svg`, `mascot-dark.svg`,
-`mascot/<expression>-<light|dark>.svg`, `cast/NN-<light|dark>.svg` (24 cast
-members), `icon-light.png`, `icon-dark.png`, and `manifest.json`.
+`mascot/<expression>-<light|dark>.svg`, `cast/NN-<light|dark>.svg` (the 24
+of `BRAND_CAST`), `bare/mascot-<expression>.svg` and `bare/cast-NN.svg` (whole
+critters on transparency, feet and all, with an outline that reads on light
+and dark), `icon-light.png`, `icon-dark.png`, and `manifest.json`.
 
 Wordmark: uppercase JUNTO in `FONT_DISPLAY`, weight 600, letter-spacing
 0.14em, theme token `ink`.
