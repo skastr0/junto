@@ -9,6 +9,7 @@ import { useSeatSignalRollup } from "../../lib/agent-signals-state";
 import { openSeatSignals } from "../../lib/agent-signals-view";
 import { state$ } from "../../lib/state";
 import { useThreadHealthMark } from "../../lib/thread-health";
+import { seatPortraitMood } from "../../lib/portrait-mood";
 import { use$ } from "@legendapp/state/react";
 import { ActivityMarkFromSpec } from "../ActivityMark";
 import { AgentPortrait } from "../AgentPortrait";
@@ -142,7 +143,14 @@ export function AgentSeatView({
         signalCount={signal.openCount}
         onSignalOpen={open ? onSignalOpen : undefined}
       >
-        <AgentPortrait identity={identity} size={SEAT_PORTRAIT_PX} frame="round" outline={false} harness={harness} />
+        <AgentPortrait
+          identity={identity}
+          size={SEAT_PORTRAIT_PX}
+          frame="round"
+          outline={false}
+          harness={harness}
+          mood={seatPortraitMood(activity, health, open?.kind)}
+        />
       </ActivityMarkFromSpec>
       <div className="min-w-0 flex-1">
         {title}
