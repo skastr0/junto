@@ -6,7 +6,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { chromium } from "playwright-core";
-import { portraitDataUri, portraitGenome, type PortraitDetail } from "../src/shared/agent-portrait";
+import { portraitDataUri, portraitDetailFor, portraitGenome, type PortraitDetail } from "../src/shared/agent-portrait";
 import { FONT_MONO, themeRuntime, type ThemeMode } from "../src/shared/theme";
 
 const count = Number(process.argv[2] ?? 48);
@@ -44,8 +44,23 @@ const page = (mode: ThemeMode): string => {
         `<div class="card"><img width="28" height="28" src="${portraitDataUri({ seed, mode, detail: "glyph" })}" style="border-radius:7px"><div><div class="name">${["planner", "reviewer", "builder-2", "scout", "docs", "overseer"][index]}</div><div class="sub">claude code, running</div></div></div>`,
     )
     .join("");
+  // Round portraits inside stand-in rings: the seat draws the real, living
+  // ring; these only judge readability of the porthole at seat sizes.
+  const rings = [t.amber, t.cyan, t.green, t.violet, t.stroke, t.orange];
+  const ringed = (size: number): string =>
+    `<div class="seats">${seeds
+      .slice(0, 12)
+      .map((seed, index) => {
+        const ring = rings[index % rings.length];
+        const dashed = index % 3 === 1 ? "dashed" : "solid";
+        return `<div class="seat"><span class="ring" style="border:2px ${dashed} ${ring};padding:2px"><img width="${size}" height="${size}" src="${portraitDataUri({ seed, mode, detail: portraitDetailFor(size), frame: "round" })}" style="border-radius:50%;display:block"></span>${size >= 36 ? `<div><div class="name">${["planner", "reviewer", "builder-2", "scout", "docs", "overseer"][index % 6]}</div><div class="sub">${["working", "waiting on you", "going well", "blocked", "done", "thrashing"][index % 6]}</div></div>` : ""}</div>`;
+      })
+      .join("")}</div>`;
   return `<section class="theme" style="background:${t.ground};color:${t.ink}">
 <h1>Agent portraits, ${mode}</h1>
+<h2>round seat, 40px in a stand-in ring</h2>${ringed(40)}
+<h2>round seat, 28px</h2>${ringed(28)}
+<h2>round seat, 20px</h2>${ringed(20)}
 <h2>on a node header</h2><div class="cards" style="--raise:${t.raise};--stroke:${t.stroke};--dim:${t.dim}">${inContext}</div>
 ${tiers.map(([detail, size]) => grid(detail, size)).join("")}
 </section>`;
@@ -61,6 +76,7 @@ figure{margin:0;display:flex;flex-direction:column;align-items:center;gap:4px}
 figcaption{font-size:9px;opacity:.55;text-align:center;line-height:1.3}
 .cards{display:flex;gap:12px;flex-wrap:wrap}
 .card{display:flex;gap:10px;align-items:center;background:var(--raise);border:1px solid var(--stroke);border-radius:8px;padding:10px 14px;min-width:170px}
+.seats{display:flex;gap:18px;flex-wrap:wrap;align-items:center}.seat{display:flex;gap:10px;align-items:center;min-width:150px}.ring{display:inline-block;border-radius:50%}
 .name{font-size:12px}.sub{color:var(--dim);font-size:10px;margin-top:2px}
 </style></head><body>${modes.map(page).join("")}</body></html>`;
 

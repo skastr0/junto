@@ -56,4 +56,15 @@ describe("agent portraits", () => {
     expect(portraitDetailFor(96)).toBe("rich");
     expect(portraitDataUri({ seed: "a", mode: "dark", detail: "glyph" })).toMatch(/^data:image\/svg\+xml;charset=utf-8,/);
   });
+
+  it("frames a round porthole distinct from the tile", () => {
+    for (const detail of ["glyph", "card", "rich"] as const) {
+      const round = portraitSvg({ seed: "a", mode: "dark", detail, frame: "round" });
+      expect(round).toMatch(/<clipPath id="t"><circle /);
+      expect(round).not.toBe(portraitSvg({ seed: "a", mode: "dark", detail }));
+    }
+    expect(portraitSvg({ seed: "a", mode: "dark", detail: "card" })).toBe(
+      portraitSvg({ seed: "a", mode: "dark", detail: "card", frame: "tile" }),
+    );
+  });
 });

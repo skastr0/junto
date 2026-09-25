@@ -458,14 +458,22 @@ function mouthSvg(kind: PortraitMouth, x: number, y: number, p: PortraitPalette,
 
 const GRAIN = `<filter id="g" x="0" y="0" width="100%" height="100%"><feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="2" seed="7" result="n"/><feColorMatrix in="n" type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 -1.1 0.62"/><feComposite in2="SourceGraphic" operator="in"/></filter>`;
 
+/**
+ * `tile` is the rounded-square sticker. `round` is a porthole: circle frame,
+ * critter pulled in slightly so ears and antennae survive the curve, sized to
+ * sit inside an activity ring drawn by the seat.
+ */
+export type PortraitFrame = "tile" | "round";
+
 export interface PortraitRequest {
   readonly seed: string;
   readonly mode: ThemeMode;
   readonly detail: PortraitDetail;
+  readonly frame?: PortraitFrame;
 }
 
 /** Build the portrait SVG document for a seed. Pure; callers cache by key. */
-export function portraitSvg({ seed, mode, detail }: PortraitRequest): string {
+export function portraitSvg({ seed, mode, detail, frame: shape = "tile" }: PortraitRequest): string {
   const genome = portraitGenome(seed);
   const p = paletteFor(genome, mode);
   const s = strokeFor(detail);
@@ -480,15 +488,23 @@ export function portraitSvg({ seed, mode, detail }: PortraitRequest): string {
   const marking = detail === "glyph" && genome.marking === "freckles" ? "" : markingSvg(genome, body, p, faceX, eyeY);
 
   // Glyph sizes crop in on the face so eyes stay a couple of pixels wide.
-  const view = detail === "glyph" ? { x: 12, y: 14, s: 76 } : { x: 0, y: 0, s: 100 };
+  const round = shape === "round";
+  const view =
+    detail === "glyph" ? (round ? { x: 14, y: 17, s: 72 } : { x: 12, y: 14, s: 76 }) : { x: 0, y: 0, s: 100 };
   const frame = `x="${view.x}" y="${view.y}" width="${view.s}" height="${view.s}"`;
+  const half = view.s / 2;
+  const clipFrame = round
+    ? `<circle cx="${f(view.x + half)}" cy="${f(view.y + half)}" r="${f(half)}"/>`
+    : `<rect ${frame} rx="${f(view.s * 0.24)}"/>`;
+  // The porthole pulls the critter in toward the face so toppers clear the curve.
+  const inset = round ? ` transform="translate(50 60) scale(${detail === "glyph" ? 1 : 0.88}) translate(-50 -60)"` : "";
   const parts = [
     `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${view.x} ${view.y} ${view.s} ${view.s}">`,
-    `<defs><clipPath id="t"><rect ${frame} rx="${f(view.s * 0.24)}"/></clipPath>${clipBody}${detail === "rich" ? GRAIN : ""}</defs>`,
+    `<defs><clipPath id="t">${clipFrame}</clipPath>${clipBody}${detail === "rich" ? GRAIN : ""}</defs>`,
     `<g clip-path="url(#t)">`,
     `<rect ${frame} fill="${p.tile}"/>`,
     `<circle cx="${f(50 + genome.gaze * 6)}" cy="44" r="36" fill="${p.halo}"/>`,
-    `<g transform="rotate(${f(genome.tilt)} 50 90)">`,
+    `<g${inset}><g transform="rotate(${f(genome.tilt)} 50 90)">`,
     topperBehind(genome, body, p, s),
     s.offset > 0 ? `<path d="${body.path}" fill="${p.body}" transform="translate(${s.offset} ${s.offset * 0.7})"/>` : `<path d="${body.path}" fill="${p.body}"/>`,
     marking ? `<g clip-path="url(#b)"${s.offset > 0 ? ` transform="translate(${s.offset} ${s.offset * 0.7})"` : ""}>${marking}</g>` : "",
@@ -502,7 +518,7 @@ export function portraitSvg({ seed, mode, detail }: PortraitRequest): string {
     eyeSvg(genome.eyes, faceX - eyeGap, eyeY, eyeR, -1, p, s),
     eyeSvg(genome.eyes, faceX + eyeGap, eyeY, eyeR, 1, p, s),
     mouthSvg(genome.mouth, faceX, mouthY, p, s),
-    `</g>`,
+    `</g></g>`,
     detail === "rich" ? `<rect width="100" height="100" fill="${p.ink}" filter="url(#g)" opacity="0.16"/>` : "",
     `</g></svg>`,
   ];
