@@ -87,19 +87,20 @@ const GOOD: Readonly<Partial<Record<ThreadHealthValue, Lean>>> = {
 
 /**
  * Pick the expression. Precedence is the seat's own: gone, then blocked, then
- * a troubled thread, then a call for the operator, then finished, then a
- * thread going well, then working, then idle.
+ * a call for the operator, then a troubled thread (the AI's read), then
+ * finished, then a thread going well, then working, then idle.
  */
 export function portraitExpression(input: ExpressionInput): PortraitExpression {
   const t = Number.isFinite(input.temperament) ? Math.max(-1, Math.min(1, input.temperament)) : 0;
   const { activity, signal, health } = input;
   if (activity === "off") return "sleepy";
   if (activity === "halt" || signal === "blocked") return lean(t, ["frustrated", "concerned", "determined"]);
-  const trouble = health ? TROUBLE[health] : undefined;
-  if (trouble) return lean(t, trouble);
+  // Proven attention outranks the AI's reading, as it does on the seat line.
   if (activity === "call" || signal === "escalate" || signal === "feedback" || health === "waiting_on_operator") {
     return lean(t, ["concerned", "curious", "curious"]);
   }
+  const trouble = health ? TROUBLE[health] : undefined;
+  if (trouble) return lean(t, trouble);
   if (activity === "done") return lean(t, ["content", "content", "happy"]);
   const good = health ? GOOD[health] : undefined;
   if (good) return lean(t, good);

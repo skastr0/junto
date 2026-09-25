@@ -21,3 +21,24 @@
   background: var(--color-raise);
   box-shadow: 0 0 0 1.5px var(--color-raise);
 }
+
+/* Expression change: the new face fades in over the old one, once. */
+.agent-portrait__face--prev {
+  position: absolute;
+  inset: 0;
+}
+
+.agent-portrait__face--enter {
+  position: relative;
+  animation: agent-portrait-face-in 220ms ease-out both;
+}
+
+@keyframes agent-portrait-face-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agent-portrait__face--enter { animation: none; }
+  .agent-portrait__face--prev { display: none; }
+}

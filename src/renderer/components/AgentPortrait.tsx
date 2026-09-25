@@ -1,11 +1,18 @@
 import { use$ } from "@legendapp/state/react";
+import { useEffect, useState } from "react";
 import {
+  portraitCharacter,
+  portraitConfigKey,
   portraitDataUri,
   portraitDetailFor,
+  type PortraitConfig,
   type PortraitDetail,
   type PortraitFrame,
 } from "@shared/agent-portrait";
+import { EXPRESSION_FACES, portraitExpression, type PortraitExpression } from "@shared/portrait-expression";
 import type { ThemeMode } from "@shared/theme";
+import type { PortraitMood } from "../lib/portrait-mood";
+import { state$ } from "../lib/state";
 import { themeMode$ } from "../lib/theme-mode";
 import { HarnessMark } from "./HarnessMark";
 import "./AgentPortrait.css";
@@ -22,26 +29,39 @@ import "./AgentPortrait.css";
 // The box is exactly size x size; a round portrait fills the inscribed circle,
 // so a ring drawn outside that box never covers the face. The badge sits on
 // the circle's lower-right edge (45 degrees) and may overlap the ring.
+//
+// Character: the operator's saved override (settings portraits.bySeat) laid
+// over the identity genome. Expression: `mood` (the seat's ring inputs) picks
+// one of a finite set of faces, biased by the character's temperament; a new
+// face cross-fades over the old one, and not at all under reduced motion.
 
 const CACHE_LIMIT = 4000;
 const cache = new Map<string, string>();
 
-/** Cached data URI for an identity at a detail tier, theme, and frame. */
+/** Cached data URI for an identity at a detail tier, theme, frame, config, and expression. */
 export function agentPortraitSrc(
   identity: string,
   mode: ThemeMode,
   detail: PortraitDetail,
   frame: PortraitFrame = "tile",
+  config?: PortraitConfig,
+  expression: PortraitExpression = "resting",
 ): string {
-  const key = `${frame}|${detail}|${mode}|${identity}`;
+  const key = `${frame}|${detail}|${mode}|${expression}|${portraitConfigKey(config)}|${identity}`;
   let src = cache.get(key);
   if (src === undefined) {
     if (cache.size >= CACHE_LIMIT) cache.clear();
-    src = portraitDataUri({ seed: identity, mode, detail, frame });
+    src = portraitDataUri({ seed: identity, mode, detail, frame, config, face: EXPRESSION_FACES[expression] });
     cache.set(key, src);
   }
   return src;
 }
+
+/** The operator's saved override for a seat, if any. */
+export const usePortraitConfig = (identity: string): PortraitConfig | undefined =>
+  use$(() => state$.settings.portraits.bySeat[identity].get()) as PortraitConfig | undefined;
+
+const FADE_MS = 220;
 
 export interface AgentPortraitProps {
   /** Stable seat identity, the canvas node id. Never the display name. */
@@ -59,6 +79,12 @@ export interface AgentPortraitProps {
   readonly outline?: boolean;
   readonly focused?: boolean;
   readonly title?: string;
+  /** Explicit character (editor preview). Absent reads the seat's saved override. */
+  readonly config?: PortraitConfig;
+  /** Seat facts that pick the face. Absent is the resting face. */
+  readonly mood?: PortraitMood;
+  /** A fixed face, bypassing mood (editor and gallery). */
+  readonly expression?: PortraitExpression;
 }
 
 export function AgentPortrait({
@@ -71,10 +97,26 @@ export function AgentPortrait({
   outline = true,
   focused = false,
   title,
+  config: configProp,
+  mood,
+  expression: expressionProp,
 }: AgentPortraitProps) {
   const liveMode = use$(themeMode$);
   const mode = theme ?? liveMode;
-  const src = agentPortraitSrc(identity, mode, portraitDetailFor(size), frame);
+  const saved = usePortraitConfig(identity);
+  const config = configProp ?? saved;
+  const expression =
+    expressionProp ??
+    (mood ? portraitExpression({ ...mood, temperament: portraitCharacter(identity, config).temperament }) : "resting");
+  const src = agentPortraitSrc(identity, mode, portraitDetailFor(size), frame, config, expression);
+  // Cross-fade: keep the previous face under the new one for one fade.
+  const [shown, setShown] = useState({ src, prev: undefined as string | undefined });
+  if (shown.src !== src) setShown({ src, prev: shown.src });
+  useEffect(() => {
+    if (!shown.prev) return;
+    const timer = setTimeout(() => setShown((current) => ({ src: current.src, prev: undefined })), FADE_MS + 40);
+    return () => clearTimeout(timer);
+  }, [shown.prev]);
   const round = frame === "round";
   const radius = round ? "50%" : Math.round(size * 0.26);
   const badgeSize = Math.max(11, Math.round(size * (round ? 0.42 : 0.5)));
@@ -86,19 +128,32 @@ export function AgentPortrait({
       aria-hidden
       className="agent-portrait pointer-events-none relative inline-block shrink-0 select-none"
       data-frame={frame}
+      data-expression={expression}
       data-outline={outline ? "true" : undefined}
       data-focused={focused ? "true" : undefined}
       style={{ width: size, height: size }}
       {...(title !== undefined ? { title } : {})}
     >
+      {shown.prev ? (
+        <img
+          src={shown.prev}
+          width={size}
+          height={size}
+          alt=""
+          draggable={false}
+          className="agent-portrait__face agent-portrait__face--prev"
+          style={{ borderRadius: radius }}
+        />
+      ) : null}
       <img
+        key={src}
         src={src}
         width={size}
         height={size}
         alt=""
         draggable={false}
         decoding="async"
-        className="agent-portrait__face"
+        className={`agent-portrait__face${shown.prev ? " agent-portrait__face--enter" : ""}`}
         style={{ borderRadius: radius }}
       />
       {showBadge ? (
