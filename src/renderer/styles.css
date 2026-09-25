@@ -3066,7 +3066,11 @@ ol.note-md__list > .note-md__li::before {
   padding: 0 8px 10px;
 }
 .sidebar-section__body > .actor-edges-glance__list {
+  /* Content-sized inside a section: the sidebar column owns the scroll, and a
+     zero flex basis here would collapse the list to nothing. */
+  flex: none;
   padding: 0;
+  overflow: visible;
 }
 @media (prefers-reduced-motion: reduce) {
   .sidebar-section__chevron { transition: none; }
