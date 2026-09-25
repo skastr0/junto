@@ -1,48 +1,76 @@
 import { observable } from "@legendapp/state";
 import type { PreambleEvent } from "@shared/preamble";
+import {
+  dismissSeat,
+  feedPreamble,
+  nextDeadline,
+  tickFeed,
+  type FeedState,
+  type SeatBubble,
+} from "./preamble-feed";
 
-/** App-local, non-durable preambles keyed by their agent node. */
-export const preambleByNodeId$ = observable<Record<string, PreambleEvent>>({});
+/**
+ * App-local, non-durable preamble bubbles keyed by agent node. The feed
+ * (preamble-feed.ts) decides what each seat shows; this module owns its one
+ * clock and projects only the seats that changed, so a busy seat never
+ * re-renders its neighbours.
+ */
+export const preambleByNodeId$ = observable<Record<string, SeatBubble>>({});
 
-const timers = new Map<string, ReturnType<typeof setTimeout>>();
+let feed: FeedState = new Map();
+let timer: ReturnType<typeof setTimeout> | undefined;
+let armedFor: number | undefined;
 
-const clearTimer = (nodeId: string): void => {
-  const timer = timers.get(nodeId);
-  if (timer === undefined) return;
-  clearTimeout(timer);
-  timers.delete(nodeId);
-};
-
-/** Dismiss one preamble, ignoring stale timers from a newer replacement. */
-export const dismissPreamble = (nodeId: string, preambleId?: string): void => {
-  const current = preambleByNodeId$[nodeId].peek();
-  if (current === undefined) return;
-  if (preambleId !== undefined && current.preambleId !== preambleId) return;
-  clearTimer(nodeId);
-  preambleByNodeId$[nodeId].delete();
-};
-
-/** Paint an event and arm the server-provided expiry, with a local guard. */
-export const showPreamble = (event: PreambleEvent): void => {
-  const remaining = event.expiresAt - Date.now();
-  const current = preambleByNodeId$[event.nodeId].peek();
-  if (remaining <= 0) {
-    if (current?.preambleId === event.preambleId) {
-      dismissPreamble(event.nodeId, event.preambleId);
-    }
-    return;
+const project = (before: FeedState, after: FeedState): void => {
+  const touched = new Set<string>([...before.keys(), ...after.keys()]);
+  for (const nodeId of touched) {
+    const was = before.get(nodeId)?.bubble;
+    const now = after.get(nodeId)?.bubble;
+    if (was === now) continue;
+    if (now === undefined) preambleByNodeId$[nodeId].delete();
+    else preambleByNodeId$[nodeId].set(now);
   }
-  clearTimer(event.nodeId);
-  preambleByNodeId$[event.nodeId].set(event);
-  const timer = setTimeout(() => {
-    timers.delete(event.nodeId);
-    dismissPreamble(event.nodeId, event.preambleId);
-  }, remaining);
-  timers.set(event.nodeId, timer);
+};
+
+const commit = (next: FeedState): void => {
+  if (next === feed) return;
+  const before = feed;
+  feed = next;
+  project(before, next);
+  arm();
+};
+
+/** One timer for every seat, armed for the soonest deadline. */
+const arm = (): void => {
+  const at = nextDeadline(feed);
+  if (at === armedFor) return;
+  if (timer !== undefined) clearTimeout(timer);
+  timer = undefined;
+  armedFor = at;
+  if (at === undefined) return;
+  timer = setTimeout(() => {
+    timer = undefined;
+    armedFor = undefined;
+    commit(tickFeed(feed, Date.now()));
+    arm();
+  }, Math.max(0, at - Date.now()));
+};
+
+/** Feed one note from any source; the feed coalesces, paces and expires it. */
+export const showPreamble = (event: PreambleEvent): void => {
+  commit(feedPreamble(feed, event, Date.now()));
+};
+
+/** Dismiss a seat's bubble, ignoring a stale id from a replaced note. */
+export const dismissPreamble = (nodeId: string, preambleId?: string): void => {
+  commit(dismissSeat(feed, nodeId, preambleId));
 };
 
 /** Clear all app-local preambles when the active canvas changes. */
 export const clearPreambles = (): void => {
-  for (const nodeId of timers.keys()) clearTimer(nodeId);
+  if (timer !== undefined) clearTimeout(timer);
+  timer = undefined;
+  armedFor = undefined;
+  feed = new Map();
   preambleByNodeId$.set({});
 };

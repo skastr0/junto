@@ -29,7 +29,7 @@ describe("preamble renderer state", () => {
 
   it("shows a preamble and expires it at the server deadline", () => {
     showPreamble(event());
-    expect(preambleByNodeId$.agent.peek()?.text).toBe("Inspecting the task.");
+    expect(preambleByNodeId$.agent.peek()?.current.text).toBe("Inspecting the task.");
 
     vi.advanceTimersByTime(29_999);
     expect(preambleByNodeId$.agent.peek()).toBeDefined();
@@ -42,7 +42,7 @@ describe("preamble renderer state", () => {
     showPreamble(event({ preambleId: "preamble-2", text: "Still checking." }));
 
     dismissPreamble("agent", "preamble-1");
-    expect(preambleByNodeId$.agent.peek()?.preambleId).toBe("preamble-2");
+    expect(preambleByNodeId$.agent.peek()?.current.id).toBe("preamble-2");
     dismissPreamble("agent", "preamble-2");
     expect(preambleByNodeId$.agent.peek()).toBeUndefined();
   });

@@ -22,10 +22,8 @@ import {
   Pause,
   Play,
   Trash2,
-  X,
 } from "lucide-react";
 import type { CanvasNode, EtherFlag } from "@shared/canvas";
-import type { PreambleEvent } from "@shared/preamble";
 import { executionGraphContextFromActorRefs } from "@shared/graph";
 import { isExecutableNode } from "@shared/station";
 import { accentColor, borderColor, HUE, withAlpha } from "../../lib/theme";
@@ -54,7 +52,8 @@ import {
 } from "../../lib/seat-projections";
 import { kernel$ } from "../../lib/kernel-view";
 import { executionGraphForImpact } from "../../lib/impact-mode";
-import { dismissPreamble, preambleByNodeId$ } from "../../lib/preamble-state";
+import { preambleByNodeId$ } from "../../lib/preamble-state";
+import { PreambleBubble } from "./PreambleBubble";
 import { focusBlockerCause, resolveBlockerCause } from "../../lib/blocker-cause";
 import {
   stopNodeGestureUnlessMultiSelect,
@@ -69,44 +68,6 @@ const FLAG_HUES: Record<EtherFlag, string> = {
   attention: HUE.amber,
   parked: HUE.violet,
 };
-
-function PreambleBubble({
-  nodeId,
-  preamble,
-}: {
-  readonly nodeId: string;
-  readonly preamble: PreambleEvent;
-}) {
-  return (
-    <div
-      className="junto-node__preamble nodrag nopan"
-      data-testid="node-preamble"
-      data-node-id={nodeId}
-      data-preamble-id={preamble.preambleId}
-      role="status"
-      aria-live="polite"
-    >
-      <span className="junto-node__preamble-text">{preamble.text}</span>
-      <button
-        type="button"
-        className="junto-node__preamble-close nodrag nopan"
-        aria-label="Dismiss preamble"
-        title="Dismiss"
-        onPointerDown={(event) => {
-          if (stopNodeGestureUnlessMultiSelect(event, { preventDefault: true })) return;
-          event.preventDefault();
-        }}
-        onClick={(event) => {
-          if (stopNodeGestureUnlessMultiSelect(event, { preventDefault: true })) return;
-          event.preventDefault();
-          dismissPreamble(nodeId, preamble.preambleId);
-        }}
-      >
-        <X size={11} />
-      </button>
-    </div>
-  );
-}
 
 /**
  * Landing zones bleed past the card so the choice is made by approach, not by
@@ -592,7 +553,7 @@ export function NodeShell({
         boxShadow: shadow,
       }}
     >
-      {preamble ? <PreambleBubble nodeId={node.id} preamble={preamble} /> : null}
+      {preamble ? <PreambleBubble nodeId={node.id} bubble={preamble} /> : null}
       {resizable ? (
         <NodeResizer
           isVisible={selected}
