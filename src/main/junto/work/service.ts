@@ -145,7 +145,6 @@ import {
 } from "./authz";
 
 export type { OverseerWorkAdmin };
-import { clearSeatBlockedByRequest } from "./blocked-seat";
 import {
   mailboxMessageReactId,
   mailboxMessageReadId,
@@ -1140,7 +1139,6 @@ export const WorkLive = Layer.effect(
         | "msg.read"
         | "msg.reply"
         | "msg.react"
-        | "request.escalate"
         | "artifact.publish",
       admin?: OverseerWorkAdmin,
     ): Effect.Effect<CanvasNode, WorkServiceError> => {
@@ -1312,7 +1310,6 @@ export const WorkLive = Layer.effect(
         | "msg.read"
         | "msg.reply"
         | "msg.react"
-        | "request.escalate"
         | "artifact.publish",
       context: StationContext,
       admin?: OverseerWorkAdmin,
@@ -3324,7 +3321,9 @@ export const WorkLive = Layer.effect(
               read,
               raisedBy,
               nodeId,
-              "request.escalate",
+              // A request is filed into the Requests node's thread; seats no
+              // longer escalate through it (agent signals replaced that).
+              "msg.send",
               context,
               admin,
             );
@@ -3437,9 +3436,6 @@ export const WorkLive = Layer.effect(
                 action,
                 policy.task,
               );
-            if (outcome.disposition === "applied") {
-              clearSeatBlockedByRequest(canvas, taskId);
-            }
             const completed = yield* complete(canvas, outcome);
             if (
               outcome.disposition === "applied" &&

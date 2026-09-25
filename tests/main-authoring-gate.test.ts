@@ -187,7 +187,9 @@ describe("work-control main authoring classification", () => {
       "msg.read": "authorial",
       "msg.reply": "authorial",
       "msg.react": "authorial",
-      "request.escalate": "authorial",
+      "signal.raise": "authorial",
+      "signal.clear": "authorial",
+      "signal.list": "read",
       "artifact.publish": "authorial",
       "board.list": "read",
       "board.tags": "read",
@@ -220,9 +222,9 @@ describe("work-control main authoring classification", () => {
     expect(mainAuthoringLabelForWorkOperation("msg.list")).toBe("control.work.msg-send");
     expect(mainAuthoringLabelForWorkOperation("msg.send")).toBe("control.work.msg-send");
     expect(mainAuthoringLabelForWorkOperation("msg.read")).toBe("control.work.msg-send");
-    expect(mainAuthoringLabelForWorkOperation("request.escalate")).toBe(
-      "control.work.request-escalate",
-    );
+    expect(mainAuthoringLabelForWorkOperation("signal.raise")).toBe("control.work.signal");
+    expect(mainAuthoringLabelForWorkOperation("signal.clear")).toBe("control.work.signal");
+    expect(mainAuthoringLabelForWorkOperation("signal.list")).toBeUndefined();
     expect(mainAuthoringLabelForWorkOperation("artifact.publish")).toBe(
       "control.work.artifact-publish",
     );

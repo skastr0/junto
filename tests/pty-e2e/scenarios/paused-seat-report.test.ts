@@ -16,7 +16,6 @@ import { ProtoHarness } from "../proto-harness";
 import { startWorkControlServer, type WorkControlServer } from "../../../src/main/junto/work/control";
 import { createMainAuthoringGate } from "../../../src/main/junto/main-authoring-gate";
 import { makeProcessIdentityMap } from "../../../src/main/junto/process-identity";
-import { resetSeatBlocks } from "../../../src/main/junto/work/blocked-seat";
 
 const seatNode = (id: string, bindingId?: string): CanvasDoc["nodes"][number] => ({
   id,
@@ -109,7 +108,6 @@ describe("PROTO-8 — paused seat reports paused:true + next_step", () => {
   const roots: string[] = [];
 
   beforeAll(async () => {
-    resetSeatBlocks();
     const root = await mkdtemp(join(tmpdir(), "junto-proto8-"));
     roots.push(root);
     const canvasesDir = join(root, "canvases");

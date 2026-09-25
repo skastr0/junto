@@ -333,6 +333,11 @@ export const requiresConnection = (op: WorkOpName | "overseer"): boolean => {
     case "onboard":
     case "preamble":
     case "msg.sent":
+    // Agent signals are universal and seat-local: the process-bound caller
+    // raises, clears, and reads only its own. No edge, no port.
+    case "signal.raise":
+    case "signal.clear":
+    case "signal.list":
       return false;
     case "tasks.list":
     case "tasks.wait":
@@ -355,7 +360,6 @@ export const requiresConnection = (op: WorkOpName | "overseer"): boolean => {
     case "msg.read":
     case "msg.reply":
     case "msg.react":
-    case "request.escalate":
     case "artifact.publish":
     case "board.list":
     case "board.tags":

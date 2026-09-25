@@ -40,7 +40,7 @@ describe("junto docs catalog", () => {
     expect(task).toContain("junto tasks list");
 
     const requests = buildNodeKindDoc("requests")!;
-    expect(requests).toContain("request.escalate");
+    expect(requests).not.toContain("request.escalate");
     expect(requests).toContain("junto escalate");
 
     const agent = buildNodeKindDoc("agent")!;

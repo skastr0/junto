@@ -87,7 +87,6 @@ import {
   subscribeManagedPulseReady,
 } from "../term/managed-pulse-bridge";
 import { WorkRepository } from "../work/repository";
-import { subscribeSeatBlocks } from "../work/blocked-seat";
 import {
   applyNodeFlag,
   checkTimers,
@@ -1445,7 +1444,6 @@ const makeKernelService = (
         // claim immediately; pause must promptly cause the next cycle to
         // observe the closed gate instead of waiting for the 30s watchdog.
         subscribeKernelPauseWake(pause.subscribe, scheduleCycle),
-        subscribeSeatBlocks(() => scheduleCycle()),
         subscribeKernelSeatWake(
           (listener) => seatStateRuntime.subscribe(listener),
           scheduleCycle,

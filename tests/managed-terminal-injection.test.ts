@@ -73,9 +73,9 @@ describe("compiled doctrine — base and slots", () => {
     expect(text).toContain("### Edge contract — tasks");
     expect(text).toContain(`junto tasks list '{"target":"tasks-main"}'`);
     expect(text).toContain("Finish criteria are **hard gates**");
-    // escalate slot
-    expect(text).toContain("### Edge contract — requests / escalate");
-    expect(text).toContain(`junto escalate '{"target":"req-1"`);
+    // Raising a hand is base doctrine, never an edge slot.
+    expect(text).not.toContain("### Edge contract — requests / escalate");
+    expect(text).not.toContain(`junto escalate '{"target"`);
     // msg slot
     expect(text).toContain("### Edge contract — messages");
     expect(text).toContain("Mail is never refused and never needs a retry");
@@ -99,8 +99,10 @@ describe("compiled doctrine — base and slots", () => {
     expect(text).not.toContain("### Edge contracts");
     expect(text).not.toContain("compiled from the edges connected at spawn");
     expect(text).not.toContain("junto tasks list");
-    expect(text).not.toContain("junto escalate");
     expect(text).not.toContain("junto artifact");
+    // Every seat can raise its hand, edges or not.
+    expect(text).toContain("### Raising your hand");
+    expect(text).toContain('junto blocked "..."');
     expect(text).toMatch(/none at spawn/i);
   });
 
@@ -115,7 +117,6 @@ describe("compiled doctrine — base and slots", () => {
   it("targetsBySlot groups by held command-family ports", () => {
     const grouped = targetsBySlot(connectedCtx.connectedTargets);
     expect(grouped.get("tasks")?.map((t) => t.id)).toEqual(["tasks-main"]);
-    expect(grouped.get("escalate")?.map((t) => t.id)).toEqual(["req-1"]);
     expect(grouped.get("msg")?.map((t) => t.id)).toEqual(["tasks-main", "req-1", "peer-2"]);
     expect(grouped.has("artifacts")).toBe(false);
     expect(grouped.has("pad")).toBe(false);
@@ -141,9 +142,9 @@ describe("compiled doctrine — base and slots", () => {
 
   it("compileEdgeSlots separates targets with different held ports", () => {
     const slots = compileEdgeSlots(connectedCtx.connectedTargets);
-    expect(slots.length).toBe(4);
+    expect(slots.length).toBe(3);
     expect(slots.join("\n")).toContain("### Edge contract — tasks");
-    expect(slots.join("\n")).toContain("### Edge contract — requests / escalate");
+    expect(slots.join("\n")).not.toContain("requests / escalate");
     expect(slots.join("\n")).toContain("### Edge contract — messages");
   });
 
@@ -385,7 +386,7 @@ describe("resolveManagedLaunchPlan Tier A flags", () => {
       connectedTargets: [{ id: "n7", kind: "tasks", summary: "Sprint board", ports: taskPorts }],
     });
     expect(tasksOnly).toContain("## Worked examples");
-    expect(tasksOnly).toContain('tasks claim {"target":"n7","task":"t1"}');
+    expect(tasksOnly).toContain(`tasks claim '{"target":"n7","task":"t1"}'`);
     expect(tasksOnly).toContain("completionEvidence");
     expect(tasksOnly).not.toContain('"target":"req1"');
 
@@ -395,7 +396,10 @@ describe("resolveManagedLaunchPlan Tier A flags", () => {
       seatRef: "n3",
       connectedTargets: [{ id: "n8", kind: "requests", summary: "Requests", ports: requestPorts }],
     });
-    expect(requestsOnly).toContain('junto escalate {"target":"req1","brief":"need API key for staging","reason":"cannot continue without operator secret"}');
+    expect(requestsOnly).not.toContain('junto escalate {"target"');
+    expect(requestsOnly).toContain(
+      "junto blocked 'Need the staging API key to run the deploy check.' --detail",
+    );
     // The worker-loop doctrine names `tasks claim` in prose for every seat;
     // what a requests-only seat must never get is the tasks CLI surface.
     expect(requestsOnly).not.toContain("junto tasks claim");
@@ -427,8 +431,8 @@ describe("edge-map diff equivalence", () => {
     const slot: Readonly<Record<string, string | undefined>> = {
       task: "tasks",
       tasks: "tasks",
-      requests: "escalate",
-      request: "escalate",
+      requests: "msg",
+      request: "msg",
       artifacts: "artifacts",
       board: "board",
       pad: "pad",

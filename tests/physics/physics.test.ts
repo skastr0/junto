@@ -256,7 +256,7 @@ describe("physics work-ports", () => {
       expect(PortForWorkOp[op]).toBeDefined();
     }
     expect(Object.keys(PortForWorkOp).sort()).toEqual([...TARGET_WORK_OPS].sort());
-    expect(PortForWorkOp["request.escalate"]).toBe("request.escalate");
+    expect(Object.values(PortForWorkOp)).not.toContain("request.escalate");
   });
 });
 

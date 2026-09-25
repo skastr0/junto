@@ -329,8 +329,12 @@ const WORK_PORTS = [
   "msg.send",
 ] as const satisfies ReadonlyArray<Port>;
 
+/**
+ * Raising a hand is universal (`junto escalate`, `blocked`, `feedback`), so
+ * the retired `escalates` verb stays decodable for stored canvases and grants
+ * only the request thread's messaging.
+ */
 const ESCALATE_PORTS = [
-  "request.escalate",
   "msg.list",
   "msg.send",
 ] as const satisfies ReadonlyArray<Port>;

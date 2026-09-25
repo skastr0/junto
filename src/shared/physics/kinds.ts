@@ -67,7 +67,7 @@ const taskOffers = TASKS_ENABLED
 // fails closed on the same empty set. The gate lives here, at the one table
 // both admission and the work vocabulary read.
 const requestsOffers = REQUESTS_ENABLED
-  ? portSet("request.escalate", "msg.list", "msg.send")
+  ? portSet("msg.list", "msg.send")
   : emptyOffers;
 const artifactsOffers = ARTIFACTS_ENABLED
   ? portSet("artifact.publish")

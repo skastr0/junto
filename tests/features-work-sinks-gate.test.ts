@@ -46,11 +46,6 @@ import {
   JUNTO_INTRO,
   WORKER_DOCTRINE,
 } from "../src/shared/managed-terminal-injection";
-import {
-  liveSeatBlock,
-  markSeatBlocked,
-  resetSeatBlocks,
-} from "../src/main/junto/work/blocked-seat";
 
 /**
  * Product gates for the work-sink extras: Board, Pad, Sheet, Requests, and
@@ -126,41 +121,6 @@ describe("work-sink product gates", () => {
     expect(features.artifacts).toBe(false);
     expect(features.browser).toBe(false);
   });
-
-  it.runIf(ALL_GATED_OFF)(
-    "releases the requests stop plane instead of stranding the seat",
-    () => {
-      markSeatBlocked({
-        canvasName: "gate",
-        nodeId: "agent-1",
-        requestId: "r1",
-        target: "requests-1",
-        brief: "need an answer",
-      });
-      const doc = {
-        nodes: [
-          {
-            id: "requests-1",
-            type: "text",
-            x: 0,
-            y: 0,
-            width: 100,
-            height: 40,
-            text: "requests",
-            ether: {
-              entity: { kind: "requests" },
-              requests: {
-                items: [{ id: "r1", state: "input-required", history: [] }],
-              },
-            },
-          },
-        ],
-        edges: [],
-      } as unknown as CanvasDoc;
-      expect(liveSeatBlock("gate", "agent-1", doc)).toBeUndefined();
-      resetSeatBlocks();
-    },
-  );
 
   it.runIf(ALL_GATED_OFF)(
     "removes authoring, wires, work ops, discovery, and CLI dispatch",
@@ -266,7 +226,7 @@ describe("work-sink product gates", () => {
 
       // Injected doctrine does not teach a disabled surface.
       expect(JUNTO_INTRO).not.toContain("requests");
-      expect(WORKER_DOCTRINE).not.toContain("### Requests block");
+      expect(WORKER_DOCTRINE).toContain("### When you are blocked");
       expect(WORKER_DOCTRINE).not.toContain("### Artifacts never block");
 
       // Preload hides the work APIs with their gates.
@@ -327,7 +287,7 @@ describe("work-sink product gates", () => {
       expect(families).toContain("sheet");
       expect(overseerOperationEnabled("board.list")).toBe(true);
       expect(NODE_DOCS.some((doc) => doc.kind === "board")).toBe(true);
-      expect(WORKER_DOCTRINE).toContain("### Requests block");
+      expect(WORKER_DOCTRINE).toContain("### When you are blocked");
       expect(JUNTO_INTRO).toContain("requests");
       expect(
         overseerExamples.some((example) =>

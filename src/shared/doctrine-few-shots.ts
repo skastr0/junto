@@ -4,7 +4,7 @@
  * The doctrine's few-shot section renders these payloads verbatim, and the
  * CLI examples catalog (cli/core/discovery.ts) imports the same objects for
  * its matching entries ("claim one", "complete with evidence",
- * "block until answer"). Drift between what the doctrine teaches and what
+ * "blocked on the operator"). Drift between what the doctrine teaches and what
  * `junto examples show` prints is therefore impossible by
  * construction.
  *
@@ -48,14 +48,16 @@ export const FEW_SHOT_COMPLETE_EVIDENCE: DoctrineFewShotPayload = {
   lesson: "completed is a server verdict, not a self-declaration — attach evidence first, or the server rejects the transition.",
 };
 
-/** Escalate: file a request, block the seat, wait for the operator. */
-export const FEW_SHOT_ESCALATE: DoctrineFewShotPayload = {
-  command: "escalate",
+/** Blocked: declare the stop on the operator, then wait for the answer. */
+export const FEW_SHOT_BLOCKED: DoctrineFewShotPayload = {
+  command: "blocked",
   args: [
-    "escalate",
-    '{"target":"req1","brief":"need API key for staging","reason":"cannot continue without operator secret"}',
+    "blocked",
+    "Need the staging API key to run the deploy check.",
+    "--detail",
+    "Tried the vault path in the README; it is empty. Nothing else is left without it.",
   ],
-  lesson: "Escalating blocks the seat and returns a stop directive — stop work ops until the operator answers.",
+  lesson: "One sentence says what you need; --detail says why. Stop and wait: the answer arrives as operator mail.",
 };
 
 export const FEW_SHOT_TASK_LIFECYCLE: readonly DoctrineFewShotPayload[] = [

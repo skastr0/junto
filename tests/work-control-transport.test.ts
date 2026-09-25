@@ -58,7 +58,6 @@ import {
   makeProcessIdentityMap,
   type ProcessIdentityMap,
 } from "../src/main/junto/process-identity";
-import { resetSeatBlocks } from "../src/main/junto/work/blocked-seat";
 import type { CanvasDoc } from "../src/shared/canvas";
 import type { ContentRef } from "../src/shared/content";
 import {
@@ -74,6 +73,9 @@ import {
   type IntentFactBasis as IntentFactBasisValue,
 } from "../src/shared/work-protocol";
 
+import { AgentSignalRepositoryLive } from "../src/main/junto/signals/repository";
+import type { AgentSignal } from "../src/shared/agent-signals";
+
 const roots: string[] = [];
 const servers: WorkControlServer[] = [];
 const rogueServers: NetServer[] = [];
@@ -83,6 +85,7 @@ const makeWorkTestRuntime = (root: string) => {
     Layer.mergeAll(
       WorkRepositoryLive,
       CrewRepositoryLive,
+      AgentSignalRepositoryLive,
       StationRepositoryLive,
       StationFleetTargetRepositoryLive,
       SettingsLive,
@@ -316,6 +319,7 @@ const call = (
 const startTestServer = async (options: {
   readonly runtime?: WorkControlRuntime;
   readonly onPreamble?: (event: PreambleEvent) => void;
+  readonly onAgentSignal?: (signal: AgentSignal) => void;
   readonly onOverseer?: WorkControlServerOptions["onOverseer"];
   readonly onOverseerLive?: WorkControlServerOptions["onOverseerLive"];
   readonly validateOverseerLive?: WorkControlServerOptions["validateOverseerLive"];
@@ -361,6 +365,7 @@ const startTestServer = async (options: {
     run: options.decorateRun?.(baseRun) ?? baseRun,
     authoringGate,
     onPreamble: options.onPreamble,
+    onAgentSignal: options.onAgentSignal,
     onOverseer: options.onOverseer,
     onOverseerLive: options.onOverseerLive,
     validateOverseerLive: options.validateOverseerLive,
@@ -370,12 +375,10 @@ const startTestServer = async (options: {
 };
 
 beforeEach(async () => {
-  resetSeatBlocks();
   await startTestServer();
 });
 
 afterEach(async () => {
-  resetSeatBlocks();
   while (rogueServers.length > 0) {
     const rogue = rogueServers.pop();
     if (rogue?.listening) {
@@ -1098,75 +1101,77 @@ describe("work control transport", () => {
     expect(agentNode?.type === "text" ? agentNode.text : undefined).toBe("agent");
   });
 
-  it("escalate marks seat blocked; work ops return Blocked; resolve clears", async () => {
-    const server = servers[0]!;
-    const actor = await projectedProcessActor();
-    const escalated = (await call(server.socketPath, {
+  it("raises, lists, and withdraws the seat's own signals with no edge, and never blocks work", async () => {
+    const events: AgentSignal[] = [];
+    const { server } = await startTestServer({
+      onAgentSignal: (signal) => events.push(signal),
+    });
+    const raised = (await call(server.socketPath, {
       token: token(),
-      op: "request.escalate",
+      op: "signal.raise",
       args: {
-        target: "req",
-        brief: "need staging key",
-        reason: "cannot continue",
+        kind: "blocked",
+        text: "  need the staging\n key ",
+        detail: "Vault path is empty.",
       },
     })) as {
       ok: true;
-      data: {
-        blocked: boolean;
-        stop_directive: { action: string; requestId: string };
-        request: { id: string; state: string };
-      };
+      data: { signal: AgentSignal; disposition: string; next_step: string };
     };
-    expect(escalated.ok).toBe(true);
-    expect(escalated.data.blocked).toBe(true);
-    expect(escalated.data.stop_directive.action).toBe("stop");
-    expect(escalated.data.request.state).toBe("input-required");
-    expect(escalated.data.request).toMatchObject({
-      claimedBy: actor.seatId,
+    expect(raised.ok).toBe(true);
+    expect(raised.data.signal).toMatchObject({
+      canvasName: "work-cli",
+      nodeId: "agent",
+      kind: "blocked",
+      text: "need the staging key",
+      detail: "Vault path is empty.",
+      state: "open",
     });
-    const requestId = escalated.data.request.id;
-    expect(escalated.data.stop_directive.requestId).toBe(requestId);
+    expect(raised.data.next_step).toContain("stop and wait");
+    expect(events.map((signal) => signal.state)).toEqual(["open"]);
 
-    const blockedClaim = (await call(server.socketPath, {
+    // A declared block is a claim to the operator, not an enforcement.
+    const claim = (await call(server.socketPath, {
       token: token(),
       op: "tasks.claim",
       args: { target: "tasks", task: "t1" },
-    })) as {
-      ok: false;
-      error: {
-        type: string;
-        details?: { requestId?: string; stop_directive?: { action: string } };
-      };
-    };
-    expect(blockedClaim.ok).toBe(false);
-    expect(blockedClaim.error.type).toBe("Blocked");
-    expect(blockedClaim.error.details?.requestId).toBe(requestId);
-    expect(blockedClaim.error.details?.stop_directive?.action).toBe("stop");
-
-    // Meta discovery stays open while blocked.
-    const ping = (await call(server.socketPath, {
-      token: token(),
-      op: "ping",
     })) as { ok: boolean };
-    expect(ping.ok).toBe(true);
+    expect(claim.ok).toBe(true);
 
-    // Resolve the request → seat unblocks.
-    const work = await runtimes[runtimes.length - 1]!.runPromise(WorkService);
-    const resolved = await runtimes[runtimes.length - 1]!.runPromise(
-      work.workRequestResolve("work-cli", "req", requestId, "here is the key", "completed"),
-    );
-    expect(resolved.ok).toBe(true);
-
-    const claimAfter = (await call(server.socketPath, {
+    const listed = (await call(server.socketPath, {
       token: token(),
-      op: "tasks.claim",
-      args: { target: "tasks", task: "t1" },
-    })) as {
-      ok: true;
-      data: { disposition: "applied" | "queued" };
-    };
-    expect(claimAfter.ok).toBe(true);
-    expect(claimAfter.data.disposition).toBe("applied");
+      op: "signal.list",
+      args: {},
+    })) as { ok: true; data: { signals: AgentSignal[]; open: number } };
+    expect(listed.data.open).toBe(1);
+
+    const unknown = (await call(server.socketPath, {
+      token: token(),
+      op: "signal.clear",
+      args: { signalId: "not-mine" },
+    })) as { ok: false; error: { type: string } };
+    expect(unknown.ok).toBe(false);
+    expect(unknown.error.type).toBe("UnknownTarget");
+
+    const cleared = (await call(server.socketPath, {
+      token: token(),
+      op: "signal.clear",
+      args: { signalId: raised.data.signal.signalId },
+    })) as { ok: true; data: { signals: AgentSignal[] } };
+    expect(cleared.data.signals.map((signal) => signal.state)).toEqual(["withdrawn"]);
+    expect(events.map((signal) => signal.state)).toEqual(["open", "withdrawn"]);
+  });
+
+  it("refuses an over-long signal sentence and points at --detail", async () => {
+    const server = servers[0]!;
+    const refused = (await call(server.socketPath, {
+      token: token(),
+      op: "signal.raise",
+      args: { kind: "escalate", text: "x".repeat(281) },
+    })) as { ok: false; error: { type: string; details?: { hint?: string } } };
+    expect(refused.ok).toBe(false);
+    expect(refused.error.type).toBe("InputError");
+    expect(refused.error.details?.hint).toContain("--detail");
   });
 
   it("creates attributed tasks that require operator approval before claim", async () => {
@@ -1828,7 +1833,7 @@ describe("work control transport", () => {
     expect(res.data.connected.find((c) => c.id === "tasks")?.grants).toContain(
       "tasks.claim",
     );
-    expect(res.data.connected.find((c) => c.id === "req")?.grants).toContain(
+    expect(res.data.connected.find((c) => c.id === "req")?.grants).not.toContain(
       "request.escalate",
     );
   });

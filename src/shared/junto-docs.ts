@@ -53,7 +53,7 @@ export const PORT_DESCRIPTIONS: Readonly<Record<Port, string>> = {
   "seat.wait": "Wait for a connected peer state with a bounded timeout.",
   "terminal.read": "Read settled terminal output from a connected peer; no input, resize or signal authority.",
   "verdict.post": "Post an epoch-bound verdict on the work of this edge's author, from a distinct reviewer seat.",
-  "request.escalate": "File a request, block the seat, and wait for the operator.",
+  "request.escalate": "Retired and grants nothing: every seat raises its hand with junto escalate, blocked, or feedback.",
   "artifact.publish": "Publish an artifact (text/data/ContentRef parts).",
   "browser.automate": "Control a granted page session (browser CLI).",
   "board.list": "List bulletin-board topics and posts.",
@@ -171,7 +171,7 @@ const MODEL_NOTE: Readonly<Record<string, string>> = {
 const KIND_NOTE: Readonly<Record<string, string>> = {
   agent: "The actor role: pulls work through edges, holds a mailbox, runs a harness.",
   task: "The pull queue: submitted tasks are claimed by connected actor seats.",
-  requests: "The escalation surface: file a request to block your seat and wait for the operator.",
+  requests: "The operator's request queue. Seats no longer file requests; they raise agent signals (junto escalate, blocked, feedback) instead.",
   artifacts: "The delivery surface: publish outputs; artifacts never block.",
   board: "The bulletin surface: optional shared context, never a decision inbox.",
   sheet: "A small grid to jot numbers and names beside the work. Read-only to agents; the operator types it.",

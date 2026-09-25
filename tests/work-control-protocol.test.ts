@@ -115,7 +115,9 @@ describe("work-control wire schemas", () => {
       "msg.read",
       "msg.reply",
       "msg.react",
-      "request.escalate",
+      "signal.raise",
+      "signal.clear",
+      "signal.list",
       "artifact.publish",
       "pad.read",
       "pad.patch",
@@ -252,7 +254,7 @@ describe("work authz — edges as capability", () => {
       board,
       "agent",
       "req",
-      "request.escalate",
+      "msg.send",
     );
     expect(Result.isFailure(regionOnly)).toBe(true);
     if (Result.isFailure(regionOnly)) {

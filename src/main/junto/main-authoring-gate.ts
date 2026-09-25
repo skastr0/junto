@@ -24,6 +24,8 @@ export const MAIN_AUTHORING_LABELS = [
   "ipc.work.message-append",
   "ipc.work.request-create",
   "ipc.work.request-resolve",
+  "ipc.work.signal-answer",
+  "ipc.work.signal-dismiss",
   "ipc.work.artifact-publish",
   "ipc.work.artifact-archive",
   "ipc.work.artifact-delete",
@@ -31,7 +33,7 @@ export const MAIN_AUTHORING_LABELS = [
   "control.work.tasks-create",
   "control.work.tasks-update",
   "control.work.msg-send",
-  "control.work.request-escalate",
+  "control.work.signal",
   "control.work.artifact-publish",
   "control.work.board-create-topic",
   "control.work.board-post",
@@ -110,7 +112,10 @@ const WORK_OPERATION_CLASSIFICATION = {
   "msg.read": "authorial",
   "msg.reply": "authorial",
   "msg.react": "authorial",
-  "request.escalate": "authorial",
+  // Signals write the seat's own durable agent_signals row.
+  "signal.raise": "authorial",
+  "signal.clear": "authorial",
+  "signal.list": "read",
   "artifact.publish": "authorial",
   "board.list": "read",
   "board.tags": "read",
@@ -140,7 +145,8 @@ const WORK_AUTHORING_LABELS = {
   "msg.read": "control.work.msg-send",
   "msg.reply": "control.work.msg-send",
   "msg.react": "control.work.msg-send",
-  "request.escalate": "control.work.request-escalate",
+  "signal.raise": "control.work.signal",
+  "signal.clear": "control.work.signal",
   "artifact.publish": "control.work.artifact-publish",
   "board.create_topic": "control.work.board-create-topic",
   "board.post": "control.work.board-post",
@@ -160,7 +166,8 @@ const WORK_AUTHORING_LABELS = {
     | "msg.read"
     | "msg.reply"
     | "msg.react"
-    | "request.escalate"
+    | "signal.raise"
+    | "signal.clear"
     | "artifact.publish"
     | "board.create_topic"
     | "board.post"

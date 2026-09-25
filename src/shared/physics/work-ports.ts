@@ -3,12 +3,14 @@ import type { WorkOpName } from "../work-control";
 import type { Port, SinkKind } from "./schema";
 
 // Exhaustive WorkOp → Port map for target-scoped work ops.
-// Meta/seat-local ops (ping/doctor/capabilities/onboard/preamble) are not
+// Meta/seat-local ops (ping/doctor/capabilities/onboard/preamble, and the
+// universal agent signals) are not
 // ported — they are not edge-scoped host capabilities.
 
 export type TargetWorkOpName = Exclude<
   WorkOpName,
   "ping" | "doctor" | "capabilities" | "onboard" | "preamble" | "overseer" | "overseer.live" | "msg.sent"
+  | "signal.raise" | "signal.clear" | "signal.list"
 >;
 
 /**
@@ -42,7 +44,6 @@ export const PortForWorkOp = {
   "msg.read": "msg.list",
   "msg.reply": "msg.send",
   "msg.react": "msg.list",
-  "request.escalate": "request.escalate",
   "artifact.publish": "artifact.publish",
   "board.list": "board.list",
   "board.create_topic": "board.create_topic",
@@ -85,7 +86,6 @@ export const TARGET_WORK_OPS: ReadonlyArray<TargetWorkOpName> = [
   "msg.read",
   "msg.reply",
   "msg.react",
-  "request.escalate",
   "artifact.publish",
   "board.list",
   "board.create_topic",
@@ -130,7 +130,6 @@ export const OPS_BY_SINK = {
     "msg.react",
   ],
   requests: [
-    "request.escalate",
     "msg.list",
     "msg.send",
     "msg.read",

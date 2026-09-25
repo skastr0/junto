@@ -64,6 +64,12 @@ const SEAT_LOCAL_COMMANDS = new Set([
   "onboard",
   "preamble",
   "msg.sent",
+  // Agent signals: universal, the caller speaks only for its own seat.
+  "signal.escalate",
+  "signal.blocked",
+  "signal.feedback",
+  "signal.list",
+  "signal.clear",
 ]);
 
 const DISCOVERY_COMMANDS = new Set([
@@ -131,8 +137,8 @@ const AGENT_SINK_GRANTS = {
     narrow: { verb: "manages", ports: ["tasks.create", "tasks.update", "tasks.list", "msg.list", "msg.send"] },
   },
   requests: {
-    wide: { verb: "escalates", ports: ["request.escalate", "msg.list", "msg.send"] },
-    narrow: { verb: "escalates", ports: ["request.escalate", "msg.list", "msg.send"] },
+    wide: { verb: "escalates", ports: ["msg.list", "msg.send"] },
+    narrow: { verb: "escalates", ports: ["msg.list", "msg.send"] },
   },
   artifacts: {
     wide: { verb: "publishes", ports: ["artifact.publish"] },

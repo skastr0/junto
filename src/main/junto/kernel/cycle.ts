@@ -39,7 +39,6 @@ import {
 } from "@shared/scheduler-effects";
 import { isValidCronExpression, nextCronOccurrence } from "@shared/cron-expression";
 import { applySchedulerFire, type OverseerFireAuthority } from "./effects";
-import { liveSeatBlocksForCanvas } from "../work/blocked-seat";
 import type { SnapshotState } from "../../../shared/entities";
 import {
   CRON_ENABLED,
@@ -448,7 +447,6 @@ const snapshotFromGraph = (
   const graph = deriveExecutionGraph(doc, {
     canvasName,
     resolveActorRef,
-    workBlockedSeats: liveSeatBlocksForCanvas(canvasName, doc),
   });
   const phaseByEdgeId: Record<string, EdgePhase> = {};
   const detailByEdgeId: Record<string, string> = {};

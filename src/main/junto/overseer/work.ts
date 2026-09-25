@@ -43,6 +43,7 @@ import {
   nodeKind,
   nodeTitle,
   overseerWorkAdmin,
+  scopeError,
   type OverseerWorkAdmin,
 } from "../work/authz";
 import { deliverBoardWake } from "../work/board-delivery";
@@ -203,6 +204,21 @@ const requireTarget = (
   if (Result.isFailure(admitted)) return failBody(admitted.failure);
   return Effect.void;
 };
+
+/** Request administration targets a Requests node, admitted like its thread. */
+const requireRequestsTarget = (
+  doc: CanvasDoc,
+  targetId: string,
+): Effect.Effect<void, WorkErrorBody> =>
+  Effect.gen(function* () {
+    yield* requireTarget(doc, targetId, "msg.list");
+    const kind = nodeKind(findNode(doc, targetId));
+    if (kind !== "requests") {
+      return yield* failBody(
+        scopeError("overseer", targetId, "wrong_kind", { kind, op: "msg.list" }),
+      );
+    }
+  });
 
 const decodeRequest = (
   request: OverseerRequest,
@@ -466,13 +482,13 @@ export const executeOverseerWork = (
     if (op === "request.list") {
       const args = yield* decodeArgs(op, raw);
       const target = targetOf(caller, args.target);
-      yield* requireTarget(read.doc, target, "request.escalate");
+      yield* requireRequestsTarget(read.doc, target);
       return { target, items: findNode(read.doc, target)?.ether?.requests?.items ?? [] };
     }
     if (op === "request.get") {
       const args = yield* decodeArgs(op, raw);
       const target = targetOf(caller, args.target);
-      yield* requireTarget(read.doc, target, "request.escalate");
+      yield* requireRequestsTarget(read.doc, target);
       const item = (findNode(read.doc, target)?.ether?.requests?.items ?? []).find(
         (candidate) => candidate.id === args.request,
       );
@@ -488,7 +504,7 @@ export const executeOverseerWork = (
     if (op === "request.create") {
       const args = yield* decodeArgs(op, raw);
       const target = targetOf(caller, args.target);
-      yield* requireTarget(read.doc, target, "request.escalate");
+      yield* requireRequestsTarget(read.doc, target);
       const result = yield* work.workRequestCreate(
         canvas,
         target,
@@ -503,7 +519,7 @@ export const executeOverseerWork = (
     if (op === "request.resolve") {
       const args = yield* decodeArgs(op, raw);
       const target = targetOf(caller, args.target);
-      yield* requireTarget(read.doc, target, "request.escalate");
+      yield* requireRequestsTarget(read.doc, target);
       const result = yield* work.workRequestResolve(
         canvas,
         target,

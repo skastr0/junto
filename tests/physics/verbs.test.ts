@@ -335,7 +335,7 @@ describe("compiled grants", () => {
         claimable: true,
       },
       "escalates @ agent>requests": {
-        ports: ["request.escalate", "msg.list", "msg.send"],
+        ports: ["msg.list", "msg.send"],
       },
       "publishes @ agent>artifacts": { ports: ["artifact.publish"] },
       "participates @ agent>board": {

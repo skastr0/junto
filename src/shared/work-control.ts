@@ -13,6 +13,7 @@ import {
 import { ContentRef } from "./content";
 import { PadPatch } from "./pad";
 import { MailEvidenceRef } from "./crew";
+import { AgentSignalKind } from "./agent-signals";
 export {
   SeatWaitArgs, SeatReadArgs, TaskWaitArgs,
   SeatWaitResult, SeatReadResult, TaskWaitResult,
@@ -76,7 +77,10 @@ export const WorkOpName = Schema.Literals(["ping", "doctor",
 "seat.wait",
 "seat.read",
 "verdict.post",
-"request.escalate",
+/** Universal seat-local: the seat's own agent signals (no edge, no port). */
+"signal.raise",
+"signal.clear",
+"signal.list",
 "artifact.publish",
 "board.list",
 "board.create_topic",
@@ -104,7 +108,6 @@ export const WorkErrorType = Schema.Literals(["ScopeError", "ClaimConflict",
 "ProtocolError",
 "InternalError",
 "Paused",
-"Blocked",
 "Timeout",
 "ReviewerIsAuthor",]);
 export type WorkErrorType = typeof WorkErrorType.Type;
@@ -122,14 +125,10 @@ export const WorkErrorDetails = Schema.Struct({
   target: Schema.optionalKey(Schema.String),
   caller: Schema.optionalKey(Schema.String),
   missing: Schema.optionalKey(Schema.String),
-  /** Open escalate request id when type === Blocked. */
-  requestId: Schema.optionalKey(Schema.String),
   /** Durable prompt identity, returned even when immediate admission refuses. */
   messageId: Schema.optionalKey(Schema.String),
   generation: Schema.optionalKey(Schema.String),
   reason: Schema.optionalKey(Schema.String),
-  /** Machine-readable stop instruction for harness tools (Blocked / escalate). */
-  stop_directive: Schema.optionalKey(Schema.Unknown),
 });
 export type WorkErrorDetails = typeof WorkErrorDetails.Type;
 
@@ -610,62 +609,31 @@ export const PreambleArgs = Schema.Struct({
 export type PreambleArgs = typeof PreambleArgs.Type;
 
 /**
- * Escalate to the operator. Brief is the title line; agents must also supply
- * a body via `reason` and/or `metadata.details` — title-only escalations are
- * rejected (same spirit as task `metadata.details` required).
+ * Agent signals: the calling seat's own claim that it needs the operator.
+ * Universal and seat-local: no target, no edge, no port. The seat is the
+ * process-bound caller, so a seat can only raise, clear, or read its own.
  */
-export const RequestEscalateArgs = Schema.Struct({
-  target: Schema.String,
-  brief: Schema.String,
-  /** Why the caller is raising this — first-class body (preferred). */
-  reason: Schema.optionalKey(Schema.String),
-  metadata: Schema.optionalKey(Schema.Record(Schema.String, Schema.Unknown)),
-}).pipe(
-  Schema.check(
-    Schema.makeFilter((args) => {
-      const brief = args.brief.trim();
-      if (!brief) return "brief must be non-empty";
-      const reason =
-        typeof args.reason === "string" ? args.reason.trim() : "";
-      const detailsRaw = args.metadata?.details;
-      const details =
-        typeof detailsRaw === "string" ? detailsRaw.trim() : "";
-      if (!reason && !details) {
-        return "request body required: provide reason and/or metadata.details (not title-only)";
-      }
-      return true;
-    }),
-  ),
-).annotate({
+export const SignalRaiseArgs = Schema.Struct({
+  kind: AgentSignalKind,
+  text: Schema.String,
+  detail: Schema.optionalKey(Schema.String),
+}).annotate({
   parseOptions: { onExcessProperty: "error" },
 });
-export type RequestEscalateArgs = typeof RequestEscalateArgs.Type;
+export type SignalRaiseArgs = typeof SignalRaiseArgs.Type;
 
-/** Wire/stop payload agents understand after escalate or while Blocked. */
-export type StopDirective = {
-  readonly action: "stop";
-  readonly reason: "awaiting_operator";
-  readonly requestId: string;
-  readonly target: string;
-  readonly brief: string;
-  readonly message: string;
-  readonly next_step: string;
-};
-
-export const makeStopDirective = (input: {
-  readonly requestId: string;
-  readonly target: string;
-  readonly brief: string;
-}): StopDirective => ({
-  action: "stop",
-  reason: "awaiting_operator",
-  requestId: input.requestId,
-  target: input.target,
-  brief: input.brief,
-  message: `You are blocked waiting on request ${input.requestId}. Stop work until the operator answers.`,
-  next_step:
-    "Wait for the operator to answer the request, then retry work ops (re-run junto onboard if your view is stale).",
+/** Withdraw one open signal by id, or every open signal of the seat. */
+export const SignalClearArgs = Schema.Struct({
+  signalId: Schema.optionalKey(Schema.String),
+}).annotate({
+  parseOptions: { onExcessProperty: "error" },
 });
+export type SignalClearArgs = typeof SignalClearArgs.Type;
+
+export const SignalListArgs = Schema.Struct({}).annotate({
+  parseOptions: { onExcessProperty: "error" },
+});
+export type SignalListArgs = typeof SignalListArgs.Type;
 
 /** Artifact wire parts: text/data stay inline; binary media is a ContentRef. */
 export const ArtifactPartWire = Schema.Union([Schema.Struct({ kind: Schema.Literal("text"), text: Schema.String }),

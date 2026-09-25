@@ -8,9 +8,12 @@ import {
   ArtifactPublishCliArgs,
   WAIT_FOR_MAX_MS,
   PreambleArgs,
-  RequestEscalateArgs,
 } from "../src/shared/work-control";
 import { loadBatchJsonInput, loadJsonInput } from "../src/cli/core/json";
+import {
+  loadSignalRaiseArgs,
+  planSignalInvocation,
+} from "../src/cli/core/signal-input";
 import { runMutationBatch } from "../src/cli/core/batch";
 import {
   renderFailureEnvelope,
@@ -31,7 +34,7 @@ import {
 } from "../src/cli/core/discovery";
 import { BROWSER_ENABLED } from "../src/shared/features";
 import { materializeArtifactParts } from "../src/cli/core/artifact-parts";
-import { writeFileSync, mkdtempSync } from "node:fs";
+import { writeFileSync, mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -165,48 +168,69 @@ describe("work CLI json input modes", () => {
     ).rejects.toThrow(/target|unexpected/i);
   });
 
-  it("request escalate rejects title-only and accepts reason or metadata.details", async () => {
-    await expect(
-      Effect.runPromise(
-        loadJsonInput(
-          RequestEscalateArgs,
-          '{"target":"requests","brief":"need a decision"}',
-        ),
-      ),
-    ).rejects.toThrow(/request body required|title-only/i);
+});
 
-    await expect(
-      Effect.runPromise(
-        loadJsonInput(
-          RequestEscalateArgs,
-          '{"target":"requests","brief":"need a decision","reason":"   ","metadata":{"details":""}}',
-        ),
-      ),
-    ).rejects.toThrow(/request body required|title-only/i);
-
-    const viaReason = await Effect.runPromise(
-      loadJsonInput(
-        RequestEscalateArgs,
-        JSON.stringify({
-          target: "requests",
-          brief: "need a decision",
-          reason: "blocked without operator sign-off",
-        }),
-      ),
+describe("agent signal CLI input", () => {
+  it("reads a plain sentence as the text, with --detail inline", async () => {
+    const args = await Effect.runPromise(
+      loadSignalRaiseArgs("blocked", "Need the staging key.", "Vault path is empty."),
     );
-    expect(viaReason.reason).toBe("blocked without operator sign-off");
+    expect(args).toEqual({
+      kind: "blocked",
+      text: "Need the staging key.",
+      detail: "Vault path is empty.",
+    });
+  });
 
-    const viaDetails = await Effect.runPromise(
-      loadJsonInput(
-        RequestEscalateArgs,
-        JSON.stringify({
-          target: "requests",
-          brief: "need a decision",
-          metadata: { details: "checks remain open" },
-        }),
-      ),
+  it("reads a JSON object inline, with the kind set by the command", async () => {
+    const args = await Effect.runPromise(
+      loadSignalRaiseArgs("feedback", '{"text":"ready for review","detail":"## notes"}', undefined),
     );
-    expect(viaDetails.metadata?.details).toBe("checks remain open");
+    expect(args).toEqual({ kind: "feedback", text: "ready for review", detail: "## notes" });
+  });
+
+  it("reads the sentence and detail from files", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "junto-signal-cli-"));
+    try {
+      const input = join(dir, "signal.json");
+      const detail = join(dir, "detail.md");
+      writeFileSync(input, '{"text":"pick a database"}');
+      writeFileSync(detail, "Postgres or SQLite?");
+      const args = await Effect.runPromise(
+        loadSignalRaiseArgs("escalate", `@${input}`, `@${detail}`),
+      );
+      expect(args).toEqual({
+        kind: "escalate",
+        text: "pick a database",
+        detail: "Postgres or SQLite?",
+      });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("refuses the kind inside JSON, an empty sentence, and detail given twice", async () => {
+    await expect(
+      Effect.runPromise(loadSignalRaiseArgs("escalate", '{"text":"x","kind":"blocked"}', undefined)),
+    ).rejects.toThrow();
+    await expect(
+      Effect.runPromise(loadSignalRaiseArgs("escalate", "  ", undefined)),
+    ).rejects.toThrow(/one sentence/);
+    await expect(
+      Effect.runPromise(loadSignalRaiseArgs("escalate", '{"text":"x","detail":"a"}', "b")),
+    ).rejects.toThrow(/detail given twice/);
+  });
+
+  it("lets stdin feed the input or --detail, never both", () => {
+    const both = planSignalInvocation("-", "-");
+    expect(both.ok).toBe(false);
+    const detailOnly = planSignalInvocation("Need a key.", "-");
+    expect(detailOnly.ok && detailOnly.plan).toMatchObject({
+      input: { kind: "inline", json: false },
+      detail: { kind: "stdin" },
+    });
+    const jsonStdin = planSignalInvocation("-", undefined);
+    expect(jsonStdin.ok && jsonStdin.plan.input).toMatchObject({ kind: "stdin", json: true });
   });
 });
 
@@ -430,9 +454,12 @@ describe("schema/examples from validating schemas", () => {
     }
   });
 
-  it("exposes escalation as the sole agent request surface", () => {
+  it("exposes agent signals as the sole way a seat raises its hand", () => {
     const commandIds = allSchemas.map((contract) => contract.command_id);
-    expect(commandIds).toContain("request.escalate");
+    for (const id of ["signal.escalate", "signal.blocked", "signal.feedback", "signal.list", "signal.clear"]) {
+      expect(commandIds).toContain(id);
+    }
+    expect(commandIds).not.toContain("request.escalate");
     expect(commandIds).not.toContain("request.create");
     expect(
       allExamples.some((example) => example.command_id === "request.create"),

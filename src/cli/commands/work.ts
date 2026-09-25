@@ -17,7 +17,6 @@ import {
   MsgSentArgs,
   VerdictPostArgs,
   PreambleArgs,
-  RequestEscalateArgs,
   RulingsArgs,
   TasksClaimArgs,
   TasksRulesArgs,
@@ -405,27 +404,6 @@ export const msgCommand = Command.make("msg").pipe(
     msgReplyCommand,
     msgReactCommand,
   ]),
-);
-
-/**
- * Escalate: file a request, mark the seat blocked, return a stop directive.
- * Hold-until-answer is TODO (fire-and-block).
- */
-export const escalateCommand = Command.make(
-  "escalate",
-  { input: jsonInputArg, timeout: timeoutOption },
-  ({ input, timeout }) =>
-    executeJsonCommand(
-      "escalate",
-      Effect.gen(function* () {
-        const item = yield* loadJsonInput(RequestEscalateArgs, input);
-        return yield* callDomain("request.escalate", item, toUndefined(timeout));
-      }),
-    ),
-).pipe(
-  Command.withDescription(
-    "Escalate to the operator: create request, block seat, return stop directive",
-  ),
 );
 
 // --- artifact ---

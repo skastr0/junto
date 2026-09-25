@@ -11,7 +11,7 @@
  *   worker loop, base CLI contract, laws). Isolated seats get no edge contracts.
  * - Edge contracts are COMPILED from the node's edge reality at spawn: each
  *   target's held ports select its CLI contracts, including operator masks
- *   (task → tasks ops; requests → escalate; artifacts → publish; board → board;
+ *   (task → tasks ops; artifacts → publish; board → board;
  *   messages → mail; directed reviews → verdict). The agent is never taught
  *   a target command without the corresponding held port.
  * - Mid-session map changes send a compact notice pointing at live grants
@@ -38,7 +38,7 @@ import type { Port } from "./physics/schema";
 import {
   FEW_SHOT_CLAIM,
   FEW_SHOT_COMPLETE_EVIDENCE,
-  FEW_SHOT_ESCALATE,
+  FEW_SHOT_BLOCKED,
   FEW_SHOT_PROGRESS,
   type DoctrineFewShotPayload,
 } from "./doctrine-few-shots";
@@ -82,7 +82,6 @@ export type InjectionContext = {
 /** Command families; membership comes from held ports, not target kind. */
 export type EdgeSlotKind =
   | "tasks"
-  | "escalate"
   | "msg"
   | "reviews"
   | "artifacts"
@@ -95,8 +94,9 @@ export type EdgeSlotKind =
 export const KIND_TO_SLOT: Readonly<Record<string, EdgeSlotKind | undefined>> = {
   task: "tasks",
   tasks: "tasks",
-  requests: "escalate",
-  request: "escalate",
+  // The retired escalates verb leaves only the request thread's mail.
+  requests: "msg",
+  request: "msg",
   artifacts: "artifacts",
   board: "board",
   pad: "pad",
@@ -138,26 +138,10 @@ A **seat** is your identity on the canvas: the node you occupy, bound to your pr
 
 // ── Worker doctrine (base) ─────────────────────────────────────────────────
 
-/** Blocking law leaves with its features: escalate, then input-required, then mail. */
-const BLOCKED_SECTION = !TASKS_ENABLED
-  ? `### When you are blocked
+/** Blocking law: declare it with a signal; the task state follows when there is one. */
+const BLOCKED_SECTION = `### When you are blocked
 
-If you need a decision you cannot make, write what you need to the seat that asked, then stop. Do not thrash alternatives and do not invent work around the block.`
-  : REQUESTS_ENABLED
-  ? `### Requests block
-
-\`input-required\` and open **requests** generate stoppage on the **connected actor seat**. When blocked:
-
-- open a request with a clear brief (via the requests edge contract), or set the task to \`input-required\`
-- stop thrashing alternatives
-- wait for the human / approval path`
-  : `### Waiting on the operator
-
-\`input-required\` generates stoppage on the **connected actor seat**. When blocked:
-
-- set the task to \`input-required\`
-- stop thrashing alternatives
-- wait for the human / approval path`;
+Say so with \`junto blocked "<what you need>"\`${TASKS_ENABLED ? ", and set the task to \`input-required\`" : ""}. Then stop: do not thrash alternatives or invent work around the block. The operator's answer arrives in this seat as operator mail.`;
 
 /** Delivery law leaves with the artifacts feature. */
 const ARTIFACTS_SECTION = ARTIFACTS_ENABLED
@@ -204,7 +188,7 @@ You do not **self-declare** completion — you **submit** it. \`completed\` is a
 
 - Before \`completed\`: verify every finish criterion (description, git commits${ARTIFACTS_ENABLED ? ", artifacts on the required node" : ""}), then attach \`completionEvidence\` — ${ARTIFACTS_ENABLED ? "artifacts published with task linkage + " : ""}real git SHAs.
 - A rejection names the missing pieces (\`InvalidTransition\` with \`missing\` + \`next_step\`) — read it, fix the evidence, retry. Do not mark \`completed\` without evidence.
-- If criteria are unreachable, ${REQUESTS_ENABLED ? "escalate" : "set the task to \`input-required\`"} with what you tried and what you need. Do not mark \`failed\` unless the task is truly dead.
+- If criteria are unreachable, say so with \`junto blocked\` and set the task to \`input-required\`, with what you tried and what you need. Do not mark \`failed\` unless the task is truly dead.
 - \`working\` notes are progress telemetry: state what you did at milestones (first commit, tests passing, blocked), not just "working".`
   : `### Report honestly
 
@@ -220,7 +204,7 @@ You occupy a **peer seat** on a Junto canvas. The human operator authors the can
 1. **onboard** — always first, no exceptions: at session start and after every compaction. Read seat, role, region, connected targets, grants.
 ${WORK_STEP}
 ${UPDATE_STEP}
-4. **request when blocked** — if you need human input or approval, ${TASKS_ENABLED ? (REQUESTS_ENABLED ? "escalate (when a requests node is connected) or set the task to `input-required`" : "set the task to `input-required`") : "say what you need to the seat that asked and stop"}. Stop inventing work around the block.
+4. **raise your hand when blocked** — if you need human input or approval, \`junto blocked\`${TASKS_ENABLED ? " and set the task to `input-required`" : ""}. Stop inventing work around the block.
 
 ${IDLE_LINE}
 
@@ -278,6 +262,7 @@ JSON-in/JSON-out — every command takes one JSON argument (inline, \`@file\`, o
 | live contract / grants | \`junto capabilities\` |
 | pinned rulings for your regions | \`junto rulings\` — add \`'{"target":"<id>"}'\` for a connected target's stack |
 | thought bubble | \`junto preamble '{"text":"..."}'\` |
+| raise your hand to the operator | \`junto escalate "..."\` - \`junto blocked "..."\` - \`junto feedback "..."\` (see below) |
 | schemas / examples | \`junto schema show <command>\` - \`junto examples show <command>\` |
 | full documentation | \`junto docs\` - \`junto docs node <kind>\` — the complete doctrine and per-node-kind docs (ports, data models, events) |
 
@@ -290,9 +275,18 @@ Errors are **ground truth** — do not invent around them. Read \`type\` and \`n
 - \`ScopeError\` — not connected / not authorized for that target; the fix is an edge on the canvas, not a workaround${TASK_ERROR_BULLETS}
 - \`InputError\` — payload failed schema decode; \`schema show\` prints the exact shape
 - \`RuntimeDown\` / \`Paused\` — Junto is down or this seat is paused; wait, then re-run \`onboard\`. Do not retry-loop.
-${REQUESTS_ENABLED ? "- \`Blocked\` — this seat is blocked; stop and wait for the operator (the stop directive names the request)" : ""}
 
 Retry law: retry only when the error says \`retryable: true\`, at most twice, then adapt or escalate. Never loop the same failing call.
+
+### Raising your hand
+
+Every seat can signal the operator; no edge is needed. One sentence says what you need; add \`--detail "<markdown>"\` (or \`--detail -\` from stdin) for the why. The operator sees it on your node.
+
+- \`junto escalate "..."\` — you need the operator's attention but can keep working. Use it any time.
+- \`junto blocked "..."\` — you cannot continue without the operator. Stop and wait.
+- \`junto feedback "..."\` — you are not blocked; the work is ready for the operator to review.
+
+The answer arrives in this seat as operator mail; \`junto signal list\` shows your signals and their answers. When one no longer applies, withdraw it: \`junto signal clear <id>\` (no id clears all yours). Do not use these for progress chatter; \`preamble\` is for that.
 
 Context ritual: when context is heavy, compact, then re-run \`onboard\` for the live map.
 
@@ -354,14 +348,6 @@ Where the operator drew a task path, completing does not close the task: it hand
 - \`"waitFor":"12h"\` (or \`"7d"\`, or milliseconds) delays the first claim at the next board.
 
 A task that arrives back with an epoch bump was sent back to you: prior claims and check results are stale, so answer the rules again and re-run the checks.` : ""}`;
-};
-
-const escalateSlot = (targets: readonly InjectionConnectedTarget[]): string => {
-  const t = targets[0]?.id ?? "<id>";
-  const all = targets.map((x) => `\`${x.id}\``).join(", ");
-  return `### Edge contract — requests / escalate${targets.length > 1 ? ` (targets: ${all})` : ` (target \`${t}\`)`}
-
-When blocked and you need human input or approval: \`junto escalate '{"target":"${t}","brief":"what you need","reason":"why"}'\` — files a request, blocks the seat, returns a stop directive. Stop work until the operator answers. Do not retry work ops while blocked.`;
 };
 
 const msgSlot = (targets: readonly InjectionConnectedTarget[]): string => {
@@ -473,7 +459,6 @@ export const EDGE_SLOT_BUILDERS: Readonly<
   Record<EdgeSlotKind, (targets: readonly InjectionConnectedTarget[]) => string>
 > = {
   tasks: tasksSlot,
-  escalate: escalateSlot,
   msg: msgSlot,
   reviews: reviewsSlot,
   artifacts: artifactSlot,
@@ -485,7 +470,6 @@ export const EDGE_SLOT_BUILDERS: Readonly<
 
 const SLOT_PORTS: Readonly<Record<EdgeSlotKind, readonly Port[]>> = {
   tasks: ["tasks.list", "tasks.create", "tasks.claim", "tasks.update"],
-  escalate: ["request.escalate"],
   msg: ["msg.list", "msg.send", "msg.prompt", "seat.wait", "terminal.read"],
   reviews: ["verdict.post"],
   artifacts: ["artifact.publish"],
@@ -594,9 +578,14 @@ const fewShotsForTargets = (
   if (TASKS_ENABLED && targets.some((target) => target.ports?.includes("tasks.update"))) {
     out.push(FEW_SHOT_PROGRESS, FEW_SHOT_COMPLETE_EVIDENCE);
   }
-  if (REQUESTS_ENABLED && targets.some((target) => target.ports?.includes("request.escalate"))) out.push(FEW_SHOT_ESCALATE);
+  // Raising a hand is universal, so every seat gets its worked example.
+  out.push(FEW_SHOT_BLOCKED);
   return out;
 };
+
+/** Quote an argv word so the rendered line pastes into a shell unchanged. */
+const shellArg = (arg: string): string =>
+  /^[A-Za-z0-9_./:@=-]+$/u.test(arg) ? arg : `'${arg.replaceAll("'", "'\\''")}'`;
 
 export const buildFewShotsSection = (
   targets: readonly InjectionConnectedTarget[] | undefined,
@@ -607,7 +596,7 @@ export const buildFewShotsSection = (
   for (const shot of shots) {
     // args are the full argv (["tasks", "claim", "{...}"]); render the whole
     // command so the copy-paste line is complete.
-    lines.push(`\`junto ${shot.args.join(" ")}\``);
+    lines.push(`\`junto ${shot.args.map(shellArg).join(" ")}\``);
     lines.push(`- ${shot.lesson}`);
     lines.push("");
   }

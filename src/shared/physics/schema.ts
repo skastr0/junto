@@ -36,6 +36,7 @@ export const Port = Schema.Literals(["tasks.list", "tasks.create",
 "seat.wait",
 "terminal.read",
 "verdict.post",
+/** Retired: decodable in stored edge masks; no kind offers it. */
 "request.escalate",
 "artifact.publish",
 "browser.automate",

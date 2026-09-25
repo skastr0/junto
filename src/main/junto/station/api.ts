@@ -332,21 +332,20 @@ const operationForActor = (
     case "task.describe":
     case "task.transition":
       return "tasks.update";
-    case "request.create":
-    case "request.resolve":
-      return "request.escalate";
     case "artifact.publish":
       return "artifact.publish";
     case "delivery.accepted":
       return deliveredKind === "task"
         ? "tasks.claim"
-        : deliveredKind === "request"
-          ? "request.escalate"
-          : deliveredKind === "artifact"
+        : deliveredKind === "artifact"
             ? "artifact.publish"
             : deliveredKind === "message"
               ? "msg.list"
               : undefined;
+    // Seats no longer file requests (signals replaced escalate), so no actor
+    // port represents a request fact.
+    case "request.create":
+    case "request.resolve":
     case "task.create":
     case "message.append":
     case "board.topic.create":

@@ -20,13 +20,18 @@ import { seatCommand } from "./commands/seat";
 import {
   artifactCommand,
   boardCommand,
-  escalateCommand,
   msgCommand,
   preambleCommand,
   rulingsCommand,
   tasksCommand,
   verdictCommand,
 } from "./commands/work";
+import {
+  blockedCommand,
+  escalateCommand,
+  feedbackCommand,
+  signalCommand,
+} from "./commands/signals";
 import { contentCommand } from "./commands/content";
 import { docsCommand } from "./commands/docs";
 import {
@@ -46,7 +51,6 @@ import {
   FLEET_UI_ENABLED,
   LIVE_OVERSEER_ENABLED,
   PAD_ENABLED,
-  REQUESTS_ENABLED,
   SHEET_ENABLED,
   TASKS_ENABLED,
 } from "@shared/features";
@@ -79,6 +83,10 @@ export const rootCommand = Command.make(CLI_NAME).pipe(
     schemaCommand,
     examplesCommand,
     preambleCommand,
+    escalateCommand,
+    blockedCommand,
+    feedbackCommand,
+    signalCommand,
     ...(TASKS_ENABLED ? [tasksCommand] : []),
     rulingsCommand,
     msgCommand,
@@ -89,7 +97,6 @@ export const rootCommand = Command.make(CLI_NAME).pipe(
     ...(BOARD_ENABLED ? [boardCommand] : []),
     ...(PAD_ENABLED ? [padCommand] : []),
     ...(SHEET_ENABLED ? [sheetCommand] : []),
-    ...(REQUESTS_ENABLED ? [escalateCommand] : []),
     ...(ARTIFACTS_ENABLED ? [artifactCommand] : []),
     overseerCommand,
     stationOperatorCommand,
@@ -122,7 +129,6 @@ const disabledCliGroup = (args: ReadonlyArray<string>): string | undefined => {
   if (!BOARD_ENABLED && group === "board") return "board";
   if (!PAD_ENABLED && group === "pad") return "pad";
   if (!SHEET_ENABLED && group === "sheet") return "sheet";
-  if (!REQUESTS_ENABLED && group === "escalate") return "escalate";
   if (!ARTIFACTS_ENABLED && group === "artifact") return "artifact";
   return undefined;
 };

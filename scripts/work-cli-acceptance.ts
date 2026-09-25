@@ -38,6 +38,7 @@ import {
 } from "../src/main/junto/work/control";
 import { WorkLive, WorkService } from "../src/main/junto/work/service";
 import { CrewRepositoryLive } from "../src/main/junto/work/crew-repository";
+import { AgentSignalRepositoryLive } from "../src/main/junto/signals/repository";
 import { makeContentServiceLive } from "../src/main/junto/content/service";
 import { makeInstallOpsLive } from "../src/main/junto/install-ops/engine";
 import {
@@ -461,6 +462,7 @@ export const runWorkCliAcceptance = async () => {
     Layer.mergeAll(
       WorkRepositoryLive,
       CrewRepositoryLive,
+      AgentSignalRepositoryLive,
       StationRepositoryLive,
       StationFleetTargetRepositoryLive,
       SettingsLive,
@@ -609,42 +611,30 @@ export const runWorkCliAcceptance = async () => {
     );
     log(`tasks update batch exit=${batch.code}`, batch.stdout || batch.stderr);
 
-    const req = await runCli(
+    // Raising a hand needs no edge: blocked, then read it back, then withdraw.
+    const raised = await runCli(
       processPlane,
-      [
-        "escalate",
-        JSON.stringify({
-          target: REQS,
-          brief: "approve ship?",
-          reason: "Confirm the acceptance artifact can ship",
-          metadata: { from: "acceptance" },
-        }),
-      ],
+      ["blocked", "Approve the acceptance artifact to ship?", "--detail", "Acceptance run is otherwise green."],
       env,
       outside,
     );
-    log("escalate", req.stdout || req.stderr);
-
-    // Resolve request via WorkService (UI path analogue) so block would clear.
-    const reqBody = JSON.parse(req.stdout || "{}");
-    const createdId = reqBody?.ok === true ? reqBody.data?.request?.id : undefined;
-    const requestOk = req.code === 0 && typeof createdId === "string" && reqBody.data?.blocked === true;
-    let requestResolvedOk = false;
-    if (createdId) {
-      const resolved = await runtime.runPromise(
-        Effect.gen(function* () {
-          const work = yield* WorkService;
-          return yield* work.workRequestResolve(
-            CANVAS,
-            REQS,
-            createdId,
-            "approved",
-            "completed",
-          );
-        }),
-      );
-      requestResolvedOk = resolved.ok && resolved.disposition === "applied";
-      log("request resolve (service)", JSON.stringify(resolved));
+    log("blocked", raised.stdout || raised.stderr);
+    const raisedBody = JSON.parse(raised.stdout || "{}");
+    const signalId = raisedBody?.ok === true ? raisedBody.data?.signal?.signalId : undefined;
+    const signalOk =
+      raised.code === 0 &&
+      typeof signalId === "string" &&
+      raisedBody.data?.signal?.state === "open";
+    let signalClearedOk = false;
+    if (signalId) {
+      const listed = await runCli(processPlane, ["signal", "list"], env, outside);
+      log("signal list", listed.stdout || listed.stderr);
+      const cleared = await runCli(processPlane, ["signal", "clear", signalId], env, outside);
+      log("signal clear", cleared.stdout || cleared.stderr);
+      const clearedBody = JSON.parse(cleared.stdout || "{}");
+      signalClearedOk =
+        cleared.code === 0 &&
+        clearedBody.data?.signals?.[0]?.state === "withdrawn";
     }
 
     const art = await runCli(
@@ -742,8 +732,8 @@ export const runWorkCliAcceptance = async () => {
           doctor: doctorOk,
           claim: claimOk,
           batch_partial: batchOk,
-          request: requestOk,
-          request_resolve: requestResolvedOk,
+          signal: signalOk,
+          signal_clear: signalClearedOk,
           scope: scopeOk,
           artifact: artOk,
           auth: authOk,
@@ -754,7 +744,7 @@ export const runWorkCliAcceptance = async () => {
       ),
     );
 
-    if (!doctorOk || !claimOk || !batchOk || !requestOk || !requestResolvedOk || !scopeOk || !authOk || !artOk || tokMode !== 0o600) {
+    if (!doctorOk || !claimOk || !batchOk || !signalOk || !signalClearedOk || !scopeOk || !authOk || !artOk || tokMode !== 0o600) {
       throw new Error("work CLI acceptance verdict failed");
     }
   } catch (error) {

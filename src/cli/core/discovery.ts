@@ -42,7 +42,9 @@ import {
   MsgSentArgs,
   VerdictPostArgs,
   PreambleArgs,
-  RequestEscalateArgs,
+  SignalClearArgs,
+  SignalListArgs,
+  SignalRaiseArgs,
   RulingsArgs,
   TasksCheckCliArgs,
   TasksClaimArgs,
@@ -57,7 +59,7 @@ import { DEFAULT_BATCH_CONCURRENCY } from "./constants";
 import {
   FEW_SHOT_CLAIM,
   FEW_SHOT_COMPLETE_EVIDENCE,
-  FEW_SHOT_ESCALATE,
+  FEW_SHOT_BLOCKED,
 } from "../../shared/doctrine-few-shots";
 
 export type CommandCategory = "workflow" | "diagnostic" | "discovery";
@@ -459,14 +461,47 @@ export const preambleSchema: CommandSchemaContract = {
   input_modes: inputModes,
 };
 
-export const requestEscalateSchema: CommandSchemaContract = {
-  command_id: "request.escalate",
-  command: "escalate",
-  schema_id: "request.escalate.input/v1",
-  description:
-    "Escalate to the operator: create a request, block this seat, return a stop directive. Subsequent work ops return Blocked until the request is answered.",
-  schema: RequestEscalateArgs,
-  input_modes: inputModes,
+const signalInputModes = ["sentence", "inline", "file", "stdin"] as const;
+
+const signalRaiseSchema = (
+  kind: "escalate" | "blocked" | "feedback",
+  description: string,
+): CommandSchemaContract => ({
+  command_id: `signal.${kind}`,
+  command: kind,
+  schema_id: `signal.${kind}.input/v1`,
+  description,
+  schema: SignalRaiseArgs,
+  input_modes: signalInputModes,
+});
+
+export const signalEscalateSchema = signalRaiseSchema(
+  "escalate",
+  "Needs the operator's attention; you keep working. Input is one sentence (or {\"text\",\"detail\"}); --detail adds markdown. kind is set by the command.",
+);
+export const signalBlockedSchema = signalRaiseSchema(
+  "blocked",
+  "Work is entirely blocked on the operator; stop and wait. The answer arrives as operator mail.",
+);
+export const signalFeedbackSchema = signalRaiseSchema(
+  "feedback",
+  "Not blocked: the work is ready for the operator to review.",
+);
+
+export const signalListSchema: CommandSchemaContract = {
+  command_id: "signal.list",
+  command: "signal list",
+  schema_id: "signal.list.input/v1",
+  description: "This seat's signals, open first, with the operator's answers.",
+  schema: SignalListArgs,
+};
+
+export const signalClearSchema: CommandSchemaContract = {
+  command_id: "signal.clear",
+  command: "signal clear",
+  schema_id: "signal.clear.input/v1",
+  description: "Withdraw one open signal of this seat by id, or all of them when no id is given.",
+  schema: SignalClearArgs,
 };
 
 export const artifactPublishSchema: CommandSchemaContract = {
@@ -700,7 +735,11 @@ const declaredSchemas: ReadonlyArray<CommandSchemaContract> = [
   seatWaitSchema,
   seatReadSchema,
   preambleSchema,
-  requestEscalateSchema,
+  signalEscalateSchema,
+  signalBlockedSchema,
+  signalFeedbackSchema,
+  signalListSchema,
+  signalClearSchema,
   artifactPublishSchema,
   contentPathSchema,
   contentStatSchema,
@@ -1071,17 +1110,44 @@ const declaredExamples: ReadonlyArray<CommandExample> = [
     ],
   },
   {
-    command_id: "request.escalate",
-    command: "escalate",
-    name: "block until answer",
-    description:
-      "File a request and block this seat. Server returns stop_directive; further work ops return Blocked.",
+    command_id: "signal.blocked",
+    command: "blocked",
+    name: "blocked on the operator",
+    description: "Stop and wait: the operator's answer arrives as operator mail.",
     input: {
-      target: "req1",
-      brief: "need API key for staging",
-      reason: "cannot continue without operator secret",
+      kind: "blocked",
+      text: FEW_SHOT_BLOCKED.args[1],
+      detail: FEW_SHOT_BLOCKED.args[3],
     },
-    args: FEW_SHOT_ESCALATE.args,
+    args: FEW_SHOT_BLOCKED.args,
+  },
+  {
+    command_id: "signal.escalate",
+    command: "escalate",
+    name: "needs attention, still working",
+    input: { kind: "escalate", text: "The migration touches billing tables; please confirm before I ship." },
+    args: ["escalate", "The migration touches billing tables; please confirm before I ship."],
+  },
+  {
+    command_id: "signal.feedback",
+    command: "feedback",
+    name: "ready for review",
+    input: { kind: "feedback", text: "The onboarding redesign is up on the branch for review." },
+    args: ["feedback", "The onboarding redesign is up on the branch for review."],
+  },
+  {
+    command_id: "signal.list",
+    command: "signal list",
+    name: "read the operator's answers",
+    input: {},
+    args: ["signal", "list"],
+  },
+  {
+    command_id: "signal.clear",
+    command: "signal clear",
+    name: "withdraw a signal",
+    input: { signalId: "01J0000000000000000000000" },
+    args: ["signal", "clear", "01J0000000000000000000000"],
   },
   {
     command_id: "artifact.publish",
@@ -1577,13 +1643,44 @@ const declaredCapabilities: ReadonlyArray<CommandCapability> = [
     examples: allExamples.filter((e) => e.command_id === "preamble"),
   },
   {
-    command_id: "request.escalate",
+    command_id: "signal.escalate",
     command: "escalate",
     category: "workflow",
-    description:
-      "Escalate to operator: create request, block seat, return stop directive.",
-    schemas: [requestEscalateSchema],
-    examples: allExamples.filter((e) => e.command_id === "request.escalate"),
+    description: "Raise a hand: needs attention, work continues.",
+    schemas: [signalEscalateSchema],
+    examples: allExamples.filter((e) => e.command_id === "signal.escalate"),
+  },
+  {
+    command_id: "signal.blocked",
+    command: "blocked",
+    category: "workflow",
+    description: "Raise a hand: entirely blocked on the operator.",
+    schemas: [signalBlockedSchema],
+    examples: allExamples.filter((e) => e.command_id === "signal.blocked"),
+  },
+  {
+    command_id: "signal.feedback",
+    command: "feedback",
+    category: "workflow",
+    description: "Raise a hand: ready for the operator's review.",
+    schemas: [signalFeedbackSchema],
+    examples: allExamples.filter((e) => e.command_id === "signal.feedback"),
+  },
+  {
+    command_id: "signal.list",
+    command: "signal list",
+    category: "workflow",
+    description: "Read this seat's signals and the operator's answers.",
+    schemas: [signalListSchema],
+    examples: allExamples.filter((e) => e.command_id === "signal.list"),
+  },
+  {
+    command_id: "signal.clear",
+    command: "signal clear",
+    category: "workflow",
+    description: "Withdraw this seat's own open signal.",
+    schemas: [signalClearSchema],
+    examples: allExamples.filter((e) => e.command_id === "signal.clear"),
   },
   {
     command_id: "artifact.publish",

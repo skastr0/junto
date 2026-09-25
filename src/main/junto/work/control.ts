@@ -42,6 +42,12 @@ import {
   PREAMBLE_TTL_MS,
   type PreambleEvent,
 } from "@shared/preamble";
+import {
+  AGENT_SIGNAL_MAX_DETAIL_LENGTH,
+  AGENT_SIGNAL_MAX_TEXT_LENGTH,
+  normalizeSignalText,
+  type AgentSignal,
+} from "@shared/agent-signals";
 import type { ActorRef } from "@shared/work-protocol";
 import {
   makeAgentMessage,
@@ -83,7 +89,9 @@ import {
   TaskWaitArgs,
   PreambleArgs,
   RelayTriggerArgs,
-  RequestEscalateArgs,
+  SignalClearArgs,
+  SignalListArgs,
+  SignalRaiseArgs,
   RulingsArgs,
   TasksCheckArgs,
   TasksClaimArgs,
@@ -98,7 +106,6 @@ import {
   WorkOpName,
   decodeWorkRequest,
   encodeWorkFrame,
-  makeStopDirective,
   workErr,
   workOk,
   workControlDir,
@@ -125,10 +132,9 @@ import { messageDelivery } from "./message-delivery";
 import { readMailExtension } from "@shared/crew";
 import { manualSchedulerFire } from "../kernel/cycle";
 import {
-  liveSeatBlock,
-  markSeatBlocked,
-  stopDirectiveFromBlock,
-} from "./blocked-seat";
+  AgentSignalRepository,
+  type AgentSignalRepositoryError,
+} from "../signals/repository";
 import { PausePlane } from "../pause-plane";
 import { seatPaused } from "@shared/pause";
 import { RELAY_ENABLED, TASKS_ENABLED } from "@shared/features";
@@ -148,46 +154,16 @@ const MUTATING_OPS: ReadonlySet<string> = new Set([
   "msg.read",
   "msg.reply",
   "msg.react",
-  "request.escalate",
   "artifact.publish",
   "board.create_topic",
   "board.post",
   "board.mark_read",
   "pad.patch",
   "relay.trigger",
+  // Agent signals stay open while paused: raising a hand to the operator is
+  // not a factory act, and a paused seat may need to say it is stuck.
 ]);
 
-/**
- * Ops refused while the seat is escalate-blocked. Meta discovery
- * (ping/doctor/capabilities/onboard) stays open so agents can re-orient.
- * Board list/mark_read stay open so agents can clear attention while blocked.
- */
-const BLOCKED_ENFORCED_OPS: ReadonlySet<string> = new Set([
-  "tasks.list",
-  "tasks.claim",
-  "tasks.create",
-  "tasks.update",
-  "tasks.show",
-  "tasks.rules",
-  "tasks.check",
-  "content.path",
-  "content.stat",
-  "content.materialize",
-  "preamble",
-  "msg.list",
-  "msg.send",
-  "msg.prompt",
-  "verdict.post",
-  "msg.read",
-  "msg.reply",
-  "msg.react",
-  "request.escalate",
-  "artifact.publish",
-  "board.create_topic",
-  "board.post",
-  "pad.patch",
-  "relay.trigger",
-]);
 import {
   admitWorkTarget,
   connectedCapabilities,
@@ -724,6 +700,42 @@ const PREAMBLE_TOOL = Object.freeze({
   input: { text: "..." },
 });
 
+/** Universal on every seat: how a seat raises its hand to the operator. */
+const SIGNAL_TOOLS = Object.freeze([
+  Object.freeze({
+    id: "escalate",
+    command: "junto escalate",
+    description: "Needs the operator's attention; you keep working.",
+    input: { text: "...", detail: "optional markdown" },
+  }),
+  Object.freeze({
+    id: "blocked",
+    command: "junto blocked",
+    description: "Work is entirely blocked on the operator; stop and wait.",
+    input: { text: "...", detail: "optional markdown" },
+  }),
+  Object.freeze({
+    id: "feedback",
+    command: "junto feedback",
+    description: "Not blocked; the work is ready for the operator to review.",
+    input: { text: "...", detail: "optional markdown" },
+  }),
+  Object.freeze({
+    id: "signal",
+    command: "junto signal list | junto signal clear [id]",
+    description: "Read the operator's answers, or withdraw your own open signal.",
+  }),
+]);
+
+const SIGNAL_NEXT_STEP = {
+  blocked:
+    "stop and wait: the operator's answer arrives in this seat as operator mail; junto signal list shows it",
+  escalate:
+    "keep working: the operator's answer arrives in this seat as operator mail; junto signal list shows it",
+  feedback:
+    "keep going or wrap up: any review arrives as operator mail; junto signal clear withdraws this if it no longer applies",
+} as const;
+
 const OVERSEER_TOOL = Object.freeze({
   id: "overseer",
   command: "junto overseer skill",
@@ -920,29 +932,6 @@ const dispatchOp = (
       }
     }
 
-    // Escalate-blocked seat: refuse work ops with a stop directive so harnesses
-    // without hooks (e.g. Codex) still stop thrashing. Auto-clears when the
-    // open request leaves input-required / is removed.
-    if (BLOCKED_ENFORCED_OPS.has(op)) {
-      const block = liveSeatBlock(caller.canvasName, caller.nodeId, board);
-      if (block) {
-        const directive = stopDirectiveFromBlock(block);
-        return yield* Effect.fail<WorkErrorBody>({
-          type: "Blocked",
-          message: directive.message,
-          details: {
-            caller: caller.nodeId,
-            target: block.target,
-            requestId: block.requestId,
-            retryable: true,
-            next_step: directive.next_step,
-            hint: "stop — do not retry work ops until the operator answers",
-            stop_directive: directive,
-          },
-        });
-      }
-    }
-
     if (op === "capabilities") {
       const self = findNode(board, caller.nodeId)!;
       const connected = connectedCapabilities(board, caller.nodeId);
@@ -952,7 +941,9 @@ const dispatchOp = (
         harnesses: probeManagedHarnessInstalls(),
         // Additive: derived factory role of the process-bound seat.
         role: factoryRoleOfNode(self),
-        tools: overseer ? [PREAMBLE_TOOL, OVERSEER_TOOL] : [PREAMBLE_TOOL],
+        tools: overseer
+          ? [PREAMBLE_TOOL, ...SIGNAL_TOOLS, OVERSEER_TOOL]
+          : [PREAMBLE_TOOL, ...SIGNAL_TOOLS],
         overseer: { enabled: overseer, affectedByPause: false },
         protocol_version: WORK_PROTOCOL_VERSION,
         connected,
@@ -971,7 +962,9 @@ const dispatchOp = (
       const region = containingRegion(board, caller.nodeId);
       const connected = connectedCapabilities(board, caller.nodeId);
       const overseer = isManagedAgentNode(self) && self.ether.overseer === true;
-      const tools = overseer ? [PREAMBLE_TOOL, OVERSEER_TOOL] : [PREAMBLE_TOOL];
+      const tools = overseer
+        ? [PREAMBLE_TOOL, ...SIGNAL_TOOLS, OVERSEER_TOOL]
+        : [PREAMBLE_TOOL, ...SIGNAL_TOOLS];
       return {
         nodeRef: formatNodeRef({
           canvasName: caller.canvasName,
@@ -1794,55 +1787,82 @@ const dispatchOp = (
       };
     }
 
-    if (op === "request.escalate") {
-      const decoded = decodeArgs(RequestEscalateArgs, args);
+    if (op === "signal.raise" || op === "signal.clear" || op === "signal.list") {
+      const signalsOption = yield* Effect.serviceOption(AgentSignalRepository);
+      if (Option.isNone(signalsOption)) {
+        return yield* Effect.fail<WorkErrorBody>({
+          type: "RuntimeDown",
+          message: "agent signals are unavailable in this Junto runtime",
+          details: { retryable: false },
+        });
+      }
+      const signals = signalsOption.value;
+      const seat = { canvasName: caller.canvasName, nodeId: caller.nodeId };
+      const signalError = (error: AgentSignalRepositoryError): WorkErrorBody =>
+        error._tag === "AgentSignalNotFound"
+          ? {
+              type: "UnknownTarget",
+              message: error.message,
+              details: {
+                target: error.signalId,
+                retryable: false,
+                next_step: "run junto signal list to see this seat's open signals",
+              },
+            }
+          : {
+              type: "InternalError",
+              message: error.message,
+              details: { retryable: true },
+            };
+
+      if (op === "signal.list") {
+        const decoded = decodeArgs(SignalListArgs, args ?? {});
+        if (Result.isFailure(decoded)) return yield* Effect.fail(decoded.failure);
+        const listed = yield* signals.listSeat(seat).pipe(Effect.mapError(signalError));
+        return {
+          signals: listed,
+          open: listed.filter((signal) => signal.state === "open").length,
+        };
+      }
+
+      if (op === "signal.clear") {
+        const decoded = decodeArgs(SignalClearArgs, args ?? {});
+        if (Result.isFailure(decoded)) return yield* Effect.fail(decoded.failure);
+        const withdrawn = yield* signals
+          .withdraw(seat, decoded.success.signalId)
+          .pipe(Effect.mapError(signalError));
+        return { signals: withdrawn, disposition: "applied" as const };
+      }
+
+      const decoded = decodeArgs(SignalRaiseArgs, args);
       if (Result.isFailure(decoded)) return yield* Effect.fail(decoded.failure);
-      const gate = requireTarget(
-        board,
-        caller.nodeId,
-        decoded.success.target,
-        op,
-      );
-      if ("type" in gate) return yield* Effect.fail(gate);
-      const raisedBy = resolveProcessBoundActorRef(read.actorRefs, caller);
-      if (Result.isFailure(raisedBy)) return yield* Effect.fail(raisedBy.failure);
-      // File the durable request, then mark the calling seat blocked and
-      // return a stop directive. Hold-until-answer is TODO.
-      const result = yield* work.workRequestCreate(
-        caller.canvasName,
-        decoded.success.target,
-        decoded.success.brief,
-        decoded.success.metadata,
-        raisedBy.success,
-        decoded.success.reason,
-      );
-      const mapped = fromWorkResult(result);
-      if (Result.isFailure(mapped)) return yield* Effect.fail(mapped.failure);
-      const task = mapped.success.value as {
-        readonly id: string;
-        readonly reason?: string;
-      };
-      const brief = decoded.success.brief.trim();
-      const block = markSeatBlocked({
-        canvasName: caller.canvasName,
-        nodeId: caller.nodeId,
-        requestId: task.id,
-        target: decoded.success.target,
-        brief,
-      });
-      const stop_directive = makeStopDirective({
-        requestId: block.requestId,
-        target: block.target,
-        brief: block.brief,
-      });
+      const text = normalizeSignalText(decoded.success.text);
+      if (!text || text.length > AGENT_SIGNAL_MAX_TEXT_LENGTH) {
+        return yield* Effect.fail<WorkErrorBody>({
+          type: "InputError",
+          message: `text must be one sentence of 1 to ${AGENT_SIGNAL_MAX_TEXT_LENGTH} characters`,
+          details: {
+            path: "args.text",
+            retryable: false,
+            hint: "put the longer explanation in --detail",
+          },
+        });
+      }
+      const detail = decoded.success.detail?.trim() || undefined;
+      if (detail !== undefined && detail.length > AGENT_SIGNAL_MAX_DETAIL_LENGTH) {
+        return yield* Effect.fail<WorkErrorBody>({
+          type: "InputError",
+          message: `detail must be at most ${AGENT_SIGNAL_MAX_DETAIL_LENGTH} characters`,
+          details: { path: "args.detail", retryable: false },
+        });
+      }
+      const signal = yield* signals
+        .raise({ ...seat, kind: decoded.success.kind, text, ...(detail ? { detail } : {}) })
+        .pipe(Effect.mapError(signalError));
       return {
-        request: mapped.success.value,
-        disposition: mapped.success.disposition,
-        blocked: true,
-        stop_directive,
-        // Hold-until-answer not implemented: agent must stop and resume later.
-        hold: null,
-        note: "you are blocked; stop work until the operator answers this request",
+        signal,
+        disposition: "applied" as const,
+        next_step: SIGNAL_NEXT_STEP[signal.kind],
       };
     }
 
@@ -2243,6 +2263,8 @@ export interface WorkControlServerOptions {
   readonly authoringGate?: MainAuthoringGate;
   /** Main-process delivery for the seat-local, ephemeral preamble surface. */
   readonly onPreamble?: (event: PreambleEvent) => void;
+  /** Main-process delivery of a seat's raised or withdrawn agent signal. */
+  readonly onAgentSignal?: (signal: AgentSignal) => void;
   /** Called only after live process-bind and seat delegation admission. */
   readonly onOverseer?: (
     request: OverseerRequest,
@@ -3021,6 +3043,18 @@ export const startWorkControlServer = async (
               text: value.text,
               expiresAt: value.expiresAt,
             });
+          }
+        }
+        if (
+          (req.op === "signal.raise" || req.op === "signal.clear") &&
+          options.onAgentSignal
+        ) {
+          const value = outcome.success as {
+            readonly signal?: AgentSignal;
+            readonly signals?: ReadonlyArray<AgentSignal>;
+          };
+          for (const signal of value.signals ?? (value.signal ? [value.signal] : [])) {
+            options.onAgentSignal(signal);
           }
         }
         respond(socket, workOk(req.op, outcome.success, req.id));
