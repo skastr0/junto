@@ -15,6 +15,8 @@ export { Combobox } from "./Combobox";
 export { OverlayHeader } from "./OverlayHeader";
 export { ToolbarPill } from "./ToolbarPill";
 export { Kbd } from "./Kbd";
+export { SidebarSection } from "./SidebarSection";
+export { Popover } from "./Popover";
 export {
   HelpMap,
   HelpMapGroup,
