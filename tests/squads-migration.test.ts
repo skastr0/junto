@@ -113,9 +113,9 @@ describe("state migration 3 -> 4 (squads)", () => {
         `INSERT INTO squads(squad_id, name, body_json, created_at, updated_at)
          VALUES (?, ?, ?, 1, 1)`,
       );
-      insert.run("q1", "Review crew", '{"seats":[]}');
+      insert.run("q1", "Review squad", '{"seats":[]}');
       // Names are unique regardless of case.
-      expect(() => insert.run("q2", "review CREW", '{"seats":[]}')).toThrow();
+      expect(() => insert.run("q2", "review SQUAD", '{"seats":[]}')).toThrow();
       // The body must be JSON.
       expect(() => insert.run("q3", "Other", "not json")).toThrow();
       // A blank name is refused.
