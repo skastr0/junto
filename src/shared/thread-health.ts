@@ -51,7 +51,7 @@ export const THREAD_HEALTH_LABEL: Readonly<Record<ThreadHealthValue, string>> = 
   thrashing: "thrashing",
   confused: "confused",
   overwhelmed: "overwhelmed",
-  waiting_on_operator: "looks like it wants you",
+  waiting_on_operator: "wants your input",
   steady: "steady",
   going_well: "going well",
   succeeding: "succeeding",

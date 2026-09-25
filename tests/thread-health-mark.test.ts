@@ -4,6 +4,7 @@ import {
   THREAD_HEALTH_STATUS_TONE,
   threadHealthFreshness,
   threadHealthMark,
+  threadHealthSectionModel,
 } from "../src/renderer/lib/thread-health";
 
 const T0 = 1_700_000_000_000;
@@ -78,5 +79,46 @@ describe("threadHealthMark", () => {
 
   it("never paints health crimson", () => {
     expect(Object.values(THREAD_HEALTH_STATUS_TONE)).not.toContain("crimson");
+  });
+});
+
+describe("threadHealthSectionModel", () => {
+  it("shows the headline, every other accepted reading, and where it came from", () => {
+    const mixed: ThreadHealthReading = {
+      ...reading("confused"),
+      confidence: 0.914,
+      provenance: { ...reading("confused").provenance, model: "jev-1.13.0" },
+      signals: [
+        { value: "confused", probability: 0.914, questionId: "health.confused" },
+        { value: "going_well", probability: 0.93, questionId: "health.going_well" },
+      ],
+    };
+    const model = threadHealthSectionModel({
+      reading: mixed,
+      freshness: "current",
+      label: "AI reads: confused",
+      tone: "trouble",
+      observedAgo: "2m ago",
+    });
+    expect(model).toEqual({
+      tone: "amber",
+      headline: "confused",
+      confidence: "91%",
+      alsoRead: [{ label: "going well", tone: "green", confidence: "93%" }],
+      meta: undefined,
+      provenance: "Jev's reading of the screen, observed 2m ago by jev-1.13.0. Not the agent's own claim.",
+    });
+  });
+
+  it("puts the age in the header once the reading is stale", () => {
+    const model = threadHealthSectionModel({
+      reading: reading("steady"),
+      freshness: "stale",
+      label: "AI reads: steady, last observed 9m ago",
+      tone: "steady",
+      observedAgo: "9m ago",
+    });
+    expect(model.meta).toBe("last observed 9m ago");
+    expect(model.tone).toBe("steel");
   });
 });

@@ -69,8 +69,11 @@ export const threadHealthLabel = (
     : base;
 };
 
+/** The three hues health may use; a subset of both the StatusDot and Chip tones. */
+export type ThreadHealthHue = Extract<StatusTone, "amber" | "steel" | "green">;
+
 /** Glance colour per tone. Never crimson: that hue belongs to declared blockers. */
-export const THREAD_HEALTH_STATUS_TONE: Readonly<Record<ThreadHealthTone, StatusTone>> = {
+export const THREAD_HEALTH_STATUS_TONE: Readonly<Record<ThreadHealthTone, ThreadHealthHue>> = {
   trouble: "amber",
   waiting: "amber",
   steady: "steel",
@@ -119,6 +122,8 @@ export type ThreadHealthView = {
   readonly freshness: ThreadHealthFreshness;
   readonly label: string;
   readonly tone: ThreadHealthTone;
+  /** "just now", "2m ago": how long since the evidence was observed. */
+  readonly observedAgo: string;
 };
 
 export const threadHealthView = (
@@ -139,6 +144,44 @@ export const threadHealthView = (
     freshness,
     label: threadHealthLabel(reading, freshness, now),
     tone: THREAD_HEALTH_TONE[reading.value],
+    observedAgo: formatSeatAwarenessAge(now - reading.observedAt),
+  };
+};
+
+/** A probability as the whole percent the sidebar prints. */
+export const healthPercent = (probability: number): string =>
+  `${Math.round(Math.min(1, Math.max(0, probability)) * 100)}%`;
+
+export type ThreadHealthSectionModel = {
+  readonly tone: ThreadHealthHue;
+  readonly headline: string;
+  readonly confidence: string;
+  /** Every other accepted property, so a mixed thread shows as mixed. */
+  readonly alsoRead: ReadonlyArray<{ readonly label: string; readonly tone: ThreadHealthHue; readonly confidence: string }>;
+  /** Section header meta; set only when the reading is no longer current. */
+  readonly meta: string | undefined;
+  readonly provenance: string;
+};
+
+export const threadHealthSectionModel = (view: ThreadHealthView): ThreadHealthSectionModel => {
+  const { reading } = view;
+  const model = reading.provenance.model;
+  return {
+    tone: THREAD_HEALTH_STATUS_TONE[view.tone],
+    headline: THREAD_HEALTH_LABEL[reading.value],
+    confidence: healthPercent(reading.confidence),
+    alsoRead: reading.signals
+      .filter((signal) => signal.value !== reading.value)
+      .map((signal) => ({
+        label: THREAD_HEALTH_LABEL[signal.value],
+        tone: THREAD_HEALTH_STATUS_TONE[THREAD_HEALTH_TONE[signal.value]],
+        confidence: healthPercent(signal.probability),
+      })),
+    meta: view.freshness === "stale" ? `last observed ${view.observedAgo}` : undefined,
+    provenance:
+      `Jev's reading of the screen, observed ${view.observedAgo}` +
+      (model !== undefined ? ` by ${model}` : "") +
+      ". Not the agent's own claim.",
   };
 };
 
