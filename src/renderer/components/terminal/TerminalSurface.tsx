@@ -2180,8 +2180,12 @@ export function TerminalSurface({
             aria-label="Agent context pane"
             data-testid="actor-terminal-right-pane"
           >
-            {!pinned ? <ActorLedgerPane node={node} visible={visible} /> : null}
-            <ActorEdgesGlance node={node} zone={pinned ? "pinned" : "focus"} />
+            {/* Focus: one sectioned sidebar (connections included). Pinned: connections rail only. */}
+            {pinned ? (
+              <ActorEdgesGlance node={node} zone="pinned" />
+            ) : (
+              <ActorLedgerPane node={node} visible={visible} />
+            )}
           </aside>
         ) : null}
       </div>

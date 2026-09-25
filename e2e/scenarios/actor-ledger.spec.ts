@@ -72,14 +72,13 @@ test("ledger is a compact resizable section in the right pane and stays out of t
     await expect(front).toBeVisible({ timeout: 20_000 });
     await expect(front.locator("header").first()).toContainText("Alpha hub");
 
-    // Ledger above connections on the right — one modal plate.
+    // One sectioned sidebar on the right: mail, then connections.
     const ledger = front.getByTestId("actor-ledger");
     const rightPane = front.getByTestId("actor-terminal-right-pane");
     await expect(ledger).toBeVisible({ timeout: 10_000 });
     await expect(front.getByTestId("actor-edges-glance")).toBeVisible();
-    await expect(ledger.locator(".actor-ledger__section-title")).toHaveText(
-      "mail",
-    );
+    const mail = ledger.getByTestId("actor-ledger-mail");
+    await expect(mail.locator(".sidebar-section__title")).toHaveText("mail");
     // Fresh actor: kernel mailbox is empty.
     await expect(ledger.locator(".actor-ledger__empty")).toHaveText(
       "No mail yet",
@@ -87,24 +86,21 @@ test("ledger is a compact resizable section in the right pane and stays out of t
 
     const geometry = await rightPane.evaluate((pane) => {
       const ledger = pane.querySelector<HTMLElement>(".actor-ledger")!;
-      const scroll = pane.querySelector<HTMLElement>(".actor-ledger__scroll")!;
       const stage = pane.parentElement!.querySelector<HTMLElement>(
         ".native-terminal-surface__stage",
       )!;
       const paneBox = pane.getBoundingClientRect();
       const ledgerBox = ledger.getBoundingClientRect();
       const stageBox = stage.getBoundingClientRect();
-      const ledgerStyle = getComputedStyle(ledger);
       return {
         ledgerToStage: ledgerBox.left - stageBox.right,
         heightRatio: ledgerBox.height / paneBox.height,
-        resize: ledgerStyle.resize,
-        scrollOverflow: getComputedStyle(scroll).overflowY,
+        scrollOverflow: getComputedStyle(ledger).overflowY,
       };
     });
     expect(geometry.ledgerToStage).toBeGreaterThanOrEqual(-1);
-    expect(geometry.heightRatio).toBeLessThan(0.4);
-    expect(geometry.resize).toBe("vertical");
+    // The sidebar fills the pane and owns the scroll; no fixed empty block.
+    expect(geometry.heightRatio).toBeGreaterThan(0.9);
     expect(geometry.scrollOverflow).toBe("auto");
 
     await page.screenshot({
@@ -112,13 +108,14 @@ test("ledger is a compact resizable section in the right pane and stays out of t
       fullPage: false,
     });
 
-    // Collapse to the compact header; expand restores the mail section.
-    await ledger.getByRole("button", { name: "Collapse ledger pane" }).click();
-    await expect(ledger).toHaveCSS("height", "36px");
-    await expect(ledger.locator(".actor-ledger__section-title")).toHaveCount(0);
-    await ledger.getByRole("button", { name: "Expand ledger" }).click();
-    await expect(ledger.locator(".actor-ledger__section-title")).toHaveText(
-      "mail",
+    // A section collapses to its header; expanding restores its body.
+    const mailHead = mail.locator(".sidebar-section__head");
+    await mailHead.click();
+    await expect(mailHead).toHaveAttribute("aria-expanded", "false");
+    await expect(mail.locator(".actor-ledger__empty")).toHaveCount(0);
+    await mailHead.click();
+    await expect(mail.locator(".actor-ledger__empty")).toHaveText(
+      "No mail yet",
     );
 
     // Pinned dock keeps only the connections pane.

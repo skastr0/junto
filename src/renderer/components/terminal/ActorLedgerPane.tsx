@@ -1,10 +1,12 @@
 /**
- * Compact top section of an actor terminal's right pane — the seat's standing
- * with the work kernel, read from the canvas doc projection (no IPC reads;
- * operator actions go through the work IPC mutations).
- *
- * Sits above connections inside the same right-side instrument pane. Focus
- * modal only by operator ruling; the pinned dock keeps just connections.
+ * The actor terminal's right sidebar in the focus modal: one scrolling column
+ * of collapsible sections. Signals lead while any is open; then the seat's
+ * standing with the work kernel (task, escalations, raised tasks, artifacts,
+ * board), mail, connections, and recent activity. Work rows project from the
+ * canvas doc (no IPC reads; operator actions go through the work IPC
+ * mutations). Sections size to their content, so the column never holds a
+ * fixed empty block. Focus modal only by operator ruling; the pinned dock
+ * keeps just connections.
  *
  * Canvas binding: terminal surfaces are node-keyed and survive canvas
  * navigation, but the ledger projects from — and mutates — the ambient
@@ -13,7 +15,6 @@
  */
 import { useEffect, useMemo, useState } from "react";
 import { use$ } from "@legendapp/state/react";
-import { ChevronDown, ChevronUp } from "lucide-react";
 import type { CanvasNode } from "@shared/canvas";
 import type { WorkOpResult } from "@shared/ipc";
 import type { TaskState } from "@shared/work-model";
@@ -47,14 +48,13 @@ import {
 import { runCanvasAuthoringOperation } from "../../lib/canvas-editor-flush";
 import { applyWorkCanvasWrite } from "../../lib/mutations";
 import { state$ } from "../../lib/state";
-import {
-  actorRailsOpen,
-  setActorRailOpen,
-  terminal$,
-} from "../../lib/terminal-state";
+import { terminal$ } from "../../lib/terminal-state";
+import { useSeatSignals } from "../../lib/agent-signals-view";
 import { getJuntoApi } from "../../lib/junto-api";
 import { modKeyGlyph } from "../../lib/platform";
-import { Button, Chip, Eyebrow, IconButton, type ChipTone } from "../ui";
+import { Button, Chip, SidebarSection, type ChipTone } from "../ui";
+import { ActorConnectionsSection } from "./ActorEdgesGlance";
+import { SeatSignalsSection } from "./SeatSignalsSection";
 import { Textarea } from "../ui/Field";
 
 const taskStateTone = (state: TaskState): ChipTone => {
@@ -329,12 +329,6 @@ export function ActorLedgerPane({
   const actorRefs = use$(state$.actorRefs);
   const canvas = use$(state$.canvasName);
   const boundCanvas = use$(terminal$.canvasByNodeId[node.id]);
-  // Shared, not pane-local: the focus panel budgets this rail's width so the
-  // xterm keeps its columns whichever way the rail sits.
-  const railsOpen = use$(terminal$.railsOpenByNodeId);
-  const expanded = actorRailsOpen(node.id, railsOpen).ledger;
-  const setExpanded = (open: boolean): void =>
-    setActorRailOpen(node.id, "ledger", open);
   const [openKey, setOpenKey] = useState<string | null>(null);
   const [pendingKeys, setPendingKeys] = useState<ReadonlySet<string>>(
     () => new Set(),
@@ -401,20 +395,13 @@ export function ActorLedgerPane({
     [doc, liveNode, live],
   );
   const counts = useMemo(() => mailboxCounts(rows), [rows]);
-  // Operator attention only: unread mail is the SEAT's backlog, not yours.
-  // Attention = input-required + auth-required (anything waiting on you);
-  // answer eligibility stays narrow (needsInput) and is not a count here.
-  const needsYou =
-    (claim?.needsInput ? 1 : 0) +
-    requests.filter((row) => row.attention).length +
-    raisedTasks.filter((row) => row.awaitingApproval).length;
 
   // Recent-ops receipt feed: identity-backed CLI activity from the kernel
   // (coverage excludes unattributed ops - see work-recent-ops.ts). IPC read,
   // fetched only while actually on screen; 30s refresh.
   const [opsFeed, setOpsFeed] = useState<WorkSeatRecentOpsFeed | null>(null);
   useEffect(() => {
-    if (!visible || !expanded || !isActor || !canvasMatches) return;
+    if (!visible || !isActor || !canvasMatches) return;
     const api = getJuntoApi();
     if (!api?.workSeatRecentOps) return;
     let stale = false;
@@ -434,16 +421,19 @@ export function ActorLedgerPane({
       stale = true;
       window.clearInterval(timer);
     };
-  }, [visible, expanded, isActor, canvasMatches, canvas, node.id]);
+  }, [visible, isActor, canvasMatches, canvas, node.id]);
+
+  const signals = useSeatSignals(canvas, node.id);
 
   // Ages are display-only; refresh once a minute while actually on screen.
   const [nowMs, setNowMs] = useState(() => Date.now());
+  const aged = rows.length + signals.signals.length;
   useEffect(() => {
-    if (!visible || !expanded || rows.length === 0) return;
+    if (!visible || aged === 0) return;
     setNowMs(Date.now());
     const timer = window.setInterval(() => setNowMs(Date.now()), 60_000);
     return () => window.clearInterval(timer);
-  }, [visible, expanded, rows.length]);
+  }, [visible, aged]);
 
   // Settled mail decays out after the window; unread stays at any age. The
   // minute tick above is what carries a row across the threshold.
@@ -480,332 +470,270 @@ export function ActorLedgerPane({
     setOpenKey((current) => (current === key ? null : key));
 
   const listId = `actor-ledger-mail-${node.id}`;
+  const signalsSection = signals.signals.length > 0 ? (
+    <SeatSignalsSection
+      nodeId={node.id}
+      summary={signals}
+      nowMs={nowMs}
+      respond={signals.respond}
+      dismiss={signals.dismiss}
+    />
+  ) : null;
+  const lastOpAge = opsFeed?.lastOpAt
+    ? mailAgeLabel(nowMs, Date.parse(opsFeed.lastOpAt) || undefined)
+    : undefined;
 
   return (
     <aside
-      className={[
-        "actor-ledger",
-        expanded ? "actor-ledger--expanded" : "actor-ledger--collapsed",
-      ].join(" ")}
+      className="actor-ledger"
       data-testid="actor-ledger"
       aria-label="Agent ledger"
     >
-      <header className="actor-ledger__chrome">
-        {expanded ? (
-          <>
-            <Eyebrow tone="steel" size="xs">
-              ledger
-            </Eyebrow>
-            {needsYou > 0 ? (
-              <span
-                className="actor-ledger__count"
-                title={`${needsYou} waiting on you`}
-              >
-                {needsYou}
-              </span>
-            ) : null}
-            <IconButton
-              size="sm"
-              className="actor-ledger__toggle"
-              title="Collapse ledger"
-              aria-label="Collapse ledger pane"
-              aria-expanded
-              aria-controls={listId}
-              onClick={() => setExpanded(false)}
-            >
-            <ChevronUp size={15} strokeWidth={1.75} />
-            </IconButton>
-          </>
-        ) : (
-          <IconButton
-            size="sm"
-            className="actor-ledger__toggle"
-            title={`Expand ledger${needsYou > 0 ? ` (${needsYou} waiting on you)` : ""}`}
-            aria-label={
-              needsYou > 0
-                ? `Expand ledger, ${needsYou} waiting on you`
-                : "Expand ledger"
-            }
-            aria-expanded={false}
-            aria-controls={listId}
-            onClick={() => setExpanded(true)}
+      {/* Thread health slot: thread-health supplies the seat's AI reading here. */}
+      {error ? (
+        <div className="actor-ledger__error" role="alert">
+          {error}
+          <button type="button" onClick={() => setError("")}>
+            Dismiss
+          </button>
+        </div>
+      ) : null}
+      {signals.openCount > 0 ? signalsSection : null}
+      {claim ? (
+        <SidebarSection
+          storageKey="seat-sidebar:task"
+          title="task"
+          count={claim.needsInput ? 1 : undefined}
+          countTone="amber"
+        >
+          <div
+            className="actor-ledger__item-row actor-ledger__item-row--static"
+            data-testid="actor-ledger-claim"
+            title={`Task ${claim.taskId} on ${claim.sinkNodeId}`}
           >
-            <ChevronDown size={15} strokeWidth={1.75} />
-          </IconButton>
-        )}
-      </header>
-      {expanded ? (
-        <div className="actor-ledger__scroll">
-          {error ? (
-            <div className="actor-ledger__error" role="alert">
-              {error}
-              <button type="button" onClick={() => setError("")}>
-                Dismiss
-              </button>
-            </div>
-          ) : null}
-          {claim ? (
-            <section className="actor-ledger__section" aria-label="Claimed task">
-              <header className="actor-ledger__section-head">
-                <span className="actor-ledger__section-title">task</span>
-              </header>
-              <div
-                className="actor-ledger__item-row actor-ledger__item-row--static"
-                data-testid="actor-ledger-claim"
-                title={`Task ${claim.taskId} on ${claim.sinkNodeId}`}
-              >
-                <span className="actor-ledger__item-head">
-                  <Chip tone={taskStateTone(claim.state)}>
-                    {claim.needsInput ? "needs you" : claim.state}
-                  </Chip>
-                </span>
-                <span className="actor-ledger__item-title">{claim.title}</span>
-              </div>
-            </section>
-          ) : null}
-          {requests.length > 0 ? (
-            <section className="actor-ledger__section" aria-label="Escalations">
-              <header className="actor-ledger__section-head">
-                <span className="actor-ledger__section-title">escalations</span>
-                <span className="actor-ledger__section-meta">
-                  {requests.length}
-                </span>
-              </header>
-              <ul className="actor-ledger__list">
-                {requests.map((row) => {
-                  const key = `request:${row.sinkNodeId}:${row.requestId}`;
-                  return (
-                    <RequestRowItem
-                      key={key}
-                      row={row}
-                      pending={pendingKeys.has(key)}
-                      open={openKey === key}
-                      onToggle={() => toggleOpen(key)}
-                      onResolve={(response, disposition) =>
-                        void runWork(key, () =>
-                          api!.workRequestResolve(
-                            canvas,
-                            row.sinkNodeId,
-                            row.requestId,
-                            response,
-                            disposition,
-                          ),
-                        )
-                      }
-                    />
-                  );
-                })}
-              </ul>
-            </section>
-          ) : null}
-          {raisedTasks.length > 0 ? (
-            <section className="actor-ledger__section" aria-label="Awaiting approval">
-              <header className="actor-ledger__section-head">
-                <span className="actor-ledger__section-title">raised tasks</span>
-                <span className="actor-ledger__section-meta">
-                  {raisedTasks.length}
-                </span>
-              </header>
-              <ul className="actor-ledger__list">
-                {raisedTasks.map((row) => {
-                  const key = `raised:${row.sinkNodeId}:${row.taskId}`;
-                  return (
-                    <RaisedTaskRowItem
-                      key={key}
-                      row={row}
-                      pending={pendingKeys.has(key)}
-                      open={openKey === key}
-                      onToggle={() => toggleOpen(key)}
-                      onApprove={() => {
-                        if (!api?.workTaskPromote) return;
-                        void runWork(key, () =>
-                          api!.workTaskPromote!(
-                            canvas,
-                            row.sinkNodeId,
-                            row.taskId,
-                            undefined,
-                          ),
-                        );
-                      }}
-                    />
-                  );
-                })}
-              </ul>
-            </section>
-          ) : null}
-          {artifacts.length > 0 ? (
-            <section className="actor-ledger__section" aria-label="Artifacts">
-              <header className="actor-ledger__section-head">
-                <span className="actor-ledger__section-title">artifacts</span>
-                <span className="actor-ledger__section-meta">
-                  {artifacts.length}
-                </span>
-              </header>
-              <ul className="actor-ledger__list">
-                {artifacts.map((row) => {
-                  const key = `artifact:${row.sinkNodeId}:${row.artifactId}`;
-                  return (
-                    <li
-                      key={key}
-                      className="actor-ledger__item"
-                      data-testid="actor-ledger-artifact-row"
-                      data-artifact-id={row.artifactId}
-                    >
-                      <button
-                        type="button"
-                        className="actor-ledger__item-row"
-                        aria-expanded={openKey === key}
-                        title={`${row.name} - ${row.partCount} part${row.partCount === 1 ? "" : "s"} on ${row.sinkNodeId}`}
-                        onClick={() => toggleOpen(key)}
-                      >
-                        <span className="actor-ledger__item-title">{row.name}</span>
-                        <span className="actor-ledger__item-detail">
-                          {row.partCount} part{row.partCount === 1 ? "" : "s"}
-                        </span>
-                      </button>
-                      {openKey === key ? (
-                        <div className="actor-ledger__mail-body">
-                          {row.textPreview
-                            ? row.textPreview.length > 600
-                              ? `${row.textPreview.slice(0, 600)}…`
-                              : row.textPreview
-                            : "No text parts — open the artifact library on the sink to view."}
-                        </div>
-                      ) : null}
-                    </li>
-                  );
-                })}
-              </ul>
-            </section>
-          ) : null}
-          {boardTopics.length > 0 ? (
-            <section className="actor-ledger__section" aria-label="Board">
-              <header className="actor-ledger__section-head">
-                <span className="actor-ledger__section-title">board</span>
-                <span className="actor-ledger__section-meta">
-                  {[
-                    `${boardTopics.length}`,
-                    boardUnread > 0 ? `${boardUnread} unread` : null,
-                  ]
-                    .filter(Boolean)
-                    .join(" - ")}
-                </span>
-              </header>
-              <ul className="actor-ledger__list">
-                {boardTopics.map((topic) => (
-                  <li
-                    key={`board:${topic.sinkNodeId}:${topic.topicId}`}
-                    className="actor-ledger__item"
-                    data-testid="actor-ledger-board-row"
-                    data-topic-id={topic.topicId}
+            <span className="actor-ledger__item-head">
+              <Chip tone={taskStateTone(claim.state)}>
+                {claim.needsInput ? "needs you" : claim.state}
+              </Chip>
+            </span>
+            <span className="actor-ledger__item-title">{claim.title}</span>
+          </div>
+        </SidebarSection>
+      ) : null}
+      {requests.length > 0 ? (
+        <SidebarSection
+          storageKey="seat-sidebar:escalations"
+          title="escalations"
+          count={requests.length}
+          countTone={requests.some((row) => row.attention) ? "amber" : "faint"}
+        >
+          <ul className="actor-ledger__list">
+            {requests.map((row) => {
+              const key = `request:${row.sinkNodeId}:${row.requestId}`;
+              return (
+                <RequestRowItem
+                  key={key}
+                  row={row}
+                  pending={pendingKeys.has(key)}
+                  open={openKey === key}
+                  onToggle={() => toggleOpen(key)}
+                  onResolve={(response, disposition) =>
+                    void runWork(key, () =>
+                      api!.workRequestResolve(
+                        canvas,
+                        row.sinkNodeId,
+                        row.requestId,
+                        response,
+                        disposition,
+                      ),
+                    )
+                  }
+                />
+              );
+            })}
+          </ul>
+        </SidebarSection>
+      ) : null}
+      {raisedTasks.length > 0 ? (
+        <SidebarSection
+          storageKey="seat-sidebar:raised-tasks"
+          title="raised tasks"
+          count={raisedTasks.length}
+          countTone={raisedTasks.some((row) => row.awaitingApproval) ? "amber" : "faint"}
+        >
+          <ul className="actor-ledger__list">
+            {raisedTasks.map((row) => {
+              const key = `raised:${row.sinkNodeId}:${row.taskId}`;
+              return (
+                <RaisedTaskRowItem
+                  key={key}
+                  row={row}
+                  pending={pendingKeys.has(key)}
+                  open={openKey === key}
+                  onToggle={() => toggleOpen(key)}
+                  onApprove={() => {
+                    if (!api?.workTaskPromote) return;
+                    void runWork(key, () =>
+                      api!.workTaskPromote!(
+                        canvas,
+                        row.sinkNodeId,
+                        row.taskId,
+                        undefined,
+                      ),
+                    );
+                  }}
+                />
+              );
+            })}
+          </ul>
+        </SidebarSection>
+      ) : null}
+      {artifacts.length > 0 ? (
+        <SidebarSection
+          storageKey="seat-sidebar:artifacts"
+          title="artifacts"
+          count={artifacts.length}
+        >
+          <ul className="actor-ledger__list">
+            {artifacts.map((row) => {
+              const key = `artifact:${row.sinkNodeId}:${row.artifactId}`;
+              return (
+                <li
+                  key={key}
+                  className="actor-ledger__item"
+                  data-testid="actor-ledger-artifact-row"
+                  data-artifact-id={row.artifactId}
+                >
+                  <button
+                    type="button"
+                    className="actor-ledger__item-row"
+                    aria-expanded={openKey === key}
+                    title={`${row.name} - ${row.partCount} part${row.partCount === 1 ? "" : "s"} on ${row.sinkNodeId}`}
+                    onClick={() => toggleOpen(key)}
                   >
-                    <div
-                      className="actor-ledger__item-row actor-ledger__item-row--static"
-                      title={`${topic.title} - ${topic.postCount} post${topic.postCount === 1 ? "" : "s"} on ${topic.sinkNodeId}${topic.authorLabel ? ` - opened by ${topic.authorLabel}` : ""}`}
-                    >
-                      <span className="actor-ledger__item-head">
-                        {!topic.open ? <Chip tone="steel">archived</Chip> : null}
-                        <span className="actor-ledger__item-title">
-                          {topic.title}
-                        </span>
-                      </span>
-                      <span className="actor-ledger__item-detail">
-                        {topic.postCount} post{topic.postCount === 1 ? "" : "s"}
-                        {mailAgeLabel(nowMs, topic.lastActivityAtMs)
-                          ? ` - ${mailAgeLabel(nowMs, topic.lastActivityAtMs)}`
-                          : ""}
-                      </span>
+                    <span className="actor-ledger__item-title">{row.name}</span>
+                    <span className="actor-ledger__item-detail">
+                      {row.partCount} part{row.partCount === 1 ? "" : "s"}
+                    </span>
+                  </button>
+                  {openKey === key ? (
+                    <div className="actor-ledger__mail-body">
+                      {row.textPreview
+                        ? row.textPreview.length > 600
+                          ? `${row.textPreview.slice(0, 600)}…`
+                          : row.textPreview
+                        : "No text parts — open the artifact library on the sink to view."}
                     </div>
-                  </li>
-                ))}
-              </ul>
-            </section>
-          ) : null}
-          <section className="actor-ledger__section" aria-label="Mail">
-            <header className="actor-ledger__section-head">
-              <span className="actor-ledger__section-title">mail</span>
-              <span className="actor-ledger__section-meta">
-                {counts.total === 0
-                  ? ""
-                  : [
-                      `${counts.total}`,
-                      counts.unread > 0 ? `${counts.unread} unread` : null,
-                    ]
-                      .filter(Boolean)
-                      .join(" - ")}
-              </span>
-            </header>
-            {visibleMail.rows.length > 0 ? (
-              <ul id={listId} className="actor-ledger__mail-list">
-                {visibleMail.rows.map((row) => (
-                  <MailRowItem
-                    key={row.messageId}
-                    row={row}
-                    nowMs={nowMs}
-                    open={openKey === `mail:${row.messageId}`}
-                    onToggle={() => toggleOpen(`mail:${row.messageId}`)}
-                  />
-                ))}
-              </ul>
-            ) : rows.length > 0 ? (
-              <p className="actor-ledger__empty">Nothing waiting</p>
-            ) : (
-              <p className="actor-ledger__empty">No mail yet</p>
-            )}
-            {visibleMail.hidden > 0 ? (
-              <p
-                className="actor-ledger__mail-folded"
-                data-testid="actor-ledger-mail-folded"
+                  ) : null}
+                </li>
+              );
+            })}
+          </ul>
+        </SidebarSection>
+      ) : null}
+      {boardTopics.length > 0 ? (
+        <SidebarSection
+          storageKey="seat-sidebar:board"
+          title="board"
+          count={boardTopics.length}
+          meta={boardUnread > 0 ? `${boardUnread} unread` : undefined}
+        >
+          <ul className="actor-ledger__list">
+            {boardTopics.map((topic) => (
+              <li
+                key={`board:${topic.sinkNodeId}:${topic.topicId}`}
+                className="actor-ledger__item"
+                data-testid="actor-ledger-board-row"
+                data-topic-id={topic.topicId}
               >
-                {`${visibleMail.hidden} settled - junto msg list`}
-              </p>
-            ) : null}
-          </section>
-          {opsFeed !== null && opsFeed.operations.length > 0 ? (
-            <section
-              className="actor-ledger__section"
-              aria-label="Recent activity"
-              title="Identity-backed CLI activity only - task updates are not attributed"
-            >
-              <header className="actor-ledger__section-head">
-                <span className="actor-ledger__section-title">activity</span>
-                <span className="actor-ledger__section-meta">
-                  {opsFeed.lastOpAt !== null &&
-                  mailAgeLabel(nowMs, Date.parse(opsFeed.lastOpAt) || undefined)
-                    ? `last op ${mailAgeLabel(nowMs, Date.parse(opsFeed.lastOpAt) || undefined)}`
-                    : ""}
-                </span>
-              </header>
-              <ul className="actor-ledger__ops" data-testid="actor-ledger-ops">
-                {opsFeed.operations.map((op, index) => {
-                  const age = mailAgeLabel(nowMs, recentOpAtMs(op));
-                  return (
-                    <li
-                      key={`${op.appliedAt}:${index}`}
-                      className="actor-ledger__op"
-                      title={`${op.operation} on ${op.targetNodeId} at ${op.appliedAt}`}
-                    >
-                      <span className="actor-ledger__op-label">
-                        {recentOpLabel(op)}
-                      </span>
-                      {age ? (
-                        <span className="actor-ledger__op-age">{age}</span>
-                      ) : null}
-                    </li>
-                  );
-                })}
-              </ul>
-            </section>
-          ) : null}
-        </div>
-      ) : (
-        <div className="actor-ledger__rail" aria-hidden>
-          <span className="actor-ledger__rail-label">ledger</span>
-          {needsYou > 0 ? (
-            <span className="actor-ledger__count">{needsYou}</span>
-          ) : null}
-        </div>
-      )}
+                <div
+                  className="actor-ledger__item-row actor-ledger__item-row--static"
+                  title={`${topic.title} - ${topic.postCount} post${topic.postCount === 1 ? "" : "s"} on ${topic.sinkNodeId}${topic.authorLabel ? ` - opened by ${topic.authorLabel}` : ""}`}
+                >
+                  <span className="actor-ledger__item-head">
+                    {!topic.open ? <Chip tone="steel">archived</Chip> : null}
+                    <span className="actor-ledger__item-title">
+                      {topic.title}
+                    </span>
+                  </span>
+                  <span className="actor-ledger__item-detail">
+                    {topic.postCount} post{topic.postCount === 1 ? "" : "s"}
+                    {mailAgeLabel(nowMs, topic.lastActivityAtMs)
+                      ? ` - ${mailAgeLabel(nowMs, topic.lastActivityAtMs)}`
+                      : ""}
+                  </span>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </SidebarSection>
+      ) : null}
+      <SidebarSection
+        storageKey="seat-sidebar:mail"
+        title="mail"
+        count={counts.total}
+        meta={counts.unread > 0 ? `${counts.unread} unread` : undefined}
+        testId="actor-ledger-mail"
+      >
+        {visibleMail.rows.length > 0 ? (
+          <ul id={listId} className="actor-ledger__mail-list">
+            {visibleMail.rows.map((row) => (
+              <MailRowItem
+                key={row.messageId}
+                row={row}
+                nowMs={nowMs}
+                open={openKey === `mail:${row.messageId}`}
+                onToggle={() => toggleOpen(`mail:${row.messageId}`)}
+              />
+            ))}
+          </ul>
+        ) : rows.length > 0 ? (
+          <p className="actor-ledger__empty">Nothing waiting</p>
+        ) : (
+          <p className="actor-ledger__empty">No mail yet</p>
+        )}
+        {visibleMail.hidden > 0 ? (
+          <p
+            className="actor-ledger__mail-folded"
+            data-testid="actor-ledger-mail-folded"
+          >
+            {`${visibleMail.hidden} settled - junto msg list`}
+          </p>
+        ) : null}
+      </SidebarSection>
+      {signals.openCount === 0 ? signalsSection : null}
+      <ActorConnectionsSection node={node} />
+      {opsFeed !== null && opsFeed.operations.length > 0 ? (
+        <SidebarSection
+          storageKey="seat-sidebar:activity"
+          title="activity"
+          meta={lastOpAge ? `last op ${lastOpAge}` : undefined}
+        >
+          <ul
+            className="actor-ledger__ops"
+            data-testid="actor-ledger-ops"
+            title="Identity-backed CLI activity only - task updates are not attributed"
+          >
+            {opsFeed.operations.map((op, index) => {
+              const age = mailAgeLabel(nowMs, recentOpAtMs(op));
+              return (
+                <li
+                  key={`${op.appliedAt}:${index}`}
+                  className="actor-ledger__op"
+                  title={`${op.operation} on ${op.targetNodeId} at ${op.appliedAt}`}
+                >
+                  <span className="actor-ledger__op-label">
+                    {recentOpLabel(op)}
+                  </span>
+                  {age ? (
+                    <span className="actor-ledger__op-age">{age}</span>
+                  ) : null}
+                </li>
+              );
+            })}
+          </ul>
+        </SidebarSection>
+      ) : null}
     </aside>
   );
 }

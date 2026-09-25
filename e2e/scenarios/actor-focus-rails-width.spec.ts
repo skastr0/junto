@@ -108,17 +108,17 @@ test("collapsing stacked right-pane sections does not resize the terminal", asyn
     if (!bothOpen) return;
     expect(bothOpen.stage).toBeGreaterThan(400);
 
-    await surface.getByRole("button", { name: "Collapse ledger pane" }).click();
-    await expect(page.locator(".actor-ledger--collapsed")).toBeVisible({
-      timeout: 5_000,
-    });
+    const mailHead = surface
+      .getByTestId("actor-ledger-mail")
+      .locator(".sidebar-section__head");
+    await mailHead.click();
+    await expect(mailHead).toHaveAttribute("aria-expanded", "false");
     await page.waitForTimeout(500);
 
     const ledgerShut = await probeWidths(page);
     expect(ledgerShut).toBeTruthy();
     if (!ledgerShut) return;
 
-    expect(ledgerShut.ledgerHeight).toBeLessThan(bothOpen.ledgerHeight);
     expect(
       Math.abs(ledgerShut.stage - bothOpen.stage),
       `stage ${ledgerShut.stage} vs ${bothOpen.stage} after collapsing the ledger`,
@@ -129,12 +129,11 @@ test("collapsing stacked right-pane sections does not resize the terminal", asyn
     ).toBeLessThanOrEqual(2);
     expect(ledgerShut.rightPane).toBeCloseTo(bothOpen.rightPane, 0);
 
-    await surface
-      .getByRole("button", { name: "Collapse connections pane" })
-      .click();
-    await expect(page.locator(".actor-edges-glance--collapsed")).toBeVisible({
-      timeout: 5_000,
-    });
+    const connectionsHead = surface
+      .getByTestId("actor-edges-glance")
+      .locator(".sidebar-section__head");
+    await connectionsHead.click();
+    await expect(connectionsHead).toHaveAttribute("aria-expanded", "false");
     await page.waitForTimeout(500);
 
     const bothShut = await probeWidths(page);

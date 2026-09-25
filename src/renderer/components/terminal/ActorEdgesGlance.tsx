@@ -42,7 +42,7 @@ import {
   terminal$,
 } from "../../lib/terminal-state";
 import { ActivityMark } from "../ActivityMark";
-import { Chip, Eyebrow, IconButton } from "../ui";
+import { Chip, Eyebrow, IconButton, SidebarSection } from "../ui";
 
 const DirectionMark = ({ direction }: { readonly direction: "out" | "in" }) => (
   <span
@@ -221,27 +221,11 @@ function EdgeCard({
   );
 }
 
-/**
- * Renders only for actor-role nodes with at least one incident edge.
- * Edge editing stays in the inspector / RTS kind surface; mirrors only
- * navigate between already-authored actors.
- */
-export function ActorEdgesGlance({
-  node,
-  zone = "focus",
-}: {
-  readonly node: CanvasNode;
-  readonly zone?: "focus" | "pinned";
-}) {
+/** Incident edges of an actor node as mirror-ready rows, plus unread mail per peer. */
+function useActorConnections(node: CanvasNode) {
   const doc = use$(state$.doc);
   const execution = use$(kernel$.execution);
   const executionRev = use$(kernel$.executionRev);
-  // Shared, not pane-local: the focus panel budgets this rail's width so the
-  // xterm keeps its columns whichever way the rail sits.
-  const railsOpen = use$(terminal$.railsOpenByNodeId);
-  const expanded = actorRailsOpen(node.id, railsOpen).connections;
-  const setExpanded = (open: boolean): void =>
-    setActorRailOpen(node.id, "connections", open);
 
   const isActor = useMemo(() => {
     const role = roleOf(
@@ -278,10 +262,93 @@ export function ActorEdgesGlance({
     return unreadMailByPeer(live ? mailboxRows(doc, live) : []);
   }, [doc, node.id, isActor]);
 
+  return { isActor, rows, peersById, unreadByPeer };
+}
+
+function ConnectionsList({
+  node,
+  zone,
+  listId,
+  connections,
+}: {
+  readonly node: CanvasNode;
+  readonly zone: "focus" | "pinned";
+  readonly listId: string;
+  readonly connections: ReturnType<typeof useActorConnections>;
+}) {
+  const { rows, peersById, unreadByPeer } = connections;
+  const hasMirrors = rows.some((row) => isMirrorablePeer(peersById.get(row.peerId)));
+  return (
+    <>
+      <ul id={listId} className="actor-edges-glance__list">
+        {rows.map((row) => (
+          <EdgeCard
+            key={row.edgeId}
+            row={row}
+            peer={peersById.get(row.peerId)}
+            actorNodeId={node.id}
+            zone={zone}
+            unreadFromPeer={unreadByPeer.get(row.peerId) ?? 0}
+          />
+        ))}
+      </ul>
+      {hasMirrors ? (
+        <footer
+          className="actor-edges-glance__cycle-hint"
+          title="Cmd+] next actor, Cmd+[ previous actor"
+        >
+          ⌘] ⌘[ cycle actors
+        </footer>
+      ) : null}
+    </>
+  );
+}
+
+/** Connections as one section of the focus sidebar. */
+export function ActorConnectionsSection({ node }: { readonly node: CanvasNode }) {
+  const connections = useActorConnections(node);
+  if (!connections.isActor || connections.rows.length === 0) return null;
+  return (
+    <SidebarSection
+      storageKey="seat-sidebar:connections"
+      title="connections"
+      count={connections.rows.length}
+      testId="actor-edges-glance"
+    >
+      <ConnectionsList
+        node={node}
+        zone="focus"
+        listId={`actor-connections-list-${node.id}`}
+        connections={connections}
+      />
+    </SidebarSection>
+  );
+}
+
+/**
+ * Pinned-dock rail: renders only for actor-role nodes with at least one
+ * incident edge. Edge editing stays in the inspector / RTS kind surface;
+ * mirrors only navigate between already-authored actors.
+ */
+export function ActorEdgesGlance({
+  node,
+  zone = "focus",
+}: {
+  readonly node: CanvasNode;
+  readonly zone?: "focus" | "pinned";
+}) {
+  // Shared, not pane-local: the focus panel budgets this rail's width so the
+  // xterm keeps its columns whichever way the rail sits.
+  const railsOpen = use$(terminal$.railsOpenByNodeId);
+  const expanded = actorRailsOpen(node.id, railsOpen).connections;
+  const setExpanded = (open: boolean): void =>
+    setActorRailOpen(node.id, "connections", open);
+  const connections = useActorConnections(node);
+  const { isActor, rows } = connections;
+
   if (!isActor || rows.length === 0) return null;
 
   const listId = `actor-connections-list-${node.id}`;
-  const hasMirrors = rows.some((row) => isMirrorablePeer(peersById.get(row.peerId)));
 
   return (
     <aside
@@ -328,28 +395,7 @@ export function ActorEdgesGlance({
         )}
       </header>
       {expanded ? (
-        <>
-          <ul id={listId} className="actor-edges-glance__list">
-            {rows.map((row) => (
-              <EdgeCard
-                key={row.edgeId}
-                row={row}
-                peer={peersById.get(row.peerId)}
-                actorNodeId={node.id}
-                zone={zone}
-                unreadFromPeer={unreadByPeer.get(row.peerId) ?? 0}
-              />
-            ))}
-          </ul>
-          {hasMirrors ? (
-            <footer
-              className="actor-edges-glance__cycle-hint"
-              title="Cmd+] next actor, Cmd+[ previous actor"
-            >
-              ⌘] ⌘[ cycle actors
-            </footer>
-          ) : null}
-        </>
+        <ConnectionsList node={node} zone={zone} listId={listId} connections={connections} />
       ) : (
         <div className="actor-edges-glance__rail" aria-hidden>
           <span className="actor-edges-glance__rail-label">connections</span>

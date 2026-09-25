@@ -2974,129 +2974,81 @@ ol.note-md__list > .note-md__li::before {
   margin-left: 0;
 }
 
-/* Ledger is the compact top section of the actor's right instrument pane.
-   Native vertical resize is constrained below 40% of pane height; its content
-   owns the scroll so resizing never moves the terminal or outer modal. */
+/* Focus sidebar: the actor's right pane is one scrolling column of
+   collapsible sections (components/ui/SidebarSection). Sections size to their
+   content; the column owns the scroll, so short content leaves no fixed
+   empty block and long content never moves the terminal. */
 .actor-ledger {
   display: flex;
   flex-direction: column;
-  flex: 0 0 248px;
-  width: 248px;
-  min-width: 248px;
-  max-width: 248px;
+  gap: 2px;
+  flex: 1 1 auto;
   min-height: 0;
-  height: 100%;
-  border-right: 1px solid color-mix(in srgb, var(--color-stroke) 88%, transparent);
-  background: color-mix(in srgb, var(--color-raise-2) 92%, transparent);
-  overflow: hidden;
-}
-.actor-terminal-right-pane > .actor-ledger {
-  position: relative;
-  flex: 0 0 auto;
   width: 100%;
-  min-width: 100%;
-  max-width: 100%;
-  height: clamp(136px, 34%, 320px);
-  min-height: 112px;
-  max-height: 38%;
-  border-right: 0;
-  border-bottom: 1px solid color-mix(in srgb, var(--color-stroke) 88%, transparent);
-  resize: vertical;
-}
-.actor-terminal-right-pane > .actor-ledger--expanded::after {
-  position: absolute;
-  right: 12px;
-  bottom: 2px;
-  left: 12px;
-  height: 1px;
-  content: "";
-  background: color-mix(in srgb, var(--color-amber) 32%, transparent);
-  pointer-events: none;
-}
-.actor-ledger--collapsed {
-  flex: 0 0 36px;
-  width: 36px;
-  min-width: 36px;
-  max-width: 36px;
-}
-.actor-terminal-right-pane > .actor-ledger--collapsed {
-  flex: 0 0 36px;
-  width: 100%;
-  min-width: 100%;
-  max-width: 100%;
-  height: 36px;
-  min-height: 36px;
-  max-height: 36px;
-  resize: none;
-}
-.actor-ledger__chrome {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-shrink: 0;
-  padding: 6px 6px 6px 10px;
-  min-height: 34px;
-  border-bottom: 1px solid color-mix(in srgb, var(--color-stroke) 70%, transparent);
-}
-.actor-ledger--collapsed .actor-ledger__chrome {
-  justify-content: center;
-  padding: 8px 4px 4px;
-  border-bottom: 0;
-}
-.actor-terminal-right-pane .actor-ledger--collapsed .actor-ledger__chrome {
-  justify-content: flex-end;
-  padding: 4px 6px;
-}
-/* Expand / collapse stays at the right edge of the compact section header. */
-.actor-ledger__toggle {
-  flex-shrink: 0;
-  margin-left: auto;
-  color: var(--color-dim);
-}
-.actor-ledger--collapsed .actor-ledger__toggle {
-  margin-left: 0;
-}
-.actor-ledger__toggle:hover {
-  color: var(--color-ink);
-}
-.actor-ledger__count {
-  font-family: var(--font-mono), ui-monospace, monospace;
-  font-size: 10px;
-  letter-spacing: 0.04em;
-  color: var(--color-amber);
-  font-variant-numeric: tabular-nums;
-}
-.actor-ledger__scroll {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  min-height: 0;
-  flex: 1 1 0;
+  padding: 4px 0 10px;
   overflow-y: auto;
   overscroll-behavior: contain;
   scrollbar-width: thin;
-  padding: 8px;
 }
-.actor-ledger__section {
+
+/* SidebarSection primitive. */
+.sidebar-section {
   display: flex;
   flex-direction: column;
-  gap: 6px;
   min-width: 0;
+  scroll-margin-top: 4px;
 }
-.actor-ledger__section-head {
+.sidebar-section + .sidebar-section {
+  border-top: 1px solid color-mix(in srgb, var(--color-stroke) 55%, transparent);
+}
+.sidebar-section__head {
+  appearance: none;
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 6px;
   min-width: 0;
-}
-.actor-ledger__section-title {
-  font-size: 9px;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
+  width: 100%;
+  min-height: 30px;
+  padding: 6px 10px 6px 8px;
+  border: 0;
+  background: transparent;
+  font: inherit;
   color: var(--color-faint);
+  text-align: left;
+  cursor: pointer;
+  transition: color 120ms ease, background-color 120ms ease;
+}
+.sidebar-section__head:hover {
+  color: var(--color-dim);
+  background: color-mix(in srgb, var(--color-inset) 60%, transparent);
+}
+.sidebar-section__head:focus-visible {
+  outline: 1px solid var(--color-amber);
+  outline-offset: -1px;
+}
+.sidebar-section__chevron {
+  flex-shrink: 0;
+  transition: transform 140ms ease;
+}
+.sidebar-section--open .sidebar-section__chevron {
+  transform: rotate(90deg);
+}
+.sidebar-section__title {
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
   user-select: none;
 }
-.actor-ledger__section-meta {
+.sidebar-section__count {
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  font-variant-numeric: tabular-nums;
+}
+.sidebar-section__count--faint { color: var(--color-faint); }
+.sidebar-section__count--amber { color: var(--color-amber); }
+.sidebar-section__count--crimson { color: var(--color-crimson); }
+.sidebar-section__meta {
   margin-left: auto;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -3105,6 +3057,101 @@ ol.note-md__list > .note-md__li::before {
   font-size: 9.5px;
   color: var(--color-faint);
   font-variant-numeric: tabular-nums;
+}
+.sidebar-section__body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  padding: 0 8px 10px;
+}
+.sidebar-section__body > .actor-edges-glance__list {
+  padding: 0;
+}
+@media (prefers-reduced-motion: reduce) {
+  .sidebar-section__chevron { transition: none; }
+}
+
+/* Popover primitive: floats beside its anchor, above focus surfaces. */
+.junto-popover {
+  position: fixed;
+  z-index: var(--layer-popover);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: min(70vh, 560px);
+  padding: 10px;
+  overflow-y: auto;
+  border: 1px solid var(--color-stroke-hi);
+  border-radius: 8px;
+  background: var(--color-raise);
+  box-shadow: 0 14px 34px var(--color-shadow-1);
+  color: var(--color-dim);
+  font-size: 11.5px;
+}
+
+/* Seat signals: rows and the answer popover. */
+.seat-signal--closed { opacity: 0.62; }
+.seat-signal__age,
+.seat-signal-popover__age {
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 9.5px;
+  color: var(--color-faint);
+  font-variant-numeric: tabular-nums;
+}
+.seat-signal__age { margin-left: auto; }
+.seat-signal-popover__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.seat-signal-popover__close {
+  margin-left: auto;
+  color: var(--color-dim);
+}
+.seat-signal-popover__text {
+  margin: 0;
+  color: var(--color-ink);
+  font-size: 12.5px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+.seat-signal-popover__detail {
+  max-height: 240px;
+  overflow-y: auto;
+  padding: 8px;
+  border: 1px solid color-mix(in srgb, var(--color-stroke) 80%, transparent);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--color-inset) 78%, transparent);
+}
+.seat-signal-popover__response {
+  display: grid;
+  gap: 3px;
+  padding: 8px;
+  border-left: 2px solid color-mix(in srgb, var(--color-cyan) 55%, transparent);
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+.seat-signal-popover__response-label {
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--color-faint);
+}
+.seat-signal-popover__reply {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.seat-signal-popover__error {
+  margin: 0;
+  color: var(--color-crimson);
+  font-size: 10.5px;
+}
+.seat-signal-popover__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
 }
 .actor-ledger__empty {
   margin: 0;
@@ -3377,27 +3424,6 @@ button.actor-ledger__item-row:focus-visible {
   font-variant-numeric: tabular-nums;
 }
 
-.actor-ledger__rail {
-  display: flex;
-  flex: 1 1 0;
-  flex-direction: column;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 0 10px;
-  min-height: 0;
-}
-.actor-ledger__rail-label {
-  writing-mode: vertical-rl;
-  transform: rotate(180deg);
-  font-size: 9px;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: var(--color-faint);
-  user-select: none;
-}
-.actor-terminal-right-pane .actor-ledger__rail {
-  display: none;
-}
 
 /* Native terminal — fill focus/dock body.
    Critical: flex:1 1 0 + height:0 so the host gets the pane's flex-assigned
