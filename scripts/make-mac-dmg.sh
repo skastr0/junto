@@ -54,7 +54,8 @@ hdiutil attach "$WORK/writable.dmg" -readwrite -nobrowse -noautoopen \
 MOUNTED=1
 MOUNT_APP="$MOUNT/$PRODUCT_NAME.app"
 assert_app_bundle "$MOUNT_APP"
-[[ -f "$MOUNT/.DS_Store" && -f "$MOUNT/.background.png" && \
+# electron-builder pairs dmg-background@2x.png into a HiDPI .background.tiff.
+[[ -f "$MOUNT/.DS_Store" && ( -f "$MOUNT/.background.png" || -f "$MOUNT/.background.tiff" ) && \
    -L "$MOUNT/Applications" && "$(readlink "$MOUNT/Applications")" == /Applications && \
    ! -e "$MOUNT/mac-arm64" ]] || {
   err "DMG must retain the app, Applications link, and Finder layout at its root"; exit 1;
