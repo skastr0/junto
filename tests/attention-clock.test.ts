@@ -1,9 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
-  ATTENTION_CLOCK_PHASES,
+  ATTENTION_CLOCK_FRAMES,
   ATTENTION_CLOCK_TICK_MS,
-  attentionBeat$,
-  attentionPhase$,
+  attentionFrame$,
   resetAttentionClockForTests,
   retainAttentionClock,
 } from "../src/renderer/lib/attention-clock";
@@ -49,38 +48,33 @@ describe("attention clock", () => {
 
   it("does not stamp until retained", () => {
     const dataset = installDom();
-    expect(dataset.attentionPhase).toBeUndefined();
-    expect(attentionPhase$.peek()).toBe(0);
+    expect(dataset.markFrame).toBeUndefined();
+    expect(attentionFrame$.peek()).toBe(0);
   });
 
-  it("stamps phase 0 immediately and advances on the 90 ms tick", () => {
+  it("stamps frame 0 immediately and advances on the 90 ms tick", () => {
     vi.useFakeTimers();
     const dataset = installDom();
     const release = retainAttentionClock();
-    expect(dataset.attentionPhase).toBe("0");
-    expect(dataset.attentionBeat).toBe("0");
+    expect(dataset.markFrame).toBe("0");
 
     vi.advanceTimersByTime(ATTENTION_CLOCK_TICK_MS);
-    expect(dataset.attentionPhase).toBe("1");
-    expect(attentionPhase$.peek()).toBe(1);
+    expect(dataset.markFrame).toBe("1");
+    expect(attentionFrame$.peek()).toBe(1);
 
     vi.advanceTimersByTime(ATTENTION_CLOCK_TICK_MS * 7);
-    expect(dataset.attentionPhase).toBe("0");
-    expect(dataset.attentionBeat).toBe("1");
-    expect(attentionBeat$.peek()).toBe(1);
+    expect(dataset.markFrame).toBe("8");
 
     release();
-    expect(dataset.attentionPhase).toBeUndefined();
-    expect(dataset.attentionBeat).toBeUndefined();
+    expect(dataset.markFrame).toBeUndefined();
   });
 
-  it("wraps after eight phases", () => {
+  it("wraps after a full cycle of frames", () => {
     vi.useFakeTimers();
     installDom();
     retainAttentionClock();
-    vi.advanceTimersByTime(ATTENTION_CLOCK_TICK_MS * ATTENTION_CLOCK_PHASES);
-    expect(attentionPhase$.peek()).toBe(0);
-    expect(attentionBeat$.peek()).toBe(1);
+    vi.advanceTimersByTime(ATTENTION_CLOCK_TICK_MS * ATTENTION_CLOCK_FRAMES);
+    expect(attentionFrame$.peek()).toBe(0);
   });
 
   it("refcount: last release stops the clock", () => {
@@ -89,13 +83,13 @@ describe("attention clock", () => {
     const a = retainAttentionClock();
     const b = retainAttentionClock();
     vi.advanceTimersByTime(ATTENTION_CLOCK_TICK_MS);
-    expect(dataset.attentionPhase).toBe("1");
+    expect(dataset.markFrame).toBe("1");
     a();
     vi.advanceTimersByTime(ATTENTION_CLOCK_TICK_MS);
-    expect(dataset.attentionPhase).toBe("2");
+    expect(dataset.markFrame).toBe("2");
     b();
     vi.advanceTimersByTime(ATTENTION_CLOCK_TICK_MS);
-    expect(dataset.attentionPhase).toBeUndefined();
+    expect(dataset.markFrame).toBeUndefined();
   });
 
   it("pauses while surface motion is gated", () => {
@@ -103,17 +97,17 @@ describe("attention clock", () => {
     const dataset = installDom();
     retainAttentionClock();
     vi.advanceTimersByTime(ATTENTION_CLOCK_TICK_MS);
-    expect(dataset.attentionPhase).toBe("1");
+    expect(dataset.markFrame).toBe("1");
 
     surfaceMotionLive$.set(false);
-    expect(dataset.attentionPhase).toBeUndefined();
+    expect(dataset.markFrame).toBeUndefined();
     vi.advanceTimersByTime(ATTENTION_CLOCK_TICK_MS * 4);
-    expect(attentionPhase$.peek()).toBe(1);
+    expect(attentionFrame$.peek()).toBe(1);
 
     surfaceMotionLive$.set(true);
-    expect(dataset.attentionPhase).toBe("1");
+    expect(dataset.markFrame).toBe("1");
     vi.advanceTimersByTime(ATTENTION_CLOCK_TICK_MS);
-    expect(dataset.attentionPhase).toBe("2");
+    expect(dataset.markFrame).toBe("2");
   });
 
   it("freezes mid-pan without clearing the stamp", () => {
@@ -121,14 +115,14 @@ describe("attention clock", () => {
     const dataset = installDom();
     retainAttentionClock();
     vi.advanceTimersByTime(ATTENTION_CLOCK_TICK_MS);
-    expect(dataset.attentionPhase).toBe("1");
+    expect(dataset.markFrame).toBe("1");
 
     viewportBusy$.set(true);
     vi.advanceTimersByTime(ATTENTION_CLOCK_TICK_MS * 4);
-    expect(dataset.attentionPhase).toBe("1");
+    expect(dataset.markFrame).toBe("1");
 
     viewportBusy$.set(false);
     vi.advanceTimersByTime(ATTENTION_CLOCK_TICK_MS);
-    expect(dataset.attentionPhase).toBe("2");
+    expect(dataset.markFrame).toBe("2");
   });
 });

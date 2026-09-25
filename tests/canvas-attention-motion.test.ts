@@ -1,13 +1,14 @@
 /**
  * PERF-P1 — continuous canvas attention must not use interpolating CSS.
  *
- * Factory motion is a 90 ms discrete clock (html[data-attention-phase]) plus
+ * Factory motion is a 90 ms discrete clock (html[data-mark-frame]) plus
  * static rings. Interpolating infinite keyframes keep Chromium presenting
  * every vsync and are forbidden on the canvas attention path.
  */
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
+import { markAtlasCss } from "../src/renderer/lib/activity-atlas";
 
 const css = readFileSync(
   resolve(__dirname, "../src/renderer/styles.css"),
@@ -38,18 +39,17 @@ describe("canvas continuous motion (discrete clock, no interpolating CSS)", () =
     expect(css).not.toMatch(/@keyframes\s+juntoSeatAttentionPulse\b/);
   });
 
-  it("ActivityMark cells have no CSS animation and key off the clock", () => {
-    expect(ruleBody(".junto-activity-clock-cell")).not.toMatch(/animation\s*:/);
-    expect(ruleBody(".junto-activity-pulse-cell")).not.toMatch(/animation\s*:/);
-    expect(css).toMatch(
-      /html\[data-attention-phase="0"\]\s+\.junto-activity-clock-cell:nth-child\(1\)/,
-    );
-    expect(css).toMatch(
-      /html\[data-attention-phase="7"\]\s+\.junto-activity-clock-cell:nth-child\(8\)/,
-    );
-    expect(css).toMatch(
-      /html\[data-attention-beat="1"\]\s+\.junto-activity-pulse-cell/,
-    );
+  it("ActivityMark loops key off the clock; the only animation is the finite done landing", () => {
+    const sheet = markAtlasCss();
+    expect(sheet).toMatch(/html\[data-mark-frame="0"\] \.junto-mark\[data-mark-motion="loop"\]/);
+    const animations = [...sheet.matchAll(/animation:([^;}]*)/g)].map((m) => m[1] ?? "");
+    for (const animation of animations) {
+      if (animation.trim() === "none") continue;
+      expect(animation).toMatch(/juntoMarkLand/);
+      expect(animation).toMatch(/steps\(/);
+      expect(animation).not.toMatch(/infinite/);
+    }
+    expect(css).not.toMatch(/junto-activity-clock-cell|junto-activity-pulse-cell/);
   });
 
   it("blocker halo is a static ::after ring, not an animation", () => {

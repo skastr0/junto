@@ -1,31 +1,37 @@
 import type { ReactNode } from "react";
-import { use$ } from "@legendapp/state/react";
 import type { ActivitySpec } from "../../lib/activity";
-import { surfaceMotionLive$ } from "../../lib/surface-motion";
-import { ActivityMarkFromSpec } from "../ActivityMark";
+import { ActivityMarkFromSpec, type MarkOverlayProps } from "../ActivityMark";
+
+/** Health and signal inputs the card forwards to its one mark. */
+export type CardMarkOverlay = Omit<MarkOverlayProps, "children">;
 
 /**
  * Shared identity row for executable/terminal cards.
  *
  * Decals and copy remain kind-specific. Geometry and live-state placement do
- * not: every card exposes exactly one ActivityMark in the upper-right slot.
+ * not: every card exposes exactly one ActivityMark in the upper-right slot,
+ * carrying control state, the thread-health reading and the declared signal.
  */
 export function ExecutionCardHeader({
   decal,
   title,
   subtitle,
   activity,
+  overlay,
 }: {
   readonly decal: ReactNode;
   readonly title: ReactNode;
   readonly subtitle?: ReactNode;
   readonly activity: ActivitySpec;
+  readonly overlay?: CardMarkOverlay;
 }) {
-  const surfaceLive = use$(surfaceMotionLive$);
-  // wave (work/block/attention) and pulse (ready/complete) both paint; static
-  // stays silent so a fleet of idle seats doesn't light every corner.
-  const animated =
-    (activity.mode === "wave" || activity.mode === "pulse") && surfaceLive;
+  // A settled card with nothing to say stays silent so a fleet of idle seats
+  // doesn't light every corner. A health reading or a signal always shows.
+  const speaks =
+    activity.mode !== "static" ||
+    activity.glyph === "done" ||
+    (overlay?.health !== undefined && overlay.health !== "steady") ||
+    overlay?.signal !== undefined;
   return (
     <div className="flex items-center gap-2">
       {decal}
@@ -41,8 +47,8 @@ export function ExecutionCardHeader({
           <div className="min-w-0 text-[11px] leading-snug text-dim">{subtitle}</div>
         ) : null}
       </div>
-      {animated ? (
-        <ActivityMarkFromSpec spec={activity} />
+      {speaks ? (
+        <ActivityMarkFromSpec spec={activity} {...overlay} />
       ) : (
         <span
           role="status"

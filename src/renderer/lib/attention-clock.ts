@@ -3,10 +3,10 @@
  *
  * Chromium samples interpolating CSS animations every vsync, which keeps the
  * GPU helper and WindowServer presenting the whole window. This clock stamps
- * `html[data-attention-phase]` / `html[data-attention-beat]` so ActivityMark
- * cells jump through precomposed states. Between ticks the compositor can idle.
+ * `html[data-mark-frame]` so ActivityMark sprites step through precomposed
+ * atlas frames (activity-atlas.ts). Between ticks the compositor can idle.
  *
- * Refcounted: runs only while at least one animated ActivityMark is mounted.
+ * Refcounted: runs only while at least one looping ActivityMark is on screen.
  * Pauses with surface-motion (hidden / reduced-motion) and freezes mid-pan.
  */
 
@@ -15,13 +15,12 @@ import { surfaceMotionLive$ } from "./surface-motion";
 import { viewportBusy$ } from "./viewport-busy";
 
 export const ATTENTION_CLOCK_TICK_MS = 90;
-export const ATTENTION_CLOCK_PHASES = 8;
+/** Frames per cycle: 32 x 90 ms = 2.88 s, the period every loop is drawn to. */
+export const ATTENTION_CLOCK_FRAMES = 32;
 
-const ATTR_PHASE = "attentionPhase";
-const ATTR_BEAT = "attentionBeat";
+const ATTR_FRAME = "markFrame";
 
-export const attentionPhase$ = observable(0);
-export const attentionBeat$ = observable(0);
+export const attentionFrame$ = observable(0);
 
 let refs = 0;
 let tick = 0;
@@ -29,25 +28,20 @@ let timer: ReturnType<typeof setInterval> | undefined;
 let unsubMotion: (() => void) | undefined;
 let unsubBusy: (() => void) | undefined;
 
-const stamp = (phase: number, beat: number): void => {
+const stamp = (frame: number): void => {
   if (typeof document === "undefined") return;
-  const dataset = document.documentElement.dataset;
-  dataset[ATTR_PHASE] = String(phase);
-  dataset[ATTR_BEAT] = String(beat);
+  document.documentElement.dataset[ATTR_FRAME] = String(frame);
 };
 
 const clearStamp = (): void => {
   if (typeof document === "undefined") return;
-  delete document.documentElement.dataset[ATTR_PHASE];
-  delete document.documentElement.dataset[ATTR_BEAT];
+  delete document.documentElement.dataset[ATTR_FRAME];
 };
 
 const applyTick = (): void => {
-  const phase = tick % ATTENTION_CLOCK_PHASES;
-  const beat = Math.floor(tick / ATTENTION_CLOCK_PHASES) % 2;
-  if (attentionPhase$.peek() !== phase) attentionPhase$.set(phase);
-  if (attentionBeat$.peek() !== beat) attentionBeat$.set(beat);
-  stamp(phase, beat);
+  const frame = tick % ATTENTION_CLOCK_FRAMES;
+  if (attentionFrame$.peek() !== frame) attentionFrame$.set(frame);
+  stamp(frame);
 };
 
 const canRun = (): boolean =>
@@ -93,7 +87,7 @@ const unbindObservers = (): void => {
   unsubBusy = undefined;
 };
 
-/** Keep the clock alive for one animated mark. Returns a disposer. */
+/** Keep the clock alive for one visible looping mark. Returns a disposer. */
 export const retainAttentionClock = (): (() => void) => {
   refs += 1;
   bindObservers();
@@ -117,7 +111,6 @@ export const resetAttentionClockForTests = (): void => {
   tick = 0;
   stopTimer();
   unbindObservers();
-  attentionPhase$.set(0);
-  attentionBeat$.set(0);
+  attentionFrame$.set(0);
   clearStamp();
 };

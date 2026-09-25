@@ -1867,59 +1867,18 @@ html[data-viewport-busy] .react-flow .react-flow__edge-path {
   transform: scale(1);
 }
 
-/* --- ActivityMark: discrete 90 ms clock (see attention-clock.ts) ------------
-   No CSS animation — interpolating keyframes keep Chromium presenting every
-   vsync. html[data-attention-phase] selects the bright head + one-cell tail.
-   Pulse uses data-attention-beat. Between ticks the compositor can idle. */
-.junto-activity-mark {
-  contain: layout style paint;
-  isolation: isolate;
-}
-.junto-activity-clock-cell {
-  opacity: 0.1;
-  transform: scale(0.82);
-}
-html[data-attention-phase="0"] .junto-activity-clock-cell:nth-child(1),
-html[data-attention-phase="1"] .junto-activity-clock-cell:nth-child(2),
-html[data-attention-phase="2"] .junto-activity-clock-cell:nth-child(3),
-html[data-attention-phase="3"] .junto-activity-clock-cell:nth-child(4),
-html[data-attention-phase="4"] .junto-activity-clock-cell:nth-child(5),
-html[data-attention-phase="5"] .junto-activity-clock-cell:nth-child(6),
-html[data-attention-phase="6"] .junto-activity-clock-cell:nth-child(7),
-html[data-attention-phase="7"] .junto-activity-clock-cell:nth-child(8) {
-  opacity: 1;
-  transform: scale(1);
-}
-html[data-attention-phase="0"] .junto-activity-clock-cell:nth-child(8),
-html[data-attention-phase="1"] .junto-activity-clock-cell:nth-child(1),
-html[data-attention-phase="2"] .junto-activity-clock-cell:nth-child(2),
-html[data-attention-phase="3"] .junto-activity-clock-cell:nth-child(3),
-html[data-attention-phase="4"] .junto-activity-clock-cell:nth-child(4),
-html[data-attention-phase="5"] .junto-activity-clock-cell:nth-child(5),
-html[data-attention-phase="6"] .junto-activity-clock-cell:nth-child(6),
-html[data-attention-phase="7"] .junto-activity-clock-cell:nth-child(7) {
-  opacity: 0.48;
-  transform: scale(0.94);
-}
-
-.junto-activity-pulse-cell {
-  opacity: 0.22;
-  transform: scale(0.88);
-}
-html[data-attention-beat="1"] .junto-activity-pulse-cell {
-  opacity: 1;
-  transform: scale(1);
-}
+/* --- ActivityMark: sprite atlas + discrete 90 ms clock ----------------------
+   Structure, frame rules and the atlas image are generated with the atlas
+   (src/renderer/lib/activity-atlas.ts), so frame count and geometry have one
+   source. The clock (attention-clock.ts) stamps html[data-mark-frame]. */
 
 /* Hidden/reduced-motion: freeze continuous status/edge motion entirely.
-   ActivityMark also unmounts animated layers when surfaceMotionLive$ is false. */
+   ActivityMark loops fall to their rest pose when the clock stamp clears. */
 
 @media (prefers-reduced-motion: reduce) {
   .junto-blocker::after,
   .junto-node__flag--blocked-live,
   .junto-status-dot-pulse,
-  .junto-activity-clock-cell,
-  .junto-activity-pulse-cell,
   .junto-edge-ripple .react-flow__edge-path,
   path.junto-edge-ripple,
   .junto-node[data-seat-attention="true"]::after,

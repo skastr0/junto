@@ -1,153 +1,114 @@
 /**
- * ActivityMark structure + a11y/size/tone.
- *
- * Original staggered-cell grammar: wave = 8 perimeter clock cells (bright
- * head, fading clockwise trail); pulse = 9 cells; static = single dot.
- * Discrete 90 ms clock lives in attention-clock.ts; CSS selects cells via
- * html[data-attention-phase] (see canvas-attention-motion.test.ts).
+ * ActivityMark: one element per mark, addressed into the ring atlas.
+ * Structure, a11y and the seat slot. The ring rules themselves live in
+ * activity-atlas.test.ts; motion CSS in canvas-attention-motion.test.ts.
  */
 import { renderToStaticMarkup } from "react-dom/server";
-import { afterEach, describe, expect, it } from "vitest";
-import { ActivityMark } from "../src/renderer/components/ActivityMark";
-import { surfaceMotionLive$ } from "../src/renderer/lib/surface-motion";
+import { describe, expect, it } from "vitest";
+import { ActivityMark, ActivityMarkFromSpec } from "../src/renderer/components/ActivityMark";
+import { terminalActivity } from "../src/renderer/lib/activity";
 
-const CLOCK_CELL = /junto-activity-clock-cell/g;
-const PULSE_CELL = /junto-activity-pulse-cell/g;
-const CLOCK_STEP = /--activity-clock-step/g;
+const attr = (html: string, name: string): string | undefined =>
+  new RegExp(`${name}="([^"]*)"`).exec(html)?.[1];
 
-const count = (html: string, re: RegExp): number => {
-  const matches = html.match(re);
-  return matches?.length ?? 0;
-};
+describe("ActivityMark structure", () => {
+  it("is a single element: no per-cell children", () => {
+    const html = renderToStaticMarkup(<ActivityMark mode="wave" tone="cyan" label="working" />);
+    expect(html.match(/<span/g)?.length).toBe(1);
+    expect(html).toContain('class="junto-mark"');
+    expect(attr(html, "data-mark-ring")).toBe("work");
+    expect(attr(html, "data-mark-motion")).toBe("loop");
+    expect(html).toContain("--mark-col:");
+    expect(html).toContain("--mark-row:");
+  });
 
-afterEach(() => {
-  surfaceMotionLive$.set(true);
+  it("done lands once instead of looping", () => {
+    const html = renderToStaticMarkup(<ActivityMark mode="pulse" tone="green" label="done" />);
+    expect(attr(html, "data-mark-ring")).toBe("done");
+    expect(attr(html, "data-mark-motion")).toBe("land");
+  });
+
+  it("active=false freezes a loop at its rest pose", () => {
+    const html = renderToStaticMarkup(
+      <ActivityMark mode="wave" tone="crimson" label="blocked" active={false} />,
+    );
+    expect(attr(html, "data-mark-ring")).toBe("halt");
+    expect(attr(html, "data-mark-motion")).toBe("still");
+  });
+
+  it("standalone marks carry a hub; a seat holds its portrait instead", () => {
+    const standalone = renderToStaticMarkup(<ActivityMark mode="wave" tone="cyan" label="working" />);
+    expect(standalone).toContain("data-mark-hub");
+    expect(standalone).toContain("--mark-hub:");
+    const seat = renderToStaticMarkup(
+      <ActivityMark mode="wave" tone="cyan" label="working" size="seat">
+        <img alt="" />
+      </ActivityMark>,
+    );
+    expect(seat).not.toContain("data-mark-hub");
+    expect(seat).toContain('class="junto-mark__seat"');
+    expect(attr(seat, "data-mark-size")).toBe("seat");
+  });
+
+  it("gone draws the powered-down ring", () => {
+    const html = renderToStaticMarkup(<ActivityMarkFromSpec spec={terminalActivity({ seatState: "gone" })} />);
+    expect(attr(html, "data-mark-ring")).toBe("off");
+  });
 });
 
-describe("ActivityMark cell structure", () => {
-  it("wave: eight staggered clock cells, each carrying its step", () => {
+describe("ActivityMark health and signals", () => {
+  it("a trouble reading bends a working ring and never uses crimson", () => {
     const html = renderToStaticMarkup(
-      <ActivityMark mode="wave" tone="cyan" label="working" size="node" />,
+      <ActivityMark mode="wave" tone="cyan" label="working" health="trouble" healthValue="thrashing" />,
     );
-    expect(count(html, CLOCK_CELL)).toBe(8);
-    expect(count(html, CLOCK_STEP)).toBe(8);
-    expect(count(html, PULSE_CELL)).toBe(0);
-    expect(html).toContain('data-activity-mode="wave"');
-    expect(html).toContain('data-activity-tone="cyan"');
-    expect(html).toContain('data-activity-size="node"');
+    expect(attr(html, "data-mark-ring")).toBe("snake");
+    expect(html).not.toContain("--color-crimson");
   });
 
-  it("pulse: full 3×3 grid of breathing cells — never the clockwise trail", () => {
-    const html = renderToStaticMarkup(
-      <ActivityMark
-        mode="pulse"
-        tone="green"
-        label="Done — waiting for review"
-        size="node"
-      />,
-    );
-    expect(count(html, PULSE_CELL)).toBe(9);
-    expect(count(html, CLOCK_CELL)).toBe(0);
-    expect(html).toContain('data-activity-mode="pulse"');
-  });
-
-  it("static: no animated cell classes — single dot", () => {
-    const html = renderToStaticMarkup(
-      <ActivityMark mode="static" tone="steel" label="idle" size="node" />,
-    );
-    expect(count(html, CLOCK_CELL)).toBe(0);
-    expect(count(html, PULSE_CELL)).toBe(0);
-    expect(html).toContain('data-activity-mode="static"');
-    expect(html).toContain("junto-activity-static-dot");
-  });
-
-  it("active=false: static mark even when mode is wave", () => {
+  it("joins health and signal into the accessible name, with commas", () => {
     const html = renderToStaticMarkup(
       <ActivityMark
         mode="wave"
-        tone="crimson"
-        label="blocked"
-        active={false}
+        tone="cyan"
+        label="working"
+        health="good"
+        healthLabel="AI reads: going well"
+        signal="blocked"
+        signalCount={3}
       />,
     );
-    expect(count(html, CLOCK_CELL)).toBe(0);
-    expect(count(html, PULSE_CELL)).toBe(0);
-    expect(html).toContain('data-activity-mode="static"');
+    expect(attr(html, "aria-label")).toBe("working, AI reads: going well, 3 open signals, worst blocked");
+    expect(attr(html, "title")).toBe(attr(html, "aria-label"));
+    expect(html).toContain("data-mark-band");
+    expect(html).not.toContain("\u00B7");
   });
 
-  it("surface motion paused: animated cells unmounted (static semantic mark)", () => {
-    surfaceMotionLive$.set(false);
-    const wave = renderToStaticMarkup(
-      <ActivityMark mode="wave" tone="amber" label="needs input" />,
+  it("the flag is a click target only when the seat can open its signals", () => {
+    const passive = renderToStaticMarkup(<ActivityMark mode="static" tone="steel" label="idle" signal="escalate" />);
+    expect(passive).not.toContain("<button");
+    const live = renderToStaticMarkup(
+      <ActivityMark mode="static" tone="steel" label="idle" signal="escalate" onSignalOpen={() => undefined} />,
     );
-    const pulse = renderToStaticMarkup(
-      <ActivityMark mode="pulse" tone="green" label="complete" />,
-    );
-    expect(count(wave, CLOCK_CELL)).toBe(0);
-    expect(count(wave, PULSE_CELL)).toBe(0);
-    expect(count(pulse, CLOCK_CELL)).toBe(0);
-    expect(count(pulse, PULSE_CELL)).toBe(0);
-    expect(wave).toContain('data-activity-mode="static"');
-    expect(pulse).toContain('data-activity-mode="static"');
+    expect(live).toContain('class="junto-mark__flag nodrag nopan"');
+    expect(live).toContain('aria-label="1 open signal, escalate, open signals"');
   });
 });
 
 describe("ActivityMark a11y and sizing", () => {
-  it("preserves role, aria-label, title for all modes", () => {
+  it("keeps role, aria-label and title for every mode", () => {
     for (const mode of ["wave", "pulse", "static"] as const) {
-      const html = renderToStaticMarkup(
-        <ActivityMark mode={mode} tone="cyan" label={`state-${mode}`} />,
-      );
+      const html = renderToStaticMarkup(<ActivityMark mode={mode} tone="cyan" label={`state-${mode}`} />);
       expect(html).toContain('role="status"');
-      expect(html).toContain('aria-label="state-' + mode + '"');
-      expect(html).toContain('title="state-' + mode + '"');
+      expect(attr(html, "aria-label")).toBe(`state-${mode}`);
+      expect(attr(html, "title")).toBe(`state-${mode}`);
     }
   });
 
-  it("node footprint matches 3×3 grid (4px cell + 2px gap → 16px)", () => {
-    const html = renderToStaticMarkup(
-      <ActivityMark mode="wave" tone="cyan" label="working" size="node" />,
-    );
-    expect(html).toMatch(/width:\s*16px/);
-    expect(html).toMatch(/height:\s*16px/);
-  });
-
-  it("inline footprint matches 3×3 grid (3px cell + 2px gap → 13px)", () => {
-    const html = renderToStaticMarkup(
-      <ActivityMark mode="wave" tone="cyan" label="working" size="inline" />,
-    );
-    expect(html).toMatch(/width:\s*13px/);
-    expect(html).toMatch(/height:\s*13px/);
-    expect(html).toContain('data-activity-size="inline"');
-  });
-
-  it("maps tones via ACTIVITY_TONE_HEX (token or hex) without dropping fill", () => {
-    const tones = ["cyan", "crimson", "green", "amber", "steel"] as const;
-    for (const tone of tones) {
-      const html = renderToStaticMarkup(
-        <ActivityMark mode="static" tone={tone} label={tone} />,
-      );
-      expect(html).toContain(`data-activity-tone="${tone}"`);
-      // Theme tokens (`var(--color-*)`) or raw hex — either is a real fill.
-      expect(html).toMatch(
-        /background:\s*(#|var\(--color-)|background-color:\s*(#|var\(--color-)/,
-      );
+  it("carries size on the element; the sheet maps it to a unit", () => {
+    for (const size of ["node", "inline", "seat"] as const) {
+      const html = renderToStaticMarkup(<ActivityMark mode="wave" tone="cyan" label="w" size={size} />);
+      expect(attr(html, "data-mark-size")).toBe(size);
+      expect(attr(html, "data-activity-size")).toBe(size);
     }
-  });
-});
-
-describe("ActivityMark visual structure snapshots", () => {
-  it.each([
-    ["wave", "cyan", "working"] as const,
-    ["wave", "crimson", "blocked"] as const,
-    ["pulse", "green", "complete"] as const,
-    ["wave", "amber", "attention"] as const,
-    ["static", "steel", "idle"] as const,
-  ])("%s/%s structure", (mode, tone, label) => {
-    surfaceMotionLive$.set(true);
-    const html = renderToStaticMarkup(
-      <ActivityMark mode={mode} tone={tone} label={label} size="node" />,
-    );
-    expect(html).toMatchSnapshot();
   });
 });

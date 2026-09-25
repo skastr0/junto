@@ -1,10 +1,13 @@
 /**
  * ActivityMark predicates.
  *
- * Rule: active work/block → wave (clockwise); ready/complete → pulse;
- * settled → static mark. Visible status labels are forbidden; aria/title
- * carry the word. Complete seats use the corner green pulse only — no
- * card-wide wash.
+ * Rule: active work/block → wave (loops with the clock); ready/complete →
+ * pulse (done draws itself once, then rests); settled → static mark.
+ * Visible status labels are forbidden; aria/title carry the word. Complete
+ * seats use the corner check only, no card-wide wash.
+ *
+ * Mode and tone say what the state is; the glyph is how the mark draws it
+ * (see `resolveActivityGlyph` and activity-atlas.ts).
  *
  * Severity tones MUST match signal-mark / RTS ladder end-to-end
  * (cards, chips, minimap, command bar):
@@ -19,13 +22,31 @@ import { GREEN, HUE } from "./theme";
 export type ActivityTone = "amber" | "cyan" | "green" | "crimson" | "steel";
 /** wave = clockwise trail - pulse = soft breath (complete) - static = settled */
 export type ActivityMode = "wave" | "pulse" | "static";
-export type ActivitySize = "node" | "inline";
+/** node = card corner, inline = chips and rows, seat = the ring around a portrait. */
+export type ActivitySize = "node" | "inline" | "seat";
 /** Legacy motion nuance for wave states; ActivityMark ignores pattern. */
 export type ActivityPattern = "arrow-up" | "diagonal" | "snake" | "ripple";
+
+/**
+ * What a mark draws, named by meaning; the concept in activity-concepts.ts
+ * decides the form.
+ * work → something is in flight (loops)
+ * call → wants the operator (loops, then rests)
+ * halt → blocked or failed (a slow double beat)
+ * done → finished: draws itself once, then rests still
+ * live → a warm session, quietly present
+ * dot  → a settled fact in a tone (met, live chat)
+ * rest → idle
+ * off  → stopped, gone, unknown
+ */
+export type ActivityGlyph =
+  "work" | "call" | "halt" | "done" | "live" | "dot" | "rest" | "off";
 
 export interface ActivitySpec {
   readonly mode: ActivityMode;
   readonly tone: ActivityTone;
+  /** Drawn form; derived from mode and tone when absent. */
+  readonly glyph?: ActivityGlyph;
   /** Legacy semantic nuance for wave states; pulse/static ignore pattern. */
   readonly pattern?: ActivityPattern;
   /** Accessible name only — never rendered as chrome text. */
@@ -38,6 +59,27 @@ export const ACTIVITY_TONE_HEX: Record<ActivityTone, string> = {
   green: GREEN,
   crimson: HUE.crimson,
   steel: HUE.steel,
+};
+
+/**
+ * One mapping from state to drawn form, so every call site that passes only
+ * mode and tone (hotbar chips, edge glances) draws the same thing a card does.
+ */
+export const resolveActivityGlyph = (
+  mode: ActivityMode,
+  tone: ActivityTone,
+  glyph?: ActivityGlyph,
+): ActivityGlyph => {
+  if (glyph) return glyph;
+  if (mode === "wave") {
+    if (tone === "amber") return "call";
+    if (tone === "crimson") return "halt";
+    return "work";
+  }
+  if (mode === "pulse") return tone === "green" ? "done" : "live";
+  if (tone === "crimson") return "halt";
+  if (tone === "steel") return "rest";
+  return "dot";
 };
 
 /** Severity → activity tone. Single map for seat/chat busy states. */
@@ -247,11 +289,12 @@ export function terminalActivity(input: {
       input.seatState === undefined ||
       input.seatState === null)
   ) {
-    return { mode: "static", tone: SEVERITY_TONE.idle, label: "unknown" };
+    return { mode: "static", tone: SEVERITY_TONE.idle, glyph: "off", label: "unknown" };
   }
   return {
     mode: "static",
     tone: SEVERITY_TONE.idle,
+    glyph: "off",
     label: input.seatState === "gone" ? "gone" : "stopped",
   };
 }
@@ -286,7 +329,7 @@ export function browserActivity(input: {
     };
   }
   if (input.state === "destroyed") {
-    return { mode: "static", tone: SEVERITY_TONE.idle, label: "stopped" };
+    return { mode: "static", tone: SEVERITY_TONE.idle, glyph: "off", label: "stopped" };
   }
   if (input.attaching || input.state === "loading") {
     return {
@@ -297,7 +340,7 @@ export function browserActivity(input: {
   }
   // ready = surface open; detached = warm session without panel — both "running".
   if (input.state === "ready" || input.state === "detached") {
-    return { mode: "pulse", tone: "green", label: "live" };
+    return { mode: "pulse", tone: "green", glyph: "live", label: "live" };
   }
   return { mode: "static", tone: SEVERITY_TONE.idle, label: "idle" };
 }
@@ -399,7 +442,7 @@ export function toolActivity(
     return { mode: "wave", tone: SEVERITY_TONE.working, label: status };
   }
   if (status === "completed") {
-    return { mode: "static", tone: "green", label: "done" };
+    return { mode: "static", tone: "green", glyph: "done", label: "done" };
   }
   if (status === "failed") {
     return { mode: "static", tone: SEVERITY_TONE.blocked, label: "failed" };
