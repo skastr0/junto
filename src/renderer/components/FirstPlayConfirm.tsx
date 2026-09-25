@@ -38,6 +38,7 @@ export function FirstPlayConfirm({
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") onCancel();
     };
+    // focus-law: Escape-only cancel of this confirm dialog.
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [onCancel]);

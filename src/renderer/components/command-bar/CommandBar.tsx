@@ -37,7 +37,7 @@ import {
 import { nodeDetail, nodeTitle, nodeTypeLabel } from "../../lib/presentation";
 import { state$ } from "../../lib/state";
 import { Chip, Kbd, type ChipTone } from "../ui";
-import { claimFocus } from "../../lib/focus-ownership";
+import { claimFocus, isOperatorTyping } from "../../lib/focus-ownership";
 
 /**
  * cmd+K command bar — quick node navigation plus a quick-actions mode.
@@ -112,8 +112,7 @@ export function CommandBarHost() {
   const open = use$(state$.commandBarOpen);
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      const target = event.target as HTMLElement | null;
-      if (target?.closest("input, textarea, [contenteditable='true']")) return;
+      if (isOperatorTyping(event.target)) return;
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
         event.preventDefault();
         if (state$.commandBarOpen.peek()) closeCommandBar();

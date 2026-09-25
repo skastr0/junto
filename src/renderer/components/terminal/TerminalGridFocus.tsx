@@ -24,6 +24,7 @@ import {
 } from "../../lib/terminal-grid";
 import { FocusSurface } from "../FocusSurface";
 import { Button, Dropdown, Kbd, OverlayHeader, type DropdownOption } from "../ui";
+import { claimFocus } from "../../lib/focus-ownership";
 
 /**
  * Grid focus: the selected agents' live terminals side by side.
@@ -101,6 +102,7 @@ function TerminalGridModal({ nodeIds }: { readonly nodeIds: ReadonlyArray<string
       event.preventDefault();
       closeTerminalGrid();
     };
+    // focus-law: Escape closes the grid only when no cell holds the keyboard.
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, []);
@@ -239,7 +241,7 @@ function TerminalGridCell({ nodeId }: { readonly nodeId: string }) {
       if (event.target instanceof Element && event.target.closest("button, a, input, textarea")) return;
       requestAnimationFrame(() => {
         if (cell.contains(document.activeElement)) return;
-        cell.querySelector<HTMLElement>(".xterm-helper-textarea")?.focus();
+        claimFocus(cell.querySelector<HTMLElement>(".xterm-helper-textarea"), "gesture", { owner: cell });
       });
     };
     cell.addEventListener("mousedown", onMouseDown);

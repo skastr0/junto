@@ -7,7 +7,7 @@ import { FocusSurface } from "../FocusSurface";
 import { HarnessMark } from "../HarnessMark";
 import { Button, Kbd } from "../ui";
 import "./first-run-intro.css";
-import { claimFocusOnMount } from "../../lib/focus-ownership";
+import { claimFocusOnMount, isOperatorTyping } from "../../lib/focus-ownership";
 
 // First-run introduction. Four slides, shown once on first launch and again
 // only on request (help map, Settings). It says what Junto is, how to start
@@ -203,6 +203,7 @@ export function FirstRunIntroSurface({
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
+      if (isOperatorTyping(event.target)) return;
       if (event.key === "ArrowRight") setStep((s) => Math.min(s + 1, slides.length - 1));
       else if (event.key === "ArrowLeft") setStep((s) => Math.max(s - 1, 0));
     };

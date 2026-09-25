@@ -81,6 +81,7 @@ import {
   makeNavigationClock,
   makeNodeRefNavigationCoordinator,
 } from "./lib/node-ref-navigation";
+import { isOperatorTyping } from "./lib/focus-ownership";
 
 const setError = (error: unknown) =>
   state$.error.set(error instanceof Error ? error.message : String(error));
@@ -483,8 +484,7 @@ export function App() {
     };
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
-        const target = event.target as HTMLElement | null;
-        if (target?.closest("input, textarea, [contenteditable='true']")) return;
+        if (isOperatorTyping(event.target)) return;
         if (state$.settingsOpen.peek()) {
           event.preventDefault();
           closeSettings();
@@ -511,8 +511,7 @@ export function App() {
         return;
       }
       if (!(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== "z") return;
-      const target = event.target as HTMLElement | null;
-      if (target?.closest("input, textarea, [contenteditable='true']")) return;
+      if (isOperatorTyping(event.target)) return;
       if (frontBrowserSurface()) return;
       event.preventDefault();
       if (event.shiftKey) redo();

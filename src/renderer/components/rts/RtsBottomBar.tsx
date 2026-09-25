@@ -133,6 +133,7 @@ import {
 } from "../../lib/seat-projections";
 import { isHarnessId } from "@shared/managed-terminal-templates";
 import { terminal$ } from "../../lib/terminal-state";
+import { claimFocus, isOperatorTyping } from "../../lib/focus-ownership";
 import "./RtsBottomBar.css";
 
 const COLOR_OPTIONS: ReadonlyArray<{ readonly value: string; readonly label: string; readonly hue: string }> = [
@@ -250,11 +251,6 @@ function CmdKey({
 }
 
 const ICON = 12;
-
-const isTextEditing = (target: EventTarget | null): boolean =>
-  target instanceof Element &&
-  ((target instanceof HTMLElement && target.isContentEditable) ||
-    Boolean(target.closest("input, textarea, select, [contenteditable]:not([contenteditable='false'])")));
 
 /** A focus surface or Settings owns the keyboard; digits must not drive the canvas behind it. */
 const keyboardOwnedAboveCanvas = (): boolean =>
@@ -547,8 +543,7 @@ function RegionCommandCard({
 
   useEffect(() => {
     if (!renaming) return;
-    nameRef.current?.focus();
-    nameRef.current?.select();
+    claimFocus(nameRef.current, "open", { select: true });
   }, [renaming]);
 
   const commitRename = () => {
@@ -1449,7 +1444,7 @@ function useHotbarHotkeys(): void {
   useEffect(() => {
     let retap: CommandGroupRetap | null = null;
     const onKey = (event: KeyboardEvent) => {
-      if (isTextEditing(event.target)) return;
+      if (isOperatorTyping(event.target)) return;
       const intent = commandGroupKey(event, isMac());
       if (intent === null) return;
       if (keyboardOwnedAboveCanvas()) return;

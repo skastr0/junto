@@ -31,9 +31,7 @@ import {
 import { nodeTitle } from "./presentation";
 import { playAlert } from "./sfx";
 import { selectNode, state$ } from "./state";
-
-const TYPING_SURFACE_SELECTOR =
-  "input, textarea, [contenteditable='true'], .xterm, .xterm-helper-textarea, .native-terminal-surface, [data-terminal-surface]";
+import { isOperatorTyping } from "./focus-ownership";
 
 /**
  * Surfaces where Space must type, not cycle alerts.
@@ -41,10 +39,8 @@ const TYPING_SURFACE_SELECTOR =
  * <textarea>, but focus can also land on .xterm chrome / host wrappers.
  * Uses duck-typed `closest` so node unit tests can stub without DOM globals.
  */
-export const isTypingSurface = (target: EventTarget | null): boolean => {
-  if (!target || typeof (target as { closest?: unknown }).closest !== "function") return false;
-  return Boolean((target as Element).closest(TYPING_SURFACE_SELECTOR));
-};
+export const isTypingSurface = (target: EventTarget | null): boolean =>
+  isOperatorTyping(target);
 
 /** Pure gate for the Space/` alert cycle — exported for regression tests. */
 export const shouldCycleAlertOnKey = (

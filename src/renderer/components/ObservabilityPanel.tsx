@@ -316,6 +316,7 @@ export function ObservabilityPanel() {
         close();
       }
     };
+    // focus-law: Escape-only close of the open panel.
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [open, close]);

@@ -10,6 +10,7 @@ import { themeFor, withAlpha } from "../lib/theme";
 import { themeMode$ } from "../lib/theme-mode";
 import { state$ } from "../lib/state";
 import "./CanvasMagnifier.css";
+import { isOperatorTyping } from "../lib/focus-ownership";
 
 const LENS_SIZE = 312;
 const LENS_RADIUS = LENS_SIZE / 2;
@@ -302,10 +303,6 @@ const drawHud = (context: CanvasRenderingContext2D) => {
   context.fill();
 };
 
-const editableTarget = (target: EventTarget | null): boolean =>
-  target instanceof HTMLElement
-  && Boolean(target.closest("input, textarea, select, [contenteditable='true']"));
-
 const fieldTarget = (root: HTMLElement, target: EventTarget | null): boolean =>
   target instanceof Element
   && root.contains(target)
@@ -447,7 +444,7 @@ export function CanvasMagnifier() {
       if (!shell || !root) return;
       const inside = fieldTarget(root, event.target);
       pointerInsideRef.current = inside;
-      if (!inside || editableTarget(event.target)) {
+      if (!inside || isOperatorTyping(event.target)) {
         setActive(false);
         return;
       }
@@ -461,7 +458,7 @@ export function CanvasMagnifier() {
     };
 
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Alt" || event.repeat || editableTarget(document.activeElement)) return;
+      if (event.key !== "Alt" || event.repeat || isOperatorTyping(document.activeElement)) return;
       altHeldRef.current = true;
       if (!pointerInsideRef.current) return;
       event.preventDefault();

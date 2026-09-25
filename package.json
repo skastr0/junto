@@ -35,6 +35,7 @@
     "lint:no-middot": "bun scripts/lint-no-middot.ts",
     "lint:effect-runpromise": "bun scripts/lint-effect-runpromise.ts",
     "lint:single-write-seam": "bun scripts/lint-single-write-seam.ts",
+    "lint:focus-law": "bun scripts/lint-focus-law.ts",
     "test": "JUNTO_TEST_FEATURE_PROFILE=all-on bun scripts/run-unit-tests.ts",
     "test:features:ship": "JUNTO_TEST_FEATURE_PROFILE=ship vitest run tests/features-build-profile.test.ts tests/features-*-gate.test.ts tests/features-ui-gates.test.ts",
     "test:features:all-on": "JUNTO_TEST_FEATURE_PROFILE=all-on bun scripts/run-unit-tests.ts",

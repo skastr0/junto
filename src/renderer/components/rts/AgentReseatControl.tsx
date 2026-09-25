@@ -158,6 +158,7 @@ export function AgentReseatControl({ node }: { readonly node: CanvasNode }) {
       if (target instanceof Element && target.closest(".agent-cascade")) return;
       setOpen(false);
     };
+    // focus-law: Escape-only close of the reseat popover.
     window.addEventListener("keydown", onKey);
     document.addEventListener("pointerdown", onPointer, true);
     return () => {

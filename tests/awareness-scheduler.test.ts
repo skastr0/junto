@@ -419,6 +419,28 @@ describe("in-flight limits", () => {
   });
 });
 
+/**
+ * The reservation one real request makes, measured through the scheduler
+ * rather than estimated from a guessed size, so a pack that grows or shrinks
+ * cannot silently move these ceilings.
+ */
+const measuredCallCost = async (
+  pricing: { readonly inputUsdPerMTokens: number; readonly outputUsdPerMTokens: number },
+  evidence?: string,
+): Promise<number> => {
+  const probe = harness({ pricing });
+  if (evidence === undefined) probe.observe("s1");
+  else probe.observe("s1", evidence);
+  probe.timers.advance(300);
+  await probe.scheduler.drain();
+  const perCall = probe.scheduler.stats().spentUsd;
+  expect(perCall).toBeGreaterThan(0);
+  expect(perCall).toBeGreaterThanOrEqual(
+    estimateAwarenessCallCost({ requestBytes: 0, questionCount: 1 }, probe.config),
+  );
+  return perCall;
+};
+
 describe("caps and budget", () => {
   it("stops a seat at its hourly call cap and counts refused attempts", async () => {
     const h = harness({ seatCallsPerHour: 2, pricing: freePricing });
@@ -488,11 +510,7 @@ describe("caps and budget", () => {
 
   it("reserves conservatively before sending and stops at the seat ceiling", async () => {
     const pricing = { inputUsdPerMTokens: 0.042, outputUsdPerMTokens: 0 };
-    const probe = harness({ pricing });
-    const perCall = estimateAwarenessCallCost(
-      { requestBytes: 4_000, questionCount: 10 },
-      probe.config,
-    );
+    const perCall = await measuredCallCost(pricing, "evidence round 0");
     expect(perCall).toBeGreaterThan(0);
 
     // Allow exactly two reservations, no more.
@@ -509,11 +527,7 @@ describe("caps and budget", () => {
 
   it("charges the reservation for a failed attempt", async () => {
     const pricing = { inputUsdPerMTokens: 0.042, outputUsdPerMTokens: 0 };
-    const probe = harness({ pricing });
-    const perCall = estimateAwarenessCallCost(
-      { requestBytes: 4_000, questionCount: 10 },
-      probe.config,
-    );
+    const perCall = await measuredCallCost(pricing);
     const h = harness(
       { seatUsdPerHour: perCall * 2 + perCall / 2, pricing },
       { auto: false },
@@ -546,11 +560,7 @@ describe("caps and budget", () => {
 
   it("stops the station at its daily ceiling", async () => {
     const pricing = { inputUsdPerMTokens: 0.042, outputUsdPerMTokens: 0 };
-    const probe = harness({ pricing });
-    const perCall = estimateAwarenessCallCost(
-      { requestBytes: 4_000, questionCount: 10 },
-      probe.config,
-    );
+    const perCall = await measuredCallCost(pricing);
     const h = harness({
       stationCallsPerHour: 1_000,
       stationUsdPerHour: 100,

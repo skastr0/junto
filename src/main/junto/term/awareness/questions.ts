@@ -55,6 +55,8 @@
  * different attempts did not.
  */
 
+import { THREAD_HEALTH_LABEL, type ThreadHealthValue } from "@shared/thread-health";
+
 // ---------------------------------------------------------------------------
 // Version
 // ---------------------------------------------------------------------------
@@ -64,7 +66,7 @@
  * threshold. The version travels in every request and every assessment, so a
  * stored answer can always be traced to the pack that produced it.
  */
-export const AWARENESS_PACK_VERSION = "awareness-pack/1";
+export const AWARENESS_PACK_VERSION = "awareness-pack/2";
 
 // ---------------------------------------------------------------------------
 // Read-only axes (orthogonal to the canonical control states)
@@ -174,6 +176,28 @@ export const ACTIVITY_ABSENT_DISPLAY: Readonly<Record<AiActivityValue, string>> 
   reporting: "AI found no report in progress",
   indeterminate: "AI found no activity signal",
 };
+
+/**
+ * Absence phrases for the thread-health properties. Like an activity absence,
+ * a health absence is an audit-trail fact, never a displayed reading: "AI found
+ * no confusion" is not the same claim as "going well".
+ */
+export const HEALTH_ABSENT_DISPLAY: Readonly<Record<ThreadHealthValue, string>> = {
+  stuck: "AI found no sign of being stuck",
+  looping: "AI found no loop",
+  thrashing: "AI found no thrashing",
+  confused: "AI found no confusion",
+  overwhelmed: "AI found no sign of overload",
+  waiting_on_operator: "AI found no request to the operator",
+  steady: "AI found no steady progress",
+  going_well: "AI found no progress landing",
+  succeeding: "AI found no verified finish",
+  exceeding: "AI found no extra verified work",
+};
+
+/** Advisory phrasing for an accepted health reading; never a claim by the seat. */
+export const healthDisplay = (value: ThreadHealthValue): string =>
+  `AI reads ${THREAD_HEALTH_LABEL[value]}`;
 
 // ---------------------------------------------------------------------------
 // Acceptance thresholds — the one place a human calibrates this pack
@@ -326,6 +350,8 @@ export type NoulQuestion = AwarenessQuestionBase & {
   readonly concern?: AiConcernValue;
   /** Set when this Noul is an activity signal. */
   readonly activity?: AiActivityValue;
+  /** Set when this Noul is a thread-health property. */
+  readonly health?: ThreadHealthValue;
 };
 
 export type ChoiceQuestion = AwarenessQuestionBase & {
@@ -402,6 +428,118 @@ export const ACTIVITY_DERIVATION: readonly ActivityDerivation[] = [
     why: "read-only exploration, the cheapest state to interrupt",
   },
 ];
+
+// ---------------------------------------------------------------------------
+// Code-side combination: thread health is a precedence over narrow properties
+// ---------------------------------------------------------------------------
+
+/**
+ * How accepted properties become one thread-health reading. Same discipline as
+ * ACTIVITY_DERIVATION: the first accepted entry in this order is the headline,
+ * its probability is that question's own number, and nothing is multiplied.
+ * Every accepted entry still travels as a signal, so a mixed thread ("going
+ * well" and "confused") is visible rather than flattened.
+ *
+ * Order rationale: what the operator can act on first. A thread that wants the
+ * operator beats every other reading, trouble beats success because a false
+ * "going well" hides a stuck seat while a false "confused" only costs a look,
+ * and the good end is ranked strongest claim first.
+ *
+ * Three entries are sourced from concern questions the pack already asks, so
+ * health never asks the same thing twice: a live approval prompt, an open
+ * question, or an access failure is a thread waiting on the operator, and an
+ * accepted repetition is a loop.
+ */
+export type HealthDerivation = {
+  readonly questionId: string;
+  readonly value: ThreadHealthValue;
+  /** For a Choice source, the option that means this reading. */
+  readonly optionId?: string;
+  readonly why: string;
+};
+
+/** Option id of `concern.repetition` that means the attempts repeat. */
+export const REPETITION_REPEATS_OPTION_ID = "repeats";
+
+export const HEALTH_DERIVATION: readonly HealthDerivation[] = [
+  {
+    questionId: "health.waiting_on_operator",
+    value: "waiting_on_operator",
+    why: "the thread stopped unfinished and handed control to the operator; the case the seat state cannot tell from done",
+  },
+  {
+    questionId: "concern.approval_requested",
+    value: "waiting_on_operator",
+    why: "a live unanswered approval prompt is a thread waiting on the operator",
+  },
+  {
+    questionId: "concern.answer_requested",
+    value: "waiting_on_operator",
+    why: "an open question to the operator is a thread waiting on the operator",
+  },
+  {
+    questionId: "concern.access_problem",
+    value: "waiting_on_operator",
+    why: "an access failure needs the operator's credentials and never clears on its own",
+  },
+  {
+    questionId: "health.stuck",
+    value: "stuck",
+    why: "the agent cannot get past a step and is not asking for help, the costliest silent state",
+  },
+  {
+    questionId: "concern.repetition",
+    value: "looping",
+    optionId: REPETITION_REPEATS_OPTION_ID,
+    why: "two comparable attempts repeat the same way, measured with the temporal pair",
+  },
+  {
+    questionId: "health.thrashing",
+    value: "thrashing",
+    why: "the agent undoes its own work, which burns time while looking busy",
+  },
+  {
+    questionId: "health.confused",
+    value: "confused",
+    why: "the agent's own words show it has lost the thread of the task",
+  },
+  {
+    questionId: "health.overwhelmed",
+    value: "overwhelmed",
+    why: "scope or context has outgrown the thread, which usually needs the operator to split the work",
+  },
+  {
+    questionId: "health.exceeding",
+    value: "exceeding",
+    why: "the strongest good claim, and only published together with a verified finish",
+  },
+  {
+    questionId: "health.succeeding",
+    value: "succeeding",
+    why: "a verified finish with nothing pending for the operator",
+  },
+  {
+    questionId: "health.going_well",
+    value: "going_well",
+    why: "concrete progress is landing, not only activity",
+  },
+  {
+    questionId: "health.steady",
+    value: "steady",
+    why: "ordinary forward progress with nothing to report either way",
+  },
+];
+
+/**
+ * A reading that needs a second accepted property before it may publish. The
+ * strongest good claim ("exceeding expectations") is the easiest for a model to
+ * over-read from a cheerful summary, so it stands only on top of a verified
+ * finish. This is a conjunction of two accepted answers, never a product of
+ * their probabilities; the reported number stays the exceeding question's own.
+ */
+export const HEALTH_REQUIRES_ALSO: Readonly<Partial<Record<ThreadHealthValue, ThreadHealthValue>>> = {
+  exceeding: "succeeding",
+};
 
 // ---------------------------------------------------------------------------
 // The pack
@@ -692,11 +830,185 @@ const HIGHLIGHT_QUESTIONS: readonly ChoiceQuestion[] = [
   },
 ];
 
+/**
+ * Thread-health properties: narrow Nouls over the same bounded window, both
+ * ends of the spectrum. Each names the look-alike it must not be confused with,
+ * because that is how a single window misleads (a finished turn and a turn
+ * waiting on the operator both end quietly; a retry and a new attempt both
+ * print a second command).
+ *
+ * None asks about time the window cannot show. "Has this been stuck for ten
+ * minutes" needs temporal evidence this pack does not supply, and the measured
+ * lesson is that such a question answers yes falsely; so each property is
+ * phrased as something visible on the screen now, and looping stays with the
+ * temporal-pair comparison above.
+ */
+const HEALTH_QUESTIONS: readonly NoulQuestion[] = [
+  {
+    id: "health.waiting_on_operator",
+    kind: "noul",
+    health: "waiting_on_operator",
+    priority: 75,
+    acceptance: "noul",
+    requires: [],
+    prompt:
+      "At the bottom of the evidence, has the agent stopped with its work NOT finished and handed " +
+      "control to the operator: it asks a question, asks for a decision, approval, credentials, or " +
+      "a go-ahead, or says it is waiting on the operator before it can continue? A finished task " +
+      "whose summary asks for nothing is not waiting, and a request that already has an answer " +
+      "below it is not waiting. Answer with your probability that the agent is waiting on the operator.",
+    // Failure mode: the operator's own report. A seat ended its turn with a
+    // question in prose; the seat read as done and nobody answered it. The
+    // concern questions catch menus and explicit prompts; this one catches the
+    // prose hand-back that looks exactly like a finished turn.
+    failureMode:
+      "an unfinished thread that ended its turn by asking the operator something read as a finished one, so the question waits unanswered",
+  },
+  {
+    id: "health.stuck",
+    kind: "noul",
+    health: "stuck",
+    priority: 72,
+    acceptance: "noul",
+    requires: [],
+    prompt:
+      "Does the evidence show the agent unable to get past a step on its own: retrying the same " +
+      "failing step with no new approach, reporting a hang or timeout it cannot get around, or " +
+      "saying it cannot continue, while NOT asking the operator for help? A single failure followed " +
+      "by a different next step is not stuck. Answer with your probability that the agent is stuck.",
+    // Failure mode: a stuck seat still prints, so the activity mark keeps
+    // waving and nothing else in the product says it has stopped moving.
+    failureMode:
+      "a seat that cannot get past a step keeps printing retries and reads as busy, so nobody looks until the whole turn is wasted",
+  },
+  {
+    id: "health.thrashing",
+    kind: "noul",
+    health: "thrashing",
+    priority: 70,
+    acceptance: "noul",
+    requires: [],
+    prompt:
+      "Does the evidence show the agent undoing or reverting its own recent changes, or switching " +
+      "back and forth between approaches (edit, fail, undo, edit again) without converging? One " +
+      "deliberate revert with a stated reason is not thrashing. Answer with your probability that " +
+      "the agent is thrashing.",
+    // Failure mode: edit, fail, revert, re-edit looks like steady editing on
+    // every single screen, so the churn is invisible without asking for it.
+    failureMode:
+      "an agent churning between two approaches read as ordinary editing, because each screen on its own shows a normal edit",
+  },
+  {
+    id: "health.confused",
+    kind: "noul",
+    health: "confused",
+    priority: 68,
+    acceptance: "noul",
+    requires: [],
+    prompt:
+      "Do the agent's own words in the evidence show confusion about the task: contradicting " +
+      "itself, saying it is unsure what is being asked, misreading the goal, working on something " +
+      "unrelated to it, or apologizing and correcting itself repeatedly? Ordinary reasoning about " +
+      "options is not confusion. Answer with your probability that the agent is confused.",
+    // Failure mode: a confused agent is fluent and busy; only its own words
+    // give it away, and those are exactly what the window carries.
+    failureMode:
+      "a fluent agent working on the wrong problem read as productive, because its output never fails",
+  },
+  {
+    id: "health.overwhelmed",
+    kind: "noul",
+    health: "overwhelmed",
+    priority: 66,
+    acceptance: "noul",
+    requires: [],
+    prompt:
+      "Does the evidence show the thread outgrowing itself: context-limit or compaction warnings, " +
+      "a flood of failures across many files at once, the agent saying the scope is too large, or " +
+      "the agent dropping parts of the task it said it would do? A long but orderly log is not " +
+      "overload. Answer with your probability that the agent is overwhelmed.",
+    // Failure mode: overload degrades quality quietly (dropped steps, context
+    // loss), and it is the case where splitting the work is the operator's fix.
+    failureMode:
+      "a thread past its context or scope keeps going and quietly drops work, with nothing on the card to say so",
+  },
+  {
+    id: "health.exceeding",
+    kind: "noul",
+    health: "exceeding",
+    priority: 64,
+    acceptance: "noul",
+    requires: [],
+    prompt:
+      "Does the evidence show the agent, beyond finishing its task, doing extra verified work that " +
+      "was not asked for: adding tests, catching and fixing a further real problem, or checking " +
+      "edge cases, with those checks passing? A confident summary alone is not evidence. Answer " +
+      "with your probability that this is shown.",
+    // Failure mode: an upbeat summary reads as excellence. The prompt demands
+    // verified extra work, and HEALTH_REQUIRES_ALSO holds the reading until a
+    // verified finish is accepted too.
+    failureMode:
+      "a cheerful self-report read as exceptional work, which trains the operator to trust summaries over checks",
+  },
+  {
+    id: "health.succeeding",
+    kind: "noul",
+    health: "succeeding",
+    priority: 63,
+    acceptance: "noul",
+    requires: [],
+    prompt:
+      "Does the evidence show the agent has finished its task and verified it (a passing test, " +
+      "build, or check it ran, followed by a done summary), with nothing left pending for the " +
+      "operator? A done claim with no visible check, or a summary that ends by asking the operator " +
+      "something, does not count. Answer with your probability that this is shown.",
+    // Failure mode: the mirror of waiting_on_operator. A done claim that ends
+    // in a question is not a finish, and a finish with no check is only a claim.
+    failureMode:
+      "an unverified done claim, or a hand-back with a question, read as a verified finish",
+  },
+  {
+    id: "health.going_well",
+    kind: "noul",
+    health: "going_well",
+    priority: 62,
+    acceptance: "noul",
+    requires: [],
+    prompt:
+      "Does the evidence show concrete progress landing: steps completing successfully, builds or " +
+      "tests passing after the agent's own changes, or planned items being checked off? Activity " +
+      "alone, such as reading files or running commands with no result yet, does not count. Answer " +
+      "with your probability that progress is landing.",
+    // Failure mode: busy is not the same as well. Without a positive property
+    // the surface can only raise alarms, and a seat doing good work looks the
+    // same as one doing nothing in particular.
+    failureMode:
+      "a seat landing real progress looks the same as an idle-busy one, so good work is invisible on the canvas",
+  },
+  {
+    id: "health.steady",
+    kind: "noul",
+    health: "steady",
+    priority: 61,
+    acceptance: "noul",
+    requires: [],
+    prompt:
+      "Is the agent making ordinary forward progress on its task: each visible step follows " +
+      "sensibly from the last, with no repeated failure, no confusion, and no request to the " +
+      "operator? Answer with your probability that the thread is progressing steadily.",
+    // Failure mode: the neutral middle. Without it every seat is either an
+    // alarm or a success, and "nothing wrong, nothing notable" has no reading.
+    failureMode:
+      "a quietly healthy thread has no reading at all, so the operator cannot tell fine from unassessed",
+  },
+];
+
 /** The pack, in review order. */
 export const AWARENESS_QUESTIONS: readonly AwarenessQuestion[] = [
   ...CONCERN_QUESTIONS,
   ...TEMPORAL_QUESTIONS,
   ...HIGHLIGHT_QUESTIONS,
+  ...HEALTH_QUESTIONS,
   ...ACTIVITY_QUESTIONS,
 ];
 

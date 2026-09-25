@@ -63,7 +63,7 @@ import {
 import { TASKS_ENABLED } from "@shared/features";
 import { releaseTaskToQueue } from "../../lib/work-actions";
 import {
-  canClaimFocusAfterAsyncWork,
+  claimFocus,
   shouldClaimFocusOnSurfaceOpen,
 } from "../../lib/focus-ownership";
 import { ActivityMark } from "../ActivityMark";
@@ -1136,8 +1136,8 @@ export function TerminalSurface({
     });
 
     // Keep the xterm textarea focused so key + mouse protocol stay live.
-    const onPointerDownCapture = (): void => {
-      term.focus();
+    const onPointerDownCapture = (event: PointerEvent): void => {
+      claimFocus(term.textarea ?? host, "gesture", { event, via: term, owner: host });
     };
     host.addEventListener("pointerdown", onPointerDownCapture, { capture: true });
 
@@ -1395,8 +1395,7 @@ export function TerminalSurface({
       const host = hostRef.current;
       if (!host?.closest(".work-focus-shell")) return false;
       if (!shouldClaimFocusOnSurfaceOpen(host)) return true;
-      term.focus();
-      return host.contains(document.activeElement);
+      return claimFocus(term.textarea ?? host, "open", { via: term, owner: host });
     };
     if (claim()) return;
     const raf = requestAnimationFrame(() => {
@@ -1619,11 +1618,11 @@ export function TerminalSurface({
             requestAnimationFrame(() => {
               if (!alive) return;
               pushResize({ forcePaint: true });
-              if (
-                !sawExit &&
-                canClaimFocusAfterAsyncWork(hostRef.current)
-              ) {
-                term.focus();
+              if (!sawExit) {
+                claimFocus(term.textarea ?? hostRef.current, "async", {
+                  via: term,
+                  owner: hostRef.current,
+                });
               }
             });
             for (const ms of SETTLE_FITS_MS) {

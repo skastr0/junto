@@ -91,7 +91,6 @@ import {
   inversePatches,
   isControlTarget,
   isShapeTool,
-  isTypingTarget,
   moveImage,
   movePin,
   moveShape,
@@ -119,7 +118,7 @@ import {
   type PadTool,
   type ResizeHandle,
 } from "./pad-editor-model";
-import { claimFocusOnMount } from "../../lib/focus-ownership";
+import { claimFocusOnMount, isOperatorTyping } from "../../lib/focus-ownership";
 
 type Gesture =
   | { readonly kind: "idle" }
@@ -715,12 +714,12 @@ export function PadEditor({
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === " " && !isTypingTarget(event.target) && !isControlTarget(event.target)) {
+      if (event.key === " " && !isOperatorTyping(event.target) && !isControlTarget(event.target)) {
         if (!event.repeat) setSpaceDown(true);
         event.preventDefault();
         return;
       }
-      const typing = isTypingTarget(event.target) || editingLabel;
+      const typing = isOperatorTyping(event.target) || editingLabel;
       if (typing && event.key === "Escape") {
         // Child inputs own Escape (label input cancels itself; the pin thread
         // dismisses its mention menu and keeps the draft). Do not intercept.
@@ -800,7 +799,7 @@ export function PadEditor({
 
   useEffect(() => {
     const onPaste = (event: ClipboardEvent) => {
-      if (isTypingTarget(event.target) || editingLabel) return;
+      if (isOperatorTyping(event.target) || editingLabel) return;
       if (!dataTransferHasImage(event.clipboardData)) return;
       event.preventDefault();
       event.stopPropagation();

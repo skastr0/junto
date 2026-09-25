@@ -96,8 +96,9 @@ export function CanvasKeyboardPan() {
       if (held.size === 0) stop();
     };
 
+    // focus-law: canvasOwnsKeyboard yields to any focused field, terminal, or node.
     window.addEventListener("keydown", onKeyDown);
-    window.addEventListener("keyup", onKeyUp);
+    window.addEventListener("keyup", onKeyUp); // focus-law: releases held pan keys only.
     window.addEventListener("blur", stop);
     document.addEventListener("visibilitychange", stop);
     return () => {

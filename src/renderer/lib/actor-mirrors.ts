@@ -169,6 +169,7 @@ export const installActorMirrorHotkeys = (): (() => void) => {
     event.preventDefault();
     event.stopPropagation();
   };
+  // focus-law: Cmd+[ / Cmd+] command chord, never text entry.
   window.addEventListener("keydown", onKeyDown, { capture: true });
   return () => {
     window.removeEventListener("keydown", onKeyDown, { capture: true });

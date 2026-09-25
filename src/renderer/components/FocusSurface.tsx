@@ -84,6 +84,7 @@ export function FocusSurface({
         onCloseRef.current();
       }
     };
+    // focus-law: Escape-only close of the front focus surface.
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [closeOnEscape]);

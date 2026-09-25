@@ -221,7 +221,7 @@ describe("awareness assessment states", () => {
   it("refuses answers that came from a different question pack", () => {
     const request = plain();
     const assessment = respond(request, [noul(request, "concern.approval_requested", 0.99)], {
-      packVersion: "awareness-pack/2",
+      packVersion: "awareness-pack/1",
     });
     expect(assessment.availability).toBe("unavailable");
     expect(assessment.unavailableReason).toBe("pack_version_mismatch");
@@ -958,5 +958,98 @@ describe("awareness acceptance and combination", () => {
       expect(ASSESSMENT_AVAILABILITY_VALUES).toContain(assessment.availability);
       expect(assessment.advisory).toBe(true);
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Thread health
+// ---------------------------------------------------------------------------
+
+describe("awareness thread health", () => {
+  it("reads the good end of the spectrum, with the winning question's own probability", () => {
+    const request = plain();
+    const assessment = respond(request, [
+      noul(request, "health.going_well", 0.93),
+      noul(request, "health.steady", 0.95),
+      noul(request, "health.confused", 0.04),
+    ]);
+    expect(assessment.health).toEqual({
+      value: "going_well",
+      questionId: "health.going_well",
+      probability: 0.93,
+      signals: [
+        { questionId: "health.going_well", value: "going_well", probability: 0.93 },
+        { questionId: "health.steady", value: "steady", probability: 0.95 },
+      ],
+    });
+    expect(assessment.availability).toBe("current");
+    // A health absence is an audit fact, never a displayed reading.
+    const absence = assessment.negatives.find((n) => n.questionId === "health.confused");
+    expect(absence).toMatchObject({ health: "confused", crossCheckOnly: true });
+    expect(absence?.display).toBe("AI found no confusion");
+  });
+
+  it("puts trouble ahead of success and keeps both as signals", () => {
+    const request = plain();
+    const assessment = respond(request, [
+      noul(request, "health.going_well", 0.92),
+      noul(request, "health.thrashing", 0.91),
+    ]);
+    expect(assessment.health?.value).toBe("thrashing");
+    expect(assessment.health?.signals.map((s) => s.value)).toEqual(["thrashing", "going_well"]);
+  });
+
+  it("reads a thread waiting on the operator ahead of everything, from its own question or a concern", () => {
+    const own = plain();
+    expect(
+      respond(own, [
+        noul(own, "health.stuck", 0.95),
+        noul(own, "health.waiting_on_operator", 0.97),
+      ]).health?.value,
+    ).toBe("waiting_on_operator");
+
+    const viaConcern = plain();
+    const assessment = respond(viaConcern, [noul(viaConcern, "concern.answer_requested", 0.96)]);
+    expect(assessment.health).toMatchObject({
+      value: "waiting_on_operator",
+      questionId: "concern.answer_requested",
+      probability: 0.96,
+    });
+    expect(assessment.concerns.map((c) => c.concern)).toEqual(["answer_requested"]);
+  });
+
+  it("reads an accepted repetition as looping", () => {
+    const request = paired();
+    const assessment = respond(request, [
+      choice(request, "concern.repetition", "repeats", 0.95, {
+        repeats: 0.95,
+        different: 0.03,
+        insufficient_evidence: 0.02,
+      }),
+    ]);
+    expect(assessment.health?.value).toBe("looping");
+  });
+
+  it("never publishes exceeding without a verified finish", () => {
+    const alone = plain();
+    expect(respond(alone, [noul(alone, "health.exceeding", 0.97)]).health).toBeUndefined();
+
+    const backed = plain();
+    const assessment = respond(backed, [
+      noul(backed, "health.exceeding", 0.94),
+      noul(backed, "health.succeeding", 0.96),
+    ]);
+    expect(assessment.health).toMatchObject({ value: "exceeding", probability: 0.94 });
+  });
+
+  it("has no reading when every health answer is absent or in the band", () => {
+    const request = plain();
+    const assessment = respond(request, [
+      noul(request, "health.steady", 0.5),
+      noul(request, "health.stuck", 0.02),
+    ]);
+    expect(assessment.health).toBeUndefined();
+    // The decisive absence still makes the observation a judgment.
+    expect(assessment.availability).toBe("current");
   });
 });

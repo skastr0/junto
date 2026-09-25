@@ -4,6 +4,7 @@ import type { DemoScenario } from "@shared/demo";
 import { demoScenarios } from "./scenarios";
 import { demo$, startTake, stopTake } from "./conductor";
 import { demoHud$ } from "./ops";
+import { isOperatorTyping } from "../lib/focus-ownership";
 
 const DEFAULT_SCENARIO_ID = "trailer-60";
 // Indexed via a Record cast: demoScenarios' exact key type is derived from
@@ -50,8 +51,7 @@ export function DemoLayer() {
   useEffect(() => {
     if (!active) return;
     const onKeyDown = (event: KeyboardEvent) => {
-      const target = event.target as HTMLElement | null;
-      if (target?.closest("input, textarea, [contenteditable='true']")) return;
+      if (isOperatorTyping(event.target)) return;
       if (event.key === "F9") {
         event.preventDefault();
         const scenario = scenariosById[scenarioId];

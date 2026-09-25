@@ -8,6 +8,7 @@
  */
 import { useCallback } from "react";
 import { useStoreApi } from "@xyflow/react";
+import { isOperatorTyping } from "./focus-ownership";
 
 /** Junto multi-select modifier (matches ReactFlow multiSelectionKeyCode). */
 export function isMultiSelectGesture(
@@ -18,14 +19,7 @@ export function isMultiSelectGesture(
 
 /** True when the event target is a focused text field we must not hijack. */
 export function isEditableEventTarget(target: EventTarget | null): boolean {
-  if (target == null || typeof (target as Element).closest !== "function") {
-    return false;
-  }
-  return Boolean(
-    (target as Element).closest(
-      "input, textarea, select, [contenteditable='true']",
-    ),
-  );
+  return isOperatorTyping(target);
 }
 
 /**

@@ -38,6 +38,8 @@ import {
   AWARENESS_QUESTION_IDS,
   CONCERN_ABSENT_DISPLAY,
   CONCERN_DISPLAY,
+  HEALTH_DERIVATION,
+  HEALTH_REQUIRES_ALSO,
   HIGHLIGHT_NONE_OPTION_ID,
   INSUFFICIENT_EVIDENCE_OPTION_ID,
   MAX_EVIDENCE_CANDIDATE_LINES,
@@ -46,6 +48,7 @@ import {
   type NoulQuestion,
 } from "../src/main/junto/term/awareness/questions";
 import { UNAVAILABLE_REASONS } from "../src/main/junto/term/awareness/project-result";
+import { THREAD_HEALTH_VALUES } from "../src/shared/thread-health";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -177,7 +180,7 @@ describe("awareness authority boundary", () => {
 
 describe("awareness question pack", () => {
   it("is versioned in one place", () => {
-    expect(AWARENESS_PACK_VERSION).toBe("awareness-pack/1");
+    expect(AWARENESS_PACK_VERSION).toBe("awareness-pack/2");
   });
 
   it("keeps every threshold in the one acceptance block, with both Noul bars", () => {
@@ -258,17 +261,45 @@ describe("awareness question pack", () => {
     expect(formatEvidenceLineId(127)).toBe("L127");
   });
 
-  it("classifies every Noul as a concern or an activity property", () => {
+  it("classifies every Noul as exactly one concern, activity, or health property", () => {
     // A Noul's absence has to mean something: a concern's absence is the
-    // surface's "checked and clear", and an activity property's absence is a
-    // control-plane cross-check. An unclassified Noul would have neither role.
+    // surface's "checked and clear", an activity property's absence is a
+    // control-plane cross-check, and a health absence is an audit fact. An
+    // unclassified Noul would have no role; a doubly classified one two.
     for (const question of AWARENESS_QUESTIONS) {
       if (question.kind !== "noul") continue;
-      expect(
-        question.concern !== undefined || question.activity !== undefined,
-        question.id,
-      ).toBe(true);
+      const roles = [question.concern, question.activity, question.health].filter(
+        (role) => role !== undefined,
+      );
+      expect(roles.length, question.id).toBe(1);
     }
+  });
+
+  it("derives thread health by a declared precedence that covers both ends", () => {
+    const healthNouls = AWARENESS_QUESTIONS.filter(
+      (q): q is NoulQuestion => q.kind === "noul" && q.health !== undefined,
+    );
+    // Every health Noul feeds the derivation, with the value it declares.
+    for (const question of healthNouls) {
+      const entry = HEALTH_DERIVATION.find((e) => e.questionId === question.id);
+      expect(entry?.value, question.id).toBe(question.health);
+    }
+    // Every derivation source is a question the pack actually asks.
+    for (const entry of HEALTH_DERIVATION) {
+      expect(AWARENESS_QUESTION_IDS, entry.questionId).toContain(entry.questionId);
+      expect(entry.why.length).toBeGreaterThan(20);
+      expect("weight" in entry).toBe(false);
+    }
+    // Both ends of the spectrum are reachable, and waiting on the operator
+    // outranks everything: it is the case the seat state cannot see.
+    const reachable = new Set(HEALTH_DERIVATION.map((e) => e.value));
+    expect([...reachable].sort()).toEqual([...THREAD_HEALTH_VALUES].sort());
+    expect(HEALTH_DERIVATION[0]?.value).toBe("waiting_on_operator");
+    const firstGood = HEALTH_DERIVATION.findIndex((e) => e.value === "exceeding");
+    const lastTrouble = HEALTH_DERIVATION.findIndex((e) => e.value === "overwhelmed");
+    expect(lastTrouble).toBeLessThan(firstGood);
+    // The strongest good claim never stands alone.
+    expect(HEALTH_REQUIRES_ALSO).toEqual({ exceeding: "succeeding" });
   });
 
   it("combines activity by a declared precedence over narrow properties", () => {

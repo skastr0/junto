@@ -54,6 +54,9 @@ import {
   AWARENESS_QUESTIONS,
   CONCERN_ABSENT_DISPLAY,
   CONCERN_DISPLAY,
+  HEALTH_ABSENT_DISPLAY,
+  HEALTH_DERIVATION,
+  HEALTH_REQUIRES_ALSO,
   HIGHLIGHT_NONE_OPTION_ID,
   awarenessQuestion,
   type AiActivityValue,
@@ -61,6 +64,7 @@ import {
   type AssessmentAvailability,
 } from "./questions";
 import type { AwarenessRequestState, EvidenceLine } from "./select-input";
+import type { ThreadHealthValue } from "@shared/thread-health";
 
 // ---------------------------------------------------------------------------
 // Raw wire shapes (untrusted)
@@ -161,6 +165,8 @@ export type NegativeVerdict = {
   readonly concern?: AiConcernValue;
   /** Set when the question is an activity property. */
   readonly activity?: AiActivityValue;
+  /** Set when the question is a thread-health property. */
+  readonly health?: ThreadHealthValue;
   readonly probability: number;
   readonly display: string;
   readonly crossCheckOnly: boolean;
@@ -189,6 +195,26 @@ export type ConcernProjection = {
   readonly probability: number;
   /** Evidence the concern rests on, when the question names lines. */
   readonly evidenceLineIds: readonly string[];
+};
+
+export type HealthSignal = {
+  readonly questionId: string;
+  readonly value: ThreadHealthValue;
+  readonly probability: number;
+};
+
+/**
+ * The thread-health reading for one observation: the headline is the first
+ * accepted entry of HEALTH_DERIVATION, with that question's own probability,
+ * and `signals` keeps every accepted entry in precedence order. Absent when no
+ * health property was accepted: an all-absent or all-abstained pack has no
+ * reading, which is not the same claim as "steady".
+ */
+export type HealthProjection = {
+  readonly value: ThreadHealthValue;
+  readonly questionId: string;
+  readonly probability: number;
+  readonly signals: readonly HealthSignal[];
 };
 
 export type HighlightProjection =
@@ -246,7 +272,9 @@ export type AwarenessAssessment = {
   readonly packVersion: string;
   readonly activity: ActivityProjection;
   readonly concerns: readonly ConcernProjection[];
-  /** Accepted ABSENT verdicts, for concerns and activity properties alike. */
+  /** Advisory thread health; absent when no health property was accepted. */
+  readonly health?: HealthProjection;
+  /** Accepted ABSENT verdicts, for concerns, activity and health properties alike. */
   readonly negatives: readonly NegativeVerdict[];
   readonly highlight?: HighlightProjection;
   /**
@@ -539,14 +567,18 @@ export const projectAwarenessAnswers = (
           questionId,
           ...(question.concern !== undefined ? { concern: question.concern } : {}),
           ...(question.activity !== undefined ? { activity: question.activity } : {}),
+          ...(question.health !== undefined ? { health: question.health } : {}),
           probability,
           display:
             question.concern !== undefined
               ? CONCERN_ABSENT_DISPLAY[question.concern]
-              : ACTIVITY_ABSENT_DISPLAY[question.activity ?? "indeterminate"],
+              : question.health !== undefined
+                ? HEALTH_ABSENT_DISPLAY[question.health]
+                : ACTIVITY_ABSENT_DISPLAY[question.activity ?? "indeterminate"],
           // A concern's absence is the surface's "checked and clear"; an
           // activity property's absence is a cross-check for the control plane,
-          // which already owns idle versus working.
+          // which already owns idle versus working; a health absence is an
+          // audit fact ("no confusion" is not "going well").
           crossCheckOnly: question.concern === undefined,
         });
       } else {
@@ -747,6 +779,8 @@ export const projectAwarenessAnswers = (
     unansweredConcerns.push(question.concern);
   }
 
+  const health = projectHealth(acceptedNouls, acceptedChoices);
+
   // The highlight is not a concern; interpret it separately.
   const highlightChoice = acceptedChoices.get("highlight.line");
   if (highlightChoice !== undefined) {
@@ -782,6 +816,7 @@ export const projectAwarenessAnswers = (
   const decisiveCount =
     (activity.probability === undefined ? 0 : 1) +
     concerns.length +
+    (health === undefined ? 0 : health.signals.filter((signal) => signal.questionId.startsWith("health.")).length) +
     negatives.length +
     (highlight === undefined ? 0 : 1);
 
@@ -804,6 +839,7 @@ export const projectAwarenessAnswers = (
     packVersion: request.packVersion,
     activity,
     concerns,
+    ...(health !== undefined ? { health } : {}),
     negatives,
     unansweredConcerns,
     ...(highlight !== undefined ? { highlight } : {}),
@@ -821,5 +857,42 @@ export const projectAwarenessAnswers = (
       returnedModel: answerReturnedModel,
       evidenceLineId,
     }),
+  };
+};
+
+/**
+ * Thread health from the accepted answers, by HEALTH_DERIVATION precedence.
+ * One signal per value (the first source in precedence order wins), then any
+ * value whose HEALTH_REQUIRES_ALSO partner was not accepted is dropped. The
+ * headline is the first survivor; no probability is combined or adjusted.
+ */
+const projectHealth = (
+  acceptedNouls: ReadonlyMap<string, number>,
+  acceptedChoices: ReadonlyMap<string, { readonly optionId: string; readonly probability: number }>,
+): HealthProjection | undefined => {
+  const byValue = new Map<ThreadHealthValue, HealthSignal>();
+  for (const entry of HEALTH_DERIVATION) {
+    if (byValue.has(entry.value)) continue;
+    let probability: number | undefined;
+    if (entry.optionId === undefined) {
+      probability = acceptedNouls.get(entry.questionId);
+    } else {
+      const choice = acceptedChoices.get(entry.questionId);
+      if (choice?.optionId === entry.optionId) probability = choice.probability;
+    }
+    if (probability === undefined) continue;
+    byValue.set(entry.value, { questionId: entry.questionId, value: entry.value, probability });
+  }
+  const signals = [...byValue.values()].filter((signal) => {
+    const partner = HEALTH_REQUIRES_ALSO[signal.value];
+    return partner === undefined || byValue.has(partner);
+  });
+  const headline = signals[0];
+  if (headline === undefined) return undefined;
+  return {
+    value: headline.value,
+    questionId: headline.questionId,
+    probability: headline.probability,
+    signals,
   };
 };

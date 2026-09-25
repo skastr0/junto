@@ -279,8 +279,9 @@ export const installFocusSwitcherHotkeys = (): (() => void) => {
     commitFocusSwitcher();
   };
 
+  // focus-law: Control+Tab chord; bare keys act only while the switcher is open.
   window.addEventListener("keydown", onKeyDown, { capture: true });
-  window.addEventListener("keyup", onKeyUp, { capture: true });
+  window.addEventListener("keyup", onKeyUp, { capture: true }); // focus-law: Control release commits the open switcher.
   return () => {
     window.removeEventListener("keydown", onKeyDown, { capture: true });
     window.removeEventListener("keyup", onKeyUp, { capture: true });

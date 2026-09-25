@@ -1179,6 +1179,7 @@ export function SettingsPanel() {
         closeSettings();
       }
     };
+    // focus-law: Escape-only close of open settings.
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [open]);

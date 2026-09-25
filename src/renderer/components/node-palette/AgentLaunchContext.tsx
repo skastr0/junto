@@ -138,6 +138,7 @@ export function AgentLaunchContext({
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key === "Escape") onFolderOpenChange(false);
     };
+    // focus-law: Escape-only close of the folder picker.
     window.addEventListener("keydown", closeOnEscape);
     return () => window.removeEventListener("keydown", closeOnEscape);
   }, [folderOpen, onFolderOpenChange]);

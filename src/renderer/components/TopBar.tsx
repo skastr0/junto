@@ -291,6 +291,7 @@ export function TopBar({
       const target = event.target;
       if (target instanceof Element && !target.closest(".station-actions")) setHelpOpen(false);
     };
+    // focus-law: Escape-only close of the help popover.
     window.addEventListener("keydown", onKeyDown);
     document.addEventListener("pointerdown", onPointerDown);
     return () => {

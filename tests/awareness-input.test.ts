@@ -407,7 +407,7 @@ describe("awareness evidence caps", () => {
     expect(state.evidenceBlock).toBe("");
     expect(state.evidenceBytes).toBe(0);
     expect(state.questions).toEqual([]);
-    expect(state.skipped.length).toBe(12);
+    expect(state.skipped.length).toBe(21);
     expect(state.skipped.every((s) => s.reason === "evidence_unavailable")).toBe(true);
     // The note states the gap rather than implying an answer.
     expect(state.temporalNote).toContain("not possible");
@@ -597,7 +597,7 @@ describe("awareness request state", () => {
   it("carries the observation identity and one acceptance policy per question", () => {
     const state = selectAwarenessInput(windowOf(["one", "two"]));
 
-    expect(state.packVersion).toBe("awareness-pack/1");
+    expect(state.packVersion).toBe("awareness-pack/2");
     expect(state.bindingId).toBe("seat-1");
     expect(state.epoch).toBe("e1");
     expect(state.sourceSeq).toBe("42");
@@ -608,9 +608,9 @@ describe("awareness request state", () => {
       evidenceBytes: MAX_EVIDENCE_BYTES,
       requestBytes: MAX_REQUEST_BYTES,
     });
-    // 12 questions in the pack; the comparison question is skipped without a
+    // 21 questions in the pack; the comparison question is skipped without a
     // temporal pair.
-    expect(state.questions.length).toBe(11);
+    expect(state.questions.length).toBe(20);
     const noul = state.questions.find((q) => q.kind === "noul");
     expect(noul?.acceptance).toEqual({
       minNoulProbability: 0.9,

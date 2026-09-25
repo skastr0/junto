@@ -125,10 +125,6 @@ const clamp = (n: number, min: number, max: number): number =>
 export const toolFromKey = (key: string): PadTool | undefined =>
   PAD_TOOL_KEYS[key.toLowerCase()];
 
-export const isTypingTarget = (target: EventTarget | null): boolean =>
-  target instanceof HTMLElement &&
-  Boolean(target.closest("input, textarea, [contenteditable='true']"));
-
 /**
  * Non-editing controls (toolbar buttons, mention chips, mention options).
  * Drawing shortcuts, delete, undo, nudges, and Tab must not steal these —

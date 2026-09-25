@@ -210,6 +210,7 @@ export function TooltipLayer() {
     document.addEventListener("pointerdown", hide, true);
     document.addEventListener("scroll", hide, true);
     window.addEventListener("resize", hide);
+    // focus-law: Escape only hides the tooltip; focus is untouched.
     window.addEventListener("keydown", onKeyDown);
 
     return () => {

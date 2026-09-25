@@ -59,6 +59,7 @@ await allMustPass([
   { name: "lint:no-middot", cmd: ["bun", "scripts/lint-no-middot.ts"] },
   { name: "lint:effect-runpromise", cmd: ["bun", "scripts/lint-effect-runpromise.ts"] },
   { name: "lint:single-write-seam", cmd: ["bun", "scripts/lint-single-write-seam.ts"] },
+  { name: "lint:focus-law", cmd: ["bun", "scripts/lint-focus-law.ts"] },
 ]);
 
 const vitestWorkers = process.env.CI === "true" ? "2" : "4";

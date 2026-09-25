@@ -843,6 +843,7 @@ const useMenuDismiss = (active: boolean, dismiss: () => void) => {
       ) return;
       dismiss();
     };
+    // focus-law: Escape-only dismissal of the open canvas menu.
     window.addEventListener("keydown", onKeyDown);
     document.addEventListener("pointerdown", onPointerDown);
     return () => {
