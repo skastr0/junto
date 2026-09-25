@@ -1,4 +1,4 @@
-import { Profiler, StrictMode, useEffect } from "react";
+import { lazy, Profiler, StrictMode, Suspense, useEffect } from "react";
 import { createRoot as createStandardRoot } from "react-dom/client";
 import "@xyflow/react/dist/style.css";
 import { App } from "./App";
@@ -32,6 +32,12 @@ if (!root) {
 // geometry and copy; it never grants an OS capability.
 document.documentElement.dataset.juntoPlatform = window.junto?.platform ?? "unknown";
 
+// Dev gallery for the activity mark (`#/gallery/marks`); split off the boot chunk.
+const MARK_GALLERY = "#/gallery/marks";
+const ActivityMarkGallery = lazy(() =>
+  import("./components/gallery/ActivityMarkGallery").then((m) => ({ default: m.ActivityMarkGallery })),
+);
+
 function AppRoot() {
   const api = window.junto;
 
@@ -40,6 +46,14 @@ function AppRoot() {
     api?.rendererSurfaceReady();
     startThemeMode();
   }, [api]);
+
+  if (window.location.hash.startsWith(MARK_GALLERY)) {
+    return (
+      <Suspense fallback={null}>
+        <ActivityMarkGallery />
+      </Suspense>
+    );
+  }
 
   if (!api) {
     return (
