@@ -12,7 +12,7 @@ import {
 import { EXPRESSION_FACES, portraitExpression, type PortraitExpression } from "@shared/portrait-expression";
 import type { ThemeMode } from "@shared/theme";
 import type { PortraitMood } from "../lib/portrait-mood";
-import { state$ } from "../lib/state";
+import { portraitOverrides$, startPortraitOverrides } from "../lib/portrait-overrides-state";
 import { themeMode$ } from "../lib/theme-mode";
 import { HarnessMark } from "./HarnessMark";
 import "./AgentPortrait.css";
@@ -30,7 +30,7 @@ import "./AgentPortrait.css";
 // so a ring drawn outside that box never covers the face. The badge sits on
 // the circle's lower-right edge (45 degrees) and may overlap the ring.
 //
-// Character: the operator's saved override (settings portraits.bySeat) laid
+// Character: the operator's saved override (junto.db portrait_overrides) laid
 // over the identity genome. Expression: `mood` (the seat's ring inputs) picks
 // one of a finite set of faces, biased by the character's temperament; a new
 // face cross-fades over the old one, and not at all under reduced motion.
@@ -57,9 +57,11 @@ export function agentPortraitSrc(
   return src;
 }
 
-/** The operator's saved override for a seat, if any. */
-export const usePortraitConfig = (identity: string): PortraitConfig | undefined =>
-  use$(() => state$.settings.portraits.bySeat[identity].get()) as PortraitConfig | undefined;
+/** The operator's saved override for a seat (junto.db portrait_overrides), if any. */
+export const usePortraitConfig = (identity: string): PortraitConfig | undefined => {
+  startPortraitOverrides();
+  return use$(() => portraitOverrides$[identity].get()) as PortraitConfig | undefined;
+};
 
 const FADE_MS = 220;
 

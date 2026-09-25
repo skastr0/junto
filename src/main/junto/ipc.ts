@@ -56,6 +56,12 @@ import { messageDelivery } from "./work/message-delivery";
 import { AgentSignalRepository } from "./signals/repository";
 import { SquadRepository, type SquadRepositoryError } from "./squads/repository";
 import type { SquadDeleteResult, SquadResult, SquadSaveInput } from "@shared/squads";
+import { PortraitOverrideRepository } from "./portraits/repository";
+import {
+  isPortraitSeatId,
+  normalizePortraitOverride,
+  type PortraitOverrideSetResult,
+} from "@shared/portrait-overrides";
 import {
   answerAgentSignal,
   dismissAgentSignal,
@@ -643,6 +649,30 @@ export const registerJuntoIpc = (): void => {
             ? error.message
             : "collaboration request could not be sent",
       }));
+    },
+  );
+
+  // Portrait overrides: the operator's per-seat character customization. An
+  // install-local preference like settings (no canvas authoring), so it runs
+  // outside the main-authoring gate; every change is broadcast as it stands.
+  privilegedIpc.handle(IPC_CHANNELS.portraitOverridesList, () =>
+    AppRuntime.runPromise(Effect.flatMap(PortraitOverrideRepository, (repository) => repository.list())),
+  );
+  privilegedIpc.handle(
+    IPC_CHANNELS.portraitOverrideSet,
+    async (_event, seatId: unknown, override: unknown): Promise<PortraitOverrideSetResult> => {
+      if (!isPortraitSeatId(seatId)) return { ok: false, message: "portrait seat id is invalid" };
+      try {
+        const stored = await AppRuntime.runPromise(
+          Effect.flatMap(PortraitOverrideRepository, (repository) =>
+            repository.set(seatId, override === null ? null : normalizePortraitOverride(override)),
+          ),
+        );
+        broadcast(IPC_CHANNELS.portraitOverride, { seatId, override: stored });
+        return { ok: true, seatId, override: stored };
+      } catch (error) {
+        return { ok: false, message: error instanceof Error ? error.message : "portrait save failed" };
+      }
     },
   );
 

@@ -11,8 +11,8 @@ vi.mock("../src/renderer/lib/theme-mode", async () => {
 });
 
 const { PortraitEditButton } = await import("../src/renderer/components/portrait/PortraitEditor");
-const { state$ } = await import("../src/renderer/lib/state");
-const { applySettingsPatch, defaultSettings } = await import("../src/shared/settings");
+const { portraitOverrides$ } = await import("../src/renderer/lib/portrait-overrides-state");
+const { normalizePortraitOverride } = await import("../src/shared/portrait-overrides");
 
 let host: HTMLDivElement;
 let root: Root;
@@ -21,11 +21,12 @@ const patches: unknown[] = [];
 beforeEach(() => {
   vi.useFakeTimers();
   patches.length = 0;
-  state$.settings.set(defaultSettings());
+  portraitOverrides$.set({});
+  // The main-process store: normalizes and echoes the stored override.
   (window as unknown as { junto: unknown }).junto = {
-    settingsPatch: async (patch: Parameters<typeof applySettingsPatch>[1]) => {
-      patches.push(patch);
-      return { ok: true, settings: applySettingsPatch(state$.settings.peek(), patch) };
+    portraitOverrideSet: async (seatId: string, override: unknown) => {
+      patches.push({ seatId, override });
+      return { ok: true, seatId, override: override === null ? null : normalizePortraitOverride(override) };
     },
   };
   host = document.createElement("div");
@@ -68,14 +69,14 @@ describe("portrait editor", () => {
     const editor = open();
     act(() => (editor.querySelector('[aria-label="body toast"]') as HTMLButtonElement).click());
     await settle();
-    expect(state$.settings.peek().portraits?.bySeat["seat-1"]).toEqual({ shape: "toast" });
+    expect(portraitOverrides$.peek()["seat-1"]).toEqual({ shape: "toast" });
     expect(editor.querySelector('[aria-label="body toast"]')?.getAttribute("aria-checked")).toBe("true");
 
     const reset = [...editor.querySelectorAll("button")].find((button) => button.textContent === "Reset");
     act(() => reset?.click());
     await settle();
-    expect(patches.at(-1)).toEqual({ portraits: { bySeat: { "seat-1": null } } });
-    expect(state$.settings.peek().portraits?.bySeat["seat-1"]).toBeUndefined();
+    expect(patches.at(-1)).toEqual({ seatId: "seat-1", override: null });
+    expect(portraitOverrides$.peek()["seat-1"]).toBeUndefined();
   });
 
   it("moves temperament and randomizes within the offered options", async () => {
@@ -86,13 +87,13 @@ describe("portrait editor", () => {
       slider.dispatchEvent(new Event("input", { bubbles: true }));
     });
     await settle();
-    expect(state$.settings.peek().portraits?.bySeat["seat-1"]?.temperament).toBe(-0.8);
+    expect(portraitOverrides$.peek()["seat-1"]?.temperament).toBe(-0.8);
     expect(editor.textContent).toContain("moody");
 
     const randomize = [...editor.querySelectorAll("button")].find((button) => button.textContent === "Randomize");
     act(() => randomize?.click());
     await settle();
-    const saved = state$.settings.peek().portraits?.bySeat["seat-1"];
+    const saved = portraitOverrides$.peek()["seat-1"];
     expect(saved?.shape).toBeDefined();
     expect(saved?.eyes).toBeDefined();
   });

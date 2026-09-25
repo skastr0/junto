@@ -7,9 +7,8 @@ vi.mock("../src/renderer/lib/theme-mode", async () => {
 });
 
 const { AgentPortrait, agentPortraitSrc } = await import("../src/renderer/components/AgentPortrait");
-const { state$ } = await import("../src/renderer/lib/state");
+const { portraitOverrides$ } = await import("../src/renderer/lib/portrait-overrides-state");
 const { seatPortraitMood } = await import("../src/renderer/lib/portrait-mood");
-const { defaultSettings } = await import("../src/shared/settings");
 
 describe("AgentPortrait", () => {
   it("renders one cached portrait image plus a harness badge", () => {
@@ -36,7 +35,7 @@ describe("AgentPortrait", () => {
   });
 
   it("wears the seat's saved override and picks a face from its mood", () => {
-    state$.settings.set({ ...defaultSettings(), portraits: { bySeat: { "node-9": { temperament: 1, shape: "toast" } } } });
+    portraitOverrides$.set({ "node-9": { temperament: 1, shape: "toast" } });
     const html = renderToStaticMarkup(
       <AgentPortrait identity="node-9" size={36} frame="round" mood={{ activity: "work", health: "stuck" }} />,
     );

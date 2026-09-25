@@ -167,10 +167,12 @@ export const HarnessesSettings = Schema.Struct({
 export type HarnessesSettings = typeof HarnessesSettings.Type;
 
 /**
- * Operator customization of one agent seat's portrait (character editor).
- * Values are bounded plain strings, not literals: the renderer resolves each
- * against today's options and falls back to the identity default, so an
- * option a later build retires can never make this row fail to decode.
+ * DEPRECATED, frozen: per-seat portrait overrides as the settings row held
+ * them before state migration 4 -> 5 copied them into junto.db
+ * `portrait_overrides`. Never written or read by the app any more; the stored
+ * copy passes through settings writes untouched (expand, preserve, deprecate)
+ * until a later consolidate step retires it. Plain bounded strings so an old
+ * row always decodes.
  */
 const portraitTrait = Schema.String.pipe(Schema.check(Schema.isMaxLength(24)));
 export const PortraitPrefs = Schema.Struct({
@@ -187,13 +189,6 @@ export const PortraitPrefs = Schema.Struct({
 });
 export type PortraitPrefs = typeof PortraitPrefs.Type;
 
-/** Most customized seats kept; the settings row is a bounded JSON body. */
-export const PORTRAIT_PREFS_MAX_SEATS = 200;
-
-/**
- * Portrait customization keyed by the seat's canvas node id. Absent seats use
- * their identity portrait. Optional on rows written before this section.
- */
 export const PortraitsSettings = Schema.Struct({
   bySeat: Schema.Record(Schema.String, PortraitPrefs),
 });
@@ -683,7 +678,7 @@ export const Settings = Schema.Struct({
    * the renderer only ever sees the redacted projection.
    */
   providers: Schema.optionalKey(ProvidersSettings),
-  /** Absent on rows written before the character editor. Absent ≡ no overrides. */
+  /** DEPRECATED frozen copy (see PortraitsSettings); present only on rows that had it. */
   portraits: Schema.optionalKey(PortraitsSettings),
 });
 export type Settings = typeof Settings.Type;
@@ -814,12 +809,6 @@ export const HarnessesPatch = Schema.Struct({
 });
 export type HarnessesPatch = typeof HarnessesPatch.Type;
 
-export const PortraitsPatch = Schema.Struct({
-  /** Per-seat replace: a config sets the seat's whole override, null resets it. */
-  bySeat: Schema.Record(Schema.String, Schema.NullOr(PortraitPrefs)),
-});
-export type PortraitsPatch = typeof PortraitsPatch.Type;
-
 export const FleetPatch = Schema.Struct({
   ditherLevel: Schema.optionalKey(FleetDitherLevel),
   remoteManagedInstalls: Schema.optionalKey(Schema.Boolean),
@@ -869,7 +858,6 @@ export const SettingsPatch = Schema.Struct({
   terminal: Schema.optionalKey(TerminalPatch),
   live: Schema.optionalKey(LivePatch),
   providers: Schema.optionalKey(ProvidersPatch),
-  portraits: Schema.optionalKey(PortraitsPatch),
 });
 export type SettingsPatch = typeof SettingsPatch.Type;
 
@@ -883,8 +871,7 @@ export const SettingsSectionKey = Schema.Literals(["appearance", "canvas",
 "harnesses",
 "terminal",
 "live",
-"providers",
-"portraits",]);
+"providers",]);
 export type SettingsSectionKey = typeof SettingsSectionKey.Type;
 
 export const defaultAppearance = (): AppearanceSettings => ({
@@ -915,8 +902,6 @@ export const defaultAdvanced = (): AdvancedSettings => ({
   toolDirectories: [],
   seatAwareness: true,
 });
-
-export const defaultPortraits = (): PortraitsSettings => ({ bySeat: {} });
 
 export const defaultHarnesses = (): HarnessesSettings => ({
   byHarness: {},
@@ -1049,7 +1034,6 @@ export const defaultSettings = (): Settings => ({
   terminal: defaultTerminal(),
   live: defaultLive(),
   providers: defaultProviders(),
-  portraits: defaultPortraits(),
 });
 
 export const defaultSection = (key: SettingsSectionKey): Settings[SettingsSectionKey] => {
@@ -1078,8 +1062,6 @@ export const defaultSection = (key: SettingsSectionKey): Settings[SettingsSectio
       return defaultLive();
     case "providers":
       return defaultProviders();
-    case "portraits":
-      return defaultPortraits();
   }
 };
 
@@ -1231,18 +1213,6 @@ export const applySettingsPatch = (current: Settings, patch: SettingsPatch): Set
       };
     }
     next = { ...next, harnesses: { byHarness } };
-  }
-  if (patch.portraits) {
-    const bySeat: Record<string, PortraitPrefs> = { ...(next.portraits ?? defaultPortraits()).bySeat };
-    for (const [seat, prefs] of Object.entries(patch.portraits.bySeat)) {
-      if (seat.trim().length === 0) continue;
-      if (prefs === null || Object.keys(prefs).length === 0) {
-        delete bySeat[seat];
-      } else if (seat in bySeat || Object.keys(bySeat).length < PORTRAIT_PREFS_MAX_SEATS) {
-        bySeat[seat] = prefs;
-      }
-    }
-    next = { ...next, portraits: { bySeat } };
   }
   if (patch.providers) {
     const current = next.providers ?? defaultProviders();

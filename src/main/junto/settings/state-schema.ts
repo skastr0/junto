@@ -16,7 +16,6 @@ import {
   StationSettings,
   TerminalSettings,
   defaultHarnesses,
-  defaultPortraits,
   defaultLive,
   defaultProviders,
   defaultTerminal,
@@ -68,7 +67,10 @@ export const StoredSettingsPreferences = Schema.Struct({
   live: Schema.optionalKey(LiveSettings),
   /** Absent on rows written before the Providers settings surface. */
   providers: Schema.optionalKey(ProvidersSettings),
-  /** Absent on rows written before the character editor. */
+  /**
+   * DEPRECATED frozen copy of portrait overrides, moved to portrait_overrides
+   * by state migration 4 -> 5. Carried through untouched, never read.
+   */
   portraits: Schema.optionalKey(PortraitsSettings),
 });
 export type StoredSettingsPreferences =
@@ -123,7 +125,7 @@ export const preferencesFromSettings = (
   terminal: settings.terminal ?? defaultTerminal(),
   live: settings.live ?? defaultLive(),
   providers: persistableProviders(settings.providers, options),
-  portraits: settings.portraits ?? defaultPortraits(),
+  ...(settings.portraits ? { portraits: settings.portraits } : {}),
 });
 
 // Decode-admits-history: rows written before the theme rename may carry the
@@ -193,7 +195,7 @@ export const decodeStoredSettings = (
     terminal: prefs.terminal ?? defaultTerminal(),
     live: prefs.live ?? defaultLive(),
     providers: prefs.providers ?? defaultProviders(),
-    portraits: prefs.portraits ?? defaultPortraits(),
+    ...(prefs.portraits ? { portraits: prefs.portraits } : {}),
     station: decodedTopology.success,
   };
 };

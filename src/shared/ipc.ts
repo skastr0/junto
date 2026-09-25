@@ -61,6 +61,12 @@ import type { UpdateApi } from "./update";
 import type { PreambleEvent } from "./preamble";
 import type { WireTrafficEvent } from "./wire-traffic";
 import type { AgentSignal } from "./agent-signals";
+import type {
+  PortraitOverride,
+  PortraitOverrideEvent,
+  PortraitOverrides,
+  PortraitOverrideSetResult,
+} from "./portrait-overrides";
 import type { Squad, SquadDeleteResult, SquadResult, SquadSaveInput, SquadsChanged } from "./squads";
 import type { OverseerLiveApi } from "./overseer-live";
 import type { HostDeployJobSnapshot } from "./deploy-job";
@@ -114,6 +120,10 @@ export const IPC_CHANNELS = {
   agentSignalsList: "junto:agent-signals-list",
   agentSignalRespond: "junto:agent-signal-respond",
   agentSignalDismiss: "junto:agent-signal-dismiss",
+  /** Portrait overrides: list all seats, set or reset one, live upsert. */
+  portraitOverridesList: "junto:portrait-overrides-list",
+  portraitOverrideSet: "junto:portrait-override-set",
+  portraitOverride: "junto:portrait-override",
   agentSignal: "junto:agent-signal",
   /** Squads: list, save (create or replace), rename, delete, live list push. */
   squadsList: "junto:squads-list",
@@ -655,6 +665,13 @@ export interface JuntoApi extends UpdateApi, OverseerLiveApi {
   ) => Promise<AgentSignalOperatorResult>;
   /** Close an open signal without mail. */
   readonly agentSignalDismiss: (signalId: string) => Promise<AgentSignalOperatorResult>;
+  /** Every seat's portrait override (character editor), keyed by node id. */
+  readonly portraitOverridesList: () => Promise<PortraitOverrides>;
+  /** Replace one seat's portrait override; null resets it to identity. */
+  readonly portraitOverrideSet: (
+    seatId: string,
+    override: PortraitOverride | null,
+  ) => Promise<PortraitOverrideSetResult>;
   /** The operator's squads (reusable seat templates), by name. */
   readonly squadsList: () => Promise<ReadonlyArray<Squad>>;
   /** Create a squad (no id) or replace one's name and template. */
@@ -851,6 +868,8 @@ export interface JuntoApi extends UpdateApi, OverseerLiveApi {
   readonly onWireTraffic?: (listener: (event: WireTrafficEvent) => void) => () => void;
   /** Main → renderer: a signal as it now stands (upsert by signalId). */
   readonly onAgentSignal: (listener: (signal: AgentSignal) => void) => () => void;
+  /** Main → renderer: one seat's portrait override as it now stands. */
+  readonly onPortraitOverride: (listener: (event: PortraitOverrideEvent) => void) => () => void;
   /** Main → renderer: every squad, after any change. Optional for older bridges. */
   readonly onSquadsChanged?: (listener: (event: SquadsChanged) => void) => () => void;
   readonly onSnapshotsChanged: (listener: (state: SnapshotState) => void) => () => void;

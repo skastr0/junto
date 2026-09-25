@@ -6,7 +6,7 @@ import {
   type PortraitConfig,
 } from "@shared/agent-portrait";
 import { portraitExpression, type ExpressionInput, type PortraitExpression } from "@shared/portrait-expression";
-import { patchSettings } from "../../lib/settings-state";
+import { savePortraitOverride } from "../../lib/portrait-overrides-state";
 import { AgentPortrait, usePortraitConfig } from "../AgentPortrait";
 import { Button, Eyebrow, Popover } from "../ui";
 import "./PortraitEditor.css";
@@ -85,9 +85,7 @@ export function PortraitEditor({
     setDraft(next);
     if (pending.current) clearTimeout(pending.current);
     pending.current = setTimeout(() => {
-      void patchSettings({ portraits: { bySeat: { [identity]: isEmpty(next) ? null : next } } }).then((ok) =>
-        setSaveFailed(!ok),
-      );
+      void savePortraitOverride(identity, isEmpty(next) ? null : next).then((ok) => setSaveFailed(!ok));
     }, SAVE_DEBOUNCE_MS);
   };
   useEffect(() => () => pending.current && clearTimeout(pending.current), []);
@@ -186,7 +184,7 @@ export function PortraitEditor({
         </label>
         {saveFailed ? <div className="portrait-editor__error">Could not save this portrait.</div> : null}
         <div className="portrait-editor__foot">
-          Born {temperamentWord(defaultTemperament(identity))}. Customization lives in this install's settings.
+          Born {temperamentWord(defaultTemperament(identity))}. Customization is kept on this install.
         </div>
       </div>
     </Popover>
