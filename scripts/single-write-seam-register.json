@@ -193,6 +193,15 @@
       "retire": "IN-MEMORY WORLD: retire when the in-memory factory world owns the projection and this file's only write is the journal append."
     },
     {
+      "path": "src/main/junto/signals/repository.ts",
+      "kind": "debt",
+      "tables": [
+        "agent_signals"
+      ],
+      "reason": "Agent-signal seam: a seat's durable escalate, blocked, and feedback claims and the operator's answer.",
+      "retire": "IN-MEMORY WORLD: retire when the in-memory factory world owns the projection and this file's only write is the journal append."
+    },
+    {
       "path": "src/main/junto/content/manifest.ts",
       "kind": "debt",
       "tables": [

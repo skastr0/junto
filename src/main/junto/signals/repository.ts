@@ -1,8 +1,9 @@
 import { Context, Effect, Layer, Schema } from "effect";
 import { ulid } from "ulid";
-import {
+import type {
   AgentSignal,
-  type AgentSignalKind,
+  AgentSignalKind,
+  AgentSignalState,
 } from "@shared/agent-signals";
 import {
   StateEngine,
@@ -103,24 +104,24 @@ const COLUMNS = `
   response_text, response_at, closed_at
 `;
 
-const decodeSignal = Schema.decodeUnknownSync(AgentSignal);
-
-/** Rows pass the table CHECKs; decoding still refuses a drifted shape. */
-const fromRow = (row: SignalRow): AgentSignal =>
-  decodeSignal({
-    signalId: row.signal_id,
-    canvasName: row.canvas_name,
-    nodeId: row.node_id,
-    kind: row.kind,
-    text: row.text,
-    ...(row.detail === null ? {} : { detail: row.detail }),
-    createdAt: Number(row.created_at),
-    state: row.state,
-    ...(row.response_text === null || row.response_at === null
-      ? {}
-      : { response: { text: row.response_text, at: Number(row.response_at) } }),
-    ...(row.closed_at === null ? {} : { closedAt: Number(row.closed_at) }),
-  });
+/**
+ * Rows this process wrote, held to the domain by the table's CHECKs (kind,
+ * state, bounds, and the open/answered pairing), so they map without a decode.
+ */
+const fromRow = (row: SignalRow): AgentSignal => ({
+  signalId: row.signal_id,
+  canvasName: row.canvas_name,
+  nodeId: row.node_id,
+  kind: row.kind as AgentSignalKind,
+  text: row.text,
+  ...(row.detail === null ? {} : { detail: row.detail }),
+  createdAt: Number(row.created_at),
+  state: row.state as AgentSignalState,
+  ...(row.response_text === null || row.response_at === null
+    ? {}
+    : { response: { text: row.response_text, at: Number(row.response_at) } }),
+  ...(row.closed_at === null ? {} : { closedAt: Number(row.closed_at) }),
+});
 
 const readOne = (reader: StateReader, signalId: string): AgentSignal | undefined => {
   const row = reader.get<SignalRow>(
