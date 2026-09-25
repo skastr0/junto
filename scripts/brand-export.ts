@@ -347,6 +347,7 @@ async function icon(opts: Record<string, string>): Promise<void> {
   await icns("dark", join(root, "build/icon-dark.icns"));
   // Linux and the README use the 1024 PNG master.
   await png(iconSvg("light"), 1024, 1024, join(root, "assets/brand/junto-icon.png"));
+  await png(iconSvg("light", 256), 256, 256, join(root, "src/renderer/assets/brand/junto-icon.png"));
   console.log(join(root, "assets/brand/junto-icon.png"));
 }
 
