@@ -17,16 +17,9 @@ import {
   type SeatSignalSummary,
   type SignalActionResult,
 } from "../../lib/agent-signals-view";
-import { claimFocusOnMount } from "../../lib/focus-ownership";
-import { modKeyGlyph } from "../../lib/platform";
 import { ArtifactMarkdown } from "../work/ArtifactMarkdown";
-import { Button, Chip, IconButton, Popover, SidebarSection } from "../ui";
-import { Textarea } from "../ui/Field";
-
-// Stable callback ref: the reply field takes focus when the popover opens.
-const claimReplyFocus = (wrapper: HTMLDivElement | null): void => {
-  claimFocusOnMount(wrapper?.querySelector("textarea") ?? null);
-};
+import { Chip, IconButton, Popover, SidebarSection } from "../ui";
+import { SignalReply } from "../signals/SignalReply";
 
 function SignalPopover({
   signal,
@@ -43,29 +36,8 @@ function SignalPopover({
   readonly respond: (signalId: string, text: string) => Promise<SignalActionResult>;
   readonly dismiss: (signalId: string) => Promise<SignalActionResult>;
 }) {
-  const [reply, setReply] = useState("");
-  const [pending, setPending] = useState(false);
-  const [error, setError] = useState("");
   const open = signal.state === "open";
-  const canSend = open && !pending && reply.trim().length > 0;
   const age = mailAgeLabel(nowMs, signal.createdAt);
-
-  const act = async (run: () => Promise<SignalActionResult>): Promise<void> => {
-    setPending(true);
-    setError("");
-    try {
-      const result = await run();
-      if (result.ok) onClose();
-      else setError(result.message);
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
-    } finally {
-      setPending(false);
-    }
-  };
-  const send = (): void => {
-    if (canSend) void act(() => respond(signal.signalId, reply.trim()));
-  };
 
   return (
     <Popover anchor={anchor} onClose={onClose} label={`${SIGNAL_KIND_LABEL[signal.kind]} signal`} testId="seat-signal-popover">
@@ -90,30 +62,7 @@ function SignalPopover({
         </div>
       ) : null}
       {open ? (
-        <div ref={claimReplyFocus} className="seat-signal-popover__reply">
-          <Textarea
-            value={reply}
-            onChange={(event) => setReply(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key !== "Enter" || !(event.metaKey || event.ctrlKey)) return;
-              event.preventDefault();
-              send();
-            }}
-            placeholder="Reply to the agent…"
-            rows={3}
-            aria-label="Your reply"
-            aria-keyshortcuts="Meta+Enter Control+Enter"
-          />
-          {error ? <p className="seat-signal-popover__error" role="alert">{error}</p> : null}
-          <div className="seat-signal-popover__actions">
-            <Button size="xs" variant="subtle" disabled={pending} onClick={() => void act(() => dismiss(signal.signalId))}>
-              Dismiss
-            </Button>
-            <Button size="xs" variant="primary" disabled={!canSend} title={`${modKeyGlyph()}+↵`} onClick={send}>
-              Send reply
-            </Button>
-          </div>
-        </div>
+        <SignalReply signalId={signal.signalId} respond={respond} dismiss={dismiss} onDone={onClose} />
       ) : null}
     </Popover>
   );
