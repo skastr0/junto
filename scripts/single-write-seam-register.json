@@ -202,6 +202,15 @@
       "retire": "IN-MEMORY WORLD: retire when the in-memory factory world owns the projection and this file's only write is the journal append."
     },
     {
+      "path": "src/main/junto/squads/repository.ts",
+      "kind": "debt",
+      "tables": [
+        "squads"
+      ],
+      "reason": "Squad seam: the operator's reusable seat templates, saved, renamed, and deleted from the canvas.",
+      "retire": "IN-MEMORY WORLD: retire when the in-memory factory world owns the projection and this file's only write is the journal append."
+    },
+    {
       "path": "src/main/junto/content/manifest.ts",
       "kind": "debt",
       "tables": [
@@ -890,6 +899,13 @@
         "codec"
       ],
       "reason": "Defines the browser control envelope decoder used at the browser control boundary."
+    },
+    {
+      "path": "src/shared/squads.ts",
+      "kinds": [
+        "codec"
+      ],
+      "reason": "Defines the squad template decoder used at the squad IPC boundary and when a stored template is read back, so a template from another build is judged field by field."
     },
     {
       "path": "src/shared/canvas.ts",
