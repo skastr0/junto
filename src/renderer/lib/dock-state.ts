@@ -408,6 +408,8 @@ observe(() => {
     if (!nodeId || !openIds.has(nodeId)) registry = closeSurface(registry, surface.id).state;
   }
   for (const nodeId of openIds) {
+    // Grid-owned views live in the grid modal only; they never join the dock.
+    if (terminal$.gridOwnedByNodeId[nodeId].peek()) continue;
     const id = terminalSurfaceId(nodeId);
     // preferredZone is one-shot: apply once, then clear so a later sibling
     // open / re-sync does not re-pin after the operator unpinned.

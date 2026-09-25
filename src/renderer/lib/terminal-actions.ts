@@ -11,7 +11,7 @@ import { flushPendingCanvasSave } from "./mutations";
 import { getJuntoApi } from "./junto-api";
 import { state$ } from "./state";
 import type { WorkZone } from "./surface-registry";
-import { openTerminalSurface, terminal$ } from "./terminal-state";
+import { openGridTerminalSurface, openTerminalSurface, terminal$ } from "./terminal-state";
 
 const missingActorSurfaceMessage =
   "agent seat is incomplete — add an agent name, terminal binding, and harness";
@@ -186,6 +186,24 @@ export const openTerminal = async (
     if (!session) return;
   }
   openTerminalSurface(node, zone, state$.canvasName.peek());
+};
+
+/**
+ * Mount agent seats for the grid focus view. Same demand semantics as a
+ * single open: a cold seat starts when its surface attaches. Seats that are
+ * already open keep their one live surface; the grid adopts it.
+ */
+export const openAgentGridTerminals = (nodes: ReadonlyArray<CanvasNode>): ReadonlyArray<string> => {
+  const opened: string[] = [];
+  for (const node of nodes) {
+    if (node.ether?.entity?.kind !== "agent" || !actorDeliverySurfaceOf(node)) continue;
+    const binding = resolveTerminalBinding(node);
+    if (binding?.kind !== "native") continue;
+    markAgentSeatSeen(binding.bindingId);
+    openGridTerminalSurface(node, state$.canvasName.peek());
+    opened.push(node.id);
+  }
+  return opened;
 };
 
 export const killTerminal = async (node: CanvasNode): Promise<void> => {

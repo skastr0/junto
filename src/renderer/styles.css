@@ -3579,6 +3579,13 @@ button.actor-ledger__item-row:focus-visible {
   padding: 0;
   box-sizing: border-box;
 }
+/* Grid focus cells: tighter inset. Keep in sync with GRID_CELL_CHROME. */
+.native-terminal-surface--grid .native-terminal-surface__xterm .xterm {
+  top: 2px;
+  right: 4px;
+  bottom: 2px;
+  left: 4px;
+}
 /* Legacy viewport: background + overview-ruler anchor only. Never a scroll surface. */
 .native-terminal-surface__xterm .xterm-viewport {
   width: 100% !important;

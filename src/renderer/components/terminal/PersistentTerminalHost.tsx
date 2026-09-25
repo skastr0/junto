@@ -33,7 +33,8 @@ function PersistentTerminal({ nodeId }: { readonly nodeId: string }) {
   const slot = terminalSlotElement(nodeId);
   const wellRef = useRef<HTMLDivElement>(null);
   const hostRef = useRef<HTMLDivElement>(null);
-  const visible = use$(() => {
+  const gridCell = use$(terminal$.gridCellByNodeId[nodeId]);
+  const dockVisible = use$(() => {
     const surfaceId = terminalSurfaceId(nodeId);
     const surfaces = dock$.registry.surfaces.get();
     const surface = surfaces.find((candidate) => candidate.id === surfaceId);
@@ -48,6 +49,7 @@ function PersistentTerminal({ nodeId }: { readonly nodeId: string }) {
         : dock$.registry.pinnedLayout.get();
     return mru.slice(0, panesForLayout(layout)).includes(surfaceId);
   });
+  const visible = dockVisible || gridCell !== undefined;
 
   useLayoutEffect(() => {
     const host = hostRef.current;
@@ -74,7 +76,11 @@ function PersistentTerminal({ nodeId }: { readonly nodeId: string }) {
           title="This seat hit a render error"
           onReset={() => closeTerminalSurface(nodeId)}
         >
-          <TerminalSurface node={node} visible={visible} />
+          <TerminalSurface
+            node={node}
+            visible={visible}
+            {...(gridCell ? { grid: gridCell } : {})}
+          />
         </RendererErrorBoundary>
       </div>
     </div>

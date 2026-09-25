@@ -73,6 +73,9 @@ import { isOverseerSeat } from "../../lib/overseer-set";
 import { ActorEdgesGlance } from "./ActorEdgesGlance";
 import { ActorLedgerPane } from "./ActorLedgerPane";
 import { SessionLoadSpinner } from "./SessionLoadSpinner";
+import { HarnessMark } from "../HarnessMark";
+import { GRID_CELL_CHROME } from "../../lib/terminal-grid";
+import { isHarnessId } from "@shared/managed-terminal-templates";
 
 type AttachResult = {
   readonly ok: boolean;
@@ -619,6 +622,7 @@ const measureHost = (
   host: HTMLElement,
   term: Terminal,
   fallback: CellSize,
+  pad: { readonly x: number; readonly y: number },
 ): { cols: number; rows: number; w: number; h: number } | null => {
   const hostRect = host.getBoundingClientRect();
   const { cellW, cellH } = readCellSize(term, fallback);
@@ -627,18 +631,29 @@ const measureHost = (
     hostHeight: hostRect.height,
     cellW,
     cellH,
-    padX: XTERM_PAD_X,
-    padY: XTERM_PAD_Y,
+    padX: pad.x,
+    padY: pad.y,
   });
 };
+
+/** xterm inset per presentation. Must match the `.xterm` inset in styles.css. */
+const XTERM_PAD = { x: XTERM_PAD_X, y: XTERM_PAD_Y } as const;
+const GRID_XTERM_PAD = { x: GRID_CELL_CHROME.padX, y: GRID_CELL_CHROME.padY } as const;
 
 export function TerminalSurface({
   node,
   visible = true,
+  grid,
 }: {
   readonly node: CanvasNode;
   /** False in parked keep-alive panes — children may pause cosmetic work. */
   readonly visible?: boolean;
+  /**
+   * Present while a grid focus cell holds this terminal: compact chrome, no
+   * context pane, and a grid-only font size. View options only; dropping it
+   * restores the operator's own settings and refits.
+   */
+  readonly grid?: { readonly fontSize: number };
 }) {
   const rootRef = useRef<HTMLDivElement>(null);
   const hostRef = useRef<HTMLDivElement>(null);
@@ -659,6 +674,13 @@ export function TerminalSurface({
   const prefsRef = useRef<TerminalSettings>(
     terminalSettings(state$.settings.peek()),
   );
+  const gridRef = useRef(grid);
+  gridRef.current = grid;
+  /** Durable preferences with the grid view's font size laid over them. */
+  const livePrefs = (): TerminalSettings =>
+    gridRef.current
+      ? { ...prefsRef.current, fontSize: gridRef.current.fontSize }
+      : prefsRef.current;
   /** Live xterm.onBell subscription, plus the bell mode it was opened for. */
   const bellRef = useRef<{ readonly dispose: () => void } | null>(null);
   const bellModeRef = useRef<TerminalSettings["bell"] | null>(null);
@@ -746,8 +768,13 @@ export function TerminalSurface({
     const host = hostRef.current;
     if (!term || !host) return;
 
-    const fallback = fallbackCell(prefsRef.current);
-    const measured = measureHost(host, term, fallback);
+    const fallback = fallbackCell(livePrefs());
+    const measured = measureHost(
+      host,
+      term,
+      fallback,
+      gridRef.current ? GRID_XTERM_PAD : XTERM_PAD,
+    );
     if (!measured) {
       logTermGeom("measure-rejected", {
         hostW: Math.round(host.getBoundingClientRect().width),
@@ -964,8 +991,8 @@ export function TerminalSurface({
     // asynchronously, so a terminal opened during boot is built from the
     // defaults and corrected by the live effect below when the row lands —
     // the same path an operator edit takes.
-    const prefs = terminalSettings(state$.settings.peek());
-    prefsRef.current = prefs;
+    prefsRef.current = terminalSettings(state$.settings.peek());
+    const prefs = livePrefs();
     const term = new Terminal({
       ...managedTerminalOptions(prefs, { visible: visibleRef.current }),
       allowProposedApi: true,
@@ -1296,7 +1323,7 @@ export function TerminalSurface({
     const term = termRef.current;
     if (!term) return;
     applyBellPreference(prefs.bell);
-    const applied = applyTerminalPreferences(prefs, {
+    const applied = applyTerminalPreferences(livePrefs(), {
       term,
       visible: visibleRef.current,
       // The one geometry path. A cell-metric change keeps xterm's cols×rows
@@ -1337,6 +1364,20 @@ export function TerminalSurface({
       bellModeRef.current = null;
     };
   }, []);
+
+  // Grid focus enter, leave, or re-fit: lay the grid font over (or lift it
+  // off) the live options, then refit through the settle ladder so cols x rows
+  // and the child PTY follow the new cell and inset. Leaving restores the
+  // operator's own options; nothing here touches durable settings.
+  const gridFontSize = grid?.fontSize;
+  const inGrid = grid !== undefined;
+  const gridSeenRef = useRef(false);
+  useEffect(() => {
+    if (!inGrid && !gridSeenRef.current) return;
+    gridSeenRef.current = inGrid;
+    applyTerminalPrefs(prefsRef.current);
+    prefRefitBurst();
+  }, [inGrid, gridFontSize]);
 
   // Focus-zone open / unpark: put the xterm textarea under the keyboard so
   // the operator can type immediately. Opening is the opt-in; later retries
@@ -1741,6 +1782,11 @@ export function TerminalSurface({
   }, [bindingId, hostId, attachKey, agentSeat]);
 
   const label = node.type === "text" ? node.text : "terminal";
+  const harness =
+    typeof node.ether?.terminal?.harness === "string"
+      ? node.ether.terminal.harness
+      : undefined;
+  const gridHarness = harness !== undefined && isHarnessId(harness) ? harness : undefined;
   const surfaceId = terminalSurfaceId(node.id);
   const pinned = use$(() =>
     dock$.registry.surfaces.get().find((surface) => surface.id === surfaceId)?.zone === "pinned",
@@ -1911,12 +1957,43 @@ export function TerminalSurface({
       className={[
         "native-terminal-surface",
         showDeadOverlay ? "native-terminal-surface--dead" : "",
+        grid ? "native-terminal-surface--grid" : "",
       ]
         .filter(Boolean)
         .join(" ")}
       data-overseer={agentSeat && isOverseerSeat(node) ? "true" : undefined}
       data-testid="native-terminal-surface"
     >
+      {grid ? (
+        <header
+          className="native-terminal-surface__grid-header flex shrink-0 items-center gap-2 border-b border-stroke bg-raise-2 px-2"
+          style={{ height: GRID_CELL_CHROME.headerPx }}
+        >
+          <HarnessMark agent={gridHarness} size={18} />
+          <span className="min-w-0 flex-1 truncate font-mono text-[12px] font-semibold text-ink">
+            {label}
+          </span>
+          <span className="native-terminal-surface__status inline-flex min-w-0 shrink items-center gap-1.5 truncate text-[11px] text-dim">
+            {showLoadOverlay && loadPresentation ? (
+              <SessionLoadSpinner
+                variant="inline"
+                phase={loadPresentation.phase}
+                sessionId={pinSessionId}
+              />
+            ) : (
+              <>
+                <ActivityMark
+                  mode={attached ? "static" : "wave"}
+                  tone={processDead || processStopping ? "crimson" : "amber"}
+                  size="inline"
+                  label={status}
+                />
+                <span className="truncate">{status}</span>
+              </>
+            )}
+          </span>
+        </header>
+      ) : (
       <OverlayHeader
         eyebrow={
           agentSeat && isOverseerSeat(node) ? (
@@ -1986,7 +2063,8 @@ export function TerminalSurface({
           </>
         }
       />
-      {claimedTask && TASKS_ENABLED ? (
+      )}
+      {claimedTask && TASKS_ENABLED && !grid ? (
         <div
           className="flex items-center gap-2 border-b border-stroke bg-cyan/[0.045] px-3 py-1.5 text-[11px]"
           role="status"
@@ -2073,21 +2151,23 @@ export function TerminalSurface({
                     >
                       {reopenPending ? "Opening…" : deadCopy.reopenLabel}
                     </Button>
-                    <Button
-                      size="sm"
-                      variant="chrome"
-                      title="Close view only"
-                      onClick={closeSurface}
-                    >
-                      {deadCopy.closeViewLabel}
-                    </Button>
+                    {!grid ? (
+                      <Button
+                        size="sm"
+                        variant="chrome"
+                        title="Close view only"
+                        onClick={closeSurface}
+                      >
+                        {deadCopy.closeViewLabel}
+                      </Button>
+                    ) : null}
                   </div>
                 ) : null}
               </div>
             </div>
           ) : null}
         </div>
-        {agentSeat ? (
+        {agentSeat && !grid ? (
           <aside
             className={[
               "actor-terminal-right-pane",
