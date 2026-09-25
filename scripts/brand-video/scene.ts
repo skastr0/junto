@@ -3,7 +3,8 @@
 // the app's own expressions (portrait-expression.ts), and their rings the
 // app's own canvas painters (activity-rings.ts). Nothing here redraws a
 // character or a ring by hand. Bundled for the browser by render.ts.
-import { portraitDataUri, type PortraitConfig, type PortraitFace } from "../../src/shared/agent-portrait";
+import { portraitDataUri, type PortraitConfig, type PortraitFace, type PortraitFrame } from "../../src/shared/agent-portrait";
+import { BRAND_CAST } from "../../src/shared/brand-mascot";
 import { portraitFaceFor, type ExpressionInput } from "../../src/shared/portrait-expression";
 import { FONT_DISPLAY, FONT_MONO, themeRuntime } from "../../src/shared/theme";
 import {
@@ -159,18 +160,26 @@ type Critter = {
   readonly seed: string;
   readonly name: string;
   readonly temperament: number;
-  readonly config?: PortraitConfig;
+  readonly config: PortraitConfig;
   readonly phase: number;
 };
 
+// Pinned brand characters (every trait written out), so a portrait re-roll
+// never changes who is on screen.
+const cast = (index: number, name: string, phase: number): Critter => {
+  const character = BRAND_CAST[index];
+  if (!character) throw new Error(`BRAND_CAST has no character ${String(index)}`);
+  return { seed: character.seed, config: character.config, temperament: character.config.temperament ?? 0, name, phase };
+};
+
 const CAST: ReadonlyArray<Critter> = [
-  { seed: "herald", name: "scout", temperament: 0.7, phase: 0.1 },
-  { seed: "planner", name: "planner", temperament: 0.4, phase: 0.55 },
-  { seed: "reviewer", name: "reviewer", temperament: -0.2, phase: 0.3 },
-  { seed: "librarian", name: "research", temperament: 0.9, phase: 0.8 },
-  { seed: "keeper", name: "builder", temperament: 0.1, phase: 0.2 },
-  { seed: "atlas", name: "docs", temperament: 0.6, phase: 0.65 },
-  { seed: "sorter", name: "tests", temperament: -0.5, phase: 0.45 },
+  cast(14, "scout", 0.1),
+  cast(0, "planner", 0.55),
+  cast(3, "reviewer", 0.3),
+  cast(6, "research", 0.8),
+  cast(8, "builder", 0.2),
+  cast(11, "docs", 0.65),
+  cast(13, "tests", 0.45),
 ];
 
 // --- options --------------------------------------------------------------------
@@ -197,19 +206,25 @@ const LOOP_SECONDS = 8;
 const RASTER = 360;
 const bitmaps = new Map<string, HTMLCanvasElement>();
 
-const faceKey = (seed: string, face: PortraitFace | undefined, blink: boolean): string =>
-  `${seed}|${JSON.stringify(face ?? null)}|${blink ? "b" : ""}`;
+const faceKey = (seed: string, face: PortraitFace | undefined, blink: boolean, frame: PortraitFrame = "round"): string =>
+  `${seed}|${frame}|${JSON.stringify(face ?? null)}|${blink ? "b" : ""}`;
 
 const blinkFace = (face: PortraitFace): PortraitFace => ({ ...face, eyes: "line" });
 
 const faceFor = (c: Critter, state: StateName): PortraitFace =>
   portraitFaceFor({ temperament: c.temperament, ...STATES[state].expr });
 
-const rasterize = async (seed: string, config: PortraitConfig | undefined, face: PortraitFace, blink: boolean): Promise<void> => {
-  const key = faceKey(seed, face, blink);
+const rasterize = async (
+  seed: string,
+  config: PortraitConfig | undefined,
+  face: PortraitFace,
+  blink: boolean,
+  frame: PortraitFrame = "round",
+): Promise<void> => {
+  const key = faceKey(seed, face, blink, frame);
   if (bitmaps.has(key)) return;
   const img = new Image();
-  img.src = portraitDataUri({ seed, mode: "bright", detail: "rich", frame: "round", config, face: blink ? blinkFace(face) : face });
+  img.src = portraitDataUri({ seed, mode: "bright", detail: "rich", frame, config, face: blink ? blinkFace(face) : face });
   await img.decode();
   const canvas = document.createElement("canvas");
   canvas.width = RASTER;
@@ -221,8 +236,8 @@ const rasterize = async (seed: string, config: PortraitConfig | undefined, face:
   bitmaps.set(key, canvas);
 };
 
-const bitmap = (seed: string, face: PortraitFace, blink: boolean): HTMLCanvasElement | undefined =>
-  bitmaps.get(faceKey(seed, face, blink)) ?? bitmaps.get(faceKey(seed, face, false));
+const bitmap = (seed: string, face: PortraitFace, blink: boolean, frame: PortraitFrame = "round"): HTMLCanvasElement | undefined =>
+  bitmaps.get(faceKey(seed, face, blink, frame)) ?? bitmaps.get(faceKey(seed, face, false, frame));
 
 // --- canvas ----------------------------------------------------------------------
 
@@ -1063,7 +1078,7 @@ const feed: SceneFn = {
   },
 };
 
-const MASCOT_SIZE = 380;
+const MASCOT_SIZE = 540;
 
 const endCard: SceneFn = {
   id: "end",
@@ -1087,7 +1102,11 @@ const endCard: SceneFn = {
   over: (local, start) => drawMascotCard(local, start, 1),
 };
 
-/** The end card: the mascot seals its ring, the wordmark settles beside it. */
+/**
+ * The end card: Pip, whole and standing (the brand's bare critter), hops in,
+ * lands beside the wordmark, and lets out one green seal, the done ring's
+ * light. The wordmark is the brand's: uppercase, display face, 0.14em.
+ */
 const drawMascotCard = (local: number, start: number, fade: number): void => {
   const mascot = VIDEO_MASCOT;
   ctx.save();
@@ -1095,44 +1114,76 @@ const drawMascotCard = (local: number, start: number, fade: number): void => {
   setSpacing(ctx, `${String(Math.round(176 * 0.14))}px`);
   const word = "JUNTO";
   const wordW = ctx.measureText(word).width - 176 * 0.14;
-  const gap = 70;
-  const total = MASCOT_SIZE * 0.86 + gap + wordW;
+  const body = MASCOT_SIZE;
+  // The bare critter fills about 0.62 of its box across.
+  const reach = body * 0.62;
+  const gap = 56;
+  const total = reach + gap + wordW;
   const left = W / 2 - total / 2;
-  const mx = left + (MASCOT_SIZE * 0.86) / 2;
-  const my = H / 2 - 10;
-  const enter = easeOut(ramp(local, 0.45, 0.9));
-  const a = fade * ramp(local, 0.45, 0.5);
-  const sealAt = 1.9;
-  const face = local < sealAt ? mascot.faces.working : mascot.faces.celebrating;
-  const since = local < sealAt ? start + 0.45 : start + sealAt;
-  const y = my + (1 - enter) * 50 + Math.sin((start + local) * 1.7) * 4;
-  // Soft shadow.
-  ctx.fillStyle = alpha(INK, 0.07 * a);
+  const mx = left + reach / 2;
+  const ground = H / 2 + body * 0.36;
+  // Two hops from the left, the second smaller, then a landing squash.
+  const hops: ReadonlyArray<readonly [at: number, span: number, from: number, to: number, height: number]> = [
+    [0.45, 0.48, mx - 340, mx - 120, 170],
+    [0.93, 0.42, mx - 120, mx, 90],
+  ];
+  let x = mx - 340;
+  let lift = 0;
+  for (const [at, span, from, to, height] of hops) {
+    const u = ramp(local, at, span);
+    if (local >= at) {
+      x = lerp(from, to, easeInOut(u));
+      lift = u < 1 ? Math.sin(Math.PI * u) * height : 0;
+    }
+  }
+  const landed = 0.93 + 0.42;
+  const squash = bump(local, 0.93, 0.12) * 0.5 + bump(local, landed, 0.18);
+  const breathe = local > landed + 0.2 ? Math.sin((start + local) * 1.7) * 0.012 : 0;
+  const sx = 1 + 0.1 * squash - breathe;
+  const sy = 1 - 0.12 * squash + breathe;
+  const a = fade * ramp(local, 0.45, 0.3);
+  const sealAt = landed + 0.1;
+  const face = local < sealAt ? mascot.faces.happy : mascot.faces.celebrating;
+  const blink = local > sealAt + 0.6 && mod(local, 2.4) < 0.13;
+  // The seal: one ring of done light, then one dot, behind Pip.
+  const seal = ramp(local, sealAt, 1.1);
+  if (seal > 0 && seal < 1) {
+    ctx.strokeStyle = alpha(TONE.green, 0.55 * (1 - seal) ** 1.3 * fade);
+    ctx.lineWidth = 6 * (1 - seal) + 1.5;
+    ctx.beginPath();
+    ctx.arc(mx, ground - body * 0.38, body * lerp(0.3, 0.6, easeOut(seal)), 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.fillStyle = alpha(TONE.green, 0.8 * (1 - seal) * fade);
+    ctx.beginPath();
+    ctx.arc(mx, ground - body * lerp(0.84, 1.0, easeOut(seal)), 7 + 10 * seal, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  // Shadow tightens as Pip leaves the ground.
+  ctx.fillStyle = alpha(INK, 0.09 * a * (1 - lift / 260));
   ctx.beginPath();
-  ctx.ellipse(mx, my + MASCOT_SIZE * 0.5, MASCOT_SIZE * 0.24, MASCOT_SIZE * 0.045, 0, 0, Math.PI * 2);
+  ctx.ellipse(x, ground, body * 0.24 * (1 - lift / 400), body * 0.04, 0, 0, Math.PI * 2);
   ctx.fill();
-  const pop = 1 + 0.06 * bump(local, sealAt, 0.45);
-  const d = ((MASCOT_SIZE * RING_HOLE_R) / 10) * pop;
-  const img = bitmap(mascot.seed, face, false);
-  const prevImg = bitmap(mascot.seed, mascot.faces.working, false);
-  const k = ramp(local, sealAt, 0.25);
-  ctx.globalAlpha = a;
-  if (prevImg && k < 1) ctx.drawImage(prevImg, mx - d / 2, y - d / 2, d, d);
-  ctx.globalAlpha = a * (local < sealAt ? 1 : k);
-  if (img) ctx.drawImage(img, mx - d / 2, y - d / 2, d, d);
-  ctx.globalAlpha = 1;
-  drawRing(local < sealAt ? "working" : "done", start + local - since, mx, y, MASCOT_SIZE * pop, a);
+  const img = bitmap(mascot.seed, face, blink, "bare");
+  if (img) {
+    ctx.globalAlpha = a;
+    ctx.save();
+    ctx.translate(x, ground - lift);
+    ctx.scale(sx, sy);
+    ctx.drawImage(img, -body / 2, -body, body, body);
+    ctx.restore();
+  }
   // Wordmark.
-  const wa = fade * ramp(local, 1.2, 0.8);
+  const wa = fade * ramp(local, 1.35, 0.8);
   ctx.globalAlpha = wa;
   ctx.fillStyle = INK;
   ctx.textBaseline = "middle";
-  ctx.fillText(word, left + MASCOT_SIZE * 0.86 + gap - (1 - easeOut(ramp(local, 1.2, 0.9))) * 30, my + 8);
+  const wordX = left + reach + gap - (1 - easeOut(ramp(local, 1.35, 0.9))) * 30;
+  ctx.fillText(word, wordX, H / 2 + 8);
   setSpacing(ctx, "0px");
   ctx.globalAlpha = fade * ramp(local, 2.2, 0.7);
   ctx.font = mono(26, 500);
   ctx.fillStyle = FAINT;
-  ctx.fillText("juntoagents.com", left + MASCOT_SIZE * 0.86 + gap + 6, my + 118);
+  ctx.fillText("juntoagents.com", left + reach + gap + 6, H / 2 + 118);
   ctx.restore();
 };
 
@@ -1158,8 +1209,10 @@ const loopPose = (m: number, t: number): Pose => {
     kick = Math.max(kick, bump(since, 0, 0.4));
   }
   const state = LOOP_STATES[m]!;
-  // Done sits sealed; loops run from zero so every ring repeats in 8 s.
-  return { ...MAIL_SEATS[m]!, size: 170, alpha: 1, state, since: state === "done" ? -100 : 0, label: "none", kick };
+  // Every state began long ago, on a whole number of loops: glows and halos
+  // are fully up, done sits sealed, nothing pops at the seam, and every ring
+  // (2 s and 4 s laps at the loop's 125 ms tick) repeats in 8 s.
+  return { ...MAIL_SEATS[m]!, size: 170, alpha: 1, state, since: -10 * LOOP_SECONDS, label: "none", kick };
 };
 
 // --- timeline ---------------------------------------------------------------------------------
@@ -1437,7 +1490,10 @@ const prepare = async (options: SceneOptions): Promise<{ duration: number; scene
     }
   }
   for (const face of Object.values(VIDEO_MASCOT.faces)) {
-    jobs.push(rasterize(VIDEO_MASCOT.seed, VIDEO_MASCOT.config, face, false));
+    jobs.push(
+      rasterize(VIDEO_MASCOT.seed, VIDEO_MASCOT.config, face, false, "bare"),
+      rasterize(VIDEO_MASCOT.seed, VIDEO_MASCOT.config, face, true, "bare"),
+    );
   }
   await Promise.all(jobs);
   await document.fonts.ready;

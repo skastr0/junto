@@ -112,7 +112,7 @@ const encode = async (cut: SceneOptions["cut"], name: string, posterAt: (duratio
     [
       "-hide_banner", "-loglevel", "error", "-y",
       "-f", "image2pipe", "-framerate", String(fps), "-c:v", "png", "-i", "-",
-      "-c:v", "libx264", "-preset", "slow", "-crf", "20", "-profile:v", "high", "-pix_fmt", "yuv420p",
+      "-c:v", "libx264", "-preset", "slow", "-tune", "animation", "-crf", "23", "-profile:v", "high", "-pix_fmt", "yuv420p",
       "-movflags", "+faststart", "-an", mp4,
       "-c:v", "libvpx-vp9", "-b:v", "0", "-crf", "34", "-row-mt", "1", "-deadline", "good", "-cpu-used", "2",
       "-pix_fmt", "yuv420p", "-an", webm,
