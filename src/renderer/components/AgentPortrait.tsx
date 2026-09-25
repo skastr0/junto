@@ -119,7 +119,8 @@ export function AgentPortrait({
   }, [shown.prev]);
   const round = frame === "round";
   const radius = round ? "50%" : Math.round(size * 0.26);
-  const badgeSize = Math.max(11, Math.round(size * (round ? 0.42 : 0.5)));
+  // The badge names the harness; past ~26px it starts to cover the face.
+  const badgeSize = Math.min(26, Math.max(11, Math.round(size * (round ? 0.42 : 0.5))));
   const showBadge = badge && harness !== undefined;
   // Round: badge centre on the circle at 45 degrees. Tile: tucked in the corner.
   const badgeOffset = round ? Math.round(size * (0.5 + Math.SQRT1_2 / 2) - badgeSize / 2) : size - badgeSize + 3;

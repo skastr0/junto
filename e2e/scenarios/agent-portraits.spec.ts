@@ -74,6 +74,21 @@ test("agent portraits render on seats and in the focus modal", async () => {
       await expect(glance.locator(".agent-portrait").first()).toBeVisible({ timeout: 10_000 });
       await page.waitForTimeout(600);
       await focus.screenshot({ path: join(SHOTS, `${mode}-focus.png`) });
+
+      // Character editor from the focus header portrait: pick a body, see
+      // the preview and the saved override, then capture it.
+      await focus.locator("header").getByTestId("portrait-edit-button").click();
+      const editor = page.getByTestId("portrait-editor");
+      await expect(editor).toBeVisible({ timeout: 10_000 });
+      if (mode === "dark") {
+        await editor.getByRole("radio", { name: "body toast", exact: true }).click();
+        await expect(editor.getByRole("radio", { name: "body toast", exact: true })).toHaveAttribute("aria-checked", "true");
+      }
+      await page.waitForTimeout(500);
+      await editor.screenshot({ path: join(SHOTS, `${mode}-editor.png`) });
+      await page.screenshot({ path: join(SHOTS, `${mode}-editor-in-focus.png`) });
+      await page.keyboard.press("Escape");
+      await expect(editor).toBeHidden({ timeout: 5_000 });
       await glance.screenshot({ path: join(SHOTS, `${mode}-connections.png`) });
       await focus.locator("header").getByRole("button", { name: "Close view", exact: true }).first().click();
       await expect(focus).toBeHidden({ timeout: 10_000 });
