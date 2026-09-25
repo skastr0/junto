@@ -182,7 +182,11 @@ describe("canvas migration: retire escalates", () => {
 
     const after = head(paths.db);
     expect(after?.generation).toBe("3");
-    expect(nonCanvasWitness(paths.db)).toEqual(before);
+    // Every table that existed before keeps its rows; a later schema step on
+    // the same boot may add empty tables beside them.
+    const witnessed = nonCanvasWitness(paths.db);
+    expect(Object.fromEntries(Object.keys(before).map((table) => [table, witnessed[table]])))
+      .toEqual(before);
     const db = openRaw(paths.db);
     try {
       expect(
