@@ -11,6 +11,7 @@ export {
   INSPECTOR_SELECT_TRIGGER_CLASS,
 } from "./Field";
 export { Dropdown, type DropdownOption } from "./Dropdown";
+export { Combobox } from "./Combobox";
 export { OverlayHeader } from "./OverlayHeader";
 export { ToolbarPill } from "./ToolbarPill";
 export { Kbd } from "./Kbd";
