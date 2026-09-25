@@ -37,6 +37,7 @@ export function Combobox<T>({
   placeholder,
   trailing,
   status,
+  empty,
   listClassName,
 }: {
   readonly value: string;
@@ -66,8 +67,10 @@ export function Combobox<T>({
   readonly placeholder?: string;
   /** Controls beside the field (icon buttons). */
   readonly trailing?: ReactNode;
-  /** Replaces the options inside the list frame (loading, error, empty). */
+  /** Replaces the list inside its frame (loading, error). */
   readonly status?: ReactNode;
+  /** Shown under the list while it has no options. */
+  readonly empty?: ReactNode;
   readonly listClassName?: string;
 }) {
   const baseId = useId();
@@ -213,42 +216,45 @@ export function Combobox<T>({
           .join(" ")}
       >
         {listVisible ? (
-          <ul
-            id={listId}
-            role="listbox"
-            aria-label={listLabel}
-            className="grid max-h-[220px] gap-px overflow-y-auto p-1 font-mono text-[11px]"
-          >
-            {options.map((option, index) => {
-              const key = optionKey(option);
-              const active = index === activeIndex;
-              const selected = key === selectedKey;
-              return (
-                <li
-                  key={key}
-                  id={optionId(index)}
-                  role="option"
-                  aria-selected={selected}
-                  className={[
-                    "cursor-pointer rounded-[4px]",
-                    active || selected ? "bg-raise text-ink" : "text-ink-2 hover:bg-raise/60",
-                    active ? "shadow-[inset_2px_0_0_var(--color-cyan)]" : "",
-                  ]
-                    .filter(Boolean)
-                    .join(" ")}
-                  // Keep the caret in the field: the list is a way to keep typing.
-                  onMouseDown={(event) => event.preventDefault()}
-                  onClick={() => {
-                    inputRef.current?.focus();
-                    onOptionClick?.(option);
-                  }}
-                  onDoubleClick={() => onOptionDoubleClick?.(option)}
-                >
-                  {renderOption(option, { active, selected })}
-                </li>
-              );
-            })}
-          </ul>
+          <>
+            <ul
+              id={listId}
+              role="listbox"
+              aria-label={listLabel}
+              className="grid max-h-[220px] gap-px overflow-y-auto p-1 font-mono text-[11px]"
+            >
+              {options.map((option, index) => {
+                const key = optionKey(option);
+                const active = index === activeIndex;
+                const selected = key === selectedKey;
+                return (
+                  <li
+                    key={key}
+                    id={optionId(index)}
+                    role="option"
+                    aria-selected={selected}
+                    className={[
+                      "cursor-pointer rounded-[4px]",
+                      active || selected ? "bg-raise text-ink" : "text-ink-2 hover:bg-raise/60",
+                      active ? "shadow-[inset_2px_0_0_var(--color-cyan)]" : "",
+                    ]
+                      .filter(Boolean)
+                      .join(" ")}
+                    // Keep the caret in the field: the list is a way to keep typing.
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={() => {
+                      inputRef.current?.focus();
+                      onOptionClick?.(option);
+                    }}
+                    onDoubleClick={() => onOptionDoubleClick?.(option)}
+                  >
+                    {renderOption(option, { active, selected })}
+                  </li>
+                );
+              })}
+            </ul>
+            {options.length === 0 ? empty : null}
+          </>
         ) : (
           status
         )}

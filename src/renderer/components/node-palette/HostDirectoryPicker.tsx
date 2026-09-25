@@ -177,13 +177,12 @@ export function HostDirectoryPicker({
     status = <div role="alert" className={`${STATUS_CLASS} text-crimson`}>{error}</div>;
   } else if (!snapshot) {
     status = <div role="status" className={`${STATUS_CLASS} text-dim`}>Reading {hostId}…</div>;
-  } else if (!loading && rows.length === 0) {
-    status = (
-      <div className={`${STATUS_CLASS} text-dim`}>
-        {filter ? `No folder matches “${filter}”` : "No subfolders"}
-      </div>
-    );
   }
+  const empty = loading ? null : (
+    <div className={`${STATUS_CLASS} text-dim`}>
+      {filter ? `No folder matches “${filter}”` : "No subfolders"}
+    </div>
+  );
 
   return (
     <div className="grid min-h-0 gap-2 normal-case tracking-normal">
@@ -208,6 +207,7 @@ export function HostDirectoryPicker({
         }}
         onOptionDoubleClick={(entry) => openDirectory(entry.path)}
         status={status}
+        empty={empty}
         listClassName="min-h-[160px]"
         trailing={
           <>
