@@ -45,3 +45,18 @@ describe("thread health contract", () => {
     ).toBe(true);
   });
 });
+
+describe("thread health bounds", () => {
+  it("refuses a probability outside [0, 1] and a non-finite observation time", () => {
+    expect(Option.isNone(decodeThreadHealthReading({ ...reading, confidence: 1.2 }))).toBe(true);
+    expect(Option.isNone(decodeThreadHealthReading({ ...reading, observedAt: Number.NaN }))).toBe(true);
+    expect(
+      Option.isNone(
+        decodeThreadHealthReading({
+          ...reading,
+          signals: [{ value: "steady", probability: -0.1, questionId: "health.steady" }],
+        }),
+      ),
+    ).toBe(true);
+  });
+});

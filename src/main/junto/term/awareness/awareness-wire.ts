@@ -32,6 +32,7 @@ import type {
   SeatAwarenessEvidenceLine,
   SeatAwarenessUnavailableReason,
 } from "@renderer/lib/seat-awareness-contract";
+import type { ThreadHealthReading } from "@shared/thread-health";
 import type { AwarenessAdvisory } from "./scheduler";
 
 /**
@@ -73,6 +74,42 @@ const evidenceLinesOf = (
 ): SeatAwarenessEvidenceLine[] =>
   advisory.evidenceLines.map((line) => ({ id: line.id, text: line.text }));
 
+/**
+ * The thread-health reading, only for a judged observation. It shares the
+ * assessment's id and observation time, so the renderer can never pair a
+ * health reading with a different observation than the one it came from.
+ */
+const healthOf = (
+  advisory: AwarenessAdvisory,
+  assessmentId: string,
+  observedAt: number,
+): ThreadHealthReading | undefined => {
+  if (!judged(advisory)) return undefined;
+  const assessment = advisory.assessment;
+  const health = assessment?.health;
+  if (assessment === undefined || health === undefined) return undefined;
+  const model =
+    assessment.provenance.returnedModel ?? assessment.provenance.requestedModel;
+  return {
+    bindingId: advisory.bindingId,
+    value: health.value,
+    confidence: health.probability,
+    observedAt,
+    provenance: {
+      source: "jev",
+      assessmentId,
+      questionId: health.questionId,
+      packVersion: assessment.packVersion,
+      ...(model !== undefined ? { model } : {}),
+    },
+    signals: health.signals.map((signal) => ({
+      value: signal.value,
+      probability: signal.probability,
+      questionId: signal.questionId,
+    })),
+  };
+};
+
 const assessmentFor = (
   advisory: AwarenessAdvisory,
   at: number,
@@ -87,12 +124,14 @@ const assessmentFor = (
     SEAT_AWARENESS_UNOBSERVED_DIGEST;
   const unavailableReason: SeatAwarenessUnavailableReason | null =
     availability === "unavailable" ? (advisory.unavailableReason ?? null) : null;
+  // A cache hit keeps the producer's own id; a notice with no observation
+  // gets one derived from its binding so the field is never empty.
+  const assessmentId =
+    advisory.assessmentId ?? `${SEAT_AWARENESS_UNOBSERVED_DIGEST}:${advisory.bindingId}`;
+  const health = healthOf(advisory, assessmentId, observedAt);
   return {
     bindingId: advisory.bindingId,
-    // A cache hit keeps the producer's own id; a notice with no observation
-    // gets one derived from its binding so the field is never empty.
-    assessmentId:
-      advisory.assessmentId ?? `${SEAT_AWARENESS_UNOBSERVED_DIGEST}:${advisory.bindingId}`,
+    assessmentId,
     availability,
     observedAt,
     activity: activityOf(advisory),
@@ -108,6 +147,7 @@ const assessmentFor = (
     },
     selectedLineId: selectedLineOf(advisory),
     unavailableReason,
+    ...(health !== undefined ? { health } : {}),
   };
 };
 

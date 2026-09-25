@@ -304,3 +304,80 @@ describe("seat-awareness wire adapter", () => {
     expect(IPC_CHANNELS.seatAwarenessSnapshot).toBe(SEAT_AWARENESS_SNAPSHOT_CHANNEL);
   });
 });
+
+describe("thread health on the wire", () => {
+  const healthAssessment = (): AwarenessAssessment => {
+    const state = request();
+    return projectAwarenessAnswers(state, {
+      packVersion: state.packVersion,
+      requestedModel: "jev-test",
+      returnedModel: "jev-test-1",
+      answers: [
+        { questionId: "health.waiting_on_operator", evidenceHash: state.evidenceHash, kind: "noul", probability: 0.96 },
+        { questionId: "health.going_well", evidenceHash: state.evidenceHash, kind: "noul", probability: 0.92 },
+      ],
+    });
+  };
+
+  it("carries the reading for a judged observation, tied to that observation", () => {
+    const assessment = healthAssessment();
+    const events = decodedEvents(
+      advisory({
+        bindingId: "b1",
+        assessment,
+        availability: "current",
+        evidenceDigest: assessment.provenance.evidenceHash,
+        windowDigest: assessment.provenance.evidenceHash,
+        windowCapturedAt: T0,
+      }),
+    );
+    const judged = events.find((event) => event.kind === "assessment");
+    expect(judged?.kind).toBe("assessment");
+    if (judged?.kind !== "assessment") return;
+    expect(judged.assessment.health).toEqual({
+      bindingId: "b1",
+      value: "waiting_on_operator",
+      confidence: 0.96,
+      observedAt: judged.assessment.observedAt,
+      provenance: {
+        source: "jev",
+        assessmentId: "assessment-1",
+        questionId: "health.waiting_on_operator",
+        packVersion: assessment.packVersion,
+        model: "jev-test-1",
+      },
+      signals: [
+        { value: "waiting_on_operator", probability: 0.96, questionId: "health.waiting_on_operator" },
+        { value: "going_well", probability: 0.92, questionId: "health.going_well" },
+      ],
+    });
+  });
+
+  it("never carries a reading on an unavailable assessment", () => {
+    const events = decodedEvents(
+      advisory({ bindingId: "b1", assessment: healthAssessment(), availability: "unavailable", unavailableReason: "provider_failure" }),
+    );
+    for (const event of events) {
+      if (event.kind === "assessment") expect(event.assessment.health).toBeUndefined();
+    }
+  });
+
+  it("refuses a reading that names a different observation", () => {
+    const events = seatAwarenessEventsForAdvisory(
+      advisory({ bindingId: "b1", assessment: healthAssessment(), availability: "current" }),
+      AT,
+    );
+    const judged = events.find((event) => event.kind === "assessment");
+    if (judged?.kind !== "assessment" || judged.assessment.health === undefined) {
+      throw new Error("expected a health reading");
+    }
+    const forged = {
+      ...judged,
+      assessment: {
+        ...judged.assessment,
+        health: { ...judged.assessment.health, bindingId: "other-seat" },
+      },
+    };
+    expect(decodeSeatAwarenessEvent(forged)).toBeUndefined();
+  });
+});

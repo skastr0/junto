@@ -58,10 +58,13 @@ export const THREAD_HEALTH_LABEL: Readonly<Record<ThreadHealthValue, string>> = 
   exceeding: "exceeding expectations",
 };
 
+/** A model probability: finite, in [0, 1]. */
+const Probability = Schema.Number.pipe(Schema.check(Schema.isBetween({ minimum: 0, maximum: 1 })));
+
 /** One accepted health property and the model's own probability for it. */
 export const ThreadHealthSignal = Schema.Struct({
   value: ThreadHealthValue,
-  probability: Schema.Number,
+  probability: Probability,
   /** The pack question that produced it. */
   questionId: Schema.String,
 });
@@ -87,15 +90,21 @@ export type ThreadHealthProvenance = typeof ThreadHealthProvenance.Type;
 export const ThreadHealthReading = Schema.Struct({
   bindingId: Schema.String,
   value: ThreadHealthValue,
-  confidence: Schema.Number,
+  confidence: Probability,
   /** Epoch ms the evidence was observed. A cached answer never moves it. */
-  observedAt: Schema.Number,
+  observedAt: Schema.Finite,
   provenance: ThreadHealthProvenance,
-  signals: Schema.Array(ThreadHealthSignal),
+  signals: Schema.Array(ThreadHealthSignal).pipe(
+    Schema.check(Schema.isMaxLength(THREAD_HEALTH_VALUES.length)),
+  ),
 });
 export type ThreadHealthReading = typeof ThreadHealthReading.Type;
 
 export const decodeThreadHealthReading = Schema.decodeUnknownOption(ThreadHealthReading);
 
-/** A reading older than this is shown as last observed, never as current. */
+/**
+ * A reading older than this is shown as last observed, unless the seat's
+ * screen is still materially the one it was observed on (an idle thread that
+ * stopped to ask the operator keeps its reading until something changes).
+ */
 export const THREAD_HEALTH_TTL_MS = 5 * 60_000;

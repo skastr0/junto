@@ -56,7 +56,9 @@
  * and the recorded containment upgrade, and claims nothing from it.
  */
 
+import { Option } from "effect";
 import type { AgentSeatState } from "@shared/agent-seat-state";
+import { decodeThreadHealthReading, type ThreadHealthReading } from "@shared/thread-health";
 
 /** Main -> renderer: one seat-awareness event. */
 export const SEAT_AWARENESS_CHANNEL = "junto:seat-awareness" as const;
@@ -191,6 +193,13 @@ export type SeatAwarenessAssessment = {
   /** The line the model selected, or null when it selected none. */
   readonly selectedLineId: string | null;
   readonly unavailableReason: SeatAwarenessUnavailableReason | null;
+  /**
+   * Advisory thread health from this same observation (its bindingId and
+   * assessment id match). Absent when no health property was accepted, and
+   * never present on an unavailable assessment. A separate axis from the
+   * seat's declared signals: this is what Jev read, not what the seat said.
+   */
+  readonly health?: ThreadHealthReading;
 };
 
 /** One concern the model decisively ruled out for this observation. */
@@ -308,6 +317,18 @@ const decodeAssessment = (raw: unknown): SeatAwarenessAssessment | undefined => 
       ? (raw.unavailableReason as SeatAwarenessUnavailableReason)
       : null;
   const availability = raw.availability as SeatAwarenessPublishedAvailability;
+  // Additive field, strict when present: a reading must belong to this exact
+  // observation, and an unavailable assessment carries no judgment at all.
+  let health: ThreadHealthReading | undefined;
+  if (raw.health !== undefined) {
+    const decoded = decodeThreadHealthReading(raw.health);
+    if (Option.isNone(decoded)) return undefined;
+    health = decoded.value;
+    if (health.bindingId !== bindingId) return undefined;
+    if (health.provenance.assessmentId !== raw.assessmentId) return undefined;
+    if (health.observedAt !== raw.observedAt) return undefined;
+    if (availability === "unavailable") return undefined;
+  }
   return {
     bindingId,
     assessmentId: raw.assessmentId,
@@ -324,6 +345,7 @@ const decodeAssessment = (raw: unknown): SeatAwarenessAssessment | undefined => 
     // A reason is only meaningful for an honest failure; never carry one on a
     // judgment or an abstention.
     unavailableReason: availability === "unavailable" ? reason : null,
+    ...(health !== undefined ? { health } : {}),
   };
 };
 
