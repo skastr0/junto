@@ -496,3 +496,36 @@ derive their status through one function (`seatCardStatus`) so the echo cannot d
 `e2e/scenarios/seat-awareness-card.spec.ts` asserts a hit test inside the hover's own box,
 because `toBeVisible()` passes for a clipped element.
 
+
+## 10 - Thread health (2026-09-25)
+
+**What it adds.** A tenth read-only axis beside activity and concerns: how the seat's thread is going, on one spectrum from `stuck`, `looping`, `thrashing`, `confused`, `overwhelmed` and `waiting_on_operator`, through `steady`, to `going_well`, `succeeding` and `exceeding`. The contract is `src/shared/thread-health.ts`.
+
+**It is not the seat's own claim.** Declared agent signals (`src/shared/agent-signals.ts`) are the agent's claim; health is Jev's reading. The two are never merged, and every surface labels health "AI reads".
+
+**How it is asked.** `awareness-pack/2` adds nine narrow health Nouls. Each names the look-alike it must not be mistaken for, for example a finished turn versus one that stopped to ask. None asks about time the window cannot show, so looping stays with the temporal-pair repetition question.
+
+**How answers combine.** `HEALTH_DERIVATION` is a precedence, never a product:
+- waiting on the operator comes first;
+- trouble outranks success;
+- the good end is ranked strongest claim first.
+
+The approval, answer and access concerns count as waiting, and an accepted repetition counts as looping, so nothing is asked twice. `exceeding` publishes only together with an accepted `succeeding`.
+
+**What travels.** Health absences are audit facts, never readings. The reading rides the assessment it came from, and decode refuses it if it names another observation.
+
+**Authority.** Health is display only. It feeds no seat state, no delivery, and not the hold in `seat-hold.ts`.
+
+**Freshness differs from the judgment rule on purpose.** A health reading stays current inside the TTL, or while the live window digest still equals the one it was observed on. The case the operator asked for, a thread idle because it is waiting on them, would otherwise age out the moment its turn ended.
+
+**Surfaces.**
+- **The card.** The activity mark's rim carries the tone:
+  - trouble: broken amber ring;
+  - waiting: amber ring;
+  - steady: no ring;
+  - good: green ring.
+
+  `useThreadHealthMark` supplies it. While the seat has an open declared `blocked` or `escalate`, a waiting reading is hidden and a good one is drawn quiet, so the corner never contradicts itself. Health is never crimson; that hue belongs to declared and control blockers.
+- **The focus sidebar.** `ThreadHealthSection` shows the headline, its confidence, every other accepted reading, and the provenance.
+
+**Measured.** See `docs/assessments/thread-health-2026-09-25.md`: 9/10 on constructed screens through the product pack, no false alarms, and one conservative miss. The run also found and fixed a composer-exclusion defect that deleted boxed permission dialogs from the evidence.

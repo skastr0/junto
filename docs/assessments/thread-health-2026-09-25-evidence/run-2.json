@@ -1,0 +1,266 @@
+{
+  "at": "2026-09-25T21:31:09.442Z",
+  "agree": 9,
+  "total": 10,
+  "inputTokens": 20435,
+  "rows": [
+    {
+      "id": "waiting-prose-handback",
+      "label": "waiting_on_operator",
+      "headline": "waiting_on_operator",
+      "agree": true,
+      "availability": "current",
+      "failure": null,
+      "model": "jev-1.13.0",
+      "ms": 784,
+      "signals": [
+        "waiting_on_operator 0.97",
+        "going_well 0.91"
+      ],
+      "healthProbabilities": {
+        "health.waiting_on_operator": 0.97,
+        "health.stuck": 0.03,
+        "health.thrashing": 0.03,
+        "health.confused": 0.05,
+        "health.overwhelmed": 0.07,
+        "health.exceeding": 0.1,
+        "health.succeeding": 0.06,
+        "health.going_well": 0.91,
+        "health.steady": 0.42
+      },
+      "concerns": []
+    },
+    {
+      "id": "finished-verified",
+      "label": "succeeding",
+      "headline": "succeeding",
+      "agree": true,
+      "availability": "current",
+      "failure": null,
+      "model": "jev-1.13.0",
+      "ms": 284,
+      "signals": [
+        "succeeding 0.94",
+        "going_well 0.96",
+        "steady 0.95"
+      ],
+      "healthProbabilities": {
+        "health.waiting_on_operator": 0.02,
+        "health.stuck": 0.01,
+        "health.thrashing": 0.02,
+        "health.confused": 0.02,
+        "health.overwhelmed": 0.02,
+        "health.exceeding": 0.3,
+        "health.succeeding": 0.94,
+        "health.going_well": 0.96,
+        "health.steady": 0.95
+      },
+      "concerns": []
+    },
+    {
+      "id": "stuck-retrying",
+      "label": "stuck",
+      "headline": "stuck",
+      "agree": true,
+      "availability": "current",
+      "failure": null,
+      "model": "jev-1.13.0",
+      "ms": 288,
+      "signals": [
+        "stuck 0.94"
+      ],
+      "healthProbabilities": {
+        "health.waiting_on_operator": 0.2,
+        "health.stuck": 0.94,
+        "health.thrashing": 0.22,
+        "health.confused": 0.04,
+        "health.overwhelmed": 0.07,
+        "health.exceeding": 0.02,
+        "health.succeeding": 0.01,
+        "health.going_well": 0.02,
+        "health.steady": 0.05
+      },
+      "concerns": [
+        "execution_error 0.93"
+      ]
+    },
+    {
+      "id": "thrashing-revert-cycle",
+      "label": "thrashing",
+      "headline": "thrashing",
+      "agree": true,
+      "availability": "current",
+      "failure": null,
+      "model": "jev-1.13.0",
+      "ms": 341,
+      "signals": [
+        "thrashing 0.91"
+      ],
+      "healthProbabilities": {
+        "health.waiting_on_operator": 0.18,
+        "health.stuck": 0.32,
+        "health.thrashing": 0.91,
+        "health.confused": 0.27,
+        "health.overwhelmed": 0.08,
+        "health.exceeding": 0.04,
+        "health.succeeding": 0.01,
+        "health.going_well": 0.07,
+        "health.steady": 0.09
+      },
+      "concerns": []
+    },
+    {
+      "id": "confused-task",
+      "label": "confused",
+      "headline": "confused",
+      "agree": true,
+      "availability": "current",
+      "failure": null,
+      "model": "jev-1.13.0",
+      "ms": 295,
+      "signals": [
+        "confused 0.97"
+      ],
+      "healthProbabilities": {
+        "health.waiting_on_operator": 0.19,
+        "health.stuck": 0.15,
+        "health.thrashing": 0.43,
+        "health.confused": 0.97,
+        "health.overwhelmed": 0.09,
+        "health.exceeding": 0.02,
+        "health.succeeding": 0.01,
+        "health.going_well": 0.07,
+        "health.steady": 0.12
+      },
+      "concerns": []
+    },
+    {
+      "id": "overwhelmed-context",
+      "label": "overwhelmed",
+      "headline": "overwhelmed",
+      "agree": true,
+      "availability": "current",
+      "failure": null,
+      "model": "jev-1.13.0",
+      "ms": 287,
+      "signals": [
+        "overwhelmed 0.92"
+      ],
+      "healthProbabilities": {
+        "health.waiting_on_operator": 0.09,
+        "health.stuck": 0.07,
+        "health.thrashing": 0.05,
+        "health.confused": 0.09,
+        "health.overwhelmed": 0.92,
+        "health.exceeding": 0.03,
+        "health.succeeding": 0.02,
+        "health.going_well": 0.17,
+        "health.steady": 0.7
+      },
+      "concerns": []
+    },
+    {
+      "id": "going-well-plan",
+      "label": "going_well",
+      "headline": "going_well",
+      "agree": true,
+      "availability": "current",
+      "failure": null,
+      "model": "jev-1.13.0",
+      "ms": 277,
+      "signals": [
+        "going_well 0.94",
+        "steady 0.93"
+      ],
+      "healthProbabilities": {
+        "health.waiting_on_operator": 0.17,
+        "health.stuck": 0.03,
+        "health.thrashing": 0.02,
+        "health.confused": 0.03,
+        "health.overwhelmed": 0.03,
+        "health.exceeding": 0.14,
+        "health.succeeding": 0.05,
+        "health.going_well": 0.94,
+        "health.steady": 0.93
+      },
+      "concerns": []
+    },
+    {
+      "id": "steady-exploring",
+      "label": "steady",
+      "headline": "steady",
+      "agree": true,
+      "availability": "current",
+      "failure": null,
+      "model": "jev-1.13.0",
+      "ms": 319,
+      "signals": [
+        "steady 0.93"
+      ],
+      "healthProbabilities": {
+        "health.waiting_on_operator": 0.09,
+        "health.stuck": 0.05,
+        "health.thrashing": 0.02,
+        "health.confused": 0.04,
+        "health.overwhelmed": 0.04,
+        "health.exceeding": 0.03,
+        "health.succeeding": 0.01,
+        "health.going_well": 0.1,
+        "health.steady": 0.93
+      },
+      "concerns": []
+    },
+    {
+      "id": "exceeding-extra-verified",
+      "label": "exceeding",
+      "headline": "succeeding",
+      "agree": false,
+      "availability": "current",
+      "failure": null,
+      "model": "jev-1.13.0",
+      "ms": 286,
+      "signals": [
+        "succeeding 0.90",
+        "going_well 0.96",
+        "steady 0.94"
+      ],
+      "healthProbabilities": {
+        "health.waiting_on_operator": 0.03,
+        "health.stuck": 0.02,
+        "health.thrashing": 0.02,
+        "health.confused": 0.03,
+        "health.overwhelmed": 0.03,
+        "health.exceeding": 0.83,
+        "health.succeeding": 0.9,
+        "health.going_well": 0.96,
+        "health.steady": 0.94
+      },
+      "concerns": []
+    },
+    {
+      "id": "approval-menu",
+      "label": "waiting_on_operator",
+      "headline": "waiting_on_operator",
+      "agree": true,
+      "availability": "current",
+      "failure": null,
+      "model": "jev-1.13.0",
+      "ms": 305,
+      "signals": [
+        "waiting_on_operator 0.95"
+      ],
+      "healthProbabilities": {
+        "health.waiting_on_operator": 0.95,
+        "health.stuck": 0.03,
+        "health.thrashing": 0.04,
+        "health.confused": 0.03,
+        "health.overwhelmed": 0.02,
+        "health.exceeding": 0.02,
+        "health.succeeding": 0.01,
+        "health.going_well": 0.06,
+        "health.steady": 0.61
+      },
+      "concerns": []
+    }
+  ]
+}
