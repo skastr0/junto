@@ -56,7 +56,7 @@ const tableNames = (database: DatabaseSync): string[] =>
             AND name <> 'state_schema_identity'
           ORDER BY name`,
       )
-      .all() as ReadonlyArray<{ readonly name: SQLOutputValue }>
+      .all() as unknown as ReadonlyArray<{ readonly name: SQLOutputValue }>
   ).map(({ name }) => String(name));
 
 const snapshot = (database: DatabaseSync) =>
