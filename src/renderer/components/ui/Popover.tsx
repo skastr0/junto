@@ -9,11 +9,15 @@ import { placeBesideRect, type Side } from "../../lib/menu-placement";
  * closes on Escape or a press outside it. It is a non-modal dialog: callers
  * give it a label, and the first field may claim focus on mount.
  */
+// Module-level so the default is one stable array: a fresh literal per render
+// would re-run the placement layout effect every render and never settle.
+const DEFAULT_SIDES: ReadonlyArray<Side> = ["left", "right", "below", "above"];
+
 export function Popover({
   anchor,
   onClose,
   label,
-  sides = ["left", "right", "below", "above"],
+  sides = DEFAULT_SIDES,
   width = 320,
   className,
   testId,
