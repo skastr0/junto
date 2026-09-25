@@ -347,7 +347,7 @@ function EntityCard({
       <ExecutionCardHeader
         decal={
           kind === "agent" ? (
-            <AgentPortrait seed={node.id} harness={managed ? managedHarness : undefined} size={28} />
+            <AgentPortrait identity={node.id} harness={managed ? managedHarness : undefined} size={28} />
           ) : (
             <HarnessMark agent={managed ? managedHarness : undefined} size={28} />
           )

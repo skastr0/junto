@@ -1,8 +1,12 @@
-/* Agent portrait: the face tile plus a harness badge notched into its
-   bottom-right corner. The badge sits on an opaque raise plate so the
-   translucent HarnessMark tile reads the same over any critter. */
+/* Agent portrait: the face plus a harness badge on its lower-right edge. The
+   badge sits on an opaque raise plate so the translucent HarnessMark tile
+   reads the same over any critter. Seats that draw an activity ring pass
+   outline={false}; the ring is their edge. */
 .agent-portrait__face {
   display: block;
+}
+
+.agent-portrait[data-outline="true"] .agent-portrait__face {
   box-shadow: 0 0 0 1px var(--color-stroke);
 }
 
@@ -12,8 +16,6 @@
 
 .agent-portrait__badge {
   position: absolute;
-  right: -3px;
-  bottom: -3px;
   display: grid;
   place-items: center;
   background: var(--color-raise);

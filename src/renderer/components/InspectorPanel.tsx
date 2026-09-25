@@ -44,7 +44,7 @@ function AgentSeatSection({ node }: { readonly node: CanvasNode }) {
     <div className="inspector-section" data-overseer={overseer ? "true" : undefined}>
       <div className="inspector-section__label">seat</div>
       <div className="mt-2 flex items-center gap-2.5">
-        <AgentPortrait seed={node.id} harness={managed ? harness : undefined} size={32} />
+        <AgentPortrait identity={node.id} harness={managed ? harness : undefined} size={32} />
         <div className="min-w-0 flex-1">
           <div className="truncate text-[12px]" style={{ color: INK }} title={nodeTitle(node)}>
             {nodeTitle(node)}

@@ -1970,7 +1970,7 @@ export function TerminalSurface({
           style={{ height: GRID_CELL_CHROME.headerPx }}
         >
           {agentSeat ? (
-            <AgentPortrait seed={node.id} harness={gridHarness} size={20} />
+            <AgentPortrait identity={node.id} harness={gridHarness} size={20} />
           ) : (
             <HarnessMark agent={gridHarness} size={18} />
           )}
@@ -1999,7 +1999,7 @@ export function TerminalSurface({
         </header>
       ) : (
       <OverlayHeader
-        leading={agentSeat ? <AgentPortrait seed={node.id} harness={gridHarness} size={36} /> : undefined}
+        leading={agentSeat ? <AgentPortrait identity={node.id} harness={gridHarness} size={36} /> : undefined}
         eyebrow={
           agentSeat && isOverseerSeat(node) ? (
             <span className="inline-flex items-center gap-1.5">

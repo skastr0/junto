@@ -80,7 +80,7 @@ function AgentSeatGlance({ node }: { readonly node: CanvasNode }) {
   const overseer = isOverseerSeat(node);
   return (
     <div className="rts-kind-id" title={nodeTitle(node)} data-overseer={overseer ? "true" : undefined}>
-      <AgentPortrait seed={node.id} harness={managed ? harness : undefined} size={28} />
+      <AgentPortrait identity={node.id} harness={managed ? harness : undefined} size={28} />
       <div className="rts-kind-id__text">
         <div className="rts-kind-id__name">{nodeTitle(node)}</div>
         <div className="rts-kind-id__live">{managed ? harness : "agent seat"}</div>

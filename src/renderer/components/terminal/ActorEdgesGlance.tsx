@@ -144,7 +144,7 @@ function EdgeCard({
   const portrait =
     peer?.ether?.entity?.kind === "agent" ? (
       <AgentPortrait
-        seed={peer.id}
+        identity={peer.id}
         harness={typeof harness === "string" && isHarnessId(harness) ? harness : undefined}
         size={24}
       />
