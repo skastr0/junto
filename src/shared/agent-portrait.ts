@@ -20,12 +20,12 @@ export const portraitDetailFor = (size: number): PortraitDetail =>
   size < 34 ? "glyph" : size < 72 ? "card" : "rich";
 
 // Warm hues lead but identity needs spread, so a board of seats never reads
-// as one amber blur; crimson is reserved for blockers and never
+// as one amber blur. Gold is left out as a body (it reads as amber at pastel
+// lightness); crimson is reserved for blockers and never
 // used as a body color.
 const BODY_HUES: ReadonlyArray<readonly [token: string, weight: number]> = [
   ["amber", 2],
   ["orange", 2],
-  ["gold", 1],
   ["green", 2],
   ["cyan", 2],
   ["violet", 2],
