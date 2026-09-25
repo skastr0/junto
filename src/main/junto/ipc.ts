@@ -1,5 +1,5 @@
 import { app, BrowserWindow, clipboard, ipcMain } from "electron";
-import { Effect, Result, Schema } from "effect";
+import { Effect, Schema } from "effect";
 import {
   IPC_CHANNELS,
   type BindingHint,
@@ -54,14 +54,6 @@ import { WorkService } from "./work/service";
 import { ContentService } from "./content/service";
 import { messageDelivery } from "./work/message-delivery";
 import { AgentSignalRepository } from "./signals/repository";
-import { SquadRepository, type SquadRepositoryError } from "./squads/repository";
-import type { SquadDeleteResult, SquadResult, SquadSaveInput } from "@shared/squads";
-import { PortraitOverrideRepository } from "./portraits/repository";
-import {
-  isPortraitSeatId,
-  normalizePortraitOverride,
-  type PortraitOverrideSetResult,
-} from "@shared/portrait-overrides";
 import {
   answerAgentSignal,
   dismissAgentSignal,
@@ -652,30 +644,6 @@ export const registerJuntoIpc = (): void => {
     },
   );
 
-  // Portrait overrides: the operator's per-seat character customization. An
-  // install-local preference like settings (no canvas authoring), so it runs
-  // outside the main-authoring gate; every change is broadcast as it stands.
-  privilegedIpc.handle(IPC_CHANNELS.portraitOverridesList, () =>
-    AppRuntime.runPromise(Effect.flatMap(PortraitOverrideRepository, (repository) => repository.list())),
-  );
-  privilegedIpc.handle(
-    IPC_CHANNELS.portraitOverrideSet,
-    async (_event, seatId: unknown, override: unknown): Promise<PortraitOverrideSetResult> => {
-      if (!isPortraitSeatId(seatId)) return { ok: false, message: "portrait seat id is invalid" };
-      try {
-        const stored = await AppRuntime.runPromise(
-          Effect.flatMap(PortraitOverrideRepository, (repository) =>
-            repository.set(seatId, override === null ? null : normalizePortraitOverride(override)),
-          ),
-        );
-        broadcast(IPC_CHANNELS.portraitOverride, { seatId, override: stored });
-        return { ok: true, seatId, override: stored };
-      } catch (error) {
-        return { ok: false, message: error instanceof Error ? error.message : "portrait save failed" };
-      }
-    },
-  );
-
   // Agent signals: the operator reads every seat's claim on a canvas, answers
   // one (typed into the seat as operator mail, then marked answered), or
   // dismisses it. Every change is broadcast as the signal now stands.
@@ -714,64 +682,6 @@ export const registerJuntoIpc = (): void => {
   );
   privilegedIpc.handle(IPC_CHANNELS.agentSignalDismiss, (_event, signalId: string) =>
     runSignalOperator("ipc.work.signal-dismiss", dismissAgentSignal(String(signalId))),
-  );
-
-  // Squads: the operator's reusable seat templates. Every change pushes the
-  // whole list so each window's add picker stays current. Refusals (taken
-  // name, bad template, gone squad) come back as a message, never a throw.
-  const squadsNow = () =>
-    AppRuntime.runPromise(Effect.flatMap(SquadRepository, (repository) => repository.list()));
-  const runSquad = async <A>(
-    program: Effect.Effect<A, SquadRepositoryError, SquadRepository>,
-  ): Promise<{ readonly ok: true; readonly value: A } | { readonly ok: false; readonly message: string }> => {
-    const result = await AppRuntime.runPromise(Effect.result(program)).catch((error: unknown) =>
-      Result.fail({ message: error instanceof Error ? error.message : "squad update failed" }),
-    );
-    if (Result.isFailure(result)) return { ok: false, message: result.failure.message };
-    void squadsNow()
-      .then((squads) => broadcast(IPC_CHANNELS.squadsChanged, { squads }))
-      .catch(() => undefined);
-    return { ok: true, value: result.success };
-  };
-  const squadIdOf = (value: unknown): string | undefined =>
-    typeof value === "string" && value.length >= 1 && value.length <= 64 ? value : undefined;
-  privilegedIpc.handle(IPC_CHANNELS.squadsList, () => squadsNow());
-  privilegedIpc.handle(IPC_CHANNELS.squadSave, async (_event, input: unknown): Promise<SquadResult> => {
-    const raw = (typeof input === "object" && input !== null ? input : {}) as Record<string, unknown>;
-    const squadId = raw.squadId === undefined ? undefined : squadIdOf(raw.squadId);
-    if (raw.squadId !== undefined && squadId === undefined) return { ok: false, message: "squad id is invalid" };
-    const saved = await runSquad(
-      Effect.flatMap(SquadRepository, (repository) =>
-        repository.save({
-          ...(squadId === undefined ? {} : { squadId }),
-          name: String(raw.name ?? ""),
-          body: raw.body as SquadSaveInput["body"],
-        }),
-      ),
-    );
-    return saved.ok ? { ok: true, squad: saved.value } : saved;
-  });
-  privilegedIpc.handle(
-    IPC_CHANNELS.squadRename,
-    async (_event, squadId: unknown, name: unknown): Promise<SquadResult> => {
-      const id = squadIdOf(squadId);
-      if (id === undefined) return { ok: false, message: "squad id is invalid" };
-      const renamed = await runSquad(
-        Effect.flatMap(SquadRepository, (repository) => repository.rename(id, String(name ?? ""))),
-      );
-      return renamed.ok ? { ok: true, squad: renamed.value } : renamed;
-    },
-  );
-  privilegedIpc.handle(
-    IPC_CHANNELS.squadDelete,
-    async (_event, squadId: unknown): Promise<SquadDeleteResult> => {
-      const id = squadIdOf(squadId);
-      if (id === undefined) return { ok: false, message: "squad id is invalid" };
-      const removed = await runSquad(
-        Effect.flatMap(SquadRepository, (repository) => repository.remove(id)),
-      );
-      return removed.ok ? { ok: true, squadId: removed.value } : removed;
-    },
   );
 
   // Factory pause plane — canvas-level switch. start is idempotent hydration,

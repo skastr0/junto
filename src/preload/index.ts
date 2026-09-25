@@ -48,10 +48,8 @@ import type { SnapshotState } from "@shared/entities";
 import type { PreambleEvent } from "@shared/preamble";
 import type { WireTrafficEvent } from "@shared/wire-traffic";
 import type { AgentSignal } from "@shared/agent-signals";
-import type { PortraitOverrideEvent } from "@shared/portrait-overrides";
 import type { Settings, SettingsOpResult, SettingsPatch, SettingsSectionKey } from "@shared/settings";
 import type { UsageState } from "@shared/usage";
-import type { SquadsChanged } from "@shared/squads";
 import type { UpdateStatus } from "@shared/update";
 import { nodeRefKey, parseNodeRef } from "@shared/node-ref";
 import { isRendererPreloadCandidate } from "@shared/trusted-renderer-origin";
@@ -448,13 +446,6 @@ const juntoApi: Omit<JuntoApi, keyof typeof liveApi | WorkFeatureApiKey> = {
     invoke(IPC_CHANNELS.agentSignalRespond, IPC_TIMEOUT_MS, signalId, text),
   agentSignalDismiss: (signalId) =>
     invoke(IPC_CHANNELS.agentSignalDismiss, IPC_TIMEOUT_MS, signalId),
-  portraitOverridesList: () => invoke(IPC_CHANNELS.portraitOverridesList, IPC_TIMEOUT_MS),
-  portraitOverrideSet: (seatId, override) =>
-    invoke(IPC_CHANNELS.portraitOverrideSet, IPC_TIMEOUT_MS, seatId, override),
-  squadsList: () => invoke(IPC_CHANNELS.squadsList, IPC_TIMEOUT_MS),
-  squadSave: (input) => invoke(IPC_CHANNELS.squadSave, IPC_TIMEOUT_MS, input),
-  squadRename: (squadId, name) => invoke(IPC_CHANNELS.squadRename, IPC_TIMEOUT_MS, squadId, name),
-  squadDelete: (squadId) => invoke(IPC_CHANNELS.squadDelete, IPC_TIMEOUT_MS, squadId),
   factoryPauseSet: (canvas, scope, paused) =>
     invoke(IPC_CHANNELS.factoryPauseSet, IPC_TIMEOUT_MS, canvas, scope, paused),
   regionRollups: (name) =>
@@ -477,9 +468,6 @@ const juntoApi: Omit<JuntoApi, keyof typeof liveApi | WorkFeatureApiKey> = {
   onWireTraffic: (listener) =>
     subscribe<WireTrafficEvent>(IPC_CHANNELS.wireTraffic, listener),
   onAgentSignal: (listener) => subscribe<AgentSignal>(IPC_CHANNELS.agentSignal, listener),
-  onPortraitOverride: (listener) =>
-    subscribe<PortraitOverrideEvent>(IPC_CHANNELS.portraitOverride, listener),
-  onSquadsChanged: (listener) => subscribe<SquadsChanged>(IPC_CHANNELS.squadsChanged, listener),
   onSnapshotsChanged: (listener) =>
     subscribe<SnapshotState>(IPC_CHANNELS.snapshotsChanged, listener),
   onKernelChanged: (listener) => subscribe<KernelSnapshot>(IPC_CHANNELS.kernelChanged, listener),
