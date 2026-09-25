@@ -39,7 +39,7 @@ describe("buildFactoryClaimPrompt", () => {
       `junto tasks update '{"target":"${sink}","task":"${task.id}","state":"working"`,
     );
     expect(text).toContain("junto onboard");
-    expect(text).toContain("junto escalate");
+    expect(text).toContain('junto blocked "<what you need>"');
     expect(text).toContain("Finish criteria (hard gate on complete):");
     expect(text).toContain("briefing is complete");
     expect(text).toContain("git: at least 1 commit(s)");
