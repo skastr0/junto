@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  PORTRAIT_OPTIONS,
   portraitDataUri,
   portraitDetailFor,
   portraitGenome,
@@ -66,5 +67,46 @@ describe("agent portraits", () => {
     expect(portraitSvg({ seed: "a", mode: "dark", detail: "card" })).toBe(
       portraitSvg({ seed: "a", mode: "dark", detail: "card", frame: "tile" }),
     );
+  });
+
+  it("grows variety so hundreds of seats rarely share a look", () => {
+    const looks = new Set(
+      Array.from({ length: 400 }, (_, index) => {
+        const g = portraitGenome(`seat-${index}-${(index * 2654435761) >>> 0}`);
+        return `${g.bodyHue}|${g.shape}|${g.topper}|${g.accessory}`;
+      }),
+    );
+    expect(looks.size).toBeGreaterThan(340);
+  });
+
+  it("draws every new species, topper, pattern, and prop in both frames", () => {
+    const traits = ["shape", "topper", "marking", "accessory"] as const;
+    for (const trait of traits) {
+      for (const option of PORTRAIT_OPTIONS[trait]) {
+        for (const frame of ["round", "bare"] as const) {
+          const svg = portraitSvg({ seed: "cast", mode: "bright", detail: "card", frame, config: { [trait]: option } });
+          expect(svg).toMatch(/^<svg [^>]*viewBox="[-\d. ]+">/);
+          expect(svg).not.toContain("NaN");
+        }
+      }
+    }
+  });
+
+  it("gives a bare frame no tile, no halo, and no frame clip", () => {
+    const bare = portraitSvg({ seed: "a", mode: "dark", detail: "rich", frame: "bare" });
+    expect(bare).not.toContain('clipPath id="t"');
+    expect(bare).not.toContain("<filter");
+    const { tile, halo } = { tile: /<rect [^>]*width="100" height="100" fill=/, halo: /r="36"/ };
+    expect(bare).not.toMatch(tile);
+    expect(bare).not.toMatch(halo);
+  });
+
+  it("lets a hat cover crown toppers and a shroom cap cover every topper", () => {
+    const hatted = portraitSvg({ seed: "a", mode: "dark", detail: "card", config: { topper: "unicorn", accessory: "beanie" } });
+    const bareHead = portraitSvg({ seed: "a", mode: "dark", detail: "card", config: { topper: "none", accessory: "beanie" } });
+    expect(hatted).toBe(bareHead);
+    const shroom = portraitSvg({ seed: "a", mode: "dark", detail: "card", config: { shape: "shroom", topper: "cat", accessory: "none" } });
+    const shroomPlain = portraitSvg({ seed: "a", mode: "dark", detail: "card", config: { shape: "shroom", topper: "none", accessory: "none" } });
+    expect(shroom).toBe(shroomPlain);
   });
 });

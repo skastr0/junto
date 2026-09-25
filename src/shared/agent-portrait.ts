@@ -39,6 +39,33 @@ const TOPPERS = ["none", "cat", "bear", "bunny", "antenna", "sprout", "horns", "
 const EYES = ["dot", "shiny", "happy", "sleepy", "oval", "wink", "line", "sparkle"] as const;
 const MOUTHS = ["smile", "cat", "o", "flat", "grin", "fang", "none", "wobble"] as const;
 const MARKINGS = ["none", "belly", "spots", "cap", "freckles", "none"] as const;
+// The second cast of characters, drawn from an independent stream so the
+// first draw above never moves: a seat keeps its color and face, and some
+// seats grow into a new species, new ears, a new pattern, or a hat.
+const SHAPES_V2 = ["cloud", "gumdrop", "onigiri", "ghost", "shroom", "peach"] as const;
+const TOPPERS_V2 = ["floppy", "mouse", "unicorn", "devil", "gills", "antlers", "flower", "halo", "bow", "crest"] as const;
+const MARKINGS_V2 = ["stripes", "patch", "muzzle", "blaze", "stars", "heart"] as const;
+const ACCESSORIES = [
+  "none",
+  "beanie",
+  "party",
+  "crown",
+  "wizard",
+  "beret",
+  "headphones",
+  "glasses",
+  "shades",
+  "scarf",
+  "bowtie",
+] as const;
+// Shades hide the eyes, and the eyes carry expressions: editor-only.
+const DRAWN_ACCESSORIES = ACCESSORIES.filter((item) => item !== "none" && item !== "shades");
+const HATS: ReadonlySet<string> = new Set(["beanie", "party", "crown", "wizard", "beret"]);
+// Toppers that sit on the crown of the head give way to a hat.
+const CROWN_TOPPERS: ReadonlySet<string> = new Set(["antenna", "twin", "sprout", "tuft", "unicorn", "halo", "crest", "bow"]);
+const ALL_SHAPES = [...SHAPES, ...SHAPES_V2] as const;
+const ALL_TOPPERS = [...TOPPERS, ...TOPPERS_V2] as const;
+const ALL_MARKINGS = [...MARKINGS.filter((m, i) => MARKINGS.indexOf(m) === i), ...MARKINGS_V2] as const;
 // The pick lists above are the identity draw; their order is frozen so every
 // seat keeps its face. Kinds only expressions or the editor reach live apart.
 const EXPRESSION_EYES = ["squint"] as const;
@@ -46,11 +73,12 @@ const EXPRESSION_MOUTHS = ["frown"] as const;
 const BROWS = ["none", "level", "raised", "worried", "furrowed", "quizzical"] as const;
 const EXTRAS = ["none", "sweat", "sparkle", "zzz", "question"] as const;
 
-export type PortraitShape = (typeof SHAPES)[number];
-export type PortraitTopper = (typeof TOPPERS)[number];
+export type PortraitShape = (typeof ALL_SHAPES)[number];
+export type PortraitTopper = (typeof ALL_TOPPERS)[number];
+export type PortraitAccessory = (typeof ACCESSORIES)[number];
 export type PortraitEyes = (typeof EYES)[number] | (typeof EXPRESSION_EYES)[number];
 export type PortraitMouth = (typeof MOUTHS)[number] | (typeof EXPRESSION_MOUTHS)[number];
-export type PortraitMarking = (typeof MARKINGS)[number];
+export type PortraitMarking = (typeof ALL_MARKINGS)[number];
 export type PortraitBrows = (typeof BROWS)[number];
 export type PortraitExtra = (typeof EXTRAS)[number];
 
@@ -58,12 +86,13 @@ export type PortraitExtra = (typeof EXTRAS)[number];
 export const PORTRAIT_OPTIONS = {
   bodyHue: BODY_HUES.map(([token]) => token),
   accentHue: [...ACCENT_HUES],
-  shape: [...SHAPES],
-  topper: [...TOPPERS],
+  shape: [...ALL_SHAPES],
+  topper: [...ALL_TOPPERS],
+  accessory: [...ACCESSORIES],
   eyes: [...EYES, ...EXPRESSION_EYES],
   mouth: [...MOUTHS.filter((mouth) => mouth !== "none"), ...EXPRESSION_MOUTHS, "none"],
   brows: [...BROWS],
-  marking: MARKINGS.filter((marking, index) => MARKINGS.indexOf(marking) === index),
+  marking: [...ALL_MARKINGS],
 } as const satisfies Record<string, ReadonlyArray<string>>;
 
 /** The character, independent of mode and detail: what a seed decides. */
@@ -75,6 +104,7 @@ export interface PortraitGenome {
   readonly eyes: PortraitEyes;
   readonly mouth: PortraitMouth;
   readonly marking: PortraitMarking;
+  readonly accessory: PortraitAccessory;
   readonly blush: boolean;
   readonly gaze: number; // -1..1, face shift left/right
   readonly tilt: number; // degrees, whole critter
@@ -105,6 +135,7 @@ export interface PortraitConfig {
   readonly mouth?: PortraitMouth;
   readonly brows?: PortraitBrows;
   readonly marking?: PortraitMarking;
+  readonly accessory?: PortraitAccessory;
   readonly blush?: boolean;
   readonly temperament?: number;
 }
@@ -180,11 +211,12 @@ export function portraitCharacter(seed: string, config?: PortraitConfig): Portra
     ...genome,
     bodyHue,
     accentHue,
-    shape: oneOf(SHAPES, c.shape) ?? genome.shape,
-    topper: oneOf(TOPPERS, c.topper) ?? genome.topper,
+    shape: oneOf(ALL_SHAPES, c.shape) ?? genome.shape,
+    topper: oneOf(ALL_TOPPERS, c.topper) ?? genome.topper,
+    accessory: oneOf(ACCESSORIES, c.accessory) ?? genome.accessory,
     eyes: oneOf(PORTRAIT_OPTIONS.eyes, c.eyes) ?? genome.eyes,
     mouth: oneOf(PORTRAIT_OPTIONS.mouth, c.mouth) ?? genome.mouth,
-    marking: oneOf(MARKINGS, c.marking) ?? genome.marking,
+    marking: oneOf(ALL_MARKINGS, c.marking) ?? genome.marking,
     blush: typeof c.blush === "boolean" ? c.blush : genome.blush,
     brows: oneOf(BROWS, c.brows) ?? "none",
     temperament,
@@ -207,14 +239,27 @@ export function portraitGenome(seed: string): PortraitGenome {
   const bodyHue = pickWeighted(rand, BODY_HUES);
   let accentHue: string = pick(rand, ACCENT_HUES);
   if (accentHue === bodyHue) accentHue = bodyHue === "cyan" ? "amber" : "cyan";
+  const shape: PortraitShape = pick(rand, SHAPES);
+  const topper: PortraitTopper = pick(rand, TOPPERS);
+  const eyes = pick(rand, EYES);
+  const mouth = pick(rand, MOUTHS);
+  const marking: PortraitMarking = pick(rand, MARKINGS);
+  // Second cast: fixed draw order, every roll always taken, so each trait's
+  // odds stay independent of the others.
+  const more = mulberry32(fnv1a(`${seed.trim() || "agent"}#cast-2`));
+  const [speciesRoll, species] = [more(), pick(more, SHAPES_V2)];
+  const [earsRoll, ears] = [more(), pick(more, TOPPERS_V2)];
+  const [patternRoll, pattern] = [more(), pick(more, MARKINGS_V2)];
+  const [propRoll, prop] = [more(), pick(more, DRAWN_ACCESSORIES)];
   return {
     bodyHue,
     accentHue,
-    shape: pick(rand, SHAPES),
-    topper: pick(rand, TOPPERS),
-    eyes: pick(rand, EYES),
-    mouth: pick(rand, MOUTHS),
-    marking: pick(rand, MARKINGS),
+    shape: speciesRoll < 0.4 ? species : shape,
+    topper: earsRoll < 0.4 ? ears : topper,
+    eyes,
+    mouth,
+    marking: patternRoll < 0.4 ? pattern : marking,
+    accessory: propRoll < 0.45 ? prop : "none",
     blush: rand() < 0.62,
     gaze: rand() * 2 - 1,
     tilt: (rand() * 2 - 1) * 5,
@@ -242,6 +287,8 @@ interface PortraitPalette {
   readonly drop: string;
   readonly spark: string;
   readonly mute: string;
+  readonly accentShade: string;
+  readonly wood: string;
 }
 
 const clamp = (value: number, min: number, max: number): number => Math.min(max, Math.max(min, value));
@@ -291,6 +338,8 @@ function paletteFor(genome: PortraitGenome, mode: ThemeMode): PortraitPalette {
     drop: tone(cyan, 0.86, clamp(cyan.c * 0.7, 0.05, 0.09)),
     spark: tone(gold, dark ? 0.84 : 0.72, clamp(gold.c, 0.1, 0.14)),
     mute: runtime.dim ?? "#8a8378",
+    accentShade: tone(accent, 0.62, clamp(accent.c * 0.9, 0.05, 0.13)),
+    wood: tone(blush, dark ? 0.66 : 0.6, 0.07),
   };
   paletteCache.set(key, palette);
   return palette;
@@ -332,21 +381,56 @@ interface Body {
   readonly halfWidthAt: (y: number) => number;
 }
 
+const BODY_SPEC: Record<PortraitShape, { n: number; w: number; h: number; cy: number }> = {
+  round: { n: 2, w: 33, h: 34, cy: 60 },
+  bean: { n: 2.2, w: 28, h: 42, cy: 66 },
+  mochi: { n: 2.8, w: 38, h: 30, cy: 66 },
+  toast: { n: 3.6, w: 31, h: 36, cy: 62 },
+  drop: { n: 2, w: 32, h: 36, cy: 62 },
+  pear: { n: 2.2, w: 31, h: 38, cy: 64 },
+  cloud: { n: 2.3, w: 35, h: 31, cy: 64 },
+  gumdrop: { n: 2, w: 32, h: 35, cy: 62 },
+  onigiri: { n: 2.6, w: 37, h: 34, cy: 63 },
+  ghost: { n: 2, w: 31, h: 38, cy: 60 },
+  shroom: { n: 2.2, w: 28, h: 31, cy: 69 },
+  peach: { n: 2, w: 34, h: 33, cy: 62 },
+};
+
+/** Species outline tweaks on the unit superellipse; the first cast has none. */
+const speciesShape = (shape: PortraitShape, t: number, x: number, y: number): readonly [number, number, number] => {
+  const sin = Math.sin(t);
+  switch (shape) {
+    case "cloud":
+      // Scalloped top: lobes on the upper half only.
+      return [x, y, sin < 0 ? 1 + 0.07 * Math.abs(Math.cos(3.5 * t)) : 1];
+    case "gumdrop":
+      // Dome over a wide, flat-ish base.
+      return sin > 0 ? [Math.sign(x) * Math.abs(x) ** 0.55, y, 1] : [x * (1 - 0.18 * (-sin) ** 2), y, 1];
+    case "onigiri":
+      return [x * (0.52 + 0.48 * (y + 1) / 2) * 1.08, y, 1];
+    case "ghost":
+      // Wavy hem along the bottom.
+      return sin > 0.55 ? [x, y + 0.05 * Math.sin(9 * t), 1] : [x, y, 1];
+    case "peach": {
+      // A cleft at the crown.
+      const dip = sin < 0 ? 0.13 * Math.exp(-((x / 0.14) ** 2)) : 0;
+      return [x, y + dip, 1];
+    }
+    default:
+      return [x, y, 1];
+  }
+};
+
 function bodyFor(genome: PortraitGenome): Body {
   const [phaseA, phaseB, ampA, ampB] = genome.wobble;
-  const spec: Record<PortraitShape, { n: number; w: number; h: number; cy: number }> = {
-    round: { n: 2, w: 33, h: 34, cy: 60 },
-    bean: { n: 2.2, w: 28, h: 42, cy: 66 },
-    mochi: { n: 2.8, w: 38, h: 30, cy: 66 },
-    toast: { n: 3.6, w: 31, h: 36, cy: 62 },
-    drop: { n: 2, w: 32, h: 36, cy: 62 },
-    pear: { n: 2.2, w: 31, h: 38, cy: 64 },
-  };
-  const base = spec[genome.shape];
+  const base = BODY_SPEC[genome.shape];
   const w = base.w * (0.93 + genome.width * 0.14);
   const { h, cy, n } = base;
   const cx = 50;
-  const steps = 30;
+  const secondCast = (SHAPES_V2 as ReadonlyArray<string>).includes(genome.shape);
+  // The first cast keeps its exact 30-point outline; new species need more
+  // points for scallops and hems.
+  const steps = secondCast ? 56 : 30;
   const points: Point[] = [];
   const exponent = 2 / n;
   for (let step = 0; step < steps; step += 1) {
@@ -354,10 +438,12 @@ function bodyFor(genome: PortraitGenome): Body {
     const cos = Math.cos(t);
     const sin = Math.sin(t);
     let x = Math.sign(cos) * Math.abs(cos) ** exponent;
-    const y = Math.sign(sin) * Math.abs(sin) ** exponent;
+    let y = Math.sign(sin) * Math.abs(sin) ** exponent;
     if (genome.shape === "drop" && sin < 0) x *= 1 - 0.55 * (-sin) ** 3;
     if (genome.shape === "pear") x *= 1 + 0.14 * sin;
-    const wobble = 1 + 0.028 * ampA * Math.sin(2 * t + phaseA) + 0.022 * ampB * Math.sin(3 * t + phaseB);
+    let lobe = 1;
+    if (secondCast) [x, y, lobe] = speciesShape(genome.shape, t, x, y);
+    const wobble = (1 + 0.028 * ampA * Math.sin(2 * t + phaseA) + 0.022 * ampB * Math.sin(3 * t + phaseB)) * lobe;
     points.push([cx + x * w * wobble, cy + y * h * wobble]);
   }
   const top = Math.min(...points.map((point) => point[1]));
@@ -373,6 +459,7 @@ function bodyFor(genome: PortraitGenome): Body {
       let half = w * (1 - Math.abs(v) ** n) ** (1 / n);
       if (genome.shape === "drop" && v < 0) half *= 1 - 0.55 * (-v) ** 3;
       if (genome.shape === "pear") half *= 1 + 0.14 * v;
+      if (genome.shape === "onigiri") half *= (0.52 + 0.48 * (v + 1) / 2) * 1.08;
       return half;
     },
   };
@@ -401,13 +488,61 @@ const inked = (d: string, fill: string, p: PortraitPalette, s: Stroke): string =
     : `<path d="${d}" fill="${fill}"/>`) +
   `<path d="${d}" fill="${s.offset > 0 ? "none" : fill}" stroke="${p.ink}" stroke-width="${s.outline}" stroke-linejoin="round"/>`;
 
+/** A line drawn as a filled stroke with an ink edge: antlers, straps, stems. */
+const inkedLine = (d: string, color: string, width: number, p: PortraitPalette, s: Stroke): string =>
+  `<path d="${d}" stroke="${p.ink}" stroke-width="${f(width + s.outline * 1.4)}" stroke-linecap="round" stroke-linejoin="round" fill="none"/>` +
+  `<path d="${d}" stroke="${color}" stroke-width="${f(width)}" stroke-linecap="round" stroke-linejoin="round" fill="none"/>`;
+
+/** Which topper actually draws: a hat covers crown toppers, a shroom's cap all of them. */
+const drawnTopper = (genome: PortraitGenome): PortraitTopper =>
+  genome.shape === "shroom" || (HATS.has(genome.accessory) && CROWN_TOPPERS.has(genome.topper)) ? "none" : genome.topper;
+
 function topperBehind(genome: PortraitGenome, body: Body, p: PortraitPalette, s: Stroke): string {
   const { cx, top } = body;
   const earY = top + 7;
   const spread = Math.max(10, body.halfWidthAt(earY) - 5);
   const left = cx - spread;
   const right = cx + spread;
-  switch (genome.topper) {
+  switch (drawnTopper(genome)) {
+    case "mouse":
+      return [left - 2, right + 2]
+        .map((x) => `${inked(circlePath(x, top + 1, 11.5), p.body, p, s)}<circle cx="${f(x)}" cy="${f(top + 1)}" r="6.5" fill="${p.blush}" opacity="0.6"/>`)
+        .join("");
+    case "devil":
+      return [left + 7, right - 7]
+        .map((x, side) => {
+          const dir = side === 0 ? -1 : 1;
+          return inked(
+            `M${f(x - 4)} ${f(top + 6)}L${f(x + dir * 3)} ${f(top - 9)}L${f(x + 4)} ${f(top + 6)}Z`,
+            p.accent,
+            p,
+            s,
+          );
+        })
+        .join("");
+    case "gills":
+      return [-1, 1]
+        .map((dir) => {
+          const x = cx + dir * (body.halfWidthAt(top + 14) - 1);
+          return [-14, 0, 14]
+            .map((angle, k) => {
+              const a = ((dir > 0 ? -35 : -145) + angle * dir) * (Math.PI / 180);
+              const len = 11 - Math.abs(k - 1) * 2;
+              const x2 = x + Math.cos(a) * len;
+              const y2 = top + 14 + k * 4 + Math.sin(a) * len;
+              return inkedLine(`M${f(x)} ${f(top + 14 + k * 4)}L${f(x2)} ${f(y2)}`, p.blush, 3.2, p, s);
+            })
+            .join("");
+        })
+        .join("");
+    case "antlers":
+      return [-1, 1]
+        .map((dir) => {
+          const x = cx + dir * 9;
+          const d = `M${f(x)} ${f(top + 4)}L${f(x + dir * 5)} ${f(top - 12)}M${f(x + dir * 3)} ${f(top - 5)}L${f(x + dir * 10)} ${f(top - 9)}M${f(x + dir * 5)} ${f(top - 12)}L${f(x + dir * 2)} ${f(top - 18)}`;
+          return inkedLine(d, p.wood, 3, p, s);
+        })
+        .join("");
     case "cat":
       return [left, right]
         .map((x, side) => {
@@ -456,7 +591,7 @@ function topperBehind(genome: PortraitGenome, body: Body, p: PortraitPalette, s:
 function topperFront(genome: PortraitGenome, body: Body, p: PortraitPalette, s: Stroke): string {
   const { cx, top } = body;
   const cap = `stroke="${p.ink}" stroke-width="${s.outline}" stroke-linecap="round" fill="none"`;
-  switch (genome.topper) {
+  switch (drawnTopper(genome)) {
     case "antenna": {
       const tipX = cx + 6 + genome.gaze * 4;
       return `<path d="M${f(cx)} ${f(top + 2)}Q${f(cx + 1)} ${f(top - 9)} ${f(tipX)} ${f(top - 13)}" ${cap}/>${inked(circlePath(tipX, top - 15, 5), p.accent, p, s)}`;
@@ -475,6 +610,177 @@ function topperFront(genome: PortraitGenome, body: Body, p: PortraitPalette, s: 
     }
     case "tuft":
       return `<path d="M${f(cx - 6)} ${f(top + 3)}Q${f(cx - 8)} ${f(top - 7)} ${f(cx - 2)} ${f(top - 9)}M${f(cx)} ${f(top + 3)}Q${f(cx + 1)} ${f(top - 10)} ${f(cx + 8)} ${f(top - 8)}" ${cap}/>`;
+    case "floppy":
+      // Dog ears hang over the sides of the head, in front of the outline.
+      return [-1, 1]
+        .map((dir) => {
+          const x = cx + dir * (body.halfWidthAt(top + 12) - 2);
+          return `<g transform="rotate(${dir * 14} ${f(x)} ${f(top + 6)})">${inked(
+            `M${f(x - 6.5)} ${f(top + 3)}C${f(x - 9)} ${f(top + 16)} ${f(x - 6)} ${f(top + 29)} ${f(x)} ${f(top + 29)}C${f(x + 6)} ${f(top + 29)} ${f(x + 9)} ${f(top + 16)} ${f(x + 6.5)} ${f(top + 3)}Z`,
+            p.shade,
+            p,
+            s,
+          )}</g>`;
+        })
+        .join("");
+    case "unicorn": {
+      const d = `M${f(cx - 5)} ${f(top + 4)}L${f(cx + 1)} ${f(top - 20)}L${f(cx + 5)} ${f(top + 4)}Z`;
+      return `${inked(d, p.spark, p, s)}<path d="M${f(cx - 3)} ${f(top - 3)}L${f(cx + 3.6)} ${f(top - 6)}M${f(cx - 1.4)} ${f(top - 10)}L${f(cx + 2.6)} ${f(top - 12)}" stroke="${p.ink}" stroke-width="${f(s.outline * 0.6)}" stroke-linecap="round"/>`;
+    }
+    case "flower": {
+      const x = cx + body.halfWidthAt(top + 8) * 0.62;
+      const y = top + 4;
+      const petals = [0, 72, 144, 216, 288]
+        .map((angle) => {
+          const a = (angle * Math.PI) / 180;
+          return inked(circlePath(x + Math.cos(a) * 4.6, y + Math.sin(a) * 4.6, 3.6), p.shine, p, s);
+        })
+        .join("");
+      return `${petals}${inked(circlePath(x, y, 3), p.spark, p, s)}`;
+    }
+    case "halo":
+      return `<ellipse cx="${f(cx)}" cy="${f(top - 10)}" rx="13" ry="4" fill="none" stroke="${p.ink}" stroke-width="${f(s.outline + 3.4)}"/><ellipse cx="${f(cx)}" cy="${f(top - 10)}" rx="13" ry="4" fill="none" stroke="${p.spark}" stroke-width="3"/>`;
+    case "bow": {
+      const x = cx + body.halfWidthAt(top + 8) * 0.55;
+      const y = top + 3;
+      const wing = (dir: number): string =>
+        inked(`M${f(x)} ${f(y)}L${f(x + dir * 9)} ${f(y - 6)}Q${f(x + dir * 11)} ${f(y)} ${f(x + dir * 9)} ${f(y + 6)}Z`, p.accent, p, s);
+      return `${wing(-1)}${wing(1)}${inked(circlePath(x, y, 2.8), p.accentShade, p, s)}`;
+    }
+    case "crest":
+      return [-7, 0, 7]
+        .map((dx, k) =>
+          inked(
+            `M${f(cx + dx * 0.5 - 2.4)} ${f(top + 4)}Q${f(cx + dx - 3)} ${f(top - 10 - (k === 1 ? 5 : 0))} ${f(cx + dx * 1.3)} ${f(top - 12 - (k === 1 ? 5 : 0))}Q${f(cx + dx + 2)} ${f(top - 3)} ${f(cx + dx * 0.5 + 2.4)} ${f(top + 4)}Z`,
+            p.accent,
+            p,
+            s,
+          ),
+        )
+        .join("");
+    default:
+      return "";
+  }
+}
+
+/** Per-species detail over the body: a cap, a nori band, a leaf, sugar. */
+function speciesSvg(genome: PortraitGenome, body: Body, p: PortraitPalette, s: Stroke): string {
+  const { cx, top, w, h, cy } = body;
+  switch (genome.shape) {
+    case "shroom": {
+      const capW = w * 1.42;
+      const d = `M${f(cx - capW)} ${f(top + 13)}C${f(cx - capW)} ${f(top - 16)} ${f(cx + capW)} ${f(top - 16)} ${f(cx + capW)} ${f(top + 13)}Q${f(cx)} ${f(top + 6)} ${f(cx - capW)} ${f(top + 13)}Z`;
+      const spots = [
+        [-0.5, 0.2, 4.2],
+        [0.35, -0.25, 3.4],
+        [0.05, 0.55, 2.6],
+      ]
+        .map(([dx, dy, r]) => `<circle cx="${f(cx + (dx as number) * capW)}" cy="${f(top + (dy as number) * 12)}" r="${f(r as number)}" fill="${p.shine}"/>`)
+        .join("");
+      return `${inked(d, p.accent, p, s)}${spots}`;
+    }
+    case "onigiri":
+      return `<g clip-path="url(#b)"><rect x="${f(cx - w * 0.42)}" y="${f(cy + h * 0.46)}" width="${f(w * 0.84)}" height="${f(h)}" rx="2" fill="${p.ink}" opacity="0.88"/></g>`;
+    case "peach":
+      return `<path d="M${f(cx)} ${f(top + 4)}Q${f(cx - 1.5)} ${f(top + 12)} ${f(cx - 4)} ${f(top + 17)}" stroke="${p.shade}" stroke-width="${f(s.outline * 0.9)}" stroke-linecap="round" fill="none"/>${inked(
+        `M${f(cx + 1)} ${f(top + 3)}C${f(cx + 4)} ${f(top - 7)} ${f(cx + 13)} ${f(top - 8)} ${f(cx + 15)} ${f(top - 5)}C${f(cx + 12)} ${f(top + 1)} ${f(cx + 5)} ${f(top + 4)} ${f(cx + 1)} ${f(top + 3)}Z`,
+        p.leaf,
+        p,
+        s,
+      )}`;
+    case "gumdrop":
+      return [
+        [-0.45, 0.35],
+        [0.5, 0.1],
+        [0.2, 0.62],
+        [-0.15, 0.05],
+      ]
+        .map(([dx, dy]) => `<rect x="${f(cx + (dx as number) * w - 1.1)}" y="${f(top + (dy as number) * h - 1.1)}" width="2.2" height="2.2" rx="0.5" fill="${p.shine}" opacity="0.8" transform="rotate(20 ${f(cx + (dx as number) * w)} ${f(top + (dy as number) * h)})"/>`)
+        .join("");
+    default:
+      return "";
+  }
+}
+
+/** Hats sit over everything; face props sit over the eyes; neckwear under the face. */
+function accessorySvg(
+  layer: "neck" | "face" | "hat",
+  genome: PortraitGenome,
+  body: Body,
+  p: PortraitPalette,
+  s: Stroke,
+  faceX: number,
+  eyeY: number,
+  eyeGap: number,
+  eyeR: number,
+  mouthY: number,
+): string {
+  const { cx, top } = body;
+  const kind = genome.shape === "shroom" && HATS.has(genome.accessory) ? "none" : genome.accessory;
+  const neckY = Math.min(mouthY + 12, body.cy + body.h - 4);
+  if (layer === "neck") {
+    if (kind === "scarf") {
+      const half = body.halfWidthAt(neckY) + 1;
+      const d = `M${f(cx - half)} ${f(neckY - 3)}Q${f(cx)} ${f(neckY + 3)} ${f(cx + half)} ${f(neckY - 3)}L${f(cx + half)} ${f(neckY + 4)}Q${f(cx)} ${f(neckY + 10)} ${f(cx - half)} ${f(neckY + 4)}Z`;
+      const tail = `M${f(cx + half * 0.35)} ${f(neckY + 5)}L${f(cx + half * 0.55)} ${f(neckY + 18)}L${f(cx + half * 0.2)} ${f(neckY + 18)}Z`;
+      return `${inked(tail, p.accentShade, p, s)}${inked(d, p.accent, p, s)}`;
+    }
+    if (kind === "bowtie") {
+      const y = neckY;
+      const wing = (dir: number): string =>
+        inked(`M${f(cx)} ${f(y)}L${f(cx + dir * 8)} ${f(y - 5)}L${f(cx + dir * 8)} ${f(y + 5)}Z`, p.accent, p, s);
+      return `${wing(-1)}${wing(1)}${inked(circlePath(cx, y, 2.4), p.accentShade, p, s)}`;
+    }
+    return "";
+  }
+  if (layer === "face") {
+    const lx = faceX - eyeGap;
+    const rx = faceX + eyeGap;
+    const r = Math.max(eyeR * 1.7, 5.4);
+    if (kind === "glasses") {
+      return `<g fill="none" stroke="${p.ink}" stroke-width="${f(s.feature * 0.62)}"><circle cx="${f(lx)}" cy="${f(eyeY)}" r="${f(r)}"/><circle cx="${f(rx)}" cy="${f(eyeY)}" r="${f(r)}"/><path d="M${f(lx + r)} ${f(eyeY - 1)}Q${f(faceX)} ${f(eyeY - 3.5)} ${f(rx - r)} ${f(eyeY - 1)}"/></g>`;
+    }
+    if (kind === "shades") {
+      const lens = (x: number): string =>
+        `<rect x="${f(x - r - 0.5)}" y="${f(eyeY - r * 0.75)}" width="${f(r * 2 + 1)}" height="${f(r * 1.55)}" rx="${f(r * 0.6)}" fill="${p.ink}"/><path d="M${f(x - r * 0.5)} ${f(eyeY - r * 0.2)}L${f(x - r * 0.05)} ${f(eyeY - r * 0.45)}" stroke="${p.shine}" stroke-width="1.2" stroke-linecap="round"/>`;
+      return `${lens(lx)}${lens(rx)}<path d="M${f(lx + r)} ${f(eyeY - 1)}H${f(rx - r)}" stroke="${p.ink}" stroke-width="${f(s.feature * 0.6)}"/>`;
+    }
+    return "";
+  }
+  switch (kind) {
+    case "beanie": {
+      const half = body.halfWidthAt(top + 9) + 1.5;
+      const dome = `M${f(cx - half)} ${f(top + 9)}C${f(cx - half)} ${f(top - 13)} ${f(cx + half)} ${f(top - 13)} ${f(cx + half)} ${f(top + 9)}Z`;
+      const brim = `M${f(cx - half - 1.5)} ${f(top + 4)}H${f(cx + half + 1.5)}V${f(top + 11)}H${f(cx - half - 1.5)}Z`;
+      return `${inked(dome, p.accent, p, s)}${inked(brim, p.accentShade, p, s)}${inked(circlePath(cx, top - 9, 4.2), p.shine, p, s)}`;
+    }
+    case "party": {
+      const d = `M${f(cx - 10)} ${f(top + 5)}L${f(cx + 4)} ${f(top - 22)}L${f(cx + 11)} ${f(top + 3)}Z`;
+      const stripes = `<path d="M${f(cx - 6)} ${f(top - 2)}L${f(cx + 9.5)} ${f(top - 4)}M${f(cx - 1.5)} ${f(top - 11)}L${f(cx + 7.4)} ${f(top - 12)}" stroke="${p.shine}" stroke-width="2.2" stroke-linecap="round"/>`;
+      return `${inked(d, p.accent, p, s)}${stripes}${inked(circlePath(cx + 4, top - 23, 3.4), p.spark, p, s)}`;
+    }
+    case "crown": {
+      const y = top + 6;
+      const d = `M${f(cx - 13)} ${f(y)}L${f(cx - 15)} ${f(y - 14)}L${f(cx - 7)} ${f(y - 7)}L${f(cx)} ${f(y - 17)}L${f(cx + 7)} ${f(y - 7)}L${f(cx + 15)} ${f(y - 14)}L${f(cx + 13)} ${f(y)}Z`;
+      return `${inked(d, p.spark, p, s)}<circle cx="${f(cx)}" cy="${f(y - 4)}" r="2.3" fill="${p.accent}"/>`;
+    }
+    case "wizard": {
+      const brim = `M${f(cx - 22)} ${f(top + 6)}Q${f(cx)} ${f(top - 1)} ${f(cx + 22)} ${f(top + 6)}Q${f(cx)} ${f(top + 11)} ${f(cx - 22)} ${f(top + 6)}Z`;
+      const cone = `M${f(cx - 12)} ${f(top + 4)}Q${f(cx - 4)} ${f(top - 16)} ${f(cx + 10)} ${f(top - 26)}Q${f(cx + 4)} ${f(top - 12)} ${f(cx + 12)} ${f(top + 4)}Z`;
+      const star = `<path d="M${f(cx + 1)} ${f(top - 11)}l1.2 2.6 2.8 .3-2.1 1.9.6 2.8-2.5-1.4-2.5 1.4.6-2.8-2.1-1.9 2.8-.3z" fill="${p.spark}"/>`;
+      return `${inked(cone, p.accent, p, s)}${inked(brim, p.accentShade, p, s)}${star}`;
+    }
+    case "beret": {
+      const d = `M${f(cx - 19)} ${f(top + 6)}Q${f(cx - 16)} ${f(top - 9)} ${f(cx + 4)} ${f(top - 8)}Q${f(cx + 20)} ${f(top - 6)} ${f(cx + 17)} ${f(top + 5)}Q${f(cx)} ${f(top + 9)} ${f(cx - 19)} ${f(top + 6)}Z`;
+      return `${inked(d, p.accent, p, s)}${inkedLine(`M${f(cx + 2)} ${f(top - 8)}L${f(cx + 3)} ${f(top - 12)}`, p.accent, 2.2, p, s)}`;
+    }
+    case "headphones": {
+      const y = eyeY - 2;
+      const half = body.halfWidthAt(y) + 2;
+      const band = `M${f(cx - half + 2)} ${f(y - 4)}C${f(cx - half)} ${f(top - 12)} ${f(cx + half)} ${f(top - 12)} ${f(cx + half - 2)} ${f(y - 4)}`;
+      const cup = (x: number): string => inked(`M${f(x - 4)} ${f(y - 7)}H${f(x + 4)}V${f(y + 7)}H${f(x - 4)}Z`, p.accent, p, s);
+      return `${inkedLine(band, p.accentShade, 2.6, p, s)}${cup(cx - half)}${cup(cx + half)}`;
+    }
     default:
       return "";
   }
@@ -497,6 +803,39 @@ function markingSvg(genome: PortraitGenome, body: Body, p: PortraitPalette, face
       }).join("");
     case "cap":
       return `<path d="M0 0H100V${f(body.top + body.h * 0.34)}Q50 ${f(body.top + body.h * 0.52)} 0 ${f(body.top + body.h * 0.34)}Z" fill="${p.shade}"/>`;
+    case "stripes":
+      return [-1, 1]
+        .map((dir) =>
+          [0, 1, 2]
+            .map((k) => {
+              const y = body.top + body.h * (0.35 + k * 0.28);
+              const x = body.cx + dir * (body.halfWidthAt(y) + 2);
+              return `<path d="M${f(x)} ${f(y - 3)}Q${f(x - dir * 9)} ${f(y)} ${f(x)} ${f(y + 3)}Z" fill="${p.shade}"/>`;
+            })
+            .join(""),
+        )
+        .join("");
+    case "patch": {
+      const side = rand() < 0.5 ? -1 : 1;
+      return `<ellipse cx="${f(faceX + side * 11)}" cy="${f(eyeY)}" rx="9" ry="8" fill="${p.shade}"/>`;
+    }
+    case "muzzle":
+      return `<ellipse cx="${f(faceX)}" cy="${f(eyeY + 11)}" rx="12" ry="8.5" fill="${p.belly}"/>`;
+    case "blaze":
+      return `<path d="M${f(faceX - 4)} ${f(body.top - 2)}Q${f(faceX)} ${f(eyeY + 2)} ${f(faceX + 4)} ${f(body.top - 2)}Z" fill="${p.belly}"/>`;
+    case "stars":
+      return Array.from({ length: 3 }, (_, index) => {
+        const side = index % 2 === 0 ? -1 : 1;
+        const x = body.cx + side * body.w * (0.5 + rand() * 0.3);
+        const y = body.cy + body.h * (-0.35 + index * 0.4);
+        const q = 2.6 + rand() * 1.2;
+        return `<path d="M${f(x)} ${f(y - q)}Q${f(x + q * 0.2)} ${f(y - q * 0.2)} ${f(x + q)} ${f(y)}Q${f(x + q * 0.2)} ${f(y + q * 0.2)} ${f(x)} ${f(y + q)}Q${f(x - q * 0.2)} ${f(y + q * 0.2)} ${f(x - q)} ${f(y)}Q${f(x - q * 0.2)} ${f(y - q * 0.2)} ${f(x)} ${f(y - q)}Z" fill="${p.shine}" opacity="0.85"/>`;
+      }).join("");
+    case "heart": {
+      const x = body.cx + body.w * 0.42 * (rand() < 0.5 ? -1 : 1);
+      const y = body.cy + body.h * 0.42;
+      return `<path d="M${f(x)} ${f(y + 3.6)}C${f(x - 6)} ${f(y - 0.6)} ${f(x - 3.4)} ${f(y - 5.4)} ${f(x)} ${f(y - 2.4)}C${f(x + 3.4)} ${f(y - 5.4)} ${f(x + 6)} ${f(y - 0.6)} ${f(x)} ${f(y + 3.6)}Z" fill="${p.blush}"/>`;
+    }
     case "freckles":
       return [-1, 1]
         .map((dir) =>
@@ -642,9 +981,11 @@ const GRAIN = `<filter id="g" x="0" y="0" width="100%" height="100%"><feTurbulen
 /**
  * `tile` is the rounded-square sticker. `round` is a porthole: circle frame,
  * critter pulled in slightly so ears and antennae survive the curve, sized to
- * sit inside an activity ring drawn by the seat.
+ * sit inside an activity ring drawn by the seat. `bare` is the whole critter
+ * on a transparent ground, feet and all, unclipped, for brand, landing, and
+ * video work that floats characters over its own backgrounds.
  */
-export type PortraitFrame = "tile" | "round";
+export type PortraitFrame = "tile" | "round" | "bare";
 
 export interface PortraitRequest {
   readonly seed: string;
@@ -676,9 +1017,58 @@ export function portraitSvg({ seed, mode, detail, frame: shape = "tile", config,
   const showBlush = blush && detail !== "glyph";
   const clipBody = `<clipPath id="b"><path d="${body.path}"/></clipPath>`;
   const marking = detail === "glyph" && genome.marking === "freckles" ? "" : markingSvg(genome, body, p, faceX, eyeY);
+  const bare = shape === "bare";
+  const round = shape === "round";
+  const nudge = s.offset > 0 ? ` transform="translate(${s.offset} ${s.offset * 0.7})"` : "";
+  const acc = (layer: "neck" | "face" | "hat"): string =>
+    accessorySvg(layer, genome, body, p, s, faceX, eyeY, eyeGap, eyeR, mouthY);
+
+  // The critter, identical in every frame.
+  const critter = [
+    // Bare frames stand on two little feet; the ghost floats on its hem.
+    bare && genome.shape !== "ghost"
+      ? [-1, 1]
+          .map((dir) => inked(`M${f(body.cx + dir * body.w * 0.38 - 7)} ${f(body.cy + body.h - 3)}a7 5 0 1 0 14 0a7 5 0 1 0 -14 0Z`, p.shade, p, s))
+          .join("")
+      : "",
+    topperBehind(genome, body, p, s),
+    `<path d="${body.path}" fill="${p.body}"${nudge}/>`,
+    marking ? `<g clip-path="url(#b)"${nudge}>${marking}</g>` : "",
+    `<path d="${body.path}" fill="none" stroke="${p.ink}" stroke-width="${s.outline}" stroke-linejoin="round"/>`,
+    speciesSvg(genome, body, p, s),
+    topperFront(genome, body, p, s),
+    acc("neck"),
+    showBlush
+      ? [-1, 1]
+          .map((dir) => `<ellipse cx="${f(faceX + dir * (eyeGap + 5))}" cy="${f(eyeY + 6.5)}" rx="5" ry="3" fill="${p.blush}" opacity="0.55"/>`)
+          .join("")
+      : "",
+    eyeSvg(eyes, faceX - eyeGap, eyeY, eyeR, -1, p, s),
+    eyeSvg(eyes, faceX + eyeGap, eyeY, eyeR, 1, p, s),
+    acc("face"),
+    browSvg(brows, faceX - eyeGap, eyeY, eyeR, -1, p, s),
+    browSvg(brows, faceX + eyeGap, eyeY, eyeR, 1, p, s),
+    mouthSvg(mouth, faceX, mouthY, p, s),
+    acc("hat"),
+    extraSvg(extra, body, faceX, eyeY, p, s),
+  ].join("");
+
+  if (bare) {
+    // A square around the whole critter, headroom for hats and ears.
+    const bottom = body.cy + body.h + 6;
+    const topY = body.top - 30;
+    const side = Math.max(bottom - topY, body.w * 2 + 44);
+    const x0 = body.cx - side / 2;
+    const y0 = bottom - side;
+    return [
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${f(x0)} ${f(y0)} ${f(side)} ${f(side)}">`,
+      `<defs>${clipBody}</defs>`,
+      `<g transform="rotate(${f(genome.tilt)} 50 90)">${critter}</g>`,
+      `</svg>`,
+    ].join("");
+  }
 
   // Glyph sizes crop in on the face so eyes stay a couple of pixels wide.
-  const round = shape === "round";
   const view =
     detail === "glyph" ? (round ? { x: 14, y: 17, s: 72 } : { x: 12, y: 14, s: 76 }) : { x: 0, y: 0, s: 100 };
   const frame = `x="${view.x}" y="${view.y}" width="${view.s}" height="${view.s}"`;
@@ -695,22 +1085,7 @@ export function portraitSvg({ seed, mode, detail, frame: shape = "tile", config,
     `<rect ${frame} fill="${p.tile}"/>`,
     `<circle cx="${f(50 + genome.gaze * 6)}" cy="44" r="36" fill="${p.halo}"/>`,
     `<g${inset}><g transform="rotate(${f(genome.tilt)} 50 90)">`,
-    topperBehind(genome, body, p, s),
-    s.offset > 0 ? `<path d="${body.path}" fill="${p.body}" transform="translate(${s.offset} ${s.offset * 0.7})"/>` : `<path d="${body.path}" fill="${p.body}"/>`,
-    marking ? `<g clip-path="url(#b)"${s.offset > 0 ? ` transform="translate(${s.offset} ${s.offset * 0.7})"` : ""}>${marking}</g>` : "",
-    `<path d="${body.path}" fill="none" stroke="${p.ink}" stroke-width="${s.outline}" stroke-linejoin="round"/>`,
-    topperFront(genome, body, p, s),
-    showBlush
-      ? [-1, 1]
-          .map((dir) => `<ellipse cx="${f(faceX + dir * (eyeGap + 5))}" cy="${f(eyeY + 6.5)}" rx="5" ry="3" fill="${p.blush}" opacity="0.55"/>`)
-          .join("")
-      : "",
-    eyeSvg(eyes, faceX - eyeGap, eyeY, eyeR, -1, p, s),
-    eyeSvg(eyes, faceX + eyeGap, eyeY, eyeR, 1, p, s),
-    browSvg(brows, faceX - eyeGap, eyeY, eyeR, -1, p, s),
-    browSvg(brows, faceX + eyeGap, eyeY, eyeR, 1, p, s),
-    mouthSvg(mouth, faceX, mouthY, p, s),
-    extraSvg(extra, body, faceX, eyeY, p, s),
+    critter,
     `</g></g>`,
     detail === "rich" ? `<rect width="100" height="100" fill="${p.ink}" filter="url(#g)" opacity="0.16"/>` : "",
     `</g></svg>`,

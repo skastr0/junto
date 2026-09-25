@@ -7,7 +7,7 @@ import type { PortraitConfig } from "./agent-portrait";
 // unreadable. This normalizer is the one gate for both the IPC input and the
 // stored rows: it keeps known fields of the right shape and drops the rest.
 
-const TRAIT_KEYS = ["bodyHue", "accentHue", "shape", "topper", "eyes", "mouth", "brows", "marking"] as const;
+const TRAIT_KEYS = ["bodyHue", "accentHue", "shape", "topper", "eyes", "mouth", "brows", "marking", "accessory"] as const;
 const TRAIT_MAX = 24;
 
 /** Largest stored override body; a full config is well under 400 bytes. */

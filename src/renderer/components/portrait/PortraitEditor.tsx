@@ -22,6 +22,7 @@ const TRAITS: ReadonlyArray<readonly [Trait, string]> = [
   ["bodyHue", "color"],
   ["shape", "body"],
   ["topper", "ears and toppers"],
+  ["accessory", "hats and props"],
   ["eyes", "eyes"],
   ["brows", "brows"],
   ["mouth", "mouth"],
@@ -55,6 +56,7 @@ const randomConfig = (): PortraitConfig => {
     mouth: any(PORTRAIT_OPTIONS.mouth),
     brows: any(PORTRAIT_OPTIONS.brows),
     marking: any(PORTRAIT_OPTIONS.marking),
+    accessory: any(PORTRAIT_OPTIONS.accessory),
     blush: Math.random() < 0.6,
     temperament: Math.round((Math.random() * 2 - 1) * 100) / 100,
   };

@@ -6,7 +6,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { chromium } from "playwright-core";
-import { portraitDataUri, portraitDetailFor, portraitGenome, type PortraitDetail } from "../src/shared/agent-portrait";
+import { PORTRAIT_OPTIONS, portraitDataUri, portraitDetailFor, portraitGenome, type PortraitDetail } from "../src/shared/agent-portrait";
 import { portraitFaceFor, portraitExpression, type ExpressionInput } from "../src/shared/portrait-expression";
 import { FONT_MONO, themeRuntime, type ThemeMode } from "../src/shared/theme";
 
@@ -25,6 +25,18 @@ const MOOD_STATES: ReadonlyArray<readonly [string, Omit<ExpressionInput, "temper
   ["gone", { activity: "off" }],
 ];
 const MOOD_SEEDS = ["mood-critter-1", "mood-critter-7"];
+
+// How often hundreds of seats repeat their salient look.
+const variety = (() => {
+  const count = 400;
+  const looks = new Set(
+    Array.from({ length: count }, (_, index) => {
+      const g = portraitGenome(`variety-seat-${index}-${(index * 2654435761) >>> 0}`);
+      return `${g.bodyHue}|${g.shape}|${g.topper}|${g.accessory}`;
+    }),
+  );
+  return { count, distinct: looks.size };
+})();
 
 const count = Number(process.argv[2] ?? 48);
 const out = join(process.cwd(), "test-results", "portraits");
@@ -90,8 +102,28 @@ const page = (mode: ThemeMode): string => {
       )
       .join("")}</table>`,
   ).join("");
+  // The second cast one trait at a time, on a fixed critter, so each new
+  // species, topper, pattern, and prop can be judged on its own.
+  const showcaseSeed = seeds[4] ?? "showcase";
+  const showcase = (trait: "shape" | "topper" | "marking" | "accessory", options: ReadonlyArray<string>): string =>
+    `<div class="grid" style="grid-template-columns:repeat(12, 96px)">${options
+      .map(
+        (option) =>
+          `<figure><img width="80" height="80" style="border-radius:50%" src="${portraitDataUri({ seed: showcaseSeed, mode, detail: "rich", frame: "round", config: { accessory: "none", topper: "none", shape: "round", [trait]: option } })}"><figcaption>${option}</figcaption></figure>`,
+      )
+      .join("")}</div>`;
+  const bareRow = `<div class="bare">${seeds
+    .slice(0, 10)
+    .map((seed) => `<img width="120" height="120" src="${portraitDataUri({ seed, mode, detail: "rich", frame: "bare" })}">`)
+    .join("")}</div>`;
   return `<section class="theme" style="background:${t.ground};color:${t.ink}">
 <h1>Agent portraits, ${mode}</h1>
+<h2>new species</h2>${showcase("shape", PORTRAIT_OPTIONS.shape.slice(6))}
+<h2>new ears and toppers</h2>${showcase("topper", PORTRAIT_OPTIONS.topper.slice(9))}
+<h2>new patterns</h2>${showcase("marking", PORTRAIT_OPTIONS.marking.slice(5))}
+<h2>hats and props</h2>${showcase("accessory", PORTRAIT_OPTIONS.accessory.slice(1))}
+<h2>bare frame, transparent (brand, landing, video)</h2>${bareRow}
+<h2>variety: ${variety.distinct} distinct looks (color, species, ears, prop) across ${variety.count} seats</h2>
 <h2>expressions: temperament x seat state</h2>${moods}
 <h2>round seat, 40px in a stand-in ring</h2>${ringed(40)}
 <h2>round seat, 28px</h2>${ringed(28)}
@@ -113,6 +145,7 @@ figcaption{font-size:9px;opacity:.55;text-align:center;line-height:1.3}
 .card{display:flex;gap:10px;align-items:center;background:var(--raise);border:1px solid var(--stroke);border-radius:8px;padding:10px 14px;min-width:170px}
 .seats{display:flex;gap:18px;flex-wrap:wrap;align-items:center}.seat{display:flex;gap:10px;align-items:center;min-width:150px}.ring{display:inline-block;border-radius:50%}
 .moods{border-collapse:collapse;margin-bottom:18px}.moods th{font-weight:500;opacity:.6;font-size:10px;padding:4px 6px;text-align:center}.moods td{text-align:center;padding:4px 6px;font-size:9px;opacity:.9}.moods td div{opacity:.6}
+.bare{display:flex;gap:10px;flex-wrap:wrap;padding:14px;border-radius:10px;background:repeating-conic-gradient(rgba(128,128,128,.18) 0 25%, transparent 0 50%) 0 0/16px 16px}
 .name{font-size:12px}.sub{color:var(--dim);font-size:10px;margin-top:2px}
 </style></head><body>${modes.map(page).join("")}</body></html>`;
 

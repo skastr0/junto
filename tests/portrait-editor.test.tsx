@@ -58,11 +58,11 @@ const settle = async (): Promise<void> => {
 describe("portrait editor", () => {
   it("opens from the portrait with every trait grid and a mood strip", () => {
     const editor = open();
-    for (const label of ["color", "body", "ears and toppers", "eyes", "brows", "mouth", "pattern", "accent"]) {
+    for (const label of ["color", "body", "ears and toppers", "hats and props", "eyes", "brows", "mouth", "pattern", "accent"]) {
       expect(editor.querySelector(`[role="radiogroup"][aria-label="${label}"]`)).not.toBeNull();
     }
     expect(editor.querySelectorAll(".portrait-editor__moods figure")).toHaveLength(6);
-    expect(editor.querySelectorAll('[role="radio"][aria-checked="true"]').length).toBe(8);
+    expect(editor.querySelectorAll('[role="radio"][aria-checked="true"]').length).toBe(9);
   });
 
   it("saves a picked option for the seat and resets to identity", async () => {
