@@ -2,6 +2,10 @@ import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "re
 import { createPortal } from "react-dom";
 import { placeBesideRect, type Side } from "../../lib/menu-placement";
 
+// Module-level so the default is one stable array: a fresh literal per render
+// would re-run the placement layout effect every render and never settle.
+const DEFAULT_SIDES: ReadonlyArray<Side> = ["left", "right", "below", "above"];
+
 /**
  * Popover — a small floating panel anchored beside an element, for a short
  * task about that element (answer, confirm, inspect). Portals to the body,
@@ -9,10 +13,6 @@ import { placeBesideRect, type Side } from "../../lib/menu-placement";
  * closes on Escape or a press outside it. It is a non-modal dialog: callers
  * give it a label, and the first field may claim focus on mount.
  */
-// Module-level so the default is one stable array: a fresh literal per render
-// would re-run the placement layout effect every render and never settle.
-const DEFAULT_SIDES: ReadonlyArray<Side> = ["left", "right", "below", "above"];
-
 export function Popover({
   anchor,
   onClose,
