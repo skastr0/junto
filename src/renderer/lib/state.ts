@@ -7,6 +7,7 @@ import { defaultSettings, type Settings } from "@shared/settings";
 import type { UsageState } from "@shared/usage";
 import type { ActorRef } from "@shared/work-protocol";
 import type { FleetProbeState } from "./fleet-state";
+import type { HotbarSlot } from "./hotbar-slots";
 
 export const EMPTY_DOC: CanvasDoc = { nodes: [], edges: [] };
 export const EMPTY_SNAPSHOTS: SnapshotState = { bundles: [] };
@@ -43,19 +44,17 @@ export const state$ = observable({
   // neighborhood and is never persisted to the canvas document.
   connectionFocusNodeId: "",
   focusNodeId: "",
+  // One-shot camera request to frame several nodes together (a recalled
+  // command group). Canvas selects them, fits them, then clears it.
+  focusNodeIds: [] as ReadonlyArray<string>,
   /**
-   * Presentational hotbar (slots 1–9): empty | fixed | leased | evicted
-   * (idle soft-hold). App-local only — never authorial.
-   * @see hotbar-slots.ts
+   * Presentational hotbar (slots 1–9): empty | fixed | group | leased |
+   * evicted (idle soft-hold). App-local only — never authorial.
+   * @see hotbar-slots.ts, command-groups.ts
    */
   hotbarSlots: Array.from({ length: 9 }, () => ({
     kind: "empty" as const,
-  })) as ReadonlyArray<
-    | { readonly kind: "empty" }
-    | { readonly kind: "fixed"; readonly nodeId: string }
-    | { readonly kind: "leased"; readonly nodeId: string }
-    | { readonly kind: "evicted"; readonly nodeId: string }
-  >,
+  })) as ReadonlyArray<HotbarSlot>,
   /** Most-recently-active node ids (front = newest) for opportunistic leases. */
   hotbarActiveMru: [] as ReadonlyArray<string>,
   /**

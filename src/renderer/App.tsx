@@ -6,6 +6,7 @@ import { batch } from "@legendapp/state";
 import { use$ } from "@legendapp/state/react";
 import { impactModeActive$ } from "./lib/impact-mode";
 import { clearSelection, selectNode, state$ } from "./lib/state";
+import { canvasCommandGroups } from "./lib/command-groups";
 import {
   acceptCanvasRevision,
   canvasMutationsQuiesced,
@@ -113,9 +114,9 @@ const resetCanvasView = (): void => {
     clearSelection();
     state$.connectionFocusNodeId.set("");
     state$.focusNodeId.set("");
-    state$.hotbarSlots.set(
-      Array.from({ length: 9 }, () => ({ kind: "empty" as const })),
-    );
+    // Operator slots (fixed nodes, command groups) come back for the canvas
+    // being opened; leases recompute from activity once its doc loads.
+    state$.hotbarSlots.set(canvasCommandGroups.recall(state$.canvasName.peek()));
     state$.hotbarActiveMru.set([]);
     state$.regionSlotOrder.set([]);
     state$.regionSeverityByNodeId.set({});

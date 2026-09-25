@@ -16,6 +16,7 @@ import {
   purgeNonEligibleSoftSlots,
   resolveHotbarSlots,
   slotIndexOf,
+  slotNodeId,
   touchActiveMru,
 } from "../src/renderer/lib/hotbar-slots";
 
@@ -73,20 +74,20 @@ describe("applyHotbarLeases", () => {
     expect(next[2]).toEqual({ kind: "leased", nodeId: "active-old" });
     expect(next[3]?.kind).toBe("empty");
     // fixed-1 not double-leased
-    expect(next.filter((s) => s.kind !== "empty" && s.nodeId === "fixed-1")).toHaveLength(1);
+    expect(next.filter((s) => slotNodeId(s) === "fixed-1")).toHaveLength(1);
   });
 
   it("preserves lease slot indices when MRU reorders (no reshuffle on focus)", () => {
     let slots = emptyHotbarSlots();
     slots = applyHotbarLeases(slots, ["a", "b", "c"], ["a", "b", "c"], ["a", "b", "c"]);
-    expect(slots.slice(0, 3).map((s) => (s.kind === "empty" ? null : s.nodeId))).toEqual([
+    expect(slots.slice(0, 3).map((s) => (slotNodeId(s) ?? null))).toEqual([
       "a",
       "b",
       "c",
     ]);
     // Focus hops reorder MRU to c, a, b — sticky still holds; slots stay put.
     const next = applyHotbarLeases(slots, ["c", "a", "b"], ["a", "b", "c"], ["a", "b", "c"]);
-    expect(next.slice(0, 3).map((s) => (s.kind === "empty" ? null : s.nodeId))).toEqual([
+    expect(next.slice(0, 3).map((s) => (slotNodeId(s) ?? null))).toEqual([
       "a",
       "b",
       "c",
@@ -110,7 +111,7 @@ describe("applyHotbarLeases", () => {
     // a leaves sticky (idle) but still appears first in focus MRU — must soft-hold.
     // b stays sticky → hard lease.
     const next = applyHotbarLeases(slots, ["a", "b"], ["a", "b"], ["b"]);
-    expect(next.map((s) => (s.kind === "empty" ? null : `${s.kind}:${s.nodeId}`))).toEqual([
+    expect(next.map((s) => (s.kind === "empty" ? null : `${s.kind}:${slotNodeId(s)}`))).toEqual([
       "evicted:a",
       "leased:b",
       null,

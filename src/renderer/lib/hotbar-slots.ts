@@ -1,6 +1,12 @@
 /**
- * Hotbar slots 1–9: empty | fixed (operator) | leased (active) | evicted (idle soft-hold).
+ * Hotbar slots 1–9: empty | fixed (operator, one node) | group (operator,
+ * a saved multi-node selection) | leased (active) | evicted (idle soft-hold).
  * Presentational only — never written into the authorial canvas.
+ *
+ * Single-node slots (fixed, leased, evicted) hold a node at most once across
+ * the bar. Groups are RTS control groups: their members may also sit in other
+ * groups and in single-node slots. The save/recall contract lives in
+ * command-groups.ts.
  *
  * Evicted = was leased, node still live, no longer sticky-active (idle).
  * Still shows and still occupies the digit visually, but counts as fillable for
@@ -28,6 +34,18 @@ export const LeasedHotbarSlot = Schema.Struct({
 });
 export type LeasedHotbarSlot = typeof LeasedHotbarSlot.Type;
 
+/**
+ * Operator control group: node ids in document order, at least one. Pruning
+ * drops deleted members; the slot empties only when none is left.
+ */
+export const GroupHotbarSlot = Schema.Struct({
+  kind: Schema.Literal("group"),
+  nodeIds: Schema.Array(
+    Schema.String.pipe(Schema.check(Schema.isMinLength(1))),
+  ).pipe(Schema.check(Schema.isMinLength(1))),
+});
+export type GroupHotbarSlot = typeof GroupHotbarSlot.Type;
+
 /** Idle soft-hold: still painted, still pressable, fillable by new activity. */
 export const EvictedHotbarSlot = Schema.Struct({
   kind: Schema.Literal("evicted"),
@@ -38,6 +56,7 @@ export type EvictedHotbarSlot = typeof EvictedHotbarSlot.Type;
 export const HotbarSlot = Schema.Union([
   EmptyHotbarSlot,
   FixedHotbarSlot,
+  GroupHotbarSlot,
   LeasedHotbarSlot,
   EvictedHotbarSlot,
 ]);
@@ -63,6 +82,21 @@ export const isEmptySlot = (slot: HotbarSlot): slot is EmptyHotbarSlot =>
 export const isFixedSlot = (slot: HotbarSlot): slot is FixedHotbarSlot =>
   slot.kind === "fixed";
 
+export const isGroupSlot = (slot: HotbarSlot): slot is GroupHotbarSlot =>
+  slot.kind === "group";
+
+/** Operator-owned: fixed or group. Leases never displace these. */
+export const isOperatorSlot = (
+  slot: HotbarSlot,
+): slot is FixedHotbarSlot | GroupHotbarSlot =>
+  slot.kind === "fixed" || slot.kind === "group";
+
+export type SingleHotbarSlot = FixedHotbarSlot | LeasedHotbarSlot | EvictedHotbarSlot;
+
+/** A slot that holds exactly one node (fixed, leased, or evicted). */
+export const isSingleSlot = (slot: HotbarSlot): slot is SingleHotbarSlot =>
+  slot.kind === "fixed" || slot.kind === "leased" || slot.kind === "evicted";
+
 export const isLeasedSlot = (slot: HotbarSlot): slot is LeasedHotbarSlot =>
   slot.kind === "leased";
 
@@ -73,8 +107,13 @@ export const isEvictedSlot = (slot: HotbarSlot): slot is EvictedHotbarSlot =>
 export const isFillableSlot = (slot: HotbarSlot): boolean =>
   slot.kind === "empty" || slot.kind === "evicted";
 
+/** The one node a single-node slot holds; undefined for empty and groups. */
 export const slotNodeId = (slot: HotbarSlot): string | undefined =>
-  slot.kind === "empty" ? undefined : slot.nodeId;
+  isSingleSlot(slot) ? slot.nodeId : undefined;
+
+/** Every node a slot holds: none, one, or a group's members. */
+export const slotMemberIds = (slot: HotbarSlot): ReadonlyArray<string> =>
+  slot.kind === "group" ? slot.nodeIds : isSingleSlot(slot) ? [slot.nodeId] : [];
 
 /** Index of node in slots (fixed preferred, then leased, then evicted). */
 export function slotIndexOf(
@@ -103,23 +142,32 @@ export function nodeIdAt(
   return slot ? slotNodeId(slot) : undefined;
 }
 
-/** Drop dead nodes → empty; keep length 9. */
+/**
+ * Drop dead nodes → empty; groups lose dead members and empty only when none
+ * is left. Keep length 9. Unchanged slots keep their identity.
+ */
 export function pruneHotbarSlots(
   slots: ReadonlyArray<HotbarSlot>,
   liveNodeIds: ReadonlyArray<string>,
 ): HotbarSlot[] {
   const live = new Set(liveNodeIds);
-  return padSlots(
-    slots.map((slot) => {
-      if (slot.kind === "empty") return slot;
-      return live.has(slot.nodeId) ? slot : { kind: "empty" as const };
-    }),
-  );
+  return padSlots(slots.map((slot) => pruneSlot(slot, live)));
 }
+
+const pruneSlot = (slot: HotbarSlot, live: ReadonlySet<string>): HotbarSlot => {
+  if (slot.kind === "empty") return slot;
+  if (slot.kind === "group") {
+    const nodeIds = slot.nodeIds.filter((id) => live.has(id));
+    if (nodeIds.length === 0) return { kind: "empty" };
+    return nodeIds.length === slot.nodeIds.length ? slot : { kind: "group", nodeIds };
+  }
+  return live.has(slot.nodeId) ? slot : { kind: "empty" };
+};
 
 /**
  * Operator assignment: fix `nodeId` at `slotIndex`. Removes that node from
- * every other slot. Empty/leased/evicted at target become fixed.
+ * every other single-node slot (groups keep it). Whatever sat at the target
+ * (empty, lease, soft-hold, fixed, group) is replaced.
  */
 export function assignFixedSlot(
   slots: ReadonlyArray<HotbarSlot>,
@@ -128,7 +176,7 @@ export function assignFixedSlot(
 ): HotbarSlot[] {
   const clamped = Math.max(0, Math.min(HOTBAR_SLOT_COUNT - 1, slotIndex));
   const cleared = slots.map((slot) =>
-    slot.kind !== "empty" && slot.nodeId === nodeId
+    isSingleSlot(slot) && slot.nodeId === nodeId
       ? ({ kind: "empty" as const })
       : slot,
   );
@@ -148,14 +196,14 @@ export function clearHotbarSlotAt(
   return padSlots(next);
 }
 
-/** Remove a node wherever it appears (fixed, leased, or evicted). */
+/** Remove a node from every single-node slot (fixed, leased, or evicted). Groups keep it. */
 export function clearHotbarNode(
   slots: ReadonlyArray<HotbarSlot>,
   nodeId: string,
 ): HotbarSlot[] {
   return padSlots(
     slots.map((slot) =>
-      slot.kind !== "empty" && slot.nodeId === nodeId
+      isSingleSlot(slot) && slot.nodeId === nodeId
         ? { kind: "empty" as const }
         : slot,
     ),
@@ -166,7 +214,7 @@ export function clearHotbarNode(
  * Opportunistic leases with idle soft-hold.
  *
  * Stability rules (operator law — least perplexing):
- * 1. Fixed slots never change here.
+ * 1. Fixed and group slots never change here (groups only lose dead members).
  * 2. Hard lease only while **sticky** (working / attention). Historical focus
  *    MRU does **not** hold a hard lease — idle actors demote to evicted even
  *    if they remain in the MRU, so they make way for newly sticky actors.
@@ -200,9 +248,10 @@ export function applyHotbarLeases(
       .filter((id) => live.has(id)),
   );
 
-  // Pass 1: fixed stay; leased/evicted promote/demote in place; dead → empty.
+  // Pass 1: fixed and groups stay; leased/evicted promote/demote in place; dead → empty.
   const preserved: HotbarSlot[] = padSlots(
     slots.map((slot) => {
+      if (slot.kind === "group") return pruneSlot(slot, live);
       if (slot.kind === "fixed") {
         return live.has(slot.nodeId) ? slot : { kind: "empty" as const };
       }

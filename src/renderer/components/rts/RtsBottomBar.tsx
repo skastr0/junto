@@ -7,6 +7,7 @@ import {
   type DragEvent,
   type ReactNode,
 } from "react";
+import { batch } from "@legendapp/state";
 import { use$ } from "@legendapp/state/react";
 import {
   AlertTriangle,
@@ -36,17 +37,27 @@ import { formatNodeRef } from "@shared/node-ref";
 import {
   clearSelection,
   selectNode,
+  selectNodes,
   state$,
   toggleFlagFilter,
 } from "../../lib/state";
 import { viewportBusy$ } from "../../lib/viewport-busy";
 import { useRegionRollups } from "../../lib/region-rollups";
 import {
-  membersInDocumentOrder,
-  regionDigitVerdict,
-  REGION_RETAP_GAP_MS,
-  type RegionRetapMemory,
-} from "../../lib/region-retap";
+  canvasCommandGroups,
+  commandGroupKey,
+  currentSelectionIds,
+  firstFreeSlotIndex,
+  groupLabel,
+  recallCommandGroup,
+  saveSelectionToSlot,
+  selectionIsGroup,
+  swapHotbarSlots,
+  type CommandGroupRetap,
+  type RecallStep,
+} from "../../lib/command-groups";
+import { dock$ } from "../../lib/dock-state";
+import { isMac, modKeyGlyph } from "../../lib/platform";
 import { activateNodeSurface } from "../../lib/activate-node-surface";
 import { focusCanvasNode, isHotbarLeaseActor } from "../../lib/command-bar";
 import {
@@ -54,7 +65,6 @@ import {
   clearHotbarNode,
   filterLeaseCandidateIds,
   fixedOrderOf,
-  nodeIdAt,
   purgeNonEligibleSoftSlots,
   resolveHotbarSlots,
   slotIndexOf as hotbarSlotIndexOfNode,
@@ -242,7 +252,14 @@ function CmdKey({
 const ICON = 12;
 
 const isTextEditing = (target: EventTarget | null): boolean =>
-  target instanceof Element && Boolean(target.closest("input, textarea, [contenteditable='true']"));
+  target instanceof Element &&
+  ((target instanceof HTMLElement && target.isContentEditable) ||
+    Boolean(target.closest("input, textarea, select, [contenteditable]:not([contenteditable='false'])")));
+
+/** A focus surface or Settings owns the keyboard; digits must not drive the canvas behind it. */
+const keyboardOwnedAboveCanvas = (): boolean =>
+  state$.settingsOpen.peek() ||
+  dock$.registry.surfaces.peek().some((surface) => surface.zone === "focus");
 
 /** Live node ids for prune (document presence only). */
 const liveNodeIds = (doc: { readonly nodes: ReadonlyArray<{ readonly id: string }> }): string[] =>
@@ -350,24 +367,10 @@ const assignToFirstFreeSlot = (nodeId: string): void => {
     }
     return;
   }
-  let target = 0;
-  let foundEmpty = false;
-  for (let i = 0; i < 9; i++) {
-    if (slots[i]?.kind === "empty") {
-      target = i;
-      foundEmpty = true;
-      break;
-    }
-  }
-  if (!foundEmpty) {
-    for (let i = 0; i < 9; i++) {
-      if (slots[i]?.kind === "evicted") {
-        target = i;
-        break;
-      }
-      target = Math.min(i + 1, 8);
-    }
-  }
+  // Empty, then idle soft-hold, then lease. A bar full of operator slots
+  // leaves them alone rather than overwriting slot 9.
+  const target = firstFreeSlotIndex(slots);
+  if (target === null) return;
   state$.hotbarSlots.set(assignFixedSlot(slots, nodeId, target));
   recomputeHotbar();
 };
@@ -883,6 +886,31 @@ const focusNode = (nodeId: string): void => {
   recomputeHotbar();
 };
 
+/** Select a command group's members and frame them together. */
+const frameGroup = (nodeIds: ReadonlyArray<string>): void => {
+  batch(() => {
+    selectNodes(nodeIds);
+    state$.focusNodeIds.set([...nodeIds]);
+  });
+};
+
+/** Carry out one recall step from the command-group contract. */
+const runRecallStep = (step: RecallStep, nodes: ReadonlyArray<CanvasNode>): void => {
+  switch (step.kind) {
+    case "none":
+      return;
+    case "focus":
+      focusNode(step.nodeId);
+      return;
+    case "frame-group":
+      frameGroup(step.nodeIds);
+      return;
+    case "open":
+      focusAndActivate(step.nodeId, nodes);
+      return;
+  }
+};
+
 /** Focus then open the live surface when the node has one (actor model, etc.). */
 const focusAndActivate = (
   nodeId: string,
@@ -893,14 +921,19 @@ const focusAndActivate = (
   if (node) activateNodeSurface(node);
 };
 
+type HotbarTenure = "empty" | "fixed" | "group" | "leased" | "evicted";
+
 /**
  * Hotbar chip: slot digit + name + signal motion.
- * `tenure`: empty | leased (active) | evicted (idle soft-hold) | fixed (operator).
+ * `tenure`: empty | leased (active) | evicted (idle soft-hold) | fixed
+ * (operator, one node) | group (operator control group).
  */
 function HotbarChip({
   index,
   tenure,
   nodeId,
+  memberIds,
+  detail,
   label,
   severity,
   isRegion,
@@ -910,8 +943,12 @@ function HotbarChip({
   onDrop,
 }: {
   readonly index: number;
-  readonly tenure: "empty" | "fixed" | "leased" | "evicted";
+  readonly tenure: HotbarTenure;
   readonly nodeId?: string;
+  /** Group members (document order); empty for single-node slots. */
+  readonly memberIds: ReadonlyArray<string>;
+  /** Every member title, for a group's tooltip. */
+  readonly detail: string;
   readonly label: string;
   readonly severity: MemberSeverity;
   readonly isRegion: boolean;
@@ -920,7 +957,9 @@ function HotbarChip({
   readonly onDragOver: (event: DragEvent) => void;
   readonly onDrop: () => void;
 }) {
-  const empty = tenure === "empty" || !nodeId;
+  const isGroup = tenure === "group" && memberIds.length > 0;
+  const empty = !isGroup && (tenure === "empty" || !nodeId);
+  const mod = modKeyGlyph();
   const mark = signalMark(severity);
   const paused = use$(() =>
     !empty && isRegion && nodeId
@@ -942,7 +981,9 @@ function HotbarChip({
   const tenureLabel =
     tenure === "fixed"
       ? "fixed"
-      : tenure === "leased"
+      : tenure === "group"
+        ? `group of ${memberIds.length}`
+        : tenure === "leased"
         ? "leased"
         : tenure === "evicted"
           ? "idle hold"
@@ -965,29 +1006,34 @@ function HotbarChip({
       data-node-id={nodeId}
       data-testid={`hotbar-slot-${index + 1}`}
       style={chipStyle}
-      draggable={!empty && tenure === "fixed"}
+      draggable={tenure === "fixed" || isGroup}
       aria-label={
         empty
-          ? `Slot ${index + 1}: empty — assign with ⌘${index + 1}`
-          : `Slot ${index + 1}: ${label}, ${tenureLabel}, ${paused ? "paused" : mark.label}`
+          ? `Slot ${index + 1}: empty — assign with ${mod}${index + 1}`
+          : isGroup
+            ? `Slot ${index + 1}: ${tenureLabel}, ${detail}, ${mark.label}`
+            : `Slot ${index + 1}: ${label}, ${tenureLabel}, ${paused ? "paused" : mark.label}`
       }
       aria-pressed={selected && !empty}
       onDragStart={onDragStart}
       onDragOver={onDragOver}
       onDrop={onDrop}
       onClick={() => {
-        if (nodeId) focusNode(nodeId);
+        if (isGroup) frameGroup(memberIds);
+        else if (nodeId) focusNode(nodeId);
       }}
       onDoubleClick={(event) => {
         event.preventDefault();
-        if (!nodeId) return;
+        if (isGroup || !nodeId) return;
         const doc = state$.doc.peek();
         focusAndActivate(nodeId, doc.nodes);
       }}
       title={
         empty
-          ? `Empty slot ${index + 1} — ⌘${index + 1} fixes selection here; active nodes may lease it`
-          : `${label} — ${tenureLabel} — ${paused ? "paused" : mark.label}${
+          ? `Empty slot ${index + 1} — ${mod}${index + 1} saves the selection here; active nodes may lease it`
+          : isGroup
+            ? `${tenureLabel} — ${detail} — press ${index + 1} to select, again to open each`
+            : `${label} — ${tenureLabel} — ${paused ? "paused" : mark.label}${
               tenure === "leased"
                 ? " — auto"
                 : tenure === "evicted"
@@ -1025,6 +1071,7 @@ function HotbarStrip({
   readonly severityByNodeId: ReadonlyMap<string, MemberSeverity>;
 }) {
   const selectedNodeId = use$(state$.selectedNodeId);
+  const selectedNodeIds = use$(state$.selectedNodeIds);
   const hotbarSlots = use$(state$.hotbarSlots);
   const doc = use$(state$.doc);
   const canvasName = use$(state$.canvasName);
@@ -1046,16 +1093,55 @@ function HotbarStrip({
     recomputeHotbar();
   }, [doc, selectedNodeId, seatRev]);
 
+  // Session memory per canvas: App restores these slots on a canvas switch.
+  useEffect(
+    () =>
+      state$.hotbarSlots.onChange(({ value }) => {
+        canvasCommandGroups.remember(state$.canvasName.peek(), value);
+      }),
+    [],
+  );
+
   const slots = useMemo(() => {
     const nodeById = new Map(doc.nodes.map((n) => [n.id, n] as const));
     return hotbarSlots.map((slot, index) => {
       if (slot.kind === "empty") {
         return {
           index,
-          tenure: "empty" as const,
+          tenure: "empty" as HotbarTenure,
           nodeId: undefined as string | undefined,
+          memberIds: [] as ReadonlyArray<string>,
+          detail: "",
           label: "",
           severity: "idle" as MemberSeverity,
+          isRegion: false,
+        };
+      }
+      if (slot.kind === "group") {
+        const members = slot.nodeIds.flatMap((id) => {
+          const member = nodeById.get(id);
+          return member ? [member] : [];
+        });
+        const titles = members.map((member) => nodeTitle(member));
+        const blocked = new Set(execution?.blocked ?? []);
+        // The group shows its most urgent member, like a region rollup.
+        const severity = members.reduce<MemberSeverity>((worst, member) => {
+          const next = isHotbarLeaseActor(member)
+            ? digitHue(seatFactsOf(member, { graphBlocked: blocked.has(member.id), chatByAgent }))
+            : hotbarNodeSeverity(member, {
+                regionSeverity: byId.get(member.id)?.severity,
+                memberSeverity: severityByNodeId.get(member.id),
+              });
+          return severityRank(next) < severityRank(worst) ? next : worst;
+        }, "idle");
+        return {
+          index,
+          tenure: "group" as HotbarTenure,
+          nodeId: undefined as string | undefined,
+          memberIds: members.map((member) => member.id),
+          detail: titles.join(", "),
+          label: groupLabel(titles),
+          severity,
           isRegion: false,
         };
       }
@@ -1063,8 +1149,10 @@ function HotbarStrip({
       if (!node) {
         return {
           index,
-          tenure: slot.kind,
+          tenure: slot.kind as HotbarTenure,
           nodeId: slot.nodeId,
+          memberIds: [] as ReadonlyArray<string>,
+          detail: "",
           label: slot.nodeId.slice(0, 8),
           severity: "idle" as MemberSeverity,
           isRegion: false,
@@ -1092,8 +1180,10 @@ function HotbarStrip({
           });
       return {
         index,
-        tenure: slot.kind,
+        tenure: slot.kind as HotbarTenure,
         nodeId: slot.nodeId,
+        memberIds: [] as ReadonlyArray<string>,
+        detail: "",
         label: isRegion
           ? (rollup?.label ?? nodeTitle(node))
           : nodeTitle(node),
@@ -1122,14 +1212,23 @@ function HotbarStrip({
             index={slot.index}
             tenure={slot.tenure}
             nodeId={slot.nodeId}
+            memberIds={slot.memberIds}
+            detail={slot.detail}
             label={slot.label}
             severity={slot.severity}
             isRegion={slot.isRegion}
             selected={
-              slot.nodeId !== undefined && selectedNodeId === slot.nodeId
+              slot.tenure === "group"
+                ? selectionIsGroup(
+                    currentSelectionIds(selectedNodeId, selectedNodeIds),
+                    hotbarSlots[slot.index],
+                  )
+                : slot.nodeId !== undefined && selectedNodeId === slot.nodeId
             }
             onDragStart={() => {
-              if (slot.tenure === "fixed") dragFrom.current = slot.index;
+              if (slot.tenure === "fixed" || slot.tenure === "group") {
+                dragFrom.current = slot.index;
+              }
             }}
             onDragOver={(event) => event.preventDefault()}
             onDrop={() => {
@@ -1138,11 +1237,10 @@ function HotbarStrip({
               if (from === null || from === slot.index) return;
               const current = state$.hotbarSlots.peek();
               const fromSlot = current[from];
-              if (!fromSlot || fromSlot.kind !== "fixed") return;
-              // Swap fixed assignment into drop index (promote target if needed).
-              const movedId = fromSlot.nodeId;
-              let next = assignFixedSlot(current, movedId, slot.index);
-              state$.hotbarSlots.set(next);
+              if (!fromSlot || (fromSlot.kind !== "fixed" && fromSlot.kind !== "group")) return;
+              // Swap whole slots: the drop target moves to the drag origin
+              // instead of being overwritten.
+              state$.hotbarSlots.set(swapHotbarSlots(current, from, slot.index));
               recomputeHotbar();
             }}
           />
@@ -1328,81 +1426,48 @@ function NotifyStrip({ rollups }: { readonly rollups: ReadonlyArray<RegionRollup
 
 function useHotbarHotkeys(): void {
   useEffect(() => {
-    let retap: RegionRetapMemory | null = null;
+    let retap: CommandGroupRetap | null = null;
     const onKey = (event: KeyboardEvent) => {
       if (isTextEditing(event.target)) return;
-
-      const digit = event.key >= "1" && event.key <= "9" ? Number(event.key) : null;
-      if (digit === null) return;
-      const slotIndex = digit - 1;
+      const intent = commandGroupKey(event, isMac());
+      if (intent === null) return;
+      if (keyboardOwnedAboveCanvas()) return;
       const doc = state$.doc.peek();
       const slots = state$.hotbarSlots.peek();
+      const documentNodeIds = doc.nodes.map((n) => n.id);
 
-      // ⌘/Ctrl+1–9: fix the single selected node into this slot.
-      if (event.metaKey || event.ctrlKey) {
-        if (event.altKey || event.shiftKey) return;
+      // ⌘1–9 (Ctrl elsewhere): save the live selection to this slot. One node
+      // fixes it; two or more save a control group. Saving never moves the camera.
+      if (intent.kind === "save") {
         event.preventDefault();
-        const selection = state$.selectedNodeIds.peek();
-        const single = state$.selectedNodeId.peek();
-        const nodeId =
-          selection.length === 1
-            ? selection[0]
-            : selection.length === 0 && single
-              ? single
-              : undefined;
-        if (!nodeId || !doc.nodes.some((n) => n.id === nodeId)) return;
-        state$.hotbarSlots.set(assignFixedSlot(slots, nodeId, slotIndex));
+        const selection = currentSelectionIds(
+          state$.selectedNodeId.peek(),
+          state$.selectedNodeIds.peek(),
+        );
+        const next = saveSelectionToSlot(slots, selection, intent.slotIndex, documentNodeIds);
+        if (!next) return;
+        state$.hotbarSlots.set(next);
         recomputeHotbar();
-        focusNode(nodeId);
         retap = null;
         return;
       }
 
-      if (event.altKey || event.shiftKey) return;
-      const nodeId = nodeIdAt(slots, slotIndex);
-      if (!nodeId) return;
+      // 1–9: recall. Groups frame their members; re-tap cycles and opens.
+      const { step, memory } = recallCommandGroup(
+        slots,
+        intent.slotIndex,
+        {
+          documentNodeIds,
+          regionIds: new Set(doc.nodes.filter((n) => n.type === "group").map((n) => n.id)),
+          regionMembers: (regionId) => groupMembers(doc).get(regionId) ?? [],
+        },
+        retap,
+        performance.now(),
+      );
+      if (step.kind === "none") return;
       event.preventDefault();
-
-      const node = doc.nodes.find((n) => n.id === nodeId);
-      const nowMs = performance.now();
-      // Region re-tap: first press → region; re-press → cycle members and
-      // activate openable surfaces (actor model / terminal / work sinks).
-      if (node?.type === "group") {
-        const memberIds = membersInDocumentOrder(
-          groupMembers(doc).get(nodeId) ?? [],
-          doc.nodes.map((n) => n.id),
-        );
-        const { verdict, memory } = regionDigitVerdict(
-          retap,
-          slotIndex,
-          nowMs,
-          memberIds.length,
-        );
-        retap = memory;
-
-        if (verdict.kind === "select-member") {
-          const memberId = memberIds[verdict.index];
-          if (memberId) {
-            focusAndActivate(memberId, doc.nodes);
-            return;
-          }
-        }
-        focusNode(nodeId);
-        return;
-      }
-
-      // Free slotted node: first press focuses; re-tap within the gap opens
-      // the model when the node has an activatable surface (agent, terminal…).
-      const within =
-        retap !== null &&
-        retap.slotIndex === slotIndex &&
-        nowMs - retap.atMs <= REGION_RETAP_GAP_MS;
-      retap = { slotIndex, atMs: nowMs, memberCursor: -1 };
-      if (within) {
-        focusAndActivate(nodeId, doc.nodes);
-      } else {
-        focusNode(nodeId);
-      }
+      retap = memory;
+      runRecallStep(step, doc.nodes);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);

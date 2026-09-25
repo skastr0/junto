@@ -1,3 +1,4 @@
+import type { HotbarSlot } from "./hotbar-slots";
 import type { CanvasNode } from "@shared/canvas";
 
 /**
@@ -77,12 +78,7 @@ export function slotIndexOf(
 
 /** Index of nodeId on a 9-slot hotbar (fixed, leased, or evicted soft-hold). */
 export function hotbarSlotIndexOf(
-  slots: ReadonlyArray<
-    | { readonly kind: "empty" }
-    | { readonly kind: "fixed"; readonly nodeId: string }
-    | { readonly kind: "leased"; readonly nodeId: string }
-    | { readonly kind: "evicted"; readonly nodeId: string }
-  >,
+  slots: ReadonlyArray<HotbarSlot>,
   nodeId: string,
 ): number | null {
   const fixed = slots.findIndex(

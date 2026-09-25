@@ -107,6 +107,7 @@ import { canvasPerformance } from "../lib/performance/canvas-performance";
 import { PERF_ENABLED } from "../lib/performance/perf-flag";
 import { NodePaletteModeDeck, type ModeDeckActions } from "./node-palette/NodePaletteModeDeck";
 import { FocusSurface } from "./FocusSurface";
+import { useCanvasGroupFocus } from "./useCanvasGroupFocus";
 import { IconButton, OverlayHeader } from "./ui";
 
 type CanvasNodeRef = { readonly id: string; readonly type?: string; readonly position: { readonly x: number; readonly y: number }; readonly data?: unknown; readonly selected?: boolean };
@@ -1284,6 +1285,7 @@ function useCanvasGraph() {
   );
   useCanvasFilterViewport(`${edgeFilter}|${flagFilter}`, rf);
   useCanvasFocus(rf);
+  useCanvasGroupFocus(rf);
   // One-shot fit request from the command bar "Fit view" action.
   useEffect(() => {
     return state$.fitViewRequest.onChange(() => {

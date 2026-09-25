@@ -248,7 +248,7 @@
     opacity 0.15s ease;
 }
 
-/* Tenure: empty / leased (active) / evicted (idle soft-hold) / fixed (operator). */
+/* Tenure: empty / leased (active) / evicted (idle soft-hold) / fixed and group (operator). */
 .rts-chip--strip.is-tenure-empty {
   opacity: 0.55;
   border-style: dashed;
@@ -283,6 +283,14 @@
 
 .rts-chip--strip.is-tenure-fixed {
   border-style: solid;
+}
+
+/* Command group: an operator slot holding several nodes, drawn as a small stack. */
+.rts-chip--strip.is-tenure-group {
+  border-style: solid;
+  box-shadow:
+    2px 2px 0 -1px var(--color-ground),
+    2px 2px 0 0 var(--color-stroke-hi);
 }
 
 .rts-chip--strip .rts-chip__label {
