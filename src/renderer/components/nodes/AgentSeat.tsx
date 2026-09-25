@@ -7,6 +7,7 @@ import { SIGNAL_FLAG_TONE } from "../../lib/activity-atlas";
 import { bindingIdForNode } from "../../lib/agent-seat-state";
 import { useSeatSignalRollup } from "../../lib/agent-signals-state";
 import { openSeatSignals } from "../../lib/agent-signals-view";
+import { seatLine } from "../../lib/seat-line";
 import { state$ } from "../../lib/state";
 import { useThreadHealthMark } from "../../lib/thread-health";
 import { seatPortraitMood } from "../../lib/portrait-mood";
@@ -29,22 +30,6 @@ const SIGNAL_WORD: Readonly<Record<AgentSignalKind, string>> = {
   blocked: "blocked",
   escalate: "waiting on you",
   feedback: "ready for review",
-};
-
-/**
- * Control-state words for the line when nothing louder speaks. The ring
- * already shows the state; the words make it readable without decoding.
- */
-const stateLine = (activity: ActivitySpec): { readonly text: string; readonly tone?: ActivityTone } => {
-  if (activity.mode === "pulse" && activity.tone === "green") return { text: "done, ready for review", tone: "green" };
-  if (activity.mode === "wave" && activity.tone === "amber") {
-    return {
-      text: /stall/i.test(activity.label) ? "stalled, needs a look" : "wants your input",
-      tone: "amber",
-    };
-  }
-  if (activity.mode === "wave" && activity.tone === "crimson") return { text: activity.label, tone: "crimson" };
-  return { text: activity.label };
 };
 
 /** The control state has proven a dialog or a stoppage: amber or crimson in flight. */
@@ -115,7 +100,7 @@ export function AgentSeatView({
     line = <span className="text-amber">{context}</span>;
   } else if (provenAttention(activity)) {
     // Canonical attention always wins at presentation, as it does on the ring.
-    const state = stateLine(activity);
+    const state = seatLine(activity);
     line = <span className={state.tone ? TONE_TEXT[state.tone] : "text-dim"}>{state.text}</span>;
   } else if (health.line) {
     // An AI reading, never the agent's own claim: a quiet prefix, dim ink.
@@ -126,7 +111,7 @@ export function AgentSeatView({
       </>
     );
   } else {
-    const state = stateLine(activity);
+    const state = seatLine(activity);
     line = <span className={state.tone ? TONE_TEXT[state.tone] : "text-dim"}>{state.text}</span>;
   }
 

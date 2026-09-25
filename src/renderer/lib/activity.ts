@@ -292,7 +292,9 @@ export function terminalActivity(input: {
       input.seatState === undefined ||
       input.seatState === null)
   ) {
-    return { mode: "static", tone: SEVERITY_TONE.idle, glyph: "off", label: "unknown" };
+    // No seat event and no live process: the seat is not running. Say so,
+    // never "unknown".
+    return { mode: "static", tone: SEVERITY_TONE.idle, glyph: "off", label: "offline" };
   }
   return {
     mode: "static",
