@@ -50,6 +50,7 @@ import { KernelLive, KernelService } from "./junto/kernel/service";
 import { KernelStateRepositoryLive } from "./junto/kernel/repository";
 import { PausePlaneLaunchPlayingLive } from "./junto/pause-plane";
 import { FactoryPauseRepositoryLive } from "./junto/pause/repository";
+import { AgentSignalRepositoryLive } from "./junto/signals/repository";
 import { SchedulerRepositoryLive } from "./junto/scheduler/repository";
 import { WorkLive } from "./junto/work/service";
 import { WorkRepositoryLive } from "./junto/work/repository";
@@ -127,6 +128,7 @@ const StateRepositoriesLive = Layer.provideMerge(
   Layer.mergeAll(
     KernelStateRepositoryLive,
     FactoryPauseRepositoryLive,
+    AgentSignalRepositoryLive,
     WorkRepositoryLive,
     CrewRepositoryLive,
     // The usage plane reads operator provider credentials from settings, so
