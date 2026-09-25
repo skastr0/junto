@@ -24,7 +24,7 @@ test("a fresh install shows the introduction once and keeps it on request", asyn
 
     await page.keyboard.press("ArrowRight");
     await expect(slide).toHaveAttribute("data-slide", "play");
-    await expect(intro).toContainText("comes back paused");
+    await expect(intro).toContainText("starts paused");
     await page.screenshot({ path: `${SHOTS}/3-play.png`, animations: "disabled" });
 
     await page.keyboard.press("ArrowRight");

@@ -131,7 +131,7 @@ Linux desktop: alpha, Ubuntu 24.04 x86-64 from source; the download page says th
 
 1. **Two seats talk** (20s clip): draw a line between a Claude Code seat and a Codex seat; Claude sends mail; the notice appears in Codex's terminal; Codex reads and replies. Shows the agents talking without you in between.
 2. **Erase the line** (10s): delete the line; the next send is refused. Shows that access is the line you drew.
-3. **Quit and reopen** (15s): quit with seats running and reopen; the canvas comes back paused, and a seat resumes its same session. Shows that seats survive a restart.
+3. **Quit and reopen** (15s): quit with seats running and reopen; the canvas comes back playing, and a seat resumes its same session when work reaches it. Shows that seats survive a restart.
 
 ## Copy bank
 

@@ -3,7 +3,7 @@
  *
  * Pins when the tour appears (once, only after the durable settings row
  * hydrates, and again only on request), that finishing it writes the seen flag
- * through the settings path, that the play slide says every launch comes back
+ * through the settings path, that the play slide says a new workspace starts
  * paused and where the switch is, and that the permission slide says plainly
  * why macOS may name Junto.
  */
@@ -145,9 +145,10 @@ describe("what the slides say", () => {
     expect(start).toContain("project folder");
   });
 
-  it("says every launch comes back paused, what play does, and where the switch is", () => {
+  it("says a new workspace starts paused, what play does, and where the switch is", () => {
     const copy = text(renderToStaticMarkup(<FirstRunIntroSurface onDone={() => {}} mac initialStep={2} />));
-    expect(copy).toContain("Every time Junto opens, your workspace comes back paused");
+    expect(copy).toContain("A new workspace starts paused");
+    expect(copy).toContain("it opens playing every time");
     expect(copy).toContain("the paused button at the top right of the window");
     expect(copy).toContain("Play canvas");
     expect(copy).toContain("Messages then flow between agents joined by a wire");

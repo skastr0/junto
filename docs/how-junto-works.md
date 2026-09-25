@@ -47,7 +47,7 @@ Everything Junto owns lives in `~/.junto/`. Product state is one SQLite file, `~
 
 ## Play and pause
 
-Every launch comes back paused, and a paused canvas starts nothing on its own. Press play to let seats run. Local terminal processes belong to the app and stop when it quits.
+A new canvas starts paused, and a paused canvas starts nothing on its own. Press play to let seats run; after that the canvas comes back playing at every launch, and a seat starts when mail or work arrives for it. Local terminal processes belong to the app and stop when it quits.
 
 ## Overseer
 

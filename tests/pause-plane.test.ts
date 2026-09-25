@@ -7,7 +7,7 @@ import {
 } from "../src/main/junto/pause/repository";
 import {
   PausePlane,
-  PausePlaneLaunchPausedLive,
+  PausePlaneLaunchPlayingLive,
   PausePlaneLive,
 } from "../src/main/junto/pause-plane";
 import {
@@ -160,63 +160,63 @@ describe("PausePlane — born paused", () => {
   });
 });
 
-describe("PausePlane — Command Center launch comes back paused", () => {
+describe("PausePlane — Command Center launch comes back playing", () => {
   const recorded = (): ReadonlyMap<string, CanvasPauseState> =>
     new Map([
-      ["left-playing", { playing: true, everPlayed: true, pausedNodes: ["n"], pausedRegions: [] }],
-      ["left-paused", { playing: false, everPlayed: true, pausedNodes: [], pausedRegions: [] }],
+      ["left-playing", { playing: true, everPlayed: true, pausedNodes: [], pausedRegions: [] }],
+      ["left-paused", { playing: false, everPlayed: true, pausedNodes: ["n"], pausedRegions: ["r"] }],
+      ["never-played", { playing: false, everPlayed: false, pausedNodes: [], pausedRegions: [] }],
     ]);
 
-  it("pauses a canvas left playing, durably, before anyone reads it", async () => {
+  it("plays every canvas played before, durably, before anyone reads it", async () => {
     const writes: Write[] = [];
     await withPlane(
       { initial: recorded() },
       writes,
       async (plane) => {
-        expect(plane.stateFor("left-playing")).toEqual({
-          playing: false,
+        expect(plane.stateFor("left-playing").playing).toBe(true);
+        expect(plane.stateFor("left-paused")).toEqual({
+          playing: true,
           everPlayed: true,
           pausedNodes: ["n"],
-          pausedRegions: [],
+          pausedRegions: ["r"],
         });
-        expect(plane.stateFor("left-paused").playing).toBe(false);
-        expect(writes).toEqual([{ kind: "canvas", canvas: "left-playing", playing: false }]);
+        expect(writes).toEqual([{ kind: "canvas", canvas: "left-paused", playing: true }]);
       },
-      PausePlaneLaunchPausedLive,
+      PausePlaneLaunchPlayingLive,
     );
   });
 
-  it("stays paused when a node pause lands before play", async () => {
+  it("keeps a canvas never played paused behind its first-play confirmation", async () => {
     await withPlane(
       { initial: recorded() },
       [],
       async (plane) => {
-        await Effect.runPromise(plane.setScopePaused("left-playing", { kind: "node", id: "n" }, false));
-        expect(plane.stateFor("left-playing").playing).toBe(false);
-        await Effect.runPromise(plane.setPlaying("left-playing", true));
-        expect(plane.stateFor("left-playing").playing).toBe(true);
+        expect(plane.stateFor("never-played")).toEqual(PAUSED_CANVAS);
+        expect(plane.stateFor("brand-new")).toEqual(PAUSED_CANVAS);
       },
-      PausePlaneLaunchPausedLive,
+      PausePlaneLaunchPlayingLive,
     );
   });
 
-  it("fails closed when the launch pause cannot be saved", async () => {
+  it("fails closed when the launch play cannot be saved", async () => {
     await withPlane(
       { initial: recorded(), writeFails: true },
       [],
       async (plane) => {
         expect(plane.stateFor("left-playing").playing).toBe(false);
-        const write = await Effect.runPromise(Effect.result(plane.setPlaying("left-playing", true)));
+        expect(plane.stateFor("left-paused").playing).toBe(false);
+        const write = await Effect.runPromise(Effect.result(plane.setPlaying("left-paused", true)));
         expect(Result.isFailure(write)).toBe(true);
-        expect(plane.stateFor("left-playing").playing).toBe(false);
       },
-      PausePlaneLaunchPausedLive,
+      PausePlaneLaunchPlayingLive,
     );
   });
 
   it("a headless Remote keeps its recorded play state", async () => {
     await withPlane({ initial: recorded() }, [], async (plane) => {
       expect(plane.stateFor("left-playing").playing).toBe(true);
+      expect(plane.stateFor("left-paused").playing).toBe(false);
     });
   });
 });

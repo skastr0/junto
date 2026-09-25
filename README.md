@@ -71,7 +71,7 @@ The full command list is in [How Junto works](docs/how-junto-works.md#the-cli).
 
 ## How it works
 
-Each seat runs the agent's own CLI in a terminal Junto keeps open, and resumes the same session after a restart. A `messages` line between two seats is the only thing that lets them message each other. The `junto` CLI talks to the app over a local socket, and the app only answers processes it started from a seat, so there is no token to copy. The receiver gets one short notice in its terminal and reads the mail when it is ready; mail stays until it is read. Every launch comes back paused, and nothing runs until you press play.
+Each seat runs the agent's own CLI in a terminal Junto keeps open, and resumes the same session after a restart. A `messages` line between two seats is the only thing that lets them message each other. The `junto` CLI talks to the app over a local socket, and the app only answers processes it started from a seat, so there is no token to copy. The receiver gets one short notice in its terminal and reads the mail when it is ready; mail stays until it is read. A new canvas starts paused, and nothing runs until you press play; after that it comes back playing, and a seat starts when mail or work arrives for it.
 
 Supported harnesses: Claude Code, Codex, Grok, Pi, Devin, Cursor Agent, Antigravity, fx, Prime Agent, Hermes, Kimi Code, Muse, Amp, and Oh My Pi. Details and what Junto touches on your machine: [How Junto works](docs/how-junto-works.md).
 

@@ -1,10 +1,8 @@
 /**
- * Launch pause e2e: a canvas left playing comes back paused.
+ * Launch play e2e: a canvas played before comes back playing.
  *
- * A playing canvas restored at launch would wake agent seats before the
- * operator did anything, and macOS names Junto on whatever those agents
- * read. The durable record says playing; the app must read paused, keep the
- * first-play latch, and write the pause back.
+ * The durable record says paused but played once; the app must read
+ * playing, so mail and work reach seats without a press of play per launch.
  */
 import { join } from "node:path";
 import { Effect, Layer, ManagedRuntime } from "effect";
@@ -34,6 +32,7 @@ test.use({
           Effect.gen(function* () {
             const pause = yield* FactoryPauseRepository;
             yield* pause.setPlaying(CANVAS, true);
+            yield* pause.setPlaying(CANVAS, false);
           }),
         );
       } finally {
@@ -43,10 +42,10 @@ test.use({
   },
 });
 
-test("a canvas left playing comes back paused at launch", async ({ junto: { page } }) => {
+test("a canvas played before comes back playing at launch", async ({ junto: { page } }) => {
   await expect
     .poll(async () => page.evaluate(() => Boolean(window.junto?.factoryPauseState)), { timeout: 30_000 })
     .toBe(true);
   const state = await page.evaluate(async (canvas) => window.junto!.factoryPauseState(canvas), CANVAS);
-  expect(state).toMatchObject({ playing: false, everPlayed: true });
+  expect(state).toMatchObject({ playing: true, everPlayed: true });
 });

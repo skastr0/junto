@@ -4,9 +4,10 @@
  * macOS bills a child's file access to the GUI app at the top of its process
  * tree, so an agent Junto starts can raise a prompt that names Junto. That is
  * fine when the operator asked for the agent. What must never happen is Junto
- * causing a prompt for no reason, so nothing starts before a click: every
- * Command Center launch comes back paused, managed seats wake only on a
- * playing canvas, and shell terminals start only from an explicit open.
+ * causing a prompt for no reason: a managed seat wakes only on a playing
+ * canvas, a canvas never played starts paused, and shell terminals start only
+ * from an explicit open. A canvas the operator has played comes back playing
+ * at launch, so its seats start when work arrives for them.
  */
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
@@ -31,9 +32,9 @@ const wakeSites = (kernel: string): Array<{ readonly fn: string; readonly body: 
   });
 
 describe("launch permission surface", () => {
-  it("brings every Command Center launch back paused", () => {
+  it("brings a played canvas back playing at Command Center launch", () => {
     const runtime = source("src/main/runtime.ts");
-    expect(runtime).toContain("Layer.provideMerge(PausePlaneLaunchPausedLive, BaseLayer)");
+    expect(runtime).toContain("Layer.provideMerge(PausePlaneLaunchPlayingLive, BaseLayer)");
     expect(runtime).not.toMatch(/\bPausePlaneLive\b/u);
   });
 

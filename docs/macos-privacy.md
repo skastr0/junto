@@ -58,9 +58,11 @@ any agent starts, that agents run with their permissions, that macOS may name
 Junto when one reads a protected place, and that each prompt can be allowed
 or denied.
 
-**Launch.** Nothing Junto starts runs before a click. Every Command Center
-launch comes back with every canvas paused, so no agent seat wakes until the
-operator presses play; a shell terminal starts only when the operator opens
+**Launch.** A canvas never played starts paused, and no agent seat on it wakes
+until the operator presses play. A canvas the operator has played comes back
+playing at every Command Center launch; its seats start when work arrives for
+them (mail, a connection change, a task), so a seat with waiting mail can
+start right after launch. A shell terminal starts only when the operator opens
 one. `tests/launch-permission-surface.test.ts` holds both.
 
 ## Access inventory

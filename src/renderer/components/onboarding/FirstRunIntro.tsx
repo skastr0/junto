@@ -10,9 +10,9 @@ import "./first-run-intro.css";
 
 // First-run introduction. Four slides, shown once on first launch and again
 // only on request (help map, Settings). It says what Junto is, how to start
-// an agent, that every launch comes back paused and what play changes, and,
-// plainly, that agents run with the operator's permissions so macOS may name
-// Junto when one reads a protected folder.
+// an agent, that a workspace starts paused until its first play and what play
+// changes, and, plainly, that agents run with the operator's permissions so
+// macOS may name Junto when one reads a protected folder.
 
 interface IntroSlide {
   readonly id: string;
@@ -133,9 +133,9 @@ export const introSlides = (mac: boolean): ReadonlyArray<IntroSlide> => [
     body: (
       <>
         <p>
-          Every time Junto opens, your workspace comes back paused. Agents keep
-          working in their own terminals, but they cannot message each other or
-          act through Junto.
+          A new workspace starts paused. While paused, agents keep working in
+          their own terminals, but they cannot message each other or act
+          through Junto. Once you play it, it opens playing every time.
         </p>
         <p>
           To play, press the <strong>paused</strong> button at the top right of
