@@ -32,6 +32,11 @@ import {
   MESSAGE_PTY_FULL_BODY_MAX,
   sanitizeDeliveryLine,
 } from "@shared/message-delivery";
+import {
+  wireTrafficOfMail,
+  wireTrafficPreview,
+  type WireTrafficEvent,
+} from "@shared/wire-traffic";
 
 /** Whether a message reached its seat now, or waits for the seat to come up. */
 export type MailDeliveryState = "delivered" | "waiting";
@@ -116,6 +121,8 @@ export class MessageDeliveryService {
   private readonly noWake = new Set<string>();
   /** One wake in flight per seat. */
   private readonly waking = new Set<string>();
+  /** Told once per message typed into a seat (wire pulse, preambles). */
+  private readonly deliveredListeners = new Set<(event: WireTrafficEvent) => void>();
 
   configure(input: {
     readonly transport: MessageDeliveryTransport;
@@ -164,6 +171,27 @@ export class MessageDeliveryService {
    */
   holdWake(messageId: string): void {
     if (!this.suspended) this.noWake.add(messageId);
+  }
+
+  /**
+   * Listen for every message actually typed into a seat. The one source of
+   * wire traffic: the canvas pulse and the preamble surface both read it.
+   */
+  subscribeDelivered(listener: (event: WireTrafficEvent) => void): () => void {
+    this.deliveredListeners.add(listener);
+    return () => {
+      this.deliveredListeners.delete(listener);
+    };
+  }
+
+  private emitDelivered(event: WireTrafficEvent): void {
+    for (const listener of this.deliveredListeners) {
+      try {
+        listener(event);
+      } catch (error) {
+        console.error("[delivery] wire traffic listener failed:", error);
+      }
+    }
   }
 
   /** A message landed on an actor mailbox: deliver it now. */
@@ -238,6 +266,9 @@ export class MessageDeliveryService {
     this.delivered.add(key);
     this.waiting.delete(key);
     this.noWake.delete(messageId);
+    this.emitDelivered(
+      wireTrafficOfMail({ canvasName: canvas, toNodeId: nodeId, message, at: Date.now() }),
+    );
     await store.acceptMessageDelivery(canvas, nodeId, messageId).catch(() => {
       // The text is on the seat. A lost receipt only leaves the document
       // showing it waiting; this process will not type it twice.
@@ -384,6 +415,16 @@ export class MessageDeliveryService {
       );
       if (!written) return "waiting";
       this.responses.delete(key);
+      const preview = wireTrafficPreview(pending.response);
+      this.emitDelivered({
+        canvasName: pending.canvas,
+        toNodeId: pending.actorNodeId,
+        fromName: "operator",
+        kind: "answer",
+        messageId: `request::${pending.requestId}`,
+        ...(preview !== undefined ? { preview } : {}),
+        at: Date.now(),
+      });
       return "delivered";
     })().catch((): MailDeliveryState => "waiting");
     this.flights.set(key, flight);

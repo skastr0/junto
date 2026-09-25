@@ -283,6 +283,37 @@ describe("mail delivery", () => {
     expect(seat.writes).toHaveLength(1);
   });
 
+  it("tells wire-traffic listeners once per message typed into a seat", async () => {
+    const seat = rig();
+    const events: unknown[] = [];
+    seat.service.subscribeDelivered((event) => events.push(event));
+    seat.append(mail("01A", "rebase is done"));
+
+    await seat.service.deliver(canvas, nodeId, "01A");
+    await seat.service.deliver(canvas, nodeId, "01A");
+
+    expect(events).toEqual([
+      expect.objectContaining({
+        canvasName: canvas,
+        toNodeId: nodeId,
+        fromNodeId: "agent-a",
+        fromName: "Claude Code",
+        kind: "notice",
+        messageId: "01A",
+        preview: "rebase is done",
+      }),
+    ]);
+  });
+
+  it("tells wire-traffic listeners nothing for mail still waiting", async () => {
+    const seat = rig({ live: false });
+    const events: unknown[] = [];
+    seat.service.subscribeDelivered((event) => events.push(event));
+    seat.append(mail("01A", "later"));
+    await seat.service.deliver(canvas, nodeId, "01A");
+    expect(events).toEqual([]);
+  });
+
   it("writes nothing after suspend", async () => {
     const seat = rig();
     seat.append(mail("01A", "late"));
