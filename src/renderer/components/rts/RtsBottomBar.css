@@ -1409,3 +1409,70 @@ html[data-viewport-busy] .react-flow .rts-notify-strip {
     transition: none;
   }
 }
+
+/* Save-to-group picker inside the multi-select menu: slots 1 to 9. */
+.save-group {
+  display: grid;
+  gap: 4px;
+  padding: 3px 6px 5px;
+}
+
+.save-group__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--color-dim);
+}
+
+.save-group__text {
+  display: grid;
+  min-width: 0;
+  gap: 1px;
+}
+
+.save-group__text small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.save-group__slots {
+  display: grid;
+  grid-template-columns: repeat(9, minmax(0, 1fr));
+  gap: 2px;
+}
+
+.canvas-action-menu .save-group__slot {
+  display: grid;
+  place-items: center;
+  min-height: 24px;
+  padding: 0;
+  border: 1px dashed color-mix(in oklab, var(--color-stroke) 80%, transparent);
+  border-radius: 4px;
+  color: var(--color-faint);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  text-align: center;
+}
+
+/* A lease or idle soft-hold: taken, but it yields. */
+.canvas-action-menu .save-group__slot[data-taken="lease"] {
+  border-color: color-mix(in oklab, var(--color-cyan) 45%, var(--color-stroke));
+  color: var(--color-dim);
+}
+
+/* An operator slot (node or group): saving replaces it. */
+.canvas-action-menu .save-group__slot[data-taken="held"] {
+  border-style: solid;
+  border-color: color-mix(in oklab, var(--color-amber) 45%, var(--color-stroke));
+  background: color-mix(in oklab, var(--color-amber) 12%, transparent);
+  color: var(--color-amber);
+}
+
+.canvas-action-menu .save-group__slot:hover,
+.canvas-action-menu .save-group__slot:focus-visible {
+  border-style: solid;
+  border-color: var(--color-stroke-hi);
+  background: var(--color-overlay-2);
+  color: var(--color-ink);
+}

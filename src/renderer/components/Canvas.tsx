@@ -94,7 +94,8 @@ import { minimapFill, signalMark } from "../lib/signal-mark";
 import { nodeTypes } from "./nodes";
 import { edgeTypes } from "./edges/EtherEdge";
 import { CanvasLoom } from "./edges/CanvasLoom";
-import { RtsBottomBar } from "./rts/RtsBottomBar";
+import { RtsBottomBar, saveSelectionToCommandGroup } from "./rts/RtsBottomBar";
+import { SaveToGroupPicker } from "./rts/SaveToGroupPicker";
 import { TerminalWizard, createTerminalAt } from "./terminal/TerminalWizard";
 import { openTerminalGrid } from "../lib/terminal-grid-state";
 import { GitWizard, createGitFromRegion } from "./git/GitWizard";
@@ -1113,6 +1114,8 @@ function MultiSelectMenu({ anchor, onClose }: { readonly anchor: MultiMenuAnchor
       <div className="canvas-action-menu" role="menu" aria-label={`Actions for ${nodes}`}>
         {agentRows.map((entry) => <MultiMenuRow key={entry.key} entry={entry} />)}
         {agentRows.length > 0 ? <hr className="canvas-action-menu__rule" /> : null}
+        <SaveToGroupPicker count={count} onPick={(slot) => run((ids) => saveSelectionToCommandGroup(ids, slot))} />
+        <hr className="canvas-action-menu__rule" />
         {selectionActions.map((entry) => <MultiMenuRow key={entry.key} entry={entry} />)}
       </div>
     </div>

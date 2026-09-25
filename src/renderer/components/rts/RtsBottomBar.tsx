@@ -375,6 +375,27 @@ const assignToFirstFreeSlot = (nodeId: string): void => {
   recomputeHotbar();
 };
 
+/**
+ * Save node ids to a hotbar slot as the operator's command group (one node is
+ * a fixed slot). Shared by ⌘1–9 and the multi-select menu. False when no
+ * live node was given, so nothing changed.
+ */
+export const saveSelectionToCommandGroup = (
+  selectedIds: ReadonlyArray<string>,
+  slotIndex: number,
+): boolean => {
+  const next = saveSelectionToSlot(
+    state$.hotbarSlots.peek(),
+    selectedIds,
+    slotIndex,
+    state$.doc.peek().nodes.map((n) => n.id),
+  );
+  if (!next) return false;
+  state$.hotbarSlots.set(next);
+  recomputeHotbar();
+  return true;
+};
+
 /** Toggle fixed assignment: clear if fixed, else fix into first free. */
 const toggleSlotAssignment = (nodeId: string): void => {
   const slots = state$.hotbarSlots.peek();
@@ -1432,10 +1453,6 @@ function useHotbarHotkeys(): void {
       const intent = commandGroupKey(event, isMac());
       if (intent === null) return;
       if (keyboardOwnedAboveCanvas()) return;
-      const doc = state$.doc.peek();
-      const slots = state$.hotbarSlots.peek();
-      const documentNodeIds = doc.nodes.map((n) => n.id);
-
       // ⌘1–9 (Ctrl elsewhere): save the live selection to this slot. One node
       // fixes it; two or more save a control group. Saving never moves the camera.
       if (intent.kind === "save") {
@@ -1444,17 +1461,15 @@ function useHotbarHotkeys(): void {
           state$.selectedNodeId.peek(),
           state$.selectedNodeIds.peek(),
         );
-        const next = saveSelectionToSlot(slots, selection, intent.slotIndex, documentNodeIds);
-        if (!next) return;
-        state$.hotbarSlots.set(next);
-        recomputeHotbar();
-        retap = null;
+        if (saveSelectionToCommandGroup(selection, intent.slotIndex)) retap = null;
         return;
       }
 
       // 1–9: recall. Groups frame their members; re-tap cycles and opens.
+      const doc = state$.doc.peek();
+      const documentNodeIds = doc.nodes.map((n) => n.id);
       const { step, memory } = recallCommandGroup(
-        slots,
+        state$.hotbarSlots.peek(),
         intent.slotIndex,
         {
           documentNodeIds,
