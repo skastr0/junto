@@ -109,13 +109,16 @@ const setTheme = async (page: Page, mode: "bright" | "dark"): Promise<void> => {
 
 const node = (page: Page, id: string): Locator => page.locator(`.react-flow__node[data-id="${id}"]`);
 
+// Click empty canvas just under the board; corners hold the minimap and controls.
 const clearSelection = async (page: Page): Promise<void> => {
   await page.keyboard.press("Escape");
-  await page.locator(".react-flow__pane").click({ position: { x: 1500, y: 900 } });
+  const box = await node(page, "app").boundingBox();
+  if (!box) return;
+  await page.mouse.click(box.x + box.width / 2, box.y + box.height + 40);
 };
 
 test("landing captures", async () => {
-  test.setTimeout(240_000);
+  test.setTimeout(420_000);
   await mkdir(SHOTS, { recursive: true });
   const junto = await launchJunto({
     seedCanvases: { [CANVAS]: fixture },
@@ -215,10 +218,25 @@ test("landing captures", async () => {
         }));
       }
 
+      // Preambles: one short line over a seat, in its provenance colour.
+      // One event per seat; the feed paces a seat's second line.
+      await app.evaluate(({ BrowserWindow }, events) => {
+        for (const window of BrowserWindow.getAllWindows()) {
+          for (const event of events) window.webContents.send("junto:preamble", event);
+        }
+      }, [
+        { preambleId: `${mode}-p1`, canvasName: CANVAS, nodeId: "juniper", text: "reading the settings tests", expiresAt: Date.now() + 120_000, provenance: "agent", action: "tool" },
+        { preambleId: `${mode}-p2`, canvasName: CANVAS, nodeId: "maple", text: "mail from juniper", expiresAt: Date.now() + 120_000, provenance: "system", action: "mail-in" },
+        { preambleId: `${mode}-p3`, canvasName: CANVAS, nodeId: "basil", text: "splitting the docs build in two", expiresAt: Date.now() + 120_000, provenance: "agent", action: "say" },
+        { preambleId: `${mode}-p4`, canvasName: CANVAS, nodeId: "sorrel", text: "all green, ready for review", expiresAt: Date.now() + 120_000, provenance: "agent", action: "state", tone: "green" },
+      ]);
+
       await scene(`${mode} board`, async () => {
         await clearSelection(page);
         await page.waitForTimeout(1_200);
+        await expect(page.getByTestId("node-preamble").first()).toBeVisible({ timeout: 10_000 });
         await page.screenshot({ path: join(SHOTS, `${mode}-board.png`) });
+        await node(page, "juniper").screenshot({ path: join(SHOTS, `${mode}-seat-juniper.png`) });
         for (const id of ["maple", "clove", "pip"]) {
           await node(page, id).screenshot({ path: join(SHOTS, `${mode}-seat-${id}.png`) });
         }
