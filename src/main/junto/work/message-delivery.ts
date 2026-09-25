@@ -8,8 +8,12 @@
  * that points at `junto msg read`; a prompt writes the full text.
  *
  * The only non-delivery is physical: the recipient seat does not exist, or
- * its process is not live. That message waits in the mailbox and is written
- * the moment the seat comes up (`onSeatLive`), or at the boot scan.
+ * its terminal is not ready for input. That message waits in the mailbox and
+ * is written the moment the seat is ready (`onSeatLive`), or at the boot
+ * scan. Waiting mail starts its seat (`wakeSeat`): arriving work is the
+ * reason to run the session, not an operator opening it. The wake keeps the
+ * pause law, so a paused canvas or seat keeps its mail queued until play
+ * (`onResumed`). A sender may opt one message out of the wake.
  *
  * Delivery is at-most-once per process: one flight per message, shared by
  * every caller that asks, and a delivered message is remembered until its
@@ -33,8 +37,18 @@ import {
 export type MailDeliveryState = "delivered" | "waiting";
 
 export type MessageDeliveryTransport = {
-  /** The seat's process is live and its terminal takes input. */
+  /** The seat's terminal is up and ready to take a paste. */
   readonly seatLive: (bindingId: string) => boolean;
+  /**
+   * Start the seat's session headless so waiting mail can reach it. The
+   * implementation owns every refusal (not local, paused, restart budget)
+   * and resolves false for them. Absent = mail never starts a seat.
+   */
+  readonly wakeSeat?: (
+    bindingId: string,
+    canvas: string,
+    nodeId: string,
+  ) => Promise<boolean>;
   /**
    * Type the text into the seat's input and submit it. False only when the
    * seat had no live process to write into.
@@ -98,6 +112,10 @@ export class MessageDeliveryService {
   private readonly seatChains = new Map<string, Promise<unknown>>();
   /** Operator answers to requests, waiting for the raising seat. */
   private readonly responses = new Map<string, PendingResponse>();
+  /** Messages whose sender asked that they never start a seat. */
+  private readonly noWake = new Set<string>();
+  /** One wake in flight per seat. */
+  private readonly waking = new Set<string>();
 
   configure(input: {
     readonly transport: MessageDeliveryTransport;
@@ -131,10 +149,21 @@ export class MessageDeliveryService {
     this.delivered.clear();
     this.seatChains.clear();
     this.responses.clear();
+    this.noWake.clear();
+    this.waking.clear();
   }
 
   private active(generation: number): boolean {
     return !this.suspended && generation === this.lifecycleGeneration;
+  }
+
+  /**
+   * Keep this message from starting its seat: it is written only if the
+   * seat is already up, or when something else starts it. Call before the
+   * append, so the append's own delivery sees it.
+   */
+  holdWake(messageId: string): void {
+    if (!this.suspended) this.noWake.add(messageId);
   }
 
   /** A message landed on an actor mailbox: deliver it now. */
@@ -195,7 +224,12 @@ export class MessageDeliveryService {
       return "delivered";
     }
     this.waiting.set(key, { canvas, nodeId, messageId, bindingId: target.bindingId });
-    if (!transport.seatLive(target.bindingId)) return "waiting";
+    if (!transport.seatLive(target.bindingId)) {
+      if (!this.noWake.has(messageId)) {
+        this.wake(transport, target.bindingId, canvas, nodeId, generation);
+      }
+      return "waiting";
+    }
     const payload = mailPayloadOf(message);
     const written = await this.inSeatOrder(target.bindingId, () =>
       transport.writeMail(target.bindingId, payload),
@@ -203,6 +237,7 @@ export class MessageDeliveryService {
     if (!written || !this.active(generation)) return "waiting";
     this.delivered.add(key);
     this.waiting.delete(key);
+    this.noWake.delete(messageId);
     await store.acceptMessageDelivery(canvas, nodeId, messageId).catch(() => {
       // The text is on the seat. A lost receipt only leaves the document
       // showing it waiting; this process will not type it twice.
@@ -212,6 +247,41 @@ export class MessageDeliveryService {
       return false;
     });
     return "delivered";
+  }
+
+  /**
+   * Start the seat once for all the mail waiting on it. The seat's state
+   * events then call `onSeatLive`, which writes the mail once it is ready.
+   */
+  private wake(
+    transport: MessageDeliveryTransport,
+    bindingId: string,
+    canvas: string,
+    nodeId: string,
+    generation: number,
+  ): void {
+    if (transport.wakeSeat === undefined || this.waking.has(bindingId)) return;
+    this.waking.add(bindingId);
+    void transport
+      .wakeSeat(bindingId, canvas, nodeId)
+      .catch(() => false)
+      .finally(() => {
+        if (this.active(generation)) this.waking.delete(bindingId);
+      });
+  }
+
+  /**
+   * Play resumed on a canvas (or a seat or region in it): retry its waiting
+   * mail, which starts the seats it is addressed to.
+   */
+  onResumed(canvas: string): void {
+    if (this.suspended) return;
+    const mail = [...this.waiting.values()]
+      .filter((pending) => pending.canvas === canvas)
+      .sort((a, b) => a.messageId.localeCompare(b.messageId));
+    for (const pending of mail) {
+      void this.deliver(pending.canvas, pending.nodeId, pending.messageId);
+    }
   }
 
   /** Run one write after every earlier write into the same seat. */

@@ -47,13 +47,21 @@ const seatNode = (messages: Message[]) => ({
  * One canvas whose mailbox the test appends to, a receipt plane that stamps
  * `deliveredAt` like the real projection, and a seat the test turns on/off.
  */
-const rig = (options: { live?: boolean; writeOk?: () => boolean } = {}) => {
+const rig = (
+  options: {
+    live?: boolean;
+    writeOk?: () => boolean;
+    /** Wake result; the default leaves the seat down (paused canvas). */
+    wake?: () => boolean;
+  } = {},
+) => {
   const messages: Message[] = [];
   const doc = { nodes: [seatNode(messages)], edges: [] } as unknown as CanvasDoc;
   let live = options.live ?? true;
   const writes: string[] = [];
   let writing = 0;
   let overlapped = false;
+  const wakes: Array<{ bindingId: string; canvas: string; nodeId: string }> = [];
   const store: MessageDeliveryStore = {
     listCanvasNames: async () => [canvas],
     readDoc: async () => {
@@ -74,6 +82,11 @@ const rig = (options: { live?: boolean; writeOk?: () => boolean } = {}) => {
     store,
     transport: {
       seatLive: (id) => id === bindingId && live,
+      wakeSeat: async (id, wakeCanvas, wakeNode) => {
+        wakes.push({ bindingId: id, canvas: wakeCanvas, nodeId: wakeNode });
+        await new Promise((resolve) => setTimeout(resolve, 1));
+        return options.wake?.() ?? false;
+      },
       writeMail: async (_id, text) => {
         writing += 1;
         if (writing > 1) overlapped = true;
@@ -89,6 +102,7 @@ const rig = (options: { live?: boolean; writeOk?: () => boolean } = {}) => {
   return {
     service,
     writes,
+    wakes,
     messages,
     append: (message: Message) => messages.push(message),
     setLive: (next: boolean) => {
@@ -173,6 +187,60 @@ describe("mail delivery", () => {
     expect(seat.writes.map((text) => text.includes("01A") ? "A" : "B")).toEqual(["A", "B"]);
     expect(seat.overlapped()).toBe(false);
     expect(seat.messages.every((m) => typeof m.metadata?.deliveredAt === "number")).toBe(true);
+  });
+
+  it("starts a down seat once for all the mail waiting on it", async () => {
+    const seat = rig({ live: false, wake: () => true });
+    seat.append(mail("01A", "first"));
+    seat.append(mail("01B", "second"));
+
+    await Promise.all([
+      seat.service.deliver(canvas, nodeId, "01A"),
+      seat.service.deliver(canvas, nodeId, "01B"),
+    ]);
+
+    expect(seat.wakes).toEqual([{ bindingId, canvas, nodeId }]);
+    expect(seat.writes).toHaveLength(0);
+
+    // The started seat's TUI comes up: the mail is typed then, in order.
+    seat.setLive(true);
+    seat.service.onSeatLive(bindingId);
+    await settle();
+    expect(seat.writes.map((text) => text.includes("01A") ? "A" : "B")).toEqual(["A", "B"]);
+  });
+
+  it("never starts a seat for mail its sender held back from waking", async () => {
+    const seat = rig({ live: false, wake: () => true });
+    seat.service.holdWake("01A");
+    seat.append(mail("01A", "stop"));
+
+    expect(await seat.service.deliver(canvas, nodeId, "01A")).toBe("waiting");
+    await settle();
+    expect(seat.wakes).toHaveLength(0);
+
+    // Still written if the seat comes up some other way.
+    seat.setLive(true);
+    seat.service.onSeatLive(bindingId);
+    await settle();
+    expect(seat.writes).toHaveLength(1);
+  });
+
+  it("keeps mail queued while paused and starts the seat when play resumes", async () => {
+    // A paused canvas refuses the wake; play retries the waiting mail.
+    const seat = rig({ live: false, wake: () => false });
+    seat.append(mail("01A", "held"));
+    expect(await seat.service.deliver(canvas, nodeId, "01A")).toBe("waiting");
+    await settle();
+    expect(seat.wakes).toHaveLength(1);
+
+    seat.service.onResumed("other-canvas");
+    await settle();
+    expect(seat.wakes).toHaveLength(1);
+
+    seat.service.onResumed(canvas);
+    await settle();
+    expect(seat.wakes).toHaveLength(2);
+    expect(seat.writes).toHaveLength(0);
   });
 
   it("keeps mail waiting when the seat died during the write, and types it on restart", async () => {

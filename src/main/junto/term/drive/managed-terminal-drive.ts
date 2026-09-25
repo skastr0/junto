@@ -17,6 +17,7 @@ import {
   seatOperatorInterlock,
 } from "./operator-interlock";
 import {
+  buildMailWriteSequence,
   buildPromptWriteSequence,
   canSendIdleInterrupt,
   CR,
@@ -228,6 +229,11 @@ export type ManagedTerminalDriveOptions = {
   /** Binding → harness id. Absent lookup = no Hermes multiline refuse. */
   readonly harnessFor?: SeatHarnessLookup;
   /**
+   * Whether the seat's TUI has bracketed paste on. False makes mail type its
+   * text plain instead of showing paste markers. Absent = assume on.
+   */
+  readonly bracketedPaste?: (bindingId: string) => boolean;
+  /**
    * Operator-input interlock shared with the PTY write boundary. Latches
    * block admission while operator keystrokes are too fresh for the screen
    * to prove a draft; holds park operator bytes for the physical paste→CR
@@ -255,6 +261,7 @@ export class ManagedTerminalDrive {
   private readonly pasteChip: PromptPendingLookup | undefined;
   private readonly composerVerdict: ComposerVerdictLookup | undefined;
   private readonly harnessFor: SeatHarnessLookup | undefined;
+  private readonly bracketedPaste: ((bindingId: string) => boolean) | undefined;
   private readonly interlock: OperatorInterlock;
   private readonly tracer: PtyDeliveryTracer | undefined;
 
@@ -335,6 +342,7 @@ export class ManagedTerminalDrive {
       return verdict;
     };
     this.harnessFor = options.harnessFor;
+    this.bracketedPaste = options.bracketedPaste;
     this.interlock = options.operatorInput ?? seatOperatorInterlock;
   }
 
@@ -655,7 +663,10 @@ export class ManagedTerminalDrive {
     this.traceState(bindingId, "mail.begin");
     try {
       return await this.withOperatorHold(bindingId, async () => {
-        const [paste, cr] = buildPromptWriteSequence(body);
+        const [paste, cr] = buildMailWriteSequence(
+          body,
+          this.bracketedPaste?.(bindingId) ?? true,
+        );
         if (!(await Promise.resolve(this.writeTraced(bindingId, paste, "paste")))) {
           return false;
         }

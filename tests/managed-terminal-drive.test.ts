@@ -405,6 +405,16 @@ describe("ManagedTerminalDrive", () => {
     expect(writes.slice(-2).map((w) => w.data)).toEqual([encodeBracketedPaste("mail"), CR]);
   });
 
+  it("mail to a TUI with bracketed paste off is typed plain, never as raw markers", async () => {
+    drive = makeDrive({ bracketedPaste: () => false });
+    await expect(drive.writeMail("b1", "[message - user] Your connections changed\nsee map")).resolves.toBe(true);
+    expect(writes.map((w) => w.data)).toEqual([
+      "[message - user] Your connections changed see map",
+      CR,
+    ]);
+    expect(writes.some((w) => w.data.includes("\u001b"))).toBe(false);
+  });
+
   it("mail to Hermes arrives on one line, since Hermes cannot submit a multiline paste", async () => {
     drive = makeDrive({ harnessFor: () => "hermes" });
     await expect(drive.writeMail("b1", "mail from A\nfirst line\n  second")).resolves.toBe(true);

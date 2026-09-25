@@ -1212,14 +1212,18 @@ export interface JuntoTerminalApi {
   readonly terminalWrite: (leaseId: string, data: string, encoding?: "utf8" | "base64") => Promise<boolean>;
   /**
    * Submit one operator multi-prompt via durable prompt-mail. Immediate
-   * delivery when the seat is idle; otherwise the row stays pending and the
-   * verdict is `queued`. Does not require a renderer control lease.
+   * delivery when the seat's terminal is ready; otherwise the row stays
+   * pending, the seat is started if its canvas is playing, and the verdict
+   * is `queued`. `wake: false` never starts a down seat. Does not require a
+   * renderer control lease.
    */
   readonly terminalManagedPrompt: (input: {
     readonly bindingId: string;
     readonly text: string;
     readonly canvasName?: string;
     readonly nodeId?: string;
+    /** False keeps a down seat down; the prompt waits in its mailbox. */
+    readonly wake?: boolean;
   }) => Promise<TerminalManagedPromptResult>;
   readonly terminalResize: (leaseId: string, cols: number, rows: number) => Promise<boolean>;
   readonly onTerminalEvent: (listener: (event: unknown) => void) => () => void;

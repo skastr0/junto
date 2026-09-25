@@ -36,6 +36,8 @@ export type ManagedDriveFactoryDeps = {
   readonly snapshot: (bindingId: string) => ManagedDriveSnapshot | undefined;
   readonly composerVerdict: ComposerVerdictLookup;
   readonly harnessFor: SeatHarnessLookup;
+  /** Bracketed-paste mode of the seat's TUI; mail types plain text when off. */
+  readonly bracketedPaste?: (bindingId: string) => boolean;
   /** Grok clipboard-image preflight (Electron only; omitted on Remote). */
   readonly assertClipboardSafe?: ClipboardSafeAssert;
 };
@@ -79,6 +81,7 @@ export const createManagedTerminalDrive = (
     },
     composerVerdict: deps.composerVerdict,
     harnessFor: deps.harnessFor,
+    ...(deps.bracketedPaste !== undefined ? { bracketedPaste: deps.bracketedPaste } : {}),
     ...(deps.assertClipboardSafe !== undefined
       ? { assertClipboardSafe: deps.assertClipboardSafe }
       : {}),

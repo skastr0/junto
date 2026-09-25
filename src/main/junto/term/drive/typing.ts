@@ -68,6 +68,25 @@ export const buildPromptWriteSequence = (text: string): readonly [string, string
 ];
 
 /**
+ * Ordered PTY writes for one mail submission. A terminal that has not
+ * enabled bracketed paste would show the markers as literal text, so there
+ * the body is typed plain: control bytes dropped and newlines folded to
+ * spaces, since each one would otherwise submit a fragment.
+ */
+export const buildMailWriteSequence = (
+  text: string,
+  bracketedPaste: boolean,
+): readonly [string, string] =>
+  bracketedPaste
+    ? buildPromptWriteSequence(text)
+    : [
+        text
+          .replace(/\s*[\r\n]+\s*/gu, " ")
+          .replace(/[\u0000-\u001f\u007f]/gu, ""),
+        CR,
+      ];
+
+/**
  * Guard for idle interrupts: two 0x03 while idle must never be < minGap apart.
  * Mid-turn (not idle) a single 0x03 is always allowed — caller skips this check.
  */

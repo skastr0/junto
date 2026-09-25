@@ -7,7 +7,7 @@ import {
   type WorkOpResult,
 } from "@shared/ipc";
 import type { CanvasDoc } from "@shared/canvas";
-import type { PauseScope } from "@shared/pause";
+import { pauseWasResumed, type PauseScope } from "@shared/pause";
 import { digestCanvas } from "@shared/digest";
 import { mergePortfolioInto } from "@shared/portfolio";
 import { AppRuntime } from "../runtime";
@@ -71,6 +71,7 @@ import {
   isLiveClaudeResumeSummaryChoice,
 } from "./term/drive/claude-startup";
 import { isManagedTerminalReady } from "./term/drive/readiness";
+import { MailReadinessLatch } from "./term/drive/mail-readiness";
 import {
   admitUngroundedFirstTypedComposer,
   rulePackFor,
@@ -1435,6 +1436,23 @@ export const registerJuntoIpc = (): void => {
         }).enabled,
         apiKey: seatAwarenessApiKey(),
       });
+      // Mail waits for each generation's TUI to come up (bracketed paste on,
+      // settled idle) before its first paste; see mail-readiness.
+      const mailReadiness = new MailReadinessLatch();
+      const mailReadyNow = (bindingId: string): boolean => {
+        const slot = seatStateRuntime.machine.getSlot(bindingId);
+        const snap = terminalObserverPlane.snapshot(bindingId);
+        const live = termPlane.host.get(bindingId);
+        return mailReadiness.observe(bindingId, {
+          running: live?.status === "running",
+          generation: live?.epoch,
+          harness: slot?.harness,
+          seatState: seatStateRuntime.getState(bindingId),
+          bracketedPaste: snap?.signals.modes.bracketedPaste === true,
+          idleConfirmed: seatStateRuntime.isSeatIdle(bindingId),
+          lines: snap?.lines,
+        });
+      };
       // Single shared destination-drive recipe (managed-drive-factory);
       // this callsite only supplies Command Center evidence sources.
       const managedDrive = createManagedTerminalDrive({
@@ -1470,6 +1488,8 @@ export const registerJuntoIpc = (): void => {
           );
         },
         snapshot: (bindingId) => terminalObserverPlane.snapshot(bindingId),
+        bracketedPaste: (bindingId) =>
+          terminalObserverPlane.snapshot(bindingId)?.signals.modes.bracketedPaste === true,
         // Screen truth: typing is authorized only while the harness's
         // composer probes prove an EMPTY input box on the live grid.
         composerVerdict: (bindingId) => {
@@ -1593,6 +1613,7 @@ export const registerJuntoIpc = (): void => {
             readonly text?: string;
             readonly canvasName?: string;
             readonly nodeId?: string;
+            readonly wake?: boolean;
           },
         ) => {
           const bindingId =
@@ -1625,6 +1646,8 @@ export const registerJuntoIpc = (): void => {
           }
           const sender = operatorActorRef(canvasName);
           const messageId = ulid();
+          // A caller that only addresses live seats keeps a down seat down.
+          if (input?.wake === false) messageDelivery.holdWake(messageId);
           const message = makeUserMessage({
             messageId,
             text,
@@ -1864,21 +1887,23 @@ export const registerJuntoIpc = (): void => {
       );
 
       // Mail: every pending message is typed into its seat at once, whatever
-      // the seat is doing; mail for a seat that is not up waits for it.
+      // the seat is doing; mail for a seat that is not up starts it (on a
+      // playing canvas) and waits for its TUI.
       const crew = yield* CrewRepository;
       messageDelivery.configure({
         transport: {
-          // Physical only: a live process whose terminal is up.
-          seatLive: (bindingId) => {
-            if (productAutomationSuspended) return false;
-            if (termPlane.host.get(bindingId)?.status !== "running") return false;
-            const state = seatStateRuntime.getState(bindingId);
-            return (
-              state === "idle" ||
-              state === "working" ||
-              state === "attention" ||
-              terminalObserverPlane.snapshot(bindingId)?.signals.modes.bracketedPaste === true
-            );
+          // Physical only: a running process whose TUI is up (mail-readiness).
+          seatLive: (bindingId) =>
+            !productAutomationSuspended && mailReadyNow(bindingId),
+          // The kernel wake owns locality, the pause law, and the restart
+          // budget. A generation already starting needs no second wake.
+          wakeSeat: (bindingId, canvas, nodeId) => {
+            if (productAutomationSuspended) return Promise.resolve(false);
+            const status = termPlane.host.get(bindingId)?.status;
+            if (status === "starting" || status === "running") {
+              return Promise.resolve(true);
+            }
+            return kernel.wakeManagedSeat(canvas, nodeId);
           },
           writeMail: (bindingId, text) => managedDrive.writeMail(bindingId, text),
         },
@@ -1902,6 +1927,23 @@ export const registerJuntoIpc = (): void => {
               messageId,
             ),
         },
+      });
+      // A TUI that turns bracketed paste on may do it with no seat-state
+      // change; that edge is when its waiting mail becomes writable.
+      const bracketedPasteOn = new Set<string>();
+      terminalObserverPlane.subscribeGlobal((snap) => {
+        const on = snap.signals.modes.bracketedPaste;
+        if (!on) {
+          bracketedPasteOn.delete(snap.bindingId);
+          return;
+        }
+        if (bracketedPasteOn.has(snap.bindingId)) return;
+        bracketedPasteOn.add(snap.bindingId);
+        messageDelivery.onSeatLive(snap.bindingId);
+      });
+      // Play released a hold: its waiting mail starts the seats it names.
+      pause.subscribe((canvas, previous, current) => {
+        if (pauseWasResumed(previous, current)) messageDelivery.onResumed(canvas);
       });
       // Boot scan: mail pending from a previous process lifetime has no
       // append event left — deliver the backlog once the canvas and station
