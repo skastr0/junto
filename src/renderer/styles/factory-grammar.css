@@ -6,7 +6,12 @@
    - color identifies state;
    - motion identifies activity or transition;
    - decorative craft stays quiet enough to be discovered, never announced. */
-.junto-node[data-node-kind="agent"] { border-radius: 7px 11px 11px 7px; }
+/* An agent is a seat, not a card: the shell's left end is a half-round that
+   hugs the portrait ring (56px ring + 7px inset = 35px radius). */
+.junto-node[data-node-kind="agent"]:not([data-bare]) {
+  border-radius: 36px 12px 12px 36px;
+  padding: 7px 12px 7px 7px;
+}
 /* Overseer identity — indigo, never amber (attention) or crimson (blocker).
    Ordinary agent cards stay unchanged; this only paints granted seats. */
 .overseer-mark {

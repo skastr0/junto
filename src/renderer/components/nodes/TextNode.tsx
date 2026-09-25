@@ -45,7 +45,6 @@ import { terminal$ } from "../../lib/terminal-state";
 import { openNoteSurface } from "../../lib/dock-state";
 import { getJuntoApi } from "../../lib/junto-api";
 import { SEAT_AWARENESS_ENABLED } from "@shared/features";
-import { AgentPortrait } from "../AgentPortrait";
 import { HarnessMark } from "../HarnessMark";
 import { OverseerMark } from "../OverseerMark";
 import { isOverseerSeat } from "../../lib/overseer-set";
@@ -62,6 +61,7 @@ import { AgentChatToolbarActions } from "../chat/AgentChatToolbarActions";
 import { FirstLineRenameInput } from "./FirstLineRenameInput";
 import { claimFocus } from "../../lib/focus-ownership";
 import { IconButton } from "../ui";
+import { AgentSeat } from "./AgentSeat";
 import { ExecutionCardHeader } from "./ExecutionCardHeader";
 import {
   ArtifactsCard,
@@ -337,6 +337,53 @@ function EntityCard({
 
   const complete = activity.mode === "pulse" && activity.tone === "green";
   const overseer = kind === "agent" && isOverseerSeat(node);
+  const nameTitle =
+    renaming && onRenameDone ? (
+      <FirstLineRenameInput
+        initial={rawName}
+        ariaLabel="Rename agent node"
+        onCommit={commitRename}
+        onDone={onRenameDone}
+      />
+    ) : (
+      <div
+        className="truncate font-mono text-[14px] font-semibold leading-snug"
+        style={{ color: nameHue }}
+        title={rawName}
+      >
+        {rawName}
+      </div>
+    );
+  const seatActivity =
+    seatEvent?.state === "attention" && seatEvent.reason
+      ? { ...activity, label: seatEvent.reason }
+      : activity;
+  // An agent is a seat, not a card: its ring is the status instrument.
+  if (kind === "agent") {
+    return (
+      <div
+        className="factory-agent-card relative flex h-full w-full flex-col justify-center overflow-hidden"
+        data-exit-reason={managed ? exitReason : undefined}
+        data-seat-complete={complete ? "true" : undefined}
+        data-overseer={overseer ? "true" : undefined}
+      >
+        <AgentSeat
+          node={node}
+          activity={seatActivity}
+          title={nameTitle}
+          harness={managed ? managedHarness : undefined}
+          context={context}
+        >
+          {overseer ? (
+            <div className="mt-1">
+              <OverseerMark size="card" />
+            </div>
+          ) : null}
+          {TASKS_ENABLED ? <ClaimedTaskStrip node={node} /> : null}
+        </AgentSeat>
+      </div>
+    );
+  }
   return (
     <div
       className="factory-agent-card relative flex h-full w-full flex-col justify-between overflow-hidden"
@@ -345,42 +392,10 @@ function EntityCard({
       data-overseer={overseer ? "true" : undefined}
     >
       <ExecutionCardHeader
-        decal={
-          kind === "agent" ? (
-            <AgentPortrait identity={node.id} harness={managed ? managedHarness : undefined} size={28} />
-          ) : (
-            <HarnessMark agent={managed ? managedHarness : undefined} size={28} />
-          )
-        }
-        title={
-          renaming && onRenameDone ? (
-            <FirstLineRenameInput
-              initial={rawName}
-              ariaLabel="Rename agent node"
-              onCommit={commitRename}
-              onDone={onRenameDone}
-            />
-          ) : (
-            <div
-              className="truncate font-mono text-[14px] font-semibold leading-snug"
-              style={{ color: nameHue }}
-              title={rawName}
-            >
-              {rawName}
-            </div>
-          )
-        }
-        activity={
-          seatEvent?.state === "attention" && seatEvent.reason
-            ? { ...activity, label: seatEvent.reason }
-            : activity
-        }
+        decal={<HarnessMark agent={managed ? managedHarness : undefined} size={28} />}
+        title={nameTitle}
+        activity={seatActivity}
       />
-      {overseer ? (
-        <div className="mt-1">
-          <OverseerMark size="card" />
-        </div>
-      ) : null}
       {context !== undefined && context.length > 0 ? (
         <div
           className="mt-1 truncate text-[10px] tabular-nums"
@@ -391,9 +406,6 @@ function EntityCard({
         >
           {context}
         </div>
-      ) : null}
-      {kind === "agent" && TASKS_ENABLED ? (
-        <ClaimedTaskStrip node={node} />
       ) : null}
     </div>
   );
