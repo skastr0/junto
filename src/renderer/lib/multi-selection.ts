@@ -102,3 +102,15 @@ export function agentKeysFromNodes(
   }
   return out;
 }
+
+/** An agent seat: an agent-kind card, whatever its harness. */
+export const isAgentSeatNode = (node: CanvasNode): boolean =>
+  node.type !== "group" && node.ether?.entity?.kind === "agent";
+
+/** Ids of the agent seats among `nodes`, in input order. */
+export const agentSeatIds = (nodes: ReadonlyArray<CanvasNode>): ReadonlyArray<string> =>
+  nodes.filter(isAgentSeatNode).map((node) => node.id);
+
+/** "1 agent" / "3 agents" — the count line every agent action shows. */
+export const agentCountLabel = (count: number): string =>
+  `${count} agent${count === 1 ? "" : "s"}`;

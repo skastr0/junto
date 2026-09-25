@@ -474,3 +474,83 @@ export const connectAllToTarget = (
   commitDoc({ ...doc, edges: [...doc.edges, ...newEdges] });
   return plan;
 };
+
+// --- selection mesh (multi-select connect / disconnect) ---------------------
+// Peer wiring across a selection: one wire per unordered pair, each pair
+// planned by the same single-target planner so verb, direction, and refusal
+// follow the connect grammar. Disconnect is the exact inverse.
+
+const pairKey = (a: string, b: string): string => (a < b ? `${a}|${b}` : `${b}|${a}`);
+
+/**
+ * Pure planner: full mesh over `nodeIds`. A pair already wired in either
+ * direction, or planned earlier in this batch, is skipped as `duplicate`.
+ */
+export const planConnectMesh = (
+  nodeIds: ReadonlyArray<string>,
+  nodes: ReadonlyArray<CanvasNode>,
+  edges: ReadonlyArray<CanvasEdge>,
+): EdgeBatchPlan => {
+  const ids = [...new Set(nodeIds)];
+  const linked = new Set(edges.map((edge) => pairKey(edge.fromNode, edge.toNode)));
+  const prospective: CanvasEdge[] = [...edges];
+  const toAdd: EdgeBatchCandidate[] = [];
+  const skipped: EdgeBatchSkip[] = [];
+  ids.forEach((targetId, index) => {
+    const sources = ids.slice(0, index).filter((sourceId) => {
+      if (!linked.has(pairKey(sourceId, targetId))) return true;
+      skipped.push({ source: sourceId, reason: "duplicate" });
+      return false;
+    });
+    if (sources.length === 0) return;
+    const plan = planConnectToTarget(sources, targetId, nodes, prospective);
+    for (const candidate of plan.toAdd) {
+      linked.add(pairKey(candidate.fromNode, candidate.toNode));
+      prospective.push({
+        id: `probe-${candidate.fromNode}-${candidate.toNode}`,
+        fromNode: candidate.fromNode,
+        toNode: candidate.toNode,
+        ether: { verb: candidate.verb },
+      });
+      toAdd.push(candidate);
+    }
+    skipped.push(...plan.skipped);
+  });
+  return { toAdd, skipped };
+};
+
+/** Commit the mesh in one document write (one undo step); selection stays. */
+export const connectMesh = (nodeIds: ReadonlyArray<string>): EdgeBatchPlan => {
+  const doc = state$.doc.peek();
+  const plan = planConnectMesh(nodeIds, doc.nodes, doc.edges);
+  if (plan.toAdd.length === 0) {
+    const allLinked = plan.skipped.length > 0 && plan.skipped.every((item) => item.reason === "duplicate");
+    state$.error.set(allLinked ? "Those agents are already connected." : "No new relations to create.");
+    return plan;
+  }
+  const newEdges: CanvasEdge[] = plan.toAdd.map((candidate) => ({
+    id: `edge-${ulid()}`,
+    fromNode: candidate.fromNode,
+    toNode: candidate.toNode,
+    ether: { verb: candidate.verb },
+  }));
+  state$.error.set("");
+  commitDoc({ ...doc, edges: [...doc.edges, ...newEdges] });
+  return plan;
+};
+
+/** Edges with both ends inside `nodeIds`; wires to outside nodes stay out. */
+export const edgeIdsWithin = (
+  nodeIds: ReadonlyArray<string>,
+  edges: ReadonlyArray<CanvasEdge>,
+): ReadonlyArray<string> => {
+  const inside = new Set(nodeIds);
+  return edges
+    .filter((edge) => inside.has(edge.fromNode) && inside.has(edge.toNode))
+    .map((edge) => edge.id);
+};
+
+/** Remove every wire among `nodeIds` through the confirmed delete path. */
+export const disconnectWithin = (nodeIds: ReadonlyArray<string>): void => {
+  deleteEdges(edgeIdsWithin(nodeIds, state$.doc.peek().edges));
+};
