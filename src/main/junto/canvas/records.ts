@@ -102,11 +102,15 @@ export const readDocumentRows = (
      ORDER BY canvas_name`,
   );
 
-/** Rebuild one canvas document from its relational rows, in stored z-order. */
-export const reconstructCanvasDoc = (
+/**
+ * One canvas's relational rows in the canvas document shape, in stored
+ * z-order, before any decode. The authority path decodes this; a canvas
+ * migration reads it to prove the stored bytes it is about to rewrite.
+ */
+export const readRawCanvasDoc = (
   reader: CanvasSqlReader,
   canvasId: string,
-): CanvasDoc => {
+): { readonly nodes: ReadonlyArray<CanvasNode>; readonly edges: ReadonlyArray<CanvasEdge> } => {
   const nodeRows = reader.all<NodeRow>(
     `SELECT
        node_id, type, x, y, width, height, color,
@@ -202,7 +206,15 @@ export const reconstructCanvasDoc = (
     };
   });
 
-  const decoded = decodeCanvasDoc({ nodes, edges });
+  return { nodes, edges };
+};
+
+/** Rebuild one canvas document from its relational rows, in stored z-order. */
+export const reconstructCanvasDoc = (
+  reader: CanvasSqlReader,
+  canvasId: string,
+): CanvasDoc => {
+  const decoded = decodeCanvasDoc(readRawCanvasDoc(reader, canvasId));
   if (Result.isFailure(decoded)) {
     throw new Error(
       `relational canvas rows failed validation: ${decoded.failure.message}`,

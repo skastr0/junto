@@ -10,6 +10,8 @@ export const INSTALL_OPS_SCHEMA_VERSION = 1 as const;
 export const BACKFILL_INLINE_MEDIA_V1 = "content.inline-media.v1" as const;
 export const BACKFILL_CANVAS_RELATIONAL_V1 = "canvas.relational.v1" as const;
 export const BACKFILL_CANVAS_RELATIONAL_V2 = "canvas.relational.v2" as const;
+/** Drop stored `escalates` edges and the retired `request.escalate` port. */
+export const BACKFILL_CANVAS_RETIRE_ESCALATES_V1 = "canvas.retire-escalates.v1" as const;
 
 export const INSTALL_OPS_SCHEMA_SQL = `
   CREATE TABLE backfill_markers (
