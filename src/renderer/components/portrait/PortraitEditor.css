@@ -1,0 +1,168 @@
+/* Character editor: hero preview, temperament, mood strip, option grids. */
+.portrait-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  font-family: var(--font-mono), ui-monospace, monospace;
+  color: var(--color-ink);
+}
+
+.portrait-editor__hero {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+}
+
+.portrait-editor__hero-side {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.portrait-editor__name {
+  overflow: hidden;
+  font-size: 14px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.portrait-editor__temperament {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 10px;
+  color: var(--color-dim);
+}
+
+.portrait-editor__temperament-head,
+.portrait-editor__temperament-ends {
+  display: flex;
+  justify-content: space-between;
+}
+
+.portrait-editor__temperament-ends {
+  color: var(--color-faint);
+  font-size: 9px;
+}
+
+.portrait-editor__temperament input {
+  width: 100%;
+  accent-color: var(--color-main);
+}
+
+.portrait-editor__actions {
+  display: flex;
+  gap: 6px;
+}
+
+.portrait-editor__moods {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 4px;
+  padding: 8px 6px;
+  border: 1px solid var(--color-stroke);
+  border-radius: 8px;
+  background: var(--color-overlay-1);
+}
+
+.portrait-editor__moods figure {
+  display: flex;
+  margin: 0;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.portrait-editor__moods figcaption {
+  font-size: 9px;
+  color: var(--color-dim);
+  text-align: center;
+  white-space: nowrap;
+}
+
+.portrait-editor__trait {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.portrait-editor__grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.portrait-editor__option {
+  display: grid;
+  padding: 2px;
+  place-items: center;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: none;
+  cursor: pointer;
+}
+
+.portrait-editor__option:hover {
+  border-color: var(--color-stroke-hi);
+}
+
+.portrait-editor__option[data-active="true"] {
+  border-color: var(--color-main);
+  box-shadow: 0 0 0 1px var(--color-main);
+}
+
+.portrait-editor__option:focus-visible {
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: 1px;
+}
+
+.portrait-editor__toggle {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-size: 11px;
+  color: var(--color-dim);
+}
+
+.portrait-editor__toggle input {
+  accent-color: var(--color-main);
+}
+
+.portrait-editor__error {
+  font-size: 11px;
+  color: var(--color-amber-fg);
+}
+
+.portrait-editor__foot {
+  font-size: 9.5px;
+  color: var(--color-faint);
+}
+
+/* The portrait as an editor trigger: no chrome, a quiet hover lift. */
+.portrait-edit-button {
+  display: inline-grid;
+  padding: 0;
+  place-items: center;
+  border: 0;
+  border-radius: 999px;
+  background: none;
+  cursor: pointer;
+  transition: transform 120ms ease-out;
+}
+
+.portrait-edit-button:hover {
+  transform: scale(1.06);
+}
+
+.portrait-edit-button:focus-visible {
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .portrait-edit-button { transition: none; }
+  .portrait-edit-button:hover { transform: none; }
+}

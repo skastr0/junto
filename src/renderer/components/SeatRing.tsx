@@ -10,6 +10,7 @@ import { cardMark, seatFactsForNode } from "../lib/seat-projections";
 import { state$ } from "../lib/state";
 import { terminal$ } from "../lib/terminal-state";
 import { useThreadHealthMark } from "../lib/thread-health";
+import { seatPortraitMood } from "../lib/portrait-mood";
 import { ActivityMarkFromSpec } from "./ActivityMark";
 import { AgentPortrait } from "./AgentPortrait";
 
@@ -70,6 +71,7 @@ export function SeatRing({ node, px }: { readonly node: CanvasNode; readonly px:
         outline={false}
         badge={portrait >= 28}
         harness={managed ? harness : undefined}
+        mood={seatPortraitMood(activity, health, rollup?.kind)}
       />
     </ActivityMarkFromSpec>
   );

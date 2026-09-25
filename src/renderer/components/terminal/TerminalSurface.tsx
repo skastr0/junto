@@ -75,6 +75,7 @@ import { ActorLedgerPane } from "./ActorLedgerPane";
 import { SessionLoadSpinner } from "./SessionLoadSpinner";
 import { SeatRing } from "../SeatRing";
 import { HarnessMark } from "../HarnessMark";
+import { PortraitEditButton } from "../portrait/PortraitEditor";
 import { GRID_CELL_CHROME } from "../../lib/terminal-grid";
 import { isHarnessId } from "@shared/managed-terminal-templates";
 
@@ -1999,7 +2000,13 @@ export function TerminalSurface({
         </header>
       ) : (
       <OverlayHeader
-        leading={agentSeat ? <SeatRing node={node} px={44} /> : undefined}
+        leading={
+          agentSeat ? (
+            <PortraitEditButton identity={node.id} name={label.split("\n")[0] ?? label} harness={gridHarness}>
+              <SeatRing node={node} px={44} />
+            </PortraitEditButton>
+          ) : undefined
+        }
         eyebrow={
           agentSeat && isOverseerSeat(node) ? (
             <span className="inline-flex items-center gap-1.5">
