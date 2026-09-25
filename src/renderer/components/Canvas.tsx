@@ -17,7 +17,7 @@ import type { Connection, EdgeMouseHandler, FinalConnectionState, Node, OnNodeDr
 import { use$ } from "@legendapp/state/react";
 import type { CanvasDoc, EtherEdgeKind, EtherFlag } from "@shared/canvas";
 import { executionGraphContextFromActorRefs } from "@shared/graph";
-import { Activity, Ban, Boxes, Expand, Link2, OctagonX, Plus, ScanLine, SquareDashed, Trash2, Unlink, X } from "lucide-react";
+import { Activity, Ban, Boxes, Expand, LayoutGrid, Link2, OctagonX, Plus, ScanLine, SquareDashed, Trash2, Unlink, X } from "lucide-react";
 import {
   clearSelection,
   replaceSelection,
@@ -96,6 +96,7 @@ import { edgeTypes } from "./edges/EtherEdge";
 import { CanvasLoom } from "./edges/CanvasLoom";
 import { RtsBottomBar } from "./rts/RtsBottomBar";
 import { TerminalWizard, createTerminalAt } from "./terminal/TerminalWizard";
+import { openTerminalGrid } from "../lib/terminal-grid-state";
 import { GitWizard, createGitFromRegion } from "./git/GitWizard";
 import { CanvasMagnifier } from "./CanvasMagnifier";
 import { CanvasKeyboardPan } from "./CanvasKeyboardPan";
@@ -1071,7 +1072,14 @@ function MultiSelectMenu({ anchor, onClose }: { readonly anchor: MultiMenuAnchor
       disabled: meshAdds === 0,
       onSelect: runOnAgents(connectMesh),
     } : null,
-    null, // open: grid focus (grid-focus agent)
+    {
+      key: "open",
+      label: "open",
+      detail: `${agents}, grid`,
+      ariaLabel: `Open ${agents} in a grid`,
+      icon: <LayoutGrid size={14} />,
+      onSelect: runOnAgents((ids) => openTerminalGrid(ids)),
+    },
     authoring ? {
       key: "disconnect",
       label: "disconnect",

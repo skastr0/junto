@@ -68,6 +68,7 @@ const FleetOverlay = __JUNTO_FLEET_UI_ENABLED__
 import { WorkSurfaceDock } from "./components/WorkSurfaceDock";
 import { WorkFocusShell } from "./components/workbench";
 import { PersistentTerminalHost } from "./components/terminal/PersistentTerminalHost";
+import { TerminalGridFocus } from "./components/terminal/TerminalGridFocus";
 import { closeAllWorkbenchSurfaces, closeFocusModalSurface, dock$ } from "./lib/dock-state";
 import { closeAllTerminalSurfaces } from "./lib/terminal-state";
 import { TooltipLayer } from "./components/TooltipLayer";
@@ -574,6 +575,7 @@ export function App() {
         >
           <WorkFocusShell />
           <PersistentTerminalHost />
+          <TerminalGridFocus />
         </RendererErrorBoundary>
         <SettingsPanel />
         <DigestPanel />

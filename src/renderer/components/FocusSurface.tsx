@@ -39,6 +39,7 @@ export function FocusSurface({
   panelClassName,
   terminalRailsPx,
   aside,
+  claimFocusOnOpen = true,
   children,
 }: {
   readonly measure: FocusMeasure;
@@ -62,6 +63,11 @@ export function FocusSurface({
    * focused subject.
    */
   readonly aside?: ReactNode;
+  /**
+   * Put the keyboard on the primary control when opening. False for surfaces
+   * where the operator picks the subject first (the terminal grid).
+   */
+  readonly claimFocusOnOpen?: boolean;
   readonly children: ReactNode;
 }) {
   const rootRef = useRef<HTMLDivElement>(null);
@@ -94,8 +100,9 @@ export function FocusSurface({
   // Opening the modal is the operator opt-in: put keyboard on the subject
   // (xterm textarea, composer, first field) instead of leaving it on the canvas.
   useEffect(() => {
+    if (!claimFocusOnOpen) return;
     return scheduleFocusPrimaryControl(() => panelRef.current);
-  }, []);
+  }, [claimFocusOnOpen]);
 
   useEffect(() => {
     if (height !== "resizable") return;
