@@ -36,8 +36,9 @@ export function useCanvasGroupFocus<N>(rf: GroupFocusFlow<N>): void {
           else state$.focusNodeIds.set([]);
           return;
         }
-        // React Flow may drop the selection while nodes mount; re-apply it
-        // around the fit, as the single-node focus does.
+        // Select only once the members are mounted (React Flow drops a
+        // selection made before). Never re-select when the fit ends: the
+        // operator may have changed the selection during the animation.
         selectNodes(present);
         void withViewportBusy(() =>
           rf.fitView({
@@ -49,7 +50,6 @@ export function useCanvasGroupFocus<N>(rf: GroupFocusFlow<N>): void {
         )
           .catch(() => undefined)
           .finally(() => {
-            selectNodes(present);
             state$.focusNodeIds.set([]);
           });
       };
