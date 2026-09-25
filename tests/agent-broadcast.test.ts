@@ -104,6 +104,7 @@ describe("broadcastToAgents", () => {
       text: AGENT_BROADCAST_PROMPTS.stop.text,
       canvasName: "main",
       nodeId: "a",
+      wake: false,
     });
     expect(formatBroadcastOutcome(outcome)).toBe("stop sent to 1 agent, 2 skipped with no live terminal");
     expect(broadcastNeedsNotice(outcome)).toBe(true);

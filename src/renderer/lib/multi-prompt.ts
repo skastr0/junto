@@ -34,8 +34,14 @@ export type MultiPromptOps = {
     readonly text: string;
     readonly canvasName?: string;
     readonly nodeId?: string;
+    readonly wake?: boolean;
   }) => Promise<TerminalManagedPromptResult>;
   readonly canvasName?: string;
+};
+
+export type MultiPromptOptions = {
+  /** False never starts a down seat; the prompt waits in its mailbox. */
+  readonly wake?: boolean;
 };
 
 /**
@@ -123,6 +129,7 @@ export async function multiPromptAgents(
   targets: ReadonlyArray<MultiPromptTarget>,
   text: string,
   ops: MultiPromptOps = defaultOps(),
+  options: MultiPromptOptions = {},
 ): Promise<MultiPromptResult> {
   const trimmed = text.trim();
   if (!trimmed || targets.length === 0) {
@@ -142,6 +149,7 @@ export async function multiPromptAgents(
           bindingId,
           text: trimmed,
           ...(canvasName ? { canvasName, nodeId } : {}),
+          ...(options.wake !== undefined ? { wake: options.wake } : {}),
         });
         switch (dispositionOf(result)) {
           case "submitted":

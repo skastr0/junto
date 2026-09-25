@@ -69,7 +69,8 @@ export async function broadcastToAgents(
   plan: AgentBroadcastPlan,
   ops?: MultiPromptOps,
 ): Promise<AgentBroadcastOutcome> {
-  const result = await multiPromptAgents(plan.live, AGENT_BROADCAST_PROMPTS[kind].text, ops);
+  // A stop or check is only worth sending now: never start a down seat for it.
+  const result = await multiPromptAgents(plan.live, AGENT_BROADCAST_PROMPTS[kind].text, ops, { wake: false });
   return { kind, skipped: plan.skipped, result };
 }
 
