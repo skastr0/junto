@@ -46,7 +46,7 @@ import {
 } from "../../lib/multi-prompt";
 import { FocusSurface } from "../FocusSurface";
 import { OverlayHeader, IconButton } from "../ui";
-import { HarnessMark } from "../HarnessMark";
+import { AgentPortrait } from "../AgentPortrait";
 import { OverseerMark } from "../OverseerMark";
 import { isOverseerSeat } from "../../lib/overseer-set";
 import { WaitingOnSection } from "../WaitingOnSection";
@@ -80,9 +80,7 @@ function AgentSeatGlance({ node }: { readonly node: CanvasNode }) {
   const overseer = isOverseerSeat(node);
   return (
     <div className="rts-kind-id" title={nodeTitle(node)} data-overseer={overseer ? "true" : undefined}>
-      <span className="rts-kind-id__avatar rts-kind-id__avatar--mark" aria-hidden>
-        <HarnessMark agent={managed ? harness : undefined} size={22} />
-      </span>
+      <AgentPortrait seed={node.id} harness={managed ? harness : undefined} size={28} />
       <div className="rts-kind-id__text">
         <div className="rts-kind-id__name">{nodeTitle(node)}</div>
         <div className="rts-kind-id__live">{managed ? harness : "agent seat"}</div>

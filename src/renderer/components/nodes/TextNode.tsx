@@ -45,6 +45,7 @@ import { terminal$ } from "../../lib/terminal-state";
 import { openNoteSurface } from "../../lib/dock-state";
 import { getJuntoApi } from "../../lib/junto-api";
 import { SEAT_AWARENESS_ENABLED } from "@shared/features";
+import { AgentPortrait } from "../AgentPortrait";
 import { HarnessMark } from "../HarnessMark";
 import { OverseerMark } from "../OverseerMark";
 import { isOverseerSeat } from "../../lib/overseer-set";
@@ -344,7 +345,13 @@ function EntityCard({
       data-overseer={overseer ? "true" : undefined}
     >
       <ExecutionCardHeader
-        decal={<HarnessMark agent={managed ? managedHarness : undefined} size={28} />}
+        decal={
+          kind === "agent" ? (
+            <AgentPortrait seed={node.id} harness={managed ? managedHarness : undefined} size={28} />
+          ) : (
+            <HarnessMark agent={managed ? managedHarness : undefined} size={28} />
+          )
+        }
         title={
           renaming && onRenameDone ? (
             <FirstLineRenameInput

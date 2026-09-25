@@ -7,7 +7,7 @@ import { NodeCapabilityInventory, NodeFieldEditors, NodePlacementSection } from 
 import { clearSelection, state$ } from "../lib/state";
 import { DIM, GREEN, HUE, INK, withAlpha } from "../lib/theme";
 import { nodeDetail, nodeTitle, nodeTypeLabel } from "../lib/presentation";
-import { HarnessMark } from "./HarnessMark";
+import { AgentPortrait } from "./AgentPortrait";
 import { OverseerMark } from "./OverseerMark";
 import { isOverseerSeat } from "../lib/overseer-set";
 import { NoteMarkdown } from "../lib/note-markdown";
@@ -44,7 +44,7 @@ function AgentSeatSection({ node }: { readonly node: CanvasNode }) {
     <div className="inspector-section" data-overseer={overseer ? "true" : undefined}>
       <div className="inspector-section__label">seat</div>
       <div className="mt-2 flex items-center gap-2.5">
-        <HarnessMark agent={managed ? harness : undefined} size={28} />
+        <AgentPortrait seed={node.id} harness={managed ? harness : undefined} size={32} />
         <div className="min-w-0 flex-1">
           <div className="truncate text-[12px]" style={{ color: INK }} title={nodeTitle(node)}>
             {nodeTitle(node)}

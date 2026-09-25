@@ -42,6 +42,7 @@ import {
   terminal$,
 } from "../../lib/terminal-state";
 import { ActivityMark } from "../ActivityMark";
+import { AgentPortrait } from "../AgentPortrait";
 import { Chip, Eyebrow, IconButton, SidebarSection } from "../ui";
 
 const DirectionMark = ({ direction }: { readonly direction: "out" | "in" }) => (
@@ -57,9 +58,12 @@ const DirectionMark = ({ direction }: { readonly direction: "out" | "in" }) => (
 function EdgeCardBody({
   row,
   seatMark,
+  portrait,
 }: {
   readonly row: ActorEdgeRow;
   readonly seatMark?: ReactNode;
+  /** Agent peers carry their generated portrait beside the name. */
+  readonly portrait?: ReactNode;
 }) {
   const phase = actorEdgePhaseLabel(row);
   const ports =
@@ -78,7 +82,14 @@ function EdgeCardBody({
         ) : null}
         {seatMark}
       </div>
-      <span className="actor-edges-glance__title">{row.peerTitle}</span>
+      {portrait ? (
+        <span className="flex min-w-0 items-center gap-2">
+          {portrait}
+          <span className="actor-edges-glance__title min-w-0">{row.peerTitle}</span>
+        </span>
+      ) : (
+        <span className="actor-edges-glance__title">{row.peerTitle}</span>
+      )}
       {ports ? (
         <span className="actor-edges-glance__ports" title={row.ports.join(" - ")}>
           {ports}
@@ -129,6 +140,15 @@ function EdgeCard({
     | Record<string, { readonly pendingPermissionId?: string } | undefined>
     | undefined;
   const phase = actorEdgePhaseLabel(row);
+  const harness = peer?.ether?.terminal?.harness;
+  const portrait =
+    peer?.ether?.entity?.kind === "agent" ? (
+      <AgentPortrait
+        seed={peer.id}
+        harness={typeof harness === "string" && isHarnessId(harness) ? harness : undefined}
+        size={24}
+      />
+    ) : undefined;
   const title = [
     `${row.direction === "out" ? "to" : "from"} ${row.peerTitle}`,
     `kind ${row.peerKind}`,
@@ -149,14 +169,13 @@ function EdgeCard({
         data-live-phase={row.livePhase ?? undefined}
         title={title}
       >
-        <EdgeCardBody row={row} />
+        <EdgeCardBody row={row} portrait={portrait} />
       </li>
     );
   }
 
   // Live mirror: same assembled facts as the peer's canvas card. Quiet steel
   // still hides — only live signal (working, attention, blocked, done) marks.
-  const harness = peer?.ether?.terminal?.harness;
   const seatActivity = peer
     ? cardMark(
         seatFactsForNode({
@@ -194,6 +213,7 @@ function EdgeCard({
       >
         <EdgeCardBody
           row={row}
+          portrait={portrait}
           seatMark={
             <>
               {unreadFromPeer > 0 ? (
