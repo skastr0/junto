@@ -73,7 +73,7 @@ import { isOverseerSeat } from "../../lib/overseer-set";
 import { ActorEdgesGlance } from "./ActorEdgesGlance";
 import { ActorLedgerPane } from "./ActorLedgerPane";
 import { SessionLoadSpinner } from "./SessionLoadSpinner";
-import { AgentPortrait } from "../AgentPortrait";
+import { SeatRing } from "../SeatRing";
 import { HarnessMark } from "../HarnessMark";
 import { GRID_CELL_CHROME } from "../../lib/terminal-grid";
 import { isHarnessId } from "@shared/managed-terminal-templates";
@@ -1970,7 +1970,7 @@ export function TerminalSurface({
           style={{ height: GRID_CELL_CHROME.headerPx }}
         >
           {agentSeat ? (
-            <AgentPortrait identity={node.id} harness={gridHarness} size={20} />
+            <SeatRing node={node} px={26} />
           ) : (
             <HarnessMark agent={gridHarness} size={18} />
           )}
@@ -1999,7 +1999,7 @@ export function TerminalSurface({
         </header>
       ) : (
       <OverlayHeader
-        leading={agentSeat ? <AgentPortrait identity={node.id} harness={gridHarness} size={36} /> : undefined}
+        leading={agentSeat ? <SeatRing node={node} px={44} /> : undefined}
         eyebrow={
           agentSeat && isOverseerSeat(node) ? (
             <span className="inline-flex items-center gap-1.5">

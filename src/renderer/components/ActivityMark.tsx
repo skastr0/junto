@@ -42,6 +42,8 @@ export type ActivityMarkProps = {
   readonly onSignalOpen?: () => void;
   /** Seat size: the portrait that sits in the ring's hole (replaces the hub). */
   readonly children?: ReactNode;
+  /** Exact box in px, overriding the size's default (ringed portraits fit their slot). */
+  readonly unit?: number;
 };
 
 export type MarkOverlayProps = Pick<
@@ -54,6 +56,7 @@ export type MarkOverlayProps = Pick<
   | "signalCount"
   | "onSignalOpen"
   | "children"
+  | "unit"
 >;
 
 /** Convenience: pass a full ActivitySpec. */
@@ -199,6 +202,7 @@ export function ActivityMark({
   signalCount,
   onSignalOpen,
   children,
+  unit,
 }: ActivityMarkProps) {
   const theme = use$(themeMode$);
   const ref = useRef<HTMLSpanElement>(null);
@@ -232,6 +236,7 @@ export function ActivityMark({
   const name = accessibleName(label, healthLabel, signal, signalCount);
   const hubMix = children === undefined ? HUB_MIX[ring] : undefined;
   const style = {
+    ...(unit !== undefined ? { "--mark-u": `${String(unit)}px` } : {}),
     "--mark-col": core.col,
     "--mark-row": core.row,
     ...(band ? { "--mark-bcol": band.col, "--mark-brow": band.row } : {}),

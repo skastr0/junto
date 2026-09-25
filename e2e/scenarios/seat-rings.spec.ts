@@ -72,6 +72,9 @@ test("agent seats and their connection cards hold portraits in rings; the galler
       });
       await page.waitForTimeout(600);
       await glance.screenshot({ path: join(SHOTS, `app-${mode}-connections.png`) });
+      // The focus header leads with the same ringed portrait.
+      await expect(focus.locator("header .junto-mark .agent-portrait").first()).toBeVisible();
+      await focus.locator("header").first().screenshot({ path: join(SHOTS, `app-${mode}-focus-header.png`) });
       await focus.locator("header").getByRole("button", { name: "Close view", exact: true }).first().click();
       await expect(focus).toBeHidden({ timeout: 10_000 });
     }
