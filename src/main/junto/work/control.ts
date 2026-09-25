@@ -38,6 +38,7 @@ import { probeManagedHarnessInstalls } from "../term/templates/harness-install";
 import type { BoardAuthor, Task } from "@shared/work-model";
 import {
   normalizePreambleText,
+  seatToolPreamble,
   PREAMBLE_MAX_TEXT_LENGTH,
   PREAMBLE_TTL_MS,
   type PreambleEvent,
@@ -2786,6 +2787,8 @@ export const startWorkControlServer = async (
         // Live authority resolve + dispatch are one Effect and one retained
         // runtime fiber. Revocation wins the race and interrupts whichever
         // service await is live, rather than merely checking identity again.
+        // The admitted seat, for the tool preamble told after a success.
+        let admittedSeat: Pick<WorkCaller, "canvasName" | "nodeId"> | undefined;
         const liveAuthorityAndDispatch: Effect.Effect<
           WorkDispatchResult,
           never,
@@ -2854,6 +2857,7 @@ export const startWorkControlServer = async (
                 .sort((a, b) => String(a[0]).localeCompare(String(b[0]))),
             )).digest("hex"),
           };
+          admittedSeat = { canvasName: caller.canvasName, nodeId: caller.nodeId };
           const nativeController = isManagedAgentNode(callerResolved.caller.node) &&
             callerResolved.caller.node.ether.terminal.harness === "junto-overseer";
           if (!LIVE_OVERSEER_ENABLED && (nativeController || req.op === "overseer.live")) {
@@ -3044,6 +3048,17 @@ export const startWorkControlServer = async (
               expiresAt: value.expiresAt,
             });
           }
+        }
+        // Anything else the seat did through Junto is told as a short preamble.
+        if (options.onPreamble && admittedSeat !== undefined) {
+          const told = seatToolPreamble({
+            preambleId: ulid(),
+            canvasName: admittedSeat.canvasName,
+            nodeId: admittedSeat.nodeId,
+            op: req.op,
+            now: Date.now(),
+          });
+          if (told !== undefined) options.onPreamble(told);
         }
         if (
           (req.op === "signal.raise" || req.op === "signal.clear") &&
