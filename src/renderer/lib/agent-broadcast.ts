@@ -5,6 +5,7 @@ import {
 } from "@shared/agent-broadcast-prompts";
 import type { CanvasNode } from "@shared/canvas";
 import { agentSeat$ } from "./agent-seat-state";
+import { agentCountLabel, isAgentSeatNode } from "./multi-selection";
 import {
   multiPromptAgents,
   multiPromptTargetsFromNodes,
@@ -34,8 +35,6 @@ export type AgentBroadcastPlan = {
 /** Seat states the main process also treats as a live, writable terminal. */
 const LIVE_SEAT_STATES: ReadonlySet<AgentSeatState> = new Set(["idle", "working", "attention"]);
 
-const isAgentNode = (node: CanvasNode): boolean => node.ether?.entity?.kind === "agent";
-
 const defaultSeatState: SeatStateLookup = (bindingId) =>
   agentSeat$.byBindingId[bindingId].peek()?.state;
 
@@ -44,16 +43,13 @@ export const planAgentBroadcast = (
   seatStateOf: SeatStateLookup = defaultSeatState,
 ): AgentBroadcastPlan => {
   const unique = [...new Map(nodes.map((node) => [node.id, node])).values()];
-  const agents = unique.filter(isAgentNode);
+  const agents = unique.filter(isAgentSeatNode);
   const live = multiPromptTargetsFromNodes(agents).filter((target) => {
     const state = seatStateOf(target.bindingId);
     return state !== undefined && LIVE_SEAT_STATES.has(state);
   });
   return { agents: agents.length, live, skipped: agents.length - live.length };
 };
-
-export const agentCountLabel = (count: number): string =>
-  `${count} agent${count === 1 ? "" : "s"}`;
 
 /** Menu subtitle: "3 agents", or "2 of 3 agents live" when some are down. */
 export const broadcastMenuHint = (plan: AgentBroadcastPlan): string =>
