@@ -125,7 +125,6 @@ export const Verb = Schema.Literals([
   "manages",
   "contributes",
   "works",
-  "escalates",
   "publishes",
   "participates",
   "reads",
@@ -192,7 +191,6 @@ export const VERB_TABLE = {
   agent: {
     agent: ["messages", "reviews"],
     task: ["manages", "contributes"],
-    requests: ["escalates"],
     artifacts: ["publishes"],
     board: ["messages", "participates"],
     pad: ["reads", "edits"],
@@ -329,16 +327,6 @@ const WORK_PORTS = [
   "msg.send",
 ] as const satisfies ReadonlyArray<Port>;
 
-/**
- * Raising a hand is universal (`junto escalate`, `blocked`, `feedback`), so
- * the retired `escalates` verb stays decodable for stored canvases and grants
- * only the request thread's messaging.
- */
-const ESCALATE_PORTS = [
-  "msg.list",
-  "msg.send",
-] as const satisfies ReadonlyArray<Port>;
-
 const BOARD_MESSAGE_PORTS = [
   "board.list",
   "board.post",
@@ -416,8 +404,6 @@ export const compileVerb = (
       return { ports: CONTRIBUTE_PORTS };
     case "works":
       return { ports: WORK_PORTS, claimable: true };
-    case "escalates":
-      return { ports: ESCALATE_PORTS };
     case "publishes":
       return { ports: ["artifact.publish"] };
     case "participates":
@@ -489,7 +475,6 @@ const ACCESS_VERB_FOR_SINK = {
   pad: "edits",
   sheet: "reads",
   page: "navigates",
-  requests: "escalates",
   artifacts: "publishes",
 } as const satisfies { readonly [K in SinkKind]?: Verb };
 
@@ -593,7 +578,6 @@ export const VERB_COLOR_TOKEN: Record<Verb, string> = {
   manages: "--wire-verb-manages",
   contributes: "--wire-verb-contributes",
   works: "--wire-verb-works",
-  escalates: "--wire-verb-escalates",
   publishes: "--wire-verb-publishes",
   participates: "--wire-verb-participates",
   reads: "--wire-verb-reads",

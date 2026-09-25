@@ -28,12 +28,12 @@ const text = (
   ...(ether ? { ether } : {}),
 });
 
-/** Actor blocked by requests sink needing input (tasks criteria edge). */
+/** Actor blocked by a claimed task needing input (contributes edge). */
 const blockedByRequestsDoc = (): CanvasDoc => ({
   nodes: [
     text("req", "Inbox", {
-      entity: { kind: "requests" },
-      requests: {
+      entity: { kind: "task" },
+      tasks: {
         items: [claimed(taskItem("q1", "approve deploy?", "input-required"), "agent")],
       },
     }),
@@ -45,13 +45,13 @@ const blockedByRequestsDoc = (): CanvasDoc => ({
       id: "e1",
       fromNode: "agent",
       toNode: "req",
-      ether: { verb: "escalates" },
+      ether: { verb: "contributes" },
     },
   ],
 });
 
 describe("resolveBlockerCause", () => {
-  it("points a blocked actor at the requests generator and the holding item", () => {
+  it("points a blocked actor at the task generator and the holding item", () => {
     const doc = blockedByRequestsDoc();
     const graph = deriveExecutionGraph(doc);
     expect(graph.blocked.has("agent")).toBe(true);

@@ -96,7 +96,6 @@ const EDGES: ReadonlyArray<CanvasEdge> = [
   { id: "e-claim", fromNode: "agent1", toNode: "tasks", fromSide: "right", toSide: "left", ether: { verb: "contributes" } },
   { id: "e-mail", fromNode: "agent1", toNode: "agent2", fromSide: "bottom", toSide: "top", ether: { verb: "messages" } },
   { id: "e-wake", fromNode: "agent2", toNode: "board", fromSide: "right", toSide: "left", ether: { verb: "participates" } },
-  { id: "e-esc", fromNode: "agent2", toNode: "requests", fromSide: "bottom", toSide: "left", ether: { verb: "escalates" } },
   { id: "e-watch", fromNode: "tasks", toNode: "relay", fromSide: "right", toSide: "left", ether: { verb: "announces" } },
   { id: "e-fire", fromNode: "relay", toNode: "tasks2", fromSide: "bottom", toSide: "top", ether: { verb: "enqueues" } },
 ];

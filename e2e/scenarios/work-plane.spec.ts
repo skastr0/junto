@@ -42,10 +42,8 @@ const fixtureNodes = [
 ];
 
 const fixtureDoc = canvasDoc(fixtureNodes, [
-  // The seat's wire into the requests sink is agent → requests `escalates`:
-  // requests → agent admits no verb at all, so the old `works` here was
-  // dropped at decode and the sink stood unwired.
-  verbEdge("e-req", "target", "req", "escalates", fixtureNodes),
+  // The requests sink stands unwired: no verb joins an agent to it since
+  // raising a hand became the universal agent signals.
   // Actor-seat rule: a claim must come from a compiled seat that is
   // connected to the sink (edge or region co-membership). `contributes`
   // is the agent → task verb that grants tasks.claim.

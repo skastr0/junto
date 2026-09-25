@@ -213,7 +213,11 @@ describe("canvas migration: retire escalates", () => {
     db.prepare("UPDATE canvas_edges SET label = 'tampered' WHERE edge_id = 'claim-edge'").run();
     db.close();
     const beforeHead = head(paths.db);
-    await expect(readFactory(paths)).rejects.toThrow(/hash mismatch|revision hash/);
+    // The walk refuses the tampered document, and the authority read that
+    // follows fails closed on it too.
+    await expect(readFactory(paths)).rejects.toThrow(
+      /hash mismatch|revision hash|relational reconstruction/,
+    );
     expect(head(paths.db)).toEqual(beforeHead);
     const check = openRaw(paths.db);
     try {

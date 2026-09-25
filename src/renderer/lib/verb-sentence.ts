@@ -11,7 +11,6 @@ const VERB_SENTENCE = {
   manages: "{from} manages {to}",
   contributes: "{from} contributes to {to}",
   works: "{from} works {to}",
-  escalates: "{from} escalates to {to}",
   publishes: "{from} publishes to {to}",
   participates: "{from} takes part in {to}",
   reads: "{from} reads {to}",

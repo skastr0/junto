@@ -13,7 +13,6 @@ import {
   flipFixtureRequestState,
   requestsNode,
   taskItem,
-  verbEdge,
 } from "../harness/sandbox";
 import { expect, test } from "../harness/launch";
 
@@ -70,9 +69,9 @@ const nodes = [
   agentTextNode({ id: "agent1", key: "local:planner", label: "planner", x: 300, y: 60 }),
 ];
 
-const doc = canvasDoc(nodes, [
-  verbEdge("e-esc", "agent1", "req1", "escalates", nodes),
-]);
+// No wire: no verb joins an agent to a requests sink since raising a hand
+// became the universal agent signals. The planner still appears as raiser.
+const doc = canvasDoc(nodes, []);
 
 test.use({
   juntoOptions: {
@@ -230,7 +229,7 @@ test("requests: authored identity, attention-first glance, honest inbox", async 
   await emptyInbox.getByRole("button", { name: "Close input requests", exact: true }).click();
   await expect(emptyInbox).toBeHidden();
 
-  // --- Edge rail mirrors identity (escalates edge from agent1) ------------
+  // --- Final canvas ------------------------------------------------------
   await req1.click();
   await shot(page, "09-final-canvas");
 });

@@ -76,7 +76,6 @@ const ACCESS_PORT_LABEL: Record<Port, string> = {
   "seat.wait": "Wait on seat",
   "terminal.read": "Observe terminal",
   "verdict.post": "Post verdict",
-  "request.escalate": "Raise requests",
   "artifact.publish": "Publish artifacts",
   "browser.automate": "Drive browser",
   "board.list": "List board",

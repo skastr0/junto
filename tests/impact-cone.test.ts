@@ -27,14 +27,14 @@ const text = (
   ...(ether ? { ether } : {}),
 });
 
-describe("impactCone — tasks / requests stoppage", () => {
-  it("pending requests block their raisers and build cone membership", () => {
+describe("impactCone — task stoppage", () => {
+  it("input-required tasks block their claimants and build cone membership", () => {
     // Fan-out edges from the sink; each request blocks only its raiser.
     const doc: CanvasDoc = {
       nodes: [
         text("r1", "Requests", {
-          entity: { kind: "requests" },
-          requests: {
+          entity: { kind: "task" },
+          tasks: {
             items: [
               claimed(taskItem("q1", "approve deploy?", "input-required"), "a1"),
               claimed(taskItem("q2", "approve rollback?", "input-required"), "a2"),
@@ -49,13 +49,13 @@ describe("impactCone — tasks / requests stoppage", () => {
           id: "e-r1",
           fromNode: "a1",
           toNode: "r1",
-          ether: { verb: "escalates" },
+          ether: { verb: "contributes" },
         },
         {
           id: "e-r2",
           fromNode: "a2",
           toNode: "r1",
-          ether: { verb: "escalates" },
+          ether: { verb: "contributes" },
         },
       ],
     };
@@ -65,7 +65,7 @@ describe("impactCone — tasks / requests stoppage", () => {
     expect(graph.phaseByEdgeId.get("e-r2")).toBe("blocks");
     expect(graph.blocked.has("a1")).toBe(true);
     expect(graph.blocked.has("a2")).toBe(true);
-    // sink-side requests node is not itself a blocked member
+    // sink-side task node is not itself a blocked member
     expect(graph.blocked.has("r1")).toBe(false);
 
     const fromRequests = impactCone(doc, graph, "r1");
@@ -141,12 +141,12 @@ describe("impactCone — tasks / requests stoppage", () => {
     expect(cone.pathToSeed("a1")).toEqual(["a1", "t1"]);
   });
 
-  it("resolved requests clear the cone", () => {
+  it("resolved tasks clear the cone", () => {
     const doc: CanvasDoc = {
       nodes: [
         text("r1", "Requests", {
-          entity: { kind: "requests" },
-          requests: { items: [taskItem("q1", "approve?", "completed")] },
+          entity: { kind: "task" },
+          tasks: { items: [taskItem("q1", "approve?", "completed")] },
         }),
         seat("a1", "actor", { label: "Ship" }),
       ],
@@ -155,7 +155,7 @@ describe("impactCone — tasks / requests stoppage", () => {
           id: "e1",
           fromNode: "a1",
           toNode: "r1",
-          ether: { verb: "escalates" },
+          ether: { verb: "contributes" },
         },
       ],
     };

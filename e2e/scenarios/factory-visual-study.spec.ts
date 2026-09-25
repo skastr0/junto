@@ -121,7 +121,6 @@ const taskEdges: CanvasEdge[] = actors.map((actor) =>
 
 const edges: CanvasEdge[] = [
   ...taskEdges,
-  verbEdge("request-flow", "claude", "requests", "escalates", nodes),
   verbEdge("artifact-flow", "claude", "artifacts", "publishes", nodes),
   // The heartbeat pushes: a clock wakes a seat. Agent → cron is not a
   // relationship the grammar holds, so the old wire here never rendered.

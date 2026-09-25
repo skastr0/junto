@@ -359,7 +359,10 @@ test("still 00 — factory hero board", async () => {
       x: bc1,
       y: br0,
       items: [
-        richTask("t-b1", "sign release build", "working", "a-security"),
+        // The real gate: the seat's claimed task waits on the operator, so
+        // the execution graph derives "blocks" on its wire. The red is
+        // physics, not paint.
+        richTask("t-b1", "sign release build", "input-required", "a-security"),
         richTask("t-b2", "rotate signing key", "submitted"),
       ],
     }),
@@ -374,12 +377,6 @@ test("still 00 — factory hero board", async () => {
   );
   edges.push(
     hEdge("e-b-queue", "a-security", "tasks-forge", "contributes", nodes),
-    // Real gate: the seat's escalation wire into the request sink. The
-    // execution graph derives phase "blocks" from the claimed input-required
-    // item on that sink — the red is physics, not paint. (`works` here would
-    // have been a lie twice over: requests → agent admits no verb, so the
-    // wire was dropped and nothing rendered at all.)
-    hEdge("e-b-req", "a-security", "req-forge", "escalates", nodes),
   );
   nodes.push(
     note(

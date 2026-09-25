@@ -288,7 +288,6 @@ test("still 01 — one region factory close", async () => {
   // into the queue is not a quiet edge, it is one the product drops.
   const edges: readonly CanvasEdge[] = [
     hEdge("e2", "tasks", "agent", "works", nodes),
-    hEdge("e3", "agent", "req", "escalates", nodes),
   ];
 
   const junto = await launchJunto({
@@ -933,7 +932,6 @@ test("still 05 — five regions agent square", async () => {
   // vertical chain never survived decode.
   edges.push(
     hEdge("e-sec-tasks", "a-security", "tasks-forge", "contributes", nodes),
-    hEdge("e-rel-req", "a-release", "req-forge", "escalates", nodes),
     hEdge("e-rel-art", "a-release", "art-forge", "publishes", nodes),
   );
 
@@ -1173,11 +1171,10 @@ test("still 06 — work UI grid", async () => {
   ];
 
   // Each wire in its verb's own order: the queue hands work to a seat, and a
-  // seat escalates into requests / publishes into artifacts. Authored the
+  // seat publishes into artifacts. Authored the
   // other way round, decode flips them and the frame reads backwards.
   const doc = canvasDoc(nodes, [
     hEdge("e-t1-builder", "tasks1", "a-builder", "works", nodes),
-    hEdge("e-r1-security", "a-security", "req1", "escalates", nodes),
     hEdge("e-a1-ops", "a-ops", "art1", "publishes", nodes),
   ]);
 

@@ -614,37 +614,19 @@ describe("renderer graph mutations", () => {
     expect(Result.isSuccess(decodeCanvasDoc(state$.doc.peek()))).toBe(true);
   });
 
-  it("stores a requests wire agent-first, whichever way it was drawn", () => {
+  it("stores a publishes wire agent-first, whichever way it was drawn", () => {
     state$.canvasName.set("mutation-test");
     loadDoc({
       nodes: [
         {
-          id: "req",
+          id: "shelf",
           type: "text",
-          text: "1 pending",
+          text: "artifacts",
           x: 0,
           y: 0,
           width: 200,
           height: 80,
-          ether: {
-            entity: { kind: "requests" },
-            requests: {
-              items: [
-                {
-                  id: "q1",
-                  state: "input-required",
-                  history: [
-                    {
-                      messageId: "m1",
-                      role: "user",
-                      parts: [{ kind: "text", text: "approve?" }],
-                      taskId: "q1",
-                    },
-                  ],
-                },
-              ],
-            },
-          },
+          ether: { entity: { kind: "artifacts" } },
         },
         {
           id: "agent",
@@ -659,13 +641,45 @@ describe("renderer graph mutations", () => {
       ],
       edges: [],
     });
-    addEdge({ source: "req", target: "agent" });
+    addEdge({ source: "shelf", target: "agent" });
     const edge = state$.doc.peek().edges[0];
-    // `escalates` reads agent → requests, so the drawn order is flipped in
+    // `publishes` reads agent → artifacts, so the drawn order is flipped in
     // storage; the relationship is the same either way it was dragged.
     expect(edge?.fromNode).toBe("agent");
-    expect(edge?.toNode).toBe("req");
-    expect(edge?.ether).toEqual({ verb: "escalates" });
+    expect(edge?.toNode).toBe("shelf");
+    expect(edge?.ether).toEqual({ verb: "publishes" });
+  });
+
+  it("draws no wire between an agent and a requests sink", () => {
+    state$.canvasName.set("mutation-test");
+    loadDoc({
+      nodes: [
+        {
+          id: "req",
+          type: "text",
+          text: "requests",
+          x: 0,
+          y: 0,
+          width: 200,
+          height: 80,
+          ether: { entity: { kind: "requests" } },
+        },
+        {
+          id: "agent",
+          type: "text",
+          text: "worker",
+          x: 300,
+          y: 0,
+          width: 200,
+          height: 80,
+          ether: { entity: { kind: "agent", name: "local:worker" } },
+        },
+      ],
+      edges: [],
+    });
+    // Raising a hand is the universal agent signals; no verb joins the pair.
+    addEdge({ source: "agent", target: "req" });
+    expect(state$.doc.peek().edges).toHaveLength(0);
   });
 
   it("rejects a duplicate source-to-target relation", () => {

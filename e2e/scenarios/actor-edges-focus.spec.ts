@@ -6,8 +6,8 @@ import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import {
   agentTextNode,
+  artifactsNode,
   canvasDoc,
-  requestsNode,
   verbEdge,
   tasksNode,
 } from "../harness/sandbox";
@@ -18,7 +18,7 @@ const CANVAS = "actor-edges-focus";
 const AGENT_LABEL = "edge focus worker";
 
 // Two legal wires, one each way: the queue works the seat, and the seat
-// escalates into the requests sink. A terminal peer is not an option here —
+// publishes into the artifacts sink. A terminal peer is not an option here —
 // terminal admits no verb, so that wire never reaches the rail.
 const fixtureNodes = [
   tasksNode({ id: "tasks", x: 40, y: 40 }),
@@ -29,12 +29,12 @@ const fixtureNodes = [
     x: 360,
     y: 40,
   }),
-  requestsNode({ id: "asks", name: "approvals", x: 360, y: 220 }),
+  artifactsNode({ id: "shelf", x: 360, y: 220 }),
 ];
 
 const fixture = canvasDoc(fixtureNodes, [
   verbEdge("e-tasks-worker", "tasks", "worker", "works", fixtureNodes),
-  verbEdge("e-worker-asks", "worker", "asks", "escalates", fixtureNodes, {
+  verbEdge("e-worker-shelf", "worker", "shelf", "publishes", fixtureNodes, {
     fromSide: "bottom",
     toSide: "top",
   }),
@@ -67,7 +67,7 @@ test("actor terminal focus shows read-only edge inventory", async () => {
     await expect(glance).toBeVisible({ timeout: 10_000 });
     await expect(glance).toHaveAttribute("aria-label", "Connections");
 
-    // Tasks work-lane (inbound) + requests sink (outbound). No authored edge
+    // Tasks work-lane (inbound) + artifacts sink (outbound). No authored edge
     // nature exists any more — stoppage is derived, so the only phase an
     // idle wire may carry is "relates", never "blocks".
     const tasksRow = glance.locator('[data-peer-kind="task"]');
@@ -75,18 +75,15 @@ test("actor terminal focus shows read-only edge inventory", async () => {
     await expect(tasksRow).not.toHaveAttribute("data-live-phase", "blocks");
     await expect(tasksRow).toContainText(/tasks/i);
 
-    const asksRow = glance.locator('[data-peer-kind="requests"]');
-    await expect(asksRow).toBeVisible();
-    await expect(asksRow).not.toHaveAttribute("data-live-phase", "blocks");
-    // The rail titles the peer by its authored identity, never the mechanical
-    // mirror ("N pending") that work ops rewrite.
-    await expect(asksRow).toContainText("approvals");
-    await expect(asksRow).not.toContainText(/pending/i);
+    const shelfRow = glance.locator('[data-peer-kind="artifacts"]');
+    await expect(shelfRow).toBeVisible();
+    await expect(shelfRow).not.toHaveAttribute("data-live-phase", "blocks");
+    await expect(shelfRow).toContainText(/artifacts/i);
 
     // Ports on both reaches should surface (tasks list/claim/update family,
-    // requests escalate family).
+    // artifact publish).
     await expect(tasksRow.locator(".actor-edges-glance__ports")).toBeVisible();
-    await expect(asksRow.locator(".actor-edges-glance__ports")).toBeVisible();
+    await expect(shelfRow.locator(".actor-edges-glance__ports")).toBeVisible();
 
     await focus.screenshot({
       path: join(SHOTS, "actor-edges-focus.png"),

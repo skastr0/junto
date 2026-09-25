@@ -298,7 +298,7 @@ describe("work authz — edges as capability", () => {
         caller: "agent",
         target: "req",
         message: "physics msg",
-        port: "request.escalate",
+        port: "msg.send",
       }),
     );
     expect(notConnected.type).toBe("ScopeError");

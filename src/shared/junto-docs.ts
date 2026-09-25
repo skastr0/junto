@@ -53,7 +53,6 @@ export const PORT_DESCRIPTIONS: Readonly<Record<Port, string>> = {
   "seat.wait": "Wait for a connected peer state with a bounded timeout.",
   "terminal.read": "Read settled terminal output from a connected peer; no input, resize or signal authority.",
   "verdict.post": "Post an epoch-bound verdict on the work of this edge's author, from a distinct reviewer seat.",
-  "request.escalate": "Retired and grants nothing: every seat raises its hand with junto escalate, blocked, or feedback.",
   "artifact.publish": "Publish an artifact (text/data/ContentRef parts).",
   "browser.automate": "Control a granted page session (browser CLI).",
   "board.list": "List bulletin-board topics and posts.",

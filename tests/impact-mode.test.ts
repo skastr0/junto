@@ -55,8 +55,8 @@ const text = (
 const stoppageDoc = (): CanvasDoc => ({
   nodes: [
     text("r1", "Requests", {
-      entity: { kind: "requests" },
-      requests: {
+      entity: { kind: "task" },
+      tasks: {
         items: [
           claimed(taskItem("q1", "approve deploy?", "input-required"), "a1"),
           claimed(taskItem("q2", "approve rollback?", "input-required"), "a2"),
@@ -72,13 +72,13 @@ const stoppageDoc = (): CanvasDoc => ({
       id: "e-rp",
       fromNode: "a1",
       toNode: "r1",
-      ether: { verb: "escalates" },
+      ether: { verb: "contributes" },
     },
     {
       id: "e-rp2",
       fromNode: "a2",
       toNode: "r1",
-      ether: { verb: "escalates" },
+      ether: { verb: "contributes" },
     },
   ],
 });

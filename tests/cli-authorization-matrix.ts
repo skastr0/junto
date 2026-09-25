@@ -136,10 +136,6 @@ const AGENT_SINK_GRANTS = {
     wide: { verb: "contributes", ports: ["tasks.create", "tasks.update", "tasks.list", "tasks.claim", "msg.list", "msg.send"] },
     narrow: { verb: "manages", ports: ["tasks.create", "tasks.update", "tasks.list", "msg.list", "msg.send"] },
   },
-  requests: {
-    wide: { verb: "escalates", ports: ["msg.list", "msg.send"] },
-    narrow: { verb: "escalates", ports: ["msg.list", "msg.send"] },
-  },
   artifacts: {
     wide: { verb: "publishes", ports: ["artifact.publish"] },
     narrow: { verb: "publishes", ports: ["artifact.publish"] },

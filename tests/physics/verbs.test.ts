@@ -103,7 +103,6 @@ describe("verb table", () => {
     expect(matrix).toEqual({
       "agent>agent": ["messages", "reviews"],
       "agent>task": ["manages", "contributes"],
-      "agent>requests": ["escalates"],
       "agent>artifacts": ["publishes"],
       "agent>board": ["messages", "participates"],
       "agent>pad": ["reads", "edits"],
@@ -274,7 +273,6 @@ describe("compiled grants", () => {
       ["manages", "agent", "task"],
       ["contributes", "agent", "task"],
       ["works", "task", "agent"],
-      ["escalates", "agent", "requests"],
       ["publishes", "agent", "artifacts"],
       ["participates", "agent", "board"],
       ["reads", "agent", "pad"],
@@ -333,9 +331,6 @@ describe("compiled grants", () => {
           "msg.send",
         ],
         claimable: true,
-      },
-      "escalates @ agent>requests": {
-        ports: ["msg.list", "msg.send"],
       },
       "publishes @ agent>artifacts": { ports: ["artifact.publish"] },
       "participates @ agent>board": {
@@ -501,7 +496,9 @@ describe("legacy conversion", () => {
     );
     expect(inferVerb({}, "pad", "agent")).toBe("edits");
     expect(inferVerb({}, "agent", "page")).toBe("navigates");
-    expect(inferVerb({}, "agent", "requests")).toBe("escalates");
+    // Raising a hand is the universal agent signals: nothing joins an agent
+    // to a requests sink, so a legacy wire there does not survive.
+    expect(inferVerb({}, "agent", "requests")).toBeUndefined();
     expect(inferVerb({}, "artifacts", "agent")).toBe("publishes");
   });
 

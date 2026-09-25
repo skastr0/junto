@@ -1853,9 +1853,10 @@ describe("work control transport", () => {
       data: { connected: Array<{ id: string; grants: string[] }> };
     };
     expect(res.ok).toBe(true);
+    // The seed's verbless agent -> requests wire once inferred escalates.
+    // That verb is retired, so the wire drops and the sink is not connected.
     expect(res.data.connected.map((c) => c.id)).toEqual([
       "artifacts",
-      "req",
       "tasks",
     ]);
     expect(
@@ -1864,9 +1865,7 @@ describe("work control transport", () => {
     expect(res.data.connected.find((c) => c.id === "tasks")?.grants).toContain(
       "tasks.claim",
     );
-    expect(res.data.connected.find((c) => c.id === "req")?.grants).not.toContain(
-      "request.escalate",
-    );
+
   });
 
   it("never echoes token in responses", async () => {

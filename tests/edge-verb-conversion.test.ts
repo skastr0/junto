@@ -72,7 +72,8 @@ describe("legacy edge conversion", () => {
     expect(edges.get("mail")?.ether).toEqual({ verb: "messages" });
     expect(edges.get("hop")?.ether).toEqual({ verb: "feeds" });
     expect(edges.get("browse")?.ether).toEqual({ verb: "navigates" });
-    expect(edges.get("raise")?.ether).toEqual({ verb: "escalates" });
+    // The retired request port names no verb any more: the wire is dropped.
+    expect(edges.has("raise")).toBe(false);
     expect(edges.get("ship")?.ether).toEqual({ verb: "publishes" });
   });
 
@@ -442,7 +443,6 @@ describe("a whole legacy board, loaded and written back", () => {
       ["a-room", "participates"],
       ["a-pad", "edits"],
       ["a-page", "navigates"],
-      ["a-esc", "escalates"],
       ["a-pub", "publishes"],
       ["w-hop", "feeds"],
       ["s-fire", "fires"],

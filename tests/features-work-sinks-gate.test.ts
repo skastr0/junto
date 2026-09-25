@@ -186,7 +186,9 @@ describe("work-sink product gates", () => {
       expect(kinds).toContain("BOARD_ENABLED");
       expect(kinds).toContain("PAD_ENABLED");
       expect(kinds).toContain("SHEET_ENABLED");
-      expect(kinds).toContain("REQUESTS_ENABLED");
+      // Requests offer no port in any profile (no verb reaches the sink), so
+      // the kind table needs no requests gate.
+      expect(kinds).not.toContain("REQUESTS_ENABLED");
       expect(kinds).toContain("ARTIFACTS_ENABLED");
       const ipc = readFileSync("src/main/junto/ipc.ts", "utf8");
       expect(ipc).toContain("if (BOARD_ENABLED) privilegedIpc.handle(");
@@ -236,7 +238,8 @@ describe("work-sink product gates", () => {
       expect(preload).toContain("...(BOARD_ENABLED ? boardWorkApi : {})");
       expect(preload).toContain("...(PAD_ENABLED ? padWorkApi : {})");
 
-      for (const group of ["board", "pad", "sheet", "escalate", "artifact"]) {
+      // `junto escalate` is a universal agent signal, not a gated sink verb.
+      for (const group of ["board", "pad", "sheet", "artifact"]) {
         const runtime = spawnSync(
           "bun",
           ["src/cli/main.ts", group, "smoke"],
@@ -260,6 +263,12 @@ describe("work-sink product gates", () => {
       for (const kind of GATED_KINDS) {
         expect(catalogIds()).toContain(kind);
         expect(opsForKind(kind).length).toBeGreaterThan(0);
+        // A requests sink offers no port: no verb joins an agent to it, and
+        // overseer request administration is admitted by its work ops.
+        if (kind === "requests") {
+          expect(contractOf(kind)?.ports ?? []).toEqual([]);
+          continue;
+        }
         expect((contractOf(kind)?.ports ?? []).length).toBeGreaterThan(0);
       }
 

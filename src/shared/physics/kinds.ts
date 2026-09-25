@@ -4,7 +4,6 @@ import {
   BOARD_ENABLED,
   BROWSER_ENABLED,
   PAD_ENABLED,
-  REQUESTS_ENABLED,
   SHEET_ENABLED,
   TASKS_ENABLED,
 } from "../features";
@@ -66,9 +65,10 @@ const taskOffers = TASKS_ENABLED
 // capability surface — CLI grants, work ops, overseer admin, station wire —
 // fails closed on the same empty set. The gate lives here, at the one table
 // both admission and the work vocabulary read.
-const requestsOffers = REQUESTS_ENABLED
-  ? portSet("msg.list", "msg.send")
-  : emptyOffers;
+// Requests offer no port: no verb joins an agent to the sink since raising a
+// hand became the universal agent signals. Overseer request administration is
+// admitted by the sink's work ops (physics/work-ports.ts), not by an edge.
+const requestsOffers = emptyOffers;
 const artifactsOffers = ARTIFACTS_ENABLED
   ? portSet("artifact.publish")
   : emptyOffers;

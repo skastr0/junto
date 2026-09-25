@@ -22,7 +22,6 @@ import {
 
 const bareAmbient = { PATH: "/usr/bin", HOME: "/home/op" };
 const taskPorts = compileVerb("contributes", "agent", "task")!.ports;
-const requestPorts = compileVerb("escalates", "agent", "requests")!.ports;
 const peerPorts = compileVerb("messages", "agent", "agent")!.ports;
 
 const connectedCtx = {
@@ -31,7 +30,6 @@ const connectedCtx = {
   seatRef: "canvas-a::worker-1",
   connectedTargets: [
     { id: "tasks-main", kind: "task", summary: "pull queue", ports: taskPorts },
-    { id: "req-1", kind: "requests", ports: requestPorts },
     { id: "peer-2", kind: "agent", summary: "Grok seat", ports: peerPorts },
   ],
 };
@@ -117,7 +115,7 @@ describe("compiled doctrine — base and slots", () => {
   it("targetsBySlot groups by held command-family ports", () => {
     const grouped = targetsBySlot(connectedCtx.connectedTargets);
     expect(grouped.get("tasks")?.map((t) => t.id)).toEqual(["tasks-main"]);
-    expect(grouped.get("msg")?.map((t) => t.id)).toEqual(["tasks-main", "req-1", "peer-2"]);
+    expect(grouped.get("msg")?.map((t) => t.id)).toEqual(["tasks-main", "peer-2"]);
     expect(grouped.has("artifacts")).toBe(false);
     expect(grouped.has("pad")).toBe(false);
   });
@@ -181,7 +179,8 @@ describe("edge-map change injection", () => {
     const changes = planEdgeMapChanges(before, after);
     expect(changes.length).toBe(1);
     expect(changes[0].seatId).toBe("seat-a");
-    expect(changes[0].added.map((t) => t.id).sort()).toEqual(["n-art", "n-req"]);
+    // A requests sink bears no slot: no verb joins an agent to it.
+    expect(changes[0].added.map((t) => t.id).sort()).toEqual(["n-art"]);
     expect(changes[0].removed.map((t) => t.id)).toEqual(["n-tasks"]);
   });
 
@@ -394,7 +393,7 @@ describe("resolveManagedLaunchPlan Tier A flags", () => {
       seatBound: true,
       connected: true,
       seatRef: "n3",
-      connectedTargets: [{ id: "n8", kind: "requests", summary: "Requests", ports: requestPorts }],
+      connectedTargets: [{ id: "n8", kind: "requests", summary: "Requests", ports: [] }],
     });
     expect(requestsOnly).not.toContain('junto escalate {"target"');
     expect(requestsOnly).toContain(
@@ -431,8 +430,6 @@ describe("edge-map diff equivalence", () => {
     const slot: Readonly<Record<string, string | undefined>> = {
       task: "tasks",
       tasks: "tasks",
-      requests: "msg",
-      request: "msg",
       artifacts: "artifacts",
       board: "board",
       pad: "pad",

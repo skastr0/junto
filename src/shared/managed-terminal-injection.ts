@@ -94,9 +94,6 @@ export type EdgeSlotKind =
 export const KIND_TO_SLOT: Readonly<Record<string, EdgeSlotKind | undefined>> = {
   task: "tasks",
   tasks: "tasks",
-  // The retired escalates verb leaves only the request thread's mail.
-  requests: "msg",
-  request: "msg",
   artifacts: "artifacts",
   board: "board",
   pad: "pad",

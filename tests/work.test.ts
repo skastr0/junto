@@ -59,9 +59,37 @@ const emptyRequestsNode = (id = "req"): CanvasDoc["nodes"][number] => ({
   ether: { entity: { kind: "requests" } },
 });
 
+/**
+ * Requests are raised by a live overseer seat: no verb joins an agent to a
+ * requests sink since raising a hand became the universal agent signals.
+ * Grants the seat through the human path and returns it as the raiser. The
+ * shared test database holds many canvases, so a granted seat carries its
+ * own binding (`overseerSeat`) or its descriptor would conflict with every
+ * other canvas's plain `sender`.
+ */
+const overseerSeat = (id: string, canvasName: string) =>
+  agentNode(id, "local", `binding-${id}-${canvasName}`);
+
+const grantOverseerSeat = async (name: string, nodeId: string) => {
+  const read = await workRuntime.runPromise(canvases.read(name));
+  await workRuntime.runPromise(
+    canvases.canvasOverseerSet({
+      canvasName: name,
+      nodeId,
+      overseer: true,
+      expectedRevision: read.revision,
+    })
+  );
+  const granted = await workRuntime.runPromise(canvases.read(name));
+  const actor = granted.actorRefs.find((candidate) => candidate.nodeId === nodeId);
+  if (actor === undefined) throw new Error(`missing actor ref for ${nodeId}`);
+  return { actor, admin: overseerWorkAdmin(actor) };
+};
+
 const agentNode = (
   id = "agent",
-  hostId = "local"
+  hostId = "local",
+  bindingId = `binding-${id}`,
 ): CanvasDoc["nodes"][number] => ({
   id,
   type: "text",
@@ -73,7 +101,7 @@ const agentNode = (
   ether: {
     entity: { kind: "agent", name: `${hostId}:${id}` },
     terminal: {
-      bindingId: `binding-${id}`,
+      bindingId,
       launch: { kind: "harness", argv: ["claude"] },
       harness: "claude",
     },
@@ -97,6 +125,7 @@ import {
   CanvasesService,
 } from "../src/main/junto/canvases";
 import { WorkLive, WorkService } from "../src/main/junto/work/service";
+import { overseerWorkAdmin } from "../src/main/junto/work/authz";
 import { messageDelivery } from "../src/main/junto/work/message-delivery";
 import {
   createCurrentProjectedTaskDependencyScopeCapability,
@@ -426,7 +455,7 @@ describe("WorkService — concurrent ops", () => {
       canvases.write(name, {
         nodes: [
           emptyRequestsNode("requests"),
-          agentNode("sender"),
+          overseerSeat("sender", name),
           agentNode("recipient"),
           {
             id: "artifacts",
@@ -443,12 +472,6 @@ describe("WorkService — concurrent ops", () => {
         ],
         edges: [
           {
-            id: "edge-request",
-            fromNode: "sender",
-            toNode: "requests",
-            ether: { verb: "escalates" },
-          },
-          {
             id: "edge-message",
             fromNode: "sender",
             toNode: "recipient",
@@ -463,11 +486,8 @@ describe("WorkService — concurrent ops", () => {
         ],
       })
     );
+    const { actor, admin } = await grantOverseerSeat(name, "sender");
     const authorialBefore = await workRuntime.runPromise(canvases.read(name));
-    const actor = authorialBefore.actorRefs.find(
-      (candidate) => candidate.nodeId === "sender"
-    );
-    if (actor === undefined) throw new Error("missing actor ref for sender");
 
     const request = await workRuntime.runPromise(
       work.workRequestCreate(
@@ -476,7 +496,8 @@ describe("WorkService — concurrent ops", () => {
         "approve release",
         undefined,
         actor,
-        "cannot ship without sign-off"
+        "cannot ship without sign-off",
+        admin
       )
     );
     expect(request.ok).toBe(true);
@@ -641,7 +662,7 @@ describe("WorkService — concurrent ops", () => {
         nodes: [
           emptyTaskNode(),
           emptyRequestsNode("requests"),
-          agentNode("sender"),
+          overseerSeat("sender", name),
         ],
         edges: [
           {
@@ -657,11 +678,7 @@ describe("WorkService — concurrent ops", () => {
         ],
       })
     );
-    const read = await workRuntime.runPromise(canvases.read(name));
-    const sender = read.actorRefs.find(
-      (candidate) => candidate.nodeId === "sender"
-    );
-    if (sender === undefined) throw new Error("missing sender actor");
+    const { actor: sender, admin } = await grantOverseerSeat(name, "sender");
     const task = await workRuntime.runPromise(
       work.workTaskCreate(name, "tasks", "Thread task", { details: "Thread task" })
     );
@@ -672,7 +689,8 @@ describe("WorkService — concurrent ops", () => {
         "Thread request",
         undefined,
         sender,
-        "need operator thread context"
+        "need operator thread context",
+        admin
       )
     );
     if (!task.ok || !request.ok) {
@@ -704,7 +722,9 @@ describe("WorkService — concurrent ops", () => {
           parts: [{ kind: "text", text: "Request context" }],
           taskId: request.data.id,
         },
-        sender
+        sender,
+        // The request thread is reached as the overseer that raised it.
+        admin
       )
     );
     expect(taskNote).toMatchObject({ ok: true, disposition: "applied" });
@@ -768,12 +788,6 @@ describe("WorkService — concurrent ops", () => {
         ],
         edges: [
           {
-            id: "request",
-            fromNode: "remote-sender",
-            toNode: "requests",
-            ether: { verb: "escalates" },
-          },
-          {
             id: "message",
             fromNode: "remote-sender",
             toNode: "recipient",
@@ -809,16 +823,6 @@ describe("WorkService — concurrent ops", () => {
         )
       ),
       workRuntime.runPromise(
-        work.workRequestCreate(
-          name,
-          "requests",
-          "forged request",
-          undefined,
-          remoteActor,
-          "forged body for locality test"
-        )
-      ),
-      workRuntime.runPromise(
         work.workArtifactPublish(
           name,
           "artifacts",
@@ -839,6 +843,19 @@ describe("WorkService — concurrent ops", () => {
         );
       }
     }
+    // A seat raises no request at all without an overseer grant: no verb
+    // joins an agent to a requests sink.
+    const forgedRequest = await workRuntime.runPromise(
+      work.workRequestCreate(
+        name,
+        "requests",
+        "forged request",
+        undefined,
+        remoteActor,
+        "forged body for locality test"
+      )
+    );
+    expect(forgedRequest.ok).toBe(false);
     const snapshots = await workRuntime.runPromise(
       repository.snapshotsForCanvas(name)
     );
@@ -856,7 +873,7 @@ describe("WorkService — concurrent ops", () => {
     ).toEqual([]);
   });
 
-  it("lets a Remote-local actor queue mail and create requests and artifacts offline", async () => {
+  it("lets a Remote-local actor queue mail and publish artifacts offline, and raise no request", async () => {
     const isolatedRoot = join(
       tmpdir(),
       `junto-work-remote-mail-${randomUUID()}`
@@ -933,12 +950,6 @@ describe("WorkService — concurrent ops", () => {
                   fromNode: "sender",
                   toNode: "recipient",
                   ether: { verb: "messages" },
-                },
-                {
-                  id: "request",
-                  fromNode: "sender",
-                  toNode: "requests",
-                  ether: { verb: "escalates" },
                 },
                 {
                   id: "artifact",
@@ -1073,10 +1084,9 @@ describe("WorkService — concurrent ops", () => {
           "blocked without operator decision"
         )
       );
-      expect(request).toMatchObject({
-        ok: true,
-        disposition: "applied",
-      });
+      // No verb joins an agent to a requests sink; a seat raises its hand
+      // with the universal agent signals instead.
+      expect(request.ok).toBe(false);
       const artifact = await runtime.runPromise(
         remoteWork.workArtifactPublish(
           canvasName,
@@ -1123,13 +1133,8 @@ describe("WorkService — concurrent ops", () => {
       );
       expect(
         snapshots.find((snapshot) => snapshot.nodeId === "requests")?.requests
-          .items
-      ).toEqual([
-        expect.objectContaining({
-          state: "input-required",
-          claimedBy: sender.seatId,
-        }),
-      ]);
+          .items ?? []
+      ).toEqual([]);
       expect(
         snapshots.find((snapshot) => snapshot.nodeId === "artifacts")?.artifacts
           .items
@@ -1917,23 +1922,11 @@ describe("WorkService — request resolve nudge and duplicate settle", () => {
   const raiseFromSender = async (name: string) => {
     await workRuntime.runPromise(
       canvases.write(name, {
-        nodes: [emptyRequestsNode("req"), agentNode("sender")],
-        edges: [
-          {
-            id: "edge-raise",
-            fromNode: "sender",
-            toNode: "req",
-            ether: { verb: "escalates" },
-          },
-        ],
+        nodes: [emptyRequestsNode("req"), overseerSeat("sender", name)],
+        edges: [],
       })
     );
-    const authorial = await workRuntime.runPromise(canvases.read(name));
-    const actor = authorial.actorRefs.find(
-      (candidate) => candidate.nodeId === "sender"
-    );
-    if (actor === undefined) throw new Error("missing actor ref for sender");
-    return actor;
+    return grantOverseerSeat(name, "sender");
   };
 
   afterEach(() => {
@@ -1942,7 +1935,7 @@ describe("WorkService — request resolve nudge and duplicate settle", () => {
 
   it("nudges the raising actor seat when its request resolves", async () => {
     const name = "work-resolve-nudge";
-    const actor = await raiseFromSender(name);
+    const { actor, admin } = await raiseFromSender(name);
 
     const writes: Array<{ bindingId: string; text: string }> = [];
     messageDelivery.configure({
@@ -1963,7 +1956,8 @@ describe("WorkService — request resolve nudge and duplicate settle", () => {
         "approve the lane",
         undefined,
         actor,
-        "cannot ship without sign-off"
+        "cannot ship without sign-off",
+        admin
       )
     );
     expect(created.ok).toBe(true);
@@ -1977,7 +1971,7 @@ describe("WorkService — request resolve nudge and duplicate settle", () => {
     await waitUntil(() => writes.length === 1);
     expect(writes).toEqual([
       {
-        bindingId: "binding-sender",
+        bindingId: `binding-sender-${name}`,
         text: `[request resolved - ${created.data.id}] approved`,
       },
     ]);
@@ -1985,7 +1979,7 @@ describe("WorkService — request resolve nudge and duplicate settle", () => {
 
   it("logs loudly instead of silently dropping when no live actor ref matches the claiming seat", async () => {
     const name = "work-resolve-nudge-zero";
-    const actor = await raiseFromSender(name);
+    const { actor, admin } = await raiseFromSender(name);
 
     const writes: Array<{ bindingId: string; text: string }> = [];
     messageDelivery.configure({
@@ -2006,7 +2000,8 @@ describe("WorkService — request resolve nudge and duplicate settle", () => {
         "approve the lane",
         undefined,
         actor,
-        "cannot ship without sign-off"
+        "cannot ship without sign-off",
+        admin
       )
     );
     expect(created.ok).toBe(true);
@@ -2041,7 +2036,7 @@ describe("WorkService — request resolve nudge and duplicate settle", () => {
 
   it("absorbs a stale second resolve of an already-resolved request", async () => {
     const name = "work-resolve-twice";
-    const actor = await raiseFromSender(name);
+    const { actor, admin } = await raiseFromSender(name);
 
     const created = await workRuntime.runPromise(
       work.workRequestCreate(
@@ -2050,7 +2045,8 @@ describe("WorkService — request resolve nudge and duplicate settle", () => {
         "approve the lane",
         undefined,
         actor,
-        "cannot ship without sign-off"
+        "cannot ship without sign-off",
+        admin
       )
     );
     expect(created.ok).toBe(true);

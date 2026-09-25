@@ -100,9 +100,6 @@ const EDGES: CanvasEdge[] = [
   // participates: the board megaphone reaches this seat
   { id: "e-wake", fromNode: "agent2", toNode: "board", fromSide: "right", toSide: "left",
     ether: { verb: "participates" } },
-  // escalates: so the pending request has its raiser
-  { id: "e-esc", fromNode: "agent2", toNode: "requests", fromSide: "bottom", toSide: "left",
-    ether: { verb: "escalates" } },
   // announces: tasks -> relay on its headline event
   { id: "e-watch", fromNode: "tasks", toNode: "relay", fromSide: "right", toSide: "left",
     ether: { verb: "announces" } },
