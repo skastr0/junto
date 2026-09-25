@@ -13,6 +13,7 @@ import {
   type MultiPromptResult,
   type MultiPromptTarget,
 } from "./multi-prompt";
+import { state$ } from "./state";
 
 /**
  * Operator broadcast: one pre-configured prompt typed into every selected
@@ -88,3 +89,15 @@ export const formatBroadcastOutcome = (outcome: AgentBroadcastOutcome): string =
 /** True when the operator should see the outcome line (anything short of full delivery). */
 export const broadcastNeedsNotice = (outcome: AgentBroadcastOutcome): boolean =>
   outcome.skipped > 0 || outcome.result.queued.length > 0 || outcome.result.failed.length > 0;
+
+/**
+ * Menu action: re-plan against the live seat states, send, and raise the
+ * outcome line on the warning banner when any selected agent missed it.
+ */
+export async function broadcastToSelection(
+  kind: AgentBroadcastKind,
+  nodes: ReadonlyArray<CanvasNode>,
+): Promise<void> {
+  const outcome = await broadcastToAgents(kind, planAgentBroadcast(nodes));
+  if (broadcastNeedsNotice(outcome)) state$.error.set(formatBroadcastOutcome(outcome));
+}

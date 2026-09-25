@@ -17,7 +17,7 @@ import type { Connection, EdgeMouseHandler, FinalConnectionState, Node, OnNodeDr
 import { use$ } from "@legendapp/state/react";
 import type { CanvasDoc, EtherEdgeKind, EtherFlag } from "@shared/canvas";
 import { executionGraphContextFromActorRefs } from "@shared/graph";
-import { Ban, Boxes, Expand, Link2, Plus, ScanLine, SquareDashed, Trash2, Unlink, X } from "lucide-react";
+import { Activity, Ban, Boxes, Expand, Link2, OctagonX, Plus, ScanLine, SquareDashed, Trash2, Unlink, X } from "lucide-react";
 import {
   clearSelection,
   replaceSelection,
@@ -52,6 +52,8 @@ import { AGENT_NODE_SIZE } from "../lib/node-geometry";
 import { addNode, deleteNodes, setFlagForNodes } from "../lib/mutations";
 import { addEdge, connectAllToTarget, connectAllowed, connectMesh, deleteEdges, disconnectWithin, edgeIdsWithin, planConnectMesh } from "../lib/edge-mutations";
 import { agentCountLabel, agentSeatIds } from "../lib/multi-selection";
+import { broadcastMenuHint, broadcastToSelection, planAgentBroadcast } from "../lib/agent-broadcast";
+import { AGENT_BROADCAST_PROMPTS, type AgentBroadcastKind } from "@shared/agent-broadcast-prompts";
 import { placeAtPoint, placeBesideRect, type ScreenRect } from "../lib/menu-placement";
 import { dragHoldMemberIds, findOpenPosition, syncPositions } from "../lib/geometry";
 import { resolvePageSpawnDefaults } from "@shared/region-defaults";
@@ -1015,6 +1017,7 @@ function MultiSelectMenu({ anchor, onClose }: { readonly anchor: MultiMenuAnchor
   const agents = agentCountLabel(agentIds.length);
   const meshAdds = planConnectMesh(agentIds, doc.nodes, doc.edges).toAdd.length;
   const innerEdges = edgeIdsWithin(agentIds, doc.edges).length;
+  const broadcast = planAgentBroadcast(doc.nodes.filter((node) => agentIds.includes(node.id)));
 
   const run = (mutate: (ids: ReadonlyArray<string>) => void) => {
     mutate(rf.getNodes().filter((node) => node.selected).map((node) => node.id));
@@ -1024,6 +1027,21 @@ function MultiSelectMenu({ anchor, onClose }: { readonly anchor: MultiMenuAnchor
     const live = new Set(rf.getNodes().filter((node) => node.selected).map((node) => node.id));
     act(agentSeatIds(state$.doc.peek().nodes.filter((node) => live.has(node.id))));
     onClose();
+  };
+  const broadcastEntry = (kind: AgentBroadcastKind, icon: ReactNode): MultiMenuEntry | null => {
+    if (!authoring) return null;
+    const prompt = AGENT_BROADCAST_PROMPTS[kind];
+    return {
+      key: kind,
+      label: prompt.label,
+      detail: broadcastMenuHint(broadcast),
+      ariaLabel: `${prompt.ariaLabel}, ${broadcastMenuHint(broadcast)}`,
+      icon,
+      disabled: broadcast.live.length === 0,
+      onSelect: runOnAgents((ids) => {
+        void broadcastToSelection(kind, state$.doc.peek().nodes.filter((node) => ids.includes(node.id)));
+      }),
+    };
   };
 
   const createRegionFromSelection = (ids: ReadonlyArray<string>) => {
@@ -1063,8 +1081,8 @@ function MultiSelectMenu({ anchor, onClose }: { readonly anchor: MultiMenuAnchor
       disabled: innerEdges === 0,
       onSelect: runOnAgents(disconnectWithin),
     } : null,
-    null, // stop: broadcast prompt (broadcast agent)
-    null, // check: broadcast prompt (broadcast agent)
+    broadcastEntry("stop", <OctagonX size={14} />),
+    broadcastEntry("check", <Activity size={14} />),
   ];
   const agentRows = agentActions.filter((entry): entry is MultiMenuEntry => entry !== null);
 
