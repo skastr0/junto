@@ -33,13 +33,49 @@ import { onTerminalEvent } from "./terminal-events";
  *   advisory reading;
  * - seats that finished a turn the operator has not looked at (done);
  * - agent seats whose process ended with a failure exit, until they start
- *   again (stopped).
+ *   again (stopped), and squads that could not finish starting.
  */
 
 type Failure = { readonly epoch: string; readonly code: number };
 
 /** Failed agent generations by binding, until that binding starts again. */
 export const seatFailures$ = observable<Record<string, Failure | undefined>>({});
+/**
+ * Squad failures, raised once by squad placement and kept long enough to
+ * settle into a banner. They are events, not states, so they age out.
+ */
+type RaisedFailure = NotifySubject & { readonly until: number };
+const raisedFailures$ = observable<ReadonlyArray<RaisedFailure>>([]);
+export const RAISED_FAILURE_MS = 120_000;
+
+/** A squad could not finish starting: its name, one of its seats, and what went wrong. */
+export const raiseSquadFailure = (input: {
+  readonly canvasName: string;
+  readonly nodeId: string;
+  readonly squadName: string;
+  readonly text: string;
+  readonly now?: number;
+}): void => {
+  const now = input.now ?? Date.now();
+  const live = raisedFailures$.peek().filter((failure) => failure.until > now);
+  raisedFailures$.set([
+    ...live,
+    {
+      key: `squad:${input.nodeId}:${now}`,
+      category: "failed",
+      canvasName: input.canvasName,
+      nodeId: input.nodeId,
+      seatName: input.squadName,
+      text: input.text,
+      until: now + RAISED_FAILURE_MS,
+    },
+  ]);
+  setTimeout(() => {
+    const at = Date.now();
+    raisedFailures$.set(raisedFailures$.peek().filter((failure) => failure.until > at));
+  }, RAISED_FAILURE_MS + 50);
+};
+
 /** The agent's own last words per seat (its `junto preamble`), for a finish line. */
 const lastSaid$ = observable<Record<string, string | undefined>>({});
 
@@ -133,6 +169,7 @@ const useNotifyReport = (): NotifyReport | null => {
   const failures = use$(seatFailures$);
   const lastSaid = use$(lastSaid$);
   const sessions = use$(terminal$.sessionByBindingId);
+  const raised = use$(raisedFailures$);
   if (!canvasName || !settingsReady) return null;
   const seats = seatSubjects({
     canvasName,
@@ -148,7 +185,13 @@ const useNotifyReport = (): NotifyReport | null => {
   // keeps each seat's most urgent need.
   return {
     canvasName,
-    subjects: [...subjectsFromFeed(feed), ...seats],
+    subjects: [
+      ...subjectsFromFeed(feed),
+      ...seats,
+      ...raised
+        .filter((failure) => failure.canvasName === canvasName)
+        .map(({ until: _until, ...subject }) => subject),
+    ],
     badge: feed.count,
     prefs: notificationSettings(settings),
   };

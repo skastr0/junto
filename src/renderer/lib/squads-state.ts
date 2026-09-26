@@ -7,6 +7,7 @@ import { batch, observable } from "@legendapp/state";
 import { ulid } from "ulid";
 import type { Squad } from "@shared/squads";
 import type { TerminalManagedPromptResult } from "@shared/ipc";
+import { raiseSquadFailure } from "./desktop-notify";
 import { getJuntoApi } from "./junto-api";
 import { commitDoc, flushPendingCanvasSave } from "./mutations";
 import { captureSquad, placeSquad, squadBounds } from "./squads";
@@ -161,7 +162,14 @@ export const placeSquadAt = async (
       problems.push("opening prompts not sent");
     }
   }
-  if (problems.length > 0) state$.error.set(`${squad.name}: ${problems.join(", ")}`);
+  if (problems.length > 0) {
+    state$.error.set(`${squad.name}: ${problems.join(", ")}`);
+    // The prompts can take a while; the operator may be elsewhere by now.
+    const canvasName = state$.canvasName.peek();
+    if (canvasName) {
+      raiseSquadFailure({ canvasName, nodeId: ids[0]!, squadName: squad.name, text: problems.join(", ") });
+    }
+  }
 };
 
 /**
