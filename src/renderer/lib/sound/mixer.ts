@@ -5,7 +5,9 @@
  * Laws:
  * - Coalesce: requests for the same cue inside its window become one play
  *   that knows how many it stands for.
- * - Rate: a cue never plays again sooner than its own gap.
+ * - Rate: a cue never plays again sooner than its own gap, and never again
+ *   for the same subject (a seat) sooner than its subject gap, so a seat
+ *   whose state flickers is heard once.
  * - One attention cue at a time: while one sounds (and a short hush after),
  *   another of equal or lower urgency is dropped; a more urgent one takes
  *   over and the first fades out.
@@ -20,7 +22,7 @@
 
 import type { CueId, CueSpec, CueVariant, MailTone, Urgency } from "./cues";
 
-export type MixSpec = Pick<CueSpec, "urgency" | "seconds" | "coalesceMs" | "minGapMs">;
+export type MixSpec = Pick<CueSpec, "urgency" | "seconds" | "coalesceMs" | "minGapMs" | "subjectGapMs">;
 
 export type MixerLimits = {
   readonly maxVoices: number;
@@ -42,6 +44,8 @@ export const ATTENTION_URGENCY: Urgency = 3;
 
 export type CueRequest = {
   readonly count?: number;
+  /** What the cue is about (a node id), for the per-subject gap. */
+  readonly subject?: string;
   readonly tone?: MailTone;
   readonly pan?: number;
 };
@@ -75,6 +79,7 @@ type Active = {
 export class CueMixer {
   private readonly pending = new Map<CueId, Pending>();
   private readonly lastStart = new Map<CueId, number>();
+  private readonly lastSubject = new Map<string, number>();
   private active: Active[] = [];
   private ambientStarts: number[] = [];
   private attention: { readonly id: number; readonly urgency: Urgency; readonly until: number } | undefined;
@@ -88,6 +93,7 @@ export class CueMixer {
   request(cue: CueId, now: number, request: CueRequest = {}): RequestOutcome {
     const spec = this.specs[cue];
     const count = Math.max(1, Math.floor(request.count ?? 1));
+    if (!this.subjectFree(cue, spec, now, request.subject)) return "dropped";
     const waiting = this.pending.get(cue);
     if (waiting !== undefined) {
       waiting.count += count;
@@ -182,6 +188,18 @@ export class CueMixer {
       variant: { count: waiting.count, tone: waiting.tone, pan: waiting.pan },
       steal,
     };
+  }
+
+  private subjectFree(cue: CueId, spec: MixSpec, now: number, subject: string | undefined): boolean {
+    if (subject === undefined || spec.subjectGapMs === undefined) return true;
+    const key = `${cue}\u0000${subject}`;
+    const last = this.lastSubject.get(key);
+    if (last !== undefined && now - last < spec.subjectGapMs) return false;
+    this.lastSubject.set(key, now);
+    if (this.lastSubject.size > 512) {
+      for (const [k, at] of this.lastSubject) if (now - at >= spec.subjectGapMs) this.lastSubject.delete(k);
+    }
+    return true;
   }
 
   private withinBudget(now: number): boolean {

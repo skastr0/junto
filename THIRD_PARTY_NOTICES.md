@@ -35,9 +35,10 @@ its source brief and generation routes are recorded in
 [assets/brand/IDENTITY.md](assets/brand/IDENTITY.md). Generated artwork does not imply
 an exclusive right to similar outputs or ownership of the generating models.
 
-The UI sound cues are original, deterministic waveforms generated from
-[scripts/build-ui-sfx.ts](scripts/build-ui-sfx.ts). They use no provider audio,
-recordings, samples, or model output. Their source and WAV files use Apache-2.0.
+The UI sound cues are synthesized at run time by the project's own engine in
+[src/renderer/lib/sound/](src/renderer/lib/sound/). They use no provider audio,
+recordings, samples, or model output, and ship no audio files. The source uses
+Apache-2.0.
 
 Provider services and models used to create artwork are not part of this source
 license. Product and third-party names identify their respective projects; the

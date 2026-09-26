@@ -2,8 +2,8 @@
  * Wire: rising-edge alert queue → SFX + Space/` cycle → focusNodeId.
  *
  * Pure model lives in alert-queue.ts. This module collects cycle targets
- * (notifications → ready/complete → working), observes the queue, plays SFX
- * on notification rises only, and cycles focus.
+ * (notifications → ready/complete → working), observes the queue, sounds
+ * each rise (a seat getting more urgent), and cycles focus.
  */
 
 import { use$ } from "@legendapp/state/react";
@@ -18,7 +18,6 @@ import {
 } from "./agent-seat-state";
 import {
   alertId,
-  alertKindHasRiseSfx,
   cycleNext,
   emptyAlertQueue,
   observeSignals,
@@ -29,7 +28,8 @@ import {
   type AlertSignal,
 } from "./alert-queue";
 import { nodeTitle } from "./presentation";
-import { playAlert } from "./sfx";
+import { playCue } from "./sound";
+import { ALERT_CUE } from "./sound/director";
 import { selectNode, state$ } from "./state";
 import { isOperatorTyping } from "./focus-ownership";
 
@@ -221,22 +221,21 @@ const focusAlertItem = (item: AlertItem | undefined): void => {
   state$.focusNodeId.set(nodeId);
 };
 
-/** Observe live signals; play rising-edge SFX for notifications only. */
+/** Observe live signals; every rise is heard (the mixer keeps it calm). */
 export const observeAlertSignals = (signals: ReadonlyArray<AlertSignal>): void => {
   const result = observeSignals(queue, signals);
   queue = result.queue;
   for (const item of result.risen) {
-    if (!alertKindHasRiseSfx(item.kind)) continue;
-    playAlert(item.kind === "blocked" ? "blocked" : "attention");
+    playCue(ALERT_CUE[item.kind], { subject: item.subjectKey });
   }
 };
 
-/** Space / backtick: next alert → focus + cycle SFX. */
+/** Space / backtick: next alert → focus + the navigate cue. */
 export const cycleAlertFocus = (): boolean => {
   const result = cycleNext(queue);
   queue = result.queue;
   if (!result.item) return false;
-  playAlert("cycle");
+  playCue("navigate");
   focusAlertItem(result.item);
   return true;
 };

@@ -11,6 +11,7 @@ import { useEffect, useRef } from "react";
 import { useStoreApi } from "@xyflow/react";
 import type { WireTrafficEvent } from "@shared/wire-traffic";
 import type { FlowEdge } from "../../lib/convert";
+import { playCue } from "../../lib/sound";
 import { state$ } from "../../lib/state";
 import {
   pickPulseEdge,
@@ -63,7 +64,10 @@ export function WirePulseFeed({ edges }: { readonly edges: ReadonlyArray<FlowEdg
         height: height / zoom,
       };
       if (!pulseOnScreen(from, to, viewport)) return;
-      wirePulseScheduler.fire(target, event.kind);
+      // The drop rides the light: heard only when a pulse is painted.
+      if (wirePulseScheduler.fire(target, event.kind) !== "dropped") {
+        playCue("mail", { tone: event.kind });
+      }
     };
     const off = window.junto?.onWireTraffic?.(onTraffic);
     return () => {

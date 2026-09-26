@@ -95,7 +95,6 @@ import {
   regionSlotCueLabel,
   type PrimaryCommandAction,
 } from "../../lib/command-card";
-import { playAlert } from "../../lib/sfx";
 import { GREEN, HUE, withAlpha } from "../../lib/theme";
 import { useAlertAttention } from "../../lib/alert-attention";
 import { kernel$ } from "../../lib/kernel-view";

@@ -38,7 +38,7 @@ import {
   takeTerminalViewport,
 } from "../../lib/terminal-viewport";
 import { attachXtermAutoCopy } from "../../lib/xterm-auto-copy";
-import { playAlert } from "../../lib/sfx";
+import { playCue } from "../../lib/sound";
 import { claimedTaskForActorNode } from "../../lib/claimed-task";
 import { state$ } from "../../lib/state";
 import {
@@ -1307,8 +1307,8 @@ export function TerminalSurface({
     if (!term) return;
     bellRef.current = term.onBell(() => {
       if (response === "flash") flashBell();
-      // Mute and per-clip volume are the audio settings' business.
-      else playAlert("attention");
+      // Mute and volume are the sound settings' business.
+      else playCue("bell");
     });
   };
 

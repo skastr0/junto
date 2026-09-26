@@ -11,6 +11,7 @@ import { getJuntoApi } from "./junto-api";
 import { commitDoc, flushPendingCanvasSave } from "./mutations";
 import { captureSquad, placeSquad, squadBounds } from "./squads";
 import { saveSquadPortraits, squadPortraitOf } from "./squad-portraits";
+import { playCue } from "./sound";
 import { selectNodes, state$ } from "./state";
 
 export const squads$ = observable({
@@ -137,6 +138,7 @@ export const placeSquadAt = async (
   });
   commitDoc({ ...doc, nodes: [...doc.nodes, ...placed.nodes], edges: [...doc.edges, ...placed.edges] });
   state$.focusNodeIds.set(ids);
+  playCue("squad", { count: ids.length });
 
   const problems: string[] = [];
   if (placed.skipped.length > 0) problems.push(`skipped ${placed.skipped.join(", ")}`);

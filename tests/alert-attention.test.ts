@@ -10,7 +10,7 @@ import {
   shouldCycleAlertOnKey,
 } from "../src/renderer/lib/alert-attention";
 import { alertId, cycleNext, emptyAlertQueue, observeSignals } from "../src/renderer/lib/alert-queue";
-import * as sfx from "../src/renderer/lib/sfx";
+import * as sound from "../src/renderer/lib/sound";
 import { state$ } from "../src/renderer/lib/state";
 import type { RegionRollup } from "../src/shared/region-rollup";
 import type { CanvasNode } from "../src/shared/canvas";
@@ -86,8 +86,8 @@ describe("observeAlertSignals + cycleAlertFocus", () => {
     state$.focusNodeId.set("");
   });
 
-  it("baselines then rises with matching sfx, cycles with cycle sfx + focus", () => {
-    const play = vi.spyOn(sfx, "playAlert").mockImplementation(() => undefined);
+  it("baselines then rises with the matching cue, cycles with the navigate cue + focus", () => {
+    const play = vi.spyOn(sound, "playCue").mockImplementation(() => "silent");
     const nodeId = "focus-me";
     state$.doc.set({
       nodes: [{ id: nodeId, type: "text", x: 0, y: 0, width: 80, height: 40, text: "blocked" }],
@@ -103,31 +103,41 @@ describe("observeAlertSignals + cycleAlertFocus", () => {
 
     observeAlertSignals([]);
     observeAlertSignals([signal]);
-    expect(play).toHaveBeenCalledWith("blocked");
+    expect(play).toHaveBeenCalledWith("blocked", { subject: nodeId });
 
     play.mockClear();
     expect(cycleAlertFocus()).toBe(true);
-    expect(play).toHaveBeenCalledWith("cycle");
+    expect(play).toHaveBeenCalledWith("navigate");
     expect(state$.focusNodeId.peek()).toBe(nodeId);
     expect(state$.selectedNodeId.peek()).toBe(nodeId);
     expect(state$.selectedNodeIds.peek()).toEqual([nodeId]);
   });
 
-  it("uses the attention sound for an attention rise", () => {
-    const play = vi.spyOn(sfx, "playAlert").mockImplementation(() => undefined);
+  it("sounds waiting on you for an attention rise", () => {
+    const play = vi.spyOn(sound, "playCue").mockImplementation(() => "silent");
     const signal = { id: alertId.node("n1"), kind: "attention" as const, subjectKey: "n1", nodeId: "n1", level: 1 };
     observeAlertSignals([]);
     observeAlertSignals([signal]);
-    expect(play).toHaveBeenCalledWith("attention");
+    expect(play).toHaveBeenCalledWith("waiting", { subject: "n1" });
   });
 
-  it("does not play rising-edge SFX for ready or working", () => {
-    const play = vi.spyOn(sfx, "playAlert").mockImplementation(() => undefined);
+  it("sounds done and started working, each for its own seat", () => {
+    const play = vi.spyOn(sound, "playCue").mockImplementation(() => "silent");
     observeAlertSignals([]);
     observeAlertSignals([
       { id: alertId.node("r"), kind: "ready", subjectKey: "r", nodeId: "r", level: 2 },
       { id: alertId.node("w"), kind: "working", subjectKey: "w", nodeId: "w", level: 1 },
     ]);
+    expect(play).toHaveBeenCalledWith("done", { subject: "r" });
+    expect(play).toHaveBeenCalledWith("working", { subject: "w" });
+  });
+
+  it("stays quiet when a seat calms down (done back to working)", () => {
+    const play = vi.spyOn(sound, "playCue").mockImplementation(() => "silent");
+    const at = (kind: "ready" | "working", level: number) =>
+      [{ id: alertId.node("s"), kind, subjectKey: "s", nodeId: "s", level }];
+    observeAlertSignals(at("ready", 2));
+    observeAlertSignals(at("working", 1));
     expect(play).not.toHaveBeenCalled();
   });
 });

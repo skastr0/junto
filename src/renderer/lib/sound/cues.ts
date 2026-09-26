@@ -61,6 +61,8 @@ export type CueSpec = {
   readonly coalesceMs: number;
   /** A second play of the same cue sooner than this is dropped. */
   readonly minGapMs: number;
+  /** The same cue for the same seat sooner than this is dropped. */
+  readonly subjectGapMs?: number;
   readonly label: string;
   /** What it means, for Settings. */
   readonly meaning: string;
@@ -81,10 +83,10 @@ export const CUES: Readonly<Record<CueId, CueSpec>> = {
     meaning: "An agent stopped and cannot go on without you.",
     // Two low knocks, then a bell that steps down a fourth and hangs there.
     render: (v, t, { pan }) => {
-      wood(v, t, NOTE.D3, { gain: 0.5, tau: 0.2, pan });
-      wood(v, t + 0.17, NOTE.D3, { gain: 0.38, tau: 0.22, pan });
-      tine(v, t + 0.34, NOTE.B4, { gain: 0.3, tau: 0.5, bright: 0.7, pan });
-      tine(v, t + 0.6, NOTE.Fs4, { gain: 0.3, tau: 0.8, bright: 0.5, pan });
+      wood(v, t, NOTE.D3, { gain: 0.34, tau: 0.2, pan });
+      wood(v, t + 0.17, NOTE.D3, { gain: 0.26, tau: 0.22, pan });
+      tine(v, t + 0.34, NOTE.B4, { gain: 0.34, tau: 0.5, bright: 0.7, pan });
+      tine(v, t + 0.6, NOTE.Fs4, { gain: 0.34, tau: 0.8, bright: 0.5, pan });
       pad(v, t + 0.34, [NOTE.B3, NOTE.Fs4], 1.1, { gain: 0.05, pan });
     },
   },
@@ -146,6 +148,7 @@ export const CUES: Readonly<Record<CueId, CueSpec>> = {
     seconds: 1.2,
     coalesceMs: 260,
     minGapMs: 1_200,
+    subjectGapMs: 8_000,
     label: "Done",
     meaning: "An agent finished its turn and you have not looked yet.",
     // Down the D major triad to home, over a warm chord. More seats, more notes.
@@ -180,6 +183,8 @@ export const CUES: Readonly<Record<CueId, CueSpec>> = {
     seconds: 0.6,
     coalesceMs: 300,
     minGapMs: 900,
+    // A seat that flickers between working and idle is heard starting once.
+    subjectGapMs: 30_000,
     label: "Started working",
     meaning: "An agent picked up work.",
     // A small breath in, then a low note: the seat leaning forward.

@@ -7,6 +7,7 @@
  * Callers name what happened; they never pick a sound or a volume.
  */
 
+import { state$ } from "../state";
 import { SoundEngine } from "./engine";
 import { CUES, type CueId } from "./cues";
 import type { CueRequest, RequestOutcome } from "./mixer";
@@ -23,6 +24,10 @@ export {
 export type { CueRequest } from "./mixer";
 
 export const soundEngine = new SoundEngine();
+
+/** How long a canvas that just opened stays quiet while its seats hydrate. */
+const OPEN_HUSH_MS = 4_000;
+state$.canvasName.onChange(() => soundEngine.hush(OPEN_HUSH_MS));
 
 /** Something happened that has a sound. */
 export const playCue = (cue: CueId, request?: CueRequest): RequestOutcome | "silent" =>

@@ -2,7 +2,7 @@
  * Rising-edge alert queue for the RTS attention machine.
  *
  * Pure model only — no React, no IPC, no Audio. The wire layer feeds live
- * signals, plays SFX on rise, and binds Space / backtick to cycleNext.
+ * signals, sounds each rise, and binds Space / backtick to cycleNext.
  *
  * Laws:
  * - First observe is baseline (no risen alerts, no SFX).
@@ -37,10 +37,6 @@ export const ALERT_KIND_LABEL: Readonly<Record<AlertKind, string>> = {
   ready: "ready",
   working: "working",
 };
-
-/** Rising-edge SFX only for operator notifications — not ready/working tour. */
-export const alertKindHasRiseSfx = (kind: AlertKind): boolean =>
-  kind === "blocked" || kind === "attention";
 
 const compareAlertItems = (a: AlertItem, b: AlertItem): number => {
   const pr = ALERT_KIND_PRIORITY[a.kind] - ALERT_KIND_PRIORITY[b.kind];

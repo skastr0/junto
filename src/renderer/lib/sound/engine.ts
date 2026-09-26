@@ -60,15 +60,25 @@ export class SoundEngine {
   private flushTimer: ReturnType<typeof setTimeout> | undefined;
   private idleTimer: ReturnType<typeof setTimeout> | undefined;
   private offSettings: (() => void) | undefined;
+  private hushUntil = 0;
 
   constructor(private readonly clock: () => number = () => performance.now()) {}
 
   /** Ask for a cue. The mixer decides whether, and how, it sounds. */
   play(cue: CueId, request: CueRequest = {}): RequestOutcome | "silent" {
     if (!AUDIO_ENABLED || !cueAudible(readAudio(), cue)) return "silent";
+    if (this.clock() < this.hushUntil) return "silent";
     const outcome = this.mixer.request(cue, this.clock(), request);
     this.flush();
     return outcome;
+  }
+
+  /**
+   * Stay silent for a while: a canvas that just opened is hydrating, and
+   * what it already held is not news. Previews still sound.
+   */
+  hush(ms: number): void {
+    this.hushUntil = Math.max(this.hushUntil, this.clock() + ms);
   }
 
   /** Settings preview: one cue now, at the operator's levels, outside the mixer. */

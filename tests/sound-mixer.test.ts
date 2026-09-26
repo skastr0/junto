@@ -73,6 +73,15 @@ describe("sound mixer", () => {
     expect(blocked!.steal).toHaveLength(1);
   });
 
+  it("hears a flickering seat start working once, while another seat still sounds", () => {
+    const m = mixer();
+    m.request("working", 0, { subject: "seat-a" });
+    expect(m.due(1_000)).toHaveLength(1);
+    expect(m.request("working", 2_000, { subject: "seat-a" })).toBe("dropped");
+    expect(m.request("working", 2_000, { subject: "seat-b" })).toBe("queued");
+    expect(m.request("working", 2_000 + CUES.working.subjectGapMs!, { subject: "seat-a" })).not.toBe("dropped");
+  });
+
   it("carries the newest mail tone and the stereo position of the burst", () => {
     const m = mixer();
     m.request("mail", 0, { tone: "notice", pan: -0.5 });

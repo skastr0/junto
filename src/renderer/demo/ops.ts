@@ -6,7 +6,7 @@ import { formatNodeRef } from "@shared/node-ref";
 import { cycleAlertFocus } from "../lib/alert-attention";
 import { commitDoc } from "../lib/mutations";
 import { selectNodes, state$ } from "../lib/state";
-import { playAlert } from "../lib/sfx";
+import { playDemoCue } from "../lib/sound";
 import { demoCamera } from "./camera-bridge";
 
 // Demo/scripting engine only. Applies one scenario beat's ops against the
@@ -77,7 +77,7 @@ export const executeBeat = (scenario: DemoScenario, beat: DemoBeat): void => {
         selectNodes(op.nodeIds);
         break;
       case "sfx":
-        playAlert(op.id);
+        playDemoCue(op.id);
         break;
       case "hud":
         demoHud$.set(op.show);

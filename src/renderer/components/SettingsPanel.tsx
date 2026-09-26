@@ -16,7 +16,6 @@ import { ExperimentalSettingsSection } from "./settings/ExperimentalSettingsSect
 import { HarnessesSettingsSection } from "./settings/HarnessesSettingsSection";
 import { ProvidersSettingsSection } from "./settings/ProvidersSettingsSection";
 import { QuickRepliesSettingsSection } from "./settings/QuickRepliesSettingsSection";
-import { NotificationSettingsSection } from "./settings/NotificationSettingsSection";
 import { SoundSettingsSection } from "./settings/SoundSettingsSection";
 import { TerminalSettingsSection } from "./settings/TerminalSettingsSection";
 import {
@@ -53,11 +52,6 @@ const SECTIONS: ReadonlyArray<{ key: PanelSection; label: string; blurb: string 
   { key: "appearance", label: "Appearance", blurb: "" },
   { key: "terminal", label: "Terminal", blurb: "scrolling, font, and accessibility" },
   { key: "feed", label: "Quick replies", blurb: "one-click answers for agents waiting on you" },
-  {
-    key: "notifications",
-    label: "Notifications",
-    blurb: "what reaches you while Junto is in the background",
-  },
   // Machine/station topology is fleet-adjacent (host id, supervised runtime).
   ...(FLEET_UI_ENABLED
     ? [{ key: "station", label: "Machine", blurb: "this installation" } as const]
@@ -1057,8 +1051,6 @@ function SectionBody({ section }: { readonly section: PanelSection }) {
       return <TerminalSettingsSection />;
     case "feed":
       return <QuickRepliesSettingsSection />;
-    case "notifications":
-      return <NotificationSettingsSection />;
     case "station":
       return <StationSection />;
     case "updates":

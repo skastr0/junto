@@ -4,7 +4,7 @@ import {
   FLEET_UI_ENABLED,
 } from "../src/shared/features";
 import { openFleet, prefetchFleetChunk } from "../src/renderer/lib/fleet-state";
-import { playAlert } from "../src/renderer/lib/sfx";
+import { playCue } from "../src/renderer/lib/sound";
 import { state$ } from "../src/renderer/lib/state";
 
 describe("ship-profile UI feature gates", () => {
@@ -27,7 +27,7 @@ describe("ship-profile UI feature gates", () => {
       },
     });
     try {
-      playAlert("blocked");
+      playCue("blocked");
       expect(constructed).toBe(false);
     } finally {
       Object.defineProperty(globalThis, "AudioContext", {

@@ -7,6 +7,8 @@ import {
 } from "@shared/agent-signals";
 import type { AgentSignalOperatorResult, JuntoApi } from "@shared/ipc";
 import { getJuntoApi } from "./junto-api";
+import { playCue } from "./sound";
+import { signalCue } from "./sound/director";
 import { state$ } from "./state";
 
 /**
@@ -17,10 +19,16 @@ import { state$ } from "./state";
  */
 export const agentSignals$ = observable<Record<string, AgentSignal>>({});
 
-/** Apply one signal as it now stands; another canvas's signals are ignored. */
+/**
+ * Apply one signal as it now stands; another canvas's signals are ignored.
+ * Live changes are heard (a new signal, an answer landing); hydration goes
+ * through replaceAgentSignals and is silent.
+ */
 export const upsertAgentSignal = (signal: AgentSignal): void => {
   if (signal.canvasName !== state$.canvasName.peek()) return;
+  const cue = signalCue(agentSignals$[signal.signalId].peek(), signal);
   agentSignals$[signal.signalId].set(signal);
+  if (cue !== undefined) playCue(cue, { subject: signal.nodeId });
 };
 
 /** Replace the mirror with one canvas's listing (empty name clears it). */
