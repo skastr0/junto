@@ -2,7 +2,8 @@ import { useEffect, useState, type ReactNode } from "react";
 import { use$ } from "@legendapp/state/react";
 import { ArrowLeft, ArrowRight } from "lucide-react";
 import type { PortraitExpression } from "@shared/portrait-expression";
-import { JUNTO_MASCOT } from "@shared/brand-mascot";
+import { brandMascot } from "@shared/brand";
+import { juntoMarkDataUri } from "@shared/brand-mark";
 import type { AgentSignalKind } from "@shared/agent-signals";
 import { SEAT_AWARENESS_COMPILED } from "@shared/features";
 import type { ThreadHealthTone, ThreadHealthValue } from "@shared/thread-health";
@@ -16,6 +17,7 @@ import { AGENT_EDITOR_SECTIONS, type AgentEditorSeat } from "../agent-editor/sec
 import { AgentPortrait } from "../AgentPortrait";
 import { finishIntro, introVisible } from "../../lib/first-run-intro";
 import { state$ } from "../../lib/state";
+import { themeMode$ } from "../../lib/theme-mode";
 import { FocusSurface } from "../FocusSurface";
 import { Button, Kbd } from "../ui";
 import { DemoSeat, DemoWire, PULSE_BEAT_MS, TourStage, seatPort, useTourBeat } from "./tour-demo";
@@ -687,6 +689,7 @@ export function FirstRunIntroSurface({
   const [step, setStep] = useState(() => Math.min(Math.max(initialStep, 0), chapters.length - 1));
   const chapter = chapters[step]!;
   const last = step === chapters.length - 1;
+  const mode = use$(themeMode$);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -711,18 +714,23 @@ export function FirstRunIntroSurface({
       <div className="first-run-intro__frame">
         <nav className="first-run-intro__rail" aria-label="Tour chapters">
           <div className="first-run-intro__brand">
-            <AgentPortrait
-              identity={JUNTO_MASCOT.seed}
-              config={JUNTO_MASCOT.config}
-              expression={chapter.pip}
-              size={40}
-              frame="round"
-              badge={false}
-              title={JUNTO_MASCOT.name}
-            />
+            {/* The official build's mascot guides the tour; open source shows the mark. */}
+            {brandMascot ? (
+              <AgentPortrait
+                identity={brandMascot.seed}
+                config={brandMascot.config}
+                expression={chapter.pip}
+                size={40}
+                frame="round"
+                badge={false}
+                title={brandMascot.name}
+              />
+            ) : (
+              <img className="first-run-intro__mark" src={juntoMarkDataUri(mode)} width={40} height={40} alt="" draggable={false} />
+            )}
             <span>
               <span className="first-run-intro__wordmark">Junto</span>
-              <span className="first-run-intro__guide">a tour with {JUNTO_MASCOT.name}</span>
+              <span className="first-run-intro__guide">{brandMascot ? `a tour with ${brandMascot.name}` : "a quick tour"}</span>
             </span>
           </div>
           <ol className="first-run-intro__chapters">

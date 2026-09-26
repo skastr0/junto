@@ -7,7 +7,8 @@ import { surfaces } from "@junto/overlay/renderer";
 import { overlayManifest } from "@shared/overlay";
 import { decodeOverlay, OSS_OVERLAY_MARKER } from "@shared/overlay-contract";
 import { hasStore, openStore, store$ } from "../src/renderer/overlay/surfaces";
-import { bundleMarkerViolations, overlayImportViolations } from "../scripts/lint-overlay";
+import { bundleMarkerViolations, fingerprintHits, overlayImportViolations, premiumFingerprints } from "../scripts/lint-overlay";
+import { brandMascot } from "@shared/brand";
 import { resolveOverlay } from "../scripts/overlay";
 
 describe("overlay contract", () => {
@@ -70,5 +71,27 @@ describe("overlay gates", () => {
     expect(bundleMarkerViolations(new Set([OSS_OVERLAY_MARKER, "junto-overlay:junto-premium"]), "oss")).toHaveLength(1);
     expect(bundleMarkerViolations(new Set([OSS_OVERLAY_MARKER]), "official")).toHaveLength(1);
     expect(bundleMarkerViolations(new Set(["junto-overlay:junto-premium"]), "official")).toEqual([]);
+  });
+
+  it("has no mascot in an open-source build", () => {
+    expect(brandMascot).toBeUndefined();
+  });
+
+  it("fingerprints premium items and the mascot so an open-source bundle can be searched", () => {
+    const prints = premiumFingerprints({
+      cosmetics: [
+        {
+          id: "pack",
+          species: [{ id: "blob", name: "Blob" }],
+          toppers: [{ id: "horn", name: "Horn", parts: [{ shapes: [{ kind: "path", d: "M 0 0 L 4 -12 L 8 0 Z" }] }] }],
+        },
+      ],
+      brand: { mascot: { name: "Mo", seed: "mo" } },
+    });
+    expect(prints.map((print) => print.label)).toEqual(['premium species "blob" (pack)', 'premium toppers "horn" (pack)', "mascot Mo"]);
+    expect(fingerprintHits('const a={id:"blob",name:"Blob",body:{}}', prints)).toEqual(['premium species "blob" (pack)']);
+    expect(fingerprintHits('d:"M 0 0 L 4 -12 L 8 0 Z"', prints)).toEqual(['premium toppers "horn" (pack)']);
+    expect(fingerprintHits('{"name": "Mo", "seed": "mo"}', prints)).toEqual(["mascot Mo"]);
+    expect(fingerprintHits('{id:"round",name:"Round"} name:"Mo"', prints)).toEqual([]);
   });
 });

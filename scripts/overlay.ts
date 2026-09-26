@@ -3,7 +3,8 @@
 // points at its overlay/ directory. Unset, the alias points at the in-repo
 // stub, and the build is the open-source app. Nothing is resolved at run time.
 //
-//   bun scripts/overlay.ts --receipt   one line naming the overlay a build uses
+//   bun scripts/overlay.ts --receipt     one line naming the overlay a build uses
+//   bun scripts/overlay.ts --brand-dir   the overlay's brand/ directory, or nothing
 import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { isAbsolute, join, resolve, sep } from "node:path";
@@ -64,4 +65,19 @@ if (import.meta.main && process.argv.includes("--receipt")) {
   // Package provenance pins this app's commit; the overlay's commit rides here.
   const overlay = resolveOverlay();
   console.log(overlay.kind === "oss" ? "oss (src/overlay-oss)" : `official ${overlayRevision(overlay.dir)} (${overlay.dir})`);
+}
+
+/**
+ * The overlay's packaging brand (app icon, DMG background) lives in its
+ * brand/ directory; an open-source build keeps this repo's neutral mark.
+ */
+export function overlayBrandDir(overlay: ResolvedOverlay = resolveOverlay()): string | undefined {
+  if (overlay.kind === "oss") return undefined;
+  const dir = join(overlay.dir, "..", "brand");
+  return existsSync(join(dir, "build", "icon.icns")) ? dir : undefined;
+}
+
+if (import.meta.main && process.argv.includes("--brand-dir")) {
+  const dir = overlayBrandDir();
+  if (dir) console.log(dir);
 }
