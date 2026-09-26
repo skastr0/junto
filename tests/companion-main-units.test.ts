@@ -34,6 +34,17 @@ describe("companion change clock", () => {
     expect(quiet).toMatchObject({ changed: false, signals: [] });
   });
 
+  it("releases a waiting poll at once on close, and never waits after", async () => {
+    const changes = makeCompanionChanges();
+    const first = await changes.wait(undefined, 0);
+    const started = Date.now();
+    const waiting = changes.wait(first.cursor, 60_000);
+    changes.close();
+    await waiting;
+    await changes.wait(first.cursor, 60_000);
+    expect(Date.now() - started).toBeLessThan(1_000);
+  });
+
   it("reads a cursor from another boot as a reset", async () => {
     const before = await makeCompanionChanges().wait(undefined, 0);
     const after = await makeCompanionChanges().wait(before.cursor, 0);

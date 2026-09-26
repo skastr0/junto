@@ -19,6 +19,11 @@ const COALESCE_MS = 120;
 
 export type CompanionChanges = {
   readonly bump: () => void;
+  /**
+   * Quit: release every waiting long poll now and answer later ones at once,
+   * so operator control shutdown never waits on a phone's idle poll.
+   */
+  readonly close: () => void;
   readonly noteSignal: (signal: AgentSignal) => void;
   readonly wait: (
     cursor: string | undefined,
@@ -37,6 +42,7 @@ export const makeCompanionChanges = (): CompanionChanges => {
   const ring: Array<{ readonly seq: number; readonly signal: AgentSignal }> = [];
   let waiters: Array<() => void> = [];
   let timer: ReturnType<typeof setTimeout> | undefined;
+  let closed = false;
 
   const wake = (): void => {
     if (timer !== undefined) return;
@@ -59,6 +65,14 @@ export const makeCompanionChanges = (): CompanionChanges => {
 
   return {
     bump,
+    close: () => {
+      closed = true;
+      if (timer !== undefined) clearTimeout(timer);
+      timer = undefined;
+      const current = waiters;
+      waiters = [];
+      for (const resolve of current) resolve();
+    },
     noteSignal: (signal) => {
       seq += 1;
       ring.push({ seq, signal });
@@ -72,7 +86,7 @@ export const makeCompanionChanges = (): CompanionChanges => {
       if (since === undefined || since > seq || (since < oldest - 1 && ring.length === SIGNAL_RING)) {
         return { cursor: cursorOf(seq), changed: false, signals: [], reset: cursor !== undefined };
       }
-      if (since === seq) {
+      if (since === seq && !closed) {
         await new Promise<void>((resolve) => {
           const done = (): void => {
             clearTimeout(timeout);

@@ -181,7 +181,13 @@ import {
   type OperatorRequestEnvelope,
   type OperatorResponseEnvelope,
 } from "@shared/operator-control";
-import { makeCompanionService, readCompanionEnvironment, setCompanionService } from "./junto/companion/service";
+import {
+  companionE2eEnvironment,
+  companionService,
+  makeCompanionService,
+  readCompanionEnvironment,
+  setCompanionService,
+} from "./junto/companion/service";
 import { broadcastCompanionDevices, registerCompanionIpc } from "./junto/companion/ipc";
 import { companionNotePreamble, wireCompanionChanges } from "./junto/companion/wiring";
 import { findPackagedSandboxDisablingSwitch } from "./junto/packaged-sandbox-policy";
@@ -1419,6 +1425,7 @@ if (packagedSandboxDisablingSwitch !== undefined) {
         : makeCompanionService({
             appVersion: app.getVersion(),
             environment: () =>
+              companionE2eEnvironment() ??
               readCompanionEnvironment({
                 packaged: app.isPackaged,
                 resourcesPath: process.resourcesPath,
@@ -1992,6 +1999,8 @@ const beginShutdownAdmission = (reason: string): void => {
   beginBoxProcessShutdown();
   beginStationFleetPropagationShutdown();
 
+  // A phone's idle long poll must not hold operator control open over quit.
+  companionService()?.changes.close();
   operatorControl?.beginShutdown();
   unregisterOverseerLiveIpc?.();
   unregisterOverseerLiveIpc = undefined;

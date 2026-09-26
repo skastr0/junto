@@ -271,7 +271,7 @@ export const makeCompanionService = (options: CompanionServiceOptions): Companio
       pairingKey: key.privateKey,
       expiresAt,
     });
-    const qrSvg = await QRCode.toString(url, { type: "svg", errorCorrectionLevel: "L", margin: 2 });
+    const qrSvg = await QRCode.toString(url, { type: "svg", errorCorrectionLevel: "L", margin: 4 });
     announce();
     return { ok: true as const, deviceId, expiresAt, qrSvg, hosts: environment.hosts };
   };
@@ -322,3 +322,19 @@ export const setCompanionService = (service: CompanionService): void => {
 export const companionService = (): CompanionService | undefined => instance;
 
 export { readCompanionEnvironment };
+
+/**
+ * The e2e harness pins this Mac's pairing facts (Remote Login, host key,
+ * hosts, the junto command) so a pairing scenario does not depend on the
+ * machine it runs on. Honoured only in a harness run (JUNTO_E2E=1, which
+ * also sandboxes HOME, so authorized_keys is the sandbox's).
+ */
+export const companionE2eEnvironment = (): Promise<CompanionEnvironment> | undefined => {
+  const raw = process.env.JUNTO_E2E === "1" ? process.env.JUNTO_E2E_COMPANION_ENVIRONMENT : undefined;
+  if (!raw) return undefined;
+  try {
+    return Promise.resolve(JSON.parse(raw) as CompanionEnvironment);
+  } catch {
+    return undefined;
+  }
+};

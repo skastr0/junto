@@ -13,6 +13,7 @@ import {
   experimentalFeatureKeys,
 } from "@shared/features";
 import { ExperimentalSettingsSection } from "./settings/ExperimentalSettingsSection";
+import { CompanionSettingsSection } from "./settings/CompanionSettingsSection";
 import { HarnessesSettingsSection } from "./settings/HarnessesSettingsSection";
 import { ProvidersSettingsSection } from "./settings/ProvidersSettingsSection";
 import { QuickRepliesSettingsSection } from "./settings/QuickRepliesSettingsSection";
@@ -47,7 +48,7 @@ import "./settings-panel.css";
  * Settings sections: preferences, the app update panel, and the experimental
  * features (stored under advanced, shown on their own tab).
  */
-type PanelSection = SettingsSectionKey | "updates" | "experimental";
+type PanelSection = SettingsSectionKey | "updates" | "experimental" | "companion";
 
 const SECTIONS: ReadonlyArray<{ key: PanelSection; label: string; blurb: string }> = [
   { key: "appearance", label: "Appearance", blurb: "" },
@@ -58,6 +59,7 @@ const SECTIONS: ReadonlyArray<{ key: PanelSection; label: string; blurb: string 
     label: "Notifications",
     blurb: "what reaches you while Junto is in the background",
   },
+  { key: "companion", label: "Companion", blurb: "answer your agents from your phone" },
   // Machine/station topology is fleet-adjacent (host id, supervised runtime).
   ...(FLEET_UI_ENABLED
     ? [{ key: "station", label: "Machine", blurb: "this installation" } as const]
@@ -1073,6 +1075,8 @@ function SectionBody({ section }: { readonly section: PanelSection }) {
       return <ProvidersSettingsSection />;
     case "experimental":
       return <ExperimentalSettingsSection />;
+    case "companion":
+      return <CompanionSettingsSection />;
     case "advanced":
       return <AdvancedSection />;
     case "kernel":
@@ -1134,7 +1138,7 @@ export function SettingsPanel() {
             </div>
           </div>
           <div className="settings-panel__header-actions">
-            {activeSection !== "updates" && activeSection !== "experimental" ? (
+            {activeSection !== "updates" && activeSection !== "experimental" && activeSection !== "companion" ? (
               <button
                 type="button"
                 className="settings-panel__ghost"

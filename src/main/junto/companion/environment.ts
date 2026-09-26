@@ -14,7 +14,7 @@
 import { execFile } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { createConnection } from "node:net";
-import { hostname, networkInterfaces, userInfo } from "node:os";
+import { homedir, hostname, networkInterfaces, userInfo } from "node:os";
 import { join } from "node:path";
 
 export type CompanionEnvironment = {
@@ -109,16 +109,23 @@ const lanAddresses = (): ReadonlyArray<string> =>
     .filter((entry) => entry.family === "IPv4" && !entry.internal && !entry.address.startsWith("100."))
     .map((entry) => entry.address);
 
-/** The installed `junto` command the forced command runs, when there is one. */
+/**
+ * The `junto` command the forced command runs. An installed app links it at
+ * ~/.local/bin/junto, a path that survives reinstalling or updating the app,
+ * so that is preferred; otherwise the bundle's own copy (packaged) or the
+ * repo's built CLI (a development run).
+ */
 export const resolveJuntoCommand = (options: {
   readonly packaged: boolean;
   readonly resourcesPath: string;
   readonly repoRoot: string;
+  readonly home?: string;
 }): string | undefined => {
-  const candidate = options.packaged
-    ? join(options.resourcesPath, "bin", "junto")
-    : join(options.repoRoot, "dist", "junto");
-  return existsSync(candidate) ? candidate : undefined;
+  const candidates = [
+    join(options.home ?? homedir(), ".local", "bin", "junto"),
+    options.packaged ? join(options.resourcesPath, "bin", "junto") : join(options.repoRoot, "dist", "junto"),
+  ];
+  return candidates.find((candidate) => existsSync(candidate));
 };
 
 /** Hosts in the order the phone should try them, without repeats. */
