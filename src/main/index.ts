@@ -50,6 +50,8 @@ import { registerBrowserIpcHandlers, registerIpcHandlers } from "./ipc";
 import { CanvasesService } from "./junto/canvases";
 import { resolveControlHome } from "./junto/control-home";
 import { registerDemoIpcHandlers } from "./junto/demo/ipc";
+import { registerNotificationIpc } from "./junto/notifications/ipc";
+import type { NotificationPlane } from "./junto/notifications/plane";
 import {
   BROWSER_COMPOSITION_STARTUP_FAILURE_MESSAGE,
   startBrowserComposition,
@@ -352,6 +354,8 @@ applyE2eMacOsFocusIsolation({
 });
 
 let trustedMainWindow: BrowserWindow | undefined;
+/** Desktop notifications; registered with the product IPC, follows each main window. */
+let notificationPlane: NotificationPlane | undefined;
 /** The Command Center is a trusted renderer identity, never "the first window". */
 const currentTrustedMainWindow = (): BrowserWindow | undefined => {
   const candidate = trustedMainWindow;
@@ -836,6 +840,7 @@ const createWindow = () => {
     });
   }
   trustedMainWindow = mainWindow;
+  notificationPlane?.attach(mainWindow);
   // BrowserWindow's `closed` event fires after its native object and
   // WebContents have been destroyed. Capture the routing identity while it is
   // live; dereferencing mainWindow.webContents inside `closed` throws.
@@ -1481,6 +1486,13 @@ if (packagedSandboxDisablingSwitch !== undefined) {
     });
     registerIpcHandlers();
     registerDemoIpcHandlers();
+    notificationPlane ??= registerNotificationIpc({
+      window: currentTrustedMainWindow,
+      // No banners, badge, or bounce from a test harness run.
+      enabled: !e2ePresentation.e2e,
+    });
+    const notifyWindow = currentTrustedMainWindow();
+    if (notifyWindow !== undefined) notificationPlane.attach(notifyWindow);
     if (shutdownAdmissionClosed) return;
 
     // Content stream protocol: renderer media loads ContentRefs without Base64.

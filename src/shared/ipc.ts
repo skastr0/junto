@@ -68,6 +68,7 @@ import type {
   PortraitOverrideSetResult,
 } from "./portrait-overrides";
 import type { Squad, SquadDeleteResult, SquadResult, SquadSaveInput, SquadsChanged } from "./squads";
+import type { NotifyCue, NotifyReport, NotifyTarget } from "./desktop-notifications";
 import type { OverseerLiveApi } from "./overseer-live";
 import type { HostDeployJobSnapshot } from "./deploy-job";
 import type {
@@ -131,6 +132,11 @@ export const IPC_CHANNELS = {
   squadRename: "junto:squad-rename",
   squadDelete: "junto:squad-delete",
   squadsChanged: "junto:squads-changed",
+  /** Desktop notifications: renderer reports open needs, asks for a test banner; main routes a click and a cue back. */
+  notificationsReport: "junto:notifications-report",
+  notificationsTest: "junto:notifications-test",
+  notificationActivate: "junto:notification-activate",
+  notificationCue: "junto:notification-cue",
   chatOpen: "junto:chat-open",
   chatPrompt: "junto:chat-prompt",
   chatPermission: "junto:chat-permission",
@@ -872,6 +878,16 @@ export interface JuntoApi extends UpdateApi, OverseerLiveApi {
   readonly onPortraitOverride: (listener: (event: PortraitOverrideEvent) => void) => () => void;
   /** Main → renderer: every squad, after any change. Optional for older bridges. */
   readonly onSquadsChanged?: (listener: (event: SquadsChanged) => void) => () => void;
+  /** The canvas's open needs, for desktop notifications and the Dock badge. */
+  readonly notificationsReport?: (
+    report: NotifyReport,
+  ) => Promise<{ readonly ok: boolean; readonly message?: string }>;
+  /** Show a test banner now (where macOS asks for permission). */
+  readonly notificationsTest?: () => Promise<{ readonly ok: boolean; readonly message?: string }>;
+  /** Main → renderer: the operator clicked a notification. */
+  readonly onNotificationActivate?: (listener: (target: NotifyTarget) => void) => () => void;
+  /** Main → renderer: a silent banner went up; play its cue. */
+  readonly onNotificationCue?: (listener: (event: { readonly cue: NotifyCue }) => void) => () => void;
   readonly onSnapshotsChanged: (listener: (state: SnapshotState) => void) => () => void;
   readonly onKernelChanged: (listener: (snapshot: KernelSnapshot) => void) => () => void;
   // User settings document (main owns the SQLite row; renderer holds a live projection).

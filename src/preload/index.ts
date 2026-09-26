@@ -52,6 +52,7 @@ import type { PortraitOverrideEvent } from "@shared/portrait-overrides";
 import type { Settings, SettingsOpResult, SettingsPatch, SettingsSectionKey } from "@shared/settings";
 import type { UsageState } from "@shared/usage";
 import type { SquadsChanged } from "@shared/squads";
+import type { NotifyCue, NotifyTarget } from "@shared/desktop-notifications";
 import type { UpdateStatus } from "@shared/update";
 import { nodeRefKey, parseNodeRef } from "@shared/node-ref";
 import { isRendererPreloadCandidate } from "@shared/trusted-renderer-origin";
@@ -480,6 +481,12 @@ const juntoApi: Omit<JuntoApi, keyof typeof liveApi | WorkFeatureApiKey> = {
   onPortraitOverride: (listener) =>
     subscribe<PortraitOverrideEvent>(IPC_CHANNELS.portraitOverride, listener),
   onSquadsChanged: (listener) => subscribe<SquadsChanged>(IPC_CHANNELS.squadsChanged, listener),
+  notificationsReport: (report) => invoke(IPC_CHANNELS.notificationsReport, IPC_TIMEOUT_MS, report),
+  notificationsTest: () => invoke(IPC_CHANNELS.notificationsTest, IPC_TIMEOUT_MS),
+  onNotificationActivate: (listener) =>
+    subscribe<NotifyTarget>(IPC_CHANNELS.notificationActivate, listener),
+  onNotificationCue: (listener) =>
+    subscribe<{ readonly cue: NotifyCue }>(IPC_CHANNELS.notificationCue, listener),
   onSnapshotsChanged: (listener) =>
     subscribe<SnapshotState>(IPC_CHANNELS.snapshotsChanged, listener),
   onKernelChanged: (listener) => subscribe<KernelSnapshot>(IPC_CHANNELS.kernelChanged, listener),
