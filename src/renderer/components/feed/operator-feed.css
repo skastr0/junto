@@ -1,18 +1,43 @@
-/* Operator feed: a calm vertical reading column. Region headers stick while
-   their cards scroll under them; cards are portrait + words, no chrome
-   beyond a hairline, the need's colour carried by one left rule. */
+/* Operator feed: one surface, one frame. The dialog panel is the only box;
+   the header, region sections and items sit directly on it. Items are rows,
+   not cards: a portrait carrying the need's glyph, the words, and quiet
+   actions. Each region section wears the region's own colour
+   (--feed-region, set inline from the canvas group). */
 
-.operator-feed__panel {
+.operator-feed__panel.focus-surface__panel--document {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  padding: 0;
+  background: var(--color-raise);
 }
 
-.operator-feed__keys {
-  display: inline-flex;
-  gap: 3px;
-  margin-right: 6px;
-  opacity: 0.8;
+/* Header: same surface as the body; a hairline appears only once the list
+   scrolls under it. */
+.operator-feed__panel > .operator-feed__head {
+  padding: 20px 24px 14px;
+  border-bottom: 1px solid transparent;
+  background: transparent;
+  transition: border-color 160ms cubic-bezier(0.25, 1, 0.5, 1);
+}
+
+.operator-feed__panel > .operator-feed__head[data-scrolled="true"] {
+  border-bottom-color: var(--color-stroke);
+}
+
+.operator-feed__title {
+  font-family: var(--font-display);
+  font-size: 22px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  line-height: 1.2;
+}
+
+.operator-feed__status {
+  display: inline-block;
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--color-dim);
 }
 
 .operator-feed__scroll {
@@ -21,52 +46,92 @@
   overflow-y: auto;
   overscroll-behavior: contain;
   scrollbar-width: thin;
-  padding: 0 20px 28px;
-  background: var(--color-ground);
+  padding: 0 12px 20px;
 }
 
-/* Region sections ---------------------------------------------------------- */
+/* Region sections --------------------------------------------------------- */
+
+.operator-feed__region {
+  --feed-region: var(--color-steel);
+  --feed-region-ink: color-mix(in oklab, var(--feed-region) 72%, var(--color-ink));
+}
 
 .operator-feed__region + .operator-feed__region {
-  margin-top: 10px;
+  margin-top: 14px;
 }
 
 .operator-feed__region-head {
   position: sticky;
   top: 0;
-  z-index: 1;
+  z-index: 2;
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 10px;
-  padding: 18px 2px 10px;
-  background: linear-gradient(
-    to bottom,
-    var(--color-ground) 78%,
-    color-mix(in srgb, var(--color-ground) 0%, transparent)
-  );
+  padding: 14px 12px 10px;
+  background: var(--color-raise);
+}
+
+/* A little plate in the region's colour, echoing the region on the canvas. */
+.operator-feed__region-swatch {
+  flex: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 4px;
+  background: var(--feed-region);
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--feed-region) 20%, transparent);
+}
+
+.operator-feed__region[data-open-field="true"] .operator-feed__region-swatch {
+  background: transparent;
+  box-shadow: inset 0 0 0 1.5px color-mix(in oklab, var(--feed-region) 70%, transparent);
 }
 
 .operator-feed__region-label {
+  flex: none;
+  max-width: 50%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-family: var(--font-display);
-  font-size: 17px;
-  letter-spacing: 0.04em;
+  font-size: 16px;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: var(--color-ink);
+  color: var(--feed-region-ink);
 }
 
 .operator-feed__region-path {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 11px;
-  color: var(--color-faint);
+  color: var(--color-dim);
+}
+
+.operator-feed__region-rule {
+  flex: 1 1 24px;
+  min-width: 24px;
+  height: 1px;
+  background: linear-gradient(
+    to right,
+    color-mix(in oklab, var(--feed-region) 55%, transparent),
+    color-mix(in oklab, var(--feed-region) 0%, transparent)
+  );
 }
 
 .operator-feed__region-count {
-  margin-left: auto;
+  flex: none;
+  min-width: 22px;
+  height: 20px;
+  padding: 0 7px;
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--feed-region) 16%, transparent);
+  color: var(--feed-region-ink);
   font-family: var(--font-mono);
   font-size: 11px;
-  color: var(--color-amber);
+  font-weight: 600;
+  line-height: 20px;
+  text-align: center;
   font-variant-numeric: tabular-nums;
 }
 
@@ -75,82 +140,117 @@
   flex-direction: column;
 }
 
-/* Cards -------------------------------------------------------------------- */
+/* Items ------------------------------------------------------------------- */
 
 .operator-feed__slot {
   display: grid;
   grid-template-rows: 1fr;
-  padding-bottom: 10px;
+}
+
+/* Hairline between rows, aligned with the words, not the portraits. */
+.operator-feed__slot + .operator-feed__slot > .operator-feed__card::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 70px;
+  right: 12px;
+  height: 1px;
+  background: color-mix(in oklab, var(--color-stroke) 70%, transparent);
+  transition: opacity 140ms ease-out;
 }
 
 .operator-feed__slot--leaving {
-  animation: operator-feed-leave 320ms ease forwards;
+  animation: operator-feed-leave 280ms cubic-bezier(0.25, 1, 0.5, 1) forwards;
   pointer-events: none;
 }
 
 @keyframes operator-feed-leave {
   from {
     grid-template-rows: 1fr;
-    padding-bottom: 10px;
     opacity: 1;
     transform: translateX(0);
   }
   to {
     grid-template-rows: 0fr;
-    padding-bottom: 0;
     opacity: 0;
-    transform: translateX(14px);
+    transform: translateX(16px);
   }
 }
 
 .operator-feed__card {
-  --feed-accent: var(--color-steel);
+  --feed-kind: var(--color-steel);
+  position: relative;
   display: grid;
-  grid-template-columns: 56px minmax(0, 1fr);
-  gap: 14px;
+  grid-template-columns: 46px minmax(0, 1fr);
+  gap: 12px;
   min-height: 0;
   overflow: hidden;
-  padding: 14px 16px 14px 14px;
-  border: 1px solid color-mix(in srgb, var(--color-stroke) 80%, transparent);
-  border-left: 2px solid var(--feed-accent);
-  border-radius: 10px;
-  background: var(--color-raise);
-  transition: border-color 140ms ease, background-color 140ms ease, box-shadow 140ms ease;
+  padding: 14px 12px;
+  border-radius: 12px;
+  transition: background-color 140ms cubic-bezier(0.25, 1, 0.5, 1);
 }
 
-.operator-feed__card--blocked { --feed-accent: var(--color-crimson); }
-.operator-feed__card--attention,
-.operator-feed__card--escalate { --feed-accent: var(--color-amber); }
-.operator-feed__card--feedback { --feed-accent: var(--color-cyan); }
-.operator-feed__card--health { --feed-accent: color-mix(in srgb, var(--color-amber) 45%, var(--color-steel)); }
+.operator-feed__card[data-kind="blocked"] { --feed-kind: var(--color-crimson); }
+.operator-feed__card[data-kind="attention"] { --feed-kind: var(--color-amber); }
+.operator-feed__card[data-kind="escalate"] { --feed-kind: var(--color-orange); }
+.operator-feed__card[data-kind="feedback"] { --feed-kind: var(--color-cyan); }
+.operator-feed__card[data-kind="health"] { --feed-kind: var(--color-steel); }
 
 .operator-feed__card:hover {
-  background: color-mix(in srgb, var(--color-raise) 88%, var(--color-ink) 4%);
+  background: var(--color-overlay-1);
 }
 
 .operator-feed__card.is-selected {
-  border-color: color-mix(in srgb, var(--feed-accent) 55%, var(--color-stroke));
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--feed-accent) 35%, transparent);
+  background: color-mix(in oklab, var(--color-ink) 6%, transparent);
+}
+
+/* The row above and below a highlighted row lose their shared hairline. */
+.operator-feed__card:hover::before,
+.operator-feed__card.is-selected::before,
+.operator-feed__slot:has(> .operator-feed__card:hover) + .operator-feed__slot > .operator-feed__card::before,
+.operator-feed__slot:has(> .operator-feed__card.is-selected) + .operator-feed__slot > .operator-feed__card::before {
+  opacity: 0;
 }
 
 .operator-feed__portrait {
-  display: flex;
-  align-items: flex-start;
-  justify-content: center;
-  padding-top: 2px;
+  position: relative;
+  width: 46px;
+  height: 46px;
+}
+
+/* The need, as a small disc on the portrait: colour for glance, glyph for
+   anyone who does not read colour. */
+.operator-feed__kind-mark {
+  position: absolute;
+  right: -3px;
+  bottom: -3px;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  background: var(--feed-kind);
+  color: var(--color-ground);
+  box-shadow: 0 0 0 2.5px var(--color-raise);
+}
+
+.operator-feed__card:hover .operator-feed__kind-mark {
+  box-shadow: 0 0 0 2.5px color-mix(in oklab, var(--color-raise) 97%, var(--color-ink));
 }
 
 .operator-feed__body {
   display: flex;
   flex-direction: column;
+  align-items: flex-start;
   gap: 6px;
   min-width: 0;
 }
 
 .operator-feed__card-head {
   display: flex;
-  align-items: center;
-  gap: 8px;
+  align-items: baseline;
+  gap: 10px;
+  align-self: stretch;
   min-width: 0;
 }
 
@@ -164,21 +264,30 @@
   color: var(--color-ink);
 }
 
+.operator-feed__kind {
+  flex: none;
+  font-size: 12px;
+  font-weight: 500;
+  color: color-mix(in oklab, var(--feed-kind) 80%, var(--color-ink));
+}
+
 .operator-feed__age {
   margin-left: auto;
   flex-shrink: 0;
   font-family: var(--font-mono);
-  font-size: 10.5px;
-  color: var(--color-faint);
+  font-size: 11px;
+  color: var(--color-dim);
   font-variant-numeric: tabular-nums;
 }
 
 .operator-feed__text {
+  max-width: 68ch;
   margin: 0;
   font-size: 14px;
-  line-height: 1.45;
+  line-height: 1.5;
   color: var(--color-ink);
   overflow-wrap: anywhere;
+  text-wrap: pretty;
 }
 
 .operator-feed__health {
@@ -186,7 +295,7 @@
   align-items: center;
   gap: 6px;
   margin: 0;
-  font-size: 11px;
+  font-size: 11.5px;
   color: var(--color-dim);
 }
 
@@ -194,12 +303,40 @@
   color: var(--color-faint);
 }
 
+.operator-feed__detail-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin: -2px 0 0 -4px;
+  padding: 2px 6px 2px 4px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--color-dim);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.operator-feed__detail-toggle:hover {
+  background: var(--color-overlay-1);
+  color: var(--color-ink);
+}
+
+.operator-feed__detail-toggle:focus-visible {
+  outline: 2px solid color-mix(in oklab, var(--color-amber) 70%, transparent);
+  outline-offset: 1px;
+}
+
+.operator-feed__chevron--open {
+  transform: rotate(180deg);
+}
+
 .operator-feed__detail {
+  align-self: stretch;
   max-height: 320px;
   overflow-y: auto;
-  padding: 10px 12px;
-  border: 1px solid color-mix(in srgb, var(--color-stroke) 70%, transparent);
-  border-radius: 7px;
+  padding: 10px 14px;
+  border-radius: 8px;
   background: var(--color-inset);
 }
 
@@ -207,23 +344,70 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  justify-content: flex-end;
-  gap: 6px;
-  margin-top: 2px;
+  gap: 8px 12px;
+  align-self: stretch;
+  margin-top: 4px;
 }
 
-.operator-feed__chevron--open {
-  transform: rotate(180deg);
+.operator-feed__actions-end {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: auto;
+}
+
+/* Feed pills are filled, not outlined: at thirty rows outlines turn to noise. */
+.operator-feed__quick .quick-reply {
+  height: 26px;
+  border-color: transparent;
+  background: var(--color-overlay-1);
+  color: var(--color-ink-2);
+}
+
+.operator-feed__quick .quick-reply:hover {
+  border-color: transparent;
+  background: color-mix(in oklab, var(--color-ink) 10%, transparent);
+  color: var(--color-ink);
+}
+
+.operator-feed__card.is-selected .operator-feed__quick .quick-reply {
+  background: color-mix(in oklab, var(--color-ink) 8%, transparent);
 }
 
 .operator-feed__reply {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
+  align-self: stretch;
   margin-top: 4px;
 }
 
-/* Empty state -------------------------------------------------------------- */
+.operator-feed__error {
+  margin: 0;
+  font-size: 12px;
+  color: var(--color-crimson);
+}
+
+/* Key legend -------------------------------------------------------------- */
+
+.operator-feed__keys {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 18px;
+  flex: none;
+  padding: 10px 24px 14px;
+  font-size: 11px;
+  color: var(--color-dim);
+}
+
+.operator-feed__keys > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* Empty state ------------------------------------------------------------- */
 
 .operator-feed__empty {
   display: flex;
@@ -231,44 +415,46 @@
   align-items: center;
   justify-content: center;
   gap: 8px;
-  min-height: 60%;
-  padding: 72px 24px;
+  min-height: 100%;
+  padding: 48px 24px 72px;
   text-align: center;
 }
 
 .operator-feed__empty-mark {
   display: grid;
   place-items: center;
-  width: 52px;
-  height: 52px;
-  margin-bottom: 6px;
-  border: 1px solid color-mix(in srgb, var(--color-stroke) 70%, transparent);
+  width: 56px;
+  height: 56px;
+  margin-bottom: 8px;
   border-radius: 999px;
-  color: var(--color-faint);
+  background: var(--color-overlay-1);
+  color: var(--color-dim);
 }
 
 .operator-feed__empty-title {
   margin: 0;
   font-family: var(--font-display);
-  font-size: 18px;
-  letter-spacing: 0.04em;
-  color: var(--color-dim);
+  font-size: 20px;
+  letter-spacing: 0.03em;
+  color: var(--color-ink-2);
 }
 
 .operator-feed__empty-copy {
-  max-width: 34ch;
+  max-width: 36ch;
   margin: 0;
-  font-size: 12px;
+  font-size: 13px;
   line-height: 1.5;
-  color: var(--color-faint);
+  color: var(--color-dim);
+  text-wrap: pretty;
 }
 
 @media (prefers-reduced-motion: reduce) {
   .operator-feed__slot--leaving { animation: none; }
-  .operator-feed__card { transition: none; }
+  .operator-feed__card,
+  .operator-feed__panel > .operator-feed__head { transition: none; }
 }
 
-/* Top bar entry ------------------------------------------------------------ */
+/* Top bar entry ----------------------------------------------------------- */
 
 .operator-feed-trigger {
   position: relative;

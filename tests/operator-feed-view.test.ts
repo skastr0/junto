@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import type { FeedItem, FeedSection } from "../src/shared/operator-feed";
-import { feedStatusLine, stepFeedSelection, withLeavingItems } from "../src/renderer/lib/operator-feed";
+import {
+  feedStatusLine,
+  reconcileSelection,
+  stepFeedSelection,
+  withLeavingItems,
+} from "../src/renderer/lib/operator-feed";
+import { moveQuickReply, quickReplyForKey } from "../src/renderer/lib/quick-replies";
 
 const item = (itemId: string): FeedItem => ({
   itemId,
@@ -61,5 +67,39 @@ describe("feedStatusLine", () => {
     expect(feedStatusLine({ count: 0, sections: [] })).toBe("nobody needs you right now");
     expect(feedStatusLine({ count: 1, sections: [section("r", ["a"])] })).toBe("1 waiting");
     expect(feedStatusLine({ count: 3, sections: [section("r", ["a"]), section(null, ["b", "c"])] })).toBe("3 waiting across 2 regions");
+  });
+});
+
+describe("reconcileSelection", () => {
+  const before = [{ itemId: "a" }, { itemId: "b" }, { itemId: "c" }, { itemId: "d" }];
+  it("keeps a selection that is still there", () => {
+    expect(reconcileSelection(before, before.slice(1), "c")).toBe("c");
+  });
+
+  it("moves to the next survivor, or back from the end, or clears", () => {
+    expect(reconcileSelection(before, [{ itemId: "a" }, { itemId: "c" }, { itemId: "d" }], "b")).toBe("c");
+    expect(reconcileSelection(before, [{ itemId: "a" }, { itemId: "d" }], "b")).toBe("d");
+    expect(reconcileSelection(before, [{ itemId: "a" }, { itemId: "b" }], "d")).toBe("b");
+    expect(reconcileSelection(before, [], "b")).toBeNull();
+    expect(reconcileSelection(before, before, null)).toBeNull();
+    expect(reconcileSelection(before, before.slice(1), "gone")).toBeNull();
+  });
+});
+
+describe("quick reply keys and order", () => {
+  const replies = ["Yes", "No", "Continue"];
+  it("maps 1..9 onto the list and ignores other keys", () => {
+    expect(quickReplyForKey(replies, "1")).toBe("Yes");
+    expect(quickReplyForKey(replies, "3")).toBe("Continue");
+    expect(quickReplyForKey(replies, "4")).toBeNull();
+    expect(quickReplyForKey(replies, "0")).toBeNull();
+    expect(quickReplyForKey(replies, "j")).toBeNull();
+  });
+
+  it("moves one reply up or down within the list", () => {
+    expect(moveQuickReply(replies, 0, 1)).toEqual(["No", "Yes", "Continue"]);
+    expect(moveQuickReply(replies, 2, -1)).toEqual(["Yes", "Continue", "No"]);
+    expect(moveQuickReply(replies, 0, -1)).toBe(replies);
+    expect(moveQuickReply(replies, 2, 1)).toBe(replies);
   });
 });

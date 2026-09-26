@@ -89,6 +89,27 @@ export const stepFeedSelection = (
   return items[next]!.itemId;
 };
 
+/**
+ * Keep a selection through a feed change. When the selected item leaves
+ * (answered here, answered elsewhere, dismissed, withdrawn) the selection
+ * moves to its nearest neighbour that is still there, next first.
+ */
+export const reconcileSelection = (
+  previous: ReadonlyArray<Pick<FeedItem, "itemId">>,
+  current: ReadonlyArray<Pick<FeedItem, "itemId">>,
+  selected: string | null,
+): string | null => {
+  if (selected === null) return null;
+  const live = new Set(current.map((item) => item.itemId));
+  if (live.has(selected)) return selected;
+  const index = previous.findIndex((item) => item.itemId === selected);
+  if (index === -1) return null;
+  const after = previous.slice(index + 1).find((item) => live.has(item.itemId));
+  if (after) return after.itemId;
+  const before = previous.slice(0, index).reverse().find((item) => live.has(item.itemId));
+  return before?.itemId ?? null;
+};
+
 /** "3 waiting across 2 regions" — the feed's status line. */
 export const feedStatusLine = (feed: Pick<OperatorFeed, "count" | "sections">): string => {
   if (feed.count === 0) return "nobody needs you right now";
