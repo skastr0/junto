@@ -126,6 +126,7 @@ const resetCanvasView = (): void => {
     state$.hotbarActiveMru.set([]);
     state$.regionSlotOrder.set([]);
     state$.regionSeverityByNodeId.set({});
+    state$.regionCountsByNodeId.set({});
     impactModeActive$.set(false);
   });
   clearPreambles();

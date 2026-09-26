@@ -7,8 +7,10 @@ import {
   publishRegionGlance,
   regionGlanceFontSize,
   regionGlanceOpacity,
+  regionTallyParts,
   SUBREGION_BAND,
   subregionGlanceOpacity,
+  type RegionTally,
 } from "../src/renderer/lib/region-glance";
 
 describe("regionGlanceFontSize", () => {
@@ -131,5 +133,29 @@ describe("publishRegionGlance", () => {
 
   it("is a no-op without a host", () => {
     expect(publishRegionGlance(null, 0.2)).toBe(false);
+  });
+});
+
+describe("regionTallyParts", () => {
+  const tally = (over: Partial<RegionTally>): RegionTally => ({
+    total: 0, blocked: 0, attention: 0, working: 0, ready: 0, ...over,
+  });
+
+  it("says nothing for an empty or unknown region", () => {
+    expect(regionTallyParts(undefined)).toEqual([]);
+    expect(regionTallyParts(tally({}))).toEqual([]);
+  });
+
+  it("names only the states present, worst first", () => {
+    expect(regionTallyParts(tally({ total: 9, working: 3, blocked: 1, ready: 2 }))).toEqual([
+      { tone: "crimson", text: "1 blocked" },
+      { tone: "cyan", text: "3 working" },
+      { tone: "green", text: "2 done" },
+    ]);
+  });
+
+  it("reads a quiet region as idle", () => {
+    expect(regionTallyParts(tally({ total: 4 }))).toEqual([{ tone: "steel", text: "4 idle" }]);
+    expect(regionTallyParts(tally({ total: 1 }))).toEqual([{ tone: "steel", text: "1 idle" }]);
   });
 });

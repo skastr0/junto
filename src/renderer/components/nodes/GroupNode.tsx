@@ -10,7 +10,7 @@ import { claimFocus } from "../../lib/focus-ownership";
 import { dragHoldMemberIds, resizeNode, syncPositions } from "../../lib/geometry";
 import { state$ } from "../../lib/state";
 import { accentColor, borderColor, HUE, INK, withAlpha } from "../../lib/theme";
-import { regionGlanceFontSize } from "../../lib/region-glance";
+import { regionGlanceFontSize, regionTallyParts } from "../../lib/region-glance";
 import { markViewportBusy, releaseViewportBusy } from "../../lib/viewport-busy";
 import {
   isMultiSelectGesture,
@@ -156,6 +156,13 @@ export function GroupNode({ data, selected }: NodeProps<FlowNode>) {
   // than a placeholder the operator cannot navigate by.
   const nestedGlance = nestingDepth === 1;
   const glanceable = nestingDepth <= 1 && label.trim().length > 0;
+  const glanceSize = glanceable ? regionGlanceFontSize(node.width, node.height, label, nestedGlance) : 0;
+  // Overview tier (canvas-lod-regions.css): members are not drawn, so an
+  // outermost region carries their worst state and a tally under its name.
+  // Rollups land after the camera rests (RtsBottomBar), never mid-gesture.
+  const severity = use$(() => state$.regionSeverityByNodeId.get()[node.id]);
+  const tally = use$(() => (nestingDepth === 0 ? state$.regionCountsByNodeId.get()[node.id] : undefined));
+  const tallyParts = regionTallyParts(tally);
 
   // Seed and claim once per edit session. A label that changes under the
   // operator (live reload) must not reset the draft or re-select it.
@@ -288,32 +295,51 @@ export function GroupNode({ data, selected }: NodeProps<FlowNode>) {
     : frameHover
       ? withAlpha(HUE.amber, 0.42)
       : stroke;
+  // The fill is two custom properties: the near tier's gradient and a flat
+  // wash the zoomed-out tiers switch to (canvas-lod-regions.css), so a tier
+  // change is a style switch, not a render.
   return <div
     className="junto-group relative h-full w-full rounded-[14px]"
+    data-region-depth={Math.min(nestingDepth, 3)}
+    data-region-severity={severity}
     style={{
       border: `1px solid ${plateBorder}`,
       pointerEvents: "none",
-      background: node.color
+      "--region-fill": node.color
         ? `linear-gradient(135deg, ${withAlpha(tint, 0.08)}, color-mix(in oklab, var(--color-ground) 25%, transparent))`
         : "linear-gradient(135deg, color-mix(in oklab, var(--color-raise) 22%, transparent), color-mix(in oklab, var(--color-ground) 12%, transparent))",
+      "--region-flat": node.color
+        ? withAlpha(tint, 0.07)
+        : "color-mix(in oklab, var(--color-raise) 16%, transparent)",
       boxShadow: selected ? `0 0 0 1px ${withAlpha(HUE.amber, 0.18)}` : "none",
-    }}
+    } as React.CSSProperties}
   >
     {glanceable ? (
       <div
         className={`junto-region-glance${nestedGlance ? " junto-region-glance--nested" : ""}`}
         data-testid={`region-glance-${node.id}`}
         aria-hidden
+        style={{ "--glance-size": `${String(glanceSize)}px` } as React.CSSProperties}
       >
         <span
           className="junto-region-glance__text"
           style={{
-            fontSize: `${regionGlanceFontSize(node.width, node.height, label, nestedGlance)}px`,
+            fontSize: `${String(glanceSize)}px`,
             ...(node.color ? { color: withAlpha(tint, 0.4) } : {}),
           }}
         >
           {label}
         </span>
+        {tallyParts.length > 0 ? (
+          <span className="junto-region-glance__tally" data-testid={`region-tally-${node.id}`}>
+            {tallyParts.map((part, index) => (
+              <span key={part.tone} data-tone={part.tone}>
+                {index > 0 ? ", " : ""}
+                {part.text}
+              </span>
+            ))}
+          </span>
+        ) : null}
       </div>
     ) : null}
     <div style={{ pointerEvents: "auto" }}>

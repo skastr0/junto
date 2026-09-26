@@ -1217,12 +1217,17 @@ html[data-junto-platform="darwin"] .station-bar [role="listbox"] {
 /* Region glance — pulled-back camera prints the region name across its body.
    Opacity rides --junto-region-glance, written on the ReactFlow root per zoom
    (see lib/region-glance.ts); at readable zoom the value is 0 and this is invisible. */
+/* A region's body: the near tier's gradient (GroupNode sets --region-fill);
+   canvas-lod-regions.css switches it for the zoomed-out tiers. */
+.junto-group { background: var(--region-fill); }
 .junto-region-glance {
   position: absolute;
   inset: 0;
   z-index: 0;
-  display: grid;
-  place-items: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
   overflow: hidden;
   pointer-events: none;
   opacity: var(--junto-region-glance, 0);
@@ -1236,6 +1241,8 @@ html[data-junto-platform="darwin"] .station-bar [role="listbox"] {
   color: color-mix(in oklab, var(--color-ink) 38%, transparent);
   letter-spacing: .14em;
 }
+/* The overview tier's member tally under a region's name (canvas-lod-regions.css shows it). */
+.junto-region-glance__tally { display: none; }
 .junto-region-glance__text {
   max-width: 100%;
   color: color-mix(in oklab, var(--color-ink) 32%, transparent);

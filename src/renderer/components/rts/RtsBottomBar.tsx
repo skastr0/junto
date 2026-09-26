@@ -1377,20 +1377,25 @@ export function RtsBottomBar({ minimap, tools }: { readonly minimap: ReactNode; 
   // Publish into state$ so MiniMap can subscribe (React data path, not a module ref).
   // Skip while panning — MiniMap is frozen and a severity push remounts its colors.
   useEffect(() => {
+    const publish = (): void => {
+      const next: Record<string, string> = {};
+      for (const [id, severity] of severityMap) next[id] = severity;
+      state$.regionSeverityByNodeId.set(next);
+      // Region tallies ride along for the overview tier's region plates.
+      const counts: Record<string, RegionRollup["counts"]> = {};
+      for (const rollup of rollups) counts[rollup.regionId] = rollup.counts;
+      state$.regionCountsByNodeId.set(counts);
+    };
     if (viewportBusy$.peek()) {
       const off = viewportBusy$.onChange(() => {
         if (viewportBusy$.peek()) return;
         off();
-        const next: Record<string, string> = {};
-        for (const [id, severity] of severityMap) next[id] = severity;
-        state$.regionSeverityByNodeId.set(next);
+        publish();
       });
       return off;
     }
-    const next: Record<string, string> = {};
-    for (const [id, severity] of severityMap) next[id] = severity;
-    state$.regionSeverityByNodeId.set(next);
-  }, [severityMap]);
+    publish();
+  }, [severityMap, rollups]);
 
   const selectedNodeId = use$(state$.selectedNodeId);
   const selectedRegion = selectedNodeId ? byId.get(selectedNodeId) : undefined;

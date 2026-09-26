@@ -2,6 +2,7 @@ import { batch, observable } from "@legendapp/state";
 import type { CanvasDoc, EtherEdgeKind } from "@shared/canvas";
 import type { SnapshotState } from "@shared/entities";
 import type { CanvasSummary, DigestResult, DiscoveredPeer } from "@shared/ipc";
+import type { RegionRollup } from "@shared/region-rollup";
 import type { RemoteHost } from "@shared/remote-hosts";
 import { defaultSettings, type Settings } from "@shared/settings";
 import type { UsageState } from "@shared/usage";
@@ -63,6 +64,8 @@ export const state$ = observable({
   regionSlotOrder: [] as ReadonlyArray<string>,
   // Per-node severity for minimap dots (from region rollups). App-local.
   regionSeverityByNodeId: {} as Readonly<Record<string, string>>,
+  // Per-region member tallies (from region rollups), for the overview tier.
+  regionCountsByNodeId: {} as Readonly<Record<string, RegionRollup["counts"]>>,
   doc: EMPTY_DOC as CanvasDoc,
   // Compiled execution identities for actor nodes in the open canvas.
   // Projection-only: never written back into the authorial document.

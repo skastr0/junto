@@ -148,3 +148,35 @@ export const publishRegionGlance = (host: HTMLElement | null, zoom: number): boo
   const nested = writeVar(host, GLANCE_SUB_VAR, subregionGlanceOpacity(zoom));
   return outer || nested;
 };
+
+/** Member tallies of one region, as region rollups count them. */
+export type RegionTally = {
+  readonly total: number;
+  readonly blocked: number;
+  readonly attention: number;
+  readonly working: number;
+  readonly ready: number;
+};
+
+/** One phrase of a region's overview tally, in the hue of what it counts. */
+export type RegionTallyPart = {
+  readonly tone: "crimson" | "amber" | "cyan" | "green" | "steel";
+  readonly text: string;
+};
+
+/**
+ * What a region says about its members at the overview tier, worst first:
+ * only the states that are present, so a quiet region reads as one word. The
+ * phrases match the seat lines (waiting on you, done) rather than rollup
+ * jargon.
+ */
+export const regionTallyParts = (tally: RegionTally | undefined): readonly RegionTallyPart[] => {
+  if (tally === undefined || tally.total === 0) return [];
+  const parts: RegionTallyPart[] = [];
+  if (tally.blocked > 0) parts.push({ tone: "crimson", text: `${String(tally.blocked)} blocked` });
+  if (tally.attention > 0) parts.push({ tone: "amber", text: `${String(tally.attention)} waiting on you` });
+  if (tally.working > 0) parts.push({ tone: "cyan", text: `${String(tally.working)} working` });
+  if (tally.ready > 0) parts.push({ tone: "green", text: `${String(tally.ready)} done` });
+  if (parts.length === 0) parts.push({ tone: "steel", text: tally.total === 1 ? "1 idle" : `${String(tally.total)} idle` });
+  return parts;
+};

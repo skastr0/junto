@@ -1,0 +1,93 @@
+/* Level of detail for regions, wires and the overview tier.
+
+   The camera's tier (lib/canvas-tier.ts) is stamped on <html> as
+   data-canvas-tier; seats and cards shed detail in canvas-lod.css. Regions
+   are the largest paint on the board and nest: every level stacked another
+   translucent gradient, border and label over the same pixels. Each step
+   back paints less of that:
+
+   - near: everything.
+   - mid: one flat wash per region instead of a gradient; wire labels and
+     pulses go (unreadable, and motion stops below near).
+   - far: a nested region is its outline only, so a stack of regions is one
+     fill; title bars keep their grab target but print nothing (12px names
+     are under 4px here, the watermark names the region instead); wires
+     step back to 40%.
+   - overview: regions carry the board. Members and wires are not painted;
+     an outermost region takes its worst member state as a ring and a wash,
+     and prints a tally under its name. Regions three levels in go.
+
+   Hidden things use visibility, never display, so React Flow's measured
+   sizes and wire anchors do not move when the tier flips. GroupNode writes
+   --region-fill, --region-flat, data-region-depth (capped at 3) and
+   data-region-severity. */
+
+/* --- mid and below: flat washes, no wire labels or pulses ------------ */
+
+html:is([data-canvas-tier="mid"], [data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .junto-group {
+  background: var(--region-flat);
+}
+html:is([data-canvas-tier="mid"], [data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport :is(.junto-edge-label, path.junto-wire-pulse) {
+  visibility: hidden;
+}
+
+/* --- far and below: one fill per stack, silent title bars ------------ */
+
+html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .junto-group:not([data-region-depth="0"]) {
+  background: transparent;
+}
+/* Wires step back behind the discs: they still say who talks to whom, but a
+   routed board of them otherwise reads as a grid laid over the regions. */
+html[data-canvas-tier="far"] .react-flow__viewport .react-flow__edge-path {
+  stroke-opacity: 0.4;
+}
+html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .junto-region-titlebar {
+  border-color: transparent;
+  background: transparent;
+}
+html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .junto-region-titlebar > * {
+  visibility: hidden;
+}
+
+/* --- overview: regions only ------------------------------------------ */
+
+/* React Flow writes an inline visibility on every node once it is measured,
+   so only an important rule outranks it. */
+html[data-canvas-tier="overview"] .react-flow__viewport :is(.react-flow__node:not(.react-flow__node-group), .react-flow__edges, .react-flow__edgelabel-renderer) {
+  visibility: hidden !important;
+}
+html[data-canvas-tier="overview"] .react-flow__viewport .junto-group[data-region-depth="3"] {
+  visibility: hidden;
+}
+
+.junto-group[data-region-severity="blocked"] { --region-state: var(--color-crimson); }
+.junto-group[data-region-severity="attention"] { --region-state: var(--color-amber); }
+.junto-group[data-region-severity="working"] { --region-state: var(--color-cyan); }
+.junto-group[data-region-severity="ready"] { --region-state: var(--color-green); }
+
+/* The state ring is drawn in canvas units: 12 units reads as about 2px at
+   the overview's 0.15 to 0.2 zoom. */
+html[data-canvas-tier="overview"] .react-flow__viewport .junto-group[data-region-depth="0"][data-region-severity]:not([data-region-severity="idle"]) {
+  outline: 12px solid color-mix(in oklab, var(--region-state) 55%, transparent);
+  outline-offset: -12px;
+  background: color-mix(in oklab, var(--region-state) 9%, var(--region-flat));
+}
+
+html[data-canvas-tier="overview"] .react-flow__viewport .junto-region-glance__tally {
+  display: block;
+  max-width: 92%;
+  margin-top: calc(var(--glance-size, 120px) * 0.14);
+  overflow: hidden;
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: calc(var(--glance-size, 120px) * 0.3);
+  font-weight: 600;
+  line-height: 1.1;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.junto-region-glance__tally > [data-tone="crimson"] { color: var(--color-crimson-fg); }
+.junto-region-glance__tally > [data-tone="amber"] { color: var(--color-amber-fg); }
+.junto-region-glance__tally > [data-tone="cyan"] { color: var(--color-cyan-fg); }
+.junto-region-glance__tally > [data-tone="green"] { color: var(--color-green); }
+.junto-region-glance__tally > [data-tone="steel"] { color: var(--color-dim); }
