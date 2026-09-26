@@ -169,11 +169,20 @@ const harnessPrefString = (max: number) =>
  * `enabled: false` hides the harness from the palette even when the build flag
  * allows it (user opt-out). Absent or true = offer when installed.
  */
+/** How many recently picked models the picker keeps per harness. */
+export const RECENT_MODELS_MAX = 5;
+
+/** Model ids, newest first: what the model picker shows above the full list. */
+const RecentModels = Schema.Array(harnessPrefString(200)).pipe(
+  Schema.check(Schema.isMaxLength(RECENT_MODELS_MAX * 4)),
+);
+
 export const HarnessInstancePrefs = Schema.Struct({
   enabled: Schema.optionalKey(Schema.Boolean),
   model: Schema.optionalKey(harnessPrefString(200)),
   effort: Schema.optionalKey(harnessPrefString(64)),
   permissionMode: Schema.optionalKey(harnessPrefString(64)),
+  recentModels: Schema.optionalKey(RecentModels),
 });
 export type HarnessInstancePrefs = typeof HarnessInstancePrefs.Type;
 
@@ -941,6 +950,8 @@ export const HarnessInstancePrefsPatch = Schema.Struct({
   model: Schema.optionalKey(harnessPrefString(200)),
   effort: Schema.optionalKey(harnessPrefString(64)),
   permissionMode: Schema.optionalKey(harnessPrefString(64)),
+  /** Replaces the list; [] clears it. */
+  recentModels: Schema.optionalKey(RecentModels),
 });
 export type HarnessInstancePrefsPatch = typeof HarnessInstancePrefsPatch.Type;
 
@@ -1251,6 +1262,22 @@ export const defaultSection = (key: SettingsSectionKey): Settings[SettingsSectio
   }
 };
 
+/** Trimmed, deduplicated, newest first, at most RECENT_MODELS_MAX. */
+export const sanitizeRecentModels = (ids: ReadonlyArray<string>): string[] => {
+  const kept: string[] = [];
+  for (const id of ids) {
+    const trimmed = id.trim();
+    if (trimmed.length === 0 || kept.includes(trimmed)) continue;
+    kept.push(trimmed);
+    if (kept.length === RECENT_MODELS_MAX) break;
+  }
+  return kept;
+};
+
+/** The recents list after picking `model`: it moves to the front. */
+export const rememberRecentModel = (recent: ReadonlyArray<string> | undefined, model: string): string[] =>
+  sanitizeRecentModels([model, ...(recent ?? [])]);
+
 /** Read prefs for one harness; empty when unset. */
 export const harnessPrefsFor = (
   settings: Settings | undefined,
@@ -1399,7 +1426,12 @@ export const applySettingsPatch = (current: Settings, patch: SettingsPatch): Set
       let model = prior.model;
       let effort = prior.effort;
       let permissionMode = prior.permissionMode;
+      let recentModels = prior.recentModels;
       if (prefsPatch.enabled !== undefined) enabled = prefsPatch.enabled;
+      if (prefsPatch.recentModels !== undefined) {
+        const kept = sanitizeRecentModels(prefsPatch.recentModels);
+        recentModels = kept.length === 0 ? undefined : kept;
+      }
       if (prefsPatch.model !== undefined) {
         const trimmed = prefsPatch.model.trim();
         model = trimmed.length === 0 ? undefined : trimmed;
@@ -1417,6 +1449,7 @@ export const applySettingsPatch = (current: Settings, patch: SettingsPatch): Set
         ...(model !== undefined ? { model } : {}),
         ...(effort !== undefined ? { effort } : {}),
         ...(permissionMode !== undefined ? { permissionMode } : {}),
+        ...(recentModels !== undefined ? { recentModels } : {}),
       };
     }
     next = { ...next, harnesses: { byHarness } };
