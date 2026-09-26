@@ -16,7 +16,6 @@ import { isGroup } from "@shared/graph";
 import {
   resolveSpec,
   roleOf,
-  type PortName,
   type VerbGrant,
 } from "@shared/physics";
 import { nodeTitle } from "./presentation";
@@ -28,8 +27,6 @@ export type ActorEdgeRow = {
   readonly peerKind: string;
   /** Actor is fromNode → out; actor is toNode → in. */
   readonly direction: "out" | "in";
-  /** Ports the relationship's verb opens toward the peer (reach). */
-  readonly ports: ReadonlyArray<PortName>;
   /** Board megaphone: `participates` = ON, the quiet board verb = OFF. */
   readonly boardNotify: "on" | "off" | null;
   /**
@@ -95,7 +92,6 @@ export const actorEdgeRows = (
       peerTitle: peer ? nodeTitle(peer) : peerId,
       peerKind: peerKindOf(peer),
       direction: out ? "out" : "in",
-      ports: grant?.ports ?? [],
       boardNotify: boardNotifyOf(grant, actor, peer),
       livePhase: phase,
     });

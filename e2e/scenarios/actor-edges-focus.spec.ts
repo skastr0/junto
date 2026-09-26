@@ -80,10 +80,8 @@ test("actor terminal focus shows read-only edge inventory", async () => {
     await expect(shelfRow).not.toHaveAttribute("data-live-phase", "blocks");
     await expect(shelfRow).toContainText(/artifacts/i);
 
-    // Ports on both reaches should surface (tasks list/claim/update family,
-    // artifact publish).
-    await expect(tasksRow.locator(".actor-edges-glance__ports")).toBeVisible();
-    await expect(shelfRow.locator(".actor-edges-glance__ports")).toBeVisible();
+    // Connection cards name the peer only: no capability line.
+    await expect(tasksRow).not.toContainText(/\b(?:list|claim|publish)\b/i);
 
     await focus.screenshot({
       path: join(SHOTS, "actor-edges-focus.png"),

@@ -21,17 +21,11 @@ import { isGroup } from "@shared/graph";
 import {
   asNodeId,
   canvasDocToCapabilityView,
-  grantLawForRoles,
-  offersOf,
   resolveNodePlacement,
   resolveSpec,
   roleOf,
-  selectGrant,
   placementLabel,
-  undirectedEdgeKey,
   type FactoryRoleName,
-  type PortName,
-  type NodeSpecValue,
 } from "@shared/physics";
 import { addEdge } from "../lib/edge-mutations";
 import { specOf } from "../lib/node-spec";
@@ -56,49 +50,11 @@ import { BrowserProfileSelect, EnrolledHostSelect } from "./HostPickers";
 const entityNameOf = (node: CanvasNode | undefined): string =>
   typeof node?.ether?.entity?.name === "string" ? node.ether.entity.name : "";
 
-/** Effective ports for caller → target: GrantLaw + mask → PortGrant ∩ offers. */
-const effectivePorts = (
-  caller: NodeSpecValue,
-  target: NodeSpecValue,
-  mask: HashSet.HashSet<PortName> | undefined,
-): ReadonlyArray<PortName> => {
-  const law = grantLawForRoles(roleOf(caller), roleOf(target));
-  const grant = selectGrant(law, mask);
-  if (grant.isEmpty()) return [];
-  const offers = offersOf(target);
-  return [...offers].filter((port) => grant.allows(port, offers));
-};
-
-/** Human labels for port chips — never raw protocol tokens as the only text. */
-const PORT_LABEL: Record<string, string> = {
-  "tasks.list": "List tasks",
-  "tasks.create": "Create tasks",
-  "tasks.claim": "Claim tasks",
-  "tasks.update": "Update tasks",
-  "msg.list": "List messages",
-  "msg.send": "Send mail",
-  "msg.prompt": "Prompt immediately",
-  "seat.wait": "Wait on seat",
-  "terminal.read": "Observe terminal",
-  "verdict.post": "Post verdict",
-  "artifact.publish": "Publish artifacts",
-  "browser.automate": "Drive browser",
-  "board.list": "List board",
-  "board.create_topic": "Create topics",
-  "board.post": "Post to board",
-  "board.mark_read": "Mark board read",
-  "pad.read": "Read pad",
-  "pad.patch": "Patch pad",
-};
-
-const portLabel = (port: PortName): string => PORT_LABEL[port] ?? port;
-
 type CapabilityNeighbor = {
   readonly id: string;
   readonly title: string;
   readonly role: FactoryRoleName;
   readonly kind: string | undefined;
-  readonly ports: ReadonlyArray<PortName>;
 };
 
 /** Actor: "reaches"; sink: "reached by" — plain inventory, no physics lecture. */
@@ -127,20 +83,13 @@ export function NodeCapabilityInventory({ node }: { readonly node: CanvasNode })
         isGroup: isGroup(peer),
         kind: peer.ether?.entity?.kind,
       });
-      const maskOpt = HashMap.get(view.edgePortMask, undirectedEdgeKey(node.id, peerId));
-      const mask = Option.isSome(maskOpt) ? maskOpt.value : undefined;
-      // Actor: outbound reach; sink: inbound callers only.
-      const ports =
-        selfRole === "actor"
-          ? effectivePorts(selfSpec, peerSpec, mask)
-          : effectivePorts(peerSpec, selfSpec, mask);
+      // Actor: everything it reaches; sink: inbound callers only.
       if (selfRole === "sink" && roleOf(peerSpec) !== "actor") continue;
       rows.push({
         id: peerId,
         title: nodeTitle(peer),
         role: roleOf(peerSpec),
         kind: peer.ether?.entity?.kind,
-        ports,
       });
     }
     rows.sort((a, b) => a.title.localeCompare(b.title));
@@ -163,11 +112,6 @@ export function NodeCapabilityInventory({ node }: { readonly node: CanvasNode })
               {row.kind ?? row.role}
             </span>
             <span className="min-w-0 flex-1 truncate">{row.title}</span>
-            {row.ports.length > 0 ? (
-              <span style={{ color: HUE.cyan, flex: "0 1 auto" }}>
-                {row.ports.map(portLabel).join(", ")}
-              </span>
-            ) : null}
           </div>
         ))}
       </div>
@@ -872,8 +816,6 @@ export function ConnectEditor({ node, doc, open, onOpenChange }: { readonly node
   const targets = doc.nodes.filter((candidate) => candidate.id !== node.id && candidate.type !== "group");
   const availableTargets = targets.filter((target) => !doc.edges.some((edge) => edge.fromNode === node.id && edge.toNode === target.id));
   const filteredTargets = availableTargets.filter((target) => !targetQuery.trim() || searchText(target).includes(targetQuery.trim().toLowerCase()));
-  const kind = node.ether?.entity?.kind;
-  const fromIsTask = kind === "task" || kind === "requests";
   const connect = () => {
     if (!targetId) return;
     // The verb comes from the pair — connecting is the whole authoring act.
@@ -919,11 +861,6 @@ export function ConnectEditor({ node, doc, open, onOpenChange }: { readonly node
           />
         </label>
       )}
-      <div className="inspector-detail">
-        {fromIsTask
-          ? "Work on this lane pauses its agent while a task waits on you."
-          : "Drawing the wire names the relationship. Swap it on the bottom bar."}
-      </div>
       <button disabled={!targetId} onClick={connect}>
         create edge
       </button>

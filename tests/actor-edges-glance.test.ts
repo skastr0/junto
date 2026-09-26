@@ -74,7 +74,7 @@ describe("actorEdgeRows", () => {
     expect(actorEdgeRows(doc, "missing")).toEqual([]);
   });
 
-  it("lists directed incident edges with peer kind + reach ports — no soft nature", () => {
+  it("lists directed incident edges with peer kind — no soft nature", () => {
     const doc = docOf(
       [agent("worker", "Grok"), tasks("tasks"), board("board"), note("memo", "note")],
       [
@@ -94,16 +94,13 @@ describe("actorEdgeRows", () => {
     expect(tasksRow.direction).toBe("in");
     expect(tasksRow.peerKind).toBe("task");
     expect(actorEdgePhaseLabel(tasksRow)).toBeNull();
-    expect(tasksRow.ports.some((p) => p.startsWith("tasks."))).toBe(true);
 
     const boardRow = rows.find((r) => r.edgeId === "e-board")!;
     expect(boardRow.direction).toBe("out");
     expect(boardRow.boardNotify).toBe("on");
-    expect(boardRow.ports.some((p) => p.startsWith("board."))).toBe(true);
 
     const noteRow = rows.find((r) => r.edgeId === "e-note")!;
     expect(noteRow.boardNotify).toBeNull();
-    expect(noteRow.ports).toEqual([]);
   });
 
   it("reads the quiet board verb as wake off", () => {

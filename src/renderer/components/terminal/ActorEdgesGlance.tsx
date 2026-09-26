@@ -68,17 +68,13 @@ function EdgeCardBody({
   readonly portrait?: ReactNode;
 }) {
   const phase = actorEdgePhaseLabel(row);
-  const ports =
-    row.ports.length > 0
-      ? row.ports.map((p) => p.replace(/^[a-z]+\./, "")).join(" - ")
-      : null;
   return (
     <>
       <div className="actor-edges-glance__row-head">
         <DirectionMark direction={row.direction} />
         <span className="actor-edges-glance__kind">{row.peerKind}</span>
         {phase ? (
-          <Chip tone="crimson" title="live stoppage">
+          <Chip tone="crimson" title="Waiting on you">
             {phase}
           </Chip>
         ) : null}
@@ -92,11 +88,6 @@ function EdgeCardBody({
       ) : (
         <span className="actor-edges-glance__title">{row.peerTitle}</span>
       )}
-      {ports ? (
-        <span className="actor-edges-glance__ports" title={row.ports.join(" - ")}>
-          {ports}
-        </span>
-      ) : null}
       {(row.boardNotify === "on" || row.boardNotify === "off") && (
         <div className="actor-edges-glance__flags">
           {row.boardNotify === "on" ? (
@@ -157,9 +148,7 @@ function EdgeCard({
     ) : undefined;
   const title = [
     `${row.direction === "out" ? "to" : "from"} ${row.peerTitle}`,
-    `kind ${row.peerKind}`,
-    phase ? `live ${phase}` : null,
-    row.ports.length > 0 ? `ports ${row.ports.join(" - ")}` : null,
+    phase === "blocks" ? "waiting on you" : null,
     row.boardNotify === "on" ? "wakes" : null,
     row.boardNotify === "off" ? "wakes off" : null,
   ]
@@ -345,7 +334,7 @@ function ConnectionsList({
       {hasMirrors ? (
         <footer
           className="actor-edges-glance__cycle-hint"
-          title="Cmd+] next actor, Cmd+[ previous actor"
+          title="Cmd+] next agent, Cmd+[ previous agent"
         >
           ⌘] ⌘[ cycle actors
         </footer>

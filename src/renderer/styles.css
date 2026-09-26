@@ -2774,16 +2774,6 @@ ol.note-md__list > .note-md__li::before {
   font-size: 12px;
   line-height: 1.3;
 }
-.actor-edges-glance__ports {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-family: var(--font-mono), ui-monospace, monospace;
-  font-size: 10px;
-  color: var(--color-cyan);
-  opacity: 0.92;
-}
 .actor-edges-glance__flags {
   display: flex;
   flex-wrap: wrap;
