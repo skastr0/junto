@@ -7,7 +7,6 @@ import {
   DEEPGRAM_ICON,
   DEEPSEEK_ICON,
   DOUBAO_ICON,
-  HERMES_AGENT_ICON,
   JETBRAINS_ICON,
   KIRO_ICON,
   MINIMAX_ICON,
@@ -21,7 +20,7 @@ import {
   VERTEXAI_ICON,
   WARP_ICON,
 } from "./official-agent-assets";
-import { DIM, HUE, INK } from "./theme";
+import { DIM, INK } from "./theme";
 
 // The provider:agent:icon repository, in three layers:
 //
@@ -30,32 +29,30 @@ import { DIM, HUE, INK } from "./theme";
 //                official brand assets, provider-controlled repositories)
 //                plus CURATED, a small set of overrides and additions —
 //                provider-published raster marks where no standalone
-//                monochrome vector exists, independently sourced vectors
-//                absent from the table, and documented monogram fallbacks.
+//                vector exists, independently sourced vectors absent from
+//                the table, and documented monogram fallbacks.
 //   facade     — GLYPHS (merged table, curated wins) + ALIASES, queried
 //                through harnessGlyphFor / harnessDisplayName / harnessHue.
 //   contract   — MarksService / Marks / MarksLive / marks: the Effect-shaped
 //                IoC seam (see the comment at MarksService).
 //
-// Generated marks are monochrome: they carry hex "#000000" and harnessHue
-// remaps near-black brands to house INK so they read on the dark field.
-// Each generated entry keeps the provider's own `viewBox`/`fillRule`.
+// Every mark is monochrome and draws in house INK, so a mark reads the same
+// in both themes and no vendor colour competes with the canvas's own state
+// colours. Each entry keeps the provider's own `viewBox`/`fillRule`.
 
 export interface HarnessGlyph {
   readonly d?: string | ReadonlyArray<string>; // SVG path data, `viewBox` grid
   readonly imageSrc?: string; // exact raster asset when a vendor publishes no standalone vector
   readonly viewBox?: string; // defaults to "0 0 24 24"
   readonly fillRule?: "evenodd"; // defaults to nonzero; ring/hole marks need evenodd
-  readonly hex: string; // brand hex ("#000000" for monochrome brands)
   readonly displayName: string;
 }
 
 // Curated entries — additions and overrides that live outside the generated
 // monochrome vector table:
 //
-//   vectors   — independently sourced official marks kept here because they
-//               carry brand color (googlegemini) or predate/replace the
-//               table's coverage (kimi, pi, prime-agent, muse).
+//   vectors   — independently sourced official marks that predate the
+//               table's coverage (googlegemini, pi, prime-agent).
 //   raster    — provider-published image assets, embedded as data URLs, for
 //               providers that ship no usable standalone monochrome vector.
 //   monogram  — known providers with no published mark at all: a bare entry
@@ -67,20 +64,10 @@ const CURATED: Readonly<Record<string, HarnessGlyph>> = {
   googlegemini: {
     // Official Gemini sparkle outline from Google's own asset served to
     // gemini.google.com (www.gstatic.com/lamda/images/gemini_sparkle_aurora
-    // svg); brand violet kept for the tile.
+    // svg). Antigravity has its own mark in the table.
     d: "M164.93 86.68c-13.56-5.84-25.42-13.84-35.6-24.01-10.17-10.17-18.18-22.04-24.01-35.6-2.23-5.19-4.04-10.54-5.42-16.02C99.45 9.26 97.85 8 96 8s-3.45 1.26-3.9 3.05c-1.38 5.48-3.18 10.81-5.42 16.02-5.84 13.56-13.84 25.43-24.01 35.6-10.17 10.16-22.04 18.17-35.6 24.01-5.19 2.23-10.54 4.04-16.02 5.42C9.26 92.55 8 94.15 8 96s1.26 3.45 3.05 3.9c5.48 1.38 10.81 3.18 16.02 5.42 13.56 5.84 25.42 13.84 35.6 24.01 10.17 10.17 18.18 22.04 24.01 35.6 2.24 5.2 4.04 10.54 5.42 16.02A4.03 4.03 0 0 0 96 184c1.85 0 3.45-1.26 3.9-3.05 1.38-5.48 3.18-10.81 5.42-16.02 5.84-13.56 13.84-25.42 24.01-35.6 10.17-10.17 22.04-18.18 35.6-24.01 5.2-2.24 10.54-4.04 16.02-5.42A4.03 4.03 0 0 0 184 96c0-1.85-1.26-3.45-3.05-3.9-5.48-1.38-10.81-3.18-16.02-5.42",
     viewBox: "0 0 192 192",
-    hex: "#8E75B2",
     displayName: "Gemini",
-  },
-  kimi: {
-    // Current official Kimi logomark (the K mark), from kimi.com's own icon
-    // bundle. Supersedes the earlier lowercase "kimi" wordmark path, whose
-    // provenance was never recorded.
-    d: "M202.197333 444.928c-17.365333 17.365333-46.506667 14.933333-56.192-7.637333a221.738667 221.738667 0 0 1 360.362667-244.352l179.2 179.2A37.973333 37.973333 0 0 1 631.893333 425.813333l-179.2-179.2a145.664 145.664 0 0 0-241.365333 148.650667c5.632 17.194667 3.669333 36.864-9.088 49.621333z m140.714667 157.738667a37.973333 37.973333 0 0 0 0 53.76l174.677333 174.634666a221.653333 221.653333 0 0 0 363.52-236.672c-9.045333-23.552-39.04-26.538667-56.917333-8.704-12.373333 12.416-14.72 31.36-9.856 48.213334a145.664 145.664 0 0 1-242.986667 143.445333l-174.72-174.677333a37.973333 37.973333 0 0 0-53.717333 0zM448.725333 512a63.317333 63.317333 0 1 0 126.592 0 63.317333 63.317333 0 0 0-126.634666 0zM380.373333 330.112l-187.477333 187.477333a221.653333 221.653333 0 0 0 221.781333 368.64c25.429333-7.765333 29.610667-39.424 10.794667-58.197333-11.690667-11.733333-29.226667-14.634667-45.44-11.221333A145.664 145.664 0 0 1 246.613333 571.306667l187.477334-187.477334a37.973333 37.973333 0 1 0-53.76-53.717333z m263.168 363.776a37.973333 37.973333 0 1 1-53.76-53.76l187.52-187.477333a145.664 145.664 0 0 0-133.418666-245.461334c-16.213333 3.413333-33.749333 0.512-45.482667-11.221333-18.773333-18.773333-14.634667-50.432 10.794667-58.24a221.653333 221.653333 0 0 1 221.866666 368.64l-187.52 187.52z",
-    viewBox: "0 0 1024 1024",
-    hex: "#000000",
-    displayName: "Kimi",
   },
   pi: {
     // Official pi.dev mark: square-spiral Pi + dot, monochrome.
@@ -90,7 +77,6 @@ const CURATED: Readonly<Record<string, HarnessGlyph>> = {
     ],
     viewBox: "0 0 800 800",
     fillRule: "evenodd",
-    hex: "#000000",
     displayName: "Pi",
   },
   "prime-agent": {
@@ -101,134 +87,98 @@ const CURATED: Readonly<Record<string, HarnessGlyph>> = {
       "m 55.1325,131.29447 c -1.0745,7.1515 1.6551,13.2715 12.8266,13.1915 h -0.0062 c 9.5413,-0.389 20.3365,-6.164 30.8838,-13.5492 6.9653,-4.8787 12.9873,-10.0236 16.8903,-17.6253 2.872,-5.5889 1.395,-10.0723 -2.933,-13.993799 -1.908,-1.7291 -3.73,-1.9205 -5.867,0.1667 -7.5842,7.423099 -17.0261,11.474299 -26.7218,15.550099 -2.4706,1.0393 -5.2847,1.5582 -8.1187,2.0809 -7.5511,1.3924 -15.2431,2.8103 -16.954,14.1791 z",
     ],
     viewBox: "0 0 178 178",
-    hex: "#000000",
     displayName: "Prime Agent",
-  },
-  muse: {
-    // No official monochrome vector is publicly available (site auth-gated,
-    // no repo/npm, installer ships the binary only) — crafted monogram M
-    // fallback per docs/harness-icon-provenance.md.
-    d: [
-      "M8.3 20.5L8.3 5.5L3.7 5.5L3.7 20.5Z",
-      "M4.25 7L10.25 14L13.75 11L7.75 4Z",
-      "M13.75 14L19.75 7L16.25 4L10.25 11Z",
-      "M15.7 5.5L15.7 20.5L20.3 20.5L20.3 5.5Z",
-    ],
-    hex: "#000000",
-    displayName: "Muse",
-  },
-  hermes: {
-    // Exact official 48px app icon published by Nous Research.
-    imageSrc: HERMES_AGENT_ICON,
-    hex: "#000000",
-    displayName: "Hermes",
   },
   // --- provider-published raster marks (no standalone monochrome vector) ---
   alibaba: {
     imageSrc: ALIBABA_ICON,
-    hex: "#000000",
     displayName: "Alibaba",
   },
   chutes: {
     imageSrc: CHUTES_ICON,
-    hex: "#000000",
     displayName: "Chutes",
   },
   codebuff: {
     imageSrc: CODEBUFF_ICON,
-    hex: "#000000",
     displayName: "Codebuff",
   },
   deepgram: {
     imageSrc: DEEPGRAM_ICON,
-    hex: "#000000",
     displayName: "Deepgram",
   },
   deepseek: {
     imageSrc: DEEPSEEK_ICON,
-    hex: "#000000",
     displayName: "DeepSeek",
   },
   doubao: {
     imageSrc: DOUBAO_ICON,
-    hex: "#000000",
     displayName: "Doubao",
   },
   jetbrains: {
     imageSrc: JETBRAINS_ICON,
-    hex: "#000000",
     displayName: "JetBrains",
   },
   kiro: {
     imageSrc: KIRO_ICON,
-    hex: "#000000",
     displayName: "Kiro",
   },
   minimax: {
     imageSrc: MINIMAX_ICON,
-    hex: "#000000",
     displayName: "MiniMax",
   },
   ollama: {
     imageSrc: OLLAMA_ICON,
-    hex: "#000000",
     displayName: "Ollama",
   },
   perplexity: {
     imageSrc: PERPLEXITY_ICON,
-    hex: "#000000",
     displayName: "Perplexity",
   },
   poe: {
     imageSrc: POE_ICON,
-    hex: "#000000",
     displayName: "Poe",
   },
   sakana: {
     imageSrc: SAKANA_ICON,
-    hex: "#000000",
     displayName: "Sakana AI",
   },
   synthetic: {
     imageSrc: SYNTHETIC_ICON,
-    hex: "#000000",
     displayName: "Synthetic",
   },
   t3chat: {
     imageSrc: T3CHAT_ICON,
-    hex: "#000000",
     displayName: "T3 Chat",
   },
   venice: {
     imageSrc: VENICE_ICON,
-    hex: "#000000",
     displayName: "Venice",
   },
   vertexai: {
     imageSrc: VERTEXAI_ICON,
-    hex: "#000000",
     displayName: "Vertex AI",
   },
   warp: {
     imageSrc: WARP_ICON,
-    hex: "#000000",
     displayName: "Warp",
   },
   // --- no published mark: bare entry keeps the display name, tile monograms ---
-  clawrouter: { hex: "#000000", displayName: "Clawrouter" },
-  commandcode: { hex: "#000000", displayName: "Commandcode" },
-  crof: { hex: "#000000", displayName: "Crof" },
-  crossmodel: { hex: "#000000", displayName: "CrossModel" },
-  litellm: { hex: "#000000", displayName: "LiteLLM" },
-  llmproxy: { hex: "#000000", displayName: "LLM Proxy" },
-  mimo: { hex: "#000000", displayName: "Mimo" },
-  sub2api: { hex: "#000000", displayName: "Sub2api" },
+  clawrouter: { displayName: "Clawrouter" },
+  commandcode: { displayName: "Commandcode" },
+  crof: { displayName: "Crof" },
+  crossmodel: { displayName: "CrossModel" },
+  litellm: { displayName: "LiteLLM" },
+  llmproxy: { displayName: "LLM Proxy" },
+  mimo: { displayName: "Mimo" },
+  sub2api: { displayName: "Sub2api" },
 };
 
 // Brand casing for generated ids where plain capitalization misreads the
 // name. Anything not listed displays as its id with the first letter raised.
 const DISPLAY_NAMES: Readonly<Record<string, string>> = {
   elevenlabs: "ElevenLabs",
+  fx: "fx",
+  omp: "Oh My Pi",
   openai: "OpenAI",
   opencode: "OpenCode",
   opencodego: "OpenCode Go",
@@ -239,13 +189,11 @@ const DISPLAY_NAMES: Readonly<Record<string, string>> = {
 
 const capitalize = (id: string): string => id.charAt(0).toUpperCase() + id.slice(1);
 
-// A generated mark is monochrome source data: consumers assign hue, so the
-// glyph records the house "#000000" that harnessHue remaps to INK.
+// A generated mark is monochrome source data; consumers assign the ink.
 const fromProviderMark = (id: string, mark: ProviderMarkData): HarnessGlyph => ({
   d: mark.paths,
   viewBox: mark.viewBox,
   fillRule: mark.fillRule,
-  hex: "#000000",
   displayName: DISPLAY_NAMES[id] ?? capitalize(id),
 });
 
@@ -263,9 +211,8 @@ export const GLYPHS: Readonly<Record<string, HarnessGlyph>> = {
 // zed, warp, deepseek, mistral, perplexity, opencodego, …)
 // need no entry — they pass through to the generated table directly.
 const ALIASES: Readonly<Record<string, string>> = {
-  agy: "googlegemini",
-  antigravity: "googlegemini",
-  "antigravity-cli": "googlegemini",
+  agy: "antigravity",
+  "antigravity-cli": "antigravity",
   "claude code": "claude",
   "claude-code": "claude",
   gemini: "googlegemini",
@@ -288,34 +235,14 @@ const ALIASES: Readonly<Record<string, string>> = {
   "prime agent": "prime-agent",
   "kimi code": "kimi",
   "muse code": "muse",
+  "oh my pi": "omp",
+  "oh-my-pi": "omp",
   "hermes agent": "hermes",
   nous: "hermes",
   "nous research": "hermes",
 };
 
-// Monogram palette for harnesses with no brand glyph. Crimson deliberately
-// excluded — it is reserved for blockers house-wide.
-export const MONOGRAM_HUES: ReadonlyArray<string> = [
-  HUE.amber,
-  HUE.cyan,
-  HUE.violet,
-  HUE.gold,
-  HUE.indigo,
-  HUE.orange,
-];
-
 const normalize = (agent: string): string => agent.trim().toLowerCase().replace(/\s+/g, " ");
-
-// FNV-1a 32-bit — stable across runs and platforms, so a given harness name
-// always lands on the same monogram hue.
-const fnv1a = (value: string): number => {
-  let hash = 0x811c9dc5;
-  for (let i = 0; i < value.length; i++) {
-    hash ^= value.charCodeAt(i);
-    hash = Math.imul(hash, 0x01000193);
-  }
-  return hash >>> 0;
-};
 
 /** Brand glyph for an agent string, alias-resolved; undefined when unknown. */
 export function harnessGlyphFor(agent?: string): HarnessGlyph | undefined {
@@ -334,17 +261,9 @@ export function harnessDisplayName(agent?: string): string {
   return trimmed.charAt(0).toUpperCase() + trimmed.slice(1);
 }
 
-/**
- * Tile/monogram hue for an agent: the brand hex when the brand has real color;
- * near-black brands (#000000, #0B100F) remap to house INK so the mark reads on
- * the dark field; glyph-less agents get a deterministic palette hue.
- */
-export function harnessHue(agent?: string): string {
-  const glyph = harnessGlyphFor(agent);
-  if (glyph) {
-    return glyph.hex === "#000000" || glyph.hex === "#0B100F" ? INK : glyph.hex;
-  }
-  return MONOGRAM_HUES[fnv1a(normalize(agent ?? "")) % MONOGRAM_HUES.length] ?? HUE.amber;
+/** Mark hue for an agent: house INK for every mark and monogram alike. */
+export function harnessHue(_agent?: string): string {
+  return INK;
 }
 
 // --- IoC contract ---------------------------------------------------------
@@ -376,7 +295,7 @@ export const marks: MarksService = marksImpl;
 export interface MarkTile {
   readonly glyph: HarnessGlyph | undefined;
   readonly known: boolean; // a real agent string was given (vs the absent-agent mark)
-  readonly hue: string; // brand/INK/monogram hue; DIM when no agent
+  readonly hue: string; // INK; DIM when no agent
   readonly displayName: string;
   readonly viewBox: string;
   readonly imageSrc?: string;

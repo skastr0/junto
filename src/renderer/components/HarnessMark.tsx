@@ -1,12 +1,13 @@
 import { markTileFor, marks, type MarksService } from "../lib/harness-icons";
 import { withAlpha } from "../lib/theme";
 
-// Brand identity chip for an agent harness: the harness glyph when brand
-// path data exists, else a monogram on the agent's deterministic hue. An
-// absent agent never monograms the word "agent" — it gets a quiet terminal
-// prompt mark in DIM. Purely presentational — pointer-events none so the hero
-// button beside it owns the card gestures. Proportions follow the 28px card
-// tile (8px radius, 15px glyph, 12px monogram) and scale linearly with `size`.
+// Brand identity chip for an agent harness: the vendor's own mark when path
+// data exists, else a monogram, both in house ink so every mark reads the
+// same in either theme. An absent agent never monograms the word "agent" —
+// it gets a quiet terminal prompt mark in DIM. Purely presentational —
+// pointer-events none so the hero button beside it owns the card gestures.
+// Proportions follow the 28px card tile (8px radius, 15px glyph, 12px
+// monogram) and scale linearly with `size`.
 // Resolution runs through markTileFor against the MarksService contract; the
 // `marks` prop defaults to the house repository and exists as a test seam.
 export function HarnessMark({

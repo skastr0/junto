@@ -2,7 +2,6 @@ import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 import {
   GLYPHS,
-  MONOGRAM_HUES,
   Marks,
   MarksLive,
   harnessDisplayName,
@@ -14,19 +13,26 @@ import {
   type MarksService,
 } from "../src/renderer/lib/harness-icons";
 import { PROVIDER_MARKS } from "../src/renderer/lib/provider-marks.generated";
-import { DIM, HUE, INK } from "../src/renderer/lib/theme";
+import { DIM, INK } from "../src/renderer/lib/theme";
+import { HARNESS_IDS } from "../src/shared/managed-terminal-templates";
 
 describe("PROVIDER_MARKS (generated table integrity)", () => {
   it("carries the provider-published monochrome vector set", () => {
     for (const id of [
       "amp",
+      "antigravity",
       "bedrock",
       "claude",
       "codex",
       "copilot",
       "cursor",
       "devin",
+      "fx",
       "grok",
+      "hermes",
+      "kimi",
+      "muse",
+      "omp",
       "openai",
       "opencode",
       "opencodego",
@@ -68,21 +74,34 @@ describe("repository coverage", () => {
       expect(glyph.d, id).toEqual(source.paths);
       expect(glyph.viewBox, id).toBe(source.viewBox);
       expect(glyph.fillRule, id).toBe(source.fillRule);
-      expect(glyph.hex, id).toBe("#000000"); // monochrome → remapped to INK by hue
     }
   });
 
   it("keeps the curated entries ahead of and beside generated data", () => {
-    // googlegemini carries brand color on the official sparkle outline.
-    expect(GLYPHS.googlegemini.hex).toBe("#8E75B2");
     expect(GLYPHS.googlegemini.viewBox).toBe("0 0 192 192");
-    // kimi, hermes live only in CURATED — the generated table skips them.
-    expect(PROVIDER_MARKS.kimi).toBeUndefined();
-    expect(PROVIDER_MARKS.hermes).toBeUndefined();
-    expect(harnessGlyphFor("kimi")).toBe(GLYPHS.kimi);
-    expect(harnessGlyphFor("hermes")).toBe(GLYPHS.hermes);
-    expect(GLYPHS.hermes.d).toBeUndefined();
-    expect(GLYPHS.hermes.imageSrc).toMatch(/^data:image\/png;base64,/);
+    expect(PROVIDER_MARKS.googlegemini).toBeUndefined();
+    expect(GLYPHS.pi.fillRule).toBe("evenodd");
+  });
+
+  it("gives every managed harness its vendor's own vector mark", () => {
+    // The overseer seat carries Junto's own OverseerMark, not a vendor mark.
+    for (const id of HARNESS_IDS.filter((harness) => harness !== "junto-overseer")) {
+      const tile = markTileFor(id);
+      expect(tile.paths.length, id).toBeGreaterThan(0);
+      expect(tile.imageSrc, id).toBeUndefined();
+      expect(tile.hue, id).toBe(INK);
+    }
+  });
+
+  it("keeps Antigravity on its own mark, not Gemini's sparkle", () => {
+    expect(harnessGlyphFor("agy")).toBe(GLYPHS.antigravity);
+    expect(GLYPHS.antigravity.d).not.toEqual(GLYPHS.googlegemini.d);
+    expect(harnessDisplayName("agy")).toBe("Antigravity");
+  });
+
+  it("draws Kimi as the K and dot of its app icon", () => {
+    // The dot opens the path; the retired chain glyph opened at 202,444.
+    expect(String(GLYPHS.kimi.d).startsWith("M788.0704 152.69888")).toBe(true);
   });
 
   it("resolves providers with no monochrome vector to provider-published raster marks", () => {
@@ -123,9 +142,11 @@ describe("harnessGlyphFor", () => {
   });
 
   it("resolves documented aliases", () => {
-    expect(harnessGlyphFor("agy")).toBe(GLYPHS.googlegemini);
-    expect(harnessGlyphFor("antigravity")).toBe(GLYPHS.googlegemini);
-    expect(harnessGlyphFor("antigravity-cli")).toBe(GLYPHS.googlegemini);
+    expect(harnessGlyphFor("agy")).toBe(GLYPHS.antigravity);
+    expect(harnessGlyphFor("antigravity")).toBe(GLYPHS.antigravity);
+    expect(harnessGlyphFor("antigravity-cli")).toBe(GLYPHS.antigravity);
+    expect(harnessGlyphFor("Oh My Pi")).toBe(GLYPHS.omp);
+    expect(harnessGlyphFor("oh-my-pi")).toBe(GLYPHS.omp);
     expect(harnessGlyphFor("Claude Code")).toBe(GLYPHS.claude);
     expect(harnessGlyphFor("claude-code")).toBe(GLYPHS.claude);
     expect(harnessGlyphFor("gemini")).toBe(GLYPHS.googlegemini);
@@ -168,8 +189,8 @@ describe("harnessGlyphFor", () => {
 
   it("carries generated marks as path arrays on their own viewBox and fillRule", () => {
     // Multi-path provider art keeps every path and its native grid.
-    expect(GLYPHS.devin.d).toHaveLength(3);
-    expect(GLYPHS.devin.viewBox).toBe("-0.747952 -0.722232 21.495942 21.477469");
+    expect(GLYPHS.muse.d).toHaveLength(1);
+    expect(GLYPHS.devin.viewBox).toBe("35.8 35.5 355 355");
     expect(GLYPHS.opencodego.d).toHaveLength(2);
     expect(GLYPHS.opencodego.viewBox).toBe("0 0 512 512");
     expect(GLYPHS.opencodego.fillRule).toBe("evenodd");
@@ -197,6 +218,8 @@ describe("harnessDisplayName", () => {
     expect(harnessDisplayName("amp")).toBe("Amp");
     expect(harnessDisplayName("devin")).toBe("Devin");
     expect(harnessDisplayName("  grok ")).toBe("Grok");
+    expect(harnessDisplayName("fx")).toBe("fx");
+    expect(harnessDisplayName("omp")).toBe("Oh My Pi");
     // generated ids with brand casing in the display-name map
     expect(harnessDisplayName("deepseek")).toBe("DeepSeek");
     expect(harnessDisplayName("openrouter")).toBe("OpenRouter");
@@ -214,49 +237,10 @@ describe("harnessDisplayName", () => {
 });
 
 describe("harnessHue", () => {
-  it("keeps official monochrome agent marks consistent across harness aliases", () => {
-    for (const agent of ["claude", "codex", "chatgpt", "grok", "hermes"]) {
+  it("draws every mark and monogram in house INK, whatever the vendor's colours", () => {
+    for (const agent of ["claude", "gemini cli", "agy", "kimi", "hermes", "ollama", "aider", "unknown-xyz"]) {
       expect(harnessHue(agent), agent).toBe(INK);
     }
-  });
-
-  it("keeps published colors for providers with colored marks", () => {
-    expect(harnessHue("gemini cli")).toBe("#8E75B2");
-  });
-
-  it("maps near-black brand marks to house INK so they read on the dark field", () => {
-    for (const agent of [
-      "kimi",
-      "opencode",
-      "cursor",
-      "copilot",
-      "windsurf",
-      "grok",
-      "codex",
-      "chatgpt",
-      "hermes",
-      "amp",
-      "devin",
-      // monochrome generated marks remap the same way
-      "ollama",
-      "deepseek",
-      "opencodego",
-      "openrouter",
-    ]) {
-      expect(harnessHue(agent), agent).toBe(INK);
-    }
-  });
-
-  it("hashes glyph-less agents deterministically over the monogram palette", () => {
-    expect(MONOGRAM_HUES).toEqual([HUE.amber, HUE.cyan, HUE.violet, HUE.gold, HUE.indigo, HUE.orange]);
-    for (const agent of ["aider", "goose", "unknown-xyz"]) {
-      const hue = harnessHue(agent);
-      expect(hue).toBe(harnessHue(agent)); // same input → same hue
-      expect(MONOGRAM_HUES).toContain(hue);
-      expect(hue).not.toBe(HUE.crimson); // crimson is reserved for blockers
-    }
-    // case/whitespace variants hash to the same hue
-    expect(harnessHue(" Aider ")).toBe(harnessHue("aider"));
   });
 });
 
@@ -280,7 +264,7 @@ describe("MarksService contract", () => {
     const result = Effect.runSync(Effect.provide(program, MarksLive));
     expect(result.glyph).toBe(GLYPHS.claude);
     expect(result.name).toBe("Codex");
-    expect(result.hue).toBe("#8E75B2");
+    expect(result.hue).toBe(INK);
   });
 });
 
@@ -288,7 +272,6 @@ describe("markTileFor (HarnessMark resolve step)", () => {
   const sentinel: HarnessGlyph = {
     d: "M0 0h10v10z",
     viewBox: "0 0 10 10",
-    hex: "#123456",
     displayName: "Sentinel",
   };
   const stub: MarksService = {
@@ -326,18 +309,17 @@ describe("markTileFor (HarnessMark resolve step)", () => {
     expect(tile.hue).toBe(INK);
   });
 
-  it("uses the exact embedded vendor asset when a harness publishes a raster icon", () => {
-    const tile = markTileFor("hermes");
-    expect(tile.imageSrc).toBe(GLYPHS.hermes.imageSrc);
+  it("uses the exact embedded provider asset when a provider publishes only a raster icon", () => {
+    const tile = markTileFor("ollama");
+    expect(tile.imageSrc).toBe(GLYPHS.ollama.imageSrc);
     expect(tile.paths).toEqual([]);
-    expect(tile.hue).toBe(INK);
   });
 
-  it("monograms glyph-less agents on their deterministic hue", () => {
+  it("monograms glyph-less agents in ink", () => {
     const tile = markTileFor("aider");
     expect(tile.glyph).toBeUndefined();
     expect(tile.known).toBe(true);
-    expect(MONOGRAM_HUES).toContain(tile.hue);
+    expect(tile.hue).toBe(INK);
     expect(tile.paths).toEqual([]);
     expect(tile.displayName).toBe("Aider");
   });

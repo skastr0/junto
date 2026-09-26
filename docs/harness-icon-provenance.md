@@ -1,136 +1,156 @@
-# Official brand icons — pi, prime-agent, kimi, muse, devin
+# Harness marks: sources and receipts
 
-Provenance receipts for the curated harness marks added to
-`src/renderer/lib/harness-icons.ts` (CURATED entries + ALIASES) as part of the
-five managed-terminal harnesses build (pi, prime-agent, kimi, muse, devin,
-closed HarnessId literal and templates landed in 639a46d9).
+Every managed harness in Add item, on seat tiles, in the terminal header and
+in the usage HUD wears its vendor's own mark, drawn as vector path data in
+house ink (`var(--color-ink)`). No vendor colour, no letter placeholders, and
+no rasters for harnesses: one ink, so a mark reads the same in the dark and
+bright themes and never competes with the canvas's state colours.
 
-How the repository is shaped:
+Audit of 2026-09-26, every source fetched that day from a vendor-controlled
+URL. The guard is `tests/harness-icons.test.ts` ("gives every managed harness
+its vendor's own vector mark") and the two-theme spec
+`e2e/scenarios/harness-marks.spec.ts`.
 
-- `GLYPHS` = generated `PROVIDER_MARKS` + `CURATED` overrides/additions.
-  Curated wins on key collision.
-- `PROVIDER_MARKS` is monochrome vector path data extracted from each
-  provider's own published artwork — site favicon/icon SVGs, official brand
-  assets, and provider-controlled repositories. Every entry carries a
-  `// Source:` comment with its fetch origin.
-- `devin` resolves from the generated table: the official Cognition mark
-  fetched from https://cognition.com/icon.svg (SHA-256
-  `207432b78c80378b659deff5114d06e7def680ec6f5b2265a0ac714a9f82beda`).
-- `pi`, `prime-agent`, `kimi`, `muse` have no generated mark — they remain
-  curated. `kimi` replaced an earlier unprovenanced wordmark path; `pi`,
-  `prime-agent` are official vectors; `muse` is a documented crafted
-  monogram.
-- CURATED also carries provider-published raster marks (embedded data URLs)
-  for providers that ship no usable standalone monochrome vector —
-  alibaba, chutes, codebuff, deepgram, deepseek, doubao, jetbrains, kiro,
-  minimax, ollama, perplexity, poe, sakana, synthetic, t3chat, venice,
-  vertexai, warp — each constant's comment in
-  `src/renderer/lib/official-agent-assets.ts` records the provider-controlled
-  URL it was fetched from.
-- Providers with no published mark at all (clawrouter, commandcode, crof,
-  crossmodel, litellm, llmproxy, mimo, sub2api) carry bare CURATED entries so
-  the tile keeps the right display name and renders the existing monogram
-  fallback — no fabricated marks.
-- Monochrome marks record `hex: "#000000"` so `harnessHue` remaps them to
-  house INK (the same convention as the whole generated table).
+## How the repository is shaped
 
----
+- `GLYPHS` in `src/renderer/lib/harness-icons.ts` is the generated table
+  `PROVIDER_MARKS` (`src/renderer/lib/provider-marks.generated.ts`) plus
+  `CURATED`, where curated wins on a key collision.
+- `PROVIDER_MARKS` holds monochrome path data extracted from each vendor's
+  own artwork. Each entry carries a `// Source:` comment.
+- `CURATED` keeps three older vectors (googlegemini, pi, prime-agent), the
+  raster marks of usage providers that publish no vector, and bare entries
+  for providers with no mark at all.
+- `harnessHue` returns INK for everything. The brand-hex field and the
+  hashed monogram palette are gone.
 
-## pi — official pi.dev mark (SVG path, curated)
+## Usage and licensing
 
-| | |
+The marks are the vendors' trademarks. Junto shows them only to name the
+harness a seat runs: nominative use, unaltered in shape, recoloured to one
+ink the way vendors' own monochrome variants are. Several source repos carry
+open licences (oh-my-pi MIT, hermes-agent MIT, fx Apache-2.0), but those
+cover code, not trademarks. This is an engineering reading, not legal
+advice. A vendor asking for removal gets the monogram fallback.
+
+## The fourteen harnesses
+
+| Harness | Mark | Source | Receipt |
+|---|---|---|---|
+| Claude Code (`claude`) | Claude spark | https://claude.ai/favicon.svg | file SHA-256 `b150888b…97350`, unchanged art |
+| Codex (`codex`) | OpenAI blossom | https://developers.openai.com/favicon.svg | Codex publishes no mark of its own; parent-brand mark, as before |
+| Grok (`grok`) | Grok slashed ring | https://grok.com/images/favicon.svg | unchanged art |
+| Hermes (`hermes`) | Hermes Agent portrait | https://raw.githubusercontent.com/NousResearch/hermes-agent/main/assets/icon-master.svg | file SHA-256 `c5bf1ba3…00412`; **was a 48px raster** |
+| Pi (`pi`) | square-spiral Pi and dot | https://pi.dev/logo-auto.svg | file SHA-256 `03d509c1…8f117` (2026-08-06), unchanged |
+| Prime Agent (`prime-agent`) | Prime Intellect butterfly | prime-agent repo `assets/brand/prime-butterfly.svg` | file SHA-256 `3451200e…ee0b1` (2026-08-06), unchanged |
+| Kimi Code (`kimi`) | K and dot | kimi.com icon bundle, Iconify key `KforKimi_f` | bundle `kimi.icon-oUuNb_JD.js` SHA-256 `9644d2e5…00d181`; **was the wrong mark** |
+| Muse (`muse`) | Meta mark | https://ai.meta.com/muse/ page icon `static.xx.fbcdn.net/rsrc.php/yO/r/8S6ZPxM3N1I.svg` | file SHA-256 `0200dc99…e366b`; **was a hand-drawn M** |
+| Devin (`devin`) | Devin three-cell mark | https://devin.ai/favicon.svg | file SHA-256 `fe0753d2…cd682`; **was Cognition's company mark** |
+| Cursor Agent (`cursor`) | Cursor cube | https://cursor.com/favicon.svg | unchanged art |
+| Antigravity (`agy`) | Antigravity arch | https://antigravity.google/ header logo | page SHA-256 `71304b10…e6561`; **was Gemini's violet sparkle** |
+| Amp (`amp`) | "amp" wordmark | https://ampcode.com/logo-dark.svg (press kit) | file SHA-256 `3c2a38b6…c9b5e55`; **grid fixed** |
+| fx (`fx`) | fx glyph | https://fx.sh/ header logo, `logo-fx-glyph` | page SHA-256 `26a8a1d7…eca6c`; **was a teal "F"** |
+| Oh My Pi (`omp`) | Oh My Pi glyph | https://omp.sh/favicon.svg | file SHA-256 `9419975a…e69fe05`; **was a teal "O"** |
+
+The overseer seat (`junto-overseer`) is Junto's own and wears `OverseerMark`.
+
+## What changed, and why
+
+### Antigravity: its own mark, not Gemini's
+
+`agy` and `antigravity` resolved to the Gemini sparkle in brand violet.
+Antigravity is its own product with its own mark: the arch "A" in the
+antigravity.google header. The site paints a blurred colour field through
+that arch's alpha mask, and the mask path is the mark's silhouette. It is
+copied verbatim (`<mask id="mask0_6001_463">`, one path). Gemini keeps its
+sparkle, now in ink.
+
+### Kimi Code: the K and dot, not a chain
+
+The previous path was Iconify key `a_Kimi` from the same bundle: two
+interlocking links around a dot. It is not the Kimi logo. The Kimi app icon
+(`kimi.com/pwa-192.png`), the Kimi Code docs logo
+(`moonshotai.github.io/kimi-code/assets/Kimi.CThWxdLR.png`) and the Kimi CLI
+web logo (`MoonshotAI/kimi-cli/web/public/logo.png`) all show a K with a dot
+at its top right. The same bundle ships that exact mark as `KforKimi_f`: one
+path on a 1024 grid, `fill="currentColor"`. The path is copied verbatim.
+
+### fx and Oh My Pi: real marks instead of letters
+
+Neither harness had an entry, so both fell to the hashed monogram (a
+coloured initial).
+
+- **fx:** fx.sh draws its logo inline, and `logo-fx-glyph` is the product
+  mark (`fill="currentColor"`). The Vercel triangle beside it is Vercel's
+  mark and stays out.
+- **Oh My Pi:** omp.sh serves `favicon.svg`, a gradient glyph on a dark
+  tile. The glyph path (`M14 16h36v8H40v32h-8V24h-6v22h-8V24h-4z`) is taken
+  without the tile. The repo's older `assets/icon.svg` (a pi with a plug) is
+  not what the product shows today.
+
+### Hermes: vector instead of raster
+
+The 48px PNG could not follow the theme; it was a white tile in dark mode.
+The hermes-agent repo ships the master icon as SVG: one black portrait path
+inside a framed tile.
+
+- The portrait path is taken without the frame.
+- Its `matrix(1.0330354,0,0,1.0330354,-145.41428,-2499.328)` transform is
+  folded into the viewBox.
+- Coordinates are rounded to whole units of the 5160-unit grid, which
+  shrank the path from 116 KB to 60 KB. That is a 0.003 px error at the
+  largest tile.
+
+### Muse: Meta's mark instead of a crafted M
+
+Muse still publishes no mark of its own:
+
+- `www.meta.ai/muse` and `/muse-code` return 401.
+- `muse.meta.ai` does not resolve.
+- `developers.meta.com/muse` returns 404.
+- `ai.meta.com/muse/` shows only the Meta mark and the Meta wordmark.
+
+The hand-drawn M implied a brand that does not exist. Muse now wears the
+Meta mark from its own page, the parent-brand rule Codex already follows.
+The source is fifteen gradient-filled pieces. They are joined into one path
+so adjacent pieces rasterise together with no hairline seams.
+
+### Devin: Devin's mark, not Cognition's
+
+The table carried `cognition.com/icon.svg`, the company's six-cell mark. The
+harness is Devin, and devin.ai's favicon (and `icon.png`) is a different
+three-cell mark. The Devin mark is now used; the alias `cognition` still
+resolves to it.
+
+### Amp: the descender is back
+
+`ampcode.com/favicon.svg` now returns an auth page. The press kit
+(`ampcode.com/press-kit`) publishes `logo-dark.svg`, `logo-light.svg` and
+`app-icon.svg`. The app icon is the same "amp" wordmark on a dark field, so
+the wordmark is the mark. Its path is byte-identical to the one already
+embedded. The old grid stopped at y 114, which cut the p's descender (the
+path runs to y 143). The grid is now `0 20 280.603 123.016`.
+
+## Grids
+
+New entries sit on square grids fitted to the art, measured from a
+rasterised render, so their optical size matches the rest of the set:
+
+| Mark | viewBox |
 |---|---|
-| Embedded | two paths on the native 800x800 grid, `fillRule: "evenodd"` (spiral has an inner hole; the dot is a plain rect) |
-| Source | https://pi.dev/logo-auto.svg (mark-only monochrome SVG; the site also serves `/favicon.svg`, a rounded-square tile variant of the same mark) |
-| SHA-256 | `03d509c104b9570063fa268fd3235ed7e0e41dafd93124ca94cae3726f58f117` |
-| Fetched | 2026-08-06, HTTP 200, `image/svg+xml` |
-| Extraction | `logo-auto.svg` has two `<path class="logo-mark">` elements; path data copied verbatim |
-| Grid note | 800x800 kept native (coordinates are simple; a 24x24 rescale would be a lossy transcription) |
+| antigravity | `9.5 11 92 92` |
+| devin | `35.8 35.5 355 355` |
+| fx | `166.241 0 155.861 156` (native) |
+| hermes | `137 2571 5160 5160` (the bust's cut edge sits on the bottom edge) |
+| kimi | `146 113 732 732` |
+| muse | `0.7 -0.2 32.4 32.4` |
+| omp | `10.4 14.4 43.2 43.2` |
 
-Display name "Pi". Aliases: `pi coding agent` → pi, `pi-coding-agent` → pi
-(canonical `pi` passes through).
+## Not in scope: usage-provider rasters
 
-## prime-agent — official Prime Intellect butterfly (SVG path, curated)
-
-| | |
-|---|---|
-| Embedded | two paths on the native 178x178 grid (nonzero fill) |
-| Source | https://raw.githubusercontent.com/PrimeIntellect-ai/prime-agent/main/assets/brand/prime-butterfly.svg (shipped in the prime-agent repo's `assets/brand/`; a `prime-butterfly-black.svg` twin is byte-identical art) |
-| SHA-256 | `3451200ed7200beb5ce487612c07add15f536cc4025800dcbfd4486812cee0b1` |
-| Fetched | 2026-08-06, HTTP 200, `image/svg+xml` |
-| Extraction | two `<path>` elements copied verbatim. Source fills white (dark-field art); the mark is monochrome, so it records house `#000000` → INK like claude |
-| Also | primeintellect.ai serves `/icons/primeintellect-logo.svg` and `/icons/logo-icon.png` — the logo-icon is an 800x800 PNG of the same family, but the repo butterfly is the cleanest monochrome vector |
-
-Display name "Prime Agent". Aliases: `prime agent` → prime-agent.
-
-## kimi — official Kimi K logomark (SVG path, curated, replaces old wordmark)
-
-| | |
-|---|---|
-| Embedded | single path on the native 1024x1024 grid (nonzero fill, `fill="currentColor"` in source) |
-| Source | https://statics.moonshot.cn/kimi-web-seo/assets/kimi.icon-BhdvzFgS.js — kimi.com's production icon bundle (Iconify collection, key `a_Kimi`) |
-| SHA-256 | `7a9aa96aaf9beaac9b9560c315280a1c5494fd7368e62440f932e5ea47056d42` |
-| Fetched | 2026-08-06, HTTP 200, `application/javascript` |
-| Extraction | `JSON.parse` icon body, `d="…"` attribute copied verbatim |
-| Why replaced | the previous curated path was the lowercase "kimi" wordmark with no recorded source. Current official kimi.com art (favicon-dark.ico, logo component `kimi-logo-BS1u0Z--.js`, icon bundle) uses the K logomark; this is the official monochrome vector with a verifiable receipt |
-
-Display name "Kimi" (template display name is "Kimi Code"). Aliases:
-`kimi code` → kimi.
-
-## muse — crafted monogram fallback (no official vector found)
-
-No official Muse Code monochrome vector is publicly reachable. The curated
-entry is a tasteful monogram M: four filled stroke quads (two verticals, two
-diagonals meeting at the apex) on the default 24x24 grid, union-filled
-(nonzero). Path data:
-
-```
-M8.3 20.5L8.3 5.5L3.7 5.5L3.7 20.5Z
-M4.25 7L10.25 14L13.75 11L7.75 4Z
-M13.75 14L19.75 7L16.25 4L10.25 11Z
-M15.7 5.5L15.7 20.5L20.3 20.5L20.3 5.5Z
-```
-
-Hunt log (all 2026-08-06, every attempt read-only):
-
-1. `muse.meta.ai` — DNS failure.
-2. `www.meta.ai/muse`, `/muse-code`, `meta.ai/muse-code` — HTTP 401 (auth-gated SPA shell, no assets served).
-3. `api.meta.ai/muse-code/channels/muse-stable` — channel manifest JSON; artifacts are binaries only (lookaside.facebook.com).
-4. `lookaside.facebook.com/lookaside/muse/download/…` probes for icon/logo/brand file names — all 404.
-5. GitHub org search (facebook, facebookresearch, meta-llama) and npm registry — no muse-code repo/package.
-6. Installed Muse Code 0.1.0-R708.1 pkg expanded (xar + cpio): ships only `/usr/local/bin/muse`; no .app, .icns, or image resources. Binary string scan: no brand art, no embedded PNG/SVG icons.
-7. TUI probe with a PTY responder (DSR/OSC answers, echo provider): renders an empty screen, no banner/logo.
-8. ai.meta.com Muse Spark blog heroes (via reader proxy): typographic posters, no clean logomark.
-9. Wayback Machine CDX for muse-code pages — no snapshots.
-
-Display name "Muse". Aliases: `muse code` → muse.
-
-## devin — official Cognition mark (generated table)
-
-Devin resolves from the generated `PROVIDER_MARKS` table: the official
-Cognition mark fetched from https://cognition.com/icon.svg (SHA-256
-`207432b78c80378b659deff5114d06e7def680ec6f5b2265a0ac714a9f82beda`), three
-paths on its native `-0.747952 -0.722232 21.495942 21.477469` grid.
-
-Aliases: `devin cli` → devin (existing `cognition` → devin kept).
-
----
-
-## Aliases added (harness-icons.ts)
-
-| alias | canonical |
-|---|---|
-| `pi coding agent` / `pi-coding-agent` | pi |
-| `prime agent` | prime-agent |
-| `kimi code` | kimi |
-| `muse code` | muse |
-| `devin cli` | devin |
-| `opencode-go` | opencodego |
-
-## Verification
-
-- `bun run typecheck` (files: harness-icons.ts, official-agent-assets.ts).
-- `bun test tests/harness-icons.test.ts` — curated keys resolve, alias
-  resolution, hue remap to INK for the new monochrome marks.
-- Rasterization spot-check of every embedded path (pi spiral+dot evenodd,
-  butterfly union, kimi K, muse M) before commit.
+Eighteen usage providers (alibaba, chutes, codebuff, deepgram, deepseek,
+doubao, jetbrains, kiro, minimax, ollama, perplexity, poe, sakana, synthetic,
+t3chat, venice, vertexai, warp) still render the vendor's raster icon in the
+usage HUD, because none publishes a vector. They are providers, not
+harnesses, and none appears in Add item. Their sources are recorded beside
+each constant in `src/renderer/lib/official-agent-assets.ts`.
