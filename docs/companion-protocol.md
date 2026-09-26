@@ -135,6 +135,8 @@ Events:
 | `feed.changed` | `{ "feed": OperatorFeed }`: the whole feed of one canvas, replacing the previous one (feeds are small; no diffs in v1) |
 | `seat.changed` | `{ "canvasName": string, "seat": Seat }` (only while a `seats.list` for that canvas was requested in this connection) |
 | `signal.changed` | `{ "signal": AgentSignal }` (upsert by `signalId`) |
+| `seat.removed` | `{ "canvasName": string, "nodeId": string }` (same subscription rule as `seat.changed`; the seat was deleted or stopped being an agent seat) |
+| `canvases.changed` | `{ "canvases": Canvas[] }`: the whole list, replacing the previous one, after a `canvases.list` in this connection (a canvas added, renamed, removed, or its `playing`/`needsYou`/`active` changed). A canvas missing from the list is gone: drop its feed and seats |
 | `mail.changed` | `{ "canvasName": string, "nodeId": string, "message": Mail }` (upsert by `messageId`; new mail either direction and delivery changes, only for the seat of the last `mail.list` or `seat.get`) |
 | `preamble` | `{ "canvasName": string, "nodeId": string, "preamble": Preamble }` (only for the seat of the last `seat.get`) |
 
