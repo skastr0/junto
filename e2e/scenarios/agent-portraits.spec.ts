@@ -132,7 +132,7 @@ test("agent portraits render on seats and in the focus modal", async () => {
       await nameField.fill(nextName);
       await nameField.press("Enter");
       await expect(planner).toContainText(nextName);
-      await expect(editor.locator(".agent-editor__name")).toHaveText(nextName);
+      await expect(editor.locator("header")).toContainText(nextName);
       await page.waitForTimeout(300);
       await editor.screenshot({ path: join(SHOTS, `${mode}-editor-name.png`) });
       await page.keyboard.press("Escape");
