@@ -181,6 +181,16 @@ describe("what the tour says", () => {
     expect(copy).toContain("send to all");
   });
 
+  it("shows signals on seats and the real feed cards with quick replies", () => {
+    const html = chapterAt("feed");
+    const copy = text(html);
+    for (const word of ["waiting on you", "blocked", "ready for review", "Needs you", "quick reply"]) {
+      expect(copy).toContain(word);
+    }
+    expect(html).toContain('data-testid="operator-feed-card"');
+    expect(html).toContain("⌘I");
+  });
+
   it("says a new workspace starts paused, what play does, and where the switch is", () => {
     const copy = text(chapterAt("play"));
     expect(copy).toContain("A new workspace starts paused");

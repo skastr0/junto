@@ -20,6 +20,9 @@ import { FocusSurface } from "../FocusSurface";
 import { Button, Kbd } from "../ui";
 import { DemoSeat, DemoWire, PULSE_BEAT_MS, TourStage, seatPort, useTourBeat } from "./tour-demo";
 import { ChatComposer } from "../chat/ChatComposer";
+import { FeedCard } from "../feed/OperatorFeed";
+import type { FeedItem } from "@shared/operator-feed";
+import { DEFAULT_QUICK_REPLIES } from "@shared/settings";
 import "./first-run-intro.css";
 import { claimFocusOnMount, isOperatorTyping } from "../../lib/focus-ownership";
 
@@ -295,6 +298,134 @@ const talkChapter: TourChapter = {
   pip: "eager",
 };
 
+// --- 4. When an agent needs you -------------------------------------------------
+
+const feedItem = (
+  id: string,
+  name: string,
+  harness: string,
+  kind: "escalate" | "blocked",
+  text: string,
+  sinceMs: number,
+): FeedItem => ({
+  itemId: `tour-${id}`,
+  kind,
+  urgency: kind === "blocked" ? 3 : 2,
+  canvasName: "tour",
+  seat: { nodeId: `tour-${id}`, name, portraitIdentity: `tour-${id}`, harness },
+  region: { regionId: null, label: "open field", path: [] },
+  text,
+  since: sinceMs,
+  ageMs: 0,
+  signalId: `tour-signal-${id}`,
+  signalKind: kind,
+});
+
+const NO_OP = (): void => undefined;
+
+function FeedDemo() {
+  // The escalation is picked, answered with a quick reply, and leaves; the
+  // seat goes back to work. Then it all starts over.
+  const beat = useTourBeat(1800);
+  const phase = beat % 5;
+  const answered = phase >= 3;
+  const now = Date.now();
+  const idle = terminalActivity({ seatState: "idle" });
+  const replies = DEFAULT_QUICK_REPLIES;
+  return (
+    <div className="tour-pair">
+      <TourStage width={232} height={250} label="Two seats asking for the operator: one waiting on a decision, one blocked">
+        <DemoSeat
+          id="tour-schema"
+          name="schema"
+          harness="codex"
+          x={24}
+          y={60}
+          spec={answered ? terminalActivity({ seatState: "working" }) : idle}
+          signal={answered ? undefined : signalOf("escalate", "two specs disagree on ids")}
+          bubble={
+            answered
+              ? note("tour-schema-answer", "answered: go on", "signal-clear", "green", 1, "operator")
+              : note("tour-schema-ask", "wants you: two specs disagree on ids", "signal", "amber", 0)
+          }
+        />
+        <DemoSeat id="tour-deploy" name="deploy" harness="claude" x={24} y={176} spec={idle} signal={signalOf("blocked", "needs the prod password")} />
+      </TourStage>
+      <div className="tour-feed" inert aria-hidden>
+        <div className="tour-feed__head">
+          <span>Needs you</span>
+          <Kbd>⌘I</Kbd>
+        </div>
+        <FeedCard
+          item={feedItem("deploy", "deploy", "claude", "blocked", "Needs the production database password to run the migration.", now - 6 * 60_000)}
+          node={undefined}
+          nowMs={now}
+          quickReplies={replies}
+          selected={false}
+          reveal={false}
+          leaving={false}
+          replying={false}
+          expanded={false}
+          sending={null}
+          error={null}
+          onSelect={NO_OP}
+          onReply={NO_OP}
+          onQuickReply={NO_OP}
+          onToggleDetail={NO_OP}
+        />
+        {phase < 4 ? (
+          <FeedCard
+            item={feedItem("schema", "schema", "codex", "escalate", "Two specs disagree on how ids are formed. Which one wins?", now - 2 * 60_000)}
+            node={undefined}
+            nowMs={now}
+            quickReplies={replies}
+            selected={phase >= 1}
+            reveal={false}
+            leaving={phase === 3}
+            replying={false}
+            expanded={false}
+            sending={phase === 2 ? (replies[3] ?? null) : null}
+            error={null}
+            onSelect={NO_OP}
+            onReply={NO_OP}
+            onQuickReply={NO_OP}
+            onToggleDetail={NO_OP}
+          />
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+const feedChapter: TourChapter = {
+  id: "feed",
+  title: "When an agent needs you",
+  demo: <FeedDemo />,
+  body: (
+    <>
+      <p>
+        An agent that needs you raises a signal instead of waiting quietly:
+        <strong> waiting on you</strong> when it needs your call but keeps
+        working, <strong>blocked</strong> when it has stopped, and{" "}
+        <strong>ready for review</strong> when it has something to show. Its
+        ring and its line say so on the canvas.
+      </p>
+      <p>
+        The <strong>Needs you</strong> feed gathers every signal in one list,
+        most urgent first. Answer right there with a quick reply or your own
+        words. Your answer reaches the agent as mail, and its ring goes back to
+        work.
+      </p>
+    </>
+  ),
+  tryIt: [
+    { keys: ["⌘I"], text: <>opens the feed; <strong>j</strong> and <strong>k</strong> move through it.</> },
+    { keys: ["1", "9"], text: <>send a quick reply to the selected card.</> },
+    { keys: ["↵"], text: <>write your own reply, or <strong>o</strong> to open the seat.</> },
+  ],
+  pip: "concerned",
+};
+
 // --- Play and pause ------------------------------------------------------------
 
 function PlayPauseDemo() {
@@ -389,6 +520,7 @@ export const tourChapters = (mac: boolean): ReadonlyArray<TourChapter> => [
   seatsChapter,
   statesChapter,
   talkChapter,
+  feedChapter,
   playChapter,
   permissionsChapter(mac),
 ];

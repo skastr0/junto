@@ -340,3 +340,19 @@ html[data-surface-motion="paused"] .first-run-intro__slide { animation: none !im
 /* The multi-prompt composer, shown as it opens under a selection. */
 .tour-composer { width: min(520px, 100%); }
 
+/* The feed as it opens: its real cards, under a quiet heading. */
+.tour-feed {
+  display: grid;
+  gap: 8px;
+  width: min(440px, 100%);
+  align-content: start;
+}
+.tour-feed__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 4px;
+  color: var(--color-ink);
+  font-size: 13px;
+  font-weight: 600;
+}
