@@ -56,12 +56,8 @@
  * and the recorded containment upgrade, and claims nothing from it.
  */
 
-import { Option, Schema } from "effect";
 import type { AgentSeatState } from "@shared/agent-seat-state";
-import { ThreadHealthReading } from "@shared/thread-health";
-
-/** Strict decode of the thread-health reading carried on an assessment. */
-export const decodeThreadHealthReading = Schema.decodeUnknownOption(ThreadHealthReading);
+import type { ThreadHealthReading } from "@shared/thread-health";
 
 /** Main -> renderer: one seat-awareness event. */
 export const SEAT_AWARENESS_CHANNEL = "junto:seat-awareness" as const;
@@ -322,11 +318,12 @@ const decodeAssessment = (raw: unknown): SeatAwarenessAssessment | undefined => 
   const availability = raw.availability as SeatAwarenessPublishedAvailability;
   // Additive field, strict when present: a reading must belong to this exact
   // observation, and an unavailable assessment carries no judgment at all.
+  // Main validated the reading against its schema before sending it
+  // (awareness-wire.ts); here it is only held to the event it rides on.
   let health: ThreadHealthReading | undefined;
   if (raw.health !== undefined) {
-    const decoded = decodeThreadHealthReading(raw.health);
-    if (Option.isNone(decoded)) return undefined;
-    health = decoded.value;
+    if (!isRecord(raw.health) || !isRecord(raw.health.provenance)) return undefined;
+    health = raw.health as ThreadHealthReading;
     if (health.bindingId !== bindingId) return undefined;
     if (health.provenance.assessmentId !== raw.assessmentId) return undefined;
     if (health.observedAt !== raw.observedAt) return undefined;

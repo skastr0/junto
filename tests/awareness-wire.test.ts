@@ -380,4 +380,20 @@ describe("thread health on the wire", () => {
     };
     expect(decodeSeatAwarenessEvent(forged)).toBeUndefined();
   });
+
+  it("holds the reading to its schema in main and drops only a reading it refuses", () => {
+    const valid = healthAssessment();
+    const health = valid.health!;
+    // Model output out of range: a probability above one.
+    const broken = { ...valid, health: { ...health, probability: 1.5 } } as AwarenessAssessment;
+    const events = seatAwarenessEventsForAdvisory(
+      advisory({ bindingId: "b1", assessment: broken, availability: "current" }),
+      AT,
+    );
+    const judged = events.find((event) => event.kind === "assessment");
+    expect(judged?.kind).toBe("assessment");
+    if (judged?.kind !== "assessment") return;
+    expect(judged.assessment.health).toBeUndefined();
+    expect(judged.assessment.availability).toBe("current");
+  });
 });

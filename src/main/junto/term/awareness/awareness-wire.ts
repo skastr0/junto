@@ -32,7 +32,8 @@ import type {
   SeatAwarenessEvidenceLine,
   SeatAwarenessUnavailableReason,
 } from "@renderer/lib/seat-awareness-contract";
-import type { ThreadHealthReading } from "@shared/thread-health";
+import { Option, Schema } from "effect";
+import { ThreadHealthReading } from "@shared/thread-health";
 import type { AwarenessAdvisory } from "./scheduler";
 
 /**
@@ -75,9 +76,18 @@ const evidenceLinesOf = (
   advisory.evidenceLines.map((line) => ({ id: line.id, text: line.text }));
 
 /**
+ * The one decode of a thread-health reading, in main, at the IPC boundary:
+ * the reading is assembled from model output (probabilities, a pack's
+ * question ids), so it is held to the schema here, once, before it crosses to
+ * the renderer. The renderer receives it typed and never decodes it again.
+ */
+export const decodeThreadHealthReading = Schema.decodeUnknownOption(ThreadHealthReading);
+
+/**
  * The thread-health reading, only for a judged observation. It shares the
  * assessment's id and observation time, so the renderer can never pair a
- * health reading with a different observation than the one it came from.
+ * health reading with a different observation than the one it came from. A
+ * reading the schema refuses is dropped; the assessment still goes out.
  */
 const healthOf = (
   advisory: AwarenessAdvisory,
@@ -90,7 +100,7 @@ const healthOf = (
   if (assessment === undefined || health === undefined) return undefined;
   const model =
     assessment.provenance.returnedModel ?? assessment.provenance.requestedModel;
-  return {
+  const reading = decodeThreadHealthReading({
     bindingId: advisory.bindingId,
     value: health.value,
     confidence: health.probability,
@@ -107,7 +117,8 @@ const healthOf = (
       probability: signal.probability,
       questionId: signal.questionId,
     })),
-  };
+  });
+  return Option.getOrUndefined(reading);
 };
 
 const assessmentFor = (

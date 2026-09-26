@@ -582,6 +582,13 @@
   ],
   "decodeBoundaries": [
     {
+      "path": "src/main/junto/term/awareness/awareness-wire.ts",
+      "kinds": [
+        "wire"
+      ],
+      "reason": "Holds the thread-health reading, assembled from model output, to its schema once in main before the seat-awareness event crosses IPC; the renderer receives it typed."
+    },
+    {
       "path": "src/cli/companion-stdio.ts",
       "kinds": [
         "operator"
@@ -965,13 +972,6 @@
       ],
       "reason": "Brands an IntentFactBasis from a literal assembled out of the local station configuration.",
       "retire": "Construct the branded value through a total constructor instead of re-validating a value this process just built."
-    },
-    {
-      "path": "src/renderer/lib/seat-awareness-contract.ts",
-      "kinds": [
-        "wire"
-      ],
-      "reason": "Decodes the thread-health reading carried on a seat-awareness IPC event from main before the renderer store accepts it."
     },
     {
       "path": "src/shared/browser-control.ts",

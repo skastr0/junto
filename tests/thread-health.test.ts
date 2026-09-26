@@ -5,7 +5,7 @@ import {
   THREAD_HEALTH_TONE,
   THREAD_HEALTH_VALUES,
 } from "../src/shared/thread-health";
-import { decodeThreadHealthReading } from "../src/renderer/lib/seat-awareness-contract";
+import { decodeThreadHealthReading } from "../src/main/junto/term/awareness/awareness-wire";
 
 const reading = {
   bindingId: "bind-a",
