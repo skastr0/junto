@@ -789,6 +789,14 @@ html[data-junto-platform="darwin"] .station-bar [role="listbox"] {
 .command-bar__row { display: flex; align-items: center; gap: 10px; border-radius: 6px; padding: 7px 10px; cursor: pointer; }
 .command-bar__row--active { background: var(--color-overlay-2); }
 .command-bar__row-icon { display: grid; flex: none; place-items: center; color: var(--color-dim); }
+.command-bar__mark { display: grid; width: 28px; height: 28px; flex: none; place-items: center; border: 1px solid color-mix(in oklab, var(--mark-hue) 30%, transparent); border-radius: 8px; background: color-mix(in oklab, var(--mark-hue) 12%, transparent); color: var(--mark-hue); }
+.command-bar__mark[data-region="true"] { border-color: color-mix(in oklab, var(--mark-hue) 55%, transparent); background: color-mix(in oklab, var(--mark-hue) 22%, transparent); }
+.command-bar__mark--seat { border: 0; background: none; }
+.command-bar__row--active .command-bar__mark:not(.command-bar__mark--seat) { border-color: color-mix(in oklab, var(--mark-hue) 60%, transparent); }
+.command-bar__row-kind { flex: none; color: var(--color-faint); font-family: var(--font-mono); font-size: 10px; }
+.command-bar__harness { color: var(--color-dim); }
+.command-bar__saying-word { font-weight: 600; }
+.command-bar__saying-ai { margin-right: 4px; font-family: var(--font-display); font-size: 9px; letter-spacing: .12em; }
 .command-bar__row-main { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: 2px; }
 .command-bar__row-title { overflow: hidden; color: var(--color-ink); font-size: 12px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
 .command-bar__row-detail { overflow: hidden; color: var(--color-faint); font-family: var(--font-mono); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }

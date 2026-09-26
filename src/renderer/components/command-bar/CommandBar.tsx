@@ -10,17 +10,20 @@ import {
   Inbox,
   Link2,
   ListTodo,
-  Map,
   Package,
   PenLine,
   Search,
+  SquareDashed,
   SquareTerminal,
   Table,
+  Tag,
   X,
+  type LucideIcon,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import type { CanvasNode } from "@shared/canvas";
+import type { CanvasNode, GroupNode } from "@shared/canvas";
+import { harnessDisplayName } from "@shared/spawn-failure";
 import { activateNodeSurface } from "../../lib/activate-node-surface";
 import {
   buildCommandBarActions,
@@ -35,8 +38,12 @@ import {
   openCommandBar,
 } from "../../lib/command-bar";
 import { nodeDetail, nodeTitle, nodeTypeLabel } from "../../lib/presentation";
+import { regionTallyParts } from "../../lib/region-glance";
+import { seatSaying } from "../../lib/seat-line";
 import { state$ } from "../../lib/state";
-import { Chip, Kbd, type ChipTone } from "../ui";
+import { accentColor, HUE } from "../../lib/theme";
+import { SeatRingView, useSeatGlance, type SeatGlance } from "../SeatRing";
+import { Kbd } from "../ui";
 import { claimFocus, isOperatorTyping } from "../../lib/focus-ownership";
 
 /**
@@ -55,7 +62,7 @@ import { claimFocus, isOperatorTyping } from "../../lib/focus-ownership";
 
 const LIST_CAP = 100;
 
-const KIND_ICONS: Record<string, typeof Bot> = {
+const KIND_ICONS: Record<string, LucideIcon> = {
   agent: Bot,
   terminal: SquareTerminal,
   task: ListTodo,
@@ -68,45 +75,174 @@ const KIND_ICONS: Record<string, typeof Bot> = {
   cron: Clock,
   relay: GitBranch,
   git: GitBranch,
+  label: Tag,
 };
 
-const TYPE_ICONS: Record<string, typeof Bot> = {
+const TYPE_ICONS: Record<string, LucideIcon> = {
   text: FileText,
   file: File,
   link: Link2,
-  group: Map,
+  group: SquareDashed,
 };
 
-const KIND_TONES: Record<string, ChipTone> = {
-  agent: "amber",
-  terminal: "cyan",
-  task: "steel",
-  requests: "violet",
-  artifacts: "green",
-  board: "violet",
-  pad: "cyan",
-  sheet: "green",
-  page: "cyan",
-  cron: "steel",
-  relay: "amber",
-  git: "steel",
-  region: "amber",
-  note: "steel",
-  file: "steel",
-  link: "steel",
+// Each kind wears one hue from the token palette so a mixed list reads at a
+// glance; a node the operator coloured wears its own colour instead.
+const KIND_HUES: Record<string, string> = {
+  terminal: HUE.cyan,
+  task: "var(--color-green)",
+  requests: HUE.violet,
+  artifacts: "var(--color-green)",
+  board: HUE.violet,
+  pad: HUE.orange,
+  sheet: "var(--color-green)",
+  page: HUE.indigo,
+  cron: HUE.indigo,
+  relay: HUE.orange,
+  git: HUE.orange,
+  label: HUE.steel,
+  note: HUE.gold,
+  file: HUE.steel,
+  link: HUE.cyan,
 };
 
-const kindIcon = (node: CanvasNode) => {
-  const kind = node.ether?.entity?.kind ?? "";
-  const Icon = KIND_ICONS[kind] ?? TYPE_ICONS[node.type] ?? FileText;
-  return <Icon size={13} />;
+// An uncoloured region has no hue of its own; it stays neutral, as on the map.
+const NEUTRAL_HUE = "var(--color-dim)";
+
+const TALLY_HUES = {
+  crimson: HUE.crimson,
+  amber: HUE.amber,
+  cyan: HUE.cyan,
+  green: "var(--color-green)",
+  steel: HUE.steel,
+} as const;
+
+const markHue = (node: CanvasNode): string => {
+  if (node.color) return accentColor(node.color);
+  if (node.type === "group") return NEUTRAL_HUE;
+  return KIND_HUES[nodeTypeLabel(node)] ?? HUE.steel;
 };
 
-const kindTone = (node: CanvasNode): ChipTone => {
-  const kind = node.ether?.entity?.kind ?? "";
-  if (KIND_TONES[kind]) return KIND_TONES[kind];
-  return KIND_TONES[nodeTypeLabel(node)] ?? "steel";
-};
+function KindMark({ node }: { readonly node: CanvasNode }) {
+  const Icon = KIND_ICONS[node.ether?.entity?.kind ?? ""] ?? TYPE_ICONS[node.type] ?? FileText;
+  return (
+    <span
+      className="command-bar__mark"
+      data-region={node.type === "group" ? "true" : undefined}
+      style={{ "--mark-hue": markHue(node) } as React.CSSProperties}
+    >
+      <Icon size={14} strokeWidth={1.75} />
+    </span>
+  );
+}
+
+/**
+ * A region's line: what needs the operator inside it (the plate's tally,
+ * idle members left out), else its briefing, else how much it holds.
+ */
+function RegionDetail({ node }: { readonly node: GroupNode }) {
+  const tally = use$(() => state$.regionCountsByNodeId.get()[node.id]);
+  const live = regionTallyParts(tally).filter((part) => part.tone !== "steel");
+  if (live.length > 0) {
+    return (
+      <>
+        {live.map((part, index) => (
+          <span key={part.tone} style={{ color: TALLY_HUES[part.tone] }}>
+            {index > 0 ? ", " : ""}
+            {part.text}
+          </span>
+        ))}
+      </>
+    );
+  }
+  const briefing = node.ether?.region?.instruction?.trim().split("\n")[0];
+  if (briefing) return <>{briefing}</>;
+  const total = tally?.total ?? 0;
+  return <>{total === 0 ? "empty" : total === 1 ? "1 node" : `${String(total)} nodes`}</>;
+}
+
+const SAYING_HUES = {
+  amber: HUE.amber,
+  cyan: HUE.cyan,
+  green: "var(--color-green)",
+  crimson: HUE.crimson,
+  steel: HUE.steel,
+} as const;
+
+/** The seat's harness in words, then the line its canvas seat is saying. */
+function AgentDetail({ glance }: { readonly glance: SeatGlance }) {
+  const saying = seatSaying({
+    activity: glance.activity,
+    signal: glance.signal?.signal,
+    failure: glance.failure,
+    health: glance.health,
+  });
+  const harness = harnessDisplayName(glance.harness);
+  let words: React.ReactNode;
+  if (saying.kind === "signal") {
+    words = (
+      <>
+        <span className="command-bar__saying-word" style={{ color: SAYING_HUES[saying.tone] }}>
+          {saying.word}
+        </span>{" "}
+        {saying.text}
+      </>
+    );
+  } else if (saying.kind === "failure") {
+    words = <span style={{ color: HUE.amber }}>{saying.text}</span>;
+  } else if (saying.kind === "reading") {
+    words = (
+      <>
+        <span className="command-bar__saying-ai">AI</span>
+        {saying.text}
+      </>
+    );
+  } else {
+    words = saying.tone ? <span style={{ color: SAYING_HUES[saying.tone] }}>{saying.text}</span> : saying.text;
+  }
+  return (
+    <>
+      {harness ? <span className="command-bar__harness">{harness} — </span> : null}
+      {words}
+    </>
+  );
+}
+
+function AgentRowFace({ node }: { readonly node: CanvasNode }) {
+  const glance = useSeatGlance(node);
+  return (
+    <>
+      <span className="command-bar__mark command-bar__mark--seat">
+        <SeatRingView node={node} px={28} glance={glance} />
+      </span>
+      <span className="command-bar__row-main">
+        <span
+          className="command-bar__row-title"
+          style={node.color ? { color: accentColor(node.color) } : undefined}
+        >
+          {nodeTitle(node)}
+        </span>
+        <span className="command-bar__row-detail">
+          <AgentDetail glance={glance} />
+        </span>
+      </span>
+    </>
+  );
+}
+
+function NodeRowFace({ node }: { readonly node: CanvasNode }) {
+  if (node.ether?.entity?.kind === "agent") return <AgentRowFace node={node} />;
+  return (
+    <>
+      <KindMark node={node} />
+      <span className="command-bar__row-main">
+        <span className="command-bar__row-title">{nodeTitle(node)}</span>
+        <span className="command-bar__row-detail">
+          {node.type === "group" ? <RegionDetail node={node} /> : nodeDetail(node)}
+        </span>
+      </span>
+    </>
+  );
+}
 
 export function CommandBarHost() {
   const open = use$(state$.commandBarOpen);
@@ -312,12 +448,8 @@ function CommandBarPanel() {
                     commit(row, event.metaKey || event.ctrlKey);
                   }}
                 >
-                  <span className="command-bar__row-icon">{kindIcon(row.node)}</span>
-                  <span className="command-bar__row-main">
-                    <span className="command-bar__row-title">{nodeTitle(row.node)}</span>
-                    <span className="command-bar__row-detail">{nodeDetail(row.node)}</span>
-                  </span>
-                  <Chip tone={kindTone(row.node)}>{nodeTypeLabel(row.node)}</Chip>
+                  <NodeRowFace node={row.node} />
+                  <span className="command-bar__row-kind">{nodeTypeLabel(row.node)}</span>
                 </div>
               ) : (
                 <div
