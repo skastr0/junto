@@ -143,9 +143,9 @@ export function EtherEdge({
         <button
           type="button"
           aria-label={
-            detail
-              ? `Select edge - ${phase} - ${detail}`
-              : `Select edge - ${phase}`
+            phase === "blocks"
+              ? `Select edge - waiting on you${detail ? ` - ${detail}` : ""}`
+              : `Select edge - ${data?.verb ?? "connection"}`
           }
           className="nodrag nopan junto-edge-label junto-edge-label--silent"
           style={{

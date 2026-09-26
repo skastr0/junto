@@ -198,8 +198,11 @@ export function EdgeCommandCard({ edgeId }: { readonly edgeId: string }) {
   const view = edgeVerbView(doc, edge);
   const livePhase = execution?.phaseByEdgeId[edgeId];
   const liveDetail = execution?.detailByEdgeId[edgeId];
-  const line = liveDetail ?? livePhase ?? view.sentence;
-  const phaseHue = livePhase === "blocks" ? HUE.crimson : undefined;
+  // The sentence is the card; only a live block (a task waiting on the
+  // operator) replaces it, in crimson.
+  const blocking = livePhase === "blocks";
+  const line = blocking ? (liveDetail || "Waiting on you") : view.sentence;
+  const phaseHue = blocking ? HUE.crimson : undefined;
   return (
     <div className="rts-panel rts-panel--cmd">
       <div className="rts-panel__body rts-cmd-shell">

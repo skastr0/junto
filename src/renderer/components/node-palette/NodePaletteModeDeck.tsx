@@ -22,6 +22,7 @@ import {
   type CascadeDismiss,
 } from "./AgentHarnessPick";
 import {
+  DEFAULT_NODE_CATALOG_ENTRIES,
   NodeCatalogGrid,
   type NodeCatalogCategory,
   type NodeCatalogEntry,
@@ -54,13 +55,15 @@ export type ModeDeckActions = {
   readonly addLabel: () => void;
 };
 
+// A tab only appears when this build ships something under it: a ship build
+// without cron or relay has no Schedule tab to open onto an empty grid.
 const CATEGORIES: ReadonlyArray<{ readonly id: NodeCatalogCategory | "all"; readonly label: string }> = [
-  { id: "all", label: "All" },
-  { id: "shell", label: "Shell" },
-  { id: "sinks", label: "Work" },
-  { id: "schedule", label: "Schedule" },
-  { id: "canvas", label: "Canvas" },
-];
+  { id: "all" as const, label: "All" },
+  { id: "shell" as const, label: "Shell" },
+  { id: "sinks" as const, label: "Work" },
+  { id: "schedule" as const, label: "Schedule" },
+  { id: "canvas" as const, label: "Canvas" },
+].filter((tab) => tab.id === "all" || DEFAULT_NODE_CATALOG_ENTRIES.some((entry) => entry.category === tab.id));
 
 const catalogAction = (actions: ModeDeckActions, entry: NodeCatalogEntry): void => {
   switch (entry.id) {
