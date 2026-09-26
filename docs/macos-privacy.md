@@ -44,7 +44,11 @@ that action. Narrow startup metadata/network exceptions are listed below.
   the window is in front. Banners carry a seat's name and one line of what
   it needs; they stay on this machine. The Dock badge (the feed's count) and
   the Dock bounce use the app's own Dock tile and ask for nothing. Every kind,
-  the badge, and the bounce have their own switch.
+  the badge, and the bounce have their own switch. macOS delivers banners
+  only to a code-signed app, so a development build never shows one; when
+  macOS refuses (unsigned, or the operator turned Junto off), Settings says
+  so and opens System Settings, Notifications at Junto on request. Junto
+  never changes that setting itself.
 - The trusted renderer may write the clipboard and, in Live-enabled builds,
   request audio-only microphone access. Third-party browser
   pages are denied media, display capture, devices, downloads, filesystem
