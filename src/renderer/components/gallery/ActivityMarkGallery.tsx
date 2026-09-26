@@ -98,6 +98,7 @@ type Seat = {
   readonly health?: SeatHealth;
   readonly signal?: SeatSignal;
   readonly context?: string;
+  readonly overseer?: boolean;
   readonly caption: string;
 };
 
@@ -105,18 +106,20 @@ const SEATS: ReadonlyArray<Seat> = [
   { id: "seat-planner", name: "planner", harness: "claude", spec: pick("Working"), health: reading("good", "going_well", "going well"), caption: "working, going well" },
   { id: "seat-flaky", name: "flaky-tests", harness: "codex", spec: pick("Working"), health: reading("trouble", "thrashing", "thrashing"), caption: "working, AI reads thrashing: the ring snakes" },
   { id: "seat-migrate", name: "migrations", harness: "claude", spec: pick("Working"), health: reading("trouble", "stuck", "stuck"), caption: "working, AI reads stuck: the lap runs backwards" },
-  { id: "seat-review", name: "reviewer", harness: "claude", spec: pick("Needs input"), caption: "needs input: a ring goes out, twice, then waits" },
-  { id: "seat-deploy", name: "deploy", harness: "codex", spec: pick("Working"), signal: declared("blocked", "needs the prod DB password", 2), caption: "declared blocked: crimson glow, flag, line" },
-  { id: "seat-schema", name: "schema", harness: "claude", spec: pick("Idle"), signal: declared("escalate", "two specs disagree on ids"), caption: "declared escalate" },
-  { id: "seat-docs", name: "docs", harness: "grok", spec: pick("Idle"), signal: declared("feedback", "draft ready, worth a look"), caption: "declared feedback" },
-  { id: "seat-done", name: "refactor", harness: "claude", spec: pick("Done"), health: reading("good", "exceeding", "exceeding expectations"), caption: "done: sweeps closed and rests, halo and spark" },
-  { id: "seat-quiet", name: "notes", harness: "claude", spec: pick("Idle"), caption: "idle" },
-  { id: "seat-lost", name: "scraper", harness: "codex", spec: pick("Idle"), health: reading("trouble", "confused", "confused"), caption: "idle, AI reads confused: the ring fractures" },
-  { id: "seat-wait", name: "triage", harness: "claude", spec: pick("Idle"), health: reading("waiting", "waiting_on_operator", "wants your input"), caption: "AI reads waiting: a soft amber glow" },
+  { id: "seat-review", name: "reviewer", harness: "claude", spec: pick("Needs input"), caption: "needs input: keeps sending rings outward" },
+  { id: "seat-deploy", name: "deploy", harness: "codex", spec: pick("Working"), signal: declared("blocked", "needs the prod DB password", 2), caption: "declared blocked, still working: the lap keeps its pace, crimson glow" },
+  { id: "seat-schema", name: "schema", harness: "claude", spec: pick("Idle"), signal: declared("escalate", "two specs disagree on ids"), caption: "waiting on you: two beads orbit, amber" },
+  { id: "seat-docs", name: "docs", harness: "grok", spec: pick("Idle"), signal: declared("feedback", "draft ready, worth a look"), caption: "ready for review: two beads orbit, cyan" },
+  { id: "seat-done", name: "refactor", harness: "claude", spec: pick("Done"), health: reading("good", "exceeding", "exceeding expectations"), caption: "done, unread: sweeps closed, then a faint glint laps it" },
+  { id: "seat-quiet", name: "notes", harness: "claude", spec: pick("Idle"), caption: "resting (read): the one still ring" },
+  { id: "seat-lost", name: "scraper", harness: "codex", spec: pick("Idle"), health: reading("trouble", "confused", "confused"), caption: "idle, AI reads confused: the broken ring grinds round" },
+  { id: "seat-wait", name: "triage", harness: "claude", spec: pick("Idle"), health: reading("waiting", "waiting_on_operator", "wants your input"), caption: "AI reads waiting: amber orbit and glow" },
   { id: "seat-old", name: "archive", harness: "claude", spec: pick("Working"), health: reading("good", "going_well", "going well, 9m ago", true), caption: "stale reading: the halo fades" },
-  { id: "seat-halt", name: "ingest", harness: "codex", spec: pick("Blocked"), caption: "graph blocked: heavy ring, double beat" },
+  { id: "seat-halt", name: "ingest", harness: "codex", spec: pick("Blocked"), caption: "graph blocked: heavy ring, steady double beat" },
   { id: "seat-fail", name: "bootstrap", harness: "grok", spec: pick("Failed to start"), context: "grok is not installed", caption: "failed to start" },
-  { id: "seat-gone", name: "old-worker", harness: "claude", spec: pick("Gone"), caption: "gone" },
+  { id: "seat-gone", name: "old-worker", harness: "claude", spec: pick("Gone"), caption: "gone: still, dotted" },
+  { id: "seat-overseer", name: "overseer", harness: "claude", spec: pick("Working"), overseer: true, caption: "overseer: a crest on the ring, one border" },
+  { id: "seat-overseer-done", name: "lead", harness: "codex", spec: pick("Done"), overseer: true, caption: "overseer, done" },
 ];
 
 /** Token overrides so a panel renders in its own theme regardless of the page. */
@@ -164,6 +167,7 @@ function SeatShell({
           health={seat.health ?? NO_HEALTH}
           signal={seat.signal ?? NO_SIGNAL}
           onSignalOpen={() => undefined}
+          overseer={seat.overseer}
           title={<div className="truncate font-mono text-[13px] font-semibold leading-snug text-ink">{seat.name}</div>}
         />
         {bubble ? <PreambleBubble nodeId={seat.id} bubble={bubble} selected={false} /> : null}
@@ -251,8 +255,6 @@ const pre = (fields: Partial<PreambleItem> & Pick<PreambleItem, "text" | "proven
   id: `${fields.action}-${fields.text}`,
   nodeId: "gallery",
   expiresAt: FAR,
-  count: 1,
-  more: 0,
   shownAt: 0,
   ...fields,
 });
@@ -261,60 +263,57 @@ const PREAMBLES: ReadonlyArray<{ readonly seat: Seat; readonly bubble: SeatBubbl
   {
     seat: SEATS[0]!,
     bubble: { current: pre({ text: "splitting the migration into two steps", provenance: "agent", action: "say", tone: "second" }) },
-    caption: "the agent's own words",
-  },
-  {
-    seat: SEATS[1]!,
-    bubble: {
-      current: pre({ text: "claimed a task", provenance: "agent", action: "tool", tone: "indigo" }),
-      previous: pre({ text: "checking tasks", provenance: "agent", action: "tool", tone: "steel", count: 3 }),
-    },
-    caption: "tool calls: writes indigo, reads steel; the last one trails",
+    caption: "the agent's own words, no label",
   },
   {
     seat: SEATS[4]!,
     bubble: { current: pre({ text: "blocked: needs the prod DB password", provenance: "agent", action: "signal", tone: "crimson" }) },
-    caption: "declared signal, the seat's own claim",
+    caption: "declared signal, a firmer frame",
   },
   {
     seat: SEATS[5]!,
-    bubble: { current: pre({ text: "answered: use the staging ids", provenance: "operator", action: "signal-clear", tone: "green" }) },
-    caption: "the operator closed it",
+    bubble: {
+      current: pre({ text: "answered: use the staging ids", provenance: "operator", action: "signal-clear", tone: "green" }),
+      previous: pre({ text: "wants you: which ids, staging or prod?", provenance: "agent", action: "signal", tone: "amber" }),
+    },
+    caption: "the operator closed it; the ask fades above",
   },
   {
     seat: SEATS[1]!,
     bubble: { current: pre({ text: "thrashing", provenance: "ai", action: "health", tone: "amber" }) },
-    caption: "the AI's reading, dashed: advisory",
+    caption: "the AI's reading, turning bad",
   },
   {
     seat: SEATS[0]!,
-    bubble: { current: pre({ text: "going well", provenance: "ai", action: "health", tone: "green" }) },
-    caption: "good news reads too",
+    bubble: { current: pre({ text: "exceeding expectations", provenance: "ai", action: "health", tone: "green" }) },
+    caption: "or notably good",
   },
   {
     seat: SEATS[6]!,
-    bubble: {
-      current: pre({ text: "mail from planner: rebase is done, over to you", provenance: "agent", action: "mail-in", tone: "violet", count: 2 }),
-    },
-    caption: "mail across the wires, coalesced",
+    bubble: { current: pre({ text: "asked by planner: rebase is done, over to you", provenance: "agent", action: "mail-in", tone: "violet" }) },
+    caption: "a peer's mail, on the receiver",
   },
   {
     seat: SEATS[7]!,
-    bubble: { current: pre({ text: "done, ready for review", provenance: "system", action: "state", tone: "green" }) },
-    caption: "Junto tells state moments, dotted",
+    bubble: { current: pre({ text: "done", provenance: "system", action: "state", tone: "green" }) },
+    caption: "Junto tells state moments",
   },
   {
     seat: SEATS[3]!,
-    bubble: {
-      current: pre({ text: "waiting on you", provenance: "system", action: "state", tone: "amber" }),
-      previous: pre({ text: "reading a peer's screen", provenance: "agent", action: "tool", tone: "steel" }),
-    },
-    caption: "waiting on you, over what it was doing",
+    bubble: { current: pre({ text: "waiting on you", provenance: "system", action: "state", tone: "amber" }) },
+    caption: "waiting on you",
   },
   {
     seat: SEATS[2]!,
-    bubble: { current: pre({ text: "reading the board", provenance: "agent", action: "tool", tone: "steel", more: 4 }) },
-    caption: "a busy seat folds the rest into +N more",
+    bubble: {
+      current: pre({ text: "mail from planner did not land, retrying: rebase is done", provenance: "system", action: "mail-failed", tone: "crimson" }),
+    },
+    caption: "mail that failed to land",
+  },
+  {
+    seat: SEATS[1]!,
+    bubble: { current: pre({ text: "published an artifact", provenance: "agent", action: "tool", tone: "indigo" }) },
+    caption: "a deliverable, the one tool call told",
   },
 ];
 
@@ -349,7 +348,7 @@ function Panel({ mode, replay }: { readonly mode: ThemeMode; readonly replay: nu
           ))}
         </div>
       </Section>
-      <Section title="Preambles" hint="colour is the action; glyph, word and line are who speaks">
+      <Section title="Preambles" hint="colour is the action; a word names who speaks, when it is not the agent">
         <PreambleRow />
       </Section>
       <Section title="Ring language" hint="every state, every size">

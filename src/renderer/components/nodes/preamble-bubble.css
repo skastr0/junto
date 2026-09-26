@@ -1,27 +1,33 @@
 /* Seat preamble bubble (PreambleBubble.tsx).
    Above the seat, tail on the portrait ring (the ring centre sits 28px in
-   from the seat's left edge; the tail is 20.5px into the bubble). Colour is the action's hue; provenance is the
-   glyph, the word, and the border's line: agent solid, AI dashed (advisory),
-   Junto dotted and quieter, the operator with a stronger rule. */
+   from the seat's left edge; the tail is 20.5px into the bubble).
+
+   One frame, one surface. The bubble is the canvas's raised ink, not a
+   coloured card: hue is reserved for what happened (the glyph, the
+   speaker's word, a hairline in the frame), so the sentence reads first.
+   Provenance is said in words: the agent's own voice carries no label
+   (the tail already points at it); AI, Junto and you name themselves. */
 
 .junto-preamble {
   --pre-hue: var(--color-second);
+  /* How much of the hue the frame takes: quiet by default, firmer for the
+     news that wants the operator (a signal, mail that failed to land). */
+  --pre-mix: 30%;
+  --pre-wash: 4%;
   position: absolute;
   bottom: calc(100% + 9px);
   left: calc(7px + var(--pre-dx, 0px));
   z-index: 30;
   display: flex;
   width: max-content;
-  max-width: 280px;
+  max-width: 272px;
   flex-direction: column;
   align-items: flex-start;
-  gap: 3px;
   pointer-events: none;
 }
 .junto-preamble[data-flip="below"] {
   top: calc(100% + 9px);
   bottom: auto;
-  flex-direction: column-reverse;
 }
 /* A lone selected seat wears its toolbar above it (NodeToolbar, 8px
    offset); the bubble rises just over it rather than hiding under it. Any
@@ -30,52 +36,37 @@
 /* A seat with a bubble paints over its neighbours. */
 .react-flow__node:has(.junto-preamble) { z-index: 1001 !important; }
 
-.junto-preamble[data-tone="second"],
-.junto-preamble__trail[data-tone="second"] { --pre-hue: var(--color-second); }
-.junto-preamble[data-tone="amber"],
-.junto-preamble__trail[data-tone="amber"] { --pre-hue: var(--color-amber); }
-.junto-preamble[data-tone="crimson"],
-.junto-preamble__trail[data-tone="crimson"] { --pre-hue: var(--color-crimson); }
-.junto-preamble[data-tone="cyan"],
-.junto-preamble__trail[data-tone="cyan"] { --pre-hue: var(--color-cyan); }
-.junto-preamble[data-tone="green"],
-.junto-preamble__trail[data-tone="green"] { --pre-hue: var(--color-green); }
-.junto-preamble[data-tone="indigo"],
-.junto-preamble__trail[data-tone="indigo"] { --pre-hue: var(--color-indigo); }
-.junto-preamble[data-tone="violet"],
-.junto-preamble__trail[data-tone="violet"] { --pre-hue: var(--color-violet); }
-.junto-preamble[data-tone="steel"],
-.junto-preamble__trail[data-tone="steel"] { --pre-hue: var(--color-steel); }
+.junto-preamble[data-action="signal"],
+.junto-preamble[data-action="mail-failed"] {
+  --pre-mix: 55%;
+  --pre-wash: 9%;
+}
+
+:is(.junto-preamble, .junto-preamble__line)[data-tone="second"] { --pre-hue: var(--color-second); }
+:is(.junto-preamble, .junto-preamble__line)[data-tone="amber"] { --pre-hue: var(--color-amber); }
+:is(.junto-preamble, .junto-preamble__line)[data-tone="crimson"] { --pre-hue: var(--color-crimson); }
+:is(.junto-preamble, .junto-preamble__line)[data-tone="cyan"] { --pre-hue: var(--color-cyan); }
+:is(.junto-preamble, .junto-preamble__line)[data-tone="green"] { --pre-hue: var(--color-green); }
+:is(.junto-preamble, .junto-preamble__line)[data-tone="indigo"] { --pre-hue: var(--color-indigo); }
+:is(.junto-preamble, .junto-preamble__line)[data-tone="violet"] { --pre-hue: var(--color-violet); }
+:is(.junto-preamble, .junto-preamble__line)[data-tone="steel"] { --pre-hue: var(--color-steel); }
 
 .junto-preamble__card {
   position: relative;
   display: flex;
-  max-width: 280px;
-  align-items: center;
-  gap: 5px;
-  padding: 5px 4px 5px 7px;
-  border: 1px solid color-mix(in oklab, var(--pre-hue) 50%, transparent);
-  border-radius: 9px;
-  background: color-mix(in oklab, var(--pre-hue) 10%, var(--color-ground));
-  box-shadow:
-    0 8px 22px var(--color-shadow-2),
-    inset 2px 0 0 color-mix(in oklab, var(--pre-hue) 65%, transparent);
+  max-width: 272px;
+  flex-direction: column;
+  gap: 3px;
+  padding: 6px 6px 6px 9px;
+  border: 1px solid color-mix(in oklab, var(--pre-hue) var(--pre-mix), var(--color-stroke));
+  border-radius: 10px;
+  background: color-mix(in oklab, var(--pre-hue) var(--pre-wash), var(--color-raise));
+  box-shadow: 0 6px 18px var(--color-shadow-2);
   color: var(--color-ink);
   pointer-events: auto;
-  animation: junto-preamble-in 0.18s ease-out both;
-}
-.junto-preamble[data-provenance="ai"] .junto-preamble__card { border-style: dashed; }
-.junto-preamble[data-provenance="system"] .junto-preamble__card {
-  border-style: dotted;
-  background: color-mix(in oklab, var(--pre-hue) 5%, var(--color-ground));
-}
-.junto-preamble[data-provenance="operator"] .junto-preamble__card {
-  box-shadow:
-    0 8px 22px var(--color-shadow-2),
-    inset 3px 0 0 var(--pre-hue);
 }
 
-/* Tail: points down at the ring; follows the ring when the bubble slides. */
+/* Tail: points at the ring; follows the ring when the bubble slides. */
 .junto-preamble__card::after {
   content: "";
   position: absolute;
@@ -83,8 +74,9 @@
   left: max(8px, calc(16px - var(--pre-dx, 0px)));
   width: 9px;
   height: 9px;
-  border-right: 1px solid color-mix(in oklab, var(--pre-hue) 50%, transparent);
-  border-bottom: 1px solid color-mix(in oklab, var(--pre-hue) 50%, transparent);
+  border-right: inherit;
+  border-bottom: inherit;
+  border-bottom-right-radius: 2px;
   background: inherit;
   transform: rotate(45deg);
 }
@@ -93,22 +85,21 @@
   bottom: auto;
   transform: rotate(225deg);
 }
-.junto-preamble[data-provenance="ai"] .junto-preamble__card::after { border-style: dashed; }
-.junto-preamble[data-provenance="system"] .junto-preamble__card::after { border-style: dotted; }
+
+.junto-preamble__line {
+  display: flex;
+  min-width: 0;
+  align-items: flex-start;
+  gap: 6px;
+  animation: junto-preamble-in 0.2s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
 
 .junto-preamble__glyph {
   display: grid;
   flex: none;
+  height: 15px;
   place-items: center;
   color: var(--pre-hue);
-}
-.junto-preamble__who {
-  flex: none;
-  color: var(--pre-hue);
-  font-family: var(--font-display);
-  font-size: 9px;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
 }
 .junto-preamble__text {
   display: -webkit-box;
@@ -116,32 +107,37 @@
   overflow: hidden;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
-  color: color-mix(in oklab, var(--color-ink) 92%, transparent);
+  color: var(--color-ink);
   font-family: var(--font-mono), ui-monospace, monospace;
-  font-size: 10.5px;
-  line-height: 1.35;
+  font-size: 11px;
+  line-height: 15px;
   overflow-wrap: anywhere;
 }
-.junto-preamble__count,
-.junto-preamble__more {
-  flex: none;
-  color: var(--color-faint);
-  font-family: var(--font-mono), ui-monospace, monospace;
-  font-size: 9px;
+.junto-preamble__who {
+  margin-right: 0.6ch;
+  color: var(--pre-hue);
+  font-weight: 600;
 }
-.junto-preamble__count { color: var(--pre-hue); }
 
+/* Dismiss: present for the pointer and the keyboard, quiet otherwise. */
 .junto-preamble__close {
   display: grid;
   flex: none;
-  width: 16px;
-  height: 16px;
+  width: 15px;
+  height: 15px;
+  margin-left: 2px;
   place-items: center;
   border: 0;
   border-radius: 4px;
   background: transparent;
-  color: var(--color-steel);
+  color: var(--color-faint);
   cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s ease-out, color 0.15s ease-out;
+}
+.junto-preamble__card:hover .junto-preamble__close,
+.junto-preamble__close:focus-visible {
+  opacity: 1;
 }
 .junto-preamble__close:hover,
 .junto-preamble__close:focus-visible {
@@ -150,36 +146,30 @@
   outline: none;
 }
 
-/* The note it replaced: faded, one line, above the current one. */
-.junto-preamble__trail {
-  display: flex;
-  max-width: 240px;
-  align-items: center;
-  gap: 4px;
-  margin-left: 6px;
-  padding: 2px 6px;
-  border: 1px solid color-mix(in oklab, var(--pre-hue) 28%, transparent);
-  border-radius: 7px;
-  background: color-mix(in oklab, var(--pre-hue) 5%, var(--color-ground));
-  opacity: 0.55;
+/* The note it replaced: one faded line above the current one, same frame. */
+.junto-preamble__line--was {
+  opacity: 0.5;
+  animation: none;
 }
-.junto-preamble__trail .junto-preamble__text {
+.junto-preamble__line--was .junto-preamble__text {
   -webkit-line-clamp: 1;
-  font-size: 9.5px;
+  color: var(--color-dim);
+  font-size: 10px;
+  line-height: 14px;
 }
-.junto-preamble__trail[data-provenance="ai"] { border-style: dashed; }
-.junto-preamble__trail[data-provenance="system"] { border-style: dotted; }
+.junto-preamble__line--was .junto-preamble__glyph { height: 14px; }
 
 @keyframes junto-preamble-in {
-  from { opacity: 0; transform: translateY(4px); }
+  from { opacity: 0; transform: translateY(3px); }
   to { opacity: 1; transform: translateY(0); }
 }
-.junto-preamble[data-flip="below"] .junto-preamble__card { animation-name: junto-preamble-in-below; }
+.junto-preamble[data-flip="below"] .junto-preamble__line { animation-name: junto-preamble-in-below; }
 @keyframes junto-preamble-in-below {
-  from { opacity: 0; transform: translateY(-4px); }
+  from { opacity: 0; transform: translateY(-3px); }
   to { opacity: 1; transform: translateY(0); }
 }
 @media (prefers-reduced-motion: reduce) {
-  .junto-preamble__card { animation: none; }
+  .junto-preamble__line { animation: none; }
+  .junto-preamble__close { transition: none; }
 }
-html[data-surface-motion="paused"] .junto-preamble__card { animation: none; }
+html[data-surface-motion="paused"] .junto-preamble__line { animation: none; }

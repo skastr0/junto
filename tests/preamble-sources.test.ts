@@ -23,13 +23,16 @@ const signal = (fields: Partial<AgentSignal> = {}): AgentSignal => ({
 });
 
 describe("seat tool calls", () => {
-  it("tells writes in indigo and reads in steel; protocol and covered ops say nothing", () => {
+  it("tells only deliverables; routine reads and chores say nothing", () => {
     const at = { preambleId: "x", canvasName: "c", nodeId: "seat", now: NOW };
-    expect(seatToolPreamble({ ...at, op: "tasks.claim" })).toMatchObject({
-      text: "claimed a task", provenance: "agent", action: "tool", tone: "indigo",
+    expect(seatToolPreamble({ ...at, op: "artifact.publish" })).toMatchObject({
+      text: "published an artifact", provenance: "agent", action: "tool", tone: "indigo",
     });
-    expect(seatToolPreamble({ ...at, op: "board.list" })).toMatchObject({ tone: "steel" });
-    for (const op of ["ping", "preamble", "signal.raise", "signal.clear", "msg.send", "overseer"]) {
+    expect(seatToolPreamble({ ...at, op: "verdict.post" })?.text).toBe("posted a verdict");
+    for (const op of [
+      "msg.read", "msg.list", "tasks.claim", "tasks.list", "tasks.update", "board.list", "pad.patch",
+      "ping", "preamble", "signal.raise", "signal.clear", "msg.send", "overseer",
+    ]) {
       expect(seatToolPreamble({ ...at, op })).toBeUndefined();
     }
   });
@@ -66,16 +69,25 @@ describe("signals", () => {
 
 describe("thread health", () => {
   const base = { canvasName: "c", nodeId: "seat", observedAt: NOW, now: NOW };
-  it("tells a changed reading as the AI's, trouble amber and good green", () => {
+  it("tells trouble setting in, amber, as the AI's", () => {
     expect(healthPreamble({ ...base, prior: "steady", value: "thrashing" })).toMatchObject({
       text: "thrashing", provenance: "ai", action: "health", tone: "amber",
     });
-    expect(healthPreamble({ ...base, prior: "stuck", value: "going_well" })?.tone).toBe("green");
+    expect(healthPreamble({ ...base, prior: "going_well", value: "stuck" })?.tone).toBe("amber");
   });
-  it("never crimson, silent when unchanged or old", () => {
-    for (const value of ["stuck", "looping", "thrashing", "confused", "overwhelmed"] as const) {
-      expect(healthPreamble({ ...base, prior: "steady", value })?.tone).not.toBe("crimson");
-    }
+  it("tells work turning notably good, green", () => {
+    expect(healthPreamble({ ...base, prior: "steady", value: "exceeding" })).toMatchObject({
+      text: "exceeding expectations", tone: "green",
+    });
+    expect(healthPreamble({ ...base, prior: "stuck", value: "succeeding" })?.tone).toBe("green");
+  });
+  it("drift within a band, ordinary readings and old readings are silent", () => {
+    expect(healthPreamble({ ...base, prior: "stuck", value: "looping" })).toBeUndefined();
+    expect(healthPreamble({ ...base, prior: "succeeding", value: "exceeding" })).toBeUndefined();
+    expect(healthPreamble({ ...base, prior: "stuck", value: "steady" })).toBeUndefined();
+    expect(healthPreamble({ ...base, prior: "steady", value: "going_well" })).toBeUndefined();
+    expect(healthPreamble({ ...base, prior: "steady", value: "waiting_on_operator" })).toBeUndefined();
+    expect(healthPreamble({ ...base, prior: undefined, value: "stuck" })).toBeUndefined();
     expect(healthPreamble({ ...base, prior: "stuck", value: "stuck" })).toBeUndefined();
     expect(healthPreamble({ ...base, prior: "steady", value: "stuck", observedAt: NOW - PREAMBLE_FRESH_MS * 5 })).toBeUndefined();
   });
@@ -86,22 +98,24 @@ describe("control state", () => {
   const m = (state: "idle" | "working" | "attention" | "unknown" | "gone", needsLook = false, reason = "") => ({
     state, needsLook, reason,
   });
-  it("tells the transitions worth telling, as Junto", () => {
-    expect(seatStatePreamble({ ...at, prior: m("idle"), next: m("working") })).toMatchObject({
-      text: "picked up work", provenance: "system", action: "state",
+  it("tells waiting on you, done, and dropping out mid-work, as Junto", () => {
+    expect(seatStatePreamble({ ...at, prior: m("working"), next: m("attention") })).toMatchObject({
+      text: "waiting on you", provenance: "system", action: "state",
     });
-    expect(seatStatePreamble({ ...at, prior: m("unknown"), next: m("working") })?.text).toBe("started up");
-    expect(seatStatePreamble({ ...at, prior: m("working"), next: m("attention") })?.text).toBe("waiting on you");
     expect(seatStatePreamble({ ...at, prior: m("working"), next: m("attention", false, "turn-stalled") })?.text).toBe(
       "stalled, needs a look",
     );
     expect(seatStatePreamble({ ...at, prior: m("working"), next: m("idle", true) })).toMatchObject({
-      text: "done, ready for review", tone: "green",
+      text: "done", tone: "green",
     });
-    expect(seatStatePreamble({ ...at, prior: m("idle"), next: m("gone") })?.text).toBe("went offline");
+    expect(seatStatePreamble({ ...at, prior: m("working"), next: m("gone") })?.text).toBe("dropped out mid-work");
   });
-  it("first sight and non-events are silent", () => {
-    expect(seatStatePreamble({ ...at, prior: undefined, next: m("working") })).toBeUndefined();
+  it("routine motion, first sight and non-events are silent", () => {
+    expect(seatStatePreamble({ ...at, prior: m("idle"), next: m("working") })).toBeUndefined();
+    expect(seatStatePreamble({ ...at, prior: m("unknown"), next: m("working") })).toBeUndefined();
+    expect(seatStatePreamble({ ...at, prior: m("attention"), next: m("working") })).toBeUndefined();
+    expect(seatStatePreamble({ ...at, prior: m("idle"), next: m("gone") })).toBeUndefined();
+    expect(seatStatePreamble({ ...at, prior: undefined, next: m("attention") })).toBeUndefined();
     expect(seatStatePreamble({ ...at, prior: m("working"), next: m("working") })).toBeUndefined();
     expect(seatStatePreamble({ ...at, prior: m("working"), next: m("idle") })).toBeUndefined();
   });
@@ -109,20 +123,25 @@ describe("control state", () => {
 
 describe("mail", () => {
   const title = (id: string) => ({ planner: "planner", builder: "builder" })[id];
-  it("tells both ends of a peer's mail", () => {
-    const [inbound, outbound] = wirePreambles(
-      { canvasName: "c", toNodeId: "builder", fromNodeId: "planner", kind: "notice", messageId: "m", preview: "rebase is done", at: NOW },
-      title,
-      NOW,
-    );
-    expect(inbound).toMatchObject({ nodeId: "builder", text: "mail from planner: rebase is done", action: "mail-in", provenance: "agent" });
-    expect(outbound).toMatchObject({ nodeId: "planner", text: "mailed builder: rebase is done", action: "mail-out" });
+  const event = { canvasName: "c", toNodeId: "builder", messageId: "m", at: NOW } as const;
+  it("tells a peer's mail on the receiver only", () => {
+    const told = wirePreambles({ ...event, fromNodeId: "planner", kind: "notice", preview: "rebase is done" }, title, NOW);
+    expect(told).toHaveLength(1);
+    expect(told[0]).toMatchObject({ nodeId: "builder", text: "mail from planner: rebase is done", action: "mail-in", provenance: "agent" });
+    const [asked] = wirePreambles({ ...event, fromNodeId: "planner", kind: "prompt", preview: "review it" }, title, NOW);
+    expect(asked?.text).toBe("asked by planner: review it");
   });
-  it("operator prompts are the operator's; system notices are Junto's", () => {
-    const [prompt] = wirePreambles({ canvasName: "c", toNodeId: "builder", kind: "prompt", messageId: "m", at: NOW }, title, NOW);
-    expect(prompt).toMatchObject({ provenance: "operator", text: "prompt from you" });
-    const notice = wirePreambles({ canvasName: "c", toNodeId: "builder", kind: "notice", messageId: "m", at: NOW }, title, NOW);
-    expect(notice).toHaveLength(1);
-    expect(notice[0]?.provenance).toBe("system");
+  it("the operator's own prompts and answers, and Junto's notices, are not echoed", () => {
+    expect(wirePreambles({ ...event, kind: "prompt", fromName: "operator", preview: "do the thing" }, title, NOW)).toEqual([]);
+    expect(wirePreambles({ ...event, kind: "answer", fromName: "operator" }, title, NOW)).toEqual([]);
+    expect(wirePreambles({ ...event, kind: "notice", preview: "Your connections changed." }, title, NOW)).toEqual([]);
+  });
+  it("tells mail that failed to land, crimson, whoever sent it", () => {
+    const [peer] = wirePreambles({ ...event, fromNodeId: "planner", kind: "notice", preview: "rebase", failed: true }, title, NOW);
+    expect(peer).toMatchObject({
+      nodeId: "builder", text: "mail from planner did not land, retrying: rebase", action: "mail-failed", tone: "crimson",
+    });
+    const [unsent] = wirePreambles({ ...event, kind: "prompt", failed: true }, title, NOW);
+    expect(unsent?.text).toBe("mail did not land, retrying");
   });
 });

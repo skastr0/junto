@@ -1,20 +1,48 @@
 import { useLayoutEffect, useRef, type CSSProperties, type RefObject } from "react";
 import { use$ } from "@legendapp/state/react";
 import { useStore } from "@xyflow/react";
-import { MessageSquareText, Radio, Sparkles, UserRound, X } from "lucide-react";
-import type { PreambleProvenance } from "@shared/preamble";
+import {
+  Activity,
+  CircleCheck,
+  CircleDot,
+  Flag,
+  Mail,
+  MailWarning,
+  PackageCheck,
+  Send,
+  X,
+  type LucideIcon,
+} from "lucide-react";
+import type { PreambleAction, PreambleProvenance } from "@shared/preamble";
 import type { PreambleItem, SeatBubble } from "../../lib/preamble-feed";
 import { dismissPreamble } from "../../lib/preamble-state";
 import { stopNodeGestureUnlessMultiSelect } from "../../lib/multi-select-gesture";
 import { state$ } from "../../lib/state";
 import "./preamble-bubble.css";
 
-/** Provenance reads at a glance: a glyph, and a word for everyone but the agent. */
-const WHO: Readonly<Record<PreambleProvenance, { readonly Icon: typeof Sparkles; readonly word?: string }>> = {
-  agent: { Icon: MessageSquareText },
-  ai: { Icon: Sparkles, word: "AI" },
-  system: { Icon: Radio, word: "Junto" },
-  operator: { Icon: UserRound, word: "you" },
+/**
+ * Who is speaking, in a word. The agent's own voice needs none: the tail
+ * already points at its portrait. Anyone else speaking about the seat names
+ * itself before the sentence.
+ */
+const SPEAKER: Readonly<Record<PreambleProvenance, string | undefined>> = {
+  agent: undefined,
+  ai: "AI",
+  system: "Junto",
+  operator: "you",
+};
+
+/** What happened, as a glyph in the note's hue. The agent's plain words carry none. */
+const KIND: Readonly<Record<PreambleAction, LucideIcon | undefined>> = {
+  say: undefined,
+  tool: PackageCheck,
+  signal: Flag,
+  "signal-clear": CircleCheck,
+  health: Activity,
+  "mail-in": Mail,
+  "mail-out": Send,
+  "mail-failed": MailWarning,
+  state: CircleDot,
 };
 
 /** Keeps the bubble inside the canvas viewport; measured once per note. */
@@ -47,17 +75,20 @@ function ToolbarLift({ target, nodeId }: { readonly target: RefObject<HTMLDivEle
   return null;
 }
 
-function Note({ item, trail = false }: { readonly item: PreambleItem; readonly trail?: boolean }) {
-  const { Icon, word } = WHO[item.provenance];
+function Note({ item, faded = false }: { readonly item: PreambleItem; readonly faded?: boolean }) {
+  const Icon = KIND[item.action];
+  const speaker = SPEAKER[item.provenance];
   return (
     <>
-      <span className="junto-preamble__glyph" aria-hidden>
-        <Icon size={trail ? 9 : 11} strokeWidth={2.2} />
+      {Icon ? (
+        <span className="junto-preamble__glyph" aria-hidden>
+          <Icon size={faded ? 10 : 12} strokeWidth={2} />
+        </span>
+      ) : null}
+      <span className="junto-preamble__text">
+        {speaker ? <span className="junto-preamble__who">{speaker}</span> : null}
+        {item.text}
       </span>
-      {word ? <span className="junto-preamble__who">{word}</span> : null}
-      <span className="junto-preamble__text">{item.text}</span>
-      {item.count > 1 ? <span className="junto-preamble__count">x{item.count}</span> : null}
-      {item.more > 0 && !trail ? <span className="junto-preamble__more">+{item.more} more</span> : null}
     </>
   );
 }
@@ -66,7 +97,8 @@ function Note({ item, trail = false }: { readonly item: PreambleItem; readonly t
  * A seat's preamble: what it is doing, said by whoever is speaking. It sits
  * above the seat with its tail on the portrait ring, flips below near the
  * top of the canvas, and slides in from the sides, so it is always readable.
- * The note it replaced lingers faded above it for a moment.
+ * One frame: the note it replaced lingers as a faded line above the current
+ * one for a moment, inside the same bubble.
  */
 export function PreambleBubble({
   nodeId,
@@ -121,35 +153,36 @@ export function PreambleBubble({
       style={{ "--pre-dx": "0px" } as CSSProperties}
     >
       {lifted ? <ToolbarLift target={ref} nodeId={nodeId} /> : null}
-      {previous ? (
-        <div
-          className="junto-preamble__trail"
-          data-provenance={previous.provenance}
-          data-tone={previous.tone}
-          aria-hidden
-        >
-          <Note item={previous} trail />
+      <div className="junto-preamble__card">
+        {previous ? (
+          <div
+            className="junto-preamble__line junto-preamble__line--was"
+            data-tone={previous.tone}
+            aria-hidden
+          >
+            <Note item={previous} faded />
+          </div>
+        ) : null}
+        <div className="junto-preamble__line" key={current.shownAt}>
+          <Note item={current} />
+          <button
+            type="button"
+            className="junto-preamble__close nodrag nopan"
+            aria-label="Dismiss preamble"
+            title="Dismiss"
+            onPointerDown={(event) => {
+              if (stopNodeGestureUnlessMultiSelect(event, { preventDefault: true })) return;
+              event.preventDefault();
+            }}
+            onClick={(event) => {
+              if (stopNodeGestureUnlessMultiSelect(event, { preventDefault: true })) return;
+              event.preventDefault();
+              dismissPreamble(nodeId, current.id);
+            }}
+          >
+            <X size={10} strokeWidth={2.2} />
+          </button>
         </div>
-      ) : null}
-      <div className="junto-preamble__card" key={current.shownAt}>
-        <Note item={current} />
-        <button
-          type="button"
-          className="junto-preamble__close nodrag nopan"
-          aria-label="Dismiss preamble"
-          title="Dismiss"
-          onPointerDown={(event) => {
-            if (stopNodeGestureUnlessMultiSelect(event, { preventDefault: true })) return;
-            event.preventDefault();
-          }}
-          onClick={(event) => {
-            if (stopNodeGestureUnlessMultiSelect(event, { preventDefault: true })) return;
-            event.preventDefault();
-            dismissPreamble(nodeId, current.id);
-          }}
-        >
-          <X size={10} />
-        </button>
       </div>
     </div>
   );

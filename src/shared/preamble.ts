@@ -28,6 +28,7 @@ export const PREAMBLE_ACTIONS = [
   "health",
   "mail-in",
   "mail-out",
+  "mail-failed",
   "state",
 ] as const;
 export type PreambleAction = (typeof PREAMBLE_ACTIONS)[number];
@@ -54,59 +55,21 @@ export type PreambleEvent = typeof PreambleEventSchema.Type;
 export const normalizePreambleText = (value: string): string =>
   value.replace(/\s+/gu, " ").trim();
 
-/** Short-lived: a tool call is news for a few seconds, not a sentence to read. */
-export const PREAMBLE_TOOL_TTL_MS = 6_000;
+/** A deliverable is news for a few seconds, not a sentence to keep reading. */
+export const PREAMBLE_TOOL_TTL_MS = 8_000;
 
 /**
- * Seat tool calls worth telling, in words. Ops absent here say nothing: the
- * preamble and signals carry their own event, mail is told by wire traffic
- * at delivery, and protocol chatter (ping, doctor) is not news.
+ * Seat tool calls worth telling, in words. A preamble is premium space over
+ * the seat, so only a call that leaves something behind for others earns
+ * one: a verdict posted, an artifact published. Routine reads and chores
+ * (checking tasks, reading mail, claiming work, editing the pad) are what an
+ * agent does all day and say nothing; the preamble and signals carry their
+ * own event, and mail is told by wire traffic at delivery.
  */
 export const SEAT_TOOL_PHRASE: Readonly<Record<string, string>> = {
-  "tasks.list": "checking tasks",
-  "tasks.create": "created a task",
-  "tasks.claim": "claimed a task",
-  "tasks.update": "updated a task",
-  "tasks.show": "reading a task",
-  "tasks.rules": "reading task rules",
-  "tasks.check": "checking a task",
-  "tasks.wait": "waiting on tasks",
-  rulings: "reading rulings",
-  "content.path": "opening content",
-  "content.stat": "checking content",
-  "content.materialize": "pulling content",
-  "msg.list": "checking mail",
-  "msg.read": "reading mail",
-  "msg.sent": "reviewing sent mail",
-  "msg.react": "reacted to mail",
-  "seat.wait": "waiting on a peer",
-  "seat.read": "reading a peer's screen",
   "verdict.post": "posted a verdict",
   "artifact.publish": "published an artifact",
-  "board.list": "reading the board",
-  "board.create_topic": "opened a board topic",
-  "board.post": "posted to the board",
-  "board.mark_read": "caught up on the board",
-  "board.tags": "tagging the board",
-  "pad.read": "reading the pad",
-  "pad.patch": "edited the pad",
-  "sheet.read": "reading the sheet",
-  "relay.trigger": "fired a relay",
 };
-
-/** Writes land in indigo, reads in steel: a glance tells doing from looking. */
-const SEAT_TOOL_WRITES: ReadonlySet<string> = new Set([
-  "tasks.create",
-  "tasks.claim",
-  "tasks.update",
-  "msg.react",
-  "verdict.post",
-  "artifact.publish",
-  "board.create_topic",
-  "board.post",
-  "pad.patch",
-  "relay.trigger",
-]);
 
 /** The preamble for one successful seat tool call, or undefined when it is not news. */
 export const seatToolPreamble = (input: {
@@ -126,6 +89,6 @@ export const seatToolPreamble = (input: {
     expiresAt: input.now + PREAMBLE_TOOL_TTL_MS,
     provenance: "agent",
     action: "tool",
-    tone: SEAT_TOOL_WRITES.has(input.op) ? "indigo" : "steel",
+    tone: "indigo",
   };
 };

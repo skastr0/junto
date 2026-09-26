@@ -68,7 +68,7 @@ const stage = async (junto: Awaited<ReturnType<typeof launchJunto>>) => {
   const staged = [
     { nodeId: "planner", text: "splitting the migration into two steps" },
     { nodeId: "builder", text: "blocked: needs the prod DB password", action: "signal", tone: "crimson" },
-    { nodeId: "reviewer", text: "done, ready for review", provenance: "system", action: "state", tone: "green" },
+    { nodeId: "reviewer", text: "done", provenance: "system", action: "state", tone: "green" },
     { nodeId: "scout", text: "thread looks healthy again", provenance: "ai", action: "health", tone: "green" },
   ].map((fields, i) => ({
     preambleId: `anchor-${String(i)}`,

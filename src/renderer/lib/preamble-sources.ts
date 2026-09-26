@@ -1,12 +1,14 @@
 /**
- * Everything a seat does, told as a preamble.
+ * What a seat's bubble is allowed to say.
  *
- * The agent's own `junto preamble` and its tool calls arrive from main
- * already shaped (see seatToolPreamble). The rest are facts the renderer
- * already sees, turned into notes here: declared signals raised and closed,
- * the AI's thread-health reading as it changes, mail across the seat's
- * wires, and control-state transitions worth telling. Each note says who is
- * speaking (provenance) and what happened (action); the feed paces them.
+ * A preamble is premium space over the seat, so it tells only what the
+ * operator would want to look up for: the agent's own words (and the rare
+ * deliverable, see seatToolPreamble), which arrive from main already shaped;
+ * signals raised and answered; a seat done, waiting on you, or dropping out
+ * mid-work; the AI's reading turning notably bad or notably good; a peer's
+ * mail landing, and mail that failed to land. Routine motion (picking up
+ * work, reading mail, the operator's own prompt echoed back, sender-side
+ * copies of mail) says nothing: the ring and the wire already show it.
  *
  * The mappers are pure and first-sight silent: hydrating a canvas, a
  * snapshot, or a restart never replays history as news.
@@ -24,7 +26,6 @@ import {
 import {
   THREAD_HEALTH_LABEL,
   THREAD_HEALTH_TONE,
-  type ThreadHealthTone,
   type ThreadHealthValue,
 } from "@shared/thread-health";
 import type { WireTrafficEvent } from "@shared/wire-traffic";
@@ -42,6 +43,7 @@ const TTL = {
   health: 10_000,
   state: 9_000,
   mail: 8_000,
+  failed: 12_000,
 } as const;
 
 let sequence = 0;
@@ -118,14 +120,14 @@ export const signalPreamble = (
 
 // --- thread health -------------------------------------------------------------
 
-const HEALTH_TONE: Readonly<Record<ThreadHealthTone, PreambleTone>> = {
-  trouble: "amber",
-  waiting: "amber",
-  steady: "steel",
-  good: "green",
-};
+/** Readings worth a note: trouble setting in, and work going notably well. */
+const HEALTH_GREAT: ReadonlySet<ThreadHealthValue> = new Set(["succeeding", "exceeding"]);
 
-/** The AI's reading as it changes; the first reading of a seat is silent unless fresh. */
+/**
+ * The AI's reading when it turns notably bad or notably good; drift within
+ * a band (stuck to looping, steady to going well) and recovery to ordinary
+ * are silent. Waiting on the operator is told by the seat's own state.
+ */
 export const healthPreamble = (input: {
   readonly canvasName: string;
   readonly nodeId: string;
@@ -134,13 +136,18 @@ export const healthPreamble = (input: {
   readonly observedAt: number;
   readonly now: number;
 }): PreambleEvent | undefined => {
-  if (input.prior === input.value) return undefined;
+  if (input.prior === undefined || input.prior === input.value) return undefined;
   if (input.now - input.observedAt > PREAMBLE_FRESH_MS * 4) return undefined;
+  const trouble = THREAD_HEALTH_TONE[input.value] === "trouble";
+  const great = HEALTH_GREAT.has(input.value);
+  if (trouble && THREAD_HEALTH_TONE[input.prior] === "trouble") return undefined;
+  if (great && HEALTH_GREAT.has(input.prior)) return undefined;
+  if (!trouble && !great) return undefined;
   return note("health", input.canvasName, input.nodeId, input.now, TTL.health, {
     text: THREAD_HEALTH_LABEL[input.value],
     provenance: "ai",
     action: "health",
-    tone: HEALTH_TONE[THREAD_HEALTH_TONE[input.value]],
+    tone: trouble ? "amber" : "green",
   });
 };
 
@@ -152,7 +159,11 @@ export type SeatMoment = {
   readonly needsLook: boolean;
 };
 
-/** Control-state transitions worth telling: started, done, waiting on you, offline. */
+/**
+ * Control-state transitions worth telling: waiting on you, done, and a seat
+ * dropping out while it was working. Starting up and picking up work are
+ * the ring's to show.
+ */
 export const seatStatePreamble = (input: {
   readonly canvasName: string;
   readonly nodeId: string;
@@ -172,57 +183,52 @@ export const seatStatePreamble = (input: {
   if (next.state === "attention" && prior.state !== "attention") {
     return /stall/i.test(next.reason ?? "") ? say("stalled, needs a look", "amber") : say("waiting on you", "amber");
   }
-  if (next.state === "working" && prior.state !== "working") {
-    if (prior.state === "attention") return say("back to work", "cyan");
-    if (prior.state === "unknown" || prior.state === "gone") return say("started up", "cyan");
-    return say("picked up work", "cyan");
-  }
   if (next.state === "idle" && next.needsLook && !(prior.state === "idle" && prior.needsLook)) {
-    return say("done, ready for review", "green");
+    // "Ready for review" is the feedback signal's word; the seat line keeps
+    // "done, not read yet" until the operator looks.
+    return say("done", "green");
   }
-  if (next.state === "gone" && prior.state !== "gone") return say("went offline", "steel");
+  if (next.state === "gone" && (prior.state === "working" || prior.state === "attention")) {
+    return say("dropped out mid-work", "amber");
+  }
   return undefined;
 };
 
 // --- mail --------------------------------------------------------------------------
 
-/** One delivered message: a note on the receiving seat and one on the sender. */
+/**
+ * One message across a wire, told on the receiving seat only when it is a
+ * peer's: the operator's own prompts and answers, and Junto's notices, echo
+ * what the operator already knows (an answer is told by its signal). A
+ * message that failed to land is told whoever sent it.
+ */
 export const wirePreambles = (
   event: WireTrafficEvent,
   titleOf: (nodeId: string) => string | undefined,
   now: number,
 ): ReadonlyArray<PreambleEvent> => {
-  const out: PreambleEvent[] = [];
   const preview = event.preview ? `: ${event.preview}` : "";
-  const fromAgent = event.fromNodeId !== undefined;
-  const named = event.fromName === "operator" ? "you" : event.fromName;
-  const who = named ?? (event.fromNodeId ? titleOf(event.fromNodeId) : undefined) ?? (fromAgent ? "a peer" : "you");
-  const inbound =
-    event.kind === "answer"
-      ? `answer${preview}`
-      : event.kind === "prompt"
-        ? `prompt from ${who}${preview}`
-        : `mail from ${who}${preview}`;
-  out.push(
+  if (event.failed === true) {
+    const from = event.fromNodeId === undefined ? "mail" : `mail from ${event.fromName ?? titleOf(event.fromNodeId) ?? "a peer"}`;
+    return [
+      note("mail", event.canvasName, event.toNodeId, now, TTL.failed, {
+        text: `${from} did not land, retrying${preview}`,
+        provenance: "system",
+        action: "mail-failed",
+        tone: "crimson",
+      }),
+    ];
+  }
+  if (event.fromNodeId === undefined || event.kind === "answer") return [];
+  const who = event.fromName ?? titleOf(event.fromNodeId) ?? "a peer";
+  return [
     note("mail", event.canvasName, event.toNodeId, now, TTL.mail, {
-      text: inbound,
-      // Operator mail has no sender node; system notices say so.
-      provenance: fromAgent ? "agent" : event.kind === "notice" ? "system" : "operator",
+      text: `${event.kind === "prompt" ? "asked by" : "mail from"} ${who}${preview}`,
+      provenance: "agent",
       action: "mail-in",
       tone: "violet",
     }),
-  );
-  if (event.fromNodeId !== undefined) {
-    out.push(
-      note("mail", event.canvasName, event.fromNodeId, now, TTL.mail, {
-        text: `${event.kind === "prompt" ? "prompted" : "mailed"} ${titleOf(event.toNodeId) ?? "a peer"}${preview}`,
-        provenance: "agent",
-        action: "mail-out",
-        tone: "violet",
-      }),
-    );
-  }
-  return out;
+  ];
 };
 
 // --- wiring --------------------------------------------------------------------------

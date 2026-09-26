@@ -6,6 +6,7 @@ import {
   showPreamble,
 } from "../src/renderer/lib/preamble-state";
 import type { PreambleEvent } from "../src/shared/preamble";
+import { FEED_TUNING } from "../src/renderer/lib/preamble-feed";
 
 const event = (overrides: Partial<PreambleEvent> = {}): PreambleEvent => ({
   preambleId: "preamble-1",
@@ -39,6 +40,8 @@ describe("preamble renderer state", () => {
 
   it("dismisses only the active preamble when ids race", () => {
     showPreamble(event());
+    // The seat's next words wait out the first note's dwell.
+    vi.advanceTimersByTime(FEED_TUNING.dwellMs);
     showPreamble(event({ preambleId: "preamble-2", text: "Still checking." }));
 
     dismissPreamble("agent", "preamble-1");
