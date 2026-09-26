@@ -44,10 +44,9 @@ describe("experimental settings contract", () => {
     expect(Result.isFailure(decodePatchInput({ advanced: { experimental: { seatAwareness: "yes" } } }))).toBe(true);
     const many = Object.fromEntries(Array.from({ length: 65 }, (_, i) => [`f${i}`, true]));
     const patched = decodePatchInput({ advanced: { experimental: many } });
-    const validated = Result.isSuccess(patched)
-      ? applyAndValidatePatch(defaultSettings(), patched.success)
-      : patched;
-    expect(Result.isFailure(validated)).toBe(true);
+    // Either the patch or the merged settings must refuse it.
+    const refused = Result.isFailure(patched) || Result.isFailure(applyAndValidatePatch(defaultSettings(), patched.success));
+    expect(refused).toBe(true);
   });
 });
 

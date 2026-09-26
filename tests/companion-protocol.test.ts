@@ -20,6 +20,8 @@ import {
   companionOk,
   companionError,
   companionPairingUrl,
+  base64UrlDecode,
+  base64UrlEncode,
   decodeCompanionOutboundLine,
   decodeCompanionPairingUrl,
   decodeCompanionRequestLine,
@@ -102,6 +104,14 @@ describe("golden examples from docs/companion-protocol.md", () => {
     const line = encodeCompanionFrame(companionEvent("hello", hello));
     const decoded = decodeCompanionOutboundLine(line);
     expect(Result.isSuccess(decoded) && decoded.success.type === "event" && decoded.success.event).toBe("hello");
+  });
+
+  it("encodes base64url without a platform encoder, including non-ASCII text", () => {
+    for (const text of ["", "a", "ab", "abc", "Guilherme's MacBook Pro", "Jo\u00e3o \u2014 \ud83d\udcf1"]) {
+      expect(base64UrlDecode(base64UrlEncode(text))).toBe(text);
+      expect(base64UrlEncode(text)).toBe(Buffer.from(text, "utf8").toString("base64url"));
+    }
+    expect(() => base64UrlDecode("a")).toThrow();
   });
 
   it("round-trips the pairing QR payload through its URL", () => {
