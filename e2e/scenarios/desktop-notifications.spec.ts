@@ -2,7 +2,7 @@
  * Desktop notifications, the parts a harness can see: Settings >
  * Notifications (switches persist through main, the kinds follow the master
  * switch) and a clicked banner routed back into the app. The harness never
- * shows a native banner (the plane is off under JUNTO_E2E), so the click is
+ * shows a native banner (the plane is off while it isolates focus), so the click is
  * delivered on the plane's own channel. Frames land in
  * test-results/desktop-notifications/ (disposable, never committed).
  *

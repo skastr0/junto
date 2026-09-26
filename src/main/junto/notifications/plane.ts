@@ -29,8 +29,18 @@ import { defaultNotifications, type NotificationSettings } from "@shared/setting
 export interface NativeNotification {
   show(): void;
   close(): void;
-  on(event: "click" | "close", listener: () => void): unknown;
+  on(event: "click" | "close" | "show", listener: () => void): unknown;
+  on(event: "failed", listener: (event: unknown, error: string) => void): unknown;
 }
+
+/**
+ * Whether macOS delivers Junto's banners, as last seen: a banner shown means
+ * allowed, a refusal means blocked (the operator turned Junto off, or the
+ * build is unsigned), nothing yet means unknown.
+ */
+export type NotificationDelivery =
+  | { readonly state: "unknown" | "allowed" }
+  | { readonly state: "blocked"; readonly reason: string };
 
 export type NotificationPlaneDeps = {
   readonly window: () => BrowserWindow | undefined;
@@ -38,6 +48,10 @@ export type NotificationPlaneDeps = {
   readonly enabled: boolean;
   readonly supported: () => boolean;
   readonly create: (options: {
+    /** Stable per seat: macOS replaces a delivered banner with the same id. */
+    readonly id: string;
+    /** Notification Center groups a canvas's banners together. */
+    readonly groupId: string;
     readonly title: string;
     readonly subtitle?: string;
     readonly body: string;
@@ -54,14 +68,22 @@ export type NotificationPlaneDeps = {
 
 export type NotificationPlane = {
   readonly report: (report: NotifyReport) => void;
-  /** A banner on demand, from Settings: also where macOS asks permission. */
-  readonly test: () => { readonly ok: boolean; readonly message?: string };
+  /**
+   * A banner on demand, from Settings: also where macOS asks permission.
+   * Settles when macOS shows or refuses it, or after a wait.
+   */
+  readonly test: () => Promise<{ readonly ok: boolean; readonly message?: string }>;
+  readonly delivery: () => NotificationDelivery;
   /** Follow this window's focus, visibility, and minimise. */
   readonly attach: (window: BrowserWindow) => () => void;
   readonly dispose: () => void;
 };
 
 type Delivered = { readonly notification: NativeNotification; readonly keys: Set<string> };
+
+/** How long a test waits for macOS to show or refuse it (a first-time prompt included). */
+const TEST_ANSWER_MS = 8_000;
+export const BLOCKED_MESSAGE = "macOS is not showing Junto's notifications. Allow them in System Settings, Notifications, Junto.";
 
 /** In front means visible, not minimised, and focused; anything else is away. */
 export const windowAway = (window: BrowserWindow | undefined): boolean => {
@@ -77,6 +99,7 @@ export const createNotificationPlane = (deps: NotificationPlaneDeps): Notificati
   let timer: ReturnType<typeof setTimeout> | undefined;
   let disposed = false;
   const delivered = new Map<string, Delivered>();
+  let delivery: NotificationDelivery = { state: "unknown" };
 
   const syncAway = (): void => {
     state = setAway(state, windowAway(deps.window()));
@@ -102,9 +125,13 @@ export const createNotificationPlane = (deps: NotificationPlaneDeps): Notificati
     deps.activate(target);
   };
 
-  const show = (post: Pick<NotifyPost, "tag" | "title" | "subtitle" | "body" | "target" | "keys">): void => {
+  const show = (
+    post: Pick<NotifyPost, "tag" | "title" | "subtitle" | "body" | "target" | "keys">,
+  ): NativeNotification => {
     delivered.get(post.tag)?.notification.close();
     const notification = deps.create({
+      id: `junto:${post.tag}`,
+      groupId: `junto:${post.target.canvasName}`,
       title: post.title,
       ...(post.subtitle === undefined ? {} : { subtitle: post.subtitle }),
       body: post.body,
@@ -120,8 +147,16 @@ export const createNotificationPlane = (deps: NotificationPlaneDeps): Notificati
     notification.on("close", () => {
       if (delivered.get(post.tag) === entry) delivered.delete(post.tag);
     });
+    notification.on("show", () => {
+      delivery = { state: "allowed" };
+    });
+    notification.on("failed", (_event, error) => {
+      if (delivered.get(post.tag) === entry) delivered.delete(post.tag);
+      delivery = { state: "blocked", reason: String(error) };
+    });
     delivered.set(post.tag, entry);
     notification.show();
+    return notification;
   };
 
   function runFlush(): void {
@@ -167,18 +202,32 @@ export const createNotificationPlane = (deps: NotificationPlaneDeps): Notificati
       closeResolved(observed.resolved);
       schedule();
     },
-    test: () => {
-      if (!deps.enabled) return { ok: false, message: "notifications are off in this run" };
-      if (!deps.supported()) return { ok: false, message: "this system has no desktop notifications" };
-      show({
+    test: async () => {
+      if (!deps.enabled) return { ok: false, message: "Notifications are off in this run." };
+      if (!deps.supported()) return { ok: false, message: "This system has no desktop notifications." };
+      const notification = show({
         tag: "test",
         title: PRODUCT_NAME,
         body: "Notifications are on. When an agent needs you and Junto is in the background, it shows up here.",
         target: { kind: "feed", canvasName: "" },
         keys: [],
       });
-      return { ok: true };
+      return new Promise((resolve) => {
+        const timer = setTimeout(
+          () => resolve({ ok: true, message: "Sent. If macOS asked, allow Junto; if nothing appeared, check System Settings, Notifications." }),
+          TEST_ANSWER_MS,
+        );
+        notification.on("show", () => {
+          clearTimeout(timer);
+          resolve({ ok: true, message: "Sent." });
+        });
+        notification.on("failed", () => {
+          clearTimeout(timer);
+          resolve({ ok: false, message: BLOCKED_MESSAGE });
+        });
+      });
     },
+    delivery: () => delivery,
     attach: (window) => {
       const onChange = (): void => {
         syncAway();

@@ -1490,8 +1490,9 @@ if (packagedSandboxDisablingSwitch !== undefined) {
     registerDemoIpcHandlers();
     notificationPlane ??= registerNotificationIpc({
       window: currentTrustedMainWindow,
-      // No banners, badge, or bounce from a test harness run.
-      enabled: !e2ePresentation.e2e,
+      // No banners, badge, or bounce from an isolated harness run; a visible
+      // run (JUNTO_E2E_SHOW=1) is someone watching, and may see them.
+      enabled: !e2eIsolateFocus,
     });
     const notifyWindow = currentTrustedMainWindow();
     if (notifyWindow !== undefined) notificationPlane.attach(notifyWindow);

@@ -6,7 +6,7 @@
  * for it, never at launch.
  */
 import { use$ } from "@legendapp/state/react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { AUDIO_ENABLED } from "@shared/features";
 import { notificationSettings, type NotificationPatch } from "@shared/settings";
 import { getJuntoApi } from "../../lib/junto-api";
@@ -74,12 +74,24 @@ function Row({
 }
 
 type TestState = { readonly phase: "idle" | "sending" } | { readonly phase: "sent" | "failed"; readonly message: string };
+type Delivery = "unknown" | "allowed" | "blocked";
 
 export function NotificationSettingsSection() {
   const prefs = use$(() => notificationSettings(state$.settings.get()));
   const [test, setTest] = useState<TestState>({ phase: "idle" });
+  const [delivery, setDelivery] = useState<Delivery>("unknown");
   const api = getJuntoApi();
   const mac = api?.platform === "darwin";
+
+  const readDelivery = (): void => {
+    void api
+      ?.notificationsDelivery?.()
+      .then((status) => setDelivery(status.state))
+      .catch(() => undefined);
+  };
+  // What macOS last said, read when the tab opens.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(readDelivery, []);
 
   const sendTest = async (): Promise<void> => {
     if (!api?.notificationsTest) {
@@ -87,17 +99,14 @@ export function NotificationSettingsSection() {
       return;
     }
     setTest({ phase: "sending" });
-    const result = await api.notificationsTest().catch(() => ({ ok: false, message: undefined }));
-    setTest(
-      result.ok
-        ? {
-            phase: "sent",
-            message: mac
-              ? "Sent. If nothing appeared, allow Junto in System Settings, under Notifications."
-              : "Sent. If nothing appeared, check your desktop's notification settings.",
-          }
-        : { phase: "failed", message: result.message ?? "The notification could not be shown." },
-    );
+    const result = await api
+      .notificationsTest()
+      .catch(() => ({ ok: false, message: "The notification could not be shown." }));
+    setTest({
+      phase: result.ok ? "sent" : "failed",
+      message: result.message ?? (result.ok ? "Sent." : "The notification could not be shown."),
+    });
+    readDelivery();
   };
 
   return (
@@ -152,6 +161,19 @@ export function NotificationSettingsSection() {
         </div>
       ) : null}
 
+      {delivery === "blocked" ? (
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-y border-stroke py-3" role="status">
+          <p className="m-0 max-w-[52ch] text-[13px] leading-[1.5] text-ink">
+            macOS is not showing Junto's notifications, so none of the above reaches you yet.
+          </p>
+          {mac && api?.notificationsOpenSystemSettings ? (
+            <Button variant="chrome" size="sm" onClick={() => void api.notificationsOpenSystemSettings?.()}>
+              Open Notification settings
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
+
       <div className="flex flex-wrap items-center gap-3">
         <Button
           variant="chrome"
@@ -168,6 +190,10 @@ export function NotificationSettingsSection() {
             className={`text-[12px] leading-[1.5] ${test.phase === "failed" ? "text-ink" : "text-dim"}`}
           >
             {test.message}
+          </span>
+        ) : test.phase === "sending" ? (
+          <span role="status" className="text-[12px] leading-[1.5] text-dim">
+            Waiting for macOS…
           </span>
         ) : null}
       </div>

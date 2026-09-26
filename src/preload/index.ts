@@ -483,6 +483,9 @@ const juntoApi: Omit<JuntoApi, keyof typeof liveApi | WorkFeatureApiKey> = {
   onSquadsChanged: (listener) => subscribe<SquadsChanged>(IPC_CHANNELS.squadsChanged, listener),
   notificationsReport: (report) => invoke(IPC_CHANNELS.notificationsReport, IPC_TIMEOUT_MS, report),
   notificationsTest: () => invoke(IPC_CHANNELS.notificationsTest, IPC_TIMEOUT_MS),
+  notificationsDelivery: () => invoke(IPC_CHANNELS.notificationsDelivery, IPC_TIMEOUT_MS),
+  notificationsOpenSystemSettings: () =>
+    invoke(IPC_CHANNELS.notificationsOpenSystemSettings, IPC_TIMEOUT_MS),
   onNotificationActivate: (listener) =>
     subscribe<NotifyTarget>(IPC_CHANNELS.notificationActivate, listener),
   onNotificationCue: (listener) =>

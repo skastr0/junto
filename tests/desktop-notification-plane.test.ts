@@ -9,10 +9,15 @@ import { decodeNotifyReport } from "../src/main/junto/notifications/ipc";
 import { createNotificationPlane, windowAway } from "../src/main/junto/notifications/plane";
 
 type Banner = {
-  readonly options: { title: string; subtitle?: string; body: string; silent: true };
+  readonly options: { id: string; groupId: string; title: string; subtitle?: string; body: string; silent: true };
   shown: boolean;
   closed: boolean;
-  readonly listeners: Map<string, () => void>;
+  readonly listeners: Map<string, Array<(...args: never[]) => void>>;
+};
+
+/** What macOS would do: show the banner, or refuse it. */
+const emit = (banner: Banner | undefined, event: string, ...args: unknown[]): void => {
+  for (const listener of banner?.listeners.get(event) ?? []) (listener as (...values: unknown[]) => void)(...args);
 };
 
 const fakeWindow = () => {
@@ -65,7 +70,9 @@ const setup = (enabled = true) => {
         close: () => {
           banner.closed = true;
         },
-        on: (event: "click" | "close", listener: () => void) => banner.listeners.set(event, listener),
+        on: (event: string, listener: (...args: never[]) => void) => {
+          banner.listeners.set(event, [...(banner.listeners.get(event) ?? []), listener]);
+        },
       };
     },
     setBadge: vi.fn(),
@@ -150,7 +157,7 @@ describe("desktop notification plane", () => {
     window.emit("minimize");
     report([need("maple", "needsYou")]);
     vi.advanceTimersByTime(URGENT_SETTLE_MS);
-    banners[0]?.listeners.get("click")?.();
+    emit(banners[0], "click");
     expect(window.restore).toHaveBeenCalled();
     expect(window.focus).toHaveBeenCalled();
     expect(deps.focusApp).toHaveBeenCalled();
@@ -169,7 +176,7 @@ describe("desktop notification plane", () => {
     expect(banners).toHaveLength(0);
   });
 
-  it("stays silent in a harness run, badge included", () => {
+  it("stays silent in a harness run, badge included", async () => {
     const { window, banners, deps, report, plane } = setup(false);
     window.focused = false;
     window.emit("blur");
@@ -177,13 +184,42 @@ describe("desktop notification plane", () => {
     vi.advanceTimersByTime(URGENT_SETTLE_MS * 4);
     expect(banners).toHaveLength(0);
     expect(deps.setBadge).not.toHaveBeenCalled();
-    expect(plane.test().ok).toBe(false);
+    await expect(plane.test()).resolves.toMatchObject({ ok: false });
   });
 
-  it("shows a test banner on demand", () => {
+  it("shows a test banner on demand and settles when macOS shows it", async () => {
     const { banners, plane } = setup();
-    expect(plane.test()).toEqual({ ok: true });
+    const answer = plane.test();
     expect(banners[0]?.options.title).toBe("Junto");
+    emit(banners[0], "show");
+    await expect(answer).resolves.toEqual({ ok: true, message: "Sent." });
+    expect(plane.delivery()).toEqual({ state: "allowed" });
+  });
+
+  it("reports macOS refusing banners, from a test or a real post", async () => {
+    const { window, banners, plane, report } = setup();
+    const answer = plane.test();
+    emit(banners[0], "failed", {}, "The operation couldn't be completed. (UNErrorDomain error 1.)");
+    await expect(answer).resolves.toMatchObject({ ok: false });
+    expect(plane.delivery()).toMatchObject({ state: "blocked" });
+
+    report([]);
+    window.focused = false;
+    window.emit("blur");
+    report([need("maple", "blocked")]);
+    vi.advanceTimersByTime(URGENT_SETTLE_MS);
+    emit(banners[1], "show");
+    expect(plane.delivery()).toEqual({ state: "allowed" });
+  });
+
+  it("gives each seat's banner a stable id, grouped by canvas", () => {
+    const { window, banners, report } = setup();
+    report([]);
+    window.focused = false;
+    window.emit("blur");
+    report([need("maple", "blocked")]);
+    vi.advanceTimersByTime(URGENT_SETTLE_MS);
+    expect(banners[0]?.options).toMatchObject({ id: "junto:seat:main:maple", groupId: "junto:main" });
   });
 });
 

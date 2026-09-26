@@ -1,4 +1,4 @@
-import { Notification, app, ipcMain, type BrowserWindow } from "electron";
+import { Notification, app, ipcMain, shell, type BrowserWindow } from "electron";
 import { Schema } from "effect";
 import {
   NOTIFY_CATEGORIES,
@@ -12,6 +12,9 @@ import { trustedRendererIpc } from "../trusted-main-webcontents";
 import { createNotificationPlane, type NotificationPlane } from "./plane";
 
 const MAX_SUBJECTS = 500;
+/** System Settings, Notifications, with Junto selected. */
+export const MAC_NOTIFICATION_SETTINGS_URL =
+  "x-apple.systempreferences:com.apple.Notifications-Settings.extension?id=com.skastr0.junto";
 const MAX_TEXT = 2_000;
 const decodePrefs = Schema.decodeUnknownResult(NotificationSettings);
 
@@ -94,5 +97,12 @@ export const registerNotificationIpc = (options: {
     return { ok: true as const };
   });
   privilegedIpc.handle(IPC_CHANNELS.notificationsTest, () => plane.test());
+  privilegedIpc.handle(IPC_CHANNELS.notificationsDelivery, () => plane.delivery());
+  // A fixed system URL, never one the renderer supplies.
+  privilegedIpc.handle(IPC_CHANNELS.notificationsOpenSystemSettings, async () => {
+    if (process.platform !== "darwin") return { ok: false as const };
+    await shell.openExternal(MAC_NOTIFICATION_SETTINGS_URL);
+    return { ok: true as const };
+  });
   return plane;
 };

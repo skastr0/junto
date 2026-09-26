@@ -136,6 +136,8 @@ export const IPC_CHANNELS = {
   notificationsTest: "junto:notifications-test",
   notificationActivate: "junto:notification-activate",
   notificationCue: "junto:notification-cue",
+  notificationsDelivery: "junto:notifications-delivery",
+  notificationsOpenSystemSettings: "junto:notifications-open-system-settings",
   chatOpen: "junto:chat-open",
   chatPrompt: "junto:chat-prompt",
   chatPermission: "junto:chat-permission",
@@ -879,6 +881,13 @@ export interface JuntoApi extends UpdateApi, OverseerLiveApi {
   ) => Promise<{ readonly ok: boolean; readonly message?: string }>;
   /** Show a test banner now (where macOS asks for permission). */
   readonly notificationsTest?: () => Promise<{ readonly ok: boolean; readonly message?: string }>;
+  /** Whether macOS delivers Junto's banners, as last seen. */
+  readonly notificationsDelivery?: () => Promise<
+    | { readonly state: "unknown" | "allowed" }
+    | { readonly state: "blocked"; readonly reason: string }
+  >;
+  /** Open the system's notification settings for Junto (macOS). */
+  readonly notificationsOpenSystemSettings?: () => Promise<{ readonly ok: boolean }>;
   /** Main → renderer: the operator clicked a notification. */
   readonly onNotificationActivate?: (listener: (target: NotifyTarget) => void) => () => void;
   /** Main → renderer: a silent banner went up; play its cue. */
