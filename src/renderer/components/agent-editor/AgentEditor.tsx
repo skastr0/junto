@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Pencil, UserRoundPen } from "lucide-react";
 import { use$ } from "@legendapp/state/react";
 import { isHarnessId } from "@shared/managed-terminal-templates";
@@ -45,6 +45,37 @@ function Hero({ seat }: { readonly seat: AgentEditorSeat }) {
   );
 }
 
+/**
+ * The editor itself, without the popover: hero, section tabs, one panel.
+ * Renders inline anywhere (the onboarding tour shows it with a fixture
+ * seat). `section` picks the open section and follows later changes; the
+ * tabs still switch it.
+ */
+export function AgentEditorView({ seat, section }: { readonly seat: AgentEditorSeat; readonly section?: string }) {
+  const sections = AGENT_EDITOR_SECTIONS.filter((entry) => entry.applies?.(seat) ?? true);
+  const [active, setActive] = useState(section ?? "");
+  useEffect(() => {
+    if (section) setActive(section);
+  }, [section]);
+  const current = sections.find((entry) => entry.id === active) ?? sections[0];
+  return (
+    <CharacterDraftProvider identity={seat.id}>
+      <div className="agent-editor">
+        <Hero seat={seat} />
+        <InspectorTabs
+          label="Customize sections"
+          tabs={sections.map(({ id, label }) => ({ id, label }))}
+          active={current?.id ?? ""}
+          onSelect={setActive}
+        />
+        <div className="agent-editor__panel" role="tabpanel" aria-label={current?.label} data-section={current?.id}>
+          {current ? <current.Panel key={current.id} seat={seat} /> : null}
+        </div>
+      </div>
+    </CharacterDraftProvider>
+  );
+}
+
 export function AgentEditor({
   seat,
   anchor,
@@ -56,11 +87,6 @@ export function AgentEditor({
   readonly section?: string;
   readonly onClose: () => void;
 }) {
-  const sections = AGENT_EDITOR_SECTIONS.filter((entry) => entry.applies?.(seat) ?? true);
-  const [active, setActive] = useState(
-    sections.some((entry) => entry.id === section) ? section! : (sections[0]?.id ?? ""),
-  );
-  const current = sections.find((entry) => entry.id === active) ?? sections[0];
   return (
     <Popover
       anchor={anchor}
@@ -70,20 +96,7 @@ export function AgentEditor({
       className="agent-editor-popover"
       testId="agent-editor"
     >
-      <CharacterDraftProvider identity={seat.id}>
-        <div className="agent-editor">
-          <Hero seat={seat} />
-          <InspectorTabs
-            label="Customize sections"
-            tabs={sections.map(({ id, label }) => ({ id, label }))}
-            active={current?.id ?? ""}
-            onSelect={setActive}
-          />
-          <div className="agent-editor__panel" role="tabpanel" aria-label={current?.label} data-section={current?.id}>
-            {current ? <current.Panel key={current.id} seat={seat} /> : null}
-          </div>
-        </div>
-      </CharacterDraftProvider>
+      <AgentEditorView seat={seat} section={section} />
     </Popover>
   );
 }
