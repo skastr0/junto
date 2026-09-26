@@ -8,7 +8,8 @@ import type { PortraitConfig } from "./agent-portrait";
 // stored rows: it keeps known fields of the right shape and drops the rest.
 
 const TRAIT_KEYS = ["bodyHue", "accentHue", "shape", "topper", "eyes", "mouth", "brows", "marking", "accessory"] as const;
-const TRAIT_MAX = 24;
+// A trait is a base id ("toast") or a pack item ("<pack>:<item>").
+const TRAIT_MAX = 72;
 
 /** Largest stored override body; a full config is well under 400 bytes. */
 export const PORTRAIT_OVERRIDE_MAX_JSON = 2048;

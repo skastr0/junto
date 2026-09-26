@@ -6,7 +6,7 @@ describe("portrait override normalizer", () => {
     expect(
       normalizePortraitOverride({
         shape: "toast",
-        eyes: "x".repeat(25),
+        eyes: "x".repeat(73),
         blush: "yes",
         temperament: 0.4,
         hat: "top",

@@ -166,3 +166,31 @@
   .portrait-edit-button { transition: none; }
   .portrait-edit-button:hover { transform: none; }
 }
+
+/* Packs: the base cast, then each bundled pack under its name. */
+.portrait-editor__groups {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.portrait-editor__pack[data-pack="premium"] {
+  padding: 6px 8px 8px;
+  border: 1px dashed var(--color-stroke-hi);
+  border-radius: 8px;
+}
+
+.portrait-editor__pack-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  color: var(--color-main-fg);
+}
+
+.portrait-editor__option[data-locked="true"] {
+  opacity: 0.45;
+  filter: grayscale(0.6);
+}

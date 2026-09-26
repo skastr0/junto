@@ -1154,6 +1154,20 @@
         "codec"
       ],
       "reason": "Defines the closed native Overseer request and assignment decoders used at the authenticated process-bound Work control socket boundary."
+    },
+    {
+      "path": "src/shared/overlay-contract.ts",
+      "kinds": [
+        "constant"
+      ],
+      "reason": "Decodes the overlay manifest compiled into the bundle once at load; a malformed one degrades to the open-source app with a log line."
+    },
+    {
+      "path": "src/shared/cosmetics/load.ts",
+      "kinds": [
+        "constant"
+      ],
+      "reason": "Decodes the cosmetic packs the build bundled (overlay data compiled into the bundle) once at load; a bad pack is dropped alone with a log line."
     }
   ],
   "journalFreeMutations": [

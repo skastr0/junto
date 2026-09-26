@@ -4,10 +4,12 @@
 //   bun scripts/portrait-gallery.ts [count]
 //   -> test-results/portraits/gallery.html, gallery-dark.png, gallery-bright.png
 import { mkdirSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { chromium } from "playwright-core";
 import { portraitDataUri, portraitOptions, portraitDetailFor, portraitGenome, type PortraitDetail } from "../src/shared/agent-portrait";
 import { portraitFaceFor, portraitExpression, type ExpressionInput } from "../src/shared/portrait-expression";
+import { installCosmeticPacks } from "../src/shared/cosmetics/catalog";
+import { decodeCosmeticPacks } from "../src/shared/cosmetics/load";
 import { FONT_MONO, themeRuntime, type ThemeMode } from "../src/shared/theme";
 
 // One character across temperament x seat state, for judging expressions.
@@ -39,6 +41,18 @@ const variety = (() => {
 })();
 
 const count = Number(process.argv[2] ?? 48);
+
+// Premium packs join like the app build: from the overlay JUNTO_OVERLAY names
+// (the private checkout), decoded with the app's pack schema. Unset, the
+// gallery shows what an open-source build carries: the base cast only.
+const overlayDir = process.env.JUNTO_OVERLAY;
+const premiumPacks = overlayDir
+  ? decodeCosmeticPacks(
+      ((await import(join(resolve(overlayDir), "overlay", "index.ts"))) as { overlay: { cosmetics: ReadonlyArray<unknown> } })
+        .overlay.cosmetics,
+    )
+  : [];
+installCosmeticPacks(premiumPacks);
 const out = join(process.cwd(), "test-results", "portraits");
 mkdirSync(out, { recursive: true });
 
@@ -116,8 +130,25 @@ const page = (mode: ThemeMode): string => {
     .slice(0, 10)
     .map((seed) => `<img width="120" height="120" src="${portraitDataUri({ seed, mode, detail: "rich", frame: "bare" })}">`)
     .join("")}</div>`;
+  // Base vs premium: each premium item on the same critters as the base row.
+  const premiumSeeds = seeds.slice(0, 6);
+  const premiumRow = (label: string, config: Record<string, string>): string =>
+    `<div class="premium-row"><div class="premium-label">${label}</div>${premiumSeeds
+      .map((seed) => `<img width="72" height="72" style="border-radius:50%" src="${portraitDataUri({ seed, mode, detail: "rich", frame: "round", config })}">`)
+      .join("")}<img width="96" height="96" src="${portraitDataUri({ seed: premiumSeeds[0] ?? "p", mode, detail: "rich", frame: "bare", config })}"></div>`;
+  const premium = premiumPacks.length
+    ? premiumPacks
+        .map(
+          (pack) =>
+            `<h2>premium pack: ${pack.name} (official build only)</h2>${premiumRow("base look", { accessory: "none" })}${(pack.accessories ?? [])
+              .map((item) => premiumRow(item.name, { accessory: `${pack.id}:${item.id}` }))
+              .join("")}${(pack.palettes ?? []).map((item) => premiumRow(`${item.name} color`, { bodyHue: `${pack.id}:${item.id}`, accessory: "none" })).join("")}`,
+        )
+        .join("")
+    : `<h2>open-source build: base cast only (set JUNTO_OVERLAY to add premium packs)</h2>`;
   return `<section class="theme" style="background:${t.ground};color:${t.ink}">
 <h1>Agent portraits, ${mode}</h1>
+${premium}
 <h2>new species</h2>${showcase("shape", portraitOptions().shape.slice(6))}
 <h2>new ears and toppers</h2>${showcase("topper", portraitOptions().topper.slice(9))}
 <h2>new patterns</h2>${showcase("marking", portraitOptions().marking.slice(5))}
@@ -146,6 +177,7 @@ figcaption{font-size:9px;opacity:.55;text-align:center;line-height:1.3}
 .seats{display:flex;gap:18px;flex-wrap:wrap;align-items:center}.seat{display:flex;gap:10px;align-items:center;min-width:150px}.ring{display:inline-block;border-radius:50%}
 .moods{border-collapse:collapse;margin-bottom:18px}.moods th{font-weight:500;opacity:.6;font-size:10px;padding:4px 6px;text-align:center}.moods td{text-align:center;padding:4px 6px;font-size:9px;opacity:.9}.moods td div{opacity:.6}
 .bare{display:flex;gap:10px;flex-wrap:wrap;padding:14px;border-radius:10px;background:repeating-conic-gradient(rgba(128,128,128,.18) 0 25%, transparent 0 50%) 0 0/16px 16px}
+.premium-row{display:flex;gap:10px;align-items:center;margin:6px 0}.premium-label{width:130px;font-size:11px;opacity:.7}
 .name{font-size:12px}.sub{color:var(--dim);font-size:10px;margin-top:2px}
 </style></head><body>${modes.map(page).join("")}</body></html>`;
 

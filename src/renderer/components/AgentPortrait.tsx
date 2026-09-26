@@ -12,6 +12,7 @@ import {
 import { EXPRESSION_FACES, portraitExpression, type PortraitExpression } from "@shared/portrait-expression";
 import type { ThemeMode } from "@shared/theme";
 import type { PortraitMood } from "../lib/portrait-mood";
+import { bundledCosmeticsRevision } from "../lib/cosmetics";
 import { portraitOverrides$, startPortraitOverrides } from "../lib/portrait-overrides-state";
 import { themeMode$ } from "../lib/theme-mode";
 import { HarnessMark } from "./HarnessMark";
@@ -47,7 +48,7 @@ export function agentPortraitSrc(
   config?: PortraitConfig,
   expression: PortraitExpression = "resting",
 ): string {
-  const key = `${frame}|${detail}|${mode}|${expression}|${portraitConfigKey(config)}|${identity}`;
+  const key = `${bundledCosmeticsRevision}|${frame}|${detail}|${mode}|${expression}|${portraitConfigKey(config)}|${identity}`;
   let src = cache.get(key);
   if (src === undefined) {
     if (cache.size >= CACHE_LIMIT) cache.clear();

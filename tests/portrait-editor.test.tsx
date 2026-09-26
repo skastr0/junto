@@ -13,6 +13,8 @@ vi.mock("../src/renderer/lib/theme-mode", async () => {
 const { PortraitEditButton } = await import("../src/renderer/components/portrait/PortraitEditor");
 const { portraitOverrides$ } = await import("../src/renderer/lib/portrait-overrides-state");
 const { normalizePortraitOverride } = await import("../src/shared/portrait-overrides");
+const { installCosmeticPacks } = await import("../src/shared/cosmetics/catalog");
+const { decodeCosmeticPacks } = await import("../src/shared/cosmetics/load");
 
 let host: HTMLDivElement;
 let root: Root;
@@ -55,7 +57,9 @@ const settle = async (): Promise<void> => {
   });
 };
 
-describe("portrait editor", () => {
+// Every option is a live thumbnail; under a loaded machine a full editor
+// render takes a few seconds in jsdom.
+describe("portrait editor", { timeout: 30_000 }, () => {
   it("opens from the portrait with every trait grid and a mood strip", () => {
     const editor = open();
     for (const label of ["color", "body", "ears and toppers", "hats and props", "eyes", "brows", "mouth", "pattern", "accent"]) {
@@ -67,10 +71,10 @@ describe("portrait editor", () => {
 
   it("saves a picked option for the seat and resets to identity", async () => {
     const editor = open();
-    act(() => (editor.querySelector('[aria-label="body toast"]') as HTMLButtonElement).click());
+    act(() => (editor.querySelector('[aria-label="body Toast"]') as HTMLButtonElement).click());
     await settle();
     expect(portraitOverrides$.peek()["seat-1"]).toEqual({ shape: "toast" });
-    expect(editor.querySelector('[aria-label="body toast"]')?.getAttribute("aria-checked")).toBe("true");
+    expect(editor.querySelector('[aria-label="body Toast"]')?.getAttribute("aria-checked")).toBe("true");
 
     const reset = [...editor.querySelectorAll("button")].find((button) => button.textContent === "Reset");
     act(() => reset?.click());
@@ -96,5 +100,36 @@ describe("portrait editor", () => {
     const saved = portraitOverrides$.peek()["seat-1"];
     expect(saved?.shape).toBeDefined();
     expect(saved?.eyes).toBeDefined();
+  });
+
+  it("groups bundled pack items under their pack and saves the pack key", async () => {
+    installCosmeticPacks(
+      decodeCosmeticPacks([
+        {
+          format: 1,
+          id: "test-pack",
+          name: "Test pack",
+          tier: "premium",
+          accessories: [
+            {
+              id: "top-hat",
+              name: "Top hat",
+              hat: true,
+              parts: [{ layer: "hat", anchor: { x: "center", y: "top" }, shapes: [{ kind: "circle", cx: 0, cy: -6, r: 6, paint: "inked", color: "ink" }] }],
+            },
+          ],
+        },
+      ]),
+    );
+    try {
+      const editor = open();
+      const props = editor.querySelector('[role="radiogroup"][aria-label="hats and props"]');
+      expect(props?.querySelector('[data-pack="premium"] .portrait-editor__pack-head')?.textContent).toContain("Test pack");
+      act(() => (props?.querySelector('[aria-label="hats and props Top hat"]') as HTMLButtonElement).click());
+      await settle();
+      expect(portraitOverrides$.peek()["seat-1"]).toEqual({ accessory: "test-pack:top-hat" });
+    } finally {
+      installCosmeticPacks([]);
+    }
   });
 });
