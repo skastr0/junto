@@ -78,6 +78,30 @@ test("agent seats and their connection cards hold portraits in rings; the galler
       await focus.locator("header").getByRole("button", { name: "Close view", exact: true }).first().click();
       await expect(focus).toBeHidden({ timeout: 10_000 });
     }
+    // A clean view: nothing selected, every seat in frame.
+    await page.locator(".react-flow__pane").click({ position: { x: 20, y: 20 } });
+    await page.getByRole("button", { name: /fit all/i }).first().click();
+    await page.waitForTimeout(400);
+    // Preambles are not in the canvas document: main sends them on
+    // junto:preamble. Staging one is a send to the window.
+    const now = Date.now();
+    const staged = [
+      { nodeId: "planner", text: "splitting the migration into two steps" },
+      { nodeId: "builder", text: "thrashing", provenance: "ai", action: "health", tone: "amber" },
+      { nodeId: "reviewer", text: "blocked: needs the prod DB password", provenance: "agent", action: "signal", tone: "crimson" },
+      { nodeId: "scout", text: "claimed a task", provenance: "agent", action: "tool", tone: "indigo" },
+      { nodeId: "docs", text: "done, ready for review", provenance: "system", action: "state", tone: "green" },
+      { nodeId: "tester", text: "mail from planner: rebase is done", provenance: "agent", action: "mail-in", tone: "violet" },
+    ].map((fields, i) => ({ preambleId: `stage-${String(i)}`, canvasName: "seat-rings", expiresAt: now + 60_000, ...fields }));
+    await junto.app.evaluate(({ BrowserWindow }, events) => {
+      for (const window of BrowserWindow.getAllWindows()) {
+        for (const event of events) window.webContents.send("junto:preamble", event);
+      }
+    }, staged);
+    await expect(page.getByTestId("node-preamble")).toHaveCount(staged.length, { timeout: 10_000 });
+    await page.waitForTimeout(500);
+    await page.locator(".react-flow").screenshot({ path: join(SHOTS, "app-preambles-canvas.png") });
+
     // The dev gallery is a hash route on the same renderer.
     await page.evaluate(() => {
       window.location.hash = "#/gallery/marks";
@@ -87,6 +111,9 @@ test("agent seats and their connection cards hold portraits in rings; the galler
     await expect(page.getByTestId("agent-seat").first()).toBeVisible();
     await page.waitForTimeout(1200);
     await page.screenshot({ path: join(SHOTS, "app-gallery.png") });
+    await page.locator("section", { hasText: "colour is the action" }).first().screenshot({
+      path: join(SHOTS, "app-gallery-preambles.png"),
+    });
   } finally {
     await junto.close();
   }

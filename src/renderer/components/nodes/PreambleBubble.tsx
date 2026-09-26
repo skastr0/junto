@@ -16,6 +16,8 @@ const WHO: Readonly<Record<PreambleProvenance, { readonly Icon: typeof Sparkles;
 
 /** Keeps the bubble inside the canvas viewport; measured once per note. */
 const EDGE = 8;
+/** The tail's centre from the bubble's left edge (see preamble-bubble.css). */
+const TAIL_X = 20.5;
 
 function Note({ item, trail = false }: { readonly item: PreambleItem; readonly trail?: boolean }) {
   const { Icon, word } = WHO[item.provenance];
@@ -52,6 +54,10 @@ export function PreambleBubble({ nodeId, bubble }: { readonly nodeId: string; re
     const bounds = frame.getBoundingClientRect();
     // The canvas zoom scales the bubble; offsets are in its own units.
     const zoom = el.offsetWidth > 0 ? box.width / el.offsetWidth : 1;
+    // Only a seat whose ring is on screen is clamped: sliding the bubble of a
+    // seat that is itself off the edge would lay it over its neighbour's.
+    const anchorX = box.left + TAIL_X * zoom;
+    if (anchorX < bounds.left || anchorX > bounds.right) return;
     if (box.top < bounds.top + EDGE) el.setAttribute("data-flip", "below");
     let dx = 0;
     if (box.right > bounds.right - EDGE) dx = (bounds.right - EDGE - box.right) / zoom;
