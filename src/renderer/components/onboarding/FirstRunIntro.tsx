@@ -3,7 +3,11 @@ import { use$ } from "@legendapp/state/react";
 import { ArrowLeft, ArrowRight, Pause, Play } from "lucide-react";
 import type { PortraitExpression } from "@shared/portrait-expression";
 import { JUNTO_MASCOT } from "@shared/brand-mascot";
+import type { AgentSignalKind } from "@shared/agent-signals";
+import { SEAT_AWARENESS_COMPILED } from "@shared/features";
+import type { ThreadHealthTone, ThreadHealthValue } from "@shared/thread-health";
 import { terminalActivity } from "../../lib/activity";
+import type { SeatHealth, SeatSignal } from "../nodes/AgentSeat";
 import { AGENT_NODE_SIZE } from "../../lib/node-geometry";
 import { AgentEditorView } from "../agent-editor/AgentEditor";
 import { AGENT_EDITOR_SECTIONS, type AgentEditorSeat } from "../agent-editor/sections";
@@ -104,6 +108,92 @@ const seatsChapter: TourChapter = {
   pip: "happy",
 };
 
+// --- 2. Reading a seat ---------------------------------------------------------
+
+const signalOf = (kind: AgentSignalKind, text: string): SeatSignal => ({
+  openCount: 1,
+  worst: { signalId: `tour-${kind}`, canvasName: "tour", nodeId: "tour", kind, text, createdAt: 0, state: "open" },
+});
+
+const reading = (health: ThreadHealthTone, value: ThreadHealthValue, line: string): SeatHealth => ({
+  health,
+  value,
+  line,
+  label: `AI reads: ${line}`,
+});
+
+const COL = 200;
+const ROW = 104;
+
+function StatesDemo() {
+  // One seat finishes, waits to be read, and rests once you "open" it.
+  const beat = useTourBeat(3200);
+  const read = beat % 2 === 1;
+  const idle = terminalActivity({ seatState: "idle" });
+  return (
+    <div className="tour-column">
+      <TourStage width={COL * 4} height={ROW * 2} label="Seats in every state: working, wants your input, waiting on you, blocked, done, resting, ready for review, offline">
+        <DemoSeat id="tour-s1" name="planner" harness="claude" x={8} y={8} spec={terminalActivity({ seatState: "working" })} caption="working: the ring laps" />
+        <DemoSeat id="tour-s2" name="reviewer" harness="claude" x={8 + COL} y={8} spec={terminalActivity({ seatState: "attention" })} caption="wants your input: rings go out" />
+        <DemoSeat id="tour-s3" name="schema" harness="codex" x={8 + COL * 2} y={8} spec={idle} signal={signalOf("escalate", "two specs disagree")} caption="waiting on you: it circles" />
+        <DemoSeat id="tour-s4" name="deploy" harness="codex" x={8 + COL * 3} y={8} spec={idle} signal={signalOf("blocked", "needs the prod password")} caption="blocked: a steady beat" />
+        <DemoSeat
+          id="tour-s5"
+          name="builder"
+          harness="codex"
+          x={8}
+          y={8 + ROW}
+          spec={read ? idle : terminalActivity({ seatState: "idle", needsLook: true })}
+          caption={read ? "you opened it: resting" : "done: green until you read it"}
+        />
+        <DemoSeat id="tour-s6" name="notes" harness="claude" x={8 + COL} y={8 + ROW} spec={idle} caption="resting: the one still ring" />
+        <DemoSeat id="tour-s7" name="docs" harness="grok" x={8 + COL * 2} y={8 + ROW} spec={idle} signal={signalOf("feedback", "draft ready")} caption="ready for review" />
+        <DemoSeat id="tour-s8" name="archive" harness="claude" x={8 + COL * 3} y={8 + ROW} spec={terminalActivity({ managedSeat: true, seatState: "unknown" })} caption="offline" />
+      </TourStage>
+      {SEAT_AWARENESS_COMPILED ? (
+        <div className="tour-aside">
+          <span className="tour-aside__tag">Experimental</span>
+          <TourStage width={COL * 3} height={ROW - 12} label="An AI reading bends the ring: stuck runs backwards, thrashing waves, going well wears a halo">
+            <DemoSeat id="tour-a1" name="migrations" harness="claude" x={8} y={8} spec={terminalActivity({ seatState: "working" })} health={reading("trouble", "stuck", "stuck")} caption="stuck: the lap runs backwards" />
+            <DemoSeat id="tour-a2" name="flaky-tests" harness="codex" x={8 + COL} y={8} spec={terminalActivity({ seatState: "working" })} health={reading("trouble", "thrashing", "going in circles")} caption="going in circles: a wave" />
+            <DemoSeat id="tour-a3" name="refactor" harness="claude" x={8 + COL * 2} y={8} spec={terminalActivity({ seatState: "working" })} health={reading("good", "going_well", "going well")} caption="going well: a halo" />
+          </TourStage>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+const statesChapter: TourChapter = {
+  id: "states",
+  title: "Reading a seat",
+  demo: <StatesDemo />,
+  body: (
+    <>
+      <p>
+        Each state moves its ring in its own way, so you can read a whole
+        canvas without opening anything. Only a resting seat is still.
+      </p>
+      <p>
+        When an agent finishes, its ring turns green and keeps a faint glint
+        until you open the seat and read the answer. Then it rests. When an
+        agent needs a decision from you, its ring circles in amber and the
+        line under its name says why.
+      </p>
+      {SEAT_AWARENESS_COMPILED ? (
+        <p>
+          <strong>Experimental:</strong> an AI can also read how each session is
+          going and bend the ring: backwards when stuck, a wave when it goes in
+          circles, a halo when it goes well. It is advice, marked AI, and stays
+          off until you turn it on in Settings, under Experimental.
+        </p>
+      ) : null}
+    </>
+  ),
+  tryIt: [{ keys: ["double-click"], text: <>a green seat to read what it finished. It rests.</> }],
+  pip: "curious",
+};
+
 // --- Play and pause ------------------------------------------------------------
 
 function PlayPauseDemo() {
@@ -196,6 +286,7 @@ const isMac = (): boolean =>
 /** The tour, in order. `mac` picks the permissions chapter's wording. */
 export const tourChapters = (mac: boolean): ReadonlyArray<TourChapter> => [
   seatsChapter,
+  statesChapter,
   playChapter,
   permissionsChapter(mac),
 ];

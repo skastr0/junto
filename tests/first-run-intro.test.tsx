@@ -25,6 +25,7 @@ import {
   tourChapters,
 } from "../src/renderer/components/onboarding/FirstRunIntro";
 import { finishIntro, introVisible, openIntro } from "../src/renderer/lib/first-run-intro";
+import { SEAT_AWARENESS_COMPILED } from "../src/shared/features";
 import { state$ } from "../src/renderer/lib/state";
 import { applyAndValidatePatch } from "../src/main/junto/settings/patch";
 import { decodeStoredSettings, preferencesFromSettings } from "../src/main/junto/settings/state-schema";
@@ -156,6 +157,18 @@ describe("what the tour says", () => {
     // The demo is the canvas's own seat and the real customize editor.
     expect(html).toContain('data-testid="agent-seat"');
     expect(html).toContain('class="agent-editor"');
+  });
+
+  it("shows every ring state live, done until read, and the AI reading only when built in", () => {
+    const html = chapterAt("states");
+    const copy = text(html);
+    for (const state of ["working", "wants your input", "waiting on you", "blocked", "resting", "ready for review", "offline"]) {
+      expect(copy).toContain(state);
+    }
+    expect(copy).toContain("until you open the seat and read the answer");
+    expect(html.match(/data-testid="agent-seat"/g)?.length ?? 0).toBeGreaterThanOrEqual(8);
+    // The AI reading shows exactly when the build carries it, marked experimental.
+    expect(copy.includes("Experimental")).toBe(SEAT_AWARENESS_COMPILED);
   });
 
   it("says a new workspace starts paused, what play does, and where the switch is", () => {

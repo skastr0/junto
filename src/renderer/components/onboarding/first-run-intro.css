@@ -326,3 +326,13 @@ html[data-surface-motion="paused"] .first-run-intro__slide { animation: none !im
   .first-run-intro__chapter { transition: none; }
 }
 
+/* A chapter with a main stage and a smaller one beneath it. */
+.tour-column { display: grid; justify-items: center; gap: 14px; max-width: 100%; }
+.tour-aside { display: grid; justify-items: center; gap: 6px; max-width: 100%; }
+.tour-aside__tag {
+  padding: 1px 7px;
+  border: 1px solid color-mix(in oklab, var(--color-violet) 45%, transparent);
+  border-radius: 999px;
+  color: var(--color-violet);
+  font-size: 10.5px;
+}
