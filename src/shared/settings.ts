@@ -287,9 +287,9 @@ const StationSettingsValue = Schema.Struct({
 export const StationSettings = StationSettingsValue;
 export type StationSettings = typeof StationSettings.Type;
 
-// RTS UI SFX — per-clip enable + volume under a master mute/gain.
-// `permission` and `orphan` remain durable compatibility keys;
-// the active renderer catalog presents the generic node-state vocabulary.
+// Sound: master mute and volume, then one enable + volume per sound family
+// (`sounds`). `clips` is the retired sample pack's per-clip prefs: a frozen
+// copy kept so rows that hold it still decode; nothing reads it.
 const unitInterval = Schema.Number.pipe(Schema.check(Schema.isBetween({ minimum: 0, maximum: 1 })));
 
 export const SfxClipPrefs = Schema.Struct({
@@ -306,10 +306,29 @@ export const SfxClipsSettings = Schema.Struct({
 });
 export type SfxClipsSettings = typeof SfxClipsSettings.Type;
 
+/**
+ * Sound families, most urgent first. Each cue belongs to exactly one; the
+ * operator levels or silences a family, never a single cue.
+ */
+export const SOUND_CATEGORIES = ["attention", "review", "activity", "traffic", "interface"] as const;
+export type SoundCategory = (typeof SOUND_CATEGORIES)[number];
+
+export const SoundCategoriesSettings = Schema.Struct({
+  attention: SfxClipPrefs,
+  review: SfxClipPrefs,
+  activity: SfxClipPrefs,
+  traffic: SfxClipPrefs,
+  interface: SfxClipPrefs,
+});
+export type SoundCategoriesSettings = typeof SoundCategoriesSettings.Type;
+
 export const AudioSettings = Schema.Struct({
   muted: Schema.Boolean,
   masterVolume: unitInterval,
+  /** DEPRECATED frozen copy of the retired sample pack's prefs. */
   clips: SfxClipsSettings,
+  /** Absent on rows written before the sound engine; absent means the defaults. */
+  sounds: Schema.optionalKey(SoundCategoriesSettings),
 });
 export type AudioSettings = typeof AudioSettings.Type;
 
@@ -965,10 +984,20 @@ export const SfxClipsPatch = Schema.Struct({
 });
 export type SfxClipsPatch = typeof SfxClipsPatch.Type;
 
+export const SoundCategoriesPatch = Schema.Struct({
+  attention: Schema.optionalKey(SfxClipPatch),
+  review: Schema.optionalKey(SfxClipPatch),
+  activity: Schema.optionalKey(SfxClipPatch),
+  traffic: Schema.optionalKey(SfxClipPatch),
+  interface: Schema.optionalKey(SfxClipPatch),
+});
+export type SoundCategoriesPatch = typeof SoundCategoriesPatch.Type;
+
 export const AudioPatch = Schema.Struct({
   muted: Schema.optionalKey(Schema.Boolean),
   masterVolume: Schema.optionalKey(unitInterval),
   clips: Schema.optionalKey(SfxClipsPatch),
+  sounds: Schema.optionalKey(SoundCategoriesPatch),
 });
 export type AudioPatch = typeof AudioPatch.Type;
 
@@ -1145,10 +1174,30 @@ export const defaultSfxClips = (): SfxClipsSettings => ({
   cycle: defaultClip(0.18),
 });
 
+/**
+ * Family levels on top of each cue's own urgency level: the families that
+ * mean "you are needed" stay near full, the ones that say "things are
+ * moving" sit back.
+ */
+export const defaultSoundCategories = (): SoundCategoriesSettings => ({
+  attention: defaultClip(1),
+  review: defaultClip(0.85),
+  activity: defaultClip(0.7),
+  traffic: defaultClip(0.6),
+  interface: defaultClip(0.7),
+});
+
+/** The family's prefs, falling back to the defaults on older rows. */
+export const soundCategoryPrefs = (audio: AudioSettings, category: SoundCategory): SfxClipPrefs =>
+  audio.sounds?.[category] ?? defaultSoundCategories()[category];
+
 export const defaultAudio = (): AudioSettings => ({
   muted: false,
-  masterVolume: 0.7,
+  // Gentle by default: the loudest cue at this level sits well under a
+  // system alert sound.
+  masterVolume: 0.6,
   clips: defaultSfxClips(),
+  sounds: defaultSoundCategories(),
 });
 
 export const defaultSettings = (): Settings => ({
@@ -1304,6 +1353,15 @@ export const applySettingsPatch = (current: Settings, patch: SettingsPatch): Set
         clips = { ...clips, [key]: mergeSection(clips[key], clipPatch) };
       }
       audio = { ...audio, clips };
+    }
+    if (audioPatch.sounds) {
+      let sounds = audio.sounds ?? defaultSoundCategories();
+      for (const key of SOUND_CATEGORIES) {
+        const familyPatch = audioPatch.sounds[key];
+        if (!familyPatch) continue;
+        sounds = { ...sounds, [key]: mergeSection(sounds[key], familyPatch) };
+      }
+      audio = { ...audio, sounds };
     }
     next = { ...next, audio };
   }
