@@ -46,6 +46,7 @@ import {
   writeFixtureUsageState,
   type Sandbox,
 } from "./sandbox";
+import type { NestedCanvasFixture } from "./nested-canvas-fixture";
 import { startRendererServer, type RendererServer } from "./renderer-server";
 
 // Scripts always invoke playwright from the repo root (package.json
@@ -90,6 +91,21 @@ export interface LaunchOptions {
   readonly seedCanvases?: Readonly<Record<string, CanvasDoc>>;
   /** Open (or closed) agent signals seeded as durable rows before boot. */
   readonly seedAgentSignals?: ReadonlyArray<AgentSignal>;
+  /**
+   * A nested-region stress canvas (nested-canvas-fixture.ts) seeded as `name`
+   * (default "nested") beside `seedCanvases`, with its open agent signals
+   * unless `signals` is false.
+   */
+  readonly nestedCanvas?: {
+    readonly fixture: NestedCanvasFixture;
+    readonly name?: string;
+    readonly signals?: boolean;
+  };
+  /**
+   * Resize the main window's content area once it opens, e.g.
+   * OPERATOR_DISPLAY.windowContentSize. The default window is 1320x900.
+   */
+  readonly windowContentSize?: { readonly width: number; readonly height: number };
   /** Enrolled fleet rows seeded into the sandbox's explicit SQLite database. */
   readonly seedHosts?: ReadonlyArray<RemoteHost>;
   /** Preserve stale historical commercial rows while proving ordinary startup. */
@@ -424,6 +440,17 @@ export const cleanupJuntoHarness = async (
 };
 
 export const launchJunto = async (options: LaunchOptions = {}): Promise<JuntoHandle> => {
+  const nestedName = options.nestedCanvas?.name ?? "nested";
+  const seedCanvases: Readonly<Record<string, CanvasDoc>> = {
+    ...options.seedCanvases,
+    ...(options.nestedCanvas ? { [nestedName]: options.nestedCanvas.fixture.doc } : {}),
+  };
+  const seedAgentSignals: ReadonlyArray<AgentSignal> = [
+    ...(options.seedAgentSignals ?? []),
+    ...(options.nestedCanvas && options.nestedCanvas.signals !== false
+      ? options.nestedCanvas.fixture.signals(nestedName)
+      : []),
+  ];
   const sandbox = await createSandbox();
   let server: RendererServer | undefined;
   let application: HarnessApplicationState = { kind: "not-launched" };
@@ -432,11 +459,11 @@ export const launchJunto = async (options: LaunchOptions = {}): Promise<JuntoHan
     if (options.seedRetiredCommercialState === true) {
       await writeFixtureRetiredCommercialState(sandbox);
     }
-    for (const [name, doc] of Object.entries(options.seedCanvases ?? {})) {
+    for (const [name, doc] of Object.entries(seedCanvases)) {
       await writeFixtureCanvas(sandbox, name, doc);
     }
-    if (options.seedAgentSignals !== undefined) {
-      await writeFixtureAgentSignals(sandbox, options.seedAgentSignals);
+    if (seedAgentSignals.length > 0) {
+      await writeFixtureAgentSignals(sandbox, seedAgentSignals);
     }
     if (options.seedHosts !== undefined) {
       await writeFixtureHosts(sandbox, options.seedHosts);
@@ -524,13 +551,20 @@ export const launchJunto = async (options: LaunchOptions = {}): Promise<JuntoHan
     };
 
     const page = await app.firstWindow();
+    if (options.windowContentSize !== undefined) {
+      const window = await app.browserWindow(page);
+      await window.evaluate(
+        (main, size) => main.setContentSize(size.width, size.height),
+        options.windowContentSize,
+      );
+    }
 
     // Demo mode runs on a process-minted ephemeral database, so the
     // pre-launch sandbox seed is invisible to the app. Re-seed the same
     // fixtures into the minted file, drop the empty first-run default
     // canvas, then reload the renderer so it boots onto the seeded canvas.
     if (options.demo === true) {
-      const seeds = Object.entries(options.seedCanvases ?? {});
+      const seeds = Object.entries(seedCanvases);
       if (seeds.length > 0) {
         const demoDatabase = await findDemoRuntimeDatabase(sandbox.root);
         if (demoDatabase === undefined) {
