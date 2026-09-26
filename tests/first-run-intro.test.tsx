@@ -191,6 +191,13 @@ describe("what the tour says", () => {
     expect(html).toContain("⌘I");
   });
 
+  it("shows saved profiles and a squad placed whole into a region", () => {
+    const copy = text(chapterAt("squads"));
+    for (const word of ["profile", "squad", "save as profile", "save as squad", "opening prompt"]) {
+      expect(copy).toContain(word);
+    }
+  });
+
   it("shows a region, the grid of terminals and the real numbered slots", () => {
     const html = chapterAt("organize");
     const copy = text(html);

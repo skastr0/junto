@@ -27,6 +27,7 @@ import { ActivityMarkFromSpec } from "../ActivityMark";
 import { HotbarChip } from "../rts/RtsBottomBar";
 import { portraitFor } from "../SeatRing";
 import { PauseSwitchFace } from "../TopBar";
+import { squadsChapter } from "./tour-squads";
 import "./first-run-intro.css";
 import { claimFocusOnMount, isOperatorTyping } from "../../lib/focus-ownership";
 
@@ -657,6 +658,7 @@ export const tourChapters = (mac: boolean): ReadonlyArray<TourChapter> => [
   statesChapter,
   talkChapter,
   feedChapter,
+  squadsChapter,
   organizeChapter,
   playChapter,
   permissionsChapter(mac),
