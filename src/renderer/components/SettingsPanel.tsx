@@ -16,6 +16,7 @@ import { ExperimentalSettingsSection } from "./settings/ExperimentalSettingsSect
 import { HarnessesSettingsSection } from "./settings/HarnessesSettingsSection";
 import { ProvidersSettingsSection } from "./settings/ProvidersSettingsSection";
 import { QuickRepliesSettingsSection } from "./settings/QuickRepliesSettingsSection";
+import { SoundSettingsSection } from "./settings/SoundSettingsSection";
 import { TerminalSettingsSection } from "./settings/TerminalSettingsSection";
 import {
   decodeStateBackupId,
@@ -36,13 +37,6 @@ import {
   restartAndInstallUpdate,
   updateState$,
 } from "../lib/update-state";
-import {
-  ALERT_SFX_IDS,
-  SFX_LABELS,
-  playAlert,
-  sfxIdToClipKey,
-  type AlertSfxId,
-} from "../lib/sfx";
 import { HUE, INK, themeFor } from "../lib/theme";
 import { getJuntoApi } from "../lib/junto-api";
 import { Button, Eyebrow, Select } from "./ui";
@@ -64,7 +58,7 @@ const SECTIONS: ReadonlyArray<{ key: PanelSection; label: string; blurb: string 
     : []),
   { key: "updates", label: "Updates", blurb: "check and install app updates" },
   ...(AUDIO_ENABLED
-    ? [{ key: "audio", label: "Audio", blurb: "RTS alert SFX mute and levels" } as const]
+    ? [{ key: "audio", label: "Sound", blurb: "levels for each kind of sound, and a preview" } as const]
     : []),
   ...(BROWSER_ENABLED
     ? [{ key: "browser", label: "Browser", blurb: "surface and warm-session limits" } as const]
@@ -994,97 +988,6 @@ function StateRecoveryControls() {
   );
 }
 
-function AudioSection() {
-  const audio = use$(state$.settings.audio);
-  return (
-    <div className="settings-section">
-      <p className="settings-note">
-        Space / ` cycles notifications first (blocked, attention), then ready
-        completes, then working. Each clip can be muted or leveled independently.
-      </p>
-      <FieldRow label="Mute all alerts" hint="master mute for the RTS SFX pack">
-        <input
-          type="checkbox"
-          checked={audio.muted}
-          aria-label="Mute all alerts"
-          onChange={(event) => void patchSettings({ audio: { muted: event.target.checked } })}
-        />
-      </FieldRow>
-      <FieldRow label="Master volume" hint="scales every clip (0–100%)">
-        <input
-          type="range"
-          min={0}
-          max={100}
-          step={1}
-          value={Math.round(audio.masterVolume * 100)}
-          aria-label="Master volume"
-          disabled={audio.muted}
-          onChange={(event) => {
-            const value = Number(event.target.value);
-            if (!Number.isFinite(value)) return;
-            void patchSettings({ audio: { masterVolume: Math.min(1, Math.max(0, value / 100)) } });
-          }}
-        />
-        <span className="settings-field__hint" style={{ marginLeft: 8 }}>
-          {Math.round(audio.masterVolume * 100)}%
-        </span>
-      </FieldRow>
-      {ALERT_SFX_IDS.map((id: AlertSfxId) => {
-        const key = sfxIdToClipKey(id);
-        const clip = audio.clips[key];
-        return (
-          <div key={id} className="settings-sfx-row">
-            <FieldRow label={SFX_LABELS[id]} hint={id === "cycle" ? "played on Space / `" : `rising-edge - ${id}`}>
-              <span className="settings-sfx-controls">
-                <label className="settings-sfx-enable">
-                  <input
-                    type="checkbox"
-                    checked={clip.enabled}
-                    aria-label={`Enable ${SFX_LABELS[id]}`}
-                    disabled={audio.muted}
-                    onChange={(event) =>
-                      void patchSettings({
-                        audio: { clips: { [key]: { enabled: event.target.checked } } },
-                      })
-                    }
-                  />
-                  on
-                </label>
-                <input
-                  type="range"
-                  min={0}
-                  max={100}
-                  step={1}
-                  value={Math.round(clip.volume * 100)}
-                  aria-label={`${SFX_LABELS[id]} volume`}
-                  disabled={audio.muted || !clip.enabled}
-                  onChange={(event) => {
-                    const value = Number(event.target.value);
-                    if (!Number.isFinite(value)) return;
-                    void patchSettings({
-                      audio: {
-                        clips: { [key]: { volume: Math.min(1, Math.max(0, value / 100)) } },
-                      },
-                    });
-                  }}
-                />
-                <button
-                  type="button"
-                  className="settings-sfx-preview"
-                  disabled={audio.muted || !clip.enabled}
-                  onClick={() => playAlert(id)}
-                >
-                  play
-                </button>
-              </span>
-            </FieldRow>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
 function StationSection() {
   const station = use$(state$.settings.station);
   const fleet = use$(state$.settings.fleet);
@@ -1153,7 +1056,7 @@ function SectionBody({ section }: { readonly section: PanelSection }) {
     case "updates":
       return <UpdatesSection />;
     case "audio":
-      return AUDIO_ENABLED ? <AudioSection /> : null;
+      return AUDIO_ENABLED ? <SoundSettingsSection /> : null;
     case "browser":
       return BROWSER_ENABLED ? <BrowserSection /> : null;
     case "harnesses":

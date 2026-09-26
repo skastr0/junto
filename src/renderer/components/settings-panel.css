@@ -505,36 +505,6 @@
   font-size: 11px;
 }
 
-.settings-sfx-controls {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-.settings-sfx-enable {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 11px;
-  color: var(--color-dim);
-}
-.settings-sfx-preview {
-  font-size: 11px;
-  padding: 2px 8px;
-  border-radius: 4px;
-  border: 1px solid color-mix(in srgb, currentColor 28%, transparent);
-  background: transparent;
-  color: inherit;
-  cursor: pointer;
-}
-.settings-sfx-preview:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
-.settings-sfx-row .settings-field__control {
-  min-width: 220px;
-}
-
 /* Appearance — theme choice buttons are the previews */
 .settings-theme-modes {
   display: grid;
