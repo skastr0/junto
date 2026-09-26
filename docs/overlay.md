@@ -1,17 +1,19 @@
 # Build-time overlay
 
 This repository builds the complete open-source Junto app. The official build
-adds premium content (the store and purchase delivery surface, the premium
-cosmetic packs, and the private brand: Pip and the brand cast) from a private
-overlay repository, **at build time**. Nothing premium is read from disk at
-run time; it is compiled into the bundle. A fork that builds this repository
-gets no store, no premium items, and no mascot, by design.
+adds premium commercial content (the store and purchase delivery surface, and
+the premium items of the Junto cast) from a private overlay repository, **at
+build time**. Nothing premium is read from disk at run time; it is compiled
+into the bundle. A fork that builds this repository gets no store and no
+premium items, by design.
 
-What stays open: the whole portrait engine and editor, the pack format, four
-species, every palette and accent, every face, every mood, and the most basic
-ears, patterns, and props (`src/shared/cosmetics/base-pack.ts`). The neutral
-Junto mark (`src/shared/brand-mark.ts`) is the open-source app icon, DMG, and
-tour guide.
+There is one Junto cast, and Pip and the brand cast belong to it: they, the
+portrait engine and editor, the pack format, and every brand surface (app
+icon, DMG, tour guide) are in this repository. Free vs premium is only which
+items are unlocked. The free items (`src/shared/cosmetics/base-pack.ts`) are
+four species, every palette and accent, every face, every mood, and two basic
+items in each other category; every other species, topper, pattern, and prop
+is a premium item in the overlay.
 
 ## How it resolves
 
@@ -23,7 +25,7 @@ share that resolution.
 
 | Entry | Export | Type | Stub |
 | --- | --- | --- | --- |
-| `@junto/overlay` | `overlay` | `OverlayManifest` | marker `junto-overlay:oss`, no cosmetics, no brand |
+| `@junto/overlay` | `overlay` | `OverlayManifest` | marker `junto-overlay:oss`, no cosmetics |
 | `@junto/overlay/renderer` | `surfaces` | `OverlaySurfaces` | `{}` |
 
 The contract is `src/shared/overlay-contract.ts`. App code reads the decoded
@@ -34,14 +36,8 @@ stay raw in the manifest; the portrait system decodes each one with
 keep bare keys (`keys: "bare"`: its items resolve by plain id, so looks saved
 before an item moved keep resolving) and may declare the seat-identity draw
 (`identity`): with it installed, seats are born from its lists; a drawn item
-this install may not wear falls back to the open-source list with the same
-roll. `brand.mascot` (name, seed, pinned traits) is read through
-`@shared/brand` (`brandMascot`); without it the tour shows the plain mark.
-
-Packaging reads the overlay's `brand/` directory (`scripts/overlay.ts
---brand-dir`): `brand/build/icon.icns` and `brand/build/dmg-background.png`
-(macOS) and `brand/junto-icon.png` (Linux) replace this repository's neutral
-ones in an official package.
+this install may not wear falls back to the free items' list with the same
+roll.
 
 Overlay files import app code through `@shared/*` and `@renderer/*`, and
 packages (react, effect) resolve from this app's `node_modules`, so a build
@@ -68,4 +64,5 @@ early on a path without `overlay/index.ts`.
   stub's; an official one carries exactly one. With a premium checkout on the
   machine (`--premium DIR`, `JUNTO_PREMIUM`, or a sibling `../junto-premium`),
   it also fingerprints every premium item (its path data, or its id and name
-  side by side) and the mascot, and fails if an open-source `out/` holds any.
+  side by side) and fails if an open-source `out/` holds any. Pip and the
+  brand cast are open source and not fingerprinted.

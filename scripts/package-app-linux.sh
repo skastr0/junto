@@ -61,11 +61,7 @@ bunx --no-install electron-rebuild \
 # that mktemp capability during cleanup.
 PACKAGE_ASSET_DIR="$(mktemp -d -t junto-linux-assets.XXXXXX)"
 PACKAGE_ICON="$PACKAGE_ASSET_DIR/junto-icon.png"
-# The official build wears the overlay's icon; open source keeps the neutral mark.
-PACKAGE_ICON_SOURCE=assets/brand/junto-icon.png
-OVERLAY_BRAND="$(bun "$SCRIPT_DIR/overlay.ts" --brand-dir)"
-[[ -n "$OVERLAY_BRAND" && -f "$OVERLAY_BRAND/junto-icon.png" ]] && PACKAGE_ICON_SOURCE="$OVERLAY_BRAND/junto-icon.png"
-install -m 0644 -- "$PACKAGE_ICON_SOURCE" "$PACKAGE_ICON"
+install -m 0644 -- assets/brand/junto-icon.png "$PACKAGE_ICON"
 
 ELECTRON_DIST_ARGS=()
 if [[ -x "node_modules/electron/dist/electron" ]]; then

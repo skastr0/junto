@@ -1,30 +1,71 @@
-// Brand export for the open-source build: the neutral app icon and DMG
-// background, drawn from the Junto mark (src/shared/brand-mark.ts), plus any
-// one seat's portrait rendered headlessly. The mascot and the brand cast are
-// private brand content and export from the overlay repository instead
-// (docs/overlay.md). Heavy runs go through the shared lock:
-//   lockf -k /tmp/junto-heavy.lock bun scripts/brand-export.ts <command>
+// Brand export: renders the character cast headlessly to SVG and PNG, and
+// builds the brand surfaces (macOS icon, DMG background) from the mascot.
+// Every critter comes from the app's own portrait renderer; this file only
+// frames and rasterizes. Some of the brand cast wear premium items of the
+// Junto cast, so run with JUNTO_OVERLAY (as the official build does) to draw
+// them; without it those items fall back to each character's free look.
+// Heavy runs go through the shared lock:
+//   lockf -k /tmp/junto-heavy.lock JUNTO_OVERLAY=../junto-premium bun scripts/brand-export.ts <command>
 //
 // Commands:
 //   one --out file.svg|.png [--seed S] [--config JSON] [--expression E]
 //       [--mode light|dark] [--frame tile|round|bare] [--detail rich|card|glyph]
-//       [--size N]                      one seat's portrait
+//       [--size N]                      one character; seed defaults to Pip
+//   kit --out DIR [--png N]            mascot, expressions, cast, icons, manifest
 //   icon [--root DIR]                  build/icon*.icns + assets/brand/junto-icon.png
 //   dmg [--root DIR]                   build/dmg-background.png + @2x
+//   board [--out file.png]             the mascot election board (docs/brand)
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, extname, join } from "node:path";
+import { dirname, extname, join, resolve } from "node:path";
 import { chromium, type Browser, type Page } from "playwright-core";
-import { portraitSvg, type PortraitConfig, type PortraitDetail, type PortraitFrame } from "../src/shared/agent-portrait";
-import { juntoMarkDataUri } from "../src/shared/brand-mark";
-import { EXPRESSION_FACES, type PortraitExpression } from "../src/shared/portrait-expression";
-import { FONT_DISPLAY, themeRuntime, type ThemeMode } from "../src/shared/theme";
+import {
+  portraitDataUri,
+  portraitSvg,
+  type PortraitConfig,
+  type PortraitDetail,
+  type PortraitFace,
+  type PortraitFrame,
+} from "../src/shared/agent-portrait";
+import { installCosmeticPacks } from "../src/shared/cosmetics/catalog";
+import { decodeCosmeticPacks } from "../src/shared/cosmetics/load";
+import { BRAND_CAST, BRAND_EXPRESSIONS, BRAND_FACES, JUNTO_MASCOT, type BrandCharacter } from "../src/shared/brand-mascot";
+import { EXPRESSION_FACES, PORTRAIT_EXPRESSIONS } from "../src/shared/portrait-expression";
+import { FONT_DISPLAY, hexToOklch, oklchToHex, themeRuntime, type ThemeMode } from "../src/shared/theme";
 
 const ROOT = join(import.meta.dir, "..");
 
+// Premium items join like the app build: from the overlay JUNTO_OVERLAY names.
+const overlayDir = process.env.JUNTO_OVERLAY;
+if (overlayDir) {
+  const { overlay } = (await import(join(resolve(overlayDir), "overlay", "index.ts"))) as {
+    readonly overlay: { readonly cosmetics: ReadonlyArray<unknown> };
+  };
+  installCosmeticPacks(decodeCosmeticPacks(overlay.cosmetics));
+} else {
+  console.error("brand-export: JUNTO_OVERLAY unset; brand cast items that are premium fall back to free looks");
+}
+
+// --- inputs -----------------------------------------------------------------
+
 type Appearance = "light" | "dark";
 const themeMode = (appearance: Appearance): ThemeMode => (appearance === "dark" ? "dark" : "bright");
+
+const ALL_FACES: Readonly<Record<string, PortraitFace>> = { ...EXPRESSION_FACES, ...BRAND_FACES };
+
+interface Character {
+  readonly seed: string;
+  readonly config?: PortraitConfig;
+}
+const PIP: Character = JUNTO_MASCOT;
+
+const faceFor = (expression: string | undefined): PortraitFace | undefined => {
+  if (expression === undefined || expression === "rest" || expression === "resting") return undefined;
+  const face = ALL_FACES[expression];
+  if (!face) throw new Error(`unknown expression "${expression}"; one of rest, ${Object.keys(ALL_FACES).join(", ")}`);
+  return face;
+};
 
 const flags = (argv: ReadonlyArray<string>): Record<string, string> => {
   const out: Record<string, string> = {};
@@ -65,9 +106,20 @@ const write = (path: string, content: string): void => {
   writeFileSync(path, content);
 };
 
+// --- framing ------------------------------------------------------------------
+
 const f = (value: number): string => String(Math.round(value * 100) / 100);
 
-// --- surfaces -------------------------------------------------------------------
+/** A portrait placed as an isolated image, so ids never collide in a composition. */
+const sticker = (
+  who: Character,
+  opts: { x: number; y: number; size: number; mode: ThemeMode; face?: PortraitFace; rotate?: number; frame?: PortraitFrame; detail?: PortraitDetail },
+): string => {
+  const href = portraitDataUri({ ...who, mode: opts.mode, detail: opts.detail ?? "rich", face: opts.face, frame: opts.frame });
+  const c = opts.size / 2;
+  const turn = opts.rotate ? ` transform="rotate(${f(opts.rotate)} ${f(opts.x + c)} ${f(opts.y + c)})"` : "";
+  return `<image href="${href}" x="${f(opts.x)}" y="${f(opts.y)}" width="${f(opts.size)}" height="${f(opts.size)}"${turn}/>`;
+};
 
 // Apple's macOS icon grid: a 1024 canvas, an 824 body inset 100 on every side,
 // continuous (squircle) corners, and a soft drop shadow below. The corner is a
@@ -76,79 +128,227 @@ const squirclePath = (x: number, y: number, size: number): string => {
   const r = size / 2;
   const cx = x + r;
   const cy = y + r;
-  const n = 5;
+  const n = 5; // superellipse exponent close to Apple's continuous corner
   const points: string[] = [];
   for (let step = 0; step < 360; step += 1) {
     const t = (step / 360) * Math.PI * 2;
     const cos = Math.cos(t);
     const sin = Math.sin(t);
-    points.push(`${f(cx + r * Math.sign(cos) * Math.abs(cos) ** (2 / n))} ${f(cy + r * Math.sign(sin) * Math.abs(sin) ** (2 / n))}`);
+    const px = cx + r * Math.sign(cos) * Math.abs(cos) ** (2 / n);
+    const py = cy + r * Math.sign(sin) * Math.abs(sin) ** (2 / n);
+    points.push(`${f(px)} ${f(py)}`);
   }
   return `M${points.join("L")}Z`;
 };
 
-/** The app icon: the Junto mark on the Apple body, in the theme's own ground. */
-function iconSvg(appearance: Appearance): string {
+/** A soft wash in the amber family, lightness normalized per appearance. */
+const amberTone = (mode: ThemeMode, l: number, c: number, hueShift = 0): string => {
+  const base = hexToOklch(themeRuntime(mode).amber ?? "#e8a33d");
+  return oklchToHex({ l, c, h: base.h + hueShift });
+};
+
+/** The first solid fill a portrait paints: its tile, the ground the critter sits on. */
+const tileFill = (who: Character, mode: ThemeMode): string =>
+  /<rect [^>]*fill="(#[0-9a-f]{6})"/i.exec(portraitSvg({ ...who, mode, detail: "card" }))?.[1] ?? amberTone(mode, 0.905, 0.034);
+
+/**
+ * The app icon: Pip's own portrait, rising from the bottom of the Apple body
+ * the way every portrait rises from its tile. The squircle is filled with the
+ * portrait's tile color, so the portrait's own corners vanish into it and the
+ * squircle is the only silhouette. A fine grain at icon scale stands in for
+ * the portrait's `rich` grain, which is tuned for 100px, not 1024. Small sizes
+ * switch to the renderer's coarser tiers, tuned for legibility.
+ */
+function iconSvg(appearance: Appearance, pixels = 1024, face?: PortraitFace): string {
   const mode = themeMode(appearance);
   const dark = appearance === "dark";
-  const t = themeRuntime(mode);
+  const detail: PortraitDetail = pixels >= 32 ? "card" : "glyph";
   const body = squirclePath(100, 100, 824);
-  const mark = 520;
+  const size = detail === "glyph" ? 824 : 792;
   const rim = dark ? "rgba(255,244,224,0.12)" : "rgba(255,255,255,0.6)";
+  const grain = pixels >= 128;
   return [
     `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">`,
     `<defs>`,
+    `<clipPath id="body"><path d="${body}"/></clipPath>`,
     `<filter id="shadow" x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur in="SourceAlpha" stdDeviation="14"/><feOffset dy="12"/><feComponentTransfer><feFuncA type="linear" slope="${dark ? 0.5 : 0.28}"/></feComponentTransfer></filter>`,
+    `<filter id="grain" x="0" y="0" width="100%" height="100%"><feTurbulence type="fractalNoise" baseFrequency="0.85" numOctaves="2" seed="7"/><feColorMatrix type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 -1.1 0.62"/><feComposite in2="SourceGraphic" operator="in"/></filter>`,
     `<linearGradient id="sheen" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff" stop-opacity="${dark ? 0.07 : 0.28}"/><stop offset="0.5" stop-color="#fff" stop-opacity="0"/></linearGradient>`,
     `</defs>`,
     `<path d="${body}" filter="url(#shadow)"/>`,
-    `<path d="${body}" fill="${dark ? t.ground : t.raise}"/>`,
-    `<image href="${juntoMarkDataUri(mode)}" x="${512 - mark / 2}" y="${512 - mark / 2}" width="${mark}" height="${mark}"/>`,
-    `<path d="${body}" fill="url(#sheen)"/>`,
+    `<g clip-path="url(#body)">`,
+    `<rect x="100" y="100" width="824" height="824" fill="${tileFill(PIP, mode)}"/>`,
+    sticker(PIP, { x: 512 - size / 2, y: 924 - size + (detail === "glyph" ? 0 : 6), size, mode, face, detail }),
+    grain ? `<rect x="100" y="100" width="824" height="824" fill="${dark ? "#000" : "#3a2a1a"}" filter="url(#grain)" opacity="${dark ? 0.14 : 0.1}"/>` : "",
+    `<rect x="100" y="100" width="824" height="824" fill="url(#sheen)"/>`,
+    `</g>`,
     `<path d="${body}" fill="none" stroke="${rim}" stroke-width="3"/>`,
     `</svg>`,
   ].join("");
 }
 
-/** The DMG window: the mark, the drag hint, and nothing else. */
+// --- surfaces -------------------------------------------------------------------
+
+const castMember = (seed: string): BrandCharacter => {
+  const member = BRAND_CAST.find((entry) => entry.seed === seed);
+  if (!member) throw new Error(`"${seed}" is not in BRAND_CAST`);
+  return member;
+};
+
+/** A soft contact shadow under a bare critter standing at `ground`. */
+const contact = (cx: number, ground: number, size: number, ink: string): string =>
+  `<ellipse cx="${f(cx)}" cy="${f(ground - size * 0.02)}" rx="${f(size * 0.3)}" ry="${f(size * 0.045)}" fill="${ink}" opacity="0.09"/>`;
+
+// The DMG window is 1280 by 720 points with 128pt icons at (360, 360) and
+// (920, 360) (package.json "dmg"). Pip leads the eye across the arrow; the
+// crew peeks up from the bottom edge the way every portrait rises from its tile.
 function dmgSvg(): string {
-  const t = themeRuntime("bright");
+  const mode = themeMode("light");
+  const t = themeRuntime(mode);
   const ink = t.ink ?? "#332c27";
+  const cream = amberTone(mode, 0.965, 0.018);
+  const peach = amberTone(mode, 0.93, 0.045);
+  const mint = oklchToHex({ ...hexToOklch(t.green ?? "#237752"), l: 0.94, c: 0.035 });
+  const lilac = oklchToHex({ ...hexToOklch(t.violet ?? "#7a5cc8"), l: 0.94, c: 0.03 });
+  // The crew stands along the bottom edge in two small groups, facing in.
+  const ground = 706;
+  const crew: ReadonlyArray<readonly [seed: string, x: number, size: number, face: PortraitFace | undefined]> = [
+    ["junto-3", 22, 132, EXPRESSION_FACES.sleepy],
+    ["junto-29", 128, 112, undefined],
+    ["junto-38", 214, 124, EXPRESSION_FACES.happy],
+    ["junto-73", 944, 120, EXPRESSION_FACES.content],
+    ["junto-8", 1040, 128, undefined],
+    ["junto-103", 1146, 118, EXPRESSION_FACES.curious],
+  ];
   const arrow = "M 474 356 C 560 318, 720 318, 800 352";
   return [
     `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 720">`,
     `<defs>`,
+    `<radialGradient id="wa" cx="0.5" cy="0.5" r="0.5"><stop offset="0" stop-color="${peach}"/><stop offset="1" stop-color="${peach}" stop-opacity="0"/></radialGradient>`,
+    `<radialGradient id="wb" cx="0.5" cy="0.5" r="0.5"><stop offset="0" stop-color="${mint}"/><stop offset="1" stop-color="${mint}" stop-opacity="0"/></radialGradient>`,
+    `<radialGradient id="wc" cx="0.5" cy="0.5" r="0.5"><stop offset="0" stop-color="${lilac}"/><stop offset="1" stop-color="${lilac}" stop-opacity="0"/></radialGradient>`,
+    `<filter id="soft" x="-10%" y="-10%" width="120%" height="140%"><feGaussianBlur in="SourceAlpha" stdDeviation="6"/><feOffset dy="5"/><feComponentTransfer><feFuncA type="linear" slope="0.16"/></feComponentTransfer><feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge></filter>`,
     `<marker id="head" viewBox="0 0 20 20" refX="10" refY="10" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M3 3 L15 10 L3 17" fill="none" stroke="${ink}" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/></marker>`,
     `</defs>`,
-    `<rect width="1280" height="720" fill="${t.raise}"/>`,
-    `<image href="${juntoMarkDataUri("bright")}" x="604" y="136" width="72" height="72"/>`,
+    `<rect width="1280" height="720" fill="${cream}"/>`,
+    `<ellipse cx="300" cy="250" rx="420" ry="300" fill="url(#wa)" opacity="0.9"/>`,
+    `<ellipse cx="1030" cy="200" rx="380" ry="260" fill="url(#wb)" opacity="0.8"/>`,
+    `<ellipse cx="660" cy="640" rx="520" ry="220" fill="url(#wc)" opacity="0.7"/>`,
     `<path d="${arrow}" fill="none" stroke="${ink}" stroke-width="4.5" stroke-linecap="round" stroke-dasharray="1 15" opacity="0.8" marker-end="url(#head)"/>`,
-    `<text x="640" y="258" text-anchor="middle" font-family='${FONT_DISPLAY}' font-weight="600" font-size="30" letter-spacing="5" fill="${ink}">JUNTO</text>`,
+    // Pip hops the arrow, mid-air: a far, faint shadow on the path below.
+    contact(640, 352, 150, ink),
+    sticker(PIP, { x: 565, y: 150, size: 150, mode, face: BRAND_FACES.happy, frame: "bare", rotate: -6 }),
+    `<text x="640" y="120" text-anchor="middle" font-family='${FONT_DISPLAY}' font-weight="600" font-size="30" letter-spacing="5" fill="${ink}">JUNTO</text>`,
     `<text x="640" y="560" text-anchor="middle" font-family='${FONT_DISPLAY}' font-weight="500" font-size="17" letter-spacing="3.4" fill="${ink}" opacity="0.62">DRAG JUNTO INTO APPLICATIONS</text>`,
+    ...crew.map(([seed, x, size, face]) => contact(x + size / 2, ground, size, ink) + sticker(castMember(seed), { x, y: ground - size, size, mode, face, frame: "bare" })),
     `</svg>`,
   ].join("");
 }
 
-// --- commands -------------------------------------------------------------------
+// The election board: finalists side by side across the brand expressions.
+const FINALISTS: ReadonlyArray<readonly [name: string, who: Character, note: string]> = [
+  ["Pip", PIP, "elected: amber home hue with a sprout, calm, reads at 16px"],
+  ["Tabby", castMember("junto-1"), "most charisma, but spots and a bowtie clutter small"],
+  ["Cap", castMember("junto-3"), "a lovely shroom, cool violet reads cold as an icon"],
+  ["Rice", castMember("junto-29"), "an onigiri with a fang: funny, not calm"],
+  ["Boo", castMember("junto-103"), "the ghost floats, but its hem blurs at 32px"],
+];
+
+function boardSvg(): string {
+  const mode = themeMode("light");
+  const t = themeRuntime(mode);
+  const ink = t.ink ?? "#332c27";
+  const faces: ReadonlyArray<readonly [string, PortraitFace | undefined]> = [
+    ["rest", undefined],
+    ...BRAND_EXPRESSIONS.map((name) => [name, BRAND_FACES[name]] as const),
+  ];
+  const cell = 150;
+  const left = 250;
+  const rowH = 200;
+  const width = left + faces.length * (cell + 16) + cell + 70;
+  const height = 110 + FINALISTS.length * rowH;
+  const rows = FINALISTS.map(([name, who, note], row) => {
+    const y = 90 + row * rowH;
+    const lead = row === 0;
+    return [
+      lead ? `<rect x="16" y="${y - 20}" width="${width - 32}" height="${rowH - 6}" rx="22" fill="${amberTone(mode, 0.93, 0.05)}"/>` : "",
+      `<text x="40" y="${y + 60}" font-family='${FONT_DISPLAY}' font-weight="600" font-size="34" letter-spacing="4" fill="${ink}">${name.toUpperCase()}</text>`,
+      `<text x="40" y="${y + 88}" font-family="Menlo, monospace" font-size="12" fill="${ink}" opacity="0.7">${who.seed}</text>`,
+      `<foreignObject x="40" y="${y + 98}" width="190" height="60"><div xmlns="http://www.w3.org/1999/xhtml" style="font:12px Menlo, monospace;color:${ink};opacity:.7">${note}</div></foreignObject>`,
+      ...faces.map(([label, face], index) => {
+        const x = left + index * (cell + 16);
+        const frame: PortraitFrame = label === "rest" ? "tile" : "bare";
+        return `${sticker(who, { x, y, size: cell, mode, face, frame })}<text x="${x + cell / 2}" y="${y + cell + 20}" text-anchor="middle" font-family="Menlo, monospace" font-size="12" fill="${ink}" opacity="0.7">${label}</text>`;
+      }),
+      `<rect x="${left + faces.length * (cell + 16) - 4}" y="${y - 4}" width="${cell + 8}" height="${cell + 8}" rx="36" fill="#0c0b0a"/>`,
+      sticker(who, { x: left + faces.length * (cell + 16), y, size: cell, mode: "dark" }),
+    ].join("");
+  });
+  return [
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}">`,
+    `<rect width="${width}" height="${height}" fill="${t.raise ?? "#f9f6f1"}"/>`,
+    `<text x="40" y="52" font-family='${FONT_DISPLAY}' font-weight="600" font-size="24" letter-spacing="4" fill="${ink}">JUNTO MASCOT ELECTION</text>`,
+    ...rows,
+    `</svg>`,
+  ].join("");
+}
+
+// --- commands -----------------------------------------------------------------
 
 async function one(opts: Record<string, string>): Promise<void> {
   const out = opts.out;
   if (!out) throw new Error("one: --out file.svg|.png is required");
-  const expression = opts.expression as PortraitExpression | undefined;
-  if (expression && !(expression in EXPRESSION_FACES)) throw new Error(`unknown expression "${expression}"`);
+  const appearance: Appearance = opts.mode === "dark" ? "dark" : "light";
+  const who: Character = opts.seed ? { seed: opts.seed, config: opts.config ? (JSON.parse(opts.config) as PortraitConfig) : undefined } : PIP;
   const svg = portraitSvg({
-    seed: opts.seed ?? "junto",
-    mode: themeMode(opts.mode === "dark" ? "dark" : "light"),
+    ...who,
+    mode: themeMode(appearance),
     detail: (opts.detail as PortraitDetail | undefined) ?? "rich",
     frame: (opts.frame as PortraitFrame | undefined) ?? "tile",
-    ...(opts.config ? { config: JSON.parse(opts.config) as PortraitConfig } : {}),
-    ...(expression ? { face: EXPRESSION_FACES[expression] } : {}),
+    face: faceFor(opts.expression),
   });
   if (extname(out) === ".png") {
     const size = Number(opts.size ?? 512);
     await png(svg, size, size, out);
   } else write(out, svg);
   console.log(out);
+}
+
+async function kit(opts: Record<string, string>): Promise<void> {
+  const dir = opts.out;
+  if (!dir) throw new Error("kit: --out DIR is required");
+  const pngSize = opts.png ? Number(opts.png) : 0;
+  const manifest: Array<Record<string, unknown>> = [];
+  const emit = async (file: string, who: Character, appearance: Appearance, expression?: string, frame: PortraitFrame = "tile"): Promise<void> => {
+    const svg = portraitSvg({ ...who, mode: themeMode(appearance), detail: "rich", face: faceFor(expression), frame });
+    write(join(dir, file), svg);
+    if (pngSize > 0) await png(svg, pngSize, pngSize, join(dir, file.replace(/\.svg$/, ".png")));
+    manifest.push({ file, seed: who.seed, config: who.config ?? null, expression: expression ?? "rest", mode: appearance, frame });
+  };
+  // Bare critters float on any background; the light outline reads on both.
+  await emit("bare/mascot.svg", PIP, "light", undefined, "bare");
+  for (const expression of [...BRAND_EXPRESSIONS, ...PORTRAIT_EXPRESSIONS]) {
+    await emit(`bare/mascot-${expression}.svg`, PIP, "light", expression, "bare");
+  }
+  for (const [index, member] of BRAND_CAST.entries()) {
+    await emit(`bare/cast-${String(index + 1).padStart(2, "0")}.svg`, member, "light", undefined, "bare");
+  }
+  for (const appearance of ["light", "dark"] as const) {
+    await emit(`mascot-${appearance}.svg`, PIP, appearance);
+    for (const expression of [...BRAND_EXPRESSIONS, ...PORTRAIT_EXPRESSIONS]) {
+      await emit(`mascot/${expression}-${appearance}.svg`, PIP, appearance, expression);
+    }
+    for (const [index, member] of BRAND_CAST.entries()) {
+      await emit(`cast/${String(index + 1).padStart(2, "0")}-${appearance}.svg`, member, appearance);
+    }
+    await png(iconSvg(appearance), 1024, 1024, join(dir, `icon-${appearance}.png`));
+    manifest.push({ file: `icon-${appearance}.png`, mode: appearance, size: 1024 });
+  }
+  write(
+    join(dir, "manifest.json"),
+    `${JSON.stringify({ mascot: JUNTO_MASCOT, brandExpressions: BRAND_EXPRESSIONS, cast: BRAND_CAST, files: manifest }, null, 2)}\n`,
+  );
+  console.log(`${dir}: ${manifest.length} files`);
 }
 
 // iconutil's ladder: point size, and whether the entry is the @2x rendition.
@@ -162,7 +362,7 @@ async function icns(appearance: Appearance, out: string): Promise<void> {
   try {
     for (const [points, scale] of ICONSET) {
       const pixels = points * scale;
-      await png(iconSvg(appearance), pixels, pixels, join(set, `icon_${points}x${points}${scale === 2 ? "@2x" : ""}.png`));
+      await png(iconSvg(appearance, pixels), pixels, pixels, join(set, `icon_${points}x${points}${scale === 2 ? "@2x" : ""}.png`));
     }
     execFileSync("iconutil", ["-c", "icns", set, "-o", out]);
   } finally {
@@ -180,7 +380,7 @@ async function icon(opts: Record<string, string>): Promise<void> {
   await icns("dark", join(root, "build/icon-dark.icns"));
   // Linux and the README use the 1024 PNG master.
   await png(iconSvg("light"), 1024, 1024, join(root, "assets/brand/junto-icon.png"));
-  await png(iconSvg("light"), 256, 256, join(root, "src/renderer/assets/brand/junto-icon.png"));
+  await png(iconSvg("light", 256), 256, 256, join(root, "src/renderer/assets/brand/junto-icon.png"));
   console.log(join(root, "assets/brand/junto-icon.png"));
 }
 
@@ -192,7 +392,15 @@ async function dmg(opts: Record<string, string>): Promise<void> {
   console.log(join(root, "build/dmg-background.png"));
 }
 
-const COMMANDS: Record<string, (opts: Record<string, string>) => Promise<void>> = { one, icon, dmg };
+async function board(opts: Record<string, string>): Promise<void> {
+  const out = opts.out ?? join(ROOT, "docs/brand/mascot-election.png");
+  const svg = boardSvg();
+  const [, w, h] = /viewBox="0 0 (\d+) (\d+)"/.exec(svg) ?? [];
+  await png(svg, Number(w), Number(h), out);
+  console.log(out);
+}
+
+const COMMANDS: Record<string, (opts: Record<string, string>) => Promise<void>> = { one, kit, icon, dmg, board };
 
 const [command = "", ...rest] = process.argv.slice(2);
 const run = COMMANDS[command];

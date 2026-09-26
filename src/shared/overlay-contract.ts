@@ -26,22 +26,6 @@ export const OverlayManifest = Schema.Struct({
    * (src/shared/cosmetics/pack-schema.ts) and drops a bad one alone.
    */
   cosmetics: Schema.Array(Schema.Unknown),
-  /**
-   * Private brand content. `mascot` is the official build's guide (Pip): a
-   * portrait identity plus pinned traits, validated again by the portrait
-   * system. Absent in an open-source build, which shows a plain guide.
-   */
-  brand: Schema.optionalKey(
-    Schema.Struct({
-      mascot: Schema.optionalKey(
-        Schema.Struct({
-          name: Schema.String.pipe(Schema.check(Schema.isMinLength(1)), Schema.check(Schema.isMaxLength(40))),
-          seed: Schema.String.pipe(Schema.check(Schema.isMinLength(1)), Schema.check(Schema.isMaxLength(64))),
-          config: Schema.Unknown,
-        }),
-      ),
-    }),
-  ),
 });
 export type OverlayManifest = typeof OverlayManifest.Type;
 

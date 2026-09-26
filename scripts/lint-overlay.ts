@@ -8,7 +8,7 @@
 //                                          exactly the overlay this build resolved,
 //                                          so an open-source build carries no
 //                                          premium marker at all, and no premium
-//                                          item or mascot from the overlay checkout
+//                                          item from the overlay checkout
 //                                          (--premium DIR, JUNTO_PREMIUM, or a
 //                                          sibling ../junto-premium)
 import { existsSync } from "node:fs";
@@ -80,14 +80,10 @@ const pair = (a: string, av: string, b: string, bv: string): RegExp =>
   new RegExp(`"?${a}"?\\s*:\\s*"${escapeRegExp(av)}"\\s*,\\s*"?${b}"?\\s*:\\s*"${escapeRegExp(bv)}"`);
 
 /**
- * Fingerprints of an overlay's premium content: each cosmetic item by its
- * path data (long, unique strings) or its id and name side by side, and the
- * mascot by its name and seed.
+ * Fingerprints of an overlay's premium items: each cosmetic item by its path
+ * data (long, unique strings) or its id and name side by side.
  */
-export function premiumFingerprints(manifest: {
-  readonly cosmetics: ReadonlyArray<unknown>;
-  readonly brand?: { readonly mascot?: { readonly name: string; readonly seed: string } };
-}): PremiumFingerprint[] {
+export function premiumFingerprints(manifest: { readonly cosmetics: ReadonlyArray<unknown> }): PremiumFingerprint[] {
   const out: PremiumFingerprint[] = [];
   for (const pack of manifest.cosmetics as ReadonlyArray<Record<string, unknown>>) {
     for (const list of ["species", "toppers", "accessories", "patterns", "palettes"]) {
@@ -100,8 +96,6 @@ export function premiumFingerprints(manifest: {
       }
     }
   }
-  const mascot = manifest.brand?.mascot;
-  if (mascot) out.push({ label: `mascot ${mascot.name}`, needles: [pair("name", mascot.name, "seed", mascot.seed)] });
   return out;
 }
 
@@ -139,7 +133,7 @@ async function checkBundle(outDir: string): Promise<string[]> {
   };
   const prints = premiumFingerprints(manifest);
   const hits = new Set(texts.flatMap((text) => fingerprintHits(text, prints)));
-  console.log(`lint:overlay --bundle — fingerprinted ${prints.length} premium items and mascots from ${premium}`);
+  console.log(`lint:overlay --bundle — fingerprinted ${prints.length} premium items from ${premium}`);
   return [...problems, ...[...hits].map((label) => `open-source bundle carries ${label}`)];
 }
 

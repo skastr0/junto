@@ -75,18 +75,9 @@ if [[ "$SIGN" -eq 1 ]]; then
   SIGN_IDENTITY="$("$BUN_EXECUTABLE" "$SCRIPT_DIR/mac-signing-config.mjs" --builder-identity)"
   SIGN_ARGS=(--config.mac.forceCodeSigning=true "--config.mac.identity=$SIGN_IDENTITY")
 fi
-# The official build wears the overlay's brand (app icon, DMG background);
-# open source keeps this repo's neutral mark in build/.
-BRAND_ARGS=()
-OVERLAY_BRAND="$("$BUN_EXECUTABLE" "$SCRIPT_DIR/overlay.ts" --brand-dir)"
-if [[ -n "$OVERLAY_BRAND" ]]; then
-  BRAND_ARGS=("--config.mac.icon=$OVERLAY_BRAND/build/icon.icns" "--config.dmg.icon=$OVERLAY_BRAND/build/icon.icns"
-    "--config.dmg.background=$OVERLAY_BRAND/build/dmg-background.png")
-fi
 # Ordinary builds never discover or consume credentials from a local keychain.
 CSC_IDENTITY_AUTO_DISCOVERY=false bunx --no-install electron-builder --mac --publish never \
-  --config.mac.notarize=false "${SIGN_ARGS[@]}" ${BRAND_ARGS[@]+"${BRAND_ARGS[@]}"} \
-  --config.directories.output="$ATTEMPT_DIR"
+  --config.mac.notarize=false "${SIGN_ARGS[@]}" --config.directories.output="$ATTEMPT_DIR"
 DRAFT_APP="$ATTEMPT_DIR/$APP_OUTPUT_DIR/${PRODUCT_NAME}.app"
 DRAFT_ZIP="$ATTEMPT_DIR/Junto-${PACKAGE_VERSION}-${TARGET_ARCH}-mac.zip"
 DRAFT_DMG="$ATTEMPT_DIR/Junto-${PACKAGE_VERSION}-${TARGET_ARCH}-mac.dmg"
