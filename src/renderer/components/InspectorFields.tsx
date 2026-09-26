@@ -36,7 +36,7 @@ import {
 import { addEdge } from "../lib/edge-mutations";
 import { specOf } from "../lib/node-spec";
 import { releaseFocus } from "../lib/focus-ownership";
-import { commitDoc, editLink, editText, renameGroup, setGitCwd, setNodeHost, setNodeTimer, setNodeWatch, setPageBinding, setRegionDefaults, setRegionHold, toggleFlag } from "../lib/mutations";
+import { commitDoc, editLink, editText, setGitCwd, setNodeHost, setNodeTimer, setNodeWatch, setPageBinding, setRegionDefaults, toggleFlag } from "../lib/mutations";
 import {
   describeCronExpression,
   isValidCronExpression,
@@ -215,19 +215,15 @@ const FLAG_OPTIONS: ReadonlyArray<{ readonly flag: EtherFlag; readonly hue: stri
 
 export function NodeFieldEditors({ node }: { readonly node: CanvasNode }) {
   const textValue = node.type === "text" ? node.text : "";
-  const groupLabelValue = node.type === "group" ? node.label ?? "" : "";
   const gitCwdValue = node.ether?.git?.cwd ?? "";
   const [textDraft, setTextDraft] = useState(textValue);
-  const [groupLabelDraft, setGroupLabelDraft] = useState(groupLabelValue);
   const [gitCwdDraft, setGitCwdDraft] = useState(gitCwdValue);
   useEffect(() => {
     setTextDraft(textValue);
-    setGroupLabelDraft(groupLabelValue);
     setGitCwdDraft(gitCwdValue);
-  }, [gitCwdValue, groupLabelValue, node.id, textValue]);
+  }, [gitCwdValue, node.id, textValue]);
 
   const commitText = () => { if (node.type === "text" && textDraft !== textValue) editText(node.id, textDraft); };
-  const commitGroupLabel = () => { if (node.type === "group" && groupLabelDraft !== groupLabelValue) renameGroup(node.id, groupLabelDraft.trim()); };
 
   return <>
     {/* Work sinks / schedulers rename via kind-strip pencil — no fat label field. */}
@@ -289,11 +285,6 @@ export function NodeFieldEditors({ node }: { readonly node: CanvasNode }) {
           </div>
         </div>
       : null}
-    {node.type === "group" ? <label className="inspector-editor"><span>region label</span><input data-focus-owner="canvas-draft" aria-label="Region label" value={groupLabelDraft} placeholder="unnamed region" onChange={(event) => setGroupLabelDraft(event.target.value)} onBlur={commitGroupLabel} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); commitGroupLabel(); releaseFocus(event.currentTarget, "gesture"); } if (event.key === "Escape") { setGroupLabelDraft(groupLabelValue); releaseFocus(event.currentTarget, "gesture"); } }} /></label> : null}
-    {/* Region dense fields: kind-strip keys are preferred (briefing / page /
-        paths). Hold stays on the command card; plate + placement are gone. */}
-    {node.type === "group" ? <RegionHoldControl node={node} /> : null}
-    {BROWSER_ENABLED && node.type === "group" ? <RegionPageDefaultsControl node={node} /> : null}
     <KernelFieldEditors node={node} />
   </>;
 }
@@ -405,40 +396,19 @@ export function PageUrlControl({ node }: { readonly node: CanvasNode }) {
   );
 }
 
-// Watcher/timer/region briefing editors, grouped behind one call so the
-// switchboard above reads as one branch per concern instead of three more
-// node-type ternaries stacked onto an already-dense dispatcher.
+// Watcher/timer editors, grouped behind one call so the switchboard above
+// reads as one branch per concern instead of more node-type ternaries
+// stacked onto an already-dense dispatcher. Regions never reach this form:
+// their fields open from the region kind strip.
 function KernelFieldEditors({ node }: { readonly node: CanvasNode }) {
   const kind = node.ether?.entity?.kind;
   return <>
-    {node.type === "group" ? <RegionBriefingEditor node={node} /> : null}
     {RELAY_ENABLED && kind === "watcher" ? <WatcherEditor node={node} /> : null}
     {CRON_ENABLED && (kind === "timer" || kind === "cron") ? <TimerEditor node={node} /> : null}
     {RELAY_ENABLED && kind === "relay" ? <RelayEditor node={node} /> : null}
 
     {kind === "agent" ? <AgentMessagesPane node={node} /> : null}
   </>;
-}
-
-// Region hold (group nodes only): a structural container whose contents
-// travel with it when dragged. Membership is derived from geometry at drag
-// time — this toggle only ever writes the boolean flag, never a member list.
-// Prefer the command-bar Hold key; this control remains for form surfaces.
-export function RegionHoldControl({ node }: { readonly node: CanvasNode }) {
-  const hold = Boolean(node.ether?.region?.hold);
-  return <div className="inspector-section">
-    <div className="inspector-section__label">region</div>
-    <div className="inspector-flags">
-      <button
-        type="button"
-        className="inspector-flag-toggle"
-        aria-label="Hold contents"
-        aria-pressed={hold}
-        style={{ color: hold ? HUE.amber : "var(--color-faint)", borderColor: hold ? withAlpha(HUE.amber, 0.5) : "var(--color-overlay-4)", background: hold ? withAlpha(HUE.amber, 0.1) : "var(--color-overlay-1)" }}
-        onClick={() => setRegionHold(node.id, !hold)}
-      >hold contents</button>
-    </div>
-  </div>;
 }
 
 /** Defaults for new page nodes created inside this region. */
@@ -568,10 +538,9 @@ const commitRegionInstruction = (node: CanvasNode, instruction: string): void =>
 };
 
 /**
- * Region briefing — context agents receive on onboard — plus the region's
- * rules and pinned rulings beneath it. Briefing is prose a seat
- * reads; rules are statements a closing task must answer. Both are the same
- * operator-authored region contract, so they are authored in one place.
+ * Region briefing — context agents receive on onboard. Builds with the Tasks
+ * feature also author the region's rules and pinned rulings beneath it: rules
+ * are statements a closing task must answer, so they live with the briefing.
  * Single copy line; large editor; CLI refs use first-class amber mono.
  */
 export function RegionBriefingEditor({ node }: { readonly node: CanvasNode }) {

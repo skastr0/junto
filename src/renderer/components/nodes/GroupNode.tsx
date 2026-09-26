@@ -2,13 +2,13 @@ import { useEffect, useRef, useState } from "react";
 import { use$ } from "@legendapp/state/react";
 import { NodeResizer, NodeToolbar, Position, useReactFlow, useStoreApi } from "@xyflow/react";
 import type { NodeProps } from "@xyflow/react";
-import { AlertTriangle, Crosshair, FolderOpen, Lock, ScrollText, Trash2 } from "lucide-react";
+import { AlertTriangle, FolderOpen, Lock, Trash2 } from "lucide-react";
 import type { FlowNode } from "../../lib/convert";
 import { MAX_REGION_DEPTH } from "@shared/graph";
 import { deleteNode, renameGroup } from "../../lib/mutations";
 import { claimFocus } from "../../lib/focus-ownership";
 import { dragHoldMemberIds, resizeNode, syncPositions } from "../../lib/geometry";
-import { state$, toggleConnectionFocus } from "../../lib/state";
+import { state$ } from "../../lib/state";
 import { accentColor, borderColor, HUE, INK, withAlpha } from "../../lib/theme";
 import { regionGlanceFontSize } from "../../lib/region-glance";
 import { markViewportBusy, releaseViewportBusy } from "../../lib/viewport-busy";
@@ -20,20 +20,20 @@ import {
 import { RegionPathsModal } from "../RegionPathsModal";
 import { IconButton, ToolbarPill } from "../ui";
 
+/**
+ * Floating pill for a selected region: folder paths and delete. No
+ * connection focus — a region holds no edges, so its cone is always empty.
+ */
 function RegionToolbar({
   nodeId,
   selected,
   onPaths,
   hasPaths,
-  connectionFocused,
-  onToggleFocus,
 }: {
   readonly nodeId: string;
   readonly selected: boolean;
   readonly onPaths: () => void;
   readonly hasPaths: boolean;
-  readonly connectionFocused: boolean;
-  readonly onToggleFocus: () => void;
 }) {
   // pointerdown stopPropagation keeps RF from starting a drag; action on click
   // so Enter/Space on focused IconButton still fires (pointerdown-only is keyboard-dead).
@@ -53,19 +53,6 @@ function RegionToolbar({
         onClick={(event) => { if (stopDrag(event)) return; onPaths(); }}
       >
         <FolderOpen size={14} />
-      </IconButton>
-      <IconButton
-        className="nodrag nopan"
-        aria-label={connectionFocused ? "Clear node focus" : "Focus node"}
-        aria-pressed={connectionFocused}
-        title={connectionFocused ? "Clear connection focus" : "Show this region's connections"}
-        data-testid="node-toolbar-focus"
-        data-focused={connectionFocused ? "true" : "false"}
-        style={connectionFocused ? { color: HUE.cyan } : undefined}
-        onPointerDown={stopDrag}
-        onClick={(event) => { if (stopDrag(event)) return; onToggleFocus(); }}
-      >
-        <Crosshair size={14} />
       </IconButton>
       <IconButton
         className="nodrag nopan"
@@ -150,12 +137,10 @@ export function GroupNode({ data, selected }: NodeProps<FlowNode>) {
   const isPathsTarget = use$(() => state$.regionPathsNodeId.get() === node.id);
   const [draft, setDraft] = useState(label);
   const inputRef = useRef<HTMLInputElement>(null);
-  const instruction = node.ether?.region?.instruction;
   const pathMap = node.type === "group" ? node.ether?.region?.defaults?.paths : undefined;
   const hasPaths = Boolean(
     pathMap && Object.values(pathMap).some((p) => typeof p === "string" && p.trim().length > 0),
   );
-  const connectionFocused = use$(() => state$.connectionFocusNodeId.get() === node.id);
   // Authoring-time-only warning (never a data rejection). Depth arrives with
   // the projection (convert.ts), so a resize (NodeResizer.onResizeEnd ->
   // resizeNode) repaints it without this card watching the whole document.
@@ -340,8 +325,6 @@ export function GroupNode({ data, selected }: NodeProps<FlowNode>) {
         selected={selected}
         onPaths={() => setPathsOpen(true)}
         hasPaths={hasPaths}
-        connectionFocused={connectionFocused}
-        onToggleFocus={() => toggleConnectionFocus(node.id)}
       />
     </div>
     {selected ? null : (
@@ -368,9 +351,9 @@ export function GroupNode({ data, selected }: NodeProps<FlowNode>) {
       {...frameGrab}
     >
       <RegionLabel label={label} editing={editing} draft={draft} inputRef={inputRef} onDraft={setDraft} onCommit={commit} onCancel={() => setEditing(false)} onEdit={() => setEditing(true)} accent={node.color ? tint : undefined} />
+      {/* The title bar names the region. Only a state that changes what a
+          drag does earns a mark here; briefing and paths show on the kind strip. */}
       {node.ether?.region?.hold ? <Lock aria-label="Region holds its contents" size={10} style={{ opacity: 0.5, color: INK, flexShrink: 0 }} /> : null}
-      {hasPaths ? <span title="Region has host folder paths" style={{ display: "inline-flex", flexShrink: 0 }}><FolderOpen aria-label="Region has folder paths" size={10} style={{ opacity: 0.5, color: INK }} /></span> : null}
-      {instruction ? <span title={instruction} style={{ display: "inline-flex", flexShrink: 0 }}><ScrollText aria-label="Region has a briefing" size={10} style={{ opacity: 0.5, color: INK }} /></span> : null}
       {nestedTooDeep ? (
         <span
           title={`Nested ${nestingDepth} regions deep, past ${MAX_REGION_DEPTH} — still works, but consider flattening`}
