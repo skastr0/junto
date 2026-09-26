@@ -1,14 +1,12 @@
 import type { ReactNode } from "react";
 import type { CanvasNode } from "@shared/canvas";
-import type { AgentSignal, AgentSignalKind } from "@shared/agent-signals";
+import type { AgentSignal } from "@shared/agent-signals";
 import type { ThreadHealthTone, ThreadHealthValue } from "@shared/thread-health";
 import type { ActivitySpec, ActivityTone } from "../../lib/activity";
-import { SIGNAL_FLAG_TONE } from "../../lib/activity-atlas";
 import { bindingIdForNode } from "../../lib/agent-seat-state";
 import { useSeatSignalRollup } from "../../lib/agent-signals-state";
 import { openSeatSignals } from "../../lib/agent-signals-view";
-import { seatLine } from "../../lib/seat-line";
-import { controlFromActivity, seatRollup } from "../../lib/seat-rollup";
+import { seatSaying } from "../../lib/seat-line";
 import { state$ } from "../../lib/state";
 import { useThreadHealthMark } from "../../lib/thread-health";
 import { seatPortraitMood } from "../../lib/portrait-mood";
@@ -25,12 +23,6 @@ const TONE_TEXT: Readonly<Record<ActivityTone, string>> = {
   green: "text-green",
   crimson: "text-crimson",
   steel: "text-steel",
-};
-
-const SIGNAL_WORD: Readonly<Record<AgentSignalKind, string>> = {
-  blocked: "blocked",
-  escalate: "waiting on you",
-  feedback: "ready for review",
 };
 
 export type SeatHealth = {
@@ -86,37 +78,31 @@ export function AgentSeatView({
   readonly children?: ReactNode;
 }) {
   const open = signal.worst;
-  // One order for every seat surface (seat-rollup.ts): the minimap and this
-  // line read the same function, so they can never disagree.
-  const rollup = seatRollup({
-    signal: open?.kind,
-    control: controlFromActivity(activity),
-    health: { health: health.health, healthStale: health.healthStale === true, line: health.line },
-  });
+  // One order for every seat surface (seatSaying reads seat-rollup.ts): the
+  // minimap, the cmd+K row, and this line can never disagree.
+  const saying = seatSaying({ activity, signal: open, failure: context, health });
   let line: ReactNode;
-  if (open) {
+  if (saying.kind === "signal") {
     line = (
       <>
-        <span className={`${TONE_TEXT[SIGNAL_FLAG_TONE[open.kind]]} font-semibold`}>{SIGNAL_WORD[open.kind]}</span>{" "}
-        <span className="text-dim" title={open.text}>
-          {open.text}
+        <span className={`${TONE_TEXT[saying.tone]} font-semibold`}>{saying.word}</span>{" "}
+        <span className="text-dim" title={saying.text}>
+          {saying.text}
         </span>
       </>
     );
-  } else if (context) {
-    // A spawn failure is the seat's own fact; it is not a rollup input.
-    line = <span className="text-amber">{context}</span>;
-  } else if (rollup?.source === "health") {
+  } else if (saying.kind === "failure") {
+    line = <span className="text-amber">{saying.text}</span>;
+  } else if (saying.kind === "reading") {
     // An AI reading, never the agent's own claim: a quiet prefix, dim ink.
     line = (
       <>
         <span className="mr-1 align-[1px] font-display text-[9px] tracking-[0.12em] text-faint">AI</span>
-        <span className={health.healthStale ? "text-faint" : "text-dim"}>{health.line ?? health.health}</span>
+        <span className={saying.stale ? "text-faint" : "text-dim"}>{saying.text}</span>
       </>
     );
   } else {
-    const state = seatLine(activity);
-    line = <span className={state.tone ? TONE_TEXT[state.tone] : "text-dim"}>{state.text}</span>;
+    line = <span className={saying.tone ? TONE_TEXT[saying.tone] : "text-dim"}>{saying.text}</span>;
   }
 
   return (
