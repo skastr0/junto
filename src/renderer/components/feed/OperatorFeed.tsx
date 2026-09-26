@@ -81,7 +81,12 @@ const openSeat = (item: FeedItem, node: CanvasNode | undefined): void => {
   activateNodeSurface(node);
 };
 
-function FeedCard({
+/**
+ * One feed row. Exported so other surfaces (the onboarding tour) can show a
+ * real row from fixture items: with `node` undefined it draws the seat's
+ * portrait without the live ring and disables Open seat.
+ */
+export function FeedCard({
   item,
   node,
   nowMs,
