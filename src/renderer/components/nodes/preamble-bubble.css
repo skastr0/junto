@@ -23,9 +23,10 @@
   bottom: auto;
   flex-direction: column-reverse;
 }
-/* A selected seat wears its toolbar above it (NodeToolbar, 8px offset);
-   the bubble rises over it rather than hiding under it. */
-.react-flow__node.selected .junto-preamble:not([data-flip]) { bottom: calc(100% + 50px); }
+/* A lone selected seat wears its toolbar above it (NodeToolbar, 8px
+   offset); the bubble rises just over it rather than hiding under it. Any
+   wider selection shows no toolbar, so nothing lifts (data-lifted). */
+.junto-preamble[data-lifted]:not([data-flip]) { bottom: calc(100% + var(--pre-lift, 56px)); }
 /* A seat with a bubble paints over its neighbours. */
 .react-flow__node:has(.junto-preamble) { z-index: 1001 !important; }
 

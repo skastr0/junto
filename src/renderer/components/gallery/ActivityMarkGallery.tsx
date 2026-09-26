@@ -166,7 +166,7 @@ function SeatShell({
           onSignalOpen={() => undefined}
           title={<div className="truncate font-mono text-[13px] font-semibold leading-snug text-ink">{seat.name}</div>}
         />
-        {bubble ? <PreambleBubble nodeId={seat.id} bubble={bubble} /> : null}
+        {bubble ? <PreambleBubble nodeId={seat.id} bubble={bubble} selected={false} /> : null}
       </div>
       {caption ? <span className="pl-2 text-[10px] text-faint">{seat.caption}</span> : null}
     </div>

@@ -1,9 +1,12 @@
-import { useLayoutEffect, useRef, type CSSProperties } from "react";
+import { useLayoutEffect, useRef, type CSSProperties, type RefObject } from "react";
+import { use$ } from "@legendapp/state/react";
+import { useStore } from "@xyflow/react";
 import { MessageSquareText, Radio, Sparkles, UserRound, X } from "lucide-react";
 import type { PreambleProvenance } from "@shared/preamble";
 import type { PreambleItem, SeatBubble } from "../../lib/preamble-feed";
 import { dismissPreamble } from "../../lib/preamble-state";
 import { stopNodeGestureUnlessMultiSelect } from "../../lib/multi-select-gesture";
+import { state$ } from "../../lib/state";
 import "./preamble-bubble.css";
 
 /** Provenance reads at a glance: a glyph, and a word for everyone but the agent. */
@@ -18,6 +21,31 @@ const WHO: Readonly<Record<PreambleProvenance, { readonly Icon: typeof Sparkles;
 const EDGE = 8;
 /** The tail's centre from the bubble's left edge (see preamble-bubble.css). */
 const TAIL_X = 20.5;
+
+/** NodeToolbar's offset above the node, and the air left between it and the bubble. */
+const TOOLBAR_OFFSET = 8;
+const TOOLBAR_AIR = 6;
+
+/**
+ * Lifts a lone selected seat's bubble just over its toolbar. The toolbar is
+ * drawn at screen size while the bubble scales with the canvas, so the lift
+ * is the toolbar's measured height turned into canvas units at this zoom.
+ * Mounted only while lifted, so a resting seat never follows the zoom.
+ */
+function ToolbarLift({ target, nodeId }: { readonly target: RefObject<HTMLDivElement | null>; readonly nodeId: string }) {
+  const zoom = useStore((store) => store.transform[2]);
+  useLayoutEffect(() => {
+    const el = target.current;
+    if (!el) return;
+    const bar = document.querySelector(`.react-flow__node-toolbar[data-id="${CSS.escape(nodeId)}"]`);
+    const height = bar?.getBoundingClientRect().height ?? 42;
+    el.style.setProperty("--pre-lift", `${String((TOOLBAR_OFFSET + height + TOOLBAR_AIR) / zoom)}px`);
+    return () => {
+      el.style.removeProperty("--pre-lift");
+    };
+  }, [target, nodeId, zoom]);
+  return null;
+}
 
 function Note({ item, trail = false }: { readonly item: PreambleItem; readonly trail?: boolean }) {
   const { Icon, word } = WHO[item.provenance];
@@ -40,9 +68,21 @@ function Note({ item, trail = false }: { readonly item: PreambleItem; readonly t
  * top of the canvas, and slides in from the sides, so it is always readable.
  * The note it replaced lingers faded above it for a moment.
  */
-export function PreambleBubble({ nodeId, bubble }: { readonly nodeId: string; readonly bubble: SeatBubble }) {
+export function PreambleBubble({
+  nodeId,
+  bubble,
+  selected,
+}: {
+  readonly nodeId: string;
+  readonly bubble: SeatBubble;
+  readonly selected: boolean;
+}) {
   const { current, previous } = bubble;
   const ref = useRef<HTMLDivElement>(null);
+  // The floating toolbar shows only for a lone selected node (NodeShell); a
+  // region, a shift set or a rubber band leaves the seat bare, so the bubble
+  // stays on its ring.
+  const lifted = use$(() => selected && state$.selectedNodeIds.get().length <= 1);
 
   useLayoutEffect(() => {
     const el = ref.current;
@@ -63,7 +103,7 @@ export function PreambleBubble({ nodeId, bubble }: { readonly nodeId: string; re
     if (box.right > bounds.right - EDGE) dx = (bounds.right - EDGE - box.right) / zoom;
     if (box.left + dx * zoom < bounds.left + EDGE) dx = (bounds.left + EDGE - box.left) / zoom;
     if (dx !== 0) el.style.setProperty("--pre-dx", `${String(Math.round(dx))}px`);
-  }, [current.shownAt]);
+  }, [current.shownAt, lifted]);
 
   return (
     <div
@@ -75,10 +115,12 @@ export function PreambleBubble({ nodeId, bubble }: { readonly nodeId: string; re
       data-provenance={current.provenance}
       data-action={current.action}
       data-tone={current.tone}
+      data-lifted={lifted ? "true" : undefined}
       role="status"
       aria-live="polite"
       style={{ "--pre-dx": "0px" } as CSSProperties}
     >
+      {lifted ? <ToolbarLift target={ref} nodeId={nodeId} /> : null}
       {previous ? (
         <div
           className="junto-preamble__trail"

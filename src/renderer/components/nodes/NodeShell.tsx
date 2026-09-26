@@ -553,7 +553,7 @@ export function NodeShell({
         boxShadow: shadow,
       }}
     >
-      {preamble ? <PreambleBubble nodeId={node.id} bubble={preamble} /> : null}
+      {preamble ? <PreambleBubble nodeId={node.id} bubble={preamble} selected={selected} /> : null}
       {resizable ? (
         <NodeResizer
           isVisible={selected}
