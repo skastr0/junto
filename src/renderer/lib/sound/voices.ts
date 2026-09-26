@@ -51,6 +51,18 @@ const destination = (voice: Voice, pan: number | undefined): AudioNode => {
   return panner;
 };
 
+/**
+ * A gain that is silent until its envelope says otherwise. A GainNode starts
+ * at 1, and an event at an off-grid time lands on the next sample, while an
+ * oscillator started at that time already emits one sub-sample frame: at
+ * gain 1 that frame is a click.
+ */
+const envelope = (ctx: BaseAudioContext): GainNode => {
+  const gain = ctx.createGain();
+  gain.gain.value = 0;
+  return gain;
+};
+
 /** Strike envelope: a short linear rise, then an exponential fall. Returns the stop time. */
 const strike = (param: AudioParam, t: number, peak: number, attack: number, tau: number): number => {
   param.setValueAtTime(0, t);
@@ -77,7 +89,7 @@ const partial = (
   tau: number,
 ): number => {
   const osc = sine(voice.ctx, frequency);
-  const amp = voice.ctx.createGain();
+  const amp = envelope(voice.ctx);
   const end = strike(amp.gain, t, peak, attack, tau);
   osc.connect(amp).connect(out);
   osc.start(t);
@@ -93,7 +105,7 @@ const click = (voice: Voice, out: AudioNode, t: number, centre: number, peak: nu
   band.type = "bandpass";
   band.frequency.value = Math.min(centre, 12_000);
   band.Q.value = 1.4;
-  const amp = voice.ctx.createGain();
+  const amp = envelope(voice.ctx);
   const end = strike(amp.gain, t, peak, 0.001, 0.006);
   src.connect(band).connect(amp).connect(out);
   src.start(t, 0.1 + (centre % 0.5));
@@ -111,14 +123,14 @@ export const tine = (voice: Voice, t: number, midi: number, options: NoteOptions
 
   const carrier = sine(ctx, f);
   const modulator = sine(ctx, f);
-  const depth = ctx.createGain();
+  const depth = envelope(ctx);
   // Modulation index falls from a bright strike to a near-sine body.
   depth.gain.setValueAtTime(0, t);
   depth.gain.linearRampToValueAtTime(f * (0.6 + 1.6 * bright), t + 0.003);
   depth.gain.setTargetAtTime(f * 0.18, t + 0.003, 0.09 + 0.1 * (1 - bright));
   modulator.connect(depth).connect(carrier.frequency);
 
-  const amp = ctx.createGain();
+  const amp = envelope(ctx);
   const end = strike(amp.gain, t, gain, 0.004, tau);
   carrier.connect(amp).connect(out);
   carrier.start(t);
@@ -171,7 +183,7 @@ export const drop = (voice: Voice, t: number, midi: number, options: NoteOptions
   const soft = ctx.createBiquadFilter();
   soft.type = "lowpass";
   soft.frequency.value = 5_200;
-  const amp = ctx.createGain();
+  const amp = envelope(ctx);
   const end = strike(amp.gain, t, gain, 0.003, tau);
   osc.connect(soft).connect(amp).connect(out);
   osc.start(t);
@@ -199,7 +211,7 @@ export const breath = (
   band.Q.value = 0.8;
   band.frequency.setValueAtTime(from, t);
   band.frequency.exponentialRampToValueAtTime(to, t + seconds);
-  const amp = ctx.createGain();
+  const amp = envelope(ctx);
   amp.gain.setValueAtTime(0, t);
   amp.gain.linearRampToValueAtTime(gain, t + seconds * 0.4);
   amp.gain.setTargetAtTime(0, t + seconds * 0.45, seconds * 0.22);
@@ -226,7 +238,7 @@ export const pad = (
   soft.frequency.setValueAtTime(700, t);
   soft.frequency.linearRampToValueAtTime(1_500, t + seconds * 0.5);
   soft.Q.value = 0.5;
-  const amp = ctx.createGain();
+  const amp = envelope(ctx);
   amp.gain.setValueAtTime(0, t);
   amp.gain.linearRampToValueAtTime(gain, t + Math.min(0.25, seconds * 0.3));
   amp.gain.setTargetAtTime(0, t + seconds * 0.5, seconds * 0.25);
