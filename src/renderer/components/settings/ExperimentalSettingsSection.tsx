@@ -14,7 +14,7 @@ import { experimentalFeatureKeys, featureOn } from "@shared/features";
 import { setExperimentalFeature } from "../../lib/experimental-features";
 import { seatAwareness$ } from "../../lib/seat-awareness";
 import { state$ } from "../../lib/state";
-import { StatusDot, type StatusTone } from "../ui";
+import { StatusDot, Switch, type StatusTone } from "../ui";
 import "./experimental-settings.css";
 
 type Requirement = { readonly tone: StatusTone; readonly line: string };
@@ -82,15 +82,12 @@ function ExperimentalFeatureRow({ featureKey }: { readonly featureKey: FeatureKe
           </li>
         </ul>
       </div>
-      <input
+      <Switch
         id={id}
-        type="checkbox"
-        role="switch"
-        className="experimental-feature__switch"
+        className="mt-px"
         checked={on}
-        aria-checked={on}
         aria-describedby={`${id}-description`}
-        onChange={(event) => void setExperimentalFeature(featureKey, event.target.checked)}
+        onCheckedChange={(next) => void setExperimentalFeature(featureKey, next)}
       />
     </div>
   );
