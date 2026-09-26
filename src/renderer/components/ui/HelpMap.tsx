@@ -6,7 +6,6 @@ import { Kbd } from "./Kbd";
  *
  * Compose across the app:
  *   HelpMap (shell) → HelpMapGroup → HelpMapKeys | custom body
- *   HelpMapPrimer + HelpMapPrimerBlock for short doctrine primers
  *   Kbd for any standalone key chip outside a map
  *
  * Placement is the caller's job (`className` / `style`). Use
@@ -86,34 +85,6 @@ export function HelpMapGroup({
       <div className="help-map__section">{label}</div>
       {children}
     </section>
-  );
-}
-
-/** Stack of doctrine / starter paragraphs under a section. */
-export function HelpMapPrimer({
-  children,
-  className,
-}: {
-  readonly children: ReactNode;
-  readonly className?: string;
-}) {
-  return <div className={["help-map__primer", className ?? ""].filter(Boolean).join(" ")}>{children}</div>;
-}
-
-/** One primer card: bold lead + body (supports inline <em> for terms). */
-export function HelpMapPrimerBlock({
-  lead,
-  children,
-}: {
-  readonly lead: string;
-  readonly children: ReactNode;
-}) {
-  return (
-    <p className="help-map__primer-block">
-      <strong>{lead}</strong>
-      {" — "}
-      {children}
-    </p>
   );
 }
 

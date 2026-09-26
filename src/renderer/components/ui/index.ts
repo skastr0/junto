@@ -21,8 +21,6 @@ export {
   HelpMap,
   HelpMapGroup,
   HelpMapKeys,
-  HelpMapPrimer,
-  HelpMapPrimerBlock,
   type HelpMapKeyRow,
   type HelpMapTone,
 } from "./HelpMap";

@@ -3,8 +3,6 @@ import {
   HelpMap,
   HelpMapGroup,
   HelpMapKeys,
-  HelpMapPrimer,
-  HelpMapPrimerBlock,
   type HelpMapKeyRow,
 } from "../ui";
 import { openIntro } from "../../lib/first-run-intro";
@@ -15,7 +13,7 @@ export const CANVAS_HELP_POINTER: ReadonlyArray<HelpMapKeyRow> = [
   { keys: "mid-drag", action: "pan the field" },
   { keys: "drag empty", action: "rubber-band multi-select (works inside regions)" },
   { keys: "⇧ click", action: "multi-select (dominates labels & chrome)" },
-  { keys: "multi selection", action: "RTS bar - bulk color/flags - same-kind multi-prompt" },
+  { keys: "multi selection", action: "RTS bar - bulk color - same-kind multi-prompt" },
   { keys: "⌘↵ multi-prompt", action: "send one prompt to all selected agents" },
   { keys: "double-click", action: "add a note at cursor" },
   { keys: "right-click empty", action: "add item menu (place at cursor)" },
@@ -25,9 +23,9 @@ export const CANVAS_HELP_POINTER: ReadonlyArray<HelpMapKeyRow> = [
   { keys: "double-click region name", action: "rename the region" },
   { keys: "select + corners", action: "resize a node" },
   { keys: "drag edge handle", action: "connect nodes (drop on a card)" },
-  { keys: "click edge", action: "open the wire's settings" },
+  { keys: "click edge", action: "select the connection" },
   { keys: "click node", action: "select - open command card" },
-  { keys: "RMB selection", action: "bulk: region - flags - delete" },
+  { keys: "RMB selection", action: "bulk: region - squad - delete" },
   { keys: "select + RMB target", action: "connect all → that node" },
   { keys: "⇧ RMB target", action: "connect keep selection (fan-out)" },
   { keys: "⌥ / Alt + move", action: "scan nearby nodes at readable scale" },
@@ -46,8 +44,8 @@ export const CANVAS_HELP_KEYS: ReadonlyArray<HelpMapKeyRow> = [
   { keys: "⌘1–9", action: "save selection → slot (one node, or a command group of many)" },
   { keys: "Space - `", action: "cycle notifications → ready → working (all canvas seats)" },
   { keys: "Ctrl+Tab", action: "hold to switch focus models — release commits, Esc cancels" },
-  { keys: "⌘] ⌘[", action: "cycle connected actor terminals (same modal)" },
-  { keys: "double-click actor", action: "open managed terminal (agent model)" },
+  { keys: "⌘] ⌘[", action: "cycle connected agent terminals" },
+  { keys: "double-click agent", action: "open its terminal" },
 ];
 
 /**
@@ -77,19 +75,6 @@ export function CanvasInteractionMap({ onClose }: { readonly onClose: () => void
             show the introduction
           </Button>
         </div>
-      </HelpMapGroup>
-      <HelpMapGroup label="how the canvas works" aria-label="How the canvas works">
-        <HelpMapPrimer>
-          <HelpMapPrimerBlock lead="wires">
-            a wire is permission. What a node can do to another travels only
-            over a drawn wire, and each wire lists exactly what it allows.
-          </HelpMapPrimerBlock>
-          <HelpMapPrimerBlock lead="waiting">
-            an agent pauses only while its own task or question waits on you.
-            Nothing else on the canvas stops it, and selecting a node never
-            changes what it can do.
-          </HelpMapPrimerBlock>
-        </HelpMapPrimer>
       </HelpMapGroup>
       <HelpMapGroup label="pointer">
         <HelpMapKeys rows={CANVAS_HELP_POINTER} />

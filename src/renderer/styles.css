@@ -867,22 +867,6 @@ html[data-junto-platform="darwin"] .station-bar [role="listbox"] {
   text-transform: uppercase;
   padding: 10px 14px 4px;
 }
-.help-map__primer {
-  border-bottom: 1px solid var(--color-overlay-3);
-  padding: 0 7px 8px;
-}
-.help-map__primer-block {
-  margin: 0;
-  padding: 7px 7px 6px;
-  border-radius: 5px;
-  background: var(--color-overlay-1);
-  color: var(--color-dim);
-  font-size: 9px;
-  line-height: 1.45;
-}
-.help-map__primer-block + .help-map__primer-block { margin-top: 1px; }
-.help-map__primer-block strong { color: var(--color-ink); font-weight: 500; letter-spacing: .04em; }
-.help-map__primer-block em { color: var(--color-cyan); font-style: normal; }
 .help-map__group { padding-top: 2px; }
 .help-map__intro {
   display: flex;
