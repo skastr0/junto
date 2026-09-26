@@ -7,11 +7,7 @@ import { makeGitNode, makeTextNode } from "../src/renderer/lib/node-factories";
 import { isGitNode } from "../src/renderer/lib/presentation";
 import { planConnectToTarget } from "../src/renderer/lib/edge-mutations";
 import { nodeSurfaceKind } from "../src/renderer/lib/activate-node-surface";
-import {
-  DEFAULT_NODE_CATALOG_ENTRIES,
-  NO_WIRES_COPY,
-  catalogWireLines,
-} from "../src/renderer/components/node-palette/NodeCatalogGrid";
+import { DEFAULT_NODE_CATALOG_ENTRIES } from "../src/renderer/components/node-palette/NodeCatalogGrid";
 
 const emptyContext = {
   canvasName: "test",
@@ -70,11 +66,9 @@ describe("git geography node", () => {
     expect(nodeSurfaceKind(makeGitNode(0, 0, "/tmp/repo"))).toBe("work");
   });
 
-  it("sits in the work catalog with no wires", () => {
+  it("sits in the work catalog", () => {
     const entry = DEFAULT_NODE_CATALOG_ENTRIES.find((c) => c.id === "git");
     expect(entry?.category).toBe("sinks");
     expect(entry?.label).toBe("Git");
-    expect(catalogWireLines("git")).toEqual([]);
-    expect(NO_WIRES_COPY.git).toBe("No wires — visualization only.");
   });
 });

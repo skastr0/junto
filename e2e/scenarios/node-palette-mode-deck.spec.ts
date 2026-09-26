@@ -173,32 +173,16 @@ test("Mode Deck exposes the searchable catalog and keeps launch context dense at
       await expect(row).not.toContainText("template defaults");
     }
 
-    const wiring = agentPane.getByRole("region", {
-      name: "Agent connection summary",
-    });
-    await expect(wiring).toContainText("Tasks");
-    await expect(wiring).toContainText("claims and completes work");
-    await expect(wiring).toContainText("Requests and Artifacts");
-
+    // No wire explainer rides under the agents: the launch context sits
+    // straight under the list, which absorbs the leftover column height.
+    await expect(agentPane).not.toContainText(/connects to|claims and completes/i);
     const lastAgentBox = await agentRows.at(-1)!.boundingBox();
-    const wiringBox = await wiring.boundingBox();
     const launchBox = await launchContext.boundingBox();
     expect(lastAgentBox).not.toBeNull();
-    expect(wiringBox).not.toBeNull();
     expect(launchBox).not.toBeNull();
-    // The agent list absorbs leftover column height (free space lives inside
-    // its scroll region), so wiring sits at the pane foot — below the last
-    // row but not necessarily adjacent. The launch context must stay dense
-    // under the wiring.
-    expect(wiringBox!.y).toBeGreaterThanOrEqual(
+    expect(launchBox!.y).toBeGreaterThanOrEqual(
       lastAgentBox!.y + lastAgentBox!.height,
     );
-    expect(launchBox!.y).toBeGreaterThanOrEqual(
-      wiringBox!.y + wiringBox!.height,
-    );
-    expect(
-      launchBox!.y - (wiringBox!.y + wiringBox!.height),
-    ).toBeLessThanOrEqual(24);
   } finally {
     await junto.close();
   }
@@ -416,7 +400,7 @@ test("a create attempt with no working directory opens the folder picker instead
   }
 });
 
-test("node detail rail preserves navigation while explaining primary and secondary connections", async () => {
+test("catalog cards carry each node's own description and no wire explainer", async () => {
   const junto = await seededLaunch();
 
   try {
@@ -425,51 +409,17 @@ test("node detail rail preserves navigation while explaining primary and seconda
     const terminal = deck.locator(".node-deck-catalog__card").filter({
       hasText: "Terminal",
     });
-    await terminal.hover();
     await expect(terminal.locator(".node-deck-catalog__label"))
       .toHaveCSS("text-transform", "none");
-
-    const detail = deck.getByRole("complementary", {
-      name: "Terminal details",
-    });
-    await expect(detail).toBeVisible();
-    await expect(detail).toContainText(/shell on the selected machine/i);
-    await expect(detail.locator(".node-deck-catalog__detail-copy strong"))
-      .toHaveCSS("text-transform", "none");
-    const wireMap = detail.locator(".node-deck-catalog__wires");
-    await expect(wireMap).not.toHaveCount(0);
-    await expect(wireMap).toHaveCSS("text-transform", "none");
-    await expect(wireMap).toContainText("No wires — open it and work by hand.");
-    await expect(page.getByRole("tooltip")).toHaveCount(0);
-    await expect(deck).not.toContainText(/inspect - click to add/i);
-
-    const tasks = deck.locator(".node-deck-catalog__card").filter({
-      hasText: "Tasks",
-    });
+    await expect(terminal).toContainText(/shell on the selected machine/i);
     const terminalBox = await terminal.boundingBox();
-    await tasks.focus();
-    const tasksBox = await tasks.boundingBox();
     expect(terminalBox).not.toBeNull();
-    expect(tasksBox).not.toBeNull();
-    expect(tasksBox!.height).toBeLessThanOrEqual(84);
+    expect(terminalBox!.height).toBeLessThanOrEqual(96);
 
-    const taskDetail = deck.getByRole("complementary", {
-      name: "Tasks details",
-    });
-    await expect(taskDetail).toBeVisible();
-    // Wire explainer: one access line (agent ports) + watch/effect lines.
-    await expect(taskDetail).toContainText("Agents can:");
-    await expect(taskDetail).toContainText("Claim tasks");
-    await expect(taskDetail).toContainText("A relay can watch:");
-    await expect(taskDetail).toContainText("Cron and relay can:");
-    await expect(
-      taskDetail.locator(".node-deck-catalog__wire-family").filter({ hasText: "access" }),
-    ).toHaveCount(1);
-    await expect(taskDetail.locator(".node-deck-catalog__wire-family")).not.toHaveCount(0);
-
-    const wires = taskDetail.locator(".node-deck-catalog__wires");
-    await expect(wires).toBeVisible();
-    await expect(wires.locator("img")).toHaveCount(0);
+    await terminal.hover();
+    await expect(deck.getByRole("complementary", { name: /details$/ })).toHaveCount(0);
+    await expect(deck).not.toContainText(/\bwires?\b|agents can:|relay can watch/i);
+    await expect(page.getByRole("tooltip")).toHaveCount(0);
   } finally {
     await junto.close();
   }

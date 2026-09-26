@@ -6,7 +6,7 @@ import {
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
-import { ArrowRight, Search } from "lucide-react";
+import { Search } from "lucide-react";
 import {
   AgentLaunchContext,
   defaultAgentLaunchContext,
@@ -209,20 +209,6 @@ export function NodePaletteModeDeck({
             onConfigure={configureAgent}
             cascadeDismissRef={cascadeDismissRef}
           />
-          <section
-            className="node-deck__agent-wiring"
-            aria-label="Agent connection summary"
-          >
-            <div className="node-deck__agent-route">
-              <span>Agent</span>
-              <ArrowRight size={13} aria-hidden />
-              <strong>Tasks</strong>
-              <small>claims and completes work</small>
-            </div>
-            <div className="node-deck__agent-secondary">
-              <span>Also connects to Requests and Artifacts.</span>
-            </div>
-          </section>
           <div className="node-deck__launch-slot">
             <AgentLaunchContext
               position={agentPosition}

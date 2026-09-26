@@ -3,12 +3,8 @@ import { describe, expect, it } from "vitest";
 import {
   CRON_ENABLED,
   RELAY_ENABLED,
-  TASKS_ENABLED,
 } from "../src/shared/features";
-import {
-  DEFAULT_NODE_CATALOG_ENTRIES,
-  catalogWireLines,
-} from "../src/renderer/components/node-palette/NodeCatalogGrid";
+import { DEFAULT_NODE_CATALOG_ENTRIES } from "../src/renderer/components/node-palette/NodeCatalogGrid";
 import { opsForKind } from "../src/main/junto/work/authz";
 import type { CanvasDoc } from "../src/shared/canvas";
 import {
@@ -25,11 +21,6 @@ describe("scheduler product gates", () => {
     () => {
       expect(catalogIds()).not.toContain("cron");
       expect(catalogIds()).not.toContain("relay");
-      // The tasks gate owns its wire lines; the scheduler gate only removes
-      // watch and effect here.
-      expect(catalogWireLines("tasks").map((line) => line.family)).toEqual(
-        TASKS_ENABLED ? ["access"] : [],
-      );
       expect(opsForKind("relay")).toEqual([]);
 
       const preload = readFileSync("src/preload/index.ts", "utf8");
@@ -80,11 +71,6 @@ describe("scheduler product gates", () => {
     () => {
       expect(catalogIds()).toContain("cron");
       expect(catalogIds()).toContain("relay");
-      expect(catalogWireLines("tasks").map((line) => line.family)).toEqual([
-        "access",
-        "watch",
-        "effect",
-      ]);
       expect(opsForKind("relay")).toEqual(["relay.trigger"]);
     },
   );
