@@ -17,8 +17,9 @@ import { resolveOverlay } from "./overlay";
 const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const SOURCE_DIRS = ["src", "tests", "scripts", "e2e"];
 const SKIP = new Set(["node_modules", "out", "dist", "release", "test-results"]);
-// Only the resolver names the stub by path; everything else imports the alias.
-const PATH_OWNERS = new Set(["scripts/overlay.ts", "scripts/lint-overlay.ts"]);
+// Only the resolver names the stub by path, and the gate's own test holds
+// forbidden specifiers as fixtures; everything else imports the alias.
+const PATH_OWNERS = new Set(["scripts/overlay.ts", "scripts/lint-overlay.ts", "tests/overlay.test.ts"]);
 
 /** Import specifiers that reach overlay code without the alias. */
 const FORBIDDEN_SPECIFIER = /(?:from\s+|import\s*\(\s*|require\s*\(\s*)["']([^"']*(?:overlay-oss|junto-premium)[^"']*)["']/g;

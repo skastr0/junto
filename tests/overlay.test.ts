@@ -6,6 +6,7 @@ import { overlay } from "@junto/overlay";
 import { surfaces } from "@junto/overlay/renderer";
 import { overlayManifest } from "@shared/overlay";
 import { decodeOverlay, OSS_OVERLAY_MARKER } from "@shared/overlay-contract";
+import { hasStore, openStore, store$ } from "../src/renderer/overlay/surfaces";
 import { bundleMarkerViolations, overlayImportViolations } from "../scripts/lint-overlay";
 import { resolveOverlay } from "../scripts/overlay";
 
@@ -14,6 +15,12 @@ describe("overlay contract", () => {
     expect(overlayManifest).toEqual({ marker: OSS_OVERLAY_MARKER, name: "Open source", cosmetics: [] });
     expect(decodeOverlay(overlay)).toEqual(overlayManifest);
     expect(surfaces.store).toBeUndefined();
+  });
+
+  it("never opens a store in an open-source build", () => {
+    expect(hasStore()).toBe(false);
+    openStore();
+    expect(store$.open.peek()).toBe(false);
   });
 
   it("degrades a malformed overlay to the open-source app", () => {

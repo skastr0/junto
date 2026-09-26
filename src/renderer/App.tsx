@@ -53,6 +53,7 @@ import { SettingsPanel } from "./components/SettingsPanel";
 import { FirstRunIntro } from "./components/onboarding/FirstRunIntro";
 import { DigestPanel } from "./components/DigestPanel";
 import { OperatorFeedHost } from "./components/feed/OperatorFeed";
+import { StoreHost } from "./overlay/surfaces";
 import { ObservabilityPanel } from "./components/ObservabilityPanel";
 import {
   FLEET_UI_ENABLED,
@@ -587,6 +588,7 @@ export function App() {
         <SettingsPanel />
         <DigestPanel />
         <OperatorFeedHost />
+        <StoreHost />
         <ObservabilityPanel />
         {/* Mount fleet only while open — unmount destroys every WebGL machine. */}
         {FLEET_UI_ENABLED && isCommandCenterFleetUi(stationRole) && fleetOpen ? (

@@ -13,6 +13,7 @@ import {
   Plus,
   ScrollText,
   Settings2,
+  ShoppingBag,
   type LucideIcon,
 } from "lucide-react";
 import { isCommandCenterAuthoring } from "./canvas-boot";
@@ -20,6 +21,7 @@ import { factoryPause$, toggleFactoryPause } from "./factory-pause";
 import { clearSelection, state$, toggleFlagFilter } from "./state";
 import { openSettings } from "./settings-state";
 import { openOperatorFeed } from "./operator-feed";
+import { hasStore, openStore, overlaySurfaces } from "../overlay/surfaces";
 
 /**
  * Command bar quick-actions catalog.
@@ -155,6 +157,17 @@ export const buildCommandBarActions = (): ReadonlyArray<CommandBarAction> => {
     hotkey: "⌘I",
     run: openOperatorFeed,
   });
+
+  // Official builds only: the overlay fills the store; open source has none.
+  if (hasStore()) {
+    actions.push({
+      id: "open-store",
+      label: `Open ${overlaySurfaces.store?.title ?? "store"}`,
+      detail: "Premium characters and accessories",
+      icon: ShoppingBag,
+      run: openStore,
+    });
+  }
 
   actions.push({
     id: "open-settings",
