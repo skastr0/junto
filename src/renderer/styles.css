@@ -1201,16 +1201,22 @@ html[data-junto-platform="darwin"] .station-bar [role="listbox"] {
   border-bottom-color: color-mix(in oklab, var(--color-amber) 22%, transparent);
 }
 .junto-region-titlebar:active { cursor: grabbing; }
+/* A region names itself the way a seat does: its name in the seat's type,
+   sentence case, no pill, sitting in the title bar. */
+.junto-group__label,
+.junto-group__label-input {
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0;
+}
 .junto-group__label {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  border: 1px solid color-mix(in oklab, var(--color-ink) 12%, transparent) !important;
-  border-radius: 999px;
-  background: color-mix(in oklab, var(--color-raise) 55%, transparent) !important;
-  color: color-mix(in oklab, var(--color-ink) 68%, transparent) !important;
+  color: color-mix(in oklab, var(--color-ink) 72%, transparent);
 }
-.junto-group__label:hover { color: color-mix(in oklab, var(--color-ink) 90%, transparent) !important; border-color: color-mix(in oklab, var(--color-ink) 22%, transparent) !important; }
+.junto-group__label:hover { color: var(--color-ink); }
 .junto-group__label-prefix { color: var(--color-faint); }
 /* Region glance — pulled-back camera prints the region name across its body.
    Opacity rides --junto-region-glance, written on the ReactFlow root per zoom

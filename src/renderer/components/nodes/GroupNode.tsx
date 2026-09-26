@@ -96,7 +96,7 @@ function RegionLabel({
         ref={inputRef}
         data-focus-owner="canvas-draft"
         aria-label="Edit region label"
-        className="nodrag rounded-sm bg-inset px-2 py-0.5 text-[10px] uppercase tracking-[0.16em] outline-none"
+        className="junto-group__label-input nodrag rounded-md bg-inset px-1.5 py-0.5 outline-none"
         style={{ color: INK, border: `1px solid ${withAlpha(HUE.amber, 0.4)}` }}
         value={draft}
         onChange={(event) => onDraft(event.target.value)}
@@ -110,7 +110,7 @@ function RegionLabel({
   }
   return (
     <span
-      className="junto-group__label cursor-text rounded-sm px-2 py-1 text-[10px] uppercase tracking-[0.18em]"
+      className="junto-group__label cursor-text rounded-md px-1.5 py-0.5"
       style={accent ? { color: accent } : undefined}
       onDoubleClick={(event) => {
         if (event.shiftKey) return;
