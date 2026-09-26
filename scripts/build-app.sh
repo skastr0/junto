@@ -87,6 +87,10 @@ FEATURE_RECEIPT="$(
   "$BUN_EXECUTABLE" "$SCRIPT_DIR/build-features.ts" --receipt
 )"
 printf 'junto: feature build receipt %s\n' "$FEATURE_RECEIPT"
+# JUNTO_OVERLAY joins premium content at build time; unset builds the
+# open-source app (docs/overlay.md). A bad path fails here, before any work.
+OVERLAY_RECEIPT="$("$BUN_EXECUTABLE" "$SCRIPT_DIR/overlay.ts" --receipt)"
+printf 'junto: overlay %s\n' "$OVERLAY_RECEIPT"
 if [[ "$PREFLIGHT_ONLY" -eq 1 ]]; then
   exit 0
 fi
@@ -131,6 +135,7 @@ fi
 printf 'junto: building fresh package runtimes …\n'
 "$BUN_EXECUTABLE" "$SCRIPT_DIR/package-runtime-provenance.ts" \
   prepare --target "$TARGET" >/dev/null
+"$BUN_EXECUTABLE" "$SCRIPT_DIR/lint-overlay.ts" --bundle
 printf 'junto: standalone CLI → dist/junto …\n'
 "$BUN_EXECUTABLE" "$SCRIPT_DIR/build-standalone-cli.ts" junto
 if [[ "$COMPILE_ONLY" -eq 1 ]]; then

@@ -60,6 +60,7 @@ await allMustPass([
   { name: "lint:effect-runpromise", cmd: ["bun", "scripts/lint-effect-runpromise.ts"] },
   { name: "lint:single-write-seam", cmd: ["bun", "scripts/lint-single-write-seam.ts"] },
   { name: "lint:focus-law", cmd: ["bun", "scripts/lint-focus-law.ts"] },
+  { name: "lint:overlay", cmd: ["bun", "scripts/lint-overlay.ts"] },
 ]);
 
 const vitestWorkers = process.env.CI === "true" ? "2" : "4";
@@ -98,4 +99,9 @@ await allMustPass([
 
 await allMustPass([
   { name: "electron-vite build", cmd: ["electron-vite", "build"] },
+]);
+
+// The build above resolved JUNTO_OVERLAY; unset, out/ must hold no overlay.
+await allMustPass([
+  { name: "check:overlay-bundle", cmd: ["bun", "scripts/lint-overlay.ts", "--bundle"] },
 ]);
