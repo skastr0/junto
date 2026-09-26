@@ -5,12 +5,10 @@ import {
   resolveSpec,
   roleOf,
   verbsForPair,
-  type PortName,
   type Verb,
 } from "@shared/physics";
 import { productNodeKindEnabled, productVerbEnabled } from "@shared/features";
 import { validateFlowDag, type FlowCycleError } from "@shared/flow-graph";
-import { persistPortMaskEther } from "./crew-port-mask";
 import { isGitNode, isLabelNode, nodeTitle } from "./presentation";
 import { flowEdgeRemovalWarnings } from "./deletion-impact";
 import { removeEdgesFromSelection, selectEdge, state$ } from "./state";
@@ -167,24 +165,6 @@ export const deleteEdges = (ids: ReadonlyArray<string>): void => {
   if (typeof window !== "undefined" && typeof window.confirm === "function" && !window.confirm(`Delete ${label}?${impactCopy}`)) return;
   removeEdgesFromSelection(removed);
   commitDoc({ ...doc, edges: doc.edges.filter((edge) => !removed.has(edge.id)) });
-};
-
-/** Allow-list attenuation on `ether.mask`. Omitted restores the full compile. */
-export const setEdgePortMask = (
-  id: string,
-  mask: ReadonlyArray<PortName> | undefined,
-): void => {
-  const doc = state$.doc.peek();
-  commitDoc({
-    ...doc,
-    edges: doc.edges.map((edge) => {
-      if (edge.id !== id || edge.ether?.verb === undefined) return edge;
-      return {
-        ...edge,
-        ether: persistPortMaskEther(edge.ether.verb, mask),
-      };
-    }),
-  });
 };
 
 export const setEdgeColor = (id: string, color?: string): void => {

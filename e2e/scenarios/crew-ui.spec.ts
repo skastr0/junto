@@ -132,10 +132,10 @@ test("crew ui [fake-tui]: the mail ledger renders truthful delivery on every row
 });
 
 // ---------------------------------------------------------------------------
-// 2. port-mask chips on the relation surface
+// 2. the relation surface names the connection, never its capabilities
 // ---------------------------------------------------------------------------
 
-test("crew ui: the relation surface paints granted and masked ports from ether.mask", async () => {
+test("crew ui: the relation card shows no capability chips and keeps a stored mask", async () => {
   test.setTimeout(90_000);
   const masked = messagesEdgeWithMask("e-ab", A, B, [seatA, seatB], [
     "msg.list",
@@ -160,30 +160,18 @@ test("crew ui: the relation surface paints granted and masked ports from ether.m
       .first()
       .press("Enter");
 
-    const mask = page.getByTestId(CREW_UI_SELECTORS.edgePortMask);
-    await expect(mask).toBeVisible({ timeout: 10_000 });
+    const card = page.getByRole("toolbar", { name: "Relation actions" });
+    await expect(card).toBeVisible({ timeout: 10_000 });
+    const panel = page.locator(".rts-panel--cmd");
+    await expect(panel).not.toContainText(/\bports?\b|send mail|prompt/i);
 
-    // messages compiles five crew ports; ether.mask dropped msg.send.
-    const chips = mask.getByTestId(CREW_UI_SELECTORS.edgePortMaskChip);
-    await expect(chips).toHaveCount(5);
-    for (const port of [
-      "msg.list",
-      "msg.prompt",
-      "seat.wait",
-      "terminal.read",
-    ]) {
-      await expect(
-        mask.locator(`[data-port="${port}"]`),
-      ).toHaveAttribute("data-granted", "true");
-    }
-    const sendChip = mask.locator('[data-port="msg.send"]');
-    await expect(sendChip).toHaveAttribute("data-granted", "false");
-    await expect(sendChip).toHaveAttribute("data-attenuable", "true");
-
-    // The chip is editable: granting it back clears the mask to the full
-    // compile through the normal operator mutation.
-    await sendChip.click();
-    await expect(sendChip).toHaveAttribute("data-granted", "true");
+    // The kernel still honours the stored mask; the card only stopped
+    // showing it.
+    const stored = await page.evaluate(async (canvas) => {
+      const read = await window.junto!.readCanvas(canvas);
+      return read.doc.edges.find((edge) => edge.id === "e-ab")?.ether?.mask;
+    }, CANVAS);
+    expect(stored).toEqual(["msg.list", "msg.prompt", "seat.wait", "terminal.read"]);
   } finally {
     await junto.close();
   }

@@ -12,8 +12,6 @@ export const CREW_UI_SELECTORS = {
   mailFolded: "actor-ledger-mail-folded",
   ledger: "actor-ledger",
   taskDetail: "task-detail",
-  edgePortMask: "edge-port-mask",
-  edgePortMaskChip: "edge-port-mask-chip",
   requiresReview: "requires-review-authoring",
   verdictChain: "verdict-chain",
   verdictChainEntry: "verdict-chain-entry",
