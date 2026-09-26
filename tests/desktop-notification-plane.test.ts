@@ -192,7 +192,7 @@ describe("desktop notification plane", () => {
     const answer = plane.test();
     expect(banners[0]?.options.title).toBe("Junto");
     emit(banners[0], "show");
-    await expect(answer).resolves.toEqual({ ok: true, message: "Sent." });
+    await expect(answer).resolves.toMatchObject({ ok: true, message: expect.stringMatching(/^Sent\./) });
     expect(plane.delivery()).toEqual({ state: "allowed" });
   });
 

@@ -219,7 +219,8 @@ export const createNotificationPlane = (deps: NotificationPlaneDeps): Notificati
         );
         notification.on("show", () => {
           clearTimeout(timer);
-          resolve({ ok: true, message: "Sent." });
+          // macOS reports a first banner as shown while it asks for permission.
+          resolve({ ok: true, message: "Sent. If macOS asks about notifications from Junto, choose Allow." });
         });
         notification.on("failed", () => {
           clearTimeout(timer);
