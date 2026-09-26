@@ -461,7 +461,10 @@ function OperatorFeedSurface() {
         <footer className="operator-feed__keys" aria-hidden>
           <span><Kbd>j</Kbd><Kbd>k</Kbd> move</span>
           {hasSignals && quickReplies.length > 0 ? (
-            <span><Kbd>1</Kbd>{quickReplies.length > 1 ? <Kbd>{Math.min(9, quickReplies.length)}</Kbd> : null} quick reply</span>
+            <span>
+              <Kbd>1</Kbd>
+              {quickReplies.length > 1 ? <>–<Kbd>{Math.min(9, quickReplies.length)}</Kbd></> : null} quick reply
+            </span>
           ) : null}
           {hasSignals ? <span><Kbd>↵</Kbd> write reply</span> : null}
           <span><Kbd>o</Kbd> open seat</span>

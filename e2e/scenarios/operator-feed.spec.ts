@@ -110,6 +110,13 @@ const setTheme = async (page: Page, theme: "dark" | "bright"): Promise<void> => 
   await page.waitForTimeout(250);
 };
 
+/** Let the surface finish its entrance and keep the pointer off the rows. */
+const shot = async (page: Page, name: string): Promise<void> => {
+  await page.mouse.move(4, 700);
+  await page.waitForTimeout(400);
+  await page.screenshot({ path: join(SHOTS, name) });
+};
+
 test("the operator feed at thirty: regions in colour, quick replies, real answers", async () => {
   await mkdir(SHOTS, { recursive: true });
   const junto = await launchJunto({ seedCanvases: { [CANVAS]: doc(SEATS) }, seedAgentSignals: signals(SEATS, 2) });
@@ -140,7 +147,7 @@ test("the operator feed at thirty: regions in colour, quick replies, real answer
       nodes.map((node) => getComputedStyle(node).borderLeftWidth).filter((width) => width !== "0px"),
     );
     expect(stripes).toEqual([]);
-    await page.screenshot({ path: join(SHOTS, "feed-30-dark.png") });
+    await shot(page, "feed-30-dark.png");
 
     // Details expand in place.
     const first = cards.first();
@@ -155,7 +162,7 @@ test("the operator feed at thirty: regions in colour, quick replies, real answer
       "4Go on",
       "5Stop doing this",
     ]);
-    await page.screenshot({ path: join(SHOTS, "feed-selected-dark.png") });
+    await shot(page, "feed-selected-dark.png");
 
     // Key 1 sends "Yes" through the real answer path; the card leaves.
     await page.keyboard.press("1");
@@ -178,7 +185,7 @@ test("the operator feed at thirty: regions in colour, quick replies, real answer
     await expect(reply).toBeVisible();
     await expect(writtenCard.getByTestId("quick-replies")).toBeVisible();
     await reply.fill("Use the new deploy key from the vault, then retry.");
-    await page.screenshot({ path: join(SHOTS, "feed-reply-dark.png") });
+    await shot(page, "feed-reply-dark.png");
     await page.keyboard.press("Meta+Enter");
     await expect(writtenCard).toHaveCount(0, { timeout: 10_000 });
     await expect(trigger).toHaveAttribute("aria-label", "Open needs-you feed, 27 waiting");
@@ -206,7 +213,7 @@ test("the operator feed at thirty: regions in colour, quick replies, real answer
     await section.getByRole("button", { name: 'Remove "No"' }).click();
     await expect(section.getByRole("textbox", { name: /^Quick reply \d+$/ })).toHaveCount(5);
     await expect(section.getByLabel("Quick reply 4")).toHaveValue("Ship it");
-    await page.screenshot({ path: join(SHOTS, "settings-quick-replies-bright.png") });
+    await shot(page, "settings-quick-replies-bright.png");
     await page.locator(".settings-panel__close").click();
 
     await page.keyboard.press("Meta+I");
@@ -218,10 +225,10 @@ test("the operator feed at thirty: regions in colour, quick replies, real answer
       "Ship it",
       "Stop doing this",
     ]);
-    await page.screenshot({ path: join(SHOTS, "feed-30-bright.png") });
+    await shot(page, "feed-30-bright.png");
     await cards.first().click({ position: { x: 200, y: 30 } });
     await page.keyboard.press("j");
-    await page.screenshot({ path: join(SHOTS, "feed-selected-bright.png") });
+    await shot(page, "feed-selected-bright.png");
     await page.keyboard.press("Escape");
     await expect(feed).toHaveCount(0);
   } finally {
@@ -241,11 +248,11 @@ test("the operator feed with one waiting, then none", async () => {
       await page.keyboard.press("Meta+I");
       const feed = page.getByTestId("operator-feed");
       await expect(feed.getByTestId("operator-feed-card")).toHaveCount(1, { timeout: 10_000 });
-      await page.screenshot({ path: join(SHOTS, `feed-1-${theme}.png`) });
+      await shot(page, `feed-1-${theme}.png`);
       if (theme === "bright") {
         await feed.getByTestId("quick-replies").getByRole("button", { name: /Continue/ }).click();
         await expect(feed).toContainText("Nobody needs you right now", { timeout: 10_000 });
-        await page.screenshot({ path: join(SHOTS, "feed-empty-bright.png") });
+        await shot(page, "feed-empty-bright.png");
       }
       await page.keyboard.press("Escape");
       await expect(feed).toHaveCount(0);
@@ -253,7 +260,7 @@ test("the operator feed with one waiting, then none", async () => {
     await setTheme(page, "dark");
     await page.keyboard.press("Meta+I");
     await expect(page.getByTestId("operator-feed")).toContainText("Nobody needs you right now");
-    await page.screenshot({ path: join(SHOTS, "feed-empty-dark.png") });
+    await shot(page, "feed-empty-dark.png");
   } finally {
     await junto.close();
   }

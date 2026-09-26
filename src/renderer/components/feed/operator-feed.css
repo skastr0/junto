@@ -358,21 +358,7 @@
   margin-left: auto;
 }
 
-/* Feed pills are filled, not outlined: at thirty rows outlines turn to noise. */
-.operator-feed__quick .quick-reply {
-  height: 26px;
-  border-color: transparent;
-  background: var(--color-overlay-1);
-  color: var(--color-ink-2);
-}
-
-.operator-feed__quick .quick-reply:hover {
-  border-color: transparent;
-  background: color-mix(in oklab, var(--color-ink) 10%, transparent);
-  color: var(--color-ink);
-}
-
-.operator-feed__card.is-selected .operator-feed__quick .quick-reply {
+.operator-feed__card.is-selected .quick-reply:not(:hover) {
   background: color-mix(in oklab, var(--color-ink) 8%, transparent);
 }
 

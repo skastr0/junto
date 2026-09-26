@@ -1,5 +1,6 @@
-/* Quick replies: quiet pills in the operator's own words. Sentence case at
-   reading size, since they are speech, not commands. */
+/* Quick replies: quiet filled pills in the operator's own words. Sentence
+   case at reading size, since they are speech, not commands; no outline,
+   because at thirty rows outlines turn to noise. */
 
 .quick-replies {
   display: flex;
@@ -13,8 +14,8 @@
   height: 26px;
   padding: 0 11px;
   border-radius: 999px;
-  border-color: var(--color-stroke);
-  background: transparent;
+  border-color: transparent;
+  background: var(--color-overlay-1);
   color: var(--color-ink-2);
   font-size: 12px;
   letter-spacing: 0;
@@ -22,13 +23,12 @@
   white-space: nowrap;
   transition:
     background-color 140ms cubic-bezier(0.25, 1, 0.5, 1),
-    border-color 140ms cubic-bezier(0.25, 1, 0.5, 1),
     color 140ms cubic-bezier(0.25, 1, 0.5, 1);
 }
 
 .quick-reply:hover {
-  border-color: var(--color-stroke-hi);
-  background: var(--color-overlay-1);
+  border-color: transparent;
+  background: color-mix(in oklab, var(--color-ink) 10%, transparent);
   color: var(--color-ink);
 }
 
@@ -38,20 +38,38 @@
 }
 
 .quick-reply:active {
-  background: var(--color-overlay-2);
+  background: color-mix(in oklab, var(--color-ink) 14%, transparent);
 }
 
 .quick-reply[aria-busy="true"] {
-  border-color: color-mix(in oklab, var(--color-amber) 55%, var(--color-stroke));
+  background: color-mix(in oklab, var(--color-amber) 16%, transparent);
   color: var(--color-amber);
   opacity: 1;
 }
 
+/* The key that sends a pill, worn on its corner so numbering a row never
+   reflows it. */
+.quick-reply {
+  position: relative;
+}
+
 .quick-reply__key {
+  position: absolute;
+  top: -6px;
+  left: -4px;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 3px;
+  border-radius: 999px;
+  background: var(--color-raise);
+  box-shadow: 0 0 0 1px var(--color-stroke);
+  color: var(--color-dim);
   font-family: var(--font-mono);
-  font-size: 10px;
-  color: var(--color-faint);
+  font-size: 9.5px;
+  line-height: 15px;
+  text-align: center;
   font-variant-numeric: tabular-nums;
+  pointer-events: none;
 }
 
 @media (prefers-reduced-motion: reduce) {
