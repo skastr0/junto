@@ -93,9 +93,10 @@ try {
   t += 0.8;
   const busySeconds = 14;
   const busy = await page.evaluate(([at, s]) => window.__sound.busyCanvas(at, s), [t, busySeconds] as const);
+  const heard = (cue: CueId) => busy.shots.filter((shot) => shot.cue === cue).length;
   sheet.push(
     `${t.toFixed(1).padStart(5)}s  A busy canvas: 50 seats, ${busy.raw} events in ${busySeconds}s, ` +
-      `${busy.shots.length} sounded (two waiting on you, one blocked among them)`,
+      `${busy.shots.length} sounded, of them ${heard("waiting")} waiting on you and ${heard("blocked")} blocked`,
   );
   shots.push(...busy.shots);
   const length = t + busySeconds + 3;
