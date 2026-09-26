@@ -47,27 +47,22 @@
   opacity: 1;
 }
 
-/* The key that sends a pill, worn on its corner so numbering a row never
-   reflows it. */
+/* The key that sends a pill hangs just left of it, in the gap between
+   pills, like a list marker: it never covers the label, and numbering a row
+   never reflows it. Rows that number their pills widen that gap. */
 .quick-reply {
   position: relative;
 }
 
 .quick-reply__key {
   position: absolute;
-  top: -6px;
-  left: -4px;
-  min-width: 15px;
-  height: 15px;
-  padding: 0 3px;
-  border-radius: 999px;
-  background: var(--color-raise);
-  box-shadow: 0 0 0 1px var(--color-stroke);
+  top: 50%;
+  right: calc(100% + 3px);
+  transform: translateY(-50%);
   color: var(--color-dim);
   font-family: var(--font-mono);
-  font-size: 9.5px;
-  line-height: 15px;
-  text-align: center;
+  font-size: 10px;
+  line-height: 1;
   font-variant-numeric: tabular-nums;
   pointer-events: none;
 }

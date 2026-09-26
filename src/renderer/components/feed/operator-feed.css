@@ -358,6 +358,16 @@
   margin-left: auto;
 }
 
+/* Room for each pill's hanging key, on every row, so selecting one never
+   shifts its pills. */
+.operator-feed__quick {
+  column-gap: 15px;
+}
+
+.operator-feed__quick .quick-reply {
+  padding: 0 10px;
+}
+
 .operator-feed__card.is-selected .quick-reply:not(:hover) {
   background: color-mix(in oklab, var(--color-ink) 8%, transparent);
 }
