@@ -22,7 +22,7 @@ vi.mock("../src/renderer/components/FocusSurface", () => ({
 import {
   FirstRunIntro,
   FirstRunIntroSurface,
-  introSlides,
+  tourChapters,
 } from "../src/renderer/components/onboarding/FirstRunIntro";
 import { finishIntro, introVisible, openIntro } from "../src/renderer/lib/first-run-intro";
 import { state$ } from "../src/renderer/lib/state";
@@ -128,35 +128,46 @@ describe("the seen flag in the settings row", () => {
   });
 });
 
-describe("what the slides say", () => {
-  it("names the product, the start sequence, and a way out on every slide", () => {
-    const slides = introSlides(true);
-    expect(slides.map((s) => s.id)).toEqual(["canvas", "start", "play", "permissions"]);
-    for (let step = 0; step < slides.length; step += 1) {
+/** Render the tour open at a chapter, by id. */
+const chapterAt = (id: string, mac = true): string => {
+  const index = tourChapters(mac).findIndex((c) => c.id === id);
+  expect(index).toBeGreaterThanOrEqual(0);
+  return renderToStaticMarkup(<FirstRunIntroSurface onDone={() => {}} mac={mac} initialStep={index} />);
+};
+
+describe("what the tour says", () => {
+  it("opens on the seats, ends on permissions, and offers a way out on every chapter", () => {
+    const chapters = tourChapters(true);
+    expect(chapters[0]!.id).toBe("seats");
+    expect(chapters.at(-1)!.id).toBe("permissions");
+    for (let step = 0; step < chapters.length; step += 1) {
       const html = renderToStaticMarkup(<FirstRunIntroSurface onDone={() => {}} mac initialStep={step} />);
       expect(html).toContain('data-testid="first-run-intro-skip"');
-      expect(html).toContain(`${step + 1} of 4: ${slides[step]!.title}`);
+      expect(html).toContain(`${step + 1} of ${chapters.length}: ${chapters[step]!.title}`);
     }
-    const first = text(renderToStaticMarkup(<FirstRunIntroSurface onDone={() => {}} mac initialStep={0} />));
-    expect(first).toContain("Junto is a canvas where you run coding agents side by side");
-    const start = text(renderToStaticMarkup(<FirstRunIntroSurface onDone={() => {}} mac initialStep={1} />));
-    expect(start).toContain("Add item");
-    expect(start).toContain("Claude Code, Codex");
-    expect(start).toContain("project folder");
+  });
+
+  it("introduces seats with live seats, their characters, and how to start one", () => {
+    const html = chapterAt("seats");
+    const copy = text(html);
+    expect(copy).toContain("Junto is a canvas for running coding agents side by side");
+    expect(copy).toContain("project folder");
+    expect(copy).toContain("Add item");
+    // The demo is the canvas's own seat and the real customize editor.
+    expect(html).toContain('data-testid="agent-seat"');
+    expect(html).toContain('class="agent-editor"');
   });
 
   it("says a new workspace starts paused, what play does, and where the switch is", () => {
-    const copy = text(renderToStaticMarkup(<FirstRunIntroSurface onDone={() => {}} mac initialStep={2} />));
+    const copy = text(chapterAt("play"));
     expect(copy).toContain("A new workspace starts paused");
     expect(copy).toContain("it opens playing every time");
     expect(copy).toContain("the paused button at the top right of the window");
     expect(copy).toContain("Play canvas");
-    expect(copy).toContain("Messages then flow between agents joined by a wire");
-    expect(copy).toContain("Press it again to pause, and that flow stops");
   });
 
   it("tells a Mac user plainly that macOS may name Junto, and that they choose", () => {
-    const html = renderToStaticMarkup(<FirstRunIntroSurface onDone={() => {}} mac initialStep={3} />);
+    const html = chapterAt("permissions");
     const copy = text(html);
     expect(copy).toContain("run with your permissions");
     expect(copy).toContain("the prompt names Junto because Junto started the agent");
@@ -166,14 +177,14 @@ describe("what the slides say", () => {
   });
 
   it("keeps macOS prompts out of the tour on other platforms", () => {
-    const copy = text(renderToStaticMarkup(<FirstRunIntroSurface onDone={() => {}} mac={false} initialStep={3} />));
+    const copy = text(chapterAt("permissions", false));
     expect(copy).toContain("run with your permissions");
     expect(copy).not.toContain("macOS");
   });
 
   it("obeys the copy law", () => {
     for (const mac of [true, false]) {
-      for (let step = 0; step < introSlides(mac).length; step += 1) {
+      for (let step = 0; step < tourChapters(mac).length; step += 1) {
         const html = renderToStaticMarkup(<FirstRunIntroSurface onDone={() => {}} mac={mac} initialStep={step} />);
         expect(html).not.toContain("·");
       }

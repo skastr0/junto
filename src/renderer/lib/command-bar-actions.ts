@@ -4,6 +4,7 @@ import { formatNodeRef } from "@shared/node-ref";
 import {
   CircleSlash,
   Copy,
+  GraduationCap,
   Inbox,
   Layers,
   Maximize,
@@ -20,6 +21,7 @@ import { factoryPause$, toggleFactoryPause } from "./factory-pause";
 import { clearSelection, state$ } from "./state";
 import { openSettings } from "./settings-state";
 import { openOperatorFeed } from "./operator-feed";
+import { openIntro } from "./first-run-intro";
 import { hasStore, openStore, overlaySurfaces } from "../overlay/surfaces";
 
 /**
@@ -152,6 +154,14 @@ export const buildCommandBarActions = (): ReadonlyArray<CommandBarAction> => {
     icon: Inbox,
     hotkey: "⌘I",
     run: openOperatorFeed,
+  });
+
+  actions.push({
+    id: "show-tour",
+    label: "Show the tour",
+    detail: "Seats, states, messages, the feed, squads and more",
+    icon: GraduationCap,
+    run: openIntro,
   });
 
   // Official builds only: the overlay fills the store; open source has none.

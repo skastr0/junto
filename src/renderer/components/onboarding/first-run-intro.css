@@ -1,155 +1,214 @@
-/* First-run introduction (FirstRunIntro.tsx). Rides the FocusSurface prose
-   plate; every color is a theme token so dark and bright both hold. */
+/* The tour (FirstRunIntro.tsx). A near-full-window workspace plate: a
+   chapter rail with Pip on the left, and on the right a live stage above a
+   few sentences and a "try it" line. Every colour is a theme token, so dark
+   and bright both hold; the demos are the canvas's own components. */
 
 .focus-surface__panel.first-run-intro {
-  width: min(560px, calc(100vw - 32px));
-  max-height: min(86vh, 720px);
   background: var(--color-raise);
 }
 
-.first-run-intro__head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 14px 16px 0 22px;
-}
-.first-run-intro__brand {
-  color: var(--color-amber);
-  font-family: var(--font-display);
-  font-size: 13px;
-  letter-spacing: .22em;
-  text-transform: uppercase;
+.first-run-intro__frame {
+  display: grid;
+  grid-template-columns: 232px minmax(0, 1fr);
+  height: 100%;
+  min-height: 0;
 }
 
-.first-run-intro__slide {
+/* Rail: Pip, then the chapters in order. */
+.first-run-intro__rail {
   display: flex;
   flex-direction: column;
+  gap: 22px;
   min-height: 0;
   overflow-y: auto;
-  overscroll-behavior: contain;
-  padding: 18px 28px 6px;
-  animation: first-run-intro-slide 220ms cubic-bezier(0.22, 1, 0.36, 1);
+  padding: 22px 14px 18px 18px;
+  border-right: 1px solid var(--color-stroke);
+  background: var(--color-inset);
 }
-@keyframes first-run-intro-slide {
-  from { opacity: 0; transform: translateX(10px); }
-  to { opacity: 1; transform: translateX(0); }
+.first-run-intro__brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 6px;
 }
-
-.first-run-intro__art { margin-bottom: 22px; }
-.first-run-intro__title {
-  margin: 0 0 12px;
+.first-run-intro__brand > span { display: grid; gap: 2px; }
+.first-run-intro__wordmark {
   color: var(--color-ink);
   font-family: var(--font-display);
-  font-size: 24px;
-  font-weight: 500;
-  letter-spacing: .1em;
-  line-height: 1.15;
-  text-transform: uppercase;
-  text-wrap: balance;
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: .04em;
 }
-.first-run-intro__body {
-  color: var(--color-ink-2);
-  font-size: 13px;
-  line-height: 1.6;
-  text-wrap: pretty;
-}
-.first-run-intro__body p { margin: 0; max-width: 62ch; }
-.first-run-intro__body p + p { margin-top: 10px; }
-
-/* Slide 1: two seats joined by one wire. */
-.intro-art--canvas {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0;
-  padding: 26px 12px;
-  border: 1px solid var(--color-overlay-4);
-  border-radius: 10px;
-  background:
-    radial-gradient(circle, var(--color-overlay-3) 1px, transparent 1.2px) 0 0 / 16px 16px,
-    var(--color-inset);
-}
-.intro-seat {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  min-width: 128px;
-  padding: 9px 12px 9px 9px;
-  border: 1px solid var(--color-stroke);
-  border-radius: 9px;
-  background: var(--color-raise-2);
-  box-shadow: 0 6px 18px var(--color-shadow-2);
-}
-.intro-seat__text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.intro-seat__label { color: var(--color-ink); font-family: var(--font-mono); font-size: 11px; }
-.intro-seat__status {
-  color: var(--color-dim);
-  font-size: 9px;
-  letter-spacing: .12em;
-  text-transform: uppercase;
-}
-.intro-wire {
-  position: relative;
-  flex: 1 1 auto;
-  max-width: 150px;
-  min-width: 64px;
-  height: 2px;
-  background: var(--color-amber);
-}
-.intro-wire::before,
-.intro-wire::after {
-  content: "";
-  position: absolute;
-  top: 50%;
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--color-amber);
-  transform: translateY(-50%);
-}
-.intro-wire::before { left: -3px; }
-.intro-wire::after { right: -3px; }
-.intro-wire__verb {
-  position: absolute;
-  left: 50%;
-  bottom: 7px;
-  transform: translateX(-50%);
-  color: var(--color-amber);
-  font-family: var(--font-mono);
-  font-size: 10px;
-  white-space: nowrap;
-}
-
-/* Slide 2: the real sequence, one row per step. */
-.intro-steps {
+.first-run-intro__guide { color: var(--color-dim); font-size: 11px; }
+.first-run-intro__chapters {
   display: grid;
   gap: 2px;
   margin: 0;
   padding: 0;
   list-style: none;
-  counter-reset: intro-step;
 }
-.intro-steps__row {
+.first-run-intro__chapter {
   display: grid;
-  grid-template-columns: 22px 104px 1fr;
+  grid-template-columns: 22px minmax(0, 1fr);
   align-items: baseline;
-  gap: 10px;
-  padding: 11px 12px;
-  border-radius: 7px;
-  background: var(--color-overlay-1);
-  color: var(--color-ink-2);
-  font-size: 13px;
-  line-height: 1.5;
-  counter-increment: intro-step;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 8px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--color-dim);
+  font: inherit;
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+  transition: background 150ms ease-out, color 150ms ease-out;
 }
-.intro-steps__row::before {
-  content: counter(intro-step);
-  color: var(--color-amber);
+.first-run-intro__chapter:hover { background: var(--color-overlay-2); color: var(--color-ink); }
+.first-run-intro__chapter.is-seen { color: var(--color-ink-2); }
+.first-run-intro__chapter.is-active {
+  background: color-mix(in oklab, var(--color-main) 12%, transparent);
+  color: var(--color-ink);
+}
+.first-run-intro__chapter:focus-visible { outline: 2px solid var(--color-focus-ring); outline-offset: 1px; }
+.first-run-intro__chapter-n {
+  color: var(--color-faint);
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
 }
-.intro-steps__row strong { color: var(--color-ink); font-weight: 600; }
-.intro-steps__row .help-map__kbd { font-size: 10px; }
+.first-run-intro__chapter.is-active .first-run-intro__chapter-n { color: var(--color-amber); }
+
+/* Main column: head, the chapter, the foot. */
+.first-run-intro__main {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  min-height: 0;
+}
+.first-run-intro__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 18px 0 32px;
+}
+.first-run-intro__count {
+  color: var(--color-faint);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.first-run-intro__slide {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 14px 32px 8px;
+  animation: first-run-intro-slide 220ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+@keyframes first-run-intro-slide {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.first-run-intro__art { display: flex; justify-content: center; }
+
+.first-run-intro__words {
+  display: grid;
+  grid-template-columns: minmax(0, 62ch) minmax(220px, 300px);
+  justify-content: space-between;
+  gap: 32px;
+}
+.first-run-intro__title {
+  margin: 0 0 12px;
+  color: var(--color-ink);
+  font-family: var(--font-display);
+  font-size: 26px;
+  font-weight: 600;
+  letter-spacing: .01em;
+  line-height: 1.15;
+  text-wrap: balance;
+}
+.first-run-intro__body {
+  color: var(--color-ink-2);
+  font-size: 13.5px;
+  line-height: 1.65;
+  text-wrap: pretty;
+}
+.first-run-intro__body p { margin: 0; }
+.first-run-intro__body p + p { margin-top: 10px; }
+.first-run-intro__body strong { color: var(--color-ink); font-weight: 600; }
+
+.first-run-intro__try {
+  align-self: start;
+  padding-top: 6px;
+}
+.first-run-intro__try-label {
+  display: block;
+  margin-bottom: 8px;
+  color: var(--color-amber);
+  font-size: 12px;
+  font-weight: 600;
+}
+.first-run-intro__try ul { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; }
+.first-run-intro__try li {
+  display: grid;
+  gap: 4px;
+  color: var(--color-ink-2);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+.first-run-intro__try strong { color: var(--color-ink); font-weight: 600; }
+.first-run-intro__keys { display: inline-flex; flex-wrap: wrap; gap: 4px; }
+
+/* The stage: a patch of canvas, dotted like the real one. */
+.tour-stage {
+  display: flex;
+  justify-content: center;
+  max-width: 100%;
+  overflow: hidden;
+  padding: 18px;
+  border: 1px solid var(--color-overlay-4);
+  border-radius: 14px;
+  background:
+    radial-gradient(circle, var(--color-overlay-3) 1px, transparent 1.2px) 0 0 / 16px 16px,
+    var(--color-ground);
+}
+.tour-stage__field { position: relative; flex: none; }
+.tour-seat { position: absolute; }
+.tour-seat__caption {
+  margin-top: 4px;
+  padding-left: 60px;
+  color: var(--color-faint);
+  font-size: 10.5px;
+}
+.tour-wire { position: absolute; inset: 0; overflow: visible; pointer-events: none; }
+/* Demos never take the pointer: they show, they do not act. */
+.tour-stage__field > * { pointer-events: none; }
+
+/* Two panes side by side: a stage and a real surface. */
+.tour-pair {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 20px;
+}
+.tour-editor {
+  width: 480px;
+  max-width: 100%;
+  max-height: 440px;
+  overflow: hidden;
+  padding: 16px 18px 0;
+  /* The editor runs longer than the stage; it fades out rather than cut. */
+  mask-image: linear-gradient(to bottom, black 82%, transparent);
+  border: 1px solid var(--color-stroke);
+  border-radius: 14px;
+  background: var(--color-raise-2);
+  box-shadow: 0 10px 28px var(--color-shadow-1);
+}
 
 /* Slide 4: a quiet stand-in for the macOS consent sheet. */
 .intro-art--prompt {
@@ -230,43 +289,40 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  padding: 16px 22px 18px 28px;
+  gap: 16px;
+  padding: 14px 18px 16px 32px;
+  border-top: 1px solid var(--color-stroke);
 }
-.first-run-intro__dots { display: flex; gap: 4px; }
-.first-run-intro__dot {
-  width: 22px;
-  height: 18px;
-  border: 0;
-  padding: 0;
-  background: transparent;
-  cursor: pointer;
-}
-.first-run-intro__dot::before {
-  content: "";
-  display: block;
+.first-run-intro__progress {
+  flex: 1;
+  max-width: 240px;
   height: 3px;
+  overflow: hidden;
   border-radius: 2px;
   background: var(--color-overlay-4);
-  transition: background 180ms ease-out;
 }
-.first-run-intro__dot:hover::before { background: var(--color-stroke-hi); }
-.first-run-intro__dot.is-active::before { background: var(--color-amber); }
-.first-run-intro__dot:focus-visible { outline: 2px solid var(--color-focus-ring); outline-offset: 2px; border-radius: 3px; }
+.first-run-intro__progress > span {
+  display: block;
+  height: 100%;
+  border-radius: 2px;
+  background: var(--color-amber);
+  transition: width 220ms cubic-bezier(0.22, 1, 0.36, 1);
+}
 .first-run-intro__nav { display: flex; gap: 8px; }
 
-@media (max-width: 520px) {
-  .intro-steps__row { grid-template-columns: 18px 1fr; }
-  .intro-steps__row .help-map__kbd { grid-column: 2; }
-  .intro-steps__row > span { grid-column: 2; }
+@media (max-width: 900px) {
+  .first-run-intro__frame { grid-template-columns: minmax(0, 1fr); }
+  .first-run-intro__rail { display: none; }
+  .first-run-intro__words { grid-template-columns: minmax(0, 1fr); }
 }
 
 /* The surface motion gate pauses animations while the window is hidden; a
    paused entrance would hold the text half faded, so skip it instead. */
 html[data-surface-motion="paused"] .first-run-intro__slide { animation: none !important; }
-html[data-surface-motion="paused"] .first-run-intro__dot::before { transition: none; }
 
 @media (prefers-reduced-motion: reduce) {
   .first-run-intro__slide { animation: none; }
-  .first-run-intro__dot::before { transition: none; }
+  .first-run-intro__progress > span,
+  .first-run-intro__chapter { transition: none; }
 }
+
