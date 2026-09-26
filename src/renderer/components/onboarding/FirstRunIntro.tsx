@@ -8,6 +8,8 @@ import { SEAT_AWARENESS_COMPILED } from "@shared/features";
 import type { ThreadHealthTone, ThreadHealthValue } from "@shared/thread-health";
 import { terminalActivity } from "../../lib/activity";
 import type { SeatHealth, SeatSignal } from "../nodes/AgentSeat";
+import type { PreambleAction, PreambleProvenance, PreambleTone } from "@shared/preamble";
+import type { SeatBubble } from "../../lib/preamble-feed";
 import { AGENT_NODE_SIZE } from "../../lib/node-geometry";
 import { AgentEditorView } from "../agent-editor/AgentEditor";
 import { AGENT_EDITOR_SECTIONS, type AgentEditorSeat } from "../agent-editor/sections";
@@ -16,7 +18,8 @@ import { finishIntro, introVisible } from "../../lib/first-run-intro";
 import { state$ } from "../../lib/state";
 import { FocusSurface } from "../FocusSurface";
 import { Button, Kbd } from "../ui";
-import { DemoSeat, TourStage, useTourBeat } from "./tour-demo";
+import { DemoSeat, DemoWire, PULSE_BEAT_MS, TourStage, seatPort, useTourBeat } from "./tour-demo";
+import { ChatComposer } from "../chat/ChatComposer";
 import "./first-run-intro.css";
 import { claimFocusOnMount, isOperatorTyping } from "../../lib/focus-ownership";
 
@@ -194,6 +197,104 @@ const statesChapter: TourChapter = {
   pip: "curious",
 };
 
+// --- 3. Agents talk to each other ------------------------------------------------
+
+const note = (
+  id: string,
+  text: string,
+  action: PreambleAction,
+  tone: PreambleTone,
+  shownAt: number,
+  provenance: PreambleProvenance = "agent",
+): SeatBubble => ({
+  current: { id, nodeId: id, text, provenance, action, tone, shownAt, expiresAt: Number.MAX_SAFE_INTEGER },
+});
+
+/** Scripted traffic: a hand-off, its answer, then a prompt to the reviewer. */
+const TRAFFIC = [
+  { wire: "builder", kind: "notice", reverse: false, to: "builder", text: "mail from planner: split the migration in two", action: "mail-in", tone: "violet" },
+  { wire: "builder", kind: "answer", reverse: true, to: "planner", text: "mail from builder: both steps pass", action: "mail-in", tone: "green" },
+  { wire: "reviewer", kind: "prompt", reverse: false, to: "reviewer", text: "asked by planner: review the migration", action: "mail-in", tone: "amber" },
+] as const;
+
+function TalkDemo() {
+  const beat = useTourBeat(PULSE_BEAT_MS);
+  const step = TRAFFIC[beat % TRAFFIC.length]!;
+  const planner = { x: 24, y: 138 };
+  const builder = { x: 400, y: 70 };
+  const reviewer = { x: 400, y: 206 };
+  const bubbleFor = (seat: string): SeatBubble | undefined =>
+    step.to === seat ? note(`tour-${seat}-${String(beat)}`, step.text, step.action, step.tone, beat) : undefined;
+  const W = 700;
+  const H = 290;
+  return (
+    <div className="tour-column">
+      <TourStage width={W} height={H} label="A planner seat messaging a builder and a reviewer; each message lights the wire it crosses">
+        <DemoWire
+          from={seatPort(planner.x, planner.y, "right")}
+          to={seatPort(builder.x, builder.y, "left")}
+          width={W}
+          height={H}
+          pulse={step.wire === "builder" ? beat + 1 : undefined}
+          kind={step.kind}
+          reverse={step.reverse}
+        />
+        <DemoWire
+          from={seatPort(planner.x, planner.y, "right")}
+          to={seatPort(reviewer.x, reviewer.y, "left")}
+          width={W}
+          height={H}
+          pulse={step.wire === "reviewer" ? beat + 1 : undefined}
+          kind={step.kind}
+          reverse={step.reverse}
+        />
+        <DemoSeat id="tour-planner" name="planner" harness="claude" {...planner} spec={terminalActivity({ seatState: "working" })} bubble={bubbleFor("planner")} />
+        <DemoSeat id="tour-builder" name="builder" harness="codex" {...builder} spec={terminalActivity({ seatState: "working" })} bubble={bubbleFor("builder")} />
+        <DemoSeat id="tour-reviewer" name="reviewer" harness="grok" {...reviewer} spec={terminalActivity({ seatState: step.to === "reviewer" ? "working" : "idle" })} bubble={bubbleFor("reviewer")} />
+      </TourStage>
+      {/* The real multi-prompt composer, as it opens for a selection of agents. */}
+      <div className="tour-composer" inert aria-hidden>
+        <ChatComposer
+          className="chat-composer--rts"
+          onSend={() => false}
+          ariaLabel="Message all selected agents"
+          placeholder="Message all selected agents…"
+          hint="⌘↵ send to all"
+          sendLabel="send to all"
+          eyebrow="multi-prompt — 3 agents"
+        />
+      </div>
+    </div>
+  );
+}
+
+const talkChapter: TourChapter = {
+  id: "talk",
+  title: "Agents talk to each other",
+  demo: <TalkDemo />,
+  body: (
+    <>
+      <p>
+        Draw a wire between two seats and those agents can message each other:
+        hand off work, ask a question, report back. Each message lights the wire
+        as it crosses: violet for mail, amber when it lands as a prompt, green
+        for an answer. Messages flow while the canvas is playing.
+      </p>
+      <p>
+        Above a seat, a short note says what just arrived or what the agent is
+        doing right now. Notes fade on their own. To say one thing to several
+        agents, select them all and write a single prompt; each gets it in its
+        own terminal.
+      </p>
+    </>
+  ),
+  tryIt: [
+    { keys: ["drag"], text: <>from the edge of one seat onto another to connect them.</> },
+    { keys: ["shift-click", "⌘↵"], text: <>several seats, write once, and send to all.</> },
+  ],
+  pip: "eager",
+};
+
 // --- Play and pause ------------------------------------------------------------
 
 function PlayPauseDemo() {
@@ -287,6 +388,7 @@ const isMac = (): boolean =>
 export const tourChapters = (mac: boolean): ReadonlyArray<TourChapter> => [
   seatsChapter,
   statesChapter,
+  talkChapter,
   playChapter,
   permissionsChapter(mac),
 ];

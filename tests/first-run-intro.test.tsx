@@ -171,6 +171,16 @@ describe("what the tour says", () => {
     expect(copy.includes("Experimental")).toBe(SEAT_AWARENESS_COMPILED);
   });
 
+  it("shows seats talking over a real wire, with notes and the multi-prompt composer", () => {
+    const html = chapterAt("talk");
+    const copy = text(html);
+    expect(copy).toContain("Draw a wire between two seats");
+    expect(copy).toContain("Messages flow while the canvas is playing");
+    expect(html).toContain('class="junto-edge"');
+    expect(html).toContain("Message all selected agents");
+    expect(copy).toContain("send to all");
+  });
+
   it("says a new workspace starts paused, what play does, and where the switch is", () => {
     const copy = text(chapterAt("play"));
     expect(copy).toContain("A new workspace starts paused");

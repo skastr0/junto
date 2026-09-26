@@ -7,6 +7,7 @@ import type { SeatBubble } from "../../lib/preamble-feed";
 import { WIRE_PULSE_MS, WIRE_PULSE_TOKEN } from "../../lib/wire-pulse";
 import { AgentSeatView, type SeatHealth, type SeatSignal } from "../nodes/AgentSeat";
 import { PreambleBubble } from "../nodes/PreambleBubble";
+import "../edges/wire-pulse.css";
 
 // Live demos for the tour. Every piece here is the real component the canvas
 // draws, fed scripted props: nothing reads or writes the operator's

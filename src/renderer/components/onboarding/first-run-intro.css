@@ -336,3 +336,7 @@ html[data-surface-motion="paused"] .first-run-intro__slide { animation: none !im
   color: var(--color-violet);
   font-size: 10.5px;
 }
+
+/* The multi-prompt composer, shown as it opens under a selection. */
+.tour-composer { width: min(520px, 100%); }
+
