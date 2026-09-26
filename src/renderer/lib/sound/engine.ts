@@ -162,6 +162,8 @@ export class SoundEngine {
     if (Ctor === undefined) return undefined;
     const ctx = new Ctor({ latencyHint: "interactive" });
     this.ctx = ctx;
+    // Let the window go without an audio device held open.
+    globalThis.addEventListener?.("pagehide", () => this.dispose(), { once: true });
     this.graph = buildSoundGraph(ctx);
     this.offSettings = state$.settings.audio.onChange(({ value }) => {
       if (value !== undefined) this.applyLevels(value as AudioSettings);
