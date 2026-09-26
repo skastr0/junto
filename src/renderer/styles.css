@@ -1306,17 +1306,15 @@ html[data-junto-platform="darwin"] .station-bar [role="listbox"] {
   }
 }
 
-/* GPU-promote the viewport for the canvas-mount lifetime. The hint must be
-   STABLE: promoting and de-promoting on busy-gate boundaries (pan start and
-   end, or a timer) re-rasters the visible canvas on every flip, and each
-   flip reads as content popping out. Tiled rasterization keeps the retained
-   working set bounded to the visible area and its raster scales — not to the
-   canvas extent — so the steady-state cost is the near-viewport tile set.
-   The busy attribute (below) stays the work-deferral gate; it no longer
-   changes rendering policy. */
-.react-flow .react-flow__viewport {
-  will-change: transform;
-}
+/* No will-change on `.react-flow__viewport`. The camera is already on the
+   compositor: ViewportTransformLease gives the viewport a paused Web
+   Animation, which promotes it for the canvas-mount lifetime without a
+   hint. `will-change: transform` on top of that pinned cc's raster scale at
+   native (1) or above: zoomed out to 0.15, every layer under the camera was
+   rastered at about 44 times the pixels on screen, the tile set outgrew the
+   GPU tile budget, and whole tiles went unpainted and flapped (blank
+   rectangles in regions, the pane gradient showing through). Without the
+   hint, raster scale follows the zoom (canvas-raster-scale.spec.ts). */
 
 /* --- React Flow surface, restyled for the canvas ground ---------------- */
 .react-flow {

@@ -18,10 +18,11 @@
 // strobing while the operator panned.
 //
 // Rendering policy is decoupled from this gate: the viewport's compositor
-// promotion (will-change on .react-flow__viewport) is STABLE for the canvas
-// mount lifetime (see styles.css). Toggling promotion on these busy
-// boundaries promoted and de-promoted the layer — each flip re-rastered the
-// visible canvas and read as content popping out.
+// promotion (the ViewportTransformLease animation) is STABLE for the canvas
+// mount lifetime. Toggling promotion on these busy boundaries promoted and
+// de-promoted the layer — each flip re-rastered the visible canvas and read
+// as content popping out. (No will-change hint either: it pins raster scale,
+// see styles.css.)
 //
 // The marker lives on <html>, not on the ReactFlow root: React rewrites the
 // root's className on every canvas render (seat state, selection, mail), and a
@@ -34,9 +35,8 @@ import { canvasPerformance } from "./performance/canvas-performance";
 export const viewportBusy$ = observable(false);
 
 /**
- * Attribute stamped on `<html>` while busy. CSS uses it for:
- * - paint-freeze (transitions/animations off)
- * - compositor promotion of `.react-flow__viewport` (will-change: transform)
+ * Attribute stamped on `<html>` while busy. CSS uses it for paint-freeze
+ * (transitions/animations off).
  *
  * Must not be driven by React render state — a direct DOM write on an element
  * React never renders, so no render can clear it mid-gesture.

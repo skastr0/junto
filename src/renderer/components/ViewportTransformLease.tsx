@@ -26,6 +26,10 @@ import { useStoreApi } from "@xyflow/react";
  * 1147 ms over 384 frames; with the toolbar leased, 1575 ms and the compositor
  * update gone. The toolbar keeps tracking its node exactly as before.
  *
+ * The animation is also the viewport's only compositor promotion: it has no
+ * `will-change`, which would pin raster scale at native and starve tile
+ * memory when zoomed out (styles.css, canvas-raster-scale.spec.ts).
+ *
  * Must be mounted inside <ReactFlow> so the store (and its `domNode`) resolve.
  */
 
