@@ -1,5 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Result } from "effect";
+// Cases that draw a gated sink (tasks, artifacts) or author region rules run
+// where that feature is compiled in; the ship profile skips them by the same
+// predicate the product reads.
+import { ARTIFACTS_ENABLED, TASKS_ENABLED } from "../src/shared/features";
 import { decodeCanvasDoc, edgeGrant, type CanvasDoc, type GroupNode, type TextNode } from "../src/shared/canvas";
 import { addNode, commitDoc, deleteNode, editLink, editText, flushNodeSheetTyping, loadDoc, pinRuling, redo, renameGroup, renameTerminalNode, setBoardSettings, setFlagForNodes, setNodeColor, setNodeColorForNodes, setNodeHost, setNodeSheet, setNodeSheetTyping, setPageBinding, setRegionContract, setRegionDefaults, setRegionHold, toggleFlag, undo } from "../src/renderer/lib/mutations";
 import { addEdge, connectAllToTarget, deleteEdges, editEdgeLabel, planConnectToTarget, setEdgeColor, toggleEdgeArrow } from "../src/renderer/lib/edge-mutations";
@@ -546,7 +550,7 @@ describe("renderer graph mutations", () => {
     expect(beginOrder).toBeLessThan(finishOrder);
   });
 
-  it("draws agent→task access", () => {
+  it.runIf(TASKS_ENABLED)("draws agent→task access", () => {
     state$.canvasName.set("mutation-test");
     loadDoc(doc);
     state$.selectedNodeIds.set(["source", "target"]);
@@ -562,7 +566,7 @@ describe("renderer graph mutations", () => {
     expect(Result.isSuccess(decodeCanvasDoc(state$.doc.peek()))).toBe(true);
   });
 
-  it("connects tasks → agent", () => {
+  it.runIf(TASKS_ENABLED)("connects tasks → agent", () => {
     state$.canvasName.set("mutation-test");
     loadDoc({
       nodes: [
@@ -614,7 +618,7 @@ describe("renderer graph mutations", () => {
     expect(Result.isSuccess(decodeCanvasDoc(state$.doc.peek()))).toBe(true);
   });
 
-  it("stores a publishes wire agent-first, whichever way it was drawn", () => {
+  it.runIf(ARTIFACTS_ENABLED)("stores a publishes wire agent-first, whichever way it was drawn", () => {
     state$.canvasName.set("mutation-test");
     loadDoc({
       nodes: [
@@ -682,7 +686,7 @@ describe("renderer graph mutations", () => {
     expect(state$.doc.peek().edges).toHaveLength(0);
   });
 
-  it("rejects a duplicate source-to-target relation", () => {
+  it.runIf(TASKS_ENABLED)("rejects a duplicate source-to-target relation", () => {
     state$.canvasName.set("mutation-test");
     loadDoc(doc);
     addEdge({ source: "source", target: "target" });
@@ -1655,7 +1659,7 @@ describe("renderer graph mutations", () => {
     expect(state$.doc.peek().nodes[0]?.ether).toBeUndefined();
   });
 
-  it("setRegionContract writes rules + rulings and strips an empty bag", () => {
+  it.runIf(TASKS_ENABLED)("setRegionContract writes rules + rulings and strips an empty bag", () => {
     state$.canvasName.set("mutation-test");
     loadDoc({
       nodes: [{ id: "region", type: "group", label: "Law", x: 0, y: 0, width: 400, height: 300 }],
@@ -1728,7 +1732,7 @@ describe("renderer graph mutations", () => {
     expect(state$.doc.peek().nodes[0]?.ether?.tasks).toBeUndefined();
   });
 
-  it("pinRuling mints id + pinnedAt and appends without disturbing existing rules", () => {
+  it.runIf(TASKS_ENABLED)("pinRuling mints id + pinnedAt and appends without disturbing existing rules", () => {
     state$.canvasName.set("mutation-test");
     loadDoc({
       nodes: [{
@@ -1788,7 +1792,7 @@ describe("drawing a task path hop", () => {
     ether: { entity: { kind: "pad", name: id } },
   });
 
-  it("stamps feeds at connect, stored in draw direction", () => {
+  it.runIf(TASKS_ENABLED)("stamps feeds at connect, stored in draw direction", () => {
     state$.canvasName.set("mutation-test");
     loadDoc({ nodes: [taskSink("a", 0), taskSink("b", 300)], edges: [] });
 
@@ -1802,7 +1806,7 @@ describe("drawing a task path hop", () => {
     expect(state$.error.peek()).toBe("");
   });
 
-  it("grants no ports on the hop — the verb is the whole ether", () => {
+  it.runIf(TASKS_ENABLED)("grants no ports on the hop — the verb is the whole ether", () => {
     state$.canvasName.set("mutation-test");
     loadDoc({ nodes: [taskSink("a", 0), taskSink("b", 300)], edges: [] });
 
@@ -1813,7 +1817,7 @@ describe("drawing a task path hop", () => {
     expect(edgeGrant(state$.doc.peek(), state$.doc.peek().edges[0]!)?.ports).toEqual([]);
   });
 
-  it("refuses a hop that would close a loop, and draws nothing", () => {
+  it.runIf(TASKS_ENABLED)("refuses a hop that would close a loop, and draws nothing", () => {
     state$.canvasName.set("mutation-test");
     loadDoc({
       nodes: [taskSink("a", 0), taskSink("b", 300)],
@@ -1834,7 +1838,7 @@ describe("drawing a task path hop", () => {
     expect(state$.error.peek()).toContain("a → b → a");
   });
 
-  it("keeps refusing every other sink pair in plain words", () => {
+  it.runIf(TASKS_ENABLED)("keeps refusing every other sink pair in plain words", () => {
     state$.canvasName.set("mutation-test");
     loadDoc({ nodes: [taskSink("a", 0), padSink("notes", 300)], edges: [] });
 
