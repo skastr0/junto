@@ -7,7 +7,7 @@
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import type { CanvasEdge, CanvasNode } from "../../src/shared/canvas";
-import { agentTextNode, canvasDoc, taskItem, tasksNode, requestsNode, artifactsNode } from "../harness/sandbox";
+import { agentTextNode, canvasDoc, claimByNodeId, taskItem, tasksNode, requestsNode, artifactsNode } from "../harness/sandbox";
 import { expect, launchJunto, test } from "../harness/launch";
 
 const SHOTS = join(process.cwd(), "test-results", "stupidity-audit");
@@ -48,7 +48,7 @@ const requests = requestsNode({
   x: 1560,
   y: 640,
   // The raiser is named outright: no wire joins an agent to a requests sink.
-  items: [{ ...taskItem("rq1", "Need prod API key to continue", "input-required"), claimedBy: "agent2" }],
+  items: [{ ...taskItem("rq1", "Need prod API key to continue", "input-required"), claimedBy: claimByNodeId("agent2") }],
 });
 
 const artifacts = artifactsNode({ id: "artifacts", x: 1560, y: 320 });
