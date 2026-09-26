@@ -1,0 +1,177 @@
+/**
+ * Settings -> Notifications: whether Junto reaches the operator while it is
+ * in the background, which needs do, and what the Dock shows. Each switch
+ * writes one field through settingsPatch. The test banner is also where
+ * macOS asks for permission, so the question comes when the operator asks
+ * for it, never at launch.
+ */
+import { use$ } from "@legendapp/state/react";
+import { useState } from "react";
+import { AUDIO_ENABLED } from "@shared/features";
+import { notificationSettings, type NotificationPatch } from "@shared/settings";
+import { getJuntoApi } from "../../lib/junto-api";
+import { patchSettings } from "../../lib/settings-state";
+import { state$ } from "../../lib/state";
+import { Button, Switch } from "../ui";
+
+type Kind = "blocked" | "needsYou" | "failed" | "done";
+
+const KINDS: ReadonlyArray<{ readonly key: Kind; readonly title: string; readonly hint: string }> = [
+  { key: "blocked", title: "Blocked", hint: "An agent is stuck and cannot go on without you." },
+  {
+    key: "needsYou",
+    title: "Needs you",
+    hint: "An agent asked a question, wants a decision, or is waiting at a prompt.",
+  },
+  { key: "failed", title: "Stopped", hint: "An agent's process ended with an error." },
+  {
+    key: "done",
+    title: "Finished",
+    hint: "An agent finished and you have not looked yet. These wait a few seconds and arrive together.",
+  },
+];
+
+const save = (patch: NotificationPatch): void => {
+  void patchSettings({ notifications: patch });
+};
+
+function Row({
+  id,
+  title,
+  hint,
+  checked,
+  disabled = false,
+  inset = false,
+  onChange,
+}: {
+  readonly id: string;
+  readonly title: string;
+  readonly hint: string;
+  readonly checked: boolean;
+  readonly disabled?: boolean;
+  readonly inset?: boolean;
+  readonly onChange: (on: boolean) => void;
+}) {
+  const quiet = disabled || !checked;
+  return (
+    <div
+      className={`grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-6 border-b border-stroke py-3.5 ${inset ? "pl-5" : ""}`}
+      data-testid={id}
+      data-on={checked ? "true" : "false"}
+    >
+      <div className="flex min-w-0 flex-col gap-1">
+        <label
+          htmlFor={id}
+          className={`cursor-pointer text-[14px] ${inset ? "font-medium" : "font-semibold"} ${quiet ? "text-dim" : "text-ink"}`}
+        >
+          {title}
+        </label>
+        <p className="m-0 max-w-[58ch] text-[12px] leading-[1.5] text-dim">{hint}</p>
+      </div>
+      <Switch id={id} checked={checked} disabled={disabled} onCheckedChange={onChange} />
+    </div>
+  );
+}
+
+type TestState = { readonly phase: "idle" | "sending" } | { readonly phase: "sent" | "failed"; readonly message: string };
+
+export function NotificationSettingsSection() {
+  const prefs = use$(() => notificationSettings(state$.settings.get()));
+  const [test, setTest] = useState<TestState>({ phase: "idle" });
+  const api = getJuntoApi();
+  const mac = api?.platform === "darwin";
+
+  const sendTest = async (): Promise<void> => {
+    if (!api?.notificationsTest) {
+      setTest({ phase: "failed", message: "This build cannot show notifications." });
+      return;
+    }
+    setTest({ phase: "sending" });
+    const result = await api.notificationsTest().catch(() => ({ ok: false, message: undefined }));
+    setTest(
+      result.ok
+        ? {
+            phase: "sent",
+            message: mac
+              ? "Sent. If nothing appeared, allow Junto in System Settings, under Notifications."
+              : "Sent. If nothing appeared, check your desktop's notification settings.",
+          }
+        : { phase: "failed", message: result.message ?? "The notification could not be shown." },
+    );
+  };
+
+  return (
+    <div className="settings-section" data-testid="settings-notifications-section">
+      <p className="m-0 max-w-[62ch] text-[12px] leading-[1.5] text-dim">
+        When Junto is in the background and an agent needs you, a notification says who and why. Click it
+        to open that agent. While you are looking at Junto, nothing is sent.
+        {AUDIO_ENABLED ? " Each one plays its sound from Sound." : ""}
+      </p>
+
+      <div className="flex flex-col border-t border-stroke">
+        <Row
+          id="notify-master"
+          title="Notifications"
+          hint={prefs.enabled ? "For the kinds below, while Junto is in the background." : "Junto sends none."}
+          checked={prefs.enabled}
+          onChange={(enabled) => save({ enabled })}
+        />
+        {KINDS.map((kind) => (
+          <Row
+            key={kind.key}
+            id={`notify-${kind.key}`}
+            title={kind.title}
+            hint={kind.hint}
+            checked={prefs[kind.key]}
+            disabled={!prefs.enabled}
+            inset
+            onChange={(on) => save({ [kind.key]: on })}
+          />
+        ))}
+      </div>
+
+      {mac ? (
+        <div className="flex flex-col gap-2">
+          <h3 className="m-0 text-[12px] font-semibold text-dim">Dock</h3>
+          <div className="flex flex-col border-t border-stroke">
+            <Row
+              id="notify-badge"
+              title="Badge"
+              hint="How many agents are waiting on you, on the Junto icon. It counts down as you answer."
+              checked={prefs.badge}
+              onChange={(badge) => save({ badge })}
+            />
+            <Row
+              id="notify-bounce"
+              title="Bounce when blocked"
+              hint="The icon bounces once when an agent is blocked."
+              checked={prefs.bounce}
+              disabled={!prefs.enabled || !prefs.blocked}
+              onChange={(bounce) => save({ bounce })}
+            />
+          </div>
+        </div>
+      ) : null}
+
+      <div className="flex flex-wrap items-center gap-3">
+        <Button
+          variant="chrome"
+          size="md"
+          disabled={test.phase === "sending"}
+          onClick={() => void sendTest()}
+          data-testid="notify-test"
+        >
+          Send a test notification
+        </Button>
+        {test.phase === "sent" || test.phase === "failed" ? (
+          <span
+            role="status"
+            className={`text-[12px] leading-[1.5] ${test.phase === "failed" ? "text-ink" : "text-dim"}`}
+          >
+            {test.message}
+          </span>
+        ) : null}
+      </div>
+    </div>
+  );
+}
