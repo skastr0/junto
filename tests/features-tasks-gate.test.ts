@@ -168,7 +168,7 @@ describe("task-surface product gates", () => {
         "src/renderer/components/terminal/TerminalSurface.tsx",
         "utf8",
       );
-      expect(terminalSurface).toContain("claimedTask && TASKS_ENABLED ?");
+      expect(terminalSurface).toContain("claimedTask && TASKS_ENABLED && !grid ?");
       const rtsBottomBar = readFileSync(
         "src/renderer/components/rts/RtsBottomBar.tsx",
         "utf8",
