@@ -21,7 +21,7 @@ import {
 import { resolveManagedLaunch } from "@shared/managed-terminal-launch";
 import { emptySheet } from "@shared/sheet";
 import { isValidStationHostId } from "@shared/station";
-import { AGENT_NODE_SIZE } from "./node-geometry";
+import { AGENT_NODE_SIZE, INSTRUMENT_NODE_SIZE, NOTE_NODE_SIZE } from "./node-geometry";
 
 const requireHostId = (value: string): string => {
   const host = value.trim();
@@ -37,8 +37,7 @@ export const makeTextNode = (x: number, y: number): TextNode => ({
   text: "new note",
   x: Math.round(x),
   y: Math.round(y),
-  width: 240,
-  height: 100,
+  ...NOTE_NODE_SIZE,
 });
 
 /**
@@ -400,8 +399,7 @@ export const makeTerminalNode = (
   text: label,
   x: Math.round(x),
   y: Math.round(y),
-  width: 260,
-  height: 110,
+  ...INSTRUMENT_NODE_SIZE,
   ether: {
     entity: { kind: "terminal" },
     host,
@@ -477,8 +475,7 @@ export const makeGitNode = (
   text: label,
   x: Math.round(x),
   y: Math.round(y),
-  width: 280,
-  height: 128,
+  ...INSTRUMENT_NODE_SIZE,
   ether: {
     entity: { kind: "git" },
     git: { cwd },

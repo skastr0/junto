@@ -1,40 +1,10 @@
-.git-glance {
-  min-height: 0;
-}
-
-.git-glance__meta {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  min-width: 0;
-}
-
+/* The canvas card is an instrument seat (InstrumentSeat); only its line's
+   parts are styled here. */
 .git-glance__branch {
-  font-family: var(--font-mono);
-  font-size: 11px;
   font-weight: 650;
-  letter-spacing: 0.01em;
 }
 
 .git-glance__sync {
-  font-family: var(--font-mono);
-  font-size: 9px;
-  font-variant-numeric: tabular-nums;
-}
-
-.git-glance__commit {
-  min-width: 0;
-}
-
-.git-glance__sha {
-  font-family: var(--font-mono);
-  font-size: 9px;
-  letter-spacing: 0.04em;
-}
-
-.git-glance__loc {
-  font-family: var(--font-mono);
-  font-size: 9px;
   font-variant-numeric: tabular-nums;
 }
 

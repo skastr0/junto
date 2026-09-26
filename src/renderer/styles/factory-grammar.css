@@ -31,6 +31,54 @@
 .junto-node[data-node-kind="agent"][data-occupancy]:not([data-occupancy="parked"]) { outline: none; }
 .junto-node[data-node-kind="agent"][data-seat-attention="true"]::after,
 .junto-node[data-node-kind="agent"][data-attention="fire"]::after { display: none; }
+/* Terminal and git speak the seat's language (InstrumentSeat): a 40px ring
+   around the kind's glyph, the name, one line; half-round left end
+   concentric with the ring. Same rest, hover and selection surfaces as the
+   seat, and the ring owns their status too. */
+.junto-node:is([data-node-kind="terminal"], [data-node-kind="git"]):not([data-bare]) {
+  border-radius: 22px 12px 12px 22px;
+  padding: 1px 10px 1px 1px;
+  border-color: transparent !important;
+  background: color-mix(in oklab, var(--color-ground) 72%, transparent) !important;
+  box-shadow: none !important;
+}
+.junto-node:is([data-node-kind="terminal"], [data-node-kind="git"])[data-occupancy] { outline: none; }
+.junto-node:is([data-node-kind="terminal"], [data-node-kind="git"]):is([data-seat-attention="true"], [data-attention="fire"])::after { display: none; }
+/* A free note is content, so it keeps its size, but wears the seat's
+   surfaces: a wash at rest, a hairline and lift only on hover and selection,
+   and its leading title reads as a seat name, not a stamped plate. */
+.junto-node[data-node-kind="text"]:not([data-bare]) {
+  border-radius: 14px;
+  padding: 10px 12px;
+  border-color: transparent !important;
+  background: color-mix(in oklab, var(--color-ground) 72%, transparent) !important;
+  box-shadow: none !important;
+}
+.junto-node[data-node-kind="text"] .note-md__h--cartouche {
+  margin-bottom: 0.3em;
+  padding-bottom: 0;
+  border-bottom: 0;
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+}
+.react-flow__node:hover .junto-node:is([data-node-kind="terminal"], [data-node-kind="git"], [data-node-kind="text"]):not([data-bare]) {
+  border-color: var(--color-stroke) !important;
+  background: color-mix(in oklab, var(--color-raise) 90%, transparent) !important;
+}
+.react-flow__node.selected .junto-node:is([data-node-kind="terminal"], [data-node-kind="git"], [data-node-kind="text"]):not([data-bare]) {
+  border-color: color-mix(in oklab, var(--color-main) 55%, transparent) !important;
+  background: color-mix(in oklab, var(--color-raise) 94%, transparent) !important;
+  box-shadow: 0 8px 22px var(--color-shadow-2) !important;
+}
+/* The glyph in an instrument's ring: identity in quiet ink; the ring says state. */
+.junto-instrument__glyph {
+  display: grid;
+  place-items: center;
+  color: var(--color-dim);
+}
 /* Overseer identity — indigo, never amber (attention) or crimson (blocker).
    The text chip names the role where there is room (inspector, kind strip,
    focus header); on the canvas the crest alone carries it. */

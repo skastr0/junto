@@ -8,7 +8,7 @@ import {
 import type { ExecutionSnapshot } from "@shared/ipc";
 import { VERB_COLOR_TOKEN, type Verb } from "@shared/physics";
 import { regionStack } from "@shared/graph";
-import { AGENT_NODE_SIZE } from "./node-geometry";
+import { renderedNodeSize } from "./node-geometry";
 import { isGitNode, isLabelNode, nodeTitle, searchText } from "./presentation";
 
 // Z bands. Groups render at GROUP_Z_BASE + nesting depth so a nested region
@@ -178,9 +178,7 @@ export const toFlow = (
     }
     const label = isLabelNode(node);
     const git = isGitNode(node);
-    const visualSize = entityKind(node) === "agent"
-      ? AGENT_NODE_SIZE
-      : { width: node.width, height: node.height };
+    const visualSize = renderedNodeSize(entityKind(node), node);
     const flowNode: FlowNode = {
       id: node.id,
       type: node.type,

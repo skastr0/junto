@@ -19,11 +19,12 @@ import {
 import { getJuntoApi } from "../../lib/junto-api";
 import { renameTerminalNode } from "../../lib/mutations";
 import { ClaimedTaskStrip } from "../nodes/ClaimedTaskStrip";
-import { ExecutionCardHeader } from "../nodes/ExecutionCardHeader";
 import { FirstLineRenameInput } from "../nodes/FirstLineRenameInput";
+import { InstrumentSeat } from "../nodes/InstrumentSeat";
 
 /**
- * Terminal node body — identity + status only.
+ * Terminal node body — identity + status only, in the seat's language:
+ * its glyph in a living ring, the name, one line (InstrumentSeat).
  * Open via double-click or the selection toolbar (TerminalToolbarActions).
  * No Start/Open/Kill buttons on the card.
  * Managed-agent seat state paints attention (amber + !) / working (cyan).
@@ -135,6 +136,8 @@ export function TerminalCard({
   if (native === undefined)
     return <div className="text-[11px] text-dim">unbound terminal</div>;
   const { label, presentation, seatState, subtitle, activity, complete } = status;
+  // One line: what it runs or why it stopped, and where when it is not here.
+  const line = native.hostId === "local" ? subtitle : `${subtitle} on ${native.hostId}`;
   const commitRename = (nextFirst: string) => {
     renameTerminalNode(node.id, nextFirst);
   };
@@ -149,42 +152,32 @@ export function TerminalCard({
       data-process-name={status.processName}
       data-seat-complete={complete ? "true" : undefined}
     >
-      <div className="flex h-full w-full flex-col justify-between overflow-hidden">
-        <ExecutionCardHeader
-          decal={
-            <div className="grid size-7 shrink-0 place-items-center rounded-md border border-amber/25 bg-amber/[0.07] text-amber">
-              <SquareTerminal size={15} />
+      <InstrumentSeat
+        activity={
+          seatState === "attention" && seatEvent?.reason
+            ? { ...activity, label: seatEvent.reason }
+            : activity
+        }
+        glyph={<SquareTerminal size={16} strokeWidth={1.8} />}
+        title={
+          renaming && onRenameDone ? (
+            <FirstLineRenameInput
+              initial={label}
+              ariaLabel="Rename terminal"
+              onCommit={commitRename}
+              onDone={onRenameDone}
+            />
+          ) : (
+            <div className="truncate font-mono text-[13px] font-semibold leading-snug text-ink" title={label}>
+              {label}
             </div>
-          }
-          title={
-            renaming && onRenameDone ? (
-              <FirstLineRenameInput
-                initial={label}
-                ariaLabel="Rename terminal"
-                onCommit={commitRename}
-                onDone={onRenameDone}
-              />
-            ) : (
-              <div
-                className="truncate font-mono text-[14px] font-semibold leading-snug text-ink"
-                title={label}
-              >
-                {label}
-              </div>
-            )
-          }
-          subtitle={subtitle}
-          activity={
-            seatState === "attention" && seatEvent?.reason
-              ? { ...activity, label: seatEvent.reason }
-              : activity
-          }
-        />
-        <div className="mt-1 truncate text-[10px] tabular-nums text-dim">
-          {native.hostId}
-        </div>
+          )
+        }
+        line={line}
+        lineTitle={line}
+      >
         {TASKS_ENABLED ? <ClaimedTaskStrip node={node} /> : null}
-      </div>
+      </InstrumentSeat>
     </div>
   );
 }

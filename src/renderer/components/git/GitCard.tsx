@@ -1,10 +1,11 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState } from "react";
 import { GitBranch } from "lucide-react";
 import type { CanvasNode } from "@shared/canvas";
 import type { GitStatus } from "@shared/git";
-import { DIM, GREEN, HUE, INK } from "../../lib/theme";
+import type { ActivitySpec } from "../../lib/activity";
 import { getJuntoApi } from "../../lib/junto-api";
 import { FirstLineRenameInput } from "../nodes/FirstLineRenameInput";
+import { InstrumentSeat } from "../nodes/InstrumentSeat";
 import { editText } from "../../lib/mutations";
 import "./git.css";
 
@@ -14,14 +15,6 @@ type SinkRenameProps = {
 };
 
 const shortSha = (sha: string): string => sha.slice(0, 7);
-
-function AmberDecal({ children }: { readonly children: ReactNode }) {
-  return (
-    <div className="grid size-7 shrink-0 place-items-center rounded-md border border-amber/25 bg-amber/[0.07] text-amber">
-      {children}
-    </div>
-  );
-}
 
 export function GitCard({
   node,
@@ -73,15 +66,25 @@ export function GitCard({
   const ahead = status?.ahead ?? 0;
   const behind = status?.behind ?? 0;
   const head = status?.head;
+  // Status the seat way: in step rests still, out of step with upstream
+  // breathes cyan, an unreadable folder is the stopped ring.
+  const activity: ActivitySpec = error && !status
+    ? { mode: "static", tone: "steel", glyph: "off", label: error }
+    : ahead > 0 || behind > 0
+      ? { mode: "static", tone: "cyan", glyph: "dot", label: `${String(ahead)} ahead, ${String(behind)} behind upstream` }
+      : { mode: "static", tone: "steel", label: status ? "in step with upstream" : "reading" };
+  const sync = [ahead > 0 ? `↑${String(ahead)}` : "", behind > 0 ? `↓${String(behind)}` : ""].filter(Boolean).join(" ");
+  const lineTitle = head
+    ? `${status?.branch ?? ""} ${shortSha(head.sha)} ${head.subject} (+${String(head.stats?.additions ?? 0)} −${String(head.stats?.deletions ?? 0)})`
+    : error;
 
   return (
-    <div className="factory-glance git-glance flex h-full w-full flex-col overflow-hidden" data-testid="git-card">
-      <div className="factory-glance__header flex items-center gap-2">
-        <AmberDecal>
-          <GitBranch size={15} />
-        </AmberDecal>
-        <div className="min-w-0 flex-1">
-          {renaming && onRenameDone ? (
+    <div className="git-glance h-full w-full" data-testid="git-card">
+      <InstrumentSeat
+        activity={activity}
+        glyph={<GitBranch size={16} strokeWidth={1.8} />}
+        title={
+          renaming && onRenameDone ? (
             <FirstLineRenameInput
               initial={label}
               ariaLabel="Rename git"
@@ -89,51 +92,24 @@ export function GitCard({
               onDone={onRenameDone}
             />
           ) : (
-            <div
-              className="truncate font-mono text-[14px] font-semibold leading-snug"
-              style={{ color: INK }}
-              title={label}
-            >
+            <div className="truncate font-mono text-[13px] font-semibold leading-snug text-ink" title={label}>
               {label}
             </div>
-          )}
-        </div>
-      </div>
-      {error && !status ? (
-        <div className="factory-glance__empty mt-1.5 text-[9px]" style={{ color: DIM }}>
-          {error}
-        </div>
-      ) : (
-        <div className="factory-glance__list mt-1.5 flex min-h-0 flex-1 flex-col gap-0.5 overflow-hidden">
-          <div className="git-glance__meta">
-            <span className="git-glance__branch truncate" style={{ color: INK }}>
-              {status?.branch ?? "—"}
-            </span>
-            <span className="git-glance__sync" style={{ color: DIM }}>
-              ↑{ahead} ↓{behind}
-            </span>
-          </div>
-          {head ? (
-            <>
-              <div className="git-glance__commit truncate text-[10px] leading-snug" style={{ color: INK }}>
-                <span className="git-glance__sha" style={{ color: DIM }}>
-                  {shortSha(head.sha)}
-                </span>{" "}
-                {head.subject}
-              </div>
-              <div className="git-glance__loc" data-testid="git-glance-loc">
-                <span style={{ color: GREEN }}>+{head.stats?.additions ?? 0}</span>
-                {" "}
-                <span style={{ color: HUE.orange }}>−{head.stats?.deletions ?? 0}</span>
-              </div>
-            </>
+          )
+        }
+        lineTitle={lineTitle}
+        line={
+          error && !status ? (
+            error
           ) : (
-            <div className="factory-glance__empty text-[9px]" style={{ color: DIM }}>
-              no commits
-            </div>
-          )}
-        </div>
-      )}
+            <>
+              <span className="git-glance__branch text-ink">{status?.branch ?? "reading"}</span>
+              {sync ? <span className="git-glance__sync text-cyan"> {sync}</span> : null}
+              {head ? <span> {head.subject}</span> : status ? <span> no commits</span> : null}
+            </>
+          )
+        }
+      />
     </div>
   );
 }

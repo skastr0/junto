@@ -77,6 +77,7 @@ import { SheetCard } from "../sheet/SheetCard";
 import { SheetDetail } from "../sheet/SheetDetail";
 import { PadDetail } from "../pad/PadDetail";
 import { GitCard } from "../git/GitCard";
+import { INSTRUMENT_KINDS } from "../../lib/node-geometry";
 import { GitDetail } from "../git/GitDetail";
 import { TaskToolbarActions } from "../work/TaskToolbarActions";
 import { ClaimedTaskStrip } from "./ClaimedTaskStrip";
@@ -564,7 +565,7 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
       selected={selected}
       blocked={data.blocked}
       onMaximize={isFreeNote && !isLabel ? openMaximized : undefined}
-      resizable={!isAgent}
+      resizable={!isAgent && !INSTRUMENT_KINDS.has(entityKind ?? "")}
       showHandles={!isLabel && !isGitNode(node)}
       bare={isLabel}
       toolbar={isLabel ? "minimal" : "full"}
