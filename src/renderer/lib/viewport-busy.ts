@@ -17,12 +17,10 @@
 // one hold window, then froze it again, which read as the whole board
 // strobing while the operator panned.
 //
-// Rendering policy is decoupled from this gate: the viewport's compositor
-// promotion (the ViewportTransformLease animation) is STABLE for the canvas
-// mount lifetime. Toggling promotion on these busy boundaries promoted and
-// de-promoted the layer — each flip re-rastered the visible canvas and read
-// as content popping out. (No will-change hint either: it pins raster scale,
-// see styles.css.)
+// Rendering policy is decoupled from this gate: the viewport is never
+// composited (see styles.css). Toggling promotion on these busy boundaries
+// once promoted and de-promoted the layer — each flip re-rastered the visible
+// canvas and read as content popping out.
 //
 // The marker lives on <html>, not on the ReactFlow root: React rewrites the
 // root's className on every canvas render (seat state, selection, mail), and a

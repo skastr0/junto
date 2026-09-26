@@ -1340,15 +1340,24 @@ html[data-junto-platform="darwin"] .station-bar [role="listbox"] {
   }
 }
 
-/* No will-change on `.react-flow__viewport`. The camera is already on the
-   compositor: ViewportTransformLease gives the viewport a paused Web
-   Animation, which promotes it for the canvas-mount lifetime without a
-   hint. `will-change: transform` on top of that pinned cc's raster scale at
-   native (1) or above: zoomed out to 0.15, every layer under the camera was
-   rastered at about 44 times the pixels on screen, the tile set outgrew the
-   GPU tile budget, and whole tiles went unpainted and flapped (blank
-   rectangles in regions, the pane gradient showing through). Without the
-   hint, raster scale follows the zoom (canvas-raster-scale.spec.ts). */
+/* `.react-flow__viewport` is not composited: no will-change, no transform
+   animation. Both were tried, and both starved GPU tile memory, which is
+   what the operator saw as flicker (blank rectangles in regions, fills cut
+   at tile edges, the pane gradient showing through):
+
+   - will-change: transform pinned cc's raster scale at native (1). Zoomed
+     out to 0.15, every layer under the camera was rastered at about 44
+     times the pixels on screen and the tile set outgrew the 852 MB budget.
+   - A paused Web Animation owning the transform (ViewportTransformLease)
+     kept pans on the compositor, but split everything under the camera into
+     hundreds of overlap layers (809 on the nested stress board); a near pan
+     starved tiles and fell to 67 fps.
+
+   Uncomposited, the board is about a dozen layers rastered at the zoom it
+   is seen at, and a pan repaints on the main thread instead: 120 fps with
+   no missing tiles on the nested board and the operator's FACTORY copy, for
+   about 3 ms of main thread per frame. canvas-raster-scale.spec.ts and
+   canvas-tier-budget.spec.ts hold both lines. */
 
 /* --- React Flow surface, restyled for the canvas ground ---------------- */
 .react-flow {

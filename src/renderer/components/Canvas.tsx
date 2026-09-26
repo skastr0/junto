@@ -111,7 +111,6 @@ import { CanvasMagnifier } from "./CanvasMagnifier";
 import { CanvasKeyboardPan } from "./CanvasKeyboardPan";
 import { RegionGlanceGate } from "./RegionGlanceGate";
 import { CanvasTierGate } from "./CanvasTierGate";
-import { ViewportTransformLease } from "./ViewportTransformLease";
 import { FactoryMinimap } from "./FactoryMinimap";
 import { canvasPerformance } from "../lib/performance/canvas-performance";
 import { PERF_ENABLED } from "../lib/performance/perf-flag";
@@ -1745,11 +1744,10 @@ function CanvasGraph() {
       proOptions={{ hideAttribution: true }}
       style={{ background: fieldTheme.ground }}
     >
-      {/* No painted ground pattern: any pattern inside the composited viewport
-          pays per-tile raster on every pan frame (see styles.css note above the
-          busy gate); React Flow's <Background> re-rendered a full-window SVG
-          pattern per viewport change, which was worse. Flat ground wins. */}
-      <ViewportTransformLease />
+      {/* No painted ground pattern: any pattern under the camera pays raster
+          on every pan frame (see styles.css note above the busy gate); React
+          Flow's <Background> re-rendered a full-window SVG pattern per
+          viewport change, which was worse. Flat ground wins. */}
       <CanvasLoom edges={edges} />
       <WirePulseFeed edges={edges} />
       <CanvasMagnifier />
