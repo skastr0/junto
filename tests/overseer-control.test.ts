@@ -135,7 +135,7 @@ describe("overseer command contract", () => {
     succeeds(
       decodeOverseerArgs("node.configure", {
         nodeId: "agent-2",
-        changes: { ether: { flags: ["attention"], watch: null } },
+        changes: { ether: { watch: null } },
       }),
     );
     fails(
