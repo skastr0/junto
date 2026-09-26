@@ -11,12 +11,14 @@ import {
   PortraitsSettings,
   KernelSettings,
   LiveSettings,
+  NotificationSettings,
   ProvidersSettings,
   SETTINGS_VERSION,
   SettingsError,
   StationSettings,
   TerminalSettings,
   defaultFeed,
+  defaultNotifications,
   defaultHarnesses,
   defaultLive,
   defaultProviders,
@@ -69,6 +71,8 @@ export const StoredSettingsPreferences = Schema.Struct({
   live: Schema.optionalKey(LiveSettings),
   /** Absent on rows written before quick replies; resolves to the defaults. */
   feed: Schema.optionalKey(FeedSettings),
+  /** Absent on rows written before desktop notifications; resolves to the defaults. */
+  notifications: Schema.optionalKey(NotificationSettings),
   /** Absent on rows written before the Providers settings surface. */
   providers: Schema.optionalKey(ProvidersSettings),
   /**
@@ -129,6 +133,7 @@ export const preferencesFromSettings = (
   terminal: settings.terminal ?? defaultTerminal(),
   live: settings.live ?? defaultLive(),
   feed: settings.feed ?? defaultFeed(),
+  notifications: settings.notifications ?? defaultNotifications(),
   providers: persistableProviders(settings.providers, options),
   ...(settings.portraits ? { portraits: settings.portraits } : {}),
 });
@@ -200,6 +205,7 @@ export const decodeStoredSettings = (
     terminal: prefs.terminal ?? defaultTerminal(),
     live: prefs.live ?? defaultLive(),
     feed: prefs.feed ?? defaultFeed(),
+    notifications: prefs.notifications ?? defaultNotifications(),
     providers: prefs.providers ?? defaultProviders(),
     ...(prefs.portraits ? { portraits: prefs.portraits } : {}),
     station: decodedTopology.success,

@@ -512,6 +512,47 @@ export const feedSettings = (settings: Settings | undefined): FeedSettings =>
   settings?.feed ?? defaultFeed();
 
 /**
+ * Desktop notifications: native banners while Junto is in the background,
+ * one switch per kind of need, the Dock badge, and a Dock bounce for a
+ * blocked seat. `enabled` is the master switch for banners; the badge has
+ * its own.
+ */
+export const NotificationSettings = Schema.Struct({
+  enabled: Schema.Boolean,
+  blocked: Schema.Boolean,
+  needsYou: Schema.Boolean,
+  done: Schema.Boolean,
+  failed: Schema.Boolean,
+  badge: Schema.Boolean,
+  bounce: Schema.Boolean,
+});
+export type NotificationSettings = typeof NotificationSettings.Type;
+
+export const NotificationPatch = Schema.Struct({
+  enabled: Schema.optionalKey(Schema.Boolean),
+  blocked: Schema.optionalKey(Schema.Boolean),
+  needsYou: Schema.optionalKey(Schema.Boolean),
+  done: Schema.optionalKey(Schema.Boolean),
+  failed: Schema.optionalKey(Schema.Boolean),
+  badge: Schema.optionalKey(Schema.Boolean),
+  bounce: Schema.optionalKey(Schema.Boolean),
+});
+export type NotificationPatch = typeof NotificationPatch.Type;
+
+export const defaultNotifications = (): NotificationSettings => ({
+  enabled: true,
+  blocked: true,
+  needsYou: true,
+  done: true,
+  failed: true,
+  badge: true,
+  bounce: true,
+});
+
+export const notificationSettings = (settings: Settings | undefined): NotificationSettings =>
+  settings?.notifications ?? defaultNotifications();
+
+/**
  * Typed lines -> the list to store: trimmed, inner whitespace collapsed,
  * empties and repeats (case-insensitive) dropped, clipped to the bounds.
  */
@@ -753,6 +794,8 @@ export const Settings = Schema.Struct({
   live: Schema.optionalKey(LiveSettings),
   /** Absent on rows written before quick replies; absent means the defaults. */
   feed: Schema.optionalKey(FeedSettings),
+  /** Absent on rows written before desktop notifications; absent means the defaults. */
+  notifications: Schema.optionalKey(NotificationSettings),
   /**
    * Optional so rows written before the Providers settings surface still
    * decode. Absent ≡ nothing operator-configured; consumers fall back to env
@@ -942,6 +985,7 @@ export const SettingsPatch = Schema.Struct({
   terminal: Schema.optionalKey(TerminalPatch),
   live: Schema.optionalKey(LivePatch),
   feed: Schema.optionalKey(FeedPatch),
+  notifications: Schema.optionalKey(NotificationPatch),
   providers: Schema.optionalKey(ProvidersPatch),
 });
 export type SettingsPatch = typeof SettingsPatch.Type;
@@ -957,6 +1001,7 @@ export const SettingsSectionKey = Schema.Literals(["appearance", "canvas",
 "terminal",
 "live",
 "feed",
+"notifications",
 "providers",]);
 export type SettingsSectionKey = typeof SettingsSectionKey.Type;
 
@@ -1120,6 +1165,7 @@ export const defaultSettings = (): Settings => ({
   terminal: defaultTerminal(),
   live: defaultLive(),
   feed: defaultFeed(),
+  notifications: defaultNotifications(),
   providers: defaultProviders(),
 });
 
@@ -1149,6 +1195,8 @@ export const defaultSection = (key: SettingsSectionKey): Settings[SettingsSectio
       return defaultLive();
     case "feed":
       return defaultFeed();
+    case "notifications":
+      return defaultNotifications();
     case "providers":
       return defaultProviders();
   }
@@ -1269,6 +1317,12 @@ export const applySettingsPatch = (current: Settings, patch: SettingsPatch): Set
     next = {
       ...next,
       live: mergeSection(liveSettings(next), patch.live),
+    };
+  }
+  if (patch.notifications) {
+    next = {
+      ...next,
+      notifications: mergeSection(notificationSettings(next), patch.notifications),
     };
   }
   if (patch.feed?.quickReplies !== undefined) {
