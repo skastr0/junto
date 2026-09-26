@@ -284,6 +284,11 @@ Desktop: Settings > Companion > Pair a phone.
      "expiresAt": 1790000600000 }
    ```
 
+   Next to the QR, **Copy link** copies the same `junto-companion://pair?d=`
+   URL, for pasting on the phone (Universal Clipboard) when scanning is not
+   possible. It carries the same one-time key with the same expiry. Junto
+   clears the clipboard when that pairing completes or expires, if the
+   clipboard still holds the link.
 3. The phone tries `hosts` in order, pins `hostKey` (it must match exactly,
    no trust-on-first-use), and authenticates with `pairingKey`.
 4. First request on that connection must be `pair.complete`
