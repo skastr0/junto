@@ -56,6 +56,7 @@ import {
   seatCollaborationUi$,
 } from "../../lib/seat-collaboration";
 import { TerminalToolbarActions } from "../terminal/TerminalToolbarActions";
+import { CustomizeAgentToolbarAction } from "../agent-editor/AgentEditor";
 import { AgentChatToolbarActions } from "../chat/AgentChatToolbarActions";
 import { FirstLineRenameInput } from "./FirstLineRenameInput";
 import { claimFocus } from "../../lib/focus-ownership";
@@ -573,9 +574,15 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
       onHoverLeave={seatNode ? closeOnLeave : undefined}
       toolbarExtras={
         managedTerminal ? (
-          <TerminalToolbarActions node={node} />
-        ) : isAgent && !ACP_CHAT_SURFACE_HIDDEN ? (
-          <AgentChatToolbarActions node={node} />
+          <>
+            {isAgent ? <CustomizeAgentToolbarAction seatId={node.id} /> : null}
+            <TerminalToolbarActions node={node} />
+          </>
+        ) : isAgent ? (
+          <>
+            <CustomizeAgentToolbarAction seatId={node.id} />
+            {ACP_CHAT_SURFACE_HIDDEN ? null : <AgentChatToolbarActions node={node} />}
+          </>
         ) : entityKind === "task" && TASKS_ENABLED ? (
           <TaskToolbarActions node={node} />
         ) : isCron ? (

@@ -8,7 +8,7 @@ import { clearSelection, state$ } from "../lib/state";
 import { DIM, GREEN, HUE, INK, withAlpha } from "../lib/theme";
 import { nodeDetail, nodeTitle, nodeTypeLabel } from "../lib/presentation";
 import { SeatRing } from "./SeatRing";
-import { PortraitEditButton } from "./portrait/PortraitEditor";
+import { CustomizeAgentButton } from "./agent-editor/AgentEditor";
 import { OverseerMark } from "./OverseerMark";
 import { isOverseerSeat } from "../lib/overseer-set";
 import { NoteMarkdown } from "../lib/note-markdown";
@@ -45,9 +45,9 @@ function AgentSeatSection({ node }: { readonly node: CanvasNode }) {
     <div className="inspector-section" data-overseer={overseer ? "true" : undefined}>
       <div className="inspector-section__label">seat</div>
       <div className="mt-2 flex items-center gap-2.5">
-        <PortraitEditButton identity={node.id} name={nodeTitle(node)} harness={managed ? harness : undefined}>
+        <CustomizeAgentButton identity={node.id} name={nodeTitle(node)} hint>
           <SeatRing node={node} px={48} />
-        </PortraitEditButton>
+        </CustomizeAgentButton>
         <div className="min-w-0 flex-1">
           <div className="truncate text-[12px]" style={{ color: INK }} title={nodeTitle(node)}>
             {nodeTitle(node)}

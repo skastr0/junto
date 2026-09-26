@@ -17,7 +17,7 @@ import type { Connection, EdgeMouseHandler, FinalConnectionState, Node, OnNodeDr
 import { use$ } from "@legendapp/state/react";
 import type { CanvasDoc, EtherEdgeKind } from "@shared/canvas";
 import { executionGraphContextFromActorRefs } from "@shared/graph";
-import { Activity, Boxes, Expand, LayoutGrid, Link2, OctagonX, Plus, ScanLine, SquareDashed, Trash2, Unlink, Users, X } from "lucide-react";
+import { Activity, Boxes, Expand, LayoutGrid, Link2, OctagonX, Pencil, Plus, ScanLine, SquareDashed, Trash2, Unlink, UserRoundPen, Users, X } from "lucide-react";
 import {
   clearSelection,
   replaceSelection,
@@ -51,7 +51,8 @@ import { isCommandCenterAuthoring } from "../lib/canvas-boot";
 import { AGENT_NODE_SIZE } from "../lib/node-geometry";
 import { addNode, deleteNodes } from "../lib/mutations";
 import { addEdge, connectAllToTarget, connectAllowed, connectMesh, deleteEdges, disconnectWithin, edgeIdsWithin, planConnectMesh } from "../lib/edge-mutations";
-import { agentCountLabel, agentSeatIds } from "../lib/multi-selection";
+import { agentCountLabel, agentSeatIds, isAgentSeatNode } from "../lib/multi-selection";
+import { openAgentEditor } from "../lib/agent-editor-state";
 import { broadcastMenuHint, broadcastToSelection, planAgentBroadcast } from "../lib/agent-broadcast";
 import { AGENT_BROADCAST_PROMPTS, type AgentBroadcastKind } from "@shared/agent-broadcast-prompts";
 import { placeAtPoint, placeBesideRect, type ScreenRect } from "../lib/menu-placement";
@@ -1094,6 +1095,43 @@ function MultiSelectMenu({ anchor, onClose }: { readonly anchor: MultiMenuAnchor
   );
 }
 
+// Right-click on one agent seat: the customize-agent editor, whole or at its
+// name. The editor opens beside the seat.
+function SeatMenu({ at, seatId, onClose }: {
+  readonly at: { readonly x: number; readonly y: number };
+  readonly seatId: string;
+  readonly onClose: () => void;
+}) {
+  useMenuDismiss(true, onClose);
+  const hostRef = useRef<HTMLDivElement>(null);
+  const [position, setPosition] = useState<{ readonly x: number; readonly y: number } | null>(null);
+  useLayoutEffect(() => {
+    const host = hostRef.current;
+    if (!host) return;
+    setPosition(placeAtPoint(at, { width: host.offsetWidth, height: host.offsetHeight }, { width: window.innerWidth, height: window.innerHeight }));
+  }, [at]);
+  const open = (section: string) => () => {
+    onClose();
+    openAgentEditor(seatId, { section });
+  };
+  const entries: ReadonlyArray<MultiMenuEntry> = [
+    { key: "customize", label: "customize character", detail: "look, mood, name", ariaLabel: "Customize character", icon: <UserRoundPen size={14} />, onSelect: open("look") },
+    { key: "rename", label: "rename", ariaLabel: "Rename agent", icon: <Pencil size={14} />, onSelect: open("name") },
+  ];
+  return (
+    <div
+      ref={hostRef}
+      className="canvas-action-menu-host"
+      data-canvas-menu-surface
+      style={{ position: "fixed", left: position?.x ?? 0, top: position?.y ?? 0, zIndex: 40, visibility: position ? "visible" : "hidden" }}
+    >
+      <div className="canvas-action-menu" role="menu" aria-label="Agent actions" data-testid="seat-menu">
+        {entries.map((entry) => <MultiMenuRow key={entry.key} entry={entry} />)}
+      </div>
+    </div>
+  );
+}
+
 // Multi-select (or single source) + RMB on a non-selected target: offer
 // "Connect all → target". Soft relates; direction selected → target.
 function TargetConnectMenu({
@@ -1381,6 +1419,7 @@ function CanvasGraph() {
     };
   }, []);
   const [multiMenu, setMultiMenu] = useState<MultiMenuAnchor | null>(null);
+  const [seatMenu, setSeatMenu] = useState<{ readonly x: number; readonly y: number; readonly seatId: string } | null>(null);
   const [connectMenu, setConnectMenu] = useState<{
     readonly x: number;
     readonly y: number;
@@ -1392,16 +1431,25 @@ function CanvasGraph() {
     setCtxMenu(null);
     setMultiMenu(null);
     setConnectMenu(null);
+    setSeatMenu(null);
   }, []);
   const openContextMenu = useCallback((at: { x: number; y: number }) => {
     setMultiMenu(null);
     setConnectMenu(null);
+    setSeatMenu(null);
     setCtxMenu(at);
+  }, []);
+  const openSeatMenu = useCallback((at: { x: number; y: number }, seatId: string) => {
+    setCtxMenu(null);
+    setMultiMenu(null);
+    setConnectMenu(null);
+    setSeatMenu({ ...at, seatId });
   }, []);
   const closeMultiMenu = useCallback(() => setMultiMenu(null), []);
   const openMultiMenu = useCallback((anchor: MultiMenuAnchor) => {
     setCtxMenu(null);
     setConnectMenu(null);
+    setSeatMenu(null);
     setMultiMenu(anchor);
   }, []);
   const openConnectMenu = useCallback((
@@ -1411,6 +1459,7 @@ function CanvasGraph() {
   ) => {
     setCtxMenu(null);
     setMultiMenu(null);
+    setSeatMenu(null);
     setConnectMenu({ ...at, targetId, sourceIds });
   }, []);
   const onPaneContextMenu = useCallback((event: React.MouseEvent | MouseEvent) => {
@@ -1447,10 +1496,16 @@ function CanvasGraph() {
       openMultiMenu({ kind: "point", x: event.clientX, y: event.clientY });
       return;
     }
+    const seat = node.data?.node;
+    if (seat && isAgentSeatNode(seat)) {
+      event.preventDefault();
+      openSeatMenu({ x: event.clientX, y: event.clientY }, seat.id);
+      return;
+    }
     if (!isGroup) return;
     event.preventDefault();
     openContextMenu({ x: event.clientX, y: event.clientY });
-  }, [rf, openContextMenu, openMultiMenu, openConnectMenu, closeMenus]);
+  }, [rf, openContextMenu, openMultiMenu, openConnectMenu, openSeatMenu, closeMenus]);
   // Right-click on the rubber-band selection itself (not a single node).
   const onSelectionContextMenu = useCallback((event: React.MouseEvent) => {
     event.preventDefault();
@@ -1685,6 +1740,7 @@ function CanvasGraph() {
     </ReactFlow>
     {ctxMenu ? <ContextModeDeck at={ctxMenu} onClose={() => setCtxMenu(null)} /> : null}
     {multiMenu ? <MultiSelectMenu anchor={multiMenu} onClose={closeMultiMenu} /> : null}
+    {seatMenu ? <SeatMenu at={seatMenu} seatId={seatMenu.seatId} onClose={() => setSeatMenu(null)} /> : null}
     <SquadDialogHost />
     {connectMenu ? (
       <TargetConnectMenu

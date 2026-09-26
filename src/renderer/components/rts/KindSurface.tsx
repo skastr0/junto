@@ -47,6 +47,7 @@ import {
 import { FocusSurface } from "../FocusSurface";
 import { OverlayHeader, IconButton } from "../ui";
 import { SeatRing } from "../SeatRing";
+import { CustomizeAgentButton } from "../agent-editor/AgentEditor";
 import { OverseerMark } from "../OverseerMark";
 import { isOverseerSeat } from "../../lib/overseer-set";
 import { WaitingOnSection } from "../WaitingOnSection";
@@ -80,7 +81,9 @@ function AgentSeatGlance({ node }: { readonly node: CanvasNode }) {
   const overseer = isOverseerSeat(node);
   return (
     <div className="rts-kind-id" title={nodeTitle(node)} data-overseer={overseer ? "true" : undefined}>
-      <SeatRing node={node} px={44} />
+      <CustomizeAgentButton identity={node.id} name={nodeTitle(node)} hint>
+        <SeatRing node={node} px={44} />
+      </CustomizeAgentButton>
       <div className="rts-kind-id__text">
         <div className="rts-kind-id__name">{nodeTitle(node)}</div>
         <div className="rts-kind-id__live">{managed ? harness : "agent seat"}</div>

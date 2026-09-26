@@ -55,6 +55,7 @@ import { DigestPanel } from "./components/DigestPanel";
 import { OperatorFeedHost } from "./components/feed/OperatorFeed";
 import { DesktopNotificationsHost } from "./lib/desktop-notify";
 import { StoreHost } from "./overlay/surfaces";
+import { AgentEditorHost } from "./components/agent-editor/AgentEditor";
 import { ObservabilityPanel } from "./components/ObservabilityPanel";
 import {
   FLEET_UI_ENABLED,
@@ -590,6 +591,7 @@ export function App() {
         <OperatorFeedHost />
         <DesktopNotificationsHost />
         <StoreHost />
+        <AgentEditorHost />
         <ObservabilityPanel />
         {/* Mount fleet only while open — unmount destroys every WebGL machine. */}
         {FLEET_UI_ENABLED && isCommandCenterFleetUi(stationRole) && fleetOpen ? (

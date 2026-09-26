@@ -11,6 +11,7 @@ import {
   Mic,
   Package,
   Pencil,
+  UserRoundPen,
   PenLine,
   Table,
   Plus,
@@ -49,6 +50,7 @@ import { ACP_CHAT_SURFACE_HIDDEN } from "@shared/legacy-surfaces";
 import { resolveTerminalBinding } from "@shared/terminal";
 import { openAgentChatSurface, openDockBrowser, openTaskCreateSurface } from "../../lib/dock-state";
 import { openTerminal } from "../../lib/terminal-actions";
+import { openAgentEditor } from "../../lib/agent-editor-state";
 import { deleteEdges } from "../../lib/edge-mutations";
 import { hostOf, nodeTitle } from "../../lib/presentation";
 import { browser$ } from "../../lib/browser-state";
@@ -94,7 +96,7 @@ export function KindKey({
   readonly style?: React.CSSProperties;
   readonly testId?: string;
   readonly data?: Readonly<Record<string, string>>;
-  readonly onClick?: () => void;
+  readonly onClick?: (event: React.MouseEvent<HTMLButtonElement>) => void;
   readonly children: ReactNode;
 }) {
   return (
@@ -449,6 +451,16 @@ export function KindActions({ node }: { readonly node: CanvasNode }) {
           <Pencil size={ICON} />
         </KindKey>
       );
+      const customize = (
+        <KindKey
+          label="Customize character"
+          title="Customize character (look, mood, name)"
+          testId="rts-customize-agent"
+          onClick={(event) => openAgentEditor(node.id, { anchor: event.currentTarget })}
+        >
+          <UserRoundPen size={ICON} />
+        </KindKey>
+      );
       if (terminalBound) {
         return (
           <>
@@ -467,6 +479,7 @@ export function KindActions({ node }: { readonly node: CanvasNode }) {
               testId="rts-overseer-live"
               onClick={() => openOverseerLive({ canvasName: state$.canvasName.peek(), nodeId: node.id, title: nodeTitle(node) })}
             ><Mic size={ICON} /></KindKey>}
+            {customize}
             {rename}
           </>
         );
@@ -475,6 +488,7 @@ export function KindActions({ node }: { readonly node: CanvasNode }) {
         return (
           <>
             <OverseerToggleKey node={node} />
+            {customize}
             {rename}
           </>
         );
@@ -489,6 +503,7 @@ export function KindActions({ node }: { readonly node: CanvasNode }) {
             <MessageSquareText size={ICON} />
           </KindKey>
           <OverseerToggleKey node={node} />
+          {customize}
           {rename}
         </>
       );

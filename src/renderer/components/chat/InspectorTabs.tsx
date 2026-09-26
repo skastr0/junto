@@ -16,14 +16,17 @@ export function InspectorTabs({
   tabs,
   active,
   onSelect,
+  label = "Inspector sections",
 }: {
   readonly tabs: ReadonlyArray<InspectorTab>;
   readonly active: string;
   readonly onSelect: (id: string) => void;
+  /** Accessible name of the tab row. */
+  readonly label?: string;
 }) {
   if (tabs.length === 0) return null;
   return (
-    <div role="tablist" aria-label="Inspector sections" className="flex items-center gap-0.5" style={{ borderBottom: "1px solid var(--color-overlay-4)" }}>
+    <div role="tablist" aria-label={label} className="flex items-center gap-0.5" style={{ borderBottom: "1px solid var(--color-overlay-4)" }}>
       {tabs.map((tab) => {
         const isActive = tab.id === active;
         return (
