@@ -32,6 +32,48 @@ const nodes = seats.map(([id, label, harness], index) =>
   }),
 );
 
+/**
+ * Seat states are not in the canvas document either: main broadcasts them.
+ * planner works; builder finished a turn nobody has read (done); scout is
+ * resting; docs waits on the operator (declared escalate); tester asks for
+ * review (declared feedback); the reviewer overseer works.
+ */
+const seatEvents = (at: number) => {
+  const event = (id: string, state: string, offset: number) => ({
+    bindingId: `local:e2e-seat-${id}`,
+    epoch: "e2e",
+    state,
+    reason: state === "idle" ? "rule:empty_prompt_idle" : "rule:osc_title_working",
+    confidence: "high",
+    at: at + offset,
+  });
+  return [
+    event("planner", "working", 0),
+    event("reviewer", "working", 0),
+    event("builder", "working", 0),
+    event("builder", "idle", 1),
+    event("scout", "idle", 0),
+    event("docs", "idle", 0),
+    event("tester", "idle", 0),
+  ];
+};
+
+const signalEvents = (at: number) =>
+  (
+    [
+      ["docs", "escalate", "two specs disagree on ids"],
+      ["tester", "feedback", "draft ready, worth a look"],
+    ] as const
+  ).map(([nodeId, kind, text]) => ({
+    signalId: `e2e-${nodeId}`,
+    canvasName: "seat-rings",
+    nodeId,
+    kind,
+    text,
+    createdAt: at,
+    state: "open",
+  }));
+
 const fixture = canvasDoc(nodes, [
   verbEdge("e-planner-builder", "planner", "builder", "messages", nodes),
   verbEdge("e-reviewer-planner", "reviewer", "planner", "reviews", nodes),
@@ -43,6 +85,50 @@ test("agent seats and their connection cards hold portraits in rings; the galler
   try {
     const { page } = junto;
     await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
+    await expect(page.locator('.react-flow__node[data-id="planner"]')).toBeVisible({ timeout: 30_000 });
+    // The reviewer holds the overseer grant (only the human seam mints it):
+    // its ring wears the crest.
+    await page.evaluate(async () => {
+      const api = (
+        globalThis as unknown as {
+          readonly junto: {
+            readonly readCanvas: (name: string) => Promise<{ revision: string }>;
+            readonly canvasOverseerSet: (input: {
+              canvasName: string;
+              nodeId: string;
+              overseer: boolean;
+              expectedRevision: string;
+            }) => Promise<unknown>;
+          };
+        }
+      ).junto;
+      const current = await api.readCanvas("seat-rings");
+      await api.canvasOverseerSet({
+        canvasName: "seat-rings",
+        nodeId: "reviewer",
+        overseer: true,
+        expectedRevision: current.revision,
+      });
+    });
+    const stagedAt = Date.now();
+    await junto.app.evaluate(
+      ({ BrowserWindow }, { seatsNow, signalsNow }) => {
+        for (const window of BrowserWindow.getAllWindows()) {
+          for (const event of seatsNow) window.webContents.send("junto:agent-seat-state-changed", event);
+          for (const event of signalsNow) window.webContents.send("junto:agent-signal", event);
+        }
+      },
+      { seatsNow: seatEvents(stagedAt), signalsNow: signalEvents(stagedAt) },
+    );
+    // Every seat in frame: the canvas only mounts nodes in view.
+    await page.getByRole("button", { name: /fit all/i }).first().click();
+    await page.waitForTimeout(400);
+    const ring = (id: string) => page.locator(`.react-flow__node[data-id="${id}"] .junto-mark[data-mark-size="seat"]`);
+    await expect(ring("builder")).toHaveAttribute("data-mark-ring", "done", { timeout: 10_000 });
+    await expect(ring("docs")).toHaveAttribute("data-mark-ring", "wait", { timeout: 10_000 });
+    await expect(ring("scout")).toHaveAttribute("data-mark-ring", "rest");
+    await expect(page.locator('.react-flow__node[data-id="reviewer"]').getByTestId("overseer-crest")).toBeVisible();
+    await expect(page.locator('.react-flow__node[data-id="planner"]').getByTestId("overseer-crest")).toHaveCount(0);
     for (const mode of ["dark", "bright"] as const) {
       await page.getByRole("button", { name: "Open settings" }).click();
       await page.locator(".settings-nav__item", { hasText: "Appearance" }).click();
@@ -60,6 +146,11 @@ test("agent seats and their connection cards hold portraits in rings; the galler
       await expect(seat.locator('.junto-mark[data-mark-size="seat"] .agent-portrait img')).toBeVisible();
       await page.waitForTimeout(600);
       await page.locator(".react-flow").screenshot({ path: join(SHOTS, `app-${mode}-canvas.png`) });
+      // Motion, frame by frame: the canvas at four instants a third of a lap apart.
+      for (let frame = 0; frame < 4; frame += 1) {
+        await page.locator(".react-flow").screenshot({ path: join(SHOTS, `app-${mode}-motion-${String(frame)}.png`) });
+        await page.waitForTimeout(330);
+      }
       await planner.screenshot({ path: join(SHOTS, `app-${mode}-seat.png`) });
       // Chrome appears only on selection (and hover).
       await planner.click();
@@ -82,6 +173,19 @@ test("agent seats and their connection cards hold portraits in rings; the galler
       await focus.locator("header").getByRole("button", { name: "Close view", exact: true }).first().click();
       await expect(focus).toBeHidden({ timeout: 10_000 });
     }
+    // Done until read: opening the builder's focus view acknowledges it.
+    await expect(ring("builder")).toHaveAttribute("data-mark-ring", "done");
+    await expect(page.locator('.react-flow__node[data-id="builder"]').getByTestId("agent-seat-line")).toHaveText(
+      "done, not read yet",
+    );
+    await page.locator('.react-flow__node[data-id="builder"]').dblclick();
+    const builderFocus = page.locator('[data-focus-surface="1"]');
+    await expect(builderFocus).toBeVisible({ timeout: 20_000 });
+    await builderFocus.locator("header").getByRole("button", { name: "Close view", exact: true }).first().click();
+    await expect(builderFocus).toBeHidden({ timeout: 10_000 });
+    await expect(ring("builder")).toHaveAttribute("data-mark-ring", "rest", { timeout: 10_000 });
+    await page.locator('.react-flow__node[data-id="builder"]').screenshot({ path: join(SHOTS, "app-builder-read.png") });
+
     // A clean view: nothing selected, every seat in frame.
     await page.locator(".react-flow__pane").click({ position: { x: 20, y: 20 } });
     await page.getByRole("button", { name: /fit all/i }).first().click();
@@ -94,7 +198,7 @@ test("agent seats and their connection cards hold portraits in rings; the galler
       { nodeId: "builder", text: "thrashing", provenance: "ai", action: "health", tone: "amber" },
       { nodeId: "reviewer", text: "blocked: needs the prod DB password", provenance: "agent", action: "signal", tone: "crimson" },
       { nodeId: "scout", text: "claimed a task", provenance: "agent", action: "tool", tone: "indigo" },
-      { nodeId: "docs", text: "done, ready for review", provenance: "system", action: "state", tone: "green" },
+      { nodeId: "docs", text: "done, not read yet", provenance: "system", action: "state", tone: "green" },
       { nodeId: "tester", text: "mail from planner: rebase is done", provenance: "agent", action: "mail-in", tone: "violet" },
     ].map((fields, i) => ({ preambleId: `stage-${String(i)}`, canvasName: "seat-rings", expiresAt: now + 60_000, ...fields }));
     await junto.app.evaluate(({ BrowserWindow }, events) => {
