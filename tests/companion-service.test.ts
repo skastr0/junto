@@ -9,7 +9,7 @@
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterAll, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
 
 // Main modules import Electron; the service under test needs none of it.
 vi.mock("electron", () => ({
@@ -171,4 +171,80 @@ describe("companion service", () => {
     expect(await missing.startPairing()).toMatchObject({ ok: false, message: expect.stringContaining("junto command") });
     void decodeCompanionPairingUrl;
   }, 60_000);
+
+  describe("Copy link", () => {
+    afterEach(() => vi.useRealTimers());
+
+    const fakeClipboard = (initial = "operator's own text") => {
+      let text = initial;
+      return {
+        readText: () => text,
+        writeText: (next: string) => {
+          text = next;
+        },
+        clear: () => {
+          text = "";
+        },
+        set: (next: string) => {
+          text = next;
+        },
+        get text() {
+          return text;
+        },
+      };
+    };
+    const make = () =>
+      makeCompanionService({ appVersion: "9.9.9", environment: async () => environment, authorizedKeysPath, runRepository, backend });
+
+    it("copies the exact pairing link and clears it when pairing completes", async () => {
+      const service = make();
+      const started = await service.startPairing();
+      if (!started.ok) throw new Error("pairing did not start");
+      const clipboard = fakeClipboard();
+      expect(service.copyLink(started.deviceId, clipboard)).toBe(true);
+      const decoded = decodeCompanionPairingUrl(clipboard.text);
+      expect(decoded._tag === "Success" && decoded.success).toMatchObject({
+        deviceId: started.deviceId,
+        expiresAt: started.expiresAt,
+        hosts: environment.hosts,
+        pairingKey: expect.stringContaining("OPENSSH PRIVATE KEY"),
+      });
+      await service.dispatch(call(started.deviceId, "p", "pair.complete", { publicKey: PHONE_KEY, deviceName: "Copied" }));
+      expect(clipboard.text).toBe("");
+      // The pairing is over: its link can no longer be copied.
+      expect(service.copyLink(started.deviceId, clipboard)).toBe(false);
+      await service.remove(started.deviceId);
+    });
+
+    it("never clobbers something the operator copied since", async () => {
+      const service = make();
+      const started = await service.startPairing();
+      if (!started.ok) throw new Error("pairing did not start");
+      const clipboard = fakeClipboard();
+      service.copyLink(started.deviceId, clipboard);
+      clipboard.set("something else entirely");
+      await service.cancelPairing(started.deviceId);
+      expect(clipboard.text).toBe("something else entirely");
+    });
+
+    it("clears it when the pairing is cancelled or expires unused", async () => {
+      const service = make();
+      const cancelled = await service.startPairing();
+      if (!cancelled.ok) throw new Error("pairing did not start");
+      const clipboard = fakeClipboard();
+      service.copyLink(cancelled.deviceId, clipboard);
+      await service.cancelPairing(cancelled.deviceId);
+      expect(clipboard.text).toBe("");
+
+      const expiring = await service.startPairing();
+      if (!expiring.ok) throw new Error("pairing did not start");
+      service.copyLink(expiring.deviceId, clipboard);
+      vi.useFakeTimers({ toFake: ["Date"] });
+      vi.setSystemTime(expiring.expiresAt + 1);
+      expect(service.copyLink(expiring.deviceId, fakeClipboard())).toBe(false);
+      await service.reconcile();
+      expect(clipboard.text).toBe("");
+      expect((await service.devices()).some((device) => device.deviceId === expiring.deviceId)).toBe(false);
+    });
+  });
 });

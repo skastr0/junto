@@ -180,6 +180,19 @@
   color: var(--color-dim);
 }
 
+.companion-pairing__actions {
+  display: flex;
+  gap: 8px;
+}
+
+.companion-pairing__copied {
+  margin: 0;
+  max-width: 44ch;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--color-dim);
+}
+
 @media (max-width: 640px) {
   .companion-pairing {
     grid-template-columns: minmax(0, 1fr);

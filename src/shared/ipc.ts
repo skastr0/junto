@@ -166,6 +166,7 @@ export const IPC_CHANNELS = {
   companionStatus: "junto:companion-status",
   companionPairStart: "junto:companion-pair-start",
   companionPairCancel: "junto:companion-pair-cancel",
+  companionPairCopyLink: "junto:companion-pair-copy-link",
   companionDevices: "junto:companion-devices",
   companionDeviceRemove: "junto:companion-device-remove",
   companionDevicesChanged: "junto:companion-devices-changed",
@@ -944,6 +945,11 @@ export interface JuntoApi extends UpdateApi, OverseerLiveApi {
   readonly companionStatus?: () => Promise<CompanionStatus>;
   /** Start pairing a phone; the QR expires after ten minutes. */
   readonly companionPairStart?: () => Promise<CompanionPairStart>;
+  /**
+   * Copy link: main puts the pending pairing's link on the clipboard (the
+   * renderer never holds it) and takes it off again when the pairing ends.
+   */
+  readonly companionPairCopyLink?: (deviceId: string) => Promise<{ readonly ok: boolean }>;
   /** Abandon a pairing that was never completed. */
   readonly companionPairCancel?: (deviceId: string) => Promise<{ readonly ok: boolean }>;
   readonly companionDevices?: () => Promise<ReadonlyArray<CompanionDeviceRecord>>;

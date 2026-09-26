@@ -10,6 +10,7 @@
  */
 import { useCallback, useEffect, useState } from "react";
 import type { CompanionDeviceRecord, CompanionPairStart, CompanionStatus } from "@shared/companion-devices";
+import { COMPANION_PAIRING_TTL_MS } from "@shared/companion-protocol";
 import { getJuntoApi } from "../../lib/junto-api";
 import { Button, StatusDot } from "../ui";
 import "./companion-settings.css";
@@ -28,7 +29,9 @@ const ago = (then: number | undefined, now: number): string => {
 };
 
 const countdown = (until: number, now: number): string => {
-  const left = Math.max(0, Math.floor((until - now) / 1000));
+  // The clock ticks once a second, so right after the QR appears it can lag
+  // main's stamp; the code never has more than its ten minutes left.
+  const left = Math.min(COMPANION_PAIRING_TTL_MS / 1000, Math.max(0, Math.floor((until - now) / 1000)));
   return `${Math.floor(left / 60)}:${String(left % 60).padStart(2, "0")}`;
 };
 
@@ -110,6 +113,9 @@ function Readiness({
   );
 }
 
+/** How long "Link copied" stays up. */
+const COPIED_NOTE_MS = 4_000;
+
 function PairingPanel({
   pairing,
   now,
@@ -120,6 +126,15 @@ function PairingPanel({
   readonly onCancel: () => void;
 }) {
   const expired = now >= pairing.expiresAt;
+  const [copiedAt, setCopiedAt] = useState<number | undefined>();
+  const [copyFailed, setCopyFailed] = useState(false);
+  const copy = async () => {
+    // Main writes the clipboard; the link itself never reaches this window.
+    const result = await getJuntoApi()?.companionPairCopyLink?.(pairing.deviceId);
+    setCopyFailed(result?.ok !== true);
+    setCopiedAt(result?.ok === true ? Date.now() : undefined);
+  };
+  const showCopied = copiedAt !== undefined && now - copiedAt < COPIED_NOTE_MS;
   return (
     <div className="companion-pairing" data-testid="companion-pairing">
       <div className="companion-pairing__qr" aria-hidden={expired}>
@@ -138,9 +153,25 @@ function PairingPanel({
           The code works once, for this phone only.{" "}
           {expired ? "It expired; pair again for a new one." : `It expires in ${countdown(pairing.expiresAt, now)}.`}
         </p>
-        <Button size="sm" variant="subtle" onClick={onCancel}>
-          {expired ? "close" : "cancel"}
-        </Button>
+        <div className="companion-pairing__actions">
+          {!expired ? (
+            <Button size="sm" onClick={() => void copy()}>
+              Copy link
+            </Button>
+          ) : null}
+          <Button size="sm" variant="subtle" onClick={onCancel}>
+            {expired ? "close" : "cancel"}
+          </Button>
+        </div>
+        {showCopied ? (
+          <p className="companion-pairing__copied" role="status">
+            Link copied. Paste it on your phone; it works once, and Junto clears it from the clipboard when pairing ends.
+          </p>
+        ) : copyFailed ? (
+          <p className="companion-pairing__copied" role="status">
+            This code is no longer valid. Pair again for a new one.
+          </p>
+        ) : null}
       </div>
     </div>
   );

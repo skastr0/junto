@@ -3,7 +3,7 @@
  * (the QR), the phone list, and Remove. Main owns every step; the renderer
  * only asks and shows. The device list is pushed after any change.
  */
-import { BrowserWindow, ipcMain } from "electron";
+import { BrowserWindow, clipboard, ipcMain } from "electron";
 import type { CompanionDeviceRecord, CompanionPairStart, CompanionStatus } from "@shared/companion-devices";
 import { IPC_CHANNELS } from "@shared/ipc";
 import { isTrustedMainWebContents, trustedRendererIpc } from "../trusted-main-webcontents";
@@ -64,6 +64,19 @@ export const registerCompanionIpc = (): void => {
     if (!deviceId || !service) return { ok: false };
     await service.cancelPairing(deviceId).catch(() => undefined);
     return { ok: true };
+  });
+
+  privilegedIpc.handle(IPC_CHANNELS.companionPairCopyLink, (_event, raw: unknown) => {
+    const deviceId = deviceIdOf(raw);
+    const service = companionService();
+    if (!deviceId || !service) return { ok: false };
+    return {
+      ok: service.copyLink(deviceId, {
+        readText: () => clipboard.readText(),
+        writeText: (text) => clipboard.writeText(text),
+        clear: () => clipboard.clear(),
+      }),
+    };
   });
 
   privilegedIpc.handle(IPC_CHANNELS.companionDevices, async () => (await companionService()?.devices()) ?? []);

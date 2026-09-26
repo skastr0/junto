@@ -505,6 +505,7 @@ const juntoApi: Omit<JuntoApi, keyof typeof liveApi | WorkFeatureApiKey> = {
   companionStatus: () => invoke(IPC_CHANNELS.companionStatus, IPC_TIMEOUT_MS),
   companionPairStart: () => invoke(IPC_CHANNELS.companionPairStart, IPC_TIMEOUT_MS),
   companionPairCancel: (deviceId) => invoke(IPC_CHANNELS.companionPairCancel, IPC_TIMEOUT_MS, deviceId),
+  companionPairCopyLink: (deviceId) => invoke(IPC_CHANNELS.companionPairCopyLink, IPC_TIMEOUT_MS, deviceId),
   companionDevices: () => invoke(IPC_CHANNELS.companionDevices, IPC_TIMEOUT_MS),
   companionDeviceRemove: (deviceId) => invoke(IPC_CHANNELS.companionDeviceRemove, IPC_TIMEOUT_MS, deviceId),
   onCompanionDevicesChanged: (listener) =>

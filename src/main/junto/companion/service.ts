@@ -66,6 +66,13 @@ export type CompanionPairing = {
 
 export type CompanionPairingRefusal = { readonly ok: false; readonly message: string };
 
+/** The system clipboard, as much of it as Copy link needs. */
+export type CompanionClipboard = {
+  readonly readText: () => string;
+  readonly writeText: (text: string) => void;
+  readonly clear: () => void;
+};
+
 export type CompanionServiceOptions = {
   readonly appVersion: string;
   readonly environment: () => Promise<CompanionEnvironment>;
@@ -86,6 +93,13 @@ export type CompanionService = {
   readonly hasDevices: () => Promise<boolean>;
   readonly startPairing: () => Promise<({ readonly ok: true } & CompanionPairing) | CompanionPairingRefusal>;
   readonly cancelPairing: (deviceId: string) => Promise<void>;
+  /**
+   * Copy link: put a pending pairing's link on the clipboard. It is taken off
+   * again when that pairing completes, expires or is cancelled, but only if
+   * the clipboard still holds exactly that link. False when the pairing is
+   * gone or expired.
+   */
+  readonly copyLink: (deviceId: string, clipboard: CompanionClipboard) => boolean;
   readonly remove: (deviceId: string) => Promise<boolean>;
   /** Boot: drop expired pairings and any Junto key line with no record behind it. */
   readonly reconcile: () => Promise<void>;
@@ -112,6 +126,22 @@ export const makeCompanionService = (options: CompanionServiceOptions): Companio
   const authorizedKeysPath = options.authorizedKeysPath ?? defaultAuthorizedKeysPath();
   const limiters = new Map<string, () => boolean>();
   const expiryTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  // Pending pairing links stay in main; the renderer only ever gets the QR.
+  const links = new Map<string, { readonly url: string; readonly expiresAt: number }>();
+  let copied: { readonly deviceId: string; readonly url: string; readonly clipboard: CompanionClipboard } | undefined;
+
+  /** The pairing is over: forget its link, and take it off the clipboard if it is still there. */
+  const forgetLink = (deviceId: string): void => {
+    links.delete(deviceId);
+    if (copied?.deviceId !== deviceId) return;
+    const { url, clipboard } = copied;
+    copied = undefined;
+    try {
+      if (clipboard.readText() === url) clipboard.clear();
+    } catch {
+      // A clipboard we cannot read is left alone: never clobber something else.
+    }
+  };
   let stationName: string | undefined;
 
   const devices = async (): Promise<ReadonlyArray<CompanionDeviceRecord>> =>
@@ -135,6 +165,7 @@ export const makeCompanionService = (options: CompanionServiceOptions): Companio
     for (const device of expired) {
       clearTimeout(expiryTimers.get(device.deviceId));
       expiryTimers.delete(device.deviceId);
+      forgetLink(device.deviceId);
       await editAuthorizedKeys((text) => removeCompanionKey(text, device.deviceId), authorizedKeysPath).catch(() => undefined);
     }
     announce();
@@ -182,6 +213,7 @@ export const makeCompanionService = (options: CompanionServiceOptions): Companio
     }
     clearTimeout(expiryTimers.get(input.deviceId));
     expiryTimers.delete(input.deviceId);
+    forgetLink(input.deviceId);
     announce();
     return outcomeOk({ deviceId: input.deviceId });
   };
@@ -271,6 +303,7 @@ export const makeCompanionService = (options: CompanionServiceOptions): Companio
       pairingKey: key.privateKey,
       expiresAt,
     });
+    links.set(deviceId, { url, expiresAt });
     const qrSvg = await QRCode.toString(url, { type: "svg", errorCorrectionLevel: "L", margin: 4 });
     announce();
     return { ok: true as const, deviceId, expiresAt, qrSvg, hosts: environment.hosts };
@@ -279,6 +312,7 @@ export const makeCompanionService = (options: CompanionServiceOptions): Companio
   const remove = async (deviceId: string): Promise<boolean> => {
     clearTimeout(expiryTimers.get(deviceId));
     expiryTimers.delete(deviceId);
+    forgetLink(deviceId);
     await editAuthorizedKeys((text) => removeCompanionKey(text, deviceId), authorizedKeysPath);
     const removed = await repo((r) => r.remove(deviceId));
     limiters.delete(deviceId);
@@ -297,6 +331,13 @@ export const makeCompanionService = (options: CompanionServiceOptions): Companio
       if (device?.state === "pairing") await remove(deviceId);
     },
     remove,
+    copyLink: (deviceId, clipboard) => {
+      const link = links.get(deviceId);
+      if (!link || link.expiresAt <= Date.now()) return false;
+      clipboard.writeText(link.url);
+      copied = { deviceId, url: link.url, clipboard };
+      return true;
+    },
     reconcile: async () => {
       await sweep();
       const keep = new Set((await repo((r) => r.list())).map((device) => device.deviceId));
