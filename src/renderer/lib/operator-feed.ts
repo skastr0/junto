@@ -58,9 +58,16 @@ export const operatorFeedFor = (
 export const useOperatorFeed = (): OperatorFeed => {
   const canvasName = use$(state$.canvasName);
   const doc = use$(state$.doc);
-  // A fresh list on every change: the store mutates in place, so its own
-  // identity would never move the memo below.
-  const signals = use$(() => Object.values(agentSignals$.get()));
+  // The store mutates in place, so its identity never moves; key the list on
+  // what can change about a signal (it arrives, then closes) and rebuild it
+  // only then, not on every render.
+  const signalsKey = use$(() =>
+    Object.values(agentSignals$.get())
+      .map((signal) => `${signal.signalId}:${signal.state}`)
+      .join("|"),
+  );
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const signals = useMemo(() => Object.values(agentSignals$.peek()), [signalsKey]);
   const seatRev = use$(agentSeat$.rev);
   const awarenessRev = use$(seatAwareness$.rev);
   const now = useHealthClock();

@@ -81,14 +81,13 @@ const openSeat = (item: FeedItem, node: CanvasNode | undefined): void => {
   activateNodeSurface(node);
 };
 
-type QuickSend = { readonly itemId: string; readonly text: string };
-
 function FeedCard({
   item,
   node,
   nowMs,
   quickReplies,
   selected,
+  reveal,
   leaving,
   replying,
   expanded,
@@ -104,6 +103,8 @@ function FeedCard({
   readonly nowMs: number;
   readonly quickReplies: ReadonlyArray<string>;
   readonly selected: boolean;
+  /** Scroll into view when selected: keyboard moves do, a pointer press does not. */
+  readonly reveal: boolean;
   readonly leaving: boolean;
   readonly replying: boolean;
   readonly expanded: boolean;
@@ -117,8 +118,8 @@ function FeedCard({
 }) {
   const ref = useRef<HTMLElement>(null);
   useEffect(() => {
-    if (selected) ref.current?.scrollIntoView({ block: "nearest" });
-  }, [selected]);
+    if (selected && reveal) ref.current?.scrollIntoView({ block: "nearest" });
+  }, [selected, reveal]);
   const kind = KIND[item.kind];
   const KindIcon = kind.icon;
   const age = mailAgeLabel(nowMs, item.since);
@@ -134,7 +135,9 @@ function FeedCard({
         data-kind={item.kind}
         aria-current={selected ? "true" : undefined}
         aria-label={`${item.seat.name}, ${kind.label}`}
-        onPointerDown={onSelect}
+        // Select on click, not on press: selecting numbers the row's pills,
+        // and a press that reshaped them would land its release elsewhere.
+        onClick={onSelect}
       >
         <div className="operator-feed__portrait">
           {node ? (
@@ -259,9 +262,15 @@ function OperatorFeedSurface() {
   const nodesByIdRef = useRef(nodesById);
   nodesByIdRef.current = nodesById;
   const [selected, setSelected] = useState<string | null>(null);
+  // A press selects what is already under the pointer; scrolling it would
+  // move the row out from under the click.
+  const [reveal, setReveal] = useState(true);
   const [replyFor, setReplyFor] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set());
-  const [sending, setSending] = useState<QuickSend | null>(null);
+  // Quick replies in flight, by item: one per card, cards independent.
+  const [sending, setSending] = useState<ReadonlyMap<string, string>>(() => new Map());
+  const sendingRef = useRef(sending);
+  sendingRef.current = sending;
   const [failure, setFailure] = useState<{ readonly itemId: string; readonly message: string } | null>(null);
   const [scrolled, setScrolled] = useState(false);
 
@@ -305,24 +314,26 @@ function OperatorFeedSurface() {
 
   const items = useMemo(() => feedItemsInOrder(feed.sections), [feed.sections]);
   const itemsRef = useRef(items);
-  itemsRef.current = items;
   // When the selected item leaves, for whatever reason, its neighbour takes over.
-  const [itemsBefore, setItemsBefore] = useState(items);
-  if (itemsBefore !== items) {
-    setItemsBefore(items);
-    const next = reconcileSelection(itemsBefore, items, selected);
-    if (next !== selected) setSelected(next);
-  }
+  useEffect(() => {
+    const before = itemsRef.current;
+    itemsRef.current = items;
+    if (before !== items) setSelected((current) => reconcileSelection(before, items, current));
+  }, [items]);
 
   const sendQuick = async (item: FeedItem, text: string): Promise<void> => {
-    if (!item.signalId || sending) return;
-    setSending({ itemId: item.itemId, text });
+    if (!item.signalId || sendingRef.current.has(item.itemId)) return;
+    setSending((current) => new Map(current).set(item.itemId, text));
     setFailure(null);
     try {
       const result = await respondToAgentSignal(item.signalId, text);
       if (!result.ok) setFailure({ itemId: item.itemId, message: result.message });
     } finally {
-      setSending(null);
+      setSending((current) => {
+        const next = new Map(current);
+        next.delete(item.itemId);
+        return next;
+      });
     }
   };
   const sendQuickRef = useRef(sendQuick);
@@ -344,11 +355,13 @@ function OperatorFeedSurface() {
       const list = itemsRef.current;
       if (event.key === "j" || event.key === "ArrowDown") {
         event.preventDefault();
+        setReveal(true);
         setSelected(stepFeedSelection(list, current, 1));
         return;
       }
       if (event.key === "k" || event.key === "ArrowUp") {
         event.preventDefault();
+        setReveal(true);
         setSelected(stepFeedSelection(list, current, -1));
         return;
       }
@@ -418,12 +431,16 @@ function OperatorFeedSurface() {
                   nowMs={feed.generatedAt}
                   quickReplies={quickReplies}
                   selected={selected === item.itemId}
+                  reveal={reveal}
                   leaving={section.leavingIds.has(item.itemId)}
                   replying={replyFor === item.itemId}
                   expanded={expanded.has(item.itemId)}
-                  sending={sending?.itemId === item.itemId ? sending.text : null}
+                  sending={sending.get(item.itemId) ?? null}
                   error={failure?.itemId === item.itemId ? failure.message : null}
-                  onSelect={() => setSelected(item.itemId)}
+                  onSelect={() => {
+                    setReveal(false);
+                    setSelected(item.itemId);
+                  }}
                   onReply={(open) => setReplyFor(open ? item.itemId : null)}
                   onQuickReply={(text) => void sendQuick(item, text)}
                   onToggleDetail={() =>

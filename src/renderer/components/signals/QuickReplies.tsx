@@ -41,7 +41,6 @@ export function QuickReplies({
             aria-keyshortcuts={numbered && key ? key : undefined}
             title={`Reply "${text}"${numbered && key ? ` (${key})` : ""}`}
             onClick={(event) => {
-              event.stopPropagation();
               onPick(text);
             }}
           >
