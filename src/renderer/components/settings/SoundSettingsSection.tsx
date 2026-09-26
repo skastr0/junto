@@ -66,7 +66,8 @@ function CueChip({
       disabled={disabled}
       aria-pressed={playing}
       title={CUES[cue].meaning}
-      className={playing ? "border-amber/50 text-amber" : undefined}
+      // aria-pressed variants sort after the button's own colours, so they win.
+      className="aria-pressed:border-amber/50 aria-pressed:bg-amber/[0.12] aria-pressed:text-amber"
       onClick={onPlay}
     >
       <Play size={9} aria-hidden className={playing ? "fill-current" : undefined} />
@@ -162,7 +163,7 @@ export function SoundSettingsSection() {
         <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-6 border-b border-stroke py-4">
           <div className="flex min-w-0 flex-col gap-1">
             <label htmlFor="sound-master" className="cursor-pointer text-[14px] font-semibold text-ink">
-              Sound
+              All sounds
             </label>
             <p className="m-0 text-[12px] leading-[1.5] text-dim">
               {on ? "Every family below, together." : "Junto is silent."}
@@ -172,7 +173,7 @@ export function SoundSettingsSection() {
             <div className="w-[132px]">
               <Slider
                 value={audio.masterVolume}
-                label="Sound volume"
+                label="All sounds volume"
                 disabled={!on}
                 onCommit={(masterVolume) => {
                   void patchSettings({ audio: { masterVolume } }).then(() => play(["done"]));
