@@ -94,4 +94,4 @@ Needs Bun 1.3.13 and Node.js 24.10+. Packaging, the CLI build, and checks: [docs
 
 Junto has one maintainer. Bugs, security reports, and proposals go through [GitHub issues](https://github.com/skastr0/junto/issues). See [SECURITY.md](SECURITY.md), [CONTRIBUTING.md](CONTRIBUTING.md), and [SUPPORT.md](SUPPORT.md).
 
-Source is licensed under [Apache-2.0](LICENSE). Third-party software keeps its own notices: [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+Source is licensed under [Apache-2.0](LICENSE). The Junto name, Pip, and the brand artwork are not licensed for reuse in other products: [TRADEMARK.md](TRADEMARK.md). Third-party software keeps its own notices: [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
