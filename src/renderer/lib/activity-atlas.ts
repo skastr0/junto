@@ -365,6 +365,9 @@ export const markAtlasCss = (): string =>
     `.junto-mark[data-mark-land]{animation:juntoMarkLand ${String(LAND_FRAMES * ATTENTION_CLOCK_TICK_MS)}ms steps(${String(LAND_FRAMES)}, end) 1}`,
     `html[data-surface-motion="paused"] .junto-mark[data-mark-land]{animation:none}`,
     `@media (prefers-reduced-motion: reduce){.junto-mark[data-mark-land]{animation:none}}`,
+    // Overseer crest: top of the ring, rimmed in ground so it cuts the ring.
+    `.junto-mark__crest{position:absolute;left:50%;top:0;width:30%;height:21%;min-width:9px;min-height:6px;transform:translate(-50%,-4%);color:var(--color-indigo);pointer-events:none}`,
+    `.junto-mark__crest path{fill:currentColor;stroke:var(--color-ground);stroke-width:1.6px;stroke-linejoin:round;paint-order:stroke}`,
     `.junto-mark__flag{position:absolute;top:0;right:0;width:36%;height:36%;min-width:10px;min-height:10px;padding:0;border:0;border-radius:999px;background:transparent;cursor:pointer}`,
     `.junto-mark__flag:focus-visible{outline:1px solid var(--color-focus-ring);outline-offset:1px}`,
   ].join("\n");

@@ -44,6 +44,8 @@ export type ActivityMarkProps = {
   readonly children?: ReactNode;
   /** Exact box in px, overriding the size's default (ringed portraits fit their slot). */
   readonly unit?: number;
+  /** An overseer seat wears a crest at the top of its ring. */
+  readonly crest?: boolean;
 };
 
 export type MarkOverlayProps = Pick<
@@ -57,6 +59,7 @@ export type MarkOverlayProps = Pick<
   | "onSignalOpen"
   | "children"
   | "unit"
+  | "crest"
 >;
 
 /** Convenience: pass a full ActivitySpec. */
@@ -150,6 +153,20 @@ const accessibleName = (
   return parts.join(", ");
 };
 
+/**
+ * The overseer's crest: a small crown seated on the top of the ring, cut
+ * out of it by a ground-coloured rim. Identity, not state, so it never moves.
+ */
+function SeatCrest() {
+  return (
+    <span className="junto-mark__crest" data-testid="overseer-crest" aria-hidden>
+      <svg viewBox="0 0 16 11" width="100%" height="100%">
+        <path d="M2 9.5V3.2l3.3 2.6L8 1.2l2.7 4.6L14 3.2v6.3Z" />
+      </svg>
+    </span>
+  );
+}
+
 const stop = (event: PointerEvent | MouseEvent): void => {
   event.stopPropagation();
 };
@@ -160,6 +177,7 @@ const HUB_MIX: Readonly<Record<string, number>> = {
   reverse: 100,
   snake: 100,
   call: 100,
+  wait: 100,
   halt: 100,
   done: 100,
   live: 70,
@@ -177,7 +195,6 @@ const hubTone = (ring: string, tone: ActivityTone): ActivityTone => {
 
 /**
  * The status instrument every seat, card, chip and glance shares: a ring.
-  wait: 100,
  *
  * One element. Its background is a cell of the theme's sprite atlas
  * (activity-atlas.ts): the ring carries control state (bent by a trouble
@@ -205,6 +222,7 @@ export function ActivityMark({
   onSignalOpen,
   children,
   unit,
+  crest = false,
 }: ActivityMarkProps) {
   const theme = use$(themeMode$);
   const ref = useRef<HTMLSpanElement>(null);
@@ -237,12 +255,14 @@ export function ActivityMark({
     };
   }, [looping]);
 
-  const name = accessibleName(label, healthLabel, signal, signalCount);
+  const named = accessibleName(label, healthLabel, signal, signalCount);
+  const name = crest ? `Overseer, ${named}` : named;
   const hubMix = children === undefined ? HUB_MIX[ring] : undefined;
   const style = {
     ...(unit !== undefined ? { "--mark-u": `${String(unit)}px` } : {}),
     "--mark-col": core.col,
     "--mark-row": core.row,
+    ...(core.land !== undefined ? { "--mark-lrow": core.land } : {}),
     ...(band ? { "--mark-bcol": band.col, "--mark-brow": band.row } : {}),
     ...(hubMix !== undefined
       ? {
@@ -262,9 +282,9 @@ export function ActivityMark({
       data-activity-tone={tone}
       data-activity-size={size}
       data-mark-size={size}
-    ...(core.land !== undefined ? { "--mark-lrow": core.land } : {}),
       data-mark-ring={ring}
       data-mark-motion={core.motion}
+      data-mark-land={core.land !== undefined ? "" : undefined}
       data-mark-band={band ? "" : undefined}
       data-mark-hub={hubMix !== undefined ? "" : undefined}
       data-mark-health={health}
@@ -272,6 +292,7 @@ export function ActivityMark({
       style={style}
     >
       {children !== undefined ? <span className="junto-mark__seat">{children}</span> : null}
+      {crest ? <SeatCrest /> : null}
       {signal && onSignalOpen ? (
         <button
           type="button"
@@ -284,7 +305,6 @@ export function ActivityMark({
             event.stopPropagation();
             onSignalOpen();
           }}
-      data-mark-land={core.land !== undefined ? "" : undefined}
         />
       ) : null}
     </span>

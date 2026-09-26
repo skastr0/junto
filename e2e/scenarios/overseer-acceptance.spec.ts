@@ -207,9 +207,9 @@ test("human toggle persists overseer authority without moving the viewport", asy
   if ((await card.count()) > 0) {
     await expect(card).toHaveAttribute("data-overseer", "true");
   }
-  const mark = grantedNode.getByTestId("overseer-mark");
-  if ((await mark.count()) > 0) {
-    await expect(mark).toHaveText("OVERSEER");
+  const crest = grantedNode.getByTestId("overseer-crest");
+  if ((await card.count()) > 0) {
+    await expect(crest).toHaveCount(1);
   }
 
   await page.screenshot({

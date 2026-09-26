@@ -25,7 +25,29 @@ describe("ActivityMark structure", () => {
   it("done lands once, then keeps a quiet loop until read", () => {
     const html = renderToStaticMarkup(<ActivityMark mode="pulse" tone="green" label="done" />);
     expect(attr(html, "data-mark-ring")).toBe("done");
-    expect(attr(html, "data-mark-motion")).toBe("land");
+    expect(attr(html, "data-mark-motion")).toBe("loop");
+    expect(html).toContain("data-mark-land");
+    expect(html).toContain("--mark-lrow:");
+  });
+
+  it("a still seat that waits on you orbits, whatever its control mode", () => {
+    const html = renderToStaticMarkup(<ActivityMark mode="static" tone="steel" label="idle" signal="escalate" />);
+    expect(attr(html, "data-mark-ring")).toBe("wait");
+    expect(attr(html, "data-mark-motion")).toBe("loop");
+    const resting = renderToStaticMarkup(<ActivityMark mode="static" tone="steel" label="idle" />);
+    expect(attr(resting, "data-mark-motion")).toBe("still");
+  });
+
+  it("an overseer seat wears a crest and says so", () => {
+    const html = renderToStaticMarkup(
+      <ActivityMark mode="static" tone="steel" label="resting" size="seat" crest>
+        <img alt="" />
+      </ActivityMark>,
+    );
+    expect(html).toContain('data-testid="overseer-crest"');
+    expect(attr(html, "aria-label")).toBe("Overseer, resting");
+    const plain = renderToStaticMarkup(<ActivityMark mode="static" tone="steel" label="resting" size="seat" />);
+    expect(plain).not.toContain("overseer-crest");
   });
 
   it("active=false freezes a loop at its rest pose", () => {

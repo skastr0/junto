@@ -65,6 +65,7 @@ export function AgentSeatView({
   health,
   signal,
   onSignalOpen,
+  overseer = false,
   children,
 }: {
   /** Seat identity (node id) for the portrait. */
@@ -79,7 +80,9 @@ export function AgentSeatView({
   readonly health: SeatHealth;
   readonly signal: SeatSignal;
   readonly onSignalOpen?: () => void;
-  /** Extra rows under the line (overseer mark, claimed task). */
+  /** An overseer seat: a crest on the ring, no second border or tab. */
+  readonly overseer?: boolean;
+  /** Extra rows under the line (claimed task). */
   readonly children?: ReactNode;
 }) {
   const open = signal.worst;
@@ -128,6 +131,7 @@ export function AgentSeatView({
         signal={open?.kind}
         signalCount={signal.openCount}
         onSignalOpen={open ? onSignalOpen : undefined}
+        crest={overseer}
       >
         <AgentPortrait
           identity={identity}
@@ -159,6 +163,7 @@ export function AgentSeat({
   readonly title: ReactNode;
   readonly harness?: string;
   readonly context?: string;
+  readonly overseer?: boolean;
   readonly children?: ReactNode;
 }) {
   const canvasName = use$(state$.canvasName);

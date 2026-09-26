@@ -134,12 +134,14 @@ test("overseer identity: card, selected, paused, ordinary contrast, toggle", asy
   await page.locator(".settings-panel__close").click();
 
   await expect(granted.locator(".junto-node")).toHaveAttribute("data-overseer", "true");
-  await expect(granted.getByTestId("overseer-mark")).toHaveText("OVERSEER");
-  const grantedColor = await granted.getByTestId("overseer-mark").evaluate((el) => getComputedStyle(el).color);
+  // On the canvas the role is a crest on the ring, not a text tab.
+  await expect(granted.getByTestId("overseer-crest")).toBeVisible();
+  await expect(granted.getByTestId("overseer-mark")).toHaveCount(0);
+  const grantedColor = await granted.getByTestId("overseer-crest").evaluate((el) => getComputedStyle(el).color);
   expect(grantedColor).not.toBe("rgb(229, 72, 77)"); // crimson
   expect(grantedColor).not.toBe("rgb(232, 163, 61)"); // amber
   await expect(ordinary.locator(".junto-node")).not.toHaveAttribute("data-overseer", "true");
-  await expect(ordinary.getByTestId("overseer-mark")).toHaveCount(0);
+  await expect(ordinary.getByTestId("overseer-crest")).toHaveCount(0);
   await expect(paused.locator(".junto-node")).toHaveAttribute("data-overseer", "true");
 
   await shot(page, "01-enabled-vs-ordinary");
@@ -174,8 +176,8 @@ test("overseer identity: card, selected, paused, ordinary contrast, toggle", asy
   await page.locator(".settings-panel__close").click();
   await page.waitForTimeout(400);
   await granted.click();
-  await expect(granted.getByTestId("overseer-mark")).toHaveText("OVERSEER");
-  await expect(ordinary.getByTestId("overseer-mark")).toHaveCount(0);
+  await expect(granted.getByTestId("overseer-crest")).toBeVisible();
+  await expect(ordinary.getByTestId("overseer-crest")).toHaveCount(0);
   await shot(page, "05-bright-enabled");
 
   await copyFile(join(SHOTS, "04-paused-enabled.png"), ARTIFACT);

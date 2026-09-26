@@ -32,7 +32,8 @@
 .junto-node[data-node-kind="agent"][data-seat-attention="true"]::after,
 .junto-node[data-node-kind="agent"][data-attention="fire"]::after { display: none; }
 /* Overseer identity — indigo, never amber (attention) or crimson (blocker).
-   Ordinary agent cards stay unchanged; this only paints granted seats. */
+   The text chip names the role where there is room (inspector, kind strip,
+   focus header); on the canvas the crest alone carries it. */
 .overseer-mark {
   display: inline-flex;
   align-items: center;
@@ -45,13 +46,8 @@
   user-select: none;
   pointer-events: none;
 }
-.junto-node[data-overseer="true"]:not([data-blocked="true"]):not([data-seat-attention="true"]):not([data-attention="fire"]) {
-  outline: 1px solid color-mix(in oklab, var(--color-indigo) 42%, transparent);
-  outline-offset: 1px;
-}
-.native-terminal-surface[data-overseer="true"] {
-  box-shadow: inset 3px 0 0 color-mix(in oklab, var(--color-indigo) 72%, transparent);
-}
+/* An overseer seat wears its crest on the ring (ActivityMark), in the
+   grid, focus header and inspector too: one border, no tab, no stripe. */
 .factory-agent-card:not(:has([data-testid="claimed-task"])) {
   justify-content: center;
 }

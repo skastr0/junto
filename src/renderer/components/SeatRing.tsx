@@ -11,6 +11,7 @@ import { state$ } from "../lib/state";
 import { terminal$ } from "../lib/terminal-state";
 import { useThreadHealthMark } from "../lib/thread-health";
 import { seatPortraitMood } from "../lib/portrait-mood";
+import { isOverseerSeat } from "../lib/overseer-set";
 import { ActivityMarkFromSpec } from "./ActivityMark";
 import { AgentPortrait } from "./AgentPortrait";
 
@@ -63,6 +64,7 @@ export function SeatRing({ node, px }: { readonly node: CanvasNode; readonly px:
       healthLabel={health.label}
       signal={rollup?.kind}
       signalCount={rollup?.openCount}
+      crest={isOverseerSeat(node)}
     >
       <AgentPortrait
         identity={node.id}

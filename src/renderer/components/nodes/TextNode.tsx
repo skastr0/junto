@@ -46,7 +46,6 @@ import { terminal$ } from "../../lib/terminal-state";
 import { openNoteSurface } from "../../lib/dock-state";
 import { getJuntoApi } from "../../lib/junto-api";
 import { HarnessMark } from "../HarnessMark";
-import { OverseerMark } from "../OverseerMark";
 import { isOverseerSeat } from "../../lib/overseer-set";
 import { SeatAwarenessHoverForNode } from "../terminal/SeatAwarenessHoverForNode";
 import { SeatCollaborationBlock } from "../terminal/SeatCollaborationBlock";
@@ -373,12 +372,8 @@ function EntityCard({
           title={nameTitle}
           harness={managed ? managedHarness : undefined}
           context={context}
+          overseer={overseer}
         >
-          {overseer ? (
-            <div className="mt-1">
-              <OverseerMark size="card" />
-            </div>
-          ) : null}
           {TASKS_ENABLED ? <ClaimedTaskStrip node={node} /> : null}
         </AgentSeat>
       </div>
