@@ -1,0 +1,108 @@
+/* Quick replies: quiet pills in the operator's own words. Sentence case at
+   reading size, since they are speech, not commands. */
+
+.quick-replies {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+}
+
+.quick-reply {
+  gap: 6px;
+  height: 26px;
+  padding: 0 11px;
+  border-radius: 999px;
+  border-color: var(--color-stroke);
+  background: transparent;
+  color: var(--color-ink-2);
+  font-size: 12px;
+  letter-spacing: 0;
+  text-transform: none;
+  white-space: nowrap;
+  transition:
+    background-color 140ms cubic-bezier(0.25, 1, 0.5, 1),
+    border-color 140ms cubic-bezier(0.25, 1, 0.5, 1),
+    color 140ms cubic-bezier(0.25, 1, 0.5, 1);
+}
+
+.quick-reply:hover {
+  border-color: var(--color-stroke-hi);
+  background: var(--color-overlay-1);
+  color: var(--color-ink);
+}
+
+.quick-reply:focus-visible {
+  outline: 2px solid color-mix(in oklab, var(--color-amber) 70%, transparent);
+  outline-offset: 1px;
+}
+
+.quick-reply:active {
+  background: var(--color-overlay-2);
+}
+
+.quick-reply[aria-busy="true"] {
+  border-color: color-mix(in oklab, var(--color-amber) 55%, var(--color-stroke));
+  color: var(--color-amber);
+  opacity: 1;
+}
+
+.quick-reply__key {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--color-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .quick-reply { transition: none; }
+}
+
+/* Settings -> Quick replies ------------------------------------------------ */
+
+.quick-replies-settings__intro {
+  max-width: 62ch;
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.quick-replies-settings__list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.quick-replies-settings__row,
+.quick-replies-settings__add {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+}
+
+.quick-replies-settings__add {
+  margin-top: 4px;
+  padding-left: 28px;
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.quick-replies-settings__key {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--color-dim);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.quick-replies-settings__tools {
+  display: inline-flex;
+  gap: 2px;
+}
+
+.quick-replies-settings input {
+  font-size: 13px;
+}

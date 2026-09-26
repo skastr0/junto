@@ -15,6 +15,7 @@ import {
 import { ExperimentalSettingsSection } from "./settings/ExperimentalSettingsSection";
 import { HarnessesSettingsSection } from "./settings/HarnessesSettingsSection";
 import { ProvidersSettingsSection } from "./settings/ProvidersSettingsSection";
+import { QuickRepliesSettingsSection } from "./settings/QuickRepliesSettingsSection";
 import { TerminalSettingsSection } from "./settings/TerminalSettingsSection";
 import {
   decodeStateBackupId,
@@ -56,6 +57,7 @@ type PanelSection = SettingsSectionKey | "updates" | "experimental";
 const SECTIONS: ReadonlyArray<{ key: PanelSection; label: string; blurb: string }> = [
   { key: "appearance", label: "Appearance", blurb: "" },
   { key: "terminal", label: "Terminal", blurb: "scrolling, font, and accessibility" },
+  { key: "feed", label: "Quick replies", blurb: "one-click answers for agents waiting on you" },
   // Machine/station topology is fleet-adjacent (host id, supervised runtime).
   ...(FLEET_UI_ENABLED
     ? [{ key: "station", label: "Machine", blurb: "this installation" } as const]
@@ -1144,6 +1146,8 @@ function SectionBody({ section }: { readonly section: PanelSection }) {
       return <AppearanceSection />;
     case "terminal":
       return <TerminalSettingsSection />;
+    case "feed":
+      return <QuickRepliesSettingsSection />;
     case "station":
       return <StationSection />;
     case "updates":
