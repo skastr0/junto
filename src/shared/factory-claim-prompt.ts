@@ -13,6 +13,7 @@ import { taskBrief, taskMediaParts } from "./task";
 import {
   boardContractOf,
   requiredChecks,
+  regionContractOf,
   rulesInForce,
   taskEpoch,
   type RuleInForce,
@@ -97,7 +98,7 @@ const boardSections = (
   }
 
   const rulings = regions.flatMap((group) =>
-    (group.ether?.region?.contract?.rulings ?? []).map(
+    (regionContractOf(group)?.rulings ?? []).map(
       (ruling) => `- ${ruling.text}  (pinned to ${group.label?.trim() || group.id})`,
     ),
   );

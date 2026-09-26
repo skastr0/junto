@@ -131,7 +131,7 @@ A **seat** is your identity on the canvas: the node you occupy, bound to your pr
 - **Grants** come from each authored edge verb and its operator mask. A mask only removes ports. A messages edge can grant mail, prompts, waits and terminal reads${REVIEWS_ENABLED ? "; a directed reviews edge grants \`verdict.post\` only from reviewer to author" : ""}.${TASKS_ENABLED ? " Task verbs differ on claiming and authoring." : ""} \`capabilities\` gives the actual held ports; a neighboring kind alone proves no permission.
 - **Identity** is process-bind: the OS proves who you are. You cannot claim another seat, and no env var makes you someone else.
 - **Orientation** is one command: \`junto onboard\` returns your seat, role, region briefing, connected targets ${TASKS_ENABLED ? "with grants and their board contracts" : "with their grants"}, and co-members. Re-run it whenever your view may be stale.
-- **Rulings** are operator precedent pinned to a region. They stand over every seat inside it: \`junto rulings\`.\n\n**Connection messages are informational.** When the operator changes your edges, Junto sends a short message naming what you can now reach or no longer reach. It is not a command to re-run \`onboard\`/\`capabilities\` every time. Re-orient once at session start and whenever you actually need the live map to act. Idle chatter (ack-for-ack) is wasteful: acknowledge once, then stay quiet until real work or a new request arrives.`;
+${TASKS_ENABLED ? "- **Rulings** are operator precedent pinned to a region. They stand over every seat inside it: `junto rulings`.\n" : ""}\n**Connection messages are informational.** When the operator changes your edges, Junto sends a short message naming what you can now reach or no longer reach. It is not a command to re-run \`onboard\`/\`capabilities\` every time. Re-orient once at session start and whenever you actually need the live map to act. Idle chatter (ack-for-ack) is wasteful: acknowledge once, then stay quiet until real work or a new request arrives.`;
 
 // ── Worker doctrine (base) ─────────────────────────────────────────────────
 
@@ -239,7 +239,7 @@ after an edge appears — re-run \`junto capabilities\` for the current command.
 /** Orientation wording: a task-board world, or seats and their grants. */
 const ORIENT_DETAIL = TASKS_ENABLED
   ? "connected targets with what each board is for, who may start tasks there, its Next boards, and the rulings pinned over you"
-  : "connected targets with their grants and the rulings pinned over you";
+  : "connected targets with their grants";
 
 /** Task-shaped error meanings leave with the tasks surface. */
 const TASK_ERROR_BULLETS = TASKS_ENABLED
@@ -257,8 +257,8 @@ JSON-in/JSON-out — every command takes one JSON argument (inline, \`@file\`, o
 |---|---|
 | orient (always first) | \`junto onboard\` — seat, region briefing, ${ORIENT_DETAIL} |
 | live contract / grants | \`junto capabilities\` |
-| pinned rulings for your regions | \`junto rulings\` — add \`'{"target":"<id>"}'\` for a connected target's stack |
-| thought bubble | \`junto preamble '{"text":"..."}'\` |
+${TASKS_ENABLED ? `| pinned rulings for your regions | \`junto rulings\` — add \`'{"target":"<id>"}'\` for a connected target's stack |
+` : ""}| thought bubble | \`junto preamble '{"text":"..."}'\` |
 | raise your hand to the operator | \`junto escalate "..."\` - \`junto blocked "..."\` - \`junto feedback "..."\` (see below) |
 | schemas / examples | \`junto schema show <command>\` - \`junto examples show <command>\` |
 | full documentation | \`junto docs\` - \`junto docs node <kind>\` — the complete doctrine and per-node-kind docs (ports, data models, events) |
@@ -271,7 +271,7 @@ Errors are **ground truth** — do not invent around them. Read \`type\` and \`n
 
 - \`ScopeError\` — not connected / not authorized for that target; the fix is an edge on the canvas, not a workaround${TASK_ERROR_BULLETS}
 - \`InputError\` — payload failed schema decode; \`schema show\` prints the exact shape
-- \`RuntimeDown\` / \`Paused\` — Junto is down or this seat is paused; wait, then re-run \`onboard\`. Do not retry-loop.
+- \`RuntimeDown\` / \`Paused\` — Junto is down or the canvas is paused; wait, then re-run \`onboard\`. Do not retry-loop.
 
 Retry law: retry only when the error says \`retryable: true\`, at most twice, then adapt or escalate. Never loop the same failing call.
 

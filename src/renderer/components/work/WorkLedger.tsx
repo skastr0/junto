@@ -25,6 +25,7 @@ import { isArtifactArchived } from "@shared/work";
 import { isAttentionTaskState, isTerminalTaskState, taskBrief } from "@shared/task";
 import { needsHuman } from "@shared/attention";
 import { requestsNodeName } from "@shared/requests-node-identity";
+import { TASKS_ENABLED } from "@shared/features";
 import { FocusSurface } from "../FocusSurface";
 import { Button } from "../ui/Button";
 import { Chip, type ChipTone } from "../ui/Chip";
@@ -404,8 +405,11 @@ function RequestDetail({
               {" "}
               send response
             </p>
-            {/* Pin before sending: resolving the request closes this section. */}
-            <PinRulingControl nodeId={nodeId} text={response} sourceRequestId={request.id} />
+            {/* Pin before sending: resolving the request closes this section.
+                Rulings are region rules, which ride the Tasks gate. */}
+            {TASKS_ENABLED ? (
+              <PinRulingControl nodeId={nodeId} text={response} sourceRequestId={request.id} />
+            ) : null}
           </section>
         ) : null}
       </div>

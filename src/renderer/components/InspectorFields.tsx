@@ -15,6 +15,7 @@ import {
   CRON_ENABLED,
   FLEET_UI_ENABLED,
   RELAY_ENABLED,
+  TASKS_ENABLED,
 } from "@shared/features";
 import { isGroup } from "@shared/graph";
 import {
@@ -608,7 +609,8 @@ export function RegionBriefingEditor({ node }: { readonly node: CanvasNode }) {
           }
         }}
       />
-      <RegionRules node={node} />
+      {/* Region rules ride the Tasks gate: a tasks-off build has none. */}
+      {TASKS_ENABLED ? <RegionRules node={node} /> : null}
     </div>
   );
 }

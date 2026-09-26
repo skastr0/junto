@@ -112,6 +112,8 @@ export interface CapabilityInvocation {
 export const commandSurfaceEnabled = (commandId: string): boolean => {
   if (commandId.startsWith("tasks.")) return TASKS_ENABLED;
   if (commandId.startsWith("content.")) return TASKS_ENABLED;
+  // Region rulings are part of the region contract, which rides the Tasks gate.
+  if (commandId === "rulings") return TASKS_ENABLED;
   if (commandId.startsWith("board.")) return BOARD_ENABLED;
   if (commandId.startsWith("pad.")) return PAD_ENABLED;
   if (commandId === "sheet.read") return SHEET_ENABLED;

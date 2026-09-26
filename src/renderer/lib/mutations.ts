@@ -24,6 +24,7 @@ import type { ActorRef } from "@shared/work-protocol";
 import { formatNodeRef } from "@shared/node-ref";
 import { isValidStationHostId } from "@shared/station";
 import { ulid } from "ulid";
+import { TASKS_ENABLED } from "@shared/features";
 import {
   flowEdgeRemovalWarnings,
   tasksNodeDeletionWarnings,
@@ -1694,6 +1695,8 @@ export const setRegionContract = (
   id: string,
   contract: EtherRegionContract | undefined,
 ): void => {
+  // Region rules ride the Tasks gate; a tasks-off build never writes them.
+  if (!TASKS_ENABLED) return;
   const doc = state$.doc.peek();
   const cleaned = stripEmptyRegionContract(contract);
   commitDoc({
@@ -1754,7 +1757,7 @@ export const pinRuling = (
   sourceRequestId?: string,
 ): void => {
   const trimmed = text.trim();
-  if (!trimmed) return;
+  if (!trimmed || !TASKS_ENABLED) return;
   const doc = state$.doc.peek();
   const region = doc.nodes.find((n) => n.id === regionId);
   if (!region || region.type !== "group") return;

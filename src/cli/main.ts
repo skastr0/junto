@@ -87,8 +87,7 @@ export const rootCommand = Command.make(CLI_NAME).pipe(
     blockedCommand,
     feedbackCommand,
     signalCommand,
-    ...(TASKS_ENABLED ? [tasksCommand] : []),
-    rulingsCommand,
+    ...(TASKS_ENABLED ? [tasksCommand, rulingsCommand] : []),
     msgCommand,
     seatCommand,
     verdictCommand,
@@ -125,6 +124,7 @@ const runtimeLayer = Layer.mergeAll(
 const disabledCliGroup = (args: ReadonlyArray<string>): string | undefined => {
   const group = args[0];
   if (!TASKS_ENABLED && group === "tasks") return "tasks";
+  if (!TASKS_ENABLED && group === "rulings") return "rulings";
   if (!TASKS_ENABLED && group === "content") return "content";
   if (!BOARD_ENABLED && group === "board") return "board";
   if (!PAD_ENABLED && group === "pad") return "pad";

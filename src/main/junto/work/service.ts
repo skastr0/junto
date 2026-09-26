@@ -93,6 +93,7 @@ import {
   evaluateRules,
   evaluateTerminalClose,
   requiredChecks,
+  regionContractOf,
   rulesInForce,
   taskAdmissionState,
   taskApproved,
@@ -2269,7 +2270,7 @@ export const WorkLive = Layer.effect(
               id: group.id,
               label: group.label?.trim() || group.id,
               rulings: [
-                ...(group.ether?.region?.contract?.rulings ?? []),
+                ...(regionContractOf(group)?.rulings ?? []),
               ],
             })),
           };

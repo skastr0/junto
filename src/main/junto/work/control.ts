@@ -180,6 +180,7 @@ import {
 import { resolveTaskAdmission } from "@shared/work-model";
 import {
   boardContractOf,
+  regionContractOf,
   rulesInForce,
   taskAdmissionState,
 } from "@shared/rules";
@@ -678,7 +679,7 @@ const boardBriefing = (doc: CanvasDoc, nodeId: string) => {
 
 const rulingsForRegionStack = (doc: CanvasDoc, nodeId: string) =>
   regionStack(doc, nodeId).flatMap((group) => {
-    const rulings = group.ether?.region?.contract?.rulings ?? [];
+    const rulings = regionContractOf(group)?.rulings ?? [];
     if (rulings.length === 0) return [];
     return [{
       region: group.id,
@@ -986,8 +987,11 @@ const dispatchOp = (
           grants: c.grants,
           ...(boardBriefing(board, c.id) ?? {}),
         })),
-        // Operator-pinned precedent from the seat's own region stack.
-        rulings: rulingsForRegionStack(board, caller.nodeId),
+        // Operator-pinned precedent from the seat's own region stack. Region
+        // rulings ride the Tasks gate: a tasks-off build names none.
+        ...(TASKS_ENABLED
+          ? { rulings: rulingsForRegionStack(board, caller.nodeId) }
+          : {}),
         co_members: regionVisibility(board, caller.nodeId),
         // Pause surface: a paused seat must distinguish pause from a broken
         // grant. Reads stay open; mutating ops still refuse with Paused.
@@ -1368,6 +1372,21 @@ const dispatchOp = (
     }
 
     if (op === "rulings") {
+      // Region rulings ride the Tasks gate: a tasks-off build has none to read.
+      if (!TASKS_ENABLED) {
+        return yield* Effect.fail<WorkErrorBody>({
+          type: "ScopeError",
+          message: "region rulings are disabled in this Junto build",
+          details: {
+            caller: caller.nodeId,
+            hint: "this product surface is turned off in this build",
+            next_step: "stop reading rulings; this build carries no region rules",
+            retryable: false,
+            missing: "feature enabled in this build",
+            reason: op,
+          },
+        });
+      }
       const decoded = decodeArgs(RulingsArgs, args);
       if (Result.isFailure(decoded)) return yield* Effect.fail(decoded.failure);
       // No target: the seat's own region stack — ambient law it already lives

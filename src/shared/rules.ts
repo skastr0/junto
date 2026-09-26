@@ -1,4 +1,5 @@
-import type { CanvasDoc, CanvasNode, GroupNode } from "./canvas";
+import type { CanvasDoc, CanvasNode, EtherRegionContract, GroupNode } from "./canvas";
+import { TASKS_ENABLED } from "./features";
 import type {
   Check,
   CheckSide,
@@ -47,6 +48,16 @@ export const boardContractOf = (
 const regionLabel = (group: GroupNode): string => group.label?.trim() || group.id;
 
 /**
+ * A region's contract (rules and pinned rulings) rides the Tasks gate. With
+ * it off, a stored contract still decodes and round-trips untouched, but
+ * nothing reads it: no rule stacks onto a board and no ruling reaches a seat.
+ */
+export const regionContractOf = (
+  group: CanvasNode,
+): EtherRegionContract | undefined =>
+  TASKS_ENABLED && group.type === "group" ? group.ether?.region?.contract : undefined;
+
+/**
  * Rules in force at a board: enclosing regions outer to inner, board rules,
  * then task rules addressed to this board. Authored entries are concatenated;
  * there is no override, precedence, or deduplication.
@@ -58,7 +69,7 @@ export const rulesInForce = (
 ): ReadonlyArray<RuleInForce> => {
   const out: RuleInForce[] = [];
   for (const group of regionStack(doc, boardId)) {
-    for (const rule of group.ether?.region?.contract?.rules ?? []) {
+    for (const rule of regionContractOf(group)?.rules ?? []) {
       out.push({
         rule,
         provenance: {
