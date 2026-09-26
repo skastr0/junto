@@ -772,6 +772,13 @@
       "reason": "Decodes the settings section key arriving from the renderer over IPC."
     },
     {
+      "path": "src/main/junto/notifications/ipc.ts",
+      "kinds": [
+        "wire"
+      ],
+      "reason": "Decodes the desktop-notification report (open needs, badge count, notification settings) arriving from the renderer over IPC before the notification plane acts on it."
+    },
+    {
       "path": "src/main/junto/settings/patch.ts",
       "kinds": [
         "operator"
