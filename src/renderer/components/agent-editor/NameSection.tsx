@@ -35,7 +35,7 @@ export function NameSection({ seat }: AgentEditorSectionProps) {
   latest.current = { ...latest.current, value, editing, commit };
   const input = useRef<HTMLInputElement | null>(null);
   useEffect(() => {
-    // Registered before the popover's own Escape (child effects run first).
+    // The modal closes a microtask after Escape, so this still sees the key.
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape" && document.activeElement === input.current) latest.current.dropped = true;
     };

@@ -101,6 +101,16 @@ test("agent portraits render on seats and in the focus modal", async () => {
       await page.waitForTimeout(500);
       await page.screenshot({ path: join(SHOTS, `${mode}-editor-look.png`) });
       await editor.screenshot({ path: join(SHOTS, `${mode}-editor.png`) });
+      // Hovering an option tries it on the big stage; face traits zoom in.
+      await editor.getByRole("radiogroup", { name: "hats and props" }).getByRole("radio").nth(4).hover();
+      await expect(editor.locator(".agent-editor__plate")).toHaveAttribute("data-previewing", "true");
+      await page.waitForTimeout(400);
+      await editor.screenshot({ path: join(SHOTS, `${mode}-editor-preview.png`) });
+      const eyes = editor.getByRole("radiogroup", { name: "eyes" });
+      await eyes.scrollIntoViewIfNeeded();
+      await eyes.getByRole("radio").nth(2).hover();
+      await page.waitForTimeout(400);
+      await editor.screenshot({ path: join(SHOTS, `${mode}-editor-face-traits.png`) });
       await editor.getByRole("tab", { name: "mood" }).click();
       await page.waitForTimeout(400);
       await editor.screenshot({ path: join(SHOTS, `${mode}-editor-mood.png`) });

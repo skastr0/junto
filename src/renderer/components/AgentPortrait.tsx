@@ -121,7 +121,8 @@ export function AgentPortrait({
     return () => clearTimeout(timer);
   }, [shown.prev]);
   const round = frame === "round";
-  const radius = round ? "50%" : Math.round(size * 0.26);
+  // A bare critter stands on the caller's ground: nothing to round off.
+  const radius = round ? "50%" : frame === "bare" ? 0 : Math.round(size * 0.26);
   // The badge names the harness; past ~26px it starts to cover the face.
   const badgeSize = Math.min(26, Math.max(11, Math.round(size * (round ? 0.42 : 0.5))));
   const showBadge = badge && harness !== undefined;

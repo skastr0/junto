@@ -6,7 +6,8 @@ import { useCharacterDraft } from "./character-draft";
 import type { AgentEditorSectionProps } from "./sections";
 
 // Mood: temperament shifts how the seat's face reads its state (working,
-// stuck, done). The strip shows those states live as the slider moves.
+// stuck, done). The faces below follow the slider live; hovering one puts it
+// on the stage.
 
 const MOOD_STRIP: ReadonlyArray<readonly [string, Omit<ExpressionInput, "temperament">]> = [
   ["idle", { activity: "rest" }],
@@ -21,7 +22,7 @@ export const temperamentWord = (value: number): string =>
   value <= -0.34 ? "moody" : value >= 0.34 ? "cheerful" : "even";
 
 export function MoodSection({ seat }: AgentEditorSectionProps) {
-  const { identity, draft, character, set } = useCharacterDraft();
+  const { identity, draft, character, set, setPreview } = useCharacterDraft();
   const faceFor = (mood: Omit<ExpressionInput, "temperament">): PortraitExpression =>
     portraitExpression({ ...mood, temperament: character.temperament });
   const born = defaultTemperament(identity);
@@ -49,12 +50,26 @@ export function MoodSection({ seat }: AgentEditorSectionProps) {
       </label>
 
       <div className="agent-editor__moods" aria-label={`How ${seat.name} reads seat states`}>
-        {MOOD_STRIP.map(([label, mood]) => (
-          <figure key={label}>
-            <AgentPortrait identity={identity} size={44} frame="round" config={draft} expression={faceFor(mood)} />
-            <figcaption>{label}</figcaption>
-          </figure>
-        ))}
+        {MOOD_STRIP.map(([label, mood]) => {
+          const expression = faceFor(mood);
+          return (
+            <figure
+              key={label}
+              tabIndex={0}
+              aria-label={`${label}: ${expression}`}
+              onMouseEnter={() => setPreview({ expression, label: `${label}: ${expression}` })}
+              onFocus={() => setPreview({ expression, label: `${label}: ${expression}` })}
+              onMouseLeave={() => setPreview(undefined)}
+              onBlur={() => setPreview(undefined)}
+            >
+              <AgentPortrait identity={identity} size={96} frame="round" badge={false} outline={false} config={draft} expression={expression} />
+              <figcaption>
+                <span>{label}</span>
+                <span className="agent-editor__mood-face">{expression}</span>
+              </figcaption>
+            </figure>
+          );
+        })}
       </div>
 
       <div className="agent-editor__row">

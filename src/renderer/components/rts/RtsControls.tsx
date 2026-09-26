@@ -456,7 +456,7 @@ export function KindActions({ node }: { readonly node: CanvasNode }) {
           label="Customize character"
           title="Customize character (look, mood, name)"
           testId="rts-customize-agent"
-          onClick={(event) => openAgentEditor(node.id, { anchor: event.currentTarget })}
+          onClick={() => openAgentEditor(node.id)}
         >
           <UserRoundPen size={ICON} />
         </KindKey>

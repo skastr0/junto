@@ -1,55 +1,74 @@
-import { useEffect, useState, type ReactNode } from "react";
-import { Pencil, UserRoundPen } from "lucide-react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { Pencil, UserRoundPen, X } from "lucide-react";
 import { use$ } from "@legendapp/state/react";
 import { isHarnessId } from "@shared/managed-terminal-templates";
 import {
   agentEditor$,
-  agentEditorAnchor,
   closeAgentEditor,
   openAgentEditor,
-  toggleAgentEditor,
 } from "../../lib/agent-editor-state";
 import { isAgentSeatNode } from "../../lib/multi-selection";
 import { nodeTitle } from "../../lib/presentation";
 import { state$ } from "../../lib/state";
 import { AgentPortrait } from "../AgentPortrait";
+import { FocusSurface } from "../FocusSurface";
 import { InspectorTabs } from "../chat/InspectorTabs";
-import { Eyebrow, IconButton, Popover } from "../ui";
-import { CharacterDraftProvider, useCharacterDraft } from "./character-draft";
+import { Button, IconButton, OverlayHeader } from "../ui";
+import { CharacterDraftProvider, isEmptyConfig, useCharacterDraft } from "./character-draft";
+import { randomLook } from "./LookSection";
 import { AGENT_EDITOR_SECTIONS, type AgentEditorSeat } from "./sections";
 import "./AgentEditor.css";
 
 // Customize agent: one place for everything the operator sets on a seat, as
-// sections (look, mood, name, and whatever lands next). The hero keeps the
-// seat's character in view whichever section is open.
+// sections (look, mood, name, and whatever lands next), in a modal. The stage
+// keeps the whole character in view, large, whichever section is open, and
+// shows whatever option or mood is hovered before it is picked.
 
-function Hero({ seat }: { readonly seat: AgentEditorSeat }) {
-  const { draft, saveFailed } = useCharacterDraft();
+const STAGE_PX = 280;
+
+function Stage({ seat }: { readonly seat: AgentEditorSeat }) {
+  const { draft, preview, replace, saveFailed } = useCharacterDraft();
+  const lookChanged = !isEmptyConfig({ ...draft, temperament: undefined });
   return (
-    <div className="agent-editor__hero">
-      <AgentPortrait identity={seat.id} size={72} frame="round" config={draft} harness={seat.harness} />
-      <div className="agent-editor__hero-side">
-        <Eyebrow tone="steel">customize agent</Eyebrow>
-        <div className="agent-editor__name" title={seat.name}>
-          {seat.name}
-        </div>
-        <div className="agent-editor__meta">
-          {saveFailed ? (
-            <span className="agent-editor__error">Could not save this character.</span>
-          ) : (
-            <span>{seat.harness ? `${seat.harness} seat` : "agent seat"}, kept on this install</span>
-          )}
-        </div>
+    <div className="agent-editor__stage">
+      <div className="agent-editor__plate" data-previewing={preview ? "true" : undefined}>
+        <AgentPortrait
+          identity={seat.id}
+          size={STAGE_PX}
+          frame="bare"
+          badge={false}
+          outline={false}
+          config={preview?.config ?? draft}
+          {...(preview?.expression ? { expression: preview.expression } : {})}
+        />
+      </div>
+      <div className="agent-editor__caption" aria-live="polite" data-tone={saveFailed ? "error" : undefined}>
+        {preview ? preview.label : saveFailed ? "Could not save this character." : "Hover an option to try it on."}
+      </div>
+      <div className="agent-editor__stage-actions">
+        <Button size="sm" variant="chrome" onClick={() => replace(randomLook(draft.temperament))}>
+          Randomize look
+        </Button>
+        <Button
+          size="sm"
+          variant="subtle"
+          disabled={!lookChanged}
+          title={`Back to the look ${seat.name} was born with`}
+          onClick={() => replace({ temperament: draft.temperament })}
+        >
+          Reset look
+        </Button>
       </div>
     </div>
   );
 }
 
 /**
- * The editor itself, without the popover: hero, section tabs, one panel.
- * Renders inline anywhere (the onboarding tour shows it with a fixture
- * seat). `section` picks the open section and follows later changes; the
- * tabs still switch it.
+ * The editor body without the modal: the stage beside the section tabs and
+ * one panel. Renders inline anywhere (the onboarding tour shows it with a
+ * fixture seat); below ~720px wide the stage stacks above the sections.
+ * `section` picks the open section and follows later changes; the tabs still
+ * switch it.
  */
 export function AgentEditorView({ seat, section }: { readonly seat: AgentEditorSeat; readonly section?: string }) {
   const sections = AGENT_EDITOR_SECTIONS.filter((entry) => entry.applies?.(seat) ?? true);
@@ -60,16 +79,20 @@ export function AgentEditorView({ seat, section }: { readonly seat: AgentEditorS
   const current = sections.find((entry) => entry.id === active) ?? sections[0];
   return (
     <CharacterDraftProvider identity={seat.id}>
-      <div className="agent-editor">
-        <Hero seat={seat} />
-        <InspectorTabs
-          label="Customize sections"
-          tabs={sections.map(({ id, label }) => ({ id, label }))}
-          active={current?.id ?? ""}
-          onSelect={setActive}
-        />
-        <div className="agent-editor__panel" role="tabpanel" aria-label={current?.label} data-section={current?.id}>
-          {current ? <current.Panel key={current.id} seat={seat} /> : null}
+      <div className="agent-editor-frame">
+        <div className="agent-editor">
+          <Stage seat={seat} />
+          <div className="agent-editor__sections">
+            <InspectorTabs
+              label="Customize sections"
+              tabs={sections.map(({ id, label }) => ({ id, label }))}
+              active={current?.id ?? ""}
+              onSelect={setActive}
+            />
+            <div className="agent-editor__panel" role="tabpanel" aria-label={current?.label} data-section={current?.id}>
+              {current ? <current.Panel key={current.id} seat={seat} /> : null}
+            </div>
+          </div>
         </div>
       </div>
     </CharacterDraftProvider>
@@ -78,26 +101,53 @@ export function AgentEditorView({ seat, section }: { readonly seat: AgentEditorS
 
 export function AgentEditor({
   seat,
-  anchor,
   section,
   onClose,
 }: {
   readonly seat: AgentEditorSeat;
-  readonly anchor: HTMLElement;
   readonly section?: string;
   readonly onClose: () => void;
 }) {
+  // Escape belongs to this modal while it is open: a surface under it (the
+  // focus view it was opened from) must not close too. The close waits a
+  // microtask so the Name field's own Escape listener still sees the key.
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      event.stopPropagation();
+      queueMicrotask(() => onCloseRef.current());
+    };
+    // focus-law: Escape-only close of the open customize modal.
+    window.addEventListener("keydown", onKeyDown, { capture: true });
+    return () => window.removeEventListener("keydown", onKeyDown, { capture: true });
+  }, []);
   return (
-    <Popover
-      anchor={anchor}
-      onClose={onClose}
+    <FocusSurface
+      measure="document"
+      height="fit"
+      layer="work"
       label={`Customize ${seat.name}`}
-      width={480}
-      className="agent-editor-popover"
-      testId="agent-editor"
+      panelClassName="agent-editor-modal"
+      closeOnEscape={false}
+      onClose={onClose}
     >
-      <AgentEditorView seat={seat} section={section} />
-    </Popover>
+      <div data-testid="agent-editor" className="agent-editor-modal__body" aria-label={`Customize ${seat.name}`}>
+        <OverlayHeader
+          eyebrow="customize agent"
+          title={seat.name}
+          status={`${seat.harness ? `${seat.harness} seat` : "agent seat"}, saved on this install as you go`}
+          actions={
+            <IconButton aria-label="Close customize" title="Close" onClick={onClose}>
+              <X size={14} />
+            </IconButton>
+          }
+        />
+        <AgentEditorView seat={seat} section={section} />
+      </div>
+    </FocusSurface>
   );
 }
 
@@ -115,24 +165,14 @@ const seatOf = (seatId: string): AgentEditorSeat | undefined => {
 };
 
 /**
- * Mounted once at the app root: renders the editor wherever it was opened.
+ * Mounted once at the app root: renders the editor for whichever seat asked.
  * Closes itself when the seat leaves the canvas.
  */
 export function AgentEditorHost() {
   const open = use$(agentEditor$);
   const seat = use$(() => (open ? seatOf(open.seatId) : undefined));
-  const [fallback, setFallback] = useState<HTMLElement | null>(null);
-  if (!open) return null;
-  const anchor = agentEditorAnchor(open.seatId) ?? fallback;
-  return (
-    <>
-      {/* Where the editor sits when neither its opener nor the seat is on screen. */}
-      <div ref={setFallback} className="agent-editor-fallback-anchor" aria-hidden />
-      {seat && anchor ? (
-        <AgentEditor key={`${seat.id}:${open.opened}`} seat={seat} anchor={anchor} section={open.section} onClose={closeAgentEditor} />
-      ) : null}
-    </>
-  );
+  if (!open || !seat) return null;
+  return <AgentEditor key={`${seat.id}:${open.opened}`} seat={seat} section={open.section} onClose={closeAgentEditor} />;
 }
 
 /**
@@ -159,10 +199,11 @@ export function CustomizeAgentButton({
       className="customize-agent-button"
       data-hint={hint ? "true" : undefined}
       aria-label={`Customize ${name}`}
+      aria-haspopup="dialog"
       aria-expanded={expanded}
       title={hint ? undefined : "Customize character"}
       data-testid="customize-agent-button"
-      onClick={(event) => toggleAgentEditor(identity, { anchor: event.currentTarget })}
+      onClick={() => openAgentEditor(identity)}
     >
       {children}
       {hint ? (
@@ -179,7 +220,7 @@ export function CustomizeAgentButton({
   );
 }
 
-/** The seat toolbar's entry: opens the editor beside the seat. */
+/** The seat toolbar's entry. */
 export function CustomizeAgentToolbarAction({ seatId }: { readonly seatId: string }) {
   return (
     <IconButton

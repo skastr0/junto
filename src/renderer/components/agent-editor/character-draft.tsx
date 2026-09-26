@@ -1,12 +1,14 @@
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { portraitCharacter, type PortraitCharacter, type PortraitConfig } from "@shared/agent-portrait";
+import type { PortraitExpression } from "@shared/portrait-expression";
 import { savePortraitOverride } from "../../lib/portrait-overrides-state";
 import { usePortraitConfig } from "../AgentPortrait";
 
 // The seat's character override while the editor is open, shared by the hero
 // preview and the Look and Mood sections. Edits save as they happen
 // (debounced), so the seat on the canvas changes with the editor; an empty
-// override drops back to the character the seat was born with.
+// override drops back to the character the seat was born with. Hovering an
+// option or a mood previews it on the stage without saving anything.
 
 const SAVE_DEBOUNCE_MS = 220;
 
@@ -19,6 +21,17 @@ export interface CharacterDraft {
   readonly set: <K extends keyof PortraitConfig>(key: K, value: PortraitConfig[K]) => void;
   /** Replace the whole override; `{}` is the born character. */
   readonly replace: (next: PortraitConfig) => void;
+  /** What the stage shows while an option or mood is hovered. */
+  readonly preview: CharacterPreview | undefined;
+  readonly setPreview: (preview: CharacterPreview | undefined) => void;
+}
+
+export interface CharacterPreview {
+  /** The draft with the hovered option applied. */
+  readonly config?: PortraitConfig;
+  readonly expression?: PortraitExpression;
+  /** What is being previewed, for the stage caption. */
+  readonly label: string;
 }
 
 export const isEmptyConfig = (config: PortraitConfig): boolean =>
@@ -30,6 +43,7 @@ export function CharacterDraftProvider({ identity, children }: { readonly identi
   const saved = usePortraitConfig(identity);
   const [draft, setDraft] = useState<PortraitConfig>(saved ?? {});
   const [saveFailed, setSaveFailed] = useState(false);
+  const [preview, setPreview] = useState<CharacterPreview | undefined>(undefined);
   const pending = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   useEffect(() => () => pending.current && clearTimeout(pending.current), []);
 
@@ -47,6 +61,8 @@ export function CharacterDraftProvider({ identity, children }: { readonly identi
     saveFailed,
     set: (key, next) => replace({ ...draft, [key]: next }),
     replace,
+    preview,
+    setPreview,
   };
   return <CharacterDraftContext.Provider value={value}>{children}</CharacterDraftContext.Provider>;
 }

@@ -4,8 +4,8 @@ import { cosmeticEntries, type CosmeticEntry } from "@shared/cosmetics/catalog";
 import "../../lib/cosmetics";
 import { hasStore, openStore } from "../../overlay/surfaces";
 import { AgentPortrait } from "../AgentPortrait";
-import { Button, Eyebrow } from "../ui";
-import { isEmptyConfig, useCharacterDraft } from "./character-draft";
+import { Button } from "../ui";
+import { useCharacterDraft } from "./character-draft";
 import type { AgentEditorSectionProps } from "./sections";
 
 // Look: every option is a thumbnail of this character wearing it, so the grid
@@ -49,7 +49,7 @@ const byPack = (trait: CosmeticTrait): ReadonlyArray<readonly [string, ReadonlyA
 };
 
 /** A random look; temperament is Mood's, so it keeps the current one. */
-const randomLook = (temperament: number | undefined): PortraitConfig => {
+export const randomLook = (temperament: number | undefined): PortraitConfig => {
   const any = <T,>(items: ReadonlyArray<T>): T => items[Math.floor(Math.random() * items.length)] as T;
   const options = portraitOptions();
   return {
@@ -67,33 +67,27 @@ const randomLook = (temperament: number | undefined): PortraitConfig => {
   };
 };
 
-export function LookSection({ seat }: AgentEditorSectionProps) {
-  const { identity, draft, character, set, replace } = useCharacterDraft();
-  const lookChanged = !isEmptyConfig({ ...draft, temperament: undefined });
+/** Traits read on the face: their tiles zoom in so small differences show. */
+const FACE_TRAITS: ReadonlySet<Trait> = new Set(["eyes", "brows", "mouth"]);
+
+const humanize = (key: string): string => key.replace(/[-_]/g, " ");
+
+const TILE = 84;
+const ZOOM = 176;
+
+export function LookSection(_props: AgentEditorSectionProps) {
+  const { identity, draft, character, set, setPreview } = useCharacterDraft();
 
   return (
     <div className="agent-editor__look">
-      <div className="agent-editor__row">
-        <span className="agent-editor__hint">Every seat is born with a look. Pick anything to change it.</span>
-        <div className="agent-editor__actions">
-          <Button size="xs" variant="chrome" onClick={() => replace(randomLook(draft.temperament))}>
-            Randomize
-          </Button>
-          <Button
-            size="xs"
-            variant="subtle"
-            disabled={!lookChanged}
-            title={`Back to the look ${seat.name} was born with`}
-            onClick={() => replace({ temperament: draft.temperament })}
-          >
-            Reset
-          </Button>
-        </div>
-      </div>
-
       {TRAITS.map(([trait, label]) => {
+        const face = FACE_TRAITS.has(trait);
         const option = (key: string, name: string, available = true): ReactNode => {
           const active = character[trait] === key;
+          const config = available ? { ...draft, [trait]: key } : draft;
+          const preview = (): void => {
+            if (available) setPreview({ config, label: `${label}: ${name}` });
+          };
           return (
             <button
               key={key}
@@ -102,27 +96,33 @@ export function LookSection({ seat }: AgentEditorSectionProps) {
               aria-checked={active}
               aria-disabled={available ? undefined : true}
               aria-label={`${label} ${name}${available ? "" : ", locked"}`}
-              title={available ? name : `${name}, not unlocked on this install`}
+              title={available ? undefined : `${name}, not unlocked on this install`}
               className="agent-editor__option"
               data-active={active ? "true" : undefined}
               data-locked={available ? undefined : "true"}
               onClick={() => (available ? set(trait, key as never) : hasStore() && openStore())}
+              onMouseEnter={preview}
+              onFocus={preview}
+              onMouseLeave={() => setPreview(undefined)}
+              onBlur={() => setPreview(undefined)}
             >
-              <AgentPortrait
-                identity={identity}
-                size={40}
-                frame="round"
-                config={available ? { ...draft, [trait]: key } : draft}
-              />
+              <span className="agent-editor__thumb" data-zoom={face ? "face" : undefined}>
+                {face ? (
+                  <span className="agent-editor__zoom">
+                    <AgentPortrait identity={identity} size={ZOOM} frame="tile" badge={false} outline={false} config={config} />
+                  </span>
+                ) : (
+                  <AgentPortrait identity={identity} size={TILE} frame="round" badge={false} outline={false} config={config} />
+                )}
+              </span>
+              <span className="agent-editor__option-name">{name}</span>
             </button>
           );
         };
         const groups = isCosmeticTrait(trait) ? byPack(trait) : [[undefined, undefined] as const];
         return (
           <section key={trait} className="agent-editor__trait">
-            <Eyebrow tone="steel" size="xs">
-              {label}
-            </Eyebrow>
+            <h3 className="agent-editor__trait-label">{label}</h3>
             <div role="radiogroup" aria-label={label} className="agent-editor__groups">
               {groups.map(([packName, entries], index) => (
                 <div key={packName ?? "face"} className="agent-editor__pack" data-pack={index > 0 ? "premium" : undefined}>
@@ -139,7 +139,7 @@ export function LookSection({ seat }: AgentEditorSectionProps) {
                   <div className="agent-editor__grid">
                     {entries
                       ? entries.map((entry) => option(entry.key, entry.item.name, entry.available))
-                      : portraitOptions()[trait].map((key) => option(key, key))}
+                      : portraitOptions()[trait].map((key) => option(key, humanize(key)))}
                   </div>
                 </div>
               ))}

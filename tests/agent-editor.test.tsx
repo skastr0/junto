@@ -141,7 +141,7 @@ describe("customize agent editor", { timeout: 30_000 }, () => {
     expect(portraitOverrides$.peek()["seat-1"]).toEqual({ shape: "toast" });
     expect(opened.querySelector('[aria-label="body Toast"]')?.getAttribute("aria-checked")).toBe("true");
 
-    act(() => button("Reset").click());
+    act(() => button("Reset look").click());
     await settle();
     expect(patches.at(-1)).toEqual({ seatId: "seat-1", override: null });
     expect(portraitOverrides$.peek()["seat-1"]).toBeUndefined();
@@ -157,14 +157,14 @@ describe("customize agent editor", { timeout: 30_000 }, () => {
     expect(editor().textContent).toContain("moody");
 
     tab("look");
-    act(() => button("Randomize").click());
+    act(() => button("Randomize look").click());
     await settle();
     const saved = portraitOverrides$.peek()["seat-1"];
     expect(saved?.shape).toBeDefined();
     expect(saved?.temperament).toBe(-0.8);
   });
 
-  it("renames the seat from Name on Enter, and drops the typing on Escape", () => {
+  it("renames the seat from Name on Enter, and drops the typing on Escape", async () => {
     const opened = open("name");
     expect(opened.querySelector('[role="tabpanel"]')?.getAttribute("data-section")).toBe("name");
     const input = opened.querySelector('[data-testid="agent-editor-name"]') as HTMLInputElement;
@@ -174,9 +174,10 @@ describe("customize agent editor", { timeout: 30_000 }, () => {
     expect(renames).toEqual([["seat-1", "lead planner"]]);
 
     type(input, "scrapped");
-    act(() => {
+    await act(async () => {
       input.focus();
       input.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+      await Promise.resolve();
     });
     expect(agentEditor$.peek()).toBeNull();
     expect(renames).toHaveLength(1);
