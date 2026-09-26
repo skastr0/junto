@@ -27,7 +27,7 @@ const agent = (id: string, x: number, y: number): CanvasDoc["nodes"][number] => 
 const doc: CanvasDoc = {
   nodes: [
     { id: "outer", type: "group", label: "Build", x: 0, y: 0, width: 1000, height: 1000 },
-    { id: "inner", type: "group", label: "Docs", x: 500, y: 500, width: 400, height: 400 },
+    { id: "inner", type: "group", label: "Docs", color: "5", x: 500, y: 500, width: 400, height: 400 },
     agent("a", 10, 10),
     agent("b", 600, 600),
     agent("c", 2000, 2000),
@@ -60,8 +60,8 @@ const seats = (extra?: Partial<Record<string, Partial<FeedSeatInput>>>): Readonl
   }));
 
 describe("feed regions", () => {
-  it("uses the innermost containing region with the outer-to-inner path", () => {
-    expect(feedRegionFor(doc, "b")).toEqual({ regionId: "inner", label: "Docs", path: ["Build", "Docs"] });
+  it("uses the innermost containing region with the outer-to-inner path and its colour", () => {
+    expect(feedRegionFor(doc, "b")).toEqual({ regionId: "inner", label: "Docs", path: ["Build", "Docs"], color: "5" });
     expect(feedRegionFor(doc, "a")).toEqual({ regionId: "outer", label: "Build", path: ["Build"] });
     expect(feedRegionFor(doc, "c").regionId).toBeNull();
   });

@@ -60,6 +60,8 @@ export const FeedRegion = Schema.Struct({
   label: Schema.String,
   /** Containing region labels, outer to inner. */
   path: Schema.Array(Schema.String),
+  /** The region's own JSON Canvas colour (preset "1".."6" or hex), when it has one. */
+  color: Schema.optionalKey(Schema.String),
 });
 export type FeedRegion = typeof FeedRegion.Type;
 
@@ -143,7 +145,12 @@ export const feedRegionFor = (doc: CanvasDoc, nodeId: string): FeedRegion => {
   const inner = stack[stack.length - 1];
   if (!inner) return OPEN_FIELD;
   const labelOf = (group: (typeof stack)[number]): string => group.label?.trim() || "untitled region";
-  return { regionId: inner.id, label: labelOf(inner), path: stack.map(labelOf) };
+  return {
+    regionId: inner.id,
+    label: labelOf(inner),
+    path: stack.map(labelOf),
+    ...(inner.color ? { color: inner.color } : {}),
+  };
 };
 
 /** Agent seats of a document as feed seats; live planes are joined by node id. */
