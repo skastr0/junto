@@ -14,6 +14,10 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
+  CURRENT_STATE_SCHEMA_VERSION,
+  STATE_SCHEMA_MIGRATIONS,
+} from "../src/main/junto/state/migrations";
+import {
   MAIN_PAYLOAD_SOURCE_RELATIVE,
   MAIN_PROVENANCE_SOURCE_RELATIVE,
   PACKAGE_RUNTIME_PROVENANCE_SCHEMA,
@@ -626,12 +630,15 @@ describe("package source facts", () => {
   });
 
   it("admits the repository's actual schema facts", async () => {
+    // The source-text reader must agree with the runtime module it parses, so
+    // every new state migration moves both sides together.
     const facts = await readPackageSchemaFacts(repoRoot);
-    expect(facts.currentStateSchemaVersion).toBe(2);
+    const head = STATE_SCHEMA_MIGRATIONS[STATE_SCHEMA_MIGRATIONS.length - 1]!;
+    expect(facts.currentStateSchemaVersion).toBe(CURRENT_STATE_SCHEMA_VERSION);
     expect(facts.migrationHead).toEqual({
-      fromVersion: 1,
-      toVersion: 2,
-      name: "retire the mail delivery ledger",
+      fromVersion: head.fromVersion,
+      toVersion: head.toVersion,
+      name: head.name,
     });
   });
 
