@@ -31,8 +31,9 @@ const TIERS: ReadonlyArray<readonly [Tier, number]> = [
 
 /**
  * Measured on these boards without a composited viewport: 12 to 16 layers at
- * every tier, 3 paints in 2 s at rest below near. The lease that composited
- * the viewport made 809 layers here and starved tiles on a near pan.
+ * every tier, 0 to 3 paints in 2 s at rest below near once the zoom settles.
+ * The lease that composited the viewport made 809 layers here and starved
+ * tiles on a near pan.
  */
 const LAYER_BUDGET = 40;
 const REST_PAINT_BUDGET = 20;
@@ -190,6 +191,11 @@ for (const preset of ["nested", "deep"] as const satisfies readonly NestedCanvas
         await page.waitForTimeout(1_000);
         const at = await zoomTo(page, zoom);
         await expect(page.locator("html")).toHaveAttribute("data-canvas-tier", tier);
+        // The first trace after a zoom records one full repaint, every
+        // portrait included, whether it starts 1.5 s or 4 s after the camera
+        // stops; the next window is quiet. Trace a warm-up window and drop it,
+        // so the rest window measures rest.
+        await traced(app, page, join(out, `${tier}-settle.json`), () => page.waitForTimeout(1_000));
         const rest = await traced(app, page, join(out, `${tier}-rest.json`), () => page.waitForTimeout(2_000));
         const panning = await traced(app, page, join(out, `${tier}-pan.json`), async () => {
           await pan(page, 90);
@@ -208,10 +214,9 @@ for (const preset of ["nested", "deep"] as const satisfies readonly NestedCanvas
           // The board is a handful of layers, not one per card or wire.
           expect(phase.layers, `${label}: compositor layers`).toBeLessThanOrEqual(LAYER_BUDGET);
         }
-        // Far and overview draw no loops: a camera at rest paints (almost)
-        // nothing. (Mid still paints about 110 times a second at rest on these
-        // boards; seat and card visuals own that tier.)
-        if (row.tier === "far" || row.tier === "overview") {
+        // Below near nothing loops: rings hold their pose, bubbles and
+        // landings are off, so a camera at rest paints (almost) nothing.
+        if (row.tier !== "near") {
           expect(row.rest.paints, `${label}: paints at rest`).toBeLessThanOrEqual(REST_PAINT_BUDGET);
         }
       }
