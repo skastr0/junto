@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { CUE_IDS, CUES, cuesInCategory } from "../src/renderer/lib/sound/cues";
 import { CueMixer, MIXER_LIMITS } from "../src/renderer/lib/sound/mixer";
 import { SOUND_CATEGORIES } from "@shared/settings";
+import { PAN_SPREAD, panForScreenX } from "../src/renderer/lib/sound";
 
 const mixer = () => new CueMixer(CUES);
 
@@ -110,6 +111,16 @@ describe("sound mixer", () => {
     const m = mixer();
     m.request("done", 0);
     expect(m.due(1, true)).toHaveLength(1);
+  });
+});
+
+describe("stereo position", () => {
+  it("places a seat by where it sits across the window, gently, and clamps off-screen seats to their side", () => {
+    expect(panForScreenX(500, 1_000)).toBe(0);
+    expect(panForScreenX(0, 1_000)).toBeCloseTo(-PAN_SPREAD);
+    expect(panForScreenX(750, 1_000)).toBeCloseTo(PAN_SPREAD / 2);
+    expect(panForScreenX(-4_000, 1_000)).toBe(-PAN_SPREAD);
+    expect(panForScreenX(9_000, 1_000)).toBe(PAN_SPREAD);
   });
 });
 

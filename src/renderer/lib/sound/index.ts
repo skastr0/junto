@@ -29,9 +29,33 @@ export const soundEngine = new SoundEngine();
 const OPEN_HUSH_MS = 4_000;
 state$.canvasName.onChange(() => soundEngine.hush(OPEN_HUSH_MS));
 
-/** Something happened that has a sound. */
-export const playCue = (cue: CueId, request?: CueRequest): RequestOutcome | "silent" =>
-  soundEngine.play(cue, request);
+/** How far left or right a seat can place its sound: a hint, never a jump. */
+export const PAN_SPREAD = 0.6;
+
+/** A screen x (0 at the left edge, `width` at the right) as a stereo position. */
+export const panForScreenX = (x: number, width: number): number =>
+  Math.max(-PAN_SPREAD, Math.min(PAN_SPREAD, ((x / Math.max(1, width)) * 2 - 1) * PAN_SPREAD));
+
+/** Where a canvas node sits across the window, if it is drawn. */
+const panForNode = (nodeId: string): number | undefined => {
+  if (typeof document === "undefined" || typeof window === "undefined") return undefined;
+  const node = document.querySelector(`.react-flow__node[data-id="${CSS.escape(nodeId)}"]`);
+  if (node === null) return undefined;
+  const box = node.getBoundingClientRect();
+  return panForScreenX(box.left + box.width / 2, window.innerWidth);
+};
+
+/**
+ * Something happened that has a sound. A cue about a seat comes from where
+ * the seat sits on screen (off screen, from the side it is on).
+ */
+export const playCue = (cue: CueId, request: CueRequest = {}): RequestOutcome | "silent" =>
+  soundEngine.play(
+    cue,
+    request.pan === undefined && request.subject !== undefined
+      ? { ...request, pan: panForNode(request.subject) }
+      : request,
+  );
 
 /** Settings: hear one cue at the current levels. */
 export const previewCue = (cue: CueId): void => soundEngine.previewCue(cue);
