@@ -7,6 +7,7 @@ import {
 import {
   SETTINGS_MAX_SERIALIZED_BYTES,
   SettingsError,
+  defaultAdvanced,
   defaultSection,
   defaultSettings,
   type ProvidersSettings,
@@ -774,7 +775,14 @@ export const makeSettingsService = (
           const next: Settings =
             section === undefined
               ? { ...defaultSettings(), station: current.station }
-              : { ...current, [section]: defaultSection(section) };
+              : section === "advanced" && current.advanced.experimental !== undefined
+                // Experimental toggles live on their own tab; resetting
+                // Advanced must not quietly turn those features off.
+                ? {
+                    ...current,
+                    advanced: { ...defaultAdvanced(), experimental: current.advanced.experimental },
+                  }
+                : { ...current, [section]: defaultSection(section) };
           const retired =
             section === undefined || section === "providers"
               ? commitProviderSecretOps(

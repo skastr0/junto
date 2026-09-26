@@ -34,6 +34,10 @@ describe("packaged feature build contract", () => {
     const result = runBuildPreflight(environment);
     expect(result.status).toBe(0);
     expect(result.stdout).toContain('"profile":"ship"');
+    // Experimental is its own receipt fact, not an override and not "on".
+    expect(result.stdout).toContain('"overrides":[]');
+    expect(result.stdout).toContain('"experimental":["seatAwareness"]');
+    expect(result.stdout).toContain("seatAwareness=x");
   });
 
   it.skipIf(process.platform !== "darwin")("requires explicit signing authority before any official build", () => {

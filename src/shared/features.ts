@@ -8,7 +8,14 @@
  * Product surfaces default OFF. Each may be enabled for a build with its
  * dedicated `JUNTO_*` environment variable. Official builders always inject
  * every define; the environment fallback exists only for source-run tooling.
+ *
+ * A feature may also ship in the middle tier, `experimental` (see
+ * `FeatureTier`): compiled in, off until the operator turns it on in Settings.
+ * Such a feature exports its TIER, never a boolean, so no consumer can read
+ * "compiled in" as "on"; they read the resolved predicate instead.
  */
+
+import { featureTierOn, type FeatureKey, type FeatureTier } from "./feature-catalog";
 
 declare const __JUNTO_CRON_ENABLED__: boolean | undefined;
 declare const __JUNTO_RELAY_ENABLED__: boolean | undefined;
@@ -34,7 +41,7 @@ declare const __JUNTO_HARNESS_AMP_ENABLED__: boolean | undefined;
 declare const __JUNTO_HARNESS_OMP_ENABLED__: boolean | undefined;
 declare const __JUNTO_HARNESS_PRIME_AGENT_ENABLED__: boolean | undefined;
 declare const __JUNTO_HARNESS_SETTINGS_ENABLED__: boolean | undefined;
-declare const __JUNTO_SEAT_AWARENESS_ENABLED__: boolean | undefined;
+declare const __JUNTO_SEAT_AWARENESS_TIER__: FeatureTier | undefined;
 declare const __JUNTO_REVIEWS_ENABLED__: boolean | undefined;
 
 const envEnabled = (key: string): boolean => {
@@ -44,6 +51,18 @@ const envEnabled = (key: string): boolean => {
     return false;
   }
 };
+
+const envTier = (key: string): FeatureTier => {
+  try {
+    const raw = process.env[key];
+    return raw === "1" ? true : raw === "experimental" ? "experimental" : false;
+  } catch {
+    return false;
+  }
+};
+
+const definedTier = (value: unknown): value is FeatureTier =>
+  typeof value === "boolean" || value === "experimental";
 
 export const CRON_ENABLED: boolean =
   typeof __JUNTO_CRON_ENABLED__ === "boolean"
@@ -225,18 +244,23 @@ export const HARNESS_SETTINGS_ENABLED: boolean =
 
 /**
  * Seat awareness (Jev) and seat collaboration — the advisory sidecar, its hover,
- * the peer-help request, and the AI hold on the delivery gate.
+ * the thread-health reading, the peer-help request, and the AI hold on the
+ * delivery gate.
  *
- * OFF in the ship profile. The whole subsystem is one gate: with it off, no
- * client is constructed, nothing is observed, no surface renders and the
- * collaboration action is refused, so the build behaves as it did before the
- * feature existed. Turn it on for a build with `JUNTO_SEAT_AWARENESS=1`, or with
- * the all-on profile for a development run.
+ * EXPERIMENTAL in the ship profile: compiled in, off until the operator turns
+ * it on in Settings. This is the build's tier, not the answer to "is it on":
+ * read {@link seatAwarenessOn} (or the renderer's `useSeatAwarenessOn`), which
+ * folds in the operator's toggle. Off, no client is constructed, nothing is
+ * observed, no surface renders and the collaboration action is refused.
  */
-export const SEAT_AWARENESS_ENABLED: boolean =
-  typeof __JUNTO_SEAT_AWARENESS_ENABLED__ === "boolean"
-    ? __JUNTO_SEAT_AWARENESS_ENABLED__
-    : envEnabled("JUNTO_SEAT_AWARENESS");
+export const SEAT_AWARENESS_TIER: FeatureTier =
+  typeof __JUNTO_SEAT_AWARENESS_TIER__ !== "undefined" &&
+  definedTier(__JUNTO_SEAT_AWARENESS_TIER__)
+    ? __JUNTO_SEAT_AWARENESS_TIER__
+    : envTier("JUNTO_SEAT_AWARENESS");
+
+/** Seat awareness is in this build at all (on or experimental). */
+export const SEAT_AWARENESS_COMPILED: boolean = SEAT_AWARENESS_TIER !== false;
 
 /**
  * The reviews connection family between two seats. Off in the ship profile:
@@ -273,9 +297,32 @@ export const BUILD_FEATURES = {
   harnessOmp: HARNESS_OMP_ENABLED,
   harnessPrimeAgent: HARNESS_PRIME_AGENT_ENABLED,
   harnessSettings: HARNESS_SETTINGS_ENABLED,
-  seatAwareness: SEAT_AWARENESS_ENABLED,
+  seatAwareness: SEAT_AWARENESS_TIER,
   reviews: REVIEWS_ENABLED,
-} as const;
+} as const satisfies Readonly<Record<FeatureKey, FeatureTier>>;
+
+/** The operator's experimental toggles, as the settings row stores them. */
+export type ExperimentalOptIns = Readonly<Record<string, boolean>> | undefined;
+
+/** Features this build compiled in as experimental: the Settings list. */
+export const experimentalFeatureKeys = (): ReadonlyArray<FeatureKey> =>
+  (Object.keys(BUILD_FEATURES) as Array<FeatureKey>).filter(
+    (key) => BUILD_FEATURES[key] === "experimental",
+  );
+
+/**
+ * The one resolved predicate for a tiered feature: compiled, and either on in
+ * this build or turned on by the operator. An opt-in for a feature this build
+ * ships on or compiled out changes nothing.
+ */
+export const featureOn = (
+  key: FeatureKey,
+  optIns: ExperimentalOptIns,
+): boolean => featureTierOn(BUILD_FEATURES[key], optIns?.[key] === true);
+
+/** Seat awareness (Jev) resolved against the operator's toggle. */
+export const seatAwarenessOn = (optIns: ExperimentalOptIns): boolean =>
+  featureOn("seatAwareness", optIns);
 
 /** Whether an authored scheduler kind has a live product surface in this build. */
 export const schedulerFeatureEnabled = (

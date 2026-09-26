@@ -1,10 +1,9 @@
 /**
- * Seat-awareness enrollment gate — Jev is on by default, and off is an opt-out.
+ * Seat-awareness enrollment gate — Jev is experimental, off until the operator
+ * turns it on in Settings, Experimental.
  *
- * The sidecar is the product, so a fresh install runs it; what remains is a
- * real decision to turn it off. This pins the gate resolution, the
- * settings-backed flag, and the two disabled paths end to end through the
- * composed plane:
+ * This pins the gate resolution, the settings-backed toggle, and the two
+ * disabled paths end to end through the composed plane:
  *
  *   off            no client is constructed, and every observed binding gets
  *                  exactly one judgment-free `not_configured` notice.
@@ -21,6 +20,7 @@ import {
   decodeSeatAwarenessEvent,
   type SeatAwarenessEvent,
 } from "../src/renderer/lib/seat-awareness-contract";
+import { SEAT_AWARENESS_TIER } from "../src/shared/features";
 import { defaultSettings, type Settings } from "../src/shared/settings";
 import {
   makeSeatAwarenessPlane,
@@ -34,11 +34,15 @@ import {
   makeSnapshot,
 } from "./helpers/awareness-fakes";
 
+/** Settings with the Experimental tab's Jev toggle set (undefined: never touched). */
 const settingsWith = (seatAwareness: boolean | undefined): Settings => {
   const settings = defaultSettings();
   return {
     ...settings,
-    advanced: { ...settings.advanced, seatAwareness },
+    advanced: {
+      ...settings.advanced,
+      ...(seatAwareness === undefined ? {} : { experimental: { seatAwareness } }),
+    },
   };
 };
 
@@ -82,11 +86,28 @@ describe("resolveSeatAwarenessGate", () => {
     expect(resolveSeatAwarenessGate({ env: "1", enrolled: false }).enabled).toBe(false);
   });
 
-  it("reads the settings flag, absent meaning on and false the opt-out", () => {
-    expect(seatAwarenessEnrolled(defaultSettings())).toBe(true);
+  it.runIf(SEAT_AWARENESS_TIER === "experimental")(
+    "enrolls only when the Experimental toggle is on: off is the default",
+    () => {
+      expect(seatAwarenessEnrolled(defaultSettings())).toBe(false);
+      expect(seatAwarenessEnrolled(settingsWith(undefined))).toBe(false);
+      expect(seatAwarenessEnrolled(settingsWith(false))).toBe(false);
+      expect(seatAwarenessEnrolled(settingsWith(true))).toBe(true);
+    },
+  );
+
+  it("never reads the retired advanced.seatAwareness opt-out", () => {
+    const retired = defaultSettings();
+    const withRetired: Settings = {
+      ...retired,
+      advanced: { ...retired.advanced, seatAwareness: true },
+    };
+    expect(seatAwarenessEnrolled(withRetired)).toBe(SEAT_AWARENESS_TIER === true);
+  });
+
+  it.runIf(SEAT_AWARENESS_TIER === true)("a build that ships it on needs no toggle", () => {
     expect(seatAwarenessEnrolled(settingsWith(undefined))).toBe(true);
-    expect(seatAwarenessEnrolled(settingsWith(true))).toBe(true);
-    expect(seatAwarenessEnrolled(settingsWith(false))).toBe(false);
+    expect(seatAwarenessEnrolled(settingsWith(false))).toBe(true);
   });
 
   it("discovers the provider key from the environment without requiring it", () => {

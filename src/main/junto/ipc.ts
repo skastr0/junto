@@ -31,7 +31,7 @@ import {
   PAD_ENABLED,
   RELAY_ENABLED,
   REQUESTS_ENABLED,
-  SEAT_AWARENESS_ENABLED,
+  SEAT_AWARENESS_COMPILED,
   TASKS_ENABLED,
   USAGE_ENABLED,
 } from "@shared/features";
@@ -573,10 +573,12 @@ export const registerJuntoIpc = (): void => {
   privilegedIpc.handle(
     IPC_CHANNELS.seatCollaborationAsk,
     (_event, input: unknown): Promise<SeatCollaborationAskResult> => {
-      if (!SEAT_AWARENESS_ENABLED) {
+      // The live plane is the resolved gate: compiled, and turned on in
+      // Settings, Experimental (or shipped on).
+      if (!seatAwarenessPlane.isEnabled()) {
         return Promise.resolve({
           ok: false as const,
-          error: "seat collaboration is not enabled in this build",
+          error: "seat collaboration is off: turn on Seat awareness in Settings, Experimental",
         });
       }
       const normalized = normalizeSeatCollaborationAsk(input);
@@ -1558,20 +1560,26 @@ export const registerJuntoIpc = (): void => {
       // Observer → seat state machine → idle gate for drive typing.
       // Fail closed: unknown/unbound seats are not idle (never type into dialogs).
       seatStateRuntime.start();
-      // Advisory seat-awareness sidecar. Enrollment is a settings decision: a
-      // discovered key is not consent. Off builds no client and publishes one
-      // honest not_configured notice per observed binding; on with no key
-      // publishes missing_key. Display only, and never on the terminal path.
+      // Advisory seat-awareness sidecar, an experimental feature. Enrollment is
+      // the Settings toggle: a discovered key is not consent. Off, the plane is
+      // not running at all; on with no key it publishes missing_key. The toggle
+      // applies live: a change stops the plane and, when on, starts it again.
+      // Display only, and never on the terminal path.
       seatAwarenessPlane.subscribe((event) =>
         broadcast(IPC_CHANNELS.seatAwarenessChanged, event),
       );
-      seatAwarenessPlane.start({
-        enabled: resolveSeatAwarenessGate({
+      const applySeatAwareness = (settings: typeof stationForSeed): void => {
+        if (!SEAT_AWARENESS_COMPILED) return;
+        const on = resolveSeatAwarenessGate({
           env: process.env[SEAT_AWARENESS_ENV],
-          enrolled: seatAwarenessEnrolled(stationForSeed),
-        }).enabled,
-        apiKey: seatAwarenessApiKey(),
-      });
+          enrolled: seatAwarenessEnrolled(settings),
+        }).enabled;
+        if (on === seatAwarenessPlane.isEnabled()) return;
+        seatAwarenessPlane.stop();
+        if (on) seatAwarenessPlane.start({ enabled: true, apiKey: seatAwarenessApiKey() });
+      };
+      applySeatAwareness(stationForSeed);
+      settingsForSeed.subscribe(applySeatAwareness);
       // Mail waits for each generation's TUI to come up (bracketed paste on,
       // settled idle) before its first paste; see mail-readiness.
       const mailReadiness = new MailReadinessLatch();

@@ -9,6 +9,8 @@ import {
   ALL_FEATURES,
   FEATURE_CATALOG,
   SHIP_FEATURES,
+  experimentalFeatureSpec,
+  type FeatureKey,
 } from "../src/shared/feature-catalog";
 
 describe("compile-time feature profiles", () => {
@@ -33,10 +35,9 @@ describe("compile-time feature profiles", () => {
       liveOverseer: false,
       hermesIntegration: false,
       devTools: false,
-      // Seat awareness (Jev) and seat collaboration ship dark: the sidecar,
-      // its hover, the peer-help request and the AI hold are one gate, off
-      // until a build turns them on.
-      seatAwareness: false,
+      // Seat awareness (Jev) and seat collaboration ship experimental: built
+      // into the app, off until the operator turns them on in Settings.
+      seatAwareness: "experimental",
       // Seats connect only as messages; the reviews family is off.
       reviews: false,
       // Every managed harness ships ON; each gate remains the way back off.
@@ -87,7 +88,41 @@ describe("compile-time feature profiles", () => {
       resolveBuildFeatures({ JUNTO_FEATURE_PROFILE: "maybe" }),
     ).toThrow(/must be ship or all-on/u);
     expect(() => resolveBuildFeatures({ JUNTO_RELAY: "true" })).toThrow(
-      /JUNTO_RELAY must be 0 or 1/u,
+      /JUNTO_RELAY must be 0, 1 or experimental/u,
+    );
+  });
+
+  it("refuses the experimental tier for a feature with no Settings toggle", () => {
+    expect(() => resolveBuildFeatures({ JUNTO_RELAY: "experimental" })).toThrow(
+      /JUNTO_RELAY=experimental is not available: relay has no Settings toggle/u,
+    );
+    // Every experimental entry in the shipped profiles has a toggle.
+    for (const [key, tier] of Object.entries(SHIP_FEATURES)) {
+      if (tier === "experimental") {
+        expect(experimentalFeatureSpec(key as FeatureKey)).toBeDefined();
+      }
+    }
+  });
+
+  it("keeps the receipt and fingerprint honest about the three tiers", () => {
+    const ship = resolveBuildFeatures({});
+    expect(ship.experimental).toEqual(["seatAwareness"]);
+    expect(ship.fingerprint).toContain("seatAwareness=x");
+    expect(ship.fingerprint).toContain("cron=0");
+    expect(ship.fingerprint).toContain("harnessKimi=1");
+    // Experimental is not on: an all-on build and a ship build differ here.
+    const allOn = resolveBuildFeatures({ JUNTO_FEATURE_PROFILE: "all-on" });
+    expect(allOn.experimental).toEqual([]);
+    expect(allOn.fingerprint).toContain("seatAwareness=1");
+    // Compiled out is not experimental either.
+    const out = resolveBuildFeatures({ JUNTO_SEAT_AWARENESS: "0" });
+    expect(out.experimental).toEqual([]);
+    expect(out.fingerprint).toContain("seatAwareness=0");
+    expect(out.overrides).toEqual(["seatAwareness"]);
+    // The define carries the tier itself, so the bundle knows the difference.
+    expect(featureViteDefines(ship)[FEATURE_CATALOG.seatAwareness.define]).toBe('"experimental"');
+    expect(featureBunDefineArgs(ship)).toContain(
+      `--define=${FEATURE_CATALOG.seatAwareness.define}="experimental"`,
     );
   });
 

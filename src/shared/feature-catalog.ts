@@ -129,18 +129,31 @@ export const FEATURE_CATALOG = {
   },
   /**
    * Seat awareness (Jev) and seat collaboration: the advisory sidecar, the
-   * hover that paints its judgment, the peer-help request and its thread, and
-   * the AI hold on the delivery gate.
+   * hover that paints its judgment, the thread-health reading and the minimap
+   * tint it drives, the peer-help request and its thread, and the AI hold on
+   * the delivery gate.
    *
-   * Ship profile OFF. The whole subsystem ships dark and is turned on for a
-   * build with `JUNTO_SEAT_AWARENESS=1` (or the all-on profile). With it off
-   * the sidecar constructs no client, publishes nothing, renders no surface and
-   * refuses the collaboration action, so a ship build behaves exactly as it did
-   * before any of it existed.
+   * Ship profile EXPERIMENTAL: compiled in, off until the operator turns it on
+   * in Settings, Experimental. Off (the tier or the toggle), the sidecar
+   * constructs no client, publishes nothing, renders no surface and refuses the
+   * collaboration action. On, it still needs its provider key.
    */
   seatAwareness: {
     env: "JUNTO_SEAT_AWARENESS",
-    define: "__JUNTO_SEAT_AWARENESS_ENABLED__",
+    define: "__JUNTO_SEAT_AWARENESS_TIER__",
+    experimental: {
+      title: "Seat awareness (Jev)",
+      description:
+        "A model reads each agent seat's recent terminal output and says how the thread is going: " +
+        "stuck, thrashing, waiting on you, or going well. Seat cards, the minimap and the feed show " +
+        "its reading, and a seat can ask a peer for help. Terminal excerpts are sent to the provider " +
+        "while this is on.",
+      requirement: {
+        env: "TYPESAFE_API_KEY",
+        label: "Needs a provider key in TYPESAFE_API_KEY. Without one, seats say the key is missing.",
+      },
+      applies: "live",
+    },
   },
   /**
    * The reviews connection family between two seats. Off, seats connect only
@@ -155,12 +168,57 @@ export const FEATURE_CATALOG = {
 
 export type FeatureKey = keyof typeof FEATURE_CATALOG;
 
-export type FeatureSet = Readonly<Record<FeatureKey, boolean>>;
+/**
+ * How one build carries one feature.
+ *
+ *   false            compiled out: not built yet, or pruned from this build.
+ *   "experimental"   compiled in, OFF until the operator turns it on in
+ *                    Settings, Experimental. The toggle is a product setting.
+ *   true             compiled in and on.
+ *
+ * Only a feature whose catalog entry declares `experimental` has a runtime
+ * toggle, so only those may take the middle tier; the build refuses the rest.
+ */
+export type FeatureTier = boolean | "experimental";
+
+export type FeatureSet = Readonly<Record<FeatureKey, FeatureTier>>;
+
+/** What Settings shows for a feature that can ship experimental. */
+export type ExperimentalFeatureSpec = {
+  readonly title: string;
+  readonly description: string;
+  /** Something the feature needs beyond the toggle, named plainly. */
+  readonly requirement?: { readonly env: string; readonly label: string };
+  /** "live": the toggle takes effect at once. "restart": after a relaunch. */
+  readonly applies: "live" | "restart";
+};
+
+export const experimentalFeatureSpec = (
+  key: FeatureKey,
+): ExperimentalFeatureSpec | undefined => {
+  const entry = FEATURE_CATALOG[key];
+  return "experimental" in entry ? entry.experimental : undefined;
+};
+
+/** Compiled into the build, whether on or experimental. */
+export const featureCompiled = (tier: FeatureTier): boolean => tier !== false;
+
+/**
+ * The one resolved predicate: compiled, and either on in this build or turned
+ * on by the operator. Every consumer of a tiered feature reads this.
+ */
+export const featureTierOn = (tier: FeatureTier, optedIn: boolean): boolean =>
+  tier === true || (tier === "experimental" && optedIn);
+
+/** The receipt word for a tier: honest about the middle one. */
+export const featureTierWord = (tier: FeatureTier): "on" | "experimental" | "off" =>
+  tier === true ? "on" : tier === false ? "off" : "experimental";
 
 /**
  * Public release baseline. Work-sink extras and the host-local Browser stay
  * off; Fleet UI and remote/host management stay off. Each gate remains the
- * way back on for a build that needs the surface.
+ * way back on for a build that needs the surface. Seat awareness ships
+ * experimental: compiled in, toggled off by default.
  */
 export const SHIP_FEATURES: FeatureSet = {
   cron: false,
@@ -179,7 +237,8 @@ export const SHIP_FEATURES: FeatureSet = {
   liveOverseer: false,
   hermesIntegration: false,
   devTools: false,
-  seatAwareness: false,
+  // Built and in the app, off until the operator turns it on in Settings.
+  seatAwareness: "experimental",
   reviews: false,
   harnessHermes: true,
   harnessKimi: true,

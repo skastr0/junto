@@ -61,8 +61,15 @@ import {
   windowDigestForBinding,
   type SeatAwarenessControl,
 } from "../src/renderer/lib/seat-awareness";
+import { state$ } from "../src/renderer/lib/state";
+import { SEAT_AWARENESS_TIER } from "../src/shared/features";
 
 const T0 = 1_700_000_000_000;
+
+/** The operator's Settings, Experimental toggle for Jev. */
+const setJevToggle = (on: boolean | undefined): void => {
+  state$.settings.advanced.experimental.set(on === undefined ? undefined : { seatAwareness: on });
+};
 const MIDDLE_DOT = "\u00B7";
 
 const line = (id: string, text: string): SeatAwarenessEvidenceLine => ({ id, text });
@@ -122,6 +129,7 @@ beforeEach(() => {
 
 afterEach(() => {
   resetSeatAwareness();
+  setJevToggle(undefined);
   vi.unstubAllGlobals();
 });
 
@@ -494,6 +502,7 @@ describe("seat awareness store", () => {
   });
 
   it("subscribes, decodes, hydrates, and degrades to a no-op without a bridge", async () => {
+    setJevToggle(true);
     const noop = subscribeSeatAwareness();
     expect(typeof noop).toBe("function");
     noop();
@@ -528,6 +537,52 @@ describe("seat awareness store", () => {
     unsubscribe();
     expect(listeners.length).toBe(0);
   });
+});
+
+describe("the experimental toggle", () => {
+  // Only an experimental build has a toggle to follow; a build that ships Jev
+  // on reads every event, and one that compiles it out never subscribes.
+  it.runIf(SEAT_AWARENESS_TIER === "experimental")(
+    "keeps nothing while off, hydrates when turned on, and clears when turned off",
+    async () => {
+      setJevToggle(undefined);
+      const listeners: Array<(event: unknown) => void> = [];
+      let snapshots = 0;
+      vi.stubGlobal("window", {
+        junto: {
+          onSeatAwarenessChanged: (listener: (event: unknown) => void) => {
+            listeners.push(listener);
+            return () => {
+              listeners.splice(listeners.indexOf(listener), 1);
+            };
+          },
+          seatAwarenessSnapshot: async () => {
+            snapshots += 1;
+            return [assessmentEvent(assessment({ bindingId: "snap", assessmentId: "hydrated" }))];
+          },
+        },
+      });
+      const unsubscribe = subscribeSeatAwareness();
+      // Off by default: no snapshot is read and a live event is not kept.
+      expect(snapshots).toBe(0);
+      listeners[0]?.(assessmentEvent(assessment({ bindingId: "b1" })));
+      expect(awarenessForBinding("b1")).toBeUndefined();
+
+      setJevToggle(true);
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(snapshots).toBe(1);
+      expect(awarenessForBinding("snap")?.assessmentId).toBe("hydrated");
+      listeners[0]?.(assessmentEvent(assessment({ bindingId: "b1" })));
+      expect(awarenessForBinding("b1")).toBeDefined();
+
+      // Off again: every reading goes, so no surface can paint a stale one.
+      setJevToggle(false);
+      expect(awarenessForBinding("b1")).toBeUndefined();
+      expect(awarenessForBinding("snap")).toBeUndefined();
+      unsubscribe();
+    },
+  );
 });
 
 describe("freshness axes", () => {

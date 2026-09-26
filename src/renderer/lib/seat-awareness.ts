@@ -63,6 +63,7 @@ import {
   type SeatAwarenessUnavailableReason,
 } from "./seat-awareness-contract";
 import type { ActivityTone } from "./activity";
+import { onSeatAwarenessToggle, seatAwarenessOnNow } from "./experimental-features";
 import { getJuntoApi } from "./junto-api";
 
 export const SEAT_AWARENESS_EXCERPT_LABEL = "terminal excerpt";
@@ -337,30 +338,37 @@ const seatAwarenessBridge = (): SeatAwarenessBridge | undefined => {
 
 let activeUnsubscribe: (() => void) | undefined;
 
+/** Drop every reading, keeping the subscription: the feature was turned off. */
+const clearSeatAwarenessStore = (): void => {
+  seatAwareness$.byBindingId.set({});
+  seatAwareness$.windowDigestByBindingId.set({});
+  seatAwareness$.rev.set(seatAwareness$.rev.peek() + 1);
+  appliedAtByBindingId.clear();
+};
+
 export const subscribeSeatAwareness = (): (() => void) => {
   if (activeUnsubscribe) return activeUnsubscribe;
   const bridge = seatAwarenessBridge();
   if (!bridge || typeof bridge.onSeatAwarenessChanged !== "function") {
     return () => undefined;
   }
+  // Seat awareness is experimental: while its toggle is off nothing is kept,
+  // so no surface (card, minimap, feed, preambles) can paint a stale reading.
   const unsubscribe = bridge.onSeatAwarenessChanged((raw) => {
+    if (!seatAwarenessOnNow()) return;
     const event = decodeSeatAwarenessEvent(raw);
     if (!event) return;
     applySeatAwarenessEvent(event);
   });
   let active = true;
-  activeUnsubscribe = () => {
-    active = false;
-    unsubscribe();
-    activeUnsubscribe = undefined;
-  };
 
   // Subscribe before reading current state; the timestamp guard in
   // applySeatAwarenessEvent keeps a racing older snapshot from winning.
-  if (typeof bridge.seatAwarenessSnapshot === "function") {
+  const hydrate = (): void => {
+    if (typeof bridge.seatAwarenessSnapshot !== "function") return;
     void bridge.seatAwarenessSnapshot().then(
       (snapshot) => {
-        if (!active || !Array.isArray(snapshot)) return;
+        if (!active || !seatAwarenessOnNow() || !Array.isArray(snapshot)) return;
         for (const raw of snapshot) {
           const event = decodeSeatAwarenessEvent(raw);
           if (event) applySeatAwarenessEvent(event);
@@ -368,7 +376,20 @@ export const subscribeSeatAwareness = (): (() => void) => {
       },
       () => undefined,
     );
-  }
+  };
+  // Settings hydrate after this subscribes, so "on" usually arrives as a
+  // toggle: that is when the snapshot is worth reading.
+  const offToggle = onSeatAwarenessToggle((on) => {
+    if (on) hydrate();
+    else clearSeatAwarenessStore();
+  });
+  activeUnsubscribe = () => {
+    active = false;
+    unsubscribe();
+    offToggle();
+    activeUnsubscribe = undefined;
+  };
+  if (seatAwarenessOnNow()) hydrate();
 
   return activeUnsubscribe;
 };

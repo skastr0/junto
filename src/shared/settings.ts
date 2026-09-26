@@ -103,6 +103,21 @@ const ToolDirectory = Schema.String.pipe(
 );
 export const TOOL_DIRECTORIES_MAX = 32;
 
+/** Bounded so a hand-edited row cannot grow without limit. */
+const EXPERIMENTAL_OPT_INS_MAX = 64;
+export const ExperimentalOptIns = Schema.Record(
+  Schema.String.pipe(Schema.check(Schema.isMaxLength(64))),
+  Schema.Boolean,
+).pipe(
+  Schema.check(
+    Schema.makeFilter(
+      (record: Readonly<Record<string, boolean>>) =>
+        Object.keys(record).length <= EXPERIMENTAL_OPT_INS_MAX,
+      { message: `at most ${EXPERIMENTAL_OPT_INS_MAX} experimental toggles` },
+    ),
+  ),
+);
+
 export const AdvancedSettings = Schema.Struct({
   openLastCanvas: Schema.Boolean,
   /**
@@ -123,13 +138,19 @@ export const AdvancedSettings = Schema.Struct({
     ),
   ),
   /**
-   * Seat-awareness enrollment. The sidecar is ON unless this is explicitly
-   * false: it is the product, not an add-on. A discovered environment key is
-   * still not consent, so `false` builds no Jev client at all and publishes an
-   * honest `not_configured` notice instead. Optional so installed rows written
-   * before this field still decode (absent ≡ true, the product default).
+   * RETIRED: the old seat-awareness opt-out, from when Jev was on by default.
+   * Seat awareness is now an experimental feature whose toggle is
+   * `experimental.seatAwareness`. Kept so installed rows still decode; never
+   * read.
    */
   seatAwareness: Schema.optionalKey(Schema.Boolean),
+  /**
+   * Experimental features the operator turned on, keyed by feature key
+   * (`FeatureKey`). Only a feature this build compiled in as experimental
+   * reads its entry; absent or false is off, which is the experimental
+   * default. Optional so rows written before the Experimental tab decode.
+   */
+  experimental: Schema.optionalKey(ExperimentalOptIns),
   /**
    * The first-run introduction has been finished or skipped. Optional so rows
    * written before the introduction existed still decode; absent means not
@@ -782,6 +803,8 @@ export const AdvancedPatch = Schema.Struct({
     ),
   ),
   seatAwareness: Schema.optionalKey(Schema.Boolean),
+  /** Merged key by key: one toggle never clears another. */
+  experimental: Schema.optionalKey(ExperimentalOptIns),
   onboardingSeen: Schema.optionalKey(Schema.Boolean),
 });
 export type AdvancedPatch = typeof AdvancedPatch.Type;
@@ -1188,7 +1211,10 @@ export const applySettingsPatch = (current: Settings, patch: SettingsPatch): Set
     next = { ...next, browser: mergeSection(next.browser, patch.browser) };
   }
   if (patch.advanced) {
-    const advanced = mergeSection(next.advanced, patch.advanced);
+    const merged = mergeSection(next.advanced, patch.advanced);
+    const advanced = patch.advanced.experimental === undefined
+      ? merged
+      : { ...merged, experimental: { ...next.advanced.experimental, ...patch.advanced.experimental } };
     next = {
       ...next,
       advanced: patch.advanced.toolDirectories === undefined

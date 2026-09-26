@@ -46,6 +46,12 @@ bun run test:e2e:fast <spec>   # one GUI spec against an existing build
 bun run test:e2e:full          # full GUI regression suite
 ```
 
-Official builds use the `ship` feature profile. Other surfaces (task queues, boards, pads, sheets, browser pages, schedulers, Fleet, Remote, seat awareness, the voice overseer) sit behind flags in [`src/shared/feature-catalog.ts`](../src/shared/feature-catalog.ts) and are off in official builds.
+Official builds use the `ship` feature profile. Each feature in [`src/shared/feature-catalog.ts`](../src/shared/feature-catalog.ts) has one of three tiers:
+
+- **off**: compiled out, because it is not built yet or is pruned for launch. Task queues, boards, pads, sheets, browser pages, schedulers, Fleet, Remote and the voice overseer are off in official builds.
+- **experimental**: compiled in, but off until the operator turns it on in Settings, Experimental. The toggle is a product setting (`advanced.experimental` in `junto.db`). Seat awareness (Jev) ships this way, and it still needs its `TYPESAFE_API_KEY`.
+- **on**: compiled in and on.
+
+A build override takes `0`, `1` or `experimental` (for example `JUNTO_SEAT_AWARENESS=experimental`). Only a feature whose catalog entry declares an `experimental` block (with its Settings title and description) may take the middle tier. The build refuses the tier for any other feature. Code reads a tiered feature through one resolved predicate, `featureOn(key, optIns)`: compiled, and either on or turned on by the operator. It never reads the tier alone. The build receipt lists the experimental features separately from overrides. Its fingerprint writes `1` for on, `x` for experimental and `0` for off.
 
 Linux desktop: see [the Linux desktop guide](linux-command-center-alpha.md) and [the bootstrap guide](linux-desktop-bootstrap.md).

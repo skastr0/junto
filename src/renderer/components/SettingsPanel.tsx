@@ -10,7 +10,6 @@ import {
   DEV_TOOLS_ENABLED,
   FLEET_UI_ENABLED,
   HARNESS_SETTINGS_ENABLED,
-  SEAT_AWARENESS_ENABLED,
 } from "@shared/features";
 import { HarnessesSettingsSection } from "./settings/HarnessesSettingsSection";
 import { ProvidersSettingsSection } from "./settings/ProvidersSettingsSection";
@@ -560,22 +559,6 @@ function AdvancedSection() {
             }}
           />
         </FieldRow>
-      ) : null}
-      {SEAT_AWARENESS_ENABLED ? (
-      <FieldRow
-        label="Seat awareness (Jev)"
-        hint="let the model read each seat's terminal so a card can say what the agent is doing, what it may be waiting on, and which peer could help. Off sends nothing and the cards fall back to the deterministic status. Needs a provider key; with none, cards say so."
-      >
-        <input
-          type="checkbox"
-          checked={advanced.seatAwareness !== false}
-          aria-label="Seat awareness"
-          onChange={(event) => {
-            const enabled = event.target.checked;
-            void patchSettings({ advanced: { seatAwareness: enabled } });
-          }}
-        />
-      </FieldRow>
       ) : null}
       <FieldRow
         label="Agent tool directories"

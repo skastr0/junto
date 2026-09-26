@@ -30,7 +30,7 @@
 
 import { Context, Effect, Exit, Layer, Scope } from "effect";
 import type { AgentSeatState } from "@shared/agent-seat-state";
-import { SEAT_AWARENESS_ENABLED } from "@shared/features";
+import { SEAT_AWARENESS_COMPILED, seatAwarenessOn } from "@shared/features";
 import type { Settings } from "@shared/settings";
 import type { SeatAwarenessEvent } from "@renderer/lib/seat-awareness-contract";
 import { seatStateRuntime } from "./agent-state";
@@ -65,18 +65,17 @@ export type SeatAwarenessGateSource = "env-on" | "env-off" | "settings" | "defau
 /**
  * Resolve the enrollment gate.
  *
- * Jev is ON by default: a card that can say what a seat is doing and who could
- * help is the experience, and a build that hides it behind an opt-in is a build
- * nobody sees. A discovered environment key is still not consent, so the gate
- * remains a real decision — it is now an opt-OUT rather than an opt-in.
+ * Seat awareness is an experimental feature: compiled in, off until the
+ * operator turns it on in Settings, Experimental (see `seatAwarenessEnrolled`).
+ * A discovered environment key is not consent; the toggle is.
  *
  *   JUNTO_AWARENESS=on|off  dev override, wins outright
- *   settings false          the operator turned it off
- *   anything else           on, including an absent field on an installed row
+ *   enrolled false          the feature is off (tier or toggle)
+ *   enrolled true           the operator turned it on (or the build ships it on)
  *
- * Off builds no client at all and publishes one honest `not_configured` notice
- * per observed binding; on with no key constructs no client either and
- * publishes `missing_key`. Neither path touches a terminal.
+ * Off builds no client at all; the Command Center does not start the plane.
+ * On with no key constructs no client either and publishes `missing_key`.
+ * Neither path touches a terminal.
  */
 export const resolveSeatAwarenessGate = (input: {
   readonly env: string | undefined;
@@ -89,9 +88,13 @@ export const resolveSeatAwarenessGate = (input: {
   return { enabled: true, source: input.enrolled === true ? "settings" : "default" };
 };
 
-/** The settings enrollment flag. Absent ≡ on; only an explicit false opts out. */
+/**
+ * Enrollment is the feature's one resolved predicate: compiled, and on in this
+ * build or turned on by the operator. The retired `advanced.seatAwareness`
+ * opt-out is never read.
+ */
 export const seatAwarenessEnrolled = (settings: Settings): boolean =>
-  settings.advanced.seatAwareness !== false;
+  seatAwarenessOn(settings.advanced.experimental);
 
 export const seatAwarenessApiKey = (
   env: NodeJS.ProcessEnv = process.env,
@@ -274,11 +277,11 @@ export const makeSeatAwarenessPlane = (): SeatAwarenessPlane => {
   return {
     start: (options) => {
       if (started) return;
-      // The build gate is the master switch and it is off in the ship profile:
-      // with it off nothing is constructed, nothing is observed, and no notice
-      // is published — the seat surfaces are hidden, so a gate-off notice would
-      // be a fact about a feature this build does not have.
-      if (!SEAT_AWARENESS_ENABLED) {
+      // The build gate is the master switch: compiled out, nothing is
+      // constructed, nothing is observed, and no notice is published — the
+      // seat surfaces are hidden, so a gate-off notice would be a fact about a
+      // feature this build does not have.
+      if (!SEAT_AWARENESS_COMPILED) {
         started = true;
         enabled = false;
         return;
@@ -331,8 +334,10 @@ export const makeSeatAwarenessPlane = (): SeatAwarenessPlane => {
       teardown = undefined;
       started = false;
       enabled = false;
-      // No sidecar means no verdicts: a hold must not outlive the plane.
+      // No sidecar means no verdicts: a hold must not outlive the plane, and a
+      // renderer that rehydrates after a toggle-off must not get old readings.
       awarenessSeatHold.clear();
+      latestByBinding.clear();
     },
     subscribe: (listener) => {
       listeners.add(listener);
@@ -345,5 +350,5 @@ export const makeSeatAwarenessPlane = (): SeatAwarenessPlane => {
   };
 };
 
-/** Process singleton. Started once with the terminal plane; stopped on quit. */
+/** Process singleton. Started with the terminal plane when the feature is on; restarted when its toggle changes; stopped on quit. */
 export const seatAwarenessPlane = makeSeatAwarenessPlane();

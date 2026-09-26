@@ -70,7 +70,8 @@ const runCli = (
     // defines are present; mirror this test's build profile so the child and
     // the in-process catalog agree.
     for (const [key, feature] of Object.entries(FEATURE_CATALOG)) {
-      env[feature.env] = BUILD_FEATURES[key as FeatureKey] ? "1" : "0";
+      const tier = BUILD_FEATURES[key as FeatureKey];
+      env[feature.env] = tier === true ? "1" : tier === false ? "0" : "experimental";
     }
     if (options.home) env.JUNTO_HOME = options.home;
     if (options.workHome) env[WORK_HOME_ENV] = options.workHome;
