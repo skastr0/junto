@@ -449,6 +449,65 @@ export const LivePatch = Schema.Struct({
 });
 export type LivePatch = typeof LivePatch.Type;
 
+/**
+ * Quick replies: the one-click answers offered on every open agent signal
+ * (feed cards and the seat sidebar). Each is sent through the same answer
+ * path as a typed reply, so it lands as operator mail. Short single lines;
+ * the list is tiny by construction.
+ */
+export const QUICK_REPLY_BOUNDS = { maxCount: 12, maxChars: 80 } as const;
+
+export const QuickReplyText = Schema.String.pipe(
+  Schema.check(Schema.isMinLength(1)),
+  Schema.check(Schema.isMaxLength(QUICK_REPLY_BOUNDS.maxChars)),
+  Schema.check(Schema.isPattern(/^\S(?:[^\r\n]*\S)?$/)),
+);
+
+const QuickReplyList = Schema.Array(QuickReplyText).pipe(
+  Schema.check(Schema.isMaxLength(QUICK_REPLY_BOUNDS.maxCount)),
+);
+
+export const FeedSettings = Schema.Struct({
+  quickReplies: QuickReplyList,
+});
+export type FeedSettings = typeof FeedSettings.Type;
+
+export const FeedPatch = Schema.Struct({
+  quickReplies: Schema.optionalKey(QuickReplyList),
+});
+export type FeedPatch = typeof FeedPatch.Type;
+
+export const DEFAULT_QUICK_REPLIES: ReadonlyArray<string> = [
+  "Yes",
+  "No",
+  "Continue",
+  "Go on",
+  "Stop doing this",
+];
+
+export const defaultFeed = (): FeedSettings => ({ quickReplies: [...DEFAULT_QUICK_REPLIES] });
+
+export const feedSettings = (settings: Settings | undefined): FeedSettings =>
+  settings?.feed ?? defaultFeed();
+
+/**
+ * Typed lines -> the list to store: trimmed, inner whitespace collapsed,
+ * empties and repeats (case-insensitive) dropped, clipped to the bounds.
+ */
+export const sanitizeQuickReplies = (replies: ReadonlyArray<string>): string[] => {
+  const seen = new Set<string>();
+  const next: string[] = [];
+  for (const raw of replies) {
+    const text = raw.replace(/\s+/g, " ").trim().slice(0, QUICK_REPLY_BOUNDS.maxChars).trim();
+    const key = text.toLowerCase();
+    if (text.length === 0 || seen.has(key)) continue;
+    seen.add(key);
+    next.push(text);
+    if (next.length >= QUICK_REPLY_BOUNDS.maxCount) break;
+  }
+  return next;
+};
+
 export const defaultLive = (): LiveSettings => ({
   backendModel: "gpt-5.4",
   maxCallMinutes: 30,
@@ -671,6 +730,8 @@ export const Settings = Schema.Struct({
   terminal: Schema.optionalKey(TerminalSettings),
   /** Absent on older rows; defaults never establish a call or microphone. */
   live: Schema.optionalKey(LiveSettings),
+  /** Absent on rows written before quick replies; absent means the defaults. */
+  feed: Schema.optionalKey(FeedSettings),
   /**
    * Optional so rows written before the Providers settings surface still
    * decode. Absent ≡ nothing operator-configured; consumers fall back to env
@@ -857,6 +918,7 @@ export const SettingsPatch = Schema.Struct({
   harnesses: Schema.optionalKey(HarnessesPatch),
   terminal: Schema.optionalKey(TerminalPatch),
   live: Schema.optionalKey(LivePatch),
+  feed: Schema.optionalKey(FeedPatch),
   providers: Schema.optionalKey(ProvidersPatch),
 });
 export type SettingsPatch = typeof SettingsPatch.Type;
@@ -871,6 +933,7 @@ export const SettingsSectionKey = Schema.Literals(["appearance", "canvas",
 "harnesses",
 "terminal",
 "live",
+"feed",
 "providers",]);
 export type SettingsSectionKey = typeof SettingsSectionKey.Type;
 
@@ -1033,6 +1096,7 @@ export const defaultSettings = (): Settings => ({
   harnesses: defaultHarnesses(),
   terminal: defaultTerminal(),
   live: defaultLive(),
+  feed: defaultFeed(),
   providers: defaultProviders(),
 });
 
@@ -1060,6 +1124,8 @@ export const defaultSection = (key: SettingsSectionKey): Settings[SettingsSectio
       return defaultTerminal();
     case "live":
       return defaultLive();
+    case "feed":
+      return defaultFeed();
     case "providers":
       return defaultProviders();
   }
@@ -1178,6 +1244,9 @@ export const applySettingsPatch = (current: Settings, patch: SettingsPatch): Set
       ...next,
       live: mergeSection(liveSettings(next), patch.live),
     };
+  }
+  if (patch.feed?.quickReplies !== undefined) {
+    next = { ...next, feed: { quickReplies: sanitizeQuickReplies(patch.feed.quickReplies) } };
   }
   if (patch.harnesses?.byHarness) {
     const current = next.harnesses ?? defaultHarnesses();

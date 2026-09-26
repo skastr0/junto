@@ -5,6 +5,7 @@ import {
   AudioSettings,
   BrowserPrefs,
   CanvasSettings,
+  FeedSettings,
   FleetSettings,
   HarnessesSettings,
   PortraitsSettings,
@@ -15,6 +16,7 @@ import {
   SettingsError,
   StationSettings,
   TerminalSettings,
+  defaultFeed,
   defaultHarnesses,
   defaultLive,
   defaultProviders,
@@ -65,6 +67,8 @@ export const StoredSettingsPreferences = Schema.Struct({
   terminal: Schema.optionalKey(TerminalSettings),
   /** Live calls require explicit start; these are limits and model choice only. */
   live: Schema.optionalKey(LiveSettings),
+  /** Absent on rows written before quick replies; resolves to the defaults. */
+  feed: Schema.optionalKey(FeedSettings),
   /** Absent on rows written before the Providers settings surface. */
   providers: Schema.optionalKey(ProvidersSettings),
   /**
@@ -124,6 +128,7 @@ export const preferencesFromSettings = (
   harnesses: settings.harnesses ?? defaultHarnesses(),
   terminal: settings.terminal ?? defaultTerminal(),
   live: settings.live ?? defaultLive(),
+  feed: settings.feed ?? defaultFeed(),
   providers: persistableProviders(settings.providers, options),
   ...(settings.portraits ? { portraits: settings.portraits } : {}),
 });
@@ -194,6 +199,7 @@ export const decodeStoredSettings = (
     harnesses: prefs.harnesses ?? defaultHarnesses(),
     terminal: prefs.terminal ?? defaultTerminal(),
     live: prefs.live ?? defaultLive(),
+    feed: prefs.feed ?? defaultFeed(),
     providers: prefs.providers ?? defaultProviders(),
     ...(prefs.portraits ? { portraits: prefs.portraits } : {}),
     station: decodedTopology.success,
