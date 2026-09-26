@@ -15,11 +15,7 @@ const squad = (squadId: string, name: string, seats: number): Squad => ({
   updatedAt: 1,
   seats: Array.from({ length: seats }, (_, index) => ({
     key: `s${index}`,
-    harness: "codex",
-    label: `seat ${index}`,
-    entityName: "local:codex",
-    host: "local",
-    launch: { argv: ["codex"] },
+    profile: { name: `seat ${index}`, harness: "codex" },
     dx: index * 300,
     dy: 0,
     width: 240,

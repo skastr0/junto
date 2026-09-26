@@ -1,0 +1,99 @@
+/* Customize: the agent editor's soul, instructions, and launch sections.
+   Tokens only; laid out inside the editor's fixed-height scrolling panel. */
+
+.customize-guidance,
+.customize-launch {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.customize-guidance__text {
+  min-height: 176px;
+  font-size: 12px;
+}
+
+.customize-guidance__foot {
+  display: flex;
+  min-height: 14px;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 10px;
+}
+
+.customize-guidance__status,
+.customize-guidance__count {
+  color: var(--color-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.customize-guidance__error {
+  margin: 0;
+  color: var(--color-amber);
+  font-size: 10px;
+}
+
+.agent-editor__hint code {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--color-ink);
+}
+
+/* Launch: what the seat starts with, as a quiet two-column read. */
+.customize-launch__facts {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+}
+
+.customize-launch__fact {
+  display: grid;
+  grid-template-columns: 64px 1fr;
+  gap: 10px;
+  align-items: baseline;
+  font-size: 12px;
+}
+
+.customize-launch__fact dt {
+  color: var(--color-dim);
+  font-size: 10px;
+}
+
+.customize-launch__fact dd {
+  margin: 0;
+  overflow: hidden;
+  color: var(--color-ink);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.customize-launch__default {
+  color: var(--color-faint) !important;
+}
+
+.customize-launch__pick {
+  max-height: 168px;
+}
+
+/* Profile: set apart by space and a hairline, not a boxed card. */
+.customize-launch__profile {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-top: 6px;
+  padding-top: 12px;
+  border-top: 1px solid var(--color-stroke);
+}
+
+.customize-launch__save {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.customize-launch__profile-title {
+  color: var(--color-ink);
+  font-size: 12px;
+  font-weight: 600;
+}

@@ -3,6 +3,9 @@ import type { CanvasNode } from "@shared/canvas";
 import { LookSection } from "./LookSection";
 import { MoodSection } from "./MoodSection";
 import { NameSection } from "./NameSection";
+import { SoulSection } from "../customize/SoulSection";
+import { InstructionsSection } from "../customize/InstructionsSection";
+import { LaunchSection } from "../customize/LaunchSection";
 
 /**
  * The customize-agent editor's sections, in tab order. This list is the
@@ -38,4 +41,7 @@ export const AGENT_EDITOR_SECTIONS: ReadonlyArray<AgentEditorSection> = [
   { id: "look", label: "look", Panel: LookSection },
   { id: "mood", label: "mood", Panel: MoodSection },
   { id: "name", label: "name", Panel: NameSection },
+  { id: "soul", label: "soul", Panel: SoulSection },
+  { id: "instructions", label: "instructions", Panel: InstructionsSection },
+  { id: "launch", label: "launch", Panel: LaunchSection, applies: (seat) => seat.harness !== undefined },
 ];

@@ -1,23 +1,25 @@
 /**
- * Squads, pure: capture a squad template from selected agent seats, and place
- * one as fresh seats. No state, no IPC; callers supply the canvas and ids.
+ * Squads, pure: capture a squad from selected agent seats, and place one as
+ * fresh seats. A squad is a set of agent profiles (see ./agent-profiles) plus
+ * their layout and connections. No state, no IPC; callers supply the canvas,
+ * the saved portraits and guidance, and where the squad lands.
  *
  * Capture
- * - Only agent seats with a managed harness go in, in document order.
+ * - Only agent seats with a managed harness go in, in document order, each
+ *   captured as a profile (name, character, harness dials, soul,
+ *   instructions).
  * - Layout is kept relative to the selection's top-left corner.
  * - Connections go in only when both ends are captured seats.
- * - A pinned harness session id in the launch argv becomes
- *   SQUAD_SESSION_TOKEN, so no two placements share a session.
- * - Portraits are captured fully resolved (identity genome plus the
- *   operator's override), because a fresh node id would draw a new face.
  *
  * Place
  * - The squad is centered on the point. Inside a region it is moved to sit
  *   fully inside (so it joins the region); a squad larger than the region
  *   starts at the region's top-left corner.
- * - Every seat gets a new node id, binding id, and (when pinned) session id.
- * - Inside a region with a default folder for the seat's host, the seat
- *   works there; otherwise it keeps the folder it was captured with.
+ * - Every seat is minted from its profile by the ordinary seat factory: new
+ *   node, binding, and (when pinned) session ids.
+ * - A seat works in its region's default folder for the host when it lands in
+ *   one, else in the folder the placement names. When neither exists the
+ *   placement asks for a folder instead of minting seats that cannot start.
  * - A seat whose harness this build does not know or ships disabled is
  *   skipped, and so is every connection touching it. A connection whose verb
  *   this build does not know is dropped; unknown sides fall away; a port mask
@@ -26,22 +28,26 @@
  */
 import { Schema } from "effect";
 import type { CanvasDoc, CanvasEdge, CanvasNode, TextNode } from "@shared/canvas";
-import { CanvasNode as CanvasNodeSchema, EdgeEnd, NodeSide } from "@shared/canvas";
+import { EdgeEnd, NodeSide } from "@shared/canvas";
 import { Verb } from "@shared/physics/verbs";
 import { Port } from "@shared/physics/schema";
-import { isHarnessId } from "@shared/managed-terminal-templates";
-import { managedHarnessEnabled } from "@shared/features";
-import { portraitCharacter, type PortraitConfig } from "@shared/agent-portrait";
+import type { PortraitOverride } from "@shared/portrait-overrides";
+import type { SeatGuidance } from "@shared/seat-guidance";
 import { findContainingRegion, resolveRegionCwd } from "@shared/region-defaults";
 import {
   SQUAD_PROMPT_MAX,
   SQUAD_SEATS_MAX,
-  SQUAD_SESSION_TOKEN,
   type SquadBody,
   type SquadEdge,
-  type SquadPortrait,
   type SquadSeat,
 } from "@shared/squads";
+import {
+  isProfileSeat,
+  placeableHarness,
+  profileBodyFromSeat,
+  seatFromProfile,
+  type ProfileCaptureSources,
+} from "./agent-profiles";
 
 /** Gap kept between a placed squad and its region's frame. */
 export const SQUAD_REGION_PAD = 32;
@@ -50,13 +56,10 @@ const isVerb = Schema.is(Verb);
 const isPort = Schema.is(Port);
 const isSide = Schema.is(NodeSide);
 const isEnd = Schema.is(EdgeEnd);
-const isCanvasNode = Schema.is(CanvasNodeSchema);
 
 // --- capture -----------------------------------------------------------------
 
-export type SquadCaptureOptions = {
-  /** Saved portrait override for a seat, by node id. */
-  readonly portraitOf?: (nodeId: string) => PortraitConfig | undefined;
+export type SquadCaptureOptions = ProfileCaptureSources & {
   /** Squad-wide opening prompt. */
   readonly prompt?: string;
   /** Per-seat opening prompts, by source node id. */
@@ -69,14 +72,7 @@ export const squadSeatNodes = (
   selectedIds: ReadonlyArray<string>,
 ): TextNode[] => {
   const selected = new Set(selectedIds);
-  return nodes.filter(
-    (node): node is TextNode =>
-      selected.has(node.id) &&
-      node.type === "text" &&
-      node.ether?.entity?.kind === "agent" &&
-      typeof node.ether.terminal?.harness === "string" &&
-      node.ether.terminal.launch?.kind === "harness",
-  );
+  return nodes.filter((node): node is TextNode => selected.has(node.id) && isProfileSeat(node));
 };
 
 const cleanPrompt = (text: string | undefined): string | undefined => {
@@ -84,78 +80,33 @@ const cleanPrompt = (text: string | undefined): string | undefined => {
   return trimmed ? trimmed.slice(0, SQUAD_PROMPT_MAX) : undefined;
 };
 
-/** Every portrait trait, resolved, so a new id draws the same face. */
-export const resolvedSquadPortrait = (nodeId: string, override?: PortraitConfig): SquadPortrait => {
-  const character = portraitCharacter(nodeId, override);
-  return {
-    bodyHue: character.bodyHue,
-    accentHue: character.accentHue,
-    shape: character.shape,
-    topper: character.topper,
-    eyes: character.eyes,
-    mouth: character.mouth,
-    brows: character.brows,
-    marking: character.marking,
-    blush: character.blush,
-    temperament: character.temperament,
-  };
-};
-
-/** Swap a pinned session id in argv for the token (`--flag id` or `--flag=id`). */
-export const tokenizeSession = (
-  argv: ReadonlyArray<string>,
-  sessionId: string | undefined,
-): { readonly argv: string[]; readonly pinned: boolean } => {
-  if (!sessionId) return { argv: [...argv], pinned: false };
-  let pinned = false;
-  const next = argv.map((arg) => {
-    if (arg === sessionId) {
-      pinned = true;
-      return SQUAD_SESSION_TOKEN;
-    }
-    if (arg.endsWith(`=${sessionId}`)) {
-      pinned = true;
-      return `${arg.slice(0, arg.length - sessionId.length)}${SQUAD_SESSION_TOKEN}`;
-    }
-    return arg;
-  });
-  return { argv: next, pinned };
-};
-
-/** Capture a squad template from the selection; null when it holds no agent seat. */
+/** Capture a squad from the selection; null when it holds no agent seat. */
 export const captureSquad = (
   doc: CanvasDoc,
   selectedIds: ReadonlyArray<string>,
   options: SquadCaptureOptions = {},
 ): SquadBody | null => {
-  const seatsIn = squadSeatNodes(doc.nodes, selectedIds).slice(0, SQUAD_SEATS_MAX);
-  if (seatsIn.length === 0) return null;
-  const minX = Math.min(...seatsIn.map((node) => node.x));
-  const minY = Math.min(...seatsIn.map((node) => node.y));
-  const keyOf = new Map(seatsIn.map((node, index) => [node.id, `s${index}`] as const));
+  const captured = squadSeatNodes(doc.nodes, selectedIds)
+    .slice(0, SQUAD_SEATS_MAX)
+    .flatMap((node) => {
+      const profile = profileBodyFromSeat(node, options);
+      return profile ? [{ node, profile }] : [];
+    });
+  if (captured.length === 0) return null;
+  const minX = Math.min(...captured.map(({ node }) => node.x));
+  const minY = Math.min(...captured.map(({ node }) => node.y));
+  const keyOf = new Map(captured.map(({ node }, index) => [node.id, `s${index}`] as const));
 
-  const seats: SquadSeat[] = seatsIn.map((node) => {
-    const terminal = node.ether!.terminal!;
-    const launch = terminal.launch!;
-    const session = tokenizeSession(launch.argv ?? [], terminal.sessionId);
+  const seats: SquadSeat[] = captured.map(({ node, profile }) => {
     const prompt = cleanPrompt(options.seatPrompts?.[node.id]);
     return {
       key: keyOf.get(node.id)!,
-      harness: terminal.harness!,
-      label: (terminal.label ?? node.text).slice(0, 200),
-      entityName: String(node.ether!.entity!.name ?? `${node.ether!.host ?? "local"}:${terminal.harness}`),
-      host: typeof node.ether!.host === "string" && node.ether!.host ? node.ether!.host : "local",
-      launch: {
-        argv: session.argv,
-        ...(launch.cwd ? { cwd: launch.cwd } : {}),
-      },
-      ...(session.pinned ? { pinSession: true } : {}),
+      profile,
       dx: Math.round(node.x - minX),
       dy: Math.round(node.y - minY),
       width: node.width,
       height: node.height,
       ...(node.color ? { color: node.color } : {}),
-      portrait: resolvedSquadPortrait(node.id, options.portraitOf?.(node.id)),
       ...(prompt ? { prompt } : {}),
     };
   });
@@ -186,23 +137,32 @@ export const captureSquad = (
 // --- place -------------------------------------------------------------------
 
 export type SquadIds = {
-  readonly nodeId: () => string;
-  readonly bindingId: () => string;
   readonly edgeId: () => string;
-  readonly sessionId: () => string;
+};
+
+/** Where a squad lands: the host its seats run on and a fallback folder. */
+export type SquadLaunch = {
+  readonly host: string;
+  readonly agentHost?: string;
+  /** Folder for seats that land outside a region with a default folder. */
+  readonly cwd?: string;
 };
 
 export type SquadPlacement = {
   readonly nodes: ReadonlyArray<TextNode>;
   readonly edges: ReadonlyArray<CanvasEdge>;
   /** Portrait override to save for each new seat, by new node id. */
-  readonly portraits: Readonly<Record<string, PortraitConfig>>;
+  readonly portraits: Readonly<Record<string, PortraitOverride>>;
+  /** Soul and instructions to save for each new seat, by new node id. */
+  readonly guidance: Readonly<Record<string, SeatGuidance>>;
   /** Opening prompt to mail each new seat. */
   readonly prompts: ReadonlyArray<{ readonly nodeId: string; readonly bindingId: string; readonly text: string }>;
-  /** Labels of seats this build could not place. */
+  /** Names of seats this build could not place. */
   readonly skipped: ReadonlyArray<string>;
   /** Region the squad landed in, if any. */
   readonly regionId?: string;
+  /** No folder for at least one seat: nothing was placed; ask for one. */
+  readonly needsFolder?: boolean;
 };
 
 type Box = { readonly x: number; readonly y: number; readonly width: number; readonly height: number };
@@ -231,75 +191,59 @@ export const squadOrigin = (
   };
 };
 
-const seatPlaceable = (seat: SquadSeat): boolean =>
-  isHarnessId(seat.harness) && managedHarnessEnabled(seat.harness);
-
-const portraitConfigOf = (portrait: SquadPortrait | undefined): PortraitConfig | undefined =>
-  portrait && Object.keys(portrait).length > 0 ? (portrait as PortraitConfig) : undefined;
-
-/** Fresh seats, connections, portraits, and prompts for one placement. */
+/** Fresh seats, connections, portraits, guidance, and prompts for one placement. */
 export const placeSquad = (
   squad: SquadBody,
   at: { readonly x: number; readonly y: number },
   doc: CanvasDoc,
   ids: SquadIds,
+  launch: SquadLaunch,
 ): SquadPlacement => {
   const region = findContainingRegion(doc, at.x, at.y);
   const origin = squadOrigin(squadBounds(squad), at, region);
   const nodes: TextNode[] = [];
-  const portraits: Record<string, PortraitConfig> = {};
+  const portraits: Record<string, PortraitOverride> = {};
+  const guidance: Record<string, SeatGuidance> = {};
   const prompts: Array<{ nodeId: string; bindingId: string; text: string }> = [];
   const skipped: string[] = [];
   const idOfKey = new Map<string, string>();
+  const empty = { nodes: [], edges: [], portraits: {}, guidance: {}, prompts: [], skipped: [] };
 
   for (const seat of squad.seats) {
-    if (!seatPlaceable(seat)) {
-      skipped.push(seat.label || seat.harness);
+    if (placeableHarness(seat.profile) === undefined) {
+      skipped.push(seat.profile.name);
       continue;
     }
     const x = origin.x + seat.dx;
     const y = origin.y + seat.dy;
-    const session = seat.pinSession ? ids.sessionId() : undefined;
-    const argv = seat.launch.argv.map((arg) =>
-      session && arg.includes(SQUAD_SESSION_TOKEN) ? arg.split(SQUAD_SESSION_TOKEN).join(session) : arg,
-    );
     const regionCwd = region
-      ? resolveRegionCwd(doc, x + seat.width / 2, y + seat.height / 2, seat.host)
+      ? resolveRegionCwd(doc, x + seat.width / 2, y + seat.height / 2, launch.host)
       : undefined;
-    const cwd = regionCwd ?? seat.launch.cwd;
-    const nodeId = ids.nodeId();
-    const bindingId = ids.bindingId();
-    const node: TextNode = {
-      id: nodeId,
-      type: "text",
-      text: seat.label,
+    const cwd = regionCwd ?? launch.cwd;
+    if (!cwd) return { ...empty, needsFolder: true };
+    const placed = seatFromProfile(seat.profile, {
       x,
       y,
+      host: launch.host,
+      ...(launch.agentHost ? { agentHost: launch.agentHost } : {}),
+      cwd,
+    });
+    if (!placed.ok) {
+      skipped.push(seat.profile.name);
+      continue;
+    }
+    const node: TextNode = {
+      ...placed.node,
       width: seat.width,
       height: seat.height,
       ...(seat.color ? { color: seat.color } : {}),
-      ether: {
-        entity: { kind: "agent", name: seat.entityName },
-        host: seat.host,
-        terminal: {
-          bindingId,
-          label: seat.label,
-          harness: seat.harness as NonNullable<NonNullable<TextNode["ether"]>["terminal"]>["harness"],
-          launch: { kind: "harness", argv, ...(cwd ? { cwd } : {}) },
-          ...(session ? { sessionId: session } : {}),
-        },
-      },
     };
-    if (!isCanvasNode(node)) {
-      skipped.push(seat.label || seat.harness);
-      continue;
-    }
     nodes.push(node);
-    idOfKey.set(seat.key, nodeId);
-    const portrait = portraitConfigOf(seat.portrait);
-    if (portrait) portraits[nodeId] = portrait;
+    idOfKey.set(seat.key, node.id);
+    if (placed.portrait) portraits[node.id] = placed.portrait;
+    if (placed.guidance) guidance[node.id] = placed.guidance;
     const text = seat.prompt ?? squad.prompt;
-    if (text) prompts.push({ nodeId, bindingId, text });
+    if (text) prompts.push({ nodeId: node.id, bindingId: node.ether!.terminal!.bindingId, text });
   }
 
   const edges: CanvasEdge[] = squad.edges.flatMap((edge) => {
@@ -328,6 +272,7 @@ export const placeSquad = (
     nodes,
     edges,
     portraits,
+    guidance,
     prompts,
     skipped,
     ...(region ? { regionId: region.id } : {}),

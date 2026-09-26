@@ -28,8 +28,8 @@ export function SquadPortraitRow({
           frame="round"
           badge={false}
           outline={false}
-          harness={seat.harness}
-          config={(seat.portrait ?? {}) as PortraitConfig}
+          harness={seat.profile.harness}
+          config={(seat.profile.portrait ?? {}) as PortraitConfig}
           expression="resting"
         />
       ))}

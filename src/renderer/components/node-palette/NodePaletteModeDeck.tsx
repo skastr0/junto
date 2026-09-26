@@ -28,6 +28,9 @@ import {
   type NodeCatalogEntry,
 } from "./NodeCatalogGrid";
 import { SquadPickerSection } from "../squads/SquadPickerSection";
+import { ProfilePickerSection } from "../profiles/ProfilePickerSection";
+import type { PlaceOutcome } from "../../lib/squads-state";
+import type { SquadLaunch } from "../../lib/squads";
 import "./node-palette-mode-deck.css";
 import { claimFocus } from "../../lib/focus-ownership";
 
@@ -35,7 +38,9 @@ export type ModeDeckActions = {
   /** Geography only — note (text) and region (group). Page/image use dedicated adders. */
   readonly create: (kind: "text" | "group") => void;
   /** Place a saved squad (fresh seats, connections, layout). */
-  readonly addSquad: (squadId: string) => void;
+  readonly addSquad: (squadId: string, launch: SquadLaunch) => Promise<PlaceOutcome>;
+  /** Place a saved agent profile as a fresh seat. */
+  readonly addProfile: (profileId: string, launch: SquadLaunch) => Promise<PlaceOutcome>;
   readonly addConfiguredAgent: (
     choices: AgentConfigurationChoices & AgentLaunchContextValue,
     position: { readonly x: number; readonly y: number },
@@ -148,6 +153,23 @@ export function NodePaletteModeDeck({
     }
   };
 
+  // Squads and profiles land with the launch context's host and folder. A
+  // region's default folder wins inside it; with no folder at all the
+  // placement asks for one, like a new agent does.
+  const placeWithLaunch = useCallback(
+    (place: (id: string, launch: SquadLaunch) => Promise<PlaceOutcome>) => (id: string) => {
+      const cwd = launchContext.cwd.trim();
+      void place(id, {
+        host: launchContext.host,
+        agentHost: launchContext.agentHost,
+        ...(cwd ? { cwd } : {}),
+      }).then((outcome) => {
+        if (outcome === "needs-folder") setFolderOpen(true);
+      });
+    },
+    [launchContext],
+  );
+
   const configureAgent = useCallback((choices: AgentConfigurationChoices) => {
     // A managed agent seat must name its working directory: main refuses a
     // seat without one, since the fallback is the operator home. Answer the
@@ -223,7 +245,8 @@ export function NodePaletteModeDeck({
           </div>
         </aside>
         <div className="node-deck__catalog">
-          <SquadPickerSection query={query} onPlace={actions.addSquad} />
+          <ProfilePickerSection query={query} onPlace={placeWithLaunch(actions.addProfile)} />
+          <SquadPickerSection query={query} onPlace={placeWithLaunch(actions.addSquad)} />
           <div className="node-deck__pane-label"><span>Node catalog</span></div>
           <NodeCatalogGrid
             className="node-deck__catalog-grid"

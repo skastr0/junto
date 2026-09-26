@@ -118,7 +118,14 @@ describe("customize agent editor", { timeout: 30_000 }, () => {
     expect(button.querySelector(".customize-agent-button__tag")?.textContent).toBe("Customize");
     const opened = open();
     expect(opened.getAttribute("aria-label")).toBe("Customize planner");
-    expect([...opened.querySelectorAll('[role="tab"]')].map((tab) => tab.textContent)).toEqual(["look", "mood", "name"]);
+    expect([...opened.querySelectorAll('[role="tab"]')].map((tab) => tab.textContent)).toEqual([
+      "look",
+      "mood",
+      "name",
+      "soul",
+      "instructions",
+      "launch",
+    ]);
     expect(opened.querySelector('[role="tabpanel"]')?.getAttribute("data-section")).toBe("look");
     for (const label of ["color", "body", "ears and toppers", "hats and props", "eyes", "brows", "mouth", "pattern", "accent"]) {
       expect(opened.querySelector(`[role="radiogroup"][aria-label="${label}"]`)).not.toBeNull();

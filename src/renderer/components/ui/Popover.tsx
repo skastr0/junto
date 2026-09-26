@@ -62,6 +62,9 @@ export function Popover({
       const target = event.target;
       if (target instanceof Node && panelRef.current?.contains(target)) return;
       if (target instanceof Node && anchor.contains(target)) return;
+      // A layer the panel opened portals outside it (a cascade menu, a
+      // confirm dialog); it marks itself so a press there stays inside.
+      if (target instanceof Element && target.closest("[data-popover-layer]")) return;
       onCloseRef.current();
     };
     // focus-law: Escape-only close for an open popover, never a typing shortcut.

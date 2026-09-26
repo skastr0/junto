@@ -10,8 +10,9 @@ import type { TerminalManagedPromptResult } from "@shared/ipc";
 import { raiseSquadFailure } from "./desktop-notify";
 import { getJuntoApi } from "./junto-api";
 import { commitDoc, flushPendingCanvasSave } from "./mutations";
-import { captureSquad, placeSquad, squadBounds } from "./squads";
-import { saveSquadPortraits, squadPortraitOf } from "./squad-portraits";
+import { captureSquad, placeSquad, squadBounds, type SquadLaunch } from "./squads";
+import { saveSeatGuidances, saveSquadPortraits, squadPortraitOf } from "./squad-portraits";
+import { seatGuidanceOf, startSeatGuidance } from "./seat-guidance-state";
 import { playCue } from "./sound";
 import { selectNodes, state$ } from "./state";
 
@@ -41,6 +42,8 @@ let started = false;
 
 /** Idempotent: hydrate once and follow every change main pushes. */
 export const ensureSquads = (): void => {
+  // Capturing seats reads their soul and instructions from this store.
+  startSeatGuidance();
   if (started) return;
   const api = getJuntoApi();
   if (!api?.squadsList) return;
@@ -76,6 +79,7 @@ export const saveSquadFromSelection = async (input: SaveSquadInput): Promise<str
   if (!api?.squadSave) return "squads are unavailable";
   const body = captureSquad(state$.doc.peek(), input.selectedIds, {
     portraitOf: squadPortraitOf,
+    guidanceOf: seatGuidanceOf,
     ...(input.prompt !== undefined ? { prompt: input.prompt } : {}),
     ...(input.seatPrompts ? { seatPrompts: input.seatPrompts } : {}),
   });
@@ -108,28 +112,29 @@ export const deleteSquad = async (squadId: string): Promise<string> => {
   return "";
 };
 
+/** How a placement went: placed, or it needs a folder chosen first. */
+export type PlaceOutcome = "placed" | "needs-folder" | "failed";
+
 /**
  * Place a squad at a canvas point: fresh seats and connections in one
- * undoable write, portraits copied, then each opening prompt sent as mail.
- * Mail starts a down seat only on a playing canvas (the kernel's pause law)
- * and waits for its terminal; on a paused canvas it waits for play.
+ * undoable write, portraits, souls, and instructions copied, then each
+ * opening prompt sent as mail. Mail starts a down seat only on a playing
+ * canvas (the kernel's pause law) and waits for its terminal; on a paused
+ * canvas it waits for play.
  */
 export const placeSquadAt = async (
   squadId: string,
   at: { readonly x: number; readonly y: number },
-): Promise<void> => {
+  launch: SquadLaunch,
+): Promise<PlaceOutcome> => {
   const squad = squads$.list.peek().find((entry) => entry.squadId === squadId);
-  if (!squad) return;
+  if (!squad) return "failed";
   const doc = state$.doc.peek();
-  const placed = placeSquad(squad, at, doc, {
-    nodeId: () => `agent-${ulid()}`,
-    bindingId: () => ulid(),
-    edgeId: () => `edge-${ulid()}`,
-    sessionId: () => crypto.randomUUID(),
-  });
+  const placed = placeSquad(squad, at, doc, { edgeId: () => `edge-${ulid()}` }, launch);
+  if (placed.needsFolder) return "needs-folder";
   if (placed.nodes.length === 0) {
     state$.error.set(`${squad.name}: no seat this build can place`);
-    return;
+    return "failed";
   }
   const ids = placed.nodes.map((node) => node.id);
   batch(() => {
@@ -143,6 +148,7 @@ export const placeSquadAt = async (
   const problems: string[] = [];
   if (placed.skipped.length > 0) problems.push(`skipped ${placed.skipped.join(", ")}`);
   if (!(await saveSquadPortraits(placed.portraits))) problems.push("portraits not copied");
+  if (!(await saveSeatGuidances(placed.guidance))) problems.push("souls and instructions not copied");
   if (placed.prompts.length > 0) {
     const api = getJuntoApi();
     const canvasName = state$.canvasName.peek();
@@ -170,6 +176,7 @@ export const placeSquadAt = async (
       raiseSquadFailure({ canvasName, nodeId: ids[0]!, squadName: squad.name, text: problems.join(", ") });
     }
   }
+  return "placed";
 };
 
 /**
@@ -179,10 +186,11 @@ export const placeSquadAt = async (
 export const placeSquadInSlot = (
   squadId: string,
   positionFor: (size: { width: number; height: number }) => { x: number; y: number },
-): Promise<void> => {
+  launch: SquadLaunch,
+): Promise<PlaceOutcome> => {
   const squad = squads$.list.peek().find((entry) => entry.squadId === squadId);
-  if (!squad) return Promise.resolve();
+  if (!squad) return Promise.resolve("failed");
   const size = squadBounds(squad);
   const corner = positionFor({ width: size.width, height: size.height });
-  return placeSquadAt(squadId, { x: corner.x + size.width / 2, y: corner.y + size.height / 2 });
+  return placeSquadAt(squadId, { x: corner.x + size.width / 2, y: corner.y + size.height / 2 }, launch);
 };

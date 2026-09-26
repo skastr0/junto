@@ -571,8 +571,10 @@ export function AgentCascadeMenu({
     <div
       ref={rootRef}
       className="agent-cascade"
+      data-popover-layer
       data-canvas-menu-surface
-      style={{ position: "fixed", zIndex: 70, ...position } as CSSProperties}
+      // Above any popover it was opened from (the agent editor's Launch).
+      style={{ position: "fixed", zIndex: "var(--layer-popover)", ...position } as CSSProperties}
       onMouseEnter={onPointerEnter}
       onMouseLeave={onPointerLeave}
       // Keyboard handoff: focus entering a menuitem must cancel the palette's

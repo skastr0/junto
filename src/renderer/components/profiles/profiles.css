@@ -1,0 +1,180 @@
+/* Profiles: the add-picker section, the manage popover, and the save
+   dialog. Tokens only. A tile is a face and two lines of type: no frame
+   until the pointer or focus is on it, so a picker full of profiles reads
+   as a roster, not a wall of boxes. */
+
+/* --- add picker ------------------------------------------------------------ */
+
+.profile-picker {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 14px;
+}
+
+.profile-picker__list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(196px, 1fr));
+  gap: 2px 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.profile-picker__item {
+  position: relative;
+  min-width: 0;
+}
+
+.profile-picker__tile {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  padding: 4px 30px 4px 4px;
+  color: var(--color-dim);
+  text-align: left;
+  transition: border-color 150ms ease, background 150ms ease;
+}
+
+.profile-picker__tile:hover,
+.profile-picker__tile:focus-visible {
+  border-color: var(--color-stroke);
+  background: var(--color-raise);
+  outline: none;
+}
+
+.profile-picker__text {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.profile-picker__name {
+  overflow: hidden;
+  color: var(--color-ink);
+  font-size: 12px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.profile-picker__meta {
+  overflow: hidden;
+  color: var(--color-faint);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.profile-picker__more {
+  position: absolute;
+  top: 50%;
+  right: 4px;
+  opacity: 0;
+  transform: translateY(-50%);
+  transition: opacity 150ms ease;
+}
+
+.profile-picker__item:hover .profile-picker__more,
+.profile-picker__item:focus-within .profile-picker__more {
+  opacity: 1;
+}
+
+/* --- manage popover -------------------------------------------------------- */
+
+.profile-manage {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+}
+
+.profile-manage__row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.profile-manage__error,
+.profile-dialog__error {
+  margin: 0;
+  color: var(--color-amber);
+  font-size: 11px;
+}
+
+/* --- save dialog ----------------------------------------------------------- */
+
+.profile-dialog {
+  display: grid;
+  gap: 16px;
+  padding: 14px 16px 16px;
+}
+
+.profile-dialog__preview {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.profile-dialog__facts {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.profile-dialog__who {
+  color: var(--color-ink);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.profile-dialog__line {
+  color: var(--color-dim);
+  font-size: 11px;
+}
+
+.profile-dialog__field {
+  display: grid;
+  gap: 6px;
+}
+
+.profile-dialog__hint {
+  color: var(--color-faint);
+  font-size: 10px;
+}
+
+.profile-dialog__option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.profile-dialog__option-name {
+  overflow: hidden;
+  color: var(--color-ink);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.profile-dialog__option small {
+  margin-left: auto;
+  color: var(--color-faint);
+  font-size: 9px;
+  white-space: nowrap;
+}
+
+.profile-dialog__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .profile-picker__tile,
+  .profile-picker__more {
+    transition: none;
+  }
+}

@@ -186,7 +186,8 @@
 .agent-reseat-confirm {
   position: fixed;
   inset: 0;
-  z-index: 10020;
+  /* A modal over whatever asked for it, the agent editor popover included. */
+  z-index: calc(var(--layer-popover) + 1);
   display: grid;
   place-items: center;
   pointer-events: auto;

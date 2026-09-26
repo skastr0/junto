@@ -1,24 +1,33 @@
 import { describe, expect, it } from "vitest";
 import type { CanvasDoc, CanvasEdge, CanvasNode, TextNode } from "../src/shared/canvas";
-import { SQUAD_SESSION_TOKEN, decodeSquadBody } from "../src/shared/squads";
+import { Result } from "effect";
+import { decodeSquadBody } from "../src/shared/squads";
 import { portraitCharacter } from "../src/shared/agent-portrait";
+import { resolvedPortrait } from "../src/renderer/lib/agent-profiles";
 import { makeManagedAgentNode, makeGroupNode } from "../src/renderer/lib/node-factories";
 import {
   SQUAD_REGION_PAD,
   captureSquad,
   placeSquad,
-  resolvedSquadPortrait,
   squadBounds,
   squadOrigin,
   squadSummary,
-  tokenizeSession,
   type SquadIds,
 } from "../src/renderer/lib/squads";
 
 const seat = (id: string, x: number, y: number, harness: "claude" | "codex" = "claude"): TextNode => ({
-  ...makeManagedAgentNode(x, y, { harness, host: "local", cwd: "~/work", label: id }),
+  ...makeManagedAgentNode(x, y, {
+    harness,
+    host: "local",
+    cwd: "~/work",
+    label: id,
+    ...(harness === "claude" ? { model: "opus", effort: "high" } : {}),
+  }),
   id,
 });
+
+const LAUNCH = { host: "local", cwd: "~/elsewhere" } as const;
+const empty: CanvasDoc = { nodes: [], edges: [] };
 
 const note = (id: string, x: number, y: number): CanvasNode => ({
   id,
@@ -40,8 +49,7 @@ const edge = (id: string, fromNode: string, toNode: string, extra: Partial<Canva
 
 const counter = (): SquadIds => {
   let n = 0;
-  const next = (prefix: string) => () => `${prefix}-${(n += 1)}`;
-  return { nodeId: next("node"), bindingId: next("bind"), edgeId: next("edge"), sessionId: next("sess") };
+  return { edgeId: () => `edge-${(n += 1)}` };
 };
 
 const alpha = seat("alpha", 100, 100);
@@ -60,13 +68,22 @@ describe("captureSquad", () => {
     expect(captureSquad(doc, [])).toBeNull();
   });
 
-  it("keeps only agent seats, in document order, with layout relative to the top-left", () => {
+  it("captures each seat as a profile, in document order, with layout relative to the top-left", () => {
     const squad = captureSquad(doc, ["beta", "memo", "alpha"])!;
-    expect(squad.seats.map((s) => [s.key, s.label, s.harness, s.dx, s.dy])).toEqual([
+    expect(squad.seats.map((s) => [s.key, s.profile.name, s.profile.harness, s.dx, s.dy])).toEqual([
       ["s0", "alpha", "claude", 0, 0],
       ["s1", "beta", "codex", 400, 60],
     ]);
-    expect(squad.seats[0]).toMatchObject({ host: "local", entityName: "local:claude", launch: { cwd: "~/work" } });
+    expect(squad.seats[0]!.profile).toMatchObject({ model: "opus", effort: "high" });
+    // The folder, host, and session belong to the placement, not the profile.
+    expect(squad.seats[0]!.profile).not.toHaveProperty("cwd");
+  });
+
+  it("captures the seat's soul and instructions", () => {
+    const squad = captureSquad(doc, ["alpha"], {
+      guidanceOf: (id) => (id === "alpha" ? { soul: "Careful.", instructions: "Test first." } : undefined),
+    })!;
+    expect(squad.seats[0]!.profile).toMatchObject({ soul: "Careful.", instructions: "Test first." });
   });
 
   it("keeps connections among captured seats only, with their shape", () => {
@@ -76,22 +93,10 @@ describe("captureSquad", () => {
     ]);
   });
 
-  it("swaps a pinned session id for the token, and leaves capture harnesses alone", () => {
-    const squad = captureSquad(doc, ["alpha", "beta"])!;
-    const [claude, codex] = squad.seats;
-    expect(claude?.pinSession).toBe(true);
-    expect(claude?.launch.argv).toContain(SQUAD_SESSION_TOKEN);
-    expect(claude?.launch.argv.join(" ")).not.toContain(alpha.ether!.terminal!.sessionId!);
-    expect(codex?.pinSession).toBeUndefined();
-  });
-
   it("captures the fully resolved portrait, override included", () => {
-    const squad = captureSquad(doc, ["alpha"], { portraitOf: (id) => (id === "alpha" ? { topper: "cat" } : undefined) })!;
-    const portrait = squad.seats[0]!.portrait!;
-    const character = portraitCharacter("alpha", { topper: "cat" });
-    expect(portrait.topper).toBe(character.topper);
-    expect(portrait.bodyHue).toBe(character.bodyHue);
-    expect(portrait.temperament).toBe(character.temperament);
+    const squad = captureSquad(doc, ["alpha"], { portraitOf: () => ({ eyes: "dot" }) })!;
+    const resolved = portraitCharacter("alpha", { eyes: "dot" });
+    expect(squad.seats[0]!.profile.portrait).toMatchObject({ eyes: resolved.eyes, shape: resolved.shape, bodyHue: resolved.bodyHue });
   });
 
   it("records trimmed opening prompts for the squad and per seat", () => {
@@ -110,14 +115,38 @@ describe("captureSquad", () => {
   });
 });
 
-describe("tokenizeSession", () => {
-  it("replaces bare and flag=value forms", () => {
-    expect(tokenizeSession(["x", "--session-id", "abc", "--resume=abc"], "abc")).toEqual({
-      argv: ["x", "--session-id", SQUAD_SESSION_TOKEN, `--resume=${SQUAD_SESSION_TOKEN}`],
-      pinned: true,
-    });
-    expect(tokenizeSession(["x"], undefined)).toEqual({ argv: ["x"], pinned: false });
-    expect(tokenizeSession(["x"], "abc")).toEqual({ argv: ["x"], pinned: false });
+describe("decodeSquadBody", () => {
+  it("converts a squad saved before profiles forward, recovering the harness dials", () => {
+    const legacy = {
+      seats: [
+        {
+          key: "s0",
+          harness: "claude",
+          label: "reviewer",
+          entityName: "local:claude",
+          host: "local",
+          launch: { argv: ["claude", "--model", "opus", "--effort", "high", "--session-id", "{squad-session}"], cwd: "~/old" },
+          pinSession: true,
+          dx: 0,
+          dy: 0,
+          width: 240,
+          height: 96,
+          portrait: { eyes: "dot" },
+          prompt: "Say hello.",
+        },
+      ],
+      edges: [],
+    };
+    const decoded = decodeSquadBody(legacy);
+    expect(Result.isSuccess(decoded)).toBe(true);
+    const seat0 = Result.getOrThrow(decoded).seats[0]!;
+    expect(seat0).toMatchObject({ key: "s0", dx: 0, width: 240, prompt: "Say hello." });
+    expect(seat0.profile).toEqual({ name: "reviewer", harness: "claude", model: "opus", effort: "high", portrait: { eyes: "dot" } });
+  });
+
+  it("drops members without a usable profile and fails an empty squad", () => {
+    const body = { seats: [{ key: "s0", profile: { name: "" }, dx: 0, dy: 0, width: 1, height: 1 }], edges: [] };
+    expect(Result.isFailure(decodeSquadBody(body))).toBe(true);
   });
 });
 
@@ -150,7 +179,7 @@ describe("placeSquad", () => {
   const squad = captureSquad(doc, ["alpha", "beta"], { prompt: "Say hello.", seatPrompts: { beta: "Wait for alpha." } })!;
 
   it("mints fresh seats, remaps connections, and offsets the layout to the point", () => {
-    const placed = placeSquad(squad, { x: 2000, y: 1000 }, { nodes: [], edges: [] }, counter());
+    const placed = placeSquad(squad, { x: 2000, y: 1000 }, empty, counter(), LAUNCH);
     const { width, height } = squadBounds(squad);
     const origin = { x: Math.round(2000 - width / 2), y: Math.round(1000 - height / 2) };
     expect(placed.nodes.map((n) => [n.x - origin.x, n.y - origin.y])).toEqual([
@@ -165,29 +194,36 @@ describe("placeSquad", () => {
     expect(placed.regionId).toBeUndefined();
   });
 
-  it("gives a pinned seat a new session in both argv and the terminal", () => {
-    const placed = placeSquad(squad, { x: 0, y: 0 }, { nodes: [], edges: [] }, counter());
+  it("mints each seat from its profile: same harness and dials, fresh session, the launch folder", () => {
+    const placed = placeSquad(squad, { x: 0, y: 0 }, empty, counter(), LAUNCH);
     const terminal = placed.nodes[0]!.ether!.terminal!;
-    expect(terminal.sessionId).toMatch(/^sess-/);
-    expect(terminal.launch?.argv).toContain(terminal.sessionId);
-    expect(terminal.launch?.argv).not.toContain(SQUAD_SESSION_TOKEN);
-    expect(placed.nodes[1]!.ether!.terminal!.sessionId).toBeUndefined();
+    expect(terminal.harness).toBe("claude");
+    expect(terminal.label).toBe("alpha");
+    expect(terminal.launch?.argv).toEqual(expect.arrayContaining(["--model", "opus"]));
+    expect(terminal.launch?.cwd).toBe("~/elsewhere");
+    expect(terminal.sessionId).toBeDefined();
+    const again = placeSquad(squad, { x: 0, y: 0 }, empty, counter(), LAUNCH);
+    expect(again.nodes[0]!.ether!.terminal!.sessionId).not.toBe(terminal.sessionId);
+    expect(new Set([...placed.nodes, ...again.nodes].map((n) => n.id)).size).toBe(4);
   });
 
-  it("two placements never share an id or a session", () => {
-    const ids = counter();
-    const first = placeSquad(squad, { x: 0, y: 0 }, { nodes: [], edges: [] }, ids);
-    const second = placeSquad(squad, { x: 0, y: 0 }, { nodes: [], edges: [] }, ids);
-    const all = [...first.nodes, ...second.nodes];
-    expect(new Set(all.map((n) => n.id)).size).toBe(4);
-    expect(first.nodes[0]!.ether!.terminal!.sessionId).not.toBe(second.nodes[0]!.ether!.terminal!.sessionId);
+  it("asks for a folder instead of minting seats that cannot start", () => {
+    const placed = placeSquad(squad, { x: 0, y: 0 }, empty, counter(), { host: "local" });
+    expect(placed.needsFolder).toBe(true);
+    expect(placed.nodes).toEqual([]);
+  });
+
+  it("copies soul and instructions to the new seats", () => {
+    const guided = captureSquad(doc, ["alpha"], { guidanceOf: () => ({ soul: "Calm." }) })!;
+    const placed = placeSquad(guided, { x: 0, y: 0 }, empty, counter(), LAUNCH);
+    expect(placed.guidance[placed.nodes[0]!.id]).toEqual({ soul: "Calm." });
   });
 
   it("copies portraits to the new ids so they look the same", () => {
-    const placed = placeSquad(squad, { x: 0, y: 0 }, { nodes: [], edges: [] }, counter());
+    const placed = placeSquad(squad, { x: 0, y: 0 }, empty, counter(), LAUNCH);
     const newId = placed.nodes[0]!.id;
     const drawn = portraitCharacter(newId, placed.portraits[newId]);
-    const original = resolvedSquadPortrait("alpha");
+    const original = resolvedPortrait("alpha")!;
     expect({ shape: drawn.shape, bodyHue: drawn.bodyHue, eyes: drawn.eyes, topper: drawn.topper }).toEqual({
       shape: original.shape,
       bodyHue: original.bodyHue,
@@ -197,7 +233,7 @@ describe("placeSquad", () => {
   });
 
   it("mails each seat its own prompt, else the squad's", () => {
-    const placed = placeSquad(squad, { x: 0, y: 0 }, { nodes: [], edges: [] }, counter());
+    const placed = placeSquad(squad, { x: 0, y: 0 }, empty, counter(), LAUNCH);
     expect(placed.prompts.map((p) => p.text)).toEqual(["Say hello.", "Wait for alpha."]);
     expect(placed.prompts[0]?.bindingId).toBe(placed.nodes[0]!.ether!.terminal!.bindingId);
   });
@@ -208,7 +244,7 @@ describe("placeSquad", () => {
       id: "region",
       ether: { region: { defaults: { paths: { local: "~/region-folder" } } } },
     } as CanvasNode;
-    const placed = placeSquad(squad, { x: 1150, y: 750 }, { nodes: [region], edges: [] }, counter());
+    const placed = placeSquad(squad, { x: 1150, y: 750 }, { nodes: [region], edges: [] }, counter(), LAUNCH);
     expect(placed.regionId).toBe("region");
     for (const node of placed.nodes) {
       expect(node.x).toBeGreaterThanOrEqual(SQUAD_REGION_PAD);
@@ -221,9 +257,9 @@ describe("placeSquad", () => {
   it("skips seats and connections this build cannot place", () => {
     const future = {
       ...squad,
-      seats: [squad.seats[0]!, { ...squad.seats[1]!, harness: "harness-from-later" }],
+      seats: [squad.seats[0]!, { ...squad.seats[1]!, profile: { ...squad.seats[1]!.profile, harness: "harness-from-later" } }],
     };
-    const placed = placeSquad(future, { x: 0, y: 0 }, { nodes: [], edges: [] }, counter());
+    const placed = placeSquad(future, { x: 0, y: 0 }, empty, counter(), LAUNCH);
     expect(placed.nodes).toHaveLength(1);
     expect(placed.edges).toEqual([]);
     expect(placed.skipped).toEqual(["beta"]);
@@ -238,7 +274,7 @@ describe("placeSquad", () => {
         { from: "s1", to: "s0", verb: "messages", mask: ["msg.send", "port-from-later"], fromSide: "diagonal" },
       ],
     };
-    const placed = placeSquad(withEdges, { x: 0, y: 0 }, { nodes: [], edges: [] }, counter());
+    const placed = placeSquad(withEdges, { x: 0, y: 0 }, empty, counter(), LAUNCH);
     expect(placed.edges).toHaveLength(1);
     expect(placed.edges[0]!.ether).toEqual({ verb: "messages", mask: ["msg.send"] });
     expect(placed.edges[0]!.fromSide).toBeUndefined();

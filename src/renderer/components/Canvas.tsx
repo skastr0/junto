@@ -17,7 +17,7 @@ import type { Connection, EdgeMouseHandler, FinalConnectionState, Node, OnNodeDr
 import { use$ } from "@legendapp/state/react";
 import type { CanvasDoc, EtherEdgeKind } from "@shared/canvas";
 import { executionGraphContextFromActorRefs } from "@shared/graph";
-import { Activity, Boxes, Expand, LayoutGrid, Link2, OctagonX, Pencil, Plus, ScanLine, SquareDashed, Trash2, Unlink, UserRoundPen, Users, X } from "lucide-react";
+import { Activity, BookmarkPlus, Boxes, Expand, LayoutGrid, Link2, OctagonX, Pencil, Plus, ScanLine, ScrollText, SquareDashed, Trash2, Unlink, UserRoundPen, Users, X } from "lucide-react";
 import {
   clearSelection,
   replaceSelection,
@@ -100,6 +100,8 @@ import { RtsBottomBar, saveSelectionToCommandGroup } from "./rts/RtsBottomBar";
 import { SaveToGroupPicker } from "./rts/SaveToGroupPicker";
 import { SquadDialogHost } from "./squads/SquadDialog";
 import { openSaveSquad, placeSquadInSlot } from "../lib/squads-state";
+import { openSaveProfile, placeProfileInSlot } from "../lib/profiles-state";
+import { ProfileDialogHost } from "./profiles/ProfileDialog";
 import { TerminalWizard, createTerminalAt } from "./terminal/TerminalWizard";
 import { openTerminalGrid } from "../lib/terminal-grid-state";
 import { GitWizard, createGitFromRegion } from "./git/GitWizard";
@@ -666,9 +668,15 @@ const makeAddActions = (
     state$.focusNodeId.set(node.id);
     dismiss();
   },
-  addSquad: (squadId) => {
-    void placeSquadInSlot(squadId, positionFor);
-    dismiss();
+  addSquad: async (squadId, launch) => {
+    const outcome = await placeSquadInSlot(squadId, positionFor, launch);
+    if (outcome !== "needs-folder") dismiss();
+    return outcome;
+  },
+  addProfile: async (profileId, launch) => {
+    const outcome = await placeProfileInSlot(profileId, positionFor, launch);
+    if (outcome !== "needs-folder") dismiss();
+    return outcome;
   },
   addConfiguredAgent: (choices, position) => {
     const node = makeManagedAgentNode(position.x, position.y, choices);
@@ -1060,6 +1068,16 @@ function MultiSelectMenu({ anchor, onClose }: { readonly anchor: MultiMenuAnchor
     } : null,
     broadcastEntry("stop", <OctagonX size={14} />),
     broadcastEntry("check", <Activity size={14} />),
+    authoring && agentIds.length === 1 ? {
+      key: "profile",
+      label: "save as profile",
+      detail: "1 agent, reusable",
+      ariaLabel: "Save the agent as a profile",
+      icon: <BookmarkPlus size={14} />,
+      onSelect: runOnAgents((ids) => {
+        if (ids[0]) openSaveProfile(ids[0]);
+      }),
+    } : null,
     authoring ? {
       key: "squad",
       label: "save as squad",
@@ -1117,6 +1135,8 @@ function SeatMenu({ at, seatId, onClose }: {
   const entries: ReadonlyArray<MultiMenuEntry> = [
     { key: "customize", label: "customize character", detail: "look, mood, name", ariaLabel: "Customize character", icon: <UserRoundPen size={14} />, onSelect: open("look") },
     { key: "rename", label: "rename", ariaLabel: "Rename agent", icon: <Pencil size={14} />, onSelect: open("name") },
+    { key: "soul", label: "soul and instructions", detail: "who it is, how it works", ariaLabel: "Edit soul and instructions", icon: <ScrollText size={14} />, onSelect: open("soul") },
+    { key: "profile", label: "save as profile", detail: "reuse anywhere", ariaLabel: "Save agent as a profile", icon: <BookmarkPlus size={14} />, onSelect: () => { onClose(); openSaveProfile(seatId); } },
   ];
   return (
     <div
@@ -1742,6 +1762,7 @@ function CanvasGraph() {
     {multiMenu ? <MultiSelectMenu anchor={multiMenu} onClose={closeMultiMenu} /> : null}
     {seatMenu ? <SeatMenu at={seatMenu} seatId={seatMenu.seatId} onClose={() => setSeatMenu(null)} /> : null}
     <SquadDialogHost />
+    <ProfileDialogHost />
     {connectMenu ? (
       <TargetConnectMenu
         at={{ x: connectMenu.x, y: connectMenu.y }}
