@@ -191,6 +191,16 @@ describe("what the tour says", () => {
     expect(html).toContain("⌘I");
   });
 
+  it("shows a region, the grid of terminals and the real numbered slots", () => {
+    const html = chapterAt("organize");
+    const copy = text(html);
+    expect(copy).toContain("region");
+    expect(copy).toContain("grid");
+    expect(html).toContain('data-testid="hotbar-slot-1"');
+    expect(html).toContain('class="junto-group__label"');
+    expect(copy).toContain("⌘1");
+  });
+
   it("says a new workspace starts paused, what play does, and where the switch is", () => {
     const copy = text(chapterAt("play"));
     expect(copy).toContain("A new workspace starts paused");

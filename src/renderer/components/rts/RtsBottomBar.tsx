@@ -844,14 +844,14 @@ const focusAndActivate = (
   if (node) activateNodeSurface(node);
 };
 
-type HotbarTenure = "empty" | "fixed" | "group" | "leased" | "evicted";
+export type HotbarTenure = "empty" | "fixed" | "group" | "leased" | "evicted";
 
 /**
  * Hotbar chip: slot digit + name + signal motion.
  * `tenure`: empty | leased (active) | evicted (idle soft-hold) | fixed
  * (operator, one node) | group (operator control group).
  */
-function HotbarChip({
+export function HotbarChip({
   index,
   tenure,
   nodeId,

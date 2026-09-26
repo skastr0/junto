@@ -23,6 +23,9 @@ import { ChatComposer } from "../chat/ChatComposer";
 import { FeedCard } from "../feed/OperatorFeed";
 import type { FeedItem } from "@shared/operator-feed";
 import { DEFAULT_QUICK_REPLIES } from "@shared/settings";
+import { ActivityMarkFromSpec } from "../ActivityMark";
+import { HotbarChip } from "../rts/RtsBottomBar";
+import { portraitFor } from "../SeatRing";
 import "./first-run-intro.css";
 import { claimFocusOnMount, isOperatorTyping } from "../../lib/focus-ownership";
 
@@ -426,6 +429,117 @@ const feedChapter: TourChapter = {
   pip: "concerned",
 };
 
+// --- 6. Regions, grid focus and groups ------------------------------------------
+
+const CREW = [
+  { id: "tour-g1", name: "planner", harness: "claude", state: "working", lines: ["> plan the migration", "  reading db/schema.sql", "  2 steps, splitting"] },
+  { id: "tour-g2", name: "builder", harness: "codex", state: "working", lines: ["$ bun test db", "  12 pass", "  writing step 2"] },
+  { id: "tour-g3", name: "reviewer", harness: "grok", state: "idle", lines: ["> review the diff", "  looks right", "  one note on ids"] },
+] as const;
+
+const seatSpec = (state: "working" | "idle") => terminalActivity({ seatState: state });
+
+function OrganizeDemo() {
+  // Select the crew, save it to slot 1, open it as a grid; then again.
+  const beat = useTourBeat(2200);
+  const phase = beat % 4;
+  const selected = phase >= 1;
+  const saved = phase >= 2;
+  return (
+    <div className="tour-column">
+      <div className="tour-pair">
+        <TourStage width={300} height={262} label="A region named build lane holding three seats">
+          <div className="tour-region junto-group">
+            <div className="junto-region-titlebar">
+              <span className="junto-group__label">build lane</span>
+            </div>
+          </div>
+          {CREW.map((seat, index) => (
+            <DemoSeat
+              key={seat.id}
+              id={seat.id}
+              name={seat.name}
+              harness={seat.harness}
+              x={40}
+              y={48 + index * 68}
+              spec={seatSpec(seat.state)}
+              selected={selected}
+            />
+          ))}
+        </TourStage>
+        <div className={`tour-grid${phase === 3 ? " is-open" : ""}`} aria-hidden>
+          <div className="tour-grid__head">
+            <span>grid focus</span>
+            <span className="tour-grid__count">3 agents</span>
+          </div>
+          <div className="tour-grid__cells">
+            {CREW.map((seat) => (
+              <div key={seat.id} className="tour-grid__cell">
+                <div className="tour-grid__cell-head">
+                  <ActivityMarkFromSpec spec={seatSpec(seat.state)} size="glance" unit={26}>
+                    <AgentPortrait identity={seat.id} size={portraitFor(26)} frame="round" outline={false} badge={false} />
+                  </ActivityMarkFromSpec>
+                  <span>{seat.name}</span>
+                </div>
+                <pre className="tour-grid__term">{seat.lines.join("\n")}</pre>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+      <div className="tour-hotbar" inert aria-hidden>
+        {Array.from({ length: 5 }, (_, index) => {
+          const group = index === 0 && saved;
+          const fixed = index === 1;
+          return (
+            <HotbarChip
+              key={index}
+              index={index}
+              tenure={group ? "group" : fixed ? "fixed" : "empty"}
+              nodeId={fixed ? "tour-notes" : undefined}
+              memberIds={group ? CREW.map((seat) => seat.id) : []}
+              detail={group ? "planner, builder, reviewer" : ""}
+              label={group ? "build lane" : fixed ? "notes" : ""}
+              severity={group ? "working" : "idle"}
+              selected={group && phase === 3}
+              onDragStart={NO_OP}
+              onDragOver={NO_OP}
+              onDrop={NO_OP}
+            />
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+const organizeChapter: TourChapter = {
+  id: "organize",
+  title: "Regions, the grid and groups",
+  demo: <OrganizeDemo />,
+  body: (
+    <>
+      <p>
+        A <strong>region</strong> is a named patch of canvas for seats that work
+        together. The feed groups needs by region, so you always know where one
+        comes from.
+      </p>
+      <p>
+        Select several agents and open them as a <strong>grid</strong> to watch
+        their terminals side by side. Save any selection to a numbered slot in
+        the bar at the bottom; press the number to bring it back, and press it
+        again to open each one in turn.
+      </p>
+    </>
+  ),
+  tryIt: [
+    { keys: ["right-click"], text: <>the canvas and add a <strong>region</strong>.</> },
+    { keys: ["right-click"], text: <>a selection of agents and choose <strong>open</strong> for the grid.</> },
+    { keys: ["⌘1", "1"], text: <>save the selection to slot 1, then bring it back.</> },
+  ],
+  pip: "determined",
+};
+
 // --- Play and pause ------------------------------------------------------------
 
 function PlayPauseDemo() {
@@ -521,6 +635,7 @@ export const tourChapters = (mac: boolean): ReadonlyArray<TourChapter> => [
   statesChapter,
   talkChapter,
   feedChapter,
+  organizeChapter,
   playChapter,
   permissionsChapter(mac),
 ];

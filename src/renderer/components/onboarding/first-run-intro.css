@@ -356,3 +356,58 @@ html[data-surface-motion="paused"] .first-run-intro__slide { animation: none !im
   font-size: 13px;
   font-weight: 600;
 }
+
+/* A region as the canvas draws it: the frame and its title bar. */
+.tour-region {
+  position: absolute;
+  inset: 8px;
+  border: 1px solid var(--color-stroke);
+  border-radius: 14px;
+  background: linear-gradient(135deg, color-mix(in oklab, var(--color-raise) 22%, transparent), color-mix(in oklab, var(--color-ground) 12%, transparent));
+}
+
+/* Grid focus: terminals side by side under their rings. */
+.tour-grid {
+  display: grid;
+  gap: 8px;
+  width: min(460px, 100%);
+  padding: 10px;
+  border: 1px solid var(--color-stroke);
+  border-radius: 12px;
+  background: var(--color-raise-2);
+  opacity: .55;
+  transition: opacity 220ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.tour-grid.is-open { opacity: 1; }
+.tour-grid__head { display: flex; justify-content: space-between; color: var(--color-ink); font-size: 12px; font-weight: 600; }
+.tour-grid__count { color: var(--color-dim); font-weight: 400; }
+.tour-grid__cells { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+.tour-grid__cell { overflow: hidden; border: 1px solid var(--color-stroke); border-radius: 8px; background: var(--color-inset); }
+.tour-grid__cell-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px;
+  border-bottom: 1px solid var(--color-stroke);
+  background: var(--color-raise-2);
+  color: var(--color-ink);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+}
+.tour-grid__term {
+  margin: 0;
+  padding: 6px 8px 10px;
+  color: var(--color-ink-2);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 1.55;
+  white-space: pre;
+}
+
+/* The bottom bar's numbered slots, the real chips. */
+.tour-hotbar { display: flex; gap: 4px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .tour-grid { transition: none; }
+}
