@@ -103,6 +103,11 @@ describe("main authoring architecture", () => {
       .filter((path) => path !== "src/main/junto/work/service.ts")
       .sort();
     expect(importers).toEqual([
+      // The phone companion reads a seat's recent-ops Activity through WorkService.
+      "src/main/junto/companion/backend.ts",
+      // A paired phone's mail and signal answers are operator mail, written only
+      // under the companion.* authoring labels (asserted below).
+      "src/main/junto/companion/operator-actions.ts",
       // Operator qualification mints offline Remote Work through WorkService.
       "src/main/junto/hosts/operator-qualification-work.ts",
       "src/main/junto/ipc.ts",
@@ -118,6 +123,11 @@ describe("main authoring architecture", () => {
       // renderer/control ingress.
       "src/main/junto/work/edge-map-notify.ts",
     ]);
+
+    const companion = source("src/main/junto/companion/operator-actions.ts");
+    expect(companion).toContain('.run("companion.signal-answer"');
+    expect(companion).toContain('.run("companion.signal-dismiss"');
+    expect(companion).toContain('.run("companion.mail-send"');
 
     const control = source("src/main/junto/work/control.ts");
     expect(control).toContain("mainAuthoringLabelForWorkOperation(req.op)");

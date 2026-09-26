@@ -52,6 +52,7 @@ import { PausePlaneLaunchPlayingLive } from "./junto/pause-plane";
 import { FactoryPauseRepositoryLive } from "./junto/pause/repository";
 import { AgentSignalRepositoryLive } from "./junto/signals/repository";
 import { PortraitOverrideRepositoryLive } from "./junto/portraits/repository";
+import { CompanionDeviceRepositoryLive } from "./junto/companion/repository";
 import { SchedulerRepositoryLive } from "./junto/scheduler/repository";
 import { SquadRepositoryLive } from "./junto/squads/repository";
 import { WorkLive } from "./junto/work/service";
@@ -132,6 +133,7 @@ const StateRepositoriesLive = Layer.provideMerge(
     FactoryPauseRepositoryLive,
     AgentSignalRepositoryLive,
     PortraitOverrideRepositoryLive,
+    CompanionDeviceRepositoryLive,
     WorkRepositoryLive,
     CrewRepositoryLive,
     SquadRepositoryLive,

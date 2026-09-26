@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from "electron";
+import type { CompanionDeviceRecord } from "@shared/companion-devices";
 import {
   IPC_CHANNELS,
   type ChassisApi,
@@ -490,6 +491,13 @@ const juntoApi: Omit<JuntoApi, keyof typeof liveApi | WorkFeatureApiKey> = {
     subscribe<NotifyTarget>(IPC_CHANNELS.notificationActivate, listener),
   onNotificationCue: (listener) =>
     subscribe<{ readonly cue: NotifyCue }>(IPC_CHANNELS.notificationCue, listener),
+  companionStatus: () => invoke(IPC_CHANNELS.companionStatus, IPC_TIMEOUT_MS),
+  companionPairStart: () => invoke(IPC_CHANNELS.companionPairStart, IPC_TIMEOUT_MS),
+  companionPairCancel: (deviceId) => invoke(IPC_CHANNELS.companionPairCancel, IPC_TIMEOUT_MS, deviceId),
+  companionDevices: () => invoke(IPC_CHANNELS.companionDevices, IPC_TIMEOUT_MS),
+  companionDeviceRemove: (deviceId) => invoke(IPC_CHANNELS.companionDeviceRemove, IPC_TIMEOUT_MS, deviceId),
+  onCompanionDevicesChanged: (listener) =>
+    subscribe<ReadonlyArray<CompanionDeviceRecord>>(IPC_CHANNELS.companionDevicesChanged, listener),
   onSnapshotsChanged: (listener) =>
     subscribe<SnapshotState>(IPC_CHANNELS.snapshotsChanged, listener),
   onKernelChanged: (listener) => subscribe<KernelSnapshot>(IPC_CHANNELS.kernelChanged, listener),

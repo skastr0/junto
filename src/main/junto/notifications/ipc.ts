@@ -10,6 +10,7 @@ import { IPC_CHANNELS } from "@shared/ipc";
 import { NotificationSettings } from "@shared/settings";
 import { trustedRendererIpc } from "../trusted-main-webcontents";
 import { createNotificationPlane, type NotificationPlane } from "./plane";
+import { noteDesktopReport } from "../companion/desktop-report";
 
 const MAX_SUBJECTS = 500;
 /** System Settings, Notifications, with Junto selected. */
@@ -94,6 +95,7 @@ export const registerNotificationIpc = (options: {
     const report = decodeNotifyReport(raw);
     if (report === undefined) return { ok: false as const, message: "notification report is invalid" };
     plane.report(report);
+    noteDesktopReport(report);
     return { ok: true as const };
   });
   privilegedIpc.handle(IPC_CHANNELS.notificationsTest, () => plane.test());

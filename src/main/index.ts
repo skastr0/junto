@@ -173,6 +173,15 @@ import {
   startOperatorControlServer,
   type OperatorControlServer,
 } from "./junto/operator-control";
+import {
+  OPERATOR_COMPANION_OPS,
+  OPERATOR_PROTOCOL_VERSION,
+  type OperatorRequestEnvelope,
+  type OperatorResponseEnvelope,
+} from "@shared/operator-control";
+import { makeCompanionService, readCompanionEnvironment, setCompanionService } from "./junto/companion/service";
+import { broadcastCompanionDevices, registerCompanionIpc } from "./junto/companion/ipc";
+import { companionNotePreamble, wireCompanionChanges } from "./junto/companion/wiring";
 import { findPackagedSandboxDisablingSwitch } from "./junto/packaged-sandbox-policy";
 import {
   applyE2eMacOsFocusIsolation,
@@ -1385,30 +1394,96 @@ if (packagedSandboxDisablingSwitch !== undefined) {
           ? "Remote"
           : "unenrolled";
 
-    if (operatorControlEnabledAtLaunch) {
-      try {
-        const coordinator = makeOperatorCoordinator({
-          fleetReady: () =>
-            operatorFleetReady &&
-            !shutdownAdmissionClosed,
-          readiness: () => ({
-            database: true,
-            workControl: workControlReadiness.ready(),
-            simulation: kernelService !== undefined,
-            session: stationControl?.ready() ?? false,
-          }),
-          sessionReady: () => stationControlReadiness.sessionReady(),
-        });
+    const coordinator = makeOperatorCoordinator({
+      fleetReady: () =>
+        operatorFleetReady &&
+        !shutdownAdmissionClosed,
+      readiness: () => ({
+        database: true,
+        workControl: workControlReadiness.ready(),
+        simulation: kernelService !== undefined,
+        session: stationControl?.ready() ?? false,
+      }),
+      sessionReady: () => stationControlReadiness.sessionReady(),
+    });
+    // The phone companion reaches the app over this same owner-only socket,
+    // relayed by `junto companion-stdio` under a paired phone's forced SSH
+    // command. The socket listens when launched in operator control mode, or
+    // while a phone is paired (never on a Remote). Opened for a phone alone,
+    // it answers the companion ops and refuses every other.
+    const companion =
+      stationMode === "remote"
+        ? undefined
+        : makeCompanionService({
+            appVersion: app.getVersion(),
+            environment: () =>
+              readCompanionEnvironment({
+                packaged: app.isPackaged,
+                resourcesPath: process.resourcesPath,
+                repoRoot: app.getAppPath(),
+              }),
+            onDevicesChanged: broadcastCompanionDevices,
+            onFirstDevice: () => {
+              void ensureOperatorControl().catch(() => {
+                console.error("[companion] operator control failed to start");
+              });
+            },
+          });
+    if (companion !== undefined) setCompanionService(companion);
+    const operatorRefusal = (
+      request: OperatorRequestEnvelope,
+      type: "forbidden" | "runtime_down",
+      message: string,
+    ): OperatorResponseEnvelope => ({
+      protocol: OPERATOR_PROTOCOL_VERSION,
+      id: request.id,
+      op: request.op,
+      ok: false,
+      error: { type, message },
+    });
+    const dispatchOperator = async (
+      request: OperatorRequestEnvelope,
+    ): Promise<OperatorResponseEnvelope> => {
+      if (OPERATOR_COMPANION_OPS.has(request.op)) {
+        const answer = companion === undefined ? undefined : await companion.dispatch(request);
+        return answer ?? operatorRefusal(request, "runtime_down", "the phone companion is not available");
+      }
+      if (!operatorControlEnabledAtLaunch) {
+        return operatorRefusal(request, "forbidden", "operator commands need Junto launched with --junto-operator-control");
+      }
+      return coordinator.dispatch(request);
+    };
+    let operatorControlStart: Promise<void> | undefined;
+    const ensureOperatorControl = (): Promise<void> =>
+      (operatorControlStart ??= (async () => {
+        if (operatorControl !== undefined || shutdownAdmissionClosed) return;
         operatorControl = await startOperatorControlServer({
           home: termControlHome,
-          dispatch: coordinator.dispatch,
+          dispatch: dispatchOperator,
         });
         if (shutdownAdmissionClosed) operatorControl.beginShutdown();
+      })().catch((error: unknown) => {
+        operatorControlStart = undefined;
+        throw error;
+      }));
+
+    if (operatorControlEnabledAtLaunch) {
+      try {
+        await ensureOperatorControl();
       } catch {
         console.error("[operator-control] failed to start");
         exitAfterDetach(1, "operator-control-startup-failure");
         return;
       }
+    }
+    if (companion !== undefined) {
+      void wireCompanionChanges(companion.changes)
+        .then(() => companion.reconcile())
+        .then(() => companion.hasDevices())
+        .then((paired) => (paired ? ensureOperatorControl() : undefined))
+        .catch(() => {
+          console.error("[companion] failed to start");
+        });
     }
 
     if (headless && stationDoor === undefined) {
@@ -1488,6 +1563,7 @@ if (packagedSandboxDisablingSwitch !== undefined) {
     });
     registerIpcHandlers();
     registerDemoIpcHandlers();
+    registerCompanionIpc();
     notificationPlane ??= registerNotificationIpc({
       window: currentTrustedMainWindow,
       // No banners, badge, or bounce from an isolated harness run; a visible
@@ -1551,6 +1627,7 @@ if (packagedSandboxDisablingSwitch !== undefined) {
         version: app.getVersion(),
         run: (effect) => AppRuntime.runPromise(effect),
         onPreamble: (event: PreambleEvent) => {
+          companionNotePreamble(event);
           const window = currentTrustedMainWindow();
           if (
             window === undefined ||

@@ -19,6 +19,12 @@ export type RaisedHands = {
   readonly snapshot: (canvasName: string) => ReadonlySet<string>;
   /** Called after a change to the raised set. Returns the unsubscribe. */
   readonly subscribe: (listener: () => void) => () => void;
+  /**
+   * Called with every signal `note` sees, whoever changed it (an agent raising
+   * or withdrawing, the operator answering or dismissing). The phone
+   * companion's signal events read this. Returns the unsubscribe.
+   */
+  readonly onSignal: (listener: (signal: AgentSignal) => void) => () => void;
 };
 
 export const makeRaisedHands = (): RaisedHands => {
@@ -26,6 +32,7 @@ export const makeRaisedHands = (): RaisedHands => {
   const byCanvas = new Map<string, Map<string, string>>();
   const seen = new Set<string>();
   const listeners = new Set<() => void>();
+  const signalListeners = new Set<(signal: AgentSignal) => void>();
 
   const apply = (signal: AgentSignal): boolean => {
     const hands = byCanvas.get(signal.canvasName);
@@ -49,6 +56,13 @@ export const makeRaisedHands = (): RaisedHands => {
     note: (signal) => {
       seen.add(signal.signalId);
       if (apply(signal)) changed();
+      for (const listener of signalListeners) {
+        try {
+          listener(signal);
+        } catch {
+          // An observer never breaks a signal write path.
+        }
+      }
     },
     hydrate: (signals) => {
       let any = false;
@@ -62,6 +76,10 @@ export const makeRaisedHands = (): RaisedHands => {
     subscribe: (listener) => {
       listeners.add(listener);
       return () => listeners.delete(listener);
+    },
+    onSignal: (listener) => {
+      signalListeners.add(listener);
+      return () => signalListeners.delete(listener);
     },
   };
 };

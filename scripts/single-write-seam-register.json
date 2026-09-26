@@ -564,6 +564,27 @@
   ],
   "decodeBoundaries": [
     {
+      "path": "src/cli/companion-stdio.ts",
+      "kinds": [
+        "operator"
+      ],
+      "reason": "Decodes the --device argument of the phone's forced SSH command before anything is relayed."
+    },
+    {
+      "path": "src/main/junto/companion/service.ts",
+      "kinds": [
+        "wire"
+      ],
+      "reason": "Re-decodes a phone's pair.complete public key before it is written into authorized_keys."
+    },
+    {
+      "path": "src/shared/wire/companion-protocol.ts",
+      "kinds": [
+        "wire"
+      ],
+      "reason": "The junto-companion/1 phone wire: decodes every inbound phone frame, every Mac frame before it is sent, and the pairing link."
+    },
+    {
       "path": "src/cli/commands/board.ts",
       "kinds": [
         "wire"

@@ -1,3 +1,4 @@
+import type { CompanionDeviceRecord, CompanionPairStart, CompanionStatus } from "./companion-devices";
 import type {
   BrowserProfileWipeInput,
   BrowserProfileWipeReceipt,
@@ -138,6 +139,13 @@ export const IPC_CHANNELS = {
   notificationCue: "junto:notification-cue",
   notificationsDelivery: "junto:notifications-delivery",
   notificationsOpenSystemSettings: "junto:notifications-open-system-settings",
+  /** Phone companion: this Mac's readiness, pair a phone (QR), list and remove phones; main pushes the list. */
+  companionStatus: "junto:companion-status",
+  companionPairStart: "junto:companion-pair-start",
+  companionPairCancel: "junto:companion-pair-cancel",
+  companionDevices: "junto:companion-devices",
+  companionDeviceRemove: "junto:companion-device-remove",
+  companionDevicesChanged: "junto:companion-devices-changed",
   chatOpen: "junto:chat-open",
   chatPrompt: "junto:chat-prompt",
   chatPermission: "junto:chat-permission",
@@ -892,6 +900,19 @@ export interface JuntoApi extends UpdateApi, OverseerLiveApi {
   readonly onNotificationActivate?: (listener: (target: NotifyTarget) => void) => () => void;
   /** Main → renderer: a silent banner went up; play its cue. */
   readonly onNotificationCue?: (listener: (event: { readonly cue: NotifyCue }) => void) => () => void;
+  /** Settings, Companion: this Mac's readiness to pair a phone. */
+  readonly companionStatus?: () => Promise<CompanionStatus>;
+  /** Start pairing a phone; the QR expires after ten minutes. */
+  readonly companionPairStart?: () => Promise<CompanionPairStart>;
+  /** Abandon a pairing that was never completed. */
+  readonly companionPairCancel?: (deviceId: string) => Promise<{ readonly ok: boolean }>;
+  readonly companionDevices?: () => Promise<ReadonlyArray<CompanionDeviceRecord>>;
+  /** Remove a phone: its key leaves authorized_keys and its record is deleted. */
+  readonly companionDeviceRemove?: (deviceId: string) => Promise<{ readonly ok: boolean; readonly message?: string }>;
+  /** Main → renderer: the phone list after any change. */
+  readonly onCompanionDevicesChanged?: (
+    listener: (devices: ReadonlyArray<CompanionDeviceRecord>) => void,
+  ) => () => void;
   readonly onSnapshotsChanged: (listener: (state: SnapshotState) => void) => () => void;
   readonly onKernelChanged: (listener: (snapshot: KernelSnapshot) => void) => () => void;
   // User settings document (main owns the SQLite row; renderer holds a live projection).
