@@ -68,6 +68,17 @@ Three frame types:
 { "v": "junto-companion/1", "type": "event", "event": "feed.changed", "data": { } }
 ```
 
+A connection-level error that answers no request (`revoked`,
+`app-not-running`, `too-large`, `unsupported-version` before an id is known)
+is a response frame with `"id": ""` and `ok: false`; when the offending frame
+carried a readable id, that id is used instead. "One error frame" elsewhere in
+this document means exactly this frame:
+
+```json
+{ "v": "junto-companion/1", "type": "response", "id": "", "ok": false,
+  "error": { "code": "revoked", "message": "This phone was removed from Junto." } }
+```
+
 The Mac sends a `hello` event first, before any request is read:
 
 ```json
