@@ -36,6 +36,7 @@ import {
 import { makeHostsRegistry } from "../../src/main/junto/hosts/registry";
 import type { RemoteHost } from "../../src/shared/remote-hosts";
 import type { UsageState } from "../../src/shared/usage";
+import type { AgentSignal } from "../../src/shared/agent-signals";
 import {
   createAuthorialTaskDependencyScopeCapability,
   WorkRepository,
@@ -582,6 +583,45 @@ export const writeFixtureHosts = async (
     for (const host of hosts) {
       await registry.upsert(host);
     }
+  } finally {
+    await runtime.dispose();
+  }
+};
+
+/** Agent signals seeded as durable rows, as if their seats had raised them. */
+export const writeFixtureAgentSignals = async (
+  sandbox: Sandbox,
+  signals: ReadonlyArray<AgentSignal>,
+): Promise<void> => {
+  const runtime = ManagedRuntime.make(
+    makeStateEngineLive(join(sandbox.homeDir, ".junto", "state", "junto.db")),
+  );
+  try {
+    const engine = await runtime.runPromise(StateEngine);
+    // transaction() is an Effect: it only writes when run.
+    await runtime.runPromise(engine.transaction("seed-agent-signals", (writer) => {
+      for (const signal of signals) {
+        writer.run(
+          `INSERT INTO agent_signals(
+             signal_id, canvas_name, node_id, kind, text, detail, created_at,
+             state, response_text, response_at, closed_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            signal.signalId,
+            signal.canvasName,
+            signal.nodeId,
+            signal.kind,
+            signal.text,
+            signal.detail ?? null,
+            signal.createdAt,
+            signal.state,
+            signal.response?.text ?? null,
+            signal.response?.at ?? null,
+            signal.closedAt ?? null,
+          ],
+        );
+      }
+    }));
   } finally {
     await runtime.dispose();
   }

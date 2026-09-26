@@ -24,6 +24,7 @@ import { connect } from "node:net";
 import { dirname, join } from "node:path";
 import { test as base, type Page } from "@playwright/test";
 import { _electron as electron, type ElectronApplication } from "playwright-core";
+import type { AgentSignal } from "../../src/shared/agent-signals";
 import type { CanvasDoc } from "../../src/shared/canvas";
 import type { HarnessId } from "../../src/shared/managed-terminal-templates";
 import type { RemoteHost } from "../../src/shared/remote-hosts";
@@ -38,6 +39,7 @@ import {
   createSandbox,
   destroySandbox,
   removeFixtureCanvases,
+  writeFixtureAgentSignals,
   writeFixtureCanvas,
   writeFixtureHosts,
   writeFixtureRetiredCommercialState,
@@ -86,6 +88,8 @@ export interface LaunchOptions {
   readonly offline?: boolean;
   /** Canvas name -> document, seeded into the sandbox's SQLite database. */
   readonly seedCanvases?: Readonly<Record<string, CanvasDoc>>;
+  /** Open (or closed) agent signals seeded as durable rows before boot. */
+  readonly seedAgentSignals?: ReadonlyArray<AgentSignal>;
   /** Enrolled fleet rows seeded into the sandbox's explicit SQLite database. */
   readonly seedHosts?: ReadonlyArray<RemoteHost>;
   /** Preserve stale historical commercial rows while proving ordinary startup. */
@@ -430,6 +434,9 @@ export const launchJunto = async (options: LaunchOptions = {}): Promise<JuntoHan
     }
     for (const [name, doc] of Object.entries(options.seedCanvases ?? {})) {
       await writeFixtureCanvas(sandbox, name, doc);
+    }
+    if (options.seedAgentSignals !== undefined) {
+      await writeFixtureAgentSignals(sandbox, options.seedAgentSignals);
     }
     if (options.seedHosts !== undefined) {
       await writeFixtureHosts(sandbox, options.seedHosts);
