@@ -359,11 +359,12 @@ export const markAtlasCss = (): string =>
     // A portrait sits in the ring's hole, centred.
     `.junto-mark__seat{position:absolute;inset:0;display:grid;place-items:center}`,
     frameRules(),
-    // Done draws itself once. Finite and stepped: it ends and the mark idles.
-    `@keyframes juntoMarkLand{from{background-position-x:0}to{background-position-x:calc(var(--mark-u) * -${String(LAND_FRAMES)})}}`,
-    `.junto-mark[data-mark-motion="land"]{background-position-x:calc(var(--mark-u) * -${String(LAND_FRAMES)});animation:juntoMarkLand ${String(LAND_FRAMES * ATTENTION_CLOCK_TICK_MS)}ms steps(${String(LAND_FRAMES)}, end) 1 both}`,
-    `html[data-surface-motion="paused"] .junto-mark[data-mark-motion="land"]{animation:none}`,
-    `@media (prefers-reduced-motion: reduce){.junto-mark[data-mark-motion="land"]{animation:none}}`,
+    // Done draws itself once from its land row, then hands over to its loop:
+    // the animation has no fill, so when it ends the loop's own rules resume.
+    `@keyframes juntoMarkLand{from{background-position:0 calc(var(--mark-lrow) * var(--mark-u) * -1)}to{background-position:calc(var(--mark-u) * -${String(LAND_FRAMES)}) calc(var(--mark-lrow) * var(--mark-u) * -1)}}`,
+    `.junto-mark[data-mark-land]{animation:juntoMarkLand ${String(LAND_FRAMES * ATTENTION_CLOCK_TICK_MS)}ms steps(${String(LAND_FRAMES)}, end) 1}`,
+    `html[data-surface-motion="paused"] .junto-mark[data-mark-land]{animation:none}`,
+    `@media (prefers-reduced-motion: reduce){.junto-mark[data-mark-land]{animation:none}}`,
     `.junto-mark__flag{position:absolute;top:0;right:0;width:36%;height:36%;min-width:10px;min-height:10px;padding:0;border:0;border-radius:999px;background:transparent;cursor:pointer}`,
     `.junto-mark__flag:focus-visible{outline:1px solid var(--color-focus-ring);outline-offset:1px}`,
   ].join("\n");
