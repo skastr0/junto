@@ -852,7 +852,10 @@ junto_processes_running() {
   if [[ -n "$INSTALL_SANDBOX_ROOT" ]]; then
     return 1
   fi
-  pgrep -xq "$PRODUCT_NAME" 2>/dev/null ||
+  # Only this Mac app counts: its bundle id in the login session, or a process
+  # under the installed bundle. Another process that is merely named Junto
+  # (the companion app in the iOS Simulator) must not block an install.
+  [[ -n "$(/usr/bin/lsappinfo find "bundleID=${APP_BUNDLE_ID}" 2>/dev/null)" ]] ||
     pgrep -f "${APP_DST}/" >/dev/null 2>&1
 }
 

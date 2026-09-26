@@ -197,6 +197,39 @@ printf '%s\n' "$APP_DST" "$PLIST" "$LOG_DIR" "$BIN_DIR" "$STATE_DATABASE"`,
     expect(result.stderr).toContain("OS user temporary root");
   });
 
+  it("counts only the installed Mac app as running, never another process named Junto", () => {
+    const sandbox = makeSandbox();
+    // Live probe: lift the sandbox guard, point APP_DST into the sandbox, and
+    // use a bundle id no session app holds, so a real running Junto on this
+    // machine cannot answer for the fixture.
+    const result = runPaths(
+      sandbox,
+      [
+        'set -uo pipefail; source "$1"',
+        'INSTALL_SANDBOX_ROOT=""',
+        'APP_DST="$2/Applications/Junto.app"',
+        'APP_BUNDLE_ID="com.skastr0.junto.absent-in-test"',
+        'mkdir -p "$2/decoy" "$APP_DST/Contents/MacOS"',
+        // A copied platform binary is killed at exec; an ad-hoc signature
+        // lets the same-named stand-ins actually run.
+        'cp /bin/sleep "$2/decoy/Junto"',
+        'cp /bin/sleep "$APP_DST/Contents/MacOS/Junto"',
+        'codesign -f -s - "$2/decoy/Junto" "$APP_DST/Contents/MacOS/Junto" 2>/dev/null',
+        '"$2/decoy/Junto" 30 & decoy=$!',
+        "sleep 0.3",
+        "junto_processes_running; echo \"decoy=$?\"",
+        'kill "$decoy"',
+        '"$APP_DST/Contents/MacOS/Junto" 30 & installed=$!',
+        "sleep 0.3",
+        "junto_processes_running; echo \"installed=$?\"",
+        'kill "$installed"',
+      ].join("\n"),
+    );
+    expect(result.stdout).toContain("decoy=1");
+    expect(result.stdout).toContain("installed=0");
+    expect(paths).not.toContain('pgrep -xq "$PRODUCT_NAME"');
+  });
+
   it("keeps filesystem-only sandbox mode away from product lifecycle controls", () => {
     expect(position(paths, 'launchd_loaded() {\n  if [[ -n "$INSTALL_SANDBOX_ROOT" ]]')).toBeGreaterThan(0);
     expect(position(paths, 'unload_launchd() {\n  if [[ -n "$INSTALL_SANDBOX_ROOT" ]]')).toBeGreaterThan(0);
