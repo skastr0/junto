@@ -6,7 +6,9 @@
  *   bun scripts/sound-demo/render.ts           write .local/sound/junto-cues.{wav,txt}
  *   bun scripts/sound-demo/render.ts --open    and open the WAV
  *
- * Exits non-zero if a more urgent family measures quieter than a calmer one.
+ * Exits non-zero if a more urgent family measures quieter than a calmer one,
+ * or if the mix clicks (a lone sample far above the high-frequency level
+ * around it).
  */
 
 import { mkdirSync, writeFileSync } from "node:fs";
@@ -31,6 +33,21 @@ const code = await built.outputs[0]!.text();
 const browser = await chromium.launch({ channel: "chrome" }).catch(() => chromium.launch());
 
 type Rendered = { left: Float32Array; right: Float32Array };
+
+/** Lone-sample spikes: a sample far off the line through its neighbours. */
+const clicks = (x: Float32Array): number[] => {
+  const n = x.length;
+  const d = new Float64Array(n);
+  const sums = new Float64Array(n + 1);
+  for (let i = 1; i < n - 1; i += 1) d[i] = Math.abs(x[i]! - (x[i - 1]! + x[i + 1]!) / 2);
+  for (let i = 0; i < n; i += 1) sums[i + 1] = sums[i]! + d[i]! * d[i]!;
+  const found: number[] = [];
+  for (let i = 64; i < n - 64; i += 1) {
+    const local = Math.sqrt((sums[i + 64]! - sums[i - 64]! - d[i]! * d[i]!) / 127);
+    if (d[i]! > 1e-3 && d[i]! > 10 * local) found.push(i / RATE);
+  }
+  return found;
+};
 
 const decode = (b64: string): Float32Array => {
   const bytes = Buffer.from(b64, "base64");
@@ -63,6 +80,8 @@ try {
     }
     loudness.set(id, 20 * Math.log10(Math.max(best, 1e-9)));
   }
+
+  const violations: string[] = [];
 
   // The demo: every cue, calm to urgent, then bursts, then a busy canvas.
   const sheet: string[] = [];
@@ -102,6 +121,8 @@ try {
   const length = t + busySeconds + 3;
 
   const { left, right } = await render(shots, length);
+  const spikes = [...new Set([...clicks(left), ...clicks(right)].map((s) => s.toFixed(3)))];
+  if (spikes.length > 0) violations.push(`clicks at ${spikes.join(", ")}s`);
 
   const pcm = Buffer.alloc(44 + left.length * 4);
   pcm.write("RIFF", 0);
@@ -131,7 +152,6 @@ try {
 
   // Families by urgency tier must be ordered by measured loudness.
   const tiers = [0, 1, 2, 3, 4].map((u) => cues.filter((c) => c.urgency === u).map((c) => loudness.get(c.id)!));
-  const violations: string[] = [];
   for (let u = 1; u < tiers.length; u += 1) {
     const quietest = Math.min(...tiers[u]!);
     const loudestBelow = Math.max(...tiers[u - 1]!);
@@ -150,7 +170,7 @@ try {
     "",
     "Loudness (loudest 400 ms, default volume)",
     ...table,
-    ...(violations.length > 0 ? ["", "ORDER VIOLATIONS", ...violations] : []),
+    ...(violations.length > 0 ? ["", "PROBLEMS", ...violations] : []),
   ].join("\n");
   writeFileSync(join(OUT, "junto-cues.txt"), `${text}\n`);
   console.log(text);
