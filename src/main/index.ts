@@ -1632,12 +1632,6 @@ if (packagedSandboxDisablingSwitch !== undefined) {
       ).then(raisedHands.hydrate, (error: unknown) => {
         console.error("[signals] raised hands not loaded:", error);
       });
-      workControl = await startWorkControlServer({
-        version: app.getVersion(),
-        run: (effect) => AppRuntime.runPromise(effect),
-        onPreamble: (event: PreambleEvent) => {
-          companionNotePreamble(event);
-          const window = currentTrustedMainWindow();
       // Seat souls and instructions the spawn doctrine compiles in; writes
       // from here on are noted as they happen.
       void AppRuntime.runPromise(
@@ -1645,6 +1639,12 @@ if (packagedSandboxDisablingSwitch !== undefined) {
       ).then(seatGuidanceIndex.hydrate, (error: unknown) => {
         console.error("[seat-guidance] not loaded:", error);
       });
+      workControl = await startWorkControlServer({
+        version: app.getVersion(),
+        run: (effect) => AppRuntime.runPromise(effect),
+        onPreamble: (event: PreambleEvent) => {
+          companionNotePreamble(event);
+          const window = currentTrustedMainWindow();
           if (
             window === undefined ||
             window.webContents.isDestroyed() ||
