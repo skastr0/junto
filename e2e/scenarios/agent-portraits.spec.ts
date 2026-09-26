@@ -85,7 +85,7 @@ test("agent portraits render on seats and in the focus modal", async () => {
         await expect(editor.getByRole("radio", { name: "body toast", exact: true })).toHaveAttribute("aria-checked", "true");
         // Saved in junto.db through main: the store round-trips it.
         await expect
-          .poll(() => page.evaluate(async () => (await window.junto.portraitOverridesList())["planner"]?.shape))
+          .poll(() => page.evaluate(async () => (await window.junto!.portraitOverridesList())["planner"]?.shape))
           .toBe("toast");
       }
       await page.waitForTimeout(500);

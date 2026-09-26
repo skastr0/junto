@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  PORTRAIT_OPTIONS,
+  portraitOptions,
   portraitDataUri,
   portraitDetailFor,
   portraitGenome,
@@ -82,7 +82,7 @@ describe("agent portraits", () => {
   it("draws every new species, topper, pattern, and prop in both frames", () => {
     const traits = ["shape", "topper", "marking", "accessory"] as const;
     for (const trait of traits) {
-      for (const option of PORTRAIT_OPTIONS[trait]) {
+      for (const option of portraitOptions()[trait]) {
         for (const frame of ["round", "bare"] as const) {
           const svg = portraitSvg({ seed: "cast", mode: "bright", detail: "card", frame, config: { [trait]: option } });
           expect(svg).toMatch(/^<svg [^>]*viewBox="[-\d. ]+">/);

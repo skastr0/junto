@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
-  PORTRAIT_OPTIONS,
+  portraitOptions,
   defaultTemperament,
   portraitCharacter,
   type PortraitConfig,
@@ -16,7 +16,7 @@ import "./PortraitEditor.css";
 // preview. Edits save as they happen (debounced), so the seat on the canvas
 // changes with the editor; Reset drops the override back to identity.
 
-type Trait = keyof typeof PORTRAIT_OPTIONS;
+type Trait = keyof ReturnType<typeof portraitOptions>;
 
 const TRAITS: ReadonlyArray<readonly [Trait, string]> = [
   ["bodyHue", "color"],
@@ -48,15 +48,15 @@ const temperamentWord = (value: number): string =>
 const randomConfig = (): PortraitConfig => {
   const any = <T,>(items: ReadonlyArray<T>): T => items[Math.floor(Math.random() * items.length)] as T;
   return {
-    bodyHue: any(PORTRAIT_OPTIONS.bodyHue),
-    accentHue: any(PORTRAIT_OPTIONS.accentHue),
-    shape: any(PORTRAIT_OPTIONS.shape),
-    topper: any(PORTRAIT_OPTIONS.topper),
-    eyes: any(PORTRAIT_OPTIONS.eyes),
-    mouth: any(PORTRAIT_OPTIONS.mouth),
-    brows: any(PORTRAIT_OPTIONS.brows),
-    marking: any(PORTRAIT_OPTIONS.marking),
-    accessory: any(PORTRAIT_OPTIONS.accessory),
+    bodyHue: any(portraitOptions().bodyHue),
+    accentHue: any(portraitOptions().accentHue),
+    shape: any(portraitOptions().shape),
+    topper: any(portraitOptions().topper),
+    eyes: any(portraitOptions().eyes),
+    mouth: any(portraitOptions().mouth),
+    brows: any(portraitOptions().brows),
+    marking: any(portraitOptions().marking),
+    accessory: any(portraitOptions().accessory),
     blush: Math.random() < 0.6,
     temperament: Math.round((Math.random() * 2 - 1) * 100) / 100,
   };
@@ -158,7 +158,7 @@ export function PortraitEditor({
               {label}
             </Eyebrow>
             <div className="portrait-editor__grid" role="radiogroup" aria-label={label}>
-              {PORTRAIT_OPTIONS[trait].map((option) => {
+              {portraitOptions()[trait].map((option) => {
                 const active = character[trait] === option;
                 return (
                   <button

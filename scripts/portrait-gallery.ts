@@ -6,7 +6,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { chromium } from "playwright-core";
-import { PORTRAIT_OPTIONS, portraitDataUri, portraitDetailFor, portraitGenome, type PortraitDetail } from "../src/shared/agent-portrait";
+import { portraitDataUri, portraitOptions, portraitDetailFor, portraitGenome, type PortraitDetail } from "../src/shared/agent-portrait";
 import { portraitFaceFor, portraitExpression, type ExpressionInput } from "../src/shared/portrait-expression";
 import { FONT_MONO, themeRuntime, type ThemeMode } from "../src/shared/theme";
 
@@ -118,10 +118,10 @@ const page = (mode: ThemeMode): string => {
     .join("")}</div>`;
   return `<section class="theme" style="background:${t.ground};color:${t.ink}">
 <h1>Agent portraits, ${mode}</h1>
-<h2>new species</h2>${showcase("shape", PORTRAIT_OPTIONS.shape.slice(6))}
-<h2>new ears and toppers</h2>${showcase("topper", PORTRAIT_OPTIONS.topper.slice(9))}
-<h2>new patterns</h2>${showcase("marking", PORTRAIT_OPTIONS.marking.slice(5))}
-<h2>hats and props</h2>${showcase("accessory", PORTRAIT_OPTIONS.accessory.slice(1))}
+<h2>new species</h2>${showcase("shape", portraitOptions().shape.slice(6))}
+<h2>new ears and toppers</h2>${showcase("topper", portraitOptions().topper.slice(9))}
+<h2>new patterns</h2>${showcase("marking", portraitOptions().marking.slice(5))}
+<h2>hats and props</h2>${showcase("accessory", portraitOptions().accessory.slice(1))}
 <h2>bare frame, transparent (brand, landing, video)</h2>${bareRow}
 <h2>variety: ${variety.distinct} distinct looks (color, species, ears, prop) across ${variety.count} seats</h2>
 <h2>expressions: temperament x seat state</h2>${moods}
