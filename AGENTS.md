@@ -282,6 +282,15 @@ commas, em dashes, or plain spaces. Derived wire sentences are spoken compounds
 ("access stops", "watch completes") — never dotted. This is an operator hard
 invariant; reintroducing a middot is a defect.
 
+**No mechanics in operator copy.** Operator-facing UI never exposes kernel,
+physics, or capability jargon: ports, grants, masks, compiles, wire families,
+stoppage, or wires explained as a mechanism. Say what the operator can do, in
+plain words, or say nothing. A connection card names its peer; the edge card
+reads as a sentence ("Planner manages Backlog"). Explainers that restate the
+physics on every surface are removed, not reworded. Agent-facing docs and CLI
+output (`junto-docs.ts`, `capabilities`, `onboard`) are exempt: agents need
+the contract.
+
 ## Kernel: cron, relay (+ dormant gauge) — verbs
 
 Region pulse inject is **retired**. An edge into or out of a scheduler authors
