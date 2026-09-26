@@ -266,8 +266,9 @@
 .node-deck__agent.is-expanded { border-color: color-mix(in oklab, var(--color-main) 42%, transparent); background: var(--deck-selected); color: var(--color-ink); outline: 0; }
 .node-deck__agent strong { overflow: hidden; color: inherit; font-size: 12px; font-weight: 650; letter-spacing: .01em; text-overflow: ellipsis; white-space: nowrap; }
 
-/* These portals must clear the FocusSurface work layer while preserving their anchors. */
-.agent-cascade[data-canvas-menu-surface],
+/* These portals must clear the FocusSurface work layer while preserving their
+   anchors. The model cascade sets its own, higher layer (--layer-flyout), so it
+   also clears the popovers and dialogs it opens from. */
 [role="dialog"][data-canvas-menu-surface] { z-index: 10001 !important; }
 
 .node-deck__catalog { padding: 15px 16px 16px; }

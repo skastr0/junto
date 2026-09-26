@@ -72,8 +72,19 @@
   color: var(--color-faint) !important;
 }
 
-.customize-launch__pick {
-  max-height: 168px;
+/* The harness list scrolls inside its own box, so it never runs over the
+   hint and the profile row below it. The model cascade is portaled to the
+   flyout layer, so the box's clipping never cuts it. */
+.customize-launch__pick .agent-harness-pick__list {
+  display: grid;
+  align-content: start;
+  gap: 2px;
+  max-height: 232px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 2px;
+  scrollbar-color: var(--color-stroke) transparent;
+  scrollbar-width: thin;
 }
 
 /* Profile: set apart by space and a hairline, not a boxed card. */

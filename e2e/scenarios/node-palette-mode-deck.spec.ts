@@ -199,7 +199,7 @@ test("model and effort choices remain visually attached to the active agent row"
 
     const models = page.getByRole("menu", { name: "Claude Code models" });
     await expect(models).toBeVisible();
-    const model = models.getByRole("menuitem").first();
+    const model = models.getByRole("menuitem", { name: "Opus 4.6", exact: true });
     await model.hover();
     await expect(model).toHaveCSS("box-shadow", "none");
     const modelBorders = await model.evaluate((element) => {
@@ -569,16 +569,24 @@ test("harness keyboard activation opens choices and Escape dismisses one layer a
 
     await page.keyboard.press("Enter");
     const models = await waitForClaudeModels(page);
-    await expect(models.getByRole("menuitem").first()).toBeFocused();
+    // The defaults row leads and takes focus: Enter on it is the same as a
+    // plain click on the agent.
+    const defaults = models.getByRole("menuitem").first();
+    await expect(defaults).toHaveAccessibleName("Use harness defaults");
+    await expect(defaults).toBeFocused();
     await expect(deck).toBeVisible();
 
+    await page.keyboard.press("ArrowDown");
+    const opus = models.getByRole("menuitem", { name: "Opus 4.6", exact: true });
+    await expect(opus).toBeFocused();
     const enterKey = await cascadeEnterKey(models);
     await page.keyboard.press(enterKey);
     const efforts = page.getByRole("menu", { name: /effort$/ });
     await expect(efforts).toBeVisible();
+    await expect(efforts.getByRole("menuitem").first()).toHaveAccessibleName("Default effort");
     await page.keyboard.press("Escape");
     await expect(efforts).toHaveCount(0);
-    await expect(models.getByRole("menuitem").first()).toBeFocused();
+    await expect(opus).toBeFocused();
 
     await page.keyboard.press("Escape");
     await expect(page.locator(".agent-cascade")).toHaveCount(0);
@@ -649,7 +657,7 @@ test("Escape dismisses a hover preview without changing search focus or query", 
   }
 });
 
-test("column type-ahead scrolls to an offscreen model and selects its effort", async () => {
+test("model search finds an offscreen model, selects its effort, and remembers the pick", async () => {
   const junto = await seededLaunch({
     seedCanvases: { portfolio: canvasDoc([]) },
   });
@@ -662,7 +670,14 @@ test("column type-ahead scrolls to an offscreen model and selects its effort", a
     await page.keyboard.press("Enter");
     const models = await waitForClaudeModels(page);
 
+    // Typing in a long model column goes to its search, which narrows the
+    // list; Arrow Down steps into the results.
     await page.keyboard.type("zephyr");
+    const search = page.getByRole("textbox", { name: "Search Claude Code models" });
+    await expect(search).toBeFocused();
+    await expect(search).toHaveValue("zephyr");
+    await expect(models.getByRole("menuitem")).toHaveCount(1);
+    await page.keyboard.press("ArrowDown");
     const zephyr = models.getByRole("menuitem", { name: "Zephyr 1", exact: true });
     await expect(zephyr).toBeFocused();
     await expect.poll(async () =>
@@ -686,6 +701,15 @@ test("column type-ahead scrolls to an offscreen model and selects its effort", a
     await expect.poll(async () => agentSeats(page)).toEqual([
       { harness: "claude", model: "claude-zephyr-1", effort: "high" },
     ]);
+
+    // The pick is remembered for Claude Code: next time it leads the list,
+    // right under the defaults row.
+    const reopened = await openModeDeck(page);
+    await reopened.getByRole("button", { name: "Claude Code", exact: true }).hover();
+    const again = await waitForClaudeModels(page);
+    const recent = again.getByRole("group", { name: "Recent Claude Code models" });
+    await expect(recent.getByRole("menuitem")).toHaveText(["Zephyr 1"]);
+    await expect(again.getByRole("menuitem").nth(1)).toHaveAccessibleName("Zephyr 1");
   } finally {
     await junto.close();
   }

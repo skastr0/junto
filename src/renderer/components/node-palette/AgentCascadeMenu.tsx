@@ -6,17 +6,23 @@ import {
   useState,
   type CSSProperties,
   type KeyboardEvent as ReactKeyboardEvent,
+  type ReactNode,
+  type RefObject,
 } from "react";
 import { createPortal } from "react-dom";
-import { ChevronRight } from "lucide-react";
+import { ChevronRight, Search } from "lucide-react";
+import { use$ } from "@legendapp/state/react";
 import {
   templateFor,
   type HarnessId,
 } from "@shared/managed-terminal-templates";
 import type {
   ManagedTerminalModelOption,
+  ManagedTerminalModelsResult,
   ManagedTerminalProfileOption,
 } from "@shared/ipc";
+import { harnessPrefsFor } from "@shared/settings";
+import { state$ } from "../../lib/state";
 import { getJuntoApi } from "../../lib/junto-api";
 import {
   typeaheadAccept,
@@ -28,6 +34,7 @@ import {
   type AgentConfigurationChoices,
 } from "./agent-launch-model";
 import { claimFocus } from "../../lib/focus-ownership";
+import { arrangeModels, MODEL_SEARCH_MIN, orderModels } from "./model-choices";
 
 export type { AgentConfigurationChoices };
 
@@ -52,6 +59,11 @@ const VIEWPORT_PAD = 8;
 const MAX_CASCADE_COLUMNS = 3;
 
 const DEFAULTS_LABEL = "Use harness defaults";
+const DEFAULT_EFFORT_LABEL = "Default effort";
+const PROFILE_DEFAULTS_LABEL = "Use profile defaults";
+
+/** The defaults row says which click it stands for. */
+const sameAsClicking = (name: string): string => `same as clicking ${name}`;
 
 const cascadeWidth = (columnCount: number): number =>
   columnCount * MENU_WIDTH + Math.max(0, columnCount - 1) * MENU_GAP;
@@ -113,6 +125,12 @@ const focusFirstInColumn = (column: Element | null | undefined): boolean => {
   return focusItem(first);
 };
 
+/** The first real choice: past the defaults row when a search is narrowing. */
+const focusFirstResult = (column: Element | null | undefined): boolean => {
+  const items = column ? menuitemsIn(column) : [];
+  return focusItem(items.find((item) => !item.classList.contains("is-default")) ?? items[0]);
+};
+
 const focusExpandedOrFirst = (column: Element | null | undefined): boolean => {
   if (!column) return false;
   const expanded = column.querySelector<HTMLButtonElement>(
@@ -149,39 +167,82 @@ function MenuColumn({
   label,
   step,
   parent,
+  search,
   children,
 }: {
   readonly label: string;
   readonly step: CascadeStep;
   readonly parent: string;
-  readonly children: React.ReactNode;
+  readonly search?: ReactNode;
+  readonly children: ReactNode;
 }) {
+  // The whole column is the menu, its search field included, so moving
+  // between the field and the rows stays inside one focus scope.
   return (
-    <div className="agent-cascade__column" data-cascade-step={step}>
-      <div className="agent-cascade__caption" aria-hidden>
-        <span className="agent-cascade__caption-parent">{parent}</span>
-        <span className="agent-cascade__caption-step">{step}</span>
+    <div className="agent-cascade__column" data-cascade-step={step} role="menu" aria-label={label}>
+      <div className="agent-cascade__head">
+        <div className="agent-cascade__caption" aria-hidden>
+          <span className="agent-cascade__caption-parent">{parent}</span>
+          <span className="agent-cascade__caption-step">{step}</span>
+        </div>
+        {search}
       </div>
-      <div
-        className="agent-cascade__items"
-        role="menu"
-        aria-label={label}
-        data-cascade-step={step}
-      >
+      <div className="agent-cascade__items" data-cascade-step={step}>
         {children}
       </div>
     </div>
   );
 }
 
+/**
+ * The column's filter. Arrow Down steps into the results, Enter takes the top
+ * one, Escape clears the text and then leaves the column.
+ */
+function ModelSearch({
+  inputRef,
+  label,
+  value,
+  onChange,
+  onKeyDown,
+}: {
+  readonly inputRef: RefObject<HTMLInputElement | null>;
+  readonly label: string;
+  readonly value: string;
+  readonly onChange: (value: string) => void;
+  readonly onKeyDown: (event: ReactKeyboardEvent<HTMLInputElement>) => void;
+}) {
+  return (
+    <label className="agent-cascade__search">
+      <Search size={11} aria-hidden />
+      <input
+        ref={inputRef}
+        type="text"
+        value={value}
+        placeholder="Search models"
+        aria-label={label}
+        autoComplete="off"
+        spellCheck={false}
+        onChange={(event) => onChange(event.currentTarget.value)}
+        onKeyDown={onKeyDown}
+      />
+    </label>
+  );
+}
+
 function CascadeItem({
   label,
+  hint,
+  isDefault = false,
   expanded,
   onEnter,
   onSelect,
   skipExpandRef,
 }: {
   readonly label: string;
+  /** A second line under the label; not part of the accessible name. */
+  readonly hint?: string;
+  /** The row a plain click on the parent stands for: lit until another row is. */
+  readonly isDefault?: boolean;
   readonly expanded?: boolean;
   readonly onEnter?: () => void;
   readonly onSelect: () => void;
@@ -192,6 +253,7 @@ function CascadeItem({
       type="button"
       role="menuitem"
       tabIndex={-1}
+      className={isDefault ? "is-default" : undefined}
       aria-haspopup={expanded === undefined ? undefined : "menu"}
       aria-expanded={expanded}
       onMouseEnter={onEnter}
@@ -201,7 +263,14 @@ function CascadeItem({
       }}
       onClick={onSelect}
     >
-      <span>{label}</span>
+      {hint ? (
+        <span className="agent-cascade__stack">
+          <span>{label}</span>
+          <small aria-hidden>{hint}</small>
+        </span>
+      ) : (
+        <span>{label}</span>
+      )}
       {expanded === undefined ? null : <ChevronRight size={12} aria-hidden />}
     </button>
   );
@@ -237,6 +306,11 @@ export function AgentCascadeMenu({
   /** Retreat focus must not re-open the child column via onFocus. */
   const skipExpandOnFocusRef = useRef(false);
   const [models, setModels] = useState<readonly ManagedTerminalModelOption[] | null>(null);
+  const [modelSource, setModelSource] = useState<ManagedTerminalModelsResult["source"]>();
+  const [modelQuery, setModelQuery] = useState("");
+  const searchRef = useRef<HTMLInputElement>(null);
+  const settings = use$(state$.settings);
+  const recentModels = harnessPrefsFor(settings, harness).recentModels;
   const [profiles, setProfiles] = useState<readonly ManagedTerminalProfileOption[] | null>(
     harness === "hermes" ? null : [],
   );
@@ -268,6 +342,7 @@ export function AgentCascadeMenu({
       .then((result) => {
         if (!live) return;
         setModels(result.models);
+        setModelSource(result.source);
         setEnumeratedEfforts(result.efforts);
       })
       .catch(() => {
@@ -323,13 +398,19 @@ export function AgentCascadeMenu({
   // Hermes: pin the profile's configured model to the top of the second column
   // so hover→pick stays one glance away from "use profile default".
   const modelChoices = useMemo(() => {
-    const base = models ?? [];
+    const base = orderModels(models ?? [], modelSource);
     if (harness !== "hermes" || !activeProfile?.model) return base;
     const pin = activeProfile.model;
     const rest = base.filter((m) => m.id !== pin);
     const pinned = base.find((m) => m.id === pin) ?? { id: pin, label: pin };
     return [pinned, ...rest];
-  }, [models, harness, activeProfile]);
+  }, [models, modelSource, harness, activeProfile]);
+  const arranged = useMemo(
+    () => arrangeModels(modelChoices, recentModels, modelQuery),
+    [modelChoices, recentModels, modelQuery],
+  );
+  const searching = modelQuery.trim().length > 0;
+  const showSearch = modelChoices.length >= MODEL_SEARCH_MIN;
   /**
    * Some harnesses have no model to choose — their one dial is a named mode
    * (Amp `-m low|medium|high|ultra`, which selects model, system prompt, and
@@ -391,6 +472,69 @@ export function AgentCascadeMenu({
     resetTypeahead();
     onExit?.();
   };
+
+  /** A new search drops the model the effort column was opened for. */
+  const changeQuery = (next: string): void => {
+    setModelQuery(next);
+    setActiveModel(null);
+  };
+
+  const onSearchKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>): void => {
+    if (event.nativeEvent.isComposing || event.key === "Process") return;
+    // Tab leaves the cascade through the root handler, like any row.
+    if (event.key === "Tab") return;
+    event.stopPropagation();
+    const column = columnByStep("model");
+    switch (event.key) {
+      case "ArrowDown": {
+        event.preventDefault();
+        if (searching) focusFirstResult(column);
+        else focusFirstInColumn(column);
+        return;
+      }
+      case "Enter": {
+        event.preventDefault();
+        const top = arranged.rest[0];
+        if (!searching || !top) return;
+        configure({
+          harness,
+          ...(harness === "hermes" && activeProfile ? { profile: activeProfile.name } : {}),
+          model: top.id,
+        });
+        return;
+      }
+      case "Escape": {
+        event.preventDefault();
+        if (modelQuery) {
+          changeQuery("");
+          return;
+        }
+        if (harness === "hermes" && activeProfile) {
+          const label = activeProfile.name;
+          setActiveModel(null);
+          skipExpandOnFocusRef.current = true;
+          requestAnimationFrame(() => {
+            const parent = columnByStep("profile");
+            const match = parent
+              ? menuitemsIn(parent).find((item) => item.textContent?.trim() === label)
+              : undefined;
+            focusItem(match) || focusExpandedOrFirst(parent);
+            skipExpandOnFocusRef.current = false;
+          });
+          return;
+        }
+        exitCascade();
+        return;
+      }
+      default:
+        return;
+    }
+  };
+
+  // Hermes: each profile's model column starts unfiltered.
+  useEffect(() => {
+    setModelQuery("");
+  }, [activeProfile?.name]);
 
   const onCascadeKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>): void => {
     const composing = event.nativeEvent.isComposing || event.key === "Process";
@@ -534,6 +678,17 @@ export function AgentCascadeMenu({
         return;
       }
       default: {
+        // A searchable model column sends typing to its search field.
+        if (columnStep === "model" && showSearch && searchRef.current) {
+          const edit = event.key === "Backspace" ? "back" : isPrintableKey(event) && event.key !== " " ? "type" : null;
+          if (!edit) return;
+          event.preventDefault();
+          event.stopPropagation();
+          resetTypeahead();
+          changeQuery(edit === "back" ? modelQuery.slice(0, -1) : modelQuery + event.key);
+          claimFocus(searchRef.current, "gesture");
+          return;
+        }
         if (!isPrintableKey(event) || event.key === " ") return;
         event.preventDefault();
         event.stopPropagation();
@@ -555,9 +710,21 @@ export function AgentCascadeMenu({
     }
   };
 
+  const displayName = templateFor(harness).displayName;
+  const hasEffortsFor = (model: ManagedTerminalModelOption): boolean =>
+    (model.efforts?.length ?? 0) > 0 ||
+    enumeratedEfforts.length > 0 ||
+    templateFor(harness).efforts.length > 0;
+  const profileChoice = (): { readonly profile?: string } =>
+    harness === "hermes" && activeProfile ? { profile: activeProfile.name } : {};
+
+  // First in every column, and lit until the pointer or keys pick another
+  // row: a plain click on the agent (or the model) means exactly this.
   const defaultsItem = (
     <CascadeItem
       label={DEFAULTS_LABEL}
+      hint={sameAsClicking(displayName)}
+      isDefault
       skipExpandRef={skipExpandOnFocusRef}
       onEnter={() => {
         setActiveProfile(null);
@@ -567,14 +734,63 @@ export function AgentCascadeMenu({
     />
   );
 
+  const modelItem = (model: ManagedTerminalModelOption) => (
+    <CascadeItem
+      key={model.id}
+      label={model.label}
+      skipExpandRef={skipExpandOnFocusRef}
+      expanded={hasEffortsFor(model) ? activeModel?.id === model.id : undefined}
+      onEnter={() => setActiveModel(model)}
+      onSelect={() => configure({ harness, ...profileChoice(), model: model.id })}
+    />
+  );
+
+  /** Recent picks on this harness, then the rest; one ranked list while searching. */
+  const modelList = (lead: ReactNode) => (
+    <>
+      {searching ? null : lead}
+      {arranged.recent.length > 0 ? (
+        <div role="group" aria-label={`Recent ${displayName} models`}>
+          <div className="agent-cascade__group" aria-hidden>
+            recent
+          </div>
+          {arranged.recent.map(modelItem)}
+        </div>
+      ) : null}
+      {arranged.recent.length > 0 && arranged.rest.length > 0 ? (
+        <div className="agent-cascade__group" aria-hidden>
+          all models
+        </div>
+      ) : null}
+      {arranged.rest.map(modelItem)}
+      {searching && arranged.rest.length === 0 ? (
+        <p className="agent-cascade__empty" role="status">
+          No models match &ldquo;{modelQuery.trim()}&rdquo;
+        </p>
+      ) : null}
+    </>
+  );
+
+  const search = (label: string) =>
+    showSearch ? (
+      <ModelSearch
+        inputRef={searchRef}
+        label={label}
+        value={modelQuery}
+        onChange={changeQuery}
+        onKeyDown={onSearchKeyDown}
+      />
+    ) : undefined;
+
   return createPortal(
     <div
       ref={rootRef}
       className="agent-cascade"
       data-popover-layer
       data-canvas-menu-surface
-      // Above any popover it was opened from (the agent editor's Launch).
-      style={{ position: "fixed", zIndex: "var(--layer-popover)", ...position } as CSSProperties}
+      // The top layer: above the dialog or popover it was opened from (Add
+      // item, the agent editor's Launch tab, the re-seat pop).
+      style={{ position: "fixed", zIndex: "var(--layer-flyout)", ...position } as CSSProperties}
       onMouseEnter={onPointerEnter}
       onMouseLeave={onPointerLeave}
       // Keyboard handoff: focus entering a menuitem must cancel the palette's
@@ -597,16 +813,20 @@ export function AgentCascadeMenu({
           harness === "hermes"
             ? "Hermes profiles"
             : usesModes
-              ? `${templateFor(harness).displayName} modes`
-              : `${templateFor(harness).displayName} models`
+              ? `${displayName} modes`
+              : `${displayName} models`
         }
-        parent={templateFor(harness).displayName}
+        parent={displayName}
         step={harness === "hermes" ? "profile" : "model"}
+        {...(harness !== "hermes" && !usesModes && !firstColumnIsLoading
+          ? { search: search(`Search ${displayName} models`) }
+          : {})}
       >
         {firstColumnIsLoading ? (
           <LoadingRows />
         ) : usesModes ? (
           <>
+            {defaultsItem}
             {templateModes.map((mode) => (
               <CascadeItem
                 key={mode}
@@ -615,10 +835,10 @@ export function AgentCascadeMenu({
                 onSelect={() => configure({ harness, mode })}
               />
             ))}
-            {defaultsItem}
           </>
         ) : harness === "hermes" ? (
           <>
+            {defaultsItem}
             {profileChoices.map((profile) => {
               // Chevron only when a model column can open (loading or non-empty).
               const canExpandModels =
@@ -645,28 +865,9 @@ export function AgentCascadeMenu({
                 />
               );
             })}
-            {defaultsItem}
           </>
         ) : (
-          <>
-            {modelChoices.map((model) => {
-              const hasEfforts =
-                (model.efforts?.length ?? 0) > 0 ||
-                enumeratedEfforts.length > 0 ||
-                templateFor(harness).efforts.length > 0;
-              return (
-                <CascadeItem
-                  key={model.id}
-                  label={model.label}
-                  skipExpandRef={skipExpandOnFocusRef}
-                  expanded={hasEfforts ? activeModel?.id === model.id : undefined}
-                  onEnter={() => setActiveModel(model)}
-                  onSelect={() => configure({ harness, model: model.id })}
-                />
-              );
-            })}
-            {defaultsItem}
-          </>
+          modelList(defaultsItem)
         )}
       </MenuColumn>
 
@@ -675,32 +876,29 @@ export function AgentCascadeMenu({
           label={`${activeProfile?.name ?? "Hermes"} models`}
           parent={activeProfile?.name ?? "Hermes"}
           step="model"
+          {...(models === null ? {} : { search: search(`Search ${activeProfile?.name ?? "Hermes"} models`) })}
         >
           {models === null ? (
             <LoadingRows />
           ) : (
-            modelChoices.map((model) => {
-              const hasEfforts =
-                (model.efforts?.length ?? 0) > 0 ||
-                enumeratedEfforts.length > 0 ||
-                templateFor(harness).efforts.length > 0;
-              return (
+            modelList(
+              activeProfile ? (
                 <CascadeItem
-                  key={model.id}
-                  label={model.label}
+                  label={PROFILE_DEFAULTS_LABEL}
+                  hint={sameAsClicking(activeProfile.name)}
+                  isDefault
                   skipExpandRef={skipExpandOnFocusRef}
-                  expanded={hasEfforts ? activeModel?.id === model.id : undefined}
-                  onEnter={() => setActiveModel(model)}
+                  onEnter={() => setActiveModel(null)}
                   onSelect={() =>
                     configure({
                       harness,
-                      ...(activeProfile ? { profile: activeProfile.name } : {}),
-                      model: model.id,
+                      profile: activeProfile.name,
+                      ...(activeProfile.model ? { model: activeProfile.model } : {}),
                     })
                   }
                 />
-              );
-            })
+              ) : null,
+            )
           )}
         </MenuColumn>
       ) : null}
@@ -711,6 +909,13 @@ export function AgentCascadeMenu({
           parent={activeModel.label}
           step="effort"
         >
+          <CascadeItem
+            label={DEFAULT_EFFORT_LABEL}
+            hint={sameAsClicking(activeModel.label)}
+            isDefault
+            skipExpandRef={skipExpandOnFocusRef}
+            onSelect={() => configure({ harness, ...profileChoice(), model: activeModel.id })}
+          />
           {efforts.map((effort) => (
             <CascadeItem
               key={effort}
@@ -719,7 +924,7 @@ export function AgentCascadeMenu({
               onSelect={() =>
                 configure({
                   harness,
-                  ...(activeProfile ? { profile: activeProfile.name } : {}),
+                  ...profileChoice(),
                   model: activeModel.id,
                   effort,
                 })

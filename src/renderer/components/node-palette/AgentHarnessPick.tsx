@@ -25,8 +25,10 @@ import {
   type ManagedTerminalTemplate,
 } from "@shared/managed-terminal-templates";
 import { harnessVisibleInPalette } from "@shared/harness-settings";
+import { harnessPrefsFor, rememberRecentModel } from "@shared/settings";
 import { getJuntoApi } from "../../lib/junto-api";
 import { state$ } from "../../lib/state";
+import { patchSettings } from "../../lib/settings-state";
 import { rankMatches } from "../../lib/fuzzy-match";
 import {
   typeaheadAccept,
@@ -161,6 +163,17 @@ export function AgentHarnessPick({
     (choices: AgentConfigurationChoices) => {
       closeCascade();
       onConfigure(choices);
+      // The model picker lists this harness's recent picks first.
+      if (choices.model) {
+        const recent = harnessPrefsFor(state$.settings.peek(), choices.harness).recentModels;
+        if (recent?.[0] !== choices.model) {
+          void patchSettings({
+            harnesses: {
+              byHarness: { [choices.harness]: { recentModels: rememberRecentModel(recent, choices.model) } },
+            },
+          });
+        }
+      }
     },
     [closeCascade, onConfigure],
   );
