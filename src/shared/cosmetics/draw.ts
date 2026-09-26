@@ -31,7 +31,11 @@ export interface DrawStyle {
   readonly offset: number;
   readonly ink: string;
   readonly color: (role: PaletteRole) => string;
+  /** Detail tier being drawn; parts with a higher `minDetail` are skipped. */
+  readonly detail?: "glyph" | "card" | "rich";
 }
+
+const DETAIL_RANK = { glyph: 0, card: 1, rich: 2 } as const;
 
 // --- bodies ----------------------------------------------------------------
 
@@ -265,8 +269,9 @@ export function drawLayer(
   g: CritterGeometry,
   style: DrawStyle,
 ): string {
+  const rank = DETAIL_RANK[style.detail ?? "rich"];
   return parts
-    .filter((part) => part.layer === layer)
+    .filter((part) => part.layer === layer && (part.minDetail === undefined || DETAIL_RANK[part.minDetail] <= rank))
     .map((part) => drawPart(part, g, style))
     .join("");
 }

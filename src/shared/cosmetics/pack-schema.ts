@@ -113,6 +113,8 @@ export const CosmeticPart = Schema.Struct({
   rotate: Schema.optionalKey(between(-180, 180)),
   pivot: Schema.optionalKey(Schema.Tuple([Coord, Coord])),
   shapes: Schema.Array(CosmeticShape).pipe(Schema.check(Schema.isMaxLength(32))),
+  /** Smallest detail tier that draws this part (freckles skip glyph size). */
+  minDetail: Schema.optionalKey(Schema.Literals(["card", "rich"])),
 });
 export type CosmeticPart = typeof CosmeticPart.Type;
 
@@ -194,6 +196,35 @@ export type CosmeticPalette = typeof CosmeticPalette.Type;
 const Items = <S extends Schema.Top>(item: S) =>
   Schema.optionalKey(Schema.Array(item).pipe(Schema.check(Schema.isMaxLength(64))));
 
+/** A catalog key: a bare id ("toast") or a namespaced one ("pack:item"). */
+const Key = Schema.String.pipe(Schema.check(Schema.isPattern(/^(?:[a-z0-9][a-z0-9-]{0,31}:)?[a-z0-9][a-z0-9-]{0,31}$/)));
+const DrawList = Schema.optionalKey(Schema.Array(Key).pipe(Schema.check(Schema.isMaxLength(64))));
+
+/**
+ * The seat-identity draw: the lists a seat's look is picked from, by catalog
+ * key. The portrait engine keeps its own random rolls and draw order and
+ * reads each list from the last installed pack that declares it (the base
+ * pack declares them all). A drawn item this install may not wear falls back
+ * to the base list with the same roll. `*More` lists belong to the second
+ * cast: an independent stream that swaps a new species, ears, or pattern in
+ * for some seats; `props` are the props a seat may be born wearing.
+ */
+export const IdentityTables = Schema.Struct({
+  palettes: Schema.optionalKey(
+    Schema.Array(
+      Schema.Tuple([Key, Schema.Number.pipe(Schema.check(Schema.isInt()), Schema.check(Schema.isBetween({ minimum: 1, maximum: 16 })))]),
+    ).pipe(Schema.check(Schema.isMaxLength(64))),
+  ),
+  species: DrawList,
+  toppers: DrawList,
+  patterns: DrawList,
+  speciesMore: DrawList,
+  toppersMore: DrawList,
+  patternsMore: DrawList,
+  props: DrawList,
+});
+export type IdentityTables = typeof IdentityTables.Type;
+
 export const CosmeticPack = Schema.Struct({
   format: Schema.Literal(COSMETIC_PACK_FORMAT),
   id: Id,
@@ -205,5 +236,12 @@ export const CosmeticPack = Schema.Struct({
   accessories: Items(CosmeticAccessory),
   patterns: Items(CosmeticPattern),
   palettes: Items(CosmeticPalette),
+  /**
+   * `bare`: items keep their plain ids as catalog keys ("toast", not
+   * "pack:toast"), so saved looks keep resolving when items move between the
+   * base pack and a pack. A bare id may not collide with an installed one.
+   */
+  keys: Schema.optionalKey(Schema.Literal("bare")),
+  identity: Schema.optionalKey(IdentityTables),
 });
 export type CosmeticPack = typeof CosmeticPack.Type;

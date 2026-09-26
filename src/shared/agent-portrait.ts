@@ -1,4 +1,14 @@
-import { cosmeticEntries, findCosmetic, type CosmeticEntry } from "./cosmetics/catalog";
+import {
+  baseIdentityTable,
+  cosmeticEntries,
+  findCosmetic,
+  identityPalettes,
+  identityTable,
+  type CosmeticEntry,
+  type CosmeticSlot,
+  type IdentityTable,
+} from "./cosmetics/catalog";
+import { BASE_PACK } from "./cosmetics/base-pack";
 import { drawLayer, speciesBody, type BodyShape, type CritterGeometry, type DrawStyle } from "./cosmetics/draw";
 import type { CosmeticPart, PaletteRole } from "./cosmetics/pack-schema";
 import { hexToOklch, oklchToHex, themeRuntime, type Oklch, type ThemeMode } from "./theme";
@@ -26,49 +36,16 @@ export type PortraitDetail = "glyph" | "card" | "rich";
 export const portraitDetailFor = (size: number): PortraitDetail =>
   size < 34 ? "glyph" : size < 72 ? "card" : "rich";
 
-// Warm hues lead but identity needs spread, so a board of seats never reads
-// as one amber blur. Gold is left out as a body (it reads as amber at pastel
-// lightness); crimson is reserved for blockers and never
-// used as a body color.
-const BODY_HUES: ReadonlyArray<readonly [token: string, weight: number]> = [
-  ["amber", 2],
-  ["orange", 2],
-  ["green", 2],
-  ["cyan", 2],
-  ["violet", 2],
-  ["indigo", 1],
-  ["steel", 1],
-];
+// Which species, ears, patterns, props, and body palettes a seat is born
+// with comes from the cosmetic catalog's identity tables (the base pack's, or
+// a bundled pack's when it declares them); this file keeps only the rolls and
+// their order. Faces are not cosmetics: their draw lists live here.
 const ACCENT_HUES = ["amber", "cyan", "violet", "green", "orange", "gold"] as const;
-
-const SHAPES = ["round", "bean", "mochi", "toast", "drop", "pear"] as const;
-const TOPPERS = ["none", "cat", "bear", "bunny", "antenna", "sprout", "horns", "tuft", "twin"] as const;
 const EYES = ["dot", "shiny", "happy", "sleepy", "oval", "wink", "line", "sparkle"] as const;
 const MOUTHS = ["smile", "cat", "o", "flat", "grin", "fang", "none", "wobble"] as const;
-const MARKINGS = ["none", "belly", "spots", "cap", "freckles", "none"] as const;
-// The second cast of characters, drawn from an independent stream so the
-// first draw above never moves: a seat keeps its color and face, and some
-// seats grow into a new species, new ears, a new pattern, or a hat.
-const SHAPES_V2 = ["cloud", "gumdrop", "onigiri", "ghost", "shroom", "peach"] as const;
-const TOPPERS_V2 = ["floppy", "mouse", "unicorn", "devil", "gills", "antlers", "flower", "halo", "bow", "crest"] as const;
-const MARKINGS_V2 = ["stripes", "patch", "muzzle", "blaze", "stars", "heart"] as const;
-const ACCESSORIES = [
-  "none",
-  "beanie",
-  "party",
-  "crown",
-  "wizard",
-  "beret",
-  "headphones",
-  "glasses",
-  "shades",
-  "scarf",
-  "bowtie",
-] as const;
-// Shades hide the eyes, and the eyes carry expressions: editor-only.
-const DRAWN_ACCESSORIES = ACCESSORIES.filter((item) => item !== "none" && item !== "shades");
-// The pick lists above are the identity draw; their order is frozen so every
-// seat keeps its face. Kinds only expressions or the editor reach live apart.
+// The face lists above are part of the identity draw; their order is frozen
+// so every seat keeps its face. Kinds only expressions or the editor reach
+// live apart.
 const EXPRESSION_EYES = ["squint"] as const;
 const EXPRESSION_MOUTHS = ["frown"] as const;
 const BROWS = ["none", "level", "raised", "worried", "furrowed", "quizzical"] as const;
@@ -196,14 +173,33 @@ const mulberry32 = (seed: number): (() => number) => {
 const pick = <T>(rand: () => number, items: ReadonlyArray<T>): T =>
   items[Math.floor(rand() * items.length) % items.length] as T;
 
-const pickWeighted = (rand: () => number, items: ReadonlyArray<readonly [string, number]>): string => {
+const weighted = (u: number, items: ReadonlyArray<readonly [string, number]>): string | undefined => {
   const total = items.reduce((sum, [, weight]) => sum + weight, 0);
-  let roll = rand() * total;
+  let roll = u * total;
   for (const [item, weight] of items) {
     roll -= weight;
     if (roll < 0) return item;
   }
-  return items[0]?.[0] ?? "amber";
+  return items[0]?.[0];
+};
+
+const at = (u: number, items: ReadonlyArray<string>): string | undefined =>
+  items.length === 0 ? undefined : items[Math.floor(u * items.length) % items.length];
+
+/**
+ * One identity draw from a catalog table. A drawn key this install may not
+ * wear falls back to the base pack's table with the same roll, so one locked
+ * item never reshuffles any other seat.
+ */
+const drawn = (slot: CosmeticSlot, table: IdentityTable, u: number): string | undefined => {
+  const key = at(u, identityTable(table));
+  if (key !== undefined && findCosmetic(slot, key)) return key;
+  return at(u, baseIdentityTable(table));
+};
+
+const drawnPalette = (u: number): string => {
+  const key = weighted(u, identityPalettes());
+  return key !== undefined && findCosmetic("palette", key) ? key : (weighted(u, BASE_PACK.identity?.palettes ?? []) ?? "amber");
 };
 
 const oneOf = <T extends string>(items: ReadonlyArray<T>, value: unknown): T | undefined =>
@@ -255,33 +251,37 @@ export const portraitConfigKey = (config?: PortraitConfig): string =>
         .join(";")
     : "";
 
-/** Decide the character for a seed. Stable forever for a given seed. */
+/**
+ * Decide the character for a seed. Stable for a given seed and set of
+ * installed packs: the rolls and their order never change, and the catalog's
+ * identity tables say what each roll lands on.
+ */
 export function portraitGenome(seed: string): PortraitGenome {
   const rand = mulberry32(fnv1a(seed.trim() || "agent"));
-  const bodyHue = pickWeighted(rand, BODY_HUES);
+  const bodyHue = drawnPalette(rand());
   let accentHue: string = pick(rand, ACCENT_HUES);
   if (accentHue === bodyHue) accentHue = bodyHue === "cyan" ? "amber" : "cyan";
-  const shape: PortraitShape = pick(rand, SHAPES);
-  const topper: PortraitTopper = pick(rand, TOPPERS);
+  const shape = drawn("species", "species", rand()) ?? "round";
+  const topper = drawn("topper", "toppers", rand()) ?? "none";
   const eyes = pick(rand, EYES);
   const mouth = pick(rand, MOUTHS);
-  const marking: PortraitMarking = pick(rand, MARKINGS);
+  const marking = drawn("pattern", "patterns", rand()) ?? "none";
   // Second cast: fixed draw order, every roll always taken, so each trait's
   // odds stay independent of the others.
   const more = mulberry32(fnv1a(`${seed.trim() || "agent"}#cast-2`));
-  const [speciesRoll, species] = [more(), pick(more, SHAPES_V2)];
-  const [earsRoll, ears] = [more(), pick(more, TOPPERS_V2)];
-  const [patternRoll, pattern] = [more(), pick(more, MARKINGS_V2)];
-  const [propRoll, prop] = [more(), pick(more, DRAWN_ACCESSORIES)];
+  const [speciesRoll, species] = [more(), drawn("species", "speciesMore", more())];
+  const [earsRoll, ears] = [more(), drawn("topper", "toppersMore", more())];
+  const [patternRoll, pattern] = [more(), drawn("pattern", "patternsMore", more())];
+  const [propRoll, prop] = [more(), drawn("accessory", "props", more())];
   return {
     bodyHue,
     accentHue,
-    shape: speciesRoll < 0.4 ? species : shape,
-    topper: earsRoll < 0.4 ? ears : topper,
+    shape: speciesRoll < 0.4 && species ? species : shape,
+    topper: earsRoll < 0.4 && ears ? ears : topper,
     eyes,
     mouth,
-    marking: patternRoll < 0.4 ? pattern : marking,
-    accessory: propRoll < 0.45 ? prop : "none",
+    marking: patternRoll < 0.4 && pattern ? pattern : marking,
+    accessory: propRoll < 0.45 && prop ? prop : "none",
     blush: rand() < 0.62,
     gaze: rand() * 2 - 1,
     tilt: (rand() * 2 - 1) * 5,
@@ -602,14 +602,10 @@ export function portraitSvg({ seed, mode, detail, frame: shape = "tile", config,
     mouthY,
     neckY: Math.min(mouthY + 12, body.cy + body.h - 4),
   };
-  const style: DrawStyle = { outline: s.outline, offset: s.offset, ink: p.ink, color: (role: PaletteRole) => p[role] };
+  const style: DrawStyle = { outline: s.outline, offset: s.offset, ink: p.ink, color: (role: PaletteRole) => p[role], detail };
   const wornParts_ = [...worn.species, ...worn.topper, ...worn.pattern, ...worn.accessory];
   const layer = (name: Parameters<typeof drawLayer>[0]): string => drawLayer(name, wornParts_, geometry, style);
-  // Freckles vanish at glyph size; they would be single pixels.
-  const bodyLayer =
-    detail === "glyph" && genome.marking === "freckles"
-      ? drawLayer("body", [...worn.species, ...worn.topper, ...worn.accessory], geometry, style)
-      : layer("body");
+  const bodyLayer = layer("body");
   // Bare frames stand on two little feet; floating species do not.
   const feet: ReadonlyArray<CosmeticPart> =
     bare && !worn.floats

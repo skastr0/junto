@@ -7,6 +7,29 @@ import {
   portraitSvg,
 } from "../src/shared/agent-portrait";
 import { THEME_MODES, themeRuntime } from "../src/shared/theme";
+import { installCosmeticPacks } from "../src/shared/cosmetics/catalog";
+import { decodeCosmeticPacks } from "../src/shared/cosmetics/load";
+
+// A crown topper and a species with its own cap, to test the covering rules.
+const coverPack = {
+  format: 1,
+  id: "cover-test",
+  name: "Cover test",
+  tier: "premium",
+  toppers: [
+    { id: "tuft", name: "Tuft", crown: true, parts: [{ layer: "behind", anchor: { x: "center", y: "top" }, shapes: [{ kind: "circle", cx: 0, cy: -4, r: 4, paint: "inked", color: "accent" }] }] },
+  ],
+  species: [
+    {
+      id: "capped",
+      name: "Capped",
+      body: { n: 2, w: 32, h: 34, cy: 62 },
+      coversToppers: true,
+      coversHats: true,
+      parts: [{ layer: "hat", anchor: { x: "center", y: "top" }, shapes: [{ kind: "ellipse", cx: 0, cy: 2, rx: 30, ry: 12, paint: "inked", color: "accent" }] }],
+    },
+  ],
+};
 
 const seeds = Array.from({ length: 64 }, (_, index) => `node-${index}-${(index * 2654435761) >>> 0}`);
 
@@ -69,11 +92,11 @@ describe("agent portraits", () => {
     );
   });
 
-  it("grows variety so hundreds of seats rarely share a look", () => {
+  it("gives the open-source starter enough variety that hundreds of seats rarely share a look", () => {
     const looks = new Set(
       Array.from({ length: 400 }, (_, index) => {
         const g = portraitGenome(`seat-${index}-${(index * 2654435761) >>> 0}`);
-        return `${g.bodyHue}|${g.shape}|${g.topper}|${g.accessory}`;
+        return `${g.bodyHue}|${g.shape}|${g.topper}|${g.accessory}|${g.marking}|${g.eyes}|${g.mouth}`;
       }),
     );
     expect(looks.size).toBeGreaterThan(340);
@@ -101,12 +124,17 @@ describe("agent portraits", () => {
     expect(bare).not.toMatch(halo);
   });
 
-  it("lets a hat cover crown toppers and a shroom cap cover every topper", () => {
-    const hatted = portraitSvg({ seed: "a", mode: "dark", detail: "card", config: { topper: "unicorn", accessory: "beanie" } });
-    const bareHead = portraitSvg({ seed: "a", mode: "dark", detail: "card", config: { topper: "none", accessory: "beanie" } });
-    expect(hatted).toBe(bareHead);
-    const shroom = portraitSvg({ seed: "a", mode: "dark", detail: "card", config: { shape: "shroom", topper: "cat", accessory: "none" } });
-    const shroomPlain = portraitSvg({ seed: "a", mode: "dark", detail: "card", config: { shape: "shroom", topper: "none", accessory: "none" } });
-    expect(shroom).toBe(shroomPlain);
+  it("lets a hat cover crown toppers and a capped species cover every topper", () => {
+    installCosmeticPacks(decodeCosmeticPacks([coverPack]));
+    try {
+      const hatted = portraitSvg({ seed: "a", mode: "dark", detail: "card", config: { topper: "cover-test:tuft", accessory: "beanie" } });
+      const bareHead = portraitSvg({ seed: "a", mode: "dark", detail: "card", config: { topper: "none", accessory: "beanie" } });
+      expect(hatted).toBe(bareHead);
+      const capped = portraitSvg({ seed: "a", mode: "dark", detail: "card", config: { shape: "cover-test:capped", topper: "cat", accessory: "beanie" } });
+      const cappedPlain = portraitSvg({ seed: "a", mode: "dark", detail: "card", config: { shape: "cover-test:capped", topper: "none", accessory: "none" } });
+      expect(capped).toBe(cappedPlain);
+    } finally {
+      installCosmeticPacks([]);
+    }
   });
 });

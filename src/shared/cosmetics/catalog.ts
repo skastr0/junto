@@ -2,6 +2,7 @@ import { BASE_PACK, BASE_PACK_ID } from "./base-pack";
 import type {
   CosmeticAccessory,
   CosmeticPack,
+  IdentityTables,
   CosmeticPalette,
   CosmeticPattern,
   CosmeticSpecies,
@@ -13,9 +14,11 @@ import type {
 // lookup for every item, base or premium, so there is one path.
 //
 // Keys: base items keep their plain id ("toast"), so every saved override
-// stays valid; pack items are "<pack>:<item>". A key that is not in the
-// catalog, or not available, resolves to nothing and the portrait falls back
-// to the seat's identity look, never a broken portrait.
+// stays valid; pack items are "<pack>:<item>", unless the pack declares bare
+// keys (then its items keep plain ids too, and "<pack>:<item>" still
+// resolves). A key that is not in the catalog, or not available, resolves to
+// nothing and the portrait falls back to the seat's identity look, never a
+// broken portrait.
 
 export type CosmeticSlot = "species" | "topper" | "accessory" | "pattern" | "palette";
 
@@ -46,8 +49,8 @@ const LIST_KEY: Readonly<Record<CosmeticSlot, keyof CosmeticPack>> = {
   palette: "palettes",
 };
 
-export const cosmeticKey = (packId: string, itemId: string): string =>
-  packId === BASE_PACK_ID ? itemId : `${packId}:${itemId}`;
+export const cosmeticKey = (pack: Pick<CosmeticPack, "id" | "keys">, itemId: string): string =>
+  pack.id === BASE_PACK_ID || pack.keys === "bare" ? itemId : `${pack.id}:${itemId}`;
 
 /**
  * The one entitlement seam. Every item is available today; a future
@@ -58,16 +61,20 @@ export const isCosmeticAvailable = (_entry: Omit<CosmeticEntry, "available">): b
 let packs: ReadonlyArray<CosmeticPack> = [BASE_PACK];
 let revision = 0;
 let index = new Map<string, CosmeticEntry>();
+/** "<pack>:<item>" for bare-key packs, mapped to the entry's bare key. */
+let aliases = new Map<string, string>();
 
 const rebuild = (): void => {
   const next = new Map<string, CosmeticEntry>();
+  const nextAliases = new Map<string, string>();
   for (const pack of packs) {
     for (const slot of Object.keys(LIST_KEY) as CosmeticSlot[]) {
       const items = (pack[LIST_KEY[slot]] ?? []) as ReadonlyArray<CosmeticItemBySlot[typeof slot]>;
       for (const item of items) {
-        const key = cosmeticKey(pack.id, item.id);
+        const key = cosmeticKey(pack, item.id);
         const mapKey = `${slot}|${key}`;
         if (next.has(mapKey)) continue;
+        if (pack.keys === "bare" && pack.id !== BASE_PACK_ID) nextAliases.set(`${slot}|${pack.id}:${item.id}`, mapKey);
         const draft = {
           key,
           slot,
@@ -81,6 +88,7 @@ const rebuild = (): void => {
     }
   }
   index = next;
+  aliases = nextAliases;
 };
 rebuild();
 
@@ -110,9 +118,33 @@ export const installedCosmeticPacks = (): ReadonlyArray<CosmeticPack> => packs;
 /** An item a portrait may wear: present and available, else undefined. */
 export function findCosmetic<S extends CosmeticSlot>(slot: S, key: unknown): CosmeticEntry<S> | undefined {
   if (typeof key !== "string") return undefined;
-  const entry = index.get(`${slot}|${key}`) as CosmeticEntry<S> | undefined;
+  const mapKey = `${slot}|${key}`;
+  const entry = index.get(aliases.get(mapKey) ?? mapKey) as CosmeticEntry<S> | undefined;
   return entry?.available ? entry : undefined;
 }
+
+export type IdentityTable = Exclude<keyof IdentityTables, "palettes">;
+
+/** A seat-identity draw list: from the last installed pack declaring it. */
+export function identityTable(name: IdentityTable): ReadonlyArray<string> {
+  for (let at = packs.length - 1; at >= 0; at -= 1) {
+    const list = packs[at]?.identity?.[name];
+    if (list) return list;
+  }
+  return [];
+}
+
+/** The body palette draw with weights, from the last pack declaring one. */
+export function identityPalettes(): ReadonlyArray<readonly [string, number]> {
+  for (let at = packs.length - 1; at >= 0; at -= 1) {
+    const list = packs[at]?.identity?.palettes;
+    if (list) return list;
+  }
+  return [];
+}
+
+/** The base pack's list: where an unavailable draw falls back. */
+export const baseIdentityTable = (name: IdentityTable): ReadonlyArray<string> => BASE_PACK.identity?.[name] ?? [];
 
 /** Every item in a slot, base pack first, in pack order. */
 export function cosmeticEntries<S extends CosmeticSlot>(slot: S): ReadonlyArray<CosmeticEntry<S>> {

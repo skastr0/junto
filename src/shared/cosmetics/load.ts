@@ -1,5 +1,5 @@
 import { Result, Schema } from "effect";
-import { BASE_PACK_ID } from "./base-pack";
+import { BASE_PACK, BASE_PACK_ID } from "./base-pack";
 import { CosmeticPack } from "./pack-schema";
 
 // Decodes the cosmetic packs a build bundled (the overlay's raw pack data).
@@ -14,6 +14,12 @@ export interface CosmeticPackRejection {
   readonly reason: string;
 }
 
+const SLOT_LISTS = ["species", "toppers", "accessories", "patterns", "palettes"] as const;
+
+/** "<list>|<id>" for every item of a pack: its bare keys, by slot. */
+const bareKeys = (pack: CosmeticPack): ReadonlyArray<string> =>
+  SLOT_LISTS.flatMap((list) => (pack[list] ?? []).map((item) => `${list}|${item.id}`));
+
 const firstLine = (error: unknown): string =>
   (error instanceof Error ? error.message : String(error)).split("\n").slice(0, 3).join(" ").slice(0, 300);
 
@@ -26,6 +32,7 @@ export function decodeCosmeticPacks(
 ): ReadonlyArray<CosmeticPack> {
   const packs: CosmeticPack[] = [];
   const seen = new Set<string>([BASE_PACK_ID]);
+  const bare = new Set<string>(bareKeys(BASE_PACK));
   raw.forEach((input, index) => {
     const id =
       input !== null && typeof input === "object" && typeof (input as { id?: unknown }).id === "string"
@@ -44,6 +51,15 @@ export function decodeCosmeticPacks(
     if (pack.tier !== "premium") {
       onReject({ index, id: pack.id, reason: "only the built-in pack is tier base; bundled packs are premium" });
       return;
+    }
+    if (pack.keys === "bare") {
+      const keys = bareKeys(pack);
+      const taken = keys.find((key) => bare.has(key));
+      if (taken) {
+        onReject({ index, id: pack.id, reason: `bare key "${taken.split("|")[1]}" is already taken` });
+        return;
+      }
+      for (const key of keys) bare.add(key);
     }
     seen.add(pack.id);
     packs.push(pack);

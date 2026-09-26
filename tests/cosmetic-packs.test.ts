@@ -103,6 +103,56 @@ describe("bundled pack loading", () => {
   });
 });
 
+describe("bare keys and identity tables", () => {
+  const barePack = {
+    ...testPack,
+    id: "bare-pack",
+    keys: "bare",
+    identity: { species: ["blob"], props: ["top-hat"], speciesMore: [], toppersMore: [], patternsMore: [] },
+  };
+
+  it("keeps plain keys for a bare pack, and its namespaced keys still resolve", () => {
+    installCosmeticPacks(decodeCosmeticPacks([barePack]));
+    expect(findCosmetic("species", "blob")?.packId).toBe("bare-pack");
+    expect(findCosmetic("species", "bare-pack:blob")?.key).toBe("blob");
+    expect(cosmeticEntries("accessory").filter((entry) => entry.key === "top-hat")).toHaveLength(1);
+  });
+
+  it("refuses a bare pack whose ids collide with installed ones", () => {
+    const rejections: CosmeticPackRejection[] = [];
+    const clash = { ...barePack, species: [{ id: "round", name: "Round two", body: { n: 2, w: 30, h: 30, cy: 60 } }] };
+    expect(decodeCosmeticPacks([clash], (rejection) => rejections.push(rejection))).toEqual([]);
+    expect(rejections[0]?.reason).toContain('"round"');
+  });
+
+  it("draws seats from the last declared identity table", () => {
+    installCosmeticPacks(decodeCosmeticPacks([barePack]));
+    const seats = Array.from({ length: 200 }, (_, index) => portraitGenome(`seat-${index}`));
+    expect(new Set(seats.map((genome) => genome.shape))).toEqual(new Set(["blob"]));
+    expect(seats.some((genome) => genome.accessory === "top-hat")).toBe(true);
+    // Lists the pack does not declare keep the base pack's.
+    expect(new Set(seats.map((genome) => genome.topper))).toEqual(new Set(BASE_PACK.identity?.toppers));
+  });
+
+  it("falls back to the base table, with the same roll, for a drawn item this build lacks", () => {
+    const base = Array.from({ length: 200 }, (_, index) => portraitGenome(`seat-${index}`).shape);
+    installCosmeticPacks(decodeCosmeticPacks([{ ...barePack, identity: { species: ["missing-one", "missing-two"] } }]));
+    expect(Array.from({ length: 200 }, (_, index) => portraitGenome(`seat-${index}`).shape)).toEqual(base);
+  });
+
+  it("skips parts below their minimum detail", () => {
+    const freckled = {
+      ...testPack,
+      id: "detail-pack",
+      patterns: [{ id: "dots", name: "Dots", parts: [{ layer: "body", anchor: { x: "face", y: "eye" }, minDetail: "card", shapes: [{ kind: "circle", cx: 14, cy: 8, r: 1, paint: "fill", color: "shade" }] }] }],
+    };
+    installCosmeticPacks(decodeCosmeticPacks([freckled]));
+    const config = { marking: "detail-pack:dots" };
+    expect(portraitSvg({ seed: "a", mode: "dark", detail: "glyph", config })).toBe(portraitSvg({ seed: "a", mode: "dark", detail: "glyph", config: { marking: "none" } }));
+    expect(portraitSvg({ seed: "a", mode: "dark", detail: "card", config })).not.toBe(portraitSvg({ seed: "a", mode: "dark", detail: "card", config: { marking: "none" } }));
+  });
+});
+
 describe("catalog and fallback", () => {
   it("resolves every identity draw to a base item", () => {
     for (let index = 0; index < 300; index += 1) {
