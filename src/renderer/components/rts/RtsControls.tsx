@@ -10,11 +10,9 @@ import {
   MessageSquareText,
   Mic,
   Package,
-  Pause,
   Pencil,
   PenLine,
   Table,
-  Play,
   Plus,
   Radio,
   Server,
@@ -34,7 +32,6 @@ import {
   productNodeKindEnabled,
   productVerbEnabled,
 } from "@shared/features";
-import { type PauseScope } from "@shared/pause";
 import { compileVerb, verbsForPair, type PortName, type Verb } from "@shared/physics";
 import { isTaskSinkNode } from "@shared/flow-graph";
 import { tasksNodeIdentity } from "@shared/tasks-node-identity";
@@ -50,14 +47,6 @@ import { HUE } from "../../lib/theme";
 import { isCommandCenterAuthoring } from "../../lib/canvas-boot";
 import { state$ } from "../../lib/state";
 import { kernel$ } from "../../lib/kernel-view";
-import {
-  ensurePauseState,
-  nodePausedIn,
-  pause$,
-  refreshPauseState,
-  regionPausedIn,
-  setScopePaused,
-} from "../../lib/pause-state";
 import { openWorkDetail } from "../../lib/work-detail-open";
 import { ACP_CHAT_SURFACE_HIDDEN } from "@shared/legacy-surfaces";
 import { resolveTerminalBinding } from "@shared/terminal";
@@ -126,61 +115,6 @@ export function KindKey({
     >
       <span className="rts-key__icon">{children}</span>
     </button>
-  );
-}
-
-// --- pause key (left panel base action; node + region scope) -----------------
-
-/**
- * Scope pause toggle for the command card. Reflects only its own scope
- * (node/region membership) — canvas play/pause stays on the top-bar switch.
- */
-export function PauseScopeKey({ scope }: { readonly scope: PauseScope }) {
-  const canvasName = use$(state$.canvasName);
-  const paused = use$(() => {
-    const state = pause$.state.get();
-    if (scope.kind === "node") return nodePausedIn(state, scope.id);
-    if (scope.kind === "region") return regionPausedIn(state, scope.id);
-    return !state.playing;
-  });
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-
-  const scopeId = scope.kind === "canvas" ? "" : scope.id;
-  useEffect(() => {
-    setError("");
-    // Fresh read per selection — no push channel exists for the pause plane.
-    if (canvasName) void refreshPauseState(canvasName);
-  }, [canvasName, scopeId]);
-
-  const toggle = () => {
-    if (busy) return;
-    setBusy(true);
-    void setScopePaused(scope, !paused)
-      .then((refusal) => setError(refusal))
-      .finally(() => setBusy(false));
-  };
-
-  const noun = scope.kind;
-  return (
-    <KindKey
-      label={paused ? `Resume ${noun}` : `Pause ${noun}`}
-      title={
-        error
-          ? error
-          : paused
-            ? `Resume ${noun}`
-            : `Pause ${noun}`
-      }
-      active={paused}
-      disabled={busy}
-      style={{ color: paused ? HUE.amber : error ? HUE.crimson : undefined }}
-      testId={`rts-pause-${scope.kind}`}
-      data={{ "data-paused": paused ? "true" : "false" }}
-      onClick={toggle}
-    >
-      {paused ? <Play size={ICON} /> : <Pause size={ICON} />}
-    </KindKey>
   );
 }
 
@@ -914,50 +848,5 @@ export function KindStrip() {
       <span className="rts-kind-strip__label">{kind}</span>
       <KindActions node={node} />
     </div>
-  );
-}
-
-// --- region hotbar pause dot -------------------------------------------------
-
-/**
- * Tiny pause toggle on a region chip. Not a <button> — chips are buttons and
- * buttons cannot nest; span[role=button] with stopped propagation instead.
- */
-export function RegionPauseDot({ regionId }: { readonly regionId: string }) {
-  const canvasName = use$(state$.canvasName);
-  const paused = use$(() => regionPausedIn(pause$.state.get(), regionId));
-
-  useEffect(() => {
-    if (canvasName) ensurePauseState(canvasName);
-  }, [canvasName]);
-
-  const toggle = () => {
-    void setScopePaused({ kind: "region", id: regionId }, !paused);
-  };
-
-  return (
-    <span
-      role="button"
-      tabIndex={0}
-      className={`rts-chip__pause${paused ? " is-paused" : ""}`}
-      aria-label={paused ? "Resume region" : "Pause region"}
-      title={paused ? "Resume region" : "Pause region"}
-      data-paused={paused ? "true" : "false"}
-      onPointerDown={(event) => event.stopPropagation()}
-      onClick={(event) => {
-        event.preventDefault();
-        event.stopPropagation();
-        toggle();
-      }}
-      onKeyDown={(event) => {
-        if (event.key === "Enter" || event.key === " ") {
-          event.preventDefault();
-          event.stopPropagation();
-          toggle();
-        }
-      }}
-    >
-      {paused ? <Play size={7} aria-hidden /> : <Pause size={7} aria-hidden />}
-    </span>
   );
 }

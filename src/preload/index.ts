@@ -455,8 +455,8 @@ const juntoApi: Omit<JuntoApi, keyof typeof liveApi | WorkFeatureApiKey> = {
   squadSave: (input) => invoke(IPC_CHANNELS.squadSave, IPC_TIMEOUT_MS, input),
   squadRename: (squadId, name) => invoke(IPC_CHANNELS.squadRename, IPC_TIMEOUT_MS, squadId, name),
   squadDelete: (squadId) => invoke(IPC_CHANNELS.squadDelete, IPC_TIMEOUT_MS, squadId),
-  factoryPauseSet: (canvas, scope, paused) =>
-    invoke(IPC_CHANNELS.factoryPauseSet, IPC_TIMEOUT_MS, canvas, scope, paused),
+  factoryPauseSet: (canvas, paused) =>
+    invoke(IPC_CHANNELS.factoryPauseSet, IPC_TIMEOUT_MS, canvas, paused),
   regionRollups: (name) =>
     invoke(IPC_CHANNELS.regionRollups, IPC_TIMEOUT_MS, name),
   contentPutImage: (input) =>

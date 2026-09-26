@@ -24,7 +24,6 @@ import { describe, it } from "vitest";
 import { Effect } from "effect";
 import type { CanvasDoc } from "../../src/shared/canvas";
 import { groupMembers } from "../../src/shared/graph";
-import { regionsContaining } from "../../src/shared/pause";
 import { CanvasesService } from "../../src/main/junto/canvases";
 import { WorkRepository } from "../../src/main/junto/work/repository";
 import { StateEngine } from "../../src/main/junto/state/service";
@@ -482,8 +481,6 @@ const measureScale = async (options: {
     regions: derivedDoc.nodes.filter((n) => n.type === "group").length,
     // O(regions x nodes) geometric containment, rebuilt per call (graph.ts:90).
     groupMembersMs: round(timeSync(5, () => void groupMembers(derivedDoc))),
-    // seatPaused -> regionsContaining -> groupMembers, per seat (pause.ts:35).
-    regionsContainingMs: round(timeSync(5, () => void regionsContaining(derivedDoc, probeNodeId))),
     // The linear node scan the kernel runs INSIDE its per-task loop
     // (kernel/service.ts deliverWorkingClaims).
     nodeFindMs: round(timeSync(20, () => void derivedDoc.nodes.find((n) => n.id === probeNodeId))),

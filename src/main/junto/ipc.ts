@@ -8,7 +8,7 @@ import {
   type WorkOpResult,
 } from "@shared/ipc";
 import type { CanvasDoc } from "@shared/canvas";
-import { pauseWasResumed, type PauseScope } from "@shared/pause";
+import { pauseWasResumed } from "@shared/pause";
 import { digestCanvas } from "@shared/digest";
 import { mergePortfolioInto } from "@shared/portfolio";
 import { AppRuntime } from "../runtime";
@@ -792,14 +792,13 @@ export const registerJuntoIpc = (): void => {
     (
       _event,
       canvas: string,
-      scope: PauseScope,
       paused: boolean,
     ): Promise<FactoryPauseSetResult> =>
       AppRuntime.runPromise(
         Effect.gen(function* () {
           const pause = yield* PausePlane;
           yield* pause.start;
-          const written = yield* Effect.result(pause.setScopePaused(canvas, scope, paused));
+          const written = yield* Effect.result(pause.setPlaying(canvas, !paused));
           if (written._tag === "Failure") {
             return { ok: false as const, error: written.failure.message };
           }

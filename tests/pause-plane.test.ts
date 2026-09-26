@@ -3,7 +3,6 @@ import { describe, expect, it, vi } from "vitest";
 import {
   FactoryPausePersistenceError,
   FactoryPauseRepository,
-  type PauseMemberScope,
 } from "../src/main/junto/pause/repository";
 import {
   PausePlane,
@@ -22,18 +21,11 @@ type RepositoryBehavior = {
   readonly writeFails?: boolean;
 };
 
-type Write =
-  | {
-      readonly kind: "canvas";
-      readonly canvas: string;
-      readonly playing: boolean;
-    }
-  | {
-      readonly kind: "member";
-      readonly canvas: string;
-      readonly scope: PauseMemberScope;
-      readonly paused: boolean;
-    };
+type Write = {
+  readonly kind: "canvas";
+  readonly canvas: string;
+  readonly playing: boolean;
+};
 
 const failure = (operation: string) =>
   FactoryPausePersistenceError.make({
@@ -41,15 +33,6 @@ const failure = (operation: string) =>
     message: operation === "load" ? "database corrupt" : "disk full",
     cause: new Error(operation),
   });
-
-const withMember = (
-  values: ReadonlyArray<string>,
-  id: string,
-  present: boolean,
-): ReadonlyArray<string> => {
-  const rest = values.filter((value) => value !== id);
-  return present ? [...rest, id] : rest;
-};
 
 const makeRepository = (
   behavior: RepositoryBehavior,
@@ -73,33 +56,6 @@ const makeRepository = (
           };
           states.set(canvas, next);
           writes.push({ kind: "canvas", canvas, playing });
-          return next;
-        });
-      },
-      setMemberPaused: (canvas, scope, paused) => {
-        if (behavior.writeFails) return Effect.fail(failure("write"));
-        return Effect.sync(() => {
-          const current = states.get(canvas) ?? PAUSED_CANVAS;
-          const next =
-            scope.kind === "node"
-              ? {
-                  ...current,
-                  pausedNodes: withMember(
-                    current.pausedNodes,
-                    scope.id,
-                    paused,
-                  ),
-                }
-              : {
-                  ...current,
-                  pausedRegions: withMember(
-                    current.pausedRegions,
-                    scope.id,
-                    paused,
-                  ),
-                };
-          states.set(canvas, next);
-          writes.push({ kind: "member", canvas, scope, paused });
           return next;
         });
       },
@@ -140,12 +96,7 @@ describe("PausePlane — born paused", () => {
         initial: new Map([
           [
             "ether",
-            {
-              playing: true,
-              everPlayed: true,
-              pausedNodes: [],
-              pausedRegions: [],
-            },
+            { playing: true, everPlayed: true },
           ],
         ]),
       },
@@ -163,9 +114,9 @@ describe("PausePlane — born paused", () => {
 describe("PausePlane — Command Center launch comes back playing", () => {
   const recorded = (): ReadonlyMap<string, CanvasPauseState> =>
     new Map([
-      ["left-playing", { playing: true, everPlayed: true, pausedNodes: [], pausedRegions: [] }],
-      ["left-paused", { playing: false, everPlayed: true, pausedNodes: ["n"], pausedRegions: ["r"] }],
-      ["never-played", { playing: false, everPlayed: false, pausedNodes: [], pausedRegions: [] }],
+      ["left-playing", { playing: true, everPlayed: true }],
+      ["left-paused", { playing: false, everPlayed: true }],
+      ["never-played", { playing: false, everPlayed: false }],
     ]);
 
   it("plays every canvas played before, durably, before anyone reads it", async () => {
@@ -175,12 +126,7 @@ describe("PausePlane — Command Center launch comes back playing", () => {
       writes,
       async (plane) => {
         expect(plane.stateFor("left-playing").playing).toBe(true);
-        expect(plane.stateFor("left-paused")).toEqual({
-          playing: true,
-          everPlayed: true,
-          pausedNodes: ["n"],
-          pausedRegions: ["r"],
-        });
+        expect(plane.stateFor("left-paused")).toEqual({ playing: true, everPlayed: true });
         expect(writes).toEqual([{ kind: "canvas", canvas: "left-paused", playing: true }]);
       },
       PausePlaneLaunchPlayingLive,
@@ -233,15 +179,12 @@ describe("PausePlane — setPlaying", () => {
       });
       await Effect.runPromise(plane.setPlaying("a", true));
       await Effect.runPromise(plane.setPlaying("a", true));
-      await Effect.runPromise(plane.setScopePaused("a", { kind: "node", id: "n" }, true));
-      await Effect.runPromise(plane.setScopePaused("a", { kind: "node", id: "n" }, false));
-      await Effect.runPromise(plane.setScopePaused("a", { kind: "region", id: "r" }, true));
-      await Effect.runPromise(plane.setScopePaused("a", { kind: "region", id: "r" }, false));
+      await Effect.runPromise(plane.setPlaying("a", false));
+      await Effect.runPromise(plane.setPlaying("a", true));
       await Effect.runPromise(plane.setPlaying("b", true));
-      expect(resumes).toEqual(["a", "a", "a", "b"]);
+      expect(resumes).toEqual(["a", "a", "b"]);
       expect(seen[0]).toEqual(PAUSED_CANVAS);
-      expect(seen[2].pausedNodes).toEqual([]);
-      expect(seen[3].pausedNodes).toEqual(["n"]);
+      expect(seen[2]).toEqual({ playing: true, everPlayed: true });
       stop();
     });
   });
@@ -310,43 +253,5 @@ describe("PausePlane — corrupt state fails closed", () => {
     } finally {
       error.mockRestore();
     }
-  });
-});
-
-describe("PausePlane — scope pause round-trip", () => {
-  it("node and region pauses set and clear; canvas scope routes to setPlaying", async () => {
-    await withPlane({}, [], async (plane) => {
-      await Effect.runPromise(plane.setPlaying("ether", true));
-
-      await Effect.runPromise(
-        plane.setScopePaused("ether", { kind: "node", id: "n1" }, true),
-      );
-      await Effect.runPromise(
-        plane.setScopePaused("ether", { kind: "region", id: "r1" }, true),
-      );
-      expect(plane.stateFor("ether").pausedNodes).toEqual(["n1"]);
-      expect(plane.stateFor("ether").pausedRegions).toEqual(["r1"]);
-
-      await Effect.runPromise(
-        plane.setScopePaused("ether", { kind: "node", id: "n1" }, false),
-      );
-      await Effect.runPromise(
-        plane.setScopePaused("ether", { kind: "region", id: "r1" }, false),
-      );
-      expect(plane.stateFor("ether").pausedNodes).toEqual([]);
-      expect(plane.stateFor("ether").pausedRegions).toEqual([]);
-
-      await Effect.runPromise(
-        plane.setScopePaused("ether", { kind: "canvas" }, true),
-      );
-      expect(plane.stateFor("ether")).toMatchObject({
-        playing: false,
-        everPlayed: true,
-      });
-      await Effect.runPromise(
-        plane.setScopePaused("ether", { kind: "canvas" }, false),
-      );
-      expect(plane.stateFor("ether").playing).toBe(true);
-    });
   });
 });

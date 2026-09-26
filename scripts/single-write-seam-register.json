@@ -186,10 +186,9 @@
       "path": "src/main/junto/pause/repository.ts",
       "kind": "debt",
       "tables": [
-        "factory_pause_canvases",
-        "factory_pause_scopes"
+        "factory_pause_canvases"
       ],
-      "reason": "Pause-plane seam: canvas and scope pause state.",
+      "reason": "Pause-plane seam: canvas play state (pause is canvas-wide only).",
       "retire": "IN-MEMORY WORLD: retire when the in-memory factory world owns the projection and this file's only write is the journal append."
     },
     {

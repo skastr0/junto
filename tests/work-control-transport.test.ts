@@ -555,9 +555,8 @@ describe("work control transport", () => {
       onOverseer: execute,
       decorateRun: (base) => (effect) => base(effect.pipe(Effect.provideService(PausePlane, {
         start: Effect.void,
-        stateFor: () => ({ playing: false, everPlayed: true, pausedNodes: ["agent"], pausedRegions: [] }),
+        stateFor: () => ({ playing: false, everPlayed: true }),
         setPlaying: () => Effect.void,
-        setScopePaused: () => Effect.void,
         subscribe: () => () => {},
       }))),
     });

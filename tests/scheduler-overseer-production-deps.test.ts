@@ -157,12 +157,7 @@ const wireProduction = (input: {
   const { canAutomateCanvas, canApplyFlagEffects, effectDeps } =
     makeSchedulerProductionEffectDeps({
       pause: {
-        stateFor: () => ({
-          playing: input.playing,
-          everPlayed: true,
-          pausedNodes: [],
-          pausedRegions: [],
-        }),
+        stateFor: () => ({ playing: input.playing, everPlayed: true }),
       },
       work: {
         workTaskCreate: (canvas, _sink, brief) =>

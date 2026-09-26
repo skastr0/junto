@@ -163,10 +163,9 @@ export type CanvasReadWithIntentWitness = {
 /**
  * One authorial node, read WITHOUT building the canvas work projection.
  *
- * Some callers only ask structural questions of a single node — which seat
- * does it bind to (`deliveryTargetOf`), is that seat paused (`seatPaused`,
- * which needs group geometry). Neither question reads a work lane, so neither
- * may pay for one: `canvases.read` materializes every sink's tasks, messages,
+ * Some callers only ask structural questions of a single node, such as which
+ * seat it binds to (`deliveryTargetOf`). Such a question reads no work lane,
+ * so it may not pay for one: `canvases.read` materializes every sink's tasks, messages,
  * requests, artifacts, board and pad to answer them, which is the entire
  * factory for one `nodes.find`.
  *

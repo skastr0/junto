@@ -281,28 +281,3 @@
   background: transparent;
 }
 
-/* Region chip pause dot — span (chips are buttons; buttons cannot nest). */
-.rts-chip__pause {
-  display: grid;
-  place-items: center;
-  width: 14px;
-  height: 14px;
-  flex-shrink: 0;
-  border-radius: 999px;
-  border: 1px solid var(--color-stroke);
-  background: var(--color-overlay-1);
-  color: color-mix(in oklab, var(--color-steel) 75%, transparent);
-  cursor: pointer;
-  transition: border-color 0.1s ease, color 0.1s ease, background 0.1s ease;
-}
-
-.rts-chip__pause:hover {
-  border-color: color-mix(in oklab, var(--color-ink) 40%, transparent);
-  color: var(--color-ink);
-}
-
-.rts-chip__pause.is-paused {
-  color: var(--color-amber);
-  border-color: color-mix(in oklab, var(--color-main) 55%, transparent);
-  background: color-mix(in oklab, var(--color-main) 12%, transparent);
-}

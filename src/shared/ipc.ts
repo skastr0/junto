@@ -35,7 +35,7 @@ import type {
 } from "./demo";
 import type { SnapshotState } from "./entities";
 import type { NodeRefKey } from "./node-ref";
-import type { CanvasPauseState, PauseScope } from "./pause";
+import type { CanvasPauseState } from "./pause";
 import type { RegionRollup } from "./region-rollup";
 import type {
   Settings,
@@ -678,9 +678,9 @@ export interface JuntoApi extends UpdateApi, OverseerLiveApi {
   readonly squadSave: (input: SquadSaveInput) => Promise<SquadResult>;
   readonly squadRename: (squadId: string, name: string) => Promise<SquadResult>;
   readonly squadDelete: (squadId: string) => Promise<SquadDeleteResult>;
+  /** Canvas play/pause, the only pause scope. */
   readonly factoryPauseSet: (
     canvas: string,
-    scope: PauseScope,
     paused: boolean,
   ) => Promise<FactoryPauseSetResult>;
   // Region severity rollups for the bottom bar, derived live per call from

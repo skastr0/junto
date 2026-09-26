@@ -137,7 +137,6 @@ import {
   type AgentSignalRepositoryError,
 } from "../signals/repository";
 import { PausePlane } from "../pause-plane";
-import { seatPaused } from "@shared/pause";
 import { RELAY_ENABLED, TASKS_ENABLED } from "@shared/features";
 
 /** Ops that act on the factory — refused for paused seats. Reads stay open. */
@@ -914,21 +913,19 @@ const dispatchOp = (
     const callerErr = ensureCaller(board, caller.nodeId);
     if (callerErr) return yield* Effect.fail(callerErr);
 
-    // The pause plane is the factory's safety switch: a paused seat (its
-    // node, a containing region, or the whole canvas — canvases are born
-    // paused) may read but never act. Reads stay open so a paused agent can
-    // still see the board.
-    const pauseState = pausePlane.stateFor(caller.canvasName);
-    const paused = seatPaused(pauseState, board, caller.nodeId);
+    // The pause plane is the factory's safety switch: on a paused canvas
+    // (canvases are born paused) a seat may read but never act. Reads stay
+    // open so a paused agent can still see the board.
+    const paused = !pausePlane.stateFor(caller.canvasName).playing;
     if (MUTATING_OPS.has(op)) {
       if (paused) {
         return yield* Effect.fail<WorkErrorBody>({
           type: "Paused",
-          message: `agent "${caller.nodeId}" is paused and cannot act`,
+          message: `agent "${caller.nodeId}" is on a paused canvas and cannot act`,
           details: {
             caller: caller.nodeId,
             retryable: true,
-            next_step: "wait for the operator to resume this agent, its region, or the canvas",
+            next_step: "wait for the operator to play the canvas",
           },
         });
       }
@@ -954,7 +951,7 @@ const dispatchOp = (
         // grant. Reads stay open; mutating ops still refuse with Paused.
         paused,
         ...(paused
-          ? { next_step: "wait for the operator to resume this agent, its region, or the canvas" }
+          ? { next_step: "wait for the operator to play the canvas" }
           : {}),
       };
     }
@@ -997,7 +994,7 @@ const dispatchOp = (
         // grant. Reads stay open; mutating ops still refuse with Paused.
         paused,
         ...(paused
-          ? { next_step: "wait for the operator to resume this agent, its region, or the canvas" }
+          ? { next_step: "wait for the operator to play the canvas" }
           : {}),
         capabilities: {
           protocol_version: WORK_PROTOCOL_VERSION,

@@ -107,8 +107,7 @@ import { executionGraphForImpact } from "../../lib/impact-mode";
 import { ConnectEditor } from "../InspectorFields";
 import { StoppageRank } from "./StoppageRank";
 import { CompletedTaskNotifyStack } from "./CompletedTaskNotify";
-import { EdgeCommandCard, PauseScopeKey } from "./RtsControls";
-import { ensurePauseState, pause$, regionPausedIn } from "../../lib/pause-state";
+import { EdgeCommandCard } from "./RtsControls";
 import { ActivityMark } from "../ActivityMark";
 import { KindSurface } from "./KindSurface";
 import { RollCall } from "./RollCall";
@@ -631,7 +630,6 @@ function RegionCommandCard({
           <RollCall rollup={regionRollup} />
         </div>
         <div className="rts-cmd-keys rts-cmd-keys--col" role="toolbar" aria-label="Region actions">
-          <PauseScopeKey scope={{ kind: "region", id: node.id }} />
           {primary.map(primaryKey)}
           <CmdKey
             label={renaming ? "Cancel rename" : "Edit region name"}
@@ -709,7 +707,6 @@ function NodeCommandCard({ nodeId }: { readonly nodeId: string }) {
   const entityKind = node.ether?.entity?.kind;
   // Physics role from the kind registry — never hardcoded per node.
   const role = roleOf(specOf(node));
-  const executableRole = role === "actor" || role === "sink" || role === "scheduler";
   // Kind-specific actions live in the middle-bar kind strip now; the left
   // card keeps type/base + slot cue.
   const primary = primaryCommandActions(kind);
@@ -818,9 +815,6 @@ function NodeCommandCard({ nodeId }: { readonly nodeId: string }) {
             </div>
           ) : null}
           <div className="rts-cmd-keys rts-cmd-keys--col" aria-label="Actions">
-            {executableRole ? (
-              <PauseScopeKey scope={{ kind: "node", id: nodeId }} />
-            ) : null}
             {role === "sink" &&
             (entityKind === "task" || entityKind === "requests" || entityKind === "artifacts") ? (
               <CmdKey
@@ -952,7 +946,6 @@ function HotbarChip({
   detail,
   label,
   severity,
-  isRegion,
   selected,
   onDragStart,
   onDragOver,
@@ -967,7 +960,6 @@ function HotbarChip({
   readonly detail: string;
   readonly label: string;
   readonly severity: MemberSeverity;
-  readonly isRegion: boolean;
   readonly selected: boolean;
   readonly onDragStart: () => void;
   readonly onDragOver: (event: DragEvent) => void;
@@ -977,13 +969,8 @@ function HotbarChip({
   const empty = !isGroup && (tenure === "empty" || !nodeId);
   const mod = modKeyGlyph();
   const mark = signalMark(severity);
-  const paused = use$(() =>
-    !empty && isRegion && nodeId
-      ? regionPausedIn(pause$.state.get(), nodeId)
-      : false,
-  );
-  const live = !empty && tenure !== "evicted" && mark.mode === "wave" && !paused;
-  const sev = empty ? "idle" : paused ? "paused" : mark.kind;
+  const live = !empty && tenure !== "evicted" && mark.mode === "wave";
+  const sev = empty ? "idle" : mark.kind;
 
   const chipStyle = empty
     ? undefined
@@ -1028,7 +1015,7 @@ function HotbarChip({
           ? `Slot ${index + 1}: empty — assign with ${mod}${index + 1}`
           : isGroup
             ? `Slot ${index + 1}: ${tenureLabel}, ${detail}, ${mark.label}`
-            : `Slot ${index + 1}: ${label}, ${tenureLabel}, ${paused ? "paused" : mark.label}`
+            : `Slot ${index + 1}: ${label}, ${tenureLabel}, ${mark.label}`
       }
       aria-pressed={selected && !empty}
       onDragStart={onDragStart}
@@ -1049,7 +1036,7 @@ function HotbarChip({
           ? `Empty slot ${index + 1} — ${mod}${index + 1} saves the selection here; active nodes may lease it`
           : isGroup
             ? `${tenureLabel} — ${detail} — press ${index + 1} to select, again to open each`
-            : `${label} — ${tenureLabel} — ${paused ? "paused" : mark.label}${
+            : `${label} — ${tenureLabel} — ${mark.label}${
               tenure === "leased"
                 ? " — auto"
                 : tenure === "evicted"
@@ -1098,10 +1085,6 @@ function HotbarStrip({
     | Record<string, { readonly pendingPermissionId?: string } | undefined>
     | undefined;
   const dragFrom = useRef<number | null>(null);
-
-  useEffect(() => {
-    if (canvasName) ensurePauseState(canvasName);
-  }, [canvasName]);
 
   // Prune dead ids + refresh leases on doc / selection / seat sticky changes.
   // Idle sticky seats demote to soft-hold (evicted), not vanish.
@@ -1232,7 +1215,6 @@ function HotbarStrip({
             detail={slot.detail}
             label={slot.label}
             severity={slot.severity}
-            isRegion={slot.isRegion}
             selected={
               slot.tenure === "group"
                 ? selectionIsGroup(

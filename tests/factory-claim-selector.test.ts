@@ -303,15 +303,6 @@ describe("factory claim selector", () => {
         }),
       ]).toEqual([]);
     });
-
-    it("does not wake a paused seat", () => {
-      expect([
-        ...actorsNeedingWake(twoActors, "demo", resolve, {
-          isAwake: () => false,
-          seatPaused: (nodeId) => nodeId === "peer",
-        }),
-      ]).toEqual(["worker"]);
-    });
   });
 
   // The labor pool is a relationship, not a port. `works` enrolls the seat;

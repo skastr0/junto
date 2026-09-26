@@ -344,12 +344,6 @@
   opacity: 0.78;
 }
 
-.rts-chip--strip.is-sev-paused {
-  opacity: 0.62;
-  border-style: dashed;
-  animation: none;
-}
-
 .rts-chip--strip.is-active {
   border-color: color-mix(in oklab, var(--color-main) 65%, transparent);
   box-shadow:

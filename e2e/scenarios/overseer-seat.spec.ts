@@ -149,7 +149,6 @@ test("overseer identity: card, selected, paused, ordinary contrast, toggle", asy
   await expect(page.getByTestId("rts-overseer")).toHaveAttribute("data-overseer", "true");
   await expect(page.locator(".rts-kind-id")).toHaveAttribute("data-overseer", "true");
   await expect(page.locator(".rts-kind-id").getByTestId("overseer-mark")).toHaveText("OVERSEER");
-  await expect(page.getByTestId("node-toolbar-pause")).toHaveAttribute("data-paused", "false");
   await shot(page, "02-selected-enabled");
 
   await ordinary.click();
@@ -158,11 +157,9 @@ test("overseer identity: card, selected, paused, ordinary contrast, toggle", asy
   await expect(page.locator(".rts-kind-id").getByTestId("overseer-mark")).toHaveCount(0);
   await shot(page, "03-selected-disabled");
 
+  // Pause is canvas-wide only: selecting the seat offers no node pause.
   await paused.click();
-  const leftPause = page.getByTestId("rts-pause-node");
-  await expect(leftPause).toBeVisible();
-  await leftPause.click();
-  await expect(leftPause).toHaveAttribute("data-paused", "true");
+  await expect(page.getByTestId("rts-pause-node")).toHaveCount(0);
   await expect(paused.locator(".junto-node")).toHaveAttribute("data-overseer", "true");
   await expect(page.getByTestId("rts-overseer")).toHaveAttribute("data-overseer", "true");
   await shot(page, "04-paused-enabled");

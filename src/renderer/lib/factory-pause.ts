@@ -42,11 +42,7 @@ export const applyFactoryPause = async (
   if (!canvasName || factoryPause$.busy.peek()) return;
   factoryPause$.busy.set(true);
   try {
-    const result = await window.junto?.factoryPauseSet(
-      canvasName,
-      { kind: "canvas" },
-      paused,
-    );
+    const result = await window.junto?.factoryPauseSet(canvasName, paused);
     if (!result) return;
     if (result.ok) {
       factoryPause$.state.set(result.state);

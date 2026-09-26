@@ -84,16 +84,12 @@ export type FactoryClaimSelection = {
  * resolve to other task sinks in the same region, so claim-ready walks the
  * region-scoped index. Every result still carries both its SinkRef and
  * exact TaskRef.
- *
- * A paused seat (opts.seatPaused) neither drains as a sink nor claims as a
- * worker — the pause plane's law reaches the simulation here.
  */
 export const selectFactoryClaims = (
   doc: CanvasDoc,
   canvasName: string,
   resolveActorRef: ActorRefResolver,
   opts?: {
-    readonly seatPaused?: (nodeId: string) => boolean;
     readonly actorEligible?: (actor: CanvasNode) => boolean;
     /** Per-task actor admission, e.g. a recent operator-release grace. */
     readonly claimEligible?: (
@@ -110,7 +106,6 @@ export const selectFactoryClaims = (
     ...busyActorSeatIds(doc),
     ...(opts?.busyActorSeatIds ?? []),
   ]);
-  const isPausedSeat = opts?.seatPaused ?? (() => false);
   const actorEligible = opts?.actorEligible ?? (() => true);
   const claimEligible = opts?.claimEligible ?? (() => true);
   const capabilityView = canvasDocToCapabilityView(doc);
@@ -120,7 +115,6 @@ export const selectFactoryClaims = (
     .sort((left, right) => left.id.localeCompare(right.id));
 
   for (const node of sinks) {
-    if (isPausedSeat(node.id)) continue;
     const items = node.ether?.tasks?.items ?? [];
     const counts = new Map<string, number>();
     for (const task of items) {
@@ -160,10 +154,7 @@ export const selectFactoryClaims = (
         );
         return actor === undefined ? [] : [{ node, actor }];
       })
-      .filter(
-        ({ node, actor }) =>
-          !isPausedSeat(node.id) && !busy.has(actor.seatId),
-      )
+      .filter(({ actor }) => !busy.has(actor.seatId))
       .sort((a, b) => a.node.id.localeCompare(b.node.id));
 
     for (const task of open) {
@@ -210,7 +201,6 @@ export const actorsNeedingWake = (
   opts: {
     /** True when the actor needs no start — already live, or not ours. */
     readonly isAwake: (actor: CanvasNode) => boolean;
-    readonly seatPaused?: (nodeId: string) => boolean;
     readonly claimEligible?: (
       task: Task,
       actor: ActorRef,
@@ -218,18 +208,15 @@ export const actorsNeedingWake = (
     ) => boolean;
   },
 ): ReadonlySet<string> => {
-  const seatPaused = opts.seatPaused;
   const claimEligible = opts.claimEligible;
   const covered = new Set(
     selectFactoryClaims(doc, canvasName, resolveActorRef, {
-      ...(seatPaused ? { seatPaused } : {}),
       ...(claimEligible ? { claimEligible } : {}),
       actorEligible: opts.isAwake,
     }).map(claimKey),
   );
   return new Set(
     selectFactoryClaims(doc, canvasName, resolveActorRef, {
-      ...(seatPaused ? { seatPaused } : {}),
       ...(claimEligible ? { claimEligible } : {}),
     })
       .filter((selection) => !covered.has(claimKey(selection)))

@@ -19,18 +19,14 @@ import {
   ExternalLink,
   LocateFixed,
   Maximize2,
-  Pause,
-  Play,
   Trash2,
 } from "lucide-react";
 import type { CanvasNode, EtherFlag } from "@shared/canvas";
 import { executionGraphContextFromActorRefs } from "@shared/graph";
-import { isExecutableNode } from "@shared/station";
 import { accentColor, borderColor, HUE, withAlpha } from "../../lib/theme";
 import { resizeNode } from "../../lib/geometry";
 import { deleteNode, toggleFlag } from "../../lib/mutations";
 import { state$, toggleConnectionFocus } from "../../lib/state";
-import { ensurePauseState, nodePausedIn, pause$, setScopePaused } from "../../lib/pause-state";
 import { nodeBlockPresentation } from "../../lib/node-block-state";
 import { attentionOf } from "@shared/attention";
 import { isHarnessId } from "@shared/managed-terminal-templates";
@@ -197,8 +193,6 @@ function NodeActions({
   toolbarExtras,
   flagBlocker,
   shellBlocked,
-  nodePaused,
-
 }: {
   readonly node: CanvasNode;
   readonly selected: boolean;
@@ -208,9 +202,6 @@ function NodeActions({
   readonly flagBlocker: boolean;
   /** Graph blocked or seed chrome — may have a resolvable cause. */
   readonly shellBlocked: boolean;
-  /** Node-scope pause (undefined = not an executable seat, no toggle). */
-  readonly nodePaused?: boolean;
-
 }) {
   const chromeBlocker = flagBlocker;
   const connectionFocused = use$(() => state$.connectionFocusNodeId.get() === node.id);
@@ -302,23 +293,6 @@ function NodeActions({
             }}
           >
             <LocateFixed size={14} />
-          </IconButton>
-        ) : null}
-        {nodePaused !== undefined ? (
-          <IconButton
-            className="nodrag nopan"
-            aria-label={nodePaused ? "Resume node" : "Pause node"}
-            style={{ color: nodePaused ? HUE.amber : undefined }}
-            title={nodePaused ? "Resume" : "Pause"}
-            data-testid="node-toolbar-pause"
-            data-paused={nodePaused ? "true" : "false"}
-            onPointerDown={(event) => {
-              if (stopNodeGestureUnlessMultiSelect(event, { preventDefault: true })) return;
-              event.preventDefault();
-              void setScopePaused({ kind: "node", id: node.id }, !nodePaused);
-            }}
-          >
-            {nodePaused ? <Play size={14} /> : <Pause size={14} />}
           </IconButton>
         ) : null}
         <IconButton
@@ -477,18 +451,6 @@ export function NodeShell({
   const occupancyAttr = isActorSeat
     ? actorOccupancyAttr(occupancyState)
     : occupancyState;
-  // Executable seats get pause chrome; placement class/tier lives in the
-  // inspector only (not on the card body).
-  const executable = isExecutableNode(node);
-  // Node-scope pause (executable seats only). Fine-grained selector: only
-  // this node re-renders when its own pausedNodes membership flips.
-  const nodePaused = use$(() =>
-    executable ? nodePausedIn(pause$.state.get(), node.id) : false,
-  );
-  useEffect(() => {
-    if (!executable) return;
-    ensurePauseState(state$.canvasName.peek());
-  }, [executable, node.id]);
   const primaryFlag: EtherFlag | undefined = isBlocker
     ? "blocker"
     : flagAttention || liveSeatAttention
@@ -592,7 +554,6 @@ export function NodeShell({
           toolbarExtras={toolbarExtras}
           flagBlocker={flagBlocker}
           shellBlocked={shellBlocked}
-          nodePaused={executable ? nodePaused : undefined}
         />
       )}
       {!bare && (flags.length > 0 || liveSeatAttention || (shellBlocked && !flagBlocker)) ? (

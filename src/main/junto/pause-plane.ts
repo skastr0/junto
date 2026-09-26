@@ -1,5 +1,5 @@
 import { Context, Effect, Result, Layer, Ref, Schema, Semaphore } from "effect";
-import { PAUSED_CANVAS, type CanvasPauseState, type PauseChangeListener, type PauseScope } from "@shared/pause";
+import { PAUSED_CANVAS, type CanvasPauseState, type PauseChangeListener } from "@shared/pause";
 import { FactoryPauseRepository } from "./pause/repository";
 
 // Factory pause plane — the safety switch that decides whether the factory
@@ -17,8 +17,8 @@ import { FactoryPauseRepository } from "./pause/repository";
 // LAUNCH (Command Center): every canvas the operator has played before comes
 // back playing, so mail and work reach their seats without a press of play
 // per launch. Seats still start only when work arrives for them. A canvas
-// never played keeps the one-time first-play confirmation, and node and
-// region pauses keep their record.
+// never played keeps the one-time first-play confirmation. Pause is
+// canvas-wide only.
 
 /** A pause state mutation that could not land durably. */
 export class PauseStateError extends Schema.TaggedError<PauseStateError>()(
@@ -37,12 +37,6 @@ export class PausePlane extends Context.Service<PausePlane,
       canvas: string,
       playing: boolean,
     ) => Effect.Effect<void, PauseStateError>;
-    /** Node/region pause. Canvas scope routes to setPlaying(!paused). */
-    readonly setScopePaused: (
-      canvas: string,
-      scope: PauseScope,
-      paused: boolean,
-    ) => Effect.Effect<void, PauseStateError>;
     readonly subscribe: (listener: PauseChangeListener) => () => void;
   }>()("junto/PausePlane") {}
 
@@ -53,9 +47,8 @@ export class PausePlane extends Context.Service<PausePlane,
  */
 export const PausePlaneAllPlaying = Layer.succeed(PausePlane, {
   start: Effect.void,
-  stateFor: () => ({ playing: true, everPlayed: true, pausedNodes: [], pausedRegions: [] }),
+  stateFor: () => ({ playing: true, everPlayed: true }),
   setPlaying: () => Effect.void,
-  setScopePaused: () => Effect.void,
   subscribe: () => () => {},
 });
 
@@ -173,19 +166,10 @@ export const makePausePlaneLive = (options: PausePlaneOptions) => Layer.effect(
     const setPlaying = (canvas: string, playing: boolean) =>
       persist(canvas, repository.setPlaying(canvas, playing));
 
-    const setScopePaused = (canvas: string, scope: PauseScope, paused: boolean) =>
-      scope.kind === "canvas"
-        ? setPlaying(canvas, !paused)
-        : persist(
-            canvas,
-            repository.setMemberPaused(canvas, scope, paused),
-          );
-
     return {
       start,
       stateFor,
       setPlaying,
-      setScopePaused,
       subscribe: (listener) => {
         Effect.runSync(Ref.update(listeners, (set) => new Set(set).add(listener)));
         return () => {

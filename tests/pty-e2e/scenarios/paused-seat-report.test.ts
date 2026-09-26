@@ -158,7 +158,7 @@ describe("PROTO-8 — paused seat reports paused:true + next_step", () => {
     // PRODUCT LAW: a paused seat must surface paused:true + next_step so the
     // agent can distinguish pause from a broken grant. ACTUAL today: absent.
     expect(res.data?.paused).toBe(true);
-    expect(res.data?.next_step).toEqual(expect.stringContaining("resume"));
+    expect(res.data?.next_step).toEqual(expect.stringContaining("play the canvas"));
   });
 
   it("onboard for a paused seat lacks paused (expected paused:true + next_step)", async () => {
@@ -168,7 +168,7 @@ describe("PROTO-8 — paused seat reports paused:true + next_step", () => {
     });
     expect(res.ok).toBe(true);
     expect(res.data?.paused).toBe(true);
-    expect(res.data?.next_step).toEqual(expect.stringContaining("resume"));
+    expect(res.data?.next_step).toEqual(expect.stringContaining("play the canvas"));
   });
 
   it("gate sanity: a paused seat still refuses mutating ops with a Paused error (works today)", async () => {
@@ -179,20 +179,6 @@ describe("PROTO-8 — paused seat reports paused:true + next_step", () => {
     });
     expect(res.ok).toBe(false);
     expect(res.error?.type).toBe("Paused");
-    expect(res.error?.details?.next_step).toContain("resume");
-  });
-
-  it("node-paused inside a playing canvas also lacks paused in capabilities", async () => {
-    await harness.runtime.runPromise(harness.pause.setPlaying("work-cli", true));
-    await harness.runtime.runPromise(
-      harness.pause.setScopePaused("work-cli", { kind: "node", id: "agent" }, true),
-    );
-    const res = await call(server.socketPath, {
-      token: readFileSync(server.tokenPath, "utf8").trim(),
-      op: "capabilities",
-    });
-    expect(res.ok).toBe(true);
-    expect(res.data?.paused).toBe(true);
-    expect(res.data?.next_step).toEqual(expect.stringContaining("resume"));
+    expect(res.error?.details?.next_step).toContain("play the canvas");
   });
 });

@@ -36,7 +36,7 @@ describe("factory pause operator controls", () => {
 
     confirmFactoryFirstPlay("Workshop");
     await vi.waitFor(() => expect(factoryPause$.state.playing.peek()).toBe(true));
-    expect(pauseSet).toHaveBeenCalledExactlyOnceWith("Workshop", { kind: "canvas" }, false);
+    expect(pauseSet).toHaveBeenCalledExactlyOnceWith("Workshop", false);
     expect(factoryPause$.confirmOpen.peek()).toBe(false);
   });
 
@@ -60,7 +60,7 @@ describe("factory pause operator controls", () => {
     toggleFactoryPause("Workshop");
     await vi.waitFor(() => expect(factoryPause$.state.playing.peek()).toBe(false));
 
-    expect(pauseSet).toHaveBeenCalledExactlyOnceWith("Workshop", { kind: "canvas" }, true);
+    expect(pauseSet).toHaveBeenCalledExactlyOnceWith("Workshop", true);
     expect(factoryPause$.confirmOpen.peek()).toBe(false);
   });
 

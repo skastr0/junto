@@ -72,7 +72,6 @@ import {
   isClaimableTaskSink,
   selectFactoryClaims,
 } from "@shared/factory-tick";
-import { seatPaused } from "@shared/pause";
 import { WorkService } from "../work/service";
 import {
   ensureManagedSeatRunning,
@@ -858,10 +857,7 @@ const makeKernelService = (
         const state = pause.stateFor(canvasName);
         if (!state.playing) continue;
 
-        const seatPausedHere = (nodeId: string): boolean =>
-          seatPaused(state, doc, nodeId);
         const wanted = actorsNeedingWake(doc, canvasName, registry.resolve, {
-          seatPaused: seatPausedHere,
           claimEligible: (task, actor, sink) =>
             taskAdmissionState(
               task,
@@ -894,7 +890,6 @@ const makeKernelService = (
         for (const node of doc.nodes) {
           if (!generationIsActive(generation)) return;
           if (!wanted.has(node.id)) continue;
-          if (seatPausedHere(node.id)) continue;
           const authority = runtimeAuthority(
             scope,
             registry,
@@ -1008,7 +1003,6 @@ const makeKernelService = (
           canvasName,
           registry.resolve,
           {
-            seatPaused: (nodeId) => seatPaused(state, doc, nodeId),
             actorEligible: (actor) => {
               const actorRef = registry.resolve({
                 canvasName,
@@ -1095,7 +1089,7 @@ const makeKernelService = (
             const actor = doc.nodes.find(
               (node) => node.id === actorRef.nodeId,
             );
-            if (actor === undefined || seatPaused(state, doc, actor.id)) {
+            if (actor === undefined) {
               continue;
             }
             const authority = runtimeAuthority(
@@ -1324,9 +1318,6 @@ const makeKernelService = (
       }
       if (!pause.stateFor(canvasName).playing) {
         return refuse("canvas is not playing");
-      }
-      if (seatPaused(pause.stateFor(canvasName), doc, node.id)) {
-        return refuse("seat is paused");
       }
 
       return yield* ensureManagedSeatRunning(

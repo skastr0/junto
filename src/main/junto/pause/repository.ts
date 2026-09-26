@@ -10,10 +10,6 @@ import {
   type StateRow,
 } from "../state/service";
 
-export type PauseMemberScope =
-  | { readonly kind: "node"; readonly id: string }
-  | { readonly kind: "region"; readonly id: string };
-
 export class FactoryPausePersistenceError extends Schema.TaggedError<FactoryPausePersistenceError>()(
   "FactoryPausePersistenceError",
   {
@@ -23,17 +19,7 @@ export class FactoryPausePersistenceError extends Schema.TaggedError<FactoryPaus
   },
 ) {}
 
-export class FactoryPauseStateCorruptError extends Schema.TaggedError<FactoryPauseStateCorruptError>()(
-  "FactoryPauseStateCorruptError",
-  {
-    canvasName: Schema.String,
-    message: Schema.String,
-  },
-) {}
-
-export type FactoryPauseRepositoryError =
-  | FactoryPausePersistenceError
-  | FactoryPauseStateCorruptError;
+export type FactoryPauseRepositoryError = FactoryPausePersistenceError;
 
 /**
  * effect-foundation **S4-rest-main** (staged, not half-migrated):
@@ -54,11 +40,6 @@ export class FactoryPauseRepository extends Context.Service<FactoryPauseReposito
       canvasName: string,
       playing: boolean,
     ) => Effect.Effect<CanvasPauseState, FactoryPauseRepositoryError>;
-    readonly setMemberPaused: (
-      canvasName: string,
-      scope: PauseMemberScope,
-      paused: boolean,
-    ) => Effect.Effect<CanvasPauseState, FactoryPauseRepositoryError>;
   }>()("@junto/FactoryPauseRepository") {}
 
 type CanvasRow = StateRow & {
@@ -67,23 +48,15 @@ type CanvasRow = StateRow & {
   readonly ever_played: number;
 };
 
-type ScopeRow = StateRow & {
-  readonly canvas_name: string;
-  readonly scope_kind: string;
-  readonly scope_id: string;
-};
-
 const persistenceError = (
   operation: string,
   error: StateEngineError,
 ): FactoryPauseRepositoryError =>
-  error.cause instanceof FactoryPauseStateCorruptError
-    ? error.cause
-    : FactoryPausePersistenceError.make({
-        operation,
-        message: error.message,
-        cause: error,
-      });
+  FactoryPausePersistenceError.make({
+    operation,
+    message: error.message,
+    cause: error,
+  });
 
 const stateForCanvas = (
   reader: StateReader,
@@ -98,34 +71,11 @@ const stateForCanvas = (
     [canvasName],
   );
   if (canvas === undefined) return PAUSED_CANVAS;
-  const scopes = reader.all<ScopeRow>(
-    `
-      SELECT canvas_name, scope_kind, scope_id
-      FROM factory_pause_scopes
-      WHERE canvas_name = ?
-      ORDER BY scope_kind, scope_id
-    `,
-    [canvasName],
-  );
-  const pausedNodes: string[] = [];
-  const pausedRegions: string[] = [];
-  for (const scope of scopes) {
-    if (scope.scope_kind === "node") {
-      pausedNodes.push(scope.scope_id);
-    } else if (scope.scope_kind === "region") {
-      pausedRegions.push(scope.scope_id);
-    } else {
-      throw FactoryPauseStateCorruptError.make({
-        canvasName,
-        message: `unknown persisted pause scope ${scope.scope_kind}`,
-      });
-    }
-  }
+  // factory_pause_scopes (retired node and region pause) is never read:
+  // its rows stay inert in the schema.
   return {
     playing: canvas.playing === 1,
     everPlayed: canvas.ever_played === 1,
-    pausedNodes,
-    pausedRegions,
   };
 };
 
@@ -199,65 +149,9 @@ export const FactoryPauseRepositoryLive: Layer.Layer<
           ),
         );
 
-    const setMemberPaused = (
-      canvasName: string,
-      scope: PauseMemberScope,
-      paused: boolean,
-    ) =>
-      state
-        .transaction("factory-pause.set-member-paused", (writer) => {
-          if (paused) {
-            const now = new Date().toISOString();
-            writer.run(
-              `
-                INSERT OR IGNORE INTO factory_pause_canvases(
-                  canvas_name,
-                  playing,
-                  ever_played,
-                  updated_at
-                ) VALUES (?, 0, 0, ?)
-              `,
-              [canvasName, now],
-            );
-            writer.run(
-              `
-                INSERT INTO factory_pause_scopes(
-                  canvas_name,
-                  scope_kind,
-                  scope_id,
-                  paused_at
-                ) VALUES (?, ?, ?, ?)
-                ON CONFLICT(canvas_name, scope_kind, scope_id) DO UPDATE SET
-                  paused_at = excluded.paused_at
-              `,
-              [canvasName, scope.kind, scope.id, now],
-            );
-          } else {
-            writer.run(
-              `
-                DELETE FROM factory_pause_scopes
-                WHERE canvas_name = ? AND scope_kind = ? AND scope_id = ?
-              `,
-              [canvasName, scope.kind, scope.id],
-            );
-          }
-          return stateForCanvas(writer, canvasName);
-        })
-        .pipe(
-          Effect.mapError((error) =>
-            persistenceError(
-              `${paused ? "pause" : "resume"} ${scope.kind} ${
-                scope.id
-              } on ${canvasName}`,
-              error,
-            )
-          ),
-        );
-
     return FactoryPauseRepository.of({
       loadAll,
       setPlaying,
-      setMemberPaused,
     });
   }),
 );

@@ -2,9 +2,9 @@
  * RTS shell controls e2e.
  *
  * Layout: region strip (1–9) above the whole bar; left = type/base actions
- * per physics role (pause, flags, region arm/pulse); middle = kind actions
- * (agent chat, terminal, task board, …); right = minimap. Node/region
- * pause toggles live on left / chips.
+ * per physics role; middle = kind actions (agent chat, terminal, task
+ * board, …); right = minimap. Pause is canvas-wide only (top bar): no node
+ * or region pause key anywhere.
  *
  * Boards install at runtime via window.junto (authority-only boot); pattern
  * copied from pause-surface.spec.ts.
@@ -100,11 +100,10 @@ test("rts shell: role left, kind middle, region strip, pause everywhere", async 
   // Select the actor seat.
   await seat.click();
 
-  // Left bar: command card with the node pause toggle; the kind label
-  // ("agent") lives in the middle kind strip now (no .rts-panel__label).
-  const leftPause = page.getByTestId("rts-pause-node");
-  await expect(leftPause).toBeVisible();
-  await expect(leftPause).toHaveAttribute("data-paused", "false");
+  // Left bar: command card, no node pause (pause is canvas-wide only); the
+  // kind label ("agent") lives in the middle kind strip.
+  await expect(page.locator(".rts-panel--cmd")).toBeVisible();
+  await expect(page.getByTestId("rts-pause-node")).toHaveCount(0);
   await expect(page.locator(".rts-kind-kind-label")).toContainText("agent");
 
   // Middle bar: kind surface (identity + kind actions).
@@ -134,23 +133,11 @@ test("rts shell: role left, kind middle, region strip, pause everywhere", async 
   await expect(regionStrip).toBeVisible();
   await expect(regionStrip.locator('[data-testid^="hotbar-slot-"]')).toHaveCount(9);
 
-  // Floating node toolbar carries the same pause toggle.
-  const toolbarPause = page.getByTestId("node-toolbar-pause");
-  await expect(toolbarPause).toBeVisible();
-  await expect(toolbarPause).toHaveAttribute("data-paused", "false");
+  // Floating node toolbar: no pause, no flag; Stop names the process.
+  await expect(page.getByTestId("node-toolbar-pause")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Flag blocker" })).toHaveCount(0);
 
   await page.screenshot({ path: join(SHOTS, "01-actor-selected.png"), fullPage: false });
-
-  // Pause the node from the left bar; both toggles flip from the write result.
-  await leftPause.click();
-  await expect(leftPause).toHaveAttribute("data-paused", "true");
-  await expect(toolbarPause).toHaveAttribute("data-paused", "true");
-  await page.screenshot({ path: join(SHOTS, "02-node-paused.png"), fullPage: false });
-
-  // Resume from the floating toolbar — the left bar follows.
-  await toolbarPause.click();
-  await expect(leftPause).toHaveAttribute("data-paused", "false");
-  await expect(toolbarPause).toHaveAttribute("data-paused", "false");
 
   // Task sink: left gains open-detail, middle kind strip labels the sink
   // kind and gains board + add-task keys.
@@ -253,7 +240,7 @@ test("rts shell: role left, kind middle, region strip, pause everywhere", async 
   await page.screenshot({ path: join(SHOTS, "05-tasks-slotted.png"), fullPage: false });
 
   // Reframe to the readable field (region-centered), then assign region to
-  // slot 1 (⌘/Ctrl+1) and pause via command card. Region interiors are inert
+  // slot 1 (⌘/Ctrl+1); its command card carries no pause. Region interiors are inert
   // background (rubber-band surface), so select the region through its label
   // drag handle — the only movable chrome.
   await page.getByRole("button", { name: "Fit readable view" }).click();
@@ -263,13 +250,7 @@ test("rts shell: role left, kind middle, region strip, pause everywhere", async 
   await expect(regionChip).toBeVisible();
   await expect(regionChip).toContainText("ops");
   await regionChip.click();
-  const regionPause = page.getByTestId("rts-pause-region");
-  await expect(regionPause).toBeVisible();
-  await expect(regionPause).toHaveAttribute("data-paused", "false");
-  await regionPause.click();
-  await expect(regionPause).toHaveAttribute("data-paused", "true");
-  await expect(regionChip).toHaveAttribute("data-severity", "paused");
-  await page.screenshot({ path: join(SHOTS, "04-region-paused.png"), fullPage: false });
-  await regionPause.click();
-  await expect(regionPause).toHaveAttribute("data-paused", "false");
+  await expect(page.getByTestId("rts-pause-region")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Pause region" })).toHaveCount(0);
+  await page.screenshot({ path: join(SHOTS, "04-region-selected.png"), fullPage: false });
 });

@@ -12,7 +12,6 @@ import {
 import {
   FactoryPauseRepository,
   FactoryPauseRepositoryLive,
-  FactoryPauseStateCorruptError,
 } from "../src/main/junto/pause/repository";
 import {
   makeStateEngineLive,
@@ -70,7 +69,7 @@ afterEach(async () => {
 });
 
 describe("typed runtime-state repositories", () => {
-  test("arming and normalized pause scopes survive a complete restart", async () => {
+  test("arming and canvas play survive a restart; retired pause scope rows stay inert", async () => {
     const root = await makeRoot();
     const first = makeRuntime(root);
     await first.runPromise(
@@ -81,16 +80,16 @@ describe("typed runtime-state repositories", () => {
         yield* kernel.setRegionArmed("ether", "region-2", true);
         yield* kernel.setRegionArmed("ether", "region-2", false);
         yield* pause.setPlaying("ether", true);
-        yield* pause.setMemberPaused(
-          "ether",
-          { kind: "node", id: "agent-1" },
-          true,
-        );
-        yield* pause.setMemberPaused(
-          "ether",
-          { kind: "region", id: "region-1" },
-          true,
-        );
+        // Rows written by the retired node and region pause are never read.
+        const state = yield* StateEngine;
+        yield* state.transaction("test.retired-pause-scopes", (writer) => {
+          for (const [kind, id] of [["node", "agent-1"], ["region", "region-1"]]) {
+            writer.run(
+              "INSERT INTO factory_pause_scopes(canvas_name, scope_kind, scope_id, paused_at) VALUES (?, ?, ?, ?)",
+              ["ether", kind, id, "2026-01-01T00:00:00.000Z"],
+            );
+          }
+        });
       }),
     );
     await disposeRuntime(first);
@@ -110,12 +109,7 @@ describe("typed runtime-state repositories", () => {
     expect(result.armed).toEqual([
       { canvasName: "ether", regionId: "region-1" },
     ]);
-    expect(result.paused).toEqual({
-      playing: true,
-      everPlayed: true,
-      pausedNodes: ["agent-1"],
-      pausedRegions: ["region-1"],
-    });
+    expect(result.paused).toEqual({ playing: true, everPlayed: true });
   });
 
   test("the debug pulse ring is typed, bounded, and durable", async () => {
@@ -162,23 +156,19 @@ describe("typed runtime-state repositories", () => {
         );
         yield* Effect.all(
           Array.from({ length: 32 }, (_, index) =>
-            pause.setMemberPaused(
-              "ether",
-              { kind: "node" as const, id: `agent-${index}` },
-              true,
-            )
+            pause.setPlaying(`canvas-${index}`, true)
           ),
           { concurrency: "unbounded", discard: true },
         );
         return {
           armed: yield* kernel.listArmedRegions,
-          paused: (yield* pause.loadAll).get("ether"),
+          playing: [...(yield* pause.loadAll).values()].filter((state) => state.playing),
         };
       }),
     );
 
     expect(result.armed).toHaveLength(64);
-    expect(result.paused?.pausedNodes).toHaveLength(32);
+    expect(result.playing).toHaveLength(32);
   });
 
   test("invalid persisted debug payloads fail with a typed corruption error", async () => {
@@ -203,35 +193,6 @@ describe("typed runtime-state repositories", () => {
     expect(result._tag).toBe("Failure");
     if (result._tag === "Failure") {
       expect(result.failure).toBeInstanceOf(KernelStateCorruptError);
-    }
-  });
-
-  test("unknown persisted pause scope kinds fail closed as typed corruption", async () => {
-    const root = await makeRoot();
-    const runtime = makeRuntime(root);
-    const result = await runtime.runPromise(
-      Effect.gen(function* () {
-        const pause = yield* FactoryPauseRepository;
-        const state = yield* StateEngine;
-        yield* pause.setMemberPaused(
-          "ether",
-          { kind: "node", id: "agent-1" },
-          true,
-        );
-        yield* state.transaction("test.corrupt-pause-scope", (writer) => {
-          writer.run("PRAGMA ignore_check_constraints = ON");
-          writer.run(
-            "UPDATE factory_pause_scopes SET scope_kind = 'unknown'",
-          );
-          writer.run("PRAGMA ignore_check_constraints = OFF");
-        });
-        return yield* Effect.result(pause.loadAll);
-      }),
-    );
-
-    expect(result._tag).toBe("Failure");
-    if (result._tag === "Failure") {
-      expect(result.failure).toBeInstanceOf(FactoryPauseStateCorruptError);
     }
   });
 });
