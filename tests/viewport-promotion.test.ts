@@ -15,9 +15,12 @@ const css = readFileSync(
 );
 
 describe("viewport compositor promotion (CSS)", () => {
-  it("promotes .react-flow__viewport unconditionally (stable hint)", () => {
-    expect(css).toMatch(
-      /^\.react-flow\s+\.react-flow__viewport\s*\{[^}]*will-change\s*:\s*transform/m,
+  it("never promotes .react-flow__viewport (a composited camera starves tile memory)", () => {
+    // 6cbf5074c and df7eec87e: will-change pinned raster scale at native and
+    // the transform animation split the board into ~800 overlap layers; both
+    // left tiles unpainted. The viewport stays uncomposited.
+    expect(css).not.toMatch(
+      /\.react-flow__viewport\s*\{[^}]*will-change\s*:/,
     );
   });
 
