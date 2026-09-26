@@ -142,9 +142,9 @@ export function AgentSeatView({
           mood={seatPortraitMood(activity, health, open?.kind)}
         />
       </ActivityMarkFromSpec>
-      <div className="min-w-0 flex-1">
+      <div className="junto-seat__text min-w-0 flex-1">
         {title}
-        <div className="truncate text-[10.5px] leading-snug" data-testid="agent-seat-line">
+        <div className="junto-seat__line truncate text-[10.5px] leading-snug" data-testid="agent-seat-line">
           {line}
         </div>
         {children}

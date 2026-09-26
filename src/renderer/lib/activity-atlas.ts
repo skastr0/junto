@@ -155,6 +155,8 @@ export type RingCells = {
   readonly band?: AtlasCell;
   /** Drawn form after health bent it, for data attributes and tests. */
   readonly ring: LoopRing | StillRing | "done";
+  /** The tone the ring is drawn in: a far camera paints the seat as a disc of it. */
+  readonly hue: ActivityTone;
 };
 
 const loopCell = (ring: LoopRing, tone: ActivityTone, animate: boolean): CoreCell => {
@@ -196,29 +198,37 @@ export const ringCells = (input: RingInput): RingCells => {
         : undefined;
   let core: CoreCell;
   let ring: RingCells["ring"];
+  let hue: ActivityTone = tone;
   if (glyph === "work") {
     ring = trouble ? (healthValue === "stuck" ? "reverse" : "snake") : "work";
-    core = loopCell(ring, trouble ? "amber" : tone, animate);
+    hue = trouble ? "amber" : tone;
+    core = loopCell(ring, hue, animate);
   } else if (glyph === "call" || glyph === "halt") {
     ring = glyph;
-    core = loopCell(glyph, glyph === "call" ? "amber" : "crimson", animate);
+    hue = glyph === "call" ? "amber" : "crimson";
+    core = loopCell(glyph, hue, animate);
   } else if (signal === "blocked") {
     ring = "halt";
-    core = loopCell("halt", "crimson", animate);
+    hue = "crimson";
+    core = loopCell("halt", hue, animate);
   } else if (waitTone) {
     ring = "wait";
-    core = loopCell("wait", waitTone, animate);
+    hue = waitTone;
+    core = loopCell("wait", hue, animate);
   } else if (glyph === "done") {
     ring = "done";
+    hue = "green";
     core = animate
       ? { ...loopCell("glint", "green", true), land: LAND_ROW }
       : { col: LAND_FRAMES, row: LAND_ROW, motion: "still" };
   } else if (trouble) {
     ring = "fracture";
-    core = loopCell("fracture", "amber", animate);
+    hue = "amber";
+    core = loopCell("fracture", hue, animate);
   } else if (glyph === "dot" || glyph === "live") {
     ring = glyph;
-    core = loopCell(glyph, tone === "steel" ? "cyan" : tone, animate);
+    hue = tone === "steel" ? "cyan" : tone;
+    core = loopCell(glyph, hue, animate);
   } else {
     ring = glyph;
     core = stillCell(glyph);
@@ -232,7 +242,7 @@ export const ringCells = (input: RingInput): RingCells => {
   // Only the reading fades with age; a declared signal is current until closed.
   const stale = input.healthStale === true && (halo !== "none" || (glow !== "none" && !signalGlow));
   const band = LAYOUT.bands.get(bandKey(glow, halo, stale, signal ?? "none"));
-  return band ? { core, band, ring } : { core, ring };
+  return band ? { core, band, ring, hue } : { core, ring, hue };
 };
 
 // --- painting ----------------------------------------------------------------

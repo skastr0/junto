@@ -165,4 +165,14 @@ describe("atlas layout", () => {
     expect(rule).toBeDefined();
     expect(rule).not.toMatch(/\b(both|forwards)\b/);
   });
+
+  it("names the hue each ring is drawn in, for the far tier's disc", () => {
+    expect(ringCells({ glyph: "work", tone: "cyan", animate: true }).hue).toBe("cyan");
+    expect(ringCells({ glyph: "rest", tone: "steel", animate: true, signal: "escalate" }).hue).toBe("amber");
+    expect(ringCells({ glyph: "rest", tone: "steel", animate: true, signal: "feedback" }).hue).toBe("cyan");
+    expect(ringCells({ glyph: "rest", tone: "steel", animate: true, signal: "blocked" }).hue).toBe("crimson");
+    expect(ringCells({ glyph: "done", tone: "steel", animate: true }).hue).toBe("green");
+    expect(ringCells({ glyph: "work", tone: "cyan", animate: true, health: "trouble" }).hue).toBe("amber");
+    expect(ringCells({ glyph: "rest", tone: "steel", animate: true }).hue).toBe("steel");
+  });
 });

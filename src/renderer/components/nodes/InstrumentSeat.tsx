@@ -38,9 +38,9 @@ export function InstrumentSeat({
           {glyph}
         </span>
       </ActivityMarkFromSpec>
-      <div className="min-w-0 flex-1">
+      <div className="junto-seat__text min-w-0 flex-1">
         {title}
-        <div className="truncate text-[10.5px] leading-snug text-dim" data-testid="instrument-seat-line" title={lineTitle}>
+        <div className="junto-seat__line truncate text-[10.5px] leading-snug text-dim" data-testid="instrument-seat-line" title={lineTitle}>
           {line}
         </div>
         {children}

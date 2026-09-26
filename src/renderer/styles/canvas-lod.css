@@ -1,0 +1,87 @@
+/* Level of detail for seats, instruments, notes and cards.
+
+   The camera's tier (lib/canvas-tier.ts) is stamped on <html> as
+   data-canvas-tier. Each step back keeps what still reads at that size and
+   stops paying for what does not:
+
+   - near: everything.
+   - mid: a seat is its ring, held in its state pose (the clock stops), and
+     its name; the line under it, preamble bubbles and landing flourishes
+     go. A note is its title. Nothing lifts, glows or casts a shadow.
+   - far and overview: a seat, terminal or git instrument is one disc in its
+     state's colour; a note or card is a flat block in its own place. No
+     text, no portraits, no atlas image is drawn.
+
+   Hidden detail uses visibility or display inside fixed-size shells, so no
+   node changes size and no wire moves when the tier changes. Scoped to the
+   camera's plane: chips and panels outside .react-flow__viewport keep
+   their full marks. */
+
+/* --- mid and below: words and flourishes go -------------------------- */
+
+html:is([data-canvas-tier="mid"], [data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .junto-preamble {
+  display: none;
+}
+html:is([data-canvas-tier="mid"], [data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .junto-mark[data-mark-land] {
+  animation: none;
+}
+/* The line and any rows under it; the name stays and centres on the ring. */
+html:is([data-canvas-tier="mid"], [data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .junto-seat__text > :not(:first-child) {
+  display: none;
+}
+html:is([data-canvas-tier="mid"], [data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .junto-node {
+  box-shadow: none !important;
+  transition: none;
+}
+html:is([data-canvas-tier="mid"], [data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .react-flow__node:hover .junto-node {
+  transform: none;
+}
+/* A note is its title. */
+html:is([data-canvas-tier="mid"], [data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .junto-node[data-node-kind="text"] .note-md > :not(:first-child) {
+  display: none;
+}
+
+/* --- far and overview: discs and blocks ------------------------------ */
+
+/* Seats and instruments: the shell gives way to one disc. */
+html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .junto-node:is([data-node-kind="agent"], [data-node-kind="terminal"], [data-node-kind="git"]):not([data-bare]) {
+  background: transparent !important;
+  border-color: transparent !important;
+}
+html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .junto-seat__text {
+  visibility: hidden;
+}
+html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .junto-seat .junto-mark {
+  background-image: none;
+}
+html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .junto-seat .junto-mark > * {
+  visibility: hidden;
+}
+html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .junto-seat .junto-mark::after {
+  display: none;
+}
+html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .junto-seat .junto-mark::before {
+  content: "";
+  position: absolute;
+  inset: 14%;
+  border-radius: 50%;
+  background: var(--mark-disc);
+}
+
+/* Notes and cards: a flat block where the card sits. */
+html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .junto-node:not([data-bare]):not(:is([data-node-kind="agent"], [data-node-kind="terminal"], [data-node-kind="git"])) {
+  background: color-mix(in oklab, var(--color-ink) 9%, transparent) !important;
+  border-color: transparent !important;
+}
+html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .junto-node:not([data-bare]):not(:is([data-node-kind="agent"], [data-node-kind="terminal"], [data-node-kind="git"])) > * {
+  visibility: hidden;
+}
+html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .junto-node[data-node-kind="text"]:not([data-bare]) {
+  background: color-mix(in oklab, var(--color-ink) 6%, transparent) !important;
+}
+
+/* Selection still reads from far away. */
+html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .react-flow__node.selected .junto-node:not([data-bare]) {
+  outline: 4px solid color-mix(in oklab, var(--color-main) 70%, transparent);
+  outline-offset: 2px;
+}

@@ -60,6 +60,7 @@ import { dragHoldMemberIds, findOpenPosition, syncPositions } from "../lib/geome
 import { resolvePageSpawnDefaults } from "@shared/region-defaults";
 import { resolveAuthoredPageHost } from "../lib/page-authoring";
 import "../styles/factory-grammar.css";
+import "../styles/canvas-lod.css";
 import {
   makeArtifactsNode,
   makeBoardNode,

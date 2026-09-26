@@ -186,6 +186,9 @@ const HUB_MIX: Readonly<Record<string, number>> = {
   fracture: 45,
 };
 
+/** Disc strength at the far tier (canvas-lod.css): stopped reads faintest. */
+const DISC_MIX: Readonly<Record<string, number>> = { ...HUB_MIX, rest: 40, off: 22 };
+
 const hubTone = (ring: string, tone: ActivityTone): ActivityTone => {
   if (ring === "done") return "green";
   if (ring === "reverse" || ring === "snake" || ring === "call" || ring === "fracture") return "amber";
@@ -227,7 +230,7 @@ export function ActivityMark({
   const theme = use$(themeMode$);
   const ref = useRef<HTMLSpanElement>(null);
   const drawn = resolveActivityGlyph(mode, tone, glyph);
-  const { core, band, ring } = ringCells({
+  const { core, band, ring, hue } = ringCells({
     glyph: drawn,
     tone,
     // Every ring but resting and stopped moves, whatever the control mode:
@@ -264,6 +267,8 @@ export function ActivityMark({
     "--mark-row": core.row,
     ...(core.land !== undefined ? { "--mark-lrow": core.land } : {}),
     ...(band ? { "--mark-bcol": band.col, "--mark-brow": band.row } : {}),
+    // A far camera draws the seat as one disc in its state's colour.
+    "--mark-disc": `color-mix(in oklab, ${ACTIVITY_TONE_HEX[hue]} ${String(DISC_MIX[ring] ?? 60)}%, transparent)`,
     ...(hubMix !== undefined
       ? {
           "--mark-hub": `color-mix(in oklab, ${ACTIVITY_TONE_HEX[hubTone(ring, tone)]} ${String(hubMix)}%, transparent)`,
