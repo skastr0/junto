@@ -33,6 +33,8 @@ const requestWith = (
   extra?: Partial<Task>,
 ): Task => ({
   ...taskItem(id, brief, state),
+  // The raiser is named outright: no wire joins an agent to a requests sink.
+  claimedBy: "agent1",
   ...extra,
   history: [...(extra?.history ?? taskItem(id, brief, state).history)],
 });

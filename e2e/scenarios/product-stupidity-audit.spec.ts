@@ -47,7 +47,8 @@ const requests = requestsNode({
   id: "requests",
   x: 1560,
   y: 640,
-  items: [taskItem("rq1", "Need prod API key to continue", "input-required")],
+  // The raiser is named outright: no wire joins an agent to a requests sink.
+  items: [{ ...taskItem("rq1", "Need prod API key to continue", "input-required"), claimedBy: "agent2" }],
 });
 
 const artifacts = artifactsNode({ id: "artifacts", x: 1560, y: 320 });
