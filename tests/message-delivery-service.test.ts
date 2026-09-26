@@ -314,6 +314,23 @@ describe("mail delivery", () => {
     expect(events).toEqual([]);
   });
 
+  it("tells a failed write into a live seat once, then the delivery when it lands", async () => {
+    let ok = false;
+    const seat = rig({ writeOk: () => ok });
+    const events: Array<{ failed?: true; messageId: string }> = [];
+    seat.service.subscribeDelivered((event) => events.push(event));
+    seat.append(mail("01A", "rebase is done"));
+
+    expect(await seat.service.deliver(canvas, nodeId, "01A")).toBe("waiting");
+    expect(await seat.service.deliver(canvas, nodeId, "01A")).toBe("waiting");
+    expect(events).toEqual([expect.objectContaining({ messageId: "01A", failed: true })]);
+
+    ok = true;
+    expect(await seat.service.deliver(canvas, nodeId, "01A")).toBe("delivered");
+    expect(events).toHaveLength(2);
+    expect(events[1]?.failed).toBeUndefined();
+  });
+
   it("writes nothing after suspend", async () => {
     const seat = rig();
     seat.append(mail("01A", "late"));

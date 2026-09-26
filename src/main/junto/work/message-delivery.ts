@@ -121,6 +121,8 @@ export class MessageDeliveryService {
   private readonly noWake = new Set<string>();
   /** One wake in flight per seat. */
   private readonly waking = new Set<string>();
+  /** Mail whose failed write was already told; cleared once it lands. */
+  private readonly failedTold = new Set<string>();
   /** Told once per message typed into a seat (wire pulse, preambles). */
   private readonly deliveredListeners = new Set<(event: WireTrafficEvent) => void>();
 
@@ -158,6 +160,7 @@ export class MessageDeliveryService {
     this.responses.clear();
     this.noWake.clear();
     this.waking.clear();
+    this.failedTold.clear();
   }
 
   private active(generation: number): boolean {
@@ -262,7 +265,21 @@ export class MessageDeliveryService {
     const written = await this.inSeatOrder(target.bindingId, () =>
       transport.writeMail(target.bindingId, payload),
     );
-    if (!written || !this.active(generation)) return "waiting";
+    if (!this.active(generation)) return "waiting";
+    if (!written) {
+      // The seat was live but the text did not land (it restarted or
+      // exited mid-write). The mail waits for the seat's next ready moment;
+      // say so once, since a silent wait here is what the operator misses.
+      if (!this.failedTold.has(key)) {
+        this.failedTold.add(key);
+        this.emitDelivered({
+          ...wireTrafficOfMail({ canvasName: canvas, toNodeId: nodeId, message, at: Date.now() }),
+          failed: true,
+        });
+      }
+      return "waiting";
+    }
+    this.failedTold.delete(key);
     this.delivered.add(key);
     this.waiting.delete(key);
     this.noWake.delete(messageId);
