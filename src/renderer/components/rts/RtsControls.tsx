@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { use$ } from "@legendapp/state/react";
 import {
+  BookmarkPlus,
   Flame,
   Gauge,
   Globe,
@@ -16,6 +17,7 @@ import {
   Table,
   Plus,
   Radio,
+  ScrollText,
   Server,
   SlidersHorizontal,
   Terminal,
@@ -51,6 +53,8 @@ import { resolveTerminalBinding } from "@shared/terminal";
 import { openAgentChatSurface, openDockBrowser, openTaskCreateSurface } from "../../lib/dock-state";
 import { openTerminal } from "../../lib/terminal-actions";
 import { openAgentEditor } from "../../lib/agent-editor-state";
+import { isProfileSeat } from "../../lib/agent-profiles";
+import { openSaveProfile } from "../../lib/profiles-state";
 import { deleteEdges } from "../../lib/edge-mutations";
 import { hostOf, nodeTitle } from "../../lib/presentation";
 import { browser$ } from "../../lib/browser-state";
@@ -461,6 +465,27 @@ export function KindActions({ node }: { readonly node: CanvasNode }) {
           <UserRoundPen size={ICON} />
         </KindKey>
       );
+      // The same seat actions as its right-click menu: guidance, then profile.
+      const guidance = (
+        <KindKey
+          label="Soul and instructions"
+          title="Soul and instructions (who it is, how it works)"
+          testId="rts-seat-guidance"
+          onClick={() => openAgentEditor(node.id, { section: "soul" })}
+        >
+          <ScrollText size={ICON} />
+        </KindKey>
+      );
+      const saveProfile = isProfileSeat(node) ? (
+        <KindKey
+          label="Save as profile"
+          title="Save as profile (reuse anywhere)"
+          testId="rts-save-profile"
+          onClick={() => openSaveProfile(node.id)}
+        >
+          <BookmarkPlus size={ICON} />
+        </KindKey>
+      ) : null;
       if (terminalBound) {
         return (
           <>
@@ -481,6 +506,8 @@ export function KindActions({ node }: { readonly node: CanvasNode }) {
             ><Mic size={ICON} /></KindKey>}
             {customize}
             {rename}
+            {guidance}
+            {saveProfile}
           </>
         );
       }
@@ -490,6 +517,8 @@ export function KindActions({ node }: { readonly node: CanvasNode }) {
             <OverseerToggleKey node={node} />
             {customize}
             {rename}
+            {guidance}
+            {saveProfile}
           </>
         );
       }
@@ -505,6 +534,8 @@ export function KindActions({ node }: { readonly node: CanvasNode }) {
           <OverseerToggleKey node={node} />
           {customize}
           {rename}
+          {guidance}
+          {saveProfile}
         </>
       );
     }
