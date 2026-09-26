@@ -12,7 +12,8 @@ import { describe, expect, it } from "vitest";
 
 const WIRE = resolve(dirname(fileURLToPath(import.meta.url)), "..", "src", "shared", "wire");
 const ALLOWED_PACKAGES = new Set(["effect"]);
-const FORBIDDEN_GLOBALS = /\b(?:Buffer|process|window|document|require|globalThis|navigator|__dirname)\b/u;
+/** A platform global in use: a bare Buffer / require / __dirname, or member access on a host object. */
+const FORBIDDEN_GLOBALS = /\b(?:Buffer|require|__dirname)\b|\b(?:process|window|document|globalThis|navigator)\s*\./u;
 
 const specifiersOf = (source: string): ReadonlyArray<string> => {
   const found: string[] = [];
@@ -33,9 +34,16 @@ const stripComments = (source: string): string =>
 const wireFiles = readdirSync(WIRE).filter((name) => name.endsWith(".ts"));
 
 describe("wire module import closure", () => {
-  it("holds the modules the contract names", () => {
+  it("holds the modules the contract names, plus the demo fixture", () => {
     expect(new Set(wireFiles)).toEqual(
-      new Set(["agent-signals.ts", "companion-protocol.ts", "operator-feed.ts", "thread-health.ts"]),
+      new Set([
+        "agent-signals.ts",
+        "companion-protocol.ts",
+        "operator-feed.ts",
+        "thread-health.ts",
+        // Not protocol: the --demo data, synced by junto-app's in-app demo.
+        "companion-demo-fixture.ts",
+      ]),
     );
   });
 
@@ -56,6 +64,12 @@ describe("wire module import closure", () => {
       expect(FORBIDDEN_GLOBALS.exec(code)?.[0], `${file} uses a platform global`).toBeUndefined();
     });
   }
+
+  it("the checker itself catches a global, and not a field that shares its name", () => {
+    expect(FORBIDDEN_GLOBALS.test("const x = process.env.HOME;")).toBe(true);
+    expect(FORBIDDEN_GLOBALS.test("Buffer.from(text)")).toBe(true);
+    expect(FORBIDDEN_GLOBALS.test('readonly process: "running";')).toBe(false);
+  });
 
   it("the checker itself catches an escape", () => {
     expect(specifiersOf('import { x } from "../canvas";\nexport * from "node:fs";\nimport type { Y } from "@shared/z";')).toEqual([

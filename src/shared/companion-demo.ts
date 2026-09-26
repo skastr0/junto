@@ -33,115 +33,54 @@ import {
 } from "./companion-protocol";
 import { buildOperatorFeed, feedSeatsFromDoc, type FeedHealth } from "./operator-feed";
 import { THREAD_HEALTH_LABEL, THREAD_HEALTH_TONE, type ThreadHealthReading, type ThreadHealthValue } from "./thread-health";
-import type { AgentSeatState } from "./agent-seat-state";
+import {
+  DEMO_ACTIVITY_AT,
+  DEMO_CANVAS,
+  DEMO_CANVAS_TITLE,
+  DEMO_DEVICE_ID,
+  DEMO_DEVICE_NAME,
+  DEMO_HEALTH_CONFIDENCE,
+  DEMO_HEALTH_OBSERVED_AT,
+  DEMO_MAIL,
+  DEMO_QUICK_REPLIES,
+  DEMO_REGIONS,
+  DEMO_SEATS,
+  DEMO_SIGNALS,
+  DEMO_STATION,
+  DEMO_T0,
+  demoSeatPosition,
+  type DemoMail,
+  type DemoRegion,
+  type DemoSeat,
+} from "./wire/companion-demo-fixture";
 
-export const DEMO_CANVAS = "demo";
-export const DEMO_DEVICE_ID = "dev_00000000000000000000DEM000";
-/** 2026-09-21T16:26:40Z. Every demo timestamp is relative to it. */
-export const DEMO_T0 = 1_790_000_000_000;
-const MIN = 60_000;
+export { DEMO_CANVAS, DEMO_DEVICE_ID, DEMO_T0 } from "./wire/companion-demo-fixture";
 
-const region = (id: string, label: string, color: string, x: number): CanvasNode =>
-  ({ id, type: "group", label, color, x, y: 0, width: 900, height: 700 }) as unknown as CanvasNode;
+const region = (r: DemoRegion): CanvasNode =>
+  ({ id: r.id, type: "group", label: r.label, color: r.color, x: r.x, y: r.y, width: r.width, height: r.height }) as unknown as CanvasNode;
 
-const seatNode = (id: string, name: string, harness: string, x: number, y: number): CanvasNode =>
+const seatNode = (seat: DemoSeat): CanvasNode =>
   ({
-    id,
+    id: seat.id,
     type: "text",
-    text: name,
-    x,
-    y,
+    text: seat.name,
+    ...demoSeatPosition(seat),
     width: 240,
     height: 96,
-    ether: { entity: { kind: "agent", name: `local:demo-${id}` }, terminal: { harness } },
+    ether: { entity: { kind: "agent", name: `local:demo-${seat.id}` }, terminal: { harness: seat.harness } },
   }) as unknown as CanvasNode;
 
-type DemoSeat = {
-  readonly id: string;
-  readonly name: string;
-  readonly harness: string;
-  readonly regionX: number;
-  readonly slot: number;
-  readonly control: AgentSeatState;
-  readonly reason?: string;
-  readonly process: "running" | "starting" | "stopped";
-  readonly doneUnread?: boolean;
-  readonly health?: ThreadHealthValue;
-};
-
-const SEATS: ReadonlyArray<DemoSeat> = [
-  { id: "atlas", name: "Atlas", harness: "claude", regionX: 0, slot: 0, control: "idle", process: "running" },
-  { id: "forge", name: "Forge", harness: "codex", regionX: 0, slot: 1, control: "attention", reason: "permission prompt", process: "running" },
-  { id: "relay", name: "Relay", harness: "claude", regionX: 0, slot: 2, control: "working", process: "running", health: "going_well" },
-  { id: "quill", name: "Quill", harness: "claude", regionX: 1000, slot: 0, control: "idle", process: "running" },
-  { id: "prism", name: "Prism", harness: "amp", regionX: 1000, slot: 1, control: "idle", process: "running", doneUnread: true },
-  { id: "ember", name: "Ember", harness: "codex", regionX: 1000, slot: 2, control: "idle", process: "running", health: "waiting_on_operator" },
-  { id: "sage", name: "Sage", harness: "hermes", regionX: 2000, slot: 0, control: "working", process: "running", health: "thrashing" },
-  { id: "lumen", name: "Lumen", harness: "claude", regionX: 2000, slot: 1, control: "idle", process: "stopped" },
-];
-
-const DOC: CanvasDoc = {
-  nodes: [
-    region("r-backend", "Backend", "4", 0),
-    region("r-frontend", "Frontend", "5", 1000),
-    region("r-research", "Research", "6", 2000),
-    ...SEATS.map((seat) => seatNode(seat.id, seat.name, seat.harness, seat.regionX + 40 + seat.slot * 280, 120)),
-  ],
-  edges: [],
-};
+const SEATS = DEMO_SEATS;
+const DOC: CanvasDoc = { nodes: [...DEMO_REGIONS.map(region), ...SEATS.map(seatNode)], edges: [] };
 
 const reading = (seat: DemoSeat, value: ThreadHealthValue, at: number): ThreadHealthReading => ({
   bindingId: `local:demo-${seat.id}`,
   value,
-  confidence: 0.93,
+  confidence: DEMO_HEALTH_CONFIDENCE,
   observedAt: at,
   provenance: { source: "jev", assessmentId: `demo-${seat.id}`, questionId: `health.${value}`, packVersion: "awareness-pack/2" },
-  signals: [{ value, probability: 0.93, questionId: `health.${value}` }],
+  signals: [{ value, probability: DEMO_HEALTH_CONFIDENCE, questionId: `health.${value}` }],
 });
-
-const INITIAL_SIGNALS: ReadonlyArray<AgentSignal> = [
-  {
-    signalId: "sig_demo_blocked",
-    canvasName: DEMO_CANVAS,
-    nodeId: "atlas",
-    kind: "blocked",
-    text: "Need the staging database password to run the migration.",
-    detail: "The migration step reads `STAGING_DB_URL`. It is not set in this shell.",
-    createdAt: DEMO_T0 - 12 * MIN,
-    state: "open",
-  },
-  {
-    signalId: "sig_demo_escalate",
-    canvasName: DEMO_CANVAS,
-    nodeId: "quill",
-    kind: "escalate",
-    text: "Should the empty state use the illustration or plain text?",
-    createdAt: DEMO_T0 - 7 * MIN,
-    state: "open",
-  },
-  {
-    signalId: "sig_demo_feedback",
-    canvasName: DEMO_CANVAS,
-    nodeId: "prism",
-    kind: "feedback",
-    text: "The pricing page is ready for review.",
-    detail: "- New tier table\n- Annual toggle\n- FAQ moved below the fold",
-    createdAt: DEMO_T0 - 3 * MIN,
-    state: "open",
-  },
-];
-
-type DemoMail = Omit<CompanionMail, "canvasName">;
-
-const INITIAL_MAIL: ReadonlyArray<DemoMail> = [
-  { messageId: "01J9DEMOMAIL0000000000000A1", nodeId: "atlas", direction: "to_seat", from: { kind: "operator" }, text: "Run the schema migration against staging.", at: DEMO_T0 - 40 * MIN, delivery: "delivered" },
-  { messageId: "01J9DEMOMAIL0000000000000A2", nodeId: "atlas", direction: "to_seat", from: { kind: "seat", nodeId: "relay", name: "Relay" }, text: "The API tests pass on my branch.", at: DEMO_T0 - 25 * MIN, delivery: "delivered" },
-  { messageId: "01J9DEMOMAIL0000000000000A3", nodeId: "atlas", direction: "from_seat", from: { kind: "seat", nodeId: "atlas", name: "Atlas" }, text: "Relay, hold the deploy until the migration lands.", at: DEMO_T0 - 20 * MIN, delivery: "delivered" },
-  { messageId: "01J9DEMOMAIL0000000000000B1", nodeId: "quill", direction: "to_seat", from: { kind: "operator" }, text: "Design the empty state for the inbox.", at: DEMO_T0 - 30 * MIN, delivery: "delivered" },
-  { messageId: "01J9DEMOMAIL0000000000000C1", nodeId: "lumen", direction: "to_seat", from: { kind: "operator" }, text: "Summarize the three papers when you are back.", at: DEMO_T0 - 5 * MIN, delivery: "waiting_for_seat" },
-];
-
-const QUICK_REPLIES = ["Yes, go ahead.", "No, stop here.", "Use your judgment.", "I'll look at it shortly."];
 
 /** A fresh demo world; every connection gets its own. */
 export const makeDemoBackend = (): CompanionBackend & {
@@ -150,9 +89,9 @@ export const makeDemoBackend = (): CompanionBackend & {
 } => {
   let clock = DEMO_T0;
   let revision = 0;
-  const signals = new Map(INITIAL_SIGNALS.map((signal) => [signal.signalId, signal] as const));
+  const signals = new Map(DEMO_SIGNALS.map((signal) => [signal.signalId, signal] as const));
   const signalLog: Array<{ readonly seq: number; readonly signal: AgentSignal }> = [];
-  const mail: DemoMail[] = [...INITIAL_MAIL];
+  const mail: DemoMail[] = [...DEMO_MAIL];
   let mailSeq = 0;
   const now = (): number => clock;
   const tick = (): number => {
@@ -167,7 +106,7 @@ export const makeDemoBackend = (): CompanionBackend & {
 
   const healthOf = (seat: DemoSeat): { reading: ThreadHealthReading; feed: FeedHealth } | undefined => {
     if (!seat.health) return undefined;
-    const r = reading(seat, seat.health, DEMO_T0 - MIN);
+    const r = reading(seat, seat.health, DEMO_HEALTH_OBSERVED_AT);
     return {
       reading: r,
       feed: {
@@ -184,7 +123,7 @@ export const makeDemoBackend = (): CompanionBackend & {
   const feedNow = () => {
     const attentionByNodeId = new Map(
       SEATS.filter((seat) => seat.control === "attention").map(
-        (seat) => [seat.id, { reason: seat.reason ?? "", at: DEMO_T0 - 2 * MIN }] as const,
+        (seat) => [seat.id, { reason: seat.reason ?? "", at: DEMO_ACTIVITY_AT }] as const,
       ),
     );
     const healthByNodeId = new Map(
@@ -211,7 +150,7 @@ export const makeDemoBackend = (): CompanionBackend & {
       return companionSeat({
         seat: entry.seat,
         region: entry.region,
-        control: { state: seat.control, reason: seat.reason ?? "", at: DEMO_T0 - 2 * MIN },
+        control: { state: seat.control, reason: seat.reason ?? "", at: DEMO_ACTIVITY_AT },
         process: seat.process,
         ...(seat.doneUnread ? { doneUnread: true } : {}),
         ...(rollup ? { signal: { kind: rollup.kind, signalId: rollup.signal.signalId, openCount: rollup.openCount } } : {}),
@@ -248,7 +187,7 @@ export const makeDemoBackend = (): CompanionBackend & {
     pairComplete: async () => outcomeFail("invalid", "The demo is already paired."),
     canvases: async () =>
       outcomeOk([
-        { canvasName: DEMO_CANVAS, title: "Demo", active: true, playing: true, needsYou: feedNow().count },
+        { canvasName: DEMO_CANVAS, title: DEMO_CANVAS_TITLE, active: true, playing: true, needsYou: feedNow().count },
       ]),
     feeds: async (canvasName) =>
       canvasName === undefined || known(canvasName) ? outcomeOk([feedNow()]) : outcomeFail("not-found", "No such canvas."),
@@ -286,7 +225,7 @@ export const makeDemoBackend = (): CompanionBackend & {
       if (!known(canvasName) || !seatExists(nodeId)) return outcomeFail("not-found", "No such seat.");
       return outcomeOk(appendOperatorMail(nodeId, text, tick()));
     },
-    quickReplies: async () => outcomeOk(QUICK_REPLIES),
+    quickReplies: async () => outcomeOk(DEMO_QUICK_REPLIES),
     portrait: async (portraitIdentity, size, theme) => outcomeOk(companionPortraitSvg({ portraitIdentity, size, theme })),
   };
 };
@@ -313,8 +252,8 @@ export const makeDemoHost = (options: { readonly appVersion?: string } = {}): Co
       hello: {
         appVersion: options.appVersion ?? "demo",
         deviceId: DEMO_DEVICE_ID,
-        deviceName: "Demo phone",
-        station: "Junto demo",
+        deviceName: DEMO_DEVICE_NAME,
+        station: DEMO_STATION,
         serverTime: backend.now(),
       },
     }),
