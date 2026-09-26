@@ -1411,7 +1411,7 @@ const declaredCapabilities: ReadonlyArray<CommandCapability> = [
     command: "onboard",
     category: "discovery",
     description:
-      "Node, region, connected, co-members, capabilities from live state.",
+      "Node, your seat (name, harness, soul, instructions), region, connected, co-members, capabilities from live state.",
   },
   {
     command_id: "schema.list",

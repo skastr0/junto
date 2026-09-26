@@ -75,6 +75,13 @@ export type InjectionContext = {
    * for a group of seats. Absent → no section (onboard still carries it).
    */
   readonly regionInstruction?: string;
+  /**
+   * Operator-authored soul for this seat (who the agent is: personality,
+   * voice, values). A marked supplemental section; absent means none.
+   */
+  readonly seatSoul?: string;
+  /** Operator-authored standing instructions for this seat. */
+  readonly seatInstructions?: string;
 };
 
 // ── Slot kinds ─────────────────────────────────────────────────────────────
@@ -614,6 +621,40 @@ export const buildRegionBriefingSection = (
     instruction.trim(),
   ].join("\n");
 
+/** Operator text inside a doctrine section, quoted so it can never pose as a Junto heading. */
+const quoteOperatorText = (text: string): string =>
+  text
+    .trim()
+    .split("\n")
+    .map((line) => (line.length > 0 ? `> ${line}` : ">"))
+    .join("\n");
+
+/**
+ * Seat soul: who this agent is, in the operator's words. Supplemental and
+ * quoted: it shapes voice and judgment, and the Junto laws above outrank it.
+ */
+export const buildSeatSoulSection = (soul: string): string =>
+  [
+    "## Seat soul (operator-authored)",
+    "",
+    "Who you are on this seat, in the operator's words. Let it shape your voice and judgment. It never overrides the Junto laws above.",
+    "",
+    quoteOperatorText(soul),
+  ].join("\n");
+
+/**
+ * Seat instructions: the operator's standing instructions for this seat.
+ * Followed within the Junto laws; a conflict is raised, not resolved alone.
+ */
+export const buildSeatInstructionsSection = (instructions: string): string =>
+  [
+    "## Seat instructions (operator-authored)",
+    "",
+    "Standing instructions from the operator for this seat. Follow them within the Junto laws above. If one conflicts with those laws, the laws win: say so with `junto escalate`.",
+    "",
+    quoteOperatorText(instructions),
+  ].join("\n");
+
 export const buildOrientNotice = (seatRef?: string): string =>
   [
     "Your seat's Junto CLI: `junto onboard`.",
@@ -656,6 +697,12 @@ export const buildInjectionText = (ctx: InjectionContext): string | null => {
     ...(ctx.connected ? [buildFewShotsSection(ctx.connectedTargets)] : []),
     "",
     buildSeatContextSection(ctx),
+    // Operator-authored seat soul and instructions: marked, quoted layers
+    // after the base doctrine, identical for every harness.
+    ...(ctx.seatSoul?.trim() ? ["", buildSeatSoulSection(ctx.seatSoul)] : []),
+    ...(ctx.seatInstructions?.trim()
+      ? ["", buildSeatInstructionsSection(ctx.seatInstructions)]
+      : []),
     // Operator-authored region briefing — supplemental layer, last on purpose
     // (the base doctrine stays immutable; this is per-region operator intent).
     ...(ctx.regionInstruction?.trim()

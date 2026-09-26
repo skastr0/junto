@@ -32,6 +32,7 @@ import {
   shouldResumeHarnessSession,
 } from "./session-existence";
 import { connectedCapabilities, containingRegion } from "../work/authz";
+import { seatGuidanceIndex } from "../seat-guidance/index-memory";
 
 /**
  * Official `bun run dev` sets `JUNTO_HOME` (e.g. ~/.junto-dev) while leaving
@@ -114,6 +115,17 @@ const injectionForSpawn = (
           return region?.instruction
             ? { regionInstruction: region.instruction }
             : {};
+        })()
+      : {}),
+    // The operator's soul and instructions for this seat, compiled here on
+    // the Command Center so a Remote spawn carries them unchanged.
+    ...(input.nodeId
+      ? (() => {
+          const guidance = seatGuidanceIndex.get(input.nodeId);
+          return {
+            ...(guidance?.soul ? { seatSoul: guidance.soul } : {}),
+            ...(guidance?.instructions ? { seatInstructions: guidance.instructions } : {}),
+          };
         })()
       : {}),
   };

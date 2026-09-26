@@ -13,6 +13,7 @@ import type { ManagedSpawnIntent } from "./managed-terminal-launch";
 import type { TerminalLaunch, TerminalSessionSummary } from "./terminal";
 import type { HostDirectorySnapshot } from "./host-directory";
 import { ALL_PORTS } from "./physics/schema";
+import { SEAT_INSTRUCTIONS_MAX, SEAT_SOUL_MAX } from "./seat-guidance";
 
 /** Independent unreleased terminal-control contract. */
 export const TERM_CONTROL_PROTOCOL = remoteStationContractVersion(
@@ -238,6 +239,10 @@ const hasOnlyKeys = (
   allowed: ReadonlySet<string>,
 ): boolean => Object.keys(value).every((key) => allowed.has(key));
 
+/** Absent, or a string no longer than its bound. */
+const optionalBoundedString = (value: unknown, max: number): boolean =>
+  value === undefined || (typeof value === "string" && value.length <= max);
+
 const optionalString = (value: unknown): boolean =>
   value === undefined || typeof value === "string";
 
@@ -281,12 +286,16 @@ const isInjectionContext = (value: unknown): boolean => {
         "seatRef",
         "connectedTargets",
         "regionInstruction",
+        "seatSoul",
+        "seatInstructions",
       ]),
     ) ||
     typeof value.seatBound !== "boolean" ||
     typeof value.connected !== "boolean" ||
     !optionalString(value.seatRef) ||
-    !optionalString(value.regionInstruction)
+    !optionalString(value.regionInstruction) ||
+    !optionalBoundedString(value.seatSoul, SEAT_SOUL_MAX) ||
+    !optionalBoundedString(value.seatInstructions, SEAT_INSTRUCTIONS_MAX)
   ) {
     return false;
   }

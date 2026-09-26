@@ -137,6 +137,10 @@ import {
   type AgentSignalRepositoryError,
 } from "../signals/repository";
 import { PausePlane } from "../pause-plane";
+import { SeatGuidanceRepository } from "../seat-guidance/repository";
+import { PortraitOverrideRepository } from "../portraits/repository";
+import { recoverDocumentLaunchChoices } from "@shared/launch-choices";
+import { isHarnessId } from "@shared/managed-terminal-templates";
 import { RELAY_ENABLED, TASKS_ENABLED } from "@shared/features";
 
 /** Ops that act on the factory — refused for paused seats. Reads stay open. */
@@ -848,6 +852,39 @@ const boardAuthorForActor = (doc: CanvasDoc, actor: ActorRef): BoardAuthor => {
   };
 };
 
+/**
+ * An agent seat's configuration for `junto onboard`. The operator's soul,
+ * instructions, and look come from their stores when this runtime has them;
+ * a store that cannot answer leaves its field out rather than failing onboard.
+ */
+const seatConfigurationOf = (node: CanvasNode) =>
+  Effect.gen(function* () {
+    const terminal = node.type === "text" ? node.ether?.terminal : undefined;
+    const harness = terminal?.harness;
+    if (!harness) return undefined;
+    const choices = isHarnessId(harness) ? recoverDocumentLaunchChoices(harness, terminal.launch) : {};
+    const name = (terminal.label ?? (node.type === "text" ? node.text.split("\n")[0] : "") ?? "").trim();
+    const guidanceStore = yield* Effect.serviceOption(SeatGuidanceRepository);
+    const guidance = Option.isSome(guidanceStore)
+      ? yield* guidanceStore.value.get(node.id).pipe(Effect.orElseSucceed(() => null))
+      : null;
+    const portraitStore = yield* Effect.serviceOption(PortraitOverrideRepository);
+    const look = Option.isSome(portraitStore)
+      ? (yield* portraitStore.value.list().pipe(Effect.orElseSucceed(() => ({}) as Record<string, never>)))[node.id]
+      : undefined;
+    return {
+      ...(name ? { name } : {}),
+      harness,
+      ...(choices.profile ? { harness_profile: choices.profile } : {}),
+      ...(choices.model ? { model: choices.model } : {}),
+      ...(choices.effort ? { effort: choices.effort } : {}),
+      ...(choices.mode ? { mode: choices.mode } : {}),
+      ...(look ? { look } : {}),
+      ...(guidance?.soul ? { soul: guidance.soul } : {}),
+      ...(guidance?.instructions ? { instructions: guidance.instructions } : {}),
+    };
+  });
+
 const dispatchOp = (
   op: WorkOp,
   args: unknown,
@@ -958,6 +995,7 @@ const dispatchOp = (
 
     if (op === "onboard") {
       const self = findNode(board, caller.nodeId)!;
+      const seat = yield* seatConfigurationOf(self);
       const region = containingRegion(board, caller.nodeId);
       const connected = connectedCapabilities(board, caller.nodeId);
       const overseer = isManagedAgentNode(self) && self.ether.overseer === true;
@@ -970,6 +1008,11 @@ const dispatchOp = (
           nodeId: caller.nodeId,
         }),
         node: summarizeNode(self),
+        // The seat as the operator configured it: name, harness and launch
+        // dials, look, and the operator-authored soul and instructions. The
+        // same for every harness; the doctrine carries soul and instructions
+        // too, and this is where to reread them after a change.
+        ...(seat ? { seat } : {}),
         // Additive: derived factory role of the process-bound seat.
         role: factoryRoleOfNode(self),
         tools,
