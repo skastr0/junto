@@ -219,6 +219,15 @@
       "retire": "IN-MEMORY WORLD: retire when the in-memory factory world owns the projection and this file's only write is the journal append."
     },
     {
+      "path": "src/main/junto/companion/repository.ts",
+      "kind": "debt",
+      "tables": [
+        "companion_devices"
+      ],
+      "reason": "Companion device seam: phones paired from Settings, Companion, the pairing swap relayed from companion-stdio, last seen, and Remove.",
+      "retire": "IN-MEMORY WORLD: retire when the in-memory factory world owns the projection and this file's only write is the journal append."
+    },
+    {
       "path": "src/main/junto/portraits/state-schema.ts",
       "kind": "permanent",
       "tables": [

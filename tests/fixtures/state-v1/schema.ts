@@ -1,7 +1,8 @@
 /**
- * The frozen version-1 through version-4 state schemas. Version 5 added
- * portrait overrides (4 -> 5), so version 4 is the current composition
- * without that fragment. Version 4 added squads (3 -> 4), so version 3 is
+ * The frozen version-1 through version-5 state schemas. Version 6 added
+ * companion devices (5 -> 6), so version 5 is the current composition
+ * without that fragment. Version 5 added portrait overrides (4 -> 5), so
+ * version 4 is version 5 without that fragment. Version 4 added squads (3 -> 4), so version 3 is
  * version 4 without that fragment. Version 3 added agent signals (2 -> 3), so version 2 is
  * version 3 without that fragment. Version 2 dropped the mail delivery ledger
  * (1 -> 2), so version 1 is version 2 plus that ledger's DDL, exactly as it
@@ -11,6 +12,7 @@ import { STATE_SCHEMA_FRAGMENTS } from "../../../src/main/junto/state/schema";
 import { AGENT_SIGNALS_STATE_SCHEMA_SQL } from "../../../src/main/junto/signals/state-schema";
 import { SQUADS_STATE_SCHEMA_SQL } from "../../../src/main/junto/squads/state-schema";
 import { PORTRAIT_OVERRIDES_STATE_SCHEMA_SQL } from "../../../src/main/junto/portraits/state-schema";
+import { COMPANION_DEVICES_STATE_SCHEMA_SQL } from "../../../src/main/junto/companion/state-schema";
 import { withoutProposalStorage } from "../../../src/main/junto/work/state-schema";
 
 const composedWithout = (retired: ReadonlyArray<string>): string =>
@@ -18,14 +20,21 @@ const composedWithout = (retired: ReadonlyArray<string>): string =>
     STATE_SCHEMA_FRAGMENTS.filter((fragment) => !retired.includes(fragment)).join("\n"),
   );
 
-export const STATE_SCHEMA_V4_SQL = composedWithout([PORTRAIT_OVERRIDES_STATE_SCHEMA_SQL]);
+export const STATE_SCHEMA_V5_SQL = composedWithout([COMPANION_DEVICES_STATE_SCHEMA_SQL]);
+
+export const STATE_SCHEMA_V4_SQL = composedWithout([
+  COMPANION_DEVICES_STATE_SCHEMA_SQL,
+  PORTRAIT_OVERRIDES_STATE_SCHEMA_SQL,
+]);
 
 export const STATE_SCHEMA_V3_SQL = composedWithout([
+  COMPANION_DEVICES_STATE_SCHEMA_SQL,
   PORTRAIT_OVERRIDES_STATE_SCHEMA_SQL,
   SQUADS_STATE_SCHEMA_SQL,
 ]);
 
 export const STATE_SCHEMA_V2_SQL = composedWithout([
+  COMPANION_DEVICES_STATE_SCHEMA_SQL,
   PORTRAIT_OVERRIDES_STATE_SCHEMA_SQL,
   SQUADS_STATE_SCHEMA_SQL,
   AGENT_SIGNALS_STATE_SCHEMA_SQL,

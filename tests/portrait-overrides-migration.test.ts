@@ -23,9 +23,8 @@ import {
   expectedStateSchemaIdentity,
   verifyRecordedStateSchemaIdentity,
 } from "../src/main/junto/state/schema-identity";
-import { STATE_SCHEMA_SQL } from "../src/main/junto/state/schema";
 import { normalizePortraitOverride } from "../src/shared/portrait-overrides";
-import { STATE_SCHEMA_V4_SQL } from "./fixtures/state-v1/schema";
+import { STATE_SCHEMA_V4_SQL, STATE_SCHEMA_V5_SQL } from "./fixtures/state-v1/schema";
 
 const fixture = fileURLToPath(new URL("./fixtures/state-v1/command-center-v1.db", import.meta.url));
 
@@ -66,6 +65,13 @@ const snapshot = (database: DatabaseSync) =>
     tableNames(database).map((table) => [table, database.prepare(`SELECT * FROM "${table}" ORDER BY 1`).all()]),
   );
 
+const versionFivePlan = {
+  ...STATE_SCHEMA_MIGRATION_PLAN,
+  currentVersion: 5,
+  currentSchemaSql: STATE_SCHEMA_V5_SQL,
+  migrations: STATE_SCHEMA_MIGRATIONS.filter((step) => step.toVersion <= 5),
+};
+
 const versionFourPlan = {
   ...STATE_SCHEMA_MIGRATION_PLAN,
   currentVersion: 4,
@@ -104,9 +110,9 @@ const overrides = (database: DatabaseSync) =>
   );
 
 describe("state migration 4 -> 5 (portrait overrides)", () => {
-  it("freezes the version-four witness the step starts from and names the head", () => {
+  it("freezes the version-four witness the step starts from and the version-five one it ends at", () => {
     expect(expectedStateSchemaIdentity(STATE_SCHEMA_V4_SQL)).toEqual(STATE_SCHEMA_V4_IDENTITY);
-    expect(expectedStateSchemaIdentity(STATE_SCHEMA_SQL)).toEqual(STATE_SCHEMA_V5_IDENTITY);
+    expect(expectedStateSchemaIdentity(STATE_SCHEMA_V5_SQL)).toEqual(STATE_SCHEMA_V5_IDENTITY);
   });
 
   it("copies every existing override forward and leaves every other row, settings included, untouched", async () => {
@@ -119,7 +125,7 @@ describe("state migration 4 -> 5 (portrait overrides)", () => {
       expect((before.work_events as unknown[]).length).toBeGreaterThan(0);
       expect(before).not.toHaveProperty("portrait_overrides");
 
-      const result = migrateStateSchema(database);
+      const result = migrateStateSchema(database, versionFivePlan);
       expect(result).toMatchObject({ previousVersion: 4, schemaVersion: 5 });
       expect(verifyRecordedStateSchemaIdentity(database)).toMatchObject(STATE_SCHEMA_V5_IDENTITY);
 
@@ -146,7 +152,7 @@ describe("state migration 4 -> 5 (portrait overrides)", () => {
     try {
       migrateStateSchema(database, versionFourPlan);
       writeSettingsRow(database, { appearance: { theme: "dark" } });
-      migrateStateSchema(database);
+      migrateStateSchema(database, versionFivePlan);
       expect(overrides(database)).toEqual({});
       const insert = database.prepare(
         "INSERT INTO portrait_overrides(seat_id, body_json, updated_at) VALUES (?, ?, 1)",

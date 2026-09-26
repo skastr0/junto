@@ -6,6 +6,7 @@ import {
 import { STATE_SCHEMA_SQL } from "./schema";
 import { AGENT_SIGNALS_STATE_SCHEMA_SQL } from "../signals/state-schema";
 import { SQUADS_STATE_SCHEMA_SQL } from "../squads/state-schema";
+import { COMPANION_DEVICES_STATE_SCHEMA_SQL } from "../companion/state-schema";
 import {
   PORTRAIT_OVERRIDES_COPY_FORWARD_SQL,
   PORTRAIT_OVERRIDES_STATE_SCHEMA_SQL,
@@ -145,7 +146,16 @@ export const STATE_SCHEMA_V5_IDENTITY = {
     "062a8908004842d3c82922717802abdc487c5d6bee28b99e9d8dc72c7ec83f2d",
 } as const satisfies VerifiedStateSchemaIdentity;
 
-export const CURRENT_STATE_SCHEMA_VERSION = 5;
+/**
+ * Version 6 adds companion devices: the phones paired with this Mac for the
+ * free mobile companion. Expand only.
+ */
+export const STATE_SCHEMA_V6_IDENTITY = {
+  actualSchemaSha256:
+    "968a438797d302398a05ac6042b2d2eb06d55a63e2de2c98680fe5cd18672cae",
+} as const satisfies VerifiedStateSchemaIdentity;
+
+export const CURRENT_STATE_SCHEMA_VERSION = 6;
 
 /**
  * Stable alias for the head identity so tests and tooling never rename an
@@ -153,7 +163,7 @@ export const CURRENT_STATE_SCHEMA_VERSION = 5;
  * above after any schema change.
  */
 export const CURRENT_STATE_SCHEMA_IDENTITY: VerifiedStateSchemaIdentity =
-  STATE_SCHEMA_V5_IDENTITY;
+  STATE_SCHEMA_V6_IDENTITY;
 
 /**
  * Junto version 1 is composed fresh and adopted, never reached by chain; each
@@ -207,6 +217,16 @@ export const STATE_SCHEMA_MIGRATIONS: ReadonlyArray<StateSchemaMigration> = [
     migrate: (database) => {
       database.exec(PORTRAIT_OVERRIDES_STATE_SCHEMA_SQL);
       database.prepare(PORTRAIT_OVERRIDES_COPY_FORWARD_SQL).run(Date.now());
+    },
+  },
+  {
+    fromVersion: 5,
+    toVersion: 6,
+    name: "add companion devices",
+    safety: STATE_SCHEMA_MIGRATION_SAFETY,
+    fromIdentity: STATE_SCHEMA_V5_IDENTITY,
+    migrate: (database) => {
+      database.exec(COMPANION_DEVICES_STATE_SCHEMA_SQL);
     },
   },
 ];
