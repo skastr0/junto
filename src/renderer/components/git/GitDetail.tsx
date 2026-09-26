@@ -1,10 +1,12 @@
-import { useEffect, useState } from "react";
+import { Component, useEffect, useMemo, useState, type ReactNode } from "react";
+import { use$ } from "@legendapp/state/react";
 import { X } from "lucide-react";
 import { PatchDiff } from "@pierre/diffs/react";
 import type { CanvasNode } from "@shared/canvas";
-import type { GitCommit } from "@shared/git";
+import { splitPatchFiles, type GitCommit } from "@shared/git";
 import { DIM, GREEN, HUE, INK } from "../../lib/theme";
 import { getJuntoApi } from "../../lib/junto-api";
+import { themeMode$ } from "../../lib/theme-mode";
 import { FocusSurface } from "../FocusSurface";
 import { IconButton, OverlayHeader } from "../ui";
 import "./git.css";
@@ -23,6 +25,27 @@ const formatWhen = (iso: string): string => {
   });
 };
 
+/**
+ * One file's diff. The diff view throws on a file section it cannot parse
+ * (a binary file, a mode-only change); that file falls back to its plain
+ * patch text instead of taking the window down.
+ */
+class FileDiffBoundary extends Component<
+  { readonly text: string; readonly children: ReactNode },
+  { readonly failed: boolean }
+> {
+  override state = { failed: false };
+
+  static getDerivedStateFromError(): { failed: boolean } {
+    return { failed: true };
+  }
+
+  override render(): ReactNode {
+    if (!this.state.failed) return this.props.children;
+    return <pre className="git-browser__plain">{this.props.text}</pre>;
+  }
+}
+
 export function GitDetail({
   node,
   onClose,
@@ -35,6 +58,8 @@ export function GitDetail({
   const [commits, setCommits] = useState<ReadonlyArray<GitCommit>>([]);
   const [selected, setSelected] = useState<string>();
   const [patch, setPatch] = useState<string>("");
+  const [cut, setCut] = useState<{ readonly files?: number; readonly shownFiles: number }>();
+  const [patchError, setPatchError] = useState<string>();
   const [error, setError] = useState<string | undefined>();
   const [loadingPatch, setLoadingPatch] = useState(false);
 
@@ -65,6 +90,8 @@ export function GitDetail({
   }, [cwd]);
 
   useEffect(() => {
+    setCut(undefined);
+    setPatchError(undefined);
     if (!cwd || !selected) {
       setPatch("");
       return;
@@ -76,20 +103,42 @@ export function GitDetail({
       .then((result) => {
         if (!live) return;
         setLoadingPatch(false);
-        if (result.ok) setPatch(result.patch);
-        else setPatch("");
+        if (result.ok) {
+          setPatch(result.patch);
+          if (result.shownFiles !== undefined) {
+            setCut({ files: result.files, shownFiles: result.shownFiles });
+          }
+        } else {
+          setPatch("");
+          setPatchError(result.error);
+        }
       })
       .catch(() => {
         if (!live) return;
         setLoadingPatch(false);
         setPatch("");
+        setPatchError("git unavailable");
       });
     return () => {
       live = false;
     };
   }, [cwd, selected]);
 
+  // The diff view follows Junto's theme, not the system's.
+  const themeType = use$(themeMode$) === "bright" ? "light" : "dark";
+  const fileDiffs = useMemo(() => splitPatchFiles(patch), [patch]);
+  // One file per frame: the view highlights a file in one task, so a commit
+  // of many files never holds the renderer longer than its largest file.
+  const [mounted, setMounted] = useState(1);
+  useEffect(() => setMounted(1), [fileDiffs]);
+  useEffect(() => {
+    if (mounted >= fileDiffs.length) return;
+    const frame = requestAnimationFrame(() => setMounted((count) => count + 1));
+    return () => cancelAnimationFrame(frame);
+  }, [mounted, fileDiffs]);
   const active = commits.find((commit) => commit.sha === selected);
+  // The log's own count is the commit's; the capped read may have stopped early.
+  const cutFiles = cut ? Math.max(active?.stats?.files ?? 0, cut.files ?? 0, cut.shownFiles) : 0;
 
   return (
     <FocusSurface
@@ -149,17 +198,33 @@ export function GitDetail({
                 loading diff
               </div>
             ) : patch.trim().length > 0 ? (
-              <PatchDiff
-                patch={patch}
-                disableWorkerPool
-                options={{
-                  theme: { dark: "pierre-dark", light: "pierre-light" },
-                  overflow: "scroll",
-                }}
-              />
+              <>
+              {cut ? (
+                <div className="git-browser__cut" style={{ color: DIM }} data-testid="git-diff-cut">
+                  {`Large diff, cut to fit: ${String(cut.shownFiles)} of ${String(cutFiles)} ${cutFiles === 1 ? "file" : "files"}, long ones in part. Open it in a terminal for the rest.`}
+                </div>
+              ) : null}
+              {fileDiffs.slice(0, mounted).map((file, index) => (
+                <FileDiffBoundary key={`${String(index)}:${file.slice(0, 200)}`} text={file}>
+                  <PatchDiff
+                    patch={file}
+                    disableWorkerPool
+                    options={{
+                      theme: { dark: "pierre-dark", light: "pierre-light" },
+                      themeType,
+                      overflow: "scroll",
+                    }}
+                  />
+                </FileDiffBoundary>
+              ))}
+              </>
             ) : (
               <div className="git-browser__empty" style={{ color: DIM }}>
-                {active ? "no diff" : "select a commit"}
+                {patchError
+                  ? `diff unavailable: ${patchError}`
+                  : cut
+                    ? "diff too large to show here"
+                    : active ? "no diff" : "select a commit"}
               </div>
             )}
           </div>

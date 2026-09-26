@@ -6,6 +6,7 @@ import {
   GIT_LOG_LIMIT_DEFAULT,
   GIT_LOG_LIMIT_MAX,
   GIT_PATCH_MAX_BYTES,
+  capPatchForRender,
   isGitSha,
   parseGitLog,
   parsePorcelainV2Branch,
@@ -129,22 +130,33 @@ export const readGitShow = async (
   } catch (error) {
     return fail(error instanceof Error ? error.message : "git path is invalid");
   }
+  // The sha is the revision, so it goes before `--`; after it git reads a
+  // pathspec and shows HEAD filtered to a file named like the sha (nothing).
+  // No external diff drivers or textconv: a repo's config never runs code here.
   const result = await git(cwd, [
     "show",
-    "--pretty=format:",
+    "--format=",
     "--patch",
     "--no-color",
-    "--",
+    "--no-ext-diff",
+    "--no-textconv",
     sha,
+    "--",
   ]);
   if (!result.ok) {
     return fail(result.error ?? "git show failed");
   }
-  const patch =
+  const read =
     result.stdout.length > GIT_PATCH_MAX_BYTES
-      ? `${result.stdout.slice(0, GIT_PATCH_MAX_BYTES)}\n[truncated]`
+      ? result.stdout.slice(0, GIT_PATCH_MAX_BYTES)
       : result.stdout;
-  return { ok: true, sha, patch };
+  const capped = capPatchForRender(read);
+  return {
+    ok: true,
+    sha,
+    patch: capped.patch,
+    ...(capped.truncated ? { files: capped.files, shownFiles: capped.shownFiles } : {}),
+  };
 };
 
 export type { GitCommit };

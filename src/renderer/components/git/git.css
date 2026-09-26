@@ -53,8 +53,32 @@
   --diffs-dark: var(--color-ink);
 }
 
+html[data-theme="bright"] .git-browser__diff {
+  color-scheme: light;
+  --diffs-light-bg: var(--color-ground);
+  --diffs-light: var(--color-ink);
+}
+
 .git-browser__empty {
   padding: 16px;
   font-family: var(--font-mono);
   font-size: 12px;
+}
+
+.git-browser__cut {
+  padding: 8px 16px;
+  border-bottom: 1px solid color-mix(in oklch, var(--color-stroke) 70%, transparent);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.git-browser__plain {
+  margin: 0;
+  padding: 8px 16px;
+  overflow-x: auto;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre;
+  color: var(--color-ink);
 }
