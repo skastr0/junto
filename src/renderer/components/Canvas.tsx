@@ -108,6 +108,7 @@ import { GitWizard, createGitFromRegion } from "./git/GitWizard";
 import { CanvasMagnifier } from "./CanvasMagnifier";
 import { CanvasKeyboardPan } from "./CanvasKeyboardPan";
 import { RegionGlanceGate } from "./RegionGlanceGate";
+import { CanvasTierGate } from "./CanvasTierGate";
 import { ViewportTransformLease } from "./ViewportTransformLease";
 import { FactoryMinimap } from "./FactoryMinimap";
 import { canvasPerformance } from "../lib/performance/canvas-performance";
@@ -1752,6 +1753,7 @@ function CanvasGraph() {
       <CanvasMagnifier />
       <CanvasKeyboardPan />
       <RegionGlanceGate />
+      <CanvasTierGate />
       <ImpactSeedChip />
       {/* Bar (incl. MiniMap) must be a ReactFlow child so MiniMap binds to the instance. */}
       <Panel position="bottom-center" className="rts-bar-panel" style={{ width: "100%", margin: 0, left: 0, right: 0, transform: "none", maxWidth: "none" }}>
