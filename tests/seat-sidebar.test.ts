@@ -5,7 +5,7 @@ import {
   signalOutcomeLabel,
   summarizeSeatSignals,
 } from "../src/renderer/lib/agent-signals-view";
-import { parseSectionOpen, sectionOpen } from "../src/renderer/lib/sidebar-sections";
+import { sectionOpen } from "../src/renderer/lib/sidebar-sections";
 import { placeBesideRect } from "../src/renderer/lib/menu-placement";
 
 const signal = (over: Partial<AgentSignal> & Pick<AgentSignal, "signalId">): AgentSignal => ({
@@ -70,14 +70,7 @@ describe("signalOutcomeLabel", () => {
 });
 
 describe("sidebar section state", () => {
-  it("parses only boolean entries and survives junk", () => {
-    expect(parseSectionOpen('{"a":false,"b":true,"c":"x"}')).toEqual({ a: false, b: true });
-    expect(parseSectionOpen("not json")).toEqual({});
-    expect(parseSectionOpen("[1]")).toEqual({});
-    expect(parseSectionOpen(null)).toEqual({});
-  });
-
-  it("falls back to the default until a choice is stored", () => {
+  it("falls back to the default until a choice is made", () => {
     expect(sectionOpen("mail", true, {})).toBe(true);
     expect(sectionOpen("mail", true, { mail: false })).toBe(false);
   });
