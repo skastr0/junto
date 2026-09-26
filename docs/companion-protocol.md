@@ -105,6 +105,7 @@ are Markdown. Names below match `src/shared/companion-protocol.ts`.
 | `feed.subscribe` | `{ "canvasName"?: string }` | `{ "feeds": OperatorFeed[] }`, then `feed.changed` events |
 | `feed.unsubscribe` | `{}` | `{}` |
 | `seats.list` | `{ "canvasName": string }` | `{ "seats": Seat[] }` |
+| `seat.get` | `{ "canvasName": string, "nodeId": string }` | `{ "seat": SeatDetail }`; the phone then receives `preamble`, `signal.changed`, `mail.changed` and `seat.changed` events for this seat until it requests another `seat.get` or disconnects |
 | `signal.answer` | `{ "signalId": string, "text": string }` (1 to 8000 chars) | `{ "signal": AgentSignal }` |
 | `signal.dismiss` | `{ "signalId": string }` | `{ "signal": AgentSignal }` |
 | `mail.list` | `{ "canvasName": string, "nodeId": string, "limit"?: number }` (default 50, max 200) | `{ "messages": Mail[] }` newest first |
@@ -134,6 +135,13 @@ Events:
 | `feed.changed` | `{ "feed": OperatorFeed }`: the whole feed of one canvas, replacing the previous one (feeds are small; no diffs in v1) |
 | `seat.changed` | `{ "canvasName": string, "seat": Seat }` (only while a `seats.list` for that canvas was requested in this connection) |
 | `signal.changed` | `{ "signal": AgentSignal }` (upsert by `signalId`) |
+| `mail.changed` | `{ "canvasName": string, "nodeId": string, "message": Mail }` (upsert by `messageId`; new mail either direction and delivery changes, only for the seat of the last `mail.list` or `seat.get`) |
+| `preamble` | `{ "canvasName": string, "nodeId": string, "preamble": Preamble }` (only for the seat of the last `seat.get`) |
+
+Event origin: `signal.changed`, `feed.changed` and `seat.changed` fire for
+every change no matter who made it: the phone, the desktop, or the agent
+itself (an agent raising or withdrawing a signal, a seat changing state). A
+subscribed phone never needs to poll.
 
 ## 4. Data shapes
 
@@ -196,10 +204,46 @@ type Mail = {
 };
 ```
 
+```ts
+// A preamble is the agent's (or Junto's) short live note about what it is doing.
+// Preambles are ephemeral by design: never stored, gone after expiresAt.
+type Preamble = {
+  preambleId: string; text: string;          // one short sentence
+  source: "agent" | "ai" | "junto" | "operator";
+  at: number; expiresAt: number;
+};
+
+type SeatDetail = Seat & {
+  briefing?: string;                          // the seat's region briefing, markdown, when it has one
+  preambles: Preamble[];                      // only the ones still live; newest first
+  signals: AgentSignal[];                     // every state, newest first, last 50
+  activity: Activity[];                       // the seat sidebar's Activity list, newest first, last 50
+};
+
+type Activity = {
+  at: number;
+  label: string;                              // plain words, as the desktop shows it, e.g. "sent mail"
+  kind: "mail" | "signal" | "state" | "work" | "other";
+  targetName?: string;                        // the other seat or surface, when there is one
+};
+```
+
+History on the phone is `seat.get` (signals and activity) plus `mail.list`.
+
 Presentation notes for the phone (not protocol): "health" items and every
 `health` field are an AI reading; show them as "AI reads: <label>", never as
 the agent's own words. Regions carry the region's colour; group the feed by
 section as delivered, most urgent section first.
+
+### Shared wire modules
+
+Every schema a phone needs lives in modules whose import closure is only
+`effect`, so the mobile repo can copy them without the rest of the app:
+`src/shared/wire/operator-feed.ts` (OperatorFeed and its parts),
+`src/shared/wire/agent-signals.ts`, `src/shared/wire/thread-health.ts`,
+`src/shared/wire/companion-protocol.ts`. The desktop's builders import these;
+the wire modules never import the builders. A test fails the build if any
+wire module's closure grows past `effect`.
 
 ## 5. Errors
 
