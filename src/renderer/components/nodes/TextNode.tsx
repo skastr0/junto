@@ -347,7 +347,7 @@ function EntityCard({
       />
     ) : (
       <div
-        className="truncate font-mono text-[14px] font-semibold leading-snug"
+        className={`truncate font-mono ${kind === "agent" ? "text-[13px]" : "text-[14px]"} font-semibold leading-snug`}
         style={{ color: nameHue }}
         title={rawName}
       >

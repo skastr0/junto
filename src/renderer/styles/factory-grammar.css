@@ -6,12 +6,31 @@
    - color identifies state;
    - motion identifies activity or transition;
    - decorative craft stays quiet enough to be discovered, never announced. */
-/* An agent is a seat, not a card: the shell's left end is a half-round that
-   hugs the portrait ring (56px ring + 7px inset = 35px radius). */
+/* An agent is a seat, not a card. At rest there is no chrome: the portrait
+   in its ring leads, the name and line hug it, and a faint ground wash only
+   keeps wires from running through the text. A surface appears on hover and
+   selection. The shell's left end is a half-round concentric with the 52px
+   ring. The ring owns seat state, so the occupancy outlines and the
+   attention halo stand down here (parked has no ring form and keeps its). */
 .junto-node[data-node-kind="agent"]:not([data-bare]) {
-  border-radius: 36px 12px 12px 36px;
-  padding: 7px 12px 7px 7px;
+  border-radius: 28px 14px 14px 28px;
+  padding: 1px 10px 1px 1px;
+  border-color: transparent !important;
+  background: color-mix(in oklab, var(--color-ground) 72%, transparent) !important;
+  box-shadow: none !important;
 }
+.react-flow__node:hover .junto-node[data-node-kind="agent"]:not([data-bare]) {
+  border-color: var(--color-stroke) !important;
+  background: color-mix(in oklab, var(--color-raise) 90%, transparent) !important;
+}
+.react-flow__node.selected .junto-node[data-node-kind="agent"]:not([data-bare]) {
+  border-color: color-mix(in oklab, var(--color-main) 55%, transparent) !important;
+  background: color-mix(in oklab, var(--color-raise) 94%, transparent) !important;
+  box-shadow: 0 8px 22px var(--color-shadow-2) !important;
+}
+.junto-node[data-node-kind="agent"][data-occupancy]:not([data-occupancy="parked"]) { outline: none; }
+.junto-node[data-node-kind="agent"][data-seat-attention="true"]::after,
+.junto-node[data-node-kind="agent"][data-attention="fire"]::after { display: none; }
 /* Overseer identity — indigo, never amber (attention) or crimson (blocker).
    Ordinary agent cards stay unchanged; this only paints granted seats. */
 .overseer-mark {

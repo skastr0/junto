@@ -61,6 +61,10 @@ test("agent seats and their connection cards hold portraits in rings; the galler
       await page.waitForTimeout(600);
       await page.locator(".react-flow").screenshot({ path: join(SHOTS, `app-${mode}-canvas.png`) });
       await planner.screenshot({ path: join(SHOTS, `app-${mode}-seat.png`) });
+      // Chrome appears only on selection (and hover).
+      await planner.click();
+      await page.waitForTimeout(300);
+      await planner.screenshot({ path: join(SHOTS, `app-${mode}-seat-selected.png`) });
 
       // Connection cards show each agent peer as its seat: portrait in a ring.
       await planner.dblclick();

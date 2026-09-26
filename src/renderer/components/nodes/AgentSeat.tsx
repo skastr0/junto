@@ -16,8 +16,8 @@ import { use$ } from "@legendapp/state/react";
 import { ActivityMarkFromSpec } from "../ActivityMark";
 import { AgentPortrait } from "../AgentPortrait";
 
-/** Portrait inside the 56px seat ring: fits the ring's hole with a hairline gap. */
-export const SEAT_PORTRAIT_PX = 36;
+/** Portrait inside the 52px seat ring: fits the ring's hole with a hairline gap. */
+export const SEAT_PORTRAIT_PX = 34;
 
 const TONE_TEXT: Readonly<Record<ActivityTone, string>> = {
   amber: "text-amber",
@@ -117,7 +117,7 @@ export function AgentSeatView({
   }
 
   return (
-    <div className="junto-seat flex h-full w-full items-center gap-2.5" data-testid="agent-seat">
+    <div className="junto-seat flex h-full w-full items-center gap-2" data-testid="agent-seat">
       <ActivityMarkFromSpec
         spec={activity}
         size="seat"
@@ -140,7 +140,7 @@ export function AgentSeatView({
       </ActivityMarkFromSpec>
       <div className="min-w-0 flex-1">
         {title}
-        <div className="mt-0.5 truncate text-[11px] leading-snug" data-testid="agent-seat-line">
+        <div className="truncate text-[10.5px] leading-snug" data-testid="agent-seat-line">
           {line}
         </div>
         {children}

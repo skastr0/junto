@@ -13,6 +13,7 @@ import {
   type ActivitySpec,
 } from "../../lib/activity";
 import { ensureMarkAtlas } from "../../lib/activity-atlas";
+import { AGENT_NODE_SIZE } from "../../lib/node-geometry";
 import { startSurfaceMotionGate } from "../../lib/surface-motion";
 import { themeFor } from "../../lib/theme";
 import { ActivityMark, ActivityMarkFromSpec } from "../ActivityMark";
@@ -152,15 +153,8 @@ function SeatShell({
       <div
         className="junto-node"
         data-node-kind="agent"
-        style={{
-          position: "relative",
-          width: 240,
-          height: 72,
-          border: "1px solid var(--color-stroke)",
-          background:
-            "linear-gradient(135deg, color-mix(in oklab, var(--color-raise) 94%, transparent), color-mix(in oklab, var(--color-ground) 96%, transparent))",
-          boxShadow: "0 10px 28px var(--color-shadow-2)",
-        }}
+        // The canvas shell's agent shape at rest (factory-grammar.css).
+        style={{ position: "relative", ...AGENT_NODE_SIZE, border: "1px solid transparent" }}
       >
         <AgentSeatView
           identity={seat.id}
@@ -170,7 +164,7 @@ function SeatShell({
           health={seat.health ?? NO_HEALTH}
           signal={seat.signal ?? NO_SIGNAL}
           onSignalOpen={() => undefined}
-          title={<div className="truncate font-mono text-[14px] font-semibold leading-snug text-ink">{seat.name}</div>}
+          title={<div className="truncate font-mono text-[13px] font-semibold leading-snug text-ink">{seat.name}</div>}
         />
         {bubble ? <PreambleBubble nodeId={seat.id} bubble={bubble} /> : null}
       </div>
@@ -399,7 +393,7 @@ function Stress({ count, bare }: { readonly count: number; readonly bare: boolea
         ))}
       </div>
     ) : (
-      <div className="grid grid-cols-[repeat(auto-fill,240px)] gap-2" data-testid="mark-stress-grid">
+      <div className="grid grid-cols-[repeat(auto-fill,184px)] gap-2" data-testid="mark-stress-grid">
         {seats.map((seat) => (
           <SeatShell key={seat.id} seat={seat} caption={false} />
         ))}

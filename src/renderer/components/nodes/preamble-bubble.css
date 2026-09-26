@@ -1,6 +1,6 @@
 /* Seat preamble bubble (PreambleBubble.tsx).
-   Above the seat, tail on the portrait ring (the ring centre sits 35px in
-   from the seat's left edge). Colour is the action's hue; provenance is the
+   Above the seat, tail on the portrait ring (the ring centre sits 28px in
+   from the seat's left edge; the tail is 20.5px into the bubble). Colour is the action's hue; provenance is the
    glyph, the word, and the border's line: agent solid, AI dashed (advisory),
    Junto dotted and quieter, the operator with a stronger rule. */
 
@@ -8,7 +8,7 @@
   --pre-hue: var(--color-second);
   position: absolute;
   bottom: calc(100% + 9px);
-  left: calc(14px + var(--pre-dx, 0px));
+  left: calc(7px + var(--pre-dx, 0px));
   z-index: 30;
   display: flex;
   width: max-content;

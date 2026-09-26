@@ -329,7 +329,7 @@ export const markAtlasCss = (): string =>
   [
     `.junto-mark{--mark-u:20px;position:relative;display:inline-block;flex-shrink:0;vertical-align:middle;line-height:0;width:var(--mark-u);height:var(--mark-u);contain:layout style paint;background-repeat:no-repeat;background-size:calc(var(--mark-u) * ${String(MARK_ATLAS_COLS)}) calc(var(--mark-u) * ${String(MARK_ATLAS_ROWS)});background-position:calc(var(--mark-col) * var(--mark-u) * -1) calc(var(--mark-row) * var(--mark-u) * -1)}`,
     `.junto-mark[data-mark-size="inline"]{--mark-u:14px}`,
-    `.junto-mark[data-mark-size="seat"]{--mark-u:56px}`,
+    `.junto-mark[data-mark-size="seat"]{--mark-u:52px}`,
     `.junto-mark[data-mark-size="glance"]{--mark-u:32px}`,
     // Standalone marks carry a hub: the ring's centre in the state's tone.
     `.junto-mark[data-mark-hub]::before{content:"";position:absolute;inset:33%;border-radius:50%;background:var(--mark-hub)}`,
