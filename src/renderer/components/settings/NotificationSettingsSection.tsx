@@ -103,16 +103,15 @@ export function NotificationSettingsSection() {
   return (
     <div className="settings-section" data-testid="settings-notifications-section">
       <p className="m-0 max-w-[62ch] text-[12px] leading-[1.5] text-dim">
-        When Junto is in the background and an agent needs you, a notification says who and why. Click it
-        to open that agent. While you are looking at Junto, nothing is sent.
-        {AUDIO_ENABLED ? " Each one plays its sound from Sound." : ""}
+        A notification says which agent needs you and why; click it to open that agent. Nothing is sent
+        while you are looking at Junto.{AUDIO_ENABLED ? " Each one plays its sound, set in Sound." : ""}
       </p>
 
       <div className="flex flex-col border-t border-stroke">
         <Row
           id="notify-master"
-          title="Notifications"
-          hint={prefs.enabled ? "For the kinds below, while Junto is in the background." : "Junto sends none."}
+          title="Send notifications"
+          hint={prefs.enabled ? "For each kind switched on below." : "Junto sends none. The badge still counts."}
           checked={prefs.enabled}
           onChange={(enabled) => save({ enabled })}
         />
@@ -131,9 +130,9 @@ export function NotificationSettingsSection() {
       </div>
 
       {mac ? (
-        <div className="flex flex-col gap-2">
-          <h3 className="m-0 text-[12px] font-semibold text-dim">Dock</h3>
-          <div className="flex flex-col border-t border-stroke">
+        <div className="flex flex-col">
+          <h3 className="m-0 border-b border-stroke pb-2 text-[12px] font-semibold text-dim">Dock</h3>
+          <div className="flex flex-col">
             <Row
               id="notify-badge"
               title="Badge"
