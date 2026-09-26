@@ -25,6 +25,14 @@ import {
   StationProtocolVersion,
   StationStateSchemaVersion,
 } from "./station-protocol";
+import {
+  CompanionDeviceId,
+  CompanionError,
+  CompanionHello,
+  CompanionRequestFrame,
+  CompanionResponseFrame,
+} from "./companion-protocol";
+import { AgentSignal } from "./agent-signals";
 
 /**
  * Direct-operator control contract.
@@ -32,15 +40,23 @@ import {
  * This owner-local socket is separate from every agent control plane. It has
  * no bearer token, identity claim, arbitrary command, path, or database
  * access. Main admits the OS peer only while explicitly launched in operator
- * control mode and rejects registered agent process trees.
+ * control mode, or while a phone companion is paired, and rejects registered
+ * agent process trees. Enabled only for a paired phone, the socket answers the
+ * `companion.*` ops alone.
  */
 
 export const OPERATOR_PROTOCOL_VERSION = "junto-operator/v1" as const;
 export const OPERATOR_DEFAULT_TIMEOUT_MS = 30_000;
 export const OPERATOR_SYNC_TIMEOUT_MS = 120_000;
 export const OPERATOR_DEPLOY_TIMEOUT_MS = 15 * 60_000;
-export const OPERATOR_MAX_REQUEST_BYTES = 16 * 1024;
-export const OPERATOR_MAX_RESPONSE_BYTES = 512 * 1024;
+/**
+ * Room for one whole companion frame (16 KiB in, 512 KiB out) plus the
+ * operator envelope that carries it.
+ */
+export const OPERATOR_MAX_REQUEST_BYTES = 24 * 1024;
+export const OPERATOR_MAX_RESPONSE_BYTES = 544 * 1024;
+/** A companion change wait is a long poll; the call outlives it. */
+export const OPERATOR_COMPANION_WAIT_MAX_MS = 25_000;
 export const OPERATOR_MAX_ERROR_BYTES = 4 * 1024;
 
 export const operatorControlDir = (home: string): string =>
@@ -79,7 +95,10 @@ export const OperatorOpName = Schema.Literals(["station.status", "station.config
 "fleet.status",
 "qualification.work.prepare",
 "qualification.work.progress-offline",
-"qualification.work.verify",]);
+"qualification.work.verify",
+"companion.hello",
+"companion.call",
+"companion.events",]);
 export type OperatorOpName = typeof OperatorOpName.Type;
 
 export const OperatorEmptyArgs = Schema.Struct({});
@@ -347,6 +366,56 @@ export const OperatorQualificationWorkVerifyData = Schema.Struct({
 export type OperatorQualificationWorkVerifyData =
   typeof OperatorQualificationWorkVerifyData.Type;
 
+// --- companion relay (junto companion-stdio <-> app) ---------------------------
+
+/** The ops a socket enabled only for a paired phone will answer. */
+export const OPERATOR_COMPANION_OPS: ReadonlySet<string> = new Set([
+  "companion.hello",
+  "companion.call",
+  "companion.events",
+]);
+
+export const OperatorCompanionHelloArgs = Schema.Struct({ deviceId: CompanionDeviceId });
+export type OperatorCompanionHelloArgs = typeof OperatorCompanionHelloArgs.Type;
+
+/** A companion-level refusal (revoked) travels as data, not an operator error. */
+export const OperatorCompanionHelloData = Schema.Union([
+  Schema.Struct({ ok: Schema.Literal(true), hello: CompanionHello }),
+  Schema.Struct({ ok: Schema.Literal(false), error: CompanionError }),
+]);
+export type OperatorCompanionHelloData = typeof OperatorCompanionHelloData.Type;
+
+export const OperatorCompanionCallArgs = Schema.Struct({
+  deviceId: CompanionDeviceId,
+  request: CompanionRequestFrame,
+});
+export type OperatorCompanionCallArgs = typeof OperatorCompanionCallArgs.Type;
+
+export const OperatorCompanionCallData = Schema.Struct({ response: CompanionResponseFrame });
+export type OperatorCompanionCallData = typeof OperatorCompanionCallData.Type;
+
+export const OperatorCompanionEventsArgs = Schema.Struct({
+  deviceId: CompanionDeviceId,
+  cursor: Schema.optionalKey(Schema.String.pipe(Schema.check(Schema.isMaxLength(128)))),
+  waitMs: Schema.Number.pipe(
+    Schema.check(Schema.isInt()),
+    Schema.check(Schema.isBetween({ minimum: 0, maximum: OPERATOR_COMPANION_WAIT_MAX_MS })),
+  ),
+});
+export type OperatorCompanionEventsArgs = typeof OperatorCompanionEventsArgs.Type;
+
+export const OperatorCompanionEventsData = Schema.Union([
+  Schema.Struct({
+    ok: Schema.Literal(true),
+    cursor: Schema.String,
+    changed: Schema.Boolean,
+    signals: Schema.Array(AgentSignal),
+    reset: Schema.Boolean,
+  }),
+  Schema.Struct({ ok: Schema.Literal(false), error: CompanionError }),
+]);
+export type OperatorCompanionEventsData = typeof OperatorCompanionEventsData.Type;
+
 const request = <
   Op extends OperatorOpName,
   S extends Schema.Top,
@@ -414,6 +483,10 @@ export const OperatorQualificationWorkVerifyRequest = request(
   OperatorQualificationWorkTargetArgs,
 );
 
+export const OperatorCompanionHelloRequest = request("companion.hello", OperatorCompanionHelloArgs);
+export const OperatorCompanionCallRequest = request("companion.call", OperatorCompanionCallArgs);
+export const OperatorCompanionEventsRequest = request("companion.events", OperatorCompanionEventsArgs);
+
 export const OperatorRequestEnvelope = Schema.Union([OperatorStationStatusRequest,
 OperatorConfigureCommandCenterRequest,
 OperatorFleetListRequest,
@@ -426,7 +499,10 @@ OperatorFleetSyncRequest,
 OperatorFleetStatusRequest,
 OperatorQualificationWorkPrepareRequest,
 OperatorQualificationWorkProgressRequest,
-OperatorQualificationWorkVerifyRequest,]);
+OperatorQualificationWorkVerifyRequest,
+OperatorCompanionHelloRequest,
+OperatorCompanionCallRequest,
+OperatorCompanionEventsRequest,]);
 export type OperatorRequestEnvelope = typeof OperatorRequestEnvelope.Type;
 
 const response = <
@@ -497,6 +573,10 @@ export const OperatorQualificationWorkVerifyResponse = response(
   OperatorQualificationWorkVerifyData,
 );
 
+export const OperatorCompanionHelloResponse = response("companion.hello", OperatorCompanionHelloData);
+export const OperatorCompanionCallResponse = response("companion.call", OperatorCompanionCallData);
+export const OperatorCompanionEventsResponse = response("companion.events", OperatorCompanionEventsData);
+
 export const OperatorErrorType = Schema.Literals(["validation", "not_found",
 "conflict",
 "io",
@@ -541,6 +621,9 @@ OperatorFleetStatusResponse,
 OperatorQualificationWorkPrepareResponse,
 OperatorQualificationWorkProgressResponse,
 OperatorQualificationWorkVerifyResponse,
+OperatorCompanionHelloResponse,
+OperatorCompanionCallResponse,
+OperatorCompanionEventsResponse,
 OperatorErrorResponse,]);
 export type OperatorResponseEnvelope = typeof OperatorResponseEnvelope.Type;
 
@@ -558,6 +641,9 @@ export interface OperatorArgsByOp {
   readonly "qualification.work.prepare": OperatorQualificationWorkTargetArgs;
   readonly "qualification.work.progress-offline": OperatorQualificationWorkRunArgs;
   readonly "qualification.work.verify": OperatorQualificationWorkTargetArgs;
+  readonly "companion.hello": OperatorCompanionHelloArgs;
+  readonly "companion.call": OperatorCompanionCallArgs;
+  readonly "companion.events": OperatorCompanionEventsArgs;
 }
 
 export interface OperatorDataByOp {
@@ -574,6 +660,9 @@ export interface OperatorDataByOp {
   readonly "qualification.work.prepare": OperatorQualificationWorkPrepareData;
   readonly "qualification.work.progress-offline": OperatorQualificationWorkProgressData;
   readonly "qualification.work.verify": OperatorQualificationWorkVerifyData;
+  readonly "companion.hello": OperatorCompanionHelloData;
+  readonly "companion.call": OperatorCompanionCallData;
+  readonly "companion.events": OperatorCompanionEventsData;
 }
 
 export const decodeOperatorRequest = Schema.decodeUnknownResult(
@@ -607,7 +696,13 @@ export const decodeOperatorJsonLine = (
   }
 };
 
-/** Operator requests contain only public deployment selection facts. */
+/**
+ * Operator requests contain only public deployment selection facts, except a
+ * relayed companion request, whose answer or mail text never reaches a log.
+ */
 export const redactOperatorRequestForLog = (
   value: OperatorRequestEnvelope,
-): unknown => value;
+): unknown =>
+  value.op === "companion.call"
+    ? { ...value, args: { deviceId: value.args.deviceId, request: { id: value.args.request.id, op: value.args.request.op } } }
+    : value;

@@ -43,6 +43,7 @@ import { runBrowserCli } from "../../scripts/browser-cli";
 import { earlyDispatchFromArgv } from "./early-dispatch";
 import { runContentTransfer } from "./content-transfer";
 import { runStationStdio } from "./station-stdio";
+import { runCompanionStdio } from "./companion-stdio";
 import { CLI_NAME, CLI_VERSION } from "./core/constants";
 import {
   ARTIFACTS_ENABLED,
@@ -185,6 +186,8 @@ if (import.meta.main) {
     await runStationStdio(dispatch.args);
   } else if (dispatch.kind === "content-transfer") {
     await runContentTransfer(dispatch.args);
+  } else if (dispatch.kind === "companion-stdio") {
+    await runCompanionStdio(dispatch.args);
   } else {
     BunRuntime.runMain(
       runCli(dispatch.args) as Effect.Effect<void, never, never>,

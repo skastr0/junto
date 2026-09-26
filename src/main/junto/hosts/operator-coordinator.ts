@@ -898,6 +898,15 @@ export const makeOperatorCoordinator = (
   const run = async (
     request: OperatorRequestEnvelope,
   ): Promise<OperatorResponseEnvelope> => {
+    // Main routes the phone relay to the companion host before this
+    // coordinator; reaching here means no companion host is listening.
+    if (
+      request.op === "companion.hello" ||
+      request.op === "companion.call" ||
+      request.op === "companion.events"
+    ) {
+      throw new OperatorCoordinatorError("runtime_down", "the phone companion is not available");
+    }
     if (request.op === "station.status") {
       const status = await AppRuntime.runPromise(
         localStatusEffect(options.readiness()),

@@ -1,13 +1,14 @@
 /**
  * Pure early argv dispatch for the unified packaged CLI.
  *
- * `browser`, `station-stdio`, and `content-transfer` bypass the Effect CLI
+ * `browser`, `station-stdio`, `companion-stdio`, and `content-transfer` bypass the Effect CLI
  * tree (stdio wire protocols + browser control socket). Operator `station *`
  * and agent `content *` remain on the Effect CLI surface.
  */
 import {
   CONTENT_TRANSFER_COMMAND,
 } from "./content-transfer";
+import { COMPANION_STDIO_COMMAND } from "./companion-stdio";
 import { STATION_STDIO_COMMAND } from "./station-stdio";
 
 export type EarlyDispatch =
@@ -15,6 +16,7 @@ export type EarlyDispatch =
   | { readonly kind: "browser"; readonly args: ReadonlyArray<string> }
   | { readonly kind: "station-stdio"; readonly args: ReadonlyArray<string> }
   | { readonly kind: "content-transfer"; readonly args: ReadonlyArray<string> }
+  | { readonly kind: "companion-stdio"; readonly args: ReadonlyArray<string> }
   | { readonly kind: "cli"; readonly args: ReadonlyArray<string> };
 
 /**
@@ -36,6 +38,9 @@ export const earlyDispatchFromArgv = (
   // `station stdio` synonym — keeps operator `station status` on Effect CLI.
   if (user[0] === "station" && user[1] === "stdio") {
     return { kind: "station-stdio", args: user.slice(2) };
+  }
+  if (user[0] === COMPANION_STDIO_COMMAND) {
+    return { kind: "companion-stdio", args: user.slice(1) };
   }
   if (user[0] === CONTENT_TRANSFER_COMMAND) {
     return { kind: "content-transfer", args: user.slice(1) };
