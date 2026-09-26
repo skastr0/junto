@@ -82,6 +82,22 @@ describe("sound mixer", () => {
     expect(m.request("working", 2_000 + CUES.working.subjectGapMs!, { subject: "seat-a" })).not.toBe("dropped");
   });
 
+  it("hears a notification for an event the canvas already sounded once", () => {
+    const m = mixer();
+    m.request("done", 0, { subject: "seat" });
+    expect(m.request("done", 50, { echo: true })).toBe("coalesced");
+    const [play] = m.due(CUES.done.coalesceMs);
+    expect(play!.variant.count).toBe(1);
+    expect(m.request("done", 1_000, { echo: true })).toBe("dropped");
+    // The other order: the notification first, the canvas cue joining it.
+    const n = mixer();
+    n.request("review", 0, { echo: true });
+    expect(n.request("review", 40, { subject: "seat" })).toBe("coalesced");
+    expect(n.due(CUES.review.coalesceMs)[0]!.variant.count).toBe(1);
+    // A notification with no canvas cue behind it still sounds.
+    expect(m.request("summary", 1_000, { echo: true })).toBe("queued");
+  });
+
   it("carries the newest mail tone and the stereo position of the burst", () => {
     const m = mixer();
     m.request("mail", 0, { tone: "notice", pan: -0.5 });

@@ -56,7 +56,7 @@ const NOTIFICATION_CUE: Readonly<Record<NotificationCueKind, CueId>> = {
  * the in-app cue for the same event, so the operator hears it once.
  */
 export const playNotificationCue = (kind: NotificationCueKind): void => {
-  soundEngine.play(NOTIFICATION_CUE[kind]);
+  soundEngine.play(NOTIFICATION_CUE[kind], { echo: true });
 };
 
 /** Demo scenario sound ids, mapped onto the catalog. */

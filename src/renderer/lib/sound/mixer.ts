@@ -39,6 +39,9 @@ export const MIXER_LIMITS: MixerLimits = {
   ambientWindowMs: 4_000,
 };
 
+/** An echo this soon after its cue sounded is the same event. */
+export const ECHO_WINDOW_MS = 3_000;
+
 /** Urgency at and above which a cue takes the one attention slot. */
 export const ATTENTION_URGENCY: Urgency = 3;
 
@@ -46,6 +49,12 @@ export type CueRequest = {
   readonly count?: number;
   /** What the cue is about (a node id), for the per-subject gap. */
   readonly subject?: string;
+  /**
+   * The same event, reported again by another path (a native notification
+   * for something the canvas already sounded). It joins a waiting play
+   * without counting, and is dropped if that cue just sounded.
+   */
+  readonly echo?: boolean;
   readonly tone?: MailTone;
   readonly pan?: number;
 };
@@ -63,6 +72,8 @@ export type RequestOutcome = "queued" | "coalesced" | "dropped";
 
 type Pending = {
   count: number;
+  /** Only echoes so far: the first real request joins it without counting. */
+  echo: boolean;
   tone?: MailTone;
   pan?: number;
   readonly dueAt: number;
@@ -93,10 +104,16 @@ export class CueMixer {
   request(cue: CueId, now: number, request: CueRequest = {}): RequestOutcome {
     const spec = this.specs[cue];
     const count = Math.max(1, Math.floor(request.count ?? 1));
-    if (!this.subjectFree(cue, spec, now, request.subject)) return "dropped";
     const waiting = this.pending.get(cue);
+    if (request.echo === true) {
+      if (waiting !== undefined) return "coalesced";
+      const last = this.lastStart.get(cue);
+      if (last !== undefined && now - last < ECHO_WINDOW_MS) return "dropped";
+    }
+    if (!this.subjectFree(cue, spec, now, request.subject)) return "dropped";
     if (waiting !== undefined) {
-      waiting.count += count;
+      if (waiting.echo) waiting.echo = false;
+      else waiting.count += count;
       if (request.tone !== undefined) waiting.tone = request.tone;
       if (request.pan !== undefined) waiting.pan = request.pan;
       return "coalesced";
@@ -105,6 +122,7 @@ export class CueMixer {
     if (last !== undefined && now - last < spec.minGapMs) return "dropped";
     this.pending.set(cue, {
       count,
+      echo: request.echo === true,
       tone: request.tone,
       pan: request.pan,
       dueAt: now + spec.coalesceMs,
