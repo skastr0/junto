@@ -12,6 +12,11 @@ type GroupFocusFlow<N> = {
   }) => Promise<boolean>;
 };
 
+const isMeasured = (node: unknown): boolean => {
+  const measured = (node as { readonly measured?: { readonly width?: number; readonly height?: number } }).measured;
+  return (measured?.width ?? 0) > 0 && (measured?.height ?? 0) > 0;
+};
+
 /**
  * Frame a recalled command group: select its members and fit the camera to
  * them with the same gentle animation as a single-node focus. Consumes the
@@ -30,9 +35,13 @@ export function useCanvasGroupFocus<N>(rf: GroupFocusFlow<N>): void {
           const node = rf.getNode(id);
           return node === undefined ? [] : [node];
         });
-        if (present.length === 0) {
+        // Freshly added nodes (a placed squad) exist a frame before React
+        // Flow measures them; fitting then frames the wrong box. Wait for
+        // every size, then fit with whatever is there.
+        const measured = nodes.every((node) => isMeasured(node));
+        if (present.length === 0 || (!measured && attempts < 24)) {
           attempts += 1;
-          if (attempts < 12) frame = requestAnimationFrame(focus);
+          if (attempts < 24) frame = requestAnimationFrame(focus);
           else state$.focusNodeIds.set([]);
           return;
         }
