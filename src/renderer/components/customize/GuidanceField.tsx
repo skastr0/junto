@@ -4,6 +4,7 @@ import type { SeatGuidance } from "@shared/seat-guidance";
 import { claimFocusOnMount } from "../../lib/focus-ownership";
 import { saveSeatGuidance, seatGuidance$, startSeatGuidance } from "../../lib/seat-guidance-state";
 import { Textarea } from "../ui/Field";
+import type { AgentEditorDraft } from "../agent-editor/sections";
 import "./customize.css";
 
 /** Quiet after this long without a keystroke, the text is saved. */
@@ -19,6 +20,7 @@ type Field = keyof SeatGuidance;
  */
 export function GuidanceField({
   seatId,
+  draft: store,
   field,
   label,
   max,
@@ -26,6 +28,8 @@ export function GuidanceField({
   children,
 }: {
   readonly seatId: string;
+  /** An agent not on the canvas yet: the text lives in its draft, not the seat store. */
+  readonly draft?: AgentEditorDraft;
   readonly field: Field;
   readonly label: string;
   readonly max: number;
@@ -34,7 +38,8 @@ export function GuidanceField({
   readonly children: React.ReactNode;
 }) {
   useEffect(startSeatGuidance, []);
-  const saved = use$(() => seatGuidance$[seatId].get()?.[field] ?? "");
+  const stored = use$(() => seatGuidance$[seatId].get()?.[field] ?? "");
+  const saved = store ? (store.guidance[field] ?? "") : stored;
   const [draft, setDraft] = useState(saved);
   const [editing, setEditing] = useState(false);
   const [status, setStatus] = useState<{ readonly tone: "quiet" | "error"; readonly text: string }>({
@@ -55,6 +60,14 @@ export function GuidanceField({
   const save = async (text: string): Promise<void> => {
     window.clearTimeout(timer.current);
     if (text.trim().length > max) return;
+    if (store) {
+      // In memory until the draft is saved; nothing to report yet.
+      const next: { soul?: string; instructions?: string } = { ...store.guidance, [field]: text.trim() };
+      if (!next[field]) delete next[field];
+      store.setGuidance(next);
+      setEditing(false);
+      return;
+    }
     const current = seatGuidance$[seatId].peek() ?? {};
     if ((current[field] ?? "") === text.trim()) {
       setEditing(false);

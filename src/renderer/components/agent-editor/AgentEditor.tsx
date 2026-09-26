@@ -78,7 +78,7 @@ export function AgentEditorView({ seat, section }: { readonly seat: AgentEditorS
   }, [section]);
   const current = sections.find((entry) => entry.id === active) ?? sections[0];
   return (
-    <CharacterDraftProvider identity={seat.id}>
+    <CharacterDraftProvider identity={seat.id} {...(seat.draft ? { store: seat.draft } : {})}>
       <div className="agent-editor-frame">
         <div className="agent-editor">
           <Stage seat={seat} />
@@ -102,10 +102,18 @@ export function AgentEditorView({ seat, section }: { readonly seat: AgentEditorS
 export function AgentEditor({
   seat,
   section,
+  eyebrow = "customize agent",
+  status,
+  footer,
   onClose,
 }: {
   readonly seat: AgentEditorSeat;
   readonly section?: string;
+  readonly eyebrow?: string;
+  /** Under the title; defaults to the seat's harness and how edits save. */
+  readonly status?: string;
+  /** Below the sections, e.g. a draft's save actions. */
+  readonly footer?: ReactNode;
   readonly onClose: () => void;
 }) {
   // Escape belongs to this modal while it is open: a surface under it (the
@@ -136,9 +144,9 @@ export function AgentEditor({
     >
       <div data-testid="agent-editor" className="agent-editor-modal__body" aria-label={`Customize ${seat.name}`}>
         <OverlayHeader
-          eyebrow="customize agent"
+          eyebrow={eyebrow}
           title={seat.name}
-          status={`${seat.harness ? `${seat.harness} seat` : "agent seat"}, saved on this install as you go`}
+          status={status ?? `${seat.harness ? `${seat.harness} seat` : "agent seat"}, saved on this install as you go`}
           actions={
             <IconButton aria-label="Close customize" title="Close" onClick={onClose}>
               <X size={14} />
@@ -146,6 +154,7 @@ export function AgentEditor({
           }
         />
         <AgentEditorView seat={seat} section={section} />
+        {footer}
       </div>
     </FocusSurface>
   );

@@ -1,7 +1,7 @@
 /**
  * Renderer mirror of the operator's agent profiles plus the profile actions:
- * save a seat as a profile, update one from a seat, rename, delete, and place
- * one on the canvas as a fresh seat. Main owns `agent_profiles`; every change
+ * save a seat (or a draft) as a profile, rename, delete, and place one on the
+ * canvas as a fresh seat. Main owns `agent_profiles`; every change
  * comes back as the full list.
  */
 import { observable } from "@legendapp/state";
@@ -22,14 +22,11 @@ export const profiles$ = observable({
   hydrated: false,
 });
 
-/** The save-as-profile dialog, when open: the seat it saves and the profile it replaces. */
-export const profileDialog$ = observable<{
-  readonly seatId: string;
-  readonly profileId?: string;
-} | null>(null);
+/** The save-as-profile dialog, when open: the seat it saves. */
+export const profileDialog$ = observable<{ readonly seatId: string } | null>(null);
 
-export const openSaveProfile = (seatId: string, profileId?: string): void => {
-  profileDialog$.set({ seatId, ...(profileId ? { profileId } : {}) });
+export const openSaveProfile = (seatId: string): void => {
+  profileDialog$.set({ seatId });
 };
 
 export const closeSaveProfile = (): void => {
@@ -69,6 +66,19 @@ export const captureSeatProfile = (seatId: string): AgentProfileBody | null =>
     { portraitOf: squadPortraitOf, guidanceOf: seatGuidanceOf },
   );
 
+/**
+ * Save a profile body: a new profile, or with `profileId` a replacement of
+ * that one. Resolves "" on success, else the reason.
+ */
+export const saveProfileBody = async (body: AgentProfileBody, profileId?: string): Promise<string> => {
+  const api = getJuntoApi();
+  if (!api?.profileSave) return "profiles are unavailable";
+  const result = await api.profileSave({ ...(profileId ? { profileId } : {}), body });
+  if (!result.ok) return result.message;
+  adopt(result.profile);
+  return "";
+};
+
 export type SaveProfileInput = {
   readonly seatId: string;
   /** The profile's name; defaults to the seat's name. */
@@ -79,25 +89,10 @@ export type SaveProfileInput = {
 
 /** Save a seat as a profile. Resolves "" on success, else the reason. */
 export const saveProfileFromSeat = async (input: SaveProfileInput): Promise<string> => {
-  const api = getJuntoApi();
-  if (!api?.profileSave) return "profiles are unavailable";
   const captured = captureSeatProfile(input.seatId);
   if (!captured) return "only an agent seat can be saved as a profile";
   const name = input.name?.trim();
-  const result = await api.profileSave({
-    ...(input.profileId ? { profileId: input.profileId } : {}),
-    body: name ? { ...captured, name } : captured,
-  });
-  if (!result.ok) return result.message;
-  adopt(result.profile);
-  return "";
-};
-
-/** Replace a profile's configuration with a seat's, keeping its name. */
-export const updateProfileFromSeat = async (profileId: string, seatId: string): Promise<string> => {
-  const profile = profiles$.list.peek().find((entry) => entry.profileId === profileId);
-  if (!profile) return "that profile no longer exists";
-  return saveProfileFromSeat({ seatId, profileId, name: profile.name });
+  return saveProfileBody(name ? { ...captured, name } : captured, input.profileId);
 };
 
 export const renameProfile = async (profileId: string, name: string): Promise<string> => {

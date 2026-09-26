@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { PROFILE_NAME_MAX } from "@shared/agent-profiles";
 import { claimFocusAndSelectOnMount } from "../../lib/focus-ownership";
 import { renameTerminalNode } from "../../lib/mutations";
 import { Input } from "../ui";
@@ -21,7 +22,9 @@ export function NameSection({ seat }: AgentEditorSectionProps) {
 
   const commit = (text: string): void => {
     const next = text.trim();
-    if (next && next !== seat.name) renameTerminalNode(seat.id, next);
+    if (!next || next === seat.name) return;
+    if (seat.draft) seat.draft.rename(next);
+    else renameTerminalNode(seat.id, next);
   };
   const settle = (): void => {
     setEditing(false);
@@ -58,7 +61,7 @@ export function NameSection({ seat }: AgentEditorSectionProps) {
             input.current = element;
           }}
           value={value}
-          maxLength={AGENT_NAME_MAX}
+          maxLength={seat.draft ? PROFILE_NAME_MAX : AGENT_NAME_MAX}
           spellCheck={false}
           aria-label="Agent name"
           data-testid="agent-editor-name"
@@ -75,7 +78,9 @@ export function NameSection({ seat }: AgentEditorSectionProps) {
         />
       </label>
       <p className="agent-editor__hint">
-        Shown on the seat, in its focus view, and wherever the agent is named. Renaming keeps the look.
+        {seat.draft
+          ? "The profile's name in the add picker, and the name every seat made from it starts with."
+          : "Shown on the seat, in its focus view, and wherever the agent is named. Renaming keeps the look."}
       </p>
     </div>
   );

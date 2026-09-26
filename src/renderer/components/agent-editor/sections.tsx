@@ -1,5 +1,8 @@
 import type { ComponentType } from "react";
 import type { CanvasNode } from "@shared/canvas";
+import type { PortraitConfig } from "@shared/agent-portrait";
+import type { SeatGuidance } from "@shared/seat-guidance";
+import type { AgentConfigurationChoices } from "../node-palette/agent-launch-model";
 import { LookSection } from "./LookSection";
 import { MoodSection } from "./MoodSection";
 import { NameSection } from "./NameSection";
@@ -22,6 +25,23 @@ export interface AgentEditorSeat {
   readonly name: string;
   /** Harness id for a managed seat. */
   readonly harness?: string;
+  /** Set when the agent is a profile being created, not a seat on the canvas. */
+  readonly draft?: AgentEditorDraft;
+}
+
+/**
+ * An agent the editor edits before it exists anywhere (a new profile): each
+ * section reads and writes it here instead of the seat's stores, at once and
+ * in memory. Whoever opened the editor decides when it is saved.
+ */
+export interface AgentEditorDraft {
+  readonly portrait?: PortraitConfig;
+  readonly setPortrait: (config: PortraitConfig | undefined) => void;
+  readonly rename: (name: string) => void;
+  readonly guidance: SeatGuidance;
+  readonly setGuidance: (next: SeatGuidance) => void;
+  readonly launch: AgentConfigurationChoices;
+  readonly configure: (next: AgentConfigurationChoices) => void;
 }
 
 export interface AgentEditorSectionProps {

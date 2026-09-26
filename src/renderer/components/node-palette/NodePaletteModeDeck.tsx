@@ -41,6 +41,8 @@ export type ModeDeckActions = {
   readonly addSquad: (squadId: string, launch: SquadLaunch) => Promise<PlaceOutcome>;
   /** Place a saved agent profile as a fresh seat. */
   readonly addProfile: (profileId: string, launch: SquadLaunch) => Promise<PlaceOutcome>;
+  /** Build a new profile in the customize editor; no seat is made. */
+  readonly createProfile: () => void;
   readonly addConfiguredAgent: (
     choices: AgentConfigurationChoices & AgentLaunchContextValue,
     position: { readonly x: number; readonly y: number },
@@ -60,15 +62,21 @@ export type ModeDeckActions = {
   readonly addLabel: () => void;
 };
 
+type DeckTab = NodeCatalogCategory | "all" | "profiles";
+
 // A tab only appears when this build ships something under it: a ship build
-// without cron or relay has no Schedule tab to open onto an empty grid.
-const CATEGORIES: ReadonlyArray<{ readonly id: NodeCatalogCategory | "all"; readonly label: string }> = [
+// without cron or relay has no Schedule tab to open onto an empty grid. All
+// shows profiles, squads, and the catalog; Profiles only profiles; a catalog
+// tab only its nodes.
+const CATEGORIES: ReadonlyArray<{ readonly id: DeckTab; readonly label: string }> = [
   { id: "all" as const, label: "All" },
+  { id: "profiles" as const, label: "Profiles" },
   { id: "shell" as const, label: "Shell" },
   { id: "sinks" as const, label: "Work" },
   { id: "schedule" as const, label: "Schedule" },
   { id: "canvas" as const, label: "Canvas" },
-].filter((tab) => tab.id === "all" || DEFAULT_NODE_CATALOG_ENTRIES.some((entry) => entry.category === tab.id));
+].filter((tab) =>
+  tab.id === "all" || tab.id === "profiles" || DEFAULT_NODE_CATALOG_ENTRIES.some((entry) => entry.category === tab.id));
 
 const catalogAction = (actions: ModeDeckActions, entry: NodeCatalogEntry): void => {
   switch (entry.id) {
@@ -102,7 +110,7 @@ export function NodePaletteModeDeck({
   readonly agentPosition: { readonly x: number; readonly y: number };
 }) {
   const [query, setQuery] = useState("");
-  const [category, setCategory] = useState<NodeCatalogCategory | "all">("all");
+  const [category, setCategory] = useState<DeckTab>("all");
   const [launchContext, setLaunchContext] = useState<AgentLaunchContextValue>(
     defaultAgentLaunchContext,
   );
@@ -122,7 +130,7 @@ export function NodePaletteModeDeck({
     const deck = deckRef.current;
     if (!deck) return;
     const candidates = deck.querySelectorAll<HTMLElement>(
-      ".agent-harness-pick__item, .node-deck-catalog__card",
+      ".agent-harness-pick__item, .profile-picker__card, .node-deck-catalog__card",
     );
     for (const candidate of candidates) {
       if (candidate.getClientRects().length === 0) continue;
@@ -245,15 +253,27 @@ export function NodePaletteModeDeck({
           </div>
         </aside>
         <div className="node-deck__catalog">
-          <ProfilePickerSection query={query} onPlace={placeWithLaunch(actions.addProfile)} />
-          <SquadPickerSection query={query} onPlace={placeWithLaunch(actions.addSquad)} />
-          <div className="node-deck__pane-label"><span>Node catalog</span></div>
-          <NodeCatalogGrid
-            className="node-deck__catalog-grid"
-            query={query}
-            category={category}
-            onSelect={(entry) => catalogAction(actions, entry)}
-          />
+          {category === "all" || category === "profiles" ? (
+            <ProfilePickerSection
+              query={query}
+              onPlace={placeWithLaunch(actions.addProfile)}
+              onCreate={actions.createProfile}
+            />
+          ) : null}
+          {category === "all" ? (
+            <SquadPickerSection query={query} onPlace={placeWithLaunch(actions.addSquad)} />
+          ) : null}
+          {category !== "profiles" ? (
+            <>
+              <div className="node-deck__pane-label"><span>Node catalog</span></div>
+              <NodeCatalogGrid
+                className="node-deck__catalog-grid"
+                query={query}
+                category={category}
+                onSelect={(entry) => catalogAction(actions, entry)}
+              />
+            </>
+          ) : null}
         </div>
       </div>
     </section>

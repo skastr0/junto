@@ -8,6 +8,7 @@ export function InstructionsSection({ seat }: AgentEditorSectionProps) {
   return (
     <GuidanceField
       seatId={seat.id}
+      {...(seat.draft ? { draft: seat.draft } : {})}
       field="instructions"
       label="instructions"
       max={SEAT_INSTRUCTIONS_MAX}

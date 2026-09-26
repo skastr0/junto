@@ -3,6 +3,7 @@ import { portraitCharacter, type PortraitCharacter, type PortraitConfig } from "
 import type { PortraitExpression } from "@shared/portrait-expression";
 import { savePortraitOverride } from "../../lib/portrait-overrides-state";
 import { usePortraitConfig } from "../AgentPortrait";
+import type { AgentEditorDraft } from "./sections";
 
 // The seat's character override while the editor is open, shared by the hero
 // preview and the Look and Mood sections. Edits save as they happen
@@ -39,9 +40,18 @@ export const isEmptyConfig = (config: PortraitConfig): boolean =>
 
 const CharacterDraftContext = createContext<CharacterDraft | null>(null);
 
-export function CharacterDraftProvider({ identity, children }: { readonly identity: string; readonly children: ReactNode }) {
+export function CharacterDraftProvider({
+  identity,
+  store,
+  children,
+}: {
+  readonly identity: string;
+  /** An agent not on the canvas yet keeps its character here, not in the seat store. */
+  readonly store?: AgentEditorDraft;
+  readonly children: ReactNode;
+}) {
   const saved = usePortraitConfig(identity);
-  const [draft, setDraft] = useState<PortraitConfig>(saved ?? {});
+  const [draft, setDraft] = useState<PortraitConfig>((store ? store.portrait : saved) ?? {});
   const [saveFailed, setSaveFailed] = useState(false);
   const [preview, setPreview] = useState<CharacterPreview | undefined>(undefined);
   const pending = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -49,6 +59,10 @@ export function CharacterDraftProvider({ identity, children }: { readonly identi
 
   const replace = (next: PortraitConfig): void => {
     setDraft(next);
+    if (store) {
+      store.setPortrait(isEmptyConfig(next) ? undefined : next);
+      return;
+    }
     if (pending.current) clearTimeout(pending.current);
     pending.current = setTimeout(() => {
       void savePortraitOverride(identity, isEmptyConfig(next) ? null : next).then((ok) => setSaveFailed(!ok));

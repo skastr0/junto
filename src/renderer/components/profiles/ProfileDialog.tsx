@@ -1,81 +1,47 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { use$ } from "@legendapp/state/react";
 import { X } from "lucide-react";
-import { PROFILE_NAME_MAX, profileNamed, type AgentProfile } from "@shared/agent-profiles";
-import { claimFocus } from "../../lib/focus-ownership";
+import { PROFILE_NAME_MAX } from "@shared/agent-profiles";
+import { claimFocusAndSelectOnMount } from "../../lib/focus-ownership";
 import {
   captureSeatProfile,
   closeSaveProfile,
   ensureProfiles,
   profileDialog$,
-  profiles$,
   saveProfileFromSeat,
 } from "../../lib/profiles-state";
-import { Button, Combobox, FieldLabel, IconButton, OverlayHeader } from "../ui";
+import { FieldLabel, IconButton, Input, OverlayHeader } from "../ui";
 import { FocusSurface } from "../FocusSurface";
 import { ProfilePortrait } from "./ProfilePortrait";
 import { profileLine } from "./ProfilePickerSection";
+import { ProfileSaveActions, useProfileSave } from "./ProfileSaveActions";
 import "./profiles.css";
 
 /** Mounted once on the canvas; shows the dialog while one is requested. */
 export function ProfileDialogHost() {
   const request = use$(profileDialog$);
   if (!request) return null;
-  return (
-    <ProfileDialog
-      key={`${request.profileId ?? "new"}|${request.seatId}`}
-      seatId={request.seatId}
-      {...(request.profileId ? { replaceId: request.profileId } : {})}
-    />
-  );
+  return <ProfileDialog key={request.seatId} seatId={request.seatId} />;
 }
 
 /**
  * Save one agent seat as a profile: its name, character, harness with model
- * and effort, and its soul and instructions. Typing an existing profile's
- * name (or picking it) replaces that profile.
+ * and effort, and its soul and instructions. A name another profile already
+ * has asks, inline, before it replaces that profile.
  */
-function ProfileDialog({ seatId, replaceId }: { readonly seatId: string; readonly replaceId?: string }) {
+function ProfileDialog({ seatId }: { readonly seatId: string }) {
   useEffect(ensureProfiles, []);
-  const profiles = use$(profiles$.list);
   const captured = useMemo(() => captureSeatProfile(seatId), [seatId]);
-  const replacing = profiles.find((profile) => profile.profileId === replaceId);
-  const [name, setName] = useState(replacing?.name ?? captured?.name ?? "");
-  const [active, setActive] = useState<string | undefined>(undefined);
-  const [error, setError] = useState("");
-  const [saving, setSaving] = useState(false);
-  const saveRef = useRef<HTMLButtonElement>(null);
-
-  const target = name.trim() ? profileNamed(profiles, name) : undefined;
-  const matches = profiles.filter((profile) =>
-    name.trim() === "" ? true : profile.name.toLowerCase().includes(name.trim().toLowerCase()),
-  );
-  const completion = name.trim()
-    ? profiles.find((profile) => profile.name.toLowerCase().startsWith(name.toLowerCase()))?.name
-    : undefined;
-
-  const save = async (): Promise<void> => {
-    if (saving) return;
-    const trimmed = name.trim();
-    if (!trimmed) {
-      setError("give the profile a name");
-      return;
-    }
-    setSaving(true);
+  const [name, setName] = useState(captured?.name ?? "");
+  const save = useProfileSave(name, async (replaceId) => {
     const reason = await saveProfileFromSeat({
       seatId,
-      name: trimmed,
-      ...(target ? { profileId: target.profileId } : {}),
+      name: name.trim(),
+      ...(replaceId ? { profileId: replaceId } : {}),
     });
-    setSaving(false);
-    if (reason) setError(reason);
-    else closeSaveProfile();
-  };
-
-  const choose = (profile: AgentProfile): void => {
-    setName(profile.name);
-    claimFocus(saveRef.current, "gesture");
-  };
+    if (!reason) closeSaveProfile();
+    return reason;
+  });
 
   const includes = captured
     ? [
@@ -90,7 +56,7 @@ function ProfileDialog({ seatId, replaceId }: { readonly seatId: string; readonl
     <FocusSurface measure="form" height="fit" layer="work" label="Save as profile" onClose={closeSaveProfile}>
       <OverlayHeader
         eyebrow="Profile"
-        title={target ? `Replace ${target.name}` : "Save as profile"}
+        title="Save as profile"
         status={captured ? includes.join(", ") : "not an agent seat"}
         actions={
           <IconButton aria-label="Close save as profile" title="Close" onClick={closeSaveProfile}>
@@ -102,7 +68,7 @@ function ProfileDialog({ seatId, replaceId }: { readonly seatId: string; readonl
         className="profile-dialog"
         onSubmit={(event) => {
           event.preventDefault();
-          void save();
+          void save.submit();
         }}
       >
         {captured ? (
@@ -122,51 +88,22 @@ function ProfileDialog({ seatId, replaceId }: { readonly seatId: string; readonl
 
         <div className="profile-dialog__field">
           <FieldLabel>Name</FieldLabel>
-          <Combobox<AgentProfile>
+          <Input
+            ref={claimFocusAndSelectOnMount}
             value={name}
-            onValueChange={(value) => {
-              setName(value.slice(0, PROFILE_NAME_MAX));
-              setError("");
-            }}
-            {...(completion ? { completion } : {})}
-            options={matches}
-            optionKey={(profile) => profile.profileId}
-            renderOption={(profile) => (
-              <span className="profile-dialog__option">
-                <ProfilePortrait profileKey={profile.profileId} body={profile} px={22} />
-                <span className="profile-dialog__option-name">{profile.name}</span>
-                <small>{profileLine(profile)}, replace</small>
-              </span>
-            )}
-            activeKey={active}
-            onActiveKeyChange={setActive}
-            {...(target ? { selectedKey: target.profileId } : {})}
-            onCommit={(option, value) => {
-              if (option) choose(option);
-              else {
-                setName(value);
-                void save();
-              }
-            }}
-            onOptionClick={choose}
-            aria-label="Profile name"
-            listLabel="Existing profiles"
+            maxLength={PROFILE_NAME_MAX}
+            spellCheck={false}
             placeholder="Reviewer"
-            empty={<span className="profile-dialog__hint">No profiles yet. This one is the first.</span>}
+            aria-label="Profile name"
+            onChange={(event) => {
+              setName(event.target.value);
+              save.back();
+              save.clearError();
+            }}
           />
-          <small className="profile-dialog__hint">
-            {target ? `Saving replaces ${target.name}.` : "Pick an existing profile to replace it."}
-          </small>
         </div>
 
-        {error ? <p className="profile-dialog__error" role="alert">{error}</p> : null}
-
-        <div className="profile-dialog__actions">
-          <Button variant="subtle" onClick={closeSaveProfile}>Cancel</Button>
-          <Button ref={saveRef} variant="primary" type="submit" disabled={!captured || saving}>
-            {target ? "Replace profile" : "Save profile"}
-          </Button>
-        </div>
+        <ProfileSaveActions state={save} submit="submit" disabled={!captured} onCancel={closeSaveProfile} />
       </form>
     </FocusSurface>
   );

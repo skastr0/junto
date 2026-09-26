@@ -104,6 +104,8 @@ import { SquadDialogHost } from "./squads/SquadDialog";
 import { openSaveSquad, placeSquadInSlot } from "../lib/squads-state";
 import { openSaveProfile, placeProfileInSlot } from "../lib/profiles-state";
 import { ProfileDialogHost } from "./profiles/ProfileDialog";
+import { ProfileDraftEditorHost } from "./profiles/ProfileDraftEditor";
+import { openProfileDraft } from "../lib/profile-draft-state";
 import { TerminalWizard, createTerminalAt } from "./terminal/TerminalWizard";
 import { openTerminalGrid } from "../lib/terminal-grid-state";
 import { GitWizard, createGitFromRegion } from "./git/GitWizard";
@@ -679,6 +681,10 @@ const makeAddActions = (
     const outcome = await placeProfileInSlot(profileId, positionFor, launch);
     if (outcome !== "needs-folder") dismiss();
     return outcome;
+  },
+  createProfile: () => {
+    dismiss();
+    openProfileDraft();
   },
   addConfiguredAgent: (choices, position) => {
     const node = makeManagedAgentNode(position.x, position.y, choices);
@@ -1765,6 +1771,7 @@ function CanvasGraph() {
     {seatMenu ? <SeatMenu at={seatMenu} seatId={seatMenu.seatId} onClose={() => setSeatMenu(null)} /> : null}
     <SquadDialogHost />
     <ProfileDialogHost />
+    <ProfileDraftEditorHost />
     {connectMenu ? (
       <TargetConnectMenu
         at={{ x: connectMenu.x, y: connectMenu.y }}
