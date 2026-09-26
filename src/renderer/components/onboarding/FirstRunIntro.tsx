@@ -338,7 +338,7 @@ function FeedDemo() {
   const replies = DEFAULT_QUICK_REPLIES;
   return (
     <div className="tour-pair">
-      <TourStage width={232} height={250} label="Two seats asking for the operator: one waiting on a decision, one blocked">
+      <TourStage width={330} height={250} label="Two seats asking for the operator: one waiting on a decision, one blocked">
         <DemoSeat
           id="tour-schema"
           name="schema"
@@ -477,8 +477,8 @@ function OrganizeDemo() {
             {CREW.map((seat) => (
               <div key={seat.id} className="tour-grid__cell">
                 <div className="tour-grid__cell-head">
-                  <ActivityMarkFromSpec spec={seatSpec(seat.state)} size="glance" unit={26}>
-                    <AgentPortrait identity={seat.id} size={portraitFor(26)} frame="round" outline={false} badge={false} />
+                  <ActivityMarkFromSpec spec={seatSpec(seat.state)} size="glance" unit={32}>
+                    <AgentPortrait identity={seat.id} size={portraitFor(32)} frame="round" outline={false} badge={false} />
                   </ActivityMarkFromSpec>
                   <span>{seat.name}</span>
                 </div>
