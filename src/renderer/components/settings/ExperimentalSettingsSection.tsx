@@ -69,7 +69,9 @@ function ExperimentalFeatureRow({ featureKey }: { readonly featureKey: FeatureKe
         <ul className="experimental-feature__facts">
           {requirement !== undefined ? (
             <li>
-              <StatusDot tone={requirement.tone} />
+              <span className="experimental-feature__dot">
+                <StatusDot tone={requirement.tone} />
+              </span>
               <span>{requirement.line}</span>
             </li>
           ) : null}
@@ -99,8 +101,7 @@ export function ExperimentalSettingsSection() {
   return (
     <div className="settings-section">
       <p className="experimental-lead">
-        These are built and ship with Junto, but they are not finished. Each stays off until you
-        turn it on here, and you can turn it off again at any time.
+        Each one stays off until you turn it on here, and you can turn it off again at any time.
       </p>
       <div className="experimental-list">
         {keys.map((key) => (

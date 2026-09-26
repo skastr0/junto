@@ -63,8 +63,16 @@
 
 .experimental-feature__facts li {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 8px;
+}
+
+/* One line tall, so the dot sits on the first line of a wrapped sentence. */
+.experimental-feature__dot {
+  display: inline-flex;
+  align-items: center;
+  height: 1.45em;
+  flex: none;
 }
 
 /* Lines up with the text after the status dot above it. */
