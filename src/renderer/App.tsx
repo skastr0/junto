@@ -53,6 +53,7 @@ import { SettingsPanel } from "./components/SettingsPanel";
 import { FirstRunIntro } from "./components/onboarding/FirstRunIntro";
 import { DigestPanel } from "./components/DigestPanel";
 import { OperatorFeedHost } from "./components/feed/OperatorFeed";
+import { DesktopNotificationsHost } from "./lib/desktop-notify";
 import { StoreHost } from "./overlay/surfaces";
 import { ObservabilityPanel } from "./components/ObservabilityPanel";
 import {
@@ -588,6 +589,7 @@ export function App() {
         <SettingsPanel />
         <DigestPanel />
         <OperatorFeedHost />
+        <DesktopNotificationsHost />
         <StoreHost />
         <ObservabilityPanel />
         {/* Mount fleet only while open — unmount destroys every WebGL machine. */}
