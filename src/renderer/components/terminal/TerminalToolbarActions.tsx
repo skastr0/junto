@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Pin, SquareTerminal, SquareX } from "lucide-react";
+import { CircleStop, Pin, SquareTerminal } from "lucide-react";
 import type { CanvasNode } from "@shared/canvas";
 import { resolveTerminalBinding } from "@shared/terminal";
 import { killTerminal, openTerminal } from "../../lib/terminal-actions";
@@ -8,13 +8,13 @@ import {
   killActionCopy,
   KILL_ARM_MS,
 } from "../../lib/terminal-kill-ux";
-import { HUE } from "../../lib/theme";
-import { IconButton } from "../ui";
+import { Button, IconButton } from "../ui";
 
 /**
  * Selection-toolbar actions for native terminal nodes.
- * Open is one-click; open-pinned lands in the side dock; stop is two-click arm
- * Never on the card body.
+ * Open is one-click; open-pinned lands in the side dock; stop ends the seat's
+ * process in two clicks, and the armed second click reads as words ("Stop
+ * process?") so the confirm is legible without a tooltip. Never on the card body.
  *
  * Icons share the toolbar steel chrome (IconButton default) — no per-action
  * accent colors. Crimson is reserved for the armed stop confirm only.
@@ -84,19 +84,36 @@ export function TerminalToolbarActions({ node }: { readonly node: CanvasNode }) 
       >
         <Pin size={14} />
       </IconButton>
-      <IconButton
-        className="nodrag nopan"
-        aria-label={stopCopy.ariaLabel}
-        title={stopCopy.title}
-        style={armed ? { color: HUE.crimson } : undefined}
-        onPointerDown={(event) => {
-          event.preventDefault();
-          event.stopPropagation();
-          fireStop();
-        }}
-      >
-        <SquareX size={14} />
-      </IconButton>
+      {armed ? (
+        <Button
+          className="nodrag nopan"
+          size="xs"
+          variant="danger"
+          aria-label={stopCopy.ariaLabel}
+          title={stopCopy.title}
+          onPointerDown={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            fireStop();
+          }}
+        >
+          <CircleStop size={11} aria-hidden />
+          {stopCopy.label}
+        </Button>
+      ) : (
+        <IconButton
+          className="nodrag nopan"
+          aria-label={stopCopy.ariaLabel}
+          title={stopCopy.title}
+          onPointerDown={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            fireStop();
+          }}
+        >
+          <CircleStop size={14} />
+        </IconButton>
+      )}
     </>
   );
 }

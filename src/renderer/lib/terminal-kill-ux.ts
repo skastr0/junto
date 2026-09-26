@@ -52,25 +52,22 @@ export const killActionCopy = (input: {
       disabled: true,
     };
   }
+  // Say what stops: the process, never the seat. Stopping still occupies the
+  // seat, so the node stays on the canvas and Reopen starts it again.
+  const subject = agentSeat ? "this agent's process" : "this terminal's process";
   if (phase === "armed") {
     return {
-      label: "Confirm",
-      title: agentSeat
-        ? "Click again to stop this agent"
-        : "Click again to stop the process",
-      ariaLabel: agentSeat
-        ? "Confirm stop agent"
-        : "Confirm stop process",
+      label: "Stop process?",
+      title: `Click again to stop ${subject}. The node stays on the canvas.`,
+      ariaLabel: `Confirm: stop ${subject}`,
       disabled: false,
     };
   }
   // idle
   return {
-    label: "Stop",
-    title: agentSeat
-      ? "Stop this agent, click again to confirm"
-      : "Stop the process, click again to confirm",
-    ariaLabel: agentSeat ? "Stop agent" : "Stop process",
+    label: "Stop process",
+    title: `Stop ${subject}. The node stays on the canvas; click twice to confirm.`,
+    ariaLabel: `Stop ${subject}`,
     disabled: false,
   };
 };

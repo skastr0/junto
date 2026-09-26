@@ -7,25 +7,26 @@ import {
 } from "../src/renderer/lib/terminal-kill-ux";
 
 describe("terminal kill UX copy", () => {
-  it("labels shell stop as Stop process, not kill session", () => {
+  it("labels shell stop as stopping the process, not kill session", () => {
     const idle = killActionCopy({ phase: "idle", agentSeat: false });
-    expect(idle.label).toBe("Stop");
-    expect(idle.ariaLabel).toBe("Stop process");
+    expect(idle.label).toBe("Stop process");
+    expect(idle.ariaLabel).toBe("Stop this terminal's process");
     expect(idle.title.toLowerCase()).toContain("confirm");
     expect(idle.title.toLowerCase()).not.toContain("kill session");
 
     const armed = killActionCopy({ phase: "armed", agentSeat: false });
-    expect(armed.label).toBe("Confirm");
+    expect(armed.label).toBe("Stop process?");
     expect(armed.title.toLowerCase()).toContain("click again");
   });
 
-  it("names agent-seat severity on arm and idle", () => {
+  it("says an agent seat stop ends the agent's process and keeps the node", () => {
     const idle = killActionCopy({ phase: "idle", agentSeat: true });
-    expect(idle.title).toMatch(/agent/i);
-    expect(idle.ariaLabel).toBe("Stop agent");
+    expect(idle.ariaLabel).toBe("Stop this agent's process");
+    expect(idle.title).toMatch(/stays on the canvas/);
 
     const armed = killActionCopy({ phase: "armed", agentSeat: true });
-    expect(armed.title).toMatch(/agent/i);
+    expect(armed.title).toBe("Click again to stop this agent's process. The node stays on the canvas.");
+    expect(armed.ariaLabel).toBe("Confirm: stop this agent's process");
   });
 
   it("shows in-flight Stopping state as disabled", () => {
