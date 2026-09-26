@@ -23,7 +23,9 @@
     "paths": {
       "@shared/*": ["src/shared/*"],
       "@main/*": ["src/main/*"],
-      "@renderer/*": ["src/renderer/*"]
+      "@renderer/*": ["src/renderer/*"],
+      "@junto/overlay": ["src/overlay-oss/index.ts"],
+      "@junto/overlay/*": ["src/overlay-oss/*"]
     }
   },
   "include": [

@@ -4,6 +4,7 @@ import {
   featureViteDefines,
   resolveBuildFeatures,
 } from "./scripts/build-features";
+import { overlayAlias, resolveOverlay } from "./scripts/overlay";
 
 // Mirrors electron.vite.config.ts's alias map. Vitest does not read
 // electron-vite's own config file, so without this, any test that reaches a
@@ -40,6 +41,8 @@ export default defineConfig({
       "@shared": resolve(__dirname, "src/shared"),
       "@main": resolve(__dirname, "src/main"),
       "@renderer": resolve(__dirname, "src/renderer"),
+      // Tests always run against the open-source stub, whatever the shell sets.
+      ...overlayAlias(resolveOverlay({})),
     },
   },
 });

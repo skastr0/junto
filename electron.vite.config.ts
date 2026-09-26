@@ -6,12 +6,18 @@ import {
   featureViteDefines,
   resolveBuildFeatures,
 } from "./scripts/build-features";
+import { overlayAlias, overlayDepsPlugin, resolveOverlay } from "./scripts/overlay";
+
+// Premium content joins at build time only: JUNTO_OVERLAY picks the overlay
+// checkout, unset builds the open-source app (docs/overlay.md).
+const overlay = resolveOverlay(process.env);
 
 const alias = {
   "@main": resolve("src/main"),
   "@preload": resolve("src/preload"),
   "@renderer": resolve("src/renderer"),
   "@shared": resolve("src/shared"),
+  ...overlayAlias(overlay),
 };
 
 // Build-time update feed only — never honored as a runtime env override.
@@ -32,12 +38,12 @@ const productDefines = {
 
 export default defineConfig({
   main: {
-    plugins: [externalizeDepsPlugin()],
+    plugins: [externalizeDepsPlugin(), overlayDepsPlugin(overlay)],
     resolve: { alias },
     define: productDefines,
   },
   preload: {
-    plugins: [externalizeDepsPlugin()],
+    plugins: [externalizeDepsPlugin(), overlayDepsPlugin(overlay)],
     resolve: { alias },
     define: productDefines,
     build: {
@@ -53,7 +59,9 @@ export default defineConfig({
     root: ".",
     resolve: { alias },
     define: productDefines,
-    plugins: [react(), tailwindcss()],
+    plugins: [overlayDepsPlugin(overlay), react(), tailwindcss()],
+    // The dev server may serve overlay files from outside this repository.
+    ...(overlay.kind === "official" ? { server: { fs: { allow: [".", overlay.dir] } } } : {}),
     build: {
       rollupOptions: {
         input: resolve("index.html"),

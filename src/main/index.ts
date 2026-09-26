@@ -20,6 +20,7 @@ import {
   type CanvasQuiesceAndFlushResult,
   type NodeRefOpenedDelivery,
 } from "@shared/ipc";
+import { overlayManifest } from "@shared/overlay";
 import { PRODUCT_NAME } from "@shared/product-name";
 import { modeFromConfiguration, startupDoor } from "@shared/station-mode";
 import { DARK_RUNTIME } from "@shared/theme";
@@ -1236,7 +1237,7 @@ if (packagedSandboxDisablingSwitch !== undefined) {
     // packaged app stays silent unless JUNTO_BUDGET says otherwise.
     armMainThreadBudget({ enabled: !app.isPackaged });
     recordSystemLog(
-      `${PRODUCT_NAME} ready - ${app.isPackaged ? "packaged" : "dev"} - ${app.getVersion() || "0.0.0"}`,
+      `${PRODUCT_NAME} ready - ${app.isPackaged ? "packaged" : "dev"} - ${app.getVersion() || "0.0.0"} - ${overlayManifest.name}`,
     );
     // Re-apply after ready: dock.hide before ready is a no-op / race on some
     // Electron builds, and E2E must never plant a Dock icon mid-suite.
