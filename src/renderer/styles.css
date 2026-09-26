@@ -284,6 +284,22 @@ html[data-junto-platform="darwin"] .focus-surface.focus-surface--contain-parent 
   min-height: 0;
   overflow: hidden;
 }
+/* The focus panel is the one frame. A surface inside it (terminal, browser,
+   chat, note) keeps its own border only in the pinned dock, where slots
+   stand side by side; in focus, split panes meet at a hairline. */
+.work-focus-shell .dock-slot {
+  border: 0;
+  border-radius: 0;
+}
+.work-focus-shell .workbench-panes {
+  gap: 0;
+}
+.work-focus-shell .workbench-panes--split-v > .workbench-pane + .workbench-pane {
+  border-left: 1px solid var(--color-stroke);
+}
+.work-focus-shell .workbench-panes--split-h > .workbench-pane + .workbench-pane {
+  border-top: 1px solid var(--color-stroke);
+}
 .focus-surface__panel.work-focus-shell__panel {
   /* Width is the user's dial; height is stage-fixed so every work surface
      (browser, terminal, split) opens at the same height as the pinned dock
@@ -311,6 +327,9 @@ html[data-junto-platform="darwin"] .focus-surface.focus-surface--contain-parent 
   width: min(760px, calc(100vw - 48px));
   height: min(80vh, 900px);
   resize: both;
+  /* The note is one frame: no document padding around its own header. */
+  padding: 0;
+  background: var(--color-ground);
 }
 .workbench-chrome {
   display: flex;
@@ -2518,53 +2537,46 @@ ol.note-md__list > .note-md__li::before {
   font-style: italic;
 }
 
-/* Expanded note editor — fills a FocusSurface document panel; write-first
-   layout. Chrome (eyebrow/done/close) is the shared ui primitives. */
+/* Expanded note editor. One frame: the panel (or the pinned dock slot) is
+   the only border; see the focus shell rules above. Inside it the shared
+   header, a borderless writing surface and a quiet footer with the keys,
+   divided by hairlines, never boxed. */
 .note-edit-modal {
   display: flex;
   flex-direction: column;
   width: 100%;
   height: 100%;
-  padding: 12px;
-}
-.note-edit-modal__chrome {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 10px;
-  padding-right: 4px;
-}
-.note-edit-modal__actions {
-  display: flex;
-  align-items: center;
-  gap: 6px;
+  min-height: 0;
+  background: var(--color-ground);
 }
 .note-edit-modal__textarea {
   flex: 1;
   min-height: 0;
   width: 100%;
   resize: none;
-  border: 1px solid var(--color-overlay-4);
-  border-radius: 6px;
-  background: var(--color-inset);
+  border: 0;
+  border-radius: 0;
+  background: transparent;
   color: var(--color-ink);
-  padding: 12px 14px;
+  padding: 18px 22px;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 13px;
-  line-height: 1.55;
+  line-height: 1.6;
   outline: none;
+  caret-color: var(--color-amber);
 }
 .note-edit-modal__textarea::placeholder { color: var(--color-faint); }
-.note-edit-modal__textarea:focus {
-  border-color: color-mix(in oklab, var(--color-second) 45%, transparent);
-  box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-second) 8%, transparent);
-}
 .note-edit-modal__hint {
-  margin-top: 8px;
+  display: flex;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 16px;
+  border-top: 1px solid var(--color-overlay-3);
+  padding: 8px 22px;
   color: var(--color-faint);
-  font-size: 9px;
-  letter-spacing: 0.06em;
+  font-size: 10px;
+  letter-spacing: 0.03em;
 }
 
 /* One top-layer tooltip for the station's dense, icon-led controls. */

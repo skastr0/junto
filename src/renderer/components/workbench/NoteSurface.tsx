@@ -19,7 +19,8 @@ import { editText } from "../../lib/mutations";
 import { activateSurfaceOnMouseDown } from "../../lib/pointer-activation";
 import { state$ } from "../../lib/state";
 import type { WorkSurface, WorkZone } from "../../lib/surface-registry";
-import { Button, Eyebrow, IconButton } from "../ui";
+import { Button, IconButton, Kbd, OverlayHeader } from "../ui";
+import { isMac } from "../../lib/platform";
 import { claimFocus } from "../../lib/focus-ownership";
 
 /** Save the latest Note draft without changing focus or closing its surface. */
@@ -151,44 +152,40 @@ export function NoteSurface({
       onMouseDown={activateSurfaceOnMouseDown(onActivate)}
     >
       <div className="note-edit-modal nowheel">
-        <div className="note-edit-modal__chrome">
-          <div className="min-w-0">
-            <Eyebrow tone="faint" size="xs">
-              note - markdown
-            </Eyebrow>
-            <div className="truncate text-xs text-dim" title={payload.title}>
-              {payload.title}
-            </div>
-          </div>
-          <div className="note-edit-modal__actions">
-            <IconButton
-              size="sm"
-              aria-label={pinned ? "Unpin note editor" : "Pin note editor"}
-              title={pinned ? "Move to focus" : "Pin to side dock"}
-              onClick={() => {
-                if (pinned) unpinWorkbenchSurface(surface.id);
-                else pinWorkbenchSurface(surface.id);
-              }}
-            >
-              {pinned ? <PinOff size={13} /> : <Pin size={13} />}
-            </IconButton>
-            <Button
-              size="xs"
-              variant="chrome"
-              onClick={() => saveAndCloseNoteSurface(surface.id)}
-            >
-              done
-            </Button>
-            <IconButton
-              size="sm"
-              aria-label="Close without saving"
-              title="Discard"
-              onClick={() => discardAndCloseNoteSurface(surface.id)}
-            >
-              <X size={13} />
-            </IconButton>
-          </div>
-        </div>
+        <OverlayHeader
+          eyebrow="note"
+          title={<span title={payload.title}>{payload.title.replace(/^#+\s*/, "") || "untitled"}</span>}
+          actions={
+            <>
+              <IconButton
+                size="sm"
+                aria-label={pinned ? "Unpin note editor" : "Pin note editor"}
+                title={pinned ? "Move to focus" : "Pin to side dock"}
+                onClick={() => {
+                  if (pinned) unpinWorkbenchSurface(surface.id);
+                  else pinWorkbenchSurface(surface.id);
+                }}
+              >
+                {pinned ? <PinOff size={13} /> : <Pin size={13} />}
+              </IconButton>
+              <Button
+                size="xs"
+                variant="chrome"
+                onClick={() => saveAndCloseNoteSurface(surface.id)}
+              >
+                done
+              </Button>
+              <IconButton
+                size="sm"
+                aria-label="Close without saving"
+                title="Discard"
+                onClick={() => discardAndCloseNoteSurface(surface.id)}
+              >
+                <X size={13} />
+              </IconButton>
+            </>
+          }
+        />
         <textarea
           ref={textareaRef}
           data-autofocus
@@ -204,9 +201,15 @@ export function NoteSurface({
             "# heading\n\n- list item\n\n**bold** and `code`\n\npaste an image to embed"
           }
         />
-        <div className="note-edit-modal__hint">
-          cmd+enter save - esc discard - paste image to embed
-        </div>
+        <footer className="note-edit-modal__hint">
+          <span>
+            <Kbd>{isMac() ? "⌘ ↵" : "ctrl ↵"}</Kbd> save
+          </span>
+          <span>
+            <Kbd>esc</Kbd> discard
+          </span>
+          <span>paste an image to embed it</span>
+        </footer>
       </div>
     </section>
   );
