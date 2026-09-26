@@ -10,7 +10,9 @@ import {
   DEV_TOOLS_ENABLED,
   FLEET_UI_ENABLED,
   HARNESS_SETTINGS_ENABLED,
+  experimentalFeatureKeys,
 } from "@shared/features";
+import { ExperimentalSettingsSection } from "./settings/ExperimentalSettingsSection";
 import { HarnessesSettingsSection } from "./settings/HarnessesSettingsSection";
 import { ProvidersSettingsSection } from "./settings/ProvidersSettingsSection";
 import { TerminalSettingsSection } from "./settings/TerminalSettingsSection";
@@ -45,8 +47,11 @@ import { getJuntoApi } from "../lib/junto-api";
 import { Button, Eyebrow, Select } from "./ui";
 import "./settings-panel.css";
 
-/** Settings sections: preferences and the app update panel. */
-type PanelSection = SettingsSectionKey | "updates";
+/**
+ * Settings sections: preferences, the app update panel, and the experimental
+ * features (stored under advanced, shown on their own tab).
+ */
+type PanelSection = SettingsSectionKey | "updates" | "experimental";
 
 const SECTIONS: ReadonlyArray<{ key: PanelSection; label: string; blurb: string }> = [
   { key: "appearance", label: "Appearance", blurb: "" },
@@ -76,6 +81,17 @@ const SECTIONS: ReadonlyArray<{ key: PanelSection; label: string; blurb: string 
     label: "Providers",
     blurb: "usage credentials: API keys, tokens, cookies",
   },
+  // Built and in the app, off until turned on here. Absent when this build
+  // ships nothing experimental.
+  ...(experimentalFeatureKeys().length > 0
+    ? [
+        {
+          key: "experimental",
+          label: "Experimental",
+          blurb: "built, not yet fully available",
+        } as const,
+      ]
+    : []),
   {
     key: "advanced",
     label: "Advanced",
@@ -1140,6 +1156,8 @@ function SectionBody({ section }: { readonly section: PanelSection }) {
       return HARNESS_SETTINGS_ENABLED ? <HarnessesSettingsSection /> : null;
     case "providers":
       return <ProvidersSettingsSection />;
+    case "experimental":
+      return <ExperimentalSettingsSection />;
     case "advanced":
       return <AdvancedSection />;
     case "kernel":
@@ -1201,7 +1219,7 @@ export function SettingsPanel() {
             </div>
           </div>
           <div className="settings-panel__header-actions">
-            {activeSection !== "updates" ? (
+            {activeSection !== "updates" && activeSection !== "experimental" ? (
               <button
                 type="button"
                 className="settings-panel__ghost"
