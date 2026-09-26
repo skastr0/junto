@@ -19,9 +19,9 @@ export function IconButton({
   readonly children: ReactNode;
 } & ButtonHTMLAttributes<HTMLButtonElement>) {
   const tones = {
-    default: "text-steel hover:bg-white/10 hover:text-ink",
-    danger: "text-steel hover:bg-white/10 hover:text-crimson",
-    accent: "text-cyan/70 hover:bg-white/10 hover:text-cyan",
+    default: "text-steel hover:bg-ink/10 hover:text-ink",
+    danger: "text-steel hover:bg-ink/10 hover:text-crimson",
+    accent: "text-cyan/70 hover:bg-ink/10 hover:text-cyan",
   } as const;
   const sizes = {
     sm: "size-6",

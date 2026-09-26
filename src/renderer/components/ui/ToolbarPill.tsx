@@ -6,7 +6,7 @@ import type { ReactNode } from "react";
  */
 export function ToolbarPill({ children }: { readonly children: ReactNode }) {
   return (
-    <div className="nodrag nopan flex items-center gap-1 rounded-md border border-white/10 bg-inset px-1 py-1 shadow-lg shadow-black/40">
+    <div className="nodrag nopan flex items-center gap-1 rounded-md border border-stroke bg-inset px-1 py-1 shadow-lg shadow-black/40">
       {children}
     </div>
   );

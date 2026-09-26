@@ -14,11 +14,11 @@ export type ButtonSize = "xs" | "sm" | "md";
 
 const VARIANT: Record<ButtonVariant, string> = {
   chrome:
-    "border border-white/10 bg-white/[0.04] text-ink hover:bg-white/10",
+    "border border-stroke bg-ink/[0.04] text-ink hover:bg-ink/10",
   primary:
     "border border-amber/35 bg-amber/[0.18] text-amber-hi font-semibold hover:bg-amber/[0.26]",
   subtle:
-    "border border-transparent bg-transparent text-dim hover:text-ink hover:bg-white/[0.06]",
+    "border border-transparent bg-transparent text-dim hover:text-ink hover:bg-ink/[0.06]",
   danger:
     "border border-crimson/40 bg-crimson/10 text-crimson hover:bg-crimson/[0.18]",
 };

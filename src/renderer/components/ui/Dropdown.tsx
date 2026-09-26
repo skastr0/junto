@@ -288,7 +288,7 @@ export function Dropdown({
                       option.disabled ? "cursor-not-allowed opacity-40" : "",
                       isActive && !option.disabled ? "bg-amber/[0.12] text-amber-hi" : "",
                       isSelected && !isActive ? "text-amber" : "",
-                      !isActive && !isSelected && !option.disabled ? "hover:bg-white/[0.05]" : "",
+                      !isActive && !isSelected && !option.disabled ? "hover:bg-ink/[0.05]" : "",
                     ]
                       .filter(Boolean)
                       .join(" ")}
