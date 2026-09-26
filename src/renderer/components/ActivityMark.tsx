@@ -170,21 +170,23 @@ const HUB_MIX: Readonly<Record<string, number>> = {
 
 const hubTone = (ring: string, tone: ActivityTone): ActivityTone => {
   if (ring === "done") return "green";
-  if (ring === "reverse" || ring === "snake" || ring === "call") return "amber";
+  if (ring === "reverse" || ring === "snake" || ring === "call" || ring === "fracture") return "amber";
   if (ring === "halt") return "crimson";
   return tone;
 };
 
 /**
  * The status instrument every seat, card, chip and glance shares: a ring.
+  wait: 100,
  *
  * One element. Its background is a cell of the theme's sprite atlas
  * (activity-atlas.ts): the ring carries control state (bent by a trouble
  * reading), a ::after band carries the waiting glow, the good halo and the
  * declared-signal flag. Standalone it has a hub; at seat size a portrait sits
  * in the ring. Loops step on the shared 90 ms clock only while visible and
- * motion is live; done draws itself once and then never repaints; everything
- * else is still. No visible text: the label is the accessible name.
+ * motion is live; done draws itself once and then glints until read; only
+ * resting and stopped rings are still. No visible text: the label is the
+ * accessible name.
  */
 export function ActivityMark({
   mode,
@@ -210,7 +212,9 @@ export function ActivityMark({
   const { core, band, ring } = ringCells({
     glyph: drawn,
     tone,
-    animate: active && mode !== "static",
+    // Every ring but resting and stopped moves, whatever the control mode:
+    // a still seat that waits on you orbits. Only `active` freezes it.
+    animate: active,
     health,
     healthValue,
     healthStale,
@@ -222,7 +226,7 @@ export function ActivityMark({
   ensureMarkAtlas(theme);
 
   useEffect(() => {
-    const renderedMode: ActivityMode = looping ? "wave" : core.motion === "land" ? "pulse" : "static";
+    const renderedMode: ActivityMode = looping ? "wave" : "static";
     const animated = renderedMode !== "static";
     canvasPerformance.recordActivityMount(animated, renderedMode);
     const el = ref.current;
@@ -231,7 +235,7 @@ export function ActivityMark({
       unwatch?.();
       canvasPerformance.recordActivityUnmount(animated, renderedMode);
     };
-  }, [looping, core.motion]);
+  }, [looping]);
 
   const name = accessibleName(label, healthLabel, signal, signalCount);
   const hubMix = children === undefined ? HUB_MIX[ring] : undefined;
@@ -258,6 +262,7 @@ export function ActivityMark({
       data-activity-tone={tone}
       data-activity-size={size}
       data-mark-size={size}
+    ...(core.land !== undefined ? { "--mark-lrow": core.land } : {}),
       data-mark-ring={ring}
       data-mark-motion={core.motion}
       data-mark-band={band ? "" : undefined}
@@ -279,6 +284,7 @@ export function ActivityMark({
             event.stopPropagation();
             onSignalOpen();
           }}
+      data-mark-land={core.land !== undefined ? "" : undefined}
         />
       ) : null}
     </span>

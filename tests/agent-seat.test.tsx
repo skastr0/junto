@@ -78,7 +78,7 @@ describe("AgentSeatView line", () => {
   it("otherwise the control state in words", () => {
     expect(line(seat({ activity: terminalActivity({ seatState: "attention" }) }))).toBe("wants your input");
     expect(line(seat({ activity: terminalActivity({ seatState: "idle", needsLook: true }) }))).toBe(
-      "done, ready for review",
+      "done, not read yet",
     );
   });
 

@@ -4,13 +4,16 @@
  * Pure canvas-2D painters in a 20-unit box centered on (10, 10); the atlas
  * (activity-atlas.ts) bakes their frames once per theme.
  *
- *   work     an arc circles the ring, clockwise
- *   reverse  circling runs backwards (stuck)
- *   snake    the ring itself zigzags as a wave travels round it (thrashing, looping)
- *   call     a steady ring that sends a ring outward, twice, then waits
- *   halt     a heavy ring on a double heartbeat (blocked, failed)
- *   done     the ring sweeps closed, thickens, and rests; it never flashes
- *   live, dot, rest, off, fracture   still rings
+ *   work      an arc circles the ring, clockwise
+ *   reverse   circling runs backwards (stuck)
+ *   snake     the ring itself zigzags as a wave travels round it (thrashing, looping)
+ *   call      a steady ring that keeps sending rings outward (needs your input)
+ *   wait      two beads orbit a lit ring, slowly (waiting on you, declared)
+ *   halt      a heavy ring on a steady double heartbeat (blocked, failed)
+ *   done      the ring sweeps closed once, then a faint glint laps it (unread)
+ *   fracture  a broken ring grinds slowly round (trouble, at rest)
+ *   dot, live the ring breathes (a settled fact, a warm session)
+ *   rest, off still: acknowledged idle and stopped are the only silent rings
  *
  * The ring stays inside radius ~7.8 so a portrait fits within it and the
  * outer band (to 10) is free for the expanding call ring, the waiting glow,
@@ -25,8 +28,9 @@ export type RingPalette = {
   readonly dark: boolean;
 };
 
-export type LoopRing = "work" | "reverse" | "snake" | "call" | "halt";
-export type StillRing = "live" | "dot" | "rest" | "off" | "fracture";
+export type LoopRing =
+  "work" | "reverse" | "snake" | "call" | "wait" | "halt" | "glint" | "fracture" | "dot" | "live";
+export type StillRing = "rest" | "off";
 
 /** Frames of the done draw-in; frame LAND_FRAMES is the resting pose. */
 export const LAND_FRAMES = 8;
@@ -42,7 +46,7 @@ export const RING_HOLE_R = RING_R - RING_W / 2 - 0.25;
 const clamp01 = (n: number): number => Math.max(0, Math.min(1, n));
 const ease = (t: number): number => 1 - (1 - clamp01(t)) ** 3;
 
-/** Two beats over frames 0..10, then still: a heartbeat, not a blink. */
+/** Two beats over frames 0..10, then a rest: a heartbeat, not a blink. */
 const heartbeat = (frame: number): number => {
   if (frame < 3) return frame / 3;
   if (frame < 6) return 1 - (frame - 3) / 3;
@@ -142,26 +146,48 @@ const snake = (ctx: Ctx, p: RingPalette, color: string, frame: number): void => 
   ctx.restore();
 };
 
-/** Wants the operator: a steady lit ring that sends a ring outward, twice. */
+/** Wants the operator: a steady lit ring that keeps sending a ring outward. */
 const call = (ctx: Ctx, p: RingPalette, color: string, frame: number): void => {
-  const wave = frame < 10 ? { t: frame / 10, gain: 1 } : frame < 20 ? { t: (frame - 10) / 10, gain: 0.55 } : undefined;
-  if (wave) {
+  const t = (frame % 16) / 13;
+  if (t < 1) {
     ctx.save();
     ctx.strokeStyle = color;
-    ctx.globalAlpha = 0.9 * wave.gain * (1 - wave.t) ** 1.2;
-    circle(ctx, RING_R + 0.3 + ease(wave.t) * 2.3, RING_W * (1 - 0.6 * wave.t));
+    ctx.globalAlpha = 0.9 * (1 - t) ** 1.2;
+    circle(ctx, RING_R + 0.3 + ease(t) * 2.3, RING_W * (1 - 0.6 * t));
     ctx.restore();
   }
   ctx.save();
   ctx.strokeStyle = color;
   glowOn(ctx, p, color, 5);
-  circle(ctx, RING_R, RING_W * 1.15);
+  circle(ctx, RING_R, RING_W * (1.05 + 0.2 * Math.max(0, 1 - t * 3)));
   ctx.restore();
 };
 
-/** Blocked or failed: a heavy ring cut into four, beating twice then holding. */
+/**
+ * Waiting on you: a lit ring with two beads orbiting it, slowly, opposite
+ * each other. Patient where work hurries: half a lap per cycle, no tail.
+ */
+const wait = (ctx: Ctx, p: RingPalette, color: string, frame: number): void => {
+  ctx.save();
+  ctx.strokeStyle = color;
+  ctx.globalAlpha = 0.55;
+  circle(ctx, RING_R, RING_W * 0.95);
+  ctx.restore();
+  const head = TOP + (frame / 32) * Math.PI;
+  for (const a of [head, head + Math.PI]) {
+    ctx.save();
+    ctx.strokeStyle = color;
+    ctx.lineCap = "round";
+    ctx.globalAlpha = 0.95;
+    glowOn(ctx, p, color, 4);
+    circle(ctx, RING_R, RING_W * 1.5, a - 0.34, a + 0.34);
+    ctx.restore();
+  }
+};
+
+/** Blocked or failed: a heavy ring cut into four, on a steady double beat. */
 const halt = (ctx: Ctx, p: RingPalette, color: string, frame: number): void => {
-  const beat = heartbeat(frame);
+  const beat = heartbeat(frame % 16);
   ctx.save();
   ctx.strokeStyle = color;
   ctx.lineCap = "butt";
@@ -198,11 +224,73 @@ export const paintDone = (ctx: Ctx, p: RingPalette, color: string, frame: number
   ctx.restore();
 };
 
+/**
+ * Done, not yet read: the sealed ring, with a faint glint lapping it once a
+ * cycle, fading in and out so frame 0 is the plain seal. The quietest motion.
+ */
+const glint = (ctx: Ctx, p: RingPalette, color: string, frame: number): void => {
+  paintDone(ctx, p, color, LAND_FRAMES);
+  const t = frame / 32;
+  const light = Math.sin(Math.PI * t) ** 2;
+  if (light <= 0.01) return;
+  const head = TOP + t * TAU;
+  ctx.save();
+  ctx.strokeStyle = color;
+  ctx.lineCap = "round";
+  glowOn(ctx, p, color, 3 * light);
+  const steps = 8;
+  for (let s = 0; s < steps; s += 1) {
+    const u = s / steps;
+    ctx.globalAlpha = 0.85 * light * (1 - u) ** 1.5;
+    const a = head - 0.9 * u;
+    circle(ctx, RING_R, RING_W * 1.75, a - 0.9 / steps, a + 0.002);
+  }
+  ctx.restore();
+};
+
+/** Trouble at rest: the ring broken at every quarter, grinding a quarter turn. */
+const fracture = (ctx: Ctx, _p: RingPalette, color: string, frame: number): void => {
+  const t = frame / 32;
+  const turn = t * (Math.PI / 2);
+  const gap = 0.45 + 0.2 * Math.sin(TAU * t);
+  ctx.save();
+  ctx.strokeStyle = color;
+  ctx.globalAlpha = 0.95;
+  ctx.lineCap = "round";
+  for (let q = 0; q < 4; q += 1) {
+    const a0 = (q * Math.PI) / 2 + Math.PI / 4 + gap / 2 + turn;
+    circle(ctx, RING_R, RING_W, a0, a0 + Math.PI / 2 - gap);
+  }
+  ctx.restore();
+};
+
+/** A settled fact (dot) or a warm session (live): the ring breathes. */
+const breathe = (ctx: Ctx, p: RingPalette, ring: "dot" | "live", color: string, frame: number): void => {
+  const b = 0.5 - 0.5 * Math.cos((TAU * frame) / 32);
+  ctx.save();
+  ctx.strokeStyle = color;
+  if (ring === "dot") {
+    glowOn(ctx, p, color, 2 + 2 * b);
+    ctx.globalAlpha = 0.8 + 0.2 * b;
+    circle(ctx, RING_R, RING_W * (1 + 0.15 * b));
+  } else {
+    ctx.globalAlpha = 0.55 + 0.35 * b;
+    circle(ctx, RING_R, RING_W * 0.85);
+    ctx.globalAlpha = 0.18 * b;
+    circle(ctx, RING_R + 1.3, 1);
+  }
+  ctx.restore();
+};
+
 export const paintLoop = (ctx: Ctx, p: RingPalette, ring: LoopRing, color: string, frame: number): void => {
   if (ring === "work") work(ctx, p, color, frame);
   else if (ring === "reverse") reverse(ctx, p, color, frame);
   else if (ring === "snake") snake(ctx, p, color, frame);
   else if (ring === "call") call(ctx, p, color, frame);
+  else if (ring === "wait") wait(ctx, p, color, frame);
+  else if (ring === "glint") glint(ctx, p, color, frame);
+  else if (ring === "fracture") fracture(ctx, p, color, frame);
+  else if (ring === "dot" || ring === "live") breathe(ctx, p, ring, color, frame);
   else halt(ctx, p, color, frame);
 };
 
@@ -212,35 +300,25 @@ export const LOOP_REST_FRAME: Readonly<Record<LoopRing, number>> = {
   reverse: 6,
   snake: 0,
   call: 3,
-  halt: 16,
+  wait: 4,
+  halt: 12,
+  glint: 0,
+  fracture: 0,
+  dot: 0,
+  live: 16,
 };
 
 export const paintStill = (ctx: Ctx, p: RingPalette, ring: StillRing, color: string): void => {
   ctx.save();
   ctx.strokeStyle = color;
-  if (ring === "live") {
-    ctx.globalAlpha = 0.8;
-    circle(ctx, RING_R, RING_W * 0.85);
-  } else if (ring === "dot") {
-    glowOn(ctx, p, color, 2);
-    circle(ctx, RING_R, RING_W);
-  } else if (ring === "rest") {
+  if (ring === "rest") {
     ctx.globalAlpha = p.dark ? 0.42 : 0.5;
     circle(ctx, RING_R, RING_W * 0.8);
-  } else if (ring === "off") {
+  } else {
     ctx.globalAlpha = 0.55;
     ctx.lineCap = "round";
     ctx.setLineDash([0.05, 1.45]);
     circle(ctx, RING_R, RING_W);
-  } else {
-    // Fracture: an amber ring broken at every quarter (trouble, at rest).
-    ctx.globalAlpha = 0.95;
-    ctx.lineCap = "round";
-    const gap = 0.55;
-    for (let q = 0; q < 4; q += 1) {
-      const a0 = (q * Math.PI) / 2 + Math.PI / 4 + gap / 2;
-      circle(ctx, RING_R, RING_W, a0, a0 + Math.PI / 2 - gap);
-    }
   }
   ctx.restore();
 };
@@ -250,7 +328,7 @@ export const paintStill = (ctx: Ctx, p: RingPalette, ring: StillRing, color: str
 export type RingGlow = "amber" | "crimson";
 export type RingHalo = "good" | "exceeding";
 
-/** Waiting on the operator: a soft light around the ring, no motion. */
+/** Waiting on the operator: a soft light around the ring; the ring moves. */
 export const paintGlow = (ctx: Ctx, p: RingPalette, color: string, fade: number): void => {
   ctx.save();
   ctx.strokeStyle = color;

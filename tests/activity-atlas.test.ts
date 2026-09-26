@@ -15,21 +15,61 @@ const ring = (input: Partial<RingInput> & Pick<RingInput, "glyph">) =>
   ringCells({ tone: "cyan", animate: true, ...input });
 
 describe("ringCells: control state owns the motion", () => {
-  it("work loops, done lands once, stills never move", () => {
-    expect(ring({ glyph: "work" }).core.motion).toBe("loop");
-    expect(ring({ glyph: "done" }).core.motion).toBe("land");
+  it("every state moves except resting and stopped", () => {
+    for (const glyph of ["work", "call", "halt", "done", "live", "dot"] as const) {
+      expect(ring({ glyph }).core.motion).toBe("loop");
+    }
     expect(ring({ glyph: "rest", tone: "steel" }).core.motion).toBe("still");
+    expect(ring({ glyph: "off", tone: "steel" }).core.motion).toBe("still");
+  });
+
+  it("done draws itself once from its land row, then glints", () => {
+    const done = ring({ glyph: "done" });
+    expect(done.ring).toBe("done");
+    expect(done.core.motion).toBe("loop");
+    expect(done.core.land).toBeDefined();
+    expect(done.core.land).not.toBe(done.core.row);
   });
 
   it("a frozen done shows its resting frame, not its first", () => {
     const sealed = ring({ glyph: "done", animate: false });
     expect(sealed.core.motion).toBe("still");
     expect(sealed.core.col).toBe(LAND_FRAMES);
+    expect(sealed.core.land).toBeUndefined();
   });
 
   it("call and halt outrank a trouble reading", () => {
     expect(ring({ glyph: "call", health: "trouble", healthValue: "stuck" }).ring).toBe("call");
     expect(ring({ glyph: "halt", health: "trouble", healthValue: "thrashing" }).ring).toBe("halt");
+  });
+});
+
+describe("ringCells: waiting on you circles", () => {
+  it("a declared escalate or feedback orbits a seat that is not working", () => {
+    expect(ring({ glyph: "rest", tone: "steel", signal: "escalate" }).ring).toBe("wait");
+    expect(ring({ glyph: "done", tone: "green", signal: "feedback" }).ring).toBe("wait");
+    expect(ring({ glyph: "rest", tone: "steel", signal: "escalate" }).core.row).not.toBe(
+      ring({ glyph: "rest", tone: "steel", signal: "feedback" }).core.row,
+    );
+  });
+
+  it("a declared blocked beats as halt", () => {
+    expect(ring({ glyph: "rest", tone: "steel", signal: "blocked" }).ring).toBe("halt");
+  });
+
+  it("work keeps its lap under a signal", () => {
+    expect(ring({ glyph: "work", signal: "escalate" }).ring).toBe("work");
+  });
+
+  it("a fresh waiting reading orbits; a stale one does not", () => {
+    expect(ring({ glyph: "rest", tone: "steel", health: "waiting" }).ring).toBe("wait");
+    expect(ring({ glyph: "rest", tone: "steel", health: "waiting", healthStale: true }).ring).toBe("rest");
+  });
+
+  it("reduced motion freezes the orbit at a pose that still reads", () => {
+    const frozen = ring({ glyph: "rest", tone: "steel", signal: "escalate", animate: false });
+    expect(frozen.ring).toBe("wait");
+    expect(frozen.core.motion).toBe("still");
   });
 });
 
@@ -40,8 +80,10 @@ describe("ringCells: trouble bends the ring, in amber", () => {
     expect(ring({ glyph: "work", health: "trouble", healthValue: "looping" }).ring).toBe("snake");
   });
 
-  it("a settled ring fractures", () => {
-    expect(ring({ glyph: "rest", tone: "steel", health: "trouble", healthValue: "confused" }).ring).toBe("fracture");
+  it("a settled ring fractures, and grinds", () => {
+    const fractured = ring({ glyph: "rest", tone: "steel", health: "trouble", healthValue: "confused" });
+    expect(fractured.ring).toBe("fracture");
+    expect(fractured.core.motion).toBe("loop");
   });
 
   it("the bent ring uses the amber row, never the crimson one", () => {
@@ -96,6 +138,7 @@ describe("atlas layout", () => {
     }
     for (const input of inputs) {
       const { core, band } = ringCells(input);
+      if (core.land !== undefined) expect(core.land).toBeLessThan(MARK_ATLAS_ROWS);
       for (const cell of [core, band]) {
         if (!cell) continue;
         expect(cell.col).toBeGreaterThanOrEqual(0);
@@ -113,5 +156,13 @@ describe("atlas layout", () => {
         `html[data-mark-frame="${String(frame)}"] .junto-mark[data-mark-motion="loop"][data-mark-visible]`,
       );
     }
+  });
+
+  it("the land animation has no fill, so the loop takes over when it ends", () => {
+    const rule = markAtlasCss()
+      .split("\n")
+      .find((line) => line.startsWith(".junto-mark[data-mark-land]{"));
+    expect(rule).toBeDefined();
+    expect(rule).not.toMatch(/\b(both|forwards)\b/);
   });
 });

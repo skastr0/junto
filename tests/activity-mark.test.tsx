@@ -22,7 +22,7 @@ describe("ActivityMark structure", () => {
     expect(html).toContain("--mark-row:");
   });
 
-  it("done lands once instead of looping", () => {
+  it("done lands once, then keeps a quiet loop until read", () => {
     const html = renderToStaticMarkup(<ActivityMark mode="pulse" tone="green" label="done" />);
     expect(attr(html, "data-mark-ring")).toBe("done");
     expect(attr(html, "data-mark-motion")).toBe("land");

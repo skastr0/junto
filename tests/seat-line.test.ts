@@ -10,7 +10,7 @@ describe("seatLine: friendly and true for every control state", () => {
     [{ seatState: "attention" }, "wants your input"],
     [{ seatState: "attention", seatReason: "turn-stalled" }, "stalled, needs a look"],
     [{ seatState: "idle", graphBlocked: true }, "blocked"],
-    [{ seatState: "idle", needsLook: true }, "done, ready for review"],
+    [{ seatState: "idle", needsLook: true }, "done, not read yet"],
     [{ seatState: "idle" }, "resting"],
     [{ running: true, managedSeat: true }, "ready"],
     [{ managedSeat: true, seatState: "unknown" }, "offline"],

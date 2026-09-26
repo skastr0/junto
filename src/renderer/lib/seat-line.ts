@@ -12,7 +12,7 @@ const PROCESS = /^process — (.+)$/;
 
 export const seatLine = (activity: ActivitySpec): SeatLine => {
   const { mode, tone, label } = activity;
-  if (mode === "pulse" && tone === "green") return { text: "done, ready for review", tone: "green" };
+  if (mode === "pulse" && tone === "green") return { text: "done, not read yet", tone: "green" };
   if (mode === "wave" && tone === "amber") {
     return { text: /stall/i.test(label) ? "stalled, needs a look" : "wants your input", tone: "amber" };
   }

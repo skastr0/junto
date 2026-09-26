@@ -42,8 +42,8 @@ export { LAND_FRAMES };
 
 /** Design units per mark edge. */
 const BOX = 20;
-/** Atlas pixels per unit: a 56px seat ring at dpr 2 draws 1:1. */
-const SCALE = 5.6;
+/** Atlas pixels per unit: a 52px seat ring at dpr 2 draws 1:1. */
+const SCALE = 5.2;
 const CELL = Math.round(BOX * SCALE);
 export const MARK_ATLAS_COLS = ATTENTION_CLOCK_FRAMES;
 
@@ -57,20 +57,21 @@ const LOOP_ROWS: ReadonlyArray<readonly [LoopRing, ActivityTone]> = [
   ["snake", "amber"],
   ["call", "amber"],
   ["halt", "crimson"],
+  ["wait", "amber"],
+  ["wait", "cyan"],
+  ["glint", "green"],
+  ["fracture", "amber"],
+  ["dot", "green"],
+  ["dot", "cyan"],
+  ["dot", "amber"],
+  ["live", "green"],
+  ["live", "cyan"],
 ];
 const LAND_ROW = LOOP_ROWS.length;
 
 const STILL_CELLS: ReadonlyArray<readonly [StillRing, ActivityTone]> = [
-  ["dot", "steel"],
-  ["dot", "green"],
-  ["dot", "cyan"],
-  ["dot", "amber"],
-  ["dot", "crimson"],
   ["rest", "steel"],
   ["off", "steel"],
-  ["live", "green"],
-  ["live", "cyan"],
-  ["fracture", "amber"],
 ];
 
 const GLOWS: ReadonlyArray<RingGlow | "none"> = ["none", "amber", "crimson"];
@@ -132,8 +133,10 @@ const LAYOUT = buildLayout();
 export const MARK_ATLAS_ROWS = LAYOUT.rows;
 
 export type CoreCell = AtlasCell & {
-  /** loop = steps with the clock; land = one-shot draw-in; still = never moves. */
-  readonly motion: "loop" | "land" | "still";
+  /** loop = steps with the clock; still = never moves. */
+  readonly motion: "loop" | "still";
+  /** Atlas row of a one-shot draw-in played before the loop (done). */
+  readonly land?: number;
 };
 
 export type RingInput = {
@@ -162,11 +165,8 @@ const loopCell = (ring: LoopRing, tone: ActivityTone, animate: boolean): CoreCel
   return { col: LOOP_REST_FRAME[ring], row, motion: animate ? "loop" : "still" };
 };
 
-const stillCell = (ring: StillRing, tone: ActivityTone): CoreCell => {
-  const cell =
-    LAYOUT.stills.get(key(ring, tone)) ??
-    LAYOUT.stills.get(key("dot", tone)) ??
-    LAYOUT.stills.get(key("rest", "steel")) ?? { col: 0, row: 0 };
+const stillCell = (ring: StillRing): CoreCell => {
+  const cell = LAYOUT.stills.get(key(ring, "steel")) ?? { col: 0, row: 0 };
   return { ...cell, motion: "still" };
 };
 
@@ -176,30 +176,52 @@ const stillCell = (ring: StillRing, tone: ActivityTone): CoreCell => {
  * Control state owns the motion. A trouble reading bends it: work that is
  * stuck runs backwards, work that is thrashing or looping snakes, and a
  * settled ring fractures; trouble is amber, never crimson (crimson is a
- * declared blocker's). Call and halt outrank a reading. The band says who is
- * waiting on whom: a declared blocked or escalate glows first, a health
- * "waiting" reading second; a good reading is a fine outer halo. The flag
- * marks any open declared signal. Stale readings draw faded.
+ * declared blocker's). Call and halt outrank a reading. A seat that is not
+ * working but waits on the operator circles: a declared blocked beats as
+ * halt, escalate and feedback orbit in their flag's hue, and a fresh
+ * "waiting" reading orbits amber. Done draws itself once and then glints
+ * until it is read. The band says who is waiting on whom: a declared blocked
+ * or escalate glows first, a health "waiting" reading second; a good reading
+ * is a fine outer halo. The flag marks any open declared signal. Stale
+ * readings draw faded. Only resting and stopped rings are still.
  */
 export const ringCells = (input: RingInput): RingCells => {
   const { glyph, tone, animate, health, healthValue, signal } = input;
   const trouble = health === "trouble";
+  const waitTone: ActivityTone | undefined =
+    signal === "escalate" || signal === "feedback"
+      ? SIGNAL_FLAG_TONE[signal]
+      : health === "waiting" && input.healthStale !== true
+        ? "amber"
+        : undefined;
   let core: CoreCell;
   let ring: RingCells["ring"];
-  if (glyph === "done") {
-    core = animate
-      ? { col: 0, row: LAND_ROW, motion: "land" }
-      : { col: LAND_FRAMES, row: LAND_ROW, motion: "still" };
-    ring = "done";
-  } else if (glyph === "work") {
+  if (glyph === "work") {
     ring = trouble ? (healthValue === "stuck" ? "reverse" : "snake") : "work";
     core = loopCell(ring, trouble ? "amber" : tone, animate);
   } else if (glyph === "call" || glyph === "halt") {
     ring = glyph;
     core = loopCell(glyph, glyph === "call" ? "amber" : "crimson", animate);
+  } else if (signal === "blocked") {
+    ring = "halt";
+    core = loopCell("halt", "crimson", animate);
+  } else if (waitTone) {
+    ring = "wait";
+    core = loopCell("wait", waitTone, animate);
+  } else if (glyph === "done") {
+    ring = "done";
+    core = animate
+      ? { ...loopCell("glint", "green", true), land: LAND_ROW }
+      : { col: LAND_FRAMES, row: LAND_ROW, motion: "still" };
+  } else if (trouble) {
+    ring = "fracture";
+    core = loopCell("fracture", "amber", animate);
+  } else if (glyph === "dot" || glyph === "live") {
+    ring = glyph;
+    core = loopCell(glyph, tone === "steel" ? "cyan" : tone, animate);
   } else {
-    ring = trouble ? "fracture" : glyph;
-    core = stillCell(ring, trouble ? "amber" : tone);
+    ring = glyph;
+    core = stillCell(glyph);
   }
 
   const signalGlow: RingGlow | undefined =
