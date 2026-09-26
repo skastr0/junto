@@ -5,11 +5,11 @@ import { Result } from "effect";
 // predicate the product reads.
 import { ARTIFACTS_ENABLED, TASKS_ENABLED } from "../src/shared/features";
 import { decodeCanvasDoc, edgeGrant, type CanvasDoc, type GroupNode, type TextNode } from "../src/shared/canvas";
-import { addNode, commitDoc, deleteNode, editLink, editText, flushNodeSheetTyping, loadDoc, pinRuling, redo, renameGroup, renameTerminalNode, setBoardSettings, setFlagForNodes, setNodeColor, setNodeColorForNodes, setNodeHost, setNodeSheet, setNodeSheetTyping, setPageBinding, setRegionContract, setRegionDefaults, setRegionHold, toggleFlag, undo } from "../src/renderer/lib/mutations";
+import { addNode, commitDoc, deleteNode, editLink, editText, flushNodeSheetTyping, loadDoc, pinRuling, redo, renameGroup, renameTerminalNode, setBoardSettings, setNodeColor, setNodeColorForNodes, setNodeHost, setNodeSheet, setNodeSheetTyping, setPageBinding, setRegionContract, setRegionDefaults, setRegionHold, undo } from "../src/renderer/lib/mutations";
 import { addEdge, connectAllToTarget, deleteEdges, editEdgeLabel, planConnectToTarget, setEdgeColor, toggleEdgeArrow } from "../src/renderer/lib/edge-mutations";
 import { FlowCycleError } from "../src/shared/flow-graph";
 import { dragHoldMemberIds, findOpenPosition, resizeNode, syncPositions } from "../src/renderer/lib/geometry";
-import { clearGraphFilters, state$, toggleFlagFilter } from "../src/renderer/lib/state";
+import { clearGraphFilters, state$ } from "../src/renderer/lib/state";
 import { browser$, cacheBrowserSession } from "../src/renderer/lib/browser-state";
 import { dock$, openAgentChatSurface } from "../src/renderer/lib/dock-state";
 import { initialWorkbenchState } from "../src/renderer/lib/surface-registry";
@@ -696,17 +696,15 @@ describe("renderer graph mutations", () => {
     expect(state$.error.peek()).toBe("That relation already exists.");
   });
 
-  it("toggles and clears the flag filter without touching the document", () => {
+  it("clears the edge filter without touching the document", () => {
     loadDoc(doc);
     const before = state$.doc.peek();
 
-    toggleFlagFilter("attention");
-
-    expect(state$.flagFilter.peek()).toBe("attention");
-    expect(state$.doc.peek()).toBe(before);
-
+    state$.edgeFilter.set("blocks");
     clearGraphFilters();
-    expect(state$.flagFilter.peek()).toBe("");
+
+    expect(state$.edgeFilter.peek()).toBe("");
+    expect(state$.doc.peek()).toBe(before);
     expect(state$.selectedNodeId.peek()).toBe("");
     expect(state$.selectedEdgeId.peek()).toBe("");
   });
@@ -1244,7 +1242,7 @@ describe("renderer graph mutations", () => {
     expect(state$.doc.peek().nodes.at(-1)).toEqual(node);
   });
 
-  it("addNode replaces a stale multi selection so RTS flags target the new node", () => {
+  it("addNode replaces a stale multi selection so the RTS command card targets the new node", () => {
     state$.canvasName.set("mutation-test");
     loadDoc({
       nodes: [
@@ -1295,18 +1293,6 @@ describe("renderer graph mutations", () => {
     expect(position.x + 240 <= existing[0].x || position.x >= existing[0].x + existing[0].width || position.y + 100 <= existing[0].y || position.y >= existing[0].y + existing[0].height).toBe(true);
   });
 
-  it("toggles the full Ether flag vocabulary", () => {
-    state$.canvasName.set("mutation-test");
-    loadDoc(doc);
-    toggleFlag("source", "attention");
-    toggleFlag("source", "parked");
-
-    expect(state$.doc.peek().nodes[0].ether?.flags).toEqual(["attention", "parked"]);
-
-    toggleFlag("source", "attention");
-    expect(state$.doc.peek().nodes[0].ether?.flags).toEqual(["parked"]);
-  });
-
   it("sets and clears JSON Canvas accent colors", () => {
     state$.canvasName.set("mutation-test");
     loadDoc(doc);
@@ -1333,21 +1319,6 @@ describe("renderer graph mutations", () => {
     expect(nodes.find((n) => n.id === "c")?.color).toBeUndefined();
     setNodeColorForNodes(["a", "b"], undefined);
     expect(state$.doc.peek().nodes.find((n) => n.id === "a")?.color).toBeUndefined();
-  });
-
-  it("bulk flag set and clear modes", () => {
-    state$.canvasName.set("mutation-test");
-    loadDoc({
-      nodes: [
-        { id: "a", type: "text", text: "a", x: 0, y: 0, width: 100, height: 40 },
-        { id: "b", type: "text", text: "b", x: 20, y: 20, width: 100, height: 40 },
-      ],
-      edges: [],
-    });
-    setFlagForNodes(["a", "b"], "blocker");
-    expect(state$.doc.peek().nodes.every((n) => n.ether?.flags?.includes("blocker"))).toBe(true);
-    setFlagForNodes(["a", "b"], "blocker", "clear");
-    expect(state$.doc.peek().nodes.every((n) => !n.ether?.flags?.includes("blocker"))).toBe(true);
   });
 
   it("sets and clears region plate accent colors", () => {
@@ -1543,7 +1514,6 @@ describe("renderer graph mutations", () => {
       ether: {
         entity: { kind: "page" },
         host: "local",
-        flags: ["attention"],
         browser: { profile: "personal", onDelete: "kill-session" },
       },
     }], edges: [] });
@@ -1555,7 +1525,6 @@ describe("renderer graph mutations", () => {
       ether: {
         entity: { kind: "page" },
         host: "studio",
-        flags: ["attention"],
         browser: { profile: "work", onDelete: "kill-session" },
       },
     });
@@ -1591,7 +1560,7 @@ describe("renderer graph mutations", () => {
     expect(dragHoldMemberIds(doc, region)).toEqual([]);
   });
 
-  it("writes and strips ether.region.hold following the flag-strip pattern", () => {
+  it("writes and strips ether.region.hold following the strip pattern", () => {
     state$.canvasName.set("mutation-test");
     loadDoc({ nodes: [{ id: "region", type: "group", label: "Hold", x: 0, y: 0, width: 400, height: 300 }], edges: [] });
 
@@ -1604,13 +1573,12 @@ describe("renderer graph mutations", () => {
 
   it("clears just the region key, keeping a sibling ether field intact", () => {
     state$.canvasName.set("mutation-test");
-    loadDoc({ nodes: [{ id: "region", type: "group", label: "Hold", x: 0, y: 0, width: 400, height: 300 }], edges: [] });
+    loadDoc({ nodes: [{ id: "region", type: "group", label: "Hold", x: 0, y: 0, width: 400, height: 300, ether: { host: "studio" } }], edges: [] });
 
-    toggleFlag("region", "attention");
     setRegionHold("region", true);
     setRegionHold("region", false);
 
-    expect(state$.doc.peek().nodes[0]?.ether?.flags).toEqual(["attention"]);
+    expect(state$.doc.peek().nodes[0]?.ether?.host).toBe("studio");
     expect(Object.hasOwn(state$.doc.peek().nodes[0]?.ether ?? {}, "region")).toBe(false);
   });
 

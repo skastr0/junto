@@ -65,14 +65,6 @@ const MARK: Readonly<Record<SignalKind, SignalMark>> = {
     label: "ready",
     mode: "pulse",
   },
-  parked: {
-    kind: "parked",
-    tone: "violet",
-    hue: HUE.violet,
-    symbol: "◌",
-    label: "parked",
-    mode: "static",
-  },
   idle: {
     kind: "idle",
     tone: SEVERITY_TONE.idle,

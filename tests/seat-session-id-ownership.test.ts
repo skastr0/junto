@@ -11,7 +11,7 @@ import { StationFleetTargetRepository, StationFleetTargetRepositoryLive } from "
 import { makeSettingsLive, SettingsService } from "../src/main/junto/settings/service";
 import { makeContentServiceLive } from "../src/main/junto/content/service";
 import { makeInstallOpsLive } from "../src/main/junto/install-ops/engine";
-import { applyMirrorLaw, type CanvasDoc } from "../src/shared/canvas";
+import { type CanvasDoc } from "../src/shared/canvas";
 import { InstallationId } from "../src/shared/installation-id";
 import { managedAgentEther } from "./helpers/managed-agent-ether";
 
@@ -29,13 +29,13 @@ const agentDoc = (
   options: { readonly harness?: "fx" | "muse"; readonly host?: string; readonly sessionId?: string } = {},
 ): CanvasDoc => {
   const ether = managedAgentEther(`command:${bindingId}`, { bindingId, harness: options.harness ?? "fx", host: options.host ?? "command" });
-  return applyMirrorLaw({
+  return {
     nodes: [{
       id: "agent", type: "text", text: "Agent", x: 0, y: 0, width: 240, height: 120,
       ether: { ...ether, terminal: { ...ether.terminal, ...(options.sessionId ? { sessionId: options.sessionId } : {}) } },
     }],
     edges: [],
-  });
+  };
 };
 
 const makeRuntime = (root: string) => ManagedRuntime.make(Layer.provideMerge(

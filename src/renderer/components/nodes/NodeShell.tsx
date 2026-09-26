@@ -14,20 +14,19 @@ import {
 } from "@xyflow/react";
 import { use$ } from "@legendapp/state/react";
 import {
-  Ban,
   Crosshair,
   ExternalLink,
   LocateFixed,
   Maximize2,
   Trash2,
 } from "lucide-react";
-import type { CanvasNode, EtherFlag } from "@shared/canvas";
+import type { CanvasNode } from "@shared/canvas";
 import { executionGraphContextFromActorRefs } from "@shared/graph";
+import { isBlockableNode } from "@shared/execution-graph";
 import { accentColor, borderColor, HUE, withAlpha } from "../../lib/theme";
 import { resizeNode } from "../../lib/geometry";
-import { deleteNode, toggleFlag } from "../../lib/mutations";
+import { deleteNode } from "../../lib/mutations";
 import { state$, toggleConnectionFocus } from "../../lib/state";
-import { nodeBlockPresentation } from "../../lib/node-block-state";
 import { attentionOf } from "@shared/attention";
 import { isHarnessId } from "@shared/managed-terminal-templates";
 import { resolveTerminalBinding } from "@shared/terminal";
@@ -59,11 +58,6 @@ import { Chip, IconButton, ToolbarPill } from "../ui";
 import { isOverseerSeat } from "../../lib/overseer-set";
 
 const HANDLE_SIDES = [["top", Position.Top], ["right", Position.Right], ["bottom", Position.Bottom], ["left", Position.Left]] as const;
-const FLAG_HUES: Record<EtherFlag, string> = {
-  blocker: HUE.crimson,
-  attention: HUE.amber,
-  parked: HUE.violet,
-};
 
 /**
  * Landing zones bleed past the card so the choice is made by approach, not by
@@ -191,23 +185,18 @@ function NodeActions({
   selected,
   onMaximize,
   toolbarExtras,
-  flagBlocker,
   shellBlocked,
 }: {
   readonly node: CanvasNode;
   readonly selected: boolean;
   readonly onMaximize?: () => void;
   readonly toolbarExtras?: ReactNode;
-  /** Document ether.flags includes blocker. */
-  readonly flagBlocker: boolean;
   /** Graph blocked or seed chrome — may have a resolvable cause. */
   readonly shellBlocked: boolean;
 }) {
-  const chromeBlocker = flagBlocker;
   const connectionFocused = use$(() => state$.connectionFocusNodeId.get() === node.id);
   // Multi-select: RTS bar owns bulk actions — suppress floating pills.
   const multiSelect = use$(() => state$.selectedNodeIds.get().length > 1);
-  const title = flagBlocker ? "clear blocker flag" : "flag blocker";
 
   // Only resolve the waiting-on path while selected + blocked. One selector:
   // Legend State tracks only what a selector actually reads, so an
@@ -297,19 +286,6 @@ function NodeActions({
         ) : null}
         <IconButton
           className="nodrag nopan"
-          aria-label={flagBlocker ? "Clear blocker flag" : "Flag blocker"}
-          style={{ color: chromeBlocker ? HUE.crimson : undefined }}
-          title={title}
-          onPointerDown={(event) => {
-            if (stopNodeGestureUnlessMultiSelect(event, { preventDefault: true })) return;
-            event.preventDefault();
-            toggleFlag(node.id, "blocker");
-          }}
-        >
-          <Ban size={14} />
-        </IconButton>
-        <IconButton
-          className="nodrag nopan"
           tone="danger"
           aria-label="Delete node"
           title="Delete node"
@@ -375,10 +351,9 @@ export function NodeShell({
 
   readonly children: ReactNode;
 }) {
-  const { isBlocker, shellBlocked, flags } = nodeBlockPresentation({
-    node,
-    graphBlocked: blocked,
-  });
+  // Stoppage chrome is derived, never authored: an actor seat the execution
+  // graph blocks (a claimed item waiting on input or auth).
+  const shellBlocked = blocked && isBlockableNode(node);
   // Occupancy is vacancy (empty/gone/parked) on actor seats. Working /
   // attention wash comes from SeatFacts, not this spectrum.
   const occupancyClue = useNodeOccupancyClue(node);
@@ -386,7 +361,6 @@ export function NodeShell({
     hasOccupant: occupancyClue?.hasOccupant ?? false,
     activity: occupancyClue?.activity,
     lastSeenAtMs: occupancyClue?.lastSeenAtMs,
-    flags: occupancyClue?.flags,
     nowMs: Date.now(),
   });
   const nativeBinding = resolveTerminalBinding(node);
@@ -411,7 +385,6 @@ export function NodeShell({
     seatEvent,
     session,
     graphBlocked: blocked,
-    flags,
     attentionReasons,
     managedSeat,
     needsLook: needsLook === true,
@@ -428,7 +401,6 @@ export function NodeShell({
           blocked: new Set([node.id]),
           blockedEdgeIds: new Set(),
           reasonsByNodeId: new Map(),
-          seedNodeIds: new Set(),
         }
       : {
           phaseByEdgeId: new Map(),
@@ -437,28 +409,16 @@ export function NodeShell({
           blocked: new Set(),
           blockedEdgeIds: new Set(),
           reasonsByNodeId: new Map(),
-          seedNodeIds: new Set(),
         },
   );
-  const flagBlocker = flags.includes("blocker");
-  const flagAttention = flags.includes("attention");
   // Actor / managed seats: SeatFacts owns attention wash. Occupancy is vacancy.
   const liveSeatAttention = isActorSeat
-    ? (notifyItem(seatFacts) === "attention" ||
-        seatFacts.seatState === "attention") &&
-      !flagAttention
-    : occupancyState === "attention" && !flagAttention;
+    ? notifyItem(seatFacts) === "attention" ||
+      seatFacts.seatState === "attention"
+    : occupancyState === "attention";
   const occupancyAttr = isActorSeat
     ? actorOccupancyAttr(occupancyState)
     : occupancyState;
-  const primaryFlag: EtherFlag | undefined = isBlocker
-    ? "blocker"
-    : flagAttention || liveSeatAttention
-      ? "attention"
-      : flags.includes("parked")
-        ? "parked"
-        : undefined;
-  const primaryHue = primaryFlag ? FLAG_HUES[primaryFlag] : undefined;
   const accent = accentColor(node.color);
   const border = bare
     ? selected
@@ -466,18 +426,16 @@ export function NodeShell({
       : "transparent"
     : shellBlocked
       ? HUE.crimson
-      : primaryHue
-        ? withAlpha(primaryHue, 0.52)
+      : liveSeatAttention
+        ? withAlpha(HUE.amber, 0.52)
         : borderColor(node.color, selected);
   const background = bare
     ? "transparent"
     : shellBlocked
       ? `linear-gradient(135deg, ${withAlpha(HUE.crimson, 0.12)}, color-mix(in oklab, var(--color-ground) 92%, transparent))`
-      : primaryFlag === "attention"
+      : liveSeatAttention
         ? `linear-gradient(135deg, ${withAlpha(HUE.amber, 0.09)}, color-mix(in oklab, var(--color-ground) 96%, transparent))`
-        : primaryFlag === "parked"
-          ? `linear-gradient(135deg, ${withAlpha(HUE.violet, 0.09)}, color-mix(in oklab, var(--color-ground) 96%, transparent))`
-          : "linear-gradient(135deg, color-mix(in oklab, var(--color-raise) 94%, transparent), color-mix(in oklab, var(--color-ground) 96%, transparent))";
+        : "linear-gradient(135deg, color-mix(in oklab, var(--color-raise) 94%, transparent), color-mix(in oklab, var(--color-ground) 96%, transparent))";
   const shadow = bare
     ? selected
       ? `0 0 0 1px ${withAlpha(accent, 0.35)}`
@@ -486,15 +444,12 @@ export function NodeShell({
       ? `0 0 0 1px ${withAlpha(shellBlocked ? HUE.crimson : accent, 0.25)}, 0 12px 30px var(--color-shadow-2)`
       : shellBlocked
         ? `0 0 0 1px ${withAlpha(HUE.crimson, 0.18)}, 0 10px 28px var(--color-shadow-2)`
-        : primaryFlag === "attention"
+        : liveSeatAttention
           ? `0 0 0 1px ${withAlpha(HUE.amber, 0.14)}, 0 10px 28px var(--color-shadow-2)`
-          : primaryFlag === "parked"
-            ? `0 0 0 1px ${withAlpha(HUE.violet, 0.14)}, 0 10px 28px var(--color-shadow-2)`
-            : "0 10px 28px var(--color-shadow-2)";
+          : "0 10px 28px var(--color-shadow-2)";
   // Shift+click multi-select dominates all node chrome (labels, open, edit).
   const multiSelectCapture = useShiftMultiSelectDominance(node.id);
-  // Pulse wash for stoppage chrome (graph blocked, flag).
-  // isBlocker alone used to skip actors blocked only by upstream criteria.
+  // Pulse wash for derived seat stoppage.
   return (
     <div
       className={`junto-node group relative flex h-full w-full flex-col overflow-visible ${bare ? "junto-node--bare rounded-sm px-1 py-0.5" : "rounded-[10px] px-3.5 py-3"} ${shellBlocked ? "junto-blocker" : ""}`}
@@ -510,7 +465,7 @@ export function NodeShell({
       onPointerDownCapture={multiSelectCapture.onPointerDownCapture}
       onClickCapture={multiSelectCapture.onClickCapture}
       style={{
-        border: `1px solid ${bare ? border : selected ? withAlpha(isBlocker || shellBlocked ? HUE.crimson : accent, 0.75) : border}`,
+        border: `1px solid ${bare ? border : selected ? withAlpha(shellBlocked ? HUE.crimson : accent, 0.75) : border}`,
         background,
         boxShadow: shadow,
       }}
@@ -522,7 +477,7 @@ export function NodeShell({
           minWidth={bare ? 48 : 170}
           minHeight={bare ? 24 : 72}
           // Never paint amber/gold resize chrome over stoppage crimson.
-          color={shellBlocked || isBlocker ? HUE.crimson : accent}
+          color={shellBlocked ? HUE.crimson : accent}
           handleClassName="junto-resize-handle"
           lineClassName="junto-resize-line"
           onResizeEnd={(_event, params) => resizeNode(node.id, params)}
@@ -552,45 +507,21 @@ export function NodeShell({
           selected={selected}
           onMaximize={onMaximize}
           toolbarExtras={toolbarExtras}
-          flagBlocker={flagBlocker}
           shellBlocked={shellBlocked}
         />
       )}
-      {!bare && (flags.length > 0 || liveSeatAttention || (shellBlocked && !flagBlocker)) ? (
-
-        <div className="junto-node__flag-rail">
-          {shellBlocked && !flagBlocker ? (
-            <span
-              key="graph-blocked"
-              className="junto-node__flag junto-node__flag--blocked-live"
-              title="Blocked — waiting on connected work"
-              style={{
-                color: FLAG_HUES.blocker,
-                borderColor: withAlpha(FLAG_HUES.blocker, 0.36),
-                background: withAlpha(FLAG_HUES.blocker, 0.09),
-              }}
-            >
+      {!bare && (shellBlocked || liveSeatAttention) ? (
+        <div className="junto-node__status-rail">
+          {shellBlocked ? (
+            <Chip tone="crimson" title="Blocked, waiting on connected work">
               blocked
-            </span>
+            </Chip>
           ) : null}
           {liveSeatAttention ? (
-            <Chip key="seat-attention" tone="amber" title="Needs your input">
+            <Chip tone="amber" title="Needs your input">
               needs input
             </Chip>
           ) : null}
-          {flags.map((flag) => (
-            <span
-              key={flag}
-              className="junto-node__flag"
-              style={{
-                color: FLAG_HUES[flag],
-                borderColor: withAlpha(FLAG_HUES[flag], 0.36),
-                background: withAlpha(FLAG_HUES[flag], 0.09),
-              }}
-            >
-              {flag}
-            </span>
-          ))}
         </div>
       ) : null}
       <div className="junto-node__body min-h-0 flex-1 overflow-hidden">

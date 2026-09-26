@@ -136,17 +136,14 @@ describe("canvases.ts write() — same-name concurrency", () => {
         expect(textOf(current)).toBe("write-20");
         return {
           ...current,
-          nodes: current.nodes.map((node) => ({
-            ...node,
-            ether: { ...(node.ether ?? {}), flags: ["attention"] },
-          })),
+          nodes: current.nodes.map((node) => ({ ...node, color: "4" })),
         };
       }),
     );
 
     const result = await runtime.runPromise(canvases.read(name));
     expect(textOf(result.doc)).toBe("write-20");
-    expect(result.doc.nodes[0]?.ether?.flags).toEqual(["attention"]);
+    expect(result.doc.nodes[0]?.color).toBe("4");
   });
 
   it("app write notifies listeners exactly once", async () => {

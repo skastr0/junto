@@ -12,11 +12,10 @@ export type WaitingOnHop = {
   /**
    * Position in the reverse walk:
    * - `blocked` — intermediate / query node in the blocked closure
-   * - `seed` — manual blocker apex
    * - `generator` — criteria-generating apex (requests/task/proof/approval)
-   * - `apex` — apex that is neither seed nor known generator (fallback)
+   * - `apex` — apex that is not a known generator (fallback)
    */
-  readonly role: "blocked" | "seed" | "generator" | "apex";
+  readonly role: "blocked" | "generator" | "apex";
 };
 
 export type WaitingOnPath = {
@@ -47,7 +46,6 @@ const hopRole = (
   generatesFrom: ReadonlySet<string>,
 ): WaitingOnHop["role"] => {
   if (!isTerminal) return "blocked";
-  if (graph.seedNodeIds.has(nodeId)) return "seed";
   if (generatesFrom.has(nodeId)) return "generator";
   return "apex";
 };
@@ -96,8 +94,7 @@ export const waitingOnPath = (
 
 const reasonPhrase = (reason: BlockedReason): string => {
   if (reason.kind === "edge") return reason.detail || "waiting on connected work";
-  if (reason.kind === "work") return reason.detail || "waiting for operator";
-  return reason.detail || "held by hand";
+  return reason.detail || "waiting for operator";
 };
 
 /**
@@ -115,7 +112,6 @@ export const formatWaitingOnLines = (
   const byId = new Map(doc.nodes.map((n) => [n.id, n] as const));
   return path.hops.map((hop) => {
     const title = titleOf(byId.get(hop.nodeId), hop.nodeId);
-    if (hop.role === "seed") return `${title} — the holdup`;
     if (hop.role === "generator") {
       const detail = hop.reasons[0] ? reasonPhrase(hop.reasons[0]) : undefined;
       return detail ? `${title} — ${detail}` : title;

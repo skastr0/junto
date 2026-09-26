@@ -385,29 +385,6 @@ describe("deriveExecutionGraph — no cascade", () => {
     expect(graph.blocked.has("s1")).toBe(false);
   });
 
-  it("manual blocker flags the actor only (no outbound cascade)", () => {
-    const doc: CanvasDoc = {
-      nodes: [
-        seat("b", "actor", { label: "B", flags: ["blocker"] }),
-        seat("c", "actor", { label: "C" }),
-      ],
-      edges: [
-        {
-          id: "e-bc",
-          fromNode: "b",
-          toNode: "c",
-        },
-      ],
-    };
-    const graph = deriveExecutionGraph(
-      doc,
-      contextFor([actorRef("b", "1"), actorRef("c", "2")]),
-    );
-    expect(graph.seedNodeIds.has("b")).toBe(true);
-    expect(graph.blocked.has("b")).toBe(true);
-    expect(graph.blocked.has("c")).toBe(false);
-  });
-
   it("geography and sinks never blocked; actors can be", () => {
     const actor = actorRef("actor1", "1");
     const doc: CanvasDoc = {

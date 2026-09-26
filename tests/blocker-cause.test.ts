@@ -85,23 +85,4 @@ describe("resolveBlockerCause", () => {
     expect(resolveBlockerCause(doc, graph, "free")).toBeNull();
   });
 
-  it("manual blocker seed on an actor resolves to self", () => {
-    const doc: CanvasDoc = {
-      nodes: [
-        seat("a", "actor", {
-          label: "Blocked",
-          flags: ["blocker"],
-        }),
-      ],
-      edges: [],
-    };
-    const graph = deriveExecutionGraph(doc);
-    expect(graph.seedNodeIds.has("a")).toBe(true);
-    const cause = resolveBlockerCause(doc, graph, "a");
-    expect(cause).not.toBeNull();
-    expect(cause!.causeNodeId).toBe("a");
-    expect(cause!.isSelf).toBe(true);
-    expect(cause!.openWorkDetail).toBe(false);
-    expect(cause!.role).toBe("seed");
-  });
 });

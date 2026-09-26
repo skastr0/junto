@@ -21,14 +21,13 @@ const facts = (over: Partial<SeatFacts> & { readonly nodeId?: string }): SeatFac
 });
 
 describe("seatFactsForNode", () => {
-  it("joins node id, seat, session, and flags into one object", () => {
+  it("joins node id, seat, session, and live reasons into one object", () => {
     expect(
       seatFactsForNode({
         nodeId: "a",
         seatEvent: { state: "working", reason: "turn" },
         session: { status: "running", processName: "grok" },
         graphBlocked: false,
-        flags: ["attention"],
         attentionReasons: ["permission:pending"],
         managedSeat: true,
       }),
@@ -39,7 +38,6 @@ describe("seatFactsForNode", () => {
       running: true,
       starting: false,
       processName: "grok",
-      flags: ["attention"],
       attentionReasons: ["permission:pending"],
       managedSeat: true,
       graphBlocked: false,
@@ -92,10 +90,7 @@ describe("cardMark", () => {
     });
   });
 
-  it("flag attention and live reasons elevate the card to attention", () => {
-    expect(cardMark(facts({ seatState: "idle", flags: ["attention"] }))).toMatchObject({
-      tone: "amber",
-    });
+  it("live reasons elevate the card to attention", () => {
     expect(
       cardMark(facts({ seatState: "working", attentionReasons: ["permission:pending"] })),
     ).toMatchObject({ tone: "amber" });
@@ -106,7 +101,6 @@ describe("digitLease", () => {
   it("leases working, seat attention, and elevated attention", () => {
     expect(digitLease(facts({ seatState: "working" }))).toBe(true);
     expect(digitLease(facts({ seatState: "attention" }))).toBe(true);
-    expect(digitLease(facts({ flags: ["attention"] }))).toBe(true);
     expect(digitLease(facts({ attentionReasons: ["work:input-required"] }))).toBe(
       true,
     );
@@ -121,7 +115,6 @@ describe("notifyItem", () => {
   it("notifies only graph-blocked or attention", () => {
     expect(notifyItem(facts({ graphBlocked: true }))).toBe("blocked");
     expect(notifyItem(facts({ seatState: "attention" }))).toBe("attention");
-    expect(notifyItem(facts({ flags: ["attention"] }))).toBe("attention");
     expect(notifyItem(facts({ attentionReasons: ["permission:pending"] }))).toBe(
       "attention",
     );
@@ -135,14 +128,6 @@ describe("notifyItem", () => {
 });
 
 describe("one facts object drives card, digit, notify, and hue", () => {
-  it("flag attention: card amber, lease, notify attention, hue attention", () => {
-    const f = facts({ seatState: "idle", flags: ["attention"] });
-    expect(cardMark(f).tone).toBe("amber");
-    expect(digitLease(f)).toBe(true);
-    expect(notifyItem(f)).toBe("attention");
-    expect(digitHue(f)).toBe("attention");
-  });
-
   it("live reasons elevate the same four projections", () => {
     const f = facts({
       seatState: "idle",
@@ -170,8 +155,8 @@ describe("one facts object drives card, digit, notify, and hue", () => {
     expect(digitHue(f)).toBe("working");
   });
 
-  it("flags+graphBlocked: card and hue blocked, lease still true", () => {
-    const f = facts({ graphBlocked: true, flags: ["attention"] });
+  it("attention+graphBlocked: card and hue blocked, lease still true", () => {
+    const f = facts({ graphBlocked: true, attentionReasons: ["permission:pending"] });
     expect(cardMark(f).tone).toBe("crimson");
     expect(digitLease(f)).toBe(true);
     expect(notifyItem(f)).toBe("blocked");

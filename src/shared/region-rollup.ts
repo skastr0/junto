@@ -4,7 +4,6 @@ import type { CanvasDoc, CanvasNode, GroupNode } from "./canvas";
 import type { SnapshotState } from "./entities";
 import {
   deriveExecutionGraph,
-  isBlockableNode,
   type LiveTrustViews,
   type WorkBlockedSeat,
 } from "./execution-graph";
@@ -35,7 +34,6 @@ export const MemberSeverity = Schema.Literals([
   "attention",
   "working",
   "ready",
-  "parked",
   "idle",
 ]);
 export type MemberSeverity = typeof MemberSeverity.Type;
@@ -55,11 +53,9 @@ export const MemberStatus = Schema.Struct({
   // ether.entity.kind, or "node" for unbound (ether-free) members.
   kind: Schema.String,
   severity: MemberSeverity,
-  // Short machine strings, worst-tier first: flag:blocker, edge:<detail>,
-  // seed:<detail>, activity:blocked, flag:attention, permission:pending,
-  // activity:attention, activity:working, flag:parked.
-  // (`seed:` is the execution-graph's manual-blocker origin — NOT the digest
-  // `seeds` section, which lists unbound entity nodes.)
+  // Short machine strings, worst-tier first: work:<detail>, edge:<detail>,
+  // activity:blocked, permission:pending, activity:attention,
+  // activity:working, activity:ready.
   reasons: Schema.Array(Schema.String),
 });
 export type MemberStatus = typeof MemberStatus.Type;
@@ -106,8 +102,7 @@ const SEVERITY_RANK: Readonly<Record<MemberSeverity, number>> = {
   attention: 1,
   working: 2,
   ready: 3,
-  parked: 4,
-  idle: 5,
+  idle: 4,
 };
 
 // Rollcall ordering: message-bearing actor seats first, then the two work
@@ -148,7 +143,7 @@ const workSurfaceContribution = (
 };
 
 // Rank for mapped execution-graph reasons: edge before seed (no relay cascade).
-const GRAPH_REASON_RANK = { work: 0, edge: 1, seed: 2 } as const;
+const GRAPH_REASON_RANK = { work: 0, edge: 1 } as const;
 
 // mirrors digest.titleOf — duplicated on purpose: shared modules stay
 // decoupled, and the label convention must not drift with the projection.
@@ -186,7 +181,6 @@ const deriveMember = (
   // is not a kind — a node is what it was authored as, never what a live
   // attachment implies.
   const kind = entity?.kind ?? "node";
-  const flags = node.ether?.flags ?? [];
   const activity =
     entity?.kind === "agent" && entity.name !== undefined
       ? agentActivity?.get(entity.name)
@@ -195,28 +189,21 @@ const deriveMember = (
 
   const reasons: string[] = [];
 
-  // blocked: seat flag (actors only), execution-graph closure, or harness blocked.
-  // Schedulers/pages with a stray flag:blocker are not stoppage seats.
-  const flagBlockerSeat = flags.includes("blocker") && isBlockableNode(node);
-  if (flagBlockerSeat) reasons.push("flag:blocker");
+  // blocked: execution-graph closure or harness blocked.
   const graphReasons = [...(graph.reasonsByNodeId.get(node.id) ?? [])].sort(
     (a, b) => GRAPH_REASON_RANK[a.kind] - GRAPH_REASON_RANK[b.kind],
   );
   for (const reason of graphReasons) {
     if (reason.kind === "work") reasons.push(`work:${reason.detail}`);
-    else if (reason.kind === "edge") reasons.push(`edge:${reason.detail}`);
-    else reasons.push(`seed:${reason.detail}`);
+    else reasons.push(`edge:${reason.detail}`);
   }
   if (surface.reason === "activity:blocked") reasons.push(surface.reason);
-  const blocked =
-    flagBlockerSeat || graph.blocked.has(node.id) || surface.blocked;
+  const blocked = graph.blocked.has(node.id) || surface.blocked;
 
-  // attention: manual flag, ACP permission pending, or explicit harness signal.
-  if (flags.includes("attention")) reasons.push("flag:attention");
+  // attention: ACP permission pending or explicit harness signal.
   if (activity?.permissionPending === true) reasons.push("permission:pending");
   if (surface.reason === "activity:attention") reasons.push(surface.reason);
-  const attention =
-    flags.includes("attention") || activity?.permissionPending === true || surface.attention;
+  const attention = activity?.permissionPending === true || surface.attention;
 
   // working: explicit harness activity only.
   if (surface.reason === "activity:working") reasons.push(surface.reason);
@@ -224,9 +211,6 @@ const deriveMember = (
 
   // ready: the seat finished a turn and nobody has looked yet.
   if (surface.reason === "activity:ready") reasons.push(surface.reason);
-
-  // parked: manual flag only.
-  if (flags.includes("parked")) reasons.push("flag:parked");
 
   const severity: MemberSeverity = blocked
     ? "blocked"
@@ -236,9 +220,7 @@ const deriveMember = (
         ? "working"
         : surface.ready
           ? "ready"
-          : flags.includes("parked")
-            ? "parked"
-            : "idle";
+          : "idle";
 
   return { nodeId: node.id, label: titleOf(node), kind, severity, reasons };
 };

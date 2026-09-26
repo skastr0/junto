@@ -26,7 +26,7 @@ export type BlockerCause = {
   /** Short human title for tooltips. */
   readonly title: string;
   /** Last hop role from waiting-on path, or work when seeded by seat block. */
-  readonly role: "blocked" | "seed" | "generator" | "apex" | "work";
+  readonly role: "blocked" | "generator" | "apex" | "work";
   /**
    * Specific request/task id holding the seat, when known.
    * Opens the sink surface pre-selected on this item.
@@ -149,23 +149,6 @@ export const resolveBlockerCause = (
         target ? nodeTitle(target) : targetId,
       ),
       role: "work",
-      ...(workItemId ? { workItemId } : {}),
-    };
-  }
-
-  // Manual seed on self with no outbound cone: still allow "open if sink".
-  if (graph.seedNodeIds.has(nodeId)) {
-    const self = byId.get(nodeId);
-    if (!isWorkSink(self) && !graph.blocked.has(nodeId)) return null;
-    const workItemId = isWorkSink(self)
-      ? holdingWorkItemId(self, nodeId, graph, seatId)
-      : undefined;
-    return {
-      causeNodeId: nodeId,
-      isSelf: true,
-      openWorkDetail: isWorkSink(self),
-      title: titleForItem(self, workItemId, self ? nodeTitle(self) : nodeId),
-      role: "seed",
       ...(workItemId ? { workItemId } : {}),
     };
   }

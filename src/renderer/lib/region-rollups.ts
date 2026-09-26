@@ -21,8 +21,7 @@ const SEVERITY_RANK: Readonly<Record<MemberSeverity, number>> = {
   attention: 1,
   working: 2,
   ready: 3,
-  parked: 4,
-  idle: 5,
+  idle: 4,
 };
 
 const chatCoarseKey = (
@@ -73,7 +72,7 @@ export const fuseRegionRollups = (
       // lose to a lagging main rollup still carrying attention/working — that
       // desync paints "needs input" / hotkeys amber while the seat is idle.
       if (
-        (am.severity === "idle" || am.severity === "parked" || am.severity === "ready") &&
+        (am.severity === "idle" || am.severity === "ready") &&
         (bm.severity === "attention" || bm.severity === "working")
       ) {
         return am;

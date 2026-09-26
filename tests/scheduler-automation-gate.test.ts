@@ -110,18 +110,15 @@ describe("scheduler automation gate", () => {
     const enqueues: string[] = [];
     __setAutomationGateForTest({
       canAutomateCanvas: () => false,
-      canApplyFlagEffects: () => true,
     });
     __setSchedulerEffectDepsForTest({
       canAutomateCanvas: () => false,
-      canApplyFlagEffects: () => true,
       hasReceipt: () => false,
       recordReceipt: () => undefined,
       enqueueTask: async ({ payload }) => {
         enqueues.push(payload.brief);
         return { ok: true };
       },
-      setFlag: async () => ({ ok: true }),
     });
 
     __setDocsForTest(new Map([["board", gaugeAndTask()]]));
@@ -140,18 +137,15 @@ describe("scheduler automation gate", () => {
     // Resume automation — edge still available, fires once
     __setAutomationGateForTest({
       canAutomateCanvas: () => true,
-      canApplyFlagEffects: () => true,
     });
     __setSchedulerEffectDepsForTest({
       canAutomateCanvas: () => true,
-      canApplyFlagEffects: () => true,
       hasReceipt: () => false,
       recordReceipt: () => undefined,
       enqueueTask: async ({ payload }) => {
         enqueues.push(payload.brief);
         return { ok: true };
       },
-      setFlag: async () => ({ ok: true }),
     });
     await runEvaluationCycle();
     expect(enqueues).toEqual(["From gauge"]);
@@ -160,7 +154,6 @@ describe("scheduler automation gate", () => {
   it("when paused, cron still projects nextFire without claiming fire", async () => {
     __setAutomationGateForTest({
       canAutomateCanvas: () => false,
-      canApplyFlagEffects: () => false,
     });
     __setDocsForTest(new Map([["board", gaugeAndTask()]]));
     const t0 = 1_700_000_000_000;

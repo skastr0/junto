@@ -149,13 +149,6 @@ describe("sinkGlance + attention", () => {
     ).toBe("ice");
   });
 
-  it("actor manual flags: attention fires, parked idles", () => {
-    const flagged = (flags: ReadonlyArray<"blocker" | "parked" | "attention">) =>
-      seat("a1", "actor", { flags });
-    expect(attentionOf(flagged(["attention"]), undefined)).toBe("fire");
-    expect(attentionOf(flagged(["parked"]), undefined)).toBe("idle");
-  });
-
   it("compiled actor resolution fails closed on unresolved or ambiguous refs", () => {
     const actor = seat("a1", "actor");
     const exact = actorRef("a1", "1");

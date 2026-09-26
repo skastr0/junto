@@ -6,7 +6,6 @@
 import type { AgentSeatState } from "@shared/agent-seat-state";
 import { attentionOf } from "@shared/attention";
 import type { CanvasNode } from "@shared/canvas";
-import { isBlockableNode } from "@shared/execution-graph";
 import type { MemberSeverity } from "@shared/region-rollup";
 
 const SEVERITY_RANK: Readonly<Record<MemberSeverity, number>> = {
@@ -14,11 +13,10 @@ const SEVERITY_RANK: Readonly<Record<MemberSeverity, number>> = {
   attention: 1,
   working: 2,
   ready: 3,
-  parked: 4,
-  idle: 5,
+  idle: 4,
 };
 
-/** Worse operational tier wins (blocked > attention > working > ready > parked > idle). */
+/** Worse operational tier wins (blocked > attention > working > ready > idle). */
 export const worseMemberSeverity = (
   a: MemberSeverity,
   b: MemberSeverity,
@@ -46,7 +44,7 @@ export function liveActivitySeverity(input: {
 
 /**
  * Severity for a hotbar chip.
- * Priority merge: region rollup / member map / flags / sinks / live seat, worst wins.
+ * Priority merge: region rollup / member map / sinks / live seat, worst wins.
  *
  * `liveSeverity` is the freestanding managed-terminal seat plane so
  * chips stay synchronized with canvas ActivityMark even when the node is
@@ -67,25 +65,18 @@ export function hotbarNodeSeverity(
   let severity: MemberSeverity | undefined = options.memberSeverity;
 
   if (severity === undefined) {
-    const flags = node.ether?.flags ?? [];
-    // Seat stoppage only — stray flag:blocker on relay/page is not blocked.
-    if (flags.includes("blocker") && isBlockableNode(node)) severity = "blocked";
-    else if (flags.includes("attention")) severity = "attention";
-    else if (flags.includes("parked")) severity = "parked";
-    else {
-      const kind = node.ether?.entity?.kind;
-      if (kind === "task") {
-        const items = node.ether?.tasks?.items ?? [];
-        if (items.some((t) => t.state === "input-required" || t.state === "auth-required")) {
-          severity = "attention";
-        } else if (items.some((t) => t.state === "working")) {
-          severity = "working";
-        }
-      } else if (kind === "requests") {
-        const items = node.ether?.requests?.items ?? [];
-        if (items.some((t) => t.state === "input-required" || t.state === "auth-required")) {
-          severity = "attention";
-        }
+    const kind = node.ether?.entity?.kind;
+    if (kind === "task") {
+      const items = node.ether?.tasks?.items ?? [];
+      if (items.some((t) => t.state === "input-required" || t.state === "auth-required")) {
+        severity = "attention";
+      } else if (items.some((t) => t.state === "working")) {
+        severity = "working";
+      }
+    } else if (kind === "requests") {
+      const items = node.ether?.requests?.items ?? [];
+      if (items.some((t) => t.state === "input-required" || t.state === "auth-required")) {
+        severity = "attention";
       }
     }
 
@@ -99,7 +90,7 @@ export function hotbarNodeSeverity(
   if (options.liveSeverity !== undefined) {
     if (options.liveSeverity === "idle") {
       // Seat is quiet — drop harness-tier lag from rollups (attention/working).
-      // Keep blocked/parked (graph stoppage / flags), which are not seat waves.
+      // Keep blocked (graph stoppage), which is not a seat wave.
       if (
         severity === undefined ||
         severity === "attention" ||

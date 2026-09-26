@@ -23,23 +23,18 @@ import {
   LocateFixed,
   Lock,
   LockOpen,
-  PauseCircle,
   Pencil,
   Trash2,
-  X,
 } from "lucide-react";
-import type { CanvasNode, EtherFlag } from "@shared/canvas";
+import type { CanvasNode } from "@shared/canvas";
 import { TASKS_ENABLED } from "@shared/features";
 import { executionGraphContextFromActorRefs, groupMembers } from "@shared/graph";
-import { isBlockableNode } from "@shared/execution-graph";
 import type { MemberSeverity, RegionRollup } from "@shared/region-rollup";
 import { formatNodeRef } from "@shared/node-ref";
 import {
-  clearSelection,
   selectNode,
   selectNodes,
   state$,
-  toggleFlagFilter,
 } from "../../lib/state";
 import { viewportBusy$ } from "../../lib/viewport-busy";
 import { useRegionRollups } from "../../lib/region-rollups";
@@ -78,8 +73,6 @@ import {
   renameGroup,
   setNodeColor,
   setNodeColorForNodes,
-  toggleFlag,
-  setFlagForNodes,
   setRegionHold,
 } from "../../lib/mutations";
 import {
@@ -201,17 +194,6 @@ function AccentColorSwatches({
   );
 }
 
-const FLAG_META: ReadonlyArray<{
-  readonly flag: EtherFlag;
-  readonly hue: string;
-  readonly label: string;
-  readonly Icon: typeof Ban;
-}> = [
-  { flag: "blocker", hue: HUE.crimson, label: "blocker", Icon: Ban },
-  { flag: "attention", hue: HUE.amber, label: "attention", Icon: AlertTriangle },
-  { flag: "parked", hue: HUE.violet, label: "parked", Icon: PauseCircle },
-];
-
 /** Compact square RTS key — fixed size, never stretches. */
 function CmdKey({
   label,
@@ -303,7 +285,6 @@ const seatFactsOf = (
     seatEvent: seatEventForNode(node),
     session,
     graphBlocked: extra.graphBlocked,
-    flags: node.ether?.flags,
     attentionReasons: liveAttentionReasons(node, extra.chatByAgent),
     managedSeat: managedSeatOf(node),
     needsLook: extra.needsLook,
@@ -454,43 +435,7 @@ function CommandCard({ regionRollup }: { readonly regionRollup?: RegionRollup })
             />
           </div>
           <div className="rts-cmd-keys-rail" role="toolbar" aria-label="Multi-select actions">
-            <div className="rts-cmd-keys-group" aria-label="Flags">
-              {FLAG_META.map(({ flag, hue, label, Icon }) => {
-                // active = all-on only (document ether.flags of each selected node).
-                const allOn =
-                  selectedNodes.length > 0 &&
-                  selectedNodes.every((n) => n.ether?.flags?.includes(flag) ?? false);
-                const someOn = selectedNodes.some((n) => n.ether?.flags?.includes(flag) ?? false);
-                return (
-                  <CmdKey
-                    key={flag}
-                    label={allOn ? `Clear ${label}` : `Flag ${label}`}
-                    title={
-                      allOn
-                        ? `clear ${label} on selection`
-                        : someOn
-                          ? `set ${label} on all (partial)`
-                          : `flag ${label}`
-                    }
-                    active={allOn}
-                    style={allOn || someOn ? { color: hue, opacity: allOn ? 1 : 0.65 } : undefined}
-                    onClick={() =>
-                      setFlagForNodes(liveIds, flag, allOn ? "clear" : "set")
-                    }
-                  >
-                    <Icon size={ICON} />
-                  </CmdKey>
-                );
-              })}
-            </div>
             <div className="rts-cmd-keys rts-cmd-keys--col" aria-label="Actions">
-              <CmdKey
-                label="Clear all flags"
-                title="Clear blocker, attention, and parked on selection"
-                onClick={() => setFlagForNodes(liveIds, null)}
-              >
-                <X size={ICON} />
-              </CmdKey>
               <CmdKey label="Delete selection" danger onClick={() => deleteNodes(liveIds)}>
                 <Trash2 size={ICON} />
               </CmdKey>
@@ -678,12 +623,7 @@ function NodeCommandCard({ nodeId }: { readonly nodeId: string }) {
     if (!node) return null;
     const context = executionGraphContextFromActorRefs(canvasName, actorRefs);
     const graph = executionGraphForImpact(doc, execution, context);
-    const shellBlocked =
-      graph.blocked.has(node.id) ||
-      graph.seedNodeIds.has(node.id) ||
-      ((node.ether?.flags?.includes("blocker") ?? false) &&
-        isBlockableNode(node));
-    if (!shellBlocked) return null;
+    if (!graph.blocked.has(node.id)) return null;
     const blockedActorSeatId = actorRefs.find((ref) => ref.nodeId === node.id)?.seatId;
     return resolveBlockerCause(doc, graph, node.id, { blockedActorSeatId });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- executionRev is the kernel tick
@@ -699,9 +639,6 @@ function NodeCommandCard({ nodeId }: { readonly nodeId: string }) {
     );
   }
 
-  // Document truth only — same ether.flags the node flag rail chips use for
-  // operator flags (not kernel flagOverrides, not occupancy/live chrome).
-  const flags = node.ether?.flags ?? [];
   const kind = commandSelectionKind(node);
   const entityKind = node.ether?.entity?.kind;
   // Physics role from the kind registry — never hardcoded per node.
@@ -778,11 +715,6 @@ function NodeCommandCard({ nodeId }: { readonly nodeId: string }) {
     return null;
   };
 
-  // Operator flags: any selected node except bare map labels and regions
-  // (region command has its own chrome). Physics "actor" is not the gate —
-  // flagging a terminal for attention is legitimate operator intent.
-  const showFlags = node.type !== "group" && entityKind !== "label";
-
   return (
     <div className="rts-panel rts-panel--cmd">
       <div className="rts-panel__body rts-cmd-shell">
@@ -795,24 +727,6 @@ function NodeCommandCard({ nodeId }: { readonly nodeId: string }) {
         </div>
 
         <div className="rts-cmd-keys-rail" role="toolbar" aria-label="Node actions">
-          {showFlags ? (
-            <div className="rts-cmd-keys-group" aria-label="Flags">
-              {FLAG_META.map(({ flag, hue, label, Icon }) => {
-                const active = flags.includes(flag);
-                return (
-                  <CmdKey
-                    key={flag}
-                    label={active ? `Clear ${label}` : `Flag ${label}`}
-                    active={active}
-                    style={{ color: active ? hue : undefined }}
-                    onClick={() => toggleFlag(nodeId, flag)}
-                  >
-                    <Icon size={ICON} />
-                  </CmdKey>
-                );
-              })}
-            </div>
-          ) : null}
           <div className="rts-cmd-keys rts-cmd-keys--col" aria-label="Actions">
             {role === "sink" &&
             (entityKind === "task" || entityKind === "requests" || entityKind === "artifacts") ? (
@@ -1259,40 +1173,7 @@ function KindMiddle() {
 }
 
 function MinimapChrome({ children }: { readonly children: ReactNode }) {
-  const flagFilter = use$(state$.flagFilter);
-  const doc = use$(state$.doc);
-  const nodes = doc.nodes.filter((node) => node.type !== "group");
-  const counts = FLAG_META.reduce((acc, { flag }) => {
-    acc[flag] = nodes.filter((node) => node.ether?.flags?.includes(flag)).length;
-    return acc;
-  }, { blocker: 0, attention: 0, parked: 0 } as Record<EtherFlag, number>);
-
-  return (
-    <div className="rts-minimap-wrap">
-      {children}
-      <div className="rts-layer-toggles" aria-label="Flag layer toggles">
-        {FLAG_META.map(({ flag, hue, label }) =>
-          counts[flag] > 0 ? (
-            <button
-              key={flag}
-              type="button"
-              className={flagFilter === flag ? "is-active" : undefined}
-              style={{ color: hue }}
-              aria-pressed={flagFilter === flag}
-              onClick={() => toggleFlagFilter(flag)}
-            >
-              {counts[flag]} {label}
-            </button>
-          ) : null,
-        )}
-        {flagFilter ? (
-          <button type="button" onClick={() => { state$.flagFilter.set(""); clearSelection(); }}>
-            all
-          </button>
-        ) : null}
-      </div>
-    </div>
-  );
+  return <div className="rts-minimap-wrap">{children}</div>;
 }
 
 /**
@@ -1324,13 +1205,7 @@ function OperatorAttentionPills({
     for (const [nodeId, reasons] of graph.reasonsByNodeId) {
       blockedReasonsByNodeId.set(
         nodeId,
-        reasons.map((reason) =>
-          reason.kind === "work"
-            ? `work:${reason.detail}`
-            : reason.kind === "edge"
-              ? `edge:${reason.detail}`
-              : `seed:${reason.detail}`,
-        ),
+        reasons.map((reason) => `${reason.kind}:${reason.detail}`),
       );
     }
     const factsByNodeId = new Map<string, SeatFacts>();
@@ -1347,7 +1222,6 @@ function OperatorAttentionPills({
       doc.nodes.map((n) => ({
         id: n.id,
         label: nodeTitle(n),
-        flags: n.ether?.flags,
       })),
       factsByNodeId,
       blockedReasonsByNodeId,
@@ -1491,9 +1365,7 @@ const severityRank = (s: MemberSeverity): number =>
         ? 2
         : s === "ready"
           ? 3
-          : s === "parked"
-            ? 4
-            : 5;
+          : 4;
 
 export function RtsBottomBar({ minimap, tools }: { readonly minimap: ReactNode; readonly tools?: ReactNode }) {
   useHotbarHotkeys();

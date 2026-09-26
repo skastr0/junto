@@ -59,6 +59,15 @@ const projectNode = (id: string, x: number, y: number, label: string, projectKey
 const agentNode = (id: string, x: number, y: number, label: string, agentKey: string): Node =>
   node(id, x, y, label, { entity: { kind: "agent", name: agentKey } });
 
+/** A terminal work surface whose live harness state the rollup reads. */
+const liveSurface = (id: string, x: number, y: number, label: string): Node =>
+  node(id, x, y, label, { entity: { kind: "terminal" }, terminal: { bindingId: `b-${id}` } });
+
+const harnessOf = (
+  ...entries: Array<[string, WorkSurfaceActivity["harness"]]>
+): ReadonlyMap<string, WorkSurfaceActivity> =>
+  new Map(entries.map(([id, harness]) => [id, { session: "running", harness }]));
+
 /** Phase-blockable seat (physics actor). Kind is registry plumbing only. */
 const actorSeat = (id: string, x: number, y: number, label: string): Node =>
   node(id, x, y, label, { entity: { kind: kindForRole("actor") } });
@@ -75,44 +84,6 @@ const activityOf = (...entries: Array<[string, AgentActivity]>): ReadonlyMap<str
   new Map(entries);
 
 describe("deriveRegionRollups — member severity ladder", () => {
-  it("blocked via blocker flag", () => {
-    const seat = actorSeat("n", 10, 10, "hot");
-    const doc: CanvasDoc = {
-      // Only actor seats elevate severity from flag:blocker.
-      nodes: [
-        group("r", 0, 0, 500, 500, "ops"),
-        {
-          ...seat,
-          ether: { ...seat.ether, flags: ["blocker" as const] },
-        },
-      ],
-      edges: [],
-    };
-    const [rollup] = deriveRegionRollups({ doc });
-    expect(rollup?.severity).toBe("blocked");
-    expect(rollup?.members[0]).toMatchObject({
-      nodeId: "n",
-      severity: "blocked",
-      reasons: ["flag:blocker", "seed:blocker flag on hot"],
-    });
-  });
-
-  it("stray flag:blocker on non-seat (relay/page) does not elevate blocked severity", () => {
-    const doc: CanvasDoc = {
-      nodes: [
-        group("r", 0, 0, 500, 500, "ops"),
-        node("relay", 10, 10, "relay", {
-          entity: { kind: "relay" },
-          flags: ["blocker"],
-        }),
-      ],
-      edges: [],
-    };
-    const [rollup] = deriveRegionRollups({ doc });
-    expect(rollup?.severity).toBe("idle");
-    expect(rollup?.members[0]?.severity).toBe("idle");
-  });
-
   it("blocked via execution graph: tasks criteria edge blocks its compiled actor target", () => {
     const doc: CanvasDoc = {
       nodes: [
@@ -127,31 +98,6 @@ describe("deriveRegionRollups — member severity ladder", () => {
     expect(target?.severity).toBe("blocked");
     expect(target?.reasons).toEqual(["edge:1 need input - ship"]);
     expect(rollup?.counts).toEqual({ total: 2, blocked: 1, attention: 0, working: 0 , ready: 0 });
-  });
-
-  it("blocked via seed: a manual blocker marks that actor only (no outbound cascade)", () => {
-    const doc: CanvasDoc = {
-      nodes: [
-        group("r", 0, 0, 500, 500, "ops"),
-        actorSeat("s", 10, 10, "Prism"),
-        actorSeat("t", 10, 100, "Quasar"),
-      ],
-      edges: [],
-    };
-    const flagged: CanvasDoc = {
-      ...doc,
-      nodes: doc.nodes.map((n) =>
-        n.id === "s" ? { ...n, ether: { ...n.ether, flags: ["blocker" as const] } } : n,
-      ),
-      edges: [{ id: "e1", fromNode: "s", toNode: "t", ether: { verb: "messages" } }],
-    };
-    const [rollup] = deriveRegionRollups({ doc: flagged });
-    const seed = rollup?.members.find((member) => member.nodeId === "s");
-    const target = rollup?.members.find((member) => member.nodeId === "t");
-    expect(seed?.severity).toBe("blocked");
-    expect(seed?.reasons).toEqual(["flag:blocker", "seed:blocker flag on Prism"]);
-    expect(target?.severity).toBe("idle");
-    expect(target?.reasons).toEqual([]);
   });
 
   it("no cascade: blocked actor does not retransmit through outbound soft tasks edge", () => {
@@ -176,36 +122,10 @@ describe("deriveRegionRollups — member severity ladder", () => {
     expect(b?.reasons).toEqual([]);
   });
 
-  it("graph reasons follow documented rank (edge before seed) when both apply on one actor", () => {
-    const base: CanvasDoc = {
-      nodes: [
-        group("r", 0, 0, 800, 800, "ops"),
-        taskNode("u", 10, 10, "Ops tasks", [claimed(taskItem("i1", "ship", "input-required"), "t")]),
-        actorSeat("t", 10, 210, "Target"),
-      ],
-      edges: [{ id: "e1", fromNode: "u", toNode: "t", ether: { verb: "works" } }],
-    };
-    const flagged: CanvasDoc = {
-      ...base,
-      nodes: base.nodes.map((n) =>
-        n.id === "t" ? { ...n, ether: { ...n.ether, flags: ["blocker" as const] } } : n,
-      ),
-    };
-    const [rollup] = deriveRegionRollups({ doc: flagged });
-    const target = rollup?.members.find((member) => member.nodeId === "t");
-    expect(target?.severity).toBe("blocked");
-    expect(target?.reasons).toEqual([
-      "flag:blocker",
-      "edge:1 need input - ship",
-      "seed:blocker flag on Target",
-    ]);
-  });
-
-  it("attention via flag, and via a pending permission on a live agent", () => {
+  it("attention via a pending permission on a live agent", () => {
     const doc: CanvasDoc = {
       nodes: [
         group("r", 0, 0, 500, 500, "ops"),
-        node("n", 10, 10, "watch me", { flags: ["attention"] }),
         agentNode("a", 10, 100, "PROFILE-13", "remote-a:profile-13"),
       ],
       edges: [],
@@ -215,11 +135,9 @@ describe("deriveRegionRollups — member severity ladder", () => {
       agentActivity: activityOf(["remote-a:profile-13", { permissionPending: true }]),
     });
     expect(rollup?.severity).toBe("attention");
-    const flagged = rollup?.members.find((member) => member.nodeId === "n");
     const agent = rollup?.members.find((member) => member.nodeId === "a");
-    expect(flagged).toMatchObject({ severity: "attention", reasons: ["flag:attention"] });
     expect(agent).toMatchObject({ severity: "attention", reasons: ["permission:pending"] });
-    expect(rollup?.counts).toEqual({ total: 2, blocked: 0, attention: 2, working: 0 , ready: 0 });
+    expect(rollup?.counts).toEqual({ total: 1, blocked: 0, attention: 1, working: 0 , ready: 0 });
   });
 
   it("session liveness alone does not imply harness work", () => {
@@ -243,7 +161,7 @@ describe("deriveRegionRollups — member severity ladder", () => {
     expect(rollup?.members[0]).toMatchObject({ severity: "working", reasons: ["activity:working"] });
   });
 
-  it("ready: finished turn nobody has read yet, below working, above parked", () => {
+  it("ready: finished turn nobody has read yet, below working, above idle", () => {
     const seat = node("seat", 10, 10, "profile-13", { entity: { kind: "terminal" }, terminal: { bindingId: "b1" } });
     const doc: CanvasDoc = { nodes: [group("r", 0, 0, 500, 500, "ops"), seat], edges: [] };
     const activity: WorkSurfaceActivity = { session: "running", harness: "idle", ready: true, source: "native" };
@@ -262,19 +180,7 @@ describe("deriveRegionRollups — member severity ladder", () => {
     expect(rollup?.counts.ready).toBe(0);
   });
 
-  it("parked via flag", () => {
-    const doc: CanvasDoc = {
-      nodes: [group("r", 0, 0, 500, 500, "ops"), node("n", 10, 10, "later", { flags: ["parked"] })],
-      edges: [],
-    };
-    const [rollup] = deriveRegionRollups({ doc });
-    expect(rollup?.severity).toBe("parked");
-    expect(rollup?.members[0]).toMatchObject({ severity: "parked", reasons: ["flag:parked"] });
-    // parked is not a bucketed count
-    expect(rollup?.counts).toEqual({ total: 1, blocked: 0, attention: 0, working: 0, ready: 0 });
-  });
-
-  it("idle by default: unbound node with no flags and no live data", () => {
+  it("idle by default: unbound node with no live data", () => {
     const doc: CanvasDoc = {
       nodes: [group("r", 0, 0, 500, 500, "ops"), node("n", 10, 10, "plain note")],
       edges: [],
@@ -288,29 +194,20 @@ describe("deriveRegionRollups — member severity ladder", () => {
     const doc: CanvasDoc = {
       nodes: [
         group("r", 0, 0, 500, 500, "ops"),
-        agentNode("a", 10, 10, "PROFILE-13", "remote-a:profile-13"),
+        taskNode("u", 10, 10, "Ops tasks", [claimed(taskItem("i1", "ship", "input-required"), "a")]),
+        agentNode("a", 10, 100, "PROFILE-13", "remote-a:profile-13"),
       ],
-      edges: [],
-    };
-    const flagged: CanvasDoc = {
-      ...doc,
-      nodes: doc.nodes.map((n) =>
-        n.id === "a" ? { ...n, ether: { ...n.ether, flags: ["blocker" as const, "attention" as const] } } : n,
-      ),
+      edges: [{ id: "e1", fromNode: "u", toNode: "a", ether: { verb: "works" } }],
     };
     const [rollup] = deriveRegionRollups({
-      doc: flagged,
-      agentActivity: activityOf(["remote-a:profile-13", { sessionLive: true }]),
+      doc,
+      agentActivity: activityOf(["remote-a:profile-13", { sessionLive: true, permissionPending: true }]),
     });
-    const member = rollup?.members[0];
+    const member = rollup?.members.find((candidate) => candidate.nodeId === "a");
     expect(member?.severity).toBe("blocked");
-    // flag + graph seed for the same blocker, then lower-ladder attention flag
-    expect(member?.reasons).toEqual([
-      "flag:blocker",
-      "seed:blocker flag on PROFILE-13",
-      "flag:attention",
-    ]);
-    expect(rollup?.counts).toEqual({ total: 1, blocked: 1, attention: 0, working: 0 , ready: 0 });
+    // graph block first, then the lower-ladder live attention
+    expect(member?.reasons).toEqual(["edge:1 need input - ship", "permission:pending"]);
+    expect(rollup?.counts.blocked).toBe(1);
   });
 });
 
@@ -386,7 +283,7 @@ describe("deriveRegionRollups — region shape", () => {
       nodes: [
         group("r", 0, 0, 200, 200, "ops"),
         node("inside", 10, 10, "in"),
-        node("outside", 500, 500, "out", { flags: ["blocker"] }),
+        node("outside", 500, 500, "out"),
       ],
       edges: [],
     };
@@ -413,7 +310,7 @@ describe("deriveRegionRollups — region shape", () => {
       nodes: [
         group("outer", 0, 0, 500, 500, "outer"),
         group("inner", 20, 20, 200, 200, "inner"),
-        node("n", 30, 30, "deep", { flags: ["attention"] }),
+        node("n", 30, 30, "deep"),
       ],
       edges: [],
     };
@@ -442,17 +339,16 @@ describe("deriveRegionRollups — region shape", () => {
 
 describe("deriveRegionRollups — region nesting", () => {
   it("three-deep nesting: a blocked seat in the innermost region bubbles into every ancestor rollup", () => {
-    const seat = actorSeat("hot", 120, 120, "hot");
     const doc: CanvasDoc = {
       nodes: [
         group("outer", 0, 0, 1000, 1000, "outer"),
         group("mid", 50, 50, 500, 500, "mid"),
         group("inner", 100, 100, 200, 200, "inner"),
-        { ...seat, ether: { ...seat.ether, flags: ["blocker" as const] } },
+        liveSurface("hot", 120, 120, "hot"),
       ],
       edges: [],
     };
-    const rollups = deriveRegionRollups({ doc });
+    const rollups = deriveRegionRollups({ doc, terminalStatusByNodeId: harnessOf(["hot", "blocked"]) });
     expect(rollups.map((rollup) => rollup.regionId)).toEqual(["outer", "mid", "inner"]);
     for (const rollup of rollups) {
       expect(rollup.severity).toBe("blocked");
@@ -466,12 +362,12 @@ describe("deriveRegionRollups — region nesting", () => {
       nodes: [
         group("outer", 0, 0, 1000, 1000, "outer"),
         group("inner", 100, 100, 300, 300, "inner"),
-        node("deep", 120, 120, "deep", { flags: ["attention"] }),
+        liveSurface("deep", 120, 120, "deep"),
         node("shallow", 600, 600, "shallow"),
       ],
       edges: [],
     };
-    const rollups = deriveRegionRollups({ doc });
+    const rollups = deriveRegionRollups({ doc, terminalStatusByNodeId: harnessOf(["deep", "attention"]) });
     const outer = rollups.find((rollup) => rollup.regionId === "outer");
     const inner = rollups.find((rollup) => rollup.regionId === "inner");
     expect(outer?.severity).toBe("attention");
@@ -485,11 +381,11 @@ describe("deriveRegionRollups — region nesting", () => {
       nodes: [
         group("gA", 0, 0, 400, 300, "left"),
         group("gB", 100, 0, 400, 300, "right"),
-        node("both", 150, 50, "shared", { flags: ["attention"] }),
+        liveSurface("both", 150, 50, "shared"),
       ],
       edges: [],
     };
-    const rollups = deriveRegionRollups({ doc });
+    const rollups = deriveRegionRollups({ doc, terminalStatusByNodeId: harnessOf(["both", "attention"]) });
     for (const rollup of rollups) {
       expect(rollup.severity).toBe("attention");
       expect(rollup.members.map((member) => member.nodeId)).toEqual(["both"]);
@@ -500,24 +396,20 @@ describe("deriveRegionRollups — region nesting", () => {
 
 describe("deriveRegionRollups — member ordering", () => {
   it("sorts by severity, then kind (agent, task/requests, rest), then document order", () => {
-    const blockedSeat = actorSeat("blocked-seat", 10, 300, "on fire");
     const doc: CanvasDoc = {
       nodes: [
         group("r", 0, 0, 800, 800, "ops"),
         node("idle1", 10, 10, "idle one"),
         projectNode("note-project", 10, 100, "prism", "prism"),
         agentNode("working-agent", 10, 200, "PROFILE-13", "remote-a:profile-13"),
-        {
-          ...blockedSeat,
-          ether: { ...blockedSeat.ether, flags: ["blocker" as const] },
-        },
+        liveSurface("blocked-seat", 10, 300, "on fire"),
         node("idle2", 10, 400, "idle two"),
       ],
       edges: [],
     };
     const [rollup] = deriveRegionRollups({
       doc,
-      terminalStatusByNodeId: new Map([["working-agent", { session: "running", harness: "working" }]]),
+      terminalStatusByNodeId: harnessOf(["working-agent", "working"], ["blocked-seat", "blocked"]),
     });
     // blocked (seat) > working (agent) > idle furniture notes in document order
     expect(rollup?.members.map((member) => member.nodeId)).toEqual([
@@ -531,32 +423,6 @@ describe("deriveRegionRollups — member ordering", () => {
 });
 
 describe("deriveRegionRollups — derivation edges", () => {
-  it("flag:blocker and a graph block on the same actor union their reasons, no duplicates", () => {
-    const doc: CanvasDoc = {
-      nodes: [
-        group("r", 0, 0, 500, 500, "ops"),
-        taskNode("u", 10, 10, "Ops tasks", [claimed(taskItem("i1", "ship", "input-required"), "t")]),
-        {
-          ...actorSeat("t", 10, 100, "Target"),
-          ether: {
-            ...actorSeat("t", 10, 100, "Target").ether,
-            flags: ["blocker" as const],
-          },
-        },
-      ],
-      edges: [{ id: "e1", fromNode: "u", toNode: "t", ether: { verb: "works" } }],
-    };
-    const [rollup] = deriveRegionRollups({ doc });
-    const target = rollup?.members.find((member) => member.nodeId === "t");
-    expect(target?.severity).toBe("blocked");
-    expect(target?.reasons).toEqual([
-      "flag:blocker",
-      "edge:1 need input - ship",
-      "seed:blocker flag on Target",
-    ]);
-    expect(new Set(target?.reasons).size).toBe(target?.reasons.length);
-  });
-
   it("an agent with a pending permission and a live session is attention, reasons in ladder order", () => {
     const doc: CanvasDoc = {
       nodes: [group("r", 0, 0, 500, 500, "ops"), agentNode("a", 10, 10, "PROFILE-13", "remote-a:profile-13")],

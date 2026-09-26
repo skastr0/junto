@@ -31,7 +31,6 @@ export const searchText = (node: CanvasNode): string => [
   node.ether?.entity?.kind ?? "",
   node.ether?.entity?.name ?? "",
   node.ether?.git?.cwd ?? "",
-  ...(node.ether?.flags ?? []),
 ].join(" ").toLowerCase();
 
 // The honest user-facing noun for a node: note / file / link / region, or the

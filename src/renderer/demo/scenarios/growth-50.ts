@@ -14,7 +14,6 @@
 import type {
   Artifact,
   CanvasNode,
-  EtherFlag,
   GroupNode,
   Task,
   TextNode,
@@ -45,13 +44,6 @@ const cameraFit = (
   padding?: number,
   maxZoom?: number,
 ): DemoOp => ({ kind: "camera-fit", nodeIds, durationBeats, padding, maxZoom });
-
-const flagOp = (nodeIds: readonly string[], flag: EtherFlag, on: boolean): DemoOp => ({
-  kind: "flag",
-  nodeIds,
-  flag,
-  on,
-});
 
 const selectOp = (nodeIds: readonly string[]): DemoOp => ({ kind: "select", nodeIds });
 const sfxOp = (id: string): DemoOp => ({ kind: "sfx", id });
@@ -317,27 +309,24 @@ at(20.5, ...spawn(A[5]));
 at(22, ...spawn(A[6]), ...spawn(A[7]));
 at(23, cameraFit(undefined, 2, 0.16));
 
-// Rung 4 — second region, more crew, then the first blocker.
+// Rung 4 — second region, more crew.
 at(26, addNodesOp([regionB]));
 at(28, ...spawn(B[0]), ...spawn(B[1]));
 at(30, ...spawn(B[2]), ...spawn(B[3]));
 at(32, ...spawn(B[4]));
 at(33, cameraFit(undefined, 2, 0.16));
-at(36, flagOp(["demo-g-h06"], "blocker", true), sfxOp("alert"));
-at(40, flagOp(["demo-g-h13"], "blocker", true));
+at(36, sfxOp("alert"));
 
 // Rung 5 — the question surfaces, gets answered, the fleet re-greens.
 at(
   42,
   addNodesOp([requestsNode]),
-  flagOp(["demo-g-requests"], "attention", true),
   selectOp(["demo-g-h06", "demo-g-requests"]),
   cameraFit(["demo-g-h06", "demo-g-requests", "demo-g-tasks"], 1.5, 0.2),
   sfxOp("request"),
 );
-at(46, flagOp(["demo-g-h06"], "blocker", false), sfxOp("clear"));
-at(48, flagOp(["demo-g-h13"], "blocker", false));
-at(49, flagOp(["demo-g-requests"], "attention", false), selectOp([]));
+at(46, sfxOp("clear"));
+at(49, selectOp([]));
 at(50, cameraFit(undefined, 2.5, 0.16));
 
 // Rung 6 — results land somewhere real.
@@ -350,11 +339,10 @@ at(66, ...spawn(C[2]), ...spawn(C[3]));
 at(68, ...spawn(C[4]), ...spawn(C[5]));
 at(70, cameraFit(undefined, 2, 0.15));
 
-// Rung 8 — the crew hums; one last ambient block clears; slow pullback.
+// Rung 8 — the crew hums; slow pullback.
 at(74, ...spawn(FINALE[0]), ...spawn(FINALE[1]));
 at(76, ...spawn(FINALE[2]));
-at(80, flagOp(["demo-g-h15"], "blocker", true));
-at(82, flagOp(["demo-g-h15"], "blocker", false), sfxOp("clear"));
+at(82, sfxOp("clear"));
 at(86, cameraFit(undefined, 6, 0.2));
 
 // --- assemble -----------------------------------------------------------------

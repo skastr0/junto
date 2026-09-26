@@ -105,7 +105,7 @@ export const DEFAULT_NODE_CATALOG_ENTRIES: readonly NodeCatalogEntry[] = [
   ...(CRON_ENABLED ? [{
     id: "cron", category: "schedule", label: "Cron",
     icon: Clock3,
-    purpose: "Fires on a schedule to add tasks or set flags automatically.",
+    purpose: "Fires on a schedule to add tasks or wake agents automatically.",
   } satisfies NodeCatalogEntry] : []),
   // Gauge (hermes stat_threshold) is product-hidden and not a product peer of
   // cron/relay. Hermes = fleet join, not automation. Future external-input

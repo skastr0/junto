@@ -17,7 +17,7 @@ import { StationFleetTargetRepositoryLive } from "../src/main/junto/station/flee
 import { StationRepositoryLive } from "../src/main/junto/station/repository";
 import { WorkRepositoryLive } from "../src/main/junto/work/repository";
 import { runOverseerTurn } from "../src/overseer-host/session";
-import { applyMirrorLaw, type CanvasDoc } from "../src/shared/canvas";
+import { type CanvasDoc } from "../src/shared/canvas";
 import { formatNodeRef } from "../src/shared/node-ref";
 import type { OverseerRequest, OverseerResult } from "../src/shared/overseer-control";
 import type { OverseerHostRun } from "../src/shared/overseer-host-control";
@@ -29,7 +29,7 @@ const identity: OverseerHostIdentity = {
   peerPid: 4242, processGeneration: "4242:started",
 };
 const attention = (nodeId = "first"): LiveAttention => ({ canvasName: "factory", selectedNodeIds: [nodeId] });
-const document = (): CanvasDoc => applyMirrorLaw({ nodes: [
+const document = (): CanvasDoc => ({ nodes: [
   { id: "controller", type: "text", text: "Controller", x: 0, y: 0, width: 260, height: 100,
     ether: { entity: { kind: "agent", name: "local:junto-overseer" }, host: "local",
       terminal: { bindingId: identity.bindingId, harness: "junto-overseer" } } },

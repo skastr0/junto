@@ -68,7 +68,6 @@ export const CONTROL_ROLLUP_TONE: Readonly<Record<MemberSeverity, SeatRollupTone
   attention: "amber",
   working: "cyan",
   ready: "green",
-  parked: "violet",
   idle: undefined,
 };
 

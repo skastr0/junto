@@ -90,7 +90,7 @@ describe("collectOperatorAttention", () => {
     expect(items).toEqual([]);
   });
 
-  it("grouped flag attention notifies even when rollup says working", () => {
+  it("grouped live attention notifies even when rollup says working", () => {
     const items = collectOperatorAttention(
       [
         rollup([
@@ -103,7 +103,7 @@ describe("collectOperatorAttention", () => {
           },
         ]),
       ],
-      new Map([["g", facts("g", { flags: ["attention"] })]]),
+      new Map([["g", facts("g", { attentionReasons: ["permission:pending"] })]]),
     );
     expect(items).toEqual([
       expect.objectContaining({ nodeId: "g", kind: "attention" }),
@@ -112,7 +112,7 @@ describe("collectOperatorAttention", () => {
 
   it("dedupes overlapping region members keeping the worst notify kind", () => {
     const factsByNode = new Map([
-      ["shared", facts("shared", { graphBlocked: true, flags: ["attention"] })],
+      ["shared", facts("shared", { graphBlocked: true, attentionReasons: ["permission:pending"] })],
     ]);
     const extra = [
       attentionItemFromFacts(factsByNode.get("shared")!, "second")!,
@@ -125,7 +125,7 @@ describe("collectOperatorAttention", () => {
             label: "first",
             kind: "agent",
             severity: "attention",
-            reasons: ["flag:attention"],
+            reasons: ["permission:pending"],
           },
         ]),
         rollup(
@@ -214,17 +214,17 @@ describe("freestandingFromCanvasAttention", () => {
     ]);
   });
 
-  it("surfaces harness attention and flag:attention for every node", () => {
+  it("surfaces harness attention and live attention reasons for every node", () => {
     const items = freestandingFromCanvasAttention(
       [
         { id: "seat-attn", label: "Needs me" },
-        { id: "flagged", label: "Flagged", flags: ["attention"] },
-        { id: "covered", label: "Also grouped", flags: ["attention"] },
+        { id: "flagged", label: "Flagged" },
+        { id: "covered", label: "Also grouped" },
       ],
       new Map([
         ["seat-attn", facts("seat-attn", { seatState: "attention" })],
-        ["flagged", facts("flagged", { flags: ["attention"] })],
-        ["covered", facts("covered", { flags: ["attention"] })],
+        ["flagged", facts("flagged", { attentionReasons: ["permission:pending"] })],
+        ["covered", facts("covered", { attentionReasons: ["permission:pending"] })],
       ]),
     );
     expect(items.map((i) => i.nodeId).sort()).toEqual([
@@ -234,7 +234,7 @@ describe("freestandingFromCanvasAttention", () => {
     ]);
     expect(items.find((i) => i.nodeId === "seat-attn")?.kind).toBe("attention");
     expect(items.find((i) => i.nodeId === "flagged")?.reasons).toContain(
-      "flag:attention",
+      "permission:pending",
     );
   });
 
@@ -262,9 +262,9 @@ describe("freestandingFromCanvasAttention", () => {
 
   it("prefers blocked over attention for the same node", () => {
     const items = freestandingFromCanvasAttention(
-      [{ id: "both", label: "Both", flags: ["attention"] }],
+      [{ id: "both", label: "Both" }],
       new Map([
-        ["both", facts("both", { graphBlocked: true, flags: ["attention"] })],
+        ["both", facts("both", { graphBlocked: true, attentionReasons: ["permission:pending"] })],
       ]),
     );
     expect(items).toEqual([

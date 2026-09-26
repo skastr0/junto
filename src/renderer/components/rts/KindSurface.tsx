@@ -395,7 +395,7 @@ function MultiKindSurface({ nodes }: { readonly nodes: ReadonlyArray<CanvasNode>
     return (
       <div className="rts-kind-surface">
         <div className="rts-quiet rts-quiet--compact">
-          {multiSelectionLabel(classified)} — colors & flags on command card
+          {multiSelectionLabel(classified)} — colors on command card
         </div>
       </div>
     );

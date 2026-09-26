@@ -222,8 +222,7 @@ Standard JSON Canvas 1.0 (`nodes` of type `text`/`file`/`link`/`group`, `edges`)
 ```jsonc
 { "id": "n1", "type": "text", "x": 0, "y": 0, "width": 220, "height": 84, "text": "worker",
   "ether": {
-    "entity": { "kind": "agent", "name": "local:worker" },  // open vocab; well-known product: agent|terminal|task|requests|artifacts|page|cron|relay (+ dormant watcher/gauge; timer aliases cron)
-    "flags": ["blocker"]                                     // blocker|parked|attention
+    "entity": { "kind": "agent", "name": "local:worker" }  // open vocab; well-known product: agent|terminal|task|requests|artifacts|page|cron|relay (+ dormant watcher/gauge; timer aliases cron)
   } }
 ```
 
@@ -241,13 +240,12 @@ Edges: `{ "id", "fromNode", "toNode", "ether": { "verb": Verb } }`.
 | agent → board | `messages` \| `participates` | board ports; `wake` false / true |
 | agent → pad | `reads` \| `edits` | `pad.read` (`edits` adds `pad.patch`) |
 | agent → page | `navigates` | `browser.automate` |
-| agent → relay | `fires` \| `announces` | `relay.trigger`; or a watch on the agent's own attention flag |
+| agent → relay | `fires` \| `announces` | `relay.trigger`; or a watch on the seat's raised hand (an open `junto blocked` / `junto escalate` signal) |
 | task → agent | `works` | task ports; `claimable: true` — the claim selector reads this |
 | task → task | `feeds` | no ports; `flow: true`, DAG-guarded task-path hop |
-| {task,requests,artifacts,board,pad,page} → relay | `announces` | watch on that sink's own headline event |
-| {relay,clock} → agent | `wakes` \| `flags` | `inject_prompt` \| `set_flag` |
-| {relay,clock} → task | `enqueues` \| `flags` | `enqueue_task` \| `set_flag` |
-| {relay,clock} → other sinks | `flags` | `set_flag` |
+| {task,requests,artifacts,board,page} → relay | `announces` | watch on that sink's own headline event |
+| {relay,clock} → agent | `wakes` | `inject_prompt` |
+| {relay,clock} → task | `enqueues` | `enqueue_task` |
 | {relay,clock} → {relay,clock} | `chains` | `chain: true`, cycle-guarded |
 | terminal (either side) | — | no verb reaches it yet |
 
@@ -265,7 +263,7 @@ Live **phase** is only `blocks` | `relates` (derived) — projected onto the edg
 
 **Two invariants** (enforced on every app/CLI write):
 1. **Graceful degradation** — strip every `ether` key and the file is still valid, readable JSON Canvas 1.0.
-2. **Mirror law** — extension semantics mirror into native fields (blocker → red `color`; derived phase may project to edge `label`/`color`).
+2. **Mirror law** — extension semantics mirror into native fields (derived phase may project to edge `label`/`color`).
 
 Derived state (blocked seats, group membership, live phase) is **recomputed** from the document (+ live sources). Phase may be mirrored onto `ether.kind` for offline readability; it is not the authoring surface.
 
@@ -302,13 +300,13 @@ absent from the verb table (sink–sink, geography).
 
 | Kind | How it binds | Fire |
 |---|---|---|
-| **cron** | `ether.timer` expression | Durable due → the outbound verb's compiled effect (`enqueues` / `wakes` / `flags`) |
-| **relay** | inbound `announces` edges (watch, OR-combined across parallel edges); outbound `enqueues` / `wakes` / `flags` edges (effects) | Rising edge on watch → apply the outbound edges' effects |
+| **cron** | `ether.timer` expression | Durable due → the outbound verb's compiled effect (`enqueues` / `wakes`) |
+| **relay** | inbound `announces` edges (watch, OR-combined across parallel edges); outbound `enqueues` / `wakes` edges (effects) | Rising edge on watch → apply the outbound edges' effects |
 
 **Not a product peer:** hermes **gauge** (`watcher`) is palette-hidden / dormant; it shares the `clock` scheduler row with `cron`/`timer` but has no palette entry.
 
-**Effects (v1):** `enqueue_task` - `set_flag` - `inject_prompt` — the compiled
-facets of `enqueues` / `flags` / `wakes`. Task claiming stays in the workspace
+**Effects (v1):** `enqueue_task` - `inject_prompt` — the compiled facets of
+`enqueues` / `wakes`. Task claiming stays in the workspace
 tick (`works`'s compiled `claimable` grant, not an effect). No `relayState`
 cascade — multi-hop stoppage is a **relay** node, `announces` in and an
 effect verb out, only.
@@ -317,8 +315,13 @@ effect verb out, only.
 (3) Interval catch-up ≤1 due tick. (4) **Automate only when station role is
 configured and the canvas is playing** — otherwise project status/`nextFire`
 but do not consume rising-edge memory or durable cron firing slots.
-(5) **`set_flag` effects / `flagOnUnsatisfied` are Command Center only**
-(Remote refuses authorial canvas mutate; fail closed, no silent success).
+
+**Retired: operator flags.** `ether.flags` (blocker / attention / parked),
+`flagOnUnsatisfied`, the `flags` verb, the `set_flag` effect, and pad/sheet
+`announces` are gone; `canvas/retire-flags.ts` strips them from stored
+documents on boot. A seat raises its own hand (`junto blocked`,
+`junto escalate`); stoppage is derived. Pause is canvas-wide only: there is
+no node or region pause.
 
 ## Sources (read-only adapters)
 
@@ -366,7 +369,7 @@ The renderer has one visual language with two modes — `dark` (default) and `br
 
 - **Tokens** — `src/shared/theme/` is the single source of truth: OKLCH primitives (`primitives.ts`) assigned meaning per mode in the semantic layer (`semantic.ts`). `bun run theme:build` projects it to `src/renderer/styles/theme.generated.css`, which registers the palette as Tailwind v4 utilities (`text-ink`, `text-dim`, `text-faint`, `bg-ground/raise/raise-2/inset/well`, `border-stroke`, `text-amber/cyan/violet/crimson/…`, `font-mono`, `font-display`) plus `html[data-theme="bright"]` overrides. `src/renderer/lib/theme.ts` re-exports the same source for runtime consumers (canvas paint, inline styles); `src/shared/svg.ts` imports it for the SVG export. Never hardcode palette hex/rgba — edit the source and regenerate.
 - **Primitives** — `src/renderer/components/ui/`: `Button` (chrome/primary/subtle/danger - xs/sm/md), `IconButton`, `Eyebrow`, `StatusDot`, `Chip`, `Input`/`Select`/`FieldLabel`, `OverlayHeader` (eyebrow/title/status/actions chrome header for every work-surface panel), `ToolbarPill` (floating node toolbar), `Kbd` (hotkey/gesture chip), `HelpMap` + `HelpMapGroup` / `HelpMapKeys` (interaction maps — compose anywhere; canvas fill lives in `components/help/CanvasInteractionMap.tsx`). New surfaces compose these; do not hand-roll buttons, headers, status dots, or help chrome.
-- **Canvas card law — no action buttons on nodes.** Cards are glance + identity only. Open via double-click or RTS kind-strip keys; config via kind-strip pops; flags/delete/pause live on the selection toolbar / RTS command card. The only on-card controls allowed are pure instrumentation (enqueue + on tasks glance, activity marks). Never put "open" / "stop" / "detach" / form CTAs on the card body.
+- **Canvas card law — no action buttons on nodes.** Cards are glance + identity only. Open via double-click or RTS kind-strip keys; config via kind-strip pops; delete and Stop live on the selection toolbar / RTS command card. The only on-card controls allowed are pure instrumentation (enqueue + on tasks glance, activity marks). Never put "open" / "stop" / "detach" / form CTAs on the card body.
 - **Terminal look** — `src/renderer/lib/terminal-theme.ts` (`JUNTO_XTERM_THEME`, font family/size) is the one xterm theme for every terminal surface.
 - **Focus law** — focus is operator-owned. `src/renderer/lib/focus-ownership.ts` is the only place that calls `focus()`, `blur()`, or `select()`: use `claimFocus(el, "gesture" | "open" | "async")`, `releaseFocus`, and `claimFocusOnMount` (never JSX `autoFocus`). While the operator types in a field (input, textarea, select, contenteditable, xterm), only a pointer press outside it or a Cmd/Ctrl chord licenses a claim elsewhere; async work never takes or drops it, and background canvas flushes never blur. Global key listeners return early on `isOperatorTyping(event.target)` or carry a `// focus-law:` note. Gate: `bun run lint:focus-law` (in `verify`).
 - **Overlays** — one backdrop recipe everywhere: `rgba(0,0,0,0.72)` + `blur(2px)`. New single-subject overlays go through `FocusSurface`; panel headers go through `OverlayHeader`.

@@ -243,7 +243,7 @@ export const makeManagedAgentNode = (
 
 /**
  * Re-seat an existing agent node onto a new harness (new binding + launch).
- * Preserves id, geometry, and flags; mints a fresh bindingId so the old
+ * Preserves id and geometry; mints a fresh bindingId so the old
  * process can be killed without colliding with the new seat.
  */
 export const reseatManagedAgentNode = (
@@ -261,15 +261,7 @@ export const reseatManagedAgentNode = (
       ? node.ether.host
       : "local");
   const seat = buildManagedAgentSeat({ ...options, host });
-  const flags = node.ether.flags;
-  return {
-    ...node,
-    text: seat.text,
-    ether: {
-      ...seat.ether,
-      ...(flags && flags.length > 0 ? { flags } : {}),
-    },
-  };
+  return { ...node, text: seat.text, ether: seat.ether };
 };
 
 // A tasks node — task list; blocks only when edged with criteria.mode tasks.

@@ -10,8 +10,8 @@ type Node = CanvasDoc["nodes"][number];
 const STATES = OccupancySpectrum.literals;
 
 describe("occupancyChrome — visual alphabet is total over the spectrum", () => {
-  it("has a chrome spec for all eight states", () => {
-    expect(STATES).toHaveLength(8);
+  it("has a chrome spec for all seven states", () => {
+    expect(STATES).toHaveLength(7);
     for (const state of STATES) {
       const spec = occupancyChrome(state);
       expect(spec.state).toBe(state);
@@ -66,7 +66,7 @@ describe("occupancyChrome — I20: gone/unreachable chrome is honest", () => {
   });
 });
 
-describe("occupancyChrome — table: spectrum state -> chrome (all eight)", () => {
+describe("occupancyChrome — table: spectrum state -> chrome (all seven)", () => {
   const now = 1_700_000_000_000;
   const table: ReadonlyArray<{
     readonly name: string;
@@ -87,7 +87,7 @@ describe("occupancyChrome — table: spectrum state -> chrome (all eight)", () =
     },
     {
       name: "bound, needs input",
-      input: { hasOccupant: true, flags: { attention: true }, nowMs: now },
+      input: { hasOccupant: true, activity: { harness: "attention" }, nowMs: now },
       expected: "attention",
     },
     {
@@ -100,11 +100,6 @@ describe("occupancyChrome — table: spectrum state -> chrome (all eight)", () =
       input: { hasOccupant: true, lastSeenAtMs: now - 25 * 60 * 60 * 1000, nowMs: now },
       expected: "stalled",
     },
-    {
-      name: "bound, parked",
-      input: { hasOccupant: true, flags: { parked: true }, nowMs: now },
-      expected: "parked",
-    },
   ];
 
   it.each(table)("$name -> $expected chrome", ({ input, expected }) => {
@@ -116,10 +111,9 @@ describe("occupancyChrome — table: spectrum state -> chrome (all eight)", () =
 });
 
 describe("actorOccupancyAttr — vacancy only on actor cards", () => {
-  it("keeps empty, gone, parked and drops working/attention status", () => {
+  it("keeps empty and gone and drops working/attention status", () => {
     expect(actorOccupancyAttr("empty")).toBe("empty");
     expect(actorOccupancyAttr("gone")).toBe("gone");
-    expect(actorOccupancyAttr("parked")).toBe("parked");
     expect(actorOccupancyAttr("working")).toBeUndefined();
     expect(actorOccupancyAttr("attention")).toBeUndefined();
     expect(actorOccupancyAttr("activity_blocked")).toBeUndefined();
@@ -174,7 +168,6 @@ describe("I11 — occupancy is derived, never document truth", () => {
           hasOccupant: clue?.hasOccupant ?? false,
           activity: clue?.activity,
           lastSeenAtMs: clue?.lastSeenAtMs,
-          flags: clue?.flags,
           nowMs: now,
         });
         // Exercise the chrome mapping too — still must not touch the doc.

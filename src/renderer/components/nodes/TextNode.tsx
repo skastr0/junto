@@ -320,7 +320,6 @@ function EntityCard({
       session,
       needsLook: needsLook === true,
       graphBlocked,
-      flags: node.ether?.flags,
       attentionReasons,
       managedSeat: managed,
     }),

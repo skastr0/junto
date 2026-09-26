@@ -353,7 +353,7 @@ test("still 00 — factory hero board", async () => {
     y: br0 + Math.round((CH + 16) / 2),
   });
   nodes.push(
-    { ...security, ether: { ...security.ether, flags: ["blocker"] } },
+    security,
     tasksNode({
       id: "tasks-forge",
       x: bc1,

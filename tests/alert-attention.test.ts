@@ -182,16 +182,6 @@ describe("ready/working cycle order", () => {
           height: 40,
           text: "blocked-writer",
         },
-        {
-          id: "flagged",
-          type: "text",
-          x: 0,
-          y: 0,
-          width: 80,
-          height: 40,
-          text: "flagged note",
-          ether: { flags: ["attention"] },
-        },
       ] as unknown as ReadonlyArray<CanvasNode>;
       const seats: Record<string, AgentSeatStateEvent> = {
         "bind-1": {
@@ -228,7 +218,6 @@ describe("ready/working cycle order", () => {
           expect.objectContaining({ nodeId: "agent-2", kind: "working" }),
           // freestanding attention must enter Space cycle (not only region members)
           expect.objectContaining({ nodeId: "agent-3", kind: "attention" }),
-          expect.objectContaining({ nodeId: "flagged", kind: "attention" }),
         ]),
       );
     } finally {

@@ -99,18 +99,15 @@ describe("manualSchedulerFire scope", () => {
     __resetKernelMemoryForTest();
     __setAutomationGateForTest({
       canAutomateCanvas: () => true,
-      canApplyFlagEffects: () => true,
     });
     __setSchedulerEffectDepsForTest({
       canAutomateCanvas: () => true,
-      canApplyFlagEffects: () => true,
       hasReceipt: () => false,
       recordReceipt: () => undefined,
       enqueueTask: async ({ payload }) => {
         enqueues.push(payload.brief);
         return { ok: true };
       },
-      setFlag: async () => ({ ok: true }),
     });
     __setDocsForTest(new Map([["board", board()]]));
   });
@@ -142,7 +139,6 @@ describe("manualSchedulerFire scope", () => {
       const canAutomateCanvas = () => false;
       __setSchedulerEffectDepsForTest({
         canAutomateCanvas,
-        canApplyFlagEffects: () => true,
         hasReceipt: () => false,
         recordReceipt: () => undefined,
         enqueueTask: async ({ payload, overseer }) => {
@@ -156,7 +152,6 @@ describe("manualSchedulerFire scope", () => {
           enqueues.push(payload.brief);
           return { ok: true };
         },
-        setFlag: async () => ({ ok: true }),
       });
       const ordinary = await manualSchedulerFire({
         canvasName: "board",
@@ -218,18 +213,15 @@ describe("manualSchedulerFire scope", () => {
   it.runIf(CRON_ENABLED)("reports paused factory honestly", async () => {
     __setAutomationGateForTest({
       canAutomateCanvas: () => false,
-      canApplyFlagEffects: () => true,
     });
     __setSchedulerEffectDepsForTest({
       canAutomateCanvas: () => false,
-      canApplyFlagEffects: () => true,
       hasReceipt: () => false,
       recordReceipt: () => undefined,
       enqueueTask: async ({ payload }) => {
         enqueues.push(payload.brief);
         return { ok: true };
       },
-      setFlag: async () => ({ ok: true }),
     });
     const result = await manualSchedulerFire({
       canvasName: "board",
@@ -246,14 +238,12 @@ describe("manualSchedulerFire scope", () => {
     async () => {
       __setSchedulerEffectDepsForTest({
         canAutomateCanvas: () => true,
-        canApplyFlagEffects: () => true,
         hasReceipt: () => false,
         recordReceipt: () => undefined,
         enqueueTask: async () => ({
           ok: false,
           message: "work refused the enqueue",
         }),
-        setFlag: async () => ({ ok: true }),
       });
       const result = await manualSchedulerFire({
         canvasName: "board",

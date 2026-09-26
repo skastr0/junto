@@ -46,7 +46,7 @@ const doc: CanvasDoc = {
       y: 20,
       width: 100,
       height: 50,
-      ether: { entity: { kind: "orbit" }, flags: ["blocker"] },
+      ether: { entity: { kind: "orbit" } },
     },
     {
       id: "m3",
@@ -154,7 +154,6 @@ Baz --refs--> Foo
 Foo --relates--> Baz
 
 blockers
-Bar
 blocked closure :: 1 nodes
 Baz - 1 need input - ship
 
@@ -184,15 +183,15 @@ describe("digestCanvas", () => {
   });
 });
 
-// Formatting pins for the region rollups section: singular member counts, an
-// empty region, a multi-bucket join, and attention/working member lines. The
-// empty group also pins the "unnamed region" fallback in BOTH sections.
+// Formatting pins for the region rollups section: singular member counts and
+// an empty region. The empty group also pins the "unnamed region" fallback in
+// BOTH sections.
 const doc2: CanvasDoc = {
   nodes: [
     { id: "g-ops", type: "group", label: "ops", x: 0, y: 0, width: 500, height: 350 },
-    { id: "b1", type: "text", text: "B1", x: 10, y: 10, width: 100, height: 40, ether: { flags: ["blocker"] } },
-    { id: "a1", type: "text", text: "A1", x: 120, y: 10, width: 100, height: 40, ether: { flags: ["attention"] } },
-    { id: "a2", type: "text", text: "A2", x: 230, y: 10, width: 100, height: 40, ether: { flags: ["attention"] } },
+    { id: "b1", type: "text", text: "B1", x: 10, y: 10, width: 100, height: 40 },
+    { id: "a1", type: "text", text: "A1", x: 120, y: 10, width: 100, height: 40 },
+    { id: "a2", type: "text", text: "A2", x: 230, y: 10, width: 100, height: 40 },
     {
       id: "w1",
       type: "text",
@@ -223,9 +222,7 @@ const expected2 = [
   "unnamed region :: ",
   "",
   "region rollups",
-  "ops :: attention - 4 members (2 attention)",
-  "  A1 :: attention - flag:attention",
-  "  A2 :: attention - flag:attention",
+  "ops :: idle - 4 members",
   "solo :: idle - 1 member",
   "unnamed region :: idle - 0 members",
   "",
@@ -236,17 +233,13 @@ const expected2 = [
   "entities",
   "W1 :: project",
   "",
-  "blockers",
-  "B1",
-  "blocked closure :: 0 nodes",
-  "",
   "seeds",
   "W1",
   "",
 ].join("\n");
 
 describe("digestCanvas — region rollups formatting", () => {
-  it("pins singular counts, empty region, multi-bucket join, and member lines", () => {
+  it("pins singular counts, empty region, and the unnamed region fallback", () => {
     expect(digestCanvas("fixture2", doc2, { bundles: [] })).toBe(expected2);
   });
 });

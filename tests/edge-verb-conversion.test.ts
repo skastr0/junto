@@ -193,8 +193,9 @@ describe("legacy edge conversion", () => {
     expect(edges.get("sees")?.ether).toEqual({ verb: "announces" });
     expect(edges.get("enqueues")?.ether).toEqual({ verb: "enqueues" });
     expect(edges.get("wakes")?.ether).toEqual({ verb: "wakes" });
-    expect(edges.get("flags")?.ether).toEqual({ verb: "flags" });
-    expect(edges.get("posts")?.ether).toEqual({ verb: "flags" });
+    // The retired `flags` verb has nothing to convert to: those wires drop.
+    expect(edges.get("flags")).toBeUndefined();
+    expect(edges.get("posts")).toBeUndefined();
     expect(edges.get("chain")?.ether).toEqual({ verb: "chains" });
   });
 
@@ -209,7 +210,8 @@ describe("legacy edge conversion", () => {
     expect(edges.get("in")?.ether).toEqual({ verb: "announces" });
     expect(edges.get("out-task")?.ether).toEqual({ verb: "enqueues" });
     expect(edges.get("out-agent")?.ether).toEqual({ verb: "wakes" });
-    expect(edges.get("out-page")?.ether).toEqual({ verb: "flags" });
+    // A scheduler reaches a page with no verb now: the wire drops.
+    expect(edges.get("out-page")).toBeUndefined();
   });
 
   it("keeps an already-authored verb instead of re-widening it", () => {
@@ -450,7 +452,6 @@ describe("a whole legacy board, loaded and written back", () => {
       ["s-watch-dual", "announces"],
       ["s-enqueue", "enqueues"],
       ["s-wake", "wakes"],
-      ["s-flag", "flags"],
       ["s-chain", "chains"],
       ["v-works", "works"],
     ]);

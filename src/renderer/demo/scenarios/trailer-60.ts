@@ -3,7 +3,7 @@
 // builder: fixed deterministic ids, no ulid, no Math.random, no runtime
 // framework. It must not import anything beyond @shared/demo + @shared/canvas.
 
-import type { CanvasEdge, CanvasNode, EtherFlag, GroupNode, TextNode } from "@shared/canvas";
+import type { CanvasEdge, CanvasNode, GroupNode, TextNode } from "@shared/canvas";
 import type { DemoBeat, DemoOp, DemoScenario } from "@shared/demo";
 
 // --- small deterministic helpers --------------------------------------------
@@ -69,13 +69,6 @@ const cameraCenter = (x: number, y: number, durationBeats: number, zoom?: number
   y,
   zoom,
   durationBeats,
-});
-
-const flagOp = (nodeIds: readonly string[], flag: EtherFlag, on: boolean): DemoOp => ({
-  kind: "flag",
-  nodeIds,
-  flag,
-  on,
 });
 
 const selectOp = (nodeIds: readonly string[]): DemoOp => ({ kind: "select", nodeIds });
@@ -189,16 +182,21 @@ const crewNode = (spec: CrewSpec): TextNode => {
   };
 };
 
-/** Cleared: the seat's blocker flag comes off. */
-const workingOp = (spec: CrewSpec): DemoOp => flagOp([spec.id], "blocker", false);
-
-// Blocked ordering is tracked as it is authored (source order == beat order
-// below) so the "10 blocked" camera-fit and the beat-66 "select all blocked"
-// can be derived instead of hand-counted.
+// The storm is told through selection: each stuck seat joins the selection,
+// and recovery releases it. Ordering is tracked as it is authored (source
+// order == beat order below) so the "10 stuck" camera-fit and the beat-66
+// "select all stuck" can be derived instead of hand-counted.
 const blockedOrder: string[] = [];
+const stuck = new Set<string>();
 const blockOp = (spec: CrewSpec): DemoOp => {
   blockedOrder.push(spec.id);
-  return flagOp([spec.id], "blocker", true);
+  stuck.add(spec.id);
+  return selectOp([...stuck]);
+};
+/** Cleared: the seat leaves the stuck selection. */
+const workingOp = (spec: CrewSpec): DemoOp => {
+  stuck.delete(spec.id);
+  return selectOp([...stuck]);
 };
 
 // Spawn a contiguous slice of the fleet across beat slots, front-loaded.
@@ -396,7 +394,6 @@ at(
   54,
   blockOp(h(13)),
   blockOp(h(2)),
-  flagOp(["demo-s03", "demo-s07"], "blocker", true),
   cameraFit(["demo-h13", "demo-h02"], 2),
 );
 at(
@@ -406,7 +403,7 @@ at(
   blockOp(h(22)),
   cameraFit(["demo-h19", "demo-h05", "demo-h22"], 2),
 );
-at(58, flagOp(["demo-task"], "blocker", true), cameraFit(["demo-task"], 2));
+at(58, cameraFit(["demo-task"], 2));
 at(60, blockOp(h(9)), blockOp(h(16)), cameraFit(undefined, 4));
 at(64, blockOp(h(3)), sfxOp("cycle"));
 at(64.5, blockOp(h(11)));
@@ -426,7 +423,6 @@ at(
   workingOp(h(22)),
   workingOp(h(9)),
   workingOp(h(16)),
-  flagOp(["demo-task", "demo-s03", "demo-s07"], "blocker", false),
 );
 at(71, workingOp(h(3)), workingOp(h(11)), workingOp(h(20)));
 
@@ -490,14 +486,6 @@ if (isDev) {
             throw new Error(
               `trailer-60: edge ${edge.id} references unknown toNode ${edge.toNode} at beat ${beat.at}`,
             );
-          }
-        }
-        continue;
-      }
-      if (op.kind === "flag") {
-        for (const id of op.nodeIds) {
-          if (!knownNodeIds.has(id)) {
-            throw new Error(`trailer-60: flag references unknown node ${id} at beat ${beat.at}`);
           }
         }
         continue;

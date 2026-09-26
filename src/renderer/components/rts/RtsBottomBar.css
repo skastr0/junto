@@ -729,9 +729,7 @@
 }
 
 /*
- * Command key rail: sibling groups side by side.
- * Flags always own their own vertical column (blocker → attention → parked).
- * Actions use a 4-row column-major grid next to them.
+ * Command key rail: actions in a 4-row column-major grid.
  */
 .rts-cmd-keys-rail {
   --rts-key-size: 22px;
@@ -746,14 +744,6 @@
   width: max-content;
   max-width: 100%;
   margin: 0;
-}
-
-/* Flag trio: fixed order, never mixed into the ops grid. */
-.rts-cmd-keys-group {
-  display: flex;
-  flex-direction: column;
-  gap: var(--rts-key-gap, 2px);
-  flex: 0 0 auto;
 }
 
 .rts-cmd-keys,
@@ -772,7 +762,7 @@
   overflow: visible;
 }
 
-/* Region ops: same rail semantics (no flags group). */
+/* Region ops: same rail semantics. */
 .rts-cmd-shell--region > .rts-cmd-keys,
 .rts-cmd-shell--region > .rts-cmd-keys-rail {
   align-self: start;
@@ -781,8 +771,7 @@
 
 .rts-cmd-shell .rts-key,
 .rts-cmd-shell--region .rts-key,
-.rts-cmd-keys .rts-key,
-.rts-cmd-keys-group .rts-key {
+.rts-cmd-keys .rts-key {
   width: var(--rts-key-size, 22px);
   height: var(--rts-key-size, 22px);
   min-width: var(--rts-key-size, 22px);
@@ -1251,31 +1240,6 @@ html[data-viewport-busy] .react-flow .rts-notify-strip {
   border-bottom: 0 !important;
   background: transparent !important;
   fill: color-mix(in oklab, var(--color-ink) 80%, transparent) !important;
-}
-
-.rts-layer-toggles {
-  position: absolute;
-  left: 6px;
-  bottom: 6px;
-  z-index: 2;
-  display: flex;
-  gap: 4px;
-}
-
-.rts-layer-toggles button {
-  padding: 2px 6px;
-  border-radius: 4px;
-  border: 1px solid var(--color-stroke);
-  background: color-mix(in oklab, var(--color-ground) 75%, transparent);
-  font-size: 9px;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  cursor: pointer;
-}
-
-.rts-layer-toggles button.is-active {
-  border-color: currentColor;
-  background: var(--color-overlay-3);
 }
 
 /* Default stoppage block (used if rendered outside the notify strip). */

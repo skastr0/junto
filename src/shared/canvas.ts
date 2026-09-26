@@ -112,9 +112,6 @@ export type EdgePhase = typeof EdgePhase.Type;
 export type EtherEdgeKind = EdgePhase;
 export const EtherEdgeKind = EdgePhase;
 
-export const EtherFlag = Schema.Literals(["blocker", "parked", "attention"]);
-export type EtherFlag = typeof EtherFlag.Type;
-
 // entity.kind is an open vocabulary; well-known kinds get richer rendering.
 // `project` is retired as a well-known kind (degrades to furniture / plain note).
 export const WELL_KNOWN_ENTITY_KINDS = [
@@ -309,9 +306,6 @@ export const EtherWatch = Schema.Struct({
   stat: Schema.optionalKey(Schema.String),
   op: Schema.optionalKey(Schema.Literals(["gt", "lt", "eq"])),
   value: Schema.optionalKey(Schema.Number),
-  // Level watchers may mirror unsatisfied into a blocker flag on THIS node
-  // (display seed; schedulers are not blockable seats).
-  flagOnUnsatisfied: Schema.optionalKey(Schema.Boolean),
 });
 export type EtherWatch = typeof EtherWatch.Type;
 
@@ -340,7 +334,6 @@ export const EtherNodeExtension = Schema.Struct({
   entity: Schema.optionalKey(EtherEntity),
   /** Human-granted administrative authority for an executable agent seat. */
   overseer: Schema.optionalKey(Schema.Boolean),
-  flags: Schema.optionalKey(Schema.Array(EtherFlag)),
   region: Schema.optionalKey(EtherRegion),
   watch: Schema.optionalKey(EtherWatch),
   timer: Schema.optionalKey(EtherTimer),
@@ -816,14 +809,3 @@ export const serializeCanvas = (doc: CanvasDoc): string => {
   return `${JSON.stringify(canonical, null, 2)}\n`;
 };
 
-// Mirror law: extension semantics must remain visible to plain JSON Canvas
-// readers. Applied on every save. Nodes only: a blocker flag mirrors to crimson
-// `color`. Edges carry no derived phase — an edge says what the relationship
-// is, and phase is recomputed from live work state at read time, so there is
-// nothing on an edge left to mirror.
-export const applyMirrorLaw = (doc: CanvasDoc): CanvasDoc => ({
-  nodes: doc.nodes.map((node) =>
-    node.ether?.flags?.includes("blocker") ? { ...node, color: "1" } : node,
-  ),
-  edges: doc.edges,
-});

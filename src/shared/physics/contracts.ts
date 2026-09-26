@@ -18,11 +18,7 @@ export const ContractEvent = Schema.Struct({
   id: Schema.String,
   label: Schema.String,
   /** Lexicon word this event carries on a watch wire. */
-  word: Schema.Literals(["completes", "flagged"]),
-  /** Optional flag when word is flagged. */
-  flag: Schema.optionalKey(
-    Schema.Literals(["blocker", "attention", "parked"]),
-  ),
+  word: Schema.Literals(["completes", "signals"]),
   /**
    * Discriminator for completes variants on one wire (OR multi-select).
    * Maps onto WatchWhenCompletes.equals — e.g. page ready vs failed.
@@ -35,8 +31,8 @@ export type ContractEvent = typeof ContractEvent.Type;
 export const ContractInput = Schema.Struct({
   id: Schema.String,
   label: Schema.String,
-  /** Maps to EdgeEffect.mode — the three actions a scheduler verb compiles to. */
-  mode: Schema.Literals(["enqueue_task", "set_flag", "inject_prompt"]),
+  /** Maps to EdgeEffect.mode — the two actions a scheduler verb compiles to. */
+  mode: Schema.Literals(["enqueue_task", "inject_prompt"]),
 });
 export type ContractInput = typeof ContractInput.Type;
 
@@ -47,37 +43,10 @@ export type NodeContract = {
   readonly inputs: ReadonlyArray<ContractInput>;
 };
 
-const flagEvents: ReadonlyArray<ContractEvent> = [
-  {
-    id: "flag.attention",
-    label: "Marked needs attention",
-    word: "flagged",
-    flag: "attention",
-  },
-  {
-    id: "flag.blocker",
-    label: "Marked blocker",
-    word: "flagged",
-    flag: "blocker",
-  },
-  {
-    id: "flag.parked",
-    label: "Marked parked",
-    word: "flagged",
-    flag: "parked",
-  },
-];
-
 const enqueueInput: ContractInput = {
   id: "input.enqueue_task",
   label: "Add a task",
   mode: "enqueue_task",
-};
-
-const flagInput: ContractInput = {
-  id: "input.set_flag",
-  label: "Set a flag",
-  mode: "set_flag",
 };
 
 const injectPromptInput: ContractInput = {
@@ -100,9 +69,14 @@ export const NodeContracts: {
   agent: {
     kind: "agent",
     ports: portsOf("agent"),
-    // Watch is sink→relay; agent is not a watch source. Flags only for effect/access.
-    events: [...flagEvents],
-    inputs: [injectPromptInput, flagInput],
+    events: [
+      {
+        id: "agent.signals",
+        label: "Raises a hand (blocked or escalate)",
+        word: "signals",
+      },
+    ],
+    inputs: [injectPromptInput],
   },
   task: {
     kind: "task",
@@ -114,9 +88,8 @@ export const NodeContracts: {
         word: "completes",
         equals: "completed",
       },
-      ...flagEvents,
     ],
-    inputs: [enqueueInput, flagInput],
+    inputs: [enqueueInput],
   },
   requests: {
     kind: "requests",
@@ -128,9 +101,8 @@ export const NodeContracts: {
         word: "completes",
         equals: "completed",
       },
-      ...flagEvents,
     ],
-    inputs: [flagInput],
+    inputs: [],
   },
   artifacts: {
     kind: "artifacts",
@@ -143,7 +115,7 @@ export const NodeContracts: {
         equals: "published",
       },
     ],
-    inputs: [flagInput],
+    inputs: [],
   },
   board: {
     kind: "board",
@@ -162,21 +134,21 @@ export const NodeContracts: {
         equals: "topic",
       },
     ],
-    // A scheduler reaches a board with `flags` and nothing else: posting is an
-    // agent's port, never a fire action.
-    inputs: [flagInput],
+    // No scheduler reaches a board: posting is an agent's port, never a fire
+    // action.
+    inputs: [],
   },
   pad: {
     kind: "pad",
     ports: portsOf("pad"),
-    events: [...flagEvents],
-    inputs: [flagInput],
+    events: [],
+    inputs: [],
   },
   sheet: {
     kind: "sheet",
     ports: portsOf("sheet"),
-    events: [...flagEvents],
-    inputs: [flagInput],
+    events: [],
+    inputs: [],
   },
   page: {
     kind: "page",
@@ -196,13 +168,13 @@ export const NodeContracts: {
         equals: "failed",
       },
     ],
-    inputs: [flagInput],
+    inputs: [],
   },
   terminal: {
     kind: "terminal",
     ports: portsOf("terminal"),
     events: [],
-    inputs: [flagInput],
+    inputs: [],
   },
   cron: {
     kind: "cron",

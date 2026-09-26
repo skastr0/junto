@@ -34,7 +34,6 @@ import {
 //
 // Evaluation:
 //   - phase "blocks" + generates → mark actor blocked (actors only)
-//   - manual blocker flag marks that actor only
 //   - work-plane seat blocks mark their actor only
 //   - stoppage never cascades via edge property — use a relay node + wires
 
@@ -66,10 +65,6 @@ export type BlockedReason =
       readonly detail: string;
     }
   | {
-      readonly kind: "seed";
-      readonly detail: string;
-    }
-  | {
       readonly kind: "work";
       readonly requestId: string;
       readonly targetNodeId: string;
@@ -90,7 +85,6 @@ export type ExecutionGraph = {
   readonly blocked: ReadonlySet<string>;
   readonly blockedEdgeIds: ReadonlySet<string>;
   readonly reasonsByNodeId: ReadonlyMap<string, ReadonlyArray<BlockedReason>>;
-  readonly seedNodeIds: ReadonlySet<string>;
 };
 
 const titleOf = (node: CanvasNode | undefined, fallback: string): string => {
@@ -260,7 +254,6 @@ export const deriveExecutionGraph = (
   const blocked = new Set<string>();
   const reasonsByNodeId = new Map<string, BlockedReason[]>();
   const blockedEdgeIds = new Set<string>();
-  const seedNodeIds = new Set<string>();
 
   const addReason = (nodeId: string, reason: BlockedReason): void => {
     const list = reasonsByNodeId.get(nodeId) ?? [];
@@ -275,14 +268,6 @@ export const deriveExecutionGraph = (
     addReason(nodeId, reason);
     if (viaEdgeId) blockedEdgeIds.add(viaEdgeId);
   };
-
-  // Manual blocker flag: self only (no outbound cascade).
-  for (const node of doc.nodes) {
-    if (node.ether?.flags?.includes("blocker") && isBlockableNode(node)) {
-      seedNodeIds.add(node.id);
-      markBlocked(node.id, { kind: "seed", detail: `blocker flag on ${titleOf(node, node.id)}` });
-    }
-  }
 
   // Escalation is runtime stoppage on its exact raiser. The actor→requests
   // edge grants the operation; visual stoppage does not synthesize a reverse
@@ -330,7 +315,6 @@ export const deriveExecutionGraph = (
     blocked,
     blockedEdgeIds,
     reasonsByNodeId,
-    seedNodeIds,
   };
 };
 

@@ -38,13 +38,12 @@ const titleOf = (node: CanvasNode | undefined, fallback: string): string => {
   }
 };
 
-/** Seed candidates: manual blockers + nodes that emit generating edges. */
+/** Seed candidates: nodes that emit generating edges. */
 export const collectStoppageSeedIds = (
   doc: CanvasDoc,
   graph: ExecutionGraph,
 ): ReadonlyArray<string> => {
   const ids = new Set<string>();
-  for (const id of graph.seedNodeIds) ids.add(id);
   const byId = new Map(doc.nodes.map((node) => [node.id, node] as const));
   for (const edge of doc.edges) {
     const evaluation = graph.edgeEvalById.get(edge.id);
@@ -60,8 +59,8 @@ const stallingItemsOf = (node: CanvasNode | undefined): ReadonlyArray<Task> =>
     (item) => needsHuman(item) && claimedByOf(item) !== undefined,
   );
 
-const seedBriefOf = (node: CanvasNode | undefined, isManualSeed: boolean): string => {
-  if (!node) return isManualSeed ? "blocker" : "stoppage";
+const seedBriefOf = (node: CanvasNode | undefined): string => {
+  if (!node) return "stoppage";
   const kind = node.ether?.entity?.kind;
   if (kind === "requests") {
     const items = node.ether?.requests?.items ?? [];
@@ -73,7 +72,6 @@ const seedBriefOf = (node: CanvasNode | undefined, isManualSeed: boolean): strin
     const n = stallingItemsOf(node).length;
     return n === 1 ? "1 task" : `${n} tasks`;
   }
-  if (isManualSeed || node.ether?.flags?.includes("blocker")) return "blocker";
   return titleOf(node, node.id);
 };
 
@@ -94,8 +92,6 @@ const clearActionOf = (
   }
   const first = cone.seedReasons[0];
   if (first?.kind === "edge" && first.detail) return `clear: ${first.detail}`;
-  if (first?.kind === "seed" && first.detail) return `clear: ${first.detail}`;
-  if (node?.ether?.flags?.includes("blocker")) return "clear: blocker flag";
   return "clear: stoppage";
 };
 
@@ -118,7 +114,7 @@ export const rankStoppageSeeds = (
     const node = byId.get(seedNodeId);
     ranked.push({
       seedNodeId,
-      seedBrief: seedBriefOf(node, graph.seedNodeIds.has(seedNodeId)),
+      seedBrief: seedBriefOf(node),
       stops: cone.nodeIds.size,
       attentionLeadIds: [...cone.attentionLeadIds].sort(),
       clearAction: clearActionOf(node, cone),

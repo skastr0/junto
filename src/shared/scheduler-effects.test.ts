@@ -384,11 +384,37 @@ describe("scheduler-effects", () => {
     });
     const edges = collectWatchEdgesInto(canvas, "r1");
     expect(edges.map((e) => e.edge.id).sort()).toEqual(["e-agent", "e-in"]);
-    // The agent's headline news is its attention flag, not a completion.
+    // The agent's headline news is a raised hand, not a completion.
     expect(edges.find((e) => e.edge.id === "e-agent")?.when).toEqual({
-      word: "flagged",
-      flag: "attention",
+      word: "signals",
     });
+  });
+
+  it("an agent announce is satisfied only while that seat has a raised hand", () => {
+    const agent = {
+      id: "a1",
+      type: "text" as const,
+      text: "Planner",
+      x: 0,
+      y: 0,
+      width: 1,
+      height: 1,
+      ether: { entity: { kind: "agent", name: "local:planner" } },
+    };
+    const raised = evaluateWatchWhen(agent, { word: "signals" }, {
+      raisedHandNodeIds: new Set(["a1"]),
+    });
+    expect(raised.status).toBe("satisfied");
+    expect(raised.detail).toBe("Planner raised a hand");
+
+    const other = evaluateWatchWhen(agent, { word: "signals" }, {
+      raisedHandNodeIds: new Set(["someone-else"]),
+    });
+    expect(other.status).toBe("pending");
+    expect(other.detail).toBe("watching Planner for blocked or escalate");
+
+    // No raised-hand map at all is quiet, never satisfied.
+    expect(evaluateWatchWhen(agent, { word: "signals" }).status).toBe("pending");
   });
 
   it("collectWatchEdgesInto keeps OR multi-input sinks", () => {

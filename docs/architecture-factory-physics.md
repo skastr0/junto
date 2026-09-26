@@ -77,7 +77,7 @@ do not revoke that grant. Ordinary edge-scoped ops stay edge-scoped.
 |------|---------------|------------------|
 | **Actor** | `agent` only | Junto-spawned template terminal; occupies one host-local seat and wields outbound edges under process-bind |
 | **Sink** | `task`, `requests`, `artifacts`, `page` | Receives ops; target of inbound capability |
-| **Scheduler** | product: `cron`/`timer`, `relay`; dormant: `watcher`/`gauge` (hermes stub, palette-hidden) | Sensors/clocks that fire **edge effects** (enqueue/set_flag); no seats, no region inject. Live product pair is time + board-state — not hermes roster. |
+| **Scheduler** | product: `cron`/`timer`, `relay`; dormant: `watcher`/`gauge` (hermes stub, palette-hidden) | Sensors/clocks that fire **edge effects** (enqueue / inject prompt); no seats, no region inject. Live product pair is time + board-state — not hermes roster. |
 | **Region** | group + `ether.region` | Geography + optional briefing text |
 | **Geography / furniture** | raw `terminal`, notes, labels, unknown/open-vocab kinds (incl. retired `project` strings) | Spatial or operator surface; no actor seat, inbox, work claim, or ocap wield |
 
@@ -114,7 +114,8 @@ item **claimed by** the direct `toNode` actor generates
 them; requests are claimed by the actor that raised them, at creation. An
 unclaimed attention item is inventory for a human — it stops nobody. Claims
 address the junto node id (names are display labels, roles are routing tags).
-Manual `blocker` flags mark that actor only.
+There are no manual blocker flags: a seat raises its own hand with
+`junto blocked` / `junto escalate`.
 There is **no** `depends` phase and **no** automatic multi-hop dependency
 cascade on edges. No claimed blocking item on the connected sink → soft
 **relates**.
@@ -174,7 +175,6 @@ Occupancy spectrum (live, derived — not stored as permanent document truth):
 | `attention` | Needs operator input (permission, review, focus) |
 | `activity_blocked` | Bound but phase plane says blocked (derived stoppage on this seat) |
 | `stalled` | Expected progress missing (timeout / heartbeat gap) |
-| `parked` | Intentionally held (flag / operator park) |
 | `gone` | Former occupant exited; seat vacant until rebind |
 
 Seat without occupant ⇒ no wield. Ordinary occupant without edge ⇒

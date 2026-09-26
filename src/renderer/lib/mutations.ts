@@ -2,7 +2,6 @@ import type {
   CanvasDoc,
   CanvasEdge,
   CanvasNode,
-  EtherFlag,
   EtherRegionContract,
   EtherRegionDefaults,
   EtherSheet,
@@ -751,9 +750,8 @@ export const addNode = (
 ): void => {
   batch(() => {
     state$.edgeFilter.set("");
-    state$.flagFilter.set("");
-    // Keep the single/multi selection pair coherent so RTS flag keys target
-    // this node only (stale selectedNodeIds would open multi bulk-flags).
+    // Keep the single/multi selection pair coherent so the RTS command card
+    // targets this node only (stale selectedNodeIds would open the multi card).
     selectNode(node.id);
   });
   const doc = state$.doc.peek();
@@ -1411,65 +1409,7 @@ export const setNodeColorForNodes = (
   });
 };
 
-export const toggleFlag = (id: string, flag: EtherFlag): void => {
-  const doc = state$.doc.peek();
-  commitDoc({
-    ...doc,
-    nodes: doc.nodes.map((n) => {
-      if (n.id !== id) return n;
-      const flags = n.ether?.flags ?? [];
-      const has = flags.includes(flag);
-      const nextFlags = has ? flags.filter((f) => f !== flag) : [...flags, flag];
-      if (nextFlags.length) {
-        return { ...n, ether: { ...(n.ether ?? {}), flags: nextFlags } };
-      }
-      if (!n.ether) return n;
-      const nextEther = without(n.ether, "flags");
-      return (Object.keys(nextEther).length ? { ...n, ether: nextEther } : without(n, "ether")) as CanvasNode;
-    }),
-  });
-};
-
-// Bulk flag set/clear over a whole selection in one commit — a multi-select
-// action applies once, not as N individual toggles. `flag: null` clears the
-// full flag vocabulary (not just one flag) for every target node.
-// `mode: "clear"` removes one flag from every target (multi toggle-off).
-export const setFlagForNodes = (
-  ids: ReadonlyArray<string>,
-  flag: EtherFlag | null,
-  mode: "set" | "clear" = "set",
-): void => {
-  const targets = new Set(ids);
-  if (targets.size === 0) return;
-  const doc = state$.doc.peek();
-  commitDoc({
-    ...doc,
-    nodes: doc.nodes.map((n) => {
-      if (!targets.has(n.id)) return n;
-      if (flag === null) {
-        if (!n.ether) return n;
-        const nextEther = without(n.ether, "flags");
-        return (Object.keys(nextEther).length ? { ...n, ether: nextEther } : without(n, "ether")) as CanvasNode;
-      }
-      const flags = n.ether?.flags ?? [];
-      if (mode === "clear") {
-        if (!flags.includes(flag)) return n;
-        const nextFlags = flags.filter((f) => f !== flag);
-        if (nextFlags.length) {
-          return { ...n, ether: { ...(n.ether ?? {}), flags: nextFlags } };
-        }
-        if (!n.ether) return n;
-        const nextEther = without(n.ether, "flags");
-        return (Object.keys(nextEther).length ? { ...n, ether: nextEther } : without(n, "ether")) as CanvasNode;
-      }
-      if (flags.includes(flag)) return n;
-      return { ...n, ether: { ...(n.ether ?? {}), flags: [...flags, flag] } };
-    }),
-  });
-};
-
-// Region hold toggle (group nodes only). Follows the toggleFlag strip
-// pattern: `hold: true` writes ether.region, anything else strips the
+// Region hold toggle (group nodes only). Strip pattern: `hold: true` writes ether.region, anything else strips the
 // `region` key entirely and degrades `ether` itself away once nothing else
 // is left. Membership is never written here — it stays derived (geometry.ts).
 // Merges into ether.region rather than replacing it — region briefing
@@ -1534,12 +1474,11 @@ const stripEmptyWatch = (watch: EtherWatch): EtherWatch => {
     ...(stat ? { stat } : {}),
     ...(watch.op ? { op: watch.op } : {}),
     ...(watch.value !== undefined ? { value: watch.value } : {}),
-    ...(watch.flagOnUnsatisfied ? { flagOnUnsatisfied: true } : {}),
   };
 };
 
 // Writes/clears a node's ether.watch (predicate definition for a watcher
-// node). Follows the toggleFlag strip pattern: strip empty fields, drop the
+// node). Strip pattern: strip empty fields, drop the
 // `watch` key entirely once cleared, degrade `ether` itself away when it
 // would otherwise be left holding nothing. Runtime evaluation of the
 // predicate is the kernel's job (kernel-state.ts) — this only ever writes

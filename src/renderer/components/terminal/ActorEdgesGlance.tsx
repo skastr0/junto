@@ -177,7 +177,6 @@ function EdgeCard({
           nodeId: peer.id,
           seatEvent,
           needsLook,
-          flags: peer.ether?.flags,
           attentionReasons: liveAttentionReasons(peer, chatByAgent),
           graphBlocked: execution?.blocked.includes(peer.id) === true,
           managedSeat:

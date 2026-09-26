@@ -1,9 +1,9 @@
 /**
  * Apply scheduler edge effects after a home-local fire.
- * Task claiming is never done here — only inventory / flags.
+ * Task claiming is never done here — only inventory and prompts.
  */
 
-import type { CanvasDoc, CanvasNode, EtherFlag } from "@shared/canvas";
+import type { CanvasDoc, CanvasNode } from "@shared/canvas";
 import { compileEdgeGrant, edgeKindIndex } from "@shared/canvas";
 import {
   defaultEffectTasksCreate,
@@ -12,7 +12,6 @@ import {
 import {
   collectEffectEdgesFrom,
   defaultInjectPromptText,
-  resolveMirrorFlagEnabled,
   schedulerSourceLabel,
   validateEffectTarget,
   type EffectEdgeBinding,
@@ -39,15 +38,13 @@ export type SchedulerFireEvent = {
   readonly kind: SchedulerFireKind;
   /** Durable identity for at-most-once receipts. */
   readonly fireKey: string;
-  /** Sensor level when known (for mirror flags). */
+  /** Sensor level when known (named in the injected prompt). */
   readonly status?: "satisfied" | "pending" | "unknown";
 };
 
 export type SchedulerEffectDeps = {
   /** Per-canvas: playing + station role configured. */
   readonly canAutomateCanvas: (canvasName: string) => boolean;
-  /** Document flag effects (set_flag / flagOnUnsatisfied) are Command Center-only. */
-  readonly canApplyFlagEffects: () => boolean;
   /** Return true if this fireKey+edgeId was already applied. */
   readonly hasReceipt: (fireKey: string, edgeId: string) => boolean;
   readonly recordReceipt: (fireKey: string, edgeId: string) => void;
@@ -58,13 +55,6 @@ export type SchedulerEffectDeps = {
     /** Admitted overseer fire. Pause does not admit; role checks remain. */
     readonly overseer?: OverseerFireAuthority;
   }) => Promise<{ readonly ok: boolean; readonly message?: string }>;
-  readonly setFlag: (
-    canvasName: string,
-    nodeId: string,
-    flag: EtherFlag,
-    enabled: boolean,
-    overseer?: OverseerFireAuthority,
-  ) => Promise<{ readonly ok: boolean; readonly message?: string }>;
   /** Optional — inject prompt into agent mailbox. Absent = inject effects no-op. */
   readonly injectPrompt?: (input: {
     readonly canvasName: string;
@@ -155,56 +145,26 @@ const applyOne = async (
     return "applied";
   }
 
-  if (binding.effect.mode === "inject_prompt") {
-    if (!deps.injectPrompt) {
-      console.error(
-        `[kernel] inject_prompt skipped on ${binding.edge.id}: no inject handler`,
-      );
-      return "failed";
-    }
-    const text =
-      binding.effect.text?.trim() ||
-      defaultInjectPromptText(binding.source, fire.status);
-    const result = await deps.injectPrompt({
-      canvasName,
-      agentNodeId: binding.target.id,
-      text,
-      ...(overseer !== undefined ? { overseer } : {}),
-    });
-    if (overseer !== undefined && !(await overseer.liveGrant())) return "failed";
-    if (!result.ok) {
-      console.error(
-        `[kernel] inject_prompt failed on ${binding.edge.id}: ${result.message ?? "unknown"}`,
-      );
-      return "failed";
-    }
-    deps.recordReceipt(fire.fireKey, binding.edge.id);
-    return "applied";
-  }
-
-  if (!deps.canApplyFlagEffects()) {
+  // inject_prompt: the only other fire action a scheduler verb compiles to.
+  if (!deps.injectPrompt) {
     console.error(
-      `[kernel] set_flag skipped on ${binding.edge.id}: durable flag effects require Command Center`,
+      `[kernel] inject_prompt skipped on ${binding.edge.id}: no inject handler`,
     );
     return "failed";
   }
-
-  const enabled = resolveMirrorFlagEnabled(
-    binding.effect.enabled,
-    fire.status ?? "satisfied",
-  );
-  if (enabled === undefined) return "skipped";
-  const flagResult = await deps.setFlag(
+  const text =
+    binding.effect.text?.trim() ||
+    defaultInjectPromptText(binding.source, fire.status);
+  const result = await deps.injectPrompt({
     canvasName,
-    binding.target.id,
-    binding.effect.flag,
-    enabled,
-    overseer,
-  );
+    agentNodeId: binding.target.id,
+    text,
+    ...(overseer !== undefined ? { overseer } : {}),
+  });
   if (overseer !== undefined && !(await overseer.liveGrant())) return "failed";
-  if (!flagResult.ok) {
+  if (!result.ok) {
     console.error(
-      `[kernel] set_flag failed on ${binding.edge.id}: ${flagResult.message ?? "unknown"}`,
+      `[kernel] inject_prompt failed on ${binding.edge.id}: ${result.message ?? "unknown"}`,
     );
     return "failed";
   }

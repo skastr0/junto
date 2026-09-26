@@ -52,23 +52,6 @@ describe("buildManagedAgentSeat / reseatManagedAgentNode", () => {
     expect(next.text.toLowerCase()).toContain("claude");
   });
 
-  it("keeps operator flags across reseat", () => {
-    const original = makeManagedAgentNode(0, 0, {
-      harness: "codex",
-      host: "local",
-    });
-    const withFlag = {
-      ...original,
-      ether: {
-        ...original.ether!,
-        flags: ["attention" as const],
-      },
-    };
-    const next = reseatManagedAgentNode(withFlag, { harness: "grok" });
-    expect(next.ether?.flags).toEqual(["attention"]);
-    expect(next.ether?.terminal?.harness).toBe("grok");
-  });
-
   it("preserves launch cwd when reseating with prior path", () => {
     const original = makeManagedAgentNode(0, 0, {
       harness: "codex",

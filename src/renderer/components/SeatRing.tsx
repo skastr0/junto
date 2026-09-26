@@ -47,7 +47,6 @@ export function SeatRing({ node, px }: { readonly node: CanvasNode; readonly px:
       session,
       needsLook,
       graphBlocked,
-      flags: node.ether?.flags,
       attentionReasons,
       managedSeat: managed,
     }),

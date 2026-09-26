@@ -80,13 +80,12 @@ describe("main authoring architecture", () => {
     ].sort());
   });
 
-  it("routes durable set_flag through classified kernel.flag-mirror mutate only", () => {
+  it("gives the kernel no authorial write seam: flags and their mirror are retired", () => {
     const kernel = source("src/main/junto/kernel/service.ts");
-    // Product law: set_flag / flagOnUnsatisfied write document ether.flags on CC
-    // (same truth as toggleFlag), never ghost runtime-only overrides.
-    expect(kernel).toContain('mainAuthoringGate.run("kernel.flag-mirror"');
-    expect(kernel).toContain("canvases.mutatePortfolio(");
-    expect(kernel).toContain("applyNodeFlag");
+    // Operator flags, set_flag and flagOnUnsatisfied are retired, and with them
+    // the only kernel path that wrote the authorial document.
+    expect(kernel).not.toContain("kernel.flag-mirror");
+    expect(kernel).not.toContain("applyNodeFlag");
     // The phase mirror is gone with the edge field it wrote: phase is derived on
     // every read, so the kernel has no mirror seam to bind and no mirror label.
     expect(kernel).not.toContain("PhaseMirror");

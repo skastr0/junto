@@ -5,7 +5,7 @@
 import type { MemberSeverity, MemberStatus, RegionRollup } from "@shared/region-rollup";
 
 /** Hot ladder for roll call. Idle never surfaces as its own bucket. */
-export const ROLL_CALL_BUCKETS = ["blocked", "attention", "working", "ready", "parked"] as const;
+export const ROLL_CALL_BUCKETS = ["blocked", "attention", "working", "ready"] as const;
 export type RollCallSeverity = (typeof ROLL_CALL_BUCKETS)[number];
 
 export type RollCallBucket = {
@@ -42,7 +42,7 @@ const namesFor = (
 /**
  * Build the roll-call model for a region rollup.
  * - empty region → empty
- * - all idle (no blocked/attention/working/ready/parked) → quiet
+ * - all idle (no blocked/attention/working/ready) → quiet
  * - otherwise → hot buckets with counts + sample names
  */
 export function buildRollCall(
@@ -58,7 +58,6 @@ export function buildRollCall(
     working: rollup.counts.working,
     // `ready` predates this field on cached rollups — recount when it is absent.
     ready: rollup.counts.ready ?? countSeverity(rollup.members, "ready"),
-    parked: countSeverity(rollup.members, "parked"),
   };
 
   const buckets: RollCallBucket[] = [];
@@ -85,8 +84,6 @@ export function rollCallBucketLabel(severity: RollCallSeverity, count: number): 
         return "1 working";
       case "ready":
         return "1 ready";
-      case "parked":
-        return "1 parked";
     }
   }
   switch (severity) {
@@ -98,7 +95,5 @@ export function rollCallBucketLabel(severity: RollCallSeverity, count: number): 
       return `${count} working`;
     case "ready":
       return `${count} ready`;
-    case "parked":
-      return `${count} parked`;
   }
 }

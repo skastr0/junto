@@ -1,4 +1,4 @@
-import type { CanvasEdge, CanvasNode, EtherFlag } from "./canvas";
+import type { CanvasEdge, CanvasNode } from "./canvas";
 
 // Demo/scripting engine contracts. The engine exists ONLY when the app is
 // launched with --junto-demo (argv) or JUNTO_DEMO=1 (env): outside demo
@@ -44,12 +44,6 @@ export type DemoOp =
   | { readonly kind: "add-nodes"; readonly nodes: ReadonlyArray<CanvasNode> }
   | { readonly kind: "add-edges"; readonly edges: ReadonlyArray<CanvasEdge> }
   | { readonly kind: "remove-nodes"; readonly ids: ReadonlyArray<string> }
-  | {
-      readonly kind: "flag";
-      readonly nodeIds: ReadonlyArray<string>;
-      readonly flag: EtherFlag;
-      readonly on: boolean;
-    }
   | { readonly kind: "select"; readonly nodeIds: ReadonlyArray<string> }
   | {
       readonly kind: "camera-fit";

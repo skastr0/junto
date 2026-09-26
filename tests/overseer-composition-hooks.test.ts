@@ -4,7 +4,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Deferred, Effect, Layer, ManagedRuntime, Schema } from "effect";
-import { applyMirrorLaw, type CanvasDoc, type CanvasNode, type TextNode } from "../src/shared/canvas";
+import { type CanvasDoc, type CanvasNode, type TextNode } from "../src/shared/canvas";
 import type { OverseerCaller } from "../src/shared/overseer-control";
 import { InstallationId } from "../src/shared/station-api";
 import { CanvasesLive, CanvasesService } from "../src/main/junto/canvases";
@@ -47,7 +47,7 @@ const agent = (id: string, bindingId: string): CanvasNode => ({
 });
 
 const overseerDoc = (): CanvasDoc =>
-  applyMirrorLaw({
+  ({
     nodes: [
       agent("overseer", "bind-overseer"),
     ],

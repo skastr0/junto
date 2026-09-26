@@ -132,15 +132,8 @@ export const attentionOf = (
 
   if (role === "actor" || isBlockableNode(node)) {
     if (graph?.blocked.has(node.id)) return "fire";
-    if (node.ether?.flags?.includes("blocker")) return "fire";
-    if (node.ether?.flags?.includes("attention")) return "fire";
-    if (node.ether?.flags?.includes("parked")) return "idle";
     return "ice";
   }
-
-  // Non-seats: attention flag only (never blocker fire — stoppage is seat-only).
-  if (node.ether?.flags?.includes("attention")) return "fire";
-  if (node.ether?.flags?.includes("parked")) return "idle";
 
   return "idle";
 };

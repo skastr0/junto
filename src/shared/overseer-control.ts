@@ -5,7 +5,6 @@ import {
   EdgeEnd,
   EtherBrowser,
   EtherEntity,
-  EtherFlag,
   EtherGit,
   EtherHostId,
   EtherRegion,
@@ -247,7 +246,6 @@ const AuthorialTasks = Schema.Struct({
 /** Deliberately enumerated: no overseer grant field can enter create/configure. */
 export const OverseerNodeEther = Schema.Struct({
   entity: Schema.optionalKey(EtherEntity),
-  flags: Schema.optionalKey(Schema.Array(EtherFlag)),
   region: Schema.optionalKey(EtherRegion),
   watch: Schema.optionalKey(EtherWatch),
   timer: Schema.optionalKey(EtherTimer),
@@ -263,7 +261,6 @@ export type OverseerNodeEther = typeof OverseerNodeEther.Type;
 /** Safe extension patch. The dispatcher merges these fields and preserves grants. */
 export const OverseerNodeEtherChanges = Schema.Struct({
   entity: Schema.optionalKey(Schema.NullOr(EtherEntity)),
-  flags: Schema.optionalKey(Schema.NullOr(Schema.Array(EtherFlag))),
   region: Schema.optionalKey(Schema.NullOr(EtherRegion)),
   watch: Schema.optionalKey(Schema.NullOr(EtherWatch)),
   timer: Schema.optionalKey(Schema.NullOr(EtherTimer)),

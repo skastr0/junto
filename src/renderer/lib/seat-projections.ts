@@ -15,7 +15,6 @@ export type SeatFacts = {
   readonly seatReason?: string | null;
   readonly needsLook?: boolean;
   readonly graphBlocked?: boolean;
-  readonly flags?: ReadonlyArray<string>;
   readonly managedSeat?: boolean;
   readonly running?: boolean;
   readonly starting?: boolean;
@@ -39,7 +38,6 @@ export type SeatFactsInput = {
     "status" | "processName" | "title" | "exitReason" | "exitMessage"
   > | null;
   readonly graphBlocked?: boolean;
-  readonly flags?: ReadonlyArray<string>;
   readonly attentionReasons?: ReadonlyArray<string>;
   readonly managedSeat?: boolean;
   readonly needsLook?: boolean;
@@ -47,7 +45,6 @@ export type SeatFactsInput = {
 
 const attentionElevated = (facts: SeatFacts): boolean =>
   facts.seatState === "attention" ||
-  facts.flags?.includes("attention") === true ||
   (facts.attentionReasons?.length ?? 0) > 0;
 
 /** The node shape live attention reasons are read from. */
@@ -127,7 +124,6 @@ export function seatFactsForNode(input: SeatFactsInput): SeatFacts {
     seatReason: input.seatEvent?.reason,
     needsLook: input.needsLook,
     graphBlocked: input.graphBlocked === true,
-    flags: input.flags,
     managedSeat: input.managedSeat,
     running: status === "running" || status === "starting",
     starting: status === "starting",

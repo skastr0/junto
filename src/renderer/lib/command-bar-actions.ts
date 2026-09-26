@@ -1,10 +1,9 @@
 import { batch } from "@legendapp/state";
-import type { EtherEdgeKind, EtherFlag } from "@shared/canvas";
+import type { EtherEdgeKind } from "@shared/canvas";
 import { formatNodeRef } from "@shared/node-ref";
 import {
   CircleSlash,
   Copy,
-  Flag,
   Inbox,
   Layers,
   Maximize,
@@ -18,7 +17,7 @@ import {
 } from "lucide-react";
 import { isCommandCenterAuthoring } from "./canvas-boot";
 import { factoryPause$, toggleFactoryPause } from "./factory-pause";
-import { clearSelection, state$, toggleFlagFilter } from "./state";
+import { clearSelection, state$ } from "./state";
 import { openSettings } from "./settings-state";
 import { openOperatorFeed } from "./operator-feed";
 import { hasStore, openStore, overlaySurfaces } from "../overlay/surfaces";
@@ -67,8 +66,6 @@ export const filterCommandBarActions = (
       action.detail.toLowerCase().includes(q),
   );
 };
-
-const FLAG_CYCLE: ReadonlyArray<EtherFlag> = ["blocker", "parked", "attention"];
 
 const DIGEST_UNAVAILABLE = "Canvas digest is unavailable.";
 const DIGEST_FAILED = "Canvas digest failed; the panel did not open.";
@@ -123,7 +120,6 @@ export const buildCommandBarActions = (): ReadonlyArray<CommandBarAction> => {
   const pauseState = factoryPause$.state.peek();
   const playing = Boolean(pauseState?.playing);
   const edgeFilter = state$.edgeFilter.peek();
-  const activeFlag = state$.flagFilter.peek();
   const selectedNodeId = state$.selectedNodeId.peek();
   const actions: CommandBarAction[] = [];
 
@@ -210,16 +206,6 @@ export const buildCommandBarActions = (): ReadonlyArray<CommandBarAction> => {
       icon: Layers,
       run: cycleEdgeFilter,
     });
-    for (const flag of FLAG_CYCLE) {
-      const active = activeFlag === flag;
-      actions.push({
-        id: `flag-${flag}`,
-        label: `${active ? "Clear" : "Show"} ${flag} flags`,
-        detail: `Flag filter / ${flag}`,
-        icon: Flag,
-        run: () => toggleFlagFilter(flag),
-      });
-    }
   }
 
   actions.push({

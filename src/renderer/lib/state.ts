@@ -1,5 +1,5 @@
 import { batch, observable } from "@legendapp/state";
-import type { CanvasDoc, EtherEdgeKind, EtherFlag } from "@shared/canvas";
+import type { CanvasDoc, EtherEdgeKind } from "@shared/canvas";
 import type { SnapshotState } from "@shared/entities";
 import type { CanvasSummary, DigestResult, DiscoveredPeer } from "@shared/ipc";
 import type { RemoteHost } from "@shared/remote-hosts";
@@ -30,7 +30,6 @@ export const state$ = observable({
   /** One-shot request: canvas name to open (App consumes + clears). */
   canvasOpenRequest: "",
   edgeFilter: "" as EtherEdgeKind | "",
-  flagFilter: "" as EtherFlag | "",
   editNodeId: "",
   // One-shot: open region folder-paths modal for this group id (cleared on consume).
   regionPathsNodeId: "",
@@ -108,21 +107,9 @@ export const state$ = observable({
   error: "",
 });
 
-export const toggleFlagFilter = (flag: EtherFlag): void => {
-  batch(() => {
-    const current = state$.flagFilter.peek();
-    state$.flagFilter.set(current === flag ? "" : flag);
-    state$.selectedNodeId.set("");
-    state$.selectedNodeIds.set([]);
-    state$.selectedEdgeId.set("");
-    state$.connectionFocusNodeId.set("");
-  });
-};
-
 export const clearGraphFilters = (): void => {
   batch(() => {
     state$.edgeFilter.set("");
-    state$.flagFilter.set("");
     state$.selectedNodeId.set("");
     state$.selectedNodeIds.set([]);
     state$.selectedEdgeId.set("");

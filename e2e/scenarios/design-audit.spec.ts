@@ -192,7 +192,6 @@ const flaggedNote: CanvasNode = {
   width: 220,
   height: 90,
   color: "1",
-  ether: { flags: ["blocker"] },
 };
 
 const attentionNote: CanvasNode = {
@@ -203,7 +202,6 @@ const attentionNote: CanvasNode = {
   y: 140,
   width: 220,
   height: 90,
-  ether: { flags: ["attention"] },
 };
 
 const boardNode: CanvasNode = {
@@ -218,17 +216,6 @@ const boardNode: CanvasNode = {
     entity: { kind: "board" },
     board: { topics: [] },
   },
-};
-
-const parkedNote: CanvasNode = {
-  id: "note4",
-  type: "text",
-  text: "old experiment",
-  x: 340,
-  y: 280,
-  width: 220,
-  height: 90,
-  ether: { flags: ["parked"] },
 };
 
 const linkNode: LinkNode = {
@@ -308,7 +295,6 @@ const nodes: CanvasNode[] = [
   noteNode,
   flaggedNote,
   attentionNote,
-  parkedNote,
   linkNode,
   projectNode({ id: "proj1", name: "prism", x: 0, y: 460 }),
   projectNode({ id: "proj2", name: "junto", x: 260, y: 460 }),

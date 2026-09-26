@@ -2,7 +2,6 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { EtherWatch } from "../src/shared/canvas";
 import type { SnapshotState } from "../src/shared/entities";
 import { evaluateWatcher, resetWatcherMemory } from "../src/main/junto/kernel/evaluate";
-import { flagShouldToggle } from "../src/main/junto/kernel/cycle";
 
 // --- fixtures ----------------------------------------------------------------
 
@@ -89,27 +88,5 @@ describe("level watcher — recovery from an unknown source blip does not re-fir
     const second = evaluateWatcher(canvasName, "w1", STAT_WATCH, satisfied);
     expect(second.state.status).toBe("satisfied");
     expect(second.fired).toBe(false);
-  });
-});
-
-// --- BUG 2: unknown must never mutate the document via flagOnUnsatisfied ------
-
-describe("flagShouldToggle — unknown never touches the blocker flag", () => {
-  it("leaves the flag untouched on an unknown read, whether or not a flag exists", () => {
-    // The old rule was `status !== "satisfied"`, so unknown+no-flag toggled the
-    // blocker ON (a document write on a down source) and unknown+flag toggled it
-    // OFF — both violate the down-source invariant. Now: no change on unknown.
-    expect(flagShouldToggle(false, "unknown")).toBe(false);
-    expect(flagShouldToggle(true, "unknown")).toBe(false);
-  });
-
-  it("raises the blocker only on a KNOWN pending read", () => {
-    expect(flagShouldToggle(false, "pending")).toBe(true); // raise
-    expect(flagShouldToggle(true, "pending")).toBe(false); // already raised — no churn
-  });
-
-  it("clears the blocker only on a KNOWN satisfied read", () => {
-    expect(flagShouldToggle(true, "satisfied")).toBe(true); // clear
-    expect(flagShouldToggle(false, "satisfied")).toBe(false); // already clear — no churn
   });
 });

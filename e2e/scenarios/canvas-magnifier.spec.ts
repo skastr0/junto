@@ -1,21 +1,20 @@
 import { canvasDoc, textNode } from "../harness/sandbox";
 import { expect, test } from "../harness/launch";
 
-const blockedWorker = {
-  ...textNode("worker", "Blocked worker\nNeeds operator input", 0, 0),
+const worker = {
+  ...textNode("worker", "Scanner worker\nWatching the line", 0, 0),
   ether: {
     entity: { kind: "agent", name: "local:worker" },
     // Actor-seat law: an agent node is a managed terminal seat. Without a
     // bindingId + harness the portfolio compiler rejects the whole canvas.
     terminal: { bindingId: "local:worker", harness: "codex" as const },
-    flags: ["blocker"] as const,
   },
 };
 
 test.use({
   juntoOptions: {
     seedCanvases: {
-      scanner: canvasDoc([blockedWorker]),
+      scanner: canvasDoc([worker]),
     },
   },
 });
@@ -34,8 +33,8 @@ test("Option reveals the bounded semantic scanner and release dismisses it", asy
   await page.keyboard.down("Alt");
 
   await expect(magnifier).toHaveAttribute("data-active", "true");
-  await expect(magnifier.locator(".canvas-magnifier__subject")).toHaveText("Blocked worker");
-  await expect(magnifier.locator(".canvas-magnifier__status")).toContainText("blocked");
+  await expect(magnifier.locator(".canvas-magnifier__subject")).toHaveText("Scanner worker");
+  await expect(magnifier.locator(".canvas-magnifier__status")).toHaveText(/\S/);
 
   const canvasSize = await magnifier.locator("canvas").evaluate((element) => {
     const canvas = element as HTMLCanvasElement;

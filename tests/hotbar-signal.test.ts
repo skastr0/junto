@@ -47,16 +47,6 @@ describe("hotbarNodeSeverity", () => {
     expect(hotbarNodeSeverity(node, { liveSeverity: "attention" })).toBe("attention");
   });
 
-  it("reads flags when no member map", () => {
-    const node = {
-      ...base,
-      type: "text",
-      text: "x",
-      ether: { flags: ["attention"] as const },
-    } as CanvasNode;
-    expect(hotbarNodeSeverity(node)).toBe("attention");
-  });
-
   it("maps task sink needs-human and working", () => {
     const taskNode = (state: "input-required" | "working"): CanvasNode =>
       ({
@@ -131,12 +121,12 @@ describe("worseMemberSeverity", () => {
 describe("actor chip hue is digitHue, not hotbarNodeSeverity", () => {
   it("maps graph blocked / notify attention / working / idle", () => {
     expect(digitHue({ nodeId: "a", graphBlocked: true })).toBe("blocked");
-    expect(digitHue({ nodeId: "a", flags: ["attention"] })).toBe("attention");
+    expect(digitHue({ nodeId: "a", attentionReasons: ["permission:pending"] })).toBe("attention");
     expect(digitHue({ nodeId: "a", seatState: "working" })).toBe("working");
     expect(digitHue({ nodeId: "a", seatState: "idle" })).toBe("idle");
   });
 
-  it("does not merge rollup flags into actor hue — facts only", () => {
+  it("does not merge rollup severity into actor hue — facts only", () => {
     const node = {
       id: "n",
       x: 0,
@@ -145,10 +135,9 @@ describe("actor chip hue is digitHue, not hotbarNodeSeverity", () => {
       height: 80,
       type: "text",
       text: "Pi",
-      ether: { flags: ["attention"] as const },
     } as CanvasNode;
-    // Groups / free furniture still read flags via hotbarNodeSeverity.
-    expect(hotbarNodeSeverity(node)).toBe("attention");
+    // Groups / free furniture read the rollup via hotbarNodeSeverity.
+    expect(hotbarNodeSeverity(node, { memberSeverity: "attention" })).toBe("attention");
     // Actor chips ignore that merge and use digitHue on assembled facts.
     expect(digitHue({ nodeId: "n", seatState: "working" })).toBe("working");
   });

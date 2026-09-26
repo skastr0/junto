@@ -12,7 +12,7 @@
 
 import { describe, expect, it } from "vitest";
 import { resolveBuildFeatures } from "../scripts/build-features";
-import { applyMirrorLaw, type CanvasDoc, type CanvasEdge, type CanvasNode } from "../src/shared/canvas";
+import { type CanvasDoc, type CanvasEdge, type CanvasNode } from "../src/shared/canvas";
 import { REVIEWS_ENABLED } from "../src/shared/features";
 import { applyCanvasBatch } from "../src/shared/overseer-authoring";
 import type { OverseerCanvasBatchStep } from "../src/shared/overseer-control";
@@ -34,7 +34,7 @@ const seat = (id: string, x: number): CanvasNode => ({
 });
 
 const doc = (edges: ReadonlyArray<CanvasEdge> = []): CanvasDoc =>
-  applyMirrorLaw({ nodes: [seat("a", 0), seat("b", 400)], edges: [...edges] });
+  ({ nodes: [seat("a", 0), seat("b", 400)], edges: [...edges] });
 
 const batch = (current: CanvasDoc, operations: ReadonlyArray<OverseerCanvasBatchStep>) =>
   applyCanvasBatch(new Map([["ops", current]]), "ops", operations, (kind) => `${kind}-minted`);

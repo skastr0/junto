@@ -19,7 +19,6 @@ import type {
   TaskState,
   FinishCriteria,
   CompletionEvidence,
-  EtherFlag,
 } from "./canvas";
 import type { TaskAdmission, TaskPathArm, TaskRule } from "./work-model";
 import type {
@@ -430,7 +429,6 @@ export interface ExecutionSnapshot {
       string,
       ReadonlyArray<
         | { readonly kind: "edge"; readonly edgeId: string; readonly fromNodeId: string; readonly detail: string }
-        | { readonly kind: "seed"; readonly detail: string }
         | { readonly kind: "work"; readonly requestId: string; readonly targetNodeId: string; readonly detail: string }
       >
     >
@@ -444,9 +442,6 @@ export interface KernelSnapshot {
       {
         readonly watchers: Record<string, WatcherRuntimeState>;
         readonly nextFire: Record<string, number>;
-        readonly flagOverrides: Readonly<
-          Record<string, Partial<Record<EtherFlag, boolean>>>
-        >;
         readonly execution?: ExecutionSnapshot;
       }
     >

@@ -27,8 +27,6 @@ const opTag = (op: DemoOp): string => {
       return `add-edges:${op.edges.length}`;
     case "remove-nodes":
       return `remove-nodes:${op.ids.length}`;
-    case "flag":
-      return `flag:${op.flag}:${op.on ? "on" : "off"}:${op.nodeIds.length}`;
     case "select":
       return `select:${op.nodeIds.length}`;
     case "camera-fit":

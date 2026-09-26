@@ -52,7 +52,6 @@ const SPEC: Readonly<Record<OccupancySpectrumName, OccupancyChromeSpec>> = {
     label: "stalled",
     vocabulary: "stalled",
   },
-  parked: { state: "parked", attr: "parked", label: "parked" },
   // I20: honest unreachability, never a compromise/revocation claim.
   gone: { state: "gone", attr: "gone", label: "Machine unreachable" },
 };
@@ -65,11 +64,10 @@ export function occupancyChrome(state: OccupancySpectrumName): OccupancyChromeSp
 const ACTOR_OCCUPANCY_ATTR = new Set<OccupancySpectrumName>([
   "empty",
   "gone",
-  "parked",
 ]);
 
 /**
- * Actor / managed-seat shell: occupancy is vacancy (empty/gone/parked) only.
+ * Actor / managed-seat shell: occupancy is vacancy (empty/gone) only.
  * Working and attention belong to SeatFacts, not this attribute.
  */
 export function actorOccupancyAttr(

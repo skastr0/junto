@@ -5,7 +5,6 @@
 export {
   DEFAULT_STALL_AFTER_MS,
   OccupancyActivity,
-  OccupancyFlags,
   OccupancyHarnessState,
   OccupancySpectrum,
   deriveOccupancy,
@@ -13,7 +12,6 @@ export {
 export type {
   DeriveOccupancyInput,
   OccupancyActivity as OccupancyActivityValue,
-  OccupancyFlags as OccupancyFlagsValue,
   OccupancyHarnessState as OccupancyHarnessStateName,
   OccupancySpectrum as OccupancySpectrumName,
 } from "./derive";

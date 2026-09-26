@@ -21,7 +21,6 @@ describe("OccupancySpectrum", () => {
       "attention",
       "activity_blocked",
       "stalled",
-      "parked",
       "gone",
     ]);
   });
@@ -36,12 +35,11 @@ describe("deriveOccupancy — vacancy", () => {
     expect(derive({ hasOccupant: false, lastSeenAtMs: NOW - HOUR })).toBe("gone");
   });
 
-  it("vacancy ignores harness and flags (no phantom occupied states)", () => {
+  it("vacancy ignores harness (no phantom occupied states)", () => {
     expect(
       derive({
         hasOccupant: false,
         activity: { harness: "working" },
-        flags: { parked: true, attention: true },
       }),
     ).toBe("empty");
     expect(
@@ -49,7 +47,6 @@ describe("deriveOccupancy — vacancy", () => {
         hasOccupant: false,
         lastSeenAtMs: NOW - HOUR,
         activity: { harness: "blocked" },
-        flags: { attention: true },
       }),
     ).toBe("gone");
   });
@@ -78,14 +75,6 @@ describe("deriveOccupancy — occupied baseline", () => {
 
   it("attention from harness", () => {
     expect(derive({ hasOccupant: true, activity: { harness: "attention" } })).toBe("attention");
-  });
-
-  it("attention from flag", () => {
-    expect(derive({ hasOccupant: true, flags: { attention: true } })).toBe("attention");
-  });
-
-  it("parked from flag", () => {
-    expect(derive({ hasOccupant: true, flags: { parked: true } })).toBe("parked");
   });
 });
 
@@ -148,37 +137,17 @@ describe("deriveOccupancy — stall", () => {
 });
 
 describe("deriveOccupancy — priority ladder (occupied)", () => {
-  it("parked wins over blocked, attention, stall, and working", () => {
+  it("activity_blocked wins over stall and working", () => {
     expect(
       derive({
         hasOccupant: true,
-        flags: { parked: true, attention: true },
-        activity: { harness: "blocked" },
-        lastSeenAtMs: NOW - DEFAULT_STALL_AFTER_MS - 1,
-      }),
-    ).toBe("parked");
-  });
-
-  it("activity_blocked wins over attention, stall, and working", () => {
-    expect(
-      derive({
-        hasOccupant: true,
-        flags: { attention: true },
         activity: { harness: "blocked" },
         lastSeenAtMs: NOW - DEFAULT_STALL_AFTER_MS - 1,
       }),
     ).toBe("activity_blocked");
   });
 
-  it("attention wins over stall and working", () => {
-    expect(
-      derive({
-        hasOccupant: true,
-        flags: { attention: true },
-        activity: { harness: "working" },
-        lastSeenAtMs: NOW - DEFAULT_STALL_AFTER_MS - 1,
-      }),
-    ).toBe("attention");
+  it("attention wins over stall", () => {
     expect(
       derive({
         hasOccupant: true,
@@ -200,17 +169,5 @@ describe("deriveOccupancy — priority ladder (occupied)", () => {
 
   it("working wins over idle", () => {
     expect(derive({ hasOccupant: true, activity: { harness: "working" } })).toBe("working");
-  });
-});
-
-describe("deriveOccupancy — flag falsy does not elevate", () => {
-  it("parked/attention false leave other signals in control", () => {
-    expect(
-      derive({
-        hasOccupant: true,
-        flags: { parked: false, attention: false },
-        activity: { harness: "working" },
-      }),
-    ).toBe("working");
   });
 });

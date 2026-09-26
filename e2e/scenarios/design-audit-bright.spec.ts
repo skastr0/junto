@@ -47,7 +47,6 @@ const flaggedNote: CanvasNode = {
   width: 220,
   height: 90,
   color: "1",
-  ether: { flags: ["blocker"] },
 };
 
 const attentionNote: CanvasNode = {
@@ -58,7 +57,6 @@ const attentionNote: CanvasNode = {
   y: 140,
   width: 220,
   height: 90,
-  ether: { flags: ["attention"] },
 };
 
 const regionNode: GroupNode = {

@@ -24,8 +24,7 @@ const GESTURE_MS = 6_000;
 //
 // A real factory neighborhood, not a grid of notes: a genuinely nested
 // geography — alpha contains bravo, bravo contains delta — plus a sibling
-// region charlie. Blocker flags run the heaviest continuous paint on the
-// board.
+// region charlie.
 
 const seat = (id: string, keyIndex: number): TextNode =>
   agentTextNode({

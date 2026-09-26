@@ -135,7 +135,6 @@ export {
 } from "./verbs";
 export type {
   ClockKind,
-  EdgeFlag,
   LegacyEdgeEther,
   VerbGrant,
   VerbSide,

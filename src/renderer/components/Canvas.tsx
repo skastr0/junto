@@ -15,9 +15,9 @@ import {
 } from "@xyflow/react";
 import type { Connection, EdgeMouseHandler, FinalConnectionState, Node, OnNodeDrag } from "@xyflow/react";
 import { use$ } from "@legendapp/state/react";
-import type { CanvasDoc, EtherEdgeKind, EtherFlag } from "@shared/canvas";
+import type { CanvasDoc, EtherEdgeKind } from "@shared/canvas";
 import { executionGraphContextFromActorRefs } from "@shared/graph";
-import { Activity, Ban, Boxes, Expand, LayoutGrid, Link2, OctagonX, Plus, ScanLine, SquareDashed, Trash2, Unlink, Users, X } from "lucide-react";
+import { Activity, Boxes, Expand, LayoutGrid, Link2, OctagonX, Plus, ScanLine, SquareDashed, Trash2, Unlink, Users, X } from "lucide-react";
 import {
   clearSelection,
   replaceSelection,
@@ -49,7 +49,7 @@ import { isEditableEventTarget } from "../lib/multi-select-gesture";
 import { nodeTitle } from "../lib/presentation";
 import { isCommandCenterAuthoring } from "../lib/canvas-boot";
 import { AGENT_NODE_SIZE } from "../lib/node-geometry";
-import { addNode, deleteNodes, setFlagForNodes } from "../lib/mutations";
+import { addNode, deleteNodes } from "../lib/mutations";
 import { addEdge, connectAllToTarget, connectAllowed, connectMesh, deleteEdges, disconnectWithin, edgeIdsWithin, planConnectMesh } from "../lib/edge-mutations";
 import { agentCountLabel, agentSeatIds } from "../lib/multi-selection";
 import { broadcastMenuHint, broadcastToSelection, planAgentBroadcast } from "../lib/agent-broadcast";
@@ -174,32 +174,6 @@ const selectionForCanvas = (
     : selectionImpact(state$.doc.peek(), "", null, context);
 };
 
-const projectRuntimeFlagOverrides = (
-  doc: CanvasDoc,
-  overrides: Readonly<
-    Record<string, Partial<Record<EtherFlag, boolean>>>
-  >,
-): CanvasDoc => ({
-  ...doc,
-  nodes: doc.nodes.map((node) => {
-    const nodeOverrides = overrides[node.id];
-    if (nodeOverrides === undefined) return node;
-    const flags = new Set(node.ether?.flags ?? []);
-    for (const [flag, enabled] of Object.entries(nodeOverrides) as Array<
-      [EtherFlag, boolean | undefined]
-    >) {
-      if (enabled) flags.add(flag);
-      else flags.delete(flag);
-    }
-    const ether = { ...(node.ether ?? {}) };
-    if (flags.size === 0) delete ether.flags;
-    else ether.flags = [...flags];
-    if (Object.keys(ether).length > 0) return { ...node, ether };
-    const { ether: _drop, ...withoutEther } = node;
-    return withoutEther;
-  }),
-});
-
 /**
  * Legend mirrors React Flow's full selection separately from its single-node
  * inspector subject. Resolve the live set once so structural rebuilds cannot
@@ -263,14 +237,9 @@ function applyStructuralRebuild(
   setEdges: ReturnType<typeof useEdgesState<FlowEdge>>[1],
   flowCache: ReturnType<typeof createFlowIdentityCache>,
   edgeFilter: EtherEdgeKind | "",
-  flagFilter: EtherFlag | "",
 ): void {
-  const projectedDoc = projectRuntimeFlagOverrides(
-    state$.doc.peek(),
-    kernel$.flagOverrides.peek(),
-  );
   const built = toFlow(
-    projectedDoc,
+    state$.doc.peek(),
     currentExecutionGraphContext(),
     kernel$.execution.peek(),
     flowCache,
@@ -278,18 +247,11 @@ function applyStructuralRebuild(
   const nodeId = state$.selectedNodeId.peek();
   const nodeIds = state$.selectedNodeIds.peek();
   const edgeId = state$.selectedEdgeId.peek();
-  const visibleNodes = flagFilter
-    ? built.nodes.filter((node) => node.type === "group" || node.data?.node.ether?.flags?.includes(flagFilter))
-    : built.nodes;
-  const visibleIds = new Set(visibleNodes.map((node) => node.id));
   const filteredEdges = built.edges.filter(
-    (edge) =>
-      visibleIds.has(edge.source) &&
-      visibleIds.has(edge.target) &&
-      (!edgeFilter || (edge.data?.phase ?? "relates") === edgeFilter),
+    (edge) => !edgeFilter || (edge.data?.phase ?? "relates") === edgeFilter,
   );
   // Selection + impact cone classes live on the RF shell (not Flow data).
-  const stamped = stampImpactShell(visibleNodes, filteredEdges, nodeId, nodeIds, edgeId);
+  const stamped = stampImpactShell(built.nodes, filteredEdges, nodeId, nodeIds, edgeId);
   // The command bar filters a LIST, never the graph: canvas search thinning
   // was retired with the station search field.
   const nextNodes = stamped.nodes;
@@ -311,7 +273,6 @@ function applyStructuralRebuild(
 
 function useCanvasDocument(
   edgeFilter: EtherEdgeKind | "",
-  flagFilter: EtherFlag | "",
   setNodes: ReturnType<typeof useNodesState<FlowNode>>[1],
   setEdges: ReturnType<typeof useEdgesState<FlowEdge>>[1],
   dragInProgressRef: React.MutableRefObject<boolean>,
@@ -331,11 +292,9 @@ function useCanvasDocument(
       setEdges,
       flowCacheRef.current,
       edgeFilter,
-      flagFilter,
     );
   }, [
     edgeFilter,
-    flagFilter,
     setNodes,
     setEdges,
     dragInProgressRef,
@@ -354,7 +313,6 @@ function useCanvasDocument(
     const offs = [
       state$.docVersion.onChange(() => rebuild()),
       state$.actorRefs.onChange(() => rebuild()),
-      kernel$.flagRev.onChange(() => rebuild()),
       kernel$.executionRev.onChange(() => rebuild()),
     ];
     return () => {
@@ -1115,8 +1073,6 @@ function MultiSelectMenu({ anchor, onClose }: { readonly anchor: MultiMenuAnchor
   const nodes = `${count} node${count === 1 ? "" : "s"}`;
   const selectionActions: ReadonlyArray<MultiMenuEntry> = [
     { key: "region", label: "create region", detail: "from selection", ariaLabel: "Create region from selection", icon: <SquareDashed size={14} />, onSelect: () => run(createRegionFromSelection) },
-    { key: "flag", label: "flag blocker", detail: nodes, ariaLabel: "Flag blocker", icon: <Ban size={14} />, onSelect: () => run((ids) => setFlagForNodes(ids, "blocker")) },
-    { key: "clear", label: "clear flags", detail: nodes, ariaLabel: "Clear flags", icon: <Ban size={14} />, onSelect: () => run((ids) => setFlagForNodes(ids, null)) },
     { key: "delete", label: `delete ${nodes}`, ariaLabel: `Delete ${count} nodes`, icon: <Trash2 size={14} />, onSelect: () => run((ids) => deleteNodes(ids)) },
   ];
 
@@ -1287,7 +1243,6 @@ function useCanvasGraph() {
   // drive RF via onChange → setNodes so CanvasGraph does not re-render on
   // every kernel cycle.
   const edgeFilter = use$(state$.edgeFilter);
-  const flagFilter = use$(state$.flagFilter);
   const [nodes, setNodes, onNodesChange] = useNodesState<FlowNode>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<FlowEdge>([]);
   const rf = useReactFlow<FlowNode, FlowEdge>();
@@ -1299,7 +1254,6 @@ function useCanvasGraph() {
   const flushRebuild = useCallback(() => setRebuildTick((n) => n + 1), []);
   useCanvasDocument(
     edgeFilter,
-    flagFilter,
     setNodes,
     setEdges,
     dragInProgressRef,
@@ -1307,7 +1261,7 @@ function useCanvasGraph() {
     flowCacheRef,
     rebuildTick,
   );
-  useCanvasFilterViewport(`${edgeFilter}|${flagFilter}`, rf);
+  useCanvasFilterViewport(edgeFilter, rf);
   useCanvasFocus(rf);
   useCanvasGroupFocus(rf);
   // One-shot fit request from the command bar "Fit view" action.

@@ -115,7 +115,7 @@ export const collectAlertSignals = (
 };
 
 /**
- * Canvas-wide cycle targets from managed seats and authorial flags.
+ * Canvas-wide cycle targets from managed seats.
  *
  * Region rollups only cover group members — freestanding agents outside every
  * region still need Space/` to land on them (parity with the notify strip).
@@ -172,18 +172,6 @@ export const collectReadyWorkingSignals = (
           level: KIND_LEVEL.working,
         });
       }
-    }
-
-    // Authorial flag:attention (furniture / non-seat nodes) still cycles.
-    if (node.ether?.flags?.includes("attention") === true) {
-      push({
-        id: alertId.node(node.id),
-        kind: "attention",
-        subjectKey: node.id,
-        nodeId: node.id,
-        label,
-        level: KIND_LEVEL.attention,
-      });
     }
 
   }

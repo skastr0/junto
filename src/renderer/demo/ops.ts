@@ -1,5 +1,5 @@
 import { observable } from "@legendapp/state";
-import type { CanvasDoc, CanvasNode, EtherFlag } from "@shared/canvas";
+import type { CanvasDoc } from "@shared/canvas";
 import type { DemoBeat, DemoOp, DemoScenario } from "@shared/demo";
 import { beatMs } from "@shared/demo";
 import { formatNodeRef } from "@shared/node-ref";
@@ -17,25 +17,7 @@ import { demoCamera } from "./camera-bridge";
 /** hud op toggles this; DemoLayer renders nothing while it's false. */
 export const demoHud$ = observable(true);
 
-const without = <T extends object, K extends keyof T>(value: T, key: K): Omit<T, K> => {
-  const { [key]: _removed, ...rest } = value;
-  return rest;
-};
-
-const DOC_OP_KINDS = new Set<DemoOp["kind"]>(["add-nodes", "add-edges", "remove-nodes", "flag"]);
-
-const applyFlag = (node: CanvasNode, flag: EtherFlag, on: boolean): CanvasNode => {
-  const flags = node.ether?.flags ?? [];
-  const has = flags.includes(flag);
-  if (on === has) return node;
-  if (!on) {
-    if (!node.ether) return node;
-    const nextFlags = flags.filter((f) => f !== flag);
-    const nextEther = nextFlags.length > 0 ? { ...node.ether, flags: nextFlags } : without(node.ether, "flags");
-    return (Object.keys(nextEther).length > 0 ? { ...node, ether: nextEther } : without(node, "ether")) as CanvasNode;
-  }
-  return { ...node, ether: { ...(node.ether ?? {}), flags: [...flags, flag] } } as CanvasNode;
-};
+const DOC_OP_KINDS = new Set<DemoOp["kind"]>(["add-nodes", "add-edges", "remove-nodes"]);
 
 const applyDocOps = (doc: CanvasDoc, ops: ReadonlyArray<DemoOp>): CanvasDoc =>
   ops.reduce<CanvasDoc>((acc, op) => {
@@ -51,20 +33,13 @@ const applyDocOps = (doc: CanvasDoc, ops: ReadonlyArray<DemoOp>): CanvasDoc =>
           edges: acc.edges.filter((edge) => !removed.has(edge.fromNode) && !removed.has(edge.toNode)),
         };
       }
-      case "flag": {
-        const targets = new Set(op.nodeIds);
-        return {
-          ...acc,
-          nodes: acc.nodes.map((node) => (targets.has(node.id) ? applyFlag(node, op.flag, op.on) : node)),
-        };
-      }
       default:
         return acc;
     }
   }, doc);
 
 /** Execute every op in one scheduled beat. Doc-mutating ops (add-nodes,
- * add-edges, remove-nodes, flag) fold into ONE commitDoc call so the graph
+ * add-edges, remove-nodes) fold into ONE commitDoc call so the graph
  * rebuilds exactly once per beat. */
 export const executeBeat = (scenario: DemoScenario, beat: DemoBeat): void => {
   if (beat.ops.some((op) => DOC_OP_KINDS.has(op.kind))) {

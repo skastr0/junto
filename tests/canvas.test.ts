@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { Result } from "effect";
 import {
-  applyMirrorLaw,
   decodeCanvasDoc,
   serializeCanvas,
   type CanvasDoc,
@@ -22,7 +21,6 @@ const rawDoc = {
       color: "2",
       ether: {
         entity: { kind: "agent" },
-        flags: ["blocker"],
       },
     },
     {
@@ -44,7 +42,6 @@ const rawDoc = {
       y: 0,
       width: 200,
       height: 80,
-      ether: { flags: ["parked"] },
     },
     {
       id: "l1",
@@ -236,30 +233,14 @@ describe("canvas contract", () => {
     expect(Result.isFailure(decodeCanvasDoc(legacy))).toBe(true);
   });
 
-  it("applyMirrorLaw mirrors the blocker flag to color and leaves edges alone", () => {
-    const doc: CanvasDoc = {
+  it("refuses a retired operator flag on a node", () => {
+    const flagged = {
       nodes: [
         { id: "n1", type: "text", text: "Blocker", x: 0, y: 0, width: 200, height: 80, ether: { flags: ["blocker"] } },
-        { id: "n2", type: "text", text: "Plain", x: 0, y: 100, width: 200, height: 80 },
       ],
-      edges: [
-        { id: "e-verbed", fromNode: "n1", toNode: "n2", ether: { verb: "messages" } },
-        { id: "e-labeled", fromNode: "n1", toNode: "n2", label: "kept" },
-        { id: "e-colored", fromNode: "n1", toNode: "n2", color: "4" },
-        { id: "e-plain", fromNode: "n1", toNode: "n2" },
-      ],
+      edges: [],
     };
-
-    const mirrored = applyMirrorLaw(doc);
-
-    const blocker = mirrored.nodes.find((n) => n.id === "n1");
-    expect(blocker?.color).toBe("1");
-    const plainNode = mirrored.nodes.find((n) => n.id === "n2");
-    expect(plainNode?.color).toBeUndefined();
-
-    // There is no phase mirror on an edge any more: the verb is the whole
-    // authored fact, and label and color stay exactly as the operator left them.
-    expect(mirrored.edges).toEqual(doc.edges);
+    expect(Result.isFailure(decodeCanvasDoc(flagged))).toBe(true);
   });
 
   it("serializeCanvas produces a stable key order and is idempotent", () => {

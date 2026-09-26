@@ -28,16 +28,6 @@ import {
 } from "./schema";
 
 // ---------------------------------------------------------------------------
-// Flag vocabulary
-//
-// Mirrors the node flag words. Declared here rather than imported from the
-// document schema so physics stays free of a canvas import (the document
-// imports this module for `Verb`).
-
-export const EdgeFlag = Schema.Literals(["blocker", "parked", "attention"]);
-export type EdgeFlag = typeof EdgeFlag.Type;
-
-// ---------------------------------------------------------------------------
 // Watch predicates — compiled by `announces` / `chains`
 
 /** Source finished something. `equals` discriminates completion variants. */
@@ -49,16 +39,20 @@ export const WatchWhenCompletes = Schema.Struct({
 });
 export type WatchWhenCompletes = typeof WatchWhenCompletes.Type;
 
-export const WatchWhenFlagged = Schema.Struct({
-  word: Schema.Literal("flagged"),
-  flag: EdgeFlag,
+/**
+ * Source agent seat has raised a hand: an open `blocked` or `escalate` signal
+ * (`junto blocked`, `junto escalate`). Answering, dismissing or withdrawing
+ * every such signal clears it.
+ */
+export const WatchWhenSignals = Schema.Struct({
+  word: Schema.Literal("signals"),
 });
-export type WatchWhenFlagged = typeof WatchWhenFlagged.Type;
+export type WatchWhenSignals = typeof WatchWhenSignals.Type;
 
 /** Atomic watch atoms — multi-select OR nests these under `any`. */
 export const WatchWhenAtom = Schema.Union([
   WatchWhenCompletes,
-  WatchWhenFlagged,
+  WatchWhenSignals,
 ]);
 export type WatchWhenAtom = typeof WatchWhenAtom.Type;
 
@@ -71,15 +65,15 @@ export type WatchWhenAny = typeof WatchWhenAny.Type;
 
 export const WatchWhen = Schema.Union([
   WatchWhenCompletes,
-  WatchWhenFlagged,
+  WatchWhenSignals,
   WatchWhenAny,
 ]);
 export type WatchWhen = typeof WatchWhen.Type;
 
 // ---------------------------------------------------------------------------
-// Fire actions — compiled by `enqueues` / `wakes` / `flags`
+// Fire actions — compiled by `enqueues` / `wakes`
 //
-// Three, and only three: those are the verbs a scheduler holds. Kernel-home
+// Two, and only two: those are the verbs a scheduler holds. Kernel-home
 // fire applies them; never a process-bind ocap. Task claiming stays in the
 // factory tick. `data` is opaque here; the target sink's closed create schema
 // is decoded fail-closed at apply.
@@ -94,14 +88,6 @@ export type EdgeEffectEnqueueTask = typeof EdgeEffectEnqueueTask.Type & {
     | Record<string, unknown>;
 };
 
-export const EdgeEffectSetFlag = Schema.Struct({
-  mode: Schema.Literal("set_flag"),
-  flag: EdgeFlag,
-  /** true = enable, false = clear. "mirror" = pending→on / satisfied→off. */
-  enabled: Schema.Union([Schema.Boolean, Schema.Literal("mirror")]),
-});
-export type EdgeEffectSetFlag = typeof EdgeEffectSetFlag.Type;
-
 /** Inject a prompt into an agent seat. Text optional — kernel fills from fire provenance. */
 export const EdgeEffectInjectPrompt = Schema.Struct({
   mode: Schema.Literal("inject_prompt"),
@@ -111,7 +97,6 @@ export type EdgeEffectInjectPrompt = typeof EdgeEffectInjectPrompt.Type;
 
 export const EdgeEffect = Schema.Union([
   EdgeEffectEnqueueTask,
-  EdgeEffectSetFlag,
   EdgeEffectInjectPrompt,
 ]);
 export type EdgeEffect = typeof EdgeEffect.Type;
@@ -135,7 +120,6 @@ export const Verb = Schema.Literals([
   "announces",
   "enqueues",
   "wakes",
-  "flags",
   "chains",
 ]);
 export type Verb = typeof Verb.Type;
@@ -207,34 +191,21 @@ export const VERB_TABLE = {
   requests: { relay: ["announces"] },
   artifacts: { relay: ["announces"] },
   board: { relay: ["announces"] },
-  pad: { relay: ["announces"] },
-  sheet: { relay: ["announces"] },
+  // Pad and sheet have no news for a relay; access verbs reach them.
+  pad: {},
+  sheet: {},
   page: { relay: ["announces"] },
   // Terminal publishes nothing and offers no port: no verb speaks to it yet.
   terminal: {},
   relay: {
-    agent: ["wakes", "flags"],
-    task: ["enqueues", "flags"],
-    requests: ["flags"],
-    artifacts: ["flags"],
-    board: ["flags"],
-    pad: ["flags"],
-    sheet: ["flags"],
-    page: ["flags"],
-    terminal: ["flags"],
+    agent: ["wakes"],
+    task: ["enqueues"],
     relay: ["chains"],
     clock: ["chains"],
   },
   clock: {
-    agent: ["wakes", "flags"],
-    task: ["enqueues", "flags"],
-    requests: ["flags"],
-    artifacts: ["flags"],
-    board: ["flags"],
-    pad: ["flags"],
-    sheet: ["flags"],
-    page: ["flags"],
-    terminal: ["flags"],
+    agent: ["wakes"],
+    task: ["enqueues"],
     relay: ["chains"],
     clock: ["chains"],
   },
@@ -345,30 +316,23 @@ const NO_PORTS: ReadonlyArray<Port> = [];
 /**
  * The event a kind announces by default. This is the kind's own headline
  * event: task/requests complete, artifacts publish, board posts, page becomes
- * ready, and the two kinds whose only news is a flag announce attention.
+ * ready, and an agent raises a hand. Pad and sheet have no news to announce.
  */
 const ANNOUNCE_WHEN = {
-  agent: { word: "flagged", flag: "attention" },
+  // An agent's news is a raised hand: an open blocked or escalate signal.
+  agent: { word: "signals" },
   task: { word: "completes" },
   requests: { word: "completes" },
   // Artifacts count published items; an `equals` here would be read as a state.
   artifacts: { word: "completes" },
   board: { word: "completes", equals: "post" },
   page: { word: "completes", equals: "ready" },
-  pad: { word: "flagged", flag: "attention" },
-  sheet: { word: "flagged", flag: "attention" },
 } as const satisfies { readonly [K in WellKnownKind]?: WatchWhen };
 
 const announceWhenFor = (kind: string | undefined): WatchWhen | undefined => {
   if (kind === undefined || !isWellKnownKind(kind)) return undefined;
   const table: { readonly [K in WellKnownKind]?: WatchWhen } = ANNOUNCE_WHEN;
   return table[kind];
-};
-
-const SET_ATTENTION: EdgeEffect = {
-  mode: "set_flag",
-  flag: "attention",
-  enabled: true,
 };
 
 /** Payload is built from fire provenance at apply time, not authored here. */
@@ -428,8 +392,6 @@ export const compileVerb = (
       return { ports: NO_PORTS, does: ENQUEUE_FROM_PROVENANCE };
     case "wakes":
       return { ports: NO_PORTS, does: INJECT_FROM_PROVENANCE };
-    case "flags":
-      return { ports: NO_PORTS, does: SET_ATTENTION };
     case "chains":
       return { ports: NO_PORTS, chain: true, when: CHAIN_WHEN };
     default: {
@@ -466,7 +428,6 @@ const effectModeOf = (does: unknown): string | undefined => {
 const verbForEffectMode = (mode: string): Verb | undefined => {
   if (mode === "enqueue_task") return "enqueues";
   if (mode === "inject_prompt") return "wakes";
-  if (mode === "set_flag" || mode.startsWith("board_")) return "flags";
   return undefined;
 };
 
@@ -559,7 +520,7 @@ const inferCandidate = (
     if (!schedulerIsSource) return "announces";
     if (other === "task") return "enqueues";
     if (other === "agent") return "wakes";
-    return "flags";
+    return undefined;
   }
 
   return undefined;
@@ -588,6 +549,5 @@ export const VERB_COLOR_TOKEN: Record<Verb, string> = {
   announces: "--wire-verb-announces",
   enqueues: "--wire-verb-enqueues",
   wakes: "--wire-verb-wakes",
-  flags: "--wire-verb-flags",
   chains: "--wire-verb-chains",
 };

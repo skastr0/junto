@@ -59,7 +59,6 @@ import type {
   WatcherRuntimeState,
 } from "@shared/ipc";
 import { CanvasesService } from "../canvases";
-import type { WorkErrorBody } from "@shared/work-control";
 import { SnapshotsService } from "../snapshots";
 import { PausePlane } from "../pause-plane";
 import { SchedulerRepository } from "../scheduler/repository";
@@ -87,12 +86,9 @@ import {
 } from "../term/managed-pulse-bridge";
 import { WorkRepository } from "../work/repository";
 import {
-  applyNodeFlag,
   checkTimers,
-  clearRuntimeFlag,
   getExecutionByCanvas,
   getNextFire,
-  getRuntimeFlagOverrides,
   getWatchers,
   manualSchedulerFire,
   purgeCanvasMemory,
@@ -100,13 +96,12 @@ import {
   runEvaluationCycle,
   setActorRefResolver,
   setDocs,
-  setRuntimeFlag,
   setStationScope,
   __setAutomationGateForTest,
-  __setFlagWriterForTest,
   __setSnapshotsForTest,
   __setTimerSchedulerForTest,
   setPageLoadDeps,
+  setRaisedHandDeps,
 } from "./cycle";
 import {
   admitSchedulerEffectAutomation,
@@ -124,8 +119,7 @@ import {
   type TickTimerCancel,
 } from "./tick";
 import { noteSyncSpan } from "../observability/main-thread-budget";
-import type { EtherFlag } from "@shared/canvas";
-import { mainAuthoringGate } from "../main-authoring-gate";
+import { raisedHands } from "../signals/raised-hands";
 
 export class KernelService extends Context.Service<KernelService,
   {
@@ -744,7 +738,6 @@ const makeKernelService = (
       {
         watchers: Record<string, WatcherRuntimeState>;
         nextFire: Record<string, number>;
-        flagOverrides: ReturnType<typeof getRuntimeFlagOverrides>;
         execution?: import("./cycle").ExecutionSnapshot;
       }
     > = {};
@@ -752,7 +745,6 @@ const makeKernelService = (
       (canvasesOut[name] ??= {
         watchers: {},
         nextFire: {},
-        flagOverrides: getRuntimeFlagOverrides(name),
       });
     for (const name of docs.keys()) {
       const entry = entryFor(name);
@@ -803,34 +795,20 @@ const makeKernelService = (
 
   let cachedStationRole: "" | "command-center" | "remote" = "";
 
-  const {
-    canAutomateCanvas,
-    canApplyFlagEffects,
-    setNodeFlag,
-    effectDeps,
-  } = makeSchedulerProductionEffectDeps({
+  const { canAutomateCanvas, effectDeps } = makeSchedulerProductionEffectDeps({
     pause,
     work,
-    canvases,
-    docs,
     run,
     getStationRole: () => cachedStationRole,
     effectReceipts,
   });
 
-  __setAutomationGateForTest({
-    canAutomateCanvas,
-    canApplyFlagEffects,
-  });
+  __setAutomationGateForTest({ canAutomateCanvas });
 
   setSchedulerEffectDeps(effectDeps);
 
-  // flagOnUnsatisfied writes only when automation gate allows (CC + playing).
-  __setFlagWriterForTest({
-    setFlag: (canvasName, nodeId, flag, enabled) => {
-      void setNodeFlag(canvasName, nodeId, flag as EtherFlag, enabled);
-    },
-  });
+  // Agent → relay `announces` watches the seat's raised hand.
+  setRaisedHandDeps({ snapshot: raisedHands.snapshot });
 
   // --- evaluation cycle --------------------------------------------------------
 
@@ -1443,6 +1421,8 @@ const makeKernelService = (
         // post-spawn window) publishes readiness without retaining a prompt.
         // The fresh cycle re-checks durable Work, intent, edges, and locality.
         subscribeManagedPulseReady(() => scheduleCycle()),
+        // A raised or lowered hand re-evaluates agent → relay announce wires.
+        raisedHands.subscribe(() => scheduleCycle()),
       ];
 
       // No Effect yield between the generation check and installing these
@@ -1527,29 +1507,19 @@ const makeKernelService = (
 export type SchedulerProductionEffectHost = {
   readonly pause: Pick<PauseShape, "stateFor">;
   readonly work: Pick<WorkShape, "workTaskCreate" | "workSystemMailboxNotify">;
-  readonly canvases: Pick<CanvasesShape, "mutatePortfolio">;
-  readonly docs: Map<string, CanvasDoc>;
   readonly run: <A, E>(effect: Effect.Effect<A, E>) => Promise<A>;
   readonly getStationRole: () => "" | "command-center" | "remote";
   readonly effectReceipts: Set<string>;
 };
 
 /**
- * Production enqueue / inject / setFlag callbacks. Overseer skips pause only;
+ * Production enqueue / inject callbacks. Overseer skips pause only;
  * Command Center and liveGrant remain. Tests must call this, not reconstruct it.
  */
 export const makeSchedulerProductionEffectDeps = (
   host: SchedulerProductionEffectHost,
 ): {
   readonly canAutomateCanvas: (canvasName: string) => boolean;
-  readonly canApplyFlagEffects: () => boolean;
-  readonly setNodeFlag: (
-    canvasName: string,
-    nodeId: string,
-    flag: EtherFlag,
-    enabled: boolean,
-    overseer?: OverseerFireAuthority,
-  ) => Promise<{ readonly ok: boolean; readonly message?: string }>;
   readonly effectDeps: SchedulerEffectDeps;
 } => {
   const canAutomateCanvas = (canvasName: string): boolean => {
@@ -1557,94 +1527,8 @@ export const makeSchedulerProductionEffectDeps = (
     return host.pause.stateFor(canvasName).playing;
   };
 
-  const canApplyFlagEffects = (): boolean =>
-    host.getStationRole() === "command-center";
-
-  const setNodeFlag = async (
-    canvasName: string,
-    nodeId: string,
-    flag: EtherFlag,
-    enabled: boolean,
-    overseer?: OverseerFireAuthority,
-  ): Promise<{ readonly ok: boolean; readonly message?: string }> => {
-    if (overseer === undefined) {
-      if (!host.pause.stateFor(canvasName).playing) {
-        return { ok: false, message: "canvas paused" };
-      }
-    } else if (!(await overseer.liveGrant())) {
-      return { ok: false, message: "overseer grant revoked" };
-    }
-    if (host.getStationRole() !== "command-center") {
-      return {
-        ok: false,
-        message: "flag effects require Command Center",
-      };
-    }
-    const live = host.docs.get(canvasName);
-    if (live === undefined || !live.nodes.some((node) => node.id === nodeId)) {
-      return {
-        ok: false,
-        message: "canvas or node is not in the live projection",
-      };
-    }
-    try {
-      setRuntimeFlag(canvasName, nodeId, flag, enabled);
-      await mainAuthoringGate.run("kernel.flag-mirror", async () => {
-        // Nested under control.overseer is fine: the gate is not a mutex.
-        // mutatePortfolio's callback is the in-transaction commit boundary
-        // after ensureReady/queue wait. commitGrantLive sees current docs there.
-        await host.run(
-          host.canvases.mutatePortfolio((view) => {
-            if (
-              overseer !== undefined &&
-              !overseer.commitGrantLive(view.documents)
-            ) {
-              const error: WorkErrorBody = {
-                type: "AuthError",
-                message: "overseer grant revoked",
-              };
-              return { ok: false, error };
-            }
-            const current = view.documents.get(canvasName);
-            if (current === undefined) {
-              const error: WorkErrorBody = {
-                type: "UnknownTarget",
-                message: `canvas "${canvasName}" does not exist`,
-              };
-              return { ok: false, error };
-            }
-            const documents = new Map(view.documents);
-            documents.set(
-              canvasName,
-              applyNodeFlag(current, nodeId, flag, enabled),
-            );
-            return {
-              ok: true,
-              mutation: { documents, result: undefined },
-            };
-          }),
-        );
-      });
-      const current = host.docs.get(canvasName);
-      if (current !== undefined) {
-        host.docs.set(canvasName, applyNodeFlag(current, nodeId, flag, enabled));
-      }
-      clearRuntimeFlag(canvasName, nodeId, flag);
-      return { ok: true };
-    } catch (error) {
-      clearRuntimeFlag(canvasName, nodeId, flag);
-      const message =
-        error instanceof Error ? error.message : String(error);
-      console.error(
-        `[kernel] setFlag failed for ${canvasName}/${nodeId}: ${message}`,
-      );
-      return { ok: false, message };
-    }
-  };
-
   const effectDeps: SchedulerEffectDeps = {
     canAutomateCanvas,
-    canApplyFlagEffects,
     hasReceipt: (fireKey, edgeId) =>
       host.effectReceipts.has(`${fireKey}::${edgeId}`),
     recordReceipt: (fireKey, edgeId) => {
@@ -1679,7 +1563,6 @@ export const makeSchedulerProductionEffectDeps = (
       }
       return { ok: true };
     },
-    setFlag: setNodeFlag,
     injectPrompt: async ({ canvasName, agentNodeId, text, overseer }) => {
       const admitted = await admitSchedulerEffectAutomation({
         canvasName,
@@ -1711,7 +1594,7 @@ export const makeSchedulerProductionEffectDeps = (
     },
   };
 
-  return { canAutomateCanvas, canApplyFlagEffects, setNodeFlag, effectDeps };
+  return { canAutomateCanvas, effectDeps };
 };
 
 export const KernelLive = Layer.effect(

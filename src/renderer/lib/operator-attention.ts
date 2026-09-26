@@ -55,9 +55,6 @@ const reasonsFromFacts = (
   if (kind === "blocked") return ["graph:blocked"];
   return [
     ...(facts.seatState === "attention" ? (["activity:attention"] as const) : []),
-    ...(facts.flags?.includes("attention") === true
-      ? (["flag:attention"] as const)
-      : []),
     ...(facts.attentionReasons ?? []),
   ];
 };
@@ -123,8 +120,6 @@ export const collectOperatorAttention = (
 export type CanvasAttentionNode = {
   readonly id: string;
   readonly label: string;
-  /** Authorial flags (e.g. attention, blocker). */
-  readonly flags?: ReadonlyArray<string>;
 };
 
 /**

@@ -83,7 +83,7 @@ export function StoppageRank() {
     const map = new Map<string, OccupancySpectrumName>();
     for (const id of leadIds) {
       const clue = feed.clueFor(id);
-      // Only mark staffing when we have a clue (agent seat or flags).
+      // Only mark staffing when we have a clue (an agent seat).
       // Absent clue → unknown (no unstaffed mark).
       if (!clue) continue;
       map.set(
@@ -92,7 +92,6 @@ export function StoppageRank() {
           hasOccupant: clue.hasOccupant,
           activity: clue.activity,
           lastSeenAtMs: clue.lastSeenAtMs,
-          flags: clue.flags,
           nowMs: Date.now(),
         }),
       );

@@ -83,7 +83,6 @@ export const seatCardStatus = (input: {
       session,
       needsLook: input.needsLook === true,
       graphBlocked: input.graphBlocked,
-      flags: node.ether?.flags,
       attentionReasons: input.attentionReasons,
       managedSeat,
     }),

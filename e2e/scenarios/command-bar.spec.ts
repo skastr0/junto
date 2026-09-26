@@ -12,7 +12,7 @@ import { expect, test } from "../harness/launch";
 
 const probeCanvas = canvasDoc([
   { id: "n-alpha", type: "text", x: 0, y: 0, width: 240, height: 90, text: "Alpha release\nsecond line detail" },
-  { id: "n-beta", type: "text", x: 300, y: 0, width: 240, height: 90, text: "Beta task plan", ether: { flags: ["blocker"] } },
+  { id: "n-beta", type: "text", x: 300, y: 0, width: 240, height: 90, text: "Beta task plan" },
   { id: "n-region", type: "group", x: -200, y: -200, width: 900, height: 600, label: "Probe region" },
 ]);
 

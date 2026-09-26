@@ -21,7 +21,6 @@ const VERB_SENTENCE = {
   announces: "{from} announces to {to}",
   enqueues: "{from} enqueues onto {to}",
   wakes: "{from} wakes {to}",
-  flags: "{from} flags {to}",
   chains: "{from} chains into {to}",
 } as const satisfies Record<Verb, string>;
 

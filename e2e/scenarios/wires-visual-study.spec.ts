@@ -89,10 +89,7 @@ const flaggedBase = agentTextNode({
   x: 820,
   y: 40,
 });
-const flagged: CanvasNode = {
-  ...flaggedBase,
-  ether: { ...flaggedBase.ether, flags: ["blocker"] },
-} as CanvasNode;
+const flagged: CanvasNode = flaggedBase as CanvasNode;
 
 const edges: CanvasEdge[] = [
   // contributes — three agents into one sink, bundled

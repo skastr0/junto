@@ -29,7 +29,6 @@ export const seat = (
     readonly name?: string;
     readonly x?: number;
     readonly y?: number;
-    readonly flags?: ReadonlyArray<"blocker" | "parked" | "attention">;
   },
 ): TextNode => {
   const kind = kindForRole(role);
@@ -47,7 +46,6 @@ export const seat = (
         kind,
         ...(name !== undefined ? { name } : {}),
       },
-      ...(options?.flags ? { flags: [...options.flags] } : {}),
     },
   };
 };

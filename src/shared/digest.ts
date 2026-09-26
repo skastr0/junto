@@ -378,21 +378,15 @@ export const digestCanvas = (
     sections.push(edgeLines);
   }
 
-  // blockers: seeds (manual flag) + derived blocked closure
-  const blockerNodes = doc.nodes.filter((node) => node.ether?.flags?.includes("blocker"));
-  if (blockerNodes.length > 0 || graph.blocked.size > 0) {
-    const blockerLines = ["blockers", ...blockerNodes.map(titleOf)];
+  // blockers: the derived blocked closure
+  if (graph.blocked.size > 0) {
+    const blockerLines = ["blockers"];
     blockerLines.push(`blocked closure :: ${graph.blocked.size} nodes`);
     for (const node of doc.nodes) {
       if (graph.blocked.has(node.id)) {
         const reasons = graph.reasonsByNodeId.get(node.id) ?? [];
         const first = reasons[0];
-        const suffix =
-          first?.kind === "edge"
-            ? ` - ${first.detail}`
-            : first?.kind === "seed"
-              ? ` - ${first.detail}`
-              : "";
+        const suffix = first?.kind === "edge" ? ` - ${first.detail}` : "";
         blockerLines.push(`${titleOf(node)}${suffix}`);
       }
     }

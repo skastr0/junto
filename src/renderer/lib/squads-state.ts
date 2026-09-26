@@ -133,7 +133,6 @@ export const placeSquadAt = async (
   const ids = placed.nodes.map((node) => node.id);
   batch(() => {
     state$.edgeFilter.set("");
-    state$.flagFilter.set("");
     selectNodes(ids);
   });
   commitDoc({ ...doc, nodes: [...doc.nodes, ...placed.nodes], edges: [...doc.edges, ...placed.edges] });

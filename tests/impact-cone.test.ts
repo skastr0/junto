@@ -167,41 +167,6 @@ describe("impactCone — task stoppage", () => {
 });
 
 describe("impactCone — seeds, relays, attention leads", () => {
-  it("manual blocker seed marks self only — no outbound cascade", () => {
-    const doc: CanvasDoc = {
-      nodes: [
-        seat("b", "actor", { label: "Blocker", flags: ["blocker"] }),
-        seat("c", "actor", { label: "C" }),
-        seat("d", "actor", { label: "D" }),
-      ],
-      edges: [
-        {
-          id: "e-bc",
-          fromNode: "b",
-          toNode: "c",
-          ether: { verb: "messages" },
-        },
-        {
-          id: "e-cd",
-          fromNode: "c",
-          toNode: "d",
-          ether: { verb: "messages" },
-        },
-      ],
-    };
-    const graph = deriveExecutionGraph(doc);
-    expect(graph.seedNodeIds.has("b")).toBe(true);
-    expect(graph.blocked.has("b")).toBe(true);
-    // Empty tasks criteria never generates; cascade is retired.
-    expect(graph.blocked.has("c")).toBe(false);
-    expect(graph.blocked.has("d")).toBe(false);
-
-    const cone = impactCone(doc, graph, "b");
-    expect(cone.nodeIds).toEqual(new Set(["b"]));
-    expect(cone.edgeIds.size).toBe(0);
-    expect(cone.pathToSeed("b")).toEqual(["b"]);
-  });
-
   it("attention leads: undirected actor into cone is soft when not phase-blocked", () => {
     const doc: CanvasDoc = {
       nodes: [

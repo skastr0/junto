@@ -1,11 +1,11 @@
 import { Context, Effect, Option, Result, Layer, Schema } from "effect";
 import type { ServiceCheck } from "@shared/contracts";
 import {
-  applyMirrorLaw,
   containsWorkProjection,
   decodeCanvasDoc,
   serializeCanvas,
   type CanvasDoc,
+  type CanvasEdge,
   type CanvasNode,
 } from "@shared/canvas";
 import type {
@@ -83,7 +83,11 @@ import {
   retireEscalatesFromRawDoc,
   retirementTouches,
 } from "./canvas/retire-escalates";
-import { BACKFILL_CANVAS_RETIRE_ESCALATES_V1 } from "./install-ops/schema";
+import { flagsRetirementTouches, retireFlagsFromRawDoc } from "./canvas/retire-flags";
+import {
+  BACKFILL_CANVAS_RETIRE_ESCALATES_V1,
+  BACKFILL_CANVAS_RETIRE_FLAGS_V1,
+} from "./install-ops/schema";
 import { InstallOpsService } from "./install-ops/service";
 import {
   canvasBodySha256Of,
@@ -961,28 +965,57 @@ const commitPortfolio = (
   return { generation, changed: true };
 };
 
-export type RetireEscalatesReport = {
+export type RetireGrammarReport = {
   readonly canvases: number;
-  readonly edgesRemoved: number;
+  /** Stored `escalates` edges dropped (`canvas/retire-escalates.ts`). */
+  readonly escalatesEdgesRemoved: number;
+  /** Masks that lost the retired `request.escalate` port. */
   readonly masksNarrowed: number;
+  /** Nodes that lost `ether.flags` (`canvas/retire-flags.ts`). */
+  readonly flagNodesStripped: number;
+  /** Watchers that lost `flagOnUnsatisfied`. */
+  readonly flagWatchesStripped: number;
+  /** `flags` edges and pad/sheet `announces` edges dropped. */
+  readonly flagEdgesRemoved: number;
+};
+
+/** Every retired grammar plan, applied in order to one raw stored document. */
+const planGrammarRetirement = (raw: { readonly nodes: ReadonlyArray<CanvasNode>; readonly edges: ReadonlyArray<CanvasEdge> }) => {
+  const escalates = retireEscalatesFromRawDoc(raw);
+  const flags = retireFlagsFromRawDoc(escalates.doc);
+  return {
+    doc: flags.doc,
+    escalates,
+    flags,
+    touches: retirementTouches(escalates) || flagsRetirementTouches(flags),
+  };
 };
 
 /**
- * Canvas-document migration (`canvas/retire-escalates.ts`): drop every stored
- * `escalates` edge and strip the retired `request.escalate` port from any
- * surviving mask, as one authority commit.
+ * Canvas-document migration for retired grammar, as one authority commit:
+ * drop stored `escalates` edges and the retired `request.escalate` port
+ * (`canvas/retire-escalates.ts`), and retire operator flags, the `flags` verb,
+ * `flagOnUnsatisfied` and pad/sheet `announces` (`canvas/retire-flags.ts`).
+ * The plans compose on each document so one carrying both still decodes.
  *
  * It must run before anything reads authority: the grammar no longer holds
- * the verb, so a stored escalates edge would decode away and the document
- * would fail its own revision hash. Each touched document is therefore
- * proven from its raw rows first (they must reproduce the stored revision
- * hash, and the portfolio the stored intent hash), and the plan must decode
- * to exactly the bytes it planned. Untouched documents take the ordinary
- * verified read. The commit bumps the generation like any authorial write.
- * Idempotent: a clean portfolio is a read-only no-op.
+ * these shapes, so a stored one would decode away and the document would
+ * fail its own revision hash. Each touched document is therefore proven from
+ * its raw rows first (they must reproduce the stored revision hash, and the
+ * portfolio the stored intent hash), and the plan must decode to exactly the
+ * bytes it planned. Untouched documents take the ordinary verified read. The
+ * commit bumps the generation like any authorial write. Idempotent: a clean
+ * portfolio is a read-only no-op.
  */
-export const retireEscalatesEdges = (writer: StateWriter): RetireEscalatesReport => {
-  const empty: RetireEscalatesReport = { canvases: 0, edgesRemoved: 0, masksNarrowed: 0 };
+export const retireStoredGrammar = (writer: StateWriter): RetireGrammarReport => {
+  const empty: RetireGrammarReport = {
+    canvases: 0,
+    escalatesEdgesRemoved: 0,
+    masksNarrowed: 0,
+    flagNodesStripped: 0,
+    flagWatchesStripped: 0,
+    flagEdgesRemoved: 0,
+  };
   if (readLocalStationRole(writer) === "remote") return empty;
   const head = readPortfolioHead(writer);
   if (head === undefined) return empty;
@@ -990,14 +1023,17 @@ export const retireEscalatesEdges = (writer: StateWriter): RetireEscalatesReport
   const previous = new Map<string, StoredCanvas>();
   const next = new Map<string, StoredCanvas>();
   let canvases = 0;
-  let edgesRemoved = 0;
+  let escalatesEdgesRemoved = 0;
   let masksNarrowed = 0;
+  let flagNodesStripped = 0;
+  let flagWatchesStripped = 0;
+  let flagEdgesRemoved = 0;
   const now = new Date().toISOString();
   for (const row of readDocumentRows(writer)) {
     const name = canvasNameFrom(row.canvas_name);
     const raw = readRawCanvasDoc(writer, row.canvas_id);
-    const plan = retireEscalatesFromRawDoc(raw);
-    if (!retirementTouches(plan)) {
+    const plan = planGrammarRetirement(raw);
+    if (!plan.touches) {
       const doc = reconstructCanvasDoc(writer, row.canvas_id);
       const body = serializeCanvas(doc);
       const revisionSha256 = canvasBodySha256Of(body);
@@ -1015,20 +1051,20 @@ export const retireEscalatesEdges = (writer: StateWriter): RetireEscalatesReport
     if (canvasBodySha256Of(storedBody) !== row.revision_sha256) {
       throw new CanvasError({
         message:
-          `cannot retire escalates edges: ${canvasLabel(name)} rows do not reproduce its stored revision hash`,
+          `cannot retire grammar: ${canvasLabel(name)} rows do not reproduce its stored revision hash`,
       });
     }
     const planned = serializeCanvas(plan.doc as CanvasDoc);
     const decoded = decodeCanvasDoc(plan.doc);
     if (Result.isFailure(decoded)) {
       throw new CanvasError({
-        message: `cannot retire escalates edges: ${canvasLabel(name)} does not decode after retirement: ${decoded.failure.message}`,
+        message: `cannot retire grammar: ${canvasLabel(name)} does not decode after retirement: ${decoded.failure.message}`,
       });
     }
     const body = serializeCanvas(decoded.success);
     if (body !== planned) {
       throw new CanvasError({
-        message: `cannot retire escalates edges: ${canvasLabel(name)} would change beyond the retired verb and port`,
+        message: `cannot retire grammar: ${canvasLabel(name)} would change beyond the retired shapes`,
       });
     }
     previous.set(name, {
@@ -1044,8 +1080,11 @@ export const retireEscalatesEdges = (writer: StateWriter): RetireEscalatesReport
       modifiedAt: now,
     });
     canvases += 1;
-    edgesRemoved += plan.removedEdgeIds.length;
-    masksNarrowed += plan.narrowedEdgeIds.length;
+    escalatesEdgesRemoved += plan.escalates.removedEdgeIds.length;
+    masksNarrowed += plan.escalates.narrowedEdgeIds.length;
+    flagNodesStripped += plan.flags.strippedNodeIds.length;
+    flagWatchesStripped += plan.flags.strippedWatchIds.length;
+    flagEdgesRemoved += plan.flags.removedEdgeIds.length;
   }
   if (canvases === 0) return empty;
   if (intentSha256Of(previous) !== head.intent_sha256) {
@@ -1065,47 +1104,67 @@ export const retireEscalatesEdges = (writer: StateWriter): RetireEscalatesReport
     next,
     "migrate",
   );
-  return { canvases, edgesRemoved, masksNarrowed };
+  return {
+    canvases,
+    escalatesEdgesRemoved,
+    masksNarrowed,
+    flagNodesStripped,
+    flagWatchesStripped,
+    flagEdgesRemoved,
+  };
 };
 
 /**
- * Run the escalates retirement once per install. The install-ops marker is
- * bookkeeping only: without it (unavailable ledger, fresh seed) the walk still
- * runs, and it is a read-only no-op on a clean portfolio. A backfill never
- * gates boot, so a failure is logged and the walk retried on the next boot;
- * the authority read that follows then reports the unmigrated document.
+ * Run the grammar retirement once per install. The install-ops markers are
+ * bookkeeping only: without them (unavailable ledger, fresh seed) the walk
+ * still runs, and it is a read-only no-op on a clean portfolio. A backfill
+ * never gates boot, so a failure is logged and the walk retried on the next
+ * boot; the authority read that follows then reports the unmigrated document.
  */
-const retireEscalatesOnce = (state: StateEngineShape) =>
+const GRAMMAR_RETIREMENT_MARKERS = [
+  BACKFILL_CANVAS_RETIRE_ESCALATES_V1,
+  BACKFILL_CANVAS_RETIRE_FLAGS_V1,
+] as const;
+
+const retireStoredGrammarOnce = (state: StateEngineShape) =>
   Effect.gen(function* () {
     const installOps = yield* Effect.serviceOption(InstallOpsService);
     const ops = Option.isSome(installOps) ? installOps.value : undefined;
-    const marker = ops === undefined
-      ? undefined
-      : yield* ops.getBackfill(BACKFILL_CANVAS_RETIRE_ESCALATES_V1).pipe(
-        Effect.orElseSucceed(() => undefined),
-      );
-    if (marker?.status === "complete") return;
     if (ops !== undefined) {
-      yield* Effect.ignore(ops.ensurePending(BACKFILL_CANVAS_RETIRE_ESCALATES_V1));
+      let complete = true;
+      for (const id of GRAMMAR_RETIREMENT_MARKERS) {
+        const marker = yield* ops.getBackfill(id).pipe(Effect.orElseSucceed(() => undefined));
+        if (marker?.status !== "complete") complete = false;
+      }
+      if (complete) return;
+      for (const id of GRAMMAR_RETIREMENT_MARKERS) {
+        yield* Effect.ignore(ops.ensurePending(id));
+      }
     }
-    const report = yield* state.transaction(
-      "canvas.retire-escalates",
-      retireEscalatesEdges,
-    );
+    const report = yield* state.transaction("canvas.retire-grammar", retireStoredGrammar);
     if (report.canvases > 0) {
       console.info(
-        `[canvases] retired escalates: ${report.edgesRemoved} edge(s) dropped, ${report.masksNarrowed} mask(s) narrowed across ${report.canvases} canvas(es)`,
+        `[canvases] retired grammar across ${report.canvases} canvas(es): ` +
+          `${report.escalatesEdgesRemoved} escalates edge(s), ${report.masksNarrowed} mask(s) narrowed, ` +
+          `${report.flagNodesStripped} flagged node(s), ${report.flagWatchesStripped} watcher flag(s), ` +
+          `${report.flagEdgesRemoved} flag edge(s)`,
       );
     }
     if (ops !== undefined) {
       yield* Effect.ignore(
-        ops.markComplete(BACKFILL_CANVAS_RETIRE_ESCALATES_V1, report.edgesRemoved),
+        ops.markComplete(BACKFILL_CANVAS_RETIRE_ESCALATES_V1, report.escalatesEdgesRemoved),
+      );
+      yield* Effect.ignore(
+        ops.markComplete(
+          BACKFILL_CANVAS_RETIRE_FLAGS_V1,
+          report.flagNodesStripped + report.flagWatchesStripped + report.flagEdgesRemoved,
+        ),
       );
     }
   }).pipe(
     Effect.catch((error) =>
       Effect.sync(() => {
-        console.error("[canvases] escalates retirement deferred to next boot:", error);
+        console.error("[canvases] grammar retirement deferred to next boot:", error);
       }),
     ),
   );
@@ -1216,7 +1275,7 @@ const normalizeCanvas = (
       message: `cannot ${operation} ${canvasLabel(name)}: ${decoded.failure.message}`,
     });
   }
-  const nextDoc = applyMirrorLaw(decoded.success);
+  const nextDoc = decoded.success;
   const body = serializeCanvas(nextDoc);
   return {
     doc: nextDoc,
@@ -1332,10 +1391,11 @@ export const CanvasesLive = Layer.effect(
       );
     }
 
-    // Canvas-document migration: the retired escalates verb leaves stored
-    // documents before the first authority read (see retireEscalatesEdges).
-    // Marker-gated in install-ops; a failure is logged and retried next boot.
-    yield* retireEscalatesOnce(state);
+    // Canvas-document migration: retired grammar (escalates, operator flags)
+    // leaves stored documents before the first authority read (see
+    // retireStoredGrammar). Marker-gated in install-ops; a failure is logged
+    // and retried next boot.
+    yield* retireStoredGrammarOnce(state);
 
     // Heal registry gaps when active membership diverges from the head doc
     // (incomplete v5→v6 backfill, wiped rows). An exact empty source has no

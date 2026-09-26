@@ -77,14 +77,12 @@ const notes: readonly CanvasNode[] = [
     text: "paddle verification pending",
     x: 0, y: 760, width: 230, height: 84,
     color: "1",
-    ether: { flags: ["blocker"] },
   },
   {
     id: "note-attn",
     type: "text",
     text: "copy review pending",
     x: 1200, y: 580, width: 220, height: 80,
-    ether: { flags: ["attention"] },
   },
 ];
 

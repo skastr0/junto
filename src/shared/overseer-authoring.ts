@@ -307,7 +307,6 @@ const mergeEtherPatch = (
     if (value !== undefined) next[key] = value;
   };
   assign("entity");
-  assign("flags");
   assign("region");
   assign("watch");
   assign("timer");

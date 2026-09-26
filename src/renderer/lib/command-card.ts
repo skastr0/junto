@@ -11,7 +11,7 @@ export type CommandSelectionKind =
   | "link"
   | "default";
 
-/** Kind-specific primary actions (after flags; before shared utilities). */
+/** Kind-specific primary actions (before shared utilities). */
 export type PrimaryCommandAction =
   | "hold-region"
   | "slot-cue"
@@ -41,7 +41,7 @@ export function commandSelectionKind(node: CanvasNode): CommandSelectionKind {
 
 /**
  * Primary actions for a selection kind, filtered by live capabilities.
- * Does not include shared utilities (flags, focus, edit, connect, copy, delete).
+ * Does not include shared utilities (focus, edit, connect, copy, delete).
  */
 export function primaryCommandActions(
   kind: CommandSelectionKind,

@@ -53,13 +53,11 @@ describe("command bar node ranking", () => {
     expect(result.map((match) => match.node.id)).toEqual(["a"]);
   });
 
-  it("matches flags and entity names through searchText", () => {
+  it("matches entity names through searchText", () => {
     const nodes = [
-      text("flagged", "Quiet note", { flags: ["blocker"] }),
       text("named", "Quiet note", { entity: { kind: "agent", name: "worker-9" } }),
       text("plain", "Quiet note"),
     ];
-    expect(filterCommandBarNodes(nodes, "blocker", []).map((m) => m.node.id)).toEqual(["flagged"]);
     expect(filterCommandBarNodes(nodes, "worker-9", []).map((m) => m.node.id)).toEqual(["named"]);
   });
 });

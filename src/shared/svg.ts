@@ -48,7 +48,6 @@ const esc = (s: string): string =>
   s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
 const nodeStroke = (node: CanvasNode, pal: SvgPalette): string => {
-  if (node.ether?.flags?.includes("blocker")) return pal.crimson;
   if (node.color && pal.preset[node.color]) return pal.preset[node.color]!;
   if (node.ether?.entity?.kind === "agent") return pal.steel;
   return pal.stroke;

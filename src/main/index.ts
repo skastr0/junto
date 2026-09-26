@@ -37,6 +37,8 @@ import {
 import { appProcessPlane } from "./junto/app-process-plane";
 import { beginBoxProcessShutdown } from "./junto/box";
 import { AppRuntime } from "./runtime";
+import { AgentSignalRepository } from "./junto/signals/repository";
+import { raisedHands } from "./junto/signals/raised-hands";
 import {
   armMainThreadBudget,
   installObservabilityConsoleHook,
@@ -1537,6 +1539,13 @@ if (packagedSandboxDisablingSwitch !== undefined) {
         overseerLive = await composeOverseerLive(AppRuntime.runPromise);
         unregisterOverseerLiveIpc = registerOverseerLiveIpc(overseerLive);
       }
+      // Hands already raised before this boot: agent → relay announce wires
+      // watch them. Signal writes from here on are noted as they happen.
+      void AppRuntime.runPromise(
+        Effect.flatMap(AgentSignalRepository, (signals) => signals.listRaisedHands),
+      ).then(raisedHands.hydrate, (error: unknown) => {
+        console.error("[signals] raised hands not loaded:", error);
+      });
       workControl = await startWorkControlServer({
         version: app.getVersion(),
         run: (effect) => AppRuntime.runPromise(effect),
@@ -1550,6 +1559,7 @@ if (packagedSandboxDisablingSwitch !== undefined) {
           window.webContents.send(IPC_CHANNELS.preamble, event);
         },
         onAgentSignal: (signal) => {
+          raisedHands.note(signal);
           const window = currentTrustedMainWindow();
           if (
             window === undefined ||

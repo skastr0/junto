@@ -22,7 +22,7 @@ export function WaitingOnSection({ nodeId }: { readonly nodeId: string }) {
     const context = executionGraphContextFromActorRefs(canvasName, actorRefs);
     const graph = executionGraphForImpact(doc, execution, context);
     // Only show for blocked nodes or nodes inside a stoppage cone.
-    if (!graph.blocked.has(nodeId) && !graph.seedNodeIds.has(nodeId)) {
+    if (!graph.blocked.has(nodeId)) {
       // Generators still surface a short path (themselves).
       const evalHasGenerate = doc.edges.some(
         (e) => e.fromNode === nodeId && graph.edgeEvalById.get(e.id)?.generates,
@@ -46,7 +46,7 @@ export function WaitingOnSection({ nodeId }: { readonly nodeId: string }) {
       <ol className="inspector-waiting-on" style={{ margin: 0, paddingLeft: 16, listStyle: "decimal" }}>
         {lines.map((line, i) => {
           const hop = path.hops[i];
-          const isSeed = hop?.role === "seed" || hop?.role === "generator" || hop?.role === "apex";
+          const isSeed = hop?.role === "generator" || hop?.role === "apex";
           return (
             <li
               key={`${hop?.nodeId ?? i}:${line}`}

@@ -1,6 +1,5 @@
 import { HashSet } from "effect";
 import { describe, expect, it } from "vitest";
-import { EtherFlag } from "../../src/shared/canvas";
 import { NodeContracts } from "../../src/shared/physics/contracts";
 import { KindSpecs } from "../../src/shared/physics/kinds";
 import {
@@ -11,7 +10,6 @@ import {
 import {
   compileVerb,
   defaultVerbForPair,
-  EdgeFlag,
   inferVerb,
   VERB_COLOR_TOKEN,
   VERBS,
@@ -115,57 +113,27 @@ describe("verb table", () => {
       "requests>relay": ["announces"],
       "artifacts>relay": ["announces"],
       "board>relay": ["announces"],
-      "pad>relay": ["announces"],
-      "sheet>relay": ["announces"],
       "page>relay": ["announces"],
-      "relay>agent": ["wakes", "flags"],
-      "relay>task": ["enqueues", "flags"],
-      "relay>requests": ["flags"],
-      "relay>artifacts": ["flags"],
-      "relay>board": ["flags"],
-      "relay>pad": ["flags"],
-      "relay>sheet": ["flags"],
-      "relay>page": ["flags"],
-      "relay>terminal": ["flags"],
+      "relay>agent": ["wakes"],
+      "relay>task": ["enqueues"],
       "relay>relay": ["chains"],
       "relay>cron": ["chains"],
       "relay>timer": ["chains"],
       "relay>watcher": ["chains"],
-      "cron>agent": ["wakes", "flags"],
-      "cron>task": ["enqueues", "flags"],
-      "cron>requests": ["flags"],
-      "cron>artifacts": ["flags"],
-      "cron>board": ["flags"],
-      "cron>pad": ["flags"],
-      "cron>sheet": ["flags"],
-      "cron>page": ["flags"],
-      "cron>terminal": ["flags"],
+      "cron>agent": ["wakes"],
+      "cron>task": ["enqueues"],
       "cron>relay": ["chains"],
       "cron>cron": ["chains"],
       "cron>timer": ["chains"],
       "cron>watcher": ["chains"],
-      "timer>agent": ["wakes", "flags"],
-      "timer>task": ["enqueues", "flags"],
-      "timer>requests": ["flags"],
-      "timer>artifacts": ["flags"],
-      "timer>board": ["flags"],
-      "timer>pad": ["flags"],
-      "timer>sheet": ["flags"],
-      "timer>page": ["flags"],
-      "timer>terminal": ["flags"],
+      "timer>agent": ["wakes"],
+      "timer>task": ["enqueues"],
       "timer>relay": ["chains"],
       "timer>cron": ["chains"],
       "timer>timer": ["chains"],
       "timer>watcher": ["chains"],
-      "watcher>agent": ["wakes", "flags"],
-      "watcher>task": ["enqueues", "flags"],
-      "watcher>requests": ["flags"],
-      "watcher>artifacts": ["flags"],
-      "watcher>board": ["flags"],
-      "watcher>pad": ["flags"],
-      "watcher>sheet": ["flags"],
-      "watcher>page": ["flags"],
-      "watcher>terminal": ["flags"],
+      "watcher>agent": ["wakes"],
+      "watcher>task": ["enqueues"],
       "watcher>relay": ["chains"],
       "watcher>cron": ["chains"],
       "watcher>timer": ["chains"],
@@ -237,8 +205,10 @@ describe("compiled grants", () => {
     expect(whenOf("artifacts")).toEqual({ word: "completes" });
     expect(whenOf("board")).toEqual({ word: "completes", equals: "post" });
     expect(whenOf("page")).toEqual({ word: "completes", equals: "ready" });
-    expect(whenOf("pad")).toEqual({ word: "flagged", flag: "attention" });
-    expect(whenOf("agent")).toEqual({ word: "flagged", flag: "attention" });
+    expect(whenOf("pad")).toBeUndefined();
+    expect(whenOf("sheet")).toBeUndefined();
+    // An agent's news is a raised hand: an open blocked or escalate signal.
+    expect(whenOf("agent")).toEqual({ word: "signals" });
   });
 
   it("compiles scheduler pushes to their fire actions", () => {
@@ -248,11 +218,6 @@ describe("compiled grants", () => {
     });
     expect(compileVerb("wakes", "relay", "agent")?.does).toEqual({
       mode: "inject_prompt",
-    });
-    expect(compileVerb("flags", "relay", "page")?.does).toEqual({
-      mode: "set_flag",
-      flag: "attention",
-      enabled: true,
     });
     expect(compileVerb("chains", "cron", "relay")).toEqual({
       ports: [],
@@ -283,7 +248,6 @@ describe("compiled grants", () => {
       ["announces", "task", "relay"],
       ["enqueues", "relay", "task"],
       ["wakes", "relay", "agent"],
-      ["flags", "relay", "page"],
       ["chains", "relay", "relay"],
     ];
     const compiled: Record<string, unknown> = {};
@@ -353,10 +317,6 @@ describe("compiled grants", () => {
         does: { mode: "enqueue_task", data: {} },
       },
       "wakes @ relay>agent": { ports: [], does: { mode: "inject_prompt" } },
-      "flags @ relay>page": {
-        ports: [],
-        does: { mode: "set_flag", flag: "attention", enabled: true },
-      },
       "chains @ relay>relay": {
         ports: [],
         chain: true,
@@ -435,10 +395,7 @@ describe("verbs against the published node contracts", () => {
       if (when === undefined) throw new Error(`${kind} announces nothing`);
       if (when.word === "any") throw new Error(`${kind} announces a multi-select`);
       expect(when.word, kind).toBe(headline.word);
-      if (when.word === "flagged") {
-        expect(when.flag, kind).toBe(headline.flag);
-        continue;
-      }
+      if (when.word === "signals") continue;
       // `equals` may be omitted where the evaluator does not read it (artifacts
       // counts published items rather than matching a state); when it is stated
       // it must name the headline event's variant.
@@ -471,13 +428,6 @@ describe("verbs against the published node contracts", () => {
         }
       }
     }
-  });
-
-  it("keeps the edge flag vocabulary identical to the node one", () => {
-    // Physics declares its own flag words so it never imports the document
-    // schema. A watch or a fire that names a flag no node can carry is dead on
-    // arrival, so the two lists must stay the same set.
-    expect([...EdgeFlag.literals].sort()).toEqual([...EtherFlag.literals].sort());
   });
 });
 
@@ -513,9 +463,7 @@ describe("legacy conversion", () => {
     expect(inferVerb({ ports: ["relay.trigger"] }, "relay", "agent")).toBe(
       "fires",
     );
-    expect(
-      inferVerb({ when: { word: "flagged", flag: "attention" } }, "agent", "relay"),
-    ).toBe("announces");
+    expect(inferVerb({ when: { word: "signals" } }, "agent", "relay")).toBe("announces");
     expect(inferVerb({}, "agent", "relay")).toBe("announces");
   });
 
@@ -530,18 +478,31 @@ describe("legacy conversion", () => {
     expect(inferVerb({ does: { mode: "inject_prompt" } }, "relay", "agent")).toBe(
       "wakes",
     );
+    // The retired `flags` verb has nothing to convert to: those wires drop.
     expect(
       inferVerb(
         { does: { mode: "set_flag", flag: "blocker", enabled: true } },
         "relay",
         "requests",
       ),
-    ).toBe("flags");
+    ).toBeUndefined();
     expect(
       inferVerb({ does: { mode: "board_post", data: {} } }, "cron", "board"),
-    ).toBe("flags");
+    ).toBeUndefined();
     expect(inferVerb({}, "timer", "task")).toBe("enqueues");
     expect(inferVerb({}, "relay", "relay")).toBe("chains");
+  });
+
+  it("refuses the retired flag grammar outright", () => {
+    // `flags` left the verb list; pad and sheet have no news for a relay.
+    expect((VERBS as ReadonlyArray<string>).includes("flags")).toBe(false);
+    expect(verbsForPair("pad", "relay")).toEqual([]);
+    expect(verbsForPair("sheet", "relay")).toEqual([]);
+    for (const scheduler of ["relay", "cron", "timer", "watcher"] as const) {
+      for (const target of ["requests", "artifacts", "board", "pad", "sheet", "page", "terminal"] as const) {
+        expect(verbsForPair(scheduler, target), `${scheduler}>${target}`).toEqual([]);
+      }
+    }
   });
 
   it("drops what the grammar no longer holds", () => {

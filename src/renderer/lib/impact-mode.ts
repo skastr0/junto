@@ -1,13 +1,12 @@
 // Selection impact mode: project pure stoppage cones onto the canvas UI.
 // Prefers the live kernel ExecutionSnapshot (phase/blocked/reasons); reconstructs
-// edgeEval + seedNodeIds so impactCone can run without a second graph pass.
+// edgeEval so impactCone can run without a second graph pass.
 
 import { observable } from "@legendapp/state";
 import type { CanvasDoc, EdgePhase } from "@shared/canvas";
 import type { ExecutionSnapshot } from "@shared/ipc";
 import {
   deriveExecutionGraph,
-  isBlockableNode,
   type BlockedReason,
   type EdgeEval,
   type ExecutionGraph,
@@ -65,13 +64,6 @@ export const executionGraphForImpact = (
     });
   }
 
-  const seedNodeIds = new Set<string>();
-  for (const node of doc.nodes) {
-    if (node.ether?.flags?.includes("blocker") && isBlockableNode(node)) {
-      seedNodeIds.add(node.id);
-    }
-  }
-
   const reasonsByNodeId = new Map<string, ReadonlyArray<BlockedReason>>();
   for (const [id, reasons] of Object.entries(execution.reasonsByNodeId ?? {})) {
     reasonsByNodeId.set(id, reasons as ReadonlyArray<BlockedReason>);
@@ -84,13 +76,11 @@ export const executionGraphForImpact = (
     blocked: new Set(execution.blocked),
     blockedEdgeIds: new Set(execution.blockedEdgeIds),
     reasonsByNodeId,
-    seedNodeIds,
   };
 };
 
 const reasonBrief = (reason: BlockedReason): string => {
   if (reason.kind === "edge") return reason.detail || "generating edge";
-  if (reason.kind === "seed") return reason.detail || "manual seed";
   return reason.detail || "waiting for operator";
 };
 

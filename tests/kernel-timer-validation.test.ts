@@ -70,7 +70,6 @@ describe("checkTimers — invalid everyMinutes degrades to a no-op", () => {
     __setTimerSchedulerForTest(makeInMemoryTimerScheduler());
     __setAutomationGateForTest({
       canAutomateCanvas: () => true,
-      canApplyFlagEffects: () => true,
     });
   });
 

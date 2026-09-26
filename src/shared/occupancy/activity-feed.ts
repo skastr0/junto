@@ -1,5 +1,5 @@
 import { Context, Layer } from "effect";
-import type { OccupancyActivity, OccupancyFlags } from "./derive";
+import type { OccupancyActivity } from "./derive";
 
 // Cut 1 seam (S5 — factory physics engineering plan): a typed producer
 // contract for live occupancy inputs. Consumers (card chrome, RTS, digest)
@@ -22,7 +22,6 @@ export interface OccupancyClue {
   readonly hasOccupant: boolean;
   readonly activity?: OccupancyActivity;
   readonly lastSeenAtMs?: number;
-  readonly flags?: OccupancyFlags;
 }
 
 export interface ActivityFeedService {

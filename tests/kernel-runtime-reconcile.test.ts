@@ -66,7 +66,6 @@ beforeEach(() => {
   __setTimerSchedulerForTest(makeInMemoryTimerScheduler());
   __setAutomationGateForTest({
     canAutomateCanvas: () => true,
-    canApplyFlagEffects: () => true,
   });
   __setSnapshotsForTest(snapshotsWithStat("signals", 3)); // below threshold -> pending
 });

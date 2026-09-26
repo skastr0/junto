@@ -47,7 +47,6 @@ beforeEach(() => {
   __setStationScopeForTest({ hostId: "local", role: "command-center" });
   __setAutomationGateForTest({
     canAutomateCanvas: () => true,
-    canApplyFlagEffects: () => true,
   });
 });
 

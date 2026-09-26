@@ -12,6 +12,8 @@ export const BACKFILL_CANVAS_RELATIONAL_V1 = "canvas.relational.v1" as const;
 export const BACKFILL_CANVAS_RELATIONAL_V2 = "canvas.relational.v2" as const;
 /** Drop stored `escalates` edges and the retired `request.escalate` port. */
 export const BACKFILL_CANVAS_RETIRE_ESCALATES_V1 = "canvas.retire-escalates.v1" as const;
+/** Drop stored operator flags, `flagOnUnsatisfied`, and the edges only flags gave meaning. */
+export const BACKFILL_CANVAS_RETIRE_FLAGS_V1 = "canvas.retire-flags.v1" as const;
 
 export const INSTALL_OPS_SCHEMA_SQL = `
   CREATE TABLE backfill_markers (

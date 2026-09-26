@@ -116,7 +116,6 @@ const resetCanvasView = (): void => {
     state$.digest.set(null);
     state$.nodePaletteOpen.set(false);
     state$.edgeFilter.set("");
-    state$.flagFilter.set("");
     clearSelection();
     state$.connectionFocusNodeId.set("");
     state$.focusNodeId.set("");

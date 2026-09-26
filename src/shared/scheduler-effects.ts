@@ -8,12 +8,12 @@
  *
  * Watch predicates and fire actions are **compiled from the edge's verb**, not
  * read off the document: `announces` names the predicate the source publishes,
- * and `enqueues` / `wakes` / `flags` name the action the target accepts. The
+ * and `enqueues` / `wakes` name the action the target accepts. The
  * kernel applies them on home-local fire; task claiming stays in the crew
  * tick.
  */
 
-import type { CanvasDoc, CanvasEdge, CanvasNode, EtherFlag } from "./canvas";
+import type { CanvasDoc, CanvasEdge, CanvasNode } from "./canvas";
 import { compileEdgeGrant, edgeKindIndex } from "./canvas";
 import { resolveSpec, roleOf } from "./physics/kinds";
 import type { EdgeEffect, WatchWhen } from "./physics/verbs";
@@ -48,8 +48,8 @@ export type EffectEdgeBinding = {
 };
 
 /**
- * Scheduler → target edges whose verb is a fire action (`enqueues` / `wakes` /
- * `flags`). The verb's own order puts the scheduler on `fromNode`, so a
+ * Scheduler → target edges whose verb is a fire action (`enqueues` /
+ * `wakes`). The verb's own order puts the scheduler on `fromNode`, so a
  * downstream edge is exactly one whose source is this scheduler.
  */
 export const collectEffectEdgesFrom = (
@@ -132,13 +132,8 @@ export const validateEffectTarget = (
     // brief from the firing scheduler at apply time.
     return undefined;
   }
-  if (effect.mode === "inject_prompt") {
-    if (target.type === "group") return "target_missing";
-    if (target.ether?.entity?.kind !== "agent") return "target_not_agent";
-    return undefined;
-  }
-  // set_flag: any non-group node
   if (target.type === "group") return "target_missing";
+  if (target.ether?.entity?.kind !== "agent") return "target_not_agent";
   return undefined;
 };
 
@@ -188,6 +183,8 @@ export type PageLoadStatus =
  */
 export type WatchEvalContext = {
   readonly pageLoadByNodeId?: ReadonlyMap<string, PageLoadStatus>;
+  /** Agent seats (document-local node ids) with an open blocked or escalate signal. */
+  readonly raisedHandNodeIds?: ReadonlySet<string>;
 };
 
 /** Canvas-scoped key for the main-process page load map. */
@@ -231,16 +228,6 @@ const watchSourceLabel = (source: CanvasNode): string => {
   }
   return source.ether?.entity?.kind ?? "source";
 };
-
-/**
- * Flag names as product words (not wire vocabulary).
- * The relay is waiting on the *connected* node having this mark.
- */
-const FLAG_PRODUCT = {
-  attention: "needs attention",
-  blocker: "blocker",
-  parked: "parked",
-} as const;
 
 const evaluatePageLoad = (
   source: CanvasNode,
@@ -292,22 +279,19 @@ const evaluatePageLoad = (
 
 const evaluateWatchAtom = (
   source: CanvasNode,
-  when: Extract<WatchWhen, { readonly word: "completes" | "flagged" }>,
+  when: Extract<WatchWhen, { readonly word: "completes" | "signals" }>,
   context?: WatchEvalContext,
 ): RelayEvaluation => {
   const who = watchSourceLabel(source);
 
-  if (when.word === "flagged") {
-    const flag = when.flag;
-    const has = source.ether?.flags?.includes(flag) ?? false;
-    const mark =
-      FLAG_PRODUCT[flag as keyof typeof FLAG_PRODUCT] ?? String(flag);
+  if (when.word === "signals") {
+    const raised = context?.raisedHandNodeIds?.has(source.id) ?? false;
     return {
-      status: has ? "satisfied" : "pending",
-      // Name the watched node — never imply the *relay* needs attention.
-      detail: has
-        ? `${who} is marked ${mark}`
-        : `watching ${who} for ${mark}`,
+      status: raised ? "satisfied" : "pending",
+      // Name the watched seat, never imply the relay itself needs a look.
+      detail: raised
+        ? `${who} raised a hand`
+        : `watching ${who} for blocked or escalate`,
     };
   }
 
@@ -432,13 +416,4 @@ export const combineWatchEvaluations = (
   const pending = parts.find((p) => p.status === "pending");
   if (pending) return pending;
   return parts[0]!;
-};
-
-export const resolveMirrorFlagEnabled = (
-  enabled: boolean | "mirror",
-  sensorStatus: "satisfied" | "pending" | "unknown",
-): boolean | undefined => {
-  if (enabled !== "mirror") return enabled;
-  if (sensorStatus === "unknown") return undefined;
-  return sensorStatus === "pending";
 };

@@ -68,6 +68,11 @@ export class AgentSignalRepository extends Context.Service<AgentSignalRepository
     readonly listSeat: (
       seat: AgentSignalSeat,
     ) => Effect.Effect<ReadonlyArray<AgentSignal>, AgentSignalRepositoryError>;
+    /** Every open blocked or escalate signal, on every canvas: raised hands. */
+    readonly listRaisedHands: Effect.Effect<
+      ReadonlyArray<AgentSignal>,
+      AgentSignalRepositoryError
+    >;
     /** Open signals plus recent history for every seat on a canvas. */
     readonly listCanvas: (
       canvasName: string,
@@ -250,6 +255,18 @@ export const AgentSignalRepositoryLive: Layer.Layer<
           listWhere(reader, "canvas_name = ?", [canvasName]))
         .pipe(Effect.mapError(persistence("list canvas")));
 
+    const listRaisedHands = state
+      .read("agent-signals.list-raised-hands", (reader) =>
+        reader
+          .all<SignalRow>(
+            `
+              SELECT ${COLUMNS} FROM agent_signals
+              WHERE state = 'open' AND kind IN ('blocked', 'escalate')
+            `,
+          )
+          .map(fromRow))
+      .pipe(Effect.mapError(persistence("list raised hands")));
+
     const get = (signalId: string) =>
       state
         .read("agent-signals.get", (reader) => {
@@ -305,6 +322,7 @@ export const AgentSignalRepositoryLive: Layer.Layer<
       raise,
       withdraw,
       listSeat,
+      listRaisedHands,
       listCanvas,
       get,
       answer,

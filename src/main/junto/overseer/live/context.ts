@@ -26,7 +26,6 @@ interface SemanticNode {
   readonly geometry: { readonly x: number; readonly y: number; readonly width: number; readonly height: number };
   readonly host?: string;
   readonly overseer: boolean;
-  readonly flags: ReadonlyArray<string>;
   readonly tasks: ReadonlyArray<SemanticTask>;
   readonly omittedTasks: number;
   readonly artifactIds: ReadonlyArray<string>;
@@ -124,7 +123,6 @@ const projectNode = (node: CanvasNode): SemanticNode => {
     geometry: { x: node.x, y: node.y, width: node.width, height: node.height },
     ...(node.ether?.host === undefined ? {} : { host: node.ether.host }),
     overseer: node.ether?.overseer === true,
-    flags: [...(node.ether?.flags ?? [])],
     tasks: shownTasks.map((task) => ({
       id: task.id, brief: semanticText(taskBrief(task), 240), state: task.state,
       ...(task.claimedBy === undefined ? {} : { claimedBy: task.claimedBy }),

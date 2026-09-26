@@ -1,11 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
-import { Flag } from "lucide-react";
 import { use$ } from "@legendapp/state/react";
 import { HashMap, HashSet, Option } from "effect";
 import type {
   CanvasDoc,
   CanvasNode,
-  EtherFlag,
   EtherRegionDefaults,
   EtherWatch,
 } from "@shared/canvas";
@@ -30,7 +28,7 @@ import {
 import { addEdge } from "../lib/edge-mutations";
 import { specOf } from "../lib/node-spec";
 import { releaseFocus } from "../lib/focus-ownership";
-import { commitDoc, editLink, editText, setGitCwd, setNodeHost, setNodeTimer, setNodeWatch, setPageBinding, setRegionDefaults, toggleFlag } from "../lib/mutations";
+import { commitDoc, editLink, editText, setGitCwd, setNodeHost, setNodeTimer, setNodeWatch, setPageBinding, setRegionDefaults } from "../lib/mutations";
 import {
   describeCronExpression,
   isValidCronExpression,
@@ -150,12 +148,6 @@ export function NodePlacementSection({ node }: { readonly node: CanvasNode }) {
     </div>
   );
 }
-
-const FLAG_OPTIONS: ReadonlyArray<{ readonly flag: EtherFlag; readonly hue: string }> = [
-  { flag: "blocker", hue: HUE.crimson },
-  { flag: "attention", hue: HUE.amber },
-  { flag: "parked", hue: HUE.violet },
-];
 
 export function NodeFieldEditors({ node }: { readonly node: CanvasNode }) {
   const textValue = node.type === "text" ? node.text : "";
@@ -607,7 +599,6 @@ function useWatchDraft(nodeId: string, watch: EtherWatch | undefined) {
   const [stat, setStat] = useState(watch?.stat ?? "");
   const [op, setOp] = useState<NonNullable<EtherWatch["op"]>>(watch?.op ?? "gt");
   const [valueText, setValueText] = useState(watch?.value !== undefined ? String(watch.value) : "");
-  const [flagOnUnsatisfied, setFlagOnUnsatisfied] = useState(Boolean(watch?.flagOnUnsatisfied));
 
   useEffect(() => {
     setSource(watch?.source ?? "hermes");
@@ -615,13 +606,12 @@ function useWatchDraft(nodeId: string, watch: EtherWatch | undefined) {
     setStat(watch?.stat ?? "");
     setOp(watch?.op ?? "gt");
     setValueText(watch?.value !== undefined ? String(watch.value) : "");
-    setFlagOnUnsatisfied(Boolean(watch?.flagOnUnsatisfied));
     // eslint-disable-next-line react-hooks/exhaustive-deps -- reset drafts only on node identity change, not on every keystroke into watch/*
   }, [nodeId]);
 
   return {
     source, setSource, key, setKey, stat, setStat, op, setOp,
-    valueText, setValueText, flagOnUnsatisfied, setFlagOnUnsatisfied,
+    valueText, setValueText,
   };
 }
 
@@ -630,19 +620,17 @@ export function WatcherEditor({ node }: { readonly node: CanvasNode }) {
   const watch = node.ether?.watch;
   const {
     source, setSource, key, setKey, stat, setStat, op, setOp,
-    valueText, setValueText, flagOnUnsatisfied, setFlagOnUnsatisfied,
+    valueText, setValueText,
   } = useWatchDraft(node.id, watch);
 
   type Overrides = Partial<{
     readonly source: NonNullable<EtherWatch["source"]>;
     readonly op: NonNullable<EtherWatch["op"]>;
-    readonly flagOnUnsatisfied: boolean;
   }>;
 
   const commit = (overrides: Overrides = {}) => {
     const nextSource = overrides.source ?? source;
     const nextOp = overrides.op ?? op;
-    const nextFlag = overrides.flagOnUnsatisfied ?? flagOnUnsatisfied;
     const parsedValue = valueText.trim() === "" ? undefined : Number(valueText);
     const nextWatch: EtherWatch = {
       kind: "stat_threshold",
@@ -651,7 +639,6 @@ export function WatcherEditor({ node }: { readonly node: CanvasNode }) {
       ...(stat.trim() ? { stat: stat.trim() } : {}),
       op: nextOp,
       ...(parsedValue !== undefined && Number.isFinite(parsedValue) ? { value: parsedValue } : {}),
-      ...(nextFlag ? { flagOnUnsatisfied: true } : {}),
     };
     setNodeWatch(node.id, nextWatch);
   };
@@ -671,16 +658,6 @@ export function WatcherEditor({ node }: { readonly node: CanvasNode }) {
       onValue={setValueText}
       onCommit={() => commit()}
     />
-    <div className="inspector-flags mt-2">
-      <button
-        type="button"
-        className="inspector-flag-toggle"
-        aria-label="Flag when unsatisfied"
-        aria-pressed={flagOnUnsatisfied}
-        style={{ color: flagOnUnsatisfied ? HUE.crimson : "var(--color-faint)", borderColor: flagOnUnsatisfied ? withAlpha(HUE.crimson, 0.5) : "var(--color-overlay-4)", background: flagOnUnsatisfied ? withAlpha(HUE.crimson, 0.1) : "var(--color-overlay-1)" }}
-        onClick={() => { const next = !flagOnUnsatisfied; setFlagOnUnsatisfied(next); commit({ flagOnUnsatisfied: next }); }}
-      >flag when unsatisfied</button>
-    </div>
   </div>;
 }
 
@@ -708,8 +685,7 @@ export function RelayEditor({ node }: { readonly node: CanvasNode }) {
             const src = doc.nodes.find((n) => n.id === edge.fromNode);
             const name = src ? nodeTitle(src) : "a connected node";
             const when = compileEdgeGrant(edge, kinds)?.when;
-            const word =
-              when?.word === "flagged" ? `flagged ${when.flag}` : "completes";
+            const word = when?.word === "signals" ? "raises a hand" : "completes";
             return `${name} ${word}`;
           })
           .join("; ");
@@ -803,11 +779,6 @@ export function TimerEditor({ node }: { readonly node: CanvasNode }) {
       )}
     </div>
   );
-}
-
-export function NodeFlagControls({ node }: { readonly node: CanvasNode }) {
-  const flags = node.ether?.flags ?? [];
-  return <div className="inspector-section"><div className="inspector-section__label"><Flag size={11} /> flags</div><div className="inspector-flags">{FLAG_OPTIONS.map(({ flag, hue }) => { const active = flags.includes(flag); return <button key={flag} type="button" className="inspector-flag-toggle" aria-pressed={active} style={{ color: active ? hue : "var(--color-faint)", borderColor: active ? withAlpha(hue, 0.5) : "var(--color-overlay-4)", background: active ? withAlpha(hue, 0.1) : "var(--color-overlay-1)" }} onClick={() => toggleFlag(node.id, flag)}>{flag}</button>; })}</div></div>;
 }
 
 export function ConnectEditor({ node, doc, open, onOpenChange }: { readonly node: CanvasNode; readonly doc: CanvasDoc; readonly open: boolean; readonly onOpenChange: (open: boolean) => void }) {

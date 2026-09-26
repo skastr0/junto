@@ -59,9 +59,6 @@ const sortReasons = (reasons: ReadonlyArray<BlockedReason>): BlockedReason[] =>
     if (a.kind === "edge" && b.kind === "edge") {
       return a.edgeId < b.edgeId ? -1 : a.edgeId > b.edgeId ? 1 : 0;
     }
-    if (a.kind === "seed" && b.kind === "seed") {
-      return a.detail < b.detail ? -1 : a.detail > b.detail ? 1 : 0;
-    }
     if (a.kind === "work" && b.kind === "work") {
       return a.requestId < b.requestId ? -1 : a.requestId > b.requestId ? 1 : 0;
     }
@@ -88,14 +85,13 @@ export const stoppageEnds = (
 
 const reasonKey = (reason: BlockedReason): string => {
   if (reason.kind === "work") return `work:${reason.requestId}`;
-  if (reason.kind === "edge") return `edge:${reason.edgeId}`;
-  return `seed:${reason.detail}`;
+  return `edge:${reason.edgeId}`;
 };
 
 /**
  * Derive the stoppage impact cone for `rootNodeId`.
  *
- * - Root is a **seed** (manual blocker), a **generator** (outbound generating
+ * - Root is a **generator** (outbound generating
  *   edge), or **blocked** → cone is the apex set that seeds root’s stoppage
  *   plus the forward blocked-edge closure from those apexes.
  * - Otherwise the cone is empty.
@@ -130,18 +126,17 @@ export const impactCone = (
     reverse.set(actorId, inn);
   }
 
-  const rootIsSeed = graph.seedNodeIds.has(rootNodeId);
   const rootIsBlocked = graph.blocked.has(rootNodeId);
   const rootIsGenerator = (generatesFrom.get(rootNodeId)?.length ?? 0) > 0;
 
-  if (!rootIsSeed && !rootIsBlocked && !rootIsGenerator) {
+  if (!rootIsBlocked && !rootIsGenerator) {
     return emptyCone(rootNodeId);
   }
 
-  // Apex set: seeds / generators that causally root this cone.
+  // Apex set: generators that causally root this cone.
   const apexes = new Set<string>();
 
-  if (rootIsSeed || rootIsGenerator) {
+  if (rootIsGenerator) {
     apexes.add(rootNodeId);
   }
 
@@ -153,21 +148,11 @@ export const impactCone = (
       if (seen.has(current)) continue;
       seen.add(current);
 
-      if (graph.seedNodeIds.has(current)) {
-        apexes.add(current);
-      }
-
       const parents = reverse.get(current) ?? [];
       if (parents.length === 0) {
         // Direct generating edge(s) into current — generators are apexes.
         for (const reason of graph.reasonsByNodeId.get(current) ?? []) {
           if (reason.kind === "edge") apexes.add(reason.fromNodeId);
-        }
-        // Manual seed may not appear as reverse parent when seed is not blocked.
-        for (const seedId of graph.seedNodeIds) {
-          for (const hop of forward.get(seedId) ?? []) {
-            if (hop.nodeId === current) apexes.add(seedId);
-          }
         }
         // Fallback: treat the blocked node itself as apex if nothing else found.
         if (apexes.size === 0) apexes.add(current);
@@ -213,27 +198,13 @@ export const impactCone = (
     }
   }
 
-  // Seed reasons: direct edge|seed causes whose apex is in the apex set.
+  // Seed reasons: direct edge causes whose apex is in the apex set.
   const seedReasonMap = new Map<string, BlockedReason>();
   for (const nodeId of nodeIds) {
     if (!graph.blocked.has(nodeId)) continue;
     for (const reason of graph.reasonsByNodeId.get(nodeId) ?? []) {
       if (reason.kind === "edge" && apexes.has(reason.fromNodeId)) {
         seedReasonMap.set(reasonKey(reason), reason);
-      } else if (reason.kind === "seed") {
-        // Attribute seed reasons when an apex seed relays into this node.
-        let fromApex = false;
-        for (const apex of apexes) {
-          if (!graph.seedNodeIds.has(apex)) continue;
-          for (const hop of forward.get(apex) ?? []) {
-            if (hop.nodeId === nodeId) {
-              fromApex = true;
-              break;
-            }
-          }
-          if (fromApex) break;
-        }
-        if (fromApex) seedReasonMap.set(reasonKey(reason), reason);
       }
     }
   }
@@ -254,12 +225,6 @@ export const impactCone = (
     for (const reason of sortReasons(graph.reasonsByNodeId.get(current) ?? [])) {
       if (reason.kind === "edge" && apexes.has(reason.fromNodeId)) {
         jumps.push(reason.fromNodeId);
-      }
-    }
-    for (const apex of [...apexes].sort()) {
-      if (!graph.seedNodeIds.has(apex)) continue;
-      for (const hop of forward.get(apex) ?? []) {
-        if (hop.nodeId === current) jumps.push(apex);
       }
     }
     return jumps;

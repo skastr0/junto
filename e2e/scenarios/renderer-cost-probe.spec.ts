@@ -1,8 +1,7 @@
 /**
  * Renderer/GPU cost probe — a repeatable measurement, not a pass/fail gate.
  *
- * Boots the app onto a seeded canvas of agent seats (two carrying the blocker
- * flag so the infinite crimson halo animation runs), then samples for
+ * Boots the app onto a seeded canvas of agent seats, then samples for
  * ~15 seconds and prints one compact JSON line:
  *
  *   - per-process CPU%% over the window (Electron app.getAppMetrics():
@@ -39,11 +38,6 @@ const SAMPLE_MS = Number(process.env.JUNTO_PROBE_SAMPLE_MS ?? 15_000);
 const MOTION: "live" | "paused" =
   process.env.JUNTO_PROBE_MOTION === "paused" ? "paused" : "live";
 
-const withBlocker = (node: TextNode): TextNode => ({
-  ...node,
-  ether: { ...node.ether, flags: ["blocker"] },
-});
-
 const seat = (i: number): TextNode =>
   agentTextNode({
     id: `seat${i}`,
@@ -53,12 +47,10 @@ const seat = (i: number): TextNode =>
     y: 60 + Math.floor(i / 3) * 180,
   });
 
-/** Six agent seats (two with the animated blocker halo) + a tasks sink. */
+/** Six agent seats + a tasks sink. */
 const fixtureDoc = canvasDoc([
   tasksNode({ id: "tasks", x: 60, y: 460 }),
-  ...Array.from({ length: 6 }, (_, i) =>
-    i < 2 ? withBlocker(seat(i)) : seat(i),
-  ),
+  ...Array.from({ length: 6 }, (_, i) => seat(i)),
 ]);
 
 /** Authority-only boot: disk seed is not live. Install via writeCanvas

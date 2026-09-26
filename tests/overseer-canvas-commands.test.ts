@@ -22,7 +22,7 @@ import { WorkLive } from "../src/main/junto/work/service";
 import { SettingsLive } from "../src/main/junto/settings/service";
 import { makeContentServiceLive } from "../src/main/junto/content/service";
 import { makeInstallOpsLive } from "../src/main/junto/install-ops/engine";
-import { applyMirrorLaw, type CanvasDoc, type CanvasNode } from "../src/shared/canvas";
+import { type CanvasDoc, type CanvasNode } from "../src/shared/canvas";
 import type { OverseerCaller, OverseerRequest } from "../src/shared/overseer-control";
 import type { WorkErrorBody } from "../src/shared/work-control";
 
@@ -85,7 +85,7 @@ const sheet = (id: string): CanvasNode => ({
 });
 
 const overseerDoc = (): CanvasDoc =>
-  applyMirrorLaw({
+  ({
     nodes: [
       agent("overseer", "bind-overseer", true),
       agent("peer", "bind-peer"),
@@ -108,7 +108,7 @@ const overseerDoc = (): CanvasDoc =>
   });
 
 const aliasDoc = (overseer = false): CanvasDoc =>
-  applyMirrorLaw({
+  ({
     nodes: [agent("alias", "bind-overseer", overseer)],
     edges: [],
   });

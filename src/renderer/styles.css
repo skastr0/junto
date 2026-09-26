@@ -974,7 +974,6 @@ html[data-junto-platform="darwin"] .station-bar [role="listbox"] {
 .field-filter-tray__chip { border-radius: 4px; padding: 3px 5px; font-size: 8px; letter-spacing: .08em; text-transform: uppercase; }
 .field-filter-tray__chip--source { color: var(--color-cyan); background: color-mix(in oklab, var(--color-second) 9%, transparent); }
 .field-filter-tray__chip--edge { color: var(--color-amber); background: color-mix(in oklab, var(--color-main) 9%, transparent); }
-.field-filter-tray__chip--flag { color: var(--color-crimson); background: color-mix(in oklab, var(--color-accent) 9%, transparent); }
 .field-filter-tray button { border: 1px solid var(--color-stroke); border-radius: 4px; color: var(--color-dim); padding: 3px 5px; font-size: 8px; letter-spacing: .1em; text-transform: uppercase; }
 .field-filter-tray button:hover { border-color: color-mix(in oklab, var(--color-ink) 42%, transparent); color: var(--color-ink); }
 
@@ -1154,11 +1153,8 @@ html[data-junto-platform="darwin"] .station-bar [role="listbox"] {
 .field-empty__reticle span:nth-child(2) { right: -3px; top: -3px; border-left: 0; border-bottom: 0; }
 .field-empty__reticle span:nth-child(3) { right: -3px; bottom: -3px; border-left: 0; border-top: 0; }
 .field-empty__reticle span:nth-child(4) { left: -3px; bottom: -3px; border-right: 0; border-top: 0; }
-.field-empty__eyebrow { display: inline-flex; align-items: center; gap: 6px; color: var(--color-amber); font-size: 8px; letter-spacing: .18em; text-transform: uppercase; }
 .field-empty__title { margin-top: 9px; color: var(--color-ink); font-family: "Arial Narrow", "Avenir Next Condensed", sans-serif; font-size: 26px; letter-spacing: .16em; text-transform: uppercase; }
 .field-empty__copy { margin-top: 10px; color: var(--color-faint); font-size: 10px; letter-spacing: .06em; line-height: 1.7; }
-.field-empty__clear { margin: 14px auto 0; border: 1px solid color-mix(in oklab, var(--color-second) 30%, transparent); border-radius: 5px; color: var(--color-cyan); padding: 6px 9px; font-size: 8px; letter-spacing: .14em; text-transform: uppercase; transition: background .18s ease, border-color .18s ease; }
-.field-empty__clear:hover { border-color: color-mix(in oklab, var(--color-second) 68%, transparent); background: color-mix(in oklab, var(--color-second) 8%, transparent); }
 /* Region window frame — the only chrome that grabs an unselected region.
    The plate and the React Flow wrapper stay pointer-transparent, so the
    interior remains pane (marquee, deselect, right-click add). Strips unmount
@@ -1289,9 +1285,6 @@ html[data-junto-platform="darwin"] .station-bar [role="listbox"] {
 .manifest-card__index { color: var(--color-amber); }
 .manifest-card__kind { border: 1px solid var(--color-overlay-4); border-radius: 3px; padding: 2px 5px; }
 .manifest-card__blocker { color: var(--color-crimson); margin-left: auto; }
-.manifest-card__flag { margin-left: auto; border: 1px solid; border-radius: 3px; padding: 2px 5px; font-size: 7px; letter-spacing: .1em; line-height: 1; text-transform: uppercase; }
-.manifest-card__flag--attention { border-color: color-mix(in oklab, var(--color-main) 35%, transparent); color: var(--color-amber); background: color-mix(in oklab, var(--color-main) 8%, transparent); }
-.manifest-card__flag--parked { border-color: color-mix(in oklab, var(--color-violet) 35%, transparent); color: var(--color-violet); background: color-mix(in oklab, var(--color-violet) 8%, transparent); }
 .manifest-card__arrow { color: var(--color-faint); margin-left: auto; }
 .manifest-card__blocker + .manifest-card__arrow { margin-left: 0; }
 .manifest-card__title { overflow: hidden; color: var(--color-ink); font-family: "Arial Narrow", "Avenir Next Condensed", sans-serif; font-size: 19px; letter-spacing: .09em; line-height: 1.05; text-overflow: ellipsis; text-transform: uppercase; white-space: nowrap; }
@@ -1704,8 +1697,7 @@ html[data-viewport-busy] .react-flow .react-flow__edge-path {
 .junto-node__open { opacity: 0; }
 .junto-node:hover .junto-node__open,
 .react-flow__node.selected .junto-node__open { opacity: 1; }
-.junto-node__flag-rail { display: flex; min-height: 14px; align-items: center; gap: 4px; margin: -2px 0 7px; padding-right: 34px; }
-.junto-node__flag { border: 1px solid; border-radius: 3px; padding: 2px 5px; font-size: 7px; letter-spacing: .13em; line-height: 1; text-transform: uppercase; }
+.junto-node__status-rail { display: flex; min-height: 14px; align-items: center; gap: 4px; margin: -2px 0 7px; padding-right: 34px; }
 
 .react-flow__handle:hover {
   background: color-mix(in oklab, var(--color-main) 35%, transparent);
@@ -1801,7 +1793,6 @@ html[data-viewport-busy] .react-flow .react-flow__edge-path {
 
 @media (prefers-reduced-motion: reduce) {
   .junto-blocker::after,
-  .junto-node__flag--blocked-live,
   .junto-status-dot-pulse,
   .junto-edge-ripple .react-flow__edge-path,
   path.junto-edge-ripple,
@@ -1884,23 +1875,6 @@ html[data-surface-motion="paused"] .junto-node[data-seat-attention="true"]::afte
 .junto-node[data-occupancy="stalled"] {
   outline: 1.5px solid color-mix(in oklab, var(--color-steel) 40%, transparent);
   outline-offset: 3px;
-}
-.junto-node[data-occupancy="parked"] {
-  outline: 1.5px solid color-mix(in oklab, var(--color-violet) 40%, transparent);
-  outline-offset: 2px;
-  position: relative;
-}
-.junto-node[data-occupancy="parked"]::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  border-radius: 10px;
-  background-image: repeating-linear-gradient(
-    45deg,
-    color-mix(in oklab, var(--color-violet) 6%, transparent) 0 6px,
-    transparent 6px 12px
-  );
-  pointer-events: none;
 }
 /* gone = host unreachable, last intent stands (I20) — muted outline only,
    never crimson (that would read as revoked/compromised). */

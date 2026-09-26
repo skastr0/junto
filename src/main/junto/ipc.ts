@@ -54,6 +54,7 @@ import { WorkService } from "./work/service";
 import { ContentService } from "./content/service";
 import { messageDelivery } from "./work/message-delivery";
 import { AgentSignalRepository } from "./signals/repository";
+import { raisedHands } from "./signals/raised-hands";
 import { SquadRepository, type SquadRepositoryError } from "./squads/repository";
 import type { SquadDeleteResult, SquadResult, SquadSaveInput } from "@shared/squads";
 import { PortraitOverrideRepository } from "./portraits/repository";
@@ -690,7 +691,10 @@ export const registerJuntoIpc = (): void => {
   ): Promise<AgentSignalOperatorResult> =>
     runMainAuthoring(label, () => AppRuntime.runPromise(program))
       .then((result) => {
-        if (result.ok) broadcast(IPC_CHANNELS.agentSignal, result.signal);
+        if (result.ok) {
+          raisedHands.note(result.signal);
+          broadcast(IPC_CHANNELS.agentSignal, result.signal);
+        }
         return result;
       })
       .catch((error: unknown) => ({

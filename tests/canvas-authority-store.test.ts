@@ -30,7 +30,6 @@ import {
 } from "../src/main/junto/content/service";
 import { makeInstallOpsLive } from "../src/main/junto/install-ops/engine";
 import {
-  applyMirrorLaw,
   serializeCanvas,
   type CanvasDoc,
 } from "../src/shared/canvas";
@@ -40,7 +39,7 @@ import {
 import { managedAgentEther } from "./helpers/managed-agent-ether";
 
 const noteDoc = (text: string): CanvasDoc =>
-  applyMirrorLaw({
+  ({
     nodes: [
       {
         id: "n1",
@@ -56,7 +55,7 @@ const noteDoc = (text: string): CanvasDoc =>
   });
 
 const taskSinkDoc = (): CanvasDoc =>
-  applyMirrorLaw({
+  ({
     nodes: [
       {
         id: "sink",
@@ -83,7 +82,7 @@ const taskSinkDoc = (): CanvasDoc =>
   });
 
 const padSinkDoc = (): CanvasDoc =>
-  applyMirrorLaw({
+  ({
     nodes: [
       {
         id: "sink",
@@ -616,7 +615,7 @@ describe("CanvasesService SQLite authority", () => {
     bindingId: string,
     overseer = false,
   ): CanvasDoc =>
-    applyMirrorLaw({
+    ({
       nodes: [
         {
           id,

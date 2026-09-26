@@ -12,7 +12,6 @@ describe("signalMark", () => {
     expect(signalMark("ready").hue).toBe(GREEN);
     expect(signalMark("ready").symbol).toBe("✓");
     expect(signalMark("ready").mode).toBe("pulse");
-    expect(signalMark("parked").hue).toBe(HUE.violet);
     expect(signalMark("idle").kind).toBe("idle");
     expect(signalMark("idle").symbol).toBe("○");
   });

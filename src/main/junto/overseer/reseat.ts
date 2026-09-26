@@ -90,7 +90,6 @@ export const reseatManagedAgentNode = (
     options.mode,
   ].filter((part): part is string => Boolean(part && part.trim()));
   const label = options.label?.trim() || parts.join(" - ");
-  const flags = node.ether.flags;
   return {
     ...node,
     text: label,
@@ -104,7 +103,6 @@ export const reseatManagedAgentNode = (
         launch: launchWithSession,
         ...(pinSession ? { sessionId: pinSession } : {}),
       },
-      ...(flags && flags.length > 0 ? { flags } : {}),
     },
   };
 };
