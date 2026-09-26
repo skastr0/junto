@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { use$ } from "@legendapp/state/react";
-import { ArrowLeft, ArrowRight, Pause, Play } from "lucide-react";
+import { ArrowLeft, ArrowRight } from "lucide-react";
 import type { PortraitExpression } from "@shared/portrait-expression";
 import { JUNTO_MASCOT } from "@shared/brand-mascot";
 import type { AgentSignalKind } from "@shared/agent-signals";
@@ -26,6 +26,7 @@ import { DEFAULT_QUICK_REPLIES } from "@shared/settings";
 import { ActivityMarkFromSpec } from "../ActivityMark";
 import { HotbarChip } from "../rts/RtsBottomBar";
 import { portraitFor } from "../SeatRing";
+import { PauseSwitchFace } from "../TopBar";
 import "./first-run-intro.css";
 import { claimFocusOnMount, isOperatorTyping } from "../../lib/focus-ownership";
 
@@ -543,17 +544,37 @@ const organizeChapter: TourChapter = {
 // --- Play and pause ------------------------------------------------------------
 
 function PlayPauseDemo() {
+  // The real switch flips; the wire only carries messages while playing.
+  const beat = useTourBeat(PULSE_BEAT_MS);
+  const playing = beat % 4 >= 2;
+  const planner = { x: 24, y: 84 };
+  const builder = { x: 380, y: 84 };
+  const W = 600;
+  const H = 200;
   return (
-    <div className="intro-art intro-art--play" aria-hidden>
-      <span className="intro-switch intro-switch--paused">
-        <Pause size={11} fill="currentColor" />
-        paused
-      </span>
-      <ArrowRight size={14} className="intro-switch__arrow" />
-      <span className="intro-switch intro-switch--playing">
-        <Play size={11} fill="currentColor" />
-        playing
-      </span>
+    <div className="tour-column">
+      <div className="tour-switch" inert aria-hidden>
+        <PauseSwitchFace playing={playing} />
+      </div>
+      <TourStage width={W} height={H} label="Two wired seats; messages cross the wire only while the canvas plays">
+        <DemoWire
+          from={seatPort(planner.x, planner.y, "right")}
+          to={seatPort(builder.x, builder.y, "left")}
+          width={W}
+          height={H}
+          pulse={playing ? beat + 1 : undefined}
+          kind="notice"
+        />
+        <DemoSeat id="tour-p1" name="planner" harness="claude" {...planner} spec={terminalActivity({ seatState: "working" })} />
+        <DemoSeat
+          id="tour-p2"
+          name="builder"
+          harness="codex"
+          {...builder}
+          spec={terminalActivity({ seatState: "working" })}
+          bubble={playing ? note(`tour-p2-${String(beat)}`, "mail from planner: go ahead", "mail-in", "violet", beat) : undefined}
+        />
+      </TourStage>
     </div>
   );
 }
@@ -573,10 +594,11 @@ const playChapter: TourChapter = {
         To play, press the <strong>paused</strong> button at the top right of
         the window, or choose <strong>Play canvas</strong> from the command
         bar. Messages then flow between agents joined by a wire. Press it
-        again to pause, and that flow stops.
+        again to pause the whole canvas, and that flow stops.
       </p>
     </>
   ),
+  tryIt: [{ keys: ["⌘K"], text: <>then <strong>Play canvas</strong>, or press the switch at the top right.</> }],
   pip: "eager",
 };
 

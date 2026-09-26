@@ -249,41 +249,8 @@
   background: color-mix(in oklab, var(--color-cyan) 22%, transparent);
 }
 
-/* Slide 3: the top bar switch, paused then playing. */
-.intro-art--play {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 14px;
-  padding: 26px 12px;
-  border: 1px solid var(--color-overlay-4);
-  border-radius: 10px;
-  background: var(--color-inset);
-}
-.intro-switch {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  height: 26px;
-  padding: 0 10px;
-  border: 1px solid;
-  border-radius: 7px;
-  font-size: 9px;
-  letter-spacing: .14em;
-  text-transform: uppercase;
-}
-.intro-switch--paused {
-  border-color: color-mix(in oklab, var(--color-amber) 55%, transparent);
-  background: color-mix(in oklab, var(--color-amber) 12%, transparent);
-  box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-amber) 8%, transparent);
-  color: var(--color-amber);
-}
-.intro-switch--playing {
-  border-color: color-mix(in oklab, var(--color-green) 28%, transparent);
-  background: var(--color-overlay-1);
-  color: var(--color-green);
-}
-.intro-switch__arrow { color: var(--color-dim); }
+/* The top bar's real pause switch, lifted onto the stage. */
+.tour-switch { display: flex; justify-content: center; }
 
 .first-run-intro__foot {
   display: flex;

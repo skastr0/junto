@@ -161,6 +161,74 @@ function CommandBarTrigger({ canvasName }: { readonly canvasName: string }) {
   );
 }
 
+/**
+ * The pause switch as drawn: paused prominent in amber, playing quiet in
+ * green. Pure, so the tour can show the real control in either state.
+ */
+export function PauseSwitchFace({
+  playing,
+  busy = false,
+  error,
+  onClick,
+}: {
+  readonly playing: boolean;
+  readonly busy?: boolean;
+  readonly error?: string | null;
+  readonly onClick?: () => void;
+}) {
+  const pauseLabel = playing ? "playing" : "paused";
+  return (
+    <button
+      type="button"
+      data-testid="factory-pause"
+      data-pause-state={pauseLabel}
+      aria-label={playing ? "Pause canvas" : "Play canvas"}
+      title={
+        error
+          ? `pause switch: ${error}`
+          : playing
+            ? "Pause canvas"
+            : "Play canvas"
+      }
+      disabled={busy}
+      onClick={onClick}
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 6,
+        height: 26,
+        padding: "0 10px",
+        borderRadius: 7,
+        fontFamily: "inherit",
+        fontSize: 9,
+        letterSpacing: ".14em",
+        textTransform: "uppercase",
+        cursor: busy ? "not-allowed" : "pointer",
+        border: "1px solid",
+        ...(playing
+          ? {
+              color: GREEN,
+              borderColor: withAlpha(GREEN, 0.28),
+              background: "var(--color-overlay-1)",
+            }
+          : {
+              color: HUE.amber,
+              borderColor: withAlpha(HUE.amber, 0.55),
+              background: withAlpha(HUE.amber, 0.12),
+              boxShadow: `0 0 0 3px ${withAlpha(HUE.amber, 0.08)}`,
+            }),
+      }}
+    >
+      {playing ? (
+        <Play size={11} fill="currentColor" />
+      ) : (
+        <Pause size={11} fill="currentColor" />
+      )}
+      <span>{pauseLabel}</span>
+    </button>
+  );
+}
+
 // Factory pause switch (app-state, main-owned). The canvas is born paused;
 // PAUSED is the prominent state, playing stays quiet. First play routes
 // through FirstPlayConfirm (everPlayed latch); pausing is always instant.
@@ -181,57 +249,9 @@ function FactoryPauseControl({ canvasName }: { readonly canvasName: string }) {
   const onClick = () => toggleFactoryPause(canvasName);
 
   const playing = pauseState.playing;
-  const pauseLabel = playing ? "playing" : "paused";
   return (
     <>
-      <button
-        type="button"
-        data-testid="factory-pause"
-        data-pause-state={pauseLabel}
-        aria-label={playing ? "Pause canvas" : "Play canvas"}
-        title={
-          error
-            ? `pause switch: ${error}`
-            : playing
-              ? "Pause canvas"
-              : "Play canvas"
-        }
-        disabled={busy}
-        onClick={onClick}
-        style={{
-          display: "inline-flex",
-          alignItems: "center",
-          gap: 6,
-          height: 26,
-          padding: "0 10px",
-          borderRadius: 7,
-          fontFamily: "inherit",
-          fontSize: 9,
-          letterSpacing: ".14em",
-          textTransform: "uppercase",
-          cursor: busy ? "not-allowed" : "pointer",
-          border: "1px solid",
-          ...(playing
-            ? {
-                color: GREEN,
-                borderColor: withAlpha(GREEN, 0.28),
-                background: "var(--color-overlay-1)",
-              }
-            : {
-                color: HUE.amber,
-                borderColor: withAlpha(HUE.amber, 0.55),
-                background: withAlpha(HUE.amber, 0.12),
-                boxShadow: `0 0 0 3px ${withAlpha(HUE.amber, 0.08)}`,
-              }),
-        }}
-      >
-        {playing ? (
-          <Play size={11} fill="currentColor" />
-        ) : (
-          <Pause size={11} fill="currentColor" />
-        )}
-        <span>{pauseLabel}</span>
-      </button>
+      <PauseSwitchFace playing={playing} busy={busy} error={error} onClick={onClick} />
       {error ? (
         <span
           role="alert"
