@@ -36,6 +36,15 @@ that action. Narrow startup metadata/network exceptions are listed below.
   is Squirrel.Mac, which installs an update by fetching it from
   electron-updater's `http://127.0.0.1` proxy. The audit pins this exact
   dictionary so it cannot widen.
+- Desktop notifications use Electron's `Notification`, which needs no
+  entitlement or purpose string. macOS asks for permission the first time a
+  banner is shown: when the operator presses Send a test notification in
+  Settings > Notifications, or, if they never did, at the first need that
+  rises while Junto is in the background. Nothing is shown at launch or while
+  the window is in front. Banners carry a seat's name and one line of what
+  it needs; they stay on this machine. The Dock badge (the feed's count) and
+  the Dock bounce use the app's own Dock tile and ask for nothing. Every kind,
+  the badge, and the bounce have their own switch.
 - The trusted renderer may write the clipboard and, in Live-enabled builds,
   request audio-only microphone access. Third-party browser
   pages are denied media, display capture, devices, downloads, filesystem
@@ -80,6 +89,7 @@ one. `tests/launch-permission-surface.test.ts` holds both.
 | Browser page | Explicitly opening a page node | Junto-owned persistent browser profile and public network destinations; managed-page downloads are denied outright, and the app's own session download path is pinned under app state so it never resolves `~/Downloads` | Site cookies/storage persist until the operator wipes that profile; hostile web permissions are denied |
 | SSH/Remote | Explicit enrollment, then reconnect/sync while Command Center runs | OpenSSH configuration/credentials plus app paths on that enrolled Remote | No tailnet-wide file walk; managed package installs default off and stay in disclosed Junto app/service paths |
 | Backup export | Export action and native save dialog | One operator-selected destination | Creates a verified copy and never overwrites an existing file |
+| Desktop notifications | A need rising while Junto is in the background, or Send a test notification | macOS Notifications permission (asked by macOS at the first banner); the app's Dock tile for the badge and bounce | A seat's name and one line per banner, never sent off the machine; closed when the need is answered; one switch per kind, plus badge and bounce |
 | Login item | Settings checkbox | macOS Login Items state | Off until explicitly enabled; no hidden launch |
 | Updates | Automatic release check after startup; download/install actions remain explicit | Release feed plus staging in temporary/app install paths | No home-content access; launchd shutdown avoids Apple Events and Automation prompts |
 

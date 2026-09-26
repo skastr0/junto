@@ -163,6 +163,20 @@ describe("macOS privacy policy", () => {
     expect(ui).toContain("Allow Hermes host snapshot access");
   });
 
+  it("shows desktop notifications from one plane, never at launch", () => {
+    const docs = read("docs/macos-privacy.md");
+    expect(docs).toContain("Desktop notifications");
+    expect(docs).toContain("Nothing is shown at launch");
+    // The banner is what makes macOS ask; only the notification plane may raise one.
+    const main = [
+      read("src/main/index.ts"),
+      read("src/main/junto/ipc.ts"),
+      read("src/main/junto/notifications/plane.ts"),
+    ].join("\n");
+    expect(main).not.toMatch(/new Notification\(/u);
+    expect(read("src/main/junto/notifications/ipc.ts").match(/new Notification\(/gu)).toHaveLength(1);
+  });
+
   it("revokes admitted provider work without the global adapter shutdown switch", () => {
     const usage = read("src/main/junto/usage/usage-service.ts");
     const snapshots = read("src/main/junto/snapshots.ts");
