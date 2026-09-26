@@ -89,12 +89,18 @@ export const runCompanionSession = async (io: CompanionSessionIo): Promise<void>
     if (open) io.write(line);
   };
 
+  // Start reading before anything is awaited: a phone pipelines its first
+  // requests right behind the connection, and a line stream that is not yet
+  // being iterated drops what it has already read.
+  const iterator = io.lines[Symbol.asyncIterator]();
+
   const hello = await io.host.hello().catch(() => ({
     ok: false as const,
     error: { code: "app-not-running" as const, message: "Junto is not open on the Mac." },
   }));
   if (!hello.ok) {
     write(companionConnectionErrorLine(hello.error.code, hello.error.message));
+    void iterator.return?.();
     return;
   }
   write(encodeCompanionFrame(companionEvent("hello", hello.hello)));
@@ -297,7 +303,6 @@ export const runCompanionSession = async (io: CompanionSessionIo): Promise<void>
     ensureEvents();
   };
 
-  const iterator = io.lines[Symbol.asyncIterator]();
   const next = (): Promise<Next> =>
     new Promise((resolve) => {
       const timer = setTimeout(() => resolve({ kind: "idle" }), idleMs);
