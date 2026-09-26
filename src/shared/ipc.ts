@@ -68,6 +68,19 @@ import type {
   PortraitOverrideSetResult,
 } from "./portrait-overrides";
 import type { Squad, SquadDeleteResult, SquadResult, SquadSaveInput, SquadsChanged } from "./squads";
+import type {
+  SeatGuidance,
+  SeatGuidanceEvent,
+  SeatGuidanceMap,
+  SeatGuidanceSetResult,
+} from "./seat-guidance";
+import type {
+  AgentProfile,
+  ProfileDeleteResult,
+  ProfileResult,
+  ProfileSaveInput,
+  ProfilesChanged,
+} from "./agent-profiles";
 import type { NotifyCue, NotifyReport, NotifyTarget } from "./desktop-notifications";
 import type { OverseerLiveApi } from "./overseer-live";
 import type { HostDeployJobSnapshot } from "./deploy-job";
@@ -132,6 +145,16 @@ export const IPC_CHANNELS = {
   squadRename: "junto:squad-rename",
   squadDelete: "junto:squad-delete",
   squadsChanged: "junto:squads-changed",
+  /** Seat guidance (soul, instructions): list all seats, set or clear one, live upsert. */
+  seatGuidanceList: "junto:seat-guidance-list",
+  seatGuidanceSet: "junto:seat-guidance-set",
+  seatGuidance: "junto:seat-guidance",
+  /** Agent profiles: list, save (create or replace), rename, delete, live list push. */
+  profilesList: "junto:profiles-list",
+  profileSave: "junto:profile-save",
+  profileRename: "junto:profile-rename",
+  profileDelete: "junto:profile-delete",
+  profilesChanged: "junto:profiles-changed",
   /** Desktop notifications: renderer reports open needs, asks for a test banner; main routes a click and a cue back. */
   notificationsReport: "junto:notifications-report",
   notificationsTest: "junto:notifications-test",
@@ -689,6 +712,19 @@ export interface JuntoApi extends UpdateApi, OverseerLiveApi {
   readonly squadSave: (input: SquadSaveInput) => Promise<SquadResult>;
   readonly squadRename: (squadId: string, name: string) => Promise<SquadResult>;
   readonly squadDelete: (squadId: string) => Promise<SquadDeleteResult>;
+  /** Every seat's soul and instructions, keyed by node id. */
+  readonly seatGuidanceList: () => Promise<SeatGuidanceMap>;
+  /** Replace one seat's soul and instructions; null clears both. */
+  readonly seatGuidanceSet: (
+    seatId: string,
+    guidance: SeatGuidance | null,
+  ) => Promise<SeatGuidanceSetResult>;
+  /** The operator's saved agent profiles, by name. */
+  readonly profilesList: () => Promise<ReadonlyArray<AgentProfile>>;
+  /** Create a profile (no id) or replace one's configuration. */
+  readonly profileSave: (input: ProfileSaveInput) => Promise<ProfileResult>;
+  readonly profileRename: (profileId: string, name: string) => Promise<ProfileResult>;
+  readonly profileDelete: (profileId: string) => Promise<ProfileDeleteResult>;
   /** Canvas play/pause, the only pause scope. */
   readonly factoryPauseSet: (
     canvas: string,
@@ -883,6 +919,10 @@ export interface JuntoApi extends UpdateApi, OverseerLiveApi {
   readonly onPortraitOverride: (listener: (event: PortraitOverrideEvent) => void) => () => void;
   /** Main → renderer: every squad, after any change. Optional for older bridges. */
   readonly onSquadsChanged?: (listener: (event: SquadsChanged) => void) => () => void;
+  /** Main -> renderer: one seat's guidance as it now stands. */
+  readonly onSeatGuidance?: (listener: (event: SeatGuidanceEvent) => void) => () => void;
+  /** Main -> renderer: every profile, after any change. */
+  readonly onProfilesChanged?: (listener: (profiles: ProfilesChanged) => void) => () => void;
   /** The canvas's open needs, for desktop notifications and the Dock badge. */
   readonly notificationsReport?: (
     report: NotifyReport,

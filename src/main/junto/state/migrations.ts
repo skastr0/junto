@@ -7,6 +7,8 @@ import { STATE_SCHEMA_SQL } from "./schema";
 import { AGENT_SIGNALS_STATE_SCHEMA_SQL } from "../signals/state-schema";
 import { SQUADS_STATE_SCHEMA_SQL } from "../squads/state-schema";
 import { COMPANION_DEVICES_STATE_SCHEMA_SQL } from "../companion/state-schema";
+import { SEAT_GUIDANCE_STATE_SCHEMA_SQL } from "../seat-guidance/state-schema";
+import { AGENT_PROFILES_STATE_SCHEMA_SQL } from "../profiles/state-schema";
 import {
   PORTRAIT_OVERRIDES_COPY_FORWARD_SQL,
   PORTRAIT_OVERRIDES_STATE_SCHEMA_SQL,
@@ -155,7 +157,16 @@ export const STATE_SCHEMA_V6_IDENTITY = {
     "968a438797d302398a05ac6042b2d2eb06d55a63e2de2c98680fe5cd18672cae",
 } as const satisfies VerifiedStateSchemaIdentity;
 
-export const CURRENT_STATE_SCHEMA_VERSION = 6;
+/**
+ * Version 7 adds seat guidance (per-seat soul and instructions) and agent
+ * profiles (saved agents placed from the add picker). Expand only.
+ */
+export const STATE_SCHEMA_V7_IDENTITY = {
+  actualSchemaSha256:
+    "8d486dc491037e9fabb428007a69b1bbbb5a69d028ea39c22e509b07bdfd3137",
+} as const satisfies VerifiedStateSchemaIdentity;
+
+export const CURRENT_STATE_SCHEMA_VERSION = 7;
 
 /**
  * Stable alias for the head identity so tests and tooling never rename an
@@ -163,7 +174,7 @@ export const CURRENT_STATE_SCHEMA_VERSION = 6;
  * above after any schema change.
  */
 export const CURRENT_STATE_SCHEMA_IDENTITY: VerifiedStateSchemaIdentity =
-  STATE_SCHEMA_V6_IDENTITY;
+  STATE_SCHEMA_V7_IDENTITY;
 
 /**
  * Junto version 1 is composed fresh and adopted, never reached by chain; each
@@ -227,6 +238,17 @@ export const STATE_SCHEMA_MIGRATIONS: ReadonlyArray<StateSchemaMigration> = [
     fromIdentity: STATE_SCHEMA_V5_IDENTITY,
     migrate: (database) => {
       database.exec(COMPANION_DEVICES_STATE_SCHEMA_SQL);
+    },
+  },
+  {
+    fromVersion: 6,
+    toVersion: 7,
+    name: "add seat guidance and agent profiles",
+    safety: STATE_SCHEMA_MIGRATION_SAFETY,
+    fromIdentity: STATE_SCHEMA_V6_IDENTITY,
+    migrate: (database) => {
+      database.exec(SEAT_GUIDANCE_STATE_SCHEMA_SQL);
+      database.exec(AGENT_PROFILES_STATE_SCHEMA_SQL);
     },
   },
 ];

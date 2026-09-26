@@ -39,6 +39,8 @@ import { beginBoxProcessShutdown } from "./junto/box";
 import { AppRuntime } from "./runtime";
 import { AgentSignalRepository } from "./junto/signals/repository";
 import { raisedHands } from "./junto/signals/raised-hands";
+import { SeatGuidanceRepository } from "./junto/seat-guidance/repository";
+import { seatGuidanceIndex } from "./junto/seat-guidance/index-memory";
 import {
   armMainThreadBudget,
   installObservabilityConsoleHook,
@@ -1629,6 +1631,13 @@ if (packagedSandboxDisablingSwitch !== undefined) {
         onPreamble: (event: PreambleEvent) => {
           companionNotePreamble(event);
           const window = currentTrustedMainWindow();
+      // Seat souls and instructions the spawn doctrine compiles in; writes
+      // from here on are noted as they happen.
+      void AppRuntime.runPromise(
+        Effect.flatMap(SeatGuidanceRepository, (guidance) => guidance.list()),
+      ).then(seatGuidanceIndex.hydrate, (error: unknown) => {
+        console.error("[seat-guidance] not loaded:", error);
+      });
           if (
             window === undefined ||
             window.webContents.isDestroyed() ||

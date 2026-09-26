@@ -19,8 +19,7 @@ import {
   migrateStateSchema,
 } from "../src/main/junto/state/migrations";
 import { expectedStateSchemaIdentity, verifyRecordedStateSchemaIdentity } from "../src/main/junto/state/schema-identity";
-import { STATE_SCHEMA_SQL } from "../src/main/junto/state/schema";
-import { STATE_SCHEMA_V5_SQL } from "./fixtures/state-v1/schema";
+import { STATE_SCHEMA_V5_SQL, STATE_SCHEMA_V6_SQL } from "./fixtures/state-v1/schema";
 
 const fixture = fileURLToPath(new URL("./fixtures/state-v1/command-center-v1.db", import.meta.url));
 
@@ -62,12 +61,20 @@ const versionFivePlan = {
   migrations: STATE_SCHEMA_MIGRATIONS.filter((step) => step.toVersion <= 5),
 };
 
+// 6 -> 7 (seat guidance and agent profiles) lands on top; this suite stops at 6.
+const versionSixPlan = {
+  ...STATE_SCHEMA_MIGRATION_PLAN,
+  currentVersion: 6,
+  currentSchemaSql: STATE_SCHEMA_V6_SQL,
+  migrations: STATE_SCHEMA_MIGRATIONS.filter((step) => step.toVersion <= 6),
+};
+
 const DEV = "dev_01J9Z3K4M5N6P7Q8R9S0T1V2W3";
 
 describe("state migration 5 -> 6 (companion devices)", () => {
   it("freezes the version-five witness the step starts from and names the head", () => {
     expect(expectedStateSchemaIdentity(STATE_SCHEMA_V5_SQL)).toEqual(STATE_SCHEMA_V5_IDENTITY);
-    expect(expectedStateSchemaIdentity(STATE_SCHEMA_SQL)).toEqual(STATE_SCHEMA_V6_IDENTITY);
+    expect(expectedStateSchemaIdentity(STATE_SCHEMA_V6_SQL)).toEqual(STATE_SCHEMA_V6_IDENTITY);
   });
 
   it("adds the table and leaves every existing row, immutable logs included, untouched", async () => {
@@ -79,7 +86,7 @@ describe("state migration 5 -> 6 (companion devices)", () => {
       expect((before.work_events as unknown[]).length).toBeGreaterThan(0);
       expect(before).not.toHaveProperty("companion_devices");
 
-      const result = migrateStateSchema(database);
+      const result = migrateStateSchema(database, versionSixPlan);
       expect(result).toMatchObject({ previousVersion: 5, schemaVersion: 6 });
       expect(verifyRecordedStateSchemaIdentity(database)).toMatchObject(STATE_SCHEMA_V6_IDENTITY);
 
@@ -95,7 +102,7 @@ describe("state migration 5 -> 6 (companion devices)", () => {
   it("holds a pairing and a paired device, and refuses inconsistent rows", async () => {
     const database = await openCopy();
     try {
-      migrateStateSchema(database);
+      migrateStateSchema(database, versionSixPlan);
       const insert = database.prepare(
         `INSERT INTO companion_devices(device_id, name, state, public_key, pairing_expires_at, created_at, paired_at, last_seen_at)
          VALUES (?, ?, ?, ?, ?, 1, ?, NULL)`,

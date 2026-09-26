@@ -210,6 +210,24 @@
       "retire": "IN-MEMORY WORLD: retire when the in-memory factory world owns the projection and this file's only write is the journal append."
     },
     {
+      "path": "src/main/junto/profiles/repository.ts",
+      "kind": "debt",
+      "tables": [
+        "agent_profiles"
+      ],
+      "reason": "Profile seam: the operator's saved agents, saved, updated, renamed, and deleted from the canvas.",
+      "retire": "IN-MEMORY WORLD: retire when the in-memory factory world owns the projection and this file's only write is the journal append."
+    },
+    {
+      "path": "src/main/junto/seat-guidance/repository.ts",
+      "kind": "debt",
+      "tables": [
+        "seat_guidance"
+      ],
+      "reason": "Seat guidance seam: the operator's per-seat soul and instructions, set and cleared from the agent editor.",
+      "retire": "IN-MEMORY WORLD: retire when the in-memory factory world owns the projection and this file's only write is the journal append."
+    },
+    {
       "path": "src/main/junto/portraits/repository.ts",
       "kind": "debt",
       "tables": [

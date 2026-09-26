@@ -57,6 +57,11 @@ import { AgentSignalRepository } from "./signals/repository";
 import { raisedHands } from "./signals/raised-hands";
 import { SquadRepository, type SquadRepositoryError } from "./squads/repository";
 import type { SquadDeleteResult, SquadResult, SquadSaveInput } from "@shared/squads";
+import { SeatGuidanceRepository } from "./seat-guidance/repository";
+import { seatGuidanceIndex } from "./seat-guidance/index-memory";
+import { isSeatGuidanceSeatId, type SeatGuidanceSetResult } from "@shared/seat-guidance";
+import { ProfileRepository, type ProfileRepositoryError } from "./profiles/repository";
+import type { ProfileDeleteResult, ProfileResult, ProfileSaveInput } from "@shared/agent-profiles";
 import { PortraitOverrideRepository } from "./portraits/repository";
 import {
   isPortraitSeatId,
@@ -777,6 +782,85 @@ export const registerJuntoIpc = (): void => {
         Effect.flatMap(SquadRepository, (repository) => repository.remove(id)),
       );
       return removed.ok ? { ok: true, squadId: removed.value } : removed;
+    },
+  );
+
+  // Seat guidance: the operator's per-seat soul and instructions. An
+  // install-local preference like portrait overrides (no canvas authoring), so
+  // it runs outside the main-authoring gate. The spawn plan reads the stored
+  // result from memory, so every write is noted there before it is broadcast.
+  privilegedIpc.handle(IPC_CHANNELS.seatGuidanceList, () =>
+    AppRuntime.runPromise(Effect.flatMap(SeatGuidanceRepository, (repository) => repository.list())),
+  );
+  privilegedIpc.handle(
+    IPC_CHANNELS.seatGuidanceSet,
+    async (_event, seatId: unknown, guidance: unknown): Promise<SeatGuidanceSetResult> => {
+      if (!isSeatGuidanceSeatId(seatId)) return { ok: false, message: "seat id is invalid" };
+      const result = await AppRuntime.runPromise(
+        Effect.result(Effect.flatMap(SeatGuidanceRepository, (repository) => repository.set(seatId, guidance))),
+      ).catch((error: unknown) =>
+        Result.fail({ message: error instanceof Error ? error.message : "seat guidance save failed" }),
+      );
+      if (Result.isFailure(result)) return { ok: false, message: result.failure.message };
+      seatGuidanceIndex.note(seatId, result.success);
+      broadcast(IPC_CHANNELS.seatGuidance, { seatId, guidance: result.success });
+      return { ok: true, seatId, guidance: result.success };
+    },
+  );
+
+  // Agent profiles: saved agents placed from the add picker. Every change
+  // pushes the whole list; refusals come back as a message, never a throw.
+  const profilesNow = () =>
+    AppRuntime.runPromise(Effect.flatMap(ProfileRepository, (repository) => repository.list()));
+  const runProfile = async <A>(
+    program: Effect.Effect<A, ProfileRepositoryError, ProfileRepository>,
+  ): Promise<{ readonly ok: true; readonly value: A } | { readonly ok: false; readonly message: string }> => {
+    const result = await AppRuntime.runPromise(Effect.result(program)).catch((error: unknown) =>
+      Result.fail({ message: error instanceof Error ? error.message : "profile update failed" }),
+    );
+    if (Result.isFailure(result)) return { ok: false, message: result.failure.message };
+    void profilesNow()
+      .then((profiles) => broadcast(IPC_CHANNELS.profilesChanged, profiles))
+      .catch(() => undefined);
+    return { ok: true, value: result.success };
+  };
+  const profileIdOf = (value: unknown): string | undefined =>
+    typeof value === "string" && value.length >= 1 && value.length <= 64 ? value : undefined;
+  privilegedIpc.handle(IPC_CHANNELS.profilesList, () => profilesNow());
+  privilegedIpc.handle(IPC_CHANNELS.profileSave, async (_event, input: unknown): Promise<ProfileResult> => {
+    const raw = (typeof input === "object" && input !== null ? input : {}) as Record<string, unknown>;
+    const profileId = raw.profileId === undefined ? undefined : profileIdOf(raw.profileId);
+    if (raw.profileId !== undefined && profileId === undefined) return { ok: false, message: "profile id is invalid" };
+    const saved = await runProfile(
+      Effect.flatMap(ProfileRepository, (repository) =>
+        repository.save({
+          ...(profileId === undefined ? {} : { profileId }),
+          body: raw.body as ProfileSaveInput["body"],
+        }),
+      ),
+    );
+    return saved.ok ? { ok: true, profile: saved.value } : saved;
+  });
+  privilegedIpc.handle(
+    IPC_CHANNELS.profileRename,
+    async (_event, profileId: unknown, name: unknown): Promise<ProfileResult> => {
+      const id = profileIdOf(profileId);
+      if (id === undefined) return { ok: false, message: "profile id is invalid" };
+      const renamed = await runProfile(
+        Effect.flatMap(ProfileRepository, (repository) => repository.rename(id, String(name ?? ""))),
+      );
+      return renamed.ok ? { ok: true, profile: renamed.value } : renamed;
+    },
+  );
+  privilegedIpc.handle(
+    IPC_CHANNELS.profileDelete,
+    async (_event, profileId: unknown): Promise<ProfileDeleteResult> => {
+      const id = profileIdOf(profileId);
+      if (id === undefined) return { ok: false, message: "profile id is invalid" };
+      const removed = await runProfile(
+        Effect.flatMap(ProfileRepository, (repository) => repository.remove(id)),
+      );
+      return removed.ok ? { ok: true, profileId: removed.value } : removed;
     },
   );
 
