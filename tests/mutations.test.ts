@@ -1834,14 +1834,14 @@ describe("drawing a task path hop", () => {
     expect(state$.error.peek()).toContain("a → b → a");
   });
 
-  it("keeps refusing every other sink pair with the relay wording", () => {
+  it("keeps refusing every other sink pair in plain words", () => {
     state$.canvasName.set("mutation-test");
     loadDoc({ nodes: [taskSink("a", 0), padSink("notes", 300)], edges: [] });
 
     addEdge({ source: "a", target: "notes" });
 
     expect(state$.doc.peek().edges).toEqual([]);
-    expect(state$.error.peek()).toMatch(/relay/i);
+    expect(state$.error.peek()).toBe("These two cannot be connected.");
   });
 
   it("guards the batch connect path against a loop across the whole batch", () => {

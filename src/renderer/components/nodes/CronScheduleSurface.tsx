@@ -233,7 +233,7 @@ export function CronScheduleSurface({
   const cronLabel = nodeTitle(node);
   const fireHint =
     effectCount === 0
-      ? "No actions linked yet. Draw an effect wire out of this cron."
+      ? "Nothing connected yet. Connect this cron to what it should act on."
       : `Runs this cron's ${effectCount} linked action${effectCount === 1 ? "" : "s"} now. Not a page watch.`;
 
   const fireNow = async () => {

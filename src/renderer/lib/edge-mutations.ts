@@ -103,15 +103,8 @@ const refusalReason = (
   fromNode: CanvasNode | undefined,
   toNode: CanvasNode | undefined,
 ): string => {
-  const fromRole = roleOfNode(fromNode);
-  const toRole = roleOfNode(toNode);
-  if (fromRole === "geography" || toRole === "geography") {
-    return "Geography takes no edges";
-  }
-  if (fromRole === "sink" && toRole === "sink") {
-    return "Sinks cannot wire to each other — use a relay between them";
-  }
-  return "This pair cannot be wired";
+  const loose = [fromNode, toNode].find((node) => roleOfNode(node) === "geography");
+  return loose ? `${nodeTitle(loose)} does not connect to anything.` : "These two cannot be connected.";
 };
 
 const VERB_HANDLE_PREFIX = "verb:";

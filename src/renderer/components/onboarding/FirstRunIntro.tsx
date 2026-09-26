@@ -38,7 +38,7 @@ function CanvasArt() {
   return (
     <div className="intro-art intro-art--canvas" aria-hidden>
       <SeatCard agent="claude" label="planner" status="working" />
-      <span className="intro-wire"><span className="intro-wire__verb">manages</span></span>
+      <span className="intro-wire"><span className="intro-wire__verb">messages</span></span>
       <SeatCard agent="codex" label="builder" status="ready" />
     </div>
   );
@@ -107,10 +107,6 @@ export const introSlides = (mac: boolean): ReadonlyArray<IntroSlide> => [
           Junto is a canvas where you run coding agents side by side. Each agent
           gets a seat: a live terminal, a project folder, and a card that shows
           what it is doing at a glance.
-        </p>
-        <p>
-          A wire you draw between two cards is permission. One agent can reach
-          another only over a wire, and the wire says exactly what it allows.
         </p>
       </>
     ),
