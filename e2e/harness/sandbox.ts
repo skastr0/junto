@@ -547,7 +547,8 @@ export const writeFixtureUsageState = async (
   );
   try {
     const engine = await runtime.runPromise(StateEngine);
-    await engine.transaction("seed-usage-state", (writer) => {
+    // transaction() is an Effect: it only writes when run.
+    await runtime.runPromise(engine.transaction("seed-usage-state", (writer) => {
       writer.run(
         `INSERT INTO usage_state(singleton, snapshots_json, last_live_at, updated_at)
          VALUES (1, ?, ?, ?)
@@ -561,7 +562,7 @@ export const writeFixtureUsageState = async (
           new Date().toISOString(),
         ],
       );
-    });
+    }));
   } finally {
     await runtime.dispose();
   }
