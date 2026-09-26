@@ -28,18 +28,6 @@ const MOOD_STATES: ReadonlyArray<readonly [string, Omit<ExpressionInput, "temper
 ];
 const MOOD_SEEDS = ["mood-critter-1", "mood-critter-7"];
 
-// How often hundreds of seats repeat their salient look.
-const variety = (() => {
-  const count = 400;
-  const looks = new Set(
-    Array.from({ length: count }, (_, index) => {
-      const g = portraitGenome(`variety-seat-${index}-${(index * 2654435761) >>> 0}`);
-      return `${g.bodyHue}|${g.shape}|${g.topper}|${g.accessory}`;
-    }),
-  );
-  return { count, distinct: looks.size };
-})();
-
 const count = Number(process.argv[2] ?? 48);
 
 // Premium packs join like the app build: from the overlay JUNTO_OVERLAY names
@@ -53,6 +41,19 @@ const premiumPacks = overlayDir
     )
   : [];
 installCosmeticPacks(premiumPacks);
+
+// How often hundreds of seats repeat their salient look, with this build's packs.
+const variety = (() => {
+  const count = 400;
+  const looks = new Set(
+    Array.from({ length: count }, (_, index) => {
+      const g = portraitGenome(`variety-seat-${index}-${(index * 2654435761) >>> 0}`);
+      return `${g.bodyHue}|${g.shape}|${g.topper}|${g.marking}|${g.accessory}|${g.eyes}|${g.mouth}`;
+    }),
+  );
+  return { count, distinct: looks.size };
+})();
+
 const out = join(process.cwd(), "test-results", "portraits");
 mkdirSync(out, { recursive: true });
 
@@ -126,6 +127,20 @@ const page = (mode: ThemeMode): string => {
           `<figure><img width="80" height="80" style="border-radius:50%" src="${portraitDataUri({ seed: showcaseSeed, mode, detail: "rich", frame: "round", config: { accessory: "none", topper: "none", shape: "round", [trait]: option } })}"><figcaption>${option}</figcaption></figure>`,
       )
       .join("")}</div>`;
+  // Every installed item per slot: the starter, plus premium in an official build.
+  const showcases = (
+    [
+      ["species", "shape"],
+      ["ears and toppers", "topper"],
+      ["patterns", "marking"],
+      ["hats and props", "accessory"],
+    ] as const
+  )
+    .map(([label, trait]) => {
+      const options = portraitOptions()[trait].filter((option) => option !== "none");
+      return `<h2>${label} (${options.length})</h2>${showcase(trait, options)}`;
+    })
+    .join("");
   const bareRow = `<div class="bare">${seeds
     .slice(0, 10)
     .map((seed) => `<img width="120" height="120" src="${portraitDataUri({ seed, mode, detail: "rich", frame: "bare" })}">`)
@@ -149,12 +164,9 @@ const page = (mode: ThemeMode): string => {
   return `<section class="theme" style="background:${t.ground};color:${t.ink}">
 <h1>Agent portraits, ${mode}</h1>
 ${premium}
-<h2>new species</h2>${showcase("shape", portraitOptions().shape.slice(6))}
-<h2>new ears and toppers</h2>${showcase("topper", portraitOptions().topper.slice(9))}
-<h2>new patterns</h2>${showcase("marking", portraitOptions().marking.slice(5))}
-<h2>hats and props</h2>${showcase("accessory", portraitOptions().accessory.slice(1))}
+${showcases}
 <h2>bare frame, transparent (brand, landing, video)</h2>${bareRow}
-<h2>variety: ${variety.distinct} distinct looks (color, species, ears, prop) across ${variety.count} seats</h2>
+<h2>variety: ${variety.distinct} distinct looks (color, species, ears, pattern, prop, face) across ${variety.count} seats</h2>
 <h2>expressions: temperament x seat state</h2>${moods}
 <h2>round seat, 40px in a stand-in ring</h2>${ringed(40)}
 <h2>round seat, 28px</h2>${ringed(28)}
