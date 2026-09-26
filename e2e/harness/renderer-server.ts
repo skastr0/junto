@@ -9,6 +9,10 @@ import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { readFile, stat } from "node:fs/promises";
 import { extname, join, normalize } from "node:path";
+import {
+  RENDERER_DOCUMENT_POLICY,
+  RENDERER_DOCUMENT_POLICY_HEADER,
+} from "../../src/shared/renderer-document-policy";
 
 const MIME_TYPES: Readonly<Record<string, string>> = {
   ".html": "text/html; charset=utf-8",
@@ -75,7 +79,14 @@ export const startRendererServer = async (rendererDir: string): Promise<Renderer
         // deep client route still boots the app shell.
         const filePath = !info || info.isDirectory() ? join(root, "index.html") : resolved;
         const body = await readFile(filePath);
-        res.writeHead(200, { "content-type": MIME_TYPES[extname(filePath)] ?? "application/octet-stream" });
+        const contentType = MIME_TYPES[extname(filePath)] ?? "application/octet-stream";
+        res.writeHead(200, {
+          "content-type": contentType,
+          // Same opt-in as the packaged protocol: the hang recorder reads stacks.
+          ...(contentType.startsWith("text/html")
+            ? { [RENDERER_DOCUMENT_POLICY_HEADER]: RENDERER_DOCUMENT_POLICY }
+            : {}),
+        });
         res.end(body);
       } catch {
         res.writeHead(404).end("not found");

@@ -72,11 +72,14 @@ describe("trusted renderer protocol", () => {
     expect(html.headers.get("x-content-type-options")).toBe("nosniff");
     expect(html.headers.get("cross-origin-resource-policy")).toBe("same-origin");
     expect(html.headers.get("referrer-policy")).toBe("no-referrer");
+    // The app document opts in to having its stack read while it hangs.
+    expect(html.headers.get("document-policy")).toBe("include-js-call-stacks-in-crash-reports");
     expect(await html.text()).toContain("./assets/app.js");
 
     const scriptUrl = "junto-app://renderer/assets/app.js";
     const script = await handler(new Request(scriptUrl));
     expect(script.headers.get("content-type")).toBe("text/javascript; charset=utf-8");
+    expect(script.headers.get("document-policy")).toBeNull();
     const expectedLength = script.headers.get("content-length");
     expect(await script.text()).toContain("globalThis.loaded");
 

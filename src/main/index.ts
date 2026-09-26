@@ -49,6 +49,7 @@ import {
   startPerfProbe,
   startTransportJournal,
 } from "./junto/observability";
+import { startHangRecorder, watchRendererHangs } from "./junto/observability/hang-recorder";
 import { releaseDemoRuntimeIsolation } from "./junto/demo/runtime-isolation";
 import { registerBrowserIpcHandlers, registerIpcHandlers } from "./ipc";
 import { CanvasesService } from "./junto/canvases";
@@ -803,6 +804,8 @@ const registerCrashRecovery = (mainWindow: BrowserWindow) => {
   mainWindow.webContents.on("unresponsive", () => {
     console.error("[renderer:unresponsive] renderer hung");
   });
+  // Stack, duration and loss of a hung renderer, on disk in ~/.junto/logs.
+  watchRendererHangs(mainWindow.webContents, startHangRecorder({ version: app.getVersion() }));
 
   mainWindow.webContents.on("preload-error", (_event, preloadPath, error) => {
     console.error(`[preload:error] ${preloadPath}: ${error.message}`);
@@ -1255,6 +1258,9 @@ if (packagedSandboxDisablingSwitch !== undefined) {
     // Process log ring: main console + Effect logger (layer already on AppRuntime).
     installObservabilityConsoleHook();
     startTransportJournal();
+    // Always on: a frozen main thread or renderer leaves its stack in
+    // ~/.junto/logs/hangs.jsonl before anyone force-quits the app.
+    startHangRecorder({ version: app.getVersion() });
     // JUNTO_PERF=1 only. Main-thread block monitor plus canvas read tape.
     startPerfProbe();
     // The 4ms invariant, asserted at the source. Dev runs are armed; a
