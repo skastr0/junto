@@ -52,6 +52,7 @@ export const FEATURE_CATALOG = {
     env: "JUNTO_LIVE_OVERSEER",
     define: "__JUNTO_LIVE_OVERSEER_ENABLED__",
   },
+  /** Sound: the procedural cue engine and Settings, Sound. */
   audio: {
     env: "JUNTO_AUDIO",
     define: "__JUNTO_AUDIO_ENABLED__",
@@ -233,7 +234,8 @@ export const SHIP_FEATURES: FeatureSet = {
   fleetUi: false,
   usage: false,
   helpMap: false,
-  audio: false,
+  // The procedural sound engine, at a gentle default volume.
+  audio: true,
   liveOverseer: false,
   hermesIntegration: false,
   devTools: false,

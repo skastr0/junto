@@ -31,7 +31,8 @@ describe("compile-time feature profiles", () => {
       fleetUi: false,
       usage: false,
       helpMap: false,
-      audio: false,
+      // Sound ships on at a gentle default volume.
+      audio: true,
       liveOverseer: false,
       hermesIntegration: false,
       devTools: false,
