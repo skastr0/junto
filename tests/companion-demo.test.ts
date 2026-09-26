@@ -118,6 +118,8 @@ describe("demo transcript", () => {
     expect(answered.result.signal).toMatchObject({ state: "answered", response: { text: "It is in the vault under staging." } });
     const signalEvent = await c.until((f) => f.type === "event" && f.event === "signal.changed");
     expect(signalEvent.data.signal).toMatchObject({ signalId: "sig_demo_blocked", state: "answered" });
+    const canvasesEvent = await c.until((f) => f.type === "event" && f.event === "canvases.changed");
+    expect(canvasesEvent.data.canvases[0].needsYou).toBe(4);
     const feedEvent = await c.until((f) => f.type === "event" && f.event === "feed.changed");
     expect(feedEvent.data.feed.count).toBe(4);
     const seatEvent = await c.until((f) => f.type === "event" && f.event === "seat.changed");
@@ -144,6 +146,21 @@ describe("demo transcript", () => {
     expect(svg.startsWith('<svg width="96" height="96" xmlns="http://www.w3.org/2000/svg"')).toBe(true);
     c.send(demoRequest("pc", "pair.complete", { publicKey: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIDemoKey", deviceName: "x" }));
     expect((await c.until(response("pc"))).error.code).toBe("invalid");
+
+    // The seat detail: briefing, live preambles, signal history, activity.
+    c.send(demoRequest("g1", "seat.get", { canvasName: DEMO_CANVAS, nodeId: "atlas" }));
+    const detail = (await c.until(response("g1"))).result.seat;
+    expect(detail).toMatchObject({ nodeId: "atlas", state: "resting", briefing: expect.stringContaining("billing migration") });
+    expect(detail.preambles.map((p: Frame) => p.preambleId)).toEqual(["pre_demo_atlas_2", "pre_demo_atlas_1"]);
+    expect(detail.signals[0]).toMatchObject({ signalId: "sig_demo_blocked", state: "answered" });
+    expect(detail.activity[0]).toMatchObject({ kind: "mail", label: "got your mail" });
+    c.send(demoRequest("g2", "seat.get", { canvasName: DEMO_CANVAS, nodeId: "ghost" }));
+    expect((await c.until(response("g2"))).error.code).toBe("not-found");
+    // g2 failed, so atlas is still the focus: new mail to it arrives as mail.changed.
+    c.send(demoRequest("m3", "mail.send", { canvasName: DEMO_CANVAS, nodeId: "atlas", text: "Thanks." }));
+    await c.until(response("m3"));
+    const mailEvent = await c.until((f) => f.type === "event" && f.event === "mail.changed");
+    expect(mailEvent.data).toMatchObject({ canvasName: DEMO_CANVAS, nodeId: "atlas", message: { text: "Thanks.", direction: "to_seat" } });
 
     c.send(demoRequest("u1", "feed.unsubscribe"));
     expect((await c.until(response("u1"))).result).toEqual({});

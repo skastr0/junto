@@ -2,12 +2,17 @@
  * One companion connection: the stdio side of junto-companion/1.
  *
  * `hello` goes out before any request is read. Requests are pipelined and each
- * response is written as soon as its host call settles. A subscription
- * (`feed.subscribe`, and every `seats.list` canvas) turns the host's change
- * notifications into events: `signal.changed` for each signal upsert, and
- * `feed.changed` / `seat.changed` only when the whole feed of a canvas, or one
- * seat, actually differs from what this connection last sent. A channel silent
- * for two minutes is closed.
+ * response is written as soon as its host call settles. What the phone has
+ * asked for becomes what it follows, and the host's change notifications
+ * become events, whoever made the change (the phone, the desktop, an agent):
+ *
+ *   canvases.list   canvases.changed when the list differs
+ *   feed.subscribe  feed.changed per canvas that differs; signal.changed per upsert
+ *   seats.list      seat.changed per seat that differs; seat.removed
+ *   seat.get        that seat: seat.changed, preamble, signal.changed, mail.changed
+ *   mail.list       mail.changed for that seat (new mail, delivery changes)
+ *
+ * A channel silent for two minutes is closed.
  *
  * The host is the running app (relayed over the operator socket) or the
  * built-in demo; the session does not know which.
@@ -22,8 +27,11 @@ import {
   companionFail,
   decodeCompanionRequestLine,
   encodeCompanionFrame,
+  COMPANION_MAIL_MAX_LIMIT,
   type CompanionError,
   type CompanionHello,
+  type CompanionMail,
+  type CompanionSeatDetail,
   type CompanionRequestFrame,
   type CompanionResponseFrame,
   type CompanionSeat,
@@ -92,52 +100,133 @@ export const runCompanionSession = async (io: CompanionSessionIo): Promise<void>
   write(encodeCompanionFrame(companionEvent("hello", hello.hello)));
 
   // --- subscriptions and events ---------------------------------------------
+  // What this connection asked to follow, and what it was last sent. A seat
+  // is tracked once however it is followed (a seats.list canvas, the seat.get
+  // focus), so one change is one seat.changed.
   let feedSubscription: { readonly canvasName: string | undefined } | undefined;
   const sentFeeds = new Map<string, string>();
-  const seatCanvases = new Map<string, Map<string, string>>();
+  let canvasesKey: string | undefined;
+  const seatCanvases = new Map<string, Set<string>>();
+  const sentSeats = new Map<string, string>();
+  let focus: { readonly canvasName: string; readonly nodeId: string; readonly preambles: Set<string> } | undefined;
+  let mailFocus: { readonly canvasName: string; readonly nodeId: string; readonly sent: Map<string, string> } | undefined;
   let eventLoop: Promise<void> | undefined;
   let internalId = 0;
-  const internal = (op: "feed.get" | "seats.list", canvasName: string | undefined): CompanionRequestFrame =>
-    ({
-      v: COMPANION_PROTOCOL,
-      type: "request",
-      id: `_event.${(internalId += 1)}`,
-      op,
-      args: canvasName === undefined ? {} : { canvasName },
-    }) as CompanionRequestFrame;
+  const seatRef = (canvasName: string, nodeId: string): string => `${canvasName}\u0000${nodeId}`;
+  const internal = <Op extends CompanionRequestFrame["op"]>(op: Op, args: object): CompanionRequestFrame =>
+    ({ v: COMPANION_PROTOCOL, type: "request", id: `_event.${(internalId += 1)}`, op, args }) as CompanionRequestFrame;
+  const emit = <E extends Parameters<typeof companionEvent>[0]>(event: E, data: Parameters<typeof companionEvent<E>>[1]): void =>
+    write(encodeCompanionFrame(companionEvent(event, data)));
 
-  const rememberFeeds = (feeds: ReadonlyArray<OperatorFeed>): void => {
-    for (const feed of feeds) sentFeeds.set(feed.canvasName, feedKey(feed));
+  /** Record a seat; true when it differs from what was last sent. */
+  const noteSeat = (canvasName: string, seat: CompanionSeat): boolean => {
+    const ref = seatRef(canvasName, seat.nodeId);
+    const key = seatKey(seat);
+    if (sentSeats.get(ref) === key) return false;
+    sentSeats.set(ref, key);
+    return true;
   };
-  const rememberSeats = (canvasName: string, seats: ReadonlyArray<CompanionSeat>): void => {
-    seatCanvases.set(canvasName, new Map(seats.map((seat) => [seat.nodeId, seatKey(seat)])));
+  const seatOnly = (detail: CompanionSeatDetail): CompanionSeat => {
+    const { briefing: _b, preambles: _p, signals: _s, activity: _a, ...seat } = detail;
+    return seat;
+  };
+  const mailKey = (message: CompanionMail): string => JSON.stringify(message);
+
+  const followMail = async (canvasName: string, nodeId: string): Promise<void> => {
+    const sent = new Map<string, string>();
+    const response = await io.host.call(internal("mail.list", { canvasName, nodeId, limit: COMPANION_MAIL_MAX_LIMIT }));
+    if (response.ok && "messages" in response.result) {
+      for (const message of response.result.messages) sent.set(message.messageId, mailKey(message));
+    }
+    // Only a seeded focus is followed, so a refresh never replays the history.
+    mailFocus = { canvasName, nodeId, sent };
   };
 
-  const refresh = async (): Promise<void> => {
+  const refresh = async (signals: ReadonlyArray<AgentSignal>): Promise<void> => {
+    // signal.changed: every upsert, whoever made it, for a subscribed feed or the focused seat.
+    for (const signal of signals) {
+      const inFeed =
+        feedSubscription !== undefined &&
+        (feedSubscription.canvasName === undefined || feedSubscription.canvasName === signal.canvasName);
+      const onFocus = focus !== undefined && focus.canvasName === signal.canvasName && focus.nodeId === signal.nodeId;
+      if (inFeed || onFocus) emit("signal.changed", { signal });
+    }
+    if (canvasesKey !== undefined) {
+      const response = await io.host.call(internal("canvases.list", {}));
+      if (response.ok && "canvases" in response.result) {
+        const key = JSON.stringify(response.result.canvases);
+        if (key !== canvasesKey) {
+          canvasesKey = key;
+          emit("canvases.changed", { canvases: response.result.canvases });
+        }
+      }
+    }
     if (feedSubscription) {
-      const response = await io.host.call(internal("feed.get", feedSubscription.canvasName));
+      const filter = feedSubscription.canvasName;
+      const response = await io.host.call(internal("feed.get", filter === undefined ? {} : { canvasName: filter }));
       if (response.ok && "feeds" in response.result) {
         for (const feed of response.result.feeds) {
           const key = feedKey(feed);
           if (sentFeeds.get(feed.canvasName) === key) continue;
           sentFeeds.set(feed.canvasName, key);
-          write(encodeCompanionFrame(companionEvent("feed.changed", { feed })));
+          emit("feed.changed", { feed });
         }
       }
     }
-    for (const [canvasName, known] of seatCanvases) {
-      const response = await io.host.call(internal("seats.list", canvasName));
+    for (const [canvasName, members] of seatCanvases) {
+      const response = await io.host.call(internal("seats.list", { canvasName }));
       if (!response.ok || !("seats" in response.result)) continue;
+      const present = new Set<string>();
       for (const seat of response.result.seats) {
-        const key = seatKey(seat);
-        if (known.get(seat.nodeId) === key) continue;
-        known.set(seat.nodeId, key);
-        write(encodeCompanionFrame(companionEvent("seat.changed", { canvasName, seat })));
+        present.add(seat.nodeId);
+        members.add(seat.nodeId);
+        if (noteSeat(canvasName, seat)) emit("seat.changed", { canvasName, seat });
+      }
+      for (const nodeId of [...members]) {
+        if (present.has(nodeId)) continue;
+        members.delete(nodeId);
+        sentSeats.delete(seatRef(canvasName, nodeId));
+        emit("seat.removed", { canvasName, nodeId });
+      }
+    }
+    if (focus) {
+      const { canvasName, nodeId, preambles } = focus;
+      const response = await io.host.call(internal("seat.get", { canvasName, nodeId }));
+      if (response.ok && "seat" in response.result) {
+        const detail = response.result.seat;
+        const seat = seatOnly(detail);
+        if (noteSeat(canvasName, seat)) emit("seat.changed", { canvasName, seat });
+        for (const preamble of [...detail.preambles].reverse()) {
+          if (preambles.has(preamble.preambleId)) continue;
+          preambles.add(preamble.preambleId);
+          emit("preamble", { canvasName, nodeId, preamble });
+        }
+      } else if (!response.ok && response.error.code === "not-found") {
+        focus = undefined;
+        if (!seatCanvases.get(canvasName)?.has(nodeId)) emit("seat.removed", { canvasName, nodeId });
+        sentSeats.delete(seatRef(canvasName, nodeId));
+      }
+    }
+    if (mailFocus) {
+      const { canvasName, nodeId, sent } = mailFocus;
+      const response = await io.host.call(internal("mail.list", { canvasName, nodeId, limit: COMPANION_MAIL_MAX_LIMIT }));
+      if (response.ok && "messages" in response.result) {
+        for (const message of [...response.result.messages].reverse()) {
+          const key = mailKey(message);
+          if (sent.get(message.messageId) === key) continue;
+          sent.set(message.messageId, key);
+          emit("mail.changed", { canvasName, nodeId, message });
+        }
       }
     }
   };
 
-  const subscribed = (): boolean => feedSubscription !== undefined || seatCanvases.size > 0;
+  const subscribed = (): boolean =>
+    feedSubscription !== undefined ||
+    canvasesKey !== undefined ||
+    seatCanvases.size > 0 ||
+    focus !== undefined ||
+    mailFocus !== undefined;
 
   const runEvents = async (): Promise<void> => {
     let cursor: string | undefined;
@@ -153,15 +242,8 @@ export const runCompanionSession = async (io: CompanionSessionIo): Promise<void>
       const first = cursor === undefined;
       cursor = change.cursor;
       if (first && !change.reset) continue;
-      if (feedSubscription) {
-        const filter = feedSubscription.canvasName;
-        for (const signal of change.signals) {
-          if (filter !== undefined && signal.canvasName !== filter) continue;
-          write(encodeCompanionFrame(companionEvent("signal.changed", { signal })));
-        }
-      }
       if (change.changed || change.reset || change.signals.length > 0) {
-        await refresh().catch(() => undefined);
+        await refresh(change.signals).catch(() => undefined);
       }
     }
   };
@@ -186,15 +268,32 @@ export const runCompanionSession = async (io: CompanionSessionIo): Promise<void>
       if (frame.op === "feed.subscribe" && "feeds" in response.result) {
         feedSubscription = { canvasName: frame.args.canvasName };
         sentFeeds.clear();
-        rememberFeeds(response.result.feeds);
+        for (const feed of response.result.feeds) sentFeeds.set(feed.canvasName, feedKey(feed));
       } else if (frame.op === "feed.unsubscribe") {
         feedSubscription = undefined;
         sentFeeds.clear();
+      } else if (frame.op === "canvases.list" && "canvases" in response.result) {
+        canvasesKey = JSON.stringify(response.result.canvases);
       } else if (frame.op === "seats.list" && "seats" in response.result) {
-        rememberSeats(frame.args.canvasName, response.result.seats);
+        const members = new Set<string>();
+        for (const seat of response.result.seats) {
+          members.add(seat.nodeId);
+          noteSeat(frame.args.canvasName, seat);
+        }
+        seatCanvases.set(frame.args.canvasName, members);
+      } else if (frame.op === "seat.get" && "seat" in response.result) {
+        const { canvasName, nodeId } = frame.args;
+        const detail = response.result.seat;
+        noteSeat(canvasName, seatOnly(detail));
+        focus = { canvasName, nodeId, preambles: new Set(detail.preambles.map((preamble) => preamble.preambleId)) };
       }
     }
     write(encodeCompanionFrame(response));
+    // The phone's page may be short; follow from the whole recent history so
+    // an older message is never mistaken for a new one.
+    if (response.ok && (frame.op === "seat.get" || frame.op === "mail.list")) {
+      await followMail(frame.args.canvasName, frame.args.nodeId).catch(() => undefined);
+    }
     ensureEvents();
   };
 

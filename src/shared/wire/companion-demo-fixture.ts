@@ -8,7 +8,7 @@
  */
 
 import type { AgentSignal } from "./agent-signals";
-import type { CompanionMail } from "./companion-protocol";
+import type { CompanionActivity, CompanionMail, CompanionPreamble } from "./companion-protocol";
 import type { ThreadHealthValue } from "./thread-health";
 
 export const DEMO_CANVAS = "demo";
@@ -120,3 +120,44 @@ export const DEMO_MAIL: ReadonlyArray<DemoMail> = [
 ];
 
 export const DEMO_QUICK_REPLIES: ReadonlyArray<string> = ["Yes, go ahead.", "No, stop here.", "Use your judgment.", "I'll look at it shortly."];
+
+/** Region briefings, markdown, as the region's kind strip holds them. */
+export const DEMO_BRIEFINGS: Readonly<Record<string, string>> = {
+  "r-backend": "Ship the billing migration this week.\n\n- Staging first, then production\n- No schema change without a rollback script",
+  "r-frontend": "Pricing and inbox polish for the launch.",
+};
+
+/** Live notes per seat, newest first. Every one is still live at DEMO_T0. */
+export const DEMO_PREAMBLES: Readonly<Record<string, ReadonlyArray<CompanionPreamble>>> = {
+  atlas: [
+    { preambleId: "pre_demo_atlas_2", text: "Waiting on the staging password before the migration.", source: "agent", at: DEMO_T0 - 11 * MIN, expiresAt: DEMO_T0 + 30 * MIN },
+    { preambleId: "pre_demo_atlas_1", text: "Dry run of the migration passed.", source: "junto", at: DEMO_T0 - 15 * MIN, expiresAt: DEMO_T0 + 20 * MIN },
+  ],
+  relay: [
+    { preambleId: "pre_demo_relay_1", text: "Running the API test suite.", source: "agent", at: DEMO_T0 - 2 * MIN, expiresAt: DEMO_T0 + 10 * MIN },
+  ],
+  sage: [
+    { preambleId: "pre_demo_sage_1", text: "Retrying the same search with small changes.", source: "ai", at: DEMO_T0 - MIN, expiresAt: DEMO_T0 + 5 * MIN },
+  ],
+};
+
+/** The seat sidebar's Activity, per seat, newest first. */
+export const DEMO_ACTIVITY: Readonly<Record<string, ReadonlyArray<CompanionActivity>>> = {
+  atlas: [
+    { at: DEMO_T0 - 12 * MIN, label: "raised blocked", kind: "signal" },
+    { at: DEMO_T0 - 20 * MIN, label: "sent mail", kind: "mail", targetName: "Relay" },
+    { at: DEMO_T0 - 25 * MIN, label: "got mail", kind: "mail", targetName: "Relay" },
+    { at: DEMO_T0 - 40 * MIN, label: "started working", kind: "state" },
+  ],
+  forge: [{ at: DEMO_T0 - 2 * MIN, label: "asked for permission", kind: "state" }],
+  relay: [
+    { at: DEMO_T0 - 2 * MIN, label: "started working", kind: "state" },
+    { at: DEMO_T0 - 25 * MIN, label: "sent mail", kind: "mail", targetName: "Atlas" },
+  ],
+  quill: [{ at: DEMO_T0 - 7 * MIN, label: "raised escalate", kind: "signal" }],
+  prism: [
+    { at: DEMO_T0 - 3 * MIN, label: "raised feedback", kind: "signal" },
+    { at: DEMO_T0 - 4 * MIN, label: "finished", kind: "state" },
+  ],
+  lumen: [{ at: DEMO_T0 - 30 * MIN, label: "stopped", kind: "state" }],
+};

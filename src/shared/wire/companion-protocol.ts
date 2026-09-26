@@ -127,6 +127,42 @@ export const CompanionSeat = Schema.Struct({
 });
 export type CompanionSeat = typeof CompanionSeat.Type;
 
+/** A short live note about what the seat is doing. Ephemeral: gone after `expiresAt`. */
+export const CompanionPreamble = Schema.Struct({
+  preambleId: Schema.String,
+  text: Schema.String,
+  source: Schema.Literals(["agent", "ai", "junto", "operator"]),
+  at: Schema.Number,
+  expiresAt: Schema.Number,
+});
+export type CompanionPreamble = typeof CompanionPreamble.Type;
+
+/** One line of the seat sidebar's Activity list, in the desktop's words. */
+export const CompanionActivity = Schema.Struct({
+  at: Schema.Number,
+  label: Schema.String,
+  kind: Schema.Literals(["mail", "signal", "state", "work", "other"]),
+  targetName: Schema.optionalKey(Schema.String),
+});
+export type CompanionActivity = typeof CompanionActivity.Type;
+
+/** The seat plus what its detail screen shows. Lists are newest first. */
+export const CompanionSeatDetail = Schema.Struct({
+  ...CompanionSeat.fields,
+  /** The seat's region briefing, markdown, when it has one. */
+  briefing: Schema.optionalKey(Schema.String),
+  /** Only the ones still live. */
+  preambles: Schema.Array(CompanionPreamble),
+  /** Every state, last 50. */
+  signals: Schema.Array(AgentSignal),
+  /** Last 50. */
+  activity: Schema.Array(CompanionActivity),
+});
+export type CompanionSeatDetail = typeof CompanionSeatDetail.Type;
+
+/** How many signals and activity lines a seat detail carries. */
+export const COMPANION_SEAT_HISTORY_LIMIT = 50;
+
 export const CompanionMailFrom = Schema.Union([
   Schema.Struct({ kind: Schema.Literal("operator") }),
   Schema.Struct({ kind: Schema.Literal("seat"), nodeId: Schema.String, name: Schema.String }),
@@ -163,6 +199,7 @@ export const COMPANION_OPS = [
   "feed.subscribe",
   "feed.unsubscribe",
   "seats.list",
+  "seat.get",
   "signal.answer",
   "signal.dismiss",
   "mail.list",
@@ -190,6 +227,7 @@ export const CompanionArgs = {
   "feed.subscribe": Schema.Struct({ canvasName: Schema.optionalKey(CanvasName) }),
   "feed.unsubscribe": Empty,
   "seats.list": Schema.Struct({ canvasName: CanvasName }),
+  "seat.get": Schema.Struct({ canvasName: CanvasName, nodeId: NodeId }),
   "signal.answer": Schema.Struct({ signalId: bounded(1, 128), text: Text }),
   "signal.dismiss": Schema.Struct({ signalId: bounded(1, 128) }),
   "mail.list": Schema.Struct({
@@ -216,6 +254,7 @@ export const CompanionResults = {
   "feed.subscribe": Schema.Struct({ feeds: Schema.Array(OperatorFeed) }),
   "feed.unsubscribe": Empty,
   "seats.list": Schema.Struct({ seats: Schema.Array(CompanionSeat) }),
+  "seat.get": Schema.Struct({ seat: CompanionSeatDetail }),
   "signal.answer": Schema.Struct({ signal: AgentSignal }),
   "signal.dismiss": Schema.Struct({ signal: AgentSignal }),
   "mail.list": Schema.Struct({ messages: Schema.Array(CompanionMail) }),
@@ -258,6 +297,10 @@ export const CompanionEvents = {
   "feed.changed": Schema.Struct({ feed: OperatorFeed }),
   "seat.changed": Schema.Struct({ canvasName: Schema.String, seat: CompanionSeat }),
   "signal.changed": Schema.Struct({ signal: AgentSignal }),
+  "mail.changed": Schema.Struct({ canvasName: Schema.String, nodeId: Schema.String, message: CompanionMail }),
+  preamble: Schema.Struct({ canvasName: Schema.String, nodeId: Schema.String, preamble: CompanionPreamble }),
+  "seat.removed": Schema.Struct({ canvasName: Schema.String, nodeId: Schema.String }),
+  "canvases.changed": Schema.Struct({ canvases: Schema.Array(CompanionCanvas) }),
 } as const;
 export type CompanionEventName = keyof typeof CompanionEvents;
 export type CompanionEventDataByName = {

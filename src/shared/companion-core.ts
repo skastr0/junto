@@ -22,6 +22,7 @@ import {
   type CompanionRequestFrame,
   type CompanionResponseFrame,
   type CompanionSeat,
+  type CompanionSeatDetail,
 } from "./companion-protocol";
 import type { OperatorFeed } from "./operator-feed";
 
@@ -47,6 +48,7 @@ export type CompanionBackend = {
   /** One feed per canvas; every canvas when the name is omitted. */
   readonly feeds: (canvasName?: string) => Promise<CompanionOutcome<ReadonlyArray<OperatorFeed>>>;
   readonly seats: (canvasName: string) => Promise<CompanionOutcome<ReadonlyArray<CompanionSeat>>>;
+  readonly seatDetail: (canvasName: string, nodeId: string) => Promise<CompanionOutcome<CompanionSeatDetail>>;
   /** Not-open signals fail `conflict` with the signal as it stands. */
   readonly answerSignal: (signalId: string, text: string) => Promise<CompanionOutcome<AgentSignal>>;
   readonly dismissSignal: (signalId: string) => Promise<CompanionOutcome<AgentSignal>>;
@@ -140,6 +142,10 @@ export const handleCompanionRequest = async (
       return companionOk(id, "feed.unsubscribe", {});
     case "seats.list":
       return respond(id, backend.seats(frame.args.canvasName), (seats) => companionOk(id, "seats.list", { seats }));
+    case "seat.get":
+      return respond(id, backend.seatDetail(frame.args.canvasName, frame.args.nodeId), (seat) =>
+        companionOk(id, "seat.get", { seat }),
+      );
     case "signal.answer":
       return respond(id, backend.answerSignal(frame.args.signalId, frame.args.text), (signal) =>
         companionOk(id, "signal.answer", { signal }),

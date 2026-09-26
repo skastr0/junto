@@ -27,6 +27,8 @@ import type { CompanionChange, CompanionHost } from "./companion-session";
 import { companionSeat } from "./companion-seats";
 import {
   COMPANION_PROTOCOL,
+  COMPANION_SEAT_HISTORY_LIMIT,
+  type CompanionActivity,
   type CompanionMail,
   type CompanionRequestFrame,
   type CompanionResponseFrame,
@@ -34,7 +36,9 @@ import {
 import { buildOperatorFeed, feedSeatsFromDoc, type FeedHealth } from "./operator-feed";
 import { THREAD_HEALTH_LABEL, THREAD_HEALTH_TONE, type ThreadHealthReading, type ThreadHealthValue } from "./thread-health";
 import {
+  DEMO_ACTIVITY,
   DEMO_ACTIVITY_AT,
+  DEMO_BRIEFINGS,
   DEMO_CANVAS,
   DEMO_CANVAS_TITLE,
   DEMO_DEVICE_ID,
@@ -42,6 +46,7 @@ import {
   DEMO_HEALTH_CONFIDENCE,
   DEMO_HEALTH_OBSERVED_AT,
   DEMO_MAIL,
+  DEMO_PREAMBLES,
   DEMO_QUICK_REPLIES,
   DEMO_REGIONS,
   DEMO_SEATS,
@@ -92,6 +97,10 @@ export const makeDemoBackend = (): CompanionBackend & {
   const signals = new Map(DEMO_SIGNALS.map((signal) => [signal.signalId, signal] as const));
   const signalLog: Array<{ readonly seq: number; readonly signal: AgentSignal }> = [];
   const mail: DemoMail[] = [...DEMO_MAIL];
+  const activity = new Map(Object.entries(DEMO_ACTIVITY).map(([nodeId, lines]) => [nodeId, [...lines]] as const));
+  const noteActivity = (nodeId: string, line: CompanionActivity): void => {
+    activity.set(nodeId, [line, ...(activity.get(nodeId) ?? [])]);
+  };
   let mailSeq = 0;
   const now = (): number => clock;
   const tick = (): number => {
@@ -160,6 +169,8 @@ export const makeDemoBackend = (): CompanionBackend & {
   };
 
   const known = (canvasName: string) => canvasName === DEMO_CANVAS;
+  const regionIdOf = (nodeId: string): string | null =>
+    feedSeatsFromDoc(DOC, { nameOf: (node) => node.id }).find((entry) => entry.seat.nodeId === nodeId)?.region.regionId ?? null;
   const seatExists = (nodeId: string) => SEATS.some((seat) => seat.id === nodeId);
   const appendOperatorMail = (nodeId: string, text: string, at: number): CompanionMail => {
     const seat = SEATS.find((candidate) => candidate.id === nodeId)!;
@@ -174,6 +185,7 @@ export const makeDemoBackend = (): CompanionBackend & {
       delivery: seat.process === "stopped" ? "waiting_for_seat" : "delivered",
     };
     mail.push(message);
+    noteActivity(nodeId, { at, label: "got your mail", kind: "mail" });
     return { ...message, canvasName: DEMO_CANVAS };
   };
 
@@ -192,6 +204,22 @@ export const makeDemoBackend = (): CompanionBackend & {
     feeds: async (canvasName) =>
       canvasName === undefined || known(canvasName) ? outcomeOk([feedNow()]) : outcomeFail("not-found", "No such canvas."),
     seats: async (canvasName) => (known(canvasName) ? outcomeOk(seatsNow()) : outcomeFail("not-found", "No such canvas.")),
+    seatDetail: async (canvasName, nodeId) => {
+      const seat = known(canvasName) ? seatsNow().find((candidate) => candidate.nodeId === nodeId) : undefined;
+      if (!seat) return outcomeFail("not-found", "No such seat.");
+      const regionId = regionIdOf(nodeId);
+      const briefing = regionId === null ? undefined : DEMO_BRIEFINGS[regionId];
+      return outcomeOk({
+        ...seat,
+        ...(briefing !== undefined ? { briefing } : {}),
+        preambles: (DEMO_PREAMBLES[nodeId] ?? []).filter((preamble) => preamble.expiresAt > clock),
+        signals: [...signals.values()]
+          .filter((signal) => signal.nodeId === nodeId)
+          .sort((a, b) => b.createdAt - a.createdAt)
+          .slice(0, COMPANION_SEAT_HISTORY_LIMIT),
+        activity: [...(activity.get(nodeId) ?? [])].slice(0, COMPANION_SEAT_HISTORY_LIMIT),
+      });
+    },
     answerSignal: async (signalId, text) => {
       const signal = signals.get(signalId);
       if (!signal) return outcomeFail("not-found", `No signal ${signalId}.`);
@@ -209,6 +237,7 @@ export const makeDemoBackend = (): CompanionBackend & {
       const at = tick();
       const dismissed: AgentSignal = { ...signal, state: "dismissed", closedAt: at };
       noteSignal(dismissed);
+      noteActivity(signal.nodeId, { at, label: `${signal.kind} dismissed`, kind: "signal" });
       return outcomeOk(dismissed);
     },
     mailList: async (canvasName, nodeId, limit) => {

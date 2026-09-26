@@ -144,6 +144,7 @@ describe("request decoding", () => {
     "feed.subscribe": {},
     "feed.unsubscribe": {},
     "seats.list": { canvasName: "main" },
+    "seat.get": { canvasName: "main", nodeId: "planner" },
     "signal.answer": { signalId: "sig_1", text: "Use the staging vault." },
     "signal.dismiss": { signalId: "sig_1" },
     "mail.list": { canvasName: "main", nodeId: "planner", limit: 20 },
