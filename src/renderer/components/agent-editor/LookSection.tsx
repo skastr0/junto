@@ -10,8 +10,8 @@ import type { AgentEditorSectionProps } from "./sections";
 
 // Look: every option is a thumbnail of this character wearing it, so the grid
 // is the preview. Species, toppers, props, patterns, and colors come from the
-// cosmetic catalog, grouped by pack: the base cast first, then each pack this
-// build bundled. An item this install may not wear is shown locked and offers
+// cosmetic catalog, grouped by pack: the free items first, then each premium
+// pack this build bundled. An item this install may not wear is shown locked and offers
 // the store when the build has one; it never renders on a seat.
 
 type Trait = keyof ReturnType<typeof portraitOptions>;

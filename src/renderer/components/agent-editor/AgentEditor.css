@@ -212,7 +212,7 @@
   white-space: nowrap;
 }
 
-/* Packs: the base cast, then each bundled pack under its name. */
+/* Packs: the free items, then each bundled premium pack under its name. */
 .agent-editor__pack[data-pack="premium"] {
   padding: 8px 10px 10px;
   border: 1px dashed var(--color-stroke-hi);

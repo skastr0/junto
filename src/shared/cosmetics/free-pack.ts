@@ -1,23 +1,24 @@
 import type { CosmeticPack } from "./pack-schema";
 
-// The starter cast, as the built-in cosmetic pack: open source, always
-// present, and drawn by the same interpreter as any other pack (one path).
-// Four species, every palette, and the most basic ears, patterns, and props;
-// faces and moods are not cosmetics and are all here in the engine. The rest
-// of the cast is premium and arrives through the build's overlay.
+// The free items of the Junto cast, as the built-in cosmetic pack: in the
+// open-source code, in every build, and drawn by the same interpreter as the
+// premium pack (one path). Four species, every palette, and two basic ears,
+// patterns, and props; faces and moods are not cosmetics and are all free, in
+// the engine. Pip is a free character. The premium items come from the
+// premium folder through the build's overlay, on top of these.
 //
 // Local coordinates are relative to each part's anchor (see pack-schema.ts);
 // with `mirror: "sides"` x is written for the right side and flipped for the
-// left. `identity` is the seat-identity draw this build falls back to; a pack
-// the overlay bundles may declare a larger one.
+// left. `identity` is the seat-identity draw over the free items; the premium
+// pack declares the full one.
 
-export const BASE_PACK_ID = "junto-base";
+export const FREE_PACK_ID = "junto-free";
 
-export const BASE_PACK: CosmeticPack = {
+export const FREE_PACK: CosmeticPack = {
   format: 1,
-  id: BASE_PACK_ID,
-  name: "Junto cast",
-  tier: "base",
+  id: FREE_PACK_ID,
+  name: "Junto free",
+  tier: "free",
   palettes: [
     { id: "amber", name: "Amber", token: "amber" },
     { id: "orange", name: "Orange", token: "orange" },
@@ -78,15 +79,16 @@ export const BASE_PACK: CosmeticPack = {
       ],
     },
     {
-      id: "antenna",
-      name: "Antenna",
+      id: "sprout",
+      name: "Sprout",
       parts: [
         {
           layer: "front",
           anchor: { x: "center", y: "top" },
           shapes: [
-            { kind: "path", d: "M 0 2 Q 1 -9 6 -13", paint: "stroke" },
-            { kind: "circle", cx: 6, cy: -15, r: 5, paint: "inked", color: "accent" },
+            { kind: "path", d: "M 0 3 L 0 -10", paint: "stroke" },
+            { kind: "path", d: "M 0 -8 C -4 -18 -15 -17 -16 -13 C -13 -6 -4 -5 0 -8 Z", paint: "inked", color: "leaf" },
+            { kind: "path", d: "M 0 -10 C 3 -20 12 -22 15 -19 C 13 -11 5 -8 0 -10 Z", paint: "inked", color: "leaf" },
           ],
         },
       ],
@@ -187,7 +189,7 @@ export const BASE_PACK: CosmeticPack = {
       ["steel", 1],
     ],
     species: ["round", "bean", "toast", "drop"],
-    toppers: ["none", "cat", "antenna"],
+    toppers: ["none", "cat", "sprout"],
     patterns: ["none", "belly", "spots"],
     speciesMore: [],
     toppersMore: [],

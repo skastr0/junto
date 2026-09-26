@@ -92,7 +92,7 @@ describe("agent portraits", () => {
     );
   });
 
-  it("gives the open-source starter enough variety that hundreds of seats rarely share a look", () => {
+  it("gives the free items enough variety that hundreds of seats rarely share a look", () => {
     const looks = new Set(
       Array.from({ length: 400 }, (_, index) => {
         const g = portraitGenome(`seat-${index}-${(index * 2654435761) >>> 0}`);

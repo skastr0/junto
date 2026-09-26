@@ -5,8 +5,9 @@ import { COSMETIC_COORD_MAX, COSMETIC_PATH_MAX, parseCosmeticPath } from "./path
 // toppers, accessories, patterns, and palettes as anchored shape data with
 // metadata. Nothing in a pack executes: paths go through one closed grammar
 // (./path.ts), colors are palette roles resolved from the theme tokens, and
-// every number is bounded. The built-in base cast is a pack in this format
-// (./base-pack.ts); premium packs arrive at build time through the overlay.
+// every number is bounded. The free items of the Junto cast are a pack in this
+// format (./free-pack.ts); premium items arrive at build time through the
+// overlay, in packs of their own.
 
 export const COSMETIC_PACK_FORMAT = 1;
 
@@ -119,7 +120,7 @@ export const CosmeticPart = Schema.Struct({
 export type CosmeticPart = typeof CosmeticPart.Type;
 
 const Parts = Schema.Array(CosmeticPart).pipe(Schema.check(Schema.isMaxLength(16)));
-const Tier = Schema.Literals(["base", "premium"]);
+const Tier = Schema.Literals(["free", "premium"]);
 
 /** Closed outline deformations over the superellipse body. */
 export const BodyDeform = Schema.Union([
@@ -203,9 +204,9 @@ const DrawList = Schema.optionalKey(Schema.Array(Key).pipe(Schema.check(Schema.i
 /**
  * The seat-identity draw: the lists a seat's look is picked from, by catalog
  * key. The portrait engine keeps its own random rolls and draw order and
- * reads each list from the last installed pack that declares it (the base
+ * reads each list from the last installed pack that declares it (the free
  * pack declares them all). A drawn item this install may not wear falls back
- * to the base list with the same roll. `*More` lists belong to the second
+ * to the free pack's list with the same roll. `*More` lists belong to the second
  * cast: an independent stream that swaps a new species, ears, or pattern in
  * for some seats; `props` are the props a seat may be born wearing.
  */
@@ -239,7 +240,7 @@ export const CosmeticPack = Schema.Struct({
   /**
    * `bare`: items keep their plain ids as catalog keys ("toast", not
    * "pack:toast"), so saved looks keep resolving when items move between the
-   * base pack and a pack. A bare id may not collide with an installed one.
+   * free pack and a premium pack. A bare id may not collide with an installed one.
    */
   keys: Schema.optionalKey(Schema.Literal("bare")),
   identity: Schema.optionalKey(IdentityTables),

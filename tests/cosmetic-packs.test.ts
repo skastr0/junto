@@ -1,7 +1,7 @@
 import { Result, Schema } from "effect";
 import { afterEach, describe, expect, it } from "vitest";
 import { portraitCharacter, portraitGenome, portraitSvg } from "../src/shared/agent-portrait";
-import { BASE_PACK, BASE_PACK_ID } from "../src/shared/cosmetics/base-pack";
+import { FREE_PACK, FREE_PACK_ID } from "../src/shared/cosmetics/free-pack";
 import { cosmeticEntries, findCosmetic, installCosmeticPacks } from "../src/shared/cosmetics/catalog";
 import { decodeCosmeticPacks, type CosmeticPackRejection } from "../src/shared/cosmetics/load";
 import { CosmeticPack } from "../src/shared/cosmetics/pack-schema";
@@ -42,8 +42,8 @@ afterEach(() => {
 });
 
 describe("cosmetic pack schema", () => {
-  it("admits the built-in base pack and the test pack", () => {
-    expect(Result.isSuccess(decode(BASE_PACK))).toBe(true);
+  it("admits the built-in free pack and the test pack", () => {
+    expect(Result.isSuccess(decode(FREE_PACK))).toBe(true);
     expect(Result.isSuccess(decode(testPack))).toBe(true);
   });
 
@@ -85,8 +85,8 @@ describe("bundled pack loading", () => {
         testPack,
         { ...testPack, id: "broken", species: [{ id: "x", name: "X", body: { n: 2 } }] },
         { ...testPack },
-        { ...testPack, id: BASE_PACK_ID },
-        { ...testPack, id: "free-pack", tier: "base" },
+        { ...testPack, id: FREE_PACK_ID },
+        { ...testPack, id: "free-pack", tier: "free" },
         "not a pack",
       ],
       (rejection) => rejections.push(rejection),
@@ -95,7 +95,7 @@ describe("bundled pack loading", () => {
     expect(rejections.map((rejection) => rejection.id ?? `#${rejection.index}`)).toEqual([
       "broken",
       "test-pack",
-      BASE_PACK_ID,
+      FREE_PACK_ID,
       "free-pack",
       "#5",
     ]);
@@ -130,11 +130,11 @@ describe("bare keys and identity tables", () => {
     const seats = Array.from({ length: 200 }, (_, index) => portraitGenome(`seat-${index}`));
     expect(new Set(seats.map((genome) => genome.shape))).toEqual(new Set(["blob"]));
     expect(seats.some((genome) => genome.accessory === "top-hat")).toBe(true);
-    // Lists the pack does not declare keep the base pack's.
-    expect(new Set(seats.map((genome) => genome.topper))).toEqual(new Set(BASE_PACK.identity?.toppers));
+    // Lists the pack does not declare keep the free pack's.
+    expect(new Set(seats.map((genome) => genome.topper))).toEqual(new Set(FREE_PACK.identity?.toppers));
   });
 
-  it("falls back to the base table, with the same roll, for a drawn item this build lacks", () => {
+  it("falls back to the free pack's table, with the same roll, for a drawn item this build lacks", () => {
     const base = Array.from({ length: 200 }, (_, index) => portraitGenome(`seat-${index}`).shape);
     installCosmeticPacks(decodeCosmeticPacks([{ ...barePack, identity: { species: ["missing-one", "missing-two"] } }]));
     expect(Array.from({ length: 200 }, (_, index) => portraitGenome(`seat-${index}`).shape)).toEqual(base);
@@ -154,21 +154,21 @@ describe("bare keys and identity tables", () => {
 });
 
 describe("catalog and fallback", () => {
-  it("resolves every identity draw to a base item", () => {
+  it("resolves every identity draw to a free item", () => {
     for (let index = 0; index < 300; index += 1) {
       const genome = portraitGenome(`seat-${index}`);
-      expect(findCosmetic("species", genome.shape)?.packId).toBe(BASE_PACK_ID);
-      expect(findCosmetic("topper", genome.topper)?.packId).toBe(BASE_PACK_ID);
-      expect(findCosmetic("pattern", genome.marking)?.packId).toBe(BASE_PACK_ID);
-      expect(findCosmetic("accessory", genome.accessory)?.packId).toBe(BASE_PACK_ID);
-      expect(findCosmetic("palette", genome.bodyHue)?.packId).toBe(BASE_PACK_ID);
+      expect(findCosmetic("species", genome.shape)?.packId).toBe(FREE_PACK_ID);
+      expect(findCosmetic("topper", genome.topper)?.packId).toBe(FREE_PACK_ID);
+      expect(findCosmetic("pattern", genome.marking)?.packId).toBe(FREE_PACK_ID);
+      expect(findCosmetic("accessory", genome.accessory)?.packId).toBe(FREE_PACK_ID);
+      expect(findCosmetic("palette", genome.bodyHue)?.packId).toBe(FREE_PACK_ID);
     }
   });
 
-  it("lists pack items after the base cast and draws them", () => {
+  it("lists premium items after the free ones and draws them", () => {
     installCosmeticPacks(decodeCosmeticPacks([testPack]));
     const hats = cosmeticEntries("accessory");
-    expect(hats[0]?.packId).toBe(BASE_PACK_ID);
+    expect(hats[0]?.packId).toBe(FREE_PACK_ID);
     expect(hats.at(-1)).toMatchObject({ key: "test-pack:top-hat", tier: "premium", available: true });
     const config = { accessory: "test-pack:top-hat", shape: "test-pack:blob", bodyHue: "test-pack:mint" };
     expect(portraitCharacter("seat-a", config)).toMatchObject(config);
@@ -177,7 +177,7 @@ describe("catalog and fallback", () => {
     );
   });
 
-  it("wears the seat's base look when a pack item is not in this build", () => {
+  it("wears the seat's free look when a premium item is not in this build", () => {
     installCosmeticPacks(decodeCosmeticPacks([testPack]));
     const config = { accessory: "test-pack:top-hat", shape: "test-pack:blob", bodyHue: "test-pack:mint" };
     installCosmeticPacks([]);

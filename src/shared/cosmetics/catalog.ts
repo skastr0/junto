@@ -1,4 +1,4 @@
-import { BASE_PACK, BASE_PACK_ID } from "./base-pack";
+import { FREE_PACK, FREE_PACK_ID } from "./free-pack";
 import type {
   CosmeticAccessory,
   CosmeticPack,
@@ -9,11 +9,12 @@ import type {
   CosmeticTopper,
 } from "./pack-schema";
 
-// The cosmetic catalog: the built-in base pack plus any packs the build's
+// The cosmetic catalog: the free items of the Junto cast (the built-in pack)
+// plus the premium items of any packs the build's
 // overlay bundled (premium content lives only in the official build). One
-// lookup for every item, base or premium, so there is one path.
+// lookup for every item, free or premium, so there is one path.
 //
-// Keys: base items keep their plain id ("toast"), so every saved override
+// Keys: free items keep their plain id ("toast"), so every saved override
 // stays valid; pack items are "<pack>:<item>", unless the pack declares bare
 // keys (then its items keep plain ids too, and "<pack>:<item>" still
 // resolves). A key that is not in the catalog, or not available, resolves to
@@ -35,7 +36,7 @@ export interface CosmeticEntry<S extends CosmeticSlot = CosmeticSlot> {
   readonly slot: S;
   readonly packId: string;
   readonly packName: string;
-  readonly tier: "base" | "premium";
+  readonly tier: "free" | "premium";
   /** Whether this install may wear it. See `isCosmeticAvailable`. */
   readonly available: boolean;
   readonly item: CosmeticItemBySlot[S];
@@ -50,7 +51,7 @@ const LIST_KEY: Readonly<Record<CosmeticSlot, keyof CosmeticPack>> = {
 };
 
 export const cosmeticKey = (pack: Pick<CosmeticPack, "id" | "keys">, itemId: string): string =>
-  pack.id === BASE_PACK_ID || pack.keys === "bare" ? itemId : `${pack.id}:${itemId}`;
+  pack.id === FREE_PACK_ID || pack.keys === "bare" ? itemId : `${pack.id}:${itemId}`;
 
 /**
  * The one entitlement seam. Every item is available today; a future
@@ -58,7 +59,7 @@ export const cosmeticKey = (pack: Pick<CosmeticPack, "id" | "keys">, itemId: str
  */
 export const isCosmeticAvailable = (_entry: Omit<CosmeticEntry, "available">): boolean => true;
 
-let packs: ReadonlyArray<CosmeticPack> = [BASE_PACK];
+let packs: ReadonlyArray<CosmeticPack> = [FREE_PACK];
 let revision = 0;
 let index = new Map<string, CosmeticEntry>();
 /** "<pack>:<item>" for bare-key packs, mapped to the entry's bare key. */
@@ -74,13 +75,13 @@ const rebuild = (): void => {
         const key = cosmeticKey(pack, item.id);
         const mapKey = `${slot}|${key}`;
         if (next.has(mapKey)) continue;
-        if (pack.keys === "bare" && pack.id !== BASE_PACK_ID) nextAliases.set(`${slot}|${pack.id}:${item.id}`, mapKey);
+        if (pack.keys === "bare" && pack.id !== FREE_PACK_ID) nextAliases.set(`${slot}|${pack.id}:${item.id}`, mapKey);
         const draft = {
           key,
           slot,
           packId: pack.id,
           packName: pack.name,
-          tier: pack.id === BASE_PACK_ID ? ("base" as const) : (item.tier ?? pack.tier),
+          tier: pack.id === FREE_PACK_ID ? ("free" as const) : (item.tier ?? pack.tier),
           item,
         };
         next.set(mapKey, { ...draft, available: isCosmeticAvailable(draft) });
@@ -93,12 +94,12 @@ const rebuild = (): void => {
 rebuild();
 
 /**
- * Install the packs the build bundled (already decoded). The base pack is
+ * Install the packs the build bundled (already decoded). The free pack is
  * always first and cannot be replaced; a pack id seen twice keeps the first.
  */
 export function installCosmeticPacks(extra: ReadonlyArray<CosmeticPack>): number {
-  const seen = new Set<string>([BASE_PACK_ID]);
-  const next: CosmeticPack[] = [BASE_PACK];
+  const seen = new Set<string>([FREE_PACK_ID]);
+  const next: CosmeticPack[] = [FREE_PACK];
   for (const pack of extra) {
     if (seen.has(pack.id)) continue;
     seen.add(pack.id);
@@ -143,10 +144,10 @@ export function identityPalettes(): ReadonlyArray<readonly [string, number]> {
   return [];
 }
 
-/** The base pack's list: where an unavailable draw falls back. */
-export const baseIdentityTable = (name: IdentityTable): ReadonlyArray<string> => BASE_PACK.identity?.[name] ?? [];
+/** The free pack's list: where an unavailable draw falls back. */
+export const freeIdentityTable = (name: IdentityTable): ReadonlyArray<string> => FREE_PACK.identity?.[name] ?? [];
 
-/** Every item in a slot, base pack first, in pack order. */
+/** Every item in a slot, free items first, in pack order. */
 export function cosmeticEntries<S extends CosmeticSlot>(slot: S): ReadonlyArray<CosmeticEntry<S>> {
   const out: CosmeticEntry<S>[] = [];
   for (const [mapKey, entry] of index) if (mapKey.startsWith(`${slot}|`)) out.push(entry as CosmeticEntry<S>);

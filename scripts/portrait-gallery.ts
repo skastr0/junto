@@ -32,7 +32,7 @@ const count = Number(process.argv[2] ?? 48);
 
 // Premium packs join like the app build: from the overlay JUNTO_OVERLAY names
 // (the private checkout), decoded with the app's pack schema. Unset, the
-// gallery shows what an open-source build carries: the base cast only.
+// gallery shows what an open-source build carries: the free items only.
 const overlayDir = process.env.JUNTO_OVERLAY;
 const premiumPacks = overlayDir
   ? decodeCosmeticPacks(
@@ -127,7 +127,7 @@ const page = (mode: ThemeMode): string => {
           `<figure><img width="80" height="80" style="border-radius:50%" src="${portraitDataUri({ seed: showcaseSeed, mode, detail: "rich", frame: "round", config: { accessory: "none", topper: "none", shape: "round", [trait]: option } })}"><figcaption>${option}</figcaption></figure>`,
       )
       .join("")}</div>`;
-  // Every installed item per slot: the starter, plus premium in an official build.
+  // Every installed item per slot: the free items, plus premium in an official build.
   const showcases = (
     [
       ["species", "shape"],
@@ -145,7 +145,7 @@ const page = (mode: ThemeMode): string => {
     .slice(0, 10)
     .map((seed) => `<img width="120" height="120" src="${portraitDataUri({ seed, mode, detail: "rich", frame: "bare" })}">`)
     .join("")}</div>`;
-  // Base vs premium: each premium item on the same critters as the base row.
+  // Free vs premium: each premium item on the same critters as the free row.
   const premiumSeeds = seeds.slice(0, 6);
   const premiumRow = (label: string, config: Record<string, string>): string =>
     `<div class="premium-row"><div class="premium-label">${label}</div>${premiumSeeds
@@ -155,12 +155,12 @@ const page = (mode: ThemeMode): string => {
     ? premiumPacks
         .map(
           (pack) =>
-            `<h2>premium pack: ${pack.name} (official build only)</h2>${premiumRow("base look", { accessory: "none" })}${(pack.accessories ?? [])
+            `<h2>premium pack: ${pack.name} (official build only)</h2>${premiumRow("free look", { accessory: "none" })}${(pack.accessories ?? [])
               .map((item) => premiumRow(item.name, { accessory: `${pack.id}:${item.id}` }))
               .join("")}${(pack.palettes ?? []).map((item) => premiumRow(`${item.name} color`, { bodyHue: `${pack.id}:${item.id}`, accessory: "none" })).join("")}`,
         )
         .join("")
-    : `<h2>open-source build: base cast only (set JUNTO_OVERLAY to add premium packs)</h2>`;
+    : `<h2>open-source build: free items only (set JUNTO_OVERLAY to add the premium ones)</h2>`;
   return `<section class="theme" style="background:${t.ground};color:${t.ink}">
 <h1>Agent portraits, ${mode}</h1>
 ${premium}

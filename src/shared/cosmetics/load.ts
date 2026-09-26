@@ -1,5 +1,5 @@
 import { Result, Schema } from "effect";
-import { BASE_PACK, BASE_PACK_ID } from "./base-pack";
+import { FREE_PACK, FREE_PACK_ID } from "./free-pack";
 import { CosmeticPack } from "./pack-schema";
 
 // Decodes the cosmetic packs a build bundled (the overlay's raw pack data).
@@ -31,8 +31,8 @@ export function decodeCosmeticPacks(
     ),
 ): ReadonlyArray<CosmeticPack> {
   const packs: CosmeticPack[] = [];
-  const seen = new Set<string>([BASE_PACK_ID]);
-  const bare = new Set<string>(bareKeys(BASE_PACK));
+  const seen = new Set<string>([FREE_PACK_ID]);
+  const bare = new Set<string>(bareKeys(FREE_PACK));
   raw.forEach((input, index) => {
     const id =
       input !== null && typeof input === "object" && typeof (input as { id?: unknown }).id === "string"
@@ -49,7 +49,7 @@ export function decodeCosmeticPacks(
       return;
     }
     if (pack.tier !== "premium") {
-      onReject({ index, id: pack.id, reason: "only the built-in pack is tier base; bundled packs are premium" });
+      onReject({ index, id: pack.id, reason: "only the built-in pack holds free items; bundled packs are premium" });
       return;
     }
     if (pack.keys === "bare") {

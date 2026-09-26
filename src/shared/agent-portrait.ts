@@ -1,5 +1,5 @@
 import {
-  baseIdentityTable,
+  freeIdentityTable,
   cosmeticEntries,
   findCosmetic,
   identityPalettes,
@@ -8,7 +8,7 @@ import {
   type CosmeticSlot,
   type IdentityTable,
 } from "./cosmetics/catalog";
-import { BASE_PACK } from "./cosmetics/base-pack";
+import { FREE_PACK } from "./cosmetics/free-pack";
 import { drawLayer, speciesBody, type BodyShape, type CritterGeometry, type DrawStyle } from "./cosmetics/draw";
 import type { CosmeticPart, PaletteRole } from "./cosmetics/pack-schema";
 import { hexToOklch, oklchToHex, themeRuntime, type Oklch, type ThemeMode } from "./theme";
@@ -27,8 +27,9 @@ import { hexToOklch, oklchToHex, themeRuntime, type Oklch, type ThemeMode } from
 // variants stay filter-free so canvas zoom never re-rasterizes a filter.
 //
 // Species, toppers, patterns, props, and body palettes are cosmetic items
-// (./cosmetics): the base cast is the built-in pack, drawn by the same data
-// interpreter as any pack the build bundles. Faces and expressions stay here.
+// (./cosmetics): the free items are the built-in pack, and the premium items
+// a build bundles are drawn by the same data interpreter. Faces and
+// expressions are all free and stay here.
 
 export type PortraitDetail = "glyph" | "card" | "rich";
 
@@ -37,8 +38,8 @@ export const portraitDetailFor = (size: number): PortraitDetail =>
   size < 34 ? "glyph" : size < 72 ? "card" : "rich";
 
 // Which species, ears, patterns, props, and body palettes a seat is born
-// with comes from the cosmetic catalog's identity tables (the base pack's, or
-// a bundled pack's when it declares them); this file keeps only the rolls and
+// with comes from the cosmetic catalog's identity tables (the free pack's, or
+// a premium pack's when the build bundles one that declares them); this file keeps only the rolls and
 // their order. Faces are not cosmetics: their draw lists live here.
 const ACCENT_HUES = ["amber", "cyan", "violet", "green", "orange", "gold"] as const;
 const EYES = ["dot", "shiny", "happy", "sleepy", "oval", "wink", "line", "sparkle"] as const;
@@ -79,8 +80,9 @@ export const PORTRAIT_COSMETIC_TRAITS = {
 } as const;
 
 /**
- * Every option the editor offers right now, base cast first, then each pack
- * the build bundled. Unavailable pack items are listed; they never render.
+ * Every option the editor offers right now, free items first, then each
+ * premium pack the build bundled. Unavailable items are listed; they never
+ * render.
  */
 export const portraitOptions = () => ({
   ...PORTRAIT_FACE_OPTIONS,
@@ -188,18 +190,18 @@ const at = (u: number, items: ReadonlyArray<string>): string | undefined =>
 
 /**
  * One identity draw from a catalog table. A drawn key this install may not
- * wear falls back to the base pack's table with the same roll, so one locked
+ * wear falls back to the free pack's table with the same roll, so one locked
  * item never reshuffles any other seat.
  */
 const drawn = (slot: CosmeticSlot, table: IdentityTable, u: number): string | undefined => {
   const key = at(u, identityTable(table));
   if (key !== undefined && findCosmetic(slot, key)) return key;
-  return at(u, baseIdentityTable(table));
+  return at(u, freeIdentityTable(table));
 };
 
 const drawnPalette = (u: number): string => {
   const key = weighted(u, identityPalettes());
-  return key !== undefined && findCosmetic("palette", key) ? key : (weighted(u, BASE_PACK.identity?.palettes ?? []) ?? "amber");
+  return key !== undefined && findCosmetic("palette", key) ? key : (weighted(u, FREE_PACK.identity?.palettes ?? []) ?? "amber");
 };
 
 const oneOf = <T extends string>(items: ReadonlyArray<T>, value: unknown): T | undefined =>
@@ -400,7 +402,7 @@ function wornParts(genome: PortraitGenome): {
   readonly floats: boolean;
 } {
   // A character's keys were resolved against the catalog in portraitCharacter;
-  // the identity keys always exist in the base pack.
+  // "round" is a free species, so it is always installed.
   const species = (findCosmetic("species", genome.shape) ?? findCosmetic("species", "round")) as CosmeticEntry<"species">;
   const topper = findCosmetic("topper", genome.topper)?.item;
   const accessory = findCosmetic("accessory", genome.accessory)?.item;
