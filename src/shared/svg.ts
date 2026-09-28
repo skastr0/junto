@@ -3,6 +3,7 @@ import {
   deriveExecutionGraph,
   type ExecutionGraphContext,
 } from "./execution-graph";
+import { canvasSwatchFor, normalizeHexColor } from "./canvas-colors";
 import { isGroup } from "./graph";
 import { requestsNodeName } from "./requests-node-identity";
 import { boardNodeName } from "./board-node-identity";
@@ -27,15 +28,11 @@ const svgPalette = (mode: ThemeMode) => {
     cardFill: t["overlay-1"]!,
     stroke: t.stroke!,
     groupFill: hexAtAlpha(t.steel!, 0.05),
-    // JSON Canvas preset colors 1..6 -> border tint.
-    preset: {
-      "1": t.crimson!,
-      "2": t.orange!,
-      "3": t.gold!,
-      "4": t.green!,
-      "5": t.cyan!,
-      "6": t.violet!,
-    } as Record<string, string>,
+    // The canvas palette (presets and named hex) -> its theme colour.
+    swatch: (color: string): string | undefined => {
+      const swatch = canvasSwatchFor(color);
+      return swatch ? t[swatch.token] : undefined;
+    },
     edgeColor: { blocks: t.crimson!, relates: t.steel! } as Record<
       EtherEdgeKind,
       string
@@ -48,7 +45,10 @@ const esc = (s: string): string =>
   s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
 const nodeStroke = (node: CanvasNode, pal: SvgPalette): string => {
-  if (node.color && pal.preset[node.color]) return pal.preset[node.color]!;
+  if (node.color) {
+    const painted = pal.swatch(node.color) ?? normalizeHexColor(node.color);
+    if (painted) return painted;
+  }
   if (node.ether?.entity?.kind === "agent") return pal.steel;
   return pal.stroke;
 };

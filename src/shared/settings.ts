@@ -3,6 +3,7 @@ import {
   BROWSER_MAX_VISIBLE_SURFACES_HARD,
   BROWSER_MAX_WARM_SESSIONS_HARD,
 } from "./browser-limits";
+import { RECENT_COLORS_MAX, sanitizeRecentColors } from "./canvas-colors";
 import { CANVAS_NAME_INPUT_PATTERN, CANVAS_NAME_MAX_LENGTH } from "./canvas-name";
 import { DEFAULT_STATION_HOST_ID, STATION_ROLES } from "./station";
 import { NATIVE_USAGE_PROVIDERS, NativeUsageProvider } from "./usage";
@@ -54,6 +55,10 @@ const positiveInt = (min: number, max: number) =>
 export const AgentAppearancePolicy = Schema.Literals(["follow", "agent"]);
 export type AgentAppearancePolicy = typeof AgentAppearancePolicy.Type;
 
+const RecentColors = Schema.Array(
+  Schema.String.pipe(Schema.check(Schema.isPattern(/^#[0-9a-f]{6}$/))),
+).pipe(Schema.check(Schema.isMaxLength(RECENT_COLORS_MAX)));
+
 export const AppearanceSettings = Schema.Struct({
   theme: SettingsTheme,
   density: SettingsDensity,
@@ -63,6 +68,8 @@ export const AppearanceSettings = Schema.Struct({
    * Absent ≡ `follow` (recommended default).
    */
   agentAppearance: Schema.optionalKey(AgentAppearancePolicy),
+  /** Custom card and region colours, newest first (shared/canvas-colors.ts). */
+  recentColors: Schema.optionalKey(RecentColors),
 });
 export type AppearanceSettings = typeof AppearanceSettings.Type;
 
@@ -850,6 +857,8 @@ export const AppearancePatch = Schema.Struct({
   density: Schema.optionalKey(SettingsDensity),
   reduceMotion: Schema.optionalKey(Schema.Boolean),
   agentAppearance: Schema.optionalKey(AgentAppearancePolicy),
+  /** Replaces the list; [] clears it. */
+  recentColors: Schema.optionalKey(RecentColors),
 });
 export type AppearancePatch = typeof AppearancePatch.Type;
 
@@ -1334,7 +1343,13 @@ export const mergeSection = <S extends Record<string, unknown>>(
 export const applySettingsPatch = (current: Settings, patch: SettingsPatch): Settings => {
   let next: Settings = current;
   if (patch.appearance) {
-    next = { ...next, appearance: mergeSection(next.appearance, patch.appearance) };
+    const { recentColors: recentPatch, ...fields } = patch.appearance;
+    const { recentColors: prior, ...merged } = mergeSection(next.appearance, fields);
+    const kept = recentPatch === undefined ? prior : sanitizeRecentColors(recentPatch);
+    next = {
+      ...next,
+      appearance: { ...merged, ...(kept && kept.length > 0 ? { recentColors: kept } : {}) },
+    };
   }
   if (patch.canvas) {
     next = { ...next, canvas: mergeSection(next.canvas, patch.canvas) };

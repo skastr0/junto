@@ -1,4 +1,5 @@
 import type { EtherEdgeKind } from "@shared/canvas";
+import { canvasSwatchFor } from "@shared/canvas-colors";
 import { themeRuntime, type ThemeMode } from "@shared/theme";
 
 // Runtime projection of the single token source (src/shared/theme/) for
@@ -25,6 +26,10 @@ export const HUE = {
   indigo: "var(--color-indigo)",
   gold: "var(--color-gold)",
   orange: "var(--color-orange)",
+  yellow: "var(--color-yellow)",
+  lime: "var(--color-lime)",
+  blue: "var(--color-blue)",
+  pink: "var(--color-pink)",
 } as const;
 
 // Ground-to-ink ladder. CSS variable references so these resolve against the
@@ -48,22 +53,16 @@ export const CARD_FILL_HI = "var(--color-overlay-2)";
 export const STROKE = "var(--color-stroke)";
 export const STROKE_HI = "var(--color-stroke-hi)";
 
-// JSON Canvas 1.0 color presets '1'..'6'. Return CSS variable references so
-// they resolve against the active theme mode (dark/bright) rather than being
-// frozen to dark-mode hex values at module load.
-const PRESET: Record<string, string> = {
-  "1": "var(--color-crimson)", // red
-  "2": "var(--color-orange)", // orange
-  "3": "var(--color-gold)", // yellow
-  "4": "var(--color-green)", // green
-  "5": "var(--color-cyan)", // cyan
-  "6": "var(--color-violet)", // purple
-};
-
+// A node colour: a JSON Canvas preset digit or hex. Palette colours
+// (shared/canvas-colors.ts) resolve to CSS variable references so they follow
+// the active theme mode (dark/bright) instead of freezing to one shade; any
+// other hex is a custom colour and paints as stored.
 export const accentColor = (color?: string): string => {
   if (!color) return "var(--color-main)";
+  const swatch = canvasSwatchFor(color);
+  if (swatch) return `var(--color-${swatch.token})`;
   if (color.startsWith("#")) return color;
-  return PRESET[color] ?? "var(--color-main)";
+  return "var(--color-main)";
 };
 
 // Resolve a JSON Canvas color (preset digit or hex) to a border tint. Absent
@@ -71,7 +70,7 @@ export const accentColor = (color?: string): string => {
 // state (selected/focused) uses the hi variant. Custom hex colors keep the old
 // withAlpha path so they remain usable with JS color manipulation.
 export const borderColor = (color?: string, emphasized = false): string => {
-  if (color?.startsWith("#")) return color;
+  if (color?.startsWith("#") && !canvasSwatchFor(color)) return color;
   if (!color) return emphasized ? "var(--color-stroke-hi)" : "var(--color-stroke)";
   return withAlpha(accentColor(color), emphasized ? 0.5 : 0.32);
 };

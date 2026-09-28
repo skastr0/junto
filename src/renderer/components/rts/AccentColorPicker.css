@@ -1,0 +1,152 @@
+/* Card and region colour (AccentColorPicker.tsx): the default, the palette
+   in hue order and "+", seven to a row so the thirteen dots sit in two rows
+   beside the card title. */
+
+.rts-cmd-accents {
+  display: grid;
+  grid-template-columns: repeat(7, 12px);
+  gap: 4px;
+  align-content: start;
+  flex-shrink: 0;
+}
+
+.rts-swatch {
+  width: 12px;
+  height: 12px;
+  padding: 0;
+  border-radius: 999px;
+  border: 1px solid var(--color-stroke-hi);
+  background: transparent;
+  color: var(--color-dim);
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  transition: border-color 120ms ease-out, box-shadow 120ms ease-out;
+}
+
+.rts-swatch span {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  display: block;
+}
+
+.rts-swatch.is-active {
+  border-color: color-mix(in oklab, var(--color-ink) 75%, transparent);
+  box-shadow: 0 0 0 1px var(--color-stroke);
+}
+
+.rts-swatch:hover {
+  border-color: color-mix(in oklab, var(--color-ink) 50%, transparent);
+}
+
+.rts-swatch:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--color-focus-ring);
+  border-color: var(--color-cyan);
+}
+
+/* "+" wears a dashed ring until it holds a custom colour. */
+.rts-swatch--custom:not(.is-active) {
+  border-style: dashed;
+}
+
+.rts-swatch--custom:hover,
+.rts-swatch--custom[aria-expanded="true"] {
+  color: var(--color-ink);
+}
+
+/* --- custom colour popover ------------------------------------------- */
+
+.accent-custom__form {
+  display: grid;
+  gap: 8px;
+}
+
+.accent-custom__label {
+  font-size: 10px;
+  color: var(--color-dim);
+}
+
+.accent-custom__row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.accent-custom__well {
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  padding: 2px;
+  border: 1px solid var(--color-stroke-hi);
+  border-radius: 5px;
+  background: var(--color-inset);
+  cursor: pointer;
+}
+
+.accent-custom__well::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+
+.accent-custom__well::-webkit-color-swatch {
+  border: none;
+  border-radius: 3px;
+}
+
+.accent-custom__well:focus-visible {
+  outline: none;
+  border-color: var(--color-cyan);
+  box-shadow: 0 0 0 3px var(--color-focus-ring);
+}
+
+.accent-custom__hex {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font-mono);
+}
+
+.accent-custom__error,
+.accent-custom__note {
+  margin: 0;
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+.accent-custom__error {
+  color: var(--color-crimson-fg);
+}
+
+.accent-custom__note {
+  color: var(--color-dim);
+}
+
+.accent-custom__recent {
+  display: grid;
+  gap: 5px;
+  padding-top: 8px;
+  border-top: 1px solid var(--color-stroke);
+}
+
+.accent-custom__dots {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.accent-custom__dots .rts-swatch {
+  width: 16px;
+  height: 16px;
+}
+
+.accent-custom__dots .rts-swatch span {
+  width: 12px;
+  height: 12px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rts-swatch {
+    transition: none;
+  }
+}

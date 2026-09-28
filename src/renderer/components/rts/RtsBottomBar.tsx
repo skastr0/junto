@@ -72,8 +72,6 @@ import {
   deleteNode,
   deleteNodes,
   renameGroup,
-  setNodeColor,
-  setNodeColorForNodes,
   setRegionHold,
 } from "../../lib/mutations";
 import {
@@ -89,7 +87,7 @@ import {
   regionSlotCueLabel,
   type PrimaryCommandAction,
 } from "../../lib/command-card";
-import { GREEN, HUE, withAlpha } from "../../lib/theme";
+import { HUE, withAlpha } from "../../lib/theme";
 import { useAlertAttention } from "../../lib/alert-attention";
 import { kernel$ } from "../../lib/kernel-view";
 import { specOf } from "../../lib/node-spec";
@@ -126,74 +124,8 @@ import {
 import { isHarnessId } from "@shared/managed-terminal-templates";
 import { terminal$ } from "../../lib/terminal-state";
 import { claimFocus, isOperatorTyping } from "../../lib/focus-ownership";
+import { AccentColorSwatches } from "./AccentColorPicker";
 import "./RtsBottomBar.css";
-
-const COLOR_OPTIONS: ReadonlyArray<{ readonly value: string; readonly label: string; readonly hue: string }> = [
-  { value: "1", label: "red", hue: HUE.crimson },
-  { value: "2", label: "orange", hue: HUE.orange },
-  { value: "3", label: "gold", hue: HUE.gold },
-  { value: "4", label: "green", hue: GREEN },
-  { value: "5", label: "cyan", hue: HUE.cyan },
-  { value: "6", label: "violet", hue: HUE.violet },
-];
-
-/** JSON Canvas accent presets — single node or multi-select mass apply. */
-function AccentColorSwatches({
-  nodeId,
-  nodeIds,
-  color,
-  mixed = false,
-}: {
-  readonly nodeId?: string;
-  /** When set, applies color to every id (multi-select). */
-  readonly nodeIds?: ReadonlyArray<string>;
-  readonly color: string | undefined;
-  /** Selection has differing colors — no swatch pretends to be the active one. */
-  readonly mixed?: boolean;
-}) {
-  const apply = (next: string | undefined) => {
-    if (nodeIds && nodeIds.length > 0) {
-      setNodeColorForNodes(nodeIds, next);
-      return;
-    }
-    if (nodeId) setNodeColor(nodeId, next);
-  };
-  const defaultActive = !mixed && !color;
-  return (
-    <div
-      className="rts-cmd-accents"
-      aria-label="Accent color"
-      title={mixed ? "Mixed accents — pick one to apply to all" : undefined}
-    >
-      <button
-        type="button"
-        className={`rts-swatch${defaultActive ? " is-active" : ""}`}
-        title={mixed ? "Set all to default accent" : "Default accent"}
-        aria-label="Use default accent"
-        aria-pressed={defaultActive}
-        onClick={() => apply(undefined)}
-      >
-        <span style={{ background: HUE.amber }} />
-      </button>
-      {COLOR_OPTIONS.map(({ value, label, hue }) => {
-        const active = !mixed && color === value;
-        return (
-          <button
-            key={value}
-            type="button"
-            className={`rts-swatch${active ? " is-active" : ""}`}
-            title={mixed ? `set all to ${label}` : `${label} accent`}
-            aria-label={`Set ${label} accent`}
-            aria-pressed={active}
-            onClick={() => apply(value)}
-          >
-            <span style={{ background: hue }} />
-          </button>
-        );
-      })}
-    </div>
-  );
-}
 
 /** Compact square RTS key — fixed size, never stretches. */
 function CmdKey({
