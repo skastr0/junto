@@ -108,7 +108,9 @@ export const FactoryPauseRepositoryLive: Layer.Layer<
       const updated = yield* oneRow(canvasName);
       return stateForCanvas(updated._tag === "Some" ? updated.value : undefined);
     }, sql.withTransaction, Effect.provideService(StateTransactionOperation, "factory-pause.set-playing"),
-    Effect.mapError((error) => persistenceError("set playing", error)));
+    (effect, canvasName, playing) => effect.pipe(
+      Effect.mapError((error) => persistenceError(`${playing ? "play" : "pause"} canvas ${canvasName}`, error)),
+    ));
 
     return FactoryPauseRepository.of({
       loadAll,
