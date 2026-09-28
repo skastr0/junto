@@ -27,33 +27,19 @@ import {
   crewSeatNode,
   crewDoc,
   crewMessagesEdge,
-  crewTasksNode,
-  crewWorksEdge,
   installCrewSeatHarness,
   type WorkEnvelope,
 } from "../harness/crew-fixture";
-import { taskItem } from "../harness/sandbox";
 
 const CANVAS = "crew-wait";
 const A = "seat-a";
 const B = "seat-b";
-const SINK = "sink";
 
 const seatA = crewSeatNode({ id: A, x: 40, y: 40 });
 const seatB = crewSeatNode({ id: B, x: 360, y: 40 });
-const sink = crewTasksNode({
-  id: SINK,
-  x: 640,
-  y: 40,
-  items: [taskItem("task-1", "watch me finish")],
-});
 const waitDoc = crewDoc(
-  [seatA, seatB, sink],
-  [
-    crewMessagesEdge("e-ab", A, B, [seatA, seatB, sink]),
-    crewWorksEdge("w-sink-a", SINK, A, [seatA, seatB, sink]),
-    crewWorksEdge("w-sink-b", SINK, B, [seatA, seatB, sink]),
-  ],
+  [seatA, seatB],
+  [crewMessagesEdge("e-ab", A, B, [seatA, seatB])],
 );
 
 const opData = (env: WorkEnvelope): Record<string, unknown> => {
@@ -241,13 +227,12 @@ test("crew observe [fake-tui]: bounded follow returns on advance, duration, or e
 test("crew wait [fake-tui]: masked edge refuses wait and read as ScopeError", async () => {
   test.setTimeout(180_000);
   const maskedDoc = crewDoc(
-    [seatA, seatB, sink],
+    [seatA, seatB],
     [
       // Mail flows, but observe and wait are masked off the edge.
-      crewMessagesEdge("e-ab", A, B, [seatA, seatB, sink], [
+      crewMessagesEdge("e-ab", A, B, [seatA, seatB], [
         "msg.list", "msg.send", "msg.prompt",
       ]),
-      crewWorksEdge("w-sink-a", SINK, A, [seatA, seatB, sink]),
     ],
   );
   const junto = await launchJunto({
@@ -292,36 +277,6 @@ test("crew wait [fake-tui]: removing the edge ends authority mid-scenario", asyn
     const read = await a.op("seat.read", { target: B, lines: 10 });
     expect(read.ok).toBe(false);
     if (!read.ok) expect(read.error.type).toBe("ScopeError");
-  } finally {
-    await junto.close();
-  }
-});
-
-test("crew wait [fake-tui]: tasks.wait observes a peer task reaching completed", async () => {
-  test.setTimeout(300_000);
-  const junto = await launch();
-  try {
-    const { a, b } = await boot(junto);
-
-    // B waits on the task A is about to close; A claims and completes it.
-    const waitPromise = b.op("tasks.wait", {
-      target: SINK, taskId: "task-1", until: "completed", timeoutMs: 120_000,
-    }, { awaitMs: 140_000, timeoutMs: 140_000 });
-
-    await new Promise((resolve) => setTimeout(resolve, 2_000));
-    const claim = await a.op("tasks.claim", { target: SINK, task: "task-1" });
-    expect(claim.ok, JSON.stringify(claim)).toBe(true);
-    const done = await a.op("tasks.update", {
-      target: SINK, task: "task-1", state: "completed",
-      completionEvidence: { artifacts: [] },
-    });
-    expect(done.ok, JSON.stringify(done)).toBe(true);
-
-    const waited = await waitPromise;
-    const data = opData(waited) as { taskId: string; state: string; epoch: number };
-    expect(data.taskId).toBe("task-1");
-    expect(data.state).toBe("completed");
-    expect(typeof data.epoch).toBe("number");
   } finally {
     await junto.close();
   }

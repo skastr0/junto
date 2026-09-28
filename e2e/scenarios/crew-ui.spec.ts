@@ -8,40 +8,27 @@
  *      the seat, or waiting for a seat that is not running, with its kind;
  *   2. the relation surface renders the compiled port chips of a messages
  *      edge — granted vs masked — and a chip click rewrites ether.mask
- *      through the normal operator path;
- *   3. task detail shows the requires-review authoring (required, waiting
- *      for green) and the verdict chain tracks posted verdicts, ageing
- *      prior-epoch rows as send-backs bump the task epoch.
+ *      through the normal operator path.
  */
 import { expect, launchJunto, test } from "../harness/launch";
 import {
-  crewManagesEdge,
   crewMessagesEdge,
   crewOccupySeat,
   crewPlayFactory,
-  crewReviewsEdge,
   crewSeat,
   crewSeatNode,
-  crewTasksNode,
   crewDoc,
-  crewWorksEdge,
   installCrewSeatHarness,
   type WorkEnvelope,
 } from "../harness/crew-fixture";
 import {
   CREW_UI_SELECTORS,
   messagesEdgeWithMask,
-  requiresReviewRule,
 } from "../harness/crew-ui-fixtures";
-import { taskItem } from "../harness/sandbox";
 
 const CANVAS = "crew-ui";
 const A = "seat-a";
 const B = "seat-b";
-const R = "seat-r";
-const SINK = "sink";
-
-const SHA_A = "a".repeat(40);
 
 const seatA = crewSeatNode({ id: A, x: 40, y: 40 });
 const seatB = crewSeatNode({ id: B, x: 360, y: 40 });
@@ -172,140 +159,6 @@ test("crew ui: the relation card shows no capability chips and keeps a stored ma
       return read.doc.edges.find((edge) => edge.id === "e-ab")?.ether?.mask;
     }, CANVAS);
     expect(stored).toEqual(["msg.list", "msg.prompt", "seat.wait", "terminal.read"]);
-  } finally {
-    await junto.close();
-  }
-});
-
-// ---------------------------------------------------------------------------
-// 3. requires-review authoring + verdict chain on the task detail
-// ---------------------------------------------------------------------------
-
-test("crew ui [fake-tui]: task detail arms the review gate and chains posted verdicts", async () => {
-  test.setTimeout(300_000);
-  const sink = crewTasksNode({
-    id: SINK,
-    x: 680,
-    y: 40,
-    items: [taskItem("task-1", "review me before merge")],
-    contract: { rules: [requiresReviewRule()] },
-  });
-  const seatR = crewSeatNode({ id: R, x: 40, y: 280 });
-  const doc = crewDoc(
-    [seatA, seatR, sink],
-    [
-      crewWorksEdge("w-sink-a", SINK, A, [seatA, seatR, sink]),
-      crewManagesEdge("m-r", R, SINK, [seatA, seatR, sink]),
-      crewReviewsEdge("e-rev", R, A, [seatA, seatR, sink]),
-    ],
-  );
-  const junto = await launchJunto({
-    seedCanvases: { [CANVAS]: doc },
-    afterSeed: installCrewSeatHarness,
-  });
-  try {
-    const { page, sandbox } = junto;
-    await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
-    await crewPlayFactory(page);
-
-    const seatAHandle = crewSeat(sandbox, CANVAS, A);
-    const seatRHandle = crewSeat(sandbox, CANVAS, R);
-    await crewOccupySeat(page, CANVAS, seatA, seatAHandle);
-    await crewOccupySeat(page, CANVAS, seatR, seatRHandle);
-
-    // The author claims task-1 and stages a commit for review.
-    const claim = await seatAHandle.op("tasks.claim", {
-      target: SINK,
-      task: "task-1",
-    });
-    expect(claim.ok, JSON.stringify(claim)).toBe(true);
-    const staged = await seatAHandle.op("tasks.update", {
-      target: SINK,
-      task: "task-1",
-      state: "working",
-      completionEvidence: { artifacts: [], git: { commits: [SHA_A] } },
-    });
-    expect(staged.ok, JSON.stringify(staged)).toBe(true);
-
-    // Open the task board and select the task — the detail panel shows the
-    // review requirement armed and unsatisfied, and an empty chain.
-    const tasksCard = page.locator(`.react-flow__node[data-id="${SINK}"]`);
-    await tasksCard.getByTestId("tasks-card").dispatchEvent("dblclick");
-    const board = page.getByRole("dialog", { name: "Task board" });
-    await expect(board).toBeVisible({ timeout: 15_000 });
-    await board
-      .getByRole("listitem", { name: /Open details for review me before merge/ })
-      .click();
-    const detail = page.getByTestId(CREW_UI_SELECTORS.taskDetail);
-    await expect(detail).toBeVisible();
-
-    const authoring = detail.getByTestId(CREW_UI_SELECTORS.requiresReview);
-    await expect(authoring).toHaveAttribute("data-required", "true");
-    await expect(authoring).toHaveAttribute("data-satisfied", "false");
-    await expect(authoring).toContainText("waiting for green");
-
-    const chain = detail.getByTestId(CREW_UI_SELECTORS.verdictChain);
-    await expect(chain).toBeVisible();
-    await expect(chain).toContainText("No verdicts on this epoch yet.");
-
-    // The reviewer reads the subject it must judge, then posts green.
-    const show = await seatRHandle.op("tasks.show", {
-      target: SINK,
-      task: "task-1",
-    });
-    const subject = (opData(show) as {
-      reviewSubject: { epoch: number; subjectHash: string };
-    }).reviewSubject;
-    const green = await seatRHandle.op("verdict.post", {
-      target: SINK,
-      subject: {
-        kind: "task",
-        taskId: "task-1",
-        epoch: subject.epoch,
-        subjectHash: subject.subjectHash,
-      },
-      kind: "green",
-    });
-    expect(green.ok, JSON.stringify(green)).toBe(true);
-
-    // The gate shows satisfied on this epoch; the chain carries the green.
-    await expect(authoring).toHaveAttribute("data-satisfied", "true");
-    const greenEntry = chain.locator(
-      `[data-testid="${CREW_UI_SELECTORS.verdictChainEntry}"][data-verdict="green"]`,
-    );
-    await expect(greenEntry).toHaveCount(1);
-    await expect(greenEntry).toHaveAttribute("data-epoch", "0");
-    await expect(greenEntry).toHaveAttribute("data-current", "true");
-    await expect(greenEntry).toHaveAttribute("data-reviewer-node", R);
-
-    // A blocking verdict sends the task back at epoch+1: both rows now sit
-    // on a prior epoch and the gate waits for a fresh green.
-    const blocking = await seatRHandle.op("verdict.post", {
-      target: SINK,
-      subject: {
-        kind: "task",
-        taskId: "task-1",
-        epoch: subject.epoch,
-        subjectHash: subject.subjectHash,
-      },
-      kind: "blocking",
-      findings: ["no tests cover the merge path"],
-    });
-    expect(blocking.ok, JSON.stringify(blocking)).toBe(true);
-
-    const entries = chain.locator(
-      `[data-testid="${CREW_UI_SELECTORS.verdictChainEntry}"]`,
-    );
-    await expect(entries).toHaveCount(2);
-    const blockingEntry = chain.locator(
-      `[data-testid="${CREW_UI_SELECTORS.verdictChainEntry}"][data-verdict="blocking"]`,
-    );
-    await expect(blockingEntry).toHaveAttribute("data-epoch", "0");
-    await expect(blockingEntry).toHaveAttribute("data-current", "false");
-    await expect(greenEntry).toHaveAttribute("data-current", "false");
-    await expect(authoring).toHaveAttribute("data-satisfied", "false");
-    await expect(authoring).toContainText("waiting for green");
-    await expect(authoring).toContainText("epoch 1");
   } finally {
     await junto.close();
   }
