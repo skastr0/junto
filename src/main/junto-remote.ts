@@ -69,7 +69,6 @@ import { terminalObserverPlane } from "./junto/term/observer";
 import { createManagedTerminalDrive } from "./junto/term/drive/managed-drive-factory";
 import { attachManagedTerminalDriveRuntime } from "./junto/term/drive/managed-drive-runtime";
 import { bindManagedTerminalDriveForOverseer } from "./junto/term/managed-drive-holder";
-import { startTransportJournal } from "./junto/observability";
 import { configureTerminalRouterLayeredRunner } from "./junto/term/router";
 
 const argvHas = (flag: string): boolean => process.argv.includes(flag);
@@ -146,7 +145,6 @@ type Handles = {
 };
 
 const runProductBoot = async (): Promise<void> => {
-  startTransportJournal();
   // DISPLAY / WAYLAND_DISPLAY / XAUTHORITY are intentionally ignored.
   void process.env.DISPLAY;
   void process.env.WAYLAND_DISPLAY;

@@ -46,8 +46,6 @@ import {
   installObservabilityConsoleHook,
   recordRendererConsole,
   recordSystemLog,
-  startPerfProbe,
-  startTransportJournal,
 } from "./junto/observability";
 import { releaseDemoRuntimeIsolation } from "./junto/demo/runtime-isolation";
 import { registerBrowserIpcHandlers, registerIpcHandlers } from "./ipc";
@@ -1254,9 +1252,6 @@ if (packagedSandboxDisablingSwitch !== undefined) {
   void app.whenReady().then(async () => {
     // Process log ring: main console + Effect logger (layer already on AppRuntime).
     installObservabilityConsoleHook();
-    startTransportJournal();
-    // JUNTO_PERF=1 only. Main-thread block monitor plus canvas read tape.
-    startPerfProbe();
     // The 4ms invariant, asserted at the source. Dev runs are armed; a
     // packaged app stays silent unless JUNTO_BUDGET says otherwise.
     armMainThreadBudget({ enabled: !app.isPackaged });

@@ -27,7 +27,7 @@ import type { ManagedLaunchChoices } from "../../src/shared/managed-terminal-lau
 import { buildManagedAgentSeat } from "../../src/renderer/lib/node-factories";
 import { templateFor, type HarnessId } from "../../src/shared/managed-terminal-templates";
 import type { TerminalSessionSummary } from "../../src/shared/terminal";
-import { transportLogDirectory } from "../../src/shared/transport-trace";
+import { juntoLogDirectory } from "../../src/shared/junto-logs";
 import { expect, launchJunto, test } from "../harness/launch";
 
 type Case = {
@@ -439,7 +439,7 @@ for (const c of CASES) {
       // Evidence survives the sandbox: the whole main log and the delivery
       // trace for this seat.
       writeFileSync(join(MATRIX_DIR, `${c.harness}.main.log`), mainLog.join(""));
-      const logs = transportLogDirectory(junto.sandbox.homeDir);
+      const logs = juntoLogDirectory(junto.sandbox.homeDir);
       if (existsSync(logs)) cpSync(logs, join(MATRIX_DIR, `${c.harness}.logs`), { recursive: true });
       await junto.close();
     }

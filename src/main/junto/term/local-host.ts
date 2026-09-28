@@ -35,7 +35,6 @@ import {
   seatIdentityConflictError,
   seatOccupationFailedError,
 } from "@shared/terminal-seat-occupancy";
-import { appendTransportTrace } from "../observability/transport-journal";
 import {
   TERM_MAINTENANCE_OBSERVATION_BYTES,
   type TermMaintenanceDenialReason,
@@ -991,26 +990,8 @@ export class LocalSessionHost extends EventEmitter {
       "local",
     );
     if (Result.isFailure(occupyVacantSeat(occupancy)) && prior) {
-      appendTransportTrace({
-        plane: "term",
-        op: "host.occupy",
-        ok: true,
-        bindingId,
-        status: sessionStatusOf(prior),
-        occupancy: occupancy._tag,
-        decision: "activate",
-      });
       return this.summaryOf(prior);
     }
-    appendTransportTrace({
-      plane: "term",
-      op: "host.occupy",
-      ok: true,
-      bindingId,
-      status: prior ? sessionStatusOf(prior) : "none",
-      occupancy: occupancy._tag,
-      decision: "occupy",
-    });
 
     const cols = Math.max(20, Math.min(300, input.cols ?? DEFAULT_COLS));
     const rows = Math.max(5, Math.min(120, input.rows ?? DEFAULT_ROWS));
@@ -2201,17 +2182,6 @@ export class LocalSessionHost extends EventEmitter {
       });
     }
     if (current !== rec) return;
-    appendTransportTrace({
-      plane: "term",
-      op: "host.exit",
-      ok: true,
-      bindingId: rec.bindingId,
-      status: "exited",
-      occupancy: "VacantSeat",
-      epoch: rec.epoch,
-      ...(code === undefined ? {} : { code }),
-      ...(signal === undefined ? {} : { signal }),
-    });
     rec.seq = rec.seq + 1n;
     this.pushJournal(rec, { seq: rec.seq, type: "exit", code, signal });
     this.safeEmitEvent({

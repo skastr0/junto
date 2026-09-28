@@ -43,8 +43,6 @@ import {
 } from "@shared/terminal-seat-occupancy";
 import { isHarnessId } from "@shared/managed-terminal-templates";
 import { sessionActorMatches } from "@shared/terminal";
-import { seatTapeFromSummary } from "@shared/transport-trace";
-import { appendTransportTrace } from "../observability/transport-journal";
 import { seatStateRuntime } from "./agent-state";
 import type {
   ControlLease,
@@ -485,13 +483,6 @@ export const startTermControlServer = async (
             "local",
           );
           const hostAdmission = seatAdmission(occupancy);
-          appendTransportTrace({
-            plane: "term",
-            op: "host.get",
-            ok: true,
-            bindingId,
-            ...seatTapeFromSummary(bindingId, existing),
-          });
 
           if (actorReq.admission === "activate") {
             if (hostAdmission._tag !== "ActivateOccupiedSeat" || !existing) {
@@ -590,13 +581,6 @@ export const startTermControlServer = async (
           };
         case "get": {
           const summary = host.get(req.bindingId) ?? null;
-          appendTransportTrace({
-            plane: "term",
-            op: "host.get",
-            ok: true,
-            bindingId: req.bindingId,
-            ...seatTapeFromSummary(req.bindingId, summary),
-          });
           return { v: TERM_CONTROL_PROTOCOL, id, ok: true, data: summary };
         }
         case "kill":

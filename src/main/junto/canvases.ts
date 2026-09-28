@@ -64,7 +64,6 @@ import {
   removeCanvasProjectionSidecars,
   writeCanvasProjectionSidecar,
 } from "./canvas-control/sidecars";
-import { perfProbe, perfProbeEnabled } from "./observability/perf-probe";
 import { withinBudget } from "./observability/main-thread-budget";
 import {
   archiveAllCanvasEntities,
@@ -186,10 +185,10 @@ export type CanvasNodeStructure = {
 };
 
 /**
- * Caller identity for one `canvases.read`. Instrumentation only: the
- * `JUNTO_PERF=1` probe rolls read cost up by this tag so the driver of a
- * main-thread block is measured rather than inferred. Closed union so a new
- * call site cannot land untagged.
+ * Caller identity for one `canvases.read`. Instrumentation only: a
+ * main-thread budget report names this tag so the driver of a block is
+ * measured rather than inferred. Closed union so a new call site cannot land
+ * untagged.
  */
 export type CanvasReadTag =
   | "box.activityPolicy"
@@ -216,7 +215,6 @@ export type CanvasReadTag =
   | "ipc.work.collaboration-ask"
   | "kernel.hydrateDoc"
   | "kernel.resyncDoc"
-  | "kernel.wakeManagedSeat"
   | "nodeRef.resolve"
   | "region.rollup"
   | "seatSessions.offboard"
@@ -255,7 +253,7 @@ export class CanvasesService extends Context.Service<CanvasesService,
     readonly doctor: Effect.Effect<ServiceCheck>;
     readonly list: Effect.Effect<ReadonlyArray<CanvasSummary>, CanvasError>;
     /**
-     * `tag` names the caller for the `JUNTO_PERF=1` probe only. It never
+     * `tag` names the caller in main-thread budget reports only. It never
      * reaches SQLite, the document, or any product surface.
      */
     readonly read: (
@@ -275,7 +273,6 @@ export class CanvasesService extends Context.Service<CanvasesService,
     readonly readNodeStructure: (
       name: string,
       nodeId: string,
-      tag?: CanvasReadTag,
     ) => Effect.Effect<CanvasNodeStructure | undefined, CanvasError>;
     readonly write: (
       name: string,
@@ -1518,10 +1515,6 @@ export const CanvasesLive = Layer.effect(
           // also where the 4ms invariant is asserted. Armed in dev only;
           // disarmed it calls straight through.
           withinBudget("canvas.read", () => {
-            // JUNTO_PERF=1 only. The probe brackets the synchronous body, so
-            // the recorded duration is the real main-thread block. Off, this is
-            // one constant boolean test per read.
-            const probe = perfProbeEnabled ? perfProbe?.beginRead(tag) : undefined;
             const { identity, snapshot } = activePortfolio(reader);
             const entry = snapshot.documents.get(canonicalName);
             if (entry === undefined) {
@@ -1547,7 +1540,6 @@ export const CanvasesLive = Layer.effect(
               },
               intentWitness: intentWitnessFromSnapshot(snapshot),
             };
-            if (probe !== undefined) perfProbe?.endRead(probe, result.read.doc);
             return result;
           }, tag),
         )
@@ -1565,7 +1557,6 @@ export const CanvasesLive = Layer.effect(
   const readNodeStructure = (
     name: string,
     nodeId: string,
-    tag: CanvasReadTag = "untagged",
   ): Effect.Effect<CanvasNodeStructure | undefined, CanvasError> =>
     Effect.gen(function* () {
       const canonicalName = yield* Effect.try({
@@ -1575,7 +1566,6 @@ export const CanvasesLive = Layer.effect(
       yield* ensureReady;
       return yield* state
         .read("canvas.readNodeStructure", (reader) => {
-          const probe = perfProbeEnabled ? perfProbe?.beginRead(tag) : undefined;
           // Same authority snapshot `read` resolves against, so a caller that
           // routes on this node sees exactly the document the last commit
           // published — never a lagging renderer projection. What is skipped
@@ -1600,7 +1590,6 @@ export const CanvasesLive = Layer.effect(
                   structure: entry.doc,
                   revision: entry.revisionSha256,
                 };
-          if (probe !== undefined) perfProbe?.endRead(probe, result?.node);
           return result;
         })
         .pipe(Effect.mapError(toCanvasError));

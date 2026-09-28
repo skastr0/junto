@@ -1265,7 +1265,7 @@ const makeKernelService = (
       // edges. None of them reads a Work lane, so none of them may pay for the
       // whole factory's tasks, messages, requests, artifacts, board and pad.
       const read = yield* Effect.result(
-        canvases.readNodeStructure(canvasName, nodeId, "kernel.wakeManagedSeat"),
+        canvases.readNodeStructure(canvasName, nodeId),
       );
       if (!generationIsActive(generation)) return false;
       if (read._tag === "Failure") return refuse("canvas read failed");

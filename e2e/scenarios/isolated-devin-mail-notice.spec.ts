@@ -22,7 +22,7 @@ import { promptBoxBody } from "../../src/main/junto/term/observer/regions";
 import type { Message } from "../../src/shared/work-model";
 import { composeMessageDeliveryPayload } from "../../src/shared/message-delivery";
 import { SeatReadResult } from "../../src/shared/seat-control";
-import { transportLogDirectory } from "../../src/shared/transport-trace";
+import { juntoLogDirectory } from "../../src/shared/junto-logs";
 import { expect, launchJunto, test } from "../harness/launch";
 import { crewPlayFactory, crewSeat, type CrewSeat } from "../harness/crew-fixture";
 import { HARNESS_MAIL_TRANSPORT } from "../../src/shared/managed-terminal-templates";
@@ -177,7 +177,7 @@ const outcomeOf = (message: Message | undefined) => {
  * mail paste on the binding; the probe sends nothing else through it.
  */
 const mailPastes = (homeDir: string): number => {
-  const logs = transportLogDirectory(homeDir);
+  const logs = juntoLogDirectory(homeDir);
   if (existsSync(join(logs, "pty-delivery.jsonl.1"))) {
     throw new Error("PTY trace rotated; the complete mail write history is unavailable");
   }
@@ -248,8 +248,8 @@ test("isolated Devin [real-harness]: delivered mail reaches readAt", async () =>
   };
 
   const preserveLogs = () => {
-    const logs = transportLogDirectory(sandbox.homeDir);
-    return ["pty-delivery.jsonl", "pty-delivery.jsonl.1", "transport.jsonl", "transport.jsonl.1"].map((name) => {
+    const logs = juntoLogDirectory(sandbox.homeDir);
+    return ["pty-delivery.jsonl", "pty-delivery.jsonl.1"].map((name) => {
       const source = join(logs, name);
       if (!existsSync(source)) return { name, available: false as const };
       const path = artifact(name);

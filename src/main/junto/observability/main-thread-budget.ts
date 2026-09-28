@@ -5,13 +5,10 @@
  * at any factory size. The main process owns SQLite, the PTYs, and every IPC
  * reply, so a synchronous block there is felt directly as input lag.
  *
- * WHY AN ASSERTION AND NOT ONLY A PROBE. `observability/perf-probe.ts` answers
- * "what blocked the loop, historically" from timer lateness — after the fact,
- * off a 50 ms threshold, in a log file someone reads weeks later. This module
- * answers a different question at the moment it happens: "this operation, this
- * call, spent more than the budget." It names the operation instead of the
+ * WHY AN ASSERTION. It answers at the moment it happens: "this operation,
+ * this call, spent more than the budget." It names the operation instead of a
  * window, so a regression is attributed to the code that caused it while that
- * code is still on screen. The two are complementary, not redundant.
+ * code is still on screen.
  *
  * WHEN IT IS ARMED. Development only, and by default off everywhere else. The
  * gate resolves once at module load:

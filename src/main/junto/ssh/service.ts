@@ -33,11 +33,6 @@ import type {
   ScopedStreamProgram,
 } from "./program";
 import { classifySshStderr } from "./format";
-import {
-  appendTransportTrace,
-  recordTransportError,
-} from "../observability/transport-journal";
-import { rememberTransportStderr } from "@shared/transport-trace";
 import { createSshProgramCompiler } from "./program";
 import {
   ProcessFailure,
@@ -444,7 +439,6 @@ export const SshTransportLayer = Layer.effect(
             code,
             ...(detail === undefined ? {} : { detail }),
           });
-          rememberTransportStderr(error, result.stderr);
           return Effect.fail(error);
         }),
         Effect.timeoutOrElse({
@@ -661,7 +655,6 @@ export const SshTransportLayer = Layer.effect(
 
     const run: SshTransportShape["run"] = (program) =>
       Effect.gen(function* () {
-        const started = Date.now();
         const compiled = yield* Effect.try({
           try: () => compiler.oneShot(program),
           catch: () =>
@@ -680,20 +673,6 @@ export const SshTransportLayer = Layer.effect(
                 compiled.command,
                 compiled.timeoutMs,
                 compiled.input,
-              ),
-            ),
-          ),
-        ).pipe(
-          Effect.tapError((error) =>
-            Effect.sync(() =>
-              recordTransportError(
-                {
-                  plane: "ssh-transport",
-                  op: "run",
-                  endpoint: String(compiled.endpoint),
-                  ms: Date.now() - started,
-                },
-                error,
               ),
             ),
           ),
@@ -1105,27 +1084,7 @@ export const SshTransportLayer = Layer.effect(
                   })),}),
               Effect.onError(() => master.close),
             );
-            yield* setup.pipe(
-              Effect.tapError((error) =>
-                Effect.sync(() =>
-                  recordTransportError(
-                    {
-                      plane: "ssh-transport",
-                      op: "forward",
-                      endpoint: String(compiled.endpoint),
-                    },
-                    error,
-                  ),
-                ),
-              ),
-            );
-            appendTransportTrace({
-              plane: "ssh-transport",
-              op: "forward",
-              ok: true,
-              endpoint: String(compiled.endpoint),
-              socket: compiled.localSocket,
-            });
+            yield* setup;
             return {
               localSocket: compiled.localSocket as LocalForwardSocket,
               close: master.close,

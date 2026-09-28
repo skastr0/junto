@@ -2,7 +2,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { createHash, randomUUID } from "node:crypto";
 import { appendFileSync, chmodSync, mkdirSync, renameSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { transportLogDirectory } from "@shared/transport-trace";
+import { juntoLogDirectory } from "@shared/junto-logs";
 
 export type PtyTraceFields = Readonly<Record<string, string | number | boolean | null>>;
 
@@ -24,7 +24,7 @@ export type PtyDeliveryTraceContext = {
 };
 
 export const ptyDeliveryTracePath = (): string =>
-  join(transportLogDirectory(), "pty-delivery.jsonl");
+  join(juntoLogDirectory(), "pty-delivery.jsonl");
 
 /** Install-local diagnostics. Buffer disk work outside the physical write span. */
 export const makePtyDeliveryTraceJournal = (path: string) => {

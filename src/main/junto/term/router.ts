@@ -53,10 +53,6 @@ import type {
   TerminalOpenInput,
 } from "./local-host";
 import { TermControlClient, TermControlTransportUncertainError } from "./control-client";
-import {
-  appendTransportTrace,
-  recordTransportError,
-} from "../observability/transport-journal";
 import { readHostDirectory } from "./host-directory";
 import type { TermControlClientShutdownReceipt } from "./control-client";
 
@@ -383,30 +379,8 @@ export class TerminalRouter extends EventEmitter {
       "remote",
     );
     if (Result.isFailure(occupyVacantSeat(occupancy)) && existing) {
-      appendTransportTrace({
-        plane: "term",
-        op: "router.createRemote",
-        ok: true,
-        hostId,
-        bindingId: input.bindingId,
-        status: existing.status,
-        occupancy: occupancy._tag,
-        decision: "activate",
-        epoch: existing.epoch,
-      });
       return { ...existing, hostId };
     }
-    appendTransportTrace({
-      plane: "term",
-      op: "router.createRemote",
-      ok: true,
-      hostId,
-      bindingId: input.bindingId,
-      status: existing?.status ?? "none",
-      occupancy: occupancy._tag,
-      decision: "occupy",
-      ...(existing?.epoch === undefined ? {} : { epoch: existing.epoch }),
-    });
     const summary = await client.create({
       bindingId: input.bindingId,
       launch: input.launch,
@@ -471,14 +445,6 @@ export class TerminalRouter extends EventEmitter {
   ): Promise<TerminalSessionSummary | undefined> {
     const normalizedHostId = hostId?.trim();
     if (normalizedHostId && this.maintenanceCuts.has(normalizedHostId)) {
-      appendTransportTrace({
-        plane: "term",
-        op: "router.get",
-        ok: false,
-        hostId,
-        bindingId,
-        error: "maintenance cut",
-      });
       return undefined;
     }
     if (!hostId || this.isLocalHostId(hostId)) return this.local.get(bindingId);
@@ -488,15 +454,6 @@ export class TerminalRouter extends EventEmitter {
       const s = await c.get(bindingId);
       return s ? { ...s, hostId } : undefined;
     } catch (error) {
-      recordTransportError(
-        {
-          plane: "term",
-          op: "router.get",
-          hostId,
-          bindingId,
-        },
-        error,
-      );
       if (isMissingRemoteHostError(error)) return undefined;
       throw new Error(operatorRemoteWorkDetail(hostId, error));
     }

@@ -24,7 +24,6 @@ import {
   type StateRow,
   type StateWriter,
 } from "./service";
-import { perfProbe, perfProbeEnabled } from "../observability/perf-probe";
 import { withinBudget } from "../observability/main-thread-budget";
 import {
   admitWorkStatement,
@@ -194,18 +193,11 @@ const openStateEngine = (
         return statement;
       };
 
-      // One executed statement, counted once. `JUNTO_PERF=1` only: a
-      // disabled build pays one constant boolean test per statement.
-      const countStatement = (): void => {
-        if (perfProbeEnabled) perfProbe?.countStatement();
-      };
-
       const reader: StateReader = {
         get: <Row extends StateRow>(
           sql: string,
           bindings?: StateBindings,
         ): Row | undefined => {
-          countStatement();
           return applyBindings(
             prepare(sql),
             bindings,
@@ -217,7 +209,6 @@ const openStateEngine = (
           sql: string,
           bindings?: StateBindings,
         ): ReadonlyArray<Row> => {
-          countStatement();
           return applyBindings(
             prepare(sql),
             bindings,
@@ -236,7 +227,6 @@ const openStateEngine = (
           // The work plane's single mutation seam. Classification is cached by
           // exact SQL text, so a non-work statement costs one map hit.
           admitWorkStatement(sql, bindings);
-          countStatement();
           return applyBindings(
             prepare(sql),
             bindings,
@@ -267,7 +257,7 @@ const openStateEngine = (
           return yield* Effect.try({
           // Every durable write in the app funnels through here, so this is the
           // one place that can name a slow one. Reads were already attributed
-          // (perf-probe tags every canvas read); writes were not, which is why
+          // (every canvas read carries a caller tag); writes were not, which is why
           // a 286ms block during node creation had no caller on it. Free when
           // the budget is disarmed: `withinBudget` calls straight through.
           try: () => withinBudget(`state.${operation}`, () => {
