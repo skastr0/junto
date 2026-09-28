@@ -34,6 +34,7 @@ import {
   TASKS_ENABLED,
 } from "./features";
 import type { CanvasDoc } from "./canvas";
+import { PAST_SESSIONS_FRAMING } from "./seat-sessions";
 import type { Port } from "./physics/schema";
 import {
   FEW_SHOT_CLAIM,
@@ -267,6 +268,7 @@ JSON-in/JSON-out — every command takes one JSON argument (inline, \`@file\`, o
 ${TASKS_ENABLED ? `| pinned rulings for your regions | \`junto rulings\` — add \`'{"target":"<id>"}'\` for a connected target's stack |
 ` : ""}| thought bubble | \`junto preamble '{"text":"..."}'\` |
 | raise your hand to the operator | \`junto escalate "..."\` - \`junto blocked "..."\` - \`junto feedback "..."\` (see below) |
+| hand off this session | \`junto offboard "<notes>"\` (see Sessions below) |
 | schemas / examples | \`junto schema show <command>\` - \`junto examples show <command>\` |
 | full documentation | \`junto docs\` - \`junto docs node <kind>\` — the complete doctrine and per-node-kind docs (ports, data models, events) |
 
@@ -291,6 +293,12 @@ Every seat can signal the operator; no edge is needed. One sentence says what yo
 - \`junto feedback "..."\` — you are not blocked; the work is ready for the operator to review.
 
 The answer arrives in this seat as operator mail; \`junto signal list\` shows your signals and their answers. When one no longer applies, withdraw it: \`junto signal clear <id>\` (no id clears all yours). Do not use these for progress chatter; \`preamble\` is for that.
+
+### Sessions
+
+\`junto onboard\` lists this seat's past sessions: the latest notes inline, and paths to older notes and transcripts. ${PAST_SESSIONS_FRAMING} To look further back, open a listed path yourself.
+
+\`junto offboard "<notes>"\` saves notes for the next session of this seat: what happened, what is relevant, and why it matters. The first line sums the session up; \`@file\` or \`-\` for stdin also work. Offboard whenever you finish a stretch of work, when Junto tells you your context is heavy, and before your session ends. Running it again replaces the notes.
 
 Context ritual: when context is heavy, compact, then re-run \`onboard\` for the live map.
 

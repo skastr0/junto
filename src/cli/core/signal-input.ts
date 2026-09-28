@@ -16,7 +16,8 @@ export type SignalSource =
   | { readonly kind: "file"; readonly path: string }
   | { readonly kind: "inline"; readonly text: string };
 
-const sourceOf = (raw: string): SignalSource => {
+/** `-` or `@-` is stdin, `@path` a file, anything else the text itself. */
+export const sourceOf = (raw: string): SignalSource => {
   const trimmed = raw.trim();
   if (trimmed === "-" || trimmed === "@-") return { kind: "stdin" };
   if (trimmed.startsWith("@") && trimmed.length > 1) {
@@ -85,7 +86,7 @@ const readStdin = Effect.tryPromise({
     }),
 });
 
-const readSource = (source: SignalSource) => {
+export const readSource = (source: SignalSource) => {
   switch (source.kind) {
     case "stdin":
       return readStdin;

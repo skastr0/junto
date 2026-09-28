@@ -62,6 +62,8 @@ const SEAT_LOCAL_COMMANDS = new Set([
   "doctor",
   "capabilities",
   "onboard",
+  // Offboard writes only the caller's own session notes.
+  "offboard",
   "preamble",
   "msg.sent",
   // Agent signals: universal, the caller speaks only for its own seat.

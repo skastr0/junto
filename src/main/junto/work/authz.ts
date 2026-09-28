@@ -331,6 +331,8 @@ export const requiresConnection = (op: WorkOpName | "overseer"): boolean => {
     case "doctor":
     case "capabilities":
     case "onboard":
+    // Offboard writes only the caller's own session notes.
+    case "offboard":
     case "preamble":
     case "msg.sent":
     // Agent signals are universal and seat-local: the process-bound caller

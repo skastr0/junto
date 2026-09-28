@@ -93,6 +93,8 @@ import {
   SignalClearArgs,
   SignalListArgs,
   SignalRaiseArgs,
+  OffboardArgs,
+  OnboardArgs,
   RulingsArgs,
   TasksCheckArgs,
   TasksClaimArgs,
@@ -138,6 +140,20 @@ import {
 } from "../signals/repository";
 import { PausePlane } from "../pause-plane";
 import { SeatGuidanceRepository } from "../seat-guidance/repository";
+import { SeatSessionRepository } from "../seat-sessions/repository";
+import { announceSeatOffboard, listSeatSessions } from "../seat-sessions/service";
+import { readNotesFile } from "../seat-sessions/notes-file";
+import { seatSessionOnNode } from "../seat-sessions/transitions";
+import type { SeatSessionObservation } from "../seat-sessions/repository";
+import { getCapturedSessionId } from "../term/session-id-store";
+import { harnessSessionExists } from "../term/session-existence";
+import {
+  gistOfNotes,
+  ONBOARD_PAST_NOTES_DEFAULT,
+  ONBOARD_PAST_SESSIONS_MAX,
+  PAST_SESSIONS_FRAMING,
+  SEAT_SESSION_NOTES_MAX_CHARS,
+} from "@shared/seat-sessions";
 import { PortraitOverrideRepository } from "../portraits/repository";
 import { recoverDocumentLaunchChoices } from "@shared/launch-choices";
 import { isHarnessId } from "@shared/managed-terminal-templates";
@@ -885,6 +901,74 @@ const seatConfigurationOf = (node: CanvasNode) =>
     };
   });
 
+/**
+ * The caller seat's current harness session: the id its node names, or an id
+ * the seat announced that the harness's own files already prove.
+ */
+const currentSeatSession = (node: CanvasNode): SeatSessionObservation | undefined => {
+  const named = seatSessionOnNode(node);
+  if (named) return named;
+  const surface = actorDeliverySurfaceOf(node);
+  if (surface?._tag !== "managedAgent") return undefined;
+  const captured = getCapturedSessionId(surface.bindingId);
+  const cwd = node.ether?.terminal?.launch?.cwd?.trim();
+  if (!captured || !harnessSessionExists({ harness: surface.harness, sessionId: captured, ...(cwd ? { cwd } : {}) })) {
+    return undefined;
+  }
+  return { seatId: node.id, sessionId: captured, harness: surface.harness, ...(cwd ? { cwd } : {}) };
+};
+
+const isoAt = (ms: number | undefined): string | undefined =>
+  ms === undefined ? undefined : new Date(ms).toISOString();
+
+/**
+ * `junto onboard`'s past sessions: every earlier session of this seat, newest
+ * first, with where its notes and transcript live, and the latest notes
+ * inline. Framed as history, never as work to resume. Absent when this
+ * runtime keeps no seat sessions.
+ */
+const pastSessionsOf = (node: CanvasNode, pastNotes: number) =>
+  Effect.gen(function* () {
+    const store = yield* Effect.serviceOption(SeatSessionRepository);
+    if (Option.isNone(store)) return undefined;
+    const current = currentSeatSession(node);
+    const sessions = yield* listSeatSessions(node.id, current?.cwd).pipe(
+      Effect.provideService(SeatSessionRepository, store.value),
+    );
+    const mine = sessions.find((session) => session.sessionId === current?.sessionId);
+    const past = sessions.filter((session) => session !== mine);
+    let inline = 0;
+    const listed = past.slice(0, ONBOARD_PAST_SESSIONS_MAX).map((session) => {
+      const offboarded = session.offboardedAt !== undefined;
+      const notes = offboarded && inline < pastNotes ? readNotesFile(session.notesPath) : undefined;
+      if (notes !== undefined) inline += 1;
+      return {
+        session_id: session.sessionId,
+        harness: session.harness,
+        started_at: isoAt(session.startedAt),
+        ...(session.endedAt === undefined ? {} : { ended_at: isoAt(session.endedAt), ended_because: session.endReason }),
+        gist: session.gist ?? null,
+        notes_path: offboarded ? session.notesPath : null,
+        transcript_path: session.transcriptPath ?? null,
+        ...(notes === undefined ? {} : { notes }),
+      };
+    });
+    return {
+      note: PAST_SESSIONS_FRAMING,
+      current: current
+        ? {
+            session_id: current.sessionId,
+            harness: current.harness,
+            notes_path: mine?.notesPath ?? store.value.notesPathFor(node.id, current.sessionId),
+            transcript_path: mine?.transcriptPath ?? null,
+            offboarded: mine?.offboardedAt !== undefined,
+          }
+        : null,
+      past: listed,
+      ...(past.length > listed.length ? { older_not_listed: past.length - listed.length } : {}),
+    };
+  });
+
 const dispatchOp = (
   op: WorkOp,
   args: unknown,
@@ -994,8 +1078,11 @@ const dispatchOp = (
     }
 
     if (op === "onboard") {
+      const decodedOnboard = decodeArgs(OnboardArgs, args ?? {});
+      if (Result.isFailure(decodedOnboard)) return yield* Effect.fail(decodedOnboard.failure);
       const self = findNode(board, caller.nodeId)!;
       const seat = yield* seatConfigurationOf(self);
+      const sessions = yield* pastSessionsOf(self, decodedOnboard.success.past_notes ?? ONBOARD_PAST_NOTES_DEFAULT);
       const region = containingRegion(board, caller.nodeId);
       const connected = connectedCapabilities(board, caller.nodeId);
       const overseer = isManagedAgentNode(self) && self.ether.overseer === true;
@@ -1013,6 +1100,9 @@ const dispatchOp = (
         // same for every harness; the doctrine carries soul and instructions
         // too, and this is where to reread them after a change.
         ...(seat ? { seat } : {}),
+        // This seat's earlier sessions: history for continuity, with the
+        // latest offboard notes inline and paths to open for the rest.
+        ...(sessions ? { sessions } : {}),
         // Additive: derived factory role of the process-bound seat.
         role: factoryRoleOfNode(self),
         tools,
@@ -1044,6 +1134,74 @@ const dispatchOp = (
           connected,
           tools,
         },
+      };
+    }
+
+    if (op === "offboard") {
+      const decoded = decodeArgs(OffboardArgs, args);
+      if (Result.isFailure(decoded)) return yield* Effect.fail(decoded.failure);
+      const notes = decoded.success.notes.trim();
+      const gist = gistOfNotes(notes);
+      if (!gist) {
+        return yield* Effect.fail<WorkErrorBody>({
+          type: "InputError",
+          message: "notes must say what happened in this session",
+          details: {
+            path: "args.notes",
+            retryable: false,
+            hint: "start with one line that sums the session up, then what is relevant and why it matters",
+          },
+        });
+      }
+      if (notes.length > SEAT_SESSION_NOTES_MAX_CHARS) {
+        return yield* Effect.fail<WorkErrorBody>({
+          type: "InputError",
+          message: `notes must be at most ${SEAT_SESSION_NOTES_MAX_CHARS} characters`,
+          details: { path: "args.notes", retryable: false, hint: "keep what the next session needs; link files instead of pasting them" },
+        });
+      }
+      const store = yield* Effect.serviceOption(SeatSessionRepository);
+      if (Option.isNone(store)) {
+        return yield* Effect.fail<WorkErrorBody>({
+          type: "RuntimeDown",
+          message: "seat sessions are unavailable in this Junto runtime",
+          details: { retryable: false },
+        });
+      }
+      // Seat identity is the process-bound caller, never an argument: a seat
+      // writes only its own current session's notes.
+      const self = findNode(board, caller.nodeId)!;
+      const current = currentSeatSession(self);
+      if (current === undefined) {
+        return yield* Effect.fail<WorkErrorBody>({
+          type: "InvalidTransition",
+          message: "Junto does not know this session's id yet",
+          details: {
+            caller: caller.nodeId,
+            retryable: true,
+            next_step: "finish your current turn, then run junto offboard again",
+          },
+        });
+      }
+      const session = yield* store.value.offboard({ ...current, notes, gist }).pipe(
+        Effect.mapError((error): WorkErrorBody => ({
+          type: "InternalError",
+          message: error.message,
+          details: { retryable: true },
+        })),
+      );
+      announceSeatOffboard({
+        seatId: self.id,
+        canvasName: caller.canvasName,
+        sessionId: session.sessionId,
+        at: session.offboardedAt ?? Date.now(),
+      });
+      return {
+        session_id: session.sessionId,
+        gist: session.gist ?? gist,
+        notes_path: session.notesPath,
+        disposition: "applied" as const,
+        next_step: "your notes are saved; keep working, and offboard again before the session ends if more happens",
       };
     }
 

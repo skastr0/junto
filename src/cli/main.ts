@@ -10,6 +10,7 @@ import {
   doctorCommand,
   examplesCommand,
   onboardCommand,
+  offboardCommand,
   pingCommand,
   schemaCommand,
 } from "./commands/discovery";
@@ -81,6 +82,7 @@ export const rootCommand = Command.make(CLI_NAME).pipe(
     doctorCommand,
     capabilitiesCommand,
     onboardCommand,
+    offboardCommand,
     schemaCommand,
     examplesCommand,
     preambleCommand,

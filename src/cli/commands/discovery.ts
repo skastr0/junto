@@ -3,6 +3,8 @@ import { access, constants as fsConstants, stat } from "node:fs/promises";
 import { Argument, Command, Flag } from "effect/unstable/cli";
 import { Effect, Option } from "effect";
 import { WORK_PROTOCOL_VERSION } from "../../shared/work-control";
+import { ONBOARD_PAST_NOTES_DEFAULT, ONBOARD_PAST_NOTES_MAX } from "../../shared/seat-sessions";
+import { loadOffboardArgs } from "../core/offboard-input";
 import { CLI_NAME, CLI_VERSION, DEFAULT_TIMEOUT_MS } from "../core/constants";
 import {
   allExamples,
@@ -158,22 +160,55 @@ export const capabilitiesCommand = Command.make(
     ),
 ).pipe(Command.withDescription("Live edge wiring as a contract"));
 
+const pastNotesOption = Flag.integer("past-notes").pipe(
+  Flag.optional,
+  Flag.withDescription(
+    `How many of this seat's latest offboard notes to include inline (default ${ONBOARD_PAST_NOTES_DEFAULT}, at most ${ONBOARD_PAST_NOTES_MAX})`,
+  ),
+);
+
 export const onboardCommand = Command.make(
   "onboard",
-  { timeout: timeoutOption },
-  ({ timeout }) =>
+  { pastNotes: pastNotesOption, timeout: timeoutOption },
+  ({ pastNotes, timeout }) =>
     executeJsonCommand(
       "onboard",
       Effect.gen(function* () {
         const socket = yield* WorkSocket;
+        const args = Option.isSome(pastNotes) ? { past_notes: pastNotes.value } : {};
         return annotateCapabilityInvocations(
-          yield* socket.call("onboard", {}, toUndefined(timeout)),
+          yield* socket.call("onboard", args, toUndefined(timeout)),
         );
       }),
     ),
 ).pipe(
   Command.withDescription(
-    "Seat orientation: node, region briefing (instruction), edges, co-members",
+    "Seat orientation: node, region briefing (instruction), edges, co-members, past sessions",
+  ),
+);
+
+export const offboardCommand = Command.make(
+  "offboard",
+  {
+    notes: Argument.string("notes").pipe(
+      Argument.withDescription(
+        'Markdown notes on this session: inline, @file, - for stdin, or {"notes":"..."}. First line sums it up.',
+      ),
+    ),
+    timeout: timeoutOption,
+  },
+  ({ notes, timeout }) =>
+    executeJsonCommand(
+      "offboard",
+      Effect.gen(function* () {
+        const socket = yield* WorkSocket;
+        const args = yield* loadOffboardArgs(notes);
+        return yield* socket.call("offboard", args, toUndefined(timeout));
+      }),
+    ),
+).pipe(
+  Command.withDescription(
+    "Hand off this session: notes on what happened, what is relevant, and why it matters",
   ),
 );
 

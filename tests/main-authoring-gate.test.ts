@@ -162,6 +162,7 @@ describe("work-control main authoring classification", () => {
       doctor: "read",
       capabilities: "read",
       onboard: "read",
+      offboard: "authorial",
       preamble: "read",
       overseer: "authorial",
       "overseer.live": "read",
@@ -224,6 +225,7 @@ describe("work-control main authoring classification", () => {
     expect(mainAuthoringLabelForWorkOperation("msg.read")).toBe("control.work.msg-send");
     expect(mainAuthoringLabelForWorkOperation("signal.raise")).toBe("control.work.signal");
     expect(mainAuthoringLabelForWorkOperation("signal.clear")).toBe("control.work.signal");
+    expect(mainAuthoringLabelForWorkOperation("offboard")).toBe("control.work.offboard");
     expect(mainAuthoringLabelForWorkOperation("signal.list")).toBeUndefined();
     expect(mainAuthoringLabelForWorkOperation("artifact.publish")).toBe(
       "control.work.artifact-publish",

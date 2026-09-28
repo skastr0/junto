@@ -42,6 +42,8 @@ import {
   MsgSentArgs,
   VerdictPostArgs,
   PreambleArgs,
+  OffboardArgs,
+  OnboardArgs,
   SignalClearArgs,
   SignalListArgs,
   SignalRaiseArgs,
@@ -454,6 +456,25 @@ export const msgReactSchema: CommandSchemaContract = {
   input_modes: inputModes,
 };
 
+export const onboardSchema: CommandSchemaContract = {
+  command_id: "onboard",
+  command: "onboard",
+  schema_id: "onboard.input/v1",
+  description:
+    "Orient this seat. past_notes: how many of the latest offboard notes to include inline (default 5). Usually run with no input.",
+  schema: OnboardArgs,
+};
+
+export const offboardSchema: CommandSchemaContract = {
+  command_id: "offboard",
+  command: "offboard",
+  schema_id: "offboard.input/v1",
+  description:
+    "Hand off this session: markdown notes on what happened, what is relevant, and why it matters. The first line is the one-line summary. Plain markdown, @file, or - for stdin also work.",
+  schema: OffboardArgs,
+  input_modes: ["markdown", "inline-json", "@file", "stdin"],
+};
+
 export const preambleSchema: CommandSchemaContract = {
   command_id: "preamble",
   command: "preamble",
@@ -717,6 +738,8 @@ export const browserStopSchema = browserSchema(
 );
 
 const declaredSchemas: ReadonlyArray<CommandSchemaContract> = [
+  onboardSchema,
+  offboardSchema,
   tasksListSchema,
   tasksCreateSchema,
   tasksClaimSchema,
@@ -1099,6 +1122,20 @@ const declaredExamples: ReadonlyArray<CommandExample> = [
     args: ["msg", "react", '{"messageId":"msg_01"}'],
   },
   {
+    command_id: "offboard",
+    command: "offboard",
+    name: "hand off this session",
+    description: "Notes for the next session of this seat: what happened, what is relevant, why it matters.",
+    input: {
+      notes:
+        "Importer parses all three feeds; retry on 429 is next.\n\n- Parser lives in src/import/feed.ts, tests in tests/feed.test.ts.\n- Why it matters: the nightly sync fails without retries.",
+    },
+    args: [
+      "offboard",
+      "Importer parses all three feeds; retry on 429 is next.\n\n- Parser lives in src/import/feed.ts, tests in tests/feed.test.ts.\n- Why it matters: the nightly sync fails without retries.",
+    ],
+  },
+  {
     command_id: "preamble",
     command: "preamble",
     name: "share a brief thought",
@@ -1411,7 +1448,16 @@ const declaredCapabilities: ReadonlyArray<CommandCapability> = [
     command: "onboard",
     category: "discovery",
     description:
-      "Node, your seat (name, harness, soul, instructions), region, connected, co-members, capabilities from live state.",
+      "Node, your seat (name, harness, soul, instructions), region, connected, co-members, capabilities from live state, and this seat's past sessions.",
+    schemas: [onboardSchema],
+  },
+  {
+    command_id: "offboard",
+    command: "offboard",
+    category: "workflow",
+    description: "Hand off this session: notes on what happened, what is relevant, and why it matters.",
+    schemas: [offboardSchema],
+    examples: allExamples.filter((e) => e.command_id === "offboard"),
   },
   {
     command_id: "schema.list",

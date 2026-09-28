@@ -1,4 +1,5 @@
 import { Result, Schema } from "effect";
+import { ONBOARD_PAST_NOTES_MAX } from "./seat-sessions";
 import { TaskState, WorkMetadata } from "./canvas";
 import {
   CheckSide,
@@ -52,6 +53,8 @@ export const WORK_MAX_ERROR_BYTES = 4_096;
 export const WorkOpName = Schema.Literals(["ping", "doctor",
 "capabilities",
 "onboard",
+/** Universal seat-local: write this session's handoff notes (no edge, no port). */
+"offboard",
 "preamble",
 "overseer",
 "overseer.live",
@@ -634,6 +637,31 @@ export const SignalListArgs = Schema.Struct({}).annotate({
   parseOptions: { onExcessProperty: "error" },
 });
 export type SignalListArgs = typeof SignalListArgs.Type;
+
+/**
+ * `junto onboard`: how many of the seat's latest offboard notes to carry
+ * inline (default and bound in `seat-sessions.ts`).
+ */
+export const OnboardArgs = Schema.Struct({
+  past_notes: Schema.optionalKey(
+    Schema.Number.pipe(Schema.check(Schema.isInt()), Schema.check(Schema.isBetween({ minimum: 0, maximum: ONBOARD_PAST_NOTES_MAX }))),
+  ),
+}).annotate({
+  parseOptions: { onExcessProperty: "error" },
+});
+export type OnboardArgs = typeof OnboardArgs.Type;
+
+/**
+ * `junto offboard`: the calling seat's notes on its current session, as
+ * markdown. Seat-local: the seat is the process-bound caller and writes only
+ * its own session's notes. The first line is the session's one-line gist.
+ */
+export const OffboardArgs = Schema.Struct({
+  notes: Schema.String,
+}).annotate({
+  parseOptions: { onExcessProperty: "error" },
+});
+export type OffboardArgs = typeof OffboardArgs.Type;
 
 /** Artifact wire parts: text/data stay inline; binary media is a ContentRef. */
 export const ArtifactPartWire = Schema.Union([Schema.Struct({ kind: Schema.Literal("text"), text: Schema.String }),

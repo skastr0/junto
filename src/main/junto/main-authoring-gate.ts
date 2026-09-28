@@ -34,6 +34,7 @@ export const MAIN_AUTHORING_LABELS = [
   "control.work.tasks-update",
   "control.work.msg-send",
   "control.work.signal",
+  "control.work.offboard",
   "control.work.artifact-publish",
   "control.work.board-create-topic",
   "control.work.board-post",
@@ -55,6 +56,7 @@ export const MAIN_AUTHORING_LABELS = [
   "review.checkout",
   "kernel.flag-mirror",
   "kernel.phase-mirror",
+  "seat-sessions.rotate",
 ] as const;
 
 export type MainAuthoringLabel = (typeof MAIN_AUTHORING_LABELS)[number];
@@ -87,6 +89,8 @@ const WORK_OPERATION_CLASSIFICATION = {
   doctor: "read",
   capabilities: "read",
   onboard: "read",
+  // Offboard writes the seat's own notes file and seat_sessions row.
+  offboard: "authorial",
   // Preamble only emits an ephemeral renderer event; it does not author the
   // canvas document or a work-plane row.
   preamble: "read",
@@ -151,6 +155,7 @@ const WORK_AUTHORING_LABELS = {
   "msg.react": "control.work.msg-send",
   "signal.raise": "control.work.signal",
   "signal.clear": "control.work.signal",
+  offboard: "control.work.offboard",
   "artifact.publish": "control.work.artifact-publish",
   "board.create_topic": "control.work.board-create-topic",
   "board.post": "control.work.board-post",
@@ -172,6 +177,7 @@ const WORK_AUTHORING_LABELS = {
     | "msg.react"
     | "signal.raise"
     | "signal.clear"
+    | "offboard"
     | "artifact.publish"
     | "board.create_topic"
     | "board.post"
