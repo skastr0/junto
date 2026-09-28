@@ -1,11 +1,12 @@
-import { Context, Effect, Layer, Schema } from "effect";
+import { Cause, Context, Effect, Layer, Schema } from "effect";
+import { SqlClient, SqlError, SqlSchema } from "effect/unstable/sql";
 import {
   newestSessionsFirst,
   SEAT_SESSION_END_REASONS,
   type SeatSession,
   type SeatSessionEndReason,
 } from "@shared/seat-sessions";
-import { StateEngine, type StateEngineError, type StateRow, type StateWriter } from "../state/service";
+import { StateTransactionOperation } from "../state/service";
 import {
   continuationPathOf,
   defaultSeatsRoot,
@@ -88,19 +89,19 @@ export class SeatSessionRepository extends Context.Service<SeatSessionRepository
     ) => Effect.Effect<void, SeatSessionPersistenceError>;
   }>()("@junto/SeatSessionRepository") {}
 
-type SessionRow = StateRow & {
-  readonly seat_id: string;
-  readonly session_id: string;
-  readonly harness: string;
-  readonly cwd: string | null;
-  readonly transcript_path: string | null;
-  readonly notes_path: string;
-  readonly gist: string | null;
-  readonly started_at: number;
-  readonly ended_at: number | null;
-  readonly end_reason: string | null;
-  readonly offboarded_at: number | null;
-};
+const SessionRow = Schema.Struct({
+  seat_id: Schema.String,
+  session_id: Schema.String,
+  harness: Schema.String,
+  cwd: Schema.NullOr(Schema.String),
+  transcript_path: Schema.NullOr(Schema.String),
+  notes_path: Schema.String,
+  gist: Schema.NullOr(Schema.String),
+  started_at: Schema.Number,
+  ended_at: Schema.NullOr(Schema.Number),
+  end_reason: Schema.NullOr(Schema.String),
+  offboarded_at: Schema.NullOr(Schema.Number),
+});
 
 const COLUMNS =
   "seat_id, session_id, harness, cwd, transcript_path, notes_path, gist, started_at, ended_at, end_reason, offboarded_at";
@@ -108,7 +109,7 @@ const COLUMNS =
 const isEndReason = (value: string | null): value is SeatSessionEndReason =>
   value !== null && (SEAT_SESSION_END_REASONS as ReadonlyArray<string>).includes(value);
 
-const fromRow = (row: SessionRow): SeatSession => ({
+const fromRow = (row: typeof SessionRow.Type): SeatSession => ({
   seatId: row.seat_id,
   sessionId: row.session_id,
   harness: row.harness,
@@ -121,7 +122,7 @@ const fromRow = (row: SessionRow): SeatSession => ({
   ...(row.offboarded_at === null ? {} : { offboardedAt: Number(row.offboarded_at) }),
 });
 
-const persistence = (operation: string) => (error: StateEngineError) =>
+const persistence = (operation: string) => (error: SqlError.SqlError | Schema.SchemaError | Cause.NoSuchElementError) =>
   SeatSessionPersistenceError.make({ operation, message: error.message, cause: error });
 
 const bounded = (value: string | undefined, max: number): string | null => {
@@ -132,130 +133,126 @@ const bounded = (value: string | undefined, max: number): string | null => {
 /** `seatsRoot` defaults to `~/.junto/seats` under the Junto home at build time. */
 export const makeSeatSessionRepositoryLive = (
   seatsRoot?: string,
-): Layer.Layer<SeatSessionRepository, never, StateEngine> =>
+): Layer.Layer<SeatSessionRepository, never, SqlClient.SqlClient> =>
   Layer.effect(
     SeatSessionRepository,
     Effect.gen(function* () {
-      const state = yield* StateEngine;
+      const sql = yield* SqlClient.SqlClient;
       const root = seatsRoot ?? defaultSeatsRoot();
       const notesPathFor = (seatId: string, sessionId: string) =>
         seatSessionNotesPath(root, seatId, sessionId);
 
-      const openRow = (writer: StateWriter, seatId: string) =>
-        writer.get<SessionRow>(`SELECT ${COLUMNS} FROM seat_sessions WHERE seat_id = ? AND ended_at IS NULL`, [seatId]);
+      const openRow = SqlSchema.findOneOption({
+        Request: Schema.String,
+        Result: SessionRow,
+        execute: (seatId) => sql.unsafe(`SELECT ${COLUMNS} FROM seat_sessions WHERE seat_id = ? AND ended_at IS NULL`, [seatId]),
+      });
+      const oneRow = SqlSchema.findOne({
+        Request: Schema.Tuple([Schema.String, Schema.String]),
+        Result: SessionRow,
+        execute: ([seatId, sessionId]) => sql.unsafe(`SELECT ${COLUMNS} FROM seat_sessions WHERE seat_id = ? AND session_id = ?`, [seatId, sessionId]),
+      });
+      const knownRow = SqlSchema.findOneOption({
+        Request: Schema.Tuple([Schema.String, Schema.String]),
+        Result: Schema.Struct({ session_id: Schema.String }),
+        execute: ([seatId, sessionId]) => sql`SELECT session_id FROM seat_sessions WHERE seat_id = ${seatId} AND session_id = ${sessionId}`,
+      });
+      const seatRows = SqlSchema.findAll({
+        Request: Schema.String,
+        Result: SessionRow,
+        execute: (seatId) => sql.unsafe(`SELECT ${COLUMNS} FROM seat_sessions WHERE seat_id = ?`, [seatId]),
+      });
 
-      const recordIn = (
-        writer: StateWriter,
+      const recordIn = Effect.fn("seat-sessions.record-in")(function* (
         observation: SeatSessionObservation,
         now: number,
-      ): SeatSessionRecordOutcome => {
+      ) {
         const { seatId, sessionId, harness } = observation;
         const cwd = bounded(observation.cwd, 4096);
-        const open = openRow(writer, seatId);
+        const current = yield* openRow(seatId);
+        const open = current._tag === "None" ? undefined : current.value;
         if (open?.session_id === sessionId) return { started: false };
         if (open !== undefined) {
-          writer.run(
-            "UPDATE seat_sessions SET ended_at = ?, end_reason = ? WHERE seat_id = ? AND session_id = ?",
-            [Math.max(now, Number(open.started_at)), observation.endReason ?? "replaced", seatId, open.session_id],
-          );
+          yield* sql`
+            UPDATE seat_sessions SET ended_at = ${Math.max(now, Number(open.started_at))}, end_reason = ${observation.endReason ?? "replaced"}
+            WHERE seat_id = ${seatId} AND session_id = ${open.session_id}
+          `;
         }
-        const known = writer.get<SessionRow>(
-          "SELECT session_id FROM seat_sessions WHERE seat_id = ? AND session_id = ?",
-          [seatId, sessionId],
-        );
-        if (known !== undefined) {
-          writer.run(
-            "UPDATE seat_sessions SET ended_at = NULL, end_reason = NULL, harness = ?, cwd = COALESCE(?, cwd) WHERE seat_id = ? AND session_id = ?",
-            [harness, cwd, seatId, sessionId],
-          );
+        const known = yield* knownRow([seatId, sessionId]);
+        if (known._tag === "Some") {
+          yield* sql`
+            UPDATE seat_sessions SET ended_at = NULL, end_reason = NULL, harness = ${harness}, cwd = COALESCE(${cwd}, cwd)
+            WHERE seat_id = ${seatId} AND session_id = ${sessionId}
+          `;
         } else {
-          writer.run(
-            `INSERT INTO seat_sessions(seat_id, session_id, harness, cwd, notes_path, started_at)
-             VALUES (?, ?, ?, ?, ?, ?)`,
-            [seatId, sessionId, harness, cwd, notesPathFor(seatId, sessionId), now],
-          );
+          yield* sql`
+            INSERT INTO seat_sessions(seat_id, session_id, harness, cwd, notes_path, started_at)
+            VALUES (${seatId}, ${sessionId}, ${harness}, ${cwd}, ${notesPathFor(seatId, sessionId)}, ${now})
+          `;
         }
         return { started: true, ...(open ? { ended: open.session_id } : {}) };
-      };
+      });
 
-      const record = (observation: SeatSessionObservation) =>
-        state
-          .transaction("seat-sessions.record", (writer) => recordIn(writer, observation, Date.now()))
-          .pipe(Effect.mapError(persistence("record")));
+      const record = Effect.fn("seat-sessions.record")(function* (observation: SeatSessionObservation) {
+        return yield* recordIn(observation, Date.now());
+      }, sql.withTransaction, Effect.provideService(StateTransactionOperation, "seat-sessions.record"),
+      Effect.mapError(persistence("record")));
 
-      const end = (seatId: string, reason: SeatSessionEndReason, sessionId?: string) =>
-        state
-          .transaction("seat-sessions.end", (writer) => {
-            const open = openRow(writer, seatId);
-            if (open === undefined) return undefined;
-            if (sessionId !== undefined && open.session_id !== sessionId) return undefined;
-            writer.run(
-              "UPDATE seat_sessions SET ended_at = ?, end_reason = ? WHERE seat_id = ? AND session_id = ?",
-              [Math.max(Date.now(), Number(open.started_at)), reason, seatId, open.session_id],
-            );
-            return open.session_id;
-          })
-          .pipe(Effect.mapError(persistence("end")));
+      const end = Effect.fn("seat-sessions.end")(function* (seatId: string, reason: SeatSessionEndReason, sessionId?: string) {
+        const current = yield* openRow(seatId);
+        if (current._tag === "None") return undefined;
+        const open = current.value;
+        if (sessionId !== undefined && open.session_id !== sessionId) return undefined;
+        yield* sql`
+          UPDATE seat_sessions SET ended_at = ${Math.max(Date.now(), Number(open.started_at))}, end_reason = ${reason}
+          WHERE seat_id = ${seatId} AND session_id = ${open.session_id}
+        `;
+        return open.session_id;
+      }, sql.withTransaction, Effect.provideService(StateTransactionOperation, "seat-sessions.end"),
+      Effect.mapError(persistence("end")));
 
-      const list = (seatId: string) =>
-        state
-          .read("seat-sessions.list", (reader) =>
-            newestSessionsFirst(
-              reader
-                .all<SessionRow>(`SELECT ${COLUMNS} FROM seat_sessions WHERE seat_id = ?`, [seatId])
-                .map(fromRow),
-            ),
-          )
-          .pipe(Effect.mapError(persistence("list")));
+      const list = Effect.fn("seat-sessions.list")(function* (seatId: string) {
+        return newestSessionsFirst((yield* seatRows(seatId)).map(fromRow));
+      }, Effect.mapError(persistence("list")));
 
-      const offboard = (input: SeatSessionOffboard) =>
-        Effect.gen(function* () {
-          const path = notesPathFor(input.seatId, input.sessionId);
-          yield* Effect.try({
-            try: () => {
-              writeNotesFile(path, input.notes);
-              // The latest offboard decides: a plain one withdraws a handoff.
-              if (input.continuation === undefined) removeNotesFile(continuationPathOf(path));
-              else writeNotesFile(continuationPathOf(path), input.continuation);
-            },
-            catch: (cause) =>
-              SeatSessionPersistenceError.make({
-                operation: "offboard.notes",
-                message: cause instanceof Error ? cause.message : String(cause),
-                cause,
-              }),
-          });
-          return yield* state
-            .transaction("seat-sessions.offboard", (writer) => {
-              const now = Date.now();
-              // The offboarding session is the seat's current one; a seat whose
-              // id the recorder has not seen yet starts its history here.
-              recordIn(writer, input, now);
-              writer.run(
-                "UPDATE seat_sessions SET gist = ?, offboarded_at = ?, notes_path = ? WHERE seat_id = ? AND session_id = ?",
-                [bounded(input.gist, 200), now, path, input.seatId, input.sessionId],
-              );
-              return fromRow(
-                writer.get<SessionRow>(
-                  `SELECT ${COLUMNS} FROM seat_sessions WHERE seat_id = ? AND session_id = ?`,
-                  [input.seatId, input.sessionId],
-                )!,
-              );
-            })
-            .pipe(Effect.mapError(persistence("offboard")));
+      const offboard = Effect.fn("seat-sessions.offboard")(function* (input: SeatSessionOffboard) {
+        const path = notesPathFor(input.seatId, input.sessionId);
+        yield* Effect.try({
+          try: () => {
+            writeNotesFile(path, input.notes);
+            // The latest offboard decides: a plain one withdraws a handoff.
+            if (input.continuation === undefined) removeNotesFile(continuationPathOf(path));
+            else writeNotesFile(continuationPathOf(path), input.continuation);
+          },
+          catch: (cause) =>
+            SeatSessionPersistenceError.make({
+              operation: "offboard.notes",
+              message: cause instanceof Error ? cause.message : String(cause),
+              cause,
+            }),
         });
+        return yield* sql.withTransaction(Effect.gen(function* () {
+          const now = Date.now();
+          // The offboarding session is the seat's current one; a seat whose
+          // id the recorder has not seen yet starts its history here.
+          yield* recordIn(input, now);
+          yield* sql`
+            UPDATE seat_sessions SET gist = ${bounded(input.gist, 200)}, offboarded_at = ${now}, notes_path = ${path}
+            WHERE seat_id = ${input.seatId} AND session_id = ${input.sessionId}
+          `;
+          return fromRow(yield* oneRow([input.seatId, input.sessionId]));
+        })).pipe(
+          Effect.provideService(StateTransactionOperation, "seat-sessions.offboard"),
+          Effect.mapError(persistence("offboard")),
+        );
+      });
 
-      const noteTranscript = (seatId: string, sessionId: string, path: string) =>
-        state
-          .transaction("seat-sessions.transcript", (writer) => {
-            const value = bounded(path, 4096);
-            if (value === null) return;
-            writer.run(
-              "UPDATE seat_sessions SET transcript_path = ? WHERE seat_id = ? AND session_id = ?",
-              [value, seatId, sessionId],
-            );
-          })
-          .pipe(Effect.mapError(persistence("transcript")));
+      const noteTranscript = Effect.fn("seat-sessions.transcript")(function* (seatId: string, sessionId: string, path: string) {
+        const value = bounded(path, 4096);
+        if (value === null) return;
+        yield* sql`UPDATE seat_sessions SET transcript_path = ${value} WHERE seat_id = ${seatId} AND session_id = ${sessionId}`;
+      }, sql.withTransaction, Effect.provideService(StateTransactionOperation, "seat-sessions.transcript"),
+      Effect.mapError(persistence("transcript")));
 
       return SeatSessionRepository.of({ notesPathFor, record, end, list, offboard, noteTranscript });
     }),
