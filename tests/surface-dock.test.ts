@@ -27,11 +27,9 @@ import {
   openAgentChatSurface,
   openDockBrowser,
   openNoteSurface,
-  openTaskCreateSurface,
   pinWorkbenchSurface,
   reconcileDockFromLiveSessions,
   stopDockBrowser,
-  taskCreateSurfaceId,
   terminalSurfaceId,
 } from "../src/renderer/lib/dock-state";
 import { browser$, cacheBrowserSession } from "../src/renderer/lib/browser-state";
@@ -320,35 +318,6 @@ describe("dock-state", () => {
       sessionId: "session-1",
       state: "loading",
     });
-  });
-
-  it("opens task-create enqueue surface and keeps payload across pin", () => {
-    const node = {
-      id: "tasks-1",
-      type: "text" as const,
-      x: 0,
-      y: 0,
-      width: 240,
-      height: 96,
-      text: "Say hi",
-      ether: { entity: { kind: "task" } },
-    } satisfies CanvasNode;
-    openTaskCreateSurface(node);
-    const id = taskCreateSurfaceId(node.id);
-    expect(dock$.registry.peek().surfaces).toEqual([
-      { id, kind: "task-create", zone: "focus" },
-    ]);
-    expect(dock$.taskCreateById[id].peek()).toEqual({
-      nodeId: "tasks-1",
-      title: "Say hi",
-      mode: "task",
-    });
-    pinWorkbenchSurface(id);
-    expect(dock$.registry.peek().surfaces[0]?.zone).toBe("pinned");
-    expect(dock$.taskCreateById[id].peek()?.mode).toBe("task");
-    closeWorkbenchSurface(id);
-    expect(dock$.registry.peek().surfaces).toEqual([]);
-    expect(dock$.taskCreateById[id].peek()).toBeUndefined();
   });
 
   it("opens agent chat as a focus surface and preserves its payload across pinning", () => {

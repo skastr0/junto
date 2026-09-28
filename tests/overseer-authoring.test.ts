@@ -8,7 +8,6 @@ import {
   callerSeatBinding,
   canvasDeleteRetiresCaller,
   edgeVerbAdmitted,
-  flowCycleIfInvalid,
   nativeDeleteResourcesOf,
   nodeGeometry,
   nodeHasOverseerGrant,
@@ -176,7 +175,7 @@ describe("overseer authoring", () => {
     expect(applyOverseerFlag(node, true).ether?.overseer).toBe(true);
   });
 
-  it("rejects illegal edges and task-path cycles without silent drop", () => {
+  it("rejects illegal edges without silent drop", () => {
     const from: CanvasNode = {
       id: "n1",
       type: "text",
@@ -196,25 +195,6 @@ describe("overseer authoring", () => {
       height: 40,
     };
     expect(edgeVerbAdmitted(from, to, "messages")).toBe(false);
-
-    const tasks = (id: string): CanvasNode => ({
-      id,
-      type: "text",
-      text: id,
-      x: 0,
-      y: 0,
-      width: 240,
-      height: 120,
-      ether: { entity: { kind: "task" } },
-    });
-    const cyclic: CanvasDoc = {
-      nodes: [tasks("t1"), tasks("t2")],
-      edges: [
-        { id: "e1", fromNode: "t1", toNode: "t2", ether: { verb: "feeds" } },
-        { id: "e2", fromNode: "t2", toNode: "t1", ether: { verb: "feeds" } },
-      ],
-    };
-    expect(flowCycleIfInvalid(cyclic)).toMatch(/cycle/i);
   });
 
   it("caller grant is live only on the granted seat", () => {

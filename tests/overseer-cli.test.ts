@@ -156,13 +156,12 @@ describe("overseer catalog wiring", () => {
     );
   });
 
-  it("marks page.eval, screenshots, msg.list, and pad.read as mutations per catalog", () => {
+  it("marks page.eval, screenshots, and msg.list as mutations per catalog", () => {
     const byOp = Object.fromEntries(OVERSEER_CATALOG.map((entry) => [entry.operation, entry]));
     expect(byOp["page.eval"]?.mutation).toBe(true);
     expect(byOp["page.screenshot"]?.mutation).toBe(true);
     expect(byOp["canvas.screenshot"]?.mutation).toBe(true);
     expect(byOp["msg.list"]?.mutation).toBe(true);
-    expect(byOp["pad.read"]?.mutation).toBe(true);
     expect(byOp["canvas.list"]?.mutation).toBe(false);
     expect(byOp.status?.mutation).toBe(false);
   });

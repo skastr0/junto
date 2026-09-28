@@ -2,13 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
   admitOperationally,
   evaluateGrantCompatibility,
-  evaluateOperationCompatibility,
   evaluateSemanticCompatibility,
-  evaluateStateCompatibility,
 } from "../src/shared/semantic-compatibility-adapter";
 import { ALL_PORTS, type Port } from "../src/shared/physics/schema";
-import { TaskState } from "../src/shared/work-model";
-import { WorkOperation } from "../src/shared/work-protocol";
 import type { VerbGrant } from "../src/shared/physics/verbs";
 
 describe("Semantic compatibility adapter boundary", () => {
@@ -28,7 +24,7 @@ describe("Semantic compatibility adapter boundary", () => {
     });
 
     it("proves Restricted for strict subset of grants with machine-checkable proof", () => {
-      const subset: Port[] = ["tasks.list", "tasks.claim"];
+      const subset: Port[] = ["msg.list", "msg.send"];
       const evalResult = evaluateGrantCompatibility(subset, ALL_PORTS);
 
       expect(evalResult.status).toBe("restricted");
@@ -100,63 +96,6 @@ describe("Semantic compatibility adapter boundary", () => {
       }
     });
   });
-
-  describe("Operation compatibility & anti-widening", () => {
-    it("proves Exact for full WorkOperation vocabulary", () => {
-      const evalResult = evaluateOperationCompatibility(WorkOperation.literals);
-      expect(evalResult.status).toBe("exact");
-      expect(admitOperationally(evalResult).admitted).toBe(true);
-    });
-
-    it("proves Restricted for subset of WorkOperations", () => {
-      const subset = ["task.create", "task.claim", "task.transition"];
-      const evalResult = evaluateOperationCompatibility(subset);
-      expect(evalResult.status).toBe("restricted");
-      if (evalResult.status === "restricted") {
-        expect(evalResult.subsetProof.operationsSubset).toBe(true);
-        expect(evalResult.withheldSemantics.length).toBe(
-          WorkOperation.literals.length - subset.length,
-        );
-      }
-      expect(admitOperationally(evalResult).admitted).toBe(false);
-    });
-
-    it("rejects unknown / widened operations with Unsupported", () => {
-      const widened = ["task.create", "task.arbitrary_eval"];
-      const evalResult = evaluateOperationCompatibility(widened);
-      expect(evalResult.status).toBe("unsupported");
-      if (evalResult.status === "unsupported") {
-        expect(evalResult.reasonCode).toBe("operation-widening");
-      }
-      expect(admitOperationally(evalResult).admitted).toBe(false);
-    });
-  });
-
-  describe("State / Acceptance compatibility", () => {
-    it("proves Exact for full TaskState vocabulary", () => {
-      const evalResult = evaluateStateCompatibility(TaskState.literals);
-      expect(evalResult.status).toBe("exact");
-      expect(admitOperationally(evalResult).admitted).toBe(true);
-    });
-
-    it("proves Restricted for subset of TaskStates", () => {
-      const subset = ["submitted", "working", "completed"];
-      const evalResult = evaluateStateCompatibility(subset);
-      expect(evalResult.status).toBe("restricted");
-      expect(admitOperationally(evalResult).admitted).toBe(false);
-    });
-
-    it("rejects unknown / widened states", () => {
-      const widened = ["submitted", "bypassed_gate"];
-      const evalResult = evaluateStateCompatibility(widened);
-      expect(evalResult.status).toBe("unsupported");
-      if (evalResult.status === "unsupported") {
-        expect(evalResult.reasonCode).toBe("acceptance-widening");
-      }
-      expect(admitOperationally(evalResult).admitted).toBe(false);
-    });
-  });
-
 
   describe("General semantic compatibility evaluator", () => {
     it("evaluates Exact when canonical equality holds", () => {

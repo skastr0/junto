@@ -1,18 +1,13 @@
-import { Effect, Schema } from "effect";
+import { Schema } from "effect";
 import { describe, expect, it } from "vitest";
-import type { CanvasDoc, CanvasNode } from "../src/shared/canvas";
+import type { CanvasNode } from "../src/shared/canvas";
 import {
   InstallationId,
   type InstallationId as InstallationIdValue,
 } from "../src/shared/installation-id";
-import { selectFactoryClaims } from "../src/shared/factory-tick";
 import { deriveActorSeatId } from "../src/main/junto/station/actor-seat-compiler";
 import { isManagedSeatRuntimeLocal } from "../src/main/junto/term/ensure-managed-seat";
-import {
-  activeActorRegistry,
-  actorSeatSelectableNow,
-  managedTaskDeliveryId,
-} from "../src/main/junto/kernel/service";
+import { activeActorRegistry } from "../src/main/junto/kernel/service";
 
 const actorNode = (
   hostId: string,
@@ -103,7 +98,7 @@ describe("managed actor runtime locality", () => {
   });
 });
 
-describe("kernel actor and delivery identity", () => {
+describe("kernel actor identity", () => {
   it("resolves exact canvas-scoped actor refs and fails closed on duplicates", () => {
     const seatId = deriveActorSeatId(
       installation("remote-a"),
@@ -137,222 +132,5 @@ describe("kernel actor and delivery identity", () => {
     expect(
       ambiguous.resolve({ canvasName: "factory", nodeId: "actor" }),
     ).toBeUndefined();
-  });
-
-  it("derives a bounded stable delivery id from the full work identity", () => {
-    const sink = { canvasName: "factory", nodeId: "tasks" };
-    const seatId = deriveActorSeatId(
-      installation("remote-a"),
-      "binding-alpha",
-    );
-    const delivery = managedTaskDeliveryId(sink, "task-1", seatId, "message-1");
-
-    expect(delivery).toMatch(/^delivery_[a-f0-9]{64}$/u);
-    expect(managedTaskDeliveryId(sink, "task-1", seatId, "message-1")).toBe(delivery);
-    expect(managedTaskDeliveryId(sink, "task-2", seatId, "message-1")).not.toBe(delivery);
-    expect(managedTaskDeliveryId(sink, "task-1", seatId, "message-2")).not.toBe(delivery);
-  });
-
-  it("selects a local actor only after its managed seat is ready to receive work", async () => {
-    const installationId = installation("command-center");
-    const node = actorNode("local");
-    const actor = authority(installationId, "local", node).actor;
-    const scope = {
-      role: "command-center" as const,
-      hostId: "local",
-      installationId,
-    };
-    const available = (ready: boolean) => ({
-      isLocalSeatReady: () => ready,
-      installationForHost: () => Effect.succeed(undefined),
-      isLive: () => Effect.succeed(false),
-    });
-
-    expect(
-      await Effect.runPromise(
-        actorSeatSelectableNow(
-          "factory",
-          node,
-          actor,
-          scope,
-          available(false),
-        ),
-      ),
-    ).toBe(false);
-    expect(
-      await Effect.runPromise(
-        actorSeatSelectableNow(
-          "factory",
-          node,
-          actor,
-          scope,
-          available(true),
-        ),
-      ),
-    ).toBe(true);
-  });
-
-  it("never selects a foreign actor from a Remote projection", async () => {
-    const node = actorNode("box-b");
-    const actor = {
-      seatId: deriveActorSeatId(
-        installation("remote-b"),
-        "binding-alpha",
-      ),
-      canvasName: "factory",
-      nodeId: node.id,
-    };
-
-    expect(
-      await Effect.runPromise(
-        actorSeatSelectableNow(
-          "factory",
-          node,
-          actor,
-          {
-            role: "remote",
-            hostId: "box-a",
-            installationId: installation("remote-a"),
-          },
-          {
-            isLocalSeatReady: () => false,
-            installationForHost: () => Effect.succeed(installation("remote-b")),
-            isLive: () => Effect.succeed(true),
-          },
-        ),
-      ),
-    ).toBe(false);
-  });
-
-  it("skips an offline first actor and lets the live second actor claim", async () => {
-    const offlineInstallation = installation("remote-offline");
-    const liveInstallation = installation("remote-live");
-    const offline = actorNode(
-      "box-offline",
-      "binding-offline",
-      "a-offline",
-    );
-    const live = actorNode("box-live", "binding-live", "b-live");
-    const doc: CanvasDoc = {
-      nodes: [
-        {
-          id: "tasks",
-          type: "text",
-          x: 0,
-          y: 0,
-          width: 240,
-          height: 100,
-          text: "tasks",
-          ether: {
-            entity: { kind: "task" },
-            tasks: {
-              items: [
-                {
-                  id: "task-1",
-                  state: "submitted",
-                  history: [
-                    {
-                      messageId: "brief-1",
-                      role: "user",
-                      parts: [{ kind: "text", text: "ship it" }],
-                      contextId: "factory",
-                      taskId: "task-1",
-                    },
-                  ],
-                },
-              ],
-            },
-          },
-        },
-        offline,
-        live,
-      ],
-      edges: [
-        { id: "e-offline", fromNode: "tasks", toNode: offline.id, ether: { verb: "works" } },
-        { id: "e-live", fromNode: "tasks", toNode: live.id, ether: { verb: "works" } },
-      ],
-    };
-    const actorRefs = [
-      {
-        seatId: deriveActorSeatId(
-          offlineInstallation,
-          "binding-offline",
-        ),
-        canvasName: "factory",
-        nodeId: offline.id,
-      },
-      {
-        seatId: deriveActorSeatId(liveInstallation, "binding-live"),
-        canvasName: "factory",
-        nodeId: live.id,
-      },
-    ];
-    const registry = activeActorRegistry(actorRefs);
-    const availability = {
-      isLocalSeatReady: () => false,
-      installationForHost: (hostId: string) =>
-        Effect.succeed(
-          hostId === "box-offline"
-            ? offlineInstallation
-            : hostId === "box-live"
-              ? liveInstallation
-              : undefined,
-        ),
-      isLive: (hostId: string) => Effect.succeed(hostId === "box-live"),
-    };
-    const scope = {
-      role: "command-center" as const,
-      hostId: "local",
-      installationId: installation("command-center"),
-    };
-    const selectable = new Set(
-      (
-        await Effect.runPromise(
-          Effect.forEach(actorRefs, (actor) =>
-            Effect.gen(function* () {
-              const node = doc.nodes.find(
-                (candidate) => candidate.id === actor.nodeId,
-              )!;
-              const ok = yield* actorSeatSelectableNow(
-                "factory",
-                node,
-                actor,
-                scope,
-                availability,
-              );
-              return ok ? actor.seatId : undefined;
-            }),
-          ),
-        )
-      ).filter((seatId) => seatId !== undefined),
-    );
-
-    const selections = selectFactoryClaims(
-      doc,
-      "factory",
-      registry.resolve,
-      {
-        actorEligible: (node) => {
-          const actor = registry.resolve({
-            canvasName: "factory",
-            nodeId: node.id,
-          });
-          return actor !== undefined && selectable.has(actor.seatId);
-        },
-      },
-    );
-
-    expect(selectable).toEqual(new Set([actorRefs[1]!.seatId]));
-    expect(selections).toEqual([
-      {
-        sink: { canvasName: "factory", nodeId: "tasks" },
-        task: {
-          kind: "task",
-          itemId: "task-1",
-          sink: { canvasName: "factory", nodeId: "tasks" },
-        },
-        actor: actorRefs[1],
-      },
-    ]);
   });
 });

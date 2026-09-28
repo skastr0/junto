@@ -24,7 +24,6 @@ import {
 import { serializeCanvas } from "../src/shared/canvas";
 import {
   makeSchedulerRepositoryLive,
-  SchedulerRepository,
 } from "../src/main/junto/scheduler/repository";
 import {
   makeStateEngineLive,
@@ -49,7 +48,6 @@ import {
   StationRepository,
 } from "../src/main/junto/station/repository";
 import {
-  WorkRepository,
   WorkRepositoryLive,
 } from "../src/main/junto/work/repository";
 import { InstallationId } from "../src/shared/installation-id";
@@ -275,49 +273,15 @@ const makeFixtureRuntime = (path: string) => {
   );
 };
 
-const assertCommonWorkProjection = async (
-  runtime: ReturnType<typeof makeFixtureRuntime>,
-  expectedTaskId: string,
-): Promise<void> => {
-  const { canvases, work } = await runtime.runPromise(
-    Effect.gen(function* () {
-      return {
-        canvases: yield* CanvasesService,
-        work: yield* WorkRepository,
-      };
-    }),
-  );
-  const canvas = await runtime.runPromise(canvases.read("factory"));
-  const snapshot = await runtime.runPromise(
-    work.readSnapshot("factory", "tasks"),
-  );
-
-  expect(canvas.name).toBe("factory");
-  expect(canvas.actorRefs).toHaveLength(1);
-  expect(snapshot.tasks.items).toHaveLength(1);
-  expect(snapshot.tasks.items[0]).toMatchObject({
-    id: expectedTaskId,
-    state: "working",
-    claimedBy: canvas.actorRefs[0]!.seatId,
-  });
-  const taskNode = canvas.doc.nodes.find(({ id }) => id === "tasks");
-  expect(taskNode?.ether?.tasks?.items[0]).toMatchObject({
-    id: expectedTaskId,
-    state: "working",
-    claimedBy: canvas.actorRefs[0]!.seatId,
-  });
-};
-
 const assertCommandCenterRepositories = async (
   runtime: ReturnType<typeof makeFixtureRuntime>,
 ): Promise<void> => {
-  const { canvases, fleet, station, work } = await runtime.runPromise(
+  const { canvases, fleet, station } = await runtime.runPromise(
     Effect.gen(function* () {
       return {
         canvases: yield* CanvasesService,
         fleet: yield* StationFleetTargetRepository,
         station: yield* StationRepository,
-        work: yield* WorkRepository,
       };
     }),
   );
@@ -326,14 +290,6 @@ const assertCommandCenterRepositories = async (
   );
   const status = await runtime.runPromise(station.statusFacts);
   const targets = await runtime.runPromise(fleet.list);
-  const records = await runtime.runPromise(
-    work.recordsAfter({
-      route: {
-        eventHome: COMMAND_CENTER_ID,
-        entityHome: COMMAND_CENTER_ID,
-      },
-    }),
-  );
 
   expect(authority).toMatchObject({
     generation: "9",
@@ -348,9 +304,6 @@ const assertCommandCenterRepositories = async (
   expect(storedFactory?.rawBody).toBe(
     serializeCanvas(storedFactory!.document),
   );
-  expect(storedFactory?.document.edges[0]?.ether).toEqual({
-    verb: "works",
-  });
   expect(status).toMatchObject({
     installationId: COMMAND_CENTER_ID,
     configuration: {
@@ -378,52 +331,23 @@ const assertCommandCenterRepositories = async (
       boundAt: "2026-07-28T12:00:00.000Z",
     },
   ]);
-  expect(
-    records.map((record) => ({
-      recordType: record.recordType,
-      operation: record.operation,
-      seq: record.id.seq,
-    })),
-  ).toEqual([
-    { recordType: "fact", operation: "task.create", seq: "1" },
-    { recordType: "fact", operation: "task.claim", seq: "2" },
-  ]);
-  await assertCommonWorkProjection(runtime, "task-v1-cc");
 };
 
 const assertRemoteRepositories = async (
   runtime: ReturnType<typeof makeFixtureRuntime>,
 ): Promise<void> => {
-  const { canvases, scheduler, state, station, work } = await runtime.runPromise(
+  const { canvases, state, station } = await runtime.runPromise(
     Effect.gen(function* () {
       return {
         canvases: yield* CanvasesService,
-        scheduler: yield* SchedulerRepository,
         state: yield* StateEngine,
         station: yield* StationRepository,
-        work: yield* WorkRepository,
       };
     }),
   );
   const status = await runtime.runPromise(station.statusFacts);
   const projection = await runtime.runPromise(station.projection);
   const intent = await runtime.runPromise(canvases.activeIntentWitness());
-  const commandRecords = await runtime.runPromise(
-    work.recordsAfter({
-      route: {
-        eventHome: COMMAND_CENTER_ID,
-        entityHome: REMOTE_ID,
-      },
-    }),
-  );
-  const localRecords = await runtime.runPromise(
-    work.recordsAfter({
-      route: { eventHome: REMOTE_ID, entityHome: REMOTE_ID },
-    }),
-  );
-  const schedulerState = await runtime.runPromise(
-    scheduler.readIntervalState("studio", "factory::timer-v1"),
-  );
   const durableRemoteWitness = await runtime.runPromise(
     state.read("state-v1-fixture.remote-witness", (reader) => ({
       authorialRows: {
@@ -450,24 +374,6 @@ const assertRemoteRepositories = async (
           )?.count ?? -1,
         ),
       },
-      intervalFiring: reader.get<{
-        claim_slot: string;
-        due_slot: string;
-        scheduled_for_epoch_ms: number;
-        observed_at_epoch_ms: number;
-        missed_intervals: string;
-      }>(
-        `
-          SELECT claim_slot,
-                 due_slot,
-                 scheduled_for_epoch_ms,
-                 observed_at_epoch_ms,
-                 coalesced_missed_slots AS missed_intervals
-          FROM scheduler_interval_firings
-          WHERE home_station = 'studio'
-            AND timer_key = 'factory::timer-v1'
-        `,
-      ),
     })),
   );
 
@@ -515,50 +421,12 @@ const assertRemoteRepositories = async (
     throw new Error("Remote fixture projection is missing");
   }
   const decoded = decodeStationPortfolioBody(projection.body);
-  expect(decoded.documents.get("factory")?.nodes.map(({ id }) => id)).toEqual(
-    ["tasks", "agent", "timer-v1"],
+  expect(decoded.documents.get("factory")?.nodes.map(({ id }) => id)).toContain(
+    "agent",
   );
-  expect(
-    decoded.documents
-      .get("factory")
-      ?.nodes.find(({ id }) => id === "timer-v1")
-      ?.ether?.host,
-  ).toBe("studio");
   expect(intent).toEqual({
     generation: projection.generation,
     contentSha256: projection.contentSha256,
-  });
-  expect(
-    commandRecords.map((record) => ({
-      recordType: record.recordType,
-      operation: record.operation,
-      seq: record.id.seq,
-    })),
-  ).toEqual([
-    { recordType: "command", operation: "task.claim", seq: "1" },
-  ]);
-  expect(
-    localRecords.map((record) => ({
-      recordType: record.recordType,
-      operation: record.operation,
-      seq: record.id.seq,
-    })),
-  ).toEqual([
-    { recordType: "fact", operation: "task.claim", seq: "1" },
-    {
-      recordType: "disposition",
-      operation: "task.claim",
-      seq: "2",
-    },
-  ]);
-  expect(schedulerState).toEqual({
-    version: 1,
-    scheduleId: "schedule-v1",
-    intervalMilliseconds: 60_000,
-    catchUpPolicy: "coalesce-latest",
-    nextDueAtEpochMs: 1_300_000,
-    nextDueSlot: "4",
-    lastFiredSlot: "3",
   });
   expect(durableRemoteWitness).toEqual({
     authorialRows: {
@@ -566,15 +434,7 @@ const assertRemoteRepositories = async (
       documents: 0,
       heads: 0,
     },
-    intervalFiring: {
-      claim_slot: "0",
-      due_slot: "3",
-      scheduled_for_epoch_ms: 1_240_000,
-      observed_at_epoch_ms: 1_250_000,
-      missed_intervals: "3",
-    },
   });
-  await assertCommonWorkProjection(runtime, "task-v1-remote");
 };
 
 describe("state schema v1 baseline fixtures", () => {

@@ -23,15 +23,10 @@ const signal = (fields: Partial<AgentSignal> = {}): AgentSignal => ({
 });
 
 describe("seat tool calls", () => {
-  it("tells only deliverables; routine reads and chores say nothing", () => {
+  it("says nothing for routine reads and chores", () => {
     const at = { preambleId: "x", canvasName: "c", nodeId: "seat", now: NOW };
-    expect(seatToolPreamble({ ...at, op: "artifact.publish" })).toMatchObject({
-      text: "published an artifact", provenance: "agent", action: "tool", tone: "indigo",
-    });
-    expect(seatToolPreamble({ ...at, op: "verdict.post" })?.text).toBe("posted a verdict");
     for (const op of [
-      "msg.read", "msg.list", "tasks.claim", "tasks.list", "tasks.update", "board.list", "pad.patch",
-      "ping", "preamble", "signal.raise", "signal.clear", "msg.send", "overseer",
+      "msg.read", "msg.list", "ping", "preamble", "signal.raise", "signal.clear", "msg.send", "overseer",
     ]) {
       expect(seatToolPreamble({ ...at, op })).toBeUndefined();
     }

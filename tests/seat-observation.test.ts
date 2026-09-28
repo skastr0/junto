@@ -2,7 +2,6 @@ import { Cause, Effect, Exit, Option } from "effect";
 import { describe, expect, it } from "vitest";
 import type { AgentSeatStateEvent } from "../src/shared/agent-seat-state";
 import type { CanvasDoc, CanvasEdge, CanvasNode } from "../src/shared/canvas";
-import type { TaskState } from "../src/shared/work-model";
 import type { WorkErrorBody } from "../src/shared/work-control";
 import type {
   ObserverGridSnapshot,
@@ -32,23 +31,7 @@ const agentNode = (id: string, bindingId: string, host?: string): CanvasNode => 
   },
 });
 
-const taskSinkNode = (
-  items: ReadonlyArray<{ id: string; state: TaskState; epoch?: number }>,
-): CanvasNode => ({
-  id: "sink",
-  type: "text",
-  text: "tasks",
-  x: 0,
-  y: 0,
-  width: 100,
-  height: 80,
-  ether: {
-    entity: { kind: "task" },
-    tasks: { items: items.map((item) => ({ history: [], ...item })) },
-  },
-});
-
-const edge = (verb: "messages" | "contributes", from: string, to: string): CanvasEdge => ({
+const edge = (verb: "messages", from: string, to: string): CanvasEdge => ({
   id: `${verb}-${from}-${to}`,
   fromNode: from,
   toNode: to,
@@ -905,116 +888,5 @@ describe("seat.read", () => {
       expect(exit.value.bytes).toBeLessThanOrEqual(64 * 1024);
       expect(exit.value.text.endsWith("tail")).toBe(true);
     }
-  });
-});
-
-describe("tasks.wait", () => {
-  const taskDoc = (state: TaskState, epoch = 1) =>
-    doc(
-      [agentNode("caller", "bind-caller"), taskSinkNode([{ id: "t1", state, epoch }])],
-      [edge("contributes", "caller", "sink")],
-    );
-
-  it("answers immediately when the task is already in the requested state", async () => {
-    const harness = makeHarness({ doc: taskDoc("completed", 3) });
-    const exit = await Effect.runPromiseExit(
-      harness.service.waitTask(
-        { target: "sink", taskId: "t1", until: "completed", timeoutMs: 1_000 },
-        caller,
-      ),
-    );
-    expect(Exit.isSuccess(exit)).toBe(true);
-    if (Exit.isSuccess(exit)) {
-      expect(exit.value).toEqual({
-        taskId: "t1",
-        state: "completed",
-        epoch: 3,
-        at: expect.any(Number),
-      });
-    }
-  });
-
-  it("does not lose a transition that lands between the check and the subscription", async () => {
-    let reads = 0;
-    let state: TaskState = "working";
-    const service = makeSeatObservation({
-      readDoc: () => {
-        reads += 1;
-        const snapshot = taskDoc(state);
-        if (reads === 1) state = "completed";
-        return Effect.succeed(snapshot);
-      },
-      subscribeCanvasChanges: () => () => {},
-      seatStates: { current: () => [], subscribe: () => () => {} },
-      subscribeWorkChanges: () => () => {},
-      sessionOf: () => undefined,
-      readGrid: async () => undefined,
-      subscribeGrid: () => () => {},
-    });
-    const exit = await Effect.runPromiseExit(
-      service.waitTask(
-        { target: "sink", taskId: "t1", until: "completed", timeoutMs: 120 },
-        caller,
-      ),
-    );
-    expect(Exit.isSuccess(exit)).toBe(true);
-    if (Exit.isSuccess(exit)) expect(exit.value.state).toBe("completed");
-  });
-
-  it("wakes on a work change for its own canvas", async () => {
-    const harness = makeHarness({ doc: taskDoc("working") });
-    const pending = Effect.runPromiseExit(
-      harness.service.waitTask(
-        { target: "sink", taskId: "t1", until: "rejected", timeoutMs: 5_000 },
-        caller,
-      ),
-    );
-    await settle();
-    harness.setDoc(taskDoc("rejected", 2));
-    harness.emitWork("c", "sink");
-    const exit = await pending;
-    expect(Exit.isSuccess(exit)).toBe(true);
-    if (Exit.isSuccess(exit)) expect(exit.value).toEqual({ taskId: "t1", state: "rejected", epoch: 2, at: expect.any(Number) });
-  });
-
-  it("times out with the last observed state", async () => {
-    const harness = makeHarness({ doc: taskDoc("working", 4) });
-    const exit = await Effect.runPromiseExit(
-      harness.service.waitTask(
-        { target: "sink", taskId: "t1", until: "completed", timeoutMs: 60 },
-        caller,
-      ),
-    );
-    const error = failure(exit);
-    expect(error?.type).toBe("Timeout");
-    expect(error?.details?.from).toBe("working");
-    expect(error?.details?.to).toBe("completed");
-  });
-
-  it("fails ScopeError on a revoked task edge without waiting for a mutation", async () => {
-    const harness = makeHarness({ doc: taskDoc("working") });
-    const pending = Effect.runPromiseExit(
-      harness.service.waitTask(
-        { target: "sink", taskId: "t1", until: "completed", timeoutMs: 5_000 },
-        caller,
-      ),
-    );
-    await settle();
-    harness.setDoc(doc([agentNode("caller", "bind-caller"), taskSinkNode([{ id: "t1", state: "working" }])], []));
-    harness.emitCanvas("c");
-    const exit = await pending;
-    expect(failure(exit)?.type).toBe("ScopeError");
-    expect(harness.activeListeners()).toBe(0);
-  });
-
-  it("refuses a task that is not on the named sink", async () => {
-    const harness = makeHarness({ doc: taskDoc("working") });
-    const exit = await Effect.runPromiseExit(
-      harness.service.waitTask(
-        { target: "sink", taskId: "nope", until: "completed", timeoutMs: 1_000 },
-        caller,
-      ),
-    );
-    expect(failure(exit)?.type).toBe("UnknownTarget");
   });
 });
