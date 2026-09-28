@@ -70,3 +70,29 @@ export const clearCanvasTier = (): void => {
   if (typeof document !== "undefined") document.documentElement.removeAttribute(TIER_ATTR);
   if (canvasTier$.peek() !== "near") canvasTier$.set("near");
 };
+
+/** Screen diameter a far seat's ring is held at, when its neighbours leave room. */
+export const FAR_RING_SCREEN_PX = 40;
+/** The seat ring's own diameter (node-geometry.ts SEAT_RING_PX). */
+const SEAT_RING_UNITS = 52;
+/** Custom property on the ReactFlow root that canvas-lod.css scales far rings by. */
+export const FAR_SEAT_SCALE_VAR = "--far-seat-scale";
+
+/**
+ * The scale that draws a 52-unit seat ring FAR_RING_SCREEN_PX across at this
+ * zoom, rounded up to a tenth so a zoom sweep writes a few dozen values, not
+ * one per frame. Never below the 1.75 a ring is drawn at before the floor
+ * bites, never above 4.6 (the floor at the far tier's lowest zoom).
+ */
+export const farSeatScale = (zoom: number): number => {
+  if (!Number.isFinite(zoom) || zoom <= 0) return 1.75;
+  const exact = FAR_RING_SCREEN_PX / (SEAT_RING_UNITS * zoom);
+  return Math.min(4.6, Math.max(1.75, Math.ceil(exact * 10) / 10));
+};
+
+/** Write the far seat scale on `host` (the ReactFlow root) when it changes. */
+export const publishFarSeatScale = (host: HTMLElement | null, zoom: number): void => {
+  if (host === null) return;
+  const text = farSeatScale(zoom).toFixed(1);
+  if (host.style.getPropertyValue(FAR_SEAT_SCALE_VAR) !== text) host.style.setProperty(FAR_SEAT_SCALE_VAR, text);
+};

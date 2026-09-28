@@ -15,6 +15,11 @@ export const AGENT_NODE_SIZE = { width: 184, height: 56 } as const;
  */
 export const INSTRUMENT_NODE_SIZE = { width: 176, height: 44 } as const;
 
+/** The ring a seat's portrait sits in (activity-atlas.ts, data-mark-size="seat"). */
+export const SEAT_RING_PX = 52;
+/** The ring an instrument sits in: a step below the agent's 52px seat. */
+export const INSTRUMENT_RING_PX = 40;
+
 /** Kinds that render at INSTRUMENT_NODE_SIZE. */
 export const INSTRUMENT_KINDS: ReadonlySet<string> = new Set(["terminal", "git"]);
 

@@ -24,12 +24,8 @@ export type RegionNameSlot = SlotRect & { readonly fontSize: number };
 /** Title bar height and frame width (styles.css --junto-region-titlebar, --junto-region-frame). */
 const TITLEBAR = 24;
 const FRAME = 12;
-/**
- * Clear ground kept between a name and what it avoids: enough to clear a far
- * seat's ring, drawn at 1.75x and reaching 18 units past its card
- * (canvas-lod.css).
- */
-const MARGIN = 24;
+/** Clear ground kept between a name and what it avoids. */
+const MARGIN = 16;
 /** Advance width of one uppercase condensed glyph, letter-spacing included. */
 const GLYPH_RATIO = 0.68;
 /** Share of the slot's width the name may take. */
@@ -46,10 +42,15 @@ const HEIGHT_SHARE = 0.6;
 export const REGION_NAME_MIN_PX = 40;
 export const REGION_NAME_MAX_PX = 240;
 
-/** The largest single line of `label` that fits a `width` x `height` box. */
+/**
+ * The largest single line of `label` that fits a `width` x `height` box. A
+ * box too short to leave tally room still takes a name at the floor size if
+ * the line fits in it.
+ */
 export const nameFontSize = (width: number, height: number, label: string): number => {
   const chars = Math.max(label.trim().length, 3);
-  const fit = Math.min((width * WIDTH_SHARE) / (chars * GLYPH_RATIO), height * HEIGHT_SHARE);
+  const byHeight = Math.max(height * HEIGHT_SHARE, Math.min(height * 0.95, REGION_NAME_MIN_PX));
+  const fit = Math.min((width * WIDTH_SHARE) / (chars * GLYPH_RATIO), byHeight);
   if (!Number.isFinite(fit) || fit <= 0) return 0;
   return Math.min(fit, REGION_NAME_MAX_PX);
 };
@@ -137,6 +138,9 @@ export const regionNameSlot = (
   };
   const walls = children.map((child) => grow(child, MARGIN));
   const clear = bestClearRect(area, [...walls, ...members.map((member) => grow(member, MARGIN))], label);
+  // Printing over cards is the last resort: clear ground wins unless the
+  // open slot gives a name clearly larger (a long name is width-bound either
+  // way, so it keeps clear of the cards).
   const pick =
     clear !== undefined && clear.fontSize >= REGION_NAME_MIN_PX
       ? clear
@@ -144,7 +148,7 @@ export const regionNameSlot = (
           const open = bestClearRect(area, walls, label);
           if (open === undefined) return clear;
           if (clear === undefined) return open;
-          return open.fontSize > clear.fontSize ? open : clear;
+          return open.fontSize > clear.fontSize * 1.25 ? open : clear;
         })();
   const rect = pick?.rect ?? area;
   return {

@@ -9,11 +9,12 @@
      its name; the line under it, preamble bubbles and landing flourishes
      go. A note is its title. Nothing lifts, glows or casts a shadow.
    - far: a seat, terminal or git instrument is its portrait in its ring,
-     centred in its place and drawn at 1.75x, with no card and
-     no words: the ring, held in its state pose, says working, waiting on
-     you, done or resting in the same marks as up close. Hover or select one
-     and its name rises above it. A note or card is a flat block in its own
-     place.
+     centred in its place and held at 40px on screen where its neighbours
+     leave room, with no card and no words. The ring, held in its state
+     pose, says working, done or resting in the same marks as up close; a
+     seat that needs the operator wears a heavy amber or crimson halo.
+     Hover or select one and its name shows under it. A note or card is a
+     faint block marked with its kind's glyph.
    - overview: regions carry the board (canvas-lod-regions.css).
 
    Hidden detail uses visibility or display inside fixed-size shells, so no
@@ -48,8 +49,11 @@ html:is([data-canvas-tier="mid"], [data-canvas-tier="far"], [data-canvas-tier="o
 /* --- far and overview: portraits in rings, and blocks ----------------- */
 
 /* Seats and instruments: no card, no words, no status chips; the ring and
-   what it holds, centred on the node. Scaling paints, it never moves a wire:
-   the node keeps its box. */
+   what it holds, centred on the node. A ring is held at 40px on screen
+   (CanvasTierGate writes --far-seat-scale on the ReactFlow root as the zoom
+   changes) unless that would meet a neighbour: convert.ts caps each ring at
+   the room around it (--ring-cap, seat-ring-room.ts). Scaling paints, it
+   never moves a wire: the node keeps its box. */
 html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .junto-node:is([data-node-kind="agent"], [data-node-kind="terminal"], [data-node-kind="git"]):not([data-bare]) {
   background: transparent !important;
   border-color: transparent !important;
@@ -62,11 +66,18 @@ html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__vi
   overflow: visible;
 }
 html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .junto-seat {
+  --ring-px: 52px;
+  --seat-s: max(1, min(var(--far-seat-scale, 1.75), var(--ring-cap, 1.75)));
   position: relative;
   justify-content: center;
 }
+/* An instrument's ring is 40 units: a larger scale reaches the same floor. */
+html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .junto-node:is([data-node-kind="terminal"], [data-node-kind="git"]) .junto-seat {
+  --ring-px: 40px;
+  --seat-s: max(1, min(calc(var(--far-seat-scale, 1.75) * 1.3), var(--ring-cap, 1.75)));
+}
 html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .junto-seat > .junto-mark {
-  transform: scale(1.75);
+  transform: scale(var(--seat-s));
 }
 /* The seat's hover card is drawn in canvas units: unreadable from here. The
    name tag and the ring's own tooltip speak for the seat instead. */
@@ -75,12 +86,12 @@ html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__vi
 }
 /* The name leaves the row (so the ring centres) and waits, hidden, as a tag
    under the ring: above it sit the ring's own tooltip and, once selected,
-   the seat toolbar. Drawn in canvas units: 4.5x the seat's 12px name reads
-   as 11 to 18px across the far tier. */
+   the seat toolbar. Scaled with the camera's floor, so it reads at about
+   13px on screen at any far zoom. */
 html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .junto-seat__text {
   position: absolute;
   left: 50%;
-  top: calc(100% + 30px);
+  top: calc(50% + var(--ring-px) * var(--seat-s) / 2 + var(--seat-s) * 8px);
   width: max-content;
   max-width: 220px;
   flex: none;
@@ -88,7 +99,7 @@ html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__vi
   border: 1px solid var(--color-stroke);
   border-radius: 6px;
   background: var(--color-raise);
-  transform: translateX(-50%) scale(4.5);
+  transform: translateX(-50%) scale(calc(var(--far-seat-scale, 1.75) * 1.4));
   transform-origin: 50% 0;
   visibility: hidden;
   pointer-events: none;
@@ -101,42 +112,82 @@ html[data-canvas-tier="far"] .react-flow__viewport .react-flow__node:not(.react-
   z-index: 2000 !important;
 }
 
-/* Notes and cards: a flat block where the card sits. */
-html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .junto-node:not([data-bare]):not(:is([data-node-kind="agent"], [data-node-kind="terminal"], [data-node-kind="git"])) {
-  background: color-mix(in oklab, var(--color-ink) 9%, transparent) !important;
-  border-color: transparent !important;
-}
-html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .junto-node:not([data-bare]):not(:is([data-node-kind="agent"], [data-node-kind="terminal"], [data-node-kind="git"])) > * {
-  visibility: hidden;
-}
-html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .junto-node[data-node-kind="text"]:not([data-bare]) {
-  background: color-mix(in oklab, var(--color-ink) 6%, transparent) !important;
-}
-
-/* Selection and hover still read from far away: a card gets a frame, a seat
-   a halo round its ring. */
-html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .react-flow__node.selected .junto-node:not([data-bare]):not(:is([data-node-kind="agent"], [data-node-kind="terminal"], [data-node-kind="git"])) {
-  outline: 4px solid color-mix(in oklab, var(--color-main) 70%, transparent);
-  outline-offset: 2px;
-}
+/* A halo round the ring, in canvas units that read as 3 to 7px on screen
+   (a far scale is about 1.3 units per screen pixel): the state halo when
+   the seat needs the operator, an outline on hover and selection. */
 html[data-canvas-tier="far"] .react-flow__viewport .junto-seat::before {
   content: "";
   position: absolute;
   left: 50%;
   top: 50%;
-  width: 104px;
-  height: 104px;
+  width: calc(var(--ring-px) * var(--seat-s));
+  height: calc(var(--ring-px) * var(--seat-s));
   border-radius: 50%;
   transform: translate(-50%, -50%);
   pointer-events: none;
 }
-html[data-canvas-tier="far"] .react-flow__viewport .junto-node:is([data-node-kind="terminal"], [data-node-kind="git"]) .junto-seat::before {
-  width: 82px;
-  height: 82px;
+/* Waiting on you and needs input: amber. Blocked: crimson. These are the
+   seats the operator works from here, so they carry a heavy ring and a wash
+   the size of their neighbours' gap, and nothing else on the board does. */
+html[data-canvas-tier="far"] .react-flow__viewport .junto-seat:has(> .junto-mark:is([data-mark-ring="call"], [data-mark-ring="wait"]))::before {
+  box-shadow:
+    0 0 0 calc(var(--seat-s) * 3px) color-mix(in oklab, var(--color-amber) 92%, transparent),
+    0 0 0 calc(var(--seat-s) * 7px) color-mix(in oklab, var(--color-amber) 26%, transparent);
+}
+html[data-canvas-tier="far"] .react-flow__viewport .junto-seat:has(> .junto-mark[data-mark-ring="halt"])::before {
+  box-shadow:
+    0 0 0 calc(var(--seat-s) * 3px) color-mix(in oklab, var(--color-crimson) 92%, transparent),
+    0 0 0 calc(var(--seat-s) * 7px) color-mix(in oklab, var(--color-crimson) 26%, transparent);
 }
 html[data-canvas-tier="far"] .react-flow__viewport .react-flow__node:hover .junto-seat::before {
-  box-shadow: 0 0 0 4px color-mix(in oklab, var(--color-ink) 35%, transparent);
+  outline: calc(var(--seat-s) * 2px) solid color-mix(in oklab, var(--color-ink) 45%, transparent);
+  outline-offset: calc(var(--seat-s) * 8px);
 }
 html[data-canvas-tier="far"] .react-flow__viewport .react-flow__node.selected .junto-seat::before {
-  box-shadow: 0 0 0 6px color-mix(in oklab, var(--color-main) 80%, transparent);
+  outline: calc(var(--seat-s) * 3px) solid color-mix(in oklab, var(--color-main) 85%, transparent);
+  outline-offset: calc(var(--seat-s) * 8px);
+}
+
+/* Notes and cards: a faint block where the card sits, marked with its kind's
+   glyph so a note, a task list and a link read apart. Nothing inside it is
+   drawn. */
+html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .junto-node:not([data-bare]):not(:is([data-node-kind="agent"], [data-node-kind="terminal"], [data-node-kind="git"])) {
+  --kind-glyph: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 6h16v12H4z M8 10h8'/%3E%3C/svg%3E");
+  background: color-mix(in oklab, var(--color-ink) 5%, transparent) !important;
+  border-color: transparent !important;
+}
+html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .junto-node:not([data-bare]):not(:is([data-node-kind="agent"], [data-node-kind="terminal"], [data-node-kind="git"])) > * {
+  visibility: hidden;
+}
+html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .junto-node:not([data-bare]):not(:is([data-node-kind="agent"], [data-node-kind="terminal"], [data-node-kind="git"]))::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  height: min(60%, 120px);
+  aspect-ratio: 1;
+  transform: translate(-50%, -50%);
+  background: color-mix(in oklab, var(--color-ink) 38%, transparent);
+  mask: var(--kind-glyph) center / contain no-repeat;
+  pointer-events: none;
+}
+html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .junto-node[data-node-kind="text"]:not([data-bare]):not(:is([data-node-kind="agent"], [data-node-kind="terminal"], [data-node-kind="git"])) { --kind-glyph: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 4h14v16H5z M9 9h6 M9 13h6 M9 17h3'/%3E%3C/svg%3E"); }
+html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .junto-node[data-node-kind="task"]:not([data-bare]):not(:is([data-node-kind="agent"], [data-node-kind="terminal"], [data-node-kind="git"])) { --kind-glyph: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 4h16v16H4z M8 12l3 3 5-6'/%3E%3C/svg%3E"); }
+html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .junto-node[data-node-kind="board"]:not([data-bare]):not(:is([data-node-kind="agent"], [data-node-kind="terminal"], [data-node-kind="git"])) { --kind-glyph: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 4h16v16H4z M4 10h16 M10 10v10'/%3E%3C/svg%3E"); }
+html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .junto-node[data-node-kind="cron"]:not([data-bare]):not(:is([data-node-kind="agent"], [data-node-kind="terminal"], [data-node-kind="git"])) { --kind-glyph: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='8'/%3E%3Cpath d='M12 8v4l3 2'/%3E%3C/svg%3E"); }
+html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .junto-node[data-node-kind="timer"]:not([data-bare]):not(:is([data-node-kind="agent"], [data-node-kind="terminal"], [data-node-kind="git"])) { --kind-glyph: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='8'/%3E%3Cpath d='M12 8v4l3 2'/%3E%3C/svg%3E"); }
+html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .junto-node[data-node-kind="watcher"]:not([data-bare]):not(:is([data-node-kind="agent"], [data-node-kind="terminal"], [data-node-kind="git"])) { --kind-glyph: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='8'/%3E%3Cpath d='M12 8v4l3 2'/%3E%3C/svg%3E"); }
+html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .junto-node[data-node-kind="relay"]:not([data-bare]):not(:is([data-node-kind="agent"], [data-node-kind="terminal"], [data-node-kind="git"])) { --kind-glyph: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='8'/%3E%3Cpath d='M12 8v4l3 2'/%3E%3C/svg%3E"); }
+html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .junto-node[data-node-kind="artifacts"]:not([data-bare]):not(:is([data-node-kind="agent"], [data-node-kind="terminal"], [data-node-kind="git"])) { --kind-glyph: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 8l8-4 8 4v8l-8 4-8-4z M4 8l8 4 8-4 M12 12v8'/%3E%3C/svg%3E"); }
+html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .junto-node[data-node-kind="requests"]:not([data-bare]):not(:is([data-node-kind="agent"], [data-node-kind="terminal"], [data-node-kind="git"])) { --kind-glyph: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 13l3-8h10l3 8v6H4z M4 13h5l1 2h4l1-2h5'/%3E%3C/svg%3E"); }
+html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .junto-node[data-node-kind="link"]:not([data-bare]):not(:is([data-node-kind="agent"], [data-node-kind="terminal"], [data-node-kind="git"])) { --kind-glyph: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1 M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1'/%3E%3C/svg%3E"); }
+html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .junto-node[data-node-kind="file"]:not([data-bare]):not(:is([data-node-kind="agent"], [data-node-kind="terminal"], [data-node-kind="git"])) { --kind-glyph: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 3h8l4 4v14H6z M14 3v4h4'/%3E%3C/svg%3E"); }
+html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .junto-node[data-node-kind="text"]:not([data-bare]) {
+  background: color-mix(in oklab, var(--color-ink) 4%, transparent) !important;
+}
+
+/* A selected card still reads from far away. */
+html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .react-flow__node.selected .junto-node:not([data-bare]):not(:is([data-node-kind="agent"], [data-node-kind="terminal"], [data-node-kind="git"])) {
+  outline: 4px solid color-mix(in oklab, var(--color-main) 70%, transparent);
+  outline-offset: 2px;
 }

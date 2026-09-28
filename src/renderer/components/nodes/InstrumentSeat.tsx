@@ -1,9 +1,9 @@
 import type { ReactNode } from "react";
 import type { ActivitySpec } from "../../lib/activity";
+import { INSTRUMENT_RING_PX } from "../../lib/node-geometry";
 import { ActivityMarkFromSpec } from "../ActivityMark";
 
-/** The ring an instrument sits in: a step below the agent's 52px seat. */
-export const INSTRUMENT_RING_PX = 40;
+export { INSTRUMENT_RING_PX };
 
 /**
  * A canvas instrument (terminal, git) in the agent seat's language: its
