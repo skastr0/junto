@@ -113,6 +113,14 @@ export const managedSeatWakeDecision = (input: {
 /** Per-binding automatic-restart spend. Process-local, like the host map. */
 const autoRestartBudgets = new Map<string, AutoRestartBudget>();
 
+/**
+ * Forget one binding's automatic-restart spend: a deliberate restart (a seat
+ * rotated onto a fresh session) is not a crash and must not use up the budget.
+ */
+export const forgetAutoRestartSpend = (bindingId: string): void => {
+  autoRestartBudgets.delete(bindingId);
+};
+
 /** Test seam — forget all automatic-restart spend. */
 export const resetAutoRestartBudgetsForTest = (): void => {
   autoRestartBudgets.clear();

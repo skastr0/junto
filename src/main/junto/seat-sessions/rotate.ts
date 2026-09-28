@@ -1,0 +1,197 @@
+/**
+ * Rotate a seat onto a fresh harness session after it offboards.
+ *
+ * The token-pressure clock calls this between turns once a seat has handed
+ * off (or its grace period ran out). The seat's current session ends as
+ * `offboard`, its node gets a fresh session id (a new pin, or none for a
+ * harness that announces its own), the running process stops, and the kernel
+ * wakes the seat again under the usual rules: this installation's seat only,
+ * on a playing canvas. A fresh session is unproven, so it spawns with the seat
+ * doctrine, whose first step is `junto onboard`, which hands it the notes.
+ *
+ * Offboard notes are the agent's to write; rotating never writes them.
+ */
+import { randomUUID } from "node:crypto";
+import { Effect } from "effect";
+import type { CanvasDoc } from "@shared/canvas";
+import { actorDeliverySurfaceOf } from "@shared/actor-surface";
+import { isHarnessId, templateFor } from "@shared/managed-terminal-templates";
+
+export type SeatRotateResult =
+  | {
+      readonly ok: true;
+      /** The session that ended as offboard, when the seat named one. */
+      readonly ended?: string;
+      /** The fresh pinned id; absent when the harness announces its own. */
+      readonly next?: string;
+      /** False when the seat is left stopped, e.g. its canvas is paused. */
+      readonly woke: boolean;
+    }
+  | { readonly ok: false; readonly reason: string };
+
+/** How long a stopped generation gets to exit before the seat is woken anyway. */
+const EXIT_WAIT_MS = 10_000;
+
+const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** The seat as rotation needs it, read off its canvas. */
+export type RotatingSeat = {
+  readonly canvasName: string;
+  readonly bindingId: string;
+  readonly harness: string;
+  /** The session the node names now. */
+  readonly sessionId?: string;
+  /** This installation runs the seat. */
+  readonly local: boolean;
+};
+
+/** What rotation touches, so the sequence is testable without the app. */
+export type SeatRotatePorts = {
+  readonly locate: (seatId: string, canvasName?: string) => Promise<RotatingSeat | undefined>;
+  readonly endSession: (seatId: string, sessionId: string) => Promise<void>;
+  readonly reopenSession: (seatId: string, sessionId: string, harness: string) => Promise<void>;
+  /** Replace the node's session id (or clear it); false when the seat changed hands. */
+  readonly writeSessionId: (seat: RotatingSeat, seatId: string, next: string | undefined) => Promise<boolean>;
+  /** Stop the running generation and wait for it to exit (bounded). */
+  readonly stop: (bindingId: string) => Promise<void>;
+  /** Start the seat again under the kernel's wake rules. */
+  readonly wake: (seat: RotatingSeat, seatId: string) => Promise<boolean>;
+  readonly mintSessionId?: () => string;
+};
+
+/** The rotation sequence over its ports. */
+export const rotateSeatSession = async (
+  seatId: string,
+  ports: SeatRotatePorts,
+  options: { readonly canvasName?: string } = {},
+): Promise<SeatRotateResult> => {
+  const seat = await ports.locate(seatId, options.canvasName);
+  if (seat === undefined) return { ok: false, reason: "no agent seat with that id is on a canvas" };
+  if (!seat.local) return { ok: false, reason: "this seat runs on another installation" };
+  if (!isHarnessId(seat.harness)) return { ok: false, reason: `unknown harness ${seat.harness}` };
+
+  const ended = seat.sessionId;
+  const next =
+    templateFor(seat.harness).capabilityBadges.sessionId === "pin" ? (ports.mintSessionId ?? randomUUID)() : undefined;
+
+  // End first, as offboard, so the canvas recorder sees no open session to
+  // call replaced when the new id lands.
+  if (ended) await ports.endSession(seatId, ended);
+  const written = await ports.writeSessionId(seat, seatId, next).catch(() => false);
+  if (!written) {
+    // The seat keeps running its session: reopen it in the history.
+    if (ended) await ports.reopenSession(seatId, ended, seat.harness);
+    return { ok: false, reason: "could not give the seat a fresh session on its canvas" };
+  }
+  await ports.stop(seat.bindingId);
+  const woke = await ports.wake(seat, seatId).catch(() => false);
+  return { ok: true, ...(ended ? { ended } : {}), ...(next ? { next } : {}), woke };
+};
+
+/** Rotate one seat (its canvas node id) in the running app. */
+export const offboardAndRotate = async (
+  seatId: string,
+  options: { readonly canvasName?: string } = {},
+): Promise<SeatRotateResult> => {
+  // Imported at call time: this module is reached from app composition, and
+  // the runtime graph imports the terminal plane and canvases in turn.
+  const [{ AppRuntime }, { CanvasesService }, { StationRepository }, { SeatSessionRepository }, { mainAuthoringGate }] =
+    await Promise.all([
+      import("../../runtime"),
+      import("../canvases"),
+      import("../station/repository"),
+      import("./repository"),
+      import("../main-authoring-gate"),
+    ]);
+  const [{ termPlane }, { forgetAutoRestartSpend }, { KernelService }] = await Promise.all([
+    import("../term/plane"),
+    import("../term/ensure-managed-seat"),
+    import("../kernel/service"),
+  ]);
+
+  return rotateSeatSession(
+    seatId,
+    {
+      locate: (id, canvasName) =>
+        AppRuntime.runPromise(
+          Effect.gen(function* () {
+            const canvases = yield* CanvasesService;
+            const documents = yield* canvases.liveDocuments().pipe(Effect.orElseSucceed(() => []));
+            for (const { canvasName: name, doc } of documents) {
+              if (canvasName !== undefined && name !== canvasName) continue;
+              const node = doc.nodes.find((candidate) => candidate.id === id);
+              const surface = node === undefined ? undefined : actorDeliverySurfaceOf(node);
+              if (node === undefined || surface?._tag !== "managedAgent") continue;
+              const stations = yield* StationRepository;
+              const configuration = yield* stations.configuration.pipe(Effect.orElseSucceed(() => undefined));
+              const sessionId = node.ether?.terminal?.sessionId?.trim();
+              return {
+                canvasName: name,
+                bindingId: surface.bindingId,
+                harness: surface.harness,
+                ...(sessionId ? { sessionId } : {}),
+                local:
+                  configuration?.configuration.role === "command-center" &&
+                  configuration.configuration.hostId === surface.hostId,
+              } satisfies RotatingSeat;
+            }
+            return undefined;
+          }),
+        ),
+      endSession: (id, sessionId) =>
+        AppRuntime.runPromise(
+          Effect.flatMap(SeatSessionRepository, (sessions) => sessions.end(id, "offboard", sessionId)).pipe(
+            Effect.ignore,
+          ),
+        ),
+      reopenSession: (id, sessionId, harness) =>
+        AppRuntime.runPromise(
+          Effect.flatMap(SeatSessionRepository, (sessions) => sessions.record({ seatId: id, sessionId, harness })).pipe(
+            Effect.ignore,
+          ),
+        ),
+      writeSessionId: (seat, id, next) =>
+        mainAuthoringGate.run("seat-sessions.rotate", () =>
+          AppRuntime.runPromise(
+            Effect.gen(function* () {
+              const canvases = yield* CanvasesService;
+              let changed = false;
+              yield* canvases.mutate(seat.canvasName, (doc: CanvasDoc) => ({
+                ...doc,
+                nodes: doc.nodes.map((candidate) => {
+                  const terminal = candidate.ether?.terminal;
+                  // The seat changed hands since it was read: leave it alone.
+                  if (candidate.id !== id || terminal?.bindingId !== seat.bindingId) return candidate;
+                  changed = true;
+                  const { sessionId: _previous, ...rest } = terminal;
+                  return {
+                    ...candidate,
+                    ether: { ...candidate.ether, terminal: next ? { ...rest, sessionId: next } : rest },
+                  };
+                }),
+              }));
+              return changed;
+            }),
+          ),
+        ),
+      // The wake refuses while a process is still dying, so let it exit.
+      stop: async (bindingId) => {
+        if (termPlane.host.get(bindingId) === undefined) return;
+        termPlane.host.kill(bindingId);
+        const deadline = Date.now() + EXIT_WAIT_MS;
+        while (Date.now() < deadline && termPlane.host.get(bindingId)?.status !== "exited") {
+          await sleep(50);
+        }
+      },
+      wake: (seat, id) => {
+        // A rotation is deliberate, not a crash: it spends none of the seat's
+        // automatic restarts.
+        forgetAutoRestartSpend(seat.bindingId);
+        return AppRuntime.runPromise(
+          Effect.flatMap(KernelService, (kernel) => Effect.promise(() => kernel.wakeManagedSeat(seat.canvasName, id))),
+        );
+      },
+    },
+    options,
+  );
+};
