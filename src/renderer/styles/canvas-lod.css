@@ -135,25 +135,28 @@ html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__vi
   pointer-events: none;
 }
 /* Waiting on you and needs input: amber. Blocked: crimson. These are the
-   seats the operator works from here, so they carry a heavy ring and a wash
-   the size of their neighbours' gap, and nothing else on the board does. */
+   seats the operator works from here, so they carry a heavy ring and a soft
+   band, and nothing else on the board does. The halo stays inside the
+   footprint the ring's room is measured with (seat-ring-room.ts
+   RING_FOOTPRINT, 1.16 rings: 4 units a side), so it never meets a
+   neighbour. */
 html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .junto-seat:has(> .junto-mark:is([data-mark-ring="call"], [data-mark-ring="wait"]))::before {
   box-shadow:
-    0 0 0 calc(var(--seat-s) * 3px) color-mix(in oklab, var(--color-amber) 92%, transparent),
-    0 0 0 calc(var(--seat-s) * 7px) color-mix(in oklab, var(--color-amber) 26%, transparent);
+    0 0 0 calc(var(--seat-s) * 2.5px) color-mix(in oklab, var(--color-amber) 92%, transparent),
+    0 0 0 calc(var(--seat-s) * 4px) color-mix(in oklab, var(--color-amber) 30%, transparent);
 }
 html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .junto-seat:has(> .junto-mark[data-mark-ring="halt"])::before {
   box-shadow:
-    0 0 0 calc(var(--seat-s) * 3px) color-mix(in oklab, var(--color-crimson) 92%, transparent),
-    0 0 0 calc(var(--seat-s) * 7px) color-mix(in oklab, var(--color-crimson) 26%, transparent);
+    0 0 0 calc(var(--seat-s) * 2.5px) color-mix(in oklab, var(--color-crimson) 92%, transparent),
+    0 0 0 calc(var(--seat-s) * 4px) color-mix(in oklab, var(--color-crimson) 30%, transparent);
 }
 html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .react-flow__node:hover .junto-seat::before {
   outline: calc(var(--seat-s) * 2px) solid color-mix(in oklab, var(--color-ink) 45%, transparent);
-  outline-offset: calc(var(--seat-s) * 8px);
+  outline-offset: calc(var(--seat-s) * 5px);
 }
 html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .react-flow__node.selected .junto-seat::before {
   outline: calc(var(--seat-s) * 3px) solid color-mix(in oklab, var(--color-main) 85%, transparent);
-  outline-offset: calc(var(--seat-s) * 8px);
+  outline-offset: calc(var(--seat-s) * 5px);
 }
 
 /* Notes and cards: a faint block where the card sits, marked with its kind's

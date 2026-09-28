@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { RING_GAP, RING_SCALE_MAX, seatRingCaps, type RoomNode } from "../src/renderer/lib/seat-ring-room";
+import { evenRingCaps, RING_FOOTPRINT, RING_GAP, RING_SCALE_MAX, seatRingCaps, type RoomNode } from "../src/renderer/lib/seat-ring-room";
 import { FAR_RING_SCREEN_PX, farSeatScale } from "../src/renderer/lib/canvas-tier";
 
 const seat = (id: string, x: number, y: number): RoomNode => ({ id, x, y, width: 184, height: 56, ringPx: 52 });
@@ -28,6 +28,22 @@ describe("seatRingCaps", () => {
     // Centre at y 28, card edge at y 100: 72 units, less the gap.
     expect((caps.get("a")! * 52) / 2).toBeLessThanOrEqual(72 - RING_GAP + 0.5);
     expect(caps.has("n")).toBe(false);
+  });
+
+  it("keeps the halo a seat may wear clear of its neighbour too", () => {
+    const nodes = [seat("a", 0, 0), seat("b", 0, 140)];
+    const caps = seatRingCaps(nodes);
+    const reach = ((caps.get("a")! + caps.get("b")!) * 52 * RING_FOOTPRINT) / 2;
+    expect(reach).toBeLessThanOrEqual(140 - RING_GAP + 1);
+  });
+
+  it("gives the seats of one region one size: the region's smallest", () => {
+    const caps = new Map([["a", 3], ["b", 2], ["c", 4], ["lone", 4]]);
+    const even = evenRingCaps(caps, (id) => ({ a: "r", b: "r", c: "s" })[id]);
+    expect(even.get("a")).toBe(2);
+    expect(even.get("b")).toBe(2);
+    expect(even.get("c")).toBe(4);
+    expect(even.get("lone")).toBe(4);
   });
 
   it("never shrinks a ring below its own size", () => {

@@ -4,7 +4,9 @@
 // screen (canvas-tier.ts farSeatScale), so the ring grows in canvas units as
 // the camera pulls back. It never grows into a neighbour: each ring is capped
 // at the room around its centre, half the way to the next ring (both grow)
-// and all the way to any card's edge, less a gap. The cap is a scale factor on
+// and all the way to any card's edge, less a gap, counting the halo a seat
+// that needs the operator wears. Seats of one region share the region's
+// smallest cap, so they read as one size. The cap is a scale factor on
 // the ring's own size, computed once per projection (convert.ts) and handed to
 // CSS as --ring-cap, so a zoom measures nothing.
 
@@ -24,6 +26,12 @@ export type RoomNode = RoomRect & { readonly id: string; readonly ringPx?: numbe
 export const RING_GAP = 12;
 /** The largest a ring grows (canvas-tier.ts SEAT_SCALE_MAX). */
 export const RING_SCALE_MAX = SEAT_SCALE_MAX;
+/**
+ * A ring's footprint as a multiple of its diameter: the needs-you halo is
+ * drawn just outside the ring (canvas-lod.css), and a halo must not meet a
+ * neighbour either.
+ */
+export const RING_FOOTPRINT = 1.16;
 
 const centre = (rect: RoomRect): readonly [number, number] => [rect.x + rect.width / 2, rect.y + rect.height / 2];
 
@@ -44,7 +52,8 @@ export const seatRingCaps = (nodes: ReadonlyArray<RoomNode>): ReadonlyMap<string
   nodes.forEach((node, index) => {
     if (node.ringPx === undefined) return;
     const [x, y] = centres[index]!;
-    let radius = (RING_SCALE_MAX * node.ringPx) / 2;
+    const footprint = node.ringPx * RING_FOOTPRINT;
+    let radius = (RING_SCALE_MAX * footprint) / 2;
     nodes.forEach((other, otherIndex) => {
       if (otherIndex === index) return;
       const room =
@@ -53,8 +62,31 @@ export const seatRingCaps = (nodes: ReadonlyArray<RoomNode>): ReadonlyMap<string
           : distanceToRect(x, y, other) - RING_GAP;
       if (room < radius) radius = room;
     });
-    const cap = (radius * 2) / node.ringPx;
+    const cap = (radius * 2) / footprint;
     caps.set(node.id, Math.round(Math.min(RING_SCALE_MAX, Math.max(1, cap)) * 100) / 100);
   });
   return caps;
+};
+
+/**
+ * One size per region: every ringed seat in a group (its innermost region)
+ * takes the group's smallest cap, so the seats of one region read as one
+ * size, never a mix of large and small. Seats in no group keep their own.
+ */
+export const evenRingCaps = (
+  caps: ReadonlyMap<string, number>,
+  groupOf: (id: string) => string | undefined,
+): ReadonlyMap<string, number> => {
+  const least = new Map<string, number>();
+  for (const [id, cap] of caps) {
+    const group = groupOf(id);
+    if (group === undefined) continue;
+    least.set(group, Math.min(least.get(group) ?? Infinity, cap));
+  }
+  const out = new Map<string, number>();
+  for (const [id, cap] of caps) {
+    const group = groupOf(id);
+    out.set(id, group === undefined ? cap : (least.get(group) ?? cap));
+  }
+  return out;
 };

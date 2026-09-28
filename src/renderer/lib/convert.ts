@@ -11,7 +11,7 @@ import { VERB_COLOR_TOKEN, type Verb } from "@shared/physics";
 import { regionStack } from "@shared/graph";
 import { INSTRUMENT_KINDS, INSTRUMENT_RING_PX, renderedNodeSize, SEAT_RING_PX } from "./node-geometry";
 import { regionNameSlot, sameNameSlot, type RegionNameSlot } from "./region-name-slot";
-import { seatRingCaps, type RoomNode } from "./seat-ring-room";
+import { evenRingCaps, seatRingCaps, type RoomNode } from "./seat-ring-room";
 import { isGitNode, isLabelNode, nodeTitle, searchText } from "./presentation";
 
 // Z bands. Groups render at GROUP_Z_BASE + nesting depth so a nested region
@@ -47,6 +47,8 @@ export type NodeData = {
    * Overview clusters gather seats of one region only (seat-clusters.ts).
    */
   seatRegion?: string;
+  /** Regions only: the region directly holding this one, when nested. */
+  parentRegion?: string;
 };
 
 /** Flow edge data — durable meaning stays on CanvasEdge; paint reads the verb. */
@@ -180,7 +182,10 @@ const regionFacts = (
     const stack = regionStack(groupsOnly, group.id);
     depths.set(group.id, stack.length);
     const parent = stack[stack.length - 1];
-    if (parent !== undefined) children.set(parent.id, [...(children.get(parent.id) ?? []), group]);
+    if (parent !== undefined) {
+      children.set(parent.id, [...(children.get(parent.id) ?? []), group]);
+      parentOf.set(group.id, parent.id);
+    }
   }
   for (const node of doc.nodes) {
     if (node.type === "group") continue;
@@ -259,9 +264,10 @@ export const toFlow = (
     execution?.detailByEdgeId[edgeId] ?? getFallback().detailByEdgeId.get(edgeId) ?? "";
 
   const nextNodeIds = new Set<string>();
-  const ringCaps = seatRingCaps(roomNodes(doc));
+  const roomCaps = seatRingCaps(roomNodes(doc));
   const parentOf = new Map<string, string>();
-  const factsByRegionId = regionFacts(doc, ringCaps, parentOf);
+  const factsByRegionId = regionFacts(doc, roomCaps, parentOf);
+  const ringCaps = evenRingCaps(roomCaps, (id) => parentOf.get(id));
   const nodes: FlowNode[] = doc.nodes.map((node) => {
     nextNodeIds.add(node.id);
     const isBlocked = blocked.has(node.id);
@@ -272,6 +278,7 @@ export const toFlow = (
     const ringCap = ringCaps.get(node.id);
     const agent = entityKind(node) === "agent";
     const seatRegion = agent ? (parentOf.get(node.id) ?? "") : undefined;
+    const parentRegion = isGroup ? parentOf.get(node.id) : undefined;
     const zIndex = isGroup ? GROUP_Z_BASE + (regionDepth ?? 0) : FURNITURE_Z;
     const cached = cache?.nodes.get(node.id);
     // Depth and name slot are part of the key: resizing one region changes
@@ -285,6 +292,7 @@ export const toFlow = (
       sameNameSlot(cached.data.nameSlot, nameSlot) &&
       cached.data.ringCap === ringCap &&
       cached.data.seatRegion === seatRegion &&
+      cached.data.parentRegion === parentRegion &&
       cached.zIndex === zIndex
     ) {
       return cached;
@@ -296,7 +304,7 @@ export const toFlow = (
       id: node.id,
       type: node.type,
       position: { x: node.x, y: node.y },
-      data: { node, blocked: isBlocked, regionDepth, ...(nameSlot ? { nameSlot } : {}), ...(ringCap !== undefined ? { ringCap } : {}), ...(seatRegion !== undefined ? { seatRegion } : {}) },
+      data: { node, blocked: isBlocked, regionDepth, ...(nameSlot ? { nameSlot } : {}), ...(ringCap !== undefined ? { ringCap } : {}), ...(seatRegion !== undefined ? { seatRegion } : {}), ...(parentRegion !== undefined ? { parentRegion } : {}) },
       // A ringed seat carries its ring's room to CSS (canvas-lod.css).
       style: ringCap !== undefined ? ({ ...visualSize, "--ring-cap": String(ringCap) } as CSSProperties) : visualSize,
       // Group band (base + nesting depth) behind wires; furniture above edges.
