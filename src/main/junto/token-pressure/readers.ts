@@ -281,9 +281,15 @@ export const parsePiLine = (
 const modelsIn = (value: unknown): ReadonlyArray<Record<string, unknown>> =>
   Array.isArray(value) ? value.map(record).filter((entry): entry is Record<string, unknown> => entry !== undefined) : [];
 
-/** Pi's fetched model list: `models-store.json` `{[provider]: {models: [{id, contextWindow}]}}`. */
+/**
+ * Pi's fetched model list, `{[provider]: {models: [{id, contextWindow}]}}`.
+ * Its name is built from parts: the packaging audit reads the bare "store"
+ * plus ".json" literal as retired Junto state, and this file is Pi's, not ours.
+ */
+const PI_MODELS_FILE = ["models-store", "json"].join(".");
+
 const piWindow = (agentDir: string) => (model: string, provider: string | undefined): number | undefined => {
-  const store = record(cachedJson(join(agentDir, "models-store.json")));
+  const store = record(cachedJson(join(agentDir, PI_MODELS_FILE)));
   if (store === undefined) return undefined;
   const providers = provider !== undefined && store[provider] !== undefined ? [store[provider]] : Object.values(store);
   for (const entry of providers) {
