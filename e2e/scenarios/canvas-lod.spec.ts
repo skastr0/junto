@@ -1,8 +1,9 @@
 /**
  * Canvas level of detail: seats, instruments, notes and cards at each camera
- * tier, in dark and bright. Near draws everything; mid keeps the ring (held
- * still) and the name; far draws a seat as its portrait in its ring, no
- * words, and a card as a flat block. Frames land in test-results/canvas-lod/.
+ * tier, in dark and bright. Near draws everything; mid keeps the ring and the
+ * name; far draws a seat as its portrait in its ring, no words, and a card as
+ * a faint block. Rings keep stepping at every tier. Frames land in
+ * test-results/canvas-lod/.
  *
  *   bun run test:e2e:fast e2e/scenarios/canvas-lod.spec.ts
  */
@@ -190,7 +191,8 @@ test("seats, instruments, notes and cards shed detail tier by tier", async () =>
           expect(look.atlas).toBe(true);
           expect(look.portrait).toBe(true);
           expect(look.noteBody).toBe("none");
-          expect(look.stamp).toBe(false);
+          // Working rings keep stepping at every tier.
+          expect(look.stamp).toBe(true);
           expect(look.preambles).toBe(0);
         } else {
           expect(look.atlas).toBe(true);
@@ -199,7 +201,8 @@ test("seats, instruments, notes and cards shed detail tier by tier", async () =>
             expect(look.words).toBe("hidden");
           }
           expect(look.noteVisible).toBe("hidden");
-          expect(look.stamp).toBe(false);
+          // Working rings keep stepping at every tier.
+          expect(look.stamp).toBe(true);
           expect(look.preambles).toBe(0);
         }
       }

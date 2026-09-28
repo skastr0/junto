@@ -31,12 +31,20 @@ const TIERS: ReadonlyArray<readonly [Tier, number]> = [
 
 /**
  * Measured on these boards without a composited viewport: 12 to 16 layers at
- * every tier, 0 to 3 paints in 2 s at rest below near once the zoom settles.
- * The lease that composited the viewport made 809 layers here and starved
- * tiles on a near pan.
+ * every tier. The lease that composited the viewport made 809 layers here and
+ * starved tiles on a near pan.
+ *
+ * At rest, seats move at every tier: rings step on the 90 ms attention clock,
+ * only while on screen, so a still camera repaints the rings in view about 22
+ * times in 2 s and rasters only the tiles under them. Measured: 60 to 470
+ * paints and 30 to 100 raster tasks in 2 s, the overview (every seat on
+ * screen) highest. The budget holds that to the clock's cadence: no more
+ * than a few tiles per tick, and nothing else repainting.
  */
 const LAYER_BUDGET = 40;
-const REST_PAINT_BUDGET = 20;
+const CLOCK_TICKS_AT_REST = Math.ceil(2_000 / 90);
+const REST_PAINT_BUDGET = CLOCK_TICKS_AT_REST * 30;
+const REST_RASTER_BUDGET = CLOCK_TICKS_AT_REST * 8;
 
 type TraceEvent = { readonly name?: string; readonly ph?: string; readonly args?: Record<string, unknown> };
 type SnapshotLayer = {
@@ -214,11 +222,9 @@ for (const preset of ["nested", "deep"] as const satisfies readonly NestedCanvas
           // The board is a handful of layers, not one per card or wire.
           expect(phase.layers, `${label}: compositor layers`).toBeLessThanOrEqual(LAYER_BUDGET);
         }
-        // Below near nothing loops: rings hold their pose, bubbles and
-        // landings are off, so a camera at rest paints (almost) nothing.
-        if (row.tier !== "near") {
-          expect(row.rest.paints, `${label}: paints at rest`).toBeLessThanOrEqual(REST_PAINT_BUDGET);
-        }
+        // At rest only the clock repaints: the rings in view, a few tiles a tick.
+        expect(row.rest.paints, `${label}: paints at rest`).toBeLessThanOrEqual(REST_PAINT_BUDGET);
+        expect(row.rest.rasterTasks, `${label}: raster tasks at rest`).toBeLessThanOrEqual(REST_RASTER_BUDGET);
       }
     } finally {
       await junto.close();

@@ -145,25 +145,17 @@ describe("attention clock", () => {
     expect(dataset.markFrame).toBe("1");
   });
 
-  it("stops below the near tier and drops the stamp, so loops show their pose", () => {
+  it("keeps stepping at every tier: a seat moves wherever it is drawn", () => {
     vi.useFakeTimers();
     const dataset = installDom();
     retainAttentionClock();
     vi.advanceTimersByTime(ATTENTION_CLOCK_TICK_MS);
     expect(dataset.markFrame).toBe("1");
-
-    canvasTier$.set("mid");
-    expect(dataset.markFrame).toBeUndefined();
-    vi.advanceTimersByTime(ATTENTION_CLOCK_TICK_MS * 4);
-    expect(dataset.markFrame).toBeUndefined();
-
-    canvasTier$.set("far");
-    vi.advanceTimersByTime(ATTENTION_CLOCK_TICK_MS);
-    expect(dataset.markFrame).toBeUndefined();
-
-    canvasTier$.set("near");
-    expect(dataset.markFrame).toBe("1");
-    vi.advanceTimersByTime(ATTENTION_CLOCK_TICK_MS);
-    expect(dataset.markFrame).toBe("2");
+    for (const [tier, frame] of [["mid", "2"], ["far", "3"], ["overview", "4"], ["near", "5"]] as const) {
+      canvasTier$.set(tier);
+      vi.advanceTimersByTime(ATTENTION_CLOCK_TICK_MS);
+      expect(dataset.markFrame, tier).toBe(frame);
+    }
   });
+
 });
