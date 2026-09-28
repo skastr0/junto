@@ -1,3 +1,5 @@
+import { Context } from "effect";
+
 /**
  * The single work mutation seam.
  *
@@ -315,11 +317,17 @@ export const classifyWorkStatement = (sql: string): WorkStatement | null => {
   return parsed;
 };
 
-type Scope = {
+export type WorkMutationScope = {
   readonly operation: string;
   journaled: boolean;
   unjournaled: UnjournaledWorkReason | undefined;
 };
+
+/** SQL transactions carry admission state in their fiber, never a global stack. */
+export const WorkMutationContext = Context.Reference<WorkMutationScope | null>(
+  "@junto/WorkMutationContext",
+  { defaultValue: () => null },
+);
 
 /**
  * Open transaction scopes, innermost last.
@@ -331,9 +339,9 @@ type Scope = {
  * gets its own scope, so one database's journal can never explain another
  * database's projection write.
  */
-const scopes: Array<Scope> = [];
+const scopes: Array<WorkMutationScope> = [];
 
-const current = (): Scope | undefined => scopes[scopes.length - 1];
+const current = (): WorkMutationScope | undefined => scopes[scopes.length - 1];
 
 /**
  * Open the scope for one transaction. Called ONLY by the state engine, once
@@ -341,7 +349,7 @@ const current = (): Scope | undefined => scopes[scopes.length - 1];
  * engine runs in a `finally` so a thrown body cannot leak an open scope.
  */
 export const beginWorkMutationScope = (operation: string): (() => void) => {
-  const opened: Scope = {
+  const opened: WorkMutationScope = {
     operation,
     journaled: false,
     unjournaled: undefined,
@@ -373,6 +381,7 @@ const statementHead = (sql: string): string =>
 export const admitWorkStatement = (
   sql: string,
   bindings?: WorkStatementBindings,
+  scope: WorkMutationScope | null | undefined = current(),
 ): void => {
   const statement = classifyWorkStatement(sql);
   if (statement === null) return;
@@ -382,8 +391,7 @@ export const admitWorkStatement = (
         `application statement may write it (${statementHead(sql)})`,
     );
   }
-  const scope = current();
-  if (scope === undefined) {
+  if (scope === undefined || scope === null) {
     throw new WorkMutationSeamError(
       `${statement.verb} on "${statement.table}" ran outside any state ` +
         `transaction (${statementHead(sql)})`,

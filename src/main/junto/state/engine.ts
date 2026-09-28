@@ -11,11 +11,14 @@ import {
   type SQLOutputValue,
   type StatementSync,
 } from "node:sqlite";
-import { Effect, Layer, Option } from "effect";
+import { Context, Effect, Layer, Option, Semaphore } from "effect";
+import { Reactivity } from "effect/unstable/reactivity";
+import { SqlClient, SqlError } from "effect/unstable/sql";
 import { OverseerLiveExecution } from "../overseer/live/execution";
 import {
   StateEngine,
   StateEngineError,
+  StateTransactionOperation,
   type StateBackupReceipt,
   type StateBindings,
   type StateEngineInfo,
@@ -28,6 +31,8 @@ import { withinBudget } from "../observability/main-thread-budget";
 import {
   admitWorkStatement,
   beginWorkMutationScope,
+  WorkMutationContext,
+  type WorkMutationScope,
 } from "../work/mutation-seam";
 import { demoStateDatabasePath } from "../demo/runtime-isolation";
 import {
@@ -38,6 +43,7 @@ import {
   migrateStateSchema,
   stateSchemaAdvanceRequired,
 } from "./migrations";
+import { makeSqliteClient } from "./sqlite-client";
 
 export {
   StateEngine,
@@ -126,6 +132,7 @@ const applyBindings = <A>(
 
 type OpenStateEngine = {
   readonly service: StateEngineShape;
+  readonly client: Effect.Effect<SqlClient.SqlClient, never, Reactivity.Reactivity>;
   readonly close: () => void;
 };
 
@@ -151,6 +158,7 @@ const openStateEngine = (
       });
       let closed = false;
       const statements = new Map<string, StatementSync>();
+      const semaphore = Semaphore.makeUnsafe(1);
       let transactionOpen = false;
 
       const schemaState = (() => {
@@ -246,7 +254,7 @@ const openStateEngine = (
             return body(reader);
           },
           catch: (error) => stateEngineError(operation, error),
-        }).pipe(Effect.withSpan(`state.${operation}`));
+        }).pipe(semaphore.withPermit, Effect.withSpan(`state.${operation}`));
 
       const transaction = <A>(
         operation: string,
@@ -297,7 +305,7 @@ const openStateEngine = (
           }),
           catch: (error) => stateEngineError(operation, error),
           });
-        }).pipe(Effect.withSpan(`state.${operation}`));
+        }).pipe(semaphore.withPermit, Effect.withSpan(`state.${operation}`));
 
       const chunkedWrite = <A>(
         operation: string,
@@ -331,7 +339,7 @@ const openStateEngine = (
             return createVerifiedStateBackup(database, directory);
           },
           catch: (error) => stateEngineError("backup", error),
-        }).pipe(Effect.withSpan("state.backup"));
+        }).pipe(semaphore.withPermit, Effect.withSpan("state.backup"));
 
       const journalMode =
         reader.get<{ journal_mode: SQLOutputValue }>(
@@ -363,6 +371,45 @@ const openStateEngine = (
           chunkedWrite,
           backup,
         }),
+        client: Effect.gen(function* () {
+          const sql = yield* makeSqliteClient(database, semaphore, (query, params, context) => {
+            admitWorkStatement(query, params, Context.get(context, WorkMutationContext));
+          });
+          const withTransaction = sql.withTransaction;
+          const guardedTransaction: SqlClient.SqlClient["withTransaction"] = Effect.fn("state.sql.transaction")(function*<A, E, R>(body: Effect.Effect<A, E, R>) {
+            const operation = yield* StateTransactionOperation;
+            const nested = yield* Effect.serviceOption(sql.transactionService);
+            const parent = Option.isSome(nested) ? yield* WorkMutationContext : null;
+            const live = yield* Effect.serviceOption(OverseerLiveExecution);
+            return yield* withTransaction(Effect.gen(function* () {
+              const scope: WorkMutationScope = {
+                operation,
+                journaled: parent?.journaled ?? false,
+                unjournaled: parent?.unjournaled,
+              };
+              const before = yield* Effect.try({
+                try: () => {
+                  if (Option.isNone(live)) return undefined;
+                  live.value.assertCurrent(writer);
+                  return writer.get("SELECT total_changes() AS n")!.n;
+                },
+                catch: (cause) => new SqlError.SqlError({ reason: new SqlError.UnknownError({ cause }) }),
+              });
+              const result = yield* body.pipe(Effect.provideService(WorkMutationContext, scope));
+              yield* Effect.try({
+                try: () => {
+                  if (Option.isSome(live) && writer.get("SELECT total_changes() AS n")!.n !== before) {
+                    live.value.afterMutation?.(writer, operation);
+                  }
+                },
+                catch: (cause) => new SqlError.SqlError({ reason: new SqlError.UnknownError({ cause }) }),
+              });
+              if (parent) parent.journaled = scope.journaled;
+              return result;
+            }));
+          });
+          return Object.assign(sql, { withTransaction: guardedTransaction });
+        }),
         close: () => {
           if (closed) return;
           closed = true;
@@ -376,13 +423,14 @@ const openStateEngine = (
 
 export const makeStateEngineLive = (
   path?: string,
-): Layer.Layer<StateEngine, StateEngineError> =>
-  Layer.effect(
-    StateEngine,
-    Effect.acquireRelease(
+): Layer.Layer<StateEngine | SqlClient.SqlClient, StateEngineError> =>
+  Layer.effectContext(Effect.gen(function* () {
+    const opened = yield* Effect.acquireRelease(
       openStateEngine(path),
       ({ close }) => Effect.sync(close),
-    ).pipe(Effect.map(({ service }) => service)),
-  );
+    );
+    const client = yield* opened.client;
+    return Context.make(StateEngine, opened.service).pipe(Context.add(SqlClient.SqlClient, client));
+  })).pipe(Layer.provide(Reactivity.layer));
 
 export const StateEngineLive = makeStateEngineLive();

@@ -1,5 +1,5 @@
-import type { DatabaseSync, SQLInputValue, StatementSync } from "node:sqlite";
-import { Effect, Semaphore, Stream } from "effect";
+import type { DatabaseSync, StatementSync } from "node:sqlite";
+import { type Context, Effect, Schema, Semaphore, Stream } from "effect";
 import { SqlClient, SqlConnection, SqlError, Statement } from "effect/unstable/sql";
 
 const sqliteError = (operation: string, cause: unknown): SqlError.SqlError => {
@@ -12,11 +12,9 @@ const sqliteError = (operation: string, cause: unknown): SqlError.SqlError => {
   });
 };
 
-const parameter = (value: unknown): SQLInputValue => {
-  if (value === null || typeof value === "string" || typeof value === "number" ||
-    typeof value === "bigint" || value instanceof Uint8Array) return value;
-  throw new TypeError("Unsupported SQLite parameter");
-};
+const parameters = Schema.decodeUnknownSync(Schema.Array(Schema.Union([
+  Schema.Null, Schema.String, Schema.Number, Schema.BigInt, Schema.Uint8Array,
+])));
 
 /**
  * Adapt the state owner's connection without opening or exporting another one.
@@ -26,6 +24,7 @@ const parameter = (value: unknown): SQLInputValue => {
 export const makeSqliteClient = Effect.fn("state.makeSqliteClient")(function* (
   database: DatabaseSync,
   semaphore: Semaphore.Semaphore = Semaphore.makeUnsafe(1),
+  beforeExecute?: (sql: string, params: ReadonlyArray<unknown>, context: Context.Context<never>) => void,
 ) {
   const statements = new Map<string, StatementSync>();
   const prepare = (sql: string, cached: boolean): StatementSync => {
@@ -43,9 +42,10 @@ export const makeSqliteClient = Effect.fn("state.makeSqliteClient")(function* (
     cached = true,
   ) => Effect.withFiber((fiber) => Effect.try({
     try: () => {
+      beforeExecute?.(sql, params, fiber.context);
       const statement = prepare(sql, cached);
       statement.setReadBigInts(fiber.getRef(SqlClient.SafeIntegers));
-      const values = params.map(parameter);
+      const values = parameters(params);
       if (statement.columns().length === 0) {
         statement.run(...values);
         return [];
@@ -59,11 +59,12 @@ export const makeSqliteClient = Effect.fn("state.makeSqliteClient")(function* (
   const executeValues = (sql: string, params: ReadonlyArray<unknown>, cached = true) =>
     Effect.withFiber((fiber) => Effect.try({
       try: () => {
+        beforeExecute?.(sql, params, fiber.context);
         const statement = prepare(sql, cached);
         statement.setReadBigInts(fiber.getRef(SqlClient.SafeIntegers));
         statement.setReturnArrays(true);
         try {
-          const values = params.map(parameter);
+          const values = parameters(params);
           if (statement.columns().length === 0) {
             statement.run(...values);
             return [];
@@ -84,9 +85,10 @@ export const makeSqliteClient = Effect.fn("state.makeSqliteClient")(function* (
     executeValuesUnprepared: (sql, params) => executeValues(sql, params, false),
     executeRaw: (sql, params) => Effect.withFiber((fiber) => Effect.try({
       try: () => {
+        beforeExecute?.(sql, params, fiber.context);
         const statement = prepare(sql, true);
         statement.setReadBigInts(fiber.getRef(SqlClient.SafeIntegers));
-        const values = params.map(parameter);
+        const values = parameters(params);
         return statement.columns().length > 0
           ? statement.all(...values)
           : statement.run(...values);

@@ -32,6 +32,12 @@ export class StateEngineError extends Schema.TaggedError<StateEngineError>()(
   },
 ) {}
 
+/** Attribution retained across an owning SQL transaction and its receipts. */
+export const StateTransactionOperation = Context.Reference<string>(
+  "@junto/StateTransactionOperation",
+  { defaultValue: () => "sql.transaction" },
+);
+
 /**
  * Read-only SQL surface. Statements are cached by exact SQL text for the
  * lifetime of the engine, so repositories can keep SQL local without each

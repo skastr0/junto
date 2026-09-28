@@ -595,6 +595,13 @@
   ],
   "decodeBoundaries": [
     {
+      "path": "src/main/junto/state/sqlite-client.ts",
+      "kinds": [
+        "codec"
+      ],
+      "reason": "Checks Effect SQL's unknown positional values against node:sqlite's supported binding types."
+    },
+    {
       "path": "src/main/junto/term/awareness/awareness-wire.ts",
       "kinds": [
         "wire"
