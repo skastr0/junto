@@ -2,6 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Context, Effect, Layer, ManagedRuntime } from "effect";
+import { SqlClient } from "effect/unstable/sql";
 import { afterEach, describe, expect, test } from "vitest";
 import type { UsageSnapshot, UsageState } from "../src/shared/usage";
 import {
@@ -24,7 +25,7 @@ import {
 import { UsagePreferences } from "../src/main/junto/usage/preferences";
 
 type EngineRuntime = ManagedRuntime.ManagedRuntime<
-  StateEngine,
+  StateEngine | SqlClient.SqlClient,
   StateEngineError
 >;
 
@@ -87,20 +88,22 @@ const tempRoot = async (): Promise<string> => {
 const openEngine = async (path: string): Promise<{
   readonly runtime: EngineRuntime;
   readonly engine: Context.Service.Shape<typeof StateEngine>;
+  readonly sql: SqlClient.SqlClient;
 }> => {
   const runtime = ManagedRuntime.make(makeStateEngineLive(path));
   dispose.push(() => runtime.dispose());
   const engine = await runtime.runPromise(StateEngine);
-  return { runtime, engine };
+  const sql = await runtime.runPromise(SqlClient.SqlClient);
+  return { runtime, engine, sql };
 };
 
 const cacheRuntime = (
-  engine: Context.Service.Shape<typeof StateEngine>,
+  sql: SqlClient.SqlClient,
 ): ManagedRuntime.ManagedRuntime<UsageCache, never> => {
   const runtime = ManagedRuntime.make(
     Layer.provide(
       makeUsageCacheLive(),
-      Layer.succeed(StateEngine, engine),
+      Layer.succeed(SqlClient.SqlClient, sql),
     ),
   );
   dispose.push(() => runtime.dispose());
@@ -108,12 +111,12 @@ const cacheRuntime = (
 };
 
 const serviceRuntime = (
-  engine: Context.Service.Shape<typeof StateEngine>,
+  sql: SqlClient.SqlClient,
   sources: ReadonlyArray<UsageSource>,
 ): ManagedRuntime.ManagedRuntime<UsageService, never> => {
   const cache = Layer.provide(
     makeUsageCacheLive(),
-    Layer.succeed(StateEngine, engine),
+    Layer.succeed(SqlClient.SqlClient, sql),
   );
   const runtime = ManagedRuntime.make(
     Layer.provide(
@@ -150,7 +153,7 @@ describe("SQLite usage cache", () => {
     const root = await tempRoot();
     const databasePath = join(root, "state", "junto.db");
     const first = await openEngine(databasePath);
-    const firstCacheRuntime = cacheRuntime(first.engine);
+    const firstCacheRuntime = cacheRuntime(first.sql);
     const firstCache = await firstCacheRuntime.runPromise(UsageCache);
 
     await firstCacheRuntime.runPromise(
@@ -168,7 +171,7 @@ describe("SQLite usage cache", () => {
     await dispose.pop()!();
 
     const second = await openEngine(databasePath);
-    const secondCacheRuntime = cacheRuntime(second.engine);
+    const secondCacheRuntime = cacheRuntime(second.sql);
     const restarted = await secondCacheRuntime.runPromise(
       Effect.flatMap(UsageCache, (cache) => cache.loadLastGood),
     );
@@ -184,8 +187,8 @@ describe("SQLite usage cache", () => {
 
   test("an empty database has no cache row until a successful snapshot is saved", async () => {
     const root = await tempRoot();
-    const { engine } = await openEngine(join(root, "junto.db"));
-    const runtime = cacheRuntime(engine);
+    const { engine, sql } = await openEngine(join(root, "junto.db"));
+    const runtime = cacheRuntime(sql);
     const empty = await runtime.runPromise(
       Effect.flatMap(UsageCache, (cache) => cache.loadLastGood),
     );
@@ -203,7 +206,7 @@ describe("SQLite usage cache", () => {
 
   test("rejects an excess persisted snapshot without pruning or rewriting it", async () => {
     const root = await tempRoot();
-    const { engine } = await openEngine(join(root, "junto.db"));
+    const { engine, sql } = await openEngine(join(root, "junto.db"));
     const encoded = JSON.stringify([
       {
         ...quotaSnapshot("alpha", "claude", 42),
@@ -227,7 +230,7 @@ describe("SQLite usage cache", () => {
         );
       }),
     );
-    const runtime = cacheRuntime(engine);
+    const runtime = cacheRuntime(sql);
 
     const result = await runtime.runPromise(
       Effect.result(
@@ -252,10 +255,10 @@ describe("SQLite usage cache", () => {
 
   test("failed refresh retains SQLite last-good and a persistence fault stays non-fatal", async () => {
     const root = await tempRoot();
-    const { runtime: engineRuntime, engine } = await openEngine(
+    const { runtime: engineRuntime, engine, sql } = await openEngine(
       join(root, "junto.db"),
     );
-    const seedRuntime = cacheRuntime(engine);
+    const seedRuntime = cacheRuntime(sql);
     const seed = await seedRuntime.runPromise(UsageCache);
     await seedRuntime.runPromise(
       seed.saveLastGood(lastGood("alpha", "claude", 18)),
@@ -266,7 +269,7 @@ describe("SQLite usage cache", () => {
         ? quotaSnapshot("alpha", "codex", 63)
         : failedSnapshot("alpha"),
     );
-    const service = serviceRuntime(engine, [source]);
+    const service = serviceRuntime(sql, [source]);
     const usage = await service.runPromise(UsageService);
 
     const failed = await service.runPromise(usage.refresh());
@@ -291,7 +294,7 @@ describe("SQLite usage cache", () => {
     expect(live.stale).toBe(false);
     expect(live.snapshots[0]?.quotas[0]?.provider).toBe("codex");
 
-    const durableRuntime = cacheRuntime(engine);
+    const durableRuntime = cacheRuntime(sql);
     const durable = await durableRuntime.runPromise(
       Effect.flatMap(UsageCache, (cache) => cache.loadLastGood),
     );

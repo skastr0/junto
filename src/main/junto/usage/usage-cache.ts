@@ -1,14 +1,11 @@
 import { Context, Effect, Result, Layer, Schema } from "effect";
+import { SqlClient, SqlSchema } from "effect/unstable/sql";
 import {
   hasUsageQuotas,
   UsageSnapshot,
   type UsageState as UsageStateValue,
 } from "@shared/usage";
-import {
-  StateEngine,
-  type StateEngineError,
-  type StateReader,
-} from "../state/service";
+import { StateTransactionOperation } from "../state/service";
 
 export { USAGE_STATE_SCHEMA_SQL } from "./state-schema";
 
@@ -30,11 +27,6 @@ const usageCacheError = (
     message: cause instanceof Error ? cause.message : String(cause),
     cause,
   });
-
-const fromStateError = (
-  operation: string,
-  error: StateEngineError,
-): UsageCacheError => usageCacheError(operation, error);
 
 /**
  * Durable usage is deliberately narrower than live usage state: only a
@@ -61,19 +53,10 @@ export class UsageCache extends Context.Service<UsageCache,
     ) => Effect.Effect<void, UsageCacheError>;
   }>()("@junto/UsageCache") {}
 
-type UsageStateRow = {
-  readonly snapshots_json: string;
-  readonly last_live_at: string;
-};
-
-const selectUsageState = (
-  reader: StateReader,
-): UsageStateRow | undefined =>
-  reader.get<UsageStateRow>(
-    `SELECT snapshots_json, last_live_at
-       FROM usage_state
-      WHERE singleton = 1`,
-  );
+const UsageStateRow = Schema.Struct({
+  snapshots_json: Schema.String,
+  last_live_at: Schema.String,
+});
 
 const decodeSnapshots = (
   operation: string,
@@ -95,7 +78,7 @@ const decodeSnapshots = (
   );
 
 const decodeRow = (
-  row: UsageStateRow | undefined,
+  row: typeof UsageStateRow.Type | undefined,
 ): Effect.Effect<UsageStateValue | undefined, UsageCacheError> => {
   if (row === undefined) return Effect.succeed(undefined);
   return decodeSnapshots("load.decode", row.snapshots_json).pipe(
@@ -120,60 +103,37 @@ const decodeRow = (
 export const makeUsageCacheLive = (): Layer.Layer<
   UsageCache,
   never,
-  StateEngine
+  SqlClient.SqlClient
 > =>
   Layer.effect(
     UsageCache,
     Effect.gen(function* () {
-      const engine = yield* StateEngine;
+      const sql = yield* SqlClient.SqlClient;
+      const selectUsageState = SqlSchema.findOneOption({
+        Request: Schema.Void,
+        Result: UsageStateRow,
+        execute: () => sql`SELECT snapshots_json, last_live_at FROM usage_state WHERE singleton = 1`,
+      });
 
-      const loadLastGood = engine
-        .read("usage.load", selectUsageState)
-        .pipe(
-          Effect.flatMap(decodeRow),
-          Effect.mapError((error) =>
-            error instanceof UsageCacheError
-              ? error
-              : fromStateError("load", error),
-          ),
-          Effect.withSpan("usage-cache.load-last-good"),
-        );
+      const loadLastGood = Effect.fn("usage-cache.load-last-good")(function* () {
+        const row = yield* selectUsageState(undefined);
+        return yield* decodeRow(row._tag === "Some" ? row.value : undefined);
+      }, Effect.mapError((error) => error instanceof UsageCacheError ? error : usageCacheError("load", error)))();
 
-      const saveLastGood = (
-        state: UsageStateValue,
-      ): Effect.Effect<void, UsageCacheError> => {
-        // Failure envelopes are never durable and, critically, never overwrite
-        // the prior row.
-        if (!hasUsageQuotas(state)) return Effect.void;
+      const writeLastGood = Effect.fn("usage-cache.save-last-good")(function* (state: UsageStateValue) {
         const now = new Date().toISOString();
-        return engine
-          .transaction("usage.save-last-good", (writer) => {
-            writer.run(
-              `INSERT INTO usage_state(
-                 singleton,
-                 snapshots_json,
-                 last_live_at,
-                 updated_at
-               ) VALUES (1, ?, ?, ?)
-               ON CONFLICT(singleton) DO UPDATE SET
-                 snapshots_json = excluded.snapshots_json,
-                 last_live_at = excluded.last_live_at,
-                 updated_at = excluded.updated_at`,
-              [
-                JSON.stringify(state.snapshots),
-                state.lastLiveAt ?? now,
-                now,
-              ],
-            );
-          })
-          .pipe(
-            Effect.asVoid,
-            Effect.mapError((error) =>
-              fromStateError("save-last-good", error),
-            ),
-            Effect.withSpan("usage-cache.save-last-good"),
-          );
-      };
+        yield* sql`INSERT INTO usage_state(singleton, snapshots_json, last_live_at, updated_at)
+          VALUES (1, ${JSON.stringify(state.snapshots)}, ${state.lastLiveAt ?? now}, ${now})
+          ON CONFLICT(singleton) DO UPDATE SET
+            snapshots_json = excluded.snapshots_json,
+            last_live_at = excluded.last_live_at,
+            updated_at = excluded.updated_at`;
+      }, sql.withTransaction, Effect.provideService(StateTransactionOperation, "usage.save-last-good"),
+      Effect.mapError((error) => usageCacheError("save-last-good", error)));
+
+      // Failure envelopes are never durable and never overwrite good data.
+      const saveLastGood = (state: UsageStateValue): Effect.Effect<void, UsageCacheError> =>
+        hasUsageQuotas(state) ? writeLastGood(state) : Effect.void;
 
       return UsageCache.of({
         loadLastGood,
