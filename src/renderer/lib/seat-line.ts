@@ -87,3 +87,35 @@ export const seatSaying = (input: {
   }
   return { kind: "state", ...seatLine(activity) };
 };
+
+/**
+ * How soon a seat wants the operator, most urgent first: a blocked or failed
+ * seat, then one waiting on the operator, then work ready for review, then
+ * work in flight, then a resting seat, then an offline one. Lists that put
+ * agents first (cmd+K) sort by this; it reads the same facts the seat line does.
+ */
+export const SEAT_URGENCY = {
+  blocked: 0,
+  waiting: 1,
+  review: 2,
+  working: 3,
+  resting: 4,
+  offline: 5,
+} as const;
+
+export type SeatUrgency = (typeof SEAT_URGENCY)[keyof typeof SEAT_URGENCY];
+
+export const seatUrgency = (input: {
+  readonly activity: ActivitySpec;
+  readonly signal?: AgentSignalKind;
+  readonly failure?: string;
+}): SeatUrgency => {
+  const { activity, signal, failure } = input;
+  const { mode, tone } = activity;
+  if (signal === "blocked" || (mode === "wave" && tone === "crimson")) return SEAT_URGENCY.blocked;
+  if (signal === "escalate" || failure || (mode === "wave" && tone === "amber")) return SEAT_URGENCY.waiting;
+  if (signal === "feedback" || (mode === "pulse" && tone === "green")) return SEAT_URGENCY.review;
+  if (mode === "wave") return SEAT_URGENCY.working;
+  // Offline, stopped and gone seats draw the "off" ring.
+  return activity.glyph === "off" ? SEAT_URGENCY.offline : SEAT_URGENCY.resting;
+};

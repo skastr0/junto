@@ -5,10 +5,12 @@ import { isHarnessId, type HarnessId } from "@shared/managed-terminal-templates"
 import type { ActivitySpec } from "../lib/activity";
 import { RING_HOLE_R } from "../lib/activity-rings";
 import { agentSeat$, bindingIdForNode } from "../lib/agent-seat-state";
-import { useSeatSignalRollup } from "../lib/agent-signals-state";
+import type { AgentChatCoarse } from "../lib/chat-state";
+import { seatSignalRollups$, useSeatSignalRollup } from "../lib/agent-signals-state";
 import { kernel$ } from "../lib/kernel-view";
-import { useNodeAttentionReasons } from "../lib/occupancy-feed";
-import { cardMark, seatFactsForNode } from "../lib/seat-projections";
+import { attentionCoarse$, useNodeAttentionReasons } from "../lib/occupancy-feed";
+import { attentionReasonsForNode, cardMark, seatFactsForNode, type SeatFactsInput } from "../lib/seat-projections";
+import { seatUrgency, type SeatUrgency } from "../lib/seat-line";
 import { state$ } from "../lib/state";
 import { terminal$ } from "../lib/terminal-state";
 import { useThreadHealthMark, type ThreadHealthMark } from "../lib/thread-health";
@@ -34,6 +36,37 @@ export type SeatGlance = {
   readonly failure: string | undefined;
 };
 
+type SeatReads = Omit<SeatFactsInput, "nodeId" | "managedSeat">;
+
+/** Control state and spawn failure from one read of the seat's stores. */
+const seatControl = (
+  node: CanvasNode,
+  reads: SeatReads,
+): Pick<SeatGlance, "activity" | "harness" | "failure"> => {
+  const { seatEvent, session } = reads;
+  const raw = node.ether?.terminal?.harness;
+  const harness = typeof raw === "string" && isHarnessId(raw) ? raw : undefined;
+  const activity = cardMark(
+    seatFactsForNode({
+      nodeId: node.id,
+      seatEvent,
+      session,
+      needsLook: reads.needsLook,
+      graphBlocked: reads.graphBlocked,
+      attentionReasons: reads.attentionReasons,
+      managedSeat: harness !== undefined,
+    }),
+  );
+  const failure =
+    harness !== undefined && session?.exitReason && session.exitMessage ? session.exitMessage : undefined;
+  return {
+    activity:
+      seatEvent?.state === "attention" && seatEvent.reason ? { ...activity, label: seatEvent.reason } : activity,
+    harness,
+    failure,
+  };
+};
+
 /**
  * The same facts as the canvas seat (TextNode): control state, the seat's
  * attention reason, thread health, declared signal, spawn failure.
@@ -50,29 +83,29 @@ export function useSeatGlance(node: CanvasNode): SeatGlance {
   const canvasName = use$(state$.canvasName);
   const signal = useSeatSignalRollup(canvasName, node.id);
   const health = useThreadHealthMark(bindingId, signal?.kind);
-  const raw = node.ether?.terminal?.harness;
-  const harness = typeof raw === "string" && isHarnessId(raw) ? raw : undefined;
-  const activity = cardMark(
-    seatFactsForNode({
-      nodeId: node.id,
-      seatEvent,
-      session,
-      needsLook,
-      graphBlocked,
-      attentionReasons,
-      managedSeat: harness !== undefined,
-    }),
-  );
-  const failure =
-    harness !== undefined && session?.exitReason && session.exitMessage ? session.exitMessage : undefined;
   return {
-    activity:
-      seatEvent?.state === "attention" && seatEvent.reason ? { ...activity, label: seatEvent.reason } : activity,
+    ...seatControl(node, { seatEvent, needsLook, session, graphBlocked, attentionReasons }),
     health,
     signal,
-    harness,
-    failure,
   };
+}
+
+/**
+ * How urgently a seat wants the operator right now (seatUrgency), read once
+ * from the same stores without subscribing: a list sorted by it holds its
+ * order while the operator moves through it.
+ */
+export function seatUrgencyNow(node: CanvasNode): SeatUrgency {
+  const bindingId = bindingIdForNode(node);
+  const coarse = attentionCoarse$(node).peek() as AgentChatCoarse | undefined;
+  const control = seatControl(node, {
+    seatEvent: bindingId ? agentSeat$.byBindingId[bindingId].peek() : undefined,
+    needsLook: bindingId ? agentSeat$.needsLookByBindingId[bindingId].peek() === true : false,
+    session: bindingId ? terminal$.sessionByBindingId[bindingId].peek() : undefined,
+    graphBlocked: kernel$.execution.peek()?.blocked.includes(node.id) === true,
+    attentionReasons: attentionReasonsForNode({ ether: node.ether }, coarse),
+  });
+  return seatUrgency({ ...control, signal: seatSignalRollups$.peek()[node.id]?.kind });
 }
 
 /**
