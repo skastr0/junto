@@ -188,8 +188,10 @@ const readFar = (page: Page): Promise<FarLook> =>
         if (box.width < floor - 1.5) under.push(`${id} ${box.width.toFixed(1)} < ${floor.toFixed(1)}`);
         if (box.width >= 39.5) atFloor += 1;
         smallestRing = Math.min(smallestRing, box.width);
-        circles.push({ id, x: box.left + box.width / 2, y: box.top + box.height / 2, r: box.width / 2 });
         const ring = mark.getAttribute("data-mark-ring") ?? "?";
+        // A needs-you seat's halo is part of its footprint (1.16 rings).
+        const footprint = ["call", "wait", "halt"].includes(ring) ? 1.16 : 1;
+        circles.push({ id, x: box.left + box.width / 2, y: box.top + box.height / 2, r: (box.width / 2) * footprint });
         rings.add(ring);
         const halo = getComputedStyle(seat.querySelector(".junto-seat")!, "::before").boxShadow !== "none";
         if (["call", "wait", "halt"].includes(ring)) {
@@ -253,6 +255,51 @@ const readFar = (page: Page): Promise<FarLook> =>
     };
   });
 
+type UrgencyLook = {
+  readonly urgentSeats: number;
+  readonly homesUnmarked: ReadonlyArray<string>;
+  readonly directUndrawn: number;
+  readonly heldRegions: number;
+  readonly minimapDots: number;
+  readonly minimapPings: number;
+};
+
+/** Regions holding on-screen needs-you seats, and the minimap's dots and pings. */
+const readRegionUrgency = (page: Page): Promise<UrgencyLook> =>
+  page.evaluate(() => {
+    const view = document.querySelector(".react-flow")!.getBoundingClientRect();
+    const onScreen = (r: DOMRect): boolean =>
+      r.width > 0 && r.left >= view.left && r.right <= view.right && r.top >= view.top && r.bottom <= view.bottom;
+    const regions = [...document.querySelectorAll<HTMLElement>(".react-flow__viewport .junto-group")].map((el) => ({
+      el,
+      rect: el.getBoundingClientRect(),
+      id: el.closest(".react-flow__node")!.getAttribute("data-id")!,
+    }));
+    const homesUnmarked: string[] = [];
+    let urgentSeats = 0;
+    for (const mark of document.querySelectorAll<HTMLElement>('.react-flow__viewport .junto-mark[data-mark-size="seat"]')) {
+      if (!["call", "wait", "halt"].includes(mark.getAttribute("data-mark-ring") ?? "")) continue;
+      const box = mark.getBoundingClientRect();
+      if (!onScreen(box)) continue;
+      urgentSeats += 1;
+      const x = box.left + box.width / 2;
+      const y = box.top + box.height / 2;
+      const home = regions
+        .filter((r) => x >= r.rect.left && x <= r.rect.right && y >= r.rect.top && y <= r.rect.bottom)
+        .sort((a, b) => a.rect.width * a.rect.height - b.rect.width * b.rect.height)[0];
+      if (home && home.el.getAttribute("data-region-reach") !== "direct") homesUnmarked.push(home.id);
+    }
+    const direct = regions.filter((r) => r.el.getAttribute("data-region-reach") === "direct");
+    return {
+      urgentSeats,
+      homesUnmarked,
+      directUndrawn: direct.filter((r) => getComputedStyle(r.el, "::after").boxShadow === "none").length,
+      heldRegions: regions.filter((r) => r.el.getAttribute("data-region-reach") === "held").length,
+      minimapDots: document.querySelectorAll(".junto-minimap-seat").length,
+      minimapPings: document.querySelectorAll(".junto-minimap-ping").length,
+    };
+  });
+
 test("far tier: every seat a portrait in its ring, every region coloured and named, none overlapping", async () => {
   test.setTimeout(300_000);
   await mkdir(SHOTS, { recursive: true });
@@ -305,7 +352,7 @@ test("far tier: every seat a portrait in its ring, every region coloured and nam
       expect(look.silent, "regions on screen with no name").toEqual([]);
       expect(look.collisions, "names that overlap").toEqual([]);
       expect(look.smallestNamePx, "smallest name on screen, px").toBeGreaterThanOrEqual(8);
-      expect(look.loudestNameAlpha, "region names read as ground").toBeLessThanOrEqual(0.5);
+      expect(look.loudestNameAlpha, "region names read as ground").toBeLessThanOrEqual(0.32);
       // Seats: a portrait in a ring, no words, big enough to tell apart.
       expect(look.seatsOnScreen).toBeGreaterThanOrEqual(30);
       expect(look.seatsWithoutRing).toBe(0);
@@ -326,6 +373,18 @@ test("far tier: every seat a portrait in its ring, every region coloured and nam
       expect(look.colouredRegions).toBeGreaterThan(0);
       expect(look.colouredWithoutFrame).toBe(0);
       expect(look.nestedColouredWithoutFill).toBe(0);
+      // Urgency climbs to regions: the region holding a seat that needs the
+      // operator says so directly, and draws it.
+      const urgent = await readRegionUrgency(page);
+      console.log(`REGION-URGENCY ${theme} ${JSON.stringify(urgent)}`);
+      expect(urgent.urgentSeats).toBeGreaterThan(0);
+      expect(urgent.homesUnmarked, "regions holding a needs-you seat without urgency").toEqual([]);
+      expect(urgent.directUndrawn).toBe(0);
+      expect(urgent.heldRegions, "outer regions holding urgent work quietly").toBeGreaterThan(0);
+      // The minimap: every agent a dot, every blocked or needs-you seat pings.
+      expect(urgent.minimapDots).toBe(fixture.stats.seats);
+      expect(urgent.minimapPings).toBeGreaterThan(0);
+      await page.locator('[data-testid="rf__minimap"]').screenshot({ path: `${SHOTS}/${theme}-minimap.png` });
     }
 
     // Work from the far camera: hover names a seat, a click selects it, a
@@ -513,7 +572,7 @@ test("overview tier: every agent stays, crowded ones gathered, none that needs y
       expect(look.needsYouUnmarked).toBe(0);
       expect(look.smallestRingPx, "ring diameter on screen, px").toBeGreaterThanOrEqual(21);
       expect(look.quietRingOverlaps, "rings that meet").toEqual([]);
-      expect(look.loudestNameAlpha, "region names read as ground").toBeLessThanOrEqual(0.5);
+      expect(look.loudestNameAlpha, "region names read as ground").toBeLessThanOrEqual(0.32);
       expect(look.cardsDrawn, "cards other than seats at the overview").toBe(0);
     }
 

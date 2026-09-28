@@ -5,8 +5,8 @@
  *   near      gradients, title bars, members, wires as authored
  *   mid       one flat wash per region, no wire labels or pulses
  *   far       every region a wash and frame in its colour, title bars silent
- *   overview  regions and agents: other cards and wires unpainted, an
- *             outermost region wears its worst member state
+ *   overview  regions and agents: other cards and wires unpainted
+ *   every     a region holding blocked, needs-you or review work frames it
  *
  * Frames land in test-results/canvas-lod-regions/.
  *
@@ -111,13 +111,9 @@ test("regions shed detail by tier, and the overview carries the board and its ag
           nested: nested.length,
           nestedFilled: nested.filter((n) => getComputedStyle(n).backgroundImage !== "none" || getComputedStyle(n).backgroundColor !== "rgba(0, 0, 0, 0)").length,
           gradients: [...document.querySelectorAll(".junto-group")].filter((n) => getComputedStyle(n).backgroundImage !== "none").length,
-          // Every region wears a frame when zoomed out; a state ring is the heavier one.
-          stateRings: [...document.querySelectorAll('.junto-group[data-region-depth="0"]')].filter((n) => getComputedStyle(n).outlineWidth === "12px").length,
-          depths: [...document.querySelectorAll(".junto-group")].reduce<Record<string, number>>((acc, n) => {
-            const key = `${n.getAttribute("data-region-depth") ?? "?"}:${n.getAttribute("data-region-severity") ?? "-"}`;
-            acc[key] = (acc[key] ?? 0) + 1;
-            return acc;
-          }, {}),
+          // A region holding urgent work says so at every tier (region-urgency.ts).
+          urgent: [...document.querySelectorAll(".junto-group[data-region-urgency]")].length,
+          urgentUndrawn: [...document.querySelectorAll(".junto-group[data-region-urgency]")].filter((n) => getComputedStyle(n, "::after").boxShadow === "none").length,
           zoom: new DOMMatrix(getComputedStyle(document.querySelector(".react-flow__viewport")!).transform).a,
         };
       });
@@ -133,16 +129,14 @@ test("regions shed detail by tier, and the overview carries the board and its ag
         // ...but only the near tier pays for gradients.
         expect(probe.gradients).toBe(0);
       }
+      // The fixture's open signals make some regions urgent; each draws it.
+      expect(probe.urgent).toBeGreaterThan(0);
+      expect(probe.urgentUndrawn).toBe(0);
       // Zoomed out, every region is a wash in its colour, nested ones included.
       if (tier === "far" || tier === "overview") expect(probe.nestedFilled).toBe(probe.nested);
       if (tier === "overview") {
         expect(probe.cardsPainted).toBe(0);
         expect(probe.agentsPainted).toBeGreaterThan(0);
-        // An outermost region wears a ring exactly when its rollup has a state.
-        const stated = Object.entries(probe.depths)
-          .filter(([key]) => key.startsWith("0:") && key !== "0:idle" && key !== "0:-")
-          .reduce((sum, [, n]) => sum + n, 0);
-        expect(probe.stateRings).toBe(stated);
       } else {
         expect(probe.membersPainted).toBe(probe.members);
       }
