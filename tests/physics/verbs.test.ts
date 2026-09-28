@@ -1,6 +1,5 @@
 import { HashSet } from "effect";
 import { describe, expect, it } from "vitest";
-import { NodeContracts } from "../../src/shared/physics/contracts";
 import { KindSpecs } from "../../src/shared/physics/kinds";
 import {
   WELL_KNOWN_KINDS,
@@ -22,6 +21,9 @@ type Pair = readonly [WellKnownKind, WellKnownKind];
 const PAIRS: ReadonlyArray<Pair> = WELL_KNOWN_KINDS.flatMap((source) =>
   WELL_KNOWN_KINDS.map((target) => [source, target] as Pair),
 );
+
+/** The kinds an agent canvas still draws. */
+const LIVE_KINDS: ReadonlyArray<WellKnownKind> = ["agent", "page", "terminal"];
 
 const grantsOf = (
   pair: Pair,
@@ -52,21 +54,6 @@ describe("verb table", () => {
     }
   });
 
-  it("reaches every offered port of every kind through some verb", () => {
-    for (const kind of WELL_KNOWN_KINDS) {
-      for (const port of KindSpecs[kind].offers) {
-        const reachable = PAIRS.some(
-          (pair) =>
-            (pair[0] === kind || pair[1] === kind) &&
-            grantsOf(pair).some((grant) => grant.ports.includes(port)),
-        );
-        expect(reachable, `${kind} offers ${port} but no verb grants it`).toBe(
-          true,
-        );
-      }
-    }
-  });
-
   it("never admits more than two verbs on one ordered pair", () => {
     for (const pair of PAIRS) {
       const verbs = verbsForPair(pair[0], pair[1]);
@@ -75,16 +62,14 @@ describe("verb table", () => {
     }
   });
 
-  it("gives target-only kinds no verb back toward an agent", () => {
-    for (const kind of ["requests", "artifacts", "board", "page"] as const) {
-      expect(verbsForPair(kind, "agent"), kind).toEqual([]);
-    }
+  it("gives a page no verb back toward an agent", () => {
+    expect(verbsForPair("page", "agent")).toEqual([]);
   });
 
   it("refuses a verb the pair does not hold", () => {
-    expect(compileVerb("works", "agent", "task")).toBeUndefined();
-    expect(compileVerb("edits", "agent", "board")).toBeUndefined();
-    expect(compileVerb("messages", "agent", "pad")).toBeUndefined();
+    expect(compileVerb("navigates", "agent", "agent")).toBeUndefined();
+    expect(compileVerb("messages", "agent", "page")).toBeUndefined();
+    expect(compileVerb("messages", "agent", "terminal")).toBeUndefined();
   });
 
   it("wires geography and unknown kinds to nothing", () => {
@@ -92,247 +77,38 @@ describe("verb table", () => {
     expect(verbsForPair("agent", undefined)).toEqual([]);
   });
 
-  it("snapshots the whole pair matrix", () => {
+  it("snapshots the pair matrix among live kinds", () => {
     const matrix: Record<string, ReadonlyArray<Verb>> = {};
-    for (const pair of PAIRS) {
-      const verbs = verbsForPair(pair[0], pair[1]);
-      if (verbs.length > 0) matrix[`${pair[0]}>${pair[1]}`] = verbs;
+    for (const source of LIVE_KINDS) {
+      for (const target of LIVE_KINDS) {
+        const verbs = verbsForPair(source, target);
+        if (verbs.length > 0) matrix[`${source}>${target}`] = verbs;
+      }
     }
     expect(matrix).toEqual({
       "agent>agent": ["messages", "reviews"],
-      "agent>task": ["manages", "contributes"],
-      "agent>artifacts": ["publishes"],
-      "agent>board": ["messages", "participates"],
-      "agent>pad": ["reads", "edits"],
-      "agent>sheet": ["reads"],
       "agent>page": ["navigates"],
-      "agent>relay": ["fires", "announces"],
-      "task>agent": ["works"],
-      "task>task": ["feeds"],
-      "task>relay": ["announces"],
-      "requests>relay": ["announces"],
-      "artifacts>relay": ["announces"],
-      "board>relay": ["announces"],
-      "page>relay": ["announces"],
-      "relay>agent": ["wakes"],
-      "relay>task": ["enqueues"],
-      "relay>relay": ["chains"],
-      "relay>cron": ["chains"],
-      "relay>timer": ["chains"],
-      "relay>watcher": ["chains"],
-      "cron>agent": ["wakes"],
-      "cron>task": ["enqueues"],
-      "cron>relay": ["chains"],
-      "cron>cron": ["chains"],
-      "cron>timer": ["chains"],
-      "cron>watcher": ["chains"],
-      "timer>agent": ["wakes"],
-      "timer>task": ["enqueues"],
-      "timer>relay": ["chains"],
-      "timer>cron": ["chains"],
-      "timer>timer": ["chains"],
-      "timer>watcher": ["chains"],
-      "watcher>agent": ["wakes"],
-      "watcher>task": ["enqueues"],
-      "watcher>relay": ["chains"],
-      "watcher>cron": ["chains"],
-      "watcher>timer": ["chains"],
-      "watcher>watcher": ["chains"],
     });
   });
 });
 
 describe("compiled grants", () => {
-  it("gives a task hop no ports at all", () => {
-    expect(compileVerb("feeds", "task", "task")).toEqual({
-      ports: [],
-      flow: true,
+  it("opens the mailbox, prompt, wait and terminal read between two agents", () => {
+    expect(compileVerb("messages", "agent", "agent")).toEqual({
+      ports: ["msg.list", "msg.send", "msg.prompt", "seat.wait", "terminal.read"],
     });
   });
 
-  it("marks only works as claimable", () => {
-    expect(compileVerb("works", "task", "agent")).toEqual({
-      ports: [
-        "tasks.list",
-        "tasks.claim",
-        "tasks.update",
-        "msg.list",
-        "msg.send",
-      ],
-      claimable: true,
+  it("lets an agent drive a page and nothing more", () => {
+    expect(compileVerb("navigates", "agent", "page")).toEqual({
+      ports: ["browser.automate"],
     });
-    for (const pair of PAIRS) {
-      for (const verb of verbsForPair(pair[0], pair[1])) {
-        if (verb === "works") continue;
-        expect(
-          compileVerb(verb, pair[0], pair[1])?.claimable,
-          `${verb} on ${pair[0]}>${pair[1]}`,
-        ).toBeUndefined();
-      }
-    }
-  });
-
-  it("separates managing a task from contributing to it", () => {
-    expect(compileVerb("manages", "agent", "task")?.ports).not.toContain(
-      "tasks.claim",
-    );
-    expect(compileVerb("contributes", "agent", "task")?.ports).toContain(
-      "tasks.claim",
-    );
-  });
-
-  it("splits the board on wake and topic creation", () => {
-    expect(compileVerb("messages", "agent", "board")).toEqual({
-      ports: ["board.list", "board.post", "board.mark_read"],
-      wake: false,
-    });
-    expect(compileVerb("participates", "agent", "board")).toEqual({
-      ports: [
-        "board.list",
-        "board.create_topic",
-        "board.post",
-        "board.mark_read",
-      ],
-      wake: true,
-    });
-  });
-
-  it("announces each kind's own headline event", () => {
-    const whenOf = (kind: WellKnownKind) =>
-      compileVerb("announces", kind, "relay")?.when;
-    expect(whenOf("task")).toEqual({ word: "completes" });
-    expect(whenOf("requests")).toEqual({ word: "completes" });
-    expect(whenOf("artifacts")).toEqual({ word: "completes" });
-    expect(whenOf("board")).toEqual({ word: "completes", equals: "post" });
-    expect(whenOf("page")).toEqual({ word: "completes", equals: "ready" });
-    expect(whenOf("pad")).toBeUndefined();
-    expect(whenOf("sheet")).toBeUndefined();
-    // An agent's news is a raised hand: an open blocked or escalate signal.
-    expect(whenOf("agent")).toEqual({ word: "signals" });
-  });
-
-  it("compiles scheduler pushes to their fire actions", () => {
-    expect(compileVerb("enqueues", "cron", "task")?.does).toEqual({
-      mode: "enqueue_task",
-      data: {},
-    });
-    expect(compileVerb("wakes", "relay", "agent")?.does).toEqual({
-      mode: "inject_prompt",
-    });
-    expect(compileVerb("chains", "cron", "relay")).toEqual({
-      ports: [],
-      chain: true,
-      when: { word: "completes" },
-    });
-  });
-
-  it("snapshots the compiled grant of every verb", () => {
-    // One canonical ordered pair per verb, stated whole. The pair matrix
-    // snapshot above fixes *which* verbs exist; this fixes what each one
-    // actually hands out, so a widened or thinned grant cannot pass by
-    // staying inside the endpoints' offers.
-    const grants: ReadonlyArray<readonly [Verb, WellKnownKind, WellKnownKind]> = [
-      ["messages", "agent", "agent"],
-      ["reviews", "agent", "agent"],
-      ["messages", "agent", "board"],
-      ["manages", "agent", "task"],
-      ["contributes", "agent", "task"],
-      ["works", "task", "agent"],
-      ["publishes", "agent", "artifacts"],
-      ["participates", "agent", "board"],
-      ["reads", "agent", "pad"],
-      ["edits", "agent", "pad"],
-      ["navigates", "agent", "page"],
-      ["feeds", "task", "task"],
-      ["fires", "agent", "relay"],
-      ["announces", "task", "relay"],
-      ["enqueues", "relay", "task"],
-      ["wakes", "relay", "agent"],
-      ["chains", "relay", "relay"],
-    ];
-    const compiled: Record<string, unknown> = {};
-    for (const [verb, source, target] of grants) {
-      compiled[`${verb} @ ${source}>${target}`] = compileVerb(
-        verb,
-        source,
-        target,
-      );
-    }
-    expect(compiled).toEqual({
-      "messages @ agent>agent": {
-        ports: ["msg.list", "msg.send", "msg.prompt", "seat.wait", "terminal.read"],
-      },
-      "reviews @ agent>agent": { ports: ["verdict.post"] },
-      "messages @ agent>board": {
-        ports: ["board.list", "board.post", "board.mark_read"],
-        wake: false,
-      },
-      "manages @ agent>task": {
-        ports: [
-          "tasks.create",
-          "tasks.update",
-          "tasks.list",
-          "msg.list",
-          "msg.send",
-        ],
-      },
-      "contributes @ agent>task": {
-        ports: [
-          "tasks.create",
-          "tasks.update",
-          "tasks.list",
-          "msg.list",
-          "msg.send",
-          "tasks.claim",
-        ],
-      },
-      "works @ task>agent": {
-        ports: [
-          "tasks.list",
-          "tasks.claim",
-          "tasks.update",
-          "msg.list",
-          "msg.send",
-        ],
-        claimable: true,
-      },
-      "publishes @ agent>artifacts": { ports: ["artifact.publish"] },
-      "participates @ agent>board": {
-        ports: [
-          "board.list",
-          "board.create_topic",
-          "board.post",
-          "board.mark_read",
-        ],
-        wake: true,
-      },
-      "reads @ agent>pad": { ports: ["pad.read"] },
-      "edits @ agent>pad": { ports: ["pad.read", "pad.patch"] },
-      "navigates @ agent>page": { ports: ["browser.automate"] },
-      "feeds @ task>task": { ports: [], flow: true },
-      "fires @ agent>relay": { ports: ["relay.trigger"] },
-      "announces @ task>relay": { ports: [], when: { word: "completes" } },
-      "enqueues @ relay>task": {
-        ports: [],
-        does: { mode: "enqueue_task", data: {} },
-      },
-      "wakes @ relay>agent": { ports: [], does: { mode: "inject_prompt" } },
-      "chains @ relay>relay": {
-        ports: [],
-        chain: true,
-        when: { word: "completes" },
-      },
-    });
-    // A new verb with no row here would otherwise ship unsnapshotted.
-    expect([...new Set(grants.map(([verb]) => verb))].sort()).toEqual(
-      [...VERBS].sort(),
-    );
   });
 
   it("never grants a port the far end of the wire does not offer", () => {
     // Tighter than the union rule: an actor's own inbox must not leak into a
-    // sink or scheduler wire, so the grant is checked against the offers of the
-    // end that is not the seat.
+    // wire, so the grant is checked against the offers of the end that is not
+    // the seat.
     for (const pair of PAIRS) {
       const far =
         pair[0] === "agent" && pair[1] === "agent"
@@ -355,13 +131,8 @@ describe("compiled grants", () => {
   });
 
   it("defaults a plain connect to the fuller relationship", () => {
-    expect(defaultVerbForPair("agent", "task")).toBe("contributes");
-    expect(defaultVerbForPair("agent", "board")).toBe("participates");
-    expect(defaultVerbForPair("agent", "pad")).toBe("edits");
-    expect(defaultVerbForPair("agent", "relay")).toBe("fires");
-    expect(defaultVerbForPair("relay", "task")).toBe("enqueues");
-    expect(defaultVerbForPair("cron", "agent")).toBe("wakes");
-    expect(defaultVerbForPair("task", "task")).toBe("feeds");
+    expect(defaultVerbForPair("agent", "agent")).toBe("messages");
+    expect(defaultVerbForPair("agent", "page")).toBe("navigates");
     for (const pair of PAIRS) {
       const verbs = verbsForPair(pair[0], pair[1]);
       if (verbs.length === 0) continue;
@@ -370,147 +141,16 @@ describe("compiled grants", () => {
   });
 });
 
-describe("verbs against the published node contracts", () => {
-  const NON_SCHEDULERS = WELL_KNOWN_KINDS.filter(
-    (kind) => KindSpecs[kind].role !== "scheduler",
-  );
-
-  it("gives announces to exactly the kinds that publish an event", () => {
-    for (const kind of NON_SCHEDULERS) {
-      expect(
-        verbsForPair(kind, "relay").includes("announces"),
-        `${kind} publishes ${NodeContracts[kind].events.length} events`,
-      ).toBe(NodeContracts[kind].events.length > 0);
-    }
-  });
-
-  it("announces the kind's own headline contract event", () => {
-    for (const kind of NON_SCHEDULERS) {
-      const when = compileVerb("announces", kind, "relay")?.when;
-      const headline = NodeContracts[kind].events[0];
-      if (headline === undefined) {
-        expect(when, kind).toBeUndefined();
-        continue;
-      }
-      if (when === undefined) throw new Error(`${kind} announces nothing`);
-      if (when.word === "any") throw new Error(`${kind} announces a multi-select`);
-      expect(when.word, kind).toBe(headline.word);
-      if (when.word === "signals") continue;
-      // `equals` may be omitted where the evaluator does not read it (artifacts
-      // counts published items rather than matching a state); when it is stated
-      // it must name the headline event's variant.
-      if (when.equals !== undefined) expect(when.equals, kind).toBe(headline.equals);
-    }
-  });
-
-  it("lets only the relay take an announcement", () => {
-    for (const source of WELL_KNOWN_KINDS) {
-      for (const target of WELL_KNOWN_KINDS) {
-        if (target === "relay") continue;
-        expect(
-          verbsForPair(source, target).includes("announces"),
-          `${source}>${target}`,
-        ).toBe(false);
-      }
-    }
-  });
-
-  it("compiles a fire action the target contract actually accepts", () => {
-    for (const source of WELL_KNOWN_KINDS) {
-      for (const target of WELL_KNOWN_KINDS) {
-        for (const verb of verbsForPair(source, target)) {
-          const does = compileVerb(verb, source, target)?.does;
-          if (does === undefined) continue;
-          expect(
-            NodeContracts[target].inputs.map((input) => input.mode),
-            `${verb} on ${source}>${target}`,
-          ).toContain(does.mode);
-        }
-      }
-    }
-  });
-});
-
 describe("legacy conversion", () => {
-  it("reads task hops and actor mail off the pair alone", () => {
-    expect(inferVerb({}, "task", "task")).toBe("feeds");
+  it("reads actor mail off the pair alone", () => {
     expect(inferVerb(undefined, "agent", "agent")).toBe("messages");
-  });
-
-  it("converts access wires in either drawn direction", () => {
-    expect(inferVerb({ ports: ["tasks.list"] }, "agent", "task")).toBe(
-      "contributes",
-    );
-    expect(inferVerb({ ports: ["tasks.list"] }, "task", "agent")).toBe(
-      "contributes",
-    );
-    expect(inferVerb({}, "pad", "agent")).toBe("edits");
     expect(inferVerb({}, "agent", "page")).toBe("navigates");
-    // Raising a hand is the universal agent signals: nothing joins an agent
-    // to a requests sink, so a legacy wire there does not survive.
-    expect(inferVerb({}, "agent", "requests")).toBeUndefined();
-    expect(inferVerb({}, "artifacts", "agent")).toBe("publishes");
-  });
-
-  it("keeps an opted-out board seat out of the megaphone", () => {
-    expect(inferVerb({ wake: false }, "agent", "board")).toBe("messages");
-    expect(inferVerb({ wake: true }, "agent", "board")).toBe("participates");
-    expect(inferVerb({}, "board", "agent")).toBe("participates");
-  });
-
-  it("tells an agent trigger from an agent watch", () => {
-    expect(inferVerb({ slot: "trigger" }, "agent", "relay")).toBe("fires");
-    expect(inferVerb({ ports: ["relay.trigger"] }, "relay", "agent")).toBe(
-      "fires",
-    );
-    expect(inferVerb({ when: { word: "signals" } }, "agent", "relay")).toBe("announces");
-    expect(inferVerb({}, "agent", "relay")).toBe("announces");
-  });
-
-  it("converts watch and effect wires by their authored word", () => {
-    expect(inferVerb({ when: { word: "completes" } }, "task", "relay")).toBe(
-      "announces",
-    );
-    expect(inferVerb({}, "board", "relay")).toBe("announces");
-    expect(
-      inferVerb({ does: { mode: "enqueue_task", data: {} } }, "cron", "task"),
-    ).toBe("enqueues");
-    expect(inferVerb({ does: { mode: "inject_prompt" } }, "relay", "agent")).toBe(
-      "wakes",
-    );
-    // The retired `flags` verb has nothing to convert to: those wires drop.
-    expect(
-      inferVerb(
-        { does: { mode: "set_flag", flag: "blocker", enabled: true } },
-        "relay",
-        "requests",
-      ),
-    ).toBeUndefined();
-    expect(
-      inferVerb({ does: { mode: "board_post", data: {} } }, "cron", "board"),
-    ).toBeUndefined();
-    expect(inferVerb({}, "timer", "task")).toBe("enqueues");
-    expect(inferVerb({}, "relay", "relay")).toBe("chains");
-  });
-
-  it("refuses the retired flag grammar outright", () => {
-    // `flags` left the verb list; pad and sheet have no news for a relay.
-    expect((VERBS as ReadonlyArray<string>).includes("flags")).toBe(false);
-    expect(verbsForPair("pad", "relay")).toEqual([]);
-    expect(verbsForPair("sheet", "relay")).toEqual([]);
-    for (const scheduler of ["relay", "cron", "timer", "watcher"] as const) {
-      for (const target of ["requests", "artifacts", "board", "pad", "sheet", "page", "terminal"] as const) {
-        expect(verbsForPair(scheduler, target), `${scheduler}>${target}`).toEqual([]);
-      }
-    }
   });
 
   it("drops what the grammar no longer holds", () => {
     expect(inferVerb({}, "agent", "terminal")).toBeUndefined();
     expect(inferVerb({}, "agent", "group")).toBeUndefined();
     expect(inferVerb({}, "agent", undefined)).toBeUndefined();
-    expect(inferVerb({ when: { word: "completes" } }, "task", "cron")).toBeUndefined();
-    expect(inferVerb({}, "task", "board")).toBeUndefined();
   });
 });
 
