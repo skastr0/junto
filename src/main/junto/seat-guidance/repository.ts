@@ -1,10 +1,11 @@
-import { Context, Effect, Layer, Schema } from "effect";
+import { Context, Effect, Layer, Option, Schema } from "effect";
+import { SqlClient, SqlError, SqlSchema } from "effect/unstable/sql";
 import {
   normalizeSeatGuidance,
   type SeatGuidance,
   type SeatGuidanceMap,
 } from "@shared/seat-guidance";
-import { StateEngine, type StateEngineError, type StateRow } from "../state/service";
+import { StateTransactionOperation } from "../state/service";
 
 export class SeatGuidancePersistenceError extends Schema.TaggedError<SeatGuidancePersistenceError>()(
   "SeatGuidancePersistenceError",
@@ -39,79 +40,69 @@ export class SeatGuidanceRepository extends Context.Service<SeatGuidanceReposito
     ) => Effect.Effect<SeatGuidance | null, SeatGuidanceRepositoryError>;
   }>()("@junto/SeatGuidanceRepository") {}
 
-type GuidanceRow = StateRow & {
-  readonly seat_id: string;
-  readonly soul: string | null;
-  readonly instructions: string | null;
-};
+const GuidanceRow = Schema.Struct({
+  seat_id: Schema.String,
+  soul: Schema.NullOr(Schema.String),
+  instructions: Schema.NullOr(Schema.String),
+});
 
-const fromRow = (row: GuidanceRow): SeatGuidance | null => {
+const fromRow = (row: typeof GuidanceRow.Type): SeatGuidance | null => {
   const normalized = normalizeSeatGuidance({ soul: row.soul ?? undefined, instructions: row.instructions ?? undefined });
   return normalized.ok ? normalized.guidance : null;
 };
 
-const persistence = (operation: string) => (error: StateEngineError) =>
-  error.cause instanceof SeatGuidanceRefused
-    ? error.cause
+const persistence = (operation: string) => (error: SqlError.SqlError | Schema.SchemaError | SeatGuidanceRefused) =>
+  error instanceof SeatGuidanceRefused
+    ? error
     : SeatGuidancePersistenceError.make({ operation, message: error.message, cause: error });
 
-export const SeatGuidanceRepositoryLive: Layer.Layer<SeatGuidanceRepository, never, StateEngine> =
+export const SeatGuidanceRepositoryLive: Layer.Layer<SeatGuidanceRepository, never, SqlClient.SqlClient> =
   Layer.effect(
     SeatGuidanceRepository,
     Effect.gen(function* () {
-      const state = yield* StateEngine;
+      const sql = yield* SqlClient.SqlClient;
+      const allRows = SqlSchema.findAll({
+        Request: Schema.Void,
+        Result: GuidanceRow,
+        execute: () => sql`SELECT seat_id, soul, instructions FROM seat_guidance`,
+      });
+      const oneRow = SqlSchema.findOneOption({
+        Request: Schema.String,
+        Result: GuidanceRow,
+        execute: (seatId) => sql`SELECT seat_id, soul, instructions FROM seat_guidance WHERE seat_id = ${seatId}`,
+      });
 
-      const list = () =>
-        state
-          .read("seat-guidance.list", (reader) => {
-            const out: Record<string, SeatGuidance> = {};
-            for (const row of reader.all<GuidanceRow>("SELECT seat_id, soul, instructions FROM seat_guidance")) {
-              const guidance = fromRow(row);
-              if (guidance) out[row.seat_id] = guidance;
-            }
-            return out as SeatGuidanceMap;
-          })
-          .pipe(Effect.mapError(persistence("list")));
+      const list = Effect.fn("seat-guidance.list")(function* () {
+        const out: Record<string, SeatGuidance> = {};
+        for (const row of yield* allRows(undefined)) {
+          const guidance = fromRow(row);
+          if (guidance) out[row.seat_id] = guidance;
+        }
+        return out;
+      }, Effect.mapError(persistence("list")));
 
-      const get = (seatId: string) =>
-        state
-          .read("seat-guidance.get", (reader) => {
-            const row = reader.get<GuidanceRow>(
-              "SELECT seat_id, soul, instructions FROM seat_guidance WHERE seat_id = ?",
-              [seatId],
-            );
-            return row === undefined ? null : fromRow(row);
-          })
-          .pipe(Effect.mapError(persistence("get")));
+      const get = Effect.fn("seat-guidance.get")(function* (seatId: string) {
+        const row = yield* oneRow(seatId);
+        return Option.isNone(row) ? null : fromRow(row.value);
+      }, Effect.mapError(persistence("get")));
 
-      const set = (seatId: string, guidance: unknown) =>
-        state
-          .transaction("seat-guidance.set", (writer) => {
-            const normalized = normalizeSeatGuidance(guidance);
-            if (!normalized.ok) throw SeatGuidanceRefused.make({ message: normalized.message });
-            if (normalized.guidance === null) {
-              writer.run("DELETE FROM seat_guidance WHERE seat_id = ?", [seatId]);
-              return null;
-            }
-            writer.run(
-              `
-                INSERT INTO seat_guidance(seat_id, soul, instructions, updated_at)
-                VALUES (?, ?, ?, ?)
-                ON CONFLICT(seat_id) DO UPDATE SET
-                  soul = excluded.soul,
-                  instructions = excluded.instructions,
-                  updated_at = excluded.updated_at
-              `,
-              [
-                seatId,
-                normalized.guidance.soul ?? null,
-                normalized.guidance.instructions ?? null,
-                Date.now(),
-              ],
-            );
-            return normalized.guidance;
-          })
-          .pipe(Effect.mapError(persistence("set")));
+      const set = Effect.fn("seat-guidance.set")(function* (seatId: string, guidance: unknown) {
+        const normalized = normalizeSeatGuidance(guidance);
+        if (!normalized.ok) return yield* new SeatGuidanceRefused({ message: normalized.message });
+        if (normalized.guidance === null) {
+          yield* sql`DELETE FROM seat_guidance WHERE seat_id = ${seatId}`;
+          return null;
+        }
+        yield* sql`
+          INSERT INTO seat_guidance(seat_id, soul, instructions, updated_at)
+          VALUES (${seatId}, ${normalized.guidance.soul ?? null}, ${normalized.guidance.instructions ?? null}, ${Date.now()})
+          ON CONFLICT(seat_id) DO UPDATE SET
+            soul = excluded.soul,
+            instructions = excluded.instructions,
+            updated_at = excluded.updated_at
+        `;
+        return normalized.guidance;
+      }, sql.withTransaction, Effect.provideService(StateTransactionOperation, "seat-guidance.set"), Effect.mapError(persistence("set")));
 
       return SeatGuidanceRepository.of({ list, get, set });
     }),
