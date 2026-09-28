@@ -38,6 +38,11 @@ type Case = {
 // Devin, Antigravity and Prime Agent are out of scope for this suite.
 const CASES: readonly Case[] = [
   { harness: "claude", choices: { model: "haiku" } },
+  { harness: "codex", choices: { effort: "low" } },
+  { harness: "grok", choices: { effort: "low" } },
+  { harness: "cursor" },
+  { harness: "kimi" },
+  { harness: "pi", choices: { effort: "off" } },
 ];
 
 const OPT_IN = process.env.JUNTO_REAL_RESUME?.trim() ?? "";
@@ -155,6 +160,8 @@ type Verdict = {
   sessionId?: string;
   resumedSessionId?: string;
   resuming?: boolean;
+  /** How the resumed generation ended, when it died before replying. */
+  resumedExit?: string;
   recalled?: boolean;
   firstArgv?: readonly string[];
   at: string;
@@ -399,6 +406,11 @@ for (const c of CASES) {
         await waitForScreen(new RegExp(`RECALL-${token}`), 300_000, "turn 2 reply");
         recalled = true;
       } catch (error) {
+        const after = await get();
+        verdict.resumedExit =
+          after?.status === "exited"
+            ? `exited: ${after.exitMessage ?? after.exitReason ?? "no message"}`
+            : after?.status;
         verdict.cause = String(error).slice(0, 600);
       }
       verdict.recalled = recalled;
