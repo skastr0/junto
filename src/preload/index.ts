@@ -54,6 +54,7 @@ import type { Settings, SettingsOpResult, SettingsPatch, SettingsSectionKey } fr
 import type { UsageState } from "@shared/usage";
 import type { SquadsChanged } from "@shared/squads";
 import type { SeatGuidanceEvent } from "@shared/seat-guidance";
+import type { SeatSessionsChanged } from "@shared/seat-sessions";
 import type { ProfilesChanged } from "@shared/agent-profiles";
 import type { NotifyCue, NotifyTarget } from "@shared/desktop-notifications";
 import type { UpdateStatus } from "@shared/update";
@@ -462,6 +463,11 @@ const juntoApi: Omit<JuntoApi, keyof typeof liveApi | WorkFeatureApiKey> = {
   seatGuidanceList: () => invoke(IPC_CHANNELS.seatGuidanceList, IPC_TIMEOUT_MS),
   seatGuidanceSet: (seatId, guidance) =>
     invoke(IPC_CHANNELS.seatGuidanceSet, IPC_TIMEOUT_MS, seatId, guidance),
+  seatSessionsList: (seatId) => invoke(IPC_CHANNELS.seatSessionsList, IPC_TIMEOUT_MS, seatId),
+  seatSessionNotes: (seatId, sessionId) =>
+    invoke(IPC_CHANNELS.seatSessionNotes, IPC_TIMEOUT_MS, seatId, sessionId),
+  seatSessionRevealTranscript: (seatId, sessionId) =>
+    invoke(IPC_CHANNELS.seatSessionRevealTranscript, IPC_TIMEOUT_MS, seatId, sessionId),
   profilesList: () => invoke(IPC_CHANNELS.profilesList, IPC_TIMEOUT_MS),
   profileSave: (input) => invoke(IPC_CHANNELS.profileSave, IPC_TIMEOUT_MS, input),
   profileRename: (profileId, name) => invoke(IPC_CHANNELS.profileRename, IPC_TIMEOUT_MS, profileId, name),
@@ -492,6 +498,8 @@ const juntoApi: Omit<JuntoApi, keyof typeof liveApi | WorkFeatureApiKey> = {
     subscribe<PortraitOverrideEvent>(IPC_CHANNELS.portraitOverride, listener),
   onSquadsChanged: (listener) => subscribe<SquadsChanged>(IPC_CHANNELS.squadsChanged, listener),
   onSeatGuidance: (listener) => subscribe<SeatGuidanceEvent>(IPC_CHANNELS.seatGuidance, listener),
+  onSeatSessionsChanged: (listener) =>
+    subscribe<SeatSessionsChanged>(IPC_CHANNELS.seatSessionsChanged, listener),
   onProfilesChanged: (listener) => subscribe<ProfilesChanged>(IPC_CHANNELS.profilesChanged, listener),
   notificationsReport: (report) => invoke(IPC_CHANNELS.notificationsReport, IPC_TIMEOUT_MS, report),
   notificationsTest: () => invoke(IPC_CHANNELS.notificationsTest, IPC_TIMEOUT_MS),

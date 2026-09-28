@@ -1,4 +1,4 @@
-import { app, BrowserWindow, clipboard, ipcMain } from "electron";
+import { app, BrowserWindow, clipboard, ipcMain, shell } from "electron";
 import { Effect, Result, Schema } from "effect";
 import {
   IPC_CHANNELS,
@@ -58,7 +58,13 @@ import { raisedHands } from "./signals/raised-hands";
 import { SquadRepository, type SquadRepositoryError } from "./squads/repository";
 import type { SquadDeleteResult, SquadResult, SquadSaveInput } from "@shared/squads";
 import { SeatGuidanceRepository } from "./seat-guidance/repository";
-import { startSeatSessionRecorder, subscribeSeatOffboard } from "./seat-sessions/service";
+import {
+  listSeatSessions,
+  startSeatSessionRecorder,
+  subscribeSeatOffboard,
+} from "./seat-sessions/service";
+import { readNotesFile } from "./seat-sessions/notes-file";
+import type { SeatSessionNotesResult, SeatSessionRevealResult } from "@shared/seat-sessions";
 import { seatGuidanceIndex } from "./seat-guidance/index-memory";
 import { isSeatGuidanceSeatId, type SeatGuidanceSetResult } from "@shared/seat-guidance";
 import { ProfileRepository, type ProfileRepositoryError } from "./profiles/repository";
@@ -792,6 +798,37 @@ export const registerJuntoIpc = (): void => {
         Effect.flatMap(SquadRepository, (repository) => repository.remove(id)),
       );
       return removed.ok ? { ok: true, squadId: removed.value } : removed;
+    },
+  );
+
+  // Seat sessions: read-only for the renderer. It names a seat and a session;
+  // main opens only the paths recorded for that row, never a path it is given.
+  const seatSessionRow = async (seatId: unknown, sessionId: unknown) => {
+    if (!isSeatGuidanceSeatId(seatId) || typeof sessionId !== "string" || !sessionId) return undefined;
+    const sessions = await AppRuntime.runPromise(listSeatSessions(seatId));
+    return sessions.find((session) => session.sessionId === sessionId);
+  };
+  privilegedIpc.handle(IPC_CHANNELS.seatSessionsList, (_event, seatId: unknown) =>
+    isSeatGuidanceSeatId(seatId) ? AppRuntime.runPromise(listSeatSessions(seatId)) : [],
+  );
+  privilegedIpc.handle(
+    IPC_CHANNELS.seatSessionNotes,
+    async (_event, seatId: unknown, sessionId: unknown): Promise<SeatSessionNotesResult> => {
+      const session = await seatSessionRow(seatId, sessionId);
+      if (session?.offboardedAt === undefined) return { ok: false, message: "This session left no notes." };
+      const notes = readNotesFile(session.notesPath);
+      return notes === undefined ? { ok: false, message: "The notes file could not be read." } : { ok: true, notes };
+    },
+  );
+  privilegedIpc.handle(
+    IPC_CHANNELS.seatSessionRevealTranscript,
+    async (_event, seatId: unknown, sessionId: unknown): Promise<SeatSessionRevealResult> => {
+      const session = await seatSessionRow(seatId, sessionId);
+      if (session?.transcriptPath === undefined) {
+        return { ok: false, message: "The agent has not written a transcript for this session yet." };
+      }
+      shell.showItemInFolder(session.transcriptPath);
+      return { ok: true };
     },
   );
 
@@ -1621,6 +1658,7 @@ export const registerJuntoIpc = (): void => {
       yield* startSeatSessionRecorder((effect) => {
         void AppRuntime.runPromise(effect);
       });
+      subscribeSeatOffboard((event) => broadcast(IPC_CHANNELS.seatSessionsChanged, { seatId: event.seatId }));
       snapshots.subscribe((state) => broadcast(IPC_CHANNELS.snapshotsChanged, state));
       if (USAGE_ENABLED) {
         usage.subscribe((state) => broadcast(IPC_CHANNELS.usageChanged, state));

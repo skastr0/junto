@@ -76,6 +76,12 @@ import type {
   SeatGuidanceSetResult,
 } from "./seat-guidance";
 import type {
+  SeatSession,
+  SeatSessionNotesResult,
+  SeatSessionRevealResult,
+  SeatSessionsChanged,
+} from "./seat-sessions";
+import type {
   AgentProfile,
   ProfileDeleteResult,
   ProfileResult,
@@ -150,6 +156,11 @@ export const IPC_CHANNELS = {
   seatGuidanceList: "junto:seat-guidance-list",
   seatGuidanceSet: "junto:seat-guidance-set",
   seatGuidance: "junto:seat-guidance",
+  /** Seat sessions: one seat's session history, its notes, reveal its transcript, change push. */
+  seatSessionsList: "junto:seat-sessions-list",
+  seatSessionNotes: "junto:seat-session-notes",
+  seatSessionRevealTranscript: "junto:seat-session-reveal-transcript",
+  seatSessionsChanged: "junto:seat-sessions-changed",
   /** Agent profiles: list, save (create or replace), rename, delete, live list push. */
   profilesList: "junto:profiles-list",
   profileSave: "junto:profile-save",
@@ -725,6 +736,12 @@ export interface JuntoApi extends UpdateApi, OverseerLiveApi {
     seatId: string,
     guidance: SeatGuidance | null,
   ) => Promise<SeatGuidanceSetResult>;
+  /** One seat's sessions, newest first, with transcript paths once found. */
+  readonly seatSessionsList?: (seatId: string) => Promise<ReadonlyArray<SeatSession>>;
+  /** The notes a seat's agent left for one of its sessions. */
+  readonly seatSessionNotes?: (seatId: string, sessionId: string) => Promise<SeatSessionNotesResult>;
+  /** Show one session's transcript in the file manager. */
+  readonly seatSessionRevealTranscript?: (seatId: string, sessionId: string) => Promise<SeatSessionRevealResult>;
   /** The operator's saved agent profiles, by name. */
   readonly profilesList: () => Promise<ReadonlyArray<AgentProfile>>;
   /** Create a profile (no id) or replace one's configuration. */
@@ -927,6 +944,8 @@ export interface JuntoApi extends UpdateApi, OverseerLiveApi {
   readonly onSquadsChanged?: (listener: (event: SquadsChanged) => void) => () => void;
   /** Main -> renderer: one seat's guidance as it now stands. */
   readonly onSeatGuidance?: (listener: (event: SeatGuidanceEvent) => void) => () => void;
+  /** Main -> renderer: this seat's session history changed (an offboard). */
+  readonly onSeatSessionsChanged?: (listener: (event: SeatSessionsChanged) => void) => () => void;
   /** Main -> renderer: every profile, after any change. */
   readonly onProfilesChanged?: (listener: (profiles: ProfilesChanged) => void) => () => void;
   /** The canvas's open needs, for desktop notifications and the Dock badge. */

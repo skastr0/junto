@@ -80,3 +80,13 @@ export const newestSessionsFirst = (
     if (leftOpen !== rightOpen) return rightOpen - leftOpen;
     return right.startedAt - left.startedAt;
   });
+
+// ── Renderer bridge ─────────────────────────────────────────────────────────
+
+export type SeatSessionNotesResult =
+  | { readonly ok: true; readonly notes: string }
+  | { readonly ok: false; readonly message: string };
+
+export type SeatSessionRevealResult = { readonly ok: true } | { readonly ok: false; readonly message: string };
+
+export type SeatSessionsChanged = { readonly seatId: string };
