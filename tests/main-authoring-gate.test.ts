@@ -46,7 +46,7 @@ describe("main authoring gate", () => {
 
     let invoked = false;
     await expect(
-      gate.run("ipc.work.task-create", async () => {
+      gate.run("ipc.work.message-append", async () => {
         invoked = true;
         return undefined;
       }),
@@ -54,7 +54,7 @@ describe("main authoring gate", () => {
       _tag: "MainAuthoringRefused",
       code: "main_authoring_closed",
       phase: "final-flush",
-      label: "ipc.work.task-create",
+      label: "ipc.work.message-append",
     });
     expect(invoked).toBe(false);
   });
@@ -210,16 +210,6 @@ describe("work-control main authoring classification", () => {
       expect(classifyMainAuthoringWorkOperation(operation as WorkOpName)).toBe(classification);
     }
     expect(mainAuthoringLabelForWorkOperation("ping")).toBeUndefined();
-    expect(mainAuthoringLabelForWorkOperation("tasks.claim")).toBe(
-      "control.work.tasks-claim",
-    );
-    expect(mainAuthoringLabelForWorkOperation("tasks.update")).toBe(
-      "control.work.tasks-update",
-    );
-    expect(mainAuthoringLabelForWorkOperation("tasks.check")).toBe(
-      "control.work.tasks-update",
-    );
-    expect(mainAuthoringLabelForWorkOperation("tasks.rules")).toBeUndefined();
     expect(mainAuthoringLabelForWorkOperation("msg.list")).toBe("control.work.msg-send");
     expect(mainAuthoringLabelForWorkOperation("msg.send")).toBe("control.work.msg-send");
     expect(mainAuthoringLabelForWorkOperation("msg.read")).toBe("control.work.msg-send");
@@ -227,8 +217,5 @@ describe("work-control main authoring classification", () => {
     expect(mainAuthoringLabelForWorkOperation("signal.clear")).toBe("control.work.signal");
     expect(mainAuthoringLabelForWorkOperation("offboard")).toBe("control.work.offboard");
     expect(mainAuthoringLabelForWorkOperation("signal.list")).toBeUndefined();
-    expect(mainAuthoringLabelForWorkOperation("artifact.publish")).toBe(
-      "control.work.artifact-publish",
-    );
   });
 });
