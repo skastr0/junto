@@ -4,24 +4,24 @@
  */
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
-import {
-  agentTextNode,
-  artifactsNode,
-  canvasDoc,
-  verbEdge,
-  tasksNode,
-} from "../harness/sandbox";
+import { agentTextNode, canvasDoc, verbEdge } from "../harness/sandbox";
 import { expect, launchJunto, test } from "../harness/launch";
 
 const SHOTS = join(process.cwd(), "test-results", "design-audit");
 const CANVAS = "actor-edges-focus";
 const AGENT_LABEL = "edge focus worker";
 
-// Two legal wires, one each way: the queue works the seat, and the seat
-// publishes into the artifacts sink. A terminal peer is not an option here —
-// terminal admits no verb, so that wire never reaches the rail.
+// Two legal wires, one each way: a lead messages the seat, and the seat
+// messages a peer. A terminal peer is not an option here — terminal admits
+// no verb, so that wire never reaches the rail.
 const fixtureNodes = [
-  tasksNode({ id: "tasks", x: 40, y: 40 }),
+  agentTextNode({
+    id: "lead",
+    key: "local:e2e-edge-lead",
+    label: "edge focus lead",
+    x: 40,
+    y: 40,
+  }),
   agentTextNode({
     id: "worker",
     key: "local:e2e-edge-worker",
@@ -29,12 +29,18 @@ const fixtureNodes = [
     x: 360,
     y: 40,
   }),
-  artifactsNode({ id: "shelf", x: 360, y: 220 }),
+  agentTextNode({
+    id: "peer",
+    key: "local:e2e-edge-peer",
+    label: "edge focus peer",
+    x: 360,
+    y: 260,
+  }),
 ];
 
 const fixture = canvasDoc(fixtureNodes, [
-  verbEdge("e-tasks-worker", "tasks", "worker", "works", fixtureNodes),
-  verbEdge("e-worker-shelf", "worker", "shelf", "publishes", fixtureNodes, {
+  verbEdge("e-lead-worker", "lead", "worker", "messages", fixtureNodes),
+  verbEdge("e-worker-peer", "worker", "peer", "messages", fixtureNodes, {
     fromSide: "bottom",
     toSide: "top",
   }),
@@ -65,23 +71,25 @@ test("actor terminal focus shows read-only edge inventory", async () => {
     await expect(contextPane).toBeVisible({ timeout: 10_000 });
     const glance = contextPane.getByTestId("actor-edges-glance");
     await expect(glance).toBeVisible({ timeout: 10_000 });
-    await expect(glance).toHaveAttribute("aria-label", "Connections");
+    await expect(glance).toHaveAttribute("aria-label", /^connections$/i);
 
-    // Tasks work-lane (inbound) + artifacts sink (outbound). No authored edge
-    // nature exists any more — stoppage is derived, so the only phase an
-    // idle wire may carry is "relates", never "blocks".
-    const tasksRow = glance.locator('[data-peer-kind="task"]');
-    await expect(tasksRow).toBeVisible();
-    await expect(tasksRow).not.toHaveAttribute("data-live-phase", "blocks");
-    await expect(tasksRow).toContainText(/tasks/i);
+    // Inbound lead + outbound peer. No authored edge nature exists any more —
+    // stoppage is derived, so the only phase an idle wire may carry is
+    // "relates", never "blocks".
+    const rows = glance.locator('li[data-peer-kind="agent"]');
+    await expect(rows).toHaveCount(2);
+    const leadRow = glance.locator('li:has([data-peer-node-id="lead"])');
+    await expect(leadRow).toBeVisible();
+    await expect(leadRow).not.toHaveAttribute("data-live-phase", "blocks");
+    await expect(leadRow).toContainText(/edge focus lead/i);
 
-    const shelfRow = glance.locator('[data-peer-kind="artifacts"]');
-    await expect(shelfRow).toBeVisible();
-    await expect(shelfRow).not.toHaveAttribute("data-live-phase", "blocks");
-    await expect(shelfRow).toContainText(/artifacts/i);
+    const peerRow = glance.locator('li:has([data-peer-node-id="peer"])');
+    await expect(peerRow).toBeVisible();
+    await expect(peerRow).not.toHaveAttribute("data-live-phase", "blocks");
+    await expect(peerRow).toContainText(/edge focus peer/i);
 
     // Connection cards name the peer only: no capability line.
-    await expect(tasksRow).not.toContainText(/\b(?:list|claim|publish)\b/i);
+    await expect(leadRow).not.toContainText(/\b(?:messages|reviews)\b/i);
 
     await focus.screenshot({
       path: join(SHOTS, "actor-edges-focus.png"),

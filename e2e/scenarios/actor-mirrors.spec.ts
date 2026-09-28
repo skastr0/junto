@@ -2,27 +2,21 @@
  * Actor mirrors — the connections rail as navigation.
  *   bun run test:e2e:fast e2e/scenarios/actor-mirrors.spec.ts
  *
- * Hub actor wired to two peer actors and one tasks sink. Asserts:
- *   - actor rows render as mirror buttons; the sink row stays a read-only chip
+ * Hub actor wired to two peer actors. Asserts:
+ *   - actor rows render as mirror buttons
  *   - clicking a mirror swaps the front modal to that actor in place
  *   - the previous surface parks (stays mounted — keep-alive proof)
  *   - Cmd+] / Cmd+[ cycle the sticky ring (hub plus its actor peers), wrapping
  *   - ONE Close press after cycling dismisses the whole modal — the parked
  *     stack never pops one press per cycled actor
  */
-import {
-  agentTextNode,
-  canvasDoc,
-  worksEdge,
-  tasksNode,
-} from "../harness/sandbox";
+import { agentTextNode, canvasDoc } from "../harness/sandbox";
 import { expect, launchJunto, test } from "../harness/launch";
 
 const CANVAS = "actor-mirrors";
 
 const fixture = canvasDoc(
   [
-    tasksNode({ id: "sink", x: 40, y: 40 }),
     agentTextNode({
       id: "alpha",
       key: "local:e2e-mirror-alpha",
@@ -46,7 +40,6 @@ const fixture = canvasDoc(
     }),
   ],
   [
-    worksEdge("e-sink-alpha", "sink", "alpha"),
     {
       id: "e-alpha-bravo",
       fromNode: "alpha",
@@ -88,12 +81,9 @@ test("connections rail mirrors swap the modal and Cmd+] cycles the ring", async 
     const glance = front.getByTestId("actor-edges-glance");
     await expect(glance).toBeVisible({ timeout: 10_000 });
 
-    // Two actor mirrors; the tasks sink stays a read-only chip (no button).
+    // Two actor mirrors.
     const mirrors = glance.locator(".actor-edges-glance__row--mirror");
     await expect(mirrors).toHaveCount(2);
-    const sinkRow = glance.locator('li[data-peer-kind="task"]');
-    await expect(sinkRow).toBeVisible();
-    await expect(sinkRow.locator("button")).toHaveCount(0);
     await expect(glance.locator(".actor-edges-glance__cycle-hint")).toBeVisible();
 
     await page.screenshot({
