@@ -1,4 +1,4 @@
-import { useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { use$ } from "@legendapp/state/react";
 import { Plus } from "lucide-react";
 import type { CanvasNode } from "@shared/canvas";
@@ -99,6 +99,40 @@ const chipTone = (memberIds: ReadonlyArray<string>, tones: ReadonlyMap<string, S
 
 type Drag = { readonly from: "slot" | "extra"; readonly index: number };
 
+type Overflow = "none" | "start" | "end" | "both";
+
+/**
+ * Which ends of the row hide chips, kept current as the row resizes, scrolls,
+ * or gains chips; a mouse wheel scrolls the row sideways.
+ */
+function useRowOverflow(count: number) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [overflow, setOverflow] = useState<Overflow>("none");
+  useEffect(() => {
+    const row = ref.current;
+    if (!row) return;
+    const measure = (): void => {
+      const start = row.scrollLeft > 1;
+      const end = row.scrollLeft + row.clientWidth < row.scrollWidth - 1;
+      setOverflow(start && end ? "both" : start ? "start" : end ? "end" : "none");
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(row);
+    row.addEventListener("scroll", measure, { passive: true });
+    return () => {
+      observer.disconnect();
+      row.removeEventListener("scroll", measure);
+    };
+  }, [count]);
+  const onWheel = (event: React.WheelEvent<HTMLDivElement>): void => {
+    const row = ref.current;
+    if (!row || row.scrollWidth <= row.clientWidth || event.deltaX !== 0) return;
+    row.scrollLeft += event.deltaY;
+  };
+  return { ref, overflow, onWheel };
+}
+
 /**
  * The operator's command groups in the top bar: slots 1 to 9 with their
  * hotkeys, then any groups past nine, shown without one, then a button that
@@ -114,6 +148,7 @@ export function CommandGroupBar() {
   const selectedNodeId = use$(state$.selectedNodeId);
   const selectedNodeIds = use$(state$.selectedNodeIds);
   const drag = useRef<Drag | null>(null);
+  const row = useRowOverflow(slots.length + extras.length);
 
   const byId = useMemo(() => new Map(doc.nodes.map((node) => [node.id, node] as const)), [doc]);
   const membersOf = (ids: ReadonlyArray<string>): CanvasNode[] =>
@@ -156,7 +191,14 @@ export function CommandGroupBar() {
       : slot.kind !== "empty" && selectedNodeId === slotMemberIds(slot)[0];
 
   return (
-    <div className="group-bar" role="toolbar" aria-label="Command groups">
+    <div
+      ref={row.ref}
+      className="group-bar"
+      role="toolbar"
+      aria-label="Command groups"
+      data-overflow={row.overflow === "none" ? undefined : row.overflow}
+      onWheel={row.onWheel}
+    >
       {slots.map((slot, index) => {
         const ids = slotMemberIds(slot);
         const members = membersOf(ids);

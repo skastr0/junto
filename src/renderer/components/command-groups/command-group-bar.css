@@ -5,7 +5,8 @@
 
 .group-bar {
   display: flex;
-  flex: 1 1 auto;
+  /* Only the room the other top bar items leave; past that it scrolls. */
+  flex: 1 1 0;
   align-items: center;
   gap: 6px;
   min-width: 0;
@@ -20,17 +21,30 @@
   display: none;
 }
 
+/* More groups than fit: the far edge fades to say the row goes on. */
+.group-bar[data-overflow="end"] {
+  mask-image: linear-gradient(to right, var(--color-ink) calc(100% - 28px), transparent);
+}
+
+.group-bar[data-overflow="start"] {
+  mask-image: linear-gradient(to left, var(--color-ink) calc(100% - 28px), transparent);
+}
+
+.group-bar[data-overflow="both"] {
+  mask-image: linear-gradient(to right, transparent, var(--color-ink) 28px, var(--color-ink) calc(100% - 28px), transparent);
+}
+
 .group-chip {
   display: inline-flex;
   flex: none;
   align-items: center;
-  gap: 6px;
-  max-width: 200px;
-  height: 32px;
+  gap: 5px;
+  max-width: 168px;
+  height: 30px;
   border: 1px solid color-mix(in oklab, var(--chip-tone, var(--color-stroke)) 45%, var(--color-stroke));
   border-radius: 8px;
   background: color-mix(in oklab, var(--chip-tone, var(--color-overlay-1)) 10%, var(--color-overlay-1));
-  padding: 0 10px 0 4px;
+  padding: 0 8px 0 3px;
   color: var(--color-ink);
   font-family: var(--font-mono);
   font-size: 11px;
@@ -106,8 +120,8 @@
 .group-chip__face {
   display: grid;
   place-items: center;
-  width: 24px;
-  height: 24px;
+  width: 22px;
+  height: 22px;
 }
 
 .group-chip__face + .group-chip__face {
@@ -116,8 +130,8 @@
 
 /* A member that is not a seat: its kind's icon in its hue. */
 .group-chip__mark {
-  width: 20px;
-  height: 20px;
+  width: 18px;
+  height: 18px;
   margin: 2px;
   border: 1px solid color-mix(in oklab, var(--mark-hue) 40%, transparent);
   border-radius: 50%;
@@ -138,7 +152,7 @@
 .group-chip__label {
   overflow: hidden;
   min-width: 0;
-  max-width: 120px;
+  max-width: 88px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -156,7 +170,7 @@
   flex: none;
   place-items: center;
   width: 26px;
-  height: 32px;
+  height: 30px;
   border: 1px dashed var(--color-stroke-hi);
   border-radius: 8px;
   background: transparent;

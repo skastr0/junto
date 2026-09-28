@@ -12,7 +12,7 @@ import "./command-group-bar.css";
 /** Faces drawn on one chip before the rest are only counted. */
 const FACES_MAX = 3;
 /** Ring box for one face on a chip. */
-const FACE_PX = 24;
+const FACE_PX = 22;
 
 export type CommandGroupTenure = "empty" | "fixed" | "group" | "leased" | "evicted";
 
@@ -125,7 +125,7 @@ export function CommandGroupChip({
       style={style}
       aria-pressed={selected}
       aria-label={`${name}: ${tenure === "group" ? detail : label}, ${kind}${state}`}
-      title={`${detail}\n${kind}${state}\n${recall}`}
+      title={`${detail}. ${kind[0]!.toUpperCase()}${kind.slice(1)}${state}. ${recall}`}
       onClick={onActivate}
       onDoubleClick={(event) => {
         event.preventDefault();
