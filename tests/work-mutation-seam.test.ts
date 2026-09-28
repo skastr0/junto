@@ -12,6 +12,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { Effect, Layer, ManagedRuntime } from "effect";
+import { SqlClient } from "effect/unstable/sql";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   makeStateEngineLive,
@@ -27,6 +28,7 @@ import {
   classifyWorkStatement,
   workStatementSinkParams,
   unjournaledWorkMutation,
+  unjournaledWorkMutationEffect,
   workMutationScopeForTest,
   type WorkPlaneTableRole,
 } from "../src/main/junto/work/mutation-seam";
@@ -300,6 +302,20 @@ describe("work mutation seam — one scope per transaction", () => {
 });
 
 describe("work mutation seam — the declared journal-free escape", () => {
+  it("confines SQL admission to the effect window across a yield", async () => {
+    await runtime.runPromise(Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      yield* sql.withTransaction(Effect.gen(function* () {
+        yield* unjournaledWorkMutationEffect("test.fixture-seed", Effect.gen(function* () {
+          yield* Effect.sleep("1 millis");
+          yield* sql`DELETE FROM work_tasks WHERE 1 = 0`;
+        }));
+        const exit = yield* Effect.exit(sql`DELETE FROM work_tasks WHERE 1 = 0`);
+        expect(exit._tag).toBe("Failure");
+      }));
+    }));
+  });
+
   it("admits only inside its own window and closes behind itself", async () => {
     await succeeds("test.escape", (writer) => {
       unjournaledWorkMutation("test.fixture-seed", () => {

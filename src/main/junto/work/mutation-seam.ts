@@ -1,4 +1,4 @@
-import { Context } from "effect";
+import { Context, Effect } from "effect";
 
 /**
  * The single work mutation seam.
@@ -449,6 +449,28 @@ export const unjournaledWorkMutation = <A>(
     scope.unjournaled = undefined;
   }
 };
+
+/** Fiber-local journal-free admission for SQL Effects; never opens the synchronous stack. */
+export const unjournaledWorkMutationEffect = <A, E, R>(
+  reason: UnjournaledWorkReason,
+  body: Effect.Effect<A, E, R>,
+): Effect.Effect<A, E, R> => Effect.gen(function* () {
+  const scope = yield* WorkMutationContext;
+  if (scope === null) {
+    return yield* Effect.die(new WorkMutationSeamError(
+      `unjournaledWorkMutation("${reason}") ran outside any state transaction`,
+    ));
+  }
+  if (scope.unjournaled !== undefined) {
+    return yield* Effect.die(new WorkMutationSeamError(
+      `unjournaledWorkMutation("${reason}") nests inside "${scope.unjournaled}" — one declaration per transaction`,
+    ));
+  }
+  const admitted: WorkMutationScope = { ...scope, unjournaled: reason };
+  const result = yield* body.pipe(Effect.provideService(WorkMutationContext, admitted));
+  scope.journaled = admitted.journaled;
+  return result;
+});
 
 /** Test-only introspection: is a scope open, and has it been journalled? */
 export const workMutationScopeForTest = (): {
