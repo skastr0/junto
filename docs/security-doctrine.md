@@ -586,8 +586,9 @@ malware containment.
 
 ### The one universal capability: agent signals
 
-Raising a hand to the operator is the single deliberate exception to "edges
-are grants", made at the operator's request. Every canvas agent seat may run
+Raising a hand to the operator is a deliberate exception to "edges are
+grants", made at the operator's request. Session notes (below) are the only
+other one. Every canvas agent seat may run
 `junto escalate`, `junto blocked`, and `junto feedback`, read its own signals
 and their answers (`junto signal list`), and withdraw its own open signal
 (`junto signal clear`), with no edge, port, or task.
@@ -611,6 +612,25 @@ request. Stored canvases migrate once at boot (install-ops marker
 `canvas.retire-escalates.v1`): each escalates edge is dropped, never converted
 into an adjacent verb, and a surviving mask loses the retired port, which
 granted nothing.
+
+### Seat-local session notes: offboard
+
+Every canvas agent seat may run `junto offboard` to save notes on its current
+session, with no edge, port, or task. `junto onboard` returns the seat's past
+sessions with their notes and transcript paths. The exception is as narrow as
+signals:
+
+- offboard names no target. The caller is the process-bound seat, and it writes
+  only the notes of the session its own node names (or that its harness's own
+  files prove). A seat id or session id in the payload is refused;
+- notes are a markdown file under `~/.junto/seats/<seat>/sessions/` and a
+  `seat_sessions` row in `junto.db`. Offboard confers no reach, wakes no seat,
+  and authors nothing on the canvas;
+- offboard never rotates a seat. Rotation onto a fresh session is Junto's own
+  act (the token-pressure clock), under the ordinary wake rules: this
+  installation's seat only, on a playing canvas;
+- the renderer asks for a seat's history by seat and session id; main opens
+  only the paths recorded for that row, never a path it is handed.
 
 ### Revocation and deletion
 

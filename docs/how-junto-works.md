@@ -12,6 +12,14 @@ Each harness has a template in `src/shared/managed-terminal-templates.ts` that r
 
 Supported: Claude Code, Codex, Grok, Pi, Devin, Cursor Agent, Antigravity, fx, Prime Agent, Hermes, Kimi Code, Muse, Amp, and Oh My Pi.
 
+## Sessions
+
+Every session a seat runs is recorded in its history: which harness, which session id, where the harness keeps its transcript, and when it started and ended. Before a session ends, or whenever it finishes a stretch of work, the agent runs `junto offboard` with notes on what happened, what is relevant, and why it matters. Junto saves them as `~/.junto/seats/<seat>/sessions/<session>.md`. A seat can only write notes for its own current session.
+
+When the next session runs `junto onboard`, it gets the seat's past sessions, newest first. The latest five notes are included in full (`--past-notes` changes the count), and each older session comes with the paths to its notes and transcript. Onboard marks them as past sessions: context for continuity, not work to resume unless the agent's current instructions or mail ask for it. To look further back, the agent opens those files itself.
+
+When a seat's context passes its limit, Junto asks the agent to offboard. Once it has, or once the grace period runs out, Junto rotates the seat onto a fresh session, which onboards with the notes. The seat's Sessions tab in Customize lists every session with its summary, its notes, and a way to reveal its transcript.
+
 ## Lines and access
 
 An edge compiles into grants. A `messages` edge between two agents gives each one mail, prompt, wait, and read access to the other (`msg.send`, `msg.list`, `msg.prompt`, `seat.wait`, `seat.read`). No edge, no grant: the CLI refuses with a `ScopeError` that names the missing edge.
@@ -23,7 +31,8 @@ The `junto` CLI talks to the app over a local socket, `~/.junto/work/control.soc
 | command | what it does |
 | --- | --- |
 | `junto capabilities` | this seat's lines, grants, and the harnesses on this machine |
-| `junto onboard` | seat orientation: node, edges, co-members |
+| `junto onboard` | seat orientation: node, edges, co-members, and this seat's past sessions |
+| `junto offboard "<notes>"` | save notes on this session for the seat's next one |
 | `junto msg send '{"target":"<seat>","text":"…"}'` | mail a connected seat; a short line lands in its input |
 | `junto msg send --prompt '{"target":"<seat>","text":"…"}'` | mail a connected seat; the full text lands in its input |
 | `junto msg list` | read this seat's inbox (marks listed mail read) |
