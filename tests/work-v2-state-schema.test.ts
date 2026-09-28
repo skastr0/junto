@@ -132,13 +132,8 @@ type RecordFixture = {
   readonly entityHome: string;
   readonly seq: string;
   readonly recordType: "command" | "fact" | "disposition";
-  readonly operation:
-    | "task.create"
-    | "task.claim"
-    | "message.append"
-    | "artifact.publish"
-    | "delivery.accepted";
-  readonly itemKind: "task" | "message" | "artifact" | "delivery";
+  readonly operation: "message.append" | "delivery.accepted";
+  readonly itemKind: "message" | "delivery";
   readonly itemId: string;
   readonly contentSha256: string;
 };
@@ -175,13 +170,7 @@ const insertRecord = (
       record.itemKind,
       record.itemId,
       "factory",
-      record.itemKind === "task"
-        ? "tasks"
-        : record.itemKind === "message"
-          ? "messages"
-          : record.itemKind === "artifact"
-            ? "artifacts"
-          : "deliveries",
+      record.itemKind === "message" ? "messages" : "deliveries",
       record.operation,
       record.contentSha256,
       observedAt,
@@ -357,35 +346,35 @@ describe("Work exact-current SQLite schema", () => {
     const database = makeDatabase();
     registerInstallation(database, "cc-installation");
     registerInstallation(database, "remote-a");
-    registerRoute(database, "cc-installation", "remote-a", "1");
-    registerRoute(database, "remote-a", "remote-a", "2");
+    registerRoute(database, "remote-a", "cc-installation", "1");
+    registerRoute(database, "cc-installation", "cc-installation", "2");
 
     insertCommand(database, {
-      eventHome: "cc-installation",
-      entityHome: "remote-a",
+      eventHome: "remote-a",
+      entityHome: "cc-installation",
       seq: "1",
-      operation: "task.claim",
-      itemKind: "task",
-      itemId: "task-1",
+      operation: "message.append",
+      itemKind: "message",
+      itemId: "message-1",
       contentSha256: hash("1"),
     });
     insertFact(database, {
-      eventHome: "remote-a",
-      entityHome: "remote-a",
+      eventHome: "cc-installation",
+      entityHome: "cc-installation",
       seq: "1",
-      operation: "task.claim",
-      itemKind: "task",
-      itemId: "task-1",
+      operation: "message.append",
+      itemKind: "message",
+      itemId: "message-1",
       contentSha256: hash("2"),
     });
     insertRecord(database, {
-      eventHome: "remote-a",
-      entityHome: "remote-a",
+      eventHome: "cc-installation",
+      entityHome: "cc-installation",
       seq: "2",
       recordType: "disposition",
-      operation: "task.claim",
-      itemKind: "task",
-      itemId: "task-1",
+      operation: "message.append",
+      itemKind: "message",
+      itemId: "message-1",
       contentSha256: hash("3"),
     });
     database
@@ -408,15 +397,15 @@ describe("Work exact-current SQLite schema", () => {
         `,
       )
       .run(
-        "remote-a",
-        "remote-a",
-        "2",
         "cc-installation",
+        "cc-installation",
+        "2",
         "remote-a",
+        "cc-installation",
         "1",
         hash("1"),
-        "remote-a",
-        "remote-a",
+        "cc-installation",
+        "cc-installation",
         "1",
         hash("2"),
       );
@@ -439,21 +428,21 @@ describe("Work exact-current SQLite schema", () => {
     ).toEqual([
       {
         record_type: "command",
-        operation: "task.claim",
-        item_kind: "task",
-        item_id: "task-1",
+        operation: "message.append",
+        item_kind: "message",
+        item_id: "message-1",
       },
       {
         record_type: "fact",
-        operation: "task.claim",
-        item_kind: "task",
-        item_id: "task-1",
+        operation: "message.append",
+        item_kind: "message",
+        item_id: "message-1",
       },
       {
         record_type: "disposition",
-        operation: "task.claim",
-        item_kind: "task",
-        item_id: "task-1",
+        operation: "message.append",
+        item_kind: "message",
+        item_id: "message-1",
       },
     ]);
     expect(
@@ -467,20 +456,6 @@ describe("Work exact-current SQLite schema", () => {
       .all()
       .map((row) => (row as { readonly name: string }).name);
     expect(eventColumns).not.toContain("payload_json");
-    const messageTaskId = database
-      .prepare("PRAGMA table_info(work_messages)")
-      .all()
-      .find(
-        (row) =>
-          (row as { readonly name: string }).name === "task_id",
-      ) as
-      | { readonly name: string; readonly type: string; readonly notnull: number }
-      | undefined;
-    expect(messageTaskId).toMatchObject({
-      name: "task_id",
-      type: "TEXT",
-      notnull: 0,
-    });
     const messageActorSeat = database
       .prepare("PRAGMA table_info(work_messages)")
       .all()
@@ -533,9 +508,9 @@ describe("Work exact-current SQLite schema", () => {
       entityHome: "cc-installation",
       seq: "1",
       recordType: "fact",
-      operation: "task.create",
-      itemKind: "task",
-      itemId: "task-1",
+      operation: "message.append",
+      itemKind: "message",
+      itemId: "message-1",
       contentSha256: hash("1"),
     });
     expect(() =>
@@ -568,9 +543,9 @@ describe("Work exact-current SQLite schema", () => {
       entityHome: "cc-installation",
       seq: "2",
       recordType: "fact",
-      operation: "task.create",
-      itemKind: "task",
-      itemId: "task-2",
+      operation: "message.append",
+      itemKind: "message",
+      itemId: "message-2",
       contentSha256: hash("2"),
     });
     expect(() =>
@@ -608,9 +583,9 @@ describe("Work exact-current SQLite schema", () => {
       entityHome: "remote-installation",
       seq: "1",
       recordType: "fact",
-      operation: "task.create",
-      itemKind: "task",
-      itemId: "task-3",
+      operation: "message.append",
+      itemKind: "message",
+      itemId: "message-3",
       contentSha256: hash("3"),
     });
     factVariant.run(
@@ -629,9 +604,9 @@ describe("Work exact-current SQLite schema", () => {
       entityHome: "cc-installation",
       seq: "3",
       recordType: "fact",
-      operation: "task.create",
-      itemKind: "task",
-      itemId: "task-4",
+      operation: "message.append",
+      itemKind: "message",
+      itemId: "message-4",
       contentSha256: hash("4"),
     });
     expect(() =>
@@ -781,7 +756,6 @@ describe("Work exact-current SQLite schema", () => {
         readonly entityHome: string;
         readonly factEventHome: string;
         readonly factEntityHome: string;
-        readonly taskId?: string;
       },
     ) =>
       database
@@ -799,7 +773,6 @@ describe("Work exact-current SQLite schema", () => {
               fact_seq,
               role,
               parts_json,
-              task_id,
               origin_at,
               received_at
             ) VALUES (
@@ -815,7 +788,6 @@ describe("Work exact-current SQLite schema", () => {
               'agent',
               '[]',
               ?,
-              ?,
               ?
             )
           `,
@@ -826,7 +798,6 @@ describe("Work exact-current SQLite schema", () => {
           seat("b"),
           values.factEventHome,
           values.factEntityHome,
-          values.taskId ?? null,
           observedAt,
           observedAt,
         );
@@ -882,816 +853,17 @@ describe("Work exact-current SQLite schema", () => {
         factEntityHome: "remote-installation",
       }),
     ).toThrow(/work mailbox messages must be Command Center-homed/u);
-    expect(() =>
-      insertMessage(remote, {
-        messageId: "remote-message",
-        entityHome: "remote-installation",
-        factEventHome: "remote-installation",
-        factEntityHome: "remote-installation",
-        taskId: "remote-task",
-      }),
-    ).toThrow(/work mailbox messages must be Command Center-homed/u);
-    expect(() =>
-      insertMessage(remote, {
-        messageId: "cc-message",
-        entityHome: "cc-installation",
-        factEventHome: "cc-installation",
-        factEntityHome: "cc-installation",
-        taskId: "cc-task-reference",
-      }),
-    ).toThrow(/work mailbox messages must be Command Center-homed/u);
     expect(
       remote
         .prepare(
           `
-            SELECT message_id, entity_home, task_id
+            SELECT message_id, entity_home
             FROM work_messages
             ORDER BY message_id
           `,
         )
         .all(),
     ).toEqual([]);
-  });
-
-  test("requires every thread message to name an exact same-home parent", () => {
-    const database = makeDatabase();
-    registerInstallation(database, "cc-installation");
-    configureLocalInstallation(
-      database,
-      "cc-installation",
-      "command-center",
-    );
-    registerRoute(database, "cc-installation", "cc-installation", "2");
-    insertFact(database, {
-      eventHome: "cc-installation",
-      entityHome: "cc-installation",
-      seq: "1",
-      operation: "task.create",
-      itemKind: "task",
-      itemId: "task-1",
-      contentSha256: hash("1"),
-    });
-    insertFact(database, {
-      eventHome: "cc-installation",
-      entityHome: "cc-installation",
-      seq: "2",
-      operation: "message.append",
-      itemKind: "message",
-      itemId: "thread-message",
-      contentSha256: hash("2"),
-    });
-    database
-      .prepare(
-        `
-          INSERT INTO work_tasks(
-            canvas_name,
-            node_id,
-            task_id,
-            entity_home,
-            fact_event_home,
-            fact_entity_home,
-            fact_seq,
-            state,
-            brief_message_id,
-            created_at,
-            updated_at,
-            origin_at,
-            received_at
-          ) VALUES (
-            'factory',
-            'tasks',
-            'task-1',
-            'cc-installation',
-            'cc-installation',
-            'cc-installation',
-            '1',
-            'submitted',
-            'brief-1',
-            ?,
-            ?,
-            ?,
-            ?
-          )
-        `,
-      )
-      .run(observedAt, observedAt, observedAt, observedAt);
-
-    const insertThread = database.prepare(
-      `
-        INSERT INTO work_task_messages(
-          canvas_name,
-          node_id,
-          parent_lane,
-          item_id,
-          message_id,
-          position,
-          message_kind,
-          entity_home,
-          fact_event_home,
-          fact_entity_home,
-          fact_seq,
-          role,
-          parts_json,
-          origin_at,
-          received_at
-        ) VALUES (
-          'factory',
-          'tasks',
-          'task',
-          ?,
-          ?,
-          1,
-          'history',
-          'cc-installation',
-          'cc-installation',
-          'cc-installation',
-          '2',
-          'agent',
-          '[]',
-          ?,
-          ?
-        )
-      `,
-    );
-    expect(() =>
-      insertThread.run(
-        "missing-task",
-        "orphan-message",
-        observedAt,
-        observedAt,
-      ),
-    ).toThrow(/exact same-home parent/u);
-    expect(() =>
-      insertThread.run(
-        "task-1",
-        "thread-message",
-        observedAt,
-        observedAt,
-      ),
-    ).not.toThrow();
-  });
-
-  test("reserves at most one unresolved task claim per item and actor seat", () => {
-    const database = makeDatabase();
-    registerInstallation(database, "cc-installation");
-    registerInstallation(database, "remote-a");
-    registerRoute(database, "cc-installation", "remote-a", "3");
-    registerRoute(database, "remote-a", "remote-a", "2");
-
-    for (const command of [
-      { seq: "1", itemId: "task-1", digest: "1" },
-      { seq: "2", itemId: "task-1", digest: "2" },
-      { seq: "3", itemId: "task-2", digest: "3" },
-    ]) {
-      insertCommand(database, {
-        eventHome: "cc-installation",
-        entityHome: "remote-a",
-        seq: command.seq,
-        operation: "task.claim",
-        itemKind: "task",
-        itemId: command.itemId,
-        contentSha256: hash(command.digest),
-      });
-    }
-
-    const insertPending = database.prepare(
-      `
-        INSERT INTO work_pending_commands(
-          event_home,
-          entity_home,
-          seq,
-          operation,
-          item_kind,
-          item_canvas_name,
-          item_node_id,
-          item_id,
-          claim_actor_seat_id,
-          created_at
-        ) VALUES (?, ?, ?, 'task.claim', 'task', 'factory', 'tasks', ?, ?, ?)
-      `,
-    );
-    expect(() =>
-      insertPending.run(
-        "cc-installation",
-        "remote-a",
-        "1",
-        "task-1",
-        hash("a"),
-        observedAt,
-      ),
-    ).toThrow(/CHECK constraint failed/u);
-    expect(() =>
-      insertPending.run(
-        "cc-installation",
-        "remote-a",
-        "1",
-        "task-1",
-        seat("a").toUpperCase(),
-        observedAt,
-      ),
-    ).toThrow(/CHECK constraint failed/u);
-    insertPending.run(
-      "cc-installation",
-      "remote-a",
-      "1",
-      "task-1",
-      seat("a"),
-      observedAt,
-    );
-
-    expect(() =>
-      insertPending.run(
-        "cc-installation",
-        "remote-a",
-        "2",
-        "task-1",
-        seat("b"),
-        observedAt,
-      ),
-    ).toThrow(/UNIQUE constraint failed/u);
-    expect(() =>
-      insertPending.run(
-        "cc-installation",
-        "remote-a",
-        "3",
-        "task-2",
-        seat("a"),
-        observedAt,
-      ),
-    ).toThrow(/UNIQUE constraint failed/u);
-
-    insertFact(database, {
-      eventHome: "remote-a",
-      entityHome: "remote-a",
-      seq: "1",
-      operation: "task.claim",
-      itemKind: "task",
-      itemId: "task-1",
-      contentSha256: hash("4"),
-    });
-    insertRecord(database, {
-      eventHome: "remote-a",
-      entityHome: "remote-a",
-      seq: "2",
-      recordType: "disposition",
-      operation: "task.claim",
-      itemKind: "task",
-      itemId: "task-1",
-      contentSha256: hash("5"),
-    });
-    database
-      .prepare(
-        `
-          INSERT INTO work_dispositions(
-            event_home,
-            entity_home,
-            seq,
-            status,
-            command_event_home,
-            command_entity_home,
-            command_seq,
-            command_sha256,
-            fact_event_home,
-            fact_entity_home,
-            fact_seq,
-            fact_sha256
-          ) VALUES (
-            'remote-a',
-            'remote-a',
-            '2',
-            'applied',
-            'cc-installation',
-            'remote-a',
-            '1',
-            ?,
-            'remote-a',
-            'remote-a',
-            '1',
-            ?
-          )
-        `,
-      )
-      .run(hash("1"), hash("4"));
-    database
-      .prepare(
-        `
-          UPDATE work_pending_commands
-          SET
-            resolution_status = 'applied',
-            resolution_event_home = 'remote-a',
-            resolution_entity_home = 'remote-a',
-            resolution_seq = '2',
-            resolved_at = ?
-          WHERE event_home = 'cc-installation'
-            AND entity_home = 'remote-a'
-            AND seq = '1'
-        `,
-      )
-      .run(observedAt);
-
-    expect(() =>
-      database
-        .prepare(
-          `
-            INSERT INTO work_pending_commands(
-              event_home,
-              entity_home,
-              seq,
-              operation,
-              item_kind,
-              item_canvas_name,
-              item_node_id,
-              item_id,
-              claim_actor_seat_id,
-              resolution_status,
-              resolution_event_home,
-              resolution_entity_home,
-              resolution_seq,
-              created_at,
-              resolved_at
-            ) VALUES (
-              'cc-installation',
-              'remote-a',
-              '2',
-              'task.claim',
-              'task',
-              'factory',
-              'tasks',
-              'task-1',
-              ?,
-              'applied',
-              'remote-a',
-              'remote-a',
-              '2',
-              ?,
-              ?
-            )
-          `,
-        )
-        .run(seat("b"), observedAt, observedAt),
-    ).toThrow(/causal disposition/u);
-
-    expect(() =>
-      insertPending.run(
-        "cc-installation",
-        "remote-a",
-        "2",
-        "task-1",
-        seat("b"),
-        observedAt,
-      ),
-    ).not.toThrow();
-  });
-
-  test("enforces first claim adoption and one active task per ActorSeatId", () => {
-    const database = makeDatabase();
-    registerInstallation(database, "cc-installation");
-    registerInstallation(database, "remote-a");
-    registerInstallation(database, "remote-b");
-    registerRoute(database, "cc-installation", "cc-installation", "1");
-    registerRoute(database, "remote-a", "remote-a", "3");
-    registerRoute(database, "remote-b", "remote-b", "1");
-
-    insertFact(database, {
-      eventHome: "remote-a",
-      entityHome: "remote-a",
-      seq: "1",
-      operation: "task.claim",
-      itemKind: "task",
-      itemId: "active-1",
-      contentSha256: hash("1"),
-    });
-    insertFact(database, {
-      eventHome: "remote-a",
-      entityHome: "remote-a",
-      seq: "2",
-      operation: "task.claim",
-      itemKind: "task",
-      itemId: "active-2",
-      contentSha256: hash("2"),
-    });
-
-    const insertTask = database.prepare(
-      `
-        INSERT INTO work_tasks(
-          canvas_name,
-          node_id,
-          task_id,
-          entity_home,
-          actor_seat_id,
-          fact_event_home,
-          fact_entity_home,
-          fact_seq,
-          state,
-          brief_message_id,
-          created_at,
-          updated_at,
-          origin_at,
-          received_at
-        ) VALUES (
-          'factory',
-          'tasks',
-          ?,
-          'remote-a',
-          ?,
-          'remote-a',
-          'remote-a',
-          ?,
-          ?,
-          'brief',
-          ?,
-          ?,
-          ?,
-          ?
-        )
-      `,
-    );
-    insertTask.run(
-      "active-1",
-      seat("a"),
-      "1",
-      "working",
-      observedAt,
-      observedAt,
-      observedAt,
-      observedAt,
-    );
-    expect(() =>
-      insertTask.run(
-        "active-2",
-        seat("a"),
-        "2",
-        "input-required",
-        observedAt,
-        observedAt,
-        observedAt,
-        observedAt,
-      ),
-    ).toThrow(/UNIQUE constraint failed/u);
-    expect(() =>
-      insertTask.run(
-        "active-2",
-        seat("a"),
-        "2",
-        "completed",
-        observedAt,
-        observedAt,
-        observedAt,
-        observedAt,
-      ),
-    ).not.toThrow();
-
-    insertFact(database, {
-      eventHome: "cc-installation",
-      entityHome: "cc-installation",
-      seq: "1",
-      operation: "task.create",
-      itemKind: "task",
-      itemId: "adopted",
-      contentSha256: hash("3"),
-    });
-    database
-      .prepare(
-        `
-          INSERT INTO work_tasks(
-            canvas_name,
-            node_id,
-            task_id,
-            entity_home,
-            fact_event_home,
-            fact_entity_home,
-            fact_seq,
-            state,
-            brief_message_id,
-            created_at,
-            updated_at,
-            origin_at,
-            received_at
-          ) VALUES (
-            'factory',
-            'tasks',
-            'adopted',
-            'cc-installation',
-            'cc-installation',
-            'cc-installation',
-            '1',
-            'submitted',
-            'brief',
-            ?,
-            ?,
-            ?,
-            ?
-          )
-        `,
-      )
-      .run(observedAt, observedAt, observedAt, observedAt);
-    insertFact(database, {
-      eventHome: "remote-a",
-      entityHome: "remote-a",
-      seq: "3",
-      operation: "task.claim",
-      itemKind: "task",
-      itemId: "adopted",
-      contentSha256: hash("4"),
-    });
-    database
-      .prepare(
-        `
-          UPDATE work_tasks
-          SET
-            entity_home = 'remote-a',
-            actor_seat_id = ?,
-            fact_event_home = 'remote-a',
-            fact_entity_home = 'remote-a',
-            fact_seq = '3',
-            state = 'working',
-            updated_at = ?
-          WHERE canvas_name = 'factory'
-            AND node_id = 'tasks'
-            AND task_id = 'adopted'
-        `,
-      )
-      .run(seat("b"), observedAt);
-
-    insertFact(database, {
-      eventHome: "remote-b",
-      entityHome: "remote-b",
-      seq: "1",
-      operation: "task.claim",
-      itemKind: "task",
-      itemId: "adopted",
-      contentSha256: hash("5"),
-    });
-    expect(() =>
-      database
-        .prepare(
-          `
-            UPDATE work_tasks
-            SET
-              entity_home = 'remote-b',
-              fact_event_home = 'remote-b',
-              fact_entity_home = 'remote-b',
-              fact_seq = '1',
-              updated_at = ?
-            WHERE canvas_name = 'factory'
-              AND node_id = 'tasks'
-              AND task_id = 'adopted'
-          `,
-        )
-        .run(observedAt),
-    ).toThrow(/home is immutable except for first claim adoption/u);
-  });
-
-  test("binds artifacts to an exact claimed same-home task without coupling publisher", () => {
-    const database = makeDatabase();
-    registerInstallation(database, "cc-installation");
-    registerInstallation(database, "remote-a");
-    configureLocalInstallation(
-      database,
-      "cc-installation",
-      "command-center",
-    );
-    registerRoute(database, "cc-installation", "cc-installation", "9");
-
-    for (const [seq, operation, itemKind, itemId, digit] of [
-      ["1", "task.claim", "task", "claimed-task", "1"],
-      ["2", "artifact.publish", "artifact", "linked-artifact", "2"],
-      ["3", "artifact.publish", "artifact", "partial-artifact", "3"],
-      ["4", "artifact.publish", "artifact", "missing-artifact", "4"],
-      ["5", "artifact.publish", "artifact", "wrong-home-artifact", "5"],
-      ["6", "task.create", "task", "unclaimed-task", "6"],
-      ["7", "artifact.publish", "artifact", "unclaimed-artifact", "7"],
-      ["8", "artifact.publish", "artifact", "unbound-artifact", "8"],
-      ["9", "artifact.publish", "artifact", "wrong-sink-artifact", "9"],
-    ] as const) {
-      insertFact(database, {
-        eventHome: "cc-installation",
-        entityHome: "cc-installation",
-        seq,
-        operation,
-        itemKind,
-        itemId,
-        contentSha256: hash(digit),
-      });
-    }
-
-    const insertTask = database.prepare(
-      `
-        INSERT INTO work_tasks(
-          canvas_name,
-          node_id,
-          task_id,
-          entity_home,
-          actor_seat_id,
-          fact_event_home,
-          fact_entity_home,
-          fact_seq,
-          state,
-          brief_message_id,
-          created_at,
-          updated_at,
-          origin_at,
-          received_at
-        ) VALUES (
-          'factory',
-          'tasks',
-          ?,
-          'cc-installation',
-          ?,
-          'cc-installation',
-          'cc-installation',
-          ?,
-          ?,
-          ?,
-          ?,
-          ?,
-          ?,
-          ?
-        )
-      `,
-    );
-    insertTask.run(
-      "claimed-task",
-      seat("b"),
-      "1",
-      "working",
-      "claimed-brief",
-      observedAt,
-      observedAt,
-      observedAt,
-      observedAt,
-    );
-    insertTask.run(
-      "unclaimed-task",
-      null,
-      "6",
-      "submitted",
-      "unclaimed-brief",
-      observedAt,
-      observedAt,
-      observedAt,
-      observedAt,
-    );
-
-    const insertArtifact = database.prepare(
-      `
-        INSERT INTO work_artifacts(
-          canvas_name,
-          node_id,
-          artifact_id,
-          entity_home,
-          actor_seat_id,
-          fact_event_home,
-          fact_entity_home,
-          fact_seq,
-          parts_json,
-          task_canvas_name,
-          task_node_id,
-          task_id,
-          task_entity_home,
-          origin_at,
-          received_at
-        ) VALUES (
-          'factory',
-          'artifacts',
-          ?,
-          'cc-installation',
-          ?,
-          'cc-installation',
-          'cc-installation',
-          ?,
-          '[]',
-          ?,
-          ?,
-          ?,
-          ?,
-          ?,
-          ?
-        )
-      `,
-    );
-    insertArtifact.run(
-      "linked-artifact",
-      seat("c"),
-      "2",
-      "factory",
-      "tasks",
-      "claimed-task",
-      "cc-installation",
-      observedAt,
-      observedAt,
-    );
-    expect(
-      database
-        .prepare(
-          `
-            SELECT
-              actor_seat_id,
-              task_canvas_name,
-              task_node_id,
-              task_id,
-              task_entity_home
-            FROM work_artifacts
-            WHERE artifact_id = 'linked-artifact'
-          `,
-        )
-        .get(),
-    ).toEqual({
-      actor_seat_id: seat("c"),
-      task_canvas_name: "factory",
-      task_node_id: "tasks",
-      task_id: "claimed-task",
-      task_entity_home: "cc-installation",
-    });
-
-    expect(() =>
-      insertArtifact.run(
-        "partial-artifact",
-        seat("c"),
-        "3",
-        null,
-        "tasks",
-        "claimed-task",
-        "cc-installation",
-        observedAt,
-        observedAt,
-      ),
-    ).toThrow(/CHECK constraint failed/u);
-    expect(() =>
-      insertArtifact.run(
-        "missing-artifact",
-        seat("c"),
-        "4",
-        "factory",
-        "tasks",
-        "missing-task",
-        "cc-installation",
-        observedAt,
-        observedAt,
-      ),
-    ).toThrow(/FOREIGN KEY constraint failed/u);
-    expect(() =>
-      insertArtifact.run(
-        "wrong-sink-artifact",
-        seat("c"),
-        "9",
-        "factory",
-        "other-tasks",
-        "claimed-task",
-        "cc-installation",
-        observedAt,
-        observedAt,
-      ),
-    ).toThrow(/FOREIGN KEY constraint failed/u);
-    expect(() =>
-      insertArtifact.run(
-        "wrong-home-artifact",
-        seat("c"),
-        "5",
-        "factory",
-        "tasks",
-        "claimed-task",
-        "remote-a",
-        observedAt,
-        observedAt,
-      ),
-    ).toThrow(/constraint failed/u);
-    expect(() =>
-      insertArtifact.run(
-        "unclaimed-artifact",
-        seat("c"),
-        "7",
-        "factory",
-        "tasks",
-        "unclaimed-task",
-        "cc-installation",
-        observedAt,
-        observedAt,
-      ),
-    ).toThrow(/exact claimed same-home task/u);
-
-    insertArtifact.run(
-      "unbound-artifact",
-      seat("c"),
-      "8",
-      null,
-      null,
-      null,
-      null,
-      observedAt,
-      observedAt,
-    );
-    expect(() =>
-      database
-        .prepare(
-          `
-            UPDATE work_artifacts
-            SET task_id = 'other-task'
-            WHERE artifact_id = 'linked-artifact'
-          `,
-        )
-        .run(),
-    ).toThrow(/task reference is immutable/u);
   });
 
   test("persists delivery acceptance as an actor-bound fact receipt", () => {
@@ -1727,10 +899,10 @@ describe("Work exact-current SQLite schema", () => {
           received_at
         ) VALUES (
           'delivery-1',
-          'task',
-          'task-1',
+          'message',
+          'message-1',
           'factory',
-          'tasks',
+          'messages',
           ?,
           'factory',
           'agent',
