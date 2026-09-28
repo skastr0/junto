@@ -2,6 +2,8 @@
  * Real-harness session resume [real-harness, opt-in, spends tokens].
  *   JUNTO_REAL_RESUME=1 bun run test:e2e:fast e2e/scenarios/real-harness-resume.spec.ts
  *   JUNTO_REAL_RESUME=claude,codex …   (only these harnesses)
+ * Build the app with JUNTO_FEATURE_PROFILE=all-on first, and add
+ * JUNTO_HARNESS_KIMI=1 so this process's authoring factory admits Kimi too.
  *
  * For each harness CLI installed on this machine: seat it on a playing canvas,
  * send it a code word as operator prompt mail, capture the seat's session id,
@@ -40,7 +42,7 @@ const CASES: readonly Case[] = [
   { harness: "claude", choices: { model: "haiku" } },
   { harness: "codex", choices: { effort: "low" } },
   { harness: "grok", choices: { effort: "low" } },
-  { harness: "cursor" },
+  { harness: "cursor", choices: { model: "composer-2.5" } },
   { harness: "kimi" },
   { harness: "pi", choices: { effort: "off" } },
 ];
@@ -357,12 +359,13 @@ for (const c of CASES) {
       });
 
       // Turn 1 — the code word. The ack is arithmetic so the reply is
-      // distinguishable from the echoed prompt.
+      // distinguishable from the echoed prompt. Plain wording: seat doctrine
+      // teaches models to refuse mail that reads like injected orders.
       const token = `ORCHID${randomDigits(5)}`;
       const addend = 100 + Math.floor(Math.random() * 800);
       const ack = String(3000 + addend);
       const first = await prompt(
-        `Remember this code word for later: ${token}. Do not use any tools. Reply with only the number 3000 + ${String(addend)}.`,
+        `Quick memory game for this chat: the word to keep is ${token}, I will ask for it in my next message. For now, just tell me what 3000 + ${String(addend)} is, as a bare number.`,
       );
       expect(first.ok, `turn 1 prompt: ${first.error ?? ""}`).toBe(true);
       await waitForScreen(new RegExp(`(^|\\D)${ack}(\\D|$)`), 180_000, "turn 1 reply");
@@ -389,7 +392,7 @@ for (const c of CASES) {
 
       // Turn 2 — delivery wakes the seat on its stored session.
       const second = await prompt(
-        "What code word did I ask you to remember earlier in this conversation? Do not use any tools. Reply with exactly RECALL- followed by the code word, nothing else.",
+        "Memory game, part two: which word did I give you for the memory game earlier in this chat? Answer as RECALL- followed by the word, with nothing else.",
       );
       expect(second.ok, `turn 2 prompt: ${second.error ?? ""}`).toBe(true);
       await expect
