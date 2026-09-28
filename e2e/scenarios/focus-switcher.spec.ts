@@ -2,24 +2,18 @@
  * Focus switcher — hold Control+Tab over an open focus modal.
  *   bun run test:e2e:fast e2e/scenarios/focus-switcher.spec.ts
  *
- * Two actor seats plus a tasks sink. Opening Alpha, then Control+Tab, must:
+ * Two actor seats. Opening Alpha, then Control+Tab, must:
  *   - show the HUD without closing the modal
  *   - cycle to another model while Control is held
  *   - commit on Control release and leave a focus surface up
  */
-import {
-  agentTextNode,
-  canvasDoc,
-  tasksNode,
-  worksEdge,
-} from "../harness/sandbox";
+import { agentTextNode, canvasDoc } from "../harness/sandbox";
 import { expect, launchJunto, test } from "../harness/launch";
 
 const CANVAS = "focus-switcher";
 
 const fixture = canvasDoc(
   [
-    tasksNode({ id: "sink", x: 40, y: 40 }),
     agentTextNode({
       id: "alpha",
       key: "local:e2e-switch-alpha",
@@ -35,7 +29,7 @@ const fixture = canvasDoc(
       y: 40,
     }),
   ],
-  [worksEdge("e-sink-alpha", "sink", "alpha")],
+  [],
 );
 
 test("Control+Tab HUD cycles focus models without closing the modal", async ({}, testInfo) => {
