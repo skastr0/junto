@@ -56,7 +56,7 @@ const shotAround = async (page: Page, target: Locator, path: string, pad = 120):
 
 const fixture = canvasDoc(nodes, [
   verbEdge("e-planner-builder", "planner", "builder", "messages", nodes),
-  verbEdge("e-reviewer-planner", "reviewer", "planner", "reviews", nodes),
+  verbEdge("e-reviewer-planner", "reviewer", "planner", "messages", nodes),
   verbEdge("e-planner-scout", "planner", "scout", "messages", nodes),
 ]);
 
@@ -102,7 +102,7 @@ test("agent portraits render on seats and in the focus modal", async () => {
       await page.screenshot({ path: join(SHOTS, `${mode}-editor-look.png`) });
       await editor.screenshot({ path: join(SHOTS, `${mode}-editor.png`) });
       // Hovering an option tries it on the big stage; face traits zoom in.
-      await editor.getByRole("radiogroup", { name: "hats and props" }).getByRole("radio").nth(4).hover();
+      await editor.getByRole("radiogroup", { name: "hats and props" }).getByRole("radio").last().hover();
       await expect(editor.locator(".agent-editor__plate")).toHaveAttribute("data-previewing", "true");
       await page.waitForTimeout(400);
       await editor.screenshot({ path: join(SHOTS, `${mode}-editor-preview.png`) });
