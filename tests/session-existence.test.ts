@@ -8,6 +8,7 @@ import {
   encodeClaudeProjectCwd,
   encodeGrokSessionCwd,
   harnessSessionExists,
+  harnessSessionLocation,
   isHarnessResumeFailureText,
   launchArgvUsesResume,
   parseHarnessSessionArgv,
@@ -82,6 +83,27 @@ describe("harness session existence (external proof)", () => {
     expect(
       harnessSessionExists({ harness: "claude", sessionId: sid, cwd, home }),
     ).toBe(true);
+  });
+
+  it("locates the file or directory an agent can open for the session", () => {
+    const home = tempHome();
+    const cwd = "/Users/me/proj";
+    const claudeId = "4f0c2a8e-1111-4a4a-8b8b-000000000001";
+    const project = join(home, ".claude", "projects", encodeClaudeProjectCwd(cwd));
+    mkdirSync(join(project, claudeId), { recursive: true });
+    // The directory alone proves the session; the transcript, once written, is where to look.
+    expect(harnessSessionLocation({ harness: "claude", sessionId: claudeId, cwd, home })).toBe(join(project, claudeId));
+    writeFileSync(join(project, `${claudeId}.jsonl`), "{}\n");
+    expect(harnessSessionLocation({ harness: "claude", sessionId: claudeId, cwd, home })).toBe(join(project, `${claudeId}.jsonl`));
+
+    const codexId = "019a0000-aaaa-7bbb-8ccc-000000000002";
+    const rollout = join(home, ".codex", "sessions", "2026", "09", "28", `rollout-2026-09-28T10-00-00-${codexId}.jsonl`);
+    mkdirSync(join(home, ".codex", "sessions", "2026", "09", "28"), { recursive: true });
+    writeFileSync(rollout, "{}\n");
+    expect(harnessSessionLocation({ harness: "codex", sessionId: codexId, home })).toBe(rollout);
+
+    expect(harnessSessionLocation({ harness: "codex", sessionId: "missing-session-id", home })).toBeUndefined();
+    expect(harnessSessionLocation({ harness: "unknown", sessionId: codexId, home })).toBeUndefined();
   });
 
   it("never treats our cache/mint as proof", () => {

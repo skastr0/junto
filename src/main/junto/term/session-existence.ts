@@ -90,39 +90,44 @@ const isFile = (path: string): boolean => {
 };
 
 /**
- * True when harness-local durable state for this session id is present.
- * Errors and missing trees return false (not proven).
+ * Where the harness keeps this session on disk: the transcript file or session
+ * directory an agent can open itself, or the harness's own session database
+ * when that is the only record (Hermes, Devin). The same probe as
+ * `harnessSessionExists`, which is this locator answering at all. Errors and
+ * missing trees return undefined (not found).
  */
-export const harnessSessionExists = (probe: SessionExistenceProbe): boolean => {
+export const harnessSessionLocation = (
+  probe: SessionExistenceProbe,
+): string | undefined => {
   const sessionId = probe.sessionId.trim();
-  if (!sessionId) return false;
+  if (!sessionId) return undefined;
   const harness = probe.harness.trim();
-  if (!harness) return false;
+  if (!harness) return undefined;
   const home = resolveHome(probe.home);
   try {
     switch (harness) {
       case "grok":
-        return grokSessionExists(sessionId, probe.cwd, home);
+        return grokSessionLocation(sessionId, probe.cwd, home);
       case "claude":
-        return claudeSessionExists(sessionId, probe.cwd, home);
+        return claudeSessionLocation(sessionId, probe.cwd, home);
       // Capture harnesses: no pin-mint contract; never claim proof from mint alone.
       case "codex":
-        return codexSessionExists(sessionId, home);
+        return codexSessionLocation(sessionId, home);
       case "hermes":
-        return hermesSessionExists(sessionId, home);
+        return hermesSessionLocation(sessionId, home);
       // Pi is a pin harness; sessions live under
       // ~/.pi/agent/sessions/--<cwd-encoded>--/<ts>_<uuidv7>.jsonl.
       case "pi":
-        return piSessionExists(
+        return piSessionLocation(
           sessionId,
           probe.cwd,
           piSessionsRoot(probe, home),
         );
       // Capture harnesses with filesystem cold-proof layouts (2026-08 sweep).
       case "prime-agent":
-        return primeAgentSessionExists(sessionId, home);
+        return primeAgentSessionLocation(sessionId, home);
       case "kimi":
-        return kimiSessionExists(
+        return kimiSessionLocation(
           sessionId,
           sessionsRootWithEnvOverride(
             probe,
@@ -131,24 +136,31 @@ export const harnessSessionExists = (probe: SessionExistenceProbe): boolean => {
           ),
         );
       case "muse":
-        return museSessionExists(sessionId, home);
+        return museSessionLocation(sessionId, home);
       case "fx":
-        return fxSessionExists(sessionId, home);
+        return fxSessionLocation(sessionId, home);
       case "omp":
-        return ompSessionExists(sessionId, probe.cwd, home);
+        return ompSessionLocation(sessionId, probe.cwd, home);
       case "devin":
-        return devinSessionExists(sessionId, home);
+        return devinSessionLocation(sessionId, home);
       case "cursor":
-        return cursorSessionExists(sessionId, probe.cwd, cursorDataRoot(probe, home));
+        return cursorSessionLocation(sessionId, probe.cwd, cursorDataRoot(probe, home));
       case "agy":
-        return agySessionExists(sessionId, home);
+        return agySessionLocation(sessionId, home);
       default:
-        return false;
+        return undefined;
     }
   } catch {
-    return false;
+    return undefined;
   }
 };
+
+/**
+ * True when harness-local durable state for this session id is present.
+ * Errors and missing trees return false (not proven).
+ */
+export const harnessSessionExists = (probe: SessionExistenceProbe): boolean =>
+  harnessSessionLocation(probe) !== undefined;
 
 /**
  * Resume argv is allowed only when the caller wants resume AND external proof
@@ -159,18 +171,18 @@ export const shouldResumeHarnessSession = (
   probe: SessionExistenceProbe,
 ): boolean => wantResume && harnessSessionExists(probe);
 
-const grokSessionExists = (
+const grokSessionLocation = (
   sessionId: string,
   cwd: string | undefined,
   home: string,
-): boolean => {
+): string | undefined => {
   const root = join(home, ".grok", "sessions");
-  if (!isDir(root)) return false;
+  if (!isDir(root)) return undefined;
 
   if (cwd && cwd.trim()) {
     const absolute = isAbsolute(cwd) ? cwd : resolve(cwd);
     const direct = join(root, encodeGrokSessionCwd(absolute), sessionId);
-    if (isDir(direct)) return true;
+    if (isDir(direct)) return direct;
   }
 
   // Id may live under any encoded cwd; one-level scan is the harness layout.
@@ -178,44 +190,48 @@ const grokSessionExists = (
   try {
     entries = readdirSync(root);
   } catch {
-    return false;
+    return undefined;
   }
   for (const enc of entries) {
     const candidate = join(root, enc, sessionId);
-    if (isDir(candidate)) return true;
+    if (isDir(candidate)) return candidate;
   }
-  return false;
+  return undefined;
 };
 
-const claudeSessionExists = (
+const claudeSessionLocation = (
   sessionId: string,
   cwd: string | undefined,
   home: string,
-): boolean => {
+): string | undefined => {
   const projects = join(home, ".claude", "projects");
-  if (!isDir(projects)) return false;
+  if (!isDir(projects)) return undefined;
 
-  const matchInProject = (projectDir: string): boolean => {
-    if (isDir(join(projectDir, sessionId))) return true;
-    if (isFile(join(projectDir, `${sessionId}.jsonl`))) return true;
-    return false;
+  // The transcript is the jsonl; the id-named directory holds its sidecars.
+  const matchInProject = (projectDir: string): string | undefined => {
+    const transcript = join(projectDir, `${sessionId}.jsonl`);
+    if (isFile(transcript)) return transcript;
+    const dir = join(projectDir, sessionId);
+    if (isDir(dir)) return dir;
+    return undefined;
   };
 
   if (cwd && cwd.trim()) {
-    const project = join(projects, encodeClaudeProjectCwd(cwd));
-    if (matchInProject(project)) return true;
+    const found = matchInProject(join(projects, encodeClaudeProjectCwd(cwd)));
+    if (found) return found;
   }
 
   let entries: string[];
   try {
     entries = readdirSync(projects);
   } catch {
-    return false;
+    return undefined;
   }
   for (const enc of entries) {
-    if (matchInProject(join(projects, enc))) return true;
+    const found = matchInProject(join(projects, enc));
+    if (found) return found;
   }
-  return false;
+  return undefined;
 };
 
 /**
@@ -239,10 +255,10 @@ export const isHermesSessionId = (value: string): boolean =>
  * using. Any failure — missing file, locked, unexpected schema — is
  * not-proven, which fails open to a fresh session rather than a dead resume.
  */
-const hermesSessionExists = (sessionId: string, home: string): boolean => {
-  if (!isHermesSessionId(sessionId)) return false;
+const hermesSessionLocation = (sessionId: string, home: string): string | undefined => {
+  if (!isHermesSessionId(sessionId)) return undefined;
   const path = join(home, ".hermes", "state.db");
-  if (!isFile(path)) return false;
+  if (!isFile(path)) return undefined;
 
   let database: DatabaseSync | undefined;
   try {
@@ -261,14 +277,14 @@ const hermesSessionExists = (sessionId: string, home: string): boolean => {
         const row = database
           .prepare(`SELECT 1 AS present FROM sessions WHERE ${column} = ? LIMIT 1`)
           .get(sessionId);
-        return row !== undefined;
+        return row === undefined ? undefined : path;
       } catch {
         // try the next column name
       }
     }
-    return false;
+    return undefined;
   } catch {
-    return false;
+    return undefined;
   } finally {
     try {
       database?.close();
@@ -279,32 +295,33 @@ const hermesSessionExists = (sessionId: string, home: string): boolean => {
 };
 
 /** Codex rollouts embed the thread id in the filename. */
-const codexSessionExists = (sessionId: string, home: string): boolean => {
+const codexSessionLocation = (sessionId: string, home: string): string | undefined => {
   const root = join(home, ".codex", "sessions");
-  if (!isDir(root)) return false;
-  return codexTreeContainsSession(root, sessionId, 0);
+  if (!isDir(root)) return undefined;
+  return codexTreeFindSession(root, sessionId, 0);
 };
 
-const codexTreeContainsSession = (
+const codexTreeFindSession = (
   dir: string,
   sessionId: string,
   depth: number,
-): boolean => {
-  if (depth > 6) return false;
+): string | undefined => {
+  if (depth > 6) return undefined;
   let entries: string[];
   try {
     entries = readdirSync(dir);
   } catch {
-    return false;
+    return undefined;
   }
   for (const name of entries) {
-    if (name.includes(sessionId)) return true;
     const child = join(dir, name);
-    if (isDir(child) && codexTreeContainsSession(child, sessionId, depth + 1)) {
-      return true;
+    if (name.includes(sessionId)) return child;
+    if (isDir(child)) {
+      const found = codexTreeFindSession(child, sessionId, depth + 1);
+      if (found) return found;
     }
   }
-  return false;
+  return undefined;
 };
 
 /**
@@ -332,43 +349,41 @@ const piSessionsRoot = (
   return join(home, ".pi", "agent", "sessions");
 };
 
-const piSessionExists = (
+const piSessionLocation = (
   sessionId: string,
   cwd: string | undefined,
   root: string,
-): boolean => {
-  if (!isDir(root)) return false;
+): string | undefined => {
+  if (!isDir(root)) return undefined;
 
   if (cwd && cwd.trim()) {
     const direct = join(root, encodePiSessionCwd(cwd));
-    if (isDir(direct) && codexTreeContainsSession(direct, sessionId, 0)) {
-      return true;
-    }
+    const found = isDir(direct) ? codexTreeFindSession(direct, sessionId, 0) : undefined;
+    if (found) return found;
   }
 
   let entries: string[];
   try {
     entries = readdirSync(root);
   } catch {
-    return false;
+    return undefined;
   }
   for (const enc of entries) {
     const candidate = join(root, enc);
-    if (isDir(candidate) && codexTreeContainsSession(candidate, sessionId, 0)) {
-      return true;
-    }
+    const found = isDir(candidate) ? codexTreeFindSession(candidate, sessionId, 0) : undefined;
+    if (found) return found;
   }
-  return false;
+  return undefined;
 };
 
 /**
  * Prime Agent sessions: ~/.prime/agent/sessions/<uuid>.jsonl (flat). Resume
  * accepts id prefix/suffix, so a filename containing the id is proof.
  */
-const primeAgentSessionExists = (sessionId: string, home: string): boolean => {
+const primeAgentSessionLocation = (sessionId: string, home: string): string | undefined => {
   const root = join(home, ".prime", "agent", "sessions");
-  if (!isDir(root)) return false;
-  return codexTreeContainsSession(root, sessionId, 0);
+  if (!isDir(root)) return undefined;
+  return codexTreeFindSession(root, sessionId, 0);
 };
 
 /**
@@ -379,37 +394,38 @@ const primeAgentSessionExists = (sessionId: string, home: string): boolean => {
  * creation) and is never treated as a startup receipt; a later scrape is
  * only stored after this probe succeeds.
  */
-const kimiSessionExists = (sessionId: string, root: string): boolean => {
-  if (!isDir(root)) return false;
+const kimiSessionLocation = (sessionId: string, root: string): string | undefined => {
+  if (!isDir(root)) return undefined;
   let entries: string[];
   try {
     entries = readdirSync(root);
   } catch {
-    return false;
+    return undefined;
   }
   for (const workDirKey of entries) {
-    if (isDir(join(root, workDirKey, sessionId))) return true;
+    const dir = join(root, workDirKey, sessionId);
+    if (isDir(dir)) return dir;
   }
-  return false;
+  return undefined;
 };
 
 /**
  * Oh My Pi sessions: one jsonl per session under the encoded-cwd directory.
  * Proof needs the cwd, because that directory IS the workspace.
  */
-const ompSessionExists = (
+const ompSessionLocation = (
   sessionId: string,
   cwd: string | undefined,
   home: string,
-): boolean => {
+): string | undefined => {
   const id = sessionId.trim();
-  if (!isOmpSessionId(id) || !cwd) return false;
+  if (!isOmpSessionId(id) || !cwd) return undefined;
   try {
-    return readdirSync(ompSessionsDir(cwd, home)).some((name) =>
-      name.includes(id),
-    );
+    const dir = ompSessionsDir(cwd, home);
+    const name = readdirSync(dir).find((entry) => entry.includes(id));
+    return name === undefined ? undefined : join(dir, name);
   } catch {
-    return false;
+    return undefined;
   }
 };
 
@@ -418,41 +434,43 @@ const ompSessionExists = (
  * an id captured from the index still has to exist on disk before a seat is
  * allowed to resume it.
  */
-const fxSessionExists = (sessionId: string, home: string): boolean => {
+const fxSessionLocation = (sessionId: string, home: string): string | undefined => {
   const id = sessionId.trim();
-  if (!isFxSessionId(id)) return false;
-  return isDir(join(home, ".fx", "sessions", id));
+  if (!isFxSessionId(id)) return undefined;
+  const dir = join(home, ".fx", "sessions", id);
+  return isDir(dir) ? dir : undefined;
 };
 
 /**
  * Muse sessions: ~/.local/share/muse/sessions/<yyyy>/<mm>/<dd>/<uuid>/. The
  * session id is the date-nested dir name; bounded walk finds it.
  */
-const museSessionExists = (sessionId: string, home: string): boolean => {
+const museSessionLocation = (sessionId: string, home: string): string | undefined => {
   const root = join(home, ".local", "share", "muse", "sessions");
-  if (!isDir(root)) return false;
-  return dirExactlyNamed(root, sessionId, 0);
+  if (!isDir(root)) return undefined;
+  return findDirNamed(root, sessionId, 0);
 };
 
-const dirExactlyNamed = (
+const findDirNamed = (
   dir: string,
   name: string,
   depth: number,
-): boolean => {
-  if (depth > 4) return false;
+): string | undefined => {
+  if (depth > 4) return undefined;
   let entries: string[];
   try {
     entries = readdirSync(dir);
   } catch {
-    return false;
+    return undefined;
   }
   for (const entry of entries) {
     const child = join(dir, entry);
     if (!isDir(child)) continue;
-    if (entry === name) return true;
-    if (dirExactlyNamed(child, name, depth + 1)) return true;
+    if (entry === name) return child;
+    const found = findDirNamed(child, name, depth + 1);
+    if (found) return found;
   }
-  return false;
+  return undefined;
 };
 
 /**
@@ -474,13 +492,14 @@ const dirExactlyNamed = (
  * the operator's own Devin is running. Any failure is not-proven, which fails
  * open to a fresh session rather than a dead resume.
  */
-const devinSessionExists = (sessionId: string, home: string): boolean => {
+const devinSessionLocation = (sessionId: string, home: string): string | undefined => {
   const root = join(home, ".local", "share", "devin", "cli");
-  if (!isDir(root)) return false;
-  if (isFile(join(root, "transcripts", `${sessionId}.json`))) return true;
+  if (!isDir(root)) return undefined;
+  const transcript = join(root, "transcripts", `${sessionId}.json`);
+  if (isFile(transcript)) return transcript;
 
   const path = join(root, "sessions.db");
-  if (!isFile(path)) return false;
+  if (!isFile(path)) return undefined;
   let database: DatabaseSync | undefined;
   try {
     database = new DatabaseSync(path, {
@@ -493,9 +512,9 @@ const devinSessionExists = (sessionId: string, home: string): boolean => {
     const row = database
       .prepare("SELECT 1 AS present FROM sessions WHERE id = ? LIMIT 1")
       .get(sessionId);
-    return row !== undefined;
+    return row === undefined ? undefined : path;
   } catch {
-    return false;
+    return undefined;
   } finally {
     try {
       database?.close();
@@ -532,11 +551,11 @@ const cursorDataRoot = (
  * and that is the right answer: resume would have nothing to resume, so the
  * spawn falls open to creating the session with that same pinned id.
  */
-const cursorSessionExists = (
+const cursorSessionLocation = (
   sessionId: string,
   cwd: string | undefined,
   dataRoot: string,
-): boolean => {
+): string | undefined => {
   const chatsRoot = join(dataRoot, "chats");
   if (isDir(chatsRoot)) {
     let workspaceDirs: string[];
@@ -546,22 +565,24 @@ const cursorSessionExists = (
       workspaceDirs = [];
     }
     for (const workspaceId of workspaceDirs) {
-      if (isFile(join(chatsRoot, workspaceId, sessionId, "meta.json"))) {
-        return true;
-      }
+      const chat = join(chatsRoot, workspaceId, sessionId);
+      if (isFile(join(chat, "meta.json"))) return chat;
     }
   }
 
   const projects = join(dataRoot, "projects");
-  const matchInProject = (projectDir: string): boolean => {
+  const matchInProject = (projectDir: string): string | undefined => {
     const transcripts = join(projectDir, "agent-transcripts");
-    if (isDir(join(transcripts, sessionId))) return true;
-    if (isFile(join(transcripts, `${sessionId}.jsonl`))) return true;
-    return false;
+    const dir = join(transcripts, sessionId);
+    if (isDir(dir)) return dir;
+    const file = join(transcripts, `${sessionId}.jsonl`);
+    if (isFile(file)) return file;
+    return undefined;
   };
 
   if (cwd && cwd.trim()) {
-    if (matchInProject(join(projects, encodeCursorProjectCwd(cwd)))) return true;
+    const found = matchInProject(join(projects, encodeCursorProjectCwd(cwd)));
+    if (found) return found;
   }
 
   if (isDir(projects)) {
@@ -572,11 +593,12 @@ const cursorSessionExists = (
       entries = [];
     }
     for (const enc of entries) {
-      if (matchInProject(join(projects, enc))) return true;
+      const found = matchInProject(join(projects, enc));
+      if (found) return found;
     }
   }
 
-  return false;
+  return undefined;
 };
 
 /**
@@ -584,17 +606,15 @@ const cursorSessionExists = (
  * Verified layout: directory exists and either contains
  * .system_generated/logs/transcript.jsonl or is a directory with entries.
  */
-const agySessionExists = (sessionId: string, home: string): boolean => {
+const agySessionLocation = (sessionId: string, home: string): string | undefined => {
   const root = join(home, ".gemini", "antigravity-cli", "brain", sessionId);
-  if (!isDir(root)) return false;
-  if (isFile(join(root, ".system_generated", "logs", "transcript.jsonl"))) {
-    return true;
-  }
+  if (!isDir(root)) return undefined;
+  const transcript = join(root, ".system_generated", "logs", "transcript.jsonl");
+  if (isFile(transcript)) return transcript;
   try {
-    const entries = readdirSync(root);
-    return entries.length > 0;
+    return readdirSync(root).length > 0 ? root : undefined;
   } catch {
-    return false;
+    return undefined;
   }
 };
 
