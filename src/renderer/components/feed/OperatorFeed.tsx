@@ -496,30 +496,3 @@ export function OperatorFeedHost() {
   }, []);
   return open ? <OperatorFeedSurface /> : null;
 }
-
-/** Top bar entry: an inbox with the live count, crimson while anyone is blocked. */
-export function OperatorFeedTrigger() {
-  const feed = useOperatorFeed();
-  const open = use$(operatorFeed$.open);
-  const blocked = feed.sections.some((section) => section.items.some((item) => item.kind === "blocked"));
-  const label = feed.count === 0 ? "Open needs-you feed, nothing waiting" : `Open needs-you feed, ${feed.count} waiting`;
-  return (
-    <button
-      type="button"
-      className="station-icon-button operator-feed-trigger"
-      data-testid="operator-feed-trigger"
-      aria-label={label}
-      aria-pressed={open}
-      title={`Needs you (${modKeyGlyph()}I)`}
-      style={{ borderColor: "var(--color-stroke)", color: feed.count > 0 ? "var(--color-amber)" : "var(--color-steel)" }}
-      onClick={toggleOperatorFeed}
-    >
-      <Inbox size={15} />
-      {feed.count > 0 ? (
-        <span className={`operator-feed-trigger__count${blocked ? " operator-feed-trigger__count--blocked" : ""}`} aria-hidden>
-          {feed.count > 99 ? "99+" : feed.count}
-        </span>
-      ) : null}
-    </button>
-  );
-}
