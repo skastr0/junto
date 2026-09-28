@@ -185,7 +185,7 @@ CI catches it; **lint/prose** is policed and therefore weakest.
 | kind never runtime-derived | recomputed per open | **type** | spawn takes a `NodeSpec`, not loose `harness?`/`launch?` inputs |
 | an actor never degrades to a shell | silent fallback | **type** | `resolveLaunch` returns `Either<LaunchError, Argv>`; the shell path is reachable only from the `geography/"terminal"` variant |
 | edge legality is role-pair only | correct already | **type** (hold) | `canonicalRolePair` + exhaustive `grantLawBetween` — the pattern to copy |
-| no second actor kind ever appears | — | **test** | `tests/factory-physics-architecture.test.ts`, source-grep in the shape of `ssh-architecture.test.ts` |
+| no second actor kind ever appears | — | **test** | was `tests/factory-physics-architecture.test.ts` (deleted with the factory-era tests), a source-grep in the shape of `ssh-architecture.test.ts` |
 | no `entity.kind ===` in capability code | — | **test** | same file; scans `work/`, `browser/`, `kernel/`, `shared/` |
 | no invented vocabulary | — | **test** | same file; bans `demote`/`half-agent`/`managed-agent`/tier identifiers |
 | the law itself | scattered | **prose, deliberately** | one line in `AGENTS.md`; the negative case in `architecture-factory-physics.md` |
@@ -198,7 +198,8 @@ whether this migration succeeded.
 ## 4 - Commit sequence
 
 Ordered so each commit is independently green (`bunx tsc --noEmit` + `bunx
-vitest run` + `tests/kernel-headless-probe.test.ts`, which boots the real app).
+vitest run` + the kernel headless probe, which booted the real app and has
+since been deleted).
 Type model first; mechanical migration after; deletions last, when nothing
 references them.
 

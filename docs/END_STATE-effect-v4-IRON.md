@@ -51,7 +51,7 @@ bun run lint:effect-runpromise
 
 # P4 green
 bun run typecheck && bun run lint:effect-runpromise && bun run test
-bunx vitest run tests/work-claim-content-ref.test.ts tests/effect-runpromise-boundary.test.ts
+bunx vitest run tests/effect-runpromise-boundary.test.ts
 ```
 
 ---

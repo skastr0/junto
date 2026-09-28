@@ -423,8 +423,6 @@ phase, and attention/occupancy are separate planes.
   power. Placement (`Cc | Station{hostId}`) is data: it never gates a port.
 - **PR test:** no host capability without connected edge + port + process-bind.
 - **Full doctrine:** [`docs/architecture-factory-physics.md`](docs/architecture-factory-physics.md).
-- **Cement:** [`tests/factory-physics-architecture.test.ts`](tests/factory-physics-architecture.test.ts)
-  holds the three invariants no type can hold.
 
 ## Discipline
 
