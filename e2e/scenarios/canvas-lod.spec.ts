@@ -9,7 +9,7 @@
  */
 import type { Page } from "@playwright/test";
 import type { CanvasEdge, CanvasNode } from "../../src/shared/canvas";
-import { agentTextNode, canvasDoc, tasksNode, terminalTextNode, textNode, verbEdge } from "../harness/sandbox";
+import { agentTextNode, canvasDoc, terminalTextNode, textNode, verbEdge } from "../harness/sandbox";
 import { expect, launchJunto, test } from "../harness/launch";
 
 const SHOTS = "test-results/canvas-lod";
@@ -48,7 +48,12 @@ const buildBoard = () => {
       height: 110,
     });
     nodes.push(terminalTextNode({ id: `t${r}`, bindingId: `local:lod-term-${r}`, label: `shell ${r + 1}`, x: rx + 300, y: 290 }));
-    nodes.push(tasksNode({ id: `k${r}`, x: rx + 560, y: 280 }));
+    nodes.push({
+      ...textNode(`k${r}`, `crew ${r + 1} lane`, rx + 560, 280),
+      width: 220,
+      height: 60,
+      ether: { entity: { kind: "label" } },
+    });
   }
   return canvasDoc(nodes, edges);
 };

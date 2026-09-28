@@ -9,7 +9,7 @@
  * Run: bun run test:e2e:fast e2e/scenarios/canvas-pan-flicker.spec.ts
  */
 import type { CanvasDoc, CanvasEdge, CanvasNode, TextNode } from "../../src/shared/canvas";
-import { agentTextNode, canvasDoc, tasksNode, verbEdge } from "../harness/sandbox";
+import { agentTextNode, canvasDoc, verbEdge } from "../harness/sandbox";
 import { expect, test } from "../harness/launch";
 import {
   capture,
@@ -22,7 +22,7 @@ const GESTURE_MS = 6_000;
 
 // --- fixture -----------------------------------------------------------------
 //
-// A real factory neighborhood, not a grid of notes: a genuinely nested
+// A real seat neighborhood, not a grid of notes: a genuinely nested
 // geography — alpha contains bravo, bravo contains delta — plus a sibling
 // region charlie.
 
@@ -79,12 +79,15 @@ const buildField = (): CanvasDoc => {
   // 6 seats in charlie (sibling region).
   const charlieMembers = cluster("rg-charlie", "charlie", charlieAt, 900, 560, 6, 3);
 
-  const tasks = place(tasksNode({ id: "tasks", x: 1020, y: 620 }), { x: 1020, y: 620 });
-  nodes.push(tasks);
+  const lead = place(
+    agentTextNode({ id: "lead", key: "local:flick-lead", label: "flick lead", x: 0, y: 0 }),
+    { x: 1020, y: 620 },
+  );
+  nodes.push(lead);
 
-  // Wire every agent to the shared tasks sink: agent → task `contributes`.
+  // Wire every seat to the shared lead: agent → agent `messages`.
   for (const member of [...alphaMembers, ...bravoMembers, ...deltaMembers, ...charlieMembers]) {
-    edges.push(verbEdge(`e-${member.id}`, member.id, "tasks", "contributes", nodes));
+    edges.push(verbEdge(`e-${member.id}`, member.id, "lead", "messages", nodes));
   }
   return canvasDoc(nodes, edges);
 };

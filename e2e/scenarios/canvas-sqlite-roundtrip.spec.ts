@@ -1,28 +1,23 @@
 import { access, readdir } from "node:fs/promises";
 import { join } from "node:path";
-import {
-  canvasDoc,
-  taskItem,
-  tasksNode,
-  textNode,
-} from "../harness/sandbox";
+import { agentTextNode, canvasDoc, textNode } from "../harness/sandbox";
 import { expect, test } from "../harness/launch";
 
 const ORIGINAL_TEXT = "roundtrip original";
 const UI_EDITED_TEXT = "roundtrip edited via UI";
 const IPC_ADDED_TEXT = "created through the product IPC";
-const SEEDED_TASK_ID = "sqlite-seed-task";
 
 test.use({
   juntoOptions: {
     seedCanvases: {
       roundtrip: canvasDoc([
         textNode("n1", ORIGINAL_TEXT, 0, 0),
-        tasksNode({
-          id: "seeded-work",
+        agentTextNode({
+          id: "seeded-seat",
+          key: "local:sqlite-seed-seat",
+          label: "seeded seat",
           x: 0,
           y: 200,
-          items: [taskItem(SEEDED_TASK_ID, "seeded through WorkRepository")],
         }),
       ]),
     },
@@ -129,9 +124,9 @@ test("canvas list/read/write product paths persist through the unified SQLite au
         api.readCanvas(name),
         api.listCanvases(),
       ]);
-      const seededTask = after.doc.nodes
-        .find((node) => node.id === "seeded-work")
-        ?.ether?.tasks?.items.find((task) => task.id === "sqlite-seed-task");
+      const seededSeat = after.doc.nodes.find(
+        (node) => node.id === "seeded-seat",
+      );
       return {
         beforeRevision: before.revision,
         writeRevision: write.revision,
@@ -140,7 +135,7 @@ test("canvas list/read/write product paths persist through the unified SQLite au
           node.type === "text" ? [node.text] : [],
         ),
         listedNames: listed.map((canvas) => canvas.name),
-        seededTaskState: seededTask?.state,
+        seededSeatKind: seededSeat?.ether?.entity?.kind,
       };
     },
     { name: "roundtrip", addedText: IPC_ADDED_TEXT },
@@ -150,7 +145,7 @@ test("canvas list/read/write product paths persist through the unified SQLite au
   expect(result.afterRevision).toBe(result.writeRevision);
   expect(result.nodeTexts).toContain(IPC_ADDED_TEXT);
   expect(result.listedNames).toContain("roundtrip");
-  expect(result.seededTaskState).toBe("submitted");
+  expect(result.seededSeatKind).toBe("agent");
   await expect(
     page.locator(".react-flow__node", { hasText: IPC_ADDED_TEXT }),
   ).toBeVisible({ timeout: 10_000 });

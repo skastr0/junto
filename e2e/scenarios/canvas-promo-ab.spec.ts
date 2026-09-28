@@ -18,7 +18,7 @@
  *
  * Run: bun run test:e2e:fast e2e/scenarios/canvas-promo-ab.spec.ts
  */
-import { agentTextNode, canvasDoc, tasksNode, verbEdge } from "../harness/sandbox";
+import { agentTextNode, canvasDoc, verbEdge } from "../harness/sandbox";
 import type { CanvasDoc, CanvasEdge, CanvasNode, TextNode } from "../../src/shared/canvas";
 import { expect, test } from "../harness/launch";
 
@@ -72,10 +72,13 @@ const buildField = (): CanvasDoc => {
       }));
     }
   }
-  const tasks = place(tasksNode({ id: "tasks", x: 1020, y: 700 }), { x: 1020, y: 700 });
-  nodes.push(...members, tasks);
+  const lead = place(
+    agentTextNode({ id: "lead", key: "local:ab-lead", label: "ab lead", x: 0, y: 0 }),
+    { x: 1020, y: 700 },
+  );
+  nodes.push(...members, lead);
   for (const member of members) {
-    edges.push(verbEdge(`e-${member.id}`, member.id, "tasks", "contributes", nodes));
+    edges.push(verbEdge(`e-${member.id}`, member.id, "lead", "messages", nodes));
   }
   return canvasDoc(nodes, edges);
 };

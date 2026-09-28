@@ -7,12 +7,7 @@
  * variance, tight enough to fail on an O(n) full-graph remint.
  */
 import type { CanvasDoc, CanvasEdge, CanvasNode } from "../../src/shared/canvas";
-import {
-  agentTextNode,
-  canvasDoc,
-  tasksNode,
-  verbEdge,
-} from "../harness/sandbox";
+import { agentTextNode, canvasDoc, verbEdge } from "../harness/sandbox";
 import { expect, test } from "../harness/launch";
 
 const COLS = 10;
@@ -20,33 +15,24 @@ const ROWS = 8;
 const NODE_COUNT = COLS * ROWS;
 
 /**
- * A real factory graph, not a grid of notes: geography admits no verb, so a
+ * A real seat graph, not a grid of notes: geography admits no verb, so a
  * grid of plain text nodes loses every wire at decode and the budget would be
- * measured on an edgeless canvas. Alternating agent / task kinds make each
- * neighbour pair wireable in exactly one direction — agent → task
- * `contributes`, task → agent `works`.
+ * measured on an edgeless canvas. Every node is a seat, and each neighbour
+ * pair is wired agent → agent `messages`.
  */
-const kindAt = (row: number, col: number): "agent" | "task" =>
-  (row + col) % 2 === 0 ? "agent" : "task";
-
 const denseNodes = (): CanvasNode[] => {
   const nodes: CanvasNode[] = [];
   for (let row = 0; row < ROWS; row += 1) {
     for (let col = 0; col < COLS; col += 1) {
       const i = row * COLS + col;
-      const id = `n${i}`;
-      const x = col * 280;
-      const y = row * 160;
       nodes.push(
-        kindAt(row, col) === "agent"
-          ? agentTextNode({
-              id,
-              key: `local:perf-${i}`,
-              label: `Perf node ${i}`,
-              x,
-              y,
-            })
-          : { ...tasksNode({ id, x, y }), text: `Perf node ${i}` },
+        agentTextNode({
+          id: `n${i}`,
+          key: `local:perf-${i}`,
+          label: `Perf node ${i}`,
+          x: col * 280,
+          y: row * 160,
+        }),
       );
     }
   }
@@ -58,8 +44,7 @@ const denseDoc = (): CanvasDoc => {
   const edges: CanvasEdge[] = [];
   const wire = (id: string, fromRow: number, fromCol: number, to: string) => {
     const from = `n${fromRow * COLS + fromCol}`;
-    const verb = kindAt(fromRow, fromCol) === "agent" ? "contributes" : "works";
-    edges.push(verbEdge(id, from, to, verb, nodes));
+    edges.push(verbEdge(id, from, to, "messages", nodes));
   };
   for (let row = 0; row < ROWS; row += 1) {
     for (let col = 0; col < COLS; col += 1) {
