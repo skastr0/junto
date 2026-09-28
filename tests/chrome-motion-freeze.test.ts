@@ -20,9 +20,6 @@ describe("chrome infinite CSS freeze", () => {
     expect(rts).not.toMatch(/infinite/);
     expect(rts).not.toMatch(/@keyframes\s+rts-notify-attention-pulse\b/);
     expect(rts).not.toMatch(/@keyframes\s+rts-notify-blocked-pulse\b/);
-    expect(rts).toMatch(
-      /\.rts-notify-attention__pill\s*\{[^}]*box-shadow:[^}]*\}/s,
-    );
 
     expect(hud).not.toMatch(/infinite/);
     expect(hud).not.toMatch(/@keyframes\s+usage-hud-shimmer\b/);

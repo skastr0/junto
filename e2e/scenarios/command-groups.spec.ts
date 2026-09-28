@@ -142,6 +142,9 @@ for (const theme of ["Dark", "Bright"] as const) {
     await expect(bar).toBeVisible();
     await expect(bar.locator('[data-testid^="hotbar-slot-"]')).toHaveCount(9);
     await expect(page.locator('.rts-shell [data-testid^="hotbar-slot-"]')).toHaveCount(0);
+    // The bottom bar is only its sections: no groups, no notify strip.
+    await expect(page.locator(".rts-shell").getByRole("region", { name: "Notifications" })).toHaveCount(0);
+    await expect(page.locator(".rts-shell > *")).toHaveCount(3);
 
     // Two seats to slot 1: the chip shows both faces in their rings.
     await node("seat-a").click({ modifiers: ["Shift"] });
@@ -152,6 +155,8 @@ for (const theme of ["Dark", "Bright"] as const) {
     await expect(slot1.locator(".group-chip__face")).toHaveCount(2);
     await expect(slot1.locator(".group-chip__face img, .group-chip__face svg").first()).toBeVisible();
     await expect(slot1.locator(".group-chip__key")).toHaveText("1");
+    await page.keyboard.press("Escape");
+    await page.locator("header.station-bar").screenshot({ path: `${shots}/${theme.toLowerCase()}-slot-1.png` });
 
     // Notes fill slots 2 to 9.
     for (let slot = 2; slot <= 9; slot += 1) {
@@ -186,9 +191,12 @@ for (const theme of ["Dark", "Bright"] as const) {
     await page.locator("header.station-bar").screenshot({ path: `${shots}/${tag}-top-bar.png` });
     await page.screenshot({ path: `${shots}/${tag}-window.png` });
 
-    // Dragging it onto slot 1 gives it that key; slot 1's group moves past nine.
-    await extra1.dragTo(slot1);
-    await expect(slot1).toContainText("gamma");
-    await expect(bar.getByTestId("command-group-extra-1")).toContainText("alpha");
+    // Dragging it onto slot 9 gives it that key; slot 9's note moves past nine.
+    const slot9 = bar.getByTestId("hotbar-slot-9");
+    await extra1.scrollIntoViewIfNeeded();
+    await extra1.dragTo(slot9);
+    await expect(slot9).toHaveAttribute("data-tenure", "group");
+    await expect(slot9.locator(".group-chip__face")).toHaveCount(2);
+    await expect(bar.getByTestId("command-group-extra-1")).toContainText("note 8");
   });
 }

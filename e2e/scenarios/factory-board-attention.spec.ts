@@ -88,12 +88,14 @@ test("factory board: fire on claimed input-required, calm edges silent, tasks gl
   await expect(workerShell).toHaveAttribute("data-blocked", "true", { timeout: 15_000 });
   await expect(workerShell).toHaveAttribute("data-attention", "fire");
 
-  // The permanent notify strip must include both the blocked claimant and
-  // the attention-bearing sink, even though neither node is inside a region.
-  const attentionPills = page.getByTestId("notify-attention-pills");
-  await expect(attentionPills).toBeVisible({ timeout: 15_000 });
-  await expect(attentionPills).toContainText("worker");
-  await expect(attentionPills).toContainText("queue work");
+  // The needs-you inbox must list both the blocked claimant and the
+  // attention-bearing sink, even though neither node is inside a region.
+  await page.getByTestId("operator-feed-trigger").click();
+  const inbox = page.getByTestId("needs-you-inbox");
+  await expect(inbox).toBeVisible({ timeout: 15_000 });
+  await expect(inbox).toContainText("worker", { timeout: 15_000 });
+  await expect(inbox).toContainText("queue work");
+  await page.keyboard.press("Escape");
 
   // The publish wire renders, and unblocked wires stay silent — no face
   // label text "relates" on edge chips.

@@ -8,8 +8,6 @@ import {
 } from "react";
 import { use$ } from "@legendapp/state/react";
 import {
-  AlertTriangle,
-  Ban,
   CircleDot,
   Copy,
   Crosshair,
@@ -25,14 +23,13 @@ import {
   Trash2,
 } from "lucide-react";
 import type { CanvasNode } from "@shared/canvas";
-import { TASKS_ENABLED } from "@shared/features";
 import { executionGraphContextFromActorRefs } from "@shared/graph";
 import type { MemberSeverity, RegionRollup } from "@shared/region-rollup";
 import { formatNodeRef } from "@shared/node-ref";
 import { selectNode, state$ } from "../../lib/state";
 import { viewportBusy$ } from "../../lib/viewport-busy";
 import { useRegionRollups } from "../../lib/region-rollups";
-import { seatFactsOf, toggleSlotAssignment } from "../../lib/command-group-runtime";
+import { toggleSlotAssignment } from "../../lib/command-group-runtime";
 import {
   deleteNode,
   deleteNodes,
@@ -44,7 +41,6 @@ import {
   multiSelectionLabel,
 } from "../../lib/multi-selection";
 import { nodeTitle, nodeTypeLabel } from "../../lib/presentation";
-import { chatCoarse$ } from "../../lib/chat-state";
 import {
   commandSelectionKind,
   hotbarSlotIndexOf,
@@ -61,19 +57,9 @@ import { openWorkDetail } from "../../lib/work-detail-open";
 import { focusBlockerCause, resolveBlockerCause } from "../../lib/blocker-cause";
 import { executionGraphForImpact } from "../../lib/impact-mode";
 import { ConnectEditor } from "../InspectorFields";
-import { StoppageRank } from "./StoppageRank";
-import { CompletedTaskNotifyStack } from "./CompletedTaskNotify";
 import { EdgeCommandCard } from "./RtsControls";
 import { KindSurface } from "./KindSurface";
 import { RollCall } from "./RollCall";
-import { agentSeat$ } from "../../lib/agent-seat-state";
-import {
-  collectOperatorAttention,
-  freestandingFromCanvasAttention,
-  OPERATOR_ATTENTION_HEADLINE,
-  OPERATOR_ATTENTION_STRIP_MAX,
-} from "../../lib/operator-attention";
-import type { SeatFacts } from "../../lib/seat-projections";
 import { claimFocus } from "../../lib/focus-ownership";
 import { AccentColorSwatches } from "./AccentColorPicker";
 import "./RtsBottomBar.css";
@@ -553,125 +539,6 @@ function MinimapChrome({ children }: { readonly children: ReactNode }) {
   return <div className="rts-minimap-wrap">{children}</div>;
 }
 
-/**
- * Permanent attention pills in the notify strip (needs-input + blocked).
- * Sole permanent visual attention surface (SFX is a separate opt-in product
- * gate). Sources: region rollups + canvas-wide graph/harness/flag freestanding
- * so nodes outside every region still appear. Complements StoppageRank.
- */
-function OperatorAttentionPills({
-  rollups,
-}: {
-  readonly rollups: ReadonlyArray<RegionRollup>;
-}) {
-  const doc = use$(state$.doc);
-  const canvasName = use$(state$.canvasName);
-  const actorRefs = use$(state$.actorRefs);
-  const execution = use$(kernel$.execution);
-  const executionRev = use$(kernel$.executionRev);
-  const seatRev = use$(agentSeat$.rev);
-  const chatByAgent = use$(chatCoarse$) as Record<
-    string,
-    { readonly pendingPermissionId?: string } | undefined
-  >;
-
-  const items = useMemo(() => {
-    const context = executionGraphContextFromActorRefs(canvasName, actorRefs);
-    const graph = executionGraphForImpact(doc, execution, context);
-    const blockedReasonsByNodeId = new Map<string, ReadonlyArray<string>>();
-    for (const [nodeId, reasons] of graph.reasonsByNodeId) {
-      blockedReasonsByNodeId.set(
-        nodeId,
-        reasons.map((reason) => `${reason.kind}:${reason.detail}`),
-      );
-    }
-    const factsByNodeId = new Map<string, SeatFacts>();
-    for (const node of doc.nodes) {
-      factsByNodeId.set(
-        node.id,
-        seatFactsOf(node, {
-          graphBlocked: graph.blocked.has(node.id),
-          chatByAgent,
-        }),
-      );
-    }
-    const freestanding = freestandingFromCanvasAttention(
-      doc.nodes.map((n) => ({
-        id: n.id,
-        label: nodeTitle(n),
-      })),
-      factsByNodeId,
-      blockedReasonsByNodeId,
-    );
-    return collectOperatorAttention(rollups, factsByNodeId, freestanding);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- executionRev stamps kernel execution
-  }, [
-    rollups,
-    doc,
-    seatRev,
-    chatByAgent,
-    canvasName,
-    actorRefs,
-    execution,
-    executionRev,
-  ]);
-
-  if (items.length === 0) return null;
-  const visible = items.slice(0, OPERATOR_ATTENTION_STRIP_MAX);
-  return (
-    <div
-      className="rts-notify-attention"
-      role="group"
-      aria-label="Operator attention required"
-      data-testid="notify-attention-pills"
-    >
-      {visible.map((item) => (
-        <button
-          key={item.id}
-          type="button"
-          className={`rts-notify-attention__pill rts-notify-attention__pill--${item.kind}`}
-          title={`${OPERATOR_ATTENTION_HEADLINE[item.kind]} — ${item.label}`}
-          aria-label={`${OPERATOR_ATTENTION_HEADLINE[item.kind]}: ${item.label}. Focus node.`}
-          onClick={() => {
-            selectNode(item.nodeId);
-            state$.focusNodeId.set(item.nodeId);
-          }}
-        >
-          {item.kind === "blocked" ? (
-            <Ban size={10} aria-hidden />
-          ) : (
-            <AlertTriangle size={10} aria-hidden />
-          )}
-          <span className="rts-notify-attention__text">
-            {item.kind === "blocked" ? "blocked" : "needs input"} — {item.label}
-          </span>
-        </button>
-      ))}
-      {items.length > visible.length ? (
-        <span className="rts-notify-attention__more">+{items.length - visible.length}</span>
-      ) : null}
-    </div>
-  );
-}
-
-/**
- * Thin strip above the minimap only — stoppage rank + permanent attention.
- * Parallel to the region strip (ops left+mid); keeps the minimap full-height.
- */
-function NotifyStrip({ rollups }: { readonly rollups: ReadonlyArray<RegionRollup> }) {
-  return (
-    <div className="rts-notify-strip" role="region" aria-label="Notifications">
-      <div className="rts-notify-strip__chrome">
-        <span className="rts-notify-strip__label">notify</span>
-      </div>
-      <div className="rts-notify-strip__body">
-        <OperatorAttentionPills rollups={rollups} />
-        <StoppageRank />
-      </div>
-    </div>
-  );
-}
-
 /** Severity index for minimap nodeColor — built from latest rollups. */
 function useSeverityByNodeId(rollups: ReadonlyArray<RegionRollup>): ReadonlyMap<string, MemberSeverity> {
   return useMemo(() => {
@@ -734,10 +601,8 @@ export function RtsBottomBar({ minimap, tools }: { readonly minimap: ReactNode; 
 
   return (
     <div className="rts-shell" role="region" aria-label="RTS bottom bar">
-      {/* Above notify + minimap cluster (bottom-right stack). */}
-      {TASKS_ENABLED ? <CompletedTaskNotifyStack /> : null}
-      {/* Top row: the notify strip over the minimap. Command groups live in the top bar. */}
-      <NotifyStrip rollups={rollups} />
+      {/* One row: command, kind, minimap. Command groups live in the top bar,
+          needs-you in the top-right inbox. */}
       <CommandCard regionRollup={selectedRegion} />
       <KindMiddle />
       <div className="rts-right">

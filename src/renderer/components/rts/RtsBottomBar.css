@@ -8,9 +8,8 @@
 }
 
 /*
- * Outer shell — one grid for the whole HUD:
- *   row 1: notify strip (col 3); command groups live in the top bar
- *   row 2: command | kind | minimap
+ * Outer shell — one row: command | kind | minimap. Command groups live in
+ * the top bar, needs-you in the top-right inbox.
  */
 .rts-shell {
   position: relative;
@@ -18,7 +17,7 @@
   z-index: 25;
   display: grid;
   grid-template-columns: minmax(220px, 1fr) minmax(300px, 1.4fr) minmax(220px, 1fr);
-  grid-template-rows: auto auto;
+  grid-template-rows: auto;
   gap: 6px 8px;
   padding: 6px 10px 10px;
   pointer-events: none;
@@ -158,45 +157,7 @@
   min-width: 0;
 }
 
-/* Notify strip chrome. */
-.rts-notify-strip {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-height: 34px;
-  max-height: 40px;
-  padding: 3px 8px;
-  border: 1px solid var(--color-overlay-4);
-  border-radius: 8px;
-  background: color-mix(in oklab, var(--color-ground) 88%, transparent);
-  box-shadow: 0 6px 18px var(--color-shadow-2);
-  overflow: hidden;
-}
-
-/* Notifications over the minimap column only — never stacked inside it. */
-.rts-notify-strip {
-  grid-column: 3;
-  grid-row: 1;
-}
-
-.rts-notify-strip__chrome {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-shrink: 0;
-}
-
-.rts-notify-strip__label {
-  font-size: 8px;
-  font-weight: 600;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-  color: color-mix(in oklab, var(--color-steel) 85%, transparent);
-  white-space: nowrap;
-  line-height: 1;
-}
-
-/* Triad panels live on row 2 of the shell grid. */
+/* The triad panels are the shell's one row. */
 .rts-panel {
   display: flex;
   flex-direction: column;
@@ -211,7 +172,7 @@
   background: color-mix(in oklab, var(--color-ground) 94%, transparent);
   box-shadow: 0 8px 24px var(--color-shadow-2);
   overflow: hidden; /* never scroll the bar panels */
-  grid-row: 2;
+  grid-row: 1;
 }
 
 /* Command card: fixed height, no scroll; connect pops above. */
@@ -637,7 +598,7 @@
 
 .rts-right {
   grid-column: 3;
-  grid-row: 2;
+  grid-row: 1;
   display: flex;
   flex-direction: column;
   gap: 0;
@@ -714,165 +675,6 @@
 /* Docked add-menu portals to document.body (fixed) — absolute popovers are
    clipped by .rts-right { overflow: hidden }. Placement lives in CanvasFieldTools. */
 
-/* ── Notify strip (horizontal, one row, above minimap only) ─────────────── */
-
-.rts-notify-strip__body {
-  display: flex;
-  flex-wrap: nowrap;
-  align-items: center;
-  gap: 6px;
-  flex: 1;
-  min-width: 0;
-  overflow-x: auto;
-  overflow-y: hidden;
-  scrollbar-width: thin;
-}
-
-/* Permanent needs-input / blocked pills — must read louder than stoppage. */
-.rts-notify-attention {
-  display: flex;
-  flex-wrap: nowrap;
-  align-items: center;
-  gap: 4px;
-  flex-shrink: 0;
-}
-
-.rts-notify-attention__pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  max-width: 168px;
-  padding: 3px 8px;
-  border-radius: 5px;
-  border: 1px solid color-mix(in oklab, var(--color-main) 65%, transparent);
-  background: color-mix(in oklab, var(--color-main) 16%, transparent);
-  color: var(--color-amber-hi);
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.02em;
-  white-space: nowrap;
-  cursor: pointer;
-  box-shadow: 0 0 0 2px color-mix(in oklab, var(--color-main) 35%, transparent);
-}
-
-.rts-notify-attention__pill--blocked {
-  border-color: color-mix(in oklab, var(--color-accent) 70%, transparent);
-  background: color-mix(in oklab, var(--color-accent) 16%, transparent);
-  color: var(--color-accent-fg);
-  box-shadow: 0 0 0 2px color-mix(in oklab, var(--color-accent) 38%, transparent);
-}
-
-.rts-notify-attention__pill:hover,
-.rts-notify-attention__pill:focus-visible {
-  outline: none;
-  filter: brightness(1.12);
-}
-
-.rts-notify-attention__text {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  min-width: 0;
-}
-
-.rts-notify-attention__more {
-  font-size: 9px;
-  font-weight: 700;
-  color: color-mix(in oklab, var(--color-main) 90%, transparent);
-  letter-spacing: 0.06em;
-}
-
-.rts-notify-strip__group {
-  display: flex;
-  flex-wrap: nowrap;
-  align-items: center;
-  gap: 4px;
-  flex-shrink: 0;
-}
-
-.rts-notify-strip__pulse {
-  display: flex;
-  flex-wrap: nowrap;
-  align-items: center;
-  min-width: 0;
-  flex: 1;
-}
-
-.rts-notify-strip__pulse .pulse-tray {
-  flex-direction: row !important;
-  align-items: center !important;
-  gap: 4px !important;
-  max-width: 100%;
-  overflow-x: auto;
-  overflow-y: hidden;
-  pointer-events: auto;
-}
-
-.rts-notify-strip__pulse .pulse-toast {
-  pointer-events: auto;
-  flex-shrink: 0;
-  max-width: 160px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  animation: junto-toast-enter 200ms cubic-bezier(0.16, 1, 0.3, 1);
-}
-
-/* Compact stoppage into the strip: row of impact pills, no vertical stack. */
-.rts-notify-strip .rts-stoppage {
-  display: flex;
-  flex-direction: row;
-  align-items: center;
-  gap: 4px;
-  max-height: none;
-  padding: 0;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-  overflow: visible;
-  flex-shrink: 0;
-}
-
-.rts-notify-strip .rts-stoppage__label {
-  display: none;
-}
-
-.rts-notify-strip .rts-stoppage__list {
-  display: flex;
-  flex-direction: row;
-  flex-wrap: nowrap;
-  gap: 4px;
-  overflow: visible;
-}
-
-.rts-notify-strip .rts-stoppage-row {
-  max-width: 132px;
-  padding: 2px 6px;
-  border-radius: 4px;
-  border: 1px solid color-mix(in oklab, var(--color-accent) 40%, transparent);
-  background: color-mix(in oklab, var(--color-accent) 10%, transparent);
-  opacity: 1;
-}
-
-.rts-notify-strip .rts-stoppage-row__line {
-  font-size: 9px;
-}
-
-/* Compact orphan pills. */
-.rts-notify-strip .rts-orphan {
-  gap: 4px;
-  padding: 2px 6px;
-  max-width: 140px;
-  flex-shrink: 0;
-}
-
-.rts-notify-strip .rts-orphan__key {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  min-width: 0;
-  font-size: 9px;
-}
-
 @keyframes junto-toast-enter {
   from {
     opacity: 0;
@@ -881,12 +683,6 @@
   to {
     opacity: 1;
     transform: translateY(0);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .rts-notify-strip__pulse .pulse-toast {
-    animation: none;
   }
 }
 
@@ -903,8 +699,7 @@
 }
 
 /* Drop blur while the field is busy — backdrop-filter is compositor-heavy. */
-html[data-viewport-busy] .react-flow .rts-panel,
-html[data-viewport-busy] .react-flow .rts-notify-strip {
+html[data-viewport-busy] .react-flow .rts-panel {
   backdrop-filter: none !important;
 }
 
@@ -1053,7 +848,6 @@ html[data-viewport-busy] .react-flow .rts-notify-strip {
     overflow: auto;
   }
 
-  .rts-notify-strip,
   .rts-panel--cmd,
   .rts-panel--mid,
   .rts-right {
@@ -1063,15 +857,6 @@ html[data-viewport-busy] .react-flow .rts-notify-strip {
 
   .rts-panel {
     max-height: none;
-  }
-
-  .rts-notify-strip {
-    max-height: none;
-    flex-wrap: wrap;
-  }
-
-  .rts-notify-strip__body {
-    flex-wrap: wrap;
   }
 }
 
