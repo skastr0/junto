@@ -2,6 +2,7 @@ import { use$ } from "@legendapp/state/react";
 import { isHarnessId, templateFor } from "@shared/managed-terminal-templates";
 import {
   formatTokens,
+  HARNESS_CONTEXT_SUPPORT,
   pressureGaugeLabel,
   pressureKey,
   type SeatPressureSnapshot,
@@ -33,11 +34,15 @@ export const pressureTitle = (snapshot: SeatPressureSnapshot): string => {
   }
   const used = formatTokens(snapshot.usedTokens ?? 0);
   const window = snapshot.window !== undefined
-    ? ` of a ${formatTokens(snapshot.window)} window${snapshot.windowSource === "table" ? " (Junto's figure for this model)" : ""}`
+    ? ` of a ${formatTokens(snapshot.window)} window${snapshot.usedPercent !== undefined ? `, ${Math.round(snapshot.usedPercent)}% by ${harnessName(snapshot.harness)}'s own count` : ""}`
     : "";
   const lines = [`${used} tokens in context${window}.`];
   if (snapshot.limitBlocked === "no-window") {
-    lines.push(`${harnessName(snapshot.harness)} does not record its context window, so a percent limit cannot apply. Set a token limit for this seat instead.`);
+    const reports = snapshot.harness !== undefined && isHarnessId(snapshot.harness) &&
+      HARNESS_CONTEXT_SUPPORT[snapshot.harness]?.window === "session";
+    lines.push(reports
+      ? `${harnessName(snapshot.harness)} has not reported its context window yet, so a percent limit waits until it does.`
+      : `${harnessName(snapshot.harness)} does not record its context window, so a percent limit cannot apply. Set a token limit for this seat instead.`);
   } else if (snapshot.limitTokens !== undefined) {
     lines.push(`Junto asks it to offboard at ${formatTokens(snapshot.limitTokens)}${snapshot.thresholdFrom === "seat" ? ", this seat's own limit" : ""}.`);
   } else {

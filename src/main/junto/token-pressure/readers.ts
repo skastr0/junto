@@ -8,37 +8,59 @@
  * Every figure is the prompt the model saw on its latest request, cache
  * included, so all harnesses measure the same thing. Windows come from the
  * session itself where the harness records it, else from the harness's own
- * model cache or config, else (Claude) from our table, else unknown.
+ * model cache or config, else (Claude) from the status line Junto hands it,
+ * else unknown.
  */
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import {
-  claudeContextWindow,
-  type ContextReading,
-  type ContextWindowSource,
-} from "@shared/token-pressure";
+import { resolveJuntoHome } from "@shared/junto-home";
+import type { ContextReading, ContextWindowSource } from "@shared/token-pressure";
+import { claudeStatusPaths, parseClaudeStatusRecord } from "../term/claude-status-line";
 import { encodeClaudeProjectCwd, harnessSessionLocation } from "../term/session-existence";
 
 export type SeatSessionRef = {
   readonly harness: string;
   readonly sessionId: string;
   readonly cwd?: string;
-  /** The model the seat was launched with, when its launch names one. */
-  readonly launchModel?: string;
+  /** The seat's node id, which keys the files Junto writes for the seat. */
+  readonly nodeId?: string;
   /** The seat's launch env, for harness home overrides. */
   readonly env?: Readonly<Record<string, string>>;
+};
+
+/** The window a harness reports apart from its session file, read when asked. */
+export type LiveWindow = {
+  readonly window: number;
+  readonly windowSource: ContextWindowSource;
+  readonly usedPercent?: number;
 };
 
 /** One session file and the parser for its lines (it may keep state). */
 export type OpenedSession = {
   readonly path: string;
   readonly parse: (line: string) => ContextReading | undefined;
+  /**
+   * The window as the harness last reported it elsewhere. Read on every
+   * tick, never cached into a line's reading: the report can land after the
+   * line it belongs to.
+   */
+  readonly liveWindow?: () => LiveWindow | undefined;
 };
 
 export type ContextReader = {
   /** The seat's session file, or undefined while there is none. */
-  readonly open: (seat: SeatSessionRef, home: string) => OpenedSession | undefined;
+  readonly open: (seat: SeatSessionRef, home: string, juntoHome?: string) => OpenedSession | undefined;
+};
+
+/** A line's reading with the window the harness reports now, when it has one. */
+export const withLiveWindow = (
+  reading: ContextReading | undefined,
+  opened: Pick<OpenedSession, "liveWindow">,
+): ContextReading | undefined => {
+  if (reading === undefined || opened.liveWindow === undefined) return reading;
+  const live = opened.liveWindow();
+  return live === undefined ? reading : { ...reading, ...live };
 };
 
 // ── Shared helpers ──────────────────────────────────────────────────────────
@@ -130,9 +152,10 @@ const locateClaude = (seat: SeatSessionRef, home: string): string | undefined =>
 /**
  * The last main-thread assistant record's `message.usage`: input + cache read
  * + cache creation. Subagent (`isSidechain`) and synthetic records carry no
- * main-context usage. The transcript has no window: ours (see the table).
+ * main-context usage. The transcript has no window; Claude reports it only
+ * to its status line (`claudeStatusWindow`).
  */
-export const parseClaudeLine = (line: string, launchModel?: string): ContextReading | undefined => {
+export const parseClaudeLine = (line: string): ContextReading | undefined => {
   if (!line.includes('"type":"assistant"') || !line.includes('"usage"')) return undefined;
   const row = parseJson(line);
   if (row === undefined || row.type !== "assistant" || row.isSidechain === true) return undefined;
@@ -144,17 +167,34 @@ export const parseClaudeLine = (line: string, launchModel?: string): ContextRead
   const usedTokens =
     count(usage.input_tokens) + count(usage.cache_read_input_tokens) + count(usage.cache_creation_input_tokens);
   if (usedTokens === 0) return undefined;
-  return withWindow(
-    { usedTokens, ...(model !== undefined ? { model } : {}), at: timeOf(row.timestamp) },
-    claudeContextWindow(launchModel),
-    "table",
-  );
+  return { usedTokens, ...(model !== undefined ? { model } : {}), at: timeOf(row.timestamp) };
+};
+
+/**
+ * The window and percentage Claude last gave the seat's status line, from
+ * the record Junto's recorder writes. Only a record for this very session
+ * counts; before the first render there is none and the window is unknown.
+ */
+export const claudeStatusWindow = (recordPath: string, sessionId: string): LiveWindow | undefined => {
+  const record = cachedFile(recordPath, (p) => parseClaudeStatusRecord(readFileSync(p, "utf8")));
+  if (record === undefined || record.sessionId !== sessionId) return undefined;
+  return {
+    window: record.contextWindowSize,
+    windowSource: "session",
+    ...(record.usedPercentage !== undefined ? { usedPercent: record.usedPercentage } : {}),
+  };
 };
 
 const claude: ContextReader = {
-  open: (seat, home) => {
+  open: (seat, home, juntoHome = resolveJuntoHome()) => {
     const path = locateClaude(seat, home);
-    return path === undefined ? undefined : { path, parse: (line) => parseClaudeLine(line, seat.launchModel) };
+    if (path === undefined) return undefined;
+    const record = seat.nodeId === undefined ? undefined : claudeStatusPaths(seat.nodeId, juntoHome)?.record;
+    return {
+      path,
+      parse: parseClaudeLine,
+      ...(record !== undefined ? { liveWindow: () => claudeStatusWindow(record, seat.sessionId) } : {}),
+    };
   },
 };
 

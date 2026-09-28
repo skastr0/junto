@@ -78,17 +78,9 @@ describe("context readers on recorded sessions", () => {
     const reading = readOnce("claude", { sessionId: CLAUDE_SESSION, cwd: CWD });
     // Last real assistant record: 2 + 131313 + 949. The sidechain and
     // synthetic records after it are not the main context.
-    expect(reading).toMatchObject({
-      usedTokens: 132_264,
-      window: 200_000,
-      windowSource: "table",
-      model: "claude-opus-5-5",
-    });
-  });
-
-  it("gives a Claude seat launched on a [1m] model the 1M window", () => {
-    placeClaude();
-    expect(readOnce("claude", { sessionId: CLAUDE_SESSION, cwd: CWD, launchModel: "opus[1m]" })?.window).toBe(1_000_000);
+    expect(reading).toMatchObject({ usedTokens: 132_264, model: "claude-opus-5-5" });
+    // The transcript has no window; Claude reports it only to its status line.
+    expect(reading?.window).toBeUndefined();
   });
 
   it("finds a Claude session whose folder is not the seat's cwd", () => {

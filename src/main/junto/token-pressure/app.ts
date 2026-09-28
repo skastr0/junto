@@ -8,8 +8,6 @@ import { Effect } from "effect";
 import { ulid } from "ulid";
 import { actorDeliverySurfaceOf } from "@shared/actor-surface";
 import { mailExtensionMetadata } from "@shared/crew";
-import { recoverDocumentLaunchChoices } from "@shared/launch-choices";
-import { isHarnessId } from "@shared/managed-terminal-templates";
 import { PRODUCT_NAME } from "@shared/product-name";
 import { makeUserMessage } from "@shared/task";
 import { isSeatTokenPressure } from "@shared/token-pressure";
@@ -38,9 +36,6 @@ export const listPressureSeats = (): Promise<ReadonlyArray<PressureSeat>> =>
           if (surface?._tag !== "managedAgent" || surface.hostId !== "local") continue;
           const terminal = node.ether?.terminal;
           const harness = surface.harness;
-          const model = isHarnessId(harness)
-            ? recoverDocumentLaunchChoices(harness, terminal?.launch).model
-            : undefined;
           const override = terminal?.tokenPressure;
           seats.push({
             canvasName: summary.name,
@@ -49,7 +44,6 @@ export const listPressureSeats = (): Promise<ReadonlyArray<PressureSeat>> =>
             harness,
             sessionId: terminal?.sessionId?.trim() ?? "",
             ...(terminal?.launch?.cwd ? { cwd: terminal.launch.cwd } : {}),
-            ...(model ? { launchModel: model } : {}),
             ...(terminal?.launch?.env ? { env: terminal.launch.env } : {}),
             ...(override !== undefined && isSeatTokenPressure(override) ? { override } : {}),
           });

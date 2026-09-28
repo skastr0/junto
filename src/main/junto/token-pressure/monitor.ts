@@ -22,7 +22,7 @@ import {
   type TokenPressureChange,
   type TokenPressureSettings,
 } from "@shared/token-pressure";
-import { contextReaderFor, type SeatSessionRef } from "./readers";
+import { contextReaderFor, withLiveWindow, type OpenedSession, type SeatSessionRef } from "./readers";
 import { SessionTail } from "./session-tail";
 
 export type PressureSeat = SeatSessionRef & {
@@ -61,6 +61,8 @@ export type TokenPressurePorts = {
   /** Changed and removed snapshots since the last publish. */
   readonly publish: (change: TokenPressureChange) => void;
   readonly home: () => string;
+  /** Where Junto's own per-seat files live; the app's Junto home when absent. */
+  readonly juntoHome?: () => string;
   readonly now?: () => number;
   readonly log?: (message: string) => void;
 };
@@ -73,6 +75,7 @@ const SEAT_REFRESH_MS = 15_000;
 const LOCATE_RETRY_MS = 30_000;
 
 type TailEntry = {
+  readonly opened: OpenedSession | undefined;
   readonly tail: SessionTail<ContextReading> | undefined;
   readonly lookedAt: number;
 };
@@ -182,14 +185,15 @@ export class TokenPressureMonitor {
     const tailKey = `${seat.harness}:${seat.sessionId}`;
     let entry = this.tails.get(tailKey);
     if (entry === undefined || (entry.tail === undefined && now - entry.lookedAt >= LOCATE_RETRY_MS)) {
-      const opened = reader.open(seat, this.ports.home());
+      const opened = reader.open(seat, this.ports.home(), this.ports.juntoHome?.());
       entry = {
+        opened,
         tail: opened === undefined ? undefined : new SessionTail(opened.path, opened.parse),
         lookedAt: now,
       };
       this.tails.set(tailKey, entry);
     }
-    return entry.tail?.read();
+    return entry.opened === undefined ? undefined : withLiveWindow(entry.tail?.read(), entry.opened);
   }
 
   /** Drop tails no running seat reads any more. */
@@ -230,6 +234,7 @@ export class TokenPressureMonitor {
       usedTokens: reading.usedTokens,
       ...(reading.window !== undefined ? { window: reading.window } : {}),
       ...(reading.windowSource !== undefined ? { windowSource: reading.windowSource } : {}),
+      ...(reading.usedPercent !== undefined ? { usedPercent: reading.usedPercent } : {}),
       ...(chosen !== undefined ? { thresholdFrom: chosen.from } : {}),
     };
     if (limit === undefined || !limit.ok) {

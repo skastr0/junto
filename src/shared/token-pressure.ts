@@ -87,20 +87,11 @@ export const isSeatTokenPressure = Schema.is(SeatTokenPressure);
 
 // ── Context windows ─────────────────────────────────────────────────────────
 
-/** Where a window came from: the session file, harness config, or our table. */
-export type ContextWindowSource = "session" | "config" | "table";
-
 /**
- * Claude Code writes exact usage and the model id to its transcript, but not
- * the context window. This table is ours, not Anthropic's: every Claude model
- * runs with 200k unless it was started as a `[1m]` variant, which the seat's
- * launch model carries (the transcript drops the suffix).
+ * Where a window came from: what the running session reported (its session
+ * file, or Claude's status line), or the harness's own model cache or config.
  */
-export const CLAUDE_DEFAULT_WINDOW = 200_000;
-export const CLAUDE_1M_WINDOW = 1_000_000;
-
-export const claudeContextWindow = (launchModel: string | undefined): number =>
-  launchModel !== undefined && /\[1m\]\s*$/i.test(launchModel) ? CLAUDE_1M_WINDOW : CLAUDE_DEFAULT_WINDOW;
+export type ContextWindowSource = "session" | "config";
 
 // ── Harness support ─────────────────────────────────────────────────────────
 
@@ -117,6 +108,10 @@ export type HarnessContextSupport = {
 };
 
 /**
+ * Claude Code writes its usage to the transcript but reports its window only
+ * to its status line, which every Claude seat launches with (see
+ * `claude-status-line`); until the first render the window is unknown.
+ *
  * Verified against real session files on 2026-09-28 (Claude Code 2.1.282,
  * Codex 0.157.1, Grok 1.0.41, Kimi Code 2.1.1, Muse 1.4.0, Pi 0.85.1,
  * Oh My Pi 18.1.16, Prime Agent). Hermes and fx record only running totals,
@@ -126,7 +121,7 @@ export type HarnessContextSupport = {
  * are not read yet.
  */
 export const HARNESS_CONTEXT_SUPPORT: Readonly<Partial<Record<HarnessId, HarnessContextSupport>>> = {
-  claude: { window: "table" },
+  claude: { window: "session" },
   codex: { window: "session" },
   grok: { window: "session" },
   kimi: { window: "config" },
@@ -147,6 +142,8 @@ export type ContextReading = {
   readonly usedTokens: number;
   readonly window?: number;
   readonly windowSource?: ContextWindowSource;
+  /** The harness's own percent of its window, where it reports one (Claude). */
+  readonly usedPercent?: number;
   readonly model?: string;
   /** Record time (ms) when the file has one, else when it was read. */
   readonly at: number;
@@ -250,6 +247,8 @@ export type SeatPressureSnapshot = {
   readonly usedTokens?: number;
   readonly window?: number;
   readonly windowSource?: ContextWindowSource;
+  /** The harness's own percent of its window, where it reports one. */
+  readonly usedPercent?: number;
   /** Absent when no threshold applies (off, or percent without a window). */
   readonly limitTokens?: number;
   readonly thresholdFrom?: "seat" | "default";
@@ -297,7 +296,8 @@ export const describeThreshold = (threshold: TokenPressureThreshold): string =>
 
 /**
  * The mail an agent reads when it crosses. Plain and short: what happened,
- * what to do, and that Junto will do it for them if they do not.
+ * which offboard fits where it is (continue mid-work, rest at a stopping
+ * point), and that Junto will rotate the seat if it does neither.
  */
 export const composeOffboardNudge = (input: {
   readonly usedTokens: number;
@@ -306,6 +306,8 @@ export const composeOffboardNudge = (input: {
 }): string =>
   [
     `Your context is at ${formatTokens(input.usedTokens)} tokens, past this seat's limit of ${formatTokens(input.limitTokens)}.`,
-    'Finish the step you are on, then run `junto offboard "<notes>"` with where you are, what is left, and why it matters, so a fresh session of this seat can pick it up.',
+    'If you are mid-work, finish the step you are on, then run `junto offboard "<notes>" --continue "<what to pick up next and why>"`. A fresh session of this seat starts as soon as you go idle and carries on from your note.',
+    'If you are at a stopping point, run `junto offboard "<notes>"`. The session closes and the seat rests until its next wake.',
+    "Either way the notes say what happened, what is relevant, and why it matters.",
     `If you have not offboarded in ${input.graceMinutes} minute${input.graceMinutes === 1 ? "" : "s"}, Junto will rotate this seat for you.`,
   ].join("\n");

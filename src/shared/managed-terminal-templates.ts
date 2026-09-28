@@ -184,6 +184,12 @@ export type ArgvSpec = {
    */
   readonly rulesDirFlag?: string;
   /**
+   * Extra-settings flag (Claude `--settings <file>`). Carries the Junto status
+   * line that reports the harness's own context window; emitted on every
+   * launch, resume included, because settings do not survive a restart.
+   */
+  readonly settingsFlag?: string;
+  /**
    * Extra tokens emitted only on a resume that also re-passes injection
    * carriers. Claude 2.1.267+ snapshots `--append-system-prompt` by default
    * (`--system-prompt-snapshot` defaults on), so a later different append is
@@ -779,6 +785,7 @@ export const CLAUDE_TEMPLATE: ManagedTerminalTemplate = {
     systemPromptFlag: "--append-system-prompt",
     resumeReinjection: "re-pass",
     resumeReinjectionArgv: ["--system-prompt-snapshot", "off"],
+    settingsFlag: "--settings",
   },
   envSpec: SHARED_ENV_SPEC,
   injectionSpec: {

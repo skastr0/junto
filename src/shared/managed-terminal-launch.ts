@@ -93,6 +93,11 @@ export type ManagedLaunchChoices = {
    */
   readonly rulesDir?: string;
   /**
+   * Extra settings file for `argvSpec.settingsFlag` (Claude `--settings`).
+   * Main-side `planManagedSpawn` writes it on the spawning host.
+   */
+  readonly settingsFile?: string;
+  /**
    * Seat connection + context slots. When set:
    * - connected=false → no Tier-A flags from injection (unconnected silence)
    * - connected=true + tier A → systemPrompt filled from doctrine builder
@@ -427,6 +432,10 @@ const buildArgv = (
 
   if (choices.sessionId && spec.sessionIdFlag) {
     pushFlag(argv, spec.sessionIdFlag, choices.sessionId);
+  }
+
+  if (choices.settingsFile) {
+    pushFlag(argv, spec.settingsFlag, choices.settingsFile);
   }
 
   // Tier-A injection. Grok prefers --agent file when provided.
