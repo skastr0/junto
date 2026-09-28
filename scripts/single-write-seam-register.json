@@ -233,6 +233,15 @@
       "retire": "IN-MEMORY WORLD: retire when the in-memory factory world owns the projection and this file's only write is the journal append."
     },
     {
+      "path": "src/main/junto/seat-sessions/repository.ts",
+      "kind": "debt",
+      "tables": [
+        "seat_sessions"
+      ],
+      "reason": "Seat session seam: the harness sessions each agent seat has run, recorded as the canvas pins, captures, or rotates a session id, ended as offboard, reseat, or replaced, and marked offboarded when the seat's agent writes its notes. The canvas recorder, the offboard op, and rotation all reach the table only through this repository.",
+      "retire": "IN-MEMORY WORLD: retire when the in-memory factory world owns the projection and this file's only write is the journal append."
+    },
+    {
       "path": "src/main/junto/portraits/repository.ts",
       "kind": "debt",
       "tables": [
