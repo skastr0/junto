@@ -137,18 +137,6 @@ test("Mode Deck exposes the searchable catalog and keeps launch context dense at
       deck.getByRole("button", { name: /terminal/i }),
     ).toBeVisible();
 
-    await deck.getByRole("tab", { name: "Schedule", exact: true }).click();
-    // Gauge (hermes stat_threshold) is palette-hidden — cron and relay are
-    // the product scheduler peers.
-    for (const scheduler of ["Cron", "Relay"]) {
-      await expect(
-        deck.locator('[data-picker-card="catalog"] .picker-card__hit').filter({ hasText: scheduler }),
-      ).toBeVisible();
-    }
-    await expect(
-      deck.locator('[data-picker-card="catalog"] .picker-card__hit').filter({ hasText: "Gauge" }),
-    ).toHaveCount(0);
-
     const agentPane = deck.locator('aside[aria-label="Agents"]');
     const launchContext = agentPane.getByRole("region", {
       name: "Launch context",

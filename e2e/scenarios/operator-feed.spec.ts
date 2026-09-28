@@ -77,7 +77,7 @@ const ASKS: ReadonlyArray<Pick<AgentSignal, "kind" | "text"> & { readonly detail
   },
   { kind: "escalate", text: "Two tests disagree on the date format; I picked ISO 8601 and kept going." },
   { kind: "feedback", text: "The settings page redesign is ready for a look." },
-  { kind: "feedback", text: "Draft release notes are in the pad." },
+  { kind: "feedback", text: "Draft release notes are in docs/release-notes.md." },
   { kind: "blocked", text: "The deploy key was rotated and CI can no longer push tags." },
   { kind: "escalate", text: "The spec says soft delete but the table has no deleted_at column. Add one?" },
   { kind: "feedback", text: "Benchmarks for the new cache are attached; p95 dropped from 41 ms to 12 ms." },

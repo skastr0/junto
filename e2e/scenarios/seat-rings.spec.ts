@@ -76,7 +76,7 @@ const signalEvents = (at: number) =>
 
 const fixture = canvasDoc(nodes, [
   verbEdge("e-planner-builder", "planner", "builder", "messages", nodes),
-  verbEdge("e-reviewer-planner", "reviewer", "planner", "reviews", nodes),
+  verbEdge("e-reviewer-planner", "reviewer", "planner", "messages", nodes),
 ]);
 
 test("agent seats and their connection cards hold portraits in rings; the gallery renders", async () => {
@@ -197,7 +197,7 @@ test("agent seats and their connection cards hold portraits in rings; the galler
       { nodeId: "planner", text: "splitting the migration into two steps" },
       { nodeId: "builder", text: "thrashing", provenance: "ai", action: "health", tone: "amber" },
       { nodeId: "reviewer", text: "blocked: needs the prod DB password", provenance: "agent", action: "signal", tone: "crimson" },
-      { nodeId: "scout", text: "claimed a task", provenance: "agent", action: "tool", tone: "indigo" },
+      { nodeId: "scout", text: "read the migration plan", provenance: "agent", action: "tool", tone: "indigo" },
       { nodeId: "docs", text: "done, not read yet", provenance: "system", action: "state", tone: "green" },
       { nodeId: "tester", text: "mail from planner: rebase is done", provenance: "agent", action: "mail-in", tone: "violet" },
     ].map((fields, i) => ({ preambleId: `stage-${String(i)}`, canvasName: "seat-rings", expiresAt: now + 60_000, ...fields }));

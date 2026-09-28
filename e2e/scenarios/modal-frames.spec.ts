@@ -24,7 +24,6 @@ const board: CanvasDoc = {
     { id: "rg-lab", type: "group", label: "lab", x: 20, y: 20, width: 860, height: 220 },
     ...seats,
     { id: "note-1", type: "text", text: "# Field notes\n\nThe operator draft stays put.", x: 60, y: 300, width: 260, height: 140 },
-    { id: "pad-1", type: "text", text: "pad", x: 380, y: 300, width: 240, height: 120, ether: { entity: { kind: "pad" } } },
     terminalTextNode({ id: "term-1", bindingId: "local:frames-term", label: "shell", x: 680, y: 300 }),
   ],
   edges: [],
@@ -97,13 +96,6 @@ const SURFACES: readonly Surface[] = [
     },
     close: async (page) => {
       await page.getByRole("dialog", { name: "Edit note" }).getByRole("button", { name: "done", exact: true }).click();
-    },
-  },
-  {
-    name: "pad",
-    open: async (page) => {
-      await page.locator('.react-flow__node[data-id="pad-1"]').dblclick();
-      await page.waitForTimeout(600);
     },
   },
   {
