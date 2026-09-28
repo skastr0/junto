@@ -2,8 +2,8 @@
  * RTS shell controls e2e.
  *
  * Layout: region strip (1–9) above the whole bar; left = type/base actions
- * per physics role; middle = kind actions (agent chat, terminal, task
- * board, …); right = minimap. Pause is canvas-wide only (top bar): no node
+ * per physics role; middle = kind actions (agent chat, terminal, …);
+ * right = minimap. Pause is canvas-wide only (top bar): no node
  * or region pause key anywhere.
  *
  * Boards install at runtime via window.junto (authority-only boot); pattern
@@ -12,13 +12,12 @@
  */
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
-import { agentTextNode, canvasDoc, tasksNode } from "../harness/sandbox";
+import { agentTextNode, canvasDoc } from "../harness/sandbox";
 import { expect, test } from "../harness/launch";
 
 const SHOTS = join(process.cwd(), "test-results", "rts-controls");
 
 const fixtureDoc = canvasDoc([
-  tasksNode({ id: "tasks", x: 40, y: 40 }),
   agentTextNode({
     id: "seat",
     key: "local:worker",
@@ -139,105 +138,12 @@ test("rts shell: role left, kind middle, region strip, pause everywhere", async 
 
   await page.screenshot({ path: join(SHOTS, "01-actor-selected.png"), fullPage: false });
 
-  // Task sink: left gains open-detail, middle kind strip labels the sink
-  // kind and gains board + add-task keys.
-  await page.locator(".react-flow__node", { hasText: "tasks" }).first().click();
-  await expect(page.locator(".rts-kind-kind-label")).toContainText("task");
-  await expect(
-    page.locator(".rts-panel--cmd").getByRole("button", { name: "Open detail" }),
-  ).toBeVisible();
-  await expect(kindStrip.getByRole("button", { name: "Open task board" })).toBeVisible();
-  await expect(kindStrip.getByRole("button", { name: "Add task" })).toBeVisible();
-  await expect(kindStrip.getByRole("button", { name: "Sink contract" })).toHaveCount(0);
-
-  const admissionKey = kindStrip.getByRole("button", { name: "Who starts tasks" });
-  const waitKey = kindStrip.getByRole("button", { name: "Wait before starting" });
-  await expect(admissionKey).toHaveAttribute("data-junto-tooltip", "Starts: Immediate");
-  await expect(waitKey).toHaveAttribute("data-junto-tooltip", "Wait: none");
-
-  await admissionKey.click();
-  const admissionQuickSelect = page.getByLabel("Admission quick select");
-  await expect(admissionQuickSelect).toBeVisible();
-  await admissionQuickSelect.getByRole("button", { name: "Approval" }).click();
-  await expect(admissionKey).toHaveAttribute(
-    "data-junto-tooltip",
-    "Starts: Approval",
-  );
-
-  await waitKey.click();
-  const waitQuickSet = page.getByLabel("Wait quick set");
-  await expect(waitQuickSet).toBeVisible();
-  await page.screenshot({ path: join(SHOTS, "03-task-board-wait.png"), fullPage: false });
-  await waitQuickSet.getByRole("button", { name: "1h" }).click();
-  await expect(waitKey).toHaveAttribute("data-junto-tooltip", "Wait: 1h");
-  // The install-time fit centers the region, so the tasks sink sits outside
-  // the viewport and its floating toolbar (fixed-position) cannot be clicked.
-  // Frame the selected node through the command card first.
-  await page.locator(".rts-panel--cmd").getByRole("button", { name: "Focus" }).click();
-  const taskToolbarEnqueue = page.getByTestId("node-toolbar-task-enqueue");
-  await expect(taskToolbarEnqueue).toBeVisible();
-  await taskToolbarEnqueue.click();
-  const quickEnqueue = page.getByTestId("task-enqueue-surface");
-  await expect(quickEnqueue).toBeVisible();
-  await quickEnqueue.getByRole("button", { name: "Close task enqueue" }).click();
-  await expect(quickEnqueue).toBeHidden();
-  await page.screenshot({ path: join(SHOTS, "03-task-sink.png"), fullPage: false });
-
-  // Add-task pop: submits through the work service; the sink card shows it.
-  // The workbench enqueue stays open after create (form clears for the next).
-  await kindStrip.getByRole("button", { name: "Add task" }).click();
-  const pinnedEnqueue = page.getByTestId("task-enqueue-surface");
-  await pinnedEnqueue.getByRole("button", { name: "Pin task enqueue" }).click();
-  await expect(
-    pinnedEnqueue.getByRole("button", { name: "Unpin task enqueue" }),
-  ).toBeVisible();
-  const brief = pinnedEnqueue.getByPlaceholder("What needs doing?");
-  await expect(brief).toBeVisible();
-  await page.screenshot({ path: join(SHOTS, "03b-add-task-pop.png"), fullPage: false });
-  await brief.fill("wire");
-
-  // Work-plane projection updates must not blur or remount a pinned interactive
-  // surface. Preserve both the active element and its in-progress draft.
-  await page.evaluate(async () => {
-    const api = window.junto!;
-    const canvas = (await api.listCanvases())[0];
-    if (!canvas) throw new Error("No canvas available for focus regression");
-    const result = await api.workTaskCreate(
-      canvas.name,
-      "tasks",
-      "Background pinned projection update",
-      { details: "Background pinned projection update" },
-    );
-    if (!result.ok) throw new Error(result.message);
-  });
-  await expect(
-    page
-      .locator(".react-flow__node", { hasText: "Background pinned projection update" })
-      .first(),
-  ).toBeVisible();
-  await expect(brief).toBeFocused();
-  await expect(brief).toHaveValue("wire");
-
-  await brief.fill("wire the loop");
-  await pinnedEnqueue
-    .getByPlaceholder(/Context, constraints/)
-    .fill("wire the loop end to end");
-  await brief.press("Enter");
-  await expect(brief).toHaveValue("");
-  await expect(
-    page.locator(".react-flow__node", { hasText: "wire the loop" }).first(),
-  ).toBeVisible();
-  await pinnedEnqueue.getByRole("button", { name: "Close task enqueue" }).click();
-  await expect(page.getByTestId("task-enqueue-surface")).toBeHidden();
-
-  // The canvas is still framed on the tasks sink. The background projection
-  // reload does not promise to retain selection, so make the hotkey target
-  // explicit before assigning it to slot 2.
-  await page.locator('.react-flow__node[data-id="tasks"]').click();
+  // An operator-owned slot: the selected seat goes to slot 2 (⌘/Ctrl+2).
+  await page.locator('.react-flow__node[data-id="seat"]').click();
   await page.keyboard.press(process.platform === "darwin" ? "Meta+2" : "Control+2");
-  const tasksChip = regionStrip.locator('.group-chip[data-node-id="tasks"]');
-  await expect(tasksChip).toBeVisible();
-  await page.screenshot({ path: join(SHOTS, "05-tasks-slotted.png"), fullPage: false });
+  const seatChip = regionStrip.locator('.group-chip[data-node-id="seat"]');
+  await expect(seatChip).toBeVisible();
+  await page.screenshot({ path: join(SHOTS, "05-seat-slotted.png"), fullPage: false });
 
   // Reframe to the readable field (region-centered), then assign region to
   // slot 1 (⌘/Ctrl+1); its command card carries no pause. Region interiors are inert

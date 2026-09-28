@@ -1,24 +1,23 @@
 /**
  * Canvas pause surface e2e.
  *
- * The factory is born paused (@shared/pause law). This drives the rendered
+ * The canvas is born paused (@shared/pause law). This drives the rendered
  * top bar: a fresh canvas must show the PAUSED state, the first play must
  * surface the explicit confirmation (honest consequences), and confirming
  * must flip the control to playing.
  *
  * Boards install at runtime via window.junto (disk seedCanvases is dead —
- * authority-only boot); pattern copied from work-plane.spec.ts.
+ * authority-only boot).
  * Run: `bunx electron-vite build && bun run test:e2e:fast e2e/scenarios/pause-surface.spec.ts`
  */
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
-import { agentTextNode, canvasDoc, tasksNode } from "../harness/sandbox";
+import { agentTextNode, canvasDoc } from "../harness/sandbox";
 import { expect, test } from "../harness/launch";
 
 const SHOTS = join(process.cwd(), "test-results", "pause-surface");
 
 const fixtureDoc = canvasDoc([
-  tasksNode({ id: "tasks", x: 40, y: 40 }),
   agentTextNode({
     id: "seat",
     key: "local:worker",
@@ -77,7 +76,7 @@ test("pause surface: born paused in top bar, first play confirms, confirm flips 
 
   await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
   await installBoard(page);
-  await expect(page.locator(".react-flow__node", { hasText: "tasks" })).toBeVisible({
+  await expect(page.locator('.react-flow__node[data-id="seat"]')).toBeVisible({
     timeout: 30_000,
   });
 
@@ -99,10 +98,8 @@ test("pause surface: born paused in top bar, first play confirms, confirm flips 
   const confirm = page.getByTestId("first-play-confirm");
   await expect(confirm).toBeVisible();
   await expect(confirm).toContainText("Start");
-  await expect(confirm).toContainText("Cron and relay nodes start firing");
   await expect(confirm).toContainText("Junto CLI");
   await expect(confirm).toContainText("Queued messages deliver to their targets");
-  await expect(confirm).toContainText("Queued tasks are handed to free connected agents");
   await page.screenshot({ path: join(SHOTS, "02-first-play-confirm.png"), fullPage: false });
 
   // Cancel changes nothing.

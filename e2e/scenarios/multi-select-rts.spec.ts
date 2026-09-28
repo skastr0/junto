@@ -5,11 +5,11 @@
  * Shift-add selection surfaces the multi command card + multi-prompt input.
  * Run: `bunx electron-vite build && bun run test:e2e:fast e2e/scenarios/multi-select-rts.spec.ts`
  */
-import { agentTextNode, canvasDoc, tasksNode } from "../harness/sandbox";
+import { agentTextNode, canvasDoc, textNode } from "../harness/sandbox";
 import { expect, test } from "../harness/launch";
 
 const fixtureDoc = canvasDoc([
-  tasksNode({ id: "tasks", x: 40, y: 40 }),
+  textNode("note", "field notes", 40, 40),
   agentTextNode({
     id: "seat-a",
     key: "local:alpha",
@@ -100,10 +100,10 @@ test("multi-select: RTS multi command + multi-prompt", async ({ junto }) => {
 
   const alpha = page.locator(".react-flow__node", { hasText: "alpha" }).first();
   const beta = page.locator(".react-flow__node", { hasText: "beta" }).first();
-  const tasks = page.locator('.react-flow__node[data-id="tasks"]');
+  const note = page.locator('.react-flow__node[data-id="note"]');
   await expect(alpha).toBeVisible({ timeout: 30_000 });
   await expect(beta).toBeVisible({ timeout: 30_000 });
-  await expect(tasks).toBeVisible({ timeout: 30_000 });
+  await expect(note).toBeVisible({ timeout: 30_000 });
 
     // Shift+click is product law for additive multi-select (dominance handler
   // at window capture, so React Flow's pane marquee never sees the event).
@@ -114,7 +114,7 @@ test("multi-select: RTS multi command + multi-prompt", async ({ junto }) => {
   await shiftClick(beta);
   await expect(alpha).toHaveClass(/selected/);
   await expect(beta).toHaveClass(/selected/);
-  await expect(tasks).not.toHaveClass(/selected/);
+  await expect(note).not.toHaveClass(/selected/);
 
   const multiCmd = page.getByTestId("rts-multi-command");
   await expect(multiCmd).toBeVisible();
@@ -130,22 +130,22 @@ test("multi-select: RTS multi command + multi-prompt", async ({ junto }) => {
   await promptInput.fill("Keep this draft with the selected seats");
   await expect(promptInput).toBeFocused();
 
-  // Work-plane writes emit a new canvas projection. That projection may
+  // A background canvas write emits a new projection. That projection may
   // rebuild the selected-node objects, but it must not blur or remount the
   // interactive prompt when its canonical target set is unchanged.
   await page.evaluate(async () => {
     const api = window.junto!;
     const canvas = (await api.listCanvases())[0];
     if (!canvas) throw new Error("No canvas available for focus regression");
-    const result = await api.workTaskCreate(
-      canvas.name,
-      "tasks",
-      "Background multi-prompt projection update",
-      { details: "Background multi-prompt projection update" },
+    const read = await api.readCanvas(canvas.name);
+    const nodes = read.doc.nodes.map((node) =>
+      node.id === "note" && node.type === "text"
+        ? { ...node, text: "Background multi-prompt projection update" }
+        : node,
     );
-    if (!result.ok) throw new Error(result.message);
+    await api.writeCanvas(canvas.name, { ...read.doc, nodes }, read.revision);
   });
-  await expect(tasks).toContainText("Background multi-prompt projection update");
+  await expect(note).toContainText("Background multi-prompt projection update");
   await expect(promptInput).toBeFocused();
   await expect(promptInput).toHaveValue("Keep this draft with the selected seats");
 
@@ -169,7 +169,7 @@ test("multi-select: RTS multi command + multi-prompt", async ({ junto }) => {
   await expect(page.getByTestId("rts-multi-prompt")).toBeVisible();
 
   // Mixed selection drops kind multi-prompt, keeps generic multi command.
-  await shiftClick(tasks);
+  await shiftClick(note);
   await expect(page.getByTestId("rts-multi-command")).toBeVisible();
   await expect(page.getByTestId("rts-multi-prompt")).toHaveCount(0);
   await expect(page.locator(".rts-kind-surface .rts-quiet")).toContainText("mixed");
