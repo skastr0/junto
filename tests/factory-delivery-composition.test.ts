@@ -1,7 +1,7 @@
 /**
- * Focused composition tests: the four factory delivery paths (pulse,
- * supervisor, board, first-typed) all reach the seat through the destination
- * drive. No raw PTY bypass exists in the shared recipe.
+ * Focused composition tests: the seat delivery paths (injection supervisor,
+ * first-typed doctrine) reach the seat through the destination drive. No raw
+ * PTY bypass exists in the shared recipe.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { WritePromptOptions } from "../src/main/junto/term/drive";
@@ -18,9 +18,7 @@ import {
 } from "../src/main/junto/term/first-typed";
 import {
   composeFactoryDelivery,
-  factoryBoardTransport,
   factoryDeliveryReadTag,
-  factoryPulseTransport,
   makeFactoryFirstTypedKick,
   makeFactoryWriteManagedPrompt,
   wireFactorySupervisor,
@@ -368,118 +366,6 @@ describe("makeFactoryFirstTypedKick", () => {
   });
 });
 
-describe("factoryPulseTransport", () => {
-  it.each([submitted(), refused(), unresolved()])(
-    "only receipts a submitted pulse, outcome $status",
-    async (outcome) => {
-      const drive = fakeDrive();
-      drive.writePrompt = () => Promise.resolve(outcome);
-      const deliver = factoryPulseTransport({
-        pulse: { setDeliver: () => {} },
-        drive,
-        driveReady: () => true,
-      });
-      await expect(deliver("b1", "pulse body")).resolves.toBe(
-        outcome.status === "submitted",
-      );
-    },
-  );
-
-  it("routes pulses through the drive without the busy queue", async () => {
-    const drive = fakeDrive();
-    let delivered: ((b: string, m: string) => Promise<boolean>) | undefined;
-    const returned = factoryPulseTransport({
-      pulse: {
-        setDeliver: (fn) => {
-          delivered = fn;
-        },
-      },
-      drive,
-      driveReady: () => true,
-    });
-    expect(delivered).toBeDefined();
-    expect(returned).toBe(delivered);
-    await delivered?.("b1", "pulse body");
-    expect(drive.writes).toHaveLength(1);
-    expect(drive.writes[0]).toMatchObject({
-      bindingId: "b1",
-      text: "pulse body",
-      options: { ready: true, queueIfBusy: false },
-    });
-  });
-
-  it("registers the concrete closure so conditional wrappers cannot recurse", async () => {
-    // Regression for the ipc wiring defect: the suspension-conditional
-    // re-registration wrapped the global dispatcher instead of the
-    // factory closure, so every kernel pulse recursed into itself.
-    // This test replays the exact registration order against the real
-    // bridge: factory registration, conditional wrapper, one pulse.
-    const {
-      managedPulseDeliver,
-      setManagedPulseDeliver,
-    } = await import(
-      "../src/main/junto/term/managed-pulse-bridge"
-    );
-    const drive = fakeDrive();
-    try {
-      const concrete = factoryPulseTransport({
-        pulse: { setDeliver: setManagedPulseDeliver },
-        drive,
-        driveReady: () => true,
-      });
-      const suspended = false;
-      setManagedPulseDeliver(
-        suspended ? undefined : (bindingId, text) => concrete(bindingId, text),
-      );
-      await managedPulseDeliver("bridge-b1", "kernel pulse");
-      const payload = drive.writes
-        .filter((w) => w.bindingId === "bridge-b1")
-        .map((w) => w.text)
-        .join("");
-      expect(payload).toContain("kernel pulse");
-      expect(
-        drive.writes.filter((w) => w.bindingId === "bridge-b1"),
-      ).toHaveLength(1);
-    } finally {
-      setManagedPulseDeliver(undefined);
-    }
-  });
-});
-
-describe("factoryBoardTransport", () => {
-  it.each([submitted(), refused(), unresolved()])(
-    "only receipts a submitted board notice, outcome $status",
-    async (outcome) => {
-      const transport = factoryBoardTransport({
-        kernel: { wakeManagedSeat: () => true },
-        write: () => Promise.resolve(outcome),
-      });
-      await expect(
-        transport.sendManagedTerminalPrompt("b1", "megaphone"),
-      ).resolves.toBe(outcome.status === "submitted");
-    },
-  );
-
-  it("wakes the seat then sends through the writer", async () => {
-    const drive = fakeDrive();
-    const woke: Array<[string, string]> = [];
-    const transport = factoryBoardTransport({
-      kernel: {
-        wakeManagedSeat: (canvas, nodeId) => {
-          woke.push([canvas, nodeId]);
-          return true;
-        },
-      },
-      write: makeFactoryWriteManagedPrompt(drive, () => true),
-    });
-    await transport.wakeManagedSeat?.("board-canvas", "n1");
-    await transport.sendManagedTerminalPrompt("b1", "megaphone");
-    expect(woke).toEqual([["board-canvas", "n1"]]);
-    expect(drive.writes).toHaveLength(1);
-    expect(drive.writes[0]).toMatchObject({ text: "megaphone" });
-  });
-});
-
 describe("wireFactorySupervisor", () => {
   it.each([submitted(), refused(), unresolved()])(
     "only accepts a submitted supervisor notice, outcome $status",
@@ -676,24 +562,6 @@ describe("real destination-drive composition", () => {
     expect(writes.filter((w) => w.bindingId === "real-b1").length).toBeGreaterThanOrEqual(2);
   });
 
-  it("routes the real pulse deliverable through the drive", async () => {
-    const d = boot();
-    const deliver = factoryPulseTransport({
-      pulse: { setDeliver: () => {} },
-      drive: d,
-      driveReady: () => true,
-    });
-    const pending = deliver("real-b2", "pulse body");
-    await new Promise((resolve) => setTimeout(resolve, 150));
-    d.onTurnStart("real-b2");
-    await expect(pending).resolves.toBe(true);
-    const payload = writes
-      .filter((w) => w.bindingId === "real-b2")
-      .map((w) => w.data)
-      .join("");
-    expect(payload).toContain("pulse body");
-  });
-
   it("preserves the writer promise through supervisor wiring", async () => {
     const d = boot();
     const supervisor = new InjectionSupervisor();
@@ -727,24 +595,5 @@ describe("real destination-drive composition", () => {
       .map((w) => w.data)
       .join("");
     expect(payload).toContain("supervisor nudge");
-  });
-
-  it("sends board wakes through the real drive", async () => {
-    const d = boot();
-    const transport = factoryBoardTransport({
-      kernel: { wakeManagedSeat: () => true },
-      write: makeFactoryWriteManagedPrompt(d, () => true),
-    });
-    const pending = transport.sendManagedTerminalPrompt("real-b5", "megaphone", {
-      ready: true,
-    });
-    await new Promise((resolve) => setTimeout(resolve, 150));
-    d.onTurnStart("real-b5");
-    await expect(pending).resolves.toBe(true);
-    const payload = writes
-      .filter((w) => w.bindingId === "real-b5")
-      .map((w) => w.data)
-      .join("");
-    expect(payload).toContain("megaphone");
   });
 });

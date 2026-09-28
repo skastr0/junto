@@ -6,88 +6,37 @@ import {
   buildNodeKindDoc,
   buildNodesCatalogDoc,
   DOC_TOPICS,
-  NODE_DOCS,
-  PORT_DESCRIPTIONS,
 } from "../src/shared/junto-docs";
-import { ALL_PORTS } from "../src/shared/physics/schema";
-import { KindSpecs } from "../src/shared/physics/kinds";
 
 describe("junto docs catalog", () => {
-  it("covers every well-known kind with role + offers", () => {
-    const kinds = Object.keys(KindSpecs);
-    expect(NODE_DOCS.length).toBe(kinds.length);
-    for (const doc of NODE_DOCS) {
-      expect(kinds).toContain(doc.kind);
-      expect(["actor", "sink", "scheduler", "geography"]).toContain(doc.role);
-      expect(doc.offers.every((p) => ALL_PORTS.includes(p as (typeof ALL_PORTS)[number]))).toBe(true);
-    }
-  });
-
-  it("describes every port exactly once", () => {
-    for (const p of ALL_PORTS) {
-      expect(PORT_DESCRIPTIONS[p]).toBeTruthy();
-      expect(PORT_DESCRIPTIONS[p]).toMatch(/\S/);
-    }
-  });
-
-  it("node kind docs carry ports, data model, events, and contract", () => {
-    const task = buildNodeKindDoc("task")!;
-    expect(task).toContain("tasks.list");
-    expect(task).toContain("## Data model");
-    expect(task).toContain("items");
-    expect(task).toContain("## Events");
-    expect(task).toContain("### Edge contract — tasks");
-    expect(task).toContain("junto tasks list");
-
-    const requests = buildNodeKindDoc("requests")!;
-    expect(requests).not.toContain("request.escalate");
-    expect(requests).toContain("junto escalate");
-
+  it("agent kind doc carries mail and process-bind identity", () => {
     const agent = buildNodeKindDoc("agent")!;
     expect(agent).toContain("msg.list");
     expect(agent).toContain("process-bind");
-
-    const pad = buildNodeKindDoc("pad")!;
-    expect(pad).toContain("pad.read");
-    expect(pad).toContain("pad.patch");
-    expect(pad).toContain("junto pad read");
-    expect(pad).toContain("junto pad look-here");
-    expect(pad).toContain("junto pad tagged");
-    expect(pad).toContain("ink or image");
-    expect(pad).toContain("inbound actor");
-    expect(pad).toContain("### Edge contract — pad");
   });
 
   it("unknown kinds return undefined", () => {
     expect(buildNodeKindDoc("nope")).toBeUndefined();
   });
 
-  it("catalog lists all kinds with their offers", () => {
+  it("catalog lists the agent kind", () => {
     const catalog = buildNodesCatalogDoc();
-    expect(catalog).toContain("task");
-    expect(catalog).toContain("requests");
-    expect(catalog).toContain("artifacts");
-    expect(catalog).toContain("board");
-    expect(catalog).toContain("pad");
     expect(catalog).toContain("agent");
-    expect(catalog).toContain("tasks.list");
   });
 
   it("doctrine doc includes the injected body plus expansions", () => {
     const doc = buildDoctrineDoc();
     expect(doc).toContain("Junto — full doctrine");
     expect(doc).toContain("### Why edges are permissions");
-    expect(doc).toContain("### Why completion is earned");
     expect(doc).toContain("### Why identity is process-bind");
     expect(doc).toContain("### Why the CLI is the tool surface");
     expect(doc).toContain("junto onboard");
   });
 
-  it("concepts doc covers seats, grants, earned completion, ladder", () => {
+  it("concepts doc covers seats, grants, ladder", () => {
     const c = buildConceptsDoc();
     expect(c).toContain("## Seats");
     expect(c).toContain("## Grants and ports");
-    expect(c).toContain("## Earned completion");
     expect(c).toContain("## The intervention ladder");
   });
 

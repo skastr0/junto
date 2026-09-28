@@ -1737,7 +1737,7 @@ describe("LocalSessionHost", () => {
     await vi.waitFor(() => expect(host.runningCount()).toBe(0));
   });
 
-  it("delivers factory prompts without taking over the interactive control lease", async () => {
+  it("delivers managed seat prompts without taking over the interactive control lease", async () => {
     const fake = makeFakeTerminalProcessAuthority(() => ({
       pid: trackSyntheticPid(42_510),
       exitOnSignal: "SIGTERM",
@@ -1757,10 +1757,10 @@ describe("LocalSessionHost", () => {
     expect(interactive.ok).toBe(true);
     if (!interactive.ok) return;
 
-    expect(host.writeManagedSeat("managed-io", "factory prompt")).toBe(true);
+    expect(host.writeManagedSeat("managed-io", "mail prompt")).toBe(true);
     expect(host.write(interactive.lease, "operator input")).toBe(true);
     expect(fake.controllers[0]?.writes).toEqual([
-      "factory prompt",
+      "mail prompt",
       "operator input",
     ]);
     expect(fake.controllers[0]?.signals).toEqual([]);

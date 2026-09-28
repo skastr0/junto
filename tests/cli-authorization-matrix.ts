@@ -87,8 +87,6 @@ const DISCOVERY_COMMANDS = new Set([
 
 export const classifyCliCommand = (commandId: string): CliCoverageLane | undefined => {
   if (isTargetWorkOp(commandId as TargetWorkOpName)) return "target-matrix";
-  // CLI projections of pad.read (digest/svg/look-here/get/tagged) share that grant.
-  if (commandId.startsWith("pad.")) return "target-matrix";
   if (SEAT_LOCAL_COMMANDS.has(commandId)) return "seat-local";
   if (DISCOVERY_COMMANDS.has(commandId)) return "discovery";
   // Human delegation, not edge capability, admits this separate plane.
@@ -129,38 +127,14 @@ const textNode = (id: string, kind: WellKnownKind, x: number): CanvasNode => ({
 
 /**
  * The oracle, restated from the frozen verb grammar rather than read back out
- * of it: for each sink an agent can reach, the wide verb and the narrow one,
+ * of it: for each kind an agent can reach, the wide verb and the narrow one,
  * and the ports each opens. `narrow` repeats `wide` where the pair holds only
  * one verb.
  */
 const AGENT_SINK_GRANTS = {
-  task: {
-    wide: { verb: "contributes", ports: ["tasks.create", "tasks.update", "tasks.list", "tasks.claim", "msg.list", "msg.send"] },
-    narrow: { verb: "manages", ports: ["tasks.create", "tasks.update", "tasks.list", "msg.list", "msg.send"] },
-  },
-  artifacts: {
-    wide: { verb: "publishes", ports: ["artifact.publish"] },
-    narrow: { verb: "publishes", ports: ["artifact.publish"] },
-  },
-  board: {
-    wide: { verb: "participates", ports: ["board.list", "board.create_topic", "board.post", "board.mark_read"] },
-    narrow: { verb: "messages", ports: ["board.list", "board.post", "board.mark_read"] },
-  },
-  pad: {
-    wide: { verb: "edits", ports: ["pad.read", "pad.patch"] },
-    narrow: { verb: "reads", ports: ["pad.read"] },
-  },
-  page: {
-    wide: { verb: "navigates", ports: ["browser.automate"] },
-    narrow: { verb: "navigates", ports: ["browser.automate"] },
-  },
   agent: {
     wide: { verb: "messages", ports: ["msg.list", "msg.send", "msg.prompt", "seat.wait", "terminal.read"] },
     narrow: { verb: "messages", ports: ["msg.list", "msg.send", "msg.prompt", "seat.wait", "terminal.read"] },
-  },
-  relay: {
-    wide: { verb: "fires", ports: ["relay.trigger"] },
-    narrow: { verb: "fires", ports: ["relay.trigger"] },
   },
 } as const satisfies {
   readonly [K in string]: {
