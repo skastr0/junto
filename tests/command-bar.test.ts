@@ -62,6 +62,68 @@ describe("command bar node ranking", () => {
   });
 });
 
+describe("command bar agent bias", () => {
+  const agent = (id: string, body: string): CanvasNode =>
+    text(id, body, { entity: { kind: "agent", name: `local:${id}` } });
+  const region = (id: string, label: string): CanvasNode => ({ id, type: "group", label, x: 0, y: 0, width: 400, height: 300 });
+  const link = (id: string): CanvasNode => ({ id, type: "link", url: `https://example.com/${id}`, x: 0, y: 0, width: 200, height: 80 });
+
+  // Document order deliberately buries the agents under other kinds.
+  const nodes = [
+    link("l"),
+    text("n", "Deploy plan"),
+    region("r", "Deploy"),
+    agent("resting", "deploy-resting"),
+    agent("offline", "deploy-offline"),
+    agent("working", "deploy-working"),
+    agent("blocked", "deploy-blocked"),
+    agent("waiting", "deploy-waiting"),
+  ];
+  const urgency = new Map([
+    ["blocked", 0],
+    ["waiting", 1],
+    ["working", 3],
+    ["resting", 4],
+    ["offline", 5],
+  ]);
+  const ids = (query: string, recent: ReadonlyArray<string> = []) =>
+    filterCommandBarNodes(nodes, query, recent, urgency).map((match) => match.node.id);
+
+  it("empty query: agents first by urgency, then regions, notes, and other kinds", () => {
+    expect(ids("")).toEqual(["blocked", "waiting", "working", "resting", "offline", "r", "n", "l"]);
+  });
+
+  it("urgency outranks hotbar recency among agents; recency breaks equal urgency", () => {
+    expect(ids("", ["offline"])[0]).toBe("blocked");
+    const tied = [agent("a", "alpha"), agent("b", "beta")];
+    const result = filterCommandBarNodes(tied, "", ["b"], new Map([["a", 1], ["b", 1]]));
+    expect(result.map((match) => match.node.id)).toEqual(["b", "a"]);
+  });
+
+  it("an agent with no reading ranks as resting", () => {
+    const partial = new Map([["waiting", 1], ["offline", 5]]);
+    const result = filterCommandBarNodes(nodes, "", [], partial).map((match) => match.node.id);
+    expect(result.slice(0, 5)).toEqual(["waiting", "resting", "working", "blocked", "offline"]);
+  });
+
+  it("with a query, agents rank above other kinds at equal match quality", () => {
+    // Every title starts with "deploy": one tier, agents first by urgency.
+    expect(ids("deploy")).toEqual(["blocked", "waiting", "working", "resting", "offline", "n", "r"]);
+  });
+
+  it("a better match still beats an agent", () => {
+    const mixed = [agent("seat", "yak-seat"), region("r", "Yakjev"), text("n", "Notes on the yak")];
+    const result = filterCommandBarNodes(mixed, "yakjev", [], new Map([["seat", 0]]));
+    expect(result.map((match) => match.node.id)).toEqual(["r"]);
+    const prefix = filterCommandBarNodes(mixed, "yak", [], new Map([["seat", 0]]));
+    // All three are title prefixes except the note (substring): agent, region, note.
+    expect(prefix.map((match) => match.node.id)).toEqual(["seat", "r", "n"]);
+    const titled = [region("r", "Research"), agent("seat", "reviewer\nreads research papers")];
+    // The region's title matches; the agent only matches in its body.
+    expect(filterCommandBarNodes(titled, "research", []).map((match) => match.node.id)).toEqual(["r", "seat"]);
+  });
+});
+
 import { Play, type LucideIcon } from "lucide-react";
 import type { DigestResult } from "../src/shared/ipc";
 import {

@@ -42,15 +42,16 @@ import { regionTallyParts } from "../../lib/region-glance";
 import { seatSaying } from "../../lib/seat-line";
 import { state$ } from "../../lib/state";
 import { accentColor, HUE } from "../../lib/theme";
-import { SeatRingView, useSeatGlance, type SeatGlance } from "../SeatRing";
+import { SeatRingView, seatUrgencyNow, useSeatGlance, type SeatGlance } from "../SeatRing";
 import { Kbd } from "../ui";
 import { claimFocus, isOperatorTyping } from "../../lib/focus-ownership";
 
 /**
  * cmd+K command bar — quick node navigation plus a quick-actions mode.
  *
- * A centered floating palette. Typing filters the LIST; the canvas never
- * changes while searching. Node mode commits the existing focus path
+ * A centered floating palette that fills most of the window height. Agents
+ * lead the list, most urgent first (see filterCommandBarNodes). Typing
+ * filters the LIST; the canvas never changes while searching. Node mode commits the existing focus path
  * (select + one-shot camera fit); cmd+Enter also opens the node surface.
  * ">" (or Tab) switches to actions mode: existing renderer commands only,
  * Enter runs, Escape closes.
@@ -286,9 +287,21 @@ function CommandBarPanel() {
   // Catalog is rebuilt once per open so labels reflect live state.
   const actions = useMemo(() => buildCommandBarActions(), []);
   const mode = commandBarMode(query, tabMode);
+  // Agents lead the list, most urgent first. Read once per open (and per doc
+  // change), not live: rows never jump under the cursor. Each row's ring and
+  // line stay live.
+  const urgencyById = useMemo(
+    () =>
+      new Map(
+        doc.nodes
+          .filter((node) => node.ether?.entity?.kind === "agent")
+          .map((node) => [node.id, seatUrgencyNow(node)] as const),
+      ),
+    [doc.nodes],
+  );
   const nodeMatches = useMemo(
-    () => filterCommandBarNodes(doc.nodes, query, recentIds),
-    [doc.nodes, query, recentIds],
+    () => filterCommandBarNodes(doc.nodes, query, recentIds, urgencyById),
+    [doc.nodes, query, recentIds, urgencyById],
   );
   const actionMatches = useMemo(
     () => filterCommandBarActions(actions, query),

@@ -32,11 +32,12 @@ test("command bar opens from the trigger and cmd+K, filters the list only, and c
   await expect(input).toBeVisible();
   await expect(input).toBeFocused();
 
-  // Default list shows every node in document order.
+  // Default list shows every node: agents first (none here), then regions,
+  // then notes, each in document order.
   await expect(page.locator(".command-bar__row-title")).toHaveText([
+    "Probe region",
     "Alpha release",
     "Beta task plan",
-    "Probe region",
   ]);
 
   // Filtering narrows the LIST; the canvas graph never changes.
@@ -111,7 +112,7 @@ test("actions mode catalogs commands, Enter runs them, Tab toggles modes", async
   await page.keyboard.press("Tab");
   await expect(actionRows.first()).toBeVisible();
   await page.keyboard.press("Tab");
-  await expect(page.locator(".command-bar__row-title").first()).toHaveText("Alpha release");
+  await expect(page.locator(".command-bar__row-title").first()).toHaveText("Probe region");
   await page.keyboard.press("Escape");
   await expect(input).toHaveCount(0);
 });

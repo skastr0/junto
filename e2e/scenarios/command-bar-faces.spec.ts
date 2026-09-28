@@ -86,7 +86,8 @@ const capture = async (page: Page, theme: "dark" | "bright"): Promise<void> => {
   await page.screenshot({ path: join(SHOTS, `${theme}-01-all.png`) });
 
   await input.fill("yakje");
-  await expect(page.locator(".command-bar__row-title")).toHaveText(["Yakjev", "yakjev-1", "yakjev-2"]);
+  // Agents lead, the one waiting on the operator first.
+  await expect(page.locator(".command-bar__row-title")).toHaveText(["yakjev-2", "yakjev-1", "Yakjev"]);
   await page.waitForTimeout(300);
   await page.screenshot({ path: join(SHOTS, `${theme}-02-agents.png`) });
   await page.keyboard.press("Escape");

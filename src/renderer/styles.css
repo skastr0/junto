@@ -667,7 +667,7 @@ html[data-junto-platform="darwin"] .station-bar [role="listbox"] {
 .canvas-dialog__submit:disabled { cursor: not-allowed; opacity: .35; }
 .canvas-dialog__danger { border: 1px solid color-mix(in oklab, var(--color-accent) 55%, transparent); background: color-mix(in oklab, var(--color-accent) 14%, transparent); color: var(--color-crimson); }
 .canvas-dialog__danger:hover:not(:disabled) { background: color-mix(in oklab, var(--color-accent) 24%, transparent); }
-.command-bar-backdrop { position: fixed; inset: 0; z-index: 12000; display: flex; align-items: flex-start; justify-content: center; padding: 16vh 16px 16px; background: var(--color-backdrop); backdrop-filter: blur(2px); }
+.command-bar-backdrop { position: fixed; inset: 0; z-index: 12000; display: flex; align-items: flex-start; justify-content: center; padding: 3vh 16px; background: var(--color-backdrop); backdrop-filter: blur(2px); }
 
 /* =============================================================================
    Focus switcher — hold-Control HUD over the live focus modal
@@ -800,13 +800,13 @@ html[data-junto-platform="darwin"] .station-bar [role="listbox"] {
   gap: 5px;
   white-space: nowrap;
 }
-.command-bar { display: flex; width: min(620px, 100%); flex-direction: column; overflow: hidden; border: 1px solid var(--color-stroke); border-radius: 10px; background: linear-gradient(160deg, color-mix(in oklab, var(--color-raise) 97%, transparent), color-mix(in oklab, var(--color-ground) 98%, transparent)); box-shadow: 0 24px 80px var(--color-shadow-1), 0 0 0 1px var(--color-overlay-1); }
+.command-bar { display: flex; width: min(700px, 100%); height: 100%; flex-direction: column; overflow: hidden; border: 1px solid var(--color-stroke); border-radius: 10px; background: linear-gradient(160deg, color-mix(in oklab, var(--color-raise) 97%, transparent), color-mix(in oklab, var(--color-ground) 98%, transparent)); box-shadow: 0 24px 80px var(--color-shadow-1), 0 0 0 1px var(--color-overlay-1); }
 .command-bar__input-row { display: flex; align-items: center; gap: 10px; border-bottom: 1px solid var(--color-stroke); padding: 0 14px; color: var(--color-faint); }
 .command-bar__input-row input { min-width: 0; flex: 1; height: 46px; border: 0; outline: 0; background: transparent; color: var(--color-ink); font-size: 13px; letter-spacing: 0; }
 .command-bar__input-row input::placeholder { color: var(--color-faint); opacity: 1; }
 .command-bar__clear { display: grid; height: 22px; width: 22px; flex: none; place-items: center; border-radius: 4px; color: var(--color-dim); }
 .command-bar__clear:hover { background: var(--color-overlay-3); color: var(--color-ink); }
-.command-bar__list { max-height: min(46vh, 420px); overflow-y: auto; padding: 6px; }
+.command-bar__list { min-height: 0; flex: 1; overflow-y: auto; padding: 6px; }
 .command-bar__row { display: flex; align-items: center; gap: 10px; border-radius: 6px; padding: 7px 10px; cursor: pointer; }
 .command-bar__row--active { background: var(--color-overlay-2); }
 .command-bar__row-icon { display: grid; flex: none; place-items: center; color: var(--color-dim); }

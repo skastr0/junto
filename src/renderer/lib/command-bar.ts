@@ -52,26 +52,45 @@ export interface CommandBarMatch {
   readonly index: number;
 }
 
+/** Resting: the urgency an agent without a reading ranks at. */
+const URGENCY_UNKNOWN = 4;
+
+const isAgent = (node: CanvasNode): boolean => node.ether?.entity?.kind === "agent";
+
+/** Empty-query groups: agents, then regions, then notes, then everything else. */
+const kindRank = (node: CanvasNode): number => {
+  if (isAgent(node)) return 0;
+  if (node.type === "group") return 1;
+  if (node.type === "text") return 2;
+  return 3;
+};
+
 /**
- * Filter and rank the command bar node list.
+ * Filter and rank the command bar node list. The palette is biased toward
+ * agents: they are what the operator most often jumps to.
  *
- * Empty query: document order (the authoring order on the canvas).
+ * Empty query: agents first, most urgent first (`urgencyById`, lower is more
+ * urgent: see seatUrgency), then regions, then notes, then every other kind.
  * Non-empty: title-prefix (4) above title-substring (3) above any other
- * matched text (2). Ties break by hotbar MRU recency, then document order.
+ * matched text (2); at equal match quality agents rank above other kinds,
+ * the most urgent agent first. Remaining ties break by hotbar MRU recency,
+ * then document order.
  */
 export const filterCommandBarNodes = (
   nodes: ReadonlyArray<CanvasNode>,
   query: string,
   recentIds: ReadonlyArray<string>,
+  urgencyById: ReadonlyMap<string, number> = new Map(),
 ): ReadonlyArray<CommandBarMatch> => {
   const q = query.trim().toLowerCase();
-  if (!q) {
-    return nodes.map((node, index) => ({ node, score: 0, index }));
-  }
   const recentRank = new Map<string, number>();
   for (const [rank, id] of recentIds.entries()) recentRank.set(id, rank);
   const matches: CommandBarMatch[] = [];
   for (const [index, node] of nodes.entries()) {
+    if (!q) {
+      matches.push({ node, score: 0, index });
+      continue;
+    }
     const title = nodeTitle(node).toLowerCase();
     let score = 0;
     if (title.startsWith(q)) score = 4;
@@ -79,8 +98,21 @@ export const filterCommandBarNodes = (
     else if (searchText(node).includes(q)) score = 2;
     if (score > 0) matches.push({ node, score, index });
   }
+  const urgency = (node: CanvasNode): number => urgencyById.get(node.id) ?? URGENCY_UNKNOWN;
   matches.sort((a, b) => {
     if (b.score !== a.score) return b.score - a.score;
+    const aAgent = isAgent(a.node);
+    const bAgent = isAgent(b.node);
+    if (q) {
+      if (aAgent !== bAgent) return aAgent ? -1 : 1;
+    } else {
+      const byKind = kindRank(a.node) - kindRank(b.node);
+      if (byKind !== 0) return byKind;
+    }
+    if (aAgent && bAgent) {
+      const byUrgency = urgency(a.node) - urgency(b.node);
+      if (byUrgency !== 0) return byUrgency;
+    }
     const aRecent = recentRank.get(a.node.id);
     const bRecent = recentRank.get(b.node.id);
     if (aRecent !== undefined && bRecent !== undefined) return aRecent - bRecent;
