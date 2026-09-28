@@ -595,6 +595,14 @@
   ],
   "decodeBoundaries": [
     {
+      "path": "src/main/junto/squads/repository.ts",
+      "kinds": [
+        "row"
+      ],
+      "reason": "Decodes the native SQLite write result supplied by Effect SQL before testing its change count.",
+      "retire": "Delete this register after all repositories migrate to Effect SQL, as the state SQL refactor requires."
+    },
+    {
       "path": "src/main/junto/signals/repository.ts",
       "kinds": [
         "row"

@@ -1,4 +1,5 @@
-import { Context, Effect, Layer, Result, Schema } from "effect";
+import { Cause, Context, Effect, Layer, Result, Schema } from "effect";
+import { SqlClient, SqlError, SqlSchema } from "effect/unstable/sql";
 import { ulid } from "ulid";
 import {
   SQUADS_MAX,
@@ -7,12 +8,7 @@ import {
   type Squad,
   type SquadSaveInput,
 } from "@shared/squads";
-import {
-  StateEngine,
-  type StateEngineError,
-  type StateReader,
-  type StateRow,
-} from "../state/service";
+import { StateTransactionOperation } from "../state/service";
 
 export class SquadPersistenceError extends Schema.TaggedError<SquadPersistenceError>()(
   "SquadPersistenceError",
@@ -41,18 +37,18 @@ export class SquadRepository extends Context.Service<SquadRepository,
     readonly remove: (squadId: string) => Effect.Effect<string, SquadRepositoryError>;
   }>()("@junto/SquadRepository") {}
 
-type SquadRow = StateRow & {
-  readonly squad_id: string;
-  readonly name: string;
-  readonly body_json: string;
-  readonly created_at: number;
-  readonly updated_at: number;
-};
+const SquadRow = Schema.Struct({
+  squad_id: Schema.String,
+  name: Schema.String,
+  body_json: Schema.String,
+  created_at: Schema.Number,
+  updated_at: Schema.Number,
+});
 
 const COLUMNS = "squad_id, name, body_json, created_at, updated_at";
 
 /** Decode-admits-history: a body a later build cannot read is skipped, not fatal. */
-const fromRow = (row: SquadRow): Squad | undefined => {
+const fromRow = (row: typeof SquadRow.Type): Squad | undefined => {
   let raw: unknown;
   try {
     raw = JSON.parse(row.body_json);
@@ -70,90 +66,91 @@ const fromRow = (row: SquadRow): Squad | undefined => {
   };
 };
 
-const readOne = (reader: StateReader, squadId: string): Squad | undefined => {
-  const row = reader.get<SquadRow>(`SELECT ${COLUMNS} FROM squads WHERE squad_id = ?`, [squadId]);
-  return row === undefined ? undefined : fromRow(row);
-};
-
 const refuse = (message: string) => SquadRefused.make({ message });
 
-const cleanName = (name: unknown): string => {
+const cleanName = Effect.fn("squads.clean-name")(function* (name: unknown) {
   const decoded = decodeSquadName(name);
-  if (Result.isFailure(decoded)) throw refuse("a squad needs a name of 1 to 60 characters");
+  if (Result.isFailure(decoded)) return yield* refuse("a squad needs a name of 1 to 60 characters");
   return decoded.success.trim();
-};
+});
 
-const nameTaken = (reader: StateReader, name: string, exceptId?: string): boolean =>
-  reader.get<StateRow & { readonly squad_id: string }>(
-    "SELECT squad_id FROM squads WHERE name = ? COLLATE NOCASE AND squad_id <> ?",
-    [name, exceptId ?? ""],
-  ) !== undefined;
-
-const persistence = (operation: string) => (error: StateEngineError) =>
-  error.cause instanceof SquadRefused
-    ? error.cause
+const persistence = (operation: string) => (error: SqlError.SqlError | Schema.SchemaError | Cause.NoSuchElementError | SquadRefused) =>
+  error instanceof SquadRefused
+    ? error
     : SquadPersistenceError.make({ operation, message: error.message, cause: error });
 
-export const SquadRepositoryLive: Layer.Layer<SquadRepository, never, StateEngine> = Layer.effect(
+export const SquadRepositoryLive: Layer.Layer<SquadRepository, never, SqlClient.SqlClient> = Layer.effect(
   SquadRepository,
   Effect.gen(function* () {
-    const state = yield* StateEngine;
+    const sql = yield* SqlClient.SqlClient;
+    const changes = Schema.decodeUnknownEffect(Schema.Struct({ changes: Schema.Union([Schema.Number, Schema.BigInt]) }));
+    const oneRow = SqlSchema.findOneOption({
+      Request: Schema.String,
+      Result: SquadRow,
+      execute: (squadId) => sql.unsafe(`SELECT ${COLUMNS} FROM squads WHERE squad_id = ?`, [squadId]),
+    });
+    const readOne = Effect.fn("squads.read-one")(function* (squadId: string) {
+      const row = yield* oneRow(squadId);
+      return row._tag === "None" ? undefined : fromRow(row.value);
+    });
+    const allRows = SqlSchema.findAll({
+      Request: Schema.Void,
+      Result: SquadRow,
+      execute: () => sql.unsafe(`SELECT ${COLUMNS} FROM squads ORDER BY name COLLATE NOCASE, squad_id`),
+    });
+    const nameTaken = SqlSchema.findOneOption({
+      Request: Schema.Tuple([Schema.String, Schema.String]),
+      Result: Schema.Struct({ squad_id: Schema.String }),
+      execute: ([name, exceptId]) => sql`
+        SELECT squad_id FROM squads WHERE name = ${name} COLLATE NOCASE AND squad_id <> ${exceptId}
+      `,
+    });
+    const count = SqlSchema.findOne({
+      Request: Schema.Void,
+      Result: Schema.Struct({ n: Schema.Number }),
+      execute: () => sql`SELECT count(*) AS n FROM squads`,
+    });
 
-    const list = () =>
-      state
-        .read("squads.list", (reader) =>
-          reader
-            .all<SquadRow>(`SELECT ${COLUMNS} FROM squads ORDER BY name COLLATE NOCASE, squad_id`)
-            .flatMap((row) => {
-              const squad = fromRow(row);
-              return squad ? [squad] : [];
-            }),
-        )
-        .pipe(Effect.mapError(persistence("list")));
+    const list = Effect.fn("squads.list")(function* () {
+      return (yield* allRows(undefined)).flatMap((row) => {
+        const squad = fromRow(row);
+        return squad ? [squad] : [];
+      });
+    }, Effect.mapError(persistence("list")));
 
-    const save = (input: SquadSaveInput) =>
-      state
-        .transaction("squads.save", (writer) => {
-          const name = cleanName(input.name);
-          const body = decodeSquadBody(input.body);
-          if (Result.isFailure(body)) throw refuse("the squad template is not valid");
-          const squadId = `squad-${ulid()}`;
-          if (nameTaken(writer, name)) throw refuse(`a squad named ${name} already exists`);
-          const count = writer.get<StateRow & { readonly n: number }>("SELECT count(*) AS n FROM squads");
-          if (Number(count?.n ?? 0) >= SQUADS_MAX) throw refuse(`at most ${SQUADS_MAX} squads`);
-          const now = Date.now();
-          writer.run(
-            `INSERT INTO squads(${COLUMNS}) VALUES (?, ?, ?, ?, ?)`,
-            [squadId, name, JSON.stringify(body.success), now, now],
-          );
-          return readOne(writer, squadId)!;
-        })
-        .pipe(Effect.mapError(persistence("save")));
+    const save = Effect.fn("squads.save")(function* (input: SquadSaveInput) {
+      const name = yield* cleanName(input.name);
+      const body = decodeSquadBody(input.body);
+      if (Result.isFailure(body)) return yield* refuse("the squad template is not valid");
+      const squadId = `squad-${ulid()}`;
+      if ((yield* nameTaken([name, ""]))._tag === "Some") return yield* refuse(`a squad named ${name} already exists`);
+      if ((yield* count(undefined)).n >= SQUADS_MAX) return yield* refuse(`at most ${SQUADS_MAX} squads`);
+      const now = Date.now();
+      yield* sql.unsafe(`INSERT INTO squads(${COLUMNS}) VALUES (?, ?, ?, ?, ?)`,
+        [squadId, name, JSON.stringify(body.success), now, now]);
+      return (yield* readOne(squadId))!;
+    }, sql.withTransaction, Effect.provideService(StateTransactionOperation, "squads.save"),
+    Effect.mapError(persistence("save")));
 
-    const rename = (squadId: string, rawName: string) =>
-      state
-        .transaction("squads.rename", (writer) => {
-          const name = cleanName(rawName);
-          if (nameTaken(writer, name, squadId)) throw refuse(`a squad named ${name} already exists`);
-          const changed = writer.run(
-            "UPDATE squads SET name = ?, updated_at = max(created_at, ?) WHERE squad_id = ?",
-            [name, Date.now(), squadId],
-          );
-          if (Number(changed.changes) === 0) throw refuse("that squad no longer exists");
-          const squad = readOne(writer, squadId);
-          if (!squad) throw refuse("that squad can no longer be read");
-          return squad;
-        })
-        .pipe(Effect.mapError(persistence("rename")));
+    const rename = Effect.fn("squads.rename")(function* (squadId: string, rawName: string) {
+      const name = yield* cleanName(rawName);
+      if ((yield* nameTaken([name, squadId]))._tag === "Some") return yield* refuse(`a squad named ${name} already exists`);
+      const changed = yield* sql`
+        UPDATE squads SET name = ${name}, updated_at = max(created_at, ${Date.now()}) WHERE squad_id = ${squadId}
+      `.raw.pipe(Effect.flatMap(changes));
+      if (Number(changed.changes) === 0) return yield* refuse("that squad no longer exists");
+      const squad = yield* readOne(squadId);
+      if (!squad) return yield* refuse("that squad can no longer be read");
+      return squad;
+    }, sql.withTransaction, Effect.provideService(StateTransactionOperation, "squads.rename"),
+    Effect.mapError(persistence("rename")));
 
-    const remove = (squadId: string) =>
-      state
-        .transaction("squads.remove", (writer) => {
-          const changed = writer.run("DELETE FROM squads WHERE squad_id = ?", [squadId]);
-          if (Number(changed.changes) === 0) throw refuse("that squad no longer exists");
-          return squadId;
-        })
-        .pipe(Effect.mapError(persistence("remove")));
+    const remove = Effect.fn("squads.remove")(function* (squadId: string) {
+      const changed = yield* sql`DELETE FROM squads WHERE squad_id = ${squadId}`.raw.pipe(Effect.flatMap(changes));
+      if (Number(changed.changes) === 0) return yield* refuse("that squad no longer exists");
+      return squadId;
+    }, sql.withTransaction, Effect.provideService(StateTransactionOperation, "squads.remove"),
+    Effect.mapError(persistence("remove")));
 
     return SquadRepository.of({ list, save, rename, remove });
   }),
