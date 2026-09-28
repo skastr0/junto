@@ -52,8 +52,8 @@ export function ContextSection({ seat }: AgentEditorSectionProps) {
   const defaultLabel = defaults.enabled ? `default, ${describeThreshold(defaults.threshold)}` : "default, off";
   const options = [
     { value: "default", label: defaultLabel },
-    { value: "percent", label: "percent of window", disabled: !knowsWindow },
-    { value: "tokens", label: "tokens" },
+    { value: "percent", label: "a percent of the context window", disabled: !knowsWindow },
+    { value: "tokens", label: "a number of tokens" },
     { value: "off", label: "off for this seat" },
   ];
   const choice = choiceOf(own);
@@ -84,6 +84,7 @@ export function ContextSection({ seat }: AgentEditorSectionProps) {
         {own !== undefined && own.kind !== "off" ? (
           <ThresholdFields
             label="This seat's limit"
+            kindPicker={false}
             threshold={own}
             onChange={(threshold) => setSeatTokenPressure(seat.id, threshold)}
           />

@@ -10,7 +10,7 @@ import { Input, Select } from "../ui";
 // bounds; Escape drops the typing. Settings and the agent editor both use it.
 
 export const THRESHOLD_KIND_OPTIONS = [
-  { value: "percent", label: "percent of window" },
+  { value: "percent", label: "% of window" },
   { value: "tokens", label: "tokens" },
 ] as const;
 
@@ -38,12 +38,15 @@ export function ThresholdFields({
   onChange,
   disabled = false,
   label,
+  kindPicker = true,
 }: {
   readonly threshold: TokenPressureThreshold;
   readonly onChange: (next: TokenPressureThreshold) => void;
   readonly disabled?: boolean;
   /** Names both controls for assistive tech, e.g. "Default limit". */
   readonly label: string;
+  /** False when a picker beside it already chose the kind: show the unit only. */
+  readonly kindPicker?: boolean;
 }) {
   const [draft, setDraft] = useState<string>();
   useEffect(() => setDraft(undefined), [threshold]);
@@ -86,17 +89,21 @@ export function ThresholdFields({
           }
         }}
       />
-      <Select
-        value={threshold.kind}
-        options={THRESHOLD_KIND_OPTIONS}
-        disabled={disabled}
-        aria-label={`${label}, measured in`}
-        dense
-        onChange={(kind) => {
-          if (kind === threshold.kind) return;
-          onChange(thresholdStart(kind === "percent" ? "percent" : "tokens"));
-        }}
-      />
+      {kindPicker ? (
+        <Select
+          value={threshold.kind}
+          options={THRESHOLD_KIND_OPTIONS}
+          disabled={disabled}
+          aria-label={`${label}, measured in`}
+          dense
+          onChange={(kind) => {
+            if (kind === threshold.kind) return;
+            onChange(thresholdStart(kind === "percent" ? "percent" : "tokens"));
+          }}
+        />
+      ) : (
+        <span className="text-[12px] text-dim">{threshold.kind === "percent" ? "% of the context window" : "tokens"}</span>
+      )}
     </div>
   );
 }
