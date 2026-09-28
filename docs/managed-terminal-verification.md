@@ -68,14 +68,6 @@ across subsequent ticks and inspect receipts and repeated writes as well as
 the first frame. Manual Enter completing a pending chip is operator recovery,
 not evidence of successful automatic submission.
 
-`tests/kernel-claim-delivery-stall.test.ts` complements the live check: it runs
-the real kernel, pulse bridge, drive, observer, and SQLite against a modeled
-harness process boundary. The pre-fix run produced two pastes and an automatic
-Ctrl+C without a receipt. Its required behavior is one unresolved paste, no
-automatic Ctrl+C or later paste in that binding generation, no accepted
-receipt, and attention on subsequent delivery attempts. Before-write refusal
-remains retryable. This regression is not a live GUI proof.
-
 Executed native check, containment commit `91546531`: the full copied factory
 held 192 nodes and 57 edges, remained playing, and activated both existing
 Devin seats through normal scheduling. Computer Use observed a short map-change
@@ -279,9 +271,8 @@ Progress fingerprint: PTY `seq` + OSC title/osc9 + bounded grid text + hook key 
 ### Automated
 
 ```bash
-bunx vitest run tests/turn-progress-watch.test.ts tests/activity.test.ts \
-  tests/managed-terminal-drive.test.ts tests/seat-truth-replay.test.ts \
-  tests/factory-claim-prompt.test.ts
+bunx vitest run tests/turn-progress-watch.test.ts \
+  tests/managed-terminal-drive.test.ts tests/seat-truth-replay.test.ts
 ```
 
 ### Live (Grok + Claude managed seats)

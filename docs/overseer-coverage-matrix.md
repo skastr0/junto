@@ -53,7 +53,7 @@ replay.
 | Contract / CLI catalog | `tests/overseer-control.test.ts`, `tests/overseer-cli.test.ts` |
 | Admission / socket / gate | `tests/overseer-admission.test.ts`, `tests/work-socket-overseer.test.ts`, `tests/work-control-transport.test.ts`, `tests/main-authoring-gate.test.ts` |
 | Dispatch | `tests/overseer-dispatch.test.ts` |
-| Canvas / node / edge / sheet | `tests/overseer-canvas-commands.test.ts`, `tests/overseer-authoring.test.ts` |
+| Canvas / node / edge | `tests/overseer-canvas-commands.test.ts`, `tests/overseer-authoring.test.ts` |
 | Work | `tests/overseer-work.test.ts` |
 | Native | `tests/overseer-native.test.ts` |
 | Composition | `tests/overseer-composition.test.ts`, `tests/overseer-composition-lifecycle.test.ts` |
@@ -87,47 +87,47 @@ replay.
 | `edge.connect` | mutation | canvas `executeOverseerCanvas` | exercised | tests/overseer-canvas-commands.test.ts |
 | `edge.configure` | mutation | canvas `executeOverseerCanvas` | catalog | handler `overseer/canvas.ts`; catalog tests/overseer-control.test.ts |
 | `edge.disconnect` | mutation | canvas `executeOverseerCanvas` | catalog | handler `overseer/canvas.ts`; catalog tests/overseer-control.test.ts |
-| `tasks.list` | read | work `executeOverseerWork` | exercised | tests/overseer-work.test.ts |
-| `tasks.create` | mutation | work `executeOverseerWork` | exercised | tests/overseer-work.test.ts |
-| `tasks.claim` | mutation | work `executeOverseerWork` | exercised | tests/overseer-work.test.ts |
-| `tasks.describe` | mutation | work `executeOverseerWork` | catalog | handler `overseer/work.ts`; catalog tests/overseer-control.test.ts |
-| `tasks.update` | mutation | work `executeOverseerWork` | catalog | handler `overseer/work.ts`; catalog tests/overseer-control.test.ts |
-| `tasks.show` | read | work `executeOverseerWork` | catalog | handler `overseer/work.ts`; catalog tests/overseer-control.test.ts |
-| `tasks.rules` | read | work `executeOverseerWork` | catalog | handler `overseer/work.ts`; catalog tests/overseer-control.test.ts |
-| `tasks.check` | mutation | work `executeOverseerWork` | catalog | handler `overseer/work.ts`; catalog tests/overseer-control.test.ts |
-| `tasks.promote` | mutation | work `executeOverseerWork` | catalog | handler `overseer/work.ts`; catalog tests/overseer-control.test.ts |
-| `tasks.comment` | mutation | work `executeOverseerWork` | exercised | tests/overseer-work.test.ts |
-| `tasks.respond` | mutation | work `executeOverseerWork` | catalog | handler `overseer/work.ts`; catalog tests/overseer-control.test.ts |
-| `request.list` | read | work `executeOverseerWork` | catalog | handler `overseer/work.ts`; catalog tests/overseer-control.test.ts |
-| `request.get` | read | work `executeOverseerWork` | catalog | handler `overseer/work.ts`; catalog tests/overseer-control.test.ts |
-| `request.create` | mutation | work `executeOverseerWork` | catalog | handler `overseer/work.ts`; catalog tests/overseer-control.test.ts |
-| `request.resolve` | mutation | work `executeOverseerWork` | catalog | handler `overseer/work.ts`; catalog tests/overseer-control.test.ts |
-| `request.comment` | mutation | work `executeOverseerWork` | catalog | handler `overseer/work.ts`; catalog tests/overseer-control.test.ts |
-| `artifact.list` | read | work `executeOverseerWork` | catalog | handler `overseer/work.ts`; catalog tests/overseer-control.test.ts |
-| `artifact.get` | read | work `executeOverseerWork` | catalog | handler `overseer/work.ts`; catalog tests/overseer-control.test.ts |
-| `artifact.publish` | mutation | work `executeOverseerWork` | exercised | tests/overseer-work.test.ts; tests/station-offline-work-roundtrip.test.ts; cross-canvas original publisher, publisher-home queue, correlated import after revoke |
-| `artifact.archive` | mutation | work `executeOverseerWork` | catalog | handler `overseer/work.ts`; catalog tests/overseer-control.test.ts |
-| `artifact.delete` | mutation | work `executeOverseerWork` | catalog | handler `overseer/work.ts`; catalog tests/overseer-control.test.ts |
+| `tasks.list` | read | work `executeOverseerWork` | retired | handler `overseer/work.ts`; retired surface, suite removed |
+| `tasks.create` | mutation | work `executeOverseerWork` | retired | handler `overseer/work.ts`; retired surface, suite removed |
+| `tasks.claim` | mutation | work `executeOverseerWork` | retired | handler `overseer/work.ts`; retired surface, suite removed |
+| `tasks.describe` | mutation | work `executeOverseerWork` | retired | handler `overseer/work.ts`; retired surface, suite removed |
+| `tasks.update` | mutation | work `executeOverseerWork` | retired | handler `overseer/work.ts`; retired surface, suite removed |
+| `tasks.show` | read | work `executeOverseerWork` | retired | handler `overseer/work.ts`; retired surface, suite removed |
+| `tasks.rules` | read | work `executeOverseerWork` | retired | handler `overseer/work.ts`; retired surface, suite removed |
+| `tasks.check` | mutation | work `executeOverseerWork` | retired | handler `overseer/work.ts`; retired surface, suite removed |
+| `tasks.promote` | mutation | work `executeOverseerWork` | retired | handler `overseer/work.ts`; retired surface, suite removed |
+| `tasks.comment` | mutation | work `executeOverseerWork` | retired | handler `overseer/work.ts`; retired surface, suite removed |
+| `tasks.respond` | mutation | work `executeOverseerWork` | retired | handler `overseer/work.ts`; retired surface, suite removed |
+| `request.list` | read | work `executeOverseerWork` | retired | handler `overseer/work.ts`; retired surface, suite removed |
+| `request.get` | read | work `executeOverseerWork` | retired | handler `overseer/work.ts`; retired surface, suite removed |
+| `request.create` | mutation | work `executeOverseerWork` | retired | handler `overseer/work.ts`; retired surface, suite removed |
+| `request.resolve` | mutation | work `executeOverseerWork` | retired | handler `overseer/work.ts`; retired surface, suite removed |
+| `request.comment` | mutation | work `executeOverseerWork` | retired | handler `overseer/work.ts`; retired surface, suite removed |
+| `artifact.list` | read | work `executeOverseerWork` | retired | handler `overseer/work.ts`; retired surface, suite removed |
+| `artifact.get` | read | work `executeOverseerWork` | retired | handler `overseer/work.ts`; retired surface, suite removed |
+| `artifact.publish` | mutation | work `executeOverseerWork` | retired | handler `overseer/work.ts`; retired surface, suite removed |
+| `artifact.archive` | mutation | work `executeOverseerWork` | retired | handler `overseer/work.ts`; retired surface, suite removed |
+| `artifact.delete` | mutation | work `executeOverseerWork` | retired | handler `overseer/work.ts`; retired surface, suite removed |
 | `msg.list` | mutation | work `executeOverseerWork` | catalog | handler `overseer/work.ts`; catalog tests/overseer-control.test.ts |
 | `msg.send` | mutation | work `executeOverseerWork` | exercised | tests/overseer-work.test.ts |
 | `msg.read` | mutation | work `executeOverseerWork` | catalog | handler `overseer/work.ts`; catalog tests/overseer-control.test.ts |
 | `msg.reply` | mutation | work `executeOverseerWork` | catalog | handler `overseer/work.ts`; catalog tests/overseer-control.test.ts |
 | `msg.react` | mutation | work `executeOverseerWork` | catalog | handler `overseer/work.ts`; catalog tests/overseer-control.test.ts |
-| `board.list` | read | work `executeOverseerWork` | catalog | handler `overseer/work.ts`; catalog tests/overseer-control.test.ts |
-| `board.create-topic` | mutation | work `executeOverseerWork` | catalog | handler `overseer/work.ts`; catalog tests/overseer-control.test.ts |
-| `board.post` | mutation | work `executeOverseerWork` | catalog | handler `overseer/work.ts`; catalog tests/overseer-control.test.ts |
-| `board.mark-read` | mutation | work `executeOverseerWork` | catalog | handler `overseer/work.ts`; catalog tests/overseer-control.test.ts |
-| `board.tags` | read | work `executeOverseerWork` | catalog | handler `overseer/work.ts`; catalog tests/overseer-control.test.ts |
-| `board.notify` | mutation | work `executeOverseerWork` | catalog | handler `overseer/work.ts`; catalog tests/overseer-control.test.ts |
-| `pad.read` | mutation | work `executeOverseerWork` | catalog | handler `overseer/work.ts`; catalog tests/overseer-control.test.ts |
-| `pad.patch` | mutation | work `executeOverseerWork` | exercised | tests/overseer-work.test.ts |
-| `pad.digest` | read | work `executeOverseerWork` | catalog | handler `overseer/work.ts`; catalog tests/overseer-control.test.ts |
-| `pad.render` | read | work `executeOverseerWork` | catalog | handler `overseer/work.ts`; catalog tests/overseer-control.test.ts |
-| `pad.look-here` | mutation | work `executeOverseerWork` | catalog | handler `overseer/work.ts`; catalog tests/overseer-control.test.ts |
-| `pad.get` | read | work `executeOverseerWork` | catalog | handler `overseer/work.ts`; catalog tests/overseer-control.test.ts |
-| `pad.tagged` | read | work `executeOverseerWork` | catalog | handler `overseer/work.ts`; catalog tests/overseer-control.test.ts |
-| `sheet.read` | read | canvas `executeOverseerCanvas` | exercised | tests/overseer-canvas-commands.test.ts |
-| `sheet.configure` | mutation | canvas `executeOverseerCanvas` | exercised | tests/overseer-canvas-commands.test.ts |
+| `board.list` | read | work `executeOverseerWork` | retired | handler `overseer/work.ts`; retired surface, suite removed |
+| `board.create-topic` | mutation | work `executeOverseerWork` | retired | handler `overseer/work.ts`; retired surface, suite removed |
+| `board.post` | mutation | work `executeOverseerWork` | retired | handler `overseer/work.ts`; retired surface, suite removed |
+| `board.mark-read` | mutation | work `executeOverseerWork` | retired | handler `overseer/work.ts`; retired surface, suite removed |
+| `board.tags` | read | work `executeOverseerWork` | retired | handler `overseer/work.ts`; retired surface, suite removed |
+| `board.notify` | mutation | work `executeOverseerWork` | retired | handler `overseer/work.ts`; retired surface, suite removed |
+| `pad.read` | mutation | work `executeOverseerWork` | retired | handler `overseer/work.ts`; retired surface, suite removed |
+| `pad.patch` | mutation | work `executeOverseerWork` | retired | handler `overseer/work.ts`; retired surface, suite removed |
+| `pad.digest` | read | work `executeOverseerWork` | retired | handler `overseer/work.ts`; retired surface, suite removed |
+| `pad.render` | read | work `executeOverseerWork` | retired | handler `overseer/work.ts`; retired surface, suite removed |
+| `pad.look-here` | mutation | work `executeOverseerWork` | retired | handler `overseer/work.ts`; retired surface, suite removed |
+| `pad.get` | read | work `executeOverseerWork` | retired | handler `overseer/work.ts`; retired surface, suite removed |
+| `pad.tagged` | read | work `executeOverseerWork` | retired | handler `overseer/work.ts`; retired surface, suite removed |
+| `sheet.read` | read | canvas `executeOverseerCanvas` | retired | handler `overseer/canvas.ts`; retired surface, suite removed |
+| `sheet.configure` | mutation | canvas `executeOverseerCanvas` | retired | handler `overseer/canvas.ts`; retired surface, suite removed |
 | `content.ingest` | mutation | work `executeOverseerWork` | exercised | tests/overseer-work.test.ts; tests/overseer-dispatch.test.ts; local ingest exercised; Remote page/content stay on caller installation in dispatch |
 | `content.path` | read | work `executeOverseerWork` | catalog | handler `overseer/work.ts`; catalog tests/overseer-control.test.ts |
 | `content.stat` | read | work `executeOverseerWork` | catalog | handler `overseer/work.ts`; catalog tests/overseer-control.test.ts |
@@ -157,9 +157,9 @@ replay.
 | `page.screenshot` | mutation | native `makeOverseerNative` | catalog | handler `overseer/native.ts`; catalog tests/overseer-control.test.ts |
 | `page.close` | mutation | native `makeOverseerNative` | catalog | handler `overseer/native.ts`; catalog tests/overseer-control.test.ts |
 | `page.stop` | mutation | native `makeOverseerNative` | catalog | handler `overseer/native.ts`; catalog tests/overseer-control.test.ts |
-| `scheduler.fire` | mutation | native `makeOverseerNative` | catalog | handler `overseer/native.ts`; catalog tests/overseer-control.test.ts |
-| `scheduler.status` | read | native `makeOverseerNative` | catalog | handler `overseer/native.ts`; catalog tests/overseer-control.test.ts |
-| `scheduler.configure` | mutation | native `makeOverseerNative` | exercised | tests/overseer-native.test.ts; refuses silent write without canvas hook |
+| `scheduler.fire` | mutation | native `makeOverseerNative` | retired | handler `overseer/native.ts`; retired surface, suite removed |
+| `scheduler.status` | read | native `makeOverseerNative` | retired | handler `overseer/native.ts`; retired surface, suite removed |
+| `scheduler.configure` | mutation | native `makeOverseerNative` | retired | handler `overseer/native.ts`; retired surface, suite removed |
 | `git.status` | read | native `makeOverseerNative` | catalog | handler `overseer/native.ts`; catalog tests/overseer-control.test.ts |
 | `git.log` | read | native `makeOverseerNative` | catalog | handler `overseer/native.ts`; catalog tests/overseer-control.test.ts |
 | `git.show` | read | native `makeOverseerNative` | catalog | handler `overseer/native.ts`; catalog tests/overseer-control.test.ts |
@@ -184,13 +184,12 @@ replay.
 
 ## Verification limits
 
-- Cross-canvas `artifact.publish` retains publisher-home residency and the
-  original ActorRef. Station tests exercise valid commands, wrong routes,
-  revoked grants, and exact response import after revocation.
 - Native lease release, occupy cleanup, and canvas hook cleanup are awaited
   on interruption. Composition grant checks retain immutable caller-source
   identity. Tests exercise a successful cross-canvas reseat, not just refusal.
 - Catalog-only operations have handlers, not focused invocation tests.
+- Retired operations (tasks, request, artifact, board, pad, sheet, scheduler)
+  keep their switched-off handlers and have no suite.
 - Full repository suite is not claimed green.
 - Native Remote deletion retains the existing exact-teardown refusal in
   `TerminalRouter.deleteBinding`; it never reports an unproven stop as deletion.
