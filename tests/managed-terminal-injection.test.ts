@@ -21,7 +21,6 @@ import {
 } from "../src/main/junto/term/templates/resolve-launch";
 
 const bareAmbient = { PATH: "/usr/bin", HOME: "/home/op" };
-const taskPorts = compileVerb("contributes", "agent", "task")!.ports;
 const peerPorts = compileVerb("messages", "agent", "agent")!.ports;
 
 const connectedCtx = {
@@ -29,8 +28,8 @@ const connectedCtx = {
   connected: true as const,
   seatRef: "canvas-a::worker-1",
   connectedTargets: [
-    { id: "tasks-main", kind: "task", summary: "pull queue", ports: taskPorts },
     { id: "peer-2", kind: "agent", summary: "Grok seat", ports: peerPorts },
+    { id: "peer-3", kind: "agent", summary: "Codex seat", ports: peerPorts },
   ],
 };
 
@@ -72,17 +71,13 @@ describe("compiled doctrine — base and slots", () => {
         seatBound: false,
         connected: false,
         seatRef: "should-not-appear",
-        connectedTargets: [{ id: "x", kind: "task" }],
+        connectedTargets: [{ id: "x", kind: "agent" }],
       }),
     ).toBeNull();
   });
 
   it("compiles edge contracts only for connected kinds", () => {
     const text = buildInjectionText(connectedCtx)!;
-    // tasks slot
-    expect(text).toContain("### Edge contract — tasks");
-    expect(text).toContain(`junto tasks list '{"target":"tasks-main"}'`);
-    expect(text).toContain("Finish criteria are **hard gates**");
     // Raising a hand is base doctrine, never an edge slot.
     expect(text).not.toContain("### Edge contract — requests / escalate");
     expect(text).not.toContain(`junto escalate '{"target"`);
@@ -96,7 +91,8 @@ describe("compiled doctrine — base and slots", () => {
     expect(text).toContain("`notice`");
     expect(text).toContain("`prompt`");
     expect(text).toContain("`receipt`");
-    // NOT compiled: artifacts / board (no such edges)
+    // NOT compiled: no other kind is wired
+    expect(text).not.toContain("### Edge contract — tasks");
     expect(text).not.toContain("### Edge contract — artifacts");
     expect(text).not.toContain("### Edge contract — board");
     expect(text).not.toContain("artifact publish");
@@ -119,41 +115,22 @@ describe("compiled doctrine — base and slots", () => {
   it("connected seats get the edge-contracts intro before their slots", () => {
     const text = buildInjectionText(connectedCtx)!;
     const intro = text.indexOf("### Edge contracts");
-    const firstSlot = text.indexOf("### Edge contract — tasks");
+    const firstSlot = text.indexOf("### Edge contract — messages");
     expect(intro).toBeGreaterThan(-1);
     expect(firstSlot).toBeGreaterThan(intro);
   });
 
   it("targetsBySlot groups by held command-family ports", () => {
     const grouped = targetsBySlot(connectedCtx.connectedTargets);
-    expect(grouped.get("tasks")?.map((t) => t.id)).toEqual(["tasks-main"]);
-    expect(grouped.get("msg")?.map((t) => t.id)).toEqual(["tasks-main", "peer-2"]);
+    expect(grouped.get("msg")?.map((t) => t.id)).toEqual(["peer-2", "peer-3"]);
+    expect(grouped.has("tasks")).toBe(false);
     expect(grouped.has("artifacts")).toBe(false);
     expect(grouped.has("pad")).toBe(false);
   });
 
-  it("compiles the pad edge contract when a pad is connected", () => {
-    const slots = compileEdgeSlots([{ id: "pad-1", kind: "pad", ports: ["pad.read", "pad.patch"] }]);
-    expect(slots.join("\n")).toContain("### Edge contract — pad");
-    expect(slots.join("\n")).toContain(`junto pad read '{"target":"pad-1"}'`);
-    expect(slots.join("\n")).toContain("junto pad look-here");
-    expect(slots.join("\n")).toContain("junto pad tagged");
-    expect(slots.join("\n")).toContain("ink or image");
-    expect(slots.join("\n")).toContain("inbound actor");
-  });
-
-  it("compiles the sheet edge contract, and it names no write command", () => {
-    const slots = compileEdgeSlots([{ id: "sheet-1", kind: "sheet", ports: ["sheet.read"] }]).join("\n");
-    expect(slots).toContain("### Edge contract — sheet");
-    expect(slots).toContain(`junto sheet read '{"target":"sheet-1"}'`);
-    expect(slots).not.toContain("sheet patch");
-    expect(slots).not.toContain("sheet write");
-  });
-
-  it("compileEdgeSlots separates targets with different held ports", () => {
+  it("compileEdgeSlots gathers peers holding the same ports into one slot", () => {
     const slots = compileEdgeSlots(connectedCtx.connectedTargets);
-    expect(slots.length).toBe(3);
-    expect(slots.join("\n")).toContain("### Edge contract — tasks");
+    expect(slots.length).toBe(1);
     expect(slots.join("\n")).not.toContain("requests / escalate");
     expect(slots.join("\n")).toContain("### Edge contract — messages");
   });
@@ -161,7 +138,7 @@ describe("compiled doctrine — base and slots", () => {
   it("seat context section lists targets or a fallback", () => {
     const filled = buildSeatContextSection({
       seatRef: "seat-9",
-      connectedTargets: [{ id: "t1", kind: "tasks" }],
+      connectedTargets: [{ id: "t1", kind: "agent" }],
     });
     expect(filled).toContain("seat-9");
     expect(filled).toContain("t1");
@@ -175,41 +152,42 @@ describe("edge-map change injection", () => {
   const doc = (edges: Array<[string, string]>): CanvasDoc => ({
     nodes: [
       { id: "seat-a", type: "text", text: "a", x: 0, y: 0, width: 1, height: 1, ether: { entity: { kind: "agent" } } },
-      { id: "n-tasks", type: "text", text: "t", x: 0, y: 0, width: 1, height: 1, ether: { entity: { kind: "task" } } },
-      { id: "n-req", type: "text", text: "t", x: 0, y: 0, width: 1, height: 1, ether: { entity: { kind: "requests" } } },
-      { id: "n-art", type: "text", text: "t", x: 0, y: 0, width: 1, height: 1, ether: { entity: { kind: "artifacts" } } },
+      { id: "n-peer", type: "text", text: "p", x: 0, y: 0, width: 1, height: 1, ether: { entity: { kind: "agent" } } },
+      { id: "n-new", type: "text", text: "q", x: 0, y: 0, width: 1, height: 1, ether: { entity: { kind: "agent" } } },
+      { id: "n-note", type: "text", text: "n", x: 0, y: 0, width: 1, height: 1, ether: { entity: { kind: "note" } } },
     ],
     edges: edges.map(([fromNode, toNode], i) => ({ id: `e${i}`, fromNode, toNode })),
   });
 
   it("plans added and removed slot-bearing edges per seat", () => {
-    const before = doc([["seat-a", "n-tasks"]]);
+    const before = doc([["seat-a", "n-peer"]]);
     const after = doc([
-      ["seat-a", "n-req"],
-      ["seat-a", "n-art"],
+      ["seat-a", "n-new"],
+      ["seat-a", "n-note"],
     ]);
     const changes = planEdgeMapChanges(before, after);
-    expect(changes.length).toBe(1);
-    expect(changes[0].seatId).toBe("seat-a");
-    // A requests sink bears no slot: no verb joins an agent to it.
-    expect(changes[0].added.map((t) => t.id).sort()).toEqual(["n-art"]);
-    expect(changes[0].removed.map((t) => t.id)).toEqual(["n-tasks"]);
+    const seatA = changes.find((change) => change.seatId === "seat-a");
+    // A note bears no slot: no verb joins an agent to it.
+    expect(seatA?.added.map((t) => t.id)).toEqual(["n-new"]);
+    expect(seatA?.removed.map((t) => t.id)).toEqual(["n-peer"]);
+    // Both peers are seats too, and each hears its own side of the change.
+    expect(changes.map((change) => change.seatId).sort()).toEqual(["n-new", "n-peer", "seat-a"]);
   });
 
   it("does not plan when the edge map is unchanged", () => {
-    const same = doc([["seat-a", "n-tasks"]]);
+    const same = doc([["seat-a", "n-peer"]]);
     expect(planEdgeMapChanges(same, same)).toEqual([]);
   });
 
   it("names what the seat can now reach and no longer reach, in one line", () => {
     const text = composeEdgeMapChangeNotice({
       seatId: "seat-a",
-      added: [{ id: "n-tasks", kind: "task" }, { id: "bravo", kind: "agent" }],
-      removed: [{ id: "n-req", kind: "requests" }],
+      added: [{ id: "alpha", kind: "agent" }, { id: "bravo", kind: "agent" }],
+      removed: [{ id: "charlie", kind: "agent" }],
     });
     expect(text).toBe(
-      "Your connections changed. You can now reach `n-tasks` (task), `bravo` (agent). " +
-        "You can no longer reach `n-req` (requests). Run `junto capabilities` for details.",
+      "Your connections changed. You can now reach `alpha` (agent), `bravo` (agent). " +
+        "You can no longer reach `charlie` (agent). Run `junto capabilities` for details.",
     );
   });
 
@@ -230,8 +208,6 @@ describe("ONE doctrine — tiers are delivery method only", () => {
         connected: true as const,
         seatRef: "s2",
         connectedTargets: [
-          { id: "a", kind: "artifacts", ports: compileVerb("publishes", "agent", "artifacts")!.ports },
-          { id: "b", kind: "board", ports: compileVerb("participates", "agent", "board")!.ports },
           { id: "p", kind: "agent", ports: peerPorts },
         ],
       },
@@ -389,32 +365,20 @@ describe("resolveManagedLaunchPlan Tier A flags", () => {
     expect(body).not.toContain("Region briefing");
   });
 
-  it("compiles worked examples only for the slots the seat holds", () => {
-    const tasksOnly = buildInjectionText({
+  it("teaches every connected seat to raise its hand, and no task surface", () => {
+    const peerOnly = buildInjectionText({
       seatBound: true,
       connected: true,
       seatRef: "n3",
-      connectedTargets: [{ id: "n7", kind: "tasks", summary: "Sprint board", ports: taskPorts }],
+      connectedTargets: [{ id: "peer-2", kind: "agent", summary: "Grok seat", ports: peerPorts }],
     });
-    expect(tasksOnly).toContain("## Worked examples");
-    expect(tasksOnly).toContain(`tasks claim '{"target":"n7","task":"t1"}'`);
-    expect(tasksOnly).toContain("completionEvidence");
-    expect(tasksOnly).not.toContain('"target":"req1"');
-
-    const requestsOnly = buildInjectionText({
-      seatBound: true,
-      connected: true,
-      seatRef: "n3",
-      connectedTargets: [{ id: "n8", kind: "requests", summary: "Requests", ports: [] }],
-    });
-    expect(requestsOnly).not.toContain('junto escalate {"target"');
-    expect(requestsOnly).toContain(
+    expect(peerOnly).toContain("## Worked examples");
+    expect(peerOnly).toContain(
       "junto blocked 'Need the staging API key to run the deploy check.' --detail",
     );
-    // The worker-loop doctrine names `tasks claim` in prose for every seat;
-    // what a requests-only seat must never get is the tasks CLI surface.
-    expect(requestsOnly).not.toContain("junto tasks claim");
-    expect(requestsOnly).not.toContain('tasks claim {"target"');
+    expect(peerOnly).not.toContain('junto escalate {"target"');
+    expect(peerOnly).not.toContain("junto tasks claim");
+    expect(peerOnly).not.toContain('tasks claim {"target"');
   });
 
   it("never promises worked examples to isolated seats", () => {
@@ -440,11 +404,6 @@ describe("edge-map diff equivalence", () => {
    */
   const referencePlan = (previous: Doc, next: Doc) => {
     const slot: Readonly<Record<string, string | undefined>> = {
-      task: "tasks",
-      tasks: "tasks",
-      artifacts: "artifacts",
-      board: "board",
-      pad: "pad",
       agent: "msg",
       page: "browser",
     };
@@ -511,40 +470,40 @@ describe("edge-map diff equivalence", () => {
     }) as CanvasDoc;
 
   const seats = [node("seat-a", "agent"), node("seat-b", "agent")];
-  const sinks = [node("n-tasks", "task"), node("n-req", "requests"), node("n-board", "board")];
+  const sinks = [node("n-peer", "agent"), node("n-page", "page"), node("n-other", "agent")];
   /** Kind with no slot, and a node carrying no entity at all. */
   const inert = [node("n-note", "note"), node("n-bare")];
 
   const cases: Array<[string, CanvasDoc, CanvasDoc]> = [
     [
       "edge added to a seat",
-      doc([...seats, ...sinks, ...inert], [["seat-a", "n-tasks"]]),
-      doc([...seats, ...sinks, ...inert], [["seat-a", "n-tasks"], ["seat-a", "n-req"]]),
+      doc([...seats, ...sinks, ...inert], [["seat-a", "n-peer"]]),
+      doc([...seats, ...sinks, ...inert], [["seat-a", "n-peer"], ["seat-a", "n-page"]]),
     ],
     [
       "edge reversed — the diff is undirected",
-      doc([...seats, ...sinks], [["seat-a", "n-tasks"]]),
-      doc([...seats, ...sinks], [["n-tasks", "seat-a"]]),
+      doc([...seats, ...sinks], [["seat-a", "n-peer"]]),
+      doc([...seats, ...sinks], [["n-peer", "seat-a"]]),
     ],
     [
       "endpoint node deleted out from under its edges",
-      doc([...seats, ...sinks], [["seat-a", "n-tasks"], ["seat-a", "n-req"]]),
-      doc([...seats, node("n-req", "requests")], [["seat-a", "n-tasks"], ["seat-a", "n-req"]]),
+      doc([...seats, ...sinks], [["seat-a", "n-peer"], ["seat-a", "n-page"]]),
+      doc([...seats, node("n-page", "page")], [["seat-a", "n-peer"], ["seat-a", "n-page"]]),
     ],
     [
       "edge to an id no node carries",
-      doc([...seats, ...sinks], [["seat-a", "n-tasks"]]),
-      doc([...seats, ...sinks], [["seat-a", "n-tasks"], ["seat-a", "n-ghost"]]),
+      doc([...seats, ...sinks], [["seat-a", "n-peer"]]),
+      doc([...seats, ...sinks], [["seat-a", "n-peer"], ["seat-a", "n-ghost"]]),
     ],
     [
       "duplicate node id — the first occurrence decides",
       doc(
-        [node("dup", "agent"), node("dup", "task"), ...sinks],
-        [["dup", "n-tasks"]],
+        [node("dup", "agent"), node("dup", "page"), ...sinks],
+        [["dup", "n-peer"]],
       ),
       doc(
-        [node("dup", "agent"), node("dup", "task"), ...sinks],
-        [["dup", "n-tasks"], ["dup", "n-req"]],
+        [node("dup", "agent"), node("dup", "page"), ...sinks],
+        [["dup", "n-peer"], ["dup", "n-page"]],
       ),
     ],
     [
@@ -559,18 +518,18 @@ describe("edge-map diff equivalence", () => {
     ],
     [
       "inert kinds churn without moving a grant",
-      doc([...seats, ...sinks, ...inert], [["seat-a", "n-note"], ["seat-a", "n-tasks"]]),
-      doc([...seats, ...sinks, ...inert], [["seat-a", "n-bare"], ["seat-a", "n-tasks"]]),
+      doc([...seats, ...sinks, ...inert], [["seat-a", "n-note"], ["seat-a", "n-peer"]]),
+      doc([...seats, ...sinks, ...inert], [["seat-a", "n-bare"], ["seat-a", "n-peer"]]),
     ],
     [
       "node changes kind while every edge stays put",
       doc([...seats, node("swing", "note")], [["seat-a", "swing"]]),
-      doc([...seats, node("swing", "task")], [["seat-a", "swing"]]),
+      doc([...seats, node("swing", "agent")], [["seat-a", "swing"]]),
     ],
     [
       "a node moves and nothing else",
-      doc([...seats, ...sinks], [["seat-a", "n-tasks"]]),
-      doc([node("seat-a", "agent", 900), node("seat-b", "agent"), ...sinks], [["seat-a", "n-tasks"]]),
+      doc([...seats, ...sinks], [["seat-a", "n-peer"]]),
+      doc([node("seat-a", "agent", 900), node("seat-b", "agent"), ...sinks], [["seat-a", "n-peer"]]),
     ],
   ];
 
@@ -584,7 +543,7 @@ describe("edge-map diff equivalence", () => {
 
   it("still reports a grant change when only a node kind moved", () => {
     const before = doc([...seats, node("swing", "note")], [["seat-a", "swing"]]);
-    const after = doc([...seats, node("swing", "task")], [["seat-a", "swing"]]);
+    const after = doc([...seats, node("swing", "agent")], [["seat-a", "swing"]]);
     const changes = planEdgeMapChanges(before, after);
     expect(changes).toHaveLength(1);
     expect(changes[0].seatId).toBe("seat-a");
