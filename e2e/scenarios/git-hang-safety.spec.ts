@@ -1,10 +1,10 @@
 /**
  * The git node's commit browser opens big commits without holding the
- * renderer, and a frozen app leaves its stack in ~/.junto/logs/hangs.jsonl.
+ * renderer.
  *   bun run test:e2e:fast e2e/scenarios/git-hang-safety.spec.ts
  */
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -59,17 +59,6 @@ const gitNode = (cwd: string): CanvasNode => ({
   ether: { entity: { kind: "git" }, git: { cwd } },
 });
 
-const hangRows = (home: string): Array<Record<string, unknown>> => {
-  try {
-    return readFileSync(join(home, ".junto", "logs", "hangs.jsonl"), "utf8")
-      .split("\n")
-      .filter(Boolean)
-      .map((line) => JSON.parse(line) as Record<string, unknown>);
-  } catch {
-    return [];
-  }
-};
-
 test("the commit browser opens a big commit cut to fit, without holding the renderer", async () => {
   await mkdir(SHOTS, { recursive: true });
   const repo = makeBigRepo();
@@ -116,62 +105,5 @@ test("the commit browser opens a big commit cut to fit, without holding the rend
   } finally {
     await junto.close();
     rmSync(repo, { recursive: true, force: true });
-  }
-});
-
-test("a frozen main thread and a hung renderer leave their stacks in the hang log", async () => {
-  const junto = await launchJunto({ seedCanvases: { [CANVAS]: canvasDoc([]) } });
-  try {
-    const { app, page, sandbox } = junto;
-    await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
-
-    // Main: hold the event loop well past the stall threshold, from a timer
-    // like real work does (code inside Playwright's own inspector evaluate
-    // cannot be paused by a second session).
-    await app.evaluate(() => {
-      function holdTheMainThreadOnPurpose(ms: number): number {
-        const end = Date.now() + ms;
-        let turns = 0;
-        while (Date.now() < end) turns += 1;
-        return turns;
-      }
-      setTimeout(() => holdTheMainThreadOnPurpose(3_000), 100);
-    });
-    await expect
-      .poll(() => hangRows(sandbox.homeDir).find((row) => row.kind === "main-stall-end"), { timeout: 10_000 })
-      .toBeDefined();
-    const stall = hangRows(sandbox.homeDir).find((row) => row.kind === "main-stall");
-    expect(stall?.stack, JSON.stringify(stall)).toContain("holdTheMainThreadOnPurpose");
-
-    // Renderer: spin its main thread for real. Chromium's hang monitor is
-    // silent while a debugger is attached (Playwright keeps one on the page),
-    // so main raises the same `unresponsive` event Chromium would; the stack
-    // read, the document's opt-in and the write are all the real ones.
-    await page.evaluate(() => {
-      function holdTheRendererOnPurpose(): void {
-        const end = Date.now() + 8_000;
-        while (Date.now() < end) {
-          // spin
-        }
-      }
-      setTimeout(holdTheRendererOnPurpose, 50);
-    });
-    await app.evaluate(async ({ BrowserWindow }) => {
-      await new Promise((resolve) => setTimeout(resolve, 1_000));
-      BrowserWindow.getAllWindows()[0]?.webContents.emit("unresponsive");
-    });
-    await expect
-      .poll(() => hangRows(sandbox.homeDir).find((row) => row.kind === "renderer-unresponsive"), { timeout: 15_000 })
-      .toBeDefined();
-    const hung = hangRows(sandbox.homeDir).find((row) => row.kind === "renderer-unresponsive");
-    expect(hung?.stack, JSON.stringify(hung)).toContain("holdTheRendererOnPurpose");
-    await app.evaluate(({ BrowserWindow }) => {
-      BrowserWindow.getAllWindows()[0]?.webContents.emit("responsive");
-    });
-    await expect
-      .poll(() => hangRows(sandbox.homeDir).find((row) => row.kind === "renderer-responsive"), { timeout: 10_000 })
-      .toBeDefined();
-  } finally {
-    await junto.close();
   }
 });

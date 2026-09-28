@@ -8,10 +8,6 @@ import {
   type TrustedRendererOrigin,
 } from "@shared/trusted-renderer-origin";
 import { LIVE_OVERSEER_ENABLED } from "@shared/features";
-import {
-  RENDERER_DOCUMENT_POLICY,
-  RENDERER_DOCUMENT_POLICY_HEADER,
-} from "@shared/renderer-document-policy";
 import { isTrustedMainWebContents } from "./trusted-main-webcontents";
 
 export { TRUSTED_RENDERER_HOST, TRUSTED_RENDERER_SCHEME, TRUSTED_RENDERER_URL };
@@ -41,8 +37,8 @@ const RECURSIVE_ENCODING = /%[0-9a-f]{2}/iu;
 const CONTROL_CHARACTER = /[\u0000-\u001f\u007f]/u;
 const WINDOWS_ABSOLUTE_PATH = /^[a-z]:/iu;
 
-const fixedHeaders = (contentType: string, contentLength: number): Headers => {
-  const headers = new Headers({
+const fixedHeaders = (contentType: string, contentLength: number): Headers =>
+  new Headers({
     "Cache-Control": "no-store",
     "Content-Length": String(contentLength),
     "Content-Type": contentType,
@@ -50,12 +46,6 @@ const fixedHeaders = (contentType: string, contentLength: number): Headers => {
     "Referrer-Policy": "no-referrer",
     "X-Content-Type-Options": "nosniff",
   });
-  // The app document lets main read its stack while it hangs (hang recorder).
-  if (contentType.startsWith("text/html")) {
-    headers.set(RENDERER_DOCUMENT_POLICY_HEADER, RENDERER_DOCUMENT_POLICY);
-  }
-  return headers;
-};
 
 const fixedError = (status: number, method: string): Response => {
   const contents = new TextEncoder().encode("request rejected\n");
