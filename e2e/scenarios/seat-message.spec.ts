@@ -92,6 +92,19 @@ test("[fake-tui] the seat toolbar messages a sleeping seat, which wakes and rece
     const field = composer.getByTestId("seat-message-field");
     await expect(field).toBeFocused();
 
+    // Nothing covers the composer: the open button shows no tip (hovering it
+    // again, even onto its icon), and the composer sits centred on the
+    // button, above the toolbar, clear of it.
+    await open.hover({ position: { x: 3, y: 3 } });
+    await open.locator("svg").hover();
+    await page.waitForTimeout(150);
+    await expect(page.locator(".junto-tooltip")).toHaveCount(0);
+    const openBox = (await open.boundingBox())!;
+    const composerBox = (await composer.boundingBox())!;
+    const toolbarBox = (await page.locator(".react-flow__node-toolbar").first().boundingBox())!;
+    expect(Math.abs(composerBox.x + composerBox.width / 2 - (openBox.x + openBox.width / 2))).toBeLessThan(2);
+    expect(composerBox.y + composerBox.height).toBeLessThanOrEqual(toolbarBox.y);
+
     const text = "Please rerun the migration check and post the result";
     await field.fill(text);
     await field.press("Enter");
@@ -115,6 +128,18 @@ test("[fake-tui] the seat toolbar messages a sleeping seat, which wakes and rece
     await expect(status).toHaveText("Sent to Ada.");
     await expect(status).toHaveAttribute("data-tone", "sent");
     await expect.poll(async () => (await ada.stdinLog()).includes("And tag me when it is green"), { timeout: 15_000 }).toBe(true);
+    // The pointer is back on the button that opened it: still no tip, and
+    // nothing from outside the composer lies over its Send button. (A
+    // disabled button takes no pointer, so the hit lands on the composer.)
+    await open.hover();
+    await page.waitForTimeout(150);
+    await expect(page.locator(".junto-tooltip")).toHaveCount(0);
+    const sendBox = (await composer.getByRole("button", { name: "Send" }).boundingBox())!;
+    const onTop = await page.evaluate(
+      ([x, y]) => document.elementFromPoint(x!, y!)?.closest("[role='dialog']")?.getAttribute("aria-label") ?? "",
+      [sendBox.x + sendBox.width / 2, sendBox.y + sendBox.height / 2] as const,
+    );
+    expect(onTop).toBe("Message Ada");
     await page.screenshot({ path: join(SHOTS, "seat-message-sent.png") });
 
     // Shift+Enter is a new line, not a send.

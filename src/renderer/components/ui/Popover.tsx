@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { placeBesideRect, type Side } from "../../lib/menu-placement";
+import { placeBesideRect, type Align, type Side } from "../../lib/menu-placement";
 
 // Module-level so the default is one stable array: a fresh literal per render
 // would re-run the placement layout effect every render and never settle.
@@ -18,6 +18,7 @@ export function Popover({
   onClose,
   label,
   sides = DEFAULT_SIDES,
+  align = "end",
   width = 320,
   className,
   testId,
@@ -27,6 +28,8 @@ export function Popover({
   readonly onClose: () => void;
   readonly label: string;
   readonly sides?: ReadonlyArray<Side>;
+  /** "center" centres the panel on the anchor; the default hugs its far end. */
+  readonly align?: Align;
   readonly width?: number;
   readonly className?: string;
   readonly testId?: string;
@@ -46,8 +49,9 @@ export function Popover({
       { width: panel.offsetWidth, height: panel.offsetHeight },
       { width: window.innerWidth, height: window.innerHeight },
       sides,
+      align,
     ));
-  }, [anchor, sides]);
+  }, [anchor, sides, align]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {

@@ -1,8 +1,10 @@
 /**
  * Place a floating menu beside a screen rect without covering it when the
  * viewport allows: by default right of the rect, then below, left, above.
- * Side and end sides hug the rect's bottom-right corner. With no clear side,
- * the menu sits at that corner, clamped into the viewport.
+ * Side and end sides hug the rect's bottom-right corner; `align: "center"`
+ * centres them on the rect instead, for a panel that grows out of one small
+ * control. With no clear side, the menu sits at that corner, clamped into
+ * the viewport.
  */
 export type ScreenRect = {
   readonly left: number;
@@ -14,6 +16,8 @@ export type ScreenRect = {
 export type Size = { readonly width: number; readonly height: number };
 
 export type Side = "right" | "below" | "left" | "above";
+
+export type Align = "end" | "center";
 
 const DEFAULT_SIDES: ReadonlyArray<Side> = ["right", "below", "left", "above"];
 
@@ -28,11 +32,20 @@ export const placeBesideRect = (
   menu: Size,
   viewport: Size,
   sides: ReadonlyArray<Side> = DEFAULT_SIDES,
+  align: Align = "end",
 ): { readonly x: number; readonly y: number } => {
   const maxX = viewport.width - menu.width - MARGIN;
   const maxY = viewport.height - menu.height - MARGIN;
-  const alignedY = clamp(rect.bottom - menu.height, MARGIN, maxY);
-  const alignedX = clamp(rect.right - menu.width, MARGIN, maxX);
+  const alignedY = clamp(
+    align === "center" ? (rect.top + rect.bottom - menu.height) / 2 : rect.bottom - menu.height,
+    MARGIN,
+    maxY,
+  );
+  const alignedX = clamp(
+    align === "center" ? (rect.left + rect.right - menu.width) / 2 : rect.right - menu.width,
+    MARGIN,
+    maxX,
+  );
   const at: Record<Side, { readonly x: number; readonly y: number }> = {
     right: { x: rect.right + GAP, y: alignedY },
     below: { x: alignedX, y: rect.bottom + GAP },

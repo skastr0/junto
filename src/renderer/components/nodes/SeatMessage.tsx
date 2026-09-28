@@ -101,7 +101,8 @@ export function SeatMessageForm({ nodeIds }: { readonly nodeIds: ReadonlyArray<s
   );
 }
 
-// Above the toolbar first: below it is the seat the message is about.
+// Above the toolbar first, centred on the button: below it is the seat the
+// message is about.
 const COMPOSER_SIDES: ReadonlyArray<Side> = ["above", "below", "right", "left"];
 
 /** Seat toolbar button: opens the composer for this one seat. */
@@ -132,6 +133,7 @@ export function SeatMessageToolbarAction({ node }: { readonly node: CanvasNode }
           onClose={() => setAnchor(null)}
           label={`Message ${planSeatMessage([node]).names.get(node.id) ?? "agent"}`}
           sides={COMPOSER_SIDES}
+          align="center"
           width={320}
           className="seat-message-popover"
         >
