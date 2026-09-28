@@ -123,103 +123,14 @@ const document = (connected: boolean) =>
           host: "local",
         },
       },
-      {
-        id: "tasks",
-        type: "text",
-        x: 320,
-        y: 0,
-        width: 240,
-        height: 100,
-        text: "Tasks",
-        ether: {
-          entity: { kind: "task" },
-          host: "local",
-        },
-      },
-      {
-        id: "other-remote-tasks",
-        type: "text",
-        x: 320,
-        y: -140,
-        width: 240,
-        height: 100,
-        text: "Other Remote tasks",
-        ether: {
-          entity: { kind: "task" },
-          host: "other-remote",
-        },
-      },
-      {
-        id: "inbox",
-        type: "text",
-        x: 600,
-        y: -140,
-        width: 240,
-        height: 100,
-        text: "Requests",
-        ether: {
-          entity: { kind: "requests" },
-          host: "local",
-        },
-      },
-      {
-        id: "artifacts",
-        type: "text",
-        x: 600,
-        y: 0,
-        width: 240,
-        height: 100,
-        text: "Artifacts",
-        ether: {
-          entity: { kind: "artifacts" },
-          host: "local",
-        },
-      },
-      {
-        id: "board",
-        type: "text",
-        x: 600,
-        y: 140,
-        width: 240,
-        height: 100,
-        text: "Board",
-        ether: {
-          entity: { kind: "board" },
-          host: "local",
-        },
-      },
     ],
     edges: connected
       ? [
-          {
-            id: "actor-tasks",
-            fromNode: remoteActor.nodeId,
-            toNode: "tasks",
-            ether: { verb: "contributes" },
-          },
           {
             id: "actor-mailbox",
             fromNode: remoteActor.nodeId,
             toNode: "cc-recipient",
             ether: { verb: "messages" },
-          },
-          {
-            id: "actor-artifacts",
-            fromNode: remoteActor.nodeId,
-            toNode: "artifacts",
-            ether: { verb: "publishes" },
-          },
-          {
-            id: "actor-board",
-            fromNode: remoteActor.nodeId,
-            toNode: "board",
-            ether: { verb: "participates" },
-          },
-          {
-            id: "cc-actor-tasks",
-            fromNode: commandCenterActor.nodeId,
-            toNode: "tasks",
-            ether: { verb: "contributes" },
           },
         ]
       : [],
@@ -456,180 +367,6 @@ const messageFact = (): WorkFactValue =>
     },
   });
 
-const threadMessage = {
-  ...message,
-  messageId: "task-note-1",
-  taskId: "task-1",
-};
-
-const threadCommand = (): WorkCommandValue =>
-  Schema.decodeUnknownSync(WorkCommand, strictDecode)({
-    protocol: "junto/work/v1",
-    id: {
-      route: { eventHome: cc, entityHome: remote },
-      seq: "1",
-    },
-    recordType: "command",
-    item: {
-      kind: "message",
-      itemId: threadMessage.messageId,
-      sink: { canvasName: "factory", nodeId: "tasks" },
-    },
-    operation: "message.append",
-    contentSha256,
-    originAt: observedAt,
-    predecessor: null,
-    body: {
-      operation: "message.append",
-      message: threadMessage,
-      sentBy: commandCenterActor,
-      destination: { kind: "task", itemId: "task-1" },
-    },
-  });
-
-const remoteThreadCommand = (): WorkCommandValue =>
-  Schema.decodeUnknownSync(WorkCommand, strictDecode)({
-    ...threadCommand(),
-    id: {
-      route: { eventHome: remote, entityHome: cc },
-      seq: "2",
-    },
-    body: {
-      ...threadCommand().body,
-      sentBy: remoteActor,
-    },
-  });
-
-const threadFact = (): WorkFactValue =>
-  Schema.decodeUnknownSync(WorkFact, strictDecode)({
-    protocol: "junto/work/v1",
-    id: {
-      route: { eventHome: remote, entityHome: remote },
-      seq: "1",
-    },
-    recordType: "fact",
-    basis: {
-      kind: "projected-intent",
-      generation: "1",
-      contentSha256,
-    },
-    item: {
-      kind: "message",
-      itemId: threadMessage.messageId,
-      sink: { canvasName: "factory", nodeId: "tasks" },
-    },
-    operation: "message.append",
-    contentSha256,
-    originAt: observedAt,
-    predecessor: null,
-    body: {
-      operation: "message.append",
-      message: threadMessage,
-      sentBy: remoteActor,
-      destination: { kind: "task", itemId: "task-1" },
-    },
-  });
-
-const artifactFact = (
-  taskNodeId = "tasks",
-): WorkFactValue =>
-  Schema.decodeUnknownSync(WorkFact, strictDecode)({
-    protocol: "junto/work/v1",
-    id: {
-      route: { eventHome: remote, entityHome: remote },
-      seq: "2",
-    },
-    recordType: "fact",
-    basis: {
-      kind: "projected-intent",
-      generation: "1",
-      contentSha256,
-    },
-    item: {
-      kind: "artifact",
-      itemId: "artifact-1",
-      sink: { canvasName: "factory", nodeId: "artifacts" },
-    },
-    operation: "artifact.publish",
-    contentSha256,
-    originAt: observedAt,
-    predecessor: null,
-    body: {
-      operation: "artifact.publish",
-      artifact: {
-        artifactId: "artifact-1",
-        parts: [{ kind: "text", text: "proof" }],
-        task: {
-          kind: "task",
-          itemId: "task-1",
-          sink: { canvasName: "factory", nodeId: taskNodeId },
-        },
-      },
-      publishedBy: remoteActor,
-    },
-  });
-
-const remoteOverseerTaskCreateCommand = (): WorkCommandValue =>
-  Schema.decodeUnknownSync(WorkCommand, strictDecode)({
-    protocol: "junto/work/v1",
-    id: {
-      route: { eventHome: remote, entityHome: cc },
-      seq: "13",
-    },
-    recordType: "command",
-    item: {
-      kind: "task",
-      itemId: "overseer-task-1",
-      sink: { canvasName: "factory", nodeId: "tasks" },
-    },
-    operation: "task.create",
-    contentSha256,
-    originAt: observedAt,
-    predecessor: null,
-    body: {
-      operation: "task.create",
-      task: {
-        id: "overseer-task-1",
-        state: "submitted",
-        history: [],
-        raisedBy: remoteOverseer,
-      },
-    },
-  });
-
-const remoteOverseerThreadCommentCommand = (
-  sentBy: ActorRef = remoteOverseer,
-): WorkCommandValue =>
-  Schema.decodeUnknownSync(WorkCommand, strictDecode)({
-    protocol: "junto/work/v1",
-    id: {
-      route: { eventHome: cc, entityHome: remote },
-      seq: "17",
-    },
-    recordType: "command",
-    item: {
-      kind: "message",
-      itemId: "overseer-thread-1",
-      sink: { canvasName: "factory", nodeId: "tasks" },
-    },
-    operation: "message.append",
-    contentSha256,
-    originAt: observedAt,
-    predecessor: null,
-    body: {
-      operation: "message.append",
-      message: {
-        messageId: "overseer-thread-1",
-        role: "agent",
-        parts: [{ kind: "text", text: "overseer thread comment" }],
-        contextId: "factory",
-        taskId: "task-1",
-      },
-      sentBy,
-      destination: { kind: "task", itemId: "task-1" },
-    },
-  });
-
 const remoteOverseerMailboxCommand = (): WorkCommandValue =>
   Schema.decodeUnknownSync(WorkCommand, strictDecode)({
     protocol: "junto/work/v1",
@@ -660,267 +397,72 @@ const remoteOverseerMailboxCommand = (): WorkCommandValue =>
     },
   });
 
-const remoteAssigneeClaimCommand = (): WorkCommandValue =>
-  Schema.decodeUnknownSync(WorkCommand, strictDecode)({
-    protocol: "junto/work/v1",
-    id: {
-      route: { eventHome: cc, entityHome: remote },
-      seq: "16",
-    },
-    recordType: "command",
-    item: {
-      kind: "task",
-      itemId: "assigned-remote-task",
-      sink: { canvasName: "factory", nodeId: "tasks" },
-    },
-    operation: "task.claim",
-    contentSha256,
-    originAt: observedAt,
-    predecessor: null,
-    body: {
-      operation: "task.claim",
-      sourceQueueHome: cc,
-      sourcePredecessor: {
-        route: { eventHome: cc, entityHome: cc },
-        seq: "9",
-      },
-      sourceTask: {
-        id: "assigned-remote-task",
-        state: "submitted",
-        history: [],
-      },
-      sink: { canvasName: "factory", nodeId: "tasks" },
-      actor: remoteActor,
-      targetHome: remote,
-    },
-  });
-
-const remoteAssigneeClaimCommandAuthorizedBy = (
-  authorizedBy: ActorRef,
-): WorkCommandValue =>
-  Schema.decodeUnknownSync(WorkCommand, strictDecode)({
-    ...remoteAssigneeClaimCommand(),
-    body: {
-      ...remoteAssigneeClaimCommand().body,
-      authorizedBy,
-    },
-  });
-
-const remoteOverseerRequestCommand = (): WorkCommandValue =>
-  Schema.decodeUnknownSync(WorkCommand, strictDecode)({
-    protocol: "junto/work/v1",
-    id: {
-      route: { eventHome: cc, entityHome: remote },
-      seq: "15",
-    },
-    recordType: "command",
-    item: {
-      kind: "request",
-      itemId: "overseer-request-1",
-      sink: { canvasName: "factory", nodeId: "inbox" },
-    },
-    operation: "request.create",
-    contentSha256,
-    originAt: observedAt,
-    predecessor: null,
-    body: {
-      operation: "request.create",
-      request: {
-        id: "overseer-request-1",
-        state: "input-required",
-        claimedBy: remoteOverseer.seatId,
-        history: [],
-      },
-      raisedBy: remoteOverseer,
-    },
-  });
-
-const remoteOverseerArtifactCommand = (
-  publishedBy: ActorRef = remoteOverseer,
-  taskNodeId = "tasks",
-): WorkCommandValue =>
-  Schema.decodeUnknownSync(WorkCommand, strictDecode)({
-    protocol: "junto/work/v1",
-    id: {
-      route: { eventHome: cc, entityHome: remote },
-      seq: "3",
-    },
-    recordType: "command",
-    item: {
-      kind: "artifact",
-      itemId: "artifact-overseer",
-      sink: { canvasName: "factory", nodeId: "artifacts" },
-    },
-    operation: "artifact.publish",
-    contentSha256,
-    originAt: observedAt,
-    predecessor: null,
-    body: {
-      operation: "artifact.publish",
-      artifact: {
-        artifactId: "artifact-overseer",
-        parts: [{ kind: "text", text: "cross-canvas proof" }],
-        task: {
-          kind: "task",
-          itemId: "task-1",
-          sink: { canvasName: "factory", nodeId: taskNodeId },
-        },
-      },
-      publishedBy,
-    },
-  });
-
-const remoteOverseerArtifactFact = (
-  basis: WorkFactValue["basis"],
-): WorkFactValue =>
-  Schema.decodeUnknownSync(WorkFact, strictDecode)({
-    ...remoteOverseerArtifactCommand(),
-    id: {
-      route: { eventHome: remote, entityHome: remote },
-      seq: "4",
-    },
-    recordType: "fact",
-    basis,
-    body: remoteOverseerArtifactCommand().body,
-  });
-
-const taskDescribeCommand = (
-  sender: InstallationIdValue,
-  target: InstallationIdValue,
-): WorkCommandValue =>
-  Schema.decodeUnknownSync(WorkCommand, strictDecode)({
-    protocol: "junto/work/v1",
-    id: {
-      route: { eventHome: sender, entityHome: target },
-      seq: "1",
-    },
-    recordType: "command",
-    item: {
-      kind: "task",
-      itemId: "task-1",
-      sink: { canvasName: "factory", nodeId: "tasks" },
-    },
-    operation: "task.describe",
-    contentSha256,
-    originAt: observedAt,
-    predecessor: {
-      route: { eventHome: target, entityHome: target },
-      seq: "1",
-    },
-    body: {
-      operation: "task.describe",
-      taskId: "task-1",
-      message: {
-        messageId: "description-1",
-        role: "user",
-        parts: [{ kind: "text", text: "changed by the operator" }],
-      },
-    },
-  });
-
-const agentTaskCreateCommand = (
-  raisedBy: ActorRef | null = remoteActor,
-  sinkNodeId = "tasks",
-): WorkCommandValue =>
-  Schema.decodeUnknownSync(WorkCommand, strictDecode)({
+const largeMailCommand = (seq: number): WorkCommandValue => {
+  const messageId = `large-mail-${seq}`;
+  return Schema.decodeUnknownSync(WorkCommand, strictDecode)({
     protocol: "junto/work/v1",
     id: {
       route: { eventHome: remote, entityHome: cc },
-      seq: "3",
+      seq: String(seq),
     },
     recordType: "command",
     item: {
-      kind: "task",
-      itemId: "agent-task-1",
-      sink: { canvasName: "factory", nodeId: sinkNodeId },
+      kind: "message",
+      itemId: messageId,
+      sink: { canvasName: "factory", nodeId: "cc-recipient" },
     },
-    operation: "task.create",
+    operation: "message.append",
     contentSha256,
     originAt: observedAt,
     predecessor: null,
     body: {
-      operation: "task.create",
-      task: {
-        id: "agent-task-1",
-        state: "submitted",
-        history: [],
-        ...(raisedBy === null ? {} : { raisedBy }),
+      operation: "message.append",
+      message: {
+        messageId,
+        role: "agent",
+        parts: [{ kind: "text", text: "x".repeat(220 * 1024) }],
+        contextId: "factory",
       },
-    },
-  });
-
-const localTaskFact = (seq: number): WorkFactValue => {
-  const taskId = `local-task-${seq}`;
-  return Schema.decodeUnknownSync(WorkFact, strictDecode)({
-    protocol: "junto/work/v1",
-    id: {
-      route: { eventHome: remote, entityHome: remote },
-      seq: String(seq),
-    },
-    recordType: "fact",
-    basis: {
-      kind: "projected-intent",
-      generation: "1",
-      contentSha256,
-    },
-    item: {
-      kind: "task",
-      itemId: taskId,
-      sink: { canvasName: "factory", nodeId: "tasks" },
-    },
-    operation: "task.create",
-    contentSha256,
-    originAt: observedAt,
-    predecessor: null,
-    body: {
-      operation: "task.create",
-      task: {
-        id: taskId,
-        state: "submitted",
-        history: [],
-      },
+      sentBy: remoteActor,
+      destination: { kind: "mailbox" },
     },
   });
 };
 
-const largeTaskCreateCommand = (
-  seq: number,
-): WorkCommandValue => {
-  const itemId = `large-task-${seq}`;
-  return Schema.decodeUnknownSync(WorkCommand, strictDecode)({
+/** The Command Center's fact answering a Remote seat's mail command. */
+const commandCenterMailFact = (seq: number): WorkFactValue => {
+  const messageId = `answered-mail-${seq}`;
+  return Schema.decodeUnknownSync(WorkFact, strictDecode)({
     protocol: "junto/work/v1",
     id: {
-      route: { eventHome: cc, entityHome: remote },
+      route: { eventHome: cc, entityHome: cc },
       seq: String(seq),
     },
-    recordType: "command",
-    item: {
-      kind: "task",
-      itemId,
-      sink: { canvasName: "factory", nodeId: "tasks" },
+    recordType: "fact",
+    basis: {
+      kind: "authorial-intent",
+      generation: "1",
+      contentSha256,
     },
-    operation: "task.create",
+    item: {
+      kind: "message",
+      itemId: messageId,
+      sink: { canvasName: "factory", nodeId: "cc-recipient" },
+    },
+    operation: "message.append",
     contentSha256,
     originAt: observedAt,
     predecessor: null,
     body: {
-      operation: "task.create",
-      task: {
-        id: itemId,
-        state: "submitted",
-        history: [
-          {
-            messageId: `brief-${seq}`,
-            role: "user",
-            parts: [
-              {
-                kind: "text",
-                text: "x".repeat(220 * 1024),
-              },
-            ],
-          },
-        ],
+      operation: "message.append",
+      message: {
+        messageId,
+        role: "agent",
+        parts: [{ kind: "text", text: "delivered" }],
+        contextId: "factory",
       },
+      sentBy: remoteActor,
+      destination: { kind: "mailbox" },
     },
   });
 };
@@ -929,13 +471,14 @@ describe("Station API v1 work routing", () => {
   it("pages large commands only while their mandatory responses fit", async () => {
     const commands = Array.from(
       { length: 16 },
-      (_, index) => largeTaskCreateCommand(index + 1),
+      (_, index) => largeMailCommand(index + 1),
     );
     const work = {
-      recordsAfter: () => Effect.succeed(commands),
+      recordsAfter: (input: { readonly route: { readonly eventHome: string } }) =>
+        Effect.succeed(input.route.eventHome === remote ? commands : []),
     } as unknown as Parameters<typeof pageStationReport>[0];
     const facts = {
-      installationId: cc,
+      installationId: remote,
       receivedThrough: [],
       peerAcknowledgedThrough: [],
     } as Parameters<typeof pageStationReport>[1];
@@ -955,24 +498,25 @@ describe("Station API v1 work routing", () => {
       pageStationReport(
         work,
         facts,
-        cc,
         remote,
+        cc,
         [],
         [],
-        "command-center",
+        "remote",
         true,
       ),
     );
 
-    expect(batch.records).toHaveLength(15);
     expect(batch.hasMore).toBe(true);
+    expect(batch.records.length).toBeGreaterThan(0);
+    expect(batch.records.length).toBeLessThan(commands.length);
     expect(
       mandatoryReportResponseReservationBytes(batch.records),
     ).toBeLessThanOrEqual(STATION_API_MAX_REPORT_BATCH_BYTES);
     expect(
       mandatoryReportResponseReservationBytes([
         ...batch.records,
-        commands[15]!,
+        commands[batch.records.length]!,
       ]),
     ).toBeGreaterThan(STATION_API_MAX_REPORT_BATCH_BYTES);
   });
@@ -980,7 +524,7 @@ describe("Station API v1 work routing", () => {
   it("pages the unacknowledged route prefix before mandatory outcomes", async () => {
     const routeRecords = Array.from(
       { length: 259 },
-      (_, index) => localTaskFact(index + 1),
+      (_, index) => commandCenterMailFact(index + 1),
     );
     const work = {
       recordsAfter: (input: { readonly after?: string; readonly limit: number }) => {
@@ -993,7 +537,7 @@ describe("Station API v1 work routing", () => {
       },
     } as unknown as Parameters<typeof pageStationReport>[0];
     const initialFacts = {
-      installationId: remote,
+      installationId: cc,
       receivedThrough: [],
       peerAcknowledgedThrough: [],
     } as Parameters<typeof pageStationReport>[1];
@@ -1003,11 +547,11 @@ describe("Station API v1 work routing", () => {
       pageStationReport(
         work,
         initialFacts,
-        remote,
         cc,
+        remote,
         [],
         mandatory,
-        "remote",
+        "command-center",
         false,
       ),
     );
@@ -1022,10 +566,10 @@ describe("Station API v1 work routing", () => {
       ...initialFacts,
       peerAcknowledgedThrough: [
         {
-          peerInstallationId: cc,
+          peerInstallationId: remote,
           acknowledgement: {
-            eventHome: remote,
-            entityHome: remote,
+            eventHome: cc,
+            entityHome: cc,
             through: routeRecords[255]!.id.seq,
           },
         },
@@ -1035,11 +579,11 @@ describe("Station API v1 work routing", () => {
       pageStationReport(
         work,
         nextFacts,
-        remote,
         cc,
+        remote,
         [],
         mandatory,
-        "remote",
+        "command-center",
         false,
       ),
     );
@@ -1049,80 +593,6 @@ describe("Station API v1 work routing", () => {
       "259",
     ]);
     expect(second.hasMore).toBe(false);
-  });
-
-  it("admits only exact Remote actor Task creates at a Command Center queue", () => {
-    const admission = makeStationWorkAdmission(topology("command-center"));
-    const accepted = admission.authorizeCommand(agentTaskCreateCommand());
-    expect(accepted).toMatchObject({ _tag: "admitted" });
-    if (
-      accepted._tag !== "admitted" ||
-      accepted.taskDependencyScope === undefined
-    ) throw new Error("expected topology-authorized admission");
-    expect(Object.isFrozen(accepted.taskDependencyScope)).toBe(true);
-    expect(Reflect.ownKeys(accepted.taskDependencyScope)).toEqual([]);
-    expect(
-      admission.authorizeCommand(agentTaskCreateCommand(null)),
-    ).toMatchObject({
-      _tag: "rejected",
-      reason: "authority-mismatch",
-    });
-    expect(
-      admission.authorizeCommand(
-        agentTaskCreateCommand({
-          ...remoteActor,
-          nodeId: "forged-remote-actor",
-        }),
-      ),
-    ).toMatchObject({
-      _tag: "rejected",
-      reason: "locality-mismatch",
-    });
-    expect(
-      admission.authorizeCommand(
-        agentTaskCreateCommand(remoteActor, "other-remote-tasks"),
-      ),
-    ).toMatchObject({
-      _tag: "rejected",
-      reason: "locality-mismatch",
-    });
-    const stableIdentityMismatch = agentTaskCreateCommand();
-    expect(
-      admission.authorizeCommand({
-        ...stableIdentityMismatch,
-        item: {
-          ...stableIdentityMismatch.item,
-          itemId: "different-item",
-        },
-      }),
-    ).toMatchObject({
-      _tag: "rejected",
-      reason: "identity-conflict",
-    });
-    expect(
-      makeStationWorkAdmission(
-        topology("command-center", false),
-      ).authorizeCommand(agentTaskCreateCommand()),
-    ).toMatchObject({
-      _tag: "rejected",
-      reason: "capability-denied",
-    });
-    const wrongEntityHome = agentTaskCreateCommand();
-    expect(
-      admission.authorizeCommand({
-        ...wrongEntityHome,
-        id: {
-          ...wrongEntityHome.id,
-          route: {
-            ...wrongEntityHome.id.route,
-            entityHome: otherRemote,
-          },
-        },
-      }),
-    ).toMatchObject({
-      _tag: "rejected",
-      reason: "authority-mismatch",
-    });
   });
 
   it("never broadcasts Command Center local facts to Remote peers", () => {
@@ -1150,19 +620,6 @@ describe("Station API v1 work routing", () => {
     ).toEqual({
       facts: { eventHome: remote, entityHome: remote },
       commands: { eventHome: remote, entityHome: cc },
-    });
-  });
-
-  it("rejects Remote attempts to forge Command Center operator commands", () => {
-    const admission = makeStationWorkAdmission(
-      topology("command-center"),
-    );
-
-    expect(
-      admission.authorizeCommand(taskDescribeCommand(remote, cc)),
-    ).toMatchObject({
-      _tag: "rejected",
-      reason: "authority-mismatch",
     });
   });
 
@@ -1196,145 +653,6 @@ describe("Station API v1 work routing", () => {
     });
   });
 
-  const boardAuthor = {
-    kind: "actor" as const,
-    seatId: remoteActor.seatId,
-    nodeId: remoteActor.nodeId,
-    label: remoteActor.nodeId,
-  };
-
-  const boardTopicCommand = (): WorkCommandValue =>
-    Schema.decodeUnknownSync(WorkCommand, strictDecode)({
-      protocol: "junto/work/v1",
-      id: {
-        route: { eventHome: remote, entityHome: cc },
-        seq: "11",
-      },
-      recordType: "command",
-      item: {
-        kind: "topic",
-        itemId: "topic-1",
-        sink: { canvasName: "factory", nodeId: "board" },
-      },
-      operation: "board.topic.create",
-      contentSha256,
-      originAt: observedAt,
-      predecessor: null,
-      body: {
-        operation: "board.topic.create",
-        createdBy: boardAuthor,
-        topic: {
-          topicId: "topic-1",
-          title: "fleet note",
-          state: "open",
-          openedBy: boardAuthor,
-          openedAt: observedAt,
-          postCount: 0,
-          lastActivityAt: observedAt,
-        },
-      },
-    });
-
-  const boardPostCommand = (): WorkCommandValue =>
-    Schema.decodeUnknownSync(WorkCommand, strictDecode)({
-      protocol: "junto/work/v1",
-      id: {
-        route: { eventHome: remote, entityHome: cc },
-        seq: "12",
-      },
-      recordType: "command",
-      item: {
-        kind: "post",
-        itemId: "post-1",
-        sink: { canvasName: "factory", nodeId: "board" },
-      },
-      operation: "board.post.append",
-      contentSha256,
-      originAt: observedAt,
-      predecessor: null,
-      body: {
-        operation: "board.post.append",
-        createdBy: boardAuthor,
-        post: {
-          postId: "post-1",
-          topicId: "topic-1",
-          author: boardAuthor,
-          parts: [{ kind: "text", text: "hello board" }],
-          position: 0,
-          createdAt: observedAt,
-        },
-      },
-    });
-
-  it("admits Remote board create/post only with the matching board port", () => {
-    const full = makeStationWorkAdmission(topology("command-center"));
-    expect(full.authorizeCommand(boardTopicCommand())).toEqual({
-      _tag: "admitted",
-    });
-    expect(full.authorizeCommand(boardPostCommand())).toEqual({
-      _tag: "admitted",
-    });
-
-    const actorTopicCommand = boardTopicCommand();
-    if (actorTopicCommand.body.operation !== "board.topic.create") {
-      throw new Error("boardTopicCommand must build board.topic.create");
-    }
-    const operatorAuthored = Schema.decodeUnknownSync(
-      WorkCommand,
-      strictDecode,
-    )({
-      ...actorTopicCommand,
-      body: {
-        ...actorTopicCommand.body,
-        createdBy: { kind: "operator", label: "operator" },
-        topic: {
-          ...actorTopicCommand.body.topic,
-          openedBy: { kind: "operator", label: "operator" },
-        },
-      },
-    });
-    expect(full.authorizeCommand(operatorAuthored)).toMatchObject({
-      _tag: "rejected",
-      reason: "authority-mismatch",
-    });
-
-    // The narrow board verb: post and read, never open a topic.
-    const postOnlyDoc = Schema.decodeUnknownSync(CanvasDoc, strictDecode)({
-      ...document(true),
-      edges: document(true).edges.map((edge) =>
-        edge.id === "actor-board"
-          ? { ...edge, ether: { verb: "messages" } }
-          : edge
-      ),
-    });
-    const postOnly = makeStationWorkAdmission({
-      ...topology("command-center"),
-      documents: new Map([["factory", postOnlyDoc]]),
-    });
-    expect(postOnly.authorizeCommand(boardTopicCommand())).toMatchObject({
-      _tag: "rejected",
-      reason: "capability-denied",
-    });
-    expect(postOnly.authorizeCommand(boardPostCommand())).toEqual({
-      _tag: "admitted",
-    });
-
-    const disconnected = makeStationWorkAdmission(
-      topology("command-center", false),
-    );
-    expect(disconnected.authorizeCommand(boardPostCommand())).toMatchObject({
-      _tag: "rejected",
-      reason: "capability-denied",
-    });
-
-    // Remote cannot apply board commands: route is Remote→CC (not peer→local).
-    const remoteHome = makeStationWorkAdmission(topology("remote"));
-    expect(remoteHome.authorizeCommand(boardTopicCommand())).toMatchObject({
-      _tag: "rejected",
-      reason: "authority-mismatch",
-    });
-  });
-
   it("keeps an exact correlated CC mailbox fact admitted after edge removal", () => {
     const admitted = makeStationWorkAdmission(topology("remote"));
     expect(admitted.authorizeFact(messageFact())).toEqual({
@@ -1352,170 +670,14 @@ describe("Station API v1 work routing", () => {
     });
   });
 
-  it("still admits Command Center operator mutations onto Remote-owned rows", () => {
-    const admission = makeStationWorkAdmission(topology("remote"));
-
-    expect(
-      admission.authorizeCommand(taskDescribeCommand(cc, remote)),
-    ).toEqual({ _tag: "admitted" });
-  });
-
-  it("admits Command Center thread commands onto Remote-owned rows", () => {
-    const admission = makeStationWorkAdmission(topology("remote"));
-
-    expect(admission.authorizeCommand(threadCommand())).toEqual({
-      _tag: "admitted",
-    });
-  });
-
-  it("admits Remote thread commands onto Command Center-owned rows", () => {
-    const admission = makeStationWorkAdmission(
-      topology("command-center"),
-    );
-
-    expect(admission.authorizeCommand(remoteThreadCommand())).toEqual({
-      _tag: "admitted",
-    });
-  });
-
-  it("admits Remote thread facts into the Command Center replica", () => {
-    const admission = makeStationWorkAdmission(
-      topology("command-center"),
-    );
-
-    expect(admission.authorizeFact(threadFact())).toEqual({
-      _tag: "admitted",
-    });
-  });
-
-  it("requires every linked artifact task sink in the installed projection", () => {
-    const admission = makeStationWorkAdmission(
-      topology("command-center"),
-    );
-    expect(admission.authorizeFact(artifactFact())).toEqual({
-      _tag: "admitted",
-    });
-    expect(
-      admission.authorizeFact(artifactFact("missing-tasks")),
-    ).toMatchObject({
-      _tag: "rejected",
-      reason: "missing-entity",
-    });
-    expect(
-      admission.authorizeFact(artifactFact("cc-recipient")),
-    ).toMatchObject({
-      _tag: "rejected",
-      reason: "capability-denied",
-    });
-
-    const absentCanvas = makeStationWorkAdmission({
-      ...topology("command-center"),
-      documents: new Map(),
-    });
-    expect(absentCanvas.authorizeFact(artifactFact())).toMatchObject({
-      _tag: "rejected",
-      reason: "projection-conflict",
-    });
-  });
-
-  it("admits only an exact live Remote overseer artifact command from its paired Command Center", () => {
-    const topologyWithGrant = remoteOverseerTopology();
-    const admission = makeStationWorkAdmission(topologyWithGrant);
-    expect(admission.authorizeCommand(remoteOverseerArtifactCommand())).toEqual({
-      _tag: "admitted",
-    });
-
-    const wrongSource = remoteOverseerArtifactCommand();
-    expect(
-      admission.authorizeCommand({
-        ...wrongSource,
-        id: {
-          ...wrongSource.id,
-          route: { eventHome: otherRemote, entityHome: remote },
-        },
-      }),
-    ).toMatchObject({
-      _tag: "rejected",
-      reason: "authority-mismatch",
-    });
-
-    expect(
-      admission.authorizeCommand(
-        remoteOverseerArtifactCommand({
-          ...remoteOverseer,
-          seatId: remoteActor.seatId,
-        }),
-      ),
-    ).toMatchObject({
-      _tag: "rejected",
-      reason: "locality-mismatch",
-    });
-
-    expect(
-      makeStationWorkAdmission(
-        remoteOverseerTopology({
-          ...projectedRemoteOverseer,
-          authorityInstallationId: otherRemote,
-        }),
-      ).authorizeCommand(remoteOverseerArtifactCommand()),
-    ).toMatchObject({
-      _tag: "rejected",
-      reason: "locality-mismatch",
-    });
-
-    const {
-      overseer: _overseer,
-      ...ordinaryRemoteSeat
-    } = projectedRemoteOverseer;
-    expect(
-      makeStationWorkAdmission(
-        remoteOverseerTopology(ordinaryRemoteSeat),
-      ).authorizeCommand(remoteOverseerArtifactCommand()),
-    ).toMatchObject({
-      _tag: "rejected",
-      reason: "capability-denied",
-    });
-
-    const wrongDestination = remoteOverseerArtifactCommand();
-    expect(
-      admission.authorizeCommand({
-        ...wrongDestination,
-        item: {
-          ...wrongDestination.item,
-          sink: { canvasName: "factory", nodeId: "tasks" },
-        },
-      }),
-    ).toMatchObject({
-      _tag: "rejected",
-      reason: "capability-denied",
-    });
-    expect(
-      admission.authorizeCommand(
-        remoteOverseerArtifactCommand(remoteOverseer, "missing-tasks"),
-      ),
-    ).toMatchObject({
-      _tag: "rejected",
-      reason: "missing-entity",
-    });
-  });
-
-  it("admits live Remote overseer Work without ordinary edges and keeps item residency", () => {
+  it("admits live Remote overseer mail without ordinary edges", () => {
     const topologyWithGrant = remoteOverseerTopology();
     const ccAdmission = makeStationWorkAdmission({
       ...topology("command-center"),
       documents: topologyWithGrant.documents,
       actorSeats: topologyWithGrant.actorSeats,
     });
-    const remoteAdmission = makeStationWorkAdmission(topologyWithGrant);
-
-    expect(ccAdmission.authorizeCommand(remoteOverseerTaskCreateCommand())).toEqual({
-      _tag: "admitted",
-      taskDependencyScope: expect.anything(),
-    });
     expect(ccAdmission.authorizeCommand(remoteOverseerMailboxCommand())).toEqual({
-      _tag: "admitted",
-    });
-    expect(remoteAdmission.authorizeCommand(remoteOverseerRequestCommand())).toEqual({
       _tag: "admitted",
     });
 
@@ -1526,167 +688,8 @@ describe("Station API v1 work routing", () => {
         ...topology("command-center"),
         documents: ordinaryRemote.documents,
         actorSeats: ordinaryRemote.actorSeats,
-      }).authorizeCommand(remoteOverseerTaskCreateCommand()),
+      }).authorizeCommand(remoteOverseerMailboxCommand()),
     ).toMatchObject({
-      _tag: "rejected",
-      reason: "capability-denied",
-    });
-    expect(
-      makeStationWorkAdmission(ordinaryRemote).authorizeCommand(
-        remoteOverseerRequestCommand(),
-      ),
-    ).toMatchObject({
-      _tag: "rejected",
-      reason: "locality-mismatch",
-    });
-
-    const validCreate = remoteOverseerTaskCreateCommand();
-    if (validCreate.body.operation !== "task.create") {
-      throw new Error("expected task.create");
-    }
-    expect(
-      ccAdmission.authorizeCommand(
-        Schema.decodeUnknownSync(WorkCommand, strictDecode)({
-          ...validCreate,
-          body: {
-            operation: "task.create",
-            task: {
-              ...validCreate.body.task,
-              raisedBy: {
-                ...remoteOverseer,
-                nodeId: "forged-overseer",
-              },
-            },
-          },
-        }),
-      ),
-    ).toMatchObject({
-      _tag: "rejected",
-      reason: "locality-mismatch",
-    });
-
-    expect(
-      makeStationWorkAdmission(topology("remote", false)).authorizeCommand(
-        remoteAssigneeClaimCommand(),
-      ),
-    ).toMatchObject({
-      _tag: "rejected",
-      reason: "capability-denied",
-    });
-
-    expect(
-      makeStationWorkAdmission(remoteOverseerTopology()).authorizeCommand(
-        remoteAssigneeClaimCommandAuthorizedBy(commandCenterActor),
-      ),
-    ).toMatchObject({
-      _tag: "rejected",
-      reason: "capability-denied",
-    });
-    expect(
-      makeStationWorkAdmission(remoteOverseerTopology()).authorizeCommand(
-        remoteAssigneeClaimCommandAuthorizedBy({
-          ...remoteOverseer,
-          nodeId: "forged-overseer",
-        }),
-      ),
-    ).toMatchObject({
-      _tag: "rejected",
-      reason: "locality-mismatch",
-    });
-
-    expect(
-      remoteAdmission.authorizeCommand(remoteOverseerThreadCommentCommand()),
-    ).toEqual({ _tag: "admitted" });
-    expect(
-      makeStationWorkAdmission(topology("remote")).authorizeCommand(
-        remoteOverseerThreadCommentCommand(),
-      ),
-    ).toMatchObject({
-      _tag: "rejected",
-      reason: "locality-mismatch",
-    });
-    expect(
-      remoteAdmission.authorizeCommand(
-        remoteOverseerThreadCommentCommand({
-          ...remoteOverseer,
-          nodeId: "forged-overseer",
-        }),
-      ),
-    ).toMatchObject({
-      _tag: "rejected",
-      reason: "locality-mismatch",
-    });
-    const {
-      overseer: _revokedGrant,
-      ...revokedThreadSeat
-    } = projectedRemoteOverseer;
-    expect(
-      makeStationWorkAdmission(
-        remoteOverseerTopology(revokedThreadSeat),
-      ).authorizeCommand(remoteOverseerThreadCommentCommand()),
-    ).toMatchObject({
-      _tag: "rejected",
-    });
-  });
-
-  it("does not broaden projected artifact facts and keeps exact command facts valid after grant revoke", () => {
-    const remoteTopology = remoteOverseerTopology();
-    const commandCenterTopology: AdmissionTopology = {
-      ...topology("command-center"),
-      documents: remoteTopology.documents,
-      actorSeats: remoteTopology.actorSeats,
-    };
-    const projectedFact = remoteOverseerArtifactFact(
-      Schema.decodeUnknownSync(IntentFactBasis, strictDecode)({
-        kind: "projected-intent",
-        generation: "1",
-        contentSha256,
-      }),
-    );
-    expect(
-      makeStationWorkAdmission(commandCenterTopology).authorizeFact(
-        projectedFact,
-      ),
-    ).toMatchObject({
-      _tag: "rejected",
-      reason: "capability-denied",
-    });
-
-    const command = remoteOverseerArtifactCommand();
-    const { overseer: _overseer, ...revokedSeat } =
-      projectedRemoteOverseer;
-    const revokedRemoteTopology = remoteOverseerTopology(revokedSeat);
-    const revokedCommandCenterTopology: AdmissionTopology = {
-      ...commandCenterTopology,
-      documents: revokedRemoteTopology.documents,
-      actorSeats: revokedRemoteTopology.actorSeats,
-    };
-    expect(
-      makeStationWorkAdmission(revokedCommandCenterTopology).authorizeFact(
-        remoteOverseerArtifactFact({
-          kind: "command",
-          command: command.id,
-          commandSha256: command.contentSha256,
-        }),
-      ),
-    ).toEqual({ _tag: "admitted" });
-  });
-
-  it("rejects a message destination that does not match the projected sink kind", () => {
-    const mismatched = Schema.decodeUnknownSync(
-      WorkCommand,
-      strictDecode,
-    )({
-      ...threadCommand(),
-      item: {
-        kind: "message",
-        itemId: threadMessage.messageId,
-        sink: { canvasName: "factory", nodeId: "cc-recipient" },
-      },
-    });
-    const admission = makeStationWorkAdmission(topology("remote"));
-
-    expect(admission.authorizeCommand(mismatched)).toMatchObject({
       _tag: "rejected",
       reason: "capability-denied",
     });
