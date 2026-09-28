@@ -13,7 +13,6 @@ import {
   RouteCursor,
   STATION_API_MAX_ACKS_PER_REPORT,
   STATION_API_MAX_COMMANDS_PER_REPORT,
-  STATION_API_MAX_FIRST_DELIVERY_CLAIMS_PER_REPORT,
   STATION_API_MAX_RECORDS_PER_REPORT,
   STATION_API_MAX_REPORT_BATCH_BYTES,
   STATION_API_PROTOCOL,
@@ -56,7 +55,7 @@ const seatId = `seat_${"d".repeat(64)}`;
 
 const sink = {
   canvasName: "factory",
-  nodeId: "tasks",
+  nodeId: "recipient",
 };
 
 const actor = {
@@ -65,20 +64,26 @@ const actor = {
   nodeId: "builder",
 };
 
-const sourceTask = {
-  id: "task-1",
-  state: "submitted",
-  history: [],
-};
-
 const decodeWorkRecord = Schema.decodeUnknownSync(WorkRecord, {
   onExcessProperty: "error",
 });
 
-const claimCommand = (
+const mailBody = (messageId: string) => ({
+  operation: "message.append",
+  message: {
+    messageId,
+    role: "agent",
+    parts: [{ kind: "text", text: "hello from the Remote" }],
+  },
+  sentBy: actor,
+  destination: { kind: "mailbox" },
+});
+
+/** A Remote seat's mail, routed to the Command Center that holds mailboxes. */
+const mailCommand = (
   seq = "1",
-  sender = cc,
-  target = remote,
+  sender = remote,
+  target = cc,
 ): WorkRecordValue =>
   decodeWorkRecord({
     protocol: WORK_PROTOCOL,
@@ -91,35 +96,22 @@ const claimCommand = (
     },
     recordType: "command",
     item: {
-      kind: "task",
-      itemId: sourceTask.id,
+      kind: "message",
+      itemId: `mail-${seq}`,
       sink,
     },
-    operation: "task.claim",
+    operation: "message.append",
     contentSha256: hashA,
     originAt: timestamp,
     predecessor: null,
-    body: {
-      operation: "task.claim",
-      sourceQueueHome: sender,
-      sourcePredecessor: {
-        route: {
-          eventHome: sender,
-          entityHome: sender,
-        },
-        seq: "9",
-      },
-      sourceTask,
-      sink,
-      actor,
-      targetHome: target,
-    },
+    body: mailBody(`mail-${seq}`),
   });
 
-const claimFact = (
+/** The Command Center's fact answering that command. */
+const mailAnswer = (
   seq = "1",
-  sender = remote,
-  previousHome = cc,
+  sender = cc,
+  commandHome = remote,
 ): WorkRecordValue =>
   decodeWorkRecord({
     protocol: WORK_PROTOCOL,
@@ -132,18 +124,18 @@ const claimFact = (
     },
     recordType: "fact",
     item: {
-      kind: "task",
-      itemId: sourceTask.id,
+      kind: "message",
+      itemId: "mail-1",
       sink,
     },
-    operation: "task.claim",
+    operation: "message.append",
     contentSha256: hashB,
     originAt: timestamp,
     basis: {
       kind: "command",
       command: {
         route: {
-          eventHome: previousHome,
+          eventHome: commandHome,
           entityHome: sender,
         },
         seq: "1",
@@ -151,57 +143,14 @@ const claimFact = (
       commandSha256: hashA,
     },
     predecessor: null,
-    body: {
-      operation: "task.claim",
-      task: {
-        ...sourceTask,
-        state: "working",
-        claimedBy: seatId,
-      },
-      claimedBy: actor,
-      previousHome,
-    },
-  });
-
-const taskCreateCommand = (
-  seq: string,
-  sender = cc,
-  target = remote,
-): WorkRecordValue =>
-  decodeWorkRecord({
-    protocol: WORK_PROTOCOL,
-    id: {
-      route: {
-        eventHome: sender,
-        entityHome: target,
-      },
-      seq,
-    },
-    recordType: "command",
-    item: {
-      kind: "task",
-      itemId: `created-task-${seq}`,
-      sink,
-    },
-    operation: "task.create",
-    contentSha256: hashA,
-    originAt: timestamp,
-    predecessor: null,
-    body: {
-      operation: "task.create",
-      task: {
-        id: `created-task-${seq}`,
-        state: "submitted",
-        history: [],
-      },
-    },
+    body: mailBody("mail-1"),
   });
 
 const appliedDisposition = (
   seq = "2",
-  sender = remote,
-  command = claimCommand(),
-  fact = claimFact(),
+  sender = cc,
+  command = mailCommand(),
+  fact = mailAnswer(),
 ): WorkRecordValue =>
   decodeWorkRecord({
     protocol: WORK_PROTOCOL,
@@ -214,7 +163,7 @@ const appliedDisposition = (
     },
     recordType: "disposition",
     item: command.item,
-    operation: "task.claim",
+    operation: "message.append",
     contentSha256: hashC,
     originAt: timestamp,
     body: {
@@ -279,14 +228,14 @@ const cursor = (
   });
 
 const requestBatch = {
-  records: [claimCommand()],
-  acknowledge: [cursor(remote, remote, "2")],
+  records: [mailCommand()],
+  acknowledge: [cursor(cc, cc, "2")],
   hasMore: false,
 };
 
 const responseBatch = {
-  records: [claimFact(), appliedDisposition()],
-  acknowledge: [cursor(cc, remote, "1")],
+  records: [mailAnswer(), appliedDisposition()],
+  acknowledge: [cursor(remote, cc, "1")],
   hasMore: false,
 };
 
@@ -336,8 +285,8 @@ describe("Station API v1 contract", () => {
       {
         protocol: STATION_API_PROTOCOL,
         op: "report",
-        senderInstallationId: cc,
-        targetInstallationId: remote,
+        senderInstallationId: remote,
+        targetInstallationId: cc,
         batch: requestBatch,
       },
       {
@@ -362,8 +311,8 @@ describe("Station API v1 contract", () => {
     const response = Schema.decodeUnknownSync(ReportResponse)({
       protocol: STATION_API_PROTOCOL,
       op: "report",
-      senderInstallationId: remote,
-      targetInstallationId: cc,
+      senderInstallationId: cc,
+      targetInstallationId: remote,
       batch: responseBatch,
     });
     expect(reportResponseSwapsDirection(report, response)).toBe(true);
@@ -374,8 +323,8 @@ describe("Station API v1 contract", () => {
         op: "status",
         installationId: remote,
         state: "ready",
-        receivedThrough: [cursor(cc, remote, "1")],
-        peerAcknowledgedThrough: [cursor(remote, remote, "2")],
+        receivedThrough: [cursor(cc, cc, "2")],
+        peerAcknowledgedThrough: [cursor(remote, cc, "1")],
         readiness: {
           database: true,
           workControl: true,
@@ -412,7 +361,7 @@ describe("Station API v1 contract", () => {
                 originInstallationId: remote,
                 sequence: "1",
               },
-              kind: "task",
+              kind: "message",
               payload: {},
             },
           ],
@@ -443,7 +392,7 @@ describe("Station API v1 contract", () => {
     expect("StationEventAck" in StationApi).toBe(false);
   });
 
-  it("bounds report records, response-producing commands, acknowledgements, claims, and encoded bytes", () => {
+  it("bounds report records, response-producing commands, acknowledgements, and encoded bytes", () => {
     const records = Array.from(
       { length: STATION_API_MAX_RECORDS_PER_REPORT + 1 },
       (_, index) => messageFact(String(index + 1)),
@@ -466,7 +415,7 @@ describe("Station API v1 contract", () => {
     );
     const commands = Array.from(
       { length: STATION_API_MAX_COMMANDS_PER_REPORT + 1 },
-      (_, index) => taskCreateCommand(String(index + 1)),
+      (_, index) => mailCommand(String(index + 1)),
     );
     expect(
       decideReportBatchAdmission({
@@ -503,32 +452,6 @@ describe("Station API v1 contract", () => {
       ),
     ).toBe(true);
 
-    const claims = Array.from(
-      {
-        length: STATION_API_MAX_FIRST_DELIVERY_CLAIMS_PER_REPORT + 1,
-      },
-      (_, index) => claimCommand(String(index + 1)),
-    );
-    expect(
-      decideReportBatchAdmission({
-        records: claims,
-        acknowledge: [],
-        hasMore: true,
-      }),
-    ).toMatchObject({
-      _tag: "first-delivery-claim-limit",
-      actual: STATION_API_MAX_FIRST_DELIVERY_CLAIMS_PER_REPORT + 1,
-    });
-    expect(
-      Result.isFailure(
-        decodeStrict(ReportBatch)({
-          records: claims,
-          acknowledge: [],
-          hasMore: true,
-        }),
-      ),
-    ).toBe(true);
-
     const largeRecords = Array.from({ length: 35 }, (_, index) =>
       messageFact(String(index + 1), cc, "x".repeat(240 * 1024)),
     );
@@ -549,8 +472,8 @@ describe("Station API v1 contract", () => {
   it("admits only records and acknowledgements with the exact direction", () => {
     expect(
       decideReportDirection({
-        senderInstallationId: cc,
-        targetInstallationId: remote,
+        senderInstallationId: remote,
+        targetInstallationId: cc,
         batch: requestBatch,
       }),
     ).toEqual({ _tag: "valid" });
@@ -565,15 +488,15 @@ describe("Station API v1 contract", () => {
 
     expect(
       decideReportDirection({
-        senderInstallationId: remote,
-        targetInstallationId: cc,
+        senderInstallationId: cc,
+        targetInstallationId: remote,
         batch: requestBatch,
       })._tag,
     ).toBe("record-event-home-mismatch");
 
     expect(
       decideReportDirection({
-        senderInstallationId: cc,
+        senderInstallationId: remote,
         targetInstallationId: other,
         batch: requestBatch,
       })._tag,
@@ -581,10 +504,10 @@ describe("Station API v1 contract", () => {
 
     expect(
       decideReportDirection({
-        senderInstallationId: cc,
-        targetInstallationId: remote,
+        senderInstallationId: remote,
+        targetInstallationId: cc,
         batch: {
-          records: [claimCommand()],
+          records: [mailCommand()],
           acknowledge: [cursor(other, other, "1")],
           hasMore: false,
         },
@@ -616,11 +539,11 @@ describe("Station API v1 contract", () => {
       ),
     ).toBe(true);
 
-    const one = claimCommand("1");
-    const two = claimCommand("2");
-    const three = claimCommand("3");
-    const four = claimCommand("4");
-    const foreign = claimCommand("1", cc, other);
+    const one = mailCommand("1");
+    const two = mailCommand("2");
+    const three = mailCommand("3");
+    const four = mailCommand("4");
+    const foreign = mailCommand("1", remote, other);
     const throughTwo = contiguousRouteCursor(
       one.id.route,
       undefined,
@@ -651,7 +574,7 @@ describe("Station API v1 contract", () => {
   });
 
   it("coalesces exact retries and rejects identity reuse with new content", () => {
-    const admitted = claimCommand();
+    const admitted = mailCommand();
     expect(coalesceWorkRecords([admitted, admitted])).toEqual({
       _tag: "accepted",
       records: [admitted],
