@@ -62,13 +62,20 @@ const usesBracketedPaste = (harness: string | undefined): boolean =>
 export const mailPasteable = (input: MailReadinessInput): boolean =>
   input.running && (input.bracketedPaste || !usesBracketedPaste(input.harness));
 
-/** The first ready moment of a generation: TUI up and settled idle. */
+/**
+ * The first ready moment of a generation: TUI up and settled idle.
+ *
+ * Settled means confirmed idle for every harness. Claude 2.1.284 turns
+ * bracketed paste on and reads as fallback idle ~370ms after spawn, before
+ * its composer exists; mail typed then was submitted into nothing and the
+ * cold-woken seat sat at an empty prompt (real-harness-resume spec).
+ */
 export const mailFirstReady = (input: MailReadinessInput): boolean => {
   if (!input.running || input.seatState !== "idle") return false;
   if (!usesBracketedPaste(input.harness)) {
     return input.bracketedPaste || input.idleConfirmed;
   }
-  if (!input.bracketedPaste) return false;
+  if (!input.bracketedPaste || !input.idleConfirmed) return false;
   if (input.harness === "amp") {
     const tail = (input.lines ?? []).filter((line) => line.trim()).slice(-8);
     if (tail.some((line) => AMP_STARTUP_FOOTER.test(line))) return false;
