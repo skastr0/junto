@@ -452,44 +452,6 @@
   font-size: 10px;
 }
 
-/* Accent swatches */
-.rts-cmd-accents {
-  display: flex;
-  flex-wrap: nowrap;
-  gap: 4px;
-  align-items: center;
-  flex-shrink: 0;
-}
-
-.rts-swatch {
-  width: 12px;
-  height: 12px;
-  padding: 0;
-  border-radius: 999px;
-  border: 1px solid var(--color-stroke-hi);
-  background: transparent;
-  cursor: pointer;
-  display: grid;
-  place-items: center;
-  flex-shrink: 0;
-}
-
-.rts-swatch span {
-  width: 8px;
-  height: 8px;
-  border-radius: 999px;
-  display: block;
-}
-
-.rts-swatch.is-active {
-  border-color: color-mix(in oklab, var(--color-ink) 75%, transparent);
-  box-shadow: 0 0 0 1px var(--color-stroke);
-}
-
-.rts-swatch:hover {
-  border-color: color-mix(in oklab, var(--color-ink) 50%, transparent);
-}
-
 /*
  * Command key rail: actions in a 4-row column-major grid.
  */
