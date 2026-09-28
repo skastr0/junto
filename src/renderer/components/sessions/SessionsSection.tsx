@@ -5,6 +5,7 @@ import { getJuntoApi } from "../../lib/junto-api";
 import { NoteMarkdown } from "../../lib/note-markdown";
 import { Button, Chip } from "../ui";
 import type { AgentEditorSectionProps } from "../agent-editor/sections";
+import { OffboardControls } from "./OffboardControls";
 import "./sessions.css";
 
 // Sessions: every session this seat has run, newest first. Each shows when it
@@ -127,9 +128,10 @@ export function SessionsSection({ seat }: AgentEditorSectionProps) {
 
   return (
     <div className="seat-sessions" data-testid="seat-sessions-section">
+      <OffboardControls seatId={seat.id} />
       <p className="agent-editor__hint">
-        Every session this seat has run, newest first. When the agent hands off with <code>junto offboard</code>, its
-        notes land here, and the next session reads them as it starts.
+        Every session this seat has run, newest first. When the agent ends a session with <code>junto offboard</code>,
+        its notes land here, and the next session reads them as it starts.
       </p>
       {load.state === "loading" ? null : load.sessions.length === 0 ? (
         <p className="agent-editor__hint">No sessions yet. The first one appears when this seat starts.</p>

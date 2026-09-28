@@ -89,3 +89,46 @@
   font-size: 12px;
   line-height: 1.55;
 }
+
+/* Offboard: two actions, a hint, and the steps of the offboard in flight. */
+
+.seat-offboard {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--color-stroke);
+}
+
+.seat-offboard__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.seat-offboard__progress {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.seat-offboard__steps {
+  display: flex;
+  flex-wrap: wrap;
+  margin: 0;
+  padding: 0;
+  gap: 6px 14px;
+  list-style: none;
+}
+
+.seat-offboard__step {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--color-faint);
+}
+
+.seat-offboard__step[data-done="true"] {
+  color: var(--color-ink-2);
+}

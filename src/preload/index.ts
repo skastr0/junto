@@ -54,7 +54,7 @@ import type { Settings, SettingsOpResult, SettingsPatch, SettingsSectionKey } fr
 import type { UsageState } from "@shared/usage";
 import type { SquadsChanged } from "@shared/squads";
 import type { SeatGuidanceEvent } from "@shared/seat-guidance";
-import type { SeatSessionsChanged } from "@shared/seat-sessions";
+import type { SeatOffboardProgress, SeatSessionsChanged } from "@shared/seat-sessions";
 import type { ProfilesChanged } from "@shared/agent-profiles";
 import type { NotifyCue, NotifyTarget } from "@shared/desktop-notifications";
 import type { UpdateStatus } from "@shared/update";
@@ -468,6 +468,9 @@ const juntoApi: Omit<JuntoApi, keyof typeof liveApi | WorkFeatureApiKey> = {
     invoke(IPC_CHANNELS.seatSessionNotes, IPC_TIMEOUT_MS, seatId, sessionId),
   seatSessionRevealTranscript: (seatId, sessionId) =>
     invoke(IPC_CHANNELS.seatSessionRevealTranscript, IPC_TIMEOUT_MS, seatId, sessionId),
+  seatOffboardAsk: (canvasName, seatId, mode) =>
+    invoke(IPC_CHANNELS.seatOffboardAsk, AGENT_MESSAGE_TIMEOUT_MS, canvasName, seatId, mode),
+  seatOffboardProgressList: () => invoke(IPC_CHANNELS.seatOffboardProgressList, IPC_TIMEOUT_MS),
   profilesList: () => invoke(IPC_CHANNELS.profilesList, IPC_TIMEOUT_MS),
   profileSave: (input) => invoke(IPC_CHANNELS.profileSave, IPC_TIMEOUT_MS, input),
   profileRename: (profileId, name) => invoke(IPC_CHANNELS.profileRename, IPC_TIMEOUT_MS, profileId, name),
@@ -500,6 +503,8 @@ const juntoApi: Omit<JuntoApi, keyof typeof liveApi | WorkFeatureApiKey> = {
   onSeatGuidance: (listener) => subscribe<SeatGuidanceEvent>(IPC_CHANNELS.seatGuidance, listener),
   onSeatSessionsChanged: (listener) =>
     subscribe<SeatSessionsChanged>(IPC_CHANNELS.seatSessionsChanged, listener),
+  onSeatOffboardProgress: (listener) =>
+    subscribe<SeatOffboardProgress>(IPC_CHANNELS.seatOffboardProgress, listener),
   onProfilesChanged: (listener) => subscribe<ProfilesChanged>(IPC_CHANNELS.profilesChanged, listener),
   notificationsReport: (report) => invoke(IPC_CHANNELS.notificationsReport, IPC_TIMEOUT_MS, report),
   notificationsTest: () => invoke(IPC_CHANNELS.notificationsTest, IPC_TIMEOUT_MS),

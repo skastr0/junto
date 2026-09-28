@@ -1,13 +1,16 @@
 /**
- * Rotate a seat onto a fresh harness session after it offboards.
+ * Close a seat's session after it offboards, and start the next one or not.
  *
- * The token-pressure clock calls this between turns once a seat has handed
- * off (or its grace period ran out). The seat's current session ends as
- * `offboard`, its node gets a fresh session id (a new pin, or none for a
- * harness that announces its own), the running process stops, and the kernel
- * wakes the seat again under the usual rules: this installation's seat only,
- * on a playing canvas. A fresh session is unproven, so it spawns with the seat
- * doctrine, whose first step is `junto onboard`, which hands it the notes.
+ * Called between turns: by the offboard closer once the agent that ran
+ * `junto offboard` is idle, and by the token-pressure clock when its grace
+ * period ran out. The seat's current session ends as `offboard`, its node
+ * gets a fresh session id (a new pin, or none for a harness that announces
+ * its own), and the running process stops. With `wake` (the default) the
+ * kernel starts the seat again under the usual rules: this installation's
+ * seat only, on a playing canvas. Without it the seat rests, and whatever
+ * wakes it next (mail) starts the fresh session. A fresh session is unproven,
+ * so it spawns with the seat doctrine, whose first step is `junto onboard`,
+ * which hands it the notes.
  *
  * Offboard notes are the agent's to write; rotating never writes them.
  */
@@ -24,7 +27,7 @@ export type SeatRotateResult =
       readonly ended?: string;
       /** The fresh pinned id; absent when the harness announces its own. */
       readonly next?: string;
-      /** False when the seat is left stopped, e.g. its canvas is paused. */
+      /** False when the seat is left stopped: asked to rest, or its canvas is paused. */
       readonly woke: boolean;
     }
   | { readonly ok: false; readonly reason: string };
@@ -60,10 +63,16 @@ export type SeatRotatePorts = {
 };
 
 /** The rotation sequence over its ports. */
+export type SeatRotateOptions = {
+  readonly canvasName?: string;
+  /** Start the fresh session now (default), or leave the seat resting. */
+  readonly wake?: boolean;
+};
+
 export const rotateSeatSession = async (
   seatId: string,
   ports: SeatRotatePorts,
-  options: { readonly canvasName?: string } = {},
+  options: SeatRotateOptions = {},
 ): Promise<SeatRotateResult> => {
   const seat = await ports.locate(seatId, options.canvasName);
   if (seat === undefined) return { ok: false, reason: "no agent seat with that id is on a canvas" };
@@ -84,14 +93,14 @@ export const rotateSeatSession = async (
     return { ok: false, reason: "could not give the seat a fresh session on its canvas" };
   }
   await ports.stop(seat.bindingId);
-  const woke = await ports.wake(seat, seatId).catch(() => false);
+  const woke = options.wake === false ? false : await ports.wake(seat, seatId).catch(() => false);
   return { ok: true, ...(ended ? { ended } : {}), ...(next ? { next } : {}), woke };
 };
 
 /** Rotate one seat (its canvas node id) in the running app. */
 export const offboardAndRotate = async (
   seatId: string,
-  options: { readonly canvasName?: string } = {},
+  options: SeatRotateOptions = {},
 ): Promise<SeatRotateResult> => {
   // Imported at call time: this module is reached from app composition, and
   // the runtime graph imports the terminal plane and canvases in turn.
@@ -182,10 +191,11 @@ export const offboardAndRotate = async (
         while (Date.now() < deadline && termPlane.host.get(bindingId)?.status !== "exited") {
           await sleep(50);
         }
+        // A rotation is deliberate, not a crash: it spends none of the seat's
+        // automatic restarts, now or at the wake that follows a rest.
+        forgetAutoRestartSpend(bindingId);
       },
       wake: (seat, id) => {
-        // A rotation is deliberate, not a crash: it spends none of the seat's
-        // automatic restarts.
         forgetAutoRestartSpend(seat.bindingId);
         return AppRuntime.runPromise(
           Effect.flatMap(KernelService, (kernel) => Effect.promise(() => kernel.wakeManagedSeat(seat.canvasName, id))),

@@ -64,7 +64,16 @@ import {
   subscribeSeatOffboard,
 } from "./seat-sessions/service";
 import { readNotesFile } from "./seat-sessions/notes-file";
-import type { SeatSessionNotesResult, SeatSessionRevealResult } from "@shared/seat-sessions";
+import { SeatOffboardCloser } from "./seat-sessions/offboard-close";
+import {
+  composeOffboardAsk,
+  CONTINUATION_KICKOFF,
+  OFFBOARD_MODES,
+  type OffboardMode,
+  type SeatOffboardAskResult,
+  type SeatSessionNotesResult,
+  type SeatSessionRevealResult,
+} from "@shared/seat-sessions";
 import { seatGuidanceIndex } from "./seat-guidance/index-memory";
 import { isSeatGuidanceSeatId, type SeatGuidanceSetResult } from "@shared/seat-guidance";
 import { ProfileRepository, type ProfileRepositoryError } from "./profiles/repository";
@@ -156,6 +165,7 @@ import {
   type SeatCollaborationAskResult,
 } from "@shared/seat-collaboration";
 import { actorDeliverySurfaceOf } from "@shared/actor-surface";
+import { PRODUCT_NAME } from "@shared/product-name";
 import { mailExtensionMetadata } from "@shared/crew";
 import { operatorActorRef } from "@shared/work-reference";
 import { ulid } from "ulid";
@@ -193,6 +203,8 @@ const latestBoardPostExcerpt = (topic: {
 
 /** Reads each running seat's context and nudges it to offboard (token-pressure). */
 let tokenPressureMonitor: TokenPressureMonitor | undefined;
+/** Closes a seat's session once its agent offboarded and went idle. */
+let offboardCloser: SeatOffboardCloser | undefined;
 
 const broadcast = (channel: string, payload: unknown) => {
   for (const window of BrowserWindow.getAllWindows()) {
@@ -1874,6 +1886,7 @@ export const registerJuntoIpc = (): void => {
           managedDrive.suspend();
           messageDelivery.suspend();
           tokenPressureMonitor?.stop();
+          offboardCloser?.stop();
           setManagedPulseDeliver(undefined);
           for (const pending of managedPulseReadyCancels.values()) {
             pending.cancel();
@@ -1890,10 +1903,7 @@ export const registerJuntoIpc = (): void => {
       // Operator multi-prompt (RTS): the operator's text is prompt mail from
       // the operator, delivered like any other mail — at once when the seat
       // is live, else when it comes up.
-      privilegedIpc.handle(
-        IPC_CHANNELS.terminalManagedPrompt,
-        async (
-          _event,
+      const appendManagedPrompt = async (
           input: {
             readonly bindingId?: string;
             readonly text?: string;
@@ -1901,6 +1911,9 @@ export const registerJuntoIpc = (): void => {
             readonly nodeId?: string;
             readonly wake?: boolean;
           },
+          // Main's own prompts (offboard) sign as Junto; the renderer's are
+          // always the operator's.
+          senderName: string = "operator",
         ) => {
           const bindingId =
             typeof input?.bindingId === "string" ? input.bindingId.trim() : "";
@@ -1944,7 +1957,7 @@ export const registerJuntoIpc = (): void => {
                 mailKind: "prompt",
                 fromSeat: sender.seatId,
                 senderNodeId: sender.nodeId,
-                senderName: "operator",
+                senderName,
                 senderGeneration: "operator",
                 senderHarness: "unknown",
               }),
@@ -2018,6 +2031,79 @@ export const registerJuntoIpc = (): void => {
                 error instanceof Error ? error.message : "prompt write failed",
             };
           }
+        };
+      privilegedIpc.handle(
+        IPC_CHANNELS.terminalManagedPrompt,
+        (_event, input: Parameters<typeof appendManagedPrompt>[0]) => appendManagedPrompt(input),
+      );
+      // Offboard: the operator asks from the seat, the agent writes its notes
+      // with `junto offboard`, and the closer ends the session once the agent
+      // is idle, in the mode the agent chose. Both prompts ride the mail path
+      // above, so they reach the agent between turns.
+      const managedSeatOn = (canvasName: string, seatId: string) =>
+        AppRuntime.runPromise(
+          Effect.gen(function* () {
+            const canvases = yield* CanvasesService;
+            const read = yield* Effect.result(canvases.read(canvasName, "seatSessions.offboard"));
+            if (read._tag === "Failure") return undefined;
+            const node = read.success.doc.nodes.find((candidate) => candidate.id === seatId);
+            const surface = node === undefined ? undefined : actorDeliverySurfaceOf(node);
+            if (node === undefined || surface?._tag !== "managedAgent") return undefined;
+            const sessionId = node.ether?.terminal?.sessionId?.trim();
+            return {
+              bindingId: surface.bindingId,
+              local: surface.hostId === "local",
+              ...(sessionId ? { sessionId } : {}),
+            };
+          }),
+        );
+      offboardCloser?.stop();
+      offboardCloser = new SeatOffboardCloser({
+        locate: managedSeatOn,
+        isRunning: (bindingId) =>
+          !productAutomationSuspended && termPlane.host.get(bindingId)?.status === "running",
+        isIdle: (bindingId) =>
+          seatStateRuntime.isSeatIdle(bindingId) && !awarenessSeatHold.holds(bindingId),
+        close: (seatId, canvasName, wake) => offboardAndRotate(seatId, { canvasName, wake }),
+        kickoff: async (seatId, canvasName) => {
+          const seat = await managedSeatOn(canvasName, seatId);
+          if (seat === undefined) return false;
+          const sent = await appendManagedPrompt(
+            { bindingId: seat.bindingId, text: CONTINUATION_KICKOFF, canvasName, nodeId: seatId },
+            PRODUCT_NAME,
+          );
+          return sent.ok;
+        },
+        publish: (progress) => broadcast(IPC_CHANNELS.seatOffboardProgress, progress),
+        onOffboard: subscribeSeatOffboard,
+        // The session changed: the pressure clock re-reads its seats.
+        closed: () => tokenPressureMonitor?.invalidateSeats(),
+        log: (message) => console.info(`[offboard] ${message}`),
+      });
+      offboardCloser.start();
+      privilegedIpc.handle(IPC_CHANNELS.seatOffboardProgressList, () => offboardCloser?.current() ?? []);
+      privilegedIpc.handle(
+        IPC_CHANNELS.seatOffboardAsk,
+        async (_event, canvasName: unknown, seatId: unknown, mode: unknown): Promise<SeatOffboardAskResult> => {
+          if (typeof canvasName !== "string" || !canvasName || !isSeatGuidanceSeatId(seatId)) {
+            return { ok: false, message: "Junto could not find that seat." };
+          }
+          if (!(OFFBOARD_MODES as ReadonlyArray<unknown>).includes(mode)) {
+            return { ok: false, message: "Offboard to rest or to continue." };
+          }
+          const offboardMode = mode as OffboardMode;
+          const seat = await managedSeatOn(canvasName, seatId);
+          if (seat === undefined) return { ok: false, message: "Junto could not find that seat." };
+          if (!seat.local) return { ok: false, message: "This seat runs on another installation." };
+          const sent = await appendManagedPrompt({
+            bindingId: seat.bindingId,
+            text: composeOffboardAsk(offboardMode),
+            canvasName,
+            nodeId: seatId,
+          });
+          if (!sent.ok) return { ok: false, message: sent.error ?? "Junto could not send the offboard prompt." };
+          offboardCloser?.asked(seatId, canvasName, offboardMode);
+          return { ok: true };
         },
       );
       // Supervisor transport wiring: re-delivered doctrine goes through the
@@ -2236,9 +2322,17 @@ export const registerJuntoIpc = (): void => {
           seatStateRuntime.isSeatIdle(bindingId) &&
           !awarenessSeatHold.holds(bindingId),
         settings: () => pressureSettings,
-        nudge: sendPressureNudge,
+        // A seat whose agent offboarded belongs to the offboard closer: the
+        // clock stops chasing it and never rotates it a second time.
+        nudge: (seat, text) =>
+          offboardCloser?.handles(seat.canvasName, seat.nodeId, seat.sessionId)
+            ? Promise.resolve(true)
+            : sendPressureNudge(seat, text),
         // Rotation belongs to seat sessions; this clock only decides when.
-        rotate: () => (seat) => offboardAndRotate(seat.nodeId, { canvasName: seat.canvasName }),
+        rotate: () => (seat) =>
+          offboardCloser?.handles(seat.canvasName, seat.nodeId, seat.sessionId)
+            ? Promise.resolve({ ok: true as const })
+            : offboardAndRotate(seat.nodeId, { canvasName: seat.canvasName }),
         onOffboard: subscribeSeatOffboard,
         publish: (change) => broadcast(IPC_CHANNELS.tokenPressureChanged, change),
         home: () => homedir(),

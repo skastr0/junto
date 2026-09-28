@@ -76,6 +76,9 @@ import type {
   SeatGuidanceSetResult,
 } from "./seat-guidance";
 import type {
+  OffboardMode,
+  SeatOffboardAskResult,
+  SeatOffboardProgress,
   SeatSession,
   SeatSessionNotesResult,
   SeatSessionRevealResult,
@@ -161,6 +164,10 @@ export const IPC_CHANNELS = {
   seatSessionNotes: "junto:seat-session-notes",
   seatSessionRevealTranscript: "junto:seat-session-reveal-transcript",
   seatSessionsChanged: "junto:seat-sessions-changed",
+  /** Offboard from the seat: ask the agent in a mode, and where each seat's offboard stands. */
+  seatOffboardAsk: "junto:seat-offboard-ask",
+  seatOffboardProgressList: "junto:seat-offboard-progress-list",
+  seatOffboardProgress: "junto:seat-offboard-progress",
   /** Agent profiles: list, save (create or replace), rename, delete, live list push. */
   profilesList: "junto:profiles-list",
   profileSave: "junto:profile-save",
@@ -742,6 +749,13 @@ export interface JuntoApi extends UpdateApi, OverseerLiveApi {
   readonly seatSessionNotes?: (seatId: string, sessionId: string) => Promise<SeatSessionNotesResult>;
   /** Show one session's transcript in the file manager. */
   readonly seatSessionRevealTranscript?: (seatId: string, sessionId: string) => Promise<SeatSessionRevealResult>;
+  /**
+   * Send a seat's agent the offboard prompt for this mode, on the ordinary
+   * mail path. The agent writes the notes; Junto closes the session after.
+   */
+  readonly seatOffboardAsk?: (canvasName: string, seatId: string, mode: OffboardMode) => Promise<SeatOffboardAskResult>;
+  /** Where every seat's latest offboard stands. */
+  readonly seatOffboardProgressList?: () => Promise<ReadonlyArray<SeatOffboardProgress>>;
   /** The operator's saved agent profiles, by name. */
   readonly profilesList: () => Promise<ReadonlyArray<AgentProfile>>;
   /** Create a profile (no id) or replace one's configuration. */
@@ -946,6 +960,8 @@ export interface JuntoApi extends UpdateApi, OverseerLiveApi {
   readonly onSeatGuidance?: (listener: (event: SeatGuidanceEvent) => void) => () => void;
   /** Main -> renderer: this seat's session history changed (an offboard). */
   readonly onSeatSessionsChanged?: (listener: (event: SeatSessionsChanged) => void) => () => void;
+  /** Main -> renderer: one seat's offboard moved on (asked, saved, resting, started). */
+  readonly onSeatOffboardProgress?: (listener: (event: SeatOffboardProgress) => void) => () => void;
   /** Main -> renderer: every profile, after any change. */
   readonly onProfilesChanged?: (listener: (profiles: ProfilesChanged) => void) => () => void;
   /** The canvas's open needs, for desktop notifications and the Dock badge. */

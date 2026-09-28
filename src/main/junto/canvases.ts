@@ -219,6 +219,7 @@ export type CanvasReadTag =
   | "kernel.wakeManagedSeat"
   | "nodeRef.resolve"
   | "region.rollup"
+  | "seatSessions.offboard"
   | "term.seatPlan"
   | "tokenPressure.seats"
   | "untagged"
