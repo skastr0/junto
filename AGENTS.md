@@ -377,30 +377,6 @@ The renderer has one visual language with two modes — `dark` (default) and `br
 
 The **E2E design-audit loop** (`e2e/scenarios/design-audit.spec.ts`) drives every reachable surface with seeded fixtures + fake hermes/codexbar and screenshots them to `test-results/design-audit/`. It is an explicit capture tool (`bun run test:e2e:audit`), not a routine gate: a local visual change needs the relevant surface spec's screenshots, not every surface; broad theme/shell changes can justify the full audit. Screenshots are disposable test output and must never be committed.
 
-The **T0 QA driver** (`bun run qa:t0`) drives the built app's GUI under the same harness and judges it with deterministic oracles instead of screenshots. It makes no model calls.
-
-- **Registry.** `e2e/qa/registry.ts` lists the surfaces (every node kind, edge verb, the palette and settings), the actions that reach them, and the invariants each probe must hold. The context axes are theme, device scale and window size.
-- **Sampling.** `e2e/qa/pairwise.ts` samples the space pairwise, never the full cross product.
-- **Oracle.** `e2e/qa/oracle.ts` compares two witnesses: the screen, and the running app's own projection. The projection is the compiled canvas and digest, read through the sandbox's canvas control socket by `e2e/qa/witness.ts`. A mismatch is a finding.
-- **Ledger.** Findings land in `test-results/qa-ledger.json`, one entry per fingerprint. The fingerprint is surface, action, invariant and a normalized signature; context is excluded.
-- **Flake gate.** Any probe that saw a violation reruns twice in fresh launches. A finding is `confirmed` only if it reproduces in 2 of its 3 attempts; otherwise it is `flaky`. Evidence screenshots go under `test-results/qa-t0/`.
-- **Filtering.** `bun scripts/qa-t0.ts --only <probe-id substring>` reuses the current build.
-- **Gate status.** It is not part of `verify`. Findings never fail the command; only lost probes do.
-- **Ledger lifetime.** Any Playwright e2e run empties `test-results/`, so the cross-run merge only survives between consecutive QA runs. Run artifacts (records, evidence) go to a per-run `/tmp/junto-qa-<tier>-*` directory for the same reason.
-
-Two further tiers drive the **packaged** app through [Cua Driver](https://cua.ai/docs) and write to the same ledger.
-
-- **Connection.** Both use one `cua-driver mcp` connection (`e2e/qa/cua.ts`) with the agent cursor off.
-- **Isolation.** Each run launches through LaunchServices into a throwaway HOME under `/tmp` (`e2e/qa/packaged.ts`).
-- **Target.** They target `release/mac-arm64/Junto.app` only when it is newer than HEAD, otherwise `/Applications/Junto.app`, read-only. They build nothing.
-- **Desktop.** Clicks use foreground delivery, so the app window briefly comes to the front.
-- **Setup.** Cua Driver must be installed and granted Accessibility and Screen Recording.
-
-| Tier | Command | What it does |
-|---|---|---|
-| T1 | `bun run qa:t1` | Scripted, no model. Covers first launch into an empty home, the native menu bar (product-name spelling, no developer items), the About panel, macOS prompts that name Junto, View > Reload, quit + relaunch, and the first start of a Claude Code and a Hermes seat added with the default folder in a fresh home (harness screen within 45s, no "resuming", no stuck spinner, ended-card reason recorded; terminal rows read through Terminal > Screen reader mode). Each attempt also reads `/usr/bin/log` for TCC requests attributed to `com.skastr0.junto` at its own pids: non-preflight requests are findings, the full capture is `tcc-attempt-N.json` in the run directory. The app's control socket is the second witness. |
-| Explore | `TYPESAFE_API_KEY=… bun run qa:explore --budget N` | Cua's jev-use pattern. Code builds a read-only candidate table from the registry and the live AX tree; Jev picks one id; the driver runs one action; the result is verified against the app's own document. A step with a violation is replayed twice for the flake gate. `--mock` runs without a key. |
-
 On Linux, `bun run dev` and `scripts/run-e2e.sh` use an existing X11 or
 Wayland session. In Amp orbs they attach to the active orb Desktop even though
 the agent shell does not inherit its display variables. E2E falls back to

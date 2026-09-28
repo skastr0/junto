@@ -25,9 +25,7 @@ elif [[ $# -eq 0 ]]; then
   set -- e2e/scenarios/free-startup.spec.ts
 fi
 
-# JUNTO_E2E_CONFIG selects another harness config (the T0 QA runner uses
-# e2e/qa/playwright.config.ts); the display/Xvfb handling below is shared.
-command=("$playwright" test --config "${JUNTO_E2E_CONFIG:-e2e/playwright.config.ts}" "$@")
+command=("$playwright" test --config e2e/playwright.config.ts "$@")
 
 if [[ "$(uname -s)" == "Linux" ]] && junto_use_available_desktop; then
   if [[ -n "${AMP_DIRECT_DESKTOP:-}" ]]; then
