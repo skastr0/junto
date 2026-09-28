@@ -168,7 +168,7 @@ describe("actor occupy protocol (in-process both ends)", () => {
         seatBound: true,
         connected: true,
         seatRef: "actor-kimi",
-        connectedTargets: [{ id: "tasks", kind: "task" }],
+        connectedTargets: [{ id: "peer", kind: "agent" }],
       },
     });
 

@@ -35,21 +35,11 @@ const seatNode = (id: string, bindingId?: string): CanvasDoc["nodes"][number] =>
   },
 });
 
-const kindNode = (id: string, kind: string): CanvasDoc["nodes"][number] => ({
-  id,
-  type: "text",
-  text: id,
-  x: 200,
-  y: 0,
-  width: 120,
-  height: 48,
-  ether: { entity: { kind } },
-});
-
 const edge = (id: string, fromNode: string, toNode: string) => ({
   id,
   fromNode,
   toNode,
+  ether: { verb: "messages" as const },
 });
 
 const docWith = (nodes: CanvasDoc["nodes"], edges: CanvasDoc["edges"]): CanvasDoc => ({
@@ -91,15 +81,9 @@ const call = (socketPath: string, body: unknown): Promise<{
 const controlSeedDoc = (): CanvasDoc => docWith(
   [
     seatNode("agent"),
-    kindNode("tasks", "task"),
-    kindNode("req", "requests"),
-    kindNode("artifacts", "artifacts"),
+    seatNode("peer"),
   ],
-  [
-    edge("e1", "agent", "tasks"),
-    edge("e2", "agent", "req"),
-    edge("e3", "agent", "artifacts"),
-  ],
+  [edge("e1", "agent", "peer")],
 );
 
 describe("PROTO-8 — paused seat reports paused:true + next_step", () => {
@@ -174,8 +158,8 @@ describe("PROTO-8 — paused seat reports paused:true + next_step", () => {
   it("gate sanity: a paused seat still refuses mutating ops with a Paused error (works today)", async () => {
     const res = await call(server.socketPath, {
       token: readFileSync(server.tokenPath, "utf8").trim(),
-      op: "tasks.create",
-      args: { target: "tasks", brief: "do the thing", metadata: { details: "sanity gate" } },
+      op: "msg.send",
+      args: { target: "peer", text: "sanity gate" },
     });
     expect(res.ok).toBe(false);
     expect(res.error?.type).toBe("Paused");

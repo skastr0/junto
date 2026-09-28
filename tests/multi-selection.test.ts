@@ -65,7 +65,7 @@ describe("agentKeysFromNodes", () => {
       text({ id: "a", ether: { entity: { kind: "agent", name: "local:alpha" } } }),
       text({ id: "b", ether: { entity: { kind: "agent", name: "local:beta" } } }),
       text({ id: "c", text: "note" }),
-      text({ id: "d", ether: { entity: { kind: "task", name: "t1" } } }),
+      text({ id: "d", ether: { entity: { kind: "terminal", name: "t1" } } }),
     ];
     expect(agentKeysFromNodes(nodes)).toEqual([
       { nodeId: "a", agentKey: "local:alpha" },

@@ -27,7 +27,6 @@ const nodes: CanvasDoc["nodes"] = [
   agent("b"),
   agent("c"),
   agent("d"),
-  { id: "task", type: "text", text: "T", x: 0, y: 0, width: 200, height: 80, ether: { entity: { kind: "task" }, tasks: { items: [] } } },
   { id: "region", type: "group", label: "R", x: 0, y: 0, width: 400, height: 200 },
 ];
 

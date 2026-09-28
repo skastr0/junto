@@ -17,25 +17,6 @@ const doc: CanvasDoc = {
       width: 180,
       height: 70,
       text: "prism",
-      ether: {
-        entity: { kind: "task" },
-        tasks: {
-          items: [
-            {
-              id: "i1",
-              state: "submitted",
-              history: [
-                {
-                  messageId: "m1",
-                  role: "user",
-                  parts: [{ kind: "text", text: "ship" }],
-                  taskId: "i1",
-                },
-              ],
-            },
-          ],
-        },
-      },
     },
     {
       id: "n2",

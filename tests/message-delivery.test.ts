@@ -243,27 +243,6 @@ describe("message-delivery pure helpers", () => {
           userMsg({ messageId: "listed", metadata: { readAt: 2 } }),
           userMsg({ messageId: "own", role: "agent", parts: [{ kind: "text", text: "echo" }] }),
         ]),
-        {
-          id: "tasks",
-          type: "text",
-          text: "tasks",
-          x: 0,
-          y: 0,
-          width: 10,
-          height: 10,
-          ether: {
-            entity: { kind: "task" },
-            tasks: {
-              items: [
-                {
-                  id: "t1",
-                  state: "submitted",
-                  history: [userMsg({ messageId: "in-history" })],
-                },
-              ],
-            },
-          },
-        },
       ],
       edges: [],
     };

@@ -194,48 +194,26 @@ describe("managed spawn plan", () => {
         },
       },
       {
-        id: "tasks",
+        id: "peer",
         type: "text",
-        text: "tasks",
+        text: "codex",
         x: 200,
         y: 0,
         width: 100,
         height: 80,
-        ether: { entity: { kind: "task" }, tasks: { items: [] } },
+        ether: { entity: { kind: "agent", name: "local:codex" } },
       },
     ],
-    edges: connected ? [{ id: "e1", fromNode: "worker", toNode: "tasks", ether: { verb: "contributes" } }] : [],
+    edges: connected ? [{ id: "e1", fromNode: "worker", toNode: "peer", ether: { verb: "messages" } }] : [],
   });
 
-  it("detects work edges", () => {
+  it("detects a mail edge to a peer seat", () => {
     expect(nodeHasActionableFactoryEdge(baseDoc(true), "worker")).toBe(true);
     expect(nodeHasActionableFactoryEdge(baseDoc(false), "worker")).toBe(false);
   });
 
-  it("treats artifact and page capability edges as injection-worthy", () => {
+  it("treats a page capability edge as injection-worthy", () => {
     const base = baseDoc(false);
-    const artifacts: CanvasDoc = {
-      ...base,
-      nodes: [
-        ...base.nodes,
-        {
-          id: "artifacts",
-          type: "text",
-          text: "artifacts",
-          x: 200,
-          y: 0,
-          width: 100,
-          height: 80,
-          ether: { entity: { kind: "artifacts" }, artifacts: { items: [] } },
-        },
-      ],
-      edges: [
-        ...base.edges,
-        { id: "artifact-edge", fromNode: "worker", toNode: "artifacts", ether: { verb: "publishes" } },
-      ],
-    };
-    expect(nodeHasActionableFactoryEdge(artifacts, "worker")).toBe(true);
-
     const page: CanvasDoc = {
       ...base,
       nodes: [
@@ -544,7 +522,7 @@ describe("managed spawn plan", () => {
           seatBound: true,
           connected: true,
           seatRef: "actor-kimi",
-          connectedTargets: [{ id: "tasks", kind: "task" }],
+          connectedTargets: [{ id: "peer", kind: "agent" }],
         },
       });
       const resolved = launchForManagedSpawnIntent(
