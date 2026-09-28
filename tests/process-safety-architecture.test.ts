@@ -367,6 +367,9 @@ describe("machine-safety architecture", () => {
       "src/main/junto/overseer/native.ts:ctx.termPlane.router.kill",
       "src/main/junto/process-signal.ts:forbidden-reference:child.kill",
       "src/main/junto/process-signal.ts:rec.child.kill",
+      // Seat rotation after an offboard stops the seat's own local session
+      // through the router, the same owned-session stop as terminal IPC.
+      "src/main/junto/seat-sessions/rotate.ts:termPlane.router.kill",
       "src/main/junto/term/control-server.ts:host.kill",
       "src/main/junto/term/ipc.ts:router.kill",
       "src/main/junto/term/router.ts:c.kill",

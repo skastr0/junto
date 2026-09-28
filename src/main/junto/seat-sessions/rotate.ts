@@ -184,9 +184,11 @@ export const offboardAndRotate = async (
           ),
         ),
       // The wake refuses while a process is still dying, so let it exit.
+      // Stopping goes through the router, the same owned-session stop the
+      // operator's terminal uses; rotation only ever reaches a local seat.
       stop: async (bindingId) => {
         if (termPlane.host.get(bindingId) === undefined) return;
-        termPlane.host.kill(bindingId);
+        await termPlane.router.kill(bindingId);
         const deadline = Date.now() + EXIT_WAIT_MS;
         while (Date.now() < deadline && termPlane.host.get(bindingId)?.status !== "exited") {
           await sleep(50);
