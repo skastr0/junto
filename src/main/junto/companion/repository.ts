@@ -1,6 +1,7 @@
 import { Context, Effect, Layer, Schema } from "effect";
+import { SqlClient, SqlError, SqlSchema } from "effect/unstable/sql";
 import type { CompanionDeviceRecord } from "@shared/companion-devices";
-import { StateEngine, type StateEngineError, type StateRow } from "../state/service";
+import { StateTransactionOperation } from "../state/service";
 
 export class CompanionDevicePersistenceError extends Schema.TaggedError<CompanionDevicePersistenceError>()(
   "CompanionDevicePersistenceError",
@@ -51,21 +52,21 @@ export class CompanionDeviceRepository extends Context.Service<CompanionDeviceRe
     readonly removeExpired: (now: number) => Effect.Effect<ReadonlyArray<CompanionDeviceRow>, CompanionDevicePersistenceError>;
   }>()("@junto/CompanionDeviceRepository") {}
 
-type DeviceRow = StateRow & {
-  readonly device_id: string;
-  readonly name: string;
-  readonly state: string;
-  readonly public_key: string;
-  readonly pairing_expires_at: number | null;
-  readonly created_at: number;
-  readonly paired_at: number | null;
-  readonly last_seen_at: number | null;
-};
+const DeviceRow = Schema.Struct({
+  device_id: Schema.String,
+  name: Schema.String,
+  state: Schema.Literals(["paired", "pairing"]),
+  public_key: Schema.String,
+  pairing_expires_at: Schema.NullOr(Schema.Number),
+  created_at: Schema.Number,
+  paired_at: Schema.NullOr(Schema.Number),
+  last_seen_at: Schema.NullOr(Schema.Number),
+});
 
 const COLUMNS =
   "device_id, name, state, public_key, pairing_expires_at, created_at, paired_at, last_seen_at";
 
-const fromRow = (row: DeviceRow): CompanionDeviceRow => ({
+const fromRow = (row: typeof DeviceRow.Type): CompanionDeviceRow => ({
   deviceId: row.device_id,
   name: row.name,
   state: row.state === "paired" ? "paired" : "pairing",
@@ -76,111 +77,101 @@ const fromRow = (row: DeviceRow): CompanionDeviceRow => ({
   ...(row.pairing_expires_at !== null ? { pairingExpiresAt: row.pairing_expires_at } : {}),
 });
 
-const persistence = (operation: string) => (error: StateEngineError) =>
+const persistence = (operation: string) => (error: SqlError.SqlError | Schema.SchemaError) =>
   CompanionDevicePersistenceError.make({ operation, message: error.message, cause: error });
 
-export const CompanionDeviceRepositoryLive: Layer.Layer<CompanionDeviceRepository, never, StateEngine> = Layer.effect(
+export const CompanionDeviceRepositoryLive: Layer.Layer<CompanionDeviceRepository, never, SqlClient.SqlClient> = Layer.effect(
   CompanionDeviceRepository,
   Effect.gen(function* () {
-    const state = yield* StateEngine;
+    const sql = yield* SqlClient.SqlClient;
+    const oneRow = SqlSchema.findOneOption({
+      Request: Schema.String,
+      Result: DeviceRow,
+      execute: (deviceId) => sql.unsafe(`SELECT ${COLUMNS} FROM companion_devices WHERE device_id = ?`, [deviceId]),
+    });
+    const readRow = Effect.fn("companion-devices.read-row")(function* (deviceId: string) {
+      const row = yield* oneRow(deviceId);
+      return row._tag === "None" ? undefined : row.value;
+    });
+    const allRows = SqlSchema.findAll({
+      Request: Schema.Void,
+      Result: DeviceRow,
+      execute: () => sql.unsafe(`SELECT ${COLUMNS} FROM companion_devices ORDER BY created_at, device_id`),
+    });
+    const expiredRows = SqlSchema.findAll({
+      Request: Schema.Number,
+      Result: DeviceRow,
+      execute: (now) => sql.unsafe(`SELECT ${COLUMNS} FROM companion_devices WHERE state = 'pairing' AND pairing_expires_at <= ?`, [now]),
+    });
 
-    const list = () =>
-      state
-        .read("companion-devices.list", (reader) =>
-          reader.all<DeviceRow>(`SELECT ${COLUMNS} FROM companion_devices ORDER BY created_at, device_id`).map(fromRow),
-        )
-        .pipe(Effect.mapError(persistence("list")));
+    const list = Effect.fn("companion-devices.list")(function* () {
+      return (yield* allRows(undefined)).map(fromRow);
+    }, Effect.mapError(persistence("list")));
 
-    const get = (deviceId: string) =>
-      state
-        .read("companion-devices.get", (reader) => {
-          const row = reader.get<DeviceRow>(`SELECT ${COLUMNS} FROM companion_devices WHERE device_id = ?`, [deviceId]);
-          return row === undefined ? undefined : fromRow(row);
-        })
-        .pipe(Effect.mapError(persistence("get")));
+    const get = Effect.fn("companion-devices.get")(function* (deviceId: string) {
+      const row = yield* readRow(deviceId);
+      return row === undefined ? undefined : fromRow(row);
+    }, Effect.mapError(persistence("get")));
 
-    const createPairing = (input: {
+    const createPairing = Effect.fn("companion-devices.create-pairing")(function* (input: {
       readonly deviceId: string;
       readonly pairingPublicKey: string;
       readonly expiresAt: number;
       readonly now: number;
-    }) =>
-      state
-        .transaction("companion-devices.create-pairing", (writer) => {
-          writer.run(
-            `INSERT INTO companion_devices(device_id, name, state, public_key, pairing_expires_at, created_at)
-             VALUES (?, '', 'pairing', ?, ?, ?)`,
-            [input.deviceId, input.pairingPublicKey, input.expiresAt, input.now],
-          );
-          return fromRow(
-            writer.get<DeviceRow>(`SELECT ${COLUMNS} FROM companion_devices WHERE device_id = ?`, [input.deviceId])!,
-          );
-        })
-        .pipe(Effect.mapError(persistence("create-pairing")));
+    }) {
+      yield* sql`
+        INSERT INTO companion_devices(device_id, name, state, public_key, pairing_expires_at, created_at)
+        VALUES (${input.deviceId}, '', 'pairing', ${input.pairingPublicKey}, ${input.expiresAt}, ${input.now})
+      `;
+      return fromRow((yield* readRow(input.deviceId))!);
+    }, sql.withTransaction, Effect.provideService(StateTransactionOperation, "companion-devices.create-pairing"),
+    Effect.mapError(persistence("create-pairing")));
 
-    const completePairing = (input: {
+    const completePairing = Effect.fn("companion-devices.complete-pairing")(function* (input: {
       readonly deviceId: string;
       readonly publicKey: string;
       readonly name: string;
       readonly now: number;
-    }) =>
-      state
-        .transaction("companion-devices.complete-pairing", (writer): CompletePairingResult => {
-          const row = writer.get<DeviceRow>(`SELECT ${COLUMNS} FROM companion_devices WHERE device_id = ?`, [
-            input.deviceId,
-          ]);
-          if (row === undefined) return { ok: false, reason: "unknown" };
-          if (row.state === "paired") return { ok: false, reason: "already-paired" };
-          if (row.pairing_expires_at !== null && row.pairing_expires_at <= input.now) {
-            return { ok: false, reason: "expired" };
-          }
-          writer.run(
-            `UPDATE companion_devices
-               SET name = ?, state = 'paired', public_key = ?, pairing_expires_at = NULL,
-                   paired_at = ?, last_seen_at = ?
-             WHERE device_id = ?`,
-            [input.name, input.publicKey, input.now, input.now, input.deviceId],
-          );
-          const next = writer.get<DeviceRow>(`SELECT ${COLUMNS} FROM companion_devices WHERE device_id = ?`, [
-            input.deviceId,
-          ])!;
-          return { ok: true, device: fromRow(next), pairingKey: row.public_key };
-        })
-        .pipe(Effect.mapError(persistence("complete-pairing")));
+    }) {
+      const row = yield* readRow(input.deviceId);
+      if (row === undefined) return { ok: false, reason: "unknown" } as const;
+      if (row.state === "paired") return { ok: false, reason: "already-paired" } as const;
+      if (row.pairing_expires_at !== null && row.pairing_expires_at <= input.now) {
+        return { ok: false, reason: "expired" } as const;
+      }
+      yield* sql`
+        UPDATE companion_devices
+        SET name = ${input.name}, state = 'paired', public_key = ${input.publicKey}, pairing_expires_at = NULL,
+            paired_at = ${input.now}, last_seen_at = ${input.now}
+        WHERE device_id = ${input.deviceId}
+      `;
+      return { ok: true, device: fromRow((yield* readRow(input.deviceId))!), pairingKey: row.public_key } as const;
+    }, sql.withTransaction, Effect.provideService(StateTransactionOperation, "companion-devices.complete-pairing"),
+    Effect.mapError(persistence("complete-pairing")));
 
-    const touch = (deviceId: string, now: number) =>
-      state
-        .transaction("companion-devices.touch", (writer) => {
-          writer.run(
-            `UPDATE companion_devices SET last_seen_at = ?
-             WHERE device_id = ? AND state = 'paired'
-               AND (last_seen_at IS NULL OR last_seen_at <= ?)`,
-            [now, deviceId, now - COMPANION_LAST_SEEN_RESOLUTION_MS],
-          );
-        })
-        .pipe(Effect.mapError(persistence("touch")));
+    const touch = Effect.fn("companion-devices.touch")(function* (deviceId: string, now: number) {
+      yield* sql`
+        UPDATE companion_devices SET last_seen_at = ${now}
+        WHERE device_id = ${deviceId} AND state = 'paired'
+          AND (last_seen_at IS NULL OR last_seen_at <= ${now - COMPANION_LAST_SEEN_RESOLUTION_MS})
+      `;
+    }, sql.withTransaction, Effect.provideService(StateTransactionOperation, "companion-devices.touch"),
+    Effect.mapError(persistence("touch")));
 
-    const remove = (deviceId: string) =>
-      state
-        .transaction("companion-devices.remove", (writer) => {
-          const row = writer.get<DeviceRow>(`SELECT ${COLUMNS} FROM companion_devices WHERE device_id = ?`, [deviceId]);
-          if (row === undefined) return undefined;
-          writer.run("DELETE FROM companion_devices WHERE device_id = ?", [deviceId]);
-          return fromRow(row);
-        })
-        .pipe(Effect.mapError(persistence("remove")));
+    const remove = Effect.fn("companion-devices.remove")(function* (deviceId: string) {
+      const row = yield* readRow(deviceId);
+      if (row === undefined) return undefined;
+      yield* sql`DELETE FROM companion_devices WHERE device_id = ${deviceId}`;
+      return fromRow(row);
+    }, sql.withTransaction, Effect.provideService(StateTransactionOperation, "companion-devices.remove"),
+    Effect.mapError(persistence("remove")));
 
-    const removeExpired = (now: number) =>
-      state
-        .transaction("companion-devices.remove-expired", (writer) => {
-          const rows = writer.all<DeviceRow>(
-            `SELECT ${COLUMNS} FROM companion_devices WHERE state = 'pairing' AND pairing_expires_at <= ?`,
-            [now],
-          );
-          for (const row of rows) writer.run("DELETE FROM companion_devices WHERE device_id = ?", [row.device_id]);
-          return rows.map(fromRow);
-        })
-        .pipe(Effect.mapError(persistence("remove-expired")));
+    const removeExpired = Effect.fn("companion-devices.remove-expired")(function* (now: number) {
+      const rows = yield* expiredRows(now);
+      for (const row of rows) yield* sql`DELETE FROM companion_devices WHERE device_id = ${row.device_id}`;
+      return rows.map(fromRow);
+    }, sql.withTransaction, Effect.provideService(StateTransactionOperation, "companion-devices.remove-expired"),
+    Effect.mapError(persistence("remove-expired")));
 
     return { list, get, createPairing, completePairing, touch, remove, removeExpired };
   }),
