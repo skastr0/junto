@@ -195,10 +195,13 @@ export const mergeCycleSignals = (
 };
 
 let queue: AlertQueue = emptyAlertQueue();
+/** The canvas the queue's baseline was taken on. */
+let queueScope: string | undefined;
 
 /** Clear baseline + items (unmount / tests). Next observe re-baselines. */
 export const resetAlertQueue = (): void => {
   queue = emptyAlertQueue();
+  queueScope = undefined;
 };
 
 const focusAlertItem = (item: AlertItem | undefined): void => {
@@ -209,9 +212,38 @@ const focusAlertItem = (item: AlertItem | undefined): void => {
   state$.focusNodeId.set(nodeId);
 };
 
-/** Observe live signals; every rise is heard (the mixer keeps it calm). */
-export const observeAlertSignals = (signals: ReadonlyArray<AlertSignal>): void => {
-  const result = observeSignals(queue, signals);
+export type AlertObserveContext = {
+  /**
+   * The seat states behind these signals have loaded. Before that, seats
+   * "appearing" is the load, not news: nothing is heard, and the baseline is
+   * taken on the first observe after it.
+   */
+  readonly settled?: boolean;
+  /** The canvas. Another canvas's seats are new to the eye, not new events. */
+  readonly scope?: string;
+  /** Subjects whose state is unknown right now; they keep their last level. */
+  readonly held?: ReadonlySet<string>;
+};
+
+/**
+ * Observe live signals; every rise is heard (the mixer keeps it calm). A rise
+ * is a subject getting more urgent than it was: a state re-sent unchanged, a
+ * seat coming back from a gap where it was, a reload, or a canvas switch is
+ * not one.
+ */
+export const observeAlertSignals = (
+  signals: ReadonlyArray<AlertSignal>,
+  context: AlertObserveContext = {},
+): void => {
+  if (context.scope !== undefined && context.scope !== queueScope) {
+    queue = emptyAlertQueue();
+    queueScope = context.scope;
+  }
+  if (context.settled === false) {
+    queue = emptyAlertQueue();
+    return;
+  }
+  const result = observeSignals(queue, signals, Date.now(), context.held);
   queue = result.queue;
   for (const item of result.risen) {
     playCue(ALERT_CUE[item.kind], { subject: item.subjectKey });
@@ -227,6 +259,39 @@ export const cycleAlertFocus = (): boolean => {
   focusAlertItem(result.item);
   return true;
 };
+
+/**
+ * Seats with a binding whose latest state is unknown (booting, restarting,
+ * reconnecting): nothing is known about them right now.
+ */
+export const heldSeatSignalIds = (
+  nodes: ReadonlyArray<CanvasNode>,
+  seats: Readonly<Record<string, AgentSeatStateEvent | undefined>>,
+): ReadonlySet<string> => {
+  const held = new Set<string>();
+  for (const node of nodes) {
+    const bindingId = bindingIdForNode(node);
+    if (bindingId && seats[bindingId]?.state === "unknown") held.add(alertId.node(node.id));
+  }
+  return held;
+};
+
+const observeLive = (rollups: ReadonlyArray<RegionRollup>): void => {
+  const seats = agentSeat$.byBindingId.peek() as Record<string, AgentSeatStateEvent | undefined>;
+  observeAlertSignals(collectLiveCycleSignals(rollups), {
+    settled: agentSeat$.hydrated.peek(),
+    scope: state$.canvasName.peek(),
+    held: heldSeatSignalIds(state$.doc.peek().nodes, seats),
+  });
+};
+
+/** Changes whenever any seat's needs-look flag does (the operator looked). */
+const needsLookKey = (needsLook: Readonly<Record<string, boolean | undefined>>): string =>
+  Object.entries(needsLook)
+    .filter(([, value]) => value === true)
+    .map(([bindingId]) => bindingId)
+    .sort()
+    .join("|");
 
 const collectLiveCycleSignals = (
   rollups: ReadonlyArray<RegionRollup>,
@@ -254,13 +319,17 @@ const collectLiveCycleSignals = (
 export function useAlertAttention(rollups: ReadonlyArray<RegionRollup>): void {
   const rollupsRef = useRef(rollups);
   rollupsRef.current = rollups;
-  // Re-run observe when seats / doc identity change (ready+working).
-  const seatByBinding = use$(agentSeat$.byBindingId);
-  const needsLookByBinding = use$(agentSeat$.needsLookByBindingId);
+  // Re-run observe when a seat changes, the operator looks at one, the seats
+  // load, or the canvas does. The seat stores mutate in place, so their
+  // object identity never changes: follow the apply counter and a key.
+  const seatRev = use$(agentSeat$.rev);
+  const lookKey = use$(() => needsLookKey(agentSeat$.needsLookByBindingId.get()));
+  const hydrated = use$(agentSeat$.hydrated);
+  const canvasName = use$(state$.canvasName);
   const docNodes = use$(state$.doc.nodes);
 
   useEffect(() => {
-    observeAlertSignals(collectLiveCycleSignals(rollupsRef.current));
+    observeLive(rollupsRef.current);
 
     return () => {
       // Full unmount of RTS chrome only. Must NOT run when `rollups` identity
@@ -273,8 +342,8 @@ export function useAlertAttention(rollups: ReadonlyArray<RegionRollup>): void {
 
   // Re-observe when rollups or the seat plane change without wiping baseline.
   useEffect(() => {
-    observeAlertSignals(collectLiveCycleSignals(rollupsRef.current));
-  }, [rollups, seatByBinding, needsLookByBinding, docNodes]);
+    observeLive(rollupsRef.current);
+  }, [rollups, seatRev, lookKey, hydrated, canvasName, docNodes]);
 
   // Hotkey: Space or backtick. Capture phase so Space isn't eaten by focused
   // RF nodes / RTS buttons (those match [role=button] and previously no-op'd).

@@ -10,6 +10,9 @@
  * - Active (non-risen) signals still re-enter quietly so Space can land on them.
  * - Cycle wraps; empty queue is a no-op.
  * - Every alert is anchored to an actionable canvas node.
+ * - A held subject (its state is unknown for now: a restart, a reconnect)
+ *   keeps its last level and its place; coming back where it was is not a
+ *   rise.
  */
 
 /**
@@ -120,14 +123,21 @@ const toItem = (signal: AlertSignal, at: number, prev?: AlertItem): AlertItem =>
 /**
  * Observe current signals. First call baselines (no risen). Later calls emit
  * risen edges only when a subject appears or its level increases. Signals that
- * disappear leave the queue. Steady active signals stay (or re-enter quietly).
+ * disappear leave the queue, unless `held`: then nothing is known about them
+ * right now, so their last level and queue place carry over. Steady active
+ * signals stay (or re-enter quietly).
  */
 export const observeSignals = (
   queue: AlertQueue,
   signals: ReadonlyArray<AlertSignal>,
   now: number = Date.now(),
+  held: ReadonlySet<string> = new Set(),
 ): { readonly queue: AlertQueue; readonly risen: ReadonlyArray<AlertItem> } => {
   const nextKnown: Record<string, string> = {};
+  for (const id of held) {
+    const known = queue.known[id];
+    if (known !== undefined) nextKnown[id] = known;
+  }
   for (const signal of signals) {
     nextKnown[signal.id] = fingerprint(signal);
   }
@@ -160,8 +170,9 @@ export const observeSignals = (
   const priorStable = queue.items
     .filter((item) => nextKnown[item.id] !== undefined && !risenIds.has(item.id))
     .map((item) => {
-      const signal = signals.find((s) => s.id === item.id)!;
-      return toItem(signal, now, item);
+      const signal = signals.find((s) => s.id === item.id);
+      // Held with no signal right now: keep the item as it was.
+      return signal === undefined ? item : toItem(signal, now, item);
     });
 
   // Active signals never queued (e.g. baselined-present) — quiet re-entry.

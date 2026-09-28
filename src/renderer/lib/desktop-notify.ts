@@ -11,7 +11,7 @@ import type { OperatorFeed } from "@shared/operator-feed";
 import { notificationSettings } from "@shared/settings";
 import type { PreambleEvent } from "@shared/preamble";
 import { activateNodeSurface } from "./activate-node-surface";
-import { agentSeat$, bindingIdForNode, presentationForSeat } from "./agent-seat-state";
+import { agentSeat$, bindingIdForNode, presentationForSeat, seatDoneAt } from "./agent-seat-state";
 import { getJuntoApi } from "./junto-api";
 import { openOperatorFeed, useOperatorFeed } from "./operator-feed";
 import { nodeTitle } from "./presentation";
@@ -115,6 +115,8 @@ export const seatSubjects = (input: {
   readonly bindingOf: (node: CanvasNode) => string | undefined;
   readonly seatState: (bindingId: string) => { readonly state: string; readonly at: number } | undefined;
   readonly needsLook: (bindingId: string) => boolean;
+  /** When the unread finished turn ended; the need's identity. */
+  readonly doneAt?: (bindingId: string) => number | undefined;
   readonly failure: (bindingId: string) => Failure | undefined;
   readonly exitMessage: (bindingId: string) => string | undefined;
   readonly lastSaid: (nodeId: string) => string | undefined;
@@ -141,7 +143,10 @@ export const seatSubjects = (input: {
     if (presentation !== "done") continue;
     out.push({
       ...seat,
-      key: `done:${node.id}:${event.at}`,
+      // One need per finished turn. The seat's latest event is not it: main
+      // re-sends a seat whose reason changes with a new time, and a new key
+      // would be a second banner and cue for the same turn.
+      key: `done:${node.id}:${input.doneAt?.(bindingId) ?? event.at}`,
       category: "done",
       text: input.lastSaid(node.id) ?? "finished and is waiting for you to look",
     });
@@ -177,6 +182,7 @@ const useNotifyReport = (): NotifyReport | null => {
     bindingOf: bindingIdForNode,
     seatState: (bindingId) => agentSeat$.byBindingId[bindingId].peek(),
     needsLook: (bindingId) => needsLook[bindingId] === true,
+    doneAt: seatDoneAt,
     failure: (bindingId) => failures[bindingId],
     exitMessage: (bindingId) => sessions[bindingId]?.exitMessage?.trim() || undefined,
     lastSaid: (nodeId) => lastSaid[nodeId],

@@ -40,6 +40,18 @@ export type AgentSeatStore = {
    */
   readonly needsLookByBindingId: Record<string, boolean | undefined>;
   /**
+   * When the finished turn behind needsLook ended (the arming event's `at`).
+   * Later events for the same seat (a new reason, a reconnect) carry new
+   * times but are the same finished turn; this one does not move with them.
+   */
+  readonly doneAtByBindingId: Record<string, number | undefined>;
+  /**
+   * The snapshot from main has been applied. Until then an empty store means
+   * "not loaded yet", not "every seat is idle", so nothing may be heard
+   * from its seats appearing.
+   */
+  readonly hydrated: boolean;
+  /**
    * Monotonic apply counter. Nested Legend writes on `byBindingId[id]` can
    * keep the parent object identity, so React `use$(byBindingId)` effects miss
    * in-place working→idle flips. Depend on `rev` instead.
@@ -51,6 +63,8 @@ export const agentSeat$ = observable<AgentSeatStore>({
   byBindingId: {},
   bindingIdByNodeId: {},
   needsLookByBindingId: {},
+  doneAtByBindingId: {},
+  hydrated: false,
   rev: 0,
 });
 
@@ -93,7 +107,12 @@ export const markAgentSeatSeen = (bindingId: string | undefined): void => {
   if (!bindingId) return;
   if (agentSeat$.needsLookByBindingId[bindingId].peek() !== true) return;
   agentSeat$.needsLookByBindingId[bindingId].set(false);
+  agentSeat$.doneAtByBindingId[bindingId].set(undefined);
 };
+
+/** When the seat's unread finished turn ended, if it has one. */
+export const seatDoneAt = (bindingId: string | undefined): number | undefined =>
+  bindingId ? agentSeat$.doneAtByBindingId[bindingId].peek() : undefined;
 
 /**
  * Prompt-box idle reasons — the seat settled at a live composer prompt box.
@@ -198,6 +217,9 @@ export const applyAgentSeatStateEvent = (event: AgentSeatStateEvent): void => {
   const prevState = current?.state;
   const epochChanged = current !== undefined && current.epoch !== event.epoch;
   let needsLook = agentSeat$.needsLookByBindingId[event.bindingId].peek() === true;
+  // A turn ends only on the two arming edges below; any other event, the
+  // same idle re-sent included, leaves the finished turn where it was.
+  let turnEnded = false;
 
   if (epochChanged || event.state === "gone") {
     // New generation / vacated seat: never inherit a stale ready/complete flag.
@@ -206,6 +228,7 @@ export const applyAgentSeatStateEvent = (event: AgentSeatStateEvent): void => {
     // Real product state (stall / needs-input) resolved — keep the existing
     // arm: attention is never a title artifact.
     needsLook = !isBindingSurfaceOpen(event.bindingId);
+    turnEnded = needsLook;
   } else if (event.state === "idle" && prevState === "working") {
     // Finished a turn (working → idle). A working event that ends on a
     // prompt-box idle is a false title flip (composer back at the prompt,
@@ -214,10 +237,13 @@ export const applyAgentSeatStateEvent = (event: AgentSeatStateEvent): void => {
     needsLook =
       !isPromptBoxIdleReason(event.reason) &&
       !isBindingSurfaceOpen(event.bindingId);
+    turnEnded = needsLook;
   }
 
   agentSeat$.byBindingId[event.bindingId].set(event);
   agentSeat$.needsLookByBindingId[event.bindingId].set(needsLook);
+  if (!needsLook) agentSeat$.doneAtByBindingId[event.bindingId].set(undefined);
+  else if (turnEnded) agentSeat$.doneAtByBindingId[event.bindingId].set(event.at);
   agentSeat$.rev.set(agentSeat$.rev.peek() + 1);
   // Inventory join when the session is already cached with a canvas pin.
   const session = terminal$.sessionByBindingId[event.bindingId].peek();
@@ -301,14 +327,22 @@ export const subscribeAgentSeatState = (): (() => void) => {
   if (typeof api.agentSeatStateSnapshot === "function") {
     void api.agentSeatStateSnapshot().then(
       (snapshot) => {
-        if (!active || !Array.isArray(snapshot)) return;
-        for (const raw of snapshot) {
-          const event = decodeAgentSeatStateEvent(raw);
-          if (event) applyAgentSeatStateEvent(event);
+        if (!active) return;
+        if (Array.isArray(snapshot)) {
+          for (const raw of snapshot) {
+            const event = decodeAgentSeatStateEvent(raw);
+            if (event) applyAgentSeatStateEvent(event);
+          }
         }
+        agentSeat$.hydrated.set(true);
       },
-      () => undefined,
+      // No snapshot to wait for: what streams in from here is live.
+      () => {
+        if (active) agentSeat$.hydrated.set(true);
+      },
     );
+  } else {
+    agentSeat$.hydrated.set(true);
   }
 
   return activeUnsubscribe;
@@ -319,6 +353,8 @@ export const resetAgentSeatState = (): void => {
   agentSeat$.byBindingId.set({});
   agentSeat$.bindingIdByNodeId.set({});
   agentSeat$.needsLookByBindingId.set({});
+  agentSeat$.doneAtByBindingId.set({});
+  agentSeat$.hydrated.set(false);
   agentSeat$.rev.set(0);
   if (activeUnsubscribe) {
     activeUnsubscribe();
