@@ -8,9 +8,13 @@
    - mid: a seat is its ring, held in its state pose (the clock stops), and
      its name; the line under it, preamble bubbles and landing flourishes
      go. A note is its title. Nothing lifts, glows or casts a shadow.
-   - far and overview: a seat, terminal or git instrument is one disc in its
-     state's colour; a note or card is a flat block in its own place. No
-     text, no portraits, no atlas image is drawn.
+   - far: a seat, terminal or git instrument is its portrait in its ring,
+     centred in its place and drawn at 1.75x, with no card and
+     no words: the ring, held in its state pose, says working, waiting on
+     you, done or resting in the same marks as up close. Hover or select one
+     and its name rises above it. A note or card is a flat block in its own
+     place.
+   - overview: regions carry the board (canvas-lod-regions.css).
 
    Hidden detail uses visibility or display inside fixed-size shells, so no
    node changes size and no wire moves when the tier changes. Scoped to the
@@ -41,31 +45,60 @@ html:is([data-canvas-tier="mid"], [data-canvas-tier="far"], [data-canvas-tier="o
   display: none;
 }
 
-/* --- far and overview: discs and blocks ------------------------------ */
+/* --- far and overview: portraits in rings, and blocks ----------------- */
 
-/* Seats and instruments: the shell gives way to one disc. */
+/* Seats and instruments: no card, no words, no status chips; the ring and
+   what it holds, centred on the node. Scaling paints, it never moves a wire:
+   the node keeps its box. */
 html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .junto-node:is([data-node-kind="agent"], [data-node-kind="terminal"], [data-node-kind="git"]):not([data-bare]) {
   background: transparent !important;
   border-color: transparent !important;
 }
-html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .junto-seat__text {
-  visibility: hidden;
-}
-html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .junto-seat .junto-mark {
-  background-image: none;
-}
-html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .junto-seat .junto-mark > * {
-  visibility: hidden;
-}
-html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .junto-seat .junto-mark::after {
+html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .junto-node__status-rail {
   display: none;
 }
-html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .junto-seat .junto-mark::before {
-  content: "";
+/* The enlarged ring and the name tag reach past the card's box. */
+html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .junto-node:is([data-node-kind="agent"], [data-node-kind="terminal"], [data-node-kind="git"]) :is(.junto-node__body, .junto-node__body > *, .factory-agent-card) {
+  overflow: visible;
+}
+html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .junto-seat {
+  position: relative;
+  justify-content: center;
+}
+html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .junto-seat > .junto-mark {
+  transform: scale(1.75);
+}
+/* The seat's hover card is drawn in canvas units: unreadable from here. The
+   name tag and the ring's own tooltip speak for the seat instead. */
+html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport [data-collaboration-overlay] {
+  display: none;
+}
+/* The name leaves the row (so the ring centres) and waits, hidden, as a tag
+   under the ring: above it sit the ring's own tooltip and, once selected,
+   the seat toolbar. Drawn in canvas units: 4.5x the seat's 12px name reads
+   as 11 to 18px across the far tier. */
+html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .junto-seat__text {
   position: absolute;
-  inset: 14%;
-  border-radius: 50%;
-  background: var(--mark-disc);
+  left: 50%;
+  top: calc(100% + 30px);
+  width: max-content;
+  max-width: 220px;
+  flex: none;
+  padding: 1px 8px 2px;
+  border: 1px solid var(--color-stroke);
+  border-radius: 6px;
+  background: var(--color-raise);
+  transform: translateX(-50%) scale(4.5);
+  transform-origin: 50% 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+html[data-canvas-tier="far"] .react-flow__viewport .react-flow__node:is(:hover, .selected) .junto-seat__text {
+  visibility: visible;
+}
+/* The hovered seat's tag rides above its neighbours. */
+html[data-canvas-tier="far"] .react-flow__viewport .react-flow__node:not(.react-flow__node-group):hover {
+  z-index: 2000 !important;
 }
 
 /* Notes and cards: a flat block where the card sits. */
@@ -80,8 +113,30 @@ html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__vi
   background: color-mix(in oklab, var(--color-ink) 6%, transparent) !important;
 }
 
-/* Selection still reads from far away. */
-html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .react-flow__node.selected .junto-node:not([data-bare]) {
+/* Selection and hover still read from far away: a card gets a frame, a seat
+   a halo round its ring. */
+html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .react-flow__node.selected .junto-node:not([data-bare]):not(:is([data-node-kind="agent"], [data-node-kind="terminal"], [data-node-kind="git"])) {
   outline: 4px solid color-mix(in oklab, var(--color-main) 70%, transparent);
   outline-offset: 2px;
+}
+html[data-canvas-tier="far"] .react-flow__viewport .junto-seat::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 104px;
+  height: 104px;
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+html[data-canvas-tier="far"] .react-flow__viewport .junto-node:is([data-node-kind="terminal"], [data-node-kind="git"]) .junto-seat::before {
+  width: 82px;
+  height: 82px;
+}
+html[data-canvas-tier="far"] .react-flow__viewport .react-flow__node:hover .junto-seat::before {
+  box-shadow: 0 0 0 4px color-mix(in oklab, var(--color-ink) 35%, transparent);
+}
+html[data-canvas-tier="far"] .react-flow__viewport .react-flow__node.selected .junto-seat::before {
+  box-shadow: 0 0 0 6px color-mix(in oklab, var(--color-main) 80%, transparent);
 }

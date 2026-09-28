@@ -1,8 +1,8 @@
 /**
  * Canvas level of detail: seats, instruments, notes and cards at each camera
  * tier, in dark and bright. Near draws everything; mid keeps the ring (held
- * still) and the name; far and overview draw a seat as one disc and a card as
- * a flat block. Frames land in test-results/canvas-lod/.
+ * still) and the name; far draws a seat as its portrait in its ring, no
+ * words, and a card as a flat block. Frames land in test-results/canvas-lod/.
  *
  *   bun run test:e2e:fast e2e/scenarios/canvas-lod.spec.ts
  */
@@ -162,12 +162,14 @@ test("seats, instruments, notes and cards shed detail tier by tier", async () =>
         const look = await seat.evaluate((el) => {
           const line = el.querySelector(".junto-seat__line");
           const mark = el.querySelector('.junto-mark[data-mark-size="seat"]');
-          const disc = mark ? getComputedStyle(mark, "::before") : undefined;
+          const portrait = el.querySelector(".junto-mark__seat img, .junto-mark__seat svg");
+          const words = el.querySelector(".junto-seat__text");
           const note = document.querySelector('.react-flow__node[data-id="n0"] .junto-node');
           return {
             line: line ? getComputedStyle(line).display : "missing",
             atlas: mark ? getComputedStyle(mark).backgroundImage !== "none" : false,
-            disc: disc ? disc.content !== "none" && disc.content !== "normal" : false,
+            portrait: portrait ? getComputedStyle(portrait).visibility !== "hidden" : false,
+            words: words ? getComputedStyle(words).visibility : "missing",
             noteBody: document.querySelector('.react-flow__node[data-id="n0"] .note-md > :nth-child(2)')
               ? getComputedStyle(document.querySelector('.react-flow__node[data-id="n0"] .note-md > :nth-child(2)')!).display
               : "missing",
@@ -181,18 +183,21 @@ test("seats, instruments, notes and cards shed detail tier by tier", async () =>
         if (tier === "near") {
           expect(look.line).not.toBe("none");
           expect(look.atlas).toBe(true);
-          expect(look.disc).toBe(false);
+          expect(look.portrait).toBe(true);
           expect(look.noteBody).not.toBe("none");
         } else if (tier === "mid") {
           expect(look.line).toBe("none");
           expect(look.atlas).toBe(true);
-          expect(look.disc).toBe(false);
+          expect(look.portrait).toBe(true);
           expect(look.noteBody).toBe("none");
           expect(look.stamp).toBe(false);
           expect(look.preambles).toBe(0);
         } else {
-          expect(look.atlas).toBe(false);
-          expect(look.disc).toBe(true);
+          expect(look.atlas).toBe(true);
+          if (tier === "far") {
+            expect(look.portrait).toBe(true);
+            expect(look.words).toBe("hidden");
+          }
           expect(look.noteVisible).toBe("hidden");
           expect(look.stamp).toBe(false);
           expect(look.preambles).toBe(0);
