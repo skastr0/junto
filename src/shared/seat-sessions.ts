@@ -119,16 +119,6 @@ export const newestSessionsFirst = (
     return right.startedAt - left.startedAt;
   });
 
-// ── Renderer bridge ─────────────────────────────────────────────────────────
-
-export type SeatSessionNotesResult =
-  | { readonly ok: true; readonly notes: string }
-  | { readonly ok: false; readonly message: string };
-
-export type SeatSessionRevealResult = { readonly ok: true } | { readonly ok: false; readonly message: string };
-
-export type SeatSessionsChanged = { readonly seatId: string };
-
 /**
  * Where one seat's offboard stands, for the operator. asked: the operator
  * sent the offboard prompt. saved: the agent wrote its notes. resting: the

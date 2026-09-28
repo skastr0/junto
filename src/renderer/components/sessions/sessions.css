@@ -1,77 +1,9 @@
-/* Sessions: a seat's session history inside the agent editor's panel.
-   One list, rows divided by hairlines; notes open in the row, unboxed. */
+/* The seat's offboard controls inside the agent editor's panel. */
 
 .seat-sessions {
   display: flex;
   flex-direction: column;
   gap: 14px;
-}
-
-.seat-sessions__list {
-  display: flex;
-  margin: 0;
-  padding: 0;
-  flex-direction: column;
-  list-style: none;
-}
-
-.seat-sessions__row {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 12px 0;
-  border-top: 1px solid var(--color-stroke);
-}
-
-.seat-sessions__row:last-child {
-  border-bottom: 1px solid var(--color-stroke);
-}
-
-.seat-sessions__head {
-  display: flex;
-  min-width: 0;
-  align-items: center;
-  gap: 10px;
-  font-size: 11px;
-}
-
-.seat-sessions__when {
-  color: var(--color-ink);
-  font-variant-numeric: tabular-nums;
-}
-
-.seat-sessions__harness,
-.seat-sessions__ended {
-  color: var(--color-dim);
-}
-
-.seat-sessions__state {
-  margin-left: auto;
-}
-
-.seat-sessions__ended {
-  font-size: 10px;
-  color: var(--color-faint);
-}
-
-.seat-sessions__gist {
-  margin: 0;
-  overflow: hidden;
-  font-size: 12px;
-  line-height: 1.5;
-  color: var(--color-ink-2);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.seat-sessions__gist[data-empty="true"] {
-  color: var(--color-faint);
-}
-
-.seat-sessions__actions {
-  display: flex;
-  gap: 4px;
-  margin-left: -6px;
 }
 
 .seat-sessions__problem {
@@ -80,24 +12,12 @@
   color: var(--color-amber-fg);
 }
 
-.seat-sessions__notes {
-  max-height: 320px;
-  margin-top: 6px;
-  padding: 10px 0 2px 12px;
-  overflow-y: auto;
-  border-left: 1px solid var(--color-stroke-hi);
-  font-size: 12px;
-  line-height: 1.55;
-}
-
 /* Offboard: two actions, a hint, and the steps of the offboard in flight. */
 
 .seat-offboard {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  padding-bottom: 14px;
-  border-bottom: 1px solid var(--color-stroke);
 }
 
 .seat-offboard__actions {

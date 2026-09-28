@@ -68,6 +68,6 @@ export const AGENT_EDITOR_SECTIONS: ReadonlyArray<AgentEditorSection> = [
   { id: "launch", label: "launch", Panel: LaunchSection, applies: (seat) => seat.harness !== undefined },
   // A seat's own offboard limit lives on the canvas, so a profile draft has none.
   { id: "context", label: "context", Panel: ContextSection, applies: (seat) => seat.harness !== undefined && !seat.draft },
-  // A seat's session history; a profile draft has run none.
+  // Offboard from the seat; a profile draft has no session to end.
   { id: "sessions", label: "sessions", Panel: SessionsSection, applies: (seat) => seat.harness !== undefined && !seat.draft },
 ];

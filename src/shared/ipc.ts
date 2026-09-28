@@ -79,10 +79,6 @@ import type {
   OffboardMode,
   SeatOffboardAskResult,
   SeatOffboardProgress,
-  SeatSession,
-  SeatSessionNotesResult,
-  SeatSessionRevealResult,
-  SeatSessionsChanged,
 } from "./seat-sessions";
 import type {
   AgentProfile,
@@ -159,11 +155,6 @@ export const IPC_CHANNELS = {
   seatGuidanceList: "junto:seat-guidance-list",
   seatGuidanceSet: "junto:seat-guidance-set",
   seatGuidance: "junto:seat-guidance",
-  /** Seat sessions: one seat's session history, its notes, reveal its transcript, change push. */
-  seatSessionsList: "junto:seat-sessions-list",
-  seatSessionNotes: "junto:seat-session-notes",
-  seatSessionRevealTranscript: "junto:seat-session-reveal-transcript",
-  seatSessionsChanged: "junto:seat-sessions-changed",
   /** Offboard from the seat: ask the agent in a mode, and where each seat's offboard stands. */
   seatOffboardAsk: "junto:seat-offboard-ask",
   seatOffboardProgressList: "junto:seat-offboard-progress-list",
@@ -743,12 +734,6 @@ export interface JuntoApi extends UpdateApi, OverseerLiveApi {
     seatId: string,
     guidance: SeatGuidance | null,
   ) => Promise<SeatGuidanceSetResult>;
-  /** One seat's sessions, newest first, with transcript paths once found. */
-  readonly seatSessionsList?: (seatId: string) => Promise<ReadonlyArray<SeatSession>>;
-  /** The notes a seat's agent left for one of its sessions. */
-  readonly seatSessionNotes?: (seatId: string, sessionId: string) => Promise<SeatSessionNotesResult>;
-  /** Show one session's transcript in the file manager. */
-  readonly seatSessionRevealTranscript?: (seatId: string, sessionId: string) => Promise<SeatSessionRevealResult>;
   /**
    * Send a seat's agent the offboard prompt for this mode, on the ordinary
    * mail path. The agent writes the notes; Junto closes the session after.
@@ -958,8 +943,6 @@ export interface JuntoApi extends UpdateApi, OverseerLiveApi {
   readonly onSquadsChanged?: (listener: (event: SquadsChanged) => void) => () => void;
   /** Main -> renderer: one seat's guidance as it now stands. */
   readonly onSeatGuidance?: (listener: (event: SeatGuidanceEvent) => void) => () => void;
-  /** Main -> renderer: this seat's session history changed (an offboard). */
-  readonly onSeatSessionsChanged?: (listener: (event: SeatSessionsChanged) => void) => () => void;
   /** Main -> renderer: one seat's offboard moved on (asked, saved, resting, started). */
   readonly onSeatOffboardProgress?: (listener: (event: SeatOffboardProgress) => void) => () => void;
   /** Main -> renderer: every profile, after any change. */
