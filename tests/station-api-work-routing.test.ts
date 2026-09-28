@@ -33,7 +33,7 @@ import {
 import { ProjectedActorSeat } from "../src/main/junto/station/actor-seat-compiler";
 import { STATION_PORTFOLIO_PROTOCOL } from "../src/main/junto/station/portfolio";
 import { stationProjectionContentSha256 } from "../src/main/junto/station/repository";
-import { authorialMaterialForTest } from "./helpers/task-topology-authority";
+import { authorialMaterialForTest } from "./helpers/authorial-material";
 import {
   admitEnrolledStationPeer,
   dispatchStationApiRequest,

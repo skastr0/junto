@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { Schema } from "effect";
-import type { CanvasDoc, Task } from "../../src/shared/canvas";
+import type { CanvasDoc } from "../../src/shared/canvas";
 import type {
   ExecutionGraphContext,
   LiveTrustViews,
@@ -54,12 +54,3 @@ export const executionContextForDoc = (
     actorRefsForDoc(doc, canvasName),
     trust,
   );
-
-export const claimedByNode = (
-  task: Task,
-  nodeId: string,
-  canvasName = TEST_CANVAS_NAME,
-): Task => ({
-  ...task,
-  claimedBy: actorRefFixture(nodeId, canvasName).seatId,
-});

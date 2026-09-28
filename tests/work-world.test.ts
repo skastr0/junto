@@ -46,7 +46,7 @@ import { unjournaledWorkMutation } from "../src/main/junto/work/mutation-seam";
 import { makeWorkWorld, type WorkWorld } from "../src/main/junto/work/world";
 import { IntentFactBasis } from "../src/shared/work-protocol";
 import { serializeCanvas, type CanvasDoc } from "../src/shared/canvas";
-import { authorialMaterialForTest } from "./helpers/task-topology-authority";
+import { authorialMaterialForTest } from "./helpers/authorial-material";
 import { seedCanvasAuthority } from "./helpers/canvas-authority-material";
 
 const CANVAS = "factory";

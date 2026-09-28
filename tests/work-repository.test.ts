@@ -28,7 +28,7 @@ import {
   StateEngine,
 } from "../src/main/junto/state/engine";
 import { IntentFactBasis } from "../src/shared/work-protocol";
-import { authorialMaterialForTest } from "./helpers/task-topology-authority";
+import { authorialMaterialForTest } from "./helpers/authorial-material";
 import { seedCanvasAuthority } from "./helpers/canvas-authority-material";
 
 const root = join(tmpdir(), `junto-work-v2-${randomUUID()}`);

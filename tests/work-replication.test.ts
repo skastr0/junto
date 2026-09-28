@@ -36,7 +36,7 @@ import {
   makeStateEngineLive,
   StateEngine,
 } from "../src/main/junto/state/engine";
-import { authorialMaterialForTest } from "./helpers/task-topology-authority";
+import { authorialMaterialForTest } from "./helpers/authorial-material";
 import { seedCanvasAuthority } from "./helpers/canvas-authority-material";
 
 const observedAt = "2026-07-27T18:00:00.000Z";

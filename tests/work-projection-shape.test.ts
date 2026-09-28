@@ -35,7 +35,7 @@ import { WorkSnapshot } from "../src/shared/work-model";
 import { ContentRef } from "../src/shared/content";
 import { serializeCanvas, type CanvasDoc } from "../src/shared/canvas";
 import { seedCanvasAuthority } from "./helpers/canvas-authority-material";
-import { authorialMaterialForTest } from "./helpers/task-topology-authority";
+import { authorialMaterialForTest } from "./helpers/authorial-material";
 
 const root = join(tmpdir(), `junto-projection-shape-${randomUUID()}`);
 const runtime = ManagedRuntime.make(
