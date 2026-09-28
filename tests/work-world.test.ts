@@ -1,18 +1,16 @@
 /**
- * The in-memory factory world, tested as a differential against SQLite.
+ * The in-memory work world, tested as a differential against SQLite.
  *
  * The world exists to stop a canvas read rebuilding every sink whenever one
  * sink changes. That is only worth having if what it serves is EXACTLY what
  * the SQLite read path would have returned — a fast stale world is a worse
- * defect than a slow correct one, because a stale work plane is the factory's
- * source of truth silently disagreeing with its journal.
+ * defect than a slow correct one, because a stale mailbox is the seats' source
+ * of truth silently disagreeing with its journal.
  *
  * So every test here is the same shape: mutate through the real write path,
  * then read the world and read SQLite through the SAME reader in the SAME
- * snapshot, and require them to be equal. The mutations below walk every lane
- * a snapshot projects (tasks, requests, mailbox, artifacts, board, pad,
- * delivery receipts, read cursors) plus the two operator paths that
- * deliberately mint no journal record.
+ * snapshot, and require them to be equal. The mutations below walk the
+ * mailbox lanes a seat's snapshot projects: mail and its delivery receipts.
  *
  * Two assertions keep this from being a tautology:
  *
@@ -30,13 +28,11 @@ import { join } from "node:path";
 import { Context, Effect, Layer, ManagedRuntime, Schema } from "effect";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { ActorSeatId } from "../src/shared/actor-seat";
-import { PadPatch } from "../src/shared/pad";
 import {
   InstallationId,
   type InstallationId as InstallationIdValue,
 } from "../src/shared/installation-id";
 import {
-  createAuthorialTaskDependencyScopeCapability,
   readCanvasWorkProjection,
   readCanvasWorkRevision,
   WorkRepository,
@@ -54,12 +50,8 @@ import { authorialMaterialForTest } from "./helpers/task-topology-authority";
 import { seedCanvasAuthority } from "./helpers/canvas-authority-material";
 
 const CANVAS = "factory";
-const TASKS = "tasks-sink";
-const REQUESTS = "requests-sink";
-const ARTIFACTS = "artifacts-sink";
-const BOARD = "board-sink";
-const PAD = "pad-sink";
 const INBOX = "agent-inbox";
+const PEER_INBOX = "peer-inbox";
 
 const root = join(tmpdir(), `junto-work-world-${randomUUID()}`);
 const runtime = ManagedRuntime.make(
@@ -75,7 +67,7 @@ let world: WorkWorld;
 
 const observedAt = "2026-08-18T09:00:00.000Z";
 const cc = Schema.decodeUnknownSync(InstallationId)("cc-world");
-const taskDocument = (nodeIds: ReadonlyArray<string>): CanvasDoc => ({
+const agentDocument = (nodeIds: ReadonlyArray<string>): CanvasDoc => ({
   nodes: nodeIds.map((id, index) => ({
     id,
     type: "text" as const,
@@ -84,15 +76,15 @@ const taskDocument = (nodeIds: ReadonlyArray<string>): CanvasDoc => ({
     width: 180,
     height: 80,
     text: id,
-    ether: { entity: { kind: "task" } },
+    ether: { entity: { kind: "agent", name: `local:${id}` } },
   })),
   edges: [],
 });
 const fixtureDocuments = new Map<string, CanvasDoc>([
-  [CANVAS, taskDocument([TASKS, "archived-sink", "aaa-sink"])],
+  [CANVAS, agentDocument([INBOX, PEER_INBOX, "aaa-inbox", "builder"])],
   ...Array.from(
     { length: 20 },
-    (_, index) => [`bound-${index}`, taskDocument(["tasks"])] as const,
+    (_, index) => [`bound-${index}`, agentDocument(["inbox"])] as const,
   ),
 ]);
 const fixtureAuthority = authorialMaterialForTest({
@@ -112,12 +104,6 @@ const basis = Schema.decodeUnknownSync(IntentFactBasis, {
   generation: "1",
   contentSha256: intentSha256,
 });
-const dependencyScope = (sink: { canvasName: string; nodeId: string }) =>
-  createAuthorialTaskDependencyScopeCapability({
-    authority: fixtureAuthority,
-    authoringSink: sink,
-  });
-
 const seatOf = (digit: string, nodeId: string) => ({
   seatId: Schema.decodeUnknownSync(ActorSeatId)(`seat_${digit.repeat(64)}`),
   canvasName: CANVAS,
@@ -125,20 +111,30 @@ const seatOf = (digit: string, nodeId: string) => ({
 });
 
 const actor = seatOf("a", "builder");
-const operator = { kind: "operator" as const, label: "operator" };
-
-const message = (
-  messageId: string,
-  role: "user" | "agent",
-  text: string,
-  taskId?: string,
-) => ({
+const message = (messageId: string, text: string) => ({
   messageId,
-  role,
+  role: "agent" as const,
   parts: [{ kind: "text" as const, text }],
-  ...(taskId === undefined ? {} : { taskId }),
   contextId: CANVAS,
 });
+
+const mail = (
+  nodeId: string,
+  messageId: string,
+  text: string,
+  canvasName = CANVAS,
+) =>
+  runtime.runPromise(
+    repository.appendMessage({
+      sink: { canvasName, nodeId },
+      basis,
+      message: message(messageId, text),
+      sentBy: actor,
+      destination: { kind: "mailbox" },
+      originAt: observedAt,
+      receivedAt: observedAt,
+    }),
+  );
 
 const seedInstallation = (installations: ReadonlyArray<InstallationIdValue>) =>
   state.transaction("test.seed-installations", (writer) => {
@@ -215,201 +211,32 @@ afterAll(async () => {
   await rm(root, { recursive: true, force: true });
 });
 
-describe("the in-memory factory world", () => {
+describe("the in-memory work world", () => {
   it("serves exactly what SQLite would have returned, after every lane", async () => {
     // Boot hydration: the world has never seen this canvas.
     const first = await readBoth();
     expect(first.memory.snapshots).toEqual(first.sqlite.snapshots);
     expect(world.stats().hydrate).toBe(1);
 
+    await differential("message.append", mail(INBOX, "mail-1", "hello"));
     await differential(
-      "task.create",
-      runtime.runPromise(
-        repository.createTask({
-          sink: { canvasName: CANVAS, nodeId: TASKS },
-          basis,
-          dependencyScope: dependencyScope({ canvasName: CANVAS, nodeId: TASKS }),
-          task: {
-            id: "task-1",
-            state: "submitted",
-            history: [message("brief-1", "user", "ship it", "task-1")],
-          },
-          originAt: observedAt,
-          receivedAt: observedAt,
-        }),
-      ),
+      "message.append to a second seat",
+      mail(PEER_INBOX, "mail-peer-1", "hello peer"),
     );
 
-    await differential(
-      "task.transition",
-      runtime.runPromise(
-        repository.transitionTask({
-          sink: { canvasName: CANVAS, nodeId: TASKS },
-          basis,
-          taskId: "task-1",
-          state: "completed",
-          originAt: observedAt,
-          receivedAt: observedAt,
-        }),
-      ),
-    );
-
-    await differential(
-      "request.create",
-      runtime.runPromise(
-        repository.createRequest({
-          sink: { canvasName: CANVAS, nodeId: REQUESTS },
-          basis,
-          request: {
-            id: "request-1",
-            state: "input-required",
-            claimedBy: actor.seatId,
-            history: [message("ask-1", "agent", "which region?", "request-1")],
-          },
-          raisedBy: actor,
-          originAt: observedAt,
-          receivedAt: observedAt,
-        }),
-      ),
-    );
-
-    await differential(
-      "request.resolve",
-      runtime.runPromise(
-        repository.resolveRequest({
-          sink: { canvasName: CANVAS, nodeId: REQUESTS },
-          basis,
-          requestId: "request-1",
-          response: "north",
-          disposition: "completed",
-          originAt: observedAt,
-          receivedAt: observedAt,
-        }),
-      ),
-    );
-
-    await differential(
-      "message.append",
-      runtime.runPromise(
-        repository.appendMessage({
-          sink: { canvasName: CANVAS, nodeId: INBOX },
-          basis,
-          message: message("mail-1", "agent", "hello"),
-          sentBy: actor,
-          destination: { kind: "mailbox" },
-          originAt: observedAt,
-          receivedAt: observedAt,
-        }),
-      ),
-    );
-
-    await differential(
-      "artifact.publish",
-      runtime.runPromise(
-        repository.publishArtifact({
-          sink: { canvasName: CANVAS, nodeId: ARTIFACTS },
-          basis,
-          publishedBy: actor,
-          artifact: {
-            artifactId: "artifact-1",
-            name: "proof",
-            parts: [{ kind: "text", text: "receipt" }],
-          },
-          originAt: observedAt,
-          receivedAt: observedAt,
-        }),
-      ),
-    );
-
+    const sink = { canvasName: CANVAS, nodeId: INBOX };
     await differential(
       "delivery.accept",
       runtime.runPromise(
         repository.acceptDelivery({
-          sink: { canvasName: CANVAS, nodeId: ARTIFACTS },
+          sink,
           basis,
           receipt: {
             deliveryId: "delivery-1",
-            deliveredItem: {
-              kind: "artifact",
-              itemId: "artifact-1",
-              sink: { canvasName: CANVAS, nodeId: ARTIFACTS },
-            },
+            deliveredItem: { kind: "message", itemId: "mail-1", sink },
             actor,
             acceptedAt: observedAt,
           },
-          originAt: observedAt,
-          receivedAt: observedAt,
-        }),
-      ),
-    );
-
-    await differential(
-      "board.topic.create",
-      runtime.runPromise(
-        repository.createBoardTopic({
-          sink: { canvasName: CANVAS, nodeId: BOARD },
-          basis,
-          topic: {
-            topicId: "topic-1",
-            title: "positions",
-            state: "open",
-            openedBy: operator,
-            parts: [{ kind: "text", text: "opening" }],
-            postCount: 0,
-            openedAt: observedAt,
-            lastActivityAt: observedAt,
-          },
-          createdBy: operator,
-          originAt: observedAt,
-          receivedAt: observedAt,
-        }),
-      ),
-    );
-
-    await differential(
-      "board.post.append",
-      runtime.runPromise(
-        repository.appendBoardPost({
-          sink: { canvasName: CANVAS, nodeId: BOARD },
-          basis,
-          post: {
-            topicId: "topic-1",
-            postId: "post-1",
-            position: 1,
-            author: operator,
-            parts: [{ kind: "text", text: "a position" }],
-            createdAt: observedAt,
-          },
-          createdBy: operator,
-          originAt: observedAt,
-          receivedAt: observedAt,
-        }),
-      ),
-    );
-
-    await differential(
-      "pad.patch",
-      runtime.runPromise(
-        repository.applyPadPatch({
-          sink: { canvasName: CANVAS, nodeId: PAD },
-          basis,
-          patchId: "patch-1",
-          patches: [
-            Schema.decodeUnknownSync(PadPatch)({
-              op: "upsert",
-              layer: "shape",
-              shape: {
-                id: "shape-1",
-                type: "box",
-                x: 0,
-                y: 0,
-                w: 10,
-                h: 10,
-                z: 1,
-              },
-            }),
-          ],
-          author: operator,
           originAt: observedAt,
           receivedAt: observedAt,
         }),
@@ -421,27 +248,17 @@ describe("the in-memory factory world", () => {
     const stats = world.stats();
     expect(stats.hydrate).toBe(1);
     expect(stats.coarse).toBe(0);
-    expect(stats.incremental).toBeGreaterThanOrEqual(10);
+    expect(stats.incremental).toBeGreaterThanOrEqual(3);
   });
 
   it("re-reads only the sink a mutation touched", async () => {
     const before = world.stats();
-    await runtime.runPromise(
-      repository.appendMessage({
-        sink: { canvasName: CANVAS, nodeId: INBOX },
-        basis,
-        message: message("mail-2", "agent", "second"),
-        sentBy: actor,
-        destination: { kind: "mailbox" },
-        originAt: observedAt,
-        receivedAt: observedAt,
-      }),
-    );
+    await mail(INBOX, "mail-2", "second");
     const { memory, sqlite } = await readBoth();
     expect(memory.snapshots).toEqual(sqlite.snapshots);
     const after = world.stats();
-    // Six sinks are resident; one message moved one of them.
-    expect(after.sinks).toBeGreaterThanOrEqual(6);
+    // Two mailboxes are resident; one message moved one of them.
+    expect(after.sinks).toBeGreaterThanOrEqual(2);
     expect(after.sinksReloaded - before.sinksReloaded).toBe(1);
     expect(after.hydrate).toBe(before.hydrate);
   });
@@ -455,118 +272,19 @@ describe("the in-memory factory world", () => {
     expect(after.sinksReloaded).toBe(before.sinksReloaded);
   });
 
-  it("keeps the operator paths that mint no journal record in step", async () => {
-    await differential(
-      "artifact.archive",
-      runtime.runPromise(
-        repository.setArtifactArchived({
-          sink: { canvasName: CANVAS, nodeId: ARTIFACTS },
-          artifactId: "artifact-1",
-          archived: true,
-        }),
-      ),
-    );
-    await differential(
-      "artifact.restore",
-      runtime.runPromise(
-        repository.setArtifactArchived({
-          sink: { canvasName: CANVAS, nodeId: ARTIFACTS },
-          artifactId: "artifact-1",
-          archived: false,
-        }),
-      ),
-    );
-  });
-
-  it("keeps a sink whose only task is archived, with an empty lane", async () => {
-    // The membership subtlety the world has to get exactly right: an archived
-    // task leaves `tasks.items` empty but keeps the `work_tasks` row, so the
-    // node is STILL a sink. Dropping it would strip the authorial lanes off
-    // that node in `projectWorkSnapshots` — a different document, not a
-    // smaller one.
-    const sink = { canvasName: CANVAS, nodeId: "archived-sink" };
-    await differential(
-      "task.create on the archive sink",
-      runtime.runPromise(
-        repository.createTask({
-          sink,
-          basis,
-          dependencyScope: dependencyScope(sink),
-          task: {
-            id: "task-archived",
-            state: "submitted",
-            history: [message("brief-3", "user", "drop it", "task-archived")],
-          },
-          originAt: observedAt,
-          receivedAt: observedAt,
-        }),
-      ),
-    );
-    const projection = await differential(
-      "task.archive",
-      runtime.runPromise(
-        repository.transitionTask({
-          sink,
-          basis,
-          taskId: "task-archived",
-          state: "archived",
-          originAt: observedAt,
-          receivedAt: observedAt,
-        }),
-      ),
-    );
-    const archived = projection.snapshots.find(
-      (snapshot) => snapshot.nodeId === "archived-sink",
-    );
-    expect(archived).toBeDefined();
-    expect(archived?.tasks.items).toEqual([]);
-  });
-
-  it("drops a sink whose last projected row is deleted", async () => {
-    const before = await readBoth();
-    expect(
-      before.memory.snapshots.some((snapshot) => snapshot.nodeId === ARTIFACTS),
-    ).toBe(true);
-    await runtime.runPromise(
-      repository.deleteArtifact({
-        sink: { canvasName: CANVAS, nodeId: ARTIFACTS },
-        artifactId: "artifact-1",
-      }),
-    );
-    const after = await readBoth();
-    expect(after.memory.snapshots).toEqual(after.sqlite.snapshots);
-    // The artifacts node still holds a delivery receipt, which is not a
-    // membership table, so what matters is only that memory tracked SQLite.
-    expect(
-      after.memory.snapshots.map((snapshot) => snapshot.nodeId),
-    ).toEqual(after.sqlite.snapshots.map((snapshot) => snapshot.nodeId));
-  });
-
   it("admits a brand new sink in node_id order", async () => {
-    // "aaa-sink" sorts before every sink seeded above, so a wrong insertion
-    // order shows up as a different projection, not merely a different map.
+    // "aaa-inbox" sorts before every mailbox seeded above, so a wrong
+    // insertion order shows up as a different projection, not merely a
+    // different map.
     await differential(
-      "task.create on a new sink",
-      runtime.runPromise(
-        repository.createTask({
-          sink: { canvasName: CANVAS, nodeId: "aaa-sink" },
-          basis,
-          dependencyScope: dependencyScope({ canvasName: CANVAS, nodeId: "aaa-sink" }),
-          task: {
-            id: "task-2",
-            state: "submitted",
-            history: [message("brief-2", "user", "later", "task-2")],
-          },
-          originAt: observedAt,
-          receivedAt: observedAt,
-        }),
-      ),
+      "message.append to a new mailbox",
+      mail("aaa-inbox", "mail-3", "later"),
     );
     const { memory, sqlite } = await readBoth();
     expect(memory.snapshots.map((snapshot) => snapshot.nodeId)).toEqual(
       sqlite.snapshots.map((snapshot) => snapshot.nodeId),
     );
-    expect(memory.snapshots[0]?.nodeId).toBe("aaa-sink");
+    expect(memory.snapshots[0]?.nodeId).toBe("aaa-inbox");
   });
 
   it("is unmoved by a transaction that rolls back", async () => {
@@ -648,24 +366,11 @@ describe("the world's residency bound", () => {
   it("holds a bounded set of canvases and rebuilds an evicted one correctly", async () => {
     const bounded = makeWorkWorld();
     try {
-      // One task on each of many canvases, then read them all. The bound is
-      // 16; twenty canvases must not leave twenty resident.
+      // One message on each of many canvases, then read them all. The bound
+      // is 16; twenty canvases must not leave twenty resident.
       const names = Array.from({ length: 20 }, (_, index) => `bound-${index}`);
       for (const canvasName of names) {
-        await runtime.runPromise(
-          repository.createTask({
-            sink: { canvasName, nodeId: "tasks" },
-            basis,
-            dependencyScope: dependencyScope({ canvasName, nodeId: "tasks" }),
-            task: {
-              id: `task-${canvasName}`,
-              state: "submitted",
-              history: [message(`brief-${canvasName}`, "user", "x", `task-${canvasName}`)],
-            },
-            originAt: observedAt,
-            receivedAt: observedAt,
-          }),
-        );
+        await mail("inbox", `mail-${canvasName}`, "x", canvasName);
         await runtime.runPromise(
           state.read("test.bounded", (reader) => {
             const workRevision = readCanvasWorkRevision(reader, canvasName);
