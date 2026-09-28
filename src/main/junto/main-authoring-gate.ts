@@ -50,7 +50,6 @@ export const MAIN_AUTHORING_LABELS = [
   "companion.signal-answer",
   "companion.signal-dismiss",
   "companion.mail-send",
-  "token-pressure.nudge",
   "delivery.message-stamp",
   "delivery.board-wake",
   "review.checkout",

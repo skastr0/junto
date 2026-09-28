@@ -27,7 +27,6 @@ import {
 } from "@shared/managed-terminal-injection";
 import { writeAgentRulesDir } from "./agent-rules-dir";
 import { writeAgentFileSpec } from "./agent-file-spec";
-import { writeClaudeStatusSettings } from "./claude-status-line";
 import {
   isPinSessionHarness,
   shouldResumeHarnessSession,
@@ -220,27 +219,6 @@ const agentFileForSpawn = (
 };
 
 /**
- * Materialize the seat's extra settings for a harness that takes them
- * (Claude `--settings`): the status line that records the harness's own
- * context window. Written on every launch, resume included; a failed write
- * launches the seat without it and its window reads as unknown.
- */
-const settingsFileForSpawn = (
-  harness: HarnessId,
-  injection: ManagedSpawnIntent["injection"],
-  cwd: string | undefined,
-): string | undefined => {
-  if (!templateFor(harness).argvSpec.settingsFlag) return undefined;
-  const seatRef = injection.seatRef?.trim();
-  if (!seatRef) return undefined;
-  return writeClaudeStatusSettings({
-    seatRef,
-    ...(cwd ? { cwd } : {}),
-    ...(process.env.CLAUDE_CONFIG_DIR ? { configDir: process.env.CLAUDE_CONFIG_DIR } : {}),
-  });
-};
-
-/**
  * Build spawn plan. When harness is known and doc shows work edges, inject
  * doctrine (Tier A argv / Tier B firstTyped). Unconnected → silence.
  */
@@ -300,7 +278,6 @@ export const planManagedSpawn = (input: SpawnPlanInput): ManagedLaunchPlan | und
   // `armedInjection` unarmed, so no file is written and the launch is the plain
   // `-S <id>` resume the harness accepts — `--agent-file` cannot ride there.
   const agentFile = agentFileForSpawn(harness, armedInjection);
-  const settingsFile = settingsFileForSpawn(harness, injection, cwd);
 
   const choices: ManagedLaunchChoices = {
     // A resumed session already carries the doctrine in its own history.
@@ -309,7 +286,6 @@ export const planManagedSpawn = (input: SpawnPlanInput): ManagedLaunchPlan | und
     injection: armedInjection,
     ...(rulesDir ? { rulesDir } : {}),
     ...(agentFile ? { agentFile } : {}),
-    ...(settingsFile ? { settingsFile } : {}),
     ...(profile ? { profile } : {}),
     ...(input.provider ?? recovered.provider
       ? { provider: input.provider ?? recovered.provider }

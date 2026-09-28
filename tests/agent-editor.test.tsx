@@ -125,7 +125,6 @@ describe("customize agent editor", { timeout: 30_000 }, () => {
       "soul",
       "instructions",
       "launch",
-      "context",
       "sessions",
     ]);
     expect(opened.querySelector('[role="tabpanel"]')?.getAttribute("data-section")).toBe("look");

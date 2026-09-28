@@ -1,5 +1,4 @@
 import { Schema } from "effect";
-import { defaultTokenPressure, TokenPressureSettings } from "@shared/token-pressure";
 import {
   AdvancedSettings,
   AppearanceSettings,
@@ -81,8 +80,6 @@ export const StoredSettingsPreferences = Schema.Struct({
    * by state migration 4 -> 5. Carried through untouched, never read.
    */
   portraits: Schema.optionalKey(PortraitsSettings),
-  /** Absent on rows written before token pressure; resolves to the defaults. */
-  tokenPressure: Schema.optionalKey(TokenPressureSettings),
 });
 export type StoredSettingsPreferences =
   typeof StoredSettingsPreferences.Type;
@@ -138,7 +135,6 @@ export const preferencesFromSettings = (
   feed: settings.feed ?? defaultFeed(),
   notifications: settings.notifications ?? defaultNotifications(),
   providers: persistableProviders(settings.providers, options),
-  tokenPressure: settings.tokenPressure ?? defaultTokenPressure(),
   ...(settings.portraits ? { portraits: settings.portraits } : {}),
 });
 
@@ -211,7 +207,6 @@ export const decodeStoredSettings = (
     feed: prefs.feed ?? defaultFeed(),
     notifications: prefs.notifications ?? defaultNotifications(),
     providers: prefs.providers ?? defaultProviders(),
-    tokenPressure: prefs.tokenPressure ?? defaultTokenPressure(),
     ...(prefs.portraits ? { portraits: prefs.portraits } : {}),
     station: decodedTopology.success,
   };

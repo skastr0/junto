@@ -17,7 +17,6 @@ import { CompanionSettingsSection } from "./settings/CompanionSettingsSection";
 import { HarnessesSettingsSection } from "./settings/HarnessesSettingsSection";
 import { ProvidersSettingsSection } from "./settings/ProvidersSettingsSection";
 import { QuickRepliesSettingsSection } from "./settings/QuickRepliesSettingsSection";
-import { ContextSettingsSection } from "./pressure/ContextSettingsSection";
 import { NotificationSettingsSection } from "./settings/NotificationSettingsSection";
 import { SoundSettingsSection } from "./settings/SoundSettingsSection";
 import { TerminalSettingsSection } from "./settings/TerminalSettingsSection";
@@ -60,7 +59,6 @@ const SECTIONS: ReadonlyArray<{ key: PanelSection; label: string; blurb: string 
     label: "Notifications",
     blurb: "what reaches you while Junto is in the background",
   },
-  { key: "tokenPressure", label: "Context", blurb: "when agents hand off a full context" },
   { key: "companion", label: "Companion", blurb: "answer your agents from your phone" },
   // Machine/station topology is fleet-adjacent (host id, supervised runtime).
   ...(FLEET_UI_ENABLED
@@ -1061,8 +1059,6 @@ function SectionBody({ section }: { readonly section: PanelSection }) {
       return <TerminalSettingsSection />;
     case "feed":
       return <QuickRepliesSettingsSection />;
-    case "tokenPressure":
-      return <ContextSettingsSection />;
     case "notifications":
       return <NotificationSettingsSection />;
     case "station":

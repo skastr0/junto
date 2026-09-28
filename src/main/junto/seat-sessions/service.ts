@@ -1,7 +1,7 @@
 /**
  * Seat sessions in the running app: the canvas recorder that notices every
  * session id a seat is given, the listing that finds each session's transcript
- * on disk, and the offboard event the token-pressure clock listens for.
+ * on disk, and the offboard event the offboard closer listens for.
  */
 import { Effect } from "effect";
 import type { OffboardMode, SeatSession } from "@shared/seat-sessions";

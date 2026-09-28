@@ -18,8 +18,6 @@ const allowed = new Set([
   "src/main/junto/install-ops/engine.ts",
   // Read-only external harness receipts; never Junto product state.
   "src/main/junto/term/session-existence.ts",
-  // Read-only Oh My Pi model cache, for a model's context window.
-  "src/main/junto/token-pressure/readers.ts",
 ]);
 
 const filesUnder = (directory: string): string[] => {

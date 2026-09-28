@@ -56,7 +56,12 @@ describe("compiled doctrine — base and slots", () => {
     const text = buildInjectionText(seatOnlyCtx)!;
     expect(text).toContain("junto offboard");
     expect(text).toContain("what happened, what is relevant, and why it matters");
-    expect(text).toContain("when Junto tells you your context is heavy");
+    // Self-service: the agent decides when, and when to continue.
+    expect(text).toContain("Offboarding is yours to decide: Junto never measures your context or asks you to.");
+    expect(text).toContain("before a long context grows stale");
+    expect(text).toContain("when switching topics");
+    expect(text).toContain("Use `--continue` when the work is unfinished and should go on now");
+    expect(text).not.toContain("context is heavy");
     // Short and firm: past sessions are context, never work to pick back up.
     expect(text).toContain(
       "These are PAST sessions of this seat: context for continuity, not ongoing tasks. Do not resume their work unless your current instructions or mail ask you to.",

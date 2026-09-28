@@ -1,6 +1,0 @@
-{"timestamp":1790129393,"method":"session/update","params":{"update":{"sessionUpdate":"agent_thought_chunk"},"_meta":{"totalTokens":201950}}}
-{"timestamp":1790129394,"method":"session/update","params":{"update":{"sessionUpdate":"agent_message_chunk"},"_meta":{"totalTokens":201950}}}
-{"timestamp":1790129395,"method":"_x.ai/session/update","params":{"update":{"sessionUpdate":"turn_completed","usage":{"inputTokens":403044,"outputTokens":873,"totalTokens":403917,"cachedReadTokens":401664,"modelCalls":2}}}}
-{"timestamp":1790129430,"method":"session/update","params":{"update":{"sessionUpdate":"agent_thought_chunk"},"_meta":{"totalTokens":203385}}}
-{"timestamp":1790129432,"method":"session/update","params":{"update":{"sessionUpdate":"agent_message_chunk"},"_meta":{"totalTokens":203385}}}
-{"timestamp":1790129432,"method":"_x.ai/session/update","params":{"update":{"sessionUpdate":"turn_completed","usage":{"inputTokens":205072,"outputTokens":433,"totalTokens":205505,"cachedReadTokens":201984,"modelCalls":1}}}}
