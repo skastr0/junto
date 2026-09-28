@@ -37,6 +37,8 @@ export type SeatSession = {
 
 /** The notes the seat's agent writes when it offboards, as markdown. */
 export const SEAT_SESSION_NOTES_MAX_CHARS = 16_000;
+/** The note a continuing session leaves for the next one, as markdown. */
+export const SEAT_SESSION_CONTINUATION_MAX_CHARS = 8_000;
 export const SEAT_SESSION_GIST_MAX_CHARS = 160;
 
 /** How many of the latest offboard notes `junto onboard` carries inline. */
@@ -51,6 +53,42 @@ export const ONBOARD_PAST_SESSIONS_MAX = 30;
  */
 export const PAST_SESSIONS_FRAMING =
   "These are PAST sessions of this seat: context for continuity, not ongoing tasks. Do not resume their work unless your current instructions or mail ask you to.";
+
+/**
+ * How a session offboards. rest: the notes close the session and the seat
+ * rests; its next wake starts a fresh session. continue: the notes plus a
+ * note for the next session, and Junto starts that session right away.
+ */
+export const OFFBOARD_MODES = ["rest", "continue"] as const;
+export type OffboardMode = (typeof OFFBOARD_MODES)[number];
+
+/**
+ * How `junto onboard` frames the continuation note: the one exception to
+ * past sessions being context only, because it is an explicit handoff.
+ */
+export const CONTINUATION_FRAMING =
+  "Left for you by your previous session: an explicit handoff, the one exception to past sessions being context only. Pick this up now, unless your current instructions or mail say otherwise.";
+
+/**
+ * What the operator's Offboard buttons send the agent: the offboard prompt
+ * for that mode. The notes are always the agent's own to write.
+ */
+export const composeOffboardAsk = (mode: OffboardMode): string =>
+  mode === "continue"
+    ? [
+        "The operator asks you to offboard and continue in a fresh session.",
+        'Finish the step you are on, then run `junto offboard "<notes>" --continue "<note for your next session>"`. The notes say what happened, what is relevant, and why it matters; the continuation says what to pick up next and why.',
+        "When you go idle, Junto starts a fresh session of this seat that reads your continuation first and carries on.",
+      ].join("\n")
+    : [
+        "The operator asks you to offboard this session.",
+        'Finish the step you are on, then run `junto offboard "<notes>"`: what happened, what is relevant, and why it matters, first line the summary.',
+        "When you go idle, Junto closes this session and the seat rests. Its next wake starts a fresh session that reads your notes.",
+      ].join("\n");
+
+/** The first mail a continuing seat's fresh session reads. */
+export const CONTINUATION_KICKOFF =
+  "This is a fresh session of this seat. Your previous session offboarded and left you a continuation note. Run `junto onboard`, read the handoff at the top, and carry on from there.";
 
 /**
  * The one-line gist of a session's notes: the first line with text, without
@@ -90,3 +128,26 @@ export type SeatSessionNotesResult =
 export type SeatSessionRevealResult = { readonly ok: true } | { readonly ok: false; readonly message: string };
 
 export type SeatSessionsChanged = { readonly seatId: string };
+
+/**
+ * Where one seat's offboard stands, for the operator. asked: the operator
+ * sent the offboard prompt. saved: the agent wrote its notes. resting: the
+ * session closed and the seat rests. started: a fresh session started.
+ * waiting: the fresh session is ready and starts when the canvas plays.
+ * failed: Junto could not close the session (see message).
+ */
+export const SEAT_OFFBOARD_STAGES = ["asked", "saved", "resting", "started", "waiting", "failed"] as const;
+export type SeatOffboardStage = (typeof SEAT_OFFBOARD_STAGES)[number];
+
+export type SeatOffboardProgress = {
+  readonly seatId: string;
+  readonly canvasName: string;
+  readonly mode: OffboardMode;
+  readonly stage: SeatOffboardStage;
+  readonly at: number;
+  /** When the operator asked for this offboard; absent when the agent chose it. */
+  readonly askedAt?: number;
+  readonly message?: string;
+};
+
+export type SeatOffboardAskResult = { readonly ok: true } | { readonly ok: false; readonly message: string };

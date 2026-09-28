@@ -470,7 +470,7 @@ export const offboardSchema: CommandSchemaContract = {
   command: "offboard",
   schema_id: "offboard.input/v1",
   description:
-    "Hand off this session: markdown notes on what happened, what is relevant, and why it matters. The first line is the one-line summary. Plain markdown, @file, or - for stdin also work.",
+    "End this session: markdown notes on what happened, what is relevant, and why it matters; the first line is the one-line summary. Plain markdown, @file, or - for stdin also work. Without continuation the session closes when you go idle and the seat rests until its next wake. With continuation (--continue on the command line), a note for the next session on what to pick up and why: Junto starts that session as soon as you go idle, and it reads the note first.",
   schema: OffboardArgs,
   input_modes: ["markdown", "inline-json", "@file", "stdin"],
 };
@@ -1124,8 +1124,9 @@ const declaredExamples: ReadonlyArray<CommandExample> = [
   {
     command_id: "offboard",
     command: "offboard",
-    name: "hand off this session",
-    description: "Notes for the next session of this seat: what happened, what is relevant, why it matters.",
+    name: "hand off at a stopping point",
+    description:
+      "Notes for the next session of this seat: what happened, what is relevant, why it matters. The seat rests until its next wake.",
     input: {
       notes:
         "Importer parses all three feeds; retry on 429 is next.\n\n- Parser lives in src/import/feed.ts, tests in tests/feed.test.ts.\n- Why it matters: the nightly sync fails without retries.",
@@ -1133,6 +1134,24 @@ const declaredExamples: ReadonlyArray<CommandExample> = [
     args: [
       "offboard",
       "Importer parses all three feeds; retry on 429 is next.\n\n- Parser lives in src/import/feed.ts, tests in tests/feed.test.ts.\n- Why it matters: the nightly sync fails without retries.",
+    ],
+  },
+  {
+    command_id: "offboard",
+    command: "offboard",
+    name: "hand off mid-work and continue",
+    description:
+      "Notes on this session, plus a note for the fresh session Junto starts right away: what to pick up and why.",
+    input: {
+      notes: "Importer parses all three feeds; retry on 429 is half done.\n\n- Parser lives in src/import/feed.ts.",
+      continuation:
+        "Finish the 429 retry in src/import/feed.ts (backoff is written, the test is not). Why: the nightly sync fails without it.",
+    },
+    args: [
+      "offboard",
+      "Importer parses all three feeds; retry on 429 is half done.\n\n- Parser lives in src/import/feed.ts.",
+      "--continue",
+      "Finish the 429 retry in src/import/feed.ts (backoff is written, the test is not). Why: the nightly sync fails without it.",
     ],
   },
   {
@@ -1455,7 +1474,8 @@ const declaredCapabilities: ReadonlyArray<CommandCapability> = [
     command_id: "offboard",
     command: "offboard",
     category: "workflow",
-    description: "Hand off this session: notes on what happened, what is relevant, and why it matters.",
+    description:
+      "End this session with notes: plain at a stopping point (the seat rests), or --continue mid-work (a fresh session starts right away and reads your note first).",
     schemas: [offboardSchema],
     examples: allExamples.filter((e) => e.command_id === "offboard"),
   },

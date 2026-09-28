@@ -268,7 +268,7 @@ JSON-in/JSON-out — every command takes one JSON argument (inline, \`@file\`, o
 ${TASKS_ENABLED ? `| pinned rulings for your regions | \`junto rulings\` — add \`'{"target":"<id>"}'\` for a connected target's stack |
 ` : ""}| thought bubble | \`junto preamble '{"text":"..."}'\` |
 | raise your hand to the operator | \`junto escalate "..."\` - \`junto blocked "..."\` - \`junto feedback "..."\` (see below) |
-| hand off this session | \`junto offboard "<notes>"\` (see Sessions below) |
+| end this session | \`junto offboard "<notes>"\` at a stopping point, add \`--continue "<note>"\` mid-work (see Sessions below) |
 | schemas / examples | \`junto schema show <command>\` - \`junto examples show <command>\` |
 | full documentation | \`junto docs\` - \`junto docs node <kind>\` — the complete doctrine and per-node-kind docs (ports, data models, events) |
 
@@ -298,7 +298,14 @@ The answer arrives in this seat as operator mail; \`junto signal list\` shows yo
 
 \`junto onboard\` lists this seat's past sessions: the latest notes inline, and paths to older notes and transcripts. ${PAST_SESSIONS_FRAMING} To look further back, open a listed path yourself.
 
-\`junto offboard "<notes>"\` saves notes for the next session of this seat: what happened, what is relevant, and why it matters. The first line sums the session up; \`@file\` or \`-\` for stdin also work. Offboard whenever you finish a stretch of work, when Junto tells you your context is heavy, and before your session ends. Running it again replaces the notes.
+\`junto offboard\` ends this session with notes for the next one: what happened, what is relevant, and why it matters. The first line sums the session up; \`@file\` or \`-\` for stdin also work. You choose the stopping point, and the mode:
+
+- At a stopping point: \`junto offboard "<notes>"\`. When you go idle, Junto closes this session and the seat rests. Its next wake starts a fresh session that reads your notes.
+- Mid-work: \`junto offboard "<notes>" --continue "<what to pick up next and why>"\`. When you go idle, Junto starts a fresh session right away. It reads your continuation first and carries on.
+
+Offboard when you finish a stretch of work, when Junto tells you your context is heavy, or when the operator asks. After offboarding, finish your turn and stop. Running it again before you go idle replaces the notes, and the latest mode wins.
+
+When \`junto onboard\` shows a \`handoff\`, your previous session left it for you: it is the one exception to past sessions being context only. Pick it up unless your current instructions or mail say otherwise.
 
 Context ritual: when context is heavy, compact, then re-run \`onboard\` for the live map.
 

@@ -195,20 +195,30 @@ export const offboardCommand = Command.make(
         'Markdown notes on this session: inline, @file, - for stdin, or {"notes":"..."}. First line sums it up.',
       ),
     ),
+    continuation: Flag.string("continue").pipe(
+      Flag.optional,
+      Flag.withDescription(
+        "Continue in a fresh session: a note for it, what to pick up and why (inline, @file, or - for stdin). Junto starts that session as soon as you go idle.",
+      ),
+    ),
     timeout: timeoutOption,
   },
-  ({ notes, timeout }) =>
+  ({ notes, continuation, timeout }) =>
     executeJsonCommand(
       "offboard",
       Effect.gen(function* () {
         const socket = yield* WorkSocket;
-        const args = yield* loadOffboardArgs(notes);
+        const args = yield* loadOffboardArgs(notes, toUndefined(continuation));
         return yield* socket.call("offboard", args, toUndefined(timeout));
       }),
     ),
 ).pipe(
   Command.withDescription(
-    "Hand off this session: notes on what happened, what is relevant, and why it matters",
+    [
+      "End this session with notes on what happened, what is relevant, and why it matters. You choose the stopping point.",
+      "At a stopping point: junto offboard \"<notes>\". When you go idle the session closes and the seat rests; its next wake starts a fresh session that reads your notes.",
+      "Mid-work: junto offboard \"<notes>\" --continue \"<note>\". When you go idle Junto starts a fresh session right away, and it reads your note first and carries on.",
+    ].join(" "),
   ),
 );
 

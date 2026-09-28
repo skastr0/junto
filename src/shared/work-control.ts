@@ -655,9 +655,12 @@ export type OnboardArgs = typeof OnboardArgs.Type;
  * `junto offboard`: the calling seat's notes on its current session, as
  * markdown. Seat-local: the seat is the process-bound caller and writes only
  * its own session's notes. The first line is the session's one-line gist.
+ * `continuation` (`--continue`) is a note for the next session: Junto starts
+ * that session right away instead of letting the seat rest.
  */
 export const OffboardArgs = Schema.Struct({
   notes: Schema.String,
+  continuation: Schema.optionalKey(Schema.String),
 }).annotate({
   parseOptions: { onExcessProperty: "error" },
 });

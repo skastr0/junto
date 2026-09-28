@@ -24,6 +24,12 @@ export const seatSessionNotesPath = (seatsRoot: string, seatId: string, sessionI
   join(seatsRoot, pathSegment(seatId), "sessions", `${pathSegment(sessionId)}.md`);
 
 /**
+ * `<seats root>/<seat>/sessions/<session>.next.md`: the note a continuing
+ * session left for the one after it, beside its notes.
+ */
+export const continuationPathOf = (notesPath: string): string => notesPath.replace(/\.md$/, ".next.md");
+
+/**
  * Replace a notes file whole: written beside it, then renamed over it, so a
  * reader never sees half a file. Owner-only, like the rest of `~/.junto`.
  */
@@ -39,11 +45,16 @@ export const writeNotesFile = (path: string, notes: string): void => {
   }
 };
 
+/** Remove a notes file; one that is not there is already removed. */
+export const removeNotesFile = (path: string): void => {
+  rmSync(path, { force: true });
+};
+
 /** A notes file's markdown, bounded; undefined when it cannot be read. */
-export const readNotesFile = (path: string): string | undefined => {
+export const readNotesFile = (path: string, max = SEAT_SESSION_NOTES_MAX_CHARS): string | undefined => {
   try {
     const text = readFileSync(path, "utf8").trim();
-    return text.length > SEAT_SESSION_NOTES_MAX_CHARS ? text.slice(0, SEAT_SESSION_NOTES_MAX_CHARS) : text;
+    return text.length > max ? text.slice(0, max) : text;
   } catch {
     return undefined;
   }

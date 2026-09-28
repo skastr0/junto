@@ -142,16 +142,18 @@ import { PausePlane } from "../pause-plane";
 import { SeatGuidanceRepository } from "../seat-guidance/repository";
 import { SeatSessionRepository } from "../seat-sessions/repository";
 import { announceSeatOffboard, listSeatSessions } from "../seat-sessions/service";
-import { readNotesFile } from "../seat-sessions/notes-file";
+import { continuationPathOf, readNotesFile } from "../seat-sessions/notes-file";
 import { seatSessionOnNode } from "../seat-sessions/transitions";
 import type { SeatSessionObservation } from "../seat-sessions/repository";
 import { getCapturedSessionId } from "../term/session-id-store";
 import { harnessSessionExists } from "../term/session-existence";
 import {
+  CONTINUATION_FRAMING,
   gistOfNotes,
   ONBOARD_PAST_NOTES_DEFAULT,
   ONBOARD_PAST_SESSIONS_MAX,
   PAST_SESSIONS_FRAMING,
+  SEAT_SESSION_CONTINUATION_MAX_CHARS,
   SEAT_SESSION_NOTES_MAX_CHARS,
 } from "@shared/seat-sessions";
 import { PortraitOverrideRepository } from "../portraits/repository";
@@ -924,19 +926,20 @@ const isoAt = (ms: number | undefined): string | undefined =>
 /**
  * `junto onboard`'s past sessions: every earlier session of this seat, newest
  * first, with where its notes and transcript live, and the latest notes
- * inline. Framed as history, never as work to resume. Absent when this
- * runtime keeps no seat sessions.
+ * inline. Framed as history, never as work to resume, with one exception:
+ * the handoff, the continuation note the previous session left for this one.
+ * Absent when this runtime keeps no seat sessions.
  */
 const pastSessionsOf = (node: CanvasNode, pastNotes: number) =>
   Effect.gen(function* () {
     const store = yield* Effect.serviceOption(SeatSessionRepository);
     if (Option.isNone(store)) return undefined;
     const current = currentSeatSession(node);
-    const sessions = yield* listSeatSessions(node.id, current?.cwd).pipe(
+    const recorded = yield* listSeatSessions(node.id, current?.cwd).pipe(
       Effect.provideService(SeatSessionRepository, store.value),
     );
-    const mine = sessions.find((session) => session.sessionId === current?.sessionId);
-    const past = sessions.filter((session) => session !== mine);
+    const mine = recorded.find((session) => session.sessionId === current?.sessionId);
+    const past = recorded.filter((session) => session !== mine);
     let inline = 0;
     const listed = past.slice(0, ONBOARD_PAST_SESSIONS_MAX).map((session) => {
       const offboarded = session.offboardedAt !== undefined;
@@ -953,7 +956,21 @@ const pastSessionsOf = (node: CanvasNode, pastNotes: number) =>
         ...(notes === undefined ? {} : { notes }),
       };
     });
-    return {
+    // The one exception to history: a continuation the session just before
+    // this one left for it. Only the next session gets it, and only here.
+    const previous = past[0];
+    const continuation =
+      previous?.endReason === "offboard" ? readNotesFile(continuationPathOf(previous.notesPath), SEAT_SESSION_CONTINUATION_MAX_CHARS) : undefined;
+    const handoff =
+      previous !== undefined && continuation
+        ? {
+            note: CONTINUATION_FRAMING,
+            from_session: previous.sessionId,
+            left_at: isoAt(previous.offboardedAt ?? previous.endedAt),
+            continuation,
+          }
+        : undefined;
+    const sessions = {
       note: PAST_SESSIONS_FRAMING,
       current: current
         ? {
@@ -967,6 +984,7 @@ const pastSessionsOf = (node: CanvasNode, pastNotes: number) =>
       past: listed,
       ...(past.length > listed.length ? { older_not_listed: past.length - listed.length } : {}),
     };
+    return { sessions, ...(handoff ? { handoff } : {}) };
   });
 
 const dispatchOp = (
@@ -1082,7 +1100,7 @@ const dispatchOp = (
       if (Result.isFailure(decodedOnboard)) return yield* Effect.fail(decodedOnboard.failure);
       const self = findNode(board, caller.nodeId)!;
       const seat = yield* seatConfigurationOf(self);
-      const sessions = yield* pastSessionsOf(self, decodedOnboard.success.past_notes ?? ONBOARD_PAST_NOTES_DEFAULT);
+      const history = yield* pastSessionsOf(self, decodedOnboard.success.past_notes ?? ONBOARD_PAST_NOTES_DEFAULT);
       const region = containingRegion(board, caller.nodeId);
       const connected = connectedCapabilities(board, caller.nodeId);
       const overseer = isManagedAgentNode(self) && self.ether.overseer === true;
@@ -1090,6 +1108,9 @@ const dispatchOp = (
         ? [PREAMBLE_TOOL, ...SIGNAL_TOOLS, OVERSEER_TOOL]
         : [PREAMBLE_TOOL, ...SIGNAL_TOOLS];
       return {
+        // First, so it is read first: the note the previous session left
+        // for this one, when it continued rather than rested.
+        ...(history?.handoff ? { handoff: history.handoff } : {}),
         nodeRef: formatNodeRef({
           canvasName: caller.canvasName,
           nodeId: caller.nodeId,
@@ -1102,7 +1123,7 @@ const dispatchOp = (
         ...(seat ? { seat } : {}),
         // This seat's earlier sessions: history for continuity, with the
         // latest offboard notes inline and paths to open for the rest.
-        ...(sessions ? { sessions } : {}),
+        ...(history ? { sessions: history.sessions } : {}),
         // Additive: derived factory role of the process-bound seat.
         role: factoryRoleOfNode(self),
         tools,
@@ -1160,6 +1181,26 @@ const dispatchOp = (
           details: { path: "args.notes", retryable: false, hint: "keep what the next session needs; link files instead of pasting them" },
         });
       }
+      const continuation = decoded.success.continuation?.trim();
+      if (continuation !== undefined && !gistOfNotes(continuation)) {
+        return yield* Effect.fail<WorkErrorBody>({
+          type: "InputError",
+          message: "the continuation must tell the next session what to pick up and why",
+          details: {
+            path: "args.continuation",
+            retryable: false,
+            hint: "or leave out --continue to close this session and let the seat rest",
+          },
+        });
+      }
+      if (continuation !== undefined && continuation.length > SEAT_SESSION_CONTINUATION_MAX_CHARS) {
+        return yield* Effect.fail<WorkErrorBody>({
+          type: "InputError",
+          message: `the continuation must be at most ${SEAT_SESSION_CONTINUATION_MAX_CHARS} characters`,
+          details: { path: "args.continuation", retryable: false, hint: "say what to pick up and why; the notes carry the rest" },
+        });
+      }
+      const mode = continuation === undefined ? "rest" : "continue";
       const store = yield* Effect.serviceOption(SeatSessionRepository);
       if (Option.isNone(store)) {
         return yield* Effect.fail<WorkErrorBody>({
@@ -1183,7 +1224,7 @@ const dispatchOp = (
           },
         });
       }
-      const session = yield* store.value.offboard({ ...current, notes, gist }).pipe(
+      const session = yield* store.value.offboard({ ...current, notes, gist, ...(continuation ? { continuation } : {}) }).pipe(
         Effect.mapError((error): WorkErrorBody => ({
           type: "InternalError",
           message: error.message,
@@ -1195,13 +1236,19 @@ const dispatchOp = (
         canvasName: caller.canvasName,
         sessionId: session.sessionId,
         at: session.offboardedAt ?? Date.now(),
+        mode,
       });
       return {
         session_id: session.sessionId,
         gist: session.gist ?? gist,
         notes_path: session.notesPath,
+        mode,
+        ...(continuation ? { continuation_path: continuationPathOf(session.notesPath) } : {}),
         disposition: "applied" as const,
-        next_step: "your notes are saved; keep working, and offboard again before the session ends if more happens",
+        next_step:
+          mode === "continue"
+            ? "your notes and continuation are saved; finish this turn and stop. When you go idle Junto starts a fresh session of this seat, and it reads your continuation first"
+            : "your notes are saved; finish this turn and stop. When you go idle Junto closes this session and the seat rests until its next wake. Running offboard again before then replaces the notes",
       };
     }
 

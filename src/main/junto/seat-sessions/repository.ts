@@ -6,7 +6,13 @@ import {
   type SeatSessionEndReason,
 } from "@shared/seat-sessions";
 import { StateEngine, type StateEngineError, type StateRow, type StateWriter } from "../state/service";
-import { defaultSeatsRoot, seatSessionNotesPath, writeNotesFile } from "./notes-file";
+import {
+  continuationPathOf,
+  defaultSeatsRoot,
+  removeNotesFile,
+  seatSessionNotesPath,
+  writeNotesFile,
+} from "./notes-file";
 
 export class SeatSessionPersistenceError extends Schema.TaggedError<SeatSessionPersistenceError>()(
   "SeatSessionPersistenceError",
@@ -40,6 +46,11 @@ export type SeatSessionRecordOutcome = {
 export type SeatSessionOffboard = SeatSessionObservation & {
   readonly notes: string;
   readonly gist?: string;
+  /**
+   * The note for the next session when this one continues. Absent means the
+   * session rests, and any continuation an earlier offboard left is removed.
+   */
+  readonly continuation?: string;
 };
 
 /**
@@ -67,7 +78,7 @@ export class SeatSessionRepository extends Context.Service<SeatSessionRepository
     ) => Effect.Effect<string | undefined, SeatSessionPersistenceError>;
     /** The seat's sessions, newest first. */
     readonly list: (seatId: string) => Effect.Effect<ReadonlyArray<SeatSession>, SeatSessionPersistenceError>;
-    /** Write the session's notes file, then record it as offboarded. */
+    /** Write the session's notes (and continuation) files, then record it as offboarded. */
     readonly offboard: (input: SeatSessionOffboard) => Effect.Effect<SeatSession, SeatSessionPersistenceError>;
     /** Remember where the harness keeps a session once it is found. */
     readonly noteTranscript: (
@@ -201,7 +212,12 @@ export const makeSeatSessionRepositoryLive = (
         Effect.gen(function* () {
           const path = notesPathFor(input.seatId, input.sessionId);
           yield* Effect.try({
-            try: () => writeNotesFile(path, input.notes),
+            try: () => {
+              writeNotesFile(path, input.notes);
+              // The latest offboard decides: a plain one withdraws a handoff.
+              if (input.continuation === undefined) removeNotesFile(continuationPathOf(path));
+              else writeNotesFile(continuationPathOf(path), input.continuation);
+            },
             catch: (cause) =>
               SeatSessionPersistenceError.make({
                 operation: "offboard.notes",

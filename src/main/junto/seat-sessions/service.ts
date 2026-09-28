@@ -4,7 +4,7 @@
  * on disk, and the offboard event the token-pressure clock listens for.
  */
 import { Effect } from "effect";
-import type { SeatSession } from "@shared/seat-sessions";
+import type { OffboardMode, SeatSession } from "@shared/seat-sessions";
 import type { CanvasChangeDetail } from "../canvases";
 import { CanvasesService } from "../canvases";
 import { harnessSessionLocation } from "../term/session-existence";
@@ -91,13 +91,16 @@ export type SeatOffboardEvent = {
   readonly canvasName: string;
   readonly sessionId: string;
   readonly at: number;
+  /** rest: close the session and let the seat rest. continue: start the next one. */
+  readonly mode: OffboardMode;
 };
 
 const offboardListeners = new Set<(event: SeatOffboardEvent) => void>();
 
 /**
- * Called whenever a seat's agent runs `junto offboard`. Offboarding never
- * rotates the seat by itself; a listener (the token-pressure clock) decides.
+ * Called whenever a seat's agent runs `junto offboard`. The write never
+ * touches the running session; a listener (the offboard closer) closes it
+ * once the agent is idle, in the mode the agent chose.
  */
 export const subscribeSeatOffboard = (listener: (event: SeatOffboardEvent) => void): (() => void) => {
   offboardListeners.add(listener);
