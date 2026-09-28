@@ -125,6 +125,7 @@ describe("customize agent editor", { timeout: 30_000 }, () => {
       "soul",
       "instructions",
       "launch",
+      "context",
     ]);
     expect(opened.querySelector('[role="tabpanel"]')?.getAttribute("data-section")).toBe("look");
     for (const label of ["color", "body", "ears and toppers", "hats and props", "eyes", "brows", "mouth", "pattern", "accent"]) {
