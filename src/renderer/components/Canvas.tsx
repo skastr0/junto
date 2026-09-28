@@ -17,7 +17,7 @@ import type { Connection, EdgeMouseHandler, FinalConnectionState, Node, OnNodeDr
 import { use$ } from "@legendapp/state/react";
 import type { CanvasDoc, EtherEdgeKind } from "@shared/canvas";
 import { executionGraphContextFromActorRefs } from "@shared/graph";
-import { Activity, BookmarkPlus, Boxes, Expand, LayoutGrid, Link2, OctagonX, Pencil, Plus, ScanLine, ScrollText, SquareDashed, Trash2, Unlink, UserRoundPen, Users, X } from "lucide-react";
+import { Activity, BookmarkPlus, Boxes, Expand, LayoutGrid, Link2, MessageSquare, OctagonX, Pencil, Plus, ScanLine, ScrollText, SquareDashed, Trash2, Unlink, UserRoundPen, Users, X } from "lucide-react";
 import {
   clearSelection,
   replaceSelection,
@@ -54,6 +54,8 @@ import { addEdge, connectAllToTarget, connectAllowed, connectMesh, deleteEdges, 
 import { agentCountLabel, agentSeatIds, isAgentSeatNode } from "../lib/multi-selection";
 import { openAgentEditor } from "../lib/agent-editor-state";
 import { broadcastMenuHint, broadcastToSelection, planAgentBroadcast } from "../lib/agent-broadcast";
+import { planSeatMessage } from "../lib/seat-message";
+import { SeatMessageForm } from "./nodes/SeatMessage";
 import { AGENT_BROADCAST_PROMPTS, type AgentBroadcastKind } from "@shared/agent-broadcast-prompts";
 import { placeAtPoint, placeBesideRect, type ScreenRect } from "../lib/menu-placement";
 import { dragHoldMemberIds, findOpenPosition, syncPositions } from "../lib/geometry";
@@ -986,6 +988,10 @@ function MultiSelectMenu({ anchor, onClose }: { readonly anchor: MultiMenuAnchor
     if (selectionKey !== openedWith.current) onClose();
   }, [selectionKey, onClose]);
 
+  // "message" turns the menu into a composer in place: same spot, same
+  // selection, and the selection changing still closes it.
+  const [composing, setComposing] = useState(false);
+
   const hostRef = useRef<HTMLDivElement>(null);
   const [position, setPosition] = useState<{ readonly x: number; readonly y: number } | null>(null);
   useLayoutEffect(() => {
@@ -994,7 +1000,7 @@ function MultiSelectMenu({ anchor, onClose }: { readonly anchor: MultiMenuAnchor
     const size = { width: host.offsetWidth, height: host.offsetHeight };
     const viewport = { width: window.innerWidth, height: window.innerHeight };
     setPosition(anchor.kind === "rect" ? placeBesideRect(anchor.rect, size, viewport) : placeAtPoint(anchor, size, viewport));
-  }, [anchor]);
+  }, [anchor, composing]);
 
   const doc = state$.doc.peek();
   const selectedIds = new Set(selectionKey.split(" ").filter(Boolean));
@@ -1004,6 +1010,7 @@ function MultiSelectMenu({ anchor, onClose }: { readonly anchor: MultiMenuAnchor
   const meshAdds = planConnectMesh(agentIds, doc.nodes, doc.edges).toAdd.length;
   const innerEdges = edgeIdsWithin(agentIds, doc.edges).length;
   const broadcast = planAgentBroadcast(doc.nodes.filter((node) => agentIds.includes(node.id)));
+  const reachable = planSeatMessage(doc.nodes.filter((node) => agentIds.includes(node.id))).targets.length;
 
   const run = (mutate: (ids: ReadonlyArray<string>) => void) => {
     mutate(rf.getNodes().filter((node) => node.selected).map((node) => node.id));
@@ -1044,10 +1051,19 @@ function MultiSelectMenu({ anchor, onClose }: { readonly anchor: MultiMenuAnchor
     addNode(region, { edit: false, focus: false });
   };
 
-  // Agent actions, in menu order: connect, open, disconnect, stop, check.
+  // Agent actions, in menu order: message, connect, open, disconnect, stop, check.
   // Each owner fills its own slot; a null slot renders nothing. The whole
   // group is absent when the selection holds no agent seat.
   const agentActions: ReadonlyArray<MultiMenuEntry | null> = agentIds.length === 0 ? [] : [
+    {
+      key: "message",
+      label: "message",
+      detail: reachable === agentIds.length ? agents : `${reachable} of ${agents} can receive`,
+      ariaLabel: `Message ${agents}`,
+      icon: <MessageSquare size={14} />,
+      disabled: reachable === 0,
+      onSelect: () => setComposing(true),
+    },
     authoring ? {
       key: "connect",
       label: "connect",
@@ -1110,13 +1126,19 @@ function MultiSelectMenu({ anchor, onClose }: { readonly anchor: MultiMenuAnchor
       data-canvas-menu-surface
       style={{ position: "fixed", left: position?.x ?? 0, top: position?.y ?? 0, zIndex: 40, visibility: position ? "visible" : "hidden" }}
     >
-      <div className="canvas-action-menu" role="menu" aria-label={`Actions for ${nodes}`}>
-        {agentRows.map((entry) => <MultiMenuRow key={entry.key} entry={entry} />)}
-        {agentRows.length > 0 ? <hr className="canvas-action-menu__rule" /> : null}
-        <SaveToGroupPicker count={count} onPick={(slot) => run((ids) => saveSelectionToCommandGroup(ids, slot))} />
-        <hr className="canvas-action-menu__rule" />
-        {selectionActions.map((entry) => <MultiMenuRow key={entry.key} entry={entry} />)}
-      </div>
+      {composing ? (
+        <div className="seat-message-menu" role="dialog" aria-label={`Message ${agents}`}>
+          <SeatMessageForm nodeIds={agentIds} />
+        </div>
+      ) : (
+        <div className="canvas-action-menu" role="menu" aria-label={`Actions for ${nodes}`}>
+          {agentRows.map((entry) => <MultiMenuRow key={entry.key} entry={entry} />)}
+          {agentRows.length > 0 ? <hr className="canvas-action-menu__rule" /> : null}
+          <SaveToGroupPicker count={count} onPick={(slot) => run((ids) => saveSelectionToCommandGroup(ids, slot))} />
+          <hr className="canvas-action-menu__rule" />
+          {selectionActions.map((entry) => <MultiMenuRow key={entry.key} entry={entry} />)}
+        </div>
+      )}
     </div>
   );
 }

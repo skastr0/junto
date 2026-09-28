@@ -56,6 +56,7 @@ import {
   seatCollaborationUi$,
 } from "../../lib/seat-collaboration";
 import { TerminalToolbarActions } from "../terminal/TerminalToolbarActions";
+import { SeatMessageToolbarAction } from "./SeatMessage";
 import { CustomizeAgentToolbarAction } from "../agent-editor/AgentEditor";
 import { AgentChatToolbarActions } from "../chat/AgentChatToolbarActions";
 import { FirstLineRenameInput } from "./FirstLineRenameInput";
@@ -576,6 +577,7 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
         managedTerminal ? (
           <>
             {isAgent ? <CustomizeAgentToolbarAction seatId={node.id} /> : null}
+            {isAgent ? <SeatMessageToolbarAction node={node} /> : null}
             <TerminalToolbarActions node={node} />
           </>
         ) : isAgent ? (
