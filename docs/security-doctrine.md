@@ -624,11 +624,21 @@ signals:
   only the notes of the session its own node names (or that its harness's own
   files prove). A seat id or session id in the payload is refused;
 - notes are a markdown file under `~/.junto/seats/<seat>/sessions/` and a
-  `seat_sessions` row in `junto.db`. Offboard confers no reach, wakes no seat,
-  and authors nothing on the canvas;
-- offboard never rotates a seat. Rotation onto a fresh session is Junto's own
-  act (the token-pressure clock), under the ordinary wake rules: this
-  installation's seat only, on a playing canvas;
+  `seat_sessions` row in `junto.db`; a continuation (`--continue`) is a second
+  file beside them. Offboard confers no reach, wakes no other seat, and
+  authors nothing on the canvas;
+- offboard closes only the caller's own session, and only once the seat is
+  idle between turns. Closing is Junto's own act (the offboard closer): the
+  session ends, the seat gets a fresh session id, and its process stops.
+  Plain offboard leaves the seat resting; `--continue` wakes it under the
+  ordinary wake rules (this installation's seat only, on a playing canvas)
+  and mails the fresh session its kickoff. The token-pressure clock never
+  closes a seat the closer owns;
+- the continuation is the one past-session record onboard presents as work:
+  only the session right after the one that continued sees it, as `handoff`;
+- the operator's Offboard buttons send the agent the offboard prompt as
+  operator mail on the ordinary delivery path. They never write notes: the
+  notes are always the agent's own;
 - the renderer asks for a seat's history by seat and session id; main opens
   only the paths recorded for that row, never a path it is handed.
 

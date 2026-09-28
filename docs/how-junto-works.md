@@ -14,11 +14,20 @@ Supported: Claude Code, Codex, Grok, Pi, Devin, Cursor Agent, Antigravity, fx, P
 
 ## Sessions
 
-Every session a seat runs is recorded in its history: which harness, which session id, where the harness keeps its transcript, and when it started and ended. Before a session ends, or whenever it finishes a stretch of work, the agent runs `junto offboard` with notes on what happened, what is relevant, and why it matters. Junto saves them as `~/.junto/seats/<seat>/sessions/<session>.md`. A seat can only write notes for its own current session.
+Every session a seat runs is recorded in its history: which harness, which session id, where the harness keeps its transcript, and when it started and ended. The agent ends a session with `junto offboard` and notes on what happened, what is relevant, and why it matters. Junto saves them as `~/.junto/seats/<seat>/sessions/<session>.md`. A seat can only write notes for its own current session.
+
+The agent chooses its stopping point, and one of two modes:
+
+- **Offboard** (`junto offboard "<notes>"`), at a stopping point. Once the agent goes idle, Junto closes the session and the seat rests. Its next wake starts a fresh session that onboards with the notes.
+- **Offboard and continue** (`junto offboard "<notes>" --continue "<note>"`), mid-work. The continuation is a note for the next session: what to pick up and why. Once the agent goes idle, Junto starts a fresh session right away and mails it a kickoff. Its onboard leads with the note as a `handoff`, left for it by its previous session, and it carries on.
 
 When the next session runs `junto onboard`, it gets the seat's past sessions, newest first. The latest five notes are included in full (`--past-notes` changes the count), and each older session comes with the paths to its notes and transcript. Onboard marks them as past sessions: context for continuity, not work to resume unless the agent's current instructions or mail ask for it. To look further back, the agent opens those files itself.
 
-When a seat's context passes its limit, Junto asks the agent to offboard. Once it has, or once the grace period runs out, Junto rotates the seat onto a fresh session, which onboards with the notes. The seat's Sessions tab in Customize lists every session with its summary, its notes, and a way to reveal its transcript.
+The continuation is the one exception to past sessions being context: only the session right after the one that continued sees it, and it is meant to be picked up.
+
+When a seat's context passes its limit, Junto asks the agent to offboard: with `--continue` if it is mid-work, plain if it is at a stopping point. If it does neither before the grace period runs out, Junto rotates the seat onto a fresh session, which onboards with whatever notes exist.
+
+The seat's Sessions tab in Customize lists every session with its summary, its notes, and a way to reveal its transcript. Its **Offboard** and **Offboard and continue** buttons send the agent the offboard prompt for that mode, delivered between turns like any mail, and the tab shows the progress: asked, notes saved, then the session closed or the new session started. The notes are always the agent's own.
 
 ## Lines and access
 
@@ -32,7 +41,8 @@ The `junto` CLI talks to the app over a local socket, `~/.junto/work/control.soc
 | --- | --- |
 | `junto capabilities` | this seat's lines, grants, and the harnesses on this machine |
 | `junto onboard` | seat orientation: node, edges, co-members, and this seat's past sessions |
-| `junto offboard "<notes>"` | save notes on this session for the seat's next one |
+| `junto offboard "<notes>"` | end this session with notes; the seat rests until its next wake |
+| `junto offboard "<notes>" --continue "<note>"` | end this session with notes and a note for a fresh session that starts right away |
 | `junto msg send '{"target":"<seat>","text":"…"}'` | mail a connected seat; a short line lands in its input |
 | `junto msg send --prompt '{"target":"<seat>","text":"…"}'` | mail a connected seat; the full text lands in its input |
 | `junto msg list` | read this seat's inbox (marks listed mail read) |
