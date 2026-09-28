@@ -105,10 +105,12 @@ test("regions shed detail by tier, and the overview carries the board", async ({
         return {
           membersPainted: members.filter((n) => getComputedStyle(n).visibility === "visible").length,
           members: members.length,
+          nested: nested.length,
           nestedFilled: nested.filter((n) => getComputedStyle(n).backgroundImage !== "none" || getComputedStyle(n).backgroundColor !== "rgba(0, 0, 0, 0)").length,
           gradients: [...document.querySelectorAll(".junto-group")].filter((n) => getComputedStyle(n).backgroundImage !== "none").length,
           talliesShown: tallies.filter((n) => getComputedStyle(n).display !== "none").length,
-          stateRings: [...document.querySelectorAll('.junto-group[data-region-depth="0"]')].filter((n) => getComputedStyle(n).outlineStyle === "solid").length,
+          // Every region wears a frame when zoomed out; a state ring is the heavier one.
+          stateRings: [...document.querySelectorAll('.junto-group[data-region-depth="0"]')].filter((n) => getComputedStyle(n).outlineWidth === "12px").length,
           depths: [...document.querySelectorAll(".junto-group")].reduce<Record<string, number>>((acc, n) => {
             const key = `${n.getAttribute("data-region-depth") ?? "?"}:${n.getAttribute("data-region-severity") ?? "-"}`;
             acc[key] = (acc[key] ?? 0) + 1;
@@ -130,7 +132,8 @@ test("regions shed detail by tier, and the overview carries the board", async ({
         // ...but only the near tier pays for gradients.
         expect(probe.gradients).toBe(0);
       }
-      if (tier === "far" || tier === "overview") expect(probe.nestedFilled).toBe(0);
+      // Zoomed out, every region is a wash in its colour, nested ones included.
+      if (tier === "far" || tier === "overview") expect(probe.nestedFilled).toBe(probe.nested);
       if (tier === "overview") {
         expect(probe.membersPainted).toBe(0);
         expect(probe.talliesShown).toBeGreaterThan(0);

@@ -175,7 +175,7 @@ test("region names appear as the camera pulls back and vanish up close", async (
   expect(await glanceOpacity(page)).toBe(0);
 });
 
-test("nested regions name themselves one band closer in, never with their parent", async ({
+test("nested regions name themselves one band closer in, never over their parent's name", async ({
   junto,
 }) => {
   const { page } = junto;
@@ -204,10 +204,23 @@ test("nested regions name themselves one band closer in, never with their parent
   for (let step = 0; step < 44; step += 1) {
     await pinch(page, STEP_DELTA, 1);
     const bands = await glanceBands(page);
-    // The claim under test: at no camera height do both names print.
-    expect(bands.outer > 0 && bands.nested > 0, `both bands lit at step ${String(step)}`).toBe(
-      false,
-    );
+    // The claim under test: at no camera height does a nested name print
+    // over its parent's. Both may be lit; each sits in its own clear ground.
+    if (bands.outer > 0 && bands.nested > 0) {
+      const overlaps = await page.evaluate(() => {
+        const ink = (id: string): DOMRect => {
+          const range = document.createRange();
+          range.selectNodeContents(document.querySelector(`[data-testid="region-glance-${id}"] .junto-region-glance__text`)!);
+          return range.getBoundingClientRect();
+        };
+        const parent = ink("r-floor");
+        return ["r-north", "r-south"].filter((id) => {
+          const child = ink(id);
+          return parent.left < child.right && child.left < parent.right && parent.top < child.bottom && child.top < parent.bottom;
+        });
+      });
+      expect(overlaps, `names overlapping at step ${String(step)}`).toEqual([]);
+    }
     if (bands.nested > 0) nestedSeen.push(bands.nested);
     if (bands.outer > 0) outerSeen.push(bands.outer);
     if (!nestedShot && bands.nested >= 1) {

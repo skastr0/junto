@@ -1,18 +1,18 @@
 // Region glance — readable canvas when the camera pulls back.
 //
-// Zoomed out, node cards collapse into colored rectangles and the small region
+// Zoomed out, node cards collapse into rings and blocks and the small region
 // label strip is unreadable, so the operator sees shapes with no names. Each
-// region prints its own name across its body as a large, quiet watermark, but
-// only inside the zoom band where that region is the useful unit of navigation:
+// region prints its own name across its body as a large watermark, once the
+// camera is far enough back that the title bar stops reading:
 //
 //   close in            cards are legible, no watermark at all
 //   pulled back a step  nested regions name themselves; the outer plate is
 //                       still large enough to read by its own label strip
-//   pulled back far     nested names fade out, outer regions ink in
+//   pulled back far     every region names itself, outer and nested
 //
-// The two bands are mutually exclusive by construction: the nested band falls
-// back to zero at exactly the zoom where the outer band leaves zero, so a nested
-// name never prints on top of its parent's name.
+// Names never overlap: each prints in the clear ground of its own region,
+// outside the regions nested in it (region-name-slot.ts), so a nested name and
+// its parent's can share the screen.
 //
 // Opacity is published as CSS custom properties on the ReactFlow root instead of
 // React state: zoom changes every animation frame during a wheel burst, and the
@@ -51,15 +51,15 @@ export const REGION_BAND: GlanceBand = {
 };
 
 /**
- * Nested regions: one band closer in, and gone by the time the outer band
- * starts. `fall` is GLANCE_START — the outer band's `rise` — which is what makes
- * the two mutually exclusive.
+ * Nested regions: one band closer in (a nested plate's title bar stops reading
+ * sooner), and inked from there all the way out. Its name sits clear of its
+ * parent's, so the two bands may overlap.
  */
 export const SUBREGION_BAND: GlanceBand = {
   rise: 1.05,
   peak: 0.86,
-  hold: 0.7,
-  fall: GLANCE_START,
+  hold: 0,
+  fall: 0,
 };
 
 /** Inherited custom property an outermost region body reads for its watermark. */
@@ -90,45 +90,6 @@ export const regionGlanceOpacity = (zoom: number): number => bandOpacity(REGION_
 
 /** Nested-region opacity for a camera zoom. */
 export const subregionGlanceOpacity = (zoom: number): number => bandOpacity(SUBREGION_BAND, zoom);
-
-/** Share of the region's height a single-line nameplate may occupy. */
-const HEIGHT_SHARE = 0.4;
-/** Share of the region's width the nameplate fits inside. */
-const WIDTH_SHARE = 0.86;
-/** Advance width of one uppercase condensed glyph, letter-spacing included. */
-const GLYPH_RATIO = 0.68;
-const MIN_PX = 22;
-const MAX_PX = 240;
-
-/**
- * A nested plate is smaller and sits inside a parent that still shows its own
- * chrome, so its name takes a narrower share of the box and is allowed to go
- * smaller before it stops shrinking.
- */
-const SUB_HEIGHT_SHARE = 0.3;
-const SUB_WIDTH_SHARE = 0.78;
-const SUB_MIN_PX = 13;
-
-/**
- * Flow-space font size for a region nameplate: the largest single line that fits
- * the plate's width and stays inside its height share. Sized from the region's
- * own box (not the viewport) so the name grows with the plate and shrinks with
- * long labels, and so zooming never re-measures anything.
- */
-export const regionGlanceFontSize = (
-  width: number,
-  height: number,
-  label: string,
-  nested = false,
-): number => {
-  const chars = Math.max(label.trim().length, 3);
-  const byWidth = (width * (nested ? SUB_WIDTH_SHARE : WIDTH_SHARE)) / (chars * GLYPH_RATIO);
-  const byHeight = height * (nested ? SUB_HEIGHT_SHARE : HEIGHT_SHARE);
-  const floor = nested ? SUB_MIN_PX : MIN_PX;
-  const fit = Math.min(byWidth, byHeight);
-  if (!Number.isFinite(fit)) return floor;
-  return Math.round(Math.min(Math.max(fit, floor), MAX_PX));
-};
 
 const writeVar = (host: HTMLElement, name: string, value: number): boolean => {
   const text = value === 0 ? "0" : value.toFixed(2);

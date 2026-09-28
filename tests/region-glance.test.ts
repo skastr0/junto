@@ -5,44 +5,12 @@ import {
   GLANCE_SUB_VAR,
   GLANCE_VAR,
   publishRegionGlance,
-  regionGlanceFontSize,
   regionGlanceOpacity,
   regionTallyParts,
   SUBREGION_BAND,
   subregionGlanceOpacity,
   type RegionTally,
 } from "../src/renderer/lib/region-glance";
-
-describe("regionGlanceFontSize", () => {
-  it("fits the label inside the plate width", () => {
-    const label = "Build floor";
-    const size = regionGlanceFontSize(900, 560, label);
-    expect(size * label.length * 0.68).toBeLessThanOrEqual(900);
-    expect(size).toBeGreaterThan(60);
-  });
-
-  it("shrinks for long labels and grows for short ones", () => {
-    const long = regionGlanceFontSize(900, 560, "Continuous integration and release");
-    const short = regionGlanceFontSize(900, 560, "Ship");
-    expect(long).toBeLessThan(short);
-  });
-
-  it("never outgrows the plate height", () => {
-    expect(regionGlanceFontSize(4000, 200, "Ops")).toBeLessThanOrEqual(200 * 0.4);
-  });
-
-  it("keeps a floor for tiny plates", () => {
-    expect(regionGlanceFontSize(40, 30, "Ops")).toBe(22);
-  });
-
-  it("sizes a nested plate smaller than the same box at top level", () => {
-    expect(regionGlanceFontSize(900, 560, "Build floor", true)).toBeLessThan(
-      regionGlanceFontSize(900, 560, "Build floor"),
-    );
-    // ...and goes below the outer floor, because a nested plate is a small box.
-    expect(regionGlanceFontSize(90, 60, "Ops", true)).toBeLessThan(22);
-  });
-});
 
 describe("subregionGlanceOpacity", () => {
   it("stays silent while cards inside the nested plate are readable", () => {
@@ -56,19 +24,13 @@ describe("subregionGlanceOpacity", () => {
     expect(subregionGlanceOpacity(SUBREGION_BAND.hold)).toBe(1);
   });
 
-  it("fades back out before the outer band arrives", () => {
-    const fading = subregionGlanceOpacity(0.66);
-    expect(fading).toBeGreaterThan(0);
-    expect(fading).toBeLessThan(1);
-    expect(subregionGlanceOpacity(GLANCE_START)).toBe(0);
-    expect(subregionGlanceOpacity(0.4)).toBe(0);
-  });
-
-  it("never prints at the same zoom as the outer band", () => {
-    for (let zoom = 0.05; zoom <= 1.5; zoom += 0.01) {
-      const both = regionGlanceOpacity(zoom) > 0 && subregionGlanceOpacity(zoom) > 0;
-      expect(both, `zoom ${zoom.toFixed(2)}`).toBe(false);
-    }
+  it("stays inked all the way out, alongside the outer band", () => {
+    // Names sit in clear ground (region-name-slot.ts), so a nested name and
+    // its parent's may print together.
+    expect(subregionGlanceOpacity(GLANCE_START)).toBe(1);
+    expect(subregionGlanceOpacity(0.26)).toBe(1);
+    expect(subregionGlanceOpacity(0.1)).toBe(1);
+    expect(regionGlanceOpacity(0.26)).toBe(1);
   });
 
   it("treats a missing zoom as readable", () => {
@@ -127,7 +89,7 @@ describe("publishRegionGlance", () => {
     expect(el.style.getPropertyValue(GLANCE_VAR)).toBe("0");
     // Moving inside the nested band alone still counts as a change.
     expect(publishRegionGlance(el, 0.2)).toBe(true);
-    expect(el.style.getPropertyValue(GLANCE_SUB_VAR)).toBe("0");
+    expect(el.style.getPropertyValue(GLANCE_SUB_VAR)).toBe("1.00");
     expect(el.style.getPropertyValue(GLANCE_VAR)).toBe("1.00");
   });
 

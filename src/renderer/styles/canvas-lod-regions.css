@@ -9,10 +9,12 @@
    - near: everything.
    - mid: one flat wash per region instead of a gradient; wire labels and
      pulses go (unreadable, and motion stops below near).
-   - far: a nested region is its outline only, so a stack of regions is one
-     fill; title bars keep their grab target but print nothing (12px names
-     are under 4px here, the watermark names the region instead); wires
-     step back to 40%.
+   - far: every region, nested ones included, is a wash and a frame in its
+     own colour (an uncoloured region wears the ink), so nesting reads as
+     deepening colour. Title bars keep their grab target but print nothing
+     (12px names are under 4px here); every named region prints its name in
+     large capitals in the clear ground of its body instead
+     (region-name-slot.ts), in its colour. Wires step back to 40%.
    - overview: regions carry the board. Members and wires are not painted;
      an outermost region takes its worst member state as a ring and a wash,
      and prints a tally under its name. Regions three levels in go.
@@ -31,12 +33,48 @@ html:is([data-canvas-tier="mid"], [data-canvas-tier="far"], [data-canvas-tier="o
   visibility: hidden;
 }
 
-/* --- far and below: one fill per stack, silent title bars ------------ */
+/* --- mid and below: a frame that still reads ------------------------- */
 
-html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .junto-group:not([data-region-depth="0"]) {
-  background: transparent;
+/* The 1px border is under half a pixel once the camera pulls back. Frames
+   are drawn in canvas units: 3 units reads as 1 to 2px across mid, 6 units
+   as 1.2 to 2px across far, 10 units as 1.5 to 2px at the overview. */
+html[data-canvas-tier="mid"] .react-flow__viewport .junto-group {
+  outline: 3px solid color-mix(in oklab, var(--region-tint) 40%, transparent);
+  outline-offset: -3px;
 }
-/* Wires step back behind the discs: they still say who talks to whom, but a
+
+/* --- far and below: colour, frames and names ------------------------- */
+
+html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .junto-group {
+  background: color-mix(in oklab, var(--region-tint) 8%, transparent);
+  outline: 6px solid color-mix(in oklab, var(--region-tint) 62%, transparent);
+  outline-offset: -6px;
+}
+/* Nested washes are lighter, so five levels deepen the colour without
+   burying it. */
+html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .junto-group[data-region-colored]:not([data-region-depth="0"]) {
+  background: color-mix(in oklab, var(--region-tint) 5%, transparent);
+}
+html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .junto-group:not([data-region-colored]) {
+  background: color-mix(in oklab, var(--region-tint) 4%, transparent);
+  outline-color: color-mix(in oklab, var(--region-tint) 34%, transparent);
+}
+html[data-canvas-tier="overview"] .react-flow__viewport .junto-group {
+  outline-width: 10px;
+  outline-offset: -10px;
+}
+html:is([data-canvas-tier="mid"], [data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .react-flow__node.selected .junto-group {
+  outline-color: color-mix(in oklab, var(--color-amber) 80%, transparent);
+}
+/* The name is how the operator finds a region from here: full strength, in
+   the region's colour pulled toward the ink so it holds on its own wash. */
+html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .junto-region-glance__text {
+  color: color-mix(in oklab, var(--region-tint) 78%, var(--color-ink));
+}
+html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .junto-group:not([data-region-colored]) .junto-region-glance__text {
+  color: color-mix(in oklab, var(--color-ink) 62%, transparent);
+}
+/* Wires step back behind the seats: they still say who talks to whom, but a
    routed board of them otherwise reads as a grid laid over the regions. */
 html[data-canvas-tier="far"] .react-flow__viewport .react-flow__edge-path {
   stroke-opacity: 0.4;

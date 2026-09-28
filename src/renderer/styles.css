@@ -1261,20 +1261,21 @@ html[data-junto-platform="darwin"] .station-bar [role="listbox"] {
   pointer-events: none;
   opacity: var(--junto-region-glance, 0);
 }
-/* A region one level in rides its own band, which is zero wherever the outer
-   band is not — the two names never print at the same time. */
+/* A nested region rides its own band, inking a step closer in; its name sits
+   clear of its parent's (region-name-slot.ts), so both may print at once.
+   GroupNode places the glance on its name slot. */
 .junto-region-glance--nested {
   opacity: var(--junto-region-glance-sub, 0);
 }
 .junto-region-glance--nested .junto-region-glance__text {
-  color: color-mix(in oklab, var(--color-ink) 38%, transparent);
+  color: var(--region-name, color-mix(in oklab, var(--color-ink) 38%, transparent));
   letter-spacing: .14em;
 }
 /* The overview tier's member tally under a region's name (canvas-lod-regions.css shows it). */
 .junto-region-glance__tally { display: none; }
 .junto-region-glance__text {
   max-width: 100%;
-  color: color-mix(in oklab, var(--color-ink) 32%, transparent);
+  color: var(--region-name, color-mix(in oklab, var(--color-ink) 32%, transparent));
   font-family: "Arial Narrow", "Avenir Next Condensed", sans-serif;
   line-height: 1;
   letter-spacing: .1em;

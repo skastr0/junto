@@ -99,4 +99,25 @@ describe("region depth projection", () => {
     expect(projected?.data.regionDepth).toBe(1);
     expect(projected).not.toBe(before.nodes.find((n) => n.id === "sibling"));
   });
+
+  it("places a region's name clear of its nested regions and re-mints it when a card moves", () => {
+    const outer = region("outer", 0, 0, 1600, 1000);
+    const inner = region("inner", 40, 60, 700, 600);
+    const seat = card("c", 900, 60);
+    const cache = createFlowIdentityCache();
+    const before = toFlow({ nodes: [outer, inner, seat], edges: [] }, emptyContext, null, cache);
+    const slot = before.nodes.find((n) => n.id === "outer")?.data.nameSlot;
+    expect(slot).toBeDefined();
+    // Clear of the nested region, which starts at 40,60 and is 700 wide.
+    expect(slot!.x >= 740 || slot!.y >= 660).toBe(true);
+    expect(before.nodes.find((n) => n.id === "inner")?.data.nameSlot).toBeDefined();
+
+    const moved = { ...seat, x: 900, y: 700 };
+    const after = toFlow({ nodes: [outer, inner, moved], edges: [] }, emptyContext, null, cache);
+    const reprojected = after.nodes.find((n) => n.id === "outer");
+    expect(reprojected?.data.node).toBe(outer);
+    expect(reprojected).not.toBe(before.nodes.find((n) => n.id === "outer"));
+    // The untouched nested region keeps its identity.
+    expect(after.nodes.find((n) => n.id === "inner")).toBe(before.nodes.find((n) => n.id === "inner"));
+  });
 });

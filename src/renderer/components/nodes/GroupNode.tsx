@@ -10,7 +10,7 @@ import { claimFocus } from "../../lib/focus-ownership";
 import { dragHoldMemberIds, resizeNode, syncPositions } from "../../lib/geometry";
 import { state$ } from "../../lib/state";
 import { accentColor, borderColor, HUE, INK, withAlpha } from "../../lib/theme";
-import { regionGlanceFontSize, regionTallyParts } from "../../lib/region-glance";
+import { regionTallyParts } from "../../lib/region-glance";
 import { markViewportBusy, releaseViewportBusy } from "../../lib/viewport-busy";
 import {
   isMultiSelectGesture,
@@ -146,17 +146,16 @@ export function GroupNode({ data, selected }: NodeProps<FlowNode>) {
   // resizeNode) repaints it without this card watching the whole document.
   const nestingDepth = data.regionDepth ?? 0;
   const nestedTooDeep = nestingDepth > MAX_REGION_DEPTH;
-  // Zoomed-out watermark (see region-glance.ts). Two depths, two zoom bands:
-  // an outermost region names itself once cards die, a region one level in names
-  // itself a step earlier and is gone before its parent's name arrives. Past
-  // that the plates would stack names on top of each other and read as noise,
-  // so a third level stays silent. Opacity is inherited from the ReactFlow root,
-  // so this costs no render on zoom.
+  // Zoomed-out watermark (see region-glance.ts). Every named region prints its
+  // name in the clear ground of its own body (the slot convert.ts measured,
+  // region-name-slot.ts), so nested names and their parents' never overlap.
+  // A nested region inks a step closer in than an outermost one. Opacity is
+  // inherited from the ReactFlow root, so this costs no render on zoom.
   // An unnamed region has nothing to say at a distance — print nothing rather
   // than a placeholder the operator cannot navigate by.
-  const nestedGlance = nestingDepth === 1;
-  const glanceable = nestingDepth <= 1 && label.trim().length > 0;
-  const glanceSize = glanceable ? regionGlanceFontSize(node.width, node.height, label, nestedGlance) : 0;
+  const nestedGlance = nestingDepth >= 1;
+  const glanceable = label.trim().length > 0;
+  const slot = data.nameSlot;
   // Overview tier (canvas-lod-regions.css): members are not drawn, so an
   // outermost region carries their worst state and a tally under its name.
   // Rollups land after the camera rests (RtsBottomBar), never mid-gesture.
@@ -302,6 +301,7 @@ export function GroupNode({ data, selected }: NodeProps<FlowNode>) {
     className="junto-group relative h-full w-full rounded-[14px]"
     data-region-depth={Math.min(nestingDepth, 3)}
     data-region-severity={severity}
+    data-region-colored={node.color ? "" : undefined}
     style={{
       border: `1px solid ${plateBorder}`,
       pointerEvents: "none",
@@ -311,6 +311,10 @@ export function GroupNode({ data, selected }: NodeProps<FlowNode>) {
       "--region-flat": node.color
         ? withAlpha(tint, 0.07)
         : "color-mix(in oklab, var(--color-raise) 16%, transparent)",
+      // The region's own colour for the zoomed-out tiers' fill, frame and
+      // name; an uncoloured region wears the ink.
+      "--region-tint": node.color ? tint : "var(--color-ink)",
+      ...(node.color ? { "--region-name": withAlpha(tint, 0.4) } : {}),
       boxShadow: selected ? `0 0 0 1px ${withAlpha(HUE.amber, 0.18)}` : "none",
     } as React.CSSProperties}
   >
@@ -319,15 +323,14 @@ export function GroupNode({ data, selected }: NodeProps<FlowNode>) {
         className={`junto-region-glance${nestedGlance ? " junto-region-glance--nested" : ""}`}
         data-testid={`region-glance-${node.id}`}
         aria-hidden
-        style={{ "--glance-size": `${String(glanceSize)}px` } as React.CSSProperties}
+        style={{
+          ...(slot
+            ? { left: slot.x, top: slot.y, width: slot.width, height: slot.height, right: "auto", bottom: "auto" }
+            : {}),
+          "--glance-size": `${String(slot?.fontSize ?? 0)}px`,
+        } as React.CSSProperties}
       >
-        <span
-          className="junto-region-glance__text"
-          style={{
-            fontSize: `${String(glanceSize)}px`,
-            ...(node.color ? { color: withAlpha(tint, 0.4) } : {}),
-          }}
-        >
+        <span className="junto-region-glance__text" style={{ fontSize: `${String(slot?.fontSize ?? 0)}px` }}>
           {label}
         </span>
         {tallyParts.length > 0 ? (

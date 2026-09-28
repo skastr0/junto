@@ -9,6 +9,7 @@ import type { ExecutionSnapshot } from "@shared/ipc";
 import { VERB_COLOR_TOKEN, type Verb } from "@shared/physics";
 import { regionStack } from "@shared/graph";
 import { renderedNodeSize } from "./node-geometry";
+import { regionNameSlot, sameNameSlot, type RegionNameSlot } from "./region-name-slot";
 import { isGitNode, isLabelNode, nodeTitle, searchText } from "./presentation";
 
 // Z bands. Groups render at GROUP_Z_BASE + nesting depth so a nested region
@@ -29,6 +30,11 @@ export type NodeData = {
    * document. Undefined for furniture.
    */
   regionDepth?: number;
+  /**
+   * Regions only: where the region prints its name when the camera pulls
+   * back, clear of the regions and cards inside it (region-name-slot.ts).
+   */
+  nameSlot?: RegionNameSlot;
 };
 
 /** Flow edge data — durable meaning stays on CanvasEdge; paint reads the verb. */
@@ -101,24 +107,73 @@ export const createFlowIdentityCache = (): FlowIdentityCache => ({
 const entityKind = (node: CanvasNode | undefined): string | undefined =>
   node?.ether?.entity?.kind;
 
+type RegionFacts = { readonly depth: number; readonly nameSlot: RegionNameSlot };
+
+const within = (outer: CanvasNode, inner: CanvasNode): boolean =>
+  outer.id !== inner.id &&
+  inner.x >= outer.x &&
+  inner.y >= outer.y &&
+  inner.x + inner.width <= outer.x + outer.width &&
+  inner.y + inner.height <= outer.y + outer.height;
+
+/** Name slots by region id, reused while the region's own inputs are unchanged. */
+const nameSlotMemo = new Map<string, { readonly key: string; readonly slot: RegionNameSlot }>();
+
+const rectKey = (rect: { readonly x: number; readonly y: number; readonly width: number; readonly height: number }): string =>
+  `${String(rect.x)},${String(rect.y)},${String(rect.width)},${String(rect.height)}`;
+
 /**
- * Nesting depth for every region, in one pass per projection.
+ * Nesting depth and name slot for every region, in one pass per projection.
  *
  * Only groups can contain, so regionStack over a groups-only document is the
  * identical stack at O(groups²) — the per-node call re-scanned every document
  * node for every region, on every structural rebuild including quiet kernel
- * ticks.
+ * ticks. The innermost region of a stack is the direct parent; a card's
+ * parent is the smallest region holding it. A region's name slot
+ * (region-name-slot.ts) avoids its direct children and the cards directly in
+ * it, drawn at the size they render at.
  */
-const regionDepths = (doc: CanvasDoc): ReadonlyMap<string, number> => {
-  const groupsOnly: CanvasDoc = {
-    nodes: doc.nodes.filter((node) => node.type === "group"),
-    edges: [],
-  };
+const regionFacts = (doc: CanvasDoc): ReadonlyMap<string, RegionFacts> => {
+  const groups = doc.nodes.filter((node) => node.type === "group");
+  const groupsOnly: CanvasDoc = { nodes: groups, edges: [] };
   const depths = new Map<string, number>();
-  for (const group of groupsOnly.nodes) {
-    depths.set(group.id, regionStack(groupsOnly, group.id).length);
+  const children = new Map<string, CanvasNode[]>();
+  const members = new Map<string, { x: number; y: number; width: number; height: number }[]>();
+  for (const group of groups) {
+    const stack = regionStack(groupsOnly, group.id);
+    depths.set(group.id, stack.length);
+    const parent = stack[stack.length - 1];
+    if (parent !== undefined) children.set(parent.id, [...(children.get(parent.id) ?? []), group]);
   }
-  return depths;
+  for (const node of doc.nodes) {
+    if (node.type === "group") continue;
+    let parent: CanvasNode | undefined;
+    for (const group of groups) {
+      if (within(group, node) && (parent === undefined || group.width * group.height < parent.width * parent.height)) {
+        parent = group;
+      }
+    }
+    if (parent === undefined) continue;
+    const size = renderedNodeSize(entityKind(node), node);
+    const list = members.get(parent.id) ?? [];
+    list.push({ x: node.x, y: node.y, width: size.width, height: size.height });
+    members.set(parent.id, list);
+  }
+  const facts = new Map<string, RegionFacts>();
+  const live = new Set<string>();
+  for (const group of groups) {
+    const label = group.type === "group" ? (group.label ?? "") : "";
+    const kids = children.get(group.id) ?? [];
+    const cards = members.get(group.id) ?? [];
+    const key = [label, rectKey(group), ...kids.map(rectKey), "|", ...cards.map(rectKey)].join(";");
+    const memo = nameSlotMemo.get(group.id);
+    const slot = memo?.key === key ? memo.slot : regionNameSlot(group, kids, cards, label);
+    if (memo?.key !== key) nameSlotMemo.set(group.id, { key, slot });
+    live.add(group.id);
+    facts.set(group.id, { depth: depths.get(group.id) ?? 0, nameSlot: slot });
+  }
+  for (const id of nameSlotMemo.keys()) if (!live.has(id)) nameSlotMemo.delete(id);
+  return facts;
 };
 
 // CanvasDoc -> React Flow. Optional kernel execution overlay carries the
@@ -157,21 +212,25 @@ export const toFlow = (
     execution?.detailByEdgeId[edgeId] ?? getFallback().detailByEdgeId.get(edgeId) ?? "";
 
   const nextNodeIds = new Set<string>();
-  const depthByRegionId = regionDepths(doc);
+  const factsByRegionId = regionFacts(doc);
   const nodes: FlowNode[] = doc.nodes.map((node) => {
     nextNodeIds.add(node.id);
     const isBlocked = blocked.has(node.id);
     const isGroup = node.type === "group";
-    const regionDepth = isGroup ? (depthByRegionId.get(node.id) ?? 0) : undefined;
+    const facts = isGroup ? factsByRegionId.get(node.id) : undefined;
+    const regionDepth = isGroup ? (facts?.depth ?? 0) : undefined;
+    const nameSlot = facts?.nameSlot;
     const zIndex = isGroup ? GROUP_Z_BASE + (regionDepth ?? 0) : FURNITURE_Z;
     const cached = cache?.nodes.get(node.id);
-    // Depth is part of the key: resizing one region changes the nesting of
-    // regions whose own node object never moved.
+    // Depth and name slot are part of the key: resizing one region changes
+    // the nesting of regions whose own node object never moved, and moving a
+    // card moves the name of the region it sits in.
     if (
       cached &&
       cached.data?.node === node &&
       cached.data.blocked === isBlocked &&
       cached.data.regionDepth === regionDepth &&
+      sameNameSlot(cached.data.nameSlot, nameSlot) &&
       cached.zIndex === zIndex
     ) {
       return cached;
@@ -183,7 +242,7 @@ export const toFlow = (
       id: node.id,
       type: node.type,
       position: { x: node.x, y: node.y },
-      data: { node, blocked: isBlocked, regionDepth },
+      data: { node, blocked: isBlocked, regionDepth, ...(nameSlot ? { nameSlot } : {}) },
       style: visualSize,
       // Group band (base + nesting depth) behind wires; furniture above edges.
       zIndex,
