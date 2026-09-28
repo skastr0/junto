@@ -13,10 +13,7 @@ import type { Page } from "@playwright/test";
 import {
   agentTextNode,
   canvasDoc,
-  projectNode,
-  worksEdge,
-  tasksNode,
-  taskItem,
+  verbEdge,
 } from "../harness/sandbox";
 import { expect, launchJunto, test } from "../harness/launch";
 import type { CanvasEdge, CanvasNode, GroupNode } from "../../src/shared/canvas";
@@ -75,38 +72,12 @@ const nodes: CanvasNode[] = [
   noteNode,
   flaggedNote,
   attentionNote,
-  projectNode({ id: "proj1", name: "prism", x: 0, y: 400 }),
-  projectNode({ id: "proj2", name: "junto", x: 260, y: 400 }),
   agentTextNode({ id: "agent1", key: "local:default", label: "builder", x: 520, y: 400 }),
-  tasksNode({
-    id: "tasks1",
-    x: 0,
-    y: 560,
-    items: [
-      taskItem("t-1", "Ship browser containment probe", "submitted"),
-      taskItem("t-2", "Fix stale host badge", "submitted"),
-      taskItem("t-3", "Clarify claim tick rules", "input-required"),
-      taskItem("t-5", "Rotate service key material", "completed"),
-    ],
-  }),
+  agentTextNode({ id: "agent2", key: "local:reviewer", label: "reviewer", x: 520, y: 560 }),
 ];
 
 const edges: CanvasEdge[] = [
-  worksEdge("e1", "tasks1", "agent1"),
-  {
-    id: "e2",
-    fromNode: "proj1",
-    toNode: "proj2",
-    fromSide: "right",
-    toSide: "left",
-  },
-  {
-    id: "e3",
-    fromNode: "note2",
-    toNode: "proj2",
-    fromSide: "right",
-    toSide: "left",
-  },
+  verbEdge("e1", "agent1", "agent2", "messages", nodes),
 ];
 
 test("capture key surfaces in bright mode", async () => {
@@ -162,18 +133,7 @@ test("capture key surfaces in bright mode", async () => {
     await page.keyboard.press("Escape");
     await page.waitForTimeout(300);
 
-    // 4. Task board overlay (kanban work surface).
-    const tasksNodeCard = page.locator('.react-flow__node[data-id="tasks1"]');
-    await expect(tasksNodeCard).toBeVisible({ timeout: 15_000 });
-    await tasksNodeCard.getByTestId("tasks-card").dispatchEvent("dblclick");
-    const taskBoard = page.getByRole("dialog", { name: "Task board" });
-    await expect(taskBoard).toBeVisible({ timeout: 10_000 });
-    await expect(taskBoard.getByTestId("task-board")).toBeVisible();
-    await shot(page, "04-task-board-kanban");
-    await taskBoard.locator('button[title="Close"]').click();
-    await expect(taskBoard).toBeHidden();
-
-    // 5. Settings panel (Appearance with Bright active).
+    // 4. Settings panel (Appearance with Bright active).
     await page.getByRole("button", { name: "Open settings" }).click();
     await page.locator(".settings-nav__item", { hasText: "Appearance" }).click();
     await shot(page, "05-settings");

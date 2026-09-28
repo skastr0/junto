@@ -17,24 +17,17 @@ import type { LiveSnapshot } from "../../src/shared/overseer-live";
 import { IPC_CHANNELS } from "../../src/shared/ipc";
 import {
   agentTextNode,
-  artifactsNode,
   canvasDoc,
-  projectNode,
-  requestsNode,
-  worksEdge,
-  tasksNode,
   terminalTextNode,
   textNode,
-  taskItem,
+  verbEdge,
 } from "../harness/sandbox";
 import { expect, launchJunto, test } from "../harness/launch";
 import type {
-  Artifact,
   CanvasEdge,
   CanvasNode,
   GroupNode,
   LinkNode,
-  Task,
 } from "../../src/shared/canvas";
 
 const SHOTS = join(process.cwd(), "test-results", "design-audit");
@@ -204,20 +197,6 @@ const attentionNote: CanvasNode = {
   height: 90,
 };
 
-const boardNode: CanvasNode = {
-  id: "board1",
-  type: "text",
-  text: "factory bulletin",
-  x: 780,
-  y: 620,
-  width: 240,
-  height: 120,
-  ether: {
-    entity: { kind: "board" },
-    board: { topics: [] },
-  },
-};
-
 const linkNode: LinkNode = {
   id: "link1",
   type: "link",
@@ -255,49 +234,12 @@ const LAUNCH = {
   ],
 };
 
-const auditTask = (
-  id: string,
-  brief: string,
-  state: Task["state"],
-  claimedBy?: string,
-  update?: string,
-): Task => {
-  const task = taskItem(id, brief, state);
-  return {
-    ...task,
-    ...(claimedBy
-      ? {
-          metadata: {
-            details:
-              "Validate the task against the station capability boundary, preserve the operator’s declared intent, and return concrete proof with the result.",
-          },
-        }
-      : {}),
-    ...(update
-      ? {
-          history: [
-            ...task.history,
-            {
-              messageId: `${id}-m1`,
-              role: "agent" as const,
-              parts: [{ kind: "text" as const, text: update }],
-              taskId: id,
-              contextId: "e2e",
-            },
-          ],
-        }
-      : {}),
-  };
-};
-
 const nodes: CanvasNode[] = [
   regionNode,
   noteNode,
   flaggedNote,
   attentionNote,
   linkNode,
-  projectNode({ id: "proj1", name: "prism", x: 0, y: 460 }),
-  projectNode({ id: "proj2", name: "junto", x: 260, y: 460 }),
   agentTextNode({
     id: "agent1",
     key: "local:default",
@@ -305,138 +247,13 @@ const nodes: CanvasNode[] = [
     x: 520,
     y: 460,
   }),
-  tasksNode({
-    id: "tasks1",
-    x: 0,
-    y: 620,
-    items: [
-      auditTask("t-1", "Ship browser containment probe", "submitted"),
-      auditTask("t-2", "Fix stale host badge", "submitted"),
-      auditTask(
-        "t-3",
-        "Clarify claim tick rules",
-        "input-required",
-        "remote-a:profile-06",
-        "Which connected agent should take this next?",
-      ),
-      auditTask(
-        "t-4",
-        "Enable remote session capture",
-        "submitted",
-        undefined,
-        "Confirm scope before opening the remote capability.",
-      ),
-      auditTask(
-        "t-5",
-        "Rotate service key material",
-        "completed",
-        "remote-a:profile-06",
-      ),
-      auditTask(
-        "t-6",
-        "Reject unsafe host cleanup",
-        "rejected",
-        "remote-a:profile-06",
-        "The proposed operation exceeded the connected capability scope.",
-      ),
-    ],
-  }),
-  requestsNode({
-    id: "req1",
-    x: 260,
-    y: 620,
-    items: [
-      {
-        ...taskItem(
-          "r-1",
-          "Confirm release signing identity",
-          "input-required",
-        ),
-        metadata: {
-          title: "Confirm release signing identity",
-          details:
-            "Verify which signing identity should be used before the release artifact is distributed to remote stations.",
-        },
-        history: [
-          ...taskItem(
-            "r-1",
-            "Confirm release signing identity",
-            "input-required",
-          ).history,
-          {
-            messageId: "r-1-m1",
-            role: "agent",
-            parts: [
-              {
-                kind: "text",
-                text: "The distribution step is paused until the operator confirms the identity.",
-              },
-              {
-                kind: "url",
-                url: "https://example.com/release-signing-checklist",
-                mediaType: "text/html",
-              },
-            ],
-            taskId: "r-1",
-            contextId: "e2e",
-          },
-        ],
-      },
-      {
-        ...taskItem("r-2", "Choose retention window", "completed"),
-        metadata: {
-          title: "Choose retention window",
-          details:
-            "Select the duration for preserving completed task telemetry.",
-        },
-      },
-    ],
-  }),
-  artifactsNode({
-    id: "art1",
+  agentTextNode({
+    id: "agent2",
+    key: "local:reviewer",
+    label: "reviewer",
     x: 520,
     y: 620,
-    items: [
-      {
-        artifactId: "a-1",
-        name: "release-v1.4.2-sigstore.json",
-        task: {
-          kind: "task",
-          itemId: "t-3",
-          sink: { canvasName: "design-audit", nodeId: "tasks1" },
-        },
-        parts: [
-          {
-            kind: "text",
-            text: '{\n  "subject": "junto",\n  "verified": true,\n  "issuer": "sigstore"\n}',
-          },
-        ],
-        metadata: { mediaType: "application/json", proof: "verified" },
-      },
-      {
-        artifactId: "a-2",
-        name: "station-deployment-report",
-        parts: [
-          {
-            kind: "url",
-            url: "https://example.com/deployment-report",
-            mediaType: "text/html",
-          },
-        ],
-      },
-      {
-        artifactId: "a-3",
-        name: "containment-observations.txt",
-        parts: [
-          {
-            kind: "text",
-            text: "No capability escaped the connected task edge.",
-          },
-        ],
-      },
-    ] satisfies Artifact[],
   }),
-  boardNode,
   terminalTextNode({
     id: "term1",
     bindingId: "audit-term-binding",
@@ -448,24 +265,7 @@ const nodes: CanvasNode[] = [
 ];
 
 const edges: CanvasEdge[] = [
-  worksEdge("e1", "tasks1", "agent1"),
-  {
-    id: "e2",
-    fromNode: "proj1",
-    toNode: "proj2",
-    fromSide: "right",
-    toSide: "left",
-  },
-  {
-    id: "e3",
-    fromNode: "note2",
-    toNode: "proj2",
-    fromSide: "right",
-    toSide: "left",
-  },
-  { id: "e4", fromNode: "agent1", toNode: "req1" },
-  { id: "e5", fromNode: "agent1", toNode: "art1" },
-  { id: "e6", fromNode: "agent1", toNode: "board1" },
+  verbEdge("e1", "agent1", "agent2", "messages", nodes),
 ];
 
 test("capture every surface for design review", async () => {
@@ -514,10 +314,6 @@ test("capture every surface for design review", async () => {
   };
 
   const junto = await launchJunto({
-    // Seed before Electron owns the StateEngine. The harness splits work
-    // projections into WorkRepository rows; writing this fixture through the
-    // canvas API after startup would intentionally discard its task/request/
-    // artifact items as authored-document data.
     seedCanvases: { "design-audit": canvasDoc(nodes, edges) },
     seedUsage: auditUsage,
     extraEnv: {
@@ -547,7 +343,7 @@ test("capture every surface for design review", async () => {
     await page.locator(".station-command-trigger").click();
     await expect(page.getByTestId("command-bar-input")).toBeVisible();
     await shot(page, "01b-command-bar-open");
-    await page.getByTestId("command-bar-input").fill("task");
+    await page.getByTestId("command-bar-input").fill("builder");
     await shot(page, "01c-command-bar-filtered");
     await page.getByTestId("command-bar-input").fill(">");
     await shot(page, "01d-command-bar-actions");
@@ -563,91 +359,6 @@ test("capture every surface for design review", async () => {
     await closeup("Field notes", "02-node-note");
     await closeup("release checklist", "03-node-blocker");
     await closeup("audit native term", "05-node-terminal-card");
-
-    // The dock obscures the lower part of the canvas. Use the field's middle-
-    // button pan gesture to bring the task row above it before capturing.
-    const pane = page.locator(".react-flow__pane");
-    const paneBox = await pane.boundingBox();
-    if (!paneBox)
-      throw new Error("Canvas pane is unavailable for task-row capture");
-    const panX = paneBox.x + paneBox.width * 0.5;
-    const panStartY = paneBox.y + paneBox.height * 0.7;
-    await page.mouse.move(panX, panStartY);
-    await page.mouse.down({ button: "middle" });
-    await page.mouse.move(panX, paneBox.y + paneBox.height * 0.25, {
-      steps: 8,
-    });
-    await page.mouse.up({ button: "middle" });
-
-    const tasksNodeCard = page.locator('.react-flow__node[data-id="tasks1"]');
-    await expect(tasksNodeCard).toBeVisible({ timeout: 15_000 });
-    await tasksNodeCard.getByTestId("tasks-card").click({ trial: true });
-    await tasksNodeCard.screenshot({ path: join(SHOTS, "06-node-tasks.png") });
-
-    // Task board: attention + terminal variants. Double-click is the work-surface
-    // affordance on canvas nodes.
-    await tasksNodeCard.getByTestId("tasks-card").dispatchEvent("dblclick");
-    const taskBoard = page.getByRole("dialog", { name: "Task board" });
-    await expect(taskBoard).toBeVisible({ timeout: 10_000 });
-    await expect(taskBoard.getByTestId("task-board")).toBeVisible();
-    await expect(
-      taskBoard.getByText("Needs input", { exact: true }),
-    ).toBeVisible();
-    await shot(page, "06b-task-board-kanban");
-    await taskBoard
-      .getByLabel("Open details for Clarify claim tick rules")
-      .click();
-    await expect(
-      taskBoard.getByRole("complementary", {
-        name: "Details for Clarify claim tick rules",
-      }),
-    ).toBeVisible();
-    await shot(page, "06c-task-board-details");
-    await taskBoard.getByTestId("task-board-enqueue").click();
-    const taskCreator = page.getByRole("dialog", { name: "Create task" });
-    await expect(taskCreator).toBeVisible();
-    await shot(page, "06d-task-board-create");
-    await taskCreator
-      .getByRole("button", { name: "Close task creator" })
-      .click();
-    await expect(taskCreator).toBeHidden();
-    await taskBoard.getByRole("button", { name: "Close task board", exact: true }).click();
-    await expect(taskBoard).toBeHidden();
-
-    // Requests and artifacts reuse the same master-detail grammar.
-    const requestsNodeCard = page.locator('.react-flow__node[data-id="req1"]');
-    await requestsNodeCard
-      .getByTestId("requests-card")
-      .dispatchEvent("dblclick");
-    const requestInbox = page.getByRole("dialog", { name: "Input requests" });
-    await expect(requestInbox).toBeVisible();
-    await expect(
-      requestInbox
-        .getByText("Confirm release signing identity", { exact: true })
-        .first(),
-    ).toBeVisible();
-    await shot(page, "06e-input-requests");
-    await requestInbox.getByRole("button", { name: "Close input requests", exact: true }).click();
-    await expect(requestInbox).toBeHidden();
-
-    const artifactsNodeCard = page.locator('.react-flow__node[data-id="art1"]');
-    await artifactsNodeCard
-      .getByTestId("artifacts-card")
-      .dispatchEvent("dblclick");
-    const artifactLibrary = page.getByRole("dialog", { name: "Artifacts" });
-    await expect(artifactLibrary).toBeVisible();
-    await expect(
-      artifactLibrary
-        .getByText("release-v1.4.2-sigstore.json", { exact: true })
-        .first(),
-    ).toBeVisible();
-    await shot(page, "06f-artifact-library");
-    await artifactLibrary.getByRole("button", { name: "Close artifacts", exact: true }).click();
-    await expect(artifactLibrary).toBeHidden();
-
-    // Return to the overview before continuing with the upper-canvas cards.
-    if (await fit.isVisible().catch(() => false)) await fit.click();
-    await page.waitForTimeout(600);
 
     // Edge midpoint targets are intentionally invisible and covered by the
     // wire's pointer path. Use their keyboard affordance, then capture the
@@ -806,69 +517,6 @@ test("capture every surface for design review", async () => {
   }
 });
 
-test("capture Board empty and populated states", async () => {
-  const junto = await launchJunto({
-    seedCanvases: { "board-audit": canvasDoc([boardNode]) },
-  });
-  try {
-    const { page } = junto;
-    await mkdir(SHOTS, { recursive: true });
-    await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
-    const boardNodeCard = page.locator('.react-flow__node[data-id="board1"]');
-    await expect(boardNodeCard).toBeVisible({ timeout: 15_000 });
-    await boardNodeCard.getByTestId("board-card").dispatchEvent("dblclick");
-
-    const bulletinBoard = page.getByRole("dialog", { name: "Bulletin board" });
-    await expect(bulletinBoard).toBeVisible();
-    await shot(page, "06g-board-empty");
-
-    const createTopic = async (topicTitle: string, openingNote: string) => {
-      await bulletinBoard.getByRole("button", { name: "New topic" }).first().click();
-      await bulletinBoard.getByPlaceholder("New topic title").fill(topicTitle);
-      await bulletinBoard
-        .getByPlaceholder("Opening note (optional)")
-        .fill(openingNote);
-      await bulletinBoard.getByRole("button", { name: "Create topic" }).click();
-      await expect(
-        bulletinBoard.getByText(topicTitle, { exact: true }).first(),
-      ).toBeVisible();
-    };
-
-    await createTopic(
-      "Release readiness - August 3",
-      "Capture blockers, proof receipts, and operator decisions for the next signed build.",
-    );
-    await bulletinBoard
-      .getByPlaceholder("Write a reply…")
-      .fill(
-        "Notarization is green. Waiting on the two-host Station smoke before promotion.",
-      );
-    await bulletinBoard
-      .getByRole("button", { name: "Post reply", exact: true })
-      .click();
-    await expect(
-      bulletinBoard.getByRole("main").getByText(/two-host Station smoke/i),
-    ).toBeVisible();
-    await createTopic(
-      "Remote station smoke",
-      "Mac mini is enrolled. Validate reconnect, offline work, and exact protocol negotiation.",
-    );
-    await createTopic(
-      "Board redesign notes",
-      "Keep operator broadcasts distinct from agent-authored discussion and quiet by default.",
-    );
-
-    await shot(page, "06h-board-populated");
-    await bulletinBoard
-      .getByRole("button", { name: "Close", exact: true })
-      .click();
-    await expect(bulletinBoard).toBeHidden();
-  } finally {
-    await junto.close();
-  }
-});
-
-// Empty field — the boot state every operator sees on a fresh canvas.
 test("capture the empty field state", async () => {
   const junto = await launchJunto({
     seedCanvases: { empty: canvasDoc([]) },
