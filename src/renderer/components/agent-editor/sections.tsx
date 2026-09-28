@@ -9,6 +9,7 @@ import { NameSection } from "./NameSection";
 import { SoulSection } from "../customize/SoulSection";
 import { InstructionsSection } from "../customize/InstructionsSection";
 import { LaunchSection } from "../customize/LaunchSection";
+import { ContextSection } from "../pressure/ContextSection";
 import { SessionsSection } from "../sessions/SessionsSection";
 
 /**
@@ -65,6 +66,8 @@ export const AGENT_EDITOR_SECTIONS: ReadonlyArray<AgentEditorSection> = [
   { id: "soul", label: "soul", Panel: SoulSection },
   { id: "instructions", label: "instructions", Panel: InstructionsSection },
   { id: "launch", label: "launch", Panel: LaunchSection, applies: (seat) => seat.harness !== undefined },
+  // A seat's own offboard limit lives on the canvas, so a profile draft has none.
+  { id: "context", label: "context", Panel: ContextSection, applies: (seat) => seat.harness !== undefined && !seat.draft },
   // Offboard from the seat; a profile draft has no session to end.
   { id: "sessions", label: "sessions", Panel: SessionsSection, applies: (seat) => seat.harness !== undefined && !seat.draft },
 ];

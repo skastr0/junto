@@ -14,6 +14,8 @@ Supported: Claude Code, Codex, Grok, Pi, Devin, Cursor Agent, Antigravity, fx, P
 
 ## Sessions
 
+A seat is one continuous agent. Its sessions are internal to it: Junto resumes the same session across restarts and wakes, and no screen shows session history, notes, or transcripts. That data lives in the seat's own store and CLI.
+
 Every session a seat runs is recorded in its history: which harness, which session id, where the harness keeps its transcript, and when it started and ended. The agent ends a session with `junto offboard` and notes on what happened, what is relevant, and why it matters. Junto saves them as `~/.junto/seats/<seat>/sessions/<session>.md`. A seat can only write notes for its own current session.
 
 The agent chooses its stopping point, and one of two modes:
@@ -25,9 +27,9 @@ When the next session runs `junto onboard`, it gets the seat's past sessions, ne
 
 The continuation is the one exception to past sessions being context: only the session right after the one that continued sees it, and it is meant to be picked up.
 
-When a seat's context passes its limit, Junto asks the agent to offboard: with `--continue` if it is mid-work, plain if it is at a stopping point. If it does neither before the grace period runs out, Junto rotates the seat onto a fresh session, which onboards with whatever notes exist.
+Offboarding is self-service: the agent decides when, and the seat doctrine tells it how. Junto does not read or estimate context windows or token counts.
 
-The seat's Sessions tab in Customize lists every session with its summary, its notes, and a way to reveal its transcript. Its **Offboard** and **Offboard and continue** buttons send the agent the offboard prompt for that mode, delivered between turns like any mail, and the tab shows the progress: asked, notes saved, then the session closed or the new session started. The notes are always the agent's own.
+The seat's **Offboard** and **Offboard and continue** buttons in Customize send the agent the offboard prompt for that mode, delivered between turns like any mail, and show the progress: asked, notes saved, then the session closed or the new session started. The notes are always the agent's own.
 
 ## Lines and access
 

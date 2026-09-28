@@ -1,3 +1,4 @@
+import { SeatPressureGauge } from "../pressure/SeatPressureGauge";
 import {
   useEffect,
   useMemo,
@@ -440,6 +441,7 @@ function NodeCommandCard({ nodeId }: { readonly nodeId: string }) {
           <div className="rts-cmd-head">
             <div className="rts-cmd__title" title={nodeTitle(node)}>{nodeTitle(node)}</div>
             {subtitle ? <div className="rts-cmd__live">{subtitle}</div> : null}
+            {entityKind === "agent" ? <SeatPressureGauge canvasName={canvasName} nodeId={nodeId} /> : null}
           </div>
           <AccentColorSwatches nodeId={nodeId} color={node.color} />
         </div>

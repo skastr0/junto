@@ -2,6 +2,7 @@ import { Schema } from "effect";
 import { HarnessId } from "./managed-terminal-templates";
 import { EtherSheet } from "./sheet";
 import { Port } from "./physics/schema";
+import { SeatTokenPressure } from "./token-pressure";
 import {
   compileVerb,
   inferVerb,
@@ -180,6 +181,11 @@ export const EtherTerminal = Schema.Struct({
    * Capture harnesses (Codex/Hermes): written when runtime observes the id.
    */
   sessionId: Schema.optionalKey(Schema.String),
+  /**
+   * This seat's own token-pressure choice (a threshold, or off). Absent means
+   * the Settings default applies. See `token-pressure.ts`.
+   */
+  tokenPressure: Schema.optionalKey(SeatTokenPressure),
 });
 export type EtherTerminal = typeof EtherTerminal.Type;
 
@@ -638,9 +644,6 @@ const pairHolds = (
  *
  * Node-body `ether.relay` is not a product surface — watch is a compiled facet
  * of a verb, never a node field.
- *
- * `ether.terminal.tokenPressure` (a seat's retired offboard threshold) is
- * dropped: Junto no longer reads context size, and seats offboard themselves.
  */
 export const scrubCanvasDocInput = (input: unknown): unknown => {
   if (input === null || typeof input !== "object" || Array.isArray(input)) {
@@ -665,20 +668,10 @@ export const scrubCanvasDocInput = (input: unknown): unknown => {
         ) {
           return node;
         }
-        const terminal = (etherIn as Record<string, unknown>).terminal;
-        const retiredPressure =
-          terminal !== null &&
-          typeof terminal === "object" &&
-          !Array.isArray(terminal) &&
-          Object.prototype.hasOwnProperty.call(terminal, "tokenPressure");
-        if (!Object.prototype.hasOwnProperty.call(etherIn, "relay") && !retiredPressure) {
+        if (!Object.prototype.hasOwnProperty.call(etherIn, "relay")) {
           return node;
         }
         const { relay: _drop, ...ether } = etherIn as Record<string, unknown>;
-        if (retiredPressure) {
-          const { tokenPressure: _retired, ...kept } = terminal as Record<string, unknown>;
-          ether.terminal = kept;
-        }
         if (Object.keys(ether).length === 0) {
           const { ether: _e, ...rest } = n;
           return rest;

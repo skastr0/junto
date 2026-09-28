@@ -126,6 +126,20 @@ describe("SeatOffboardCloser", () => {
     h.idle = true;
     await settle(h, closer);
     expect(h.closes).toEqual([]);
+    expect(closer.handles("c", "a", "s1")).toBe(false);
+  });
+
+  it("owns the seat while pending, closing, and for the session it closed", async () => {
+    const { h, closer } = harness();
+    expect(closer.handles("c", "a", "s1")).toBe(false);
+    closer.offboarded(offboard("rest"));
+    expect(closer.handles("c", "a", "s1")).toBe(true);
+    h.idle = true;
+    await settle(h, closer);
+    // Still the closed session (a stale seat list): leave it alone.
+    expect(closer.handles("c", "a", "s1")).toBe(true);
+    // The fresh session is the pressure clock's again.
+    expect(closer.handles("c", "a", "s2")).toBe(false);
   });
 
   it("carries the operator's ask through to the close, and reports a paused canvas as waiting", async () => {

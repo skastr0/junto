@@ -108,6 +108,9 @@ import {
   seatStateRuntime,
 } from "./term/agent-state";
 import { awarenessSeatHold } from "./term/awareness/seat-hold";
+import { tokenPressureSettings } from "@shared/token-pressure";
+import { TokenPressureMonitor } from "./token-pressure/monitor";
+import { listPressureSeats, sendPressureNudge } from "./token-pressure/app";
 import { offboardAndRotate } from "./seat-sessions/rotate";
 import {
   resolveSeatAwarenessGate,
@@ -191,6 +194,8 @@ const latestBoardPostExcerpt = (topic: {
   return textOf(latest?.parts) || textOf(topic.parts) || topic.title;
 };
 
+/** Reads each running seat's context and nudges it to offboard (token-pressure). */
+let tokenPressureMonitor: TokenPressureMonitor | undefined;
 /** Closes a seat's session once its agent offboarded and went idle. */
 let offboardCloser: SeatOffboardCloser | undefined;
 
@@ -583,6 +588,11 @@ export const registerJuntoIpc = (): void => {
   // renderer's decoder refuses anything it does not recognize.
   privilegedIpc.handle(IPC_CHANNELS.seatAwarenessSnapshot, () =>
     seatAwarenessPlane.currentEvents(),
+  );
+
+  // Token pressure per running seat, for a renderer that just started.
+  privilegedIpc.handle(IPC_CHANNELS.tokenPressureSnapshot, () =>
+    tokenPressureMonitor?.current() ?? [],
   );
 
   // Seat collaboration — one seat asks a peer for help. The request is an
@@ -1836,6 +1846,7 @@ export const registerJuntoIpc = (): void => {
           // leases. LocalSessionHost.release never signals the PTY process.
           managedDrive.suspend();
           messageDelivery.suspend();
+          tokenPressureMonitor?.stop();
           offboardCloser?.stop();
           setManagedPulseDeliver(undefined);
           for (const pending of managedPulseReadyCancels.values()) {
@@ -2026,6 +2037,8 @@ export const registerJuntoIpc = (): void => {
         },
         publish: (progress) => broadcast(IPC_CHANNELS.seatOffboardProgress, progress),
         onOffboard: subscribeSeatOffboard,
+        // The session changed: the pressure clock re-reads its seats.
+        closed: () => tokenPressureMonitor?.invalidateSeats(),
         log: (message) => console.info(`[offboard] ${message}`),
       });
       offboardCloser.start();
@@ -2252,6 +2265,41 @@ export const registerJuntoIpc = (): void => {
       messageDelivery.subscribeDelivered((event) =>
         broadcast(IPC_CHANNELS.wireTraffic, event),
       );
+      // Token pressure: read each running seat's live context from its
+      // harness's session file; past its threshold, nudge it to offboard on
+      // the mail path above, only while it is idle between turns.
+      let pressureSettings = tokenPressureSettings(stationForSeed);
+      settingsForSeed.subscribe((settings) => {
+        pressureSettings = tokenPressureSettings(settings);
+      });
+      tokenPressureMonitor?.stop();
+      tokenPressureMonitor = new TokenPressureMonitor({
+        listSeats: listPressureSeats,
+        isLive: (bindingId) =>
+          !productAutomationSuspended &&
+          termPlane.host.get(bindingId)?.status === "running",
+        // The same gate mail typing uses: confirmed idle, not held.
+        isIdle: (bindingId) =>
+          seatStateRuntime.isSeatIdle(bindingId) &&
+          !awarenessSeatHold.holds(bindingId),
+        settings: () => pressureSettings,
+        // A seat whose agent offboarded belongs to the offboard closer: the
+        // clock stops chasing it and never rotates it a second time.
+        nudge: (seat, text) =>
+          offboardCloser?.handles(seat.canvasName, seat.nodeId, seat.sessionId)
+            ? Promise.resolve(true)
+            : sendPressureNudge(seat, text),
+        // Rotation belongs to seat sessions; this clock only decides when.
+        rotate: () => (seat) =>
+          offboardCloser?.handles(seat.canvasName, seat.nodeId, seat.sessionId)
+            ? Promise.resolve({ ok: true as const })
+            : offboardAndRotate(seat.nodeId, { canvasName: seat.canvasName }),
+        onOffboard: subscribeSeatOffboard,
+        publish: (change) => broadcast(IPC_CHANNELS.tokenPressureChanged, change),
+        home: () => homedir(),
+        log: (message) => console.info(`[token-pressure] ${message}`),
+      });
+      tokenPressureMonitor.start();
       // A TUI that turns bracketed paste on may do it with no seat-state
       // change; that edge is when its waiting mail becomes writable.
       const bracketedPasteOn = new Set<string>();

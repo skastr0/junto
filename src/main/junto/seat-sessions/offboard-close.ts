@@ -37,6 +37,8 @@ export type OffboardClosePorts = {
   readonly publish: (progress: SeatOffboardProgress) => void;
   /** Told whenever an agent runs `junto offboard`. */
   readonly onOffboard?: (listener: (event: SeatOffboardEvent) => void) => () => void;
+  /** A seat was closed: its session changed. */
+  readonly closed?: (seatId: string, canvasName: string) => void;
   readonly now?: () => number;
   readonly log?: (message: string) => void;
 };
@@ -62,6 +64,8 @@ const keyOf = (canvasName: string, seatId: string): string => `${canvasName}\u00
 export class SeatOffboardCloser {
   private readonly pending = new Map<string, Pending>();
   private readonly closing = new Set<string>();
+  /** The last session the closer closed for each seat. */
+  private readonly closedSessions = new Map<string, string>();
   private readonly progress = new Map<string, SeatOffboardProgress>();
   private timer: ReturnType<typeof setInterval> | undefined;
   private unsubscribeOffboard: (() => void) | undefined;
@@ -130,6 +134,16 @@ export class SeatOffboardCloser {
     this.report(event.seatId, event.canvasName, event.mode, "saved");
   }
 
+  /**
+   * The closer owns this seat's session: it is waiting to close it, closing
+   * it, or already closed it. The token-pressure clock leaves it alone.
+   */
+  handles(canvasName: string, seatId: string, sessionId?: string): boolean {
+    const key = keyOf(canvasName, seatId);
+    if (this.pending.has(key) || this.closing.has(key)) return true;
+    return sessionId !== undefined && sessionId !== "" && this.closedSessions.get(key) === sessionId;
+  }
+
   /** Where every seat's latest offboard stands, for a renderer that just started. */
   current(): ReadonlyArray<SeatOffboardProgress> {
     return [...this.progress.values()];
@@ -189,6 +203,8 @@ export class SeatOffboardCloser {
       this.report(entry.seatId, entry.canvasName, entry.mode, "failed", result.reason);
       return;
     }
+    this.closedSessions.set(key, entry.sessionId);
+    this.ports.closed?.(entry.seatId, entry.canvasName);
     if (!wake) {
       this.ports.log?.(`${entry.seatId} offboarded; its session closed and the seat rests`);
       this.report(entry.seatId, entry.canvasName, entry.mode, "resting");

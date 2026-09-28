@@ -1,8 +1,9 @@
 /**
  * Close a seat's session after it offboards, and start the next one or not.
  *
- * Called between turns, by the offboard closer once the agent that ran
- * `junto offboard` is idle. The seat's current session ends as `offboard`, its node
+ * Called between turns: by the offboard closer once the agent that ran
+ * `junto offboard` is idle, and by the token-pressure clock when its grace
+ * period ran out. The seat's current session ends as `offboard`, its node
  * gets a fresh session id (a new pin, or none for a harness that announces
  * its own), and the running process stops. With `wake` (the default) the
  * kernel starts the seat again under the usual rules: this installation's

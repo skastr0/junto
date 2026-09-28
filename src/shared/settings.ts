@@ -7,6 +7,7 @@ import { RECENT_COLORS_MAX, sanitizeRecentColors } from "./canvas-colors";
 import { CANVAS_NAME_INPUT_PATTERN, CANVAS_NAME_MAX_LENGTH } from "./canvas-name";
 import { DEFAULT_STATION_HOST_ID, STATION_ROLES } from "./station";
 import { NATIVE_USAGE_PROVIDERS, NativeUsageProvider } from "./usage";
+import { defaultTokenPressure, TokenPressurePatch, TokenPressureSettings } from "./token-pressure";
 
 // Settings plane: one schema-validated aggregate in the app-owned SQLite
 // database. Mutable user prefs are not Effect Config (boot/env) and not
@@ -840,6 +841,11 @@ export const Settings = Schema.Struct({
   providers: Schema.optionalKey(ProvidersSettings),
   /** DEPRECATED frozen copy (see PortraitsSettings); present only on rows that had it. */
   portraits: Schema.optionalKey(PortraitsSettings),
+  /**
+   * When Junto asks an agent to offboard (token-pressure.ts). Absent on rows
+   * written before it; read it through tokenPressureSettings().
+   */
+  tokenPressure: Schema.optionalKey(TokenPressureSettings),
 });
 export type Settings = typeof Settings.Type;
 
@@ -1036,6 +1042,7 @@ export const SettingsPatch = Schema.Struct({
   feed: Schema.optionalKey(FeedPatch),
   notifications: Schema.optionalKey(NotificationPatch),
   providers: Schema.optionalKey(ProvidersPatch),
+  tokenPressure: Schema.optionalKey(TokenPressurePatch),
 });
 export type SettingsPatch = typeof SettingsPatch.Type;
 
@@ -1051,7 +1058,8 @@ export const SettingsSectionKey = Schema.Literals(["appearance", "canvas",
 "live",
 "feed",
 "notifications",
-"providers",]);
+"providers",
+"tokenPressure",]);
 export type SettingsSectionKey = typeof SettingsSectionKey.Type;
 
 export const defaultAppearance = (): AppearanceSettings => ({
@@ -1236,6 +1244,7 @@ export const defaultSettings = (): Settings => ({
   feed: defaultFeed(),
   notifications: defaultNotifications(),
   providers: defaultProviders(),
+  tokenPressure: defaultTokenPressure(),
 });
 
 export const defaultSection = (key: SettingsSectionKey): Settings[SettingsSectionKey] => {
@@ -1268,6 +1277,8 @@ export const defaultSection = (key: SettingsSectionKey): Settings[SettingsSectio
       return defaultNotifications();
     case "providers":
       return defaultProviders();
+    case "tokenPressure":
+      return defaultTokenPressure();
   }
 };
 
@@ -1423,6 +1434,12 @@ export const applySettingsPatch = (current: Settings, patch: SettingsPatch): Set
     next = {
       ...next,
       notifications: mergeSection(notificationSettings(next), patch.notifications),
+    };
+  }
+  if (patch.tokenPressure) {
+    next = {
+      ...next,
+      tokenPressure: mergeSection(next.tokenPressure ?? defaultTokenPressure(), patch.tokenPressure),
     };
   }
   if (patch.feed?.quickReplies !== undefined) {

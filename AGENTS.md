@@ -128,6 +128,28 @@ opens, migrates, downgrades, or partially decodes advanced state.
 Bleeding-edge and unstable dependency versions are permitted. Retain Legend
 State v3; its prerelease status is not a reason to downgrade it.
 
+## Seat philosophy
+
+- A seat is a permanent agent. To the operator it is one continuous agent,
+  never a list of sessions.
+- Sessions are internal to the seat. The operator never goes back to, picks,
+  or switches sessions in a seat, and no UI surface shows session history,
+  notes or transcripts. That data lives in the seat's own store and CLI only.
+- Continuity is Junto's job: a seat resumes its same session across restarts
+  and wakes.
+- Offboarding is self-service. The agent runs `junto offboard` (or
+  `--continue`) at its own stopping points; onboarding tells it how and when.
+  Past notes come back at onboard as context, never as ongoing tasks.
+- Junto does not read or estimate context windows or token counts.
+
+## Attention
+
+- The UI exists to show what needs the operator: the seat's state ring and
+  halo, the inbox, notifications and sound cues.
+- Anything that doesn't need the operator stays out of the UI. Seat internals
+  (sessions, notes, transcripts, plumbing) are not surfaced, because every
+  extra surface competes for attention.
+
 ## The agent surface (headless — no GUI needed)
 
 **Ordinary agents never write the canvas.** The canvas is human-authored in
@@ -348,7 +370,8 @@ station when work must survive Command Center quit.
 **Named session resume law** — a seat resumes one explicit harness session id,
 or it starts fresh. There is no "continue whatever was last." Harness
 `--continue`, bare `--resume`, and latest-session pickers are not a
-Junto feature and must never be emitted. Code:
+Junto feature and must never be emitted. (`junto offboard --continue` is
+unrelated: the agent hands off to a fresh session of its own seat.) Code:
 `src/shared/managed-terminal-launch.ts`.
 
 **Focus surfaces** — centered, measure-constrained overlays for single-subject work (one agent, one terminal, one page). Prefer these over full-bleed or stage-split when the interaction is deep and solitary. Shell: `FocusSurface` (`src/renderer/components/FocusSurface.tsx`); measures + math: `src/renderer/lib/focus-measure.ts`.

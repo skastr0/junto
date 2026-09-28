@@ -221,6 +221,7 @@ export type CanvasReadTag =
   | "region.rollup"
   | "seatSessions.offboard"
   | "term.seatPlan"
+  | "tokenPressure.seats"
   | "untagged"
   | "overseer.canvas"
   | "work.control"
