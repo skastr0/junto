@@ -20,8 +20,7 @@ import {
   migrateStateSchema,
 } from "../src/main/junto/state/migrations";
 import { expectedStateSchemaIdentity, verifyRecordedStateSchemaIdentity } from "../src/main/junto/state/schema-identity";
-import { STATE_SCHEMA_SQL } from "../src/main/junto/state/schema";
-import { STATE_SCHEMA_V6_SQL } from "./fixtures/state-v1/schema";
+import { STATE_SCHEMA_V6_SQL, STATE_SCHEMA_V7_SQL } from "./fixtures/state-v1/schema";
 
 const fixture = fileURLToPath(new URL("./fixtures/state-v1/command-center-v1.db", import.meta.url));
 
@@ -63,10 +62,18 @@ const versionSixPlan = {
   migrations: STATE_SCHEMA_MIGRATIONS.filter((step) => step.toVersion <= 6),
 };
 
+// 7 -> 8 (seat sessions) lands on top; this suite stops at 7.
+const versionSevenPlan = {
+  ...STATE_SCHEMA_MIGRATION_PLAN,
+  currentVersion: 7,
+  currentSchemaSql: STATE_SCHEMA_V7_SQL,
+  migrations: STATE_SCHEMA_MIGRATIONS.filter((step) => step.toVersion <= 7),
+};
+
 describe("state migration 6 -> 7 (seat guidance and agent profiles)", () => {
   it("freezes the version-six witness the step starts from and names the head", () => {
     expect(expectedStateSchemaIdentity(STATE_SCHEMA_V6_SQL)).toEqual(STATE_SCHEMA_V6_IDENTITY);
-    expect(expectedStateSchemaIdentity(STATE_SCHEMA_SQL)).toEqual(STATE_SCHEMA_V7_IDENTITY);
+    expect(expectedStateSchemaIdentity(STATE_SCHEMA_V7_SQL)).toEqual(STATE_SCHEMA_V7_IDENTITY);
   });
 
   it("adds both tables and leaves every existing row, immutable logs included, untouched", async () => {
@@ -79,7 +86,7 @@ describe("state migration 6 -> 7 (seat guidance and agent profiles)", () => {
       expect(before).not.toHaveProperty("seat_guidance");
       expect(before).not.toHaveProperty("agent_profiles");
 
-      const result = migrateStateSchema(database);
+      const result = migrateStateSchema(database, versionSevenPlan);
       expect(result).toMatchObject({ previousVersion: 6, schemaVersion: 7 });
       expect(verifyRecordedStateSchemaIdentity(database)).toMatchObject(STATE_SCHEMA_V7_IDENTITY);
 

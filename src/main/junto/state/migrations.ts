@@ -9,6 +9,7 @@ import { SQUADS_STATE_SCHEMA_SQL } from "../squads/state-schema";
 import { COMPANION_DEVICES_STATE_SCHEMA_SQL } from "../companion/state-schema";
 import { SEAT_GUIDANCE_STATE_SCHEMA_SQL } from "../seat-guidance/state-schema";
 import { AGENT_PROFILES_STATE_SCHEMA_SQL } from "../profiles/state-schema";
+import { SEAT_SESSIONS_STATE_SCHEMA_SQL } from "../seat-sessions/state-schema";
 import {
   PORTRAIT_OVERRIDES_COPY_FORWARD_SQL,
   PORTRAIT_OVERRIDES_STATE_SCHEMA_SQL,
@@ -166,7 +167,16 @@ export const STATE_SCHEMA_V7_IDENTITY = {
     "8d486dc491037e9fabb428007a69b1bbbb5a69d028ea39c22e509b07bdfd3137",
 } as const satisfies VerifiedStateSchemaIdentity;
 
-export const CURRENT_STATE_SCHEMA_VERSION = 7;
+/**
+ * Version 8 adds seat sessions: every harness session an agent seat has run,
+ * with where its transcript and offboard notes live. Expand only.
+ */
+export const STATE_SCHEMA_V8_IDENTITY = {
+  actualSchemaSha256:
+    "c575413a87057e541dcce8f16b5d7e3643590dedb56f3f92282717530bc012eb",
+} as const satisfies VerifiedStateSchemaIdentity;
+
+export const CURRENT_STATE_SCHEMA_VERSION = 8;
 
 /**
  * Stable alias for the head identity so tests and tooling never rename an
@@ -174,7 +184,7 @@ export const CURRENT_STATE_SCHEMA_VERSION = 7;
  * above after any schema change.
  */
 export const CURRENT_STATE_SCHEMA_IDENTITY: VerifiedStateSchemaIdentity =
-  STATE_SCHEMA_V7_IDENTITY;
+  STATE_SCHEMA_V8_IDENTITY;
 
 /**
  * Junto version 1 is composed fresh and adopted, never reached by chain; each
@@ -249,6 +259,16 @@ export const STATE_SCHEMA_MIGRATIONS: ReadonlyArray<StateSchemaMigration> = [
     migrate: (database) => {
       database.exec(SEAT_GUIDANCE_STATE_SCHEMA_SQL);
       database.exec(AGENT_PROFILES_STATE_SCHEMA_SQL);
+    },
+  },
+  {
+    fromVersion: 7,
+    toVersion: 8,
+    name: "add seat sessions",
+    safety: STATE_SCHEMA_MIGRATION_SAFETY,
+    fromIdentity: STATE_SCHEMA_V7_IDENTITY,
+    migrate: (database) => {
+      database.exec(SEAT_SESSIONS_STATE_SCHEMA_SQL);
     },
   },
 ];
