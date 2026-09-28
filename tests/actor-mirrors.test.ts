@@ -48,15 +48,15 @@ const shell = (id: string): TextNode => ({
   },
 });
 
-const tasks = (id: string): TextNode => ({
+const page = (id: string): TextNode => ({
   id,
   type: "text",
-  text: "tasks",
+  text: "page",
   x: 0,
   y: 0,
   width: 200,
   height: 80,
-  ether: { entity: { kind: "task" }, tasks: { items: [] } },
+  ether: { entity: { kind: "page" } },
 });
 
 const edge = (id: string, from: string, to: string): CanvasEdge => ({
@@ -90,7 +90,7 @@ describe("isMirrorablePeer", () => {
     expect(isMirrorablePeer(agent("a", "A"))).toBe(true);
     expect(isMirrorablePeer(unboundAgent("u", "U"))).toBe(false);
     expect(isMirrorablePeer(shell("s"))).toBe(false);
-    expect(isMirrorablePeer(tasks("t"))).toBe(false);
+    expect(isMirrorablePeer(page("p"))).toBe(false);
     expect(isMirrorablePeer(undefined)).toBe(false);
   });
 });
@@ -112,19 +112,19 @@ describe("mirrorPeerIds", () => {
     expect(mirrorPeerIds(doc, "hub")).toEqual(["bravo"]);
   });
 
-  it("excludes shells, sinks, and unbound actors", () => {
+  it("excludes shells, pages, and unbound actors", () => {
     const doc = docOf(
       [
         agent("hub", "Hub"),
         agent("bravo", "Bravo"),
         shell("sh"),
-        tasks("tk"),
+        page("pg"),
         unboundAgent("ub", "Unbound"),
       ],
       [
         edge("e-1", "hub", "bravo"),
         edge("e-2", "hub", "sh"),
-        edge("e-3", "tk", "hub"),
+        edge("e-3", "pg", "hub"),
         edge("e-4", "hub", "ub"),
       ],
     );
@@ -152,8 +152,8 @@ describe("actorRingOf", () => {
 
   it("is null when the anchor has no mirrorable peers", () => {
     const doc = docOf(
-      [agent("solo", "Solo"), tasks("tk")],
-      [edge("e-1", "solo", "tk")],
+      [agent("solo", "Solo"), page("pg")],
+      [edge("e-1", "solo", "pg")],
     );
     expect(actorRingOf(doc, "solo")).toBeNull();
   });

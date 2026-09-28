@@ -261,20 +261,12 @@ describe("recentOpLabel", () => {
       operation,
       originAt: "2026-08-12T10:00:00.000Z",
       appliedAt,
-      targetNodeId: "sink",
+      targetNodeId: "agent",
       summary,
     }) as never;
 
   it("renders product words per operation", () => {
     expect(recentOpLabel(entry("message.append", { kind: "message", messageId: "01A" }))).toBe("sent mail");
-    expect(
-      recentOpLabel(entry("artifact.publish", { kind: "artifact", artifactId: "01B", name: "report.md" })),
-    ).toBe("published report.md");
-    expect(
-      recentOpLabel(entry("artifact.publish", { kind: "artifact", artifactId: "01B" })),
-    ).toBe("published an artifact");
-    expect(recentOpLabel(entry("task.claim", { kind: "task", taskId: "01C" }))).toBe("claimed a task");
-    expect(recentOpLabel(entry("request.create", { kind: "request", requestId: "01E" }))).toBe("raised a request");
     expect(
       recentOpLabel(
         entry("delivery.accepted", {
@@ -284,12 +276,6 @@ describe("recentOpLabel", () => {
         }),
       ),
     ).toBe("delivery accepted - message");
-    expect(
-      recentOpLabel(entry("board.topic.create", { kind: "topic", topicId: "01H", title: "Standup" })),
-    ).toBe("opened topic Standup");
-    expect(recentOpLabel(entry("board.post.append", { kind: "post", postId: "01I", topicId: "01H" }))).toBe(
-      "posted to the board",
-    );
   });
 
   it("parses applied time defensively", () => {

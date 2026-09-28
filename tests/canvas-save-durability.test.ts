@@ -423,34 +423,6 @@ describe("renderer canvas save durability", () => {
     expect(writeCanvas.mock.calls.at(-1)?.[1].nodes[0]?.ether?.overseer).toBeUndefined();
   });
 
-  it("keeps authored task name and contract in an ordinary protected save", async () => {
-    const task = (name: string, instructions: string): CanvasDoc => ({
-      nodes: [{
-        id: "tasks",
-        type: "text",
-        text: "Tasks",
-        x: 0,
-        y: 0,
-        width: 200,
-        height: 100,
-        ether: {
-          entity: { kind: "task" },
-          tasks: { items: [], name, contract: { instructions } },
-        },
-      }],
-      edges: [],
-    });
-    loadDoc(task("Backlog", "Old instructions"), "alpha-r-task", "alpha");
-    commitDoc(task("Intake", "Triage before claim"));
-
-    await flushPendingCanvasSave();
-
-    expect(writeCanvas.mock.calls.at(-1)?.[1].nodes[0]?.ether?.tasks).toMatchObject({
-      name: "Intake",
-      contract: { instructions: "Triage before claim" },
-    });
-  });
-
   it("clears stale undo history when external authority reloads", async () => {
     const granted: CanvasDoc = {
       nodes: [{ ...doc("alpha-base").nodes[0]!, ether: { overseer: true } }],

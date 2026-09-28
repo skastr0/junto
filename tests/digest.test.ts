@@ -5,10 +5,7 @@ import {
   digestCanvas as digestCanvasWithActorRefs,
   type DigestLiveViews,
 } from "../src/shared/digest";
-import {
-  actorRefFixture,
-  executionContextForDoc,
-} from "./helpers/actor-ref-fixtures";
+import { executionContextForDoc } from "./helpers/actor-ref-fixtures";
 
 type DigestFixtureViews = Omit<DigestLiveViews, "resolveActorRef">;
 
@@ -56,45 +53,13 @@ const doc: CanvasDoc = {
       y: 300,
       width: 100,
       height: 50,
-      // Actor seat (the one actor kind) so task criteria can place it in the
-      // blocked set. A raw `terminal` is geography and would not count as one.
       ether: {
         entity: { kind: "agent" },
-      },
-    },
-    {
-      id: "t1",
-      type: "text",
-      text: "Ops",
-      x: 250,
-      y: 300,
-      width: 100,
-      height: 50,
-      ether: {
-        entity: { kind: "task" },
-        tasks: {
-          items: [
-            {
-              id: "i1",
-              state: "input-required",
-              claimedBy: actorRefFixture("m3", "fixture").seatId,
-              history: [
-                {
-                  messageId: "m1",
-                  role: "user",
-                  parts: [{ kind: "text", text: "ship" }],
-                  taskId: "i1",
-                },
-              ],
-            },
-          ],
-        },
       },
     },
   ],
   edges: [
     { id: "e1", fromNode: "m1", toNode: "m2" },
-    { id: "e2", fromNode: "t1", toNode: "m3", ether: { verb: "works" } },
     { id: "e3", fromNode: "m3", toNode: "m1", label: "refs" },
     { id: "e4", fromNode: "m1", toNode: "m3" },
   ],
@@ -120,8 +85,8 @@ const snapshots: SnapshotState = {
 };
 
 const expected = `canvas :: fixture
-nodes :: 5
-edges :: 4
+nodes :: 4
+edges :: 3
 
 regions
 team :: Foo, Bar
@@ -130,42 +95,29 @@ region rollups
 team :: idle - 2 members
 
 factory physics
-roles :: actors=1 sinks=1 schedulers=0 geography=3
-edges :: 4
+roles :: actors=1 sinks=0 schedulers=0 geography=3
+edges :: 3
 
 design
 seats
   Baz :: empty
 empty seats
   Baz :: empty
-topology :: edges=4
+topology :: edges=3
 
 entities
 Foo :: project
 Bar :: orbit
 Baz :: agent
-Ops :: task
-  tasks: 0/1 settled
 
 edges
 Foo --relates--> Bar
-Ops --blocks(1 need input - ship)--> Baz
 Baz --refs--> Foo
 Foo --relates--> Baz
-
-blockers
-blocked closure :: 1 nodes
-Baz - 1 need input - ship
-
-impact
-1 task - stops 2
-  seed: Ops
-  settle: ship
 
 seeds
 Foo
 Bar
-Ops
 
 sources
 hermes :: ok (1 entities)
@@ -244,118 +196,6 @@ describe("digestCanvas — region rollups formatting", () => {
   });
 });
 
-// Factory physics: roles derived from kind (roleOf/resolveSpec), never
-// authorial ether.role; capabilities are criteria vs soft edge counts only.
-// Headless — no PIDs / process-bind / occupancy in the projection.
-const physicsDoc: CanvasDoc = {
-  nodes: [
-    { id: "g1", type: "group", label: "bay", x: 0, y: 0, width: 400, height: 300 },
-    {
-      id: "agent1",
-      type: "text",
-      text: "hermes",
-      x: 10,
-      y: 10,
-      width: 100,
-      height: 40,
-      ether: { entity: { kind: "agent" } },
-    },
-    {
-      id: "term1",
-      type: "text",
-      text: "tty",
-      x: 120,
-      y: 10,
-      width: 100,
-      height: 40,
-      ether: { entity: { kind: "terminal" } },
-    },
-    {
-      id: "task1",
-      type: "text",
-      text: "inbox",
-      x: 10,
-      y: 60,
-      width: 100,
-      height: 40,
-      ether: { entity: { kind: "task" } },
-    },
-    {
-      id: "page1",
-      type: "text",
-      text: "docs",
-      x: 120,
-      y: 60,
-      width: 100,
-      height: 40,
-      ether: { entity: { kind: "page" } },
-    },
-    {
-      id: "watch1",
-      type: "text",
-      text: "pulse",
-      x: 230,
-      y: 10,
-      width: 100,
-      height: 40,
-      ether: { entity: { kind: "watcher" } },
-    },
-    {
-      id: "timer1",
-      type: "text",
-      text: "tick",
-      x: 230,
-      y: 60,
-      width: 100,
-      height: 40,
-      ether: { entity: { kind: "timer" } },
-    },
-    { id: "note1", type: "text", text: "sticky", x: 10, y: 120, width: 80, height: 30 },
-  ],
-  edges: [
-    { id: "e-soft", fromNode: "agent1", toNode: "note1" },
-    {
-      id: "e-crit",
-      fromNode: "agent1",
-      toNode: "task1",
-      ether: { verb: "contributes" },
-    },
-    { id: "e-crit2", fromNode: "term1", toNode: "page1" },
-  ],
-};
-
-describe("digestCanvas — factory physics", () => {
-  it("projects role counts via roleOf/resolveSpec and edge totals (no soft modes)", () => {
-    const out = digestCanvas("physics", physicsDoc, { bundles: [] });
-    expect(out).toContain("factory physics");
-    // One actor kind: the `tty` node is a raw terminal, hence geography.
-    expect(out).toMatch(/roles :: actors=1 sinks=\d+ schedulers=2 geography=\d+/);
-    expect(out).toContain("edges :: 3");
-    expect(out).not.toContain("soft=");
-    expect(out).not.toContain("criteria=");
-    // Never leaks live occupancy / process-bind identity.
-    expect(out).not.toMatch(/\bpid\b/i);
-    expect(out).not.toContain("process-bind");
-    expect(out).not.toContain("occupancy");
-  });
-
-  it("always emits factory physics even on an empty board", () => {
-    const out = digestCanvas("empty", { nodes: [], edges: [] }, { bundles: [] });
-    expect(out).toBe(
-      [
-        "canvas :: empty",
-        "nodes :: 0",
-        "edges :: 0",
-        "",
-        "factory physics",
-        "roles :: actors=0 sinks=0 schedulers=0 geography=0",
-        "edges :: 0",
-        "",
-      ].join("\n"),
-    );
-  });
-});
-
 // I13: empty seats live under design only.
 describe("digestCanvas — design (I13)", () => {
   const trustDoc: CanvasDoc = {
@@ -371,14 +211,14 @@ describe("digestCanvas — design (I13)", () => {
         ether: { entity: { kind: "agent", name: "local:worker" } },
       },
       {
-        id: "sink1",
+        id: "page1",
         type: "text",
-        text: "artifacts",
+        text: "docs",
         x: 200,
         y: 0,
         width: 100,
         height: 40,
-        ether: { entity: { kind: "artifacts" }, artifacts: { items: [] } },
+        ether: { entity: { kind: "page" } },
       },
       {
         id: "down1",
@@ -394,7 +234,7 @@ describe("digestCanvas — design (I13)", () => {
     edges: [
       {
         id: "e-soft",
-        fromNode: "sink1",
+        fromNode: "page1",
         toNode: "down1",
       },
     ],
@@ -407,96 +247,5 @@ describe("digestCanvas — design (I13)", () => {
     expect(out).toContain("design");
     expect(out).toContain("empty seats");
     expect(out).toMatch(/empty seats\n {2}worker :: empty/);
-  });
-});
-
-describe("digestCanvas — board lane", () => {
-  it("emits one board glance line with recent topic titles", () => {
-    const boardDoc: CanvasDoc = {
-      nodes: [
-        {
-          id: "board-1",
-          type: "text",
-          text: "Fleet announcements\n- alpha",
-          x: 0,
-          y: 0,
-          width: 240,
-          height: 120,
-          ether: {
-            entity: { kind: "board" },
-            board: {
-              unread: 3,
-              topics: [
-                {
-                  topicId: "t-old",
-                  title: "multi\nline title",
-                  state: "open",
-                  postCount: 2,
-                  lastActivityAt: "2026-07-01T00:00:00.000Z",
-                  unreadPostCount: 1,
-                },
-                {
-                  topicId: "t-new",
-                  title: "Ship the receiver",
-                  state: "open",
-                  postCount: 5,
-                  lastActivityAt: "2026-07-02T00:00:00.000Z",
-                  unreadPostCount: 2,
-                },
-                {
-                  topicId: "t-mid",
-                  title: "Archive the depot",
-                  state: "open",
-                  postCount: 1,
-                  lastActivityAt: "2026-07-01T12:00:00.000Z",
-                },
-                {
-                  topicId: "t-extra",
-                  title: "Older than the cut",
-                  state: "open",
-                  postCount: 1,
-                  lastActivityAt: "2026-06-01T00:00:00.000Z",
-                },
-              ],
-            },
-          },
-        },
-      ],
-      edges: [],
-    };
-    const out = digestCanvas("board-fixture", boardDoc, { bundles: [] });
-    expect(out).toContain("Fleet announcements :: board");
-    expect(out).toContain("  board: topics=4 unread=3");
-    // Recent three, newest first; newlines flattened so one lane stays one line.
-    expect(out).toContain("  topic: Ship the receiver");
-    expect(out).toContain("  topic: Archive the depot");
-    expect(out).toContain("  topic: multi line title");
-    expect(out).not.toContain("Older than the cut");
-  });
-});
-
-describe("digestCanvas — pad block", () => {
-  it("emits one pad glance line under entities", () => {
-    const padDoc: CanvasDoc = {
-      nodes: [
-        {
-          id: "pad-1",
-          type: "text",
-          text: "sketch",
-          x: 0,
-          y: 0,
-          width: 240,
-          height: 120,
-          ether: {
-            entity: { kind: "pad" },
-            pad: { revision: 3, shapeCount: 4, unreadPinCount: 1 },
-          },
-        },
-      ],
-      edges: [],
-    };
-    const out = digestCanvas("pad-fixture", padDoc, { bundles: [] });
-    expect(out).toContain("sketch :: pad");
-    expect(out).toContain("  pad: revision=3 shapes=4 unread=1");
   });
 });

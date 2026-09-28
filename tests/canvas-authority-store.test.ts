@@ -20,7 +20,7 @@ import {
 import {
   StationLivePeerRegistryLive,
 } from "../src/main/junto/station/session-registry";
-import { WorkLive, WorkService } from "../src/main/junto/work/service";
+import { WorkLive } from "../src/main/junto/work/service";
 import {
   SettingsLive,
   SettingsService,
@@ -49,53 +49,6 @@ const noteDoc = (text: string): CanvasDoc =>
         y: 0,
         width: 120,
         height: 60,
-      },
-    ],
-    edges: [],
-  });
-
-const taskSinkDoc = (): CanvasDoc =>
-  ({
-    nodes: [
-      {
-        id: "sink",
-        type: "text",
-        text: "tasks",
-        x: 0,
-        y: 0,
-        width: 240,
-        height: 120,
-        ether: {
-          entity: { kind: "task" },
-          // A projected row, not an empty shell: an authorial sink may legally
-          // carry `tasks: { items: [], contract }` (the contract is document
-          // truth), so the guard reads projected rows, not the bag's presence.
-          tasks: {
-            items: [
-              { id: "task-1", state: "submitted" as const, history: [] },
-            ],
-          },
-        },
-      },
-    ],
-    edges: [],
-  });
-
-const padSinkDoc = (): CanvasDoc =>
-  ({
-    nodes: [
-      {
-        id: "sink",
-        type: "text",
-        text: "pad",
-        x: 0,
-        y: 0,
-        width: 240,
-        height: 120,
-        ether: {
-          entity: { kind: "pad" },
-          pad: { revision: 0, shapeCount: 0, unreadPinCount: 0 },
-        },
       },
     ],
     edges: [],
@@ -260,16 +213,6 @@ describe("CanvasesService SQLite authority", () => {
 
   it.each([
     [
-      "document-backed work state",
-      () => taskSinkDoc().nodes[0]!.ether,
-      "runtime work projection data",
-    ],
-    [
-      "document-backed pad projection",
-      () => padSinkDoc().nodes[0]!.ether,
-      "runtime work projection data",
-    ],
-    [
       "an excess ether property",
       () => ({ entity: { kind: "note" }, mystery: true }),
       "failed validation",
@@ -330,92 +273,6 @@ describe("CanvasesService SQLite authority", () => {
     });
   });
 
-  it("keeps work rows out of authority while projecting committed work reads", async () => {
-    await installEnv();
-    runtime = makeCanvasRuntime(join(stateDir, "junto.db"));
-    const settings = await runtime.runPromise(SettingsService);
-    await runtime.runPromise(
-      settings.setStationTopology({
-        role: "command-center",
-        hostId: "local",
-        supervisedPreferred: true,
-      })
-    );
-    const canvases = await runtime.runPromise(CanvasesService);
-    const work = await runtime.runPromise(WorkService);
-    await runtime.runPromise(canvases.write("work", taskSinkDoc()));
-
-    const authorial = await runtime.runPromise(canvases.authoritySnapshot());
-    expect(authorial.generation).toBe("1");
-    expect(authorial.documents.get("work")?.nodes[0]?.ether?.tasks).toBeUndefined();
-    const projectedBefore = await runtime.runPromise(canvases.read("work"));
-    expect(projectedBefore.workRevision).toBe("0");
-
-    const changed: string[] = [];
-    const unsubscribe = canvases.subscribeChanges((name) => changed.push(name));
-    const created = await runtime.runPromise(
-      work.workTaskCreate("work", "sink", "ship the SQLite cutover", { details: "ship the SQLite cutover" })
-    );
-    unsubscribe();
-    expect(created).toMatchObject({
-      ok: true,
-      disposition: "applied",
-    });
-    expect(changed).toEqual(["work"]);
-
-    const projected = await runtime.runPromise(canvases.read("work"));
-    expect(projected.revision).toBe(projectedBefore.revision);
-    expect(BigInt(projected.workRevision)).toBeGreaterThan(
-      BigInt(projectedBefore.workRevision)
-    );
-    expect(projected.doc.nodes[0]?.ether?.tasks?.items).toHaveLength(1);
-    expect(projected.doc.nodes[0]).toMatchObject({
-      text: "ship the SQLite cutover",
-    });
-    expect(await runtime.runPromise(canvases.liveAuthorityGeneration())).toBe(
-      "1"
-    );
-    expect(
-      (await runtime.runPromise(canvases.authoritySnapshot())).documents.get(
-        "work"
-      )?.nodes[0]?.ether?.tasks
-    ).toBeUndefined();
-  });
-
-  it("keeps the authored board contract while stripping projected rows", async () => {
-    await installEnv();
-    runtime = makeCanvasRuntime(join(stateDir, "junto.db"));
-    const canvases = await runtime.runPromise(CanvasesService);
-    const authored = taskSinkDoc();
-    await runtime.runPromise(
-      canvases.write("work", {
-        ...authored,
-        nodes: authored.nodes.map((node) => ({
-          ...node,
-          ether: {
-            ...node.ether,
-            tasks: {
-              ...node.ether?.tasks,
-              items: node.ether?.tasks?.items ?? [],
-              contract: {
-                instructions: "review before sending on",
-                rules: [{ id: "rule-1", text: "cite the source" }],
-              },
-            },
-          },
-        })),
-      }),
-    );
-
-    const authority = await runtime.runPromise(canvases.authoritySnapshot());
-    const tasks = authority.documents.get("work")?.nodes[0]?.ether?.tasks;
-    expect(tasks?.items).toEqual([]);
-    expect(tasks?.contract).toEqual({
-      instructions: "review before sending on",
-      rules: [{ id: "rule-1", text: "cite the source" }],
-    });
-  });
-
   it("stores exactly the current graph after many commits", async () => {
     await installEnv();
     runtime = makeCanvasRuntime(join(stateDir, "junto.db"));
@@ -464,71 +321,6 @@ describe("CanvasesService SQLite authority", () => {
     expect(
       (await runtime.runPromise(reopened.read("alpha"))).doc.nodes[0],
     ).toMatchObject({ text: `rev-${commits - 1}` });
-  });
-
-  it("keeps a work-fact authorial basis as opaque history after later commits", async () => {
-    await installEnv();
-    runtime = makeCanvasRuntime(join(stateDir, "junto.db"));
-    const settings = await runtime.runPromise(SettingsService);
-    await runtime.runPromise(
-      settings.setStationTopology({
-        role: "command-center",
-        hostId: "local",
-        supervisedPreferred: true,
-      })
-    );
-    const canvases = await runtime.runPromise(CanvasesService);
-    const work = await runtime.runPromise(WorkService);
-    const state = await runtime.runPromise(StateEngine);
-
-    await runtime.runPromise(canvases.write("work", taskSinkDoc()));
-    await runtime.runPromise(
-      work.workTaskCreate("work", "sink", "founded here", {
-        details: "founded here",
-      })
-    );
-
-    const basis = await runtime.runPromise(
-      state.read("retention.basis", (reader) =>
-        reader.all<{ readonly generation: string }>(
-          `
-            SELECT DISTINCT basis_authorial_generation AS generation
-            FROM work_facts
-            WHERE basis_authorial_generation IS NOT NULL
-          `,
-        ),
-      ),
-    );
-    expect(basis.length).toBeGreaterThan(0);
-
-    const commits = 12;
-    for (let i = 0; i < commits; i += 1) {
-      await runtime.runPromise(canvases.write("alpha", noteDoc(`rev-${i}`)));
-    }
-
-    // The immutable fact keeps its founding basis generation verbatim while
-    // the portfolio head advances past it; nothing references the retired
-    // generation as a row, so no relational constraint can be violated.
-    const survived = await runtime.runPromise(
-      state.read("retention.basis.survived", (reader) => ({
-        basis: reader.all<{ readonly generation: string }>(
-          `
-            SELECT DISTINCT basis_authorial_generation AS generation
-            FROM work_facts
-            WHERE basis_authorial_generation IS NOT NULL
-          `,
-        ),
-        head: reader.get<{ readonly generation: string }>(
-          "SELECT generation FROM canvas_portfolio_head WHERE singleton = 1",
-        ),
-        fkViolations: reader.all("PRAGMA foreign_key_check").length,
-      })),
-    );
-    expect(survived.basis).toEqual(basis);
-    expect(BigInt(survived.head?.generation ?? "0")).toBeGreaterThan(
-      BigInt(basis[0]!.generation),
-    );
-    expect(survived.fkViolations).toBe(0);
   });
 
   it("starts empty when the authority pointer is absent", async () => {

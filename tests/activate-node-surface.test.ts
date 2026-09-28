@@ -51,17 +51,6 @@ const region = (): CanvasNode => ({
   height: 300,
 });
 
-const tasks = (): CanvasNode => ({
-  id: "tasks-1",
-  type: "text",
-  text: "tasks",
-  x: 0,
-  y: 0,
-  width: 200,
-  height: 100,
-  ether: { entity: { kind: "task" } },
-});
-
 describe("nodeSurfaceKind", () => {
   it("opens managed terminal for bound agent seats", () => {
     expect(nodeSurfaceKind(agentWithTerminal())).toBe("terminal");
@@ -74,21 +63,5 @@ describe("nodeSurfaceKind", () => {
   it("opens notes and ignores regions", () => {
     expect(nodeSurfaceKind(note())).toBe("note");
     expect(nodeSurfaceKind(region())).toBeNull();
-  });
-
-  it("opens work sinks", () => {
-    expect(nodeSurfaceKind(tasks())).toBe("work");
-    expect(
-      nodeSurfaceKind({
-        id: "pad-1",
-        type: "text",
-        text: "pad",
-        x: 0,
-        y: 0,
-        width: 200,
-        height: 100,
-        ether: { entity: { kind: "pad" } },
-      }),
-    ).toBe("work");
   });
 });

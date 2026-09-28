@@ -46,23 +46,6 @@ describe("hotbarNodeSeverity", () => {
     const node = { ...base, type: "text", text: "Pi" } as CanvasNode;
     expect(hotbarNodeSeverity(node, { liveSeverity: "attention" })).toBe("attention");
   });
-
-  it("maps task sink needs-human and working", () => {
-    const taskNode = (state: "input-required" | "working"): CanvasNode =>
-      ({
-        ...base,
-        type: "text",
-        text: "tasks",
-        ether: {
-          entity: { kind: "task" },
-          tasks: {
-            items: [{ id: "t1", state, history: [], claimedBy: "seat-1" }],
-          },
-        },
-      }) as unknown as CanvasNode;
-    expect(hotbarNodeSeverity(taskNode("input-required"))).toBe("attention");
-    expect(hotbarNodeSeverity(taskNode("working"))).toBe("working");
-  });
 });
 
 describe("liveActivitySeverity", () => {

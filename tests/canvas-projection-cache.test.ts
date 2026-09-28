@@ -27,31 +27,18 @@ import {
   WorkRepository,
   WorkRepositoryLive,
 } from "../src/main/junto/work/repository";
-import { ActorSeatId } from "../src/shared/actor-seat";
 import type { CanvasDoc } from "../src/shared/canvas";
 import { IntentFactBasis } from "../src/shared/work-protocol";
 
 /**
- * Every table `readCanvasWorkProjection` reads, traced through
+ * The mail tables `readCanvasWorkProjection` reads, traced through
  * `snapshotsForCanvas` -> `loadSnapshot` -> the lane loaders. A canvas read may
  * only reuse a memo while every one of these is unchanged, so each one must
  * carry the triggers that move `work_canvas_revisions`.
  */
 const PROJECTED_TABLES = [
-  ["work_tasks", "canvas_name"],
-  ["work_requests", "canvas_name"],
   ["work_messages", "canvas_name"],
-  ["work_task_messages", "canvas_name"],
-  ["work_task_dependencies", "canvas_name"],
-  ["work_task_finish", "canvas_name"],
-  ["work_artifacts", "canvas_name"],
   ["work_delivery_receipts", "delivered_canvas_name"],
-  ["work_board_topics", "canvas_name"],
-  ["work_board_posts", "canvas_name"],
-  ["work_pad_meta", "canvas_name"],
-  ["work_pad_posts", "canvas_name"],
-  ["work_pad_shapes", "canvas_name"],
-  ["work_pad_read_cursors", "canvas_name"],
 ] as const;
 
 const roots: string[] = [];
@@ -109,29 +96,49 @@ const openRuntime = async () => {
 };
 
 const CANVAS = "factory";
-const SINK = "artifacts-sink";
+const NOTE = "note";
 const LOCAL_INSTALLATION = "cc-projection-cache";
 const at = "2026-08-18T00:00:00.000Z";
 
 const AGENT = "agent-node";
+const LOCAL_AGENT = "local-agent";
 const REMOTE_HOST = "remote1";
 
 const docWith = (
   nodeText: string,
-  options: { readonly withRemoteAgent?: boolean } = {},
+  options: {
+    readonly withRemoteAgent?: boolean;
+    readonly withLocalAgent?: boolean;
+  } = {},
 ): CanvasDoc =>
   ({
     nodes: [
       {
-        id: SINK,
+        id: NOTE,
         type: "text",
         text: nodeText,
         x: 0,
         y: 0,
         width: 200,
         height: 80,
-        ether: { entity: { kind: "artifacts" } },
       },
+      ...(options.withLocalAgent === true
+        ? [
+            {
+              id: LOCAL_AGENT,
+              type: "text",
+              text: "local worker",
+              x: 0,
+              y: 200,
+              width: 200,
+              height: 80,
+              ether: {
+                entity: { kind: "agent", name: "local:worker" },
+                terminal: { bindingId: "bind-local", harness: "codex" },
+              },
+            },
+          ]
+        : []),
       ...(options.withRemoteAgent === true
         ? [
             {
@@ -158,51 +165,56 @@ const basis = Schema.decodeUnknownSync(IntentFactBasis, {
   onExcessProperty: "error",
 });
 
-const publisher = {
-  seatId: Schema.decodeUnknownSync(ActorSeatId)(`seat_${"a".repeat(64)}`),
-  canvasName: CANVAS,
-  nodeId: "publisher",
-};
-
-/** Seed a canvas holding one artifacts sink, and return its read result. */
+/** Seed a canvas holding one note, and return its read result. */
 const seedCanvas = (
   runtime: Awaited<ReturnType<typeof openRuntime>>,
-  options: { readonly withRemoteAgent?: boolean } = {},
+  options: {
+    readonly withRemoteAgent?: boolean;
+    readonly withLocalAgent?: boolean;
+  } = {},
 ) =>
   runtime.runPromise(
     Effect.gen(function* () {
       const canvases = yield* CanvasesService;
       yield* canvases.create(CANVAS);
-      yield* canvases.write(CANVAS, docWith("artifacts", options));
+      yield* canvases.write(CANVAS, docWith("note", options));
       return yield* canvases.read(CANVAS);
     }),
   );
 
-const artifactsOf = (doc: CanvasDoc) =>
-  doc.nodes.find((node) => node.id === SINK)?.ether?.artifacts?.items ?? [];
+const mailOf = (doc: CanvasDoc) =>
+  doc.nodes.find((node) => node.id === LOCAL_AGENT)?.ether?.messages?.items ??
+  [];
 
-const publishArtifact = (
+/** Append one mailbox message to the local agent seat. */
+const appendMail = (
   runtime: Awaited<ReturnType<typeof openRuntime>>,
-  artifactId: string,
+  messageId: string,
 ) =>
   runtime.runPromise(
     Effect.gen(function* () {
       const canvases = yield* CanvasesService;
       const witness = yield* canvases.activeIntentWitness();
+      const read = yield* canvases.read(CANVAS);
+      const sentBy = read.actorRefs.find(
+        (actor) => actor.nodeId === LOCAL_AGENT,
+      );
+      if (sentBy === undefined) throw new Error("expected local agent seat");
       const work = yield* WorkRepository;
-      return yield* work.publishArtifact({
-        sink: { canvasName: CANVAS, nodeId: SINK },
+      return yield* work.appendMessage({
+        sink: { canvasName: CANVAS, nodeId: LOCAL_AGENT },
         basis: basis({
           kind: "authorial-intent",
           generation: witness.generation,
           contentSha256: witness.contentSha256,
         }),
-        publishedBy: publisher,
-        artifact: {
-          artifactId,
-          name: artifactId,
-          parts: [{ kind: "text", text: "receipt" }],
+        message: {
+          messageId,
+          role: "user",
+          parts: [{ kind: "text", text: "hello" }],
         },
+        sentBy,
+        destination: { kind: "mailbox" },
         originAt: at,
         receivedAt: at,
       });
@@ -297,29 +309,11 @@ describe("canvas projection memo — the revision witness", () => {
       const seat = `seat_${"a".repeat(64)}`;
       // Column values that satisfy a CHECK the generic filler cannot guess.
       const overrides: Record<string, Record<string, string>> = {
-        work_tasks: { state: "'submitted'" },
-        work_requests: {
-          state: "'input-required'",
-          actor_seat_id: `'${seat}'`,
-        },
         work_messages: { role: "'user'", actor_seat_id: `'${seat}'` },
-        work_task_messages: {
-          parent_lane: "'task'",
-          message_kind: "'brief'",
-          role: "'user'",
-          // work_task_messages_require_exact_parent: same canvas, node, home
-          // and the parent task's id.
-          item_id: "'task_id'",
-        },
-        work_artifacts: { actor_seat_id: `'${seat}'` },
         work_delivery_receipts: {
           delivered_item_kind: "'message'",
           actor_seat_id: `'${seat}'`,
         },
-        work_board_topics: { state: "'open'", author_kind: "'operator'" },
-        work_board_posts: { author_kind: "'operator'" },
-        work_pad_posts: { author_kind: "'operator'" },
-        work_pad_shapes: { type: "'box'", w: "1", h: "1" },
       };
 
       const rowFor = (table: string, column: string) => {
@@ -348,10 +342,9 @@ describe("canvas projection memo — the revision witness", () => {
         return { columns: required.map((c) => c.name), values };
       };
 
-      // Three phases, because several of these tables refuse a row without a
-      // live parent (a task message needs its task, a pad post needs its pad).
-      // Inserting in declaration order, then updating, then deleting in
-      // reverse keeps every parent alive for as long as its children need it.
+      // Three phases: inserting in declaration order, then updating, then
+      // deleting in reverse keeps every parent alive for as long as its
+      // children need it.
       for (const [table, column] of PROJECTED_TABLES) {
         const before = revision();
         const row = rowFor(table, column);
@@ -393,77 +386,20 @@ describe("canvas projection memo — what a read must still see", () => {
     expect(second.workRevision).toBe(first.workRevision);
   });
 
-  it("sees an artifact published through the work fact journal", async () => {
+  it("sees mail appended through the work fact journal", async () => {
     const runtime = await openRuntime();
-    const seeded = await seedCanvas(runtime);
-    expect(artifactsOf(seeded.doc)).toEqual([]);
+    const seeded = await seedCanvas(runtime, { withLocalAgent: true });
+    expect(mailOf(seeded.doc)).toEqual([]);
 
-    await publishArtifact(runtime, "artifact-1");
+    await appendMail(runtime, "mail-1");
     const after = await runtime.runPromise(
       Effect.gen(function* () {
         const canvases = yield* CanvasesService;
         return yield* canvases.read(CANVAS);
       }),
     );
-    expect(artifactsOf(after.doc).map((a) => a.artifactId)).toEqual([
-      "artifact-1",
-    ]);
+    expect(mailOf(after.doc).map((m) => m.messageId)).toEqual(["mail-1"]);
     expect(after.workRevision).not.toBe(seeded.workRevision);
-  });
-
-  it("sees an archive and a delete that mint no work fact at all", async () => {
-    // The exact hole that made a workRevision memo unsafe before schema 20:
-    // `setArtifactArchived` and `deleteArtifact` mutate work_artifacts in
-    // their own transaction and append nothing to work_events, so a witness
-    // built only from the event journal could not see either one.
-    const runtime = await openRuntime();
-    const seeded = await seedCanvas(runtime);
-    await publishArtifact(runtime, "artifact-1");
-
-    const published = await runtime.runPromise(
-      Effect.gen(function* () {
-        const canvases = yield* CanvasesService;
-        return yield* canvases.read(CANVAS);
-      }),
-    );
-    expect(artifactsOf(published.doc)[0]?.metadata?.archived).toBeUndefined();
-
-    await runtime.runPromise(
-      Effect.gen(function* () {
-        const work = yield* WorkRepository;
-        return yield* work.setArtifactArchived({
-          sink: { canvasName: CANVAS, nodeId: SINK },
-          artifactId: "artifact-1",
-          archived: true,
-        });
-      }),
-    );
-    const archived = await runtime.runPromise(
-      Effect.gen(function* () {
-        const canvases = yield* CanvasesService;
-        return yield* canvases.read(CANVAS);
-      }),
-    );
-    expect(archived.workRevision).not.toBe(published.workRevision);
-    expect(artifactsOf(archived.doc)[0]?.metadata?.archived).toBe(true);
-
-    await runtime.runPromise(
-      Effect.gen(function* () {
-        const work = yield* WorkRepository;
-        return yield* work.deleteArtifact({
-          sink: { canvasName: CANVAS, nodeId: SINK },
-          artifactId: "artifact-1",
-        });
-      }),
-    );
-    const deleted = await runtime.runPromise(
-      Effect.gen(function* () {
-        const canvases = yield* CanvasesService;
-        return yield* canvases.read(CANVAS);
-      }),
-    );
-    expect(deleted.workRevision).not.toBe(archived.workRevision);
-    expect(artifactsOf(deleted.doc)).toEqual([]);
   });
 
   it("sees an authorial write even when no work row moved", async () => {
@@ -479,7 +415,7 @@ describe("canvas projection memo — what a read must still see", () => {
     expect(updated.revision).not.toBe(seeded.revision);
     expect(updated.workRevision).toBe(seeded.workRevision);
     const textOf = (doc: CanvasDoc): string | undefined => {
-      const node = doc.nodes.find((candidate) => candidate.id === SINK);
+      const node = doc.nodes.find((candidate) => candidate.id === NOTE);
       return node?.type === "text" ? node.text : undefined;
     };
     expect(textOf(updated.doc)).not.toEqual(textOf(seeded.doc));
@@ -618,9 +554,10 @@ describe("node-scoped read — what the wake path may rely on", () => {
         const canvases = yield* CanvasesService;
         yield* canvases.create(CANVAS);
         yield* canvases.write(CANVAS, {
-          ...docWith("artifacts", { withRemoteAgent: true }),
+          ...docWith("note", { withRemoteAgent: true, withLocalAgent: true }),
           nodes: [
-            ...docWith("artifacts", { withRemoteAgent: true }).nodes,
+            ...docWith("note", { withRemoteAgent: true, withLocalAgent: true })
+              .nodes,
             {
               id: "region-1",
               type: "group",
@@ -636,16 +573,16 @@ describe("node-scoped read — what the wake path may rely on", () => {
             {
               id: "edge-1",
               fromNode: AGENT,
-              toNode: SINK,
+              toNode: NOTE,
             },
           ],
         } as unknown as CanvasDoc);
       }),
     );
 
-    // A Work lane must actually exist on the projected read, or "the
+    // A mail lane must actually exist on the projected read, or "the
     // structural read carries none" is vacuously true.
-    await publishArtifact(runtime, "artifact-1");
+    await appendMail(runtime, "mail-1");
 
     const projected = await runtime.runPromise(
       Effect.gen(function* () {
@@ -653,7 +590,7 @@ describe("node-scoped read — what the wake path may rely on", () => {
         return yield* canvases.read(CANVAS);
       }),
     );
-    expect(artifactsOf(projected.doc)).toHaveLength(1);
+    expect(mailOf(projected.doc)).toHaveLength(1);
 
     for (const node of projected.doc.nodes) {
       const scoped = await runtime.runPromise(
@@ -677,12 +614,7 @@ describe("node-scoped read — what the wake path may rely on", () => {
       // And it carries no Work lane at all — a routing caller that reached
       // for one would read undefined, never a stale value.
       for (const structural of scoped!.structure.nodes) {
-        expect(structural.ether?.tasks).toBeUndefined();
-        expect(structural.ether?.requests).toBeUndefined();
         expect(structural.ether?.messages).toBeUndefined();
-        expect(structural.ether?.artifacts).toBeUndefined();
-        expect(structural.ether?.board).toBeUndefined();
-        expect(structural.ether?.pad).toBeUndefined();
       }
     }
   });

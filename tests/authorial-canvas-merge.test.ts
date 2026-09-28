@@ -8,7 +8,6 @@ import {
   type TextNode,
 } from "../src/shared/canvas";
 import { mergeAuthorialCanvas } from "../src/shared/authorial-canvas-merge";
-import { taskItem } from "./helpers/task-fixtures";
 
 const node = (id: string, text = id): TextNode => ({
   id,
@@ -180,56 +179,5 @@ describe("authorial canvas three-way merge", () => {
       }),
     );
     expect(implicitHostChange.nodes[0]?.ether?.overseer).toBeUndefined();
-  });
-
-  it("merges authored task name and contract with the latest Work projection", () => {
-    const task: TextNode = {
-      ...node("tasks", "queued"),
-      ether: {
-        entity: { kind: "task" },
-        tasks: {
-          items: [],
-          name: "Backlog",
-          contract: { instructions: "Old instructions" },
-        },
-      },
-    };
-    const local = doc({
-      ...task,
-      x: 40,
-      ether: {
-        ...task.ether,
-        tasks: {
-          items: [],
-          name: "Intake",
-          contract: { instructions: "Triage before claim" },
-        },
-      },
-    });
-    const remote = doc({
-      ...task,
-      text: "working",
-      ether: {
-        ...task.ether,
-        tasks: {
-          items: [taskItem("t1", "working", "working")],
-          name: "Backlog",
-          contract: { instructions: "Old instructions" },
-        },
-      },
-    });
-
-    const result = merged(doc(task), local, remote);
-    expect(result.nodes[0]).toMatchObject({
-      x: 40,
-      text: "working",
-      ether: {
-        tasks: {
-          items: [{ id: "t1", state: "working" }],
-          name: "Intake",
-          contract: { instructions: "Triage before claim" },
-        },
-      },
-    });
   });
 });
