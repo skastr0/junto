@@ -28,47 +28,11 @@ const agentNode = (id: string, bindingId: string, host?: string): CanvasNode => 
   },
 });
 
-const taskSinkNode = (
-  items: ReadonlyArray<{
-    id: string;
-    state:
-      | "submitted"
-      | "working"
-      | "input-required"
-      | "completed"
-      | "canceled"
-      | "failed"
-      | "rejected"
-      | "auth-required"
-      | "archived";
-    epoch?: number;
-  }>,
-): CanvasNode => ({
-  id: "sink",
-  type: "text",
-  text: "tasks",
-  x: 0,
-  y: 0,
-  width: 100,
-  height: 80,
-  ether: {
-    entity: { kind: "task" },
-    tasks: { items: items.map((i) => ({ history: [], ...i })) },
-  },
-});
-
 const messagesEdge: CanvasEdge = {
   id: "e-msg",
   fromNode: "caller",
   toNode: "peer",
   ether: { verb: "messages" },
-};
-
-const contributesEdge: CanvasEdge = {
-  id: "e-task",
-  fromNode: "caller",
-  toNode: "sink",
-  ether: { verb: "contributes" },
 };
 
 const docWith = (
@@ -193,54 +157,6 @@ const seatEvent = (
 });
 
 describe("crew seat observation — adversarial authority and ordering", () => {
-  // Contract: "subscriptions are registered before the current value is
-  // checked, so a transition that lands during registration cannot be lost."
-  // The wait must observe a transition that lands in the narrow window
-  // between its first check and subscription registration.
-  it(
-    "tasks.wait does not lose a transition landing between check and subscribe",
-    async () => {
-      let taskState: "working" | "completed" = "working";
-      const doc = () =>
-        docWith(
-          [agentNode("caller", "bind-caller"), taskSinkNode([{ id: "t1", state: taskState, epoch: 1 }])],
-          [contributesEdge],
-        );
-      const workListeners = new Set<
-        (canvasName: string | undefined, nodeId: string | undefined) => void
-      >();
-      let readCount = 0;
-      const service = makeSeatObservation({
-        // The first read still shows "working", then the mutation lands —
-        // before the wait's subscription registers. No further change event
-        // arrives, which is exactly the steady-state case the ordering rule
-        // exists for.
-        readDoc: () => {
-          readCount += 1;
-          const snapshot = doc();
-          if (readCount === 1) taskState = "completed";
-          return Effect.succeed(snapshot);
-        },
-        subscribeCanvasChanges: () => () => {},
-        seatStates: { current: () => [], subscribe: () => () => {} },
-        subscribeWorkChanges: (listener) => {
-          workListeners.add(listener);
-          return () => workListeners.delete(listener);
-        },
-        sessionOf: () => undefined,
-        readGrid: async () => undefined,
-        subscribeGrid: () => () => {},
-      });
-      const exit = await Effect.runPromiseExit(
-        service.waitTask(
-          { target: "sink", taskId: "t1", until: "completed", timeoutMs: 90 },
-          { canvasName: "c", nodeId: "caller" },
-        ),
-      );
-      expect(Exit.isSuccess(exit)).toBe(true);
-    },
-  );
-
   // Contract: authority is re-derived before EVERY return. A settled window
   // must not reach the caller when the edge died before the return — even
   // when the canvas-change event has not dispatched to this wait yet.

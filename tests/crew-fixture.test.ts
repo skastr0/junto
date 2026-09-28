@@ -1,8 +1,8 @@
 /**
  * Crew fixture helper tests — the pure half of e2e/harness/crew-fixture.ts.
- * Covers fixture assembly legality (edge grammar, masks, contract rules,
- * region shape) and the shared path derivation the fake seat binary and
- * the spec side must agree on. No Electron, no Playwright.
+ * Covers fixture assembly legality (edge grammar, masks, region shape)
+ * and the shared path derivation the fake seat binary and the spec side
+ * must agree on. No Electron, no Playwright.
  */
 import { describe, expect, it } from "vitest";
 import { edgeGrant, type CanvasDoc } from "../src/shared/canvas";
@@ -10,16 +10,11 @@ import {
   crewDoc,
   crewMessagesEdge,
   crewRegionNode,
-  crewReviewsEdge,
-  crewRule,
   crewSeatDir,
   crewSeatDirName,
   crewSeatNode,
   crewSeatsDir,
-  crewTasksNode,
-  crewWorksEdge,
 } from "../e2e/harness/crew-fixture";
-import { taskItem } from "../e2e/harness/sandbox";
 import type { Sandbox } from "../e2e/harness/sandbox";
 
 const seat = (id: string) => crewSeatNode({ id });
@@ -39,9 +34,9 @@ describe("crewSeatNode", () => {
   });
 
   it("honors an explicit process-bind key", () => {
-    const node = crewSeatNode({ id: "x", key: "local:reviewer-1" });
-    expect(node.ether?.entity?.name).toBe("local:reviewer-1");
-    expect(node.ether?.terminal?.bindingId).toBe("local:reviewer-1");
+    const node = crewSeatNode({ id: "x", key: "local:peer-1" });
+    expect(node.ether?.entity?.name).toBe("local:peer-1");
+    expect(node.ether?.terminal?.bindingId).toBe("local:peer-1");
   });
 });
 
@@ -87,74 +82,16 @@ describe("crewMessagesEdge", () => {
   });
 });
 
-describe("crewReviewsEdge", () => {
-  it("compiles verdict.post only", () => {
-    const nodes = [seat("reviewer"), seat("author")];
-    const edge = crewReviewsEdge("r", "reviewer", "author", nodes);
-    const grant = edgeGrant(crewDoc(nodes, [edge]), edge);
-    expect(grant?.ports).toEqual(["verdict.post"]);
-  });
-
-  it("throws when the pair cannot hold the verb", () => {
-    const board = {
-      id: "board",
-      type: "text" as const,
-      text: "board",
-      x: 0,
-      y: 0,
-      width: 240,
-      height: 120,
-      ether: { entity: { kind: "board" as const } },
-    };
-    const nodes = [seat("a"), board];
-    expect(() => crewReviewsEdge("r", "a", "board", nodes)).toThrow(/reviews/);
-  });
-});
-
-describe("crewWorksEdge", () => {
-  it("compiles the claimable task path from sink to seat", () => {
-    const sink = crewTasksNode({ id: "sink" });
-    const nodes = [sink, seat("a")];
-    const edge = crewWorksEdge("w", "sink", "a", nodes);
-    const grant = edgeGrant(crewDoc(nodes, [edge]), edge);
-    expect(grant?.claimable).toBe(true);
-    expect(grant?.ports).toContain("tasks.list");
-  });
-});
-
-describe("crewTasksNode + crewRule", () => {
-  it("carries the operator contract including requires-review", () => {
-    const node = crewTasksNode({
-      id: "sink",
-      items: [taskItem("t-1", "do the thing")],
-      contract: {
-        rules: [crewRule("r1", "must be reviewed", "requires-review")],
-      },
-    });
-    expect(node.ether?.tasks?.contract?.rules?.[0]).toEqual({
-      id: "r1",
-      text: "must be reviewed",
-      kind: "requires-review",
-    });
-  });
-
-  it("defaults a rule to a plain statement", () => {
-    expect(crewRule("r2", "prose")).toEqual({ id: "r2", text: "prose" });
-  });
-});
-
 describe("crewRegionNode", () => {
-  it("authors a hold region with a stacked contract", () => {
+  it("authors a hold region carrying its instruction", () => {
     const region = crewRegionNode({
       id: "zone",
-      label: "reviewed zone",
-      rules: [crewRule("zr", "region review", "requires-review")],
+      label: "crew zone",
+      instruction: "stay inside the zone",
     });
     expect(region.type).toBe("group");
     expect(region.ether?.region?.hold).toBe(true);
-    expect(region.ether?.region?.contract?.rules?.[0]?.kind).toBe(
-      "requires-review",
-    );
+    expect(region.ether?.region?.instruction).toBe("stay inside the zone");
   });
 });
 

@@ -8,16 +8,14 @@ import {
   renderSchemaContract,
 } from "../src/cli/core/discovery";
 import { loadJsonInput } from "../src/cli/core/json";
-import { MsgPromptArgs, MsgSentArgs, VerdictPostArgs } from "../src/shared/work-control";
-import { SeatReadArgs, SeatWaitArgs, TaskWaitArgs } from "../src/shared/seat-control";
+import { MsgPromptArgs, MsgSentArgs } from "../src/shared/work-control";
+import { SeatReadArgs, SeatWaitArgs } from "../src/shared/seat-control";
 
 const crewSchemas = [
   ["msg.prompt", MsgPromptArgs],
   ["msg.sent", MsgSentArgs],
   ["seat.wait", SeatWaitArgs],
   ["seat.read", SeatReadArgs],
-  ["tasks.wait", TaskWaitArgs],
-  ["verdict.post", VerdictPostArgs],
 ] as const;
 
 describe("crew CLI discovery", () => {
@@ -28,7 +26,7 @@ describe("crew CLI discovery", () => {
     expect(contract.schema).toBe(schema);
     const rendered = renderSchemaContract(contract);
     expect(rendered.input_modes).toEqual(["inline-json", "@file", "stdin"]);
-    expect(rendered.accepts_batch).toBe(id === "verdict.post" || id === "msg.prompt");
+    expect(rendered.accepts_batch).toBe(id === "msg.prompt");
     expect(rendered.schema).toEqual(Schema.toJsonSchemaDocument(schema).schema);
 
     const capabilities = commandCapabilities.filter((entry) => entry.command_id === id);
@@ -68,7 +66,6 @@ describe("crew CLI discovery", () => {
       ["seat.read", SeatReadArgs, { target: "peer", lines: 2001 }],
       ["seat.read", SeatReadArgs, { target: "peer", follow: true, maxSeconds: 601 }],
       ["seat.read", SeatReadArgs, { target: "peer", input: "\r" }],
-      ["tasks.wait", TaskWaitArgs, { target: "tasks", task: "t1", until: "completed" }],
     ] as const;
     for (const [id, schema, input] of invalid) {
       expect(allSchemas.find((entry) => entry.command_id === id)!.schema).toBe(schema);
@@ -81,17 +78,15 @@ describe("crew CLI discovery", () => {
       { target: "peer-prompt", grants: ["msg.prompt"] },
       { target: "peer-wait", grants: ["seat.wait"] },
       { target: "peer-read", grants: ["terminal.read"] },
-      { target: "review-target", grants: ["verdict.post"] },
       { target: "ordinary-peer", grants: ["msg.send", "msg.read"] },
-      { target: "wrong-vocabulary", grants: ["seat.read", "reviews"] },
+      { target: "wrong-vocabulary", grants: ["seat.read", "messages"] },
     ];
     const expected = [
       { ...connected[0], invocations: [{ port: "msg.prompt", command: "junto msg send --prompt", discover: "junto schema show msg.prompt" }] },
       { ...connected[1], invocations: [{ port: "seat.wait", command: "junto seat wait", discover: "junto schema show seat.wait" }] },
       { ...connected[2], invocations: [{ port: "terminal.read", command: "junto seat read", discover: "junto schema show seat.read" }] },
-      { ...connected[3], invocations: [{ port: "verdict.post", command: "junto verdict post", discover: "junto schema show verdict.post" }] },
+      connected[3],
       connected[4],
-      connected[5],
     ];
     const original = structuredClone(connected);
     expect(annotateCapabilityInvocations({ connected }).connected).toEqual(expected);

@@ -1,27 +1,12 @@
 import { Result, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import {
-  MsgPromptArgs, MsgSendArgs, VerdictPostArgs, decodeWorkRequest,
+  MsgPromptArgs, MsgSendArgs, decodeWorkRequest,
 } from "../src/shared/work-control";
 import { admitWorkTarget } from "../src/main/junto/work/authz";
 import type { CanvasDoc } from "../src/shared/canvas";
 
 describe("crew work wire contract", () => {
-  it("requires exact review subject expectations and rejects asserted reviewer identity", () => {
-    const decode = Schema.decodeUnknownResult(VerdictPostArgs);
-    const valid = {
-      target: "task-board", kind: "green",
-      subject: { kind: "task", taskId: "task-1", epoch: 2, subjectHash: "a".repeat(64) },
-    };
-    expect(Result.isSuccess(decode(valid))).toBe(true);
-    for (const args of [
-      { ...valid, reviewerSeatId: "forged" },
-      { ...valid, subject: { kind: "task", taskId: "task-1" } },
-      { ...valid, subject: { ...valid.subject, epoch: -1 } },
-      { ...valid, subject: { ...valid.subject, subjectHash: "latest" } },
-      { ...valid, subject: { kind: "commit", sha: "a".repeat(41) } },
-    ]) expect(Result.isFailure(decode(args))).toBe(true);
-  });
   it("takes a prompt as target and text, and rejects identity forgery", () => {
     const decode = Schema.decodeUnknownResult(MsgPromptArgs, { onExcessProperty: "error" });
     expect(Result.isSuccess(decode({ target: "peer", text: "Review now" }))).toBe(true);
@@ -36,25 +21,22 @@ describe("crew work wire contract", () => {
       target: "peer", text: "Patch ready", refs: [{ kind: "file", path: "src/file.ts", line: 9 }],
     });
     expect(args.refs).toEqual([{ kind: "file", path: "src/file.ts", line: 9 }]);
-    for (const op of ["msg.prompt", "msg.sent", "seat.wait", "seat.read", "tasks.wait", "verdict.post"]) {
+    for (const op of ["msg.prompt", "msg.sent", "seat.wait", "seat.read"]) {
       expect(Result.isSuccess(decodeWorkRequest({ token: "test", op, args: {} }))).toBe(true);
     }
   });
 
-  it("admits peer read independently from prompt and enforces review direction at work ingress", () => {
+  it("admits peer read independently from prompt at work ingress", () => {
     const doc: CanvasDoc = {
-      nodes: ["author", "reviewer"].map((id) => ({
+      nodes: ["author", "peer"].map((id) => ({
         id, type: "text", text: id, x: 0, y: 0, width: 200, height: 100,
         ether: { entity: { kind: "agent", name: id } },
       })),
       edges: [
-        { id: "m", fromNode: "author", toNode: "reviewer", ether: { verb: "messages", mask: ["terminal.read"] } },
-        { id: "r", fromNode: "reviewer", toNode: "author", ether: { verb: "reviews" } },
+        { id: "m", fromNode: "author", toNode: "peer", ether: { verb: "messages", mask: ["terminal.read"] } },
       ],
     };
-    expect(Result.isSuccess(admitWorkTarget(doc, "author", "reviewer", "seat.read"))).toBe(true);
-    expect(Result.isFailure(admitWorkTarget(doc, "author", "reviewer", "msg.prompt"))).toBe(true);
-    expect(Result.isFailure(admitWorkTarget(doc, "author", "reviewer", "verdict.post"))).toBe(true);
-    expect(Result.isSuccess(admitWorkTarget(doc, "reviewer", "author", "verdict.post"))).toBe(true);
+    expect(Result.isSuccess(admitWorkTarget(doc, "author", "peer", "seat.read"))).toBe(true);
+    expect(Result.isFailure(admitWorkTarget(doc, "author", "peer", "msg.prompt"))).toBe(true);
   });
 });

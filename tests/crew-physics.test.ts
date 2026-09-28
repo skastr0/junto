@@ -1,7 +1,6 @@
-import { Result, Schema } from "effect";
+import { Result } from "effect";
 import { describe, expect, it } from "vitest";
 import { decodeCanvasDoc, edgeGrant, type CanvasDoc, type CanvasEdge } from "../src/shared/canvas";
-import { Rule } from "../src/shared/work-model";
 import { admitPure, asNodeId, canvasDocToCapabilityView, type Port } from "../src/shared/physics";
 
 const docWith = (edges: readonly CanvasEdge[]): CanvasDoc => ({
@@ -12,7 +11,7 @@ const docWith = (edges: readonly CanvasEdge[]): CanvasDoc => ({
   edges,
 });
 
-const edge = (verb: "messages" | "reviews", mask?: readonly Port[]): CanvasEdge => ({
+const edge = (verb: "messages", mask?: readonly Port[]): CanvasEdge => ({
   id: verb, fromNode: "reviewer", toNode: "author",
   ether: { verb, ...(mask === undefined ? {} : { mask }) },
 });
@@ -74,28 +73,4 @@ describe("crew edge authority", () => {
       expect(decoded.success.edges).toEqual([]);
     }
   });
-
-  it("grants review only from the drawn reviewer to the author", () => {
-    const doc = docWith([edge("reviews")]);
-    expect(allows(doc, "reviewer", "author", "verdict.post")).toBe(true);
-    expect(allows(doc, "author", "reviewer", "verdict.post")).toBe(false);
-    for (const port of ["msg.prompt", "msg.send", "terminal.read", "tasks.update"] as const) {
-      expect(allows(doc, "reviewer", "author", port), port).toBe(false);
-    }
-    expect(allows(docWith([edge("reviews", [])]), "reviewer", "author", "verdict.post")).toBe(false);
-  });
-
-  it("keeps separate edges additive without making reviews symmetric", () => {
-    const doc = docWith([edge("reviews"), edge("messages", ["seat.wait"])]);
-    expect(allows(doc, "author", "reviewer", "seat.wait")).toBe(true);
-    expect(allows(doc, "author", "reviewer", "verdict.post")).toBe(false);
-    expect(allows(doc, "reviewer", "author", "verdict.post")).toBe(true);
-    expect(allows(docWith([]), "reviewer", "author", "terminal.read")).toBe(false);
-  });
-});
-
-it("distinguishes a requires-review rule without changing old statement rules", () => {
-  const decode = Schema.decodeUnknownSync(Rule);
-  expect(decode({ id: "r", text: "Read the contract" }).kind).toBeUndefined();
-  expect(decode({ id: "r", text: "Independent review", kind: "requires-review" }).kind).toBe("requires-review");
 });

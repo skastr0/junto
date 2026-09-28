@@ -20,28 +20,6 @@ const agent = (id: string, label: string): TextNode => ({
   },
 });
 
-const tasks = (id: string): TextNode => ({
-  id,
-  type: "text",
-  text: "tasks",
-  x: 0,
-  y: 0,
-  width: 200,
-  height: 80,
-  ether: { entity: { kind: "task" }, tasks: { items: [] } },
-});
-
-const board = (id: string): TextNode => ({
-  id,
-  type: "text",
-  text: "board",
-  x: 0,
-  y: 0,
-  width: 200,
-  height: 80,
-  ether: { entity: { kind: "board" } },
-});
-
 const note = (id: string, text: string): TextNode => ({
   id,
   type: "text",
@@ -69,67 +47,48 @@ const docOf = (
 
 describe("actorEdgeRows", () => {
   it("returns empty for non-actor nodes", () => {
-    const doc = docOf([tasks("t"), note("n", "hi")], [edge("e", "t", "n")]);
-    expect(actorEdgeRows(doc, "t")).toEqual([]);
+    const doc = docOf(
+      [note("m", "memo"), note("n", "hi")],
+      [edge("e", "m", "n")],
+    );
+    expect(actorEdgeRows(doc, "m")).toEqual([]);
     expect(actorEdgeRows(doc, "missing")).toEqual([]);
   });
 
   it("lists directed incident edges with peer kind — no soft nature", () => {
     const doc = docOf(
-      [agent("worker", "Grok"), tasks("tasks"), board("board"), note("memo", "note")],
       [
-        edge("e-tasks", "tasks", "worker", "works"),
-        edge("e-board", "worker", "board", "participates"),
+        agent("worker", "Grok"),
+        agent("lead", "Claude"),
+        agent("helper", "Codex"),
+        note("memo", "note"),
+      ],
+      [
+        edge("e-in", "lead", "worker", "messages"),
+        edge("e-out", "worker", "helper", "messages"),
         edge("e-note", "worker", "memo"),
       ],
     );
     const rows = actorEdgeRows(doc, "worker");
     expect(rows.map((r) => r.edgeId).sort()).toEqual([
-      "e-board",
+      "e-in",
       "e-note",
-      "e-tasks",
+      "e-out",
     ]);
 
-    const tasksRow = rows.find((r) => r.edgeId === "e-tasks")!;
-    expect(tasksRow.direction).toBe("in");
-    expect(tasksRow.peerKind).toBe("task");
-    expect(actorEdgePhaseLabel(tasksRow)).toBeNull();
+    const inRow = rows.find((r) => r.edgeId === "e-in")!;
+    expect(inRow.direction).toBe("in");
+    expect(inRow.peerKind).toBe("agent");
+    expect(inRow.peerId).toBe("lead");
+    expect(actorEdgePhaseLabel(inRow)).toBeNull();
 
-    const boardRow = rows.find((r) => r.edgeId === "e-board")!;
-    expect(boardRow.direction).toBe("out");
-    expect(boardRow.boardNotify).toBe("on");
+    const outRow = rows.find((r) => r.edgeId === "e-out")!;
+    expect(outRow.direction).toBe("out");
+    expect(outRow.peerKind).toBe("agent");
+    expect(outRow.peerId).toBe("helper");
 
     const noteRow = rows.find((r) => r.edgeId === "e-note")!;
-    expect(noteRow.boardNotify).toBeNull();
-  });
-
-  it("reads the quiet board verb as wake off", () => {
-    const doc = docOf(
-      [agent("worker", "Grok"), board("board")],
-      [
-        {
-          id: "e-board",
-          fromNode: "worker",
-          toNode: "board",
-          ether: { verb: "messages" },
-        },
-      ],
-    );
-    const rows = actorEdgeRows(doc, "worker");
-    expect(rows.find((r) => r.edgeId === "e-board")?.boardNotify).toBe("off");
-  });
-
-  it("overlays live phase when provided — only blocks is labeled", () => {
-    const doc = docOf(
-      [agent("worker", "Grok"), tasks("tasks")],
-      [edge("e-tasks", "tasks", "worker", "works")],
-    );
-    const phaseMap = new Map<string, "blocks" | "relates">([
-      ["e-tasks", "blocks"],
-    ]);
-    const rows = actorEdgeRows(doc, "worker", phaseMap);
-    expect(rows[0]?.livePhase).toBe("blocks");
-    expect(actorEdgePhaseLabel(rows[0]!)).toBe("blocks");
+    expect(noteRow.direction).toBe("out");
+    expect(noteRow.peerKind).toBe("text");
   });
 });
-
