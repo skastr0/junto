@@ -265,7 +265,7 @@ const launchElectron = async (options: {
     source: "browser-electron-profile-wipe-probe",
     purpose: `run Electron profile wipe phase ${options.phase}`,
     command: electronPath,
-    args,
+    args: [...args, "--mute-audio"],
     cwd: repoRoot,
     env,
   });

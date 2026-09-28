@@ -369,7 +369,8 @@ export const smokeLinuxCiPackagedRuntime = async (
       source: "linux-ci-packaged-runtime-smoke",
       purpose: "verify installed Linux Junto runtime",
       command: executable,
-      args: [`--user-data-dir=${userData}`],
+      // Silent: a test launch never plays cues on the operator's speakers.
+      args: [`--user-data-dir=${userData}`, "--mute-audio"],
       cwd: tempRoot,
       env: environment,
       shell: false,

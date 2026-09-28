@@ -815,7 +815,8 @@ export const smokePackagedRuntime = async (
       source: "packaged-runtime-smoke",
       purpose: "verify packaged Junto runtime",
       command: executable,
-      args: [`--user-data-dir=${userData}`],
+      // Silent: a test launch never plays cues on the operator's speakers.
+      args: [`--user-data-dir=${userData}`, "--mute-audio"],
       cwd: tempRoot,
       env: childEnvironment,
       shell: false,

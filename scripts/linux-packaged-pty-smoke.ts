@@ -392,7 +392,8 @@ export const smokeLinuxPackagedPty = async (
       source: "linux-packaged-pty-smoke",
       purpose: "verify packaged Junto terminal runtime",
       command: executable,
-      args: ["--junto-headless", `--user-data-dir=${userData}`],
+      // Silent: a test launch never plays cues on the operator's speakers.
+      args: ["--junto-headless", `--user-data-dir=${userData}`, "--mute-audio"],
       cwd: tempRoot,
       env: environment,
       shell: false,

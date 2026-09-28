@@ -586,6 +586,7 @@ const launchDedicatedElectron = (
       // exactly its owned endpoint (assertTrustedDirectManagedProxy), with
       // the fixture stripping any launcher-inherited proxy switches early.
       ...electronArguments.slice(1),
+      "--mute-audio",
     ],
     cwd: repoRoot,
     env,

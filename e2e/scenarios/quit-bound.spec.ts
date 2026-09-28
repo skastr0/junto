@@ -41,7 +41,7 @@ test("control: a bare Electron window quits within the bound", async () => {
   test.setTimeout(60_000);
   const userData = await mkdtemp(join(tmpdir(), "junto-quit-control-"));
   const app = await electron.launch({
-    args: [join(process.cwd(), "e2e/fakes/bare-electron"), `--user-data-dir=${userData}`],
+    args: [join(process.cwd(), "e2e/fakes/bare-electron"), `--user-data-dir=${userData}`, "--mute-audio"],
   });
   const child = app.process();
   try {

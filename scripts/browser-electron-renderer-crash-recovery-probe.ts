@@ -104,6 +104,7 @@ const run = async (): Promise<void> => {
       command: electronPath,
       args: [
         entry,
+        "--mute-audio",
         `--browser-root=${browserRoot}`,
         `--download-path=${downloadPath}`,
         `--report-path=${reportPath}`,

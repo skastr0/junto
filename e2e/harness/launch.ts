@@ -70,6 +70,10 @@ const PLATFORM_ELECTRON_ARGS =
   process.platform === "linux"
     ? ["--use-angle=swiftshader-webgl", "--enable-unsafe-swiftshader"]
     : [];
+// A test app is never heard: its sound cues would reach the operator's
+// speakers with no Junto of theirs running. Chromium-wide, so every window,
+// AudioContext and <audio> element in the process is silent.
+const MUTE_AUDIO = "--mute-audio";
 
 // e2e/fakes/bin/{ssh,hermes} — stock-protocol emulators (see
 // e2e/fakes/*.ts for the scenario-file contract each one reads). The system
@@ -539,6 +543,7 @@ export const launchJunto = async (options: LaunchOptions = {}): Promise<JuntoHan
           : []),
         MAIN_ENTRY,
         `--user-data-dir=${sandbox.userDataDir}`,
+        MUTE_AUDIO,
         ...PLATFORM_ELECTRON_ARGS,
         ...(options.electronArgs ?? []),
       ],
