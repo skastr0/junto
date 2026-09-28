@@ -64,6 +64,9 @@ export function OffboardControls({ seatId }: { readonly seatId: string }) {
   };
 
   const inFlight = progress !== undefined && (progress.stage === "asked" || progress.stage === "saved");
+  // Once the notes are saved the close is Junto's and moments away. Before
+  // that the operator may ask again, or switch the mode.
+  const closing = progress?.stage === "saved";
   const steps = progress === undefined ? [] : stepsOf(progress);
   // The step Junto is waiting on now: the first one not done.
   const waitingOn = steps.findIndex((step) => !step.done);
@@ -73,7 +76,7 @@ export function OffboardControls({ seatId }: { readonly seatId: string }) {
       <div className="seat-offboard__actions">
         <Button
           size="sm"
-          disabled={sending !== undefined || inFlight}
+          disabled={sending !== undefined || closing}
           onClick={() => void ask("rest")}
           data-testid="seat-offboard-rest"
         >
@@ -81,7 +84,7 @@ export function OffboardControls({ seatId }: { readonly seatId: string }) {
         </Button>
         <Button
           size="sm"
-          disabled={sending !== undefined || inFlight}
+          disabled={sending !== undefined || closing}
           onClick={() => void ask("continue")}
           data-testid="seat-offboard-continue"
         >
