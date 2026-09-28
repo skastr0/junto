@@ -15,7 +15,6 @@ import {
   decodeWorkResponse,
   encodeWorkFrame,
   workControlTokenPath,
-  type WorkErrorDetails,
 } from "../src/shared/work-control";
 import type { PreambleEvent } from "../src/shared/preamble";
 import { CanvasesLive, CanvasesService } from "../src/main/junto/canvases";
@@ -31,12 +30,8 @@ import { mailboxMessageReadId } from "../src/main/junto/work/mailbox-receipts";
 import { messageDelivery } from "../src/main/junto/work/message-delivery";
 import { WorkLive, WorkService } from "../src/main/junto/work/service";
 import { CrewRepositoryLive } from "../src/main/junto/work/crew-repository";
+import { makeContentServiceLive } from "../src/main/junto/content/service";
 import {
-  ContentService,
-  makeContentServiceLive,
-} from "../src/main/junto/content/service";
-import {
-  createAuthorialTaskDependencyScopeCapability,
   WorkRepository,
   WorkRepositoryLive,
 } from "../src/main/junto/work/repository";
@@ -59,7 +54,6 @@ import {
   type ProcessIdentityMap,
 } from "../src/main/junto/process-identity";
 import type { CanvasDoc } from "../src/shared/canvas";
-import type { ContentRef } from "../src/shared/content";
 import {
   createMainAuthoringGate,
   type MainAuthoringGate,
@@ -128,30 +122,6 @@ const authorialBasis = async (
   });
 };
 
-const taskDependencyAuthority = async (
-  runtime: ReturnType<typeof makeWorkTestRuntime>,
-  sink: { readonly canvasName: string; readonly nodeId: string },
-) => {
-  const canvases = await runtime.runPromise(CanvasesService);
-  const authority = await runtime.runPromise(
-    canvases.authorityMaterialSnapshot(),
-  );
-  const basis = Schema.decodeUnknownSync(IntentFactBasis, {
-    onExcessProperty: "error",
-  })({
-    kind: "authorial-intent",
-    generation: authority.generation,
-    contentSha256: authority.intentSha256,
-  });
-  return {
-    basis,
-    dependencyScope: createAuthorialTaskDependencyScopeCapability({
-      authority,
-      authoringSink: sink,
-    }),
-  };
-};
-
 const deferred = <A>() => {
   let resolve!: (value: A | PromiseLike<A>) => void;
   let reject!: (reason?: unknown) => void;
@@ -182,53 +152,24 @@ const seedDoc = (): CanvasDoc => ({
       },
     },
     {
-      id: "tasks",
-      type: "text",
-      x: 200,
-      y: 0,
-      width: 120,
-      height: 48,
-      text: "tasks",
-      ether: {
-        entity: { kind: "task" },
-      },
-    },
-    {
-      id: "req",
-      type: "text",
-      x: 400,
-      y: 0,
-      width: 120,
-      height: 48,
-      text: "requests",
-      ether: { entity: { kind: "requests" } },
-    },
-    {
-      id: "orphan-tasks",
+      id: "orphan",
       type: "text",
       x: 500,
       y: 200,
       width: 120,
       height: 48,
       text: "orphan",
-      ether: { entity: { kind: "task" } },
-    },
-    {
-      id: "artifacts",
-      type: "text",
-      x: 600,
-      y: 0,
-      width: 120,
-      height: 48,
-      text: "artifacts",
-      ether: { entity: { kind: "artifacts" } },
+      ether: {
+        entity: { kind: "agent", name: "local:orphan" },
+        terminal: {
+          bindingId: "bind-orphan",
+          harness: "claude",
+          launch: { kind: "harness", argv: ["claude"] },
+        },
+      },
     },
   ],
-  edges: [
-    { id: "e1", fromNode: "agent", toNode: "tasks" },
-    { id: "e2", fromNode: "agent", toNode: "req" },
-    { id: "e3", fromNode: "agent", toNode: "artifacts" },
-  ],
+  edges: [],
 });
 
 const addPromptPeer = async (runtime: ReturnType<typeof makeWorkTestRuntime>) => {
@@ -263,28 +204,6 @@ const seedCanonicalWork = async (
   );
   const canvases = await runtime.runPromise(CanvasesService);
   await runtime.runPromise(canvases.write("work-cli", seedDoc()));
-  const repository = await runtime.runPromise(WorkRepository);
-  const sink = { canvasName: "work-cli", nodeId: "tasks" };
-  const { basis, dependencyScope } = await taskDependencyAuthority(runtime, sink);
-  await runtime.runPromise(
-    repository.createTask({
-      sink,
-      basis,
-      dependencyScope,
-      task: {
-        id: "t1",
-        state: "submitted",
-        history: [
-          {
-            messageId: "m0",
-            role: "user",
-            parts: [{ kind: "text", text: "ship it" }],
-            taskId: "t1",
-          },
-        ],
-      },
-    }),
-  );
 };
 
 const call = (
@@ -419,72 +338,6 @@ const projectedProcessActor = async (): Promise<ActorRef> => {
 };
 
 describe("work control transport", () => {
-  it.each([
-    {
-      reason: "stale-subject",
-      details: {
-        reason: "stale-subject", retryable: true,
-        expected: { epoch: 2, subjectHash: "a".repeat(64) },
-        received: { epoch: 1, subjectHash: "b".repeat(64) },
-        next_step: "Read the current task subject and retry the verdict",
-      },
-      retryable: true,
-    },
-    {
-      reason: "author-unresolved",
-      details: {
-        reason: "author-unresolved", retryable: true,
-        target: "tasks", missing: "current task author",
-        next_step: "Wait for an author to claim the task, then retry",
-      },
-      retryable: true,
-    },
-    {
-      reason: "subject-settled",
-      details: { reason: "subject-settled", retryable: false, received: "archived" },
-      retryable: false,
-    },
-    {
-      reason: "invalid-subject",
-      details: { reason: "invalid-subject", path: "subject", expected: "a current task subject" },
-      retryable: false,
-    },
-  ] satisfies ReadonlyArray<{
-    reason: string;
-    details: WorkErrorDetails;
-    retryable: boolean;
-  }>)("preserves $reason input-error details through the verdict socket", async ({ details, retryable }) => {
-    const runtime = runtimes[0]!;
-    const work = await runtime.runPromise(WorkService);
-    const reviewer = await projectedProcessActor();
-    const input = {
-      subject: { kind: "task" as const, taskId: "t1", epoch: 1, subjectHash: "b".repeat(64) },
-      kind: "green" as const,
-    };
-    // Stub only the domain result. Authentication, argument decoding, error
-    // mapping, framing and client response decoding all run on the real socket.
-    const post = vi.spyOn(work, "workVerdictPost").mockReturnValue(Effect.succeed({
-      ok: false, code: "invalid", message: "The review subject cannot be accepted", details,
-    }));
-    try {
-      const decoded = decodeWorkResponse(await call(servers[0]!.socketPath, {
-        token: token(), op: "verdict.post", args: { target: "tasks", ...input },
-      }));
-      expect(post).toHaveBeenCalledExactlyOnceWith("work-cli", "tasks", input, reviewer);
-      expect(decoded._tag).toBe("Success");
-      if (decoded._tag !== "Success") throw new Error("Invalid work-control response frame");
-      expect(decoded.success.ok).toBe(false);
-      if (decoded.success.ok) throw new Error("Expected the domain refusal over the socket");
-      expect(decoded.success.error).toEqual({
-        type: "InputError",
-        message: "The review subject cannot be accepted",
-        details: { ...details, retryable },
-      });
-    } finally {
-      post.mockRestore();
-    }
-  });
-
   it.runIf(!LIVE_OVERSEER_ENABLED)("refuses the Live protocol while disabled even when a handler is installed", async () => {
     const bridge = vi.fn<NonNullable<WorkControlServerOptions["onOverseerLive"]>>(async () => ({ type: "idle" }));
     const { server } = await startTestServer({ onOverseerLive: bridge });
@@ -512,9 +365,9 @@ describe("work control transport", () => {
     expect(await call(server.socketPath, request)).toMatchObject({ ok: true, data: { type: "idle" } });
     expect(bridge.mock.calls[0]?.[1]).toMatchObject({ canvasName: "work-cli", nodeId: "agent", bindingId: "bind-agent", peerPid: TEST_PEER_PID,
       processGeneration: `${TEST_PEER_PID}:${processMap.snapshot()[0]!.startKey}` });
-    const mutation = { token: token(), op: "overseer", args: { operation: "node.move", args: { nodeId: "tasks", x: 1, y: 2 } } };
+    const mutation = { token: token(), op: "overseer", args: { operation: "node.move", args: { nodeId: "orphan", x: 1, y: 2 } } };
     expect(await call(server.socketPath, mutation)).toMatchObject({ ok: false, error: { type: "AuthError" } });
-    for (const op of ["tasks.create", "content.materialize", "pad.read"]) {
+    for (const op of ["msg.send", "content.materialize", "signal.raise"]) {
       expect(await call(server.socketPath, { token: token(), op, args: {} })).toMatchObject({ ok: false, error: { type: "AuthError" } });
     }
     expect(execute).not.toHaveBeenCalled();
@@ -1074,21 +927,21 @@ describe("work control transport", () => {
     const response = (await call(server.socketPath, {
       token: token(),
       op: "preamble",
-      args: { text: "  inspecting\n the task  " },
+      args: { text: "  inspecting\n the build  " },
     })) as {
       ok: true;
       data: PreambleEvent & { readonly disposition: "applied" };
     };
 
     expect(response.ok).toBe(true);
-    expect(response.data.text).toBe("inspecting the task");
+    expect(response.data.text).toBe("inspecting the build");
     expect(response.data.disposition).toBe("applied");
     expect(response.data.expiresAt).toBeGreaterThan(Date.now());
     expect(events).toHaveLength(1);
     expect(events[0]).toMatchObject({
       canvasName: "work-cli",
       nodeId: "agent",
-      text: "inspecting the task",
+      text: "inspecting the build",
       preambleId: response.data.preambleId,
       expiresAt: response.data.expiresAt,
     });
@@ -1131,12 +984,12 @@ describe("work control transport", () => {
     expect(events.map((signal) => signal.state)).toEqual(["open"]);
 
     // A declared block is a claim to the operator, not an enforcement.
-    const claim = (await call(server.socketPath, {
+    const inbox = (await call(server.socketPath, {
       token: token(),
-      op: "tasks.claim",
-      args: { target: "tasks", task: "t1" },
+      op: "msg.list",
+      args: {},
     })) as { ok: boolean };
-    expect(claim.ok).toBe(true);
+    expect(inbox.ok).toBe(true);
 
     const listed = (await call(server.socketPath, {
       token: token(),
@@ -1204,231 +1057,14 @@ describe("work control transport", () => {
     expect(refused.error.details?.hint).toContain("--detail");
   });
 
-  it("creates attributed tasks that require operator approval before claim", async () => {
-    const server = servers[0]!;
-    const actor = await projectedProcessActor();
-    const created = (await call(server.socketPath, {
-      token: token(),
-      op: "tasks.create",
-      args: {
-        target: "tasks",
-        brief: "add keyboard navigation",
-        metadata: {
-          title: "Keyboard navigation",
-          details: "Cover the task board first.",
-        },
-      },
-    })) as {
-      ok: true;
-      data: {
-        id: string;
-        raisedBy: { seatId: string; nodeId: string };
-        admission?: string;
-      };
-    };
-    expect(created.ok).toBe(true);
-    expect(created.data.raisedBy).toMatchObject({
-      seatId: actor.seatId,
-      nodeId: actor.nodeId,
-    });
-    expect(created.data.admission).toBe("approval");
-
-    const taskId = created.data.id;
-    const denied = (await call(server.socketPath, {
-      token: token(),
-      op: "tasks.claim",
-      args: { target: "tasks", task: taskId },
-    })) as { ok: false; error: { type: string; message: string } };
-    expect(denied.ok).toBe(false);
-    expect(denied.error.type).toBe("InputError");
-    expect(denied.error.message).toMatch(/approval|operator/i);
-
-    for (const state of ["completed", "rejected", "canceled"] as const) {
-      const blocked = (await call(server.socketPath, {
-        token: token(),
-        op: "tasks.update",
-        args: { target: "tasks", task: taskId, state },
-      })) as { ok: false; error: { type: string; message: string } };
-      expect(blocked.ok).toBe(false);
-      expect(blocked.error.type).toBe("InputError");
-      expect(blocked.error.message).toMatch(/approval|not yet claimable/i);
-    }
-
-    const checked = (await call(server.socketPath, {
-      token: token(),
-      op: "tasks.check",
-      args: { target: "tasks", task: taskId, results: [] },
-    })) as { ok: false; error: { type: string; message: string } };
-    expect(checked.ok).toBe(false);
-    expect(checked.error.type).toBe("InputError");
-    expect(checked.error.message).toMatch(/approval|not yet claimable/i);
-
-    const work = await runtimes[runtimes.length - 1]!.runPromise(WorkService);
-    const approved = await runtimes[runtimes.length - 1]!.runPromise(
-      work.workTaskPromote("work-cli", "tasks", taskId),
-    );
-    expect(approved.ok).toBe(true);
-    if (!approved.ok) throw new Error(approved.message);
-
-    const claimed = (await call(server.socketPath, {
-      token: token(),
-      op: "tasks.claim",
-      args: { target: "tasks", task: taskId },
-    })) as { ok: true };
-    expect(claimed.ok).toBe(true);
-  });
-
-  it("externalizes inline task media before it crosses the work boundary", async () => {
-    const server = servers[0]!;
-    const created = (await call(server.socketPath, {
-      token: token(),
-      op: "tasks.create",
-      args: {
-        target: "tasks",
-        brief: "attach a screenshot",
-        metadata: { details: "attach a screenshot" },
-        media: [
-          {
-            kind: "raw",
-            bytesBase64: Buffer.from("junto-media").toString("base64"),
-            mediaType: "image/png",
-          },
-        ],
-      },
-    })) as {
-      ok: true;
-      data: {
-        history: ReadonlyArray<{
-          parts: ReadonlyArray<
-            | { kind: "text"; text: string }
-            | { kind: "content"; ref: ContentRef }
-            | { kind: "raw"; bytesBase64: string; mediaType?: string }
-          >;
-        }>;
-      };
-    };
-    expect(created.ok).toBe(true);
-    const media = created.data.history[0]?.parts.find(
-      (part) => part.kind === "content" || part.kind === "raw",
-    );
-    expect(media).toMatchObject({
-      kind: "content",
-      ref: {
-        byteLength: Buffer.byteLength("junto-media"),
-        mediaType: "image/png",
-      },
-    });
-    expect(media).not.toHaveProperty("bytesBase64");
-    if (media?.kind !== "content") throw new Error("expected ContentRef part");
-
-    const runtime = runtimes.at(-1);
-    if (runtime === undefined) throw new Error("missing work-control runtime");
-    const content = await runtime.runPromise(ContentService);
-    const availability = await runtime.runPromise(content.availability(media.ref));
-    expect(availability).toMatchObject({
-      state: "verified",
-      verifiedSha256: media.ref.sha256,
-      verifiedByteLength: media.ref.byteLength,
-    });
-  });
-
-  it("serves authorized task content through the process-bound control socket", async () => {
-    const server = servers[0]!;
-    const created = (await call(server.socketPath, {
-      token: token(),
-      op: "tasks.create",
-      args: {
-        target: "tasks",
-        brief: "inspect the attached recording",
-        metadata: { details: "inspect the attached recording" },
-        media: [
-          {
-            kind: "raw",
-            bytesBase64: Buffer.from("task-content").toString("base64"),
-            mediaType: "image/png",
-          },
-        ],
-      },
-    })) as {
-      ok: true;
-      data: {
-        id: string;
-      };
-    };
-    expect(created.ok).toBe(true);
-
-    const runtime = runtimes.at(-1);
-    if (runtime === undefined) throw new Error("missing work-control runtime");
-    const work = await runtime.runPromise(WorkService);
-    const approved = await runtime.runPromise(
-      work.workTaskPromote("work-cli", "tasks", created.data.id),
-    );
-    expect(approved.ok).toBe(true);
-    if (!approved.ok) throw new Error(approved.message);
-    const media = approved.data.history
-      .flatMap((message) => message.parts)
-      .find((part) => part.kind === "content");
-    expect(media?.kind).toBe("content");
-    if (media?.kind !== "content") throw new Error("expected ContentRef part");
-
-    const statResponse = (await call(server.socketPath, {
-      token: token(),
-      op: "content.stat",
-      args: { target: "tasks", task: approved.data.id, ref: media.ref },
-    })) as {
-      ok: true;
-      data: { state: string; availability: { state: string; verifiedByteLength?: number } };
-    };
-    expect(statResponse).toMatchObject({
-      ok: true,
-      data: {
-        state: "verified",
-        availability: { state: "verified", verifiedByteLength: Buffer.byteLength("task-content") },
-      },
-    });
-
-    const pathResponse = (await call(server.socketPath, {
-      token: token(),
-      op: "content.path",
-      args: { target: "tasks", task: approved.data.id, ref: media.ref },
-    })) as { ok: true; data: { path: string } };
-    expect(pathResponse.ok).toBe(true);
-    expect(pathResponse.data.path).toContain("/content/sha256/");
-
-    const materialized = (await call(server.socketPath, {
-      token: token(),
-      op: "content.materialize",
-      args: {
-        target: "tasks",
-        task: approved.data.id,
-        ref: media.ref,
-        name: "recording.png",
-      },
-    })) as { ok: true; data: { path: string; materialized: boolean } };
-    expect(materialized.ok).toBe(true);
-    expect(materialized.data.materialized).toBe(true);
-    expect(materialized.data.path).toContain("materialized");
-    expect(await readFile(materialized.data.path, "utf8")).toBe("task-content");
-
-    const repeated = (await call(server.socketPath, {
-      token: token(),
-      op: "content.materialize",
-      args: { target: "tasks", task: approved.data.id, ref: media.ref, name: "recording.png" },
-    })) as { ok: true; data: { path: string; materialized: boolean } };
-    expect(repeated).toMatchObject({
-      ok: true,
-      data: { path: materialized.data.path, materialized: false },
-    });
-  });
-
   it("keeps reads available while returning typed RuntimeDown for authorial ops", async () => {
     const server = servers[0]!;
     const gate = authoringGates[0]!;
 
     const admitted = (await call(server.socketPath, {
       token: token(),
-      op: "tasks.claim",
-      args: { target: "tasks", task: "t1" },
+      op: "msg.list",
+      args: {},
     })) as { ok: boolean };
     expect(admitted.ok).toBe(true);
 
@@ -1455,8 +1091,8 @@ describe("work control transport", () => {
 
     const refused = (await call(server.socketPath, {
       token: token(),
-      op: "tasks.claim",
-      args: { target: "tasks", task: "t1" },
+      op: "signal.raise",
+      args: { kind: "blocked", text: "after the flush" },
     })) as {
       ok: false;
       error: { type: string; message: string; details?: { retryable?: boolean } };
@@ -1502,7 +1138,7 @@ describe("work control transport", () => {
       token: token(),
       op: "msg.send",
       args: {
-        target: "tasks",
+        target: "orphan",
         text: "hello",
         role: "user",
       },
@@ -1608,8 +1244,8 @@ describe("work control transport", () => {
     const server = servers[0]!;
     const res = (await call(server.socketPath, {
       token: token(),
-      op: "tasks.list",
-      args: { target: "orphan-tasks" },
+      op: "msg.send",
+      args: { target: "orphan", text: "hello" },
     })) as { ok: false; error: { type: string; message: string; details?: { missing?: string } } };
     expect(res.ok).toBe(false);
     expect(res.error.type).toBe("ScopeError");
@@ -1621,7 +1257,7 @@ describe("work control transport", () => {
     const res = (await call(server.socketPath, {
       token: token(),
       op: "msg.read",
-      args: { target: "tasks", messageId: "m-not-mine" },
+      args: { target: "orphan", messageId: "m-not-mine" },
     })) as {
       ok: false;
       error: { type: string; message: string; details?: { next_step?: string } };
@@ -1631,208 +1267,12 @@ describe("work control transport", () => {
     expect(res.error.message).toMatch(/own mailbox/i);
   });
 
-  it("claims a connected task", async () => {
-    const server = servers[0]!;
-    const actor = await projectedProcessActor();
-    const res = (await call(server.socketPath, {
-      token: token(),
-      op: "tasks.claim",
-      args: { target: "tasks", task: "t1" },
-    })) as { ok: true; data: { id: string; state: string; claimedBy?: string } };
-    expect(res.ok).toBe(true);
-    expect(res.data.state).toBe("working");
-    expect(res.data.claimedBy).toBe(actor.seatId);
-
-    const replay = (await call(server.socketPath, {
-      token: token(),
-      op: "tasks.claim",
-      args: { target: "tasks", task: "t1" },
-    })) as {
-      ok: true;
-      data: {
-        id: string;
-        state: string;
-        claimedBy?: string;
-        disposition: string;
-        message?: string;
-      };
-    };
-    expect(replay).toMatchObject({
-      ok: true,
-      data: {
-        id: "t1",
-        state: "working",
-        claimedBy: actor.seatId,
-        disposition: "applied",
-      },
-    });
-    expect(replay.data.message).toMatch(/already claimed by you/i);
-  });
-
-  it("publishes exact task provenance through the local control boundary", async () => {
-    const server = servers[0]!;
-    const claimed = (await call(server.socketPath, {
-      token: token(),
-      op: "tasks.claim",
-      args: { target: "tasks", task: "t1" },
-    })) as { ok: boolean };
-    expect(claimed.ok).toBe(true);
-
-    const published = (await call(server.socketPath, {
-      token: token(),
-      op: "artifact.publish",
-      args: {
-        target: "artifacts",
-        artifactId: "artifact-task-control",
-        task: { target: "tasks", id: "t1" },
-        parts: [{ kind: "text", text: "proof" }],
-      },
-    })) as {
-      ok: true;
-      data: {
-        artifactId: string;
-        task: {
-          kind: "task";
-          itemId: string;
-          sink: { canvasName: string; nodeId: string };
-        };
-      };
-    };
-    expect(published).toMatchObject({
-      ok: true,
-      data: {
-        artifactId: "artifact-task-control",
-        task: {
-          kind: "task",
-          itemId: "t1",
-          sink: {
-            canvasName: "work-cli",
-            nodeId: "tasks",
-          },
-        },
-      },
-    });
-
-    const legacy = (await call(server.socketPath, {
-      token: token(),
-      op: "artifact.publish",
-      args: {
-        target: "artifacts",
-        artifactId: "artifact-legacy-task-id",
-        taskId: "t1",
-        parts: [{ kind: "text", text: "legacy" }],
-      },
-    })) as {
-      ok: false;
-      error: { type: string; details?: { path?: string } };
-    };
-    expect(legacy.ok).toBe(false);
-    expect(legacy.error.type).toBe("InputError");
-    expect(legacy.error.details?.path).toBe("args");
-  });
-
-  it("lets any connected agent file an input request on another seat's task", async () => {
-    const runtime = runtimes.at(-1);
-    if (runtime === undefined) throw new Error("missing work-control runtime");
-    const caller = await projectedProcessActor();
-    const other = actorRefFixture("other-agent", "work-cli");
-    const repository = await runtime.runPromise(WorkRepository);
-    const sink = { canvasName: "work-cli", nodeId: "tasks" };
-    const { basis, dependencyScope } = await taskDependencyAuthority(
-      runtime,
-      sink,
-    );
-    await runtime.runPromise(
-      repository.claimLocalTask({
-        sink,
-        basis,
-        dependencyScope,
-        taskId: "t1",
-        actor: other,
-      }),
-    );
-
-    const response = (await call(servers[0]!.socketPath, {
-      token: token(),
-      op: "tasks.update",
-      args: {
-        target: "tasks",
-        task: "t1",
-        state: "input-required",
-        note: "waiting",
-      },
-    })) as {
-      ok: true;
-      data: { disposition: "applied" | "queued" };
-    };
-
-    expect(response.ok).toBe(true);
-    expect(response.data.disposition).toBe("applied");
-    const snapshot = await runtime.runPromise(
-      repository.readSnapshot("work-cli", "tasks"),
-    );
-    expect(snapshot.tasks.items.find((task) => task.id === "t1")).toMatchObject({
-      state: "input-required",
-      claimedBy: other.seatId,
-    });
-  });
-
-  it("denies check submissions from a connected actor that does not own the claim", async () => {
-    const runtime = runtimes.at(-1);
-    if (runtime === undefined) throw new Error("missing work-control runtime");
-    const caller = await projectedProcessActor();
-    const other = actorRefFixture("other-agent", "work-cli");
-    const repository = await runtime.runPromise(WorkRepository);
-    const sink = { canvasName: "work-cli", nodeId: "tasks" };
-    const { basis, dependencyScope } = await taskDependencyAuthority(
-      runtime,
-      sink,
-    );
-    await runtime.runPromise(
-      repository.claimLocalTask({
-        sink,
-        basis,
-        dependencyScope,
-        taskId: "t1",
-        actor: other,
-      }),
-    );
-
-    const response = (await call(servers[0]!.socketPath, {
-      token: token(),
-      op: "tasks.check",
-      args: { target: "tasks", task: "t1", results: [] },
-    })) as {
-      ok: false;
-      error: {
-        type: string;
-        details?: { holder?: string; caller?: string; retryable?: boolean };
-      };
-    };
-
-    expect(response.ok).toBe(false);
-    expect(response.error).toMatchObject({
-      type: "ClaimConflict",
-      details: {
-        holder: other.seatId,
-        caller: caller.seatId,
-        retryable: false,
-      },
-    });
-    const snapshot = await runtime.runPromise(
-      repository.readSnapshot("work-cli", "tasks"),
-    );
-    const stored = snapshot.tasks.items.find((task) => task.id === "t1");
-    expect(stored).toMatchObject({ state: "working", claimedBy: other.seatId });
-    expect(stored?.checkResults).toBeUndefined();
-  });
-
   it("rejects client-supplied actor identity", async () => {
     const server = servers[0]!;
     const res = (await call(server.socketPath, {
       token: token(),
-      op: "tasks.claim",
-      args: { target: "tasks", task: "t1", actor: "other" },
+      op: "msg.send",
+      args: { target: "orphan", text: "hello", actor: "other" },
     })) as {
       ok: false;
       error: { type: string; details?: { path?: string } };
@@ -1844,6 +1284,7 @@ describe("work control transport", () => {
 
   it("capabilities lists only canonical held grants", async () => {
     const server = servers[0]!;
+    await addPromptPeer(runtimes.at(-1)!);
     const res = (await call(server.socketPath, {
       token: token(),
       op: "capabilities",
@@ -1852,19 +1293,11 @@ describe("work control transport", () => {
       data: { connected: Array<{ id: string; grants: string[] }> };
     };
     expect(res.ok).toBe(true);
-    // The seed's verbless agent -> requests wire once inferred escalates.
-    // That verb is retired, so the wire drops and the sink is not connected.
-    expect(res.data.connected.map((c) => c.id)).toEqual([
-      "artifacts",
-      "tasks",
-    ]);
-    expect(
-      res.data.connected.find((c) => c.id === "artifacts")?.grants,
-    ).toContain("artifact.publish");
-    expect(res.data.connected.find((c) => c.id === "tasks")?.grants).toContain(
-      "tasks.claim",
+    // The unwired orphan seat is not connected; only the mail edge counts.
+    expect(res.data.connected.map((c) => c.id)).toEqual(["peer"]);
+    expect(res.data.connected[0]?.grants).toEqual(
+      expect.arrayContaining(["msg.send", "msg.prompt"]),
     );
-
   });
 
   it("never echoes token in responses", async () => {
@@ -2134,243 +1567,11 @@ describe("work control transport", () => {
     const res = (await call(server.socketPath, {
       token: token(),
       op: "msg.react",
-      args: { target: "tasks", messageId: "m-not-mine" },
+      args: { target: "orphan", messageId: "m-not-mine" },
     })) as { ok: false; error: { type: string; message: string } };
     expect(res.ok).toBe(false);
     expect(res.error.type).toBe("ScopeError");
     expect(res.error.message).toMatch(/own mailbox/i);
-  });
-
-  it("tasks.list and onboard carry the board incoming and outgoing guidance", async () => {
-    const server = servers[0]!;
-    const runtime = runtimes.at(-1)!;
-    const canvases = await runtime.runPromise(CanvasesService);
-    const current = await runtime.runPromise(canvases.read("work-cli"));
-    await runtime.runPromise(
-      canvases.write("work-cli", {
-        ...current.doc,
-        nodes: [
-          ...current.doc.nodes.map((node) =>
-            node.id === "tasks"
-              ? {
-                  ...node,
-                  ether: {
-                    ...node.ether,
-                    tasks: {
-                      ...node.ether?.tasks,
-                      items: node.ether?.tasks?.items ?? [],
-                      contract: {
-                        instructions: "implement and gate the change",
-                        incoming: {
-                          handling: "  reproduce the defect before touching code  ",
-                        },
-                        outgoing: {
-                          handoff: "name the verified fix and cite the failing test",
-                        },
-                      },
-                    },
-                  },
-                }
-              : node,
-          ),
-          {
-            id: "review",
-            type: "text",
-            x: 700,
-            y: 0,
-            width: 120,
-            height: 48,
-            text: "tasks",
-            ether: { entity: { kind: "task" }, tasks: { items: [] } },
-          },
-        ],
-        edges: [
-          ...current.doc.edges,
-          {
-            id: "e-flow-tasks-review",
-            fromNode: "tasks",
-            toNode: "review",
-            ether: { verb: "feeds" },
-          },
-        ],
-      }),
-    );
-
-    const list = (await call(server.socketPath, {
-      token: token(),
-      op: "tasks.list",
-      args: { target: "tasks" },
-    })) as {
-      ok: true;
-      data: {
-        contract?: {
-          instructions?: string;
-          incomingHandling?: string;
-          outgoingHandoff?: string;
-        };
-      };
-    };
-    expect(list.ok).toBe(true);
-    expect(list.data.contract).toMatchObject({
-      instructions: "implement and gate the change",
-      incomingHandling: "reproduce the defect before touching code",
-      outgoingHandoff: "name the verified fix and cite the failing test",
-    });
-
-    const onboard = (await call(server.socketPath, {
-      token: token(),
-      op: "onboard",
-    })) as {
-      ok: true;
-      data: {
-        connected: Array<{
-          id: string;
-          title: string;
-          board?: { name: string };
-          contract?: { incomingHandling?: string; outgoingHandoff?: string };
-          next?: Array<{ board: string; name: string; admission?: string }>;
-        }>;
-      };
-    };
-    expect(onboard.ok).toBe(true);
-    const sinkEntry = onboard.data.connected.find((c) => c.id === "tasks");
-    expect(sinkEntry?.title).toBe("implement and gate the change");
-    expect(sinkEntry?.board).toEqual({
-      name: "implement and gate the change",
-    });
-    expect(sinkEntry?.contract).toMatchObject({
-      incomingHandling: "reproduce the defect before touching code",
-      outgoingHandoff: "name the verified fix and cite the failing test",
-    });
-    expect(sinkEntry?.next).toEqual([
-      expect.objectContaining({ board: "review", name: "Tasks review" }),
-    ]);
-
-    const renamed = await runtime.runPromise(canvases.read("work-cli"));
-    await runtime.runPromise(
-      canvases.write("work-cli", {
-        ...renamed.doc,
-        nodes: renamed.doc.nodes.map((node) =>
-          node.id === "tasks"
-            ? {
-                ...node,
-                text: "Build",
-                ether: {
-                  ...node.ether,
-                  tasks: {
-                    items: node.ether?.tasks?.items ?? [],
-                    ...(node.ether?.tasks ?? {}),
-                    name: "Build",
-                  },
-                },
-              }
-            : node,
-        ),
-      }),
-    );
-    const renamedOnboard = (await call(server.socketPath, {
-      token: token(),
-      op: "onboard",
-    })) as typeof onboard;
-    expect(
-      renamedOnboard.data.connected.find((entry) => entry.id === "tasks")?.title,
-    ).toBe("Build");
-
-    const show = (await call(server.socketPath, {
-      token: token(),
-      op: "tasks.show",
-      args: { target: "tasks", task: "t1" },
-    })) as {
-      ok: true;
-      data: {
-        board: { nodeId: string; name: string };
-        ambient: {
-          boardInstructions?: string;
-          incoming?: { handling?: string };
-          outgoing?: { handoff?: string };
-        };
-      };
-    };
-    expect(show.ok).toBe(true);
-    expect(show.data.board).toEqual({
-      nodeId: "tasks",
-      name: "Build",
-    });
-    expect(show.data.ambient).toMatchObject({
-      boardInstructions: "implement and gate the change",
-      incoming: { handling: "reproduce the defect before touching code" },
-      outgoing: { handoff: "name the verified fix and cite the failing test" },
-    });
-  });
-
-  it("blank handling never surfaces and handoff drops at a terminal board", async () => {
-    const server = servers[0]!;
-    const runtime = runtimes.at(-1)!;
-    const canvases = await runtime.runPromise(CanvasesService);
-    const current = await runtime.runPromise(canvases.read("work-cli"));
-    // Same contract, but no flow edge: the board is terminal, and the
-    // authored handling is whitespace-only (JSON Canvas can hold that even
-    // though the editor normalizes it away).
-    await runtime.runPromise(
-      canvases.write("work-cli", {
-        ...current.doc,
-        nodes: current.doc.nodes.map((node) =>
-          node.id === "tasks"
-            ? {
-                ...node,
-                ether: {
-                  ...node.ether,
-                  tasks: {
-                    ...node.ether?.tasks,
-                    items: node.ether?.tasks?.items ?? [],
-                    contract: {
-                      instructions: "  close the work  ",
-                      incoming: { handling: "   " },
-                      outgoing: { handoff: "hand off cleanly" },
-                    },
-                  },
-                },
-              }
-            : node,
-        ),
-      }),
-    );
-
-    const list = (await call(server.socketPath, {
-      token: token(),
-      op: "tasks.list",
-      args: { target: "tasks" },
-    })) as {
-      ok: true;
-      data: {
-        contract?: {
-          instructions?: string;
-          incomingHandling?: string;
-          outgoingHandoff?: string;
-        };
-      };
-    };
-    expect(list.ok).toBe(true);
-    expect(list.data.contract?.instructions).toBe("close the work");
-    expect(list.data.contract?.incomingHandling).toBeUndefined();
-    expect(list.data.contract?.outgoingHandoff).toBeUndefined();
-
-    const show = (await call(server.socketPath, {
-      token: token(),
-      op: "tasks.show",
-      args: { target: "tasks", task: "t1" },
-    })) as {
-      ok: true;
-      data: {
-        ambient: {
-          incoming?: { handling?: string };
-          outgoing?: { handoff?: string };
-        };
-      };
-    };
-    expect(show.ok).toBe(true);
-    expect(show.data.ambient.incoming).toBeUndefined();
-    expect(show.data.ambient.outgoing).toBeUndefined();
   });
 });
 
