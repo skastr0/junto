@@ -1273,12 +1273,12 @@ html[data-junto-platform="darwin"] .station-bar [role="listbox"] {
   opacity: var(--junto-region-glance-sub, 0);
 }
 .junto-region-glance--nested .junto-region-glance__text {
-  color: var(--region-name, color-mix(in oklab, var(--color-ink) 28%, transparent));
+  color: var(--region-name, color-mix(in oklab, var(--color-ink) 22%, transparent));
   letter-spacing: .14em;
 }
 .junto-region-glance__text {
   max-width: 100%;
-  color: var(--region-name, color-mix(in oklab, var(--color-ink) 26%, transparent));
+  color: var(--region-name, color-mix(in oklab, var(--color-ink) 20%, transparent));
   font-family: "Arial Narrow", "Avenir Next Condensed", sans-serif;
   line-height: 1;
   letter-spacing: .1em;

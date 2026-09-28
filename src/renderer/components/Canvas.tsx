@@ -96,6 +96,7 @@ import { HUE, themeFor, withAlpha } from "../lib/theme";
 import { themeMode$ } from "../lib/theme-mode";
 import type { MemberSeverity } from "@shared/region-rollup";
 import { minimapNodeColors, useSeatRollups } from "../lib/minimap-seat-colors";
+import { seatUrgency$ } from "../lib/region-urgency";
 import { nodeTypes } from "./nodes";
 import { edgeTypes } from "./edges/EtherEdge";
 import { CanvasLoom } from "./edges/CanvasLoom";
@@ -117,7 +118,8 @@ import { CanvasKeyboardPan } from "./CanvasKeyboardPan";
 import { RegionGlanceGate } from "./RegionGlanceGate";
 import { CanvasTierGate } from "./CanvasTierGate";
 import { SeatClusterLayer } from "./SeatClusterLayer";
-import { FactoryMinimap } from "./FactoryMinimap";
+import { RegionUrgencyGate } from "./RegionUrgencyGate";
+import { FactoryMinimap, type SeatMark } from "./FactoryMinimap";
 import { canvasPerformance } from "../lib/performance/canvas-performance";
 import { PERF_ENABLED } from "../lib/performance/perf-flag";
 import { NodePaletteModeDeck, type ModeDeckActions } from "./node-palette/NodePaletteModeDeck";
@@ -1273,6 +1275,21 @@ function RtsMinimapStack() {
     if (canvasNode) return minimapNodeColors(canvasNode, severity, seatRollups.get(node.id), ground).fill;
     return HUE.amber;
   }, [severityByNodeId, seatRollups, ground]);
+  // Agents are dots on the map, rimmed and pinging by urgency (FactoryMinimap).
+  // A string key: seatUrgency$ changes in place, so its object never changes identity.
+  const seatUrgencyKey = use$(() =>
+    Object.entries(seatUrgency$.get())
+      .map(([id, urgency]) => `${id}:${urgency}`)
+      .sort()
+      .join("|"),
+  );
+  const miniMapSeatMark = useCallback((node: Node): SeatMark | undefined => {
+    const data = node.data as FlowNode["data"] | undefined;
+    if (data?.seatRegion === undefined) return undefined;
+    const urgency = seatUrgency$[node.id].peek();
+    return urgency ? { urgency } : {};
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [seatUrgencyKey]);
   const miniMapNodeStroke = useCallback((node: Node): string => {
     const data = node.data as FlowNode["data"] | undefined;
     const severity = severityByNodeId[node.id] as MemberSeverity | undefined;
@@ -1323,6 +1340,7 @@ function RtsMinimapStack() {
       <FactoryMinimap
         nodeColor={miniMapNodeColor}
         nodeStrokeColor={miniMapNodeStroke}
+        seatMarkOf={miniMapSeatMark}
         nodeStrokeWidth={1.5}
         maskColor={withAlpha(minimapTheme.ground!, 0.72)}
         onClick={onMiniMapClick}
@@ -1792,6 +1810,7 @@ function CanvasGraph() {
       <RegionGlanceGate />
       <CanvasTierGate />
       <SeatClusterLayer />
+      <RegionUrgencyGate />
       <ImpactSeedChip />
       {/* Bar (incl. MiniMap) must be a ReactFlow child so MiniMap binds to the instance. */}
       <Panel position="bottom-center" className="rts-bar-panel" style={{ width: "100%", margin: 0, left: 0, right: 0, transform: "none", maxWidth: "none" }}>

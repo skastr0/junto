@@ -1,0 +1,90 @@
+/* Minimap seats (FactoryMinimap.tsx): agents are dots rimmed in the ground
+   so they stand off the region tints; a seat that is blocked, needs the
+   operator or has work for review is rimmed in that state's colour.
+
+   Pings: blocked and needs-you seats send a ring outward, stepped on the
+   attention clock's html[data-mark-frame] (no CSS animation, so the window
+   idles between ticks). Blocked pings twice per 2.88 s cycle, needs-you
+   once. With no stamp (motion paused, reduced motion, a moving camera) the
+   ping is not drawn; the rim still says it. */
+
+.junto-minimap-seat {
+  stroke: color-mix(in oklab, var(--color-ground) 55%, transparent);
+  cursor: pointer;
+}
+.junto-minimap-seat[data-urgency="blocked"] { stroke: var(--color-crimson); }
+.junto-minimap-seat[data-urgency="needs-you"] { stroke: var(--color-amber); }
+.junto-minimap-seat[data-urgency="review"] { stroke: var(--color-cyan); }
+
+.junto-minimap-ping {
+  fill: none;
+  opacity: 0;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+.junto-minimap-ping[data-urgency="blocked"] { stroke: var(--color-crimson); }
+.junto-minimap-ping[data-urgency="needs-you"] { stroke: var(--color-amber); }
+html[data-mark-frame="0"] .junto-minimap-ping[data-urgency="blocked"] { opacity: 0.750; transform: scale(1.000); }
+html[data-mark-frame="1"] .junto-minimap-ping[data-urgency="blocked"] { opacity: 0.703; transform: scale(1.081); }
+html[data-mark-frame="2"] .junto-minimap-ping[data-urgency="blocked"] { opacity: 0.656; transform: scale(1.163); }
+html[data-mark-frame="3"] .junto-minimap-ping[data-urgency="blocked"] { opacity: 0.609; transform: scale(1.244); }
+html[data-mark-frame="4"] .junto-minimap-ping[data-urgency="blocked"] { opacity: 0.562; transform: scale(1.325); }
+html[data-mark-frame="5"] .junto-minimap-ping[data-urgency="blocked"] { opacity: 0.516; transform: scale(1.406); }
+html[data-mark-frame="6"] .junto-minimap-ping[data-urgency="blocked"] { opacity: 0.469; transform: scale(1.488); }
+html[data-mark-frame="7"] .junto-minimap-ping[data-urgency="blocked"] { opacity: 0.422; transform: scale(1.569); }
+html[data-mark-frame="8"] .junto-minimap-ping[data-urgency="blocked"] { opacity: 0.375; transform: scale(1.650); }
+html[data-mark-frame="9"] .junto-minimap-ping[data-urgency="blocked"] { opacity: 0.328; transform: scale(1.731); }
+html[data-mark-frame="10"] .junto-minimap-ping[data-urgency="blocked"] { opacity: 0.281; transform: scale(1.812); }
+html[data-mark-frame="11"] .junto-minimap-ping[data-urgency="blocked"] { opacity: 0.234; transform: scale(1.894); }
+html[data-mark-frame="12"] .junto-minimap-ping[data-urgency="blocked"] { opacity: 0.188; transform: scale(1.975); }
+html[data-mark-frame="13"] .junto-minimap-ping[data-urgency="blocked"] { opacity: 0.141; transform: scale(2.056); }
+html[data-mark-frame="14"] .junto-minimap-ping[data-urgency="blocked"] { opacity: 0.094; transform: scale(2.138); }
+html[data-mark-frame="15"] .junto-minimap-ping[data-urgency="blocked"] { opacity: 0.047; transform: scale(2.219); }
+html[data-mark-frame="16"] .junto-minimap-ping[data-urgency="blocked"] { opacity: 0.750; transform: scale(1.000); }
+html[data-mark-frame="17"] .junto-minimap-ping[data-urgency="blocked"] { opacity: 0.703; transform: scale(1.081); }
+html[data-mark-frame="18"] .junto-minimap-ping[data-urgency="blocked"] { opacity: 0.656; transform: scale(1.163); }
+html[data-mark-frame="19"] .junto-minimap-ping[data-urgency="blocked"] { opacity: 0.609; transform: scale(1.244); }
+html[data-mark-frame="20"] .junto-minimap-ping[data-urgency="blocked"] { opacity: 0.562; transform: scale(1.325); }
+html[data-mark-frame="21"] .junto-minimap-ping[data-urgency="blocked"] { opacity: 0.516; transform: scale(1.406); }
+html[data-mark-frame="22"] .junto-minimap-ping[data-urgency="blocked"] { opacity: 0.469; transform: scale(1.488); }
+html[data-mark-frame="23"] .junto-minimap-ping[data-urgency="blocked"] { opacity: 0.422; transform: scale(1.569); }
+html[data-mark-frame="24"] .junto-minimap-ping[data-urgency="blocked"] { opacity: 0.375; transform: scale(1.650); }
+html[data-mark-frame="25"] .junto-minimap-ping[data-urgency="blocked"] { opacity: 0.328; transform: scale(1.731); }
+html[data-mark-frame="26"] .junto-minimap-ping[data-urgency="blocked"] { opacity: 0.281; transform: scale(1.812); }
+html[data-mark-frame="27"] .junto-minimap-ping[data-urgency="blocked"] { opacity: 0.234; transform: scale(1.894); }
+html[data-mark-frame="28"] .junto-minimap-ping[data-urgency="blocked"] { opacity: 0.188; transform: scale(1.975); }
+html[data-mark-frame="29"] .junto-minimap-ping[data-urgency="blocked"] { opacity: 0.141; transform: scale(2.056); }
+html[data-mark-frame="30"] .junto-minimap-ping[data-urgency="blocked"] { opacity: 0.094; transform: scale(2.138); }
+html[data-mark-frame="31"] .junto-minimap-ping[data-urgency="blocked"] { opacity: 0.047; transform: scale(2.219); }
+html[data-mark-frame="0"] .junto-minimap-ping[data-urgency="needs-you"] { opacity: 0.600; transform: scale(1.000); }
+html[data-mark-frame="1"] .junto-minimap-ping[data-urgency="needs-you"] { opacity: 0.581; transform: scale(1.038); }
+html[data-mark-frame="2"] .junto-minimap-ping[data-urgency="needs-you"] { opacity: 0.562; transform: scale(1.075); }
+html[data-mark-frame="3"] .junto-minimap-ping[data-urgency="needs-you"] { opacity: 0.544; transform: scale(1.113); }
+html[data-mark-frame="4"] .junto-minimap-ping[data-urgency="needs-you"] { opacity: 0.525; transform: scale(1.150); }
+html[data-mark-frame="5"] .junto-minimap-ping[data-urgency="needs-you"] { opacity: 0.506; transform: scale(1.188); }
+html[data-mark-frame="6"] .junto-minimap-ping[data-urgency="needs-you"] { opacity: 0.487; transform: scale(1.225); }
+html[data-mark-frame="7"] .junto-minimap-ping[data-urgency="needs-you"] { opacity: 0.469; transform: scale(1.262); }
+html[data-mark-frame="8"] .junto-minimap-ping[data-urgency="needs-you"] { opacity: 0.450; transform: scale(1.300); }
+html[data-mark-frame="9"] .junto-minimap-ping[data-urgency="needs-you"] { opacity: 0.431; transform: scale(1.337); }
+html[data-mark-frame="10"] .junto-minimap-ping[data-urgency="needs-you"] { opacity: 0.412; transform: scale(1.375); }
+html[data-mark-frame="11"] .junto-minimap-ping[data-urgency="needs-you"] { opacity: 0.394; transform: scale(1.413); }
+html[data-mark-frame="12"] .junto-minimap-ping[data-urgency="needs-you"] { opacity: 0.375; transform: scale(1.450); }
+html[data-mark-frame="13"] .junto-minimap-ping[data-urgency="needs-you"] { opacity: 0.356; transform: scale(1.488); }
+html[data-mark-frame="14"] .junto-minimap-ping[data-urgency="needs-you"] { opacity: 0.337; transform: scale(1.525); }
+html[data-mark-frame="15"] .junto-minimap-ping[data-urgency="needs-you"] { opacity: 0.319; transform: scale(1.562); }
+html[data-mark-frame="16"] .junto-minimap-ping[data-urgency="needs-you"] { opacity: 0.300; transform: scale(1.600); }
+html[data-mark-frame="17"] .junto-minimap-ping[data-urgency="needs-you"] { opacity: 0.281; transform: scale(1.637); }
+html[data-mark-frame="18"] .junto-minimap-ping[data-urgency="needs-you"] { opacity: 0.263; transform: scale(1.675); }
+html[data-mark-frame="19"] .junto-minimap-ping[data-urgency="needs-you"] { opacity: 0.244; transform: scale(1.712); }
+html[data-mark-frame="20"] .junto-minimap-ping[data-urgency="needs-you"] { opacity: 0.225; transform: scale(1.750); }
+html[data-mark-frame="21"] .junto-minimap-ping[data-urgency="needs-you"] { opacity: 0.206; transform: scale(1.788); }
+html[data-mark-frame="22"] .junto-minimap-ping[data-urgency="needs-you"] { opacity: 0.188; transform: scale(1.825); }
+html[data-mark-frame="23"] .junto-minimap-ping[data-urgency="needs-you"] { opacity: 0.169; transform: scale(1.862); }
+html[data-mark-frame="24"] .junto-minimap-ping[data-urgency="needs-you"] { opacity: 0.150; transform: scale(1.900); }
+html[data-mark-frame="25"] .junto-minimap-ping[data-urgency="needs-you"] { opacity: 0.131; transform: scale(1.938); }
+html[data-mark-frame="26"] .junto-minimap-ping[data-urgency="needs-you"] { opacity: 0.112; transform: scale(1.975); }
+html[data-mark-frame="27"] .junto-minimap-ping[data-urgency="needs-you"] { opacity: 0.094; transform: scale(2.013); }
+html[data-mark-frame="28"] .junto-minimap-ping[data-urgency="needs-you"] { opacity: 0.075; transform: scale(2.050); }
+html[data-mark-frame="29"] .junto-minimap-ping[data-urgency="needs-you"] { opacity: 0.056; transform: scale(2.087); }
+html[data-mark-frame="30"] .junto-minimap-ping[data-urgency="needs-you"] { opacity: 0.037; transform: scale(2.125); }
+html[data-mark-frame="31"] .junto-minimap-ping[data-urgency="needs-you"] { opacity: 0.019; transform: scale(2.162); }

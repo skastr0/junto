@@ -11,6 +11,9 @@ import { state$ } from "../../lib/state";
 import { useThreadHealthMark } from "../../lib/thread-health";
 import { seatPortraitMood } from "../../lib/portrait-mood";
 import { use$ } from "@legendapp/state/react";
+import { useEffect } from "react";
+import { resolveActivityGlyph } from "../../lib/activity";
+import { publishSeatUrgency, seatUrgencyOfRing } from "../../lib/region-urgency";
 import { ActivityMarkFromSpec } from "../ActivityMark";
 import { AgentPortrait } from "../AgentPortrait";
 
@@ -155,6 +158,17 @@ export function AgentSeat({
   const canvasName = use$(state$.canvasName);
   const rollup = useSeatSignalRollup(canvasName, node.id);
   const health = useThreadHealthMark(bindingIdForNode(node), rollup?.kind);
+  // What the ring says, for the regions and the minimap (region-urgency.ts).
+  const urgency = seatUrgencyOfRing({
+    glyph: resolveActivityGlyph(rest.activity.mode, rest.activity.tone, rest.activity.glyph),
+    signal: rollup?.kind,
+    health: health.health,
+    healthStale: health.healthStale,
+  });
+  useEffect(() => {
+    publishSeatUrgency(node.id, urgency);
+  }, [node.id, urgency]);
+  useEffect(() => () => publishSeatUrgency(node.id, undefined), [node.id]);
   return (
     <AgentSeatView
       identity={node.id}

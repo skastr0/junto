@@ -31,11 +31,13 @@ const STALE_FILL_ALPHA = 0.45;
 const REGION_FILL_ALPHA = 0.3;
 const STALE_REGION_FILL_ALPHA = 0.16;
 /**
- * An agent seat with nothing to say keeps its identity hue, quietly: agents are
- * orange, which sits beside the amber of a seat in trouble, so a full-strength
- * idle seat would read as a warning on a map painted by health.
+ * An agent seat with nothing to say keeps its identity hue, a little quieter:
+ * agents are orange, which sits beside the amber of a seat in trouble. On the
+ * map a seat is a dot rimmed in the ground, and an urgent one also wears a
+ * rim in its state's colour and pings (FactoryMinimap), so a quiet seat can
+ * stay visible without reading as a warning.
  */
-const QUIET_SEAT_FILL_ALPHA = 0.4;
+const QUIET_SEAT_FILL_ALPHA = 0.7;
 
 const isAgentSeat = (node: CanvasNode): boolean =>
   node.type !== "group" && node.ether?.entity?.kind === "agent";

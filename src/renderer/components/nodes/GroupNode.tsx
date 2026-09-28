@@ -11,6 +11,7 @@ import { dragHoldMemberIds, resizeNode, syncPositions } from "../../lib/geometry
 import { state$ } from "../../lib/state";
 import { accentColor, borderColor, HUE, INK, withAlpha } from "../../lib/theme";
 import { markViewportBusy, releaseViewportBusy } from "../../lib/viewport-busy";
+import { regionUrgency$ } from "../../lib/region-urgency";
 import {
   isMultiSelectGesture,
   stopNodeGestureUnlessMultiSelect,
@@ -155,10 +156,10 @@ export function GroupNode({ data, selected }: NodeProps<FlowNode>) {
   const nestedGlance = nestingDepth >= 1;
   const glanceable = label.trim().length > 0;
   const slot = data.nameSlot;
-  // Overview tier (canvas-lod-regions.css): an outermost region carries its
-  // members' worst state as a ring. Rollups land after the camera rests
-  // (RtsBottomBar), never mid-gesture.
-  const severity = use$(() => state$.regionSeverityByNodeId.get()[node.id]);
+  // A seat that is blocked, needs the operator or has work for review tints
+  // and frames the region holding it, and more quietly every region around
+  // that (region-urgency.ts, canvas-lod-regions.css).
+  const urgency = use$(() => regionUrgency$[node.id].get());
 
   // Seed and claim once per edit session. A label that changes under the
   // operator (live reload) must not reset the draft or re-select it.
@@ -297,7 +298,8 @@ export function GroupNode({ data, selected }: NodeProps<FlowNode>) {
   return <div
     className="junto-group relative h-full w-full rounded-[14px]"
     data-region-depth={Math.min(nestingDepth, 3)}
-    data-region-severity={severity}
+    data-region-urgency={urgency?.urgency}
+    data-region-reach={urgency?.reach}
     data-region-colored={node.color ? "" : undefined}
     style={{
       border: `1px solid ${plateBorder}`,
@@ -311,7 +313,7 @@ export function GroupNode({ data, selected }: NodeProps<FlowNode>) {
       // The region's own colour for the zoomed-out tiers' fill, frame and
       // name; an uncoloured region wears the ink.
       "--region-tint": node.color ? tint : "var(--color-ink)",
-      ...(node.color ? { "--region-name": withAlpha(tint, 0.3) } : {}),
+      ...(node.color ? { "--region-name": withAlpha(tint, 0.22) } : {}),
       boxShadow: selected ? `0 0 0 1px ${withAlpha(HUE.amber, 0.18)}` : "none",
     } as React.CSSProperties}
   >

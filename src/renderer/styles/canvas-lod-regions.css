@@ -14,17 +14,22 @@
      deepening colour. Title bars keep their grab target but print nothing
      (12px names are under 4px here); every named region prints its name in
      large capitals in the clear ground of its body instead
-     (region-name-slot.ts), in its colour at under half strength, as ground.
+     (region-name-slot.ts), in its colour at under a third of its strength,
+     as ground.
      Wires step back to 40%.
    - overview: regions and seats. Cards and wires are not painted; every
      agent stays, as at far, gathered into counted clusters where crowded
-     (SeatClusterLayer). An outermost region takes its worst member state as
-     a ring and a wash. Regions three levels in go.
+     (SeatClusterLayer). Regions three levels in go.
+
+   At every tier a region holding a seat that is blocked, needs the
+   operator or has work for review says so: its colour leans toward the
+   state's, and it wears an inner frame and glow in it. The region the seat
+   sits in speaks plainly; the regions around it only frame it thinly.
 
    Hidden things use visibility, never display, so React Flow's measured
    sizes and wire anchors do not move when the tier flips. GroupNode writes
-   --region-fill, --region-flat, data-region-depth (capped at 3) and
-   data-region-severity. */
+   --region-fill, --region-flat, --region-tint, data-region-depth (capped at
+   3) and data-region-urgency / data-region-reach (region-urgency.ts). */
 
 /* --- mid and below: flat washes, no wire labels or pulses ------------ */
 
@@ -41,25 +46,25 @@ html:is([data-canvas-tier="mid"], [data-canvas-tier="far"], [data-canvas-tier="o
    are drawn in canvas units: 3 units reads as 1 to 2px across mid, 6 units
    as 1.2 to 2px across far, 10 units as 1.5 to 2px at the overview. */
 html[data-canvas-tier="mid"] .react-flow__viewport .junto-group {
-  outline: 3px solid color-mix(in oklab, var(--region-tint) 40%, transparent);
+  outline: 3px solid color-mix(in oklab, var(--region-hue) 40%, transparent);
   outline-offset: -3px;
 }
 
 /* --- far and below: colour, frames and names ------------------------- */
 
 html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .junto-group {
-  background: color-mix(in oklab, var(--region-tint) 8%, transparent);
-  outline: 6px solid color-mix(in oklab, var(--region-tint) 62%, transparent);
+  background: color-mix(in oklab, var(--region-hue) 8%, transparent);
+  outline: 6px solid color-mix(in oklab, var(--region-hue) 62%, transparent);
   outline-offset: -6px;
 }
 /* Nested washes are lighter, so five levels deepen the colour without
    burying it. */
 html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .junto-group[data-region-colored]:not([data-region-depth="0"]) {
-  background: color-mix(in oklab, var(--region-tint) 5%, transparent);
+  background: color-mix(in oklab, var(--region-hue) 5%, transparent);
 }
 html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .junto-group:not([data-region-colored]) {
-  background: color-mix(in oklab, var(--region-tint) 4%, transparent);
-  outline-color: color-mix(in oklab, var(--region-tint) 34%, transparent);
+  background: color-mix(in oklab, var(--region-hue) 4%, transparent);
+  outline-color: color-mix(in oklab, var(--region-hue) 34%, transparent);
 }
 html[data-canvas-tier="overview"] .react-flow__viewport .junto-group {
   outline-width: 10px;
@@ -69,13 +74,13 @@ html:is([data-canvas-tier="mid"], [data-canvas-tier="far"], [data-canvas-tier="o
   outline-color: color-mix(in oklab, var(--color-amber) 80%, transparent);
 }
 /* The name is ground, not figure: large enough to find a region by, but in
-   the region's colour at under half strength, so the seats on it stay the
-   loudest thing on screen. */
+   the region's colour at under a third of its strength, so the seats on it
+   stay the loudest thing on screen. */
 html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .junto-region-glance__text {
-  color: color-mix(in oklab, color-mix(in oklab, var(--region-tint) 85%, var(--color-ink)) 44%, transparent);
+  color: color-mix(in oklab, color-mix(in oklab, var(--region-hue) 70%, var(--color-ink)) 30%, transparent);
 }
 html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .junto-group:not([data-region-colored]) .junto-region-glance__text {
-  color: color-mix(in oklab, var(--color-ink) 30%, transparent);
+  color: color-mix(in oklab, var(--color-ink) 22%, transparent);
 }
 /* Wires step back behind the seats: they still say who talks to whom, but a
    routed board of them otherwise reads as a grid laid over the regions. */
@@ -102,15 +107,42 @@ html[data-canvas-tier="overview"] .react-flow__viewport .junto-group[data-region
   visibility: hidden;
 }
 
-.junto-group[data-region-severity="blocked"] { --region-state: var(--color-crimson); }
-.junto-group[data-region-severity="attention"] { --region-state: var(--color-amber); }
-.junto-group[data-region-severity="working"] { --region-state: var(--color-cyan); }
-.junto-group[data-region-severity="ready"] { --region-state: var(--color-green); }
+/* --- urgency: blocked, needs you, review (all tiers) -------------------- */
 
-/* The state ring is drawn in canvas units: 12 units reads as about 2px at
-   the overview's 0.15 to 0.2 zoom. */
-html[data-canvas-tier="overview"] .react-flow__viewport .junto-group[data-region-depth="0"][data-region-severity]:not([data-region-severity="idle"]) {
-  outline: 12px solid color-mix(in oklab, var(--region-state) 55%, transparent);
-  outline-offset: -12px;
-  background: color-mix(in oklab, var(--region-state) 9%, var(--region-flat));
+.junto-group[data-region-urgency="blocked"] { --urgency: var(--color-crimson); }
+.junto-group[data-region-urgency="needs-you"] { --urgency: var(--color-amber); }
+.junto-group[data-region-urgency="review"] { --urgency: var(--color-cyan); }
+/* The region's own colour leans toward the state's where it is drawn from
+   --region-hue (the zoomed-out wash, frame and name below). */
+.junto-group { --region-hue: var(--region-tint); }
+.junto-group[data-region-urgency] { --region-hue: color-mix(in oklab, var(--region-tint) 72%, var(--urgency)); }
+.junto-group[data-region-urgency][data-region-reach="held"] { --region-hue: color-mix(in oklab, var(--region-tint) 90%, var(--urgency)); }
+
+.junto-group[data-region-urgency]::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+}
+/* Subtle by intent: the seat's own ring is the alarm, the region only leans.
+   Up close the frame is a hairline and a faint inner glow; zoomed out it is
+   drawn in canvas units so it still reads (6 units is 1 to 2px far). */
+.junto-group[data-region-urgency][data-region-reach="direct"]::after {
+  background: color-mix(in oklab, var(--urgency) 3%, transparent);
+  box-shadow:
+    inset 0 0 0 1.5px color-mix(in oklab, var(--urgency) 50%, transparent),
+    inset 0 0 28px color-mix(in oklab, var(--urgency) 9%, transparent);
+}
+.junto-group[data-region-urgency][data-region-reach="held"]::after {
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--urgency) 28%, transparent);
+}
+html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .junto-group[data-region-urgency][data-region-reach="direct"]::after {
+  background: color-mix(in oklab, var(--urgency) 4%, transparent);
+  box-shadow:
+    inset 0 0 0 6px color-mix(in oklab, var(--urgency) 52%, transparent),
+    inset 0 0 110px color-mix(in oklab, var(--urgency) 11%, transparent);
+}
+html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .junto-group[data-region-urgency][data-region-reach="held"]::after {
+  box-shadow: inset 0 0 0 4px color-mix(in oklab, var(--urgency) 30%, transparent);
 }

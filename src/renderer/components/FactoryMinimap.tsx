@@ -1,5 +1,8 @@
 import { useEffect, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent, type ReactElement } from "react";
 import { useStoreApi, type Node } from "@xyflow/react";
+import { retainAttentionClock } from "../lib/attention-clock";
+import type { Urgency } from "../lib/region-urgency";
+import "./factory-minimap.css";
 
 /**
  * The strategic minimap, drawn so that a pan costs one attribute write.
@@ -26,6 +29,12 @@ import { useStoreApi, type Node } from "@xyflow/react";
  * would land on a different pixel of the map, so nothing the operator can see
  * is dropped.
  *
+ * Agents are dots with a size floor in map pixels, so a seat reads at any
+ * board size; a seat that is blocked, needs the operator or has work for
+ * review wears a ring in that state's colour, and blocked and needs-you seats
+ * ping on the attention clock (factory-minimap.css), drawn above the camera
+ * mask so a glance at the map finds them anywhere on the board.
+ *
  * Must be mounted inside <ReactFlow> so the store resolves.
  */
 
@@ -35,11 +44,21 @@ type MinimapNodeRect = Rect & {
   readonly id: string;
   readonly fill: string;
   readonly stroke: string;
+  readonly seat?: SeatMark;
 };
+
+/** An agent seat on the map: its urgency, if any. */
+export type SeatMark = { readonly urgency?: Urgency };
+
+/** Dot radius floors, in map pixels. */
+const SEAT_DOT_PX = 2.2;
+const URGENT_DOT_PX = 3;
 
 export type FactoryMinimapProps = {
   readonly nodeColor: (node: Node) => string;
   readonly nodeStrokeColor: (node: Node) => string;
+  /** Agent seats are drawn as dots; undefined for any other node. */
+  readonly seatMarkOf?: (node: Node) => SeatMark | undefined;
   readonly nodeStrokeWidth?: number;
   readonly nodeBorderRadius?: number;
   readonly maskColor: string;
@@ -93,6 +112,7 @@ const parseViewBox = (viewBox: string): Rect => {
 export function FactoryMinimap({
   nodeColor,
   nodeStrokeColor,
+  seatMarkOf,
   nodeStrokeWidth = 2,
   nodeBorderRadius = 5,
   maskColor,
@@ -113,8 +133,11 @@ export function FactoryMinimap({
   const nodeBoundsRef = useRef<Rect>(EMPTY_BOUNDS);
   const elementSizeRef = useRef<{ width: number; height: number }>({ width: 200, height: 150 });
   const viewBoxRef = useRef<string>("");
-  const colorRef = useRef({ nodeColor, nodeStrokeColor });
-  colorRef.current = { nodeColor, nodeStrokeColor };
+  const colorRef = useRef({ nodeColor, nodeStrokeColor, seatMarkOf });
+  colorRef.current = { nodeColor, nodeStrokeColor, seatMarkOf };
+  // Flow units per map pixel, for dot sizes; changes only with the viewBox.
+  const [unit, setUnit] = useState(1);
+  const unitRef = useRef(1);
 
   // Camera → mask path (every viewport change) and viewBox (only when the
   // camera leaves the node bounds). Direct DOM writes, coalesced per frame.
@@ -142,6 +165,10 @@ export function FactoryMinimap({
     const elementWidth = Math.max(elementSizeRef.current.width, 1);
     const elementHeight = Math.max(elementSizeRef.current.height, 1);
     const unitsPerPixel = Math.max(box.width / elementWidth, box.height / elementHeight);
+    if (unitsPerPixel > 0 && Math.abs(unitsPerPixel - unitRef.current) / unitRef.current > 0.02) {
+      unitRef.current = unitsPerPixel;
+      setUnit(unitsPerPixel);
+    }
     const density = unitsPerPixel > 0 ? 1 / unitsPerPixel : 0;
     const key =
       density > 0 && Number.isFinite(density)
@@ -158,7 +185,7 @@ export function FactoryMinimap({
   useEffect(() => {
     const recompute = (): void => {
       const { nodeLookup } = store.getState();
-      const { nodeColor: fill, nodeStrokeColor: stroke } = colorRef.current;
+      const { nodeColor: fill, nodeStrokeColor: stroke, seatMarkOf: seatOf } = colorRef.current;
       const next: MinimapNodeRect[] = [];
       for (const internal of nodeLookup.values()) {
         const user = internal.internals.userNode;
@@ -167,7 +194,8 @@ export function FactoryMinimap({
         const height = internal.measured.height ?? user.height ?? 0;
         if (width <= 0 || height <= 0) continue;
         const { x, y } = internal.internals.positionAbsolute;
-        next.push({ id: user.id, x, y, width, height, fill: fill(user), stroke: stroke(user) });
+        const seat = seatOf?.(user);
+        next.push({ id: user.id, x, y, width, height, fill: fill(user), stroke: stroke(user), ...(seat ? { seat } : {}) });
       }
       nodeBoundsRef.current = boundsOf(next);
       // A new node set may change the bounds; let the camera pass re-fit.
@@ -185,7 +213,11 @@ export function FactoryMinimap({
       recompute();
     });
     return unsubscribe;
-  }, [store, nodeColor, nodeStrokeColor]);
+  }, [store, nodeColor, nodeStrokeColor, seatMarkOf]);
+
+  // Pings step on the attention clock: keep it running while a seat pings.
+  const pinging = rects.some((rect) => rect.seat?.urgency === "blocked" || rect.seat?.urgency === "needs-you");
+  useEffect(() => (pinging ? retainAttentionClock() : undefined), [pinging]);
 
   // Camera subscription + element size.
   useEffect(() => {
@@ -300,7 +332,7 @@ export function FactoryMinimap({
     const position = flowPointOf(event.clientX, event.clientY);
     if (position) onClick(event, position);
   };
-  const onRectClick = (event: ReactMouseEvent<SVGRectElement>, id: string): void => {
+  const onRectClick = (event: ReactMouseEvent<SVGElement>, id: string): void => {
     if (suppressClickRef.current) {
       suppressClickRef.current = false;
       event.stopPropagation();
@@ -325,25 +357,55 @@ export function FactoryMinimap({
         onWheel={onWheel}
         onClick={onSvgClick}
       >
-        {rects.map((rect) => (
-          <rect
-            key={rect.id}
-            className="react-flow__minimap-node"
-            x={rect.x}
-            y={rect.y}
-            rx={nodeBorderRadius}
-            ry={nodeBorderRadius}
-            width={rect.width}
-            height={rect.height}
-            // Inline style, not presentation attributes: the colours are CSS
-            // (var(), color-mix()) which attributes cannot carry, and React
-            // Flow's minimap stylesheet would outrank attributes anyway.
-            style={{ fill: rect.fill, stroke: rect.stroke, strokeWidth: nodeStrokeWidth }}
-            shapeRendering="crispEdges"
-            onClick={(event) => onRectClick(event, rect.id)}
-          />
-        ))}
+        {rects.map((rect) =>
+          rect.seat ? null : (
+            <rect
+              key={rect.id}
+              className="react-flow__minimap-node"
+              x={rect.x}
+              y={rect.y}
+              rx={nodeBorderRadius}
+              ry={nodeBorderRadius}
+              width={rect.width}
+              height={rect.height}
+              // Inline style, not presentation attributes: the colours are CSS
+              // (var(), color-mix()) which attributes cannot carry, and React
+              // Flow's minimap stylesheet would outrank attributes anyway.
+              style={{ fill: rect.fill, stroke: rect.stroke, strokeWidth: nodeStrokeWidth }}
+              shapeRendering="crispEdges"
+              onClick={(event) => onRectClick(event, rect.id)}
+            />
+          ),
+        )}
+        {rects.map((rect) =>
+          rect.seat ? (
+            <circle
+              key={rect.id}
+              className="react-flow__minimap-node junto-minimap-seat"
+              data-urgency={rect.seat.urgency}
+              cx={rect.x + rect.width / 2}
+              cy={rect.y + rect.height / 2}
+              r={Math.max(Math.min(rect.width, rect.height) / 2, (rect.seat.urgency ? URGENT_DOT_PX : SEAT_DOT_PX) * unit)}
+              style={{ fill: rect.fill, strokeWidth: 0.8 * unit }}
+              onClick={(event) => onRectClick(event, rect.id)}
+            />
+          ) : null,
+        )}
         <path ref={maskRef} className="react-flow__minimap-mask" style={{ fill: maskColor }} fillRule="evenodd" pointerEvents="none" />
+        {rects.map((rect) =>
+          rect.seat?.urgency === "blocked" || rect.seat?.urgency === "needs-you" ? (
+            <circle
+              key={`ping-${rect.id}`}
+              className="junto-minimap-ping"
+              data-urgency={rect.seat.urgency}
+              cx={rect.x + rect.width / 2}
+              cy={rect.y + rect.height / 2}
+              r={Math.max(Math.min(rect.width, rect.height) / 2, URGENT_DOT_PX * unit)}
+              style={{ strokeWidth: 1 * unit }}
+              pointerEvents="none"
+            />
+          ) : null,
+        )}
       </svg>
     </div>
   );
