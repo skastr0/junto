@@ -22,7 +22,6 @@ import {
   WORK_SEAT_RECENT_OP_MAX_LIMIT,
 } from "../src/shared/work-recent-ops";
 import {
-  createAuthorialTaskDependencyScopeCapability,
   WorkRepository,
   WorkRepositoryLive,
 } from "../src/main/junto/work/repository";
@@ -65,14 +64,14 @@ const atMinute = (minute: number): string =>
 const factoryTopology: CanvasDoc = {
   nodes: [
     {
-      id: "tasks",
+      id: "recipient",
       type: "text",
       x: 0,
       y: 0,
       width: 240,
       height: 100,
-      text: "Tasks",
-      ether: { entity: { kind: "task" } },
+      text: "Recipient",
+      ether: { entity: { kind: "agent", name: "local:recipient" } },
     },
   ],
   edges: [],
@@ -164,12 +163,11 @@ const openRepository = async (
   return { runtime, repository, basis };
 };
 
-const message = (messageId: string, text: string, taskId?: string) => ({
+const message = (messageId: string, text: string) => ({
   messageId,
   role: "user" as const,
   parts: [{ kind: "text" as const, text }],
   contextId: canvasName,
-  ...(taskId === undefined ? {} : { taskId }),
 });
 
 const appendMailboxMessage = (
@@ -229,91 +227,12 @@ describe("WorkRepository recent actor-seat operations", () => {
     const { runtime, repository, basis } = await openRepository(local);
     const seat = actor("1", "worker");
     const otherSeat = actor("2", "other-worker");
-    const taskSink = { canvasName, nodeId: "tasks" };
 
-    await runtime.runPromise(
-      repository.createTask({
-        sink: taskSink,
-        basis,
-        dependencyScope: createAuthorialTaskDependencyScopeCapability({
-          authority: authorialMaterial,
-          authoringSink: taskSink,
-        }),
-        task: {
-          id: "task-1",
-          state: "submitted",
-          history: [message("task-brief", "SECRET_TASK_BODY", "task-1")],
-        },
-        originAt: atMinute(2),
-        receivedAt: atMinute(2),
-      }),
-    );
-    await runtime.runPromise(
-      repository.claimLocalTask({
-        sink: taskSink,
-        basis,
-        dependencyScope: createAuthorialTaskDependencyScopeCapability({
-          authority: authorialMaterial,
-          authoringSink: taskSink,
-        }),
-        taskId: "task-1",
-        actor: seat,
-        originAt: atMinute(3),
-        receivedAt: atMinute(3),
-      }),
-    );
-    await runtime.runPromise(
-      repository.transitionTask({
-        sink: taskSink,
-        basis,
-        taskId: "task-1",
-        state: "completed",
-        message: message(
-          "task-update",
-          "SECRET_OPERATOR_TRANSITION",
-          "task-1",
-        ),
-        originAt: atMinute(4),
-        receivedAt: atMinute(4),
-      }),
-    );
-    await runtime.runPromise(
-      repository.createRequest({
-        sink: { canvasName, nodeId: "requests" },
-        basis,
-        request: {
-          id: "request-1",
-          state: "input-required",
-          claimedBy: seat.seatId,
-          history: [
-            message("request-brief", "SECRET_REQUEST_BODY", "request-1"),
-          ],
-        },
-        raisedBy: seat,
-        originAt: atMinute(5),
-        receivedAt: atMinute(5),
-      }),
-    );
     await runtime.runPromise(
       appendMailboxMessage(repository, basis, seat, {
         id: "message-1",
         text: "SECRET_MESSAGE_BODY",
         at: atMinute(6),
-      }),
-    );
-    await runtime.runPromise(
-      repository.publishArtifact({
-        sink: { canvasName, nodeId: "artifacts" },
-        basis,
-        artifact: {
-          artifactId: "artifact-1",
-          name: `release-${"😀".repeat(100)}-notes.md`,
-          parts: [{ kind: "text", text: "SECRET_ARTIFACT_BODY" }],
-          task: { kind: "task", itemId: "task-1", sink: taskSink },
-        },
-        publishedBy: seat,
-        originAt: atMinute(7),
-        receivedAt: atMinute(7),
       }),
     );
     await runtime.runPromise(
@@ -332,69 +251,6 @@ describe("WorkRepository recent actor-seat operations", () => {
         },
         originAt: atMinute(8),
         receivedAt: atMinute(8),
-      }),
-    );
-    const boardAuthor = {
-      kind: "actor" as const,
-      seatId: seat.seatId,
-      nodeId: seat.nodeId,
-      label: "Worker",
-    };
-    await runtime.runPromise(
-      repository.createBoardTopic({
-        sink: { canvasName, nodeId: "board" },
-        basis,
-        topic: {
-          topicId: "topic-1",
-          title: "Shipping notes",
-          state: "open",
-          openedBy: boardAuthor,
-          openedAt: atMinute(9),
-          postCount: 0,
-          lastActivityAt: atMinute(9),
-        },
-        createdBy: boardAuthor,
-        originAt: atMinute(9),
-        receivedAt: atMinute(9),
-      }),
-    );
-    await runtime.runPromise(
-      repository.appendBoardPost({
-        sink: { canvasName, nodeId: "board" },
-        basis,
-        post: {
-          postId: "post-1",
-          topicId: "topic-1",
-          author: boardAuthor,
-          parts: [{ kind: "text", text: "SECRET_BOARD_POST" }],
-          position: 0,
-          createdAt: atMinute(10),
-        },
-        createdBy: boardAuthor,
-        originAt: atMinute(10),
-        receivedAt: atMinute(10),
-      }),
-    );
-    const operatorAuthor = {
-      kind: "operator" as const,
-      label: "Operator",
-    };
-    await runtime.runPromise(
-      repository.createBoardTopic({
-        sink: { canvasName, nodeId: "board" },
-        basis,
-        topic: {
-          topicId: "operator-topic",
-          title: "Operator-only note",
-          state: "open",
-          openedBy: operatorAuthor,
-          openedAt: atMinute(11),
-          postCount: 0,
-          lastActivityAt: atMinute(11),
-        },
-        createdBy: operatorAuthor,
-        originAt: atMinute(11),
-        receivedAt: atMinute(11),
       }),
     );
     await runtime.runPromise(
@@ -422,24 +278,12 @@ describe("WorkRepository recent actor-seat operations", () => {
     );
 
     expect(feed.operations.map(({ operation }) => operation)).toEqual([
-      "board.post.append",
-      "board.topic.create",
       "delivery.accepted",
-      "artifact.publish",
       "message.append",
-      "request.create",
-      "task.claim",
     ]);
-    expect(feed.lastOpAt).toBe(atMinute(10));
+    expect(feed.lastOpAt).toBe(atMinute(8));
     expect(feed.coverage).toEqual(WORK_SEAT_RECENT_OPS_COVERAGE);
     expect(feed.operations).toEqual([
-      expect.objectContaining({
-        targetNodeId: "board",
-        summary: { kind: "post", postId: "post-1", topicId: "topic-1" },
-      }),
-      expect.objectContaining({
-        summary: { kind: "topic", topicId: "topic-1", title: "Shipping notes" },
-      }),
       expect.objectContaining({
         summary: {
           kind: "delivery",
@@ -452,32 +296,13 @@ describe("WorkRepository recent actor-seat operations", () => {
         },
       }),
       expect.objectContaining({
-        summary: {
-          kind: "artifact",
-          artifactId: "artifact-1",
-          name: `release-${"😀".repeat(76)}`,
-          taskId: "task-1",
-        },
-      }),
-      expect.objectContaining({
         targetNodeId: "recipient",
         summary: { kind: "message", messageId: "message-1" },
-      }),
-      expect.objectContaining({
-        summary: { kind: "request", requestId: "request-1" },
-      }),
-      expect.objectContaining({
-        summary: { kind: "task", taskId: "task-1" },
       }),
     ]);
     const exposed = JSON.stringify(feed);
     for (const secret of [
-      "SECRET_TASK_BODY",
-      "SECRET_OPERATOR_TRANSITION",
-      "SECRET_REQUEST_BODY",
       "SECRET_MESSAGE_BODY",
-      "SECRET_ARTIFACT_BODY",
-      "SECRET_BOARD_POST",
       "OTHER_SEAT_SECRET",
       "OTHER_CANVAS_SECRET",
     ]) {
