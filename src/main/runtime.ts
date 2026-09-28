@@ -56,6 +56,7 @@ import { CompanionDeviceRepositoryLive } from "./junto/companion/repository";
 import { SchedulerRepositoryLive } from "./junto/scheduler/repository";
 import { SquadRepositoryLive } from "./junto/squads/repository";
 import { SeatGuidanceRepositoryLive } from "./junto/seat-guidance/repository";
+import { SeatSessionRepositoryLive } from "./junto/seat-sessions/repository";
 import { ProfileRepositoryLive } from "./junto/profiles/repository";
 import { WorkLive } from "./junto/work/service";
 import { WorkRepositoryLive } from "./junto/work/repository";
@@ -140,6 +141,7 @@ const StateRepositoriesLive = Layer.provideMerge(
     CrewRepositoryLive,
     SquadRepositoryLive,
     SeatGuidanceRepositoryLive,
+    SeatSessionRepositoryLive,
     ProfileRepositoryLive,
     // The usage plane reads operator provider credentials from settings, so
     // the memoized SettingsService instance feeds it here (same reference).

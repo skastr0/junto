@@ -58,6 +58,7 @@ import { raisedHands } from "./signals/raised-hands";
 import { SquadRepository, type SquadRepositoryError } from "./squads/repository";
 import type { SquadDeleteResult, SquadResult, SquadSaveInput } from "@shared/squads";
 import { SeatGuidanceRepository } from "./seat-guidance/repository";
+import { startSeatSessionRecorder } from "./seat-sessions/service";
 import { seatGuidanceIndex } from "./seat-guidance/index-memory";
 import { isSeatGuidanceSeatId, type SeatGuidanceSetResult } from "@shared/seat-guidance";
 import { ProfileRepository, type ProfileRepositoryError } from "./profiles/repository";
@@ -1602,6 +1603,11 @@ export const registerJuntoIpc = (): void => {
         void AppRuntime.runPromise(
           onCanvasChangeForEdgeMap(name, detail),
         );
+      });
+      // Seat sessions: each session id a seat is given joins its history, so
+      // onboard can hand the next session what came before and where it is.
+      yield* startSeatSessionRecorder((effect) => {
+        void AppRuntime.runPromise(effect);
       });
       snapshots.subscribe((state) => broadcast(IPC_CHANNELS.snapshotsChanged, state));
       if (USAGE_ENABLED) {
