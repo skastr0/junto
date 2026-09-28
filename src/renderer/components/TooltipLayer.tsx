@@ -114,9 +114,13 @@ export const absorbNativeTitlesInTree = (root: TitleHost | null | undefined): vo
   }
 };
 
+/** A control whose popup is open: the popup is the answer, a tip only covers it. */
+const popupOpen = (target: HTMLElement): boolean => target.getAttribute("aria-expanded") === "true";
+
 const tooltipText = (target: HTMLElement): string => {
   // Always strip native title first so a late React write cannot flash dual tips.
   absorbNativeTitle(target);
+  if (popupOpen(target)) return "";
   const branded = (
     target.dataset.tooltip
     ?? target.dataset.juntoTooltip
@@ -184,7 +188,7 @@ export function TooltipLayer() {
     pendingTargetRef.current = target;
     const recentlyVisible = performance.now() - lastShownAtRef.current < TRANSIT_GRACE_MS;
     const commit = () => {
-      if (!target.isConnected || pendingTargetRef.current !== target) return;
+      if (!target.isConnected || pendingTargetRef.current !== target || popupOpen(target)) return;
       if (activeRef.current && activeRef.current.target !== target) {
         removeDescription(activeRef.current.target);
       }
@@ -208,6 +212,11 @@ export function TooltipLayer() {
 
     const observer = new MutationObserver((records) => {
       for (const record of records) {
+        if (record.type === "attributes" && record.attributeName === "aria-expanded") {
+          // The control under a showing tip just opened its popup.
+          if (record.target === activeRef.current?.target && popupOpen(activeRef.current.target)) hide();
+          continue;
+        }
         if (record.type === "attributes" && record.attributeName === "title") {
           if (record.target instanceof HTMLElement) {
             absorbNativeTitle(record.target);
@@ -229,7 +238,7 @@ export function TooltipLayer() {
     });
     observer.observe(document.body, {
       attributes: true,
-      attributeFilter: ["title"],
+      attributeFilter: ["title", "aria-expanded"],
       childList: true,
       subtree: true,
     });
