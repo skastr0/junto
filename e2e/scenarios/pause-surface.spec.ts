@@ -85,7 +85,13 @@ test("pause surface: born paused in top bar, first play confirms, confirm flips 
   const control = page.getByTestId("factory-pause");
   await expect(control).toBeVisible({ timeout: 30_000 });
   await expect(control).toHaveAttribute("data-pause-state", "paused");
-  await expect(control).toContainText(/paused/i);
+  // An icon button like its neighbours: no word on it, its name says the action.
+  await expect(control).toHaveAccessibleName("Play canvas");
+  await expect(control).toHaveAttribute("data-junto-tooltip", "Play canvas");
+  await expect(control).toHaveText("");
+  const box = await control.boundingBox();
+  const settingsBox = await page.getByRole("button", { name: "Open settings" }).boundingBox();
+  expect(box && settingsBox ? [box.width, box.height] : null).toEqual(settingsBox ? [settingsBox.width, settingsBox.height] : null);
   await page.screenshot({ path: join(SHOTS, "01-born-paused.png"), fullPage: false });
 
   // First play surfaces the explicit confirmation with honest consequences.
@@ -110,13 +116,15 @@ test("pause surface: born paused in top bar, first play confirms, confirm flips 
   await confirm.getByRole("button", { name: /play/i }).click();
   await expect(confirm).not.toBeVisible();
   await expect(control).toHaveAttribute("data-pause-state", "playing");
-  await expect(control).toContainText(/playing/i);
+  await expect(control).toHaveAccessibleName("Pause canvas");
+  await expect(control).toHaveText("");
   await page.screenshot({ path: join(SHOTS, "03-playing.png"), fullPage: false });
 
   // Subsequent toggles are direct: pausing is instant, no dialog; and the
   // everPlayed latch makes the next play direct too.
   await control.click();
   await expect(control).toHaveAttribute("data-pause-state", "paused");
+  await expect(control).toHaveAccessibleName("Play canvas");
   await expect(page.getByTestId("first-play-confirm")).not.toBeVisible();
   await control.click();
   await expect(control).toHaveAttribute("data-pause-state", "playing");

@@ -21,13 +21,14 @@ import { openCommandBar } from "../lib/command-bar";
 import { retrySave } from "../lib/mutations";
 import { openSettings } from "../lib/settings-state";
 import { openFleet, prefetchFleetChunk } from "../lib/fleet-state";
-import { GREEN, HUE, INK, withAlpha } from "../lib/theme";
+import { HUE, INK, withAlpha } from "../lib/theme";
 import { Dropdown } from "./ui";
 import { CanvasInteractionMap } from "./help/CanvasInteractionMap";
 import { FirstPlayConfirm } from "./FirstPlayConfirm";
 import { UpdateChip } from "./UpdateChip";
 import { OperatorFeedTrigger } from "./feed/OperatorFeed";
 import { UsageHud } from "./UsageHud";
+import { CommandGroupBar } from "./command-groups/CommandGroupBar";
 import { claimFocusOnMount } from "../lib/focus-ownership";
 
 function CanvasPicker({
@@ -162,8 +163,10 @@ function CommandBarTrigger({ canvasName }: { readonly canvasName: string }) {
 }
 
 /**
- * The pause switch as drawn: paused prominent in amber, playing quiet in
- * green. Pure, so the tour can show the real control in either state.
+ * The pause switch as drawn: an icon button like its neighbours. The glyph is
+ * the action (pause while playing, play while paused); paused is the loud
+ * state, in amber, and playing stays quiet. Pure, so the tour can show the
+ * real control in either state.
  */
 export function PauseSwitchFace({
   playing,
@@ -176,55 +179,23 @@ export function PauseSwitchFace({
   readonly error?: string | null;
   readonly onClick?: () => void;
 }) {
-  const pauseLabel = playing ? "playing" : "paused";
+  const action = playing ? "Pause canvas" : "Play canvas";
   return (
     <button
       type="button"
+      className={`station-icon-button station-pause${playing ? "" : " station-pause--paused"}`}
       data-testid="factory-pause"
-      data-pause-state={pauseLabel}
-      aria-label={playing ? "Pause canvas" : "Play canvas"}
-      title={
-        error
-          ? `pause switch: ${error}`
-          : playing
-            ? "Pause canvas"
-            : "Play canvas"
-      }
+      data-pause-state={playing ? "playing" : "paused"}
+      aria-label={action}
+      title={error ? `${action}: ${error}` : action}
       disabled={busy}
       onClick={onClick}
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        gap: 6,
-        height: 26,
-        padding: "0 10px",
-        borderRadius: 7,
-        fontFamily: "inherit",
-        fontSize: 9,
-        letterSpacing: ".14em",
-        textTransform: "uppercase",
-        cursor: busy ? "not-allowed" : "pointer",
-        border: "1px solid",
-        ...(playing
-          ? {
-              color: GREEN,
-              borderColor: withAlpha(GREEN, 0.28),
-              background: "var(--color-overlay-1)",
-            }
-          : {
-              color: HUE.amber,
-              borderColor: withAlpha(HUE.amber, 0.55),
-              background: withAlpha(HUE.amber, 0.12),
-              boxShadow: `0 0 0 3px ${withAlpha(HUE.amber, 0.08)}`,
-            }),
-      }}
     >
       {playing ? (
-        <Play size={11} fill="currentColor" />
+        <Pause size={14} fill="currentColor" strokeWidth={1.5} aria-hidden />
       ) : (
-        <Pause size={11} fill="currentColor" />
+        <Play size={14} fill="currentColor" strokeWidth={1.5} aria-hidden />
       )}
-      <span>{pauseLabel}</span>
     </button>
   );
 }
@@ -326,6 +297,7 @@ export function TopBar({
       <CanvasPicker canvases={canvases} canvasName={canvasName} busy={canvasLoading} authoring={authoring} onOpen={onOpen} onCreate={onCreate} onDelete={onDelete} />
       <CommandBarTrigger canvasName={canvasName} />
       <SaveStatus />
+      <CommandGroupBar />
       <div className="station-actions relative ml-auto flex items-center gap-3">
         <UpdateChip />
         <OperatorFeedTrigger />
