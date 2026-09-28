@@ -111,15 +111,11 @@ describe("overseer command contract", () => {
     const draft = {
       node: {
         type: "text",
-        text: "new task board",
+        text: "new note",
         x: 12,
         y: 24,
         width: 240,
         height: 120,
-        ether: {
-          entity: { kind: "task" },
-          tasks: { name: "Ready" },
-        },
       },
     };
     succeeds(decodeOverseerArgs("node.create", draft));
@@ -167,22 +163,6 @@ describe("overseer command contract", () => {
 
   it("validates operation semantics rather than only object shape", () => {
     fails(
-      decodeOverseerArgs("tasks.update", {
-        target: "tasks-1",
-        task: "task-1",
-        state: "working",
-        next: "tasks-2",
-      }),
-    );
-    succeeds(
-      decodeOverseerArgs("tasks.update", {
-        target: "tasks-1",
-        task: "task-1",
-        state: "completed",
-        next: "tasks-2",
-      }),
-    );
-    fails(
       decodeOverseerArgs("edge.connect", {
         edge: { fromNode: "a", toNode: "b", verb: "arbitrary" },
       }),
@@ -206,9 +186,7 @@ describe("overseer command contract", () => {
       OVERSEER_CATALOG.map(({ operation, mutation }) => [operation, mutation]),
     );
     expect(mutations.get("canvas.read")).toBe(false);
-    expect(mutations.get("tasks.rules")).toBe(false);
     expect(mutations.get("msg.list")).toBe(true);
-    expect(mutations.get("pad.read")).toBe(true);
     expect(mutations.get("page.eval")).toBe(true);
     expect(mutations.get("page.screenshot")).toBe(true);
     expect(mutations.get("canvas.screenshot")).toBe(true);

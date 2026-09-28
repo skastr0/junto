@@ -56,34 +56,6 @@ const note = (
   ...geometry,
 });
 
-const task = (id: string, x: number): CanvasNode => ({
-  id,
-  type: "text",
-  text: id,
-  x,
-  y: 200,
-  width: 240,
-  height: 120,
-  ether: { entity: { kind: "task" } },
-});
-
-const sheet = (id: string): CanvasNode => ({
-  id,
-  type: "text",
-  text: "sheet",
-  x: 400,
-  y: 0,
-  width: 260,
-  height: 120,
-  ether: {
-    entity: { kind: "sheet" },
-    sheet: {
-      columns: [{ id: "c1", name: "A" }],
-      rows: [{ id: "r1", cells: { c1: "one" } }],
-    },
-  },
-});
-
 const overseerDoc = (): CanvasDoc =>
   ({
     nodes: [
@@ -91,9 +63,6 @@ const overseerDoc = (): CanvasDoc =>
       agent("peer", "bind-peer"),
       note("n1", { x: 300, y: 0, width: 120, height: 40 }),
       note("wide", { x: 10, y: 400, width: 400, height: 40 }),
-      task("t1", 0),
-      task("t2", 300),
-      sheet("s1"),
       {
         id: "region",
         type: "group",
@@ -395,7 +364,7 @@ describe("executeOverseerCanvas", () => {
     await expectOk({ operation: "node.delete", args: { nodeId: "region" } });
   });
 
-  it("connects legal edges, refuses invalid pairs and cycles", async () => {
+  it("connects legal edges and refuses invalid pairs", async () => {
     await boot();
     await expectOk({
       operation: "edge.connect",
@@ -407,17 +376,6 @@ describe("executeOverseerCanvas", () => {
       {
         operation: "edge.connect",
         args: { edge: { fromNode: "n1", toNode: "wide", verb: "messages" } },
-      },
-      "InputError",
-    );
-    await expectOk({
-      operation: "edge.connect",
-      args: { edge: { fromNode: "t1", toNode: "t2", verb: "feeds" } },
-    });
-    await expectErr(
-      {
-        operation: "edge.connect",
-        args: { edge: { fromNode: "t2", toNode: "t1", verb: "feeds" } },
       },
       "InputError",
     );
@@ -439,42 +397,27 @@ describe("executeOverseerCanvas", () => {
       args: {
         expectedRevision: before.revision,
         operations: [
-          { operation: "node.create", node: task("t3", 600) },
+          { operation: "node.create", node: note("n3", { x: 600, y: 200, width: 240, height: 120 }) },
           { operation: "node.configure", nodeId: "n1", changes: { text: "batched" } },
-          { operation: "node.move", nodeId: "t3", x: 640, y: 220 },
-          { operation: "edge.connect", edge: { id: "e3", fromNode: "overseer", toNode: "t3", verb: "contributes" } },
-          { operation: "edge.configure", edgeId: "e3", changes: { verb: "manages" } },
+          { operation: "node.move", nodeId: "n3", x: 640, y: 220 },
+          { operation: "edge.connect", edge: { id: "e3", fromNode: "overseer", toNode: "peer", verb: "messages" } },
         ],
       },
     });
     unsubscribe();
     expect(result).toMatchObject({ canvas: "ops", results: [
-      { operation: "node.create", nodeId: "t3" },
+      { operation: "node.create", nodeId: "n3" },
       { operation: "node.configure", nodeId: "n1" },
-      { operation: "node.move", nodeId: "t3" },
+      { operation: "node.move", nodeId: "n3" },
       { operation: "edge.connect", edgeId: "e3" },
-      { operation: "edge.configure", edgeId: "e3" },
     ] });
     expect(changes).toEqual(["ops"]);
     const after = await runtime!.runPromise(canvases.read("ops"));
     expect(after.revision).not.toBe(before.revision);
-    expect(after.doc.nodes.find((node) => node.id === "t3")).toMatchObject({ x: 640, y: 220 });
+    expect(after.doc.nodes.find((node) => node.id === "n3")).toMatchObject({ x: 640, y: 220 });
     expect(after.doc.nodes.find((node) => node.id === "n1")).toMatchObject({ text: "batched" });
-    expect(after.doc.edges.find((edge) => edge.id === "e3")).toMatchObject({ ether: { verb: "manages" } });
+    expect(after.doc.edges.find((edge) => edge.id === "e3")).toMatchObject({ ether: { verb: "messages" } });
     expect((await runtime!.runPromise(canvases.read("other"))).revision).toBe(foreign.revision);
-  });
-
-  it("validates the final graph so a batch can reverse a task path atomically", async () => {
-    const canvases = await boot();
-    await expectOk({ operation: "edge.connect", args: {
-      edge: { id: "forward", fromNode: "t1", toNode: "t2", verb: "feeds" },
-    } });
-    await expectOk({ operation: "canvas.batch", args: { operations: [
-      { operation: "edge.connect", edge: { id: "reverse", fromNode: "t2", toNode: "t1", verb: "feeds" } },
-      { operation: "edge.disconnect", edgeId: "forward" },
-    ] } });
-    const after = await runtime!.runPromise(canvases.read("ops"));
-    expect(after.doc.edges.map((edge) => edge.id)).toEqual(["reverse"]);
   });
 
   it("leaves every node and revision unchanged when the final batch graph is invalid", async () => {
@@ -482,13 +425,12 @@ describe("executeOverseerCanvas", () => {
     const before = await runtime!.runPromise(canvases.read("ops"));
     for (const operations of [
       [
-        { operation: "node.create", node: task("t3", 600) },
-        { operation: "edge.connect", edge: { fromNode: "n1", toNode: "t3", verb: "messages" } },
+        { operation: "node.create", node: note("n3", { x: 600, y: 200, width: 240, height: 120 }) },
+        { operation: "edge.connect", edge: { fromNode: "overseer", toNode: "n3", verb: "messages" } },
       ],
       [
         { operation: "node.move", nodeId: "n1", x: 999, y: 999 },
-        { operation: "edge.connect", edge: { fromNode: "t1", toNode: "t2", verb: "feeds" } },
-        { operation: "edge.connect", edge: { fromNode: "t2", toNode: "t1", verb: "feeds" } },
+        { operation: "edge.connect", edge: { fromNode: "n1", toNode: "wide", verb: "messages" } },
       ],
     ]) {
       await expectErr({ operation: "canvas.batch", args: { operations } }, "InputError");
@@ -551,40 +493,6 @@ describe("executeOverseerCanvas", () => {
     expect(Result.isFailure(result) && result.failure.type).toBe("AuthError");
     const after = await runtime!.runPromise(canvases.read("ops"));
     expect(after.doc.nodes.find((node) => node.id === "n1")).toMatchObject({ x: 300, y: 0 });
-  });
-
-  it("refuses scheduler cycles and leaves their draft nodes uncommitted", async () => {
-    const canvases = await boot();
-    const before = await runtime!.runPromise(canvases.read("ops"));
-    await expectErr({ operation: "canvas.batch", args: { operations: [
-      { operation: "node.create", node: { ...task("relay-a", 0), ether: { entity: { kind: "relay" } } } },
-      { operation: "node.create", node: { ...task("relay-b", 300), ether: { entity: { kind: "relay" } } } },
-      { operation: "edge.connect", edge: { fromNode: "relay-a", toNode: "relay-b", verb: "chains" } },
-      { operation: "edge.connect", edge: { fromNode: "relay-b", toNode: "relay-a", verb: "chains" } },
-    ] } }, "InputError");
-    expect((await runtime!.runPromise(canvases.read("ops"))).revision).toBe(before.revision);
-  });
-
-  it("reads and configures authored sheets", async () => {
-    await boot();
-    const read = (await expectOk({
-      operation: "sheet.read",
-      args: { target: "s1" },
-    })) as { sheet: { rows: ReadonlyArray<unknown> } };
-    expect(read.sheet.rows).toHaveLength(1);
-    await expectOk({
-      operation: "sheet.configure",
-      args: {
-        target: "s1",
-        sheet: {
-          columns: [{ id: "c1", name: "A" }],
-          rows: [
-            { id: "r1", cells: { c1: "one" } },
-            { id: "r2", cells: { c1: "two" } },
-          ],
-        },
-      },
-    });
   });
 
   it("revalidates grant in the same transaction as a write after revoke", async () => {

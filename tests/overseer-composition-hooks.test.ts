@@ -23,7 +23,6 @@ import {
   lateBoundDrive,
   reseatCanvasArgs,
   runCanvasHook,
-  schedulerCanvasArgs,
 } from "../src/main/junto/overseer/composition";
 
 
@@ -86,18 +85,6 @@ describe("overseer composition origin vs target", () => {
       nodeId: targetAgent,
       harness: "amp",
     });
-  });
-
-  it("maps scheduler payload without treating the target as caller", () => {
-    const mapped = schedulerCanvasArgs({
-      caller: origin,
-      canvasName: targetCanvas,
-      nodeId: "cron-1",
-      timer: { kind: "cron", expression: "0 * * * *" },
-    });
-    expect(mapped.caller).toEqual(origin);
-    expect(mapped.args.canvas).toBe(targetCanvas);
-    expect(mapped.args.nodeId).toBe("cron-1");
   });
 });
 

@@ -1,17 +1,12 @@
 import { describe, expect, it } from "vitest";
-import type { Task, CanvasDoc } from "../src/shared/canvas";
+import type { CanvasDoc } from "../src/shared/canvas";
 import {
   deriveRegionRollups as deriveRegionRollupsWithContext,
   type AgentActivity,
   type RegionRollupInput,
 } from "../src/shared/region-rollup";
 import type { WorkSurfaceActivity } from "../src/shared/terminal";
-import {
-  claimedByNode as claimed,
-  executionContextForDoc,
-} from "./helpers/actor-ref-fixtures";
-import { taskItem } from "./helpers/task-fixtures";
-import { kindForRole } from "./helpers/physics-seats";
+import { executionContextForDoc } from "./helpers/actor-ref-fixtures";
 
 type RegionRollupFixtureInput = Omit<
   RegionRollupInput,
@@ -68,60 +63,10 @@ const harnessOf = (
 ): ReadonlyMap<string, WorkSurfaceActivity> =>
   new Map(entries.map(([id, harness]) => [id, { session: "running", harness }]));
 
-/** Phase-blockable seat (physics actor). Kind is registry plumbing only. */
-const actorSeat = (id: string, x: number, y: number, label: string): Node =>
-  node(id, x, y, label, { entity: { kind: kindForRole("actor") } });
-
-const taskNode = (
-  id: string,
-  x: number,
-  y: number,
-  label: string,
-  items: ReadonlyArray<Task>,
-): Node => node(id, x, y, label, { entity: { kind: "task" }, tasks: { items: [...items] } });
-
 const activityOf = (...entries: Array<[string, AgentActivity]>): ReadonlyMap<string, AgentActivity> =>
   new Map(entries);
 
 describe("deriveRegionRollups — member severity ladder", () => {
-  it("blocked via execution graph: tasks criteria edge blocks its compiled actor target", () => {
-    const doc: CanvasDoc = {
-      nodes: [
-        group("r", 0, 0, 500, 500, "ops"),
-        taskNode("t", 10, 10, "Ops tasks", [claimed(taskItem("i1", "ship", "input-required"), "p")]),
-        actorSeat("p", 10, 100, "prism"),
-      ],
-      edges: [{ id: "e1", fromNode: "t", toNode: "p", ether: { verb: "works" } }],
-    };
-    const [rollup] = deriveRegionRollups({ doc });
-    const target = rollup?.members.find((member) => member.nodeId === "p");
-    expect(target?.severity).toBe("blocked");
-    expect(target?.reasons).toEqual(["edge:1 need input - ship"]);
-    expect(rollup?.counts).toEqual({ total: 2, blocked: 1, attention: 0, working: 0 , ready: 0 });
-  });
-
-  it("no cascade: blocked actor does not retransmit through outbound soft tasks edge", () => {
-    const doc: CanvasDoc = {
-      nodes: [
-        group("r", 0, 0, 500, 500, "ops"),
-        taskNode("t", 10, 10, "Ops tasks", [claimed(taskItem("i1", "ship", "input-required"), "a")]),
-        actorSeat("a", 10, 100, "prism"),
-        actorSeat("b", 10, 200, "quasar"),
-      ],
-      edges: [
-        { id: "e1", fromNode: "t", toNode: "a", ether: { verb: "works" } },
-        // Empty queue on a → soft relates; never relays stoppage to b
-        { id: "e2", fromNode: "a", toNode: "b", ether: { verb: "messages" } },
-      ],
-    };
-    const [rollup] = deriveRegionRollups({ doc });
-    const a = rollup?.members.find((member) => member.nodeId === "a");
-    const b = rollup?.members.find((member) => member.nodeId === "b");
-    expect(a?.severity).toBe("blocked");
-    expect(b?.severity).toBe("idle");
-    expect(b?.reasons).toEqual([]);
-  });
-
   it("attention via a pending permission on a live agent", () => {
     const doc: CanvasDoc = {
       nodes: [
@@ -194,20 +139,21 @@ describe("deriveRegionRollups — member severity ladder", () => {
     const doc: CanvasDoc = {
       nodes: [
         group("r", 0, 0, 500, 500, "ops"),
-        taskNode("u", 10, 10, "Ops tasks", [claimed(taskItem("i1", "ship", "input-required"), "a")]),
         agentNode("a", 10, 100, "PROFILE-13", "remote-a:profile-13"),
+        node("n", 10, 200, "a note"),
       ],
-      edges: [{ id: "e1", fromNode: "u", toNode: "a", ether: { verb: "works" } }],
+      edges: [],
     };
     const [rollup] = deriveRegionRollups({
       doc,
+      terminalStatusByNodeId: harnessOf(["a", "blocked"]),
       agentActivity: activityOf(["remote-a:profile-13", { sessionLive: true, permissionPending: true }]),
     });
     const member = rollup?.members.find((candidate) => candidate.nodeId === "a");
     expect(member?.severity).toBe("blocked");
-    // graph block first, then the lower-ladder live attention
-    expect(member?.reasons).toEqual(["edge:1 need input - ship", "permission:pending"]);
-    expect(rollup?.counts.blocked).toBe(1);
+    // the blocked harness first, then the lower-ladder live attention
+    expect(member?.reasons).toEqual(["activity:blocked", "permission:pending"]);
+    expect(rollup?.counts).toEqual({ total: 2, blocked: 1, attention: 0, working: 0, ready: 0 });
   });
 });
 
@@ -395,7 +341,7 @@ describe("deriveRegionRollups — region nesting", () => {
 });
 
 describe("deriveRegionRollups — member ordering", () => {
-  it("sorts by severity, then kind (agent, task/requests, rest), then document order", () => {
+  it("sorts by severity, then kind (agents first), then document order", () => {
     const doc: CanvasDoc = {
       nodes: [
         group("r", 0, 0, 800, 800, "ops"),

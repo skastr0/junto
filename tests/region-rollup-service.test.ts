@@ -10,12 +10,8 @@ import {
   RegionRollupService,
 } from "../src/main/junto/region-rollup";
 import { SnapshotsService } from "../src/main/junto/snapshots";
-import {
-  actorRefsForDoc,
-  claimedByNode,
-} from "./helpers/actor-ref-fixtures";
+import { actorRefsForDoc } from "./helpers/actor-ref-fixtures";
 import { spawnedLocalAcp } from "./helpers/acp-child";
-import { taskItem } from "./helpers/task-fixtures";
 import {
   canvasAuthorityMaterialFixture,
 } from "./helpers/canvas-authority-material";
@@ -95,51 +91,6 @@ const docActivity: CanvasDoc = {
     { id: "p1", type: "text", text: "name twin", x: 10, y: 110, width: 100, height: 40, ether: { entity: { kind: "project", name: "local:default" } } },
   ],
   edges: [],
-};
-
-const docStoppage: CanvasDoc = {
-  nodes: [
-    { ...region },
-    {
-      id: "tasks",
-      type: "text",
-      text: "tasks",
-      x: 10,
-      y: 10,
-      width: 100,
-      height: 40,
-      ether: {
-        entity: { kind: "task" },
-        tasks: {
-          items: [
-            claimedByNode(
-              taskItem("task-1", "needs operator", "input-required"),
-              "actor",
-              "ops",
-            ),
-          ],
-        },
-      },
-    },
-    {
-      id: "actor",
-      type: "text",
-      text: "actor",
-      x: 10,
-      y: 60,
-      width: 100,
-      height: 40,
-      ether: { entity: { kind: "agent", name: "local:actor" } },
-    },
-  ],
-  edges: [
-    {
-      id: "wait",
-      fromNode: "tasks",
-      toNode: "actor",
-      ether: { verb: "works" },
-    },
-  ],
 };
 
 // --- stubbed planes (kernel-arming-transaction idiom) -------------------------
@@ -278,21 +229,6 @@ describe("RegionRollupService — activity wiring", () => {
     }
   });
 
-  it("attributes task stoppage through CanvasReadResult actorRefs", async () => {
-    const chat = new ChatService(noSpawn, (host) => host === "local");
-    const runtime = makeRuntime(chat, new Map([["ops", docStoppage]]));
-    try {
-      const [rollup] = await rollups(runtime, "ops");
-      expect(
-        rollup?.members.find((member) => member.nodeId === "actor"),
-      ).toMatchObject({
-        severity: "blocked",
-        reasons: ["edge:1 need input - needs operator"],
-      });
-    } finally {
-      await runtime.dispose();
-    }
-  });
 });
 
 describe("RegionRollupService — error channel", () => {

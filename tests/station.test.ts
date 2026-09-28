@@ -12,7 +12,6 @@ import { defaultSettings, applySettingsPatch } from "../src/shared/settings";
 import {
   makeManagedAgentNode,
   makePageNode,
-  makeTasksNode,
   makeGaugeNode,
 } from "../src/renderer/lib/node-factories";
 
@@ -42,19 +41,10 @@ describe("node host assignment", () => {
       label: "codex",
     });
     const page = makePageNode(0, 0, "https://example.com");
-    const tasks = makeTasksNode(0, 0, "remote-a");
     const watcher = makeGaugeNode(0, 0, "remote-a");
     expect(agent.ether?.host).toBe("local");
     expect(page.ether?.host).toBe("local");
-    expect(tasks.ether?.host).toBe("remote-a");
     expect(watcher.ether?.host).toBe("remote-a");
-  });
-
-  it("refuses to create a tasks sink with an implicit or malformed queue home", () => {
-    expect(() => makeTasksNode(0, 0, "")).toThrow("invalid station host id");
-    expect(() => makeTasksNode(0, 0, "-option")).toThrow(
-      "invalid station host id",
-    );
   });
 
   it("separates an actor's placement HostId from its Hermes routing key", () => {

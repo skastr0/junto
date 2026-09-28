@@ -9,7 +9,6 @@ import {
   Schema,
 } from "effect";
 import { afterEach, describe, expect, it } from "vitest";
-import { ActorSeatId } from "../src/shared/actor-seat";
 import {
   serializeCanvas,
   type CanvasDoc,
@@ -24,7 +23,6 @@ import {
   StationHostId,
   type InstallationId as InstallationIdValue,
 } from "../src/shared/station-api";
-import { ProjectedIntentFactBasis } from "../src/shared/work-protocol";
 import {
   makeSettingsLive,
   SettingsService,
@@ -45,8 +43,6 @@ import {
   type StateRow,
 } from "../src/main/junto/state/engine";
 import {
-  createCurrentProjectedTaskDependencyScopeCapability,
-  WorkRepository,
   WorkRepositoryLive,
 } from "../src/main/junto/work/repository";
 
@@ -187,33 +183,6 @@ const portfolioBody = (text: string): string =>
     new Map([["factory", canvasDocument(text)]]),
     new Map(),
   );
-
-const workCanvasDocument = (text: string): CanvasDoc => ({
-  nodes: [
-    ...canvasDocument(text).nodes,
-    {
-      id: "tasks",
-      type: "text",
-      x: 0,
-      y: 140,
-      width: 240,
-      height: 100,
-      text: "Remote tasks",
-      ether: { entity: { kind: "task" } },
-    },
-    {
-      id: "artifacts",
-      type: "text",
-      x: 280,
-      y: 140,
-      width: 240,
-      height: 100,
-      text: "Remote artifacts",
-      ether: { entity: { kind: "artifacts" } },
-    },
-  ],
-  edges: [],
-});
 
 describe("StationRepository", () => {
   it("mints one stable installation identity in the shared database", async () => {
@@ -1052,234 +1021,6 @@ describe("StationRepository", () => {
         ),
       ),
     ).toEqual([{ generation: "7" }, { generation: "8" }]);
-    await runtime.dispose();
-  });
-
-  it("replaces projected intent without touching Remote-owned Work or synchronization state", async () => {
-    const path = await testDatabase();
-    const local = decodeInstallationId("remote-projection-isolation");
-    const cc = decodeInstallationId("cc-projection-isolation");
-    const runtime = makeRuntime(path, local);
-    const repository = await runtime.runPromise(StationRepository);
-    const work = await runtime.runPromise(WorkRepository);
-    const state = await runtime.runPromise(StateEngine);
-    const initialDocument = workCanvasDocument("initial Remote intent");
-    const initial = projectRequest(
-      local,
-      "41",
-      compileStationPortfolioBody(
-        new Map([["factory", initialDocument]]),
-        new Map(),
-      ),
-    );
-
-    await runtime.runPromise(repository.pair(pairRequest(local, cc)));
-    await runtime.runPromise(
-      repository.configureRemote(
-        remoteConfigurationRequest(local, cc),
-      ),
-    );
-    await runtime.runPromise(
-      repository.installProjection(
-        initial,
-        "2026-07-27T12:01:00.000Z",
-      ),
-    );
-
-    const basis = Schema.decodeUnknownSync(
-      ProjectedIntentFactBasis,
-      { onExcessProperty: "error" },
-    )({
-      kind: "projected-intent",
-      generation: initial.projection.generation,
-      contentSha256: initial.projection.contentSha256,
-    });
-    const actor = {
-      seatId: Schema.decodeUnknownSync(ActorSeatId)(
-        `seat_${"7".repeat(64)}`,
-      ),
-      canvasName: "factory",
-      nodeId: "remote-worker",
-    };
-    const tasks = { canvasName: "factory", nodeId: "tasks" };
-    const artifacts = {
-      canvasName: "factory",
-      nodeId: "artifacts",
-    };
-    const dependencyScope =
-      createCurrentProjectedTaskDependencyScopeCapability({
-        rawBody: initial.projection.body,
-        generation: initial.projection.generation,
-        contentSha256: initial.projection.contentSha256,
-        authoringSink: tasks,
-      });
-    const created = await runtime.runPromise(
-      work.createTask({
-        sink: tasks,
-        basis,
-        dependencyScope,
-        task: {
-          id: "remote-task",
-          state: "submitted",
-          history: [],
-        },
-        originAt: "2026-07-27T12:02:00.000Z",
-        receivedAt: "2026-07-27T12:02:00.000Z",
-      }),
-    );
-    await runtime.runPromise(
-      work.claimLocalTask({
-        sink: tasks,
-        basis,
-        dependencyScope,
-        taskId: created.value.id,
-        actor,
-        originAt: "2026-07-27T12:03:00.000Z",
-        receivedAt: "2026-07-27T12:03:00.000Z",
-      }),
-    );
-    const artifact = await runtime.runPromise(
-      work.publishArtifact({
-        sink: artifacts,
-        basis,
-        publishedBy: actor,
-        artifact: {
-          artifactId: "remote-artifact",
-          name: "Remote proof",
-          parts: [{ kind: "text", text: "durable output" }],
-        },
-        originAt: "2026-07-27T12:04:00.000Z",
-        receivedAt: "2026-07-27T12:04:00.000Z",
-      }),
-    );
-    await runtime.runPromise(
-      work.acceptDelivery({
-        sink: artifacts,
-        basis,
-        receipt: {
-          deliveryId: "remote-delivery",
-          deliveredItem: {
-            kind: "artifact",
-            itemId: artifact.value.artifactId,
-            sink: artifacts,
-          },
-          actor,
-          acceptedAt: "2026-07-27T12:05:00.000Z",
-        },
-        originAt: "2026-07-27T12:05:00.000Z",
-        receivedAt: "2026-07-27T12:05:00.000Z",
-      }),
-    );
-    await runtime.runPromise(
-      state.transaction("test.seed-station-sync-cursors", (writer) => {
-        writer.run(
-          `INSERT INTO station_received_cursors(
-             event_home,
-             entity_home,
-             through_sequence,
-             updated_at
-           ) VALUES (?, ?, '9', ?)`,
-          [cc, local, "2026-07-27T12:06:00.000Z"],
-        );
-        writer.run(
-          `INSERT INTO station_peer_ack_cursors(
-             peer_installation_id,
-             event_home,
-             entity_home,
-             through_sequence,
-             acknowledged_at
-           ) VALUES (?, ?, ?, '3', ?)`,
-          [cc, local, local, "2026-07-27T12:06:00.000Z"],
-        );
-      }),
-    );
-
-    const snapshot = () =>
-      runtime.runPromise(
-        Effect.all({
-          tasks: work.readSnapshot(
-            tasks.canvasName,
-            tasks.nodeId,
-          ),
-          artifacts: work.readSnapshot(
-            artifacts.canvasName,
-            artifacts.nodeId,
-          ),
-          deliveryAccepted: work.hasAcceptedDelivery(
-            artifacts,
-            "remote-delivery",
-          ),
-          localRecords: work.recordsAfter({
-            route: { eventHome: local, entityHome: local },
-          }),
-          cursors: state.read(
-            "test.read-station-sync-cursors",
-            (reader) => ({
-              received: reader.all(
-                `SELECT
-                   event_home,
-                   entity_home,
-                   through_sequence,
-                   updated_at
-                   FROM station_received_cursors
-                  ORDER BY event_home, entity_home`,
-              ),
-              acknowledged: reader.all(
-                `SELECT
-                   peer_installation_id,
-                   event_home,
-                   entity_home,
-                   through_sequence,
-                   acknowledged_at
-                   FROM station_peer_ack_cursors
-                  ORDER BY
-                    peer_installation_id,
-                    event_home,
-                    entity_home`,
-              ),
-            }),
-          ),
-        }),
-      );
-    const before = await snapshot();
-
-    const next = projectRequest(
-      local,
-      "42",
-      portfolioBody("replacement Remote intent"),
-    );
-    const installed = await runtime.runPromise(
-      repository.installProjection(
-        next,
-        "2026-07-27T12:07:00.000Z",
-      ),
-    );
-
-    expect(installed).toMatchObject({
-      decision: "install",
-      active: {
-        generation: "42",
-        contentSha256: next.projection.contentSha256,
-      },
-    });
-    expect(await runtime.runPromise(repository.projection)).toMatchObject({
-      ...next.projection,
-      receivedAt: "2026-07-27T12:07:00.000Z",
-    });
-    expect(await snapshot()).toEqual(before);
-    expect(before.tasks.tasks.items).toEqual([
-      expect.objectContaining({
-        id: "remote-task",
-        state: "working",
-        claimedBy: actor.seatId,
-      }),
-    ]);
-    expect(before.artifacts.artifacts.items).toEqual([
-      expect.objectContaining({
-        artifactId: "remote-artifact",
-      }),
-    ]);
-    expect(before.deliveryAccepted).toBe(true);
     await runtime.dispose();
   });
 

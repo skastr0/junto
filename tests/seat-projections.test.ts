@@ -174,47 +174,31 @@ describe("attentionReasonsForNode — one node, its own coarse slice", () => {
     ).toEqual(["permission:pending"]);
   });
 
-  it("no slice -> no permission reason; sink reasons still come from ether", () => {
+  it("no slice -> no permission reason", () => {
     expect(
       attentionReasonsForNode({
         ether: { entity: { kind: "agent", name: "local:pi" } },
       }),
     ).toEqual([]);
-    expect(
-      attentionReasonsForNode({
-        ether: {
-          entity: { kind: "requests" },
-          requests: { items: [{ state: "auth-required" }] },
-        },
-      }),
-    ).toEqual(["work:auth-required"]);
   });
 
   it("attentionAgentKey names the one key a seat depends on", () => {
     expect(
       attentionAgentKey({ ether: { entity: { kind: "agent", name: "local:pi" } } }),
     ).toBe("local:pi");
-    expect(attentionAgentKey({ ether: { entity: { kind: "task" } } })).toBeUndefined();
+    expect(attentionAgentKey({ ether: { entity: { kind: "terminal" } } })).toBeUndefined();
     expect(attentionAgentKey({})).toBeUndefined();
   });
 });
 
 describe("liveAttentionReasons", () => {
-  it("collects permission and sink input-required", () => {
+  it("collects a pending permission", () => {
     expect(
       liveAttentionReasons(
         { ether: { entity: { kind: "agent", name: "local:pi" } } },
         { "local:pi": { pendingPermissionId: "p1" } },
       ),
     ).toEqual(["permission:pending"]);
-    expect(
-      liveAttentionReasons({
-        ether: {
-          entity: { kind: "task" },
-          tasks: { items: [{ state: "input-required" }] },
-        },
-      }),
-    ).toEqual(["work:input-required"]);
   });
 });
 

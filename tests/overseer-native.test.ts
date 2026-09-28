@@ -98,17 +98,6 @@ const page = (id: string, url = "https://example.com/"): CanvasNode => ({
   ether: { entity: { kind: "page" }, browser: { profile: "personal" }, host: "local" },
 });
 
-const cron = (id: string): CanvasNode => ({
-  id,
-  type: "text",
-  text: id,
-  x: 0,
-  y: 80,
-  width: 120,
-  height: 40,
-  ether: { entity: { kind: "cron" }, host: "local", timer: { everyMinutes: 5 } },
-});
-
 const git = (id: string, cwd: string): CanvasNode => ({
   id,
   type: "text",
@@ -247,7 +236,7 @@ describe("overseer page authz", () => {
 });
 
 describe("overseer native adapters", () => {
-  const board = doc([agent("a1"), page("p1"), cron("c1")]);
+  const board = doc([agent("a1"), page("p1")]);
 
   it("lists agents and pages without requiring edges", async () => {
     const native = live([{ name: "factory", doc: board }]);
@@ -584,14 +573,6 @@ describe("overseer native adapters", () => {
     expect(reseated.ok).toBe(false);
     if (reseated.ok) return;
     expect(reseated.error.type).toBe("Unsupported");
-  });
-
-  it("does not silently write scheduler.configure without the canvas hook", async () => {
-    const native = live([{ name: "factory", doc: board }]);
-    const configured = await run(native, "scheduler.configure", { nodeId: "c1" });
-    expect(configured.ok).toBe(false);
-    if (configured.ok) return;
-    expect(configured.error.type).toBe("Unsupported");
   });
 
   it("keeps the remote prompt pending on the destination op without a control lease", async () => {
