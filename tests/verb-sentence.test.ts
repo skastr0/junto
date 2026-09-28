@@ -3,14 +3,8 @@ import { verbSentence } from "../src/renderer/lib/verb-sentence";
 import { VERBS } from "../src/shared/physics";
 
 describe("verbSentence", () => {
-  it("reads works in stored task-to-agent order", () => {
-    expect(verbSentence("works", "Intake", "Devin")).toBe("Intake works Devin");
-  });
-
-  it("reads reviews in reviewer-to-author order", () => {
-    expect(verbSentence("reviews", "Reviewer", "Author")).toBe(
-      "Reviewer reviews Author",
-    );
+  it("reads messages in sender-to-receiver order", () => {
+    expect(verbSentence("messages", "Planner", "Devin")).toBe("Planner messages Devin");
   });
 
   it("keeps every verb as from-then-to", () => {
