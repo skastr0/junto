@@ -27,6 +27,60 @@ type TooltipPosition = {
   readonly placement: "top" | "bottom";
 };
 
+/**
+ * Chrome a tooltip must not cover: a node's selection toolbar sits right
+ * above the node, which is exactly where a tip for the node's own name would
+ * go, and would hide the buttons the operator is reaching for.
+ */
+const KEEP_CLEAR_SELECTOR = ".react-flow__node-toolbar";
+
+export type TipRect = {
+  readonly left: number;
+  readonly top: number;
+  readonly right: number;
+  readonly bottom: number;
+};
+
+const overlaps = (a: TipRect, b: TipRect): boolean =>
+  a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+
+/**
+ * Where the tip goes: above the anchor, else below, centred and kept inside
+ * the viewport. A side that fits but would cover keep-clear chrome yields to
+ * the other side when that one is clear; when neither is, the usual order
+ * stands.
+ */
+export const placeTooltip = (
+  anchor: TipRect,
+  tip: { readonly width: number; readonly height: number },
+  viewport: { readonly width: number; readonly height: number },
+  keepClear: ReadonlyArray<TipRect> = [],
+): TooltipPosition => {
+  const idealLeft = anchor.left + (anchor.right - anchor.left) / 2 - tip.width / 2;
+  const left = Math.round(
+    Math.min(viewport.width - tip.width - VIEWPORT_GUTTER, Math.max(VIEWPORT_GUTTER, idealLeft)),
+  );
+  const sides = [
+    {
+      placement: "top" as const,
+      top: anchor.top - tip.height - VIEWPORT_GUTTER,
+      fits: anchor.top - VIEWPORT_GUTTER >= tip.height + VIEWPORT_GUTTER,
+    },
+    {
+      placement: "bottom" as const,
+      top: anchor.bottom + VIEWPORT_GUTTER,
+      fits: anchor.bottom + VIEWPORT_GUTTER + tip.height <= viewport.height - VIEWPORT_GUTTER,
+    },
+  ];
+  const clear = (top: number): boolean =>
+    !keepClear.some((rect) => overlaps({ left, top, right: left + tip.width, bottom: top + tip.height }, rect));
+  const chosen =
+    sides.find((side) => side.fits && clear(side.top)) ??
+    // Nothing clear: the old rule, top when it fits.
+    (sides[0].fits ? sides[0] : sides[1]);
+  return { left, top: Math.round(chosen.top), placement: chosen.placement };
+};
+
 const triggerFor = (target: EventTarget | null): HTMLElement | null =>
   target instanceof Element ? target.closest<HTMLElement>(TRIGGER_SELECTOR) : null;
 
@@ -230,19 +284,18 @@ export function TooltipLayer() {
   useLayoutEffect(() => {
     const tooltip = tooltipRef.current;
     if (!active || !tooltip || !active.target.isConnected) return;
-    const anchor = active.target.getBoundingClientRect();
     const tip = tooltip.getBoundingClientRect();
-    const roomAbove = anchor.top - VIEWPORT_GUTTER;
-    const placement = roomAbove >= tip.height + VIEWPORT_GUTTER ? "top" : "bottom";
-    const top = placement === "top"
-      ? anchor.top - tip.height - VIEWPORT_GUTTER
-      : anchor.bottom + VIEWPORT_GUTTER;
-    const idealLeft = anchor.left + anchor.width / 2 - tip.width / 2;
-    const left = Math.min(
-      window.innerWidth - tip.width - VIEWPORT_GUTTER,
-      Math.max(VIEWPORT_GUTTER, idealLeft),
-    );
-    setPosition({ left: Math.round(left), top: Math.round(top), placement });
+    // A toolbar's own buttons may tip over it; only other chrome is kept clear.
+    const keepClear = [...document.querySelectorAll<HTMLElement>(KEEP_CLEAR_SELECTOR)]
+      .filter((element) => !element.contains(active.target))
+      .map((element) => element.getBoundingClientRect())
+      .filter((rect) => rect.width > 0 && rect.height > 0);
+    setPosition(placeTooltip(
+      active.target.getBoundingClientRect(),
+      tip,
+      { width: window.innerWidth, height: window.innerHeight },
+      keepClear,
+    ));
   }, [active]);
 
   if (!active) return null;
