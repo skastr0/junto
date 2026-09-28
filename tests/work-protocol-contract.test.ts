@@ -19,7 +19,7 @@ const seatId = `seat_${"d".repeat(64)}`;
 
 const sink = {
   canvasName: "factory",
-  nodeId: "tasks",
+  nodeId: "recipient",
 };
 
 const actor = {
@@ -28,59 +28,57 @@ const actor = {
   nodeId: "builder",
 };
 
-const sourceTask = {
-  id: "task-1",
-  state: "submitted",
-  history: [],
+const mail = {
+  messageId: "message-1",
+  role: "agent" as const,
+  parts: [{ kind: "text" as const, text: "sent from this seat" }],
 };
 
+const item = {
+  kind: "message",
+  itemId: mail.messageId,
+  sink,
+};
+
+// Mail is resident on the Command Center: a Remote seat's message travels
+// as a command routed to the Command Center, which answers with the fact and
+// an applied disposition.
 const commandId = {
   route: {
-    eventHome: cc,
-    entityHome: remote,
+    eventHome: remote,
+    entityHome: cc,
   },
   seq: "1",
 };
 
 const factId = {
   route: {
-    eventHome: remote,
-    entityHome: remote,
+    eventHome: cc,
+    entityHome: cc,
   },
   seq: "1",
 };
 
-const claimCommand = {
+const messageBody = {
+  operation: "message.append",
+  message: mail,
+  sentBy: actor,
+  destination: { kind: "mailbox" },
+};
+
+const messageCommand = {
   protocol: WORK_PROTOCOL,
   id: commandId,
   recordType: "command",
-  item: {
-    kind: "task",
-    itemId: sourceTask.id,
-    sink,
-  },
-  operation: "task.claim",
+  item,
+  operation: "message.append",
   contentSha256: hash,
   originAt: timestamp,
   predecessor: null,
-  body: {
-    operation: "task.claim",
-    sourceQueueHome: cc,
-    sourcePredecessor: {
-      route: {
-        eventHome: cc,
-        entityHome: cc,
-      },
-      seq: "9",
-    },
-    sourceTask,
-    sink,
-    actor,
-    targetHome: remote,
-  },
+  body: messageBody,
 };
 
-const claimFact = {
+const messageFact = {
   protocol: WORK_PROTOCOL,
   id: factId,
   recordType: "fact",
@@ -89,43 +87,26 @@ const claimFact = {
     command: commandId,
     commandSha256: hash,
   },
-  item: {
-    kind: "task",
-    itemId: sourceTask.id,
-    sink,
-  },
-  operation: "task.claim",
+  item,
+  operation: "message.append",
   contentSha256: "b".repeat(64),
   originAt: timestamp,
   predecessor: null,
-  body: {
-    operation: "task.claim",
-    task: {
-      ...sourceTask,
-      state: "working",
-      claimedBy: seatId,
-    },
-    claimedBy: actor,
-    previousHome: cc,
-  },
+  body: messageBody,
 };
 
 const appliedDisposition = {
   protocol: WORK_PROTOCOL,
   id: {
     route: {
-      eventHome: remote,
-      entityHome: remote,
+      eventHome: cc,
+      entityHome: cc,
     },
     seq: "2",
   },
   recordType: "disposition",
-  item: {
-    kind: "task",
-    itemId: sourceTask.id,
-    sink,
-  },
-  operation: "task.claim",
+  item,
+  operation: "message.append",
   contentSha256: "c".repeat(64),
   originAt: timestamp,
   body: {
@@ -137,90 +118,11 @@ const appliedDisposition = {
   },
 };
 
-const artifactFact = {
-  protocol: WORK_PROTOCOL,
-  id: {
-    route: {
-      eventHome: remote,
-      entityHome: remote,
-    },
-    seq: "3",
-  },
-  recordType: "fact",
-  basis: {
-    kind: "projected-intent",
-    generation: "9",
-    contentSha256: "f".repeat(64),
-  },
-  item: {
-    kind: "artifact",
-    itemId: "artifact-1",
-    sink: {
-      canvasName: "factory",
-      nodeId: "artifacts",
-    },
-  },
-  operation: "artifact.publish",
-  contentSha256: "e".repeat(64),
-  originAt: timestamp,
-  predecessor: null,
-  body: {
-    operation: "artifact.publish",
-    artifact: {
-      artifactId: "artifact-1",
-      parts: [{ kind: "text", text: "release receipt" }],
-      task: {
-        kind: "task",
-        itemId: "task-1",
-        sink,
-      },
-    },
-    publishedBy: actor,
-  },
-};
-
-const crossCanvasPublisher = {
-  ...actor,
-  canvasName: "publisher-home",
-  nodeId: "remote-overseer",
-};
-
-const crossCanvasArtifactCommand = {
-  protocol: WORK_PROTOCOL,
-  id: {
-    route: {
-      eventHome: cc,
-      entityHome: remote,
-    },
-    seq: "4",
-  },
-  recordType: "command",
-  item: artifactFact.item,
-  operation: "artifact.publish",
-  contentSha256: "9".repeat(64),
-  originAt: timestamp,
-  predecessor: null,
-  body: {
-    operation: "artifact.publish",
-    artifact: artifactFact.body.artifact,
-    publishedBy: crossCanvasPublisher,
-  },
-};
-
 describe("Work protocol v2 contract", () => {
-  it("decodes InstallationId-based routes, claim records, and dispositions", () => {
-    expect(Result.isSuccess(decodeWorkRecord(claimCommand))).toBe(true);
-    expect(
-      Result.isSuccess(
-        decodeWorkAction({
-          ...claimCommand.body,
-          authorizedBy: actor,
-        }),
-      ),
-    ).toBe(true);
-    expect(Result.isSuccess(decodeWorkRecord(claimFact))).toBe(true);
+  it("decodes InstallationId-based routes, mail records, and dispositions", () => {
+    expect(Result.isSuccess(decodeWorkRecord(messageCommand))).toBe(true);
+    expect(Result.isSuccess(decodeWorkRecord(messageFact))).toBe(true);
     expect(Result.isSuccess(decodeWorkRecord(appliedDisposition))).toBe(true);
-    expect(Result.isSuccess(decodeWorkRecord(artifactFact))).toBe(true);
 
     const cursor = Schema.decodeUnknownResult(RouteCursor, {
       onExcessProperty: "error",
@@ -246,13 +148,13 @@ describe("Work protocol v2 contract", () => {
   });
 
   it("requires one strict fact basis and keeps it off commands and dispositions", () => {
-    const { basis: _basis, ...basisLessFact } = claimFact;
+    const { basis: _basis, ...basisLessFact } = messageFact;
     expect(Result.isFailure(decodeWorkRecord(basisLessFact))).toBe(true);
 
     expect(
       Result.isSuccess(
         decodeWorkRecord({
-          ...claimFact,
+          ...messageFact,
           basis: {
             kind: "authorial-intent",
             generation: "11",
@@ -264,7 +166,7 @@ describe("Work protocol v2 contract", () => {
     expect(
       Result.isSuccess(
         decodeWorkRecord({
-          ...claimFact,
+          ...messageFact,
           basis: {
             kind: "projected-intent",
             generation: "11",
@@ -273,27 +175,12 @@ describe("Work protocol v2 contract", () => {
         }),
       ),
     ).toBe(true);
-    expect(
-      Result.isFailure(
-        decodeWorkRecord({
-          ...claimFact,
-          basis: {
-            kind: "command",
-            command: {
-              ...commandId,
-              route: { eventHome: cc, entityHome: cc },
-            },
-            commandSha256: hash,
-          },
-        }),
-      ),
-    ).toBe(true);
 
     expect(
       Result.isFailure(
         decodeWorkRecord({
-          ...claimCommand,
-          basis: claimFact.basis,
+          ...messageCommand,
+          basis: messageFact.basis,
         }),
       ),
     ).toBe(true);
@@ -301,7 +188,7 @@ describe("Work protocol v2 contract", () => {
       Result.isFailure(
         decodeWorkRecord({
           ...appliedDisposition,
-          basis: claimFact.basis,
+          basis: messageFact.basis,
         }),
       ),
     ).toBe(true);
@@ -311,9 +198,9 @@ describe("Work protocol v2 contract", () => {
     expect(
       Result.isFailure(
         decodeWorkAction({
-          operation: "task.invalid",
-          taskId: "task-1",
-          actor,
+          operation: "message.invalid",
+          message: mail,
+          sentBy: actor,
         }),
       ),
     ).toBe(true);
@@ -321,124 +208,17 @@ describe("Work protocol v2 contract", () => {
     expect(
       Result.isFailure(
         decodeWorkResult({
-          operation: "task.unknown",
-          task: sourceTask,
+          operation: "message.unknown",
+          message: mail,
         }),
       ),
     ).toBe(true);
 
-    expect(
-      Result.isFailure(
-        decodeWorkRecord({
-          ...claimCommand,
-          operation: "task.transition",
-        }),
-      ),
-    ).toBe(true);
-
-    expect(
-      Result.isSuccess(
-        decodeWorkResult({
-          operation: "request.resolve",
-          request: {
-            id: "request-1",
-            state: "completed",
-            claimedBy: seatId,
-            history: [],
-          },
-        }),
-      ),
-    ).toBe(true);
-    expect(
-      Result.isFailure(
-        decodeWorkResult({
-          operation: "request.resolve",
-          request: {
-            id: "request-1",
-            state: "completed",
-            history: [],
-          },
-        }),
-      ),
-    ).toBe(true);
-
-    expect(
-      Result.isFailure(
-        decodeWorkRecord({
-          ...artifactFact,
-          body: {
-            operation: "artifact.publish",
-            artifact: artifactFact.body.artifact,
-          },
-        }),
-      ),
-    ).toBe(true);
-
-    expect(
-      Result.isFailure(
-        decodeWorkRecord({
-          ...artifactFact,
-          body: {
-            ...artifactFact.body,
-            artifact: {
-              artifactId: "artifact-1",
-              parts: [{ kind: "text", text: "legacy reference" }],
-              taskId: "task-1",
-            },
-          },
-        }),
-      ),
-    ).toBe(true);
-
-    expect(
-      Result.isFailure(
-        decodeWorkRecord({
-          ...artifactFact,
-          body: {
-            ...artifactFact.body,
-            artifact: {
-              ...artifactFact.body.artifact,
-              task: {
-                ...artifactFact.body.artifact.task,
-                kind: "request",
-              },
-            },
-          },
-        }),
-      ),
-    ).toBe(true);
-
-    expect(
-      Result.isFailure(
-        decodeWorkRecord({
-          ...artifactFact,
-          body: {
-            ...artifactFact.body,
-            artifact: {
-              ...artifactFact.body.artifact,
-              task: {
-                ...artifactFact.body.artifact.task,
-                sink: {
-                  ...artifactFact.body.artifact.task.sink,
-                  canvasName: "other-canvas",
-                },
-              },
-            },
-          },
-        }),
-      ),
-    ).toBe(true);
-
-    const appendedMessage = {
-      messageId: "message-provenance",
-      role: "agent" as const,
-      parts: [{ kind: "text" as const, text: "sent from this seat" }],
-    };
     expect(
       Result.isSuccess(
         decodeWorkAction({
           operation: "message.append",
-          message: appendedMessage,
+          message: mail,
           sentBy: actor,
           destination: { kind: "mailbox" },
         }),
@@ -448,17 +228,18 @@ describe("Work protocol v2 contract", () => {
       Result.isSuccess(
         decodeWorkResult({
           operation: "message.append",
-          message: appendedMessage,
+          message: mail,
           sentBy: actor,
           destination: { kind: "mailbox" },
         }),
       ),
     ).toBe(true);
+    // Mail always names who sent it.
     expect(
       Result.isFailure(
         decodeWorkAction({
           operation: "message.append",
-          message: appendedMessage,
+          message: mail,
           destination: { kind: "mailbox" },
         }),
       ),
@@ -467,64 +248,18 @@ describe("Work protocol v2 contract", () => {
       Result.isFailure(
         decodeWorkResult({
           operation: "message.append",
-          message: appendedMessage,
+          message: mail,
           destination: { kind: "mailbox" },
         }),
       ),
     ).toBe(true);
-
-    const taskMessage = {
-      ...appendedMessage,
-      taskId: "task-1",
-    };
-    expect(
-      Result.isSuccess(
-        decodeWorkAction({
-          operation: "message.append",
-          message: taskMessage,
-          sentBy: actor,
-          destination: { kind: "task", itemId: "task-1" },
-        }),
-      ),
-    ).toBe(true);
+    // And where it goes.
     expect(
       Result.isFailure(
         decodeWorkAction({
           operation: "message.append",
-          message: taskMessage,
+          message: mail,
           sentBy: actor,
-          destination: { kind: "request", itemId: "request-1" },
-        }),
-      ),
-    ).toBe(true);
-    expect(
-      Result.isFailure(
-        decodeWorkAction({
-          operation: "message.append",
-          message: taskMessage,
-          sentBy: actor,
-        }),
-      ),
-    ).toBe(true);
-  });
-
-  it("preserves an original publisher on cross-canvas artifact commands and facts", () => {
-    expect(Result.isSuccess(decodeWorkRecord(crossCanvasArtifactCommand))).toBe(
-      true,
-    );
-    expect(
-      Result.isSuccess(
-        decodeWorkRecord({
-          ...artifactFact,
-          basis: {
-            kind: "command",
-            command: crossCanvasArtifactCommand.id,
-            commandSha256: crossCanvasArtifactCommand.contentSha256,
-          },
-          body: {
-            ...artifactFact.body,
-            publishedBy: crossCanvasPublisher,
-          },
         }),
       ),
     ).toBe(true);
@@ -534,7 +269,7 @@ describe("Work protocol v2 contract", () => {
     expect(
       Result.isFailure(
         decodeWorkRecord({
-          ...claimCommand,
+          ...messageCommand,
           originStationId: cc,
         }),
       ),
@@ -543,124 +278,12 @@ describe("Work protocol v2 contract", () => {
     expect(
       Result.isFailure(
         decodeWorkRecord({
-          ...claimCommand,
+          ...messageCommand,
           body: {
-            ...claimCommand.body,
-            actor: {
+            ...messageCommand.body,
+            sentBy: {
               ...actor,
               hostId: "legacy-placement-authority",
-            },
-          },
-        }),
-      ),
-    ).toBe(true);
-  });
-
-  it("enforces the first-adoption predecessor laws", () => {
-    expect(
-      Result.isFailure(
-        decodeWorkRecord({
-          ...claimCommand,
-          predecessor: claimCommand.body.sourcePredecessor,
-        }),
-      ),
-    ).toBe(true);
-
-    expect(
-      Result.isFailure(
-        decodeWorkRecord({
-          ...claimCommand,
-          body: {
-            ...claimCommand.body,
-            sourcePredecessor: {
-              route: {
-                eventHome: cc,
-                entityHome: remote,
-              },
-              seq: "9",
-            },
-          },
-        }),
-      ),
-    ).toBe(true);
-
-    expect(
-      Result.isFailure(
-        decodeWorkRecord({
-          ...claimFact,
-          predecessor: factId,
-        }),
-      ),
-    ).toBe(true);
-
-    expect(
-      Result.isFailure(
-        decodeWorkRecord({
-          ...claimFact,
-          body: {
-            ...claimFact.body,
-            previousHome: remote,
-          },
-        }),
-      ),
-    ).toBe(true);
-  });
-
-  it("makes claimant identity first-class and exact", () => {
-    expect(
-      Result.isFailure(
-        decodeWorkRecord({
-          ...claimCommand,
-          body: {
-            ...claimCommand.body,
-            sourceTask: {
-              ...sourceTask,
-              metadata: {
-                claimedBy: seatId,
-              },
-            },
-          },
-        }),
-      ),
-    ).toBe(true);
-
-    expect(
-      Result.isFailure(
-        decodeWorkRecord({
-          ...claimFact,
-          body: {
-            ...claimFact.body,
-            task: {
-              ...claimFact.body.task,
-              claimedBy: `seat_${"e".repeat(64)}`,
-            },
-          },
-        }),
-      ),
-    ).toBe(true);
-  });
-
-  it("admits only submitted unclaimed task.create facts", () => {
-    const taskCreateFact = {
-      ...claimFact,
-      operation: "task.create",
-      predecessor: null,
-      body: {
-        operation: "task.create",
-        task: sourceTask,
-      },
-    };
-    expect(Result.isSuccess(decodeWorkRecord(taskCreateFact))).toBe(true);
-    expect(
-      Result.isFailure(
-        decodeWorkRecord({
-          ...taskCreateFact,
-          body: {
-            operation: "task.create",
-            task: {
-              ...sourceTask,
-              state: "completed",
-              claimedBy: actor.seatId,
             },
           },
         }),
@@ -672,7 +295,7 @@ describe("Work protocol v2 contract", () => {
     expect(
       Result.isFailure(
         decodeWorkRecord({
-          ...claimFact,
+          ...messageFact,
           receivedAt: timestamp,
         }),
       ),
@@ -681,7 +304,7 @@ describe("Work protocol v2 contract", () => {
     expect(
       Result.isSuccess(
         decodeStoredWorkRecord({
-          record: claimFact,
+          record: messageFact,
           receivedAt: timestamp,
         }),
       ),
@@ -721,19 +344,19 @@ describe("Work protocol v2 contract", () => {
 
   it("applies an intrinsic record bound independent of ReportBatch", () => {
     const oversized = {
-      ...claimCommand,
+      ...messageCommand,
       body: {
-        ...claimCommand.body,
-        sourceTask: {
-          ...sourceTask,
-          metadata: {
-            oversized: "x".repeat(WORK_PROTOCOL_MAX_RECORD_BYTES),
-          },
+        ...messageCommand.body,
+        message: {
+          ...mail,
+          parts: [
+            { kind: "text", text: "x".repeat(WORK_PROTOCOL_MAX_RECORD_BYTES) },
+          ],
         },
       },
     };
 
-    expect(workRecordEncodedByteLength(claimCommand)).toBeLessThan(
+    expect(workRecordEncodedByteLength(messageCommand)).toBeLessThan(
       WORK_PROTOCOL_MAX_RECORD_BYTES,
     );
     expect(Result.isFailure(decodeWorkRecord(oversized))).toBe(true);
