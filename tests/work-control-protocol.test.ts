@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { Result, Schema } from "effect";
 import {
-  TasksClaimArgs,
+  MsgPromptArgs,
   WorkOpName,
   decodeWorkRequest,
   decodeWorkResponse,
@@ -33,13 +33,13 @@ describe("work-control wire schemas", () => {
   it("decodes a valid request envelope", () => {
     const raw = {
       token: "abc",
-      op: "tasks.claim",
-      args: { target: "tasks", task: "t1" },
+      op: "msg.send",
+      args: { target: "peer", text: "hello" },
     };
     const decoded = decodeWorkRequest(raw);
     expect(Result.isSuccess(decoded)).toBe(true);
     if (Result.isSuccess(decoded)) {
-      expect(decoded.success.op).toBe("tasks.claim");
+      expect(decoded.success.op).toBe("msg.send");
       expect(decoded.success.token).toBe("abc");
     }
   });
@@ -47,7 +47,7 @@ describe("work-control wire schemas", () => {
   it("rejects unknown ops", () => {
     const decoded = decodeWorkRequest({
       token: "t",
-      op: "tasks.delete",
+      op: "msg.delete",
     });
     expect(Result.isFailure(decoded)).toBe(true);
   });
@@ -85,43 +85,40 @@ describe("work-control wire schemas", () => {
     ).toBe(true);
   });
 
-  it("validates TasksClaimArgs", () => {
-    const good = Schema.decodeUnknownResult(TasksClaimArgs)({
+  it("refuses client-supplied identity on msg.prompt args", () => {
+    const good = Schema.decodeUnknownResult(MsgPromptArgs)({
       target: "n7",
-      task: "t1",
+      text: "t1",
     });
-    const clientIdentity = Schema.decodeUnknownResult(TasksClaimArgs)({
+    const clientIdentity = Schema.decodeUnknownResult(MsgPromptArgs)({
       target: "n7",
-      task: "t1",
+      text: "t1",
       actor: "agent",
     });
     expect(Result.isSuccess(good)).toBe(true);
     expect(Result.isFailure(clientIdentity)).toBe(true);
   });
 
-  it("enumerates every WorkOpName", () => {
+  it("enumerates the seat ops", () => {
     const ops = Schema.decodeUnknownResult(Schema.Array(WorkOpName))([
       "ping",
       "doctor",
       "capabilities",
       "onboard",
+      "offboard",
       "preamble",
-      "tasks.list",
-      "tasks.create",
-      "tasks.claim",
-      "tasks.update",
       "msg.list",
       "msg.send",
+      "msg.prompt",
+      "msg.sent",
       "msg.read",
       "msg.reply",
       "msg.react",
+      "seat.wait",
+      "seat.read",
       "signal.raise",
       "signal.clear",
       "signal.list",
-      "artifact.publish",
-      "pad.read",
-      "pad.patch",
-      "relay.trigger",
     ]);
     expect(Result.isSuccess(ops)).toBe(true);
     expect(
@@ -131,79 +128,53 @@ describe("work-control wire schemas", () => {
 });
 
 describe("work authz — edges as capability", () => {
+  const agent = (id: string, x: number, y = 0): CanvasDoc["nodes"][number] => ({
+    id,
+    type: "text",
+    x,
+    y,
+    width: 100,
+    height: 40,
+    text: id,
+    ether: { entity: { kind: "agent", name: `local:${id}` } },
+  });
   const board = doc(
     [
-      {
-        id: "agent",
-        type: "text",
-        x: 0,
-        y: 0,
-        width: 100,
-        height: 40,
-        text: "agent",
-        ether: { entity: { kind: "agent", name: "local:agent" } },
-      },
-      {
-        id: "tasks",
-        type: "text",
-        x: 200,
-        y: 0,
-        width: 100,
-        height: 40,
-        text: "tasks",
-        ether: { entity: { kind: "task" }, tasks: { items: [] } },
-      },
-      {
-        id: "req",
-        type: "text",
-        x: 400,
-        y: 0,
-        width: 100,
-        height: 40,
-        text: "requests",
-        ether: { entity: { kind: "requests" }, requests: { items: [] } },
-      },
-      {
-        id: "stranger",
-        type: "text",
-        x: 600,
-        y: 200,
-        width: 100,
-        height: 40,
-        text: "elsewhere",
-        ether: { entity: { kind: "project", name: "x" } },
-      },
+      agent("agent", 0),
+      agent("peer", 200),
+      agent("neighbor", 400),
+      agent("stranger", 600, 200),
       {
         id: "region",
         type: "group",
         x: -20,
         y: -20,
-        // Wide/tall enough to FULLY contain agent/tasks/req (I9: membership
-        // is full-rect containment, not center-point) while leaving stranger
-        // (x:600-700) outside.
+        // Wide/tall enough to FULLY contain agent/peer/neighbor (I9:
+        // membership is full-rect containment, not center-point) while
+        // leaving stranger (x:600-700) outside.
         width: 520,
         height: 120,
         label: "Forge",
         ether: { region: { hold: false, instruction: "ship work" } },
       },
     ],
-    [{ id: "e1", fromNode: "agent", toNode: "tasks", ether: { verb: "contributes" } }],
+    [{ id: "e1", fromNode: "agent", toNode: "peer", ether: { verb: "messages" } }],
   );
 
   it("detects undirected edges", () => {
-    expect(areConnected(board, "agent", "tasks")).toBe(true);
-    expect(areConnected(board, "tasks", "agent")).toBe(true);
-    expect(areConnected(board, "agent", "req")).toBe(false);
+    expect(areConnected(board, "agent", "peer")).toBe(true);
+    expect(areConnected(board, "peer", "agent")).toBe(true);
+    expect(areConnected(board, "agent", "neighbor")).toBe(false);
     expect(areConnected(board, "agent", "agent")).toBe(true);
   });
 
   it("classifies region co-members vs invisible", () => {
-    // agent, tasks, req are fully inside the group rect; stranger is not
+    // agent, peer, neighbor are fully inside the group rect; stranger is not
     expect(regionCoMemberIds(board, "agent")).toEqual(
-      expect.arrayContaining(["tasks", "req"]),
+      expect.arrayContaining(["peer", "neighbor"]),
     );
-    expect(visibilityOf(board, "agent", "tasks")).toBe("connected");
-    expect(visibilityOf(board, "agent", "req")).toBe("region");
+    expect(visibilityOf(board, "agent", "peer")).toBe("connected");
+    expect(visibilityOf(board, "agent", "neighbor")).toBe("region");
     expect(visibilityOf(board, "agent", "stranger")).toBe("none");
   });
 
@@ -217,77 +188,38 @@ describe("work authz — edges as capability", () => {
   });
 
   it("kindAllowsOp gates by entity kind", () => {
-    expect(kindAllowsOp("task", "tasks.claim")).toBe(true);
-    expect(kindAllowsOp("task", "artifact.publish")).toBe(false);
-    expect(kindAllowsOp("artifacts", "artifact.publish")).toBe(true);
     expect(kindAllowsOp("agent", "msg.send")).toBe(true);
+    expect(kindAllowsOp("agent", "msg.react")).toBe(true);
+    expect(kindAllowsOp("agent", "onboard")).toBe(false);
   });
 
-  it("connectedCapabilities lists held grants on edge targets only", () => {
+  it("connectedCapabilities lists the mail grants on edge targets only", () => {
     const caps = connectedCapabilities(board, "agent");
     expect(caps).toHaveLength(1);
-    expect(caps[0]?.id).toBe("tasks");
-    expect(caps[0]?.grants).toContain("tasks.claim");
-  });
-
-  it("connectedCapabilities includes role + held grants", () => {
-    const caps = connectedCapabilities(board, "agent");
-    expect(caps[0]?.role).toBe("sink");
+    expect(caps[0]?.id).toBe("peer");
+    expect(caps[0]?.role).toBe("actor");
     expect(caps[0]?.grants).toEqual(
-      expect.arrayContaining([
-        "tasks.list",
-        "tasks.claim",
-        "tasks.update",
-        "msg.list",
-        "msg.send",
-      ]),
+      expect.arrayContaining(["msg.list", "msg.send", "msg.prompt"]),
     );
     expect(caps[0]?.grants).not.toContain("browser.automate");
-    expect(caps[0]?.grants).not.toContain("artifact.publish");
   });
 
   it("admitWorkTarget uses physics for edge + port", () => {
-    const ok = admitWorkTarget(board, "agent", "tasks", "tasks.claim");
+    const ok = admitWorkTarget(board, "agent", "peer", "msg.send");
     expect(Result.isSuccess(ok)).toBe(true);
 
-    const regionOnly = admitWorkTarget(
-      board,
-      "agent",
-      "req",
-      "msg.send",
-    );
+    const regionOnly = admitWorkTarget(board, "agent", "neighbor", "msg.send");
     expect(Result.isFailure(regionOnly)).toBe(true);
     if (Result.isFailure(regionOnly)) {
       expect(regionOnly.failure.type).toBe("ScopeError");
       expect(regionOnly.failure.message).toContain("missing edge");
     }
 
-    const invisible = admitWorkTarget(board, "agent", "stranger", "tasks.list");
+    const invisible = admitWorkTarget(board, "agent", "stranger", "msg.send");
     expect(Result.isFailure(invisible)).toBe(true);
     if (Result.isFailure(invisible)) {
       expect(invisible.failure.type).toBe("ScopeError");
       expect(invisible.failure.message).toMatch(/not visible/);
-    }
-
-    const wrongKind = admitWorkTarget(board, "agent", "tasks", "artifact.publish");
-    expect(Result.isFailure(wrongKind)).toBe(true);
-    if (Result.isFailure(wrongKind)) {
-      expect(wrongKind.failure.type).toBe("ScopeError");
-      expect(wrongKind.failure.message).toMatch(/does not support/);
-    }
-  });
-
-  it("S8 attack: artifact.publish from unedged actor → ScopeError", () => {
-    const noEdge = admitWorkTarget(board, "agent", "stranger", "artifact.publish");
-    expect(Result.isFailure(noEdge)).toBe(true);
-    if (Result.isFailure(noEdge)) {
-      expect(noEdge.failure.type).toBe("ScopeError");
-    }
-    // Connected task sink does not offer artifact.publish.
-    const wrongSink = admitWorkTarget(board, "agent", "tasks", "artifact.publish");
-    expect(Result.isFailure(wrongSink)).toBe(true);
-    if (Result.isFailure(wrongSink)) {
-      expect(wrongSink.failure.type).toBe("ScopeError");
     }
   });
 
@@ -296,38 +228,24 @@ describe("work authz — edges as capability", () => {
       new ScopeDenial({
         reason: "not_connected",
         caller: "agent",
-        target: "req",
+        target: "neighbor",
         message: "physics msg",
         port: "msg.send",
       }),
     );
     expect(notConnected.type).toBe("ScopeError");
     expect(notConnected.message).toBe(
-      'missing edge between "agent" and "req"',
+      'missing edge between "agent" and "neighbor"',
     );
-
-    const noPort = scopeDenialToWorkError(
-      new ScopeDenial({
-        reason: "no_port",
-        caller: "agent",
-        target: "tasks",
-        message: "physics msg",
-        port: "artifact.publish",
-      }),
-      { kind: "task", op: "artifact.publish" },
-    );
-    expect(noPort.message).toContain("does not support artifact.publish");
   });
 
   it("factoryRoleOfNode derives actor for agent seats", () => {
-    const agent = board.nodes.find((n) => n.id === "agent")!;
-    expect(factoryRoleOfNode(agent)).toBe("actor");
-    const tasks = board.nodes.find((n) => n.id === "tasks")!;
-    expect(factoryRoleOfNode(tasks)).toBe("sink");
+    const seat = board.nodes.find((n) => n.id === "agent")!;
+    expect(factoryRoleOfNode(seat)).toBe("actor");
   });
 
   it("scopeError names the missing edge", () => {
-    const err = scopeError("agent", "req", "not_connected");
+    const err = scopeError("agent", "neighbor", "not_connected");
     expect(err.type).toBe("ScopeError");
     expect(err.message).toContain("missing edge");
     expect(err.details?.next_step).toMatch(/edge/i);
