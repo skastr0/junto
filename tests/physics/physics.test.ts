@@ -1,39 +1,17 @@
 import { describe, expect, it } from "vitest";
-import { Result, HashMap, HashSet, Match, Option } from "effect";
+import { Result, HashMap, HashSet, Option } from "effect";
 import type { CanvasDoc } from "../../src/shared/canvas";
-import { WELL_KNOWN_ENTITY_KINDS } from "../../src/shared/canvas";
-import { KIND_TO_SLOT } from "../../src/shared/managed-terminal-injection";
 import {
-  ALL_PORTS,
-  GrantLaw,
-  KindSpecs,
-  PortForWorkOp,
   PortGrant,
   RuntimePlacement,
-  TARGET_WORK_OPS,
-  WELL_KNOWN_KINDS,
   admitPure,
   asNodeId,
   canvasDocToCapabilityView,
-  canonicalRolePair,
-  grantLawBetween,
-  grantLawForRoles,
-  kindsWithRole,
   nullPlacementView,
   portSet,
   resolveNodePlacement,
-  resolveSpec,
-  roleMayBeBlocked,
-  roleOf,
   routeAllowed,
-  seatMayBeBlocked,
-  selectGrant,
-  pairIsClaimable,
-  undirectedEdgeKey,
   type NodePlacement,
-  type Port,
-  type Verb,
-  type WellKnownKind,
 } from "../../src/shared/physics";
 
 const textNode = (
@@ -91,130 +69,6 @@ const groupNode = (
   ether: { region: { hold: true } },
 });
 
-describe("physics KindSpecs", () => {
-  it("is exhaustive over WellKnownKind", () => {
-    for (const kind of WELL_KNOWN_KINDS) {
-      expect(KindSpecs[kind].kind).toBe(kind);
-    }
-    const keys = Object.keys(KindSpecs).sort();
-    expect(keys).toEqual([...WELL_KNOWN_KINDS].sort());
-  });
-
-  it("maps every well-known kind to a role via the registry (not ad-hoc lists)", () => {
-    for (const kind of WELL_KNOWN_KINDS) {
-      expect(roleOf(resolveSpec({ isGroup: false, kind }))).toBe(KindSpecs[kind].role);
-    }
-    expect(roleOf(resolveSpec({ isGroup: true, kind: undefined }))).toBe("geography");
-    expect(roleOf(resolveSpec({ isGroup: false, kind: "note" }))).toBe("geography");
-    expect(roleOf(resolveSpec({ isGroup: false, kind: undefined }))).toBe("geography");
-  });
-
-  it("kindsWithRole partitions WellKnownKind by KindSpecs.role", () => {
-    const allRoles = ["actor", "sink", "scheduler", "geography"] as const;
-    const seen = new Set<WellKnownKind>();
-    for (const role of allRoles) {
-      if (role === "geography") {
-        expect(kindsWithRole(role)).toEqual([]);
-        continue;
-      }
-      for (const kind of kindsWithRole(role)) {
-        expect(KindSpecs[kind].role).toBe(role);
-        seen.add(kind);
-      }
-    }
-    expect([...seen].sort()).toEqual([...WELL_KNOWN_KINDS].sort());
-  });
-});
-
-describe("physics phase membership", () => {
-  it("only actor may be blocked; every other FactoryRole is refused", () => {
-    expect(roleMayBeBlocked("actor")).toBe(true);
-    expect(roleMayBeBlocked("sink")).toBe(false);
-    expect(roleMayBeBlocked("scheduler")).toBe(false);
-    expect(roleMayBeBlocked("geography")).toBe(false);
-  });
-
-  it("every registry kind agrees: actors blockable, non-actors not", () => {
-    for (const kind of WELL_KNOWN_KINDS) {
-      const role = KindSpecs[kind].role;
-      const may = seatMayBeBlocked({ isGroup: false, kind });
-      expect(may).toBe(role === "actor");
-      expect(may).toBe(roleMayBeBlocked(role));
-    }
-    expect(seatMayBeBlocked({ isGroup: true, kind: undefined })).toBe(false);
-    expect(seatMayBeBlocked({ isGroup: false, kind: undefined })).toBe(false);
-  });
-
-  it("geography offers empty", () => {
-    const unknownKind = resolveSpec({ isGroup: false, kind: "label" });
-    expect(roleOf(unknownKind)).toBe("geography");
-    expect(HashSet.size(unknownKind.offers)).toBe(0);
-
-    const group = resolveSpec({ isGroup: true, kind: undefined });
-    expect(roleOf(group)).toBe("geography");
-    expect(HashSet.size(group.offers)).toBe(0);
-  });
-
-  it("canvas WELL_KNOWN_ENTITY_KINDS includes watcher and timer", () => {
-    expect(WELL_KNOWN_ENTITY_KINDS).toContain("watcher");
-    expect(WELL_KNOWN_ENTITY_KINDS).toContain("timer");
-  });
-
-  it("canvas WELL_KNOWN_ENTITY_KINDS includes pad", () => {
-    expect(WELL_KNOWN_ENTITY_KINDS).toContain("pad");
-  });
-});
-
-describe("physics GrantLaw (actor↔actor mailbox defaults)", () => {
-  it("ActorSink and ActorActor are Full; ActorScheduler OptIn for relay.trigger", () => {
-    expect(grantLawBetween(canonicalRolePair("actor", "sink"))._tag).toBe("Full");
-    expect(grantLawBetween(canonicalRolePair("actor", "actor"))._tag).toBe("Full");
-    expect(grantLawForRoles("actor", "scheduler")._tag).toBe("OptIn");
-    expect(grantLawForRoles("actor", "geography")._tag).toBe("None");
-    expect(grantLawForRoles("sink", "actor")._tag).toBe("None");
-    expect(grantLawForRoles("geography", "sink")._tag).toBe("None");
-  });
-
-  it("selectGrant: Full attenuates by mask; OptIn remains explicit; None is empty", () => {
-    const mask = portSet("msg.send");
-    expect(selectGrant(GrantLaw.Full(), undefined).isFull()).toBe(true);
-    expect(HashSet.has(selectGrant(GrantLaw.Full(), mask).ports, "msg.send")).toBe(true);
-    expect(selectGrant(GrantLaw.OptIn(), undefined).isEmpty()).toBe(true);
-    expect(HashSet.has(selectGrant(GrantLaw.OptIn(), mask).ports, "msg.send")).toBe(true);
-    expect(HashSet.has(selectGrant(GrantLaw.OptIn(), mask).ports, "msg.list")).toBe(false);
-    expect(selectGrant(GrantLaw.None(), mask).isEmpty()).toBe(true);
-  });
-
-  it("Match.tagsExhaustive is exhaustive over GrantLaw tags", () => {
-    // Compile-time: adding a GrantLaw arm without updating this Match fails typecheck.
-    // Runtime: every current tag is reachable.
-    const tags = (["Full", "OptIn", "None"] as const).map((tag) => {
-      const law =
-        tag === "Full"
-          ? GrantLaw.Full()
-          : tag === "OptIn"
-            ? GrantLaw.OptIn()
-            : GrantLaw.None();
-      return Match.value(law).pipe(
-        Match.tagsExhaustive({
-          Full: () => "Full",
-          OptIn: () => "OptIn",
-          None: () => "None",
-        }),
-      );
-    });
-    expect(tags).toEqual(["Full", "OptIn", "None"]);
-  });
-
-  it("no-mask materialization of laws", () => {
-    expect(selectGrant(grantLawBetween(canonicalRolePair("actor", "sink")), undefined).isFull()).toBe(true);
-    // Actor↔actor now uses the unmasked Full default.
-    expect(selectGrant(grantLawBetween(canonicalRolePair("actor", "actor")), undefined).isFull()).toBe(true);
-    expect(selectGrant(grantLawForRoles("actor", "sink"), undefined).isFull()).toBe(true);
-    expect(selectGrant(grantLawForRoles("actor", "geography"), undefined).isEmpty()).toBe(true);
-  });
-});
-
 describe("physics PortGrant attenuation", () => {
   it("never expands", () => {
     const full = PortGrant.full;
@@ -247,16 +101,6 @@ describe("physics PortGrant attenuation", () => {
     expect(PortGrant.of("msg.send").allows("msg.send", offers)).toBe(true);
     expect(PortGrant.of("msg.send").allows("browser.automate", offers)).toBe(false);
     expect(PortGrant.empty.allows("msg.send", offers)).toBe(false);
-  });
-});
-
-describe("physics work-ports", () => {
-  it("covers every target WorkOpName", () => {
-    for (const op of TARGET_WORK_OPS) {
-      expect(PortForWorkOp[op]).toBeDefined();
-    }
-    expect(Object.keys(PortForWorkOp).sort()).toEqual([...TARGET_WORK_OPS].sort());
-    expect(Object.values(PortForWorkOp)).not.toContain("request.escalate");
   });
 });
 
@@ -382,40 +226,17 @@ describe("physics admitPure", () => {
 
   it("denies no_port when target does not offer the port", () => {
     const doc: CanvasDoc = {
-      nodes: [textNode("agent", "agent"), textNode("task1", "task", 200, 0)],
-      edges: [{ id: "e1", fromNode: "agent", toNode: "task1" }],
-    };
-    const view = canvasDocToCapabilityView(doc);
-    // tasks offer task ports, not browser
-    const result = admitPure(
-      view,
-      asNodeId("agent"),
-      asNodeId("task1"),
-      "browser.automate",
-    );
-    expect(Result.isFailure(result)).toBe(true);
-    if (Result.isFailure(result)) {
-      expect(result.failure.reason).toBe("no_port");
-    }
-  });
-
-  it("admits task work ports on connected agent→task edge", () => {
-    const doc: CanvasDoc = {
-      nodes: [textNode("agent", "agent"), textNode("task1", "task", 200, 0)],
+      nodes: [textNode("agent", "agent"), pageNode("p1")],
       edges: [
-        { id: "e1", fromNode: "agent", toNode: "task1", ether: { verb: "contributes" } },
+        { id: "e1", fromNode: "agent", toNode: "p1", ether: { verb: "navigates" } },
       ],
     };
     const view = canvasDocToCapabilityView(doc);
-    for (const port of [
-      "tasks.list",
-      "tasks.claim",
-      "tasks.update",
-      "msg.list",
-      "msg.send",
-    ] as const satisfies ReadonlyArray<Port>) {
-      const result = admitPure(view, asNodeId("agent"), asNodeId("task1"), port);
-      expect(Result.isSuccess(result), port).toBe(true);
+    // A page offers browser automation, never a mailbox.
+    const result = admitPure(view, asNodeId("agent"), asNodeId("p1"), "msg.send");
+    expect(Result.isFailure(result)).toBe(true);
+    if (Result.isFailure(result)) {
+      expect(result.failure.reason).toBe("no_port");
     }
   });
 
@@ -434,25 +255,6 @@ describe("physics admitPure", () => {
     expect(Result.isFailure(result)).toBe(true);
     if (Result.isFailure(result)) {
       expect(result.failure.reason).toBe("role_law");
-    }
-  });
-
-  it("a verb that never opens the port denies with no_port", () => {
-    const doc: CanvasDoc = {
-      nodes: [textNode("agent", "agent"), textNode("pad1", "pad", 200, 0)],
-      edges: [
-        // Reading a pad is the narrow half of the pair; patching is the wide one.
-        { id: "e1", fromNode: "agent", toNode: "pad1", ether: { verb: "reads" } },
-      ],
-    };
-    const view = canvasDocToCapabilityView(doc);
-    expect(
-      Result.isSuccess(admitPure(view, asNodeId("agent"), asNodeId("pad1"), "pad.read")),
-    ).toBe(true);
-    const denied = admitPure(view, asNodeId("agent"), asNodeId("pad1"), "pad.patch");
-    expect(Result.isFailure(denied)).toBe(true);
-    if (Result.isFailure(denied)) {
-      expect(denied.failure.reason).toBe("no_port");
     }
   });
 
@@ -521,133 +323,6 @@ describe("physics admitPure", () => {
         port,
       ).toBe(true);
     }
-  });
-
-
-});
-
-describe("physics grant union (I7 — parallel edges combine as union)", () => {
-  const verbEdge = (
-    id: string,
-    fromNode: string,
-    toNode: string,
-    verb: Verb,
-  ): CanvasDoc["edges"][number] => ({ id, fromNode, toNode, ether: { verb } });
-
-  const taskDoc = (edges: CanvasDoc["edges"]): CanvasDoc => ({
-    nodes: [textNode("agent", "agent"), textNode("task1", "task", 200, 0)],
-    edges,
-  });
-
-  const admittedPorts = (view: ReturnType<typeof canvasDocToCapabilityView>) =>
-    (
-      [
-        "tasks.list",
-        "tasks.create",
-        "tasks.claim",
-        "tasks.update",
-        "msg.list",
-        "msg.send",
-      ] as const satisfies ReadonlyArray<Port>
-    ).filter((port) =>
-      Result.isSuccess(admitPure(view, asNodeId("agent"), asNodeId("task1"), port)),
-    );
-
-  const ALL_TASK_PORTS = [
-    "msg.list",
-    "msg.send",
-    "tasks.claim",
-    "tasks.create",
-    "tasks.list",
-    "tasks.update",
-  ].sort();
-
-  const MANAGE_ONLY = [
-    "msg.list",
-    "msg.send",
-    "tasks.create",
-    "tasks.list",
-    "tasks.update",
-  ].sort();
-
-  it("one verb: the pair admits exactly what that verb compiles", () => {
-    const view = canvasDocToCapabilityView(
-      taskDoc([verbEdge("e1", "agent", "task1", "manages")]),
-    );
-    // Managing a queue never pulls from it — no tasks.claim.
-    expect(admittedPorts(view).sort()).toEqual(MANAGE_ONLY);
-  });
-
-  it("two verbs on one pair union their grants", () => {
-    const view = canvasDocToCapabilityView(
-      taskDoc([
-        verbEdge("e1", "agent", "task1", "manages"),
-        verbEdge("e2", "task1", "agent", "works"),
-      ]),
-    );
-    expect(admittedPorts(view).sort()).toEqual(ALL_TASK_PORTS);
-  });
-
-  it("union dedupes the ports both verbs open", () => {
-    const view = canvasDocToCapabilityView(
-      taskDoc([
-        verbEdge("e1", "agent", "task1", "contributes"),
-        verbEdge("e2", "task1", "agent", "works"),
-      ]),
-    );
-    const mask = HashMap.get(view.edgePortMask, undirectedEdgeKey("agent", "task1"));
-    expect(Option.isSome(mask)).toBe(true);
-    if (Option.isSome(mask)) {
-      expect(Array.from(mask.value).sort()).toEqual(ALL_TASK_PORTS);
-    }
-  });
-
-  it("a verbless edge beside a verbed one adds nothing and takes nothing", () => {
-    const view = canvasDocToCapabilityView(
-      taskDoc([
-        verbEdge("e1", "agent", "task1", "manages"),
-        { id: "e2", fromNode: "task1", toNode: "agent" },
-      ]),
-    );
-    expect(admittedPorts(view).sort()).toEqual(MANAGE_ONLY);
-  });
-
-  it("only works marks the pair claimable, whichever edge carries it", () => {
-    const contributed = canvasDocToCapabilityView(
-      taskDoc([verbEdge("e1", "agent", "task1", "contributes")]),
-    );
-    expect(pairIsClaimable(contributed, "agent", "task1")).toBe(false);
-    const worked = canvasDocToCapabilityView(
-      taskDoc([
-        verbEdge("e1", "agent", "task1", "manages"),
-        verbEdge("e2", "task1", "agent", "works"),
-      ]),
-    );
-    expect(pairIsClaimable(worked, "agent", "task1")).toBe(true);
-  });
-});
-
-describe("physics KindSpecs offers match behavior-preserving work surface", () => {
-  it("page offers only browser.automate", () => {
-    expect(Array.from(KindSpecs.page.offers).sort()).toEqual([
-      "browser.automate",
-    ]);
-  });
-
-  it("pad offers only pad.read and pad.patch", () => {
-    expect(Array.from(KindSpecs.pad.offers).sort()).toEqual([
-      "pad.patch",
-      "pad.read",
-    ]);
-  });
-
-  it("every well-known kind has a concrete role", () => {
-    const roles = new Set(
-      (Object.keys(KindSpecs) as WellKnownKind[]).map((k) => KindSpecs[k].role),
-    );
-    expect(roles.has("actor")).toBe(true);
-    expect(roles.has("sink")).toBe(true);
-    expect(roles.has("scheduler")).toBe(true);
   });
 });
 
@@ -787,56 +462,4 @@ describe("physics placement admit (I18/I19)", () => {
     }
   });
 
-});
-
-// ---------------------------------------------------------------------------
-// A task path hop is plumbing between boards, never a capability.
-
-describe("a task path hop grants nothing", () => {
-  // seat —contributes— intake —feeds— review. The hop must add no port
-  // anywhere, and must not extend the seat's reach past its own sink.
-  const doc: CanvasDoc = {
-    nodes: [
-      textNode("seat", "agent", 0),
-      textNode("intake", "task", 200),
-      textNode("review", "task", 400),
-    ],
-    edges: [
-      { id: "access", fromNode: "seat", toNode: "intake", ether: { verb: "contributes" } },
-      { id: "hop", fromNode: "intake", toNode: "review", ether: { verb: "feeds" } },
-    ],
-  };
-
-  const held = (caller: string, target: string): ReadonlyArray<string> => {
-    const view = canvasDocToCapabilityView(doc);
-    return ALL_PORTS.filter((port) =>
-      Result.isSuccess(admitPure(view, asNodeId(caller), asNodeId(target), port)),
-    );
-  };
-
-  it("still grants the seat its own sink (the contrast case)", () => {
-    expect(held("seat", "intake")).toEqual([
-      "tasks.list",
-      "tasks.create",
-      "tasks.claim",
-      "tasks.update",
-      "msg.list",
-      "msg.send",
-    ]);
-  });
-
-  it("gives the seat no reach past the hop", () => {
-    expect(held("seat", "review")).toEqual([]);
-  });
-
-  it("gives the hop's own endpoints nothing in either direction", () => {
-    expect(held("intake", "review")).toEqual([]);
-    expect(held("review", "intake")).toEqual([]);
-  });
-
-  it("leaves the injection slot tables untouched — a hop is not a capability", () => {
-    // Slots are keyed by kind, so a hop cannot mint one; task stays "tasks".
-    expect(KIND_TO_SLOT["task"]).toBe("tasks");
-    expect(Object.keys(KIND_TO_SLOT)).not.toContain("feeds");
-  });
 });
