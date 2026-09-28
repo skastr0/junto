@@ -21,6 +21,10 @@
       "reason": "State engine: builds an in-memory reference database to hash the expected schema against the live one."
     },
     {
+      "path": "src/main/junto/state/sqlite-client.ts",
+      "reason": "Effect SQL driver: receives the state owner's connection by type and never opens or exports a DatabaseSync."
+    },
+    {
       "path": "src/main/junto/state/schema-version-probe.ts",
       "reason": "State engine: opens the database read-only to read user_version before the engine commits to it."
     }

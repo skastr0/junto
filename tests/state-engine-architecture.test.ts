@@ -12,6 +12,8 @@ const allowed = new Set([
   "src/main/junto/state/migrations.ts",
   "src/main/junto/state/recovery.ts",
   "src/main/junto/state/schema-identity.ts",
+  // Effect SQL adapter receives the owner's connection; it never opens one.
+  "src/main/junto/state/sqlite-client.ts",
   // Read-only pre-AppRuntime probe for newer-than-supported schema recovery.
   "src/main/junto/state/schema-version-probe.ts",
   // Install-local ledger (install-ops.db) — not product state; separate opener.
