@@ -404,7 +404,7 @@ const openStateEngine = (
                 },
                 catch: (cause) => new SqlError.SqlError({ reason: new SqlError.UnknownError({ cause }) }),
               });
-              if (parent) parent.journaled = scope.journaled;
+              if (parent) parent.journaled ||= scope.journaled;
               return result;
             }));
           });

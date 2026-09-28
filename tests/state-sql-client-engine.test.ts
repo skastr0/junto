@@ -7,7 +7,7 @@ import { expect, test, vi } from "vitest";
 import { makeStateEngineLive, StateEngine } from "../src/main/junto/state/engine";
 import { StateTransactionOperation } from "../src/main/junto/state/service";
 import { OverseerLiveExecution } from "../src/main/junto/overseer/live/execution";
-import { WorkMutationContext } from "../src/main/junto/work/mutation-seam";
+import { WorkMutationContext, unjournaledWorkMutationEffect } from "../src/main/junto/work/mutation-seam";
 
 test("StateEngine publishes the same migrated, scoped connection as SqlClient", async () => {
   const root = await mkdtemp(join(tmpdir(), "junto-sql-engine-"));
@@ -103,6 +103,32 @@ test("SQL transactions retain journal admission across yields and savepoints", a
         yield* mutation;
       }));
       expect(yield* Effect.result(mutation)).toMatchObject({ _tag: "Failure" });
+    }));
+  } finally {
+    await runtime.dispose();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("caught journal-free failures retain journal admission without leaking the exception", async () => {
+  const root = await mkdtemp(join(tmpdir(), "junto-sql-engine-"));
+  const runtime = ManagedRuntime.make(makeStateEngineLive(join(root, "junto.db")));
+  try {
+    await runtime.runPromise(Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      yield* sql.withTransaction(Effect.gen(function* () {
+        const parent = yield* WorkMutationContext;
+        yield* Effect.result(unjournaledWorkMutationEffect("test.fixture-seed", Effect.gen(function* () {
+          const scope = yield* WorkMutationContext;
+          scope!.journaled = true;
+          return yield* Effect.fail("caught after append");
+        })));
+        expect(parent?.journaled).toBe(true);
+        expect(parent?.unjournaled).toBeUndefined();
+        yield* sql`DELETE FROM work_tasks WHERE 0`;
+      }));
+      expect(yield* Effect.result(sql`DELETE FROM work_tasks WHERE 0`))
+        .toMatchObject({ _tag: "Failure" });
     }));
   } finally {
     await runtime.dispose();

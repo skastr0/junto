@@ -18,7 +18,7 @@
  * record it is handed, in the shape `work/state-schema.ts` declares.
  */
 import { Context, Effect, Layer, Schema } from "effect";
-import { SqlClient, SqlSchema } from "effect/unstable/sql";
+import { SqlClient, SqlError, SqlSchema } from "effect/unstable/sql";
 import type { InstallationId } from "@shared/installation-id";
 import {
   LogicalSequence,
@@ -31,16 +31,21 @@ import {
 import type { StateRow, StateWriter } from "../state/service";
 import { canonicalJson } from "./canonical-json";
 
+type WorkJournalError = SqlError.SqlError | Schema.SchemaError;
+
 /** Journal operations join the caller's SQL transaction; they never open one. */
 export class WorkJournal extends Context.Service<WorkJournal, {
-  readonly allocateSequence: (eventHome: InstallationId, entityHome: InstallationId) => Effect.Effect<LogicalSequenceValue, unknown>;
-  readonly rememberIncomingSequence: (identity: WorkRecordId) => Effect.Effect<void, unknown>;
-  readonly appendWorkRecord: (record: WorkRecordValue, receivedAt: DisplayTimestampValue) => Effect.Effect<void, unknown>;
-  readonly appendPendingCommand: (command: WorkCommandValue, createdAt: DisplayTimestampValue) => Effect.Effect<void, unknown>;
-  readonly resolvePending: (disposition: WorkRecordValue & { readonly recordType: "disposition" }, receivedAt: DisplayTimestampValue) => Effect.Effect<"resolved" | "same" | "missing" | "conflict", unknown>;
+  readonly allocateSequence: (eventHome: InstallationId, entityHome: InstallationId) => Effect.Effect<LogicalSequenceValue, WorkJournalError>;
+  readonly rememberIncomingSequence: (identity: WorkRecordId) => Effect.Effect<void, WorkJournalError>;
+  readonly appendWorkRecord: (record: WorkRecordValue, receivedAt: DisplayTimestampValue) => Effect.Effect<void, WorkJournalError>;
+  readonly appendPendingCommand: (command: WorkCommandValue, createdAt: DisplayTimestampValue) => Effect.Effect<void, WorkJournalError>;
+  readonly resolvePending: (disposition: WorkRecordValue & { readonly recordType: "disposition" }, receivedAt: DisplayTimestampValue) => Effect.Effect<"resolved" | "same" | "missing" | "conflict", WorkJournalError>;
 }>()("@junto/WorkJournal") {}
 
-const SequenceRowSchema = Schema.Struct({ last_seq: Schema.String });
+const SequenceRowSchema = Schema.Struct({
+  // An existing route may not have spent its first sequence yet.
+  last_seq: Schema.Union([Schema.Literal("0"), LogicalSequence]),
+});
 
 export const WorkJournalLive: Layer.Layer<WorkJournal, never, SqlClient.SqlClient> = Layer.effect(
   WorkJournal,
@@ -63,7 +68,7 @@ export const WorkJournalLive: Layer.Layer<WorkJournal, never, SqlClient.SqlClien
       const previous = yield* currentSequence([eventHome, entityHome]);
       const next = (previous._tag === "None" ? 1n : BigInt(previous.value.last_seq) + 1n).toString();
       yield* advance(eventHome, entityHome, next);
-      return sequence(next);
+      return yield* Schema.decodeUnknownEffect(LogicalSequence)(next);
     });
     const rememberIncomingSequenceEffect = Effect.fn("work.journal.rememberIncomingSequence")(function* (identity: WorkRecordId) {
       const { eventHome, entityHome } = identity.route;
@@ -151,7 +156,7 @@ export const WorkJournalLive: Layer.Layer<WorkJournal, never, SqlClient.SqlClien
         return (pending.value.resolution_status === disposition.body.status &&
           pending.value.resolution_event_home === disposition.id.route.eventHome &&
           pending.value.resolution_entity_home === disposition.id.route.entityHome &&
-          pending.value.resolution_seq === disposition.id.seq ? "same" : "conflict") as "same" | "conflict";
+          pending.value.resolution_seq === disposition.id.seq ? "same" as const : "conflict" as const);
       }
       yield* sql`
         UPDATE work_pending_commands
