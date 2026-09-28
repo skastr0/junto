@@ -39,7 +39,6 @@ const CREW: SquadBody = {
     { from: PROFILES[0]!.key, to: PROFILES[1]!.key, verb: "messages" },
     { from: PROFILES[0]!.key, to: PROFILES[2]!.key, verb: "messages" },
   ],
-  prompt: "Ship the migration in two steps.",
 };
 
 function SquadsDemo() {
@@ -68,7 +67,7 @@ function SquadsDemo() {
           <SquadPortraitRow squadKey="profile" squad={CREW} size={24} />
           <span className="tour-picker__text">
             <span className="tour-picker__name">migration crew</span>
-            <span className="tour-picker__line">3 seats, wired, one opening prompt</span>
+            <span className="tour-picker__line">3 seats, wired together</span>
           </span>
         </div>
       </div>
@@ -124,9 +123,10 @@ export const squadsChapter: TourChapter = {
         you want that agent back.
       </p>
       <p>
-        A <strong>squad</strong> is a team saved together: its seats, the wires
-        between them, and an opening prompt. Place it anywhere and the whole
-        team arrives at once; place it in a region and it settles inside.
+        A <strong>squad</strong> is a team saved together: its seats, each with
+        its soul and instructions, and the wires between them. Place it
+        anywhere and the whole team arrives at once; place it in a region and
+        it settles inside.
       </p>
     </>
   ),

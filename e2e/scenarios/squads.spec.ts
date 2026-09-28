@@ -1,7 +1,9 @@
 /**
  * Squads in the real app: save selected agent seats as a squad from the
  * multi-select menu, find it in the add picker, place it inside a region,
- * and manage it. Screenshots land in test-results/squads/ (never committed).
+ * and manage it. A save always makes a new squad: no replace, no opening
+ * prompts. Screenshots land in $JUNTO_SHOTS_DIR or test-results/squads/
+ * (never committed). Both themes.
  *
  * Capture and placement rules are unit-tested in tests/squads.test.ts.
  * Run: `bunx electron-vite build && bun run test:e2e:fast e2e/scenarios/squads.spec.ts`
@@ -9,7 +11,7 @@
 import { agentTextNode, canvasDoc } from "../harness/sandbox";
 import { expect, test } from "../harness/launch";
 
-const shots = "test-results/squads";
+const shotsDir = process.env.JUNTO_SHOTS_DIR ?? "test-results/squads";
 
 const fixtureDoc = canvasDoc(
   [
@@ -24,6 +26,7 @@ const fixtureDoc = canvasDoc(
       y: -40,
       width: 900,
       height: 560,
+      ether: { region: { defaults: { paths: { local: "/tmp" } } } },
     },
   ],
   [{ id: "e-ab", fromNode: "seat-a", toNode: "seat-b", ether: { verb: "messages" } }],
@@ -59,9 +62,19 @@ const installBoard = async (page: import("@playwright/test").Page): Promise<void
   }, fixtureDoc);
 };
 
-test("squads: save from the menu, place from the picker, manage", async ({ junto }) => {
+const setTheme = async (page: import("@playwright/test").Page, theme: "Dark" | "Bright") => {
+  await page.getByRole("button", { name: "Open settings" }).click();
+  await page.locator(".settings-nav__item", { hasText: "Appearance" }).click();
+  await page.getByRole("radio", { name: theme }).click();
+  await page.locator(".settings-panel__close").click();
+  await page.waitForTimeout(300);
+};
+
+for (const theme of ["Dark", "Bright"] as const) test(`squads (${theme}): save from the menu, place from the picker, manage`, async ({ junto }) => {
   const { page } = junto;
+  const shots = `${shotsDir}/${theme.toLowerCase()}`;
   await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
+  await setTheme(page, theme);
   await installBoard(page);
 
   const seat = (id: string) => page.locator(`.react-flow__node[data-id="${id}"]`);
@@ -86,20 +99,34 @@ test("squads: save from the menu, place from the picker, manage", async ({ junto
   await page.screenshot({ path: `${shots}/1-menu-entry.png` });
   await saveEntry.click();
 
-  // Name it, give it an opening prompt, and save.
+  // Name it and save: a name, nothing else to fill in.
   const dialog = page.getByRole("dialog", { name: "Save as squad" });
   await expect(dialog).toBeVisible();
   await expect(dialog).toContainText("3 agents, 1 connection");
-  await dialog.getByRole("combobox", { name: "Squad name" }).fill("Review squad");
-  await dialog.getByRole("textbox", { name: "Opening prompt for the squad" }).fill("Read the README, then say hello.");
+  await expect(dialog.getByRole("textbox")).toHaveCount(1);
+  await expect(dialog).not.toContainText(/opening prompt|prompt each seat|replace/i);
+  await dialog.getByRole("textbox", { name: "Squad name" }).fill("Review squad");
   await page.screenshot({ path: `${shots}/2-save-dialog.png` });
   await dialog.getByRole("button", { name: "Save squad" }).click();
   await expect(dialog).toHaveCount(0);
 
   const stored = await page.evaluate(() => window.junto!.squadsList());
-  expect(stored.map((squad) => [squad.name, squad.seats.length, squad.edges.length, squad.prompt])).toEqual([
-    ["Review squad", 3, 1, "Read the README, then say hello."],
+  expect(stored.map((squad) => [squad.name, squad.seats.length, squad.edges.length])).toEqual([
+    ["Review squad", 3, 1],
   ]);
+  expect(stored[0]).not.toHaveProperty("prompt");
+
+  // Saving again under a taken name never replaces it: the name is refused.
+  await page.mouse.click(cBox.x + cBox.width / 2, cBox.y + cBox.height / 2, { button: "right" });
+  await page.getByRole("button", { name: "Save 3 agents as a squad" }).click();
+  await dialog.getByRole("textbox", { name: "Squad name" }).fill("review squad");
+  await dialog.getByRole("button", { name: "Save squad" }).click();
+  await expect(dialog.getByRole("alert")).toHaveText("a squad named review squad already exists");
+  await page.screenshot({ path: `${shots}/2b-name-taken.png` });
+  await dialog.getByRole("button", { name: "Cancel" }).click();
+  await expect(dialog).toHaveCount(0);
+  const still = await page.evaluate(() => window.junto!.squadsList());
+  expect(still.map((squad) => [squad.name, squad.squadId])).toEqual([["Review squad", stored[0]!.squadId]]);
 
   // Right-click inside the empty region: the add picker shows the squad.
   await page.keyboard.press("Escape");
@@ -108,6 +135,17 @@ test("squads: save from the menu, place from the picker, manage", async ({ junto
   await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2, { button: "right" });
   const card = page.getByRole("button", { name: "Place squad Review squad, 3 agents, 1 connection" });
   await expect(card).toBeVisible();
+  // The squad card is the picker's one card: same slot and width as a node's.
+  const squadCard = page.locator('[data-picker-card="squad"]');
+  const catalogCard = page.locator('[data-picker-card="catalog"]').first();
+  await expect(squadCard).toContainText("alpha, beta, gamma");
+  const [squadArt, catalogArt] = await Promise.all([
+    squadCard.locator(".picker-card__art").boundingBox(),
+    catalogCard.locator(".picker-card__art").boundingBox(),
+  ]);
+  expect(squadArt!.width).toBeCloseTo(catalogArt!.width, 1);
+  expect(squadArt!.height).toBeCloseTo(catalogArt!.height, 1);
+  expect((await squadCard.boundingBox())?.width).toBeCloseTo((await catalogCard.boundingBox())!.width, 0);
   await page.screenshot({ path: `${shots}/3-picker-squads.png` });
   await card.click();
 
@@ -153,8 +191,22 @@ test("squads: save from the menu, place from the picker, manage", async ({ junto
   await page.getByRole("button", { name: "Manage squad Review squad" }).click();
   const manage = page.getByTestId("squad-manage");
   await expect(manage).toBeVisible();
+  // Rename and delete only, and the menu clears the card it manages.
+  await expect(manage.getByRole("button")).toHaveText(["Rename", "Delete squad"]);
+  const menuBox = (await manage.boundingBox())!;
+  const cardBox = (await page.locator('[data-picker-card="squad"]').boundingBox())!;
+  expect(menuBox.y >= cardBox.y + cardBox.height || menuBox.y + menuBox.height <= cardBox.y).toBe(true);
   await page.screenshot({ path: `${shots}/5-manage.png` });
   await manage.getByRole("textbox", { name: "Squad name" }).fill("Reviewers");
   await manage.getByRole("button", { name: "Rename" }).click();
   await expect(page.getByRole("button", { name: /Place squad Reviewers/ })).toBeVisible();
+
+  // Delete asks once more, then the squad is gone; placed seats stay.
+  await page.getByRole("button", { name: "Manage squad Reviewers" }).click();
+  await manage.getByRole("button", { name: "Delete squad" }).click();
+  await expect(manage).toContainText("Delete Reviewers for good?");
+  await page.screenshot({ path: `${shots}/6-delete-ask.png` });
+  await manage.getByRole("button", { name: "Delete Reviewers" }).click();
+  await expect(page.locator('[data-picker-card="squad"]')).toHaveCount(0);
+  expect(await page.evaluate(() => window.junto!.squadsList())).toEqual([]);
 });

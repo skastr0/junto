@@ -139,7 +139,7 @@ export const IPC_CHANNELS = {
   portraitOverrideSet: "junto:portrait-override-set",
   portraitOverride: "junto:portrait-override",
   agentSignal: "junto:agent-signal",
-  /** Squads: list, save (create or replace), rename, delete, live list push. */
+  /** Squads: list, save (always a new squad), rename, delete, live list push. */
   squadsList: "junto:squads-list",
   squadSave: "junto:squad-save",
   squadRename: "junto:squad-rename",
@@ -709,7 +709,7 @@ export interface JuntoApi extends UpdateApi, OverseerLiveApi {
   ) => Promise<PortraitOverrideSetResult>;
   /** The operator's squads (reusable seat templates), by name. */
   readonly squadsList: () => Promise<ReadonlyArray<Squad>>;
-  /** Create a squad (no id) or replace one's name and template. */
+  /** Create a squad; a taken name is refused, never replaced. */
   readonly squadSave: (input: SquadSaveInput) => Promise<SquadResult>;
   readonly squadRename: (squadId: string, name: string) => Promise<SquadResult>;
   readonly squadDelete: (squadId: string) => Promise<SquadDeleteResult>;

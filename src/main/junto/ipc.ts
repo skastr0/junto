@@ -749,12 +749,9 @@ export const registerJuntoIpc = (): void => {
   privilegedIpc.handle(IPC_CHANNELS.squadsList, () => squadsNow());
   privilegedIpc.handle(IPC_CHANNELS.squadSave, async (_event, input: unknown): Promise<SquadResult> => {
     const raw = (typeof input === "object" && input !== null ? input : {}) as Record<string, unknown>;
-    const squadId = raw.squadId === undefined ? undefined : squadIdOf(raw.squadId);
-    if (raw.squadId !== undefined && squadId === undefined) return { ok: false, message: "squad id is invalid" };
     const saved = await runSquad(
       Effect.flatMap(SquadRepository, (repository) =>
         repository.save({
-          ...(squadId === undefined ? {} : { squadId }),
           name: String(raw.name ?? ""),
           body: raw.body as SquadSaveInput["body"],
         }),

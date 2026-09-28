@@ -24,7 +24,6 @@
  *   skipped, and so is every connection touching it. A connection whose verb
  *   this build does not know is dropped; unknown sides fall away; a port mask
  *   only narrows, and one left with no known port drops its connection.
- * - Opening prompt per seat: its own, else the squad's, else none.
  */
 import { Schema } from "effect";
 import type { CanvasDoc, CanvasEdge, CanvasNode, TextNode } from "@shared/canvas";
@@ -35,7 +34,6 @@ import type { PortraitOverride } from "@shared/portrait-overrides";
 import type { SeatGuidance } from "@shared/seat-guidance";
 import { findContainingRegion, resolveRegionCwd } from "@shared/region-defaults";
 import {
-  SQUAD_PROMPT_MAX,
   SQUAD_SEATS_MAX,
   type SquadBody,
   type SquadEdge,
@@ -59,13 +57,6 @@ const isEnd = Schema.is(EdgeEnd);
 
 // --- capture -----------------------------------------------------------------
 
-export type SquadCaptureOptions = ProfileCaptureSources & {
-  /** Squad-wide opening prompt. */
-  readonly prompt?: string;
-  /** Per-seat opening prompts, by source node id. */
-  readonly seatPrompts?: Readonly<Record<string, string>>;
-};
-
 /** The agent seats a squad can be made from, in document order. */
 export const squadSeatNodes = (
   nodes: ReadonlyArray<CanvasNode>,
@@ -75,16 +66,11 @@ export const squadSeatNodes = (
   return nodes.filter((node): node is TextNode => selected.has(node.id) && isProfileSeat(node));
 };
 
-const cleanPrompt = (text: string | undefined): string | undefined => {
-  const trimmed = text?.trim();
-  return trimmed ? trimmed.slice(0, SQUAD_PROMPT_MAX) : undefined;
-};
-
 /** Capture a squad from the selection; null when it holds no agent seat. */
 export const captureSquad = (
   doc: CanvasDoc,
   selectedIds: ReadonlyArray<string>,
-  options: SquadCaptureOptions = {},
+  options: ProfileCaptureSources = {},
 ): SquadBody | null => {
   const captured = squadSeatNodes(doc.nodes, selectedIds)
     .slice(0, SQUAD_SEATS_MAX)
@@ -97,19 +83,15 @@ export const captureSquad = (
   const minY = Math.min(...captured.map(({ node }) => node.y));
   const keyOf = new Map(captured.map(({ node }, index) => [node.id, `s${index}`] as const));
 
-  const seats: SquadSeat[] = captured.map(({ node, profile }) => {
-    const prompt = cleanPrompt(options.seatPrompts?.[node.id]);
-    return {
-      key: keyOf.get(node.id)!,
-      profile,
-      dx: Math.round(node.x - minX),
-      dy: Math.round(node.y - minY),
-      width: node.width,
-      height: node.height,
-      ...(node.color ? { color: node.color } : {}),
-      ...(prompt ? { prompt } : {}),
-    };
-  });
+  const seats: SquadSeat[] = captured.map(({ node, profile }) => ({
+    key: keyOf.get(node.id)!,
+    profile,
+    dx: Math.round(node.x - minX),
+    dy: Math.round(node.y - minY),
+    width: node.width,
+    height: node.height,
+    ...(node.color ? { color: node.color } : {}),
+  }));
 
   const edges: SquadEdge[] = doc.edges.flatMap((edge) => {
     const from = keyOf.get(edge.fromNode);
@@ -130,8 +112,7 @@ export const captureSquad = (
     }];
   });
 
-  const prompt = cleanPrompt(options.prompt);
-  return { seats, edges, ...(prompt ? { prompt } : {}) };
+  return { seats, edges };
 };
 
 // --- place -------------------------------------------------------------------
@@ -155,8 +136,6 @@ export type SquadPlacement = {
   readonly portraits: Readonly<Record<string, PortraitOverride>>;
   /** Soul and instructions to save for each new seat, by new node id. */
   readonly guidance: Readonly<Record<string, SeatGuidance>>;
-  /** Opening prompt to mail each new seat. */
-  readonly prompts: ReadonlyArray<{ readonly nodeId: string; readonly bindingId: string; readonly text: string }>;
   /** Names of seats this build could not place. */
   readonly skipped: ReadonlyArray<string>;
   /** Region the squad landed in, if any. */
@@ -191,7 +170,7 @@ export const squadOrigin = (
   };
 };
 
-/** Fresh seats, connections, portraits, guidance, and prompts for one placement. */
+/** Fresh seats, connections, portraits, and guidance for one placement. */
 export const placeSquad = (
   squad: SquadBody,
   at: { readonly x: number; readonly y: number },
@@ -204,10 +183,9 @@ export const placeSquad = (
   const nodes: TextNode[] = [];
   const portraits: Record<string, PortraitOverride> = {};
   const guidance: Record<string, SeatGuidance> = {};
-  const prompts: Array<{ nodeId: string; bindingId: string; text: string }> = [];
   const skipped: string[] = [];
   const idOfKey = new Map<string, string>();
-  const empty = { nodes: [], edges: [], portraits: {}, guidance: {}, prompts: [], skipped: [] };
+  const empty = { nodes: [], edges: [], portraits: {}, guidance: {}, skipped: [] };
 
   for (const seat of squad.seats) {
     if (placeableHarness(seat.profile) === undefined) {
@@ -242,8 +220,6 @@ export const placeSquad = (
     idOfKey.set(seat.key, node.id);
     if (placed.portrait) portraits[node.id] = placed.portrait;
     if (placed.guidance) guidance[node.id] = placed.guidance;
-    const text = seat.prompt ?? squad.prompt;
-    if (text) prompts.push({ nodeId: node.id, bindingId: node.ether!.terminal!.bindingId, text });
   }
 
   const edges: CanvasEdge[] = squad.edges.flatMap((edge) => {
@@ -273,7 +249,6 @@ export const placeSquad = (
     edges,
     portraits,
     guidance,
-    prompts,
     skipped,
     ...(region ? { regionId: region.id } : {}),
   };

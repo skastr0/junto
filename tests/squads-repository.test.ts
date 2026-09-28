@@ -39,23 +39,22 @@ const body = (name = "Scout"): SquadBody => ({
     },
   ],
   edges: [],
-  prompt: "Say hello.",
 });
 
 describe("SquadRepository", () => {
-  it("saves, lists by name, and replaces a squad", async () => {
-    const listed = await run(
+  it("saves new squads, lists them by name, and never replaces one", async () => {
+    const { zeta, listed } = await run(
       Effect.gen(function* () {
         const r = yield* SquadRepository;
         const zeta = yield* r.save({ name: "  zeta  ", body: body() });
         yield* r.save({ name: "alpha", body: body() });
-        yield* r.save({ squadId: zeta.squadId, name: "zeta", body: body("Builder") });
-        return yield* r.list();
+        yield* Effect.flip(r.save({ name: "zeta", body: body("Builder") }));
+        return { zeta, listed: yield* r.list() };
       }),
     );
     expect(listed.map((squad) => squad.name)).toEqual(["alpha", "zeta"]);
-    expect(listed[1]?.seats[0]?.profile.name).toBe("Builder");
-    expect(listed[1]?.prompt).toBe("Say hello.");
+    expect(listed[1]).toMatchObject({ squadId: zeta.squadId, updatedAt: zeta.updatedAt });
+    expect(listed[1]?.seats[0]?.profile.name).toBe("Scout");
   });
 
   it("refuses a taken name regardless of case, a blank name, and a bad template", async () => {
@@ -99,6 +98,33 @@ describe("SquadRepository", () => {
     );
     const listed = await run(Effect.flatMap(SquadRepository, (r) => r.list()));
     expect(listed.map((squad) => squad.name)).toEqual(["Good"]);
+  });
+
+  it("lists a squad saved with opening prompts, keeping its bytes and dropping the prompts", async () => {
+    await run(Effect.flatMap(SquadRepository, (r) => r.list()));
+    await runtime.dispose();
+    const stored = JSON.stringify({ ...body("Greeter"), prompt: "Say hello.", seats: [{ ...body("Greeter").seats[0], prompt: "Wait." }] });
+    const database = new DatabaseSync(join(root, "junto.db"));
+    database
+      .prepare("INSERT INTO squads(squad_id, name, body_json, created_at, updated_at) VALUES (?, ?, ?, 1, 1)")
+      .run("squad-prompted", "Prompted", stored);
+    database.close();
+    runtime = ManagedRuntime.make(
+      SquadRepositoryLive.pipe(Layer.provide(makeStateEngineLive(join(root, "junto.db")))),
+    );
+    const [prompted] = await run(Effect.flatMap(SquadRepository, (r) => r.list()));
+    expect(prompted).toMatchObject({ squadId: "squad-prompted", name: "Prompted" });
+    expect(prompted).not.toHaveProperty("prompt");
+    expect(prompted?.seats[0]).not.toHaveProperty("prompt");
+    expect(prompted?.seats[0]?.profile.name).toBe("Greeter");
+    await runtime.dispose();
+    const after = new DatabaseSync(join(root, "junto.db"));
+    const row = after.prepare("SELECT body_json FROM squads WHERE squad_id = ?").get("squad-prompted") as { body_json: string };
+    after.close();
+    expect(row.body_json).toBe(stored);
+    runtime = ManagedRuntime.make(
+      SquadRepositoryLive.pipe(Layer.provide(makeStateEngineLive(join(root, "junto.db")))),
+    );
   });
 
   it("lists a squad saved before profiles, its seats read as profiles", async () => {

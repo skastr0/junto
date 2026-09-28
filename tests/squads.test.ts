@@ -99,18 +99,8 @@ describe("captureSquad", () => {
     expect(squad.seats[0]!.profile.portrait).toMatchObject({ eyes: resolved.eyes, shape: resolved.shape, bodyHue: resolved.bodyHue });
   });
 
-  it("records trimmed opening prompts for the squad and per seat", () => {
-    const squad = captureSquad(doc, ["alpha", "beta"], {
-      prompt: "  Read the README.  ",
-      seatPrompts: { beta: "Review what alpha writes.", alpha: "   " },
-    })!;
-    expect(squad.prompt).toBe("Read the README.");
-    expect(squad.seats[0]?.prompt).toBeUndefined();
-    expect(squad.seats[1]?.prompt).toBe("Review what alpha writes.");
-  });
-
   it("produces a body the stored schema admits", () => {
-    const squad = captureSquad(doc, ["alpha", "beta"], { prompt: "go" })!;
+    const squad = captureSquad(doc, ["alpha", "beta"])!;
     expect(decodeSquadBody(JSON.parse(JSON.stringify(squad)))._tag).toBe("Success");
   });
 });
@@ -140,8 +130,22 @@ describe("decodeSquadBody", () => {
     const decoded = decodeSquadBody(legacy);
     expect(Result.isSuccess(decoded)).toBe(true);
     const seat0 = Result.getOrThrow(decoded).seats[0]!;
-    expect(seat0).toMatchObject({ key: "s0", dx: 0, width: 240, prompt: "Say hello." });
+    expect(seat0).toMatchObject({ key: "s0", dx: 0, width: 240 });
+    expect(seat0).not.toHaveProperty("prompt");
     expect(seat0.profile).toEqual({ name: "reviewer", harness: "claude", model: "opus", effort: "high", portrait: { eyes: "dot" } });
+  });
+
+  it("reads a squad saved with opening prompts as one without them", () => {
+    const stored = {
+      seats: [{ key: "s0", profile: { name: "alpha", harness: "claude" }, dx: 0, dy: 0, width: 240, height: 96, prompt: "Wait." }],
+      edges: [],
+      prompt: "Read the README.",
+    };
+    const decoded = Result.getOrThrow(decodeSquadBody(stored));
+    expect(decoded).toEqual({
+      seats: [{ key: "s0", profile: { name: "alpha", harness: "claude" }, dx: 0, dy: 0, width: 240, height: 96 }],
+      edges: [],
+    });
   });
 
   it("drops members without a usable profile and fails an empty squad", () => {
@@ -176,7 +180,7 @@ describe("squadOrigin", () => {
 });
 
 describe("placeSquad", () => {
-  const squad = captureSquad(doc, ["alpha", "beta"], { prompt: "Say hello.", seatPrompts: { beta: "Wait for alpha." } })!;
+  const squad = captureSquad(doc, ["alpha", "beta"])!;
 
   it("mints fresh seats, remaps connections, and offsets the layout to the point", () => {
     const placed = placeSquad(squad, { x: 2000, y: 1000 }, empty, counter(), LAUNCH);
@@ -230,12 +234,6 @@ describe("placeSquad", () => {
       eyes: original.eyes,
       topper: original.topper,
     });
-  });
-
-  it("mails each seat its own prompt, else the squad's", () => {
-    const placed = placeSquad(squad, { x: 0, y: 0 }, empty, counter(), LAUNCH);
-    expect(placed.prompts.map((p) => p.text)).toEqual(["Say hello.", "Wait for alpha."]);
-    expect(placed.prompts[0]?.bindingId).toBe(placed.nodes[0]!.ether!.terminal!.bindingId);
   });
 
   it("lands inside a region and takes the region's folder for the host", () => {

@@ -6,9 +6,8 @@ import { isHarnessId } from "./managed-terminal-templates";
 /**
  * Squads: the operator's reusable teams. A squad is a set of agent profiles
  * (`./agent-profiles`: name, character, harness, model, effort, soul,
- * instructions), their relative layout, the connections among them, and
- * optional opening prompts. Placing one mints fresh seats; the template never
- * points at live nodes.
+ * instructions), their relative layout, and the connections among them.
+ * Placing one mints fresh seats; the template never points at live nodes.
  *
  * Stored as JSON in `squads.body_json`. Every field is a bounded plain value,
  * not a closed literal: a harness, verb, or side a later build retires is
@@ -19,12 +18,15 @@ import { isHarnessId } from "./managed-terminal-templates";
  * profile. `decodeSquadBody` converts those members forward on read (the
  * harness dials are recovered from the argv the same way spawn recovers
  * them); the stored row is never rewritten.
+ *
+ * Squads once carried opening prompts (one for the squad, one per seat).
+ * Rows saved then still hold them; the frame ignores them, so they decode as
+ * squads without prompts.
  */
 
 export const SQUAD_NAME_MAX = 60;
 export const SQUAD_SEATS_MAX = 24;
 export const SQUAD_EDGES_MAX = 600;
-export const SQUAD_PROMPT_MAX = 4000;
 export const SQUADS_MAX = 60;
 
 const bounded = (max: number) => Schema.String.pipe(Schema.check(Schema.isMaxLength(max)));
@@ -43,8 +45,6 @@ export type SquadSeat = {
   readonly width: number;
   readonly height: number;
   readonly color?: string;
-  /** Opening prompt for this seat; overrides the squad prompt. */
-  readonly prompt?: string;
 };
 
 const SquadSeatFrame = Schema.Struct({
@@ -55,7 +55,6 @@ const SquadSeatFrame = Schema.Struct({
   width: finite,
   height: finite,
   color: Schema.optionalKey(bounded(32)),
-  prompt: Schema.optionalKey(bounded(SQUAD_PROMPT_MAX)),
 });
 
 export const SquadEdge = Schema.Struct({
@@ -76,8 +75,6 @@ export type SquadEdge = typeof SquadEdge.Type;
 export type SquadBody = {
   readonly seats: ReadonlyArray<SquadSeat>;
   readonly edges: ReadonlyArray<SquadEdge>;
-  /** Opening prompt for every seat without its own. */
-  readonly prompt?: string;
 };
 
 const SquadBodyFrame = Schema.Struct({
@@ -86,7 +83,6 @@ const SquadBodyFrame = Schema.Struct({
     Schema.check(Schema.isMaxLength(SQUAD_SEATS_MAX)),
   ),
   edges: Schema.Array(SquadEdge).pipe(Schema.check(Schema.isMaxLength(SQUAD_EDGES_MAX))),
-  prompt: Schema.optionalKey(bounded(SQUAD_PROMPT_MAX)),
 });
 
 export const SquadName = Schema.String.pipe(
@@ -106,9 +102,8 @@ export type Squad = SquadBody & {
   readonly updatedAt: number;
 };
 
-/** Save a new squad (no id) or replace an existing one's name and template. */
+/** Save a new squad. A save never replaces one; a taken name is refused. */
 export type SquadSaveInput = {
-  readonly squadId?: string;
   readonly name: string;
   readonly body: SquadBody;
 };
@@ -187,10 +182,6 @@ export const decodeSquadBody = (raw: unknown): Result.Result<SquadBody, string> 
     return [{ ...placement, profile }];
   });
   if (seats.length === 0) return Result.fail("a squad needs at least one agent");
-  return Result.succeed({
-    seats,
-    edges: frame.success.edges,
-    ...(frame.success.prompt !== undefined ? { prompt: frame.success.prompt } : {}),
-  });
+  return Result.succeed({ seats, edges: frame.success.edges });
 };
 export const decodeSquadName = Schema.decodeUnknownResult(SquadName);

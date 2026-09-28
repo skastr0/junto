@@ -35,7 +35,7 @@ export class SquadRepository extends Context.Service<SquadRepository,
   {
     /** Every readable squad, by name. A row whose body no longer decodes is skipped. */
     readonly list: () => Effect.Effect<ReadonlyArray<Squad>, SquadRepositoryError>;
-    /** Create (no id) or replace one squad's name and template. */
+    /** Create a squad. A taken name is refused; nothing is ever replaced. */
     readonly save: (input: SquadSaveInput) => Effect.Effect<Squad, SquadRepositoryError>;
     readonly rename: (squadId: string, name: string) => Effect.Effect<Squad, SquadRepositoryError>;
     readonly remove: (squadId: string) => Effect.Effect<string, SquadRepositoryError>;
@@ -117,24 +117,15 @@ export const SquadRepositoryLive: Layer.Layer<SquadRepository, never, StateEngin
           const name = cleanName(input.name);
           const body = decodeSquadBody(input.body);
           if (Result.isFailure(body)) throw refuse("the squad template is not valid");
-          const bodyJson = JSON.stringify(body.success);
-          const squadId = input.squadId ?? `squad-${ulid()}`;
-          if (nameTaken(writer, name, squadId)) throw refuse(`a squad named ${name} already exists`);
+          const squadId = `squad-${ulid()}`;
+          if (nameTaken(writer, name)) throw refuse(`a squad named ${name} already exists`);
+          const count = writer.get<StateRow & { readonly n: number }>("SELECT count(*) AS n FROM squads");
+          if (Number(count?.n ?? 0) >= SQUADS_MAX) throw refuse(`at most ${SQUADS_MAX} squads`);
           const now = Date.now();
-          if (input.squadId === undefined) {
-            const count = writer.get<StateRow & { readonly n: number }>("SELECT count(*) AS n FROM squads");
-            if (Number(count?.n ?? 0) >= SQUADS_MAX) throw refuse(`at most ${SQUADS_MAX} squads`);
-            writer.run(
-              `INSERT INTO squads(${COLUMNS}) VALUES (?, ?, ?, ?, ?)`,
-              [squadId, name, bodyJson, now, now],
-            );
-          } else {
-            const changed = writer.run(
-              "UPDATE squads SET name = ?, body_json = ?, updated_at = max(created_at, ?) WHERE squad_id = ?",
-              [name, bodyJson, now, squadId],
-            );
-            if (Number(changed.changes) === 0) throw refuse("that squad no longer exists");
-          }
+          writer.run(
+            `INSERT INTO squads(${COLUMNS}) VALUES (?, ?, ?, ?, ?)`,
+            [squadId, name, JSON.stringify(body.success), now, now],
+          );
           return readOne(writer, squadId)!;
         })
         .pipe(Effect.mapError(persistence("save")));

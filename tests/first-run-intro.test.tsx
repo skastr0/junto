@@ -193,7 +193,7 @@ describe("what the tour says", () => {
 
   it("shows saved profiles and a squad placed whole into a region", () => {
     const copy = text(chapterAt("squads"));
-    for (const word of ["profile", "squad", "save as profile", "save as squad", "opening prompt"]) {
+    for (const word of ["profile", "squad", "save as profile", "save as squad", "the wires between them"]) {
       expect(copy).toContain(word);
     }
   });

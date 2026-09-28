@@ -6,10 +6,9 @@
 import { batch, observable } from "@legendapp/state";
 import { ulid } from "ulid";
 import type { Squad } from "@shared/squads";
-import type { TerminalManagedPromptResult } from "@shared/ipc";
 import { raiseSquadFailure } from "./desktop-notify";
 import { getJuntoApi } from "./junto-api";
-import { commitDoc, flushPendingCanvasSave } from "./mutations";
+import { commitDoc } from "./mutations";
 import { captureSquad, placeSquad, squadBounds, type SquadLaunch } from "./squads";
 import { saveSeatGuidances, saveSquadPortraits, squadPortraitOf } from "./squad-portraits";
 import { seatGuidanceOf, startSeatGuidance } from "./seat-guidance-state";
@@ -21,17 +20,11 @@ export const squads$ = observable({
   hydrated: false,
 });
 
-/**
- * The save-as-squad dialog, when open: the seats it saves and the squad it
- * replaces, if the operator chose one.
- */
-export const squadDialog$ = observable<{
-  readonly selectedIds: ReadonlyArray<string>;
-  readonly squadId?: string;
-} | null>(null);
+/** The save-as-squad dialog, when open: the seats it saves as a new squad. */
+export const squadDialog$ = observable<{ readonly selectedIds: ReadonlyArray<string> } | null>(null);
 
-export const openSaveSquad = (selectedIds: ReadonlyArray<string>, squadId?: string): void => {
-  squadDialog$.set({ selectedIds: [...selectedIds], ...(squadId ? { squadId } : {}) });
+export const openSaveSquad = (selectedIds: ReadonlyArray<string>): void => {
+  squadDialog$.set({ selectedIds: [...selectedIds] });
 };
 
 export const closeSaveSquad = (): void => {
@@ -64,31 +57,22 @@ const adopt = (squad: Squad): void => {
   );
 };
 
-export type SaveSquadInput = {
-  readonly name: string;
-  readonly selectedIds: ReadonlyArray<string>;
-  /** Replace this squad instead of creating one. */
-  readonly squadId?: string;
-  readonly prompt?: string;
-  readonly seatPrompts?: Readonly<Record<string, string>>;
-};
-
-/** Save the selection as a squad. Resolves "" on success, else the reason. */
-export const saveSquadFromSelection = async (input: SaveSquadInput): Promise<string> => {
+/**
+ * Save the selection as a new squad. Resolves "" on success, else the reason
+ * (a taken name among them: a save never replaces another squad).
+ */
+export const saveSquadFromSelection = async (
+  name: string,
+  selectedIds: ReadonlyArray<string>,
+): Promise<string> => {
   const api = getJuntoApi();
   if (!api?.squadSave) return "squads are unavailable";
-  const body = captureSquad(state$.doc.peek(), input.selectedIds, {
+  const body = captureSquad(state$.doc.peek(), selectedIds, {
     portraitOf: squadPortraitOf,
     guidanceOf: seatGuidanceOf,
-    ...(input.prompt !== undefined ? { prompt: input.prompt } : {}),
-    ...(input.seatPrompts ? { seatPrompts: input.seatPrompts } : {}),
   });
   if (!body) return "select at least one agent seat";
-  const result = await api.squadSave({
-    ...(input.squadId ? { squadId: input.squadId } : {}),
-    name: input.name,
-    body,
-  });
+  const result = await api.squadSave({ name, body });
   if (!result.ok) return result.message;
   adopt(result.squad);
   return "";
@@ -117,10 +101,7 @@ export type PlaceOutcome = "placed" | "needs-folder" | "failed";
 
 /**
  * Place a squad at a canvas point: fresh seats and connections in one
- * undoable write, portraits, souls, and instructions copied, then each
- * opening prompt sent as mail. Mail starts a down seat only on a playing
- * canvas (the kernel's pause law) and waits for its terminal; on a paused
- * canvas it waits for play.
+ * undoable write, then portraits, souls, and instructions copied.
  */
 export const placeSquadAt = async (
   squadId: string,
@@ -149,28 +130,8 @@ export const placeSquadAt = async (
   if (placed.skipped.length > 0) problems.push(`skipped ${placed.skipped.join(", ")}`);
   if (!(await saveSquadPortraits(placed.portraits))) problems.push("portraits not copied");
   if (!(await saveSeatGuidances(placed.guidance))) problems.push("souls and instructions not copied");
-  if (placed.prompts.length > 0) {
-    const api = getJuntoApi();
-    const canvasName = state$.canvasName.peek();
-    // Main reads the seat from the saved canvas, so the write lands first.
-    await flushPendingCanvasSave();
-    const writePrompt = api?.terminalManagedPrompt;
-    if (writePrompt && canvasName) {
-      const results = await Promise.all(
-        placed.prompts.map((prompt) =>
-          writePrompt({ bindingId: prompt.bindingId, text: prompt.text, canvasName, nodeId: prompt.nodeId })
-            .catch((): TerminalManagedPromptResult => ({ ok: false, disposition: "failed" })),
-        ),
-      );
-      const failed = results.filter((result) => !result.ok && result.disposition !== "queued").length;
-      if (failed > 0) problems.push(`${failed} opening prompt${failed === 1 ? "" : "s"} not sent`);
-    } else {
-      problems.push("opening prompts not sent");
-    }
-  }
   if (problems.length > 0) {
     state$.error.set(`${squad.name}: ${problems.join(", ")}`);
-    // The prompts can take a while; the operator may be elsewhere by now.
     const canvasName = state$.canvasName.peek();
     if (canvasName) {
       raiseSquadFailure({ canvasName, nodeId: ids[0]!, squadName: squad.name, text: problems.join(", ") });
