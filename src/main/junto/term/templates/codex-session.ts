@@ -9,8 +9,8 @@
  *
  * The first line is `session_meta`; its payload carries the thread `id`, the
  * workspace `cwd`, the creation `timestamp`, and `thread_source` ("user" for
- * the operator's root thread, anything else for a thread Codex spawned
- * itself). The day directories are local dates.
+ * the operator's root thread). A thread Codex spawned itself names its parent
+ * under `source.subagent`. The day directories are local dates.
  *
  * Read-only: readdir of the day directories the seat has lived through, and
  * the first line of each rollout touched since it spawned.
@@ -91,7 +91,13 @@ const readMeta = (path: string): Meta | undefined => {
   try {
     const row = JSON.parse(line) as {
       type?: unknown;
-      payload?: { id?: unknown; cwd?: unknown; timestamp?: unknown; thread_source?: unknown };
+      payload?: {
+        id?: unknown;
+        cwd?: unknown;
+        timestamp?: unknown;
+        thread_source?: unknown;
+        source?: unknown;
+      };
     };
     const p = row.payload;
     if (row.type !== "session_meta" || !p) return undefined;
@@ -103,7 +109,10 @@ const readMeta = (path: string): Meta | undefined => {
       id: p.id,
       cwd: p.cwd,
       createdMs,
-      root: p.thread_source === undefined || p.thread_source === "user",
+      // A spawned thread names its parent under `source.subagent`.
+      root:
+        (p.thread_source === undefined || p.thread_source === "user") &&
+        !(typeof p.source === "object" && p.source !== null && "subagent" in p.source),
     };
   } catch {
     return undefined;

@@ -23,7 +23,7 @@ const pad = (n: number): string => String(n).padStart(2, "0");
 const rollout = (
   home: string,
   at: Date,
-  meta: { id: string; cwd: string; threadSource?: string },
+  meta: { id: string; cwd: string; threadSource?: string; source?: unknown },
 ): void => {
   const dir = join(
     home,
@@ -43,7 +43,7 @@ const rollout = (
       session_id: meta.id,
       timestamp: at.toISOString(),
       cwd: meta.cwd,
-      source: "cli",
+      source: meta.source ?? "cli",
       thread_source: meta.threadSource ?? "user",
       // The real first line carries ~20KB of instructions.
       base_instructions: { text: "x".repeat(100_000) },
@@ -64,6 +64,11 @@ describe("codex session discovery", () => {
     rollout(home, new Date(spawnedAtMs + 5_000), { id: OTHER_ID, cwd: "/elsewhere" });
     rollout(home, new Date(spawnedAtMs + 10_000), { id: ROOT_ID, cwd });
     rollout(home, new Date(spawnedAtMs + 20_000), { id: CHILD_ID, cwd, threadSource: "subagent" });
+    rollout(home, new Date(spawnedAtMs + 1_000), {
+      id: "01a0e983-dddd-7ff2-97db-b10259aa4d84",
+      cwd,
+      source: { subagent: { thread_spawn: { parent_thread_id: ROOT_ID } } },
+    });
     expect(discoverCodexSessionId({ cwd, spawnedAtMs, home })).toBe(ROOT_ID);
   });
 
