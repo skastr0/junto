@@ -1,0 +1,180 @@
+/* The add picker's one card (PickerCard.tsx). Every picker section renders
+   through these rules and declares no card chrome of its own
+   (tests/picker-card-law.test.tsx holds that). Neutral until hovered: kind
+   is carried by the art, never a colour slab. Tokens only. */
+
+.picker-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  align-content: start;
+  gap: 8px;
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+}
+
+.picker-card {
+  position: relative;
+  min-width: 0;
+}
+
+.picker-card__hit {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  width: 100%;
+  min-height: 84px;
+  border: 1px solid var(--color-stroke);
+  border-radius: 7px;
+  background: transparent;
+  padding: 12px;
+  color: var(--color-dim);
+  font-family: var(--font-mono);
+  text-align: left;
+  transition: border-color 150ms ease, background-color 150ms ease;
+}
+
+.picker-card:has(.picker-card__more) .picker-card__hit {
+  padding-right: 36px;
+}
+
+.picker-card__hit:hover {
+  border-color: var(--color-stroke-hi);
+  background: var(--color-overlay-2);
+}
+
+.picker-card__hit:focus-visible {
+  border-color: var(--color-amber);
+}
+
+/* One square for every kind of art: a face, stacked faces, a node icon. */
+.picker-card__art {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+}
+
+.picker-card__text {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  padding-top: 2px;
+}
+
+.picker-card__title {
+  overflow: hidden;
+  color: var(--color-ink);
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.picker-card__sub {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  font-size: 11px;
+  line-height: 1.3;
+}
+
+.picker-card__lead {
+  flex: none;
+  color: var(--color-ink);
+}
+
+.picker-card__meta {
+  overflow: hidden;
+  color: var(--color-dim);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.picker-card__body {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--color-dim);
+  font-size: 10px;
+  line-height: 1.5;
+  text-wrap: pretty;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.picker-card__body[data-quiet] {
+  color: var(--color-faint);
+}
+
+.picker-card__add {
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  border: 1px dashed var(--color-stroke-hi);
+  border-radius: 50%;
+  color: var(--color-dim);
+  transition: border-color 150ms ease, color 150ms ease;
+}
+
+.picker-card__hit:hover .picker-card__add,
+.picker-card__hit:focus-visible .picker-card__add {
+  border-color: var(--color-amber);
+  color: var(--color-amber-hi);
+}
+
+.picker-card__more {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  opacity: 0;
+  transition: opacity 150ms ease;
+}
+
+.picker-card:hover .picker-card__more,
+.picker-card:focus-within .picker-card__more {
+  opacity: 1;
+}
+
+/* --- manage menu ----------------------------------------------------------- */
+
+.picker-manage {
+  display: grid;
+  gap: 10px;
+}
+
+.picker-manage__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.picker-manage__row[data-confirm] {
+  justify-content: flex-end;
+}
+
+.picker-manage__ask {
+  margin: 0;
+  color: var(--color-dim);
+  font-size: 11px;
+  line-height: 1.5;
+  text-wrap: pretty;
+}
+
+.picker-manage__error {
+  margin: 0;
+  color: var(--color-amber);
+  font-size: 11px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .picker-card__hit,
+  .picker-card__add,
+  .picker-card__more {
+    transition: none;
+  }
+}

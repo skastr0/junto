@@ -85,7 +85,7 @@ test("pad: create, wire seat, patch, persist, draw, pin + look-here", async ({
   const deck = page.getByRole("dialog", { name: "Add canvas item" });
   await expect(deck).toBeVisible();
   await deck.getByRole("searchbox", { name: "Search nodes and agents" }).fill("pad");
-  await deck.locator(".node-deck-catalog__card").filter({ hasText: "Pad" }).click();
+  await deck.locator('[data-picker-card="catalog"] .picker-card__hit').filter({ hasText: "Pad" }).click();
   await expect(deck).toHaveCount(0);
 
   const padCard = page.getByTestId("pad-card");

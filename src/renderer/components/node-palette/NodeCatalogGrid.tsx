@@ -29,6 +29,7 @@ import {
   TASKS_ENABLED,
 } from "@shared/features";
 import { fuzzyMatch } from "../../lib/fuzzy-match";
+import { PickerCard, PickerCardGrid } from "../ui";
 
 export type NodeCatalogCategory = "shell" | "sinks" | "schedule" | "canvas";
 
@@ -172,31 +173,28 @@ export function NodeCatalogGrid({
       className={`node-deck-catalog min-h-0 ${className}`}
     >
       {visibleEntries.length > 0 ? (
-        <ul className="node-deck-catalog__grid grid grid-cols-1 gap-2 p-1 sm:grid-cols-2" role="list">
+        <PickerCardGrid className="node-deck-catalog__grid">
           {visibleEntries.map((entry) => {
             const Icon = entry.icon;
-            const accentClass = NODE_CATALOG_CATEGORY_ACCENT[entry.category];
             return (
-              <li key={entry.id} className="node-deck-catalog__item min-w-0">
-                <button
-                  type="button"
-                  className="node-deck-catalog__card group flex min-h-[76px] w-full items-start gap-3 rounded-[7px] border border-stroke px-3 py-3 text-left outline-none transition-[border-color,background-color] duration-150 hover:border-stroke-hi focus-visible:border-amber focus-visible:ring-1 focus-visible:ring-amber/60"
-                  onClick={() => onSelect(entry)}
-                >
-                  <Icon aria-hidden="true" size={23} strokeWidth={1.7} className={`node-deck-catalog__icon mt-0.5 shrink-0 ${accentClass}`} />
-                  <span className="node-deck-catalog__summary min-w-0">
-                    <span className="node-deck-catalog__label block font-mono text-[15px] font-semibold leading-none text-ink">
-                      {entry.label}
-                    </span>
-                    <span className="node-deck-catalog__purpose mt-2 block font-mono text-[10px] leading-[1.5] text-dim">
-                      {entry.purpose}
-                    </span>
-                  </span>
-                </button>
-              </li>
+              <PickerCard
+                key={entry.id}
+                kind="catalog"
+                art={
+                  <Icon
+                    aria-hidden="true"
+                    size={26}
+                    strokeWidth={1.7}
+                    className={NODE_CATALOG_CATEGORY_ACCENT[entry.category]}
+                  />
+                }
+                title={entry.label}
+                body={entry.purpose}
+                onActivate={() => onSelect(entry)}
+              />
             );
           })}
-        </ul>
+        </PickerCardGrid>
       ) : (
         <div
           className="node-deck-catalog__empty border border-dashed border-stroke px-4 py-10 text-center font-mono text-[11px] text-dim"

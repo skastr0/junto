@@ -130,7 +130,7 @@ export function NodePaletteModeDeck({
     const deck = deckRef.current;
     if (!deck) return;
     const candidates = deck.querySelectorAll<HTMLElement>(
-      ".agent-harness-pick__item, .profile-picker__card, .node-deck-catalog__card",
+      ".agent-harness-pick__item, .picker-card__hit",
     );
     for (const candidate of candidates) {
       if (candidate.getClientRects().length === 0) continue;

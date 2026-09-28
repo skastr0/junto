@@ -289,10 +289,6 @@
   scrollbar-color: var(--color-stroke) transparent;
   scrollbar-width: thin;
 }
-.node-deck-catalog__card { background: transparent !important; box-shadow: none !important; }
-.node-deck-catalog__card:hover,
-.node-deck-catalog__card:focus-visible { background: var(--deck-hover) !important; }
-.node-deck-catalog__purpose { text-wrap: pretty; }
 
 .node-deck button:focus-visible,
 .node-deck [role="button"]:focus-visible { outline: 1px solid var(--color-cyan); outline-offset: 2px; }

@@ -1,11 +1,6 @@
-/* Profiles: the add-picker cards, the manage popover, the save dialog, and
-   the save row the dialog shares with the draft editor. Tokens only. */
-
-/* --- add picker ------------------------------------------------------------ */
-
-/* Cards at the node catalog's scale and chrome (1px stroke, 7px radius,
-   neutral until hovered), so a profile reads as a peer of Terminal or Note.
-   The face carries the identity; no colour slab. */
+/* Profiles: the add-picker section, the save dialog, and the save row the
+   dialog shares with the draft editor. The picker's cards and their manage
+   menu are the shared PickerCard (../ui/picker-card.css). Tokens only. */
 
 .profile-picker {
   display: grid;
@@ -13,151 +8,6 @@
   margin-bottom: 16px;
 }
 
-.profile-picker__list {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
-  gap: 8px;
-  margin: 0;
-  padding: 4px;
-  list-style: none;
-}
-
-.profile-picker__item {
-  position: relative;
-  min-width: 0;
-}
-
-.profile-picker__card {
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
-  width: 100%;
-  min-height: 92px;
-  border: 1px solid var(--color-stroke);
-  border-radius: 7px;
-  background: transparent;
-  padding: 12px 36px 12px 12px;
-  color: var(--color-dim);
-  font: inherit;
-  text-align: left;
-  transition: border-color 150ms ease, background-color 150ms ease;
-}
-
-.profile-picker__card:hover {
-  border-color: var(--color-stroke-hi);
-  background: var(--color-overlay-2);
-}
-
-.profile-picker__card:focus-visible {
-  border-color: var(--color-amber);
-  outline: none;
-}
-
-.profile-picker__text {
-  display: grid;
-  gap: 6px;
-  min-width: 0;
-  padding-top: 2px;
-}
-
-.profile-picker__name {
-  overflow: hidden;
-  color: var(--color-ink);
-  font-size: 15px;
-  font-weight: 600;
-  line-height: 1;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.profile-picker__launch {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  min-width: 0;
-  font-size: 11px;
-  line-height: 1.3;
-}
-
-.profile-picker__harness {
-  flex: none;
-  color: var(--color-ink);
-}
-
-.profile-picker__dials {
-  overflow: hidden;
-  color: var(--color-dim);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.profile-picker__soul {
-  display: -webkit-box;
-  overflow: hidden;
-  color: var(--color-dim);
-  font-size: 10px;
-  line-height: 1.5;
-  text-wrap: pretty;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-}
-
-.profile-picker__soul[data-empty] {
-  color: var(--color-faint);
-}
-
-/* Create profile: the same card around an empty seat, a dashed ring where
-   the face will be. */
-.profile-picker__create {
-  padding-right: 12px;
-}
-
-.profile-picker__slot {
-  display: grid;
-  flex: none;
-  place-items: center;
-  width: 52px;
-  height: 52px;
-  border: 1px dashed var(--color-stroke-hi);
-  border-radius: 50%;
-  color: var(--color-dim);
-  transition: border-color 150ms ease, color 150ms ease;
-}
-
-.profile-picker__create:hover .profile-picker__slot,
-.profile-picker__create:focus-visible .profile-picker__slot {
-  border-color: var(--color-amber);
-  color: var(--color-amber-hi);
-}
-
-.profile-picker__more {
-  position: absolute;
-  top: 8px;
-  right: 8px;
-  opacity: 0;
-  transition: opacity 150ms ease;
-}
-
-.profile-picker__item:hover .profile-picker__more,
-.profile-picker__item:focus-within .profile-picker__more {
-  opacity: 1;
-}
-
-/* --- manage popover -------------------------------------------------------- */
-
-.profile-manage {
-  display: grid;
-  gap: 8px;
-  padding: 10px;
-}
-
-.profile-manage__row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
-.profile-manage__error,
 .profile-save__error {
   margin: 0;
   color: var(--color-amber);
@@ -235,12 +85,4 @@
 .profile-draft__foot {
   border-top: 1px solid var(--color-stroke);
   padding: 12px 16px 14px;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .profile-picker__card,
-  .profile-picker__slot,
-  .profile-picker__more {
-    transition: none;
-  }
 }

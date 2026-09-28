@@ -142,11 +142,11 @@ test("Mode Deck exposes the searchable catalog and keeps launch context dense at
     // the product scheduler peers.
     for (const scheduler of ["Cron", "Relay"]) {
       await expect(
-        deck.locator(".node-deck-catalog__card").filter({ hasText: scheduler }),
+        deck.locator('[data-picker-card="catalog"] .picker-card__hit').filter({ hasText: scheduler }),
       ).toBeVisible();
     }
     await expect(
-      deck.locator(".node-deck-catalog__card").filter({ hasText: "Gauge" }),
+      deck.locator('[data-picker-card="catalog"] .picker-card__hit').filter({ hasText: "Gauge" }),
     ).toHaveCount(0);
 
     const agentPane = deck.locator('aside[aria-label="Agents"]');
@@ -406,10 +406,10 @@ test("catalog cards carry each node's own description and no wire explainer", as
   try {
     const { page } = junto;
     const deck = await openModeDeck(page);
-    const terminal = deck.locator(".node-deck-catalog__card").filter({
+    const terminal = deck.locator('[data-picker-card="catalog"] .picker-card__hit').filter({
       hasText: "Terminal",
     });
-    await expect(terminal.locator(".node-deck-catalog__label"))
+    await expect(terminal.locator(".picker-card__title"))
       .toHaveCSS("text-transform", "none");
     await expect(terminal).toContainText(/shell on the selected machine/i);
     const terminalBox = await terminal.boundingBox();
@@ -537,7 +537,7 @@ test("search Down and Enter browse results without creating nodes", async () => 
     await search.focus();
     await search.fill("shell");
     await search.press("Enter");
-    await expect(deck.locator(".node-deck-catalog__card").first()).toBeFocused();
+    await expect(deck.locator('[data-picker-card="catalog"] .picker-card__hit').first()).toBeFocused();
     await expect(canvasNodes).toHaveCount(before);
 
     await search.focus();
