@@ -1,14 +1,10 @@
 import { Context, Effect, Layer, Schema } from "effect";
+import { SqlClient, SqlError, SqlSchema } from "effect/unstable/sql";
 import {
   PAUSED_CANVAS,
   type CanvasPauseState,
 } from "@shared/pause";
-import {
-  StateEngine,
-  type StateEngineError,
-  type StateReader,
-  type StateRow,
-} from "../state/service";
+import { StateTransactionOperation } from "../state/service";
 
 export class FactoryPausePersistenceError extends Schema.TaggedError<FactoryPausePersistenceError>()(
   "FactoryPausePersistenceError",
@@ -42,15 +38,15 @@ export class FactoryPauseRepository extends Context.Service<FactoryPauseReposito
     ) => Effect.Effect<CanvasPauseState, FactoryPauseRepositoryError>;
   }>()("@junto/FactoryPauseRepository") {}
 
-type CanvasRow = StateRow & {
-  readonly canvas_name: string;
-  readonly playing: number;
-  readonly ever_played: number;
-};
+const CanvasRow = Schema.Struct({
+  canvas_name: Schema.String,
+  playing: Schema.Number,
+  ever_played: Schema.Number,
+});
 
 const persistenceError = (
   operation: string,
-  error: StateEngineError,
+  error: SqlError.SqlError | Schema.SchemaError,
 ): FactoryPauseRepositoryError =>
   FactoryPausePersistenceError.make({
     operation,
@@ -58,19 +54,8 @@ const persistenceError = (
     cause: error,
   });
 
-const stateForCanvas = (
-  reader: StateReader,
-  canvasName: string,
-): CanvasPauseState => {
-  const canvas = reader.get<CanvasRow>(
-    `
-      SELECT canvas_name, playing, ever_played
-      FROM factory_pause_canvases
-      WHERE canvas_name = ?
-    `,
-    [canvasName],
-  );
-  if (canvas === undefined) return PAUSED_CANVAS;
+const stateForCanvas = (canvas: typeof CanvasRow.Type | undefined): CanvasPauseState => {
+  if (!canvas) return PAUSED_CANVAS;
   // factory_pause_scopes (retired node and region pause) is never read:
   // its rows stay inert in the schema.
   return {
@@ -82,72 +67,48 @@ const stateForCanvas = (
 export const FactoryPauseRepositoryLive: Layer.Layer<
   FactoryPauseRepository,
   never,
-  StateEngine
+  SqlClient.SqlClient
 > = Layer.effect(
   FactoryPauseRepository,
   Effect.gen(function* () {
-    const state = yield* StateEngine;
+    const sql = yield* SqlClient.SqlClient;
+    const allRows = SqlSchema.findAll({
+      Request: Schema.Void,
+      Result: CanvasRow,
+      execute: () => sql`
+        SELECT canvas_name, playing, ever_played
+        FROM factory_pause_canvases ORDER BY canvas_name
+      `,
+    });
+    const oneRow = SqlSchema.findOneOption({
+      Request: Schema.String,
+      Result: CanvasRow,
+      execute: (name) => sql`
+        SELECT canvas_name, playing, ever_played
+        FROM factory_pause_canvases WHERE canvas_name = ${name}
+      `,
+    });
 
-    const loadAll = state
-      .read("factory-pause.load-all", (reader) => {
-        const canvases = reader.all<CanvasRow>(
-          `
-            SELECT canvas_name, playing, ever_played
-            FROM factory_pause_canvases
-            ORDER BY canvas_name
-          `,
-        );
-        return new Map(
-          canvases.map((canvas) => [
-            canvas.canvas_name,
-            stateForCanvas(reader, canvas.canvas_name),
-          ]),
-        );
-      })
-      .pipe(Effect.mapError((error) => persistenceError("load all", error)));
+    const loadAll = Effect.fn("factory-pause.load-all")(function* () {
+      return new Map((yield* allRows(undefined)).map((canvas) => [canvas.canvas_name, stateForCanvas(canvas)]));
+    }, Effect.mapError((error) => persistenceError("load all", error)))();
 
-    const setPlaying = (canvasName: string, playing: boolean) =>
-      state
-        .transaction("factory-pause.set-playing", (writer) => {
-          const current = writer.get<CanvasRow>(
-            `
-              SELECT canvas_name, playing, ever_played
-              FROM factory_pause_canvases
-              WHERE canvas_name = ?
-            `,
-            [canvasName],
-          );
-          if (current === undefined && !playing) return PAUSED_CANVAS;
-          writer.run(
-            `
-              INSERT INTO factory_pause_canvases(
-                canvas_name,
-                playing,
-                ever_played,
-                updated_at
-              ) VALUES (?, ?, ?, ?)
-              ON CONFLICT(canvas_name) DO UPDATE SET
-                playing = excluded.playing,
-                ever_played = excluded.ever_played,
-                updated_at = excluded.updated_at
-            `,
-            [
-              canvasName,
-              playing ? 1 : 0,
-              current?.ever_played === 1 || playing ? 1 : 0,
-              new Date().toISOString(),
-            ],
-          );
-          return stateForCanvas(writer, canvasName);
-        })
-        .pipe(
-          Effect.mapError((error) =>
-            persistenceError(
-              `${playing ? "play" : "pause"} canvas ${canvasName}`,
-              error,
-            )
-          ),
-        );
+    const setPlaying = Effect.fn("factory-pause.set-playing")(function* (canvasName: string, playing: boolean) {
+      const currentOption = yield* oneRow(canvasName);
+      const current = currentOption._tag === "Some" ? currentOption.value : undefined;
+      if (current === undefined && !playing) return PAUSED_CANVAS;
+      yield* sql`
+        INSERT INTO factory_pause_canvases(canvas_name, playing, ever_played, updated_at)
+        VALUES (${canvasName}, ${playing ? 1 : 0}, ${current?.ever_played === 1 || playing ? 1 : 0}, ${new Date().toISOString()})
+        ON CONFLICT(canvas_name) DO UPDATE SET
+          playing = excluded.playing,
+          ever_played = excluded.ever_played,
+          updated_at = excluded.updated_at
+      `;
+      const updated = yield* oneRow(canvasName);
+      return stateForCanvas(updated._tag === "Some" ? updated.value : undefined);
+    }, sql.withTransaction, Effect.provideService(StateTransactionOperation, "factory-pause.set-playing"),
+    Effect.mapError((error) => persistenceError("set playing", error)));
 
     return FactoryPauseRepository.of({
       loadAll,
