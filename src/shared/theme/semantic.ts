@@ -79,6 +79,10 @@ export const SEMANTIC_DARK: Record<string, TokenValue> = {
   gold: solid(darkHues.gold),
   orange: solid(darkHues.orange),
   green: solid(darkHues.green),
+  yellow: solid(darkHues.yellow),
+  lime: solid(darkHues.lime),
+  blue: solid(darkHues.blue),
+  pink: solid(darkHues.pink),
 
   // color roles — the names primitives compose against
   main: alias("amber"),
@@ -136,6 +140,10 @@ export const SEMANTIC_BRIGHT_OVERRIDES: Record<string, TokenValue> = {
   gold: solid(brightHues.gold),
   orange: solid(brightHues.orange),
   green: solid(brightHues.green),
+  yellow: solid(brightHues.yellow),
+  lime: solid(brightHues.lime),
+  blue: solid(brightHues.blue),
+  pink: solid(brightHues.pink),
 };
 
 export type ThemeMode = "dark" | "bright";

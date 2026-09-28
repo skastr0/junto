@@ -39,6 +39,10 @@ export interface HueRamp {
   gold: Oklch;
   orange: Oklch;
   green: Oklch;
+  yellow: Oklch;
+  lime: Oklch;
+  blue: Oklch;
+  pink: Oklch;
 }
 
 export const NEUTRALS: Record<"dark" | "bright", NeutralRamp> = {
@@ -83,6 +87,13 @@ export const HUES: Record<"dark" | "bright", HueRamp> = {
     gold: { l: 0.75664, c: 0.11885, h: 83.55 }, // #d4a94f
     orange: { l: 0.69551, c: 0.1692, h: 44.1 }, // #f07438
     green: { l: 0.71797, c: 0.10827, h: 161.16 }, // #5fb98e
+    // Colour choices for regions and cards only (shared/canvas-colors.ts):
+    // a clear yellow beside the mustard gold, and the gaps a region palette
+    // needs between green, cyan and violet.
+    yellow: { l: 0.87, c: 0.165, h: 98 }, // #f1d438
+    lime: { l: 0.8, c: 0.17, h: 128 }, // #9ed24d
+    blue: { l: 0.68, c: 0.135, h: 250 }, // #509de8
+    pink: { l: 0.72, c: 0.15, h: 350 }, // #e97ab2
   },
   bright: {
     // Display variants stay in the same families; fg variants darken to the
@@ -100,5 +111,11 @@ export const HUES: Record<"dark" | "bright", HueRamp> = {
     gold: { l: 0.55, c: 0.11, h: 80 },
     orange: { l: 0.54, c: 0.15, h: 45 },
     green: { l: 0.51, c: 0.1, h: 160 }, // teal-leaning
+    // Yellow cannot darken far on paper before it turns mustard; it keeps
+    // its lightness and the frame carries it.
+    yellow: { l: 0.75, c: 0.155, h: 96 },
+    lime: { l: 0.63, c: 0.16, h: 130 },
+    blue: { l: 0.52, c: 0.13, h: 252 },
+    pink: { l: 0.56, c: 0.16, h: 352 },
   },
 };
