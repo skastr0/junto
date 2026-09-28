@@ -1,7 +1,7 @@
 /**
  * Crew fixture — deterministic generated-canvas crews for the local crew
- * surface (crew contract deleted by operator ruling 2026-09-16): mail, immediate prompts, seat/task
- * waits, read-only terminal observation, and review verdicts.
+ * surface (crew contract deleted by operator ruling 2026-09-16): mail, immediate prompts, seat
+ * waits, and read-only terminal observation.
  *
  * Seats are FAKE TUI processes — every spec that uses them is labelled
  * `[fake-tui]` in its title and evidence. The fake is a `codex` binary
@@ -25,23 +25,18 @@
  *   stdin.log     base64 raw PTY input the seat received (paste evidence)
  */
 
-import { createHash, randomUUID } from "node:crypto";
-import { chmod, mkdir, readFile, readdir, writeFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { Page } from "@playwright/test";
-import type { PtyDeliveryTraceEvent } from "../../src/main/junto/term/drive/pty-delivery-trace";
 import type { CanvasDoc, CanvasEdge, CanvasNode, TextNode } from "../../src/shared/canvas";
 import type { GroupNode } from "../../src/shared/canvas";
-import { type ReviewVerdict } from "../../src/shared/crew";
-import { composeImmediatePromptPayload, composeMessageDeliveryPayload } from "../../src/shared/message-delivery";
 import type { Port } from "../../src/shared/physics/schema";
 import type { Verb } from "../../src/shared/physics/verbs";
-import { transportLogDirectory } from "../../src/shared/transport-trace";
-import type { Message, Rule, Task, TasksContract } from "../../src/shared/work-model";
+import type { Message, Rule } from "../../src/shared/work-model";
 import {
   agentTextNode,
   canvasDoc,
-  tasksNode,
   verbEdge,
   type Sandbox,
 } from "./sandbox";
@@ -82,58 +77,6 @@ export const crewMessagesEdge = (
   if (mask === undefined) return edge;
   return { ...edge, ether: { ...edge.ether!, mask: [...mask] } };
 };
-
-/** reviews edge — directed reviewer -> author, compiles `verdict.post`. */
-export const crewReviewsEdge = (
-  id: string,
-  reviewerNode: string,
-  authorNode: string,
-  nodes: ReadonlyArray<CanvasNode>,
-): CanvasEdge => verbEdge(id, reviewerNode, authorNode, "reviews" as Verb, nodes);
-
-/** works edge — claimable task path; the verb's source is the sink. */
-export const crewWorksEdge = (
-  id: string,
-  sinkNode: string,
-  seatNode: string,
-  nodes: ReadonlyArray<CanvasNode>,
-): CanvasEdge => verbEdge(id, sinkNode, seatNode, "works" as Verb, nodes);
-
-/**
- * manages edge — agent -> task sink. Grants tasks.list/create/update (so
- * tasks.show and tasks.wait admit) but never tasks.claim and never marks the
- * seat claimable — the factory claim cycle cannot assign work through it.
- * The reviewer seat uses this so authored tasks stay the author's alone.
- */
-export const crewManagesEdge = (
-  id: string,
-  agentNode: string,
-  sinkNode: string,
-  nodes: ReadonlyArray<CanvasNode>,
-): CanvasEdge => verbEdge(id, agentNode, sinkNode, "manages" as Verb, nodes);
-
-/** A Tasks sink carrying an operator contract (rules incl. `requires-review`). */
-export const crewTasksNode = (input: {
-  readonly id: string;
-  readonly x?: number;
-  readonly y?: number;
-  readonly items?: ReadonlyArray<Task>;
-  readonly contract?: TasksContract;
-}): TextNode => {
-  const node = tasksNode(input);
-  if (input.contract === undefined) return node;
-  return {
-    ...node,
-    ether: {
-      ...node.ether!,
-      tasks: { items: [...(input.items ?? [])], contract: input.contract },
-    },
-  };
-};
-
-/** One contract rule; kind "requires-review" arms the review gate. */
-export const crewRule = (id: string, text: string, kind?: Rule["kind"]): Rule =>
-  kind === undefined ? { id, text } : { id, text, kind };
 
 /** A region (group) with optional operator contract. Members are geometric. */
 export const crewRegionNode = (input: {
@@ -911,15 +854,6 @@ const crewMessages = async (
   return node.ether?.messages?.items ?? [];
 };
 
-/** Task-subject chains only; standalone commit verdicts are not a canvas projection. */
-export const crewVerdicts = async (
-  page: Page,
-  canvas: string,
-): Promise<ReadonlyArray<ReviewVerdict>> =>
-  (await crewCanvas(page, canvas)).nodes
-    .flatMap((node) => (node.ether?.tasks?.items ?? []).flatMap((task) => task.verdicts ?? []))
-    .sort((left, right) => left.postedAtMs - right.postedAtMs);
-
 export const crewMessageCount = async (
   page: Page,
   canvas: string,
@@ -972,79 +906,3 @@ export const crewReceipts = async (
       ...(reactions === undefined ? {} : { reactions }),
     }];
   });
-
-/** Missing, rotated, malformed or dropped trace evidence fails the check. */
-const crewPtyTrace = async (sandbox: Sandbox): Promise<ReadonlyArray<PtyDeliveryTraceEvent>> => {
-  const directory = transportLogDirectory(sandbox.homeDir);
-  const entries = await readdir(directory);
-  if (entries.includes("pty-delivery.jsonl.1")) {
-    throw new Error("Crew PTY trace rotated; the complete physical write history is unavailable");
-  }
-  const body = await readFile(join(directory, "pty-delivery.jsonl"), "utf8");
-  return body.split("\n").filter((line) => line.length > 0).map((line, index) => {
-    const value: unknown = JSON.parse(line);
-    if (value === null || typeof value !== "object" ||
-        !("ts" in value) || typeof value.ts !== "string" ||
-        !("bindingId" in value) || typeof value.bindingId !== "string" ||
-        !("harness" in value) || typeof value.harness !== "string" ||
-        !("event" in value) || typeof value.event !== "string" ||
-        !("fields" in value) || value.fields === null || typeof value.fields !== "object" ||
-        Array.isArray(value.fields) ||
-        ("deliveryId" in value && typeof value.deliveryId !== "string")) {
-      throw new Error(`Invalid crew PTY trace row ${index + 1}`);
-    }
-    if ("dropped" in value && value.dropped !== 0) {
-      throw new Error(`Crew PTY trace dropped events at row ${index + 1}`);
-    }
-    if ((value.event === "write.end" &&
-          (!("stage" in value.fields) || typeof value.fields.stage !== "string" ||
-           !("ok" in value.fields) || typeof value.fields.ok !== "boolean")) ||
-        (value.event === "delivery.begin" &&
-          (!("textSha256" in value.fields) || typeof value.fields.textSha256 !== "string" ||
-           !/^[a-f0-9]{64}$/.test(value.fields.textSha256)))) {
-      throw new Error(`Incomplete crew PTY write evidence at row ${index + 1}`);
-    }
-    return value as PtyDeliveryTraceEvent;
-  });
-};
-
-/**
- * Accepted paste writes for an isolated single-message delivery. Correlates
- * the canonical payload hash and the live binding with trace deliveryId;
- * unrelated startup prompts and CRs do not count. The trace has no source id
- * or epoch, so this helper does not prove batched-mail attribution or history
- * across recipient generation replacement. The fake stdin log separately
- * proves the bytes reached the child process.
- */
-export const crewMessagePasteWrites = async (
-  page: Page,
-  sandbox: Sandbox,
-  canvas: string,
-  nodeId: string,
-  messageId: string,
-  kind: "notice" | "prompt" = "notice",
-): Promise<number> => {
-  const message = (await crewMessages(page, canvas, nodeId))
-    .find((candidate) => candidate.messageId === messageId);
-  if (message === undefined) throw new Error(`Missing projected crew message ${messageId}`);
-  const bindings = await page.evaluate(async ([canvasName, recipient]) =>
-    (await window.junto!.terminalList()).filter((session) =>
-      session.canvasName === canvasName && session.nodeId === recipient && session.status === "running"),
-  [canvas, nodeId] as const);
-  if (bindings.length !== 1) throw new Error(`Expected one live crew binding for ${canvas}/${nodeId}; found ${bindings.length}`);
-  const bindingId = bindings[0]!.bindingId;
-  const payload = kind === "prompt"
-    ? composeImmediatePromptPayload(message)
-    : composeMessageDeliveryPayload(message);
-  const hash = createHash("sha256").update(payload).digest("hex");
-  const events = await crewPtyTrace(sandbox);
-  const deliveries = new Set(events.filter((event) =>
-    event.bindingId === bindingId && event.event === "delivery.begin" && event.fields.textSha256 === hash,
-  ).map((event) => {
-    if (event.deliveryId === undefined) throw new Error("Crew PTY delivery.begin is missing its correlation id");
-    return event.deliveryId;
-  }));
-  return events.filter((event) => event.bindingId === bindingId &&
-    event.deliveryId !== undefined && deliveries.has(event.deliveryId) &&
-    event.event === "write.end" && event.fields.stage === "paste" && event.fields.ok === true).length;
-};

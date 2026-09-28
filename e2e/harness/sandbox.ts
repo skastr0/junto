@@ -5,13 +5,10 @@
  * ~/.junto or userData; every path lives under os.tmpdir().
  */
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
-import { DatabaseSync } from "node:sqlite";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect, Layer, ManagedRuntime, Schema } from "effect";
 import type {
-  Task,
-  Artifact,
   CanvasDoc,
   CanvasEdge,
   CanvasNode,
@@ -20,7 +17,6 @@ import type {
 } from "../../src/shared/canvas";
 import { verbsForPair, type Verb } from "../../src/shared/physics/verbs";
 import { resolveManagedLaunch } from "../../src/shared/managed-terminal-launch";
-import { mirrorRequestsText } from "../../src/shared/task";
 import {
   CanvasesLive,
   CanvasesService,
@@ -38,7 +34,6 @@ import type { RemoteHost } from "../../src/shared/remote-hosts";
 import type { UsageState } from "../../src/shared/usage";
 import type { AgentSignal } from "../../src/shared/agent-signals";
 import {
-  createAuthorialTaskDependencyScopeCapability,
   WorkRepository,
   WorkRepositoryLive,
 } from "../../src/main/junto/work/repository";
@@ -231,32 +226,8 @@ export const writeFixtureCanvas = async (
           nodes: doc.nodes.map((node) => {
             const ether = node.ether;
             if (ether === undefined) return node;
-            const {
-              tasks,
-              requests,
-              messages: _messages,
-              artifacts: _artifacts,
-              board: _board,
-              pad: _pad,
-              ...authorialEther
-            } = ether;
-            return {
-              ...node,
-              ether: {
-                ...authorialEther,
-                ...(tasks === undefined ? {} : { tasks: { ...tasks, items: [] } }),
-                // Authored requests identity is document truth (same as the
-                // tasks name): it survives the strip with an empty items shell.
-                ...(requests === undefined
-                  ? {}
-                  : {
-                      requests: {
-                        items: [],
-                        ...(requests.name ? { name: requests.name } : {}),
-                      },
-                    }),
-              },
-            };
+            const { messages: _messages, ...authorialEther } = ether;
+            return { ...node, ether: authorialEther };
           }),
         };
         yield* canvasService.write(name, authorialDoc);
@@ -303,122 +274,8 @@ export const writeFixtureCanvas = async (
           }
           return candidates[0]!;
         };
-        const actorForTask = (
-          sinkNodeId: string,
-          task: Task,
-        ): ActorRef => {
-          if (task.claimedBy === undefined) return adjacentActor(sinkNodeId);
-          // Fixtures claim by the authored node id (or the derived seat id);
-          // translate to the compiled ActorSeatId the work plane stores.
-          const claimant = actorRefs.filter(
-            (actor) =>
-              actor.seatId === task.claimedBy || actor.nodeId === task.claimedBy,
-          );
-          if (claimant.length !== 1) {
-            throw new Error(
-              `fixture task ${JSON.stringify(task.id)} claimant is not one local compiled actor`,
-            );
-          }
-          return claimant[0]!;
-        };
-
         for (const node of doc.nodes) {
           const sink = { canvasName: name, nodeId: node.id };
-          for (const task of node.ether?.tasks?.items ?? []) {
-            const dependencyScope =
-              createAuthorialTaskDependencyScopeCapability({
-                authority,
-                authoringSink: sink,
-              });
-            const {
-              state: targetState,
-              claimedBy: targetClaimant,
-              ...submittedBody
-            } = task;
-            if (targetState === "submitted" && targetClaimant !== undefined) {
-              throw new Error(
-                `fixture submitted task ${JSON.stringify(task.id)} cannot carry a claimant`,
-              );
-            }
-            yield* workRepository.createTask({
-              sink,
-              basis,
-              dependencyScope,
-              task: {
-                ...submittedBody,
-                state: "submitted",
-              },
-            });
-
-            // auth-required is residual-only; fixture seeds collapse to input-required.
-            const effectiveState =
-              targetState === "auth-required" ? "input-required" : targetState;
-            const requiresClaim =
-              effectiveState === "working" ||
-              effectiveState === "input-required" ||
-              targetClaimant !== undefined;
-            if (requiresClaim) {
-              yield* workRepository.claimLocalTask({
-                sink,
-                basis,
-                dependencyScope,
-                taskId: task.id,
-                actor: actorForTask(node.id, task),
-              });
-            }
-            if (
-              effectiveState !== "submitted" &&
-              effectiveState !== "working"
-            ) {
-              yield* workRepository.transitionTask({
-                sink,
-                basis,
-                taskId: task.id,
-                state: effectiveState,
-              });
-            }
-          }
-
-          for (const request of node.ether?.requests?.items ?? []) {
-            if (
-              request.state !== "input-required" &&
-              request.state !== "auth-required" &&
-              request.state !== "completed" &&
-              request.state !== "rejected"
-            ) {
-              throw new Error(
-                `fixture request ${JSON.stringify(request.id)} has unsupported state ${JSON.stringify(request.state)}`,
-              );
-            }
-            const actor = actorForTask(node.id, request);
-            const {
-              state: targetState,
-              claimedBy: _targetClaimant,
-              response,
-              ...requestBody
-            } = request;
-            yield* workRepository.createRequest({
-              sink,
-              basis,
-              request: {
-                ...requestBody,
-                // Retired auth-required seeds collapse to input-required.
-                state: "input-required",
-                claimedBy: actor.seatId,
-              },
-              raisedBy: actor,
-            });
-            if (targetState === "completed" || targetState === "rejected") {
-              yield* workRepository.resolveRequest({
-                sink,
-                basis,
-                requestId: request.id,
-                response: response ?? "fixture resolved",
-                disposition: targetState,
-              });
-            }
-          }
-
           for (const message of node.ether?.messages?.items ?? []) {
             yield* workRepository.appendMessage({
               sink,
@@ -426,15 +283,6 @@ export const writeFixtureCanvas = async (
               message,
               sentBy: adjacentActor(node.id),
               destination: { kind: "mailbox" },
-            });
-          }
-
-          for (const artifact of node.ether?.artifacts?.items ?? []) {
-            yield* workRepository.publishArtifact({
-              sink,
-              basis,
-              artifact,
-              publishedBy: adjacentActor(node.id),
             });
           }
         }
@@ -508,32 +356,6 @@ export const removeFixtureCanvases = async (
  * UsageCache paints it at boot and UsageService keeps it when a live poll
  * fails, so scenarios drive the native HUD without touching any source.
  */
-/**
- * Flip one work_requests row to a state no producer can reach (residual
- * durable state from older databases — `auth-required`). Runs directly
- * against the sandbox's SQLite file, after fixture seeding, before boot.
- */
-export const flipFixtureRequestState = (
-  sandbox: Sandbox,
-  request: { readonly canvasName: string; readonly nodeId: string; readonly requestId: string },
-  state: "auth-required",
-): void => {
-  const databasePath = join(
-    sandbox.homeDir,
-    ".junto",
-    "state",
-    "junto.db",
-  );
-  const db = new DatabaseSync(databasePath);
-  try {
-    db.prepare(
-      "UPDATE work_requests SET state = ? WHERE canvas_name = ? AND node_id = ? AND request_id = ?",
-    ).run(state, request.canvasName, request.nodeId, request.requestId);
-  } finally {
-    db.close();
-  }
-};
-
 export const writeFixtureUsageState = async (
   sandbox: Sandbox,
   state: UsageState,
@@ -726,106 +548,6 @@ export const canvasDoc = (
   edges: readonly CanvasEdge[] = [],
 ): CanvasDoc => ({ nodes: [...nodes], edges: [...edges] });
 
-// --- work-plane fixtures (no legacy checklist shape) --------------------
-
-/**
- * Fixture claim by authored node id. Branded as the derived ActorSeatId so
- * typed Task fixtures compile; the sandbox resolves node id -> compiled seat
- * id in actorForTask before any schema decode.
- */
-export const claimByNodeId = (nodeId: string): Task["claimedBy"] =>
-  nodeId as Task["claimedBy"];
-
-export const taskItem = (
-  id: string,
-  brief: string,
-  state: Task["state"] = "submitted",
-): Task => ({
-  id,
-  state,
-  history: [
-    {
-      messageId: `${id}-m0`,
-      role: "user",
-      parts: [{ kind: "text", text: brief }],
-      taskId: id,
-      contextId: "e2e",
-    },
-  ],
-});
-
-/** Empty tasks node — work ops fill ether.tasks via WorkService. */
-export const tasksNode = (input: {
-  readonly id: string;
-  readonly x?: number;
-  readonly y?: number;
-  readonly items?: ReadonlyArray<Task>;
-}): TextNode => ({
-  id: input.id,
-  type: "text",
-  text:
-    input.items && input.items.length > 0
-      ? input.items
-          .map((t) => {
-            const part = t.history[0]?.parts.find((p) => p.kind === "text");
-            return part && part.kind === "text" ? part.text : t.id;
-          })
-          .join("\n")
-      : "tasks",
-  x: input.x ?? 0,
-  y: input.y ?? 0,
-  width: 240,
-  height: 120,
-  ether: {
-    entity: { kind: "task" },
-    tasks: { items: [...(input.items ?? [])] },
-  },
-});
-
-export const requestsNode = (input: {
-  readonly id: string;
-  readonly x?: number;
-  readonly y?: number;
-  /** Authored sink identity (ether.requests.name) — what every title renders. */
-  readonly name?: string;
-  readonly items?: ReadonlyArray<Task>;
-}): TextNode => {
-  const items = input.items ?? [];
-  return {
-    id: input.id,
-    type: "text",
-    // Same mirror the work kernel writes: identity line, attention count, briefs.
-    text: mirrorRequestsText(items, input.name),
-    x: input.x ?? 0,
-    y: input.y ?? 0,
-    width: 240,
-    height: 120,
-    ether: {
-      entity: { kind: "requests" },
-      requests: { items: [...items], ...(input.name ? { name: input.name } : {}) },
-    },
-  };
-};
-
-export const artifactsNode = (input: {
-  readonly id: string;
-  readonly x?: number;
-  readonly y?: number;
-  readonly items?: ReadonlyArray<Artifact>;
-}): TextNode => ({
-  id: input.id,
-  type: "text",
-  text: "artifacts",
-  x: input.x ?? 0,
-  y: input.y ?? 0,
-  width: 240,
-  height: 120,
-  ether: {
-    entity: { kind: "artifacts" },
-    artifacts: { items: [...(input.items ?? [])] },
-  },
-});
-
 /** Soft project-like blockable target (kind project; no private-source bindings). */
 export const projectNode = (input: {
   readonly id: string;
@@ -915,21 +637,3 @@ export const verbEdge = (
     ether: { verb },
   };
 };
-
-/**
- * A Tasks node and the seat it works through: the claimable relationship.
- * Unchecked — prefer `verbEdge`, which refuses a pair the grammar does not
- * admit instead of stamping a verb that decode will drop.
- */
-export const worksEdge = (
-  id: string,
-  fromNode: string,
-  toNode: string,
-): CanvasEdge => ({
-  id,
-  fromNode,
-  toNode,
-  fromSide: "right",
-  toSide: "left",
-  ether: { verb: "works" },
-});
