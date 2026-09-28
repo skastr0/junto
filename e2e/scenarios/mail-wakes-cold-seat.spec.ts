@@ -4,8 +4,8 @@
  *
  * A topology with hundreds of agents only works if delivery starts seats:
  * nobody clicks terminals open. Two laws, one real app, one real harness:
- *   1. cold wake — a seat that was NEVER opened spawns and receives when a
- *      notice lands in its mailbox
+ *   1. cold wake — a seat that was NEVER opened spawns and receives when
+ *      operator mail lands in its mailbox
  *   2. stop then mail — a seat the operator stopped ALSO revives on the next
  *      delivery. One rule, no stop provenance: mail wakes seats.
  *
@@ -27,9 +27,8 @@ let CANVAS = "";
 
 // The seat's folder. Main refuses a managed agent seat with no working
 // directory (its cwd would otherwise fall back to the operator home), and the
-// canvas is played before the first edge lands, so the seat can be woken while
-// still unconnected — it needs the same document launch the authoring path
-// writes, argv included.
+// seat is woken while unconnected — it needs the same document launch the
+// authoring path writes, argv included.
 const SEAT_CWD = tmpdir();
 const seatLaunch = {
   ...resolveManagedLaunch(
@@ -60,16 +59,6 @@ const seatDoc: CanvasDoc = {
         },
       },
     },
-    ...[1, 2, 3].map((n) => ({
-      id: `sink${String(n)}`,
-      type: "text" as const,
-      text: `tasks ${String(n)}`,
-      x: 40,
-      y: 40 + (n - 1) * 200,
-      width: 240,
-      height: 120,
-      ether: { entity: { kind: "task" as const }, tasks: { items: [] } },
-    })),
   ],
   edges: [],
 };
@@ -175,45 +164,24 @@ test("mail wakes a cold seat and honors an operator stop", async () => {
       timeout: 15_000,
     });
 
-    const appendEdge = async (id: string, from: string): Promise<void> => {
-      await page.evaluate(
-        ([name, eid, fromId, toId]) =>
-          (async () => {
-            const api = (window as unknown as {
-              junto: {
-                readCanvas: (n: string) => Promise<{ doc: CanvasDoc; revision: string }>;
-                writeCanvas: (n: string, d: CanvasDoc, r: string) => Promise<unknown>;
-              };
-            }).junto;
-            const read = await api.readCanvas(name!);
-            await api.writeCanvas(
-              name!,
-              {
-                ...read.doc,
-                edges: [
-                  ...read.doc.edges,
-                  {
-                    id: eid!,
-                    fromNode: fromId!,
-                    toNode: toId!,
-                    fromSide: "right",
-                    toSide: "left",
-                    ether: { verb: "works" },
-                  },
-                ],
-              },
-              read.revision,
-            );
-          })(),
-        [CANVAS, id, from, SEAT_ID] as const,
-      );
+    // Operator mail from the seat toolbar: the one delivery path all mail takes.
+    const mail = async (text: string): Promise<void> => {
+      await page.locator(`.react-flow__node[data-id="${SEAT_ID}"]`).click();
+      await page.getByTestId("seat-message-open").click();
+      const composer = page.getByRole("dialog", { name: /^Message / });
+      const field = composer.getByTestId("seat-message-field");
+      await field.fill(text);
+      await field.press("Enter");
+      await expect(composer.getByTestId("seat-message-status")).toHaveAttribute("data-tone", /^(queued|sent)$/u);
+      await page.keyboard.press("Escape");
+      await expect(composer).toBeHidden();
     };
 
-    // Law 1 — cold wake. The seat was never opened; the notice must spawn it
+    // Law 1 — cold wake. The seat was never opened; the mail must spawn it
     // and land a durable delivery receipt (spawn, boot, idle, paste, ack).
     expect(seatPid()).toBeNull();
-    await appendEdge("e-wake-1", "sink1");
-    // Producer proof first: the notice must exist as an inbox row.
+    await mail("Cold wake: reply ok");
+    // Producer proof first: the mail must exist as an inbox row.
     await expect
       .poll(() => inboxCount(appHome), { timeout: 20_000 })
       .toBeGreaterThanOrEqual(1);
@@ -249,7 +217,7 @@ test("mail wakes a cold seat and honors an operator stop", async () => {
     await expect.poll(() => seatPid(), { timeout: 20_000 }).toBeNull();
 
     const receiptsBeforeStopLeg = receiptCount(appHome);
-    await appendEdge("e-wake-2", "sink2");
+    await mail("After stop: reply ok");
     await expect
       .poll(() => receiptCount(appHome), {
         timeout: 150_000,
