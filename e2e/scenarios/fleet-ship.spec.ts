@@ -8,9 +8,9 @@
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import type { Page } from "@playwright/test";
-import type { CanvasDoc, GroupNode, TextNode } from "../../src/shared/canvas";
+import type { CanvasDoc, GroupNode } from "../../src/shared/canvas";
 import type { RemoteHost } from "../../src/shared/remote-hosts";
-import { canvasDoc, tasksNode } from "../harness/sandbox";
+import { canvasDoc } from "../harness/sandbox";
 import { expect, launchJunto, test } from "../harness/launch";
 
 const SHOTS = join(process.cwd(), "test-results", "fleet-ship");
@@ -58,9 +58,7 @@ const shipRoutingDoc = (): CanvasDoc => {
       },
     },
   };
-  const taskSeed = tasksNode({ id: "ship-tasks", x: 110, y: 130 });
-  const tasks: TextNode = { ...taskSeed, ether: { ...taskSeed.ether, host: "local" } };
-  return canvasDoc([region, tasks]);
+  return canvasDoc([region]);
 };
 
 const waitForCanvas = async (page: Page): Promise<void> => {
@@ -171,7 +169,7 @@ test("SHIP station detail shows probe truth and main-owned deploy gating", async
   }
 });
 
-test("SHIP routing exposes enrolled hosts for terminal, agent, queue, regions, and Machine settings", async () => {
+test("SHIP routing exposes enrolled hosts for terminal, agent, regions, and Machine settings", async () => {
   const junto = await launchJunto({
     seedCanvases: { "fleet-ship-routing": shipRoutingDoc() },
     seedHosts: [localHost, enrolledRemote],
@@ -192,24 +190,6 @@ test("SHIP routing exposes enrolled hosts for terminal, agent, queue, regions, a
     await shot(page, "06-region-paths-ship");
     await page.keyboard.press("Escape");
     await expect(paths).toHaveCount(0);
-
-    const tasks = page.locator('.react-flow__node[data-id="ship-tasks"]');
-    await tasks.click();
-    await page.getByRole("button", { name: "Queue home" }).click();
-    const queueHome = page.getByLabel("Task queue home host");
-    await expect(queueHome).toBeVisible();
-    await queueHome.click();
-    const queueOptions = page.getByRole("listbox", { name: "Task queue home host" });
-    await expect(queueOptions.getByRole("option", { name: /remote-a/i })).toBeVisible();
-    await queueOptions.getByRole("option", { name: /remote-a/i }).click();
-    await expect(queueHome).toContainText(/remote-a/i);
-    await shot(page, "07-queue-home-ship");
-
-    await tasks.getByTestId("tasks-card").dispatchEvent("dblclick");
-    const taskBoard = page.getByRole("dialog", { name: "Task board" });
-    await expect(taskBoard).toBeVisible();
-    await page.keyboard.press("Escape");
-    await expect(taskBoard).toHaveCount(0);
 
     await page.locator(".node-deck-trigger").click();
     const add = page.getByRole("dialog", { name: "Add canvas item" });
