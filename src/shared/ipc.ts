@@ -46,7 +46,6 @@ import type {
 } from "./settings";
 import type { UsageState } from "./usage";
 import type { AgentSeatStateEvent } from "./agent-seat-state";
-import type { SeatPressureSnapshot, TokenPressureChange } from "./token-pressure";
 import type { MailTransportSpec, IsolationSpec } from "./managed-terminal-templates";
 import type { TerminalSessionSummary } from "./terminal";
 import type { HostDirectorySnapshot } from "./host-directory";
@@ -334,10 +333,6 @@ export const IPC_CHANNELS = {
   seatAwarenessSnapshot: "junto:seat-awareness-snapshot",
   /** Main → renderer: one advisory seat-awareness event (display only). */
   seatAwarenessChanged: "junto:seat-awareness",
-  /** Renderer → main: every watched seat's token pressure, for hydration. */
-  tokenPressureSnapshot: "junto:token-pressure-snapshot",
-  /** Main → renderer: token pressure snapshots that changed or went away. */
-  tokenPressureChanged: "junto:token-pressure",
   /**
    * Renderer → main: ask one seat for help. Appends a mailbox request the peer
    * answers with ordinary crew mail. Operator-originated, not model-owned.
@@ -1422,12 +1417,6 @@ export interface JuntoTerminalApi {
   /** Main → renderer: one advisory seat-awareness event (display only). */
   readonly onSeatAwarenessChanged: (
     listener: (event: unknown) => void,
-  ) => () => void;
-  /** Every running seat's token pressure, as main last read it. */
-  readonly tokenPressureSnapshot: () => Promise<ReadonlyArray<SeatPressureSnapshot>>;
-  /** Main → renderer: token pressure that changed, and seats no longer watched. */
-  readonly onTokenPressureChanged: (
-    listener: (change: TokenPressureChange) => void,
   ) => () => void;
   /**
    * Ask one seat for help: append a collaboration request to its mailbox. The

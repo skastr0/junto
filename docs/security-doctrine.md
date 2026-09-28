@@ -632,8 +632,7 @@ signals:
   session ends, the seat gets a fresh session id, and its process stops.
   Plain offboard leaves the seat resting; `--continue` wakes it under the
   ordinary wake rules (this installation's seat only, on a playing canvas)
-  and mails the fresh session its kickoff. The token-pressure clock never
-  closes a seat the closer owns;
+  and mails the fresh session its kickoff;
 - the continuation is the one past-session record onboard presents as work:
   only the session right after the one that continued sees it, as `handoff`;
 - the operator's Offboard buttons send the agent the offboard prompt as

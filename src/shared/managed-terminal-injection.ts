@@ -303,11 +303,17 @@ The answer arrives in this seat as operator mail; \`junto signal list\` shows yo
 - At a stopping point: \`junto offboard "<notes>"\`. When you go idle, Junto closes this session and the seat rests. Its next wake starts a fresh session that reads your notes.
 - Mid-work: \`junto offboard "<notes>" --continue "<what to pick up next and why>"\`. When you go idle, Junto starts a fresh session right away. It reads your continuation first and carries on.
 
-Offboard when you finish a stretch of work, when Junto tells you your context is heavy, or when the operator asks. After offboarding, finish your turn and stop. Running it again before you go idle replaces the notes, and the latest mode wins.
+Offboarding is yours to decide: Junto never measures your context or asks you to. Offboard on your own:
+
+- at a natural stopping point: a task done, a question answered, work handed on;
+- before a long context grows stale: many turns in, early detail fading, re-reading what you already knew;
+- when switching topics: new work that does not need this session's history starts cleaner fresh.
+
+Use \`--continue\` when the work is unfinished and should go on now: the fresh session starts right away from your note. Use plain offboard when the stretch is done and the seat can rest until mail wakes it. The operator may also ask you to offboard. After offboarding, finish your turn and stop. Running it again before you go idle replaces the notes, and the latest mode wins.
 
 When \`junto onboard\` shows a \`handoff\`, your previous session left it for you: it is the one exception to past sessions being context only. Pick it up unless your current instructions or mail say otherwise.
 
-Context ritual: when context is heavy, compact, then re-run \`onboard\` for the live map.
+Context ritual: after your harness compacts, re-run \`onboard\` for the live map.
 
 Never leak board tokens, node refs, or seat ids into public copy.`;
 

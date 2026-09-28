@@ -45,11 +45,6 @@
       "path": "src/main/junto/term/session-existence.ts",
       "reason": "Opens harness-owned session index databases (e.g. a CLI's own SQLite session store) READ-ONLY to prove a named session id still exists before offering resume. Never the product state database.",
       "retire": "Delete when every managed harness exposes a session-existence probe through its CLI instead of an on-disk index."
-    },
-    {
-      "path": "src/main/junto/token-pressure/readers.ts",
-      "reason": "Opens Oh My Pi's own model cache (~/.omp/agent/models.db) READ-ONLY to learn a model's context window for the token-pressure gauge. Harness-owned, never the product state database.",
-      "retire": "Delete when Oh My Pi records the context window in its session file or exposes it through its CLI."
     }
   ],
   "mutationSeams": [
