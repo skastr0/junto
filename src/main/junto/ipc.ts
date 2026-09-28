@@ -58,7 +58,7 @@ import { raisedHands } from "./signals/raised-hands";
 import { SquadRepository, type SquadRepositoryError } from "./squads/repository";
 import type { SquadDeleteResult, SquadResult, SquadSaveInput } from "@shared/squads";
 import { SeatGuidanceRepository } from "./seat-guidance/repository";
-import { startSeatSessionRecorder } from "./seat-sessions/service";
+import { startSeatSessionRecorder, subscribeSeatOffboard } from "./seat-sessions/service";
 import { seatGuidanceIndex } from "./seat-guidance/index-memory";
 import { isSeatGuidanceSeatId, type SeatGuidanceSetResult } from "@shared/seat-guidance";
 import { ProfileRepository, type ProfileRepositoryError } from "./profiles/repository";
@@ -103,6 +103,7 @@ import { awarenessSeatHold } from "./term/awareness/seat-hold";
 import { tokenPressureSettings } from "@shared/token-pressure";
 import { TokenPressureMonitor } from "./token-pressure/monitor";
 import { listPressureSeats, sendPressureNudge } from "./token-pressure/app";
+import { offboardAndRotate } from "./seat-sessions/rotate";
 import {
   resolveSeatAwarenessGate,
   seatAwarenessApiKey,
@@ -2198,6 +2199,9 @@ export const registerJuntoIpc = (): void => {
           !awarenessSeatHold.holds(bindingId),
         settings: () => pressureSettings,
         nudge: sendPressureNudge,
+        // Rotation belongs to seat sessions; this clock only decides when.
+        rotate: () => (seat) => offboardAndRotate(seat.nodeId, { canvasName: seat.canvasName }),
+        onOffboard: subscribeSeatOffboard,
         publish: (change) => broadcast(IPC_CHANNELS.tokenPressureChanged, change),
         home: () => homedir(),
         log: (message) => console.info(`[token-pressure] ${message}`),

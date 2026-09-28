@@ -28,12 +28,19 @@ const names = (ids: ReadonlyArray<string>): string => {
 };
 
 /** Which harnesses each kind of limit can apply to, read off the support table. */
-export const contextSupportLines = (): { readonly tokens: string; readonly percent: string; readonly none: string } => {
+export const contextSupportLines = (): {
+  readonly tokens: string;
+  readonly percent: string;
+  readonly partial: string;
+  readonly none: string;
+} => {
   const agents = HARNESS_IDS.filter((id) => id !== "junto-overseer");
   const readable = agents.filter((id) => Object.hasOwn(HARNESS_CONTEXT_SUPPORT, id));
   const windowed = readable.filter((id) => HARNESS_CONTEXT_SUPPORT[id]?.window !== undefined);
+  const always = windowed.filter((id) => HARNESS_CONTEXT_SUPPORT[id]?.windowPartial !== true);
+  const sometimes = windowed.filter((id) => HARNESS_CONTEXT_SUPPORT[id]?.windowPartial === true);
   const none = agents.filter((id) => !readable.includes(id));
-  return { tokens: names(readable), percent: names(windowed), none: names(none) };
+  return { tokens: names(readable), percent: names(always), partial: names(sometimes), none: names(none) };
 };
 
 function Row({ title, hint, children }: { readonly title: string; readonly hint: string; readonly children: React.ReactNode }) {
@@ -114,7 +121,11 @@ export function ContextSettingsSection() {
       </Row>
       <div className="flex flex-col gap-1.5 py-3.5 text-[12px] leading-[1.5] text-dim">
         <p className="m-0 max-w-[70ch]">A token limit works for {support.tokens}.</p>
-        <p className="m-0 max-w-[70ch]">A percent limit works for {support.percent}, whose context window Junto knows.</p>
+        <p className="m-0 max-w-[70ch]">
+          A percent limit works for {support.percent}, whose context window Junto knows
+          {support.partial ? `, and for ${support.partial} on the models their own cache lists` : ""}. A seat whose
+          window is unknown shows its tokens and says the percent cannot apply.
+        </p>
         {support.none ? (
           <p className="m-0 max-w-[70ch]">
             {support.none} do not write their context use where Junto can read it, so no limit applies to them.

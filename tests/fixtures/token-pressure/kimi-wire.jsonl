@@ -1,0 +1,2 @@
+{"type":"usage.record","agentId":"main","model":"kimi-code/k3","usage":{"inputOther":21655,"output":23,"inputCacheRead":18944,"inputCacheCreation":0},"usageScope":"turn","time":1790115895758}
+{"type":"token_counting.measured","agentId":"main","tokens":40622,"length":5,"time":1790115895758}

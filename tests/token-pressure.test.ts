@@ -1,6 +1,7 @@
 import { appendFileSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { Schema } from "effect";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { EtherTerminal } from "../src/shared/canvas";
@@ -18,8 +19,13 @@ import {
   type SeatPressureSnapshot,
   type TokenPressureSettings,
 } from "../src/shared/token-pressure";
-import { encodeClaudeProjectCwd } from "../src/main/junto/term/session-existence";
-import { contextReaderFor } from "../src/main/junto/token-pressure/readers";
+import {
+  encodeClaudeProjectCwd,
+  encodeGrokSessionCwd,
+  encodePiSessionCwd,
+} from "../src/main/junto/term/session-existence";
+import { contextReaderFor, kimiWindowFromToml, parseClaudeLine } from "../src/main/junto/token-pressure/readers";
+import { ompSessionsDir } from "../src/main/junto/term/templates/omp-session";
 import { SessionTail, TAIL_FIRST_WINDOW_BYTES } from "../src/main/junto/token-pressure/session-tail";
 import {
   pressureKey,
@@ -62,11 +68,8 @@ const placeCodex = (): string => {
 };
 
 const readOnce = (harness: string, seat: Omit<PressureSeat, "harness" | "canvasName" | "nodeId" | "bindingId">) => {
-  const reader = contextReaderFor(harness)!;
-  const ref = { harness, ...seat };
-  const path = reader.locate(ref, home);
-  if (path === undefined) return undefined;
-  return new SessionTail(path, (line) => reader.parseLine(line, ref)).read();
+  const opened = contextReaderFor(harness)!.open({ harness, ...seat }, home);
+  return opened === undefined ? undefined : new SessionTail(opened.path, opened.parse).read();
 };
 
 describe("context readers on recorded sessions", () => {
@@ -105,13 +108,98 @@ describe("context readers on recorded sessions", () => {
   it("has no reading for a session that is not on disk, and no reader for other harnesses", () => {
     expect(readOnce("claude", { sessionId: "missing", cwd: CWD })).toBeUndefined();
     expect(contextReaderFor("devin")).toBeUndefined();
+    expect(contextReaderFor("hermes")).toBeUndefined();
+  });
+});
+
+describe("context readers for the other harnesses, on recorded sessions", () => {
+  const put = (path: string, fixture: string): void => {
+    mkdirSync(dirname(path), { recursive: true });
+    copyFileSync(join(FIXTURES, fixture), path);
+  };
+  const ID = "019a0000-0000-7000-8000-00000000000a";
+
+  it("reads Pi's last assistant usage and the window from its model store", () => {
+    put(join(home, ".pi", "agent", "sessions", encodePiSessionCwd(CWD), `2026-09-16T18-00-00-000Z_${ID}.jsonl`), "pi-session.jsonl");
+    put(join(home, ".pi", "agent", "models-store.json"), "pi-models-store.json");
+    // 2390 input + 70144 cache read + 0 cache write.
+    expect(readOnce("pi", { sessionId: ID, cwd: CWD })).toMatchObject({
+      usedTokens: 72_534,
+      model: "gpt-5.5",
+      window: 272_000,
+      windowSource: "config",
+    });
+  });
+
+  it("reads Oh My Pi's usage and the window from its model cache database", () => {
+    put(join(ompSessionsDir(CWD, home), `2026-09-14T15-50-00-000Z_${ID}.jsonl`), "omp-session.jsonl");
+    const cache = JSON.parse(readFileSync(join(FIXTURES, "omp-model-cache.json"), "utf8")) as {
+      provider_id: string;
+      models: unknown;
+    };
+    mkdirSync(join(home, ".omp", "agent"), { recursive: true });
+    const db = new DatabaseSync(join(home, ".omp", "agent", "models.db"));
+    db.exec("CREATE TABLE model_cache (provider_id TEXT PRIMARY KEY, models TEXT NOT NULL)");
+    db.prepare("INSERT INTO model_cache VALUES (?, ?)").run(cache.provider_id, JSON.stringify(cache.models));
+    db.close();
+    expect(readOnce("omp", { sessionId: ID, cwd: CWD })).toMatchObject({
+      usedTokens: 21_238,
+      model: "glm-5.3-flash",
+      window: 1_000_000,
+    });
+  });
+
+  it("reads Prime Agent's usage and leaves the window unknown when its cache does not list the model", () => {
+    put(join(home, ".prime", "agent", "sessions", `${ID}.jsonl`), "prime-session.jsonl");
+    const reading = readOnce("prime-agent", { sessionId: ID });
+    expect(reading).toMatchObject({ usedTokens: 14_113, model: "gpt-5.6-sol" });
+    expect(reading?.window).toBeUndefined();
+  });
+
+  it("reads Kimi's per-step usage record and the window from config.toml", () => {
+    const sid = `session_${ID}`;
+    put(join(home, ".kimi-code", "sessions", "wd_fixture_000000000000", sid, "agents", "main", "wire.jsonl"), "kimi-wire.jsonl");
+    put(join(home, ".kimi-code", "config.toml"), "kimi-config.toml");
+    // 21655 other + 18944 cache read + 0 cache creation.
+    expect(readOnce("kimi", { sessionId: sid })).toMatchObject({
+      usedTokens: 40_599,
+      model: "kimi-code/k3",
+      window: 1_048_576,
+    });
+  });
+
+  it("reads Muse's model_completed prompt and the window from its model catalog", () => {
+    put(join(home, ".local", "share", "muse", "sessions", "2026", "09", "16", ID, "session.jsonl"), "muse-session.jsonl");
+    put(join(home, ".local", "share", "muse", "model-catalog", "fixture.json"), "muse-model-catalog.json");
+    expect(readOnce("muse", { sessionId: ID })).toMatchObject({
+      usedTokens: 73_110,
+      model: "muse-spark-1.3",
+      window: 1_007_997,
+    });
+  });
+
+  it("reads Grok's live context from streamed updates, never the turn's running total", () => {
+    const dir = join(home, ".grok", "sessions", encodeGrokSessionCwd(CWD), ID);
+    put(join(dir, "updates.jsonl"), "grok-updates.jsonl");
+    put(join(dir, "signals.json"), "grok-signals.json");
+    expect(readOnce("grok", { sessionId: ID, cwd: CWD })).toMatchObject({
+      usedTokens: 203_385,
+      window: 500_000,
+      windowSource: "session",
+    });
+  });
+
+  it("reads Kimi's window for the model alias it names", () => {
+    const toml = readFileSync(join(FIXTURES, "kimi-config.toml"), "utf8");
+    expect(kimiWindowFromToml(toml, "kimi-code/k3-256k")).toBe(262_144);
+    expect(kimiWindowFromToml(toml, "kimi-code/unknown")).toBeUndefined();
   });
 });
 
 describe("SessionTail", () => {
   const usageLine = (tokens: number): string =>
     `${JSON.stringify({ type: "assistant", isSidechain: false, timestamp: "2026-09-28T10:00:00.000Z", message: { model: "claude-opus-5-5", usage: { input_tokens: tokens } } })}\n`;
-  const parse = (line: string) => contextReaderFor("claude")!.parseLine(line, { harness: "claude", sessionId: "s" });
+  const parse = (line: string) => parseClaudeLine(line);
 
   it("reads only what was appended, and waits for a line to finish", () => {
     const path = join(home, "s.jsonl");

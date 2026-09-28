@@ -182,9 +182,9 @@ export class TokenPressureMonitor {
     const tailKey = `${seat.harness}:${seat.sessionId}`;
     let entry = this.tails.get(tailKey);
     if (entry === undefined || (entry.tail === undefined && now - entry.lookedAt >= LOCATE_RETRY_MS)) {
-      const path = reader.locate(seat, this.ports.home());
+      const opened = reader.open(seat, this.ports.home());
       entry = {
-        tail: path === undefined ? undefined : new SessionTail(path, (line) => reader.parseLine(line, seat)),
+        tail: opened === undefined ? undefined : new SessionTail(opened.path, opened.parse),
         lookedAt: now,
       };
       this.tails.set(tailKey, entry);

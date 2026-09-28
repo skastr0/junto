@@ -112,11 +112,28 @@ export const claudeContextWindow = (launchModel: string | undefined): number =>
 export type HarnessContextSupport = {
   /** Where the context window comes from; absent means unknown. */
   readonly window?: ContextWindowSource;
+  /** The window is known only for models the harness's own cache lists. */
+  readonly windowPartial?: true;
 };
 
+/**
+ * Verified against real session files on 2026-09-28 (Claude Code 2.1.282,
+ * Codex 0.157.1, Grok 1.0.41, Kimi Code 2.1.1, Muse 1.4.0, Pi 0.85.1,
+ * Oh My Pi 18.1.16, Prime Agent). Hermes and fx record only running totals,
+ * Antigravity's figures are undocumented binary, and Amp keeps its threads
+ * on its servers: none of those is read. Cursor (a protobuf blob in its chat
+ * store) and Devin (its sqlite store, no window) do record a live figure and
+ * are not read yet.
+ */
 export const HARNESS_CONTEXT_SUPPORT: Readonly<Partial<Record<HarnessId, HarnessContextSupport>>> = {
   claude: { window: "table" },
   codex: { window: "session" },
+  grok: { window: "session" },
+  kimi: { window: "config" },
+  muse: { window: "config" },
+  omp: { window: "config" },
+  pi: { window: "config", windowPartial: true },
+  "prime-agent": { window: "config", windowPartial: true },
 };
 
 export const harnessReadsContext = (harness: string | undefined): boolean =>
@@ -289,6 +306,6 @@ export const composeOffboardNudge = (input: {
 }): string =>
   [
     `Your context is at ${formatTokens(input.usedTokens)} tokens, past this seat's limit of ${formatTokens(input.limitTokens)}.`,
-    "Finish the step you are on, write down where you are and what is left, then offboard so a fresh session can pick it up.",
+    'Finish the step you are on, then run `junto offboard "<notes>"` with where you are, what is left, and why it matters, so a fresh session of this seat can pick it up.',
     `If you have not offboarded in ${input.graceMinutes} minute${input.graceMinutes === 1 ? "" : "s"}, Junto will rotate this seat for you.`,
   ].join("\n");
