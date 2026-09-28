@@ -127,9 +127,9 @@ test("rts shell: role left, kind middle, region strip, pause everywhere", async 
   await expect(renameInput).toBeHidden();
   await expect(page.locator(".react-flow__node", { hasText: "renamed worker" }).first()).toBeVisible();
 
-  // Hotbar strip above command+kind — nine slots, with recent nodes leased
-  // opportunistically and fixed assignments owned by the operator.
-  const regionStrip = page.locator(".rts-region-strip");
+  // Command groups in the top bar: nine hotkey slots, with busy seats placed
+  // automatically and fixed assignments owned by the operator.
+  const regionStrip = page.getByRole("toolbar", { name: "Command groups" });
   await expect(regionStrip).toBeVisible();
   await expect(regionStrip.locator('[data-testid^="hotbar-slot-"]')).toHaveCount(9);
 
@@ -235,7 +235,7 @@ test("rts shell: role left, kind middle, region strip, pause everywhere", async 
   // explicit before assigning it to slot 2.
   await page.locator('.react-flow__node[data-id="tasks"]').click();
   await page.keyboard.press(process.platform === "darwin" ? "Meta+2" : "Control+2");
-  const tasksChip = regionStrip.locator('.rts-chip--strip[data-node-id="tasks"]');
+  const tasksChip = regionStrip.locator('.group-chip[data-node-id="tasks"]');
   await expect(tasksChip).toBeVisible();
   await page.screenshot({ path: join(SHOTS, "05-tasks-slotted.png"), fullPage: false });
 
@@ -246,7 +246,7 @@ test("rts shell: role left, kind middle, region strip, pause everywhere", async 
   await page.getByRole("button", { name: "Fit readable view" }).click();
   await page.locator(".region-drag-handle", { hasText: "ops" }).first().click();
   await page.keyboard.press(process.platform === "darwin" ? "Meta+1" : "Control+1");
-  const regionChip = regionStrip.locator(".rts-chip--strip").first();
+  const regionChip = regionStrip.locator('[data-testid="hotbar-slot-1"]');
   await expect(regionChip).toBeVisible();
   await expect(regionChip).toContainText("ops");
   await regionChip.click();

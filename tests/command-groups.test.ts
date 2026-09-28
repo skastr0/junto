@@ -21,7 +21,10 @@ import {
   groupLabel,
   makeCanvasCommandGroups,
   operatorHeldSlots,
+  promoteExtraGroup,
+  pruneExtraGroups,
   recallCommandGroup,
+  saveSelectionAsNewGroup,
   saveSelectionToSlot,
   selectionIsGroup,
   slotContentKey,
@@ -448,5 +451,63 @@ describe("per-canvas memory", () => {
     memory.remember("alpha", board([[0, fixed("a")]]));
     memory.recall("alpha")[0] = fixed("mutated");
     expect(memory.recall("alpha")[0]).toEqual(fixed("a"));
+  });
+});
+
+describe("groups beyond nine", () => {
+  const held = (): HotbarSlot[] =>
+    emptyHotbarSlots().map((_, index) => fixed(`h${index}`));
+  const docIds = ["a", "b", "c", ...Array.from({ length: 9 }, (_, index) => `h${index}`)];
+
+  it("a new group takes the first free slot, even with groups past nine", () => {
+    const next = saveSelectionAsNewGroup(board([[0, fixed("h0")]]), [["c"]], ["b", "a"], docIds)!;
+    expect(next.slots[1]).toEqual(group("a", "b"));
+    expect(next.extras).toEqual([["c"]]);
+  });
+
+  it("goes past nine without a key once the operator holds all nine, never twice", () => {
+    const first = saveSelectionAsNewGroup(held(), [], ["b", "a"], docIds)!;
+    expect(first.slots).toEqual(held());
+    expect(first.extras).toEqual([["a", "b"]]);
+    const again = saveSelectionAsNewGroup(first.slots, first.extras, ["a", "b"], docIds)!;
+    expect(again.extras).toEqual([["a", "b"]]);
+    const third = saveSelectionAsNewGroup(again.slots, again.extras, ["c"], docIds)!;
+    expect(third.extras).toEqual([["a", "b"], ["c"]]);
+  });
+
+  it("a lease or idle hold yields to a new group before it goes past nine", () => {
+    const slots = held();
+    slots[6] = leased("c");
+    const next = saveSelectionAsNewGroup(slots, [], ["a", "b"], docIds)!;
+    expect(next.slots[6]).toEqual(group("a", "b"));
+    expect(next.extras).toEqual([]);
+  });
+
+  it("saves nothing for a selection with no live node", () => {
+    expect(saveSelectionAsNewGroup(held(), [], ["gone"], docIds)).toBeNull();
+  });
+
+  it("drops deleted members and empty groups, keeping untouched groups as they were", () => {
+    const keep = ["a", "b"];
+    const pruned = pruneExtraGroups([keep, ["b", "gone"], ["gone"]], ["a", "b"]);
+    expect(pruned).toEqual([["a", "b"], ["b"]]);
+    expect(pruned[0]).toBe(keep);
+  });
+
+  it("promoting takes the slot's key; the operator's group there moves past nine", () => {
+    const slots = held();
+    slots[2] = group("h2", "h3");
+    const next = promoteExtraGroup(slots, [["a", "b"], ["c"]], 0, 2, docIds);
+    expect(next.slots[2]).toEqual(group("a", "b"));
+    expect(next.extras).toEqual([["h2", "h3"], ["c"]]);
+  });
+
+  it("promoting over a lease or empty slot just replaces it", () => {
+    const next = promoteExtraGroup(board([[4, leased("h4")]]), [["a", "b"], ["c"]], 1, 4, docIds);
+    expect(next.slots[4]).toEqual(fixed("c"));
+    expect(next.extras).toEqual([["a", "b"]]);
+    const empty = promoteExtraGroup(emptyHotbarSlots(), [["a", "b"]], 0, 8, docIds);
+    expect(empty.slots[8]).toEqual(group("a", "b"));
+    expect(empty.extras).toEqual([]);
   });
 });

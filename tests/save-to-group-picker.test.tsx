@@ -1,6 +1,6 @@
 /**
  * Save-to-group picker in the multi-select menu: nine slots, each marked by
- * what it holds so the operator sees what a save replaces.
+ * what it holds so the operator sees what a save replaces, and a new group.
  */
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it } from "vitest";
@@ -28,7 +28,7 @@ afterEach(() => {
 });
 
 describe("SaveToGroupPicker", () => {
-  it("offers slots 1 to 9 and says what each save replaces", () => {
+  it("offers slots 1 to 9 and a new group, and says what each save replaces", () => {
     state$.doc.set({
       ...previousDoc,
       nodes: [node("a", "Scout"), node("b", "Builder"), node("c", "Critic")],
@@ -41,7 +41,8 @@ describe("SaveToGroupPicker", () => {
 
     const html = renderToStaticMarkup(<SaveToGroupPicker count={3} onPick={() => undefined} />);
     const buttons = html.match(/<button/g) ?? [];
-    expect(buttons).toHaveLength(9);
+    expect(buttons).toHaveLength(10);
+    expect(html).toContain("Save 3 nodes as a new group");
     expect(html).toContain('aria-label="Save 3 nodes to a command group"');
     expect(html).toContain('data-taken="held"');
     expect(html).toContain("Save 3 nodes to group 1, replaces Scout, Builder");

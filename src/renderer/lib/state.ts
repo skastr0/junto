@@ -58,6 +58,12 @@ export const state$ = observable({
   /** Most-recently-active node ids (front = newest) for opportunistic leases. */
   hotbarActiveMru: [] as ReadonlyArray<string>,
   /**
+   * Operator command groups past slot 9, by canvas name: shown in the top
+   * bar without a hotkey. App-local for the session, never authorial.
+   * @see command-groups.ts
+   */
+  extraCommandGroups: {} as Readonly<Record<string, ReadonlyArray<ReadonlyArray<string>>>>,
+  /**
    * @deprecated Prefer hotbarSlots. Dense fixed-only ids kept briefly for
    * any remaining readers; updated when hotbar recompute runs.
    */

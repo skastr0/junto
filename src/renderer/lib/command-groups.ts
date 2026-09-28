@@ -31,6 +31,15 @@
  * - Deleted nodes leave every slot; a group empties when its last member goes.
  * - Operator slots (fixed, group) are remembered per canvas for the session;
  *   leases are recomputed from activity after a switch.
+ *
+ * Beyond nine
+ * - A new group (no digit named) takes the first free slot, the way assign
+ *   does; with all nine held by the operator it joins the groups beyond
+ *   nine. Those have no hotkey: they are shown, clicked, and dragged onto a
+ *   slot to take its digit (the slot's own operator group moves out to take
+ *   the place it left).
+ * - Groups beyond nine lose deleted members and go when none is left, and
+ *   are kept per canvas for the session like the slots.
  */
 import {
   HOTBAR_SLOT_COUNT,
@@ -292,6 +301,73 @@ export const selectionIsGroup = (
   if (!slot || slot.kind !== "group") return false;
   const selected = new Set(selectedIds);
   return selected.size === slot.nodeIds.length && slot.nodeIds.every((id) => selected.has(id));
+};
+
+// --- beyond nine --------------------------------------------------------------
+
+/** An operator group past slot 9: members in document order, no hotkey. */
+export type ExtraGroup = ReadonlyArray<string>;
+
+const sameMembers = (a: ReadonlyArray<string>, b: ReadonlyArray<string>): boolean =>
+  a.length === b.length && a.every((id, index) => id === b[index]);
+
+/** Drop deleted members; a group with none left goes. Unchanged groups keep identity. */
+export const pruneExtraGroups = (
+  groups: ReadonlyArray<ExtraGroup>,
+  liveNodeIds: ReadonlyArray<string>,
+): ExtraGroup[] => {
+  const live = new Set(liveNodeIds);
+  return groups.flatMap((group) => {
+    const kept = group.filter((id) => live.has(id));
+    if (kept.length === 0) return [];
+    return [kept.length === group.length ? group : kept];
+  });
+};
+
+/**
+ * Save the selection as a new group: the first free slot (empty, then an idle
+ * soft-hold, then a lease), else a group beyond nine. Null when the selection
+ * holds no live node. The same members already beyond nine are not added twice.
+ */
+export const saveSelectionAsNewGroup = (
+  slots: ReadonlyArray<HotbarSlot>,
+  extras: ReadonlyArray<ExtraGroup>,
+  selectedIds: ReadonlyArray<string>,
+  documentNodeIds: ReadonlyArray<string>,
+): { readonly slots: HotbarSlot[]; readonly extras: ExtraGroup[] } | null => {
+  const members = membersInDocumentOrder(selectedIds, documentNodeIds);
+  if (members.length === 0) return null;
+  const free = firstFreeSlotIndex(slots);
+  if (free !== null) {
+    const next = saveSelectionToSlot(slots, members, free, documentNodeIds);
+    return next ? { slots: next, extras: [...extras] } : null;
+  }
+  const present = extras.some((group) => sameMembers(group, members));
+  return { slots: boardOf(slots), extras: present ? [...extras] : [...extras, members] };
+};
+
+/**
+ * Give a group beyond nine the digit of `slotIndex`. An operator slot there
+ * takes the group's place beyond nine; a lease, soft-hold, or empty slot is
+ * simply replaced.
+ */
+export const promoteExtraGroup = (
+  slots: ReadonlyArray<HotbarSlot>,
+  extras: ReadonlyArray<ExtraGroup>,
+  extraIndex: number,
+  slotIndex: number,
+  documentNodeIds: ReadonlyArray<string>,
+): { readonly slots: HotbarSlot[]; readonly extras: ExtraGroup[] } => {
+  const group = extras[extraIndex];
+  const board = boardOf(slots);
+  if (!group || !isSlotIndex(slotIndex)) return { slots: board, extras: [...extras] };
+  const displaced = board[slotIndex]!;
+  const next = saveSelectionToSlot(board, group, slotIndex, documentNodeIds);
+  if (!next) return { slots: board, extras: [...extras] };
+  const rest = [...extras];
+  if (isOperatorSlot(displaced)) rest[extraIndex] = slotMemberIds(displaced);
+  else rest.splice(extraIndex, 1);
+  return { slots: next, extras: rest };
 };
 
 // --- per-canvas memory -------------------------------------------------------

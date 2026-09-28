@@ -9,7 +9,7 @@
 
 /*
  * Outer shell — one grid for the whole HUD:
- *   row 1: region strip (col 1–2) | notify strip (col 3)
+ *   row 1: notify strip (col 3); command groups live in the top bar
  *   row 2: command | kind | minimap
  */
 .rts-shell {
@@ -158,8 +158,7 @@
   min-width: 0;
 }
 
-/* Shared strip chrome (region ops + notify). */
-.rts-region-strip,
+/* Notify strip chrome. */
 .rts-notify-strip {
   display: flex;
   align-items: center;
@@ -174,19 +173,12 @@
   overflow: hidden;
 }
 
-/* Thin permanent operational hotbar — slots 1–9 over command + kind only. */
-.rts-region-strip {
-  grid-column: 1 / span 2;
-  grid-row: 1;
-}
-
 /* Notifications over the minimap column only — never stacked inside it. */
 .rts-notify-strip {
   grid-column: 3;
   grid-row: 1;
 }
 
-.rts-region-strip__chrome,
 .rts-notify-strip__chrome {
   display: flex;
   align-items: center;
@@ -194,7 +186,6 @@
   flex-shrink: 0;
 }
 
-.rts-region-strip__label,
 .rts-notify-strip__label {
   font-size: 8px;
   font-weight: 600;
@@ -203,161 +194,6 @@
   color: color-mix(in oklab, var(--color-steel) 85%, transparent);
   white-space: nowrap;
   line-height: 1;
-}
-
-.rts-region-strip__empty {
-  flex: 1;
-  min-width: 0;
-  font-size: 10px;
-  color: color-mix(in oklab, var(--color-dim) 85%, transparent);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.rts-region-strip__chips {
-  display: flex;
-  flex-wrap: nowrap;
-  align-items: center;
-  gap: 5px;
-  flex: 1;
-  min-width: 0;
-  overflow-x: auto;
-  overflow-y: hidden;
-  scrollbar-width: thin;
-}
-
-.rts-chip--strip {
-  --rts-chip-hue: color-mix(in oklab, var(--color-ink) 55%, transparent);
-  --rts-chip-hue-soft: var(--color-overlay-1);
-  --rts-chip-hue-mid: var(--color-stroke);
-  --rts-chip-hue-glow: transparent;
-  position: relative;
-  isolation: isolate;
-  max-width: 148px;
-  padding: 4px 8px 4px 6px;
-  flex-shrink: 0;
-  gap: 6px;
-  border-color: var(--rts-chip-hue-mid);
-  background: var(--rts-chip-hue-soft);
-  overflow: hidden;
-  transition:
-    border-color 0.15s ease,
-    background 0.15s ease,
-    box-shadow 0.15s ease,
-    opacity 0.15s ease;
-}
-
-/* Tenure: empty / leased (active) / evicted (idle soft-hold) / fixed and group (operator). */
-.rts-chip--strip.is-tenure-empty {
-  opacity: 0.55;
-  border-style: dashed;
-  border-color: color-mix(in oklab, var(--color-stroke) 70%, transparent);
-  background: transparent;
-  max-width: 52px;
-  min-width: 40px;
-}
-
-.rts-chip--strip.is-tenure-empty .rts-chip__label {
-  color: color-mix(in oklab, var(--color-dim) 80%, transparent);
-}
-
-.rts-chip--strip.is-tenure-leased {
-  border-style: dashed;
-  border-color: color-mix(in oklab, var(--color-cyan) 45%, var(--color-stroke));
-  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--color-cyan) 18%, transparent);
-}
-
-/* Idle soft-hold: still a real chip, quieter — yields to new activity. */
-.rts-chip--strip.is-tenure-evicted {
-  opacity: 0.72;
-  border-style: dashed;
-  border-color: color-mix(in oklab, var(--color-stroke) 85%, transparent);
-  box-shadow: none;
-  filter: saturate(0.55);
-}
-
-.rts-chip--strip.is-tenure-evicted .rts-chip__label {
-  color: color-mix(in oklab, var(--color-dim) 90%, transparent);
-}
-
-.rts-chip--strip.is-tenure-fixed {
-  border-style: solid;
-}
-
-/* Command group: an operator slot holding several nodes, drawn as a small stack. */
-.rts-chip--strip.is-tenure-group {
-  border-style: solid;
-  box-shadow:
-    2px 2px 0 -1px var(--color-ground),
-    2px 2px 0 0 var(--color-stroke-hi);
-}
-
-.rts-chip--strip .rts-chip__label {
-  max-width: 96px;
-}
-
-.rts-chip--strip .rts-chip__slot {
-  color: var(--rts-chip-hue);
-  border-color: var(--rts-chip-hue-mid);
-  background: var(--color-shadow-2);
-}
-
-.rts-chip--strip .rts-chip__activity {
-  flex-shrink: 0;
-  line-height: 0;
-}
-
-/* Severity wash + motion (counts/pause/glyphs removed). */
-.rts-chip--strip.is-sev-idle {
-  --rts-chip-hue: color-mix(in oklab, var(--color-steel) 85%, transparent);
-  --rts-chip-hue-soft: var(--color-overlay-1);
-  --rts-chip-hue-mid: var(--color-overlay-4);
-}
-
-/* Severity is a static wash + ActivityMark wave — never continuous filter /
-   conic-border compositor work. Animated @property + mask-composite conics
-   and filter:brightness were measured pinning the GPU helper at 60–85% with
-   a 3-node canvas (fleet closed). Identity stays; paint stops thrashing. */
-.rts-chip--strip.is-sev-working {
-  box-shadow:
-    inset 0 0 0 1px var(--rts-chip-hue-glow),
-    0 0 10px var(--rts-chip-hue-glow);
-  background: color-mix(in srgb, var(--rts-chip-hue) 12%, var(--rts-chip-hue-soft));
-}
-
-.rts-chip--strip.is-sev-attention {
-  box-shadow:
-    inset 0 0 0 1px var(--rts-chip-hue-glow),
-    0 0 12px var(--rts-chip-hue-glow);
-  background: color-mix(in srgb, var(--rts-chip-hue) 14%, var(--rts-chip-hue-soft));
-}
-
-.rts-chip--strip.is-sev-blocked {
-  box-shadow:
-    inset 0 0 0 1px var(--rts-chip-hue-glow),
-    0 0 14px var(--rts-chip-hue-glow);
-  background: color-mix(in srgb, var(--rts-chip-hue) 16%, var(--rts-chip-hue-soft));
-}
-
-.rts-chip--strip.is-sev-parked {
-  opacity: 0.78;
-}
-
-.rts-chip--strip.is-active {
-  border-color: color-mix(in oklab, var(--color-main) 65%, transparent);
-  box-shadow:
-    inset 0 0 0 1px color-mix(in oklab, var(--color-main) 22%, transparent),
-    0 0 12px color-mix(in oklab, var(--color-main) 14%, transparent);
-}
-
-.rts-chip--strip.is-active.is-sev-working,
-.rts-chip--strip.is-active.is-sev-attention,
-.rts-chip--strip.is-active.is-sev-blocked {
-  /* Keep selection rim readable over severity glow. */
-  box-shadow:
-    inset 0 0 0 1px color-mix(in oklab, var(--color-main) 35%, transparent),
-    0 0 12px var(--rts-chip-hue-glow);
 }
 
 /* Triad panels live on row 2 of the shell grid. */
@@ -510,56 +346,6 @@
   padding: 10px 4px;
 }
 
-.rts-chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  align-content: flex-start;
-}
-
-.rts-chip {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  max-width: 200px;
-  padding: 5px 8px;
-  border-radius: 6px;
-  border: 1px solid var(--color-overlay-4);
-  background: var(--color-overlay-1);
-  color: var(--color-ink);
-  font-size: 11px;
-  cursor: grab;
-  transition: border-color 0.12s ease, background 0.12s ease;
-}
-
-.rts-chip:hover {
-  border-color: var(--color-stroke-hi);
-  background: var(--color-overlay-2);
-}
-
-.rts-chip.is-active {
-  border-color: color-mix(in oklab, var(--color-main) 55%, transparent);
-  background: color-mix(in oklab, var(--color-main) 10%, transparent);
-}
-
-.rts-chip:active {
-  cursor: grabbing;
-}
-
-.rts-chip__slot {
-  display: grid;
-  place-items: center;
-  width: 16px;
-  height: 16px;
-  border-radius: 3px;
-  border: 1px solid transparent;
-  background: var(--color-overlay-2);
-  font-size: 9px;
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
-  color: color-mix(in oklab, var(--color-ink) 75%, transparent);
-}
-
 /* Signal symbol — shared taxonomy mark for chips + rollcall rows. */
 .rts-signal-mark {
   display: grid;
@@ -579,30 +365,6 @@
   letter-spacing: 0.06em;
   text-transform: uppercase;
   font-weight: 600;
-}
-
-.rts-chip.is-hot .rts-chip__label {
-  color: var(--color-ink);
-}
-
-.rts-chip__label {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  max-width: 112px;
-}
-
-.rts-chip__counts {
-  display: flex;
-  gap: 4px;
-  font-size: 9px;
-  font-variant-numeric: tabular-nums;
-  color: color-mix(in oklab, var(--color-steel) 95%, transparent);
-}
-
-.rts-chip__counts b {
-  font-weight: 600;
-  color: var(--color-ink);
 }
 
 /*
@@ -688,6 +450,44 @@
 .rts-quiet--compact {
   padding: 4px 2px;
   font-size: 10px;
+}
+
+/* Accent swatches */
+.rts-cmd-accents {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 4px;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.rts-swatch {
+  width: 12px;
+  height: 12px;
+  padding: 0;
+  border-radius: 999px;
+  border: 1px solid var(--color-stroke-hi);
+  background: transparent;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+}
+
+.rts-swatch span {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  display: block;
+}
+
+.rts-swatch.is-active {
+  border-color: color-mix(in oklab, var(--color-ink) 75%, transparent);
+  box-shadow: 0 0 0 1px var(--color-stroke);
+}
+
+.rts-swatch:hover {
+  border-color: color-mix(in oklab, var(--color-ink) 50%, transparent);
 }
 
 /*
@@ -790,12 +590,6 @@
   border-color: color-mix(in oklab, var(--color-second) 65%, transparent);
   box-shadow: 0 0 0 1px color-mix(in oklab, var(--color-second) 35%, transparent);
   color: var(--color-ink);
-}
-
-.rts-chip:focus-visible {
-  outline: none;
-  border-color: color-mix(in oklab, var(--color-second) 55%, transparent);
-  box-shadow: 0 0 0 1px color-mix(in oklab, var(--color-second) 28%, transparent);
 }
 
 .rts-key.is-active {
@@ -1148,7 +942,6 @@
 
 /* Drop blur while the field is busy — backdrop-filter is compositor-heavy. */
 html[data-viewport-busy] .react-flow .rts-panel,
-html[data-viewport-busy] .react-flow .rts-region-strip,
 html[data-viewport-busy] .react-flow .rts-notify-strip {
   backdrop-filter: none !important;
 }
@@ -1298,7 +1091,6 @@ html[data-viewport-busy] .react-flow .rts-notify-strip {
     overflow: auto;
   }
 
-  .rts-region-strip,
   .rts-notify-strip,
   .rts-panel--cmd,
   .rts-panel--mid,
@@ -1311,26 +1103,17 @@ html[data-viewport-busy] .react-flow .rts-notify-strip {
     max-height: none;
   }
 
-  .rts-region-strip,
   .rts-notify-strip {
     max-height: none;
     flex-wrap: wrap;
   }
 
-  .rts-region-strip__chips,
   .rts-notify-strip__body {
     flex-wrap: wrap;
   }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .rts-region-strip,
-  .rts-chip {
-    transition: none;
-  }
-}
-
-/* Save-to-group picker inside the multi-select menu: slots 1 to 9. */
+/* Save-to-group picker inside the multi-select menu: slots 1 to 9, then a new group. */
 .save-group {
   display: grid;
   gap: 4px;
@@ -1358,7 +1141,7 @@ html[data-viewport-busy] .react-flow .rts-notify-strip {
 
 .save-group__slots {
   display: grid;
-  grid-template-columns: repeat(9, minmax(0, 1fr));
+  grid-template-columns: repeat(10, minmax(0, 1fr));
   gap: 2px;
 }
 

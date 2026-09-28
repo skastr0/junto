@@ -1,0 +1,182 @@
+/* Command groups in the top bar (CommandGroupBar.tsx). A chip's colour is
+   its worst member's seat tone (--chip-tone, from seatRollup), the same hue
+   its rings and the minimap show; faces sit in their own live rings. A chip
+   past nine carries no key. Tokens only. */
+
+.group-bar {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  margin-left: 4px;
+  padding: 4px 2px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+
+.group-bar::-webkit-scrollbar {
+  display: none;
+}
+
+.group-chip {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  max-width: 200px;
+  height: 32px;
+  border: 1px solid color-mix(in oklab, var(--chip-tone, var(--color-stroke)) 45%, var(--color-stroke));
+  border-radius: 8px;
+  background: color-mix(in oklab, var(--chip-tone, var(--color-overlay-1)) 10%, var(--color-overlay-1));
+  padding: 0 10px 0 4px;
+  color: var(--color-ink);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1;
+  cursor: pointer;
+  transition: border-color 150ms ease, background-color 150ms ease, box-shadow 150ms ease, opacity 150ms ease;
+}
+
+.group-chip:hover {
+  border-color: color-mix(in oklab, var(--chip-tone, var(--color-stroke-hi)) 65%, var(--color-stroke-hi));
+  background: color-mix(in oklab, var(--chip-tone, var(--color-overlay-2)) 16%, var(--color-overlay-2));
+}
+
+.group-chip:focus-visible {
+  outline: 1px solid var(--color-amber);
+  outline-offset: 2px;
+}
+
+/* A reading that has aged: the tone stays, quieter. */
+.group-chip[data-stale] {
+  border-color: color-mix(in oklab, var(--chip-tone) 22%, var(--color-stroke));
+  background: color-mix(in oklab, var(--chip-tone) 5%, var(--color-overlay-1));
+}
+
+/* Placed by activity, not by the operator: dashed, and an idle one yields. */
+.group-chip[data-tenure="leased"],
+.group-chip[data-tenure="evicted"] {
+  border-style: dashed;
+}
+
+.group-chip[data-tenure="evicted"] {
+  opacity: 0.72;
+}
+
+.group-chip[aria-pressed="true"] {
+  border-color: var(--color-main);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--color-main) 35%, transparent);
+}
+
+.group-chip[data-tenure="empty"] {
+  justify-content: center;
+  width: 26px;
+  padding: 0;
+  border-style: dashed;
+  border-color: color-mix(in oklab, var(--color-stroke) 80%, transparent);
+  background: transparent;
+}
+
+.group-chip__key {
+  display: grid;
+  flex: none;
+  place-items: center;
+  min-width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  background: color-mix(in oklab, var(--chip-tone, var(--color-steel)) 16%, transparent);
+  color: var(--chip-tone, var(--color-dim));
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.group-chip[data-tenure="empty"] .group-chip__key {
+  background: transparent;
+  color: var(--color-faint);
+}
+
+.group-chip__faces {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+}
+
+.group-chip__face {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+}
+
+.group-chip__face + .group-chip__face {
+  margin-left: -7px;
+}
+
+/* A member that is not a seat: its kind's icon in its hue. */
+.group-chip__mark {
+  width: 20px;
+  height: 20px;
+  margin: 2px;
+  border: 1px solid color-mix(in oklab, var(--mark-hue) 40%, transparent);
+  border-radius: 50%;
+  background: color-mix(in oklab, var(--mark-hue) 14%, var(--color-ground));
+  color: var(--mark-hue);
+}
+
+.group-chip__mark[data-region="true"] {
+  border-radius: 5px;
+}
+
+.group-chip__more {
+  margin-left: 3px;
+  color: var(--color-dim);
+  font-size: 9px;
+}
+
+.group-chip__label {
+  overflow: hidden;
+  min-width: 0;
+  max-width: 120px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.group-bar__rule {
+  flex: none;
+  width: 1px;
+  height: 18px;
+  margin: 0 2px;
+  background: var(--color-stroke);
+}
+
+.group-bar__new {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 26px;
+  height: 32px;
+  border: 1px dashed var(--color-stroke-hi);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--color-dim);
+  transition: border-color 150ms ease, color 150ms ease;
+}
+
+.group-bar__new:hover:not(:disabled) {
+  border-color: var(--color-amber);
+  color: var(--color-amber-hi);
+}
+
+.group-bar__new:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .group-chip,
+  .group-bar__new {
+    transition: none;
+  }
+}

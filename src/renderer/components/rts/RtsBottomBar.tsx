@@ -4,11 +4,8 @@ import {
   useMemo,
   useRef,
   useState,
-  type CSSProperties,
-  type DragEvent,
   type ReactNode,
 } from "react";
-import { batch } from "@legendapp/state";
 import { use$ } from "@legendapp/state/react";
 import {
   AlertTriangle,
@@ -29,49 +26,19 @@ import {
 } from "lucide-react";
 import type { CanvasNode } from "@shared/canvas";
 import { TASKS_ENABLED } from "@shared/features";
-import { executionGraphContextFromActorRefs, groupMembers } from "@shared/graph";
+import { executionGraphContextFromActorRefs } from "@shared/graph";
 import type { MemberSeverity, RegionRollup } from "@shared/region-rollup";
 import { formatNodeRef } from "@shared/node-ref";
-import {
-  selectNode,
-  selectNodes,
-  state$,
-} from "../../lib/state";
+import { selectNode, state$ } from "../../lib/state";
 import { viewportBusy$ } from "../../lib/viewport-busy";
 import { useRegionRollups } from "../../lib/region-rollups";
-import {
-  canvasCommandGroups,
-  commandGroupKey,
-  currentSelectionIds,
-  firstFreeSlotIndex,
-  groupLabel,
-  recallCommandGroup,
-  saveSelectionToSlot,
-  selectionIsGroup,
-  swapHotbarSlots,
-  type CommandGroupRetap,
-  type RecallStep,
-} from "../../lib/command-groups";
-import { dock$ } from "../../lib/dock-state";
-import { isMac, modKeyGlyph } from "../../lib/platform";
-import { activateNodeSurface } from "../../lib/activate-node-surface";
-import { focusCanvasNode, isHotbarLeaseActor } from "../../lib/command-bar";
-import {
-  assignFixedSlot,
-  clearHotbarNode,
-  filterLeaseCandidateIds,
-  fixedOrderOf,
-  purgeNonEligibleSoftSlots,
-  resolveHotbarSlots,
-  slotIndexOf as hotbarSlotIndexOfNode,
-  touchActiveMru,
-} from "../../lib/hotbar-slots";
-import { hotbarNodeSeverity, liveActivitySeverity } from "../../lib/hotbar-signal";
-import { signalMark } from "../../lib/signal-mark";
+import { seatFactsOf, toggleSlotAssignment } from "../../lib/command-group-runtime";
 import {
   deleteNode,
   deleteNodes,
   renameGroup,
+  setNodeColor,
+  setNodeColorForNodes,
   setRegionHold,
 } from "../../lib/mutations";
 import {
@@ -87,7 +54,7 @@ import {
   regionSlotCueLabel,
   type PrimaryCommandAction,
 } from "../../lib/command-card";
-import { HUE, withAlpha } from "../../lib/theme";
+import { GREEN, HUE } from "../../lib/theme";
 import { useAlertAttention } from "../../lib/alert-attention";
 import { kernel$ } from "../../lib/kernel-view";
 import { specOf } from "../../lib/node-spec";
@@ -99,33 +66,85 @@ import { ConnectEditor } from "../InspectorFields";
 import { StoppageRank } from "./StoppageRank";
 import { CompletedTaskNotifyStack } from "./CompletedTaskNotify";
 import { EdgeCommandCard } from "./RtsControls";
-import { ActivityMark } from "../ActivityMark";
 import { KindSurface } from "./KindSurface";
 import { RollCall } from "./RollCall";
-import {
-  agentSeat$,
-  bindingIdForNode,
-  seatEventForNode,
-  seatNeedsLook,
-} from "../../lib/agent-seat-state";
+import { agentSeat$ } from "../../lib/agent-seat-state";
 import {
   collectOperatorAttention,
   freestandingFromCanvasAttention,
   OPERATOR_ATTENTION_HEADLINE,
   OPERATOR_ATTENTION_STRIP_MAX,
 } from "../../lib/operator-attention";
-import {
-  digitHue,
-  digitLease,
-  liveAttentionReasons,
-  seatFactsForNode,
-  type SeatFacts,
-} from "../../lib/seat-projections";
-import { isHarnessId } from "@shared/managed-terminal-templates";
-import { terminal$ } from "../../lib/terminal-state";
-import { claimFocus, isOperatorTyping } from "../../lib/focus-ownership";
-import { AccentColorSwatches } from "./AccentColorPicker";
+import type { SeatFacts } from "../../lib/seat-projections";
+import { claimFocus } from "../../lib/focus-ownership";
 import "./RtsBottomBar.css";
+
+const COLOR_OPTIONS: ReadonlyArray<{ readonly value: string; readonly label: string; readonly hue: string }> = [
+  { value: "1", label: "red", hue: HUE.crimson },
+  { value: "2", label: "orange", hue: HUE.orange },
+  { value: "3", label: "gold", hue: HUE.gold },
+  { value: "4", label: "green", hue: GREEN },
+  { value: "5", label: "cyan", hue: HUE.cyan },
+  { value: "6", label: "violet", hue: HUE.violet },
+];
+
+/** JSON Canvas accent presets — single node or multi-select mass apply. */
+function AccentColorSwatches({
+  nodeId,
+  nodeIds,
+  color,
+  mixed = false,
+}: {
+  readonly nodeId?: string;
+  /** When set, applies color to every id (multi-select). */
+  readonly nodeIds?: ReadonlyArray<string>;
+  readonly color: string | undefined;
+  /** Selection has differing colors — no swatch pretends to be the active one. */
+  readonly mixed?: boolean;
+}) {
+  const apply = (next: string | undefined) => {
+    if (nodeIds && nodeIds.length > 0) {
+      setNodeColorForNodes(nodeIds, next);
+      return;
+    }
+    if (nodeId) setNodeColor(nodeId, next);
+  };
+  const defaultActive = !mixed && !color;
+  return (
+    <div
+      className="rts-cmd-accents"
+      aria-label="Accent color"
+      title={mixed ? "Mixed accents — pick one to apply to all" : undefined}
+    >
+      <button
+        type="button"
+        className={`rts-swatch${defaultActive ? " is-active" : ""}`}
+        title={mixed ? "Set all to default accent" : "Default accent"}
+        aria-label="Use default accent"
+        aria-pressed={defaultActive}
+        onClick={() => apply(undefined)}
+      >
+        <span style={{ background: HUE.amber }} />
+      </button>
+      {COLOR_OPTIONS.map(({ value, label, hue }) => {
+        const active = !mixed && color === value;
+        return (
+          <button
+            key={value}
+            type="button"
+            className={`rts-swatch${active ? " is-active" : ""}`}
+            title={mixed ? `set all to ${label}` : `${label} accent`}
+            aria-label={`Set ${label} accent`}
+            aria-pressed={active}
+            onClick={() => apply(value)}
+          >
+            <span style={{ background: hue }} />
+          </button>
+        );
+      })}
+    </div>
+  );
+}
 
 /** Compact square RTS key — fixed size, never stretches. */
 function CmdKey({
@@ -164,157 +183,6 @@ function CmdKey({
 }
 
 const ICON = 12;
-
-/** A focus surface or Settings owns the keyboard; digits must not drive the canvas behind it. */
-const keyboardOwnedAboveCanvas = (): boolean =>
-  state$.settingsOpen.peek() ||
-  dock$.registry.surfaces.peek().some((surface) => surface.zone === "focus");
-
-/** Live node ids for prune (document presence only). */
-const liveNodeIds = (doc: { readonly nodes: ReadonlyArray<{ readonly id: string }> }): string[] =>
-  doc.nodes.map((n) => n.id);
-
-/**
- * Opportunistic hotbar leases are **actors only** (crew role).
- * Well-known: `agent`. Notes, tasks, regions, pages, etc. never auto-lease.
- * Operator fixed slots (⌘1–9) remain unrestricted. Shared with the command
- * bar via lib/command-bar so focus commits lease identically everywhere.
- */
-const leaseEligibleActorIds = (
-  nodes: ReadonlyArray<CanvasNode>,
-): Set<string> => {
-  const out = new Set<string>();
-  for (const node of nodes) {
-    if (isHotbarLeaseActor(node)) out.add(node.id);
-  }
-  return out;
-};
-
-/**
- * Actors that keep a hard lease while busy. Same seat facts as the card and
- * notify: only working/attention. Idle demotes to evicted (soft-hold).
- */
-const managedSeatOf = (node: CanvasNode): boolean => {
-  const harness = node.ether?.terminal?.harness;
-  return typeof harness === "string" && isHarnessId(harness);
-};
-
-const seatFactsOf = (
-  node: CanvasNode,
-  extra: {
-    readonly graphBlocked?: boolean;
-    readonly chatByAgent?: Readonly<
-      Record<string, { readonly pendingPermissionId?: string } | undefined>
-    >;
-    readonly needsLook?: boolean;
-  } = {},
-): SeatFacts => {
-  const bindingId = bindingIdForNode(node);
-  const session = bindingId
-    ? terminal$.sessionByBindingId[bindingId].peek()
-    : undefined;
-  return seatFactsForNode({
-    nodeId: node.id,
-    seatEvent: seatEventForNode(node),
-    session,
-    graphBlocked: extra.graphBlocked,
-    attentionReasons: liveAttentionReasons(node, extra.chatByAgent),
-    managedSeat: managedSeatOf(node),
-    needsLook: extra.needsLook,
-  });
-};
-
-const stickyWorkingNodeIds = (nodes: ReadonlyArray<CanvasNode>): string[] => {
-  const chatByAgent = chatCoarse$.peek() as
-    | Record<string, { readonly pendingPermissionId?: string } | undefined>
-    | undefined;
-  const out: string[] = [];
-  for (const node of nodes) {
-    if (!isHotbarLeaseActor(node)) continue;
-    if (digitLease(seatFactsOf(node, { chatByAgent }))) {
-      out.push(node.id);
-    }
-  }
-  return out;
-};
-
-/** Recompute leases after fixed mutations, activity MRU, or seat sticky set changes. */
-const recomputeHotbar = (): void => {
-  const doc = state$.doc.peek();
-  const live = liveNodeIds(doc);
-  const actors = leaseEligibleActorIds(doc.nodes);
-  // Focus MRU orders fill among sticky actors only — it does not pin hard leases.
-  let mru: ReadonlyArray<string> = filterLeaseCandidateIds(
-    state$.hotbarActiveMru.peek(),
-    actors,
-  );
-  const selected = state$.selectedNodeId.peek();
-  if (selected && live.includes(selected) && actors.has(selected)) {
-    mru = touchActiveMru(mru, selected);
-  }
-  state$.hotbarActiveMru.set([...mru]);
-  const sticky = stickyWorkingNodeIds(doc.nodes);
-  const next = purgeNonEligibleSoftSlots(
-    resolveHotbarSlots(state$.hotbarSlots.peek(), live, mru, sticky),
-    actors,
-  );
-  state$.hotbarSlots.set(next);
-  // Compat mirror: dense fixed-only order for any remaining legacy readers.
-  state$.regionSlotOrder.set(fixedOrderOf(next));
-};
-
-/** Assign node to first free slot as fixed. Empty preferred; then evicted. */
-const assignToFirstFreeSlot = (nodeId: string): void => {
-  const slots = state$.hotbarSlots.peek();
-  if (hotbarSlotIndexOfNode(slots, nodeId) !== null) {
-    // Already on bar (fixed / leased / evicted) — promote to fixed in place.
-    const index = hotbarSlotIndexOfNode(slots, nodeId)!;
-    if (slots[index]?.kind !== "fixed") {
-      state$.hotbarSlots.set(assignFixedSlot(slots, nodeId, index));
-      recomputeHotbar();
-    }
-    return;
-  }
-  // Empty, then idle soft-hold, then lease. A bar full of operator slots
-  // leaves them alone rather than overwriting slot 9.
-  const target = firstFreeSlotIndex(slots);
-  if (target === null) return;
-  state$.hotbarSlots.set(assignFixedSlot(slots, nodeId, target));
-  recomputeHotbar();
-};
-
-/**
- * Save node ids to a hotbar slot as the operator's command group (one node is
- * a fixed slot). Shared by ⌘1–9 and the multi-select menu. False when no
- * live node was given, so nothing changed.
- */
-export const saveSelectionToCommandGroup = (
-  selectedIds: ReadonlyArray<string>,
-  slotIndex: number,
-): boolean => {
-  const next = saveSelectionToSlot(
-    state$.hotbarSlots.peek(),
-    selectedIds,
-    slotIndex,
-    state$.doc.peek().nodes.map((n) => n.id),
-  );
-  if (!next) return false;
-  state$.hotbarSlots.set(next);
-  recomputeHotbar();
-  return true;
-};
-
-/** Toggle fixed assignment: clear if fixed, else fix into first free. */
-const toggleSlotAssignment = (nodeId: string): void => {
-  const slots = state$.hotbarSlots.peek();
-  const index = hotbarSlotIndexOfNode(slots, nodeId);
-  if (index !== null && slots[index]?.kind === "fixed") {
-    state$.hotbarSlots.set(clearHotbarNode(slots, nodeId));
-    recomputeHotbar();
-    return;
-  }
-  assignToFirstFreeSlot(nodeId);
-};
 
 function CommandCard({ regionRollup }: { readonly regionRollup?: RegionRollup }) {
   const doc = use$(state$.doc);
@@ -738,363 +606,6 @@ function NodeCommandCard({ nodeId }: { readonly nodeId: string }) {
   );
 }
 
-const focusNode = (nodeId: string): void => {
-  focusCanvasNode(nodeId);
-  recomputeHotbar();
-};
-
-/** Select a command group's members and frame them together. */
-const frameGroup = (nodeIds: ReadonlyArray<string>): void => {
-  batch(() => {
-    selectNodes(nodeIds);
-    state$.focusNodeIds.set([...nodeIds]);
-  });
-};
-
-/** Carry out one recall step from the command-group contract. */
-const runRecallStep = (step: RecallStep, nodes: ReadonlyArray<CanvasNode>): void => {
-  switch (step.kind) {
-    case "none":
-      return;
-    case "focus":
-      focusNode(step.nodeId);
-      return;
-    case "frame-group":
-      frameGroup(step.nodeIds);
-      return;
-    case "open":
-      focusAndActivate(step.nodeId, nodes);
-      return;
-  }
-};
-
-/** Focus then open the live surface when the node has one (actor model, etc.). */
-const focusAndActivate = (
-  nodeId: string,
-  nodes: ReadonlyArray<CanvasNode>,
-): void => {
-  focusNode(nodeId);
-  const node = nodes.find((n) => n.id === nodeId);
-  if (node) activateNodeSurface(node);
-};
-
-export type HotbarTenure = "empty" | "fixed" | "group" | "leased" | "evicted";
-
-/**
- * Hotbar chip: slot digit + name + signal motion.
- * `tenure`: empty | leased (active) | evicted (idle soft-hold) | fixed
- * (operator, one node) | group (operator control group).
- */
-export function HotbarChip({
-  index,
-  tenure,
-  nodeId,
-  memberIds,
-  detail,
-  label,
-  severity,
-  selected,
-  onDragStart,
-  onDragOver,
-  onDrop,
-}: {
-  readonly index: number;
-  readonly tenure: HotbarTenure;
-  readonly nodeId?: string;
-  /** Group members (document order); empty for single-node slots. */
-  readonly memberIds: ReadonlyArray<string>;
-  /** Every member title, for a group's tooltip. */
-  readonly detail: string;
-  readonly label: string;
-  readonly severity: MemberSeverity;
-  readonly selected: boolean;
-  readonly onDragStart: () => void;
-  readonly onDragOver: (event: DragEvent) => void;
-  readonly onDrop: () => void;
-}) {
-  const isGroup = tenure === "group" && memberIds.length > 0;
-  const empty = !isGroup && (tenure === "empty" || !nodeId);
-  const mod = modKeyGlyph();
-  const mark = signalMark(severity);
-  const live = !empty && tenure !== "evicted" && mark.mode === "wave";
-  const sev = empty ? "idle" : mark.kind;
-
-  const chipStyle = empty
-    ? undefined
-    : ({
-        ["--rts-chip-hue" as string]: mark.hue,
-        ["--rts-chip-hue-soft" as string]: withAlpha(mark.hue, 0.14),
-        ["--rts-chip-hue-mid" as string]: withAlpha(mark.hue, 0.45),
-        ["--rts-chip-hue-glow" as string]: withAlpha(mark.hue, 0.22),
-      } as CSSProperties);
-
-  const tenureLabel =
-    tenure === "fixed"
-      ? "fixed"
-      : tenure === "group"
-        ? `group of ${memberIds.length}`
-        : tenure === "leased"
-        ? "leased"
-        : tenure === "evicted"
-          ? "idle hold"
-          : "empty";
-
-  return (
-    <button
-      type="button"
-      className={[
-        "rts-chip",
-        "rts-chip--strip",
-        `is-tenure-${tenure}`,
-        selected && !empty ? "is-active" : "",
-        `is-sev-${sev}`,
-      ]
-        .filter(Boolean)
-        .join(" ")}
-      data-severity={sev}
-      data-tenure={tenure}
-      data-node-id={nodeId}
-      data-testid={`hotbar-slot-${index + 1}`}
-      style={chipStyle}
-      draggable={tenure === "fixed" || isGroup}
-      aria-label={
-        empty
-          ? `Slot ${index + 1}: empty — assign with ${mod}${index + 1}`
-          : isGroup
-            ? `Slot ${index + 1}: ${tenureLabel}, ${detail}, ${mark.label}`
-            : `Slot ${index + 1}: ${label}, ${tenureLabel}, ${mark.label}`
-      }
-      aria-pressed={selected && !empty}
-      onDragStart={onDragStart}
-      onDragOver={onDragOver}
-      onDrop={onDrop}
-      onClick={() => {
-        if (isGroup) frameGroup(memberIds);
-        else if (nodeId) focusNode(nodeId);
-      }}
-      onDoubleClick={(event) => {
-        event.preventDefault();
-        if (isGroup || !nodeId) return;
-        const doc = state$.doc.peek();
-        focusAndActivate(nodeId, doc.nodes);
-      }}
-      title={
-        empty
-          ? `Empty slot ${index + 1} — ${mod}${index + 1} saves the selection here; active nodes may lease it`
-          : isGroup
-            ? `${tenureLabel} — ${detail} — press ${index + 1} to select, again to open each`
-            : `${label} — ${tenureLabel} — ${mark.label}${
-              tenure === "leased"
-                ? " — auto"
-                : tenure === "evicted"
-                  ? " — soft (yields to new activity)"
-                  : ""
-            }`
-      }
-    >
-      <span className="rts-chip__slot" aria-hidden>
-        {index + 1}
-      </span>
-      {live ? (
-        <ActivityMark
-          mode="wave"
-          tone={mark.tone === "violet" ? "steel" : mark.tone}
-          label={mark.label}
-          size="inline"
-          className="rts-chip__activity"
-        />
-      ) : null}
-      <span className="rts-chip__label">{empty ? "—" : label}</span>
-    </button>
-  );
-}
-
-/**
- * Permanent thin hotbar above command + kind: always 9 slots.
- * Fixed = operator; leased = active; evicted = idle soft-hold; empty = free.
- */
-function HotbarStrip({
-  byId,
-  severityByNodeId,
-}: {
-  readonly byId: ReadonlyMap<string, RegionRollup>;
-  readonly severityByNodeId: ReadonlyMap<string, MemberSeverity>;
-}) {
-  const selectedNodeId = use$(state$.selectedNodeId);
-  const selectedNodeIds = use$(state$.selectedNodeIds);
-  const hotbarSlots = use$(state$.hotbarSlots);
-  const doc = use$(state$.doc);
-  const canvasName = use$(state$.canvasName);
-  const seatRev = use$(agentSeat$.rev);
-  const execution = use$(kernel$.execution);
-  const executionRev = use$(kernel$.executionRev);
-  const chatByAgent = use$(chatCoarse$) as
-    | Record<string, { readonly pendingPermissionId?: string } | undefined>
-    | undefined;
-  const dragFrom = useRef<number | null>(null);
-
-  // Prune dead ids + refresh leases on doc / selection / seat sticky changes.
-  // Idle sticky seats demote to soft-hold (evicted), not vanish.
-  useEffect(() => {
-    recomputeHotbar();
-  }, [doc, selectedNodeId, seatRev]);
-
-  // Session memory per canvas: App restores these slots on a canvas switch.
-  useEffect(
-    () =>
-      state$.hotbarSlots.onChange(({ value }) => {
-        canvasCommandGroups.remember(state$.canvasName.peek(), value);
-      }),
-    [],
-  );
-
-  const slots = useMemo(() => {
-    const nodeById = new Map(doc.nodes.map((n) => [n.id, n] as const));
-    return hotbarSlots.map((slot, index) => {
-      if (slot.kind === "empty") {
-        return {
-          index,
-          tenure: "empty" as HotbarTenure,
-          nodeId: undefined as string | undefined,
-          memberIds: [] as ReadonlyArray<string>,
-          detail: "",
-          label: "",
-          severity: "idle" as MemberSeverity,
-          isRegion: false,
-        };
-      }
-      if (slot.kind === "group") {
-        const members = slot.nodeIds.flatMap((id) => {
-          const member = nodeById.get(id);
-          return member ? [member] : [];
-        });
-        const titles = members.map((member) => nodeTitle(member));
-        const blocked = new Set(execution?.blocked ?? []);
-        // The group shows its most urgent member, like a region rollup.
-        const severity = members.reduce<MemberSeverity>((worst, member) => {
-          const next = isHotbarLeaseActor(member)
-            ? digitHue(seatFactsOf(member, { graphBlocked: blocked.has(member.id), chatByAgent }))
-            : hotbarNodeSeverity(member, {
-                regionSeverity: byId.get(member.id)?.severity,
-                memberSeverity: severityByNodeId.get(member.id),
-              });
-          return severityRank(next) < severityRank(worst) ? next : worst;
-        }, "idle");
-        return {
-          index,
-          tenure: "group" as HotbarTenure,
-          nodeId: undefined as string | undefined,
-          memberIds: members.map((member) => member.id),
-          detail: titles.join(", "),
-          label: groupLabel(titles),
-          severity,
-          isRegion: false,
-        };
-      }
-      const node = nodeById.get(slot.nodeId);
-      if (!node) {
-        return {
-          index,
-          tenure: slot.kind as HotbarTenure,
-          nodeId: slot.nodeId,
-          memberIds: [] as ReadonlyArray<string>,
-          detail: "",
-          label: slot.nodeId.slice(0, 8),
-          severity: "idle" as MemberSeverity,
-          isRegion: false,
-        };
-      }
-      const isRegion = node.type === "group";
-      const rollup = byId.get(slot.nodeId);
-      const blocked = new Set(execution?.blocked ?? []);
-      const severity = isHotbarLeaseActor(node)
-        ? digitHue(
-            seatFactsOf(node, {
-              graphBlocked: blocked.has(slot.nodeId),
-              chatByAgent,
-            }),
-          )
-        : hotbarNodeSeverity(node, {
-            regionSeverity: rollup?.severity,
-            memberSeverity: severityByNodeId.get(slot.nodeId),
-            liveSeverity: isRegion
-              ? undefined
-              : liveActivitySeverity({
-                  seatState: seatEventForNode(node)?.state,
-                  seatNeedsLook: seatNeedsLook(bindingIdForNode(node)),
-                }),
-          });
-      return {
-        index,
-        tenure: slot.kind as HotbarTenure,
-        nodeId: slot.nodeId,
-        memberIds: [] as ReadonlyArray<string>,
-        detail: "",
-        label: isRegion
-          ? (rollup?.label ?? nodeTitle(node))
-          : nodeTitle(node),
-        severity,
-        isRegion,
-      };
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- executionRev stamps kernel blocked
-  }, [
-    hotbarSlots,
-    doc,
-    byId,
-    severityByNodeId,
-    seatRev,
-    execution,
-    executionRev,
-    chatByAgent,
-  ]);
-
-  return (
-    <div className="rts-region-strip" role="region" aria-label="Hotkey slots 1 to 9">
-      <div className="rts-region-strip__chips" role="toolbar" aria-label="Node hotbar">
-        {slots.map((slot) => (
-          <HotbarChip
-            key={`slot-${slot.index}`}
-            index={slot.index}
-            tenure={slot.tenure}
-            nodeId={slot.nodeId}
-            memberIds={slot.memberIds}
-            detail={slot.detail}
-            label={slot.label}
-            severity={slot.severity}
-            selected={
-              slot.tenure === "group"
-                ? selectionIsGroup(
-                    currentSelectionIds(selectedNodeId, selectedNodeIds),
-                    hotbarSlots[slot.index],
-                  )
-                : slot.nodeId !== undefined && selectedNodeId === slot.nodeId
-            }
-            onDragStart={() => {
-              if (slot.tenure === "fixed" || slot.tenure === "group") {
-                dragFrom.current = slot.index;
-              }
-            }}
-            onDragOver={(event) => event.preventDefault()}
-            onDrop={() => {
-              const from = dragFrom.current;
-              dragFrom.current = null;
-              if (from === null || from === slot.index) return;
-              const current = state$.hotbarSlots.peek();
-              const fromSlot = current[from];
-              if (!fromSlot || (fromSlot.kind !== "fixed" && fromSlot.kind !== "group")) return;
-              // Swap whole slots: the drop target moves to the drag origin
-              // instead of being overwritten.
-              state$.hotbarSlots.set(swapHotbarSlots(current, from, slot.index));
-              recomputeHotbar();
-            }}
-          />
-        ))}
-      </div>
-    </div>
-  );
-}
-
 /** Middle third: kind surface only — region chips live on the strip above. */
 function KindMiddle() {
   return (
@@ -1229,50 +740,6 @@ function NotifyStrip({ rollups }: { readonly rollups: ReadonlyArray<RegionRollup
   );
 }
 
-function useHotbarHotkeys(): void {
-  useEffect(() => {
-    let retap: CommandGroupRetap | null = null;
-    const onKey = (event: KeyboardEvent) => {
-      if (isOperatorTyping(event.target)) return;
-      const intent = commandGroupKey(event, isMac());
-      if (intent === null) return;
-      if (keyboardOwnedAboveCanvas()) return;
-      // ⌘1–9 (Ctrl elsewhere): save the live selection to this slot. One node
-      // fixes it; two or more save a control group. Saving never moves the camera.
-      if (intent.kind === "save") {
-        event.preventDefault();
-        const selection = currentSelectionIds(
-          state$.selectedNodeId.peek(),
-          state$.selectedNodeIds.peek(),
-        );
-        if (saveSelectionToCommandGroup(selection, intent.slotIndex)) retap = null;
-        return;
-      }
-
-      // 1–9: recall. Groups frame their members; re-tap cycles and opens.
-      const doc = state$.doc.peek();
-      const documentNodeIds = doc.nodes.map((n) => n.id);
-      const { step, memory } = recallCommandGroup(
-        state$.hotbarSlots.peek(),
-        intent.slotIndex,
-        {
-          documentNodeIds,
-          regionIds: new Set(doc.nodes.filter((n) => n.type === "group").map((n) => n.id)),
-          regionMembers: (regionId) => groupMembers(doc).get(regionId) ?? [],
-        },
-        retap,
-        performance.now(),
-      );
-      if (step.kind === "none") return;
-      event.preventDefault();
-      retap = memory;
-      runRecallStep(step, doc.nodes);
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, []);
-}
-
 /** Severity index for minimap nodeColor — built from latest rollups. */
 function useSeverityByNodeId(rollups: ReadonlyArray<RegionRollup>): ReadonlyMap<string, MemberSeverity> {
   return useMemo(() => {
@@ -1302,7 +769,6 @@ const severityRank = (s: MemberSeverity): number =>
           : 4;
 
 export function RtsBottomBar({ minimap, tools }: { readonly minimap: ReactNode; readonly tools?: ReactNode }) {
-  useHotbarHotkeys();
   const rollups = useRegionRollups();
   useAlertAttention(rollups);
   const byId = useMemo(() => new Map(rollups.map((r) => [r.regionId, r])), [rollups]);
@@ -1338,8 +804,7 @@ export function RtsBottomBar({ minimap, tools }: { readonly minimap: ReactNode; 
     <div className="rts-shell" role="region" aria-label="RTS bottom bar">
       {/* Above notify + minimap cluster (bottom-right stack). */}
       {TASKS_ENABLED ? <CompletedTaskNotifyStack /> : null}
-      {/* Top row: ops strip spans command+kind; notify strip sits over minimap. */}
-      <HotbarStrip byId={byId} severityByNodeId={severityMap} />
+      {/* Top row: the notify strip over the minimap. Command groups live in the top bar. */}
       <NotifyStrip rollups={rollups} />
       <CommandCard regionRollup={selectedRegion} />
       <KindMiddle />

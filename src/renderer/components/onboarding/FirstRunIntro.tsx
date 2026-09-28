@@ -24,7 +24,8 @@ import { FeedCard } from "../feed/OperatorFeed";
 import type { FeedItem } from "@shared/operator-feed";
 import { DEFAULT_QUICK_REPLIES } from "@shared/settings";
 import { ActivityMarkFromSpec } from "../ActivityMark";
-import { HotbarChip } from "../rts/RtsBottomBar";
+import { CommandGroupChip } from "../command-groups/CommandGroupChip";
+import type { CanvasNode } from "@shared/canvas";
 import { portraitFor } from "../SeatRing";
 import { PauseSwitchFace } from "../TopBar";
 import { squadsChapter } from "./tour-squads";
@@ -441,6 +442,19 @@ const CREW = [
 
 const seatSpec = (state: "working" | "idle") => terminalActivity({ seatState: state });
 
+/** The crew and a note as canvas nodes, for the real command group chips. */
+const CREW_NODES: ReadonlyArray<CanvasNode> = CREW.map((seat) => ({
+  id: seat.id,
+  type: "text" as const,
+  text: seat.name,
+  x: 0,
+  y: 0,
+  ...AGENT_NODE_SIZE,
+  ether: { entity: { kind: "agent", name: `tour:${seat.name}` }, terminal: { bindingId: `tour:${seat.name}`, harness: seat.harness } },
+}));
+const NOTES_NODE: CanvasNode = { id: "tour-notes", type: "text", text: "notes", x: 0, y: 0, width: 200, height: 80 };
+const CREW_TONE = { source: "control", tone: "cyan", stale: false, reason: "working" } as const;
+
 function OrganizeDemo() {
   // Select the crew, save it to slot 1, open it as a grid; then again.
   const beat = useTourBeat(2200);
@@ -494,19 +508,14 @@ function OrganizeDemo() {
           const group = index === 0 && saved;
           const fixed = index === 1;
           return (
-            <HotbarChip
+            <CommandGroupChip
               key={index}
-              index={index}
+              hotkey={index + 1}
+              testId={`hotbar-slot-${index + 1}`}
               tenure={group ? "group" : fixed ? "fixed" : "empty"}
-              nodeId={fixed ? "tour-notes" : undefined}
-              memberIds={group ? CREW.map((seat) => seat.id) : []}
-              detail={group ? "planner, builder, reviewer" : ""}
-              label={group ? "build lane" : fixed ? "notes" : ""}
-              severity={group ? "working" : "idle"}
+              members={group ? CREW_NODES : fixed ? [NOTES_NODE] : []}
+              tone={group ? CREW_TONE : undefined}
               selected={group && phase === 3}
-              onDragStart={NO_OP}
-              onDragOver={NO_OP}
-              onDrop={NO_OP}
             />
           );
         })}
