@@ -87,6 +87,8 @@ type FarLook = {
   readonly silent: ReadonlyArray<string>;
   readonly collisions: ReadonlyArray<string>;
   readonly smallestNamePx: number;
+  /** The most opaque region name on screen: names are ground, not figure. */
+  readonly loudestNameAlpha: number;
   readonly seatsOnScreen: number;
   readonly seatsWithoutPortrait: number;
   readonly seatsWithoutRing: number;
@@ -120,6 +122,13 @@ const readFar = (page: Page): Promise<FarLook> =>
     const shown: { id: string; rect: DOMRect }[] = [];
     const silent: string[] = [];
     let smallest = Number.POSITIVE_INFINITY;
+    let loudest = 0;
+    const alphaOf = (colour: string): number => {
+      const slash = /\/\s*([\d.]+)\s*\)$/.exec(colour);
+      if (slash) return Number(slash[1]);
+      const rgba = /^rgba\([^)]*,\s*([\d.]+)\)$/.exec(colour);
+      return rgba ? Number(rgba[1]) : 1;
+    };
     for (const text of texts) {
       const glance = text.parentElement!;
       const region = glance.closest(".react-flow__node")!;
@@ -137,6 +146,7 @@ const readFar = (page: Page): Promise<FarLook> =>
       range.selectNodeContents(text);
       shown.push({ id, rect: range.getBoundingClientRect() });
       smallest = Math.min(smallest, Number.parseFloat(getComputedStyle(text).fontSize) * zoom);
+      loudest = Math.max(loudest, alphaOf(getComputedStyle(text).color) * opacity);
     }
     const collisions: string[] = [];
     for (let i = 0; i < shown.length; i += 1) {
@@ -220,6 +230,7 @@ const readFar = (page: Page): Promise<FarLook> =>
       silent,
       collisions,
       smallestNamePx: Number.isFinite(smallest) ? smallest : 0,
+      loudestNameAlpha: loudest,
       seatsOnScreen: seats.length,
       seatsWithoutPortrait: withoutPortrait,
       seatsWithoutRing: withoutRing,
@@ -294,6 +305,7 @@ test("far tier: every seat a portrait in its ring, every region coloured and nam
       expect(look.silent, "regions on screen with no name").toEqual([]);
       expect(look.collisions, "names that overlap").toEqual([]);
       expect(look.smallestNamePx, "smallest name on screen, px").toBeGreaterThanOrEqual(8);
+      expect(look.loudestNameAlpha, "region names read as ground").toBeLessThanOrEqual(0.5);
       // Seats: a portrait in a ring, no words, big enough to tell apart.
       expect(look.seatsOnScreen).toBeGreaterThanOrEqual(30);
       expect(look.seatsWithoutRing).toBe(0);
@@ -349,6 +361,187 @@ test("far tier: every seat a portrait in its ring, every region coloured and nam
     await page.screenshot({ path: `${SHOTS}/bright-far-selected.png` });
     await page.mouse.dblclick(target.x, target.y);
     await expect(page.locator(".native-terminal-surface")).toBeVisible({ timeout: 20_000 });
+  } finally {
+    await junto.close();
+  }
+});
+
+type OverviewLook = {
+  readonly zoom: number;
+  readonly agents: number;
+  /** Agents neither drawn nor counted in a cluster: must be none. */
+  readonly lost: ReadonlyArray<string>;
+  readonly drawn: number;
+  readonly clusters: number;
+  readonly gathered: number;
+  readonly needsYou: number;
+  /** Needs-you seats gathered or not drawn: must be none. */
+  readonly needsYouHidden: ReadonlyArray<string>;
+  readonly needsYouUnmarked: number;
+  readonly smallestRingPx: number;
+  readonly quietRingOverlaps: ReadonlyArray<string>;
+  readonly loudestNameAlpha: number;
+  readonly cardsDrawn: number;
+};
+
+const readOverview = (page: Page): Promise<OverviewLook> =>
+  page.evaluate(() => {
+    const view = document.querySelector(".react-flow")!.getBoundingClientRect();
+    const onScreen = (r: DOMRect): boolean =>
+      r.width > 0 && r.left >= view.left && r.right <= view.right && r.top >= view.top && r.bottom <= view.bottom;
+    const zoom = new DOMMatrix(getComputedStyle(document.querySelector(".react-flow__viewport")!).transform).a;
+    const gathered = new Set(
+      [...document.querySelectorAll<HTMLElement>('[data-testid="seat-cluster-member"]')].map((el) => el.dataset.seatId!),
+    );
+    const agents = [...document.querySelectorAll<HTMLElement>(".react-flow__viewport .react-flow__node.junto-flow-agent")];
+    const lost: string[] = [];
+    const needsYouHidden: string[] = [];
+    let drawn = 0;
+    let needsYou = 0;
+    let needsYouUnmarked = 0;
+    let smallest = Number.POSITIVE_INFINITY;
+    const quiet: { id: string; x: number; y: number; r: number }[] = [];
+    for (const node of agents) {
+      const id = node.getAttribute("data-id")!;
+      const mark = node.querySelector<HTMLElement>('.junto-mark[data-mark-size="seat"]')!;
+      const ring = mark.getAttribute("data-mark-ring") ?? "";
+      const shown = getComputedStyle(node).visibility === "visible";
+      const needs = ["call", "wait", "halt"].includes(ring);
+      if (shown) drawn += 1;
+      if (!shown && !gathered.has(id)) lost.push(id);
+      if (needs) {
+        needsYou += 1;
+        if (!shown || gathered.has(id)) needsYouHidden.push(id);
+        if (getComputedStyle(node.querySelector(".junto-seat")!, "::before").boxShadow === "none") needsYouUnmarked += 1;
+      }
+      const box = mark.getBoundingClientRect();
+      if (shown && onScreen(box)) {
+        smallest = Math.min(smallest, box.width);
+        if (!needs) quiet.push({ id, x: box.left + box.width / 2, y: box.top + box.height / 2, r: box.width / 2 });
+      }
+    }
+    const quietRingOverlaps: string[] = [];
+    for (let i = 0; i < quiet.length; i += 1) {
+      for (let j = i + 1; j < quiet.length; j += 1) {
+        const a = quiet[i]!;
+        const b = quiet[j]!;
+        if (Math.hypot(a.x - b.x, a.y - b.y) < a.r + b.r - 0.5) quietRingOverlaps.push(`${a.id} x ${b.id}`);
+      }
+    }
+    let loudest = 0;
+    for (const text of document.querySelectorAll<HTMLElement>(".react-flow__viewport .junto-region-glance__text")) {
+      const glance = text.parentElement!;
+      if (!onScreen(glance.getBoundingClientRect())) continue;
+      const opacity = Number(getComputedStyle(glance).opacity);
+      const colour = getComputedStyle(text).color;
+      const slash = /\/\s*([\d.]+)\s*\)$/.exec(colour);
+      const rgba = /^rgba\([^)]*,\s*([\d.]+)\)$/.exec(colour);
+      loudest = Math.max(loudest, (slash ? Number(slash[1]) : rgba ? Number(rgba[1]) : 1) * opacity);
+    }
+    const cards = [
+      ...document.querySelectorAll<HTMLElement>(".react-flow__viewport .react-flow__node:not(.react-flow__node-group):not(.junto-flow-agent)"),
+    ];
+    return {
+      zoom,
+      agents: agents.length,
+      lost,
+      drawn,
+      clusters: document.querySelectorAll('[data-testid="seat-cluster"]').length,
+      gathered: gathered.size,
+      needsYou,
+      needsYouHidden,
+      needsYouUnmarked,
+      smallestRingPx: Number.isFinite(smallest) ? smallest : 0,
+      quietRingOverlaps,
+      loudestNameAlpha: loudest,
+      cardsDrawn: cards.filter((card) => getComputedStyle(card).visibility === "visible").length,
+    };
+  });
+
+test("overview tier: every agent stays, crowded ones gathered, none that needs you", async () => {
+  test.setTimeout(300_000);
+  await mkdir(SHOTS, { recursive: true });
+  // The max board with fuller leaves in fewer regions (255 seats, four
+  // levels): rows of seats sit closer than a floor ring at the overview, so
+  // clusters form.
+  const fixture = buildNestedCanvasFixture("max", { seatsPerLeaf: [5, 8], branching: [3, 2, 2] });
+  expect(fixture.stats.seats).toBeGreaterThanOrEqual(250);
+  const junto = await launchJunto({ ...OPERATOR_DISPLAY, nestedCanvas: { fixture, name: "max" } });
+  try {
+    const { app, page } = junto;
+    await expect(page.locator(".react-flow__node-group")).toHaveCount(fixture.stats.regions, { timeout: 60_000 });
+    // The seat store may subscribe after the board paints: send until the
+    // states land.
+    const sendStates = () =>
+      app.evaluate(
+        ({ BrowserWindow }, events) => {
+          for (const win of BrowserWindow.getAllWindows()) {
+            for (const event of events) win.webContents.send("junto:agent-seat-state-changed", event);
+          }
+        },
+        seatEvents(fixture.stats.seats, Date.now()),
+      );
+    await expect
+      .poll(
+        async () => {
+          await sendStates();
+          await page.waitForTimeout(500);
+          return page.evaluate(() =>
+            [...new Set([...document.querySelectorAll('.junto-mark[data-mark-size="seat"]')].map((mark) => mark.getAttribute("data-mark-ring")))].sort().join(","),
+          );
+        },
+        { timeout: 30_000 },
+      )
+      .toMatch(/call.*done.*rest.*work|done.*rest.*wait.*work/);
+
+    for (const theme of ["dark", "bright"] as const) {
+      await setTheme(page, theme);
+      await page.getByRole("button", { name: /fit all/i }).first().click();
+      await page.waitForTimeout(800);
+      await zoomTo(page, 0.16);
+      await expect(page.locator("html")).toHaveAttribute("data-canvas-tier", "overview");
+      await page.waitForTimeout(600);
+      await page.screenshot({ path: `${SHOTS}/${theme}-overview.png` });
+      const look = await readOverview(page);
+      console.log(`OVERVIEW ${theme} ${JSON.stringify(look)}`);
+      expect(look.agents).toBe(fixture.stats.seats);
+      expect(look.lost, "agents neither drawn nor in a cluster").toEqual([]);
+      expect(look.drawn + look.gathered).toBe(look.agents);
+      expect(look.drawn, "agents drawn one by one").toBeGreaterThan(0);
+      expect(look.needsYou).toBeGreaterThan(0);
+      expect(look.needsYouHidden, "needs-you seats gathered or hidden").toEqual([]);
+      expect(look.needsYouUnmarked).toBe(0);
+      expect(look.smallestRingPx, "ring diameter on screen, px").toBeGreaterThanOrEqual(21);
+      expect(look.quietRingOverlaps, "rings that meet").toEqual([]);
+      expect(look.loudestNameAlpha, "region names read as ground").toBeLessThanOrEqual(0.5);
+      expect(look.cardsDrawn, "cards other than seats at the overview").toBe(0);
+    }
+
+    // Work a cluster: hover lists its seats, a click on one selects it and
+    // brings it out; a click on the badge brings the camera in until they part.
+    const cluster = page.locator('[data-testid="seat-cluster"]').first();
+    await expect(cluster.locator(".junto-seat-cluster__stack")).toBeVisible();
+    const count = Number(await cluster.getAttribute("data-cluster-count"));
+    expect(count).toBeGreaterThanOrEqual(2);
+    await cluster.locator(".junto-seat-cluster__stack").hover();
+    const members = cluster.locator('[data-testid="seat-cluster-member"]');
+    await expect(members.first()).toBeVisible();
+    await expect(members).toHaveCount(count);
+    await page.screenshot({ path: `${SHOTS}/bright-overview-cluster-hover.png` });
+    const picked = (await members.first().getAttribute("data-seat-id"))!;
+    await members.first().click();
+    const seat = page.locator(`.react-flow__node[data-id="${picked}"]`);
+    await expect(seat).toHaveClass(/selected/);
+    await expect(seat).toHaveCSS("visibility", "visible");
+    await page.screenshot({ path: `${SHOTS}/bright-overview-selected.png` });
+
+    const before = await scale(page);
+    const badge = page.locator('[data-testid="seat-cluster"]').first();
+    const gatheredBefore = await page.locator('[data-testid="seat-cluster-member"]').count();
+    await badge.locator(".junto-seat-cluster__stack").click();
+    await expect.poll(() => scale(page), { timeout: 5_000 }).toBeGreaterThan(before);
+    await page.waitForTimeout(800);
+    expect(await page.locator('[data-testid="seat-cluster-member"]').count()).toBeLessThan(gatheredBefore);
   } finally {
     await junto.close();
   }

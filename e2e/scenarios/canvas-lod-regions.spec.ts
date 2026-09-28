@@ -4,9 +4,9 @@
  *
  *   near      gradients, title bars, members, wires as authored
  *   mid       one flat wash per region, no wire labels or pulses
- *   far       nested regions are outlines (one fill per stack), title bars silent
- *   overview  regions only: members and wires unpainted, an outermost region
- *             wears its worst member state and a tally under its name
+ *   far       every region a wash and frame in its colour, title bars silent
+ *   overview  regions and agents: other cards and wires unpainted, an
+ *             outermost region wears its worst member state
  *
  * Frames land in test-results/canvas-lod-regions/.
  *
@@ -80,11 +80,11 @@ const TIERS = [
   ["overview", 0.16],
 ] as const;
 
-test("regions shed detail by tier, and the overview carries the board", async ({ junto }) => {
+test("regions shed detail by tier, and the overview carries the board and its agents", async ({ junto }) => {
   test.setTimeout(240_000);
   const { page } = junto;
   await expect(page.locator(".react-flow__node-group")).toHaveCount(fixture.stats.regions, { timeout: 60_000 });
-  // Rollups (severity and tallies) land after the camera rests.
+  // Rollups (severity) land after the camera rests.
   await fitBoard(page);
   await page.waitForTimeout(1_500);
 
@@ -100,15 +100,17 @@ test("regions shed detail by tier, and the overview carries the board", async ({
 
       const probe = await page.evaluate(() => {
         const members = [...document.querySelectorAll(".react-flow__node:not(.react-flow__node-group)")];
+        // Agents stay at the overview (drawn, or gathered into a cluster).
+        const cards = [...document.querySelectorAll(".react-flow__node:not(.react-flow__node-group):not(.junto-flow-agent)")];
         const nested = [...document.querySelectorAll('.junto-group:not([data-region-depth="0"])')];
-        const tallies = [...document.querySelectorAll(".junto-region-glance__tally")];
         return {
           membersPainted: members.filter((n) => getComputedStyle(n).visibility === "visible").length,
+          cardsPainted: cards.filter((n) => getComputedStyle(n).visibility === "visible").length,
+          agentsPainted: members.length - cards.length > 0 ? members.filter((n) => n.classList.contains("junto-flow-agent") && getComputedStyle(n).visibility === "visible").length : 0,
           members: members.length,
           nested: nested.length,
           nestedFilled: nested.filter((n) => getComputedStyle(n).backgroundImage !== "none" || getComputedStyle(n).backgroundColor !== "rgba(0, 0, 0, 0)").length,
           gradients: [...document.querySelectorAll(".junto-group")].filter((n) => getComputedStyle(n).backgroundImage !== "none").length,
-          talliesShown: tallies.filter((n) => getComputedStyle(n).display !== "none").length,
           // Every region wears a frame when zoomed out; a state ring is the heavier one.
           stateRings: [...document.querySelectorAll('.junto-group[data-region-depth="0"]')].filter((n) => getComputedStyle(n).outlineWidth === "12px").length,
           depths: [...document.querySelectorAll(".junto-group")].reduce<Record<string, number>>((acc, n) => {
@@ -127,7 +129,6 @@ test("regions shed detail by tier, and the overview carries the board", async ({
       if (tier === "near") {
         expect(probe.membersPainted).toBe(probe.members);
         expect(probe.gradients).toBe(fixture.stats.regions);
-        expect(probe.talliesShown).toBe(0);
       } else {
         // ...but only the near tier pays for gradients.
         expect(probe.gradients).toBe(0);
@@ -135,8 +136,8 @@ test("regions shed detail by tier, and the overview carries the board", async ({
       // Zoomed out, every region is a wash in its colour, nested ones included.
       if (tier === "far" || tier === "overview") expect(probe.nestedFilled).toBe(probe.nested);
       if (tier === "overview") {
-        expect(probe.membersPainted).toBe(0);
-        expect(probe.talliesShown).toBeGreaterThan(0);
+        expect(probe.cardsPainted).toBe(0);
+        expect(probe.agentsPainted).toBeGreaterThan(0);
         // An outermost region wears a ring exactly when its rollup has a state.
         const stated = Object.entries(probe.depths)
           .filter(([key]) => key.startsWith("0:") && key !== "0:idle" && key !== "0:-")
@@ -144,7 +145,6 @@ test("regions shed detail by tier, and the overview carries the board", async ({
         expect(probe.stateRings).toBe(stated);
       } else {
         expect(probe.membersPainted).toBe(probe.members);
-        expect(probe.talliesShown).toBe(0);
       }
     }
   }
