@@ -33,7 +33,6 @@ import { startUpdateBridge } from "./lib/update-state";
 import { subscribeAgentSeatState } from "./lib/agent-seat-state";
 import { subscribeSeatAwareness } from "./lib/seat-awareness";
 import { subscribeTokenPressure } from "./lib/token-pressure-state";
-import { installCompletedNotifyTestHook } from "./lib/completed-task-notify";
 import { installActorMirrorHotkeys } from "./lib/actor-mirrors";
 import { installFocusSwitcherHotkeys } from "./lib/focus-switcher";
 import { reconcileDockFromLiveSessions } from "./lib/dock-state";
@@ -400,7 +399,6 @@ export function App() {
     const stopSeatAwareness = subscribeSeatAwareness();
     // Token pressure per running seat (display only; main nudges and rotates).
     const stopTokenPressure = subscribeTokenPressure();
-    installCompletedNotifyTestHook();
     // Freeze continuous CSS when the page is hidden / reduced-motion so the
     // GPU helper can drop off the fan curve (fleet closed is not enough).
     const stopSurfaceMotion = startSurfaceMotionGate();
