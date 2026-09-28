@@ -435,21 +435,21 @@ export const buildNestedCanvasFixture = (
   const nodes: CanvasNode[] = [...groups, ...members];
   const edges: CanvasEdge[] = [];
   const wired = new Set<string>();
-  const wire = (from: string, to: string, verb: "messages" | "reviews"): void => {
+  const wire = (from: string, to: string): void => {
     const key = `${from}>${to}`;
     if (from === to || wired.has(key)) return;
     wired.add(key);
-    edges.push(verbEdge(`wire-${edges.length + 1}`, from, to, verb, nodes));
+    edges.push(verbEdge(`wire-${edges.length + 1}`, from, to, "messages", nodes));
   };
   // Seats in a region relay down a chain; every region's head reaches each
   // child region's head, so wires cross every nesting boundary.
   const wireRegion = (plan: RegionPlan): string | undefined => {
     const seats = seatsByRegion.get(plan.id)!;
-    for (let i = 0; i < seats.length - 1; i += 1) wire(seats[i]!, seats[i + 1]!, "messages");
+    for (let i = 0; i < seats.length - 1; i += 1) wire(seats[i]!, seats[i + 1]!);
     const childHeads = plan.children.map(wireRegion).filter((head): head is string => head !== undefined);
     const head = seats[0] ?? childHeads[0];
-    childHeads.forEach((childHead, index) => {
-      if (head) wire(head, childHead, index % 3 === 2 ? "reviews" : "messages");
+    childHeads.forEach((childHead) => {
+      if (head) wire(head, childHead);
     });
     return head;
   };
@@ -459,7 +459,7 @@ export const buildNestedCanvasFixture = (
     for (let i = 0; i < spec.crossWires; i += 1) {
       const from = allSeats[Math.floor(random() * allSeats.length)]!;
       const to = allSeats[Math.floor(random() * allSeats.length)]!;
-      wire(from, to, "messages");
+      wire(from, to);
     }
   }
 
