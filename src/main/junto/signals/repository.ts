@@ -1,16 +1,12 @@
 import { Context, Effect, Layer, Schema } from "effect";
+import { SqlClient, SqlError, SqlSchema } from "effect/unstable/sql";
 import { ulid } from "ulid";
-import type {
-  AgentSignal,
+import {
+  type AgentSignal,
   AgentSignalKind,
   AgentSignalState,
 } from "@shared/agent-signals";
-import {
-  StateEngine,
-  type StateEngineError,
-  type StateReader,
-  type StateRow,
-} from "../state/service";
+import { StateTransactionOperation } from "../state/service";
 
 export class AgentSignalPersistenceError extends Schema.TaggedError<AgentSignalPersistenceError>()(
   "AgentSignalPersistenceError",
@@ -90,83 +86,46 @@ export class AgentSignalRepository extends Context.Service<AgentSignalRepository
     ) => Effect.Effect<AgentSignal, AgentSignalRepositoryError>;
   }>()("@junto/AgentSignalRepository") {}
 
-type SignalRow = StateRow & {
-  readonly signal_id: string;
-  readonly canvas_name: string;
-  readonly node_id: string;
-  readonly kind: string;
-  readonly text: string;
-  readonly detail: string | null;
-  readonly created_at: number;
-  readonly state: string;
-  readonly response_text: string | null;
-  readonly response_at: number | null;
-  readonly closed_at: number | null;
-};
+const SignalRow = Schema.Struct({
+  signal_id: Schema.String,
+  canvas_name: Schema.String,
+  node_id: Schema.String,
+  kind: AgentSignalKind,
+  text: Schema.String,
+  detail: Schema.NullOr(Schema.String),
+  created_at: Schema.Number,
+  state: AgentSignalState,
+  response_text: Schema.NullOr(Schema.String),
+  response_at: Schema.NullOr(Schema.Number),
+  closed_at: Schema.NullOr(Schema.Number),
+});
 
 const COLUMNS = `
   signal_id, canvas_name, node_id, kind, text, detail, created_at, state,
   response_text, response_at, closed_at
 `;
 
-/**
- * Rows this process wrote, held to the domain by the table's CHECKs (kind,
- * state, bounds, and the open/answered pairing), so they map without a decode.
- */
-const fromRow = (row: SignalRow): AgentSignal => ({
+const fromRow = (row: typeof SignalRow.Type): AgentSignal => ({
   signalId: row.signal_id,
   canvasName: row.canvas_name,
   nodeId: row.node_id,
-  kind: row.kind as AgentSignalKind,
+  kind: row.kind,
   text: row.text,
   ...(row.detail === null ? {} : { detail: row.detail }),
   createdAt: Number(row.created_at),
-  state: row.state as AgentSignalState,
+  state: row.state,
   ...(row.response_text === null || row.response_at === null
     ? {}
     : { response: { text: row.response_text, at: Number(row.response_at) } }),
   ...(row.closed_at === null ? {} : { closedAt: Number(row.closed_at) }),
 });
 
-const readOne = (reader: StateReader, signalId: string): AgentSignal | undefined => {
-  const row = reader.get<SignalRow>(
-    `SELECT ${COLUMNS} FROM agent_signals WHERE signal_id = ?`,
-    [signalId],
-  );
-  return row === undefined ? undefined : fromRow(row);
-};
-
-/** Open first (newest first), then the newest closed history per seat. */
-const listWhere = (
-  reader: StateReader,
-  where: string,
-  bindings: ReadonlyArray<string>,
-): ReadonlyArray<AgentSignal> =>
-  reader
-    .all<SignalRow>(
-      `
-        SELECT ${COLUMNS} FROM (
-          SELECT *,
-            ROW_NUMBER() OVER (
-              PARTITION BY canvas_name, node_id, state = 'open'
-              ORDER BY created_at DESC, signal_id DESC
-            ) AS seat_rank
-          FROM agent_signals
-          WHERE ${where}
-        )
-        WHERE state = 'open' OR seat_rank <= ${AGENT_SIGNAL_CLOSED_HISTORY}
-        ORDER BY state <> 'open', created_at DESC, signal_id DESC
-      `,
-      [...bindings],
-    )
-    .map(fromRow);
-
 const notFound = (signalId: string, message: string) =>
   AgentSignalNotFound.make({ signalId, message });
 
-const persistence = (operation: string) => (error: StateEngineError) =>
-  error.cause instanceof AgentSignalNotFound
-    ? error.cause
+const persistence = (operation: string) => (error: SqlError.SqlError | Schema.SchemaError | AgentSignalNotFound) =>
+  error instanceof AgentSignalNotFound
+    ? error
     : AgentSignalPersistenceError.make({
         operation,
         message: error.message,
@@ -176,121 +135,111 @@ const persistence = (operation: string) => (error: StateEngineError) =>
 export const AgentSignalRepositoryLive: Layer.Layer<
   AgentSignalRepository,
   never,
-  StateEngine
+  SqlClient.SqlClient
 > = Layer.effect(
   AgentSignalRepository,
   Effect.gen(function* () {
-    const state = yield* StateEngine;
+    const sql = yield* SqlClient.SqlClient;
+    const changes = Schema.decodeUnknownEffect(Schema.Struct({ changes: Schema.Union([Schema.Number, Schema.BigInt]) }));
+    const oneRow = SqlSchema.findOneOption({
+      Request: Schema.String,
+      Result: SignalRow,
+      execute: (signalId) => sql.unsafe(`SELECT ${COLUMNS} FROM agent_signals WHERE signal_id = ?`, [signalId]),
+    });
+    const readOne = Effect.fn("agent-signals.read-one")(function* (signalId: string) {
+      const row = yield* oneRow(signalId);
+      return row._tag === "None" ? undefined : fromRow(row.value);
+    });
+    const openSeatRows = SqlSchema.findAll({
+      Request: Schema.Struct({ canvasName: Schema.String, nodeId: Schema.String }),
+      Result: SignalRow,
+      execute: (seat) => sql.unsafe(`SELECT ${COLUMNS} FROM agent_signals
+        WHERE canvas_name = ? AND node_id = ? AND state = 'open'`, [seat.canvasName, seat.nodeId]),
+    });
+    // Open first (newest first), then the newest closed history per seat.
+    const listRows = SqlSchema.findAll({
+      Request: Schema.Tuple([Schema.String, Schema.Array(Schema.String)]),
+      Result: SignalRow,
+      execute: ([where, bindings]) => sql.unsafe(`
+        SELECT ${COLUMNS} FROM (
+          SELECT *, ROW_NUMBER() OVER (
+            PARTITION BY canvas_name, node_id, state = 'open'
+            ORDER BY created_at DESC, signal_id DESC
+          ) AS seat_rank
+          FROM agent_signals WHERE ${where}
+        )
+        WHERE state = 'open' OR seat_rank <= ${AGENT_SIGNAL_CLOSED_HISTORY}
+        ORDER BY state <> 'open', created_at DESC, signal_id DESC
+      `, bindings),
+    });
+    const raisedHandsRows = SqlSchema.findAll({
+      Request: Schema.Void,
+      Result: SignalRow,
+      execute: () => sql.unsafe(`SELECT ${COLUMNS} FROM agent_signals
+        WHERE state = 'open' AND kind IN ('blocked', 'escalate')`),
+    });
 
-    const raise = (input: RaiseAgentSignal) =>
-      state
-        .transaction("agent-signals.raise", (writer) => {
-          const signalId = ulid();
-          writer.run(
-            `
-              INSERT INTO agent_signals(
-                signal_id, canvas_name, node_id, kind, text, detail,
-                created_at, state
-              ) VALUES (?, ?, ?, ?, ?, ?, ?, 'open')
-            `,
-            [
-              signalId,
-              input.canvasName,
-              input.nodeId,
-              input.kind,
-              input.text,
-              input.detail ?? null,
-              Date.now(),
-            ],
-          );
-          return readOne(writer, signalId)!;
-        })
-        .pipe(Effect.mapError(persistence("raise")));
+    const raise = Effect.fn("agent-signals.raise")(function* (input: RaiseAgentSignal) {
+      const signalId = ulid();
+      yield* sql`
+        INSERT INTO agent_signals(signal_id, canvas_name, node_id, kind, text, detail, created_at, state)
+        VALUES (${signalId}, ${input.canvasName}, ${input.nodeId}, ${input.kind}, ${input.text}, ${input.detail ?? null}, ${Date.now()}, 'open')
+      `;
+      return (yield* readOne(signalId))!;
+    }, sql.withTransaction, Effect.provideService(StateTransactionOperation, "agent-signals.raise"),
+    Effect.mapError(persistence("raise")));
 
-    const withdraw = (seat: AgentSignalSeat, signalId?: string) =>
-      state
-        .transaction("agent-signals.withdraw", (writer) => {
-          const ids = signalId === undefined
-            ? writer
-                .all<SignalRow>(
-                  `
-                    SELECT ${COLUMNS} FROM agent_signals
-                    WHERE canvas_name = ? AND node_id = ? AND state = 'open'
-                  `,
-                  [seat.canvasName, seat.nodeId],
-                )
-                .map((row) => row.signal_id)
-            : [signalId];
-          const now = Date.now();
-          for (const id of ids) {
-            const changed = writer.run(
-              `
-                UPDATE agent_signals
-                SET state = 'withdrawn', closed_at = ?
-                WHERE signal_id = ? AND canvas_name = ? AND node_id = ?
-                  AND state = 'open'
-              `,
-              [now, id, seat.canvasName, seat.nodeId],
-            );
-            if (Number(changed.changes) === 0) {
-              throw notFound(id, `signal ${id} is not an open signal of this seat`);
-            }
-          }
-          return ids.map((id) => readOne(writer, id)!);
-        })
-        .pipe(Effect.mapError(persistence("withdraw")));
+    const withdraw = Effect.fn("agent-signals.withdraw")(function* (seat: AgentSignalSeat, signalId?: string) {
+      const ids = signalId === undefined
+        ? (yield* openSeatRows(seat)).map((row) => row.signal_id)
+        : [signalId];
+      const now = Date.now();
+      for (const id of ids) {
+        const changed = yield* sql`
+          UPDATE agent_signals SET state = 'withdrawn', closed_at = ${now}
+          WHERE signal_id = ${id} AND canvas_name = ${seat.canvasName} AND node_id = ${seat.nodeId} AND state = 'open'
+        `.raw.pipe(Effect.flatMap(changes));
+        if (Number(changed.changes) === 0) {
+          return yield* notFound(id, `signal ${id} is not an open signal of this seat`);
+        }
+      }
+      return yield* Effect.forEach(ids, (id) => readOne(id).pipe(Effect.map((signal) => signal!)));
+    }, sql.withTransaction, Effect.provideService(StateTransactionOperation, "agent-signals.withdraw"),
+    Effect.mapError(persistence("withdraw")));
 
-    const listSeat = (seat: AgentSignalSeat) =>
-      state
-        .read("agent-signals.list-seat", (reader) =>
-          listWhere(reader, "canvas_name = ? AND node_id = ?", [
-            seat.canvasName,
-            seat.nodeId,
-          ]))
-        .pipe(Effect.mapError(persistence("list seat")));
+    const listSeat = Effect.fn("agent-signals.list-seat")(function* (seat: AgentSignalSeat) {
+      return (yield* listRows(["canvas_name = ? AND node_id = ?", [seat.canvasName, seat.nodeId]])).map(fromRow);
+    }, Effect.mapError(persistence("list seat")));
 
-    const listCanvas = (canvasName: string) =>
-      state
-        .read("agent-signals.list-canvas", (reader) =>
-          listWhere(reader, "canvas_name = ?", [canvasName]))
-        .pipe(Effect.mapError(persistence("list canvas")));
+    const listCanvas = Effect.fn("agent-signals.list-canvas")(function* (canvasName: string) {
+      return (yield* listRows(["canvas_name = ?", [canvasName]])).map(fromRow);
+    }, Effect.mapError(persistence("list canvas")));
 
-    const listRaisedHands = state
-      .read("agent-signals.list-raised-hands", (reader) =>
-        reader
-          .all<SignalRow>(
-            `
-              SELECT ${COLUMNS} FROM agent_signals
-              WHERE state = 'open' AND kind IN ('blocked', 'escalate')
-            `,
-          )
-          .map(fromRow))
-      .pipe(Effect.mapError(persistence("list raised hands")));
+    const listRaisedHands = Effect.fn("agent-signals.list-raised-hands")(function* () {
+      return (yield* raisedHandsRows(undefined)).map(fromRow);
+    }, Effect.mapError(persistence("list raised hands")))();
 
-    const get = (signalId: string) =>
-      state
-        .read("agent-signals.get", (reader) => {
-          const signal = readOne(reader, signalId);
-          if (!signal) throw notFound(signalId, `no signal ${signalId}`);
-          return signal;
-        })
-        .pipe(Effect.mapError(persistence("get")));
+    const get = Effect.fn("agent-signals.get")(function* (signalId: string) {
+      const signal = yield* readOne(signalId);
+      if (!signal) return yield* notFound(signalId, `no signal ${signalId}`);
+      return signal;
+    }, Effect.mapError(persistence("get")));
 
-    const close = (
+    const close = Effect.fn("agent-signals.close")(function* (
       operation: string,
       signalId: string,
-      sql: string,
+      query: string,
       bindings: ReadonlyArray<string | number>,
-    ) =>
-      state
-        .transaction(`agent-signals.${operation}`, (writer) => {
-          const changed = writer.run(sql, [...bindings]);
-          if (Number(changed.changes) === 0) {
-            throw notFound(signalId, `signal ${signalId} is not open`);
-          }
-          return readOne(writer, signalId)!;
-        })
-        .pipe(Effect.mapError(persistence(operation)));
+    ) {
+      const changed = yield* sql.unsafe(query, bindings).raw.pipe(Effect.flatMap(changes));
+      if (Number(changed.changes) === 0) {
+        return yield* notFound(signalId, `signal ${signalId} is not open`);
+      }
+      return (yield* readOne(signalId))!;
+    }, sql.withTransaction, (effect, operation) => effect.pipe(
+      Effect.provideService(StateTransactionOperation, `agent-signals.${operation}`),
+      Effect.mapError(persistence(operation)),
+    ));
 
     const answer = (signalId: string, text: string) => {
       const now = Date.now();
