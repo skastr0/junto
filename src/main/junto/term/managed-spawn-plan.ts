@@ -40,10 +40,17 @@ import { seatGuidanceIndex } from "../seat-guidance/index-memory";
  * Seeded canvases therefore carry production session pins that may already be
  * owned by a live production seat. Resuming them in the isolated process
  * yields a dead/black TUI — refuse shared resume and pin a fresh id instead.
+ *
+ * `JUNTO_HOME_OWNS_SESSIONS=1` declares the opposite: every canvas in this
+ * tree was authored here, so every pin on it is this tree's own session. The
+ * real-harness resume suite runs that way (real HOME for harness logins, an
+ * isolated state tree it created) to exercise the resume path production runs.
  */
 export const shouldAvoidSharedHarnessResume = (
   juntoHomeEnv: string | undefined = process.env.JUNTO_HOME,
-): boolean => usableJuntoHome(juntoHomeEnv) !== undefined;
+  ownsSessionsEnv: string | undefined = process.env.JUNTO_HOME_OWNS_SESSIONS,
+): boolean =>
+  usableJuntoHome(juntoHomeEnv) !== undefined && ownsSessionsEnv !== "1";
 
 /** True when the live compiled grants have an actionable doctrine section. */
 export const nodeHasActionableFactoryEdge = (
