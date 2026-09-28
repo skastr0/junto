@@ -5,17 +5,21 @@
    stops paying for what does not:
 
    - near: everything.
-   - mid: a seat is its ring, held in its state pose (the clock stops), and
-     its name; the line under it, preamble bubbles and landing flourishes
-     go. A note is its title. Nothing lifts, glows or casts a shadow.
+   - mid: a seat is its ring and its name; the line under it and preamble
+     bubbles go. A note is its title. Nothing lifts, glows or casts a
+     shadow. Rings keep their motion at every tier (attention-clock.ts),
+     stepping only while on screen and the camera is still.
    - far: a seat, terminal or git instrument is its portrait in its ring,
      centred in its place and held at 40px on screen where its neighbours
-     leave room, with no card and no words. The ring, held in its state
-     pose, says working, done or resting in the same marks as up close; a
-     seat that needs the operator wears a heavy amber or crimson halo.
+     leave room, with no card and no words. The ring says working, done
+     or resting in the same marks and motion as up close; a seat that
+     needs the operator wears a heavy amber or crimson halo.
      Hover or select one and its name shows under it. A note or card is a
      faint block marked with its kind's glyph.
-   - overview: regions carry the board (canvas-lod-regions.css).
+   - overview: agents stay, drawn as at far, shrinking toward a 22px floor
+     where crowded and gathered into counted clusters below it; a seat
+     that needs the operator is never gathered. Other cards and wires go
+     (canvas-lod-regions.css).
 
    Hidden detail uses visibility or display inside fixed-size shells, so no
    node changes size and no wire moves when the tier changes. Scoped to the
@@ -26,9 +30,6 @@
 
 html:is([data-canvas-tier="mid"], [data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .junto-preamble {
   display: none;
-}
-html:is([data-canvas-tier="mid"], [data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .junto-mark[data-mark-land] {
-  animation: none;
 }
 /* The line and any rows under it; the name stays and centres on the ring. */
 html:is([data-canvas-tier="mid"], [data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .junto-seat__text > :not(:first-child) {
@@ -71,6 +72,13 @@ html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__vi
   position: relative;
   justify-content: center;
 }
+/* At the overview a crowded ring may shrink below 40px, down to the floor
+   (--seat-floor-scale, 22px on screen); a seat with less room than that is
+   gathered into a cluster (SeatClusterLayer), unless it needs the operator,
+   which is drawn at the floor however close its neighbours sit. */
+html[data-canvas-tier="overview"] .react-flow__viewport .junto-seat {
+  --seat-s: max(var(--seat-floor-scale, 1), min(var(--far-seat-scale, 1.75), var(--ring-cap, 1.75)));
+}
 /* An instrument's ring is 40 units: a larger scale reaches the same floor. */
 html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .junto-node:is([data-node-kind="terminal"], [data-node-kind="git"]) .junto-seat {
   --ring-px: 40px;
@@ -104,18 +112,18 @@ html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__vi
   visibility: hidden;
   pointer-events: none;
 }
-html[data-canvas-tier="far"] .react-flow__viewport .react-flow__node:is(:hover, .selected) .junto-seat__text {
+html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .react-flow__node:is(:hover, .selected) .junto-seat__text {
   visibility: visible;
 }
 /* The hovered seat's tag rides above its neighbours. */
-html[data-canvas-tier="far"] .react-flow__viewport .react-flow__node:not(.react-flow__node-group):hover {
+html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .react-flow__node:not(.react-flow__node-group):hover {
   z-index: 2000 !important;
 }
 
 /* A halo round the ring, in canvas units that read as 3 to 7px on screen
    (a far scale is about 1.3 units per screen pixel): the state halo when
    the seat needs the operator, an outline on hover and selection. */
-html[data-canvas-tier="far"] .react-flow__viewport .junto-seat::before {
+html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .junto-seat::before {
   content: "";
   position: absolute;
   left: 50%;
@@ -129,21 +137,21 @@ html[data-canvas-tier="far"] .react-flow__viewport .junto-seat::before {
 /* Waiting on you and needs input: amber. Blocked: crimson. These are the
    seats the operator works from here, so they carry a heavy ring and a wash
    the size of their neighbours' gap, and nothing else on the board does. */
-html[data-canvas-tier="far"] .react-flow__viewport .junto-seat:has(> .junto-mark:is([data-mark-ring="call"], [data-mark-ring="wait"]))::before {
+html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .junto-seat:has(> .junto-mark:is([data-mark-ring="call"], [data-mark-ring="wait"]))::before {
   box-shadow:
     0 0 0 calc(var(--seat-s) * 3px) color-mix(in oklab, var(--color-amber) 92%, transparent),
     0 0 0 calc(var(--seat-s) * 7px) color-mix(in oklab, var(--color-amber) 26%, transparent);
 }
-html[data-canvas-tier="far"] .react-flow__viewport .junto-seat:has(> .junto-mark[data-mark-ring="halt"])::before {
+html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .junto-seat:has(> .junto-mark[data-mark-ring="halt"])::before {
   box-shadow:
     0 0 0 calc(var(--seat-s) * 3px) color-mix(in oklab, var(--color-crimson) 92%, transparent),
     0 0 0 calc(var(--seat-s) * 7px) color-mix(in oklab, var(--color-crimson) 26%, transparent);
 }
-html[data-canvas-tier="far"] .react-flow__viewport .react-flow__node:hover .junto-seat::before {
+html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .react-flow__node:hover .junto-seat::before {
   outline: calc(var(--seat-s) * 2px) solid color-mix(in oklab, var(--color-ink) 45%, transparent);
   outline-offset: calc(var(--seat-s) * 8px);
 }
-html[data-canvas-tier="far"] .react-flow__viewport .react-flow__node.selected .junto-seat::before {
+html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__viewport .react-flow__node.selected .junto-seat::before {
   outline: calc(var(--seat-s) * 3px) solid color-mix(in oklab, var(--color-main) 85%, transparent);
   outline-offset: calc(var(--seat-s) * 8px);
 }
@@ -191,3 +199,125 @@ html:is([data-canvas-tier="far"], [data-canvas-tier="overview"]) .react-flow__vi
   outline: 4px solid color-mix(in oklab, var(--color-main) 70%, transparent);
   outline-offset: 2px;
 }
+
+/* --- overview: seat clusters (SeatClusterLayer) ------------------------ */
+
+/* A cluster sits at its seats' centroid in canvas units and scales with the
+   far seat scale, so it reads at a fixed size on screen, no wider than a
+   seat: a portrait on a stack of rings (the ring behind says there are
+   more), its busiest state on the rim, and a count. Hover lists the seats. */
+.junto-seat-cluster {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 3000;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
+.junto-seat-cluster__body {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform: translate(-50%, -50%) scale(var(--far-seat-scale, 1.75));
+  transform-origin: 50% 50%;
+  pointer-events: auto;
+}
+.junto-seat-cluster__stack {
+  --cluster-rim: color-mix(in oklab, var(--color-steel) 70%, transparent);
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 3px solid var(--cluster-rim);
+  border-radius: 50%;
+  background: var(--color-raise);
+  /* The stack: two rings offset behind the front one. */
+  box-shadow:
+    5px -5px 0 -2px var(--color-raise),
+    5px -5px 0 0 var(--cluster-rim),
+    10px -10px 0 -4px var(--color-raise),
+    10px -10px 0 -2px color-mix(in oklab, var(--cluster-rim) 60%, transparent);
+  cursor: zoom-in;
+}
+.junto-seat-cluster[data-cluster-state="work"] .junto-seat-cluster__stack {
+  --cluster-rim: color-mix(in oklab, var(--color-cyan) 85%, transparent);
+}
+.junto-seat-cluster[data-cluster-state="done"] .junto-seat-cluster__stack {
+  --cluster-rim: color-mix(in oklab, var(--color-green) 85%, transparent);
+}
+.junto-seat-cluster__face {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  overflow: hidden;
+}
+.junto-seat-cluster__count {
+  position: absolute;
+  right: -9px;
+  bottom: -7px;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 5px;
+  border-radius: 10px;
+  background: var(--color-ink);
+  color: var(--color-ground);
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 12px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 20px;
+  text-align: center;
+}
+.junto-seat-cluster__list {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 50%;
+  display: none;
+  min-width: 150px;
+  max-height: 260px;
+  padding: 4px;
+  overflow-y: auto;
+  border: 1px solid var(--color-stroke);
+  border-radius: 8px;
+  background: var(--color-raise);
+  box-shadow: 0 8px 22px var(--color-shadow-2);
+  transform: translateX(-50%);
+}
+.junto-seat-cluster__body:hover .junto-seat-cluster__list,
+.junto-seat-cluster__body:focus-within .junto-seat-cluster__list {
+  display: grid;
+}
+.junto-seat-cluster__member {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 3px 6px 3px 3px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--color-ink);
+  font-size: 12px;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.junto-seat-cluster__member:hover,
+.junto-seat-cluster__member:focus-visible {
+  background: color-mix(in oklab, var(--color-ink) 8%, transparent);
+}
+.junto-seat-cluster__member::before {
+  content: "";
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--color-steel);
+}
+.junto-seat-cluster__member[data-ring="work"]::before { background: var(--color-cyan); }
+.junto-seat-cluster__member[data-ring="done"]::before { background: var(--color-green); }

@@ -44,9 +44,10 @@ describe("farSeatScale", () => {
     }
   });
 
-  it("rests at 1.75 once the floor no longer bites, and tops out at 4.6", () => {
+  it("rests at 1.75 once the floor no longer bites, and tops out at the minimum zoom's", () => {
     expect(farSeatScale(0.8)).toBe(1.75);
-    expect(farSeatScale(0.05)).toBe(4.6);
+    expect(52 * farSeatScale(0.15) * 0.15).toBeGreaterThanOrEqual(FAR_RING_SCREEN_PX);
+    expect(farSeatScale(0.05)).toBe(5.2);
     expect(farSeatScale(Number.NaN)).toBe(1.75);
   });
 });

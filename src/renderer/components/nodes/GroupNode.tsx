@@ -10,7 +10,6 @@ import { claimFocus } from "../../lib/focus-ownership";
 import { dragHoldMemberIds, resizeNode, syncPositions } from "../../lib/geometry";
 import { state$ } from "../../lib/state";
 import { accentColor, borderColor, HUE, INK, withAlpha } from "../../lib/theme";
-import { regionTallyParts } from "../../lib/region-glance";
 import { markViewportBusy, releaseViewportBusy } from "../../lib/viewport-busy";
 import {
   isMultiSelectGesture,
@@ -156,12 +155,10 @@ export function GroupNode({ data, selected }: NodeProps<FlowNode>) {
   const nestedGlance = nestingDepth >= 1;
   const glanceable = label.trim().length > 0;
   const slot = data.nameSlot;
-  // Overview tier (canvas-lod-regions.css): members are not drawn, so an
-  // outermost region carries their worst state and a tally under its name.
-  // Rollups land after the camera rests (RtsBottomBar), never mid-gesture.
+  // Overview tier (canvas-lod-regions.css): an outermost region carries its
+  // members' worst state as a ring. Rollups land after the camera rests
+  // (RtsBottomBar), never mid-gesture.
   const severity = use$(() => state$.regionSeverityByNodeId.get()[node.id]);
-  const tally = use$(() => (nestingDepth === 0 ? state$.regionCountsByNodeId.get()[node.id] : undefined));
-  const tallyParts = regionTallyParts(tally);
 
   // Seed and claim once per edit session. A label that changes under the
   // operator (live reload) must not reset the draft or re-select it.
@@ -314,7 +311,7 @@ export function GroupNode({ data, selected }: NodeProps<FlowNode>) {
       // The region's own colour for the zoomed-out tiers' fill, frame and
       // name; an uncoloured region wears the ink.
       "--region-tint": node.color ? tint : "var(--color-ink)",
-      ...(node.color ? { "--region-name": withAlpha(tint, 0.4) } : {}),
+      ...(node.color ? { "--region-name": withAlpha(tint, 0.3) } : {}),
       boxShadow: selected ? `0 0 0 1px ${withAlpha(HUE.amber, 0.18)}` : "none",
     } as React.CSSProperties}
   >
@@ -333,16 +330,6 @@ export function GroupNode({ data, selected }: NodeProps<FlowNode>) {
         <span className="junto-region-glance__text" style={{ fontSize: `${String(slot?.fontSize ?? 0)}px` }}>
           {label}
         </span>
-        {tallyParts.length > 0 ? (
-          <span className="junto-region-glance__tally" data-testid={`region-tally-${node.id}`}>
-            {tallyParts.map((part, index) => (
-              <span key={part.tone} data-tone={part.tone}>
-                {index > 0 ? ", " : ""}
-                {part.text}
-              </span>
-            ))}
-          </span>
-        ) : null}
       </div>
     ) : null}
     <div style={{ pointerEvents: "auto" }}>

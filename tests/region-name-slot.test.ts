@@ -26,7 +26,7 @@ describe("nameFontSize", () => {
     expect(size).toBeGreaterThan(60);
   });
 
-  it("leaves room under the name for the overview tally", () => {
+  it("leaves breathing room above and below the name", () => {
     expect(nameFontSize(4000, 200, "Ops")).toBeLessThanOrEqual(200 * 0.6);
   });
 

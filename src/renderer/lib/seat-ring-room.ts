@@ -8,6 +8,8 @@
 // the ring's own size, computed once per projection (convert.ts) and handed to
 // CSS as --ring-cap, so a zoom measures nothing.
 
+import { SEAT_SCALE_MAX } from "./canvas-tier";
+
 export type RoomRect = {
   readonly x: number;
   readonly y: number;
@@ -20,11 +22,8 @@ export type RoomNode = RoomRect & { readonly id: string; readonly ringPx?: numbe
 
 /** Clear ground kept between two rings, or a ring and a card, in canvas units. */
 export const RING_GAP = 12;
-/**
- * The largest a ring grows: the floor on screen at the far tier's lowest
- * zoom (0.17 with hysteresis) for a 52px seat ring.
- */
-export const RING_SCALE_MAX = 4.6;
+/** The largest a ring grows (canvas-tier.ts SEAT_SCALE_MAX). */
+export const RING_SCALE_MAX = SEAT_SCALE_MAX;
 
 const centre = (rect: RoomRect): readonly [number, number] => [rect.x + rect.width / 2, rect.y + rect.height / 2];
 

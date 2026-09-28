@@ -115,6 +115,7 @@ import { CanvasMagnifier } from "./CanvasMagnifier";
 import { CanvasKeyboardPan } from "./CanvasKeyboardPan";
 import { RegionGlanceGate } from "./RegionGlanceGate";
 import { CanvasTierGate } from "./CanvasTierGate";
+import { SeatClusterLayer } from "./SeatClusterLayer";
 import { FactoryMinimap } from "./FactoryMinimap";
 import { canvasPerformance } from "../lib/performance/canvas-performance";
 import { PERF_ENABLED } from "../lib/performance/perf-flag";
@@ -122,6 +123,13 @@ import { NodePaletteModeDeck, type ModeDeckActions } from "./node-palette/NodePa
 import { FocusSurface } from "./FocusSurface";
 import { useCanvasGroupFocus } from "./useCanvasGroupFocus";
 import { IconButton, OverlayHeader } from "./ui";
+
+/**
+ * A node's class: agents carry junto-flow-agent (convert.ts), which keeps them
+ * on the board at the overview tier; the impact class rides alongside.
+ */
+const flowNodeClass = (node: FlowNode, impactClass: string | undefined): string | undefined =>
+  node.data.seatRegion !== undefined ? (impactClass ? `junto-flow-agent ${impactClass}` : "junto-flow-agent") : impactClass;
 
 type CanvasNodeRef = { readonly id: string; readonly type?: string; readonly position: { readonly x: number; readonly y: number }; readonly data?: unknown; readonly selected?: boolean };
 type CanvasFlow = {
@@ -216,7 +224,7 @@ function stampImpactShell(
     impact,
     nodes: nodes.map((node) => {
       const selected = selectedIds.has(node.id);
-      const className = nodeImpactClass(impact.active, impact.cone, node.id);
+      const className = flowNodeClass(node, nodeImpactClass(impact.active, impact.cone, node.id));
       if (node.selected === selected && node.className === className) return node;
       return { ...node, selected, className };
     }),
@@ -360,7 +368,7 @@ function useCanvasDocument(
         let dirty = false;
         const next = nodes.map((node) => {
           const selected = selectedIds.has(node.id);
-          const className = nodeImpactClass(impact.active, impact.cone, node.id);
+          const className = flowNodeClass(node, nodeImpactClass(impact.active, impact.cone, node.id));
           if (node.selected === selected && node.className === className) return node;
           dirty = true;
           return { ...node, selected, className };
@@ -1782,6 +1790,7 @@ function CanvasGraph() {
       <CanvasKeyboardPan />
       <RegionGlanceGate />
       <CanvasTierGate />
+      <SeatClusterLayer />
       <ImpactSeedChip />
       {/* Bar (incl. MiniMap) must be a ReactFlow child so MiniMap binds to the instance. */}
       <Panel position="bottom-center" className="rts-bar-panel" style={{ width: "100%", margin: 0, left: 0, right: 0, transform: "none", maxWidth: "none" }}>

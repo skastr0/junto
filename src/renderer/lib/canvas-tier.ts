@@ -4,15 +4,18 @@
 // pays for every detail it still draws. The canvas renders in four tiers, by
 // camera zoom:
 //
-//   near      full seats, rings in motion, preambles, card text
-//   mid       ring (held in its state pose) and name; no lines, no bubbles
-//   far       a seat is a disc in its state colour; cards are flat blocks
-//   overview  regions carry the board
+//   near      full seats, preambles, card text
+//   mid       ring and name; no lines, no bubbles
+//   far       a seat is its portrait in its ring at a screen size; cards are
+//             faint blocks with their kind's glyph
+//   overview  regions and seats; crowded seats gather into clusters
 //
-// The tier is stamped on <html> as data-canvas-tier, so CSS switches the
-// detail without a React render, and published as canvasTier$ for gates in
-// script (the attention clock). Hysteresis: a boundary must be crossed by a
-// margin before the tier flips, so a camera resting on a boundary never flaps.
+// Rings move at every tier (attention-clock.ts): a seat moves wherever it is
+// drawn. The tier is stamped on <html> as data-canvas-tier, so CSS switches
+// the detail without a React render, and published as canvasTier$ for gates
+// in script (seat clusters at the overview). Hysteresis: a boundary must be
+// crossed by a margin before the tier flips, so a camera resting on a
+// boundary never flaps.
 
 import { observable } from "@legendapp/state";
 
@@ -50,9 +53,6 @@ export const tierForZoom = (zoom: number, previous?: CanvasTier): CanvasTier => 
   return previous;
 };
 
-/** True when the tier still draws motion (loops, landings, bubbles). */
-export const tierMoves = (tier: CanvasTier): boolean => tier === "near";
-
 export const canvasTier$ = observable<CanvasTier>("near");
 
 /** Publish the camera zoom: stamps <html> and the observable when the tier changes. */
@@ -78,21 +78,42 @@ const SEAT_RING_UNITS = 52;
 /** Custom property on the ReactFlow root that canvas-lod.css scales far rings by. */
 export const FAR_SEAT_SCALE_VAR = "--far-seat-scale";
 
+/** The largest scale a ring is drawn at: FAR_RING_SCREEN_PX at the camera's minimum zoom (0.15). */
+export const SEAT_SCALE_MAX = 5.2;
+/**
+ * The smallest a seat ring is drawn at the overview, on screen: a crowded
+ * ring shrinks to this before its seat gathers into a cluster
+ * (seat-clusters.ts SEAT_FLOOR_SCREEN_PX).
+ */
+export const OVERVIEW_RING_FLOOR_PX = 22;
+/** Custom property on the ReactFlow root: the scale that draws a seat ring at the overview floor. */
+export const SEAT_FLOOR_SCALE_VAR = "--seat-floor-scale";
+
+const scaleFor = (screenPx: number, zoom: number, floor: number): number => {
+  if (!Number.isFinite(zoom) || zoom <= 0) return floor;
+  const exact = screenPx / (SEAT_RING_UNITS * zoom);
+  return Math.min(SEAT_SCALE_MAX, Math.max(floor, Math.ceil(exact * 10) / 10));
+};
+
 /**
  * The scale that draws a 52-unit seat ring FAR_RING_SCREEN_PX across at this
  * zoom, rounded up to a tenth so a zoom sweep writes a few dozen values, not
  * one per frame. Never below the 1.75 a ring is drawn at before the floor
- * bites, never above 4.6 (the floor at the far tier's lowest zoom).
+ * bites, never above SEAT_SCALE_MAX.
  */
-export const farSeatScale = (zoom: number): number => {
-  if (!Number.isFinite(zoom) || zoom <= 0) return 1.75;
-  const exact = FAR_RING_SCREEN_PX / (SEAT_RING_UNITS * zoom);
-  return Math.min(4.6, Math.max(1.75, Math.ceil(exact * 10) / 10));
+export const farSeatScale = (zoom: number): number => scaleFor(FAR_RING_SCREEN_PX, zoom, 1.75);
+
+/** The scale that draws a seat ring OVERVIEW_RING_FLOOR_PX across at this zoom. */
+export const seatFloorScale = (zoom: number): number => scaleFor(OVERVIEW_RING_FLOOR_PX, zoom, 1);
+
+const writeScale = (host: HTMLElement, name: string, value: number): void => {
+  const text = value.toFixed(1);
+  if (host.style.getPropertyValue(name) !== text) host.style.setProperty(name, text);
 };
 
-/** Write the far seat scale on `host` (the ReactFlow root) when it changes. */
+/** Write the far seat scale and the overview floor on `host` (the ReactFlow root) when they change. */
 export const publishFarSeatScale = (host: HTMLElement | null, zoom: number): void => {
   if (host === null) return;
-  const text = farSeatScale(zoom).toFixed(1);
-  if (host.style.getPropertyValue(FAR_SEAT_SCALE_VAR) !== text) host.style.setProperty(FAR_SEAT_SCALE_VAR, text);
+  writeScale(host, FAR_SEAT_SCALE_VAR, farSeatScale(zoom));
+  writeScale(host, SEAT_FLOOR_SCALE_VAR, seatFloorScale(zoom));
 };

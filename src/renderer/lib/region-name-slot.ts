@@ -30,10 +30,7 @@ const MARGIN = 16;
 const GLYPH_RATIO = 0.68;
 /** Share of the slot's width the name may take. */
 const WIDTH_SHARE = 0.9;
-/**
- * Share of the slot's height the name may take: the rest holds the overview
- * tally under an outer region's name (canvas-lod-regions.css).
- */
+/** Share of the slot's height the name may take: the rest is breathing room. */
 const HEIGHT_SHARE = 0.6;
 /**
  * The smallest name worth printing: about 8px on screen at the far tier's
@@ -44,7 +41,7 @@ export const REGION_NAME_MAX_PX = 240;
 
 /**
  * The largest single line of `label` that fits a `width` x `height` box. A
- * box too short to leave tally room still takes a name at the floor size if
+ * box too short for the height share still takes a name at the floor size if
  * the line fits in it.
  */
 export const nameFontSize = (width: number, height: number, label: string): number => {

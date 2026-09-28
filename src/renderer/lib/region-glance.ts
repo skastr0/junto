@@ -119,14 +119,14 @@ export type RegionTally = {
   readonly ready: number;
 };
 
-/** One phrase of a region's overview tally, in the hue of what it counts. */
+/** One phrase of a region's member tally (the command bar), in the hue of what it counts. */
 export type RegionTallyPart = {
   readonly tone: "crimson" | "amber" | "cyan" | "green" | "steel";
   readonly text: string;
 };
 
 /**
- * What a region says about its members at the overview tier, worst first:
+ * What a region says about its members (the command bar's region row), worst first:
  * only the states that are present, so a quiet region reads as one word. The
  * phrases match the seat lines (waiting on you, done) rather than rollup
  * jargon.
