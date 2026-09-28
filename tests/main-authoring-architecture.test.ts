@@ -117,6 +117,9 @@ describe("main authoring architecture", () => {
       // An operator's signal answer is mail, reached only through the
       // classified ipc.work.signal-answer handler in ipc.ts.
       "src/main/junto/signals/operator.ts",
+      // A seat past its token-pressure limit is told to offboard by mail,
+      // written only under the token-pressure.nudge label (asserted below).
+      "src/main/junto/token-pressure/app.ts",
       "src/main/junto/work/control.ts",
       // Canvas topology changes emit exactly one compact edge map-change
       // notice per seat; this is the classified authoring listener, not a
@@ -128,6 +131,7 @@ describe("main authoring architecture", () => {
     expect(companion).toContain('.run("companion.signal-answer"');
     expect(companion).toContain('.run("companion.signal-dismiss"');
     expect(companion).toContain('.run("companion.mail-send"');
+    expect(source("src/main/junto/token-pressure/app.ts")).toContain('.run("token-pressure.nudge"');
 
     const control = source("src/main/junto/work/control.ts");
     expect(control).toContain("mainAuthoringLabelForWorkOperation(req.op)");

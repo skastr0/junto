@@ -244,6 +244,15 @@ export type SeatPressureSnapshot = {
   readonly at: number;
 };
 
+/** Main → renderer: snapshots that changed, and seats no longer watched. */
+export type TokenPressureChange = {
+  readonly upserts: ReadonlyArray<SeatPressureSnapshot>;
+  /** `canvasName::nodeId` keys whose snapshot is gone (seat stopped or left). */
+  readonly removed: ReadonlyArray<string>;
+};
+
+export const pressureKey = (canvasName: string, nodeId: string): string => `${canvasName}::${nodeId}`;
+
 // ── Copy ────────────────────────────────────────────────────────────────────
 
 /** 142000 → "142k", 1000000 → "1M", 950 → "950". */

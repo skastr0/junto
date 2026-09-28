@@ -12,12 +12,14 @@ import {
   composeOffboardNudge,
   effectiveThreshold,
   harnessReadsContext,
+  pressureKey,
   resolveLimit,
   stepPressure,
   type ContextReading,
   type PressurePhase,
   type SeatPressureSnapshot,
   type SeatTokenPressure,
+  type TokenPressureChange,
   type TokenPressureSettings,
 } from "@shared/token-pressure";
 import { contextReaderFor, type SeatSessionRef } from "./readers";
@@ -63,13 +65,7 @@ export type TokenPressurePorts = {
   readonly log?: (message: string) => void;
 };
 
-export type TokenPressureChange = {
-  readonly upserts: ReadonlyArray<SeatPressureSnapshot>;
-  /** `canvasName::nodeId` keys whose snapshot is gone (seat stopped or left). */
-  readonly removed: ReadonlyArray<string>;
-};
-
-export const pressureKey = (canvasName: string, nodeId: string): string => `${canvasName}::${nodeId}`;
+export { pressureKey, type TokenPressureChange };
 
 export const TOKEN_PRESSURE_TICK_MS = 5_000;
 const SEAT_REFRESH_MS = 15_000;

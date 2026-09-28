@@ -870,6 +870,10 @@ const terminalApi: JuntoTerminalApi = {
     invoke(IPC_CHANNELS.seatAwarenessSnapshot, IPC_TIMEOUT_MS),
   onSeatAwarenessChanged: (listener) =>
     subscribe(IPC_CHANNELS.seatAwarenessChanged, listener),
+  tokenPressureSnapshot: () =>
+    invoke(IPC_CHANNELS.tokenPressureSnapshot, IPC_TIMEOUT_MS),
+  onTokenPressureChanged: (listener) =>
+    subscribe(IPC_CHANNELS.tokenPressureChanged, listener),
   seatCollaborationAsk: (input) =>
     invoke(IPC_CHANNELS.seatCollaborationAsk, IPC_TIMEOUT_MS, input),
 };

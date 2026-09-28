@@ -220,6 +220,7 @@ export type CanvasReadTag =
   | "nodeRef.resolve"
   | "region.rollup"
   | "term.seatPlan"
+  | "tokenPressure.seats"
   | "untagged"
   | "overseer.canvas"
   | "work.control"

@@ -32,6 +32,7 @@ import { startThemeMode } from "./lib/theme-mode";
 import { startUpdateBridge } from "./lib/update-state";
 import { subscribeAgentSeatState } from "./lib/agent-seat-state";
 import { subscribeSeatAwareness } from "./lib/seat-awareness";
+import { subscribeTokenPressure } from "./lib/token-pressure-state";
 import { installCompletedNotifyTestHook } from "./lib/completed-task-notify";
 import { installActorMirrorHotkeys } from "./lib/actor-mirrors";
 import { installFocusSwitcherHotkeys } from "./lib/focus-switcher";
@@ -397,6 +398,8 @@ export function App() {
     // Advisory seat awareness — same early subscription so a card that mounts
     // later already holds the latest judgment for its binding.
     const stopSeatAwareness = subscribeSeatAwareness();
+    // Token pressure per running seat (display only; main nudges and rotates).
+    const stopTokenPressure = subscribeTokenPressure();
     installCompletedNotifyTestHook();
     // Freeze continuous CSS when the page is hidden / reduced-motion so the
     // GPU helper can drop off the fan curve (fleet closed is not enough).
@@ -457,6 +460,7 @@ export function App() {
       stopUpdate?.();
       stopAgentSeat?.();
       stopSeatAwareness?.();
+      stopTokenPressure();
       stopSurfaceMotion();
     };
   }, []);
