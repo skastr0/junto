@@ -305,6 +305,15 @@
       "retire": "IN-MEMORY WORLD: retire when the in-memory factory world owns the projection and this file's only write is the journal append."
     },
     {
+      "path": "src/main/junto/station/known-installations.ts",
+      "kind": "debt",
+      "tables": [
+        "station_known_installations"
+      ],
+      "reason": "Typed SQL service for shared installation registration during the repository migration.",
+      "retire": "Remove the write-seam register once all repositories use Effect SQL services."
+    },
+    {
       "path": "src/main/junto/station/fleet-target-repository.ts",
       "kind": "debt",
       "tables": [
@@ -513,12 +522,13 @@
     },
     {
       "table": "station_known_installations",
-      "owner": "src/main/junto/station/repository.ts",
+      "owner": "src/main/junto/station/known-installations.ts",
       "alsoWrittenBy": [
+        "src/main/junto/station/repository.ts",
         "src/main/junto/station/fleet-target-repository.ts"
       ],
-      "reason": "Both station seams register a peer installation before referencing it.",
-      "retire": "Put installation registration in one station seam."
+      "reason": "Legacy station and fleet writers remain until their consumers use the installation service.",
+      "retire": "Remove each legacy writer as its repository adopts KnownInstallations."
     },
     {
       "table": "work_artifacts",
