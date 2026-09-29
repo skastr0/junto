@@ -13,6 +13,7 @@ import {
   type IpcMainEvent,
 } from "electron";
 import { Context, Effect } from "effect";
+import { SqlClient } from "effect/unstable/sql";
 import { classifyBrowserTarget } from "@shared/browser-policy";
 import {
   IPC_CHANNELS,
@@ -163,7 +164,6 @@ import {
 } from "@shared/trusted-renderer-origin";
 import { loadStationSupervisor } from "./junto/supervision/select";
 import { SettingsService } from "./junto/settings/service";
-import { StateEngine } from "./junto/state/service";
 import { CURRENT_STATE_SCHEMA_VERSION } from "./junto/state/migrations";
 import { installUpdateHostHooks } from "./junto/update";
 import { hostOperationsShutdown } from "./junto/hosts/shutdown";
@@ -1896,7 +1896,7 @@ if (packagedSandboxDisablingSwitch !== undefined) {
           }
         },
         {
-          state: await AppRuntime.runPromise(StateEngine),
+          sql: await AppRuntime.runPromise(SqlClient.SqlClient),
           viewAdapter: browserViewAttachmentTarget.adapter,
         },
       );

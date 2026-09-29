@@ -10,7 +10,8 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { Context, ManagedRuntime } from "effect";
+import { ManagedRuntime } from "effect";
+import { SqlClient } from "effect/unstable/sql";
 import type { CanvasDoc } from "../src/shared/canvas";
 import { makeEdgeGrantService } from "../src/main/junto/browser/edge-grant";
 import {
@@ -34,7 +35,7 @@ import {
 } from "../src/main/junto/browser/edge-revocation";
 import type { ProcessPrincipal } from "../src/main/junto/process-identity";
 import { isValidControlRequestId } from "../src/shared/browser-control";
-import { makeStateEngineLive, StateEngine } from "../src/main/junto/state/engine";
+import { makeStateEngineLive } from "../src/main/junto/state/engine";
 
 const REF_P1 = "junto://canvas/work?node=p1";
 const REF_P2 = "junto://canvas/work?node=p2";
@@ -221,15 +222,15 @@ describe("edge-revocation pure helpers", () => {
 describe("browser edge-delete session teardown", () => {
   let root: string;
   let registries: BrowserCapabilityRegistry[];
-  let stateRuntime: ManagedRuntime.ManagedRuntime<StateEngine, unknown>;
-  let state: Context.Service.Shape<typeof StateEngine>;
+  let stateRuntime: ManagedRuntime.ManagedRuntime<SqlClient.SqlClient, unknown>;
+  let sql: SqlClient.SqlClient;
 
   beforeEach(async () => {
     root = await mkdtemp(join(tmpdir(), "junto-edge-delete-"));
     stateRuntime = ManagedRuntime.make(
       makeStateEngineLive(join(root, "junto.db")),
     );
-    state = await stateRuntime.runPromise(StateEngine);
+    sql = await stateRuntime.runPromise(SqlClient.SqlClient);
     registries = [];
   });
 
@@ -244,7 +245,7 @@ describe("browser edge-delete session teardown", () => {
     const sessions = new BrowserSessionService(
       makeSpyAdapter(),
       LOCAL_BROWSER_TEST_AUTHORITY,
-      makeBrowserProfileService(state, join(root, "browser")),
+      makeBrowserProfileService(sql, join(root, "browser")),
       Date.now,
       () => `session-${++sessionCounter}`,
     );
@@ -463,7 +464,7 @@ describe("browser edge-delete session teardown", () => {
     const sessions = new BrowserSessionService(
       makeSpyAdapter(),
       LOCAL_BROWSER_TEST_AUTHORITY,
-      makeBrowserProfileService(state, join(root, "browser-remote")),
+      makeBrowserProfileService(sql, join(root, "browser-remote")),
       Date.now,
       () => `remote-session-${++sessionCounter}`,
     );
@@ -525,7 +526,7 @@ describe("browser edge-delete session teardown", () => {
     const sessions = new BrowserSessionService(
       makeSpyAdapter(),
       LOCAL_BROWSER_TEST_AUTHORITY,
-      makeBrowserProfileService(state, join(root, "browser-pair")),
+      makeBrowserProfileService(sql, join(root, "browser-pair")),
       Date.now,
       (() => {
         let n = 0;

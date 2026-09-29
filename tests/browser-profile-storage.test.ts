@@ -16,6 +16,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { Effect, Result, ManagedRuntime } from "effect";
+import { SqlClient } from "effect/unstable/sql";
 import {
   browserProfileQuarantinePath,
   BrowserProfileStorageError,
@@ -76,7 +77,7 @@ interface Harness {
 describe("browser profile storage lifecycle", () => {
   let cleanupRoot = "";
   let stateRuntime:
-    | ManagedRuntime.ManagedRuntime<StateEngine, unknown>
+    | ManagedRuntime.ManagedRuntime<StateEngine | SqlClient.SqlClient, unknown>
     | undefined;
 
   afterEach(async () => {
@@ -736,7 +737,8 @@ describe("browser profile storage lifecycle", () => {
       makeStateEngineLive(join(layout.root, "junto.db")),
     );
     const state = await stateRuntime.runPromise(StateEngine);
-    const registry = makeBrowserProfileService(state, registryRoot, {
+    const sql = await stateRuntime.runPromise(SqlClient.SqlClient);
+    const registry = makeBrowserProfileService(sql, registryRoot, {
       wipeLifecycle: lifecycle,
       now: () => new Date("2026-07-17T12:00:00.000Z"),
     });

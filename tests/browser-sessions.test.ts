@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Context, Effect, ManagedRuntime } from "effect";
+import { SqlClient } from "effect/unstable/sql";
 import { warmPoolEvictions } from "../src/shared/browser";
 import {
   BROWSER_CAPTURE_TIMEOUT_MS,
@@ -219,11 +220,12 @@ describe("BrowserSessionService", () => {
   let clock: number;
   let idCounter: number;
   let stateRuntime:
-    | ManagedRuntime.ManagedRuntime<StateEngine, unknown>
+    | ManagedRuntime.ManagedRuntime<StateEngine | SqlClient.SqlClient, unknown>
     | undefined;
   let state:
     | Context.Service.Shape<typeof StateEngine>
     | undefined;
+  let sql: SqlClient.SqlClient;
 
   beforeEach(async () => {
     root = await mkdtemp(join(tmpdir(), "junto-browser-sessions-"));
@@ -231,6 +233,7 @@ describe("BrowserSessionService", () => {
       makeStateEngineLive(join(root, "junto.db")),
     );
     state = await stateRuntime.runPromise(StateEngine);
+    sql = await stateRuntime.runPromise(SqlClient.SqlClient);
     clock = 0;
     idCounter = 0;
   });
@@ -246,7 +249,7 @@ describe("BrowserSessionService", () => {
     if (state === undefined) {
       throw new Error("test StateEngine is not initialized");
     }
-    return makeBrowserProfileService(state, root);
+    return makeBrowserProfileService(sql, root);
   };
 
   const makeService = (adapter: BrowserViewAdapter) => {

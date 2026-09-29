@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { Context, Effect } from "effect";
+import { Effect } from "effect";
+import type { SqlClient } from "effect/unstable/sql";
 import { isAllowedBrowserUrl } from "@shared/browser";
 import { runClosedBrowserEffect } from "./run-closed";
 import {
@@ -23,7 +24,6 @@ import {
   makeBrowserProfileService,
   type BrowserProfileServiceApi,
 } from "./profiles";
-import { StateEngine } from "../state/service";
 import {
   closeAllManagedBrowserPartitionNetworks,
 } from "./partition-network";
@@ -445,7 +445,7 @@ export const makeBrowserShutdownCoordinator = (input: {
 };
 
 export interface BrowserCompositionRuntime {
-  readonly state: Context.Service.Shape<typeof StateEngine>;
+  readonly sql: SqlClient.SqlClient;
   readonly profileRoot?: string;
   readonly profileGate?: BrowserProfileGate;
   readonly storagePlatform?: BrowserProfileStoragePlatform;
@@ -517,7 +517,7 @@ export const startBrowserComposition = async (
       capabilities: storageCapabilityControl,
       profileGate,
     });
-    const profiles = makeBrowserProfileService(runtime.state, runtime.profileRoot, {
+    const profiles = makeBrowserProfileService(runtime.sql, runtime.profileRoot, {
       wipeLifecycle: storage,
       profileGate,
     });

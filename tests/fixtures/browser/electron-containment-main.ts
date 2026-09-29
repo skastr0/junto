@@ -5,6 +5,7 @@ import { url as inspectorUrl } from "node:inspector";
 import { basename, dirname, isAbsolute, join } from "node:path";
 import { app, BrowserWindow, session, webContents } from "electron";
 import { Effect, Result, Layer, ManagedRuntime } from "effect";
+import { SqlClient } from "effect/unstable/sql";
 import { CanvasesLive, CanvasesService } from "../../../src/main/junto/canvases";
 import {
   makeStateEngineLive,
@@ -638,7 +639,7 @@ void app.whenReady().then(async () => {
     }),
   );
   const harness = makeBrowserTestOnlyElectronHarness(exactOrigin, downloadPath);
-  const profiles = makeBrowserProfileService(state, browserRoot);
+  const profiles = makeBrowserProfileService(await activeCanvasRuntime.runPromise(SqlClient.SqlClient), browserRoot);
   sessions = new BrowserSessionService(
     harness.adapter,
     LOCAL_BROWSER_TEST_AUTHORITY,

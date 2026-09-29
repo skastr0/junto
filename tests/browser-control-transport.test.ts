@@ -6,7 +6,8 @@ import { createServer as createHttpServer, type Server as HttpServer } from "nod
 import { createConnection } from "node:net";
 import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { Context, ManagedRuntime } from "effect";
+import { ManagedRuntime } from "effect";
+import { SqlClient } from "effect/unstable/sql";
 import {
   CONTROL_MAX_BODY_BYTES,
   CONTROL_MAX_HEADER_BYTES,
@@ -40,7 +41,7 @@ import {
 } from "../src/main/junto/browser/capabilities";
 import { makeProcessIdentityMap } from "../src/main/junto/process-identity";
 import { LOCAL_BROWSER_TEST_AUTHORITY } from "./browser-host-test-authority";
-import { makeStateEngineLive, StateEngine } from "../src/main/junto/state/engine";
+import { makeStateEngineLive } from "../src/main/junto/state/engine";
 
 const repoRoot = resolve(import.meta.dirname, "..");
 const TEST_ROOT_PREFIX = "/tmp/vct-";
@@ -48,8 +49,8 @@ const roots: string[] = [];
 const servers: BrowserControlServer[] = [];
 const capabilityRegistries: BrowserCapabilityRegistry[] = [];
 const rogueServers: HttpServer[] = [];
-const stateRuntimes: ManagedRuntime.ManagedRuntime<StateEngine, unknown>[] = [];
-const states = new Map<string, Context.Service.Shape<typeof StateEngine>>();
+const stateRuntimes: ManagedRuntime.ManagedRuntime<SqlClient.SqlClient, unknown>[] = [];
+const states = new Map<string, SqlClient.SqlClient>();
 const PAGE_REF = "junto://canvas/work?node=cli-node";
 const AGENT_KEY = "local:cli";
 const deferred = <A>() => {
@@ -173,7 +174,7 @@ const newRoot = async (): Promise<string> => {
   const runtime = ManagedRuntime.make(
     makeStateEngineLive(join(root, "junto.db")),
   );
-  states.set(root, await runtime.runPromise(StateEngine));
+  states.set(root, await runtime.runPromise(SqlClient.SqlClient));
   stateRuntimes.push(runtime);
   roots.push(root);
   return root;

@@ -3,7 +3,8 @@ import type { Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { Context, ManagedRuntime } from "effect";
+import { ManagedRuntime } from "effect";
+import { SqlClient } from "effect/unstable/sql";
 import type { CanvasDoc } from "../src/shared/canvas";
 import {
   dispatchControlRequest,
@@ -37,7 +38,7 @@ import type {
   ResolvedPageTarget,
 } from "../src/main/junto/browser/page-target";
 import type { BrowserHostCapabilityAuthority } from "../src/main/junto/browser/host-capability";
-import { makeStateEngineLive, StateEngine } from "../src/main/junto/state/engine";
+import { makeStateEngineLive } from "../src/main/junto/state/engine";
 
 const REF_PAGE = "junto://canvas/work?node=p1";
 const TARGET: ResolvedPageTarget = {
@@ -171,15 +172,15 @@ const terminalCanvasDoc = (): CanvasDoc => ({
 describe("browser edge-grant process-bind dual admit", () => {
   let root: string;
   let registries: BrowserCapabilityRegistry[];
-  let stateRuntime: ManagedRuntime.ManagedRuntime<StateEngine, unknown>;
-  let state: Context.Service.Shape<typeof StateEngine>;
+  let stateRuntime: ManagedRuntime.ManagedRuntime<SqlClient.SqlClient, unknown>;
+  let sql: SqlClient.SqlClient;
 
   beforeEach(async () => {
     root = await mkdtemp(join(tmpdir(), "junto-edge-grant-"));
     stateRuntime = ManagedRuntime.make(
       makeStateEngineLive(join(root, "junto.db")),
     );
-    state = await stateRuntime.runPromise(StateEngine);
+    sql = await stateRuntime.runPromise(SqlClient.SqlClient);
     registries = [];
   });
 
@@ -205,7 +206,7 @@ describe("browser edge-grant process-bind dual admit", () => {
     const sessions = new BrowserSessionService(
       makeSpyAdapter(),
       LOCAL_BROWSER_TEST_AUTHORITY,
-      makeBrowserProfileService(state, join(root, "browser")),
+      makeBrowserProfileService(sql, join(root, "browser")),
       Date.now,
       () => `session-${++sessionCounter}`,
     );

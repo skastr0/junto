@@ -3,6 +3,7 @@ import { chmod, lstat, mkdir, readFile, rename, writeFile } from "node:fs/promis
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { app, session } from "electron";
 import { Context, Effect, ManagedRuntime } from "effect";
+import { SqlClient } from "effect/unstable/sql";
 import {
   makeBrowserCapabilityRegistry,
   type BrowserCapabilityRegistry,
@@ -358,7 +359,7 @@ const makeTarget = (
   exactOrigins: [exactOrigin],
 });
 
-const runPhaseA = async (state: StateService): Promise<void> => {
+const runPhaseA = async (state: StateService, sql: SqlClient.SqlClient): Promise<void> => {
   const gate = makeBrowserProfileGate();
   let sessions: BrowserSessionService | undefined;
   const capabilities = makeBrowserCapabilityRegistry({
@@ -382,7 +383,7 @@ const runPhaseA = async (state: StateService): Promise<void> => {
     capabilities,
     profileGate: gate,
   });
-  const profiles = makeBrowserProfileService(state, browserRoot, {
+  const profiles = makeBrowserProfileService(sql, browserRoot, {
     wipeLifecycle: storage,
     profileGate: gate,
   });
@@ -592,7 +593,7 @@ const makeColdOnlyCapabilities = (counter: { capabilityControls: number }) => ({
   },
 });
 
-const runPhaseB = async (state: StateService): Promise<void> => {
+const runPhaseB = async (state: StateService, sql: SqlClient.SqlClient): Promise<void> => {
   const pending = await requirePending(state);
   const quarantine = browserProfileQuarantinePath(pending.storagePath, pending.wipeId);
   ensure(quarantine !== undefined, "quarantine_path_invalid");
@@ -612,7 +613,7 @@ const runPhaseB = async (state: StateService): Promise<void> => {
       },
     },
   });
-  const profiles = makeBrowserProfileService(state, browserRoot, {
+  const profiles = makeBrowserProfileService(sql, browserRoot, {
     wipeLifecycle: storage,
     profileGate: gate,
   });
@@ -632,7 +633,7 @@ const runPhaseB = async (state: StateService): Promise<void> => {
   throw new Error("failpoint_not_observed");
 };
 
-const runPhaseC = async (state: StateService): Promise<void> => {
+const runPhaseC = async (state: StateService, sql: SqlClient.SqlClient): Promise<void> => {
   const pending = await requirePending(state);
   const quarantine = browserProfileQuarantinePath(pending.storagePath, pending.wipeId);
   ensure(quarantine !== undefined, "quarantine_path_invalid");
@@ -644,7 +645,7 @@ const runPhaseC = async (state: StateService): Promise<void> => {
     capabilities: makeColdOnlyCapabilities(calls),
     profileGate: gate,
   });
-  const profiles = makeBrowserProfileService(state, browserRoot, {
+  const profiles = makeBrowserProfileService(sql, browserRoot, {
     wipeLifecycle: storage,
     profileGate: gate,
   });
@@ -806,7 +807,7 @@ ensure(
 
 let quitting = false;
 let stateRuntime:
-  | ManagedRuntime.ManagedRuntime<StateEngine, unknown>
+  | ManagedRuntime.ManagedRuntime<StateEngine | SqlClient.SqlClient, unknown>
   | undefined;
 let stateRuntimeDisposal: Promise<void> | undefined;
 
@@ -831,9 +832,10 @@ void app.whenReady().then(async () => {
     makeStateEngineLive(stateDatabasePath),
   );
   const state = await stateRuntime.runPromise(StateEngine);
-  if (phase === "A") await runPhaseA(state);
-  if (phase === "B") await runPhaseB(state);
-  if (phase === "C") await runPhaseC(state);
+  const sql = await stateRuntime.runPromise(SqlClient.SqlClient);
+  if (phase === "A") await runPhaseA(state, sql);
+  if (phase === "B") await runPhaseB(state, sql);
+  if (phase === "C") await runPhaseC(state, sql);
   await disposeStateRuntime();
   if (!quitting) {
     quitting = true;

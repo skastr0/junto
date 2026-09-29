@@ -2,7 +2,8 @@ import { mkdtemp, mkdir, readFile, readdir, rm, stat, symlink, writeFile } from 
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { Context, Result, ManagedRuntime, Schema } from "effect";
+import { Result, ManagedRuntime, Schema } from "effect";
+import { SqlClient } from "effect/unstable/sql";
 import {
   DoctorData,
   controlErr,
@@ -53,7 +54,7 @@ import {
   makeBrowserCapabilityRegistry,
   type BrowserCapabilityRegistry,
 } from "../src/main/junto/browser/capabilities";
-import { makeStateEngineLive, StateEngine } from "../src/main/junto/state/engine";
+import { makeStateEngineLive } from "../src/main/junto/state/engine";
 
 const REF = "junto://canvas/work?node=n1";
 const DEFAULT_TARGET: ResolvedPageTarget = {
@@ -268,8 +269,8 @@ describe("token handling", () => {
 
 describe("control route handlers", () => {
   let root: string;
-  let stateRuntime: ManagedRuntime.ManagedRuntime<StateEngine, unknown>;
-  let state: Context.Service.Shape<typeof StateEngine>;
+  let stateRuntime: ManagedRuntime.ManagedRuntime<SqlClient.SqlClient, unknown>;
+  let sql: SqlClient.SqlClient;
   let sessionCounter: number;
   let requestCounter: number;
   const capabilityRegistries: BrowserCapabilityRegistry[] = [];
@@ -280,7 +281,7 @@ describe("control route handlers", () => {
     stateRuntime = ManagedRuntime.make(
       makeStateEngineLive(join(root, "junto.db")),
     );
-    state = await stateRuntime.runPromise(StateEngine);
+    sql = await stateRuntime.runPromise(SqlClient.SqlClient);
     sessionCounter = 0;
     requestCounter = 0;
   });
@@ -304,7 +305,7 @@ describe("control route handlers", () => {
     const sessions = new BrowserSessionService(
       adapter,
       LOCAL_BROWSER_TEST_AUTHORITY,
-      makeBrowserProfileService(state, join(root, "browser")),
+      makeBrowserProfileService(sql, join(root, "browser")),
       Date.now,
       () => `session-${++sessionCounter}`,
       undefined,

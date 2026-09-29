@@ -4,6 +4,7 @@ import { createServer, type Server } from "node:http";
 import { dirname, isAbsolute } from "node:path";
 import { app, webContents, type WebContents } from "electron";
 import { ManagedRuntime } from "effect";
+import { SqlClient } from "effect/unstable/sql";
 import { makeBrowserProfileService } from "../../../src/main/junto/browser/profiles";
 import { BrowserSessionService } from "../../../src/main/junto/browser/sessions";
 import {
@@ -147,11 +148,11 @@ void app.whenReady().then(async () => {
   await mkdir(downloadPath, { recursive: true });
   const harness = makeBrowserTestOnlyElectronHarness(origin, downloadPath);
   stateRuntime = makeStateRuntime();
-  const state = await stateRuntime.runPromise(StateEngine);
+  const sql = await stateRuntime.runPromise(SqlClient.SqlClient);
   sessions = new BrowserSessionService(
     harness.adapter,
     LOCAL_BROWSER_TEST_AUTHORITY,
-    makeBrowserProfileService(state, browserRoot),
+    makeBrowserProfileService(sql, browserRoot),
     Date.now,
     randomUUID,
     harness.targetAdmission,

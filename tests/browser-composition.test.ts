@@ -14,7 +14,8 @@ import { makeBrowserCapabilityRegistry } from "../src/main/junto/browser/capabil
 import { makeBrowserProfileGate } from "../src/main/junto/browser/profile-gate";
 import type { BrowserSessionService } from "../src/main/junto/browser/sessions";
 import type { BrowserHostCapabilityAuthorityLease } from "../src/main/junto/browser/station-authority";
-import { makeStateEngineLive, StateEngine } from "../src/main/junto/state/engine";
+import { makeStateEngineLive } from "../src/main/junto/state/engine";
+import { SqlClient } from "effect/unstable/sql";
 
 const deferred = <T>() => {
   let resolve!: (value: T) => void;
@@ -120,7 +121,7 @@ describe("browser composition (no ceremony)", () => {
     const stateRuntime = ManagedRuntime.make(
       makeStateEngineLive(join(root, "junto.db")),
     );
-    const state = await stateRuntime.runPromise(StateEngine);
+    const sql = await stateRuntime.runPromise(SqlClient.SqlClient);
     const authority = deferred<BrowserHostCapabilityAuthorityLease>();
     let activated = false;
     let adapterCalls = 0;
@@ -141,7 +142,7 @@ describe("browser composition (no ceremony)", () => {
         });
       },
       {
-        state,
+        sql,
         profileRoot: root,
         prepareHostAuthority: () => authority.promise,
         viewAdapter: () => {

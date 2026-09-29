@@ -18,6 +18,7 @@ import {
   Result,
   ManagedRuntime,
 } from "effect";
+import { SqlClient } from "effect/unstable/sql";
 import {
   afterEach,
   describe,
@@ -40,7 +41,7 @@ import {
 import {
   makeStateEngineLive,
 } from "../src/main/junto/state/engine";
-import { StateEngine } from "../src/main/junto/state/service";
+import { StateEngine, StateTransactionOperation } from "../src/main/junto/state/service";
 
 const FIXED_TIME = "2026-07-17T12:00:00.000Z";
 const MODE_MASK = 0o777;
@@ -76,7 +77,7 @@ describe("browser profile registry", () => {
   let root = "";
   let registryRoot = "";
   let runtime:
-    | ManagedRuntime.ManagedRuntime<StateEngine, unknown>
+    | ManagedRuntime.ManagedRuntime<StateEngine | SqlClient.SqlClient, unknown>
     | undefined;
   let state:
     | Context.Service.Shape<typeof StateEngine>
@@ -102,7 +103,7 @@ describe("browser profile registry", () => {
       makeStateEngineLive(join(root, "junto.db")),
     );
     state = await runtime.runPromise(StateEngine);
-    return state;
+    return runtime.runPromise(SqlClient.SqlClient);
   };
 
   const service = async (
@@ -224,7 +225,7 @@ describe("browser profile registry", () => {
     );
     state = await runtime.runPromise(StateEngine);
     const restarted = makeBrowserProfileService(
-      state,
+      await runtime.runPromise(SqlClient.SqlClient),
       registryRoot,
     );
 
@@ -421,31 +422,19 @@ describe("browser profile registry", () => {
   });
 
   it("publishes a recreated profile to its gate only after commit", async () => {
-    const stateService = await freshState();
+    const sql = await freshState();
     const gate = new BrowserProfileGate();
     let createCommitted = false;
-    const observedState: Context.Service.Shape<
-      typeof StateEngine
-    > = {
-      ...stateService,
-      transaction: (operation, body) =>
-        stateService
-          .transaction(operation, body)
-          .pipe(
-            Effect.tap(() =>
-              Effect.sync(() => {
-                if (
-                  operation ===
-                    "browser-profiles.create"
-                ) {
-                  createCommitted = true;
-                }
-              })
-            ),
-          ),
-    };
+    const withTransaction = sql.withTransaction;
+    vi.spyOn(sql, "withTransaction").mockImplementation((body) =>
+      withTransaction(body).pipe(Effect.tap(() => Effect.gen(function* () {
+        if ((yield* StateTransactionOperation) === "browser-profiles.create") {
+          createCommitted = true;
+        }
+      }))),
+    );
     const registry = makeBrowserProfileService(
-      observedState,
+      sql,
       registryRoot,
       {
         wipeLifecycle: lifecycle(),
@@ -598,7 +587,7 @@ describe("browser profile registry", () => {
       | BrowserProfilePendingWipe
       | undefined;
     const recovered = makeBrowserProfileService(
-      state!,
+      await runtime!.runPromise(SqlClient.SqlClient),
       registryRoot,
       {
         wipeLifecycle: lifecycle(
@@ -645,7 +634,7 @@ describe("browser profile registry", () => {
     let liveCalls = 0;
     let recoveredStage = "";
     const recovered = makeBrowserProfileService(
-      state!,
+      await runtime!.runPromise(SqlClient.SqlClient),
       registryRoot,
       {
         wipeLifecycle: lifecycle(
@@ -688,7 +677,7 @@ describe("browser profile registry", () => {
     });
     let recovered = false;
     const serviceAfterRestart = makeBrowserProfileService(
-      state!,
+      await runtime!.runPromise(SqlClient.SqlClient),
       registryRoot,
       {
         wipeLifecycle: lifecycle(
@@ -734,7 +723,7 @@ describe("browser profile registry", () => {
     });
     let prepared = false;
     const oneProfile = makeBrowserProfileService(
-      state!,
+      await runtime!.runPromise(SqlClient.SqlClient),
       registryRoot,
       {
         wipeLifecycle: {

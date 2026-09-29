@@ -2,7 +2,8 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { Context, Effect, ManagedRuntime } from "effect";
+import { Effect, ManagedRuntime } from "effect";
+import { SqlClient } from "effect/unstable/sql";
 import { defaultSettings, type Settings } from "../src/shared/settings";
 import type { RemoteHost } from "../src/shared/remote-hosts";
 import type { ResolvedPageTarget } from "../src/main/junto/browser/page-target";
@@ -12,7 +13,7 @@ import {
   type BrowserViewAdapter,
 } from "../src/main/junto/browser/sessions";
 import { prepareBrowserHostCapabilityAuthority } from "../src/main/junto/browser/station-authority";
-import { makeStateEngineLive, StateEngine } from "../src/main/junto/state/engine";
+import { makeStateEngineLive } from "../src/main/junto/state/engine";
 
 const hosts: ReadonlyArray<RemoteHost> = [
   {
@@ -60,16 +61,15 @@ const deferred = <T>() => {
 
 describe("browser physical-station authority", () => {
   const roots: string[] = [];
-  const stateRuntimes: ManagedRuntime.ManagedRuntime<StateEngine, unknown>[] = [];
+  const stateRuntimes: ManagedRuntime.ManagedRuntime<SqlClient.SqlClient, unknown>[] = [];
 
   const makeProfiles = async (root: string) => {
     const runtime = ManagedRuntime.make(
       makeStateEngineLive(join(root, "junto.db")),
     );
-    const state: Context.Service.Shape<typeof StateEngine> =
-      await runtime.runPromise(StateEngine);
+    const sql = await runtime.runPromise(SqlClient.SqlClient);
     stateRuntimes.push(runtime);
-    return makeBrowserProfileService(state, root);
+    return makeBrowserProfileService(sql, root);
   };
 
   afterEach(async () => {

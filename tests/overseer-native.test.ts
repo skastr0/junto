@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { Effect, Fiber, ManagedRuntime, Result } from "effect";
+import { SqlClient } from "effect/unstable/sql";
 import type { CanvasDoc, CanvasNode, TextNode } from "../src/shared/canvas";
 import type { ManagedPromptOutcome } from "../src/shared/managed-prompt";
 import { decodeOverseerArgs } from "../src/shared/overseer-control";
@@ -983,8 +984,8 @@ describe("overseer deletion fences share TermPlane/ChatService identity", () => 
   it("holds a pending open and a new open across prepare-to-finish without a late view", async () => {
     const root = await mkdtemp(join(tmpdir(), "junto-overseer-page-fence-"));
     const runtime = ManagedRuntime.make(makeStateEngineLive(join(root, "junto.db")));
-    const state = await runtime.runPromise(StateEngine);
-    const profiles = makeBrowserProfileService(state, root);
+    const sql = await runtime.runPromise(SqlClient.SqlClient);
+    const profiles = makeBrowserProfileService(sql, root);
     await Effect.runPromise(profiles.ensureDefaults);
 
     const views: Array<{ partition: string; destroyed: boolean; loadUrl?: string }> = [];
@@ -1085,8 +1086,8 @@ describe("overseer deletion fences share TermPlane/ChatService identity", () => 
     const root = await mkdtemp(join(tmpdir(), "junto-overseer-page-receipt-"));
     const runtime = ManagedRuntime.make(makeStateEngineLive(join(root, "junto.db")));
     try {
-      const state = await runtime.runPromise(StateEngine);
-      const profiles = makeBrowserProfileService(state, root);
+      const sql = await runtime.runPromise(SqlClient.SqlClient);
+      const profiles = makeBrowserProfileService(sql, root);
       await Effect.runPromise(profiles.ensureDefaults);
       let resolveDestroyed!: () => void;
       const destroyedPromise = new Promise<void>((resolve) => {
