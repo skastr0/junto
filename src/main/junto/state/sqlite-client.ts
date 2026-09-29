@@ -8,7 +8,10 @@ const sqliteError = (operation: string, cause: unknown): SqlError.SqlError => {
     Object.assign(cause, { errno: cause.errcode });
   }
   return new SqlError.SqlError({
-    reason: SqlError.classifySqliteError(cause, { operation }),
+    reason: SqlError.classifySqliteError(cause, {
+      operation,
+      message: cause instanceof Error ? cause.message : String(cause),
+    }),
   });
 };
 

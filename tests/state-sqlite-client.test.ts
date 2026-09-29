@@ -84,6 +84,24 @@ describe("node:sqlite Effect client", () => {
     expect(yield* Effect.result(invalidRow(undefined))).toMatchObject({ _tag: "Failure", failure: { _tag: "SchemaError" } });
   })));
 
+  test("retains native diagnostics in classified SQL errors on every execution path", () => run(Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+    yield* sql`CREATE TABLE items (name TEXT NOT NULL UNIQUE)`;
+    yield* sql`INSERT INTO items VALUES ('occupied')`;
+    const duplicate = yield* Effect.flip(sql`INSERT INTO items VALUES ('occupied')`);
+    expect(duplicate.message).toBe("UNIQUE constraint failed: items.name");
+    expect(duplicate.reason._tag).toBe("UniqueViolation");
+    const required = yield* Effect.flip(sql`INSERT INTO items VALUES (NULL)`);
+    expect(required.message).toBe("NOT NULL constraint failed: items.name");
+    for (const statement of [sql`SELECT missing FROM items`, sql`SELECT missing FROM items`.raw,
+      sql`SELECT missing FROM items`.values, sql`SELECT missing FROM items`.unprepared,
+      sql`SELECT missing FROM items`.valuesUnprepared, sql`SELECT missing FROM items`.stream.pipe(Stream.runCollect)]) {
+      const error = yield* Effect.flip(statement);
+      expect(error.message).toBe("no such column: missing");
+      expect(error.reason.cause).toBeInstanceOf(Error);
+    }
+  })));
+
   test("commits success, rolls back failures and isolates nested savepoints", () => run(Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
     yield* sql`CREATE TABLE items (id INTEGER PRIMARY KEY)`;

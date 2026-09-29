@@ -393,7 +393,9 @@ const openStateEngine = (
                   live.value.assertCurrent(writer);
                   return writer.get("SELECT total_changes() AS n")!.n;
                 },
-                catch: (cause) => new SqlError.SqlError({ reason: new SqlError.UnknownError({ cause }) }),
+                catch: (cause) => new SqlError.SqlError({ reason: new SqlError.UnknownError({
+                  cause, operation, message: cause instanceof Error ? cause.message : String(cause),
+                }) }),
               });
               const result = yield* body.pipe(Effect.provideService(WorkMutationContext, scope));
               yield* Effect.try({
@@ -402,7 +404,9 @@ const openStateEngine = (
                     live.value.afterMutation?.(writer, operation);
                   }
                 },
-                catch: (cause) => new SqlError.SqlError({ reason: new SqlError.UnknownError({ cause }) }),
+                catch: (cause) => new SqlError.SqlError({ reason: new SqlError.UnknownError({
+                  cause, operation, message: cause instanceof Error ? cause.message : String(cause),
+                }) }),
               });
               if (parent) parent.journaled ||= scope.journaled;
               return result;

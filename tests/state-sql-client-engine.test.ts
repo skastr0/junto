@@ -157,9 +157,9 @@ test("SQL transactions fence live execution and commit its receipt atomically", 
       expect(afterMutation).toHaveBeenCalledTimes(1);
       expect(yield* sql`SELECT n FROM connection_probe ORDER BY n`).toEqual([{ n: 67 }, { n: 73 }]);
       afterMutation.mockImplementationOnce(() => { throw new Error("receipt refused"); });
-      expect(yield* Effect.result(write)).toMatchObject({ _tag: "Failure" });
+      expect(yield* Effect.result(write)).toMatchObject({ _tag: "Failure", failure: { message: "receipt refused" } });
       assertCurrent.mockImplementationOnce(() => { throw new Error("intent revoked"); });
-      expect(yield* Effect.result(write)).toMatchObject({ _tag: "Failure" });
+      expect(yield* Effect.result(write)).toMatchObject({ _tag: "Failure", failure: { message: "intent revoked" } });
       expect(yield* sql`SELECT n FROM connection_probe ORDER BY n`).toEqual([{ n: 67 }, { n: 73 }]);
     }));
   } finally {
