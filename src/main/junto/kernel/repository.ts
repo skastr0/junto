@@ -1,10 +1,7 @@
 import { Context, Effect, Layer, SchemaIssue, Schema } from "effect";
+import { SqlClient, SqlSchema } from "effect/unstable/sql";
 import type { PulseRecord } from "@shared/ipc";
-import {
-  StateEngine,
-  type StateEngineError,
-  type StateRow,
-} from "../state/service";
+import { StateTransactionOperation } from "../state/service";
 
 export const KERNEL_DEBUG_RING_LIMIT = 20;
 
@@ -53,23 +50,23 @@ export class KernelStateRepository extends Context.Service<KernelStateRepository
     >;
   }>()("@junto/KernelStateRepository") {}
 
-type ArmedRegionRow = StateRow & {
-  readonly canvas_name: string;
-  readonly region_id: string;
-};
+const ArmedRegionRow = Schema.Struct({
+  canvas_name: Schema.String,
+  region_id: Schema.String,
+});
 
-type DebugPulseRow = StateRow & {
-  readonly position: number;
-  readonly id: string;
-  readonly at_epoch_ms: number;
-  readonly canvas_name: string;
-  readonly source_node_id: string;
-  readonly region_id: string | null;
-  readonly kind: string;
-  readonly summary: string;
-  readonly delivered_json: string;
-  readonly dry: number;
-};
+const DebugPulseRow = Schema.Struct({
+  position: Schema.Number,
+  id: Schema.String,
+  at_epoch_ms: Schema.Number,
+  canvas_name: Schema.String,
+  source_node_id: Schema.String,
+  region_id: Schema.NullOr(Schema.String),
+  kind: Schema.String,
+  summary: Schema.String,
+  delivered_json: Schema.String,
+  dry: Schema.Number,
+});
 
 const PulseKind = Schema.Literals(["watcher", "timer", "manual"]);
 const Delivered = Schema.Array(Schema.String);
@@ -81,17 +78,17 @@ const parseError = (error: Schema.SchemaError): string =>
 
 const persistenceError = (
   operation: string,
-  error: StateEngineError,
+  error: unknown,
 ): KernelStateRepositoryError =>
-  error.cause instanceof KernelStateCorruptError
-    ? error.cause
+  error instanceof KernelStateCorruptError
+    ? error
     : KernelStatePersistenceError.make({
         operation,
-        message: error.message,
+        message: error instanceof Error ? error.message : String(error),
         cause: error,
       });
 
-const pulseFromRow = (row: DebugPulseRow): PulseRecord => {
+const pulseFromRow = (row: typeof DebugPulseRow.Type): PulseRecord => {
   const kind = decodePulseKind(row.kind);
   if (kind._tag === "Failure") {
     throw KernelStateCorruptError.make({
@@ -138,137 +135,70 @@ const pulseFromRow = (row: DebugPulseRow): PulseRecord => {
 export const KernelStateRepositoryLive: Layer.Layer<
   KernelStateRepository,
   never,
-  StateEngine
+  SqlClient.SqlClient
 > = Layer.effect(
   KernelStateRepository,
   Effect.gen(function* () {
-    const state = yield* StateEngine;
+    const sql = yield* SqlClient.SqlClient;
+    const armedRows = SqlSchema.findAll({
+      Request: Schema.Void,
+      Result: ArmedRegionRow,
+      execute: () => sql`SELECT canvas_name, region_id FROM kernel_armed_regions ORDER BY canvas_name, region_id`,
+    });
+    const pulseRows = SqlSchema.findAll({
+      Request: Schema.Void,
+      Result: DebugPulseRow,
+      execute: () => sql`
+        SELECT position, id, at_epoch_ms, canvas_name, source_node_id, region_id, kind, summary, delivered_json, dry
+        FROM kernel_debug_pulses ORDER BY position
+      `,
+    });
 
-    const listArmedRegions = state
-      .read("kernel-state.list-armed-regions", (reader) =>
-        reader
-          .all<ArmedRegionRow>(
-            `
-              SELECT canvas_name, region_id
-              FROM kernel_armed_regions
-              ORDER BY canvas_name, region_id
-            `,
-          )
-          .map((row) => ({
-            canvasName: row.canvas_name,
-            regionId: row.region_id,
-          })),
-      )
-      .pipe(Effect.mapError((error) => persistenceError("list armed regions", error)));
+    const listArmedRegions = Effect.fn("kernel-state.list-armed-regions")(function* () {
+      return (yield* armedRows(undefined)).map((row) => ({ canvasName: row.canvas_name, regionId: row.region_id }));
+    }, Effect.mapError((error) => persistenceError("list armed regions", error)))();
 
-    const setRegionArmed = (
+    const setRegionArmed = Effect.fn("kernel-state.set-region-armed")(function* (
       canvasName: string,
       regionId: string,
       armed: boolean,
-    ) =>
-      state
-        .transaction("kernel-state.set-region-armed", (writer) => {
-          if (armed) {
-            writer.run(
-              `
-                INSERT INTO kernel_armed_regions(
-                  canvas_name,
-                  region_id,
-                  armed_at
-                ) VALUES (?, ?, ?)
-                ON CONFLICT(canvas_name, region_id) DO UPDATE SET
-                  armed_at = excluded.armed_at
-              `,
-              [canvasName, regionId, new Date().toISOString()],
-            );
-            return;
-          }
-          writer.run(
-            `
-              DELETE FROM kernel_armed_regions
-              WHERE canvas_name = ? AND region_id = ?
-            `,
-            [canvasName, regionId],
-          );
-        })
-        .pipe(
-          Effect.mapError((error) =>
-            persistenceError(
-              `${armed ? "arm" : "disarm"} ${canvasName}/${regionId}`,
-              error,
-            )
-          ),
-        );
+    ) {
+      if (armed) {
+        yield* sql`
+          INSERT INTO kernel_armed_regions(canvas_name, region_id, armed_at)
+          VALUES (${canvasName}, ${regionId}, ${new Date().toISOString()})
+          ON CONFLICT(canvas_name, region_id) DO UPDATE SET armed_at = excluded.armed_at
+        `;
+        return;
+      }
+      yield* sql`DELETE FROM kernel_armed_regions WHERE canvas_name = ${canvasName} AND region_id = ${regionId}`;
+    }, sql.withTransaction, Effect.provideService(StateTransactionOperation, "kernel-state.set-region-armed"),
+    (effect, canvasName, regionId, armed) => effect.pipe(Effect.mapError((error) =>
+      persistenceError(`${armed ? "arm" : "disarm"} ${canvasName}/${regionId}`, error))));
 
-    const replaceDebugPulseRing = (records: ReadonlyArray<PulseRecord>) => {
+    const replaceDebugPulseRing = Effect.fn("kernel-state.replace-debug-pulse-ring")((records: ReadonlyArray<PulseRecord>) => {
       const retained = records.slice(-KERNEL_DEBUG_RING_LIMIT);
       const recordedAt = new Date().toISOString();
-      return state
-        .transaction("kernel-state.replace-debug-pulse-ring", (writer) => {
-          writer.run("DELETE FROM kernel_debug_pulses");
-          retained.forEach((record, position) => {
-            writer.run(
-              `
-                INSERT INTO kernel_debug_pulses(
-                  position,
-                  id,
-                  at_epoch_ms,
-                  canvas_name,
-                  source_node_id,
-                  region_id,
-                  kind,
-                  summary,
-                  delivered_json,
-                  dry,
-                  recorded_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-              `,
-              [
-                position,
-                record.id,
-                record.at,
-                record.canvasName,
-                record.sourceNodeId,
-                record.regionId ?? null,
-                record.kind,
-                record.summary,
-                JSON.stringify(record.delivered),
-                record.dry ? 1 : 0,
-                recordedAt,
-              ],
-            );
-          });
-        })
-        .pipe(
-          Effect.mapError((error) =>
-            persistenceError("replace debug pulse ring", error)
-          ),
-        );
-    };
+      return Effect.gen(function* () {
+        yield* sql`DELETE FROM kernel_debug_pulses`;
+        for (const [position, record] of retained.entries()) {
+          yield* sql`
+            INSERT INTO kernel_debug_pulses(position, id, at_epoch_ms, canvas_name, source_node_id, region_id, kind, summary, delivered_json, dry, recorded_at)
+            VALUES (${position}, ${record.id}, ${record.at}, ${record.canvasName}, ${record.sourceNodeId}, ${record.regionId ?? null},
+              ${record.kind}, ${record.summary}, ${JSON.stringify(record.delivered)}, ${record.dry ? 1 : 0}, ${recordedAt})
+          `;
+        }
+      });
+    }, sql.withTransaction, Effect.provideService(StateTransactionOperation, "kernel-state.replace-debug-pulse-ring"),
+    Effect.mapError((error) => persistenceError("replace debug pulse ring", error)));
 
-    const readDebugPulseRing = state
-      .read("kernel-state.read-debug-pulse-ring", (reader) =>
-        reader
-          .all<DebugPulseRow>(
-            `
-              SELECT
-                position,
-                id,
-                at_epoch_ms,
-                canvas_name,
-                source_node_id,
-                region_id,
-                kind,
-                summary,
-                delivered_json,
-                dry
-              FROM kernel_debug_pulses
-              ORDER BY position
-            `,
-          )
-          .map(pulseFromRow),
-      )
-      .pipe(Effect.mapError((error) => persistenceError("read debug pulse ring", error)));
+    const readDebugPulseRing = Effect.fn("kernel-state.read-debug-pulse-ring")(function* () {
+      const rows = yield* pulseRows(undefined).pipe(Effect.mapError((error) => persistenceError("read debug pulse ring", error)));
+      return yield* Effect.try({
+        try: () => rows.map(pulseFromRow),
+        catch: (error) => persistenceError("read debug pulse ring", error),
+      });
+    })();
 
     return KernelStateRepository.of({
       listArmedRegions,
