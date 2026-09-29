@@ -431,8 +431,8 @@ const scanDecodes = (
 
 // ---------------------------------------------------------------- rule 4 ----
 
-const JOURNAL_FREE_CALL = /\bunjournaledWorkMutation\s*\(\s*["']([^"']+)["']/;
-const JOURNAL_FREE_ANY = /\bunjournaledWorkMutation\s*\(/;
+const JOURNAL_FREE_CALL = /\bunjournaledWorkMutation(?:Effect)?\s*\(\s*["']([^"']+)["']/;
+const JOURNAL_FREE_ANY = /\bunjournaledWorkMutation(?:Effect)?\s*\(/;
 
 type JournalFreeHit = Hit & { readonly reason: string | undefined };
 
