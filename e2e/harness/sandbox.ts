@@ -29,7 +29,8 @@ import {
   SettingsLive,
   SettingsService,
 } from "../../src/main/junto/settings/service";
-import { makeHostsRegistry } from "../../src/main/junto/hosts/registry";
+import { HostsPersistence, makeHostsRegistry } from "../../src/main/junto/hosts/registry";
+import { HostsPersistenceLive } from "../../src/main/junto/hosts/service";
 import type { RemoteHost } from "../../src/shared/remote-hosts";
 import type { UsageState } from "../../src/shared/usage";
 import type { AgentSignal } from "../../src/shared/agent-signals";
@@ -396,13 +397,13 @@ export const writeFixtureHosts = async (
   hosts: ReadonlyArray<RemoteHost>,
 ): Promise<void> => {
   const runtime = ManagedRuntime.make(
-    makeStateEngineLive(
-      join(sandbox.homeDir, ".junto", "state", "junto.db"),
-    ),
+    HostsPersistenceLive.pipe(Layer.provide(
+      makeStateEngineLive(join(sandbox.homeDir, ".junto", "state", "junto.db")),
+    )),
   );
   try {
-    const state = await runtime.runPromise(StateEngine);
-    const registry = makeHostsRegistry(state, (e) => Effect.runPromise(e));
+    const persistence = await runtime.runPromise(HostsPersistence);
+    const registry = makeHostsRegistry(persistence, (e) => runtime.runPromise(e));
     for (const host of hosts) {
       await registry.upsert(host);
     }

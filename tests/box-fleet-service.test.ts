@@ -1,7 +1,8 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Effect, Layer, ManagedRuntime } from "effect";
+import { Effect, Layer, ManagedRuntime, Schema } from "effect";
+import { SqlClient } from "effect/unstable/sql";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 // Box unit tests exercise the service body; production freezes Box for the
@@ -30,14 +31,17 @@ import {
 } from "../src/main/junto/box/repository";
 import { makeBoxFleetService } from "../src/main/junto/box/service";
 import { BoxFleetAuthorizationError } from "../src/main/junto/box/service";
-import { makeHostsRegistry } from "../src/main/junto/hosts/registry";
+import { HostsPersistence, makeHostsRegistry } from "../src/main/junto/hosts/registry";
+import { HostsPersistenceLive } from "../src/main/junto/hosts/service";
 import {
   findHostById,
   setHostsSnapshot,
 } from "../src/main/junto/hosts/snapshot";
 import { defaultRemoteHostsDocument } from "../src/shared/remote-hosts";
 import { makeStateEngineLive } from "../src/main/junto/state/engine";
-import { StateEngine } from "../src/main/junto/state/service";
+import { HostId } from "../src/shared/remote-hosts";
+import { InstallationId } from "../src/shared/installation-id";
+import { StationFleetTargetRepository, StationFleetTargetRepositoryLive } from "../src/main/junto/station/fleet-target-repository";
 
 const roots: string[] = [];
 const runtimes: Array<{ readonly dispose: () => Promise<void> }> = [];
@@ -59,12 +63,14 @@ const fixture = async () => {
   roots.push(root);
   const stateLive = makeStateEngineLive(join(root, "junto.db"));
   const complete = ManagedRuntime.make(
-    Layer.provideMerge(BoxOwnershipRepositoryLive, stateLive),
+    Layer.provideMerge(Layer.mergeAll(
+      BoxOwnershipRepositoryLive, HostsPersistenceLive, StationFleetTargetRepositoryLive,
+    ), stateLive),
   );
   runtimes.push(complete);
   const repository = await complete.runPromise(BoxOwnershipRepository);
-  const state = await complete.runPromise(StateEngine);
-  return { repository, state };
+  const state = await complete.runPromise(HostsPersistence);
+  return { repository, state, runtime: complete };
 };
 
 afterEach(async () => {
@@ -77,6 +83,54 @@ afterEach(async () => {
 });
 
 describe("Box Fleet service ownership", () => {
+  it("physically removes a host's Box and retired fleet binding while preserving other hosts", async () => {
+    const { repository, state, runtime } = await fixture();
+    const sql = await runtime.runPromise(SqlClient.SqlClient);
+    const fleet = await runtime.runPromise(StationFleetTargetRepository);
+    const registry = makeHostsRegistry(state, (effect) => runtime.runPromise(effect));
+    const box = await runtime.runPromise(repository.enrollCreated(machine()));
+    await runtime.runPromise(repository.enrollVerifiedHost(box, "/test/box_key"));
+    await registry.upsert({ id: "keep", label: "Keep", kind: "remote", capabilities: ["terminal"] });
+    const hostId = Schema.decodeUnknownSync(HostId)("box-c79mgja6");
+    await runtime.runPromise(fleet.bind({
+      hostId, stationInstallationId: Schema.decodeUnknownSync(InstallationId)("removed-box-installation"),
+    }));
+    await runtime.runPromise(fleet.remove(hostId));
+    expect(await runtime.runPromise(sql`SELECT host_id FROM station_fleet_targets`))
+      .toEqual([{ host_id: hostId }]);
+    expect(await runtime.runPromise(repository.list)).toHaveLength(1);
+
+    expect((await registry.remove(hostId)).map((host) => host.id)).toEqual(["local", "keep"]);
+    expect(await runtime.runPromise(sql`SELECT box_id FROM box_resources`)).toEqual([]);
+    expect(await runtime.runPromise(sql`SELECT host_id FROM station_fleet_targets`)).toEqual([]);
+    expect(await runtime.runPromise(sql`SELECT installation_id FROM station_known_installations`))
+      .toEqual([{ installation_id: "removed-box-installation" }]);
+  });
+
+  it("rolls back Box updates when a host route conflicts and returns typed stale-route failures", async () => {
+    const { repository, state, runtime } = await fixture();
+    const registry = makeHostsRegistry(state, (effect) => runtime.runPromise(effect));
+    const original = await runtime.runPromise(repository.enrollCreated(machine()));
+    const box = await runtime.runPromise(repository.enrollVerifiedHost(original, "/test/box_key"));
+    await registry.upsert({
+      id: "occupied-route", label: "Occupied", kind: "remote",
+      capabilities: ["terminal"], sshEndpoint: "user@203.0.113.9",
+    });
+    const before = await runtime.runPromise(repository.list);
+    expect(await runtime.runPromise(repository.updateMachine(box, machine("running", "203.0.113.9")).pipe(Effect.result)))
+      .toMatchObject({ _tag: "Failure", failure: { _tag: "BoxOwnershipPersistenceError", operation: "update-machine" } });
+    expect(await runtime.runPromise(repository.list)).toEqual(before);
+    expect((await registry.get("box-c79mgja6"))?.sshEndpoint).toBe("user@203.0.113.8");
+
+    await runtime.runPromise(repository.updateMachine(box, machine("running", "203.0.113.10")));
+    expect(await runtime.runPromise(repository.enrollVerifiedHost(box, "/test/box_key").pipe(Effect.result)))
+      .toMatchObject({ _tag: "Failure", failure: {
+        _tag: "BoxOwnershipPersistenceError", operation: "enroll-verified-host",
+        detail: "Box route changed during OpenSSH verification",
+      } });
+    expect((await registry.get("box-c79mgja6"))?.sshEndpoint).toBe("user@203.0.113.10");
+  });
+
   it("returns a created Box only after SSH preparation and route verification", async () => {
     const { repository, state } = await fixture();
     const create = vi.fn(() => Effect.succeed(machine()));

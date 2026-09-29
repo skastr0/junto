@@ -15,12 +15,6 @@ import {
   type RemoteHost,
   type RemoteHostsDocument,
 } from "@shared/remote-hosts";
-import {
-  StateEngine,
-  StateEngineError,
-  type StateReader,
-  type StateWriter,
-} from "../state/service";
 
 const HERMES_CAPABILITY_BIT = 8;
 const MAX_HOSTS = 32;
@@ -39,8 +33,6 @@ const CAPABILITIES_IN_STORAGE_ORDER = [
   "hermes",
 ] as const satisfies ReadonlyArray<HostCapability>;
 
-type StateService = Context.Service.Shape<typeof StateEngine>;
-
 type HostRow = {
   readonly id: string;
   readonly label: string;
@@ -53,10 +45,6 @@ type HostRow = {
   readonly appearance_color: string | null;
   readonly appearance_glyph: string | null;
   readonly sort_order: number;
-};
-
-type RegistryStateRow = {
-  readonly singleton: number;
 };
 
 export class HostsStateError extends Schema.TaggedError<HostsStateError>()(
@@ -380,207 +368,13 @@ export class HostRegistryRows extends Context.Service<HostRegistryRows, {
   }));
 }
 
-const readStoredDocument = (reader: StateReader): RemoteHostsDocument => {
-  const hosts = reader
-    .all<HostRow>(`
-      SELECT
-        id,
-        label,
-        kind,
-        ssh_endpoint,
-        ssh_identity_file,
-        ssh_host_key_policy,
-        capability_mask,
-        hermes_id,
-        appearance_color,
-        appearance_glyph,
-        sort_order
-      FROM host_registry
-      ORDER BY sort_order
-    `)
-    .map(rowToHost);
-  validateHosts(hosts);
-  return { version: REMOTE_HOSTS_VERSION, hosts };
-};
-
-const writeHost = (
-  writer: StateWriter,
-  host: RemoteHost,
-  sortOrder: number,
-): void => {
-  const mask = capabilityMask(host);
-  const effectiveHermesId = hostHasCapability(host, "hermes")
-    ? hermesKeyFor(host)
-    : null;
-  writer.run(
-    `
-      INSERT INTO host_registry(
-        id,
-        label,
-        kind,
-        ssh_endpoint,
-        ssh_identity_file,
-        ssh_host_key_policy,
-        capability_mask,
-        hermes_id,
-        effective_hermes_id,
-        appearance_color,
-        appearance_glyph,
-        sort_order
-      )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT(id) DO UPDATE SET
-        label = excluded.label,
-        kind = excluded.kind,
-        ssh_endpoint = excluded.ssh_endpoint,
-        ssh_identity_file = excluded.ssh_identity_file,
-        ssh_host_key_policy = excluded.ssh_host_key_policy,
-        capability_mask = excluded.capability_mask,
-        hermes_id = excluded.hermes_id,
-        effective_hermes_id = excluded.effective_hermes_id,
-        appearance_color = excluded.appearance_color,
-        appearance_glyph = excluded.appearance_glyph,
-        sort_order = excluded.sort_order
-    `,
-    [
-      host.id,
-      host.label,
-      host.kind,
-      host.kind === "remote" ? (host.sshEndpoint ?? null) : null,
-      host.kind === "remote" ? (host.sshIdentityFile ?? null) : null,
-      host.kind === "remote" ? (host.sshHostKeyPolicy ?? null) : null,
-      mask,
-      host.hermesId ?? null,
-      effectiveHermesId,
-      host.appearance?.color ?? null,
-      host.appearance?.glyph ?? null,
-      sortOrder,
-    ],
-  );
-};
-
-const stateError = (
-  operation: string,
-  error: StateEngineError,
-): HostsStateError =>
-  HostsStateError.make({
-    operation,
-    message: error.message,
-    cause: error,
-  });
-
-const toRemoteHostsError = (
-  error: HostsStateError | RemoteHostsError,
-): RemoteHostsError =>
-  error instanceof RemoteHostsError
-    ? error
-    : new RemoteHostsError(
-        "io",
-        `hosts database ${error.operation} failed: ${error.message}`,
-      );
-
-const stateMutationError = (
-  operation: string,
-  error: StateEngineError,
-): RemoteHostsError =>
-  error.cause instanceof RemoteHostsError
-    ? error.cause
-    : toRemoteHostsError(stateError(operation, error));
-
-const registryState = (
-  reader: StateReader,
-): RegistryStateRow | undefined =>
-  reader.get<RegistryStateRow>(`
-    SELECT singleton
-    FROM host_registry_state
-    WHERE singleton = 1
-  `);
-
-/**
- * Establish the exact-current host registry inside an existing StateEngine
- * transaction. Station configuration and the normal HostsService bootstrap
- * share this construction so neither can create a partial registry.
- */
-export const ensureHostRegistryState = (
-  writer: StateWriter,
-  initializedAt: string,
-): void => {
-  if (registryState(writer) !== undefined) return;
-  const existing = writer.get<{ readonly count: number }>(
-    "SELECT count(*) AS count FROM host_registry",
-  )?.count ?? 0;
-  if (existing !== 0) {
-    throw new Error(
-      "host registry rows exist without initialization metadata",
-    );
-  }
-  writeHost(writer, defaultRemoteHostsDocument().hosts[0]!, 0);
-  writer.run(
-    `
-      INSERT INTO host_registry_state(
-        singleton,
-        version,
-        initialized_at
-      )
-      VALUES (1, 1, ?)
-    `,
-    [initializedAt],
-  );
-};
-
-/**
- * Canonical host mutation used by both operator enrollment and authenticated
- * Remote configuration. Validation is against the complete resulting
- * registry, so endpoint and Hermes-key uniqueness remain transaction facts.
- */
-export const upsertHostState = (
-  writer: StateWriter,
-  host: RemoteHost,
-): RemoteHostsDocument => {
-  const current = readStoredDocument(writer);
-  const entry =
-    host.id === LOCAL_HOST_ID
-      ? makeLocalHost({
-          label: host.label,
-          hermesId: host.hermesId,
-          appearance: host.appearance,
-        })
-      : host;
-  const nextHosts = [...current.hosts];
-  const index = nextHosts.findIndex((row) => row.id === entry.id);
-  if (index >= 0) nextHosts[index] = entry;
-  else nextHosts.push(entry);
-  validateHosts(nextHosts);
-
-  const currentOrder = writer.get<{ readonly sort_order: number }>(
-    "SELECT sort_order FROM host_registry WHERE id = ?",
-    [entry.id],
-  )?.sort_order;
-  const maxOrder = writer.get<{
-    readonly max_order: number | null;
-  }>(
-    "SELECT max(sort_order) AS max_order FROM host_registry",
-  )?.max_order ?? 0;
-  writeHost(writer, entry, currentOrder ?? maxOrder + 1);
-  return readStoredDocument(writer);
-};
-
-const initializeRegistry = (
-  state: StateService,
-): Effect.Effect<void, HostsStateError> =>
-  Effect.gen(function* () {
-    const initialized = yield* state
-      .read("hosts.initialized", registryState)
-      .pipe(Effect.mapError((error) => stateError("initialize-read", error)));
-    if (initialized !== undefined) return;
-
-    const initializedAt = new Date().toISOString();
-    yield* state
-      .transaction("hosts.initialize", (writer) => {
-        ensureHostRegistryState(writer, initializedAt);
-      })
-      .pipe(Effect.mapError((error) => stateError("initialize-write", error)));
-  }).pipe(Effect.withSpan("hosts.initialize"));
+/** Owning operations composed above the SQL row leaves in hosts/service.ts. */
+export class HostsPersistence extends Context.Service<HostsPersistence, {
+  readonly initialize: Effect.Effect<void, RemoteHostsError>;
+  readonly read: Effect.Effect<RemoteHostsDocument, RemoteHostsError>;
+  readonly upsert: (host: RemoteHost) => Effect.Effect<RemoteHostsDocument, RemoteHostsError>;
+  readonly remove: (id: string) => Effect.Effect<RemoteHostsDocument, RemoteHostsError>;
+}>()("@junto/HostsPersistence") {}
 
 /**
  * Host-injected Promise bridge. Product code passes AppRuntime/RemoteRuntime
@@ -619,7 +413,7 @@ export interface HostsRegistry {
 }
 
 export const makeHostsRegistry = (
-  state: StateService,
+  persistence: HostsPersistence["Service"],
   runPromise: HostsRegistryRunPromise,
 ): HostsRegistry => {
   const runRegistryEffect = makeRunRegistryEffect(runPromise);
@@ -628,7 +422,7 @@ export const makeHostsRegistry = (
   const ensure = (): Promise<void> => {
     if (initialization) return initialization;
     initialization = runRegistryEffect(
-      initializeRegistry(state).pipe(Effect.mapError(toRemoteHostsError)),
+      persistence.initialize,
     ).catch((error) => {
       initialization = undefined;
       throw error;
@@ -639,14 +433,7 @@ export const makeHostsRegistry = (
   const load = async (): Promise<RemoteHostsDocument> => {
     await ensure();
     return runRegistryEffect(
-      state
-        .read("hosts.list", readStoredDocument)
-        .pipe(
-          Effect.map(projectDocument),
-          Effect.mapError((error) =>
-            toRemoteHostsError(stateError("list", error))
-          ),
-        ),
+      persistence.read.pipe(Effect.map(projectDocument)),
     );
   };
 
@@ -681,14 +468,7 @@ export const makeHostsRegistry = (
       }
 
       const next = await runRegistryEffect(
-        state
-          .transaction("hosts.upsert", (writer) => {
-            return upsertHostState(writer, host);
-          })
-          .pipe(
-            Effect.map(projectDocument),
-            Effect.mapError((error) => stateMutationError("upsert", error)),
-          ),
+        persistence.upsert(host).pipe(Effect.map(projectDocument)),
       );
       return next.hosts;
     },
@@ -702,33 +482,7 @@ export const makeHostsRegistry = (
       }
 
       const next = await runRegistryEffect(
-        state
-          .transaction("hosts.remove", (writer) => {
-            const current = readStoredDocument(writer);
-            if (!current.hosts.some((host) => host.id === id)) {
-              throw new RemoteHostsError(
-                "not_found",
-                `unknown host: ${id}`,
-              );
-            }
-            // Dependent product rows that RESTRICT host_registry deletion.
-            for (const sql of [
-              "DELETE FROM box_resources WHERE host_id = ?",
-              "DELETE FROM station_fleet_targets WHERE host_id = ?",
-            ] as const) {
-              try {
-                writer.run(sql, [id]);
-              } catch {
-                // Table may be absent on older isolated fixtures; continue.
-              }
-            }
-            writer.run("DELETE FROM host_registry WHERE id = ?", [id]);
-            return readStoredDocument(writer);
-          })
-          .pipe(
-            Effect.map(projectDocument),
-            Effect.mapError((error) => stateMutationError("remove", error)),
-          ),
+        persistence.remove(id).pipe(Effect.map(projectDocument)),
       );
       return next.hosts;
     },
@@ -739,11 +493,11 @@ export const makeHostsRegistry = (
 let defaultRegistry: HostsRegistry | undefined;
 
 export const getDefaultHostsRegistry = (
-  state?: StateService,
+  persistence?: HostsPersistence["Service"],
   runPromise?: HostsRegistryRunPromise,
 ): HostsRegistry => {
-  if (!defaultRegistry && state && runPromise) {
-    defaultRegistry = makeHostsRegistry(state, runPromise);
+  if (!defaultRegistry && persistence && runPromise) {
+    defaultRegistry = makeHostsRegistry(persistence, runPromise);
   }
   if (!defaultRegistry) {
     throw new RemoteHostsError(

@@ -1,4 +1,5 @@
 import { Context, Effect, Result, Layer, Schema, Semaphore } from "effect";
+import { SqlClient } from "effect/unstable/sql";
 import type { ServiceCheck } from "@shared/contracts";
 import type {
   StationProtocolObservation,
@@ -25,10 +26,14 @@ import {
 import { StationFleetPropagation } from "../station/fleet-propagation";
 import {
   getDefaultHostsRegistry,
+  HostRegistryRows,
+  HostsPersistence,
   type HostsRegistry,
 } from "./registry";
 import { setHostsSnapshot } from "./snapshot";
-import { StateEngine } from "../state/service";
+import { StateTransactionOperation } from "../state/service";
+import { BoxResourceCleanup } from "../box/repository";
+import { StationFleetTargetCleanup } from "../station/fleet-target-repository";
 
 const decodeHost = Schema.decodeUnknownResult(RemoteHost, {
   onExcessProperty: "error",
@@ -207,18 +212,61 @@ export const makeHostsService = (
   };
 };
 
+const persistenceError = (operation: string, cause: unknown): RemoteHostsError =>
+  new RemoteHostsError("io", `hosts database ${operation} failed: ${
+    cause instanceof Error ? cause.message : String(cause)
+  }`);
+
+/** Owns transactions spanning the independent host, Box and fleet row leaves. */
+export const HostsPersistenceLive = Layer.effect(HostsPersistence, Effect.gen(function* () {
+  const sql = yield* SqlClient.SqlClient;
+  const rows = yield* HostRegistryRows;
+  const boxes = yield* BoxResourceCleanup;
+  const fleet = yield* StationFleetTargetCleanup;
+  const initialize = Effect.gen(function* () {
+    if (yield* rows.initialized.pipe(Effect.mapError((cause) => persistenceError("initialize-read", cause)))) return;
+    yield* sql.withTransaction(rows.ensure(new Date().toISOString())).pipe(
+      Effect.provideService(StateTransactionOperation, "hosts.initialize"),
+      Effect.mapError((cause) => persistenceError("initialize-write", cause)),
+    );
+  }).pipe(Effect.withSpan("HostsPersistence.initialize"));
+  const read = rows.read.pipe(Effect.mapError((cause) => persistenceError("list", cause)));
+  const upsert = Effect.fn("HostsPersistence.upsert")(function* (host: RemoteHostT) {
+    return yield* sql.withTransaction(rows.upsert(host)).pipe(
+      Effect.provideService(StateTransactionOperation, "hosts.upsert"),
+      Effect.mapError((cause) => cause instanceof RemoteHostsError ? cause : persistenceError("upsert", cause)),
+    );
+  });
+  const remove = Effect.fn("HostsPersistence.remove")(function* (id: string) {
+    return yield* sql.withTransaction(Effect.gen(function* () {
+      const current = yield* rows.read;
+      if (!current.hosts.some((host) => host.id === id)) {
+        return yield* Effect.fail(new RemoteHostsError("not_found", `unknown host: ${id}`));
+      }
+      yield* boxes.deleteForHost(id);
+      yield* fleet.deleteForHost(id);
+      yield* rows.delete(id);
+      return yield* rows.read;
+    })).pipe(
+      Effect.provideService(StateTransactionOperation, "hosts.remove"),
+      Effect.mapError((cause) => cause instanceof RemoteHostsError ? cause : persistenceError("remove", cause)),
+    );
+  });
+  return { initialize, read, upsert, remove };
+})).pipe(Layer.provide([HostRegistryRows.layer, BoxResourceCleanup.layer, StationFleetTargetCleanup.layer]));
+
 export const HostsServiceLive = Layer.effect(
   HostsService,
   Effect.gen(function* () {
     const ssh = yield* SshTransport;
-    const state = yield* StateEngine;
+    const persistence = yield* HostsPersistence;
     const fleet = yield* StationFleetPropagation;
     // Capture warm ambient Context so registry Promise bridges never use bare
     // Effect.runPromise (AppRuntime / RemoteRuntime host entry).
     const runtime = yield* Effect.context<never>();
     const runPromise = <A, E>(effect: Effect.Effect<A, E, never>) =>
       Effect.runPromiseWith(runtime)(effect);
-    const registry = getDefaultHostsRegistry(state, runPromise);
+    const registry = getDefaultHostsRegistry(persistence, runPromise);
     // Layer acquisition is the normal-boot barrier: the persisted database is
     // visible to synchronous Hermes routing before this layer can feed
     // either transport or plane.
@@ -234,4 +282,4 @@ export const HostsServiceLive = Layer.effect(
     );
     return makeHostsService(registry, ssh, fleet);
   }),
-);
+).pipe(Layer.provide(HostsPersistenceLive));

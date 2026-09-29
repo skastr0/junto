@@ -19,9 +19,11 @@ import {
 import { ProductPlanesLive } from "../src/main/runtime";
 import {
   HostsService,
+  HostsPersistenceLive,
   makeHostsService,
 } from "../src/main/junto/hosts/service";
 import {
+  HostsPersistence,
   makeHostsRegistry,
   resetDefaultHostsRegistryForTests,
   type HostsRegistry,
@@ -29,7 +31,6 @@ import {
 import {
   makeStateEngineLive,
 } from "../src/main/junto/state/engine";
-import { StateEngine } from "../src/main/junto/state/service";
 import {
   findHostByHermesId,
   findHostById,
@@ -50,14 +51,14 @@ const unusedFleet = {} as Context.Service.Shape<
 const stateDisposers: Array<() => Promise<void>> = [];
 const stateByPath = new Map<
   string,
-  Context.Service.Shape<typeof StateEngine>
+  Context.Service.Shape<typeof HostsPersistence>
 >();
 
 const testRegistry = async (databasePath: string) => {
   let state = stateByPath.get(databasePath);
   if (!state) {
-    const runtime = ManagedRuntime.make(makeStateEngineLive(databasePath));
-    state = await runtime.runPromise(StateEngine);
+    const runtime = ManagedRuntime.make(HostsPersistenceLive.pipe(Layer.provide(makeStateEngineLive(databasePath))));
+    state = await runtime.runPromise(HostsPersistence);
     stateByPath.set(databasePath, state);
     stateDisposers.push(() => runtime.dispose());
   }
@@ -179,9 +180,9 @@ describe("remote hosts registry", () => {
     dirs.push(root);
     const databasePath = join(root, "junto.db");
 
-    const firstRuntime = ManagedRuntime.make(makeStateEngineLive(databasePath));
+    const firstRuntime = ManagedRuntime.make(HostsPersistenceLive.pipe(Layer.provide(makeStateEngineLive(databasePath))));
     try {
-      const state = await firstRuntime.runPromise(StateEngine);
+      const state = await firstRuntime.runPromise(HostsPersistence);
       await makeHostsRegistry(state, (e) => Effect.runPromise(e)).upsert({
         id: "studio",
         label: "Studio",
@@ -193,9 +194,9 @@ describe("remote hosts registry", () => {
       await firstRuntime.dispose();
     }
 
-    const secondRuntime = ManagedRuntime.make(makeStateEngineLive(databasePath));
+    const secondRuntime = ManagedRuntime.make(HostsPersistenceLive.pipe(Layer.provide(makeStateEngineLive(databasePath))));
     try {
-      const state = await secondRuntime.runPromise(StateEngine);
+      const state = await secondRuntime.runPromise(HostsPersistence);
       expect(
         (await makeHostsRegistry(state, (e) => Effect.runPromise(e)).list()).map((host) => host.id),
       ).toEqual(["local", "studio"]);
@@ -314,9 +315,9 @@ describe("remote hosts registry", () => {
     dirs.push(root);
     process.env.HOME = root;
     const databasePath = join(root, ".junto", "state", "junto.db");
-    const setupRuntime = ManagedRuntime.make(makeStateEngineLive(databasePath));
+    const setupRuntime = ManagedRuntime.make(HostsPersistenceLive.pipe(Layer.provide(makeStateEngineLive(databasePath))));
     try {
-      const state = await setupRuntime.runPromise(StateEngine);
+      const state = await setupRuntime.runPromise(HostsPersistence);
       await makeHostsRegistry(state, (e) => Effect.runPromise(e)).upsert({
         id: "studio",
         label: "Studio",
@@ -332,9 +333,9 @@ describe("remote hosts registry", () => {
     setHostsSnapshot(defaultRemoteHostsDocument().hosts);
     expect(findHostById("studio") !== undefined).toBe(false);
 
-    const reopen = ManagedRuntime.make(makeStateEngineLive(databasePath));
+    const reopen = ManagedRuntime.make(HostsPersistenceLive.pipe(Layer.provide(makeStateEngineLive(databasePath))));
     try {
-      const state = await reopen.runPromise(StateEngine);
+      const state = await reopen.runPromise(HostsPersistence);
       const registry = makeHostsRegistry(state, (e) => Effect.runPromise(e));
       const service = makeHostsService(
         registry,

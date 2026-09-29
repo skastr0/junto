@@ -343,12 +343,10 @@
       "path": "src/main/junto/hosts/registry.ts",
       "kind": "debt",
       "tables": [
-        "box_resources",
         "host_registry",
-        "host_registry_state",
-        "station_fleet_targets"
+        "host_registry_state"
       ],
-      "reason": "Host registry seam: host rows, per-host state, and the cascade that clears a removed host's boxes and fleet targets.",
+      "reason": "Host registry seam: host rows and per-host state. Host removal delegates Box and fleet cleanup to their owners.",
       "retire": "IN-MEMORY WORLD: retire when the in-memory factory world owns the projection and this file's only write is the journal append."
     },
     {
@@ -516,24 +514,6 @@
       ],
       "reason": "Both DDL modules declare SQLite triggers for the same derived canvas revision counter. Work DDL covers journal-backed projections; crew DDL adds only task-verdict insert invalidation. The runtime mutation seam still refuses every application write to this table.",
       "retire": "Consolidate current revision-trigger declarations under work/state-schema.ts while preserving frozen migration SQL, then remove this exception when crew-schema.ts no longer contains these trigger bodies."
-    },
-    {
-      "table": "box_resources",
-      "owner": "src/main/junto/box/repository.ts",
-      "alsoWrittenBy": [
-        "src/main/junto/hosts/registry.ts"
-      ],
-      "reason": "The hosts seam clears a removed host's boxes as a cascade.",
-      "retire": "Have host removal call the box seam instead of deleting box_resources directly."
-    },
-    {
-      "table": "station_fleet_targets",
-      "owner": "src/main/junto/station/fleet-target-repository.ts",
-      "alsoWrittenBy": [
-        "src/main/junto/hosts/registry.ts"
-      ],
-      "reason": "The hosts seam clears a removed host's fleet targets as a cascade.",
-      "retire": "Have host removal call the fleet-target seam instead of deleting station_fleet_targets directly."
     },
     {
       "table": "work_artifacts",
