@@ -8,6 +8,7 @@
  */
 
 import { Context, Effect, Layer, Schema } from "effect";
+import { SqlClient, SqlSchema } from "effect/unstable/sql";
 import {
   decodeStationStatusDocument,
   defaultStationStatus,
@@ -16,20 +17,15 @@ import {
   type StationKernelRecord,
   type StationStatusDocument,
 } from "@shared/station-status";
-import {
-  StateEngine,
-  type StateEngineError,
-  type StateReader,
-  type StateWriter,
-} from "./state/service";
+import { StateTransactionOperation } from "./state/service";
 
 type StationStatusFactKind = "kernel" | "deployment";
 
-type StationStatusFactRow = {
-  readonly kind: StationStatusFactKind;
-  readonly host_id: string;
-  readonly record_json: string;
-};
+const StationStatusFactRow = Schema.Struct({
+  kind: Schema.Literals(["kernel", "deployment"]),
+  host_id: Schema.String,
+  record_json: Schema.String,
+});
 
 export class StationStatusStoreError extends Schema.TaggedError<StationStatusStoreError>()(
   "StationStatusStoreError",
@@ -52,10 +48,14 @@ const statusError = (
         cause,
       });
 
-const fromStateError = (
+const persistenceError = (
   operation: string,
-  error: StateEngineError,
-): StationStatusStoreError => statusError(operation, error);
+  error: unknown,
+): StationStatusStoreError => StationStatusStoreError.make({
+  operation,
+  message: error instanceof Error ? error.message : String(error),
+  cause: error,
+});
 
 export class StationStatusService extends Context.Service<StationStatusService,
   {
@@ -71,7 +71,7 @@ export class StationStatusService extends Context.Service<StationStatusService,
     ) => Effect.Effect<void, StationStatusStoreError>;
   }>()("@junto/StationStatusService") {}
 
-const parseRecord = (row: StationStatusFactRow): unknown => {
+const parseRecord = (row: typeof StationStatusFactRow.Type): unknown => {
   try {
     return JSON.parse(row.record_json) as unknown;
   } catch (error) {
@@ -79,13 +79,7 @@ const parseRecord = (row: StationStatusFactRow): unknown => {
   }
 };
 
-const readDocument = (reader: StateReader): StationStatusDocument => {
-  const rows = reader.all<StationStatusFactRow>(
-    `SELECT kind, host_id, record_json
-       FROM station_status_facts
-      WHERE kind IN ('kernel', 'deployment')
-      ORDER BY kind, host_id`,
-  );
+const documentFromRows = (rows: ReadonlyArray<typeof StationStatusFactRow.Type>): StationStatusDocument => {
   if (rows.length === 0) return defaultStationStatus();
 
   const raw: {
@@ -127,49 +121,53 @@ const normalizedDocument = (
   return decoded;
 };
 
-const upsertFact = (
-  writer: StateWriter,
-  kind: StationStatusFactKind,
-  hostId: string,
-  record: unknown,
-): void => {
-  const encoded = JSON.stringify(record);
-  if (encoded === undefined) {
-    throw statusError(
-      "write.encode-fact",
-      new Error(`station observation ${kind}/${hostId} is not JSON data`),
-    );
-  }
-  writer.run(
-    `INSERT INTO station_status_facts(
-       kind,
-       host_id,
-       record_json,
-       updated_at
-     ) VALUES (?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
-     ON CONFLICT(kind, host_id) DO UPDATE SET
-       record_json = excluded.record_json,
-       updated_at = excluded.updated_at`,
-    [kind, hostId, encoded],
-  );
-};
-
 export const makeStationStatusLive = (): Layer.Layer<
   StationStatusService,
   StationStatusStoreError,
-  StateEngine
+  SqlClient.SqlClient
 > =>
   Layer.effect(
     StationStatusService,
     Effect.gen(function* () {
-      const engine = yield* StateEngine;
-
-      const read = engine
-        .read("station-status.read", readDocument)
-        .pipe(
-          Effect.mapError((error) => fromStateError("read", error)),
-          Effect.withSpan("station-status.read"),
-        );
+      const sql = yield* SqlClient.SqlClient;
+      const factRows = SqlSchema.findAll({
+        Request: Schema.Void,
+        Result: StationStatusFactRow,
+        execute: () => sql`
+          SELECT kind, host_id, record_json FROM station_status_facts
+          WHERE kind IN ('kernel', 'deployment') ORDER BY kind, host_id
+        `,
+      });
+      const readDocument = Effect.fn("station-status.read-document")(function* () {
+        const rows = yield* factRows(undefined);
+        return yield* Effect.try({
+          try: () => documentFromRows(rows),
+          catch: (error) => statusError("read", error),
+        });
+      });
+      const upsertFact = Effect.fn("station-status.upsert-fact")(function* (
+        kind: StationStatusFactKind,
+        hostId: string,
+        record: unknown,
+      ) {
+        const encoded = yield* Effect.try({
+          try: () => JSON.stringify(record),
+          catch: (error) => statusError("write.encode-fact", error),
+        });
+        if (encoded === undefined) {
+          return yield* statusError("write.encode-fact", new Error(`station observation ${kind}/${hostId} is not JSON data`));
+        }
+        yield* sql`
+          INSERT INTO station_status_facts(kind, host_id, record_json, updated_at)
+          VALUES (${kind}, ${hostId}, ${encoded}, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+          ON CONFLICT(kind, host_id) DO UPDATE SET
+            record_json = excluded.record_json, updated_at = excluded.updated_at
+        `;
+      });
+      const read = readDocument().pipe(
+        Effect.mapError((error) => persistenceError("read", error)),
+        Effect.withSpan("station-status.read"),
+      );
 
       const recordKernel = Effect.fn("StationStatusService.recordKernel")(
         function* (kernel: StationKernelRecord) {
@@ -181,15 +179,11 @@ export const makeStationStatusLive = (): Layer.Layer<
               }).kernel!,
             catch: (error) => statusError("record-kernel.input", error),
           });
-          yield* engine
-            .transaction("station-status.record-kernel", (writer) => {
-              upsertFact(writer, "kernel", "", admitted);
-            })
-            .pipe(
-              Effect.mapError((error) =>
-                fromStateError("record-kernel", error)
-              ),
-            );
+          yield* upsertFact("kernel", "", admitted).pipe(
+            sql.withTransaction,
+            Effect.provideService(StateTransactionOperation, "station-status.record-kernel"),
+            Effect.mapError((error) => persistenceError("record-kernel", error)),
+          );
         },
       );
 
@@ -205,9 +199,8 @@ export const makeStationStatusLive = (): Layer.Layer<
           catch: (error) => statusError("record-deployment.input", error),
         });
 
-        yield* engine
-          .transaction("station-status.record-deployment", (writer) => {
-            const current = readDocument(writer);
+        yield* sql.withTransaction(Effect.gen(function* () {
+            const current = yield* readDocument();
             const previous = current.deployments?.[admitted.hostId];
             const sameTarget = previous?.endpoint === admitted.endpoint;
             const packageUnchanged =
@@ -225,16 +218,18 @@ export const makeStationStatusLive = (): Layer.Layer<
                 ? { lastSeen: previous.lastSeen }
                 : {}),
             };
-            const normalized = normalizedDocument("record-deployment", {
-              version: STATION_STATUS_VERSION,
-              deployments: { [merged.hostId]: merged },
-            }).deployments![merged.hostId]!;
-            upsertFact(writer, "deployment", merged.hostId, normalized);
-          })
+            const normalized = yield* Effect.try({
+              try: () => normalizedDocument("record-deployment", {
+                version: STATION_STATUS_VERSION,
+                deployments: { [merged.hostId]: merged },
+              }).deployments![merged.hostId]!,
+              catch: (error) => statusError("record-deployment", error),
+            });
+            yield* upsertFact("deployment", merged.hostId, normalized);
+          }))
           .pipe(
-            Effect.mapError((error) =>
-              fromStateError("record-deployment", error)
-            ),
+            Effect.provideService(StateTransactionOperation, "station-status.record-deployment"),
+            Effect.mapError((error) => persistenceError("record-deployment", error)),
           );
       });
 
