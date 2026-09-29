@@ -4,6 +4,7 @@ import { Reactivity } from "effect/unstable/reactivity";
 import { SqlClient, SqlSchema } from "effect/unstable/sql";
 import { describe, expect, test, vi } from "vitest";
 import { makeSqliteClient } from "../src/main/junto/state/sqlite-client";
+import { withSqlRead } from "../src/main/junto/state/sql-read";
 
 const layer = () => Layer.effect(SqlClient.SqlClient, Effect.gen(function* () {
   const db = yield* Effect.acquireRelease(
@@ -173,4 +174,65 @@ describe("node:sqlite Effect client", () => {
     }));
     expect(yield* sql`SELECT ${61} AS n`).toEqual([{ n: 61 }]);
   })));
+
+  test("read leases retain one snapshot across yields without adding SQL transactions", async () => {
+    const db = new DatabaseSync(":memory:");
+    const queries: string[] = [];
+    try {
+      await Effect.runPromise(Effect.gen(function* () {
+        const sql = yield* makeSqliteClient(db, undefined, (query) => { queries.push(query); });
+        yield* sql`CREATE TABLE items (id INTEGER PRIMARY KEY)`;
+        yield* sql`INSERT INTO items VALUES (71)`;
+        const entered = yield* Deferred.make<void>();
+        const release = yield* Deferred.make<void>();
+        const read = yield* withSqlRead(sql, Effect.gen(function* () {
+          expect(yield* sql`SELECT id FROM items`).toEqual([{ id: 71 }]);
+          yield* Deferred.succeed(entered, undefined);
+          yield* Deferred.await(release);
+          expect(yield* withSqlRead(sql, sql`SELECT id FROM items`)).toEqual([{ id: 71 }]);
+        })).pipe(Effect.forkChild);
+        yield* Deferred.await(entered);
+        const writer = yield* sql`INSERT INTO items VALUES (73)`.pipe(Effect.forkChild);
+        yield* Effect.yieldNow;
+        expect(writer.pollUnsafe()).toBeUndefined();
+        yield* Deferred.succeed(release, undefined);
+        yield* Fiber.join(read);
+        yield* Fiber.join(writer);
+        expect(yield* sql`SELECT id FROM items ORDER BY id`).toEqual([{ id: 71 }, { id: 73 }]);
+        expect(queries.some((query) => /^(BEGIN|COMMIT|ROLLBACK|SAVEPOINT)/.test(query))).toBe(false);
+        yield* Effect.result(sql.withTransaction(Effect.gen(function* () {
+          yield* sql`INSERT INTO items VALUES (79)`;
+          expect(yield* withSqlRead(sql, sql`SELECT id FROM items WHERE id = 79`)).toEqual([{ id: 79 }]);
+          return yield* Effect.fail("rollback");
+        })));
+        expect(yield* sql`SELECT id FROM items WHERE id = 79`).toEqual([]);
+      }).pipe(Effect.provide(Reactivity.layer)));
+    } finally { db.close(); }
+  });
+
+  test("interrupted read leases release their permit and do not leak to another client", () => run(Effect.scoped(Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+    const db = yield* Effect.acquireRelease(
+      Effect.sync(() => new DatabaseSync(":memory:")),
+      (database) => Effect.sync(() => database.close()),
+    );
+    const other = yield* makeSqliteClient(db).pipe(Effect.provide(Reactivity.layer));
+    const entered = yield* Deferred.make<void>();
+    const read = yield* withSqlRead(other, Effect.gen(function* () {
+      yield* other`SELECT 1`;
+      yield* Deferred.succeed(entered, undefined);
+      yield* Effect.never;
+    })).pipe(Effect.forkChild);
+    yield* Deferred.await(entered);
+    yield* withSqlRead(sql, Effect.gen(function* () {
+      const waiting = yield* other`SELECT 89 AS n`.pipe(Effect.forkChild);
+      yield* Effect.yieldNow;
+      expect(waiting.pollUnsafe()).toBeUndefined();
+      yield* Fiber.interrupt(read);
+      expect(yield* Fiber.join(waiting)).toEqual([{ n: 89 }]);
+    }));
+    expect(yield* Effect.result(withSqlRead(other, Effect.fail("read failure")))).toEqual(Result.fail("read failure"));
+    expect(yield* withSqlRead(other, other`SELECT 97 AS n`)).toEqual([{ n: 97 }]);
+    expect(yield* withSqlRead(sql, sql`SELECT 83 AS n`)).toEqual([{ n: 83 }]);
+  }))));
 });

@@ -1,6 +1,7 @@
 import type { DatabaseSync, StatementSync } from "node:sqlite";
 import { type Context, Effect, Schema, Semaphore, Stream } from "effect";
 import { SqlClient, SqlConnection, SqlError, Statement } from "effect/unstable/sql";
+import { SqlReadLeases } from "./sql-read";
 
 const sqliteError = (operation: string, cause: unknown): SqlError.SqlError => {
   // Node names SQLite's extended result code errcode; Effect expects errno.
@@ -104,15 +105,18 @@ export const makeSqliteClient = Effect.fn("state.makeSqliteClient")(function* (
       Stream.fromIterableEffect(execute(sql, params, transform)),
   };
 
-  const acquirer = Effect.acquireRelease(
+  const reserve = Effect.acquireRelease(
     Effect.as(semaphore.take(1), connection),
     () => semaphore.release(1),
     { interruptible: true },
   );
-  return yield* SqlClient.make({
+  const acquirer: SqlConnection.Acquirer = Effect.flatMap(SqlReadLeases, (leases) =>
+    leases.has(client.transactionService) ? Effect.succeed(connection) : reserve);
+  const client: SqlClient.SqlClient = yield* SqlClient.make({
     acquirer,
     compiler: Statement.makeCompilerSqlite(),
     beginTransaction: "BEGIN IMMEDIATE",
     spanAttributes: [["db.system", "sqlite"]],
   });
+  return client;
 });
