@@ -13,7 +13,6 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  Context,
   Effect,
   Result,
   ManagedRuntime,
@@ -79,14 +78,11 @@ describe("browser profile registry", () => {
   let runtime:
     | ManagedRuntime.ManagedRuntime<StateEngine | SqlClient.SqlClient, unknown>
     | undefined;
-  let state:
-    | Context.Service.Shape<typeof StateEngine>
-    | undefined;
+  let sql: SqlClient.SqlClient;
 
   afterEach(async () => {
     await runtime?.dispose();
     runtime = undefined;
-    state = undefined;
     if (root) {
       await rm(root, { recursive: true, force: true });
     }
@@ -102,8 +98,8 @@ describe("browser profile registry", () => {
     runtime = ManagedRuntime.make(
       makeStateEngineLive(join(root, "junto.db")),
     );
-    state = await runtime.runPromise(StateEngine);
-    return runtime.runPromise(SqlClient.SqlClient);
+    sql = await runtime.runPromise(SqlClient.SqlClient);
+    return sql;
   };
 
   const service = async (
@@ -138,31 +134,8 @@ describe("browser profile registry", () => {
     recoverCold,
   });
 
-  const query = <A>(
-    operation: string,
-    body: Parameters<
-      Context.Service.Shape<typeof StateEngine>["read"]
-    >[1],
-  ): Promise<A> => {
-    if (!state) throw new Error("state unavailable");
-    return run(state.read(operation, body) as Effect.Effect<A>);
-  };
-
-  const mutate = (
-    operation: string,
-    body: Parameters<
-      Context.Service.Shape<typeof StateEngine>["transaction"]
-    >[1],
-  ): Promise<unknown> => {
-    if (!state) throw new Error("state unavailable");
-    return run(state.transaction(operation, body));
-  };
-
   const pendingRow = () =>
-    query<Record<string, unknown> | undefined>(
-      "test.browser-pending",
-      (reader) =>
-        reader.get(`
+    run(sql`
           SELECT
             wipe_id AS wipeId,
             profile_id AS profileId,
@@ -174,8 +147,7 @@ describe("browser profile registry", () => {
             session_data_path AS sessionDataPath
           FROM browser_profile_pending_wipe
           WHERE singleton = 1
-        `),
-    );
+        `.pipe(Effect.map((rows) => rows[0])));
 
   it("seeds SQLite and owner-only physical profile directories", async () => {
     const registry = await service();
@@ -186,15 +158,11 @@ describe("browser profile registry", () => {
       config.profiles.map((profile) => profile.id),
     ).toEqual(["personal", "work"]);
     expect(
-      await query("test.browser-profiles", (reader) =>
-        reader
-          .all<{ readonly id: string }>(`
+      await run(sql<{ readonly id: string }>`
             SELECT id
             FROM browser_profiles
             ORDER BY sort_order
-          `)
-          .map((row) => row.id)
-      ),
+          `.pipe(Effect.map((rows) => rows.map((row) => row.id)))),
     ).toEqual(["personal", "work"]);
     for (const path of [
       registryRoot,
@@ -223,9 +191,9 @@ describe("browser profile registry", () => {
     runtime = ManagedRuntime.make(
       makeStateEngineLive(join(root, "junto.db")),
     );
-    state = await runtime.runPromise(StateEngine);
+    sql = await runtime.runPromise(SqlClient.SqlClient);
     const restarted = makeBrowserProfileService(
-      await runtime.runPromise(SqlClient.SqlClient),
+      sql,
       registryRoot,
     );
 
@@ -312,15 +280,11 @@ describe("browser profile registry", () => {
   it("rejects semantically corrupt rows without rewriting them", async () => {
     const registry = await service();
     await run(registry.initialize);
-    await mutate("test.browser-corrupt", (writer) => {
-      writer.run(
-        `
+    await run(sql.withTransaction(sql`
           UPDATE browser_profiles
           SET created_at = 'yesterday'
           WHERE id = 'work'
-        `,
-      );
-    });
+        `));
 
     const result = await runEither(registry.readState);
 
@@ -329,15 +293,11 @@ describe("browser profile registry", () => {
       expect(result.failure.code).toBe("corrupt");
     }
     expect(
-      await query("test.browser-corrupt-read", (reader) =>
-        reader.get<{ readonly created_at: string }>(
-          `
+      await run(sql<{ readonly created_at: string }>`
             SELECT created_at
             FROM browser_profiles
             WHERE id = 'work'
-          `,
-        )?.created_at
-      ),
+          `.pipe(Effect.map((rows) => rows[0]?.created_at))),
     ).toBe("yesterday");
   });
 
@@ -384,10 +344,9 @@ describe("browser profile registry", () => {
   it("does not create a physical profile for a rejected database write", async () => {
     const registry = await service();
     await run(registry.initialize);
-    await mutate("test.browser-fill-profile-capacity", (writer) => {
+    await run(sql.withTransaction(Effect.gen(function* () {
       for (let index = 2; index < 64; index += 1) {
-        writer.run(
-          `
+        yield* sql`
             INSERT INTO browser_profiles(
               id,
               label,
@@ -395,12 +354,10 @@ describe("browser profile registry", () => {
               last_used_at,
               sort_order
             )
-            VALUES (?, NULL, ?, NULL, ?)
-          `,
-          [`capacity-${index}`, FIXED_TIME, index],
-        );
+            VALUES (${"capacity-" + index}, NULL, ${FIXED_TIME}, NULL, ${index})
+          `;
       }
-    });
+    })));
 
     const result = await runEither(
       registry.createProfile("overflow"),
@@ -501,18 +458,14 @@ describe("browser profile registry", () => {
       }),
     );
     await run(registry.initialize);
-    await mutate("test.browser-defaults", (writer) => {
-      writer.run(
-        `
+    await run(sql.withTransaction(sql`
           INSERT INTO browser_profile_canvas_defaults(
             canvas_name,
             profile_id
           )
           VALUES ('portfolio', 'personal'),
                  ('workbench', 'work')
-        `,
-      );
-    });
+        `));
 
     const receipt = await run(
       registry.wipeProfile("personal"),
@@ -549,18 +502,14 @@ describe("browser profile registry", () => {
       }),
     );
     await run(failing.initialize);
-    await mutate("test.browser-defaults", (writer) => {
-      writer.run(
-        `
+    await run(sql.withTransaction(sql`
           INSERT INTO browser_profile_canvas_defaults(
             canvas_name,
             profile_id
           )
           VALUES ('portfolio', 'personal'),
                  ('workbench', 'work')
-        `,
-      );
-    });
+        `));
 
     const wipe = await runEither(
       failing.wipeProfile("personal"),
@@ -665,16 +614,11 @@ describe("browser profile registry", () => {
     );
     await run(failing.initialize);
     await runEither(failing.wipeProfile("personal"));
-    await mutate("test.browser-corrupt-pending", (writer) => {
-      writer.run(
-        `
+    await run(sql.withTransaction(sql`
           UPDATE browser_profile_pending_wipe
-          SET session_data_path = ?
+          SET session_data_path = ${join(root, "outside-session")}
           WHERE singleton = 1
-        `,
-        [join(root, "outside-session")],
-      );
-    });
+        `));
     let recovered = false;
     const serviceAfterRestart = makeBrowserProfileService(
       await runtime!.runPromise(SqlClient.SqlClient),
@@ -709,18 +653,14 @@ describe("browser profile registry", () => {
     expect(Result.isFailure(unavailable)).toBe(true);
     expect(await pendingRow()).toBeUndefined();
 
-    await mutate("test.browser-one-profile", (writer) => {
-      writer.run(
-        `
+    await run(sql.withTransaction(Effect.gen(function* () {
+      yield* sql`
           UPDATE browser_profile_settings
           SET default_profile = 'personal'
           WHERE singleton = 1
-        `,
-      );
-      writer.run(
-        "DELETE FROM browser_profiles WHERE id = 'work'",
-      );
-    });
+        `;
+      yield* sql`DELETE FROM browser_profiles WHERE id = 'work'`;
+    })));
     let prepared = false;
     const oneProfile = makeBrowserProfileService(
       await runtime!.runPromise(SqlClient.SqlClient),
@@ -847,21 +787,13 @@ describe("browser profile registry", () => {
   it("accepts exact hard-limit maxima from canonical state", async () => {
     const registry = await service();
     await run(registry.initialize);
-    await mutate("test.browser-limits", (writer) => {
-      writer.run(
-        `
+    await run(sql.withTransaction(sql`
           UPDATE browser_profile_settings
           SET
-            max_warm_sessions = ?,
-            max_visible_surfaces = ?
+            max_warm_sessions = ${BROWSER_MAX_WARM_SESSIONS_HARD},
+            max_visible_surfaces = ${BROWSER_MAX_VISIBLE_SURFACES_HARD}
           WHERE singleton = 1
-        `,
-        [
-          BROWSER_MAX_WARM_SESSIONS_HARD,
-          BROWSER_MAX_VISIBLE_SURFACES_HARD,
-        ],
-      );
-    });
+        `));
 
     const state = await run(registry.readState);
     expect(state.maxWarmSessions).toBe(

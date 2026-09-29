@@ -2,7 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { Context, Effect, ManagedRuntime } from "effect";
+import { Effect, ManagedRuntime } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import { warmPoolEvictions } from "../src/shared/browser";
 import {
@@ -222,9 +222,6 @@ describe("BrowserSessionService", () => {
   let stateRuntime:
     | ManagedRuntime.ManagedRuntime<StateEngine | SqlClient.SqlClient, unknown>
     | undefined;
-  let state:
-    | Context.Service.Shape<typeof StateEngine>
-    | undefined;
   let sql: SqlClient.SqlClient;
 
   beforeEach(async () => {
@@ -232,7 +229,6 @@ describe("BrowserSessionService", () => {
     stateRuntime = ManagedRuntime.make(
       makeStateEngineLive(join(root, "junto.db")),
     );
-    state = await stateRuntime.runPromise(StateEngine);
     sql = await stateRuntime.runPromise(SqlClient.SqlClient);
     clock = 0;
     idCounter = 0;
@@ -241,16 +237,11 @@ describe("BrowserSessionService", () => {
   afterEach(async () => {
     await stateRuntime?.dispose();
     stateRuntime = undefined;
-    state = undefined;
     await rm(root, { recursive: true, force: true });
   });
 
-  const makeProfileService = (): BrowserProfileServiceApi => {
-    if (state === undefined) {
-      throw new Error("test StateEngine is not initialized");
-    }
-    return makeBrowserProfileService(sql, root);
-  };
+  const makeProfileService = (): BrowserProfileServiceApi =>
+    makeBrowserProfileService(sql, root);
 
   const makeService = (adapter: BrowserViewAdapter) => {
     const service = new BrowserSessionService(
@@ -1231,20 +1222,12 @@ describe("BrowserSessionService", () => {
   it("rejects powerful operations above the global active ceiling", async () => {
     const profileService = makeProfileService();
     await Effect.runPromise(profileService.ensureDefaults);
-    if (state === undefined) {
-      throw new Error("test StateEngine is not initialized");
-    }
     await Effect.runPromise(
-      state.transaction("test.browser-sessions.pool-limit", (writer) => {
-        writer.run(
-          `
+      sql.withTransaction(sql`
             UPDATE browser_profile_settings
-            SET max_warm_sessions = ?
+            SET max_warm_sessions = ${32}
             WHERE singleton = 1
-          `,
-          [32],
-        );
-      }),
+          `),
     );
     expect(
       (await Effect.runPromise(profileService.readState)).maxWarmSessions,

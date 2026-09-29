@@ -736,7 +736,6 @@ describe("browser profile storage lifecycle", () => {
     stateRuntime = ManagedRuntime.make(
       makeStateEngineLive(join(layout.root, "junto.db")),
     );
-    const state = await stateRuntime.runPromise(StateEngine);
     const sql = await stateRuntime.runPromise(SqlClient.SqlClient);
     const registry = makeBrowserProfileService(sql, registryRoot, {
       wipeLifecycle: lifecycle,
@@ -770,15 +769,13 @@ describe("browser profile storage lifecycle", () => {
     expect(harness.gate.disposition(PROFILE)).toBe("quiescing");
     expect(
       await Effect.runPromise(
-        state.read("test.browser-pending", (reader) =>
-          reader.get(`
+        sql`
             SELECT
               profile_id AS profileId,
               stage
             FROM browser_profile_pending_wipe
             WHERE singleton = 1
-          `)
-        ),
+          `.pipe(Effect.map((rows) => rows[0])),
       ),
     ).toMatchObject({
       profileId: PROFILE,

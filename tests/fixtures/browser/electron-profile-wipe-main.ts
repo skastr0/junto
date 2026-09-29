@@ -135,11 +135,10 @@ const writeReport = async (value: unknown): Promise<void> => {
 };
 
 const readPending = async (
-  state: StateService,
+  sql: SqlClient.SqlClient,
 ): Promise<BrowserProfilePendingWipe | undefined> => {
   const row = await Effect.runPromise(
-    state.read("browser-profile-wipe-fixture.pending", (reader) =>
-      reader.get<PendingWipeRow>(`
+    sql<PendingWipeRow>`
         SELECT
           wipe_id,
           profile_id,
@@ -151,8 +150,7 @@ const readPending = async (
           session_data_path
         FROM browser_profile_pending_wipe
         WHERE singleton = 1
-      `),
-    ),
+      `.pipe(Effect.map((rows) => rows[0])),
   );
   if (row === undefined) return undefined;
   ensure(
@@ -179,9 +177,9 @@ const readPending = async (
 };
 
 const requirePending = async (
-  state: StateService,
+  sql: SqlClient.SqlClient,
 ): Promise<BrowserProfilePendingWipe> => {
-  const pending = await readPending(state);
+  const pending = await readPending(sql);
   ensure(pending !== undefined, "pending_record_required");
   return pending;
 };
@@ -508,7 +506,7 @@ const runPhaseA = async (state: StateService, sql: SqlClient.SqlClient): Promise
   );
   ensure(gate.disposition("personal") === "quiescing", "personal_gate_not_quiescing");
   ensure(gate.disposition("work") === "open", "work_gate_not_open");
-  const pending = await requirePending(state);
+  const pending = await requirePending(sql);
   ensure(pending.stage === "restart_delete_pending", "pending_stage_invalid");
   ensure(pending.storagePath === personalStorageRoot, "pending_target_mismatch");
   ensure(await pathExists(pending.storagePath), "live_target_missing");
@@ -593,8 +591,8 @@ const makeColdOnlyCapabilities = (counter: { capabilityControls: number }) => ({
   },
 });
 
-const runPhaseB = async (state: StateService, sql: SqlClient.SqlClient): Promise<void> => {
-  const pending = await requirePending(state);
+const runPhaseB = async (sql: SqlClient.SqlClient): Promise<void> => {
+  const pending = await requirePending(sql);
   const quarantine = browserProfileQuarantinePath(pending.storagePath, pending.wipeId);
   ensure(quarantine !== undefined, "quarantine_path_invalid");
   ensure(await pathExists(pending.storagePath), "pre_crash_target_missing");
@@ -634,7 +632,7 @@ const runPhaseB = async (state: StateService, sql: SqlClient.SqlClient): Promise
 };
 
 const runPhaseC = async (state: StateService, sql: SqlClient.SqlClient): Promise<void> => {
-  const pending = await requirePending(state);
+  const pending = await requirePending(sql);
   const quarantine = browserProfileQuarantinePath(pending.storagePath, pending.wipeId);
   ensure(quarantine !== undefined, "quarantine_path_invalid");
   const calls = { sessionConstructions: 0, sessionControls: 0, capabilityControls: 0 };
@@ -742,7 +740,7 @@ const runPhaseC = async (state: StateService, sql: SqlClient.SqlClient): Promise
     "final_profiles_missing",
   );
   ensure(
-    (await readPending(state)) === undefined,
+    (await readPending(sql)) === undefined,
     "final_registry_retained_journal",
   );
   ensure(await ownerOnly(browserRoot, "directory"), "browser_root_not_owner_only");
@@ -834,7 +832,7 @@ void app.whenReady().then(async () => {
   const state = await stateRuntime.runPromise(StateEngine);
   const sql = await stateRuntime.runPromise(SqlClient.SqlClient);
   if (phase === "A") await runPhaseA(state, sql);
-  if (phase === "B") await runPhaseB(state, sql);
+  if (phase === "B") await runPhaseB(sql);
   if (phase === "C") await runPhaseC(state, sql);
   await disposeStateRuntime();
   if (!quitting) {
