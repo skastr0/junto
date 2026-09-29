@@ -2,7 +2,8 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect, Layer, ManagedRuntime } from "effect";
-import { afterEach, describe, expect, test } from "vitest";
+import { SqlClient } from "effect/unstable/sql";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import {
   KERNEL_DEBUG_RING_LIMIT,
   KernelStateCorruptError,
@@ -139,6 +140,28 @@ describe("typed runtime-state repositories", () => {
       records.slice(-KERNEL_DEBUG_RING_LIMIT).map((record) => record.id),
     );
     expect(persisted.at(-1)).toEqual(records.at(-1));
+  });
+
+  test("the debug ring captures its retained array and timestamp before execution", async () => {
+    const runtime = makeRuntime(await makeRoot());
+    const kernel = await runtime.runPromise(KernelStateRepository);
+    const records = Array.from({ length: KERNEL_DEBUG_RING_LIMIT + 2 }, (_, index) => pulse(index));
+    const timestamp = vi.spyOn(Date.prototype, "toISOString").mockReturnValue("2026-01-03T00:00:00.000Z");
+    try {
+      const write = kernel.replaceDebugPulseRing(records);
+      records.splice(0, records.length, pulse(99));
+      timestamp.mockReturnValue("2026-02-07T00:00:00.000Z");
+      await runtime.runPromise(write);
+      expect(await runtime.runPromise(kernel.readDebugPulseRing)).toEqual(
+        Array.from({ length: KERNEL_DEBUG_RING_LIMIT }, (_, index) => pulse(index + 2)),
+      );
+      expect(await runtime.runPromise(Effect.gen(function* () {
+        const sql = yield* SqlClient.SqlClient;
+        return yield* sql`SELECT DISTINCT recorded_at FROM kernel_debug_pulses`.values;
+      }))).toEqual([["2026-01-03T00:00:00.000Z"]]);
+    } finally {
+      timestamp.mockRestore();
+    }
   });
 
   test("independent normalized writes serialize without losing rows", async () => {

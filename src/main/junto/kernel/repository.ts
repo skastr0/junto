@@ -176,21 +176,23 @@ export const KernelStateRepositoryLive: Layer.Layer<
     (effect, canvasName, regionId, armed) => effect.pipe(Effect.mapError((error) =>
       persistenceError(`${armed ? "arm" : "disarm"} ${canvasName}/${regionId}`, error))));
 
-    const replaceDebugPulseRing = Effect.fn("kernel-state.replace-debug-pulse-ring")((records: ReadonlyArray<PulseRecord>) => {
-      const retained = records.slice(-KERNEL_DEBUG_RING_LIMIT);
-      const recordedAt = new Date().toISOString();
-      return Effect.gen(function* () {
-        yield* sql`DELETE FROM kernel_debug_pulses`;
-        for (const [position, record] of retained.entries()) {
-          yield* sql`
-            INSERT INTO kernel_debug_pulses(position, id, at_epoch_ms, canvas_name, source_node_id, region_id, kind, summary, delivered_json, dry, recorded_at)
-            VALUES (${position}, ${record.id}, ${record.at}, ${record.canvasName}, ${record.sourceNodeId}, ${record.regionId ?? null},
-              ${record.kind}, ${record.summary}, ${JSON.stringify(record.delivered)}, ${record.dry ? 1 : 0}, ${recordedAt})
-          `;
-        }
-      });
+    const writeDebugPulseRing = Effect.fn("kernel-state.replace-debug-pulse-ring")(function* (
+      retained: ReadonlyArray<PulseRecord>,
+      recordedAt: string,
+    ) {
+      yield* sql`DELETE FROM kernel_debug_pulses`;
+      for (const [position, record] of retained.entries()) {
+        yield* sql`
+          INSERT INTO kernel_debug_pulses(position, id, at_epoch_ms, canvas_name, source_node_id, region_id, kind, summary, delivered_json, dry, recorded_at)
+          VALUES (${position}, ${record.id}, ${record.at}, ${record.canvasName}, ${record.sourceNodeId}, ${record.regionId ?? null},
+            ${record.kind}, ${record.summary}, ${JSON.stringify(record.delivered)}, ${record.dry ? 1 : 0}, ${recordedAt})
+        `;
+      }
     }, sql.withTransaction, Effect.provideService(StateTransactionOperation, "kernel-state.replace-debug-pulse-ring"),
     Effect.mapError((error) => persistenceError("replace debug pulse ring", error)));
+
+    const replaceDebugPulseRing = (records: ReadonlyArray<PulseRecord>) =>
+      writeDebugPulseRing(records.slice(-KERNEL_DEBUG_RING_LIMIT), new Date().toISOString());
 
     const readDebugPulseRing = Effect.fn("kernel-state.read-debug-pulse-ring")(function* () {
       const rows = yield* pulseRows(undefined).pipe(Effect.mapError((error) => persistenceError("read debug pulse ring", error)));
