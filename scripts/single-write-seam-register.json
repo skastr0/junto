@@ -356,8 +356,7 @@
       "path": "src/main/junto/box/repository.ts",
       "kind": "debt",
       "tables": [
-        "box_resources",
-        "host_registry"
+        "box_resources"
       ],
       "reason": "Box ownership seam: provider-backed box rows and the host row a box is bound to.",
       "retire": "IN-MEMORY WORLD: retire when the in-memory factory world owns the projection and this file's only write is the journal append."
@@ -527,15 +526,6 @@
       ],
       "reason": "The hosts seam clears a removed host's boxes as a cascade.",
       "retire": "Have host removal call the box seam instead of deleting box_resources directly."
-    },
-    {
-      "table": "host_registry",
-      "owner": "src/main/junto/hosts/registry.ts",
-      "alsoWrittenBy": [
-        "src/main/junto/box/repository.ts"
-      ],
-      "reason": "The box seam writes the host row a box is bound to and deletes it when the box is released.",
-      "retire": "Have box ownership call the hosts seam instead of writing host_registry directly."
     },
     {
       "table": "station_fleet_targets",
