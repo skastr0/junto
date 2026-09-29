@@ -1,16 +1,12 @@
 import { Context, Effect, Layer, Schema } from "effect";
+import { SqlClient, SqlSchema } from "effect/unstable/sql";
 import {
   EntityLifecycle,
   type EntityKey,
   type EntityLifecycle as EntityLifecycleT,
   entityKeyOf,
 } from "@shared/entity";
-import {
-  StateEngine,
-  type StateEngineError,
-  type StateRow,
-} from "../state/service";
-import { softDeleteCanvasEntity } from "./sync";
+import { CanvasEntitySync } from "./sync";
 
 export class CanvasEntityPersistenceError extends Schema.TaggedError<CanvasEntityPersistenceError>()(
   "CanvasEntityPersistenceError",
@@ -54,34 +50,23 @@ export type CanvasEntityRecord = {
   readonly softDeletedAt: string | null;
 };
 
-type EntitySqlRow = StateRow & {
-  readonly canvas_name: string;
-  readonly entity_id: string;
-  readonly kind: string | null;
-  readonly binding_id: string | null;
-  readonly lifecycle: string;
-  readonly created_at: string;
-  readonly updated_at: string;
-  readonly archived_at: string | null;
-  readonly soft_deleted_at: string | null;
-};
+const EntitySqlRow = Schema.Struct({
+  canvas_name: Schema.String,
+  entity_id: Schema.String,
+  kind: Schema.NullOr(Schema.String),
+  binding_id: Schema.NullOr(Schema.String),
+  lifecycle: EntityLifecycle,
+  created_at: Schema.String,
+  updated_at: Schema.String,
+  archived_at: Schema.NullOr(Schema.String),
+  soft_deleted_at: Schema.NullOr(Schema.String),
+});
 
-const decodeLifecycle = (value: string): EntityLifecycleT => {
-  if (
-    value === "active" ||
-    value === "archived" ||
-    value === "soft_deleted"
-  ) {
-    return value;
-  }
-  throw new Error(`invalid entity lifecycle: ${value}`);
-};
-
-const fromRow = (row: EntitySqlRow): CanvasEntityRecord => ({
+const fromRow = (row: typeof EntitySqlRow.Type): CanvasEntityRecord => ({
   key: entityKeyOf(row.canvas_name, row.entity_id),
   kind: row.kind,
   bindingId: row.binding_id,
-  lifecycle: decodeLifecycle(row.lifecycle),
+  lifecycle: row.lifecycle,
   createdAt: row.created_at,
   updatedAt: row.updated_at,
   archivedAt: row.archived_at,
@@ -90,11 +75,11 @@ const fromRow = (row: EntitySqlRow): CanvasEntityRecord => ({
 
 const persistenceError = (
   operation: string,
-  error: StateEngineError,
+  error: unknown,
 ): CanvasEntityPersistenceError =>
   CanvasEntityPersistenceError.make({
     operation,
-    message: error.message,
+    message: error instanceof Error ? error.message : String(error),
     cause: error,
   });
 
@@ -138,237 +123,110 @@ export class CanvasEntityRepository extends Context.Service<CanvasEntityReposito
 export const CanvasEntityRepositoryLive: Layer.Layer<
   CanvasEntityRepository,
   never,
-  StateEngine
+  SqlClient.SqlClient
 > = Layer.effect(
   CanvasEntityRepository,
   Effect.gen(function* () {
-    const state = yield* StateEngine;
+    const sql = yield* SqlClient.SqlClient;
+    const entities = yield* CanvasEntitySync;
+    const select = SqlSchema.findAll({
+      Request: Schema.Struct({ canvasName: Schema.String, entityId: Schema.String }),
+      Result: EntitySqlRow,
+      execute: ({ canvasName, entityId }) => sql`
+        SELECT canvas_name, entity_id, kind, binding_id, lifecycle,
+               created_at, updated_at, archived_at, soft_deleted_at
+        FROM canvas_entities
+        WHERE canvas_name = ${canvasName} AND entity_id = ${entityId}`,
+    });
 
-    const get = (
+    const get = Effect.fn("CanvasEntityRepository.get")((
       canvasName: string,
       entityId: string,
-    ): Effect.Effect<
-      CanvasEntityRecord | undefined,
-      CanvasEntityRepositoryError
-    > =>
-      state
-        .read("canvas-entity.get", (reader) => {
-          const row = reader.get<EntitySqlRow>(
-            `
-              SELECT
-                canvas_name,
-                entity_id,
-                kind,
-                binding_id,
-                lifecycle,
-                created_at,
-                updated_at,
-                archived_at,
-                soft_deleted_at
-              FROM canvas_entities
-              WHERE canvas_name = ?
-                AND entity_id = ?
-            `,
-            [canvasName, entityId],
-          );
-          return row === undefined ? undefined : fromRow(row);
-        })
-        .pipe(Effect.mapError((error) => persistenceError("get", error)));
+    ) => select({ canvasName, entityId }).pipe(
+      Effect.map((rows) => rows[0] === undefined ? undefined : fromRow(rows[0])),
+      Effect.mapError((error) => persistenceError("get", error)),
+    ));
 
-    const listByCanvas = (
+    const selectByCanvas = SqlSchema.findAll({
+      Request: Schema.Struct({
+        canvasName: Schema.String,
+        lifecycle: Schema.optionalKey(EntityLifecycle),
+      }),
+      Result: EntitySqlRow,
+      execute: ({ canvasName, lifecycle }) => lifecycle === undefined
+        ? sql`SELECT canvas_name, entity_id, kind, binding_id, lifecycle,
+                     created_at, updated_at, archived_at, soft_deleted_at
+              FROM canvas_entities WHERE canvas_name = ${canvasName}
+              ORDER BY lifecycle, updated_at, entity_id`
+        : sql`SELECT canvas_name, entity_id, kind, binding_id, lifecycle,
+                     created_at, updated_at, archived_at, soft_deleted_at
+              FROM canvas_entities
+              WHERE canvas_name = ${canvasName} AND lifecycle = ${lifecycle}
+              ORDER BY updated_at, entity_id`,
+    });
+    const listByCanvas = Effect.fn("CanvasEntityRepository.listByCanvas")((
       canvasName: string,
       options?: { readonly lifecycle?: EntityLifecycleT },
-    ): Effect.Effect<
-      ReadonlyArray<CanvasEntityRecord>,
-      CanvasEntityRepositoryError
-    > =>
-      state
-        .read("canvas-entity.list", (reader) => {
-          if (options?.lifecycle !== undefined) {
-            return reader
-              .all<EntitySqlRow>(
-                `
-                  SELECT
-                    canvas_name,
-                    entity_id,
-                    kind,
-                    binding_id,
-                    lifecycle,
-                    created_at,
-                    updated_at,
-                    archived_at,
-                    soft_deleted_at
-                  FROM canvas_entities
-                  WHERE canvas_name = ?
-                    AND lifecycle = ?
-                  ORDER BY updated_at, entity_id
-                `,
-                [canvasName, options.lifecycle],
-              )
-              .map(fromRow);
-          }
-          return reader
-            .all<EntitySqlRow>(
-              `
-                SELECT
-                  canvas_name,
-                  entity_id,
-                  kind,
-                  binding_id,
-                  lifecycle,
-                  created_at,
-                  updated_at,
-                  archived_at,
-                  soft_deleted_at
-                FROM canvas_entities
-                WHERE canvas_name = ?
-                ORDER BY lifecycle, updated_at, entity_id
-              `,
-              [canvasName],
-            )
-            .map(fromRow);
-        })
-        .pipe(Effect.mapError((error) => persistenceError("list", error)));
+    ) => selectByCanvas({ canvasName, ...options }).pipe(
+      Effect.map((rows) => rows.map(fromRow)),
+      Effect.mapError((error) => persistenceError("list", error)),
+    ));
 
-    const listHistoric = (
+    const selectHistoric = SqlSchema.findAll({
+      Request: Schema.String,
+      Result: EntitySqlRow,
+      execute: (canvasName) => sql`
+        SELECT canvas_name, entity_id, kind, binding_id, lifecycle,
+               created_at, updated_at, archived_at, soft_deleted_at
+        FROM canvas_entities
+        WHERE canvas_name = ${canvasName} AND lifecycle IN ('active', 'archived')
+        ORDER BY lifecycle, updated_at, entity_id`,
+    });
+    const listHistoric = Effect.fn("CanvasEntityRepository.listHistoric")((
       canvasName: string,
-    ): Effect.Effect<
-      ReadonlyArray<CanvasEntityRecord>,
-      CanvasEntityRepositoryError
-    > =>
-      state
-        .read("canvas-entity.list-historic", (reader) =>
-          reader
-            .all<EntitySqlRow>(
-              `
-                SELECT
-                  canvas_name,
-                  entity_id,
-                  kind,
-                  binding_id,
-                  lifecycle,
-                  created_at,
-                  updated_at,
-                  archived_at,
-                  soft_deleted_at
-                FROM canvas_entities
-                WHERE canvas_name = ?
-                  AND lifecycle IN ('active', 'archived')
-                ORDER BY lifecycle, updated_at, entity_id
-              `,
-              [canvasName],
-            )
-            .map(fromRow),
-        )
-        .pipe(
-          Effect.mapError((error) =>
-            persistenceError("listHistoric", error),
-          ),
-        );
+    ) => selectHistoric(canvasName).pipe(
+      Effect.map((rows) => rows.map(fromRow)),
+      Effect.mapError((error) => persistenceError("listHistoric", error)),
+    ));
 
-    const listSuppressedEntityIds = (
+    const selectSuppressed = SqlSchema.findAll({
+      Request: Schema.String,
+      Result: Schema.Struct({ entity_id: Schema.String }),
+      execute: (canvasName) => sql`
+        SELECT entity_id FROM canvas_entities
+        WHERE canvas_name = ${canvasName} AND lifecycle IN ('archived', 'soft_deleted')`,
+    });
+    const listSuppressedEntityIds = Effect.fn("CanvasEntityRepository.listSuppressedEntityIds")((
       canvasName: string,
-    ): Effect.Effect<ReadonlySet<string>, CanvasEntityRepositoryError> =>
-      state
-        .read("canvas-entity.list-suppressed", (reader) => {
-          const rows = reader.all<{ readonly entity_id: string }>(
-            `
-              SELECT entity_id
-              FROM canvas_entities
-              WHERE canvas_name = ?
-                AND lifecycle IN ('archived', 'soft_deleted')
-            `,
-            [canvasName],
-          );
-          return new Set(rows.map((row) => row.entity_id));
-        })
-        .pipe(
-          Effect.mapError((error) =>
-            persistenceError("listSuppressed", error),
-          ),
-        );
+    ) => selectSuppressed(canvasName).pipe(
+      Effect.map((rows) => new Set(rows.map((row) => row.entity_id))),
+      Effect.mapError((error) => persistenceError("listSuppressed", error)),
+    ));
 
-    const softDelete = (
+    const softDelete = Effect.fn("CanvasEntityRepository.softDelete")(function* (
       canvasName: string,
       entityId: string,
-    ): Effect.Effect<CanvasEntityRecord, CanvasEntityRepositoryError> =>
-      state
-        .transaction("canvas-entity.soft-delete", (writer) => {
-          const now = new Date().toISOString();
-          const result = softDeleteCanvasEntity(
-            writer,
-            canvasName,
-            entityId,
-            now,
-          );
-          if (result === "missing") {
-            throw CanvasEntityMissingError.make({ canvasName, entityId });
-          }
-          if (result === "not_archived") {
-            const row = writer.get<EntitySqlRow>(
-              `
-                SELECT
-                  canvas_name,
-                  entity_id,
-                  kind,
-                  binding_id,
-                  lifecycle,
-                  created_at,
-                  updated_at,
-                  archived_at,
-                  soft_deleted_at
-                FROM canvas_entities
-                WHERE canvas_name = ?
-                  AND entity_id = ?
-              `,
-              [canvasName, entityId],
-            );
-            throw CanvasEntityNotArchivedError.make({
-              canvasName,
-              entityId,
-              lifecycle: decodeLifecycle(row?.lifecycle ?? "active"),
-            });
-          }
-          const row = writer.get<EntitySqlRow>(
-            `
-              SELECT
-                canvas_name,
-                entity_id,
-                kind,
-                binding_id,
-                lifecycle,
-                created_at,
-                updated_at,
-                archived_at,
-                soft_deleted_at
-              FROM canvas_entities
-              WHERE canvas_name = ?
-                AND entity_id = ?
-            `,
-            [canvasName, entityId],
-          );
-          if (row === undefined) {
-            throw CanvasEntityMissingError.make({ canvasName, entityId });
-          }
-          return fromRow(row);
-        })
-        .pipe(
-          Effect.mapError((error) => {
-            if (
-              error.cause instanceof CanvasEntityMissingError ||
-              error.cause instanceof CanvasEntityNotArchivedError
-            ) {
-              return error.cause;
-            }
-            if (
-              error instanceof CanvasEntityMissingError ||
-              error instanceof CanvasEntityNotArchivedError
-            ) {
-              return error;
-            }
-            return persistenceError("softDelete", error as StateEngineError);
-          }),
-        );
+    ) {
+      const row = yield* get(canvasName, entityId);
+      if (row === undefined) {
+        return yield* Effect.fail(CanvasEntityMissingError.make({ canvasName, entityId }));
+      }
+      if (row.lifecycle !== "archived") {
+        return yield* Effect.fail(CanvasEntityNotArchivedError.make({
+          canvasName, entityId, lifecycle: row.lifecycle,
+        }));
+      }
+      const now = new Date().toISOString();
+      yield* entities.softDeleteCanvasEntity(canvasName, entityId, now);
+      const updated = yield* get(canvasName, entityId);
+      if (updated === undefined) {
+        return yield* Effect.fail(CanvasEntityMissingError.make({ canvasName, entityId }));
+      }
+      return updated;
+    }, sql.withTransaction, Effect.mapError((error) =>
+      error instanceof CanvasEntityMissingError || error instanceof CanvasEntityNotArchivedError
+        ? error : persistenceError("softDelete", error),
+    ));
 
     return CanvasEntityRepository.of({
       get,
@@ -378,4 +236,4 @@ export const CanvasEntityRepositoryLive: Layer.Layer<
       softDelete,
     });
   }),
-);
+).pipe(Layer.provide(CanvasEntitySync.layer));

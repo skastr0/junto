@@ -33,6 +33,9 @@
 
 import type { CanvasDoc, CanvasNode } from "@shared/canvas";
 import type { StateWriter } from "../state/service";
+import { Context, Effect, Layer, Schema } from "effect";
+import { SqlClient, SqlSchema } from "effect/unstable/sql";
+import { EntityLifecycle } from "@shared/entity";
 
 /** The registry columns this view maintains, read once per sync. */
 type EntityRow = {
@@ -217,39 +220,81 @@ export const archiveAllCanvasEntities = (
   );
 };
 
-/**
- * Soft-delete an archived entity. Active entities cannot soft-delete
- * (must archive first — off-canvas). Soft-deleted is unindexed for historic search.
- */
-export const softDeleteCanvasEntity = (
-  writer: StateWriter,
-  canvasName: string,
-  entityId: string,
-  now: string,
-): "soft_deleted" | "not_archived" | "missing" => {
-  const row = writer.get<{ readonly lifecycle: string }>(
-    `
-      SELECT lifecycle
-      FROM canvas_entities
-      WHERE canvas_name = ?
-        AND entity_id = ?
-    `,
-    [canvasName, entityId],
+/** Registry mutations participate in the canvas/content caller's SQL transaction. */
+const makeCanvasEntitySync = Effect.gen(function* () {
+  const sql = yield* SqlClient.SqlClient;
+  const rowsForCanvas = SqlSchema.findAll({
+    Request: Schema.String,
+    Result: Schema.Struct({
+      entity_id: Schema.String, kind: Schema.NullOr(Schema.String),
+      binding_id: Schema.NullOr(Schema.String), lifecycle: EntityLifecycle,
+    }),
+    execute: (name) => sql`SELECT entity_id, kind, binding_id, lifecycle
+      FROM canvas_entities WHERE canvas_name = ${name}`,
+  });
+  const syncCanvasEntities = Effect.fn("CanvasEntitySync.syncCanvasEntities")(function* (
+    canvasName: string, nextDoc: CanvasDoc, now: string,
+  ) {
+    const desired = new Map<string, DesiredEntity>();
+    const claimedBindings = new Set<string>();
+    for (const node of nextDoc.nodes) {
+      let bindingId = nodeBindingId(node);
+      if (bindingId !== null) {
+        if (claimedBindings.has(bindingId)) bindingId = null;
+        else claimedBindings.add(bindingId);
+      }
+      desired.set(node.id, { kind: nodeKind(node), bindingId });
+    }
+    const rows = new Map((yield* rowsForCanvas(canvasName)).map((row) => [row.entity_id, row]));
+    const nextHolder = new Map<string, string>();
+    for (const [id, entity] of desired) {
+      if (entity.bindingId !== null) nextHolder.set(entity.bindingId, id);
+    }
+    for (const [id, row] of rows) {
+      if (row.lifecycle !== "active" || row.binding_id === null) continue;
+      const entity = desired.get(id);
+      if (entity === undefined || entity.bindingId === row.binding_id) continue;
+      const successor = nextHolder.get(row.binding_id);
+      if (successor === undefined || successor === id) continue;
+      yield* sql`UPDATE canvas_entities SET binding_id = NULL, updated_at = ${now}
+        WHERE canvas_name = ${canvasName} AND entity_id = ${id} AND lifecycle = 'active'`;
+    }
+    for (const [id, row] of rows) {
+      if (row.lifecycle !== "active" || desired.has(id)) continue;
+      yield* sql`UPDATE canvas_entities SET lifecycle = 'archived', updated_at = ${now},
+        archived_at = ${now}, soft_deleted_at = NULL
+        WHERE canvas_name = ${canvasName} AND entity_id = ${id} AND lifecycle = 'active'`;
+    }
+    for (const [id, entity] of desired) {
+      const row = rows.get(id);
+      if (row !== undefined && row.lifecycle === "active" && row.kind === entity.kind && row.binding_id === entity.bindingId) continue;
+      yield* sql`INSERT INTO canvas_entities(canvas_name, entity_id, kind, binding_id,
+        lifecycle, created_at, updated_at, archived_at, soft_deleted_at)
+        VALUES (${canvasName}, ${id}, ${entity.kind}, ${entity.bindingId}, 'active', ${now}, ${now}, NULL, NULL)
+        ON CONFLICT(canvas_name, entity_id) DO UPDATE SET kind = excluded.kind,
+          binding_id = excluded.binding_id, lifecycle = 'active', updated_at = excluded.updated_at,
+          archived_at = NULL, soft_deleted_at = NULL`;
+    }
+  });
+  const archiveAllCanvasEntities = Effect.fn("CanvasEntitySync.archiveAllCanvasEntities")(function* (canvasName: string, now: string) {
+    yield* sql`UPDATE canvas_entities SET lifecycle = 'archived', updated_at = ${now},
+      archived_at = COALESCE(archived_at, ${now}), soft_deleted_at = NULL
+      WHERE canvas_name = ${canvasName} AND lifecycle = 'active'`;
+  });
+  const softDeleteCanvasEntity = Effect.fn("CanvasEntitySync.softDeleteCanvasEntity")(function* (canvasName: string, entityId: string, now: string) {
+    yield* sql`UPDATE canvas_entities SET lifecycle = 'soft_deleted', updated_at = ${now}, soft_deleted_at = ${now}
+      WHERE canvas_name = ${canvasName} AND entity_id = ${entityId} AND lifecycle = 'archived'`;
+  });
+  const activeCanvasRows = SqlSchema.findAll({
+    Request: Schema.Void, Result: Schema.Struct({ canvas_name: Schema.String }),
+    execute: () => sql`SELECT DISTINCT canvas_name FROM canvas_entities WHERE lifecycle = 'active'`,
+  });
+  const activeCanvasNames = Effect.fn("CanvasEntitySync.activeCanvasNames")(
+    () => activeCanvasRows(undefined).pipe(Effect.map((rows) => new Set(rows.map((row) => row.canvas_name)))),
   );
-  if (row === undefined) return "missing";
-  if (row.lifecycle !== "archived") return "not_archived";
-  writer.run(
-    `
-      UPDATE canvas_entities
-      SET
-        lifecycle = 'soft_deleted',
-        updated_at = ?,
-        soft_deleted_at = ?
-      WHERE canvas_name = ?
-        AND entity_id = ?
-        AND lifecycle = 'archived'
-    `,
-    [now, now, canvasName, entityId],
-  );
-  return "soft_deleted";
-};
+  return { syncCanvasEntities, archiveAllCanvasEntities, softDeleteCanvasEntity, activeCanvasNames };
+});
+
+export class CanvasEntitySync extends Context.Service<CanvasEntitySync, Effect.Success<typeof makeCanvasEntitySync>>()("@junto/CanvasEntitySync") {
+  static readonly layer = Layer.effect(CanvasEntitySync, makeCanvasEntitySync);
+}
