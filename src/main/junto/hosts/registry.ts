@@ -1,6 +1,7 @@
 import { hostname } from "node:os";
 import { isIP } from "node:net";
-import { Context, Effect, Schema } from "effect";
+import { Context, Effect, Layer, Option, Schema } from "effect";
+import { SqlClient, SqlSchema } from "effect/unstable/sql";
 import {
   LOCAL_HOST_ID,
   REMOTE_HOSTS_VERSION,
@@ -255,6 +256,129 @@ const rowToHost = (row: HostRow): RemoteHost => {
         }),
   };
 };
+
+const HostRowSchema = Schema.Struct({
+  id: Schema.String,
+  label: Schema.String,
+  kind: Schema.Literals(["local", "remote"]),
+  ssh_endpoint: Schema.NullOr(Schema.String),
+  ssh_identity_file: Schema.NullOr(Schema.String),
+  ssh_host_key_policy: Schema.NullOr(Schema.Literals(["system", "accept-new"])),
+  capability_mask: Schema.NullOr(Schema.Number),
+  hermes_id: Schema.NullOr(Schema.String),
+  appearance_color: Schema.NullOr(Schema.String),
+  appearance_glyph: Schema.NullOr(Schema.String),
+  sort_order: Schema.Number,
+});
+
+export type HostRegistryRowsError = HostsStateError | RemoteHostsError;
+
+const hostRowsError = (operation: string, cause: unknown): HostRegistryRowsError =>
+  cause instanceof RemoteHostsError || cause instanceof HostsStateError
+    ? cause
+    : HostsStateError.make({
+        operation,
+        message: cause instanceof Error ? cause.message : String(cause),
+        cause,
+      });
+
+/** Host rows only. Every mutation participates in its caller's transaction. */
+export class HostRegistryRows extends Context.Service<HostRegistryRows, {
+  readonly initialized: Effect.Effect<boolean, HostsStateError>;
+  readonly read: Effect.Effect<RemoteHostsDocument, HostRegistryRowsError>;
+  readonly ensure: (initializedAt: string) => Effect.Effect<void, HostRegistryRowsError>;
+  readonly upsert: (host: RemoteHost) => Effect.Effect<RemoteHostsDocument, HostRegistryRowsError>;
+  readonly updateRoute: (id: string, endpoint: string, label: string) => Effect.Effect<void, HostRegistryRowsError>;
+  readonly delete: (id: string) => Effect.Effect<void, HostRegistryRowsError>;
+}>()("@junto/HostRegistryRows") {
+  static readonly layer = Layer.effect(this, Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+    const selectInitialized = SqlSchema.findOneOption({
+      Request: Schema.Void,
+      Result: Schema.Struct({ singleton: Schema.Number }),
+      execute: () => sql`SELECT singleton FROM host_registry_state WHERE singleton = 1`,
+    });
+    const initialized = selectInitialized(undefined).pipe(
+      Effect.map(Option.isSome),
+      Effect.mapError((cause) => HostsStateError.make({ operation: "initialize-read", message: cause.message, cause })),
+    );
+    const selectHosts = SqlSchema.findAll({
+      Request: Schema.Void,
+      Result: HostRowSchema,
+      execute: () => sql`SELECT id, label, kind, ssh_endpoint, ssh_identity_file,
+        ssh_host_key_policy, capability_mask, hermes_id, appearance_color, appearance_glyph,
+        sort_order FROM host_registry ORDER BY sort_order`,
+    });
+    const read = Effect.gen(function* () {
+      const rows = yield* selectHosts(undefined);
+      const hosts = rows.map(rowToHost);
+      yield* Effect.try({ try: () => validateHosts(hosts), catch: (cause) => hostRowsError("read", cause) });
+      return { version: REMOTE_HOSTS_VERSION, hosts };
+    }).pipe(Effect.mapError((cause) => hostRowsError("read", cause)));
+    const write = Effect.fn("HostRegistryRows.write")(function* (host: RemoteHost, sortOrder: number) {
+      const mask = capabilityMask(host);
+      const effectiveHermesId = hostHasCapability(host, "hermes") ? hermesKeyFor(host) : null;
+      yield* sql`INSERT INTO host_registry(
+        id, label, kind, ssh_endpoint, ssh_identity_file, ssh_host_key_policy,
+        capability_mask, hermes_id, effective_hermes_id, appearance_color, appearance_glyph, sort_order
+      ) VALUES (${host.id}, ${host.label}, ${host.kind},
+        ${host.kind === "remote" ? host.sshEndpoint ?? null : null},
+        ${host.kind === "remote" ? host.sshIdentityFile ?? null : null},
+        ${host.kind === "remote" ? host.sshHostKeyPolicy ?? null : null},
+        ${mask}, ${host.hermesId ?? null}, ${effectiveHermesId},
+        ${host.appearance?.color ?? null}, ${host.appearance?.glyph ?? null}, ${sortOrder})
+      ON CONFLICT(id) DO UPDATE SET
+        label = excluded.label, kind = excluded.kind, ssh_endpoint = excluded.ssh_endpoint,
+        ssh_identity_file = excluded.ssh_identity_file, ssh_host_key_policy = excluded.ssh_host_key_policy,
+        capability_mask = excluded.capability_mask, hermes_id = excluded.hermes_id,
+        effective_hermes_id = excluded.effective_hermes_id, appearance_color = excluded.appearance_color,
+        appearance_glyph = excluded.appearance_glyph, sort_order = excluded.sort_order`;
+    });
+    const count = SqlSchema.findOne({
+      Request: Schema.Void,
+      Result: Schema.Struct({ count: Schema.Number }),
+      execute: () => sql`SELECT count(*) AS count FROM host_registry`,
+    });
+    const ensure = Effect.fn("HostRegistryRows.ensure")(function* (initializedAt: string) {
+      if (yield* initialized) return;
+      if ((yield* count(undefined)).count !== 0) {
+        return yield* HostsStateError.make({ operation: "initialize-write",
+          message: "host registry rows exist without initialization metadata", cause: undefined });
+      }
+      yield* write(defaultRemoteHostsDocument().hosts[0]!, 0);
+      yield* sql`INSERT INTO host_registry_state(singleton, version, initialized_at) VALUES (1, 1, ${initializedAt})`;
+    }, Effect.mapError((cause) => hostRowsError("ensure", cause)));
+    const selectOrder = SqlSchema.findOneOption({
+      Request: Schema.String, Result: Schema.Struct({ sort_order: Schema.Number }),
+      execute: (id) => sql`SELECT sort_order FROM host_registry WHERE id = ${id}`,
+    });
+    const selectMaxOrder = SqlSchema.findOne({
+      Request: Schema.Void, Result: Schema.Struct({ max_order: Schema.NullOr(Schema.Number) }),
+      execute: () => sql`SELECT max(sort_order) AS max_order FROM host_registry`,
+    });
+    const upsert = Effect.fn("HostRegistryRows.upsert")(function* (host: RemoteHost) {
+      const current = yield* read;
+      const entry = host.id === LOCAL_HOST_ID
+        ? makeLocalHost({ label: host.label, hermesId: host.hermesId, appearance: host.appearance }) : host;
+      const nextHosts = [...current.hosts];
+      const index = nextHosts.findIndex((row) => row.id === entry.id);
+      if (index >= 0) nextHosts[index] = entry;
+      else nextHosts.push(entry);
+      yield* Effect.try({ try: () => validateHosts(nextHosts), catch: (cause) => hostRowsError("upsert", cause) });
+      const order = yield* selectOrder(entry.id);
+      const maxOrder = (yield* selectMaxOrder(undefined)).max_order ?? 0;
+      yield* write(entry, Option.isSome(order) ? order.value.sort_order : maxOrder + 1);
+      return yield* read;
+    }, Effect.mapError((cause) => hostRowsError("upsert", cause)));
+    const updateRoute = Effect.fn("HostRegistryRows.updateRoute")(function* (id: string, endpoint: string, label: string) {
+      yield* sql`UPDATE host_registry SET ssh_endpoint = ${endpoint}, label = ${label} WHERE id = ${id}`;
+    }, Effect.mapError((cause) => hostRowsError("update-route", cause)));
+    const deleteHost = Effect.fn("HostRegistryRows.delete")(function* (id: string) {
+      yield* sql`DELETE FROM host_registry WHERE id = ${id}`;
+    }, Effect.mapError((cause) => hostRowsError("delete", cause)));
+    return { initialized, read, ensure, upsert, updateRoute, delete: deleteHost };
+  }));
+}
 
 const readStoredDocument = (reader: StateReader): RemoteHostsDocument => {
   const hosts = reader
