@@ -39,6 +39,13 @@ before an item moved keep resolving) and may declare the seat-identity draw
 this install may not wear falls back to the free items' list with the same
 roll.
 
+The build also defines `__JUNTO_PREMIUM__` (true only with `JUNTO_OVERLAY`),
+read as `PREMIUM_BUILD` in `src/renderer/overlay/surfaces.tsx`. Every premium
+surface (the store host and its command, locked items, pack headings, Get)
+is behind it, so the open-source bundle does not carry them at all: it shows
+the free items, fully usable, and nothing else. An item nobody can wear and no
+store can sell is not shown, never greyed out.
+
 Overlay files import app code through `@shared/*` and `@renderer/*`, and
 packages (react, effect) resolve from this app's `node_modules`, so a build
 has one copy of each.

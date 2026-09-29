@@ -22,7 +22,7 @@ import { clearSelection, state$ } from "./state";
 import { openSettings } from "./settings-state";
 import { openOperatorFeed } from "./operator-feed";
 import { openIntro } from "./first-run-intro";
-import { hasStore, openStore, overlaySurfaces } from "../overlay/surfaces";
+import { hasStore, openStore, overlaySurfaces, PREMIUM_BUILD } from "../overlay/surfaces";
 
 /**
  * Command bar quick-actions catalog.
@@ -165,7 +165,7 @@ export const buildCommandBarActions = (): ReadonlyArray<CommandBarAction> => {
   });
 
   // Official builds only: the overlay fills the store; open source has none.
-  if (hasStore()) {
+  if (PREMIUM_BUILD && hasStore()) {
     actions.push({
       id: "open-store",
       label: `Open ${overlaySurfaces.store?.title ?? "store"}`,

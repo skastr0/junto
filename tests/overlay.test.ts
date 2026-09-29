@@ -7,7 +7,13 @@ import { surfaces } from "@junto/overlay/renderer";
 import { overlayManifest } from "@shared/overlay";
 import { decodeOverlay, OSS_OVERLAY_MARKER } from "@shared/overlay-contract";
 import { hasStore, openStore, store$ } from "../src/renderer/overlay/surfaces";
-import { bundleMarkerViolations, fingerprintHits, overlayImportViolations, premiumFingerprints } from "../scripts/lint-overlay";
+import {
+  bundleMarkerViolations,
+  fingerprintHits,
+  overlayImportViolations,
+  premiumFingerprints,
+  premiumUiHits,
+} from "../scripts/lint-overlay";
 import { resolveOverlay } from "../scripts/overlay";
 
 describe("overlay contract", () => {
@@ -70,6 +76,12 @@ describe("overlay gates", () => {
     expect(bundleMarkerViolations(new Set([OSS_OVERLAY_MARKER, "junto-overlay:junto-premium"]), "oss")).toHaveLength(1);
     expect(bundleMarkerViolations(new Set([OSS_OVERLAY_MARKER]), "official")).toHaveLength(1);
     expect(bundleMarkerViolations(new Set(["junto-overlay:junto-premium"]), "official")).toEqual([]);
+  });
+
+  it("finds premium UI an open-source bundle must not carry", () => {
+    expect(premiumUiHits('jsx("div", { "data-testid": "overlay-store" })')).toEqual(["the store host"]);
+    expect(premiumUiHits("title: `${name}, not unlocked on this install`")).toEqual(["locked item copy"]);
+    expect(premiumUiHits('{ id: "palette", label: "Open settings" }')).toEqual([]);
   });
 
   it("fingerprints premium items so an open-source bundle can be searched", () => {

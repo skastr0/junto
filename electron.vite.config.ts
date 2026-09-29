@@ -33,6 +33,8 @@ const productDefines = {
   ...updateDefines,
   __JUNTO_MAC_SIGNING_IDENTITY__: JSON.stringify(process.env.JUNTO_MAC_SIGNING_IDENTITY ?? ""),
   __JUNTO_MAC_TEAM_ID__: JSON.stringify(process.env.JUNTO_MAC_TEAM_ID ?? ""),
+  // The open-source build folds every premium branch away (docs/overlay.md).
+  __JUNTO_PREMIUM__: JSON.stringify(overlay.kind === "official"),
   ...featureViteDefines(resolvedBuildFeatures),
 };
 

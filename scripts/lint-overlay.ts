@@ -7,7 +7,8 @@
 //                                          after `electron-vite build`: out/ holds
 //                                          exactly the overlay this build resolved,
 //                                          so an open-source build carries no
-//                                          premium marker at all, and no premium
+//                                          premium marker at all, no premium UI
+//                                          (store, locked items), and no premium
 //                                          item from the overlay checkout
 //                                          (--premium DIR, JUNTO_PREMIUM, or a
 //                                          sibling ../junto-premium)
@@ -111,6 +112,21 @@ function premiumCheckout(): string | undefined {
   return candidates.map((dir) => (dir ? resolve(dir) : undefined)).find((dir) => dir && existsSync(join(dir, "overlay", "index.ts")));
 }
 
+/**
+ * Premium UI the open-source build must not carry at all: the store host and
+ * its command, and locked items. It sits behind PREMIUM_BUILD, so a hit means
+ * a premium surface escaped the gate.
+ */
+const PREMIUM_UI_NEEDLES: ReadonlyArray<readonly [needle: string, label: string]> = [
+  ["overlay-store", "the store host"],
+  ['"open-store"', "the open store command"],
+  ["Premium characters and accessories", "the open store command's copy"],
+  ["not unlocked on this install", "locked item copy"],
+];
+
+export const premiumUiHits = (text: string): string[] =>
+  PREMIUM_UI_NEEDLES.filter(([needle]) => text.includes(needle)).map(([, label]) => label);
+
 async function checkBundle(outDir: string): Promise<string[]> {
   const overlay = resolveOverlay();
   const markers = new Set<string>();
@@ -123,6 +139,8 @@ async function checkBundle(outDir: string): Promise<string[]> {
   if (texts.length === 0) return [`${outDir} is empty; run electron-vite build first`];
   const problems = bundleMarkerViolations(markers, overlay.kind);
   if (overlay.kind !== "oss") return problems;
+  const ui = new Set(texts.flatMap(premiumUiHits));
+  problems.push(...[...ui].map((label) => `open-source bundle carries premium UI: ${label}`));
   const premium = premiumCheckout();
   if (!premium) {
     console.log("lint:overlay --bundle — no premium checkout here; premium content not fingerprinted");

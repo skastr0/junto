@@ -27,3 +27,5 @@ declare const __JUNTO_MAC_UPDATE_FEED_URL__: string | undefined;
 declare const __JUNTO_APP_VERSION__: string | undefined;
 declare const __JUNTO_MAC_SIGNING_IDENTITY__: string | undefined;
 declare const __JUNTO_MAC_TEAM_ID__: string | undefined;
+/** True in a build made with a premium overlay (JUNTO_OVERLAY), false in the open-source one. */
+declare const __JUNTO_PREMIUM__: boolean | undefined;
