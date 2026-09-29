@@ -5,7 +5,8 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { Context, Effect, ManagedRuntime, Schema } from "effect";
+import { Effect, Layer, ManagedRuntime, Schema } from "effect";
+import { SqlClient } from "effect/unstable/sql";
 import {
   MASKED_SECRET,
   PROVIDER_SECTION_KEYS,
@@ -23,10 +24,10 @@ import {
   decodeStoredSettings,
 } from "../src/main/junto/settings/state-schema";
 import {
-  makeSettingsService,
+  makeSettingsLive,
+  SettingsService,
   type SettingsServiceApi,
 } from "../src/main/junto/settings/service";
-import { StateEngine } from "../src/main/junto/state/service";
 import { makeStateEngineLive } from "../src/main/junto/state/engine";
 import { MemoryCredentialStore } from "../src/main/junto/credentials/store";
 
@@ -230,7 +231,7 @@ describe("providers settings schema", () => {
 
 type Harness = {
   readonly service: SettingsServiceApi;
-  readonly state: Context.Service.Shape<typeof StateEngine>;
+  readonly sql: SqlClient.SqlClient;
   readonly close: () => Promise<void>;
 };
 
@@ -252,14 +253,14 @@ describe("providers settings service persistence", () => {
       root = await mkdtemp(join(tmpdir(), "junto-providers-settings-"));
       databasePath = join(root, "state", "junto.db");
     }
-    const runtime = ManagedRuntime.make(makeStateEngineLive(databasePath));
-    const state = await runtime.runPromise(StateEngine);
-    const service = await run(
-      makeSettingsService(state, { credentials: new MemoryCredentialStore() }),
-    );
+    const runtime = ManagedRuntime.make(makeSettingsLive({ credentials: new MemoryCredentialStore() }).pipe(
+      Layer.provideMerge(makeStateEngineLive(databasePath)),
+    ));
+    const sql = await runtime.runPromise(SqlClient.SqlClient);
+    const service = await runtime.runPromise(SettingsService);
     return {
       service,
-      state,
+      sql,
       close: () => runtime.dispose(),
     };
   };
@@ -309,12 +310,8 @@ describe("providers settings service persistence", () => {
       });
 
       const liveBody = await run(
-        harness.state.read("proof.live", (reader) =>
-          String(
-            reader.get<{ body: string }>(
-              "SELECT body FROM settings_preferences WHERE singleton = 1",
-            )?.body ?? "",
-          ),
+        harness.sql<{ body: string }>`SELECT body FROM settings_preferences WHERE singleton = 1`.pipe(
+          Effect.map((rows) => String(rows[0]?.body ?? "")),
         ),
       );
       expect(liveBody.includes(SECRET)).toBe(false);

@@ -1,6 +1,5 @@
 import { Context, Effect, Layer, Schema } from "effect";
 import { SqlClient, SqlSchema } from "effect/unstable/sql";
-import type { StateReader, StateWriter } from "../state/service";
 import type { ProviderCredentialSlot } from "./slots";
 import { isProviderCredentialSlot } from "./slots";
 
@@ -50,66 +49,6 @@ const decodeRow = (row: BindingRow): ProviderCredentialBinding | undefined => {
     lifecycle: row.lifecycle,
     createdAt: String(row.created_at),
   };
-};
-
-export const listCredentialBindings = (
-  reader: StateReader,
-): ReadonlyArray<ProviderCredentialBinding> =>
-  reader
-    .all<BindingRow>(SELECT_ALL)
-    .flatMap((row) => {
-      const decoded = decodeRow(row);
-      return decoded === undefined ? [] : [decoded];
-    });
-
-export const activeBindingForSlot = (
-  reader: StateReader,
-  slot: ProviderCredentialSlot,
-): ProviderCredentialBinding | undefined =>
-  listCredentialBindings(reader).find(
-    (binding) => binding.slot === slot && binding.lifecycle === "active",
-  );
-
-export const insertBinding = (
-  writer: StateWriter,
-  binding: ProviderCredentialBinding,
-): void => {
-  writer.run(
-    `
-      INSERT INTO ${tableForSlot(binding.slot)}(
-        credential_id, slot, lifecycle, created_at
-      ) VALUES (?, ?, ?, ?)
-    `,
-    [binding.credentialId, binding.slot, binding.lifecycle, binding.createdAt],
-  );
-};
-
-export const setBindingLifecycle = (
-  writer: StateWriter,
-  credentialId: string,
-  lifecycle: CredentialLifecycle,
-): void => {
-  for (const table of BINDING_TABLES) writer.run(
-    `
-      UPDATE ${table}
-      SET lifecycle = ?
-      WHERE credential_id = ?
-    `,
-    [lifecycle, credentialId],
-  );
-};
-
-export const deleteBinding = (
-  writer: StateWriter,
-  credentialId: string,
-): void => {
-  for (const table of BINDING_TABLES) writer.run(
-    `
-      DELETE FROM ${table}
-      WHERE credential_id = ?
-    `,
-    [credentialId],
-  );
 };
 
 export class CredentialPersistenceError extends Schema.TaggedError<CredentialPersistenceError>()(

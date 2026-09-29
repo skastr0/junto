@@ -11,11 +11,10 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { Effect, ManagedRuntime, Result } from "effect";
+import { Effect, Layer, ManagedRuntime, Result } from "effect";
 import { applySettingsPatch, defaultSettings } from "../src/shared/settings";
 import { applyAndValidatePatch, decodePatchInput } from "../src/main/junto/settings/patch";
-import { makeSettingsService } from "../src/main/junto/settings/service";
-import { StateEngine } from "../src/main/junto/state/service";
+import { SettingsLive, SettingsService } from "../src/main/junto/settings/service";
 import { makeStateEngineLive } from "../src/main/junto/state/engine";
 import { seatAwarenessEnrolled } from "../src/main/junto/term/seat-awareness";
 import { SEAT_AWARENESS_TIER } from "../src/shared/features";
@@ -64,9 +63,10 @@ describe("experimental settings in SQLite", () => {
   const openService = async () => {
     await dispose?.();
     if (!root) root = await mkdtemp(join(tmpdir(), "junto-experimental-settings-"));
-    const runtime = ManagedRuntime.make(makeStateEngineLive(join(root, "state", "junto.db")));
-    const state = await runtime.runPromise(StateEngine);
-    const service = await run(makeSettingsService(state, {}));
+    const runtime = ManagedRuntime.make(SettingsLive.pipe(
+      Layer.provide(makeStateEngineLive(join(root, "state", "junto.db"))),
+    ));
+    const service = await runtime.runPromise(SettingsService);
     dispose = () => runtime.dispose();
     return service;
   };

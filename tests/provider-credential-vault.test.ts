@@ -2,12 +2,16 @@ import { mkdtemp, rm, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { Effect, ManagedRuntime } from "effect";
-import { afterEach, describe, expect, it } from "vitest";
+import { Effect, Layer, ManagedRuntime } from "effect";
+import { SqlClient } from "effect/unstable/sql";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { mkdir, readdir, writeFile } from "node:fs/promises";
 import { MASKED_SECRET } from "../src/shared/settings";
 import { makeSettingsService } from "../src/main/junto/settings/service";
+import { CredentialBindingRepository, CredentialPersistenceError } from "../src/main/junto/credentials/bindings";
+import { StationConfigurationRepository } from "../src/main/junto/station/configuration-state";
 import { makeStateEngineLive, StateEngine } from "../src/main/junto/state/engine";
+import { StateTransactionOperation } from "../src/main/junto/state/service";
 import {
   MemoryCredentialStore,
   UnavailableCredentialStore,
@@ -17,11 +21,17 @@ import { reconcilePendingStateBackups } from "../src/main/junto/state/backup";
 
 const SECRET = "sk-proof-plaintext-credential-9f8e7d6c-UNIQUE";
 const run = <A, E>(effect: Effect.Effect<A, E>) => Effect.runPromise(effect);
+const makeRuntime = (path: string) => ManagedRuntime.make(
+  Layer.mergeAll(CredentialBindingRepository.layer, StationConfigurationRepository.layer).pipe(
+    Layer.provideMerge(makeStateEngineLive(path)),
+  ),
+);
 
 describe("provider credential vault", () => {
   let root = "";
 
   afterEach(async () => {
+    vi.restoreAllMocks();
     if (root) await rm(root, { recursive: true, force: true });
     root = "";
   });
@@ -29,10 +39,11 @@ describe("provider credential vault", () => {
   it("keeps secrets out of SQLite and newly minted backups", async () => {
     root = await mkdtemp(join(tmpdir(), "junto-cred-vault-"));
     const databasePath = join(root, "state", "junto.db");
-    const runtime = ManagedRuntime.make(makeStateEngineLive(databasePath));
+    const runtime = makeRuntime(databasePath);
     const state = await runtime.runPromise(StateEngine);
+    const sql = await runtime.runPromise(SqlClient.SqlClient);
     const store = new MemoryCredentialStore();
-    const service = await run(makeSettingsService(state, { credentials: store }));
+    const service = await runtime.runPromise(makeSettingsService(databasePath, { credentials: store }));
 
     const patched = await run(
       service.patch({ providers: { openrouter: { apiKey: SECRET } } }),
@@ -44,12 +55,8 @@ describe("provider credential vault", () => {
     });
 
     const liveBody = await run(
-      state.read("proof.live", (reader) =>
-        String(
-          reader.get<{ body: string }>(
-            "SELECT body FROM settings_preferences WHERE singleton = 1",
-          )?.body ?? "",
-        ),
+      sql<{ body: string }>`SELECT body FROM settings_preferences WHERE singleton = 1`.pipe(
+        Effect.map((rows) => String(rows[0]?.body ?? "")),
       ),
     );
     expect(liveBody.includes(SECRET)).toBe(false);
@@ -77,28 +84,144 @@ describe("provider credential vault", () => {
     await runtime.dispose();
   });
 
+  it("returns a typed staging failure and discards every unbound vault item", async () => {
+    root = await mkdtemp(join(tmpdir(), "junto-cred-stage-failure-"));
+    const databasePath = join(root, "junto.db");
+    const runtime = makeRuntime(databasePath);
+    try {
+      const store = new MemoryCredentialStore();
+      const bindings = await runtime.runPromise(CredentialBindingRepository);
+      const service = await runtime.runPromise(makeSettingsService(databasePath, { credentials: store }));
+      const before = await run(service.get);
+      const published = vi.fn();
+      service.subscribe(published);
+      const put = store.put.bind(store);
+      const writes: string[] = [];
+      vi.spyOn(store, "put").mockImplementation((id, value) => {
+        put(id, value);
+        writes.push(id);
+        if (writes.length === 2) throw new Error("vault full");
+      });
+
+      const result = await run(Effect.result(service.patch({ providers: {
+        openrouter: { apiKey: SECRET },
+        synthetic: { apiKey: "second-secret" },
+      } })));
+
+      expect(result).toMatchObject({ _tag: "Failure", failure: { _tag: "SettingsError", code: "io" } });
+      expect(writes).toHaveLength(2);
+      expect(store.listIds()).toEqual([]);
+      expect(await run(bindings.list)).toEqual([]);
+      expect(await run(service.get)).toEqual(before);
+      expect(published).not.toHaveBeenCalled();
+    } finally {
+      await runtime.dispose();
+    }
+  });
+
+  it("rolls back binding replacement and discards staged secrets on a participant failure", async () => {
+    root = await mkdtemp(join(tmpdir(), "junto-cred-rollback-"));
+    const databasePath = join(root, "junto.db");
+    const runtime = makeRuntime(databasePath);
+    try {
+      const store = new MemoryCredentialStore();
+      const bindings = await runtime.runPromise(CredentialBindingRepository);
+      const service = await runtime.runPromise(makeSettingsService(databasePath, { credentials: store }));
+      await run(service.patch({ providers: { openrouter: { apiKey: SECRET } } }));
+      const before = await run(bindings.list);
+      const oldIds = store.listIds();
+      const published = vi.fn();
+      service.subscribe(published);
+      const insert = bindings.insert;
+      vi.spyOn(bindings, "insert").mockImplementation((binding) => insert(binding).pipe(
+        Effect.andThen(Effect.fail(new CredentialPersistenceError({
+          operation: "insert",
+          message: "participant failed after insert",
+          cause: undefined,
+        }))),
+      ));
+
+      const result = await run(Effect.result(service.patch({ providers: {
+        openrouter: { apiKey: "replacement-secret" },
+      } })));
+
+      expect(result).toMatchObject({ _tag: "Failure", failure: { _tag: "SettingsError", code: "io" } });
+      expect(await run(bindings.list)).toEqual(before);
+      expect(store.listIds()).toEqual(oldIds);
+      expect((await run(service.resolveProviders)).openrouter?.apiKey).toBe(SECRET);
+      expect(published).not.toHaveBeenCalled();
+    } finally {
+      await runtime.dispose();
+    }
+  });
+
+  it("stages before commit, retires afterward, and retries failed retirement at boot", async () => {
+    root = await mkdtemp(join(tmpdir(), "junto-cred-retirement-"));
+    const databasePath = join(root, "junto.db");
+    const runtime = makeRuntime(databasePath);
+    try {
+      const store = new MemoryCredentialStore();
+      const sql = await runtime.runPromise(SqlClient.SqlClient);
+      const bindings = await runtime.runPromise(CredentialBindingRepository);
+      const service = await runtime.runPromise(makeSettingsService(databasePath, { credentials: store }));
+      await run(service.patch({ providers: { openrouter: { apiKey: SECRET } } }));
+      const oldId = store.listIds()[0]!;
+      const order: string[] = [];
+      const put = store.put.bind(store);
+      vi.spyOn(store, "put").mockImplementation((id, value) => {
+        order.push("stage");
+        put(id, value);
+      });
+      const withTransaction = sql.withTransaction;
+      vi.spyOn(sql, "withTransaction").mockImplementation((body) => Effect.gen(function* () {
+        const operation = yield* StateTransactionOperation;
+        if (operation === "settings.patch") order.push("begin");
+        const result = yield* withTransaction(body);
+        if (operation === "settings.patch") order.push("commit");
+        return result;
+      }));
+      const deletion = vi.spyOn(store, "delete").mockImplementation(() => {
+        order.push("retire");
+        throw new Error("vault deletion unavailable");
+      });
+      service.subscribe(() => order.push("publish"));
+
+      await run(service.patch({ providers: { openrouter: { apiKey: "replacement-secret" } } }));
+
+      expect(order).toEqual(["stage", "begin", "commit", "retire", "publish"]);
+      expect(await run(bindings.list)).toMatchObject([
+        { credentialId: oldId, lifecycle: "delete_pending" },
+        { lifecycle: "active", slot: "openrouter/apiKey" },
+      ]);
+      expect(store.get(oldId)).toBe(SECRET);
+      expect((await run(service.resolveProviders)).openrouter?.apiKey).toBe("replacement-secret");
+
+      deletion.mockRestore();
+      await runtime.runPromise(makeSettingsService(databasePath, { credentials: store }));
+      expect(store.get(oldId)).toBeUndefined();
+      expect(await run(bindings.list)).toMatchObject([{ lifecycle: "active", slot: "openrouter/apiKey" }]);
+      expect(store.listIds()).toHaveLength(1);
+    } finally {
+      await runtime.dispose();
+    }
+  });
+
   it("strips leftover plaintext from newly minted backups", async () => {
     root = await mkdtemp(join(tmpdir(), "junto-cred-backup-redact-"));
     const databasePath = join(root, "state", "junto.db");
-    const runtime = ManagedRuntime.make(makeStateEngineLive(databasePath));
+    const runtime = makeRuntime(databasePath);
     const state = await runtime.runPromise(StateEngine);
-    await run(makeSettingsService(state, { credentials: new MemoryCredentialStore() }));
+    const sql = await runtime.runPromise(SqlClient.SqlClient);
+    await runtime.runPromise(makeSettingsService(databasePath, { credentials: new MemoryCredentialStore() }));
     await run(
-      state.transaction("seed-plaintext", (writer) => {
-        const row = writer.get<{ body: string }>(
-          "SELECT body FROM settings_preferences WHERE singleton = 1",
-        );
-        const body = JSON.parse(String(row?.body ?? "{}")) as Record<string, unknown>;
-        writer.run(
-          `UPDATE settings_preferences SET body = ? WHERE singleton = 1`,
-          [
-            JSON.stringify({
-              ...body,
-              providers: { openrouter: { apiKey: SECRET } },
-            }),
-          ],
-        );
-      }),
+      sql.withTransaction(Effect.gen(function* () {
+        const rows = yield* sql<{ body: string }>`SELECT body FROM settings_preferences WHERE singleton = 1`;
+        const body = JSON.parse(String(rows[0]?.body ?? "{}")) as Record<string, unknown>;
+        yield* sql`UPDATE settings_preferences SET body = ${JSON.stringify({
+          ...body,
+          providers: { openrouter: { apiKey: SECRET } },
+        })} WHERE singleton = 1`;
+      })),
     );
     const receipt = await run(state.backup());
     expect((await readFile(receipt.path)).includes(Buffer.from(SECRET))).toBe(
@@ -110,37 +233,26 @@ describe("provider credential vault", () => {
   it("keeps unmigrated secrets across unrelated patches when the vault is unavailable", async () => {
     root = await mkdtemp(join(tmpdir(), "junto-cred-retain-"));
     const databasePath = join(root, "state", "junto.db");
-    const runtime = ManagedRuntime.make(makeStateEngineLive(databasePath));
-    const state = await runtime.runPromise(StateEngine);
-    await run(makeSettingsService(state, { credentials: new MemoryCredentialStore() }));
+    const runtime = makeRuntime(databasePath);
+    const sql = await runtime.runPromise(SqlClient.SqlClient);
+    await runtime.runPromise(makeSettingsService(databasePath, { credentials: new MemoryCredentialStore() }));
     await run(
-      state.transaction("seed-plaintext", (writer) => {
-        const row = writer.get<{ body: string }>(
-          "SELECT body FROM settings_preferences WHERE singleton = 1",
-        );
-        const body = JSON.parse(String(row?.body ?? "{}")) as Record<string, unknown>;
-        writer.run(
-          `UPDATE settings_preferences SET body = ? WHERE singleton = 1`,
-          [
-            JSON.stringify({
-              ...body,
-              providers: { openrouter: { apiKey: SECRET } },
-            }),
-          ],
-        );
-      }),
+      sql.withTransaction(Effect.gen(function* () {
+        const rows = yield* sql<{ body: string }>`SELECT body FROM settings_preferences WHERE singleton = 1`;
+        const body = JSON.parse(String(rows[0]?.body ?? "{}")) as Record<string, unknown>;
+        yield* sql`UPDATE settings_preferences SET body = ${JSON.stringify({
+          ...body,
+          providers: { openrouter: { apiKey: SECRET } },
+        })} WHERE singleton = 1`;
+      })),
     );
-    const service = await run(
-      makeSettingsService(state, { credentials: new UnavailableCredentialStore() }),
+    const service = await runtime.runPromise(
+      makeSettingsService(databasePath, { credentials: new UnavailableCredentialStore() }),
     );
     await run(service.patch({ appearance: { reduceMotion: true } }));
     const liveBody = await run(
-      state.read("proof.retained", (reader) =>
-        String(
-          reader.get<{ body: string }>(
-            "SELECT body FROM settings_preferences WHERE singleton = 1",
-          )?.body ?? "",
-        ),
+      sql<{ body: string }>`SELECT body FROM settings_preferences WHERE singleton = 1`.pipe(
+        Effect.map((rows) => String(rows[0]?.body ?? "")),
       ),
     );
     expect(liveBody.includes(SECRET)).toBe(true);
@@ -160,10 +272,10 @@ describe("provider credential vault", () => {
   it("boots when the credential vault cannot be created", async () => {
     root = await mkdtemp(join(tmpdir(), "junto-cred-boot-"));
     const databasePath = join(root, "state", "junto.db");
-    const runtime = ManagedRuntime.make(makeStateEngineLive(databasePath));
-    const state = await runtime.runPromise(StateEngine);
+    const runtime = makeRuntime(databasePath);
+    await runtime.runPromise(StateEngine);
     await writeFile(join(root, "state", "credentials"), "not-a-directory");
-    const service = await run(makeSettingsService(state));
+    const service = await runtime.runPromise(makeSettingsService(databasePath));
     const settings = await run(service.get);
     expect(settings.appearance.theme).toBeDefined();
     await runtime.dispose();

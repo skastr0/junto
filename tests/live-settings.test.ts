@@ -1,7 +1,8 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Effect, ManagedRuntime, Schema } from "effect";
+import { Effect, Layer, ManagedRuntime, Schema } from "effect";
+import { SqlClient } from "effect/unstable/sql";
 import { describe, expect, it } from "vitest";
 import {
   SettingsPatch,
@@ -13,10 +14,9 @@ import {
   redactProvidersForIpc,
 } from "../src/shared/settings";
 import { MemoryCredentialStore } from "../src/main/junto/credentials/store";
-import { makeSettingsService } from "../src/main/junto/settings/service";
+import { makeSettingsLive, SettingsService } from "../src/main/junto/settings/service";
 import { decodeStoredSettings, preferencesFromSettings } from "../src/main/junto/settings/state-schema";
 import { makeStateEngineLive } from "../src/main/junto/state/engine";
-import { StateEngine } from "../src/main/junto/state/service";
 
 const decodePatch = Schema.decodeUnknownSync(SettingsPatch, { onExcessProperty: "error" });
 const SECRET = "sk-openai-live-test-only";
@@ -64,10 +64,12 @@ describe("Live provider preferences", () => {
     const root = await mkdtemp(join(tmpdir(), "junto-live-settings-"));
     const path = join(root, "junto.db");
     const vault = new MemoryCredentialStore();
-    const runtime = ManagedRuntime.make(makeStateEngineLive(path));
+    const runtime = ManagedRuntime.make(makeSettingsLive({ credentials: vault }).pipe(
+      Layer.provideMerge(makeStateEngineLive(path)),
+    ));
     try {
-      const engine = await runtime.runPromise(StateEngine);
-      const service = await Effect.runPromise(makeSettingsService(engine, { credentials: vault }));
+      const sql = await runtime.runPromise(SqlClient.SqlClient);
+      const service = await runtime.runPromise(SettingsService);
       const broadcasts: unknown[] = [];
       const unsubscribe = service.subscribe((value) => broadcasts.push(value));
       const saved = await Effect.runPromise(service.patch({
@@ -77,10 +79,11 @@ describe("Live provider preferences", () => {
       expect(saved.providers?.openai).toEqual({ apiKeyConfigured: true });
       expect((await Effect.runPromise(service.resolveProviders)).openai?.apiKey).toBe(SECRET);
       expect(JSON.stringify(broadcasts)).not.toContain(SECRET);
-      const inspect = () => Effect.runPromise(engine.read("test.live-settings", (reader) => ({
-        body: reader.get<{ body: string }>("SELECT body FROM settings_preferences WHERE singleton = 1")?.body,
-        binding: reader.get<{ slot: string }>("SELECT slot FROM openai_credential_bindings WHERE lifecycle = 'active'"),
-      })));
+      const inspect = () => Effect.runPromise(Effect.gen(function* () {
+        const preferences = yield* sql<{ body: string }>`SELECT body FROM settings_preferences WHERE singleton = 1`;
+        const bindings = yield* sql<{ slot: string }>`SELECT slot FROM openai_credential_bindings WHERE lifecycle = 'active'`;
+        return { body: preferences[0]?.body, binding: bindings[0] };
+      }));
       expect((await inspect()).body).not.toContain(SECRET);
       expect((await inspect()).body).not.toContain("apiKeyConfigured");
       expect((await inspect()).binding?.slot).toBe("openai/apiKey");

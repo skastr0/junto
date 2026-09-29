@@ -428,33 +428,6 @@
       "dynamicTableSites": [
         {
           "statement": "INSERT",
-          "expression": "${tableForSlot(binding.slot)}",
-          "resolvesTo": [
-            "openai_credential_bindings",
-            "provider_credential_bindings"
-          ],
-          "reason": "tableForSlot selects openai_credential_bindings only for openai/apiKey and provider_credential_bindings for every other admitted provider slot; both destinations are fixed literals."
-        },
-        {
-          "statement": "UPDATE",
-          "expression": "${table}",
-          "resolvesTo": [
-            "openai_credential_bindings",
-            "provider_credential_bindings"
-          ],
-          "reason": "setBindingLifecycle iterates only the two literals in BINDING_TABLES to change the referenced credential lifecycle."
-        },
-        {
-          "statement": "DELETE",
-          "expression": "${table}",
-          "resolvesTo": [
-            "openai_credential_bindings",
-            "provider_credential_bindings"
-          ],
-          "reason": "deleteBinding iterates only the two literals in BINDING_TABLES to remove the referenced credential binding."
-        },
-        {
-          "statement": "INSERT",
           "expression": "${sql(tableForSlot(binding.slot))}",
           "resolvesTo": [
             "openai_credential_bindings",
@@ -481,7 +454,7 @@
           "reason": "The SQL identifier helper quotes only the two literals in BINDING_TABLES for binding removal."
         }
       ],
-      "reason": "Sole writer of provider credential binding metadata. The credential coordinator supplies a StateWriter from the existing SettingsService transaction; secret material stays in the credential store, never these rows."
+      "reason": "Sole writer of provider credential binding metadata. Repository effects participate in the existing SettingsService SQL transaction; secret material stays in the credential store, never these rows."
     },
     {
       "path": "src/main/junto/overseer/live/repository.ts",

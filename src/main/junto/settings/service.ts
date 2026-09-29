@@ -1,4 +1,5 @@
 import { Context, Effect, Result, Layer, Schema } from "effect";
+import { SqlClient, SqlSchema } from "effect/unstable/sql";
 import type { ServiceCheck } from "@shared/contracts";
 import {
   CommandCenterConfiguration,
@@ -20,12 +21,9 @@ import {
 } from "@shared/station";
 import {
   StateEngine,
-  StateEngineError,
-  type StateOutputValue,
-  type StateReader,
-  type StateRow,
-  type StateWriter,
+  StateTransactionOperation,
 } from "../state/service";
+import { withSqlRead } from "../state/sql-read";
 import {
   applyAndValidatePatch,
   decodePatchInput,
@@ -40,12 +38,11 @@ import {
   type SupervisedProbe,
 } from "./supervised-probe";
 import {
-  selectStationConfiguration,
+  StationConfigurationRepository,
   stationSettingsFromConfiguration,
-  writeStationConfiguration,
   type StoredStationConfiguration,
 } from "../station/configuration-state";
-import { listCredentialBindings } from "../credentials/bindings";
+import { CredentialBindingRepository } from "../credentials/bindings";
 import {
   clearAllProviderSecretOps,
   commitProviderSecretOps,
@@ -55,6 +52,7 @@ import {
   resolveProviderSecrets,
   retireVaultSecrets,
   stageSecretValues,
+  type StagedSecret,
 } from "../credentials/coordinator";
 import { persistableProviders } from "../credentials/redact";
 import { projectSettingsForRead } from "../credentials/project";
@@ -131,7 +129,8 @@ export const shouldEnsureDefaultCommandCenter = (
   argv: readonly string[] = process.argv,
 ): boolean => !argv.includes("--junto-headless");
 
-type StateService = Context.Service.Shape<typeof StateEngine>;
+type StationConfigurationService = typeof StationConfigurationRepository.Service;
+type CredentialBindings = typeof CredentialBindingRepository.Service;
 type SettingsRows = {
   readonly preferences:
     | {
@@ -146,13 +145,8 @@ type SettingsRows = {
       }
     | undefined;
 };
-type PreferencesRow = Record<string, StateOutputValue> & {
-  readonly version: number;
-  readonly body: string;
-};
-type InitializationRow = Record<string, StateOutputValue> & {
-  readonly initialized_at: string;
-};
+const PreferencesRow = Schema.Struct({ version: Schema.Number, body: Schema.String });
+const InitializationRow = Schema.Struct({ initialized_at: Schema.String });
 
 const SELECT_PREFERENCES_SQL = `
   SELECT version, body
@@ -177,13 +171,26 @@ const INSERT_INITIALIZATION_SQL = `
   VALUES (1, ?)
 `;
 
-const stateFailure = (error: StateEngineError): SettingsError => {
-  if (error.cause instanceof SettingsError) return error.cause;
+const stateFailure = (operation: string) => (error: unknown): SettingsError => {
+  if (error instanceof SettingsError) return error;
   return new SettingsError({
-    code: "io",
-    message: `settings ${error.operation} failed: ${error.message}`,
+    code: Schema.isSchemaError(error) ? "corrupt" : "io",
+    message: `settings ${operation} failed: ${error instanceof Error ? error.message : String(error)}`,
   });
 };
+
+const transaction = <A, E>(sql: SqlClient.SqlClient, operation: string, body: Effect.Effect<A, E>) =>
+  sql.withTransaction(body).pipe(
+    Effect.provideService(StateTransactionOperation, operation),
+    Effect.mapError(stateFailure(operation)),
+    Effect.withSpan(operation),
+  );
+
+const read = <A, E>(sql: SqlClient.SqlClient, operation: string, body: Effect.Effect<A, E>) =>
+  withSqlRead(sql, body).pipe(
+    Effect.mapError(stateFailure(operation)),
+    Effect.withSpan(operation),
+  );
 
 const parseBody = (label: string, raw: string): unknown => {
   try {
@@ -199,40 +206,43 @@ const parseBody = (label: string, raw: string): unknown => {
   }
 };
 
-const readRows = (reader: StateReader): SettingsRows => {
-  const preferences = reader.get<PreferencesRow>(SELECT_PREFERENCES_SQL);
-  const initialization = reader.get<InitializationRow>(
-    SELECT_INITIALIZATION_SQL,
-  );
-  let station: StoredStationConfiguration | undefined;
-  try {
-    station = selectStationConfiguration(reader);
-  } catch (error) {
-    throw new SettingsError({
+const readRows = Effect.fn("settings.read-rows")(function* (
+  sql: SqlClient.SqlClient,
+  configuration: StationConfigurationService,
+) {
+  const preferences = yield* SqlSchema.findOneOption({
+    Request: Schema.Void,
+    Result: PreferencesRow,
+    execute: () => sql.unsafe(SELECT_PREFERENCES_SQL),
+  })(undefined);
+  const initialization = yield* SqlSchema.findOneOption({
+    Request: Schema.Void,
+    Result: InitializationRow,
+    execute: () => sql.unsafe(SELECT_INITIALIZATION_SQL),
+  })(undefined);
+  const station = yield* configuration.read.pipe(Effect.mapError((error) =>
+    new SettingsError({
       code: "corrupt",
       message:
         `canonical station configuration is invalid: ${
           error instanceof Error ? error.message : String(error)
         }`,
-    });
-  }
+    }),
+  ));
   return {
     preferences:
-      preferences === undefined
+      preferences._tag === "None"
         ? undefined
-        : {
-            version: Number(preferences.version),
-            body: String(preferences.body),
-          },
+        : preferences.value,
     station,
     initialization:
-      initialization === undefined
+      initialization._tag === "None"
         ? undefined
         : {
-            initializedAt: String(initialization.initialized_at),
+            initializedAt: initialization.value.initialized_at,
           },
   };
-};
+});
 
 type StoredSettingsState = {
   readonly settings: Settings;
@@ -267,16 +277,19 @@ const decodeRows = (
   };
 };
 
-const readStoredState = (
-  reader: StateReader,
-): StoredSettingsState | undefined =>
-  decodeRows(readRows(reader));
+const readStoredState = Effect.fn("settings.read-stored")(function* (
+  sql: SqlClient.SqlClient,
+  configuration: StationConfigurationService,
+) {
+  const rows = yield* readRows(sql, configuration);
+  return yield* Effect.try({ try: () => decodeRows(rows), catch: stateFailure("decode") });
+});
 
-const readSettings = (reader: StateReader): Settings | undefined =>
-  readStoredState(reader)?.settings;
+const readSettings = (sql: SqlClient.SqlClient, configuration: StationConfigurationService) =>
+  readStoredState(sql, configuration).pipe(Effect.map((stored) => stored?.settings));
 
-const presentSettings = (reader: StateReader, settings: Settings): Settings =>
-  projectSettingsForRead(settings, listCredentialBindings(reader));
+const presentSettings = (bindings: CredentialBindings, settings: Settings) =>
+  bindings.list.pipe(Effect.map((rows) => projectSettingsForRead(settings, rows)));
 
 const encodedPreferences = (
   settings: Settings,
@@ -297,48 +310,56 @@ const ensureBounded = (settings: Settings): void => {
   }
 };
 
-const writePreferences = (
-  writer: StateWriter,
+const writePreferences = Effect.fn("settings.write-preferences")(function* (
+  sql: SqlClient.SqlClient,
   settings: Settings,
   updatedAt: string,
   options: {
     readonly retainHistorical?: Settings["providers"];
     readonly migratedSlots?: ReadonlySet<string>;
   } = {},
-): void => {
-  ensureBounded(settings);
-  writer.run(UPSERT_PREFERENCES_SQL, [
+) {
+  const body = yield* Effect.try({
+    try: () => {
+      ensureBounded(settings);
+      return encodedPreferences(settings, options);
+    },
+    catch: stateFailure("encode"),
+  });
+  yield* sql.unsafe(UPSERT_PREFERENCES_SQL, [
     settings.version,
-    encodedPreferences(settings, options),
+    body,
     updatedAt,
   ]);
-};
+});
 
-const writeInitialSettings = (
-  writer: StateWriter,
+const writeInitialSettings = Effect.fn("settings.write-initial")(function* (
+  sql: SqlClient.SqlClient,
   settings: Settings,
-): void => {
+) {
   const updatedAt = new Date().toISOString();
-  writePreferences(writer, settings, updatedAt);
-  writer.run(INSERT_INITIALIZATION_SQL, [updatedAt]);
-};
+  yield* writePreferences(sql, settings, updatedAt);
+  yield* sql.unsafe(INSERT_INITIALIZATION_SQL, [updatedAt]);
+});
 
 /**
  * Old default-on Remote package mutation is not affirmative consent. Rewrite
  * the stored fleet row once when it still carries that inherited `true`.
  */
 const repairFleetConsent = (
-  state: StateService,
+  sql: SqlClient.SqlClient,
+  configuration: StationConfigurationService,
 ): Effect.Effect<void, SettingsError> =>
-  state.transaction(
+  transaction(
+    sql,
     "settings.repair-fleet-consent",
-    (writer) => {
-      const rows = readRows(writer);
+    Effect.gen(function* () {
+      const rows = yield* readRows(sql, configuration);
       if (rows.preferences === undefined) return;
-      const body = parseBody(
+      const body = yield* Effect.try({ try: () => parseBody(
         "stored settings preferences",
-        rows.preferences.body,
-      );
+        rows.preferences!.body,
+      ), catch: stateFailure("decode") });
       const fleet =
         typeof body === "object" && body !== null && "fleet" in body
           ? (body as { fleet?: { remoteManagedInstalls?: unknown; remoteManagedInstallsConsented?: unknown } }).fleet
@@ -349,41 +370,43 @@ const repairFleetConsent = (
       ) {
         return;
       }
-      const stored = decodeRows(rows);
+      const stored = yield* Effect.try({ try: () => decodeRows(rows), catch: stateFailure("decode") });
       if (stored === undefined) return;
-      writePreferences(
-        writer,
+      yield* writePreferences(
+        sql,
         stored.settings,
         new Date().toISOString(),
       );
-    },
-  ).pipe(
-    Effect.mapError(stateFailure),
-    Effect.withSpan("settings.repair-fleet-consent"),
+    }),
   );
 
 const initializeSettings = (
-  state: StateService,
+  sql: SqlClient.SqlClient,
+  configuration: StationConfigurationService,
 ): Effect.Effect<StoredSettingsState, SettingsError> =>
-  state.transaction(
+  transaction(
+    sql,
     "settings.initialize",
-    (writer) => {
-      const raced = readStoredState(writer);
+    Effect.gen(function* () {
+      const raced = yield* readStoredState(sql, configuration);
       if (raced !== undefined) return raced;
-      writeInitialSettings(writer, defaultSettings());
-      const stored = readStoredState(writer);
+      yield* writeInitialSettings(sql, defaultSettings());
+      const stored = yield* readStoredState(sql, configuration);
       if (stored === undefined) {
-        throw new SettingsError({
+        return yield* new SettingsError({
           code: "corrupt",
           message: "canonical settings initialization did not persist",
         });
       }
       return stored;
-    },
-  ).pipe(
-    Effect.mapError(stateFailure),
-    Effect.withSpan("settings.initialize"),
+    }),
   );
+
+const readPairing = (sql: SqlClient.SqlClient) => SqlSchema.findOneOption({
+  Request: Schema.Void,
+  Result: Schema.Struct({ paired: Schema.Number }),
+  execute: () => sql`SELECT 1 AS paired FROM station_pairing WHERE singleton = 1`,
+})(undefined);
 
 /**
  * v1 is single-machine: every unset, unpaired installation becomes the local
@@ -391,33 +414,22 @@ const initializeSettings = (
  * a first-run product path). Idempotent.
  */
 const ensureDefaultCommandCenter = (
-  state: StateService,
+  sql: SqlClient.SqlClient,
+  configuration: StationConfigurationService,
 ): Effect.Effect<void, SettingsError> =>
-  state
-    .transaction("settings.ensure-command-center", (writer) => {
-      const pairing = writer.get<StateRow>(
-        `SELECT 1 AS paired
-           FROM station_pairing
-          WHERE singleton = 1`,
-      );
-      if (pairing !== undefined) return;
-      if (selectStationConfiguration(writer) !== undefined) return;
-      writeStationConfiguration(
-        writer,
+  transaction(sql, "settings.ensure-command-center", Effect.gen(function* () {
+      if ((yield* readPairing(sql))._tag === "Some") return;
+      if ((yield* configuration.read) !== undefined) return;
+      const hostId = yield* Schema.decodeUnknownEffect(StationHostId)(DEFAULT_STATION_HOST_ID);
+      yield* configuration.write(
         {
           role: "command-center",
-          hostId: Schema.decodeUnknownSync(StationHostId)(
-            DEFAULT_STATION_HOST_ID,
-          ),
+          hostId,
           supervisedPreferred: false,
         },
         new Date().toISOString(),
       );
-    })
-    .pipe(
-      Effect.mapError(stateFailure),
-      Effect.withSpan("settings.ensure-command-center"),
-    );
+    }));
 
 type MutationResult = {
   readonly settings: Settings;
@@ -452,71 +464,72 @@ const publishAfterCommit = (
  * uninitialized or half-present settings aggregate.
  */
 export const makeSettingsService = (
-  state: StateService,
+  databasePath: string,
   options: SettingsServiceOptions = {},
-): Effect.Effect<SettingsServiceApi, SettingsError> =>
+): Effect.Effect<SettingsServiceApi, SettingsError, SqlClient.SqlClient | CredentialBindingRepository | StationConfigurationRepository> =>
   Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+    const bindings = yield* CredentialBindingRepository;
+    const stationConfiguration = yield* StationConfigurationRepository;
     const probeSupervised =
       options.probeSupervised ?? probeSupervisedRuntime;
     const credentials =
       options.credentials ??
-      openFileCredentialStore(join(dirname(state.info.path), "credentials"));
-    yield* initializeSettings(state);
-    yield* repairFleetConsent(state);
+      openFileCredentialStore(join(dirname(databasePath), "credentials"));
+    yield* initializeSettings(sql, stationConfiguration);
+    yield* repairFleetConsent(sql, stationConfiguration);
     const migrated = yield* Effect.result(
-      state.transaction("settings.migrate-provider-secrets", (writer) => {
-        reconcileCredentialVault(writer, credentials);
-        const current = readSettings(writer);
+      transaction(sql, "settings.migrate-provider-secrets", Effect.gen(function* () {
+        yield* reconcileCredentialVault(bindings, credentials);
+        const current = yield* readSettings(sql, stationConfiguration);
         if (current === undefined) {
           return { retired: [] as ReadonlyArray<string> };
         }
-        const next = migrateHistoricalProviderSecrets(
-          writer,
+        const next = yield* migrateHistoricalProviderSecrets(
+          bindings,
           credentials,
           current,
         );
         if (!sameSettings(current, next.settings)) {
-          writePreferences(writer, next.settings, new Date().toISOString());
+          yield* writePreferences(sql, next.settings, new Date().toISOString());
         }
         return { retired: next.retired };
-      }).pipe(Effect.mapError(stateFailure)),
+      })),
     );
     if (Result.isSuccess(migrated) && migrated.success.retired.length > 0) {
-      yield* state.transaction("settings.retire-migrated-secrets", (writer) => {
-        retireVaultSecrets(writer, credentials, migrated.success.retired);
-      }).pipe(Effect.mapError(stateFailure), Effect.result);
+      yield* transaction(sql, "settings.retire-migrated-secrets",
+        retireVaultSecrets(bindings, credentials, migrated.success.retired),
+      ).pipe(Effect.result);
     }
     if (
       options.ensureDefaultCommandCenter !== false &&
       shouldEnsureDefaultCommandCenter()
     ) {
-      yield* ensureDefaultCommandCenter(state);
+      yield* ensureDefaultCommandCenter(sql, stationConfiguration);
     }
 
     const listeners = new Set<(settings: Settings) => void>();
-    const readResolved = (reader: StateReader): ProvidersSettings => {
-      const settings = readSettings(reader);
+    const readResolved = Effect.gen(function* () {
+      const settings = yield* readSettings(sql, stationConfiguration);
       if (settings === undefined) return {};
-      return resolveProviderSecrets(reader, credentials, settings);
-    };
-    let resolvedProviders: ProvidersSettings = yield* state.read(
+      return yield* resolveProviderSecrets(bindings, credentials, settings);
+    });
+    let resolvedProviders: ProvidersSettings = yield* read(
+      sql,
       "settings.prime-providers",
       readResolved,
-    ).pipe(Effect.mapError(stateFailure));
+    );
 
-    const get = state.read("settings.get", (reader) => {
-      const settings = readSettings(reader);
+    const get = read(sql, "settings.get", Effect.gen(function* () {
+      const settings = yield* readSettings(sql, stationConfiguration);
       if (settings === undefined) {
-        throw new SettingsError({
+        return yield* new SettingsError({
           code: "corrupt",
           message: "canonical settings rows disappeared after initialization",
         });
       }
-      return presentSettings(reader, settings);
-    }).pipe(
-      Effect.mapError(stateFailure),
-      Effect.withSpan("settings.get"),
-    );
+      return yield* presentSettings(bindings, settings);
+    }));
 
     const resolveProviders = Effect.sync(() => resolvedProviders).pipe(
       Effect.withSpan("settings.resolve-providers"),
@@ -543,24 +556,25 @@ export const makeSettingsService = (
           message: "credential vault is unavailable",
         });
       }
-      let staged: ReturnType<typeof stageSecretValues> = [];
+      let staged: ReadonlyArray<StagedSecret> = [];
       const outcome = yield* Effect.result(
         Effect.gen(function* () {
-          staged = stageSecretValues(credentials, secretOps);
-          return yield* state.transaction(
+          staged = yield* stageSecretValues(credentials, secretOps).pipe(Effect.mapError(stateFailure("stage-secrets")));
+          const result: MutationResult = yield* transaction(
+            sql,
             "settings.patch",
-            (writer): MutationResult => {
-              const current = readSettings(writer);
+            Effect.gen(function* () {
+              const current = yield* readSettings(sql, stationConfiguration);
               if (current === undefined) {
-                throw new SettingsError({
+                return yield* new SettingsError({
                   code: "corrupt",
                   message: "canonical settings rows are missing",
                 });
               }
-              const presented = presentSettings(writer, current);
+              const presented = yield* presentSettings(bindings, current);
               const validated = applyAndValidatePatch(presented, decoded.success);
-              if (Result.isFailure(validated)) throw validated.failure;
-              const retired = commitProviderSecretOps(writer, secretOps, staged);
+              if (Result.isFailure(validated)) return yield* validated.failure;
+              const retired = yield* commitProviderSecretOps(bindings, secretOps, staged);
               const migratedSlots = new Set(secretOps.map((op) => op.slot));
               const durable: Settings = {
                 ...validated.success,
@@ -571,21 +585,22 @@ export const makeSettingsService = (
                 secretOps.length === 0
               ) {
                 return {
-                  settings: presentSettings(writer, current),
+                  settings: yield* presentSettings(bindings, current),
                   changed: false,
                 };
               }
-              writePreferences(writer, durable, new Date().toISOString(), {
+              yield* writePreferences(sql, durable, new Date().toISOString(), {
                 retainHistorical: current.providers,
                 migratedSlots,
               });
               return {
-                settings: presentSettings(writer, durable),
+                settings: yield* presentSettings(bindings, durable),
                 changed: true,
                 retired,
               };
-            },
-          ).pipe(Effect.mapError(stateFailure));
+            }),
+          );
+          return result;
         }),
       );
       if (Result.isFailure(outcome)) {
@@ -594,15 +609,16 @@ export const makeSettingsService = (
       }
       const result = outcome.success;
       if ((result.retired ?? []).length > 0) {
-        yield* state.transaction("settings.retire-secrets", (writer) => {
-          retireVaultSecrets(writer, credentials, result.retired ?? []);
-        }).pipe(Effect.mapError(stateFailure), Effect.result);
+        yield* transaction(sql, "settings.retire-secrets",
+          retireVaultSecrets(bindings, credentials, result.retired ?? []),
+        ).pipe(Effect.result);
       }
       if (result.changed) {
-        resolvedProviders = yield* state.read(
+        resolvedProviders = yield* read(
+          sql,
           "settings.refresh-providers",
           readResolved,
-        ).pipe(Effect.mapError(stateFailure));
+        );
       }
       return publishAfterCommit(result, listeners);
     });
@@ -612,12 +628,13 @@ export const makeSettingsService = (
     )(function* (input: unknown) {
       const decoded = decodeStationTopologyPatch(input);
       if (Result.isFailure(decoded)) return yield* decoded.failure;
-      const result = yield* state.transaction(
+      const result: MutationResult = yield* transaction(
+        sql,
         "settings.setStationTopology",
-        (writer): MutationResult => {
-          const current = readSettings(writer);
+        Effect.gen(function* () {
+          const current = yield* readSettings(sql, stationConfiguration);
           if (current === undefined) {
-            throw new SettingsError({
+            return yield* new SettingsError({
               code: "corrupt",
               message: "canonical settings rows are missing",
             });
@@ -626,16 +643,16 @@ export const makeSettingsService = (
           const validated = applyAndValidatePatch(current, {
             station: requested,
           });
-          if (Result.isFailure(validated)) throw validated.failure;
+          if (Result.isFailure(validated)) return yield* validated.failure;
           if (sameSettings(current, validated.success)) {
             return {
-              settings: presentSettings(writer, current),
+              settings: yield* presentSettings(bindings, current),
               changed: false,
             };
           }
 
           if (current.station.role === "remote") {
-            throw new SettingsError({
+            return yield* new SettingsError({
               message:
                 "Remote topology is configured only by the paired Command Center through the Station API",
               code: "validation",
@@ -645,7 +662,7 @@ export const makeSettingsService = (
           const previousRole = current.station.role;
           const nextRole = validated.success.station.role;
           if (nextRole === "remote") {
-            throw new SettingsError({
+            return yield* new SettingsError({
               message:
                 "Remote topology requires Command Center pairing and Station API configuration",
               code: "validation",
@@ -681,7 +698,7 @@ export const makeSettingsService = (
                 field.next !== undefined &&
                 field.next !== field.previous
               ) {
-                throw new SettingsError({
+                return yield* new SettingsError({
                   message:
                     `Established Command Center topology freezes ${field.key} — only supervisedPreferred may change`,
                   code: "validation",
@@ -691,21 +708,21 @@ export const makeSettingsService = (
           }
 
           if (previousRole === "command-center" && nextRole !== previousRole) {
-            throw new SettingsError({
+            return yield* new SettingsError({
               message:
                 "Command Center role cannot be cleared or changed from Settings",
               code: "validation",
             });
           }
           if (nextRole === "") {
-            throw new SettingsError({
+            return yield* new SettingsError({
               message:
                 "An unset station is represented by no configuration; choose Command Center locally or configure Remote from a Command Center",
               code: "validation",
             });
           }
           if (validated.success.station.agentHostId !== undefined) {
-            throw new SettingsError({
+            return yield* new SettingsError({
               message:
                 "Command Center topology cannot carry Remote-only identity fields",
               code: "validation",
@@ -721,34 +738,29 @@ export const makeSettingsService = (
               validated.success.station.supervisedPreferred,
           });
           if (Result.isFailure(configuration)) {
-            throw new SettingsError({
+            return yield* new SettingsError({
               message: "Command Center topology is invalid",
               code: "validation",
             });
           }
-          const pairing = writer.get<StateRow>(
-            `SELECT 1 AS paired
-               FROM station_pairing
-              WHERE singleton = 1`,
-          );
-          if (pairing !== undefined) {
-            throw new SettingsError({
+          const pairing = yield* readPairing(sql);
+          if (pairing._tag === "Some") {
+            return yield* new SettingsError({
               message:
                 "A paired installation cannot become Command Center; pairing is immutable Remote intent",
               code: "validation",
             });
           }
-          writeStationConfiguration(
-            writer,
+          yield* stationConfiguration.write(
             configuration.success,
             new Date().toISOString(),
           );
           return {
-            settings: presentSettings(writer, validated.success),
+            settings: yield* presentSettings(bindings, validated.success),
             changed: true,
           };
-        },
-      ).pipe(Effect.mapError(stateFailure));
+        }),
+      );
       return publishAfterCommit(result, listeners);
     });
 
@@ -762,12 +774,13 @@ export const makeSettingsService = (
           code: "validation",
         });
       }
-      const result = yield* state.transaction(
+      const result: MutationResult = yield* transaction(
+        sql,
         "settings.reset",
-        (writer): MutationResult => {
-          const current = readSettings(writer);
+        Effect.gen(function* () {
+          const current = yield* readSettings(sql, stationConfiguration);
           if (current === undefined) {
-            throw new SettingsError({
+            return yield* new SettingsError({
               code: "corrupt",
               message: "canonical settings rows are missing",
             });
@@ -785,8 +798,8 @@ export const makeSettingsService = (
                 : { ...current, [section]: defaultSection(section) };
           const retired =
             section === undefined || section === "providers"
-              ? commitProviderSecretOps(
-                  writer,
+              ? yield* commitProviderSecretOps(
+                  bindings,
                   clearAllProviderSecretOps(),
                   [],
                 )
@@ -797,33 +810,34 @@ export const makeSettingsService = (
           };
           if (sameSettings(current, durable) && retired.length === 0) {
             return {
-              settings: presentSettings(writer, current),
+              settings: yield* presentSettings(bindings, current),
               changed: false,
             };
           }
-          writePreferences(writer, durable, new Date().toISOString(), {
+          yield* writePreferences(sql, durable, new Date().toISOString(), {
             retainHistorical:
               section === undefined || section === "providers"
                 ? undefined
                 : current.providers,
           });
           return {
-            settings: presentSettings(writer, durable),
+            settings: yield* presentSettings(bindings, durable),
             changed: true,
             retired,
           };
-        },
-      ).pipe(Effect.mapError(stateFailure));
+        }),
+      );
       if ((result.retired ?? []).length > 0) {
-        yield* state.transaction("settings.retire-reset-secrets", (writer) => {
-          retireVaultSecrets(writer, credentials, result.retired ?? []);
-        }).pipe(Effect.mapError(stateFailure), Effect.result);
+        yield* transaction(sql, "settings.retire-reset-secrets",
+          retireVaultSecrets(bindings, credentials, result.retired ?? []),
+        ).pipe(Effect.result);
       }
       if (result.changed) {
-        resolvedProviders = yield* state.read(
+        resolvedProviders = yield* read(
+          sql,
           "settings.refresh-providers",
           readResolved,
-        ).pipe(Effect.mapError(stateFailure));
+        );
       }
       return publishAfterCommit(result, listeners);
     });
@@ -890,15 +904,18 @@ export const makeSettingsService = (
 
 export const makeSettingsLive = (
   options: SettingsServiceOptions = {},
-): Layer.Layer<SettingsService, SettingsError, StateEngine> =>
+): Layer.Layer<SettingsService, SettingsError, StateEngine | SqlClient.SqlClient> =>
   Layer.effect(
     SettingsService,
     Effect.gen(function* () {
       const state = yield* StateEngine;
-      const service = yield* makeSettingsService(state, options);
+      const service = yield* makeSettingsService(state.info.path, options);
       return SettingsService.of(service);
     }),
-  );
+  ).pipe(Layer.provide([
+    CredentialBindingRepository.layer,
+    StationConfigurationRepository.layer,
+  ]));
 
 /** Requires the app's single StateEngine instance. */
 export const SettingsLive = makeSettingsLive();

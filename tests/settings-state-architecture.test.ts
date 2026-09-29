@@ -67,8 +67,10 @@ describe("settings state architecture", () => {
       new URL("../src/main/junto/settings/service.ts", import.meta.url),
       "utf8",
     );
-    expect(source).toContain("selectStationConfiguration(reader)");
-    expect(source).toContain("writeStationConfiguration(");
+    expect(source).toContain("yield* StationConfigurationRepository");
+    expect(source).toContain("configuration.read");
+    expect(source).toContain("stationConfiguration.write(");
+    expect(source).not.toContain("StationRepository");
     expect(source).not.toContain("encodedTopology");
   });
 
