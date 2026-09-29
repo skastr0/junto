@@ -296,7 +296,6 @@
       "kind": "debt",
       "tables": [
         "station_installation",
-        "station_known_installations",
         "station_pairing",
         "station_projection_head",
         "station_projection_versions"
@@ -535,15 +534,6 @@
       ],
       "reason": "The hosts seam clears a removed host's fleet targets as a cascade.",
       "retire": "Have host removal call the fleet-target seam instead of deleting station_fleet_targets directly."
-    },
-    {
-      "table": "station_known_installations",
-      "owner": "src/main/junto/station/known-installations.ts",
-      "alsoWrittenBy": [
-        "src/main/junto/station/repository.ts"
-      ],
-      "reason": "Legacy station and fleet writers remain until their consumers use the installation service.",
-      "retire": "Remove each legacy writer as its repository adopts KnownInstallations."
     },
     {
       "table": "work_artifacts",

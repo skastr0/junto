@@ -8,6 +8,7 @@ import {
   ManagedRuntime,
   Schema,
 } from "effect";
+import { SqlClient } from "effect/unstable/sql";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   serializeCanvas,
@@ -27,21 +28,25 @@ import {
   makeSettingsLive,
   SettingsService,
 } from "../src/main/junto/settings/service";
-import { findHostById } from "../src/main/junto/hosts/snapshot";
+import { findHostById, hostsSnapshot, setHostsSnapshot } from "../src/main/junto/hosts/snapshot";
+import { HostRegistryRows } from "../src/main/junto/hosts/registry";
+import { CanvasRecords, CanvasRecordsLive } from "../src/main/junto/canvas/records";
+import { StationConfigurationRepository } from "../src/main/junto/station/configuration-state";
+import { KnownInstallations } from "../src/main/junto/station/known-installations";
 import {
   compileStationPortfolioBody,
   STATION_PORTFOLIO_PROTOCOL,
 } from "../src/main/junto/station/portfolio";
 import {
   StationRepository,
+  makeStationRepository,
   makeStationRepositoryLive,
   stationProjectionContentSha256,
 } from "../src/main/junto/station/repository";
 import {
   makeStateEngineLive,
-  StateEngine,
-  type StateRow,
 } from "../src/main/junto/state/engine";
+import { withSqlRead } from "../src/main/junto/state/sql-read";
 import {
   WorkRepositoryLive,
 } from "../src/main/junto/work/repository";
@@ -197,16 +202,12 @@ describe("StationRepository", () => {
         return yield* repository.installationId;
       }),
     );
-    const firstState = await firstRuntime.runPromise(StateEngine);
+    const firstSql = await firstRuntime.runPromise(SqlClient.SqlClient);
     expect(
       await firstRuntime.runPromise(
-        firstState.read("test.local-known-installation", (reader) =>
-          reader
-            .all<StateRow & { readonly installation_id: string }>(
-              `SELECT installation_id
-                 FROM station_known_installations`,
-            )
-            .map((row) => row.installation_id)
+        firstSql<{ readonly installation_id: string }>`SELECT installation_id
+          FROM station_known_installations`.pipe(
+          Effect.map((rows) => rows.map((row) => row.installation_id)),
         ),
       ),
     ).toEqual([firstGenerated]);
@@ -230,7 +231,7 @@ describe("StationRepository", () => {
     const local = decodeInstallationId("remote-only-defense");
     const runtime = makeRuntime(path, local);
     const repository = await runtime.runPromise(StationRepository);
-    const state = await runtime.runPromise(StateEngine);
+    const sql = await runtime.runPromise(SqlClient.SqlClient);
     const forged = {
       protocol: STATION_API_PROTOCOL,
       op: "configure",
@@ -254,12 +255,8 @@ describe("StationRepository", () => {
     });
     expect(
       await runtime.runPromise(
-        state.read("test.remote-only-zero-write", (reader) =>
-          Number(
-            reader.get<StateRow & { readonly count: number }>(
-              "SELECT count(*) AS count FROM station_configuration",
-            )?.count ?? -1,
-          )
+        sql<{ readonly count: number }>`SELECT count(*) AS count FROM station_configuration`.pipe(
+          Effect.map((rows) => Number(rows[0]?.count ?? -1)),
         ),
       ),
     ).toBe(0);
@@ -272,7 +269,7 @@ describe("StationRepository", () => {
     const cc = decodeInstallationId("host-registration-command");
     const runtime = makeRuntime(path, local);
     const repository = await runtime.runPromise(StationRepository);
-    const state = await runtime.runPromise(StateEngine);
+    const sql = await runtime.runPromise(SqlClient.SqlClient);
     await runtime.runPromise(repository.pair(pairRequest(local, cc)));
 
     const mismatched = ConfigureRequest.make({
@@ -297,17 +294,13 @@ describe("StationRepository", () => {
     });
     expect(
       await runtime.runPromise(
-        state.read("test.host-registration-zero-write", (reader) => ({
-          configuration: Number(
-            reader.get<StateRow & { readonly count: number }>(
-              "SELECT count(*) AS count FROM station_configuration",
-            )?.count ?? -1,
-          ),
-          remotes: Number(
-            reader.get<StateRow & { readonly count: number }>(
-              "SELECT count(*) AS count FROM host_registry WHERE kind = 'remote'",
-            )?.count ?? -1,
-          ),
+        withSqlRead(sql, Effect.gen(function* () {
+          const configuration = yield* sql<{ readonly count: number }>`SELECT count(*) AS count FROM station_configuration`;
+          const remotes = yield* sql<{ readonly count: number }>`SELECT count(*) AS count FROM host_registry WHERE kind = 'remote'`;
+          return {
+            configuration: Number(configuration[0]?.count ?? -1),
+            remotes: Number(remotes[0]?.count ?? -1),
+          };
         })),
       ),
     ).toEqual({ configuration: 0, remotes: 0 });
@@ -454,17 +447,12 @@ describe("StationRepository", () => {
         "StationPairingConflictError",
       );
     }
-    const state = await runtime.runPromise(StateEngine);
+    const sql = await runtime.runPromise(SqlClient.SqlClient);
     expect(
       await runtime.runPromise(
-        state.read("test.paired-known-installations", (reader) =>
-          reader
-            .all<StateRow & { readonly installation_id: string }>(
-              `SELECT installation_id
-                 FROM station_known_installations
-                ORDER BY installation_id`,
-            )
-            .map((row) => row.installation_id)
+        sql<{ readonly installation_id: string }>`SELECT installation_id
+          FROM station_known_installations ORDER BY installation_id`.pipe(
+          Effect.map((rows) => rows.map((row) => row.installation_id)),
         ),
       ),
     ).toEqual([cc, local]);
@@ -664,7 +652,7 @@ describe("StationRepository", () => {
     const local = decodeInstallationId("station-projection");
     const runtime = makeRuntime(path, local);
     const repository = await runtime.runPromise(StationRepository);
-    const state = await runtime.runPromise(StateEngine);
+    const sql = await runtime.runPromise(SqlClient.SqlClient);
     const currentBody = portfolioBody("current");
 
     const first = await runtime.runPromise(
@@ -735,48 +723,27 @@ describe("StationRepository", () => {
     }
 
     await runtime.runPromise(
-      state.transaction("test.seed-projection-cursors", (writer) => {
-        writer.run(
-          `INSERT INTO station_known_installations(
+      sql.withTransaction(Effect.gen(function* () {
+        yield* sql`INSERT INTO station_known_installations(
              installation_id,
              registered_at
            ) VALUES
-             ('upstream', ?),
-             ('peer', ?)`,
-          [
-            "2026-07-27T12:03:00.000Z",
-            "2026-07-27T12:03:00.000Z",
-          ],
-        );
-        writer.run(
-          `INSERT INTO station_received_cursors(
+             ('upstream', '2026-07-27T12:03:00.000Z'),
+             ('peer', '2026-07-27T12:03:00.000Z')`;
+        yield* sql`INSERT INTO station_received_cursors(
              event_home,
              entity_home,
              through_sequence,
              updated_at
-           ) VALUES (?, ?, '7', ?)`,
-          [
-            "upstream",
-            local,
-            "2026-07-27T12:03:00.000Z",
-          ],
-        );
-        writer.run(
-          `INSERT INTO station_peer_ack_cursors(
+           ) VALUES ('upstream', ${local}, '7', '2026-07-27T12:03:00.000Z')`;
+        yield* sql`INSERT INTO station_peer_ack_cursors(
              peer_installation_id,
              event_home,
              entity_home,
              through_sequence,
              acknowledged_at
-           ) VALUES (?, ?, ?, '5', ?)`,
-          [
-            "peer",
-            local,
-            local,
-            "2026-07-27T12:03:00.000Z",
-          ],
-        );
-      }),
+           ) VALUES ('peer', ${local}, ${local}, '5', '2026-07-27T12:03:00.000Z')`;
+      })),
     );
     const factsBeforeRefusal = await runtime.runPromise(
       repository.statusFacts,
@@ -857,7 +824,7 @@ describe("StationRepository", () => {
     const local = decodeInstallationId("command-projection-archive");
     const runtime = makeRuntime(path, local);
     const repository = await runtime.runPromise(StationRepository);
-    const state = await runtime.runPromise(StateEngine);
+    const sql = await runtime.runPromise(SqlClient.SqlClient);
     const body = portfolioBody("compiled intent");
     const sourceIntentSha256 =
       stationProjectionContentSha256("authorial intent 4");
@@ -930,27 +897,17 @@ describe("StationRepository", () => {
     );
 
     const durable = await runtime.runPromise(
-      state.read("test.projection-archive-history", (reader) => ({
-        versions: reader.all<
-          StateRow & {
-            readonly generation: string;
-            readonly source_canvas_generation: string;
-          }
-        >(
-          `SELECT generation, source_canvas_generation
-             FROM station_projection_versions
-            ORDER BY length(generation), generation`,
-        ),
-        head: reader.get<
-          StateRow & {
-            readonly generation: string;
-            readonly content_sha256: string;
-          }
-        >(
-          `SELECT generation, content_sha256
-             FROM station_projection_head
-            WHERE singleton = 1`,
-        ),
+      withSqlRead(sql, Effect.gen(function* () {
+        const versions = yield* sql<{
+          readonly generation: string;
+          readonly source_canvas_generation: string;
+        }>`SELECT generation, source_canvas_generation
+          FROM station_projection_versions ORDER BY length(generation), generation`;
+        const head = yield* sql<{
+          readonly generation: string;
+          readonly content_sha256: string;
+        }>`SELECT generation, content_sha256 FROM station_projection_head WHERE singleton = 1`;
+        return { versions, head: head[0] };
       })),
     );
     expect(durable.versions).toEqual([
@@ -970,7 +927,7 @@ describe("StationRepository", () => {
     const local = decodeInstallationId("remote-projection-history");
     const runtime = makeRuntime(path, local);
     const repository = await runtime.runPromise(StationRepository);
-    const state = await runtime.runPromise(StateEngine);
+    const sql = await runtime.runPromise(SqlClient.SqlClient);
     const firstRequest = projectRequest(
       local,
       "7",
@@ -1012,13 +969,8 @@ describe("StationRepository", () => {
     });
     expect(
       await runtime.runPromise(
-        state.read("test.remote-projection-history", (reader) =>
-          reader.all<{ readonly generation: string }>(
-            `SELECT generation
-               FROM station_projection_versions
-              ORDER BY generation`,
-          )
-        ),
+        sql<{ readonly generation: string }>`SELECT generation
+          FROM station_projection_versions ORDER BY generation`,
       ),
     ).toEqual([{ generation: "7" }, { generation: "8" }]);
     await runtime.dispose();
@@ -1061,7 +1013,7 @@ describe("StationRepository", () => {
     const runtime = makeRuntime(path, local);
     const repository = await runtime.runPromise(StationRepository);
     const settings = await runtime.runPromise(SettingsService);
-    const state = await runtime.runPromise(StateEngine);
+    const sql = await runtime.runPromise(SqlClient.SqlClient);
     await runtime.runPromise(repository.pair(pairRequest(local, cc)));
 
     const configured = await runtime.runPromise(
@@ -1095,45 +1047,25 @@ describe("StationRepository", () => {
     expect(retry.configuration).toEqual(configured.configuration);
 
     const durable = await runtime.runPromise(
-      state.read("test.station-config-integration", (reader) => ({
-        configuration: reader.get<
-          StateRow & {
-            readonly role: string;
-            readonly host_id: string;
-            readonly agent_host_id: string | null;
-            readonly command_center_installation_id: string | null;
-            readonly supervised_preferred: number;
-          }
-        >(
-          `SELECT
-             role,
-             host_id,
-             agent_host_id,
-             command_center_installation_id,
-             supervised_preferred
-             FROM station_configuration
-            WHERE singleton = 1`,
-        ),
-        host: reader.get<
-          StateRow & {
-            readonly id: string;
-            readonly label: string;
-            readonly kind: string;
-            readonly ssh_endpoint: string | null;
-            readonly capability_mask: number | null;
-            readonly sort_order: number;
-          }
-        >(
-          `SELECT
-             id,
-             label,
-             kind,
-             ssh_endpoint,
-             capability_mask,
-             sort_order
-             FROM host_registry
-            WHERE id = 'studio'`,
-        ),
+      withSqlRead(sql, Effect.gen(function* () {
+        const configuration = yield* sql<{
+          readonly role: string;
+          readonly host_id: string;
+          readonly agent_host_id: string | null;
+          readonly command_center_installation_id: string | null;
+          readonly supervised_preferred: number;
+        }>`SELECT role, host_id, agent_host_id, command_center_installation_id,
+          supervised_preferred FROM station_configuration WHERE singleton = 1`;
+        const host = yield* sql<{
+          readonly id: string;
+          readonly label: string;
+          readonly kind: string;
+          readonly ssh_endpoint: string | null;
+          readonly capability_mask: number | null;
+          readonly sort_order: number;
+        }>`SELECT id, label, kind, ssh_endpoint, capability_mask, sort_order
+          FROM host_registry WHERE id = 'studio'`;
+        return { configuration: configuration[0], host: host[0] };
       })),
     );
     expect(durable.configuration).toMatchObject({
@@ -1179,6 +1111,65 @@ describe("StationRepository", () => {
       supervisedPreferred: false,
     });
     await runtime.dispose();
+  });
+
+  it("rolls back canvas wipe and host registration when the final configuration write fails", async () => {
+    const path = await testDatabase();
+    const local = decodeInstallationId("configuration-rollback-local");
+    const cc = decodeInstallationId("configuration-rollback-command");
+    const runtime = ManagedRuntime.make(Layer.mergeAll(
+      CanvasRecordsLive, HostRegistryRows.layer,
+      StationConfigurationRepository.layer, KnownInstallations.layer,
+    ).pipe(Layer.provideMerge(makeStateEngineLive(path))));
+    const beforeSnapshot = hostsSnapshot();
+    try {
+      await runtime.runPromise(Effect.gen(function* () {
+        const sql = yield* SqlClient.SqlClient;
+        const configurations = yield* StationConfigurationRepository;
+        const canvas = yield* CanvasRecords;
+        const hosts = yield* HostRegistryRows;
+        const options = { makeInstallationId: () => local, now: () => "2026-07-27T12:00:00.000Z" };
+        const repository = yield* makeStationRepository(options);
+        yield* repository.pair(pairRequest(local, cc));
+        const doc = canvasDocument("authority must survive a failed cutover");
+        const { canvasId } = yield* sql.withTransaction(canvas.persistCanvas({
+          canvasName: "rollback-draft", doc,
+          revisionSha256: stationProjectionContentSha256(serializeCanvas(doc)),
+          modifiedAt: "2026-07-27T12:00:00.000Z",
+        }));
+        const beforeHosts = yield* hosts.read;
+        const beforeInitialized = yield* hosts.initialized;
+        let attemptedWrite = false;
+        const failing = yield* makeStationRepository(options).pipe(
+          Effect.provideService(StationConfigurationRepository, {
+            read: configurations.read,
+            write: (configuration) => Effect.gen(function* () {
+              attemptedWrite = true;
+              expect(yield* canvas.readDocumentRows().pipe(Effect.orDie)).toEqual([]);
+              expect((yield* hosts.read.pipe(Effect.orDie)).hosts.some((host) => host.id === "studio")).toBe(true);
+              // Force the final write to fail on the production configured_at CHECK.
+              yield* configurations.write(configuration, "");
+            }),
+          }),
+        );
+        expect(yield* Effect.result(failing.configureRemote(remoteConfigurationRequest(local, cc))))
+          .toMatchObject({ _tag: "Failure", failure: { _tag: "StationPersistenceError", operation: "configure" } });
+        expect(attemptedWrite).toBe(true);
+        expect(yield* canvas.reconstructCanvasDoc(canvasId)).toEqual(doc);
+        expect(yield* hosts.read).toEqual(beforeHosts);
+        expect(yield* hosts.initialized).toBe(beforeInitialized);
+        expect(yield* configurations.read).toBeUndefined();
+        expect(hostsSnapshot()).toEqual(beforeSnapshot);
+
+        yield* repository.configureRemote(remoteConfigurationRequest(local, cc));
+        expect(yield* canvas.readDocumentRows()).toEqual([]);
+        expect((yield* configurations.read)?.configuration.role).toBe("remote");
+        expect(findHostById("studio")?.kind).toBe("remote");
+      }));
+    } finally {
+      setHostsSnapshot(beforeSnapshot);
+      await runtime.dispose();
+    }
   });
 
 });

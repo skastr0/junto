@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
-import { Context, Effect, Result, Layer, Schema } from "effect";
+import { Context, Effect, Result, Layer, Option, Schema } from "effect";
+import { SqlClient, SqlSchema } from "effect/unstable/sql";
 import { StationContextTagIds } from "./context-services";
 import {
   ConfigureResponse,
@@ -36,25 +37,13 @@ import {
   hermesKeyFor,
   RemoteHostsError,
 } from "@shared/remote-hosts";
-import {
-  ensureHostRegistryState,
-  upsertHostState,
-} from "../hosts/registry";
+import { HostRegistryRows } from "../hosts/registry";
 import { setHostsSnapshot } from "../hosts/snapshot";
-import { wipeCanvasAuthority } from "../canvas/records";
-import {
-  StateEngine,
-  type StateEngineError,
-  type StateReader,
-  type StateRow,
-  type StateWriter,
-} from "../state/service";
-import {
-  selectStationConfigurationRow,
-  stationConfigurationFromRow,
-  writeStationConfiguration,
-  type StationConfigurationRow,
-} from "./configuration-state";
+import { CanvasRecords, CanvasRecordsLive } from "../canvas/records";
+import { StateTransactionOperation } from "../state/service";
+import { withSqlRead } from "../state/sql-read";
+import { StationConfigurationRepository } from "./configuration-state";
+import { KnownInstallations } from "./known-installations";
 import {
   decodeStationPortfolioBody,
   StationPortfolioError,
@@ -232,50 +221,46 @@ export class StationRepository extends Context.Service<StationRepository,
     >;
   }>()(StationContextTagIds.repository) {}
 
-type InstallationRow = StateRow & {
-  readonly installation_id: string;
-  readonly created_at: string;
-};
-
-type PairingRow = StateRow & {
-  readonly command_center_installation_id: string;
-  readonly station_label: string;
-  readonly app_version: string;
-  readonly paired_at: string;
-};
-
-type ProjectionRow = StateRow & {
-  readonly generation: string;
-  readonly content_sha256: string;
-  readonly source_canvas_generation: string;
-  readonly source_intent_sha256: string;
-  readonly body: string;
-  readonly created_at: string;
-  readonly received_at: string;
-};
-
-type CursorRow = StateRow & {
-  readonly event_home: string;
-  readonly entity_home: string;
-  readonly through_sequence: string;
-};
-
-type PeerAckRow = CursorRow & {
-  readonly peer_installation_id: string;
-};
+const InstallationRow = Schema.Struct({
+  installation_id: InstallationId,
+  created_at: Schema.String,
+});
+const PairingRow = Schema.Struct({
+  command_center_installation_id: InstallationId,
+  station_label: Schema.String,
+  app_version: Schema.String,
+  paired_at: Schema.String,
+});
+type PairingRow = typeof PairingRow.Type;
+const ProjectionRow = Schema.Struct({
+  generation: LogicalSequence,
+  content_sha256: StationSha256,
+  source_canvas_generation: LogicalSequence,
+  source_intent_sha256: StationSha256,
+  body: StationProjectionBody.fields.body,
+  created_at: DisplayTimestamp,
+  received_at: DisplayTimestamp,
+});
+type ProjectionRow = typeof ProjectionRow.Type;
+const CursorRow = Schema.Struct({
+  event_home: RouteCursor.fields.eventHome,
+  entity_home: RouteCursor.fields.entityHome,
+  through_sequence: RouteCursor.fields.through,
+});
+type CursorRow = typeof CursorRow.Type;
+const PeerAckRow = Schema.Struct({
+  ...CursorRow.fields,
+  peer_installation_id: InstallationId,
+});
 
 const decodeInstallationId = Schema.decodeUnknownSync(InstallationId);
-const decodeSequence = Schema.decodeUnknownSync(LogicalSequence);
+const decodeSequence = Schema.decodeUnknownEffect(LogicalSequence);
 const decodeHash = Schema.decodeUnknownSync(StationSha256);
 const decodeTimestampEither = Schema.decodeUnknownResult(DisplayTimestamp);
-const decodeRemoteHostRegistration = Schema.decodeUnknownSync(
+const decodeRemoteHostRegistration = Schema.decodeUnknownEffect(
   RemoteHostRegistration,
 );
 const decodeProjectionBody = Schema.decodeUnknownSync(StationProjectionBody);
-const decodeProjectionReference = Schema.decodeUnknownSync(
-  StationProjectionReference,
-);
-const decodeCursor = Schema.decodeUnknownSync(RouteCursor);
 
 const sha256 = (value: string): StationSha256Value =>
   decodeHash(createHash("sha256").update(value, "utf8").digest("hex"));
@@ -307,123 +292,35 @@ const admitTimestamp = (
 
 const persistenceError = (
   operation: string,
-  error: StateEngineError,
+  error: unknown,
 ): StationPersistenceError =>
   StationPersistenceError.make({
     operation,
-    message: error.message,
+    message: error instanceof Error ? error.message : String(error),
     cause: error,
   });
 
 const configureStateError = (
-  error: StateEngineError,
+  error: unknown,
 ): StationPersistenceError | StationConfigurationError => {
-  if (error.cause instanceof RemoteHostsError) {
+  if (error instanceof RemoteHostsError) {
     return StationConfigurationError.make({
       reason: "host-registration-mismatch",
-      message: error.cause.message,
+      message: error.message,
     });
   }
   return persistenceError("configure", error);
 };
 
-const selectInstallation = (
-  reader: StateReader,
-): InstallationRow | undefined =>
-  reader.get<InstallationRow>(
-    `SELECT installation_id, created_at
-       FROM station_installation
-      WHERE singleton = 1`,
-  );
-
-const registerKnownInstallation = (
-  writer: StateWriter,
-  installationId: InstallationIdValue,
-  registeredAt: string,
-): void => {
-writer.run(
-    `INSERT INTO station_known_installations(
-       installation_id,
-       registered_at
-     ) VALUES (?, ?)
-     ON CONFLICT(installation_id) DO NOTHING`,
-    [installationId, registeredAt],
-  );
-};
-
-const selectPairing = (reader: StateReader): PairingRow | undefined =>
-  reader.get<PairingRow>(
-    `SELECT
-       command_center_installation_id,
-       station_label,
-       app_version,
-       paired_at
-     FROM station_pairing
-     WHERE singleton = 1`,
-  );
-
-const selectConfiguration = (
-  reader: StateReader,
-): StationConfigurationRow | undefined =>
-  selectStationConfigurationRow(reader);
-
-const selectProjection = (
-  reader: StateReader,
-): ProjectionRow | undefined =>
-  reader.get<ProjectionRow>(
-    `SELECT
-       version.generation AS generation,
-       version.content_sha256 AS content_sha256,
-       version.source_canvas_generation AS source_canvas_generation,
-       version.source_intent_sha256 AS source_intent_sha256,
-       version.body AS body,
-       version.created_at AS created_at,
-       version.received_at AS received_at
-     FROM station_projection_head head
-     JOIN station_projection_versions version
-       ON version.generation = head.generation
-      AND version.content_sha256 = head.content_sha256
-     WHERE head.singleton = 1`,
-  );
-
-const selectProjectionByReference = (
-  reader: StateReader,
-  reference: Pick<
-    StationProjectionReferenceValue,
-    "generation" | "contentSha256"
-  >,
-): ProjectionRow | undefined =>
-  reader.get<ProjectionRow>(
-    `SELECT
-       generation,
-       content_sha256,
-       source_canvas_generation,
-       source_intent_sha256,
-       body,
-       created_at,
-       received_at
-     FROM station_projection_versions
-     WHERE generation = ?
-       AND content_sha256 = ?`,
-    [reference.generation, reference.contentSha256],
-  );
-
 const pairingFromRow = (row: PairingRow): StationPairing => ({
-  commandCenterInstallationId: decodeInstallationId(
-    row.command_center_installation_id,
-  ),
+  commandCenterInstallationId: row.command_center_installation_id,
   stationLabel: row.station_label,
   appVersion: row.app_version,
   pairedAt: row.paired_at,
 });
 
-const configurationFromRow = (
-  row: StationConfigurationRow,
-): StationConfigurationRecord => stationConfigurationFromRow(row);
-
 const projectionFromRow = (row: ProjectionRow): StationProjection =>
   ({
-    ...decodeProjectionBody({
       scope: "full",
       generation: row.generation,
       sourceCanvasGeneration: row.source_canvas_generation,
@@ -431,21 +328,20 @@ const projectionFromRow = (row: ProjectionRow): StationProjection =>
       body: row.body,
       contentSha256: row.content_sha256,
       createdAt: row.created_at,
-    }),
     receivedAt: row.received_at,
   });
 
 const projectionReferenceFromRow = (
   row: ProjectionRow,
 ): StationProjectionReferenceValue =>
-  decodeProjectionReference({
+  ({
     generation: row.generation,
     contentSha256: row.content_sha256,
     receivedAt: row.received_at,
   });
 
 const cursorFromRow = (row: CursorRow): RouteCursorValue =>
-  decodeCursor({
+  ({
     eventHome: row.event_home,
     entityHome: row.entity_home,
     through: row.through_sequence,
@@ -490,56 +386,69 @@ const ensureLocalIdentity = (
 const verifyStoredProjection = (
   row: ProjectionRow,
 ): Effect.Effect<void, StationProjectionIntegrityError> => {
-  const declared = decodeHash(row.content_sha256);
+  const declared = row.content_sha256;
   const actual = stationProjectionContentSha256(row.body);
   return declared === actual
     ? Effect.void
     : StationProjectionIntegrityError.make({
-        generation: decodeSequence(row.generation),
+        generation: row.generation,
         declaredContentSha256: declared,
         actualContentSha256: actual,
       });
 };
-
-const receivedCursorRows = (
-  reader: StateReader,
-): ReadonlyArray<CursorRow> =>
-  reader.all<CursorRow>(
-    `SELECT event_home, entity_home, through_sequence
-       FROM station_received_cursors
-      ORDER BY event_home, entity_home`,
-  );
-
-const peerAckRows = (
-  reader: StateReader,
-): ReadonlyArray<PeerAckRow> =>
-  reader.all<PeerAckRow>(
-    `SELECT
-       peer_installation_id,
-       event_home,
-       entity_home,
-       through_sequence
-       FROM station_peer_ack_cursors
-      ORDER BY peer_installation_id, event_home, entity_home`,
-  );
 
 export type StationRepositoryOptions = {
   readonly makeInstallationId?: () => InstallationIdValue;
   readonly now?: () => string;
 };
 
-export const makeStationRepositoryLive = (
+export const makeStationRepository = (
   options: StationRepositoryOptions = {},
-): Layer.Layer<
-  StationRepository,
-  StationPersistenceError | StationMetadataError,
-  StateEngine
-> =>
-  Layer.effect(
-    StationRepository,
-    Effect.gen(function* () {
-      const engine = yield* StateEngine;
+) => Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      const configurations = yield* StationConfigurationRepository;
+      const installations = yield* KnownInstallations;
+      const hostRows = yield* HostRegistryRows;
+      const canvas = yield* CanvasRecords;
       const clock = options.now ?? nowIso;
+      const findInstallation = SqlSchema.findOneOption({
+        Request: Schema.Void, Result: InstallationRow,
+        execute: () => sql`SELECT installation_id, created_at FROM station_installation WHERE singleton = 1`,
+      });
+      const findPairing = SqlSchema.findOneOption({
+        Request: Schema.Void, Result: PairingRow,
+        execute: () => sql`SELECT command_center_installation_id, station_label, app_version, paired_at
+          FROM station_pairing WHERE singleton = 1`,
+      });
+      const selectPairing = findPairing(undefined).pipe(Effect.map(Option.getOrUndefined));
+      const findProjection = SqlSchema.findOneOption({
+        Request: Schema.Void, Result: ProjectionRow,
+        execute: () => sql`SELECT version.generation AS generation, version.content_sha256 AS content_sha256,
+          version.source_canvas_generation AS source_canvas_generation,
+          version.source_intent_sha256 AS source_intent_sha256, version.body AS body,
+          version.created_at AS created_at, version.received_at AS received_at
+          FROM station_projection_head head JOIN station_projection_versions version
+            ON version.generation = head.generation AND version.content_sha256 = head.content_sha256
+          WHERE head.singleton = 1`,
+      });
+      const selectProjection = findProjection(undefined).pipe(Effect.map(Option.getOrUndefined));
+      const selectProjectionByReference = SqlSchema.findOneOption({
+        Request: Schema.Struct({ generation: LogicalSequence, contentSha256: StationSha256 }),
+        Result: ProjectionRow,
+        execute: (reference) => sql`SELECT generation, content_sha256, source_canvas_generation,
+          source_intent_sha256, body, created_at, received_at FROM station_projection_versions
+          WHERE generation = ${reference.generation} AND content_sha256 = ${reference.contentSha256}`,
+      });
+      const receivedCursorRows = SqlSchema.findAll({
+        Request: Schema.Void, Result: CursorRow,
+        execute: () => sql`SELECT event_home, entity_home, through_sequence
+          FROM station_received_cursors ORDER BY event_home, entity_home`,
+      });
+      const peerAckRows = SqlSchema.findAll({
+        Request: Schema.Void, Result: PeerAckRow,
+        execute: () => sql`SELECT peer_installation_id, event_home, entity_home, through_sequence
+          FROM station_peer_ack_cursors ORDER BY peer_installation_id, event_home, entity_home`,
+      });
       const makeInstallationId =
         options.makeInstallationId ??
         (() => decodeInstallationId(randomUUID()));
@@ -549,51 +458,38 @@ export const makeStationRepositoryLive = (
         clock(),
       );
 
-      const installationId = yield* engine
-        .transaction("station.ensure-installation", (writer) => {
-          const existing = selectInstallation(writer);
-          if (existing !== undefined) {
-            return decodeInstallationId(existing.installation_id);
+      const installationId = yield* sql.withTransaction(Effect.gen(function* () {
+          const existing = yield* findInstallation(undefined);
+          if (Option.isSome(existing)) {
+            return existing.value.installation_id;
           }
-          const created = makeInstallationId();
-          registerKnownInstallation(
-            writer,
+          const created = yield* Effect.try({ try: makeInstallationId, catch: (cause) => cause });
+          yield* installations.register(
             created,
             installationCreatedAt,
           );
-          writer.run(
-            `INSERT INTO station_installation(
+          yield* sql`INSERT INTO station_installation(
                singleton,
                installation_id,
                created_at
-             ) VALUES (1, ?, ?)`,
-            [created, installationCreatedAt],
-          );
+             ) VALUES (1, ${created}, ${installationCreatedAt})`;
           return created;
-        })
+        }))
         .pipe(
+          Effect.provideService(StateTransactionOperation, "station.ensure-installation"),
           Effect.mapError((error) =>
             persistenceError("ensure-installation", error),
           ),
         );
 
-      const readPairing = engine
-        .read("station.pairing", (reader) => {
-          const row = selectPairing(reader);
-          return row === undefined ? undefined : pairingFromRow(row);
-        })
+      const readPairing = selectPairing
         .pipe(
+          Effect.map((row) => row === undefined ? undefined : pairingFromRow(row)),
           Effect.mapError((error) => persistenceError("pairing", error)),
           Effect.withSpan("station-repository.pairing"),
         );
 
-      const readConfiguration = engine
-        .read("station.configuration", (reader) => {
-          const row = selectConfiguration(reader);
-          return row === undefined
-            ? undefined
-            : configurationFromRow(row);
-        })
+      const readConfiguration = configurations.read
         .pipe(
           Effect.mapError((error) =>
             persistenceError("configuration", error),
@@ -601,8 +497,7 @@ export const makeStationRepositoryLive = (
           Effect.withSpan("station-repository.configuration"),
         );
 
-      const readProjection = engine
-        .read("station.projection", selectProjection)
+      const readProjection = selectProjection
         .pipe(
           Effect.mapError((error) =>
             persistenceError("projection", error),
@@ -617,35 +512,20 @@ export const makeStationRepositoryLive = (
           Effect.withSpan("station-repository.projection"),
         );
 
-      const projectionByReference = (
+      const projectionByReference = Effect.fn("StationRepository.projectionByReference")(
+        function* (
         reference: Pick<
           StationProjectionReferenceValue,
           "generation" | "contentSha256"
         >,
-      ): Effect.Effect<
-        StationProjection | undefined,
-        StationRepositoryError
-      > =>
-        engine
-          .read(
-            "station.projection-by-reference",
-            (reader) => selectProjectionByReference(reader, reference),
-          )
-          .pipe(
-            Effect.mapError((error) =>
-              persistenceError("projection-by-reference", error),
-            ),
-            Effect.flatMap((row) =>
-              row === undefined
-                ? Effect.succeed(undefined)
-                : verifyStoredProjection(row).pipe(
-                    Effect.as(projectionFromRow(row)),
-                  )
-            ),
-            Effect.withSpan(
-              "station-repository.projection-by-reference",
-            ),
-          );
+      ) {
+        const row = yield* selectProjectionByReference(reference).pipe(
+          Effect.mapError((error) => persistenceError("projection-by-reference", error)),
+        );
+        if (Option.isNone(row)) return undefined;
+        yield* verifyStoredProjection(row.value);
+        return projectionFromRow(row.value);
+      });
 
       const archiveProjection = Effect.fn(
         "StationRepository.archiveProjection",
@@ -677,16 +557,13 @@ export const makeStationRepositoryLive = (
           projection.body,
         );
 
-        const outcome = yield* engine
-          .transaction("station.archive-projection", (writer) => {
-            const current = selectProjection(writer);
+        const outcome = yield* sql.withTransaction(Effect.gen(function* () {
+            const current = yield* selectProjection;
             if (current !== undefined) {
               const currentActual = stationProjectionContentSha256(
                 current.body,
               );
-              const currentDeclared = decodeHash(
-                current.content_sha256,
-              );
+              const currentDeclared = current.content_sha256;
               if (currentActual !== currentDeclared) {
                 return {
                   _tag: "corrupt" as const,
@@ -710,13 +587,12 @@ export const makeStationRepositoryLive = (
               }
             }
 
-            const generation = decodeSequence(
+            const generation = yield* decodeSequence(
               current === undefined
                 ? "1"
                 : (BigInt(current.generation) + 1n).toString(),
             );
-            writer.run(
-              `INSERT INTO station_projection_versions(
+            yield* sql`INSERT INTO station_projection_versions(
                  generation,
                  content_sha256,
                  source_canvas_generation,
@@ -724,28 +600,16 @@ export const makeStationRepositoryLive = (
                  body,
                  created_at,
                  received_at
-               ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-              [
-                generation,
-                contentSha256,
-                projection.sourceCanvasGeneration,
-                projection.sourceIntentSha256,
-                projection.body,
-                admittedCreatedAt,
-                admittedArchivedAt,
-              ],
-            );
-            writer.run(
-              `INSERT INTO station_projection_head(
+               ) VALUES (${generation}, ${contentSha256}, ${projection.sourceCanvasGeneration},
+                 ${projection.sourceIntentSha256}, ${projection.body}, ${admittedCreatedAt}, ${admittedArchivedAt})`;
+            yield* sql`INSERT INTO station_projection_head(
                  singleton,
                  generation,
                  content_sha256
-               ) VALUES (1, ?, ?)
+               ) VALUES (1, ${generation}, ${contentSha256})
                ON CONFLICT(singleton) DO UPDATE SET
                  generation = excluded.generation,
-                 content_sha256 = excluded.content_sha256`,
-              [generation, contentSha256],
-            );
+                 content_sha256 = excluded.content_sha256`;
             return {
               _tag: "archived" as const,
               row: {
@@ -760,8 +624,9 @@ export const makeStationRepositoryLive = (
                 received_at: admittedArchivedAt,
               } satisfies ProjectionRow,
             };
-          })
+          }))
           .pipe(
+            Effect.provideService(StateTransactionOperation, "station.archive-projection"),
             Effect.mapError((error) =>
               persistenceError("archive-projection", error),
             ),
@@ -769,7 +634,7 @@ export const makeStationRepositoryLive = (
 
         if (outcome._tag === "corrupt") {
           return yield* StationProjectionIntegrityError.make({
-            generation: decodeSequence(outcome.row.generation),
+            generation: outcome.row.generation,
             declaredContentSha256: outcome.declared,
             actualContentSha256: outcome.actual,
           });
@@ -805,36 +670,27 @@ export const makeStationRepositoryLive = (
               installationId,
             });
           }
-          const decision = yield* engine
-            .transaction("station.pair", (writer) => {
-              const configured = selectConfiguration(writer);
-              if (configured?.role === "command-center") {
+          const decision = yield* sql.withTransaction(Effect.gen(function* () {
+              const configured = yield* configurations.read;
+              if (configured?.configuration.role === "command-center") {
                 return {
                   _tag: "command-center-configured" as const,
                 };
               }
-              const current = selectPairing(writer);
+              const current = yield* selectPairing;
               if (current === undefined) {
-                registerKnownInstallation(
-                  writer,
+                yield* installations.register(
                   request.commandCenterInstallationId,
                   admittedPairedAt,
                 );
-                writer.run(
-                  `INSERT INTO station_pairing(
+                yield* sql`INSERT INTO station_pairing(
                      singleton,
                      command_center_installation_id,
                      station_label,
                      app_version,
                      paired_at
-                   ) VALUES (1, ?, ?, ?, ?)`,
-                  [
-                    request.commandCenterInstallationId,
-                    request.stationLabel,
-                    request.appVersion,
-                    admittedPairedAt,
-                  ],
-                );
+                   ) VALUES (1, ${request.commandCenterInstallationId}, ${request.stationLabel},
+                     ${request.appVersion}, ${admittedPairedAt})`;
                 return {
                   _tag: "paired" as const,
                   pairedAt: admittedPairedAt,
@@ -846,17 +702,16 @@ export const makeStationRepositoryLive = (
               ) {
                 return {
                   _tag: "conflict" as const,
-                  current: decodeInstallationId(
-                    current.command_center_installation_id,
-                  ),
+                  current: current.command_center_installation_id,
                 };
               }
               return {
                 _tag: "paired" as const,
                 pairedAt: current.paired_at,
               };
-            })
+            }))
             .pipe(
+              Effect.provideService(StateTransactionOperation, "station.pair"),
               Effect.mapError((error) =>
                 persistenceError("pair", error),
               ),
@@ -922,28 +777,27 @@ export const makeStationRepositoryLive = (
             installationId,
             request.installationId,
           );
-          const decision = yield* engine
-            .transaction("station.configure", (writer) => {
-              const currentRow = selectConfiguration(writer);
+          const decision = yield* sql.withTransaction(Effect.gen(function* () {
+              const current = yield* configurations.read;
               if (
-                currentRow !== undefined &&
-                currentRow.role !== request.configuration.role
+                current !== undefined &&
+                current.configuration.role !== request.configuration.role
               ) {
                 return {
                   _tag: "role-immutable" as const,
-                  admitted: currentRow.role,
+                  admitted: current.configuration.role,
                 };
               }
               if (
-                currentRow !== undefined &&
-                currentRow.host_id !== request.configuration.hostId
+                current !== undefined &&
+                current.configuration.hostId !== request.configuration.hostId
               ) {
                 return {
                   _tag: "host-immutable" as const,
-                  admitted: currentRow.host_id,
+                  admitted: current.configuration.hostId,
                 };
               }
-              const pairing = selectPairing(writer);
+              const pairing = yield* selectPairing;
               if (pairing === undefined) {
                 return { _tag: "pairing-required" as const };
               }
@@ -962,11 +816,11 @@ export const makeStationRepositoryLive = (
               // the first successful Remote configuration removes that
               // history in this same transaction. Repeating configure also
               // repairs any impossible authorial residue.
-              wipeCanvasAuthority(writer);
+              yield* canvas.wipeCanvasAuthority();
 
               const effectiveConfiguration = request.configuration;
-              ensureHostRegistryState(writer, admittedConfiguredAt);
-              const hosts = upsertHostState(writer, request.host);
+              yield* hostRows.ensure(admittedConfiguredAt);
+              const hosts = yield* hostRows.upsert(request.host);
               const storedHost = hosts.hosts.find(
                 (host) => host.id === request.configuration.hostId,
               );
@@ -974,14 +828,13 @@ export const makeStationRepositoryLive = (
                 storedHost === undefined ||
                 storedHost.kind !== "remote"
               ) {
-                throw new Error(
+                return yield* Effect.fail(new Error(
                   "configured Remote host registration was not persisted",
-                );
+                ));
               }
               const registeredHost =
-                decodeRemoteHostRegistration(storedHost);
-              if (currentRow !== undefined) {
-                const current = configurationFromRow(currentRow);
+                yield* decodeRemoteHostRegistration(storedHost);
+              if (current !== undefined) {
                 if (
                   sameConfiguration(
                     current.configuration,
@@ -997,8 +850,7 @@ export const makeStationRepositoryLive = (
                   };
                 }
               }
-              writeStationConfiguration(
-                writer,
+              yield* configurations.write(
                 effectiveConfiguration,
                 admittedConfiguredAt,
               );
@@ -1009,8 +861,9 @@ export const makeStationRepositoryLive = (
                 host: registeredHost,
                 hosts: hosts.hosts,
               };
-            })
+            }))
             .pipe(
+              Effect.provideService(StateTransactionOperation, "station.configure"),
               Effect.mapError(configureStateError),
             );
 
@@ -1097,14 +950,13 @@ export const makeStationRepositoryLive = (
                 }),
         });
 
-        const outcome = yield* engine
-          .transaction("station.install-projection", (writer) => {
-            const current = selectProjection(writer);
+        const outcome = yield* sql.withTransaction(Effect.gen(function* () {
+            const current = yield* selectProjection;
             if (current !== undefined) {
               const currentActual = stationProjectionContentSha256(
                 current.body,
               );
-              const currentDeclared = decodeHash(current.content_sha256);
+              const currentDeclared = current.content_sha256;
               if (currentActual !== currentDeclared) {
                 return {
                   _tag: "corrupt" as const,
@@ -1121,8 +973,7 @@ export const makeStationRepositoryLive = (
               request.projection,
             );
             if (decision === "install") {
-              writer.run(
-                `INSERT INTO station_projection_versions(
+              yield* sql`INSERT INTO station_projection_versions(
                    generation,
                    content_sha256,
                    source_canvas_generation,
@@ -1130,39 +981,25 @@ export const makeStationRepositoryLive = (
                    body,
                    created_at,
                    received_at
-                 ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-                [
-                  request.projection.generation,
-                  request.projection.contentSha256,
-                  request.projection.sourceCanvasGeneration,
-                  request.projection.sourceIntentSha256,
-                  request.projection.body,
-                  admittedCreatedAt,
-                  admittedReceivedAt,
-                ],
-              );
-              writer.run(
-                `INSERT INTO station_projection_head(
+                 ) VALUES (${request.projection.generation}, ${request.projection.contentSha256},
+                   ${request.projection.sourceCanvasGeneration}, ${request.projection.sourceIntentSha256},
+                   ${request.projection.body}, ${admittedCreatedAt}, ${admittedReceivedAt})`;
+              yield* sql`INSERT INTO station_projection_head(
                    singleton,
                    generation,
                    content_sha256
-                 ) VALUES (1, ?, ?)
+                 ) VALUES (1, ${request.projection.generation}, ${request.projection.contentSha256})
                  ON CONFLICT(singleton) DO UPDATE SET
                    generation = excluded.generation,
-                   content_sha256 = excluded.content_sha256`,
-                [
-                  request.projection.generation,
-                  request.projection.contentSha256,
-                ],
-              );
+                   content_sha256 = excluded.content_sha256`;
               return {
                 _tag: "decision" as const,
                 decision,
-                active: decodeProjectionReference({
+                active: {
                   generation: request.projection.generation,
                   contentSha256: request.projection.contentSha256,
                   receivedAt: admittedReceivedAt,
-                }),
+                },
               };
             }
             return {
@@ -1170,8 +1007,9 @@ export const makeStationRepositoryLive = (
               decision,
               active: projectionReferenceFromRow(current!),
             };
-          })
+          }))
           .pipe(
+            Effect.provideService(StateTransactionOperation, "station.install-projection"),
             Effect.mapError((error) =>
               persistenceError("install-projection", error),
             ),
@@ -1179,7 +1017,7 @@ export const makeStationRepositoryLive = (
 
         if (outcome._tag === "corrupt") {
           return yield* StationProjectionIntegrityError.make({
-            generation: decodeSequence(outcome.row.generation),
+            generation: outcome.row.generation,
             declaredContentSha256: outcome.declared,
             actualContentSha256: outcome.actual,
           });
@@ -1193,13 +1031,13 @@ export const makeStationRepositoryLive = (
         });
       });
 
-      const statusFacts = engine
-        .read("station.status-facts", (reader) => ({
-          pairing: selectPairing(reader),
-          configuration: selectConfiguration(reader),
-          projection: selectProjection(reader),
-          received: receivedCursorRows(reader),
-          peerAcks: peerAckRows(reader),
+      const statusFacts = withSqlRead(sql, Effect.gen(function* () {
+          const pairing = yield* selectPairing;
+          const configuration = yield* configurations.read;
+          const projection = yield* selectProjection;
+          const received = yield* receivedCursorRows(undefined);
+          const peerAcks = yield* peerAckRows(undefined);
+          return { pairing, configuration, projection, received, peerAcks };
         }))
         .pipe(
           Effect.mapError((error) =>
@@ -1217,10 +1055,7 @@ export const makeStationRepositoryLive = (
               rows.pairing === undefined
                 ? undefined
                 : pairingFromRow(rows.pairing);
-            const configuration =
-              rows.configuration === undefined
-                ? undefined
-                : configurationFromRow(rows.configuration);
+            const configuration = rows.configuration;
             const projection =
               rows.projection === undefined
                 ? undefined
@@ -1237,9 +1072,7 @@ export const makeStationRepositoryLive = (
               ...(projection === undefined ? {} : { projection }),
               receivedThrough: rows.received.map(cursorFromRow),
               peerAcknowledgedThrough: rows.peerAcks.map((row) => ({
-                peerInstallationId: decodeInstallationId(
-                  row.peer_installation_id,
-                ),
+                peerInstallationId: row.peer_installation_id,
                 acknowledgement: cursorFromRow(row),
               })),
             };
@@ -1259,7 +1092,16 @@ export const makeStationRepositoryLive = (
         installProjection,
         statusFacts,
       });
-    }),
-  );
+    });
+
+export const makeStationRepositoryLive = (
+  options: StationRepositoryOptions = {},
+): Layer.Layer<StationRepository, StationPersistenceError | StationMetadataError, SqlClient.SqlClient> =>
+  Layer.effect(StationRepository, makeStationRepository(options)).pipe(Layer.provide([
+    StationConfigurationRepository.layer,
+    KnownInstallations.layer,
+    HostRegistryRows.layer,
+    CanvasRecordsLive,
+  ]));
 
 export const StationRepositoryLive = makeStationRepositoryLive();

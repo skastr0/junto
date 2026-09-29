@@ -2,6 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Context, Effect, Layer, ManagedRuntime, Schema } from "effect";
+import { SqlClient } from "effect/unstable/sql";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   makeStationFleetTargetRepositoryLive,
@@ -10,15 +11,13 @@ import {
 } from "../src/main/junto/station/fleet-target-repository";
 import {
   makeStateEngineLive,
-  StateEngine,
   type StateEngineError,
-  type StateRow,
 } from "../src/main/junto/state/engine";
 import { HostId } from "../src/shared/remote-hosts";
 import { InstallationId } from "../src/shared/installation-id";
 
 type FleetRuntime = ManagedRuntime.ManagedRuntime<
-  StationFleetTargetRepository | StateEngine,
+  StationFleetTargetRepository | SqlClient.SqlClient,
   StateEngineError
 >;
 
@@ -97,17 +96,12 @@ describe("StationFleetTargetRepository", () => {
     expect(
       (await runtime.runPromise(fleet.list)).map((target) => target.hostId),
     ).toEqual(["mini", "studio"]);
-    const state = await runtime.runPromise(StateEngine);
+    const sql = await runtime.runPromise(SqlClient.SqlClient);
     expect(
       await runtime.runPromise(
-        state.read("test.fleet-known-installations", (reader) =>
-          reader
-            .all<StateRow & { readonly installation_id: string }>(
-              `SELECT installation_id
-                 FROM station_known_installations
-                ORDER BY installation_id`,
-            )
-            .map((row) => row.installation_id)
+        sql<{ readonly installation_id: string }>`SELECT installation_id
+          FROM station_known_installations ORDER BY installation_id`.pipe(
+          Effect.map((rows) => rows.map((row) => row.installation_id)),
         ),
       ),
     ).toEqual(["station-mini", "station-studio"]);
