@@ -12,13 +12,13 @@ import type { OverseerHostIdentity, OverseerLiveExecutionConstraint } from "./ex
 import { createOpenAiLiveConnection, type OpenAiLiveConnection, type OpenAiLiveConnectionOptions } from "./openai-connection";
 import {
   assertLiveRequestCurrent, transitionLiveOperationInTransaction,
-  type LiveRepository, type LiveRequestRecord, type LiveOperationRecord, type LiveJsonObject,
+  type LiveRepositoryShape, type LiveRequestRecord, type LiveOperationRecord, type LiveJsonObject,
 } from "./repository";
 import { appendTranscript, captureLiveDelegation, createTranscriptJournal, decodeLiveDelegationEvent, decodeLiveTranscriptEvent, type LiveTranscriptJournal } from "./transcript";
 import { quietLiveContext, meaningfulLiveChanges, coalesceLiveActivity, type LiveSemanticContext } from "./context";
 
 export interface LiveSessionServiceOptions {
-  readonly repository: LiveRepository;
+  readonly repository: LiveRepositoryShape;
   /** The existing warm app runtime, never a newly constructed runtime. */
   readonly run: <A, E>(effect: Effect.Effect<A, E>) => Promise<A>;
   readonly settingsService: Pick<SettingsServiceApi, "get" | "resolveProviders">;

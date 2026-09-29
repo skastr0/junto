@@ -2,6 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect, Layer, ManagedRuntime } from "effect";
+import { SqlClient } from "effect/unstable/sql";
 import { afterEach, describe, expect, it } from "vitest";
 import { CanvasesLive, CanvasesService } from "../src/main/junto/canvases";
 import { makeContentServiceLive } from "../src/main/junto/content/service";
@@ -12,7 +13,7 @@ import { OverseerLiveExecution, type OverseerHostIdentity } from "../src/main/ju
 import { makeLiveRepository } from "../src/main/junto/overseer/live/repository";
 import { createLiveSessionService } from "../src/main/junto/overseer/live/service";
 import { SettingsLive } from "../src/main/junto/settings/service";
-import { makeStateEngineLive, StateEngine } from "../src/main/junto/state/engine";
+import { makeStateEngineLive } from "../src/main/junto/state/engine";
 import { StationFleetTargetRepositoryLive } from "../src/main/junto/station/fleet-target-repository";
 import { StationRepositoryLive } from "../src/main/junto/station/repository";
 import { WorkRepositoryLive } from "../src/main/junto/work/repository";
@@ -59,7 +60,7 @@ const boot = async () => {
   await runtime.runPromise(canvases.write("factory", document()));
   const initial = await runtime.runPromise(canvases.read("factory"));
   await runtime.runPromise(canvases.canvasOverseerSet({ ...identity, overseer: true, expectedRevision: initial.revision }));
-  const repository = makeLiveRepository(await runtime.runPromise(StateEngine));
+  const repository = makeLiveRepository(await runtime.runPromise(SqlClient.SqlClient));
   let currentIdentity: OverseerHostIdentity | undefined = identity;
   let authorityListener: ((value: OverseerHostIdentity | undefined) => void) | undefined;
   let providerCount = 0;

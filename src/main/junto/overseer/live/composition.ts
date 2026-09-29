@@ -1,4 +1,5 @@
 import { Effect } from "effect";
+import { SqlClient } from "effect/unstable/sql";
 import { isManagedAgentNode } from "@shared/actor-surface";
 import { serializeCanvas } from "@shared/canvas";
 import { resolveNodeHostId } from "@shared/station";
@@ -14,13 +15,13 @@ import { buildLiveContext } from "./context";
 import { makeLiveRepository } from "./repository";
 import { createLiveSessionService } from "./service";
 
-type Services = CanvasesService | SettingsService | StateEngine | StationRepository;
+type Services = CanvasesService | SettingsService | StateEngine | SqlClient.SqlClient | StationRepository;
 export type LiveRun = <A, E>(effect: Effect.Effect<A, E, Services>) => Promise<A>;
 
 /** Joins Live to the already running app owners; no process or database is opened here. */
 export const composeOverseerLive = async (run: LiveRun) => {
-  const { state, settings, canvases } = await run(Effect.gen(function* () {
-    return { state: yield* StateEngine, settings: yield* SettingsService, canvases: yield* CanvasesService };
+  const { sql, settings, canvases } = await run(Effect.gen(function* () {
+    return { sql: yield* SqlClient.SqlClient, settings: yield* SettingsService, canvases: yield* CanvasesService };
   }));
   const processMap = getProcessIdentityMap();
   const revisions = new Map<string, string>();
@@ -47,7 +48,7 @@ export const composeOverseerLive = async (run: LiveRun) => {
     } catch { return undefined; }
   };
   const service = createLiveSessionService({
-    repository: makeLiveRepository(state),
+    repository: makeLiveRepository(sql),
     run,
     settingsService: settings,
     resolveOccupant,

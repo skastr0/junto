@@ -2,14 +2,17 @@ import { copyFile, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { ManagedRuntime } from "effect";
-import { afterEach, describe, expect, it } from "vitest";
+import { Effect, ManagedRuntime } from "effect";
+import { SqlClient } from "effect/unstable/sql";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { makeStateEngineLive, StateEngine } from "../src/main/junto/state/engine";
+import { StateTransactionOperation } from "../src/main/junto/state/service";
+import { withSqlRead } from "../src/main/junto/state/sql-read";
 import { CURRENT_STATE_SCHEMA_VERSION, STATE_SCHEMA_MIGRATIONS } from "../src/main/junto/state/migrations";
-import { assertLiveRequestCurrent, makeLiveRepository, operationArgsHash, transitionLiveOperationInTransaction, type LiveRequestCorrelation } from "../src/main/junto/overseer/live/repository";
+import { LiveRepository, makeLiveRepository, operationArgsHash, type LiveRequestCorrelation } from "../src/main/junto/overseer/live/repository";
 
 const roots: string[] = [];
-const runtimes: Array<ManagedRuntime.ManagedRuntime<StateEngine, unknown>> = [];
+const runtimes: Array<ManagedRuntime.ManagedRuntime<StateEngine | SqlClient.SqlClient, unknown>> = [];
 afterEach(async () => {
   for (const runtime of runtimes.splice(0)) await runtime.dispose();
   for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true });
@@ -31,8 +34,9 @@ const open = async (configuredPath?: string) => {
   const runtime = ManagedRuntime.make(makeStateEngineLive(path));
   runtimes.push(runtime);
   const state = await runtime.runPromise(StateEngine);
-  const repository = makeLiveRepository(state, clock);
-  return { runtime, state, repository, path };
+  const sql = await runtime.runPromise(SqlClient.SqlClient);
+  const repository = makeLiveRepository(sql, clock);
+  return { runtime, state, sql, repository, path };
 };
 const setup = async () => {
   const test = await open();
@@ -53,6 +57,23 @@ describe("durable Live journal", () => {
     await expect(runtime.runPromise(repository.proposeOperation({ ...operationInput, args: { ...operationInput.args, x: 999 } }))).rejects.toThrow("different immutable intent");
     expect(await runtime.runPromise(repository.listRequests(binding.sessionId))).toHaveLength(1);
     expect(await runtime.runPromise(repository.listOperations(requestInput.requestId))).toHaveLength(1);
+  });
+
+  it("retains descending id tie-breaks and limits for session, request and operation reads", async () => {
+    const { runtime, repository } = await setup();
+    for (const suffix of ["3", "2"]) {
+      await runtime.runPromise(repository.createSession({ ...binding, sessionId: `session-${suffix}`, seatNodeRef: `seat-${suffix}` }));
+      await runtime.runPromise(repository.createRequest({ ...requestInput, requestId: `request-${suffix}`, providerDelegationId: `delegation-${suffix}` }));
+      await runtime.runPromise(repository.proposeOperation({ ...operationInput, operationId: `operation-${suffix}` }));
+    }
+    await runtime.runPromise(repository.proposeOperation(operationInput));
+    expect((await runtime.runPromise(repository.listSessions())).map((row) => row.sessionId)).toEqual(["session-3", "session-2", "session-1"]);
+    expect((await runtime.runPromise(repository.listSessions(1))).map((row) => row.sessionId)).toEqual(["session-3"]);
+    expect((await runtime.runPromise(repository.listRequests(binding.sessionId, 2))).map((row) => row.requestId)).toEqual(["request-3", "request-2"]);
+    expect((await runtime.runPromise(repository.listOperations(requestInput.requestId, 2))).map((row) => row.operationId)).toEqual(["operation-3", "operation-2"]);
+    expect(await runtime.runPromise(Effect.result(repository.listSessions(0)))).toMatchObject({
+      _tag: "Failure", failure: { code: "invalid", message: "Live journal query limit must be between 1 and 200" },
+    });
   });
 
   it("atomically fences a correction and invalidates only its pending operations", async () => {
@@ -85,25 +106,118 @@ describe("durable Live journal", () => {
     await expect(runtime.runPromise(repository.setRequestStatus(requestInput.requestId, 1, "completed"))).rejects.toThrow("no longer current");
   });
 
+  it("keeps validation, hashing, clock and SQL failures typed and rolls back invalid revisions", async () => {
+    const { runtime, repository, sql } = await setup();
+    await runtime.runPromise(repository.proposeOperation(operationInput));
+    const before = await runtime.runPromise(repository.listEvents(binding.sessionId));
+    expect(await runtime.runPromise(Effect.result(repository.updateRequestIntent(requestInput.requestId, 1,
+      { text: "Invalid correction", capturedContext: { bad: Number.NaN }, transcriptRefs: [] })))).toMatchObject({
+      _tag: "Failure", failure: { _tag: "LiveJournalError", code: "invalid", message: "Live journal values must be finite JSON" },
+    });
+    expect(await runtime.runPromise(repository.getOperation(operationInput.operationId))).toMatchObject({ status: "proposed", outcome: null });
+    expect(await runtime.runPromise(repository.getRequest(requestInput.requestId))).toMatchObject({ intentRevision: 1, text: requestInput.text });
+    expect(await runtime.runPromise(repository.listEvents(binding.sessionId))).toEqual(before);
+    expect(await runtime.runPromise(Effect.result(repository.proposeOperation({ ...operationInput, args: { bad: undefined } })))).toMatchObject({
+      _tag: "Failure", failure: { code: "invalid", message: "Live journal values must be finite JSON" },
+    });
+    expect(await runtime.runPromise(Effect.result(repository.createSession(binding)))).toMatchObject({
+      _tag: "Failure", failure: { code: "persistence", message: expect.stringContaining("UNIQUE constraint") },
+    });
+    expect(await runtime.runPromise(Effect.result(repository.assertRequestCurrentWithin({ ...correlation, intentRevision: 2 })))).toMatchObject({
+      _tag: "Failure", failure: { code: "stale", message: "Live request intent is no longer current" },
+    });
+    const brokenClock = makeLiveRepository(sql, () => { throw new Error("clock unavailable"); });
+    expect(await runtime.runPromise(Effect.result(brokenClock.closeSession(binding.sessionId)))).toMatchObject({
+      _tag: "Failure", failure: { code: "persistence", message: "clock unavailable" },
+    });
+    expect(await runtime.runPromise(repository.getSession(binding.sessionId))).toMatchObject({ status: "active" });
+  });
+
+  it("decodes retained JSON through the SQL schema as a typed persistence failure", async () => {
+    const { runtime, repository, sql } = await setup();
+    await runtime.runPromise(sql.withTransaction(sql`UPDATE overseer_live_requests SET transcript_refs_json = '[17]' WHERE request_id = ${requestInput.requestId}`));
+    expect(await runtime.runPromise(Effect.result(repository.getRequest(requestInput.requestId)))).toMatchObject({
+      _tag: "Failure", failure: { _tag: "LiveJournalError", code: "persistence", message: expect.stringContaining("string") },
+    });
+  });
+
+  it("reads captured objects and the clock when an effect runs, retaining insertion receipts", async () => {
+    const { runtime, repository, sql } = await setup();
+    const readClock = vi.fn(() => "2026-09-12T13:00:00.000Z");
+    const delayed = makeLiveRepository(sql, readClock);
+    const input = { ...requestInput, requestId: "request-late", providerDelegationId: "delegation-late", capturedContext: { node: "before" }, transcriptRefs: ["before"] };
+    const create = delayed.createRequest(input);
+    input.text = "Captured at execution";
+    input.capturedContext.node = "after";
+    input.transcriptRefs.push("after");
+    expect(readClock).not.toHaveBeenCalled();
+    expect(await runtime.runPromise(create)).toMatchObject({ created: true, request: {
+      text: "Captured at execution", capturedContext: { node: "after" }, transcriptRefs: ["before", "after"], createdAt: "2026-09-12T13:00:00.000Z",
+    } });
+    expect(readClock).toHaveBeenCalledTimes(1);
+    const detail = { node: "first" };
+    const append = delayed.appendEvent({ sessionId: binding.sessionId, requestId: null, operationId: null, kind: "custom", detail });
+    detail.node = "second";
+    const receipt = await runtime.runPromise(append);
+    detail.node = "third";
+    // Append returns the caller's detail, while the immutable journal retains serialized bytes.
+    expect(receipt.detail).toBe(detail);
+    expect(await runtime.runPromise(repository.listEvents(binding.sessionId, 2))).toMatchObject([
+      { sequence: 3, kind: "request.created", detail: { text: "Captured at execution" } },
+      { sequence: 4, kind: "custom", detail: { node: "second" } },
+    ]);
+    expect(receipt.sequence).toBe(4);
+  });
+
+  it("keeps owning transaction names and lets participants join without another owner", async () => {
+    const { runtime, sql } = await open();
+    const names: string[] = [];
+    const withTransaction = sql.withTransaction;
+    const owner = vi.spyOn(sql, "withTransaction").mockImplementation(<A, E, R>(body: Effect.Effect<A, E, R>) =>
+      withTransaction(Effect.gen(function* () {
+        names.push(yield* StateTransactionOperation);
+        return yield* body;
+      })));
+    try {
+      const repository = makeLiveRepository(sql, clock);
+      await runtime.runPromise(repository.createSession(binding));
+      await runtime.runPromise(repository.createRequest(requestInput));
+      expect(await runtime.runPromise(repository.assertRequestCurrent(correlation))).toMatchObject({ requestId: requestInput.requestId });
+      await runtime.runPromise(repository.proposeOperation(operationInput));
+      await runtime.runPromise(repository.transitionOperation({ operationId: operationInput.operationId, from: "proposed", to: "admitted", correlation }));
+      await runtime.runPromise(sql.withTransaction(Effect.gen(function* () {
+        yield* repository.assertRequestCurrentWithin(correlation);
+        return yield* repository.transitionOperationWithin({ operationId: operationInput.operationId, from: "admitted", to: "applied", correlation }, "owner-time");
+      })).pipe(Effect.provideService(StateTransactionOperation, "test.owner")));
+      expect(names).toEqual(["live.session.create", "live.request.create", "live.operation.propose", "live.operation.transition", "test.owner"]);
+      expect(owner).toHaveBeenCalledTimes(5);
+      expect(await runtime.runPromise(repository.getOperation(operationInput.operationId))).toMatchObject({ status: "applied", updatedAt: "owner-time" });
+      const fromLayer = await runtime.runPromise(LiveRepository.pipe(Effect.provide(LiveRepository.layer)));
+      expect(await runtime.runPromise(fromLayer.getSession(binding.sessionId))).toMatchObject(binding);
+    } finally { owner.mockRestore(); }
+  });
+
   it("requires matching authority and commits mutation receipts in the owner's transaction", async () => {
-    const { runtime, repository, state } = await setup();
+    const { runtime, repository, sql } = await setup();
     await runtime.runPromise(repository.proposeOperation(operationInput));
     await expect(runtime.runPromise(repository.transitionOperation({ operationId: operationInput.operationId, from: "proposed", to: "admitted",
       correlation: { ...correlation, authorityEpoch: "revoked" } }))).rejects.toThrow("authority or occupant changed");
     await runtime.runPromise(repository.transitionOperation({ operationId: operationInput.operationId, from: "proposed", to: "admitted", correlation }));
-    await expect(runtime.runPromise(state.transaction("test.live-owned-mutation", (writer) => {
-      assertLiveRequestCurrent(writer, correlation);
-      writer.run("UPDATE overseer_live_sessions SET backend_conversation_id = 'changed' WHERE session_id = ?", [binding.sessionId]);
-      transitionLiveOperationInTransaction(writer, { operationId: operationInput.operationId, from: "admitted", to: "applied", correlation, outcome: { fact: "canvas-committed" } });
-      throw new Error("owner transaction fails");
-    }))).rejects.toThrow("owner transaction fails");
+    const eventsBefore = await runtime.runPromise(repository.listEvents(binding.sessionId));
+    await expect(runtime.runPromise(sql.withTransaction(Effect.gen(function* () {
+      yield* repository.assertRequestCurrentWithin(correlation);
+      yield* sql`UPDATE overseer_live_sessions SET backend_conversation_id = 'changed' WHERE session_id = ${binding.sessionId}`;
+      yield* repository.transitionOperationWithin({ operationId: operationInput.operationId, from: "admitted", to: "applied", correlation, outcome: { fact: "canvas-committed" } });
+      return yield* Effect.fail(new Error("owner transaction fails"));
+    })).pipe(Effect.provideService(StateTransactionOperation, "test.live-owned-mutation")))).rejects.toThrow("owner transaction fails");
     expect(await runtime.runPromise(repository.getOperation(operationInput.operationId))).toMatchObject({ status: "admitted" });
     expect(await runtime.runPromise(repository.getSession(binding.sessionId))).toMatchObject({ backendConversationId: null });
-    await runtime.runPromise(state.transaction("test.live-owned-mutation", (writer) => {
-      assertLiveRequestCurrent(writer, correlation);
-      writer.run("UPDATE overseer_live_sessions SET backend_conversation_id = 'changed' WHERE session_id = ?", [binding.sessionId]);
-      transitionLiveOperationInTransaction(writer, { operationId: operationInput.operationId, from: "admitted", to: "applied", correlation, outcome: { fact: "canvas-committed" } });
-    }));
+    expect(await runtime.runPromise(repository.listEvents(binding.sessionId))).toEqual(eventsBefore);
+    await runtime.runPromise(sql.withTransaction(Effect.gen(function* () {
+      yield* repository.assertRequestCurrentWithin(correlation);
+      yield* sql`UPDATE overseer_live_sessions SET backend_conversation_id = 'changed' WHERE session_id = ${binding.sessionId}`;
+      yield* repository.transitionOperationWithin({ operationId: operationInput.operationId, from: "admitted", to: "applied", correlation, outcome: { fact: "canvas-committed" } });
+    })).pipe(Effect.provideService(StateTransactionOperation, "test.live-owned-mutation")));
     expect(await runtime.runPromise(repository.getOperation(operationInput.operationId))).toMatchObject({ status: "applied" });
   });
 
@@ -124,7 +238,7 @@ describe("durable Live journal", () => {
   });
 
   it("bounds event reads and prevents mismatched attribution or immutable history writes", async () => {
-    const { runtime, repository, state } = await setup();
+    const { runtime, repository, sql } = await setup();
     await runtime.runPromise(repository.proposeOperation(operationInput));
     const first = await runtime.runPromise(repository.listEvents(binding.sessionId, 0, 2));
     expect(first).toHaveLength(2);
@@ -135,8 +249,10 @@ describe("durable Live journal", () => {
     await expect(runtime.runPromise(repository.createSession({ ...binding, sessionId: "duplicate-seat-session" }))).rejects.toThrow("UNIQUE constraint");
     await runtime.runPromise(repository.createSession({ ...binding, sessionId: "session-2", seatNodeRef: "another-seat" }));
     await expect(runtime.runPromise(repository.appendEvent({ sessionId: "session-2", requestId: requestInput.requestId, operationId: null, kind: "result", detail: {} }))).rejects.toThrow("another session");
-    await expect(runtime.runPromise(state.transaction("test.immutable-live-receipt", (writer) => writer.run("UPDATE overseer_live_operations SET args_sha256 = ?", ["f".repeat(64)])))).rejects.toThrow("intent is immutable");
-    await expect(runtime.runPromise(state.transaction("test.immutable-live-event", (writer) => writer.run("DELETE FROM overseer_live_events")))).rejects.toThrow("append-only");
+    await expect(runtime.runPromise(sql.withTransaction(sql`UPDATE overseer_live_operations SET args_sha256 = ${"f".repeat(64)}`)
+      .pipe(Effect.provideService(StateTransactionOperation, "test.immutable-live-receipt")))).rejects.toThrow("intent is immutable");
+    await expect(runtime.runPromise(sql.withTransaction(sql`DELETE FROM overseer_live_events`)
+      .pipe(Effect.provideService(StateTransactionOperation, "test.immutable-live-event")))).rejects.toThrow("append-only");
   });
 
   it("recovers an uncertain native dispatch after the call was closed", async () => {
@@ -162,13 +278,14 @@ describe("durable Live journal", () => {
         .map((row) => [String(row.name), baseline.prepare(`SELECT * FROM "${String(row.name).replaceAll('"', '""')}"`).all()]));
       for (const table of ["work_events", "work_commands", "work_facts", "work_dispositions"]) expect(before[table]!.length).toBeGreaterThan(0);
     } finally { baseline.close(); }
-    const { runtime, state } = await open(path);
+    const { runtime, state, sql } = await open(path);
     expect(state.info.schemaVersion).toBe(CURRENT_STATE_SCHEMA_VERSION);
-    const after = await runtime.runPromise(state.read("test.live-baseline-preservation", (reader) => Object.fromEntries(
-      Object.keys(before).map((table) => [table, reader.all(`SELECT * FROM "${table.replaceAll('"', '""')}"`)]))));
+    const after = await runtime.runPromise(withSqlRead(sql, Effect.gen(function* () {
+      return Object.fromEntries(yield* Effect.forEach(Object.keys(before), (table) =>
+        sql`SELECT * FROM ${sql(table)}`.pipe(Effect.map((rows) => [table, rows]))));
+    })));
     expect(after).toEqual(before);
-    expect(await runtime.runPromise(state.read("test.live-tables", (reader) => reader.all(
-      "SELECT name FROM sqlite_schema WHERE type = 'table' AND (name LIKE 'overseer_live_%' OR name = 'openai_credential_bindings') ORDER BY name"))))
+    expect(await runtime.runPromise(sql`SELECT name FROM sqlite_schema WHERE type = 'table' AND (name LIKE 'overseer_live_%' OR name = 'openai_credential_bindings') ORDER BY name`))
       .toEqual(["openai_credential_bindings", "overseer_live_events", "overseer_live_operations", "overseer_live_requests", "overseer_live_sessions"].map((name) => ({ name })));
   });
 });
