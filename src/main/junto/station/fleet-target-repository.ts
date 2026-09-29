@@ -1,21 +1,14 @@
-import { Context, Effect, Result, Layer, Schema } from "effect";
+import { Context, Effect, Result, Layer, Option, Schema } from "effect";
+import { SqlClient, SqlSchema } from "effect/unstable/sql";
 import {
   HostId,
   type HostId as HostIdValue,
 } from "@shared/remote-hosts";
 import { DisplayTimestamp } from "@shared/station-api";
-import {
-  InstallationId,
-  type InstallationId as InstallationIdValue,
-} from "@shared/installation-id";
-import {
-  StateEngine,
-  type StateEngineError,
-  type StateReader,
-  type StateRow,
-  type StateWriter,
-} from "../state/service";
+import { InstallationId } from "@shared/installation-id";
+import { StateTransactionOperation } from "../state/service";
 import { StationContextTagIds } from "./context-services";
+import { KnownInstallations } from "./known-installations";
 
 /** Fleet identity is host + station installation only. SSH routes live on the host registry. */
 export const StationFleetTargetIdentity = Schema.Struct({
@@ -112,14 +105,14 @@ export class StationFleetTargetRepository extends Context.Service<StationFleetTa
     ) => () => void;
   }>()(StationContextTagIds.fleetTargetRepository) {}
 
-type FleetTargetRow = StateRow & {
-  readonly host_id: string;
-  readonly station_installation_id: string;
-  readonly bound_at: string;
-  readonly retired_at: string | null;
-};
+const FleetTargetRow = Schema.Struct({
+  host_id: HostId,
+  station_installation_id: InstallationId,
+  bound_at: DisplayTimestamp,
+  retired_at: Schema.NullOr(Schema.String),
+});
+type FleetTargetRow = typeof FleetTargetRow.Type;
 
-const decodeTarget = Schema.decodeUnknownSync(StationFleetTarget);
 const decodeIdentityEither = Schema.decodeUnknownResult(
   StationFleetTargetIdentity,
   { onExcessProperty: "error" },
@@ -128,102 +121,43 @@ const decodeTimestampEither = Schema.decodeUnknownResult(DisplayTimestamp);
 
 const nowIso = (): string => new Date().toISOString();
 
-const targetFromRow = (row: FleetTargetRow): StationFleetTarget => {
-  try {
-    return decodeTarget({
-      hostId: row.host_id,
-      stationInstallationId: row.station_installation_id,
-      boundAt: row.bound_at,
-    });
-  } catch {
-    throw StationFleetTargetCorruptRecordError.make({
-      operation: "decode",
-      message:
-        `stored fleet target ${JSON.stringify(row.host_id)} ` +
-        "does not satisfy the canonical Station fleet contract",
-    });
-  }
-};
-
-const selectByHostId = (
-  reader: StateReader,
-  hostId: HostIdValue,
-): FleetTargetRow | undefined =>
-  reader.get<FleetTargetRow>(
-    `SELECT
-       host_id,
-       station_installation_id,
-       bound_at,
-       retired_at
-     FROM station_fleet_targets
-     WHERE host_id = ?
-       AND retired_at IS NULL`,
-    [hostId],
-  );
-
-const registerKnownInstallation = (
-  writer: StateWriter,
-  installationId: InstallationIdValue,
-  registeredAt: string,
-): void => {
-  writer.run(
-    `INSERT INTO station_known_installations(
-       installation_id,
-       registered_at
-     ) VALUES (?, ?)
-     ON CONFLICT(installation_id) DO NOTHING`,
-    [installationId, registeredAt],
-  );
-};
-
-const selectBindingByHostId = (
-  reader: StateReader,
-  hostId: HostIdValue,
-): FleetTargetRow | undefined =>
-  reader.get<FleetTargetRow>(
-    `SELECT
-       host_id,
-       station_installation_id,
-       bound_at,
-       retired_at
-     FROM station_fleet_targets
-     WHERE host_id = ?`,
-    [hostId],
-  );
-
-const selectIdentityCollisions = (
-  reader: StateReader,
-  identity: StationFleetTargetIdentity,
-): ReadonlyArray<FleetTargetRow> =>
-  reader.all<FleetTargetRow>(
-    `SELECT
-       host_id,
-       station_installation_id,
-       bound_at,
-       retired_at
-     FROM station_fleet_targets
-     WHERE host_id = ?
-        OR station_installation_id = ?
-     ORDER BY host_id`,
-    [
-      identity.hostId,
-      identity.stationInstallationId,
-    ],
-  );
+const targetFromRow = (row: FleetTargetRow): StationFleetTarget => ({
+  hostId: row.host_id,
+  stationInstallationId: row.station_installation_id,
+  boundAt: row.bound_at,
+});
 
 const persistenceError = (
   operation: string,
-  error: StateEngineError,
+  error: unknown,
 ):
   | StationFleetTargetCorruptRecordError
   | StationFleetTargetPersistenceError =>
-  error.cause instanceof StationFleetTargetCorruptRecordError
-    ? error.cause
+  Schema.isSchemaError(error)
+    ? StationFleetTargetCorruptRecordError.make({
+        operation: "decode",
+        message: "stored fleet target does not satisfy the canonical Station fleet contract",
+      })
     : StationFleetTargetPersistenceError.make({
         operation,
-        message: error.message,
+        message: error instanceof Error ? error.message : String(error),
         cause: error,
       });
+
+/** Physical deletion for host removal, distinct from fleet retirement. */
+export class StationFleetTargetCleanup extends Context.Service<StationFleetTargetCleanup, {
+  readonly deleteForHost: (hostId: string) => Effect.Effect<void, StationFleetTargetPersistenceError>;
+}>()("@junto/StationFleetTargetCleanup") {
+  static readonly layer = Layer.effect(this, Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+    const deleteForHost = Effect.fn("StationFleetTargetCleanup.deleteForHost")(function* (hostId: string) {
+      yield* sql`DELETE FROM station_fleet_targets WHERE host_id = ${hostId}`;
+    }, Effect.mapError((cause) => StationFleetTargetPersistenceError.make({
+      operation: "delete-for-host", message: cause.message, cause,
+    })));
+    return { deleteForHost };
+  }));
+}
 
 const admitTimestamp = (
   value: string,
@@ -268,13 +202,35 @@ export type StationFleetTargetRepositoryOptions = {
 
 export const makeStationFleetTargetRepositoryLive = (
   options: StationFleetTargetRepositoryOptions = {},
-): Layer.Layer<StationFleetTargetRepository, never, StateEngine> =>
+): Layer.Layer<StationFleetTargetRepository, never, SqlClient.SqlClient> =>
   Layer.effect(
     StationFleetTargetRepository,
     Effect.gen(function* () {
-      const engine = yield* StateEngine;
+      const sql = yield* SqlClient.SqlClient;
+      const installations = yield* KnownInstallations;
       const clock = options.now ?? nowIso;
       const listeners = new Set<(hostId: HostIdValue) => void>();
+      const selectBindingByHostId = SqlSchema.findOneOption({
+        Request: Schema.String, Result: FleetTargetRow,
+        execute: (hostId) => sql`SELECT host_id, station_installation_id, bound_at, retired_at
+          FROM station_fleet_targets WHERE host_id = ${hostId}`,
+      });
+      const selectByHostId = SqlSchema.findOneOption({
+        Request: Schema.String, Result: FleetTargetRow,
+        execute: (hostId) => sql`SELECT host_id, station_installation_id, bound_at, retired_at
+          FROM station_fleet_targets WHERE host_id = ${hostId} AND retired_at IS NULL`,
+      });
+      const selectIdentityCollisions = SqlSchema.findAll({
+        Request: StationFleetTargetIdentity, Result: FleetTargetRow,
+        execute: (identity) => sql`SELECT host_id, station_installation_id, bound_at, retired_at
+          FROM station_fleet_targets WHERE host_id = ${identity.hostId}
+            OR station_installation_id = ${identity.stationInstallationId} ORDER BY host_id`,
+      });
+      const selectAll = SqlSchema.findAll({
+        Request: Schema.Void, Result: FleetTargetRow,
+        execute: () => sql`SELECT host_id, station_installation_id, bound_at, retired_at
+          FROM station_fleet_targets WHERE retired_at IS NULL ORDER BY host_id`,
+      });
 
       const notify = (hostId: HostIdValue): void => {
         for (const listener of listeners) {
@@ -298,12 +254,8 @@ export const makeStationFleetTargetRepositoryLive = (
         ) {
           const admittedIdentity = yield* admitIdentity(identity);
           const admittedBoundAt = yield* admitTimestamp(boundAt);
-          const decision = yield* engine
-            .transaction("station-fleet-target.bind", (writer) => {
-              const establishedRow = selectBindingByHostId(
-                writer,
-                admittedIdentity.hostId,
-              );
+          const decision = yield* sql.withTransaction(Effect.gen(function* () {
+              const establishedRow = Option.getOrUndefined(yield* selectBindingByHostId(admittedIdentity.hostId));
               const established = establishedRow === undefined
                 ? undefined
                 : targetFromRow(establishedRow);
@@ -318,10 +270,7 @@ export const makeStationFleetTargetRepositoryLive = (
                 };
               }
 
-              const collisions = selectIdentityCollisions(
-                writer,
-                admittedIdentity,
-              ).map(targetFromRow);
+              const collisions = (yield* selectIdentityCollisions(admittedIdentity)).map(targetFromRow);
               const exact = collisions.find((target) =>
                 sameIdentity(target, admittedIdentity)
               );
@@ -330,12 +279,9 @@ export const makeStationFleetTargetRepositoryLive = (
                   establishedRow !== undefined &&
                   establishedRow.retired_at !== null
                 ) {
-                  writer.run(
-                    `UPDATE station_fleet_targets
+                  yield* sql`UPDATE station_fleet_targets
                      SET retired_at = NULL
-                     WHERE host_id = ?`,
-                    [admittedIdentity.hostId],
-                  );
+                     WHERE host_id = ${admittedIdentity.hostId}`;
                 }
                 return {
                   _tag: "bound" as const,
@@ -356,30 +302,23 @@ export const makeStationFleetTargetRepositoryLive = (
                 ...admittedIdentity,
                 boundAt: admittedBoundAt,
               };
-              registerKnownInstallation(
-                writer,
+              yield* installations.register(
                 target.stationInstallationId,
                 target.boundAt,
               );
-              writer.run(
-                `INSERT INTO station_fleet_targets(
+              yield* sql`INSERT INTO station_fleet_targets(
                    host_id,
                    station_installation_id,
                    bound_at
-                 ) VALUES (?, ?, ?)`,
-                [
-                  target.hostId,
-                  target.stationInstallationId,
-                  target.boundAt,
-                ],
-              );
+                 ) VALUES (${target.hostId}, ${target.stationInstallationId}, ${target.boundAt})`;
               return {
                 _tag: "bound" as const,
                 target,
                 changed: true,
               };
-            })
+            }))
             .pipe(
+              Effect.provideService(StateTransactionOperation, "station-fleet-target.bind"),
               Effect.mapError((error) => persistenceError("bind", error)),
             );
 
@@ -408,53 +347,31 @@ export const makeStationFleetTargetRepositoryLive = (
         },
       );
 
-      const get = (hostId: HostIdValue) =>
-        engine
-          .read("station-fleet-target.get", (reader) => {
-            const row = selectByHostId(reader, hostId);
-            return row === undefined ? undefined : targetFromRow(row);
-          })
-          .pipe(
-            Effect.mapError((error) => persistenceError("get", error)),
-            Effect.withSpan("station-fleet-target-repository.get", {
-              attributes: { hostId },
-            }),
-          );
+      const get = Effect.fn("StationFleetTargetRepository.get")(function* (hostId: HostIdValue) {
+        const row = yield* selectByHostId(hostId);
+        return Option.isNone(row) ? undefined : targetFromRow(row.value);
+      }, Effect.mapError((error) => persistenceError("get", error)));
 
-      const list = engine
-        .read("station-fleet-target.list", (reader) =>
-          reader
-            .all<FleetTargetRow>(
-              `SELECT
-                 host_id,
-                 station_installation_id,
-                 bound_at,
-                 retired_at
-               FROM station_fleet_targets
-               WHERE retired_at IS NULL
-               ORDER BY host_id`,
-            )
-            .map(targetFromRow)
-        )
+      const list = selectAll(undefined)
         .pipe(
+          Effect.map((rows) => rows.map(targetFromRow)),
           Effect.mapError((error) => persistenceError("list", error)),
           Effect.withSpan("station-fleet-target-repository.list"),
         );
 
       const remove = Effect.fn("StationFleetTargetRepository.remove")(
         function* (hostId: HostIdValue) {
-          const removed = yield* engine
-            .transaction("station-fleet-target.remove", (writer) => {
-              const result = writer.run(
-                `UPDATE station_fleet_targets
-                 SET retired_at = ?
-                 WHERE host_id = ?
-                   AND retired_at IS NULL`,
-                [clock(), hostId],
-              );
+          const removed = yield* sql.withTransaction(Effect.gen(function* () {
+              const result = yield* sql`UPDATE station_fleet_targets
+                 SET retired_at = ${clock()}
+                 WHERE host_id = ${hostId}
+                   AND retired_at IS NULL`.raw.pipe(Effect.flatMap(
+                     Schema.decodeUnknownEffect(Schema.Struct({ changes: Schema.Union([Schema.Number, Schema.BigInt]) })),
+                   ));
               return BigInt(result.changes) > 0n;
-            })
+            }))
             .pipe(
+              Effect.provideService(StateTransactionOperation, "station-fleet-target.remove"),
               Effect.mapError((error) =>
                 StationFleetTargetPersistenceError.make({
                   operation: "remove",
@@ -487,7 +404,7 @@ export const makeStationFleetTargetRepositoryLive = (
         subscribeChanges,
       });
     }),
-  );
+  ).pipe(Layer.provide(KnownInstallations.layer));
 
 export const StationFleetTargetRepositoryLive =
   makeStationFleetTargetRepositoryLive();

@@ -317,8 +317,7 @@
       "path": "src/main/junto/station/fleet-target-repository.ts",
       "kind": "debt",
       "tables": [
-        "station_fleet_targets",
-        "station_known_installations"
+        "station_fleet_targets"
       ],
       "reason": "Fleet target seam: the Command Center's per-host propagation targets and cursors.",
       "retire": "IN-MEMORY WORLD: retire when the in-memory factory world owns the projection and this file's only write is the journal append."
@@ -551,8 +550,7 @@
       "table": "station_known_installations",
       "owner": "src/main/junto/station/known-installations.ts",
       "alsoWrittenBy": [
-        "src/main/junto/station/repository.ts",
-        "src/main/junto/station/fleet-target-repository.ts"
+        "src/main/junto/station/repository.ts"
       ],
       "reason": "Legacy station and fleet writers remain until their consumers use the installation service.",
       "retire": "Remove each legacy writer as its repository adopts KnownInstallations."
