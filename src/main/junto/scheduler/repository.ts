@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { Context, Effect, Layer, Schema } from "effect";
+import { SqlClient, SqlSchema } from "effect/unstable/sql";
 import { HostId } from "@shared/remote-hosts";
 import {
   evaluateIntervalTimer,
@@ -13,10 +14,7 @@ import {
   type TimerKey as TimerKeyValue,
 } from "@shared/scheduler-policy";
 import {
-  StateEngine,
-  type StateEngineError,
-  type StateRow,
-  type StateWriter,
+  StateTransactionOperation,
 } from "../state/service";
 
 export type SchedulerClaimResult =
@@ -108,17 +106,20 @@ export class SchedulerRepository extends Context.Service<SchedulerRepository,
     >;
   }>()("@junto/SchedulerRepository") {}
 
-type SchedulerStateRow = StateRow & {
-  readonly home_station: string;
-  readonly timer_key: string;
-  readonly schedule_id: string;
-  readonly interval_milliseconds: number;
-  readonly catch_up_policy: string;
-  readonly next_due_at_epoch_ms: number;
-  readonly next_due_slot: string;
-  readonly last_fired_slot: string | null;
-  readonly updated_at: string;
-};
+const SchedulerStateRow = Schema.Struct({
+  home_station: Schema.String,
+  timer_key: Schema.String,
+  schedule_id: Schema.String,
+  interval_milliseconds: Schema.Number,
+  catch_up_policy: Schema.String,
+  next_due_at_epoch_ms: Schema.Number,
+  next_due_slot: Schema.String,
+  last_fired_slot: Schema.NullOr(Schema.String),
+  updated_at: Schema.String,
+});
+const decodeChanges = Schema.decodeUnknownEffect(Schema.Struct({
+  changes: Schema.Union([Schema.Number, Schema.BigInt]),
+}));
 
 const isHostId = Schema.is(HostId);
 const isTimerKey = Schema.is(TimerKey);
@@ -126,43 +127,20 @@ const decodeState = Schema.decodeUnknownResult(IntervalTimerState);
 
 const persistenceError = (
   operation: string,
-  error: StateEngineError,
+  error: unknown,
 ): SchedulerRepositoryError =>
-  error.cause instanceof SchedulerStateCorruptError ||
-  error.cause instanceof SchedulerInputError
-    ? error.cause
+  error instanceof SchedulerStateCorruptError ||
+  error instanceof SchedulerInputError
+    ? error
     : SchedulerPersistenceError.make({
         operation,
-        message: error.message,
+        message: error instanceof Error ? error.message : String(error),
         cause: error,
       });
 
-const selectState = (
-  reader: Pick<StateWriter, "get">,
-  homeStation: string,
-  timerKey: string,
-): SchedulerStateRow | undefined =>
-  reader.get<SchedulerStateRow>(
-    `
-      SELECT
-        home_station,
-        timer_key,
-        schedule_id,
-        interval_milliseconds,
-        catch_up_policy,
-        next_due_at_epoch_ms,
-        next_due_slot,
-        last_fired_slot,
-        updated_at
-      FROM scheduler_interval_state
-      WHERE home_station = ? AND timer_key = ?
-    `,
-    [homeStation, timerKey],
-  );
-
 const stateFromRow = (
-  row: SchedulerStateRow,
-): IntervalTimerStateValue => {
+  row: typeof SchedulerStateRow.Type,
+): Effect.Effect<IntervalTimerStateValue, SchedulerStateCorruptError> => {
   const candidate = {
     version: 1 as const,
     scheduleId: row.schedule_id,
@@ -176,25 +154,23 @@ const stateFromRow = (
   };
   const decoded = decodeState(candidate);
   if (decoded._tag === "Failure") {
-    throw SchedulerStateCorruptError.make({
+    return Effect.fail(SchedulerStateCorruptError.make({
       homeStation: row.home_station,
       timerKey: row.timer_key,
       message:
         "persisted interval cursor does not satisfy the scheduler contract",
-    });
+    }));
   }
-  return decoded.success;
+  return Effect.succeed(decoded.success);
 };
 
 const writeState = (
-  writer: StateWriter,
+  sql: SqlClient.SqlClient,
   homeStation: string,
   timerKey: string,
   state: IntervalTimerStateValue,
   updatedAt: string,
-): void => {
-  writer.run(
-    `
+) => sql`
       INSERT INTO scheduler_interval_state(
         home_station,
         timer_key,
@@ -205,7 +181,8 @@ const writeState = (
         next_due_slot,
         last_fired_slot,
         updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (${homeStation}, ${timerKey}, ${state.scheduleId}, ${state.intervalMilliseconds},
+        ${state.catchUpPolicy}, ${state.nextDueAtEpochMs}, ${state.nextDueSlot}, ${state.lastFiredSlot ?? null}, ${updatedAt})
       ON CONFLICT(home_station, timer_key) DO UPDATE SET
         schedule_id = excluded.schedule_id,
         interval_milliseconds = excluded.interval_milliseconds,
@@ -214,20 +191,7 @@ const writeState = (
         next_due_slot = excluded.next_due_slot,
         last_fired_slot = excluded.last_fired_slot,
         updated_at = excluded.updated_at
-    `,
-    [
-      homeStation,
-      timerKey,
-      state.scheduleId,
-      state.intervalMilliseconds,
-      state.catchUpPolicy,
-      state.nextDueAtEpochMs,
-      state.nextDueSlot,
-      state.lastFiredSlot ?? null,
-      updatedAt,
-    ],
-  );
-};
+    `;
 
 const initialize = (
   input: SchedulerClaimInput,
@@ -265,16 +229,34 @@ export type SchedulerRepositoryOptions = {
 
 export const makeSchedulerRepositoryLive = (
   options: SchedulerRepositoryOptions = {},
-): Layer.Layer<SchedulerRepository, never, StateEngine> =>
+): Layer.Layer<SchedulerRepository, never, SqlClient.SqlClient> =>
   Layer.effect(
     SchedulerRepository,
     Effect.gen(function* () {
-      const state = yield* StateEngine;
+      const sql = yield* SqlClient.SqlClient;
+      const selectState = SqlSchema.findAll({
+        Request: Schema.Struct({ homeStation: Schema.String, timerKey: Schema.String }),
+        Result: SchedulerStateRow,
+        execute: ({ homeStation, timerKey }) => sql`
+          SELECT home_station, timer_key, schedule_id, interval_milliseconds, catch_up_policy,
+            next_due_at_epoch_ms, next_due_slot, last_fired_slot, updated_at
+          FROM scheduler_interval_state WHERE home_station = ${homeStation} AND timer_key = ${timerKey}
+        `,
+      });
+      const selectKeys = SqlSchema.findAll({
+        Request: Schema.Void,
+        Result: Schema.Struct({ home_station: Schema.String, timer_key: Schema.String }),
+        execute: () => sql`SELECT home_station, timer_key FROM scheduler_interval_state`,
+      });
       const makeScheduleId = options.makeScheduleId ?? randomUUID;
-      const timestamp =
+      const formatTimestamp =
         options.now ??
         ((epochMilliseconds: number) =>
           new Date(epochMilliseconds).toISOString());
+      const timestamp = (epochMilliseconds: number) => Effect.try({
+        try: () => formatTimestamp(epochMilliseconds),
+        catch: (error) => error,
+      });
 
       const claimInterval = Effect.fn(
         "SchedulerRepository.claimInterval",
@@ -299,17 +281,12 @@ export const makeSchedulerRepositoryLive = (
           return seed;
         }
 
-        return yield* state
-          .transaction("scheduler.claim-interval", (writer) => {
-            const currentRow = selectState(
-              writer,
-              homeCandidate,
-              timerCandidate,
-            );
+        return yield* sql.withTransaction(Effect.gen(function* () {
+            const currentRow = (yield* selectState({ homeStation: homeCandidate, timerKey: timerCandidate }))[0];
             const current =
               currentRow === undefined
                 ? undefined
-                : stateFromRow(currentRow);
+                : yield* stateFromRow(currentRow);
             const requestedInterval =
               typeof input.everyMinutes === "number"
                 ? input.everyMinutes * 60_000
@@ -319,14 +296,17 @@ export const makeSchedulerRepositoryLive = (
               current === undefined ||
               current.intervalMilliseconds !== requestedInterval
             ) {
-              const initialized = initialize(input, makeScheduleId);
+              const initialized = yield* Effect.try({
+                try: () => initialize(input, makeScheduleId),
+                catch: (error) => error,
+              });
               if (initialized._tag === "Ineligible") return initialized;
-              writeState(
-                writer,
+              yield* writeState(
+                sql,
                 homeCandidate,
                 timerCandidate,
                 initialized.state,
-                timestamp(input.nowEpochMs as number),
+                yield* timestamp(input.nowEpochMs as number),
               );
               return initialized;
             }
@@ -337,8 +317,8 @@ export const makeSchedulerRepositoryLive = (
             });
             if (evaluated._tag !== "Firing") return evaluated;
 
-            const firing = writer.run(
-              `
+            const claimedAt = yield* timestamp(evaluated.observedAtEpochMs);
+            const firing = yield* sql`
                 INSERT OR IGNORE INTO scheduler_interval_firings(
                   home_station,
                   timer_key,
@@ -350,39 +330,29 @@ export const makeSchedulerRepositoryLive = (
                   observed_at_epoch_ms,
                   coalesced_missed_slots,
                   claimed_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-              `,
-              [
-                homeCandidate,
-                timerCandidate,
-                evaluated.identity.scheduleId,
-                evaluated.catchUpPolicy,
-                evaluated.identity.claimSlot,
-                evaluated.dueSlot,
-                evaluated.scheduledForEpochMs,
-                evaluated.observedAtEpochMs,
-                evaluated.coalescedMissedSlots,
-                timestamp(evaluated.observedAtEpochMs),
-              ],
-            );
+                ) VALUES (${homeCandidate}, ${timerCandidate}, ${evaluated.identity.scheduleId}, ${evaluated.catchUpPolicy},
+                  ${evaluated.identity.claimSlot}, ${evaluated.dueSlot}, ${evaluated.scheduledForEpochMs},
+                  ${evaluated.observedAtEpochMs}, ${evaluated.coalescedMissedSlots}, ${claimedAt})
+              `.raw.pipe(Effect.flatMap(decodeChanges));
             if (Number(firing.changes) !== 1) {
-              throw SchedulerStateCorruptError.make({
+              return yield* SchedulerStateCorruptError.make({
                 homeStation: homeCandidate,
                 timerKey: timerCandidate,
                 message:
                   "interval cursor points at an already-claimed firing slot",
               });
             }
-            writeState(
-              writer,
+            yield* writeState(
+              sql,
               homeCandidate,
               timerCandidate,
               evaluated.nextState,
-              timestamp(evaluated.observedAtEpochMs),
+              yield* timestamp(evaluated.observedAtEpochMs),
             );
             return evaluated;
-          })
+          }))
           .pipe(
+            Effect.provideService(StateTransactionOperation, "scheduler.claim-interval"),
             Effect.mapError((error) =>
               persistenceError("claim-interval", error)
             ),
@@ -408,10 +378,9 @@ export const makeSchedulerRepositoryLive = (
           };
         }
         const claimSlot = String(input.dueAtEpochMs);
-        return yield* state
-          .transaction("scheduler.claim-expression", (writer) => {
-            const firing = writer.run(
-              `
+        return yield* sql.withTransaction(Effect.gen(function* () {
+            const claimedAt = yield* timestamp(input.nowEpochMs);
+            const firing = yield* sql`
                 INSERT OR IGNORE INTO scheduler_interval_firings(
                   home_station,
                   timer_key,
@@ -423,19 +392,9 @@ export const makeSchedulerRepositoryLive = (
                   observed_at_epoch_ms,
                   coalesced_missed_slots,
                   claimed_at
-                ) VALUES (?, ?, ?, 'coalesce-latest', ?, ?, ?, ?, '0', ?)
-              `,
-              [
-                input.homeStation,
-                input.timerKey,
-                input.scheduleId,
-                claimSlot,
-                claimSlot,
-                input.dueAtEpochMs,
-                input.nowEpochMs,
-                timestamp(input.nowEpochMs),
-              ],
-            );
+                ) VALUES (${input.homeStation}, ${input.timerKey}, ${input.scheduleId}, 'coalesce-latest',
+                  ${claimSlot}, ${claimSlot}, ${input.dueAtEpochMs}, ${input.nowEpochMs}, '0', ${claimedAt})
+              `.raw.pipe(Effect.flatMap(decodeChanges));
             if (Number(firing.changes) !== 1) {
               return { _tag: "Duplicate" as const };
             }
@@ -446,8 +405,9 @@ export const makeSchedulerRepositoryLive = (
               dueAtEpochMs: input.dueAtEpochMs,
               nextDueAtEpochMs: input.nextDueAtEpochMs,
             };
-          })
+          }))
           .pipe(
+            Effect.provideService(StateTransactionOperation, "scheduler.claim-expression"),
             Effect.mapError((error) =>
               persistenceError("claim-expression", error)
             ),
@@ -471,19 +431,8 @@ export const makeSchedulerRepositoryLive = (
           });
         }
         const active = new Set(activeTimerKeys);
-        return yield* state
-          .transaction("scheduler.reconcile-home", (writer) => {
-            const stored = writer.all<
-              StateRow & {
-                readonly home_station: string;
-                readonly timer_key: string;
-              }
-            >(
-              `
-                SELECT home_station, timer_key
-                FROM scheduler_interval_state
-              `,
-            );
+        return yield* sql.withTransaction(Effect.gen(function* () {
+            const stored = yield* selectKeys(undefined);
             let removed = 0;
             for (const row of stored) {
               if (
@@ -492,54 +441,29 @@ export const makeSchedulerRepositoryLive = (
               ) {
                 continue;
               }
-              const result = writer.run(
-                `
+              const result = yield* sql`
                   DELETE FROM scheduler_interval_state
-                  WHERE home_station = ? AND timer_key = ?
-                `,
-                [row.home_station, row.timer_key],
-              );
+                  WHERE home_station = ${row.home_station} AND timer_key = ${row.timer_key}
+                `.raw.pipe(Effect.flatMap(decodeChanges));
               removed += Number(result.changes);
             }
             return removed;
-          })
+          }))
           .pipe(
+            Effect.provideService(StateTransactionOperation, "scheduler.reconcile-home"),
             Effect.mapError((error) =>
               persistenceError("reconcile-home", error)
             ),
           );
       });
 
-      const readIntervalState = (
+      const readIntervalState = Effect.fn("SchedulerRepository.readIntervalState")(function* (
         homeStation: string,
         timerKey: string,
-      ) =>
-        state
-          .read("scheduler.read-interval-state", (reader) => {
-            const row = reader.get<SchedulerStateRow>(
-              `
-                SELECT
-                  home_station,
-                  timer_key,
-                  schedule_id,
-                  interval_milliseconds,
-                  catch_up_policy,
-                  next_due_at_epoch_ms,
-                  next_due_slot,
-                  last_fired_slot,
-                  updated_at
-                FROM scheduler_interval_state
-                WHERE home_station = ? AND timer_key = ?
-              `,
-              [homeStation, timerKey],
-            );
-            return row === undefined ? undefined : stateFromRow(row);
-          })
-          .pipe(
-            Effect.mapError((error) =>
-              persistenceError("read-interval-state", error)
-            ),
-          );
+      ) {
+        const row = (yield* selectState({ homeStation, timerKey }))[0];
+        return row === undefined ? undefined : yield* stateFromRow(row);
+      }, Effect.mapError((error) => persistenceError("read-interval-state", error)));
 
       return SchedulerRepository.of({
         claimInterval,
