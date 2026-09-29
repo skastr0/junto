@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import { PORTRAIT_COSMETIC_TRAITS, portraitOptions, type PortraitConfig } from "@shared/agent-portrait";
 import { cosmeticEntries, type CosmeticEntry } from "@shared/cosmetics/catalog";
 import "../../lib/cosmetics";
-import { hasStore, openStore } from "../../overlay/surfaces";
+import { hasStore, openStore, PREMIUM_BUILD } from "../../overlay/surfaces";
 import { AgentPortrait } from "../AgentPortrait";
 import { Button } from "../ui";
 import { useCharacterDraft } from "./character-draft";
@@ -11,8 +11,9 @@ import type { AgentEditorSectionProps } from "./sections";
 // Look: every option is a thumbnail of this character wearing it, so the grid
 // is the preview. Species, toppers, props, patterns, and colors come from the
 // cosmetic catalog, grouped by pack: the free items first, then each premium
-// pack this build bundled. An item this install may not wear is shown locked and offers
-// the store when the build has one; it never renders on a seat.
+// pack this build bundled. An item this install may not wear is shown locked
+// only when the build has a store to get it from; otherwise it is not shown.
+// The open-source build carries only the free items, with no pack headings.
 
 type Trait = keyof ReturnType<typeof portraitOptions>;
 
@@ -83,6 +84,9 @@ export function LookSection(_props: AgentEditorSectionProps) {
       {TRAITS.map(([trait, label]) => {
         const face = FACE_TRAITS.has(trait);
         const option = (key: string, name: string, available = true): ReactNode => {
+          // Locked means "get it from the store": with no store, not shown.
+          if (!available && !hasStore()) return null;
+          const locked = PREMIUM_BUILD && !available;
           const active = character[trait] === key;
           const config = available ? { ...draft, [trait]: key } : draft;
           const preview = (): void => {
@@ -94,12 +98,12 @@ export function LookSection(_props: AgentEditorSectionProps) {
               type="button"
               role="radio"
               aria-checked={active}
-              aria-disabled={available ? undefined : true}
-              aria-label={`${label} ${name}${available ? "" : ", locked"}`}
-              title={available ? undefined : `${name}, not unlocked on this install`}
+              aria-disabled={locked ? true : undefined}
+              aria-label={locked ? `${label} ${name}, locked` : `${label} ${name}`}
+              title={locked ? `${name}, not unlocked on this install` : undefined}
               className="agent-editor__option"
               data-active={active ? "true" : undefined}
-              data-locked={available ? undefined : "true"}
+              data-locked={locked ? "true" : undefined}
               onClick={() => (available ? set(trait, key as never) : hasStore() && openStore())}
               onMouseEnter={preview}
               onFocus={preview}
@@ -125,8 +129,12 @@ export function LookSection(_props: AgentEditorSectionProps) {
             <h3 className="agent-editor__trait-label">{label}</h3>
             <div role="radiogroup" aria-label={label} className="agent-editor__groups">
               {groups.map(([packName, entries], index) => (
-                <div key={packName ?? "face"} className="agent-editor__pack" data-pack={index > 0 ? "premium" : undefined}>
-                  {index > 0 ? (
+                <div
+                  key={packName ?? "face"}
+                  className="agent-editor__pack"
+                  data-pack={PREMIUM_BUILD && index > 0 ? "premium" : undefined}
+                >
+                  {PREMIUM_BUILD && index > 0 ? (
                     <div className="agent-editor__pack-head">
                       <span>{packName}</span>
                       {hasStore() && entries?.some((entry) => !entry.available) ? (

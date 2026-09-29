@@ -11,8 +11,15 @@ import { IconButton, OverlayHeader } from "../components/ui";
 
 export const overlaySurfaces = surfaces;
 
+/**
+ * False in the open-source build (made without JUNTO_OVERLAY): every premium
+ * surface (store, locked items, pack headings, Get) is folded out of the
+ * bundle, not hidden. A build with no define (tests) follows the overlay.
+ */
+export const PREMIUM_BUILD: boolean = typeof __JUNTO_PREMIUM__ === "boolean" ? __JUNTO_PREMIUM__ : true;
+
 /** True when this build carries the premium store. */
-export const hasStore = (): boolean => overlaySurfaces.store !== undefined;
+export const hasStore = (): boolean => PREMIUM_BUILD && overlaySurfaces.store !== undefined;
 
 export const store$ = observable({ open: false });
 export const openStore = (): void => store$.open.set(hasStore());
@@ -24,8 +31,10 @@ export function StoreSlot({ onClose }: StoreSurfaceProps) {
   return store ? <store.Component onClose={onClose} /> : null;
 }
 
-/** Always mounted: frames the store while open; renders nothing without one. */
-export function StoreHost() {
+/** Frames the store while open; the open-source build has no host at all. */
+export const StoreHost = PREMIUM_BUILD ? PremiumStoreHost : () => null;
+
+function PremiumStoreHost() {
   const open = use$(store$.open);
   const store = overlaySurfaces.store;
   if (!open || !store) return null;
