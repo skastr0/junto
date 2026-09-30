@@ -12,8 +12,10 @@
  */
 
 import { Context, Effect, Fiber, Layer, Stream } from "effect";
+import { SqlClient, type SqlError } from "effect/unstable/sql";
 import type { ContentRef } from "@shared/content";
 import { resolveJuntoHome } from "@shared/junto-home";
+import { StateTransactionOperation } from "../state/service";
 import type { SshError, SshTarget } from "../ssh/domain";
 import { SshInputError } from "../ssh/domain";
 import { dedicatedStream, oneShot } from "../ssh/program";
@@ -27,13 +29,9 @@ import {
   type SshCommandResult,
 } from "../ssh/service";
 import {
-  StateEngine,
-  type StateEngineError,
-  type StateEngineShape,
-} from "../state/service";
-import {
-  recordContentObject,
-  upsertContentTransfer,
+  ContentManifest,
+  type ContentManifestError,
+  type ContentManifestShape,
   type ContentTransferRow,
 } from "./manifest";
 import { contentStoreRoot } from "./paths";
@@ -69,7 +67,8 @@ export type ContentTransferOutcome = {
 
 export type ContentTransferServiceError =
   | ContentStoreError
-  | StateEngineError
+  | ContentManifestError
+  | SqlError.SqlError
   | SshError
   | SshInputError
   | SshTransferExitError
@@ -95,7 +94,6 @@ export class ContentTransferError extends Error {
   }
 }
 
-type StateService = StateEngineShape;
 type SshService = Context.Service.Shape<typeof SshTransport>;
 
 const transferIdFor = (
@@ -140,10 +138,7 @@ const assertVerifiedStatus = (
       `remote content helper returned state ${status.state}`,
     );
   }
-  if (
-    status.sha256 !== ref.sha256 ||
-    status.byteLength !== ref.byteLength
-  ) {
+  if (status.sha256 !== ref.sha256 || status.byteLength !== ref.byteLength) {
     throw new ContentTransferError(
       "corrupt",
       "remote content receipt does not match ContentRef",
@@ -244,7 +239,7 @@ export type ContentTransferServiceShape = {
     expectedOffset?: number,
   ) => Effect.Effect<
     ContentReceiveResult,
-    ContentStoreError | StateEngineError
+    ContentStoreError | ContentManifestError | SqlError.SqlError
   >;
 };
 
@@ -254,10 +249,14 @@ export type ContentTransferServiceShape = {
  * - Canonical id: `@junto/ContentTransferService` — single `Context.Service`.
  * - Layer: `makeContentTransferServiceLive`.
  */
-export class ContentTransferService extends Context.Service<ContentTransferService, ContentTransferServiceShape>()("@junto/ContentTransferService") {}
+export class ContentTransferService extends Context.Service<
+  ContentTransferService,
+  ContentTransferServiceShape
+>()("@junto/ContentTransferService") {}
 
 const makeContentTransferService = (
-  state: StateService,
+  sql: SqlClient.SqlClient,
+  manifest: ContentManifestShape,
   ssh: SshService,
   root: string,
 ): ContentTransferServiceShape => ({
@@ -284,25 +283,34 @@ const makeContentTransferService = (
       });
 
       if (received.state === "verified") {
-        yield* state.transaction("content.transfer.receiveLocal", (writer) => {
-          recordContentObject(writer, {
-            sha256: received.ref.sha256,
-            byteLength: received.ref.byteLength,
-            verifiedAt: received.verifiedAt,
-          });
-          upsertContentTransfer(writer, {
-            transferId: transferIdFor(
-              "inbound",
-              received.ref.sha256,
-              "local-helper",
+        yield* sql
+          .withTransaction(
+            Effect.gen(function* () {
+              yield* manifest.recordContentObject({
+                sha256: received.ref.sha256,
+                byteLength: received.ref.byteLength,
+                verifiedAt: received.verifiedAt,
+              });
+              yield* manifest.upsertContentTransfer({
+                transferId: transferIdFor(
+                  "inbound",
+                  received.ref.sha256,
+                  "local-helper",
+                ),
+                sha256: received.ref.sha256,
+                byteLength: received.ref.byteLength,
+                state: "complete",
+                direction: "inbound",
+                peerInstallationId: "local-helper",
+              });
+            }),
+          )
+          .pipe(
+            Effect.provideService(
+              StateTransactionOperation,
+              "content.transfer.receiveLocal",
             ),
-            sha256: received.ref.sha256,
-            byteLength: received.ref.byteLength,
-            state: "complete",
-            direction: "inbound",
-            peerInstallationId: "local-helper",
-          });
-        });
+          );
       }
       return received;
     }),
@@ -325,16 +333,23 @@ const makeContentTransferService = (
         peer.installationId,
       );
 
-      yield* state.transaction("content.transfer.push.pending", (writer) =>
-        upsertContentTransfer(writer, {
-          transferId,
-          sha256: ref.sha256,
-          byteLength: ref.byteLength,
-          state: "pending",
-          direction: "outbound",
-          peerInstallationId: peer.installationId,
-        }),
-      );
+      yield* sql
+        .withTransaction(
+          manifest.upsertContentTransfer({
+            transferId,
+            sha256: ref.sha256,
+            byteLength: ref.byteLength,
+            state: "pending",
+            direction: "outbound",
+            peerInstallationId: peer.installationId,
+          }),
+        )
+        .pipe(
+          Effect.provideService(
+            StateTransactionOperation,
+            "content.transfer.push.pending",
+          ),
+        );
 
       // 1) Stat remote for resume / idempotent complete.
       const statCmd = yield* resolveRemoteContentHelper(
@@ -356,10 +371,9 @@ const makeContentTransferService = (
         remoteStat.sha256 === ref.sha256 &&
         remoteStat.byteLength === ref.byteLength
       ) {
-        const transfer = yield* state.transaction(
-          "content.transfer.push.idempotent",
-          (writer) =>
-            upsertContentTransfer(writer, {
+        const transfer = yield* sql
+          .withTransaction(
+            manifest.upsertContentTransfer({
               transferId,
               sha256: ref.sha256,
               byteLength: ref.byteLength,
@@ -367,7 +381,13 @@ const makeContentTransferService = (
               direction: "outbound",
               peerInstallationId: peer.installationId,
             }),
-        );
+          )
+          .pipe(
+            Effect.provideService(
+              StateTransactionOperation,
+              "content.transfer.push.idempotent",
+            ),
+          );
         return {
           transfer,
           receipt: {
@@ -389,16 +409,23 @@ const makeContentTransferService = (
         offset = remoteStat.receivedBytes;
       }
 
-      yield* state.transaction("content.transfer.push.receiving", (writer) =>
-        upsertContentTransfer(writer, {
-          transferId,
-          sha256: ref.sha256,
-          byteLength: ref.byteLength,
-          state: "receiving",
-          direction: "outbound",
-          peerInstallationId: peer.installationId,
-        }),
-      );
+      yield* sql
+        .withTransaction(
+          manifest.upsertContentTransfer({
+            transferId,
+            sha256: ref.sha256,
+            byteLength: ref.byteLength,
+            state: "receiving",
+            direction: "outbound",
+            peerInstallationId: peer.installationId,
+          }),
+        )
+        .pipe(
+          Effect.provideService(
+            StateTransactionOperation,
+            "content.transfer.push.receiving",
+          ),
+        );
 
       const receiveCmd = yield* resolveRemoteContentHelper(
         ssh,
@@ -434,20 +461,27 @@ const makeContentTransferService = (
       try {
         verified = assertVerifiedStatus(statusFromStdout(transferResult), ref);
       } catch (error) {
-        yield* state.transaction("content.transfer.push.failed", (writer) =>
-          upsertContentTransfer(writer, {
-            transferId,
-            sha256: ref.sha256,
-            byteLength: ref.byteLength,
-            state: "failed",
-            direction: "outbound",
-            peerInstallationId: peer.installationId,
-            errorReason:
-              error instanceof Error
-                ? error.message.slice(0, 1024)
-                : "push failed",
-          }),
-        );
+        yield* sql
+          .withTransaction(
+            manifest.upsertContentTransfer({
+              transferId,
+              sha256: ref.sha256,
+              byteLength: ref.byteLength,
+              state: "failed",
+              direction: "outbound",
+              peerInstallationId: peer.installationId,
+              errorReason:
+                error instanceof Error
+                  ? error.message.slice(0, 1024)
+                  : "push failed",
+            }),
+          )
+          .pipe(
+            Effect.provideService(
+              StateTransactionOperation,
+              "content.transfer.push.failed",
+            ),
+          );
         return yield* Effect.fail(
           error instanceof ContentTransferError
             ? error
@@ -459,10 +493,9 @@ const makeContentTransferService = (
         );
       }
 
-      const transfer = yield* state.transaction(
-        "content.transfer.push.complete",
-        (writer) =>
-          upsertContentTransfer(writer, {
+      const transfer = yield* sql
+        .withTransaction(
+          manifest.upsertContentTransfer({
             transferId,
             sha256: ref.sha256,
             byteLength: ref.byteLength,
@@ -470,7 +503,13 @@ const makeContentTransferService = (
             direction: "outbound",
             peerInstallationId: peer.installationId,
           }),
-      );
+        )
+        .pipe(
+          Effect.provideService(
+            StateTransactionOperation,
+            "content.transfer.push.complete",
+          ),
+        );
 
       return {
         transfer,
@@ -494,24 +533,30 @@ const makeContentTransferService = (
 
       const local = statContentForTransfer(root, ref);
       if (local.state === "verified") {
-        const transfer = yield* state.transaction(
-          "content.transfer.pull.idempotent",
-          (writer) => {
-            recordContentObject(writer, {
-              sha256: ref.sha256,
-              byteLength: ref.byteLength,
-              verifiedAt: local.verifiedAt,
-            });
-            return upsertContentTransfer(writer, {
-              transferId,
-              sha256: ref.sha256,
-              byteLength: ref.byteLength,
-              state: "complete",
-              direction: "inbound",
-              peerInstallationId: peer.installationId,
-            });
-          },
-        );
+        const transfer = yield* sql
+          .withTransaction(
+            Effect.gen(function* () {
+              yield* manifest.recordContentObject({
+                sha256: ref.sha256,
+                byteLength: ref.byteLength,
+                verifiedAt: local.verifiedAt,
+              });
+              return yield* manifest.upsertContentTransfer({
+                transferId,
+                sha256: ref.sha256,
+                byteLength: ref.byteLength,
+                state: "complete",
+                direction: "inbound",
+                peerInstallationId: peer.installationId,
+              });
+            }),
+          )
+          .pipe(
+            Effect.provideService(
+              StateTransactionOperation,
+              "content.transfer.pull.idempotent",
+            ),
+          );
         return {
           transfer,
           receipt: {
@@ -526,16 +571,23 @@ const makeContentTransferService = (
 
       const offset = local.state === "partial" ? local.partialBytes : 0;
 
-      yield* state.transaction("content.transfer.pull.receiving", (writer) =>
-        upsertContentTransfer(writer, {
-          transferId,
-          sha256: ref.sha256,
-          byteLength: ref.byteLength,
-          state: "receiving",
-          direction: "inbound",
-          peerInstallationId: peer.installationId,
-        }),
-      );
+      yield* sql
+        .withTransaction(
+          manifest.upsertContentTransfer({
+            transferId,
+            sha256: ref.sha256,
+            byteLength: ref.byteLength,
+            state: "receiving",
+            direction: "inbound",
+            peerInstallationId: peer.installationId,
+          }),
+        )
+        .pipe(
+          Effect.provideService(
+            StateTransactionOperation,
+            "content.transfer.pull.receiving",
+          ),
+        );
 
       const sendCmd = yield* resolveRemoteContentHelper(
         ssh,
@@ -557,9 +609,7 @@ const makeContentTransferService = (
           );
 
           const bridged = streamAsAsyncIterable(lease.stdout, (error) =>
-            error instanceof Error
-              ? error
-              : new Error(String(error)),
+            error instanceof Error ? error : new Error(String(error)),
           );
           // Child fiber: Effect.forkChild (V4 forking).
           // See Playground/effect/migration/forking.md.
@@ -599,17 +649,24 @@ const makeContentTransferService = (
       );
 
       if (received.state !== "verified") {
-        yield* state.transaction("content.transfer.pull.partial", (writer) =>
-          upsertContentTransfer(writer, {
-            transferId,
-            sha256: ref.sha256,
-            byteLength: ref.byteLength,
-            state: "receiving",
-            direction: "inbound",
-            peerInstallationId: peer.installationId,
-            errorReason: `partial ${received.receivedBytes}/${ref.byteLength}`,
-          }),
-        );
+        yield* sql
+          .withTransaction(
+            manifest.upsertContentTransfer({
+              transferId,
+              sha256: ref.sha256,
+              byteLength: ref.byteLength,
+              state: "receiving",
+              direction: "inbound",
+              peerInstallationId: peer.installationId,
+              errorReason: `partial ${received.receivedBytes}/${ref.byteLength}`,
+            }),
+          )
+          .pipe(
+            Effect.provideService(
+              StateTransactionOperation,
+              "content.transfer.pull.partial",
+            ),
+          );
         return yield* Effect.fail(
           new ContentTransferError(
             "incomplete",
@@ -618,24 +675,30 @@ const makeContentTransferService = (
         );
       }
 
-      const transfer = yield* state.transaction(
-        "content.transfer.pull.complete",
-        (writer) => {
-          recordContentObject(writer, {
-            sha256: received.ref.sha256,
-            byteLength: received.ref.byteLength,
-            verifiedAt: received.verifiedAt,
-          });
-          return upsertContentTransfer(writer, {
-            transferId,
-            sha256: received.ref.sha256,
-            byteLength: received.ref.byteLength,
-            state: "complete",
-            direction: "inbound",
-            peerInstallationId: peer.installationId,
-          });
-        },
-      );
+      const transfer = yield* sql
+        .withTransaction(
+          Effect.gen(function* () {
+            yield* manifest.recordContentObject({
+              sha256: received.ref.sha256,
+              byteLength: received.ref.byteLength,
+              verifiedAt: received.verifiedAt,
+            });
+            return yield* manifest.upsertContentTransfer({
+              transferId,
+              sha256: received.ref.sha256,
+              byteLength: received.ref.byteLength,
+              state: "complete",
+              direction: "inbound",
+              peerInstallationId: peer.installationId,
+            });
+          }),
+        )
+        .pipe(
+          Effect.provideService(
+            StateTransactionOperation,
+            "content.transfer.pull.complete",
+          ),
+        );
 
       return {
         transfer,
@@ -656,27 +719,28 @@ export const makeContentTransferServiceLive = (options?: {
 }): Layer.Layer<
   ContentTransferService,
   never,
-  StateEngine | SshTransport
+  SqlClient.SqlClient | SshTransport
 > =>
   Layer.effect(
     ContentTransferService,
     Effect.gen(function* () {
-      const state = yield* StateEngine;
+      const sql = yield* SqlClient.SqlClient;
+      const manifest = yield* ContentManifest;
       const ssh = yield* SshTransport;
       const root =
-        options?.root ??
-        contentStoreRoot(options?.home ?? resolveJuntoHome());
-      return makeContentTransferService(state, ssh, root);
+        options?.root ?? contentStoreRoot(options?.home ?? resolveJuntoHome());
+      return makeContentTransferService(sql, manifest, ssh, root);
     }),
-  );
+  ).pipe(Layer.provide(ContentManifest.layer));
 
 /** Test helper against already-open deps. */
 export const createContentTransferService = (
-  state: StateService,
+  sql: SqlClient.SqlClient,
+  manifest: ContentManifestShape,
   ssh: SshService,
   root: string,
 ): ContentTransferServiceShape =>
-  makeContentTransferService(state, ssh, root);
+  makeContentTransferService(sql, manifest, ssh, root);
 
 export {
   contentRefForTransfer,

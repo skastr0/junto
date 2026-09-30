@@ -110,7 +110,6 @@
         "work_pad_posts",
         "work_pad_read_cursors",
         "work_pad_shapes",
-        "work_pending_commands",
         "work_requests",
         "work_task_dependencies",
         "work_task_finish",
@@ -277,19 +276,6 @@
       ],
       "reason": "Content store seam: the object / receipt / ref ledger for externalized content.",
       "retire": "Derive content refs from the journal instead of maintaining them as their own mutable ledger."
-    },
-    {
-      "path": "src/main/junto/content/inline-media-migration.ts",
-      "kind": "debt",
-      "tables": [
-        "work_artifacts",
-        "work_board_posts",
-        "work_board_topics",
-        "work_messages",
-        "work_task_messages"
-      ],
-      "reason": "One-shot backfill that rewrites parts_json in place to externalize inline media. It is a SECOND writer of five work_* tables and mints no work fact; only the schema-20 revision triggers keep the projection cache correct across it.",
-      "retire": "Delete this file once BACKFILL_INLINE_MEDIA_V1 is complete on every install. It is a migration, not a product path, and must not outlive the backfill."
     },
     {
       "path": "src/main/junto/station/repository.ts",
@@ -489,60 +475,6 @@
       "retire": "Consolidate current revision-trigger declarations under work/state-schema.ts while preserving frozen migration SQL, then remove this exception when crew-schema.ts no longer contains these trigger bodies."
     },
     {
-      "table": "work_artifacts",
-      "owner": "src/main/junto/work/repository.ts",
-      "alsoWrittenBy": [
-        "src/main/junto/content/inline-media-migration.ts"
-      ],
-      "reason": "Same inline-media backfill.",
-      "retire": "Delete src/main/junto/content/inline-media-migration.ts once BACKFILL_INLINE_MEDIA_V1 is complete everywhere."
-    },
-    {
-      "table": "work_board_posts",
-      "owner": "src/main/junto/work/repository.ts",
-      "alsoWrittenBy": [
-        "src/main/junto/content/inline-media-migration.ts"
-      ],
-      "reason": "THREE writers. The migration backfills the table on a schema advance and the inline-media backfill rewrites parts_json in place. Neither mints a work fact.",
-      "retire": "Delete the inline-media backfill, and express migration rebuilds without naming a product table."
-    },
-    {
-      "table": "work_board_topics",
-      "owner": "src/main/junto/work/repository.ts",
-      "alsoWrittenBy": [
-        "src/main/junto/content/inline-media-migration.ts"
-      ],
-      "reason": "Same inline-media backfill.",
-      "retire": "Delete src/main/junto/content/inline-media-migration.ts once BACKFILL_INLINE_MEDIA_V1 is complete everywhere."
-    },
-    {
-      "table": "work_messages",
-      "owner": "src/main/junto/work/repository.ts",
-      "alsoWrittenBy": [
-        "src/main/junto/content/inline-media-migration.ts"
-      ],
-      "reason": "The inline-media backfill rewrites parts_json in place with no work fact.",
-      "retire": "Delete src/main/junto/content/inline-media-migration.ts once BACKFILL_INLINE_MEDIA_V1 is complete everywhere."
-    },
-    {
-      "table": "work_pending_commands",
-      "owner": "src/main/junto/work/journal.ts",
-      "alsoWrittenBy": [
-        "src/main/junto/work/repository.ts"
-      ],
-      "reason": "journal.ts INSERTs the pending row as part of the append that records the command; repository.ts UPDATEs it to point at the disposition that resolved it (resolvePending). Both halves are one lifecycle, split only because resolution needs the domain reasoning the append deliberately does not carry.",
-      "retire": "Retires with the pending index itself: once the in-memory world holds unresolved commands, neither file writes this table."
-    },
-    {
-      "table": "work_task_messages",
-      "owner": "src/main/junto/work/repository.ts",
-      "alsoWrittenBy": [
-        "src/main/junto/content/inline-media-migration.ts"
-      ],
-      "reason": "Same inline-media backfill.",
-      "retire": "Delete src/main/junto/content/inline-media-migration.ts once BACKFILL_INLINE_MEDIA_V1 is complete everywhere."
-    },
-    {
       "table": "settings_preferences",
       "owner": "src/main/junto/settings/service.ts",
       "alsoWrittenBy": [
@@ -698,14 +630,6 @@
         "wire"
       ],
       "reason": "Decodes canvas control requests arriving from a client on the socket."
-    },
-    {
-      "path": "src/main/junto/canvases.ts",
-      "kinds": [
-        "mint"
-      ],
-      "reason": "Brands installation id and station host id off projected actor seats already held in memory.",
-      "retire": "Construct the branded value through a total constructor instead of re-validating a value this process just built."
     },
     {
       "path": "src/main/junto/hosts/configure-remote.ts",
@@ -1240,20 +1164,12 @@
     {
       "path": "src/main/junto/work/repository.ts",
       "reasons": [
-        "crew.review-verdict",
+        "content.inline-media.backfill",
         "work.artifact.delete",
         "work.artifact.set_archived"
       ],
-      "reason": "Two operator artifact operations mutate the projection and mint no fact: set_archived rewrites metadata_json in place, delete removes the row with no tombstone. Neither replicates, and a rebuild from the journal loses the archive flag and resurrects the deleted artifact. Atomic task and standalone-commit verdict admission also delegates to crew-repository.applyVerdictWrite under crew.review-verdict: only the immutable Command Center-local work_review_verdicts row escapes the work journal, after live subject, author and reviews-edge checks. A blocking task transition remains journaled; crew-repository retains sole ownership of the verdict INSERT.",
-      "retire": "Mint artifact.archive and artifact.retract facts and materialize them, then delete those two reasons. Remove crew.review-verdict from this call-site entry if verdict admission no longer posts journal-free rows; if verdicts ever replicate, mint review.verdict facts and materialize them before retiring the closed reason."
-    },
-    {
-      "path": "src/main/junto/content/inline-media-migration.ts",
-      "reasons": [
-        "content.inline-media.backfill"
-      ],
-      "reason": "BACKFILL_INLINE_MEDIA_V1 rewrites parts_json across six work_* projection tables to externalize inline media. It is a one-time content move, not a work transition, and must not mint facts that replicate as one.",
-      "retire": "Delete src/main/junto/content/inline-media-migration.ts once the backfill has run on every install."
+      "reason": "Two operator artifact operations mutate the projection and mint no fact: set_archived rewrites metadata_json in place, delete removes the row with no tombstone. Neither replicates, and a rebuild from the journal loses the archive flag and resurrects the deleted artifact. WorkContentProjections owns the inline-media backfill's projection-only rewrites; verdict participants declare their reason inside CrewRepository.",
+      "retire": "Mint artifact.archive and artifact.retract facts and materialize them, then delete those two reasons. Remove the inline-media reason when the install-local backfill retires."
     },
     {
       "path": "src/main/junto/work/crew-repository.ts",

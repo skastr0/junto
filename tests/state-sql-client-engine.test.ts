@@ -136,7 +136,7 @@ test("caught journal-free failures retain journal admission without leaking the 
   }
 });
 
-test("SQL transactions fence live execution and commit its receipt atomically", async () => {
+test.each(["SQL", "legacy"])("%s transactions fence live execution and commit its receipt atomically", async (owner) => {
   const root = await mkdtemp(join(tmpdir(), "junto-sql-engine-"));
   const runtime = ManagedRuntime.make(makeStateEngineLive(join(root, "junto.db")));
   try {
@@ -144,23 +144,39 @@ test("SQL transactions fence live execution and commit its receipt atomically", 
       const sql = yield* SqlClient.SqlClient;
       yield* sql`CREATE TEMP TABLE connection_probe (n INTEGER)`;
       const assertCurrent = vi.fn();
-      const afterMutation = vi.fn((writer, operation) => {
+      const assertCurrentWithin = vi.fn((): Effect.Effect<void, unknown> => Effect.void);
+      const afterMutation = vi.fn((operation: string): Effect.Effect<void, unknown> => Effect.gen(function* () {
         expect(operation).toBe("test.receipt");
-        writer.run("INSERT INTO connection_probe VALUES (73)");
-      });
-      const write = sql.withTransaction(sql`INSERT INTO connection_probe VALUES (67)`).pipe(
-        Effect.provideService(OverseerLiveExecution, { assertCurrent, afterMutation }),
+        yield* Effect.yieldNow;
+        yield* sql`INSERT INTO connection_probe VALUES (73)`;
+      }));
+      const engine = yield* StateEngine;
+      const ownerWrite: Effect.Effect<unknown, unknown> = owner === "SQL" ? sql.withTransaction(sql`INSERT INTO connection_probe VALUES (67)`) :
+        engine.transaction("test.receipt", (writer) => writer.run("INSERT INTO connection_probe VALUES (67)"));
+      const write = ownerWrite.pipe(
+        Effect.provideService(OverseerLiveExecution, { assertCurrent,
+          assertCurrentWithin: Effect.suspend(assertCurrentWithin), afterMutation }),
         Effect.provideService(StateTransactionOperation, "test.receipt"),
       );
       yield* write;
-      expect(assertCurrent).toHaveBeenCalledTimes(1);
+      expect(assertCurrent).not.toHaveBeenCalled();
+      expect(assertCurrentWithin).toHaveBeenCalledTimes(1);
       expect(afterMutation).toHaveBeenCalledTimes(1);
       expect(yield* sql`SELECT n FROM connection_probe ORDER BY n`).toEqual([{ n: 67 }, { n: 73 }]);
-      afterMutation.mockImplementationOnce(() => { throw new Error("receipt refused"); });
+      afterMutation.mockImplementationOnce(() => Effect.gen(function* () {
+        yield* sql`INSERT INTO connection_probe VALUES (79)`;
+        return yield* Effect.fail(new Error("receipt refused"));
+      }));
       expect(yield* Effect.result(write)).toMatchObject({ _tag: "Failure", failure: { message: "receipt refused" } });
-      assertCurrent.mockImplementationOnce(() => { throw new Error("intent revoked"); });
+      assertCurrentWithin.mockImplementationOnce(() => Effect.fail(new Error("intent revoked")));
       expect(yield* Effect.result(write)).toMatchObject({ _tag: "Failure", failure: { message: "intent revoked" } });
       expect(yield* sql`SELECT n FROM connection_probe ORDER BY n`).toEqual([{ n: 67 }, { n: 73 }]);
+      expect(afterMutation).toHaveBeenCalledTimes(2);
+      if (owner === "legacy") {
+        const rejected = new Error("raw body rejected");
+        expect(yield* Effect.result(engine.transaction("test.raw-error", () => { throw rejected; })))
+          .toMatchObject({ _tag: "Failure", failure: { cause: rejected, message: rejected.message } });
+      }
     }));
   } finally {
     await runtime.dispose();

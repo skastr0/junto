@@ -12,12 +12,8 @@ import { randomUUID } from "node:crypto";
 import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-  Context,
-  Layer,
-  ManagedRuntime,
-  Schema,
-} from "effect";
+import { Context, Effect, Layer, ManagedRuntime, Schema } from "effect";
+import { SqlClient } from "effect/unstable/sql";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { ActorSeatId } from "../src/shared/actor-seat";
 import {
@@ -32,10 +28,7 @@ import {
   mailboxMessageDeliveryId,
   mailboxMessageReadId,
 } from "../src/main/junto/work/mailbox-receipts";
-import {
-  makeStateEngineLive,
-  StateEngine,
-} from "../src/main/junto/state/engine";
+import { makeStateEngineLive } from "../src/main/junto/state/engine";
 import { IntentFactBasis } from "../src/shared/work-protocol";
 import type { CanvasDoc } from "../src/shared/canvas";
 import {
@@ -52,7 +45,7 @@ const runtime = ManagedRuntime.make(
 );
 
 let repository: Context.Service.Shape<typeof WorkRepository>;
-let state: Context.Service.Shape<typeof StateEngine>;
+let sql: SqlClient.SqlClient;
 
 const observedAt = "2026-08-12T10:00:00.000Z";
 const cc = Schema.decodeUnknownSync(InstallationId)("cc-mailbox-admission");
@@ -90,28 +83,29 @@ const sender = {
 };
 
 const seedInstallations = () =>
-  state.transaction("test.seed-installations", (writer) => {
-    writer.run(
-      `
+  sql.withTransaction(
+    Effect.gen(function* () {
+      yield* sql.unsafe(
+        `
         INSERT INTO station_known_installations(
           installation_id,
           registered_at
         ) VALUES (?, ?)
       `,
-      [cc, observedAt],
-    );
-    writer.run(
-      `
+        [cc, observedAt],
+      );
+      yield* sql.unsafe(
+        `
         INSERT INTO station_installation(
           singleton,
           installation_id,
           created_at
         ) VALUES (1, ?, ?)
       `,
-      [cc, observedAt],
-    );
-    writer.run(
-      `
+        [cc, observedAt],
+      );
+      yield* sql.unsafe(
+        `
         INSERT INTO station_configuration(
           singleton,
           role,
@@ -122,18 +116,19 @@ const seedInstallations = () =>
           configured_at
         ) VALUES (1, 'command-center', 'local', NULL, NULL, 1, ?)
       `,
-      [observedAt],
-    );
-    seedCanvasAuthority(writer, {
-      generation: "1",
-      documents: fixtureDocuments,
-      at: observedAt,
-    });
-  });
+        [observedAt],
+      );
+      yield* seedCanvasAuthority({
+        generation: "1",
+        documents: fixtureDocuments,
+        at: observedAt,
+      });
+    }),
+  );
 
 beforeAll(async () => {
   repository = await runtime.runPromise(WorkRepository);
-  state = await runtime.runPromise(StateEngine);
+  sql = await runtime.runPromise(SqlClient.SqlClient);
   await runtime.runPromise(seedInstallations());
 });
 
@@ -184,13 +179,13 @@ const durableMetadataJson = (
   messageId: string,
 ) =>
   runtime.runPromise(
-    state.read("test.read-metadata", (reader) =>
-      reader.get<{ readonly metadata_json: string | null }>(
+    sql
+      .unsafe<{ readonly metadata_json: string | null }>(
         `SELECT metadata_json FROM work_messages
          WHERE canvas_name = ? AND node_id = ? AND message_id = ?`,
         [sink.canvasName, sink.nodeId, messageId],
-      ),
-    ),
+      )
+      .pipe(Effect.map((rows) => rows[0])),
   );
 
 describe("mailbox metadata admission", () => {

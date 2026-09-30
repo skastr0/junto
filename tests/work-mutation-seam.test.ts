@@ -11,25 +11,20 @@ import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { Effect, Layer, ManagedRuntime } from "effect";
+import { Cause, Effect, Layer, ManagedRuntime } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import {
-  makeStateEngineLive,
-  StateEngine,
-} from "../src/main/junto/state/engine";
-import type { StateEngineShape } from "../src/main/junto/state/service";
+import { makeStateEngineLive } from "../src/main/junto/state/engine";
+import { StateTransactionOperation } from "../src/main/junto/state/service";
 import { STATE_SCHEMA_SQL } from "../src/main/junto/state/schema";
 import {
   CANVAS_REVISION_TABLES,
   UNJOURNALED_WORK_REASONS,
-  beginWorkMutationScope,
+  WorkMutationContext,
   WORK_PLANE_TABLE_ROLES,
   classifyWorkStatement,
   workStatementSinkParams,
-  unjournaledWorkMutation,
   unjournaledWorkMutationEffect,
-  workMutationScopeForTest,
   type WorkPlaneTableRole,
 } from "../src/main/junto/work/mutation-seam";
 
@@ -38,14 +33,14 @@ const runtime = ManagedRuntime.make(
   Layer.mergeAll(makeStateEngineLive(join(root, "junto.db"))),
 );
 
-let state: StateEngineShape;
+let sql: SqlClient.SqlClient;
 
 const HOME = "seam-home";
 const SHA = "a".repeat(64);
 const NOW = "2026-01-01T00:00:00.000Z";
 
 beforeAll(async () => {
-  state = await runtime.runPromise(StateEngine);
+  sql = await runtime.runPromise(SqlClient.SqlClient);
 });
 
 afterAll(async () => {
@@ -55,29 +50,30 @@ afterAll(async () => {
 
 const failure = async (
   operation: string,
-  body: (writer: {
-    readonly run: (sql: string, bindings?: ReadonlyArray<never>) => unknown;
-  }) => unknown,
+  body: Effect.Effect<unknown, unknown>,
 ): Promise<string> => {
   const exit = await Effect.runPromise(
-    Effect.exit(state.transaction(operation, body as never)),
+    Effect.exit(
+      sql
+        .withTransaction(body)
+        .pipe(Effect.provideService(StateTransactionOperation, operation)),
+    ),
   );
   if (exit._tag !== "Failure") {
     throw new Error(`expected "${operation}" to be rejected, it succeeded`);
   }
-  return String(
-    (exit.cause as { readonly error?: { readonly message?: string } }).error
-      ?.message ?? exit.cause,
-  );
+  return Cause.pretty(exit.cause);
 };
 
 const succeeds = (
   operation: string,
-  body: (writer: {
-    readonly run: (sql: string, bindings?: ReadonlyArray<never>) => unknown;
-  }) => unknown,
+  body: Effect.Effect<unknown, unknown>,
 ): Promise<unknown> =>
-  Effect.runPromise(state.transaction(operation, body as never));
+  Effect.runPromise(
+    sql
+      .withTransaction(body)
+      .pipe(Effect.provideService(StateTransactionOperation, operation)),
+  );
 
 /** Every `work_*` table the durable schema creates. */
 const schemaWorkTables = (): ReadonlySet<string> => {
@@ -90,9 +86,7 @@ const schemaWorkTables = (): ReadonlySet<string> => {
   return tables;
 };
 
-const tablesWithRole = (
-  role: WorkPlaneTableRole,
-): ReadonlyArray<string> =>
+const tablesWithRole = (role: WorkPlaneTableRole): ReadonlyArray<string> =>
   [...WORK_PLANE_TABLE_ROLES.entries()]
     .filter(([, value]) => value === role)
     .map(([table]) => table);
@@ -104,9 +98,7 @@ describe("work mutation seam — classification", () => {
     const unclassified = [...declared].filter(
       (table) => !classifiedTables.has(table),
     );
-    const stale = [...classifiedTables].filter(
-      (table) => !declared.has(table),
-    );
+    const stale = [...classifiedTables].filter((table) => !declared.has(table));
     expect({ unclassified, stale }).toEqual({ unclassified: [], stale: [] });
     expect(declared.size).toBeGreaterThan(25);
   });
@@ -115,13 +107,19 @@ describe("work mutation seam — classification", () => {
     const cases: ReadonlyArray<readonly [string, string | null]> = [
       ["INSERT INTO work_tasks(canvas_name) VALUES (?)", "work_tasks"],
       // multi-line + leading whitespace, the repository's literal shape
-      ["\n      INSERT INTO work_messages(\n        canvas_name\n      ) VALUES (?)\n", "work_messages"],
+      [
+        "\n      INSERT INTO work_messages(\n        canvas_name\n      ) VALUES (?)\n",
+        "work_messages",
+      ],
       // upsert: the DO UPDATE tail is part of the INSERT, not a second write
       [
         "INSERT INTO work_board_posts(a) VALUES (?) ON CONFLICT(a) DO UPDATE SET b = 1",
         "work_board_posts",
       ],
-      ["UPDATE work_board_topics SET post_count = 1 WHERE a = ?", "work_board_topics"],
+      [
+        "UPDATE work_board_topics SET post_count = 1 WHERE a = ?",
+        "work_board_topics",
+      ],
       ["UPDATE OR REPLACE work_artifacts SET a = 1", "work_artifacts"],
       ["DELETE FROM work_task_messages WHERE a = ?", "work_task_messages"],
       ["REPLACE INTO work_pad_pins(a) VALUES (?)", "work_pad_pins"],
@@ -145,11 +143,9 @@ describe("work mutation seam — classification", () => {
 
   it("declares a retirement condition for every journal-free reason", () => {
     for (const [reason, entry] of Object.entries(UNJOURNALED_WORK_REASONS)) {
-      expect([reason, entry.why.length > 40, entry.retire.length > 20]).toEqual([
-        reason,
-        true,
-        true,
-      ]);
+      expect([reason, entry.why.length > 40, entry.retire.length > 20]).toEqual(
+        [reason, true, true],
+      );
     }
   });
 });
@@ -159,222 +155,300 @@ describe("work mutation seam — the seam is the only route", () => {
     const projection = tablesWithRole("projection");
     expect(projection.length).toBeGreaterThan(15);
     for (const table of projection) {
-      const message = await failure(`test.direct-write.${table}`, (writer) => {
-        // A no-op DELETE: the seam refuses it BEFORE SQLite ever runs it, so
-        // the rejection is the seam's, not a constraint's.
-        writer.run(`DELETE FROM ${table} WHERE 1 = 0`);
-      });
+      const message = await failure(
+        `test.direct-write.${table}`,
+        Effect.gen(function* () {
+          // A no-op DELETE: the seam refuses it BEFORE SQLite ever runs it, so
+          // the rejection is the seam's, not a constraint's.
+          yield* sql.unsafe(`DELETE FROM ${table} WHERE 1 = 0`);
+        }),
+      );
       expect([table, message.includes("work mutation seam")]).toEqual([
         table,
         true,
       ]);
-      expect([table, message.includes("not explained by any journal record")])
-        .toEqual([table, true]);
+      expect([
+        table,
+        message.includes("not explained by any journal record"),
+      ]).toEqual([table, true]);
     }
   });
 
   it("names the operation and the table it refused", async () => {
-    const message = await failure("test.direct-write.named", (writer) => {
-      writer.run("DELETE FROM work_tasks WHERE 1 = 0");
-    });
+    const message = await failure(
+      "test.direct-write.named",
+      sql`DELETE FROM work_tasks WHERE 1 = 0`,
+    );
     expect(message).toContain("work_tasks");
     expect(message).toContain("test.direct-write.named");
   });
 
   it("refuses the trigger-maintained revision table outright", async () => {
-    const message = await failure("test.derived", (writer) => {
-      writer.run("DELETE FROM work_canvas_revisions WHERE 1 = 0");
-    });
+    const message = await failure(
+      "test.derived",
+      sql`DELETE FROM work_canvas_revisions WHERE 1 = 0`,
+    );
     expect(message).toContain("maintained by SQL triggers only");
   });
 
   it("admits a projection write once a journal record explains it", async () => {
-    await succeeds("test.journalled", (writer) => {
-      writer.run(
-        `INSERT INTO station_known_installations(installation_id, registered_at)
+    await succeeds(
+      "test.journalled",
+      Effect.gen(function* () {
+        yield* sql.unsafe(
+          `INSERT INTO station_known_installations(installation_id, registered_at)
          VALUES (?, ?)`,
-        [HOME, NOW] as never,
-      );
-      writer.run(
-        `INSERT INTO work_event_sequences(event_home, entity_home, last_seq)
+          [HOME, NOW] as never,
+        );
+        yield* sql.unsafe(
+          `INSERT INTO work_event_sequences(event_home, entity_home, last_seq)
          VALUES (?, ?, ?)`,
-        [HOME, HOME, "1"] as never,
-      );
-      // Before the record: the projection is closed.
-      expect(workMutationScopeForTest()?.journaled).toBe(false);
-      writer.run(
-        `INSERT INTO work_events(
+          [HOME, HOME, "1"] as never,
+        );
+        // Before the record: the projection is closed.
+        expect((yield* WorkMutationContext)?.journaled).toBe(false);
+        yield* sql.unsafe(
+          `INSERT INTO work_events(
            event_home, entity_home, seq, protocol, record_type,
            item_kind, item_id, item_canvas_name, item_node_id,
            operation, content_sha256, origin_at, received_at
          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [
-          HOME,
-          HOME,
-          "1",
-          "junto/work/v1",
-          "fact",
-          "message",
-          "seam-msg-1",
-          "main",
-          "node-1",
-          "message.append",
-          SHA,
-          NOW,
-          NOW,
-        ] as never,
-      );
-      // After the record: the projection is open, in this transaction only.
-      expect(workMutationScopeForTest()?.journaled).toBe(true);
-      writer.run("DELETE FROM work_tasks WHERE 1 = 0");
-    });
+          [
+            HOME,
+            HOME,
+            "1",
+            "junto/work/v1",
+            "fact",
+            "message",
+            "seam-msg-1",
+            "main",
+            "node-1",
+            "message.append",
+            SHA,
+            NOW,
+            NOW,
+          ] as never,
+        );
+        // After the record: the projection is open, in this transaction only.
+        expect((yield* WorkMutationContext)?.journaled).toBe(true);
+        yield* sql`DELETE FROM work_tasks WHERE 1 = 0`;
+      }),
+    );
 
     // The next transaction starts closed again — the flag is per transaction.
-    const message = await failure("test.journalled.next", (writer) => {
-      writer.run("DELETE FROM work_tasks WHERE 1 = 0");
-    });
+    const message = await failure(
+      "test.journalled.next",
+      sql`DELETE FROM work_tasks WHERE 1 = 0`,
+    );
     expect(message).toContain("not explained by any journal record");
   });
 
   it("admits reads and non-work writes untouched", async () => {
-    await succeeds("test.reads", (writer) => {
-      writer.run(
-        `INSERT INTO station_known_installations(installation_id, registered_at)
+    await succeeds(
+      "test.reads",
+      Effect.gen(function* () {
+        yield* sql.unsafe(
+          `INSERT INTO station_known_installations(installation_id, registered_at)
          VALUES (?, ?)`,
-        ["seam-unrelated", NOW] as never,
-      );
-    });
+          ["seam-unrelated", NOW] as never,
+        );
+      }),
+    );
   });
 
   it("admits per-principal read cursors, which are not work facts", async () => {
-    await succeeds("test.cursor", (writer) => {
-      writer.run("DELETE FROM work_pad_read_cursors WHERE 1 = 0");
-      writer.run("DELETE FROM work_board_read_cursors WHERE 1 = 0");
-    });
+    await succeeds(
+      "test.cursor",
+      Effect.gen(function* () {
+        yield* sql`DELETE FROM work_pad_read_cursors WHERE 1 = 0`;
+        yield* sql`DELETE FROM work_board_read_cursors WHERE 1 = 0`;
+      }),
+    );
   });
 });
 
 describe("work mutation seam — one scope per transaction", () => {
   it("never lets one transaction's journal explain another's projection write", async () => {
-    await succeeds("test.outer", (writer) => {
-      writer.run(
-        `INSERT INTO work_events(
+    await succeeds(
+      "test.outer",
+      Effect.gen(function* () {
+        yield* sql.unsafe(
+          `INSERT INTO work_events(
            event_home, entity_home, seq, protocol, record_type,
            item_kind, item_id, item_canvas_name, item_node_id,
            operation, content_sha256, origin_at, received_at
          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [
-          HOME,
-          HOME,
-          "2",
-          "junto/work/v1",
-          "fact",
-          "message",
-          "seam-msg-2",
-          "main",
-          "node-1",
-          "message.append",
-          SHA,
-          NOW,
-          NOW,
-        ] as never,
-      );
-      expect(workMutationScopeForTest()?.journaled).toBe(true);
-
-      // A second engine's transaction opening inside this one gets its own
-      // scope: this database's record must not vouch for that one's write.
-      const closeInner = beginWorkMutationScope("test.inner");
-      try {
-        expect(workMutationScopeForTest()?.operation).toBe("test.inner");
-        expect(workMutationScopeForTest()?.journaled).toBe(false);
-        expect(() => writer.run("DELETE FROM work_tasks WHERE 1 = 0")).toThrow(
-          /not explained by any journal record/,
+          [
+            HOME,
+            HOME,
+            "2",
+            "junto/work/v1",
+            "fact",
+            "message",
+            "seam-msg-2",
+            "main",
+            "node-1",
+            "message.append",
+            SHA,
+            NOW,
+            NOW,
+          ] as never,
         );
-      } finally {
-        closeInner();
-      }
+        expect((yield* WorkMutationContext)?.journaled).toBe(true);
 
-      // Closing the inner scope restores the outer one, still journalled.
-      expect(workMutationScopeForTest()?.operation).toBe("test.outer");
-      writer.run("DELETE FROM work_tasks WHERE 1 = 0");
-    });
+        // A second engine's transaction opening inside this one gets its own
+        // scope: this database's record must not vouch for that one's write.
+        yield* Effect.gen(function* () {
+          expect((yield* WorkMutationContext)?.operation).toBe("test.inner");
+          expect((yield* WorkMutationContext)?.journaled).toBe(false);
+          const refused = yield* Effect.exit(
+            sql`DELETE FROM work_tasks WHERE 1 = 0`,
+          );
+          expect(refused._tag).toBe("Failure");
+          if (refused._tag === "Failure")
+            expect(Cause.pretty(refused.cause)).toMatch(
+              /not explained by any journal record/,
+            );
+        }).pipe(
+          Effect.provideService(WorkMutationContext, {
+            operation: "test.inner",
+            journaled: false,
+            unjournaled: undefined,
+          }),
+        );
+
+        // Closing the inner scope restores the outer one, still journalled.
+        expect((yield* WorkMutationContext)?.operation).toBe("test.outer");
+        yield* sql`DELETE FROM work_tasks WHERE 1 = 0`;
+      }),
+    );
   });
 });
 
 describe("work mutation seam — the declared journal-free escape", () => {
   it("confines SQL admission to the effect window across a yield", async () => {
-    await runtime.runPromise(Effect.gen(function* () {
-      const sql = yield* SqlClient.SqlClient;
-      yield* sql.withTransaction(Effect.gen(function* () {
-        yield* unjournaledWorkMutationEffect("test.fixture-seed", Effect.gen(function* () {
-          yield* Effect.sleep("1 millis");
-          yield* sql`DELETE FROM work_tasks WHERE 1 = 0`;
-        }));
-        const exit = yield* Effect.exit(sql`DELETE FROM work_tasks WHERE 1 = 0`);
-        expect(exit._tag).toBe("Failure");
-      }));
-    }));
+    await runtime.runPromise(
+      Effect.gen(function* () {
+        const sql = yield* SqlClient.SqlClient;
+        yield* sql.withTransaction(
+          Effect.gen(function* () {
+            yield* unjournaledWorkMutationEffect(
+              "test.fixture-seed",
+              Effect.gen(function* () {
+                yield* Effect.sleep("1 millis");
+                yield* sql`DELETE FROM work_tasks WHERE 1 = 0`;
+              }),
+            );
+            const exit = yield* Effect.exit(
+              sql`DELETE FROM work_tasks WHERE 1 = 0`,
+            );
+            expect(exit._tag).toBe("Failure");
+          }),
+        );
+      }),
+    );
   });
 
   it("admits only inside its own window and closes behind itself", async () => {
-    await succeeds("test.escape", (writer) => {
-      unjournaledWorkMutation("test.fixture-seed", () => {
-        writer.run("DELETE FROM work_tasks WHERE 1 = 0");
-      });
-      expect(workMutationScopeForTest()?.unjournaled).toBeUndefined();
-      expect(() => writer.run("DELETE FROM work_tasks WHERE 1 = 0")).toThrow(
-        /not explained by any journal record/,
-      );
-    });
+    await succeeds(
+      "test.escape",
+      Effect.gen(function* () {
+        yield* unjournaledWorkMutationEffect(
+          "test.fixture-seed",
+          sql`DELETE FROM work_tasks WHERE 1 = 0`,
+        );
+        expect((yield* WorkMutationContext)?.unjournaled).toBeUndefined();
+        const refused = yield* Effect.exit(
+          sql`DELETE FROM work_tasks WHERE 1 = 0`,
+        );
+        expect(refused._tag).toBe("Failure");
+        if (refused._tag === "Failure")
+          expect(Cause.pretty(refused.cause)).toMatch(
+            /not explained by any journal record/,
+          );
+      }),
+    );
   });
 
   it("closes its window even when the body throws", async () => {
-    await succeeds("test.escape.throws", (writer) => {
-      expect(() =>
-        unjournaledWorkMutation("test.fixture-seed", () => {
-          throw new Error("body failed");
-        }),
-      ).toThrow("body failed");
-      expect(workMutationScopeForTest()?.unjournaled).toBeUndefined();
-      expect(() => writer.run("DELETE FROM work_tasks WHERE 1 = 0")).toThrow(
-        /not explained by any journal record/,
-      );
-    });
+    await succeeds(
+      "test.escape.throws",
+      Effect.gen(function* () {
+        const failed = yield* Effect.exit(
+          unjournaledWorkMutationEffect(
+            "test.fixture-seed",
+            Effect.sync(() => {
+              throw new Error("body failed");
+            }),
+          ),
+        );
+        expect(failed._tag).toBe("Failure");
+        if (failed._tag === "Failure")
+          expect(Cause.pretty(failed.cause)).toContain("body failed");
+        expect((yield* WorkMutationContext)?.unjournaled).toBeUndefined();
+        const refused = yield* Effect.exit(
+          sql`DELETE FROM work_tasks WHERE 1 = 0`,
+        );
+        expect(refused._tag).toBe("Failure");
+        if (refused._tag === "Failure")
+          expect(Cause.pretty(refused.cause)).toMatch(
+            /not explained by any journal record/,
+          );
+      }),
+    );
   });
 
-  it("refuses to run outside a state transaction", () => {
-    expect(() =>
-      unjournaledWorkMutation("test.fixture-seed", () => undefined),
-    ).toThrow(/outside any state transaction/);
+  it("refuses to run outside a state transaction", async () => {
+    const failed = await Effect.runPromise(
+      Effect.exit(
+        unjournaledWorkMutationEffect("test.fixture-seed", Effect.void),
+      ),
+    );
+    expect(failed._tag).toBe("Failure");
+    if (failed._tag === "Failure")
+      expect(Cause.pretty(failed.cause)).toMatch(
+        /outside any state transaction/,
+      );
   });
 
   it("refuses to nest", async () => {
-    await succeeds("test.escape.nested", () => {
-      expect(() =>
-        unjournaledWorkMutation("test.fixture-seed", () => {
-          unjournaledWorkMutation("test.fixture-seed", () => undefined);
-        }),
-      ).toThrow(/one declaration per transaction/);
-    });
+    await succeeds(
+      "test.escape.nested",
+      Effect.gen(function* () {
+        const failed = yield* Effect.exit(
+          unjournaledWorkMutationEffect(
+            "test.fixture-seed",
+            unjournaledWorkMutationEffect("test.fixture-seed", Effect.void),
+          ),
+        );
+        expect(failed._tag).toBe("Failure");
+        if (failed._tag === "Failure")
+          expect(Cause.pretty(failed.cause)).toMatch(
+            /one declaration per transaction/,
+          );
+      }),
+    );
   });
 });
 
 describe("work mutation seam — scope lifecycle", () => {
-  it("has no scope open outside a transaction", () => {
-    expect(workMutationScopeForTest()).toBeUndefined();
+  it("has no scope open outside a transaction", async () => {
+    expect(await Effect.runPromise(WorkMutationContext)).toBeNull();
   });
 
   it("closes the scope when a transaction body throws", async () => {
     await Effect.runPromise(
       Effect.exit(
-        state.transaction("test.scope.throws", () => {
-          throw new Error("body failed");
-        }),
+        sql.withTransaction(
+          Effect.sync(() => {
+            throw new Error("body failed");
+          }),
+        ),
       ),
     );
-    expect(workMutationScopeForTest()).toBeUndefined();
+    expect(await Effect.runPromise(WorkMutationContext)).toBeNull();
     // A leaked scope would make the very next transaction fail loudly.
-    await succeeds("test.scope.after", () => undefined);
+    await succeeds("test.scope.after", Effect.void);
   });
 });
 
@@ -429,10 +503,7 @@ describe("work mutation sink attribution", () => {
     // which is the gate that refuses a computed target it does not declare.
     const dynamic: ReadonlyArray<readonly [string, ReadonlyArray<string>]> = [
       ["${table}", ["work_tasks", "work_requests"]],
-      [
-        "${pendingTable}",
-        ["work_pending_commands"],
-      ],
+      ["${pendingTable}", ["work_pending_commands"]],
       [
         "${table}",
         [

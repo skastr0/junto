@@ -1,6 +1,5 @@
-import { Context } from "effect";
+import { Context, type Effect } from "effect";
 import type { OverseerResult } from "@shared/overseer-control";
-import type { StateWriter } from "../../state/engine";
 
 /** Authentication evidence derived by Work control, never from a renderer or model. */
 export interface OverseerHostIdentity {
@@ -13,9 +12,11 @@ export interface OverseerHostIdentity {
 
 export interface OverseerLiveExecutionConstraint {
   readonly signal?: AbortSignal;
-  /** Synchronous fence, checked at dispatch and within each owning transaction. */
-  readonly assertCurrent: (writer?: StateWriter) => void;
-  readonly afterMutation?: (writer: StateWriter, transactionName: string) => void;
+  /** Memory-only fence checked synchronously at dispatch. */
+  readonly assertCurrent: () => void;
+  /** Durable fence and receipt join the owner's transaction, never opening another. */
+  readonly assertCurrentWithin: Effect.Effect<void, unknown>;
+  readonly afterMutation?: (transactionName: string) => Effect.Effect<void, unknown>;
   readonly settle?: (result: OverseerResult) => Promise<void>;
 }
 

@@ -13,6 +13,7 @@ import {
   type SQLOutputValue,
 } from "node:sqlite";
 import { Effect, Layer, ManagedRuntime, Schema } from "effect";
+import { SqlClient } from "effect/unstable/sql";
 import { describe, expect, it } from "vitest";
 import {
   CanvasesLive,
@@ -29,6 +30,7 @@ import {
   makeStateEngineLive,
   StateEngine,
 } from "../src/main/junto/state/engine";
+import { withSqlRead } from "../src/main/junto/state/sql-read";
 import {
   CURRENT_STATE_SCHEMA_VERSION,
   STATE_SCHEMA_V1_IDENTITY,
@@ -336,11 +338,11 @@ const assertCommandCenterRepositories = async (
 const assertRemoteRepositories = async (
   runtime: ReturnType<typeof makeFixtureRuntime>,
 ): Promise<void> => {
-  const { canvases, state, station } = await runtime.runPromise(
+  const { canvases, sql, station } = await runtime.runPromise(
     Effect.gen(function* () {
       return {
         canvases: yield* CanvasesService,
-        state: yield* StateEngine,
+        sql: yield* SqlClient.SqlClient,
         station: yield* StationRepository,
       };
     }),
@@ -349,31 +351,27 @@ const assertRemoteRepositories = async (
   const projection = await runtime.runPromise(station.projection);
   const intent = await runtime.runPromise(canvases.activeIntentWitness());
   const durableRemoteWitness = await runtime.runPromise(
-    state.read("state-v1-fixture.remote-witness", (reader) => ({
-      authorialRows: {
-        blobTables: Number(
-          reader.get<{ count: number }>(
-            `SELECT COUNT(*) AS count
-             FROM sqlite_schema
-             WHERE type = 'table'
-               AND name IN (
-                 'canvas_generations',
-                 'canvas_generation_documents',
-                 'canvas_head'
-               )`,
-          )?.count ?? -1,
-        ),
-        documents: Number(
-          reader.get<{ count: number }>(
-            "SELECT COUNT(*) AS count FROM canvas_documents",
-          )?.count ?? -1,
-        ),
-        heads: Number(
-          reader.get<{ count: number }>(
-            "SELECT COUNT(*) AS count FROM canvas_portfolio_head",
-          )?.count ?? -1,
-        ),
-      },
+    withSqlRead(sql, Effect.gen(function* () {
+      return {
+        authorialRows: {
+          blobTables: Number((yield* sql<{ count: number }>`
+            SELECT COUNT(*) AS count
+            FROM sqlite_schema
+            WHERE type = 'table'
+              AND name IN (
+                'canvas_generations',
+                'canvas_generation_documents',
+                'canvas_head'
+              )
+          `)[0]?.count ?? -1),
+          documents: Number((yield* sql<{ count: number }>`
+            SELECT COUNT(*) AS count FROM canvas_documents
+          `)[0]?.count ?? -1),
+          heads: Number((yield* sql<{ count: number }>`
+            SELECT COUNT(*) AS count FROM canvas_portfolio_head
+          `)[0]?.count ?? -1),
+        },
+      };
     })),
   );
 

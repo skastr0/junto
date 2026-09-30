@@ -26,6 +26,8 @@ import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Context, Effect, Layer, ManagedRuntime, Schema } from "effect";
+import { SqlClient } from "effect/unstable/sql";
+import { withSqlRead } from "../src/main/junto/state/sql-read";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { ActorSeatId } from "../src/shared/actor-seat";
 import {
@@ -33,16 +35,13 @@ import {
   type InstallationId as InstallationIdValue,
 } from "../src/shared/installation-id";
 import {
-  readCanvasWorkProjection,
-  readCanvasWorkRevision,
   WorkRepository,
   WorkRepositoryLive,
+  WorkProjectionReader,
+  WorkProjectionReaderLive,
 } from "../src/main/junto/work/repository";
-import {
-  makeStateEngineLive,
-  StateEngine,
-} from "../src/main/junto/state/engine";
-import { unjournaledWorkMutation } from "../src/main/junto/work/mutation-seam";
+import { makeStateEngineLive } from "../src/main/junto/state/engine";
+import { unjournaledWorkMutationEffect } from "../src/main/junto/work/mutation-seam";
 import { makeWorkWorld, type WorkWorld } from "../src/main/junto/work/world";
 import { IntentFactBasis } from "../src/shared/work-protocol";
 import { serializeCanvas, type CanvasDoc } from "../src/shared/canvas";
@@ -56,13 +55,14 @@ const PEER_INBOX = "peer-inbox";
 const root = join(tmpdir(), `junto-work-world-${randomUUID()}`);
 const runtime = ManagedRuntime.make(
   Layer.provideMerge(
-    WorkRepositoryLive,
+    Layer.merge(WorkRepositoryLive, WorkProjectionReaderLive),
     makeStateEngineLive(join(root, "junto.db")),
   ),
 );
 
 let repository: Context.Service.Shape<typeof WorkRepository>;
-let state: Context.Service.Shape<typeof StateEngine>;
+let sql: SqlClient.SqlClient;
+let reader: Context.Service.Shape<typeof WorkProjectionReader>;
 let world: WorkWorld;
 
 const observedAt = "2026-08-18T09:00:00.000Z";
@@ -137,49 +137,59 @@ const mail = (
   );
 
 const seedInstallation = (installations: ReadonlyArray<InstallationIdValue>) =>
-  state.transaction("test.seed-installations", (writer) => {
-    for (const installation of installations) {
-      writer.run(
-        `INSERT INTO station_known_installations(installation_id, registered_at)
+  sql.withTransaction(
+    Effect.gen(function* () {
+      for (const installation of installations) {
+        yield* sql.unsafe(
+          `INSERT INTO station_known_installations(installation_id, registered_at)
          VALUES (?, ?)`,
-        [installation, observedAt],
-      );
-    }
-    writer.run(
-      `INSERT INTO station_installation(singleton, installation_id, created_at)
+          [installation, observedAt],
+        );
+      }
+      yield* sql.unsafe(
+        `INSERT INTO station_installation(singleton, installation_id, created_at)
        VALUES (1, ?, ?)`,
-      [cc, observedAt],
-    );
-    writer.run(
-      `INSERT INTO station_configuration(
+        [cc, observedAt],
+      );
+      yield* sql.unsafe(
+        `INSERT INTO station_configuration(
          singleton, role, host_id, agent_host_id,
          command_center_installation_id, supervised_preferred, configured_at
        ) VALUES (1, 'command-center', 'local', NULL, NULL, 1, ?)`,
-      [observedAt],
-    );
-    // Twenty extra canvases (bound-N) so the residency-bound test has more
-    // canvases than the world may hold. Each needs a document row in the head
-    // portfolio: local work refuses a basis whose canvas is not in it.
-    seedCanvasAuthority(writer, {
-      generation: "1",
-      documents: fixtureDocuments,
-      at: observedAt,
-    });
-  });
+        [observedAt],
+      );
+      // Twenty extra canvases (bound-N) so the residency-bound test has more
+      // canvases than the world may hold. Each needs a document row in the head
+      // portfolio: local work refuses a basis whose canvas is not in it.
+      yield* seedCanvasAuthority({
+        generation: "1",
+        documents: fixtureDocuments,
+        at: observedAt,
+      });
+    }),
+  );
 
 /**
- * One `state.read`, two answers: what the world serves and what the SQLite
+ * One SQL read lease, two answers: what the world serves and what the SQLite
  * read path builds, off the SAME reader in the SAME snapshot. Reading them
  * apart would compare two different moments and prove nothing.
  */
 const readBoth = () =>
   runtime.runPromise(
-    state.read("test.world-differential", (reader) => {
-      const workRevision = readCanvasWorkRevision(reader, CANVAS);
-      const memory = world.projection(reader, CANVAS, workRevision);
-      const sqlite = readCanvasWorkProjection(reader, CANVAS);
-      return { workRevision, memory, sqlite };
-    }),
+    withSqlRead(
+      sql,
+      Effect.gen(function* () {
+        const workRevision = yield* reader.revision(CANVAS);
+        const prepared = yield* world.prepare(CANVAS, workRevision);
+        const sqlite = yield* reader.canvasProjection(CANVAS);
+        return { workRevision, prepared, sqlite };
+      }),
+    ).pipe(
+      Effect.map(({ workRevision, prepared, sqlite }) => {
+        prepared.publish();
+        return { workRevision, memory: prepared.projection, sqlite };
+      }),
+    ),
   );
 
 let lastRevision = "0";
@@ -200,8 +210,9 @@ const differential = async (label: string, mutation: Promise<unknown>) => {
 
 beforeAll(async () => {
   repository = await runtime.runPromise(WorkRepository);
-  state = await runtime.runPromise(StateEngine);
-  world = makeWorkWorld();
+  sql = await runtime.runPromise(SqlClient.SqlClient);
+  reader = await runtime.runPromise(WorkProjectionReader);
+  world = makeWorkWorld(reader);
   await runtime.runPromise(seedInstallation([cc]));
 });
 
@@ -296,32 +307,35 @@ describe("the in-memory work world", () => {
     // re-read on the strength of an announcement that describes nothing.
     await expect(
       runtime.runPromise(
-        state.transaction("test.rolled-back", (writer) =>
-          unjournaledWorkMutation("test.fixture-seed", () => {
-            writer.run(
-              `INSERT INTO work_messages(
+        sql.withTransaction(
+          unjournaledWorkMutationEffect(
+            "test.fixture-seed",
+            Effect.gen(function* () {
+              yield* sql.unsafe(
+                `INSERT INTO work_messages(
                  canvas_name, node_id, message_id, position, entity_home,
                  actor_seat_id, fact_event_home, fact_entity_home, fact_seq,
                  role, parts_json, task_id, context_id,
                  reference_task_ids_json, metadata_json, origin_at, received_at
                ) VALUES (?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, ?, ?)`,
-              [
-                CANVAS,
-                INBOX,
-                "rolled-back-message",
-                9_000_000,
-                cc,
-                cc,
-                cc,
-                "999999",
-                "agent",
-                JSON.stringify([{ kind: "text", text: "never" }]),
-                observedAt,
-                observedAt,
-              ],
-            );
-            throw new Error("abandon this transaction");
-          }),
+                [
+                  CANVAS,
+                  INBOX,
+                  "rolled-back-message",
+                  9_000_000,
+                  cc,
+                  cc,
+                  cc,
+                  "999999",
+                  "agent",
+                  JSON.stringify([{ kind: "text", text: "never" }]),
+                  observedAt,
+                  observedAt,
+                ],
+              );
+              return yield* Effect.fail(new Error("abandon this transaction"));
+            }),
+          ),
         ),
       ),
     ).rejects.toThrow();
@@ -340,12 +354,15 @@ describe("the in-memory work world", () => {
     // silent, and the world must answer by rebuilding rather than trusting
     // a residency it can no longer repair sink by sink.
     await runtime.runPromise(
-      state.transaction("test.unattributable", (writer) =>
-        unjournaledWorkMutation("test.fixture-seed", () => {
-          writer.run(
-            `DELETE FROM work_messages WHERE message_id = 'no-such-message'`,
-          );
-        }),
+      sql.withTransaction(
+        unjournaledWorkMutationEffect(
+          "test.fixture-seed",
+          Effect.gen(function* () {
+            yield* sql.unsafe(
+              `DELETE FROM work_messages WHERE message_id = 'no-such-message'`,
+            );
+          }),
+        ),
       ),
     );
     const after = world.stats();
@@ -360,11 +377,42 @@ describe("the in-memory work world", () => {
     const { memory, sqlite } = await readBoth();
     expect(memory.snapshots).toEqual(sqlite.snapshots);
   });
+
+  it("publishes prepared reads only after success and ignores an invalidated preparation", async () => {
+    const isolated = makeWorkWorld(reader);
+    const prepare = () =>
+      runtime.runPromise(
+        withSqlRead(
+          sql,
+          Effect.gen(function* () {
+            const revision = yield* reader.revision(CANVAS);
+            const prepared = yield* isolated.prepare(CANVAS, revision);
+            expect(prepared.projection).toEqual(
+              yield* reader.canvasProjection(CANVAS),
+            );
+            return prepared;
+          }),
+        ),
+      );
+    try {
+      const abandoned = await prepare();
+      expect(isolated.stats()).toMatchObject({ canvases: 0, hydrate: 0 });
+      isolated.reset();
+      abandoned.publish();
+      expect(isolated.stats()).toMatchObject({ canvases: 0, hydrate: 0 });
+      const committed = await prepare();
+      committed.publish();
+      committed.publish();
+      expect(isolated.stats()).toMatchObject({ canvases: 1, hydrate: 1 });
+    } finally {
+      isolated.close();
+    }
+  });
 });
 
 describe("the world's residency bound", () => {
   it("holds a bounded set of canvases and rebuilds an evicted one correctly", async () => {
-    const bounded = makeWorkWorld();
+    const bounded = makeWorkWorld(reader);
     try {
       // One message on each of many canvases, then read them all. The bound
       // is 16; twenty canvases must not leave twenty resident.
@@ -372,13 +420,19 @@ describe("the world's residency bound", () => {
       for (const canvasName of names) {
         await mail("inbox", `mail-${canvasName}`, "x", canvasName);
         await runtime.runPromise(
-          state.read("test.bounded", (reader) => {
-            const workRevision = readCanvasWorkRevision(reader, canvasName);
-            const memory = bounded.projection(reader, canvasName, workRevision);
-            const sqlite = readCanvasWorkProjection(reader, canvasName);
-            expect(memory.snapshots).toEqual(sqlite.snapshots);
-            return undefined;
-          }),
+          withSqlRead(
+            sql,
+            Effect.gen(function* () {
+              const workRevision = yield* reader.revision(canvasName);
+              const memory = yield* bounded.projection(
+                canvasName,
+                workRevision,
+              );
+              const sqlite = yield* reader.canvasProjection(canvasName);
+              expect(memory.snapshots).toEqual(sqlite.snapshots);
+              return undefined;
+            }),
+          ),
         );
       }
       const stats = bounded.stats();
@@ -388,13 +442,16 @@ describe("the world's residency bound", () => {
       // The first canvas was evicted; reading it again must rebuild it from
       // SQLite and still match, with no stale residency left behind.
       const again = await runtime.runPromise(
-        state.read("test.bounded-again", (reader) => {
-          const workRevision = readCanvasWorkRevision(reader, names[0]);
-          return {
-            memory: bounded.projection(reader, names[0], workRevision),
-            sqlite: readCanvasWorkProjection(reader, names[0]),
-          };
-        }),
+        withSqlRead(
+          sql,
+          Effect.gen(function* () {
+            const workRevision = yield* reader.revision(names[0]);
+            return {
+              memory: yield* bounded.projection(names[0], workRevision),
+              sqlite: yield* reader.canvasProjection(names[0]),
+            };
+          }),
+        ),
       );
       expect(again.memory.snapshots).toEqual(again.sqlite.snapshots);
     } finally {

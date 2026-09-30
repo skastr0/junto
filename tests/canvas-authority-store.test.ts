@@ -5,13 +5,13 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect, Layer, ManagedRuntime } from "effect";
+import { SqlClient } from "effect/unstable/sql";
 import {
   CanvasesLive,
   CanvasesService,
   type CanvasAuthorityStoredDocument,
 } from "../src/main/junto/canvases";
 import { makeStateEngineLive } from "../src/main/junto/state/engine";
-import { StateEngine } from "../src/main/junto/state/service";
 import { WorkRepositoryLive } from "../src/main/junto/work/repository";
 import { StationRepositoryLive } from "../src/main/junto/station/repository";
 import {
@@ -244,20 +244,17 @@ describe("CanvasesService SQLite authority", () => {
     // Corrupt the relational authority directly: the app write path can never
     // produce these rows, so the read path must fail closed rather than serve
     // or repair them.
-    const state = await runtime.runPromise(StateEngine);
+    const sql = await runtime.runPromise(SqlClient.SqlClient);
     await runtime.runPromise(
-      state.transaction("test.inject-invalid-canvas", (writer) => {
-        const canvasId = writer.get<{ readonly canvas_id: string }>(
-          "SELECT canvas_id FROM canvas_documents WHERE canvas_name = 'work'",
-        )?.canvas_id;
+      sql.withTransaction(Effect.gen(function* () {
+        const canvasId = (yield* sql<{ readonly canvas_id: string }>`
+          SELECT canvas_id FROM canvas_documents WHERE canvas_name = 'work'
+        `)[0]?.canvas_id;
         if (canvasId === undefined) {
           throw new Error("expected work canvas_documents row");
         }
-        writer.run(
-          `UPDATE canvas_nodes SET ether_json = ? WHERE canvas_id = ?`,
-          [JSON.stringify(invalidEther()), canvasId],
-        );
-      })
+        yield* sql`UPDATE canvas_nodes SET ether_json = ${JSON.stringify(invalidEther())} WHERE canvas_id = ${canvasId}`;
+      }))
     );
     await runtime.dispose();
     runtime = undefined;
@@ -277,7 +274,7 @@ describe("CanvasesService SQLite authority", () => {
     await installEnv();
     runtime = makeCanvasRuntime(join(stateDir, "junto.db"));
     const canvases = await runtime.runPromise(CanvasesService);
-    const state = await runtime.runPromise(StateEngine);
+    const sql = await runtime.runPromise(SqlClient.SqlClient);
 
     const commits = 20;
     for (let i = 0; i < commits; i += 1) {
@@ -286,24 +283,11 @@ describe("CanvasesService SQLite authority", () => {
 
     // Relational authority holds the head and nothing else: one document row,
     // exactly the current node set, zero growth with commit count.
-    const counts = await runtime.runPromise(
-      state.read("retention.counts", (reader) => ({
-        documents: Number(
-          reader.get<{ readonly count: number }>(
-            "SELECT count(*) AS count FROM canvas_documents",
-          )?.count ?? 0,
-        ),
-        nodes: Number(
-          reader.get<{ readonly count: number }>(
-            "SELECT count(*) AS count FROM canvas_nodes",
-          )?.count ?? 0,
-        ),
-        edges: Number(
-          reader.get<{ readonly count: number }>(
-            "SELECT count(*) AS count FROM canvas_edges",
-          )?.count ?? 0,
-        ),
-      })),
+    const [counts] = await runtime.runPromise(
+      sql`SELECT
+        (SELECT count(*) FROM canvas_documents) AS documents,
+        (SELECT count(*) FROM canvas_nodes) AS nodes,
+        (SELECT count(*) FROM canvas_edges) AS edges`,
     );
     expect(counts).toEqual({ documents: 1, nodes: 1, edges: 0 });
 

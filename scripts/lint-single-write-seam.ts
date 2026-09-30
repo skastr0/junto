@@ -431,7 +431,7 @@ const scanDecodes = (
 
 // ---------------------------------------------------------------- rule 4 ----
 
-const JOURNAL_FREE_CALL = /\bunjournaledWorkMutation(?:Effect)?\s*\(\s*["']([^"']+)["']/;
+const JOURNAL_FREE_CALL = /^unjournaledWorkMutation(?:Effect)?\s*\(\s*["']([^"']+)["']/;
 const JOURNAL_FREE_ANY = /\bunjournaledWorkMutation(?:Effect)?\s*\(/;
 
 type JournalFreeHit = Hit & { readonly reason: string | undefined };
@@ -441,10 +441,16 @@ const scanJournalFree = (
   lines: ReadonlyArray<{ readonly n: number; readonly code: string; readonly raw: string }>,
 ): ReadonlyArray<JournalFreeHit> => {
   const hits: JournalFreeHit[] = [];
+  const source = lines.map(({ code }) => code).join("\n");
+  let offset = 0;
   for (const { n, code, raw } of lines) {
-    if (!JOURNAL_FREE_ANY.test(code)) continue;
-    const reason = JOURNAL_FREE_CALL.exec(code)?.[1];
-    hits.push({ file: rel, line: n, text: raw.trim().slice(0, 160), reason });
+    for (const call of code.matchAll(new RegExp(JOURNAL_FREE_ANY.source, "g"))) {
+      // A formatter may put the literal on the next line. Anchor at this
+      // exact call so a computed reason cannot borrow a later call's literal.
+      const reason = JOURNAL_FREE_CALL.exec(source.slice(offset + call.index))?.[1];
+      hits.push({ file: rel, line: n, text: raw.trim().slice(0, 160), reason });
+    }
+    offset += code.length + 1;
   }
   return hits;
 };

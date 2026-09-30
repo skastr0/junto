@@ -6,18 +6,10 @@
  * never mutates product state.
  */
 
-import {
-  lstatSync,
-  readdirSync,
-  type Stats,
-} from "node:fs";
+import { lstatSync, readdirSync, type Stats } from "node:fs";
 import { join } from "node:path";
-import type { StateReader } from "../state/service";
-import {
-  getContentObject,
-  listContentObjectsWithRefCounts,
-  listReferencedContentDigests,
-} from "./manifest";
+import { Effect } from "effect";
+import type { ContentManifestError, ContentManifestShape } from "./manifest";
 import {
   contentDigestRoot,
   contentIncomingDir,
@@ -87,7 +79,9 @@ export type ContentIntegrityReport = {
   readonly referencedCoherent: boolean;
 };
 
-const listPublishedObjectDigests = (root: string): ReadonlyArray<{
+const listPublishedObjectDigests = (
+  root: string,
+): ReadonlyArray<{
   readonly sha256: string;
   readonly path: string;
   readonly byteLength: number;
@@ -122,11 +116,7 @@ const listPublishedObjectDigests = (root: string): ReadonlyArray<{
       if (contentObjectShard(name) !== shard) continue;
       const path = join(shardPath, name);
       const file = lstatOrUndefined(path);
-      if (
-        file === undefined ||
-        !file.isFile() ||
-        file.isSymbolicLink()
-      ) {
+      if (file === undefined || !file.isFile() || file.isSymbolicLink()) {
         continue;
       }
       out.push({ sha256: name, path, byteLength: file.size });
@@ -135,7 +125,9 @@ const listPublishedObjectDigests = (root: string): ReadonlyArray<{
   return out;
 };
 
-const listPartialFiles = (root: string): ReadonlyArray<{
+const listPartialFiles = (
+  root: string,
+): ReadonlyArray<{
   readonly path: string;
   readonly byteLength: number;
   readonly mtimeMs: number;
@@ -154,11 +146,7 @@ const listPartialFiles = (root: string): ReadonlyArray<{
     if (!name.endsWith(".partial")) continue;
     const path = join(incoming, name);
     const file = lstatOrUndefined(path);
-    if (
-      file === undefined ||
-      !file.isFile() ||
-      file.isSymbolicLink()
-    ) {
+    if (file === undefined || !file.isFile() || file.isSymbolicLink()) {
       continue;
     }
     out.push({
@@ -174,146 +162,162 @@ const listPartialFiles = (root: string): ReadonlyArray<{
  * Full integrity pass: re-hash every referenced object, surface orphan files
  * and partials, and list unreferenced manifest objects (GC candidates).
  */
-export const runContentIntegrityCheck = (
-  root: string,
-  reader: StateReader,
-  options?: { readonly now?: Date },
-): ContentIntegrityReport => {
-  ensureContentLayout(root);
-  const checkedAt = (options?.now ?? new Date()).toISOString();
-  const findings: ContentIntegrityFinding[] = [];
-  const referenced = listReferencedContentDigests(reader);
-  let verifiedCount = 0;
+export const runContentIntegrityCheck = Effect.fn("runContentIntegrityCheck")(
+  function* (
+    root: string,
+    manifest: ContentManifestShape,
+    options?: { readonly now?: Date },
+  ): Effect.fn.Return<
+    ContentIntegrityReport,
+    ContentManifestError | ContentStoreError
+  > {
+    const referenced = yield* manifest.listReferencedContentDigests();
+    const objects = yield* manifest.listContentObjectsWithRefCounts();
+    return yield* Effect.try({
+      try: (): ContentIntegrityReport => {
+        ensureContentLayout(root);
+        const checkedAt = (options?.now ?? new Date()).toISOString();
+        const findings: ContentIntegrityFinding[] = [];
+        let verifiedCount = 0;
 
-  for (const item of referenced) {
-    const path = contentObjectPath(root, item.sha256);
-    const info = lstatOrUndefined(path);
-    if (info === undefined) {
-      findings.push({
-        kind: "referenced-missing",
-        sha256: item.sha256,
-        byteLength: item.byteLength,
-      });
-      continue;
-    }
-    if (info.isSymbolicLink() || !info.isFile()) {
-      findings.push({
-        kind: "referenced-corrupt",
-        sha256: item.sha256,
-        byteLength: item.byteLength,
-        reason: "content object path is not a regular file",
-      });
-      continue;
-    }
-    if (info.size !== item.byteLength) {
-      findings.push({
-        kind: "referenced-corrupt",
-        sha256: item.sha256,
-        byteLength: item.byteLength,
-        reason: "content object size does not match manifest",
-        observedByteLength: info.size,
-      });
-      continue;
-    }
-    try {
-      const observed = hashContentObjectFile(path);
-      if (
-        observed.sha256 !== item.sha256 ||
-        observed.byteLength !== item.byteLength
-      ) {
-        findings.push({
-          kind: "referenced-corrupt",
-          sha256: item.sha256,
-          byteLength: item.byteLength,
-          reason: "content object digest or length mismatch",
-          observedSha256: observed.sha256,
-          observedByteLength: observed.byteLength,
-        });
-        continue;
-      }
-      verifiedCount += 1;
-    } catch (error) {
-      findings.push({
-        kind: "referenced-corrupt",
-        sha256: item.sha256,
-        byteLength: item.byteLength,
-        reason:
-          error instanceof Error
-            ? error.message.slice(0, 1024)
-            : "content object could not be verified",
-      });
-    }
-  }
+        for (const item of referenced) {
+          const path = contentObjectPath(root, item.sha256);
+          const info = lstatOrUndefined(path);
+          if (info === undefined) {
+            findings.push({
+              kind: "referenced-missing",
+              sha256: item.sha256,
+              byteLength: item.byteLength,
+            });
+            continue;
+          }
+          if (info.isSymbolicLink() || !info.isFile()) {
+            findings.push({
+              kind: "referenced-corrupt",
+              sha256: item.sha256,
+              byteLength: item.byteLength,
+              reason: "content object path is not a regular file",
+            });
+            continue;
+          }
+          if (info.size !== item.byteLength) {
+            findings.push({
+              kind: "referenced-corrupt",
+              sha256: item.sha256,
+              byteLength: item.byteLength,
+              reason: "content object size does not match manifest",
+              observedByteLength: info.size,
+            });
+            continue;
+          }
+          try {
+            const observed = hashContentObjectFile(path);
+            if (
+              observed.sha256 !== item.sha256 ||
+              observed.byteLength !== item.byteLength
+            ) {
+              findings.push({
+                kind: "referenced-corrupt",
+                sha256: item.sha256,
+                byteLength: item.byteLength,
+                reason: "content object digest or length mismatch",
+                observedSha256: observed.sha256,
+                observedByteLength: observed.byteLength,
+              });
+              continue;
+            }
+            verifiedCount += 1;
+          } catch (error) {
+            findings.push({
+              kind: "referenced-corrupt",
+              sha256: item.sha256,
+              byteLength: item.byteLength,
+              reason:
+                error instanceof Error
+                  ? error.message.slice(0, 1024)
+                  : "content object could not be verified",
+            });
+          }
+        }
 
-  const published = listPublishedObjectDigests(root);
-  const manifestDigests = new Set(
-    listContentObjectsWithRefCounts(reader).map((row) => row.sha256),
-  );
-  for (const file of published) {
-    if (!manifestDigests.has(file.sha256)) {
-      findings.push({
-        kind: "orphan-file",
-        sha256: file.sha256,
-        path: file.path,
-        byteLength: file.byteLength,
-      });
-    }
-  }
+        const published = listPublishedObjectDigests(root);
+        const manifestDigests = new Set(objects.map((row) => row.sha256));
+        for (const file of published) {
+          if (!manifestDigests.has(file.sha256)) {
+            findings.push({
+              kind: "orphan-file",
+              sha256: file.sha256,
+              path: file.path,
+              byteLength: file.byteLength,
+            });
+          }
+        }
 
-  for (const partial of listPartialFiles(root)) {
-    findings.push({
-      kind: "orphan-partial",
-      path: partial.path,
-      byteLength: partial.byteLength,
-      mtimeMs: partial.mtimeMs,
+        for (const partial of listPartialFiles(root)) {
+          findings.push({
+            kind: "orphan-partial",
+            path: partial.path,
+            byteLength: partial.byteLength,
+            mtimeMs: partial.mtimeMs,
+          });
+        }
+
+        for (const row of objects) {
+          if (row.refCount === 0) {
+            findings.push({
+              kind: "unreferenced-object",
+              sha256: row.sha256,
+              byteLength: row.byteLength,
+              createdAt: row.createdAt,
+            });
+          }
+        }
+
+        // Sanity: every referenced digest should also have a content_objects row.
+        for (const item of referenced) {
+          if (!manifestDigests.has(item.sha256)) {
+            // Already counted as missing if file absent; still flag corrupt if row gone.
+            const already = findings.some(
+              (f) =>
+                (f.kind === "referenced-missing" ||
+                  f.kind === "referenced-corrupt") &&
+                f.sha256 === item.sha256,
+            );
+            if (!already) {
+              findings.push({
+                kind: "referenced-corrupt",
+                sha256: item.sha256,
+                byteLength: item.byteLength,
+                reason: "content ref has no content_objects row",
+              });
+            }
+          }
+        }
+
+        const referencedCoherent = findings.every(
+          (f) =>
+            f.kind !== "referenced-missing" && f.kind !== "referenced-corrupt",
+        );
+
+        return {
+          checkedAt,
+          referencedCount: referenced.length,
+          verifiedCount,
+          findings,
+          referencedCoherent,
+        };
+      },
+      catch: (cause) =>
+        cause instanceof ContentStoreError
+          ? cause
+          : new ContentStoreError(
+              "io",
+              cause instanceof Error ? cause.message : String(cause),
+              { cause },
+            ),
     });
-  }
-
-  for (const row of listContentObjectsWithRefCounts(reader)) {
-    if (row.refCount === 0) {
-      findings.push({
-        kind: "unreferenced-object",
-        sha256: row.sha256,
-        byteLength: row.byteLength,
-        createdAt: row.createdAt,
-      });
-    }
-  }
-
-  // Sanity: every referenced digest should also have a content_objects row.
-  for (const item of referenced) {
-    if (getContentObject(reader, item.sha256) === undefined) {
-      // Already counted as missing if file absent; still flag corrupt if row gone.
-      const already = findings.some(
-        (f) =>
-          (f.kind === "referenced-missing" ||
-            f.kind === "referenced-corrupt") &&
-          f.sha256 === item.sha256,
-      );
-      if (!already) {
-        findings.push({
-          kind: "referenced-corrupt",
-          sha256: item.sha256,
-          byteLength: item.byteLength,
-          reason: "content ref has no content_objects row",
-        });
-      }
-    }
-  }
-
-  const referencedCoherent = findings.every(
-    (f) =>
-      f.kind !== "referenced-missing" && f.kind !== "referenced-corrupt",
-  );
-
-  return {
-    checkedAt,
-    referencedCount: referenced.length,
-    verifiedCount,
-    findings,
-    referencedCoherent,
-  };
-};
+  },
+);
 
 export {
   listPartialFiles as listContentPartialFiles,

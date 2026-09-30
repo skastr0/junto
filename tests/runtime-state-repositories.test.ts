@@ -16,7 +16,6 @@ import {
 } from "../src/main/junto/pause/repository";
 import {
   makeStateEngineLive,
-  StateEngine,
 } from "../src/main/junto/state/engine";
 import type { PulseRecord } from "../src/shared/ipc";
 
@@ -82,15 +81,15 @@ describe("typed runtime-state repositories", () => {
         yield* kernel.setRegionArmed("ether", "region-2", false);
         yield* pause.setPlaying("ether", true);
         // Rows written by the retired node and region pause are never read.
-        const state = yield* StateEngine;
-        yield* state.transaction("test.retired-pause-scopes", (writer) => {
+        const sql = yield* SqlClient.SqlClient;
+        yield* sql.withTransaction(Effect.gen(function* () {
           for (const [kind, id] of [["node", "agent-1"], ["region", "region-1"]]) {
-            writer.run(
-              "INSERT INTO factory_pause_scopes(canvas_name, scope_kind, scope_id, paused_at) VALUES (?, ?, ?, ?)",
-              ["ether", kind, id, "2026-01-01T00:00:00.000Z"],
-            );
+            yield* sql`
+              INSERT INTO factory_pause_scopes(canvas_name, scope_kind, scope_id, paused_at)
+              VALUES ('ether', ${kind}, ${id}, '2026-01-01T00:00:00.000Z')
+            `;
           }
-        });
+        }));
       }),
     );
     await disposeRuntime(first);
@@ -200,15 +199,13 @@ describe("typed runtime-state repositories", () => {
     const result = await runtime.runPromise(
       Effect.gen(function* () {
         const kernel = yield* KernelStateRepository;
-        const state = yield* StateEngine;
+        const sql = yield* SqlClient.SqlClient;
         yield* kernel.replaceDebugPulseRing([pulse(1)]);
-        yield* state.transaction("test.corrupt-kernel-debug", (writer) => {
-          writer.run("PRAGMA ignore_check_constraints = ON");
-          writer.run(
-            "UPDATE kernel_debug_pulses SET delivered_json = 'not-json'",
-          );
-          writer.run("PRAGMA ignore_check_constraints = OFF");
-        });
+        yield* sql.withTransaction(Effect.gen(function* () {
+          yield* sql`PRAGMA ignore_check_constraints = ON`;
+          yield* sql`UPDATE kernel_debug_pulses SET delivered_json = 'not-json'`;
+          yield* sql`PRAGMA ignore_check_constraints = OFF`;
+        }));
         return yield* Effect.result(kernel.readDebugPulseRing);
       }),
     );

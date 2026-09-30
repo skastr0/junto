@@ -34,6 +34,8 @@ test("SQL canvas participants preserve order, identity and outer rollback", asyn
         return created;
       }));
       expect(created.created).toBe(true);
+      expect(yield* records.readRevision("alpha")).toBe(revisionSha256);
+      expect(yield* records.readRevision("missing")).toBeUndefined();
       expect(yield* records.readRawCanvasDoc(created.canvasId)).toEqual(doc);
       const authority = yield* sql.withTransaction(records.readCommandCenterPortfolio());
       expect(authority.documents.get("alpha")?.body).toBe(serializeCanvas(doc));
@@ -49,6 +51,7 @@ test("SQL canvas participants preserve order, identity and outer rollback", asyn
       expect((yield* records.readPortfolioHead())?.generation).toBe("1");
       expect(yield* records.reconstructCanvasDoc(created.canvasId)).toEqual(doc);
       yield* sql.withTransaction(records.deleteCanvas("alpha"));
+      expect(yield* records.readRevision("alpha")).toBeUndefined();
       expect(yield* records.readDocumentRows()).toEqual([]);
       expect(yield* sql`SELECT * FROM canvas_nodes`).toEqual([]);
       expect(yield* sql`SELECT * FROM canvas_edges`).toEqual([]);

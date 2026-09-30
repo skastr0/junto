@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { Context, Effect, Layer, Option, Schema } from "effect";
 import { SqlClient, SqlError, SqlSchema } from "effect/unstable/sql";
-import { StateTransactionOperation, type StateReader, type StateRow, type StateWriter } from "../../state/service";
+import { StateTransactionOperation } from "../../state/service";
 import { withSqlRead } from "../../state/sql-read";
 
 export type LiveJsonObject = Readonly<Record<string, unknown>>;
@@ -111,107 +111,14 @@ const encode = (value: unknown): string => {
 const encodeObject = (value: LiveJsonObject): string => encode(objectSchema(value));
 export const operationArgsHash = (args: LiveJsonObject): string =>
   createHash("sha256").update(encodeObject(args)).digest("hex");
-const jsonObject = (value: unknown): LiveJsonObject => objectSchema(JSON.parse(String(value)));
-const refs = (value: unknown): readonly string[] => stringArray(JSON.parse(String(value)));
-const nullableString = (value: unknown): string | null => value === null ? null : String(value);
-
-const sessionRecord = (row: StateRow): LiveSessionRecord => ({
-  sessionId: String(row.session_id), seatNodeRef: String(row.seat_node_ref),
-  occupantGeneration: String(row.occupant_generation), authorityEpoch: String(row.authority_epoch),
-  status: row.status as LiveSessionStatus, backendConversationId: nullableString(row.backend_conversation_id),
-  providerSessionId: nullableString(row.provider_session_id), createdAt: String(row.created_at), updatedAt: String(row.updated_at),
-});
-const requestRecord = (row: StateRow): LiveRequestRecord => ({
-  requestId: String(row.request_id), sessionId: String(row.session_id), providerDelegationId: nullableString(row.provider_delegation_id),
-  intentRevision: Number(row.intent_revision), status: row.status as LiveRequestStatus, text: String(row.text),
-  capturedContext: jsonObject(row.captured_context_json), transcriptRefs: refs(row.transcript_refs_json),
-  createdAt: String(row.created_at), updatedAt: String(row.updated_at),
-});
-const operationRecord = (row: StateRow): LiveOperationRecord => ({
-  operationId: String(row.operation_id), requestId: String(row.request_id), intentRevision: Number(row.intent_revision),
-  operation: String(row.operation), args: jsonObject(row.args_json), argsSha256: String(row.args_sha256),
-  targetRefs: refs(row.target_refs_json), targetRevision: nullableString(row.target_revision), status: row.status as LiveOperationStatus,
-  outcome: row.outcome_json === null ? null : jsonObject(row.outcome_json), createdAt: String(row.created_at), updatedAt: String(row.updated_at),
-});
-const getSession = (reader: StateReader, id: string): LiveSessionRecord | undefined => {
-  const row = reader.get("SELECT * FROM overseer_live_sessions WHERE session_id = ?", [id]);
-  return row && sessionRecord(row);
-};
-const getRequest = (reader: StateReader, id: string): LiveRequestRecord | undefined => {
-  const row = reader.get("SELECT * FROM overseer_live_requests WHERE request_id = ?", [id]);
-  return row && requestRecord(row);
-};
-const getOperation = (reader: StateReader, id: string): LiveOperationRecord | undefined => {
-  const row = reader.get("SELECT * FROM overseer_live_operations WHERE operation_id = ?", [id]);
-  return row && operationRecord(row);
-};
-const requireSession = (reader: StateReader, id: string): LiveSessionRecord =>
-  getSession(reader, id) ?? fail("missing", `Live session ${id} does not exist`);
-const requireRequest = (reader: StateReader, id: string): LiveRequestRecord =>
-  getRequest(reader, id) ?? fail("missing", `Live request ${id} does not exist`);
-const requireOperation = (reader: StateReader, id: string): LiveOperationRecord =>
-  getOperation(reader, id) ?? fail("missing", `Live operation ${id} does not exist`);
 const pendingRequest = (status: LiveRequestStatus): boolean =>
   status === "queued" || status === "interpreting" || status === "waiting-approval" || status === "running";
-const requireActiveRequest = (reader: StateReader, id: string, revision: number): LiveRequestRecord => {
-  const request = requireRequest(reader, id);
-  if (request.intentRevision !== revision || !pendingRequest(request.status)) fail("stale", "Live request intent is no longer current");
-  if (requireSession(reader, request.sessionId).status !== "active") fail("stale", "Live session requires fresh admission");
-  return request;
-};
-
-/** Call from the owning canvas/Work transaction immediately before its durable write. */
-export const assertLiveRequestCurrent = (reader: StateReader, correlation: LiveRequestCorrelation): LiveRequestRecord => {
-  const request = requireActiveRequest(reader, correlation.requestId, correlation.intentRevision);
-  const session = requireSession(reader, request.sessionId);
-  if (request.sessionId !== correlation.sessionId || session.occupantGeneration !== correlation.occupantGeneration ||
-      session.authorityEpoch !== correlation.authorityEpoch) fail("stale", "Live session authority or occupant changed");
-  return request;
-};
-
-const appendEvent = (writer: StateWriter, input: AppendLiveEvent, now: string): LiveEventRecord => {
-  requireSession(writer, input.sessionId);
-  if (input.requestId !== null && requireRequest(writer, input.requestId).sessionId !== input.sessionId) {
-    fail("conflict", "Live event request belongs to another session");
-  }
-  if (input.operationId !== null) {
-    const operation = requireOperation(writer, input.operationId);
-    if (operation.requestId !== input.requestId) fail("conflict", "Live event operation belongs to another request");
-  }
-  const result = writer.run(`INSERT INTO overseer_live_events
-    (session_id, request_id, operation_id, kind, detail_json, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
-  [input.sessionId, input.requestId, input.operationId, input.kind, encodeObject(input.detail), now]);
-  return { ...input, sequence: Number(result.lastInsertRowid), createdAt: now };
-};
 const operationTransitions: Record<LiveOperationStatus, readonly LiveOperationStatus[]> = {
   proposed: ["awaiting-approval", "admitted", "failed"],
   "awaiting-approval": ["admitted", "failed"],
   admitted: ["dispatched", "applied", "failed", "unknown"],
   dispatched: ["applied", "failed", "partial", "unknown"],
   applied: [], failed: [], partial: [], unknown: ["applied", "failed", "partial"],
-};
-
-/** Same-transaction receipt seam, supplied only to existing main-owned mutation services. */
-export const transitionLiveOperationInTransaction = (
-  writer: StateWriter, input: TransitionLiveOperation, now = new Date().toISOString(),
-): LiveOperationRecord => {
-  const operation = requireOperation(writer, input.operationId);
-  if (operation.status !== input.from) fail("conflict", "Live operation state changed");
-  if (!operationTransitions[operation.status].includes(input.to)) fail("invalid", `Invalid Live operation transition ${input.from} to ${input.to}`);
-  if (input.to === "admitted" || input.to === "dispatched" || (input.to === "applied" && input.from === "admitted")) {
-    if (!input.correlation) fail("invalid", "Live operation admission requires current request correlation");
-    const correlation = input.correlation!;
-    if (operation.requestId !== correlation.requestId || operation.intentRevision !== correlation.intentRevision) {
-      fail("stale", "Live operation belongs to another intent revision");
-    }
-    assertLiveRequestCurrent(writer, correlation);
-  }
-  writer.run("UPDATE overseer_live_operations SET status = ?, outcome_json = ?, updated_at = ? WHERE operation_id = ?",
-    [input.to, input.outcome === undefined ? null : encodeObject(input.outcome), now, input.operationId]);
-  const request = requireRequest(writer, operation.requestId);
-  appendEvent(writer, { sessionId: request.sessionId, requestId: request.requestId, operationId: operation.operationId,
-    kind: "operation.transition", detail: { from: input.from, to: input.to, intentRevision: operation.intentRevision, outcome: input.outcome ?? null } }, now);
-  return requireOperation(writer, input.operationId);
 };
 
 const boundedLimit = (limit = 100): number => {

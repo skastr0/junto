@@ -2,6 +2,7 @@ import { mkdtempSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect, Layer, ManagedRuntime, Schema } from "effect";
+import { SqlClient } from "effect/unstable/sql";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { StationHostId } from "../src/shared/station-api";
 import {
@@ -16,7 +17,6 @@ import {
   StationStatusStoreError,
 } from "../src/main/junto/station-status-store";
 import { makeStateEngineLive } from "../src/main/junto/state/engine";
-import { StateEngine } from "../src/main/junto/state/service";
 
 const decodeHostId = Schema.decodeUnknownSync(StationHostId);
 const STUDIO_HOST = decodeHostId("studio");
@@ -191,16 +191,12 @@ describe("SQLite station status receipts", () => {
     await recordKernel(runtime, kernelRecord());
     await runtime.runPromise(
       Effect.gen(function* () {
-        const state = yield* StateEngine;
-        yield* state.transaction("test.corrupt-station-status", (writer) => {
-          writer.run(
-            `
-              UPDATE station_status_facts
-              SET record_json = '{}'
-              WHERE kind = 'kernel' AND host_id = ''
-            `,
-          );
-        });
+        const sql = yield* SqlClient.SqlClient;
+        yield* sql.withTransaction(sql`
+          UPDATE station_status_facts
+          SET record_json = '{}'
+          WHERE kind = 'kernel' AND host_id = ''
+        `);
       }),
     );
 

@@ -1,0 +1,297 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`SQL journal preserves stored appliedDisposition rows exactly > work_commands 1`] = `
+[
+  {
+    "action_json": "{"actor":{"canvasName":"factory","nodeId":"worker-agent","seatId":"seat_0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"},"operation":"task.claim","sink":{"canvasName":"factory","nodeId":"tasks"},"sourcePredecessor":{"route":{"entityHome":"cc-inst-01","eventHome":"cc-inst-01"},"seq":"9"},"sourceQueueHome":"cc-inst-01","sourceTask":{"history":[],"id":"task-01","state":"submitted"},"targetHome":"remote-inst-01"}",
+    "entity_home": "remote-inst-01",
+    "event_home": "cc-inst-01",
+    "predecessor_entity_home": null,
+    "predecessor_event_home": null,
+    "predecessor_seq": null,
+    "record_type": "command",
+    "seq": "1",
+  },
+]
+`;
+
+exports[`SQL journal preserves stored appliedDisposition rows exactly > work_dispositions 1`] = `
+[
+  {
+    "command_entity_home": "remote-inst-01",
+    "command_event_home": "cc-inst-01",
+    "command_seq": "1",
+    "command_sha256": "90853aba62c6a727d95d41843a9067b246fe18d3ac247b86e63ba0054a0d48c4",
+    "entity_home": "remote-inst-01",
+    "event_home": "remote-inst-01",
+    "fact_entity_home": "remote-inst-01",
+    "fact_event_home": "remote-inst-01",
+    "fact_seq": "1",
+    "fact_sha256": "f2677fd0197e5014b6046ebd0494ee03f33f80c97bd97343077831b694f35f65",
+    "record_type": "disposition",
+    "rejection_message": null,
+    "rejection_reason": null,
+    "seq": "2",
+    "status": "applied",
+  },
+]
+`;
+
+exports[`SQL journal preserves stored appliedDisposition rows exactly > work_event_sequences 1`] = `
+[
+  {
+    "entity_home": "remote-inst-01",
+    "event_home": "cc-inst-01",
+    "last_seq": "1",
+  },
+  {
+    "entity_home": "remote-inst-01",
+    "event_home": "remote-inst-01",
+    "last_seq": "2",
+  },
+]
+`;
+
+exports[`SQL journal preserves stored appliedDisposition rows exactly > work_events 1`] = `
+[
+  {
+    "content_sha256": "90853aba62c6a727d95d41843a9067b246fe18d3ac247b86e63ba0054a0d48c4",
+    "entity_home": "remote-inst-01",
+    "event_home": "cc-inst-01",
+    "item_canvas_name": "factory",
+    "item_id": "task-01",
+    "item_kind": "task",
+    "item_node_id": "tasks",
+    "operation": "task.claim",
+    "origin_at": "2026-08-01T12:00:00.000Z",
+    "protocol": "junto/work/v1",
+    "received_at": "2026-08-02T13:24:56.000Z",
+    "record_type": "command",
+    "seq": "1",
+  },
+  {
+    "content_sha256": "f2677fd0197e5014b6046ebd0494ee03f33f80c97bd97343077831b694f35f65",
+    "entity_home": "remote-inst-01",
+    "event_home": "remote-inst-01",
+    "item_canvas_name": "factory",
+    "item_id": "task-01",
+    "item_kind": "task",
+    "item_node_id": "tasks",
+    "operation": "task.claim",
+    "origin_at": "2026-08-01T12:00:00.000Z",
+    "protocol": "junto/work/v1",
+    "received_at": "2026-08-02T13:24:56.000Z",
+    "record_type": "fact",
+    "seq": "1",
+  },
+  {
+    "content_sha256": "d920ba9bddbb8099698b92b88ed7c94b06554c127ef4d4848f1e9fb9b7215739",
+    "entity_home": "remote-inst-01",
+    "event_home": "remote-inst-01",
+    "item_canvas_name": "factory",
+    "item_id": "task-01",
+    "item_kind": "task",
+    "item_node_id": "tasks",
+    "operation": "task.claim",
+    "origin_at": "2026-08-01T12:00:00.000Z",
+    "protocol": "junto/work/v1",
+    "received_at": "2026-08-02T13:24:56.000Z",
+    "record_type": "disposition",
+    "seq": "2",
+  },
+]
+`;
+
+exports[`SQL journal preserves stored appliedDisposition rows exactly > work_facts 1`] = `
+[
+  {
+    "basis_authorial_content_sha256": null,
+    "basis_authorial_generation": null,
+    "basis_command_entity_home": "remote-inst-01",
+    "basis_command_event_home": "cc-inst-01",
+    "basis_command_seq": "1",
+    "basis_command_sha256": "90853aba62c6a727d95d41843a9067b246fe18d3ac247b86e63ba0054a0d48c4",
+    "basis_kind": "command",
+    "basis_projected_content_sha256": null,
+    "basis_projected_generation": null,
+    "entity_home": "remote-inst-01",
+    "event_home": "remote-inst-01",
+    "predecessor_entity_home": null,
+    "predecessor_event_home": null,
+    "predecessor_seq": null,
+    "record_type": "fact",
+    "result_json": "{"claimedBy":{"canvasName":"factory","nodeId":"worker-agent","seatId":"seat_0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"},"operation":"task.claim","previousHome":"cc-inst-01","task":{"claimedBy":"seat_0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef","history":[],"id":"task-01","state":"working"}}",
+    "seq": "1",
+  },
+]
+`;
+
+exports[`SQL journal preserves stored appliedDisposition rows exactly > work_pending_commands 1`] = `
+[
+  {
+    "claim_actor_seat_id": "seat_0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    "created_at": "2026-08-02T13:24:56.000Z",
+    "entity_home": "remote-inst-01",
+    "event_home": "cc-inst-01",
+    "item_canvas_name": "factory",
+    "item_id": "task-01",
+    "item_kind": "task",
+    "item_node_id": "tasks",
+    "operation": "task.claim",
+    "resolution_entity_home": null,
+    "resolution_event_home": null,
+    "resolution_seq": null,
+    "resolution_status": null,
+    "resolved_at": null,
+    "seq": "1",
+  },
+]
+`;
+
+exports[`SQL journal preserves stored rejectedDisposition rows exactly > work_commands 1`] = `
+[
+  {
+    "action_json": "{"actor":{"canvasName":"factory","nodeId":"worker-agent","seatId":"seat_0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"},"operation":"task.claim","sink":{"canvasName":"factory","nodeId":"tasks"},"sourcePredecessor":{"route":{"entityHome":"cc-inst-01","eventHome":"cc-inst-01"},"seq":"9"},"sourceQueueHome":"cc-inst-01","sourceTask":{"history":[],"id":"task-01","state":"submitted"},"targetHome":"remote-inst-01"}",
+    "entity_home": "remote-inst-01",
+    "event_home": "cc-inst-01",
+    "predecessor_entity_home": null,
+    "predecessor_event_home": null,
+    "predecessor_seq": null,
+    "record_type": "command",
+    "seq": "1",
+  },
+]
+`;
+
+exports[`SQL journal preserves stored rejectedDisposition rows exactly > work_dispositions 1`] = `
+[
+  {
+    "command_entity_home": "remote-inst-01",
+    "command_event_home": "cc-inst-01",
+    "command_seq": "1",
+    "command_sha256": "90853aba62c6a727d95d41843a9067b246fe18d3ac247b86e63ba0054a0d48c4",
+    "entity_home": "remote-inst-01",
+    "event_home": "remote-inst-01",
+    "fact_entity_home": null,
+    "fact_event_home": null,
+    "fact_seq": null,
+    "fact_sha256": null,
+    "record_type": "disposition",
+    "rejection_message": "Actor already has an active task claim",
+    "rejection_reason": "claim-contention",
+    "seq": "2",
+    "status": "rejected",
+  },
+]
+`;
+
+exports[`SQL journal preserves stored rejectedDisposition rows exactly > work_event_sequences 1`] = `
+[
+  {
+    "entity_home": "remote-inst-01",
+    "event_home": "cc-inst-01",
+    "last_seq": "1",
+  },
+  {
+    "entity_home": "remote-inst-01",
+    "event_home": "remote-inst-01",
+    "last_seq": "2",
+  },
+]
+`;
+
+exports[`SQL journal preserves stored rejectedDisposition rows exactly > work_events 1`] = `
+[
+  {
+    "content_sha256": "90853aba62c6a727d95d41843a9067b246fe18d3ac247b86e63ba0054a0d48c4",
+    "entity_home": "remote-inst-01",
+    "event_home": "cc-inst-01",
+    "item_canvas_name": "factory",
+    "item_id": "task-01",
+    "item_kind": "task",
+    "item_node_id": "tasks",
+    "operation": "task.claim",
+    "origin_at": "2026-08-01T12:00:00.000Z",
+    "protocol": "junto/work/v1",
+    "received_at": "2026-08-02T13:24:56.000Z",
+    "record_type": "command",
+    "seq": "1",
+  },
+  {
+    "content_sha256": "f2677fd0197e5014b6046ebd0494ee03f33f80c97bd97343077831b694f35f65",
+    "entity_home": "remote-inst-01",
+    "event_home": "remote-inst-01",
+    "item_canvas_name": "factory",
+    "item_id": "task-01",
+    "item_kind": "task",
+    "item_node_id": "tasks",
+    "operation": "task.claim",
+    "origin_at": "2026-08-01T12:00:00.000Z",
+    "protocol": "junto/work/v1",
+    "received_at": "2026-08-02T13:24:56.000Z",
+    "record_type": "fact",
+    "seq": "1",
+  },
+  {
+    "content_sha256": "12fb10da5c332ff8969aaa65898761577f14aa15870391e452edbe7a396189a0",
+    "entity_home": "remote-inst-01",
+    "event_home": "remote-inst-01",
+    "item_canvas_name": "factory",
+    "item_id": "task-01",
+    "item_kind": "task",
+    "item_node_id": "tasks",
+    "operation": "task.claim",
+    "origin_at": "2026-08-01T12:00:00.000Z",
+    "protocol": "junto/work/v1",
+    "received_at": "2026-08-02T13:24:56.000Z",
+    "record_type": "disposition",
+    "seq": "2",
+  },
+]
+`;
+
+exports[`SQL journal preserves stored rejectedDisposition rows exactly > work_facts 1`] = `
+[
+  {
+    "basis_authorial_content_sha256": null,
+    "basis_authorial_generation": null,
+    "basis_command_entity_home": "remote-inst-01",
+    "basis_command_event_home": "cc-inst-01",
+    "basis_command_seq": "1",
+    "basis_command_sha256": "90853aba62c6a727d95d41843a9067b246fe18d3ac247b86e63ba0054a0d48c4",
+    "basis_kind": "command",
+    "basis_projected_content_sha256": null,
+    "basis_projected_generation": null,
+    "entity_home": "remote-inst-01",
+    "event_home": "remote-inst-01",
+    "predecessor_entity_home": null,
+    "predecessor_event_home": null,
+    "predecessor_seq": null,
+    "record_type": "fact",
+    "result_json": "{"claimedBy":{"canvasName":"factory","nodeId":"worker-agent","seatId":"seat_0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"},"operation":"task.claim","previousHome":"cc-inst-01","task":{"claimedBy":"seat_0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef","history":[],"id":"task-01","state":"working"}}",
+    "seq": "1",
+  },
+]
+`;
+
+exports[`SQL journal preserves stored rejectedDisposition rows exactly > work_pending_commands 1`] = `
+[
+  {
+    "claim_actor_seat_id": "seat_0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    "created_at": "2026-08-02T13:24:56.000Z",
+    "entity_home": "remote-inst-01",
+    "event_home": "cc-inst-01",
+    "item_canvas_name": "factory",
+    "item_id": "task-01",
+    "item_kind": "task",
+    "item_node_id": "tasks",
+    "operation": "task.claim",
+    "resolution_entity_home": null,
+    "resolution_event_home": null,
+    "resolution_seq": null,
+    "resolution_status": null,
+    "resolved_at": null,
+    "seq": "1",
+  },
+]
+`;

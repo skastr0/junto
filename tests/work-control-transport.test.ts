@@ -348,7 +348,7 @@ describe("work control transport", () => {
 
   it.runIf(LIVE_OVERSEER_ENABLED)("binds the private Live protocol to the native occupant and fences uncorrelated or stale mutations", async () => {
     const assertCurrent = vi.fn();
-    const validate = vi.fn<NonNullable<WorkControlServerOptions["validateOverseerLive"]>>(async () => ({ assertCurrent }));
+    const validate = vi.fn<NonNullable<WorkControlServerOptions["validateOverseerLive"]>>(async () => ({ assertCurrent, assertCurrentWithin: Effect.void }));
     const bridge = vi.fn<NonNullable<WorkControlServerOptions["onOverseerLive"]>>(async () => ({ type: "idle" }));
     const execute = vi.fn<NonNullable<WorkControlServerOptions["onOverseer"]>>(async (request) => ({ ok: true, operation: request.operation, data: {} }));
     const { server, processMap } = await startTestServer({ onOverseer: execute, onOverseerLive: bridge, validateOverseerLive: validate });

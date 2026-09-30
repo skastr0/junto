@@ -44,6 +44,7 @@ import {
   stateSchemaAdvanceRequired,
 } from "./migrations";
 import { makeSqliteClient } from "./sqlite-client";
+import { installSqlCommitCallbacks } from "./sql-commit";
 
 export {
   StateEngine,
@@ -159,7 +160,8 @@ const openStateEngine = (
       let closed = false;
       const statements = new Map<string, StatementSync>();
       const semaphore = Semaphore.makeUnsafe(1);
-      let transactionOpen = false;
+      // Initialized once by the Layer before either published service can run.
+      let client: SqlClient.SqlClient;
 
       const schemaState = (() => {
         try {
@@ -260,52 +262,24 @@ const openStateEngine = (
         operation: string,
         body: (stateWriter: StateWriter) => A,
       ): Effect.Effect<A, StateEngineError> =>
-        Effect.gen(function* () {
-          const live = yield* Effect.serviceOption(OverseerLiveExecution);
-          return yield* Effect.try({
-          // Every durable write in the app funnels through here, so this is the
-          // one place that can name a slow one. Reads were already attributed
-          // (every canvas read carries a caller tag); writes were not, which is why
-          // a 286ms block during node creation had no caller on it. Free when
-          // the budget is disarmed: `withinBudget` calls straight through.
+        Effect.suspend(() => client.withTransaction(Effect.try({
+          // Temporary raw callers share the SQL lease and Effect hooks. Only
+          // their synchronous body holds the synchronous Work/budget scope.
           try: () => withinBudget(`state.${operation}`, () => {
             requireOpen();
-            if (transactionOpen) {
-              throw new Error(
-                `nested state transaction is not allowed (${operation})`,
-              );
-            }
-            // Scope first: if it throws, this engine has not yet claimed its
-            // transaction flag and stays usable.
             const closeWorkMutationScope = beginWorkMutationScope(operation);
-            transactionOpen = true;
-            database.exec("BEGIN IMMEDIATE");
             try {
-              if (Option.isSome(live)) live.value.assertCurrent(writer);
-              const before = Option.isSome(live)
-                ? writer.get("SELECT total_changes() AS n")!.n : undefined;
-              const result = body(writer);
-              if (Option.isSome(live) && writer.get("SELECT total_changes() AS n")!.n !== before) {
-                live.value.afterMutation?.(writer, operation);
-              }
-              database.exec("COMMIT");
-              return result;
-            } catch (error) {
-              try {
-                database.exec("ROLLBACK");
-              } catch {
-                // Preserve the original failure. A failed rollback leaves the
-                // engine unusable and the next operation will fail loudly.
-              }
-              throw error;
+              return body(writer);
             } finally {
               closeWorkMutationScope();
-              transactionOpen = false;
             }
           }),
           catch: (error) => stateEngineError(operation, error),
-          });
-        }).pipe(semaphore.withPermit, Effect.withSpan(`state.${operation}`));
+        }))).pipe(
+          Effect.provideService(StateTransactionOperation, operation),
+          Effect.mapError((error) => stateEngineError(operation, error)),
+          Effect.withSpan(`state.${operation}`),
+        );
 
       const chunkedWrite = <A>(
         operation: string,
@@ -381,38 +355,28 @@ const openStateEngine = (
             const nested = yield* Effect.serviceOption(sql.transactionService);
             const parent = Option.isSome(nested) ? yield* WorkMutationContext : null;
             const live = yield* Effect.serviceOption(OverseerLiveExecution);
+            const hookError = (cause: unknown) => new SqlError.SqlError({ reason: new SqlError.UnknownError({
+              cause, operation, message: cause instanceof Error ? cause.message : String(cause),
+            }) });
             return yield* withTransaction(Effect.gen(function* () {
               const scope: WorkMutationScope = {
                 operation,
                 journaled: parent?.journaled ?? false,
                 unjournaled: parent?.unjournaled,
               };
-              const before = yield* Effect.try({
-                try: () => {
-                  if (Option.isNone(live)) return undefined;
-                  live.value.assertCurrent(writer);
-                  return writer.get("SELECT total_changes() AS n")!.n;
-                },
-                catch: (cause) => new SqlError.SqlError({ reason: new SqlError.UnknownError({
-                  cause, operation, message: cause instanceof Error ? cause.message : String(cause),
-                }) }),
-              });
+              if (Option.isSome(live)) yield* live.value.assertCurrentWithin.pipe(Effect.mapError(hookError));
+              const before = Option.isSome(live) ? (yield* sql`SELECT total_changes() AS n`)[0]!.n : undefined;
               const result = yield* body.pipe(Effect.provideService(WorkMutationContext, scope));
-              yield* Effect.try({
-                try: () => {
-                  if (Option.isSome(live) && writer.get("SELECT total_changes() AS n")!.n !== before) {
-                    live.value.afterMutation?.(writer, operation);
-                  }
-                },
-                catch: (cause) => new SqlError.SqlError({ reason: new SqlError.UnknownError({
-                  cause, operation, message: cause instanceof Error ? cause.message : String(cause),
-                }) }),
-              });
+              if (Option.isSome(live) && live.value.afterMutation && (yield* sql`SELECT total_changes() AS n`)[0]!.n !== before) {
+                yield* live.value.afterMutation(operation).pipe(Effect.mapError(hookError));
+              }
               if (parent) parent.journaled ||= scope.journaled;
               return result;
             }));
           });
-          return Object.assign(sql, { withTransaction: guardedTransaction });
+          client = Object.assign(sql, { withTransaction: guardedTransaction });
+          installSqlCommitCallbacks(sql);
+          return client;
         }),
         close: () => {
           if (closed) return;

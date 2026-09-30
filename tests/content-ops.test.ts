@@ -9,8 +9,10 @@ import {
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Effect, ManagedRuntime } from "effect";
-import { afterEach, describe, expect, it } from "vitest";
+import { Effect, Layer, ManagedRuntime } from "effect";
+import { SqlClient } from "effect/unstable/sql";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import * as contentIntegrity from "../src/main/junto/content/integrity";
 import {
   assertRestoredContentCoherent,
   verifyContentSnapshotCoherence,
@@ -19,9 +21,7 @@ import {
   admitContentWrite,
   DEFAULT_CONTENT_DISK_RESERVE_BYTES,
 } from "../src/main/junto/content/disk-admission";
-import {
-  upsertContentTransfer,
-} from "../src/main/junto/content/manifest";
+import { ContentManifest } from "../src/main/junto/content/manifest";
 import {
   contentObjectPath,
   contentPartialPath,
@@ -40,12 +40,14 @@ import {
   makeStateEngineLive,
   StateEngine,
 } from "../src/main/junto/state/engine";
+import { StateTransactionOperation } from "../src/main/junto/state/service";
+import { OverseerLiveExecution } from "../src/main/junto/overseer/live/execution";
 
 const roots: string[] = [];
-const runtimes: Array<ManagedRuntime.ManagedRuntime<StateEngine, unknown>> =
-  [];
+const runtimes: Array<ManagedRuntime.ManagedRuntime<StateEngine, unknown>> = [];
 
 afterEach(async () => {
+  vi.restoreAllMocks();
   while (runtimes.length > 0) {
     await runtimes.pop()!.dispose();
   }
@@ -64,10 +66,14 @@ const sha256Hex = (bytes: Buffer | string): string =>
   createHash("sha256").update(bytes).digest("hex");
 
 const openEngine = async (dbPath: string) => {
-  const runtime = ManagedRuntime.make(makeStateEngineLive(dbPath));
+  const runtime = ManagedRuntime.make(
+    ContentManifest.layer.pipe(Layer.provideMerge(makeStateEngineLive(dbPath))),
+  );
   runtimes.push(runtime);
   const state = await runtime.runPromise(StateEngine);
-  return { runtime, state };
+  const sql = await runtime.runPromise(SqlClient.SqlClient);
+  const manifest = await runtime.runPromise(ContentManifest);
+  return { runtime, state, sql, manifest };
 };
 
 describe("content disk admission", () => {
@@ -101,9 +107,9 @@ describe("content disk admission", () => {
   it("put fails closed with disk-low before streaming", async () => {
     const home = await tempRoot("junto-content-disk-");
     const dbPath = join(home, "junto.db");
-    const { state } = await openEngine(dbPath);
+    const { sql, manifest } = await openEngine(dbPath);
     const root = contentStoreRoot(home);
-    const service = createContentService(state, root);
+    const service = createContentService(sql, manifest, root);
 
     const result = await Effect.runPromise(
       service
@@ -152,9 +158,9 @@ describe("content integrity + GC + snapshot", () => {
   it("integrity verifies referenced objects and reports missing/corrupt", async () => {
     const home = await tempRoot("junto-content-integrity-");
     const dbPath = join(home, "junto.db");
-    const { state } = await openEngine(dbPath);
+    const { sql, manifest } = await openEngine(dbPath);
     const root = contentStoreRoot(home);
-    const service = createContentService(state, root);
+    const service = createContentService(sql, manifest, root);
 
     const payload = Buffer.from("integrity-ok");
     const put = await Effect.runPromise(
@@ -186,12 +192,46 @@ describe("content integrity + GC + snapshot", () => {
     ).toBe(true);
   });
 
+  it("retains owner transaction attribution without opening read transactions", async () => {
+    const home = await tempRoot("junto-content-attribution-");
+    const { sql, manifest } = await openEngine(join(home, "junto.db"));
+    const service = createContentService(sql, manifest, contentStoreRoot(home));
+    const guarded: string[] = [];
+    const mutated: string[] = [];
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const put = yield* service.put({
+          source: Buffer.from("attributed"),
+          mediaType: "text/plain",
+        });
+        yield* service.availability(put.ref);
+        yield* service.openForRead(put.ref);
+        yield* service.integrityCheck();
+        yield* service.collectGarbage();
+        yield* service.collectGarbage({ dryRun: false, orphanGraceMs: 0 });
+      }).pipe(
+        Effect.provideService(OverseerLiveExecution, {
+          assertCurrent: () => undefined,
+          assertCurrentWithin: Effect.gen(function* () {
+            guarded.push(yield* StateTransactionOperation);
+          }),
+          afterMutation: (operation) =>
+            Effect.sync(() => {
+              mutated.push(operation);
+            }),
+        }),
+      ),
+    );
+    expect(guarded).toEqual(["content.put", "content.gc.sweep"]);
+    expect(mutated).toEqual(["content.put", "content.gc.sweep"]);
+  });
+
   it("GC never deletes referenced or active-transfer digests", async () => {
     const home = await tempRoot("junto-content-gc-");
     const dbPath = join(home, "junto.db");
-    const { state } = await openEngine(dbPath);
+    const { state, sql, manifest } = await openEngine(dbPath);
     const root = contentStoreRoot(home);
-    const service = createContentService(state, root);
+    const service = createContentService(sql, manifest, root);
 
     const kept = await Effect.runPromise(
       service.put({
@@ -218,16 +258,16 @@ describe("content integrity + GC + snapshot", () => {
     const protectedPayload = Buffer.from("transfer-protect");
     const protectedDigest = sha256Hex(protectedPayload);
     await Effect.runPromise(
-      state.transaction("seed-transfer", (writer) => {
-        upsertContentTransfer(writer, {
+      sql.withTransaction(
+        manifest.upsertContentTransfer({
           sha256: protectedDigest,
           byteLength: protectedPayload.length,
           state: "receiving",
           direction: "inbound",
           createdAt: "2000-01-01T00:00:00.000Z",
           updatedAt: "2000-01-01T00:00:00.000Z",
-        });
-      }),
+        }),
+      ),
     );
     // Publish the transfer-protected object without a content_refs row.
     await Effect.runPromise(
@@ -243,16 +283,8 @@ describe("content integrity + GC + snapshot", () => {
 
     // Age the unreferenced orphan object so grace expires.
     await Effect.runPromise(
-      state.transaction("age-orphan", (writer) => {
-        writer.run(
-          `UPDATE content_objects SET created_at = ?, verified_at = ? WHERE sha256 = ?`,
-          [
-            "2000-01-01T00:00:00.000Z",
-            "2000-01-01T00:00:00.000Z",
-            orphan.ref.sha256,
-          ],
-        );
-      }),
+      sql.withTransaction(sql`UPDATE content_objects SET created_at = '2000-01-01T00:00:00.000Z',
+        verified_at = '2000-01-01T00:00:00.000Z' WHERE sha256 = ${orphan.ref.sha256}`),
     );
 
     // Stale partial (not transfer-protected).
@@ -290,7 +322,8 @@ describe("content integrity + GC + snapshot", () => {
     ).toBe(true);
     expect(
       report.actions.some(
-        (a) => a.kind === "stale-partial" && a.path === stalePartial && a.deleted,
+        (a) =>
+          a.kind === "stale-partial" && a.path === stalePartial && a.deleted,
       ),
     ).toBe(true);
 
@@ -300,8 +333,7 @@ describe("content integrity + GC + snapshot", () => {
     expect(integrity.referencedCoherent).toBe(true);
     expect(
       integrity.findings.some(
-        (f) =>
-          f.kind === "referenced-missing" && f.sha256 === kept.ref.sha256,
+        (f) => f.kind === "referenced-missing" && f.sha256 === kept.ref.sha256,
       ),
     ).toBe(false);
 
@@ -317,12 +349,94 @@ describe("content integrity + GC + snapshot", () => {
     expect(() => readFileSync(stalePartial)).toThrow();
   });
 
+  it.each([
+    {
+      kind: "domain",
+      failure: new ContentStoreError("symlink", "injected unsafe path"),
+      rollsBack: false,
+    },
+    {
+      kind: "filesystem",
+      failure: new Error("injected filesystem failure"),
+      rollsBack: true,
+    },
+  ])(
+    "preserves GC transaction behavior on a late $kind failure",
+    async ({ failure, rollsBack }) => {
+      const home = await tempRoot("junto-content-gc-failure-");
+      const { sql, manifest } = await openEngine(join(home, "junto.db"));
+      const service = createContentService(
+        sql,
+        manifest,
+        contentStoreRoot(home),
+      );
+      const put = await Effect.runPromise(
+        service.put({
+          source: Buffer.from("unreferenced sweep candidate"),
+          mediaType: "text/plain",
+        }),
+      );
+      vi.spyOn(
+        contentIntegrity,
+        "listPublishedContentObjectDigests",
+      ).mockImplementation(() => {
+        throw failure;
+      });
+
+      await expect(
+        Effect.runPromise(
+          service.collectGarbage({
+            dryRun: false,
+            orphanGraceMs: 0,
+          }),
+        ),
+      ).rejects.toBeInstanceOf(ContentStoreError);
+      // Disk unlink precedes the ledger deletion and cannot be rolled back.
+      expect(() => readFileSync(put.path)).toThrow();
+      expect(
+        await Effect.runPromise(sql`SELECT sha256 FROM content_objects`),
+      ).toEqual(rollsBack ? [{ sha256: put.ref.sha256 }] : []);
+      expect(
+        await Effect.runPromise(sql`SELECT sha256 FROM content_receipts`),
+      ).toEqual(rollsBack ? [{ sha256: put.ref.sha256 }] : []);
+    },
+  );
+
+  it("rolls GC ledger deletions back on SQL failure", async () => {
+    const home = await tempRoot("junto-content-gc-sql-failure-");
+    const { sql, manifest } = await openEngine(join(home, "junto.db"));
+    const service = createContentService(sql, manifest, contentStoreRoot(home));
+    const put = await Effect.runPromise(
+      service.put({
+        source: Buffer.from("receipt must survive aborted object deletion"),
+        mediaType: "text/plain",
+      }),
+    );
+    await Effect.runPromise(sql`CREATE TEMP TRIGGER fail_gc BEFORE DELETE ON content_objects
+      BEGIN SELECT RAISE(ABORT, 'injected delete failure'); END`);
+
+    await expect(
+      Effect.runPromise(
+        service.collectGarbage({
+          dryRun: false,
+          orphanGraceMs: 0,
+        }),
+      ),
+    ).rejects.toMatchObject({ _tag: "ContentManifestError", code: "sql" });
+    expect(
+      await Effect.runPromise(sql`SELECT sha256 FROM content_objects`),
+    ).toEqual([{ sha256: put.ref.sha256 }]);
+    expect(
+      await Effect.runPromise(sql`SELECT sha256 FROM content_receipts`),
+    ).toEqual([{ sha256: put.ref.sha256 }]);
+  });
+
   it("snapshot + restored DB prove no dangling referenced objects", async () => {
     const home = await tempRoot("junto-content-snap-");
     const dbPath = join(home, "junto.db");
-    const { state } = await openEngine(dbPath);
+    const { state, sql, manifest } = await openEngine(dbPath);
     const root = contentStoreRoot(home);
-    const service = createContentService(state, root);
+    const service = createContentService(sql, manifest, root);
 
     const a = await Effect.runPromise(
       service.put({
@@ -351,37 +465,27 @@ describe("content integrity + GC + snapshot", () => {
     );
 
     const stateBackup = await Effect.runPromise(state.backup());
-    const snapshot = await Effect.runPromise(
-      service.snapshot({ stateBackup }),
-    );
+    const snapshot = await Effect.runPromise(service.snapshot({ stateBackup }));
 
     expect(snapshot.objectCount).toBe(2);
     expect(snapshot.stateBackup?.path).toBe(stateBackup.path);
-    expect(verifyContentSnapshotCoherence(snapshot.path, { fullHash: true }).ok).toBe(
-      true,
-    );
+    expect(
+      verifyContentSnapshotCoherence(snapshot.path, { fullHash: true }).ok,
+    ).toBe(true);
 
     // Simulate restore: open the VACUUM backup DB + content snapshot.
-    const restoredRuntime = ManagedRuntime.make(
-      makeStateEngineLive(stateBackup.path),
+    const { sql: restoredSql, manifest: restored } = await openEngine(
+      stateBackup.path,
     );
-    runtimes.push(restoredRuntime);
-    const restored = await restoredRuntime.runPromise(StateEngine);
     await Effect.runPromise(
-      restored.read("assert-coherent", (reader) => {
-        assertRestoredContentCoherent(reader, snapshot.path);
-        return null;
-      }),
+      restoredSql.withTransaction(
+        assertRestoredContentCoherent(restored, snapshot.path),
+      ),
     );
 
     // Both digests present under snapshot tree.
     for (const digest of [a.ref.sha256, b.ref.sha256]) {
-      const path = join(
-        snapshot.path,
-        "sha256",
-        digest.slice(0, 2),
-        digest,
-      );
+      const path = join(snapshot.path, "sha256", digest.slice(0, 2), digest);
       expect(readFileSync(path).length).toBeGreaterThan(0);
     }
   });
@@ -389,9 +493,9 @@ describe("content integrity + GC + snapshot", () => {
   it("snapshot refuses when a referenced object is missing", async () => {
     const home = await tempRoot("junto-content-snap-miss-");
     const dbPath = join(home, "junto.db");
-    const { state } = await openEngine(dbPath);
+    const { sql, manifest } = await openEngine(dbPath);
     const root = contentStoreRoot(home);
-    const service = createContentService(state, root);
+    const service = createContentService(sql, manifest, root);
 
     const put = await Effect.runPromise(
       service.put({
@@ -421,9 +525,9 @@ describe("content integrity + GC + snapshot", () => {
   it("dry-run GC reports candidates without deleting", async () => {
     const home = await tempRoot("junto-content-gc-dry-");
     const dbPath = join(home, "junto.db");
-    const { state } = await openEngine(dbPath);
+    const { state, sql, manifest } = await openEngine(dbPath);
     const root = contentStoreRoot(home);
-    const service = createContentService(state, root);
+    const service = createContentService(sql, manifest, root);
 
     const orphan = await Effect.runPromise(
       service.put({
@@ -432,12 +536,8 @@ describe("content integrity + GC + snapshot", () => {
       }),
     );
     await Effect.runPromise(
-      state.transaction("age", (writer) => {
-        writer.run(
-          `UPDATE content_objects SET created_at = ? WHERE sha256 = ?`,
-          ["2000-01-01T00:00:00.000Z", orphan.ref.sha256],
-        );
-      }),
+      sql.withTransaction(sql`UPDATE content_objects SET created_at = '2000-01-01T00:00:00.000Z'
+        WHERE sha256 = ${orphan.ref.sha256}`),
     );
 
     const report = await Effect.runPromise(
@@ -456,8 +556,8 @@ describe("content integrity + GC + snapshot", () => {
       ),
     ).toBe(true);
     // File still present.
-    expect(readFileSync(contentObjectPath(root, orphan.ref.sha256)).toString()).toBe(
-      "dry-orphan",
-    );
+    expect(
+      readFileSync(contentObjectPath(root, orphan.ref.sha256)).toString(),
+    ).toBe("dry-orphan");
   });
 });

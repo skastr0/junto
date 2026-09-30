@@ -5,6 +5,7 @@ import { Effect, Layer, ManagedRuntime } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import { afterEach, describe, expect, it } from "vitest";
 import { CanvasesLive, CanvasesService } from "../src/main/junto/canvases";
+import { CanvasRecords, CanvasRecordsLive } from "../src/main/junto/canvas/records";
 import { makeContentServiceLive } from "../src/main/junto/content/service";
 import { makeInstallOpsLive } from "../src/main/junto/install-ops/engine";
 import { executeOverseerCanvas } from "../src/main/junto/overseer/canvas";
@@ -16,7 +17,7 @@ import { SettingsLive } from "../src/main/junto/settings/service";
 import { makeStateEngineLive } from "../src/main/junto/state/engine";
 import { StationFleetTargetRepositoryLive } from "../src/main/junto/station/fleet-target-repository";
 import { StationRepositoryLive } from "../src/main/junto/station/repository";
-import { WorkRepositoryLive } from "../src/main/junto/work/repository";
+import { WorkProjectionReader, WorkProjectionReaderLive, WorkRepository, WorkRepositoryLive } from "../src/main/junto/work/repository";
 import { runOverseerTurn } from "../src/overseer-host/session";
 import { type CanvasDoc } from "../src/shared/canvas";
 import { formatNodeRef } from "../src/shared/node-ref";
@@ -47,6 +48,7 @@ const boot = async () => {
   process.env.JUNTO_CANVASES_DIR = join(root, "canvases");
   const repositories = Layer.provideMerge(Layer.mergeAll(
     WorkRepositoryLive, StationRepositoryLive, StationFleetTargetRepositoryLive, SettingsLive,
+    CanvasRecordsLive, WorkProjectionReaderLive,
     makeContentServiceLive({ root: join(root, "content"), skipInlineMediaMigration: true }),
   ), Layer.mergeAll(makeStateEngineLive(join(root, "state.db")), makeInstallOpsLive(join(root, "install-ops.db"))));
   const runtime = ManagedRuntime.make(Layer.provideMerge(CanvasesLive, repositories));
@@ -68,6 +70,8 @@ const boot = async () => {
   const revisions = new Map<string, string>();
   const service = createLiveSessionService({
     repository, run: (effect) => runtime.runPromise(effect),
+    canvasRecords: await runtime.runPromise(CanvasRecords),
+    workProjection: await runtime.runPromise(WorkProjectionReader),
     settingsService: { get: Effect.succeed(defaultSettings()), resolveProviders: Effect.succeed({ openai: { apiKey: "test-key" } }) },
     resolveOccupant: async () => currentIdentity,
     subscribeAuthorityChanges: (listener) => { authorityListener = listener; return () => { authorityListener = undefined; }; },
@@ -236,6 +240,75 @@ describe("Live POC with the real canvas and durable journal", () => {
     await expect(test.execute(request, constraint)).rejects.toThrow("Canvas changed after this request was captured");
     expect((await test.graph()).revision).toBe(operatorState.revision);
     expect((await test.graph()).doc.nodes.find((node) => node.id === "first")).toMatchObject({ x: 777, y: 88 });
+  });
+
+  it("checks durable cancellation even when the in-memory dispatch fence still passes", async () => {
+    const test = await boot();
+    const run = await test.enqueue("Move the first note", "durable-cancel");
+    const request = test.move(run);
+    const constraint = await test.service.validateOperation(request, identity);
+    const before = await test.graph();
+    await test.runtime.runPromise(test.repository.setRequestStatus(run.requestId, run.intentRevision, "cancelled"));
+    expect(() => constraint.assertCurrent()).not.toThrow();
+    await expect(test.execute(request, constraint)).rejects.toThrow("Live request intent is no longer current");
+    expect((await test.graph()).revision).toBe(before.revision);
+    expect(await test.runtime.runPromise(test.repository.getOperation(request.live!.operationId))).toMatchObject({ status: "dispatched" });
+  });
+
+  it("rolls back when authority is revoked after the owner writes but before its receipt", async () => {
+    const test = await boot();
+    const run = await test.enqueue("Move the first note", "revoke-during-owner");
+    const request = test.move(run);
+    const constraint = await test.service.validateOperation(request, identity);
+    const before = await test.graph();
+    await expect(test.execute(request, {
+      ...constraint,
+      afterMutation: (name) => Effect.gen(function* () {
+        test.authority(undefined);
+        yield* Effect.yieldNow;
+        yield* constraint.afterMutation!(name);
+      }),
+    })).rejects.toThrow("authority is no longer active");
+    expect((await test.graph()).revision).toBe(before.revision);
+    expect(await test.runtime.runPromise(test.repository.getOperation(request.live!.operationId))).not.toMatchObject({ status: "applied" });
+  });
+
+  it("rejects a changed Work revision while the authorial canvas revision stays current", async () => {
+    const test = await boot();
+    const run = await test.enqueue("Move the first note", "work-changed");
+    const request = test.move(run);
+    const constraint = await test.service.validateOperation(request, identity);
+    const before = await test.graph();
+    const work = await test.runtime.runPromise(WorkRepository);
+    await test.runtime.runPromise(work.markBoardRead({ sink: { canvasName: "factory", nodeId: "first" },
+      topicId: "inspected", principalKey: "operator", lastReadPosition: 0 }));
+    const after = await test.graph();
+    expect(after.revision).toBe(before.revision);
+    expect(after.workRevision).not.toBe(before.workRevision);
+    expect(() => constraint.assertCurrent()).not.toThrow();
+    await expect(test.execute(request, constraint)).rejects.toThrow("Work changed after this request was captured");
+    expect((await test.graph()).revision).toBe(before.revision);
+    expect(await test.runtime.runPromise(test.repository.getOperation(request.live!.operationId))).toMatchObject({ status: "dispatched" });
+  });
+
+  it("rolls back the graph, applied receipt and journal event when a later participant fails", async () => {
+    const test = await boot();
+    const run = await test.enqueue("Move the first note", "receipt-rollback");
+    const request = test.move(run);
+    const constraint = await test.service.validateOperation(request, identity);
+    const before = await test.graph();
+    const events = await test.runtime.runPromise(test.repository.listEvents(test.sessionId));
+    await expect(test.execute(request, {
+      ...constraint,
+      afterMutation: (name) => Effect.gen(function* () {
+        yield* constraint.afterMutation!(name);
+        expect(yield* test.repository.getOperation(request.live!.operationId)).toMatchObject({ status: "applied" });
+        return yield* Effect.fail(new Error("later participant rejected"));
+      }),
+    })).rejects.toThrow("later participant rejected");
+    expect((await test.graph()).revision).toBe(before.revision);
+    expect(await test.runtime.runPromise(test.repository.getOperation(request.live!.operationId))).toMatchObject({ status: "dispatched" });
+    expect(await test.runtime.runPromise(test.repository.listEvents(test.sessionId))).toEqual(events);
   });
 
   it("rejects worker dispatch at main admission even if a host submits an assigned operation id", async () => {

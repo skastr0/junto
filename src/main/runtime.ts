@@ -38,6 +38,7 @@ import { termControlSocketPath } from "@shared/term-control";
 import { CodexLive, CodexService } from "./services/codex";
 import { AppInfoLive, AppInfoService } from "./services/app-info";
 import { CanvasesLive, CanvasesService } from "./junto/canvases";
+import { CanvasRecordsLive } from "./junto/canvas/records";
 import { ChatServiceFromHermesLive, HermesPlaneLive } from "./junto/hermes/plane";
 import { HermesTransportLive } from "./junto/hermes/transport";
 import { ActorSeatOccupyLive } from "./junto/term/actor-seat-occupy-live";
@@ -59,7 +60,7 @@ import { SeatGuidanceRepositoryLive } from "./junto/seat-guidance/repository";
 import { SeatSessionRepositoryLive } from "./junto/seat-sessions/repository";
 import { ProfileRepositoryLive } from "./junto/profiles/repository";
 import { WorkLive } from "./junto/work/service";
-import { WorkRepositoryLive } from "./junto/work/repository";
+import { WorkProjectionReaderLive, WorkRepositoryLive } from "./junto/work/repository";
 import { CrewRepositoryLive } from "./junto/work/crew-repository";
 import { makeContentServiceLive } from "./junto/content/service";
 import { InstallOpsLive } from "./junto/install-ops/engine";
@@ -138,6 +139,8 @@ const StateRepositoriesLive = Layer.provideMerge(
     PortraitOverrideRepositoryLive,
     CompanionDeviceRepositoryLive,
     WorkRepositoryLive,
+    WorkProjectionReaderLive,
+    CanvasRecordsLive,
     CrewRepositoryLive,
     SquadRepositoryLive,
     SeatGuidanceRepositoryLive,
