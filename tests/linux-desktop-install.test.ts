@@ -1,8 +1,10 @@
 import { createPackage } from "@electron/asar";
 import { createHash, generateKeyPairSync } from "node:crypto";
+import { WriteStream } from "node:fs";
 import { chmod, cp, link, lstat, mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { finished } from "node:stream/promises";
 import { gzipSync } from "node:zlib";
 import { Header } from "tar";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -86,7 +88,8 @@ const makeAsar = async (root: string, version: string, change?: "version" | "sou
   await writeFile(join(directory, "out/main/index.js"), main);
   await writeFile(join(directory, "out/package-runtime-provenance.json"), JSON.stringify({ schema: "junto/package-runtime-provenance/v2", product: "Junto", runtime: "electron-main", appVersion: version, sourceCommit: change === "source" ? "c".repeat(40) : SOURCE, buildIdentity, state: {}, payload: { packagedPath: "out/main/index.js", bytes: main.length, sha256: change === "payload" ? "0".repeat(64) : sha256(main) } }));
   const path = `${directory}.asar`;
-  await createPackage(directory, path);
+  // ASAR 3.4.1 returns the ended output stream before its buffered writes finish.
+  await finished(await createPackage(directory, path));
   return readFile(path);
 };
 
@@ -109,6 +112,20 @@ const stage = (input: Awaited<ReturnType<typeof fixture>>) => stageLinuxDesktopR
 const active = (home: string) => join(home, ".local/bin/junto-desktop");
 
 describe("rootless Linux desktop installation", () => {
+  it("finishes buffered ASAR fixture writes before staging the archive", async () => {
+    const write = WriteStream.prototype._write;
+    const writev = WriteStream.prototype._writev!;
+    vi.spyOn(WriteStream.prototype, "_write").mockImplementation(function (this: WriteStream, ...args) {
+      setTimeout(() => write.apply(this, args), 25);
+    });
+    vi.spyOn(WriteStream.prototype, "_writev").mockImplementation(function (this: WriteStream, ...args) {
+      setTimeout(() => writev.apply(this, args), 25);
+    });
+    const input = await fixture();
+    const candidate = await stage(input);
+    expect(candidate.archiveSha256).toBe(sha256(input.bytes));
+  });
+
   it("unmocked first install rejects an attacker-signed tarball before extraction", async () => {
     const version = "0.3.0";
     const input = await fixture({
