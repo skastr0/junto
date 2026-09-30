@@ -6,6 +6,7 @@ import { SqlClient } from "effect/unstable/sql";
 import { expect, test, vi } from "vitest";
 import { makeStateEngineLive, StateEngine } from "../src/main/junto/state/engine";
 import { StateTransactionOperation } from "../src/main/junto/state/service";
+import { withSqlRead } from "../src/main/junto/state/sql-read";
 import { OverseerLiveExecution } from "../src/main/junto/overseer/live/execution";
 import { WorkMutationContext, unjournaledWorkMutationEffect } from "../src/main/junto/work/mutation-seam";
 
@@ -20,9 +21,11 @@ test("StateEngine publishes the same migrated, scoped connection as SqlClient", 
       // TEMP state is connection-local: a second opener cannot see this table.
       yield* sql`CREATE TEMP TABLE connection_probe (n INTEGER)`;
       yield* sql`INSERT INTO connection_probe VALUES (17)`;
-      expect(yield* engine.read("sql.connection", (reader) => reader.all("SELECT n FROM connection_probe")))
+      const shared = yield* SqlClient.SqlClient;
+      expect(shared).toBe(sql);
+      expect(yield* withSqlRead(shared, shared`SELECT n FROM connection_probe`))
         .toEqual([{ n: 17 }]);
-      yield* engine.transaction("sql.legacy", (writer) => writer.run("INSERT INTO connection_probe VALUES (29)"));
+      yield* shared.withTransaction(shared`INSERT INTO connection_probe VALUES (29)`);
       expect(yield* sql`SELECT n FROM connection_probe ORDER BY n`).toEqual([{ n: 17 }, { n: 29 }]);
     }));
     await runtime.dispose();
@@ -34,7 +37,7 @@ test("StateEngine publishes the same migrated, scoped connection as SqlClient", 
   }
 });
 
-test("legacy reads, writes and backups wait for the SQL transaction lease", async () => {
+test("SQL reads, writes and backups wait for the transaction lease", async () => {
   const root = await mkdtemp(join(tmpdir(), "junto-sql-engine-"));
   const runtime = ManagedRuntime.make(makeStateEngineLive(join(root, "junto.db")));
   try {
@@ -51,9 +54,9 @@ test("legacy reads, writes and backups wait for the SQL transaction lease", asyn
         return yield* Effect.fail("rollback");
       })).pipe(Effect.result, Effect.forkChild);
       yield* Deferred.await(entered);
-      const read = yield* engine.read("sql.concurrent-read", (reader) => reader.all("SELECT n FROM connection_probe"))
+      const read = yield* withSqlRead(sql, sql`SELECT n FROM connection_probe`)
         .pipe(Effect.forkChild);
-      const write = yield* engine.transaction("sql.concurrent-write", (writer) => writer.run("INSERT INTO connection_probe VALUES (43)"))
+      const write = yield* sql.withTransaction(sql`INSERT INTO connection_probe VALUES (43)`)
         .pipe(Effect.forkChild);
       const backup = yield* engine.backup().pipe(Effect.forkChild);
       yield* Effect.yieldNow;
@@ -136,7 +139,7 @@ test("caught journal-free failures retain journal admission without leaking the 
   }
 });
 
-test.each(["SQL", "legacy"])("%s transactions fence live execution and commit its receipt atomically", async (owner) => {
+test("SQL transactions fence live execution and commit its receipt atomically", async () => {
   const root = await mkdtemp(join(tmpdir(), "junto-sql-engine-"));
   const runtime = ManagedRuntime.make(makeStateEngineLive(join(root, "junto.db")));
   try {
@@ -150,10 +153,7 @@ test.each(["SQL", "legacy"])("%s transactions fence live execution and commit it
         yield* Effect.yieldNow;
         yield* sql`INSERT INTO connection_probe VALUES (73)`;
       }));
-      const engine = yield* StateEngine;
-      const ownerWrite: Effect.Effect<unknown, unknown> = owner === "SQL" ? sql.withTransaction(sql`INSERT INTO connection_probe VALUES (67)`) :
-        engine.transaction("test.receipt", (writer) => writer.run("INSERT INTO connection_probe VALUES (67)"));
-      const write = ownerWrite.pipe(
+      const write = sql.withTransaction(sql`INSERT INTO connection_probe VALUES (67)`).pipe(
         Effect.provideService(OverseerLiveExecution, { assertCurrent,
           assertCurrentWithin: Effect.suspend(assertCurrentWithin), afterMutation }),
         Effect.provideService(StateTransactionOperation, "test.receipt"),
@@ -172,11 +172,6 @@ test.each(["SQL", "legacy"])("%s transactions fence live execution and commit it
       expect(yield* Effect.result(write)).toMatchObject({ _tag: "Failure", failure: { message: "intent revoked" } });
       expect(yield* sql`SELECT n FROM connection_probe ORDER BY n`).toEqual([{ n: 67 }, { n: 73 }]);
       expect(afterMutation).toHaveBeenCalledTimes(2);
-      if (owner === "legacy") {
-        const rejected = new Error("raw body rejected");
-        expect(yield* Effect.result(engine.transaction("test.raw-error", () => { throw rejected; })))
-          .toMatchObject({ _tag: "Failure", failure: { cause: rejected, message: rejected.message } });
-      }
     }));
   } finally {
     await runtime.dispose();

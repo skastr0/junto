@@ -1,11 +1,12 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Layer, ManagedRuntime, Schema } from "effect";
+import { Effect, Layer, ManagedRuntime, Schema } from "effect";
+import { SqlClient } from "effect/unstable/sql";
 import { afterEach, describe, expect, it } from "vitest";
 import { CanvasesLive, CanvasesService } from "../src/main/junto/canvases";
 import { CanvasEntityRepositoryLive } from "../src/main/junto/entities/repository";
-import { makeStateEngineLive, StateEngine } from "../src/main/junto/state/engine";
+import { makeStateEngineLive } from "../src/main/junto/state/engine";
 import { mailboxMessageDeliveryId, mailboxMessageReactId, mailboxMessageReadId } from "../src/main/junto/work/mailbox-receipts";
 import { WorkRepository, WorkRepositoryLive } from "../src/main/junto/work/repository";
 import type { CanvasDoc } from "../src/shared/canvas";
@@ -54,14 +55,14 @@ const openFixture = async () => {
     ),
   ));
   runtimes.push(runtime);
-  const state = await runtime.runPromise(StateEngine);
-  await runtime.runPromise(state.transaction("test.crew-projection.installation", (writer) => {
-    writer.run("INSERT INTO station_known_installations(installation_id, registered_at) VALUES (?, ?)", [INSTALLATION, iso(0)]);
-    writer.run("INSERT INTO station_installation(singleton, installation_id, created_at) VALUES (1, ?, ?)", [INSTALLATION, iso(0)]);
-    writer.run(`INSERT INTO station_configuration(singleton, role, host_id, agent_host_id,
+  const sql = await runtime.runPromise(SqlClient.SqlClient);
+  await runtime.runPromise(sql.withTransaction(Effect.gen(function* () {
+    yield* sql`INSERT INTO station_known_installations(installation_id, registered_at) VALUES (${INSTALLATION}, ${iso(0)})`;
+    yield* sql`INSERT INTO station_installation(singleton, installation_id, created_at) VALUES (1, ${INSTALLATION}, ${iso(0)})`;
+    yield* sql`INSERT INTO station_configuration(singleton, role, host_id, agent_host_id,
       command_center_installation_id, supervised_preferred, configured_at)
-      VALUES (1, 'command-center', 'local', NULL, NULL, 1, ?)`, [iso(0)]);
-  }));
+      VALUES (1, 'command-center', 'local', NULL, NULL, 1, ${iso(0)})`;
+  })));
   const canvases = await runtime.runPromise(CanvasesService);
   const work = await runtime.runPromise(WorkRepository);
   await runtime.runPromise(canvases.write(CANVAS, document));

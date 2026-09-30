@@ -2,6 +2,10 @@ import type { DatabaseSync, StatementSync } from "node:sqlite";
 import { type Context, Effect, Schema, Semaphore, Stream } from "effect";
 import { SqlClient, SqlConnection, SqlError, Statement } from "effect/unstable/sql";
 import { SqlReadLeases } from "./sql-read";
+import { StateTransactionOperation } from "./service";
+import { withinBudget } from "../observability/main-thread-budget";
+
+const transactionControl = /^\s*(?:BEGIN|COMMIT|ROLLBACK|SAVEPOINT|RELEASE)\b/i;
 
 const sqliteError = (operation: string, cause: unknown): SqlError.SqlError => {
   // Node names SQLite's extended result code errcode; Effect expects errno.
@@ -45,7 +49,7 @@ export const makeSqliteClient = Effect.fn("state.makeSqliteClient")(function* (
     transformRows: Parameters<SqlConnection.Connection["execute"]>[2],
     cached = true,
   ) => Effect.withFiber((fiber) => Effect.try({
-    try: () => {
+    try: () => withinBudget(`state.${fiber.getRef(StateTransactionOperation)}`, () => {
       beforeExecute?.(sql, params, fiber.context);
       const statement = prepare(sql, cached);
       statement.setReadBigInts(fiber.getRef(SqlClient.SafeIntegers));
@@ -56,13 +60,13 @@ export const makeSqliteClient = Effect.fn("state.makeSqliteClient")(function* (
       }
       const rows = statement.all(...values);
       return transformRows ? transformRows(rows) : rows;
-    },
+    }, undefined, !transactionControl.test(sql)),
     catch: (cause) => sqliteError("execute", cause),
   }));
 
   const executeValues = (sql: string, params: ReadonlyArray<unknown>, cached = true) =>
     Effect.withFiber((fiber) => Effect.try({
-      try: () => {
+      try: () => withinBudget(`state.${fiber.getRef(StateTransactionOperation)}`, () => {
         beforeExecute?.(sql, params, fiber.context);
         const statement = prepare(sql, cached);
         statement.setReadBigInts(fiber.getRef(SqlClient.SafeIntegers));
@@ -78,7 +82,7 @@ export const makeSqliteClient = Effect.fn("state.makeSqliteClient")(function* (
         } finally {
           statement.setReturnArrays(false);
         }
-      },
+      }, undefined, !transactionControl.test(sql)),
       catch: (cause) => sqliteError("executeValues", cause),
     }));
 
@@ -88,7 +92,7 @@ export const makeSqliteClient = Effect.fn("state.makeSqliteClient")(function* (
     executeValues,
     executeValuesUnprepared: (sql, params) => executeValues(sql, params, false),
     executeRaw: (sql, params) => Effect.withFiber((fiber) => Effect.try({
-      try: () => {
+      try: () => withinBudget(`state.${fiber.getRef(StateTransactionOperation)}`, () => {
         beforeExecute?.(sql, params, fiber.context);
         const statement = prepare(sql, true);
         statement.setReadBigInts(fiber.getRef(SqlClient.SafeIntegers));
@@ -96,7 +100,7 @@ export const makeSqliteClient = Effect.fn("state.makeSqliteClient")(function* (
         return statement.columns().length > 0
           ? statement.all(...values)
           : statement.run(...values);
-      },
+      }, undefined, !transactionControl.test(sql)),
       catch: (cause) => sqliteError("executeRaw", cause),
     })),
     // SQLite is synchronous. Buffer the result before yielding to a consumer,

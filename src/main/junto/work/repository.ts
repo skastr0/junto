@@ -142,7 +142,7 @@ import {
   TASK_APPROVED_METADATA_KEY,
   taskAdmissionState,
 } from "@shared/rules";
-import { StateTransactionOperation, type StateRow } from "../state/service";
+import { StateTransactionOperation } from "../state/service";
 import {
   inboundActorNodeIds,
   padAuthorRuleError,
@@ -1794,7 +1794,7 @@ export type AcceptRecordsResult = {
   readonly emitted: ReadonlyArray<WorkRecordValue>;
 };
 
-type EventRow = StateRow & {
+type EventRow = {
   readonly event_home: string;
   readonly entity_home: string;
   readonly seq: string;
@@ -1810,7 +1810,7 @@ type EventRow = StateRow & {
   readonly received_at: string;
 };
 
-type VariantRow = StateRow & {
+type VariantRow = {
   readonly predecessor_event_home: string | null;
   readonly predecessor_entity_home: string | null;
   readonly predecessor_seq: string | null;
@@ -1829,7 +1829,7 @@ type FactVariantRow = VariantRow & {
   readonly basis_command_sha256: string | null;
 };
 
-type DispositionRow = StateRow & {
+type DispositionRow = {
   readonly status: "applied" | "rejected";
   readonly command_event_home: string;
   readonly command_entity_home: string;
@@ -1843,7 +1843,7 @@ type DispositionRow = StateRow & {
   readonly rejection_message: string | null;
 };
 
-type RecentSeatOpRow = StateRow & {
+type RecentSeatOpRow = {
   readonly operation: WorkSeatRecentOpValue["operation"];
   readonly origin_at: string;
   readonly applied_at: string;
@@ -1856,7 +1856,7 @@ type RecentSeatOpRow = StateRow & {
   readonly related_node_id: string | null;
 };
 
-type TaskRow = StateRow & {
+type TaskRow = {
   readonly canvas_name: string;
   readonly node_id: string;
   readonly item_id: string;
@@ -1873,7 +1873,7 @@ type TaskRow = StateRow & {
   readonly created_at: string;
 };
 
-type MessageRow = StateRow & {
+type MessageRow = {
   readonly message_id: string;
   readonly role: MessageValue["role"];
   readonly parts_json: string;
@@ -1883,7 +1883,7 @@ type MessageRow = StateRow & {
   readonly metadata_json: string | null;
 };
 
-type ArtifactRow = StateRow & {
+type ArtifactRow = {
   readonly artifact_id: string;
   readonly name: string | null;
   readonly parts_json: string;
@@ -1894,7 +1894,7 @@ type ArtifactRow = StateRow & {
   readonly metadata_json: string | null;
 };
 
-type IdentityRow = StateRow & {
+type IdentityRow = {
   readonly entity_home: string;
   readonly actor_seat_id: string | null;
   readonly fact_event_home: string;
@@ -1903,7 +1903,7 @@ type IdentityRow = StateRow & {
   readonly state: TaskState;
 };
 
-type CursorRow = StateRow & {
+type CursorRow = {
   readonly through_sequence: string;
 };
 
@@ -2112,13 +2112,13 @@ const requireDependencyCapability = (
   return inspected;
 };
 
-type AuthorialCapabilityMaterialRow = StateRow & {
+type AuthorialCapabilityMaterialRow = {
   readonly canvas_id: string;
   readonly body: string;
   readonly revision_sha256: string;
 };
 
-type ProjectedCapabilityMaterialRow = StateRow & {
+type ProjectedCapabilityMaterialRow = {
   readonly body: string;
 };
 
@@ -8707,7 +8707,7 @@ export interface WorkRepositoryId {
   readonly _workRepository: unique symbol;
 }
 
-type TaskClaimFactRow = StateRow & {
+type TaskClaimFactRow = {
   readonly operation: WorkOperation;
   readonly predecessor_event_home: string | null;
   readonly predecessor_entity_home: string | null;
