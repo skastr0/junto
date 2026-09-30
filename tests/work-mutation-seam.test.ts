@@ -498,9 +498,8 @@ describe("work mutation sink attribution", () => {
       "src/main/junto/work/journal.ts",
       "src/main/junto/content/inline-media-migration.ts",
     ];
-    // The three statements whose target table is computed, and what each can
-    // resolve to. Kept in step with scripts/single-write-seam-register.json,
-    // which is the gate that refuses a computed target it does not declare.
+    // Expand computed table targets into the concrete projection tables the
+    // repository supports, then check their sink attribution independently.
     const dynamic: ReadonlyArray<readonly [string, ReadonlyArray<string>]> = [
       ["${table}", ["work_tasks", "work_requests"]],
       ["${pendingTable}", ["work_pending_commands"]],

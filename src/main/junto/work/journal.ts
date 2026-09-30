@@ -9,9 +9,8 @@
  *
  * The runtime seam (`./mutation-seam.ts`) reads the same law from the other
  * side: a projection write is admitted only after one of these appends has run
- * in the same transaction. `scripts/lint-single-write-seam.ts` pins this file
- * as the sole writer of the journal tables, so "append a work record" has
- * exactly one implementation and one call shape.
+ * in the same transaction. WorkJournal owns the SQL for appending records and
+ * resolving their pending-command index in that caller-owned transaction.
  *
  * Nothing here decides anything. Minting, validation, authority, and
  * materialization all live in `./repository.ts`; this module only writes the

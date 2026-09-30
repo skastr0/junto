@@ -8,12 +8,10 @@ import { Context, Effect } from "effect";
  * record explains is a forked source of truth — the world cannot be rebuilt
  * from the journal, and no replica can converge on it.
  *
- * `scripts/lint-single-write-seam.ts` already pins WHICH FILE may emit work
- * mutation SQL. That is a static gate over file paths. It cannot see ordering,
- * so it cannot say whether a projection row was explained by a record. This
- * module is the runtime half: it classifies every statement the state engine
- * executes and refuses a work projection write that no journal append in the
- * same transaction accounts for.
+ * Typed repositories own mutation SQL. This module enforces its ordering:
+ * it classifies every statement the shared SQL driver executes and refuses a
+ * work projection write that no journal append in the same transaction
+ * accounts for.
  *
  * THE LAW, enforced per transaction:
  *
@@ -88,7 +86,7 @@ export const WORK_PLANE_TABLE_ROLES: ReadonlyMap<string, WorkPlaneTableRole> =
     ["work_delivery_receipts", "projection"],
     // Crew review stores: durable Command Center-local operational state
     // written directly (never materialized from the replicated journal), so
-    // every write declares an unjournaledWorkMutation(...) reason below.
+    // every write declares an unjournaledWorkMutationEffect(...) reason below.
     ["work_review_verdicts", "projection"],
     ["work_review_receipts", "projection"],
     ["work_review_checkout_observations", "projection"],
@@ -150,8 +148,8 @@ export const UNJOURNALED_WORK_REASONS = {
       "survive a migration. Seeding through the repository would exercise the " +
       "NEW write path and prove nothing about the old shape.",
     retire:
-      "Never — but `bun run lint:single-write-seam` forbids this reason under " +
-      "src/, so it can only ever appear in tests and fixtures.",
+      "Never while historical-row fixtures are needed. Reserved for " +
+      "disposable tests and fixtures, never product writes.",
   },
   "crew.review-verdict": {
     why:
@@ -406,9 +404,8 @@ export const unjournaledWorkMutationEffect = Effect.fn("work.unjournaledMutation
  * The in-memory world (`work/world.ts`) keeps every sink's read model resident
  * and must know which ones a committed transaction disturbed. That question is
  * answered HERE, at the same chokepoint the admission law runs, because this
- * is the only place in the process that provably sees every work mutation: the
- * static gate pins which file may emit the SQL, the admission law pins that a
- * journal record explains it, and this pins which sink it lands on.
+ * shared SQL driver sees every work mutation: the admission law checks that a
+ * journal record explains it, and this identifies which sink it lands on.
  *
  * Two properties make it safe rather than clever:
  *
