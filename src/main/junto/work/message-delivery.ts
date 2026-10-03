@@ -15,6 +15,11 @@
  * pause law, so a paused canvas or seat keeps its mail queued until play
  * (`onResumed`). A sender may opt one message out of the wake.
  *
+ * Mail also yields to the operator: while they are composing in the seat's
+ * input, typing there would submit their draft along with the mail. That
+ * mail waits, in order, and is written once the draft is gone
+ * (`onSeatLive`). There is no time limit: a draft is never typed over.
+ *
  * Delivery is at-most-once per process: one flight per message, shared by
  * every caller that asks, and a delivered message is remembered until its
  * receipt reaches the document. The durable receipt (`deliveredAt`) is the
@@ -55,10 +60,14 @@ export type MessageDeliveryTransport = {
     nodeId: string,
   ) => Promise<boolean>;
   /**
-   * Type the text into the seat's input and submit it. False only when the
-   * seat had no live process to write into.
+   * Type the text into the seat's input and submit it. "held" when the
+   * operator is drafting there and nothing was typed; "lost" when the seat
+   * had no live process to write into.
    */
-  readonly writeMail: (bindingId: string, text: string) => Promise<boolean>;
+  readonly writeMail: (
+    bindingId: string,
+    text: string,
+  ) => Promise<"written" | "held" | "lost">;
 };
 
 /** Perf tag for each authority read: a boot scan, or one message's delivery. */
@@ -266,7 +275,10 @@ export class MessageDeliveryService {
       transport.writeMail(target.bindingId, payload),
     );
     if (!this.active(generation)) return "waiting";
-    if (!written) {
+    // The operator is drafting in the seat's input. Nothing was typed and
+    // nothing failed: the transport says when the draft is gone.
+    if (written === "held") return "waiting";
+    if (written !== "written") {
       // The seat was live but the text did not land (it restarted or
       // exited mid-write). The mail waits for the seat's next ready moment;
       // say so once, since a silent wait here is what the operator misses.
@@ -345,8 +357,9 @@ export class MessageDeliveryService {
   }
 
   /**
-   * The seat's process came up (or its terminal changed state): write every
-   * message and request answer that was waiting for it, oldest first.
+   * The seat's process came up, its terminal changed state, or the operator
+   * finished drafting in it: write every message and request answer that was
+   * waiting for it, oldest first.
    */
   onSeatLive(bindingId: string): void {
     if (this.suspended) return;
@@ -430,7 +443,7 @@ export class MessageDeliveryService {
       const written = await this.inSeatOrder(target.bindingId, () =>
         transport.writeMail(target.bindingId, payload),
       );
-      if (!written) return "waiting";
+      if (written !== "written") return "waiting";
       this.responses.delete(key);
       const preview = wireTrafficPreview(pending.response);
       this.emitDelivered({

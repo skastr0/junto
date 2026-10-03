@@ -5,6 +5,7 @@ import {
   BRACKETED_PASTE_START,
   CR,
   INTERRUPT_BYTE,
+  MAIL_DRAFT_RECHECK_MS,
   ManagedTerminalDrive,
   OPERATOR_INPUT_LATCH_MS,
   OperatorInterlock,
@@ -380,19 +381,110 @@ describe("ManagedTerminalDrive", () => {
   it("mail types into a working seat without waiting, and submits it", async () => {
     idle = false;
     drive = makeDrive();
-    await expect(drive.writeMail("b1", "mail")).resolves.toBe(true);
+    await expect(drive.writeMail("b1", "mail")).resolves.toBe("written");
     expect(writes.map((w) => w.data)).toEqual([encodeBracketedPaste("mail"), CR]);
     expect(writes.map((w) => w.data)).not.toContain(INTERRUPT_BYTE);
   });
 
-  it("mail types into any screen: a dialog, a draft, an unreadable composer", async () => {
+  it("mail types into any screen the operator is not drafting on", async () => {
     idle = false;
+    // A dialog or unreadable box (null), and a draft the operator never
+    // typed (our own stuck paste): neither holds mail.
     for (const verdict of ["draft", null] as const) {
       writes.length = 0;
-      drive = makeDrive({ composerVerdict: () => verdict });
-      await expect(drive.writeMail("b1", "mail")).resolves.toBe(true);
+      drive = makeDrive({
+        composerVerdict: () => verdict,
+        operatorInput: new OperatorInterlock(() => clock),
+      });
+      await expect(drive.writeMail("b1", "mail")).resolves.toBe("written");
       expect(writes.map((w) => w.data)).toEqual([encodeBracketedPaste("mail"), CR]);
     }
+  });
+
+  it("mail holds while the operator's draft is in the composer, and types nothing", async () => {
+    vi.useFakeTimers();
+    const operatorInput = new OperatorInterlock(() => clock);
+    drive = makeDrive({ composerVerdict: () => "draft", operatorInput });
+    operatorInput.noteInput("b1");
+    clock += OPERATOR_INPUT_LATCH_MS + 1;
+    await expect(drive.writeMail("b1", "mail")).resolves.toBe("held");
+    expect(writes).toEqual([]);
+  });
+
+  it("mail holds on a fresh keystroke the screen has not painted yet", async () => {
+    vi.useFakeTimers();
+    const operatorInput = new OperatorInterlock(() => clock);
+    drive = makeDrive({ composerVerdict: () => "empty", operatorInput });
+    operatorInput.noteInput("b1");
+    await expect(drive.writeMail("b1", "mail")).resolves.toBe("held");
+    expect(writes).toEqual([]);
+  });
+
+  it("held mail is announced writable once the draft leaves, and then types", async () => {
+    vi.useFakeTimers();
+    const operatorInput = new OperatorInterlock(() => clock);
+    let verdict: "draft" | "empty" = "draft";
+    drive = makeDrive({ composerVerdict: () => verdict, operatorInput });
+    const writable: string[] = [];
+    drive.subscribeMailWritable((bindingId) => writable.push(bindingId));
+    operatorInput.noteInput("b1");
+    clock += OPERATOR_INPUT_LATCH_MS + 1;
+    await expect(drive.writeMail("b1", "mail")).resolves.toBe("held");
+    await vi.advanceTimersByTimeAsync(MAIL_DRAFT_RECHECK_MS * 3);
+    expect(writable).toEqual([]);
+    verdict = "empty";
+    await vi.advanceTimersByTimeAsync(MAIL_DRAFT_RECHECK_MS);
+    expect(writable).toEqual(["b1"]);
+    await expect(drive.writeMail("b1", "mail")).resolves.toBe("written");
+    expect(writes.map((w) => w.data)).toEqual([encodeBracketedPaste("mail"), CR]);
+  });
+
+  it("mail behind held mail holds too, so the seat reads it in send order", async () => {
+    vi.useFakeTimers();
+    const operatorInput = new OperatorInterlock(() => clock);
+    let verdict: "draft" | "empty" = "draft";
+    drive = makeDrive({ composerVerdict: () => verdict, operatorInput });
+    operatorInput.noteInput("b1");
+    clock += OPERATOR_INPUT_LATCH_MS + 1;
+    await expect(drive.writeMail("b1", "first")).resolves.toBe("held");
+    verdict = "empty";
+    await expect(drive.writeMail("b1", "second")).resolves.toBe("held");
+    expect(writes).toEqual([]);
+  });
+
+  it("a keystroke that lands after the draft check is parked until the mail is submitted", async () => {
+    vi.useFakeTimers();
+    const operatorInput = new OperatorInterlock(() => clock);
+    const replayed: string[] = [];
+    drive = makeDrive({
+      composerVerdict: () => "empty",
+      operatorInput,
+      pasteToCrSettleMs: 5,
+      write: (bindingId, data) => {
+        writes.push({ bindingId, data });
+        // The operator types between the paste and the CR.
+        if (data !== CR) {
+          operatorInput.holdWrite("b1", { replay: () => replayed.push(`after:${writes.length}`) });
+        }
+        return true;
+      },
+    });
+    const mail = drive.writeMail("b1", "mail");
+    await vi.advanceTimersByTimeAsync(50);
+    await expect(mail).resolves.toBe("written");
+    expect(writes.map((w) => w.data)).toEqual([encodeBracketedPaste("mail"), CR]);
+    expect(replayed).toEqual(["after:2"]);
+  });
+
+  it("a generation cut drops the hold, and the new generation takes mail", async () => {
+    vi.useFakeTimers();
+    const operatorInput = new OperatorInterlock(() => clock);
+    drive = makeDrive({ composerVerdict: () => "draft", operatorInput });
+    operatorInput.noteInput("b1");
+    clock += OPERATOR_INPUT_LATCH_MS + 1;
+    await expect(drive.writeMail("b1", "mail")).resolves.toBe("held");
+    drive.invalidateBinding("b1");
+    await expect(drive.writeMail("b1", "mail")).resolves.toBe("written");
   });
 
   it("mail is typed even after an unresolved write holds gated prompts", async () => {
@@ -401,13 +493,13 @@ describe("ManagedTerminalDrive", () => {
     const stuck = drive.writePrompt("b1", "doctrine");
     await vi.advanceTimersByTimeAsync(1_000);
     await expect(stuck).resolves.toMatchObject({ status: "unresolved" });
-    await expect(drive.writeMail("b1", "mail")).resolves.toBe(true);
+    await expect(drive.writeMail("b1", "mail")).resolves.toBe("written");
     expect(writes.slice(-2).map((w) => w.data)).toEqual([encodeBracketedPaste("mail"), CR]);
   });
 
   it("mail to a TUI with bracketed paste off is typed plain, never as raw markers", async () => {
     drive = makeDrive({ bracketedPaste: () => false });
-    await expect(drive.writeMail("b1", "[message - user] Your connections changed\nsee map")).resolves.toBe(true);
+    await expect(drive.writeMail("b1", "[message - user] Your connections changed\nsee map")).resolves.toBe("written");
     expect(writes.map((w) => w.data)).toEqual([
       "[message - user] Your connections changed see map",
       CR,
@@ -417,7 +509,7 @@ describe("ManagedTerminalDrive", () => {
 
   it("mail to Hermes arrives on one line, since Hermes cannot submit a multiline paste", async () => {
     drive = makeDrive({ harnessFor: () => "hermes" });
-    await expect(drive.writeMail("b1", "mail from A\nfirst line\n  second")).resolves.toBe(true);
+    await expect(drive.writeMail("b1", "mail from A\nfirst line\n  second")).resolves.toBe("written");
     expect(writes.map((w) => w.data)).toEqual([
       encodeBracketedPaste("mail from A first line second"),
       CR,
@@ -432,7 +524,7 @@ describe("ManagedTerminalDrive", () => {
     await vi.advanceTimersByTimeAsync(1_000);
     expect(writes).toEqual([]);
     await vi.advanceTimersByTimeAsync(600);
-    await expect(mail).resolves.toBe(true);
+    await expect(mail).resolves.toBe("written");
     expect(writes.map((w) => w.data)).toEqual([encodeBracketedPaste("mail"), CR]);
   });
 
@@ -447,7 +539,7 @@ describe("ManagedTerminalDrive", () => {
     drive.onTurnStart("b1");
     await prompt;
     await vi.advanceTimersByTimeAsync(10);
-    await expect(mail).resolves.toBe(true);
+    await expect(mail).resolves.toBe("written");
     expect(writes.map((w) => w.data)).toEqual([
       encodeBracketedPaste("pulse"),
       CR,
@@ -459,7 +551,7 @@ describe("ManagedTerminalDrive", () => {
   it("traces a mail write like any delivery, keyed by its text", async () => {
     const trace: PtyDeliveryTraceEvent[] = [];
     drive = makeDrive({ onTrace: (event) => trace.push(event) });
-    await expect(drive.writeMail("b1", "mail")).resolves.toBe(true);
+    await expect(drive.writeMail("b1", "mail")).resolves.toBe("written");
     const begin = trace.find((event) => event.event === "delivery.begin");
     expect(begin?.fields).toMatchObject({
       mail: true,
@@ -475,7 +567,7 @@ describe("ManagedTerminalDrive", () => {
   it("mail writes nothing once automation is suspended", async () => {
     drive = makeDrive();
     drive.suspend();
-    await expect(drive.writeMail("b1", "mail")).resolves.toBe(false);
+    await expect(drive.writeMail("b1", "mail")).resolves.toBe("lost");
     expect(writes).toEqual([]);
   });
 

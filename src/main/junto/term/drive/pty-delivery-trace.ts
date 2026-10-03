@@ -120,13 +120,13 @@ export class PtyDeliveryTracer {
     }
   }
 
-  prompt(
+  prompt<T extends boolean | string>(
     bindingId: string,
     text: string,
     harness: () => string | undefined,
     fields: PtyTraceFields,
-    body: () => Promise<boolean>,
-  ): Promise<boolean> {
+    body: () => Promise<T>,
+  ): Promise<T> {
     let context: PtyDeliveryTraceContext;
     let digest: string;
     try {
@@ -141,7 +141,13 @@ export class PtyDeliveryTracer {
       const result = body();
       // Observe the original promise; do not replace it or add an await boundary.
       void result.then(
-        (ok) => this.event(bindingId, "delivery.end", { ok }),
+        (outcome) => this.event(
+          bindingId,
+          "delivery.end",
+          typeof outcome === "boolean"
+            ? { ok: outcome }
+            : { ok: outcome === "written", outcome },
+        ),
         () => this.event(bindingId, "delivery.end", { ok: false, threw: true }),
       );
       return result;

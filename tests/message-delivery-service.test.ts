@@ -51,6 +51,8 @@ const rig = (
   options: {
     live?: boolean;
     writeOk?: () => boolean;
+    /** The operator is drafting in the seat's input. */
+    held?: () => boolean;
     /** Wake result; the default leaves the seat down (paused canvas). */
     wake?: () => boolean;
   } = {},
@@ -92,9 +94,10 @@ const rig = (
         if (writing > 1) overlapped = true;
         await new Promise((resolve) => setTimeout(resolve, 2));
         writing -= 1;
-        if (options.writeOk && !options.writeOk()) return false;
+        if (options.held?.()) return "held";
+        if (options.writeOk && !options.writeOk()) return "lost";
         writes.push(text);
-        return true;
+        return "written";
       },
     },
   });
@@ -329,6 +332,29 @@ describe("mail delivery", () => {
     expect(await seat.service.deliver(canvas, nodeId, "01A")).toBe("delivered");
     expect(events).toHaveLength(2);
     expect(events[1]?.failed).toBeUndefined();
+  });
+
+  it("holds mail while the operator drafts, tells no failure, and types it in order after", async () => {
+    let drafting = true;
+    const seat = rig({ held: () => drafting });
+    const events: Array<{ failed?: true; messageId: string }> = [];
+    seat.service.subscribeDelivered((event) => events.push(event));
+    seat.append(mail("01A", "first"));
+    seat.append(mail("01B", "second"));
+
+    expect(await seat.service.deliver(canvas, nodeId, "01A")).toBe("waiting");
+    expect(await seat.service.deliver(canvas, nodeId, "01B")).toBe("waiting");
+    expect(seat.writes).toHaveLength(0);
+    expect(events).toEqual([]);
+    expect(seat.messages[0]?.metadata?.deliveredAt).toBeUndefined();
+
+    drafting = false;
+    seat.service.onSeatLive(bindingId);
+    await settle();
+    expect(seat.writes).toHaveLength(2);
+    expect(seat.writes[0]).toContain("junto msg read 01A");
+    expect(seat.writes[1]).toContain("junto msg read 01B");
+    expect(events.map((event) => event.messageId)).toEqual(["01A", "01B"]);
   });
 
   it("writes nothing after suspend", async () => {

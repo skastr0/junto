@@ -7,8 +7,9 @@
  *
  * Fail-closed for gated writes (pulses, doctrine, board, overseer): an
  * unwritable seat or screen → bounded queue or immediate refusal by caller
- * policy. Mail is not gated: `writeMail` types into the seat whatever it is
- * doing and lets the harness queue or steer it.
+ * policy. Mail is not gated on the seat: `writeMail` types into it whatever
+ * it is doing and lets the harness queue or steer it. Mail yields to one
+ * thing only, the operator's own draft in the composer.
  */
 
 import {
@@ -166,6 +167,17 @@ export type WritePromptOptions = {
   readonly awaitTurnStart?: boolean;
 };
 
+/**
+ * What became of one mail write. "written": the paste and its CR reached the
+ * PTY. "held": the operator is drafting in the composer, so nothing was
+ * typed; `subscribeMailWritable` says when to try again. "lost": the seat had
+ * no live generation to write into.
+ */
+export type MailWriteOutcome = "written" | "held" | "lost";
+
+/** How often held mail looks again for the operator's draft to be gone. */
+export const MAIL_DRAFT_RECHECK_MS = 250;
+
 /** Grok TUI trap: paste before ~1.5s post-spawn is swallowed. */
 export const GROK_MIN_POST_SPAWN_MS = 1_500;
 
@@ -294,6 +306,15 @@ export class ManagedTerminalDrive {
    * bookkeeping that exists to stop re-pasting text already on the PTY.
    */
   private readonly pasteWrites = new Map<string, number>();
+  /**
+   * Operator-input version when the drive last pasted into each binding. A
+   * draft on screen with no operator input since is the drive's own text (a
+   * stuck paste), not something the operator is composing.
+   */
+  private readonly inputVersionAtPaste = new Map<string, number>();
+  /** Bindings whose mail is held for the operator's draft, with the recheck timer. */
+  private readonly mailHeld = new Map<string, ReturnType<typeof setTimeout>>();
+  private readonly mailWritableListeners = new Set<(bindingId: string) => void>();
   /** A paste landed without submission proof. Only a new binding generation clears it. */
   private readonly writtenUnresolved = new Set<string>();
   private suspended = false;
@@ -636,19 +657,75 @@ export class ManagedTerminalDrive {
    * window, and another drive write already on this PTY must finish before
    * these bytes start, or the two envelopes interleave. Hermes cannot submit
    * a multiline paste (the chip never collapses), so its newlines become
-   * spaces. Resolves true once the paste and its CR reached the PTY; false
-   * only when the seat has no live generation to write into.
+   * spaces.
+   *
+   * The one thing mail yields to is the operator composing in this seat: a
+   * paste there would append to their draft and the CR would submit both.
+   * That mail is held, with nothing typed, until the draft is gone.
    */
-  writeMail(bindingId: string, text: string): Promise<boolean> {
+  writeMail(bindingId: string, text: string): Promise<MailWriteOutcome> {
     if (this.tracer === undefined) return this.writeMailInternal(bindingId, text);
     return this.tracer.prompt(bindingId, text, () => this.harnessFor?.(bindingId), {
       mail: true,
     }, () => this.writeMailInternal(bindingId, text));
   }
 
-  private async writeMailInternal(bindingId: string, text: string): Promise<boolean> {
+  /**
+   * The operator is composing in this seat: a keystroke too fresh for the
+   * screen to show, or a painted draft they typed into since the drive's
+   * last paste. An unreadable composer or a busy seat is not this.
+   */
+  private operatorDrafting(bindingId: string): boolean {
+    if (this.interlock.inputActive(bindingId)) return true;
+    return (
+      this.composerVerdict?.(bindingId) === "draft" &&
+      this.interlock.inputVersion(bindingId) !==
+        (this.inputVersionAtPaste.get(bindingId) ?? 0)
+    );
+  }
+
+  /** Hold this binding's mail and look again until the draft is gone. */
+  private holdMail(bindingId: string): void {
+    if (this.mailHeld.has(bindingId)) return;
+    const arm = (): void => {
+      const timer = setTimeout(() => {
+        if (this.mailHeld.get(bindingId) !== timer) return;
+        if (this.operatorDrafting(bindingId)) {
+          arm();
+          return;
+        }
+        this.mailHeld.delete(bindingId);
+        this.traceState(bindingId, "gate", { gate: "mail-operator-draft", held: false });
+        for (const listener of this.mailWritableListeners) {
+          try {
+            listener(bindingId);
+          } catch (error) {
+            console.error("[drive] mail-writable listener failed:", error);
+          }
+        }
+      }, Math.max(MAIL_DRAFT_RECHECK_MS, this.interlock.quietInMs(bindingId)));
+      timer.unref?.();
+      this.mailHeld.set(bindingId, timer);
+    };
+    arm();
+  }
+
+  /**
+   * Told when a binding whose mail was held can take it again. The mail
+   * layer answers by writing that seat's waiting mail, oldest first.
+   */
+  subscribeMailWritable(listener: (bindingId: string) => void): () => void {
+    this.mailWritableListeners.add(listener);
+    return () => {
+      this.mailWritableListeners.delete(listener);
+    };
+  }
+
+  private async writeMailInternal(bindingId: string, text: string): Promise<MailWriteOutcome> {
     const generation = this.lifecycleGeneration;
-    if (!this.active(generation)) return false;
+    if (!this.active(generation)) return "lost";
+    // Mail behind held mail waits with it, so the seat reads in send order.
+    if (this.mailHeld.has(bindingId)) return "held";
     const body = hermesRefusesMultilinePaste(this.harnessFor?.(bindingId), text)
       ? text.replace(/\s*\n\s*/g, " ")
       : text;
@@ -656,31 +733,39 @@ export class ManagedTerminalDrive {
     if (readyInMs > 0) await delay(readyInMs);
     while (this.writing.has(bindingId)) {
       await delay(Math.max(1, this.pasteToCrSettleMs));
-      if (!this.active(generation)) return false;
+      if (!this.active(generation)) return "lost";
     }
     const bindingGeneration = this.bindingGenerations.get(bindingId) ?? 0;
     this.writing.add(bindingId);
     this.traceState(bindingId, "mail.begin");
     try {
       return await this.withOperatorHold(bindingId, async () => {
+        // Checked inside the hold and before the first await: operator bytes
+        // that arrive from here on are parked until the CR, so no keystroke
+        // can fall between this check and the paste.
+        if (this.operatorDrafting(bindingId)) {
+          this.traceState(bindingId, "gate", { gate: "mail-operator-draft", held: true });
+          this.holdMail(bindingId);
+          return "held";
+        }
         const [paste, cr] = buildMailWriteSequence(
           body,
           this.bracketedPaste?.(bindingId) ?? true,
         );
         if (!(await Promise.resolve(this.writeTraced(bindingId, paste, "paste")))) {
-          return false;
+          return "lost";
         }
         this.pasteWrites.set(bindingId, (this.pasteWrites.get(bindingId) ?? 0) + 1);
-        if (!this.activeBinding(bindingId, generation, bindingGeneration)) return false;
+        if (!this.activeBinding(bindingId, generation, bindingGeneration)) return "lost";
         this.lastWrittenText.set(bindingId, body);
         // Paste-end must settle before the CR, or Claude/Devin keep a stuck
         // "[Pasted text …]" chip; a CR inside a resize repaint is eaten.
-        if (!(await this.settle(bindingId, generation, bindingGeneration))) return false;
+        if (!(await this.settle(bindingId, generation, bindingGeneration))) return "lost";
         if (this.interlock.resizeActive(bindingId)) {
           await this.awaitResizeQuiet(bindingId, generation, bindingGeneration);
         }
         if (!(await Promise.resolve(this.writeTraced(bindingId, cr, "submit-cr")))) {
-          return false;
+          return "lost";
         }
         // Ink TUIs collapse a multiline paste into a chip that only a second
         // CR submits.
@@ -692,7 +777,7 @@ export class ManagedTerminalDrive {
         ) {
           await this.writeSubmitCr(bindingId, generation, bindingGeneration);
         }
-        return true;
+        return "written";
       });
     } finally {
       this.traceState(bindingId, "mail.end");
@@ -1055,6 +1140,9 @@ export class ManagedTerminalDrive {
     this.compactNoopCounts.clear();
     this.readyAfter.clear();
     this.lastWrittenText.clear();
+    for (const timer of this.mailHeld.values()) clearTimeout(timer);
+    this.mailHeld.clear();
+    this.inputVersionAtPaste.clear();
     this.interlock.clearAll();
   }
 
@@ -1083,6 +1171,10 @@ export class ManagedTerminalDrive {
     this.compactNoopCounts.delete(bindingId);
     this.readyAfter.delete(bindingId);
     this.lastWrittenText.delete(bindingId);
+    const heldTimer = this.mailHeld.get(bindingId);
+    if (heldTimer !== undefined) clearTimeout(heldTimer);
+    this.mailHeld.delete(bindingId);
+    this.inputVersionAtPaste.delete(bindingId);
   }
 
   /** Test seam — reset scheduling; unresolved writes still require a generation cut. */
@@ -1801,6 +1893,9 @@ export class ManagedTerminalDrive {
   }
 
   private writeTraced(bindingId: string, data: string, stage: string): boolean | Promise<boolean> {
+    if (stage === "paste") {
+      this.inputVersionAtPaste.set(bindingId, this.interlock.inputVersion(bindingId));
+    }
     if (this.tracer === undefined) return this.writeFn(bindingId, data);
     this.traceState(bindingId, "write.begin", { stage, bytes: Buffer.byteLength(data) });
     try {

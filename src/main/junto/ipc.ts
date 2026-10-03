@@ -2210,6 +2210,10 @@ export const registerJuntoIpc = (): void => {
       // the seat is doing; mail for a seat that is not up starts it (on a
       // playing canvas) and waits for its TUI.
       const crew = yield* CrewRepository;
+      // Mail held for an operator draft goes out once the draft is gone.
+      managedDrive.subscribeMailWritable((bindingId) => {
+        if (!productAutomationSuspended) messageDelivery.onSeatLive(bindingId);
+      });
       messageDelivery.configure({
         transport: {
           // Physical only: a running process whose TUI is up (mail-readiness).

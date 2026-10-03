@@ -391,10 +391,10 @@ ${rowsFor(targets, [
   ["terminal.read", `| observe (port terminal.read) | \`junto seat read ${t} --lines 40\` — settled grid, with state, reason, confidence and generation; output activity alone is not readiness |`],
 ])}
 
-Own inbox: \`junto msg list\` marks listed mail read; \`junto msg react '{"messageId":"<msgId>"}'\` acknowledges without a reply. Mail is never refused and never needs a retry: it is typed into the recipient's input at once, whatever the recipient is doing, and a recipient whose seat is not up gets it when the seat starts. Kinds are \`notice\`, \`prompt\`, and \`receipt\`; a typed notice says \`mail from <seat>\`. Avoid acknowledgement loops.
+Own inbox: \`junto msg list\` marks listed mail read; \`junto msg react '{"messageId":"<msgId>"}'\` acknowledges without a reply. Mail is never refused and never needs a retry: it is typed into the recipient's input at once, whatever the recipient is doing, and a recipient whose seat is not up gets it when the seat starts. The one wait is the operator: mail never types over a message they are composing in that seat, and goes in once their draft is gone. Kinds are \`notice\`, \`prompt\`, and \`receipt\`; a typed notice says \`mail from <seat>\`. Avoid acknowledgement loops.
 
 Seat wait and seat read require a local peer, and are unavailable for Remote seats.
-${hasPort(targets, "msg.send") || hasPort(targets, "msg.prompt") ? "\nA send answers `delivered` (typed into their input) or `waiting` (their seat is not up yet). Inspect delivered, read and reply facts with `junto msg sent`; each is separate evidence." : ""}`;
+${hasPort(targets, "msg.send") || hasPort(targets, "msg.prompt") ? "\nA send answers `delivered` (typed into their input) or `waiting` (their seat is not up yet, or the operator is composing in it). Inspect delivered, read and reply facts with `junto msg sent`; each is separate evidence." : ""}`;
 };
 
 const reviewsSlot = (targets: readonly InjectionConnectedTarget[]): string => {
