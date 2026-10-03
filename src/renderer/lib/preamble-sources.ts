@@ -44,6 +44,7 @@ const TTL = {
   state: 9_000,
   mail: 8_000,
   failed: 12_000,
+  held: 12_000,
 } as const;
 
 let sequence = 0;
@@ -200,7 +201,8 @@ export const seatStatePreamble = (input: {
  * One message across a wire, told on the receiving seat only when it is a
  * peer's: the operator's own prompts and answers, and Junto's notices, echo
  * what the operator already knows (an answer is told by its signal). A
- * message that failed to land is told whoever sent it.
+ * message that failed to land, or that waits for the operator's draft, is
+ * told whoever sent it.
  */
 export const wirePreambles = (
   event: WireTrafficEvent,
@@ -216,6 +218,17 @@ export const wirePreambles = (
         provenance: "system",
         action: "mail-failed",
         tone: "crimson",
+      }),
+    ];
+  }
+  if (event.held === true) {
+    const from = event.fromNodeId === undefined ? "mail" : `mail from ${event.fromName ?? titleOf(event.fromNodeId) ?? "a peer"}`;
+    return [
+      note("mail", event.canvasName, event.toNodeId, now, TTL.held, {
+        text: `${from} waits for your draft${preview}`,
+        provenance: "system",
+        action: "mail-held",
+        tone: "amber",
       }),
     ];
   }

@@ -42,6 +42,7 @@ const KIND: Readonly<Record<PreambleAction, LucideIcon | undefined>> = {
   "mail-in": Mail,
   "mail-out": Send,
   "mail-failed": MailWarning,
+  "mail-held": MailWarning,
   state: CircleDot,
 };
 

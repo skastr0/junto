@@ -132,6 +132,8 @@ export class MessageDeliveryService {
   private readonly waking = new Set<string>();
   /** Mail whose failed write was already told; cleared once it lands. */
   private readonly failedTold = new Set<string>();
+  /** Mail held for an operator draft that was already told; cleared once it lands. */
+  private readonly heldTold = new Set<string>();
   /** Told once per message typed into a seat (wire pulse, preambles). */
   private readonly deliveredListeners = new Set<(event: WireTrafficEvent) => void>();
 
@@ -170,6 +172,7 @@ export class MessageDeliveryService {
     this.noWake.clear();
     this.waking.clear();
     this.failedTold.clear();
+    this.heldTold.clear();
   }
 
   private active(generation: number): boolean {
@@ -276,8 +279,18 @@ export class MessageDeliveryService {
     );
     if (!this.active(generation)) return "waiting";
     // The operator is drafting in the seat's input. Nothing was typed and
-    // nothing failed: the transport says when the draft is gone.
-    if (written === "held") return "waiting";
+    // nothing failed: the transport says when the draft is gone. Say so
+    // once, so the wait is never a silent one.
+    if (written === "held") {
+      if (!this.heldTold.has(key)) {
+        this.heldTold.add(key);
+        this.emitDelivered({
+          ...wireTrafficOfMail({ canvasName: canvas, toNodeId: nodeId, message, at: Date.now() }),
+          held: true,
+        });
+      }
+      return "waiting";
+    }
     if (written !== "written") {
       // The seat was live but the text did not land (it restarted or
       // exited mid-write). The mail waits for the seat's next ready moment;
@@ -292,6 +305,7 @@ export class MessageDeliveryService {
       return "waiting";
     }
     this.failedTold.delete(key);
+    this.heldTold.delete(key);
     this.delivered.add(key);
     this.waiting.delete(key);
     this.noWake.delete(messageId);

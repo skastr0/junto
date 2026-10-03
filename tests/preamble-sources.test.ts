@@ -139,4 +139,12 @@ describe("mail", () => {
     const [unsent] = wirePreambles({ ...event, kind: "prompt", failed: true }, title, NOW);
     expect(unsent?.text).toBe("mail did not land, retrying");
   });
+  it("tells mail held for the operator's draft, amber, whoever sent it", () => {
+    const [peer] = wirePreambles({ ...event, fromNodeId: "planner", kind: "notice", preview: "rebase", held: true }, title, NOW);
+    expect(peer).toMatchObject({
+      nodeId: "builder", text: "mail from planner waits for your draft: rebase", action: "mail-held", tone: "amber",
+    });
+    const [own] = wirePreambles({ ...event, kind: "prompt", held: true }, title, NOW);
+    expect(own?.text).toBe("mail waits for your draft");
+  });
 });

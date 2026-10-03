@@ -29,6 +29,7 @@ export const PREAMBLE_ACTIONS = [
   "mail-in",
   "mail-out",
   "mail-failed",
+  "mail-held",
   "state",
 ] as const;
 export type PreambleAction = (typeof PREAMBLE_ACTIONS)[number];

@@ -337,15 +337,21 @@ describe("mail delivery", () => {
   it("holds mail while the operator drafts, tells no failure, and types it in order after", async () => {
     let drafting = true;
     const seat = rig({ held: () => drafting });
-    const events: Array<{ failed?: true; messageId: string }> = [];
+    const events: Array<{ failed?: true; held?: true; messageId: string }> = [];
     seat.service.subscribeDelivered((event) => events.push(event));
     seat.append(mail("01A", "first"));
     seat.append(mail("01B", "second"));
 
     expect(await seat.service.deliver(canvas, nodeId, "01A")).toBe("waiting");
+    expect(await seat.service.deliver(canvas, nodeId, "01A")).toBe("waiting");
     expect(await seat.service.deliver(canvas, nodeId, "01B")).toBe("waiting");
     expect(seat.writes).toHaveLength(0);
-    expect(events).toEqual([]);
+    // Told held once per message, never as a failure.
+    expect(events.map((event) => [event.messageId, event.held, event.failed])).toEqual([
+      ["01A", true, undefined],
+      ["01B", true, undefined],
+    ]);
+    events.length = 0;
     expect(seat.messages[0]?.metadata?.deliveredAt).toBeUndefined();
 
     drafting = false;

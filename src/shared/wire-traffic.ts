@@ -2,8 +2,9 @@
  * Wire traffic: one message actually typed into an agent seat.
  *
  * Main emits one event per delivered mail (and per operator answer to a
- * request) on `junto:wire-traffic`, and one `failed` event when typing a
- * message into a live seat did not land. It is a live, process-bound fact for
+ * request) on `junto:wire-traffic`, one `failed` event when typing a
+ * message into a live seat did not land, and one `held` event when a message
+ * waits for the operator's draft. It is a live, process-bound fact for
  * paint: the canvas pulses the wire from sender to receiver, and the
  * preamble surface names the sender. Nothing reads it back as durable
  * state; the mailbox receipt stays the delivery record.
@@ -36,6 +37,12 @@ export type WireTrafficEvent = {
    * once per message; never pulsed.
    */
   readonly failed?: true;
+  /**
+   * The operator is composing in the seat's input, so the message was not
+   * typed: it waits in the mailbox until their draft is gone. Told once per
+   * message; never pulsed.
+   */
+  readonly held?: true;
 };
 
 export const WIRE_TRAFFIC_PREVIEW_MAX = 80;
