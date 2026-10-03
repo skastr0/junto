@@ -481,6 +481,11 @@ const runProductBoot = async (): Promise<void> => {
         if (verdict !== "empty") return;
         listener(bindingId);
       }),
+    subscribeComposerDraft: (listener) =>
+      seatStateRuntime.subscribeComposerVerdict((bindingId, verdict) => {
+        if (verdict !== "draft") return;
+        listener(bindingId);
+      }),
     harnessFor: (bindingId) =>
       seatStateRuntime.machine.getSlot(bindingId)?.harness,
     snapshotText: (bindingId) =>

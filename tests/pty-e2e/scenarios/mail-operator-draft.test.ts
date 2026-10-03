@@ -36,6 +36,11 @@ const setup = () => {
     },
   });
   holder.loop = loop;
+  // The production feed: composer verdict changes reach the drive.
+  loop.runtime.subscribeComposerVerdict((bindingId, verdict) => {
+    if (verdict === "empty") loop.drive.onComposerClear(bindingId);
+    if (verdict === "draft") loop.drive.onComposerDraft(bindingId);
+  });
   const flush = async () => {
     await vi.advanceTimersByTimeAsync(1);
     await vi.advanceTimersByTimeAsync(1);
@@ -90,6 +95,28 @@ describe("mail and the operator's draft (Claude)", () => {
     await flush();
     await expect(mail).resolves.toBe("written");
     expect(labels(loop)).toEqual(["paste", "cr"]);
+    loop.dispose();
+  });
+
+  it("does not hold mail for text the harness painted into the box by itself", async () => {
+    const { loop, flush, operatorTypes } = setup();
+    await flush();
+    // The operator has touched this seat: a key that leaves the box empty.
+    operatorTypes("\u001b[A");
+    await flush();
+    await vi.advanceTimersByTimeAsync(OPERATOR_INPUT_LATCH_MS * 5);
+    await flush();
+    expect(loop.runtime.composerVerdict(BINDING)).toBe("empty");
+
+    // Text appears in the box with no keystroke behind it (a suggested prompt).
+    loop.tui.write(`${BRACKETED_PASTE_START}run the tests${BRACKETED_PASTE_END}`);
+    await flush();
+    expect(loop.runtime.composerVerdict(BINDING)).toBe("draft");
+
+    const mail = loop.drive.writeMail(BINDING, "mail from A");
+    await vi.advanceTimersByTimeAsync(200);
+    await flush();
+    await expect(mail).resolves.toBe("written");
     loop.dispose();
   });
 

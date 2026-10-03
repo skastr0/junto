@@ -476,6 +476,36 @@ describe("ManagedTerminalDrive", () => {
     expect(replayed).toEqual(["after:2"]);
   });
 
+  it("text the harness painted into the box holds no mail until the operator types into it", async () => {
+    vi.useFakeTimers();
+    const operatorInput = new OperatorInterlock(() => clock);
+    drive = makeDrive({ composerVerdict: () => "draft", operatorInput });
+    // The operator typed and submitted earlier; the box was then proven empty.
+    operatorInput.noteInput("b1");
+    clock += OPERATOR_INPUT_LATCH_MS + 1;
+    drive.onComposerClear("b1");
+    // A suggested prompt appears with no keystroke behind it.
+    drive.onComposerDraft("b1");
+    await expect(drive.writeMail("b1", "mail")).resolves.toBe("written");
+    // The operator takes the suggestion up.
+    operatorInput.noteInput("b1");
+    clock += OPERATOR_INPUT_LATCH_MS + 1;
+    await expect(drive.writeMail("b1", "more")).resolves.toBe("held");
+  });
+
+  it("a draft that appeared under a fresh keystroke stays the operator's across repaints", async () => {
+    vi.useFakeTimers();
+    const operatorInput = new OperatorInterlock(() => clock);
+    drive = makeDrive({ composerVerdict: () => "draft", operatorInput });
+    operatorInput.noteInput("b1");
+    drive.onComposerDraft("b1");
+    clock += OPERATOR_INPUT_LATCH_MS + 1;
+    // A dialog closing over the draft repaints it; the record is kept.
+    drive.onComposerDraft("b1");
+    await expect(drive.writeMail("b1", "mail")).resolves.toBe("held");
+    expect(writes).toEqual([]);
+  });
+
   it("a generation cut drops the hold, and the new generation takes mail", async () => {
     vi.useFakeTimers();
     const operatorInput = new OperatorInterlock(() => clock);

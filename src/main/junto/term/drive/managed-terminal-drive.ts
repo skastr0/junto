@@ -312,6 +312,17 @@ export class ManagedTerminalDrive {
    * stuck paste), not something the operator is composing.
    */
   private readonly inputVersionAtPaste = new Map<string, number>();
+  /**
+   * Who put the draft now on each composer, recorded when text appears in a
+   * box last proven empty: whether an operator keystroke was fresh then, and
+   * the operator-input version. Text a harness paints by itself (a suggested
+   * next prompt, a new hint) reads as a draft on the grid; it holds no mail
+   * until the operator types into it.
+   */
+  private readonly draftOrigin = new Map<
+    string,
+    { readonly operator: boolean; readonly inputVersion: number }
+  >();
   /** Bindings whose mail is held for the operator's draft, with the recheck timer. */
   private readonly mailHeld = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly mailWritableListeners = new Set<(bindingId: string) => void>();
@@ -672,15 +683,22 @@ export class ManagedTerminalDrive {
 
   /**
    * The operator is composing in this seat: a keystroke too fresh for the
-   * screen to show, or a painted draft they typed into since the drive's
-   * last paste. An unreadable composer or a busy seat is not this.
+   * screen to show, or a painted draft with operator typing behind it. The
+   * draft alone is not enough, since the grid cannot tell the operator's
+   * text from the drive's own stuck paste or from text the harness painted;
+   * each needs an operator keystroke after it to count. An unreadable
+   * composer or a busy seat is never this.
    */
   private operatorDrafting(bindingId: string): boolean {
     if (this.interlock.inputActive(bindingId)) return true;
+    if (this.composerVerdict?.(bindingId) !== "draft") return false;
+    const inputVersion = this.interlock.inputVersion(bindingId);
+    if (inputVersion === (this.inputVersionAtPaste.get(bindingId) ?? 0)) return false;
+    const origin = this.draftOrigin.get(bindingId);
     return (
-      this.composerVerdict?.(bindingId) === "draft" &&
-      this.interlock.inputVersion(bindingId) !==
-        (this.inputVersionAtPaste.get(bindingId) ?? 0)
+      origin === undefined ||
+      origin.operator ||
+      inputVersion !== origin.inputVersion
     );
   }
 
@@ -1075,8 +1093,22 @@ export class ManagedTerminalDrive {
    * factory prompts waited for exactly this boundary.
    */
   onComposerClear(bindingId: string): void {
+    this.draftOrigin.delete(bindingId);
     if (this.suspended) return;
     void this.drainOne(bindingId);
+  }
+
+  /**
+   * Text appeared in the prompt box. The first appearance after a proven
+   * empty box records whether the operator was typing; later repaints of
+   * the same draft (a dialog closing over it, a resize) keep that record.
+   */
+  onComposerDraft(bindingId: string): void {
+    if (this.suspended || this.draftOrigin.has(bindingId)) return;
+    this.draftOrigin.set(bindingId, {
+      operator: this.interlock.inputActive(bindingId),
+      inputVersion: this.interlock.inputVersion(bindingId),
+    });
   }
 
   /**
@@ -1143,6 +1175,7 @@ export class ManagedTerminalDrive {
     for (const timer of this.mailHeld.values()) clearTimeout(timer);
     this.mailHeld.clear();
     this.inputVersionAtPaste.clear();
+    this.draftOrigin.clear();
     this.interlock.clearAll();
   }
 
@@ -1175,6 +1208,7 @@ export class ManagedTerminalDrive {
     if (heldTimer !== undefined) clearTimeout(heldTimer);
     this.mailHeld.delete(bindingId);
     this.inputVersionAtPaste.delete(bindingId);
+    this.draftOrigin.delete(bindingId);
   }
 
   /** Test seam — reset scheduling; unresolved writes still require a generation cut. */

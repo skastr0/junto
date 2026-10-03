@@ -43,6 +43,10 @@ export type ManagedDriveRuntimeSources = {
   readonly subscribeComposerEmpty: (
     listener: (bindingId: string) => void,
   ) => () => void;
+  /** Text appeared in the prompt box (verdict changed to draft). */
+  readonly subscribeComposerDraft?: (
+    listener: (bindingId: string) => void,
+  ) => () => void;
   readonly harnessFor: SeatHarnessLookup;
   readonly snapshotText: (bindingId: string) => string | undefined;
   /**
@@ -94,9 +98,13 @@ export const attachManagedTerminalDriveRuntime = (
   const unsubComposer = sources.subscribeComposerEmpty((bindingId) => {
     drive.onComposerClear(bindingId);
   });
+  const unsubDraft = sources.subscribeComposerDraft?.((bindingId) => {
+    drive.onComposerDraft(bindingId);
+  });
   return () => {
     unsubHost();
     unsubSeat();
     unsubComposer();
+    unsubDraft?.();
   };
 };
