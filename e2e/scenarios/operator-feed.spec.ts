@@ -188,14 +188,14 @@ test("the operator feed at thirty: regions in colour, quick replies, real answer
     await shot(page, "feed-reply-dark.png");
     await page.keyboard.press("Meta+Enter");
     await expect(writtenCard).toHaveCount(0, { timeout: 10_000 });
-    await expect(trigger).toHaveAttribute("aria-label", "Open needs-you feed, 27 waiting");
+    await expect(trigger).toHaveAttribute("aria-label", "Needs you, 27");
 
     // Dismiss closes a signal without mail.
     const dismissed = await cards.first().getAttribute("data-item-id");
     await cards.first().getByRole("button", { name: "Write reply" }).click();
     await feed.locator(`[data-item-id='${dismissed}']`).getByRole("button", { name: "Dismiss" }).click();
     await expect(feed.locator(`[data-item-id='${dismissed}']`)).toHaveCount(0, { timeout: 10_000 });
-    await expect(trigger).toHaveAttribute("aria-label", "Open needs-you feed, 26 waiting");
+    await expect(trigger).toHaveAttribute("aria-label", "Needs you, 26");
 
     await page.keyboard.press("Escape");
     await expect(feed).toHaveCount(0);
