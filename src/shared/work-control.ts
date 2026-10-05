@@ -618,10 +618,26 @@ export type PreambleArgs = typeof PreambleArgs.Type;
  * Universal and seat-local: no target, no edge, no port. The seat is the
  * process-bound caller, so a seat can only raise, clear, or read its own.
  */
+/**
+ * One file on its way to a signal. The CLI reads the file and sends its
+ * bytes: a path never crosses the socket, since a Remote seat's path does
+ * not exist on the Command Center. Main is the authority on what is admitted.
+ */
+export const SignalAttachmentInput = Schema.Struct({
+  /** The file's name, for display only. Never a path. */
+  name: Schema.String,
+  caption: Schema.optionalKey(Schema.String),
+  bytesBase64: Schema.String,
+}).annotate({
+  parseOptions: { onExcessProperty: "error" },
+});
+export type SignalAttachmentInput = typeof SignalAttachmentInput.Type;
+
 export const SignalRaiseArgs = Schema.Struct({
   kind: AgentSignalKind,
   text: Schema.String,
   detail: Schema.optionalKey(Schema.String),
+  attach: Schema.optionalKey(Schema.Array(SignalAttachmentInput)),
 }).annotate({
   parseOptions: { onExcessProperty: "error" },
 });

@@ -1,4 +1,5 @@
 import { Schema } from "effect";
+import { ContentRef } from "../content";
 
 /**
  * Agent signals: a seat's own declared claim that it needs the operator.
@@ -37,6 +38,28 @@ export const AgentSignalText = boundedText(AGENT_SIGNAL_MAX_TEXT_LENGTH);
 export const AgentSignalDetail = boundedText(AGENT_SIGNAL_MAX_DETAIL_LENGTH);
 export const AgentSignalResponseText = boundedText(AGENT_SIGNAL_MAX_RESPONSE_LENGTH);
 
+/** How many files one signal carries. */
+export const AGENT_SIGNAL_MAX_ATTACHMENTS = 12;
+/**
+ * All of a signal's files together, in bytes. They ride in the one request
+ * frame that raises the signal (8 MB, Base64 inside JSON), so this is what
+ * fits with room to spare.
+ */
+export const AGENT_SIGNAL_MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024;
+/** The agent's words beside a file ("Before"). */
+export const AGENT_SIGNAL_MAX_CAPTION_LENGTH = 120;
+
+/**
+ * A file the agent attached. The bytes live in the content store under
+ * `ref` (its display name is the file's name); no path is kept, so the file
+ * outlives the folder it came from.
+ */
+export const AgentSignalAttachment = Schema.Struct({
+  ref: ContentRef,
+  caption: Schema.optionalKey(boundedText(AGENT_SIGNAL_MAX_CAPTION_LENGTH)),
+});
+export type AgentSignalAttachment = typeof AgentSignalAttachment.Type;
+
 export const AgentSignalResponse = Schema.Struct({
   text: AgentSignalResponseText,
   /** Epoch ms. */
@@ -51,6 +74,8 @@ export const AgentSignal = Schema.Struct({
   kind: AgentSignalKind,
   text: AgentSignalText,
   detail: Schema.optionalKey(AgentSignalDetail),
+  /** Files the agent attached, in the order given. Absent when there are none. */
+  attachments: Schema.optionalKey(Schema.Array(AgentSignalAttachment)),
   /** Epoch ms. */
   createdAt: Schema.Number,
   state: AgentSignalState,
