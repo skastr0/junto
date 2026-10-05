@@ -2022,7 +2022,7 @@ html[data-surface-motion="paused"] .junto-node[data-seat-attention="true"]::afte
   resize: both;
   overflow: auto;
   border: 1px solid var(--color-stroke);
-  border-radius: 10px;
+  border-radius: var(--radius-xl);
   background: var(--color-raise);
   padding: 20px 22px 20px;
   box-shadow: 0 24px 60px var(--color-shadow-1);
@@ -2032,7 +2032,7 @@ html[data-surface-motion="paused"] .junto-node[data-seat-attention="true"]::afte
   width: min(var(--focus-document-width, 760px), 84vw);
   height: min(78vh, 900px);
   max-height: 92vh;
-  border-radius: 12px;
+  border-radius: var(--radius-xl);
   box-shadow:
     0 24px 80px var(--color-shadow-1),
     0 0 0 1px var(--color-overlay-1);
@@ -2049,31 +2049,31 @@ html[data-surface-motion="paused"] .junto-node[data-seat-attention="true"]::afte
   place-items: center;
   width: 22px;
   height: 22px;
-  border-radius: 5px;
+  border-radius: var(--radius-md);
   color: var(--color-faint);
   transition: background 0.18s ease, color 0.18s ease;
 }
 .junto-modal__close:hover { background: var(--color-overlay-3); color: var(--color-ink); }
-.junto-modal__eyebrow { color: var(--color-cyan); font-size: 8px; letter-spacing: 0.16em; text-transform: uppercase; }
-.junto-modal__title { margin-top: 7px; padding-right: 20px; overflow-wrap: anywhere; color: var(--color-ink); font-family: var(--font-display); font-size: 19px; letter-spacing: 0.06em; line-height: 1.25; text-transform: uppercase; }
-.junto-modal__meta { margin-top: 6px; color: var(--color-dim); font-size: 9px; letter-spacing: 0.04em; }
+.junto-modal__eyebrow { color: var(--color-cyan); font-size: var(--text-micro); letter-spacing: var(--tracking-eyebrow); text-transform: uppercase; }
+.junto-modal__title { margin-top: 7px; padding-right: 20px; overflow-wrap: anywhere; color: var(--color-ink); font-family: var(--font-display); font-size: var(--text-display); letter-spacing: var(--tracking-label); line-height: var(--leading-compact); text-transform: uppercase; }
+.junto-modal__meta { margin-top: 6px; color: var(--color-dim); font-size: var(--text-caption); letter-spacing: var(--tracking-soft); }
 .junto-modal__body {
   margin-top: 14px;
   width: 100%;
-  font-size: 12px;
-  line-height: 1.6;
+  font-size: var(--text-body-lg);
+  line-height: var(--leading-open);
 }
-.junto-modal__paragraph { margin: 0; color: var(--color-ink); font-size: 11px; line-height: 1.55; }
-.junto-modal__line { margin-top: 6px; color: var(--color-dim); font-size: 9px; letter-spacing: 0.03em; line-height: 1.5; }
-.junto-modal__pre { margin: 0; overflow-wrap: anywhere; white-space: pre-wrap; color: var(--color-ink); font-family: ui-monospace, SFMono-Regular, monospace; font-size: 11px; line-height: 1.55; }
-.junto-modal__pre--small { color: var(--color-dim); font-size: 10px; }
-.junto-modal__section-label { margin-top: 12px; color: var(--color-faint); font-size: 8px; letter-spacing: 0.14em; text-transform: uppercase; }
-.junto-modal__quote { margin-top: 5px; border-left: 2px solid var(--color-stroke); overflow-wrap: anywhere; white-space: pre-wrap; color: var(--color-dim); padding-left: 9px; font-size: 10px; line-height: 1.55; }
+.junto-modal__paragraph { margin: 0; color: var(--color-ink); font-size: var(--text-body); line-height: var(--leading-open); }
+.junto-modal__line { margin-top: 6px; color: var(--color-dim); font-size: var(--text-caption); letter-spacing: var(--tracking-soft); line-height: var(--leading-body); }
+.junto-modal__pre { margin: 0; overflow-wrap: anywhere; white-space: pre-wrap; color: var(--color-ink); font-family: ui-monospace, SFMono-Regular, monospace; font-size: var(--text-body); line-height: var(--leading-open); }
+.junto-modal__pre--small { color: var(--color-dim); font-size: var(--text-label); }
+.junto-modal__section-label { margin-top: 12px; color: var(--color-faint); font-size: var(--text-micro); letter-spacing: var(--tracking-eyebrow); text-transform: uppercase; }
+.junto-modal__quote { margin-top: 5px; border-left: 2px solid var(--color-stroke); overflow-wrap: anywhere; white-space: pre-wrap; color: var(--color-dim); padding-left: 9px; font-size: var(--text-label); line-height: var(--leading-open); }
 .junto-modal__scroll { max-height: 160px; overflow-y: auto; }
 .junto-modal__chips { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 6px; }
-.junto-modal__chip { border: 1px solid var(--color-stroke); border-radius: 4px; color: var(--color-dim); padding: 2px 6px; font-family: ui-monospace, SFMono-Regular, monospace; font-size: 9px; }
+.junto-modal__chip { border: 1px solid var(--color-stroke); border-radius: var(--radius-sm); color: var(--color-dim); padding: 2px 6px; font-family: ui-monospace, SFMono-Regular, monospace; font-size: var(--text-caption); }
 .junto-modal__details { margin-top: 12px; }
-.junto-modal__summary { cursor: pointer; color: var(--color-dim); font-size: 9px; letter-spacing: 0.1em; text-transform: uppercase; }
+.junto-modal__summary { cursor: pointer; color: var(--color-dim); font-size: var(--text-caption); letter-spacing: var(--tracking-label); text-transform: uppercase; }
 .junto-modal__summary::marker { color: var(--color-faint); }
 
 /* Comment composer: one-line-growing textarea + submit, styled to
@@ -2167,31 +2167,31 @@ html[data-surface-motion="paused"] .junto-node[data-seat-attention="true"]::afte
   resize: none;
   overflow: hidden;
   border: 1px solid var(--color-stroke);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   background: var(--color-inset);
   color: var(--color-ink);
   padding: 7px 8px;
   font-family: ui-monospace, SFMono-Regular, monospace;
-  font-size: 10px;
-  line-height: 1.45;
+  font-size: var(--text-label);
+  line-height: var(--leading-body);
   outline: none;
 }
 .junto-modal__comment-input::placeholder { color: var(--color-faint); }
 .junto-modal__comment-input:focus { border-color: color-mix(in oklab, var(--color-second) 55%, transparent); box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-second) 8%, transparent); }
 .junto-modal__comment-submit {
   border: 1px solid var(--color-stroke);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   background: transparent;
   color: var(--color-dim);
   padding: 7px 10px;
-  font-size: 9px;
-  letter-spacing: 0.08em;
+  font-size: var(--text-caption);
+  letter-spacing: var(--tracking-label);
   text-transform: uppercase;
   transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
 }
 .junto-modal__comment-submit:hover:not(:disabled) { background: color-mix(in oklab, var(--color-second) 8%, transparent); border-color: color-mix(in oklab, var(--color-second) 40%, transparent); color: var(--color-ink); }
 .junto-modal__comment-submit:disabled { opacity: 0.4; cursor: default; }
-.junto-modal__comment-status { margin-top: 6px; font-size: 9px; letter-spacing: 0.03em; }
+.junto-modal__comment-status { margin-top: 6px; font-size: var(--text-caption); letter-spacing: var(--tracking-soft); }
 .junto-modal__comment-status--ok { color: var(--color-green); }
 .junto-modal__comment-status--error { color: var(--color-crimson); }
 
