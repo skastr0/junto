@@ -82,6 +82,8 @@ export function AgentReseatControl({ node }: { readonly node: CanvasNode }) {
         title="Swap harness (stops current process, starts new seat)"
         active={anchor !== null}
         disabled={busy}
+        // An open popup silences the key's tooltip, which would cover the list.
+        data={{ "aria-haspopup": "dialog", "aria-expanded": String(anchor !== null) }}
         onClick={(event) => {
           setError(undefined);
           setAnchor(anchor ? null : event.currentTarget);

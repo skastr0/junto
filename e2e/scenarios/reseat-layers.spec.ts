@@ -30,6 +30,10 @@ test("re-seat pick is a popover and its confirm a working dialog", async ({ junt
   // The list loads after the popover opens: it still sits above its key.
   await key.click();
   await expect(pop.getByText("Hermes")).toBeVisible();
+  // The pointer still rests on the key: its tooltip stays silent over the list.
+  await key.hover();
+  await page.waitForTimeout(900);
+  await expect(page.locator(".junto-tooltip")).toHaveCount(0);
   const popBox = await pop.boundingBox();
   const keyBox = await key.boundingBox();
   expect(popBox!.y + popBox!.height).toBeLessThanOrEqual(keyBox!.y);

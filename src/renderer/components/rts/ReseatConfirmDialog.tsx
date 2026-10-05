@@ -26,12 +26,13 @@ export function ReseatConfirmDialog({
       onCancel={onCancel}
     >
       <span>
-        Swapping from <em>{fromLabel}</em> to <em>{toLabel}</em> stops the
+        Swapping from <strong className="text-ink">{fromLabel}</strong> to{" "}
+        <strong className="text-ink">{toLabel}</strong> stops the
         current agent process and starts a new one on a fresh seat. Unsaved
         in-process work in the old harness will be lost. The workspace path
         on this seat is kept.
       </span>
-      <label className="flex items-center gap-2 text-ink-2">
+      <label className="flex items-center gap-2">
         <input
           type="checkbox"
           checked={dontShowAgain}
