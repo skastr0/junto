@@ -1,15 +1,33 @@
-import { readFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { readFile, stat } from "node:fs/promises";
+import { basename } from "node:path";
 import { Effect, Schema } from "effect";
-import type { AgentSignalKind } from "../../shared/agent-signals";
-import type { SignalRaiseArgs } from "../../shared/work-control";
+import {
+  AGENT_SIGNAL_MAX_ATTACHMENT_BYTES,
+  AGENT_SIGNAL_MAX_ATTACHMENTS,
+  type AgentSignalKind,
+} from "../../shared/agent-signals";
+import { classifyAttachment } from "../../shared/preview-bytes";
+import {
+  SignalAttachCliInput,
+  type SignalAttachmentInput,
+  type SignalRaiseArgs,
+} from "../../shared/work-control";
 import { InputError } from "./errors";
 import { decodeJsonText } from "./json";
 
 /**
- * How `junto escalate|blocked|feedback <input> [--detail <md>]` reads its
- * input. The sentence can be plain text (the common case), or the usual JSON
- * object inline, `@file`, or `-` for stdin. `--detail` is markdown given
- * inline, `@file`, or `-` for stdin. Stdin feeds at most one of them.
+ * How `junto escalate|blocked|feedback <input> [--detail <md>] [--attach
+ * <file>]...` reads its input. The sentence can be plain text (the common
+ * case), or the usual JSON object inline, `@file`, or `-` for stdin.
+ * `--detail` is markdown given inline, `@file`, or `-` for stdin. Stdin feeds
+ * at most one of them.
+ *
+ * `--attach` names a file to show the operator, once per file:
+ * `--attach /abs/shot.png` or `--attach "Before=/abs/shot.png"`. The JSON
+ * input takes the same list as `attach: [{path, caption?}]`. The CLI reads
+ * each file here and sends its bytes: a path never crosses the socket. The
+ * checks below only fail fast; main is the authority on what is admitted.
  */
 export type SignalSource =
   | { readonly kind: "stdin" }
@@ -75,7 +93,75 @@ export const planSignalInvocation = (
 const SignalPayload = Schema.Struct({
   text: Schema.String,
   detail: Schema.optionalKey(Schema.String),
+  attach: Schema.optionalKey(Schema.Array(SignalAttachCliInput)),
 }).annotate({ parseOptions: { onExcessProperty: "error" } });
+
+/**
+ * Pure: one `--attach` value as a file and its caption. A value that is a
+ * file as written is that file; otherwise the text before the first `=` is
+ * the caption, so a path with `=` in it is never misread.
+ */
+export const parseAttachFlag = (
+  value: string,
+  isFile: (path: string) => boolean,
+): SignalAttachCliInput => {
+  const at = value.indexOf("=");
+  if (at <= 0 || isFile(value)) return { path: value };
+  const caption = value.slice(0, at).trim();
+  const path = value.slice(at + 1).trim();
+  return caption ? { path, caption } : { path };
+};
+
+const attachError = (path: string, message: string) =>
+  new InputError({
+    message: `${path}: ${message}`,
+    path: "--attach",
+    hint: 'attach an image or a text file: --attach "Before=/abs/before.png"',
+  });
+
+/** Read each attached file and refuse early what main would refuse anyway. */
+const readAttachments = (attach: ReadonlyArray<SignalAttachCliInput>) =>
+  Effect.gen(function* () {
+    if (attach.length > AGENT_SIGNAL_MAX_ATTACHMENTS) {
+      return yield* Effect.fail(
+        new InputError({
+          message: `a signal carries at most ${AGENT_SIGNAL_MAX_ATTACHMENTS} files, got ${attach.length}`,
+          path: "--attach",
+        }),
+      );
+    }
+    let total = 0;
+    const out: SignalAttachmentInput[] = [];
+    for (const item of attach) {
+      const bytes = yield* Effect.tryPromise({
+        try: async () => {
+          // stat follows a link: what matters is that a regular file is read.
+          const info = await stat(item.path);
+          if (!info.isFile()) throw new Error("not a regular file");
+          return await readFile(item.path);
+        },
+        catch: (cause) => attachError(item.path, cause instanceof Error ? cause.message : "read failed"),
+      });
+      total += bytes.byteLength;
+      if (total > AGENT_SIGNAL_MAX_ATTACHMENT_BYTES) {
+        return yield* Effect.fail(
+          attachError(
+            item.path,
+            `the attached files together are over ${AGENT_SIGNAL_MAX_ATTACHMENT_BYTES / (1024 * 1024)} MB`,
+          ),
+        );
+      }
+      const name = basename(item.path);
+      const kind = classifyAttachment(name, bytes);
+      if (!kind.ok) return yield* Effect.fail(attachError(item.path, kind.reason));
+      out.push({
+        name,
+        bytesBase64: bytes.toString("base64"),
+        ...(item.caption === undefined ? {} : { caption: item.caption }),
+      });
+    }
+    return out;
+  });
 
 const readStdin = Effect.tryPromise({
   try: () => new Response(Bun.stdin.stream()).text(),
@@ -108,6 +194,7 @@ export const loadSignalRaiseArgs = (
   kind: AgentSignalKind,
   input: string,
   detail: string | undefined,
+  attachFlags: ReadonlyArray<string> = [],
 ) =>
   Effect.gen(function* () {
     const planned = planSignalInvocation(input, detail);
@@ -127,10 +214,22 @@ export const loadSignalRaiseArgs = (
       );
     }
     const resolvedDetail = detailText ?? payload.detail;
+    if (attachFlags.length > 0 && payload.attach !== undefined) {
+      return yield* Effect.fail(
+        new InputError({
+          message: "attachments given twice: in the JSON input and in --attach",
+          path: "--attach",
+        }),
+      );
+    }
+    const attach =
+      payload.attach ?? attachFlags.map((value) => parseAttachFlag(value, existsSync));
+    const files = attach.length > 0 ? yield* readAttachments(attach) : [];
     const args: SignalRaiseArgs = {
       kind,
       text: payload.text,
       ...(resolvedDetail === undefined ? {} : { detail: resolvedDetail }),
+      ...(files.length > 0 ? { attach: files } : {}),
     };
     return args;
   });
