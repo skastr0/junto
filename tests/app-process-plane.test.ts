@@ -514,9 +514,11 @@ describe("app terminal process plane", () => {
         rows: 32,
         cwd: "/tmp/junto-terminal",
         env: { TERM: "junto-test" },
-        handleFlowControl: true,
       },
     );
+    // A lone Ctrl+S must reach the harness. node-pty flow control would
+    // swallow it and stop reading the terminal for good.
+    expect(ptySpawn.mock.calls[0]?.[2]).not.toHaveProperty("handleFlowControl");
     expect(mocks.spawn).not.toHaveBeenCalled();
     expect(Object.isFrozen(lease)).toBe(true);
     expect(Object.isFrozen(lease.io)).toBe(true);
@@ -541,8 +543,13 @@ describe("app terminal process plane", () => {
     (pty as unknown as { kill: (signal?: string) => void }).kill = redirectedKill;
     const term = plane.terminate(lease, "terminal timeout");
     expect(plane.terminate(lease, "duplicate timeout")).toBe(term);
+    // TERM leaves the terminal alone; only a force stop restarts output.
+    expect(pty.write).not.toHaveBeenCalledWith("\x11");
     const kill = plane.forceTerminate(lease, "terminal force stop");
     expect(plane.forceTerminate(lease, "duplicate force stop")).toBe(kill);
+    // A killed child whose output Ctrl+S stopped can never finish exiting on
+    // macOS, so the force stop sends XON exactly once.
+    expect(pty.write.mock.calls.filter(([data]) => data === "\x11")).toHaveLength(1);
     expect(originalKill.mock.calls).toEqual([["SIGTERM"], ["SIGKILL"]]);
     expect(redirectedKill).not.toHaveBeenCalled();
 

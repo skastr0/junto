@@ -265,6 +265,12 @@ interface AppTerminalRecord extends AppOwnedRecord {
   exitEvent: AppTerminalExit | undefined;
   closeEvent: AppTerminalExit | undefined;
   cleanupListeners: () => void;
+  /**
+   * Restart terminal output a Ctrl+S (XOFF) stopped. macOS drains the
+   * terminal before an exiting session leader may finish, so a killed child
+   * whose output is stopped never exits and is never observed as exited.
+   */
+  readonly releaseStoppedOutput: () => void;
 }
 
 type AppRecord = AppProcessRecord | AppTerminalRecord;
@@ -340,6 +346,9 @@ const makeSignalSink = (
     ? Object.freeze({ kill })
     : Object.freeze({ pid, kill });
 };
+
+/** XON (Ctrl+Q): restarts terminal output that XOFF (Ctrl+S) stopped. */
+const TERMINAL_XON = "\x11";
 
 const disposePtyListener = (listener: IDisposable | undefined): void => {
   try {
@@ -784,6 +793,13 @@ export const createAppProcessPlane = (
       exitEvent: undefined,
       closeEvent: undefined,
       cleanupListeners: () => undefined,
+      releaseStoppedOutput: () => {
+        try {
+          backend.write(TERMINAL_XON);
+        } catch {
+          // Best-effort: the terminal may already be closed.
+        }
+      },
       authorityReleased: false,
       term: undefined,
       kill: undefined,
@@ -1009,7 +1025,10 @@ export const createAppProcessPlane = (
         rows: spec.rows,
         cwd: spec.cwd,
         env: spec.env === undefined ? undefined : { ...spec.env },
-        handleFlowControl: true,
+        // Never enable node-pty `handleFlowControl`: it swallows a lone
+        // Ctrl+S (XOFF) write and pauses the master read with no resume, so
+        // output backs up and the child can never finish exiting (macOS
+        // drains the terminal on exit). Ctrl+S belongs to the harness.
       });
     } catch (error) {
       throw new TerminalBackendUnavailableError(error);
@@ -1090,6 +1109,9 @@ export const createAppProcessPlane = (
     }
     if (signal === "SIGTERM") record.term = receipt;
     else record.kill = receipt;
+    if (signal === "SIGKILL" && record.mode === "terminal") {
+      record.releaseStoppedOutput();
+    }
     return receipt;
   };
 
