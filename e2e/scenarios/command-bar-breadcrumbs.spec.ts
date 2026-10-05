@@ -31,8 +31,8 @@ const region = (
   height: number,
 ): GroupNode => ({ id, type: "group", ...(label === undefined ? {} : { label }), x, y, width, height });
 
-const seat = (id: string, x: number, y: number): CanvasNode =>
-  agentTextNode({ id, key: `local:e2e-crumb-${id}`, label: id, harness: "claude", x, y });
+const seat = (id: string, x: number, y: number, label = id): CanvasNode =>
+  agentTextNode({ id, key: `local:e2e-crumb-${id}`, label, harness: "claude", x, y });
 
 // Five named regions, each inside the last: a path far wider than a row.
 const LONG = [
@@ -46,6 +46,11 @@ const LONG_PATH = LONG.join(" / ");
 const longRegions = LONG.map((label, depth) =>
   region(`r-long-${String(depth)}`, label, depth * 100, 2200 + depth * 100, 3000 - depth * 200, 1400 - depth * 200),
 );
+
+// Two titles that compete with that path for the row: one that still fits,
+// one wider than the row itself.
+const FITS = "kit-holds-a-deliberately-long-seat-name-that-still-fits-its-row";
+const OVERLONG = `max-${"very-long-name-".repeat(20)}end`;
 
 const nodes: ReadonlyArray<CanvasNode> = [
   // Three deep: Ops > Staging > Db.
@@ -73,6 +78,8 @@ const nodes: ReadonlyArray<CanvasNode> = [
   seat("hal", 2200, 1400),
   ...longRegions,
   seat("ivy", 500, 2700),
+  seat("kit", 900, 2700, FITS),
+  seat("max", 1300, 2700, OVERLONG),
 ];
 
 test.use({ juntoOptions: { seedCanvases: { [CANVAS]: canvasDoc([...nodes], []) } } });
@@ -83,6 +90,34 @@ const setTheme = async (page: Page, theme: "dark" | "bright"): Promise<void> => 
   if (theme === "bright") await expect(page.locator("html")).toHaveAttribute("data-theme", "bright");
   else await expect(page.locator("html")).not.toHaveAttribute("data-theme", "bright");
 };
+
+/** How the long path sits in its row: what is clipped and what stays on screen. */
+const measureCrumb = (crumb: Locator) =>
+  crumb.evaluate((el, innermost) => {
+    const box = el.getBoundingClientRect();
+    const row = el.closest(".command-bar__row")!.getBoundingClientRect();
+    const title = el.closest(".command-bar__row")!.querySelector(".command-bar__row-title")!;
+    const text = document.createTreeWalker(el, NodeFilter.SHOW_TEXT).nextNode() as Text;
+    const span = (from: number, to: number): DOMRect => {
+      const range = document.createRange();
+      range.setStart(text, from);
+      range.setEnd(text, to);
+      return range.getBoundingClientRect();
+    };
+    const wholeTitle = document.createRange();
+    wholeTitle.selectNodeContents(title);
+    const inside = (rect: DOMRect): boolean => rect.left >= box.left - 0.5 && rect.right <= box.right + 0.5;
+    const full = text.data;
+    return {
+      clipped: el.scrollWidth > el.clientWidth,
+      oneLine: box.height < 24,
+      insideRow: box.left >= row.left - 0.5 && box.right <= row.right + 0.5,
+      innermostVisible: inside(span(full.length - innermost.length, full.length)),
+      outermostVisible: inside(span(0, 8)),
+      titleWhole: title.getBoundingClientRect().width >= wholeTitle.getBoundingClientRect().width - 0.01,
+      atLeastTwelveChars: box.width >= span(0, 12).width - 1,
+    };
+  }, LONG[LONG.length - 1]!);
 
 test("cmd+K rows read their region path, outer to inner", async ({ junto }) => {
   const { page } = junto;
@@ -126,8 +161,23 @@ test("cmd+K rows read their region path, outer to inner", async ({ junto }) => {
   await expect(rowsTitled("Ops")).toHaveCount(3);
   await expect(crumbOf("Ops")).toHaveText(["Ops"]);
 
+  // Every title on this board fits its row, so none is clipped: the path
+  // never takes a character from a title that has room.
+  // Measured against the text's own width: a title squeezed by a fraction of
+  // a pixel already trades its last characters for an ellipsis.
+  const clippedTitles = await titles.evaluateAll((els) =>
+    els
+      .filter((el) => {
+        const range = document.createRange();
+        range.selectNodeContents(el);
+        return el.getBoundingClientRect().width < range.getBoundingClientRect().width - 0.01;
+      })
+      .map((el) => el.textContent),
+  );
+  expect(clippedTitles).toEqual([OVERLONG]);
+
   // Copy law: no middle dots in any row.
-  expect((await rows.allTextContents()).join("\n")).not.toContain("·");
+  expect((await rows.allTextContents()).join("\n")).not.toContain(String.fromCharCode(0xb7));
 
   for (const theme of ["dark", "bright"] as const) {
     await setTheme(page, theme);
@@ -142,30 +192,7 @@ test("cmd+K rows read their region path, outer to inner", async ({ junto }) => {
   const longCrumb = crumbOf("ivy");
   await expect(longCrumb).toHaveText(LONG_PATH);
   await expect(longCrumb).toHaveAttribute("data-junto-tooltip", LONG_PATH);
-  const clip = await longCrumb.evaluate((el, innermost) => {
-    const box = el.getBoundingClientRect();
-    const row = el.closest(".command-bar__row")!.getBoundingClientRect();
-    const title = el.closest(".command-bar__row")!.querySelector(".command-bar__row-title")!;
-    const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
-    const text = walker.nextNode() as Text;
-    const edge = (from: number, to: number): DOMRect => {
-      const range = document.createRange();
-      range.setStart(text, from);
-      range.setEnd(text, to);
-      return range.getBoundingClientRect();
-    };
-    const full = text.data;
-    const inner = edge(full.length - innermost.length, full.length);
-    const outer = edge(0, 8);
-    return {
-      clipped: el.scrollWidth > el.clientWidth,
-      oneLine: box.height < 24,
-      insideRow: box.left >= row.left - 0.5 && box.right <= row.right + 0.5,
-      innermostVisible: inner.left >= box.left - 0.5 && inner.right <= box.right + 0.5,
-      outermostVisible: outer.left >= box.left - 0.5 && outer.right <= box.right + 0.5,
-      titleWhole: title.scrollWidth <= title.clientWidth,
-    };
-  }, LONG[LONG.length - 1]!);
+  const clip = await measureCrumb(longCrumb);
   console.log(`BREADCRUMBS long-path ${JSON.stringify(clip)}`);
   expect(clip).toEqual({
     clipped: true,
@@ -174,8 +201,36 @@ test("cmd+K rows read their region path, outer to inner", async ({ junto }) => {
     innermostVisible: true,
     outermostVisible: false,
     titleWhole: true,
+    atLeastTwelveChars: true,
   });
   await page.screenshot({ path: join(SHOTS, "dark-02-long-path.png") });
+
+  // A long title that fits is never clipped; the path takes what is left.
+  await input.fill("kit-holds");
+  await expect(titles).toHaveText([FITS]);
+  const fits = await measureCrumb(crumbOf(FITS));
+  console.log(`BREADCRUMBS title-fits ${JSON.stringify(fits)}`);
+  expect(fits).toMatchObject({
+    titleWhole: true,
+    oneLine: true,
+    insideRow: true,
+    innermostVisible: true,
+    atLeastTwelveChars: true,
+  });
+  await page.screenshot({ path: join(SHOTS, "dark-02b-long-title-fits.png") });
+  // A title wider than the row clips, and the path still keeps a short name.
+  await input.fill("max-very");
+  await expect(titles).toHaveText([OVERLONG]);
+  const overlong = await measureCrumb(crumbOf(OVERLONG));
+  console.log(`BREADCRUMBS title-overlong ${JSON.stringify(overlong)}`);
+  expect(overlong).toMatchObject({
+    titleWhole: false,
+    oneLine: true,
+    insideRow: true,
+    innermostVisible: true,
+    atLeastTwelveChars: true,
+  });
+  await page.screenshot({ path: join(SHOTS, "dark-02c-title-overlong.png") });
 
   // A region name finds its members: the region by title, then seats by path.
   await input.fill("staging");
