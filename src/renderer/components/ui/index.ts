@@ -20,6 +20,16 @@ export { Kbd } from "./Kbd";
 export { Popover } from "./Popover";
 export { Dialog, ConfirmDialog } from "./Dialog";
 export { Slider } from "./Slider";
+export {
+  CompareTag,
+  Thumbnail,
+  ThumbnailMore,
+  ThumbnailStrip,
+  type ThumbnailSize,
+  type ThumbnailState,
+} from "./Thumbnail";
+export { MediaStage, type MediaSize } from "./MediaStage";
+export { CompareSlider } from "./CompareSlider";
 export { Switch } from "./Switch";
 export {
   HelpMap,
