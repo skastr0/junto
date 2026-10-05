@@ -168,6 +168,19 @@ export const makeRegionEnvironmentService = (
       return seatReport(doc, node, hostId, memoized());
     },
 
+    /**
+     * The same, for a caller that already holds the canvas (the work socket
+     * reads the caller's canvas before it dispatches any op).
+     */
+    seatReportFor: async (
+      doc: CanvasDoc,
+      nodeId: string,
+    ): Promise<SeatEnvironmentReport | undefined> => {
+      const node = doc.nodes.find((candidate) => candidate.id === nodeId);
+      if (!node) return undefined;
+      return seatReport(doc, node, await deps.hostId(), memoized());
+    },
+
     /** Every region with an environment in scope, and every seat. */
     canvasReport: async (
       canvasName: string,

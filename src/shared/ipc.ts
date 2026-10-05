@@ -77,6 +77,7 @@ import type {
   SeatGuidanceMap,
   SeatGuidanceSetResult,
 } from "./seat-guidance";
+import type { SourceReport, StaleSeat } from "./region-environment";
 import type {
   OffboardMode,
   SeatOffboardAskResult,
@@ -163,6 +164,9 @@ export const IPC_CHANNELS = {
   /** Region environment: save or remove a value in Junto's own secret store. */
   regionEnvSaveSecret: "junto:region-env-save-secret",
   regionEnvRemoveSecret: "junto:region-env-remove-secret",
+  /** Region environment: what a region resolves to, and its out-of-date running seats. */
+  regionEnvReport: "junto:region-env-report",
+  regionEnvStaleSeats: "junto:region-env-stale-seats",
   /** Offboard from the seat: ask the agent in a mode, and where each seat's offboard stands. */
   seatOffboardAsk: "junto:seat-offboard-ask",
   seatOffboardProgressList: "junto:seat-offboard-progress-list",
@@ -723,6 +727,13 @@ export type RegionEnvSaveSecretResult =
 export type RegionEnvRemoveSecretResult =
   | { readonly ok: true }
   | { readonly ok: false; readonly message: string };
+/** Names, kinds, origins and status. Never a value. */
+export type RegionEnvReportResult =
+  | { readonly ok: true; readonly report: ReadonlyArray<SourceReport> }
+  | { readonly ok: false; readonly message: string };
+export type RegionEnvStaleSeatsResult =
+  | { readonly ok: true; readonly seats: ReadonlyArray<StaleSeat> }
+  | { readonly ok: false; readonly message: string };
 
 export interface JuntoApi extends UpdateApi, OverseerLiveApi {
   /** Read-only platform marker for renderer geometry and copy. */
@@ -796,6 +807,22 @@ export interface JuntoApi extends UpdateApi, OverseerLiveApi {
   readonly regionEnvRemoveSecret?: (
     secretId: string,
   ) => Promise<RegionEnvRemoveSecretResult>;
+  /**
+   * What a seat placed directly in this region would be launched with, in
+   * application order, read from the canvas as saved at call time.
+   */
+  readonly regionEnvReport?: (
+    canvasName: string,
+    regionId: string,
+  ) => Promise<RegionEnvReportResult>;
+  /**
+   * Running seats inside the region (nested regions included) whose launch
+   * environment differs from the current resolution.
+   */
+  readonly regionEnvStaleSeats?: (
+    canvasName: string,
+    regionId: string,
+  ) => Promise<RegionEnvStaleSeatsResult>;
   /**
    * Send a seat's agent the offboard prompt for this mode, on the ordinary
    * mail path. The agent writes the notes; Junto closes the session after.

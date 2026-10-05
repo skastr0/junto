@@ -340,6 +340,8 @@ export const requiresConnection = (op: WorkOpName | "overseer"): boolean => {
     case "signal.raise":
     case "signal.clear":
     case "signal.list":
+    // A seat reads only its own region environment report. No edge, no port.
+    case "env.report":
       return false;
     case "tasks.list":
     case "tasks.wait":

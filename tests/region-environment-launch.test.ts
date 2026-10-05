@@ -288,6 +288,9 @@ describe("one service behind every surface", () => {
     );
     const { service: s } = service(() => d, { tok: ok({ TOKEN: CANARY }) });
     expect(await s.regionReport("c", "inner")).toEqual((await s.seatReport("c", "in"))?.report);
+    // A caller that already holds the canvas gets the identical answer.
+    expect(await s.seatReportFor(d, "in")).toEqual(await s.seatReport("c", "in"));
+    expect(await s.seatReportFor(d, "nope")).toBeUndefined();
     expect(await s.regionReport("c", "outer")).toEqual((await s.seatReport("c", "mid"))?.report);
     expect(await s.regionReport("c", "in")).toBeUndefined();
     expect(await s.regionReport("c", "nope")).toBeUndefined();

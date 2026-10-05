@@ -471,6 +471,12 @@ const juntoApi: Omit<JuntoApi, keyof typeof liveApi | WorkFeatureApiKey> = {
     invoke(IPC_CHANNELS.regionEnvSaveSecret, IPC_TIMEOUT_MS, input),
   regionEnvRemoveSecret: (secretId) =>
     invoke(IPC_CHANNELS.regionEnvRemoveSecret, IPC_TIMEOUT_MS, secretId),
+  // Resolving reads the operator's stores (Keychain, 1Password), each bounded
+  // by its own timeout; give the whole report the long budget.
+  regionEnvReport: (canvasName, regionId) =>
+    invoke(IPC_CHANNELS.regionEnvReport, AGENT_MESSAGE_TIMEOUT_MS, canvasName, regionId),
+  regionEnvStaleSeats: (canvasName, regionId) =>
+    invoke(IPC_CHANNELS.regionEnvStaleSeats, IPC_TIMEOUT_MS, canvasName, regionId),
   seatOffboardAsk: (canvasName, seatId, mode) =>
     invoke(IPC_CHANNELS.seatOffboardAsk, AGENT_MESSAGE_TIMEOUT_MS, canvasName, seatId, mode),
   seatOffboardProgressList: () => invoke(IPC_CHANNELS.seatOffboardProgressList, IPC_TIMEOUT_MS),

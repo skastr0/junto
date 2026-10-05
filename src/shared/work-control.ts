@@ -84,6 +84,8 @@ export const WorkOpName = Schema.Literals(["ping", "doctor",
 "signal.raise",
 "signal.clear",
 "signal.list",
+/** Universal seat-local: what this seat's regions resolve to (names and status, never values). */
+"env.report",
 "artifact.publish",
 "board.list",
 "board.create_topic",
@@ -637,6 +639,17 @@ export const SignalListArgs = Schema.Struct({}).annotate({
   parseOptions: { onExcessProperty: "error" },
 });
 export type SignalListArgs = typeof SignalListArgs.Type;
+
+/**
+ * `env.report`: what the calling seat's regions resolve to. Takes nothing;
+ * the caller is the process-bound seat. Answers with a
+ * `SeatEnvironmentReport` (shared/region-environment): variable names, where
+ * each comes from and whether it resolved. Never a value.
+ */
+export const EnvReportArgs = Schema.Struct({}).annotate({
+  parseOptions: { onExcessProperty: "error" },
+});
+export type EnvReportArgs = typeof EnvReportArgs.Type;
 
 /**
  * `junto onboard`: how many of the seat's latest offboard notes to carry

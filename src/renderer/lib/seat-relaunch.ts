@@ -57,32 +57,31 @@ const waitForExit = async (
   return false;
 };
 
-export const performSeatRelaunch = async (
+type RestartOutcome =
+  | { readonly ok: true; readonly restarted: boolean }
+  | { readonly ok: false; readonly message: string };
+
+/**
+ * Stop the seat's running harness and start it again on the same binding and
+ * the same session. `next` is the node the seat starts from: the same node,
+ * or one whose stored launch has just been committed. `savedForNextStart`
+ * finishes the sentence when the old process will not stop in time.
+ *
+ * A seat that is not running is left alone: its next start reads whatever is
+ * current by itself.
+ */
+const restartRunningSeat = async (
   node: TextNode,
-  params: SeatLaunchParams,
-): Promise<SeatRelaunchResult> => {
-  const relaunched = relaunchManagedAgentNode(node, params);
-  if (!relaunched) return { ok: false, message: "not a managed agent seat" };
-  const next = relaunched.node;
+  next: TextNode,
+  wasRunning: boolean,
+  savedForNextStart: string,
+): Promise<RestartOutcome> => {
   const binding = resolveTerminalBinding(node);
   if (binding?.kind !== "native") {
     return { ok: false, message: "seat has no terminal binding" };
   }
-
-  const api = getJuntoApi();
-  const before = await api
-    ?.terminalGet?.(binding.bindingId, binding.hostId)
-    .catch(() => undefined);
-  const wasRunning = isLive(before?.status);
+  if (!wasRunning) return { ok: true, restarted: false };
   const surfaceWasOpen = Boolean(terminal$.openByNodeId[node.id].peek());
-
-  applyManagedAgentReseat(next);
-  await flushPendingCanvasSave().catch(() => undefined);
-
-  if (!wasRunning) {
-    // Nothing to restart: the next start uses the stored parameters.
-    return { ok: true, restarted: false, rejected: relaunched.rejected };
-  }
 
   // The open surface would otherwise watch its own process die and offer a
   // reopen while this restart is already under way.
@@ -104,17 +103,67 @@ export const performSeatRelaunch = async (
   if (!(await waitForExit(binding.bindingId, binding.hostId))) {
     return {
       ok: false,
-      message:
-        "the harness is still stopping; the new parameters are saved and apply on its next start",
+      message: `the harness is still stopping; ${savedForNextStart}`,
     };
   }
 
   if (surfaceWasOpen) {
     // The surface owns ensure + attach, and resumes the seat's session.
     await openTerminal(next, "focus");
-    return { ok: true, restarted: true, rejected: relaunched.rejected };
+    return { ok: true, restarted: true };
   }
   const started = await ensureTerminalRunning(next, { resume: true });
   if (!started.ok) return { ok: false, message: started.message };
-  return { ok: true, restarted: true, rejected: relaunched.rejected };
+  return { ok: true, restarted: true };
+};
+
+const isRunning = async (node: TextNode): Promise<boolean> => {
+  const binding = resolveTerminalBinding(node);
+  if (binding?.kind !== "native") return false;
+  const session = await getJuntoApi()
+    ?.terminalGet?.(binding.bindingId, binding.hostId)
+    .catch(() => undefined);
+  return isLive(session?.status);
+};
+
+/**
+ * Restart a running seat as it is, so it picks up what is read at launch (its
+ * regions' environment). Same binding, same session: the harness resumes its
+ * conversation. Nothing about the seat's stored launch changes.
+ */
+export const restartSeatOnSameSession = async (
+  node: TextNode,
+): Promise<RestartOutcome> =>
+  restartRunningSeat(
+    node,
+    node,
+    await isRunning(node),
+    "it starts on the current environment the next time it starts",
+  );
+
+export const performSeatRelaunch = async (
+  node: TextNode,
+  params: SeatLaunchParams,
+): Promise<SeatRelaunchResult> => {
+  const relaunched = relaunchManagedAgentNode(node, params);
+  if (!relaunched) return { ok: false, message: "not a managed agent seat" };
+  const next = relaunched.node;
+  if (resolveTerminalBinding(node)?.kind !== "native") {
+    return { ok: false, message: "seat has no terminal binding" };
+  }
+  const wasRunning = await isRunning(node);
+
+  // Committed BEFORE the old process stops, so nothing that wakes the seat in
+  // between can start it on the old parameters.
+  applyManagedAgentReseat(next);
+  await flushPendingCanvasSave().catch(() => undefined);
+
+  const outcome = await restartRunningSeat(
+    node,
+    next,
+    wasRunning,
+    "the new parameters are saved and apply on its next start",
+  );
+  if (!outcome.ok) return outcome;
+  return { ok: true, restarted: outcome.restarted, rejected: relaunched.rejected };
 };

@@ -143,6 +143,7 @@ import {
 } from "./term/seat-session-capture";
 import { injectionSupervisor } from "./term/injection-supervisor";
 import { removeRegionSecret, saveRegionSecret } from "./region-env/secret-ipc";
+import { regionEnvReport, regionEnvStaleSeats } from "./region-env/report-ipc";
 import {
   scheduleManagedPulseReady,
   setManagedPulseDeliver,
@@ -882,6 +883,17 @@ export const registerJuntoIpc = (): void => {
   );
   privilegedIpc.handle(IPC_CHANNELS.regionEnvRemoveSecret, (_event, secretId: unknown) =>
     removeRegionSecret(secretId),
+  );
+  // Read-only: names, kinds, origins and status of what a region resolves to.
+  privilegedIpc.handle(
+    IPC_CHANNELS.regionEnvReport,
+    (_event, canvasName: unknown, regionId: unknown) =>
+      regionEnvReport(canvasName, regionId),
+  );
+  privilegedIpc.handle(
+    IPC_CHANNELS.regionEnvStaleSeats,
+    (_event, canvasName: unknown, regionId: unknown) =>
+      regionEnvStaleSeats(canvasName, regionId),
   );
 
   // Agent profiles: saved agents placed from the add picker. Every change

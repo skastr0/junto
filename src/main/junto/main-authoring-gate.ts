@@ -123,6 +123,7 @@ const WORK_OPERATION_CLASSIFICATION = {
   "signal.raise": "authorial",
   "signal.clear": "authorial",
   "signal.list": "read",
+  "env.report": "read",
   "artifact.publish": "authorial",
   "board.list": "read",
   "board.tags": "read",

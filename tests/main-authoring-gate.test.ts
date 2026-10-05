@@ -191,6 +191,7 @@ describe("work-control main authoring classification", () => {
       "signal.raise": "authorial",
       "signal.clear": "authorial",
       "signal.list": "read",
+      "env.report": "read",
       "artifact.publish": "authorial",
       "board.list": "read",
       "board.tags": "read",

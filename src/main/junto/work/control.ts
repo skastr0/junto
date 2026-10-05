@@ -92,6 +92,7 @@ import {
   RelayTriggerArgs,
   SignalClearArgs,
   SignalListArgs,
+  EnvReportArgs,
   SignalRaiseArgs,
   OffboardArgs,
   OnboardArgs,
@@ -2057,6 +2058,29 @@ const dispatchOp = (
         inReplyTo,
         read: exposeWorkMutation(markedMapped.success),
       };
+    }
+
+    if (op === "env.report") {
+      const decoded = decodeArgs(EnvReportArgs, args ?? {});
+      if (Result.isFailure(decoded)) return yield* Effect.fail(decoded.failure);
+      // The seat's own resolution, from the same service the region screen
+      // and the overseer doctor read. Names, origins and status only.
+      const { regionEnvironmentService } = yield* Effect.promise(
+        () => import("../region-env/live"),
+      );
+      const report = yield* Effect.promise(() =>
+        regionEnvironmentService()
+          .seatReportFor(board, caller.nodeId)
+          .catch(() => undefined),
+      );
+      if (report === undefined) {
+        return yield* Effect.fail<WorkErrorBody>({
+          type: "RuntimeDown",
+          message: "this seat's region environment could not be read",
+          details: { retryable: true },
+        });
+      }
+      return report;
     }
 
     if (op === "signal.raise" || op === "signal.clear" || op === "signal.list") {

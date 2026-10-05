@@ -10,7 +10,7 @@ import type { Port, SinkKind } from "./schema";
 export type TargetWorkOpName = Exclude<
   WorkOpName,
   "ping" | "doctor" | "capabilities" | "onboard" | "offboard" | "preamble" | "overseer" | "overseer.live" | "msg.sent"
-  | "signal.raise" | "signal.clear" | "signal.list"
+  | "signal.raise" | "signal.clear" | "signal.list" | "env.report"
 >;
 
 /**
