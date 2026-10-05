@@ -151,8 +151,12 @@ export function AgentSeatView({
       {compact ? null : (
       <div className="junto-seat__text min-w-0 flex-1">
         {title}
-        <div className="junto-seat__line flex items-baseline gap-1.5 text-[10.5px] leading-snug">
-          <span className="min-w-0 flex-1 truncate" data-testid="agent-seat-line">
+        {/* The line is what the seat is for, so it wins the row: it keeps its
+            full width, and the onboarding mark beside it shows only when it
+            fits whole. A mark that does not fit wraps to a second row, which
+            the one-line box does not show. */}
+        <div className="junto-seat__line flex max-h-[1lh] flex-wrap items-baseline gap-x-1.5 overflow-hidden text-[10.5px] leading-snug">
+          <span className="max-w-full min-w-0 flex-[1_0_auto] truncate" data-testid="agent-seat-line">
             {line}
           </span>
           {onboarding ? (
