@@ -195,12 +195,21 @@ const collect = (target: string, out: string[]): void => {
   }
 };
 
-const main = (): void => {
-  const args = process.argv.slice(2);
-  const dry = args.includes("--dry");
+/** `--only` takes the next argument as its selector list; every other bare argument is a path. */
+export const parseArgs = (
+  args: readonly string[],
+): { readonly dry: boolean; readonly only: readonly string[]; readonly targets: readonly string[] } => {
   const onlyAt = args.indexOf("--only");
-  const only = onlyAt >= 0 ? (args[onlyAt + 1] ?? "").split(",").filter(Boolean) : [];
-  const targets = args.filter((arg, index) => !arg.startsWith("--") && index !== onlyAt + 1);
+  const selectorAt = onlyAt >= 0 ? onlyAt + 1 : -1;
+  return {
+    dry: args.includes("--dry"),
+    only: selectorAt >= 0 ? (args[selectorAt] ?? "").split(",").filter(Boolean) : [],
+    targets: args.filter((arg, index) => !arg.startsWith("--") && index !== selectorAt),
+  };
+};
+
+const main = (): void => {
+  const { dry, only, targets } = parseArgs(process.argv.slice(2));
   if (targets.length === 0) {
     console.error("usage: bun run tokens:convert [--dry] [--only <selector,selector>] <file or folder>...");
     process.exit(2);

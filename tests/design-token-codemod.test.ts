@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { convert, convertRules, leadingToken, radiusToken, textToken, trackingToken } from "../scripts/design-token-codemod";
+import { convert, convertRules, leadingToken, parseArgs, radiusToken, textToken, trackingToken } from "../scripts/design-token-codemod";
 import { scan } from "../scripts/lint-design-tokens";
 
 describe("design token codemod", () => {
@@ -74,6 +74,18 @@ describe("design token codemod", () => {
       ].join("\n"),
     );
     expect(result.converted).toBe(2);
+  });
+
+  it("reads its arguments: a bare path is a target, with or without flags", () => {
+    expect(parseArgs(["src/a"])).toEqual({ dry: false, only: [], targets: ["src/a"] });
+    expect(parseArgs(["src/a", "src/b"]).targets).toEqual(["src/a", "src/b"]);
+    expect(parseArgs(["--dry", "src/a"])).toEqual({ dry: true, only: [], targets: ["src/a"] });
+    expect(parseArgs(["--only", ".station-,.command-bar", "styles.css"])).toEqual({
+      dry: false,
+      only: [".station-", ".command-bar"],
+      targets: ["styles.css"],
+    });
+    expect(parseArgs(["styles.css", "--only", ".a", "--dry"])).toEqual({ dry: true, only: [".a"], targets: ["styles.css"] });
   });
 
   it("is stable: a converted file converts to itself", () => {
