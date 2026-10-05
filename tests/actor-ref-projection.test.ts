@@ -2,6 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect, Layer, ManagedRuntime, Schema } from "effect";
+import { SqlClient } from "effect/unstable/sql";
 import { afterEach, describe, expect, it } from "vitest";
 import type { CanvasDoc } from "../src/shared/canvas";
 import { InstallationId } from "../src/shared/installation-id";
@@ -19,7 +20,6 @@ import {
 } from "../src/main/junto/canvases";
 import {
   makeStateEngineLive,
-  StateEngine,
 } from "../src/main/junto/state/engine";
 import {
   StationFleetTargetRepository,
@@ -115,19 +115,17 @@ describe("active ActorRef projection", () => {
     const remoteInstallationId = installation("installation-remote");
 
     try {
-      const { canvases, fleetTargets, state } = await runtime.runPromise(
+      const { canvases, fleetTargets, sql } = await runtime.runPromise(
         Effect.gen(function* () {
           return {
             canvases: yield* CanvasesService,
             fleetTargets: yield* StationFleetTargetRepository,
-            state: yield* StateEngine,
+            sql: yield* SqlClient.SqlClient,
           };
         }),
       );
       await runtime.runPromise(
-        state.transaction("test.configure-command-center", (writer) => {
-          writer.run(
-            `INSERT INTO station_configuration(
+        sql.withTransaction(sql`INSERT INTO station_configuration(
                singleton,
                role,
                host_id,
@@ -135,10 +133,7 @@ describe("active ActorRef projection", () => {
                command_center_installation_id,
                supervised_preferred,
                configured_at
-             ) VALUES (1, 'command-center', 'local', NULL, NULL, 0, ?)`,
-            ["2026-07-27T12:00:00.000Z"],
-          );
-        }),
+             ) VALUES (1, 'command-center', 'local', NULL, NULL, 0, ${"2026-07-27T12:00:00.000Z"})`),
       );
       await runtime.runPromise(
         fleetTargets.bind({

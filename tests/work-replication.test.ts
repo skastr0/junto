@@ -2,13 +2,8 @@ import { randomUUID } from "node:crypto";
 import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-  Effect,
-  Result,
-  Layer,
-  ManagedRuntime,
-  Schema,
-} from "effect";
+import { Effect, Result, Layer, ManagedRuntime, Schema } from "effect";
+import { SqlClient } from "effect/unstable/sql";
 import { afterEach, describe, expect, it } from "vitest";
 import { ActorSeatId } from "../src/shared/actor-seat";
 import { serializeCanvas, type CanvasDoc } from "../src/shared/canvas";
@@ -26,16 +21,14 @@ import {
 } from "../src/shared/work-protocol";
 import {
   workRecordContentSha256,
+  WorkAuthorityError,
   WorkReplicationError,
   WorkRepository,
   WorkRepositoryLive,
 } from "../src/main/junto/work/repository";
 import { stationProjectionContentSha256 } from "../src/main/junto/station/repository";
 import { compileStationPortfolioBody } from "../src/main/junto/station/portfolio";
-import {
-  makeStateEngineLive,
-  StateEngine,
-} from "../src/main/junto/state/engine";
+import { makeStateEngineLive } from "../src/main/junto/state/engine";
 import { authorialMaterialForTest } from "./helpers/authorial-material";
 import { seedCanvasAuthority } from "./helpers/canvas-authority-material";
 
@@ -54,18 +47,13 @@ const projectedBody = compileStationPortfolioBody(
   new Map([["factory", fixtureTopology]]),
   new Map(),
 );
-const projectedContentSha256 =
-  stationProjectionContentSha256(projectedBody);
-const authorialBasis = Schema.decodeUnknownSync(
-  AuthorialIntentFactBasis,
-)({
+const projectedContentSha256 = stationProjectionContentSha256(projectedBody);
+const authorialBasis = Schema.decodeUnknownSync(AuthorialIntentFactBasis)({
   kind: "authorial-intent",
   generation: "1",
   contentSha256: authorialIntentSha256,
 });
-const projectedBasis = Schema.decodeUnknownSync(
-  ProjectedIntentFactBasis,
-)({
+const projectedBasis = Schema.decodeUnknownSync(ProjectedIntentFactBasis)({
   kind: "projected-intent",
   generation: "1",
   contentSha256: projectedContentSha256,
@@ -80,9 +68,7 @@ afterEach(async () => {
   const closing = opened.splice(0);
   await Promise.all(closing.map(({ dispose }) => dispose()));
   await Promise.all(
-    closing.map(({ root }) =>
-      rm(root, { recursive: true, force: true }),
-    ),
+    closing.map(({ root }) => rm(root, { recursive: true, force: true })),
   );
 });
 
@@ -90,18 +76,12 @@ const installation = (value: string): InstallationIdValue =>
   Schema.decodeUnknownSync(InstallationId)(value);
 
 const actor = (digit: string, nodeId = `actor-${digit}`) => ({
-  seatId: Schema.decodeUnknownSync(ActorSeatId)(
-    `seat_${digit.repeat(64)}`,
-  ),
+  seatId: Schema.decodeUnknownSync(ActorSeatId)(`seat_${digit.repeat(64)}`),
   canvasName: "factory",
   nodeId,
 });
 
-const message = (
-  messageId: string,
-  role: "user" | "agent",
-  text: string,
-) => ({
+const message = (messageId: string, role: "user" | "agent", text: string) => ({
   messageId,
   role,
   parts: [{ kind: "text" as const, text }],
@@ -128,32 +108,33 @@ const openInstallation = async (
     dispose: () => runtime.dispose(),
   });
   const repository = await runtime.runPromise(WorkRepository);
-  const state = await runtime.runPromise(StateEngine);
+  const sql = await runtime.runPromise(SqlClient.SqlClient);
   await runtime.runPromise(
-    state.transaction("test.seed-installation", (writer) => {
-      for (const known of new Set([local, ...peers])) {
-        writer.run(
-          `
+    sql.withTransaction(
+      Effect.gen(function* () {
+        for (const known of new Set([local, ...peers])) {
+          yield* sql.unsafe(
+            `
             INSERT INTO station_known_installations(
               installation_id,
               registered_at
             ) VALUES (?, ?)
           `,
-          [known, observedAt],
-        );
-      }
-      writer.run(
-        `
+            [known, observedAt],
+          );
+        }
+        yield* sql.unsafe(
+          `
           INSERT INTO station_installation(
             singleton,
             installation_id,
             created_at
           ) VALUES (1, ?, ?)
         `,
-        [local, observedAt],
-      );
-      writer.run(
-        `
+          [local, observedAt],
+        );
+        yield* sql.unsafe(
+          `
           INSERT INTO station_configuration(
             singleton,
             role,
@@ -164,17 +145,17 @@ const openInstallation = async (
             configured_at
           ) VALUES (1, ?, ?, ?, ?, 1, ?)
         `,
-        role === "command-center"
-          ? [role, "local", null, null, observedAt]
-          : [role, "remote", "remote", peers[0], observedAt],
-      );
-      seedCanvasAuthority(writer, {
-        generation: authorialBasis.generation,
-        documents: new Map([["factory", fixtureTopology]]),
-        at: observedAt,
-      });
-      writer.run(
-        `
+          role === "command-center"
+            ? [role, "local", null, null, observedAt]
+            : [role, "remote", "remote", peers[0], observedAt],
+        );
+        yield* seedCanvasAuthority({
+          generation: authorialBasis.generation,
+          documents: new Map([["factory", fixtureTopology]]),
+          at: observedAt,
+        });
+        yield* sql.unsafe(
+          `
           INSERT INTO station_projection_versions(
             generation,
             content_sha256,
@@ -185,38 +166,34 @@ const openInstallation = async (
             received_at
           ) VALUES (?, ?, ?, ?, ?, ?, ?)
         `,
-        [
-          projectedBasis.generation,
-          projectedBasis.contentSha256,
-          authorialBasis.generation,
-          authorialBasis.contentSha256,
-          projectedBody,
-          observedAt,
-          observedAt,
-        ],
-      );
-      writer.run(
-        `
+          [
+            projectedBasis.generation,
+            projectedBasis.contentSha256,
+            authorialBasis.generation,
+            authorialBasis.contentSha256,
+            projectedBody,
+            observedAt,
+            observedAt,
+          ],
+        );
+        yield* sql.unsafe(
+          `
           INSERT INTO station_projection_head(
             singleton,
             generation,
             content_sha256
           ) VALUES (1, ?, ?)
         `,
-        [
-          projectedBasis.generation,
-          projectedBasis.contentSha256,
-        ],
-      );
-    }),
+          [projectedBasis.generation, projectedBasis.contentSha256],
+        );
+      }),
+    ),
   );
   return {
     runtime,
     repository,
-    state,
-    basis: role === "command-center"
-      ? authorialBasis
-      : projectedBasis,
+    sql,
+    basis: role === "command-center" ? authorialBasis : projectedBasis,
   };
 };
 
@@ -257,9 +234,7 @@ const accept = (
     admitResponse: options?.admitResponse ?? admitted,
   });
 
-const reseal = (
-  candidate: WorkRecordValue,
-): WorkRecordValue => {
+const reseal = (candidate: WorkRecordValue): WorkRecordValue => {
   const {
     contentSha256: _contentSha256,
     originAt: _originAt,
@@ -303,13 +278,11 @@ const mailCount = (
   installation: Awaited<ReturnType<typeof openInstallation>>,
 ) =>
   installation.runtime.runPromise(
-    installation.state.read(
-      "test.read-mail-count",
-      (reader) =>
-        reader.get<{ readonly count: number }>(
-          "SELECT count(*) AS count FROM work_messages",
-        )!.count,
-    ),
+    installation.sql
+      .unsafe<{ readonly count: number }>(
+        "SELECT count(*) AS count FROM work_messages",
+      )
+      .pipe(Effect.map((rows) => rows[0]!.count)),
   );
 
 describe("WorkRepository v2 report reconciliation", () => {
@@ -361,24 +334,38 @@ describe("WorkRepository v2 report reconciliation", () => {
         reason: "response-capacity",
       });
     }
+    const thrownAdmission = await commandCenter.runtime.runPromise(
+      accept(commandCenter.repository, remote, [remoteCommand], {
+        peerAcknowledgements: [acknowledgement],
+        authorizeCommand: () => {
+          throw WorkAuthorityError.make({
+            reason: "target-mismatch",
+            message: "admission threw",
+          });
+        },
+      }).pipe(Effect.result),
+    );
+    expect(thrownAdmission).toMatchObject({
+      _tag: "Failure",
+      failure: {
+        _tag: "WorkReplicationError",
+        reason: "causal-conflict",
+        message: "admission threw",
+      },
+    });
     expect(
       await commandCenter.runtime.runPromise(
-        commandCenter.state.read(
-          "test.peer-ack-rolled-back",
-          (reader) =>
-            reader.get<{ readonly count: number }>(
-              "SELECT count(*) AS count FROM station_peer_ack_cursors",
-            )!.count,
-        ),
+        commandCenter.sql
+          .unsafe<{ readonly count: number }>(
+            "SELECT count(*) AS count FROM station_peer_ack_cursors",
+          )
+          .pipe(Effect.map((rows) => rows[0]!.count)),
       ),
     ).toBe(0);
     const inboxIds = async () =>
       (
         await commandCenter.runtime.runPromise(
-          commandCenter.repository.readSnapshot(
-            sink.canvasName,
-            sink.nodeId,
-          ),
+          commandCenter.repository.readSnapshot(sink.canvasName, sink.nodeId),
         )
       ).messages.items.map((item) => item.messageId);
     expect(await inboxIds()).toEqual(["local-outbound"]);
@@ -394,22 +381,20 @@ describe("WorkRepository v2 report reconciliation", () => {
     });
     expect(
       await commandCenter.runtime.runPromise(
-        commandCenter.state.read(
-          "test.peer-ack-committed",
-          (reader) =>
-            reader.get<{
-              readonly through_sequence: string;
-            }>(
-              `
+        commandCenter.sql
+          .unsafe<{
+            readonly through_sequence: string;
+          }>(
+            `
                 SELECT through_sequence
                 FROM station_peer_ack_cursors
                 WHERE peer_installation_id = ?
                   AND event_home = ?
                   AND entity_home = ?
               `,
-              [remote, cc, cc],
-            )?.through_sequence,
-        ),
+            [remote, cc, cc],
+          )
+          .pipe(Effect.map((rows) => rows[0]?.through_sequence)),
       ),
     ).toBe(acknowledgement.through);
     expect(await inboxIds()).toEqual(
@@ -428,11 +413,7 @@ describe("WorkRepository v2 report reconciliation", () => {
     const station = await openInstallation(remote, [cc], "remote");
     const inbox = { canvasName: "factory", nodeId: "cc-inbox" };
     const sender = actor("8", "remote-sender");
-    const appended = message(
-      "message-with-provenance",
-      "agent",
-      "I sent this",
-    );
+    const appended = message("message-with-provenance", "agent", "I sent this");
 
     const command = await station.runtime.runPromise(
       station.repository.enqueueRemoteCommand({
@@ -508,11 +489,7 @@ describe("WorkRepository v2 report reconciliation", () => {
       },
     });
     const wrongCommandResult = await station.runtime.runPromise(
-      accept(
-        station.repository,
-        cc,
-        [wrongCommandBasis],
-      ).pipe(Effect.result),
+      accept(station.repository, cc, [wrongCommandBasis]).pipe(Effect.result),
     );
     expect(Result.isFailure(wrongCommandResult)).toBe(true);
     if (Result.isFailure(wrongCommandResult)) {
@@ -537,11 +514,9 @@ describe("WorkRepository v2 report reconciliation", () => {
       },
     });
     const changedResponse = await station.runtime.runPromise(
-      accept(
-        station.repository,
-        cc,
-        [changedFact, changedDisposition],
-      ).pipe(Effect.result),
+      accept(station.repository, cc, [changedFact, changedDisposition]).pipe(
+        Effect.result,
+      ),
     );
     expect(Result.isFailure(changedResponse)).toBe(true);
     if (Result.isFailure(changedResponse)) {
@@ -555,35 +530,29 @@ describe("WorkRepository v2 report reconciliation", () => {
     );
     expect(
       await station.runtime.runPromise(
-        station.state.read(
-          "test.read-remote-mailbox-material",
-          (reader) =>
-            reader.get<{ readonly count: number }>(
-              "SELECT count(*) AS count FROM work_messages",
-            )!.count,
-        ),
+        station.sql
+          .unsafe<{ readonly count: number }>(
+            "SELECT count(*) AS count FROM work_messages",
+          )
+          .pipe(Effect.map((rows) => rows[0]!.count)),
       ),
     ).toBe(0);
     expect(
       await commandCenter.runtime.runPromise(
-        commandCenter.state.read(
-          "test.read-command-message-sender",
-          (reader) =>
-            reader.get<{ readonly actor_seat_id: string }>(
-              `
+        commandCenter.sql
+          .unsafe<{ readonly actor_seat_id: string }>(
+            `
                 SELECT actor_seat_id
                 FROM work_messages
                 WHERE canvas_name = ? AND node_id = ? AND message_id = ?
               `,
-              [inbox.canvasName, inbox.nodeId, appended.messageId],
-            )?.actor_seat_id,
-        ),
+            [inbox.canvasName, inbox.nodeId, appended.messageId],
+          )
+          .pipe(Effect.map((rows) => rows[0]?.actor_seat_id)),
       ),
     ).toBe(sender.seatId);
     expect(
-      (await station.runtime.runPromise(
-        station.repository.pendingCommands,
-      ))[0],
+      (await station.runtime.runPromise(station.repository.pendingCommands))[0],
     ).toMatchObject({ resolution: { status: "applied" } });
   });
 
@@ -636,9 +605,7 @@ describe("WorkRepository v2 report reconciliation", () => {
       accepted: 0,
       rejected: 0,
       idempotent: 1,
-      acknowledge: [
-        { eventHome: remote, entityHome: cc, through: "1" },
-      ],
+      acknowledge: [{ eventHome: remote, entityHome: cc, through: "1" }],
     });
     expect(replay.emitted).toEqual(first.emitted);
     expect(await mailCount(commandCenter)).toBe(0);
@@ -647,9 +614,7 @@ describe("WorkRepository v2 report reconciliation", () => {
       accept(station.repository, cc, first.emitted),
     );
     expect(
-      (await station.runtime.runPromise(
-        station.repository.pendingCommands,
-      ))[0],
+      (await station.runtime.runPromise(station.repository.pendingCommands))[0],
     ).toMatchObject({ resolution: { status: "rejected" } });
   });
 
@@ -662,16 +627,8 @@ describe("WorkRepository v2 report reconciliation", () => {
       [remote, impostor],
       "command-center",
     );
-    const station = await openInstallation(
-      remote,
-      [cc, impostor],
-      "remote",
-    );
-    const other = await openInstallation(
-      impostor,
-      [cc, remote],
-      "remote",
-    );
+    const station = await openInstallation(remote, [cc, impostor], "remote");
+    const other = await openInstallation(impostor, [cc, remote], "remote");
     const sink = { canvasName: "factory", nodeId: "integrity-inbox" };
     const command = await enqueueMail(
       station,

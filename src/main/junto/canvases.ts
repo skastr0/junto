@@ -1,7 +1,8 @@
-import { Context, Effect, Option, Result, Layer, Schema } from "effect";
+import { Context, Effect, Option, Result, Layer } from "effect";
+import { SqlClient } from "effect/unstable/sql";
+import { withSqlRead } from "./state/sql-read";
 import type { ServiceCheck } from "@shared/contracts";
 import {
-  containsWorkProjection,
   decodeCanvasDoc,
   serializeCanvas,
   type CanvasDoc,
@@ -22,36 +23,22 @@ import {
   setBindingOverseer,
 } from "@shared/overseer-authoring";
 import type { WorkErrorBody } from "@shared/work-control";
-import {
-  CANVAS_NAME_INPUT_PATTERN,
-  CANVAS_NAME_MAX_LENGTH,
-} from "@shared/canvas-name";
 import { SEED_CANVAS_NAME } from "@shared/seed";
 import {
   StateEngine,
-  type StateEngineShape,
-  type StateReader,
-  type StateWriter,
+  StateTransactionOperation,
 } from "./state/service";
 import {
   WorkRepository,
+  WorkProjectionReader,
+  WorkProjectionReaderLive,
   projectWorkSnapshots,
-  readCanvasWorkProjection,
-  readCanvasWorkRevision,
   type CanvasWorkProjection,
 } from "./work/repository";
 import { makeWorkWorld, workWorldEnabled, type WorkWorld } from "./work/world";
-import { decodeStationPortfolioBody } from "./station/portfolio";
-import { selectStationConfiguration } from "./station/configuration-state";
 import {
   compileActorSeatRegistry,
-  type ProjectedActorSeat,
 } from "./station/actor-seat-compiler";
-import {
-  InstallationId,
-  type InstallationId as InstallationIdValue,
-} from "@shared/installation-id";
-import { StationHostId } from "@shared/station-api";
 import type { ActorRef } from "@shared/work-protocol";
 import {
   mirrorArtifactsText,
@@ -66,17 +53,11 @@ import {
 } from "./canvas-control/sidecars";
 import { withinBudget } from "./observability/main-thread-budget";
 import {
-  archiveAllCanvasEntities,
-  syncCanvasEntities,
+  CanvasEntitySync,
 } from "./entities/sync";
 import {
-  deleteCanvas,
-  persistCanvas,
-  readDocumentRows,
-  readPortfolioHead,
-  readRawCanvasDoc,
-  reconstructCanvasDoc,
-  writePortfolioHead,
+  CanvasRecords,
+  CanvasRecordsLive,
 } from "./canvas/records";
 import {
   retireEscalatesFromRawDoc,
@@ -94,29 +75,11 @@ import {
   type StoredCanvasIntentDocument,
 } from "./canvas-intent-identity";
 
-export class CanvasError extends Schema.TaggedError<CanvasError>()("CanvasError", {
-  message: Schema.String,
-}) {}
-
-declare const canvasNameBrand: unique symbol;
-/** A canonical canvas name minted at the SQLite document boundary. */
-export type CanvasName = string & { readonly [canvasNameBrand]: "CanvasName" };
-
-/**
- * Canonicalize the human-facing spelling used by the existing UI, then refuse
- * anything which is not one ASCII basename. This is deliberately stricter
- * than path normalization: traversal, separators, dot files, Unicode lookalikes
- * and encoded separators are data, never paths.
- */
-export const canvasNameFrom = (raw: string): CanvasName => {
-  const trimmed = raw.trim();
-  if (!CANVAS_NAME_INPUT_PATTERN.test(trimmed)) {
-    throw new CanvasError({
-      message: `invalid canvas name "${raw}": use at most ${CANVAS_NAME_MAX_LENGTH} ASCII letters, numbers, hyphens, and underscores`,
-    });
-  }
-  return trimmed.toLowerCase() as CanvasName;
-};
+import {
+  CanvasError, canvasNameFrom, canvasLabel, toCanvasError,
+  type CanvasName, type StoredCanvas, type StoredAuthoritySnapshot, type ActivePortfolioSnapshot,
+} from "./canvas/domain";
+export { CanvasError, canvasNameFrom, type CanvasName } from "./canvas/domain";
 
 // The protected document plane. All writes go through validate -> mirror law
 // -> one full-map SQLite generation transaction. Digest and SVG projection
@@ -372,32 +335,6 @@ export class CanvasesService extends Context.Service<CanvasesService,
     >;
   }>()("@junto/CanvasesService") {}
 
-const toCanvasError = (error: unknown): CanvasError =>
-  error instanceof CanvasError
-    ? error
-    : new CanvasError({ message: error instanceof Error ? error.message : String(error) });
-
-const canvasLabel = (name: CanvasName) => `canvas "${name}"`;
-
-type StoredCanvas = {
-  readonly doc: CanvasDoc;
-  readonly body: string;
-  readonly revisionSha256: string;
-  readonly modifiedAt: string;
-};
-
-type StoredAuthoritySnapshot = {
-  readonly hasHead: boolean;
-  readonly generation: string;
-  readonly createdAt: string | undefined;
-  readonly intentSha256: string | undefined;
-  readonly documents: ReadonlyMap<string, StoredCanvas>;
-};
-
-type ActivePortfolioSnapshot = StoredAuthoritySnapshot & {
-  readonly actorRefs: ReadonlyArray<ActorRef>;
-};
-
 type StationProjectionRow = {
   readonly generation: string;
   readonly body: string;
@@ -420,352 +357,20 @@ type CommitOutcome = {
   readonly changed: boolean;
 };
 
-/**
- * Read the relational canvas authority: portfolio head + document rows +
- * reconstructed documents. The serialized JSON Canvas body is DERIVED here —
- * it exists in memory as the export/identity codec, never on disk. Each
- * reconstructed document must reproduce its stored revision hash, and the
- * portfolio must reproduce the stored intent hash, or the read fails closed.
- */
-const readStoredAuthority = (reader: StateReader): StoredAuthoritySnapshot => {
-  const head = readPortfolioHead(reader);
-  if (head === undefined) {
-    return {
-      hasHead: false,
-      generation: "0",
-      createdAt: undefined,
-      intentSha256: undefined,
-      documents: new Map(),
-    };
-  }
-
-  const documents = new Map<string, StoredCanvas>();
-  for (const row of readDocumentRows(reader)) {
-    const name = canvasNameFrom(row.canvas_name);
-    if (name !== row.canvas_name || documents.has(name)) {
-      throw new CanvasError({
-        message: `canvas database contains a non-canonical or duplicate name: "${row.canvas_name}"`,
-      });
-    }
-    let doc: CanvasDoc;
-    try {
-      doc = reconstructCanvasDoc(reader, row.canvas_id);
-    } catch (error) {
-      throw new CanvasError({
-        message: `${canvasLabel(name)} failed relational reconstruction: ${
-          error instanceof Error ? error.message : String(error)
-        }`,
-      });
-    }
-    if (containsWorkProjection(doc)) {
-      throw new CanvasError({
-        message:
-          `${canvasLabel(name)} in the database contains runtime work projection data; ` +
-          "authorial canvas rows must contain structure and intent only",
-      });
-    }
-    const body = serializeCanvas(doc);
-    const revisionSha256 = canvasBodySha256Of(body);
-    if (revisionSha256 !== row.revision_sha256) {
-      throw new CanvasError({
-        message: `canvas database revision hash mismatch: ${canvasLabel(name)}`,
-      });
-    }
-    documents.set(name, { doc, body, revisionSha256, modifiedAt: row.modified_at });
-  }
-  const intentSha256 = intentSha256Of(documents);
-  if (intentSha256 !== head.intent_sha256) {
-    throw new CanvasError({
-      message: `canvas portfolio generation ${head.generation} intent hash mismatch`,
-    });
-  }
-  return {
-    hasHead: true,
-    generation: head.generation,
-    createdAt: head.created_at,
-    intentSha256,
-    documents,
-  };
-};
-
-type LocalStationRole = "" | "command-center" | "remote";
-
-/**
- * Read the local installation role from canonical SQLite state.
- *
- * Absence is the explicit pre-configuration state. Any malformed present row
- * fails closed rather than being reinterpreted through another store.
- */
-const readLocalStationRole = (reader: StateReader): LocalStationRole => {
-  try {
-    return selectStationConfiguration(reader)?.configuration.role ?? "";
-  } catch (error) {
-    throw new CanvasError({
-      message:
-        `canonical station configuration is invalid: ${
-          error instanceof Error ? error.message : String(error)
-        }`,
-    });
-  }
-};
-
-const decodeInstallationId = Schema.decodeUnknownSync(InstallationId);
-const decodeStationHostId = Schema.decodeUnknownSync(StationHostId);
-
-const actorRefsFromSeats = (
-  actorSeats: ReadonlyArray<ProjectedActorSeat>,
-): ReadonlyArray<ActorRef> =>
-  actorSeats.flatMap((seat) =>
-    seat.refs.map((ref) => ({
-      seatId: seat.seatId,
-      canvasName: ref.canvasName,
-      nodeId: ref.nodeId,
-    }))
-  );
-
-const installTopologyBinding = (
-  topology: Map<string, InstallationIdValue>,
-  hostId: string,
-  installationId: InstallationIdValue,
-): void => {
-  const established = topology.get(hostId);
-  if (established !== undefined && established !== installationId) {
-    throw new CanvasError({
-      message:
-        `active Station topology maps host ${JSON.stringify(hostId)} to ` +
-        "more than one installation",
-    });
-  }
-  topology.set(hostId, installationId);
-};
-
-/**
- * Read the complete placement topology needed by the deterministic actor-seat
- * compiler. This stays in the same StateEngine read as the canvas generation
- * so a CanvasReadResult never combines documents with a separately sampled
- * fleet map.
- */
-const readCommandCenterTopology = (
-  reader: StateReader,
-): ReadonlyMap<string, InstallationIdValue> => {
-  const topology = new Map<string, InstallationIdValue>();
-  const configuration = selectStationConfiguration(reader)?.configuration;
-  if (configuration?.role === "command-center") {
-    const local = reader.get<{ readonly installation_id: string }>(
-      `SELECT installation_id
-       FROM station_installation
-       WHERE singleton = 1`,
-    );
-    if (local === undefined) {
-      throw new CanvasError({
-        message:
-          "Command Center configuration exists without a local installation identity",
-      });
-    }
-    installTopologyBinding(
-      topology,
-      configuration.hostId,
-      decodeInstallationId(local.installation_id),
-    );
-  }
-
-  for (const row of reader.all<{
-    readonly host_id: string;
-    readonly station_installation_id: string;
-  }>(
-    `SELECT host_id, station_installation_id
-     FROM station_fleet_targets
-     WHERE retired_at IS NULL
-     ORDER BY host_id`,
-  )) {
-    installTopologyBinding(
-      topology,
-      decodeStationHostId(row.host_id),
-      decodeInstallationId(row.station_installation_id),
-    );
-  }
-  return topology;
-};
-
-export const readCommandCenterPortfolio = (
-  reader: StateReader,
-): ActivePortfolioSnapshot => {
-  const snapshot = readStoredAuthority(reader);
-  const documents = new Map(
-    [...snapshot.documents].map(([name, entry]) => [name, entry.doc]),
-  );
-  const actorSeats = compileActorSeatRegistry(
-    documents,
-    readCommandCenterTopology(reader),
-  );
-  return {
-    ...snapshot,
-    actorRefs: actorRefsFromSeats(actorSeats),
-  };
-};
-
-const readStationProjection = (
-  reader: StateReader,
-): ActivePortfolioSnapshot => {
-  const row = reader.get<StationProjectionRow>(
-    `SELECT
-       version.generation AS generation,
-       version.body AS body,
-       version.content_sha256 AS content_sha256,
-       version.created_at AS created_at,
-       version.received_at AS received_at
-     FROM station_projection_head head
-     JOIN station_projection_versions version
-       ON version.generation = head.generation
-      AND version.content_sha256 = head.content_sha256
-     WHERE head.singleton = 1`,
-  );
-  if (row === undefined) {
-    return {
-      hasHead: false,
-      generation: "0",
-      createdAt: undefined,
-      intentSha256: undefined,
-      documents: new Map(),
-      actorRefs: [],
-    };
-  }
-  const contentSha256 = canvasBodySha256Of(row.body);
-  if (contentSha256 !== row.content_sha256) {
-    throw new CanvasError({
-      message:
-        `station projection generation ${row.generation} failed its content hash`,
-    });
-  }
-  const decoded = decodeStationPortfolioBody(row.body);
-  const documents = new Map<string, StoredCanvas>();
-  for (const [name, doc] of decoded.documents) {
-    const canonicalName = canvasNameFrom(name);
-    const body = serializeCanvas(doc);
-    documents.set(canonicalName, {
-      doc,
-      body,
-      revisionSha256: canvasBodySha256Of(body),
-      modifiedAt: row.received_at,
-    });
-  }
-  return {
-    hasHead: true,
-    generation: row.generation,
-    createdAt: row.created_at,
-    intentSha256: contentSha256,
-    documents,
-    actorRefs: actorRefsFromSeats(decoded.actorSeats),
-  };
-};
-
-const readActivePortfolio = (
-  reader: StateReader,
-): ActivePortfolioSnapshot =>
-  readLocalStationRole(reader) === "remote"
-    ? readStationProjection(reader)
-    : readCommandCenterPortfolio(reader);
-
-/**
- * Field separator for the identity string. NUL cannot appear in a hash, a
- * decimal generation, a timestamp or a canonical host/installation id, so no
- * combination of field values can collide by re-parsing across a boundary.
- */
-const SEPARATOR = "\u0000";
-
-/**
- * Cheap, complete identity of everything `readActivePortfolio` derives from.
- *
- * Two-branch, exactly like the read it guards:
- *
- * - Command Center: local role, the portfolio head (generation, intent hash,
- *   updated_at) and the placement topology the actor-seat compiler consumes.
- *   Documents are pinned by the intent hash: it is recomputed from every
- *   canvas's revision hash on each commit, so no row of any canvas can change
- *   without moving it. The only whole-plane wipe is the Remote configure
- *   transaction (station/repository.ts), which sets the role to "remote" in
- *   that same transaction, so the role field of this identity moves with it
- *   and the reset can never read back as an unchanged key.
- * - Remote: local role plus the projection head's generation, content hash and
- *   received_at. The body is pinned by its own content hash.
- *
- * Cost is four small point lookups plus the fleet-target rows, which the
- * uncached read pays anyway. A field that is absent from this string is a
- * field that may be served stale, so nothing that reaches a CanvasReadResult
- * may be left out of it.
- */
-const readActivePortfolioIdentity = (reader: StateReader): string => {
-  const role = readLocalStationRole(reader);
-  if (role === "remote") {
-    const head = reader.get<{
-      readonly generation: string;
-      readonly content_sha256: string;
-      readonly received_at: string;
-    }>(
-      `SELECT version.generation AS generation,
-              version.content_sha256 AS content_sha256,
-              version.received_at AS received_at
-       FROM station_projection_head head
-       JOIN station_projection_versions version
-         ON version.generation = head.generation
-        AND version.content_sha256 = head.content_sha256
-       WHERE head.singleton = 1`,
-    );
-    return head === undefined
-      ? ["remote", "none"].join(SEPARATOR)
-      : [
-          "remote",
-          head.generation,
-          head.content_sha256,
-          head.received_at,
-        ].join(SEPARATOR);
-  }
-  const head = readPortfolioHead(reader);
-  const topology = [...readCommandCenterTopology(reader)]
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([hostId, installationId]) => `${hostId}${installationId}`)
-    .join("");
-  return [
-    role === "" ? "unconfigured" : role,
-    head?.generation ?? "none",
-    head?.intent_sha256 ?? "none",
-    head?.updated_at ?? "none",
-    topology,
-  ].join(SEPARATOR);
-};
-
-/**
- * Memoize the active portfolio over that identity.
- *
- * Pure memo: a miss calls `readActivePortfolio` unchanged, so the rebuilt
- * snapshot — including its document hash validation and document_count check —
- * is byte-identical to the uncached read. A hit skips JSON.parse, schema
- * decode and sha256 of every canvas body plus the actor-seat compile, which is
- * the whole cost of a read once the Work projection is also memoized.
- *
- * One slot: the portfolio is installation-wide, so a second slot could only
- * hold a superseded generation nobody may be served.
- *
- * The returned reader must never be handed a StateWriter. Inside a transaction
- * the identity probe sees uncommitted rows, and a rolled-back transaction
- * would leave the memo holding state that never existed. Write paths keep
- * calling `readStoredAuthority`/`readActivePortfolio` directly.
- */
 type IdentifiedPortfolio = {
   readonly identity: string;
   readonly snapshot: ActivePortfolioSnapshot;
 };
 
-const makeActivePortfolioReader = (): ((
-  reader: StateReader,
-) => IdentifiedPortfolio) => {
+/** Prepare under the read lease; publish only after it exits successfully. */
+const makeActivePortfolioReader = (records: CanvasRecords["Service"]) => {
   let cached: IdentifiedPortfolio | undefined;
-  return (reader) => {
-    const identity = readActivePortfolioIdentity(reader);
-    if (cached !== undefined && cached.identity === identity) return cached;
-    cached = { identity, snapshot: readActivePortfolio(reader) };
-    return cached;
-  };
+  return Effect.fn("Canvases.prepareActivePortfolio")(function* (cacheable: boolean) {
+    const identity = yield* records.readActivePortfolioIdentity();
+    const value = cacheable && cached?.identity === identity
+      ? cached : { identity, snapshot: yield* records.readActivePortfolio() };
+    return { ...value, publish: () => { if (cacheable) cached = value; } };
+  });
 };
 
 /**
@@ -806,7 +411,7 @@ type WorkProjectionCacheEntry = {
   };
 };
 
-const makeWorkProjectionCache = (world: WorkWorld | undefined) => {
+const makeWorkProjectionCache = (reader: WorkProjectionReader["Service"], world: WorkWorld | undefined) => {
   const entries = new Map<string, WorkProjectionCacheEntry>();
 
   const touch = (name: string, entry: WorkProjectionCacheEntry): void => {
@@ -825,15 +430,17 @@ const makeWorkProjectionCache = (world: WorkWorld | undefined) => {
      * The projected document for one canvas, built at most once per
      * (authority identity, work revision) pair.
      */
-    projectedDoc: (
-      reader: StateReader,
+    projectedDoc: Effect.fn("Canvases.prepareProjectedDoc")(function* (
       name: CanvasName,
       authorialDoc: CanvasDoc,
       portfolioIdentity: string,
-    ): { readonly doc: CanvasDoc; readonly workRevision: string } => {
-      const workRevision = readCanvasWorkRevision(reader, name);
-      const cached = entries.get(name);
+      cacheable: boolean,
+      tag: CanvasReadTag,
+    ) {
+      const workRevision = yield* reader.revision(name);
+      const cached = cacheable ? entries.get(name) : undefined;
       let entry: WorkProjectionCacheEntry;
+      let publishWorld: (() => void) | undefined;
       if (cached !== undefined && cached.workRevision === workRevision) {
         entry = cached;
       } else {
@@ -847,21 +454,23 @@ const makeWorkProjectionCache = (world: WorkWorld | undefined) => {
         // resident and re-reads only the sinks the mutation seam announced,
         // at the counter value this memo already read. `JUNTO_WORLD=0`
         // takes the branch below and restores the pre-world read exactly.
-        const projection =
-          world === undefined
-            ? readCanvasWorkProjection(reader, name)
-            : world.projection(reader, name, workRevision);
+        const prepared = cacheable && world !== undefined ? yield* world.prepare(name, workRevision) : undefined;
+        const projection = prepared?.projection ?? (yield* reader.canvasProjection(name));
+        publishWorld = prepared?.publish;
         entry = { workRevision: projection.workRevision, projection };
       }
       if (entry.projected?.portfolioIdentity !== portfolioIdentity) {
-        entry.projected = {
-          portfolioIdentity,
-          doc: projectWorkSnapshots(authorialDoc, entry.projection.snapshots),
-        };
+        // Never mutate a shared entry while the enclosing read can still fail.
+        entry = { ...entry, projected: {
+          portfolioIdentity, doc: withinBudget("canvas.read", () => projectWorkSnapshots(authorialDoc, entry.projection.snapshots), tag),
+        } };
       }
-      touch(name, entry);
-      return { doc: entry.projected.doc, workRevision: entry.workRevision };
-    },
+      return { doc: entry.projected!.doc, workRevision: entry.workRevision, publish: () => {
+        if (!cacheable) return;
+        publishWorld?.();
+        touch(name, entry);
+      } };
+    }),
     /** Stop pinning a canvas's world once the canvas is gone. */
     evict: (name: string): void => {
       entries.delete(name);
@@ -884,17 +493,17 @@ const intentWitnessFromSnapshot = (
   };
 };
 
-const assertAuthorialInstallation = (
-  reader: StateReader,
+const assertAuthorialInstallation = Effect.fn("Canvases.assertAuthorialInstallation")(function* (
+  records: CanvasRecords["Service"],
   operation: string,
-): void => {
-  if (readLocalStationRole(reader) === "remote") {
-    throw new CanvasError({
+) {
+  if ((yield* records.readLocalStationRole()) === "remote") {
+    return yield* Effect.fail(new CanvasError({
       message:
         `cannot ${operation}: Remote installations consume Command Center projection and never author canvases`,
-    });
+    }));
   }
-};
+});
 
 const nextGenerationAfter = (snapshot: StoredAuthoritySnapshot): string =>
   snapshot.hasHead ? (BigInt(snapshot.generation) + 1n).toString() : "1";
@@ -903,37 +512,37 @@ const nextGenerationAfter = (snapshot: StoredAuthoritySnapshot): string =>
  * Authorial commits must compile as a live Command Center portfolio. Writes
  * that would make later read/list/liveDocuments fail stay uncommitted.
  */
-const assertAuthorialCandidatePortfolio = (
-  reader: StateReader,
+const assertAuthorialCandidatePortfolio = Effect.fn("Canvases.assertAuthorialCandidatePortfolio")(function* (
+  records: CanvasRecords["Service"],
   documents: ReadonlyMap<string, StoredCanvas>,
-): void => {
+) {
   const docs = new Map<string, CanvasDoc>();
   for (const [name, entry] of documents) docs.set(name, entry.doc);
-  try {
-    compileActorSeatRegistry(docs, readCommandCenterTopology(reader));
-  } catch (error) {
-    throw error instanceof CanvasError
+  const topology = yield* records.readCommandCenterTopology();
+  yield* Effect.try({
+    try: () => compileActorSeatRegistry(docs, topology),
+    catch: (error) => error instanceof CanvasError
       ? error
       : new CanvasError({
           message: `cannot commit authorial portfolio: ${
             error instanceof Error ? error.message : String(error)
           }`,
-        });
-  }
-};
+        }),
+  });
+});
 
 /**
  * Commit the portfolio delta: upsert changed canvases' rows, delete removed
  * canvases' rows, advance the singleton head. Only canvases whose revision
  * hash moved are touched — an unchanged canvas costs nothing.
  */
-const commitPortfolio = (
-  writer: StateWriter,
+const commitPortfolio = Effect.fn("Canvases.commitPortfolio")(function* (
+  records: CanvasRecords["Service"],
   previous: StoredAuthoritySnapshot,
   documents: ReadonlyMap<string, StoredCanvas>,
   _cause: CanvasCommitCause,
-): CommitOutcome => {
-  assertAuthorialCandidatePortfolio(writer, documents);
+): Effect.fn.Return<CommitOutcome, CanvasError> {
+  yield* assertAuthorialCandidatePortfolio(records, documents);
   const intentSha256 = intentSha256Of(documents);
   if (
     previous.hasHead &&
@@ -945,23 +554,23 @@ const commitPortfolio = (
   const generation = nextGenerationAfter(previous);
   const createdAt = new Date().toISOString();
   for (const name of previous.documents.keys()) {
-    if (!documents.has(name)) deleteCanvas(writer, name);
+    if (!documents.has(name)) yield* records.deleteCanvas(name);
   }
   for (const [name, entry] of documents) {
     const prior = previous.documents.get(name);
     if (prior !== undefined && prior.revisionSha256 === entry.revisionSha256) {
       continue;
     }
-    persistCanvas(writer, {
+    yield* records.persistCanvas({
       canvasName: name,
       doc: entry.doc,
       revisionSha256: entry.revisionSha256,
       modifiedAt: entry.modifiedAt,
     });
   }
-  writePortfolioHead(writer, { generation, intentSha256, at: createdAt });
+  yield* records.writePortfolioHead({ generation, intentSha256, at: createdAt });
   return { generation, changed: true };
-};
+});
 
 export type RetireGrammarReport = {
   readonly canvases: number;
@@ -1005,7 +614,7 @@ const planGrammarRetirement = (raw: { readonly nodes: ReadonlyArray<CanvasNode>;
  * commit bumps the generation like any authorial write. Idempotent: a clean
  * portfolio is a read-only no-op.
  */
-export const retireStoredGrammar = (writer: StateWriter): RetireGrammarReport => {
+export const retireStoredGrammar = Effect.fn("Canvases.retireStoredGrammar")(function* (records: CanvasRecords["Service"]): Effect.fn.Return<RetireGrammarReport, CanvasError> {
   const empty: RetireGrammarReport = {
     canvases: 0,
     escalatesEdgesRemoved: 0,
@@ -1014,8 +623,8 @@ export const retireStoredGrammar = (writer: StateWriter): RetireGrammarReport =>
     flagWatchesStripped: 0,
     flagEdgesRemoved: 0,
   };
-  if (readLocalStationRole(writer) === "remote") return empty;
-  const head = readPortfolioHead(writer);
+  if ((yield* records.readLocalStationRole()) === "remote") return empty;
+  const head = yield* records.readPortfolioHead();
   if (head === undefined) return empty;
 
   const previous = new Map<string, StoredCanvas>();
@@ -1027,18 +636,18 @@ export const retireStoredGrammar = (writer: StateWriter): RetireGrammarReport =>
   let flagWatchesStripped = 0;
   let flagEdgesRemoved = 0;
   const now = new Date().toISOString();
-  for (const row of readDocumentRows(writer)) {
-    const name = canvasNameFrom(row.canvas_name);
-    const raw = readRawCanvasDoc(writer, row.canvas_id);
+  for (const row of yield* records.readDocumentRows()) {
+    const name = yield* Effect.try({ try: () => canvasNameFrom(row.canvas_name), catch: toCanvasError });
+    const raw = yield* records.readRawCanvasDoc(row.canvas_id);
     const plan = planGrammarRetirement(raw);
     if (!plan.touches) {
-      const doc = reconstructCanvasDoc(writer, row.canvas_id);
+      const doc = yield* records.reconstructCanvasDoc(row.canvas_id);
       const body = serializeCanvas(doc);
       const revisionSha256 = canvasBodySha256Of(body);
       if (revisionSha256 !== row.revision_sha256) {
-        throw new CanvasError({
+        return yield* Effect.fail(new CanvasError({
           message: `canvas database revision hash mismatch: ${canvasLabel(name)}`,
-        });
+        }));
       }
       const entry = { doc, body, revisionSha256, modifiedAt: row.modified_at };
       previous.set(name, entry);
@@ -1047,23 +656,23 @@ export const retireStoredGrammar = (writer: StateWriter): RetireGrammarReport =>
     }
     const storedBody = serializeCanvas(raw as CanvasDoc);
     if (canvasBodySha256Of(storedBody) !== row.revision_sha256) {
-      throw new CanvasError({
+      return yield* Effect.fail(new CanvasError({
         message:
           `cannot retire grammar: ${canvasLabel(name)} rows do not reproduce its stored revision hash`,
-      });
+      }));
     }
     const planned = serializeCanvas(plan.doc as CanvasDoc);
     const decoded = decodeCanvasDoc(plan.doc);
     if (Result.isFailure(decoded)) {
-      throw new CanvasError({
+      return yield* Effect.fail(new CanvasError({
         message: `cannot retire grammar: ${canvasLabel(name)} does not decode after retirement: ${decoded.failure.message}`,
-      });
+      }));
     }
     const body = serializeCanvas(decoded.success);
     if (body !== planned) {
-      throw new CanvasError({
+      return yield* Effect.fail(new CanvasError({
         message: `cannot retire grammar: ${canvasLabel(name)} would change beyond the retired shapes`,
-      });
+      }));
     }
     previous.set(name, {
       doc: raw as CanvasDoc,
@@ -1086,12 +695,12 @@ export const retireStoredGrammar = (writer: StateWriter): RetireGrammarReport =>
   }
   if (canvases === 0) return empty;
   if (intentSha256Of(previous) !== head.intent_sha256) {
-    throw new CanvasError({
+    return yield* Effect.fail(new CanvasError({
       message: `canvas portfolio generation ${head.generation} intent hash mismatch`,
-    });
+    }));
   }
-  commitPortfolio(
-    writer,
+  yield* commitPortfolio(
+    records,
     {
       hasHead: true,
       generation: head.generation,
@@ -1110,7 +719,7 @@ export const retireStoredGrammar = (writer: StateWriter): RetireGrammarReport =>
     flagWatchesStripped,
     flagEdgesRemoved,
   };
-};
+});
 
 /**
  * Run the grammar retirement once per install. The install-ops markers are
@@ -1124,10 +733,14 @@ const GRAMMAR_RETIREMENT_MARKERS = [
   BACKFILL_CANVAS_RETIRE_FLAGS_V1,
 ] as const;
 
-const retireStoredGrammarOnce = (state: StateEngineShape) =>
-  Effect.gen(function* () {
+const retireStoredGrammarOnce = Effect.fn("Canvases.retireStoredGrammarOnce")(function* (
+  sql: SqlClient.SqlClient, records: CanvasRecords["Service"],
+) {
+    const ownsTransaction = Option.isNone(yield* Effect.serviceOption(sql.transactionService));
     const installOps = yield* Effect.serviceOption(InstallOpsService);
-    const ops = Option.isSome(installOps) ? installOps.value : undefined;
+    // A caller may roll its transaction back. Do not mark its migration
+    // complete in the independent install-local ledger before that commit.
+    const ops = ownsTransaction && Option.isSome(installOps) ? installOps.value : undefined;
     if (ops !== undefined) {
       let complete = true;
       for (const id of GRAMMAR_RETIREMENT_MARKERS) {
@@ -1139,7 +752,9 @@ const retireStoredGrammarOnce = (state: StateEngineShape) =>
         yield* Effect.ignore(ops.ensurePending(id));
       }
     }
-    const report = yield* state.transaction("canvas.retire-grammar", retireStoredGrammar);
+    const report = yield* sql.withTransaction(retireStoredGrammar(records)).pipe(
+      Effect.provideService(StateTransactionOperation, "canvas.retire-grammar"),
+    );
     if (report.canvases > 0) {
       console.info(
         `[canvases] retired grammar across ${report.canvases} canvas(es): ` +
@@ -1159,7 +774,7 @@ const retireStoredGrammarOnce = (state: StateEngineShape) =>
         ),
       );
     }
-  }).pipe(
+  },
     Effect.catch((error) =>
       Effect.sync(() => {
         console.error("[canvases] grammar retirement deferred to next boot:", error);
@@ -1261,17 +876,17 @@ const stripRuntimeWorkProjection = (doc: CanvasDoc): CanvasDoc => ({
   }),
 });
 
-const normalizeCanvas = (
+const normalizeCanvas = Effect.fn("Canvases.normalizeCanvas")(function* (
   name: CanvasName,
   doc: CanvasDoc,
   modifiedAt: string,
   operation: string,
-): StoredCanvas => {
+): Effect.fn.Return<StoredCanvas, CanvasError> {
   const decoded = decodeCanvasDoc(stripRuntimeWorkProjection(doc));
   if (Result.isFailure(decoded)) {
-    throw new CanvasError({
+    return yield* Effect.fail(new CanvasError({
       message: `cannot ${operation} ${canvasLabel(name)}: ${decoded.failure.message}`,
-    });
+    }));
   }
   const nextDoc = decoded.success;
   const body = serializeCanvas(nextDoc);
@@ -1281,7 +896,7 @@ const normalizeCanvas = (
     revisionSha256: canvasBodySha256Of(body),
     modifiedAt,
   };
-};
+});
 
 const storedDocumentsView = (
   snapshot: StoredAuthoritySnapshot,
@@ -1295,21 +910,21 @@ const storedDocumentsView = (
   return { documents, revisions };
 };
 
-const normalizePortfolioDocuments = (
+const normalizePortfolioDocuments = Effect.fn("Canvases.normalizePortfolioDocuments")(function* (
   previous: StoredAuthoritySnapshot,
   proposed: ReadonlyMap<string, CanvasDoc>,
   modifiedAt: string,
   operation: string,
   preserveIncomingOverseer: boolean,
-): Map<string, StoredCanvas> => {
+): Effect.fn.Return<Map<string, StoredCanvas>, CanvasError> {
   const documents = new Map<string, StoredCanvas>();
   for (const [rawName, incoming] of proposed) {
-    const name = canvasNameFrom(rawName);
+    const name = yield* Effect.try({ try: () => canvasNameFrom(rawName), catch: toCanvasError });
     const prior = previous.documents.get(name);
     const reconciled = preserveIncomingOverseer
       ? incoming
       : reconcileOverseerGrants(prior?.doc ?? { nodes: [], edges: [] }, incoming);
-    const candidate = normalizeCanvas(name, reconciled, modifiedAt, operation);
+    const candidate = yield* normalizeCanvas(name, reconciled, modifiedAt, operation);
     const nextEntry =
       prior !== undefined && candidate.revisionSha256 === prior.revisionSha256
         ? { ...candidate, modifiedAt: prior.modifiedAt }
@@ -1317,29 +932,32 @@ const normalizePortfolioDocuments = (
     documents.set(name, nextEntry);
   }
   return documents;
-};
+});
 
 export const CanvasesLive = Layer.effect(
   CanvasesService,
   Effect.gen(function* () {
     const state = yield* StateEngine;
+    const sql = yield* SqlClient.SqlClient;
+    const records = yield* CanvasRecords;
+    const entities = yield* CanvasEntitySync;
     const work = yield* WorkRepository;
+    const workReader = yield* WorkProjectionReader;
     const runtime = yield* Effect.context<never>();
     const listeners = new Set<
       (name: string, detail?: CanvasChangeDetail) => void
     >();
-    let bootstrapPromise: Promise<void> | undefined;
     // Per-installation, not module-level: a second StateEngine in the same
     // process (tests, recovery) must never see another database's memo.
-    const activePortfolio = makeActivePortfolioReader();
+    const activePortfolio = makeActivePortfolioReader(records);
     // The in-memory factory world, per installation for the same reason the
     // portfolio memo is: a second StateEngine in this process must never be
     // served another database's sinks.
-    const world = workWorldEnabled ? makeWorkWorld() : undefined;
+    const world = workWorldEnabled ? makeWorkWorld(workReader) : undefined;
     if (world !== undefined) {
       yield* Effect.addFinalizer(() => Effect.sync(() => world.close()));
     }
-    const workProjections = makeWorkProjectionCache(world);
+    const workProjections = makeWorkProjectionCache(workReader, world);
 
   const notifyListeners = (
     name: CanvasName | string,
@@ -1361,23 +979,15 @@ export const CanvasesLive = Layer.effect(
     // all authorial bootstrap work from canonical role state before even
     // inspecting stale source rows. runCanvasRelationalBackfill repeats this
     // check for direct callers and role races.
-    const stationRole = yield* state
-      .read("canvas.bootstrap.station-role", readLocalStationRole)
-      .pipe(Effect.mapError(toCanvasError));
+    const stationRole = yield* records.readLocalStationRole();
     if (stationRole === "remote") return;
 
-    const status = yield* state
-      .read("canvas.bootstrap.status", (reader) => ({
-        hasHead:
-          reader.get<{ readonly generation: string }>(
-            "SELECT generation FROM canvas_portfolio_head WHERE singleton = 1",
-          ) !== undefined,
-        documents: Number(
-          reader.get<{ readonly count: number }>(
-            "SELECT count(*) AS count FROM canvas_documents",
-          )?.count ?? 0,
-        ),
-      }))
+    const status = yield* withSqlRead(sql, Effect.gen(function* () {
+      return {
+        hasHead: (yield* records.readPortfolioHead()) !== undefined,
+        documents: (yield* records.readDocumentRows()).length,
+      };
+    }))
       .pipe(Effect.mapError(toCanvasError));
 
     if (!status.hasHead && status.documents > 0) {
@@ -1393,61 +1003,58 @@ export const CanvasesLive = Layer.effect(
     // leaves stored documents before the first authority read (see
     // retireStoredGrammar). Marker-gated in install-ops; a failure is logged
     // and retried next boot.
-    yield* retireStoredGrammarOnce(state);
+    yield* retireStoredGrammarOnce(sql, records);
 
     // Heal registry gaps when active membership diverges from the head doc
     // (incomplete v5→v6 backfill, wiped rows). An exact empty source has no
     // active authorial membership, so archive active rows while preserving the
     // archived/soft-deleted identity ledger. Missing-head nonempty history was
     // refused above and never reaches reconciliation.
-    yield* state
-      .transaction("canvas.entity-reconcile", (writer) => {
+    yield* sql.withTransaction(Effect.gen(function* () {
         // Close a serialized configure race after the startup role guard.
-        if (readLocalStationRole(writer) === "remote") return;
+        if ((yield* records.readLocalStationRole()) === "remote") return;
         const now = new Date().toISOString();
-        const activeCanvasNames = new Set(
-          writer
-            .all<{ readonly canvas_name: string }>(
-              `
-                SELECT DISTINCT canvas_name
-                FROM canvas_entities
-                WHERE lifecycle = 'active'
-              `,
-            )
-            .map((row) => row.canvas_name),
-        );
+        const activeCanvasNames = yield* entities.activeCanvasNames();
         if (!status.hasHead) {
           for (const canvasName of activeCanvasNames) {
-            archiveAllCanvasEntities(writer, canvasName, now);
+            yield* entities.archiveAllCanvasEntities(canvasName, now);
           }
           return;
         }
 
-        const snapshot = readStoredAuthority(writer);
+        const snapshot = yield* records.readStoredAuthority();
         for (const canvasName of activeCanvasNames) {
           if (!snapshot.documents.has(canvasName)) {
-            archiveAllCanvasEntities(writer, canvasName, now);
+            yield* entities.archiveAllCanvasEntities(canvasName, now);
           }
         }
         for (const [name, entry] of snapshot.documents) {
           // syncCanvasEntities already reads the full lifecycle/kind/binding
           // view once and writes only its dirty set. An ID-only shortcut would
           // miss same-ID provenance drift and is not a safe alignment proof.
-          syncCanvasEntities(writer, name, entry.doc, now);
+          yield* entities.syncCanvasEntities(name, entry.doc, now);
         }
-      })
-      .pipe(Effect.mapError(toCanvasError));
+      }))
+      .pipe(
+        Effect.provideService(StateTransactionOperation, "canvas.entity-reconcile"),
+        Effect.mapError(toCanvasError),
+      );
 
   });
 
-  const ensureReady: Effect.Effect<void, CanvasError> = Effect.tryPromise({
-    try: () => {
-      if (bootstrapPromise === undefined) {
-        bootstrapPromise = Effect.runPromiseWith(runtime)(bootstrap);
-      }
-      return bootstrapPromise;
-    },
-    catch: toCanvasError,
+  let ready = false;
+  const cachedBootstrap = yield* Effect.cached(bootstrap.pipe(
+    Effect.tap(() => Effect.sync(() => { ready = true; })),
+  ));
+  const ensureReady = Effect.gen(function* () {
+    if (ready) return;
+    // An initial read inside a caller-owned write must not publish readiness
+    // from rows that can still roll back, or await a bootstrap holding for
+    // this same connection in another fiber.
+    if (Option.isSome(yield* Effect.serviceOption(sql.transactionService))) {
+      return yield* bootstrap;
+    }
+    return yield* cachedBootstrap;
   });
 
   const readAuthority = (
@@ -1455,33 +1062,34 @@ export const CanvasesLive = Layer.effect(
   ): Effect.Effect<StoredAuthoritySnapshot, CanvasError> =>
     ensureReady.pipe(
       Effect.flatMap(() =>
-        state.read(operation, readStoredAuthority).pipe(
+        withSqlRead(sql, records.readStoredAuthority()).pipe(
+          Effect.withSpan(operation),
           Effect.mapError(toCanvasError),
         ),
       ),
     );
 
-  const readActive = (
+  const readActive = Effect.fn("Canvases.readActive")(function* (
     operation: string,
-  ): Effect.Effect<ActivePortfolioSnapshot, CanvasError> =>
-    ensureReady.pipe(
-      Effect.flatMap(() =>
-        state
-          .read(operation, (reader) => activePortfolio(reader).snapshot)
-          .pipe(Effect.mapError(toCanvasError)),
-      ),
-    );
+  ) {
+    yield* ensureReady;
+    const cacheable = Option.isNone(yield* Effect.serviceOption(sql.transactionService));
+    const prepared = yield* withSqlRead(sql, activePortfolio(cacheable)).pipe(Effect.withSpan(operation));
+    prepared.publish();
+    return prepared.snapshot;
+  }, Effect.mapError(toCanvasError));
 
-  const transaction = <A>(
+  const transaction = <A, E, R>(
     operation: string,
-    body: (writer: StateWriter) => A,
-  ): Effect.Effect<A, CanvasError> =>
+    body: Effect.Effect<A, E, R>,
+  ): Effect.Effect<A, CanvasError, R> =>
     ensureReady.pipe(
       Effect.flatMap(() =>
-        state.transaction(operation, (writer) => {
-          assertAuthorialInstallation(writer, operation);
-          return body(writer);
-        }).pipe(
+        sql.withTransaction(Effect.gen(function* () {
+          yield* assertAuthorialInstallation(records, operation);
+          return yield* body;
+        })).pipe(
+          Effect.provideService(StateTransactionOperation, operation),
           Effect.mapError(toCanvasError),
         ),
       ),
@@ -1499,35 +1107,33 @@ export const CanvasesLive = Layer.effect(
       ),
     );
 
-  const readWithIntentWitness = (
+  const readWithIntentWitness = Effect.fn("Canvases.readWithIntentWitness")(function* (
     name: string,
     tag: CanvasReadTag = "untagged",
-  ): Effect.Effect<CanvasReadWithIntentWitness, CanvasError> =>
-    Effect.gen(function* () {
+  ) {
       const canonicalName = yield* Effect.try({
         try: () => canvasNameFrom(name),
         catch: toCanvasError,
       });
       yield* ensureReady;
-      return yield* state
-        .read("canvas.read", (reader) =>
-          // The whole body is one synchronous main-thread block, so it is
-          // also where the 4ms invariant is asserted. Armed in dev only;
-          // disarmed it calls straight through.
-          withinBudget("canvas.read", () => {
-            const { identity, snapshot } = activePortfolio(reader);
+      const cacheable = Option.isNone(yield* Effect.serviceOption(sql.transactionService));
+      const prepared = yield* withSqlRead(sql, Effect.gen(function* () {
+            const portfolio = yield* activePortfolio(cacheable);
+            const { identity, snapshot } = portfolio;
             const entry = snapshot.documents.get(canonicalName);
             if (entry === undefined) {
-              throw new CanvasError({
+              return yield* Effect.fail(new CanvasError({
                 message: `canvas "${canonicalName}" is not in the active portfolio`,
-              });
+              }));
             }
-            const projected = workProjections.projectedDoc(
-              reader,
+            const projected = yield* workProjections.projectedDoc(
               canonicalName,
               entry.doc,
               identity,
+              cacheable,
+              tag,
             );
+            const intentWitness = yield* Effect.try({ try: () => intentWitnessFromSnapshot(snapshot), catch: toCanvasError });
             const result = {
               read: {
                 name: canonicalName,
@@ -1538,13 +1144,13 @@ export const CanvasesLive = Layer.effect(
                 revision: entry.revisionSha256,
                 workRevision: projected.workRevision,
               },
-              intentWitness: intentWitnessFromSnapshot(snapshot),
+              intentWitness,
             };
-            return result;
-          }, tag),
-        )
-        .pipe(Effect.mapError(toCanvasError));
-    });
+            return { result, publish: () => { portfolio.publish(); projected.publish(); } };
+      }));
+      prepared.publish();
+      return prepared.result;
+    }, Effect.mapError(toCanvasError));
 
   const read = (
     name: string,
@@ -1554,29 +1160,25 @@ export const CanvasesLive = Layer.effect(
       Effect.map(({ read }) => read),
     );
 
-  const readNodeStructure = (
+  const readNodeStructure = Effect.fn("Canvases.readNodeStructure")(function* (
     name: string,
     nodeId: string,
-  ): Effect.Effect<CanvasNodeStructure | undefined, CanvasError> =>
-    Effect.gen(function* () {
+  ): Effect.fn.Return<CanvasNodeStructure | undefined, CanvasError> {
       const canonicalName = yield* Effect.try({
         try: () => canvasNameFrom(name),
         catch: toCanvasError,
       });
-      yield* ensureReady;
-      return yield* state
-        .read("canvas.readNodeStructure", (reader) => {
+      const snapshot = yield* readActive("canvas.readNodeStructure");
           // Same authority snapshot `read` resolves against, so a caller that
           // routes on this node sees exactly the document the last commit
           // published — never a lagging renderer projection. What is skipped
           // is only `readCanvasWorkProjection` + `projectWorkSnapshots`, which
           // add work lanes and touch no structural field.
-          const { snapshot } = activePortfolio(reader);
           const entry = snapshot.documents.get(canonicalName);
           if (entry === undefined) {
-            throw new CanvasError({
+            return yield* Effect.fail(new CanvasError({
               message: `canvas "${canonicalName}" is not in the active portfolio`,
-            });
+            }));
           }
           const node = entry.doc.nodes.find(
             (candidate) => candidate.id === nodeId,
@@ -1591,34 +1193,31 @@ export const CanvasesLive = Layer.effect(
                   revision: entry.revisionSha256,
                 };
           return result;
-        })
-        .pipe(Effect.mapError(toCanvasError));
     });
 
-  const write = (
+  const write = Effect.fn("Canvases.write")(function* (
     name: string,
     doc: CanvasDoc,
     expectedRevision?: string,
-  ): Effect.Effect<CanvasWriteResult, CanvasError> =>
-    Effect.gen(function* () {
+  ): Effect.fn.Return<CanvasWriteResult, CanvasError> {
       yield* ensureReady;
       const canonicalName = yield* Effect.try({
         try: () => canvasNameFrom(name),
         catch: toCanvasError,
       });
-      const outcome = yield* transaction("canvas.write", (writer) => {
-        const current = readStoredAuthority(writer);
+      const outcome = yield* transaction("canvas.write", Effect.gen(function* () {
+        const current = yield* records.readStoredAuthority();
         const previous = current.documents.get(canonicalName);
         if (
           expectedRevision !== undefined &&
           (previous === undefined ||
             previous.revisionSha256 !== expectedRevision)
         ) {
-          throw new CanvasError({
+          return yield* Effect.fail(new CanvasError({
             message: `${canvasLabel(canonicalName)} revision conflict; reload before saving`,
-          });
+          }));
         }
-        const candidate = normalizeCanvas(
+        const candidate = yield* normalizeCanvas(
           canonicalName,
           reconcileOverseerGrants(previous?.doc ?? { nodes: [], edges: [] }, doc),
           new Date().toISOString(),
@@ -1630,17 +1229,16 @@ export const CanvasesLive = Layer.effect(
             : candidate;
         const documents = new Map(current.documents);
         documents.set(canonicalName, nextEntry);
-        const commit = commitPortfolio(writer, current, documents, "write");
+        const commit = yield* commitPortfolio(records, current, documents, "write");
         if (commit.changed || previous === undefined) {
-          syncCanvasEntities(
-            writer,
+          yield* entities.syncCanvasEntities(
             canonicalName,
             nextEntry.doc,
             nextEntry.modifiedAt,
           );
         }
         return { commit, previous, nextEntry };
-      });
+      }));
       if (outcome.commit.changed) {
         yield* Effect.sync(() =>
           notifyListeners(canonicalName, {
@@ -1652,26 +1250,25 @@ export const CanvasesLive = Layer.effect(
       return { revision: outcome.nextEntry.revisionSha256 };
     });
 
-  const mutate = (
+  const mutate = Effect.fn("Canvases.mutate")(function* (
     name: string,
     fn: (doc: CanvasDoc) => CanvasDoc,
-  ): Effect.Effect<void, CanvasError> =>
-    Effect.gen(function* () {
+  ): Effect.fn.Return<void, CanvasError> {
       yield* ensureReady;
       const canonicalName = yield* Effect.try({
         try: () => canvasNameFrom(name),
         catch: toCanvasError,
       });
-      const outcome = yield* transaction("canvas.mutate", (writer) => {
-        const current = readStoredAuthority(writer);
+      const outcome = yield* transaction("canvas.mutate", Effect.gen(function* () {
+        const current = yield* records.readStoredAuthority();
         const previous = current.documents.get(canonicalName);
         if (previous === undefined) {
-          throw new CanvasError({
+          return yield* Effect.fail(new CanvasError({
             message: `canvas "${canonicalName}" does not exist in SQLite authority`,
-          });
+          }));
         }
-        const proposed = fn(previous.doc);
-        const candidate = normalizeCanvas(
+        const proposed = yield* Effect.try({ try: () => fn(previous.doc), catch: toCanvasError });
+        const candidate = yield* normalizeCanvas(
           canonicalName,
           reconcileOverseerGrants(previous.doc, proposed),
           new Date().toISOString(),
@@ -1683,22 +1280,21 @@ export const CanvasesLive = Layer.effect(
             : candidate;
         const documents = new Map(current.documents);
         documents.set(canonicalName, nextEntry);
-        const commit = commitPortfolio(
-          writer,
+        const commit = yield* commitPortfolio(
+          records,
           current,
           documents,
           "mutate",
         );
         if (commit.changed) {
-          syncCanvasEntities(
-            writer,
+          yield* entities.syncCanvasEntities(
             canonicalName,
             nextEntry.doc,
             nextEntry.modifiedAt,
           );
         }
         return { commit, previous, nextEntry };
-      });
+      }));
       if (outcome.commit.changed) {
         yield* Effect.sync(() =>
           notifyListeners(canonicalName, {
@@ -1709,25 +1305,24 @@ export const CanvasesLive = Layer.effect(
       }
     });
 
-  const mutatePortfolio = <A>(
+  const mutatePortfolio = Effect.fn("Canvases.mutatePortfolio")(function* <A>(
     fn: (current: CanvasPortfolioView) => CanvasPortfolioEdit<A>,
-  ): Effect.Effect<CanvasPortfolioCommit<A>, CanvasError | WorkErrorBody> =>
-    Effect.gen(function* () {
+  ): Effect.fn.Return<CanvasPortfolioCommit<A>, CanvasError | WorkErrorBody> {
       yield* ensureReady;
-      const outcome = yield* transaction("canvas.mutatePortfolio", (writer) => {
-        const current = readStoredAuthority(writer);
-        const edit = fn(storedDocumentsView(current));
+      const outcome = yield* transaction("canvas.mutatePortfolio", Effect.gen(function* () {
+        const current = yield* records.readStoredAuthority();
+        const edit = yield* Effect.try({ try: () => fn(storedDocumentsView(current)), catch: toCanvasError });
         if (!edit.ok) return { kind: "rejected" as const, error: edit.error };
         const modifiedAt = new Date().toISOString();
-        const nextDocuments = normalizePortfolioDocuments(
+        const nextDocuments = yield* normalizePortfolioDocuments(
           current,
           edit.mutation.documents,
           modifiedAt,
           "mutate",
           false,
         );
-        const commit = commitPortfolio(
-          writer,
+        const commit = yield* commitPortfolio(
+          records,
           current,
           nextDocuments,
           "mutate",
@@ -1739,12 +1334,12 @@ export const CanvasesLive = Layer.effect(
               prior === undefined ||
               prior.revisionSha256 !== entry.revisionSha256
             ) {
-              syncCanvasEntities(writer, name, entry.doc, entry.modifiedAt);
+              yield* entities.syncCanvasEntities(name, entry.doc, entry.modifiedAt);
             }
           }
           for (const name of current.documents.keys()) {
             if (!nextDocuments.has(name)) {
-              archiveAllCanvasEntities(writer, name, modifiedAt);
+              yield* entities.archiveAllCanvasEntities(name, modifiedAt);
             }
           }
         }
@@ -1784,7 +1379,7 @@ export const CanvasesLive = Layer.effect(
           affected,
           notifications,
         };
-      });
+      }));
       if (outcome.kind === "rejected") {
         return yield* Effect.fail(outcome.error);
       }
@@ -1799,10 +1394,9 @@ export const CanvasesLive = Layer.effect(
       return { result: outcome.result, affected: outcome.affected };
     });
 
-  const canvasOverseerSet = (
+  const canvasOverseerSet = Effect.fn("Canvases.canvasOverseerSet")(function* (
     input: CanvasOverseerSetInput,
-  ): Effect.Effect<CanvasOverseerSetResult, CanvasError> =>
-    Effect.gen(function* () {
+  ): Effect.fn.Return<CanvasOverseerSetResult, CanvasError> {
       yield* ensureReady;
       if (typeof input.overseer !== "boolean") {
         return yield* Effect.fail(
@@ -1813,35 +1407,35 @@ export const CanvasesLive = Layer.effect(
         try: () => canvasNameFrom(input.canvasName),
         catch: toCanvasError,
       });
-      const outcome = yield* transaction("canvas.overseerSet", (writer) => {
-        const current = readStoredAuthority(writer);
+      const outcome = yield* transaction("canvas.overseerSet", Effect.gen(function* () {
+        const current = yield* records.readStoredAuthority();
         const previous = current.documents.get(canonicalName);
         if (
           previous === undefined ||
           previous.revisionSha256 !== input.expectedRevision
         ) {
-          throw new CanvasError({
+          return yield* Effect.fail(new CanvasError({
             message: `${canvasLabel(canonicalName)} revision conflict; reload before saving`,
-          });
+          }));
         }
         const node = previous.doc.nodes.find(
           (candidate) => candidate.id === input.nodeId,
         );
         if (node === undefined) {
-          throw new CanvasError({
+          return yield* Effect.fail(new CanvasError({
             message: `node "${input.nodeId}" is not on ${canvasLabel(canonicalName)}`,
-          });
+          }));
         }
         if (!isManagedAgentNode(node)) {
-          throw new CanvasError({
+          return yield* Effect.fail(new CanvasError({
             message: `node "${input.nodeId}" is not a managed agent seat`,
-          });
+          }));
         }
         const seat = nodeSeatBinding(node);
         if (seat === undefined) {
-          throw new CanvasError({
+          return yield* Effect.fail(new CanvasError({
             message: `node "${input.nodeId}" is missing host/binding identity`,
-          });
+          }));
         }
         const view = storedDocumentsView(current);
         const proposed = setBindingOverseer(
@@ -1850,15 +1444,15 @@ export const CanvasesLive = Layer.effect(
           input.overseer,
         );
         const modifiedAt = new Date().toISOString();
-        const nextDocuments = normalizePortfolioDocuments(
+        const nextDocuments = yield* normalizePortfolioDocuments(
           current,
           proposed,
           modifiedAt,
           "overseer",
           true,
         );
-        const commit = commitPortfolio(
-          writer,
+        const commit = yield* commitPortfolio(
+          records,
           current,
           nextDocuments,
           "overseer",
@@ -1876,7 +1470,7 @@ export const CanvasesLive = Layer.effect(
             prior.revisionSha256 !== entry.revisionSha256
           ) {
             if (commit.changed) {
-              syncCanvasEntities(writer, name, entry.doc, entry.modifiedAt);
+              yield* entities.syncCanvasEntities(name, entry.doc, entry.modifiedAt);
             }
             affected.push({ name, revision: entry.revisionSha256 });
             notifications.push({
@@ -1898,7 +1492,7 @@ export const CanvasesLive = Layer.effect(
           affected,
           notifications,
         };
-      });
+      }));
       for (const notice of outcome.notifications) {
         yield* Effect.sync(() =>
           notifyListeners(notice.name, {
@@ -1914,21 +1508,20 @@ export const CanvasesLive = Layer.effect(
       };
     });
 
-  const create = (name: string): Effect.Effect<CanvasReadResult, CanvasError> =>
-    Effect.gen(function* () {
+  const create = Effect.fn("Canvases.create")(function* (name: string): Effect.fn.Return<CanvasReadResult, CanvasError> {
       yield* ensureReady;
       const canonicalName = yield* Effect.try({
         try: () => canvasNameFrom(name),
         catch: toCanvasError,
       });
-      const outcome = yield* transaction("canvas.create", (writer) => {
-        const current = readStoredAuthority(writer);
+      const outcome = yield* transaction("canvas.create", Effect.gen(function* () {
+        const current = yield* records.readStoredAuthority();
         if (current.documents.has(canonicalName)) {
-          throw new CanvasError({
+          return yield* Effect.fail(new CanvasError({
             message: `canvas "${canonicalName}" already exists`,
-          });
+          }));
         }
-        const entry = normalizeCanvas(
+        const entry = yield* normalizeCanvas(
           canonicalName,
           { nodes: [], edges: [] },
           new Date().toISOString(),
@@ -1936,15 +1529,14 @@ export const CanvasesLive = Layer.effect(
         );
         const documents = new Map(current.documents);
         documents.set(canonicalName, entry);
-        commitPortfolio(writer, current, documents, "create");
-        syncCanvasEntities(
-          writer,
+        yield* commitPortfolio(records, current, documents, "create");
+        yield* entities.syncCanvasEntities(
           canonicalName,
           entry.doc,
           entry.modifiedAt,
         );
         return entry;
-      });
+      }));
       yield* Effect.sync(() =>
         notifyListeners(canonicalName, {
           previous: undefined,
@@ -1954,31 +1546,29 @@ export const CanvasesLive = Layer.effect(
       return yield* read(canonicalName);
     });
 
-  const remove = (name: string): Effect.Effect<{ name: string }, CanvasError> =>
-    Effect.gen(function* () {
+  const remove = Effect.fn("Canvases.remove")(function* (name: string): Effect.fn.Return<{ name: string }, CanvasError> {
       yield* ensureReady;
       const canonicalName = yield* Effect.try({
         try: () => canvasNameFrom(name),
         catch: toCanvasError,
       });
-      const previous = yield* transaction("canvas.remove", (writer) => {
-        const current = readStoredAuthority(writer);
+      const previous = yield* transaction("canvas.remove", Effect.gen(function* () {
+        const current = yield* records.readStoredAuthority();
         const entry = current.documents.get(canonicalName);
         if (entry === undefined) {
-          throw new CanvasError({
+          return yield* Effect.fail(new CanvasError({
             message: `canvas "${canonicalName}" does not exist`,
-          });
+          }));
         }
         const documents = new Map(current.documents);
         documents.delete(canonicalName);
-        commitPortfolio(writer, current, documents, "remove");
-        archiveAllCanvasEntities(
-          writer,
+        yield* commitPortfolio(records, current, documents, "remove");
+        yield* entities.archiveAllCanvasEntities(
           canonicalName,
           new Date().toISOString(),
         );
         return entry;
-      });
+      }));
       yield* Effect.tryPromise({
         try: () =>
           removeCanvasProjectionSidecars(canonicalName).catch(() => undefined),
@@ -1996,11 +1586,11 @@ export const CanvasesLive = Layer.effect(
 
   const ensureSeed: Effect.Effect<void, CanvasError> = ensureReady.pipe(
     Effect.flatMap(() =>
-      transaction("canvas.seed", (writer) => {
-        const current = readStoredAuthority(writer);
+      transaction("canvas.seed", Effect.gen(function* () {
+        const current = yield* records.readStoredAuthority();
         if (current.documents.size > 0) return undefined;
         const name = canvasNameFrom(SEED_CANVAS_NAME);
-        const entry = normalizeCanvas(
+        const entry = yield* normalizeCanvas(
           name,
           { nodes: [], edges: [] },
           new Date().toISOString(),
@@ -2008,17 +1598,17 @@ export const CanvasesLive = Layer.effect(
         );
         const documents = new Map(current.documents);
         documents.set(name, entry);
-        const commit = commitPortfolio(
-          writer,
+        const commit = yield* commitPortfolio(
+          records,
           current,
           documents,
           "seed",
         );
         if (commit.changed) {
-          syncCanvasEntities(writer, name, entry.doc, entry.modifiedAt);
+          yield* entities.syncCanvasEntities(name, entry.doc, entry.modifiedAt);
         }
         return commit.changed ? { name, entry } : undefined;
-      }),
+      })),
     ),
     Effect.tap((created) =>
       created === undefined
@@ -2132,7 +1722,9 @@ export const CanvasesLive = Layer.effect(
     CanvasError
   > =>
     readActive("canvas.active-intent-witness").pipe(
-      Effect.map(intentWitnessFromSnapshot),
+      Effect.flatMap((snapshot) => Effect.try({
+        try: () => intentWitnessFromSnapshot(snapshot), catch: toCanvasError,
+      })),
     );
 
   const liveDocuments = (): Effect.Effect<
@@ -2210,4 +1802,4 @@ export const CanvasesLive = Layer.effect(
     activeActorRefs,
   });
   }),
-);
+).pipe(Layer.provide(Layer.mergeAll(CanvasRecordsLive, CanvasEntitySync.layer, WorkProjectionReaderLive)));

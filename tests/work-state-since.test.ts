@@ -9,6 +9,7 @@ import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect, Layer, ManagedRuntime, Schema } from "effect";
+import { SqlClient } from "effect/unstable/sql";
 import { afterEach, describe, expect, it } from "vitest";
 import { ActorSeatId } from "../src/shared/actor-seat";
 import { serializeCanvas, type CanvasDoc } from "../src/shared/canvas";
@@ -29,7 +30,7 @@ import {
   makeStateEngineLive,
   StateEngine,
 } from "../src/main/junto/state/engine";
-import { unjournaledWorkMutation } from "../src/main/junto/work/mutation-seam";
+import { unjournaledWorkMutationEffect } from "../src/main/junto/work/mutation-seam";
 import { authorialMaterialForTest } from "./helpers/authorial-material";
 import { seedCanvasAuthority } from "./helpers/canvas-authority-material";
 
@@ -126,32 +127,33 @@ const openRepository = async (
   );
   opened.push({ root, dispose: () => runtime.dispose() });
   const repository = await runtime.runPromise(WorkRepository);
-  const state = await runtime.runPromise(StateEngine);
+  const sql = await runtime.runPromise(SqlClient.SqlClient);
   await runtime.runPromise(
-    state.transaction("test.seed-state-since", (writer) => {
-      for (const known of new Set([local, ...peers])) {
-        writer.run(
-          `
+    sql.withTransaction(
+      Effect.gen(function* () {
+        for (const known of new Set([local, ...peers])) {
+          yield* sql.unsafe(
+            `
             INSERT INTO station_known_installations(
               installation_id,
               registered_at
             ) VALUES (?, ?)
           `,
-          [known, atMinute(0)],
-        );
-      }
-      writer.run(
-        `
+            [known, atMinute(0)],
+          );
+        }
+        yield* sql.unsafe(
+          `
           INSERT INTO station_installation(
             singleton,
             installation_id,
             created_at
           ) VALUES (1, ?, ?)
         `,
-        [local, atMinute(0)],
-      );
-      writer.run(
-        `
+          [local, atMinute(0)],
+        );
+        yield* sql.unsafe(
+          `
           INSERT INTO station_configuration(
             singleton,
             role,
@@ -162,19 +164,20 @@ const openRepository = async (
             configured_at
           ) VALUES (1, ?, ?, ?, ?, 1, ?)
         `,
-        role === "command-center"
-          ? [role, "local", null, null, atMinute(0)]
-          : [role, "remote", "remote", peers[0], atMinute(0)],
-      );
-      seedCanvasAuthority(writer, {
-        generation: "1",
-        documents: new Map([
-          [canvasName, factoryTopology],
-          [otherCanvasName, emptyTopology],
-        ]),
-        at: atMinute(0),
-      });
-    }),
+          role === "command-center"
+            ? [role, "local", null, null, atMinute(0)]
+            : [role, "remote", "remote", peers[0], atMinute(0)],
+        );
+        yield* seedCanvasAuthority({
+          generation: "1",
+          documents: new Map([
+            [canvasName, factoryTopology],
+            [otherCanvasName, emptyTopology],
+          ]),
+          at: atMinute(0),
+        });
+      }),
+    ),
   );
   const basis = Schema.decodeUnknownSync(AuthorialIntentFactBasis)({
     kind: "authorial-intent",
@@ -299,13 +302,14 @@ describe("WorkRepository stateSince projection", () => {
         receivedAt: atMinute(3),
       }),
     );
-    const state = await runtime.runPromise(StateEngine);
+    const sql = await runtime.runPromise(SqlClient.SqlClient);
     await runtime.runPromise(
-      state.transaction("test.unstamp", (writer) => {
-        unjournaledWorkMutation("test.fixture-seed", () => {
-          writer.run("UPDATE work_requests SET metadata_json = NULL WHERE request_id = ?", ["r1"]);
-        });
-      }),
+      sql.withTransaction(
+        unjournaledWorkMutationEffect(
+          "test.fixture-seed",
+          sql.unsafe("UPDATE work_requests SET metadata_json = NULL WHERE request_id = ?", ["r1"]),
+        ),
+      ),
     );
     const snapshot = await runtime.runPromise(repository.readSnapshot(canvasName, "asks"));
     expect(snapshot.requests?.items[0]?.stateSince).toBe(atMinute(3));

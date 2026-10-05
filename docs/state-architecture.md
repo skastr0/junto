@@ -29,9 +29,10 @@ rollback to files.
 - During normal operation each installation has one sole app runtime database
   owner: Electron main on Command Center or the displayless packaged Node
   Remote process on Remote.
-- Effect owns one scoped `StateEngine` connection and supplies it to every
-  repository. A service must consume that shared layer, never construct a
-  second connection.
+- `makeStateEngineLive` owns one scoped, private `node:sqlite` connection and
+  publishes one Effect `SqlClient` alongside `StateEngine` metadata and backup.
+  Repositories consume that shared client through typed services, never open
+  another connection or run an Effect runtime internally.
 - Renderers, headless CLIs, packaged helpers, and SSH callers use app-owned
   IPC or control protocols.
 - The sole packaged exception is the staged candidate's sealed
@@ -44,6 +45,40 @@ timeout, trusted-schema disabled, and extension loading disabled. Statements
 are prepared once per connection. Atomic domain changes use one
 `BEGIN IMMEDIATE` transaction. Bulk writes use small transactions with an
 event-loop yield between chunks.
+
+## SQL ownership and transaction participants
+
+Each repository owns its tables and decodes persisted rows at its SQL boundary.
+Cross-domain operations call typed participants such as `CanvasRecords`,
+`ContentManifest`, `StationConfigurationRepository`, and the Crew/Live
+`...Within` operations instead of reaching into another owner's tables.
+Participants join the caller's transaction; the orchestrator selects the
+atomic boundary with `sql.withTransaction`. Nested owners use savepoints.
+
+The driver's single semaphore covers statements, read leases, transactions,
+and backups. `withSqlRead` keeps multi-query reads coherent without issuing
+BEGIN and reuses the connection inside a transaction. A yielding transaction
+retains its lease; concurrent callers cannot see its uncommitted rows.
+Failure, defects, and interruption release scoped resources and roll back.
+
+`StateTransactionOperation` carries the owning operation into Live authority
+checks, receipts, and diagnostics. Work admission is fiber-local and still
+requires a journal record or an explicit closed journal-free reason.
+`afterSqlCommit` publishes Work notifications only after the outer commit;
+savepoint rollback discards its callbacks. Canvas/World caches do not publish
+snapshots read from a caller-owned write that could still roll back.
+
+The main-thread budget times each synchronous driver call, not the elapsed
+time of an Effect transaction that can yield. Effect spans retain transaction
+timing. Slow transaction-control statements report without throwing after a
+successful BEGIN/COMMIT; ordinary statements retain strict-budget failures and
+never replace an original SQL error with a timing error.
+
+Raw SQLite remains confined to connection ownership, bootstrap/migrations,
+schema inspection, backup/recovery, the separate install-ops store, external
+read-only adapters, and disposable fixtures/tooling. Repositories expose no
+raw reader/writer callbacks. This SQL consolidation changes no DDL, schema
+version, or schema-identity witness.
 
 ## Schema evolution
 

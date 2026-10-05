@@ -17,7 +17,9 @@ import { randomUUID } from "node:crypto";
 import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Context, Layer, ManagedRuntime, Schema } from "effect";
+import { Context, Effect, Layer, ManagedRuntime, Schema } from "effect";
+import { SqlClient } from "effect/unstable/sql";
+import { withSqlRead } from "../src/main/junto/state/sql-read";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { ActorSeatId } from "../src/shared/actor-seat";
 import { InstallationId } from "../src/shared/installation-id";
@@ -26,10 +28,7 @@ import {
   WorkRepository,
   WorkRepositoryLive,
 } from "../src/main/junto/work/repository";
-import {
-  makeStateEngineLive,
-  StateEngine,
-} from "../src/main/junto/state/engine";
+import { makeStateEngineLive } from "../src/main/junto/state/engine";
 import { IntentFactBasis } from "../src/shared/work-protocol";
 import { WorkSnapshot } from "../src/shared/work-model";
 import { ContentRef } from "../src/shared/content";
@@ -46,21 +45,23 @@ const runtime = ManagedRuntime.make(
 );
 
 let repository: Context.Service.Shape<typeof WorkRepository>;
-let state: Context.Service.Shape<typeof StateEngine>;
+let sql: SqlClient.SqlClient;
 
 const observedAt = "2026-08-18T09:00:00.000Z";
 const cc = Schema.decodeUnknownSync(InstallationId)("cc-projection-shape");
 const authorityTopology: CanvasDoc = {
-  nodes: [{
-    id: "agent-1",
-    type: "text",
-    x: 0,
-    y: 0,
-    width: 180,
-    height: 80,
-    text: "Planner",
-    ether: { entity: { kind: "agent", name: "local:planner" } },
-  }],
+  nodes: [
+    {
+      id: "agent-1",
+      type: "text",
+      x: 0,
+      y: 0,
+      width: 180,
+      height: 80,
+      text: "Planner",
+      ether: { entity: { kind: "agent", name: "local:planner" } },
+    },
+  ],
   edges: [],
 };
 const authorityRawBody = serializeCanvas(authorityTopology);
@@ -83,41 +84,46 @@ const actor = { seatId, canvasName: "factory", nodeId: "agent-1" };
 const strict = { onExcessProperty: "error" } as const;
 
 const contentRef = (sha: string, byteLength: number) =>
-  Schema.decodeUnknownSync(ContentRef, strict)({
+  Schema.decodeUnknownSync(
+    ContentRef,
+    strict,
+  )({
     sha256: sha,
     byteLength,
     mediaType: "image/png",
   });
 
 const seed = () =>
-  state.transaction("test.seed", (writer) => {
-    writer.run(
-      `INSERT INTO station_known_installations(installation_id, registered_at)
+  sql.withTransaction(
+    Effect.gen(function* () {
+      yield* sql.unsafe(
+        `INSERT INTO station_known_installations(installation_id, registered_at)
        VALUES (?, ?)`,
-      [cc, observedAt],
-    );
-    writer.run(
-      `INSERT INTO station_installation(singleton, installation_id, created_at)
+        [cc, observedAt],
+      );
+      yield* sql.unsafe(
+        `INSERT INTO station_installation(singleton, installation_id, created_at)
        VALUES (1, ?, ?)`,
-      [cc, observedAt],
-    );
-    writer.run(
-      `INSERT INTO station_configuration(
+        [cc, observedAt],
+      );
+      yield* sql.unsafe(
+        `INSERT INTO station_configuration(
          singleton, role, host_id, agent_host_id,
          command_center_installation_id, supervised_preferred, configured_at
        ) VALUES (1, 'command-center', 'local', NULL, NULL, 1, ?)`,
-      [observedAt],
-    );
-    seedCanvasAuthority(writer, {
-      generation: "1",
-      documents: new Map([["factory", authorityTopology]]),
-      at: observedAt,
-    });
-  });
+        [observedAt],
+      );
+      yield* seedCanvasAuthority({
+        generation: "1",
+        documents: new Map([["factory", authorityTopology]]),
+        at: observedAt,
+      });
+    }),
+  );
 
 beforeAll(async () => {
   repository = await runtime.runPromise(WorkRepository);
-  state = await runtime.runPromise(StateEngine);
+  sql = await runtime.runPromise(SqlClient.SqlClient);
   await runtime.runPromise(seed());
 });
 
@@ -152,9 +158,7 @@ describe("work projection shape", () => {
     );
 
     const projection = await runtime.runPromise(
-      state.read("test.read-projection", (reader) =>
-        readCanvasWorkProjection(reader, "factory"),
-      ),
+      withSqlRead(sql, readCanvasWorkProjection(sql, "factory")),
     );
 
     const seen = projection.snapshots.map((snapshot) => snapshot.nodeId).sort();
@@ -183,9 +187,7 @@ describe("work projection shape", () => {
   it("moves the work revision on every mutation and never backwards", async () => {
     const read = () =>
       runtime.runPromise(
-        state.read("test.read-revision", (reader) =>
-          readCanvasWorkProjection(reader, "factory"),
-        ),
+        withSqlRead(sql, readCanvasWorkProjection(sql, "factory")),
       );
 
     const before = BigInt((await read()).workRevision);

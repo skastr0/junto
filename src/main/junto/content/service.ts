@@ -1,4 +1,5 @@
-import { Context, Effect, Layer } from "effect";
+import { Cause, Context, Effect, Layer, Result } from "effect";
+import { SqlClient, type SqlError } from "effect/unstable/sql";
 import type {
   ContentAvailability,
   ContentAvailabilityReason,
@@ -6,15 +7,15 @@ import type {
 } from "@shared/content";
 import { resolveJuntoHome } from "@shared/junto-home";
 import {
-  StateEngine,
-  StateEngineError,
+  StateTransactionOperation,
   type StateBackupReceipt,
-  type StateEngineShape,
 } from "../state/service";
+import { withSqlRead } from "../state/sql-read";
 import {
-  createContentSnapshot,
-  type ContentSnapshotReceipt,
-} from "./backup";
+  WorkContentProjections,
+  WorkContentProjectionsLive,
+} from "../work/repository";
+import { createContentSnapshot, type ContentSnapshotReceipt } from "./backup";
 import {
   admitContentWrite,
   assertContentDiskAdmission,
@@ -30,11 +31,8 @@ import {
   type ContentIntegrityReport,
 } from "./integrity";
 import {
-  listContentRefsForObject,
-  manifestAvailability,
-  recordContentObject,
-  recordContentRef,
-  releaseContentRefsForOwner,
+  ContentManifest,
+  type ContentManifestShape,
   type ContentOwner,
   type ContentRefRow,
   ContentManifestError,
@@ -78,11 +76,9 @@ export type ContentPutResult = ContentIngestResult & {
 export type ContentServiceError =
   | ContentStoreError
   | ContentManifestError
-  | StateEngineError;
+  | SqlError.SqlError;
 
 export type ContentOpenForRead = ContentOpenResult;
-
-type StateService = StateEngineShape;
 
 /**
  * Implementation shape for {@link ContentService}.
@@ -95,31 +91,37 @@ export type ContentServiceShape = {
   ) => Effect.Effect<ContentPutResult, ContentServiceError>;
   readonly availability: (
     ref: ContentRef,
-  ) => Effect.Effect<ContentAvailability, StateEngineError>;
+  ) => Effect.Effect<
+    ContentAvailability,
+    ContentManifestError | SqlError.SqlError
+  >;
   /**
    * Open for streaming reads. Checks manifest receipt + path/size without
    * re-hashing the full object (so video range seeks stay cheap).
    */
   readonly openForRead: (
     ref: ContentRef,
-  ) => Effect.Effect<ContentOpenForRead, StateEngineError>;
+  ) => Effect.Effect<
+    ContentOpenForRead,
+    ContentManifestError | SqlError.SqlError
+  >;
   readonly localPath: (
     ref: ContentRef,
   ) => Effect.Effect<ReturnType<typeof projectContentLocalPath>, never>;
   readonly listRefs: (
     sha256: string,
-  ) => Effect.Effect<ReadonlyArray<ContentRefRow>, StateEngineError>;
+  ) => Effect.Effect<ReadonlyArray<ContentRefRow>, ContentManifestError>;
   /**
    * Release every reference an owner holds (a closed signal's attachments).
    * The bytes go at the next garbage collection that finds them unreferenced.
    */
   readonly releaseOwner: (
     owner: ContentOwner,
-  ) => Effect.Effect<number, StateEngineError>;
+  ) => Effect.Effect<number, ContentManifestError | SqlError.SqlError>;
   /** Startup / recovery integrity over referenced digests. */
   readonly integrityCheck: () => Effect.Effect<
     ContentIntegrityReport,
-    StateEngineError | ContentStoreError
+    ContentServiceError
   >;
   /**
    * Conservative mark-and-sweep. Defaults to dry-run; pass
@@ -127,20 +129,14 @@ export type ContentServiceShape = {
    */
   readonly collectGarbage: (
     options?: ContentGcOptions,
-  ) => Effect.Effect<
-    ContentGcReport,
-    StateEngineError | ContentStoreError | ContentManifestError
-  >;
+  ) => Effect.Effect<ContentGcReport, ContentServiceError>;
   /**
    * Snapshot every content_refs object. Optionally attach a prior
    * StateEngine VACUUM backup receipt so DB + objects are one product unit.
    */
   readonly snapshot: (options?: {
     readonly stateBackup?: StateBackupReceipt;
-  }) => Effect.Effect<
-    ContentSnapshotReceipt,
-    StateEngineError | ContentStoreError
-  >;
+  }) => Effect.Effect<ContentSnapshotReceipt, ContentServiceError>;
   /** Probe disk admission for a prospective write size. */
   readonly admitWrite: (input: {
     readonly needBytes: number;
@@ -158,11 +154,14 @@ export type ContentServiceShape = {
  * - Hard law: yield ContentService from warm Layer Context; never ambient
  *   empty-context lookup (claim-gate class of bug).
  */
-export class ContentService extends Context.Service<ContentService,
-  ContentServiceShape>()("@junto/ContentService") {}
+export class ContentService extends Context.Service<
+  ContentService,
+  ContentServiceShape
+>()("@junto/ContentService") {}
 
 const makeContentService = (
-  state: StateService,
+  sql: SqlClient.SqlClient,
+  manifest: ContentManifestShape,
   root: string,
 ): ContentServiceShape => ({
   root,
@@ -213,160 +212,121 @@ const makeContentService = (
       });
 
       // 2) Manifest only after file publish.
-      const refRow = yield* state.transaction("content.put", (writer) => {
-        recordContentObject(writer, {
-          sha256: ingested.ref.sha256,
-          byteLength: ingested.ref.byteLength,
-          verifiedAt: ingested.verifiedAt,
-        });
-        if (input.owner === undefined) return undefined;
-        return recordContentRef(writer, {
-          ref: ingested.ref,
-          owner: input.owner,
-          createdAt: ingested.verifiedAt,
-        });
-      });
+      const refRow = yield* sql
+        .withTransaction(
+          Effect.gen(function* () {
+            yield* manifest.recordContentObject({
+              sha256: ingested.ref.sha256,
+              byteLength: ingested.ref.byteLength,
+              verifiedAt: ingested.verifiedAt,
+            });
+            if (input.owner === undefined) return undefined;
+            return yield* manifest.recordContentRef({
+              ref: ingested.ref,
+              owner: input.owner,
+              createdAt: ingested.verifiedAt,
+            });
+          }),
+        )
+        .pipe(Effect.provideService(StateTransactionOperation, "content.put"));
 
       return { ...ingested, refRow };
     }),
 
-  releaseOwner: (owner) =>
-    state.transaction("content.releaseOwner", (writer) => releaseContentRefsForOwner(writer, owner)),
-
   availability: (ref) =>
-    state.read("content.availability", (reader) => {
-      const fromManifest = manifestAvailability(reader, ref);
-      if (fromManifest.state !== "verified") return fromManifest;
-      return verifyContentObjectFile(root, ref, fromManifest.verifiedAt);
-    }),
+    withSqlRead(
+      sql,
+      Effect.gen(function* () {
+        const fromManifest = yield* manifest.manifestAvailability(ref);
+        if (fromManifest.state !== "verified") return fromManifest;
+        return verifyContentObjectFile(root, ref, fromManifest.verifiedAt);
+      }),
+    ),
 
   openForRead: (ref) =>
-    state.read("content.openForRead", (reader): ContentOpenForRead => {
-      const fromManifest = manifestAvailability(reader, ref);
-      if (fromManifest.state !== "verified") return fromManifest;
-      const projection = projectContentLocalPath(root, ref);
-      if ("kind" in projection && projection.kind === "local-path") {
+    withSqlRead(
+      sql,
+      Effect.gen(function* () {
+        const fromManifest = yield* manifest.manifestAvailability(ref);
+        if (fromManifest.state !== "verified") return fromManifest;
+        const projection = projectContentLocalPath(root, ref);
+        if ("kind" in projection && projection.kind === "local-path") {
+          return {
+            state: "verified" as const,
+            path: projection.path,
+            byteLength: ref.byteLength,
+            mediaType: ref.mediaType,
+          };
+        }
+        if (
+          "state" in projection &&
+          (projection.state === "missing" ||
+            projection.state === "corrupt" ||
+            projection.state === "unavailable")
+        ) {
+          return projection;
+        }
         return {
-          state: "verified",
-          path: projection.path,
-          byteLength: ref.byteLength,
-          mediaType: ref.mediaType,
+          ref,
+          state: "unavailable" as const,
+          reason:
+            "content object could not be opened for read" as ContentAvailabilityReason,
         };
-      }
-      if (
-        "state" in projection &&
-        (projection.state === "missing" ||
-          projection.state === "corrupt" ||
-          projection.state === "unavailable")
-      ) {
-        return projection;
-      }
-      return {
-        ref,
-        state: "unavailable",
-        reason:
-          "content object could not be opened for read" as ContentAvailabilityReason,
-      };
-    }),
+      }),
+    ),
 
   localPath: (ref) => Effect.sync(() => projectContentLocalPath(root, ref)),
 
-  listRefs: (sha256) =>
-    state.read("content.listRefs", (reader) =>
-      listContentRefsForObject(reader, sha256),
-    ),
+  listRefs: (sha256) => manifest.listContentRefsForObject(sha256),
+
+  releaseOwner: (owner) =>
+    sql
+      .withTransaction(manifest.releaseContentRefsForOwner(owner))
+      .pipe(
+        Effect.provideService(
+          StateTransactionOperation,
+          "content.releaseOwner",
+        ),
+      ),
 
   integrityCheck: () =>
-    Effect.gen(function* () {
-      const boxed = yield* state.read("content.integrity", (reader) => {
-        try {
-          return {
-            ok: true as const,
-            report: runContentIntegrityCheck(root, reader),
-          };
-        } catch (error) {
-          if (error instanceof ContentStoreError) {
-            return { ok: false as const, error };
-          }
-          throw error;
-        }
-      });
-      if (!boxed.ok) return yield* Effect.fail(boxed.error);
-      return boxed.report;
-    }),
+    withSqlRead(sql, runContentIntegrityCheck(root, manifest)),
 
-  collectGarbage: (options) => {
-    const dryRun = options?.dryRun !== false;
-    if (dryRun) {
-      return Effect.gen(function* () {
-        const boxed = yield* state.read("content.gc.dryRun", (reader) => {
-          try {
-            return {
-              ok: true as const,
-              report: collectContentGarbage(root, reader, undefined, {
-                ...options,
-                dryRun: true,
-              }),
-            };
-          } catch (error) {
-            if (
-              error instanceof ContentStoreError ||
-              error instanceof ContentManifestError
-            ) {
-              return { ok: false as const, error };
-            }
-            throw error;
-          }
-        });
-        if (!boxed.ok) return yield* Effect.fail(boxed.error);
-        return boxed.report;
-      });
-    }
-    return Effect.gen(function* () {
-      const boxed = yield* state.transaction("content.gc.sweep", (writer) => {
-        try {
-          return {
-            ok: true as const,
-            report: collectContentGarbage(root, writer, writer, {
-              ...options,
-              dryRun: false,
-            }),
-          };
-        } catch (error) {
-          if (
-            error instanceof ContentStoreError ||
-            error instanceof ContentManifestError
-          ) {
-            return { ok: false as const, error };
-          }
-          throw error;
-        }
-      });
-      if (!boxed.ok) return yield* Effect.fail(boxed.error);
-      return boxed.report;
-    });
-  },
+  collectGarbage: (options) =>
+    (options?.dryRun !== false
+      ? withSqlRead(sql, collectContentGarbage(root, manifest, options))
+      : sql
+          .withTransaction(
+            collectContentGarbage(root, manifest, options).pipe(
+              Effect.map(Result.succeed),
+              // Only domain failures historically commit completed sweep steps.
+              Effect.catch((error) =>
+                error instanceof ContentStoreError ||
+                (error instanceof ContentManifestError &&
+                  error.code !== "sql" &&
+                  error.code !== "decode")
+                  ? Effect.succeed(Result.fail(error))
+                  : Effect.fail(error),
+              ),
+            ),
+          )
+          .pipe(
+            Effect.provideService(
+              StateTransactionOperation,
+              "content.gc.sweep",
+            ),
+            Effect.flatMap(Effect.fromResult),
+          )
+    ).pipe(
+      Effect.mapError((error) =>
+        Cause.isUnknownError(error)
+          ? new ContentStoreError("io", error.message, { cause: error.cause })
+          : error,
+      ),
+    ),
 
   snapshot: (options) =>
-    Effect.gen(function* () {
-      const boxed = yield* state.read("content.snapshot", (reader) => {
-        try {
-          return {
-            ok: true as const,
-            receipt: createContentSnapshot(root, reader, {
-              stateBackup: options?.stateBackup,
-            }),
-          };
-        } catch (error) {
-          if (error instanceof ContentStoreError) {
-            return { ok: false as const, error };
-          }
-          throw error;
-        }
-      });
-      if (!boxed.ok) return yield* Effect.fail(boxed.error);
-      return boxed.receipt;
-    }),
+    withSqlRead(sql, createContentSnapshot(root, manifest, options)),
 
   admitWrite: (input) =>
     Effect.try({
@@ -398,22 +358,32 @@ export const makeContentServiceLive = (options?: {
    * Production never sets this; install-ops ledger is the authority.
    */
   readonly skipInlineMediaMigration?: boolean;
-}): Layer.Layer<ContentService, never, StateEngine | InstallOpsService> =>
+}): Layer.Layer<
+  ContentService,
+  never,
+  SqlClient.SqlClient | InstallOpsService
+> =>
   Layer.effect(
     ContentService,
     Effect.gen(function* () {
-      const state = yield* StateEngine;
+      const sql = yield* SqlClient.SqlClient;
+      const manifest = yield* ContentManifest;
+      const projections = yield* WorkContentProjections;
       const installOps = yield* InstallOpsService;
       const home = options?.home ?? resolveJuntoHome();
-      const root =
-        options?.root ??
-        contentStoreRoot(home);
+      const root = options?.root ?? contentStoreRoot(home);
       ensureContentLayout(root);
       if (options?.skipInlineMediaMigration !== true) {
         // Install-ops marker-gated walk over product projections only. A
         // failure must never gate app startup: log it, leave the marker
         // pending, and the walk resumes on the next boot.
-        yield* runInlineMediaMigration({ state, root, installOps }).pipe(
+        yield* runInlineMediaMigration({
+          sql,
+          manifest,
+          projections,
+          root,
+          installOps,
+        }).pipe(
           Effect.mapError((cause) => {
             if (cause instanceof InlineMediaMigrationError) return cause;
             if (cause instanceof ContentStoreError) return cause;
@@ -432,14 +402,15 @@ export const makeContentServiceLive = (options?: {
           ),
         );
       }
-      return makeContentService(state, root);
+      return makeContentService(sql, manifest, root);
     }),
-  );
+  ).pipe(Layer.provide([ContentManifest.layer, WorkContentProjectionsLive]));
 
 /** Test helper: build the service against an already-open engine + root. */
 export const createContentService = (
-  state: StateService,
+  sql: SqlClient.SqlClient,
+  manifest: ContentManifestShape,
   root: string,
-): ContentServiceShape => makeContentService(state, root);
+): ContentServiceShape => makeContentService(sql, manifest, root);
 
 export { ContentManifestError, ContentStoreError };

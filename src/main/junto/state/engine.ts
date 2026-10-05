@@ -5,12 +5,7 @@ import {
 } from "node:fs";
 import { resolveJuntoHome } from "@shared/junto-home";
 import { dirname, join, resolve } from "node:path";
-import {
-  DatabaseSync,
-  type SQLInputValue,
-  type SQLOutputValue,
-  type StatementSync,
-} from "node:sqlite";
+import { DatabaseSync } from "node:sqlite";
 import { Context, Effect, Layer, Option, Semaphore } from "effect";
 import { Reactivity } from "effect/unstable/reactivity";
 import { SqlClient, SqlError } from "effect/unstable/sql";
@@ -20,17 +15,11 @@ import {
   StateEngineError,
   StateTransactionOperation,
   type StateBackupReceipt,
-  type StateBindings,
   type StateEngineInfo,
   type StateEngineShape,
-  type StateReader,
-  type StateRow,
-  type StateWriter,
 } from "./service";
-import { withinBudget } from "../observability/main-thread-budget";
 import {
   admitWorkStatement,
-  beginWorkMutationScope,
   WorkMutationContext,
   type WorkMutationScope,
 } from "../work/mutation-seam";
@@ -44,25 +33,18 @@ import {
   stateSchemaAdvanceRequired,
 } from "./migrations";
 import { makeSqliteClient } from "./sqlite-client";
+import { installSqlCommitCallbacks } from "./sql-commit";
 
 export {
   StateEngine,
   StateEngineError,
   type StateBackupReceipt,
-  type StateBindings,
   type StateEngineInfo,
-  type StateInputValue,
-  type StateOutputValue,
-  type StateReader,
-  type StateRow,
-  type StateRunResult,
-  type StateWriter,
 } from "./service";
 
 const STATE_DIRECTORY_MODE = 0o700;
 const STATE_FILE_MODE = 0o600;
 const STATE_BUSY_TIMEOUT_MS = 5_000;
-export const STATE_BULK_CHUNK_ROWS = 64;
 
 const stateEngineError = (
   operation: string,
@@ -117,19 +99,6 @@ const assertRegularOrMissing = (path: string): boolean => {
   }
 };
 
-const applyBindings = <A>(
-  statement: StatementSync,
-  bindings: StateBindings | undefined,
-  positional: (...values: SQLInputValue[]) => A,
-  named: (values: Record<string, SQLInputValue>) => A,
-): A => {
-  if (bindings === undefined) return positional();
-  if (Array.isArray(bindings)) return positional(...bindings);
-  return named({
-    ...(bindings as Readonly<Record<string, SQLInputValue>>),
-  });
-};
-
 type OpenStateEngine = {
   readonly service: StateEngineShape;
   readonly client: Effect.Effect<SqlClient.SqlClient, never, Reactivity.Reactivity>;
@@ -157,9 +126,7 @@ const openStateEngine = (
         timeout: STATE_BUSY_TIMEOUT_MS,
       });
       let closed = false;
-      const statements = new Map<string, StatementSync>();
       const semaphore = Semaphore.makeUnsafe(1);
-      let transactionOpen = false;
 
       const schemaState = (() => {
         try {
@@ -192,143 +159,6 @@ const openStateEngine = (
         if (closed) throw new Error("state engine is closed");
       };
 
-      const prepare = (sql: string): StatementSync => {
-        requireOpen();
-        const existing = statements.get(sql);
-        if (existing) return existing;
-        const statement = database.prepare(sql);
-        statements.set(sql, statement);
-        return statement;
-      };
-
-      const reader: StateReader = {
-        get: <Row extends StateRow>(
-          sql: string,
-          bindings?: StateBindings,
-        ): Row | undefined => {
-          return applyBindings(
-            prepare(sql),
-            bindings,
-            (...values) => prepare(sql).get(...values) as Row | undefined,
-            (values) => prepare(sql).get(values) as Row | undefined,
-          );
-        },
-        all: <Row extends StateRow>(
-          sql: string,
-          bindings?: StateBindings,
-        ): ReadonlyArray<Row> => {
-          return applyBindings(
-            prepare(sql),
-            bindings,
-            (...values) => prepare(sql).all(...values) as Row[],
-            (values) => prepare(sql).all(values) as Row[],
-          );
-        },
-      };
-
-      const writer: StateWriter = {
-        ...reader,
-        run: (
-          sql: string,
-          bindings?: StateBindings,
-        ) => {
-          // The work plane's single mutation seam. Classification is cached by
-          // exact SQL text, so a non-work statement costs one map hit.
-          admitWorkStatement(sql, bindings);
-          return applyBindings(
-            prepare(sql),
-            bindings,
-            (...values) => prepare(sql).run(...values),
-            (values) => prepare(sql).run(values),
-          );
-        },
-      };
-
-      const read = <A>(
-        operation: string,
-        body: (stateReader: StateReader) => A,
-      ): Effect.Effect<A, StateEngineError> =>
-        Effect.try({
-          try: () => {
-            requireOpen();
-            return body(reader);
-          },
-          catch: (error) => stateEngineError(operation, error),
-        }).pipe(semaphore.withPermit, Effect.withSpan(`state.${operation}`));
-
-      const transaction = <A>(
-        operation: string,
-        body: (stateWriter: StateWriter) => A,
-      ): Effect.Effect<A, StateEngineError> =>
-        Effect.gen(function* () {
-          const live = yield* Effect.serviceOption(OverseerLiveExecution);
-          return yield* Effect.try({
-          // Every durable write in the app funnels through here, so this is the
-          // one place that can name a slow one. Reads were already attributed
-          // (every canvas read carries a caller tag); writes were not, which is why
-          // a 286ms block during node creation had no caller on it. Free when
-          // the budget is disarmed: `withinBudget` calls straight through.
-          try: () => withinBudget(`state.${operation}`, () => {
-            requireOpen();
-            if (transactionOpen) {
-              throw new Error(
-                `nested state transaction is not allowed (${operation})`,
-              );
-            }
-            // Scope first: if it throws, this engine has not yet claimed its
-            // transaction flag and stays usable.
-            const closeWorkMutationScope = beginWorkMutationScope(operation);
-            transactionOpen = true;
-            database.exec("BEGIN IMMEDIATE");
-            try {
-              if (Option.isSome(live)) live.value.assertCurrent(writer);
-              const before = Option.isSome(live)
-                ? writer.get("SELECT total_changes() AS n")!.n : undefined;
-              const result = body(writer);
-              if (Option.isSome(live) && writer.get("SELECT total_changes() AS n")!.n !== before) {
-                live.value.afterMutation?.(writer, operation);
-              }
-              database.exec("COMMIT");
-              return result;
-            } catch (error) {
-              try {
-                database.exec("ROLLBACK");
-              } catch {
-                // Preserve the original failure. A failed rollback leaves the
-                // engine unusable and the next operation will fail loudly.
-              }
-              throw error;
-            } finally {
-              closeWorkMutationScope();
-              transactionOpen = false;
-            }
-          }),
-          catch: (error) => stateEngineError(operation, error),
-          });
-        }).pipe(semaphore.withPermit, Effect.withSpan(`state.${operation}`));
-
-      const chunkedWrite = <A>(
-        operation: string,
-        rows: ReadonlyArray<A>,
-        body: (stateWriter: StateWriter, chunk: ReadonlyArray<A>) => void,
-        options: { readonly chunkRows?: number } = {},
-      ): Effect.Effect<void, StateEngineError> =>
-        Effect.gen(function* () {
-          const chunkRows = Math.max(
-            1,
-            Math.floor(options.chunkRows ?? STATE_BULK_CHUNK_ROWS),
-          );
-          for (let offset = 0; offset < rows.length; offset += chunkRows) {
-            const chunk = rows.slice(offset, offset + chunkRows);
-            yield* transaction(`${operation}.chunk`, (stateWriter) =>
-              body(stateWriter, chunk)
-            );
-            if (offset + chunkRows < rows.length) {
-              yield* Effect.sleep("1 millis");
-            }
-          }
-        }).pipe(Effect.withSpan(`state.${operation}`));
-
       const backup = (): Effect.Effect<
         StateBackupReceipt,
         StateEngineError
@@ -341,18 +171,9 @@ const openStateEngine = (
           catch: (error) => stateEngineError("backup", error),
         }).pipe(semaphore.withPermit, Effect.withSpan("state.backup"));
 
-      const journalMode =
-        reader.get<{ journal_mode: SQLOutputValue }>(
-          "PRAGMA journal_mode",
-        )?.journal_mode;
-      const synchronous =
-        reader.get<{ synchronous: SQLOutputValue }>(
-          "PRAGMA synchronous",
-        )?.synchronous;
-      const foreignKeys =
-        reader.get<{ foreign_keys: SQLOutputValue }>(
-          "PRAGMA foreign_keys",
-        )?.foreign_keys;
+      const journalMode = database.prepare("PRAGMA journal_mode").get()?.journal_mode;
+      const synchronous = database.prepare("PRAGMA synchronous").get()?.synchronous;
+      const foreignKeys = database.prepare("PRAGMA foreign_keys").get()?.foreign_keys;
 
       const info: StateEngineInfo = {
         path,
@@ -366,9 +187,6 @@ const openStateEngine = (
       return {
         service: StateEngine.of({
           info,
-          read,
-          transaction,
-          chunkedWrite,
           backup,
         }),
         client: Effect.gen(function* () {
@@ -381,43 +199,32 @@ const openStateEngine = (
             const nested = yield* Effect.serviceOption(sql.transactionService);
             const parent = Option.isSome(nested) ? yield* WorkMutationContext : null;
             const live = yield* Effect.serviceOption(OverseerLiveExecution);
+            const hookError = (cause: unknown) => new SqlError.SqlError({ reason: new SqlError.UnknownError({
+              cause, operation, message: cause instanceof Error ? cause.message : String(cause),
+            }) });
             return yield* withTransaction(Effect.gen(function* () {
               const scope: WorkMutationScope = {
                 operation,
                 journaled: parent?.journaled ?? false,
                 unjournaled: parent?.unjournaled,
               };
-              const before = yield* Effect.try({
-                try: () => {
-                  if (Option.isNone(live)) return undefined;
-                  live.value.assertCurrent(writer);
-                  return writer.get("SELECT total_changes() AS n")!.n;
-                },
-                catch: (cause) => new SqlError.SqlError({ reason: new SqlError.UnknownError({
-                  cause, operation, message: cause instanceof Error ? cause.message : String(cause),
-                }) }),
-              });
+              if (Option.isSome(live)) yield* live.value.assertCurrentWithin.pipe(Effect.mapError(hookError));
+              const before = Option.isSome(live) ? (yield* sql`SELECT total_changes() AS n`)[0]!.n : undefined;
               const result = yield* body.pipe(Effect.provideService(WorkMutationContext, scope));
-              yield* Effect.try({
-                try: () => {
-                  if (Option.isSome(live) && writer.get("SELECT total_changes() AS n")!.n !== before) {
-                    live.value.afterMutation?.(writer, operation);
-                  }
-                },
-                catch: (cause) => new SqlError.SqlError({ reason: new SqlError.UnknownError({
-                  cause, operation, message: cause instanceof Error ? cause.message : String(cause),
-                }) }),
-              });
+              if (Option.isSome(live) && live.value.afterMutation && (yield* sql`SELECT total_changes() AS n`)[0]!.n !== before) {
+                yield* live.value.afterMutation(operation).pipe(Effect.mapError(hookError));
+              }
               if (parent) parent.journaled ||= scope.journaled;
               return result;
             }));
           });
-          return Object.assign(sql, { withTransaction: guardedTransaction });
+          Object.assign(sql, { withTransaction: guardedTransaction });
+          installSqlCommitCallbacks(sql);
+          return sql;
         }),
         close: () => {
           if (closed) return;
           closed = true;
-          statements.clear();
           database.close();
         },
       };

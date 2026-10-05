@@ -29,11 +29,9 @@ import {
   type Stats,
 } from "node:fs";
 import { dirname, join } from "node:path";
-import type { StateReader } from "../state/service";
+import { Effect } from "effect";
 import type { StateBackupReceipt } from "../state/service";
-import {
-  listReferencedContentDigests,
-} from "./manifest";
+import type { ContentManifestError, ContentManifestShape } from "./manifest";
 import {
   contentDigestRoot,
   contentObjectPath,
@@ -166,7 +164,10 @@ const writeManifestAtomic = (
   } catch {
     // best-effort
   }
-  const fd = openSync(pending, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
+  const fd = openSync(
+    pending,
+    constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0),
+  );
   try {
     fsyncSync(fd);
   } finally {
@@ -183,140 +184,158 @@ const writeManifestAtomic = (
  * Fails closed if any referenced object is missing or fails hash verify —
  * a coherent product backup must not have dangling refs.
  */
-export const createContentSnapshot = (
-  root: string,
-  reader: StateReader,
-  options?: {
-    readonly stateBackup?: StateBackupReceipt;
-    readonly now?: Date;
-    readonly snapshotId?: string;
-  },
-): ContentSnapshotReceipt => {
-  ensureContentLayout(root);
-  const integrity = runContentIntegrityCheck(root, reader, {
-    now: options?.now,
-  });
-  if (!integrity.referencedCoherent) {
-    const bad = integrity.findings.filter(
-      (f) =>
-        f.kind === "referenced-missing" || f.kind === "referenced-corrupt",
-    );
-    throw new ContentStoreError(
-      "corrupt",
-      `content snapshot refused: ${bad.length} referenced object(s) missing or corrupt`,
-    );
-  }
+export const createContentSnapshot = Effect.fn("createContentSnapshot")(
+  function* (
+    root: string,
+    manifest: ContentManifestShape,
+    options?: {
+      readonly stateBackup?: StateBackupReceipt;
+      readonly now?: Date;
+      readonly snapshotId?: string;
+    },
+  ): Effect.fn.Return<
+    ContentSnapshotReceipt,
+    ContentManifestError | ContentStoreError
+  > {
+    const integrity = yield* runContentIntegrityCheck(root, manifest, {
+      now: options?.now,
+    });
+    const referenced = yield* manifest.listReferencedContentDigests();
+    return yield* Effect.try({
+      try: (): ContentSnapshotReceipt => {
+        ensureContentLayout(root);
+        if (!integrity.referencedCoherent) {
+          const bad = integrity.findings.filter(
+            (f) =>
+              f.kind === "referenced-missing" ||
+              f.kind === "referenced-corrupt",
+          );
+          throw new ContentStoreError(
+            "corrupt",
+            `content snapshot refused: ${bad.length} referenced object(s) missing or corrupt`,
+          );
+        }
 
-  const referenced = listReferencedContentDigests(reader);
-  const createdAt = (options?.now ?? new Date()).toISOString();
-  const snapshotId = options?.snapshotId ?? randomUUID();
-  const snapshotsRoot = contentSnapshotsDir(root);
-  assertRealDirectory(contentStoreParent(root));
-  assertRealDirectory(snapshotsRoot);
+        const createdAt = (options?.now ?? new Date()).toISOString();
+        const snapshotId = options?.snapshotId ?? randomUUID();
+        const snapshotsRoot = contentSnapshotsDir(root);
+        assertRealDirectory(contentStoreParent(root));
+        assertRealDirectory(snapshotsRoot);
 
-  const snapshotPath = join(
-    snapshotsRoot,
-    `${SNAPSHOT_PREFIX}${snapshotId}`,
-  );
-  if (lstatOrUndefined(snapshotPath) !== undefined) {
-    throw new ContentStoreError(
-      "io",
-      `content snapshot destination already exists: ${snapshotPath}`,
-    );
-  }
-  const pendingPath = `${snapshotPath}.pending`;
-  if (lstatOrUndefined(pendingPath) !== undefined) {
-    // Cleanup incomplete prior attempt under the same id is operator/manual;
-    // for random UUIDs this only hits injected test collisions.
-    throw new ContentStoreError(
-      "io",
-      `content snapshot pending destination already exists: ${pendingPath}`,
-    );
-  }
-
-  assertRealDirectory(pendingPath);
-  const objectsRoot = join(pendingPath, "sha256");
-  assertRealDirectory(objectsRoot);
-
-  const objects: ContentSnapshotObject[] = [];
-  let totalBytes = 0;
-  try {
-    for (const item of referenced) {
-      const source = contentObjectPath(root, item.sha256);
-      const observed = hashContentObjectFile(source);
-      if (
-        observed.sha256 !== item.sha256 ||
-        observed.byteLength !== item.byteLength
-      ) {
-        throw new ContentStoreError(
-          "corrupt",
-          `content snapshot hash mismatch for ${item.sha256}`,
+        const snapshotPath = join(
+          snapshotsRoot,
+          `${SNAPSHOT_PREFIX}${snapshotId}`,
         );
-      }
-      const shard = contentObjectShard(item.sha256);
-      const destDir = join(objectsRoot, shard);
-      assertRealDirectory(destDir);
-      const dest = join(destDir, item.sha256);
-      hardlinkOrCopy(source, dest);
-      objects.push({
-        sha256: item.sha256,
-        byteLength: item.byteLength,
-      });
-      totalBytes += item.byteLength;
-    }
+        if (lstatOrUndefined(snapshotPath) !== undefined) {
+          throw new ContentStoreError(
+            "io",
+            `content snapshot destination already exists: ${snapshotPath}`,
+          );
+        }
+        const pendingPath = `${snapshotPath}.pending`;
+        if (lstatOrUndefined(pendingPath) !== undefined) {
+          // Cleanup incomplete prior attempt under the same id is operator/manual;
+          // for random UUIDs this only hits injected test collisions.
+          throw new ContentStoreError(
+            "io",
+            `content snapshot pending destination already exists: ${pendingPath}`,
+          );
+        }
 
-    const manifest: ContentSnapshotManifest = {
-      version: 1,
-      snapshotId,
-      createdAt,
-      contentRoot: root,
-      objectCount: objects.length,
-      totalBytes,
-      objects,
-      stateBackup:
-        options?.stateBackup === undefined
-          ? undefined
-          : {
-              path: options.stateBackup.path,
-              schemaSha256: options.stateBackup.schemaSha256,
-              schemaVersion: options.stateBackup.schemaVersion,
-            },
-    };
-    writeManifestAtomic(join(pendingPath, "manifest.json"), manifest);
-    fsyncDirectory(objectsRoot);
-    fsyncDirectory(pendingPath);
+        assertRealDirectory(pendingPath);
+        const objectsRoot = join(pendingPath, "sha256");
+        assertRealDirectory(objectsRoot);
 
-    renameSync(pendingPath, snapshotPath);
-    fsyncDirectory(snapshotsRoot);
+        const objects: ContentSnapshotObject[] = [];
+        let totalBytes = 0;
+        try {
+          for (const item of referenced) {
+            const source = contentObjectPath(root, item.sha256);
+            const observed = hashContentObjectFile(source);
+            if (
+              observed.sha256 !== item.sha256 ||
+              observed.byteLength !== item.byteLength
+            ) {
+              throw new ContentStoreError(
+                "corrupt",
+                `content snapshot hash mismatch for ${item.sha256}`,
+              );
+            }
+            const shard = contentObjectShard(item.sha256);
+            const destDir = join(objectsRoot, shard);
+            assertRealDirectory(destDir);
+            const dest = join(destDir, item.sha256);
+            hardlinkOrCopy(source, dest);
+            objects.push({
+              sha256: item.sha256,
+              byteLength: item.byteLength,
+            });
+            totalBytes += item.byteLength;
+          }
 
-    // Prove restore-ready coherence: every manifest digest exists under snapshot.
-    verifyContentSnapshotCoherence(snapshotPath);
+          const manifest: ContentSnapshotManifest = {
+            version: 1,
+            snapshotId,
+            createdAt,
+            contentRoot: root,
+            objectCount: objects.length,
+            totalBytes,
+            objects,
+            stateBackup:
+              options?.stateBackup === undefined
+                ? undefined
+                : {
+                    path: options.stateBackup.path,
+                    schemaSha256: options.stateBackup.schemaSha256,
+                    schemaVersion: options.stateBackup.schemaVersion,
+                  },
+          };
+          writeManifestAtomic(join(pendingPath, "manifest.json"), manifest);
+          fsyncDirectory(objectsRoot);
+          fsyncDirectory(pendingPath);
 
-    return {
-      snapshotId,
-      path: snapshotPath,
-      manifestPath: join(snapshotPath, "manifest.json"),
-      createdAt,
-      objectCount: objects.length,
-      totalBytes,
-      objects,
-      stateBackup: options?.stateBackup,
-    };
-  } catch (error) {
-    // Best-effort cleanup of pending tree on failure.
-    try {
-      removeDirectoryRecursive(pendingPath);
-    } catch {
-      // preserve original error
-    }
-    if (error instanceof ContentStoreError) throw error;
-    throw new ContentStoreError(
-      "io",
-      error instanceof Error ? error.message : String(error),
-      { cause: error },
-    );
-  }
-};
+          renameSync(pendingPath, snapshotPath);
+          fsyncDirectory(snapshotsRoot);
+
+          // Prove restore-ready coherence: every manifest digest exists under snapshot.
+          verifyContentSnapshotCoherence(snapshotPath);
+
+          return {
+            snapshotId,
+            path: snapshotPath,
+            manifestPath: join(snapshotPath, "manifest.json"),
+            createdAt,
+            objectCount: objects.length,
+            totalBytes,
+            objects,
+            stateBackup: options?.stateBackup,
+          };
+        } catch (error) {
+          // Best-effort cleanup of pending tree on failure.
+          try {
+            removeDirectoryRecursive(pendingPath);
+          } catch {
+            // preserve original error
+          }
+          if (error instanceof ContentStoreError) throw error;
+          throw new ContentStoreError(
+            "io",
+            error instanceof Error ? error.message : String(error),
+            { cause: error },
+          );
+        }
+      },
+      catch: (cause) =>
+        cause instanceof ContentStoreError
+          ? cause
+          : new ContentStoreError(
+              "io",
+              cause instanceof Error ? cause.message : String(cause),
+              { cause },
+            ),
+    });
+  },
+);
 
 const removeDirectoryRecursive = (path: string): void => {
   const info = lstatOrUndefined(path);
@@ -422,27 +441,42 @@ export const verifyContentSnapshotCoherence = (
 };
 
 /**
- * Given a restored SQLite reader + a content snapshot path, prove every
+ * Given a restored content manifest + a content snapshot path, prove every
  * content_refs digest is present in the snapshot (no dangling refs).
  */
-export const assertRestoredContentCoherent = (
-  reader: StateReader,
+export const assertRestoredContentCoherent = Effect.fn(
+  "assertRestoredContentCoherent",
+)(function* (
+  contentManifest: ContentManifestShape,
   snapshotPath: string,
-): void => {
-  verifyContentSnapshotCoherence(snapshotPath, { fullHash: true });
-  const manifest = JSON.parse(
-    readFileSync(join(snapshotPath, "manifest.json"), "utf8"),
-  ) as ContentSnapshotManifest;
-  const snapSet = new Set(manifest.objects.map((o) => o.sha256));
-  for (const item of listReferencedContentDigests(reader)) {
-    if (!snapSet.has(item.sha256)) {
-      throw new ContentStoreError(
-        "missing",
-        `restored content_refs digest ${item.sha256} is absent from snapshot`,
-      );
-    }
-  }
-};
+): Effect.fn.Return<void, ContentManifestError | ContentStoreError> {
+  const referenced = yield* contentManifest.listReferencedContentDigests();
+  yield* Effect.try({
+    try: () => {
+      verifyContentSnapshotCoherence(snapshotPath, { fullHash: true });
+      const manifest = JSON.parse(
+        readFileSync(join(snapshotPath, "manifest.json"), "utf8"),
+      ) as ContentSnapshotManifest;
+      const snapSet = new Set(manifest.objects.map((o) => o.sha256));
+      for (const item of referenced) {
+        if (!snapSet.has(item.sha256)) {
+          throw new ContentStoreError(
+            "missing",
+            `restored content_refs digest ${item.sha256} is absent from snapshot`,
+          );
+        }
+      }
+    },
+    catch: (cause) =>
+      cause instanceof ContentStoreError
+        ? cause
+        : new ContentStoreError(
+            "io",
+            cause instanceof Error ? cause.message : String(cause),
+            { cause },
+          ),
+  });
+});
 
 /** SHA-256 of the snapshot manifest file (export receipt helper). */
 export const hashContentSnapshotManifest = (manifestPath: string): string => {

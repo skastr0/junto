@@ -6,19 +6,20 @@ import { isOverseerMutation, type OverseerRequest, type OverseerResult } from "@
 import { formatNodeRef } from "@shared/node-ref";
 import { liveSettings, liveCallLimitSeconds, LIVE_INITIAL_BILLING_SECONDS, LIVE_VOICE_USD_PER_MINUTE } from "@shared/settings";
 import type { SettingsServiceApi } from "../../settings/service";
-import type { StateWriter } from "../../state/service";
-import { readCanvasWorkRevision } from "../../work/repository";
+import type { CanvasRecords } from "../../canvas/records";
+import type { WorkProjectionReader } from "../../work/repository";
 import type { OverseerHostIdentity, OverseerLiveExecutionConstraint } from "./execution";
 import { createOpenAiLiveConnection, type OpenAiLiveConnection, type OpenAiLiveConnectionOptions } from "./openai-connection";
-import {
-  assertLiveRequestCurrent, transitionLiveOperationInTransaction,
-  type LiveRepositoryShape, type LiveRequestRecord, type LiveOperationRecord, type LiveJsonObject,
+import type {
+  LiveRepositoryShape, LiveRequestRecord, LiveOperationRecord, LiveJsonObject,
 } from "./repository";
 import { appendTranscript, captureLiveDelegation, createTranscriptJournal, decodeLiveDelegationEvent, decodeLiveTranscriptEvent, type LiveTranscriptJournal } from "./transcript";
 import { quietLiveContext, meaningfulLiveChanges, coalesceLiveActivity, type LiveSemanticContext } from "./context";
 
 export interface LiveSessionServiceOptions {
   readonly repository: LiveRepositoryShape;
+  readonly canvasRecords: Pick<CanvasRecords["Service"], "readRevision">;
+  readonly workProjection: Pick<WorkProjectionReader["Service"], "revision">;
   /** The existing warm app runtime, never a newly constructed runtime. */
   readonly run: <A, E>(effect: Effect.Effect<A, E>) => Promise<A>;
   readonly settingsService: Pick<SettingsServiceApi, "get" | "resolveProviders">;
@@ -508,7 +509,7 @@ export const createLiveSessionService = (options: LiveSessionServiceOptions) => 
     if (!pocOperations.has(request.operation)) throw new Error("This Live proof of concept supports canvas editing and inspection only.");
     const session = current;
     const controlled = controlledGenerations.has(identity.processGeneration);
-    if (!request.live && !(controlled && isOverseerMutation(request.operation))) return { assertCurrent: () => {} };
+    if (!request.live && !(controlled && isOverseerMutation(request.operation))) return { assertCurrent: () => {}, assertCurrentWithin: Effect.void };
     if (!request.live) throw new Error("Live controller mutations require current request correlation");
     if (!session || request.live.sessionId !== session.id || !identityEqual(session.identity, identity)) throw new Error("Live operation session or occupant is stale");
     await verifyIdentity(session, identity);
@@ -540,19 +541,31 @@ export const createLiveSessionService = (options: LiveSessionServiceOptions) => 
     if (live.expectedRevision !== undefined && expectedRevision !== undefined && live.expectedRevision !== expectedRevision) throw new Error("Live operation target revision is stale");
     const correlation = { sessionId: session.id, requestId: active.record.requestId, intentRevision: active.record.intentRevision,
       occupantGeneration: session.identity.processGeneration, authorityEpoch: session.authorityEpoch };
-    const assertCurrent = (writer?: StateWriter): void => {
+    const assertIntentCurrent = (): void => {
       requireAuthority(session);
       if (session !== current || active.abort.signal.aborted || session.requests.get(live.requestId) !== active ||
         active.record.intentRevision !== live.intentRevision || !pending(active.record)) throw new Error("Live operation intent is no longer current");
-      if (writer) assertLiveRequestCurrent(writer, correlation);
+    };
+    const assertCurrent = (): void => {
+      assertIntentCurrent();
       if (mutation && expectedRevision !== undefined) {
-        const actual = writer ? writer.get("SELECT revision_sha256 FROM canvas_documents WHERE canvas_name = ?", [canvasName])?.revision_sha256 : options.targetRevision?.(canvasName);
+        const actual = options.targetRevision?.(canvasName);
         if (actual !== undefined && actual !== expectedRevision) throw new Error("Canvas changed after this request was captured. Read current state and replan.");
-        if (writer && expectedWorkRevision !== undefined && readCanvasWorkRevision(writer, canvasName) !== expectedWorkRevision) {
-          throw new Error("Work changed after this request was captured. Read current state and replan.");
-        }
       }
     };
+    const assertCurrentWithin = Effect.gen(function* () {
+      yield* Effect.try({ try: assertIntentCurrent, catch: (error) => error });
+      yield* repository.assertRequestCurrentWithin(correlation);
+      if (mutation && expectedRevision !== undefined) {
+        const actual = yield* options.canvasRecords.readRevision(canvasName);
+        if (actual !== undefined && actual !== expectedRevision) {
+          return yield* Effect.fail(new Error("Canvas changed after this request was captured. Read current state and replan."));
+        }
+        if (expectedWorkRevision !== undefined && (yield* options.workProjection.revision(canvasName)) !== expectedWorkRevision) {
+          return yield* Effect.fail(new Error("Work changed after this request was captured. Read current state and replan."));
+        }
+      }
+    });
     assertCurrent();
     const proposed = await run(repository.proposeOperation({ operationId: live.operationId, requestId: active.record.requestId,
       intentRevision: live.intentRevision, operation: request.operation, args, targetRefs: refs, targetRevision: expectedRevision ?? null }));
@@ -567,23 +580,27 @@ export const createLiveSessionService = (options: LiveSessionServiceOptions) => 
     let receiptCommitted = false;
     let committedRevision: string | undefined;
     let committedWorkRevision: string | undefined;
-    const afterMutation = (writer: StateWriter, transactionName: string): void => {
+    const afterMutation = Effect.fn("Live.afterMutation")(function* (transactionName: string) {
+      // SQL owners can yield. Recheck the memory latch before committing a
+      // receipt, even while durable cancellation waits for this transaction.
+      yield* Effect.try({ try: assertIntentCurrent, catch: (error) => error });
       // Only structural canvas operations have a single known owning transaction.
       // Native teardown and mixed Work effects retain a dispatch receipt until settlement.
-      const revisionAfter = writer.get("SELECT revision_sha256 FROM canvas_documents WHERE canvas_name = ?", [canvasName])?.revision_sha256;
+      const revisionAfter = yield* options.canvasRecords.readRevision(canvasName);
       if (typeof revisionAfter === "string") { committedRevision = revisionAfter; expectedRevision = revisionAfter; }
-      committedWorkRevision = readCanvasWorkRevision(writer, canvasName);
+      committedWorkRevision = yield* options.workProjection.revision(canvasName);
       expectedWorkRevision = committedWorkRevision;
       const structural = ["canvas.batch", "canvas.create", "node.create", "node.configure", "node.move", "node.resize", "edge.connect", "edge.configure", "edge.disconnect"].includes(request.operation);
       if (receiptCommitted || !structural || !["canvas.mutatePortfolio", "canvas.mutate", "canvas.create"].includes(transactionName)) return;
-      assertLiveRequestCurrent(writer, correlation);
-      transitionLiveOperationInTransaction(writer, { operationId: live.operationId, from: "dispatched", to: "applied",
-        outcome: { committed: true, operation: request.operation }, correlation }, new Date(now()).toISOString());
-      // The writer owns this graph and receipt together; no stale full-document replacement.
-      const revision = writer.get("SELECT revision_sha256 FROM canvas_documents WHERE canvas_name = ?", [canvasName])?.revision_sha256;
+      yield* repository.assertRequestCurrentWithin(correlation);
+      const at = yield* Effect.try({ try: () => new Date(now()).toISOString(), catch: (error) => error });
+      yield* repository.transitionOperationWithin({ operationId: live.operationId, from: "dispatched", to: "applied",
+        outcome: { committed: true, operation: request.operation }, correlation }, at);
+      // The owner commits this graph and receipt together; no stale full-document replacement.
+      const revision = yield* options.canvasRecords.readRevision(canvasName);
       if (typeof revision === "string") committedRevision = revision;
       receiptCommitted = true;
-    };
+    });
     const settle = async (result: OverseerResult): Promise<void> => {
       const existing = await run(repository.getOperation(live.operationId));
       if (!existing) return;
@@ -610,7 +627,7 @@ export const createLiveSessionService = (options: LiveSessionServiceOptions) => 
       quiet(session, fact, active.record.providerDelegationId);
       publish();
     };
-    return { assertCurrent, afterMutation, settle, signal: active.abort.signal };
+    return { assertCurrent, assertCurrentWithin, afterMutation, settle, signal: active.abort.signal };
   };
   const tick = setInterval(() => {
     const session = current;

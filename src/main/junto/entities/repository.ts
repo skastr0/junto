@@ -7,6 +7,7 @@ import {
   entityKeyOf,
 } from "@shared/entity";
 import { CanvasEntitySync } from "./sync";
+import { StateTransactionOperation } from "../state/service";
 
 export class CanvasEntityPersistenceError extends Schema.TaggedError<CanvasEntityPersistenceError>()(
   "CanvasEntityPersistenceError",
@@ -223,7 +224,9 @@ export const CanvasEntityRepositoryLive: Layer.Layer<
         return yield* Effect.fail(CanvasEntityMissingError.make({ canvasName, entityId }));
       }
       return updated;
-    }, sql.withTransaction, Effect.mapError((error) =>
+    }, sql.withTransaction,
+    Effect.provideService(StateTransactionOperation, "canvas-entity.soft-delete"),
+    Effect.mapError((error) =>
       error instanceof CanvasEntityMissingError || error instanceof CanvasEntityNotArchivedError
         ? error : persistenceError("softDelete", error),
     ));

@@ -6,15 +6,19 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Effect, ManagedRuntime } from "effect";
+import { Effect, Layer, ManagedRuntime } from "effect";
+import { SqlClient } from "effect/unstable/sql";
 import { afterEach, describe, expect, it } from "vitest";
+import { ContentManifest } from "../src/main/junto/content/manifest";
 import { contentStoreRoot } from "../src/main/junto/content/paths";
 import { createContentService } from "../src/main/junto/content/service";
 import { signalAttachmentOwner } from "../src/main/junto/signals/attachments";
 import { makeStateEngineLive, StateEngine } from "../src/main/junto/state/engine";
 
 let home: string | undefined;
-let runtime: ManagedRuntime.ManagedRuntime<StateEngine, unknown> | undefined;
+let runtime:
+  | ManagedRuntime.ManagedRuntime<StateEngine | SqlClient.SqlClient | ContentManifest, unknown>
+  | undefined;
 
 afterEach(async () => {
   await runtime?.dispose();
@@ -26,9 +30,12 @@ afterEach(async () => {
 describe("ContentService.releaseOwner", () => {
   it("releases only that owner's references", async () => {
     home = await mkdtemp(join(tmpdir(), "junto-content-release-"));
-    runtime = ManagedRuntime.make(makeStateEngineLive(join(home, "junto.db")));
-    const state = await runtime.runPromise(StateEngine);
-    const service = createContentService(state, contentStoreRoot(home));
+    runtime = ManagedRuntime.make(
+      ContentManifest.layer.pipe(Layer.provideMerge(makeStateEngineLive(join(home, "junto.db")))),
+    );
+    const sql = await runtime.runPromise(SqlClient.SqlClient);
+    const manifest = await runtime.runPromise(ContentManifest);
+    const service = createContentService(sql, manifest, contentStoreRoot(home));
 
     const first = signalAttachmentOwner({ signalId: "s1", canvasName: "factory", nodeId: "atlas" });
     const second = signalAttachmentOwner({ signalId: "s2", canvasName: "factory", nodeId: "atlas" });

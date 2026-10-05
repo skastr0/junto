@@ -4,24 +4,27 @@ import { isManagedAgentNode } from "@shared/actor-surface";
 import { serializeCanvas } from "@shared/canvas";
 import { resolveNodeHostId } from "@shared/station";
 import { CanvasesService } from "../../canvases";
+import { CanvasRecords } from "../../canvas/records";
 import { canvasBodySha256Of } from "../../canvas-intent-identity";
 import { getProcessIdentityMap } from "../../process-identity";
 import { SettingsService } from "../../settings/service";
 import { StateEngine } from "../../state/service";
 import { StationRepository } from "../../station/repository";
+import { WorkProjectionReader } from "../../work/repository";
 import { admitOverseer } from "../admission";
 import type { OverseerHostIdentity } from "./execution";
 import { buildLiveContext } from "./context";
 import { makeLiveRepository } from "./repository";
 import { createLiveSessionService } from "./service";
 
-type Services = CanvasesService | SettingsService | StateEngine | SqlClient.SqlClient | StationRepository;
+type Services = CanvasesService | SettingsService | StateEngine | SqlClient.SqlClient | StationRepository | CanvasRecords | WorkProjectionReader;
 export type LiveRun = <A, E>(effect: Effect.Effect<A, E, Services>) => Promise<A>;
 
 /** Joins Live to the already running app owners; no process or database is opened here. */
 export const composeOverseerLive = async (run: LiveRun) => {
-  const { sql, settings, canvases } = await run(Effect.gen(function* () {
-    return { sql: yield* SqlClient.SqlClient, settings: yield* SettingsService, canvases: yield* CanvasesService };
+  const { sql, settings, canvases, canvasRecords, workProjection } = await run(Effect.gen(function* () {
+    return { sql: yield* SqlClient.SqlClient, settings: yield* SettingsService, canvases: yield* CanvasesService,
+      canvasRecords: yield* CanvasRecords, workProjection: yield* WorkProjectionReader };
   }));
   const processMap = getProcessIdentityMap();
   const revisions = new Map<string, string>();
@@ -49,6 +52,8 @@ export const composeOverseerLive = async (run: LiveRun) => {
   };
   const service = createLiveSessionService({
     repository: makeLiveRepository(sql),
+    canvasRecords,
+    workProjection,
     run,
     settingsService: settings,
     resolveOccupant,

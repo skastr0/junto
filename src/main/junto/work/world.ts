@@ -36,17 +36,13 @@
  * instead of the factory's; closing the last gap to O(delta) means applying
  * the record to the resident snapshot, and that is a separate, later change.
  */
-import {
-  CANVAS_REVISION_TABLES,
-  onWorkMutation,
-} from "./mutation-seam";
-import {
-  readCanvasSinkSnapshots,
-  readSinkSnapshot,
-  sinkIsProjected,
-  type CanvasWorkProjection,
+import { CANVAS_REVISION_TABLES, onWorkMutation } from "./mutation-seam";
+import { Effect } from "effect";
+import type {
+  CanvasWorkProjection,
+  WorkProjectionReaderShape,
+  WorkRepositoryError,
 } from "./repository";
-import type { StateReader } from "../state/service";
 import type { WorkSnapshot as WorkSnapshotValue } from "@shared/work-model";
 
 /**
@@ -56,8 +52,7 @@ import type { WorkSnapshot as WorkSnapshotValue } from "@shared/work-model";
  * a world that could be switched off halfway through a session would be
  * serving from a residency nobody was maintaining.
  */
-export const workWorldEnabled: boolean =
-  process.env.JUNTO_WORLD !== "0";
+export const workWorldEnabled: boolean = process.env.JUNTO_WORLD !== "0";
 
 /**
  * How many canvases stay resident.
@@ -118,22 +113,21 @@ export type WorkWorldStats = {
 
 export type WorkWorld = {
   /**
-   * This canvas's work projection at `workRevision`.
-   *
-   * `workRevision` MUST be the value the caller just read from
-   * `work_canvas_revisions` through THIS reader, inside the same
-   * `state.read`. The world serves residency by comparing against it, so a
-   * stale or second-hand value is the one way to make this return stale data.
-   *
-   * The reader must be a StateReader from `state.read`, never a StateWriter:
-   * inside a transaction it would see uncommitted rows, and a rollback would
-   * leave the world resident on state that never existed.
+   * Prepare in the same SQL read lease that read workRevision. Publish only
+   * after the lease succeeds. Caller-owned write transactions bypass the world.
    */
-  readonly projection: (
-    reader: StateReader,
+  readonly prepare: (
     canvasName: string,
     workRevision: string,
-  ) => CanvasWorkProjection;
+  ) => Effect.Effect<
+    { readonly projection: CanvasWorkProjection; readonly publish: () => void },
+    WorkRepositoryError
+  >;
+  /** Read-lease convenience for callers that cannot roll back projected rows. */
+  readonly projection: (
+    canvasName: string,
+    workRevision: string,
+  ) => Effect.Effect<CanvasWorkProjection, WorkRepositoryError>;
   /** Stop holding a canvas — it left the portfolio. */
   readonly evict: (canvasName: string) => void;
   /** Drop everything. The next read of any canvas hydrates from SQLite. */
@@ -176,7 +170,7 @@ const resolveOrder = (
  * every world, so a second engine's writes cost this world a reload it did not
  * need — never a read it should not have served.
  */
-export const makeWorkWorld = (): WorkWorld => {
+export const makeWorkWorld = (reader: WorkProjectionReaderShape): WorkWorld => {
   const canvases = new Map<string, ResidentCanvas>();
   /** Announced-but-unapplied sinks, per canvas. */
   const dirty = new Map<string, Set<string>>();
@@ -188,6 +182,7 @@ export const makeWorkWorld = (): WorkWorld => {
   let sinksReloaded = 0;
   let coarseAnnouncements = 0;
   let evictions = 0;
+  let epoch = 0;
 
   /** Re-insert so Map iteration order is least-recently-read first. */
   const retain = (canvasName: string, resident: ResidentCanvas): void => {
@@ -203,6 +198,7 @@ export const makeWorkWorld = (): WorkWorld => {
   };
 
   const unsubscribe = onWorkMutation((canvasName, nodeId) => {
+    epoch += 1;
     if (canvasName === undefined || nodeId === undefined) {
       coarse = true;
       coarseAnnouncements += 1;
@@ -213,12 +209,11 @@ export const makeWorkWorld = (): WorkWorld => {
     else sinks.add(nodeId);
   });
 
-  const hydrate = (
-    reader: StateReader,
+  const hydrate = Effect.fn("work.world.hydrate")(function* (
     canvasName: string,
     workRevision: string,
-  ): ResidentCanvas => {
-    const snapshots = readCanvasSinkSnapshots(reader, canvasName);
+  ) {
+    const snapshots = yield* reader.canvasSnapshots(canvasName);
     const sinks = new Map<string, WorkSnapshotValue>();
     for (const snapshot of snapshots) sinks.set(snapshot.nodeId, snapshot);
     // The sweep already returns node_id order; keep its array rather than
@@ -229,100 +224,107 @@ export const makeWorkWorld = (): WorkWorld => {
       order: snapshots.map((snapshot) => snapshot.nodeId),
       ordered: snapshots,
     };
-    retain(canvasName, resident);
-    dirty.delete(canvasName);
     return resident;
-  };
+  });
 
-  const refresh = (
-    reader: StateReader,
+  const refresh = Effect.fn("work.world.refresh")(function* (
     canvasName: string,
     resident: ResidentCanvas,
     workRevision: string,
     sinkIds: ReadonlySet<string>,
-  ): ResidentCanvas => {
+  ) {
     let membershipChanged = false;
+    const sinks = new Map(resident.sinks);
     for (const nodeId of sinkIds) {
       const sink = { canvasName, nodeId };
       // Membership first, and by the same definition the sweep uses. A sink
       // whose last projected row is gone must LEAVE the projection: an
       // absent snapshot and an empty one are different documents.
-      if (!sinkIsProjected(reader, sink)) {
-        membershipChanged = resident.sinks.delete(nodeId) || membershipChanged;
-        sinksReloaded += 1;
+      if (!(yield* reader.sinkIsProjected(sink))) {
+        membershipChanged = sinks.delete(nodeId) || membershipChanged;
         continue;
       }
-      if (!resident.sinks.has(nodeId)) membershipChanged = true;
-      resident.sinks.set(nodeId, readSinkSnapshot(reader, sink));
-      sinksReloaded += 1;
+      if (!sinks.has(nodeId)) membershipChanged = true;
+      sinks.set(nodeId, yield* reader.sinkSnapshot(sink));
     }
-    const order = membershipChanged
-      ? sortedNodeIds(resident.sinks)
-      : resident.order;
+    const order = membershipChanged ? sortedNodeIds(sinks) : resident.order;
     const next: ResidentCanvas = {
       workRevision,
-      sinks: resident.sinks,
+      sinks,
       order,
       // A fresh array every refresh: the previous one is already held by a
       // caller's projection and must never change under it.
-      ordered: resolveOrder(order, resident.sinks),
+      ordered: resolveOrder(order, sinks),
     };
-    retain(canvasName, next);
-    dirty.delete(canvasName);
     return next;
-  };
+  });
 
-  const projection = (
-    reader: StateReader,
+  const prepare = Effect.fn("work.world.prepare")(function* (
     canvasName: string,
     workRevision: string,
-  ): CanvasWorkProjection => {
-    if (coarse) {
-      // An announcement named no sink, so no canvas may be trusted to be
-      // repairable sink by sink. Drop the whole residency and rebuild what is
-      // asked for; this is the pre-world cost, paid only here.
-      canvases.clear();
-      dirty.clear();
-      coarse = false;
-    }
-    const resident = canvases.get(canvasName);
+  ) {
+    const preparedEpoch = epoch;
+    const wasCoarse = coarse;
+    const resident = wasCoarse ? undefined : canvases.get(canvasName);
+    const pending = wasCoarse ? undefined : dirty.get(canvasName);
+    let kind: WorkWorldReadKind;
+    let built: ResidentCanvas;
     if (resident !== undefined && resident.workRevision === workRevision) {
-      const pending = dirty.get(canvasName);
-      if (pending === undefined || pending.size === 0) {
-        residentReads += 1;
-        retain(canvasName, resident);
-        return { workRevision, snapshots: resident.ordered };
-      }
-      // The counter did not move but a mutation was announced: a rolled-back
-      // transaction, or a write to a table outside the trigger set. Neither
-      // can have changed a projected row, so the residency is still exact —
-      // drop the marks rather than re-read for nothing.
-      dirty.delete(canvasName);
-      residentReads += 1;
-      retain(canvasName, resident);
-      return { workRevision, snapshots: resident.ordered };
+      kind = "resident";
+      built = resident;
+    } else if (
+      resident === undefined ||
+      pending === undefined ||
+      pending.size === 0
+    ) {
+      kind = "hydrate";
+      built = yield* hydrate(canvasName, workRevision);
+    } else {
+      kind = "incremental";
+      built = yield* refresh(canvasName, resident, workRevision, pending);
     }
-    const pending = dirty.get(canvasName);
-    if (resident === undefined || pending === undefined || pending.size === 0) {
-      // No residency to repair, or the counter moved with nothing announced
-      // for this canvas (a write this process did not make, or an
-      // announcement lost to a coarse reset). Rebuild from SQLite.
-      hydrateReads += 1;
-      const built = hydrate(reader, canvasName, workRevision);
-      return { workRevision, snapshots: built.ordered };
-    }
-    incrementalReads += 1;
-    const built = refresh(reader, canvasName, resident, workRevision, pending);
-    return { workRevision, snapshots: built.ordered };
-  };
+    let published = false;
+    return {
+      projection: { workRevision, snapshots: built.ordered },
+      publish: () => {
+        if (published || epoch !== preparedEpoch) return;
+        published = true;
+        if (wasCoarse) {
+          canvases.clear();
+          dirty.clear();
+          coarse = false;
+        }
+        if (kind === "resident") residentReads += 1;
+        else if (kind === "hydrate") hydrateReads += 1;
+        else {
+          incrementalReads += 1;
+          sinksReloaded += pending!.size;
+        }
+        retain(canvasName, built);
+        dirty.delete(canvasName);
+      },
+    };
+  });
+
+  const projection = Effect.fn("work.world.projection")(function* (
+    canvasName: string,
+    workRevision: string,
+  ) {
+    const prepared = yield* prepare(canvasName, workRevision);
+    prepared.publish();
+    return prepared.projection;
+  });
 
   return {
+    prepare,
     projection,
     evict: (canvasName) => {
+      epoch += 1;
       canvases.delete(canvasName);
       dirty.delete(canvasName);
     },
     reset: () => {
+      epoch += 1;
       canvases.clear();
       dirty.clear();
       coarse = false;
@@ -341,6 +343,7 @@ export const makeWorkWorld = (): WorkWorld => {
       evicted: evictions,
     }),
     close: () => {
+      epoch += 1;
       unsubscribe();
       canvases.clear();
       dirty.clear();

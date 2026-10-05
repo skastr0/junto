@@ -202,11 +202,14 @@ const recordSpan = (
  * An operation that threw is reported but never converted into a budget
  * error: masking a real failure with a timing complaint would lose the one
  * fact worth keeping.
+ * Set allowThrow=false for transaction control: a successful BEGIN or COMMIT
+ * must not look failed to the resource owner after changing database state.
  */
 export const withinBudget = <A>(
   operation: string,
   run: () => A,
   detail?: string,
+  allowThrow = true,
 ): A => {
   if (!enabled) return run();
   const startedAt = performance.now();
@@ -217,6 +220,6 @@ export const withinBudget = <A>(
     failed = true;
     throw error;
   } finally {
-    recordSpan(operation, performance.now() - startedAt, detail, !failed);
+    recordSpan(operation, performance.now() - startedAt, detail, !failed && allowThrow);
   }
 };

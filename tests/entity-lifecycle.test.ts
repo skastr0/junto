@@ -2,6 +2,7 @@ import { mkdtemp, mkdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect, Layer, ManagedRuntime } from "effect";
+import { SqlClient } from "effect/unstable/sql";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   activeEntitiesFromNodeIds,
@@ -464,7 +465,7 @@ describe("canvas entity registry", () => {
 
     const runtime = await openEngine(path);
     const canvases = await runtime.runPromise(CanvasesService);
-    const state = await runtime.runPromise(StateEngine);
+    const sql = await runtime.runPromise(SqlClient.SqlClient);
 
     const node = (id: string, text: string) => ({
       id,
@@ -487,19 +488,15 @@ describe("canvas entity registry", () => {
 
     const stamps = () =>
       runtime.runPromise(
-        state.read("entity.delta", (reader) =>
-          reader.all<{
+          sql<{
             readonly entity_id: string;
             readonly updated_at: string;
-          }>(
-            `
+          }>`
               SELECT entity_id, updated_at
               FROM canvas_entities
               WHERE canvas_name = 'board'
               ORDER BY entity_id
             `,
-          ),
-        ),
       );
 
     expect((await stamps()).map((r) => r.entity_id)).toEqual(["a", "b", "c"]);
@@ -507,11 +504,7 @@ describe("canvas entity registry", () => {
     // Stamp every row with a value no writer would ever produce, so "was this
     // row rewritten?" is answered by identity rather than by clock resolution.
     await runtime.runPromise(
-      state.transaction("entity.delta.mark", (writer) => {
-        writer.run(
-          "UPDATE canvas_entities SET updated_at = 'untouched' WHERE canvas_name = 'board'",
-        );
-      }),
+      sql.withTransaction(sql`UPDATE canvas_entities SET updated_at = 'untouched' WHERE canvas_name = 'board'`),
     );
 
     // Only node "b" changes registry identity (its kind moves note -> task).
@@ -538,16 +531,12 @@ describe("canvas entity registry", () => {
     expect(stampOf("b")).not.toBe("untouched");
 
     const kinds = await runtime.runPromise(
-      state.read("entity.delta.kinds", (reader) =>
-        reader.all<{ readonly entity_id: string; readonly kind: string | null }>(
-          `
+        sql<{ readonly entity_id: string; readonly kind: string | null }>`
             SELECT entity_id, kind
             FROM canvas_entities
             WHERE canvas_name = 'board'
             ORDER BY entity_id
           `,
-        ),
-      ),
     );
     expect(kinds).toEqual([
       { entity_id: "a", kind: "note" },
@@ -566,7 +555,7 @@ describe("canvas entity registry", () => {
     const runtime = await openEngine(path);
     const canvases = await runtime.runPromise(CanvasesService);
     const entities = await runtime.runPromise(CanvasEntityRepository);
-    const state = await runtime.runPromise(StateEngine);
+    const sql = await runtime.runPromise(SqlClient.SqlClient);
 
     const node = (id: string, text: string) => ({
       id,
@@ -591,11 +580,7 @@ describe("canvas entity registry", () => {
     // — a diff taken between two documents would call "lost" unchanged and
     // leave the canvas permanently missing an entity.
     await runtime.runPromise(
-      state.transaction("entity.heal.wipe", (writer) => {
-        writer.run(
-          "DELETE FROM canvas_entities WHERE canvas_name = 'board' AND entity_id = 'lost'",
-        );
-      }),
+      sql.withTransaction(sql`DELETE FROM canvas_entities WHERE canvas_name = 'board' AND entity_id = 'lost'`),
     );
     expect(await runtime.runPromise(entities.get("board", "lost"))).toBeUndefined();
 
@@ -619,7 +604,7 @@ describe("canvas entity registry", () => {
 
     const runtime = await openEngine(path);
     const canvases = await runtime.runPromise(CanvasesService);
-    const state = await runtime.runPromise(StateEngine);
+    const sql = await runtime.runPromise(SqlClient.SqlClient);
 
     const node = (id: string, text: string) => ({
       id,
@@ -641,11 +626,7 @@ describe("canvas entity registry", () => {
     );
 
     await runtime.runPromise(
-      state.transaction("entity.heal.drift", (writer) => {
-        writer.run(
-          "UPDATE canvas_entities SET kind = 'wrong' WHERE canvas_name = 'board' AND entity_id = 'drift'",
-        );
-      }),
+      sql.withTransaction(sql`UPDATE canvas_entities SET kind = 'wrong' WHERE canvas_name = 'board' AND entity_id = 'drift'`),
     );
 
     await runtime.runPromise(
@@ -655,12 +636,8 @@ describe("canvas entity registry", () => {
       }),
     );
 
-    const kind = await runtime.runPromise(
-      state.read("entity.heal.drift.read", (reader) =>
-        reader.get<{ readonly kind: string | null }>(
-          "SELECT kind FROM canvas_entities WHERE canvas_name = 'board' AND entity_id = 'drift'",
-        ),
-      ),
+    const [kind] = await runtime.runPromise(
+      sql<{ readonly kind: string | null }>`SELECT kind FROM canvas_entities WHERE canvas_name = 'board' AND entity_id = 'drift'`,
     );
     expect(kind?.kind).toBe("task");
   });

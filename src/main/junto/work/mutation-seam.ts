@@ -8,18 +8,16 @@ import { Context, Effect } from "effect";
  * record explains is a forked source of truth — the world cannot be rebuilt
  * from the journal, and no replica can converge on it.
  *
- * `scripts/lint-single-write-seam.ts` already pins WHICH FILE may emit work
- * mutation SQL. That is a static gate over file paths. It cannot see ordering,
- * so it cannot say whether a projection row was explained by a record. This
- * module is the runtime half: it classifies every statement the state engine
- * executes and refuses a work projection write that no journal append in the
- * same transaction accounts for.
+ * Typed repositories own mutation SQL. This module enforces its ordering:
+ * it classifies every statement the shared SQL driver executes and refuses a
+ * work projection write that no journal append in the same transaction
+ * accounts for.
  *
  * THE LAW, enforced per transaction:
  *
  *   a `projection` write is admitted only after a `journal` record row has
  *   been written in the SAME transaction, or inside an explicitly declared
- *   {@link unjournaledWorkMutation} window.
+ *   {@link unjournaledWorkMutationEffect} window.
  *
  * The journal append needs no marker call: writing a record row into
  * `work_events` / `work_facts` / `work_commands` / `work_dispositions` IS the
@@ -28,9 +26,8 @@ import { Context, Effect } from "effect";
  * schema (`work/state-schema.ts`), so "append a record" means minting a real,
  * hash-witnessed, route-identified record.
  *
- * Scope lifecycle is owned by `state/engine.ts`: one scope per transaction,
- * opened before the body and closed in a `finally`. The engine's transaction
- * body is synchronous and non-reentrant, so a module-level scope is exact.
+ * Scope lifecycle is owned by `state/engine.ts`: one fiber-local scope per SQL
+ * transaction. Savepoints inherit admission and merge it only on success.
  *
  * WHY THIS LIVES UNDER `work/` AND THE ENGINE CALLS IN: the table roles below
  * are work-plane semantics, not storage semantics. `state/migrations.ts`
@@ -89,7 +86,7 @@ export const WORK_PLANE_TABLE_ROLES: ReadonlyMap<string, WorkPlaneTableRole> =
     ["work_delivery_receipts", "projection"],
     // Crew review stores: durable Command Center-local operational state
     // written directly (never materialized from the replicated journal), so
-    // every write declares an unjournaledWorkMutation(...) reason below.
+    // every write declares an unjournaledWorkMutationEffect(...) reason below.
     ["work_review_verdicts", "projection"],
     ["work_review_receipts", "projection"],
     ["work_review_checkout_observations", "projection"],
@@ -151,8 +148,8 @@ export const UNJOURNALED_WORK_REASONS = {
       "survive a migration. Seeding through the repository would exercise the " +
       "NEW write path and prove nothing about the old shape.",
     retire:
-      "Never — but `bun run lint:single-write-seam` forbids this reason under " +
-      "src/, so it can only ever appear in tests and fixtures.",
+      "Never while historical-row fixtures are needed. Reserved for " +
+      "disposable tests and fixtures, never product writes.",
   },
   "crew.review-verdict": {
     why:
@@ -329,59 +326,17 @@ export const WorkMutationContext = Context.Reference<WorkMutationScope | null>(
   { defaultValue: () => null },
 );
 
-/**
- * Open transaction scopes, innermost last.
- *
- * A state engine forbids nesting its OWN transactions and its transaction body
- * cannot yield, so within one engine exactly one scope is live. The stack
- * exists because a process may hold more than one engine (a test opening a
- * second database, a tool engine beside the product one): each transaction
- * gets its own scope, so one database's journal can never explain another
- * database's projection write.
- */
-const scopes: Array<WorkMutationScope> = [];
-
-const current = (): WorkMutationScope | undefined => scopes[scopes.length - 1];
-
-/**
- * Open the scope for one transaction. Called ONLY by the state engine, once
- * per `transaction` / `chunkedWrite` chunk. Returns the closer, which the
- * engine runs in a `finally` so a thrown body cannot leak an open scope.
- */
-export const beginWorkMutationScope = (operation: string): (() => void) => {
-  const opened: WorkMutationScope = {
-    operation,
-    journaled: false,
-    unjournaled: undefined,
-  };
-  scopes.push(opened);
-  let closed = false;
-  return () => {
-    if (closed) return;
-    closed = true;
-    const top = scopes.pop();
-    if (top === opened) return;
-    // Unreachable while the engine closes in a `finally`. If it ever happens
-    // the stack is already wrong, so say so instead of silently continuing.
-    if (top !== undefined) scopes.push(top);
-    throw new WorkMutationSeamError(
-      `scope for "${operation}" closed out of order (top is ` +
-        `"${top?.operation ?? "none"}")`,
-    );
-  };
-};
-
 const statementHead = (sql: string): string =>
   sql.replace(/\s+/g, " ").trim().slice(0, 120);
 
 /**
  * Admit one statement, or throw. Called by the state engine for every
- * statement it runs through a writer, before the statement executes.
+ * SQL statement, before the statement executes.
  */
 export const admitWorkStatement = (
   sql: string,
   bindings?: WorkStatementBindings,
-  scope: WorkMutationScope | null | undefined = current(),
+  scope: WorkMutationScope | null = null,
 ): void => {
   const statement = classifyWorkStatement(sql);
   if (statement === null) return;
@@ -391,7 +346,7 @@ export const admitWorkStatement = (
         `application statement may write it (${statementHead(sql)})`,
     );
   }
-  if (scope === undefined || scope === null) {
+  if (scope === null) {
     throw new WorkMutationSeamError(
       `${statement.verb} on "${statement.table}" ran outside any state ` +
         `transaction (${statementHead(sql)})`,
@@ -414,43 +369,12 @@ export const admitWorkStatement = (
     `${statement.verb} on the work projection table "${statement.table}" in ` +
       `"${scope.operation}" is not explained by any journal record in this ` +
       "transaction. Mint a work record and materialize it, or declare the " +
-      "write with unjournaledWorkMutation(...) if it deliberately mints no " +
+      "write with unjournaledWorkMutationEffect(...) if it deliberately mints no " +
       `fact (${statementHead(sql)})`,
   );
 };
 
-/**
- * Declare a work projection write that deliberately mints no journal record,
- * for the duration of `body`. Must run inside a state transaction.
- *
- * This is the ONLY escape from the law above, the reason set is closed at the
- * type level, and `bun run lint:single-write-seam` pins every call site.
- */
-export const unjournaledWorkMutation = <A>(
-  reason: UnjournaledWorkReason,
-  body: () => A,
-): A => {
-  const scope = current();
-  if (scope === undefined) {
-    throw new WorkMutationSeamError(
-      `unjournaledWorkMutation("${reason}") ran outside any state transaction`,
-    );
-  }
-  if (scope.unjournaled !== undefined) {
-    throw new WorkMutationSeamError(
-      `unjournaledWorkMutation("${reason}") nests inside ` +
-        `"${scope.unjournaled}" — one declaration per transaction`,
-    );
-  }
-  scope.unjournaled = reason;
-  try {
-    return body();
-  } finally {
-    scope.unjournaled = undefined;
-  }
-};
-
-/** Fiber-local journal-free admission for SQL Effects; never opens the synchronous stack. */
+/** Fiber-local journal-free admission, limited to the closed reason set above. */
 export const unjournaledWorkMutationEffect = Effect.fn("work.unjournaledMutation")(function* <A, E, R>(
   reason: UnjournaledWorkReason,
   body: Effect.Effect<A, E, R>,
@@ -474,31 +398,14 @@ export const unjournaledWorkMutationEffect = Effect.fn("work.unjournaledMutation
   );
 });
 
-/** Test-only introspection: is a scope open, and has it been journalled? */
-export const workMutationScopeForTest = (): {
-  readonly operation: string;
-  readonly journaled: boolean;
-  readonly unjournaled: UnjournaledWorkReason | undefined;
-} | undefined => {
-  const scope = current();
-  return scope === undefined
-    ? undefined
-    : {
-      operation: scope.operation,
-      journaled: scope.journaled,
-      unjournaled: scope.unjournaled,
-    };
-};
-
 /* ------------------------------------------------------------------------ *
  * WHICH SINK A MUTATION TOUCHED
  *
  * The in-memory world (`work/world.ts`) keeps every sink's read model resident
  * and must know which ones a committed transaction disturbed. That question is
  * answered HERE, at the same chokepoint the admission law runs, because this
- * is the only place in the process that provably sees every work mutation: the
- * static gate pins which file may emit the SQL, the admission law pins that a
- * journal record explains it, and this pins which sink it lands on.
+ * shared SQL driver sees every work mutation: the admission law checks that a
+ * journal record explains it, and this identifies which sink it lands on.
  *
  * Two properties make it safe rather than clever:
  *

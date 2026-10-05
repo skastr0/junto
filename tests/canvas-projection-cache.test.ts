@@ -15,12 +15,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { Effect, Layer, ManagedRuntime, Schema } from "effect";
+import { SqlClient } from "effect/unstable/sql";
 import { afterEach, describe, expect, it } from "vitest";
 import { CanvasesLive, CanvasesService } from "../src/main/junto/canvases";
 import { CanvasEntityRepositoryLive } from "../src/main/junto/entities/repository";
 import {
   makeStateEngineLive,
-  StateEngine,
 } from "../src/main/junto/state/engine";
 import { STATE_SCHEMA_SQL } from "../src/main/junto/state/schema";
 import {
@@ -70,26 +70,17 @@ const openRuntime = async () => {
   // authority, so every runtime here is a configured Command Center.
   await runtime.runPromise(
     Effect.gen(function* () {
-      const state = yield* StateEngine;
-      return yield* state.transaction("test.seed-installation", (writer) => {
-        writer.run(
-          `INSERT INTO station_known_installations(installation_id, registered_at)
-           VALUES (?, ?)`,
-          [LOCAL_INSTALLATION, at],
-        );
-        writer.run(
-          `INSERT INTO station_installation(singleton, installation_id, created_at)
-           VALUES (1, ?, ?)`,
-          [LOCAL_INSTALLATION, at],
-        );
-        writer.run(
-          `INSERT INTO station_configuration(
+      const sql = yield* SqlClient.SqlClient;
+      return yield* sql.withTransaction(Effect.gen(function* () {
+        yield* sql`INSERT INTO station_known_installations(installation_id, registered_at)
+           VALUES (${LOCAL_INSTALLATION}, ${at})`;
+        yield* sql`INSERT INTO station_installation(singleton, installation_id, created_at)
+           VALUES (1, ${LOCAL_INSTALLATION}, ${at})`;
+        yield* sql`INSERT INTO station_configuration(
              singleton, role, host_id, agent_host_id,
              command_center_installation_id, supervised_preferred, configured_at
-           ) VALUES (1, 'command-center', 'local', NULL, NULL, 1, ?)`,
-          [at],
-        );
-      });
+           ) VALUES (1, 'command-center', 'local', NULL, NULL, 1, ${at})`;
+      }));
     }),
   );
   return runtime;
@@ -187,12 +178,7 @@ const mailOf = (doc: CanvasDoc) =>
   [];
 
 /** Append one mailbox message to the local agent seat. */
-const appendMail = (
-  runtime: Awaited<ReturnType<typeof openRuntime>>,
-  messageId: string,
-) =>
-  runtime.runPromise(
-    Effect.gen(function* () {
+const appendMailEffect = Effect.fn(function* (messageId: string) {
       const canvases = yield* CanvasesService;
       const witness = yield* canvases.activeIntentWitness();
       const read = yield* canvases.read(CANVAS);
@@ -218,8 +204,12 @@ const appendMail = (
         originAt: at,
         receivedAt: at,
       });
-    }),
-  );
+});
+
+const appendMail = (
+  runtime: Awaited<ReturnType<typeof openRuntime>>,
+  messageId: string,
+) => runtime.runPromise(appendMailEffect(messageId));
 
 describe("canvas projection memo — the revision witness", () => {
   it("carries insert, update and delete triggers on every projected table", () => {
@@ -372,6 +362,44 @@ describe("canvas projection memo — the revision witness", () => {
 });
 
 describe("canvas projection memo — what a read must still see", () => {
+  it("joins caller writes without reusing or publishing uncommitted authority and Work caches", async () => {
+    const runtime = await openRuntime();
+    const before = await seedCanvas(runtime, { withLocalAgent: true });
+    await runtime.runPromise(Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient;
+      const canvases = yield* CanvasesService;
+      // Same portfolio identity as the cached read, but corrupt authority:
+      // cache reuse here would hide the invalid rows rather than fail closed.
+      expect(yield* sql.withTransaction(Effect.gen(function* () {
+        yield* sql`UPDATE canvas_nodes SET text_content = 'corrupt' WHERE node_id = ${NOTE}`;
+        return yield* canvases.read(CANVAS);
+      })).pipe(Effect.result)).toMatchObject({
+        _tag: "Failure", failure: { message: expect.stringContaining("revision hash mismatch") },
+      });
+
+      const rolledBack = yield* sql.withTransaction(Effect.gen(function* () {
+        yield* canvases.write(CANVAS, docWith("uncommitted", { withLocalAgent: true }));
+        yield* appendMailEffect("rolled-back-mail");
+        const pending = yield* canvases.read(CANVAS);
+        expect(pending.doc.nodes.find((node) => node.id === NOTE)).toMatchObject({ text: "uncommitted" });
+        expect(mailOf(pending.doc).map((message) => message.messageId)).toEqual(["rolled-back-mail"]);
+        return yield* Effect.fail("rollback");
+      })).pipe(Effect.result);
+      expect(rolledBack).toMatchObject({ _tag: "Failure", failure: "rollback" });
+      const restored = yield* canvases.read(CANVAS);
+      expect(restored.doc).toEqual(before.doc);
+      expect(restored.workRevision).toBe(before.workRevision);
+
+      // This commit reuses the rolled-back Work revision number, but not its
+      // contents. A poisoned world/memo would return the rolled-back mail.
+      yield* canvases.write(CANVAS, docWith("committed", { withLocalAgent: true }));
+      yield* appendMailEffect("committed-mail");
+      const committed = yield* canvases.read(CANVAS);
+      expect(committed.doc.nodes.find((node) => node.id === NOTE)).toMatchObject({ text: "committed" });
+      expect(mailOf(committed.doc).map((message) => message.messageId)).toEqual(["committed-mail"]);
+    }));
+  });
+
   it("serves an unchanged world from the memo, byte-for-byte", async () => {
     const runtime = await openRuntime();
     const first = await seedCanvas(runtime);
@@ -464,22 +492,16 @@ describe("canvas projection memo — what a read must still see", () => {
     const runtime = await openRuntime();
     await runtime.runPromise(
       Effect.gen(function* () {
-        const state = yield* StateEngine;
-        return yield* state.transaction("test.fleet-bind", (writer) => {
+        const sql = yield* SqlClient.SqlClient;
+        return yield* sql.withTransaction(Effect.gen(function* () {
           for (const installation of ["remote-a", "remote-b"]) {
-            writer.run(
-              `INSERT INTO station_known_installations(installation_id, registered_at)
-               VALUES (?, ?)`,
-              [installation, at],
-            );
+            yield* sql`INSERT INTO station_known_installations(installation_id, registered_at)
+               VALUES (${installation}, ${at})`;
           }
-          writer.run(
-            `INSERT INTO station_fleet_targets(
+          yield* sql`INSERT INTO station_fleet_targets(
                host_id, station_installation_id, bound_at, retired_at
-             ) VALUES (?, ?, ?, NULL)`,
-            [REMOTE_HOST, "remote-a", at],
-          );
-        });
+             ) VALUES (${REMOTE_HOST}, 'remote-a', ${at}, NULL)`;
+        }));
       }),
     );
     await seedCanvas(runtime, { withRemoteAgent: true });
@@ -495,15 +517,10 @@ describe("canvas projection memo — what a read must still see", () => {
     // Same documents, same generation. Only the fleet map moves.
     await runtime.runPromise(
       Effect.gen(function* () {
-        const state = yield* StateEngine;
-        return yield* state.transaction("test.fleet-rebind", (writer) => {
-          writer.run(
-            `UPDATE station_fleet_targets
-             SET station_installation_id = ?
-             WHERE host_id = ?`,
-            ["remote-b", REMOTE_HOST],
-          );
-        });
+        const sql = yield* SqlClient.SqlClient;
+        return yield* sql.withTransaction(sql`UPDATE station_fleet_targets
+             SET station_installation_id = 'remote-b'
+             WHERE host_id = ${REMOTE_HOST}`);
       }),
     );
 
@@ -533,20 +550,14 @@ describe("node-scoped read — what the wake path may rely on", () => {
     // the actor-seat compiler fails the whole portfolio read.
     await runtime.runPromise(
       Effect.gen(function* () {
-        const state = yield* StateEngine;
-        return yield* state.transaction("test.fleet-bind", (writer) => {
-          writer.run(
-            `INSERT INTO station_known_installations(installation_id, registered_at)
-             VALUES (?, ?)`,
-            ["remote-a", at],
-          );
-          writer.run(
-            `INSERT INTO station_fleet_targets(
+        const sql = yield* SqlClient.SqlClient;
+        return yield* sql.withTransaction(Effect.gen(function* () {
+          yield* sql`INSERT INTO station_known_installations(installation_id, registered_at)
+             VALUES ('remote-a', ${at})`;
+          yield* sql`INSERT INTO station_fleet_targets(
                host_id, station_installation_id, bound_at, retired_at
-             ) VALUES (?, ?, ?, NULL)`,
-            [REMOTE_HOST, "remote-a", at],
-          );
-        });
+             ) VALUES (${REMOTE_HOST}, 'remote-a', ${at}, NULL)`;
+        }));
       }),
     );
     await runtime.runPromise(

@@ -1,9 +1,8 @@
 /**
  * Durable store for crew review verdicts, review receipts, and checkout
- * observations, over the one product StateEngine (no second database, no
- * extra connection). It shares the same runtime as the Work repository:
- * `CrewRepositoryLive` depends on the StateEngine service the rest of the
- * process already provides.
+ * observations, over the product SqlClient (no second database or connection).
+ * Standalone methods own transactions; participants compose with Work's
+ * transaction on the same client.
  *
  * Review verdicts are immutable rows keyed by a unique verdict id, bound to the
  * full task identity plus epoch plus canonical subject hash. The gate query
@@ -14,10 +13,7 @@
 import { Context, Effect, Layer, Schema } from "effect";
 import { SqlClient, SqlSchema } from "effect/unstable/sql";
 import { StateTransactionOperation } from "../state/service";
-import type { StateReader, StateWriter } from "../state/service";
-import {
-  unjournaledWorkMutationEffect,
-} from "./mutation-seam";
+import { unjournaledWorkMutationEffect } from "./mutation-seam";
 import {
   ReviewVerdict,
   VERDICT_SUBJECT_HASH_DOMAIN,
@@ -109,7 +105,10 @@ export const anyReviewerLatestGreen = (
   for (const row of rows) {
     const prior = latest.get(row.reviewer_seat_id);
     if (prior === undefined || row.posted_at_ms > prior.at) {
-      latest.set(row.reviewer_seat_id, { at: row.posted_at_ms, kind: row.kind });
+      latest.set(row.reviewer_seat_id, {
+        at: row.posted_at_ms,
+        kind: row.kind,
+      });
     } else if (row.posted_at_ms === prior.at && row.kind === "blocking") {
       // Tie at the latest instant: blocking wins.
       latest.set(row.reviewer_seat_id, { at: prior.at, kind: "blocking" });
@@ -161,148 +160,17 @@ const verdictFromRow = (row: VerdictRow): typeof ReviewVerdict.Type =>
             epoch: row.subject_epoch ?? 0,
             subjectHash: row.subject_hash,
           }
-        : { kind: "commit", sha: row.subject_sha ?? "", subjectHash: row.subject_hash },
+        : {
+            kind: "commit",
+            sha: row.subject_sha ?? "",
+            subjectHash: row.subject_hash,
+          },
     subjectHash: row.subject_hash,
     epoch: row.epoch,
     findings: JSON.parse(row.findings_json) as string[],
     refs: JSON.parse(row.refs_json) as ReadonlyArray<unknown>,
     postedAtMs: row.posted_at_ms,
   });
-
-/**
- * Insert one verdict via a caller-owned StateWriter, so a blocking verdict and
- * the task send-back it triggers commit in ONE transaction. StateEngine forbids
- * nested transactions, so a composing caller opens a single
- * `state.transaction` and calls this inside it. Insert-once by verdict id
- * (a repost of the same id is a no-op).
- */
-export const applyVerdictWrite = (
-  writer: StateWriter,
-  verdict: typeof ReviewVerdict.Type,
-): void => {
-  const subject = verdict.subject;
-  writer.run(
-    `INSERT OR IGNORE INTO work_review_verdicts(
-       verdict_id, kind, reviewer_seat_id, reviewer_node_id, author_seat_id,
-       subject_kind, subject_task_installation, subject_task_canvas,
-       subject_task_node, subject_task_item, subject_epoch, subject_sha,
-       subject_checkout, subject_hash, epoch, findings_json, refs_json,
-       posted_at_ms
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [
-      verdict.verdictId,
-      verdict.kind,
-      verdict.reviewerSeatId,
-      verdict.reviewerNodeId ?? null,
-      verdict.authorSeatId,
-      subject.kind,
-      subject.kind === "task" ? subject.installationId : null,
-      subject.kind === "task" ? subject.canvasName : null,
-      subject.kind === "task" ? subject.nodeId : null,
-      subject.kind === "task" ? subject.taskId : null,
-      subject.kind === "task" ? subject.epoch : null,
-      subject.kind === "commit" ? subject.sha : null,
-      null,
-      verdict.subjectHash,
-      verdict.epoch,
-      JSON.stringify(verdict.findings),
-      JSON.stringify(verdict.refs),
-      verdict.postedAtMs,
-    ],
-  );
-};
-
-/** Rows for the gate query, ordered so JS reduction sees each reviewer's history. */
-const gateRows = (
-  reader: StateReader,
-  input: {
-    readonly installationId: string;
-    readonly canvasName: string;
-    readonly nodeId: string;
-    readonly taskId: string;
-    readonly epoch: number;
-    readonly subjectHash: string;
-    readonly excludingSeatId: string;
-  },
-): ReadonlyArray<{
-  readonly reviewer_seat_id: string;
-  readonly kind: string;
-  readonly posted_at_ms: number;
-}> =>
-  reader.all(
-    `SELECT reviewer_seat_id, kind, posted_at_ms
-       FROM work_review_verdicts
-     WHERE subject_kind = 'task'
-       AND subject_task_installation = ?
-       AND subject_task_canvas = ?
-       AND subject_task_node = ?
-       AND subject_task_item = ?
-       AND epoch = ?
-       AND subject_hash = ?
-       AND reviewer_seat_id <> ?`,
-    [
-      input.installationId,
-      input.canvasName,
-      input.nodeId,
-      input.taskId,
-      input.epoch,
-      input.subjectHash,
-      input.excludingSeatId,
-    ],
-  ) as ReadonlyArray<{
-    readonly reviewer_seat_id: string;
-    readonly kind: string;
-    readonly posted_at_ms: number;
-  }>;
-
-/**
- * Writer-time review gate, the SAME rule as {@link CrewRepository.currentGreenExists}
- * but callable synchronously inside a caller-owned transaction so the completion
- * check and the completion write commit together — a concurrent blocking, new
- * epoch, or changed subject that lands between a service preflight and the
- * commit is caught here at write time. A distinct eligible reviewer's latest
- * verdict on the exact identity + epoch + subject hash must be green.
- */
-export const reviewGateSatisfiedWithin = (
-  reader: StateReader,
-  input: {
-    readonly installationId: string;
-    readonly canvasName: string;
-    readonly nodeId: string;
-    readonly taskId: string;
-    readonly epoch: number;
-    readonly subjectHash: string;
-    readonly excludingSeatId: string;
-  },
-): boolean => anyReviewerLatestGreen(gateRows(reader, input));
-
-/**
- * Insert one review receipt via a caller-owned StateWriter, so the receipt
- * dedupe row commits in the same transaction as the task mutation that minted
- * it. Insert-once by the receipt's unique key.
- */
-export const applyReviewReceiptWrite = (
-  writer: StateWriter,
-  input: ReviewReceiptInput,
-): void => {
-  writer.run(
-    `INSERT OR IGNORE INTO work_review_receipts(
-       canvas_name, source_kind, source_id, ref_sha, reviewer_seat_id,
-       task_id, author_seat_id, message_id, created_at
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [
-      input.canvasName,
-      input.sourceKind,
-      input.sourceId,
-      input.refSha,
-      input.reviewerSeatId,
-      input.taskId ?? null,
-      input.authorSeatId,
-      input.messageId ?? null,
-      input.createdAt,
-    ],
-  );
-};
 
 export type CrewRepositoryShape = {
   /** Participants join the caller's SQL transaction and never commit it. */
@@ -324,7 +192,10 @@ export type CrewRepositoryShape = {
   >;
   readonly verdictsForSubject: (
     subject: VerdictSubjectIdentity,
-  ) => Effect.Effect<ReadonlyArray<typeof ReviewVerdict.Type>, CrewRepositoryError>;
+  ) => Effect.Effect<
+    ReadonlyArray<typeof ReviewVerdict.Type>,
+    CrewRepositoryError
+  >;
   /**
    * Gate query: a distinct eligible reviewer's LATEST verdict on the exact
    * identity + epoch + subject hash is green (blocking after green does not
@@ -358,39 +229,68 @@ export const CrewRepositoryLive = Layer.effect(
   CrewRepository,
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
-    const changed = Schema.decodeUnknownEffect(Schema.Struct({
-      changes: Schema.Union([Schema.Number, Schema.BigInt]),
-    }));
+    const changed = Schema.decodeUnknownEffect(
+      Schema.Struct({
+        changes: Schema.Union([Schema.Number, Schema.BigInt]),
+      }),
+    );
     const verdictRows = SqlSchema.findAll({
       Request: Schema.Union([
-        Schema.Struct({ kind: Schema.Literal("task"), installationId: Schema.String,
-          canvasName: Schema.String, nodeId: Schema.String, taskId: Schema.String }),
+        Schema.Struct({
+          kind: Schema.Literal("task"),
+          installationId: Schema.String,
+          canvasName: Schema.String,
+          nodeId: Schema.String,
+          taskId: Schema.String,
+        }),
         Schema.Struct({ kind: Schema.Literal("commit"), sha: Schema.String }),
       ]),
       Result: Schema.Struct({
-        verdict_id: Schema.String, kind: Schema.String, reviewer_seat_id: Schema.String,
-        reviewer_node_id: Schema.NullOr(Schema.String), author_seat_id: Schema.String,
-        subject_kind: Schema.String, subject_task_installation: Schema.NullOr(Schema.String),
-        subject_task_canvas: Schema.NullOr(Schema.String), subject_task_node: Schema.NullOr(Schema.String),
-        subject_task_item: Schema.NullOr(Schema.String), subject_epoch: Schema.NullOr(Schema.Number),
-        subject_sha: Schema.NullOr(Schema.String), subject_hash: Schema.String, epoch: Schema.Number,
-        findings_json: Schema.String, refs_json: Schema.String, posted_at_ms: Schema.Number,
+        verdict_id: Schema.String,
+        kind: Schema.String,
+        reviewer_seat_id: Schema.String,
+        reviewer_node_id: Schema.NullOr(Schema.String),
+        author_seat_id: Schema.String,
+        subject_kind: Schema.String,
+        subject_task_installation: Schema.NullOr(Schema.String),
+        subject_task_canvas: Schema.NullOr(Schema.String),
+        subject_task_node: Schema.NullOr(Schema.String),
+        subject_task_item: Schema.NullOr(Schema.String),
+        subject_epoch: Schema.NullOr(Schema.Number),
+        subject_sha: Schema.NullOr(Schema.String),
+        subject_hash: Schema.String,
+        epoch: Schema.Number,
+        findings_json: Schema.String,
+        refs_json: Schema.String,
+        posted_at_ms: Schema.Number,
       }),
-      execute: (subject) => subject.kind === "task"
-        ? sql`SELECT * FROM work_review_verdicts
+      execute: (subject) =>
+        subject.kind === "task"
+          ? sql`SELECT * FROM work_review_verdicts
             WHERE subject_kind = 'task' AND subject_task_installation = ${subject.installationId}
               AND subject_task_canvas = ${subject.canvasName} AND subject_task_node = ${subject.nodeId}
               AND subject_task_item = ${subject.taskId} ORDER BY posted_at_ms, verdict_id`
-        : sql`SELECT * FROM work_review_verdicts
+          : sql`SELECT * FROM work_review_verdicts
             WHERE subject_kind = 'commit' AND subject_sha = ${subject.sha} ORDER BY posted_at_ms, verdict_id`,
     });
     const greenRows = SqlSchema.findAll({
       Request: Schema.Struct({
-        installationId: Schema.String, canvasName: Schema.String, nodeId: Schema.String,
-        taskId: Schema.String, epoch: Schema.Number, subjectHash: Schema.String, excludingSeatId: Schema.String,
+        installationId: Schema.String,
+        canvasName: Schema.String,
+        nodeId: Schema.String,
+        taskId: Schema.String,
+        epoch: Schema.Number,
+        subjectHash: Schema.String,
+        excludingSeatId: Schema.String,
       }),
-      Result: Schema.Struct({ reviewer_seat_id: Schema.String, kind: Schema.String, posted_at_ms: Schema.Number }),
-      execute: (input) => sql`SELECT reviewer_seat_id, kind, posted_at_ms FROM work_review_verdicts
+      Result: Schema.Struct({
+        reviewer_seat_id: Schema.String,
+        kind: Schema.String,
+        posted_at_ms: Schema.Number,
+      }),
+      execute: (
+        input,
+      ) => sql`SELECT reviewer_seat_id, kind, posted_at_ms FROM work_review_verdicts
         WHERE subject_kind = 'task' AND subject_task_installation = ${input.installationId}
           AND subject_task_canvas = ${input.canvasName} AND subject_task_node = ${input.nodeId}
           AND subject_task_item = ${input.taskId} AND epoch = ${input.epoch}
@@ -403,9 +303,12 @@ export const CrewRepositoryLive = Layer.effect(
         WHERE ref_sha = ${refSha} ORDER BY created_at, source_id LIMIT 1`,
     });
 
-    const postVerdictWithin = Effect.fn("crew.postVerdictWithin")(function* (verdict: typeof ReviewVerdict.Type) {
-      const subject = verdict.subject;
-      const result = yield* unjournaledWorkMutationEffect("crew.review-verdict", sql`
+    const postVerdictWithin = Effect.fn("crew.postVerdictWithin")(
+      function* (verdict: typeof ReviewVerdict.Type) {
+        const subject = verdict.subject;
+        const result = yield* unjournaledWorkMutationEffect(
+          "crew.review-verdict",
+          sql`
         INSERT OR IGNORE INTO work_review_verdicts(
           verdict_id, kind, reviewer_seat_id, reviewer_node_id, author_seat_id,
           subject_kind, subject_task_installation, subject_task_canvas, subject_task_node,
@@ -421,58 +324,105 @@ export const CrewRepositoryLive = Layer.effect(
           ${subject.kind === "commit" ? subject.sha : null}, ${null},
           ${verdict.subjectHash}, ${verdict.epoch}, ${JSON.stringify(verdict.findings)},
           ${JSON.stringify(verdict.refs)}, ${verdict.postedAtMs})
-      `.raw.pipe(Effect.flatMap(changed)));
-      return { verdict, created: Number(result.changes) > 0 };
-    }, Effect.mapError((error) => toCrewError("crew.postVerdict", error)));
-
-    const verdictsForSubject = Effect.fn("crew.verdictsForSubject")(function* (subject: VerdictSubjectIdentity) {
-      const rows = yield* verdictRows(subject);
-      return yield* Effect.try({ try: () => rows.map(verdictFromRow), catch: (error) => error });
-    }, Effect.mapError((error) => toCrewError("crew.verdictsForSubject", error)));
-
-    const currentGreenExists = (input: CurrentGreenInput) => greenRows(input).pipe(
-      Effect.map(anyReviewerLatestGreen),
-      Effect.mapError((error) => toCrewError("crew.currentGreenExists", error)),
+      `.raw.pipe(Effect.flatMap(changed)),
+        );
+        return { verdict, created: Number(result.changes) > 0 };
+      },
+      Effect.mapError((error) => toCrewError("crew.postVerdict", error)),
     );
 
-    const recordReviewReceiptWithin = Effect.fn("crew.recordReviewReceiptWithin")(function* (input: ReviewReceiptInput) {
-      const result = yield* unjournaledWorkMutationEffect("crew.review-receipt", sql`
+    const verdictsForSubject = Effect.fn("crew.verdictsForSubject")(
+      function* (subject: VerdictSubjectIdentity) {
+        const rows = yield* verdictRows(subject);
+        return yield* Effect.try({
+          try: () => rows.map(verdictFromRow),
+          catch: (error) => error,
+        });
+      },
+      Effect.mapError((error) => toCrewError("crew.verdictsForSubject", error)),
+    );
+
+    const currentGreenExists = (input: CurrentGreenInput) =>
+      greenRows(input).pipe(
+        Effect.map(anyReviewerLatestGreen),
+        Effect.mapError((error) =>
+          toCrewError("crew.currentGreenExists", error),
+        ),
+      );
+
+    const recordReviewReceiptWithin = Effect.fn(
+      "crew.recordReviewReceiptWithin",
+    )(
+      function* (input: ReviewReceiptInput) {
+        const result = yield* unjournaledWorkMutationEffect(
+          "crew.review-receipt",
+          sql`
         INSERT OR IGNORE INTO work_review_receipts(
           canvas_name, source_kind, source_id, ref_sha, reviewer_seat_id,
           task_id, author_seat_id, message_id, created_at
         ) VALUES (${input.canvasName}, ${input.sourceKind}, ${input.sourceId}, ${input.refSha},
           ${input.reviewerSeatId}, ${input.taskId ?? null}, ${input.authorSeatId},
           ${input.messageId ?? null}, ${input.createdAt})
-      `.raw.pipe(Effect.flatMap(changed)));
-      return Number(result.changes) > 0;
-    }, Effect.mapError((error) => toCrewError("crew.recordReviewReceipt", error)));
+      `.raw.pipe(Effect.flatMap(changed)),
+        );
+        return Number(result.changes) > 0;
+      },
+      Effect.mapError((error) =>
+        toCrewError("crew.recordReviewReceipt", error),
+      ),
+    );
 
-    const postVerdict = (verdict: typeof ReviewVerdict.Type) => postVerdictWithin(verdict).pipe(
-      sql.withTransaction,
-      Effect.provideService(StateTransactionOperation, "crew.postVerdict"),
-      Effect.mapError((error) => toCrewError("crew.postVerdict", error)),
-    );
-    const recordReviewReceipt = (input: ReviewReceiptInput) => recordReviewReceiptWithin(input).pipe(
-      sql.withTransaction,
-      Effect.provideService(StateTransactionOperation, "crew.recordReviewReceipt"),
-      Effect.mapError((error) => toCrewError("crew.recordReviewReceipt", error)),
-    );
-    const recordCheckoutObservation = Effect.fn("crew.recordCheckoutObservation")(function* (input: CheckoutObservationInput) {
-      const result = yield* unjournaledWorkMutationEffect("crew.checkout-observation", sql`
+    const postVerdict = (verdict: typeof ReviewVerdict.Type) =>
+      postVerdictWithin(verdict).pipe(
+        sql.withTransaction,
+        Effect.provideService(StateTransactionOperation, "crew.postVerdict"),
+        Effect.mapError((error) => toCrewError("crew.postVerdict", error)),
+      );
+    const recordReviewReceipt = (input: ReviewReceiptInput) =>
+      recordReviewReceiptWithin(input).pipe(
+        sql.withTransaction,
+        Effect.provideService(
+          StateTransactionOperation,
+          "crew.recordReviewReceipt",
+        ),
+        Effect.mapError((error) =>
+          toCrewError("crew.recordReviewReceipt", error),
+        ),
+      );
+    const recordCheckoutObservation = Effect.fn(
+      "crew.recordCheckoutObservation",
+    )(
+      function* (input: CheckoutObservationInput) {
+        const result = yield* unjournaledWorkMutationEffect(
+          "crew.checkout-observation",
+          sql`
         INSERT OR IGNORE INTO work_review_checkout_observations(
           checkout_key, sha, seat_id, task_id, attributed_via, observed_at
         ) VALUES (${input.checkoutKey}, ${input.sha}, ${input.seatId ?? null},
           ${input.taskId ?? null}, ${input.attributedVia ?? null}, ${input.observedAt})
-      `.raw.pipe(Effect.flatMap(changed)));
-      return Number(result.changes) > 0;
-    }, sql.withTransaction,
-    Effect.provideService(StateTransactionOperation, "crew.recordCheckoutObservation"),
-    Effect.mapError((error) => toCrewError("crew.recordCheckoutObservation", error)));
-
-    const firstAuthorForSha = (refSha: string) => authorRow(refSha).pipe(
-      Effect.map((row) => row._tag === "Some" ? row.value.author_seat_id : undefined),
-      Effect.mapError((error) => toCrewError("crew.firstAuthorForSha", error)),
+      `.raw.pipe(Effect.flatMap(changed)),
+        );
+        return Number(result.changes) > 0;
+      },
+      sql.withTransaction,
+      Effect.provideService(
+        StateTransactionOperation,
+        "crew.recordCheckoutObservation",
+      ),
+      Effect.mapError((error) =>
+        toCrewError("crew.recordCheckoutObservation", error),
+      ),
     );
+
+    const firstAuthorForSha = (refSha: string) =>
+      authorRow(refSha).pipe(
+        Effect.map((row) =>
+          row._tag === "Some" ? row.value.author_seat_id : undefined,
+        ),
+        Effect.mapError((error) =>
+          toCrewError("crew.firstAuthorForSha", error),
+        ),
+      );
 
     return {
       postVerdictWithin,

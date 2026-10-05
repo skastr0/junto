@@ -15,7 +15,8 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { Layer, ManagedRuntime } from "effect";
+import { Effect, Layer, ManagedRuntime } from "effect";
+import { SqlClient } from "effect/unstable/sql";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   BACKFILL_INLINE_MEDIA_V1,
@@ -1011,9 +1012,10 @@ describe("install-ops degraded runtime acquisition", () => {
     expect(state.info.schemaVersion).toBe(CURRENT_STATE_SCHEMA_VERSION);
     await expect(
       firstRuntime.runPromise(
-        state.read("test.product-open", (reader) =>
-          reader.get<{ readonly answer: number }>("SELECT 42 AS answer")
-        ),
+        Effect.gen(function* () {
+          const sql = yield* SqlClient.SqlClient;
+          return (yield* sql<{ readonly answer: number }>`SELECT 42 AS answer`)[0];
+        }),
       ),
     ).resolves.toEqual({ answer: 42 });
     expect(content).toBeDefined();

@@ -7,6 +7,7 @@ import {
   ManagedRuntime,
   Schema,
 } from "effect";
+import { SqlClient } from "effect/unstable/sql";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   ConfigureRequest,
@@ -24,8 +25,6 @@ import {
 } from "../src/main/junto/canvases";
 import {
   makeStateEngineLive,
-  StateEngine,
-  type StateRow,
 } from "../src/main/junto/state/engine";
 import {
   StationRepository,
@@ -86,12 +85,12 @@ describe("CanvasesService Station projection", () => {
     );
 
     try {
-      const { canvases, station, stateEngine } = await runtime.runPromise(
+      const { canvases, station, sql } = await runtime.runPromise(
         Effect.gen(function* () {
           return {
             canvases: yield* CanvasesService,
             station: yield* StationRepository,
-            stateEngine: yield* StateEngine,
+            sql: yield* SqlClient.SqlClient,
           };
         }),
       );
@@ -196,24 +195,11 @@ describe("CanvasesService Station projection", () => {
         ),
       ).rejects.toThrow("Remote installations");
 
-      const authorialRows = await runtime.runPromise(
-        stateEngine.read("test.remote-authorial-rows", (reader) => ({
-          heads: Number(
-            reader.get<StateRow & { readonly count: number }>(
-              "SELECT count(*) AS count FROM canvas_portfolio_head",
-            )?.count ?? -1,
-          ),
-          documents: Number(
-            reader.get<StateRow & { readonly count: number }>(
-              "SELECT count(*) AS count FROM canvas_documents",
-            )?.count ?? -1,
-          ),
-          nodes: Number(
-            reader.get<StateRow & { readonly count: number }>(
-              "SELECT count(*) AS count FROM canvas_nodes",
-            )?.count ?? -1,
-          ),
-        })),
+      const [authorialRows] = await runtime.runPromise(
+        sql`SELECT
+          (SELECT count(*) FROM canvas_portfolio_head) AS heads,
+          (SELECT count(*) FROM canvas_documents) AS documents,
+          (SELECT count(*) FROM canvas_nodes) AS nodes`,
       );
       expect(authorialRows).toEqual({
         heads: 0,

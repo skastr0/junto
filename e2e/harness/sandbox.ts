@@ -8,6 +8,7 @@ import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect, Layer, ManagedRuntime, Schema } from "effect";
+import { SqlClient } from "effect/unstable/sql";
 import type {
   CanvasDoc,
   CanvasEdge,
@@ -24,7 +25,6 @@ import {
 import {
   makeStateEngineLive,
 } from "../../src/main/junto/state/engine";
-import { StateEngine } from "../../src/main/junto/state/service";
 import {
   SettingsLive,
   SettingsService,
@@ -117,8 +117,8 @@ export const writeFixtureRetiredCommercialState = async (
     join(sandbox.homeDir, ".junto", "state", "junto.db"),
   ));
   try {
-    await runtime.runPromise(Effect.flatMap(StateEngine, (engine) =>
-      engine.transaction("test.retired-commercial-state", (writer) => {
+    await runtime.runPromise(Effect.flatMap(SqlClient.SqlClient, (sql) =>
+      sql.withTransaction(Effect.gen(function* () {
         const expired = JSON.stringify({
           provider: "retired-provider",
           licenseKey: "synthetic-expired-test-key",
@@ -129,14 +129,11 @@ export const writeFixtureRetiredCommercialState = async (
           ["license_activation", 1],
           ["license_entitlement", 2],
         ] as const) {
-          writer.run(
-            `INSERT INTO ${table}
+          yield* sql`INSERT INTO ${sql(table)}
               (singleton, record_version, activated_license_json, updated_at)
-             VALUES (1, ?, ?, ?)`,
-            [version, expired, "2000-01-01T00:00:00.000Z"],
-          );
+             VALUES (1, ${version}, ${expired}, ${"2000-01-01T00:00:00.000Z"})`;
         }
-      }),
+      })),
     ));
   } finally {
     await runtime.dispose();
@@ -369,23 +366,15 @@ export const writeFixtureUsageState = async (
     ),
   );
   try {
-    const engine = await runtime.runPromise(StateEngine);
-    // transaction() is an Effect: it only writes when run.
-    await runtime.runPromise(engine.transaction("seed-usage-state", (writer) => {
-      writer.run(
-        `INSERT INTO usage_state(singleton, snapshots_json, last_live_at, updated_at)
-         VALUES (1, ?, ?, ?)
+    const sql = await runtime.runPromise(SqlClient.SqlClient);
+    await runtime.runPromise(sql.withTransaction(
+      sql`INSERT INTO usage_state(singleton, snapshots_json, last_live_at, updated_at)
+         VALUES (1, ${JSON.stringify(state.snapshots)}, ${state.lastLiveAt ?? new Date().toISOString()}, ${new Date().toISOString()})
          ON CONFLICT(singleton) DO UPDATE SET
            snapshots_json = excluded.snapshots_json,
            last_live_at = excluded.last_live_at,
            updated_at = excluded.updated_at`,
-        [
-          JSON.stringify(state.snapshots),
-          state.lastLiveAt ?? new Date().toISOString(),
-          new Date().toISOString(),
-        ],
-      );
-    }));
+    ));
   } finally {
     await runtime.dispose();
   }
@@ -421,31 +410,17 @@ export const writeFixtureAgentSignals = async (
     makeStateEngineLive(join(sandbox.homeDir, ".junto", "state", "junto.db")),
   );
   try {
-    const engine = await runtime.runPromise(StateEngine);
-    // transaction() is an Effect: it only writes when run.
-    await runtime.runPromise(engine.transaction("seed-agent-signals", (writer) => {
+    const sql = await runtime.runPromise(SqlClient.SqlClient);
+    await runtime.runPromise(sql.withTransaction(Effect.gen(function* () {
       for (const signal of signals) {
-        writer.run(
-          `INSERT INTO agent_signals(
+        yield* sql`INSERT INTO agent_signals(
              signal_id, canvas_name, node_id, kind, text, detail, created_at,
              state, response_text, response_at, closed_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          [
-            signal.signalId,
-            signal.canvasName,
-            signal.nodeId,
-            signal.kind,
-            signal.text,
-            signal.detail ?? null,
-            signal.createdAt,
-            signal.state,
-            signal.response?.text ?? null,
-            signal.response?.at ?? null,
-            signal.closedAt ?? null,
-          ],
-        );
+           VALUES (${signal.signalId}, ${signal.canvasName}, ${signal.nodeId}, ${signal.kind},
+             ${signal.text}, ${signal.detail ?? null}, ${signal.createdAt}, ${signal.state},
+             ${signal.response?.text ?? null}, ${signal.response?.at ?? null}, ${signal.closedAt ?? null})`;
       }
-    }));
+    })));
   } finally {
     await runtime.dispose();
   }

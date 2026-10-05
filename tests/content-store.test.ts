@@ -1,27 +1,26 @@
 import { createHash } from "node:crypto";
-import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { DatabaseSync } from "node:sqlite";
-import { Effect, ManagedRuntime } from "effect";
+import { Effect, Layer, ManagedRuntime } from "effect";
+import { SqlClient } from "effect/unstable/sql";
 import { afterEach, describe, expect, it } from "vitest";
-import {
-  CONTENT_STATE_SCHEMA_SQL,
-} from "../src/main/junto/content/state-schema";
 import {
   contentIncomingDir,
   contentObjectPath,
   contentStoreRoot,
 } from "../src/main/junto/content/paths";
+import { createContentService } from "../src/main/junto/content/service";
 import {
-  createContentService,
-} from "../src/main/junto/content/service";
-import {
+  ContentManifest,
   ContentManifestError,
-  getContentObject,
-  listContentRefsForObject,
-  recordContentObject,
-  recordContentRef,
 } from "../src/main/junto/content/manifest";
 import {
   ContentStoreError,
@@ -34,17 +33,9 @@ import {
   makeStateEngineLive,
   StateEngine,
 } from "../src/main/junto/state/engine";
-import type {
-  StateBindings,
-  StateInputValue,
-  StateRow,
-  StateWriter,
-} from "../src/main/junto/state/service";
 
 const roots: string[] = [];
-const runtimes: Array<
-  ManagedRuntime.ManagedRuntime<StateEngine, unknown>
-> = [];
+const runtimes: Array<ManagedRuntime.ManagedRuntime<StateEngine, unknown>> = [];
 
 afterEach(async () => {
   while (runtimes.length > 0) {
@@ -64,20 +55,21 @@ const tempRoot = async (prefix: string): Promise<string> => {
 const sha256Hex = (bytes: Buffer | string): string =>
   createHash("sha256").update(bytes).digest("hex");
 
-async function* chunked(
-  data: Buffer,
-  size: number,
-): AsyncGenerator<Buffer> {
+async function* chunked(data: Buffer, size: number): AsyncGenerator<Buffer> {
   for (let offset = 0; offset < data.length; offset += size) {
     yield data.subarray(offset, Math.min(offset + size, data.length));
   }
 }
 
 const openEngine = async (dbPath: string) => {
-  const runtime = ManagedRuntime.make(makeStateEngineLive(dbPath));
+  const runtime = ManagedRuntime.make(
+    ContentManifest.layer.pipe(Layer.provideMerge(makeStateEngineLive(dbPath))),
+  );
   runtimes.push(runtime);
   const state = await runtime.runPromise(StateEngine);
-  return { runtime, state };
+  const sql = await runtime.runPromise(SqlClient.SqlClient);
+  const manifest = await runtime.runPromise(ContentManifest);
+  return { runtime, state, sql, manifest };
 };
 
 describe("content layout + stream ingest", () => {
@@ -150,10 +142,14 @@ describe("content layout + stream ingest", () => {
           byteLength: payload.length as never,
         },
       }),
-    ).rejects.toMatchObject({ code: "corrupt" } satisfies Partial<ContentStoreError>);
+    ).rejects.toMatchObject({
+      code: "corrupt",
+    } satisfies Partial<ContentStoreError>);
 
     const digest = sha256Hex(payload);
-    await expect(readFile(contentObjectPath(root, digest))).rejects.toBeTruthy();
+    await expect(
+      readFile(contentObjectPath(root, digest)),
+    ).rejects.toBeTruthy();
   });
 
   it("refuses symlink substitution on the object tree", async () => {
@@ -180,106 +176,90 @@ describe("content layout + stream ingest", () => {
 });
 
 describe("content manifest ordering", () => {
-  const memoryWriter = (): {
-    readonly database: DatabaseSync;
-    readonly writer: StateWriter;
-  } => {
-    const database = new DatabaseSync(":memory:");
-    database.exec("PRAGMA foreign_keys = ON");
-    database.exec(CONTENT_STATE_SCHEMA_SQL);
-    const bindValues = (bindings?: StateBindings): StateInputValue[] => {
-      if (bindings === undefined) return [];
-      if (Array.isArray(bindings)) return [...bindings];
-      return Object.values(bindings);
-    };
-    const writer: StateWriter = {
-      get: <Row extends StateRow = StateRow>(
-        sql: string,
-        bindings?: StateBindings,
-      ) =>
-        database
-          .prepare(sql)
-          .get(...(bindValues(bindings) as never[])) as Row | undefined,
-      all: <Row extends StateRow = StateRow>(
-        sql: string,
-        bindings?: StateBindings,
-      ) =>
-        database
-          .prepare(sql)
-          .all(...(bindValues(bindings) as never[])) as Row[],
-      run: (sql: string, bindings?: StateBindings) => {
-        const result = database
-          .prepare(sql)
-          .run(...(bindValues(bindings) as never[]));
-        return {
-          changes: result.changes,
-          lastInsertRowid: result.lastInsertRowid,
-        };
-      },
-    };
-    return { database, writer };
-  };
-
-  it("rejects refs before the object row exists (no dangling references)", () => {
-    const { writer } = memoryWriter();
-    expect(() =>
-      recordContentRef(writer, {
-        ref: {
-          sha256: "a".repeat(64) as never,
-          byteLength: 1 as never,
-          mediaType: "text/plain" as never,
-        },
-        owner: {
-          kind: "task",
-          canvasName: "main",
-          nodeId: "task-1",
-          recordId: "t1",
-        },
-      }),
-    ).toThrow(ContentManifestError);
+  it("rejects refs before the object row exists (no dangling references)", async () => {
+    const root = await tempRoot("junto-manifest-order-");
+    const { manifest } = await openEngine(join(root, "junto.db"));
+    await expect(
+      Effect.runPromise(
+        manifest.recordContentRef({
+          ref: {
+            sha256: "a".repeat(64) as never,
+            byteLength: 1 as never,
+            mediaType: "text/plain" as never,
+          },
+          owner: {
+            kind: "task",
+            canvasName: "main",
+            nodeId: "task-1",
+            recordId: "t1",
+          },
+        }),
+      ),
+    ).rejects.toThrow(ContentManifestError);
   });
 
-  it("records object then ref; crash-before-object-row leaves no ref", () => {
-    const { writer, database } = memoryWriter();
+  it("records object then ref; crash-before-object-row leaves no ref", async () => {
+    const root = await tempRoot("junto-manifest-order-");
+    const { sql, manifest } = await openEngine(join(root, "junto.db"));
     const sha = sha256Hex("durable");
     // Simulate: object published on disk but process died before SQLite —
     // no content_objects, no content_refs.
-    const refs = database
-      .prepare("SELECT count(*) AS n FROM content_refs")
-      .get() as { n: number };
+    const refs = (
+      await Effect.runPromise(
+        sql<{ n: number }>`SELECT count(*) AS n FROM content_refs`,
+      )
+    )[0]!;
     expect(Number(refs.n)).toBe(0);
 
-    recordContentObject(writer, {
-      sha256: sha,
-      byteLength: 7,
-      verifiedAt: "2026-01-01T00:00:00.000Z",
-    });
-    recordContentRef(writer, {
-      ref: {
-        sha256: sha as never,
-        byteLength: 7 as never,
-        mediaType: "text/plain" as never,
-        displayName: "note.txt" as never,
-      },
-      owner: {
-        kind: "artifact",
-        canvasName: "main",
-        nodeId: "artifacts-1",
-        recordId: "art-1",
-      },
-      createdAt: "2026-01-01T00:00:01.000Z",
-    });
+    await Effect.runPromise(
+      sql.withTransaction(
+        manifest.recordContentObject({
+          sha256: sha,
+          byteLength: 7,
+          verifiedAt: "2026-01-01T00:00:00.000Z",
+        }),
+      ),
+    );
+    await Effect.runPromise(
+      sql.withTransaction(
+        manifest.recordContentRef({
+          ref: {
+            sha256: sha as never,
+            byteLength: 7 as never,
+            mediaType: "text/plain" as never,
+            displayName: "note.txt" as never,
+          },
+          owner: {
+            kind: "artifact",
+            canvasName: "main",
+            nodeId: "artifacts-1",
+            recordId: "art-1",
+          },
+          createdAt: "2026-01-01T00:00:01.000Z",
+        }),
+      ),
+    );
 
-    expect(getContentObject(writer, sha)?.byteLength).toBe(7);
-    expect(listContentRefsForObject(writer, sha)).toHaveLength(1);
+    expect(
+      (await Effect.runPromise(manifest.getContentObject(sha)))?.byteLength,
+    ).toBe(7);
+    expect(
+      await Effect.runPromise(manifest.listContentRefsForObject(sha)),
+    ).toHaveLength(1);
 
     // Idempotent re-record of the same object.
     expect(
-      recordContentObject(writer, {
-        sha256: sha,
-        byteLength: 7,
-        verifiedAt: "2026-01-01T00:00:02.000Z",
-      }).created,
+      (
+        await Effect.runPromise(
+          sql.withTransaction(
+            manifest.recordContentObject({
+              sha256: sha,
+              byteLength: 7,
+              verifiedAt: "2026-01-01T00:00:02.000Z",
+            }),
+          ),
+        )
+      ).created,
     ).toBe(false);
   });
 });
@@ -296,19 +276,21 @@ describe("content service put + restart survival", () => {
     const digest = sha256Hex(payload);
 
     {
-      const { state } = await openEngine(dbPath);
-      const service = createContentService(state, contentRoot);
-      const put = await service.put({
-        source: chunked(payload, 3),
-        mediaType: "text/plain",
-        displayName: "note.txt",
-        owner: {
-          kind: "task",
-          canvasName: "main",
-          nodeId: "task-node",
-          recordId: "task-1",
-        },
-      }).pipe(Effect.runPromise);
+      const { sql, manifest } = await openEngine(dbPath);
+      const service = createContentService(sql, manifest, contentRoot);
+      const put = await service
+        .put({
+          source: chunked(payload, 3),
+          mediaType: "text/plain",
+          displayName: "note.txt",
+          owner: {
+            kind: "task",
+            canvasName: "main",
+            nodeId: "task-node",
+            recordId: "task-1",
+          },
+        })
+        .pipe(Effect.runPromise);
 
       expect(put.ref.sha256).toBe(digest);
       expect(put.refRow?.owner.recordId).toBe("task-1");
@@ -325,15 +307,17 @@ describe("content service put + restart survival", () => {
     }
 
     {
-      const { state } = await openEngine(dbPath);
-      const service = createContentService(state, contentRoot);
+      const { sql, manifest } = await openEngine(dbPath);
+      const service = createContentService(sql, manifest, contentRoot);
       const ref = {
         sha256: digest as never,
         byteLength: payload.length as never,
         mediaType: "text/plain" as never,
         displayName: "note.txt" as never,
       };
-      const availability = await service.availability(ref).pipe(Effect.runPromise);
+      const availability = await service
+        .availability(ref)
+        .pipe(Effect.runPromise);
       expect(availability.state).toBe("verified");
 
       const refs = await service.listRefs(digest).pipe(Effect.runPromise);
@@ -342,9 +326,9 @@ describe("content service put + restart survival", () => {
 
       const onDisk = verifyContentObjectFile(contentRoot, ref);
       expect(onDisk.state).toBe("verified");
-      expect(await readFile(contentObjectPath(contentRoot, digest), "utf8")).toBe(
-        "restart-me-please",
-      );
+      expect(
+        await readFile(contentObjectPath(contentRoot, digest), "utf8"),
+      ).toBe("restart-me-please");
     }
   });
 
@@ -354,8 +338,8 @@ describe("content service put + restart survival", () => {
     await mkdir(stateDir, { recursive: true });
     const dbPath = join(stateDir, "junto.db");
     const contentRoot = contentStoreRoot(home);
-    const { state } = await openEngine(dbPath);
-    const service = createContentService(state, contentRoot);
+    const { sql, manifest } = await openEngine(dbPath);
+    const service = createContentService(sql, manifest, contentRoot);
     const put = await service
       .put({
         source: Buffer.from("object-only"),
@@ -365,10 +349,7 @@ describe("content service put + restart survival", () => {
     expect(put.refRow).toBeUndefined();
     const refs = await service.listRefs(put.ref.sha256).pipe(Effect.runPromise);
     expect(refs).toEqual([]);
-    const object = state.read("test", (reader) =>
-      getContentObject(reader, put.ref.sha256),
-    );
-    // state.read returns Effect
+    const object = manifest.getContentObject(put.ref.sha256);
     const row = await object.pipe(Effect.runPromise);
     expect(row?.sha256).toBe(put.ref.sha256);
   });

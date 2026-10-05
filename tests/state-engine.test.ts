@@ -13,6 +13,7 @@ import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { Effect, ManagedRuntime } from "effect";
+import { SqlClient } from "effect/unstable/sql";
 import { afterEach, describe, expect, test } from "vitest";
 import {
   makeStateEngineLive,
@@ -20,6 +21,7 @@ import {
   StateEngineError,
 } from "../src/main/junto/state/engine";
 import { createVerifiedStateBackup } from "../src/main/junto/state/backup";
+import { withSqlRead } from "../src/main/junto/state/sql-read";
 import {
   STATE_SCHEMA_IDENTITY_SQL,
   STATE_SCHEMA_SQL,
@@ -38,7 +40,7 @@ const makeTempDir = (prefix: string): Promise<string> =>
   });
 
 const runtimes: Array<
-  ManagedRuntime.ManagedRuntime<StateEngine, StateEngineError>
+  ManagedRuntime.ManagedRuntime<StateEngine | SqlClient.SqlClient, StateEngineError>
 > = [];
 const tempRoots: string[] = [];
 
@@ -49,7 +51,7 @@ const makeRuntime = (path: string) => {
 };
 
 const disposeRuntime = async (
-  runtime: ManagedRuntime.ManagedRuntime<StateEngine, StateEngineError>,
+  runtime: ManagedRuntime.ManagedRuntime<StateEngine | SqlClient.SqlClient, StateEngineError>,
 ): Promise<void> => {
   const index = runtimes.indexOf(runtime);
   if (index >= 0) runtimes.splice(index, 1);
@@ -167,27 +169,23 @@ describe("StateEngine", () => {
     expect((await lstat(path)).mode & 0o777).toBe(0o600);
 
     const schemaIdentity = await runtime.runPromise(
-      Effect.flatMap(StateEngine, (engine) =>
-        engine.read("test.schema", (reader) => ({
-          identity: reader.get<{
-            singleton: number;
-            actual_schema_sha256: string;
-            source_schema_sha256: string;
-          }>(
-            `
-                SELECT
-                  singleton,
-                  actual_schema_sha256,
-                  source_schema_sha256
-                FROM state_schema_identity
-                WHERE singleton = 1
-              `,
-          ),
-          userVersion: reader.get<{ user_version: number }>(
-            "PRAGMA user_version",
-          )?.user_version,
-        }))
-      ),
+      Effect.gen(function* () {
+        const sql = yield* SqlClient.SqlClient;
+        return yield* withSqlRead(sql, Effect.gen(function* () {
+          return {
+            identity: (yield* sql<{
+              singleton: number;
+              actual_schema_sha256: string;
+              source_schema_sha256: string;
+            }>`
+              SELECT singleton, actual_schema_sha256, source_schema_sha256
+              FROM state_schema_identity
+              WHERE singleton = 1
+            `)[0],
+            userVersion: (yield* sql<{ user_version: number }>`PRAGMA user_version`)[0]?.user_version,
+          };
+        }));
+      }),
     );
     expect(schemaIdentity).toEqual({
       identity: {
@@ -242,48 +240,36 @@ describe("StateEngine", () => {
     const root = await makeTempDir("junto-state-reopen-");
     const path = join(root, "state", "junto.db");
     const firstRuntime = makeRuntime(path);
-    const firstEngine = await firstRuntime.runPromise(StateEngine);
 
     await firstRuntime.runPromise(
-      firstEngine.transaction("test.persist", (writer) => {
-        writer.run(
-          `
-            INSERT INTO factory_pause_canvases(
-              canvas_name,
-              playing,
-              ever_played,
-              updated_at
-            ) VALUES (?, ?, ?, ?)
-          `,
-          ["reopen", 1, 1, "2026-07-27T00:00:00.000Z"],
-        );
+      Effect.gen(function* () {
+        const sql = yield* SqlClient.SqlClient;
+        yield* sql.withTransaction(sql`
+          INSERT INTO factory_pause_canvases(canvas_name, playing, ever_played, updated_at)
+          VALUES ('reopen', 1, 1, '2026-07-27T00:00:00.000Z')
+        `);
       }),
     );
     await disposeRuntime(firstRuntime);
 
     const secondRuntime = makeRuntime(path);
     const state = await secondRuntime.runPromise(
-      Effect.flatMap(StateEngine, (engine) =>
-        engine.read("test.reopen", (reader) => ({
-          witness: reader.get<{
-            playing: number;
-            ever_played: number;
-          }>(
-            `
+      Effect.gen(function* () {
+        const sql = yield* SqlClient.SqlClient;
+        return yield* withSqlRead(sql, Effect.gen(function* () {
+          return {
+            witness: (yield* sql<{ playing: number; ever_played: number }>`
               SELECT playing, ever_played
               FROM factory_pause_canvases
-              WHERE canvas_name = ?
-            `,
-            ["reopen"],
-          ),
-          identityRows: reader.get<{ count: number }>(
-            "SELECT count(*) AS count FROM state_schema_identity",
-          )?.count,
-          integrity: reader.get<{ quick_check: string }>(
-            "PRAGMA quick_check",
-          )?.quick_check,
-        }))
-      ),
+              WHERE canvas_name = 'reopen'
+            `)[0],
+            identityRows: (yield* sql<{ count: number }>`
+              SELECT count(*) AS count FROM state_schema_identity
+            `)[0]?.count,
+            integrity: (yield* sql<{ quick_check: string }>`PRAGMA quick_check`)[0]?.quick_check,
+          };
+        }));
+      }),
     );
 
     expect(state).toEqual({
@@ -325,22 +311,19 @@ describe("StateEngine", () => {
     expect(engine.info.schemaVersion).toBe(CURRENT_STATE_SCHEMA_VERSION);
     expect(
       await runtime.runPromise(
-        engine.read("test.adopt-v1", (reader) => ({
-          userVersion: reader.get<{ user_version: number }>(
-            "PRAGMA user_version",
-          )?.user_version,
-          row: reader.get<{
-            playing: number;
-            ever_played: number;
-          }>(
-            `
-              SELECT playing, ever_played
-              FROM factory_pause_canvases
-              WHERE canvas_name = ?
-            `,
-            ["adopted"],
-          ),
-        })),
+        Effect.gen(function* () {
+          const sql = yield* SqlClient.SqlClient;
+          return yield* withSqlRead(sql, Effect.gen(function* () {
+            return {
+              userVersion: (yield* sql<{ user_version: number }>`PRAGMA user_version`)[0]?.user_version,
+              row: (yield* sql<{ playing: number; ever_played: number }>`
+                SELECT playing, ever_played
+                FROM factory_pause_canvases
+                WHERE canvas_name = 'adopted'
+              `)[0],
+            };
+          }));
+        }),
       ),
     ).toEqual({
       userVersion: CURRENT_STATE_SCHEMA_VERSION,
@@ -427,69 +410,42 @@ describe("StateEngine", () => {
   test("commits a complete transaction and rolls every write back on failure", async () => {
     const root = await makeTempDir("junto-state-transaction-");
     const runtime = makeRuntime(join(root, "junto.db"));
-    const engine = await runtime.runPromise(StateEngine);
+    const sql = await runtime.runPromise(SqlClient.SqlClient);
 
     await runtime.runPromise(
-      engine.transaction("test.create", (writer) => {
-        writer.run(
-          `
-            INSERT INTO kernel_armed_regions(
-              canvas_name,
-              region_id,
-              armed_at
-            ) VALUES (?, ?, ?)
-          `,
-          ["transaction", "kept", "2026-07-27T00:00:00.000Z"],
-        );
-      }),
+      sql.withTransaction(sql`
+        INSERT INTO kernel_armed_regions(canvas_name, region_id, armed_at)
+        VALUES ('transaction', 'kept', '2026-07-27T00:00:00.000Z')
+      `),
     );
 
     const failed = await runtime.runPromise(
       Effect.result(
-        engine.transaction("test.rollback", (writer) => {
-          writer.run(
-            `
-              INSERT INTO kernel_armed_regions(
-                canvas_name,
-                region_id,
-                armed_at
-              ) VALUES (?, ?, ?)
-            `,
-            ["transaction", "lost", "2026-07-27T00:01:00.000Z"],
-          );
-          throw new Error("stop");
-        }),
+        sql.withTransaction(Effect.gen(function* () {
+          yield* sql`
+            INSERT INTO kernel_armed_regions(canvas_name, region_id, armed_at)
+            VALUES ('transaction', 'lost', '2026-07-27T00:01:00.000Z')
+          `;
+          return yield* Effect.fail(new Error("stop"));
+        })),
       ),
     );
     expect(failed._tag).toBe("Failure");
 
     await runtime.runPromise(
-      engine.transaction("test.after-rollback", (writer) => {
-        writer.run(
-          `
-            INSERT INTO kernel_armed_regions(
-              canvas_name,
-              region_id,
-              armed_at
-            ) VALUES (?, ?, ?)
-          `,
-          ["transaction", "recovered", "2026-07-27T00:02:00.000Z"],
-        );
-      }),
+      sql.withTransaction(sql`
+        INSERT INTO kernel_armed_regions(canvas_name, region_id, armed_at)
+        VALUES ('transaction', 'recovered', '2026-07-27T00:02:00.000Z')
+      `),
     );
 
     const rows = await runtime.runPromise(
-      engine.read("test.rows", (reader) =>
-        reader.all<{ region_id: string }>(
-          `
-            SELECT region_id
-            FROM kernel_armed_regions
-            WHERE canvas_name = ?
-            ORDER BY region_id
-          `,
-          ["transaction"],
-        )
-      ),
+      sql<{ region_id: string }>`
+        SELECT region_id
+        FROM kernel_armed_regions
+        WHERE canvas_name = 'transaction'
+        ORDER BY region_id
+      `,
     );
     expect(rows).toEqual([
       { region_id: "kept" },
@@ -500,48 +456,34 @@ describe("StateEngine", () => {
   test("writes large resumable work in bounded chunks and preserves every row", async () => {
     const root = await makeTempDir("junto-state-chunks-");
     const runtime = makeRuntime(join(root, "junto.db"));
-    const engine = await runtime.runPromise(StateEngine);
+    const sql = await runtime.runPromise(SqlClient.SqlClient);
     const values = Array.from({ length: 17 }, (_, index) => index + 1);
     const chunks: number[] = [];
     await runtime.runPromise(
-      engine.chunkedWrite(
-        "test.bulk",
-        values,
-        (writer, chunk) => {
-          chunks.push(chunk.length);
-          for (const value of chunk) {
-            writer.run(
-              `
-                INSERT INTO kernel_armed_regions(
-                  canvas_name,
-                  region_id,
-                  armed_at
-                ) VALUES (?, ?, ?)
-              `,
-              [
-                "chunks",
-                `region-${value.toString().padStart(2, "0")}`,
-                "2026-07-27T00:00:00.000Z",
-              ],
-            );
-          }
-        },
-        { chunkRows: 4 },
-      ),
+      Effect.gen(function* () {
+        for (let offset = 0; offset < values.length; offset += 4) {
+          const chunk = values.slice(offset, offset + 4);
+          yield* sql.withTransaction(Effect.gen(function* () {
+            chunks.push(chunk.length);
+            for (const value of chunk) {
+              yield* sql`
+                INSERT INTO kernel_armed_regions(canvas_name, region_id, armed_at)
+                VALUES ('chunks', ${`region-${value.toString().padStart(2, "0")}`}, '2026-07-27T00:00:00.000Z')
+              `;
+            }
+          }));
+          if (offset + 4 < values.length) yield* Effect.sleep("1 millis");
+        }
+      }),
     );
 
     expect(chunks).toEqual([4, 4, 4, 4, 1]);
     const count = await runtime.runPromise(
-      engine.read("test.count", (reader) =>
-        reader.get<{ count: number }>(
-          `
-            SELECT count(*) AS count
-            FROM kernel_armed_regions
-            WHERE canvas_name = ?
-          `,
-          ["chunks"],
-        )?.count
-      ),
+      sql<{ count: number }>`
+        SELECT count(*) AS count
+        FROM kernel_armed_regions
+        WHERE canvas_name = 'chunks'
+      `.pipe(Effect.map((rows) => rows[0]?.count)),
     );
     expect(count).toBe(17);
   });
@@ -552,29 +494,18 @@ describe("StateEngine", () => {
     const runtime = makeRuntime(livePath);
     const engine = await runtime.runPromise(StateEngine);
     await runtime.runPromise(
-      engine.transaction("test.seed", (writer) => {
-        writer.run(
-          `
-            INSERT INTO factory_pause_canvases(
-              canvas_name,
-              playing,
-              ever_played,
-              updated_at
-            ) VALUES (?, ?, ?, ?)
-          `,
-          ["backup", 1, 1, "2026-07-27T00:00:00.000Z"],
-        );
-        writer.run(
-          `
-            INSERT INTO factory_pause_scopes(
-              canvas_name,
-              scope_kind,
-              scope_id,
-              paused_at
-            ) VALUES (?, ?, ?, ?)
-          `,
-          ["backup", "node", "receipt", "2026-07-27T00:01:00.000Z"],
-        );
+      Effect.gen(function* () {
+        const sql = yield* SqlClient.SqlClient;
+        yield* sql.withTransaction(Effect.gen(function* () {
+          yield* sql`
+            INSERT INTO factory_pause_canvases(canvas_name, playing, ever_played, updated_at)
+            VALUES ('backup', 1, 1, '2026-07-27T00:00:00.000Z')
+          `;
+          yield* sql`
+            INSERT INTO factory_pause_scopes(canvas_name, scope_kind, scope_id, paused_at)
+            VALUES ('backup', 'node', 'receipt', '2026-07-27T00:01:00.000Z')
+          `;
+        }));
       }),
     );
 
@@ -945,25 +876,23 @@ describe("StateEngine", () => {
   test("closes the captured service when its scoped runtime is disposed", async () => {
     const root = await makeTempDir("junto-state-disposal-");
     const runtime = makeRuntime(join(root, "junto.db"));
-    const engine = await runtime.runPromise(StateEngine);
+    const sql = await runtime.runPromise(SqlClient.SqlClient);
     await disposeRuntime(runtime);
 
     const result = await Effect.runPromise(
       Effect.result(
-        engine.read("test.closed", (reader) =>
-          reader.get(
-            "SELECT actual_schema_sha256 FROM state_schema_identity WHERE singleton = 1",
-          )
-        ),
+        sql`SELECT actual_schema_sha256 FROM state_schema_identity WHERE singleton = 1`,
       ),
     );
 
     expect(result._tag).toBe("Failure");
     if (result._tag === "Failure") {
       expect(result.failure).toMatchObject({
-        _tag: "StateEngineError",
-        operation: "test.closed",
-        message: "state engine is closed",
+        _tag: "SqlError",
+        reason: {
+          operation: "execute",
+          message: "database is not open",
+        },
       });
     }
   });

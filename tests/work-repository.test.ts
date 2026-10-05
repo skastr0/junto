@@ -2,14 +2,9 @@ import { randomUUID } from "node:crypto";
 import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-  Context,
-  Effect,
-  Result,
-  Layer,
-  ManagedRuntime,
-  Schema,
-} from "effect";
+import { Context, Effect, Result, Layer, ManagedRuntime, Schema } from "effect";
+import { SqlClient } from "effect/unstable/sql";
+import { withSqlRead } from "../src/main/junto/state/sql-read";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { ActorSeatId } from "../src/shared/actor-seat";
 import { serializeCanvas, type CanvasDoc } from "../src/shared/canvas";
@@ -23,10 +18,7 @@ import {
   WorkRepository,
   WorkRepositoryLive,
 } from "../src/main/junto/work/repository";
-import {
-  makeStateEngineLive,
-  StateEngine,
-} from "../src/main/junto/state/engine";
+import { makeStateEngineLive } from "../src/main/junto/state/engine";
 import { IntentFactBasis } from "../src/shared/work-protocol";
 import { authorialMaterialForTest } from "./helpers/authorial-material";
 import { seedCanvasAuthority } from "./helpers/canvas-authority-material";
@@ -40,7 +32,7 @@ const runtime = ManagedRuntime.make(
 );
 
 let repository: Context.Service.Shape<typeof WorkRepository>;
-let state: Context.Service.Shape<typeof StateEngine>;
+let sql: SqlClient.SqlClient;
 
 const observedAt = "2026-07-27T18:00:00.000Z";
 const cc = Schema.decodeUnknownSync(InstallationId)("cc-repository");
@@ -53,6 +45,7 @@ const fixtureSeatNodeIds: ReadonlyArray<string> = [
   "basis-rejections",
   "basis-roundtrip",
   "inbox-authority",
+  "notification-mailbox",
 ];
 const fixtureSeatNode = (
   id: string,
@@ -103,9 +96,7 @@ const projectedBasis = decodeIntentFactBasis({
 });
 
 const actor = {
-  seatId: Schema.decodeUnknownSync(ActorSeatId)(
-    `seat_${"a".repeat(64)}`,
-  ),
+  seatId: Schema.decodeUnknownSync(ActorSeatId)(`seat_${"a".repeat(64)}`),
   canvasName: "factory",
   nodeId: "builder",
 };
@@ -120,32 +111,33 @@ const message = (messageId: string, role: "user" | "agent", text: string) => ({
 const seedInstallations = (
   installations: ReadonlyArray<InstallationIdValue>,
   local: InstallationIdValue,
-  engine: Context.Service.Shape<typeof StateEngine> = state,
+  client: SqlClient.SqlClient = sql,
 ) =>
-  engine.transaction("test.seed-installations", (writer) => {
-    for (const installation of installations) {
-      writer.run(
-        `
+  client.withTransaction(
+    Effect.gen(function* () {
+      for (const installation of installations) {
+        yield* client.unsafe(
+          `
           INSERT INTO station_known_installations(
             installation_id,
             registered_at
           ) VALUES (?, ?)
         `,
-        [installation, observedAt],
-      );
-    }
-    writer.run(
-      `
+          [installation, observedAt],
+        );
+      }
+      yield* client.unsafe(
+        `
         INSERT INTO station_installation(
           singleton,
           installation_id,
           created_at
         ) VALUES (1, ?, ?)
       `,
-      [local, observedAt],
-    );
-    writer.run(
-      `
+        [local, observedAt],
+      );
+      yield* client.unsafe(
+        `
         INSERT INTO station_configuration(
           singleton,
           role,
@@ -156,22 +148,23 @@ const seedInstallations = (
           configured_at
         ) VALUES (1, 'command-center', 'local', NULL, NULL, 1, ?)
       `,
-      [observedAt],
-    );
-    // Head-only relational authority: only the current generation "1" exists.
-    // The stale generation "0" survives solely as literal basis values whose
-    // rejection ("causal-conflict") is asserted below — a stale basis is
-    // unresolvable by construction in the head-only world.
-    seedCanvasAuthority(writer, {
-      generation: "1",
-      documents: new Map([["factory", fixtureTopology]]),
-      at: observedAt,
-    });
-  });
+        [observedAt],
+      );
+      // Head-only relational authority: only the current generation "1" exists.
+      // The stale generation "0" survives solely as literal basis values whose
+      // rejection ("causal-conflict") is asserted below — a stale basis is
+      // unresolvable by construction in the head-only world.
+      yield* seedCanvasAuthority({
+        generation: "1",
+        documents: new Map([["factory", fixtureTopology]]),
+        at: observedAt,
+      });
+    }),
+  );
 
 beforeAll(async () => {
   repository = await runtime.runPromise(WorkRepository);
-  state = await runtime.runPromise(StateEngine);
+  sql = await runtime.runPromise(SqlClient.SqlClient);
   await runtime.runPromise(seedInstallations([cc, remote], cc));
 });
 
@@ -181,6 +174,72 @@ afterAll(async () => {
 });
 
 describe("WorkRepository v2 local authority", () => {
+  it("notifies only after the outer commit and discards rolled-back savepoints", async () => {
+    const sink = { canvasName: "factory", nodeId: "notification-mailbox" };
+    const notifications: string[] = [];
+    const unsubscribe = repository.subscribeChanges((canvasName, nodeId) => {
+      notifications.push(`${canvasName}/${nodeId}`);
+    });
+    const append = (id: string) =>
+      repository.appendMessage({
+        sink,
+        basis: authorialBasis,
+        message: message(id, "agent", id),
+        sentBy: actor,
+        destination: { kind: "mailbox" },
+        originAt: observedAt,
+        receivedAt: observedAt,
+      });
+    try {
+      const rolledBack = await runtime.runPromise(
+        sql
+          .withTransaction(
+            Effect.gen(function* () {
+              yield* append("outer-rollback");
+              expect(notifications).toEqual([]);
+              return yield* Effect.fail("outer rollback");
+            }),
+          )
+          .pipe(Effect.result),
+      );
+      expect(rolledBack).toMatchObject({
+        _tag: "Failure",
+        failure: "outer rollback",
+      });
+      expect(notifications).toEqual([]);
+      await runtime.runPromise(
+        sql.withTransaction(
+          Effect.gen(function* () {
+            const failed = yield* Effect.result(
+              sql.withTransaction(
+                Effect.gen(function* () {
+                  yield* append("savepoint-rollback");
+                  return yield* Effect.fail("savepoint rollback");
+                }),
+              ),
+            );
+            expect(failed).toMatchObject({
+              _tag: "Failure",
+              failure: "savepoint rollback",
+            });
+            yield* append("outer-commit");
+            expect(notifications).toEqual([]);
+          }),
+        ),
+      );
+      expect(notifications).toEqual(["factory/notification-mailbox"]);
+      expect(
+        (
+          await runtime.runPromise(
+            repository.readSnapshot(sink.canvasName, sink.nodeId),
+          )
+        ).messages.items.map((item) => item.messageId),
+      ).toEqual(["outer-commit"]);
+    } finally {
+      unsubscribe();
+    }
+  });
+
   it("persists ContentRef parts on new mail", async () => {
     const contentRef = Schema.decodeUnknownSync(ContentRef)({
       sha256: "1".repeat(64),
@@ -214,19 +273,19 @@ describe("WorkRepository v2 local authority", () => {
     );
     expect(snapshot.messages.items[0]?.parts).toEqual(contentMessage.parts);
     const storedMessageParts = await runtime.runPromise(
-      state.read("test.read-content-message-parts", (reader) =>
-        reader.get<{ readonly parts_json: string }>(
+      sql
+        .unsafe<{ readonly parts_json: string }>(
           `SELECT parts_json FROM work_messages
            WHERE canvas_name = ? AND node_id = ? AND message_id = ?`,
           [mailbox.canvasName, mailbox.nodeId, contentMessage.messageId],
-        )?.parts_json,
-      ),
+        )
+        .pipe(Effect.map((rows) => rows[0]?.parts_json)),
     );
     expect(storedMessageParts).toContain('"kind":"content"');
     expect(storedMessageParts).not.toContain("bytesBase64");
     const storedMessageFact = await runtime.runPromise(
-      state.read("test.read-content-message-fact", (reader) =>
-        reader.get<{ readonly result_json: string }>(
+      sql
+        .unsafe<{ readonly result_json: string }>(
           `SELECT facts.result_json
            FROM work_facts AS facts
            JOIN work_events AS events
@@ -236,8 +295,8 @@ describe("WorkRepository v2 local authority", () => {
            WHERE events.operation = 'message.append'
              AND events.item_id = ?`,
           [contentMessage.messageId],
-        )?.result_json,
-      ),
+        )
+        .pipe(Effect.map((rows) => rows[0]?.result_json)),
     );
     expect(storedMessageFact).toContain('"kind":"content"');
     expect(storedMessageFact).not.toContain("bytesBase64");
@@ -257,16 +316,16 @@ describe("WorkRepository v2 local authority", () => {
     try {
       const unconfiguredRepository =
         await unconfiguredRuntime.runPromise(WorkRepository);
-      const unconfiguredState =
-        await unconfiguredRuntime.runPromise(StateEngine);
-      const unconfiguredInstallation = Schema.decodeUnknownSync(
-        InstallationId,
-      )("unconfigured-repository");
+      const unconfiguredSql = await unconfiguredRuntime.runPromise(
+        SqlClient.SqlClient,
+      );
+      const unconfiguredInstallation = Schema.decodeUnknownSync(InstallationId)(
+        "unconfigured-repository",
+      );
       await unconfiguredRuntime.runPromise(
-        unconfiguredState.transaction(
-          "test.seed-unconfigured-installation",
-          (writer) => {
-            writer.run(
+        unconfiguredSql.withTransaction(
+          Effect.gen(function* () {
+            yield* unconfiguredSql.unsafe(
               `
                 INSERT INTO station_known_installations(
                   installation_id,
@@ -275,7 +334,7 @@ describe("WorkRepository v2 local authority", () => {
               `,
               [unconfiguredInstallation, observedAt],
             );
-            writer.run(
+            yield* unconfiguredSql.unsafe(
               `
                 INSERT INTO station_installation(
                   singleton,
@@ -285,7 +344,7 @@ describe("WorkRepository v2 local authority", () => {
               `,
               [unconfiguredInstallation, observedAt],
             );
-          },
+          }),
         ),
       );
 
@@ -315,18 +374,21 @@ describe("WorkRepository v2 local authority", () => {
       }
       expect(
         await unconfiguredRuntime.runPromise(
-          unconfiguredState.read(
-            "test.read-unconfigured-work-counts",
-            (reader) => ({
-              sequences: reader.get<{ readonly count: number }>(
-                "SELECT count(*) AS count FROM work_event_sequences",
-              )!.count,
-              records: reader.get<{ readonly count: number }>(
-                "SELECT count(*) AS count FROM work_events",
-              )!.count,
-              messages: reader.get<{ readonly count: number }>(
-                "SELECT count(*) AS count FROM work_messages",
-              )!.count,
+          withSqlRead(
+            unconfiguredSql,
+            Effect.gen(function* () {
+              return {
+                sequences: (yield* unconfiguredSql.unsafe<{
+                  readonly count: number;
+                }>("SELECT count(*) AS count FROM work_event_sequences"))[0]!
+                  .count,
+                records: (yield* unconfiguredSql.unsafe<{
+                  readonly count: number;
+                }>("SELECT count(*) AS count FROM work_events"))[0]!.count,
+                messages: (yield* unconfiguredSql.unsafe<{
+                  readonly count: number;
+                }>("SELECT count(*) AS count FROM work_messages"))[0]!.count,
+              };
             }),
           ),
         ),
@@ -340,33 +402,38 @@ describe("WorkRepository v2 local authority", () => {
   it("rejects stale, mismatched, and role-wrong intent bases transactionally", async () => {
     const sink = { canvasName: "factory", nodeId: "basis-rejections" };
     const persistedState = () =>
-      state.read("test.read-rejected-basis-state", (reader) => ({
-        lastSequence:
-          reader.get<{ readonly last_seq: string }>(
-            `
+      withSqlRead(
+        sql,
+        Effect.gen(function* () {
+          return {
+            lastSequence:
+              (yield* sql.unsafe<{ readonly last_seq: string }>(
+                `
               SELECT last_seq
               FROM work_event_sequences
               WHERE event_home = ? AND entity_home = ?
             `,
-            [cc, cc],
-          )?.last_seq ?? null,
-        events: reader.get<{ readonly count: number }>(
-          `
+                [cc, cc],
+              ))[0]?.last_seq ?? null,
+            events: (yield* sql.unsafe<{ readonly count: number }>(
+              `
             SELECT count(*) AS count
             FROM work_events
             WHERE item_canvas_name = ? AND item_node_id = ?
           `,
-          [sink.canvasName, sink.nodeId],
-        )!.count,
-        messages: reader.get<{ readonly count: number }>(
-          `
+              [sink.canvasName, sink.nodeId],
+            ))[0]!.count,
+            messages: (yield* sql.unsafe<{ readonly count: number }>(
+              `
             SELECT count(*) AS count
             FROM work_messages
             WHERE canvas_name = ? AND node_id = ?
           `,
-          [sink.canvasName, sink.nodeId],
-        )!.count,
-      }));
+              [sink.canvasName, sink.nodeId],
+            ))[0]!.count,
+          };
+        }),
+      );
     const before = await runtime.runPromise(persistedState());
 
     for (const [messageId, basis, reason] of [
@@ -483,18 +550,16 @@ describe("WorkRepository v2 local authority", () => {
     ).toEqual([message("mail-1", "agent", "hello")]);
     expect(
       await runtime.runPromise(
-        state.read(
-          "test.read-message-sender",
-          (reader) =>
-            reader.get<{ readonly actor_seat_id: string }>(
-              `
+        sql
+          .unsafe<{ readonly actor_seat_id: string }>(
+            `
                 SELECT actor_seat_id
                 FROM work_messages
                 WHERE canvas_name = ? AND node_id = ? AND message_id = ?
               `,
-              [inbox.canvasName, inbox.nodeId, "mail-1"],
-            )?.actor_seat_id,
-        ),
+            [inbox.canvasName, inbox.nodeId, "mail-1"],
+          )
+          .pipe(Effect.map((rows) => rows[0]?.actor_seat_id)),
       ),
     ).toBe(actor.seatId);
   });
@@ -521,16 +586,16 @@ describe("WorkRepository v2 local authority", () => {
     });
     expect(
       await runtime.runPromise(
-        state.read("test.read-message-home", (reader) =>
-          reader.get<{ readonly entity_home: string }>(
+        sql
+          .unsafe<{ readonly entity_home: string }>(
             `
               SELECT entity_home
               FROM work_messages
               WHERE canvas_name = ? AND node_id = ? AND message_id = ?
             `,
             [sink.canvasName, sink.nodeId, "mail-authority"],
-          )?.entity_home,
-        ),
+          )
+          .pipe(Effect.map((rows) => rows[0]?.entity_home)),
       ),
     ).toBe(cc);
   });

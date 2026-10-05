@@ -3,6 +3,7 @@ import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect, Layer, ManagedRuntime, Schema } from "effect";
+import { SqlClient } from "effect/unstable/sql";
 import { afterEach, describe, expect, it } from "vitest";
 import { ActorSeatId } from "../src/shared/actor-seat";
 import { serializeCanvas, type CanvasDoc } from "../src/shared/canvas";
@@ -25,10 +26,7 @@ import {
   WorkRepository,
   WorkRepositoryLive,
 } from "../src/main/junto/work/repository";
-import {
-  makeStateEngineLive,
-  StateEngine,
-} from "../src/main/junto/state/engine";
+import { makeStateEngineLive } from "../src/main/junto/state/engine";
 import { authorialMaterialForTest } from "./helpers/authorial-material";
 import { seedCanvasAuthority } from "./helpers/canvas-authority-material";
 
@@ -51,9 +49,7 @@ const installation = (value: string): InstallationIdValue =>
   Schema.decodeUnknownSync(InstallationId)(value);
 
 const actor = (digit: string, nodeId = `actor-${digit}`): ActorRef => ({
-  seatId: Schema.decodeUnknownSync(ActorSeatId)(
-    `seat_${digit.repeat(64)}`,
-  ),
+  seatId: Schema.decodeUnknownSync(ActorSeatId)(`seat_${digit.repeat(64)}`),
   canvasName,
   nodeId,
 });
@@ -93,10 +89,7 @@ const openRepository = async (
   peers: ReadonlyArray<InstallationIdValue> = [],
   role: "command-center" | "remote" = "command-center",
 ) => {
-  const root = join(
-    tmpdir(),
-    `junto-seat-recent-ops-${local}-${randomUUID()}`,
-  );
+  const root = join(tmpdir(), `junto-seat-recent-ops-${local}-${randomUUID()}`);
   const runtime = ManagedRuntime.make(
     Layer.provideMerge(
       WorkRepositoryLive,
@@ -105,32 +98,33 @@ const openRepository = async (
   );
   opened.push({ root, dispose: () => runtime.dispose() });
   const repository = await runtime.runPromise(WorkRepository);
-  const state = await runtime.runPromise(StateEngine);
+  const sql = await runtime.runPromise(SqlClient.SqlClient);
   await runtime.runPromise(
-    state.transaction("test.seed-seat-recent-ops", (writer) => {
-      for (const known of new Set([local, ...peers])) {
-        writer.run(
-          `
+    sql.withTransaction(
+      Effect.gen(function* () {
+        for (const known of new Set([local, ...peers])) {
+          yield* sql.unsafe(
+            `
             INSERT INTO station_known_installations(
               installation_id,
               registered_at
             ) VALUES (?, ?)
           `,
-          [known, atMinute(0)],
-        );
-      }
-      writer.run(
-        `
+            [known, atMinute(0)],
+          );
+        }
+        yield* sql.unsafe(
+          `
           INSERT INTO station_installation(
             singleton,
             installation_id,
             created_at
           ) VALUES (1, ?, ?)
         `,
-        [local, atMinute(0)],
-      );
-      writer.run(
-        `
+          [local, atMinute(0)],
+        );
+        yield* sql.unsafe(
+          `
           INSERT INTO station_configuration(
             singleton,
             role,
@@ -141,19 +135,20 @@ const openRepository = async (
             configured_at
           ) VALUES (1, ?, ?, ?, ?, 1, ?)
         `,
-        role === "command-center"
-          ? [role, "local", null, null, atMinute(0)]
-          : [role, "remote", "remote", peers[0], atMinute(0)],
-      );
-      seedCanvasAuthority(writer, {
-        generation: "1",
-        documents: new Map([
-          [canvasName, factoryTopology],
-          [otherCanvasName, emptyTopology],
-        ]),
-        at: atMinute(0),
-      });
-    }),
+          role === "command-center"
+            ? [role, "local", null, null, atMinute(0)]
+            : [role, "remote", "remote", peers[0], atMinute(0)],
+        );
+        yield* seedCanvasAuthority({
+          generation: "1",
+          documents: new Map([
+            [canvasName, factoryTopology],
+            [otherCanvasName, emptyTopology],
+          ]),
+          at: atMinute(0),
+        });
+      }),
+    ),
   );
   const basis = Schema.decodeUnknownSync(AuthorialIntentFactBasis)({
     kind: "authorial-intent",
@@ -379,12 +374,7 @@ describe("WorkRepository recent actor-seat operations", () => {
       }),
     );
     await commandCenter.runtime.runPromise(
-      accept(
-        commandCenter.repository,
-        remoteId,
-        [command],
-        atMinute(2),
-      ),
+      accept(commandCenter.repository, remoteId, [command], atMinute(2)),
     );
     const rejected = await remote.runtime.runPromise(
       remote.repository.enqueueRemoteCommand({
