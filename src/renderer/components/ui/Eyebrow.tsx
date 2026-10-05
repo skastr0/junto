@@ -23,7 +23,7 @@ export function Eyebrow({
     faint: "text-faint",
   } as const;
   const sizes = {
-    xs: "text-micro tracking-[0.16em]",
+    xs: "text-micro tracking-eyebrow",
     sm: "text-label tracking-eyebrow",
   } as const;
   return (

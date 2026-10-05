@@ -194,7 +194,7 @@ export function Combobox<T>({
               aria-hidden
               className={[
                 "pointer-events-none absolute inset-0 flex items-center overflow-hidden",
-                "rounded-[5px] border border-transparent px-2 text-body-lg leading-normal",
+                "rounded-md border border-transparent px-2 text-body-lg leading-normal",
                 "whitespace-pre",
               ].join(" ")}
             >
@@ -210,7 +210,7 @@ export function Combobox<T>({
 
       <div
         className={[
-          "overflow-hidden rounded-[5px] border border-stroke bg-inset",
+          "overflow-hidden rounded-md border border-stroke bg-inset",
           listClassName ?? "",
         ]
           .filter(Boolean)
@@ -235,7 +235,7 @@ export function Combobox<T>({
                     role="option"
                     aria-selected={selected}
                     className={[
-                      "cursor-pointer rounded-[4px]",
+                      "cursor-pointer rounded-sm",
                       active || selected ? "bg-raise text-ink" : "text-ink-2 hover:bg-raise/60",
                       active ? "shadow-[inset_2px_0_0_var(--color-cyan)]" : "",
                     ]

@@ -24,8 +24,8 @@ const VARIANT: Record<ButtonVariant, string> = {
 };
 
 const SIZE: Record<ButtonSize, string> = {
-  xs: "gap-1 rounded px-1.5 py-0.5 text-caption uppercase tracking-[0.1em]",
-  sm: "gap-1.5 rounded-[5px] px-2 py-1 text-caption uppercase tracking-[0.12em]",
+  xs: "gap-1 rounded px-1.5 py-0.5 text-caption uppercase tracking-label",
+  sm: "gap-1.5 rounded-md px-2 py-1 text-caption uppercase tracking-eyebrow",
   md: "gap-1.5 rounded-md px-3 py-1.5 text-body-lg",
 };
 

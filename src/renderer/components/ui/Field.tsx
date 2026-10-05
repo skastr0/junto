@@ -9,7 +9,7 @@ import { Dropdown, type DropdownOption } from "./Dropdown";
  * inset fill, hairline stroke, cyan focus ring, mono at 12px.
  */
 const FIELD_CHROME = [
-  "w-full rounded-[5px] border border-stroke bg-inset px-2",
+  "w-full rounded-md border border-stroke bg-inset px-2",
   "text-ink placeholder:text-faint outline-none transition-colors",
   "focus:border-cyan/60 focus:shadow-[0_0_0_3px_var(--color-focus-ring)]",
 ].join(" ");
@@ -27,7 +27,7 @@ export const FIELD_SELECT_TRIGGER_CLASS = [
 
 /** Compact inspector/settings chrome for Dropdown triggers. */
 export const INSPECTOR_SELECT_TRIGGER_CLASS = [
-  "w-full min-h-[30px] rounded-[4px] border border-stroke bg-inset px-2 py-1.5",
+  "w-full min-h-[30px] rounded-sm border border-stroke bg-inset px-2 py-1.5",
   "text-label text-ink outline-none transition-colors cursor-pointer",
   "focus:border-cyan/60 focus:shadow-[0_0_0_3px_var(--color-focus-ring)]",
   "aria-expanded:border-cyan/60 aria-expanded:shadow-[0_0_0_3px_var(--color-focus-ring)]",

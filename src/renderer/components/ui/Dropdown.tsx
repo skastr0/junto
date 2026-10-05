@@ -233,7 +233,7 @@ export function Dropdown({
   };
 
   const labelText = selected?.label ?? (options.length === 0 ? emptyLabel : placeholder);
-  const caseClass = uppercase ? "uppercase tracking-[0.06em]" : "";
+  const caseClass = uppercase ? "uppercase tracking-label" : "";
 
   const menuStyle: CSSProperties | undefined = box
     ? {
@@ -262,7 +262,7 @@ export function Dropdown({
             aria-label={ariaLabel}
             aria-activedescendant={options[highlight] ? `${listId}-opt-${highlight}` : undefined}
             className={[
-              "overflow-y-auto rounded-[8px] border border-stroke bg-inset/[0.98]",
+              "overflow-y-auto rounded-lg border border-stroke bg-inset/[0.98]",
               "py-1 shadow-[0_18px_48px_var(--color-shadow-1)] backdrop-blur-xl outline-none",
               menuClassName ?? "",
             ]
