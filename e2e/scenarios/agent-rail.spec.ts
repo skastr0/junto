@@ -1,4 +1,13 @@
 import type { Locator, Page } from "@playwright/test";
+import {
+  crewDoc,
+  crewMessagesEdge,
+  crewOccupySeat,
+  crewPlayFactory,
+  crewSeat,
+  crewSeatNode,
+  installCrewSeatHarness,
+} from "../harness/crew-fixture";
 import { agentTextNode, canvasDoc, verbEdge } from "../harness/sandbox";
 import { expect, launchJunto, test } from "../harness/launch";
 
@@ -200,6 +209,57 @@ test("a voiced preamble shows the canvas bubble beside its seat and never takes 
       await expect(rail(page).locator('[data-testid="node-preamble"][data-node-id="bea"]')).toHaveCount(0);
       await expect(page.locator('.react-flow__node[data-id="bea"] [data-testid="node-preamble"]')).toHaveCount(0);
     }
+  } finally {
+    await junto.close();
+  }
+});
+
+test("[fake-tui] every key typed while bubbles come and go reaches the agent", async () => {
+  test.setTimeout(240_000);
+  const KEYS = "keys";
+  const typist = crewSeatNode({ id: "typist", x: 40, y: 40 });
+  const talker = crewSeatNode({ id: "talker", x: 360, y: 40 });
+  const junto = await launchJunto({
+    seedCanvases: {
+      [KEYS]: crewDoc([typist, talker], [crewMessagesEdge("e-tt", "typist", "talker", [typist, talker])]),
+    },
+    afterSeed: installCrewSeatHarness,
+  });
+  try {
+    const { page, sandbox } = junto;
+    await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
+    await crewPlayFactory(page);
+    const seat = crewSeat(sandbox, KEYS, "typist");
+    await crewOccupySeat(page, KEYS, typist, seat);
+    await crewOccupySeat(page, KEYS, talker, crewSeat(sandbox, KEYS, "talker"));
+
+    await page.locator('.react-flow__node[data-id="typist"]').dblclick();
+    await expect(front(page)).toBeVisible({ timeout: 20_000 });
+    await expect(rail(page).locator('[data-peer-node-id="talker"]')).toBeVisible({ timeout: 10_000 });
+    await front(page).locator(".xterm").first().click();
+    await expect.poll(() => typingInTerminal(page)).toBe(true);
+
+    const bubble = async (text: string): Promise<void> => {
+      const now = Date.now();
+      await junto.app.evaluate(
+        ({ BrowserWindow }, event) => {
+          for (const window of BrowserWindow.getAllWindows()) window.webContents.send("junto:preamble", event);
+        },
+        { preambleId: `keys-${String(now)}`, canvasName: KEYS, nodeId: "talker", text, expiresAt: now + 60_000, provenance: "agent" },
+      );
+    };
+    const typed = ["the quick brown ", "fox jumps over ", "the lazy dog"];
+    await bubble("first note");
+    await page.keyboard.type(typed[0]!);
+    await expect(rail(page).getByTestId("node-preamble")).toHaveCount(1);
+    await bubble("second note replaces the first");
+    await page.keyboard.type(typed[1]!);
+    await rail(page).locator(".junto-preamble__close").click({ force: true });
+    await front(page).locator(".xterm").first().click();
+    await page.keyboard.type(typed[2]!);
+
+    // The seat's own process logged what its PTY received: every key, in order.
+    await expect.poll(() => seat.stdinLog(), { timeout: 20_000 }).toContain(typed.join(""));
   } finally {
     await junto.close();
   }
