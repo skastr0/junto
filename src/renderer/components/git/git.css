@@ -82,3 +82,74 @@ html[data-theme="bright"] .git-browser__diff {
   white-space: pre;
   color: var(--color-ink);
 }
+
+/* Git at a glance for a seat's folder (SeatGitLine): one line inside a header
+   slot. The branch holds its ground; the commit subject gives way first, then
+   the numbers. */
+.seat-git-line {
+  display: inline-flex;
+  min-width: 0;
+  max-width: 100%;
+  align-items: baseline;
+  gap: 8px;
+  padding: 2px 6px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-faint);
+  font-family: var(--font-mono);
+  font-size: var(--text-body);
+  line-height: var(--leading-compact);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.seat-git-line:hover,
+.seat-git-line:focus-visible {
+  background: var(--color-overlay-1);
+  color: var(--color-ink-2);
+}
+
+.seat-git-line:focus-visible {
+  outline: 1px solid var(--color-stroke-hi);
+}
+
+.seat-git-line__mark {
+  flex: none;
+  align-self: center;
+}
+
+.seat-git-line__part {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-variant-numeric: tabular-nums;
+}
+
+.seat-git-line__part--branch {
+  flex-shrink: 1;
+  min-width: 6ch;
+  color: var(--color-ink-2);
+  font-weight: 600;
+}
+
+.seat-git-line__part--ahead,
+.seat-git-line__part--behind,
+.seat-git-line__part--additions,
+.seat-git-line__part--deletions,
+.seat-git-line__part--age,
+.seat-git-line__part--dirty,
+.seat-git-line__part--operation {
+  flex-shrink: 0;
+}
+
+.seat-git-line__part--additions { color: var(--color-green); }
+.seat-git-line__part--deletions { color: var(--color-crimson); }
+.seat-git-line__part--dirty,
+.seat-git-line__part--operation { color: var(--color-amber); }
+
+/* The subject is the first to give way, down to nothing. */
+.seat-git-line__part--subject {
+  flex-shrink: 9999;
+}
