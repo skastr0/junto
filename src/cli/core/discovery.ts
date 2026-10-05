@@ -46,7 +46,7 @@ import {
   OnboardArgs,
   SignalClearArgs,
   SignalListArgs,
-  SignalRaiseArgs,
+  SignalRaiseCliArgs,
   RulingsArgs,
   TasksCheckCliArgs,
   TasksClaimArgs,
@@ -495,7 +495,8 @@ const signalRaiseSchema = (
   command: kind,
   schema_id: `signal.${kind}.input/v1`,
   description,
-  schema: SignalRaiseArgs,
+  // What the agent writes: files by path. The CLI reads them and sends bytes.
+  schema: SignalRaiseCliArgs,
   input_modes: signalInputModes,
 });
 
@@ -1194,6 +1195,29 @@ const declaredExamples: ReadonlyArray<CommandExample> = [
     name: "ready for review",
     input: { kind: "feedback", text: "The onboarding redesign is up on the branch for review." },
     args: ["feedback", "The onboarding redesign is up on the branch for review."],
+  },
+  {
+    command_id: "signal.feedback",
+    command: "feedback",
+    name: "ready for review, with screenshots",
+    description:
+      "Attach the files the operator should look at: they show as pictures on the card, and Before and After captions set up a comparison.",
+    input: {
+      kind: "feedback",
+      text: "The agent rail redesign is ready to review.",
+      attach: [
+        { path: "/abs/shots/before.png", caption: "Before" },
+        { path: "/abs/shots/after.png", caption: "After" },
+      ],
+    },
+    args: [
+      "feedback",
+      "The agent rail redesign is ready to review.",
+      "--attach",
+      "Before=/abs/shots/before.png",
+      "--attach",
+      "After=/abs/shots/after.png",
+    ],
   },
   {
     command_id: "signal.list",
