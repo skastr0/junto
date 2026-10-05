@@ -481,6 +481,14 @@ const schedulerChainCycle = (doc: CanvasDoc): boolean => {
   return ready.length !== indegrees.size;
 };
 
+const sameEndpointKind = (
+  previous: CanvasNode | undefined,
+  next: CanvasNode,
+): boolean =>
+  previous !== undefined &&
+  previous.type === next.type &&
+  kindOfNode(previous) === kindOfNode(next);
+
 export type OverseerCanvasBatchResult = {
   readonly canvas: string;
   readonly results: ReadonlyArray<
@@ -608,6 +616,7 @@ export const applyCanvasBatch = (
     }
   }
 
+  const previousEdges = new Map(current.edges.map((edge) => [edge.id, edge]));
   const proposed: CanvasDoc = { ...current, nodes: [...nodes.values()], edges: [...edges.values()] };
   for (const edge of proposed.edges) {
     const fromNode = nodes.get(edge.fromNode);
@@ -615,6 +624,13 @@ export const applyCanvasBatch = (
     if (fromNode === undefined || toNode === undefined) {
       return reject("NotFound", `edge "${edge.id}" endpoints were not found`);
     }
+    // A stored edge this batch left alone keeps its verb, as it does under
+    // single operations; only what the batch authored is held to the table.
+    const untouched =
+      previousEdges.get(edge.id) === edge &&
+      sameEndpointKind(previousNodes.get(edge.fromNode), fromNode) &&
+      sameEndpointKind(previousNodes.get(edge.toNode), toNode);
+    if (untouched) continue;
     if (edge.ether?.verb === undefined || !edgeVerbAdmitted(fromNode, toNode, edge.ether.verb)) {
       return reject("InvalidArguments", `edge "${edge.id}" has no legal verb for its endpoints`);
     }

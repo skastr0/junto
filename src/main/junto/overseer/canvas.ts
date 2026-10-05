@@ -857,7 +857,7 @@ const handleEdgeVerbs = (
     return {
       verbs,
       default:
-        pairDefault !== undefined && productVerbEnabled(pairDefault)
+        pairDefault !== undefined && verbs.includes(pairDefault)
           ? pairDefault
           : verbs[0],
     };

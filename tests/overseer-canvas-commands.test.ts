@@ -420,6 +420,39 @@ describe("executeOverseerCanvas", () => {
     expect((await runtime!.runPromise(canvases.read("other"))).revision).toBe(foreign.revision);
   });
 
+  it("batches past a stored edge it never touched, and names its default from its own verb list", async () => {
+    const canvases = await boot();
+    const page: CanvasNode = {
+      ...note("page", { x: 900, y: 0, width: 320, height: 200 }),
+      ether: { entity: { kind: "page" } },
+    };
+    const seeded = overseerDoc();
+    await runtime!.runPromise(canvases.write("ops", {
+      nodes: [...seeded.nodes, page],
+      edges: [
+        { id: "stale-page", fromNode: "peer", toNode: "page", ether: { verb: "navigates" } },
+      ],
+    }));
+    const current = await runtime!.runPromise(canvases.read("ops"));
+    await runtime!.runPromise(canvases.canvasOverseerSet({
+      canvasName: "ops", nodeId: "overseer", overseer: true, expectedRevision: current.revision,
+    }));
+
+    await expectOk({ operation: "canvas.batch", args: { operations: [
+      { operation: "node.move", nodeId: "n1", x: 640, y: 220 },
+      { operation: "edge.connect", edge: { id: "e3", fromNode: "overseer", toNode: "peer", verb: "messages" } },
+    ] } });
+    const after = await runtime!.runPromise(canvases.read("ops"));
+    expect(after.doc.edges.map((edge) => edge.id).sort()).toEqual(["e3", "stale-page"]);
+
+    const verbs = (await expectOk({
+      operation: "edge.verbs",
+      args: { fromNode: "peer", toNode: "page" },
+    })) as { verbs: ReadonlyArray<string>; default?: string };
+    if (verbs.verbs.length === 0) expect(verbs.default).toBeUndefined();
+    else expect(verbs.verbs).toContain(verbs.default);
+  });
+
   it("leaves every node and revision unchanged when the final batch graph is invalid", async () => {
     const canvases = await boot();
     const before = await runtime!.runPromise(canvases.read("ops"));

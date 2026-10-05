@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { CanvasDoc, CanvasNode } from "../src/shared/canvas";
 import {
   aliasesLiveOverseerBinding,
+  applyCanvasBatch,
   applyNodeChanges,
   applyOverseerFlag,
   callerGrantLive,
@@ -195,6 +196,19 @@ describe("overseer authoring", () => {
       height: 40,
     };
     expect(edgeVerbAdmitted(from, to, "messages")).toBe(false);
+  });
+
+  it("batch leaves a stored edge it never touched out of verb validation", () => {
+    const page: CanvasNode = { ...note("page"), ether: { entity: { kind: "page" } } };
+    const doc: CanvasDoc = {
+      nodes: [agent("a", "bind-a"), agent("b", "bind-b"), note("n1"), page],
+      edges: [{ id: "stored", fromNode: "a", toNode: "page", ether: { verb: "navigates" } }],
+    };
+    const batch = applyCanvasBatch(new Map([["ops", doc]]), "ops", [
+      { operation: "node.move", nodeId: "n1", x: 40, y: 40 },
+      { operation: "edge.connect", edge: { fromNode: "a", toNode: "b", verb: "messages" } },
+    ], (kind) => `${kind}-new`);
+    expect(batch.ok && batch.doc.edges.map((edge) => edge.id)).toEqual(["stored", "edge-new"]);
   });
 
   it("caller grant is live only on the granted seat", () => {
