@@ -54,6 +54,8 @@ export type ShortcutId =
   | "groups.jump"
   | "alerts.next"
   | "git.review"
+  | "urgency.next"
+  | "urgency.previous"
   | "mirrors.next"
   | "mirrors.previous"
   | "canvas.undo"
@@ -137,6 +139,22 @@ export const KEY_TABLE: ReadonlyArray<ShortcutDef> = [
     mac: ["Space", "Backquote"],
     other: ["Space", "Backquote"],
     where: ["canvas", "working"],
+  },
+  {
+    id: "urgency.next",
+    area: "Agents",
+    does: "Step to the agent that most needs you; hold Cmd and tap again for the next",
+    mac: ["Cmd+Backquote"],
+    other: [],
+    where: EVERYWHERE,
+  },
+  {
+    id: "urgency.previous",
+    area: "Agents",
+    does: "Step back through the agents that need you",
+    mac: ["Cmd+Shift+Backquote"],
+    other: [],
+    where: EVERYWHERE,
   },
   {
     id: "git.review",
@@ -404,6 +422,41 @@ export const reservedReason = (chord: string, mac: boolean): string | null => {
   if (held) return held.why;
   if (mac && /(?:^|\+)Ctrl\+/.test(chord)) return "Control belongs to the terminal";
   return null;
+};
+
+// --- the app menu ------------------------------------------------------------
+
+const MENU_KEY: Readonly<Record<string, string>> = {
+  Backquote: "`",
+  Slash: "/",
+  BracketLeft: "[",
+  BracketRight: "]",
+  Equal: "=",
+  Minus: "-",
+};
+
+const MENU_MODIFIER = { Cmd: "meta", Ctrl: "control", Alt: "alt", Shift: "shift" } as const;
+
+export type MenuKey = {
+  /** The chord as an Electron accelerator. */
+  readonly accelerator: string;
+  /** The same chord as an input event, to hand it to the page. */
+  readonly keyCode: string;
+  readonly modifiers: ReadonlyArray<(typeof MENU_MODIFIER)[keyof typeof MENU_MODIFIER]>;
+};
+
+/** A chord as the macOS menu bar writes and sends it; null for a digit row. */
+export const menuKeyOf = (chord: string): MenuKey | null => {
+  const parts = chord.split("+");
+  const name = parts[parts.length - 1]!;
+  if (name === "Digit") return null;
+  const key = MENU_KEY[name] ?? name;
+  const held = parts.slice(0, -1) as ReadonlyArray<keyof typeof MENU_MODIFIER>;
+  return {
+    accelerator: [...held, key].join("+"),
+    keyCode: key.length === 1 ? key.toLowerCase() : key,
+    modifiers: held.map((part) => MENU_MODIFIER[part]),
+  };
 };
 
 // --- display -----------------------------------------------------------------

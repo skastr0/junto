@@ -186,6 +186,18 @@ describe("the key table on macOS", () => {
     expect(resolveKey(key({ key: "z", metaKey: true }), at("terminal"))).toBeNull();
   });
 
+  it("steps through the agents that need the operator with Cmd and the backtick, from everywhere", () => {
+    for (const context of KEY_CONTEXTS) {
+      expect(resolveKey(key({ key: "`", code: "Backquote", metaKey: true }), at(context))).toEqual({
+        id: "urgency.next",
+      });
+      expect(resolveKey(key({ key: "~", code: "Backquote", metaKey: true, shiftKey: true }), at(context))).toEqual({
+        id: "urgency.previous",
+      });
+      expect(resolveKey(key({ key: "`", code: "Backquote", ctrlKey: true }), at(context))).toBeNull();
+    }
+  });
+
   it("closes what is in front with Cmd+W from everywhere", () => {
     for (const context of KEY_CONTEXTS) {
       expect(resolveKey(key({ key: "w", metaKey: true }), at(context))).toEqual({ id: "front.close" });

@@ -6,6 +6,7 @@ import {
   BrowserWindow,
   dialog,
   ipcMain,
+  Menu,
   powerMonitor,
   protocol,
   session,
@@ -35,6 +36,7 @@ import {
   resolvedSpawnEnv,
   terminateAdapterChildrenOnQuit,
 } from "./junto/adapters/exec";
+import { appMenuTemplate } from "./junto/app-menu";
 import { appProcessPlane } from "./junto/app-process-plane";
 import { beginBoxProcessShutdown } from "./junto/box";
 import { AppRuntime } from "./runtime";
@@ -1281,6 +1283,24 @@ if (packagedSandboxDisablingSwitch !== undefined) {
         app.dock?.hide();
       },
     });
+    // Junto's own menu bar. Off macOS there is no Cmd, and the keys there are
+    // not designed yet: the platform default stays.
+    if (process.platform === "darwin") {
+      Menu.setApplicationMenu(
+        Menu.buildFromTemplate(
+          appMenuTemplate({
+            productName: PRODUCT_NAME,
+            packaged: app.isPackaged,
+            sendKey: ({ keyCode, modifiers }) => {
+              const contents = BrowserWindow.getFocusedWindow()?.webContents;
+              if (!contents || contents.isDestroyed()) return;
+              contents.sendInputEvent({ type: "keyDown", keyCode, modifiers: [...modifiers] });
+              contents.sendInputEvent({ type: "keyUp", keyCode, modifiers: [...modifiers] });
+            },
+          }),
+        ),
+      );
+    }
     if (!(await ensureSupervised())) return;
     if (shutdownAdmissionClosed) return;
 
