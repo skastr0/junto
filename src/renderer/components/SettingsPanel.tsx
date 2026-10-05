@@ -9,6 +9,9 @@ import {
   DEV_TOOLS_ENABLED,
   FLEET_UI_ENABLED,
   HARNESS_SETTINGS_ENABLED,
+  HERMES_INTEGRATION_ENABLED,
+  LIVE_OVERSEER_ENABLED,
+  USAGE_ENABLED,
   experimentalFeatureKeys,
 } from "@shared/features";
 import { ExperimentalSettingsSection } from "./settings/ExperimentalSettingsSection";
@@ -50,6 +53,9 @@ import "./settings-panel.css";
  */
 type PanelSection = SettingsSectionKey | "updates" | "experimental" | "companion";
 
+const PROVIDERS_SECTION_ENABLED =
+  USAGE_ENABLED || LIVE_OVERSEER_ENABLED || HERMES_INTEGRATION_ENABLED;
+
 const SECTIONS: ReadonlyArray<{ key: PanelSection; label: string; blurb: string }> = [
   { key: "appearance", label: "Appearance", blurb: "" },
   { key: "terminal", label: "Terminal", blurb: "scrolling, font, and accessibility" },
@@ -80,11 +86,19 @@ const SECTIONS: ReadonlyArray<{ key: PanelSection; label: string; blurb: string 
         } as const,
       ]
     : []),
-  {
-    key: "providers",
-    label: "Providers",
-    blurb: "usage credentials: API keys, tokens, cookies",
-  },
+  // Usage credentials, the voice provider, and Hermes host access. Each is
+  // flag-gated inside the section; with all three off there is nothing to show.
+  ...(PROVIDERS_SECTION_ENABLED
+    ? [
+        {
+          key: "providers",
+          label: "Providers",
+          blurb: USAGE_ENABLED
+            ? "usage credentials: API keys, tokens, cookies"
+            : "access to outside providers",
+        } as const,
+      ]
+    : []),
   // Built and in the app, off until turned on here. Absent when this build
   // ships nothing experimental.
   ...(experimentalFeatureKeys().length > 0
@@ -1072,7 +1086,7 @@ function SectionBody({ section }: { readonly section: PanelSection }) {
     case "harnesses":
       return HARNESS_SETTINGS_ENABLED ? <HarnessesSettingsSection /> : null;
     case "providers":
-      return <ProvidersSettingsSection />;
+      return PROVIDERS_SECTION_ENABLED ? <ProvidersSettingsSection /> : null;
     case "experimental":
       return <ExperimentalSettingsSection />;
     case "companion":

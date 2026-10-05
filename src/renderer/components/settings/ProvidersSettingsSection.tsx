@@ -23,7 +23,11 @@ import {
   liveSettings,
   type ProviderSectionKey,
 } from "@shared/settings";
-import { HERMES_INTEGRATION_ENABLED, LIVE_OVERSEER_ENABLED } from "@shared/features";
+import {
+  HERMES_INTEGRATION_ENABLED,
+  LIVE_OVERSEER_ENABLED,
+  USAGE_ENABLED,
+} from "@shared/features";
 import { type NativeUsageProvider } from "@shared/usage";
 import { patchSettings } from "../../lib/settings-state";
 import { state$ } from "../../lib/state";
@@ -439,6 +443,8 @@ export function ProvidersSettingsSection() {
   return (
     <div className="settings-section">
       {LIVE_OVERSEER_ENABLED && <LiveProviderCard />}
+      {USAGE_ENABLED ? (
+        <>
       <p className="settings-note" role="note">
         Provider access is off by default. Enable only a source you want
         Junto to read. Usage sources refresh every five minutes.
@@ -491,6 +497,8 @@ export function ProvidersSettingsSection() {
           </div>
         );
       })}
+        </>
+      ) : null}
       {HERMES_INTEGRATION_ENABLED ? (
         <div className="settings-provider-card">
           <div className="settings-provider-head">
