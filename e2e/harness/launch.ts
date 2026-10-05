@@ -157,7 +157,9 @@ export interface JuntoHandle extends JuntoWorld {
   readonly close: () => Promise<void>;
 }
 
-const APPLICATION_CLOSE_TIMEOUT_MS = 30_000;
+// Generous on purpose: on a loaded machine a healthy app can take well over
+// 30 s to quit, and a slow quit is not a verdict on the test that just passed.
+const APPLICATION_CLOSE_TIMEOUT_MS = 120_000;
 const RENDERER_SERVER_CLOSE_TIMEOUT_MS = 5_000;
 
 interface ElectronProcessWitnessSource {
