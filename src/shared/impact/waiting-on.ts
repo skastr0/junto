@@ -1,5 +1,6 @@
 import type { CanvasDoc, CanvasNode } from "../canvas";
 import type { BlockedReason, ExecutionGraph } from "../execution-graph";
+import { regionDisplayName } from "../graph";
 import { impactCone, stoppageEnds } from "./cone";
 
 // Reverse path from a blocked node to its stoppage seed/apex, listing each
@@ -35,7 +36,7 @@ const titleOf = (node: CanvasNode | undefined, fallback: string): string => {
     case "link":
       return node.url;
     case "group":
-      return node.label ?? node.id;
+      return regionDisplayName(node);
   }
 };
 

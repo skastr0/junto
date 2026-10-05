@@ -13,6 +13,7 @@ import { taskBrief, taskMediaParts } from "./task";
 import {
   boardContractOf,
   requiredChecks,
+  regionAddress,
   regionContractOf,
   rulesInForce,
   taskEpoch,
@@ -40,7 +41,7 @@ const nodeById = (doc: CanvasDoc, nodeId: string) =>
 const provenanceOf = (entry: RuleInForce): string => {
   switch (entry.provenance.kind) {
     case "region":
-      return `region ${entry.provenance.label}`;
+      return `region ${regionAddress(entry.provenance)}`;
     case "board":
       return "this board";
     case "task":

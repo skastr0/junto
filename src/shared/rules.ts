@@ -12,7 +12,7 @@ import type {
   Visit,
 } from "./work-model";
 import { resolveTaskAdmission } from "./work-model";
-import { regionStack } from "./graph";
+import { regionDisplayName, regionStack, UNNAMED_REGION } from "./graph";
 import { reachableBoards } from "./flow-graph";
 import { WAIT_FOR_MAX_MS } from "./work-control";
 
@@ -45,7 +45,13 @@ export const boardContractOf = (
   node: CanvasNode | undefined,
 ): TasksContract | undefined => node?.ether?.tasks?.contract;
 
-const regionLabel = (group: GroupNode): string => group.label?.trim() || group.id;
+/**
+ * A rule's region as an agent is told it: the display name, with the node id
+ * beside it when the region has no name, since an agent addresses a node by
+ * id. The operator's screens show `provenance.label` alone.
+ */
+export const regionAddress = (provenance: { readonly regionId: string; readonly label: string }): string =>
+  provenance.label === UNNAMED_REGION ? `${provenance.label} (id ${provenance.regionId})` : provenance.label;
 
 /**
  * A region's contract (rules and pinned rulings) rides the Tasks gate. With
@@ -75,7 +81,7 @@ export const rulesInForce = (
         provenance: {
           kind: "region",
           regionId: group.id,
-          label: regionLabel(group),
+          label: regionDisplayName(group),
         },
       });
     }
@@ -93,7 +99,7 @@ export const rulesInForce = (
 const provenanceLabel = (provenance: RuleProvenance): string => {
   switch (provenance.kind) {
     case "region":
-      return `region "${provenance.label}"`;
+      return `region "${regionAddress(provenance)}"`;
     case "board":
       return `board "${provenance.boardId}"`;
     case "task":

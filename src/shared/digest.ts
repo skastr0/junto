@@ -8,7 +8,7 @@ import {
   deriveExecutionGraph,
   type LiveTrustViews,
 } from "./execution-graph";
-import { groupMembers, isGroup, regionDisplayName } from "./graph";
+import { groupMembers, isGroup, regionDisplayName, UNNAMED_REGION } from "./graph";
 import {
   formatRankedStoppageLine,
   rankStoppageSeeds,
@@ -72,7 +72,9 @@ const titleOf = (node: CanvasNode): string => {
     case "link":
       return node.url;
     case "group":
-      return node.label ?? node.id;
+      // The overseer reads this text too and addresses a node by id, so an
+      // unnamed region keeps its id beside the placeholder.
+      return node.label?.trim() ? regionDisplayName(node) : `${UNNAMED_REGION} (${node.id})`;
   }
 };
 
