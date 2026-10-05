@@ -76,7 +76,7 @@ export const proposeRebind = (
   if (!clash) return { kind: "ok", overrides: next };
   const by = clash.ids[0] === id ? clash.ids[1] : clash.ids[0];
   const other = table.find((row) => row.id === by)!;
-  if (other.fixed !== undefined) return { kind: "refused", why: `Used by ${other.does.toLowerCase()}` };
+  if (other.fixed !== undefined) return { kind: "refused", why: `Already used by ${other.name}` };
   // Replacing takes the chord from the other shortcut and leaves its others.
   const left = chordsFor(other, mac, next).filter((own) => !chordsOverlap(own, chord));
   return { kind: "taken", by, overrides: withChords(next, other, left, mac) };

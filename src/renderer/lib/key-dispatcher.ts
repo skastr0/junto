@@ -1,9 +1,11 @@
+import { keyboardSettings } from "../../shared/settings";
 import {
   resolveKey,
   resolveRelease,
   shortcutRepeats,
   type KeyContext,
   type KeyHit,
+  type KeyOverrides,
   type KeySituation,
   type ShortcutId,
 } from "../../shared/key-table";
@@ -83,6 +85,25 @@ export const keySituation = (target: EventTarget | null): KeySituation => {
   };
 };
 
+/** The chords the operator changed, from Settings. */
+const storedOverrides = (): KeyOverrides => keyboardSettings(state$.settings.peek()).overrides;
+
+let holds = 0;
+
+/**
+ * Stand the dispatcher down while a new chord is being recorded: every key
+ * then belongs to the recorder. Call the returned function to let go.
+ */
+export const holdKeyDispatch = (): (() => void) => {
+  holds += 1;
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    holds -= 1;
+  };
+};
+
 const take = (event: KeyboardEvent): void => {
   event.preventDefault();
   event.stopPropagation();
@@ -93,9 +114,10 @@ export const dispatchKey = (
   event: KeyboardEvent,
   actions: KeyActions,
   situation: KeySituation = keySituation(event.target),
+  overrides: KeyOverrides = storedOverrides(),
 ): ShortcutId | null => {
   if (event.isComposing) return null;
-  const hit = resolveKey(event, situation);
+  const hit = resolveKey(event, situation, overrides);
   if (hit === null) return null;
   const action = actions[hit.id];
   if (!action) return null;
@@ -125,10 +147,10 @@ export const dispatchRelease = (
 
 export const installKeyDispatcher = (actions: KeyActions): (() => void) => {
   const onKeyDown = (event: KeyboardEvent): void => {
-    dispatchKey(event, actions);
+    if (holds === 0) dispatchKey(event, actions);
   };
   const onKeyUp = (event: KeyboardEvent): void => {
-    dispatchRelease(event, actions);
+    if (holds === 0) dispatchRelease(event, actions);
   };
   // focus-law: every shortcut goes through the key table, which never fires a typed character while the operator types.
   window.addEventListener("keydown", onKeyDown, { capture: true });

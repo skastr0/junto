@@ -135,6 +135,16 @@ describe("dispatchKey", () => {
     expect(next).not.toHaveBeenCalled();
   });
 
+  it("answers the chord the operator chose in place of the default", () => {
+    const feed = vi.fn();
+    const overrides = { "feed.open": ["Cmd+J"] };
+    expect(dispatchKey(press({ key: "j", metaKey: true }), { "feed.open": feed }, at("terminal"), overrides)).toBe(
+      "feed.open",
+    );
+    expect(dispatchKey(press({ key: "i", metaKey: true }), { "feed.open": feed }, at("terminal"), overrides)).toBeNull();
+    expect(feed).toHaveBeenCalledTimes(1);
+  });
+
   it("passes a shortcut that has no action", () => {
     const event = press({ key: "k", metaKey: true });
     expect(dispatchKey(event, {}, at("canvas"))).toBeNull();

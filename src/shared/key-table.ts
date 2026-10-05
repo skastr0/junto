@@ -79,6 +79,8 @@ export type ShortcutId =
 export type ShortcutDef = {
   readonly id: ShortcutId;
   readonly area: ShortcutArea;
+  /** The action's name, a few plain words. */
+  readonly name: string;
   /** What it does, in product words. */
   readonly does: string;
   /** Default chords on macOS. */
@@ -101,6 +103,7 @@ export type ShortcutDef = {
 export const KEY_TABLE: ReadonlyArray<ShortcutDef> = [
   {
     id: "search.open",
+    name: "Open search",
     area: "Search and feed",
     does: "Open search, or close it when it is open",
     mac: ["Cmd+K"],
@@ -111,6 +114,7 @@ export const KEY_TABLE: ReadonlyArray<ShortcutDef> = [
   },
   {
     id: "search.slash",
+    name: "Open search with one key",
     area: "Search and feed",
     does: "Open search",
     mac: ["Slash"],
@@ -119,6 +123,7 @@ export const KEY_TABLE: ReadonlyArray<ShortcutDef> = [
   },
   {
     id: "feed.open",
+    name: "Open the needs-you feed",
     area: "Search and feed",
     does: "Open the needs-you feed, or close it when it is open",
     mac: ["Cmd+I"],
@@ -128,6 +133,7 @@ export const KEY_TABLE: ReadonlyArray<ShortcutDef> = [
   },
   {
     id: "groups.assign",
+    name: "Save a command group",
     area: "Canvas",
     does: "Save the selection as command group 1 to 9",
     mac: ["Cmd+Digit"],
@@ -136,6 +142,7 @@ export const KEY_TABLE: ReadonlyArray<ShortcutDef> = [
   },
   {
     id: "groups.recall",
+    name: "Go to a command group",
     area: "Canvas",
     does: "Go to command group 1 to 9; press again to step through its agents",
     mac: ["Digit"],
@@ -144,6 +151,7 @@ export const KEY_TABLE: ReadonlyArray<ShortcutDef> = [
   },
   {
     id: "groups.jump",
+    name: "Jump to a command group",
     area: "Agent and terminal",
     does: "Jump to command group 1 to 9; press again for its next agent",
     mac: ["Cmd+Digit"],
@@ -153,6 +161,7 @@ export const KEY_TABLE: ReadonlyArray<ShortcutDef> = [
   },
   {
     id: "alerts.next",
+    name: "Next agent alert",
     area: "Canvas",
     does: "Go to the next agent that raised an alert",
     mac: ["Space", "Backquote"],
@@ -161,6 +170,7 @@ export const KEY_TABLE: ReadonlyArray<ShortcutDef> = [
   },
   {
     id: "urgency.next",
+    name: "Next agent that needs you",
     area: "Anywhere",
     does: "Step to the agent that most needs you: hold Cmd, tap to step, let go to open it",
     mac: ["Cmd+Backquote"],
@@ -171,6 +181,7 @@ export const KEY_TABLE: ReadonlyArray<ShortcutDef> = [
   },
   {
     id: "urgency.previous",
+    name: "Previous agent that needs you",
     area: "Anywhere",
     does: "Step back through the agents that need you",
     mac: ["Cmd+Shift+Backquote"],
@@ -182,6 +193,7 @@ export const KEY_TABLE: ReadonlyArray<ShortcutDef> = [
   // While the switcher is up Cmd is held, so its keys are Cmd chords.
   {
     id: "switcher.next",
+    name: "Switcher: next agent",
     area: "Agent and terminal",
     does: "In the switcher, move to the next agent",
     mac: ["Cmd+ArrowDown", "Cmd+ArrowRight", "Cmd+J", "Cmd+L"],
@@ -192,6 +204,7 @@ export const KEY_TABLE: ReadonlyArray<ShortcutDef> = [
   },
   {
     id: "switcher.previous",
+    name: "Switcher: previous agent",
     area: "Agent and terminal",
     does: "In the switcher, move to the previous agent",
     mac: ["Cmd+ArrowUp", "Cmd+ArrowLeft", "Cmd+K", "Cmd+H"],
@@ -202,6 +215,7 @@ export const KEY_TABLE: ReadonlyArray<ShortcutDef> = [
   },
   {
     id: "switcher.commit",
+    name: "Switcher: open the agent",
     area: "Agent and terminal",
     does: "In the switcher, open the chosen agent",
     mac: ["Cmd+Enter"],
@@ -212,6 +226,7 @@ export const KEY_TABLE: ReadonlyArray<ShortcutDef> = [
   },
   {
     id: "switcher.cancel",
+    name: "Switcher: cancel",
     area: "Agent and terminal",
     does: "In the switcher, close it and stay where you were",
     mac: ["Cmd+Escape"],
@@ -221,6 +236,7 @@ export const KEY_TABLE: ReadonlyArray<ShortcutDef> = [
   },
   {
     id: "git.review",
+    name: "Open the git review",
     area: "Agent and terminal",
     does: "Open the git review for the agent in front, or close it",
     mac: ["Cmd+G"],
@@ -229,6 +245,7 @@ export const KEY_TABLE: ReadonlyArray<ShortcutDef> = [
   },
   {
     id: "mirrors.next",
+    name: "Next connected terminal",
     area: "Anywhere",
     does: "Go to the next connected agent terminal",
     mac: ["Cmd+BracketRight"],
@@ -237,6 +254,7 @@ export const KEY_TABLE: ReadonlyArray<ShortcutDef> = [
   },
   {
     id: "mirrors.previous",
+    name: "Previous connected terminal",
     area: "Anywhere",
     does: "Go to the previous connected agent terminal",
     mac: ["Cmd+BracketLeft"],
@@ -245,6 +263,7 @@ export const KEY_TABLE: ReadonlyArray<ShortcutDef> = [
   },
   {
     id: "canvas.undo",
+    name: "Undo",
     area: "Canvas",
     does: "Undo the last canvas change",
     mac: ["Cmd+Z"],
@@ -253,6 +272,7 @@ export const KEY_TABLE: ReadonlyArray<ShortcutDef> = [
   },
   {
     id: "canvas.redo",
+    name: "Redo",
     area: "Canvas",
     does: "Redo the canvas change that was undone",
     mac: ["Cmd+Shift+Z"],
@@ -262,6 +282,7 @@ export const KEY_TABLE: ReadonlyArray<ShortcutDef> = [
   // Zoom moves the canvas camera, never the size of the whole interface.
   {
     id: "canvas.zoomIn",
+    name: "Zoom the canvas in",
     area: "Canvas",
     does: "Zoom the canvas in",
     mac: ["Cmd+Equal", "Cmd+Plus"],
@@ -270,6 +291,7 @@ export const KEY_TABLE: ReadonlyArray<ShortcutDef> = [
   },
   {
     id: "canvas.zoomOut",
+    name: "Zoom the canvas out",
     area: "Canvas",
     does: "Zoom the canvas out",
     mac: ["Cmd+Minus"],
@@ -278,6 +300,7 @@ export const KEY_TABLE: ReadonlyArray<ShortcutDef> = [
   },
   {
     id: "canvas.zoomReset",
+    name: "Canvas at 100 percent",
     area: "Canvas",
     does: "Show the canvas at 100 percent",
     mac: ["Cmd+0"],
@@ -286,6 +309,7 @@ export const KEY_TABLE: ReadonlyArray<ShortcutDef> = [
   },
   {
     id: "front.close",
+    name: "Close what is in front",
     area: "Anywhere",
     does: "Close what is in front, one layer at a time; with nothing open, close the window",
     mac: ["Cmd+W"],
