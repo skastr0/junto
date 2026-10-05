@@ -132,3 +132,28 @@ export const preferencesBodyContainsProviderSecrets = (body: string): boolean =>
   }
   return false;
 };
+
+/**
+ * Remove known secret values from text bound for a log, a trace, an error or
+ * a report. Every occurrence of every value is replaced, longest first so a
+ * value that contains another is not left half visible. Values shorter than
+ * four characters are not searched for: they would match ordinary words, and
+ * a caller holding one must not put free text beside it at all.
+ */
+export const REDACTED = "[redacted]";
+
+export const redactSecretValues = (
+  text: string,
+  values: Iterable<string | undefined>,
+): string => {
+  const known = [...new Set([...values].filter((v): v is string => v !== undefined && v.length >= 4))]
+    .sort((a, b) => b.length - a.length);
+  let out = text;
+  for (const value of known) {
+    out = out.split(value).join(REDACTED);
+    // The same value as a tool may echo it: without a trailing newline.
+    const trimmed = value.trim();
+    if (trimmed.length >= 4 && trimmed !== value) out = out.split(trimmed).join(REDACTED);
+  }
+  return out;
+};

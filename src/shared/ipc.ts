@@ -160,6 +160,9 @@ export const IPC_CHANNELS = {
   seatGuidanceList: "junto:seat-guidance-list",
   seatGuidanceSet: "junto:seat-guidance-set",
   seatGuidance: "junto:seat-guidance",
+  /** Region environment: save or remove a value in Junto's own secret store. */
+  regionEnvSaveSecret: "junto:region-env-save-secret",
+  regionEnvRemoveSecret: "junto:region-env-remove-secret",
   /** Offboard from the seat: ask the agent in a mode, and where each seat's offboard stands. */
   seatOffboardAsk: "junto:seat-offboard-ask",
   seatOffboardProgressList: "junto:seat-offboard-progress-list",
@@ -703,6 +706,24 @@ export interface JuntoHermesIntegrationApi {
   readonly agentMessage: (key: string, text: string) => Promise<AgentReply>;
 }
 
+export type RegionEnvSaveSecretInput = {
+  /** The region the source lives in. Context only; not stored. */
+  readonly regionId: string;
+  /** The variable name. Context only; not a key. */
+  readonly name: string;
+  /** Crosses IPC once. Never returned by any call. */
+  readonly value: string;
+  /** Present: replace the value behind this id. Absent: mint a new id. */
+  readonly secretId?: string;
+};
+/** `message` is shown to the operator as is: plain words, no secret material. */
+export type RegionEnvSaveSecretResult =
+  | { readonly ok: true; readonly secretId: string }
+  | { readonly ok: false; readonly message: string };
+export type RegionEnvRemoveSecretResult =
+  | { readonly ok: true }
+  | { readonly ok: false; readonly message: string };
+
 export interface JuntoApi extends UpdateApi, OverseerLiveApi {
   /** Read-only platform marker for renderer geometry and copy. */
   readonly platform: NodeJS.Platform;
@@ -763,6 +784,18 @@ export interface JuntoApi extends UpdateApi, OverseerLiveApi {
     seatId: string,
     guidance: SeatGuidance | null,
   ) => Promise<SeatGuidanceSetResult>;
+  /**
+   * Save a value in Junto's own secret store on this machine. The value
+   * crosses once and is never returned by any call; the answer is the id a
+   * `secret` source refers to. With `secretId`, the value behind it is replaced.
+   */
+  readonly regionEnvSaveSecret?: (
+    input: RegionEnvSaveSecretInput,
+  ) => Promise<RegionEnvSaveSecretResult>;
+  /** Remove a saved secret. Removing an unknown id succeeds. */
+  readonly regionEnvRemoveSecret?: (
+    secretId: string,
+  ) => Promise<RegionEnvRemoveSecretResult>;
   /**
    * Send a seat's agent the offboard prompt for this mode, on the ordinary
    * mail path. The agent writes the notes; Junto closes the session after.

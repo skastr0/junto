@@ -467,6 +467,10 @@ const juntoApi: Omit<JuntoApi, keyof typeof liveApi | WorkFeatureApiKey> = {
   seatGuidanceList: () => invoke(IPC_CHANNELS.seatGuidanceList, IPC_TIMEOUT_MS),
   seatGuidanceSet: (seatId, guidance) =>
     invoke(IPC_CHANNELS.seatGuidanceSet, IPC_TIMEOUT_MS, seatId, guidance),
+  regionEnvSaveSecret: (input) =>
+    invoke(IPC_CHANNELS.regionEnvSaveSecret, IPC_TIMEOUT_MS, input),
+  regionEnvRemoveSecret: (secretId) =>
+    invoke(IPC_CHANNELS.regionEnvRemoveSecret, IPC_TIMEOUT_MS, secretId),
   seatOffboardAsk: (canvasName, seatId, mode) =>
     invoke(IPC_CHANNELS.seatOffboardAsk, AGENT_MESSAGE_TIMEOUT_MS, canvasName, seatId, mode),
   seatOffboardProgressList: () => invoke(IPC_CHANNELS.seatOffboardProgressList, IPC_TIMEOUT_MS),

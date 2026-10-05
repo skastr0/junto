@@ -142,6 +142,7 @@ import {
   discoversSessionAfterSpawn,
 } from "./term/seat-session-capture";
 import { injectionSupervisor } from "./term/injection-supervisor";
+import { removeRegionSecret, saveRegionSecret } from "./region-env/secret-ipc";
 import {
   scheduleManagedPulseReady,
   setManagedPulseDeliver,
@@ -871,6 +872,16 @@ export const registerJuntoIpc = (): void => {
       broadcast(IPC_CHANNELS.seatGuidance, { seatId, guidance: result.success });
       return { ok: true, seatId, guidance: result.success };
     },
+  );
+
+  // Region environment: Junto's own secret store on this machine. The value
+  // arrives once and no handler returns it. An install-local store like seat
+  // guidance (no canvas authoring), so it runs outside the main-authoring gate.
+  privilegedIpc.handle(IPC_CHANNELS.regionEnvSaveSecret, (_event, input: unknown) =>
+    saveRegionSecret(input),
+  );
+  privilegedIpc.handle(IPC_CHANNELS.regionEnvRemoveSecret, (_event, secretId: unknown) =>
+    removeRegionSecret(secretId),
   );
 
   // Agent profiles: saved agents placed from the add picker. Every change
