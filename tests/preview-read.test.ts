@@ -2,13 +2,8 @@ import { mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import {
-  isInertSvg,
-  locatePreviewForReveal,
-  readPreview,
-  resolvePreviewPath,
-  sniffRasterType,
-} from "../src/main/junto/preview/read";
+import { classifyAttachment, isInertSvg, sniffRasterType } from "@shared/preview-bytes";
+import { locatePreviewForReveal, readPreview, resolvePreviewPath } from "../src/main/junto/preview/read";
 
 const PNG = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
@@ -167,5 +162,26 @@ describe("preview helpers", () => {
     expect(await locatePreviewForReveal("nothing", at("shot.png"))).toBeUndefined();
     expect(await locatePreviewForReveal(at("gone.png"), at("gone.png"))).toBeUndefined();
     expect(await locatePreviewForReveal(at("shot.png"), at("shot.png"))).toMatch(/shot\.png$/u);
+  });
+});
+
+describe("classifyAttachment", () => {
+  const text = (value: string): Uint8Array => new TextEncoder().encode(value);
+
+  it("admits an image by its bytes and text by its name", () => {
+    expect(classifyAttachment("shot.png", PNG)).toEqual({ ok: true, kind: "image", mediaType: "image/png" });
+    expect(classifyAttachment("renamed.bin", PNG)).toEqual({ ok: true, kind: "image", mediaType: "image/png" });
+    expect(classifyAttachment("notes.md", text("# hi"))).toEqual({ ok: true, kind: "text", mediaType: "text/markdown" });
+    expect(classifyAttachment("change.patch", text("--- a"))).toEqual({ ok: true, kind: "text", mediaType: "text/x-diff" });
+    expect(classifyAttachment("a.svg", text('<svg xmlns="http://www.w3.org/2000/svg"/>'))).toMatchObject({ ok: true, kind: "image" });
+  });
+
+  it("refuses what a preview cannot show", () => {
+    expect(classifyAttachment("fake.png", text("not an image")).ok).toBe(false);
+    expect(classifyAttachment("a.svg", text("<svg><script/></svg>")).ok).toBe(false);
+    expect(classifyAttachment("build.zip", text("PK")).ok).toBe(false);
+    expect(classifyAttachment("binary.txt", new Uint8Array([97, 0, 98])).ok).toBe(false);
+    expect(classifyAttachment("empty.png", new Uint8Array()).ok).toBe(false);
+    expect(classifyAttachment("id_rsa", text("PRIVATE")).ok).toBe(false);
   });
 });
