@@ -657,6 +657,13 @@ function SchedulerKindKeys({ node }: { readonly node: CanvasNode }) {
   const [scheduleOpen, setScheduleOpen] = useState(false);
   const [fireBusy, setFireBusy] = useState(false);
   const isCron = kind === "cron" || kind === "timer";
+
+  useEffect(() => {
+    setConfigOpen(false);
+    setScheduleOpen(false);
+    setFireBusy(false);
+  }, [node.id]);
+
   if ((isCron && !CRON_ENABLED) || (!isCron && !RELAY_ENABLED)) return null;
   const canFire =
     isCron || kind === "relay" || kind === "watcher" || kind === "gauge";
@@ -665,12 +672,6 @@ function SchedulerKindKeys({ node }: { readonly node: CanvasNode }) {
     : kind === "relay"
       ? "Run this relay's linked actions now"
       : "Run this scheduler's linked actions now";
-
-  useEffect(() => {
-    setConfigOpen(false);
-    setScheduleOpen(false);
-    setFireBusy(false);
-  }, [node.id]);
 
   const fireNow = async () => {
     const api = window.junto;

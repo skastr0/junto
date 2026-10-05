@@ -328,6 +328,7 @@ function NodeCommandCard({ nodeId }: { readonly nodeId: string }) {
   const [copyStatus, setCopyStatus] = useState<"idle" | "copied" | "failed">("idle");
   const [copyDetail, setCopyDetail] = useState("");
   const copyRequest = useRef(0);
+  const hotbarSlots = use$(state$.hotbarSlots);
 
   useEffect(() => {
     copyRequest.current += 1;
@@ -399,7 +400,6 @@ function NodeCommandCard({ nodeId }: { readonly nodeId: string }) {
     }
   };
 
-  const hotbarSlots = use$(state$.hotbarSlots);
   const slot = hotbarSlotIndexOf(hotbarSlots, nodeId);
 
   // Kind-specific primaries + slot cue (any node). Entity actions live mid-strip.
