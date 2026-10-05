@@ -81,14 +81,19 @@ test.skip("the agent modal header shows the seat's repository on one line and op
 
     // Pressing it opens the git detail above the agent modal; Escape closes only it.
     await line.click();
-    const detail = page.getByRole("dialog", { name: /repo, feat\/git-line/ });
+    const detail = page.getByTestId("git-detail");
     await expect(detail).toBeVisible();
+    await expect(detail).toContainText("repo, feat/git-line");
     await expect(detail).toContainText("Add the notes");
+    // Two working surfaces, the detail on top: one dim each, as the layer model has it.
+    await expect(page.locator("[data-layer-backdrop]")).toHaveCount(2);
     await expect(line).toHaveAttribute("aria-expanded", "true");
     await page.keyboard.press("Escape");
     await expect(detail).toHaveCount(0);
     await expect(page.locator(".native-terminal-surface")).toBeVisible();
-    await page.keyboard.press("Escape");
+    // Escape belongs to the terminal: the agent modal closes by its own button.
+    await page.getByRole("button", { name: "Close view" }).click();
+    await expect(page.locator(".native-terminal-surface")).toHaveCount(0);
 
     // A seat whose folder is not a repository: no git line, no placeholder.
     await page.locator('.react-flow__node[data-id="no-repo"]').dblclick();
