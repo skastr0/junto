@@ -1,11 +1,18 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { placeBesideRect, type Align, type Side } from "../../lib/menu-placement";
+import { claimFocus, focusPrimaryControl } from "../../lib/focus-ownership";
 import { openerBorrowedKeyboard, returnKeyboardFrom, topModal } from "../../lib/modal-stack";
 
 // Module-level so the default is one stable array: a fresh literal per render
 // would re-run the placement layout effect every render and never settle.
 const DEFAULT_SIDES: ReadonlyArray<Side> = ["left", "right", "below", "above"];
+
+const TAB_STOPS =
+  "a[href], button:not([disabled]), input:not([disabled]):not([type='hidden']), select:not([disabled]), textarea:not([disabled]), [contenteditable]:not([contenteditable='false']), [tabindex]:not([tabindex='-1'])";
+
+const tabStopsIn = (panel: HTMLElement): HTMLElement[] =>
+  Array.from(panel.querySelectorAll<HTMLElement>(TAB_STOPS)).filter((stop) => stop.getClientRects().length > 0);
 
 /**
  * Popover — a small floating panel anchored beside an element, for a short
@@ -13,6 +20,12 @@ const DEFAULT_SIDES: ReadonlyArray<Side> = ["left", "right", "below", "above"];
  * sits beside the anchor without covering it where the viewport allows, and
  * closes on Escape or a press outside it. It is a non-modal dialog: callers
  * give it a label, and the first field may claim focus on mount.
+ *
+ * Keyboard: opened with the keyboard, it takes the keyboard (its first
+ * control, else the panel). Opened with a pointer, the keyboard stays where
+ * it was. Either way Tab reads it as if it sat right after its anchor: Tab
+ * on the anchor enters it, Tab past its last control carries on after the
+ * anchor, and Shift+Tab on its first control goes back to the anchor.
  */
 export function Popover({
   anchor,
@@ -62,7 +75,38 @@ export function Popover({
   }, [anchor, sides, align]);
 
   useEffect(() => {
+    const onTab = (event: KeyboardEvent): void => {
+      const panel = panelRef.current;
+      const active = document.activeElement;
+      if (!panel || event.altKey || event.ctrlKey || event.metaKey) return;
+      const stops = tabStopsIn(panel);
+      const move = (target: HTMLElement): void => {
+        event.preventDefault();
+        event.stopPropagation();
+        claimFocus(target, "gesture", { event });
+      };
+      if (active === anchor) {
+        if (!event.shiftKey) move(stops[0] ?? panel);
+        return;
+      }
+      if (!panel.contains(active)) return;
+      const first = stops[0];
+      const last = stops[stops.length - 1];
+      if (event.shiftKey) {
+        if (active === panel || active === first) move(anchor);
+        return;
+      }
+      if (active === last || (active === panel && !first)) {
+        // Step back to the anchor and let the key carry on from there.
+        event.stopPropagation();
+        claimFocus(anchor, "gesture", { event });
+      }
+    };
     const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Tab") {
+        onTab(event);
+        return;
+      }
       if (event.key !== "Escape") return;
       // A modal opened above this popover (a confirm it asked for) is the
       // topmost thing: the key is that modal's.
@@ -83,7 +127,7 @@ export function Popover({
       if (target instanceof Element && target.closest("[data-popover-layer]")) return;
       onCloseRef.current();
     };
-    // focus-law: Escape-only close for an open popover, never a typing shortcut.
+    // focus-law: Escape closes an open popover and Tab walks into and out of it, never a typing shortcut.
     window.addEventListener("keydown", onKeyDown, { capture: true });
     document.addEventListener("pointerdown", onPointerDown, { capture: true });
     return () => {
@@ -98,11 +142,20 @@ export function Popover({
   const [borrowed] = useState(openerBorrowedKeyboard);
   useEffect(() => () => returnKeyboardFrom(anchor, borrowed), [anchor, borrowed]);
 
+  // Opened with the keyboard: the keyboard goes inside, once the panel is placed.
+  const placed = position !== null;
+  useEffect(() => {
+    const panel = panelRef.current;
+    if (borrowed || !placed || !panel || panel.contains(document.activeElement)) return;
+    if (!focusPrimaryControl(panel)) claimFocus(panel, "open", { preventScroll: true });
+  }, [borrowed, placed]);
+
   return createPortal(
     <div
       ref={panelRef}
       role="dialog"
       aria-label={label}
+      tabIndex={-1}
       // A popover belongs to the layer of its anchor (styles/layers.css).
       data-layer={anchor.closest("[data-layer^='operator']") ? "operator-popover" : "popover"}
       data-testid={testId}
