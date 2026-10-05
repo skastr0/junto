@@ -3040,21 +3040,21 @@ button.actor-ledger__item-row:focus-visible {
   width: min(100%, 360px);
   padding: 14px 16px;
   border: 1px solid color-mix(in srgb, var(--color-crimson) 35%, var(--color-stroke));
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
   background: color-mix(in srgb, var(--color-raise) 92%, black);
   box-shadow: 0 14px 40px var(--color-shadow-1);
 }
 .native-terminal-surface__dead-title {
   font-family: var(--font-display), system-ui, sans-serif;
-  font-size: 15px;
+  font-size: var(--text-title);
   font-weight: 600;
-  letter-spacing: 0.01em;
+  letter-spacing: var(--tracking-flat);
   color: var(--color-ink);
 }
 .native-terminal-surface__dead-detail {
   margin: 0;
-  font-size: 11px;
-  line-height: 1.45;
+  font-size: var(--text-body);
+  line-height: var(--leading-body);
   color: var(--color-dim);
 }
 .native-terminal-surface__dead-actions {
