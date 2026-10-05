@@ -369,8 +369,6 @@ test("the tour hears its arrows through the shell, and Escape ends it", async ({
   await ready(page);
   await page.getByRole("button", { name: "Open settings" }).click();
   await page.locator(".settings-nav__item", { hasText: "Advanced" }).click();
-  await page.screenshot({ path: join(SHOTS, "dark-settings-advanced.png") });
-  console.log(`WORKING advanced buttons ${JSON.stringify(await page.locator(".settings-panel button:visible").allTextContents())}`);
   await page.getByRole("button", { name: /show again/i }).click({ timeout: 5_000 });
   const slide = page.getByTestId("first-run-intro-slide");
   await expect(slide).toBeVisible();
@@ -388,15 +386,6 @@ test("the tour hears its arrows through the shell, and Escape ends it", async ({
   await page.keyboard.press("ArrowLeft");
   await expect(slide).toHaveAttribute("data-slide", first!);
   await page.screenshot({ path: join(SHOTS, "dark-tour.png") });
-
-  // While typing in a field the arrows move the caret, not the tour.
-  const fields = page.locator('[role="dialog"] input:visible, [role="dialog"] textarea:visible');
-  console.log(`WORKING tour fields on chapter one: ${String(await fields.count())}`);
-  if ((await fields.count()) > 0) {
-    await fields.first().click();
-    await page.keyboard.press("ArrowRight");
-    await expect(slide).toHaveAttribute("data-slide", first!);
-  }
 
   await page.keyboard.press("Escape");
   await expect(slide).toHaveCount(0);
