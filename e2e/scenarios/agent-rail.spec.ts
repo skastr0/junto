@@ -200,12 +200,23 @@ test("a voiced preamble shows the canvas bubble beside its seat and never takes 
       const own = await ringOf("bea");
       expect(card.x + card.width).toBeGreaterThan(own.x);
       expect(card.x + card.width).toBeLessThan(own.x + own.width / 2);
-      for (const other of ["ada", "cy"]) {
+      // A ring is a circle: the card's nearest point to another seat's centre
+      // stays outside its radius, for a two-line note too.
+      const offRing = async (box: { x: number; y: number; width: number; height: number }, other: string): Promise<boolean> => {
         const ring = await ringOf(other);
-        const apart =
-          card.x + card.width <= ring.x || card.x >= ring.x + ring.width || card.y + card.height <= ring.y || card.y >= ring.y + ring.height;
-        expect(apart, `the bubble stays off ${other}'s portrait`).toBe(true);
-      }
+        const [cx, cy, radius] = [ring.x + ring.width / 2, ring.y + ring.height / 2, ring.width / 2];
+        const nearX = Math.max(box.x, Math.min(cx, box.x + box.width));
+        const nearY = Math.max(box.y, Math.min(cy, box.y + box.height));
+        return Math.hypot(cx - nearX, cy - nearY) >= radius;
+      };
+      for (const other of ["ada", "cy"]) expect(await offRing(card, other), `the bubble stays off ${other}'s ring`).toBe(true);
+      await say(junto, "cy", `rolling out step two of the migration, the long way round, slowly (${mode})`);
+      const long = rail(page).locator('[data-testid="node-preamble"][data-node-id="cy"] .junto-preamble__card');
+      await expect(long).toContainText("the long way round");
+      const tall = (await long.boundingBox())!;
+      expect(tall.height).toBeGreaterThan(card.height);
+      for (const other of ["ada", "bea"]) expect(await offRing(tall, other), `a two-line bubble stays off ${other}'s ring`).toBe(true);
+      await long.locator(".junto-preamble__close").click({ force: true });
 
       // A press on the seat beside its bubble still moves to that agent.
       await rail(page).locator('[data-peer-node-id="bea"]').getByTestId("actor-rail-go").click();

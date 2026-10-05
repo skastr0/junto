@@ -37,8 +37,13 @@ import "./actor-rail.css";
 
 type Zone = "focus" | "pinned";
 
-/** How far the canvas bubble's tail tip sits above its anchor's top (9px gap less the 5px tail). */
-const TAIL_TIP_PX = 4;
+/**
+ * Where a bubble's anchor sits below its seat's centre. The canvas bubble's
+ * tail tip hangs 4px above its anchor (9px gap less the 5px tail); 20px more
+ * puts the tip on the lower left of its own ring, which keeps a two-line card
+ * clear of the ring of the seat above.
+ */
+const TAIL_TIP_PX = 24;
 
 /** One connected agent: the canvas seat under a cover button that moves to it. */
 function RailSeat({
@@ -145,7 +150,6 @@ function RailBubble({
       const middle = element.offsetTop + element.offsetHeight / 2 - list.scrollTop;
       // A seat scrolled out of the rail shows no bubble.
       const visible = middle > list.offsetTop && middle < list.offsetTop + list.clientHeight;
-      // The bubble's tail tip hangs 4px above its anchor: level with the ring's centre.
       setTop(visible ? middle + TAIL_TIP_PX : null);
     };
     place();
