@@ -43,6 +43,14 @@ describe("ui target size", () => {
   });
 });
 
+describe("ui Button armed", () => {
+  it("takes the field focus look from the variant, with one border colour on the element", () => {
+    const out = html(<Button variant="armed">Press keys</Button>);
+    expect(out.match(/(?<![:\w-])border-(?:stroke|cyan|amber|crimson|transparent)[\w/.\[\]-]*/g)).toEqual(["border-cyan/60"]);
+    expect(out).toContain("shadow-[0_0_0_3px_var(--color-focus-ring)]");
+  });
+});
+
 describe("ui Textarea", () => {
   it("dense is two lines that grow with the text, with one size and one padding", () => {
     const out = html(<Textarea dense aria-label="Comment" />);

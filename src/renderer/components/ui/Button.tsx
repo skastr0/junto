@@ -7,9 +7,13 @@ import type { ComponentPropsWithRef, ReactNode } from "react";
  *  - primary — the one amber action per surface (never two)
  *  - subtle  — quiet text action (cancel, advanced toggles)
  *  - danger  — destructive, crimson, used sparingly
+ *  - armed   — waiting for the operator's next input (recording a
+ *              shortcut): the field focus look, on a button. Swap to it
+ *              with the variant; never add a border colour by className,
+ *              where it would fight the variant's own.
  * Sizes: xs = card chips, sm = chrome/dense toolbars, md = dialog actions.
  */
-export type ButtonVariant = "chrome" | "primary" | "subtle" | "danger";
+export type ButtonVariant = "chrome" | "primary" | "subtle" | "danger" | "armed";
 export type ButtonSize = "xs" | "sm" | "md";
 
 const VARIANT: Record<ButtonVariant, string> = {
@@ -21,6 +25,8 @@ const VARIANT: Record<ButtonVariant, string> = {
     "border border-transparent bg-transparent text-dim hover:text-ink hover:bg-ink/[0.06]",
   danger:
     "border border-crimson/40 bg-crimson/10 text-crimson hover:bg-crimson/[0.18]",
+  armed:
+    "border border-cyan/60 bg-ink/[0.04] text-ink shadow-[0_0_0_3px_var(--color-focus-ring)]",
 };
 
 // Every button can be hit across at least 24px of height, the WCAG 2.2 AA
