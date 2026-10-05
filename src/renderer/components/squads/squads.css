@@ -43,7 +43,11 @@
 .squad-dialog {
   display: grid;
   gap: 16px;
-  padding: 14px 16px 16px;
+}
+
+.squad-dialog__summary {
+  color: var(--color-dim);
+  font-size: 11px;
 }
 
 .squad-dialog__field {
@@ -60,10 +64,4 @@
   margin: 0;
   color: var(--color-amber);
   font-size: 11px;
-}
-
-.squad-dialog__actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
 }

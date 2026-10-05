@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
 import { use$ } from "@legendapp/state/react";
-import { X } from "lucide-react";
 import { PROFILE_NAME_MAX } from "@shared/agent-profiles";
 import { claimFocusAndSelectOnMount } from "../../lib/focus-ownership";
 import {
@@ -10,8 +9,7 @@ import {
   profileDialog$,
   saveProfileFromSeat,
 } from "../../lib/profiles-state";
-import { FieldLabel, IconButton, Input, OverlayHeader } from "../ui";
-import { FocusSurface } from "../FocusSurface";
+import { Dialog, FieldLabel, Input } from "../ui";
 import { ProfilePortrait } from "./ProfilePortrait";
 import { profileLine } from "./ProfilePickerSection";
 import { ProfileSaveActions, useProfileSave } from "./ProfileSaveActions";
@@ -43,27 +41,8 @@ function ProfileDialog({ seatId }: { readonly seatId: string }) {
     return reason;
   });
 
-  const includes = captured
-    ? [
-        "character",
-        profileLine(captured),
-        ...(captured.soul ? ["soul"] : []),
-        ...(captured.instructions ? ["instructions"] : []),
-      ]
-    : [];
-
   return (
-    <FocusSurface measure="form" height="fit" layer="work" label="Save as profile" onClose={closeSaveProfile}>
-      <OverlayHeader
-        eyebrow="Profile"
-        title="Save as profile"
-        status={captured ? includes.join(", ") : "not an agent seat"}
-        actions={
-          <IconButton aria-label="Close save as profile" title="Close" onClick={closeSaveProfile}>
-            <X size={14} />
-          </IconButton>
-        }
-      />
+    <Dialog eyebrow="Profile" title="Save as profile" onClose={closeSaveProfile}>
       <form
         className="profile-dialog"
         onSubmit={(event) => {
@@ -84,7 +63,9 @@ function ProfileDialog({ seatId }: { readonly seatId: string }) {
               </span>
             </div>
           </div>
-        ) : null}
+        ) : (
+          <p className="profile-dialog__line">not an agent seat</p>
+        )}
 
         <div className="profile-dialog__field">
           <FieldLabel>Name</FieldLabel>
@@ -105,6 +86,6 @@ function ProfileDialog({ seatId }: { readonly seatId: string }) {
 
         <ProfileSaveActions state={save} submit="submit" disabled={!captured} onCancel={closeSaveProfile} />
       </form>
-    </FocusSurface>
+    </Dialog>
   );
 }

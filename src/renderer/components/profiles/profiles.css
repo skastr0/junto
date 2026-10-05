@@ -19,7 +19,6 @@
 .profile-dialog {
   display: grid;
   gap: 16px;
-  padding: 14px 16px 16px;
 }
 
 .profile-dialog__preview {

@@ -1,14 +1,12 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 import { use$ } from "@legendapp/state/react";
-import { X } from "lucide-react";
 import { SQUAD_NAME_MAX } from "@shared/squads";
 import { claimFocusAndSelectOnMount } from "../../lib/focus-ownership";
 import { captureSquad, squadSummary } from "../../lib/squads";
 import { squadPortraitOf } from "../../lib/squad-portraits";
 import { closeSaveSquad, ensureSquads, saveSquadFromSelection, squadDialog$ } from "../../lib/squads-state";
 import { state$ } from "../../lib/state";
-import { FocusSurface } from "../FocusSurface";
-import { Button, FieldLabel, IconButton, Input, OverlayHeader } from "../ui";
+import { Button, Dialog, FieldLabel, Input } from "../ui";
 import { SquadPortraitRow } from "./SquadPortraitRow";
 import "./squads.css";
 
@@ -34,6 +32,7 @@ function SquadDialog({ selectedIds }: { readonly selectedIds: ReadonlyArray<stri
   const [name, setName] = useState("");
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
+  const formId = useId();
 
   const save = async (): Promise<void> => {
     if (saving) return;
@@ -50,24 +49,28 @@ function SquadDialog({ selectedIds }: { readonly selectedIds: ReadonlyArray<stri
   };
 
   return (
-    <FocusSurface measure="form" height="fit" layer="work" label="Save as squad" onClose={closeSaveSquad}>
-      <OverlayHeader
-        eyebrow="Squad"
-        title="Save as squad"
-        status={preview ? squadSummary(preview) : "no agent seat selected"}
-        actions={
-          <IconButton aria-label="Close save as squad" title="Close" onClick={closeSaveSquad}>
-            <X size={14} />
-          </IconButton>
-        }
-      />
+    <Dialog
+      eyebrow="Squad"
+      title="Save as squad"
+      onClose={closeSaveSquad}
+      actions={
+        <>
+          <Button size="md" variant="chrome" onClick={closeSaveSquad}>Cancel</Button>
+          <Button size="md" variant="primary" type="submit" form={formId} disabled={!preview || saving}>
+            Save squad
+          </Button>
+        </>
+      }
+    >
       <form
+        id={formId}
         className="squad-dialog"
         onSubmit={(event) => {
           event.preventDefault();
           void save();
         }}
       >
+        <p className="squad-dialog__summary">{preview ? squadSummary(preview) : "no agent seat selected"}</p>
         {preview ? <SquadPortraitRow squadKey="draft" squad={preview} size={28} /> : null}
 
         <div className="squad-dialog__field">
@@ -89,12 +92,7 @@ function SquadDialog({ selectedIds }: { readonly selectedIds: ReadonlyArray<stri
         </div>
 
         {error ? <p className="squad-dialog__error" role="alert">{error}</p> : null}
-
-        <div className="squad-dialog__actions">
-          <Button variant="subtle" onClick={closeSaveSquad}>Cancel</Button>
-          <Button variant="primary" type="submit" disabled={!preview || saving}>Save squad</Button>
-        </div>
       </form>
-    </FocusSurface>
+    </Dialog>
   );
 }
