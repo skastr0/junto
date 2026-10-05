@@ -299,6 +299,40 @@ path.junto-edge {
     opacity 240ms ease-out;
 }
 
+/* Rest — a wire is ground.
+
+   Wires say who talks to whom, which the operator rarely needs and never
+   needs in the way of a seat. So at rest a wire is faint, sits behind every
+   card (convert.ts z bands) and takes no pointer: a press on a wire lands on
+   the pane. Three things show the wires in full and let them be picked: the
+   loupe held (CanvasMagnifier stamps data-wires on the root), a node's
+   connections shown (the cone's own wires), and a wire being drawn. A
+   selected wire is always shown. A blocked wire stays legible at rest,
+   because crimson is the one thing here that needs the operator. */
+.react-flow .react-flow__edge {
+  pointer-events: none;
+}
+.react-flow__edge path.junto-edge {
+  opacity: 0.14;
+}
+.react-flow__edge path.junto-edge.junto-edge--blocked {
+  opacity: 0.5;
+}
+.react-flow:is([data-wires="shown"], .is-connecting) path.junto-edge {
+  opacity: 0.9;
+}
+.react-flow .react-flow__edge.impact-edge-in path.junto-edge {
+  opacity: 1;
+}
+.react-flow[data-wires="shown"] .react-flow__edge,
+.react-flow .react-flow__edge.impact-edge-in {
+  pointer-events: visibleStroke;
+}
+.react-flow[data-wires="shown"] .junto-edge-label,
+.react-flow .junto-edge-label.junto-edge-label--impact-in {
+  pointer-events: auto;
+}
+
 /* Hover and selection — the wire deepens in its own hue.
 
    The bottom bar is the whole edge surface now, so the canvas has to answer
@@ -314,7 +348,7 @@ path.junto-edge {
 .react-flow__edge:hover path.junto-edge:not(.junto-edge--selected) {
   filter: drop-shadow(0 0 2px color-mix(in oklab, var(--wire-hue, transparent) 50%, transparent));
 }
-.react-flow__edge path.junto-edge--selected {
+.react-flow .react-flow__edge path.junto-edge.junto-edge--selected {
   opacity: 1;
   filter:
     drop-shadow(0 0 1px var(--wire-hue, transparent))

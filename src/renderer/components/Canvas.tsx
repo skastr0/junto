@@ -1758,7 +1758,8 @@ function CanvasGraph() {
         hasFocusSurfaces ? null : ["Backspace", "Delete"]
       }
       elevateNodesOnSelect={false}
-      elevateEdgesOnSelect
+      // A wire never rises over a card, selected or not (convert.ts z bands).
+      elevateEdgesOnSelect={false}
       fitView
       fitViewOptions={{ padding: 0.18, maxZoom: 1.35 }}
       minZoom={0.15}

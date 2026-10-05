@@ -1840,7 +1840,8 @@ html[data-surface-motion="paused"] *::after {
 .junto-edge-label {
   position: absolute;
   transform: translate(-50%, -50%);
-  pointer-events: auto;
+  /* Deaf at rest, like the wire it sits on (factory-grammar.css). */
+  pointer-events: none;
   border-radius: 4px;
   padding: 2px 6px;
   background: color-mix(in oklab, var(--color-ground) 80%, transparent);

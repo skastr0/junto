@@ -28,9 +28,14 @@ import "./wire-pulse.css";
  * sentence down there is about. Both answer in the verb's own hue, republished
  * as `--wire-hue` for the stylesheet to bloom. No second colour, no second
  * stroke, no width or dash change — the hairline stays the hairline.
+ *
+ * At rest a wire is ground: faint, behind every card, and deaf to the
+ * pointer, so it never sits between the operator and a seat. Opacity and
+ * pointer events are the stylesheet's (factory-grammar.css), which shows the
+ * wires and lets them be picked while the loupe is held, while a node's
+ * connections are shown, and while a wire is being drawn.
  */
 const WIRE_WIDTH = 1.2;
-const WIRE_OPACITY = 0.9;
 /** No verb means no relationship compiled: draw it, quietly, in neutral ink. */
 const UNSET_COLOR = "var(--wire-verb-unset)";
 
@@ -96,6 +101,7 @@ export function EtherEdge({
   const className = [
     "junto-edge",
     selected ? "junto-edge--selected" : "",
+    blocked ? "junto-edge--blocked" : "",
     rippling ? "junto-edge-ripple" : "",
   ]
     .filter(Boolean)
@@ -114,7 +120,6 @@ export function EtherEdge({
         style={{
           stroke: color,
           strokeWidth: WIRE_WIDTH,
-          opacity: impactIn ? 1 : WIRE_OPACITY,
           // Same hue the stroke took, handed to the stylesheet so hover and
           // selection deepen this wire rather than naming a second colour.
           ["--wire-hue" as string]: color,
@@ -147,7 +152,7 @@ export function EtherEdge({
               ? `Select edge - waiting on you${detail ? ` - ${detail}` : ""}`
               : `Select edge - ${data?.verb ?? "connection"}`
           }
-          className="nodrag nopan junto-edge-label junto-edge-label--silent"
+          className={`nodrag nopan junto-edge-label junto-edge-label--silent${impactIn ? " junto-edge-label--impact-in" : ""}`}
           style={{
             top: labelY,
             left: labelX,

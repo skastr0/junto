@@ -166,7 +166,7 @@ const drawEdges = (
     const toY = LENS_RADIUS + (to.centerY - center.y) * INSPECTION_SCALE;
     context.strokeStyle = edge.data?.phase === "blocks"
       ? withAlpha(t.crimson!, 0.72)
-      : withAlpha(t.steel!, 0.34);
+      : withAlpha(t.steel!, 0.6);
     context.lineWidth = edge.data?.phase === "blocks" ? 1.8 : 1;
     context.beginPath();
     context.moveTo(fromX, fromY);
@@ -405,6 +405,13 @@ export function CanvasMagnifier() {
     const shell = shellRef.current;
     if (!shell) return;
     shell.dataset.active = String(active);
+    // The loupe is the canvas's alt mode: while it is up the wires show in
+    // full and can be picked (factory-grammar.css).
+    const root = shell.closest<HTMLElement>(".react-flow");
+    if (root) {
+      if (active) root.dataset.wires = "shown";
+      else delete root.dataset.wires;
+    }
     if (active) {
       currentRef.current = { ...targetRef.current };
       requestRender();
