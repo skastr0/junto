@@ -120,4 +120,33 @@ describe("AgentSignalRepository", () => {
       AGENT_SIGNAL_CLOSED_HISTORY,
     );
   });
+
+  it("keeps a signal's attachments in order, with captions, across every read", async () => {
+    const ref = (name: string, fill: string) =>
+      ({ sha256: fill.repeat(64), byteLength: 10, mediaType: "image/png", displayName: name }) as never;
+    const attachments = [
+      { ref: ref("before.png", "a"), caption: "Before" },
+      { ref: ref("after.png", "b") },
+    ];
+    const { raised, got, listed, plain } = await run(
+      Effect.gen(function* () {
+        const r = yield* repo;
+        const raised = yield* r.raise({ ...seatA, kind: "feedback", text: "ready", signalId: "sig-with-files", attachments });
+        const plain = yield* r.raise({ ...seatA, kind: "feedback", text: "no files" });
+        return {
+          raised,
+          plain,
+          got: yield* r.get("sig-with-files"),
+          listed: yield* r.listCanvas("factory"),
+        };
+      }),
+    );
+    expect(raised.signalId).toBe("sig-with-files");
+    expect(raised.attachments).toEqual(attachments);
+    expect(got.attachments).toEqual(attachments);
+    expect(listed.find((signal) => signal.signalId === "sig-with-files")?.attachments).toEqual(attachments);
+    // No files, no field.
+    expect(plain).not.toHaveProperty("attachments");
+    expect(listed.find((signal) => signal.signalId === plain.signalId)).not.toHaveProperty("attachments");
+  });
 });

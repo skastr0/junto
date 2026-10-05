@@ -3,6 +3,7 @@ import { SqlClient, SqlError, SqlSchema } from "effect/unstable/sql";
 import { ulid } from "ulid";
 import {
   type AgentSignal,
+  type AgentSignalAttachment,
   AgentSignalKind,
   AgentSignalState,
 } from "@shared/agent-signals";
@@ -39,6 +40,13 @@ export type RaiseAgentSignal = AgentSignalSeat & {
   readonly kind: AgentSignalKind;
   readonly text: string;
   readonly detail?: string;
+  /**
+   * The id to raise under, when the caller had to name the signal before it
+   * existed (its attachments are stored under it first). Default: a new one.
+   */
+  readonly signalId?: string;
+  /** Already in the content store, in the order the agent gave them. */
+  readonly attachments?: ReadonlyArray<AgentSignalAttachment>;
 };
 
 /** Closed signals kept per seat in listings; open ones are always listed. */
@@ -98,12 +106,54 @@ const SignalRow = Schema.Struct({
   response_text: Schema.NullOr(Schema.String),
   response_at: Schema.NullOr(Schema.Number),
   closed_at: Schema.NullOr(Schema.Number),
+  attachments_json: Schema.String,
 });
 
-const COLUMNS = `
-  signal_id, canvas_name, node_id, kind, text, detail, created_at, state,
-  response_text, response_at, closed_at
+/**
+ * A signal's columns, with its attachments folded into one JSON array in
+ * their order. `from` names the row source the select reads signals from.
+ */
+const columnsOf = (from: string): string => `
+  ${from}.signal_id, ${from}.canvas_name, ${from}.node_id, ${from}.kind, ${from}.text, ${from}.detail,
+  ${from}.created_at, ${from}.state, ${from}.response_text, ${from}.response_at, ${from}.closed_at,
+  (
+    SELECT json_group_array(json_object(
+      'sha256', sha256, 'byteLength', byte_length, 'mediaType', media_type,
+      'displayName', display_name, 'caption', caption
+    ))
+    FROM (
+      SELECT * FROM agent_signal_attachments
+      WHERE agent_signal_attachments.signal_id = ${from}.signal_id
+      ORDER BY position
+    )
+  ) AS attachments_json
 `;
+const COLUMNS = columnsOf("agent_signals");
+
+type AttachmentJson = {
+  readonly sha256: string;
+  readonly byteLength: number;
+  readonly mediaType: string;
+  readonly displayName: string;
+  readonly caption: string | null;
+};
+
+// Written only by `raise` below, from values the wire schema already holds.
+const attachmentsOf = (json: string): ReadonlyArray<AgentSignalAttachment> =>
+  (JSON.parse(json) as ReadonlyArray<AttachmentJson>).map((row) => ({
+    ref: {
+      sha256: row.sha256,
+      byteLength: row.byteLength,
+      mediaType: row.mediaType,
+      displayName: row.displayName,
+    } as AgentSignalAttachment["ref"],
+    ...(row.caption === null ? {} : { caption: row.caption }),
+  }));
+
+const withAttachments = (json: string): { readonly attachments?: ReadonlyArray<AgentSignalAttachment> } => {
+  const attachments = attachmentsOf(json);
+  return attachments.length > 0 ? { attachments } : {};
+};
 
 const fromRow = (row: typeof SignalRow.Type): AgentSignal => ({
   signalId: row.signal_id,
@@ -112,6 +162,7 @@ const fromRow = (row: typeof SignalRow.Type): AgentSignal => ({
   kind: row.kind,
   text: row.text,
   ...(row.detail === null ? {} : { detail: row.detail }),
+  ...withAttachments(row.attachments_json),
   createdAt: Number(row.created_at),
   state: row.state,
   ...(row.response_text === null || row.response_at === null
@@ -161,13 +212,13 @@ export const AgentSignalRepositoryLive: Layer.Layer<
       Request: Schema.Tuple([Schema.String, Schema.Array(Schema.String)]),
       Result: SignalRow,
       execute: ([where, bindings]) => sql.unsafe(`
-        SELECT ${COLUMNS} FROM (
+        SELECT ${columnsOf("ranked")} FROM (
           SELECT *, ROW_NUMBER() OVER (
             PARTITION BY canvas_name, node_id, state = 'open'
             ORDER BY created_at DESC, signal_id DESC
           ) AS seat_rank
           FROM agent_signals WHERE ${where}
-        )
+        ) AS ranked
         WHERE state = 'open' OR seat_rank <= ${AGENT_SIGNAL_CLOSED_HISTORY}
         ORDER BY state <> 'open', created_at DESC, signal_id DESC
       `, bindings),
@@ -180,11 +231,18 @@ export const AgentSignalRepositoryLive: Layer.Layer<
     });
 
     const raise = Effect.fn("agent-signals.raise")(function* (input: RaiseAgentSignal) {
-      const signalId = ulid();
+      const signalId = input.signalId ?? ulid();
       yield* sql`
         INSERT INTO agent_signals(signal_id, canvas_name, node_id, kind, text, detail, created_at, state)
         VALUES (${signalId}, ${input.canvasName}, ${input.nodeId}, ${input.kind}, ${input.text}, ${input.detail ?? null}, ${Date.now()}, 'open')
       `;
+      for (const [position, attachment] of (input.attachments ?? []).entries()) {
+        const { ref } = attachment;
+        yield* sql`
+          INSERT INTO agent_signal_attachments(signal_id, position, sha256, byte_length, media_type, display_name, caption)
+          VALUES (${signalId}, ${position}, ${ref.sha256}, ${ref.byteLength}, ${ref.mediaType}, ${ref.displayName ?? "file"}, ${attachment.caption ?? null})
+        `;
+      }
       return (yield* readOne(signalId))!;
     }, sql.withTransaction, Effect.provideService(StateTransactionOperation, "agent-signals.raise"),
     Effect.mapError(persistence("raise")));
