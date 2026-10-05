@@ -7,6 +7,8 @@ playwright="$repo_root/node_modules/.bin/playwright"
 
 # shellcheck source=scripts/linux-display.sh
 source "$script_dir/linux-display.sh"
+# shellcheck source=scripts/app-run-lock.sh
+source "$script_dir/app-run-lock.sh"
 
 if [[ ! -x "$playwright" ]]; then
   printf 'junto: error: Playwright is missing — run .agents/setup\n' >&2
@@ -27,6 +29,9 @@ fi
 
 command=("$playwright" test --config e2e/playwright.config.ts "$@")
 
+# One app run at a time on the machine; released when this shell exits.
+junto_app_run_lock_acquire "e2e $*"
+
 if [[ "$(uname -s)" == "Linux" ]] && junto_use_available_desktop; then
   if [[ -n "${AMP_DIRECT_DESKTOP:-}" ]]; then
     printf 'junto: Electron E2E is using the active Amp Desktop\n' >&2
@@ -39,7 +44,9 @@ elif [[ "$(uname -s)" == "Linux" ]]; then
   fi
   printf 'junto: Electron E2E is using the headless Xvfb fallback\n' >&2
   export JUNTO_E2E_SHOW="${JUNTO_E2E_SHOW:-1}"
-  exec xvfb-run -a -s '-screen 0 1920x1200x24 -nolisten tcp' "${command[@]}"
+  xvfb-run -a -s '-screen 0 1920x1200x24 -nolisten tcp' "${command[@]}"
+  exit $?
 fi
 
-exec "${command[@]}"
+# Not exec: this shell must outlive the run to give the lock back.
+"${command[@]}"
