@@ -52,6 +52,8 @@ describe("compile-time feature profiles", () => {
       harnessPrimeAgent: true,
       // Settings, Agents: per-harness launch defaults ship on.
       harnessSettings: true,
+      // The side dock and every pin control: unsupported, built into no profile.
+      pinning: false,
     });
   });
 

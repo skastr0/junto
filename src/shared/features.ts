@@ -41,6 +41,7 @@ declare const __JUNTO_HARNESS_AMP_ENABLED__: boolean | undefined;
 declare const __JUNTO_HARNESS_OMP_ENABLED__: boolean | undefined;
 declare const __JUNTO_HARNESS_PRIME_AGENT_ENABLED__: boolean | undefined;
 declare const __JUNTO_HARNESS_SETTINGS_ENABLED__: boolean | undefined;
+declare const __JUNTO_PINNING_ENABLED__: boolean | undefined;
 declare const __JUNTO_SEAT_AWARENESS_TIER__: FeatureTier | undefined;
 declare const __JUNTO_REVIEWS_ENABLED__: boolean | undefined;
 
@@ -243,6 +244,16 @@ export const HARNESS_SETTINGS_ENABLED: boolean =
     : envEnabled("JUNTO_HARNESS_SETTINGS");
 
 /**
+ * Pinning: the side dock and the workbench's pinned zone. Off in every
+ * profile; a build-time constant, so the dock and its controls are dropped
+ * from the renderer rather than hidden.
+ */
+export const PINNING_ENABLED: boolean =
+  typeof __JUNTO_PINNING_ENABLED__ === "boolean"
+    ? __JUNTO_PINNING_ENABLED__
+    : envEnabled("JUNTO_PINNING");
+
+/**
  * Seat awareness (Jev) and seat collaboration — the advisory sidecar, its hover,
  * the thread-health reading, and the peer-help request. Display only.
  *
@@ -296,6 +307,7 @@ export const BUILD_FEATURES = {
   harnessOmp: HARNESS_OMP_ENABLED,
   harnessPrimeAgent: HARNESS_PRIME_AGENT_ENABLED,
   harnessSettings: HARNESS_SETTINGS_ENABLED,
+  pinning: PINNING_ENABLED,
   seatAwareness: SEAT_AWARENESS_TIER,
   reviews: REVIEWS_ENABLED,
 } as const satisfies Readonly<Record<FeatureKey, FeatureTier>>;
