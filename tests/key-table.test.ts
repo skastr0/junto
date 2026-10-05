@@ -321,6 +321,19 @@ describe("rebinding", () => {
     expect(chordsFor(KEY_TABLE.find((def) => def.id === "feed.open")!, true, overrides)).toEqual(["Cmd+J"]);
   });
 
+  it("never answers a stored chord the system or the terminal owns", () => {
+    const overrides = { "feed.open": ["Cmd+Q", "Ctrl+J", "Cmd+J"] };
+    const feed = KEY_TABLE.find((def) => def.id === "feed.open")!;
+    expect(chordsFor(feed, true, overrides)).toEqual(["Cmd+J"]);
+    expect(resolveChord("Ctrl+J", at("terminal"), overrides)).toBeNull();
+    expect(resolveChord("Cmd+Q", at("canvas"), overrides)).toBeNull();
+  });
+
+  it("ignores a stored chord for a shortcut that cannot change", () => {
+    expect(resolveChord("Cmd+N", at("switcher"), { "switcher.next": ["Cmd+N"] })).toBeNull();
+    expect(resolveChord("Cmd+J", at("switcher"), { "switcher.next": ["Cmd+N"] })).toEqual({ id: "switcher.next" });
+  });
+
   it("finds a chord two shortcuts would share in one place", () => {
     expect(keyConflicts(true, { "feed.open": ["Cmd+K"] })).toContainEqual({
       chord: "Cmd+K",

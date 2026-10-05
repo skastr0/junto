@@ -42,12 +42,15 @@ export const KEY_CONTEXTS: ReadonlyArray<KeyContext> = [
 const EVERYWHERE: ReadonlyArray<KeyContext> = ["canvas", "terminal", "field", "working", "operator"];
 const NOT_TYPING: ReadonlyArray<KeyContext> = ["canvas", "working", "operator"];
 
-export type ShortcutArea =
-  | "Search and needs you"
-  | "Command groups"
-  | "Agents"
-  | "Canvas"
-  | "Window";
+/** Where the shortcuts page lists a shortcut: by where its chord works. */
+export type ShortcutArea = "Anywhere" | "Search and feed" | "Canvas" | "Agent and terminal";
+
+export const SHORTCUT_AREAS: ReadonlyArray<ShortcutArea> = [
+  "Anywhere",
+  "Search and feed",
+  "Canvas",
+  "Agent and terminal",
+];
 
 export type ShortcutId =
   | "search.open"
@@ -89,12 +92,16 @@ export type ShortcutDef = {
   readonly repeats?: true;
   /** Also runs when this modifier is let go. */
   readonly onRelease?: "Cmd";
+  /** Its chord must hold Cmd: letting Cmd go is what opens the chosen agent. */
+  readonly needsCmd?: true;
+  /** Why the chord cannot be changed, in a few words. Absent: it can. */
+  readonly fixed?: string;
 };
 
 export const KEY_TABLE: ReadonlyArray<ShortcutDef> = [
   {
     id: "search.open",
-    area: "Search and needs you",
+    area: "Search and feed",
     does: "Open search, or close it when it is open",
     mac: ["Cmd+K"],
     other: ["Ctrl+K"],
@@ -104,7 +111,7 @@ export const KEY_TABLE: ReadonlyArray<ShortcutDef> = [
   },
   {
     id: "search.slash",
-    area: "Search and needs you",
+    area: "Search and feed",
     does: "Open search",
     mac: ["Slash"],
     other: ["Slash"],
@@ -112,7 +119,7 @@ export const KEY_TABLE: ReadonlyArray<ShortcutDef> = [
   },
   {
     id: "feed.open",
-    area: "Search and needs you",
+    area: "Search and feed",
     does: "Open the needs-you feed, or close it when it is open",
     mac: ["Cmd+I"],
     other: ["Ctrl+I"],
@@ -121,7 +128,7 @@ export const KEY_TABLE: ReadonlyArray<ShortcutDef> = [
   },
   {
     id: "groups.assign",
-    area: "Command groups",
+    area: "Canvas",
     does: "Save the selection as command group 1 to 9",
     mac: ["Cmd+Digit"],
     other: ["Ctrl+Digit"],
@@ -129,7 +136,7 @@ export const KEY_TABLE: ReadonlyArray<ShortcutDef> = [
   },
   {
     id: "groups.recall",
-    area: "Command groups",
+    area: "Canvas",
     does: "Go to command group 1 to 9; press again to step through its agents",
     mac: ["Digit"],
     other: ["Digit"],
@@ -137,7 +144,7 @@ export const KEY_TABLE: ReadonlyArray<ShortcutDef> = [
   },
   {
     id: "groups.jump",
-    area: "Command groups",
+    area: "Agent and terminal",
     does: "Jump to command group 1 to 9; press again for its next agent",
     mac: ["Cmd+Digit"],
     // Off macOS there is no Cmd, and Ctrl plus a digit is the shell's.
@@ -146,7 +153,7 @@ export const KEY_TABLE: ReadonlyArray<ShortcutDef> = [
   },
   {
     id: "alerts.next",
-    area: "Agents",
+    area: "Canvas",
     does: "Go to the next agent that raised an alert",
     mac: ["Space", "Backquote"],
     other: ["Space", "Backquote"],
@@ -154,61 +161,67 @@ export const KEY_TABLE: ReadonlyArray<ShortcutDef> = [
   },
   {
     id: "urgency.next",
-    area: "Agents",
+    area: "Anywhere",
     does: "Step to the agent that most needs you: hold Cmd, tap to step, let go to open it",
     mac: ["Cmd+Backquote"],
     other: [],
     where: ["canvas", "terminal", "field", "working", "switcher"],
     repeats: true,
+    needsCmd: true,
   },
   {
     id: "urgency.previous",
-    area: "Agents",
+    area: "Anywhere",
     does: "Step back through the agents that need you",
     mac: ["Cmd+Shift+Backquote"],
     other: [],
     where: ["canvas", "terminal", "field", "working", "switcher"],
     repeats: true,
+    needsCmd: true,
   },
   // While the switcher is up Cmd is held, so its keys are Cmd chords.
   {
     id: "switcher.next",
-    area: "Agents",
+    area: "Agent and terminal",
     does: "In the switcher, move to the next agent",
     mac: ["Cmd+ArrowDown", "Cmd+ArrowRight", "Cmd+J", "Cmd+L"],
     other: [],
     where: ["switcher"],
+    fixed: "Cmd is held while the switcher is up",
     repeats: true,
   },
   {
     id: "switcher.previous",
-    area: "Agents",
+    area: "Agent and terminal",
     does: "In the switcher, move to the previous agent",
     mac: ["Cmd+ArrowUp", "Cmd+ArrowLeft", "Cmd+K", "Cmd+H"],
     other: [],
     where: ["switcher"],
+    fixed: "Cmd is held while the switcher is up",
     repeats: true,
   },
   {
     id: "switcher.commit",
-    area: "Agents",
+    area: "Agent and terminal",
     does: "In the switcher, open the chosen agent",
     mac: ["Cmd+Enter"],
     other: [],
     where: ["switcher"],
+    fixed: "Cmd is held while the switcher is up",
     onRelease: "Cmd",
   },
   {
     id: "switcher.cancel",
-    area: "Agents",
+    area: "Agent and terminal",
     does: "In the switcher, close it and stay where you were",
     mac: ["Cmd+Escape"],
     other: [],
     where: ["switcher"],
+    fixed: "Cmd is held while the switcher is up",
   },
   {
     id: "git.review",
-    area: "Agents",
+    area: "Agent and terminal",
     does: "Open the git review for the agent in front, or close it",
     mac: ["Cmd+G"],
     other: [],
@@ -216,7 +229,7 @@ export const KEY_TABLE: ReadonlyArray<ShortcutDef> = [
   },
   {
     id: "mirrors.next",
-    area: "Agents",
+    area: "Anywhere",
     does: "Go to the next connected agent terminal",
     mac: ["Cmd+BracketRight"],
     other: [],
@@ -224,7 +237,7 @@ export const KEY_TABLE: ReadonlyArray<ShortcutDef> = [
   },
   {
     id: "mirrors.previous",
-    area: "Agents",
+    area: "Anywhere",
     does: "Go to the previous connected agent terminal",
     mac: ["Cmd+BracketLeft"],
     other: [],
@@ -273,7 +286,7 @@ export const KEY_TABLE: ReadonlyArray<ShortcutDef> = [
   },
   {
     id: "front.close",
-    area: "Window",
+    area: "Anywhere",
     does: "Close what is in front, one layer at a time; with nothing open, close the window",
     mac: ["Cmd+W"],
     // Ctrl+W deletes a word in the shell.
@@ -380,14 +393,21 @@ const digitFamily = (chord: string): string | null => {
 
 // --- resolve -----------------------------------------------------------------
 
-export type KeyOverrides = Readonly<Partial<Record<ShortcutId, ReadonlyArray<string>>>>;
+export type KeyOverrides = Readonly<Record<string, ReadonlyArray<string>>>;
 
-/** The chords a shortcut answers to here: the operator's own, else the default. */
+/**
+ * The chords a shortcut answers to here: the operator's own, else the
+ * default. A stored chord the system or the terminal owns is never answered,
+ * whatever wrote it.
+ */
 export const chordsFor = (
   def: ShortcutDef,
   mac: boolean,
   overrides: KeyOverrides = {},
-): ReadonlyArray<string> => overrides[def.id] ?? (mac ? def.mac : def.other);
+): ReadonlyArray<string> => {
+  const own = def.fixed === undefined ? overrides[def.id] : undefined;
+  return own ? own.filter((chord) => reservedReason(chord, mac) === null) : mac ? def.mac : def.other;
+};
 
 const liveIn = (def: ShortcutDef, mac: boolean): ReadonlyArray<KeyContext> =>
   mac ? def.where : (def.whereOther ?? def.where);
@@ -462,7 +482,9 @@ export type KeyConflict = {
   readonly ids: readonly [ShortcutId, ShortcutId];
 };
 
-const covers = (a: string, b: string): boolean => a === b || digitFamily(b) === a || digitFamily(a) === b;
+/** Two chords one keydown could mean: the same, or a digit and the digit row. */
+export const chordsOverlap = (a: string, b: string): boolean =>
+  a === b || digitFamily(b) === a || digitFamily(a) === b;
 
 /** Two shortcuts that would answer the same chord in the same place. */
 export const keyConflicts = (
@@ -476,7 +498,7 @@ export const keyConflicts = (
       const shared = liveIn(a, mac).filter((context) => liveIn(b, mac).includes(context));
       if (shared.length === 0) continue;
       for (const chord of chordsFor(a, mac, overrides)) {
-        if (!chordsFor(b, mac, overrides).some((other) => covers(chord, other))) continue;
+        if (!chordsFor(b, mac, overrides).some((other) => chordsOverlap(chord, other))) continue;
         for (const context of shared) out.push({ chord, context, ids: [a.id, b.id] });
       }
     }
@@ -547,6 +569,28 @@ const KEY_LABEL: Readonly<Record<string, string>> = {
   ArrowLeft: "←",
   ArrowRight: "→",
 };
+
+const KEY_SPOKEN: Readonly<Record<string, string>> = {
+  Backquote: "backtick",
+  Slash: "slash",
+  BracketLeft: "left bracket",
+  BracketRight: "right bracket",
+  Equal: "equals",
+  Plus: "plus",
+  Minus: "minus",
+  Digit: "1 to 9",
+  ArrowUp: "up arrow",
+  ArrowDown: "down arrow",
+  ArrowLeft: "left arrow",
+  ArrowRight: "right arrow",
+};
+
+/** A chord said aloud: "Command Shift K". */
+export const chordSpoken = (chord: string): string =>
+  chord
+    .split("+")
+    .map((part) => (part === "Cmd" ? "Command" : part === "Ctrl" ? "Control" : part === "Alt" ? "Option" : KEY_SPOKEN[part] ?? part))
+    .join(" ");
 
 /** A chord as the key caps to show, in order. */
 export const chordKeyCaps = (chord: string, mac: boolean): string[] =>
