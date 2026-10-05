@@ -99,6 +99,8 @@ describe("wireFactorySupervisor", () => {
   it("hands the supervisor the interjecting writer and the drive's composer reading", async () => {
     let writer: ((b: string, t: string) => boolean | Promise<boolean>) | undefined;
     let composer: ((b: string) => "empty" | "draft" | null) | undefined;
+    let continuation: ((b: string, t: string) => boolean | Promise<boolean>) | undefined;
+    const drive = fakeDrive();
     const typed: Array<{ bindingId: string; text: string }> = [];
     const snapshots: unknown[] = [];
     const closed: string[] = [];
@@ -106,6 +108,9 @@ describe("wireFactorySupervisor", () => {
       supervisor: {
         setWriter: (fn) => {
           writer = fn;
+        },
+        setContinuationWriter: (fn) => {
+          continuation = fn;
         },
         setComposerLookup: (fn) => {
           composer = fn;
@@ -119,6 +124,7 @@ describe("wireFactorySupervisor", () => {
         typed.push({ bindingId, text });
         return Promise.resolve(bindingId === "b1");
       },
+      write: makeFactoryWriteManagedPrompt(drive, () => true),
       composerVerdict: (b) => (b === "b1" ? "draft" : "empty"),
       subscribeSnapshots: (listener) => {
         listener({ text: "frame" } as never);
@@ -137,6 +143,11 @@ describe("wireFactorySupervisor", () => {
     // The supervisor gates on the same composer reading the drive does.
     expect(composer?.("b1")).toBe("draft");
     expect(composer?.("b2")).toBe("empty");
+    // The continuation line opens a session: gated, and refused not queued.
+    await expect(Promise.resolve(continuation?.("b1", "continue"))).resolves.toBe(true);
+    expect(drive.writes).toEqual([
+      { bindingId: "b1", text: "continue", options: { ready: true, queueIfBusy: false } },
+    ]);
     expect(snapshots).toEqual([{ text: "frame" }]);
     dispose();
     expect(closed).toEqual(["snapshots"]);
@@ -173,6 +184,7 @@ describe("composeFactoryDelivery", () => {
       },
       supervisor: {
         setWriter: () => {},
+        setContinuationWriter: () => {},
         setComposerLookup: () => {},
         noteSeatState: (event) => {
           noted.push(event);
@@ -252,6 +264,7 @@ describe("real destination-drive composition", () => {
       supervisor,
       interject: (bindingId, text) =>
         busy.writeMail(bindingId, text).then((outcome) => outcome === "written"),
+      write: makeFactoryWriteManagedPrompt(busy, () => true),
       composerVerdict: () => "empty",
       subscribeSnapshots: () => () => {},
     });

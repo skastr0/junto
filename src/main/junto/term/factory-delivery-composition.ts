@@ -19,7 +19,11 @@
  */
 
 import type { AgentSeatStateEvent } from "@shared/agent-seat-state";
-import { isPromptSubmitted, type ManagedPromptOutcome } from "@shared/managed-prompt";
+import {
+  isPromptSubmitted,
+  outcomeWrotePhysical,
+  type ManagedPromptOutcome,
+} from "@shared/managed-prompt";
 import type { WritePromptOptions } from "./drive";
 import type { ObserverGridSnapshot } from "./observer/types";
 import {
@@ -43,6 +47,8 @@ export type FactoryWritePromptOptions = {
   readonly queueTimeoutMs?: number;
   readonly ready?: boolean;
   readonly awaitTurnStart?: boolean;
+  /** False refuses at once on a busy or unwritable seat instead of queueing. */
+  readonly queueIfBusy?: boolean;
 };
 
 export type FactoryWritePrompt = (
@@ -68,6 +74,9 @@ export type FactoryDeliveryEvents = {
 
 export type FactoryDeliverySupervisor = {
   readonly setWriter: (
+    writer: (bindingId: string, text: string) => boolean | Promise<boolean>,
+  ) => void;
+  readonly setContinuationWriter: (
     writer: (bindingId: string, text: string) => boolean | Promise<boolean>,
   ) => void;
   readonly setComposerLookup: (
@@ -157,14 +166,22 @@ export const factoryBoardTransport = (input: {
  * only to the operator composing there, the way mail is written, because a
  * nudge that waits for the turn to end can arrive hours late. It is not mail:
  * no mailbox, no receipt, and a nudge that could not be typed is simply tried
- * again at a later event. Returns the snapshot-subscription teardown — the
- * composition owns it, so dispose closes every subscription this module
- * opened.
+ * again at a later event.
+ *
+ * The continuation line of a session that follows `junto offboard --continue`
+ * is the opposite case: it opens a fresh session, so it goes through the
+ * gated `write`, refused rather than queued, and lands only on an idle seat
+ * with a proven-empty composer. Typed bytes count as delivered even when the
+ * turn start was not seen; the drive never replays them.
+ *
+ * Returns the snapshot-subscription teardown — the composition owns it, so
+ * dispose closes every subscription this module opened.
  */
 export const wireFactorySupervisor = (input: {
   readonly supervisor: FactoryDeliverySupervisor;
   /** True once the sentence and its CR reached the PTY. */
   readonly interject: (bindingId: string, text: string) => Promise<boolean>;
+  readonly write: FactoryWritePrompt;
   /** The same composer reading the drive gates on. */
   readonly composerVerdict: (bindingId: string) => "empty" | "draft" | null;
   readonly subscribeSnapshots: (
@@ -173,6 +190,9 @@ export const wireFactorySupervisor = (input: {
 }): (() => void) => {
   input.supervisor.setComposerLookup(input.composerVerdict);
   input.supervisor.setWriter(input.interject);
+  input.supervisor.setContinuationWriter((bindingId, text) =>
+    input.write(bindingId, text, { queueIfBusy: false }).then(outcomeWrotePhysical),
+  );
   return input.subscribeSnapshots((snap) =>
     input.supervisor.onSnapshot(snap),
   );
@@ -219,6 +239,7 @@ export const composeFactoryDelivery = (
     wireFactorySupervisor({
       supervisor: input.supervisor,
       interject: input.interject,
+      write,
       composerVerdict: input.composerVerdict,
       subscribeSnapshots: input.events.subscribeSnapshots,
     }),

@@ -86,9 +86,14 @@ export const composeOffboardAsk = (mode: OffboardMode): string =>
         "When you go idle, Junto closes this session and the seat rests. Its next wake starts a fresh session that reads your notes.",
       ].join("\n");
 
-/** The first mail a continuing seat's fresh session reads. */
-export const CONTINUATION_KICKOFF =
-  "This is a fresh session of this seat. Your previous session offboarded and left you a continuation note. Run `junto onboard`, read the handoff at the top, and carry on from there.";
+/**
+ * The first message of a fresh session that continues one which ran
+ * `junto offboard --continue`: one line, typed once the harness can take it.
+ * It is the seat's own request carried over, not doctrine; `junto onboard`
+ * hands the session its continuation note.
+ */
+export const CONTINUATION_LINE =
+  "Continuing from your previous session. Run `junto onboard` to read your handoff.";
 
 /**
  * The one-line gist of a session's notes: the first line with text, without

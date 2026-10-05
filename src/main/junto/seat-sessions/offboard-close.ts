@@ -7,7 +7,9 @@
  * which onboards into the notes.
  *
  * continue: the same, then Junto starts the fresh session right away and
- * mails it the kickoff, so it reads the continuation note and carries on.
+ * tells it, in one line, to read its handoff, so it carries on unprompted.
+ * Nothing else starts a session with a message: a seat that rests, or one the
+ * operator opens, comes up to its own empty composer.
  *
  * The closer also keeps where each seat's offboard stands (asked, saved,
  * resting, started) for the operator. Everything outside the clock comes in
@@ -32,7 +34,7 @@ export type OffboardClosePorts = {
   readonly isIdle: (bindingId: string) => boolean;
   /** End the session and give the seat a fresh one; start it only when `wake`. */
   readonly close: (seatId: string, canvasName: string, wake: boolean) => Promise<SeatRotateResult>;
-  /** Mail the fresh session of a continuing seat its kickoff. */
+  /** Have the fresh session of a continuing seat told to read its handoff. */
   readonly kickoff: (seatId: string, canvasName: string) => Promise<boolean>;
   readonly publish: (progress: SeatOffboardProgress) => void;
   /** Told whenever an agent runs `junto offboard`. */
@@ -194,8 +196,8 @@ export class SeatOffboardCloser {
       this.report(entry.seatId, entry.canvasName, entry.mode, "resting");
       return;
     }
-    // The kickoff waits in the mailbox of a seat that did not start (a
-    // paused canvas), and reaches the fresh session when it does.
+    // The kickoff waits for a seat that did not start (a paused canvas),
+    // and reaches the fresh session when it does.
     const mailed = await this.ports.kickoff(entry.seatId, entry.canvasName).catch(() => false);
     if (!mailed) {
       this.report(

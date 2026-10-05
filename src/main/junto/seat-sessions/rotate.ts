@@ -7,9 +7,10 @@
  * its own), and the running process stops. With `wake` (the default) the
  * kernel starts the seat again under the usual rules: this installation's
  * seat only, on a playing canvas. Without it the seat rests, and whatever
- * wakes it next (mail) starts the fresh session. A fresh session is unproven,
- * so it spawns with the seat doctrine, whose first step is `junto onboard`,
- * which hands it the notes.
+ * wakes it next (mail) starts the fresh session. Nothing is sent to a fresh
+ * session at spawn: it learns to run `junto onboard`, which hands it the
+ * notes, from the mail that woke it or, after `--continue`, from the one
+ * line the offboard closer has it told (see offboard-close.ts).
  *
  * Offboard notes are the agent's to write; rotating never writes them.
  */

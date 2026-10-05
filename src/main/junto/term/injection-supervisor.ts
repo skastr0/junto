@@ -14,6 +14,11 @@
  * drive's interjecting write, the one mail uses: it types mid-turn and yields
  * only to the operator composing in the seat.
  *
+ * One more line may open a session: when a seat offboards with `--continue`,
+ * the fresh session Junto starts for it is told to pick up its handoff. That
+ * is the seat's own request, not a nudge. It is typed once, as the session's
+ * first message, when the harness shows an empty composer and no dialog.
+ *
  * Driven by events, never wall clock: seat-state transitions, PTY snapshots
  * (composer changes), operator input, mail written into the seat, and the
  * `junto onboard` call itself.
@@ -29,6 +34,7 @@ import {
 } from "./intervention/policy";
 import { buildOnboardNudge } from "@shared/managed-terminal-injection";
 import type { AgentSeatStateEvent } from "@shared/agent-seat-state";
+import { CONTINUATION_LINE } from "@shared/seat-sessions";
 import type {
   SeatOnboardingEvent,
   SeatOnboardingStatus,
@@ -77,7 +83,13 @@ export class InjectionSupervisor {
   private readonly statuses = new Map<string, SeatOnboardingEvent>();
   private readonly userInputBindings = new Map<string, number>();
   private readonly listeners = new Set<OnboardingListener>();
+  /**
+   * Seats whose next generation continues an offboarded session, with the
+   * generation that offboarded (never the one to tell).
+   */
+  private readonly continuations = new Map<string, { readonly notEpoch: string | undefined }>();
   private writer: NoticeWriter | undefined;
+  private continuationWriter: NoticeWriter | undefined;
   private composer: ComposerLookup | undefined;
   private loader: OnboardedLoader | undefined;
   private recorder: OnboardedRecorder | undefined;
@@ -85,6 +97,14 @@ export class InjectionSupervisor {
 
   setWriter(writer: NoticeWriter): void {
     this.writer = writer;
+  }
+
+  /**
+   * How the continuation line is typed: the drive's gated write, which types
+   * only into an idle seat with a proven-empty composer.
+   */
+  setContinuationWriter(writer: NoticeWriter): void {
+    this.continuationWriter = writer;
   }
 
   setComposerLookup(lookup: ComposerLookup): void {
@@ -109,6 +129,7 @@ export class InjectionSupervisor {
     this.seats.clear();
     this.onboardedEarly.clear();
     this.statuses.clear();
+    this.continuations.clear();
   }
 
   subscribeOnboarding(listener: OnboardingListener): () => void {
@@ -250,6 +271,70 @@ export class InjectionSupervisor {
   }
 
   /**
+   * The seat offboarded with `--continue` and Junto is starting its fresh
+   * session: tell that session, once, to read its handoff. The only caller is
+   * the offboard closer; a seat started any other way is told nothing.
+   */
+  armContinuation(bindingId: string, offboarded: string | undefined): void {
+    this.continuations.set(bindingId, { notEpoch: offboarded });
+    const seat = this.seats.get(bindingId);
+    if (seat !== undefined) this.evaluate(bindingId, seat);
+  }
+
+  /**
+   * The generation live on a binding now. Read before a rotation, it names
+   * the generation that offboarded; by the time the rotation returns, the
+   * fresh one may already be up.
+   */
+  generationOf(bindingId: string): string | undefined {
+    return this.seats.get(bindingId)?.epoch;
+  }
+
+  /** A fresh session is still waiting to be told to continue. */
+  continuationPending(bindingId: string): boolean {
+    return this.continuations.has(bindingId);
+  }
+
+  /**
+   * Type the continuation line into the fresh generation when it can take
+   * it. True while the continuation owns this seat's next write, so no nudge
+   * goes out ahead of it.
+   */
+  private continueSession(bindingId: string, seat: SeatSupervision): boolean {
+    const armed = this.continuations.get(bindingId);
+    if (armed === undefined || armed.notEpoch === seat.epoch) return false;
+    if (seat.onboarding === "unknown") return true;
+    if (seat.onboarding === "onboarded") {
+      // It already read its handoff: nothing left to say.
+      this.continuations.delete(bindingId);
+      return false;
+    }
+    if (seat.state !== "idle" || this.composerOf(bindingId) !== "empty") return true;
+    const writer = this.continuationWriter;
+    if (writer === undefined) return true;
+    seat.nudgeInFlight = true;
+    const settle = (accepted: boolean): void => {
+      if (this.seats.get(bindingId) !== seat) return;
+      seat.nudgeInFlight = false;
+      if (!accepted) return;
+      this.continuations.delete(bindingId);
+      // The session's first message, and the turn it starts. The nudge
+      // policy counts from here: that turn is not one of its own.
+      seat.firstMessageSeen = true;
+      seat.inTurn = true;
+      seat.turnsWaited = 0;
+    };
+    try {
+      const result = writer(bindingId, CONTINUATION_LINE);
+      if (typeof result === "boolean") settle(result);
+      else void result.then(settle, () => settle(false));
+    } catch {
+      settle(false);
+    }
+    return true;
+  }
+
+  /**
    * A nudge reached the seat outside the cadence (the operator's button). It
    * counts as one of the generation's nudges, so the cadence does not repeat
    * what the operator just sent.
@@ -307,6 +392,7 @@ export class InjectionSupervisor {
 
   private evaluate(bindingId: string, seat: SeatSupervision): void {
     if (seat.nudgeInFlight) return;
+    if (this.continueSession(bindingId, seat)) return;
     const ctx: InteractionContext = {
       seat: seat.state,
       composer: this.composerOf(bindingId),

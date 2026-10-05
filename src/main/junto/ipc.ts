@@ -73,7 +73,6 @@ import {
 } from "@shared/seat-onboarding-status";
 import {
   composeOffboardAsk,
-  CONTINUATION_KICKOFF,
   OFFBOARD_MODES,
   type OffboardMode,
   type SeatOffboardAskResult,
@@ -157,7 +156,6 @@ import {
   type SeatCollaborationAskResult,
 } from "@shared/seat-collaboration";
 import { actorDeliverySurfaceOf } from "@shared/actor-surface";
-import { PRODUCT_NAME } from "@shared/product-name";
 import { mailExtensionMetadata } from "@shared/crew";
 import { operatorActorRef } from "@shared/work-reference";
 import { ulid } from "ulid";
@@ -1760,6 +1758,8 @@ export const registerJuntoIpc = (): void => {
           readonly ready?: boolean;
           /** See ManagedTerminalDrive WritePromptOptions.awaitTurnStart. */
           readonly awaitTurnStart?: boolean;
+          /** See ManagedTerminalDrive WritePromptOptions.queueIfBusy. */
+          readonly queueIfBusy?: boolean;
         },
       ) =>
         managedDrive.writePrompt(bindingId, text, {
@@ -1983,20 +1983,30 @@ export const registerJuntoIpc = (): void => {
           }),
         );
       offboardCloser?.stop();
+      const offboardedGeneration = new Map<string, string | undefined>();
       offboardCloser = new SeatOffboardCloser({
         locate: managedSeatOn,
         isRunning: (bindingId) =>
           !productAutomationSuspended && termPlane.host.get(bindingId)?.status === "running",
         isIdle: (bindingId) => seatStateRuntime.isSeatIdle(bindingId),
-        close: (seatId, canvasName, wake) => offboardAndRotate(seatId, { canvasName, wake }),
+        close: async (seatId, canvasName, wake) => {
+          // Name the generation that offboarded before it is replaced: the
+          // fresh one may be up by the time the rotation returns.
+          const seat = wake ? await managedSeatOn(canvasName, seatId) : undefined;
+          if (seat !== undefined) {
+            offboardedGeneration.set(seatId, injectionSupervisor.generationOf(seat.bindingId));
+          }
+          return offboardAndRotate(seatId, { canvasName, wake });
+        },
+        // The fresh session is told once, by the supervisor, when its
+        // composer is up and empty. This is the only caller: a seat started
+        // any other way opens to an empty composer and is told nothing.
         kickoff: async (seatId, canvasName) => {
           const seat = await managedSeatOn(canvasName, seatId);
           if (seat === undefined) return false;
-          const sent = await appendManagedPrompt(
-            { bindingId: seat.bindingId, text: CONTINUATION_KICKOFF, canvasName, nodeId: seatId },
-            PRODUCT_NAME,
-          );
-          return sent.ok;
+          injectionSupervisor.armContinuation(seat.bindingId, offboardedGeneration.get(seatId));
+          offboardedGeneration.delete(seatId);
+          return true;
         },
         publish: (progress) => broadcast(IPC_CHANNELS.seatOffboardProgress, progress),
         onOffboard: subscribeSeatOffboard,
@@ -2098,6 +2108,7 @@ export const registerJuntoIpc = (): void => {
         supervisor: injectionSupervisor,
         interject: (bindingId, text) =>
           interjectOnboardNudge(bindingId, text).then((outcome) => outcome === "written"),
+        write: writeManagedPrompt,
         composerVerdict: (bindingId) => seatStateRuntime.composerVerdict(bindingId),
         subscribeSnapshots: (listener) =>
           terminalObserverPlane.subscribeGlobal(listener),
