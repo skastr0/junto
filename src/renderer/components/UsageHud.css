@@ -140,12 +140,13 @@
 /* Overlay — drops under the station bar.
    Sized to content (not locked to rail width) so a compact rail still gets
    a readable list. Stays inside .usage-hud hit area so hover remains.
-   z-index above station chrome; no title attributes anywhere in this tree. */
+   Ordered inside the station bar's own stacking context, so a small number
+   is all it needs; no title attributes anywhere in this tree. */
 .usage-hud__tooltip {
   position: absolute;
   top: calc(100% + 8px);
   left: 0;
-  z-index: 200;
+  z-index: 5;
   box-sizing: border-box;
   width: max-content;
   min-width: 240px;

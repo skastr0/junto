@@ -37,6 +37,7 @@
     "lint:single-write-seam": "bun scripts/lint-single-write-seam.ts",
     "lint:focus-law": "bun scripts/lint-focus-law.ts",
     "lint:overlay": "bun scripts/lint-overlay.ts",
+    "lint:layers": "bun scripts/lint-layers.ts",
     "lint:design-tokens": "bun scripts/lint-design-tokens.ts",
     "tokens:convert": "bun scripts/design-token-codemod.ts",
     "check:overlay-bundle": "bun scripts/lint-overlay.ts --bundle",
@@ -91,6 +92,7 @@
     "package:qualify:runtime-parity": "bun scripts/qualify-package-runtime-parity.ts",
     "test:e2e:startup": "JUNTO_FEATURE_PROFILE=all-on electron-vite build && scripts/run-e2e.sh e2e/scenarios/free-startup.spec.ts",
     "test:e2e:audit": "JUNTO_FEATURE_PROFILE=all-on electron-vite build && scripts/run-e2e.sh e2e/scenarios/design-audit.spec.ts",
+    "test:e2e:audit:bright": "JUNTO_FEATURE_PROFILE=all-on electron-vite build && scripts/run-e2e.sh e2e/scenarios/design-audit-bright.spec.ts",
     "audit:dependencies": "bun audit --audit-level=high"
   },
   "dependencies": {
