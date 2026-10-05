@@ -275,6 +275,102 @@ export const EtherRegionContract = Schema.Struct({
 });
 export type EtherRegionContract = typeof EtherRegionContract.Type;
 
+// Region environment: what seats inside a region are launched with. The
+// document holds NAMES AND REFERENCES ONLY: where a value lives on this
+// machine (a Keychain item, a 1Password reference, a file), never the value.
+// The one exception is `kind: "value"`, a plain non-secret setting the
+// operator typed. Read live at every spawn and resume, never stamped onto
+// nodes: see shared/region-environment.ts for the resolution law.
+const EnvSourceBase = {
+  /** Stable handle within the region: reports, tokenFrom and edits key on it. */
+  id: Schema.String.pipe(Schema.check(Schema.isMinLength(1))),
+  /** A source that cannot be read refuses the launch instead of being left out. */
+  required: Schema.optionalKey(Schema.Boolean),
+  /** Applies only on this machine. Absent means every machine. */
+  host: Schema.optionalKey(EtherHostId),
+} as const;
+
+/** A variable name a process environment accepts. */
+const EnvName = Schema.String.pipe(
+  Schema.check(Schema.isPattern(/^[A-Za-z_][A-Za-z0-9_]*$/)),
+);
+const NonEmpty = Schema.String.pipe(Schema.check(Schema.isMinLength(1)));
+
+export const EnvSource = Schema.Union([
+  /** A plain value. NOT secret: it is stored in the document as written. */
+  Schema.Struct({
+    ...EnvSourceBase,
+    kind: Schema.Literal("value"),
+    name: EnvName,
+    value: Schema.String,
+  }),
+  /** A secret held in Junto's own secret store, by id. */
+  Schema.Struct({
+    ...EnvSourceBase,
+    kind: Schema.Literal("secret"),
+    name: EnvName,
+    secretId: NonEmpty,
+  }),
+  /** An item that already exists in the macOS Keychain, read in place. */
+  Schema.Struct({
+    ...EnvSourceBase,
+    kind: Schema.Literal("keychain"),
+    name: EnvName,
+    service: NonEmpty,
+    account: Schema.optionalKey(Schema.String),
+  }),
+  /** An item that already exists in the Linux Secret Service, read in place. */
+  Schema.Struct({
+    ...EnvSourceBase,
+    kind: Schema.Literal("keyring"),
+    name: EnvName,
+    attributes: Schema.Record(Schema.String, Schema.String),
+  }),
+  /**
+   * A 1Password reference (`op://vault/item/field`). `tokenFrom` is the id of
+   * another source in scope that yields the service-account token.
+   */
+  Schema.Struct({
+    ...EnvSourceBase,
+    kind: Schema.Literal("onepassword"),
+    name: EnvName,
+    ref: NonEmpty,
+    tokenFrom: Schema.optionalKey(NonEmpty),
+  }),
+  /** A dotenv file: every name it defines. */
+  Schema.Struct({
+    ...EnvSourceBase,
+    kind: Schema.Literal("envFile"),
+    path: NonEmpty,
+  }),
+  /** A directory with one file per variable. */
+  Schema.Struct({
+    ...EnvSourceBase,
+    kind: Schema.Literal("secretsDir"),
+    path: NonEmpty,
+    prefix: Schema.optionalKey(Schema.String),
+  }),
+  /** Escape hatch: the command's stdout is the value. */
+  Schema.Struct({
+    ...EnvSourceBase,
+    kind: Schema.Literal("command"),
+    name: EnvName,
+    argv: Schema.Array(Schema.String).pipe(Schema.check(Schema.isMinLength(1))),
+  }),
+]);
+export type EnvSource = typeof EnvSource.Type;
+export type EnvSourceKind = EnvSource["kind"];
+
+export const EtherRegionEnvironment = Schema.Struct({
+  /** Seats inside inherit nothing from regions outside this one. */
+  sealed: Schema.optionalKey(Schema.Boolean),
+  /** Applied in list order; a later source overrides an earlier one by name. */
+  sources: Schema.optionalKey(Schema.Array(EnvSource)),
+  /** Extra directories exposed to seats inside (absolute or `~/` paths). */
+  folders: Schema.optionalKey(Schema.Array(NonEmpty)),
+});
+export type EtherRegionEnvironment = typeof EtherRegionEnvironment.Type;
+
 // Region behavior (group nodes only). `hold: true` makes the region a
 // structural container: nodes spatially inside it travel with it when it
 // moves. `instruction` is optional operator briefing text for agents inside
@@ -285,11 +381,14 @@ export type EtherRegionContract = typeof EtherRegionContract.Type;
 // inside the region. Page bags are bag-atomic (innermost region with a bag for
 // that kind wins). Paths are host-keyed: innermost region that
 // defines a path for the spawn host wins; missing hosts walk outward.
+// `environment` is the opposite of a stamp: it is read live at every spawn of
+// a seat inside the region.
 export const EtherRegion = Schema.Struct({
   hold: Schema.optionalKey(Schema.Boolean),
   instruction: Schema.optionalKey(Schema.String),
   defaults: Schema.optionalKey(EtherRegionDefaults),
   contract: Schema.optionalKey(EtherRegionContract),
+  environment: Schema.optionalKey(EtherRegionEnvironment),
 });
 export type EtherRegion = typeof EtherRegion.Type;
 
