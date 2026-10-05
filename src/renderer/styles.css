@@ -822,8 +822,9 @@ html[data-junto-platform="darwin"] .station-bar [role="listbox"] {
 .command-bar__row-head { display: flex; min-width: 0; align-items: baseline; gap: 8px; }
 .command-bar__row-title { min-width: 0; overflow: hidden; color: var(--color-ink); font-size: 12px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
 .command-bar__row-detail, .command-bar__row-path { overflow: hidden; color: var(--color-faint); font-family: var(--font-mono); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
-/* Right-to-left clipping drops the outer regions first, so the innermost survives. */
-.command-bar__row-path { min-width: 0; flex: 0 9999 auto; direction: rtl; }
+/* The path takes the room the title leaves, never less than a short name.
+   Right-to-left clipping drops the outer regions first, so the innermost survives. */
+.command-bar__row-path { min-width: 12ch; flex: 1 1 0; direction: rtl; text-align: left; }
 .command-bar__empty { padding: 24px 12px; color: var(--color-faint); font-size: 10px; letter-spacing: .14em; text-align: center; text-transform: uppercase; }
 .command-bar__footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; border-top: 1px solid var(--color-stroke); padding: 8px 14px; color: var(--color-faint); font-size: 10px; }
 .command-bar__count { flex: none; letter-spacing: .08em; text-transform: uppercase; }
