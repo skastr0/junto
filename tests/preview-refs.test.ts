@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { previewComparePair, previewRefsIn } from "@shared/preview";
+import { previewBeforeAfter, previewComparePair, previewMarkdownText, previewRefsIn } from "@shared/preview";
 
 const RAIL = "/private/tmp/claude-501/-Users-me-Projects-junto/abc/scratchpad/rail";
 
@@ -92,5 +92,38 @@ describe("previewComparePair", () => {
 
   it("is undefined with fewer than two images", () => {
     expect(previewComparePair(previewRefsIn("/t/a.png /t/notes.md"))).toBeUndefined();
+  });
+});
+
+describe("previewBeforeAfter", () => {
+  it("is undefined unless the agent labelled both", () => {
+    expect(previewBeforeAfter(previewRefsIn("/t/a.png /t/b.png"))).toBeUndefined();
+    expect(previewBeforeAfter(previewRefsIn("Before: /t/a.png\nCanvas: /t/b.png"))).toBeUndefined();
+  });
+});
+
+describe("previewMarkdownText", () => {
+  it("turns a local markdown image into its words and path, never an image", () => {
+    expect(previewMarkdownText("![Before](/tmp/a.png)")).toBe("Before: `/tmp/a.png`");
+    expect(previewMarkdownText("![](/tmp/a.png)")).toBe("`/tmp/a.png`");
+  });
+
+  it("turns a remote markdown image into a link, so nothing is fetched until the operator opens it", () => {
+    expect(previewMarkdownText("![chart](https://example.com/a.png)")).toBe("[chart](https://example.com/a.png)");
+    expect(previewMarkdownText("![](https://example.com/a.png)")).toBe(
+      "[https://example.com/a.png](https://example.com/a.png)",
+    );
+  });
+
+  it("names the same paths after the rewrite, so main serves what the card shows", () => {
+    const source = "![Before](/tmp/a.png) then ![After](</tmp/my shots/b.png>)";
+    expect(previewRefsIn(previewMarkdownText(source)).map((ref) => ref.path)).toEqual(
+      previewRefsIn(source).map((ref) => ref.path),
+    );
+  });
+
+  it("leaves everything else as written", () => {
+    const text = "Plain [link](https://x.dev) and `code` and ![content](junto-content://abc)";
+    expect(previewMarkdownText(text)).toBe(text);
   });
 });

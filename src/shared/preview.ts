@@ -111,23 +111,47 @@ export const previewRefsIn = (markdown: string): ReadonlyArray<PreviewRef> => {
   return refs;
 };
 
-/**
- * The pair an A B view opens on: the two an agent labels before and after,
- * else the first two images. Undefined with fewer than two images.
- */
-export const previewComparePair = (
+/** The two images an agent labels before and after, by caption or else by file name. */
+export const previewBeforeAfter = (
   refs: ReadonlyArray<PreviewRef>,
 ): readonly [PreviewRef, PreviewRef] | undefined => {
   const images = refs.filter((ref) => ref.kind === "image");
-  const [first, second] = images;
-  if (!first || !second) return undefined;
   const labelled = (word: RegExp): PreviewRef | undefined =>
     images.find((ref) => word.test(ref.caption ?? "")) ??
     images.find((ref) => word.test(ref.name));
   const before = labelled(/\bbefore\b/iu);
   const after = labelled(/\bafter\b/iu);
-  return before && after && before !== after ? [before, after] : [first, second];
+  return before && after && before !== after ? [before, after] : undefined;
 };
+
+/**
+ * The pair an A B view opens on: the labelled before and after, else the
+ * first two images. Undefined with fewer than two images.
+ */
+export const previewComparePair = (
+  refs: ReadonlyArray<PreviewRef>,
+): readonly [PreviewRef, PreviewRef] | undefined => {
+  const [first, second] = refs.filter((ref) => ref.kind === "image");
+  if (!first || !second) return undefined;
+  return previewBeforeAfter(refs) ?? [first, second];
+};
+
+/**
+ * Markdown as a card shows it beside its previews. A markdown image never
+ * loads by itself: one that names a local file becomes its words and the
+ * path (the preview strip shows the picture), and a remote one becomes a
+ * link the operator may choose to open.
+ */
+export const previewMarkdownText = (markdown: string): string =>
+  markdown.replace(
+    /!\[([^\]\n]*)\]\(\s*<?([^)\n>\s][^)\n>]*?)>?(?:\s+"[^"\n]*")?\s*\)/gu,
+    (whole, alt: string, target: string) => {
+      const label = alt.trim();
+      if (isLocalPreviewPath(target)) return label ? `${label}: \x60${target}\x60` : `\x60${target}\x60`;
+      if (/^https?:\/\//iu.test(target)) return `[${label || target}](${target})`;
+      return whole;
+    },
+  );
 
 // --- the read contract -------------------------------------------------------
 
