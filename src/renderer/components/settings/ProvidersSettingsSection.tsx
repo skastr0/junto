@@ -445,58 +445,58 @@ export function ProvidersSettingsSection() {
       {LIVE_OVERSEER_ENABLED && <LiveProviderCard />}
       {USAGE_ENABLED ? (
         <>
-      <p className="settings-note" role="note">
-        Provider access is off by default. Enable only a source you want
-        Junto to read. Usage sources refresh every five minutes.
-        Hermes host snapshots, when separately enabled, poll every minute.
-        Each card names the local data and network access it may use. Stored
-        values stay in this installation's credential vault, are shown masked, and are
-        never logged.
-      </p>
-      {PROVIDER_SPECS.map((spec) => {
-        const section = spec.credentials === undefined
-          ? undefined
-          : providers?.[spec.credentials];
-        const configured = spec.fields.filter(
-          (field) => {
-            const record = section as Record<string, string | undefined> | undefined;
-            return record !== undefined && record[field.field] !== undefined;
-          },
-        ).length ?? 0;
-        return (
-          <div key={spec.source} className="settings-provider-card">
-            <div className="settings-provider-head">
-              <span className="settings-provider-field__text">
-                <Eyebrow>{spec.label}</Eyebrow>
-                <span className="settings-field__hint">{spec.blurb}</span>
-              </span>
-              <label className="settings-provider-enable">
-                <span>{enabledSources.has(spec.source) ? "access on" : "access off"}</span>
-                <input
-                  type="checkbox"
-                  checked={enabledSources.has(spec.source)}
-                  aria-label={`Allow ${spec.label} usage access`}
-                  onChange={(event) => setSourceEnabled(spec.source, event.target.checked)}
-                />
-              </label>
-            </div>
-            <p className="settings-provider-access">{spec.access}</p>
-            {configured > 0 ? (
-              <span className="settings-field__hint">{configured} credential fields configured</span>
-            ) : null}
-            {spec.fields.map((fieldSpec) => (
-              <SecretFieldRow
-                key={fieldSpec.field}
-                providerId={spec.credentials!}
-                spec={fieldSpec}
-                stored={(section as Record<string, string | undefined> | undefined)?.[
-                  fieldSpec.field
-                ]}
-              />
-            ))}
-          </div>
-        );
-      })}
+          <p className="settings-note" role="note">
+            Provider access is off by default. Enable only a source you want
+            Junto to read. Usage sources refresh every five minutes.
+            Hermes host snapshots, when separately enabled, poll every minute.
+            Each card names the local data and network access it may use. Stored
+            values stay in this installation's credential vault, are shown masked, and are
+            never logged.
+          </p>
+          {PROVIDER_SPECS.map((spec) => {
+            const section = spec.credentials === undefined
+              ? undefined
+              : providers?.[spec.credentials];
+            const configured = spec.fields.filter(
+              (field) => {
+                const record = section as Record<string, string | undefined> | undefined;
+                return record !== undefined && record[field.field] !== undefined;
+              },
+            ).length ?? 0;
+            return (
+              <div key={spec.source} className="settings-provider-card">
+                <div className="settings-provider-head">
+                  <span className="settings-provider-field__text">
+                    <Eyebrow>{spec.label}</Eyebrow>
+                    <span className="settings-field__hint">{spec.blurb}</span>
+                  </span>
+                  <label className="settings-provider-enable">
+                    <span>{enabledSources.has(spec.source) ? "access on" : "access off"}</span>
+                    <input
+                      type="checkbox"
+                      checked={enabledSources.has(spec.source)}
+                      aria-label={`Allow ${spec.label} usage access`}
+                      onChange={(event) => setSourceEnabled(spec.source, event.target.checked)}
+                    />
+                  </label>
+                </div>
+                <p className="settings-provider-access">{spec.access}</p>
+                {configured > 0 ? (
+                  <span className="settings-field__hint">{configured} credential fields configured</span>
+                ) : null}
+                {spec.fields.map((fieldSpec) => (
+                  <SecretFieldRow
+                    key={fieldSpec.field}
+                    providerId={spec.credentials!}
+                    spec={fieldSpec}
+                    stored={(section as Record<string, string | undefined> | undefined)?.[
+                      fieldSpec.field
+                    ]}
+                  />
+                ))}
+              </div>
+            );
+          })}
         </>
       ) : null}
       {HERMES_INTEGRATION_ENABLED ? (
@@ -524,8 +524,9 @@ export function ProvidersSettingsSection() {
           </div>
           <p className="settings-provider-access">
             May run local and enrolled-host SSH `hermes profile list` and
-            `hermes version`, and collect remote profile metadata. Distinct
-            from Hermes usage above. Polls every one minute while enabled.
+            `hermes version`, and collect remote profile metadata.
+            {USAGE_ENABLED ? " Distinct from Hermes usage above." : ""} Polls
+            every one minute while enabled.
           </p>
         </div>
       ) : null}

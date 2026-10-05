@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it } from "vitest";
-import { HERMES_INTEGRATION_ENABLED, LIVE_OVERSEER_ENABLED } from "@shared/features";
+import { HERMES_INTEGRATION_ENABLED, LIVE_OVERSEER_ENABLED, USAGE_ENABLED } from "@shared/features";
 import { defaultSettings } from "@shared/settings";
 import { NATIVE_USAGE_PROVIDERS } from "@shared/usage";
 import { ProvidersSettingsSection } from "../src/renderer/components/settings/ProvidersSettingsSection";
@@ -14,7 +14,7 @@ const checkboxInputs = (html: string): ReadonlyArray<string> =>
 afterEach(() => state$.settings.set(defaultSettings()));
 
 describe("provider access settings", () => {
-  it("shows every source as explicit opt-in and discloses sensitive access", () => {
+  it.runIf(USAGE_ENABLED)("shows every source as explicit opt-in and discloses sensitive access", () => {
     const html = render();
 
     expect(html).toContain("Provider access is off by default");
@@ -36,7 +36,7 @@ describe("provider access settings", () => {
     }
   });
 
-  it("renders only the sources the operator enabled as checked", () => {
+  it.runIf(USAGE_ENABLED)("renders only the sources the operator enabled as checked", () => {
     state$.settings.providers.set({ enabledSources: ["claude", "cursor"] });
     const html = render();
 
