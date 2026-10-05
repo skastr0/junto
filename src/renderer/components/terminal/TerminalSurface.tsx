@@ -2032,7 +2032,10 @@ export function TerminalSurface({
             ) : null}
             {/* Nothing is said while the session is simply running. Loading,
                 stopping and an ended session are said here, where they are seen;
-                the running state stays for screen readers and the details menu. */}
+                the running state stays for screen readers and the details menu.
+                It is announced from here only when no overlay announces it:
+                the loader and the ended card speak for themselves, and a
+                running session's grid size must not be re-read on every resize. */}
             <span
               className={[
                 "native-terminal-surface__status inline-flex shrink-0 items-center gap-1.5 text-body font-normal text-dim",
@@ -2040,7 +2043,7 @@ export function TerminalSurface({
               ]
                 .filter(Boolean)
                 .join(" ")}
-              role="status"
+              role={attached || showLoadOverlay || showDeadOverlay ? undefined : "status"}
             >
               {showLoadOverlay && loadPresentation ? (
                 <SessionLoadSpinner

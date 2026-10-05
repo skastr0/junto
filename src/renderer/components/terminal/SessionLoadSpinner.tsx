@@ -2,8 +2,9 @@
  * Compact 16×16 session-load spinner + label for actor seat open.
  * Tone colors map load phases (finding / starting / resuming / attaching / stuck).
  *
- * `pill` — centered stage chrome (bordered chip)
- * `inline` — header status row (no chip chrome)
+ * `pill` — centered stage chrome (bordered chip); it announces the phase
+ * `inline` — header status row (no chip chrome); shown beside the pill, so it
+ *   is plain text and is not announced a second time
  */
 
 import {
@@ -32,9 +33,8 @@ export function SessionLoadSpinner({
       ]
         .filter(Boolean)
         .join(" ")}
-      role="status"
-      aria-live="polite"
-      aria-label={presentation.label}
+      role={variant === "pill" ? "status" : undefined}
+      aria-live={variant === "pill" ? "polite" : undefined}
       data-phase={presentation.phase}
       data-tone={presentation.tone}
       style={{ ["--session-load-tone" as string]: presentation.hex }}
