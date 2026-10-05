@@ -36,7 +36,7 @@ export function InspectorTabs({
             role="tab"
             aria-selected={isActive}
             onClick={() => onSelect(tab.id)}
-            className="relative flex items-center gap-1.5 px-2.5 py-1.5 text-[9px] font-medium uppercase tracking-[.1em] transition"
+            className="relative flex items-center gap-1.5 px-2.5 py-1.5 text-caption font-medium uppercase tracking-label transition"
             style={{
               color: isActive ? INK : DIM,
               background: isActive ? withAlpha(HUE.amber, 0.1) : "transparent",
@@ -47,7 +47,7 @@ export function InspectorTabs({
             {tab.label}
             {tab.badge ? (
               <span
-                className="inline-flex min-w-[14px] items-center justify-center rounded-full px-1 text-[8px] tabular-nums"
+                className="inline-flex min-w-[14px] items-center justify-center rounded-full px-1 text-micro tabular-nums"
                 style={{ background: withAlpha(HUE.amber, 0.22), color: HUE.amber }}
               >
                 {tab.badge > 99 ? "99+" : tab.badge}
