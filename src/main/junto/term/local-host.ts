@@ -308,12 +308,6 @@ type SessionRec = {
   journal: JournalEntry[];
   journalBytes: number;
   controlLeaseId: string | undefined;
-  /**
-   * The control lease belongs to a holder with no terminal emulator of its
-   * own (an overseer's scripted write). It answers no terminal queries, so
-   * the headless grid keeps answering while it holds the lease.
-   */
-  controlLeaseHeadless: boolean;
   killed: boolean;
   termReceipt: AppProcessSignalReceipt | undefined;
   killReceipt: AppProcessSignalReceipt | undefined;
@@ -1080,7 +1074,6 @@ export class LocalSessionHost extends EventEmitter {
       journal: [],
       journalBytes: 0,
       controlLeaseId: undefined,
-      controlLeaseHeadless: false,
       killed: false,
       termReceipt: undefined,
       killReceipt: undefined,
@@ -1217,14 +1210,6 @@ export class LocalSessionHost extends EventEmitter {
         epoch,
         cols,
         rows,
-        // A harness asks its terminal questions whether or not anyone is
-        // looking. With no surface attached this grid is the terminal.
-        queries: {
-          reply: (data) => this.writeQueryReply(rec, data),
-          hostAnswers: () =>
-            rec.controlLeaseId === undefined || rec.controlLeaseHeadless,
-          themeMode: currentThemeMode,
-        },
       });
       if (seat.kind === "agent") {
         seatStateRuntime.bindHarness(bindingId, seat.harness, epoch);
@@ -1354,11 +1339,6 @@ export class LocalSessionHost extends EventEmitter {
     readonly bindingId: string;
     readonly mode: "control" | "observe";
     readonly takeover?: boolean;
-    /**
-     * The holder has no terminal emulator and answers no terminal queries.
-     * Absent means a surface: it answers, and the headless grid stays quiet.
-     */
-    readonly headless?: boolean;
   }): Promise<
     | {
         readonly ok: true;
@@ -1433,7 +1413,6 @@ export class LocalSessionHost extends EventEmitter {
       // every path — give its retention back here or the refcount never drains.
       if (rec.controlLeaseId) this.releaseSurfaceLease(rec.controlLeaseId);
       rec.controlLeaseId = mintLease();
-      rec.controlLeaseHeadless = input.headless === true;
       // A surface is now painting this session: retain the full scrollback for
       // as long as the lease lives. `screen` above was already serialized from
       // the bounded window, so this only changes what accrues from here on.
@@ -1500,7 +1479,6 @@ export class LocalSessionHost extends EventEmitter {
     if (!rec) return;
     if (lease.mode === "control" && rec.controlLeaseId === lease.leaseId) {
       rec.controlLeaseId = undefined;
-      rec.controlLeaseHeadless = false;
     }
   }
 
@@ -1589,26 +1567,6 @@ export class LocalSessionHost extends EventEmitter {
     } catch {
       return false;
     }
-  }
-
-  /**
-   * A terminal query reply from the headless grid. Protocol bytes, not a
-   * keystroke: no operator-presence stamp, and it waits out a managed
-   * submission span like any other write so it never lands inside a paste.
-   */
-  private writeQueryReply(rec: SessionRec, data: string): void {
-    if (
-      rec.killed ||
-      !rec.lease ||
-      !this.liveRecords.has(rec) ||
-      !sessionPhaseAllowsWrite(rec.phase)
-    ) return;
-    if (
-      this.operatorInterlock.holdWrite(rec.bindingId, {
-        replay: () => this.writeQueryReply(rec, data),
-      })
-    ) return;
-    this.writeRecord(rec, data);
   }
 
   private writeRecord(rec: SessionRec, data: string): boolean {
@@ -1841,7 +1799,6 @@ export class LocalSessionHost extends EventEmitter {
     const alreadyKilled = rec.killed;
     rec.killed = true;
     rec.controlLeaseId = undefined;
-    rec.controlLeaseHeadless = false;
     // Identity revocation is synchronous and exact. Neither daemon shutdown nor
     // terminal TERM may begin while a dying generation still wields the seat.
     this.revokeProcessIdentities(rec);
