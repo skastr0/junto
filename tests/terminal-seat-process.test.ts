@@ -266,7 +266,7 @@ describe("local TerminalSeatProcess", () => {
     await vi.waitFor(() => expect(host.runningCount()).toBe(0));
   });
 
-  it("replans a dead proven resume as a fresh injected generation", async () => {
+  it("replans a dead proven resume as a fresh pinned generation", async () => {
     const priorJuntoHome = process.env.JUNTO_HOME;
     const proofHome = mkdtempSync(join(tmpdir(), "seat-resume-proof-"));
     const workDir = join(proofHome, "work");
@@ -330,9 +330,13 @@ describe("local TerminalSeatProcess", () => {
       expect(fake.controllers[0]?.spec.args).toEqual(
         expect.arrayContaining(["-r", sessionId]),
       );
-      expect(fake.controllers[0]?.spec.args).not.toContain("--rules");
-      expect(fake.controllers[1]?.spec.args).toContain("--rules");
+      // The fresh generation pins a new session and carries no instructions.
+      expect(fake.controllers[1]?.spec.args).toContain("--session-id");
+      expect(fake.controllers[1]?.spec.args).not.toContain(sessionId);
       expect(fake.controllers[1]?.spec.args).not.toContain("-r");
+      for (const controller of fake.controllers) {
+        expect(controller.spec.args).not.toContain("--rules");
+      }
     } finally {
       __setSessionExistenceHomeForTest(undefined);
       rmSync(proofHome, { recursive: true, force: true });
