@@ -42,7 +42,8 @@ export type ShortcutArea =
   | "Search and needs you"
   | "Command groups"
   | "Agents"
-  | "Canvas";
+  | "Canvas"
+  | "Window";
 
 export type ShortcutId =
   | "search.open"
@@ -59,7 +60,8 @@ export type ShortcutId =
   | "canvas.redo"
   | "canvas.zoomIn"
   | "canvas.zoomOut"
-  | "canvas.zoomReset";
+  | "canvas.zoomReset"
+  | "front.close";
 
 export type ShortcutDef = {
   readonly id: ShortcutId;
@@ -200,6 +202,15 @@ export const KEY_TABLE: ReadonlyArray<ShortcutDef> = [
     mac: ["Cmd+0"],
     other: [],
     where: ["canvas"],
+  },
+  {
+    id: "front.close",
+    area: "Window",
+    does: "Close what is in front, one layer at a time; with nothing open, close the window",
+    mac: ["Cmd+W"],
+    // Ctrl+W deletes a word in the shell.
+    other: [],
+    where: EVERYWHERE,
   },
 ];
 

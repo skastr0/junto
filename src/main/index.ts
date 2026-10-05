@@ -940,6 +940,18 @@ const createWindow = () => {
     if (surfaceReadiness.acknowledge(challenge)) rendererSurfaceRecovery.succeeded();
   };
   ipcMain.on(IPC_CHANNELS.rendererSurfaceReady, acknowledgeRendererSurface);
+  // Cmd+W with nothing open in front. `close()` runs the close handler above,
+  // so canvas edits are flushed first; a page calling window.close() itself
+  // would skip it.
+  const closeFromKeyboard = (event: IpcMainEvent): void => {
+    if (
+      event.sender !== mainWindow.webContents ||
+      mainWindow.isDestroyed() ||
+      !rendererOrigin.allows(event.sender.getURL())
+    ) return;
+    mainWindow.close();
+  };
+  ipcMain.on(IPC_CHANNELS.windowClose, closeFromKeyboard);
 
   const rendererNavigation = createTrustedRendererNavigation({
     origin: rendererOrigin,
@@ -1064,6 +1076,7 @@ const createWindow = () => {
     setTrustedMainWebContents(undefined);
     surfaceReadiness.dispose();
     ipcMain.removeListener(IPC_CHANNELS.rendererSurfaceReady, acknowledgeRendererSurface);
+    ipcMain.removeListener(IPC_CHANNELS.windowClose, closeFromKeyboard);
     disconnect();
     ipcMain.removeListener(IPC_CHANNELS.nodeRefOpenedAck, acknowledgeDelivery);
     quitWhenNoOperatorWindow();

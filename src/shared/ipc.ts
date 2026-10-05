@@ -294,6 +294,8 @@ export const IPC_CHANNELS = {
   // The opaque challenge is generation identity, never product authority.
   rendererSurfaceChallenge: "junto:renderer-surface-challenge",
   rendererSurfaceReady: "junto:renderer-surface-ready",
+  // renderer -> main: the operator closed the window from the keyboard.
+  windowClose: "junto:window-close",
   // Command Center auto-update (Mac; readiness-gated install)
   updateGetState: "junto:update-get-state",
   updateCheck: "junto:update-check",
@@ -740,6 +742,11 @@ export interface JuntoApi extends UpdateApi, OverseerLiveApi {
   readonly platform: NodeJS.Platform;
   /** Internal bootstrap receipt emitted after React commits the product shell. */
   readonly rendererSurfaceReady: () => void;
+  /**
+   * Close this window the way its close button does: canvas edits are saved
+   * first, and on macOS the app and its sessions keep running.
+   */
+  readonly closeWindow: () => void;
   readonly listCanvases: () => Promise<ReadonlyArray<CanvasSummary>>;
   readonly readCanvas: (name: string) => Promise<CanvasReadResult>;
   readonly writeCanvas: (

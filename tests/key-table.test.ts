@@ -186,6 +186,14 @@ describe("the key table on macOS", () => {
     expect(resolveKey(key({ key: "z", metaKey: true }), at("terminal"))).toBeNull();
   });
 
+  it("closes what is in front with Cmd+W from everywhere", () => {
+    for (const context of KEY_CONTEXTS) {
+      expect(resolveKey(key({ key: "w", metaKey: true }), at(context))).toEqual({ id: "front.close" });
+      expect(resolveKey(key({ key: "w", ctrlKey: true }), at(context))).toBeNull();
+      expect(resolveKey(key({ key: "w", ctrlKey: true }), at(context, false))).toBeNull();
+    }
+  });
+
   it("zooms the canvas with Cmd and plus, minus or zero, only while the canvas has the keyboard", () => {
     expect(resolveKey(key({ key: "=", code: "Equal", metaKey: true }), at("canvas"))).toEqual({ id: "canvas.zoomIn" });
     expect(resolveKey(key({ key: "+", code: "Equal", metaKey: true, shiftKey: true }), at("canvas"))).toEqual({

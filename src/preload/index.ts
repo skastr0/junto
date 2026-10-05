@@ -435,6 +435,7 @@ const juntoApi: Omit<JuntoApi, keyof typeof liveApi | WorkFeatureApiKey> = {
     rendererSurfaceMounted = true;
     sendRendererSurfaceReceipt();
   },
+  closeWindow: () => ipcRenderer.send(IPC_CHANNELS.windowClose),
   listCanvases: () => invoke(IPC_CHANNELS.listCanvases, IPC_TIMEOUT_MS),
   readCanvas: (name) => invoke(IPC_CHANNELS.readCanvas, IPC_TIMEOUT_MS, name),
   writeCanvas: (name, doc, expectedRevision) =>

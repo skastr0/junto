@@ -5,6 +5,7 @@ import { resetCanvasZoom, zoomCanvasIn, zoomCanvasOut } from "./canvas-zoom";
 import { assignSelectionToSlot, jumpToSlot, recallSlot } from "./command-group-runtime";
 import { dock$ } from "./dock-state";
 import { cancelFocusSwitcher, focusMruNodeIds } from "./focus-switcher";
+import { closeFront } from "./front-close";
 import { toggleSeatGitDetail } from "./git-summary";
 import type { KeyActions } from "./key-dispatcher";
 import { redo, undo } from "./mutations";
@@ -60,6 +61,11 @@ export const KEY_ACTIONS: KeyActions = {
   "canvas.zoomIn": () => zoomCanvasIn(),
   "canvas.zoomOut": () => zoomCanvasOut(),
   "canvas.zoomReset": () => resetCanvasZoom(),
+  // Always ours: a press held back by the overshoot guard must not fall
+  // through to anything else.
+  "front.close": () => {
+    closeFront();
+  },
   // The key is taken only when a swap happened.
   "mirrors.next": () => cycleActorMirror(1),
   "mirrors.previous": () => cycleActorMirror(-1),
