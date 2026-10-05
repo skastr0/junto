@@ -18,6 +18,15 @@ test("reset section asks first, and Escape closes only the confirm", async () =>
 
     await page.getByRole("button", { name: "Open settings" }).click();
     const settings = page.getByRole("dialog", { name: "Settings" });
+    // Settings sits in the centre of the window once its entrance settles.
+    await expect
+      .poll(() =>
+        page.locator(".settings-panel").evaluate((panel) => {
+          const box = panel.getBoundingClientRect();
+          return Math.abs(box.top + box.height / 2 - window.innerHeight / 2);
+        }),
+      )
+      .toBeLessThanOrEqual(1);
     await page.locator(".settings-nav__item", { hasText: "Appearance" }).click();
     await page.getByRole("radiogroup", { name: "Theme", exact: true }).getByRole("radio", { name: "Bright", exact: true }).click();
     await expect.poll(theme).toBe("bright");
