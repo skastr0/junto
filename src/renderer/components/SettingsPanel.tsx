@@ -595,7 +595,7 @@ function AdvancedSection() {
         </FieldRow>
       )}
       {loginItemError ? (
-        <p className="settings-note" style={{ color: HUE.crimson }} role="status">
+        <p className="settings-note" style={{ color: HUE.crimson }} role="alert">
           {loginItemError}
         </p>
       ) : null}
@@ -773,7 +773,7 @@ function UpdatesSection() {
         </div>
       </FieldRow>
       {localError || (status.phase === "error" && status.error) ? (
-        <p className="settings-note" style={{ color: HUE.crimson }} role="status">
+        <p className="settings-note" style={{ color: HUE.crimson }} role="alert">
           {localError ?? status.error?.message}
         </p>
       ) : null}
