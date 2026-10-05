@@ -48,6 +48,7 @@ function Composer({
   anchor,
   draft,
   candidates,
+  offline,
   onChange,
   onCancel,
   onSave,
@@ -56,6 +57,7 @@ function Composer({
   readonly draft: Draft;
   /** Who can be mentioned: the agents in the review's region. */
   readonly candidates: ReadonlyArray<ReviewCandidate>;
+  readonly offline: ReadonlySet<string>;
   readonly onChange: (next: Pick<Draft, "text" | "picked">) => void;
   readonly onCancel: () => void;
   readonly onSave: () => void;
@@ -153,6 +155,7 @@ function Composer({
             >
               <AgentPortrait identity={candidate.nodeId} size={18} frame="round" outline={false} badge={false} />
               {reviewCandidateLabel(candidate, candidates)}
+              {offline.has(candidate.nodeId) ? <span className="git-review__to">offline, mail wakes it</span> : null}
             </li>
           ))}
         </ul>
@@ -180,6 +183,7 @@ export function ReviewDiff({
   path,
   themeType,
   candidates,
+  offline,
 }: {
   /** The repository's top level: the pending review it belongs to. */
   readonly root: string;
@@ -189,6 +193,8 @@ export function ReviewDiff({
   readonly themeType: "light" | "dark";
   /** Who a comment can mention. */
   readonly candidates: ReadonlyArray<ReviewCandidate>;
+  /** Candidates whose session is not running; they are still mailable. */
+  readonly offline: ReadonlySet<string>;
 }) {
   const review = usePendingReview(root);
   const comments = useMemo(() => review.comments.filter((comment) => comment.file === path), [review.comments, path]);
@@ -280,6 +286,7 @@ export function ReviewDiff({
               anchor={reviewCommentAnchor({ file: path, line: draft.line, endLine: draft.endLine })}
               draft={draft}
               candidates={candidates}
+              offline={offline}
               onChange={(next) => setDraft({ ...draft, ...next })}
               onCancel={() => setDraft(null)}
               onSave={save}

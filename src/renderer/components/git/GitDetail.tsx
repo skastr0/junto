@@ -14,7 +14,9 @@ import {
 import { DIM, GREEN, HUE, INK } from "../../lib/theme";
 import { claimFocus } from "../../lib/focus-ownership";
 import { getJuntoApi } from "../../lib/junto-api";
+import { bindingIdForNode } from "../../lib/agent-seat-state";
 import { nodeTitle } from "../../lib/presentation";
+import { terminal$ } from "../../lib/terminal-state";
 import { reviewCandidates } from "@shared/review-candidates";
 import { state$ } from "../../lib/state";
 import { themeMode$ } from "../../lib/theme-mode";
@@ -121,6 +123,18 @@ export function GitRepositoryDetail({
 }) {
   const doc = use$(state$.doc);
   const candidates = useMemo(() => reviewCandidates(doc, anchorNodeId, nodeTitle), [doc, anchorNodeId]);
+  // An agent whose session is not running can still be mailed: mail wakes it. The pickers say so quietly.
+  const sessions = use$(terminal$.sessionByBindingId);
+  const offline = useMemo(() => {
+    const out = new Set<string>();
+    for (const candidate of candidates) {
+      const node = doc.nodes.find((entry) => entry.id === candidate.nodeId);
+      const bindingId = node ? bindingIdForNode(node) : undefined;
+      const status = bindingId ? sessions[bindingId]?.status : undefined;
+      if (status !== "running" && status !== "starting") out.add(candidate.nodeId);
+    }
+    return out;
+  }, [candidates, doc, sessions]);
   // Who the review goes to: the session it was opened from, until the operator chooses another.
   const [to, setTo] = useState<string | undefined>(recipientNodeId);
   const nameOf = (nodeId: string): string => {
@@ -369,6 +383,7 @@ export function GitRepositoryDetail({
                         path={filePaths[index] ?? "file"}
                         themeType={themeType}
                         candidates={candidates}
+                        offline={offline}
                       />
                     ) : (
                       <PatchDiff
@@ -420,6 +435,7 @@ export function GitRepositoryDetail({
           to={to}
           onTo={setTo}
           candidates={candidates}
+          offline={offline}
           nameOf={nameOf}
         />
       ) : null}

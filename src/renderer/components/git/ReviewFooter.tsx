@@ -35,6 +35,7 @@ export function ReviewFooter({
   to,
   onTo,
   candidates,
+  offline,
   nameOf,
 }: {
   readonly root: string;
@@ -47,6 +48,8 @@ export function ReviewFooter({
   readonly onTo: (nodeId: string) => void;
   /** Who it can go to: the agents in the review's region. */
   readonly candidates: ReadonlyArray<ReviewCandidate>;
+  /** Candidates whose session is not running; they are still mailable. */
+  readonly offline: ReadonlySet<string>;
   readonly nameOf: (nodeId: string) => string;
 }) {
   const review = usePendingReview(root);
@@ -136,7 +139,10 @@ export function ReviewFooter({
           aria-label="Who receives the review"
           placeholder="choose an agent"
           emptyLabel="no agents in this region"
-          options={candidates.map((candidate) => ({ value: candidate.nodeId, label: reviewCandidateLabel(candidate, candidates) }))}
+          options={candidates.map((candidate) => ({
+            value: candidate.nodeId,
+            label: `${reviewCandidateLabel(candidate, candidates)}${offline.has(candidate.nodeId) ? ", offline, mail wakes it" : ""}`,
+          }))}
           onChange={onTo}
         />
         {!empty ? (
