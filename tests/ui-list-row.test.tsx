@@ -5,39 +5,41 @@ import { ListRow } from "../src/renderer/components/ui/ListRow";
 const html = (node: React.ReactElement): string => renderToStaticMarkup(node);
 
 describe("ui ListRow", () => {
-  it("renders a two-line row at the fixed 44px height, with the detail as hover text", () => {
-    const out = html(<ListRow leading={<i data-mark />} title="product-shell" meta="working 4m" detail="reading the rail" />);
+  it("renders one 28px button line with its mark, title and meta", () => {
+    const out = html(<ListRow leading={<i data-mark />} title="notes.md" meta="2 edges" />);
     expect(out).toContain('type="button"');
-    expect(out).toContain("h-11");
-    expect(out).not.toContain("h-7");
-    expect(out).toContain("<i data-mark");
-    expect(out).toContain("product-shell");
-    expect(out).toContain("working 4m");
-    expect(out).toContain('title="reading the rail"');
-  });
-
-  it("keeps its height when there is no detail, and prints no placeholder", () => {
-    const out = html(<ListRow title="idle-seat" meta="idle 2h 3m" />);
-    expect(out).toContain("h-11");
-    expect(out).not.toContain("leading-dense");
-  });
-
-  it("dense is one 28px line and drops the detail", () => {
-    const out = html(<ListRow dense title="notes.md" detail="never shown" />);
     expect(out).toContain("h-7");
-    expect(out).not.toContain("h-11");
-    expect(out).not.toContain("never shown");
+    expect(out).toContain("<i data-mark");
+    expect(out).toContain("notes.md");
+    expect(out).toContain("2 edges");
   });
 
-  it("marks the selected row for assistive tech and for its background", () => {
-    expect(html(<ListRow selected title="a" />)).toContain('aria-current="true"');
-    expect(html(<ListRow title="a" />)).not.toContain("aria-current");
+  it("selected sets the fill and tells assistive tech, from one prop", () => {
+    const on = html(<ListRow selected title="a" />);
+    expect(on).toContain('data-selected="true"');
+    expect(on).toContain('aria-current="true"');
+    const off = html(<ListRow title="a" />);
+    expect(off).not.toContain("data-selected");
+    expect(off).not.toContain("aria-current");
   });
 
-  it("takes every size from the type scale", () => {
-    const out = html(<ListRow title="a" meta="b" detail="c" />);
-    expect(out).not.toMatch(/text-\[|tracking-\[|leading-\[|rounded-\[/);
-    expect(out).toContain("text-body");
-    expect(out).toContain("text-label");
+  it("a caller cannot fight its height, type or selected state", () => {
+    // className and aria-current are not props; a cast is the only way in.
+    const smuggled = { className: "h-9 text-title", "aria-current": "page" } as object;
+    const out = html(<ListRow title="a" {...smuggled} />);
+    expect(out).not.toContain("h-9");
+    expect(out).not.toContain("text-title");
+    expect(out).not.toContain("aria-current");
+    expect(out.match(/\bh-\d+\b/g)).toEqual(["h-7"]);
+  });
+
+  it("shows keyboard focus with an inset ring that a clipping list cannot cut off", () => {
+    const out = html(<ListRow title="a" />);
+    expect(out).toContain("focus-visible:ring-inset");
+    expect(out).toContain("focus-visible:ring-cyan/60");
+  });
+
+  it("declares no bracket value for type, tracking, leading or radius", () => {
+    expect(html(<ListRow title="a" meta="b" />)).not.toMatch(/text-\[|tracking-\[|leading-\[|rounded-\[/);
   });
 });
