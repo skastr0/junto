@@ -46,6 +46,7 @@ class FileDiffBoundary extends Component<
   }
 }
 
+/** The git detail for a canvas git node: its folder, under its own title. */
 export function GitDetail({
   node,
   onClose,
@@ -55,6 +56,22 @@ export function GitDetail({
 }) {
   const cwd = node.ether?.git?.cwd?.trim() ?? "";
   const title = node.type === "text" ? node.text.split("\n")[0] || "git" : "git";
+  return <GitRepositoryDetail cwd={cwd} title={title} onClose={onClose} />;
+}
+
+/**
+ * A repository's commits and their diffs, for any folder: the git node opens
+ * it for its own, the agent modal's git line for the folder its seat runs in.
+ */
+export function GitRepositoryDetail({
+  cwd,
+  title,
+  onClose,
+}: {
+  readonly cwd: string;
+  readonly title: string;
+  readonly onClose: () => void;
+}) {
   const [commits, setCommits] = useState<ReadonlyArray<GitCommit>>([]);
   const [selected, setSelected] = useState<string>();
   const [patch, setPatch] = useState<string>("");
