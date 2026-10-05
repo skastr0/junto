@@ -42,7 +42,8 @@ import { startAgentSignalSync } from "./lib/agent-signals-state";
 import { Canvas } from "./components/Canvas";
 import { TopBar } from "./components/TopBar";
 import { CanvasChrome } from "./components/CanvasChrome";
-import { CommandBarHost } from "./components/command-bar/CommandBar";
+import { OperatorModalHost } from "./components/operator-modal/OperatorModalHost";
+import { closeOperatorModal } from "./lib/operator-modal";
 import { FocusSwitcherHud } from "./components/FocusSwitcherHud";
 import { LiveConversationHost } from "./components/live/LiveConversation";
 import { RemoteStationFace } from "./components/remote/RemoteStationFace";
@@ -111,7 +112,7 @@ const refreshSnapshotsSoft = async (doc: CanvasDoc) => {
 
 const resetCanvasView = (): void => {
   batch(() => {
-    state$.commandBarOpen.set(false);
+    closeOperatorModal();
     state$.digestOpen.set(false);
     state$.digest.set(null);
     state$.nodePaletteOpen.set(false);
@@ -569,7 +570,6 @@ export function App() {
           <DemoCameraBridge />
         </ReactFlowProvider>
         <CanvasChrome />
-        <CommandBarHost />
         <FocusSwitcherHud />
         {LIVE_OVERSEER_ENABLED && <LiveConversationHost />}
         {/* Selection fields live on the RTS kind surface (FocusSurface forms). */}
@@ -609,6 +609,7 @@ export function App() {
         </div>
         <WorkSurfaceDock />
       </div>
+      <OperatorModalHost />
       <TooltipLayer />
     </div>
   );

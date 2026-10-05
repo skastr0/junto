@@ -22,7 +22,6 @@ export const state$ = observable({
   canvases: [] as ReadonlyArray<CanvasSummary>,
   canvasName: "",
   canvasLoading: false,
-  commandBarOpen: false,
   /** Node palette (add canvas item) — shared by the field trigger and the
    * command bar action. */
   nodePaletteOpen: false,

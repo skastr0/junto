@@ -16,16 +16,6 @@ import { selectNode, state$ } from "./state";
  * search field.
  */
 
-/** Open the palette. The open canvas and current selection are untouched —
- * the bar reads them (e.g. copy-node-reference) and commits only on Enter. */
-export const openCommandBar = (): void => {
-  state$.commandBarOpen.set(true);
-};
-
-export const closeCommandBar = (): void => {
-  state$.commandBarOpen.set(false);
-};
-
 /** Hotbar lease eligibility is crew-role based: actors only. Shared with
  * RtsBottomBar so the command bar focus commit and the RTS focus key apply
  * identical lease semantics. */

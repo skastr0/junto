@@ -17,7 +17,7 @@ import {
 } from "@shared/features";
 import { isCommandCenterAuthoring } from "../lib/canvas-boot";
 import { state$ } from "../lib/state";
-import { openCommandBar } from "../lib/command-bar";
+import { openOperatorModal } from "../lib/operator-modal";
 import { retrySave } from "../lib/mutations";
 import { openSettings } from "../lib/settings-state";
 import { openFleet, prefetchFleetChunk } from "../lib/fleet-state";
@@ -153,7 +153,7 @@ function CommandBarTrigger({ canvasName }: { readonly canvasName: string }) {
       className="station-command-trigger"
       title="Open command bar (⌘K)"
       aria-label={label}
-      onClick={() => openCommandBar()}
+      onClick={() => openOperatorModal("search")}
     >
       <Search size={14} />
       <span className="station-command-trigger__label">search nodes</span>

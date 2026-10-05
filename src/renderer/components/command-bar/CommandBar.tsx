@@ -1,7 +1,6 @@
 import { use$ } from "@legendapp/state/react";
 import { Search, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { createPortal } from "react-dom";
 import type { CanvasNode, GroupNode } from "@shared/canvas";
 import { harnessDisplayName } from "@shared/spawn-failure";
 import { activateNodeSurface } from "../../lib/activate-node-surface";
@@ -12,12 +11,11 @@ import {
   type CommandBarAction,
 } from "../../lib/command-bar-actions";
 import {
-  closeCommandBar,
   commandBarRegionPaths,
   filterCommandBarNodes,
   focusCanvasNode,
-  openCommandBar,
 } from "../../lib/command-bar";
+import { closeOperatorModal } from "../../lib/operator-modal";
 import { nodeDetail, nodeTitle, nodeTypeLabel } from "../../lib/presentation";
 import { regionTallyParts } from "../../lib/region-glance";
 import { seatSaying } from "../../lib/seat-line";
@@ -26,7 +24,8 @@ import { accentColor, HUE } from "../../lib/theme";
 import { NodeKindMark } from "../NodeKindMark";
 import { SeatRingView, seatUrgencyNow, useSeatGlance, type SeatGlance } from "../SeatRing";
 import { Kbd } from "../ui";
-import { claimFocus, isOperatorTyping } from "../../lib/focus-ownership";
+import { claimFocus } from "../../lib/focus-ownership";
+import { OperatorModalShell } from "../operator-modal/OperatorModalShell";
 
 /**
  * cmd+K command bar — quick node navigation plus a quick-actions mode.
@@ -36,12 +35,14 @@ import { claimFocus, isOperatorTyping } from "../../lib/focus-ownership";
  * filters the LIST; the canvas never changes while searching. Node mode commits the existing focus path
  * (select + one-shot camera fit); cmd+Enter also opens the node surface.
  * ">" (or Tab) switches to actions mode: existing renderer commands only,
- * Enter runs, Escape closes.
+ * Enter runs.
  *
- * Host is always mounted for the global hotkey (cmd+K / "/"); the panel is
- * portal-rendered only while open so per-session state (query, mode, active
- * row) resets on every open.
+ * An operator modal: OperatorModalHost owns the chords (cmd+K, "/") and
+ * mounts this only while open, so per-session state (query, mode, active
+ * row) resets on every open. The shell owns the frame, focus and Escape.
  */
+
+const closeCommandBar = (): void => closeOperatorModal("search");
 
 const LIST_CAP = 100;
 
@@ -186,34 +187,11 @@ function NodeRowFace({ node, path }: RowFaceProps) {
   );
 }
 
-export function CommandBarHost() {
-  const open = use$(state$.commandBarOpen);
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (isOperatorTyping(event.target)) return;
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
-        event.preventDefault();
-        if (state$.commandBarOpen.peek()) closeCommandBar();
-        else openCommandBar();
-        return;
-      }
-      if (!event.metaKey && !event.ctrlKey && !event.altKey && event.key === "/") {
-        event.preventDefault();
-        openCommandBar();
-      }
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, []);
-  if (!open) return null;
-  return createPortal(<CommandBarPanel />, document.body);
-}
-
 type CommandBarRow =
   | { readonly kind: "node"; readonly node: CanvasNode; readonly index: number; readonly position: number }
   | { readonly kind: "action"; readonly action: CommandBarAction; readonly position: number };
 
-function CommandBarPanel() {
+export function CommandBar() {
   const doc = use$(state$.doc);
   const recentIds = use$(state$.hotbarActiveMru);
   const [query, setQuery] = useState("");
@@ -284,12 +262,6 @@ function CommandBarPanel() {
   };
 
   const onKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
-    if (event.key === "Escape") {
-      event.preventDefault();
-      event.stopPropagation();
-      closeCommandBar();
-      return;
-    }
     if (event.key === "ArrowDown") {
       event.preventDefault();
       event.stopPropagation();
@@ -317,12 +289,6 @@ function CommandBarPanel() {
       commit(row, event.metaKey || event.ctrlKey);
       return;
     }
-    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
-      event.preventDefault();
-      event.stopPropagation();
-      closeCommandBar();
-      return;
-    }
   };
 
   const activeRow = rows[active];
@@ -343,13 +309,7 @@ function CommandBarPanel() {
   const searchLabel = mode === "actions" ? "Search actions" : "Search nodes";
 
   return (
-    <div
-      className="command-bar-backdrop"
-      onPointerDown={(event) => {
-        if (event.target === event.currentTarget) closeCommandBar();
-      }}
-    >
-      <div className="command-bar" role="dialog" aria-label="Command bar">
+    <OperatorModalShell id="search" label="Command bar" width={700} fill panelClassName="command-bar">
         <div className="command-bar__input-row">
           <Search size={14} />
           <input
@@ -464,7 +424,6 @@ function CommandBarPanel() {
             <span className="command-bar__hint">close</span>
           </span>
         </div>
-      </div>
-    </div>
+    </OperatorModalShell>
   );
 }

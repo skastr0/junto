@@ -9,6 +9,7 @@
  * Presentation and navigation only — nothing here writes the canvas.
  */
 import { observable } from "@legendapp/state";
+import { isOperatorModalOpen } from "./operator-modal";
 import type { CanvasNode } from "@shared/canvas";
 import { activateNodeSurface, nodeSurfaceKind } from "./activate-node-surface";
 import {
@@ -224,7 +225,7 @@ export const commitFocusSwitcher = (): boolean => {
  */
 export const installFocusSwitcherHotkeys = (): (() => void) => {
   const onKeyDown = (event: KeyboardEvent): void => {
-    if (state$.commandBarOpen.peek()) return;
+    if (isOperatorModalOpen()) return;
     const session = focusSwitcher$.session.peek();
 
     if (session && event.key === "Escape") {

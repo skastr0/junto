@@ -1,0 +1,47 @@
+/* Operator modal shell: the one frame for search and the needs-you feed.
+   Top-anchored and centred, above every working modal (styles/layers.css). */
+
+.operator-modal {
+  position: fixed;
+  inset: 0;
+  z-index: var(--layer-operator);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  box-sizing: border-box;
+  padding: 3vh 16px;
+}
+
+.operator-modal__backdrop {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: var(--color-backdrop);
+  backdrop-filter: blur(2px);
+  cursor: default;
+}
+
+.operator-modal__frame {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: min(var(--operator-modal-width, 700px), 100%);
+  max-height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid var(--color-stroke);
+  border-radius: 10px;
+  background: var(--color-raise);
+  box-shadow:
+    0 24px 80px var(--color-shadow-1),
+    0 0 0 1px var(--color-overlay-1);
+  outline: 0;
+}
+
+/* Fill: the frame takes the full height the window allows, so a long list
+   does not resize the modal as it filters. */
+.operator-modal__frame[data-fill="true"] {
+  height: 100%;
+}
