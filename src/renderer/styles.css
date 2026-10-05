@@ -1809,7 +1809,8 @@ html[data-surface-motion="paused"] *::after {
 .junto-edge-label {
   position: absolute;
   transform: translate(-50%, -50%);
-  /* Deaf at rest, like the wire it sits on (factory-grammar.css). */
+  /* Keyboard only: it floats over the cards and must never take a press
+     meant for one (factory-grammar.css). */
   pointer-events: none;
   border-radius: 4px;
   padding: 2px 6px;

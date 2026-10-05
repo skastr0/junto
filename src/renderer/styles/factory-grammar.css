@@ -302,21 +302,19 @@ path.junto-edge {
 /* Rest — a wire is ground.
 
    Wires say who talks to whom, which the operator rarely needs and never
-   needs in the way of a seat. So at rest a wire is faint, sits behind every
-   card (convert.ts z bands) and takes no pointer: a press on a wire lands on
-   the pane. Three things show the wires in full and let them be picked: the
-   loupe held (CanvasMagnifier stamps data-wires on the root), a node's
-   connections shown (the cone's own wires), and a wire being drawn. A
-   selected wire is always shown. A blocked wire stays legible at rest,
-   because crimson is the one thing here that needs the operator. */
+   needs in the way of a seat. So at rest a wire is all but hidden, sits
+   behind every card (convert.ts z bands) and takes no pointer: a press on a
+   wire lands on the pane. Three things show the wires in full: the loupe
+   held (CanvasMagnifier stamps data-wires on the root), a node's connections
+   shown (the cone's own wires), and a wire being drawn. The first two also
+   let a wire be picked, by its stroke only: the midpoint button floats over
+   the cards, so it answers the keyboard and never the pointer. A selected
+   wire is always shown. */
 .react-flow .react-flow__edge {
   pointer-events: none;
 }
 .react-flow__edge path.junto-edge {
-  opacity: 0.14;
-}
-.react-flow__edge path.junto-edge.junto-edge--blocked {
-  opacity: 0.5;
+  opacity: 0.07;
 }
 .react-flow:is([data-wires="shown"], .is-connecting) path.junto-edge {
   opacity: 0.9;
@@ -327,10 +325,6 @@ path.junto-edge {
 .react-flow[data-wires="shown"] .react-flow__edge,
 .react-flow .react-flow__edge.impact-edge-in {
   pointer-events: visibleStroke;
-}
-.react-flow[data-wires="shown"] .junto-edge-label,
-.react-flow .junto-edge-label.junto-edge-label--impact-in {
-  pointer-events: auto;
 }
 
 /* Hover and selection — the wire deepens in its own hue.

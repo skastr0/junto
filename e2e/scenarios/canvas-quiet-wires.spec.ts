@@ -44,7 +44,13 @@ test("a wire rests faint and unpickable, and the loupe shows and frees it", asyn
     Number(await wire.evaluate((element) => getComputedStyle(element).opacity));
 
   // Rest: faint, and a press on the wire reaches the pane.
-  await expect.poll(opacity).toBeLessThan(0.2);
+  await expect.poll(opacity).toBeLessThan(0.1);
+  // Nothing of a wire takes a press, the floating midpoint button included.
+  const deaf = await page.evaluate(() =>
+    [...document.querySelectorAll(".react-flow__edge, .react-flow__edge path, .junto-edge-label")]
+      .map((element) => getComputedStyle(element).pointerEvents));
+  expect(deaf.length).toBeGreaterThan(0);
+  expect(deaf.every((value) => value === "none")).toBe(true);
   const rest = await midpoint();
   await page.mouse.click(rest.x, rest.y);
   await expect(relation).toHaveCount(0);
@@ -55,6 +61,8 @@ test("a wire rests faint and unpickable, and the loupe shows and frees it", asyn
   await page.keyboard.down("Alt");
   await expect(root).toHaveAttribute("data-wires", "shown");
   await expect.poll(opacity).toBeGreaterThan(0.8);
+  // Even shown, a wire's midpoint button stays deaf: a seat under it gets the press.
+  expect(await page.locator(".junto-edge-label").first().evaluate((element) => getComputedStyle(element).pointerEvents)).toBe("none");
   const shown = await midpoint();
   await page.mouse.click(shown.x, shown.y);
   await page.keyboard.up("Alt");

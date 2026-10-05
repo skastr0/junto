@@ -29,7 +29,7 @@ import "./wire-pulse.css";
  * as `--wire-hue` for the stylesheet to bloom. No second colour, no second
  * stroke, no width or dash change — the hairline stays the hairline.
  *
- * At rest a wire is ground: faint, behind every card, and deaf to the
+ * At rest a wire is ground: all but hidden, behind every card, and deaf to the
  * pointer, so it never sits between the operator and a seat. Opacity and
  * pointer events are the stylesheet's (factory-grammar.css), which shows the
  * wires and lets them be picked while the loupe is held, while a node's
@@ -101,7 +101,6 @@ export function EtherEdge({
   const className = [
     "junto-edge",
     selected ? "junto-edge--selected" : "",
-    blocked ? "junto-edge--blocked" : "",
     rippling ? "junto-edge-ripple" : "",
   ]
     .filter(Boolean)
@@ -152,7 +151,7 @@ export function EtherEdge({
               ? `Select edge - waiting on you${detail ? ` - ${detail}` : ""}`
               : `Select edge - ${data?.verb ?? "connection"}`
           }
-          className={`nodrag nopan junto-edge-label junto-edge-label--silent${impactIn ? " junto-edge-label--impact-in" : ""}`}
+          className="nodrag nopan junto-edge-label junto-edge-label--silent"
           style={{
             top: labelY,
             left: labelX,
