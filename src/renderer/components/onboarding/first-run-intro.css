@@ -35,11 +35,11 @@
 .first-run-intro__wordmark {
   color: var(--color-ink);
   font-family: var(--font-display);
-  font-size: 17px;
+  font-size: var(--text-display);
   font-weight: 600;
-  letter-spacing: .04em;
+  letter-spacing: var(--tracking-soft);
 }
-.first-run-intro__guide { color: var(--color-dim); font-size: 11px; }
+.first-run-intro__guide { color: var(--color-dim); font-size: var(--text-body); }
 .first-run-intro__chapters {
   display: grid;
   gap: 2px;
@@ -55,11 +55,11 @@
   width: 100%;
   padding: 7px 8px;
   border: 0;
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
   background: transparent;
   color: var(--color-dim);
   font: inherit;
-  font-size: 12.5px;
+  font-size: var(--text-body-lg);
   text-align: left;
   cursor: pointer;
   transition: background 150ms ease-out, color 150ms ease-out;
@@ -74,7 +74,7 @@
 .first-run-intro__chapter-n {
   color: var(--color-faint);
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--text-body);
   font-variant-numeric: tabular-nums;
 }
 .first-run-intro__chapter.is-active .first-run-intro__chapter-n { color: var(--color-amber); }
@@ -94,7 +94,7 @@
 .first-run-intro__count {
   color: var(--color-faint);
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--text-body);
   font-variant-numeric: tabular-nums;
 }
 
@@ -125,16 +125,16 @@
   margin: 0 0 12px;
   color: var(--color-ink);
   font-family: var(--font-display);
-  font-size: 26px;
+  font-size: var(--text-hero);
   font-weight: 600;
-  letter-spacing: .01em;
-  line-height: 1.15;
+  letter-spacing: var(--tracking-flat);
+  line-height: var(--leading-compact);
   text-wrap: balance;
 }
 .first-run-intro__body {
   color: var(--color-ink-2);
-  font-size: 13.5px;
-  line-height: 1.65;
+  font-size: var(--text-title);
+  line-height: var(--leading-open);
   text-wrap: pretty;
 }
 .first-run-intro__body p { margin: 0; }
@@ -149,7 +149,7 @@
   display: block;
   margin-bottom: 8px;
   color: var(--color-amber);
-  font-size: 12px;
+  font-size: var(--text-body-lg);
   font-weight: 600;
 }
 .first-run-intro__try ul { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; }
@@ -157,8 +157,8 @@
   display: grid;
   gap: 4px;
   color: var(--color-ink-2);
-  font-size: 12.5px;
-  line-height: 1.5;
+  font-size: var(--text-body-lg);
+  line-height: var(--leading-body);
 }
 .first-run-intro__try strong { color: var(--color-ink); font-weight: 600; }
 .first-run-intro__keys { display: inline-flex; flex-wrap: wrap; gap: 4px; }
@@ -171,7 +171,7 @@
   overflow: hidden;
   padding: 18px;
   /* The dotted ground is the stage's edge; the tour's own frame is the only border. */
-  border-radius: 14px;
+  border-radius: var(--radius-xl);
   background:
     radial-gradient(circle, var(--color-overlay-3) 1px, transparent 1.2px) 0 0 / 16px 16px,
     var(--color-ground);
@@ -182,7 +182,7 @@
   margin-top: 4px;
   padding-left: 60px;
   color: var(--color-faint);
-  font-size: 10.5px;
+  font-size: var(--text-body);
 }
 .tour-wire { position: absolute; inset: 0; overflow: visible; pointer-events: none; }
 /* Demos never take the pointer: they show, they do not act. */
@@ -212,14 +212,14 @@
   display: flex;
   justify-content: center;
   padding: 22px 12px;
-  border-radius: 10px;
+  border-radius: var(--radius-xl);
   background: var(--color-inset);
 }
 .intro-prompt {
   width: min(300px, 100%);
   padding: 16px 16px 12px;
   border: 1px solid var(--color-stroke);
-  border-radius: 12px;
+  border-radius: var(--radius-xl);
   background: var(--color-raise-2);
   box-shadow: 0 10px 28px var(--color-shadow-1);
   text-align: center;
@@ -227,18 +227,18 @@
 .intro-prompt__title {
   margin: 0 0 14px;
   color: var(--color-ink);
-  font-size: 12px;
+  font-size: var(--text-body-lg);
   font-weight: 600;
-  line-height: 1.45;
+  line-height: var(--leading-body);
 }
 .intro-prompt__actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .intro-prompt__button {
   padding: 5px 0;
   border: 1px solid var(--color-stroke);
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   background: var(--color-overlay-2);
   color: var(--color-ink);
-  font-size: 11px;
+  font-size: var(--text-body);
 }
 .intro-prompt__button--default {
   border-color: color-mix(in oklab, var(--color-cyan) 55%, transparent);
@@ -261,13 +261,13 @@
   max-width: 240px;
   height: 3px;
   overflow: hidden;
-  border-radius: 2px;
+  border-radius: var(--radius-sm);
   background: var(--color-overlay-4);
 }
 .first-run-intro__progress > span {
   display: block;
   height: 100%;
-  border-radius: 2px;
+  border-radius: var(--radius-sm);
   background: var(--color-amber);
   transition: width 220ms cubic-bezier(0.22, 1, 0.36, 1);
 }
@@ -295,9 +295,9 @@ html[data-surface-motion="paused"] .first-run-intro__slide { animation: none !im
 .tour-aside__tag {
   padding: 1px 7px;
   border: 1px solid color-mix(in oklab, var(--color-violet) 45%, transparent);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   color: var(--color-violet);
-  font-size: 10.5px;
+  font-size: var(--text-body);
 }
 
 /* The multi-prompt composer, shown as it opens under a selection. */
@@ -316,7 +316,7 @@ html[data-surface-motion="paused"] .first-run-intro__slide { animation: none !im
   justify-content: space-between;
   padding: 0 4px;
   color: var(--color-ink);
-  font-size: 13px;
+  font-size: var(--text-body-lg);
   font-weight: 600;
 }
 
@@ -325,7 +325,7 @@ html[data-surface-motion="paused"] .first-run-intro__slide { animation: none !im
   position: absolute;
   inset: 8px;
   border: 1px solid var(--color-stroke);
-  border-radius: 14px;
+  border-radius: var(--radius-xl);
   background: linear-gradient(135deg, color-mix(in oklab, var(--color-raise) 22%, transparent), color-mix(in oklab, var(--color-ground) 12%, transparent));
 }
 
@@ -338,10 +338,10 @@ html[data-surface-motion="paused"] .first-run-intro__slide { animation: none !im
   transition: opacity 220ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 .tour-grid.is-open { opacity: 1; }
-.tour-grid__head { display: flex; justify-content: space-between; color: var(--color-ink); font-size: 12px; font-weight: 600; }
+.tour-grid__head { display: flex; justify-content: space-between; color: var(--color-ink); font-size: var(--text-body-lg); font-weight: 600; }
 .tour-grid__count { color: var(--color-dim); font-weight: 400; }
 .tour-grid__cells { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
-.tour-grid__cell { overflow: hidden; border: 1px solid var(--color-stroke); border-radius: 8px; background: var(--color-inset); }
+.tour-grid__cell { overflow: hidden; border: 1px solid var(--color-stroke); border-radius: var(--radius-lg); background: var(--color-inset); }
 .tour-grid__cell-head {
   display: flex;
   align-items: center;
@@ -351,7 +351,7 @@ html[data-surface-motion="paused"] .first-run-intro__slide { animation: none !im
   background: var(--color-raise-2);
   color: var(--color-ink);
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--text-body);
   font-weight: 600;
 }
 .tour-grid__term {
@@ -359,8 +359,8 @@ html[data-surface-motion="paused"] .first-run-intro__slide { animation: none !im
   padding: 6px 8px 10px;
   color: var(--color-ink-2);
   font-family: var(--font-mono);
-  font-size: 10px;
-  line-height: 1.55;
+  font-size: var(--text-label);
+  line-height: var(--leading-open);
   white-space: pre;
 }
 
@@ -379,17 +379,17 @@ html[data-surface-motion="paused"] .first-run-intro__slide { animation: none !im
   align-content: start;
   padding: 10px;
   border: 1px solid var(--color-stroke);
-  border-radius: 12px;
+  border-radius: var(--radius-xl);
   background: var(--color-raise-2);
 }
-.tour-picker__label { padding: 6px 6px 2px; color: var(--color-dim); font-size: 11px; }
+.tour-picker__label { padding: 6px 6px 2px; color: var(--color-dim); font-size: var(--text-body); }
 .tour-picker__row {
   display: flex;
   align-items: center;
   gap: 10px;
   padding: 6px;
   border: 1px solid transparent;
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
   transition: background 180ms ease-out, border-color 180ms ease-out;
 }
 .tour-picker__row.is-picked {
@@ -398,8 +398,8 @@ html[data-surface-motion="paused"] .first-run-intro__slide { animation: none !im
 }
 .tour-picker__row .squad-portraits { flex: none; }
 .tour-picker__text { display: grid; gap: 1px; min-width: 0; }
-.tour-picker__name { color: var(--color-ink); font-family: var(--font-mono); font-size: 12.5px; font-weight: 600; }
-.tour-picker__line { overflow: hidden; color: var(--color-dim); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.tour-picker__name { color: var(--color-ink); font-family: var(--font-mono); font-size: var(--text-body-lg); font-weight: 600; }
+.tour-picker__line { overflow: hidden; color: var(--color-dim); font-size: var(--text-body); text-overflow: ellipsis; white-space: nowrap; }
 
 @media (prefers-reduced-motion: reduce) {
   .tour-picker__row { transition: none; }

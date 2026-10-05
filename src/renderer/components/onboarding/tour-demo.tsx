@@ -97,7 +97,7 @@ export function DemoSeat({
           health={health}
           signal={signal}
           overseer={overseer}
-          title={<div className="truncate font-mono text-[13px] font-semibold leading-snug text-ink">{name}</div>}
+          title={<div className="truncate font-mono text-body-lg font-semibold leading-snug text-ink">{name}</div>}
         />
         {bubble ? <PreambleBubble nodeId={`tour-${id}`} bubble={bubble} selected={selected} /> : null}
       </div>
