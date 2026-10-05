@@ -200,7 +200,9 @@ const operationIn = async (gitDir: string): Promise<GitOperation | undefined> =>
 const gitMissing = (error: string | undefined): boolean => /ENOENT|not found/iu.test(error ?? "");
 
 const summarize = async (cwd: string, root: string, gitDir: string): Promise<GitSummaryResult> => {
-  const porcelain = await git(cwd, ["status", "--porcelain=v2", "--branch", "--untracked-files=no"], GIT_SUMMARY_STEP_MS);
+  // Untracked files count, as git status counts them: an agent's most common
+  // change is a new file. Ignored files do not.
+  const porcelain = await git(cwd, ["status", "--porcelain=v2", "--branch", "--untracked-files=normal"], GIT_SUMMARY_STEP_MS);
   if (!porcelain.ok) return { ok: false, reason: "failed" };
   const branch = parsePorcelainV2Branch(porcelain.stdout);
   const [headLog, originHead, candidates, operation] = await Promise.all([

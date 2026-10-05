@@ -36,9 +36,10 @@ describe("git summary parsing", () => {
     expect(parseAheadBehind("")).toBeUndefined();
   });
 
-  it("sees uncommitted tracked work in porcelain v2", () => {
+  it("sees uncommitted work in porcelain v2, a new untracked file included", () => {
     expect(porcelainHasChanges("# branch.oid abc\n# branch.head main\n")).toBe(false);
     expect(porcelainHasChanges("# branch.head main\n1 .M N... 100644 100644 100644 a b file.txt\n")).toBe(true);
+    expect(porcelainHasChanges("# branch.head main\n? new-file.txt\n")).toBe(true);
   });
 });
 
@@ -204,6 +205,15 @@ describe("readGitSummary against real repositories", () => {
     writeFileSync(join(repo, "notes.txt"), "one\ntwo\nthree\nfour\n");
     expect((await read(repo)).dirty).toBe(true);
     git(repo, "checkout", "-q", "--", "notes.txt");
+    expect((await read(repo)).dirty).toBe(false);
+
+    // A new untracked file is uncommitted work too, as git status has it; an ignored one is not.
+    writeFileSync(join(repo, ".git", "info", "exclude"), "scratch.log\n");
+    writeFileSync(join(repo, "scratch.log"), "noise\n");
+    expect((await read(repo)).dirty).toBe(false);
+    writeFileSync(join(repo, "brand-new.txt"), "hello\n");
+    expect((await read(repo)).dirty).toBe(true);
+    rmSync(join(repo, "brand-new.txt"));
 
     // On the base branch itself there is nothing to compare.
     git(repo, "checkout", "-q", "main");

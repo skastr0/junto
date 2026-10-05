@@ -86,7 +86,7 @@ export const GitSummary = Schema.Struct({
   root: Schema.String,
   branch: Schema.String,
   detached: Schema.Boolean,
-  /** Tracked files differ from HEAD (staged or not). Untracked files are not read. */
+  /** The working tree differs from HEAD: staged, unstaged, or a new untracked file. Ignored files do not count. */
   dirty: Schema.Boolean,
   operation: Schema.optionalKey(GitOperation),
   head: Schema.optionalKey(GitCommit),
@@ -115,7 +115,7 @@ export const GitSummaryResult = Schema.Union([
 ]);
 export type GitSummaryResult = typeof GitSummaryResult.Type;
 
-/** `git status --porcelain=v2`: any entry line means tracked work is uncommitted. */
+/** `git status --porcelain=v2`: any entry line, a new untracked file included, means work is uncommitted. */
 export const porcelainHasChanges = (stdout: string): boolean =>
   stdout.split("\n").some((line) => line.length > 0 && !line.startsWith("# "));
 
@@ -184,7 +184,7 @@ export const gitSummaryParts = (summary: GitSummary, nowMs: number): ReadonlyArr
   if (summary.operation) {
     parts.push({ kind: "operation", text: `${summary.operation} in progress`, label: `A ${summary.operation} is unfinished` });
   }
-  if (summary.dirty) parts.push({ kind: "dirty", text: "*", label: "Tracked files have uncommitted changes" });
+  if (summary.dirty) parts.push({ kind: "dirty", text: "*", label: "Uncommitted changes" });
   const base = summary.base;
   if (base) {
     if (base.ahead !== undefined && base.ahead > 0) {
