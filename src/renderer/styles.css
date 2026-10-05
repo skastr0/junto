@@ -799,7 +799,7 @@ html[data-junto-platform="darwin"] .station-bar [role="listbox"] {
 .command-bar__count { flex: none; letter-spacing: var(--tracking-label); text-transform: uppercase; }
 .command-bar__hints { display: flex; min-width: 0; align-items: center; gap: 6px; overflow: hidden; }
 .command-bar__hint { margin: 0 8px 0 0; color: var(--color-dim); white-space: nowrap; }
-.digest-copy-button { font-size: 8px; letter-spacing: .12em; text-transform: uppercase; }
+.digest-copy-button { font-size: var(--text-micro); letter-spacing: var(--tracking-eyebrow); text-transform: uppercase; }
 .station-view-toggle { display: inline-flex; height: 34px; align-items: center; gap: 7px; border: 1px solid var(--color-stroke); border-radius: var(--radius-lg); background: var(--color-overlay-1); color: var(--color-steel); padding: 0 9px; font-size: var(--text-micro); letter-spacing: var(--tracking-eyebrow); text-transform: uppercase; transition: border-color .18s ease, background .18s ease, color .18s ease; }
 .station-view-toggle:hover { border-color: color-mix(in oklab, var(--color-second) 40%, transparent); background: color-mix(in oklab, var(--color-second) 6%, transparent); color: var(--color-cyan); }
 .station-generate-button { display: inline-flex; height: 34px; align-items: center; gap: 7px; border: 1px solid color-mix(in oklab, var(--color-steel) 26%, transparent); border-radius: var(--radius-lg); background: color-mix(in oklab, var(--color-steel) 5%, transparent); color: var(--color-steel); padding: 0 10px; font-size: var(--text-caption); letter-spacing: var(--tracking-eyebrow); text-transform: uppercase; transition: border-color .18s ease, background .18s ease, color .18s ease; }
