@@ -2,7 +2,7 @@ import { use$ } from "@legendapp/state/react";
 import { RotateCcw, Settings2, X } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import type { BrowserProfileInfo, JuntoBrowserApi } from "@shared/ipc";
-import { DEFAULT_INTERFACE_SCALE, INTERFACE_SCALES, type SettingsSectionKey } from "@shared/settings";
+import { DEFAULT_INTERFACE_SCALE, INTERFACE_SCALES, interfaceScaleOf, type SettingsSectionKey } from "@shared/settings";
 import {
   AUDIO_ENABLED,
   BROWSER_ENABLED,
@@ -19,6 +19,7 @@ import { FieldRow } from "./settings/FieldRow";
 import { CompanionSettingsSection } from "./settings/CompanionSettingsSection";
 import { HarnessesSettingsSection } from "./settings/HarnessesSettingsSection";
 import { ProvidersSettingsSection } from "./settings/ProvidersSettingsSection";
+import { KeyboardSettingsSection } from "./settings/KeyboardSettingsSection";
 import { QuickRepliesSettingsSection } from "./settings/QuickRepliesSettingsSection";
 import { NotificationSettingsSection } from "./settings/NotificationSettingsSection";
 import { SoundSettingsSection } from "./settings/SoundSettingsSection";
@@ -61,6 +62,7 @@ const SECTIONS: ReadonlyArray<{ key: PanelSection; label: string; blurb: string 
   { key: "appearance", label: "Appearance", blurb: "" },
   { key: "terminal", label: "Terminal", blurb: "scrolling, font, and accessibility" },
   { key: "feed", label: "Quick replies", blurb: "one-click answers for agents waiting on you" },
+  { key: "keyboard", label: "Keyboard shortcuts", blurb: "every shortcut, and the keys you chose" },
   {
     key: "notifications",
     label: "Notifications",
@@ -217,7 +219,7 @@ function AppearanceSection() {
     { key: "bright" as const, label: "Bright" },
   ];
   const agentAppearance = appearance.agentAppearance ?? "follow";
-  const interfaceScale = appearance.interfaceScale ?? DEFAULT_INTERFACE_SCALE;
+  const interfaceScale = interfaceScaleOf({ appearance });
   return (
     <div className="settings-section">
       <div className="settings-theme-modes" role="radiogroup" aria-label="Theme">
@@ -1075,6 +1077,8 @@ function SectionBody({ section }: { readonly section: PanelSection }) {
       return <TerminalSettingsSection />;
     case "feed":
       return <QuickRepliesSettingsSection />;
+    case "keyboard":
+      return <KeyboardSettingsSection />;
     case "notifications":
       return <NotificationSettingsSection />;
     case "station":
