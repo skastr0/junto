@@ -10,7 +10,7 @@
 
 .customize-guidance__text {
   min-height: 176px;
-  font-size: 12px;
+  font-size: var(--text-body-lg);
 }
 
 .customize-guidance__foot {
@@ -19,7 +19,7 @@
   align-items: baseline;
   justify-content: space-between;
   gap: 10px;
-  font-size: 10px;
+  font-size: var(--text-label);
 }
 
 .customize-guidance__status,
@@ -31,12 +31,12 @@
 .customize-guidance__error {
   margin: 0;
   color: var(--color-amber);
-  font-size: 10px;
+  font-size: var(--text-label);
 }
 
 .agent-editor__hint code {
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: var(--text-label);
   color: var(--color-ink);
 }
 
@@ -52,12 +52,12 @@
   grid-template-columns: 64px 1fr;
   gap: 10px;
   align-items: baseline;
-  font-size: 12px;
+  font-size: var(--text-body-lg);
 }
 
 .customize-launch__fact dt {
   color: var(--color-dim);
-  font-size: 10px;
+  font-size: var(--text-label);
 }
 
 .customize-launch__fact dd {
@@ -105,7 +105,7 @@
 
 .customize-launch__profile-title {
   color: var(--color-ink);
-  font-size: 12px;
+  font-size: var(--text-body-lg);
   font-weight: 600;
 }
 
@@ -135,7 +135,7 @@
   border-radius: 4px;
   background: transparent;
   color: var(--color-ink);
-  font-size: 11px;
+  font-size: var(--text-body);
   text-align: left;
   cursor: pointer;
 }
@@ -152,12 +152,12 @@
 }
 
 .customize-params__flag-add code {
-  font-size: 11px;
+  font-size: var(--text-body);
 }
 
 .customize-params__flag-add span {
   color: var(--color-dim);
-  font-size: 10px;
+  font-size: var(--text-label);
 }
 
 .customize-params__preview {
@@ -166,7 +166,7 @@
   border: 1px solid var(--color-stroke);
   border-radius: 6px;
   color: var(--color-ink);
-  font-size: 11px;
+  font-size: var(--text-body);
   overflow-wrap: anywhere;
   user-select: text;
 }
@@ -178,7 +178,7 @@
   padding: 0;
   list-style: none;
   color: var(--color-amber);
-  font-size: 10px;
+  font-size: var(--text-label);
 }
 
 .customize-params__actions {
