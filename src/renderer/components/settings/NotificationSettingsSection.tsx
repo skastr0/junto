@@ -66,7 +66,7 @@ function Row({
         >
           {title}
         </label>
-        <p className="m-0 max-w-[58ch] text-body-lg leading-[1.5] text-dim">{hint}</p>
+        <p className="m-0 max-w-[58ch] text-body-lg leading-body text-dim">{hint}</p>
       </div>
       <Switch id={id} checked={checked} disabled={disabled} onCheckedChange={onChange} />
     </div>
@@ -111,7 +111,7 @@ export function NotificationSettingsSection() {
 
   return (
     <div className="settings-section" data-testid="settings-notifications-section">
-      <p className="m-0 max-w-[62ch] text-body-lg leading-[1.5] text-dim">
+      <p className="m-0 max-w-[62ch] text-body-lg leading-body text-dim">
         A notification says which agent needs you and why; click it to open that agent. Nothing is sent
         while you are looking at Junto.{AUDIO_ENABLED ? " Each one plays its sound, set in Sound." : ""}
       </p>
@@ -163,7 +163,7 @@ export function NotificationSettingsSection() {
 
       {delivery === "blocked" ? (
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-y border-stroke py-3" role="status">
-          <p className="m-0 max-w-[52ch] text-[13px] leading-[1.5] text-ink">
+          <p className="m-0 max-w-[52ch] text-body-lg leading-body text-ink">
             macOS is not showing Junto's notifications, so none of the above reaches you yet.
           </p>
           {mac && api?.notificationsOpenSystemSettings ? (
@@ -187,12 +187,12 @@ export function NotificationSettingsSection() {
         {test.phase === "sent" || test.phase === "failed" ? (
           <span
             role="status"
-            className={`text-body-lg leading-[1.5] ${test.phase === "failed" ? "text-ink" : "text-dim"}`}
+            className={`text-body-lg leading-body ${test.phase === "failed" ? "text-ink" : "text-dim"}`}
           >
             {test.message}
           </span>
         ) : test.phase === "sending" ? (
-          <span role="status" className="text-body-lg leading-[1.5] text-dim">
+          <span role="status" className="text-body-lg leading-body text-dim">
             Waiting for macOS…
           </span>
         ) : null}

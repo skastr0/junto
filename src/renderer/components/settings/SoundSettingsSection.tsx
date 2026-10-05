@@ -101,7 +101,7 @@ function FamilyRow({
         <label htmlFor={id} className={`cursor-pointer text-title font-semibold ${off ? "text-dim" : "text-ink"}`}>
           {CATEGORY_LABEL[category].title}
         </label>
-        <p className="m-0 text-body-lg leading-[1.5] text-dim">{CATEGORY_LABEL[category].hint}</p>
+        <p className="m-0 text-body-lg leading-body text-dim">{CATEGORY_LABEL[category].hint}</p>
       </div>
       <div className="flex items-center gap-3 pt-[2px]">
         <div className="w-[132px]">
@@ -154,7 +154,7 @@ export function SoundSettingsSection() {
 
   return (
     <div className="settings-section" data-testid="settings-sound-section">
-      <p className="m-0 max-w-[62ch] text-body-lg leading-[1.5] text-dim">
+      <p className="m-0 max-w-[62ch] text-body-lg leading-body text-dim">
         Junto plays a short sound when an agent changes state. The more a sound needs you, the louder it
         is; the rest stay in the background. When many agents move at once, you hear a few notes, not all
         of them.
@@ -165,7 +165,7 @@ export function SoundSettingsSection() {
             <label htmlFor="sound-master" className="cursor-pointer text-title font-semibold text-ink">
               All sounds
             </label>
-            <p className="m-0 text-body-lg leading-[1.5] text-dim">
+            <p className="m-0 text-body-lg leading-body text-dim">
               {on ? "Every family below, together." : "Junto is silent."}
             </p>
           </div>

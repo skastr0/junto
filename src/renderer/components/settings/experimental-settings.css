@@ -6,7 +6,7 @@
   margin: 0;
   max-width: 62ch;
   font-size: var(--text-body-lg);
-  line-height: 1.5;
+  line-height: var(--leading-body);
   color: var(--color-dim);
 }
 
@@ -43,7 +43,7 @@
   margin: 0;
   max-width: 62ch;
   font-size: var(--text-body-lg);
-  line-height: 1.55;
+  line-height: var(--leading-open);
   color: var(--color-ink);
   opacity: 0.86;
   text-wrap: pretty;

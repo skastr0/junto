@@ -43,7 +43,7 @@ html[data-junto-platform="darwin"] .focus-surface:has(> .focus-surface__frame > 
   border: 1px solid var(--color-stroke);
   background: transparent;
   color: var(--color-steel);
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
   padding: 6px 10px;
   font-size: var(--text-body-lg);
   cursor: pointer;
@@ -75,7 +75,7 @@ html[data-junto-platform="darwin"] .focus-surface:has(> .focus-surface__frame > 
   width: 100%;
   text-align: left;
   padding: 8px 10px;
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
   border: 0;
   background: transparent;
   color: var(--color-dim);
@@ -90,7 +90,7 @@ html[data-junto-platform="darwin"] .focus-surface:has(> .focus-surface__frame > 
   color: var(--color-ink);
 }
 .settings-nav__label {
-  font-size: 13px;
+  font-size: var(--text-body-lg);
   font-weight: 560;
 }
 .settings-nav__blurb {
@@ -104,7 +104,7 @@ html[data-junto-platform="darwin"] .focus-surface:has(> .focus-surface__frame > 
 }
 .settings-content__head h2 {
   margin: 0;
-  font-size: 16px;
+  font-size: var(--text-title);
   font-weight: 600;
   color: var(--color-ink);
 }
@@ -146,7 +146,7 @@ html[data-junto-platform="darwin"] .focus-surface:has(> .focus-surface__frame > 
   display: flex;
   flex-direction: column;
   gap: 2px;
-  font-size: 13px;
+  font-size: var(--text-body-lg);
   color: var(--color-ink);
 }
 .settings-field__hint {
@@ -156,12 +156,12 @@ html[data-junto-platform="darwin"] .focus-surface:has(> .focus-surface__frame > 
 .settings-field__control input[type="text"],
 .settings-field__control input[type="number"] {
   width: 100%;
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
   border: 1px solid var(--color-stroke);
   background: var(--color-shadow-2);
   color: var(--color-ink);
   padding: 7px 10px;
-  font-size: 13px;
+  font-size: var(--text-body-lg);
 }
 .settings-field__control input[type="checkbox"] {
   width: 16px;
@@ -172,12 +172,12 @@ html[data-junto-platform="darwin"] .focus-surface:has(> .focus-surface__frame > 
   margin: 8px 0 0;
   font-size: var(--text-body);
   color: var(--color-dim);
-  line-height: 1.4;
+  line-height: var(--leading-body);
 }
 .settings-error {
   margin: 12px 0 0;
   padding: 8px 10px;
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
   border: 1px solid color-mix(in oklab, var(--color-accent) 35%, transparent);
   background: color-mix(in oklab, var(--color-accent) 10%, transparent);
   color: var(--color-ink);
@@ -186,7 +186,7 @@ html[data-junto-platform="darwin"] .focus-surface:has(> .focus-surface__frame > 
 .settings-success {
   margin: 12px 0 0;
   padding: 8px 10px;
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
   border: 1px solid color-mix(in oklab, var(--color-green) 35%, transparent);
   background: color-mix(in oklab, var(--color-green) 10%, transparent);
   color: var(--color-ink);
@@ -203,7 +203,7 @@ html[data-junto-platform="darwin"] .focus-surface:has(> .focus-surface__frame > 
 }
 .settings-host-card {
   border: 1px solid var(--color-overlay-4);
-  border-radius: 10px;
+  border-radius: var(--radius-xl);
   padding: 10px 12px;
   background: var(--color-shadow-2);
 }
@@ -245,7 +245,7 @@ html[data-junto-platform="darwin"] .focus-surface:has(> .focus-surface__frame > 
 }
 .settings-host-services__toggle {
   font-weight: 600;
-  letter-spacing: 0.02em;
+  letter-spacing: var(--tracking-soft);
 }
 .settings-host-services__count {
   display: inline-flex;
@@ -254,7 +254,7 @@ html[data-junto-platform="darwin"] .focus-surface:has(> .focus-surface__frame > 
   min-width: 1.25rem;
   margin-left: 6px;
   padding: 0 5px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--color-overlay-4);
   font-size: var(--text-label);
   font-weight: 600;
@@ -280,7 +280,7 @@ html[data-junto-platform="darwin"] .focus-surface:has(> .focus-surface__frame > 
   justify-content: space-between;
   gap: 10px;
   padding: 6px 8px;
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
   background: var(--color-shadow-2);
   border: 1px solid var(--color-overlay-2);
 }
@@ -322,7 +322,7 @@ html[data-junto-platform="darwin"] .focus-surface:has(> .focus-surface__frame > 
 .settings-host-services__hint {
   margin: 0;
   font-size: var(--text-label);
-  line-height: 1.4;
+  line-height: var(--leading-body);
 }
 .settings-host-services__hint code {
   font-size: var(--text-label);
@@ -337,7 +337,7 @@ html[data-junto-platform="darwin"] .focus-surface:has(> .focus-surface__frame > 
 }
 .settings-host-form__title {
   margin: 0;
-  font-size: 13px;
+  font-size: var(--text-body-lg);
   font-weight: 600;
   color: var(--color-ink);
 }
@@ -383,12 +383,12 @@ html[data-junto-platform="darwin"] .focus-surface:has(> .focus-surface__frame > 
   gap: 4px;
   margin-bottom: 10px;
   color: var(--color-ink);
-  font-size: 13px;
+  font-size: var(--text-body-lg);
 }
 .settings-install-facts__head span:last-child {
   color: var(--color-dim);
   font-size: var(--text-body);
-  line-height: 1.4;
+  line-height: var(--leading-body);
 }
 
 .settings-profile-list {
@@ -406,7 +406,7 @@ html[data-junto-platform="darwin"] .focus-surface:has(> .focus-surface__frame > 
 .settings-profile-list__head {
   margin-bottom: 8px;
   color: var(--color-ink);
-  font-size: 13px;
+  font-size: var(--text-body-lg);
 }
 .settings-profile-list__head span:last-child {
   color: var(--color-dim);
@@ -429,7 +429,7 @@ html[data-junto-platform="darwin"] .focus-surface:has(> .focus-surface__frame > 
 .settings-profile-wipe,
 .settings-profile-cancel {
   border: 1px solid color-mix(in oklab, var(--color-accent) 28%, transparent);
-  border-radius: 7px;
+  border-radius: var(--radius-lg);
   background: transparent;
   color: var(--color-accent-fg);
   padding: 5px 9px;
@@ -452,7 +452,7 @@ html[data-junto-platform="darwin"] .focus-surface:has(> .focus-surface__frame > 
 .settings-wipe-confirm {
   padding: 10px;
   border: 1px solid color-mix(in oklab, var(--color-accent) 30%, transparent);
-  border-radius: 9px;
+  border-radius: var(--radius-lg);
   background: color-mix(in oklab, var(--color-accent) 7%, transparent);
 }
 .settings-wipe-confirm strong,
@@ -469,7 +469,7 @@ html[data-junto-platform="darwin"] .focus-surface:has(> .focus-surface__frame > 
   width: 100%;
   margin-bottom: 9px;
   border: 1px solid color-mix(in oklab, var(--color-accent) 35%, transparent);
-  border-radius: 7px;
+  border-radius: var(--radius-lg);
   background: var(--color-shadow-2);
   color: var(--color-ink);
   padding: 7px 9px;
@@ -478,7 +478,7 @@ html[data-junto-platform="darwin"] .focus-surface:has(> .focus-surface__frame > 
   margin: 0;
   padding: 8px 10px;
   border: 1px solid color-mix(in oklab, var(--color-green) 28%, transparent);
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
   background: color-mix(in oklab, var(--color-green) 8%, transparent);
   color: var(--color-green);
   font-size: var(--text-body);
@@ -499,7 +499,7 @@ html[data-junto-platform="darwin"] .focus-surface:has(> .focus-surface__frame > 
   min-width: 0;
   margin: 0;
   padding: 10px;
-  border-radius: 10px;
+  border-radius: var(--radius-xl);
   border: 1px solid var(--color-stroke);
   background: var(--color-overlay-1);
   color: var(--color-dim);
@@ -530,7 +530,7 @@ html[data-junto-platform="darwin"] .focus-surface:has(> .focus-surface__frame > 
   display: block;
   width: 100%;
   height: 56px;
-  border-radius: 7px;
+  border-radius: var(--radius-lg);
   border: 1px solid;
   overflow: hidden;
   position: relative;
@@ -538,7 +538,7 @@ html[data-junto-platform="darwin"] .focus-surface:has(> .focus-surface__frame > 
 .settings-theme-preview__raise {
   position: absolute;
   inset: 10px 10px 10px 10px;
-  border-radius: 5px;
+  border-radius: var(--radius-md);
   border: 1px solid;
   display: flex;
   align-items: flex-end;
@@ -549,14 +549,14 @@ html[data-junto-platform="darwin"] .focus-surface:has(> .focus-surface__frame > 
   display: block;
   width: 38%;
   height: 4px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   opacity: 0.9;
 }
 .settings-theme-preview__amber {
   display: block;
   width: 14%;
   height: 4px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   opacity: 0.95;
 }
 .settings-theme-preview--split {
@@ -568,7 +568,7 @@ html[data-junto-platform="darwin"] .focus-surface:has(> .focus-surface__frame > 
   height: 56px;
   padding: 0;
   overflow: hidden;
-  border-radius: 7px;
+  border-radius: var(--radius-lg);
 }
 .settings-theme-preview--split .settings-theme-preview__half {
   min-width: 0;
@@ -579,11 +579,11 @@ html[data-junto-platform="darwin"] .focus-surface:has(> .focus-surface__frame > 
   border-radius: 0;
 }
 .settings-theme-preview--split .settings-theme-preview__half:first-child .settings-theme-preview {
-  border-radius: 7px 0 0 7px;
+  border-radius: var(--radius-lg) 0 0 var(--radius-lg);
   border-right-width: 0;
 }
 .settings-theme-preview--split .settings-theme-preview__half:last-child .settings-theme-preview {
-  border-radius: 0 7px 7px 0;
+  border-radius: 0 var(--radius-lg) var(--radius-lg) 0;
 }
 
 /* Agents / harness fine-config */
@@ -597,7 +597,7 @@ html[data-junto-platform="darwin"] .focus-surface:has(> .focus-surface__frame > 
 }
 .settings-harness-card {
   border: 1px solid var(--color-stroke);
-  border-radius: 10px;
+  border-radius: var(--radius-xl);
   padding: 12px 12px 4px;
   background: var(--color-raise-1);
 }
@@ -617,7 +617,7 @@ html[data-junto-platform="darwin"] .focus-surface:has(> .focus-surface__frame > 
   flex-direction: column;
   gap: 10px;
   padding: 14px;
-  border-radius: 10px;
+  border-radius: var(--radius-xl);
   border: 1px solid var(--color-stroke);
   background: color-mix(in oklab, var(--color-raise) 60%, transparent);
 }
@@ -647,14 +647,14 @@ html[data-junto-platform="darwin"] .focus-surface:has(> .focus-surface__frame > 
   width: 100%;
   min-height: 4.5em;
   resize: vertical;
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
   border: 1px solid var(--color-stroke);
   background: var(--color-shadow-2);
   color: var(--color-ink);
   padding: 7px 10px;
   font-size: var(--text-body-lg);
   font-family: inherit;
-  line-height: 1.4;
+  line-height: var(--leading-body);
 }
 .settings-provider-field {
   display: grid;
@@ -669,7 +669,7 @@ html[data-junto-platform="darwin"] .focus-surface:has(> .focus-surface__frame > 
   min-width: 0;
 }
 .settings-provider-field__label {
-  font-size: 13px;
+  font-size: var(--text-body-lg);
   color: var(--color-ink);
 }
 .settings-provider-field__control {
@@ -680,7 +680,7 @@ html[data-junto-platform="darwin"] .focus-surface:has(> .focus-surface__frame > 
 .settings-provider-input {
   flex: 1;
   min-width: 0;
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
   border: 1px solid var(--color-stroke);
   background: var(--color-shadow-2);
   color: var(--color-ink);
@@ -700,7 +700,7 @@ html[data-junto-platform="darwin"] .focus-surface:has(> .focus-surface__frame > 
   width: 26px;
   height: 26px;
   flex-shrink: 0;
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   border: 1px solid var(--color-stroke);
   background: transparent;
   color: var(--color-dim);
@@ -723,7 +723,7 @@ html[data-junto-platform="darwin"] .focus-surface:has(> .focus-surface__frame > 
   overscroll-behavior: contain;
   list-style: none;
   border: 1px solid var(--color-stroke);
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   scrollbar-width: thin;
 }
 
@@ -733,7 +733,7 @@ html[data-junto-platform="darwin"] .focus-surface:has(> .focus-surface__frame > 
   gap: 2px;
   padding: 5px 7px;
   border: 0;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   background: transparent;
   color: var(--color-ink);
   font-size: var(--text-body);
