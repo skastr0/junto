@@ -6,6 +6,7 @@ import type { GitSummary } from "@shared/git";
 import { resolveRegionCwd } from "@shared/region-defaults";
 import { LOCAL_HOST_ID } from "@shared/remote-hosts";
 import { getJuntoApi } from "./junto-api";
+import { state$ } from "./state";
 
 /**
  * Git at a glance for the folder a seat runs in.
@@ -92,6 +93,36 @@ export const retainGitSummary = (folder: string): (() => void) => {
     }
   };
 };
+
+/** The seat whose git detail is open, by canvas node id. One at a time. */
+const detailSeat$ = observable<string | null>(null);
+
+/**
+ * Open the git detail for the session a seat runs, or close it when it is
+ * already open for that seat. The one entry for anything that is not the git
+ * line's own press (a shortcut, a command): it opens the same surface the
+ * line opens. Returns false, and does nothing, when the seat has no
+ * repository on screen to show: no folder, not a repository, or its git line
+ * is not mounted (the agent's modal is closed).
+ */
+export const toggleSeatGitDetail = (node: CanvasNode): boolean => {
+  if (detailSeat$.peek() === node.id) {
+    detailSeat$.set(null);
+    return true;
+  }
+  const folder = seatGitFolder(state$.doc.peek(), node);
+  if (!folder || !summaries$[folder].peek()) return false;
+  detailSeat$.set(node.id);
+  return true;
+};
+
+/** Close the git detail if it is open for this seat. */
+export const closeSeatGitDetail = (nodeId: string): void => {
+  if (detailSeat$.peek() === nodeId) detailSeat$.set(null);
+};
+
+/** Whether the git detail is open for this seat. */
+export const useSeatGitDetailOpen = (nodeId: string): boolean => use$(() => detailSeat$.get() === nodeId);
 
 /** How many folders are being read right now; zero when nothing shows git. */
 export const watchedGitFolders = (): number => watches.size;
