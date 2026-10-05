@@ -235,7 +235,7 @@ export const HARNESS_PRIME_AGENT_ENABLED: boolean =
 
 /**
  * Settings → Agents surface: scan harness CLIs/options and persist per-harness
- * spawn defaults. Ship/prod off.
+ * spawn defaults. Ships on.
  */
 export const HARNESS_SETTINGS_ENABLED: boolean =
   typeof __JUNTO_HARNESS_SETTINGS_ENABLED__ === "boolean"

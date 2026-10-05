@@ -122,7 +122,7 @@ export const FEATURE_CATALOG = {
   },
   /**
    * Settings → Agents: scan install/options and set per-harness spawn defaults
-   * (model, effort, permission). Ship/prod off until the surface is ready.
+   * (model, effort, permission, extra arguments). Ships on.
    */
   harnessSettings: {
     env: "JUNTO_HARNESS_SETTINGS",
@@ -249,7 +249,7 @@ export const SHIP_FEATURES: FeatureSet = {
   harnessAmp: true,
   harnessOmp: true,
   harnessPrimeAgent: true,
-  harnessSettings: false,
+  harnessSettings: true,
 };
 
 export const ALL_FEATURES: FeatureSet = {

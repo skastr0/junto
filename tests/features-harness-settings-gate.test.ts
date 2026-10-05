@@ -14,10 +14,10 @@ import { resolveBuildFeatures } from "../scripts/build-features";
 import { SHIP_FEATURES } from "../src/shared/feature-catalog";
 
 describe("harness settings product gate", () => {
-  it("ship profile defaults harnessSettings off", () => {
+  it("ship profile turns harnessSettings on", () => {
     const ship = resolveBuildFeatures({});
-    expect(ship.features.harnessSettings).toBe(false);
-    expect(SHIP_FEATURES.harnessSettings).toBe(false);
+    expect(ship.features.harnessSettings).toBe(true);
+    expect(SHIP_FEATURES.harnessSettings).toBe(true);
   });
 
   it("default settings include empty harnesses section", () => {

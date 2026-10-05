@@ -50,7 +50,8 @@ describe("compile-time feature profiles", () => {
       harnessAmp: true,
       harnessOmp: true,
       harnessPrimeAgent: true,
-      harnessSettings: false,
+      // Settings, Agents: per-harness launch defaults ship on.
+      harnessSettings: true,
     });
   });
 
