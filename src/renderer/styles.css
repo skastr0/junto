@@ -2671,7 +2671,7 @@ ol.note-md__list > .note-md__li::before {
 .seat-signal__age,
 .seat-signal-popover__age {
   font-family: var(--font-mono), ui-monospace, monospace;
-  font-size: 9.5px;
+  font-size: var(--text-label);
   color: var(--color-faint);
   font-variant-numeric: tabular-nums;
 }
@@ -2688,8 +2688,8 @@ ol.note-md__list > .note-md__li::before {
 .seat-signal-popover__text {
   margin: 0;
   color: var(--color-ink);
-  font-size: 12.5px;
-  line-height: 1.4;
+  font-size: var(--text-body-lg);
+  line-height: var(--leading-body);
   overflow-wrap: anywhere;
 }
 .seat-signal-popover__detail {
@@ -2697,7 +2697,7 @@ ol.note-md__list > .note-md__li::before {
   overflow-y: auto;
   padding: 8px;
   border: 1px solid color-mix(in srgb, var(--color-stroke) 80%, transparent);
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   background: color-mix(in srgb, var(--color-inset) 78%, transparent);
 }
 .seat-signal-popover__response {
@@ -2709,8 +2709,8 @@ ol.note-md__list > .note-md__li::before {
   white-space: pre-wrap;
 }
 .seat-signal-popover__response-label {
-  font-size: 9px;
-  letter-spacing: 0.12em;
+  font-size: var(--text-caption);
+  letter-spacing: var(--tracking-eyebrow);
   text-transform: uppercase;
   color: var(--color-faint);
 }
@@ -2722,7 +2722,7 @@ ol.note-md__list > .note-md__li::before {
 .seat-signal-popover__error {
   margin: 0;
   color: var(--color-crimson);
-  font-size: 10.5px;
+  font-size: var(--text-body);
 }
 .seat-signal-popover__actions {
   display: flex;
