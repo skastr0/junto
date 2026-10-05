@@ -59,6 +59,16 @@ const RecentColors = Schema.Array(
   Schema.String.pipe(Schema.check(Schema.isPattern(/^#[0-9a-f]{6}$/))),
 ).pipe(Schema.check(Schema.isMaxLength(RECENT_COLORS_MAX)));
 
+/**
+ * How large the whole interface is drawn, in percent. One setting scales
+ * everything together (text, controls, spacing), so the design keeps its
+ * proportions; main applies it as the main window's zoom factor.
+ */
+export const INTERFACE_SCALES = [90, 100, 110, 125, 150, 175, 200] as const;
+export const InterfaceScale = Schema.Literals(INTERFACE_SCALES);
+export type InterfaceScale = typeof InterfaceScale.Type;
+export const DEFAULT_INTERFACE_SCALE: InterfaceScale = 100;
+
 export const AppearanceSettings = Schema.Struct({
   theme: SettingsTheme,
   density: SettingsDensity,
@@ -70,6 +80,8 @@ export const AppearanceSettings = Schema.Struct({
   agentAppearance: Schema.optionalKey(AgentAppearancePolicy),
   /** Custom card and region colours, newest first (shared/canvas-colors.ts). */
   recentColors: Schema.optionalKey(RecentColors),
+  /** Optional so installed rows still decode. Absent ≡ 100. */
+  interfaceScale: Schema.optionalKey(InterfaceScale),
 });
 export type AppearanceSettings = typeof AppearanceSettings.Type;
 
@@ -915,6 +927,7 @@ export const AppearancePatch = Schema.Struct({
   agentAppearance: Schema.optionalKey(AgentAppearancePolicy),
   /** Replaces the list; [] clears it. */
   recentColors: Schema.optionalKey(RecentColors),
+  interfaceScale: Schema.optionalKey(InterfaceScale),
 });
 export type AppearancePatch = typeof AppearancePatch.Type;
 
@@ -1119,6 +1132,10 @@ export const SettingsSectionKey = Schema.Literals(["appearance", "canvas",
 "notifications",
 "providers",]);
 export type SettingsSectionKey = typeof SettingsSectionKey.Type;
+
+/** The interface size in force for these settings. */
+export const interfaceScaleOf = (settings: Pick<Settings, "appearance">): InterfaceScale =>
+  settings.appearance.interfaceScale ?? DEFAULT_INTERFACE_SCALE;
 
 export const defaultAppearance = (): AppearanceSettings => ({
   theme: "system",
