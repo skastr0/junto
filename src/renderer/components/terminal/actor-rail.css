@@ -3,7 +3,10 @@
 
 .actor-rail {
   position: relative;
-  z-index: 1;
+  /* Above the terminal stage and its ended-session overlay (z 2): a bubble
+     belongs to the rail and is still read and dismissed when this agent's
+     own session has stopped. */
+  z-index: 3;
   display: flex;
   flex: 0 0 248px;
   width: 248px;
