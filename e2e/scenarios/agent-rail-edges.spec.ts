@@ -45,7 +45,9 @@ const blankPoint = (locator: Locator): Promise<{ x: number; y: number } | null> 
       for (let x = box.left + 6; x < box.right - 4; x += 8) {
         const hit = document.elementFromPoint(x, y);
         if (!hit || !element.contains(hit)) continue;
-        if (hit.closest("button, a, input, textarea, select, [role='button'], [tabindex], .xterm, .junto-preamble")) continue;
+        const control = hit.closest("button, a, input, textarea, select, [role='button'], [tabindex], .xterm, .junto-preamble");
+        // A control around the whole region (the modal panel) does not make its chrome a control.
+        if (control !== null && control !== element && element.contains(control)) continue;
         return { x, y };
       }
     }

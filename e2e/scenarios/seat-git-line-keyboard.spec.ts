@@ -5,7 +5,8 @@
  * A live seat runs in a real repository. The operator is typing in the
  * terminal, presses the git line, reads the detail and closes it with
  * Escape: the next keys must reach the agent again, as they do after the
- * seat details close. Opened by keyboard, Escape leaves focus on the line.
+ * seat details close. Opened by keyboard from the line itself, the same:
+ * what a modal's chrome opens gives the keyboard back to its subject.
  */
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
@@ -69,13 +70,13 @@ test("[fake-tui] closing the git detail gives the keyboard back to the terminal 
     await expect(detail).toHaveCount(0);
     await expect.poll(() => seat.stdinLog(), { timeout: 20_000 }).toContain("before after the detail");
 
-    // By keyboard from the line itself: Escape leaves focus on the line, never on the page.
+    // By keyboard from the line itself: Escape gives the keyboard to the terminal too, never to the page.
     await line.focus();
     await page.keyboard.press("Enter");
     await expect(detail).toBeVisible();
     await page.keyboard.press("Escape");
     await expect(detail).toHaveCount(0);
-    await expect(line).toBeFocused();
+    await expect.poll(typingInTerminal, { message: "after a keyboard open and Escape", timeout: 3_000 }).toBe(true);
   } finally {
     await junto.close();
     rmSync(repo, { recursive: true, force: true });
