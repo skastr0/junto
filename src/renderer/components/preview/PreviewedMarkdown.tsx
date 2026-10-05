@@ -5,6 +5,7 @@ import {
   previewLinkedMarkdown,
   previewLinkIndex,
   previewRefsIn,
+  previewRefsOfAttachments,
   type PreviewSource,
 } from "@shared/preview";
 import { Thumbnail, ThumbnailMore, ThumbnailStrip } from "../ui";
@@ -29,15 +30,27 @@ const SHOWN = 4;
  */
 export function PreviewedMarkdown({
   markdown,
+  attachments,
   source,
   textClassName,
 }: {
-  readonly markdown: string;
+  /** The agent's text. Absent when the source has only attached files. */
+  readonly markdown?: string;
+  /**
+   * Files the agent attached, shown first and in its order. They are read
+   * from the app's own store, so they are there even when the folder they
+   * came from is gone.
+   */
+  readonly attachments?: Parameters<typeof previewRefsOfAttachments>[0];
   readonly source: PreviewSource;
   /** The caller's own box around the text. */
   readonly textClassName?: string;
 }) {
-  const refs = useMemo(() => previewRefsIn(markdown), [markdown]);
+  const named = useMemo(() => (markdown === undefined ? [] : previewRefsIn(markdown)), [markdown]);
+  const refs = useMemo(
+    () => [...previewRefsOfAttachments(attachments ?? []), ...named],
+    [attachments, named],
+  );
   const load = usePreviewLoad(source);
   const thumbs = usePreviews(load, refs, "thumb");
   const [openAt, setOpenAt] = useState<string | null>(null);
@@ -54,11 +67,13 @@ export function PreviewedMarkdown({
   });
   const text = useMemo(
     () =>
-      previewLinkedMarkdown(
-        markdown,
-        new Set(refs.filter((ref) => thumbs.get(ref.path)?.ok === true).map((ref) => ref.path)),
-      ),
-    [markdown, refs, thumbs],
+      markdown === undefined
+        ? undefined
+        : previewLinkedMarkdown(
+            markdown,
+            new Set(named.filter((ref) => thumbs.get(ref.path)?.ok === true).map((ref) => ref.path)),
+          ),
+    [markdown, named, thumbs],
   );
   // A file name in the text opens the viewer at that file.
   const onTextClick = (event: MouseEvent<HTMLDivElement>): void => {
@@ -66,7 +81,8 @@ export function PreviewedMarkdown({
     const index = previewLinkIndex(link?.getAttribute("href"));
     if (index === undefined) return;
     event.preventDefault();
-    const ref = refs[index];
+    // A link's number is its place among the paths the text names.
+    const ref = named[index];
     if (ref) setOpenAt(ref.path);
   };
 
@@ -87,9 +103,11 @@ export function PreviewedMarkdown({
 
   return (
     <>
-      <div className={textClassName} onClick={onTextClick} onKeyDown={keepEnter}>
-        <ArtifactMarkdown source={text} />
-      </div>
+      {text !== undefined ? (
+        <div className={textClassName} onClick={onTextClick} onKeyDown={keepEnter}>
+          <ArtifactMarkdown source={text} />
+        </div>
+      ) : null}
       {items.length > 0 || gone.length > 0 ? (
         <div className="preview-strip" data-testid="preview-strip" onKeyDown={keepEnter}>
           {items.length > 0 ? (
@@ -104,7 +122,8 @@ export function PreviewedMarkdown({
                     src={tile.src}
                     extension={tile.extension}
                     glyph={tile.text ? <FileText size={16} aria-hidden /> : undefined}
-                    label={ref.name}
+                    // An attachment's caption is all that tells two files apart by ear.
+                    label={ref.attachment !== undefined && ref.caption ? `${ref.caption}, ${ref.name}` : ref.name}
                     tag={pair?.[0] === ref ? "A" : pair?.[1] === ref ? "B" : undefined}
                     data-testid="preview-thumbnail"
                     onClick={() => setOpenAt(ref.path)}
@@ -117,7 +136,7 @@ export function PreviewedMarkdown({
             </ThumbnailStrip>
           ) : null}
           {gone.map((ref) => (
-            <p key={ref.path} className="preview-strip__gone" title={ref.path}>
+            <p key={ref.path} className="preview-strip__gone" title={ref.attachment === undefined ? ref.path : undefined}>
               {ref.name}, file not found
             </p>
           ))}

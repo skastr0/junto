@@ -298,10 +298,12 @@ export function PreviewViewer({
             <p className="preview-viewer__note">
               {result.extension ? `${result.extension.toUpperCase()} file` : "File"}, {formatPreviewBytes(result.byteLength)}
             </p>
-            <Button size="sm" variant="chrome" onClick={() => reveal(current.path)}>
-              <FolderOpen size={12} aria-hidden />
-              {revealLabel()}
-            </Button>
+            {current.attachment === undefined ? (
+              <Button size="sm" variant="chrome" onClick={() => reveal(current.path)}>
+                <FolderOpen size={12} aria-hidden />
+                {revealLabel()}
+              </Button>
+            ) : null}
           </div>
         ) : (
           <div key={current.path} className="preview-viewer__slide">
@@ -380,7 +382,8 @@ export function PreviewViewer({
               <Columns2 size={14} />
             </IconButton>
           ) : null}
-          {!compare ? (
+          {/* An attachment lives in the app's store: there is no folder to show. */}
+          {!compare && current.attachment === undefined ? (
             <IconButton size="sm" aria-label={revealLabel()} title={revealLabel()} onClick={() => reveal(current.path)}>
               <FolderOpen size={14} />
             </IconButton>
@@ -469,7 +472,7 @@ function ComparePanes({
           >
             <CompareTag side={pane.side} />
           </MediaStage>
-          <p className="preview-viewer__pane-name" title={pane.ref.path}>
+          <p className="preview-viewer__pane-name" title={pane.ref.attachment === undefined ? pane.ref.path : undefined}>
             {pane.ref.caption ? `${pane.ref.caption}, ${pane.ref.name}` : pane.ref.name}
           </p>
         </div>
