@@ -2095,7 +2095,7 @@ export function TerminalSurface({
           className="flex items-center gap-2 border-b border-stroke bg-cyan/[0.045] px-3 py-1.5 text-body"
           role="status"
         >
-          <span className="shrink-0 uppercase tracking-[0.12em] text-cyan">
+          <span className="shrink-0 uppercase tracking-eyebrow text-cyan">
             Claimed task
           </span>
           <strong className="min-w-0 flex-1 truncate text-ink">

@@ -123,7 +123,7 @@ export function TerminalWizard({
       >
         <div>
           <Eyebrow tone="steel">terminal - create</Eyebrow>
-          <div className="mt-1 font-mono text-[16px] font-semibold text-ink">New terminal</div>
+          <div className="mt-1 font-mono text-title font-semibold text-ink">New terminal</div>
         </div>
         <FieldLabel>
           Host

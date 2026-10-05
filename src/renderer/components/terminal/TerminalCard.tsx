@@ -168,7 +168,7 @@ export function TerminalCard({
               onDone={onRenameDone}
             />
           ) : (
-            <div className="truncate font-mono text-[13px] font-semibold leading-snug text-ink" title={label}>
+            <div className="truncate font-mono text-body-lg font-semibold leading-snug text-ink" title={label}>
               {label}
             </div>
           )
