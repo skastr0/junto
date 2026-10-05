@@ -167,7 +167,8 @@ html[data-surface-motion="paused"] .preview-viewer__slide {
   flex: 1;
   min-width: 0;
   overflow: auto;
-  padding: 16px;
+  /* Room at the sides for previous and next, so they never sit on a line. */
+  padding: 16px 48px;
   background: var(--color-well);
   color: var(--color-ink);
   outline: none;

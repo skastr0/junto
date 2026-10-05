@@ -10,6 +10,7 @@ import {
 import { ChevronLeft, ChevronRight, Columns2, FolderOpen, Pause, Play, X } from "lucide-react";
 import {
   previewComparePair,
+  previewMarkdownText,
   type PreviewRef,
   type PreviewResult,
   type PreviewSource,
@@ -270,6 +271,10 @@ export function PreviewViewer({
       facts.push(`${size.width} × ${size.height}`, formatPreviewBytes(image.byteLength), `${Math.round(scale * 100)}%`);
     } else if (result?.ok) {
       facts.push(formatPreviewBytes(result.byteLength));
+      // Said where the eye already is, not after 64 KB of text.
+      if (result.kind === "text" && result.truncated) {
+        facts.push(`showing the first ${formatPreviewBytes(new TextEncoder().encode(result.text).length)}`);
+      }
     }
     stage = (
       <div
@@ -280,12 +285,12 @@ export function PreviewViewer({
       >
         {result?.ok && result.kind === "text" ? (
           <div className="preview-viewer__text" data-testid="preview-text" tabIndex={0}>
-            {result.format === "markdown" ? <ArtifactMarkdown source={result.text} /> : <pre>{result.text}</pre>}
-            {result.truncated ? (
-              <p className="preview-viewer__note">
-                Showing the first {formatPreviewBytes(new TextEncoder().encode(result.text).length)} of {formatPreviewBytes(result.byteLength)}.
-              </p>
-            ) : null}
+            {/* A file's own markdown images never load by themselves either. */}
+            {result.format === "markdown" ? (
+              <ArtifactMarkdown source={previewMarkdownText(result.text)} />
+            ) : (
+              <pre>{result.text}</pre>
+            )}
           </div>
         ) : result?.ok && result.kind === "file" ? (
           <div className="preview-viewer__file" data-testid="preview-file">
