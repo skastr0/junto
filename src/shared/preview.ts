@@ -22,6 +22,11 @@ export type PreviewRef = {
   readonly kind: PreviewKind;
   /** The agent's own words beside the path ("Before"). Never made up. */
   readonly caption?: string;
+  /**
+   * Read out of running prose (a bare path with spaces), so it may be no
+   * path at all: when nothing is there, say nothing about it.
+   */
+  readonly loose?: true;
 };
 
 const IMAGE_EXTENSIONS = new Set(["png", "jpg", "jpeg", "gif", "webp", "svg"]);
@@ -57,12 +62,19 @@ export const isLocalPreviewPath = (value: string): boolean => LOCAL_PATH.test(va
 // One pass, in the order written. Alternatives, most specific first:
 // 1. a markdown image or link target: ![alt](target) / [label](target)
 // 2. a code span whose whole content is a path (may hold spaces)
-// 3. a bare path: starts at a word boundary, runs to whitespace or a bracket
+// 3. a bare image path with spaces in it (a macOS screenshot name): tried
+//    only when the run up to the first space is not a file by itself, never
+//    across the start of another path, and it must end in an image extension
+// 4. a bare path: starts at a word boundary, runs to whitespace or a bracket
+const BARE_START = String.raw`(?<![\w/.:~\-\x60\\])`;
 const PATH_TOKEN = new RegExp(
   [
     String.raw`(!?)\[([^\]\n]*)\]\(\s*<?((?:file:\/\/|~)?\/[^)\n>]+?)>?(?:\s+"[^"\n]*")?\s*\)`,
     String.raw`\x60((?:file:\/\/|~)?\/[^\x60\n]+)\x60`,
-    String.raw`(?<![\w/.:~\-\x60\\])((?:file:\/\/|~)?\/[^\s\x60"'<>()\[\]]+)`,
+    BARE_START +
+      String.raw`(?!\S*\.[A-Za-z0-9]{1,8}(?:[\s.,;:!?)\]]|$))` +
+      String.raw`((?:file:\/\/|~)?\/(?:(?! [~\/]| file:)[^\n\x60"'<>()\[\]])*?\.(?:png|PNG|jpe?g|JPE?G|gif|GIF|webp|WEBP|svg|SVG))(?![\w.\-])`,
+    BARE_START + String.raw`((?:file:\/\/|~)?\/[^\s\x60"'<>()\[\]]+)`,
   ].join("|"),
   "gu",
 );
@@ -88,9 +100,9 @@ export const previewRefsIn = (markdown: string): ReadonlyArray<PreviewRef> => {
   for (const line of markdown.split("\n")) {
     let captionFrom = 0;
     for (const match of line.matchAll(PATH_TOKEN)) {
-      const [whole, , label, target, spanned, bare] = match;
+      const [whole, , label, target, spanned, spaced, bare] = match;
       const index = match.index;
-      let path = (target ?? spanned ?? bare ?? "").trim();
+      let path = (target ?? spanned ?? spaced ?? bare ?? "").trim();
       // Sentence punctuation after a bare path is not part of it.
       if (bare !== undefined) path = path.replace(/[.,;:!?]+$/u, "");
       const before = line.slice(captionFrom, index);
@@ -105,6 +117,7 @@ export const previewRefsIn = (markdown: string): ReadonlyArray<PreviewRef> => {
         kind: previewKindOf(path),
         // A caption that only repeats the file name says nothing new.
         ...(caption !== undefined && caption !== name && caption !== path ? { caption } : {}),
+        ...(spaced !== undefined ? { loose: true as const } : {}),
       });
     }
   }
@@ -177,8 +190,8 @@ export const previewLinkedMarkdown = (markdown: string, claimed: ReadonlySet<str
   const linked = markdown
     .split("\n")
     .map((line) =>
-      line.replace(PATH_TOKEN, (whole: string, bang?: string, label?: string, target?: string, spanned?: string, bare?: string) => {
-        let path = (target ?? spanned ?? bare ?? "").trim();
+      line.replace(PATH_TOKEN, (whole: string, bang?: string, label?: string, target?: string, spanned?: string, spaced?: string, bare?: string) => {
+        let path = (target ?? spanned ?? spaced ?? bare ?? "").trim();
         let tail = "";
         if (bare !== undefined) {
           const trimmed = path.replace(/[.,;:!?]+$/u, "");

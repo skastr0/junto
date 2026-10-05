@@ -177,3 +177,34 @@ describe("previewLinkedMarkdown", () => {
     expect(previewLinkIndex(undefined)).toBeUndefined();
   });
 });
+
+describe("a bare path with spaces", () => {
+  it("reads a screenshot name as one path, marked loose", () => {
+    const refs = previewRefsIn("Shot: /Users/me/Desktop/Screenshot 2026-10-05 at 19.20.11.png, taken now");
+    expect(refs).toEqual([
+      {
+        path: "/Users/me/Desktop/Screenshot 2026-10-05 at 19.20.11.png",
+        name: "Screenshot 2026-10-05 at 19.20.11.png",
+        kind: "image",
+        caption: "Shot",
+        loose: true,
+      },
+    ]);
+  });
+
+  it("never swallows a file that stands by itself, or the start of another path", () => {
+    expect(previewRefsIn("/tmp/a.txt is shown in shot.png").map((ref) => ref.path)).toEqual(["/tmp/a.txt"]);
+    expect(previewRefsIn("Before: /tmp/a.png, after: /tmp/b.png").map((ref) => ref.path)).toEqual([
+      "/tmp/a.png",
+      "/tmp/b.png",
+    ]);
+    expect(previewRefsIn("/tmp/my dir /tmp/b.png").map((ref) => ref.path)).toEqual(["/tmp/b.png"]);
+  });
+
+  it("links it like any other claimed path", () => {
+    const path = "/tmp/with space/bare shot.png";
+    expect(previewLinkedMarkdown(`See ${path} now`, new Set([path]))).toBe(
+      `See [bare shot.png](#preview-0 "${path}") now`,
+    );
+  });
+});
