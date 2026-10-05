@@ -448,6 +448,21 @@ test("no surface shows two dims at once", async ({ junto }) => {
     await fitBoard(page);
     await surface.open(page);
     await page.waitForTimeout(300);
+    // A content-sized working modal sits in the centre of the window.
+    const fit = page.locator(".focus-surface--height-fit:not(.focus-surface--contain-parent) .focus-surface__panel").last();
+    if ((await fit.count()) > 0) {
+      await expect
+        .poll(
+          () =>
+            fit.evaluate((panel) => {
+              const box = panel.getBoundingClientRect();
+              return Math.abs(box.top + box.height / 2 - window.innerHeight / 2);
+            }),
+          { message: `${surface.name}: centred within 1px` },
+        )
+        .toBeLessThanOrEqual(1);
+      board.push(`${surface.name}: fit-height, centred`);
+    }
     const found = await dims(page);
     const layer = await page.evaluate(() =>
       [...document.querySelectorAll("[data-layer]")].map((el) => el.getAttribute("data-layer")).join(","),

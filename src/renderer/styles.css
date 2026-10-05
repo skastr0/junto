@@ -82,6 +82,12 @@ html[data-junto-platform="darwin"] .focus-surface {
   /* traffic lights + breathing room under hiddenInset titlebar */
   padding: 40px 16px 16px;
 }
+/* Content-sized surfaces keep the same clearance above and below, so they
+   sit in the centre of the window and not 12px under it. */
+html[data-junto-platform="darwin"] .focus-surface--height-fit,
+html[data-junto-platform="darwin"] .focus-surface--height-resizable {
+  padding: 40px 24px;
+}
 /* Parent-contained shell already sits under the real titlebar in stage-main. */
 html[data-junto-platform="darwin"] .focus-surface.focus-surface--contain-parent {
   padding: 16px;

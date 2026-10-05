@@ -5,12 +5,6 @@
   background: var(--color-raise-2);
   color: var(--color-ink);
 }
-/* Settings is centred in the window on every platform. The shell's macOS
-   top inset clears the traffic lights for tall surfaces; this panel is capped
-   well short of them. */
-html[data-junto-platform="darwin"] .focus-surface:has(> .focus-surface__frame > .settings-panel) {
-  padding: 24px 16px;
-}
 .settings-panel__header {
   display: flex;
   align-items: center;
