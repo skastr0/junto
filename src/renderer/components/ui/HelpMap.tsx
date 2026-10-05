@@ -104,7 +104,7 @@ export function HelpMapKeys({
       style={keyWidth ? ({ ["--help-map-key-width" as string]: keyWidth } as CSSProperties) : undefined}
     >
       {rows.map((row) => (
-        <div className="help-map__row" key={row.keys}>
+        <div className="help-map__row" key={`${row.keys} ${row.action}`}>
           <Kbd>{row.keys}</Kbd>
           <span>{row.action}</span>
         </div>

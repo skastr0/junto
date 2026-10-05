@@ -5,7 +5,12 @@ import {
   HelpMapKeys,
   type HelpMapKeyRow,
 } from "../ui";
+import { use$ } from "@legendapp/state/react";
+import { KEY_TABLE, chordKeyCaps, chordsFor, type KeyOverrides } from "@shared/key-table";
+import { keyboardSettings } from "@shared/settings";
 import { openIntro } from "../../lib/first-run-intro";
+import { isMac } from "../../lib/platform";
+import { state$ } from "../../lib/state";
 
 /** Canvas pointer / gesture inventory — single source for the interaction map. */
 export const CANVAS_HELP_POINTER: ReadonlyArray<HelpMapKeyRow> = [
@@ -33,19 +38,26 @@ export const CANVAS_HELP_POINTER: ReadonlyArray<HelpMapKeyRow> = [
   { keys: "add item - fit all", action: "docked above minimap" },
 ];
 
-/** Canvas hotkey inventory — single source for the interaction map. */
-export const CANVAS_HELP_KEYS: ReadonlyArray<HelpMapKeyRow> = [
-  { keys: "⌘K - /", action: "open command bar (jump to a node)" },
-  { keys: "⌘I", action: "needs-you feed: every seat waiting on you, by region" },
+// Keys that are not shortcuts in the key table: the modal stack's Escape and
+// the canvas's own delete.
+const FIXED_HELP_KEYS: ReadonlyArray<HelpMapKeyRow> = [
   { keys: "Escape", action: "close overlays / clear selection" },
-  { keys: "⌘Z - ⌘⇧Z", action: "undo - redo" },
   { keys: "⌫ - Del", action: "delete multi or single selection" },
-  { keys: "1–9", action: "recall slot: focus its node or region, select + frame its group - re-tap (~1s) cycles members + opens each" },
-  { keys: "⌘1–9", action: "save selection → slot (one node, or a command group of many)" },
-  { keys: "Space - `", action: "cycle notifications → ready → working (all canvas seats)" },
-  { keys: "⌘`", action: "hold ⌘ and tap to step through agents, let go to open, Esc cancels" },
-  { keys: "⌘] ⌘[", action: "cycle connected agent terminals" },
-  { keys: "double-click agent", action: "open its terminal" },
+];
+
+/**
+ * The keys group: every shortcut in the key table with the chords in use
+ * now, the operator's own included. The keys inside the switcher are left
+ * to the switcher itself.
+ */
+export const shortcutHelpRows = (mac: boolean, overrides: KeyOverrides = {}): HelpMapKeyRow[] => [
+  ...KEY_TABLE.flatMap((def) => {
+    const chords = def.fixed === undefined ? chordsFor(def, mac, overrides) : [];
+    if (chords.length === 0) return [];
+    const keys = chords.map((chord) => chordKeyCaps(chord, mac).join(mac ? "" : "+")).join(" - ");
+    return [{ keys, action: def.does }];
+  }),
+  ...FIXED_HELP_KEYS,
 ];
 
 /**
@@ -53,6 +65,7 @@ export const CANVAS_HELP_KEYS: ReadonlyArray<HelpMapKeyRow> = [
  * Reuse {@link HelpMap} pieces elsewhere; this is the canvas-shaped fill.
  */
 export function CanvasInteractionMap({ onClose }: { readonly onClose: () => void }) {
+  const overrides = use$(() => keyboardSettings(state$.settings.get()).overrides);
   return (
     <HelpMap
       role="group"
@@ -80,7 +93,7 @@ export function CanvasInteractionMap({ onClose }: { readonly onClose: () => void
         <HelpMapKeys rows={CANVAS_HELP_POINTER} />
       </HelpMapGroup>
       <HelpMapGroup label="keys">
-        <HelpMapKeys rows={CANVAS_HELP_KEYS} />
+        <HelpMapKeys rows={shortcutHelpRows(isMac(), overrides)} />
       </HelpMapGroup>
     </HelpMap>
   );
