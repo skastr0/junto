@@ -194,7 +194,7 @@ export function Combobox<T>({
               aria-hidden
               className={[
                 "pointer-events-none absolute inset-0 flex items-center overflow-hidden",
-                "rounded-[5px] border border-transparent px-2 text-[12px] leading-normal",
+                "rounded-[5px] border border-transparent px-2 text-body-lg leading-normal",
                 "whitespace-pre",
               ].join(" ")}
             >
@@ -222,7 +222,7 @@ export function Combobox<T>({
               id={listId}
               role="listbox"
               aria-label={listLabel}
-              className="grid max-h-[220px] gap-px overflow-y-auto p-1 font-mono text-[11px]"
+              className="grid max-h-[220px] gap-px overflow-y-auto p-1 font-mono text-body"
             >
               {options.map((option, index) => {
                 const key = optionKey(option);

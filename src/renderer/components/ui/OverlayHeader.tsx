@@ -38,8 +38,8 @@ export function OverlayHeader({
       {leading ? <div className="flex shrink-0 items-center">{leading}</div> : null}
       <div className="min-w-0 flex-1">
         {eyebrow ? <Eyebrow tone="steel">{eyebrow}</Eyebrow> : null}
-        <div className="truncate font-mono text-[14px] font-semibold text-ink">{title}</div>
-        {status ? <div className="mt-0.5 truncate text-[11px] text-dim">{status}</div> : null}
+        <div className="truncate font-mono text-title font-semibold text-ink">{title}</div>
+        {status ? <div className="mt-0.5 truncate text-body text-dim">{status}</div> : null}
       </div>
       {actions ? <div className="flex shrink-0 items-center gap-1.5">{actions}</div> : null}
     </header>

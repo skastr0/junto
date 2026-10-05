@@ -10,7 +10,7 @@ import { Dropdown, type DropdownOption } from "./Dropdown";
  */
 const FIELD_CLASS = [
   "w-full rounded-[5px] border border-stroke bg-inset px-2 py-1.5",
-  "text-[12px] text-ink placeholder:text-faint outline-none transition-colors",
+  "text-body-lg text-ink placeholder:text-faint outline-none transition-colors",
   "focus:border-cyan/60 focus:shadow-[0_0_0_3px_var(--color-focus-ring)]",
 ].join(" ");
 
@@ -24,7 +24,7 @@ export const FIELD_SELECT_TRIGGER_CLASS = [
 /** Compact inspector/settings chrome for Dropdown triggers. */
 export const INSPECTOR_SELECT_TRIGGER_CLASS = [
   "w-full min-h-[30px] rounded-[4px] border border-stroke bg-inset px-2 py-1.5",
-  "text-[10px] text-ink outline-none transition-colors cursor-pointer",
+  "text-label text-ink outline-none transition-colors cursor-pointer",
   "focus:border-cyan/60 focus:shadow-[0_0_0_3px_var(--color-focus-ring)]",
   "aria-expanded:border-cyan/60 aria-expanded:shadow-[0_0_0_3px_var(--color-focus-ring)]",
 ].join(" ");
@@ -108,7 +108,7 @@ export function Select({
 /** Field label — the faint uppercase caption above an input. */
 export function FieldLabel({ children }: { readonly children: ReactNode }) {
   return (
-    <label className="grid gap-1.5 text-[9px] uppercase tracking-[0.14em] text-dim">
+    <label className="grid gap-1.5 text-caption uppercase tracking-eyebrow text-dim">
       {children}
     </label>
   );

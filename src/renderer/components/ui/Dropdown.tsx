@@ -272,7 +272,7 @@ export function Dropdown({
             onKeyDown={onMenuKeyDown}
           >
             {options.length === 0 ? (
-              <div className={`px-3 py-2 text-[11px] text-faint ${caseClass}`}>{emptyLabel}</div>
+              <div className={`px-3 py-2 text-body text-faint ${caseClass}`}>{emptyLabel}</div>
             ) : (
               options.map((option, index) => {
                 const isSelected = option.value === value;
@@ -286,7 +286,7 @@ export function Dropdown({
                     aria-selected={isSelected}
                     aria-disabled={option.disabled || undefined}
                     className={[
-                      "flex cursor-pointer items-center gap-2 px-2.5 py-1.5 text-[11px] text-ink",
+                      "flex cursor-pointer items-center gap-2 px-2.5 py-1.5 text-body text-ink",
                       caseClass,
                       option.disabled ? "cursor-not-allowed opacity-40" : "",
                       isActive && !option.disabled ? "bg-amber/[0.12] text-amber-hi" : "",
@@ -347,7 +347,7 @@ export function Dropdown({
         }}
         onKeyDown={onTriggerKeyDown}
       >
-        <span className={`min-w-0 flex-1 truncate text-[11px] font-medium ${caseClass}`}>{labelText}</span>
+        <span className={`min-w-0 flex-1 truncate text-body font-medium ${caseClass}`}>{labelText}</span>
         <ChevronDown
           size={12}
           strokeWidth={2.2}
