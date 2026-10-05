@@ -13,11 +13,12 @@ import {
 //   - TS runtime mirror   -> src/renderer/lib/theme.ts (re-exports this)
 //   - SVG export palette  -> src/shared/svg.ts (imports this)
 //   - main-process colors -> src/main (imports this)
-// Edit values in primitives.ts / semantic.ts, then run `bun run theme:build`.
+// Edit values in primitives.ts / semantic.ts / type.ts, then run `bun run theme:build`.
 
 export { THEME_MODES, type ThemeMode, type TokenValue };
 export { contrastRatio, hexToOklch, oklchToHex, type Oklch } from "./oklch";
 export { SEMANTIC_DARK, SEMANTIC_BRIGHT_OVERRIDES, semanticTokens };
+export { LEADING, LEGACY_TEXT_SIZES, TEXT_SIZES, TRACKING } from "./type";
 
 export const FONT_MONO =
   '"SF Mono", SFMono-Regular, Menlo, Consolas, monospace';
