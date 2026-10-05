@@ -3,7 +3,6 @@ import {
   deadStateCopy,
   isAgentTerminalSeat,
   killActionCopy,
-  terminalSurfaceEyebrow,
 } from "../src/renderer/lib/terminal-kill-ux";
 
 describe("terminal kill UX copy", () => {
@@ -54,8 +53,4 @@ describe("terminal kill UX copy", () => {
     expect(isAgentTerminalSeat({})).toBe(false);
   });
 
-  it("eyebrow stays plain", () => {
-    const line = terminalSurfaceEyebrow("local");
-    expect(line).toBe("terminal — local");
-  });
 });

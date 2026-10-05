@@ -304,8 +304,27 @@ function RaisedTaskRowItem({
   );
 }
 
+/** What the terminal surface knows about its session, shown at the foot of seat details. */
+export type SeatSession = {
+  /** Attach status as the surface reports it ("control" while it holds the terminal). */
+  readonly status: string;
+  /** Columns by rows, empty until attached. */
+  readonly size: string;
+  readonly host: string;
+  readonly harness: string;
+  readonly sessionId: string;
+};
+
+const SESSION_ROWS: ReadonlyArray<readonly [keyof SeatSession, string]> = [
+  ["status", "terminal"],
+  ["size", "size"],
+  ["host", "host"],
+  ["harness", "harness"],
+  ["sessionId", "session"],
+];
+
 /** Renders only for actor-role nodes: every actor has a mailbox with the kernel. */
-function SeatDetails({ node }: { readonly node: CanvasNode }) {
+function SeatDetails({ node, session }: { readonly node: CanvasNode; readonly session: SeatSession }) {
   const doc = use$(state$.doc);
   const actorRefs = use$(state$.actorRefs);
   const canvas = use$(state$.canvasName);
@@ -639,6 +658,18 @@ function SeatDetails({ node }: { readonly node: CanvasNode }) {
           </p>
         ) : null}
       </DetailsGroup>
+      <DetailsGroup title="session" testId="seat-session">
+        <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-label">
+          {SESSION_ROWS.filter(([key]) => session[key] !== "").map(([key, name]) => (
+            <div key={key} className="contents">
+              <dt className="text-faint">{name}</dt>
+              <dd className="min-w-0 truncate font-mono text-dim" data-session={key} title={session[key]}>
+                {session[key]}
+              </dd>
+            </div>
+          ))}
+        </dl>
+      </DetailsGroup>
     </div>
   );
 }
@@ -647,7 +678,13 @@ function SeatDetails({ node }: { readonly node: CanvasNode }) {
  * The one quiet control in the agent modal's header that opens seat details.
  * A signal opened from elsewhere (the canvas seat's badge) opens it too.
  */
-export function SeatDetailsButton({ node }: { readonly node: CanvasNode }) {
+export function SeatDetailsButton({
+  node,
+  session,
+}: {
+  readonly node: CanvasNode;
+  readonly session: SeatSession;
+}) {
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
   const [host, setHost] = useState<HTMLSpanElement | null>(null);
   // Where the keyboard was when the press began (the terminal, usually): a
@@ -669,7 +706,7 @@ export function SeatDetailsButton({ node }: { readonly node: CanvasNode }) {
     <span ref={setHost} className="inline-flex">
       <IconButton
         size="sm"
-        title="Seat details: mail, signals, onboarding"
+        title="Seat details: mail, signals, onboarding, session"
         aria-label="Seat details"
         aria-haspopup="dialog"
         aria-expanded={anchor !== null}
@@ -692,7 +729,7 @@ export function SeatDetailsButton({ node }: { readonly node: CanvasNode }) {
           className="seat-details-popover"
           testId="seat-details-popover"
         >
-          <SeatDetails node={node} />
+          <SeatDetails node={node} session={session} />
         </Popover>
       ) : null}
     </span>

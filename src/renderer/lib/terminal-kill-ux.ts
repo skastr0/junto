@@ -83,6 +83,3 @@ export const deadStateCopy = (input: {
   closeViewLabel: "Close view",
 });
 
-/** Surface header eyebrow. */
-export const terminalSurfaceEyebrow = (hostId: string): string =>
-  `terminal — ${hostId}`;

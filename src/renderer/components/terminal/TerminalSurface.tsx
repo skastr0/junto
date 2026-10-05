@@ -46,7 +46,6 @@ import {
   killActionCopy,
   KILL_ARM_MS,
   type KillUxPhase,
-  terminalSurfaceEyebrow,
 } from "../../lib/terminal-kill-ux";
 import { ensureTerminalRunning } from "../../lib/terminal-actions";
 import { seatDeadReason } from "../../lib/seat-recovery";
@@ -67,9 +66,12 @@ import {
   shouldClaimFocusOnSurfaceOpen,
 } from "../../lib/focus-ownership";
 import { ActivityMark } from "../ActivityMark";
-import { Button, Eyebrow, OverlayHeader } from "../ui";
+import { Button, Chip, Eyebrow, OverlayHeader } from "../ui";
 import { OverseerMark } from "../OverseerMark";
 import { isOverseerSeat } from "../../lib/overseer-set";
+import { RegionCrumb } from "../RegionCrumb";
+import { SeatGitLine } from "../git/SeatGitLine";
+import { regionPath } from "../../lib/region-path";
 import { ActorRail } from "./ActorRail";
 import { SeatDetailsButton } from "./SeatDetails";
 import { SessionLoadSpinner } from "./SessionLoadSpinner";
@@ -1879,6 +1881,9 @@ export function TerminalSurface({
     }
   };
   const attached = status === "control";
+  // Where the seat sits, as cmd+K says it. A primitive, so the header does not
+  // re-render on every doc write.
+  const crumb = use$(() => regionPath(state$.doc.get(), node.id));
   const processDead = status === "exited" || killPhase === "stopped";
   const processStopping = killPhase === "stopping" || status === "stopping…";
   const showDeadOverlay = processDead || processStopping;
@@ -2003,46 +2008,61 @@ export function TerminalSurface({
         </header>
       ) : (
       <OverlayHeader
+        dense
         leading={
           agentSeat ? (
             <CustomizeAgentButton identity={node.id} name={label.split("\n")[0] ?? label} hint>
-              <SeatRing node={node} px={44} />
+              <SeatRing node={node} px={28} />
             </CustomizeAgentButton>
           ) : undefined
         }
-        eyebrow={
-          agentSeat && isOverseerSeat(node) ? (
-            <span className="inline-flex items-center gap-1.5">
-              {terminalSurfaceEyebrow(hostId)}
-              <OverseerMark size="session" />
+        title={
+          <span className="flex min-w-0 items-center gap-2">
+            {crumb ? <RegionCrumb path={crumb} className="shrink" testId="terminal-header-crumb" /> : null}
+            <span className="min-w-0 truncate" data-testid="terminal-header-name">
+              {label}
             </span>
-          ) : (
-            terminalSurfaceEyebrow(hostId)
-          )
-        }
-        title={label}
-        status={
-          <span className="native-terminal-surface__status inline-flex items-center gap-1.5">
-            {showLoadOverlay && loadPresentation ? (
-              <SessionLoadSpinner
-                variant="inline"
-                phase={loadPresentation.phase}
-                sessionId={pinSessionId}
-              />
-            ) : (
-              <>
-                <ActivityMark
-                  mode={attached ? "static" : "wave"}
-                  tone={processDead || processStopping ? "crimson" : "amber"}
-                  size="inline"
-                  label={status}
+            {agentSeat && isOverseerSeat(node) ? <OverseerMark size="session" /> : null}
+            {hostId !== "local" ? (
+              <Chip tone="steel" title={`Runs on ${hostId}`}>
+                {hostId}
+              </Chip>
+            ) : null}
+            {/* Nothing is said while the session is simply running. Loading,
+                stopping and an ended session are said here, where they are seen;
+                the running state stays for screen readers and the details menu. */}
+            <span
+              className={[
+                "native-terminal-surface__status inline-flex min-w-0 shrink items-center gap-1.5 text-body font-normal text-dim",
+                attached ? "sr-only" : "",
+              ]
+                .filter(Boolean)
+                .join(" ")}
+              role="status"
+            >
+              {showLoadOverlay && loadPresentation ? (
+                <SessionLoadSpinner
+                  variant="inline"
+                  phase={loadPresentation.phase}
+                  sessionId={pinSessionId}
                 />
-                {status}
-              </>
-            )}
-            {geomLabel && attached ? ` - ${geomLabel}` : ""}
+              ) : (
+                <>
+                  <ActivityMark
+                    mode={attached ? "static" : "wave"}
+                    tone={processDead || processStopping ? "crimson" : "amber"}
+                    size="inline"
+                    label={status}
+                  />
+                  <span className="truncate">{status}</span>
+                </>
+              )}
+              {geomLabel && attached ? ` - ${geomLabel}` : ""}
+            </span>
           </span>
         }
+        // First middle area: git for the session's folder. The second stays empty.
+        middle={agentSeat ? <SeatGitLine node={node} /> : undefined}
         actions={
           <>
             <Button
@@ -2053,7 +2073,18 @@ export function TerminalSurface({
             >
               {pinned ? "Unpin" : "Pin"}
             </Button>
-            {agentSeat && !grid ? <SeatDetailsButton node={node} /> : null}
+            {agentSeat ? (
+              <SeatDetailsButton
+                node={node}
+                session={{
+                  status,
+                  size: attached ? geomLabel : "",
+                  host: hostId,
+                  harness: harness ?? "",
+                  sessionId: pinSessionId ?? "",
+                }}
+              />
+            ) : null}
             {agentSeat ? (
               <Button
                 size="xs"

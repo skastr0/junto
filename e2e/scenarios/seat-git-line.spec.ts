@@ -49,7 +49,7 @@ const makeRepository = (repo: string): void => {
 };
 
 // Waits for product-shell to mount SeatGitLine in the agent modal header.
-test.skip("the agent modal header shows the seat's repository on one line and opens its git detail", async () => {
+test("the agent modal header shows the seat's repository on one line and opens its git detail", async () => {
   const base = realpathSync(mkdtempSync(join(tmpdir(), "junto-e2e-git-line-")));
   const repo = join(base, "repo");
   const plain = join(base, "plain");
