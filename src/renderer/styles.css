@@ -1524,7 +1524,7 @@ html[data-surface-motion="paused"] *::after {
   max-height: 288px;
   overflow-y: auto;
   border: 1px solid var(--color-stroke);
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
   background: color-mix(in oklab, var(--color-inset) 98%, transparent);
   padding: 4px;
   box-shadow: 0 8px 8px var(--color-shadow-1);
@@ -1536,7 +1536,7 @@ html[data-surface-motion="paused"] *::after {
   justify-content: space-between;
   gap: 10px;
   border: 1px solid transparent;
-  border-radius: 5px;
+  border-radius: var(--radius-md);
   background: transparent;
   color: var(--color-dim);
   padding: 6px 8px;
@@ -1589,7 +1589,7 @@ html[data-surface-motion="paused"] *::after {
   gap: 6px;
   margin: 0 4px 5px;
   border: 1px solid var(--color-stroke);
-  border-radius: 5px;
+  border-radius: var(--radius-md);
   background: var(--color-ground);
   padding: 0 7px;
   color: var(--color-faint);
@@ -1606,7 +1606,7 @@ html[data-surface-motion="paused"] *::after {
   color: var(--color-ink);
   padding: 5px 0;
   font: inherit;
-  font-size: 10px;
+  font-size: var(--text-label);
   outline: 0;
 }
 .agent-cascade__search input::placeholder { color: var(--color-dim); }
@@ -1614,14 +1614,14 @@ html[data-surface-motion="paused"] *::after {
 .agent-cascade__group {
   padding: 7px 8px 3px;
   color: var(--color-faint);
-  font-size: 9px;
-  letter-spacing: .02em;
+  font-size: var(--text-caption);
+  letter-spacing: var(--tracking-soft);
 }
 .agent-cascade__empty {
   margin: 0;
   padding: 8px;
   color: var(--color-dim);
-  font-size: 10px;
+  font-size: var(--text-label);
 }
 .agent-cascade__stack {
   display: grid;
@@ -1632,13 +1632,13 @@ html[data-surface-motion="paused"] *::after {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 10px;
+  font-size: var(--text-label);
 }
 /* Wraps rather than cutting off the name it points at. */
 .agent-cascade__stack small {
   color: var(--color-dim);
-  font-size: 9px;
-  line-height: 1.3;
+  font-size: var(--text-caption);
+  line-height: var(--leading-dense);
   white-space: normal;
 }
 /* The defaults row is what a plain click on the parent row does, so it opens
@@ -1661,28 +1661,28 @@ html[data-surface-motion="paused"] *::after {
   text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--color-dim);
-  font-size: 9px;
-  letter-spacing: .02em;
+  font-size: var(--text-caption);
+  letter-spacing: var(--tracking-soft);
 }
 .agent-cascade__caption-step {
   flex: none;
   color: var(--color-faint);
-  font-size: 8px;
-  letter-spacing: .16em;
+  font-size: var(--text-micro);
+  letter-spacing: var(--tracking-eyebrow);
   text-transform: uppercase;
 }
 .agent-cascade__column button > span {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
-  font-size: 10px;
+  font-size: var(--text-label);
   white-space: nowrap;
 }
 .agent-cascade__column button > svg { flex: none; color: var(--color-faint); }
 .agent-cascade__loading { display: grid; gap: 8px; padding: 8px; }
 .agent-cascade__loading i {
   height: 8px;
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   background: var(--color-overlay-3);
   animation: agent-cascade-pulse 900ms ease-in-out infinite alternate;
 }
