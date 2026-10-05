@@ -286,10 +286,37 @@ describe("where a 1Password token may come from", () => {
     const options = tokenSourceOptions({
       sources: own,
       regionId: "inner",
-      excludeId: "k1",
+      excludeId: "op1",
       report: [reported({ regionId: "outer", regionLabel: "Company", sourceId: "file", kind: "envFile", names: [] })],
     });
-    expect(options.map((option) => option.value)).toEqual(["op1"]);
+    expect(options.map((option) => option.value)).toEqual(["k1"]);
+  });
+
+  it("offers only what applies before the reference: a later source would never be used", () => {
+    const later: EnvSource = { id: "late", kind: "keychain", name: "LATE_TOKEN", service: "svc" };
+    const options = tokenSourceOptions({ sources: [...own, later], regionId: "inner", excludeId: "op1", report: [] });
+    expect(options.map((option) => option.value)).toEqual(["k1"]);
+    // The first source in the list has nothing of this region's above it.
+    expect(tokenSourceOptions({ sources: own, regionId: "inner", excludeId: "k1", report: [] })).toEqual([]);
+    // A new source is added last, so everything listed applies before it.
+    expect(
+      tokenSourceOptions({ sources: [...own, later], regionId: "inner", report: [] }).map((option) => option.value),
+    ).toEqual(["k1", "op1", "late"]);
+  });
+
+  it("where two in scope share an id, names the nearest one, which is the one that resolves", () => {
+    const report = [
+      reported({ regionId: "outermost", regionLabel: "Company", sourceId: "tok", names: ["OP_TOKEN"] }),
+      reported({ regionId: "outer", regionLabel: "Platform", sourceId: "tok", names: ["OP_TOKEN"] }),
+    ];
+    expect(tokenSourceOptions({ sources: [], regionId: "inner", report })).toEqual([
+      { value: "tok", label: "OP_TOKEN, from Platform" },
+    ]);
+    // This region's own source with that id is nearer still.
+    const mine: EnvSource = { id: "tok", kind: "keychain", name: "MY_TOKEN", service: "svc" };
+    expect(tokenSourceOptions({ sources: [mine], regionId: "inner", report })).toEqual([
+      { value: "tok", label: "MY_TOKEN, this region" },
+    ]);
   });
 });
 

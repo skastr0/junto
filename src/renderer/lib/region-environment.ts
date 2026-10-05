@@ -397,31 +397,40 @@ export const lookupHint = (draft: SourceDraft): string | undefined => {
 
 /**
  * The sources a 1Password reference may take its service account token from:
- * every named source in scope. This region's own come first; the ones it
- * inherits follow, each labelled with the region it lives in. The usual setup
- * is the token on an outer region and the references on inner ones.
+ * every named source in scope that applies BEFORE it. This region's own come
+ * first; the ones it inherits follow, each labelled with the region it lives
+ * in. The usual setup is the token on an outer region and the references on
+ * inner ones.
+ *
+ * It mirrors how the token is resolved: by source id, to the nearest source
+ * with that id above the reference. So a source listed after the reference
+ * is not offered (it would never be used), and where two in scope share an
+ * id only the nearest is: this region's over an outer one, an inner region's
+ * over one further out.
  */
 export const tokenSourceOptions = (input: {
   readonly sources: ReadonlyArray<EnvSource>;
   readonly report: ReadonlyArray<SourceReport>;
   readonly regionId: string;
-  /** The source being edited: it cannot be its own token. */
+  /** The source being edited: only what applies before it can be its token. */
   readonly excludeId?: string;
 }): ReadonlyArray<{ readonly value: string; readonly label: string }> => {
-  const options: Array<{ value: string; label: string }> = [];
-  const seen = new Set<string>();
-  for (const source of input.sources) {
-    if (source.id === input.excludeId || !("name" in source) || seen.has(source.id)) continue;
-    seen.add(source.id);
-    options.push({ value: source.id, label: `${source.name}, this region` });
+  const at = input.sources.findIndex((source) => source.id === input.excludeId);
+  // A new source goes last: everything already listed applies before it.
+  const before = at === -1 ? input.sources : input.sources.slice(0, at);
+  const own = new Map<string, string>();
+  for (const source of before) {
+    if ("name" in source) own.set(source.id, `${source.name}, this region`);
   }
+  // Outermost first in the report, so a later entry is the nearer one.
+  const inherited = new Map<string, string>();
   for (const entry of input.report) {
     if (entry.regionId === input.regionId || entry.names.length === 0) continue;
-    if (entry.sourceId === input.excludeId || seen.has(entry.sourceId)) continue;
-    seen.add(entry.sourceId);
-    options.push({ value: entry.sourceId, label: `${entry.names.join(", ")}, from ${entry.regionLabel}` });
+    if (entry.sourceId === input.excludeId || own.has(entry.sourceId)) continue;
+    inherited.delete(entry.sourceId);
+    inherited.set(entry.sourceId, `${entry.names.join(", ")}, from ${entry.regionLabel}`);
   }
-  return options;
+  return [...own, ...inherited].map(([value, label]) => ({ value, label }));
 };
 
 /** The secret a draft would send to the store on save, if it carries one. */
