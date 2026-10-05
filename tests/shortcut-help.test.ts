@@ -7,16 +7,19 @@ describe("the help's keys come from the key table", () => {
     const rows = shortcutHelpRows(true);
     for (const def of KEY_TABLE) {
       const shown = rows.some((row) => row.action === def.does);
-      expect(shown, def.id).toBe(def.fixed === undefined && def.mac.length > 0);
+      const canvasOwn = def.surface === true && def.area === "Canvas";
+      expect(shown, def.id).toBe((def.fixed === undefined && def.mac.length > 0) || canvasOwn);
     }
     expect(rows.find((row) => row.action.startsWith("Open search, or close"))?.keys).toBe("⌘K");
     expect(rows.find((row) => row.action.startsWith("Go to the next agent that raised"))?.keys).toBe("Space - `");
+    expect(rows.find((row) => row.action.startsWith("Pan the canvas"))?.keys).toBe("Arrow keys - WASD");
+    expect(rows.find((row) => row.action.startsWith("Delete what is selected"))?.keys).toBe("Backspace - Delete");
   });
 
   it("never names Control on macOS, and has no middle dot", () => {
     for (const row of shortcutHelpRows(true)) {
       expect(row.keys).not.toMatch(/Ctrl|⌃/);
-      expect(`${row.keys}${row.action}`).not.toContain("\u00b7");
+      expect(`${row.keys}${row.action}`).not.toContain(String.fromCharCode(0xb7));
     }
   });
 

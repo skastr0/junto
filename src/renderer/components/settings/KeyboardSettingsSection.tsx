@@ -1,6 +1,7 @@
 /**
- * Settings -> Keyboard shortcuts: every shortcut in the key table, listed by
- * where its chord works, each one changeable. Only what the operator changed
+ * Settings -> Keyboard shortcuts: every key in the key table, listed by
+ * where it works. A shortcut can be changed; a key a screen handles itself
+ * is shown as it is. Only what the operator changed
  * is stored; the table holds the defaults and is the one source the
  * dispatcher, the menu bar and this page all read.
  */
@@ -49,14 +50,26 @@ export const shortcutMatches = (
   return [def.name, def.does, ...keys].some((text) => text.toLowerCase().includes(wanted));
 };
 
-function Chords({ chords, mac }: { readonly chords: ReadonlyArray<string>; readonly mac: boolean }) {
-  if (chords.length === 0) return <span className="text-body text-faint">none</span>;
+function Chords({
+  chords,
+  mac,
+  shown,
+}: {
+  readonly chords: ReadonlyArray<string>;
+  readonly mac: boolean;
+  /** Key caps a row asks to show in place of its chords. */
+  readonly shown?: ReadonlyArray<ReadonlyArray<string>>;
+}) {
+  const steps = shown
+    ? shown.map((caps) => ({ id: caps.join(" "), caps, label: caps.join(" ") }))
+    : chords.map((chord) => ({ id: chord, caps: chordKeyCaps(chord, mac), label: chordSpoken(chord) }));
+  if (steps.length === 0) return <span className="text-body text-faint">none</span>;
   return (
     <span className="inline-flex flex-wrap items-center justify-end gap-1.5">
-      {chords.map((chord, index) => (
-        <span key={chord} className="inline-flex items-center gap-1.5">
+      {steps.map((step, index) => (
+        <span key={step.id} className="inline-flex items-center gap-1.5">
           {index > 0 ? <span className="text-label text-faint">or</span> : null}
-          <KeyChord size="md" steps={[chordKeyCaps(chord, mac)]} label={chordSpoken(chord)} />
+          <KeyChord size="md" steps={[step.caps]} label={step.label} />
         </span>
       ))}
     </span>
@@ -122,7 +135,7 @@ function ShortcutRow({
       <FieldRow group label={def.name} hint={def.fixed}>
         <span className="flex items-center justify-end gap-1.5">
           {def.fixed !== undefined ? (
-            <Chords chords={chords} mac={mac} />
+            <Chords chords={chords} mac={mac} shown={def.shown} />
           ) : (
             <Button
               size="sm"

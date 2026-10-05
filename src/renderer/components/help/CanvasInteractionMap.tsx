@@ -38,27 +38,18 @@ export const CANVAS_HELP_POINTER: ReadonlyArray<HelpMapKeyRow> = [
   { keys: "add item - fit all", action: "docked above minimap" },
 ];
 
-// Keys that are not shortcuts in the key table: the modal stack's Escape and
-// the canvas's own delete.
-const FIXED_HELP_KEYS: ReadonlyArray<HelpMapKeyRow> = [
-  { keys: "Escape", action: "close overlays / clear selection" },
-  { keys: "⌫ - Del", action: "delete multi or single selection" },
-];
-
 /**
  * The keys group: every shortcut in the key table with the chords in use
- * now, the operator's own included. The keys inside the switcher are left
- * to the switcher itself.
+ * now, the operator's own included, then the canvas's own keys. The keys
+ * inside the switcher and inside other screens are left to those screens.
  */
-export const shortcutHelpRows = (mac: boolean, overrides: KeyOverrides = {}): HelpMapKeyRow[] => [
-  ...KEY_TABLE.flatMap((def) => {
-    const chords = def.fixed === undefined ? chordsFor(def, mac, overrides) : [];
-    if (chords.length === 0) return [];
-    const keys = chords.map((chord) => chordKeyCaps(chord, mac).join(mac ? "" : "+")).join(" - ");
-    return [{ keys, action: def.does }];
-  }),
-  ...FIXED_HELP_KEYS,
-];
+export const shortcutHelpRows = (mac: boolean, overrides: KeyOverrides = {}): HelpMapKeyRow[] =>
+  KEY_TABLE.flatMap((def) => {
+    if (def.fixed !== undefined && !(def.surface && def.area === "Canvas")) return [];
+    const caps = def.shown ?? chordsFor(def, mac, overrides).map((chord) => chordKeyCaps(chord, mac));
+    if (caps.length === 0) return [];
+    return [{ keys: caps.map((keys) => keys.join(mac ? "" : "+")).join(" - "), action: def.does }];
+  });
 
 /**
  * Full canvas interaction map, shown in the station bar's help popover.

@@ -80,8 +80,13 @@ describe("keyboard shortcuts section", () => {
       "Search and feed",
       "Canvas",
       "Agent and terminal",
+      "Inside search",
+      "Inside the needs-you feed",
+      "Inside a preview",
+      "Inside the drawing pad",
+      "Writing a message",
     ]);
-    expect(host.textContent).not.toContain("·");
+    expect(host.textContent).not.toContain(String.fromCharCode(0xb7));
   });
 
   it("narrows the list by action name or by key", () => {
@@ -144,6 +149,21 @@ describe("keyboard shortcuts section", () => {
   it("shows a chord that cannot change as keys alone, with the reason", () => {
     expect(host.querySelector('button[aria-label="Change the keys for Switcher: next agent"]')).toBeNull();
     expect(host.textContent).toContain("Cmd is held while the switcher is up");
+  });
+
+  it("shows the keys a screen handles itself, and offers no way to change them", () => {
+    for (const name of ["Pan the canvas", "Next item", "Pick a tool", "Send"]) {
+      expect(host.textContent).toContain(name);
+      expect(host.querySelector(`button[aria-label="Change the keys for ${name}"]`)).toBeNull();
+    }
+    expect(host.textContent).toContain("Built into this screen");
+  });
+
+  it("names the screen's own key that a new chord would land on", async () => {
+    const button = startRecording("Next agent alert");
+    await press(button, { key: "w", code: "KeyW" });
+    expect(host.textContent).toContain("Already used by Pan the canvas");
+    expect(patches).toEqual([]);
   });
 
   it("puts a changed shortcut back on its default", async () => {

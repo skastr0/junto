@@ -179,6 +179,7 @@ describe("the key table on macOS", () => {
     expect(resolveKey(key({ key: "`", code: "Backquote" }), at("canvas"))).toEqual({ id: "alerts.next" });
     expect(resolveKey(key({ key: " ", code: "Space", shiftKey: true }), at("canvas"))).toBeNull();
     expect(resolveKey(key({ key: " ", code: "Space" }), at("operator"))).toBeNull();
+    expect(resolveKey(key({ key: " ", code: "Space" }), at("working"))).toBeNull();
   });
 
   it("undoes and redoes on the canvas, and leaves Cmd+Z to a field", () => {
@@ -188,6 +189,8 @@ describe("the key table on macOS", () => {
     });
     expect(resolveKey(key({ key: "z", metaKey: true }), at("field"))).toBeNull();
     expect(resolveKey(key({ key: "z", metaKey: true }), at("terminal"))).toBeNull();
+    // A surface in front has its own undo: the canvas behind it is not edited.
+    expect(resolveKey(key({ key: "z", metaKey: true }), at("working"))).toBeNull();
   });
 
   it("steps through the agents that need the operator with Cmd and the backtick", () => {
@@ -353,6 +356,33 @@ describe("rebinding", () => {
     expect(reservedReason("Ctrl+Tab", true)).toBe("Control belongs to the terminal");
     expect(reservedReason("Ctrl+K", false)).toBeNull();
     expect(reservedReason("Cmd+J", true)).toBeNull();
+  });
+});
+
+describe("the table as a list", () => {
+  it("gives every key one id and one name", () => {
+    expect(new Set(KEY_TABLE.map((def) => def.id)).size).toBe(KEY_TABLE.length);
+    expect(new Set(KEY_TABLE.map((def) => def.name)).size).toBe(KEY_TABLE.length);
+  });
+
+  it("never acts on a key a screen handles itself", () => {
+    for (const def of KEY_TABLE.filter((row) => row.surface)) {
+      expect(def.fixed).toBeDefined();
+      for (const context of def.where) {
+        for (const chord of def.mac) {
+          const hit = resolveChord(chord, at(context, true, false));
+          expect(hit?.id, `${def.id} ${chord} in ${context}`).not.toBe(def.id);
+        }
+      }
+    }
+    // J moves the needs-you feed; the dispatcher leaves it to the feed.
+    expect(resolveKey(key({ key: "j" }), at("operator", true, false))).toBeNull();
+    expect(resolveKey(key({ key: "w" }), at("canvas"))).toBeNull();
+  });
+
+  it("has no middle dot in any name or description", () => {
+    const dot = String.fromCharCode(0xb7);
+    for (const def of KEY_TABLE) expect(`${def.name}${def.does}${def.fixed ?? ""}`).not.toContain(dot);
   });
 });
 

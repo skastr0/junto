@@ -19,13 +19,6 @@ import { redo, undo } from "./mutations";
 import { openOperatorModal, toggleOperatorModal, type OperatorModalId } from "./operator-modal";
 import { state$ } from "./state";
 
-// A browser page in front owns Cmd+Z: it never edits the canvas behind it.
-const browserPageInFront = (): boolean => {
-  const registry = dock$.registry.peek();
-  const front = registry.surfaces.find((surface) => surface.id === registry.focusMru[0]);
-  return front?.kind === "browser" && front.zone === "focus";
-};
-
 // The node whose surface is in front, when one is open.
 const frontNode = (): CanvasNode | undefined => {
   const registry = dock$.registry.peek();
@@ -77,8 +70,8 @@ export const KEY_ACTIONS: KeyActions = {
   },
   // With no alert waiting, Space and the backtick stay with whatever has focus.
   "alerts.next": () => cycleAlertFocus(),
-  "canvas.undo": () => (browserPageInFront() ? false : undo()),
-  "canvas.redo": () => (browserPageInFront() ? false : redo()),
+  "canvas.undo": () => undo(),
+  "canvas.redo": () => redo(),
   "canvas.zoomIn": () => zoomCanvasIn(),
   "canvas.zoomOut": () => zoomCanvasOut(),
   "canvas.zoomReset": () => resetCanvasZoom(),

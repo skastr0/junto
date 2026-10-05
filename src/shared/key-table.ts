@@ -43,13 +43,27 @@ const EVERYWHERE: ReadonlyArray<KeyContext> = ["canvas", "terminal", "field", "w
 const NOT_TYPING: ReadonlyArray<KeyContext> = ["canvas", "working", "operator"];
 
 /** Where the shortcuts page lists a shortcut: by where its chord works. */
-export type ShortcutArea = "Anywhere" | "Search and feed" | "Canvas" | "Agent and terminal";
+export type ShortcutArea =
+  | "Anywhere"
+  | "Search and feed"
+  | "Canvas"
+  | "Agent and terminal"
+  | "Inside search"
+  | "Inside the needs-you feed"
+  | "Inside a preview"
+  | "Inside the drawing pad"
+  | "Writing a message";
 
 export const SHORTCUT_AREAS: ReadonlyArray<ShortcutArea> = [
   "Anywhere",
   "Search and feed",
   "Canvas",
   "Agent and terminal",
+  "Inside search",
+  "Inside the needs-you feed",
+  "Inside a preview",
+  "Inside the drawing pad",
+  "Writing a message",
 ];
 
 export type ShortcutId =
@@ -74,7 +88,40 @@ export type ShortcutId =
   | "canvas.zoomIn"
   | "canvas.zoomOut"
   | "canvas.zoomReset"
-  | "front.close";
+  | "front.close"
+  | SurfaceKeyId;
+
+/**
+ * Keys a surface handles itself (the feed, search, the preview viewer, the
+ * drawing pad, the canvas camera). They are listed here so the shortcuts
+ * page and the help show them and a changed shortcut cannot land on one,
+ * but the dispatcher never acts on them: the modal stack already routes
+ * those keys to the surface that is open.
+ */
+export type SurfaceKeyId =
+  | "canvas.pan"
+  | "canvas.delete"
+  | "canvas.escape"
+  | "canvas.magnify"
+  | "inSearch.move"
+  | "inSearch.mode"
+  | "inSearch.go"
+  | "inSearch.open"
+  | "inFeed.next"
+  | "inFeed.previous"
+  | "inFeed.reply"
+  | "inFeed.openAgent"
+  | "inFeed.quickReply"
+  | "inPreview.step"
+  | "inPreview.compare"
+  | "inPreview.zoom"
+  | "inPad.tool"
+  | "inPad.order"
+  | "inPad.delete"
+  | "inPad.nudge"
+  | "inPad.label"
+  | "inPad.undo"
+  | "message.send";
 
 export type ShortcutDef = {
   readonly id: ShortcutId;
@@ -98,9 +145,13 @@ export type ShortcutDef = {
   readonly needsCmd?: true;
   /** Why the chord cannot be changed, in a few words. Absent: it can. */
   readonly fixed?: string;
+  /** The surface handles these keys itself; the dispatcher leaves them alone. */
+  readonly surface?: true;
+  /** Key caps to show in place of the chords, when the chords alone read badly. */
+  readonly shown?: ReadonlyArray<ReadonlyArray<string>>;
 };
 
-export const KEY_TABLE: ReadonlyArray<ShortcutDef> = [
+const SHORTCUTS: ReadonlyArray<ShortcutDef> = [
   {
     id: "search.open",
     name: "Open search",
@@ -166,7 +217,8 @@ export const KEY_TABLE: ReadonlyArray<ShortcutDef> = [
     does: "Go to the next agent that raised an alert",
     mac: ["Space", "Backquote"],
     other: ["Space", "Backquote"],
-    where: ["canvas", "working"],
+    // Canvas only: inside a working modal Space belongs to the surface.
+    where: ["canvas"],
   },
   {
     id: "urgency.next",
@@ -261,6 +313,8 @@ export const KEY_TABLE: ReadonlyArray<ShortcutDef> = [
     other: [],
     where: EVERYWHERE,
   },
+  // Canvas only: a surface in front (the drawing pad, a browser page) has its
+  // own undo, and Cmd+Z must never edit the canvas behind it.
   {
     id: "canvas.undo",
     name: "Undo",
@@ -268,7 +322,7 @@ export const KEY_TABLE: ReadonlyArray<ShortcutDef> = [
     does: "Undo the last canvas change",
     mac: ["Cmd+Z"],
     other: ["Ctrl+Z"],
-    where: ["canvas", "working"],
+    where: ["canvas"],
   },
   {
     id: "canvas.redo",
@@ -277,7 +331,7 @@ export const KEY_TABLE: ReadonlyArray<ShortcutDef> = [
     does: "Redo the canvas change that was undone",
     mac: ["Cmd+Shift+Z"],
     other: ["Ctrl+Shift+Z"],
-    where: ["canvas", "working"],
+    where: ["canvas"],
   },
   // Zoom moves the canvas camera, never the size of the whole interface.
   {
@@ -318,6 +372,218 @@ export const KEY_TABLE: ReadonlyArray<ShortcutDef> = [
     where: EVERYWHERE,
   },
 ];
+
+/** Why a surface's own key cannot be changed here. */
+const SURFACE_FIXED = "Built into this screen";
+
+const ARROWS = ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"] as const;
+
+const surfaceKey = (
+  row: Omit<ShortcutDef, "other" | "fixed" | "surface" | "mac"> & {
+    readonly keys: ReadonlyArray<string>;
+    /** Off macOS, when the chord differs (Cmd becomes Ctrl). */
+    readonly keysOther?: ReadonlyArray<string>;
+  },
+): ShortcutDef => {
+  const { keys, keysOther, ...rest } = row;
+  return { ...rest, mac: keys, other: keysOther ?? keys, fixed: SURFACE_FIXED, surface: true };
+};
+
+const SURFACE_KEYS: ReadonlyArray<ShortcutDef> = [
+  surfaceKey({
+    id: "canvas.pan",
+    area: "Canvas",
+    name: "Pan the canvas",
+    does: "Pan the canvas; hold Shift to go faster",
+    keys: [...ARROWS, "W", "A", "S", "D", ...ARROWS.map((key) => `Shift+${key}`), "Shift+W", "Shift+A", "Shift+S", "Shift+D"],
+    shown: [["Arrow keys"], ["W", "A", "S", "D"]],
+    where: ["canvas"],
+  }),
+  surfaceKey({
+    id: "canvas.delete",
+    area: "Canvas",
+    name: "Delete the selection",
+    does: "Delete what is selected on the canvas",
+    keys: ["Backspace", "Delete"],
+    where: ["canvas"],
+  }),
+  surfaceKey({
+    id: "canvas.escape",
+    area: "Canvas",
+    name: "Close or clear",
+    does: "Close what is open, or clear the selection",
+    keys: ["Escape"],
+    where: ["canvas", "working", "operator"],
+  }),
+  surfaceKey({
+    id: "canvas.magnify",
+    area: "Canvas",
+    name: "Read nearby nodes",
+    does: "Hold to read the nodes near the pointer at a readable size",
+    keys: [],
+    shown: [["Alt"]],
+    where: ["canvas"],
+  }),
+  surfaceKey({
+    id: "inSearch.move",
+    area: "Inside search",
+    name: "Move through the results",
+    does: "Move through the search results",
+    keys: ["ArrowDown", "ArrowUp"],
+    where: ["operator"],
+  }),
+  surfaceKey({
+    id: "inSearch.mode",
+    area: "Inside search",
+    name: "Agents or actions",
+    does: "Switch search between agents and actions",
+    keys: ["Tab"],
+    where: ["operator"],
+  }),
+  surfaceKey({
+    id: "inSearch.go",
+    area: "Inside search",
+    name: "Go to the result",
+    does: "Go to the search result",
+    keys: ["Enter"],
+    where: ["operator"],
+  }),
+  surfaceKey({
+    id: "inSearch.open",
+    area: "Inside search",
+    name: "Go to the result and open it",
+    does: "Go to the search result and open it",
+    keys: ["Cmd+Enter"],
+    keysOther: ["Ctrl+Enter"],
+    where: ["operator"],
+  }),
+  surfaceKey({
+    id: "inFeed.next",
+    area: "Inside the needs-you feed",
+    name: "Next item",
+    does: "Move to the next item in the needs-you feed",
+    keys: ["J", "ArrowDown"],
+    where: ["operator"],
+  }),
+  surfaceKey({
+    id: "inFeed.previous",
+    area: "Inside the needs-you feed",
+    name: "Previous item",
+    does: "Move to the previous item in the needs-you feed",
+    keys: ["K", "ArrowUp"],
+    where: ["operator"],
+  }),
+  surfaceKey({
+    id: "inFeed.reply",
+    area: "Inside the needs-you feed",
+    name: "Reply",
+    does: "Reply to the selected item, or open its agent when there is nothing to answer",
+    keys: ["Enter"],
+    where: ["operator"],
+  }),
+  surfaceKey({
+    id: "inFeed.openAgent",
+    area: "Inside the needs-you feed",
+    name: "Open the agent",
+    does: "Open the agent of the selected item",
+    keys: ["O"],
+    where: ["operator"],
+  }),
+  surfaceKey({
+    id: "inFeed.quickReply",
+    area: "Inside the needs-you feed",
+    name: "Send a quick reply",
+    does: "Send quick reply 1 to 9 to the selected item",
+    keys: ["Digit"],
+    where: ["operator"],
+  }),
+  surfaceKey({
+    id: "inPreview.step",
+    area: "Inside a preview",
+    name: "Next or previous",
+    does: "Go to the next or previous preview",
+    keys: ["ArrowRight", "ArrowLeft"],
+    where: ["working", "operator"],
+  }),
+  surfaceKey({
+    id: "inPreview.compare",
+    area: "Inside a preview",
+    name: "Compare",
+    does: "Compare the two versions of a preview",
+    keys: ["C"],
+    where: ["working", "operator"],
+  }),
+  surfaceKey({
+    id: "inPreview.zoom",
+    area: "Inside a preview",
+    name: "Zoom",
+    does: "Zoom the preview",
+    keys: ["Z"],
+    where: ["working", "operator"],
+  }),
+  surfaceKey({
+    id: "inPad.tool",
+    area: "Inside the drawing pad",
+    name: "Pick a tool",
+    does: "Pick a tool: select, box, ellipse, triangle, label, pin, image, ink",
+    keys: ["V", "R", "O", "T", "L", "P", "I", "D"],
+    where: ["working"],
+  }),
+  surfaceKey({
+    id: "inPad.order",
+    area: "Inside the drawing pad",
+    name: "Send back or bring forward",
+    does: "Send the selected shape back or bring it forward",
+    keys: ["BracketLeft", "BracketRight"],
+    where: ["working"],
+  }),
+  surfaceKey({
+    id: "inPad.delete",
+    area: "Inside the drawing pad",
+    name: "Delete the shape",
+    does: "Delete the selected shape",
+    keys: ["Delete", "Backspace"],
+    where: ["working"],
+  }),
+  surfaceKey({
+    id: "inPad.nudge",
+    area: "Inside the drawing pad",
+    name: "Nudge the shape",
+    does: "Nudge the selected shape; hold Shift to move it further",
+    keys: [...ARROWS, ...ARROWS.map((key) => `Shift+${key}`)],
+    shown: [["Arrow keys"]],
+    where: ["working"],
+  }),
+  surfaceKey({
+    id: "inPad.label",
+    area: "Inside the drawing pad",
+    name: "Edit the label",
+    does: "Edit the selected shape's label",
+    keys: ["Enter"],
+    where: ["working"],
+  }),
+  surfaceKey({
+    id: "inPad.undo",
+    area: "Inside the drawing pad",
+    name: "Undo in the drawing",
+    does: "Undo the last change to the drawing",
+    keys: ["Cmd+Z"],
+    keysOther: ["Ctrl+Z"],
+    where: ["working"],
+  }),
+  surfaceKey({
+    id: "message.send",
+    area: "Writing a message",
+    name: "Send",
+    does: "Send the message being written",
+    keys: ["Cmd+Enter"],
+    keysOther: ["Ctrl+Enter"],
+    where: ["field"],
+  }),
+];
+
+/** Every key in the product: the dispatched shortcuts, then each surface's own. */
+export const KEY_TABLE: ReadonlyArray<ShortcutDef> = [...SHORTCUTS, ...SURFACE_KEYS];
 
 /**
  * Chords Junto never binds and a rebind must refuse: the system's, the
@@ -459,7 +725,8 @@ export const resolveChord = (
   if (situation.typing && isBareChord(chord)) return null;
   const family = digitFamily(chord);
   for (const def of table) {
-    if (!liveIn(def, situation.mac).includes(situation.context)) continue;
+    // A surface's own keys are not ours to act on.
+    if (def.surface || !liveIn(def, situation.mac).includes(situation.context)) continue;
     const chords = chordsFor(def, situation.mac, overrides);
     if (chords.includes(chord)) return { id: def.id };
     if (family !== null && chords.includes(family)) {
@@ -519,6 +786,9 @@ export const keyConflicts = (
   const out: KeyConflict[] = [];
   table.forEach((a, index) => {
     for (const b of table.slice(index + 1)) {
+      // Two surfaces are never open at once in a way the contexts can tell
+      // apart; a surface's keys only matter against a shortcut.
+      if (a.surface && b.surface) continue;
       const shared = liveIn(a, mac).filter((context) => liveIn(b, mac).includes(context));
       if (shared.length === 0) continue;
       for (const chord of chordsFor(a, mac, overrides)) {
