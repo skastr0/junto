@@ -320,6 +320,14 @@ export const registerTerminalIpc = (
               ...(typeof input.rows === "number" ? { rows: input.rows } : {}),
               canvasName,
               nodeId: node.id,
+              // The node in hand is newer than the saved canvas: read the
+              // seat's regions from where it sits now.
+              seatRect: {
+                x: node.x,
+                y: node.y,
+                width: node.width,
+                height: node.height,
+              },
               ...(node.ether?.terminal?.label
                 ? { label: node.ether.terminal.label }
                 : {}),

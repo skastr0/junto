@@ -9,6 +9,7 @@ import {
   makeRemoteSeatProcess,
   type OccupySpec,
   type RemoteAgentSeatCommand,
+  noSeatEnvironment,
 } from "../src/main/junto/term/seat-process";
 import type { TerminalSessionSummary } from "../src/shared/terminal";
 import {
@@ -129,7 +130,7 @@ describe("local TerminalSeatProcess", () => {
     }));
     const host = hostWith(fake);
     const createAgentSeat = vi.spyOn(host, "createAgentSeat");
-    const seats = makeLocalSeatProcess(host);
+    const seats = makeLocalSeatProcess(host, noSeatEnvironment);
     const occupy = vacantCommand("seat-p", "local");
 
     const created = await Effect.runPromise(
@@ -196,7 +197,7 @@ describe("local TerminalSeatProcess", () => {
       exitOnSignal: false,
     }));
     const host = hostWith(fake);
-    const seats = makeLocalSeatProcess(host);
+    const seats = makeLocalSeatProcess(host, noSeatEnvironment);
     const geography = host.create({
       bindingId: "seat-g",
       launch: { kind: "shell" },
@@ -249,7 +250,7 @@ describe("local TerminalSeatProcess", () => {
       exitOnSignal: "SIGTERM",
     }));
     const host = hostWith(fake);
-    const seats = makeLocalSeatProcess(host);
+    const seats = makeLocalSeatProcess(host, noSeatEnvironment);
 
     const failure = await Effect.runPromise(
       Effect.flip(
@@ -300,7 +301,7 @@ describe("local TerminalSeatProcess", () => {
       });
       const host = hostWith(fake);
       const createAgentSeat = vi.spyOn(host, "createAgentSeat");
-      const seats = makeLocalSeatProcess(host);
+      const seats = makeLocalSeatProcess(host, noSeatEnvironment);
 
       const returned = await Effect.runPromise(
         seats.occupy(vacantCommand("seat-resume", "local"), {

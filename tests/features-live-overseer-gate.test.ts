@@ -13,7 +13,9 @@ import { makeManagedAgentNode } from "../src/renderer/lib/node-factories";
 import { canStartOverseerLive, openOverseerLive, overseerLive$ } from "../src/renderer/lib/overseer-live-state";
 import { state$ } from "../src/renderer/lib/state";
 import { LocalSessionHost } from "../src/main/junto/term/local-host";
-import { makeLocalSeatProcess } from "../src/main/junto/term/seat-process";
+import { makeLocalSeatProcess,
+  noSeatEnvironment,
+} from "../src/main/junto/term/seat-process";
 import { occupancyFromSession, occupyVacantSeat } from "../src/shared/terminal-seat-occupancy";
 import { makeFakeTerminalProcessAuthority } from "./helpers/fake-terminal-process-authority";
 
@@ -68,7 +70,7 @@ describe("Live Overseer product gate", () => {
     const host = new LocalSessionHost(fake.authority);
     const command = occupyVacantSeat(occupancyFromSession("live-seat", undefined, "local"));
     if (command._tag !== "Success") throw new Error("expected vacant seat");
-    await expect(Effect.runPromise(makeLocalSeatProcess(host).occupy(command.success, {
+    await expect(Effect.runPromise(makeLocalSeatProcess(host, noSeatEnvironment).occupy(command.success, {
       bindingId: "live-seat",
       canvasName: "main",
       nodeId: "overseer",

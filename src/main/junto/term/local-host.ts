@@ -25,6 +25,10 @@ import {
   seatExitMessage,
 } from "@shared/spawn-failure";
 import type { TerminalLaunch, TerminalSessionSummary } from "@shared/terminal";
+import {
+  EMPTY_LAUNCH_RECORD,
+  type RegionEnvironmentLaunchRecord,
+} from "@shared/region-environment";
 import { colorFgBgFor, type ThemeMode } from "@shared/theme";
 import { currentThemeMode } from "../theme-state";
 import {
@@ -158,6 +162,22 @@ export type LocalHostAgentSeatInput = TerminalOpenInput & {
   readonly launch?: TerminalLaunch;
   /** Pure seat context retained only for a failed-resume fresh replan. */
   readonly resumeFallbackIntent?: ManagedSpawnIntent;
+  /**
+   * What the regions containing this seat resolved to, for this spawn only.
+   * The values live here and in the child's environment, nowhere else: the
+   * record is the only part a session keeps or reports.
+   */
+  readonly regionEnvironment?: SeatRegionEnvironment;
+};
+
+/** A seat's resolved region environment, handed to one spawn. */
+export type SeatRegionEnvironment = {
+  /** Names to values. Never logged, never put on argv. */
+  readonly env: Readonly<Record<string, string>>;
+  /** Absolute directories to expose through the harness's own option. */
+  readonly folders: ReadonlyArray<string>;
+  /** Names and identities of what was applied. Holds no value. */
+  readonly record: RegionEnvironmentLaunchRecord;
 };
 
 
@@ -332,6 +352,11 @@ type SessionRec = {
   failOpenUsed: boolean;
   /** Payload to recreate a pin generation after resume failure. */
   failOpenSeed?: LocalHostAgentSeatInput;
+  /**
+   * What this generation's region environment was (names and identities, no
+   * values). Undefined for a geography terminal, which takes none.
+   */
+  regionEnvironment: RegionEnvironmentLaunchRecord | undefined;
   /**
    * Pre-ownership failure only. Clean post-run exits leave this unset so
    * the canvas keeps the normal stopped/exited grammar.
@@ -627,6 +652,14 @@ export const resolveLaunch = (
   options?: {
     readonly seatInject?: Readonly<Record<string, string>>;
     /**
+     * The seat's region environment. Sits above the ambient environment and
+     * below the seat's own launch env and Junto's injections, so `JUNTO_*`
+     * always wins and the nested-session scrub still applies.
+     */
+    readonly regionEnv?: Readonly<Record<string, string>>;
+    /** Region folders, passed to the harness's add-directory option if it has one. */
+    readonly folders?: ReadonlyArray<string>;
+    /**
      * Active Junto theme for COLORFGBG fallback. Defaults dark —
      * renderer OSC 10/11 + CSI ?996n are the live authority once attached.
      */
@@ -657,6 +690,7 @@ export const resolveLaunch = (
     seat.kind === "agent"
       ? {
           ...buildSpawnEnv(process.env, {
+            ...(options?.regionEnv ?? {}),
             ...(launch?.env ?? {}),
             // Live host authority wins over the earlier pure launch plan.
             // In dev, that keeps repo/dist ahead of a stale installed CLI;
@@ -765,9 +799,26 @@ export const resolveLaunch = (
         : undefined) ?? [],
       env.PATH ?? process.env.PATH,
     ).filter((flag) => !argv.includes(flag));
+    // Region folders ride the harness's own add-directory option, under the
+    // same law: only when this installed binary lists it. A harness without
+    // one launches exactly as before.
+    const addDirFlag = isHarnessId(seat.harness)
+      ? templateFor(seat.harness).argvSpec.addDirFlag
+      : undefined;
+    const folders = options?.folders ?? [];
+    const folderArgs =
+      addDirFlag !== undefined &&
+      folders.length > 0 &&
+      supportedHostProbedFlags(
+        launchFile,
+        [addDirFlag],
+        env.PATH ?? process.env.PATH,
+      ).length > 0
+        ? folders.flatMap((folder) => [addDirFlag, folder])
+        : [];
     return Result.succeed({
       file: launchFile,
-      args: [...probedFlags, ...argv.slice(1)],
+      args: [...probedFlags, ...folderArgs, ...argv.slice(1)],
       cwd,
       env,
     });
@@ -1020,15 +1071,32 @@ export class LocalSessionHost extends EventEmitter {
     const rows = Math.max(5, Math.min(120, input.rows ?? DEFAULT_ROWS));
     const harness = seat.kind === "agent" ? seat.harness : undefined;
     const agentKey = seat.kind === "agent" ? seat.agentKey : undefined;
+    const regionEnvironment =
+      seat.kind === "agent"
+        ? (input as LocalHostAgentSeatInput).regionEnvironment
+        : undefined;
     const resolved = resolveLaunch(
       seat,
       seat.kind === "agent"
         ? {
-            seatInject: buildManagedSeatInject({
-              agentKey: seat.agentKey,
-              canvasName: input.canvasName,
-              nodeId: input.nodeId,
-            }),
+            seatInject: buildManagedSeatInject(
+              {
+                agentKey: seat.agentKey,
+                canvasName: input.canvasName,
+                nodeId: input.nodeId,
+              },
+              // A region's PATH is honored, with Junto's CLI directory kept
+              // in front of it.
+              regionEnvironment?.env.PATH === undefined
+                ? process.env
+                : { ...process.env, PATH: regionEnvironment.env.PATH },
+            ),
+            ...(regionEnvironment
+              ? {
+                  regionEnv: regionEnvironment.env,
+                  folders: regionEnvironment.folders,
+                }
+              : {}),
           }
         : {},
     );
@@ -1068,6 +1136,10 @@ export class LocalSessionHost extends EventEmitter {
       nodeId,
       agentKey,
       harness,
+      regionEnvironment:
+        seat.kind === "agent"
+          ? (regionEnvironment?.record ?? EMPTY_LAUNCH_RECORD)
+          : undefined,
       detached: canvasName === undefined,
       createdAt: Date.now(),
       seq: 0n,
@@ -1265,6 +1337,19 @@ export class LocalSessionHost extends EventEmitter {
   get(bindingId: string): TerminalSessionSummary | undefined {
     const rec = this.sessions.get(bindingId);
     return rec ? this.summaryOf(rec) : undefined;
+  }
+
+  /**
+   * What the running generation on this binding was launched with from its
+   * regions: names and identities, never values. Undefined when nothing is
+   * running there, so a seat that is not running is never "stale".
+   */
+  regionEnvironmentRecord(
+    bindingId: string,
+  ): RegionEnvironmentLaunchRecord | undefined {
+    const rec = this.sessions.get(bindingId);
+    if (!rec || sessionStatusOf(rec) === "exited") return undefined;
+    return rec.regionEnvironment;
   }
 
   /**
@@ -2420,6 +2505,10 @@ export class LocalSessionHost extends EventEmitter {
           ...(seed.nodeId ? { nodeId: seed.nodeId } : {}),
           ...(seed.label ? { label: seed.label } : {}),
           ...(seed.title ? { title: seed.title } : {}),
+          // The replacement is the same launch: same region environment.
+          ...(seed.regionEnvironment
+            ? { regionEnvironment: seed.regionEnvironment }
+            : {}),
         },
         {
           resumeAttempt: false,

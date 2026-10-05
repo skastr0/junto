@@ -151,6 +151,15 @@ export type ArgvSpec = {
    */
   readonly resumeSubcommand?: readonly string[];
   readonly resumeFlag?: string;
+  /**
+   * The harness's own option for exposing one more directory to the session,
+   * repeatable (`--add-dir <dir>`). A region's `folders` ride it, one pair per
+   * folder. The spawning host emits it only when the installed binary's
+   * `--help` lists the flag, so a version without it still launches. Absent
+   * means the harness has no such option: a seat there gets the region's
+   * variables and no extra folders.
+   */
+  readonly addDirFlag?: string;
 };
 
 /**
@@ -698,6 +707,7 @@ export const CLAUDE_TEMPLATE: ManagedTerminalTemplate = {
     sessionIdFlag: "--session-id",
     resumeMode: "flag",
     resumeFlag: "--resume",
+    addDirFlag: "--add-dir",
   },
   envSpec: SHARED_ENV_SPEC,
   capabilityBadges: {
@@ -739,6 +749,7 @@ export const CODEX_TEMPLATE: ManagedTerminalTemplate = {
     effortConfigKey: "model_reasoning_effort",
     permissionModeFlag: "-a",
     resumeMode: "subcommand",
+    addDirFlag: "--add-dir",
     // No session pin; the thread id is CAPTURED (SessionStart /
     // CODEX_THREAD_ID / notify) and proven against ~/.codex/sessions before
     // it is ever used to resume.
@@ -1283,6 +1294,7 @@ export const AGY_TEMPLATE: ManagedTerminalTemplate = {
     permissionModeFlag: "--dangerously-skip-permissions",
     resumeMode: "flag",
     resumeFlag: "--conversation",
+    addDirFlag: "--add-dir",
   },
   envSpec: SHARED_ENV_SPEC,
   capabilityBadges: {

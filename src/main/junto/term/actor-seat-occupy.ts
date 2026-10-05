@@ -18,6 +18,7 @@ import type { LocalSessionHost } from "./local-host";
 import {
   makeLocalSeatProcess,
   makeRemoteSeatProcess,
+  type SeatEnvironmentResolver,
   TerminalSeatProcess,
   type OccupySpec,
   type RemoteSeatProcessClient,
@@ -166,6 +167,12 @@ export type ActorSeatOccupyDeps = {
    * pass-through.
    */
   readonly remoteProjectionAdmission: RemoteProjectionAdmission;
+  /**
+   * Resolves a local seat's region environment at launch. Required for the
+   * same reason as the barrier above: a caller with no canvas passes
+   * `noSeatEnvironment` on purpose rather than leaving it out by accident.
+   */
+  readonly seatEnvironment: SeatEnvironmentResolver;
 };
 
 const asClientError = (cause: unknown): Error =>
@@ -188,7 +195,7 @@ const howFor = (
   Effect.gen(function* () {
     const localHostId = normalizeDurableHostId(yield* deps.localHostId());
     if (targetHostId === "local" || targetHostId === localHostId) {
-      return makeLocalSeatProcess(deps.local);
+      return makeLocalSeatProcess(deps.local, deps.seatEnvironment);
     }
     const client = yield* Effect.tryPromise({
       try: () => deps.clientForOccupy(targetHostId),
@@ -264,7 +271,7 @@ export const makeActorSeatOccupy = (
           });
         }
         const implementation = isLocal
-          ? makeLocalSeatProcess(deps.local)
+          ? makeLocalSeatProcess(deps.local, deps.seatEnvironment)
           : makeRemoteSeatProcess(
               targetHostId,
               yield* Effect.tryPromise({

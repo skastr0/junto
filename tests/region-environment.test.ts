@@ -229,6 +229,23 @@ describe("plan", () => {
       ["there", true],
     ]);
   });
+
+  it("reads `local` as the machine resolving, and a given rect over the saved one", () => {
+    const d = doc({ sources: [value("l", "A", "1", { host: "local" })] });
+    expect(
+      planRegionEnvironment(d, { seat: "mid" }, "mac").sources.map((s) => s.skippedHost),
+    ).toEqual([false]);
+    // `out` is saved outside every region, but it was just dragged inside.
+    const moved = { x: 700, y: 700, width: 50, height: 40 };
+    expect(planRegionEnvironment(d, { seat: "out" }, "mac").sources).toEqual([]);
+    expect(
+      planRegionEnvironment(d, { seat: "out", rect: moved }, "mac").sources.map((s) => s.source.id),
+    ).toEqual(["l"]);
+    // A seat not saved at all yet still resolves from where it sits.
+    expect(
+      planRegionEnvironment(d, { seat: "brand-new", rect: moved }, "mac").sources,
+    ).toHaveLength(1);
+  });
 });
 
 describe("merge and report", () => {

@@ -35,7 +35,13 @@ import {
   type EnvSourceKind,
   type GroupNode,
 } from "./canvas";
-import { isGroup, regionDisplayName, regionStack } from "./graph";
+import {
+  isGroup,
+  regionDisplayName,
+  regionStack,
+  type RegionRect,
+} from "./graph";
+import { DEFAULT_STATION_HOST_ID } from "./station";
 import {
   SPAWN_ENV_SCRUB,
   SPAWN_ENV_SCRUB_PREFIXES,
@@ -192,9 +198,14 @@ export const reservedEnvNameReason = (name: string): string | undefined => {
 
 // ── plan ───────────────────────────────────────────────────────────────────
 
-/** What is resolved: a seat, or a region as if a seat sat directly inside it. */
+/**
+ * What is resolved: a seat, or a region as if a seat sat directly inside it.
+ * `rect` is where the seat sits right now when the caller knows better than
+ * the document (canvas saves are debounced, so a seat that was just created
+ * or moved may not be in the persisted document yet).
+ */
 export type RegionEnvironmentTarget =
-  | { readonly seat: string }
+  | { readonly seat: string; readonly rect?: RegionRect }
   | { readonly region: string };
 
 export type PlannedRegion = {
@@ -238,7 +249,9 @@ export const planRegionEnvironment = (
 ): RegionEnvironmentPlan => {
   let stack: ReadonlyArray<GroupNode>;
   if ("seat" in target) {
-    stack = regionStack(doc, target.seat);
+    stack = (
+      target.rect ? regionStack(doc, target.rect) : regionStack(doc, target.seat)
+    ).filter((region) => region.id !== target.seat);
   } else {
     const region = doc.nodes.find((node) => node.id === target.region);
     if (!region || !isGroup(region)) return EMPTY_PLAN;
@@ -267,7 +280,11 @@ export const planRegionEnvironment = (
         regionLabel,
         source,
         key: sourceKey(region.id, source.id),
-        skippedHost: source.host !== undefined && source.host !== hostId,
+        // `local` in a document means the machine reading it.
+        skippedHost:
+          source.host !== undefined &&
+          source.host !== hostId &&
+          source.host !== DEFAULT_STATION_HOST_ID,
       });
     }
     for (const folder of environment?.folders ?? []) {

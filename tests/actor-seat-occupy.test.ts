@@ -10,6 +10,7 @@ import {
   makeRemoteSeatProcess,
   type RemoteAgentSeatCommand,
   type RemoteSeatProcessClient,
+  noSeatEnvironment,
 } from "../src/main/junto/term/seat-process";
 import type { TerminalSessionSummary } from "../src/shared/terminal";
 import {
@@ -133,6 +134,7 @@ describe("ActorSeatOccupy", () => {
       localHostId,
       clientForOccupy,
       remoteProjectionAdmission: passThroughAdmission,
+      seatEnvironment: noSeatEnvironment,
     });
 
     const created = await Effect.runPromise(
@@ -198,6 +200,7 @@ describe("ActorSeatOccupy", () => {
       localHostId,
       clientForOccupy,
       remoteProjectionAdmission: passThroughAdmission,
+      seatEnvironment: noSeatEnvironment,
     });
 
     const local = await Effect.runPromise(
@@ -243,6 +246,7 @@ describe("ActorSeatOccupy", () => {
         createAgentSeat,
       }),
       remoteProjectionAdmission: passThroughAdmission,
+      seatEnvironment: noSeatEnvironment,
     });
 
     const created = await Effect.runPromise(
@@ -277,6 +281,7 @@ describe("ActorSeatOccupy", () => {
         createAgentSeat,
       }),
       remoteProjectionAdmission: passThroughAdmission,
+      seatEnvironment: noSeatEnvironment,
     });
 
     const conflict = await Effect.runPromise(
@@ -376,7 +381,7 @@ describe("occupy convergence liveness", () => {
       exitOnSignal: false,
     }));
     const host = hostWith(fake);
-    const how = makeLocalSeatProcess(host);
+    const how = makeLocalSeatProcess(host, noSeatEnvironment);
     const spec = actorSpec("seat-local-dying");
 
     const created = await Effect.runPromise(

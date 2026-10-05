@@ -3,6 +3,7 @@
  * Command Center side = ActorSeatOccupy + TermControlClient.
  * Spawn-host side = startTermControlServer + LocalSessionHost.
  */
+import { noSeatEnvironment } from "../src/main/junto/term/seat-process";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { createConnection } from "node:net";
 import { tmpdir } from "node:os";
@@ -104,6 +105,7 @@ describe("actor occupy protocol (in-process both ends)", () => {
       localHostId: () => Effect.succeed("cc-self"),
       clientForOccupy: async () => client,
       remoteProjectionAdmission: passThroughAdmission,
+      seatEnvironment: noSeatEnvironment,
     });
 
     const created = await Effect.runPromise(
@@ -153,6 +155,7 @@ describe("actor occupy protocol (in-process both ends)", () => {
       localHostId: () => Effect.succeed("cc-self"),
       clientForOccupy: async () => client,
       remoteProjectionAdmission: passThroughAdmission,
+      seatEnvironment: noSeatEnvironment,
     });
     const spawnIntent = makeManagedSpawnIntent({
       harness: "muse",
@@ -220,6 +223,7 @@ describe("actor occupy protocol (in-process both ends)", () => {
         localHostId: () => Effect.succeed("cc-self"),
         clientForOccupy: async () => client,
         remoteProjectionAdmission: passThroughAdmission,
+        seatEnvironment: noSeatEnvironment,
       });
 
       await Effect.runPromise(
@@ -258,6 +262,7 @@ describe("actor occupy protocol (in-process both ends)", () => {
       localHostId: () => Effect.succeed("cc-self"),
       clientForOccupy: async () => client,
       remoteProjectionAdmission: passThroughAdmission,
+      seatEnvironment: noSeatEnvironment,
     });
 
     const conflict = await Effect.runPromise(
@@ -291,6 +296,7 @@ describe("actor occupy protocol (in-process both ends)", () => {
       localHostId: () => Effect.succeed("cc-self"),
       clientForOccupy: async () => client,
       remoteProjectionAdmission: passThroughAdmission,
+      seatEnvironment: noSeatEnvironment,
     });
     const spec = {
       bindingId: "proto_race_same",
@@ -323,6 +329,7 @@ describe("actor occupy protocol (in-process both ends)", () => {
       localHostId: () => Effect.succeed("cc-self"),
       clientForOccupy: async () => client,
       remoteProjectionAdmission: passThroughAdmission,
+      seatEnvironment: noSeatEnvironment,
     });
     const spec = {
       bindingId: "proto_race_diff",

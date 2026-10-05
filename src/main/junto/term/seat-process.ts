@@ -28,7 +28,9 @@ import {
   type SeatIdentityConflictError,
   type SeatOccupancy,
 } from "@shared/terminal-seat-occupancy";
-import type { LocalSessionHost } from "./local-host";
+import type { RegionRect } from "@shared/graph";
+import { EMPTY_LAUNCH_RECORD } from "@shared/region-environment";
+import type { LocalSessionHost, SeatRegionEnvironment } from "./local-host";
 import { launchForManagedSpawnIntent } from "./managed-spawn-plan";
 
 export type OccupySpec = {
@@ -44,7 +46,36 @@ export type OccupySpec = {
   readonly agentKey: string;
   /** Pure intent; the selected process host owns resume/session finalization. */
   readonly spawnIntent: ManagedSpawnIntent;
+  /**
+   * Where the seat sits right now, when the caller holds a node newer than
+   * the saved canvas (a seat just created or just moved). Region membership
+   * for the launch environment is read from it. Local placement only.
+   */
+  readonly seatRect?: RegionRect;
 };
+
+/**
+ * What a seat's regions resolve to for one launch. `refusal` is set when a
+ * required source could not be read: the seat must not start.
+ */
+export type SeatLaunchEnvironment = SeatRegionEnvironment & {
+  readonly refusal?: string;
+};
+
+/**
+ * Resolves a seat's region environment at the moment it launches. Total: a
+ * resolution that cannot run at all yields the empty environment, never a
+ * failed launch. Only a `required` source refuses one.
+ */
+export type SeatEnvironmentResolver = (seat: {
+  readonly canvasName: string;
+  readonly nodeId: string;
+  readonly seatRect?: RegionRect;
+}) => Promise<SeatLaunchEnvironment>;
+
+/** For a caller with no canvas: every seat launches with no region environment. */
+export const noSeatEnvironment: SeatEnvironmentResolver = () =>
+  Promise.resolve({ env: {}, folders: [], record: EMPTY_LAUNCH_RECORD });
 
 export type ActorActivateSpec = Pick<
   OccupySpec,
@@ -179,6 +210,7 @@ const localSummaryOccupancy = (
 const localAgentInput = (
   bindingId: string,
   spec: OccupySpec,
+  regionEnvironment: SeatRegionEnvironment,
 ) => {
   const finalized = launchForManagedSpawnIntent(spec, spec.spawnIntent);
   return {
@@ -194,11 +226,13 @@ const localAgentInput = (
     nodeId: spec.nodeId,
     label: spec.label,
     title: spec.title,
+    regionEnvironment,
   };
 };
 
 export const makeLocalSeatProcess = (
   host: LocalSessionHost,
+  seatEnvironment: SeatEnvironmentResolver,
 ): Context.Service.Shape<typeof TerminalSeatProcess> =>
   TerminalSeatProcess.of({
     occupancy: (bindingId) =>
@@ -227,8 +261,32 @@ export const makeLocalSeatProcess = (
           }
           return yield* occupy.failure;
         }
+        // Every spawn and every resume reads the seat's regions here, at
+        // launch. A resolver that fails outright leaves the seat without a
+        // region environment; only a required source refuses the launch.
+        const { refusal, ...regionEnvironment } = yield* Effect.promise(() =>
+          seatEnvironment({
+            canvasName: spec.canvasName,
+            nodeId: spec.nodeId,
+            ...(spec.seatRect ? { seatRect: spec.seatRect } : {}),
+          }).catch(
+            (): SeatLaunchEnvironment => ({
+              env: {},
+              folders: [],
+              record: EMPTY_LAUNCH_RECORD,
+            }),
+          ),
+        );
+        if (refusal !== undefined) {
+          return yield* Effect.fail(
+            new Error(`This seat was not started. ${refusal}`),
+          );
+        }
         const created = yield* Effect.try({
-          try: () => host.createAgentSeat(localAgentInput(bindingId, spec)),
+          try: () =>
+            host.createAgentSeat(
+              localAgentInput(bindingId, spec, regionEnvironment),
+            ),
           catch: asClientError,
         });
         // An already-resolved exit witness settles on the promise queue. Its

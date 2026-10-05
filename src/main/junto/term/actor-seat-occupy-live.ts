@@ -29,6 +29,7 @@ import {
   type RemoteProjectionAdmissionPorts,
 } from "./actor-seat-occupy";
 import { termPlane } from "./plane";
+import { liveSeatEnvironment } from "../region-env/live";
 
 const asError = (cause: unknown): Error =>
   cause instanceof Error ? cause : new Error(String(cause));
@@ -209,6 +210,7 @@ export const ActorSeatOccupyLive = Layer.effect(
         };
       },
       remoteProjectionAdmission,
+      seatEnvironment: liveSeatEnvironment,
     });
   }),
 );

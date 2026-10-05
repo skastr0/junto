@@ -3,6 +3,7 @@
  * destination host acknowledges the projection compiled from committed
  * authorial state, and never starts the actor early.
  */
+import { noSeatEnvironment } from "../src/main/junto/term/seat-process";
 import { Effect } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -274,6 +275,7 @@ describe("ActorSeatOccupy Remote projection barrier", () => {
     );
     const when = makeActorSeatOccupy({
       local: host,
+      seatEnvironment: noSeatEnvironment,
       localHostId: () => Effect.succeed("cc-self"),
       clientForOccupy,
       remoteProjectionAdmission: ({ hostId, bindingId }) =>
@@ -323,6 +325,7 @@ describe("ActorSeatOccupy Remote projection barrier", () => {
     const admissionCalls: Array<{ hostId: string; bindingId: string }> = [];
     const when = makeActorSeatOccupy({
       local: host,
+      seatEnvironment: noSeatEnvironment,
       localHostId: () => Effect.succeed("cc-self"),
       clientForOccupy: async () => remoteClient,
       remoteProjectionAdmission: (input) =>
@@ -366,6 +369,7 @@ describe("ActorSeatOccupy Remote projection barrier", () => {
         throw new Error("local occupy must not open a Remote client");
       },
       remoteProjectionAdmission: admission,
+      seatEnvironment: noSeatEnvironment,
     });
 
     const summary = await Effect.runPromise(
