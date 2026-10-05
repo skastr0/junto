@@ -63,7 +63,7 @@ import { AgentChatToolbarActions } from "../chat/AgentChatToolbarActions";
 import { FirstLineRenameInput } from "./FirstLineRenameInput";
 import { claimFocus } from "../../lib/focus-ownership";
 import { IconButton } from "../ui";
-import { AgentSeat } from "./AgentSeat";
+import { AgentSeat, SeatName } from "./AgentSeat";
 import { ExecutionCardHeader } from "./ExecutionCardHeader";
 import {
   ArtifactsCard,
@@ -347,9 +347,11 @@ function EntityCard({
         onCommit={commitRename}
         onDone={onRenameDone}
       />
+    ) : kind === "agent" ? (
+      <SeatName name={rawName} color={nameHue} />
     ) : (
       <div
-        className={`truncate font-mono ${kind === "agent" ? "text-[13px]" : "text-[14px]"} font-semibold leading-snug`}
+        className="truncate font-mono text-[14px] font-semibold leading-snug"
         style={{ color: nameHue }}
         title={rawName}
       >

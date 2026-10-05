@@ -34,7 +34,7 @@
 .actor-rail__list {
   min-height: 0;
   flex: 1;
-  overflow-y: auto;
+  overflow: hidden auto;
   overscroll-behavior: contain;
   padding: 4px 6px 8px;
 }
@@ -46,6 +46,7 @@
 .actor-rail__seats,
 .actor-rail__others {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   margin: 0;
   padding: 0;
   list-style: none;
@@ -70,7 +71,7 @@
   border-radius: inherit;
   outline: none;
 }
-.actor-rail__go:focus-visible { box-shadow: 0 0 0 3px var(--color-focus-ring); }
+.actor-rail__go:focus-visible { box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--color-cyan) 60%, transparent); }
 /* The seat sits above the cover button and lets the press through, except
    its own signal badge. */
 .actor-rail__seat > .junto-seat {
@@ -82,8 +83,8 @@
 /* Bubbles hang beside their seats, over the terminal's edge and never over
    the rail. The frame is the strip of terminal left of the rail: the canvas
    bubble keeps itself inside it, as it keeps itself inside the canvas. Each
-   anchor ends at the rail's border with its top at the seat's bottom, so the
-   bubble (which sits 9px above its anchor) lands level with its seat. The
+   anchor ends at the rail's border, placed so the bubble's tail tip is level
+   with its seat's ring. The
    frame and anchors take no pointer; the bubble's card does, as on the canvas. */
 .actor-rail__bubbles {
   position: absolute;

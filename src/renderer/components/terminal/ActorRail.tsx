@@ -26,14 +26,17 @@ import { useSeatOnboarding } from "../../lib/seat-onboarding";
 import { seatSaying, seatUrgency, type SeatUrgency } from "../../lib/seat-line";
 import { sidebarSections$ } from "../../lib/sidebar-sections";
 import { state$ } from "../../lib/state";
-import { accentColor } from "../../lib/theme";
-import { AgentSeatView } from "../nodes/AgentSeat";
+import { accentColor, INK } from "../../lib/theme";
+import { AgentSeatView, SeatName } from "../nodes/AgentSeat";
 import { PreambleBubble } from "../nodes/PreambleBubble";
 import { seatUrgencyNow, useSeatGlance } from "../SeatRing";
 import { IconButton, ListRow } from "../ui";
 import "./actor-rail.css";
 
 type Zone = "focus" | "pinned";
+
+/** How far the canvas bubble's tail tip sits above its anchor's top (9px gap less the 5px tail). */
+const TAIL_TIP_PX = 4;
 
 /** One connected agent: the canvas seat under a cover button that moves to it. */
 function RailSeat({
@@ -63,7 +66,9 @@ function RailSeat({
 
   // The seat's own words (seatSaying), for the button's name.
   const saying = seatSaying({ activity: glance.activity, signal, failure: glance.failure, health: glance.health });
-  const state = saying.kind === "signal" ? saying.word : saying.text;
+  // An AI reading is named as one, as everywhere else: never the agent's own claim.
+  const state =
+    saying.kind === "signal" ? saying.word : saying.kind === "reading" ? `AI reads ${saying.text}` : saying.text;
   return (
     <li
       ref={(element) => seatRef(peer.id, element)}
@@ -84,14 +89,7 @@ function RailSeat({
       <AgentSeatView
         identity={peer.id}
         activity={glance.activity}
-        title={
-          <div
-            className="truncate font-mono text-body-lg font-semibold leading-snug"
-            style={peer.color ? { color: accentColor(peer.color) } : undefined}
-          >
-            {name}
-          </div>
-        }
+        title={<SeatName name={name} color={peer.color ? accentColor(peer.color) : INK} />}
         harness={glance.harness}
         context={glance.failure}
         health={glance.health}
@@ -131,10 +129,11 @@ function RailBubble({
       const element = seat();
       if (!element || !list) return setTop(null);
       // Both the seat and this anchor measure from the rail (their offset parent).
-      const bottom = element.offsetTop + element.offsetHeight - list.scrollTop;
+      const middle = element.offsetTop + element.offsetHeight / 2 - list.scrollTop;
       // A seat scrolled out of the rail shows no bubble.
-      const visible = bottom > list.offsetTop && bottom <= list.offsetTop + list.clientHeight;
-      setTop(visible ? bottom : null);
+      const visible = middle > list.offsetTop && middle < list.offsetTop + list.clientHeight;
+      // The bubble's tail tip hangs 4px above its anchor: level with the ring's centre.
+      setTop(visible ? middle + TAIL_TIP_PX : null);
     };
     place();
     list?.addEventListener("scroll", place, { passive: true });
@@ -217,7 +216,7 @@ export function ActorRail({ node, zone }: { readonly node: CanvasNode; readonly 
           <ul className="actor-rail__others" data-testid="actor-rail-others">
             {others.map((row) => (
               <li key={row.peerId} data-peer-node-id={row.peerId} data-peer-kind={row.peerKind}>
-                <ListRow title={row.peerTitle} meta={boardMeta(row) ?? row.peerKind} disabled />
+                <ListRow title={row.peerTitle} meta={boardMeta(row) ?? row.peerKind} />
               </li>
             ))}
           </ul>

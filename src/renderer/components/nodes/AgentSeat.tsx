@@ -6,7 +6,7 @@ import type { ThreadHealthTone, ThreadHealthValue } from "@shared/thread-health"
 import type { ActivitySpec, ActivityTone } from "../../lib/activity";
 import { bindingIdForNode } from "../../lib/agent-seat-state";
 import { useSeatSignalRollup } from "../../lib/agent-signals-state";
-import { openSeatSignals } from "../../lib/agent-signals-view";
+import { openOperatorModal } from "../../lib/operator-modal";
 import { useSeatOnboarding } from "../../lib/seat-onboarding";
 import { seatSaying } from "../../lib/seat-line";
 import { state$ } from "../../lib/state";
@@ -29,6 +29,15 @@ const TONE_TEXT: Readonly<Record<ActivityTone, string>> = {
   crimson: "text-crimson",
   steel: "text-steel",
 };
+
+/** A seat's name, as every seat prints it: on the canvas and in the agent modal's rail. */
+export function SeatName({ name, color }: { readonly name: string; readonly color: string }) {
+  return (
+    <div className="truncate font-mono text-[13px] font-semibold leading-snug" style={{ color }} title={name}>
+      {name}
+    </div>
+  );
+}
 
 export type SeatHealth = {
   readonly health?: ThreadHealthTone;
@@ -199,7 +208,8 @@ export function AgentSeat({
       health={health}
       signal={{ worst: rollup?.signal, openCount: rollup?.openCount ?? 0 }}
       onboarding={onboarding}
-      onSignalOpen={() => openSeatSignals(node)}
+      // A signal is answered in the needs-you feed.
+      onSignalOpen={() => openOperatorModal("feed")}
       {...rest}
     />
   );

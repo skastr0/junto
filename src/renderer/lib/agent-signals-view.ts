@@ -12,9 +12,6 @@ import {
   type SignalActionResult,
 } from "./agent-signals-state";
 import { FEED_KIND_LABEL } from "@shared/operator-feed";
-import { requestSectionReveal } from "./sidebar-sections";
-import { state$ } from "./state";
-import { openTerminalSurface } from "./terminal-state";
 
 /**
  * How the seat sidebar reads and answers agent signals. The sidebar talks to
@@ -106,8 +103,3 @@ export const useSeatSignals = (
   };
 };
 
-/** Open the seat's focus modal with the Signals section expanded and in view. */
-export const openSeatSignals = (node: CanvasNode): void => {
-  requestSectionReveal(node.id, SIGNALS_SECTION);
-  openTerminalSurface(node, "focus", state$.canvasName.peek());
-};
