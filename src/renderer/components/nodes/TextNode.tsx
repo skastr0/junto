@@ -58,6 +58,7 @@ import {
 import { TerminalToolbarActions } from "../terminal/TerminalToolbarActions";
 import { SeatMessageToolbarAction } from "./SeatMessage";
 import { CustomizeAgentToolbarAction } from "../agent-editor/AgentEditor";
+import { StartParamsToolbarAction } from "../customize/ParamsSection";
 import { AgentChatToolbarActions } from "../chat/AgentChatToolbarActions";
 import { FirstLineRenameInput } from "./FirstLineRenameInput";
 import { claimFocus } from "../../lib/focus-ownership";
@@ -577,6 +578,7 @@ export function TextNode({ data, selected }: NodeProps<FlowNode>) {
         managedTerminal ? (
           <>
             {isAgent ? <CustomizeAgentToolbarAction seatId={node.id} /> : null}
+            {isAgent ? <StartParamsToolbarAction seatId={node.id} /> : null}
             {isAgent ? <SeatMessageToolbarAction node={node} /> : null}
             <TerminalToolbarActions node={node} />
           </>

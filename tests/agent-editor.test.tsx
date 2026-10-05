@@ -125,6 +125,7 @@ describe("customize agent editor", { timeout: 30_000 }, () => {
       "soul",
       "instructions",
       "launch",
+      "start params",
       "sessions",
     ]);
     expect(opened.querySelector('[role="tabpanel"]')?.getAttribute("data-section")).toBe("look");
@@ -199,6 +200,45 @@ describe("customize agent editor", { timeout: 30_000 }, () => {
     open();
     act(() => state$.doc.set({ ...state$.doc.peek(), nodes: [] }));
     expect(document.querySelector('[data-testid="agent-editor"]')).toBeNull();
+  });
+
+  it("edits the seat's start parameters and saves them onto the same seat", async () => {
+    (window as unknown as { junto: Record<string, unknown> }).junto.managedTerminalFlags = async () => ({
+      installed: true,
+      flags: [
+        { flag: "--verbose", aliases: [], description: "Print more" },
+        { flag: "--model", aliases: ["-m"], value: "<model>", description: "Model to use" },
+      ],
+    });
+    const opened = open("params");
+    await settle();
+    expect(opened.querySelector('[role="tabpanel"]')?.getAttribute("data-section")).toBe("params");
+    const preview = (): string =>
+      opened.querySelector('[data-testid="seat-start-params-preview"]')?.textContent ?? "";
+    expect(preview()).toBe("claude --permission-mode default");
+
+    // The harness's own options are listed; one Junto already sets is not addable.
+    const options = [...opened.querySelectorAll<HTMLButtonElement>(".customize-params__flag-add")];
+    expect(options.map((option) => option.disabled)).toEqual([false, true]);
+    act(() => options[0]!.click());
+    type(opened.querySelector<HTMLInputElement>('input[aria-label="Model"]')!, "opus");
+    expect(preview()).toBe("claude --model opus --permission-mode default --verbose");
+
+    // A flag Junto owns is reported, not launched.
+    type(opened.querySelector<HTMLInputElement>('input[aria-label="Extra arguments"]')!, "--verbose --session-id x");
+    expect(opened.querySelector(".customize-params__rejected")?.textContent).toContain("--session-id");
+    expect(preview()).toBe("claude --model opus --permission-mode default --verbose");
+
+    await act(async () => {
+      button("Save").click();
+      await Promise.resolve();
+    });
+    await settle();
+    const stored = state$.doc.peek().nodes.find((node) => node.id === "seat-1");
+    const terminal = stored?.type === "text" ? stored.ether?.terminal : undefined;
+    expect(terminal?.bindingId).toBe("bind-local-planner");
+    expect(terminal?.launch?.argv).toEqual(["claude", "--model", "opus", "--permission-mode", "default", "--verbose"]);
+    expect(terminal?.launch?.extraArgs).toEqual(["--verbose"]);
   });
 
   it("lists sections in a stable order with unique ids", () => {

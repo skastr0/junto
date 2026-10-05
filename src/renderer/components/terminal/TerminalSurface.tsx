@@ -76,6 +76,8 @@ import { SessionLoadSpinner } from "./SessionLoadSpinner";
 import { SeatRing } from "../SeatRing";
 import { HarnessMark } from "../HarnessMark";
 import { CustomizeAgentButton } from "../agent-editor/AgentEditor";
+import { START_PARAMS_SECTION_ID } from "../customize/ParamsSection";
+import { openAgentEditor } from "../../lib/agent-editor-state";
 import { GRID_CELL_CHROME } from "../../lib/terminal-grid";
 import { isHarnessId } from "@shared/managed-terminal-templates";
 
@@ -2050,6 +2052,18 @@ export function TerminalSurface({
             >
               {pinned ? "Unpin" : "Pin"}
             </Button>
+            {agentSeat ? (
+              <Button
+                size="xs"
+                variant="chrome"
+                title="Start parameters: model, permissions, harness arguments"
+                aria-label="Start parameters"
+                data-testid="terminal-start-params"
+                onClick={() => openAgentEditor(node.id, { section: START_PARAMS_SECTION_ID })}
+              >
+                Params
+              </Button>
+            ) : null}
             {attached ? (
               <Button
                 size="xs"
