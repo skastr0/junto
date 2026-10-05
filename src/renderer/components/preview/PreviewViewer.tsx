@@ -151,8 +151,15 @@ export function PreviewViewer({
   useEffect(() => {
     if (!playing) return;
     const stop = (): void => setPlaying(false);
+    const onVisibility = (): void => {
+      if (document.hidden) stop();
+    };
     window.addEventListener("blur", stop);
-    return () => window.removeEventListener("blur", stop);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      window.removeEventListener("blur", stop);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
   }, [playing]);
 
   const onKeyDown = (event: KeyboardEvent<HTMLElement>): void => {
