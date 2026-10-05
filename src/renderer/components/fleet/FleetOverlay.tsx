@@ -114,7 +114,6 @@ function FleetOverlayInner() {
     <FocusSurface
       measure="workspace"
       height="immersive"
-      layer="work"
       label="Fleet manager"
       panelClassName="fleet-panel"
       onClose={closeFleet}

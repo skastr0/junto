@@ -1739,7 +1739,6 @@ export function TaskCreateDialog({
       <FocusSurface
         measure="document"
         height="fit"
-        layer="work"
         label="Create task"
         onClose={onClose}
         closeOnBackdrop={!pending && !descriptionOpen}
@@ -1754,7 +1753,6 @@ export function TaskCreateDialog({
         <FocusSurface
           measure="document"
           height="fit"
-          layer="work"
           label="Task description"
           onClose={() => setDescriptionOpen(false)}
           panelClassName="task-description-focus"
@@ -2972,7 +2970,6 @@ export function TaskBoard({
     <FocusSurface
       measure="workspace"
       height="immersive"
-      layer="work"
       label="Task board"
       onClose={onClose}
       closeOnEscape

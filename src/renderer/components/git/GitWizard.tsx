@@ -56,7 +56,7 @@ export function GitWizard({
   };
 
   return (
-    <FocusSurface measure="form" height="fit" layer="detail" label="New git" onClose={onClose}>
+    <FocusSurface measure="form" height="fit" label="New git" onClose={onClose}>
       <div
         className="grid gap-4 p-5"
         onKeyDown={(e) => {

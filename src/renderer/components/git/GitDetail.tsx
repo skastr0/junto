@@ -144,7 +144,6 @@ export function GitDetail({
     <FocusSurface
       measure="workspace"
       height="immersive"
-      layer="work"
       label="Git commits"
       onClose={onClose}
     >

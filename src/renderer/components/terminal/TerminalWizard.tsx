@@ -114,7 +114,7 @@ export function TerminalWizard({
   };
 
   return (
-    <FocusSurface measure="form" height="fit" layer="detail" label="New terminal" onClose={onClose}>
+    <FocusSurface measure="form" height="fit" label="New terminal" onClose={onClose}>
       <div
         className="grid gap-4 p-5"
         onKeyDown={(e) => {

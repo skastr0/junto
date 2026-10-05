@@ -185,7 +185,6 @@ export function WorkFocusShell() {
     <FocusSurface
       measure={measure}
       height="immersive"
-      layer="work"
       contain="parent"
       terminalRailsPx={terminalRailsPx}
       label={active?.kind === "note" ? "Edit note" : active ? `Workbench - ${active.kind}` : "Workbench focus"}

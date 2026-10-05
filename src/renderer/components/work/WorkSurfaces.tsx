@@ -684,7 +684,6 @@ export function BoardDetail({
       label="Bulletin board"
       measure="workspace"
       height="immersive"
-      layer="work"
       onClose={onClose}
     >
       <div

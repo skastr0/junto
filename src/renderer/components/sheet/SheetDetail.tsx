@@ -183,7 +183,6 @@ export function SheetDetail({
       label="Sheet"
       measure="workspace"
       height="immersive"
-      layer="work"
       onClose={close}
       closeOnEscape
     >

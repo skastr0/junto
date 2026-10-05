@@ -145,7 +145,6 @@ export function PadDetail({
       label="Pad"
       measure="workspace"
       height="immersive"
-      layer="work"
       onClose={onClose}
       closeOnEscape={false}
     >

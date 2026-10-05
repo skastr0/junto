@@ -515,7 +515,6 @@ export function RequestInbox({
     <FocusSurface
       measure="workspace"
       height="immersive"
-      layer="work"
       label="Input requests"
       onClose={onClose}
       panelClassName="work-ledger-surface nowheel"
@@ -722,7 +721,6 @@ function ArtifactFocusModal({
     <FocusSurface
       measure="document"
       height="immersive"
-      layer="work"
       label={name}
       onClose={onClose}
       panelClassName="artifact-focus nowheel"
@@ -953,7 +951,6 @@ export function ArtifactLibrary({
       <FocusSurface
         measure="workspace"
         height="immersive"
-        layer="work"
         label="Artifacts"
         onClose={onClose}
         closeOnEscape={expanded === undefined}

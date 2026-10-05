@@ -135,7 +135,6 @@ function TerminalGridModal({ nodeIds }: { readonly nodeIds: ReadonlyArray<string
     <FocusSurface
       measure="workspace"
       height="immersive"
-      layer="work"
       label={`Grid focus, ${agentCount(count)}`}
       onClose={closeTerminalGrid}
       closeOnEscape={false}
