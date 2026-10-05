@@ -454,6 +454,9 @@ const juntoApi: Omit<JuntoApi, keyof typeof liveApi | WorkFeatureApiKey> = {
     invoke(IPC_CHANNELS.agentSignalRespond, IPC_TIMEOUT_MS, signalId, text),
   agentSignalDismiss: (signalId) =>
     invoke(IPC_CHANNELS.agentSignalDismiss, IPC_TIMEOUT_MS, signalId),
+  previewRead: (request) => invoke(IPC_CHANNELS.previewRead, IPC_TIMEOUT_MS, request),
+  previewReveal: (source, path) =>
+    invoke(IPC_CHANNELS.previewReveal, IPC_TIMEOUT_MS, source, path),
   portraitOverridesList: () => invoke(IPC_CHANNELS.portraitOverridesList, IPC_TIMEOUT_MS),
   portraitOverrideSet: (seatId, override) =>
     invoke(IPC_CHANNELS.portraitOverrideSet, IPC_TIMEOUT_MS, seatId, override),

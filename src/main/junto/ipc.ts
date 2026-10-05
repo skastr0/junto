@@ -1,4 +1,4 @@
-import { app, BrowserWindow, clipboard, ipcMain } from "electron";
+import { app, BrowserWindow, clipboard, ipcMain, nativeImage, shell } from "electron";
 import { Effect, Result, Schema } from "effect";
 import {
   IPC_CHANNELS,
@@ -54,6 +54,14 @@ import { WorkService } from "./work/service";
 import { ContentService } from "./content/service";
 import { messageDelivery } from "./work/message-delivery";
 import { AgentSignalRepository } from "./signals/repository";
+import { locatePreviewForReveal, readPreview, type PreviewThumbnailer } from "./preview/read";
+import {
+  PREVIEW_THUMB_EDGE,
+  type PreviewRequest,
+  type PreviewResult,
+  type PreviewRevealResult,
+  type PreviewSource,
+} from "@shared/preview";
 import { raisedHands } from "./signals/raised-hands";
 import { SquadRepository, type SquadRepositoryError } from "./squads/repository";
 import type { SquadDeleteResult, SquadResult, SquadSaveInput } from "@shared/squads";
@@ -741,6 +749,50 @@ export const registerJuntoIpc = (): void => {
   );
   privilegedIpc.handle(IPC_CHANNELS.agentSignalDismiss, (_event, signalId: string) =>
     runSignalOperator("ipc.work.signal-dismiss", dismissAgentSignal(String(signalId))),
+  );
+
+  // Previews of the files an agent names in a signal's detail. The detail is
+  // read here from the store, never taken from the renderer, and the read
+  // serves only the paths that text names (preview/read.ts holds the rules).
+  const previewSourceText = (source: unknown): Promise<string | undefined> => {
+    const candidate = source as Partial<PreviewSource> | null;
+    if (candidate?.kind !== "signal" || typeof candidate.signalId !== "string") {
+      return Promise.resolve(undefined);
+    }
+    return AppRuntime.runPromise(
+      Effect.flatMap(AgentSignalRepository, (signals) => signals.get(candidate.signalId as string)).pipe(
+        Effect.map((signal) => signal.detail),
+        Effect.orElseSucceed(() => undefined),
+      ),
+    ).catch(() => undefined);
+  };
+  const previewThumbnail: PreviewThumbnailer = (bytes, edge) => {
+    const image = nativeImage.createFromBuffer(bytes);
+    if (image.isEmpty()) return undefined;
+    const { width, height } = image.getSize();
+    if (Math.max(width, height) <= edge) return undefined;
+    const scaled = width >= height ? image.resize({ width: edge, quality: "good" }) : image.resize({ height: edge, quality: "good" });
+    return scaled.isEmpty() ? undefined : { bytes: scaled.toPNG(), mediaType: "image/png" };
+  };
+  privilegedIpc.handle(IPC_CHANNELS.previewRead, async (_event, request: PreviewRequest): Promise<PreviewResult> => {
+    if (typeof request?.path !== "string") return { ok: false, reason: "not-named" };
+    return readPreview({
+      text: await previewSourceText(request.source),
+      path: request.path,
+      variant: request.variant === "thumb" ? "thumb" : "full",
+      thumbnail: previewThumbnail,
+      thumbEdge: PREVIEW_THUMB_EDGE,
+    });
+  });
+  privilegedIpc.handle(
+    IPC_CHANNELS.previewReveal,
+    async (_event, source: PreviewSource, path: string): Promise<PreviewRevealResult> => {
+      if (typeof path !== "string") return { ok: false };
+      const real = await locatePreviewForReveal(await previewSourceText(source), path);
+      if (real === undefined) return { ok: false };
+      shell.showItemInFolder(real);
+      return { ok: true };
+    },
   );
 
   // Squads: the operator's reusable seat templates. Every change pushes the

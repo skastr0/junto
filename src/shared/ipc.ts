@@ -63,6 +63,7 @@ import type { UpdateApi } from "./update";
 import type { PreambleEvent } from "./preamble";
 import type { WireTrafficEvent } from "./wire-traffic";
 import type { AgentSignal } from "./agent-signals";
+import type { PreviewRequest, PreviewResult, PreviewRevealResult, PreviewSource } from "./preview";
 import type {
   PortraitOverride,
   PortraitOverrideEvent,
@@ -141,6 +142,9 @@ export const IPC_CHANNELS = {
   agentSignalsList: "junto:agent-signals-list",
   agentSignalRespond: "junto:agent-signal-respond",
   agentSignalDismiss: "junto:agent-signal-dismiss",
+  /** Previews of files an agent names in its text: one guarded read, and reveal. */
+  previewRead: "junto:preview-read",
+  previewReveal: "junto:preview-reveal",
   /** Portrait overrides: list all seats, set or reset one, live upsert. */
   portraitOverridesList: "junto:portrait-overrides-list",
   portraitOverrideSet: "junto:portrait-override-set",
@@ -732,6 +736,13 @@ export interface JuntoApi extends UpdateApi, OverseerLiveApi {
   ) => Promise<AgentSignalOperatorResult>;
   /** Close an open signal without mail. */
   readonly agentSignalDismiss: (signalId: string) => Promise<AgentSignalOperatorResult>;
+  /**
+   * Preview a local file that the source's stored text names. Main serves
+   * nothing the text does not name: see `src/main/junto/preview/read.ts`.
+   */
+  readonly previewRead: (request: PreviewRequest) => Promise<PreviewResult>;
+  /** Show such a file in the system file manager. */
+  readonly previewReveal: (source: PreviewSource, path: string) => Promise<PreviewRevealResult>;
   /** Every seat's portrait override (character editor), keyed by node id. */
   readonly portraitOverridesList: () => Promise<PortraitOverrides>;
   /** Replace one seat's portrait override; null resets it to identity. */
