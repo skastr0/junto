@@ -1,4 +1,5 @@
 import { useRef, type KeyboardEvent, type PointerEvent } from "react";
+import { ChevronsLeftRight } from "lucide-react";
 import { CompareTag } from "./Thumbnail";
 import type { MediaSize } from "./MediaStage";
 
@@ -82,9 +83,7 @@ export function CompareSlider({
         style={{ width: b.size.width, height: b.size.height, clipPath: `inset(0 0 0 ${(value / 100) * width}px)` }}
       />
       <CompareTag side="A" />
-      <span className="pointer-events-none absolute right-1 top-1 rounded-sm bg-ground/80 px-1 text-label uppercase tracking-label text-ink">
-        B
-      </span>
+      <CompareTag side="B" corner="right" />
       <div
         role="slider"
         tabIndex={0}
@@ -97,7 +96,10 @@ export function CompareSlider({
         className="group/divider absolute inset-y-0 w-px cursor-ew-resize bg-ink/60 outline-none"
         style={{ left: `${value}%` }}
       >
-        <span className="absolute left-1/2 top-1/2 size-6 -translate-x-1/2 -translate-y-1/2 rounded-pill border border-stroke-hi bg-raise group-focus-visible/divider:ring-1 group-focus-visible/divider:ring-cyan/60" />
+        {/* Says drag sideways on any picture, light or dark. */}
+        <span className="absolute left-1/2 top-1/2 grid size-6 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-pill border border-ink/60 bg-raise text-ink group-focus-visible/divider:ring-1 group-focus-visible/divider:ring-cyan/60">
+          <ChevronsLeftRight size={12} aria-hidden />
+        </span>
       </div>
     </div>
   );

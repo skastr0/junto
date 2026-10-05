@@ -15,10 +15,15 @@ const TILE =
   "relative grid flex-none place-items-center overflow-hidden rounded-md border outline-none transition-colors select-none " +
   "focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-cyan/60";
 
-/** The corner mark of one side of a comparison. */
-export function CompareTag({ side }: { readonly side: "A" | "B" }) {
+/** The corner mark of one side of a comparison. One definition, either top corner. */
+export function CompareTag({ side, corner = "left" }: { readonly side: "A" | "B"; readonly corner?: "left" | "right" }) {
   return (
-    <span className="pointer-events-none absolute left-1 top-1 rounded-sm bg-ground/80 px-1 text-label uppercase tracking-label text-ink">
+    <span
+      className={[
+        "pointer-events-none absolute top-1 rounded-sm bg-ground/80 px-1 text-label uppercase tracking-label text-ink",
+        corner === "left" ? "left-1" : "right-1",
+      ].join(" ")}
+    >
       {side}
     </span>
   );
@@ -29,6 +34,9 @@ export function CompareTag({ side }: { readonly side: "A" | "B" }) {
  * is cropped to fill the square; anything else is a glyph over its
  * extension. It only draws: the caller hands it the pixels (a data or
  * content URL) and says which state it is in.
+ *
+ * `failed` is for an image that was found and would not draw. A file that is
+ * gone is not a tile at all: the caller says so in words.
  *
  * `label` is the file name, read by title and by assistive tech. Size is a
  * prop; the tile takes no className.
@@ -59,6 +67,7 @@ export function Thumbnail({
 } & Omit<ButtonHTMLAttributes<HTMLButtonElement>, "className" | "children" | "title" | "aria-label" | "type">) {
   return (
     <button
+      {...rest}
       type="button"
       title={label}
       aria-label={label}
@@ -67,9 +76,8 @@ export function Thumbnail({
       className={[
         TILE,
         SIZES[size],
-        current ? "border-stroke-hi bg-overlay-2" : "border-stroke bg-inset hover:border-stroke-hi",
+        current ? "border-ink bg-overlay-2" : "border-stroke bg-inset hover:border-stroke-hi",
       ].join(" ")}
-      {...rest}
     >
       {state === "failed" ? (
         <AlertTriangle size={14} className="text-dim" aria-hidden />
@@ -99,10 +107,10 @@ export function ThumbnailMore({
 } & Omit<ButtonHTMLAttributes<HTMLButtonElement>, "className" | "children" | "type">) {
   return (
     <button
+      {...rest}
       type="button"
       aria-label={`${count} more`}
       className={[TILE, SIZES[size], "border-stroke bg-overlay-2 text-body text-dim tabular-nums hover:border-stroke-hi"].join(" ")}
-      {...rest}
     >
       +{count}
     </button>
