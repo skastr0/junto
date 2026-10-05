@@ -9,6 +9,7 @@ import { use$ } from "@legendapp/state/react";
 import { dock$, setWorkbenchPinnedWidthFrac } from "../lib/dock-state";
 import { panesForLayout } from "../lib/surface-registry";
 import { WorkbenchChrome, WorkbenchPanes } from "./workbench";
+import "./work-surface-dock.css";
 
 /**
  * The interactive dock contents are deliberately separated from the width

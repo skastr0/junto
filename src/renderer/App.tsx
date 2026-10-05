@@ -70,7 +70,14 @@ const FleetOverlay = __JUNTO_FLEET_UI_ENABLED__
       return { default: mod.FleetOverlay };
     })
   : () => null;
-import { WorkSurfaceDock } from "./components/WorkSurfaceDock";
+// Pinning is off in every profile. Like Fleet above, the define identifier
+// wraps import() here so the dock and its styles are left out of the build.
+const WorkSurfaceDock = __JUNTO_PINNING_ENABLED__
+  ? lazy(async () => {
+      const mod = await import("./components/WorkSurfaceDock");
+      return { default: mod.WorkSurfaceDock };
+    })
+  : null;
 import { WorkFocusShell } from "./components/workbench";
 import { PersistentTerminalHost } from "./components/terminal/PersistentTerminalHost";
 import { TerminalGridFocus } from "./components/terminal/TerminalGridFocus";
@@ -579,7 +586,11 @@ export function App() {
         <DemoLayer />
         <FirstRunIntro />
         </div>
-        <WorkSurfaceDock />
+        {WorkSurfaceDock ? (
+          <Suspense fallback={null}>
+            <WorkSurfaceDock />
+          </Suspense>
+        ) : null}
       </div>
       <ConfirmHost />
       <OperatorModalHost />
