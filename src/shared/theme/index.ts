@@ -14,6 +14,23 @@ import {
 //   - SVG export palette  -> src/shared/svg.ts (imports this)
 //   - main-process colors -> src/main (imports this)
 // Edit values in primitives.ts / semantic.ts / type.ts, then run `bun run theme:build`.
+//
+// A second theme, when Themes land: one more value map over the same token
+// names, emitted as html[data-theme="<name>"], the way bright rides today.
+// What stands in the way, so it is not lost:
+//   1. ThemeMode is the closed pair dark | bright (semantic.ts) and
+//      theme-build.ts writes exactly one override block. A theme registry
+//      replaces both.
+//   2. Type tokens (type.ts) hold one value set, with no per theme override
+//      path. They join the registry with the colors.
+//   3. theme-build.ts pins dark to LEGACY_DARK_HEX. Right for dark; it must
+//      not apply to a new theme.
+//   4. Every literal a component still hardcodes ignores a theme. The count
+//      per rule and file is scripts/design-token-baseline.json, held down by
+//      `bun run lint:design-tokens`.
+//   5. Radius, shadow, motion duration and border width have no tokens yet.
+// Not in the way: inline colors resolve through css vars (renderer
+// lib/theme.ts), and canvas, xterm and 3D read themeRuntime(mode).
 
 export { THEME_MODES, type ThemeMode, type TokenValue };
 export { contrastRatio, hexToOklch, oklchToHex, type Oklch } from "./oklch";
