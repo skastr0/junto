@@ -928,12 +928,12 @@ html[data-junto-platform="darwin"] .station-bar [role="listbox"] {
 }
 
 .error-banner { position: relative; display: flex; max-width: min(680px, calc(100vw - 32px)); max-height: 84px; flex-direction: column; gap: 4px; overflow: auto; padding-right: 30px !important; box-shadow: 0 12px 30px var(--color-shadow-2); backdrop-filter: blur(14px); }
-.error-banner__close { position: absolute; top: 5px; right: 7px; color: var(--color-crimson); font-size: 17px; line-height: 1; }
+.error-banner__close { position: absolute; top: 5px; right: 7px; color: var(--color-crimson); font-size: var(--text-display); line-height: 1; }
 .error-banner__close:hover { color: var(--color-ink); }
-.error-banner__retry { align-self: flex-start; border: 1px solid color-mix(in oklab, var(--color-main) 35%, transparent); border-radius: 4px; color: var(--color-amber); padding: 4px 7px; font-size: 8px; letter-spacing: .12em; text-transform: uppercase; }
+.error-banner__retry { align-self: flex-start; border: 1px solid color-mix(in oklab, var(--color-main) 35%, transparent); border-radius: var(--radius-sm); color: var(--color-amber); padding: 4px 7px; font-size: var(--text-micro); letter-spacing: var(--tracking-eyebrow); text-transform: uppercase; }
 .error-banner__retry:hover { background: color-mix(in oklab, var(--color-main) 10%, transparent); border-color: color-mix(in oklab, var(--color-main) 65%, transparent); }
-.error-banner__label { color: var(--color-crimson); font-size: 8px; font-weight: 600; letter-spacing: .16em; text-transform: uppercase; }
-.error-banner__message { overflow: hidden; color: var(--color-ink); font-size: 10px; line-height: 1.45; text-overflow: ellipsis; }
+.error-banner__label { color: var(--color-crimson); font-size: var(--text-micro); font-weight: 600; letter-spacing: var(--tracking-eyebrow); text-transform: uppercase; }
+.error-banner__message { overflow: hidden; color: var(--color-ink); font-size: var(--text-label); line-height: var(--leading-body); text-overflow: ellipsis; }
 .boot-indicator { display: inline-flex; align-items: center; gap: 7px; border: 1px solid color-mix(in oklab, var(--color-main) 22%, transparent); border-radius: 999px; background: color-mix(in oklab, var(--color-ground) 72%, transparent); color: var(--color-dim); padding: 6px 10px; font-size: 8px; letter-spacing: .16em; text-transform: uppercase; backdrop-filter: blur(12px); }
 .boot-indicator__dot { width: 5px; height: 5px; border-radius: 50%; background: var(--color-amber); box-shadow: 0 0 9px color-mix(in oklab, var(--color-main) 85%, transparent); animation: juntoBootPulse 1.8s ease-in-out infinite; }
 @keyframes juntoBootPulse { 0%, 100% { opacity: .35; } 50% { opacity: 1; } }
