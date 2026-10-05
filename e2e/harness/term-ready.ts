@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 import { expect, type Page } from "@playwright/test";
 
 const rowCount = (page: Page): Promise<number> =>
@@ -34,5 +35,19 @@ export const waitForTerminalText = async (
 ): Promise<void> => {
   await expect
     .poll(async () => (await rowBlob(page)).includes(needle), { timeout })
+    .toBe(true);
+};
+
+/**
+ * Wait until an echo terminal (`echoTerminalNode`) has read `needle` from its
+ * PTY: the proof that typed keys arrived, independent of how the grid paints.
+ */
+export const waitForTerminalInput = async (
+  transcript: string,
+  needle: string,
+  timeout = 15_000,
+): Promise<void> => {
+  await expect
+    .poll(async () => (await readFile(transcript, "utf8").catch(() => "")).includes(needle), { timeout })
     .toBe(true);
 };

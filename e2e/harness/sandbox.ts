@@ -497,6 +497,37 @@ export const terminalTextNode = (input: {
   },
 });
 
+/** What an echo terminal prints once its program is reading. */
+export const ECHO_TERMINAL_READY = "echo-ready";
+
+/**
+ * A terminal that echoes. Its program is `tee`: every line typed into it is
+ * written back to the screen and appended to `transcript`, so a spec can
+ * prove that keys pressed in a focused terminal reached the PTY (read the
+ * file with `waitForTerminalInput`), whatever is floating over the surface.
+ * The line arrives when Enter is pressed.
+ */
+export const echoTerminalNode = (input: {
+  readonly id: string;
+  readonly bindingId: string;
+  readonly label: string;
+  /** Absolute path of the file the terminal appends what it reads to. */
+  readonly transcript: string;
+  readonly x?: number;
+  readonly y?: number;
+}): TextNode =>
+  terminalTextNode({
+    id: input.id,
+    bindingId: input.bindingId,
+    label: input.label,
+    launch: {
+      kind: "command",
+      // The transcript path rides as $0, so no quoting of it is needed.
+      argv: ["/bin/sh", "-c", `printf '${ECHO_TERMINAL_READY}\\r\\n'; exec tee "$0"`, input.transcript],
+    },
+    x: input.x,
+    y: input.y,
+  });
 
 /** A managed agent seat for scripted scenarios.
  * `key` is the process-bind agent key (`<host>:<profile>`); the same stable
