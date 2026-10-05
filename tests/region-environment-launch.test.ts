@@ -449,6 +449,39 @@ describe("the launch applies it", () => {
     expect(launch.args.join(" ")).not.toContain(CANARY);
   });
 
+  it("a region overrides a variable the machine already has, through a planned launch", () => {
+    // A planned launch carries a snapshot of the ambient environment. That
+    // snapshot is not the seat's own choice and must not beat the region.
+    const prior = { AMBIENT_ONE: process.env.AMBIENT_ONE, AMBIENT_TWO: process.env.AMBIENT_TWO };
+    process.env.AMBIENT_ONE = "machine";
+    process.env.AMBIENT_TWO = "machine";
+    try {
+      const planned = {
+        ...agent("claude"),
+        launch: {
+          kind: "harness" as const,
+          argv: ["claude"],
+          cwd: "/tmp",
+          // AMBIENT_ONE is the snapshot; AMBIENT_TWO was changed on the seat.
+          env: { ...(process.env as Record<string, string>), AMBIENT_TWO: "seat", PATH: binDir },
+        },
+      } as Parameters<typeof resolveLaunch>[0];
+      const launch = Result.getOrThrow(
+        resolveLaunch(planned, {
+          regionEnv: { AMBIENT_ONE: "region", AMBIENT_TWO: "region", ONLY_REGION: "region" },
+        }),
+      );
+      expect(launch.env.AMBIENT_ONE).toBe("region");
+      expect(launch.env.AMBIENT_TWO).toBe("seat");
+      expect(launch.env.ONLY_REGION).toBe("region");
+    } finally {
+      for (const [key, value] of Object.entries(prior)) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+    }
+  });
+
   it("folders ride the harness's own option, only where the installed binary lists it", () => {
     const folders = ["/srv/shared", "/home/op/notes"];
     const args = (harness: string) =>

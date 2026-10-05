@@ -652,9 +652,10 @@ export const resolveLaunch = (
   options?: {
     readonly seatInject?: Readonly<Record<string, string>>;
     /**
-     * The seat's region environment. Sits above the ambient environment and
-     * below the seat's own launch env and Junto's injections, so `JUNTO_*`
-     * always wins and the nested-session scrub still applies.
+     * The seat's region environment. Sits above the ambient environment
+     * (including the ambient snapshot a planned launch carries) and below
+     * what the seat itself set and Junto's injections, so `JUNTO_*` always
+     * wins and the nested-session scrub still applies.
      */
     readonly regionEnv?: Readonly<Record<string, string>>;
     /** Region folders, passed to the harness's add-directory option if it has one. */
@@ -686,12 +687,21 @@ export const resolveLaunch = (
   // the live update path once a surface exists; they are no longer the only
   // way the harness ever learns the theme.
   const colorFgBg = colorFgBgFor(options?.themeMode ?? currentThemeMode());
+  // A planned launch carries a snapshot of the ambient environment, so most
+  // of `launch.env` is not the seat's own. Only what differs from the ambient
+  // value is: the picker's dials and anything authored on the seat. A region
+  // overrides the snapshot and yields to those.
+  const launchEnv = launch?.env ?? {};
+  const seatOwnEnv = Object.fromEntries(
+    Object.entries(launchEnv).filter(([key, value]) => process.env[key] !== value),
+  );
   const env: Record<string, string> =
     seat.kind === "agent"
       ? {
           ...buildSpawnEnv(process.env, {
+            ...launchEnv,
             ...(options?.regionEnv ?? {}),
-            ...(launch?.env ?? {}),
+            ...seatOwnEnv,
             // Live host authority wins over the earlier pure launch plan.
             // In dev, that keeps repo/dist ahead of a stale installed CLI;
             // for every build, it prevents document/ambient launch env from
