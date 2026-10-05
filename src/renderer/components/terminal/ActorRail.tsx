@@ -18,6 +18,8 @@ import type { CanvasNode } from "@shared/canvas";
 import { actorRailExpanded, actorRailPeers, setActorRailExpanded } from "../../lib/actor-rail";
 import type { ActorEdgeRow } from "../../lib/actor-edges";
 import { openActorMirror } from "../../lib/actor-mirrors";
+import { terminalSurfaceId } from "../../lib/dock-state";
+import { scheduleFocusPrimaryControl } from "../../lib/focus-ownership";
 import { openOperatorModal } from "../../lib/operator-modal";
 import { isOverseerSeat } from "../../lib/overseer-set";
 import { nodeTitle } from "../../lib/presentation";
@@ -84,7 +86,18 @@ function RailSeat({
         aria-expanded={bubbleUp ? true : undefined}
         title={`Go to ${name}`}
         data-testid="actor-rail-go"
-        onClick={() => openActorMirror(peer, actorNodeId, zone)}
+        onClick={() => {
+          openActorMirror(peer, actorNodeId, zone);
+          // The focus shell hands the keyboard to its new front terminal by
+          // itself; the pinned dock does not, so the rail does it here.
+          if (zone === "pinned") {
+            scheduleFocusPrimaryControl(() =>
+              document.querySelector<HTMLElement>(
+                `.workbench-pane[data-surface-id="${CSS.escape(terminalSurfaceId(peer.id))}"]:not(.workbench-pane--parked)`,
+              ),
+            );
+          }
+        }}
       />
       <AgentSeatView
         identity={peer.id}
