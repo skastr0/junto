@@ -7,14 +7,26 @@
  * range of lines selected on one side. It joins the repository's pending
  * review; nothing is sent from here.
  */
-import { useEffect, useMemo, useState, type KeyboardEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { Pencil, Plus, Trash2 } from "lucide-react";
 import { PatchDiff } from "@pierre/diffs/react";
 import type { DiffLineAnnotation } from "@pierre/diffs";
-import { quoteDiffLines, reviewCommentAnchor, type ReviewComment, type ReviewSide } from "@shared/git-review";
+import {
+  applyMention,
+  filterMentionCandidates,
+  mentionedIn,
+  mentionQueryAt,
+  quoteDiffLines,
+  reviewCandidateLabel,
+  reviewCommentAnchor,
+  type ReviewCandidate,
+  type ReviewComment,
+  type ReviewSide,
+} from "@shared/git-review";
 import { noteReviewComposer, removeReviewComment, saveReviewComment, usePendingReview } from "../../lib/git-review";
 import { claimFocusOnMount } from "../../lib/focus-ownership";
 import { modKeyGlyph } from "../../lib/platform";
+import { AgentPortrait } from "../AgentPortrait";
 import { Button, IconButton, StatusDot, Textarea } from "../ui";
 
 type Draft = {
@@ -24,6 +36,8 @@ type Draft = {
   readonly line: number;
   readonly endLine: number;
   readonly text: string;
+  /** Agents picked from the mention list while writing; one counts only while its @Name is still in the text. */
+  readonly picked: ReadonlyArray<{ readonly nodeId: string; readonly name: string }>;
 };
 
 type Row = { readonly kind: "comment"; readonly comment: ReviewComment } | { readonly kind: "composer" };
@@ -33,18 +47,62 @@ const newId = (): string => `c_${Date.now().toString(36)}_${Math.random().toStri
 function Composer({
   anchor,
   draft,
+  candidates,
   onChange,
   onCancel,
   onSave,
 }: {
   readonly anchor: string;
   readonly draft: Draft;
-  readonly onChange: (text: string) => void;
+  /** Who can be mentioned: the agents in the review's region. */
+  readonly candidates: ReadonlyArray<ReviewCandidate>;
+  readonly onChange: (next: Pick<Draft, "text" | "picked">) => void;
   readonly onCancel: () => void;
   readonly onSave: () => void;
 }) {
   const canSave = draft.text.trim().length > 0;
+  const field = useRef<HTMLTextAreaElement | null>(null);
+  const [caret, setCaret] = useState(draft.text.length);
+  const [active, setActive] = useState(0);
+  // Escape closes the list for the @word it was open on; typing on reopens it.
+  const [closedFor, setClosedFor] = useState<string | null>(null);
+  const typing = mentionQueryAt(draft.text, caret);
+  const offered = typing && closedFor !== `${typing.start}:${typing.query}` ? filterMentionCandidates(candidates, typing.query) : [];
+  const listOpen = typing !== undefined && offered.length > 0;
+  const at = Math.min(active, Math.max(0, offered.length - 1));
+
+  const pick = (candidate: ReviewCandidate): void => {
+    if (!typing) return;
+    const next = applyMention(draft.text, typing, candidate.name);
+    onChange({
+      text: next.text,
+      picked: [...draft.picked.filter((entry) => entry.nodeId !== candidate.nodeId), { nodeId: candidate.nodeId, name: candidate.name }],
+    });
+    setCaret(next.caret);
+    setActive(0);
+    requestAnimationFrame(() => field.current?.setSelectionRange(next.caret, next.caret));
+  };
+
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>): void => {
+    if (listOpen) {
+      if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+        event.preventDefault();
+        setActive((at + (event.key === "ArrowDown" ? 1 : offered.length - 1)) % offered.length);
+        return;
+      }
+      if ((event.key === "Enter" && !event.metaKey && !event.ctrlKey) || event.key === "Tab") {
+        event.preventDefault();
+        pick(offered[at]!);
+        return;
+      }
+      if (event.key === "Escape") {
+        // Closes the list only: the draft and the surface stay.
+        event.preventDefault();
+        event.stopPropagation();
+        setClosedFor(`${typing.start}:${typing.query}`);
+        return;
+      }
+    }
     if (event.key === "Escape") {
       // The field takes Escape first: it cancels the draft, and the surface stays open.
       event.preventDefault();
@@ -55,20 +113,56 @@ function Composer({
       onSave();
     }
   };
+  const mentioned = mentionedIn(draft.text, draft.picked);
   return (
     <div className="git-review__row" data-testid="git-review-composer">
       <div className="git-review__anchor">{anchor}</div>
       <Textarea
-        ref={claimFocusOnMount}
+        ref={(element) => {
+          field.current = element;
+          claimFocusOnMount(element);
+        }}
         dense
         value={draft.text}
         aria-label={`Comment on ${anchor}`}
-        placeholder="Comment on this line"
+        placeholder="Comment on this line, @ to send it to another agent"
         aria-keyshortcuts="Meta+Enter Control+Enter"
-        onChange={(event) => onChange(event.target.value)}
+        aria-expanded={listOpen}
+        aria-controls={listOpen ? "git-review-mentions" : undefined}
+        onChange={(event) => {
+          setCaret(event.target.selectionStart ?? event.target.value.length);
+          onChange({ text: event.target.value, picked: draft.picked });
+        }}
+        onSelect={(event) => setCaret(event.currentTarget.selectionStart ?? 0)}
         onKeyDown={onKeyDown}
       />
+      {listOpen ? (
+        <ul id="git-review-mentions" className="git-review__mentions" role="listbox" aria-label="Agents to mention">
+          {offered.map((candidate, index) => (
+            <li
+              key={candidate.nodeId}
+              role="option"
+              aria-selected={index === at}
+              data-active={index === at ? "true" : "false"}
+              className="git-review__mention"
+              // Press, not click: the field must keep its focus and its caret.
+              onPointerDown={(event) => {
+                event.preventDefault();
+                pick(candidate);
+              }}
+            >
+              <AgentPortrait identity={candidate.nodeId} size={18} frame="round" outline={false} badge={false} />
+              {reviewCandidateLabel(candidate, candidates)}
+            </li>
+          ))}
+        </ul>
+      ) : null}
       <div className="git-review__actions">
+        {mentioned.length > 0 ? (
+          <span className="git-review__to">
+            Goes to {draft.picked.filter((entry) => mentioned.includes(entry.nodeId)).map((entry) => entry.name).join(", ")}
+          </span>
+        ) : null}
         <Button size="sm" variant="chrome" onClick={onCancel}>
           Cancel
         </Button>
@@ -85,6 +179,7 @@ export function ReviewDiff({
   section,
   path,
   themeType,
+  candidates,
 }: {
   /** The repository's top level: the pending review it belongs to. */
   readonly root: string;
@@ -92,6 +187,8 @@ export function ReviewDiff({
   readonly section: string;
   readonly path: string;
   readonly themeType: "light" | "dark";
+  /** Who a comment can mention. */
+  readonly candidates: ReadonlyArray<ReviewCandidate>;
 }) {
   const review = usePendingReview(root);
   const comments = useMemo(() => review.comments.filter((comment) => comment.file === path), [review.comments, path]);
@@ -120,12 +217,11 @@ export function ReviewDiff({
 
   const begin = (side: ReviewSide, line: number): void => {
     const inSelection = selected !== null && selected.side === side && line >= selected.start && line <= selected.end;
-    setDraft({ side, line: inSelection ? selected.start : line, endLine: inSelection ? selected.end : line, text: "" });
+    setDraft({ side, line: inSelection ? selected.start : line, endLine: inSelection ? selected.end : line, text: "", picked: [] });
   };
 
   const save = (): void => {
     if (!draft || draft.text.trim().length === 0) return;
-    const existing = draft.id ? comments.find((comment) => comment.id === draft.id) : undefined;
     saveReviewComment(root, {
       id: draft.id ?? newId(),
       file: path,
@@ -134,7 +230,7 @@ export function ReviewDiff({
       endLine: draft.endLine,
       quote: quoteDiffLines(section, draft.side, draft.line, draft.endLine),
       text: draft.text.trim(),
-      to: existing?.to ?? [],
+      to: mentionedIn(draft.text, draft.picked),
     });
     setDraft(null);
   };
@@ -183,7 +279,8 @@ export function ReviewDiff({
             <Composer
               anchor={reviewCommentAnchor({ file: path, line: draft.line, endLine: draft.endLine })}
               draft={draft}
-              onChange={(text) => setDraft({ ...draft, text })}
+              candidates={candidates}
+              onChange={(next) => setDraft({ ...draft, ...next })}
               onCancel={() => setDraft(null)}
               onSave={save}
             />
@@ -196,12 +293,27 @@ export function ReviewDiff({
             <div className="git-review__anchor">
               <StatusDot tone="cyan" />
               {anchor}
+              {comment.to.length > 0 ? (
+                <span className="git-review__to">
+                  to {candidates.filter((candidate) => comment.to.includes(candidate.nodeId)).map((candidate) => candidate.name).join(", ") || "a mentioned agent"}
+                </span>
+              ) : null}
               <span className="git-review__tools">
                 <IconButton
                   size="xs"
                   aria-label={`Edit comment on ${anchor}`}
                   title="Edit"
-                  onClick={() => setDraft({ id: comment.id, side: comment.side, line: comment.line, endLine: comment.endLine, text: comment.text })}
+                  onClick={() =>
+                    setDraft({
+                      id: comment.id,
+                      side: comment.side,
+                      line: comment.line,
+                      endLine: comment.endLine,
+                      text: comment.text,
+                      // The agents it already goes to, by the names they have now.
+                      picked: candidates.filter((candidate) => comment.to.includes(candidate.nodeId)).map(({ nodeId, name }) => ({ nodeId, name })),
+                    })
+                  }
                 >
                   <Pencil size={12} />
                 </IconButton>

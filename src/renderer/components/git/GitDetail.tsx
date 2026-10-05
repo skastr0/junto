@@ -15,13 +15,14 @@ import { DIM, GREEN, HUE, INK } from "../../lib/theme";
 import { claimFocus } from "../../lib/focus-ownership";
 import { getJuntoApi } from "../../lib/junto-api";
 import { nodeTitle } from "../../lib/presentation";
+import { reviewCandidates } from "@shared/review-candidates";
 import { state$ } from "../../lib/state";
 import { themeMode$ } from "../../lib/theme-mode";
 import { InspectorTabs } from "../chat/InspectorTabs";
 import { FocusSurface } from "../FocusSurface";
 import { IconButton, OverlayHeader } from "../ui";
 import { ReviewDiff } from "./ReviewDiff";
-import { ReviewFooter, type ReviewRecipient } from "./ReviewFooter";
+import { ReviewFooter } from "./ReviewFooter";
 import "./git.css";
 
 const shortSha = (sha: string): string => sha.slice(0, 7);
@@ -69,7 +70,7 @@ export function GitDetail({
 }) {
   const cwd = node.ether?.git?.cwd?.trim() ?? "";
   const title = node.type === "text" ? node.text.split("\n")[0] || "git" : "git";
-  return <GitRepositoryDetail cwd={cwd} title={title} onClose={onClose} />;
+  return <GitRepositoryDetail cwd={cwd} title={title} anchorNodeId={node.id} onClose={onClose} />;
 }
 
 /** What the detail shows: a review of work not yet in the base, or one commit at a time. */
@@ -104,18 +105,24 @@ export function GitRepositoryDetail({
   cwd,
   title,
   initialView = "commits",
-  recipient,
+  recipientNodeId,
+  anchorNodeId,
   onClose,
 }: {
   readonly cwd: string;
   readonly title: string;
   /** The view it opens on: a seat's review opens on its uncommitted work, a git node on its commits. */
   readonly initialView?: GitDetailView;
-  /** The session the review was opened from: its comments go to that agent unless they mention another. */
-  readonly recipient?: ReviewRecipient;
+  /** The session the review was opened from, by node id: its comments go to that agent unless they mention another. */
+  readonly recipientNodeId?: string;
+  /** The node it was opened from (a seat, a git node): its region decides who can receive the review. */
+  readonly anchorNodeId?: string;
   readonly onClose: () => void;
 }) {
   const doc = use$(state$.doc);
+  const candidates = useMemo(() => reviewCandidates(doc, anchorNodeId, nodeTitle), [doc, anchorNodeId]);
+  // Who the review goes to: the session it was opened from, until the operator chooses another.
+  const [to, setTo] = useState<string | undefined>(recipientNodeId);
   const nameOf = (nodeId: string): string => {
     const node = doc.nodes.find((candidate) => candidate.id === nodeId);
     return node ? nodeTitle(node) : nodeId;
@@ -356,7 +363,13 @@ export function GitRepositoryDetail({
                   <div data-file-index={index} className="git-browser__file-diff">
                     {reviewing ? (
                       // A review's lines take comments; a single commit is read only.
-                      <ReviewDiff root={cwd} section={file} path={filePaths[index] ?? "file"} themeType={themeType} />
+                      <ReviewDiff
+                        root={cwd}
+                        section={file}
+                        path={filePaths[index] ?? "file"}
+                        themeType={themeType}
+                        candidates={candidates}
+                      />
                     ) : (
                       <PatchDiff
                         patch={file}
@@ -404,7 +417,9 @@ export function GitRepositoryDetail({
                 }
               : undefined
           }
-          recipient={recipient}
+          to={to}
+          onTo={setTo}
+          candidates={candidates}
           nameOf={nameOf}
         />
       ) : null}

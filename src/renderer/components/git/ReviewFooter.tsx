@@ -6,7 +6,13 @@
  */
 import { useState } from "react";
 import { gitReviewedState, type GitReviewView } from "@shared/git";
-import { reviewCountLine, reviewIsEmpty, reviewMails } from "@shared/git-review";
+import {
+  reviewCandidateLabel,
+  reviewCountLine,
+  reviewIsEmpty,
+  reviewMails,
+  type ReviewCandidate,
+} from "@shared/git-review";
 import { askConfirm } from "../../lib/confirm";
 import {
   clearPendingReview,
@@ -18,9 +24,7 @@ import {
   setReviewNote,
 } from "../../lib/git-review";
 import { planSeatMessageFor, sendSeatMessage } from "../../lib/seat-message";
-import { Button, Textarea } from "../ui";
-
-export type ReviewRecipient = { readonly nodeId: string; readonly name: string };
+import { Button, Dropdown, Textarea } from "../ui";
 
 const clock = (at: number): string => new Date(at).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
 
@@ -28,7 +32,9 @@ export function ReviewFooter({
   root,
   repository,
   reviewed,
-  recipient,
+  to,
+  onTo,
+  candidates,
   nameOf,
 }: {
   readonly root: string;
@@ -36,8 +42,11 @@ export function ReviewFooter({
   readonly repository: string;
   /** What is on screen, so the mail can say what was reviewed. Absent while it loads. */
   readonly reviewed: { readonly view: GitReviewView; readonly branch: string; readonly head?: string; readonly base?: string } | undefined;
-  /** The review's own recipient: the session it was opened from. */
-  readonly recipient: ReviewRecipient | undefined;
+  /** The review's own recipient, by node id: the session it was opened from, or the one chosen. */
+  readonly to: string | undefined;
+  readonly onTo: (nodeId: string) => void;
+  /** Who it can go to: the agents in the review's region. */
+  readonly candidates: ReadonlyArray<ReviewCandidate>;
   readonly nameOf: (nodeId: string) => string;
 }) {
   const review = usePendingReview(root);
@@ -52,13 +61,13 @@ export function ReviewFooter({
     if (!canSend || reviewed === undefined) return;
     const { mails, unaddressed } = reviewMails({
       review,
-      defaultTo: recipient?.nodeId,
+      defaultTo: to,
       reviewed: gitReviewedState(reviewed),
       repository,
       nameOf,
     });
     if (mails.length === 0) {
-      setProblem("Nobody to send it to: mention an agent in a comment, or open the review from an agent.");
+      setProblem("Choose who receives it, or mention an agent in a comment.");
       return;
     }
     setBusy(true);
@@ -121,6 +130,15 @@ export function ReviewFooter({
         <span className="git-review__status" role="status" data-problem={problem ? "true" : undefined}>
           {status}
         </span>
+        <span className="git-review__to">to</span>
+        <Dropdown
+          value={to ?? ""}
+          aria-label="Who receives the review"
+          placeholder="choose an agent"
+          emptyLabel="no agents in this region"
+          options={candidates.map((candidate) => ({ value: candidate.nodeId, label: reviewCandidateLabel(candidate, candidates) }))}
+          onChange={onTo}
+        />
         {!empty ? (
           <Button size="md" variant="chrome" disabled={busy} onClick={() => void discard()}>
             Discard
@@ -134,7 +152,7 @@ export function ReviewFooter({
           data-testid="git-review-send"
           onClick={() => void send()}
         >
-          {busy ? "Sending" : recipient ? `Send to ${recipient.name}` : "Send review"}
+          {busy ? "Sending" : to ? `Send to ${nameOf(to)}` : "Send review"}
         </Button>
       </div>
     </footer>
