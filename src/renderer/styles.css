@@ -341,8 +341,8 @@ html[data-junto-platform="darwin"] .focus-surface.focus-surface--contain-parent 
   scrollbar-width: thin;
 }
 .workbench-chrome__empty {
-  font-size: 10px;
-  letter-spacing: 0.12em;
+  font-size: var(--text-label);
+  letter-spacing: var(--tracking-eyebrow);
   text-transform: uppercase;
   color: var(--color-faint);
   padding: 0 6px;
@@ -353,11 +353,11 @@ html[data-junto-platform="darwin"] .focus-surface.focus-surface--contain-parent 
   gap: 6px;
   max-width: 180px;
   padding: 4px 10px;
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   border: 1px solid transparent;
   background: transparent;
   color: var(--color-dim);
-  font-size: 11px;
+  font-size: var(--text-body);
   cursor: pointer;
   white-space: nowrap;
 }
@@ -375,8 +375,8 @@ html[data-junto-platform="darwin"] .focus-surface.focus-surface--contain-parent 
   color: var(--color-amber-hi);
 }
 .workbench-tab__kind {
-  font-size: 9px;
-  letter-spacing: 0.08em;
+  font-size: var(--text-caption);
+  letter-spacing: var(--tracking-label);
   text-transform: uppercase;
   opacity: 0.7;
 }
@@ -390,11 +390,11 @@ html[data-junto-platform="darwin"] .focus-surface.focus-surface--contain-parent 
   gap: 6px;
 }
 .workbench-chrome__btn {
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   border: 1px solid var(--color-overlay-4);
   background: var(--color-overlay-1);
   color: var(--color-ink);
-  font-size: 11px;
+  font-size: var(--text-body);
   padding: 4px 10px;
   cursor: pointer;
 }
@@ -406,7 +406,7 @@ html[data-junto-platform="darwin"] .focus-surface.focus-surface--contain-parent 
   align-items: center;
   gap: 2px;
   padding: 2px;
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   border: 1px solid var(--color-overlay-4);
   background: var(--color-overlay-1);
   cursor: pointer;
@@ -417,8 +417,8 @@ html[data-junto-platform="darwin"] .focus-surface.focus-surface--contain-parent 
   justify-content: center;
   width: 22px;
   height: 22px;
-  border-radius: 4px;
-  font-size: 11px;
+  border-radius: var(--radius-sm);
+  font-size: var(--text-body);
   color: var(--color-faint);
   line-height: 1;
 }
@@ -506,7 +506,7 @@ html[data-junto-platform="darwin"] .focus-surface.focus-surface--contain-parent 
   justify-content: center;
   height: 100%;
   color: var(--color-faint);
-  font-size: 12px;
+  font-size: var(--text-body-lg);
 }
 .workbench-resize-handle {
   position: absolute;
