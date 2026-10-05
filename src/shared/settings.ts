@@ -5,6 +5,7 @@ import {
 } from "./browser-limits";
 import { RECENT_COLORS_MAX, sanitizeRecentColors } from "./canvas-colors";
 import { CANVAS_NAME_INPUT_PATTERN, CANVAS_NAME_MAX_LENGTH } from "./canvas-name";
+import { KEY_TABLE } from "./key-table";
 import { DEFAULT_STATION_HOST_ID, STATION_ROLES } from "./station";
 import { NATIVE_USAGE_PROVIDERS, NativeUsageProvider } from "./usage";
 
@@ -554,6 +555,58 @@ export const feedSettings = (settings: Settings | undefined): FeedSettings =>
   settings?.feed ?? defaultFeed();
 
 /**
+ * Keyboard: only the shortcuts the operator changed, keyed by the shortcut's
+ * id in the key table (shared/key-table). The table is the one source and
+ * holds the defaults; a stored id the table no longer has is dropped on
+ * write, so a renamed shortcut never leaves a dead row holding a key. An
+ * empty list means the shortcut has no key.
+ */
+export const KEYBOARD_BOUNDS = { maxChords: 4, maxChordChars: 48 } as const;
+
+const KeyChordText = Schema.String.pipe(
+  Schema.check(Schema.isMinLength(1)),
+  Schema.check(Schema.isMaxLength(KEYBOARD_BOUNDS.maxChordChars)),
+  Schema.check(Schema.isPattern(/^(?:(?:Cmd|Ctrl|Alt|Shift)\+)*[A-Za-z0-9]+$/)),
+);
+
+const KeyOverrideMap = Schema.Record(
+  Schema.String,
+  Schema.Array(KeyChordText).pipe(Schema.check(Schema.isMaxLength(KEYBOARD_BOUNDS.maxChords))),
+);
+
+export const KeyboardSettings = Schema.Struct({
+  overrides: KeyOverrideMap,
+});
+export type KeyboardSettings = typeof KeyboardSettings.Type;
+
+export const KeyboardPatch = Schema.Struct({
+  overrides: Schema.optionalKey(KeyOverrideMap),
+});
+export type KeyboardPatch = typeof KeyboardPatch.Type;
+
+export const defaultKeyboard = (): KeyboardSettings => ({ overrides: {} });
+
+export const keyboardSettings = (settings: Settings | undefined): KeyboardSettings =>
+  settings?.keyboard ?? defaultKeyboard();
+
+/**
+ * What is stored for the keyboard: known shortcuts only, repeats dropped,
+ * and nothing for a shortcut whose chords are its defaults on either
+ * platform's side of the table.
+ */
+export const sanitizeKeyOverrides = (
+  overrides: Readonly<Record<string, ReadonlyArray<string>>>,
+): Record<string, string[]> => {
+  const next: Record<string, string[]> = {};
+  for (const def of KEY_TABLE) {
+    const chords = overrides[def.id];
+    if (chords === undefined) continue;
+    next[def.id] = [...new Set(chords)].slice(0, KEYBOARD_BOUNDS.maxChords);
+  }
+  return next;
+};
+
+/**
  * Desktop notifications: native banners while Junto is in the background,
  * one switch per kind of need, the Dock badge, and a Dock bounce for a
  * blocked seat. `enabled` is the master switch for banners; the badge has
@@ -836,6 +889,8 @@ export const Settings = Schema.Struct({
   live: Schema.optionalKey(LiveSettings),
   /** Absent on rows written before quick replies; absent means the defaults. */
   feed: Schema.optionalKey(FeedSettings),
+  /** Absent on rows written before shortcuts could be changed; absent means the defaults. */
+  keyboard: Schema.optionalKey(KeyboardSettings),
   /** Absent on rows written before desktop notifications; absent means the defaults. */
   notifications: Schema.optionalKey(NotificationSettings),
   /**
@@ -1043,6 +1098,7 @@ export const SettingsPatch = Schema.Struct({
   terminal: Schema.optionalKey(TerminalPatch),
   live: Schema.optionalKey(LivePatch),
   feed: Schema.optionalKey(FeedPatch),
+  keyboard: Schema.optionalKey(KeyboardPatch),
   notifications: Schema.optionalKey(NotificationPatch),
   providers: Schema.optionalKey(ProvidersPatch),
 });
@@ -1059,6 +1115,7 @@ export const SettingsSectionKey = Schema.Literals(["appearance", "canvas",
 "terminal",
 "live",
 "feed",
+"keyboard",
 "notifications",
 "providers",]);
 export type SettingsSectionKey = typeof SettingsSectionKey.Type;
@@ -1243,6 +1300,7 @@ export const defaultSettings = (): Settings => ({
   terminal: defaultTerminal(),
   live: defaultLive(),
   feed: defaultFeed(),
+  keyboard: defaultKeyboard(),
   notifications: defaultNotifications(),
   providers: defaultProviders(),
 });
@@ -1273,6 +1331,8 @@ export const defaultSection = (key: SettingsSectionKey): Settings[SettingsSectio
       return defaultLive();
     case "feed":
       return defaultFeed();
+    case "keyboard":
+      return defaultKeyboard();
     case "notifications":
       return defaultNotifications();
     case "providers":
@@ -1436,6 +1496,10 @@ export const applySettingsPatch = (current: Settings, patch: SettingsPatch): Set
   }
   if (patch.feed?.quickReplies !== undefined) {
     next = { ...next, feed: { quickReplies: sanitizeQuickReplies(patch.feed.quickReplies) } };
+  }
+  if (patch.keyboard?.overrides !== undefined) {
+    // The patch carries the whole map: a shortcut left out is back on its default.
+    next = { ...next, keyboard: { overrides: sanitizeKeyOverrides(patch.keyboard.overrides) } };
   }
   if (patch.harnesses?.byHarness) {
     const current = next.harnesses ?? defaultHarnesses();

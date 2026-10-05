@@ -6,6 +6,7 @@ import {
   BrowserPrefs,
   CanvasSettings,
   FeedSettings,
+  KeyboardSettings,
   FleetSettings,
   HarnessesSettings,
   PortraitsSettings,
@@ -18,6 +19,7 @@ import {
   StationSettings,
   TerminalSettings,
   defaultFeed,
+  defaultKeyboard,
   defaultNotifications,
   defaultHarnesses,
   defaultLive,
@@ -71,6 +73,8 @@ export const StoredSettingsPreferences = Schema.Struct({
   live: Schema.optionalKey(LiveSettings),
   /** Absent on rows written before quick replies; resolves to the defaults. */
   feed: Schema.optionalKey(FeedSettings),
+  /** Absent on rows written before shortcuts could be changed; resolves to the defaults. */
+  keyboard: Schema.optionalKey(KeyboardSettings),
   /** Absent on rows written before desktop notifications; resolves to the defaults. */
   notifications: Schema.optionalKey(NotificationSettings),
   /** Absent on rows written before the Providers settings surface. */
@@ -133,6 +137,7 @@ export const preferencesFromSettings = (
   terminal: settings.terminal ?? defaultTerminal(),
   live: settings.live ?? defaultLive(),
   feed: settings.feed ?? defaultFeed(),
+  keyboard: settings.keyboard ?? defaultKeyboard(),
   notifications: settings.notifications ?? defaultNotifications(),
   providers: persistableProviders(settings.providers, options),
   ...(settings.portraits ? { portraits: settings.portraits } : {}),
@@ -205,6 +210,7 @@ export const decodeStoredSettings = (
     terminal: prefs.terminal ?? defaultTerminal(),
     live: prefs.live ?? defaultLive(),
     feed: prefs.feed ?? defaultFeed(),
+    keyboard: prefs.keyboard ?? defaultKeyboard(),
     notifications: prefs.notifications ?? defaultNotifications(),
     providers: prefs.providers ?? defaultProviders(),
     ...(prefs.portraits ? { portraits: prefs.portraits } : {}),
