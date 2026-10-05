@@ -1350,6 +1350,8 @@ type TaskRow = StateRow & {
   readonly reason: string | null;
   readonly response: string | null;
   readonly created_at: string;
+  /** Selected by the lane loaders only: the projection's stateSince fallback. */
+  readonly origin_at?: string;
 };
 
 type MessageRow = StateRow & {
@@ -2763,12 +2765,20 @@ type TaskMetadataBag = {
   readonly checkResults?: TaskValue["checkResults"];
   readonly admission?: TaskValue["admission"];
   readonly raisedBy?: TaskValue["raisedBy"];
+  /**
+   * When the row entered its current state: the origin time of the fact that
+   * changed it. Row bookkeeping written by `writeTask`, never read from the
+   * task value, so it stays out of every fact body.
+   */
+  readonly stateSince?: string;
 };
 
 const foldTaskMetadata = (
   task: TaskValue,
+  stateSince: string,
 ): TaskValue["metadata"] | undefined => {
   const bag: TaskMetadataBag = {
+    stateSince,
     ...(task.rules !== undefined && task.rules.length > 0
       ? { rules: task.rules }
       : {}),
@@ -2786,9 +2796,18 @@ const foldTaskMetadata = (
     ...(task.admission !== undefined ? { admission: task.admission } : {}),
     ...(task.raisedBy !== undefined ? { raisedBy: task.raisedBy } : {}),
   };
-  if (Object.keys(bag).length === 0) return task.metadata;
   return { ...(task.metadata ?? {}), [TASK_METADATA_BAG_KEY]: bag };
 };
+
+/**
+ * When a stored row entered its current state. A row written before the
+ * stamp existed has none; its last fact's origin time is the best the
+ * journal's row knows, and it is replaced at that row's next state change.
+ */
+const rowStateSince = (row: {
+  readonly metadata_json: string | null;
+  readonly origin_at: string;
+}): string => liftTaskMetadata(row.metadata_json).taskFields?.stateSince ?? row.origin_at;
 
 const liftTaskMetadata = (
   metadataJson: string | null,
@@ -3025,7 +3044,8 @@ const loadLaneTasks = (
           metadata_json,
           reason,
           response,
-          created_at
+          created_at,
+          origin_at
         FROM ${table}
         WHERE canvas_name = ? AND node_id = ?
         ${orderBy}
@@ -3033,15 +3053,20 @@ const loadLaneTasks = (
       [sink.canvasName, sink.nodeId],
     )
     .map((row) => {
-      const task = taskFromRow(
-        reader,
-        sink,
-        lane,
-        row,
-        dependsMap?.get(row.item_id),
-        finishMap?.get(row.item_id),
-        threads.get(row.item_id) ?? [],
-      );
+      const task: TaskValue = {
+        ...taskFromRow(
+          reader,
+          sink,
+          lane,
+          row,
+          dependsMap?.get(row.item_id),
+          finishMap?.get(row.item_id),
+          threads.get(row.item_id) ?? [],
+        ),
+        // Projection only, like verdicts below: the write path's loadTask
+        // never carries it, so no fact body does.
+        stateSince: rowStateSince({ metadata_json: row.metadata_json, origin_at: row.origin_at! }),
+      };
       return lane === "task"
         ? {
             ...task,
@@ -4881,18 +4906,31 @@ const writeTask = (
   const previous = selectTaskIdentity(writer, lane, sink, task.id);
   const table = lane === "task" ? "work_tasks" : "work_requests";
   const id = lane === "task" ? "task_id" : "request_id";
-  const createdAt =
-    writer.get<StateRow & { readonly created_at: string }>(
-      `
-        SELECT created_at
-        FROM ${table}
-        WHERE canvas_name = ? AND node_id = ? AND ${id} = ?
-      `,
-      [sink.canvasName, sink.nodeId, task.id],
-    )?.created_at ?? fact.originAt;
+  const stored = writer.get<
+    StateRow & {
+      readonly created_at: string;
+      readonly state: TaskState;
+      readonly metadata_json: string | null;
+      readonly origin_at: string;
+    }
+  >(
+    `
+      SELECT created_at, state, metadata_json, origin_at
+      FROM ${table}
+      WHERE canvas_name = ? AND node_id = ? AND ${id} = ?
+    `,
+    [sink.canvasName, sink.nodeId, task.id],
+  );
+  const createdAt = stored?.created_at ?? fact.originAt;
+  // The state's clock restarts only when the state changes: a fact that
+  // leaves it alone (a note, a check result) keeps the time it began.
+  const stateSince =
+    stored !== undefined && stored.state === task.state
+      ? rowStateSince(stored)
+      : fact.originAt;
   // Task-specific fields fold into the metadata bag on write; taskFromRow
   // lifts them back into first-class Task fields (see TASK_METADATA_BAG_KEY).
-  const metadata = foldTaskMetadata(task);
+  const metadata = foldTaskMetadata(task, stateSince);
   const common = [
     sink.canvasName,
     sink.nodeId,
@@ -4907,7 +4945,7 @@ const writeTask = (
     task.artifactIds === undefined
       ? null
       : canonicalJson(task.artifactIds),
-    metadata === undefined ? null : canonicalJson(metadata),
+    canonicalJson(metadata),
     task.reason ?? null,
     task.response ?? null,
     createdAt,

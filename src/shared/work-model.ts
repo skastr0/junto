@@ -403,6 +403,13 @@ export const Task = Schema.Struct({
   verdicts: Schema.optionalKey(Schema.Array(ReviewVerdict)),
   /** Projection recomputed from the current task epoch and exact evidence refs. */
   subjectHash: Schema.optionalKey(Schema.String),
+  /**
+   * Projection: when this task or request entered its current state (ISO),
+   * the origin time of the fact that changed it. Stamped by the work
+   * repository on every item it projects; never authored, and never part of
+   * a fact body.
+   */
+  stateSince: Schema.optionalKey(Schema.String),
 }).pipe(
   Schema.check(Schema.makeFilter(({ id, state, claimedBy, metadata, dependsOn, completionEvidence }) => {
     if (
