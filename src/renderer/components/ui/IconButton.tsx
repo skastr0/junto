@@ -14,7 +14,8 @@ export function IconButton({
   ...rest
 }: {
   readonly tone?: "default" | "danger" | "accent";
-  readonly size?: "sm" | "md";
+  /** xs is 16px, for a control that sits inside one line of dense text (a diff row). */
+  readonly size?: "xs" | "sm" | "md";
   readonly className?: string;
   readonly children: ReactNode;
 } & ButtonHTMLAttributes<HTMLButtonElement>) {
@@ -24,6 +25,7 @@ export function IconButton({
     accent: "text-cyan/70 hover:bg-ink/10 hover:text-cyan",
   } as const;
   const sizes = {
+    xs: "size-4",
     sm: "size-6",
     md: "size-7",
   } as const;
