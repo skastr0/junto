@@ -149,6 +149,9 @@ export function FeedCard({
   const isSeat = node === undefined || node.ether?.entity?.kind === "agent";
   const age = mailAgeLabel(nowMs, item.since);
   const health = item.kind === "health" ? undefined : item.health;
+  // More to see than the sentence: the agent's longer text, or files it attached.
+  const hasDetails =
+    item.signalId !== undefined && (Boolean(item.detail) || (item.attachments?.length ?? 0) > 0);
 
   return (
     <div className={`operator-feed__slot${leaving ? " operator-feed__slot--leaving" : ""}`} role="listitem">
@@ -194,7 +197,7 @@ export function FeedCard({
               {health.stale ? <span className="operator-feed__faint">, last observed</span> : null}
             </p>
           ) : null}
-          {item.detail && item.signalId ? (
+          {hasDetails ? (
             <button
               type="button"
               className="operator-feed__detail-toggle"
@@ -208,10 +211,11 @@ export function FeedCard({
             </button>
           ) : null}
           {/* Mounted with the open details, so a closed card reads no file. */}
-          {/* Only a signal carries a detail, so the signal is always there to read from. */}
-          {item.detail && item.signalId && expanded ? (
+          {/* Only a signal carries details, so the signal is always there to read from. */}
+          {hasDetails && item.signalId && expanded ? (
             <PreviewedMarkdown
               markdown={item.detail}
+              attachments={item.attachments}
               source={{ kind: "signal", signalId: item.signalId }}
               textClassName="operator-feed__detail"
             />
