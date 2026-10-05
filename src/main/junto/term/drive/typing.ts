@@ -1,7 +1,7 @@
 /**
  * Managed-terminal typing recipe — pure byte sequences, no I/O.
  *
- * Verified facts (docs/managed-terminal-verification.md + probes):
+ * Verified facts (from probes):
  * - Bracketed paste (ESC[200~ … ESC[201~) as ONE write, then a SEPARATE CR.
  * - Never LF (0x0A) — inserts a newline and never submits on the v1 harnesses.
  * - Never payload+CR in one write — Codex silently never submits.
