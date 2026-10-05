@@ -13,7 +13,7 @@ import {
   useStore,
   useStoreApi,
 } from "@xyflow/react";
-import type { Connection, EdgeMouseHandler, FinalConnectionState, Node, OnNodeDrag } from "@xyflow/react";
+import type { Connection, EdgeMouseHandler, FinalConnectionState, Node, OnBeforeDelete, OnNodeDrag } from "@xyflow/react";
 import { use$ } from "@legendapp/state/react";
 import type { CanvasDoc, EtherEdgeKind } from "@shared/canvas";
 import { executionGraphContextFromActorRefs, UNNAMED_REGION } from "@shared/graph";
@@ -588,12 +588,19 @@ function useCanvasInteractions(
   const onNodeDragStop = useCallback(() => {
     finishDrag(true);
   }, [finishDrag]);
-  const onNodesDelete = useCallback((deleted: ReadonlyArray<FlowNode>) => {
+  // React Flow drops what the delete key names from its own view before it
+  // reports the deletion, and the document's delete can still refuse (the
+  // confirm, a page that will not stop). So the key never deletes in React
+  // Flow: it hands the request to the document, and the rebuild that follows
+  // a real delete is what removes the card.
+  const onBeforeDelete: OnBeforeDelete<FlowNode, FlowEdge> = useCallback(async ({ nodes: doomedNodes, edges: doomedEdges }) => {
     // Deleting mid-drag would otherwise leave the rebuild latch stuck.
     if (dragInProgressRef.current) finishDrag(false);
-    deleteNodes(deleted.map((node) => node.id));
+    // A node takes its wires with it; wires alone are a wire delete.
+    if (doomedNodes.length > 0) deleteNodes(doomedNodes.map((node) => node.id));
+    else deleteEdges(doomedEdges.map((edge) => edge.id));
+    return false;
   }, [dragInProgressRef, finishDrag]);
-  const onEdgesDelete = useCallback((deleted: ReadonlyArray<FlowEdge>) => deleteEdges(deleted.map((edge) => edge.id)), []);
   // Selection only. A verb is authored by drawing the wire, so there is no
   // settings surface behind a double click.
   const onEdgeDoubleClick: EdgeMouseHandler<FlowEdge> = useCallback((event, edge) => {
@@ -644,8 +651,7 @@ function useCanvasInteractions(
     onNodeDragStart,
     onNodeDrag,
     onNodeDragStop,
-    onNodesDelete,
-    onEdgesDelete,
+    onBeforeDelete,
     onEdgeDoubleClick,
     onSelectionChange,
     onPaneClick,
