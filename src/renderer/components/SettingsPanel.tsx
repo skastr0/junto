@@ -1154,6 +1154,8 @@ export function SettingsPanel() {
               type="button"
               className={`settings-nav__item${activeSection === item.key ? " is-active" : ""}`}
               aria-current={activeSection === item.key ? "page" : undefined}
+              // Opening Settings puts the keyboard on the open section's tab.
+              data-autofocus={activeSection === item.key ? "" : undefined}
               onClick={() => setSection(item.key)}
             >
               <span className="settings-nav__label">{item.label}</span>
