@@ -21,7 +21,7 @@ import { state$ } from "../src/renderer/lib/state";
 const note = (id: string) => ({ id, type: "text", x: 0, y: 0, width: 200, height: 80, text: id }) as const;
 const doc = (...ids: string[]): CanvasDoc => ({ nodes: ids.map(note), edges: [] });
 
-describe("RTS bottom bar keeps its hook order", () => {
+describe("RTS bottom bar when the selected node goes away", () => {
   let host: HTMLDivElement;
   let root: Root;
   let errors: ReturnType<typeof vi.spyOn>;
@@ -42,10 +42,9 @@ describe("RTS bottom bar keeps its hook order", () => {
     state$.selectedNodeIds.set([]);
   });
 
-  const hookErrors = (): string[] =>
-    errors.mock.calls.map((call: unknown[]) => String(call[0])).filter((text: string) => /hook/i.test(text));
+  const reactErrors = (): string[] => errors.mock.calls.map((call: unknown[]) => String(call[0]));
 
-  it("survives the selected node being removed, selected again, and removed", () => {
+  it("shows the empty state, then the node again when it comes back", () => {
     act(() => {
       state$.doc.set(doc("a", "b"));
       state$.selectedNodeId.set("a");
@@ -63,6 +62,7 @@ describe("RTS bottom bar keeps its hook order", () => {
     expect(host.querySelector(".rts-cmd__title")?.textContent).toBe("a");
     expect(() => act(() => state$.doc.set(doc("b")))).not.toThrow();
 
-    expect(hookErrors()).toEqual([]);
+    expect(host.textContent).toContain("No selection");
+    expect(reactErrors()).toEqual([]);
   });
 });
