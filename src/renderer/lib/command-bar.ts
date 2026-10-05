@@ -1,5 +1,6 @@
 import { batch } from "@legendapp/state";
-import type { CanvasNode } from "@shared/canvas";
+import type { CanvasDoc, CanvasNode } from "@shared/canvas";
+import { regionStack } from "@shared/graph";
 import { roleOf } from "@shared/physics";
 import { touchActiveMru } from "./hotbar-slots";
 import { specOf } from "./node-spec";
@@ -52,6 +53,24 @@ export interface CommandBarMatch {
   readonly index: number;
 }
 
+/**
+ * Each node's region path, outermost to innermost ("Junto / PTY / mail"),
+ * read from the one membership predicate (regionStack). Unnamed regions are
+ * left out; a node inside no named region has no entry. Built once per doc
+ * revision, never per keystroke.
+ */
+export const commandBarRegionPaths = (doc: CanvasDoc): ReadonlyMap<string, string> => {
+  const paths = new Map<string, string>();
+  for (const node of doc.nodes) {
+    const names = regionStack(doc, node.id).flatMap((region) => {
+      const name = region.label?.trim();
+      return name ? [name] : [];
+    });
+    if (names.length > 0) paths.set(node.id, names.join(" / "));
+  }
+  return paths;
+};
+
 /** Resting: the urgency an agent without a reading ranks at. */
 const URGENCY_UNKNOWN = 4;
 
@@ -72,15 +91,17 @@ const kindRank = (node: CanvasNode): number => {
  * Empty query: agents first, most urgent first (`urgencyById`, lower is more
  * urgent: see seatUrgency), then regions, then notes, then every other kind.
  * Non-empty: title-prefix (4) above title-substring (3) above any other
- * matched text (2); at equal match quality agents rank above other kinds,
- * the most urgent agent first. Remaining ties break by hotbar MRU recency,
- * then document order.
+ * matched text (2), which includes the node's region path (`regionPathById`),
+ * so a region name finds the nodes inside it; at equal match quality agents
+ * rank above other kinds, the most urgent agent first. Remaining ties break
+ * by hotbar MRU recency, then document order.
  */
 export const filterCommandBarNodes = (
   nodes: ReadonlyArray<CanvasNode>,
   query: string,
   recentIds: ReadonlyArray<string>,
   urgencyById: ReadonlyMap<string, number> = new Map(),
+  regionPathById: ReadonlyMap<string, string> = new Map(),
 ): ReadonlyArray<CommandBarMatch> => {
   const q = query.trim().toLowerCase();
   const recentRank = new Map<string, number>();
@@ -96,6 +117,7 @@ export const filterCommandBarNodes = (
     if (title.startsWith(q)) score = 4;
     else if (title.includes(q)) score = 3;
     else if (searchText(node).includes(q)) score = 2;
+    else if (regionPathById.get(node.id)?.toLowerCase().includes(q)) score = 2;
     if (score > 0) matches.push({ node, score, index });
   }
   const urgency = (node: CanvasNode): number => urgencyById.get(node.id) ?? URGENCY_UNKNOWN;

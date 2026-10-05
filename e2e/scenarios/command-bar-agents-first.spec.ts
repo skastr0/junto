@@ -162,9 +162,18 @@ test("cmd+K: tall, agents first by urgency, live rings on visible rows", async (
   await setTheme(page, "dark");
 
   // A query: agents above other kinds at the same match quality; the rest
-  // keep document order (the note was authored before the region).
+  // keep document order (the note was authored before the region). The crew
+  // match last, through their region path alone.
   await input.fill("ops");
-  await expect(titles).toHaveText(["ops-blocked", "ops-waiting", "ops-review", "ops-idle", "Ops runbook", "Ops"]);
+  await expect(titles).toHaveText([
+    "ops-blocked",
+    "ops-waiting",
+    "ops-review",
+    "ops-idle",
+    "Ops runbook",
+    "Ops",
+    ...crew,
+  ]);
   await page.screenshot({ path: join(SHOTS, "dark-02-query.png") });
 
   // Keyboard: down one row, Enter focuses that seat and closes the palette.

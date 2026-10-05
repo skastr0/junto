@@ -13,6 +13,7 @@ import {
 } from "../../lib/command-bar-actions";
 import {
   closeCommandBar,
+  commandBarRegionPaths,
   filterCommandBarNodes,
   focusCanvasNode,
   openCommandBar,
@@ -124,7 +125,36 @@ function AgentDetail({ glance }: { readonly glance: SeatGlance }) {
   );
 }
 
-function AgentRowFace({ node }: { readonly node: CanvasNode }) {
+/** The node's title, then its region path in dim type when it sits in one. */
+function RowHead({
+  node,
+  path,
+  accent,
+}: {
+  readonly node: CanvasNode;
+  readonly path: string | undefined;
+  readonly accent?: boolean;
+}) {
+  return (
+    <span className="command-bar__row-head">
+      <span
+        className="command-bar__row-title"
+        style={accent && node.color ? { color: accentColor(node.color) } : undefined}
+      >
+        {nodeTitle(node)}
+      </span>
+      {path ? (
+        <span className="command-bar__row-path" data-testid="command-bar-row-crumb" title={path}>
+          <bdi>{path}</bdi>
+        </span>
+      ) : null}
+    </span>
+  );
+}
+
+type RowFaceProps = { readonly node: CanvasNode; readonly path: string | undefined };
+
+function AgentRowFace({ node, path }: RowFaceProps) {
   const glance = useSeatGlance(node);
   return (
     <>
@@ -132,12 +162,7 @@ function AgentRowFace({ node }: { readonly node: CanvasNode }) {
         <SeatRingView node={node} px={28} glance={glance} />
       </span>
       <span className="command-bar__row-main">
-        <span
-          className="command-bar__row-title"
-          style={node.color ? { color: accentColor(node.color) } : undefined}
-        >
-          {nodeTitle(node)}
-        </span>
+        <RowHead node={node} path={path} accent />
         <span className="command-bar__row-detail">
           <AgentDetail glance={glance} />
         </span>
@@ -146,13 +171,13 @@ function AgentRowFace({ node }: { readonly node: CanvasNode }) {
   );
 }
 
-function NodeRowFace({ node }: { readonly node: CanvasNode }) {
-  if (node.ether?.entity?.kind === "agent") return <AgentRowFace node={node} />;
+function NodeRowFace({ node, path }: RowFaceProps) {
+  if (node.ether?.entity?.kind === "agent") return <AgentRowFace node={node} path={path} />;
   return (
     <>
       <NodeKindMark node={node} className="command-bar__mark" />
       <span className="command-bar__row-main">
-        <span className="command-bar__row-title">{nodeTitle(node)}</span>
+        <RowHead node={node} path={path} />
         <span className="command-bar__row-detail">
           {node.type === "group" ? <RegionDetail node={node} /> : nodeDetail(node)}
         </span>
@@ -215,9 +240,11 @@ function CommandBarPanel() {
       ),
     [doc.nodes],
   );
+  // Region paths are derived once per doc revision, never per keystroke.
+  const regionPathById = useMemo(() => commandBarRegionPaths(doc), [doc]);
   const nodeMatches = useMemo(
-    () => filterCommandBarNodes(doc.nodes, query, recentIds, urgencyById),
-    [doc.nodes, query, recentIds, urgencyById],
+    () => filterCommandBarNodes(doc.nodes, query, recentIds, urgencyById, regionPathById),
+    [doc.nodes, query, recentIds, urgencyById, regionPathById],
   );
   const actionMatches = useMemo(
     () => filterCommandBarActions(actions, query),
@@ -377,7 +404,7 @@ function CommandBarPanel() {
                     commit(row, event.metaKey || event.ctrlKey);
                   }}
                 >
-                  <NodeRowFace node={row.node} />
+                  <NodeRowFace node={row.node} path={regionPathById.get(row.node.id)} />
                   <span className="command-bar__row-kind">{nodeTypeLabel(row.node)}</span>
                 </div>
               ) : (

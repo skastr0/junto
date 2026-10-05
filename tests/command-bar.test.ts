@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { filterCommandBarNodes } from "../src/renderer/lib/command-bar";
+import { commandBarRegionPaths, filterCommandBarNodes } from "../src/renderer/lib/command-bar";
 import type { CanvasNode } from "../src/shared/canvas";
 
 const text = (
@@ -121,6 +121,54 @@ describe("command bar agent bias", () => {
     const titled = [region("r", "Research"), agent("seat", "reviewer\nreads research papers")];
     // The region's title matches; the agent only matches in its body.
     expect(filterCommandBarNodes(titled, "research", []).map((match) => match.node.id)).toEqual(["r", "seat"]);
+  });
+});
+
+describe("command bar region paths", () => {
+  const box = (id: string, label: string | undefined, x: number, y: number, size: number): CanvasNode => ({
+    id,
+    type: "group",
+    x,
+    y,
+    width: size,
+    height: size,
+    label,
+  });
+  const at = (id: string, body: string, x: number, y: number): CanvasNode => ({
+    id,
+    type: "text",
+    x,
+    y,
+    width: 10,
+    height: 10,
+    text: body,
+  });
+  const nodes = [
+    box("outer", "Junto", 0, 0, 1000),
+    box("mid", "PTY", 100, 100, 500),
+    box("inner", "mail", 200, 200, 100),
+    box("blank", " ", 150, 150, 300),
+    at("deep", "relay", 220, 220),
+    at("shallow", "lead", 900, 900),
+    at("root", "loner", 5000, 5000),
+  ];
+  const paths = commandBarRegionPaths({ nodes, edges: [] });
+
+  it("reads outermost to innermost and skips unnamed regions", () => {
+    expect(paths.get("deep")).toBe("Junto / PTY / mail");
+    expect(paths.get("shallow")).toBe("Junto");
+    expect(paths.get("inner")).toBe("Junto / PTY");
+  });
+
+  it("gives no entry to a node outside every region", () => {
+    expect(paths.has("root")).toBe(false);
+    expect(paths.has("outer")).toBe(false);
+  });
+
+  it("a region name finds the nodes inside it, below direct matches", () => {
+    const ids = filterCommandBarNodes(nodes, "pty", [], new Map(), paths).map((match) => match.node.id);
+    expect(ids).toEqual(["mid", "inner", "blank", "deep"]);
+    expect(filterCommandBarNodes(nodes, "pty", []).map((match) => match.node.id)).toEqual(["mid"]);
   });
 });
 

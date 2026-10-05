@@ -66,6 +66,32 @@ test("command bar opens from the trigger and cmd+K, filters the list only, and c
   await expect(input).toHaveCount(0);
 });
 
+test("rows carry their region path and a region name finds its members", async ({ junto }) => {
+  const { page } = junto;
+  await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
+
+  await page.keyboard.press("Meta+k");
+  const input = page.getByTestId("command-bar-input");
+  await expect(input).toBeVisible();
+
+  // Both notes sit inside the region; the region itself sits in none.
+  const row = (title: string) => page.locator(".command-bar__row", { hasText: title });
+  const crumb = "command-bar-row-crumb";
+  await expect(row("Alpha release").getByTestId(crumb)).toHaveText("Probe region");
+  await expect(row("Beta task plan").getByTestId(crumb)).toHaveText("Probe region");
+  await expect(page.getByTestId(crumb)).toHaveCount(2);
+
+  // The region name matches the region by title, then its members by path.
+  await input.fill("probe");
+  await expect(page.locator(".command-bar__row-title")).toHaveText([
+    "Probe region",
+    "Alpha release",
+    "Beta task plan",
+  ]);
+  await page.keyboard.press("Escape");
+  await expect(input).toHaveCount(0);
+});
+
 
 test("actions mode catalogs commands, Enter runs them, Tab toggles modes", async ({ junto }) => {
   const { page } = junto;

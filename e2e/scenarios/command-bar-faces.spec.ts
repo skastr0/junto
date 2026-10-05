@@ -116,7 +116,10 @@ test("cmd+K rows: agents as ringed seats, regions and kinds in colour", async ({
   await expect(mark("Yakjev")).toHaveAttribute("style", /--mark-hue: var\(--color-orange\)/);
   await expect(mark("Junto")).toHaveAttribute("style", /--mark-hue: var\(--color-cyan\)/);
   await expect(mark("Research")).toHaveAttribute("style", /--mark-hue: var\(--color-dim\)/);
-  await expect(rows.filter({ hasText: "Research" }).locator(".command-bar__row-detail")).toHaveText(
+  // By title: the rows inside the region carry "Research" as their path.
+  const titled = (title: string) =>
+    rows.filter({ has: page.locator(".command-bar__row-title", { hasText: new RegExp(`^${title}$`) }) });
+  await expect(titled("Research").locator(".command-bar__row-detail")).toHaveText(
     "Read the papers the operator flags and write one page each.",
   );
   await expect(mark("Production deploy plan")).toHaveAttribute("style", /--mark-hue: var\(--color-gold\)/);
