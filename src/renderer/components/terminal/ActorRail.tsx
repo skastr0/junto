@@ -25,6 +25,7 @@ import { preambleByNodeId$ } from "../../lib/preamble-state";
 import { useSeatOnboarding } from "../../lib/seat-onboarding";
 import { seatSaying, seatUrgency, type SeatUrgency } from "../../lib/seat-line";
 import { sidebarSections$ } from "../../lib/sidebar-sections";
+import { urgencyOrder } from "../../lib/urgency-order";
 import { state$ } from "../../lib/state";
 import { accentColor, INK } from "../../lib/theme";
 import { AgentSeatView, SeatName } from "../nodes/AgentSeat";
@@ -161,12 +162,10 @@ export function ActorRail({ node }: { readonly node: CanvasNode }) {
   const onUrgency = useCallback((nodeId: string, urgency: SeatUrgency) => {
     setUrgencyById((current) => (current[nodeId] === urgency ? current : { ...current, [nodeId]: urgency }));
   }, []);
-  const ordered = useMemo(() => {
-    const rank = (peer: CanvasNode): SeatUrgency => urgencyById[peer.id] ?? seatUrgencyNow(peer);
-    return [...agents].sort(
-      (a, b) => rank(a) - rank(b) || nodeTitle(a).localeCompare(nodeTitle(b)) || a.id.localeCompare(b.id),
-    );
-  }, [agents, urgencyById]);
+  const ordered = useMemo(
+    () => urgencyOrder(agents, (peer) => urgencyById[peer.id] ?? seatUrgencyNow(peer)),
+    [agents, urgencyById],
+  );
 
   const seats = useRef(new Map<string, HTMLLIElement>());
   const seatRef = useCallback((nodeId: string, element: HTMLLIElement | null) => {
