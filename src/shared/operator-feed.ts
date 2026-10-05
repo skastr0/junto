@@ -165,6 +165,7 @@ export const buildOperatorFeed = (input: OperatorFeedInput): OperatorFeed => {
       kind: signal.kind,
       text: signal.text,
       ...(signal.detail ? { detail: signal.detail } : {}),
+      ...(signal.attachments?.length ? { attachments: signal.attachments } : {}),
       since: signal.createdAt,
       signalId: signal.signalId,
       signalKind: signal.kind,

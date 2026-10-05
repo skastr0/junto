@@ -1,5 +1,5 @@
 import { Schema } from "effect";
-import { AgentSignalKind } from "./agent-signals";
+import { AgentSignalAttachment, AgentSignalKind } from "./agent-signals";
 import { ThreadHealthValue } from "./thread-health";
 
 /**
@@ -118,6 +118,8 @@ export const FeedItem = Schema.Struct({
   text: Schema.String,
   /** Longer markdown, when the source has it. */
   detail: Schema.optionalKey(Schema.String),
+  /** Files the agent attached to the signal, in the order given. */
+  attachments: Schema.optionalKey(Schema.Array(AgentSignalAttachment)),
   /**
    * Epoch ms the need began. Absent when that is not known (a permission
    * request pending in a live chat): no time is ever made up for it.
