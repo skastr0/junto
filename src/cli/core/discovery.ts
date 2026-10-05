@@ -56,6 +56,7 @@ import {
   TasksShowArgs,
   TasksUpdateCliArgs,
 } from "../../shared/work-control";
+import { envReportCapability, envReportExamples, envReportSchema } from "../commands/env";
 import { overseerCapabilities, overseerExamples, overseerSchemas } from "../commands/overseer";
 import { DEFAULT_BATCH_CONCURRENCY } from "./constants";
 import {
@@ -780,6 +781,7 @@ const declaredSchemas: ReadonlyArray<CommandSchemaContract> = [
   padLookHereSchema,
   padGetSchema,
   padTaggedSchema,
+  envReportSchema,
   ...overseerSchemas,
   ...(BROWSER_ENABLED
     ? [
@@ -1435,6 +1437,7 @@ const declaredExamples: ReadonlyArray<CommandExample> = [
         },
       ]
     : []),
+  ...envReportExamples,
   ...overseerExamples,
 ];
 
@@ -1919,6 +1922,7 @@ const declaredCapabilities: ReadonlyArray<CommandCapability> = [
         },
       ]
     : []),
+  envReportCapability,
   ...overseerCapabilities,
 ];
 

@@ -14,6 +14,7 @@ import {
   pingCommand,
   schemaCommand,
 } from "./commands/discovery";
+import { envCommand } from "./commands/env";
 import { overseerCommand } from "./commands/overseer";
 import { padCommand } from "./commands/pad";
 import { sheetCommand } from "./commands/sheet";
@@ -93,6 +94,7 @@ export const rootCommand = Command.make(CLI_NAME).pipe(
     ...(TASKS_ENABLED ? [tasksCommand, rulingsCommand] : []),
     msgCommand,
     seatCommand,
+    envCommand,
     verdictCommand,
     ...(TASKS_ENABLED ? [contentCommand] : []),
     docsCommand,

@@ -72,6 +72,8 @@ const SEAT_LOCAL_COMMANDS = new Set([
   "signal.blocked",
   "signal.feedback",
   "signal.list",
+  // A seat reads its own environment report: no target, no edge.
+  "env.report",
   "signal.clear",
 ]);
 
