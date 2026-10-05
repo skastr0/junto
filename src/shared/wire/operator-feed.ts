@@ -51,6 +51,19 @@ export const FEED_KIND_LABEL: Readonly<Record<FeedItemKind, string>> = {
 };
 
 /**
+ * The same name after a number, where it has to agree with it: "1 needs
+ * input", "2 need input". Only the names that are verbs change.
+ */
+const FEED_KIND_LABEL_MANY: Readonly<Partial<Record<FeedItemKind, string>>> = {
+  attention: "need input",
+  health: "AI reads",
+};
+
+/** "2 need input": a count of one state, in the label table's words. */
+export const feedKindCount = (kind: FeedItemKind, count: number): string =>
+  `${count} ${count === 1 ? FEED_KIND_LABEL[kind] : (FEED_KIND_LABEL_MANY[kind] ?? FEED_KIND_LABEL[kind])}`;
+
+/**
  * How many of these need the operator: the one number the top bar, the feed
  * header and the Dock badge show. An AI reading never pings, so it never
  * counts.

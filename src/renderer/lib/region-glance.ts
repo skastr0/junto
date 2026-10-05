@@ -37,7 +37,7 @@ export type GlanceBand = {
   readonly fall: number;
 };
 
-import { FEED_KIND_LABEL } from "@shared/operator-feed";
+import { feedKindCount } from "@shared/operator-feed";
 
 /** Zoom at or above which cards are readable — no watermark at all. */
 export const GLANCE_START = 0.62;
@@ -130,13 +130,13 @@ export type RegionTallyPart = {
 /**
  * What a region says about its members (the command bar's region row), worst first:
  * only the states that are present, so a quiet region reads as one word. The
- * attention phrase is the feed's own name for it (FEED_KIND_LABEL).
+ * blocked and attention phrases are the feed's own names (feedKindCount).
  */
 export const regionTallyParts = (tally: RegionTally | undefined): readonly RegionTallyPart[] => {
   if (tally === undefined || tally.total === 0) return [];
   const parts: RegionTallyPart[] = [];
-  if (tally.blocked > 0) parts.push({ tone: "crimson", text: `${String(tally.blocked)} blocked` });
-  if (tally.attention > 0) parts.push({ tone: "amber", text: `${String(tally.attention)} ${FEED_KIND_LABEL.attention}` });
+  if (tally.blocked > 0) parts.push({ tone: "crimson", text: feedKindCount("blocked", tally.blocked) });
+  if (tally.attention > 0) parts.push({ tone: "amber", text: feedKindCount("attention", tally.attention) });
   if (tally.working > 0) parts.push({ tone: "cyan", text: `${String(tally.working)} working` });
   if (tally.ready > 0) parts.push({ tone: "green", text: `${String(tally.ready)} done` });
   if (parts.length === 0) parts.push({ tone: "steel", text: tally.total === 1 ? "1 idle" : `${String(tally.total)} idle` });

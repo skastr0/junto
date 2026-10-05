@@ -21,7 +21,8 @@ export function NeedsYouButton() {
       className="station-icon-button operator-feed-trigger"
       data-testid="operator-feed-trigger"
       aria-label={count === 0 ? "Needs you, nothing waiting" : `Needs you, ${count}`}
-      aria-pressed={open}
+      aria-haspopup="dialog"
+      aria-expanded={open}
       title={`Needs you (${modKeyGlyph()}I)`}
       style={{ borderColor: "var(--color-stroke)", color: count > 0 ? "var(--color-amber)" : "var(--color-steel)" }}
       onClick={() => toggleOperatorModal("feed")}

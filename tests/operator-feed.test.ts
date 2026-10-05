@@ -6,6 +6,7 @@ import type { ThreadHealthReading } from "../src/shared/thread-health";
 import {
   buildOperatorFeed,
   feedRegionFor,
+  feedKindCount,
   feedSeatsFromDoc,
   needsOperatorCount,
   OperatorFeed,
@@ -209,6 +210,15 @@ describe("buildOperatorFeed", () => {
     expect(items.filter((i) => i.seat.nodeId === "b").map((i) => i.kind)).toEqual(["blocked", "feedback"]);
     expect(items.find((i) => i.itemId === "blocked:b")?.region.regionId).toBe("inner");
     expect(feed.count).toBe(4);
+  });
+
+  it("says a count in the label table's words, agreeing with the number", () => {
+    expect(feedKindCount("attention", 1)).toBe("1 needs input");
+    expect(feedKindCount("attention", 2)).toBe("2 need input");
+    expect(feedKindCount("blocked", 3)).toBe("3 blocked");
+    expect(feedKindCount("feedback", 2)).toBe("2 ready for review");
+    expect(feedKindCount("health", 1)).toBe("1 AI read");
+    expect(feedKindCount("health", 2)).toBe("2 AI reads");
   });
 
   it("orders by urgency, then oldest first", () => {

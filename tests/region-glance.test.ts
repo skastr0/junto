@@ -117,6 +117,11 @@ describe("regionTallyParts", () => {
   });
 
   it("reads a quiet region as idle", () => {
+    expect(regionTallyParts(tally({ total: 4, attention: 1 }))).toEqual([{ tone: "amber", text: "1 needs input" }]);
+    expect(regionTallyParts(tally({ total: 4, attention: 2, blocked: 2 }))).toEqual([
+      { tone: "crimson", text: "2 blocked" },
+      { tone: "amber", text: "2 need input" },
+    ]);
     expect(regionTallyParts(tally({ total: 4 }))).toEqual([{ tone: "steel", text: "4 idle" }]);
     expect(regionTallyParts(tally({ total: 1 }))).toEqual([{ tone: "steel", text: "1 idle" }]);
   });
