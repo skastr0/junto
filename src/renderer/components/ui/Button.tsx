@@ -23,6 +23,13 @@ const VARIANT: Record<ButtonVariant, string> = {
     "border border-crimson/40 bg-crimson/10 text-crimson hover:bg-crimson/[0.18]",
 };
 
+// Every button can be hit across at least 24px of height, the WCAG 2.2 AA
+// target minimum, whatever its drawn size: an invisible area centred on it.
+// The button is positioned for that, so do not place one with absolute or
+// fixed from a caller's className; wrap it instead.
+const HIT_24 =
+  "relative before:absolute before:inset-x-0 before:top-1/2 before:h-6 before:-translate-y-1/2 before:content-['']";
+
 const SIZE: Record<ButtonSize, string> = {
   xs: "gap-1 rounded px-1.5 py-0.5 text-caption uppercase tracking-label",
   sm: "gap-1.5 rounded-md px-2 py-1 text-caption uppercase tracking-eyebrow",
@@ -47,6 +54,7 @@ export function Button({
       type={type}
       className={[
         "inline-flex items-center justify-center transition-colors select-none",
+        HIT_24,
         "disabled:opacity-40 disabled:pointer-events-none",
         VARIANT[variant],
         SIZE[size],

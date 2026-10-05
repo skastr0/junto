@@ -24,6 +24,8 @@ export function Switch({
       className={[
         "relative m-0 h-5 w-[34px] flex-none cursor-pointer appearance-none rounded-full",
         "border border-stroke bg-shadow-2",
+        // Drawn 20px tall, hit across 24px.
+        "before:absolute before:-inset-x-px before:top-1/2 before:h-6 before:-translate-y-1/2 before:content-['']",
         "transition-colors duration-[180ms] ease-[cubic-bezier(0.22,1,0.36,1)]",
         "after:absolute after:top-[2px] after:left-[2px] after:size-[14px] after:rounded-full after:bg-dim after:content-['']",
         "after:transition-[transform,background-color] after:duration-[180ms] after:ease-[cubic-bezier(0.22,1,0.36,1)]",

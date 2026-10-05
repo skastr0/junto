@@ -26,7 +26,8 @@ export function IconButton({
     accent: "text-cyan/70 hover:bg-ink/10 hover:text-cyan",
   } as const;
   const sizes = {
-    xs: "size-4",
+    // Drawn at 16px, hit across 24px: an invisible area centred on it.
+    xs: "relative size-4 before:absolute before:left-1/2 before:top-1/2 before:size-6 before:-translate-x-1/2 before:-translate-y-1/2 before:content-['']",
     sm: "size-6",
     md: "size-7",
   } as const;

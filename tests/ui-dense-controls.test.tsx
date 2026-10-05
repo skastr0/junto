@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
-import { IconButton, Textarea } from "../src/renderer/components/ui";
+import { Button, IconButton, Switch, Textarea } from "../src/renderer/components/ui";
 
 const html = (node: React.ReactElement): string => renderToStaticMarkup(node);
 
@@ -8,7 +8,8 @@ describe("ui IconButton sizes", () => {
   it("xs is a 16px square, so it fits inside one 18px diff row", () => {
     const out = html(<IconButton size="xs" aria-label="Add comment">+</IconButton>);
     expect(out).toContain("size-4");
-    expect(out).not.toMatch(/size-6|size-7/);
+    // Its own box, not the before: hit area, which is 24px on purpose.
+    expect(out).not.toMatch(/(?<![:\w-])size-(?:6|7)\b/);
   });
 
   it("shows keyboard focus at every size with an inset ring", () => {
@@ -19,6 +20,26 @@ describe("ui IconButton sizes", () => {
 
   it("keeps md as the default", () => {
     expect(html(<IconButton aria-label="Close">x</IconButton>)).toContain("size-7");
+  });
+});
+
+describe("ui target size", () => {
+  it("every Button size carries a 24px tall hit area", () => {
+    for (const size of ["xs", "sm", "md"] as const) {
+      const out = html(<Button size={size}>Go</Button>);
+      expect(out).toContain("before:h-6");
+      expect(out).toContain("relative");
+    }
+  });
+
+  it("the 16px IconButton is hit across 24px; the larger sizes already are", () => {
+    expect(html(<IconButton size="xs" aria-label="x">x</IconButton>)).toContain("before:size-6");
+    expect(html(<IconButton size="sm" aria-label="x">x</IconButton>)).toContain("size-6");
+    expect(html(<IconButton aria-label="x">x</IconButton>)).toContain("size-7");
+  });
+
+  it("the Switch is hit across 24px of height", () => {
+    expect(html(<Switch checked={false} onCheckedChange={() => {}} aria-label="x" />)).toContain("before:h-6");
   });
 });
 
