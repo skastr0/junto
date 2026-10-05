@@ -3082,7 +3082,7 @@ button.actor-ledger__item-row:focus-visible {
 }
 .session-load--pill {
   padding: 6px 10px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   border: 1px solid color-mix(in srgb, var(--session-load-tone, var(--color-amber)) 32%, var(--color-stroke));
   background: color-mix(in srgb, var(--color-raise) 88%, black);
   box-shadow: 0 8px 22px var(--color-shadow-2);
@@ -3096,7 +3096,7 @@ button.actor-ledger__item-row:focus-visible {
   width: 16px;
   height: 16px;
   flex-shrink: 0;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   border: 1.75px solid color-mix(in srgb, var(--session-load-tone, var(--color-amber)) 28%, transparent);
   border-top-color: var(--session-load-tone, var(--color-amber));
   border-right-color: color-mix(in srgb, var(--session-load-tone, var(--color-amber)) 70%, transparent);
@@ -3109,8 +3109,8 @@ button.actor-ledger__item-row:focus-visible {
   text-overflow: ellipsis;
   white-space: nowrap;
   font-family: var(--font-mono), ui-monospace, monospace;
-  font-size: 11px;
-  letter-spacing: 0.02em;
+  font-size: var(--text-body);
+  letter-spacing: var(--tracking-soft);
   color: var(--session-load-tone, var(--color-amber));
 }
 @keyframes session-load-spin {
