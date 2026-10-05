@@ -78,11 +78,6 @@ export type PerfReport = {
     readonly mounts: number;
     readonly unmounts: number;
   };
-  readonly viewport: {
-    readonly busyTransitions: number;
-    readonly promotions: number;
-    readonly promotionMs: number;
-  };
 };
 
 export type CanvasPerformanceHarness = {
@@ -156,11 +151,6 @@ export const buildPerfReport = (
       peakAnimated: after.peakActivityPopulation.animated,
       mounts: delta.activityMarkMounts,
       unmounts: delta.activityMarkUnmounts,
-    },
-    viewport: {
-      busyTransitions: delta.viewportBusyTransitions,
-      promotions: delta.viewportPromotionTransitions,
-      promotionMs: round(delta.viewportPromotionMs),
     },
   };
 };

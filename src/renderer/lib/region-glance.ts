@@ -15,8 +15,8 @@
 // its parent's can share the screen.
 //
 // Opacity is published as CSS custom properties on the ReactFlow root instead of
-// React state: zoom changes every animation frame during a wheel burst, and the
-// canvas already keeps that path free of React work (see viewport-busy).
+// React state: zoom changes every animation frame during a wheel burst, and
+// that path stays free of React work.
 
 /**
  * A watermark's zoom envelope, written as four stops in the order the camera

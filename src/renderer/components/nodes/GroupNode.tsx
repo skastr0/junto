@@ -10,7 +10,7 @@ import { claimFocus } from "../../lib/focus-ownership";
 import { dragHoldMemberIds, resizeNode, syncPositions } from "../../lib/geometry";
 import { state$ } from "../../lib/state";
 import { accentColor, borderColor, HUE, INK, withAlpha } from "../../lib/theme";
-import { markViewportBusy, releaseViewportBusy } from "../../lib/viewport-busy";
+import { regionLabelDrag$ } from "../../lib/region-label-drag";
 import { regionUrgency$ } from "../../lib/region-urgency";
 import {
   isMultiSelectGesture,
@@ -212,7 +212,6 @@ export function GroupNode({ data, selected }: NodeProps<FlowNode>) {
     event.stopPropagation();
     const flowNode = rf.getNode(node.id);
     if (flowNode === undefined) return;
-    markViewportBusy();
     const startFlow = rf.screenToFlowPosition({
       x: event.clientX,
       y: event.clientY,
@@ -229,13 +228,10 @@ export function GroupNode({ data, selected }: NodeProps<FlowNode>) {
       }
     }
     regionDragRef.current = { startFlow, startPos, members };
+    regionLabelDrag$.set(true);
     const onMove = (event: PointerEvent): void => {
       const drag = regionDragRef.current;
       if (drag === null) return;
-      // Heartbeat: keep the viewport busy gate latched for the whole label
-      // drag. The gate's watchdog releases after sustained silence — a long
-      // drag must not flush a structural rebuild mid-move.
-      markViewportBusy();
       const now = rf.screenToFlowPosition({ x: event.clientX, y: event.clientY });
       const dx = now.x - drag.startFlow.x;
       const dy = now.y - drag.startFlow.y;
@@ -253,13 +249,13 @@ export function GroupNode({ data, selected }: NodeProps<FlowNode>) {
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
       window.removeEventListener("pointercancel", onUp);
-      releaseViewportBusy();
       // Persist positions into the document, mirroring RF's onNodeDragStop.
       const positions = new Map<string, { readonly x: number; readonly y: number }>();
       for (const flow of rf.getNodes()) {
         positions.set(flow.id, flow.position);
       }
       syncPositions(positions);
+      regionLabelDrag$.set(false);
     };
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);

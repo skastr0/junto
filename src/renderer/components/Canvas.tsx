@@ -38,13 +38,7 @@ import {
   selectionImpact,
   type ImpactSelection,
 } from "../lib/impact-mode";
-import {
-  markViewportBusy,
-  releaseViewportBusy,
-  resetViewportBusy,
-  viewportBusy$,
-  withViewportBusy,
-} from "../lib/viewport-busy";
+import { regionLabelDrag$ } from "../lib/region-label-drag";
 import { isEditableEventTarget } from "../lib/multi-select-gesture";
 import { nodeTitle } from "../lib/presentation";
 import { isCommandCenterAuthoring } from "../lib/canvas-boot";
@@ -150,12 +144,12 @@ const fitReadableField = (rf: CanvasFlow, duration = 320): void => {
     return Boolean(label) && !["n", "new region", "unnamed region"].includes(label);
   });
   const anchors = meaningfulRegions.length > 0 ? meaningfulRegions : regions.length > 0 ? regions : graphNodes.slice(0, 24);
-  void withViewportBusy(() => rf.fitView({
+  void rf.fitView({
     nodes: anchors,
     padding: 0.18,
     duration,
     maxZoom: regions.length > 0 ? 1.15 : 1.35,
-  })).catch(() => undefined);
+  }).catch(() => undefined);
 };
 
 /** Apply/clear in-cone impact token without reminting when unchanged. */
@@ -301,8 +295,8 @@ function useCanvasDocument(
   rebuildTick: number,
 ) {
   const rebuild = useCallback(() => {
-    // Drag + viewport pan both own the RF shell — queue structural remints.
-    if (dragInProgressRef.current || viewportBusy$.peek()) {
+    // A drag owns node positions until it commits — queue structural remints.
+    if (dragInProgressRef.current || regionLabelDrag$.peek()) {
       pendingRebuildRef.current = true;
       return;
     }
@@ -340,10 +334,10 @@ function useCanvasDocument(
     };
   }, [rebuild]);
 
-  // Pan/zoom released — flush any rebuild deferred mid-gesture.
+  // Region label drag committed — flush any rebuild deferred mid-drag.
   useEffect(() => {
-    return viewportBusy$.onChange(() => {
-      if (!viewportBusy$.peek() && pendingRebuildRef.current) rebuild();
+    return regionLabelDrag$.onChange(() => {
+      if (!regionLabelDrag$.peek() && pendingRebuildRef.current) rebuild();
     });
   }, [rebuild, pendingRebuildRef]);
 
@@ -351,14 +345,7 @@ function useCanvasDocument(
   // Structural rebuild already stamps on doc/execution ticks; this path is
   // selection-only so CanvasGraph need not subscribe to selected ids.
   useEffect(() => {
-    let pendingSelection = false;
     const syncSelection = () => {
-      // setNodes during pan forces RF to reconcile the full shell — defer.
-      if (viewportBusy$.peek()) {
-        pendingSelection = true;
-        return;
-      }
-      pendingSelection = false;
       const selectedNodeId = state$.selectedNodeId.peek();
       const selectedNodeIds = state$.selectedNodeIds.peek();
       const selectedEdgeId = state$.selectedEdgeId.peek();
@@ -409,9 +396,6 @@ function useCanvasDocument(
       state$.selectedNodeIds.onChange(syncSelection),
       state$.selectedEdgeId.onChange(syncSelection),
       state$.connectionFocusNodeId.onChange(syncSelection),
-      viewportBusy$.onChange(() => {
-        if (!viewportBusy$.peek() && pendingSelection) syncSelection();
-      }),
     ];
     return () => {
       for (const off of offs) off();
@@ -448,12 +432,12 @@ function useCanvasFocus(rf: CanvasFlow) {
         // React Flow emits an empty selection while the canvas mounts. Re-apply
         // the focus target only after it is present in the live graph.
         selectNode(focusNodeId);
-        void withViewportBusy(() => rf.fitView({
+        void rf.fitView({
           nodes: [node],
           padding: 0.35,
           maxZoom: 1.45,
           duration: 360,
-        })).catch(() => undefined).finally(() => {
+        }).catch(() => undefined).finally(() => {
           selectNode(focusNodeId);
           state$.focusNodeId.set("");
         });
@@ -936,11 +920,11 @@ function CanvasFieldTools() {
         aria-label="Fit all nodes"
         title="Fit all nodes"
         onClick={() => {
-          void withViewportBusy(() => rf.fitView({
+          void rf.fitView({
             padding: 0.18,
             duration: 320,
             maxZoom: 1.35,
-          })).catch(() => undefined);
+          }).catch(() => undefined);
         }}
       >
         <Expand size={12} />fit all
@@ -1312,16 +1296,16 @@ function RtsMinimapStack() {
     const zoom = rf.getZoom();
     if (isDouble) {
       const nextZoom = Math.min(Math.max(zoom * 1.55, 0.35), 1.6);
-      void withViewportBusy(() => rf.setCenter(position.x, position.y, {
+      void rf.setCenter(position.x, position.y, {
         zoom: nextZoom,
         duration: 280,
-      })).catch(() => undefined);
+      }).catch(() => undefined);
       return;
     }
-    void withViewportBusy(() => rf.setCenter(position.x, position.y, {
+    void rf.setCenter(position.x, position.y, {
       zoom,
       duration: 240,
-    })).catch(() => undefined);
+    }).catch(() => undefined);
   }, [rf]);
 
   const onMiniMapNodeClick = useCallback((event: React.MouseEvent, node: Node) => {
@@ -1722,21 +1706,6 @@ function CanvasGraph() {
   // Boolean only — flips when a cone appears/clears, not on every kernel tick.
   const impactMode = use$(impactModeActive$);
   const connectionFocusNodeId = use$(state$.connectionFocusNodeId);
-  // Viewport freeze without React: viewport-busy stamps html[data-viewport-busy]
-  // directly, so a pan gesture costs zero renders and no canvas render can
-  // clear it mid-gesture. MiniMap stays mounted.
-  useEffect(() => () => resetViewportBusy(), []);
-  const onMoveStart = useCallback(() => {
-    markViewportBusy();
-    closeMenus();
-  }, [closeMenus]);
-  // Continuous move keeps the freeze latched across wheel bursts; no React work.
-  const onMove = useCallback(() => {
-    markViewportBusy();
-  }, []);
-  const onMoveEnd = useCallback(() => {
-    releaseViewportBusy();
-  }, []);
 
   return <CanvasPerformanceBoundary><>
     {terminalAnchor ? <TerminalWizard anchor={terminalAnchor} onClose={() => setTerminalAnchor(null)} /> : null}
@@ -1761,9 +1730,7 @@ function CanvasGraph() {
       onSelectionEnd={onSelectionEnd}
       onDragOver={onDragOver}
       onDrop={onDrop}
-      onMoveStart={onMoveStart}
-      onMove={onMove}
-      onMoveEnd={onMoveEnd}
+      onMoveStart={closeMenus}
       nodesDraggable={authoring}
       nodesConnectable={authoring}
       connectionMode={ConnectionMode.Loose}
@@ -1800,7 +1767,7 @@ function CanvasGraph() {
       style={{ background: fieldTheme.ground }}
     >
       {/* No painted ground pattern: any pattern under the camera pays raster
-          on every pan frame (see styles.css note above the busy gate); React
+          on every pan frame (see the ground note in styles.css); React
           Flow's <Background> re-rendered a full-window SVG pattern per
           viewport change, which was worse. Flat ground wins. */}
       <CanvasLoom edges={edges} />

@@ -1,6 +1,5 @@
 import { useEffect } from "react";
 import { selectNodes, state$ } from "../lib/state";
-import { withViewportBusy } from "../lib/viewport-busy";
 
 type GroupFocusFlow<N> = {
   readonly getNode: (id: string) => N | undefined;
@@ -49,14 +48,13 @@ export function useCanvasGroupFocus<N>(rf: GroupFocusFlow<N>): void {
         // selection made before). Never re-select when the fit ends: the
         // operator may have changed the selection during the animation.
         selectNodes(present);
-        void withViewportBusy(() =>
-          rf.fitView({
+        void rf
+          .fitView({
             nodes,
             padding: 0.3,
             maxZoom: 1.45,
             duration: 360,
-          }),
-        )
+          })
           .catch(() => undefined)
           .finally(() => {
             state$.focusNodeIds.set([]);

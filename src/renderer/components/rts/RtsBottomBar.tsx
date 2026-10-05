@@ -26,7 +26,6 @@ import { executionGraphContextFromActorRefs } from "@shared/graph";
 import type { MemberSeverity, RegionRollup } from "@shared/region-rollup";
 import { formatNodeRef } from "@shared/node-ref";
 import { selectNode, state$ } from "../../lib/state";
-import { viewportBusy$ } from "../../lib/viewport-busy";
 import { useRegionRollups } from "../../lib/region-rollups";
 import { toggleSlotAssignment } from "../../lib/command-group-runtime";
 import {
@@ -572,26 +571,14 @@ export function RtsBottomBar({ minimap, tools }: { readonly minimap: ReactNode; 
   const severityMap = useSeverityByNodeId(rollups);
 
   // Publish into state$ so MiniMap can subscribe (React data path, not a module ref).
-  // Skip while panning — MiniMap is frozen and a severity push remounts its colors.
   useEffect(() => {
-    const publish = (): void => {
-      const next: Record<string, string> = {};
-      for (const [id, severity] of severityMap) next[id] = severity;
-      state$.regionSeverityByNodeId.set(next);
-      // Region tallies ride along for the overview tier's region plates.
-      const counts: Record<string, RegionRollup["counts"]> = {};
-      for (const rollup of rollups) counts[rollup.regionId] = rollup.counts;
-      state$.regionCountsByNodeId.set(counts);
-    };
-    if (viewportBusy$.peek()) {
-      const off = viewportBusy$.onChange(() => {
-        if (viewportBusy$.peek()) return;
-        off();
-        publish();
-      });
-      return off;
-    }
-    publish();
+    const next: Record<string, string> = {};
+    for (const [id, severity] of severityMap) next[id] = severity;
+    state$.regionSeverityByNodeId.set(next);
+    // Region tallies ride along for the overview tier's region plates.
+    const counts: Record<string, RegionRollup["counts"]> = {};
+    for (const rollup of rollups) counts[rollup.regionId] = rollup.counts;
+    state$.regionCountsByNodeId.set(counts);
   }, [severityMap, rollups]);
 
   const selectedNodeId = use$(state$.selectedNodeId);

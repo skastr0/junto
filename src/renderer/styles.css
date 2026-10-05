@@ -1389,33 +1389,6 @@ html[data-surface-motion="paused"] *::after {
   animation-play-state: paused !important;
 }
 
-/* Viewport busy freeze — pan/zoom defers competing work; cut transitions.
-   Animations PAUSE rather than cancel: cancelling restarts them from their
-   keyframe origin at release, a second visible flip at every gesture
-   boundary. */
-html[data-viewport-busy] .react-flow .react-flow__node,
-html[data-viewport-busy] .react-flow .react-flow__edge,
-html[data-viewport-busy] .react-flow .junto-node,
-html[data-viewport-busy] .react-flow .junto-edge-label {
-  transition: none !important;
-}
-html[data-viewport-busy] .react-flow .react-flow__node,
-html[data-viewport-busy] .react-flow .react-flow__edge,
-html[data-viewport-busy] .react-flow .junto-node,
-html[data-viewport-busy] .react-flow .junto-edge-label {
-  animation-play-state: paused !important;
-}
-/* Impact-mode filter/opacity transitions are especially expensive mid-pan.
-   Only the transition is cut: the filter itself must not change with the
-   camera, or every busy boundary pops the whole board's saturation. */
-html[data-viewport-busy] .react-flow.impact-mode .react-flow__node,
-html[data-viewport-busy] .react-flow.connection-focus-mode .react-flow__node {
-  transition: none !important;
-}
-html[data-viewport-busy] .react-flow .react-flow__edge-path {
-  transition: none !important;
-}
-
 /* Focus modes — default-dim outsiders; only in/lead members are stamped. */
 .react-flow.impact-mode .react-flow__node,
 .react-flow.connection-focus-mode .react-flow__node {

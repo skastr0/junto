@@ -25,11 +25,6 @@ path.junto-wire-pulse[data-direction="reverse"] {
   to { stroke-dashoffset: 0.16; }
 }
 
-/* Pan and zoom own the compositor; a pulse mid-gesture is not painted. */
-html[data-viewport-busy] .react-flow path.junto-wire-pulse {
-  visibility: hidden;
-}
-
 /* Reduced motion: no travel. The whole wire holds the kind's colour
    briefly, then clears in one step. */
 @media (prefers-reduced-motion: reduce) {

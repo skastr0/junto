@@ -7,8 +7,8 @@
  * CSS under `html[data-surface-motion="paused"]` stops infinite paints so the
  * GPU process can idle (fans). See styles.css + RtsBottomBar.css.
  *
- * This is independent of viewportBusy$ (pan/zoom freeze) and of fleet WebGL
- * loops (those gate on their own visibility).
+ * This is independent of fleet WebGL loops (those gate on their own
+ * visibility).
  */
 
 import { observable } from "@legendapp/state";

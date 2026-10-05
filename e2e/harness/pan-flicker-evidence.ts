@@ -7,20 +7,17 @@
  *
  *   - CDP screencast frames (the compositor's own output, timestamped)
  *   - a per-frame rAF sample (timestamp, mounted .junto-node count,
- *     html[data-viewport-busy] state, computed will-change on the viewport)
+ *     computed will-change on the viewport)
  *   - DOM churn from a MutationObserver on the .react-flow subtree
  *     (childList adds/removes — the remint/blink signature)
- *   - html[data-viewport-busy] attribute transitions, deduped, from a
- *     dedicated observer (attributeFilter — not every <html> attribute, and
- *     never merged with the rAF-derived transitions, which live separately)
  *   - long tasks + CDP Performance.getMetrics deltas (metrics collection is
  *     explicitly enabled; absent metric names fail the run instead of
  *     reading as zero)
  *   - the app's own JUNTO_PERF counters (loom replans, route wires,
  *     activity mark mounts) via the in-page harness snapshot
  *
- * Each gesture keeps the window open 1.2s after the gesture so the busy-gate
- * release frame (the deferred-rebuild flush) lands inside the evidence window.
+ * Each gesture keeps the window open 1.2s after the gesture so whatever
+ * settles once the camera stops lands inside the evidence window.
  *
  * Evidence lands in test-results/pan-flicker/<gesture>/ and is printed as one
  * grep-able PAN-FLICKER-EVIDENCE {json} line per gesture.
@@ -38,19 +35,11 @@ export type InPageEvidence = {
   readonly maxFrameGapMs: number;
   readonly longTasks: { readonly count: number; readonly totalMs: number; readonly maxMs: number };
   readonly dom: { readonly added: number; readonly removed: number; readonly samples: string[] };
-  /** Deduped html[data-viewport-busy] attribute transitions (observer). */
-  readonly busyFlips: readonly { readonly busy: boolean; readonly t: number }[];
-  /**
-   * Busy-state transitions seen by the rAF sampler — kept SEPARATE from the
-   * observer census so the two instruments never double-count.
-   */
-  readonly rafBusyTransitions: readonly { readonly busy: boolean; readonly t: number }[];
   /** Computed will-change of .react-flow__viewport, sampled on the rAF loop. */
   readonly willChangeValues: readonly string[];
   readonly perFrame: readonly {
     readonly t: number;
     readonly nodes: number;
-    readonly busy: boolean;
   }[];
 };
 
@@ -74,33 +63,23 @@ export async function installEvidence(page: import("@playwright/test").Page): Pr
     const w = window as unknown as {
       __panEvidence?: EvidenceWindow;
     };
-    const perFrame: { t: number; nodes: number; busy: boolean }[] = [];
+    const perFrame: { t: number; nodes: number }[] = [];
     const willChangeValues: string[] = [];
-    const busyFlips: { busy: boolean; t: number }[] = [];
-    const rafBusyTransitions: { busy: boolean; t: number }[] = [];
     const dom = { added: 0, removed: 0, samples: [] as string[] };
     const longTasks = { count: 0, totalMs: 0, maxMs: 0 };
     let frames = 0;
     let lastFrameAt = performance.now();
     let maxGap = 0;
-    let lastBusy = false;
     let running = false;
     let raf = 0;
     let domObserver: MutationObserver | undefined;
-    let busyObserver: MutationObserver | undefined;
     let taskObserver: PerformanceObserver | undefined;
 
     const sample = (): void => {
-      const busy = document.documentElement.hasAttribute("data-viewport-busy");
       perFrame.push({
         t: Math.round(performance.now()),
         nodes: document.querySelectorAll(".junto-node").length,
-        busy,
       });
-      if (busy !== lastBusy) {
-        lastBusy = busy;
-        rafBusyTransitions.push({ busy, t: Math.round(performance.now()) });
-      }
       if (frames % 10 === 0) {
         const viewport = document.querySelector(".react-flow__viewport");
         willChangeValues.push(
@@ -127,9 +106,6 @@ export async function installEvidence(page: import("@playwright/test").Page): Pr
         maxGap = 0;
         perFrame.length = 0;
         willChangeValues.length = 0;
-        busyFlips.length = 0;
-        rafBusyTransitions.length = 0;
-        lastBusy = document.documentElement.hasAttribute("data-viewport-busy");
         dom.added = 0;
         dom.removed = 0;
         dom.samples.length = 0;
@@ -160,20 +136,6 @@ export async function installEvidence(page: import("@playwright/test").Page): Pr
           subtree: true,
         });
 
-        // Busy gate only — never the attention-clock attributes, never a
-        // merged stream: the census must count busy transitions and nothing
-        // else.
-        busyObserver = new MutationObserver(() => {
-          const busy = document.documentElement.hasAttribute("data-viewport-busy");
-          const previous = busyFlips[busyFlips.length - 1];
-          if (previous && previous.busy === busy) return;
-          busyFlips.push({ busy, t: Math.round(performance.now()) });
-        });
-        busyObserver.observe(document.documentElement, {
-          attributes: true,
-          attributeFilter: ["data-viewport-busy"],
-        });
-
         taskObserver = new PerformanceObserver((list) => {
           for (const entry of list.getEntries()) {
             longTasks.count += 1;
@@ -190,7 +152,6 @@ export async function installEvidence(page: import("@playwright/test").Page): Pr
         running = false;
         if (raf) cancelAnimationFrame(raf);
         domObserver?.disconnect();
-        busyObserver?.disconnect();
         taskObserver?.disconnect();
         return {
           frames,
@@ -201,8 +162,6 @@ export async function installEvidence(page: import("@playwright/test").Page): Pr
             maxMs: Math.round(longTasks.maxMs),
           },
           dom: { added: dom.added, removed: dom.removed, samples: [...dom.samples] },
-          busyFlips: busyFlips.slice(0, 120),
-          rafBusyTransitions: rafBusyTransitions.slice(0, 120),
           willChangeValues: [...new Set(willChangeValues)],
           perFrame: perFrame.filter((_, i) => i % 2 === 0),
         };
@@ -376,8 +335,8 @@ export const capture = async (
 
   await page.evaluate(() => (window as unknown as { __panEvidence: EvidenceWindow }).__panEvidence.begin());
   await gesture(page);
-  // Keep the evidence window open across the busy-gate release (160ms hold)
-  // so the deferred-rebuild flush lands inside the capture.
+  // Keep the evidence window open after the gesture so the settle lands
+  // inside the capture.
   await page.waitForTimeout(RELEASE_SETTLE_MS);
   const evidence = await page.evaluate(
     () => (window as unknown as { __panEvidence: EvidenceWindow }).__panEvidence.end(),
@@ -408,8 +367,6 @@ export const capture = async (
     domAdded: evidence.dom.added,
     domRemoved: evidence.dom.removed,
     domSamples: evidence.dom.samples.slice(0, 8),
-    busyFlips: evidence.busyFlips,
-    rafBusyTransitions: evidence.rafBusyTransitions,
     willChangeValues: evidence.willChangeValues,
     metrics: metricsDelta(metricsBefore, metricsAfter),
   };

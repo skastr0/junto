@@ -6,7 +6,7 @@
  * One capture window covers the whole sequence: zoom-out (ctrl+wheel pinch
  * path) → continuous circular wheel pan → bursty wheel pan → wide middle-drag
  * pan. The shared instrumentation in e2e/harness/pan-flicker-evidence.ts
- * records busy-gate flips, will-change constancy, DOM churn, long tasks, and
+ * records will-change constancy, DOM churn, long tasks, and
  * CDP metrics; screencast frames become the reviewable video.
  *
  * Run: bun run test:e2e:fast e2e/scenarios/canvas-pan-flicker-dense.spec.ts
@@ -174,7 +174,7 @@ test.describe("dense board pan flicker stress", () => {
       // screen px) — 3 full circles with all 100 nodes continuously visible.
       // 6s moderate continuous wheel pan (orbit ~180 px)…
       await wheelPan(p, 6_000, false, 3);
-      // …6s bursty wheel pan (the shape that used to flap the busy latch)…
+      // …6s bursty wheel pan…
       await wheelPan(p, 6_000, true, 3);
       // …3s hard fling across the board…
       await wheelPan(p, 3_000, false, 40);

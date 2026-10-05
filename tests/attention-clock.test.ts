@@ -1,7 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   ATTENTION_CLOCK_FRAMES,
-  ATTENTION_CLOCK_RESUME_MS,
   ATTENTION_CLOCK_TICK_MS,
   attentionFrame$,
   resetAttentionClockForTests,
@@ -9,7 +8,6 @@ import {
 } from "../src/renderer/lib/attention-clock";
 import { canvasTier$ } from "../src/renderer/lib/canvas-tier";
 import { surfaceMotionLive$ } from "../src/renderer/lib/surface-motion";
-import { viewportBusy$ } from "../src/renderer/lib/viewport-busy";
 
 describe("attention clock", () => {
   const listeners = new Map<string, Set<() => void>>();
@@ -38,7 +36,6 @@ describe("attention clock", () => {
     resetAttentionClockForTests();
     vi.useRealTimers();
     surfaceMotionLive$.set(true);
-    viewportBusy$.set(false);
     canvasTier$.set("near");
     listeners.clear();
     if (previousDocument === undefined) {
@@ -111,38 +108,6 @@ describe("attention clock", () => {
     expect(dataset.markFrame).toBe("1");
     vi.advanceTimersByTime(ATTENTION_CLOCK_TICK_MS);
     expect(dataset.markFrame).toBe("2");
-  });
-
-  it("freezes mid-pan without clearing the stamp, and resumes after a quiet hold", () => {
-    vi.useFakeTimers();
-    const dataset = installDom();
-    retainAttentionClock();
-    vi.advanceTimersByTime(ATTENTION_CLOCK_TICK_MS);
-    expect(dataset.markFrame).toBe("1");
-
-    viewportBusy$.set(true);
-    vi.advanceTimersByTime(ATTENTION_CLOCK_TICK_MS * 4);
-    expect(dataset.markFrame).toBe("1");
-
-    viewportBusy$.set(false);
-    vi.advanceTimersByTime(ATTENTION_CLOCK_RESUME_MS - 1);
-    expect(dataset.markFrame).toBe("1");
-    vi.advanceTimersByTime(1 + ATTENTION_CLOCK_TICK_MS);
-    expect(dataset.markFrame).toBe("2");
-  });
-
-  it("stays frozen across the gaps of a bursty pan", () => {
-    vi.useFakeTimers();
-    const dataset = installDom();
-    retainAttentionClock();
-    vi.advanceTimersByTime(ATTENTION_CLOCK_TICK_MS);
-    for (let burst = 0; burst < 6; burst += 1) {
-      viewportBusy$.set(true);
-      vi.advanceTimersByTime(250);
-      viewportBusy$.set(false);
-      vi.advanceTimersByTime(ATTENTION_CLOCK_RESUME_MS - 100);
-    }
-    expect(dataset.markFrame).toBe("1");
   });
 
   it("keeps stepping at every tier: a seat moves wherever it is drawn", () => {

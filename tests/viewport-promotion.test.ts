@@ -1,18 +1,19 @@
 /**
- * PERF — React Flow viewport will-change must be STABLE for the canvas-mount
- * lifetime. Toggling the promotion hint on busy-gate boundaries promoted and
- * de-promoted the viewport layer — every flip re-rastered the visible canvas
- * and read as content popping out. The busy attribute remains the
- * work-deferral gate only; it must not change rendering policy.
+ * PERF — the React Flow viewport is never composited, and nothing about the
+ * board's rendering changes with the camera.
  */
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
-const css = readFileSync(
-  resolve(__dirname, "../src/renderer/styles.css"),
-  "utf8",
-);
+const read = (path: string): string => readFileSync(resolve(__dirname, "..", path), "utf8");
+const css = read("src/renderer/styles.css");
+const sheets = [
+  css,
+  read("src/renderer/styles/factory-grammar.css"),
+  read("src/renderer/components/edges/wire-pulse.css"),
+  read("src/renderer/components/rts/RtsBottomBar.css"),
+];
 
 describe("viewport compositor promotion (CSS)", () => {
   it("never promotes .react-flow__viewport (a composited camera starves tile memory)", () => {
@@ -24,38 +25,10 @@ describe("viewport compositor promotion (CSS)", () => {
     );
   });
 
-  it("never scopes the viewport promotion to the busy gate", () => {
-    // The busy-scoped promotion rule is the flicker mechanism; its absence is
-    // the invariant.
-    expect(css).not.toMatch(
-      /html\[data-viewport-busy\][^{]*\.react-flow__viewport\s*\{[^}]*will-change\s*:/s,
-    );
-  });
-
-  it("keeps viewport-busy freeze selectors (transitions off during interaction)", () => {
-    expect(css).toMatch(
-      /html\[data-viewport-busy\]\s+\.react-flow\s+\.react-flow__node[^{]*\{[^}]*transition\s*:\s*none/s,
-    );
-  });
-
-  it("pauses (never cancels) node/edge animations during interaction", () => {
-    // Cancelling restarts animations from their keyframe origin at release —
-    // a second visible flip at every busy boundary.
-    expect(css).toMatch(
-      /html\[data-viewport-busy\]\s+\.react-flow\s+\.react-flow__edge[^{]*\{[^}]*animation-play-state\s*:\s*paused/s,
-    );
-    expect(css).not.toMatch(
-      /html\[data-viewport-busy\]\s+\.react-flow\s+\.react-flow__edge[^{]*\{[^}]*animation\s*:\s*none/s,
-    );
-  });
-
-  it("never flips node filters or the hover lift on the busy gate", () => {
-    // Whole-board appearance must not change with the camera.
-    expect(css).not.toMatch(
-      /html\[data-viewport-busy\][^{]*\.react-flow__node[^{]*\{[^}]*filter\s*:/s,
-    );
-    expect(css).not.toMatch(
-      /html\[data-viewport-busy\][^{]*:hover[^{]*\{[^}]*transform\s*:/s,
-    );
+  it("carries no camera-gesture rule: a pan changes nothing about how the board is drawn", () => {
+    // The pan freeze (paused animations, cut transitions, stripped wire glow,
+    // hidden pulses) read as the board dying under the camera, and was built
+    // for a composited viewport that no longer exists.
+    for (const sheet of sheets) expect(sheet).not.toMatch(/data-viewport-busy/);
   });
 });

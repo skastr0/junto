@@ -570,11 +570,6 @@
   z-index: 0;
 }
 
-/* Drop blur while the field is busy — backdrop-filter is compositor-heavy. */
-html[data-viewport-busy] .react-flow .rts-panel {
-  backdrop-filter: none !important;
-}
-
 /* MiniMap is itself an RF Panel — pin it to our wrap, not the full stage. */
 .rts-minimap-wrap .react-flow__minimap,
 .rts-minimap-wrap .react-flow__panel.react-flow__minimap {

@@ -11,7 +11,6 @@
 import { useEffect, useMemo, useRef } from "react";
 import { useStore } from "@xyflow/react";
 import { batch } from "@legendapp/state";
-import { use$ } from "@legendapp/state/react";
 import type { FlowEdge } from "../../lib/convert";
 import {
   loomCorridors$,
@@ -29,7 +28,6 @@ import {
 } from "../../lib/loom-view";
 import { MIN_FAN, planLoom } from "../../lib/wire-loom";
 import type { LoomEdgeInput, LoomObstacle, LoomStrand } from "../../lib/wire-loom";
-import { viewportBusy$ } from "../../lib/viewport-busy";
 import { canvasPerformance } from "../../lib/performance/canvas-performance";
 import { nodeBounds, routeWire } from "../../lib/wire-route";
 import type { WireDirection, WirePoint, WireRect } from "../../lib/wire-route";
@@ -475,13 +473,8 @@ export function CanvasLoom({ edges }: { readonly edges: ReadonlyArray<FlowEdge> 
   specsRef.current = specs;
   // Non-null while the plan is frozen, holding the dragged-node signature.
   const freezeRef = useRef<string | null>(null);
-  // Geometry and topology the standing plan was built from. `viewportBusy` is a
-  // dependency, so a pan or a zoom re-runs this effect on release; without this
-  // the loom would replan the whole canvas at the end of every gesture.
+  // Geometry and topology the standing plan was built from.
   const plannedRef = useRef<{ geometry: LoomNode[]; specsKey: string } | null>(null);
-  // Subscribed, not peeked — a geometry tick inside a pan freezes the plan, and
-  // nothing else would re-run this effect when the pan releases.
-  const viewportBusy = use$(viewportBusy$);
 
   useEffect(() => {
     canvasPerformance.recordLoomEffect();
@@ -494,12 +487,6 @@ export function CanvasLoom({ edges }: { readonly edges: ReadonlyArray<FlowEdge> 
     pruneKeyedLoomEntries(activeIds);
 
     const dragging = geometry.filter((node) => node.dragging).map((node) => node.nodeId);
-
-    // Pan / zoom: canvas-space geometry is unchanged — never replan or re-route.
-    if (viewportBusy && dragging.length === 0) {
-      freezeRef.current = "__viewport__";
-      return;
-    }
 
     if (dragging.length > 0) {
       // Frozen fan plan during drag. Incident edges drop strands once, then
@@ -560,7 +547,7 @@ export function CanvasLoom({ edges }: { readonly edges: ReadonlyArray<FlowEdge> 
     publishStandaloneRoutes(inputs, obstacles, plan.corridors, strandIds);
 
     plannedRef.current = { geometry, specsKey };
-  }, [geometry, specsKey, viewportBusy]);
+  }, [geometry, specsKey]);
 
   return null;
 }

@@ -117,7 +117,7 @@ test.describe("canvas pan flicker evidence", () => {
     );
   });
 
-  test("bursty wheel pan (flaps the busy latch)", async ({ junto }) => {
+  test("bursty wheel pan", async ({ junto }) => {
     const { app, page } = junto;
     await installEvidence(page);
     await capture({ app, page, nodeCount: NODE_COUNT, edgeCount: EDGE_COUNT }, "wheel-pan-bursty", (p) =>
@@ -152,8 +152,8 @@ test.describe("canvas pan flicker evidence", () => {
     await expect(page.locator(".react-flow.connection-focus-mode")).toBeAttached({ timeout: 10_000 });
 
     // Sample computed filters of three cards (selected, near, far) on a rAF
-    // loop while panning. The busy gate may no longer change appearance with
-    // the camera: each card's filter must hold exactly one value.
+    // loop while panning. Appearance never changes with the camera: each
+    // card's filter must hold exactly one value.
     const filters = await page.evaluate(
       () =>
         new Promise<Record<string, string[]>>((resolve) => {

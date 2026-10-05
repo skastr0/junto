@@ -63,9 +63,6 @@ export type PerformanceSnapshot = {
   readonly routeWireInvocations: number;
   readonly routeWireByEdge: Readonly<Record<string, number>>;
   readonly routeWireByTrigger: Readonly<Record<RouteTrigger, number>>;
-  readonly viewportBusyTransitions: number;
-  readonly viewportPromotionTransitions: number;
-  readonly viewportPromotionMs: number;
   readonly intentionalContinuousAnimation: number;
   readonly processSampleCount: number;
 };
@@ -106,9 +103,6 @@ export type PerformanceDelta = {
   readonly routeWireInvocations: number;
   readonly routeWireByEdge: Readonly<Record<string, number>>;
   readonly routeWireByTrigger: Readonly<Record<RouteTrigger, number>>;
-  readonly viewportBusyTransitions: number;
-  readonly viewportPromotionTransitions: number;
-  readonly viewportPromotionMs: number;
   readonly intentionalContinuousAnimation: number;
   readonly processSampleCount: number;
 };
@@ -123,9 +117,6 @@ export type CanvasPerformanceRecorder = {
   readonly recordCorridorPublication: (equal: boolean) => void;
   readonly recordLoomPlan: (durationMs: number) => void;
   readonly recordRouteWire: (edgeId: string, trigger: RouteTrigger) => void;
-  readonly recordViewportBusy: (busy: boolean) => void;
-  readonly recordViewportPromotion: (promoted: boolean) => void;
-  readonly recordViewportPromotionDuration: (durationMs: number) => void;
   readonly recordIntentionalContinuousAnimation: (count: number) => void;
   readonly recordProcessSample: (sample: Omit<ProcessSample, "atMs"> & { readonly atMs?: number }) => void;
   readonly snapshot: () => PerformanceSnapshot;
@@ -143,9 +134,6 @@ export type PerformanceObservation =
   | { readonly kind: "corridor-publication"; readonly equal: boolean }
   | { readonly kind: "loom-plan"; readonly durationMs: number }
   | { readonly kind: "route-wire"; readonly edgeId: string; readonly trigger: RouteTrigger }
-  | { readonly kind: "viewport-busy"; readonly busy: boolean }
-  | { readonly kind: "viewport-promotion"; readonly promoted: boolean }
-  | { readonly kind: "viewport-promotion-duration"; readonly durationMs: number }
   | { readonly kind: "intentional-animation"; readonly count: number }
   | { readonly kind: "process-sample"; readonly sample: Omit<ProcessSample, "atMs"> & { readonly atMs?: number } };
 
@@ -184,9 +172,6 @@ type MutableCounters = {
   routeWireInvocations: number;
   routeWireByEdge: Record<string, number>;
   routeWireByTrigger: Record<RouteTrigger, number>;
-  viewportBusyTransitions: number;
-  viewportPromotionTransitions: number;
-  viewportPromotionMs: number;
   intentionalContinuousAnimation: number;
   processSampleCount: number;
   processSamples: ProcessSample[];
@@ -255,9 +240,6 @@ const emptyCounters = (): MutableCounters => ({
     "edge-change": 0,
     "intentional-animation": 0,
   },
-  viewportBusyTransitions: 0,
-  viewportPromotionTransitions: 0,
-  viewportPromotionMs: 0,
   intentionalContinuousAnimation: 0,
   processSampleCount: 0,
   processSamples: [],
@@ -302,10 +284,6 @@ const subtract = (after: PerformanceSnapshot, before: PerformanceSnapshot): Perf
   routeWireInvocations: after.routeWireInvocations - before.routeWireInvocations,
   routeWireByEdge: subtractRecord(after.routeWireByEdge, before.routeWireByEdge),
   routeWireByTrigger: subtractRecord(after.routeWireByTrigger, before.routeWireByTrigger),
-  viewportBusyTransitions: after.viewportBusyTransitions - before.viewportBusyTransitions,
-  viewportPromotionTransitions:
-    after.viewportPromotionTransitions - before.viewportPromotionTransitions,
-  viewportPromotionMs: after.viewportPromotionMs - before.viewportPromotionMs,
   intentionalContinuousAnimation:
     after.intentionalContinuousAnimation - before.intentionalContinuousAnimation,
   processSampleCount: after.processSampleCount - before.processSampleCount,
@@ -365,9 +343,6 @@ export const createCanvasPerformanceRecorder = (options?: {
     routeWireInvocations: counters.routeWireInvocations,
     routeWireByEdge: cloneRecord(counters.routeWireByEdge),
     routeWireByTrigger: cloneRecord(counters.routeWireByTrigger),
-    viewportBusyTransitions: counters.viewportBusyTransitions,
-    viewportPromotionTransitions: counters.viewportPromotionTransitions,
-    viewportPromotionMs: counters.viewportPromotionMs,
     intentionalContinuousAnimation: counters.intentionalContinuousAnimation,
     processSampleCount: counters.processSampleCount,
   });
@@ -432,15 +407,6 @@ export const createCanvasPerformanceRecorder = (options?: {
       if (Object.prototype.hasOwnProperty.call(counters.routeWireByEdge, edgeId) || Object.keys(counters.routeWireByEdge).length < maxRouteKeys) {
         counters.routeWireByEdge[edgeId] = (counters.routeWireByEdge[edgeId] ?? 0) + 1;
       }
-    },
-    recordViewportBusy: (_busy) => {
-      counters.viewportBusyTransitions += 1;
-    },
-    recordViewportPromotion: (_promoted) => {
-      counters.viewportPromotionTransitions += 1;
-    },
-    recordViewportPromotionDuration: (durationMs) => {
-      counters.viewportPromotionMs += Number.isFinite(durationMs) && durationMs > 0 ? durationMs : 0;
     },
     recordIntentionalContinuousAnimation: (count) => {
       const bounded = Math.max(0, Math.trunc(count));
@@ -522,15 +488,6 @@ export const recordCanvasPerformanceObservation = (
     case "route-wire":
       recorder.recordRouteWire(observation.edgeId, observation.trigger);
       return;
-    case "viewport-busy":
-      recorder.recordViewportBusy(observation.busy);
-      return;
-    case "viewport-promotion":
-      recorder.recordViewportPromotion(observation.promoted);
-      return;
-    case "viewport-promotion-duration":
-      recorder.recordViewportPromotionDuration(observation.durationMs);
-      return;
     case "intentional-animation":
       recorder.recordIntentionalContinuousAnimation(observation.count);
       return;
@@ -562,9 +519,6 @@ export const canvasPerformance = {
   recordCorridorPublication: (equal: boolean): void => activeRecorder?.recordCorridorPublication(equal),
   recordLoomPlan: (durationMs: number): void => activeRecorder?.recordLoomPlan(durationMs),
   recordRouteWire: (edgeId: string, trigger: RouteTrigger): void => activeRecorder?.recordRouteWire(edgeId, trigger),
-  recordViewportBusy: (busy: boolean): void => activeRecorder?.recordViewportBusy(busy),
-  recordViewportPromotion: (promoted: boolean): void => activeRecorder?.recordViewportPromotion(promoted),
-  recordViewportPromotionDuration: (durationMs: number): void => activeRecorder?.recordViewportPromotionDuration(durationMs),
   recordIntentionalContinuousAnimation: (count: number): void => activeRecorder?.recordIntentionalContinuousAnimation(count),
   recordProcessSample: (sample: Omit<ProcessSample, "atMs"> & { readonly atMs?: number }): void => activeRecorder?.recordProcessSample(sample),
 };

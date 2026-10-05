@@ -320,11 +320,6 @@ path.junto-edge {
     drop-shadow(0 0 1px var(--wire-hue, transparent))
     drop-shadow(0 0 5px color-mix(in oklab, var(--wire-hue, transparent) 60%, transparent));
 }
-/* Pan and zoom own the compositor: no wire filter may thrash it, and neither
-   state may outrank that. */
-html[data-viewport-busy] .react-flow path.junto-edge {
-  filter: none !important;
-}
 @media (prefers-reduced-motion: reduce) {
   path.junto-edge { transition: none; }
 }
