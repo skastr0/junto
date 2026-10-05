@@ -74,7 +74,8 @@
   border-radius: inherit;
   outline: none;
 }
-.actor-rail__go:focus-visible { box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--color-cyan) 60%, transparent); }
+/* The browser's outline is off; a focused seat wears this ring, in both themes. */
+.actor-rail__go:focus-visible { box-shadow: inset 0 0 0 2px var(--color-cyan); }
 /* The seat sits above the cover button and lets the press through, except
    its own signal badge. */
 .actor-rail__seat > .junto-seat {
