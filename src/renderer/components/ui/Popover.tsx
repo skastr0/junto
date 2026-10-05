@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { placeBesideRect, type Align, type Side } from "../../lib/menu-placement";
-import { returnKeyboardFrom, topModal } from "../../lib/modal-stack";
+import { openerBorrowedKeyboard, returnKeyboardFrom, topModal } from "../../lib/modal-stack";
 
 // Module-level so the default is one stable array: a fresh literal per render
 // would re-run the placement layout effect every render and never settle.
@@ -93,9 +93,10 @@ export function Popover({
   }, [anchor]);
 
   // Closing gives the keyboard back: to the subject of the anchor's modal (a
-  // terminal) when it has one, else to the anchor, unless the operator has
-  // already put focus somewhere else on purpose.
-  useEffect(() => () => returnKeyboardFrom(anchor), [anchor]);
+  // terminal) when a pointer press opened this, else to the anchor, unless
+  // the operator has already put focus somewhere else on purpose.
+  const [borrowed] = useState(openerBorrowedKeyboard);
+  useEffect(() => () => returnKeyboardFrom(anchor, borrowed), [anchor, borrowed]);
 
   return createPortal(
     <div

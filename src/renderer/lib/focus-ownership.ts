@@ -199,6 +199,9 @@ const recentGesture = (): OperatorGesture | null => {
   return now() - lastGesture.at <= GESTURE_LICENSE_MS ? lastGesture : null;
 };
 
+/** How the operator last acted, if recently: with the pointer or with a key. */
+export const recentGestureKind = (): OperatorGesture["kind"] | null => recentGesture()?.kind ?? null;
+
 const installGestureTracker = (): void => {
   if (trackerInstalled || typeof window === "undefined") return;
   if (typeof window.addEventListener !== "function") return;

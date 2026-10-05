@@ -1,5 +1,11 @@
 import { useEffect, useRef, type KeyboardEvent as ReactKeyboardEvent, type RefObject } from "react";
-import { claimFocus, isOperatorTyping, pickPrimaryFocusControl, setFocusFence } from "./focus-ownership";
+import {
+  claimFocus,
+  isOperatorTyping,
+  pickPrimaryFocusControl,
+  recentGestureKind,
+  setFocusFence,
+} from "./focus-ownership";
 
 /**
  * The modal stack: one order for every open modal shell, so "topmost" has a
@@ -110,15 +116,24 @@ export const subjectOf = (from: Element | null): HTMLElement | null => {
 };
 
 /**
+ * Read as something opens: did the opener only borrow the keyboard? A
+ * pointer press on a button moves focus there as a side effect, so the
+ * keyboard still belongs to the subject. Reaching the button with the
+ * keyboard and pressing Enter is the operator putting focus there on
+ * purpose, and it comes back there.
+ */
+export const openerBorrowedKeyboard = (): boolean => recentGestureKind() === "pointer";
+
+/**
  * Something opened from `opener` has closed. Unless the operator has put
  * focus somewhere on purpose since, return the keyboard: to the subject of
- * the opener's modal when it has one, else to the opener itself.
+ * the opener's modal when the opener only borrowed it, else to the opener.
  */
-export const returnKeyboardFrom = (opener: Element | null): void => {
+export const returnKeyboardFrom = (opener: Element | null, borrowed: boolean): void => {
   if (!opener) return;
   const active = document.activeElement;
   if (!isPageRoot(active) && active !== opener && !opener.contains(active)) return;
-  const target = subjectOf(opener) ?? (opener as HTMLElement);
+  const target = (borrowed ? subjectOf(opener) : null) ?? (opener as HTMLElement);
   if (target.isConnected) claimFocus(target, "open", { preventScroll: true });
 };
 
@@ -281,8 +296,10 @@ export const useModalLayer = ({
   // Read during the first render: children claim focus in their effects,
   // which run before this hook's own.
   const openerRef = useRef<Element | null | undefined>(undefined);
+  const borrowedRef = useRef(false);
   if (openerRef.current === undefined) {
     openerRef.current = returnFocusTo !== undefined ? returnFocusTo : document.activeElement;
+    borrowedRef.current = openerBorrowedKeyboard();
   }
   const onEscapeRef = useRef(onEscape);
   onEscapeRef.current = onEscape;
@@ -305,7 +322,7 @@ export const useModalLayer = ({
       // The shell is gone by now. Give focus back only if nothing else took
       // it: an action that opened a surface keeps the keyboard it claimed.
       if (!opener || keepFocusRef.current?.() === true) return;
-      returnKeyboardFrom(opener);
+      returnKeyboardFrom(opener, borrowedRef.current);
     };
   }, [layer, trap, containerRef]);
 
