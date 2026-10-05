@@ -5,7 +5,7 @@
  */
 import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { delimiter, join } from "node:path";
 import { Effect } from "effect";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { CanvasDoc, EnvSource, EtherRegionEnvironment } from "../src/shared/canvas";
@@ -24,6 +24,7 @@ import {
   type ActorOccupySpec,
 } from "../src/main/junto/term/actor-seat-occupy";
 import { LocalSessionHost, resolveLaunch } from "../src/main/junto/term/local-host";
+import { juntoCliPathPrefixes } from "../src/main/junto/term/templates/seat-env";
 import type { SeatEnvironmentResolver } from "../src/main/junto/term/seat-process";
 import {
   makeProcessIdentityMap,
@@ -529,7 +530,14 @@ describe("the launch applies it", () => {
     ]);
     const spawned = fake.controllers[0]!.spec;
     expect(spawned.env?.OP_SERVICE_ACCOUNT_TOKEN).toBe(CANARY);
-    expect(spawned.env?.PATH?.split(":").at(-1)).toBe(binDir);
+    // The region's PATH is on the seat's PATH, behind Junto's own CLI
+    // directory. Where it sits among the rest is the host's business.
+    const pathEntries = (spawned.env?.PATH ?? "").split(delimiter);
+    expect(pathEntries).toContain(binDir);
+    for (const prefix of juntoCliPathPrefixes()) {
+      expect(pathEntries.indexOf(prefix)).toBeGreaterThanOrEqual(0);
+      expect(pathEntries.indexOf(prefix)).toBeLessThan(pathEntries.indexOf(binDir));
+    }
     expect(spawned.command).toBe(join(binDir, "claude"));
     expect(spawned.args ?? []).toEqual(expect.arrayContaining(["--add-dir", "/srv/shared"]));
     expect((spawned.args ?? []).join(" ")).not.toContain(CANARY);
