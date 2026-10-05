@@ -55,6 +55,8 @@ const rig = (
     held?: () => boolean;
     /** Wake result; the default leaves the seat down (paused canvas). */
     wake?: () => boolean;
+    /** The supervisor's answer to "did this seat run junto onboard". */
+    onboarded?: (bindingId: string) => boolean;
   } = {},
 ) => {
   const messages: Message[] = [];
@@ -84,6 +86,7 @@ const rig = (
     store,
     transport: {
       seatLive: (id) => id === bindingId && live,
+      ...(options.onboarded ? { seatOnboarded: options.onboarded } : {}),
       wakeSeat: async (id, wakeCanvas, wakeNode) => {
         wakes.push({ bindingId: id, canvas: wakeCanvas, nodeId: wakeNode });
         await new Promise((resolve) => setTimeout(resolve, 1));
@@ -125,6 +128,51 @@ const settle = async (): Promise<void> => {
 };
 
 describe("mail delivery", () => {
+  it("adds the onboard pointer to the line while the seat has not onboarded, and drops it after", async () => {
+    let onboarded = false;
+    const asked: string[] = [];
+    const seat = rig({
+      onboarded: (id) => {
+        asked.push(id);
+        return onboarded;
+      },
+    });
+    seat.append(mail("01A", "Please review the contract."));
+    await seat.service.deliver(canvas, nodeId, "01A");
+    onboarded = true;
+    seat.append(mail("01B", "Second note."));
+    await seat.service.deliver(canvas, nodeId, "01B");
+    // One write per message: the pointer is part of the line, not extra mail.
+    expect(seat.writes).toHaveLength(2);
+    expect(seat.writes[0]).toMatch(/^mail from Claude Code — .* — junto msg read 01A — new to this seat\? run `junto onboard` first$/);
+    expect(seat.writes[1]).not.toContain("junto onboard");
+    expect(asked).toEqual([bindingId, bindingId]);
+  });
+
+  it("a prompt to a seat that has not onboarded carries the pointer on its first line", async () => {
+    const seat = rig({ onboarded: () => false });
+    seat.append(mail("01A", "Review the patch", "prompt"));
+    await seat.service.deliver(canvas, nodeId, "01A");
+    expect(seat.writes).toEqual([
+      "mail from Claude Code — new to this seat? run `junto onboard` first\nReview the patch",
+    ]);
+  });
+
+  it("sends no pointer without a lookup, and a lookup that throws never costs the delivery", async () => {
+    const plain = rig();
+    plain.append(mail("01A", "Please review the contract."));
+    await plain.service.deliver(canvas, nodeId, "01A");
+    expect(plain.writes[0]).not.toContain("junto onboard");
+    const broken = rig({
+      onboarded: () => {
+        throw new Error("supervisor gone");
+      },
+    });
+    broken.append(mail("01B", "Please review the contract."));
+    expect(await broken.service.deliver(canvas, nodeId, "01B")).toBe("delivered");
+    expect(broken.writes[0]).not.toContain("junto onboard");
+  });
+
   it("types a notice into a live seat at once and stamps its receipt", async () => {
     const seat = rig();
     seat.append(mail("01A", "Please review the contract."));

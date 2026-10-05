@@ -5,7 +5,10 @@
  * no refusal, no retry budget, and no hold.
  *
  * The sender chooses the shape. A notice writes one short "mail from X" line
- * that points at `junto msg read`; a prompt writes the full text.
+ * that points at `junto msg read`; a prompt writes the full text. Either way
+ * the first line also points at `junto onboard` while the recipient has not
+ * onboarded: nothing is sent at session start, so mail is where a fresh seat
+ * learns the command that loads it.
  *
  * The only non-delivery is physical: the recipient seat does not exist, or
  * its terminal is not ready for input. That message waits in the mailbox and
@@ -36,6 +39,7 @@ import {
   listPendingDeliveries,
   MESSAGE_PTY_FULL_BODY_MAX,
   sanitizeDeliveryLine,
+  type MailLineOptions,
 } from "@shared/message-delivery";
 import {
   wireTrafficOfMail,
@@ -49,6 +53,11 @@ export type MailDeliveryState = "delivered" | "waiting";
 export type MessageDeliveryTransport = {
   /** The seat's terminal is up and ready to take a paste. */
   readonly seatLive: (bindingId: string) => boolean;
+  /**
+   * `junto onboard` ran in the seat's current harness session. False puts the
+   * onboard pointer on the mail line. Absent = no pointer.
+   */
+  readonly seatOnboarded?: (bindingId: string) => boolean;
   /**
    * Start the seat's session headless so waiting mail can reach it. The
    * implementation owns every refusal (not local, paused, restart budget)
@@ -106,10 +115,22 @@ const mailKey = (canvas: string, nodeId: string, messageId: string): string =>
   `${canvas}::${nodeId}::${messageId}`;
 
 /** The text a message puts on the seat's input, by the sender's chosen kind. */
-export const mailPayloadOf = (message: Message): string =>
+export const mailPayloadOf = (message: Message, options?: MailLineOptions): string =>
   readMailExtension(message.metadata)?.mailKind === "prompt"
-    ? composeImmediatePromptPayload(message)
-    : composeMessageDeliveryPayload(message);
+    ? composeImmediatePromptPayload(message, options)
+    : composeMessageDeliveryPayload(message, options);
+
+/** A lookup that fails must never cost a delivery: no answer means no pointer. */
+const onboardedOf = (
+  transport: MessageDeliveryTransport,
+  bindingId: string,
+): boolean => {
+  try {
+    return transport.seatOnboarded?.(bindingId) ?? true;
+  } catch {
+    return true;
+  }
+};
 
 export class MessageDeliveryService {
   private transport: MessageDeliveryTransport | undefined;
@@ -273,7 +294,9 @@ export class MessageDeliveryService {
       }
       return "waiting";
     }
-    const payload = mailPayloadOf(message);
+    const payload = mailPayloadOf(message, {
+      onboarded: onboardedOf(transport, target.bindingId),
+    });
     const written = await this.inSeatOrder(target.bindingId, () =>
       transport.writeMail(target.bindingId, payload),
     );

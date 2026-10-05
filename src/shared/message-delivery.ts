@@ -105,8 +105,27 @@ export const stripFactoryEnvelope = (text: string, message: Message): string => 
 const briefWithoutFactoryEnvelope = (message: Message): string =>
   stripFactoryEnvelope(messageBriefText(message), message);
 
+/**
+ * Rides the mail line of a seat that has not run `junto onboard` yet. Mail is
+ * often the first thing a fresh seat sees, and nothing else has told it where
+ * it is. Part of the line itself: never a separate message.
+ */
+export const MAIL_ONBOARD_POINTER = "new to this seat? run `junto onboard` first";
+
+/** What the composer knows about the destination seat. */
+export type MailLineOptions = {
+  /** False adds the onboard pointer. Absent means onboarded: no pointer. */
+  readonly onboarded?: boolean;
+};
+
+const withOnboardPointer = (line: string, options: MailLineOptions | undefined): string =>
+  options?.onboarded === false ? `${line} — ${MAIL_ONBOARD_POINTER}` : line;
+
 /** Full-body prompt policy has its own composer; notices never choose it. */
-export const composeImmediatePromptPayload = (message: Message): string => {
+export const composeImmediatePromptPayload = (
+  message: Message,
+  options?: MailLineOptions,
+): string => {
   const from = factoryMailFromSeat(message) ?? "seat";
   const raw = message.parts
     .filter((part) => part.kind === "text")
@@ -116,14 +135,20 @@ export const composeImmediatePromptPayload = (message: Message): string => {
     .replace(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/g, "")
     .trim();
   const body = stripFactoryEnvelope(raw, message);
-  return `mail from ${from}\n${body}`;
+  return `${withOnboardPointer(`mail from ${from}`, options)}\n${body}`;
 };
 
 /**
  * Pulse-style one-liner for a single message.
  * Short ordinary mail: full brief. Factory mail / long body: summary + CLI pointer.
+ * A destination that has not onboarded gets the onboard pointer on the same line.
  */
-export const composeMessageDeliveryPayload = (message: Message): string => {
+export const composeMessageDeliveryPayload = (
+  message: Message,
+  options?: MailLineOptions,
+): string => withOnboardPointer(composeMailLine(message), options);
+
+const composeMailLine = (message: Message): string => {
   if (!shouldSummarizeMessageForPty(message)) {
     const sender = messageSenderLabel(message);
     const brief = messageBriefText(message);
@@ -151,7 +176,7 @@ export const composeMessageDeliverySummary = (
   if (ordered.length === 1) {
     const message = ordered[0]!;
     if (!shouldSummarizeMessageForPty(message)) {
-      return composeMessageDeliveryPayload(message);
+      return composeMailLine(message);
     }
     const id = sanitizeDeliveryLine(message.messageId);
     const from = factoryMailFromSeat(message);

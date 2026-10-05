@@ -11,6 +11,7 @@ import {
   isMessageDelivered,
   isPendingDelivery,
   listPendingDeliveries,
+  MAIL_ONBOARD_POINTER,
   messageBriefText,
   messageSenderLabel,
   MESSAGE_PTY_FULL_BODY_MAX,
@@ -69,6 +70,42 @@ describe("message-delivery pure helpers", () => {
       "mail from Reviewer\nRead the patch.\nCheck the failing case.",
     );
     expect(composeMessageDeliveryPayload(message)).toContain("junto msg read m1");
+  });
+
+  it("carries the onboard pointer on the mail line only for a seat that has not onboarded", () => {
+    const notice = userMsg({
+      messageId: "01KZSM4A84ASFRTZ77YAQ09CVH",
+      metadata: { factoryMail: true, senderName: "Reviewer" },
+      parts: [{ kind: "text", text: "Please review the contract." }],
+    });
+    const plain = composeMessageDeliveryPayload(notice);
+    expect(plain).not.toContain("junto onboard");
+    expect(composeMessageDeliveryPayload(notice, {})).toBe(plain);
+    expect(composeMessageDeliveryPayload(notice, { onboarded: true })).toBe(plain);
+    const pointed = composeMessageDeliveryPayload(notice, { onboarded: false });
+    // The same line, still one line: never a separate message.
+    expect(pointed).toBe(`${plain} — ${MAIL_ONBOARD_POINTER}`);
+    expect(pointed).toBe(
+      "mail from Reviewer — Please review the contract. — junto msg read 01KZSM4A84ASFRTZ77YAQ09CVH — new to this seat? run `junto onboard` first",
+    );
+    expect(pointed.includes("\n")).toBe(false);
+    // Short ordinary mail takes it too.
+    expect(composeMessageDeliveryPayload(userMsg(), { onboarded: false })).toBe(
+      `[message - user] ping the lane — ${MAIL_ONBOARD_POINTER}`,
+    );
+  });
+
+  it("puts the onboard pointer on a prompt's first line and leaves the body alone", () => {
+    const prompt = userMsg({
+      metadata: { factoryMail: true, mailKind: "prompt", senderName: "Reviewer" },
+      parts: [{ kind: "text", text: "Read the patch.\nCheck the failing case." }],
+    });
+    expect(composeImmediatePromptPayload(prompt, { onboarded: false })).toBe(
+      `mail from Reviewer — ${MAIL_ONBOARD_POINTER}\nRead the patch.\nCheck the failing case.`,
+    );
+    expect(composeImmediatePromptPayload(prompt, { onboarded: true })).toBe(
+      "mail from Reviewer\nRead the patch.\nCheck the failing case.",
+    );
   });
 
   it("formats one-line payload with role and optional taskId", () => {

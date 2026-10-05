@@ -2277,6 +2277,9 @@ export const registerJuntoIpc = (): void => {
           // Physical only: a running process whose TUI is up (mail-readiness).
           seatLive: (bindingId) =>
             !productAutomationSuspended && mailReadyNow(bindingId),
+          // Mail to a seat that has not run `junto onboard` carries the
+          // pointer on its own line.
+          seatOnboarded: (bindingId) => injectionSupervisor.isOnboarded(bindingId),
           // The kernel wake owns locality, the pause law, and the restart
           // budget. A generation already starting needs no second wake.
           wakeSeat: (bindingId, canvas, nodeId) => {
