@@ -61,11 +61,12 @@ const useElementSize = (): readonly [(element: HTMLDivElement | null) => void, M
 const fitScale = (box: MediaSize, space: MediaSize): number =>
   box.width <= 0 || box.height <= 0
     ? 1
-    : Math.max(0, Math.min(1, space.width / box.width, space.height / box.height));
+    : Math.max(0, Math.min(1, Math.floor(space.width) / box.width, Math.floor(space.height) / box.height));
 
+// Rounded down: a pixel over the space would raise a scrollbar on a fitted image.
 const scaled = (size: MediaSize, scale: number): MediaSize => ({
-  width: Math.round(size.width * scale),
-  height: Math.round(size.height * scale),
+  width: Math.floor(size.width * scale),
+  height: Math.floor(size.height * scale),
 });
 
 const revealLabel = (): string => (isMac() ? "Reveal in Finder" : "Show in folder");
