@@ -1,0 +1,206 @@
+/* Previews of the files an agent names: the strip in a card's details and
+   the viewer over it. The tiles, stage and slider are ui parts; this file
+   only places them. */
+
+.preview-strip {
+  display: grid;
+  gap: 6px;
+  align-self: stretch;
+  min-width: 0;
+}
+
+.preview-strip__gone {
+  margin: 0;
+  font-size: var(--text-body);
+  color: var(--color-dim);
+  overflow-wrap: anywhere;
+}
+
+/* The viewer fills the dialog's room: the stage takes what the bars leave. */
+.preview-viewer {
+  height: 100%;
+}
+
+.preview-viewer > .junto-dialog__body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.preview-viewer__bar,
+.preview-viewer__compare-bar {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.preview-viewer__actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: auto;
+}
+
+.preview-viewer__pick {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: var(--color-dim);
+}
+
+.preview-viewer__pick:first-of-type {
+  margin-left: auto;
+}
+
+.preview-viewer__area {
+  position: relative;
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
+.preview-viewer__slide {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  animation: preview-viewer-in 150ms ease-out;
+}
+
+@keyframes preview-viewer-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .preview-viewer__slide {
+    animation: none;
+  }
+}
+
+html[data-surface-motion="paused"] .preview-viewer__slide {
+  animation: none;
+}
+
+/* Previous and next: at the stage's edges, seen on hover or with the keyboard. */
+.preview-viewer__step {
+  position: absolute;
+  top: 50%;
+  translate: 0 -50%;
+  background: var(--color-raise);
+  border: 1px solid var(--color-stroke);
+  opacity: 0;
+  transition: opacity 120ms ease-out;
+}
+
+.preview-viewer__step--previous {
+  left: 8px;
+}
+
+.preview-viewer__step--next {
+  right: 8px;
+}
+
+.preview-viewer__area:hover .preview-viewer__step,
+.preview-viewer__step:focus-visible {
+  opacity: 1;
+}
+
+.preview-viewer__area:hover .preview-viewer__step:disabled,
+.preview-viewer__step:disabled:focus-visible {
+  opacity: 0.35;
+}
+
+.preview-viewer__panes {
+  display: flex;
+  flex: 1;
+  gap: 1px;
+  min-width: 0;
+  min-height: 0;
+  background: var(--color-stroke);
+}
+
+.preview-viewer__pane {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  background: var(--color-well);
+}
+
+.preview-viewer__pane-name {
+  flex: none;
+  margin: 0;
+  padding: 0 16px 6px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-label);
+  color: var(--color-dim);
+}
+
+.preview-viewer__swipe {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  padding: 16px;
+  background: var(--color-well);
+}
+
+.preview-viewer__swipe-fit {
+  display: grid;
+  place-items: center;
+  width: max-content;
+  min-width: 100%;
+  min-height: 100%;
+}
+
+.preview-viewer__text {
+  flex: 1;
+  min-width: 0;
+  overflow: auto;
+  padding: 16px;
+  background: var(--color-well);
+  color: var(--color-ink);
+  outline: none;
+}
+
+.preview-viewer__text pre {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: var(--text-body-lg);
+  line-height: var(--leading-open);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.preview-viewer__file {
+  display: grid;
+  flex: 1;
+  place-content: center;
+  justify-items: center;
+  gap: 8px;
+  background: var(--color-well);
+}
+
+.preview-viewer__file-name {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: var(--text-body-lg);
+  color: var(--color-ink);
+  overflow-wrap: anywhere;
+}
+
+.preview-viewer__note {
+  margin: 0;
+  font-size: var(--text-body);
+  color: var(--color-dim);
+}
