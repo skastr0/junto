@@ -32,8 +32,9 @@ import { startThemeMode } from "./lib/theme-mode";
 import { startUpdateBridge } from "./lib/update-state";
 import { subscribeAgentSeatState } from "./lib/agent-seat-state";
 import { subscribeSeatAwareness } from "./lib/seat-awareness";
-import { installActorMirrorHotkeys } from "./lib/actor-mirrors";
 import { installFocusSwitcherHotkeys } from "./lib/focus-switcher";
+import { KEY_ACTIONS } from "./lib/key-actions";
+import { installKeyDispatcher } from "./lib/key-dispatcher";
 import { reconcileDockFromLiveSessions } from "./lib/dock-state";
 import { startSurfaceMotionGate } from "./lib/surface-motion";
 import { clearPreambles, showPreamble } from "./lib/preamble-state";
@@ -460,9 +461,8 @@ export function App() {
     };
   }, []);
 
-  // Cmd+] / Cmd+[ swap the front terminal between connected actors. Capture
-  // phase (installed here, checked there) so the chord never reaches xterm.
-  useEffect(() => installActorMirrorHotkeys(), []);
+  // Every app shortcut: one listener, resolved against the key table.
+  useEffect(() => installKeyDispatcher(KEY_ACTIONS), []);
   // Control+Tab cycles focus models without closing the modal.
   useEffect(() => installFocusSwitcherHotkeys(), []);
 

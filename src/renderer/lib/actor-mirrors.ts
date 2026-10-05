@@ -154,24 +154,3 @@ export const cycleActorMirror = (direction: 1 | -1): boolean => {
   void openTerminal(next, "focus");
   return true;
 };
-
-/**
- * Cmd+] / Cmd+[ — capture phase so the chord never reaches the focused xterm
- * (or any other surface). The key is consumed only when a swap actually
- * happens; otherwise the event passes through untouched.
- */
-export const installActorMirrorHotkeys = (): (() => void) => {
-  const onKeyDown = (event: KeyboardEvent): void => {
-    if (!event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
-    const direction = event.key === "]" ? 1 : event.key === "[" ? -1 : null;
-    if (direction === null) return;
-    if (!cycleActorMirror(direction)) return;
-    event.preventDefault();
-    event.stopPropagation();
-  };
-  // focus-law: Cmd+[ / Cmd+] command chord, never text entry.
-  window.addEventListener("keydown", onKeyDown, { capture: true });
-  return () => {
-    window.removeEventListener("keydown", onKeyDown, { capture: true });
-  };
-};
