@@ -318,3 +318,94 @@
   padding: 0;
   overflow: hidden;
 }
+
+/* Browse for a file or a folder, under the field it fills. */
+.region-env__path {
+  display: flex;
+  gap: 6px;
+}
+
+.region-env__path > :first-child {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.region-env__browser {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid var(--color-overlay-3);
+  border-radius: var(--radius-md);
+  background: var(--color-raise-2);
+}
+
+.region-env__browser-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.region-env__browser-root {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: var(--text-label);
+  color: var(--color-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.region-env__browser-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 180px;
+  overflow-y: auto;
+}
+
+.region-env__browser-entry {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 4px 6px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-ink);
+  font-family: var(--font-mono);
+  font-size: var(--text-body);
+  text-align: left;
+  cursor: pointer;
+}
+
+.region-env__browser-entry:hover {
+  background: var(--color-overlay-1);
+}
+
+.region-env__browser-entry:focus-visible {
+  outline: 2px solid var(--color-main);
+  outline-offset: -2px;
+}
+
+/* A command's arguments, exactly as they will run. */
+.region-env__argv {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+
+.region-env__arg {
+  padding: 1px 6px;
+  border: 1px solid var(--color-overlay-3);
+  border-radius: var(--radius-sm);
+  background: var(--color-inset);
+  color: var(--color-ink);
+  font-family: var(--font-mono);
+  font-size: var(--text-label);
+  white-space: pre;
+}

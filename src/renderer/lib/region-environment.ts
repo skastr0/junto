@@ -164,8 +164,8 @@ export const SOURCE_KINDS: ReadonlyArray<SourceKindSpec> = [
       {
         key: "argv",
         label: "Command",
-        placeholder: "vault print token",
-        hint: "Run as written, without a shell: no pipes, quotes or variables.",
+        placeholder: 'security find-generic-password -s "My Item" -w',
+        hint: "Quote an argument that has spaces. It runs as these arguments, without a shell: no pipes or variables.",
       },
     ],
   },
@@ -187,8 +187,11 @@ export type SourceDraft = {
   readonly fields: Readonly<Record<string, string>>;
   /** The stored secret this draft edits, when it edits one. */
   readonly secretId?: string;
-  /** "Only on this machine", carried through an edit untouched. */
-  readonly host?: string;
+  /**
+   * Everything on the source the form does not show (`host`, and any field a
+   * later version of the contract adds), carried through an edit untouched.
+   */
+  readonly carried?: Readonly<Record<string, unknown>>;
 };
 
 export const newSourceDraft = (id: string, kind: EnvSourceKind): SourceDraft => ({
@@ -215,12 +218,99 @@ const attributesFromText = (text: string): Record<string, string> => {
   return attributes;
 };
 
+/** The source's own keys each kind's form edits; `id`, `kind`, `required` are every form's. */
+const FORM_KEYS: Readonly<Record<EnvSourceKind, ReadonlyArray<string>>> = {
+  value: ["name", "value"],
+  secret: ["name", "secretId"],
+  keychain: ["name", "service", "account"],
+  keyring: ["name", "attributes"],
+  onepassword: ["name", "ref", "tokenFrom"],
+  envFile: ["path"],
+  secretsDir: ["path", "prefix"],
+  command: ["name", "argv"],
+};
+
+const carriedOf = (source: EnvSource): Record<string, unknown> | undefined => {
+  const shown = new Set(["id", "kind", "required", ...FORM_KEYS[source.kind]]);
+  const carried = Object.fromEntries(Object.entries(source).filter(([key]) => !shown.has(key)));
+  return Object.keys(carried).length > 0 ? carried : undefined;
+};
+
+// ── Commands ───────────────────────────────────────────────────────────────
+
+export type ParsedCommand =
+  | { readonly ok: true; readonly argv: ReadonlyArray<string> }
+  | { readonly ok: false; readonly message: string };
+
+/**
+ * Split a command line into arguments the way a shell would read its quotes:
+ * spaces separate, single quotes keep everything as written, double quotes
+ * keep spaces and let a backslash escape a quote or a backslash, and a
+ * backslash outside quotes keeps the next character. Nothing else a shell
+ * does happens: no variables, no globbing, no pipes. The command is run as
+ * these arguments, without a shell.
+ */
+export const parseCommandLine = (text: string): ParsedCommand => {
+  const argv: string[] = [];
+  let current = "";
+  let started = false;
+  let quote: "'" | '"' | undefined;
+  for (let i = 0; i < text.length; i += 1) {
+    const ch = text[i]!;
+    if (quote === "'") {
+      if (ch === "'") quote = undefined;
+      else current += ch;
+      continue;
+    }
+    if (quote === '"') {
+      if (ch === '"') quote = undefined;
+      else if (ch === "\\" && (text[i + 1] === '"' || text[i + 1] === "\\")) current += text[(i += 1)]!;
+      else current += ch;
+      continue;
+    }
+    if (ch === "'" || ch === '"') {
+      quote = ch;
+      started = true;
+    } else if (ch === "\\") {
+      if (i + 1 >= text.length) return { ok: false, message: "The command ends with a backslash that escapes nothing." };
+      current += text[(i += 1)]!;
+      started = true;
+    } else if (/\s/.test(ch)) {
+      if (started) argv.push(current);
+      current = "";
+      started = false;
+    } else {
+      current += ch;
+      started = true;
+    }
+  }
+  if (quote !== undefined) {
+    return {
+      ok: false,
+      message: `A ${quote === "'" ? "single" : "double"} quote is opened and never closed.`,
+    };
+  }
+  if (started) argv.push(current);
+  return { ok: true, argv };
+};
+
+/** Arguments back as one line that `parseCommandLine` reads to the same arguments. */
+export const formatCommandLine = (argv: ReadonlyArray<string>): string =>
+  argv
+    .map((arg) => {
+      if (arg.length > 0 && !/[\s'"\\]/.test(arg)) return arg;
+      if (!arg.includes("'")) return `'${arg}'`;
+      return `"${arg.replace(/(["\\])/g, "\\$1")}"`;
+    })
+    .join(" ");
+
 export const draftOfSource = (source: EnvSource): SourceDraft => {
+  const carried = carriedOf(source);
   const base = {
     id: source.id,
     kind: source.kind,
     required: source.required === true,
-    ...(source.host ? { host: source.host } : {}),
+    ...(carried ? { carried } : {}),
   };
   switch (source.kind) {
     case "value":
@@ -239,7 +329,7 @@ export const draftOfSource = (source: EnvSource): SourceDraft => {
     case "secretsDir":
       return { ...base, fields: { path: source.path, prefix: source.prefix ?? "" } };
     case "command":
-      return { ...base, fields: { name: source.name, argv: source.argv.join(" ") } };
+      return { ...base, fields: { name: source.name, argv: formatCommandLine(source.argv) } };
   }
 };
 
@@ -272,12 +362,66 @@ export const draftProblems = (draft: SourceDraft): Readonly<Record<string, strin
     const ref = field(draft, "ref");
     if (ref && !ref.startsWith("op://")) problems.ref = "A 1Password reference starts with op://";
   }
+  if (draft.kind === "command" && field(draft, "argv")) {
+    const parsed = parseCommandLine(draft.fields.argv ?? "");
+    if (!parsed.ok) problems.argv = parsed.message;
+  }
   if (draft.kind === "keyring" && field(draft, "attributes")) {
     if (Object.keys(attributesFromText(draft.fields.attributes ?? "")).length === 0) {
       problems.attributes = "Write each attribute as name=value.";
     }
   }
   return problems;
+};
+
+/**
+ * What a Keychain or keyring source will look up, in one line, as the fields
+ * are typed: these are the fields people get wrong.
+ */
+export const lookupHint = (draft: SourceDraft): string | undefined => {
+  if (draft.kind === "keychain") {
+    const service = field(draft, "service");
+    if (!service) return undefined;
+    const account = field(draft, "account");
+    return account
+      ? `Looks for the Keychain item named "${service}" with account "${account}".`
+      : `Looks for the Keychain item named "${service}", whatever its account.`;
+  }
+  if (draft.kind === "keyring") {
+    const attributes = Object.entries(attributesFromText(draft.fields.attributes ?? ""));
+    if (attributes.length === 0) return undefined;
+    return `Looks for a keyring item where ${attributes.map(([key, value]) => `${key} is "${value}"`).join(" and ")}.`;
+  }
+  return undefined;
+};
+
+/**
+ * The sources a 1Password reference may take its service account token from:
+ * every named source in scope. This region's own come first; the ones it
+ * inherits follow, each labelled with the region it lives in. The usual setup
+ * is the token on an outer region and the references on inner ones.
+ */
+export const tokenSourceOptions = (input: {
+  readonly sources: ReadonlyArray<EnvSource>;
+  readonly report: ReadonlyArray<SourceReport>;
+  readonly regionId: string;
+  /** The source being edited: it cannot be its own token. */
+  readonly excludeId?: string;
+}): ReadonlyArray<{ readonly value: string; readonly label: string }> => {
+  const options: Array<{ value: string; label: string }> = [];
+  const seen = new Set<string>();
+  for (const source of input.sources) {
+    if (source.id === input.excludeId || !("name" in source) || seen.has(source.id)) continue;
+    seen.add(source.id);
+    options.push({ value: source.id, label: `${source.name}, this region` });
+  }
+  for (const entry of input.report) {
+    if (entry.regionId === input.regionId || entry.names.length === 0) continue;
+    if (entry.sourceId === input.excludeId || seen.has(entry.sourceId)) continue;
+    seen.add(entry.sourceId);
+    options.push({ value: entry.sourceId, label: `${entry.names.join(", ")}, from ${entry.regionLabel}` });
+  }
+  return options;
 };
 
 /** The secret a draft would send to the store on save, if it carries one. */
@@ -293,10 +437,11 @@ export const draftSecretValue = (draft: SourceDraft): string | undefined => {
  * input here and cannot reach the document.
  */
 export const toSource = (draft: SourceDraft, secretId?: string): EnvSource => {
+  // What the form does not show goes back exactly as it came.
   const base = {
+    ...(draft.carried ?? {}),
     id: draft.id,
     ...(draft.required ? { required: true as const } : {}),
-    ...(draft.host ? { host: draft.host } : {}),
   };
   const name = field(draft, "name");
   switch (draft.kind) {
@@ -321,8 +466,10 @@ export const toSource = (draft: SourceDraft, secretId?: string): EnvSource => {
       const prefix = field(draft, "prefix");
       return { ...base, kind: "secretsDir", path: field(draft, "path"), ...(prefix ? { prefix } : {}) };
     }
-    case "command":
-      return { ...base, kind: "command", name, argv: field(draft, "argv").split(/\s+/).filter(Boolean) };
+    case "command": {
+      const parsed = parseCommandLine(draft.fields.argv ?? "");
+      return { ...base, kind: "command", name, argv: parsed.ok ? parsed.argv : [] };
+    }
   }
 };
 
@@ -348,7 +495,7 @@ export const describeSource = (source: EnvSource): { readonly title: string; rea
     case "secretsDir":
       return { title: source.path, detail: source.prefix ? `${label}, names start with ${source.prefix}` : label };
     case "command":
-      return { title: source.name, detail: `${label}: ${source.argv.join(" ")}` };
+      return { title: source.name, detail: `${label}: ${formatCommandLine(source.argv)}` };
   }
 };
 

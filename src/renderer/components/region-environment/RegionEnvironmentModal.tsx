@@ -1,13 +1,23 @@
 import { useMemo } from "react";
 import { X } from "lucide-react";
 import { use$ } from "@legendapp/state/react";
+import { LOCAL_HOST_ID } from "@shared/remote-hosts";
 import { ulid } from "ulid";
+import { getJuntoApi } from "../../lib/junto-api";
 import { setRegionEnvironment } from "../../lib/mutations";
 import { regionEnvironmentPort } from "../../lib/region-environment-port";
 import { state$ } from "../../lib/state";
 import { FocusSurface } from "../FocusSurface";
 import { Button, IconButton, OverlayHeader } from "../ui";
+import type { ReadDirectory } from "./PathBrowser";
 import { RegionEnvironmentScreen } from "./RegionEnvironmentScreen";
+
+/** The same listing the folder paths control browses, on this machine. */
+const readLocalDirectory: ReadDirectory = async (path) => {
+  const api = getJuntoApi();
+  if (!api?.hostDirectoryRead) throw new Error("host directory listing is unavailable");
+  return api.hostDirectoryRead(LOCAL_HOST_ID, path);
+};
 
 /**
  * Region settings, environment: the one screen for what the seats inside a
@@ -44,6 +54,7 @@ export function RegionEnvironmentModal({
           environment={environment}
           port={port}
           newId={ulid}
+          readDirectory={readLocalDirectory}
           onChange={(next) => setRegionEnvironment(nodeId, next)}
         />
         <footer className="region-env-modal__footer">

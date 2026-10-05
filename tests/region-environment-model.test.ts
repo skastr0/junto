@@ -13,6 +13,10 @@ import {
   draftProblems,
   draftSecretValue,
   folderProblem,
+  formatCommandLine,
+  lookupHint,
+  parseCommandLine,
+  tokenSourceOptions,
   newSourceDraft,
   reorderSources,
   resolvedView,
@@ -145,6 +149,147 @@ describe("drafts", () => {
       title: "~/work/.env",
       detail: "Env file",
     });
+  });
+});
+
+describe("a field the form does not show", () => {
+  it("is still there after the source is edited", () => {
+    const source = { id: "i", kind: "keychain", name: "T", service: "svc", host: "studio" } as const;
+    const edited = { ...draftOfSource(source), fields: { name: "RENAMED", service: "other", account: "" } };
+    expect(toSource(edited)).toEqual({ id: "i", kind: "keychain", name: "RENAMED", service: "other", host: "studio" });
+  });
+
+  it("holds for every kind, and for a field this screen has never heard of", () => {
+    const sources = [
+      { id: "a", kind: "value", name: "A", value: "v" },
+      { id: "b", kind: "secret", name: "B", secretId: "sec" },
+      { id: "c", kind: "keychain", name: "C", service: "s" },
+      { id: "d", kind: "keyring", name: "D", attributes: { k: "v" } },
+      { id: "e", kind: "onepassword", name: "E", ref: "op://a/b/c" },
+      { id: "f", kind: "envFile", path: "/f" },
+      { id: "g", kind: "secretsDir", path: "/g" },
+      { id: "h", kind: "command", name: "H", argv: ["x"] },
+    ] as const;
+    for (const source of sources) {
+      const future = { ...source, host: "studio", addedLater: { nested: true } } as unknown as EnvSource;
+      expect(toSource(draftOfSource(future))).toEqual(future);
+    }
+  });
+
+  it("a shown field the operator clears is cleared, not carried back", () => {
+    const source: EnvSource = { id: "c", kind: "keychain", name: "C", service: "s", account: "me" };
+    const cleared = { ...draftOfSource(source), fields: { name: "C", service: "s", account: "" } };
+    expect(toSource(cleared)).toEqual({ id: "c", kind: "keychain", name: "C", service: "s" });
+    const optional = { ...draftOfSource({ ...source, required: true }), required: false };
+    expect(toSource(optional)).not.toHaveProperty("required");
+  });
+});
+
+describe("commands", () => {
+  const argv = (text: string) => {
+    const parsed = parseCommandLine(text);
+    return parsed.ok ? parsed.argv : parsed.message;
+  };
+
+  it("reads quotes the way a shell would", () => {
+    expect(argv('security find-generic-password -s "My Item" -w')).toEqual([
+      "security",
+      "find-generic-password",
+      "-s",
+      "My Item",
+      "-w",
+    ]);
+    expect(argv("op read 'op://Private/My Item/credential'")).toEqual(["op", "read", "op://Private/My Item/credential"]);
+    expect(argv('echo "say \\"hi\\"" \'it"s\' a\\ b')).toEqual(["echo", 'say "hi"', 'it"s', "a b"]);
+    expect(argv("  spaced    out  ")).toEqual(["spaced", "out"]);
+    expect(argv('tool --flag="two words" ""')).toEqual(["tool", "--flag=two words", ""]);
+    expect(argv("")).toEqual([]);
+  });
+
+  it("leaves everything else a shell does alone: it is not run by a shell", () => {
+    expect(argv("echo $HOME | cat > out; ls *")).toEqual(["echo", "$HOME", "|", "cat", ">", "out;", "ls", "*"]);
+    expect(argv("'$HOME' \"$HOME\"")).toEqual(["$HOME", "$HOME"]);
+  });
+
+  it("rejects a quote that is never closed, in plain words", () => {
+    expect(argv('security -s "My Item')).toBe("A double quote is opened and never closed.");
+    expect(argv("op read 'op://x")).toBe("A single quote is opened and never closed.");
+    expect(argv("trailing\\")).toBe("The command ends with a backslash that escapes nothing.");
+    expect(draftProblems(draft("command", { name: "K", argv: 'x "y' })).argv).toBe(
+      "A double quote is opened and never closed.",
+    );
+  });
+
+  it("saves the parsed arguments, and shows them back so they parse to the same thing", () => {
+    const source = toSource(draft("command", { name: "TOKEN", argv: 'security find-generic-password -s "My Item" -w' }));
+    expect(source).toMatchObject({ kind: "command", argv: ["security", "find-generic-password", "-s", "My Item", "-w"] });
+    for (const args of [["a", "b c", ""], ["it's", 'say "hi"', "back\\slash"], ["both ' and \""]]) {
+      expect(argv(formatCommandLine(args))).toEqual(args);
+    }
+    expect(describeSource(source).detail).toBe("Command: security find-generic-password -s 'My Item' -w");
+  });
+});
+
+describe("what a keychain or keyring source will look up", () => {
+  it("says the item and the account as they are typed", () => {
+    expect(lookupHint(draft("keychain", { name: "T" }))).toBeUndefined();
+    expect(lookupHint(draft("keychain", { service: "op-service-account" }))).toBe(
+      'Looks for the Keychain item named "op-service-account", whatever its account.',
+    );
+    expect(lookupHint(draft("keychain", { service: "op-service-account", account: "me@example.com" }))).toBe(
+      'Looks for the Keychain item named "op-service-account" with account "me@example.com".',
+    );
+  });
+
+  it("says the attributes a keyring item must match", () => {
+    expect(lookupHint(draft("keyring", { attributes: "service=op\nuser=me" }))).toBe(
+      'Looks for a keyring item where service is "op" and user is "me".',
+    );
+    expect(lookupHint(draft("keyring", { attributes: "nonsense" }))).toBeUndefined();
+    expect(lookupHint(draft("envFile", { path: "/x" }))).toBeUndefined();
+  });
+});
+
+describe("where a 1Password token may come from", () => {
+  const own: EnvSource[] = [
+    { id: "k1", kind: "keychain", name: "OP_SERVICE_ACCOUNT_TOKEN", service: "svc" },
+    { id: "f1", kind: "envFile", path: "/x" },
+    { id: "op1", kind: "onepassword", name: "API_KEY", ref: "op://a/b/c" },
+  ];
+
+  it("offers every named source in scope, inherited ones labelled with their region", () => {
+    const options = tokenSourceOptions({
+      sources: own,
+      regionId: "inner",
+      excludeId: "op1",
+      report: [
+        reported({ regionId: "outer", regionLabel: "Company", sourceId: "o1", names: ["OP_TOKEN"] }),
+        reported({ regionId: "inner", sourceId: "k1" }),
+      ],
+    });
+    expect(options).toEqual([
+      { value: "k1", label: "OP_SERVICE_ACCOUNT_TOKEN, this region" },
+      { value: "o1", label: "OP_TOKEN, from Company" },
+    ]);
+  });
+
+  it("the common setup: the token on an outer region, the reference on an inner one with no sources yet", () => {
+    const options = tokenSourceOptions({
+      sources: [],
+      regionId: "inner",
+      report: [reported({ regionId: "outer", regionLabel: "Company", sourceId: "o1", names: ["OP_SERVICE_ACCOUNT_TOKEN"] })],
+    });
+    expect(options).toEqual([{ value: "o1", label: "OP_SERVICE_ACCOUNT_TOKEN, from Company" }]);
+  });
+
+  it("never offers a source as its own token, nor one with no name to give", () => {
+    const options = tokenSourceOptions({
+      sources: own,
+      regionId: "inner",
+      excludeId: "k1",
+      report: [reported({ regionId: "outer", regionLabel: "Company", sourceId: "file", kind: "envFile", names: [] })],
+    });
+    expect(options.map((option) => option.value)).toEqual(["op1"]);
   });
 });
 

@@ -20,6 +20,7 @@ let host: HTMLDivElement;
 let root: Root;
 
 beforeEach(() => {
+  browsed.length = 0;
   host = document.createElement("div");
   document.body.appendChild(host);
   root = createRoot(host);
@@ -37,6 +38,33 @@ const flush = async () => {
 };
 
 /** The screen with the canvas stood in for by a variable: edits re-render it. */
+/** A fake disk for the pickers: path to what is inside it. Never the real one. */
+const DISK: Record<string, { parent?: string; entries: Array<[string, "file" | "directory"]> }> = {
+  "~": { entries: [["work", "directory"], ["notes.txt", "file"]] },
+  "/Users/op": { parent: "/Users", entries: [["work", "directory"], ["notes.txt", "file"]] },
+  "/Users/op/work": { parent: "/Users/op", entries: [["acme", "directory"], [".env", "file"], ["README.md", "file"]] },
+  "/Users/op/work/acme": { parent: "/Users/op/work", entries: [["secrets", "directory"]] },
+  "/Users/op/work/acme/secrets": { parent: "/Users/op/work/acme", entries: [["API_KEY", "file"]] },
+};
+const browsed: string[] = [];
+const readDirectory = async (path: string) => {
+  browsed.push(path);
+  const key = path === "~" ? "/Users/op" : path;
+  const dir = DISK[key];
+  if (!dir) throw new Error("ENOENT");
+  return {
+    root: key,
+    ...(dir.parent ? { parent: dir.parent } : {}),
+    entries: dir.entries.map(([name, kind]) => ({
+      name,
+      path: `${key}/${name}`,
+      kind,
+      size: 0,
+      modifiedAt: "2026-01-01T00:00:00.000Z",
+    })),
+  };
+};
+
 const mount = async (
   initial: RegionEnvironment | undefined,
   fake = makeFakeRegionEnvironmentPort(),
@@ -51,6 +79,7 @@ const mount = async (
           environment={environment}
           port={fake.port}
           newId={() => `new-${(ids += 1)}`}
+          readDirectory={readDirectory}
           onChange={(next) => {
             saved.push(next);
             render(next);
@@ -154,6 +183,151 @@ describe("adding a source", () => {
     await click([...host.querySelectorAll("button")].find((button) => button.textContent === "cancel"));
     expect(saved).toEqual([]);
     expect(q('[data-testid="region-env-form"]')).toBeNull();
+  });
+});
+
+describe("the fields people get wrong", () => {
+  it("says what a Keychain source will look up, as it is typed", async () => {
+    await mount(undefined);
+    await click(q('[data-testid="region-env-add-source"]'));
+    expect(q('[data-testid="region-env-lookup"]')).toBeNull();
+    await type("region-env-field-service", "op-service-account");
+    expect(q('[data-testid="region-env-lookup"]')?.textContent).toBe(
+      'Looks for the Keychain item named "op-service-account", whatever its account.',
+    );
+    await type("region-env-field-account", "me@example.com");
+    expect(q('[data-testid="region-env-lookup"]')?.textContent).toBe(
+      'Looks for the Keychain item named "op-service-account" with account "me@example.com".',
+    );
+  });
+
+  it("shows a command's arguments back exactly as they will run", async () => {
+    const { saved } = await mount(undefined);
+    await click(q('[data-testid="region-env-add-source"]'));
+    await click(q('[data-testid="region-env-kind-command"]'));
+    await type("region-env-field-name", "OP_SERVICE_ACCOUNT_TOKEN");
+    await type("region-env-field-argv", 'security find-generic-password -s "My Item" -w');
+    expect(all('[data-testid="region-env-arg"]').map((chip) => chip.textContent)).toEqual([
+      "security",
+      "find-generic-password",
+      "-s",
+      "My Item",
+      "-w",
+    ]);
+    await submitForm();
+    expect(saved.at(-1)?.sources?.[0]).toMatchObject({
+      kind: "command",
+      argv: ["security", "find-generic-password", "-s", "My Item", "-w"],
+    });
+  });
+
+  it("rejects a quote that is never closed, in plain words, and saves nothing", async () => {
+    const { saved } = await mount(undefined);
+    await click(q('[data-testid="region-env-add-source"]'));
+    await click(q('[data-testid="region-env-kind-command"]'));
+    await type("region-env-field-name", "TOKEN");
+    await type("region-env-field-argv", 'security -s "My Item');
+    expect(all('[data-testid="region-env-arg"]')).toEqual([]);
+    expect(host.textContent).toContain("A double quote is opened and never closed.");
+    await submitForm();
+    expect(saved).toEqual([]);
+  });
+
+  it("editing a source that carries a host leaves the host on it", async () => {
+    const pinned = { ...keychain, host: "studio" } as EnvSource;
+    const { saved } = await mount({ sources: [pinned] });
+    await click(q('[aria-label="Edit OP_SERVICE_ACCOUNT_TOKEN"]'));
+    await type("region-env-field-service", "another-item");
+    await submitForm();
+    expect(saved.at(-1)?.sources).toEqual([{ ...pinned, service: "another-item" }]);
+  });
+});
+
+describe("where a 1Password token comes from", () => {
+  it("offers named sources in scope, the inherited ones labelled with their region", async () => {
+    const fake = makeFakeRegionEnvironmentPort({
+      report: [
+        reported({ regionId: "outer", regionLabel: "Company", sourceId: "o1", names: ["OP_SERVICE_ACCOUNT_TOKEN"] }),
+      ],
+    });
+    await mount({ sources: [plain] }, fake);
+    await click(q('[data-testid="region-env-add-source"]'));
+    await click(q('[data-testid="region-env-kind-onepassword"]'));
+    // The house select opens a menu; its options are listed once it is open.
+    await click(q('[aria-label="Service account token from"]'));
+    const options = [...document.querySelectorAll('[role="option"]')].map((option) => option.textContent);
+    expect(options).toEqual([
+      "What op is already signed in with",
+      "AWS_REGION, this region",
+      "OP_SERVICE_ACCOUNT_TOKEN, from Company",
+    ]);
+  });
+});
+
+describe("picking instead of typing", () => {
+  it("an env file is picked as a file, starting at home", async () => {
+    const { saved } = await mount(undefined);
+    await click(q('[data-testid="region-env-add-source"]'));
+    await click(q('[data-testid="region-env-kind-envFile"]'));
+    await click(q('[data-testid="region-env-browse-path"]'));
+    expect(q('[data-testid="region-env-browser"]')?.getAttribute("data-mode")).toBe("file");
+    expect(browsed).toEqual(["~"]);
+    const entry = (name: string) =>
+      all('[data-testid="region-env-browser-entry"]').find((button) => button.textContent === name);
+    // Folders first, then files; a folder opens, a file is the pick.
+    expect(all('[data-testid="region-env-browser-entry"]').map((button) => button.textContent)).toEqual([
+      "work",
+      "notes.txt",
+    ]);
+    await click(entry("work"));
+    expect(q('[data-testid="region-env-browser-root"]')?.textContent).toBe("/Users/op/work");
+    await click(entry(".env"));
+    expect(q('[data-testid="region-env-browser"]')).toBeNull();
+    expect(q<HTMLInputElement>('[data-testid="region-env-field-path"]')?.value).toBe("/Users/op/work/.env");
+    await submitForm();
+    expect(saved.at(-1)).toEqual({ sources: [{ id: "new-1", kind: "envFile", path: "/Users/op/work/.env" }] });
+  });
+
+  it("a secrets folder is picked as a folder: files are not offered", async () => {
+    await mount(undefined);
+    await click(q('[data-testid="region-env-add-source"]'));
+    await click(q('[data-testid="region-env-kind-secretsDir"]'));
+    await type("region-env-field-path", "/Users/op/work/acme");
+    await click(q('[data-testid="region-env-browse-path"]'));
+    expect(q('[data-testid="region-env-browser"]')?.getAttribute("data-mode")).toBe("directory");
+    // Browsing starts from what is already typed.
+    expect(browsed).toEqual(["/Users/op/work/acme"]);
+    await click(q('[data-testid="region-env-browser-entry"]'));
+    expect(all('[data-testid="region-env-browser-entry"]')).toEqual([]);
+    expect(host.textContent).toContain("No folders inside this one.");
+    await click(q('[data-testid="region-env-browser-use"]'));
+    expect(q<HTMLInputElement>('[data-testid="region-env-field-path"]')?.value).toBe("/Users/op/work/acme/secrets");
+  });
+
+  it("a folder for the folders list is picked and added in one step; typing still works", async () => {
+    const { saved } = await mount(undefined);
+    await click(q('[data-testid="region-env-browse-folder"]'));
+    await click(all('[data-testid="region-env-browser-entry"]').find((button) => button.textContent === "work"));
+    await click(q('[data-testid="region-env-browser-use"]'));
+    expect(saved.at(-1)).toEqual({ folders: ["/Users/op/work"] });
+    expect(q('[data-testid="region-env-browser"]')).toBeNull();
+    await type("region-env-folder-input", "~/.config/gcloud");
+    await click([...host.querySelectorAll("button")].find((button) => button.textContent?.includes("add folder")));
+    expect(saved.at(-1)).toEqual({ folders: ["/Users/op/work", "~/.config/gcloud"] });
+  });
+
+  it("goes up a folder, and says so when a folder cannot be opened", async () => {
+    await mount(undefined);
+    await click(q('[data-testid="region-env-add-source"]'));
+    await click(q('[data-testid="region-env-kind-secretsDir"]'));
+    await type("region-env-field-path", "/Users/op/work/acme");
+    await click(q('[data-testid="region-env-browse-path"]'));
+    await click(q('[aria-label="Up one folder"]'));
+    expect(q('[data-testid="region-env-browser-root"]')?.textContent).toBe("/Users/op/work");
+    await click([...host.querySelectorAll("button")].find((button) => button.textContent === "close"));
+    await type("region-env-field-path", "/nowhere");
+    await click(q('[data-testid="region-env-browse-path"]'));
+    expect(host.textContent).toContain("Junto could not open /nowhere.");
   });
 });
 

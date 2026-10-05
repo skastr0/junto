@@ -27,12 +27,15 @@ import {
   draftProblems,
   draftSecretValue,
   folderProblem,
+  lookupHint,
   newSourceDraft,
+  parseCommandLine,
   reorderSources,
   resolvedView,
   sourceKindSpec,
   statusReason,
   toSource,
+  tokenSourceOptions,
   upsertSource,
   type EnvSource,
   type EnvSourceKind,
@@ -45,6 +48,7 @@ import {
   type StaleSeat,
 } from "../../lib/region-environment";
 import { Button, Chip, IconButton, Input, Select, StatusDot, Switch, Textarea, type ChipTone } from "../ui";
+import { PathBrowser, browseStart, type ReadDirectory } from "./PathBrowser";
 import "./region-environment.css";
 
 const STATUS_TONE: Readonly<Record<SourceReportStatus, ChipTone>> = {
@@ -69,6 +73,7 @@ function SourceForm({
   tokenSources,
   saving,
   problem,
+  readDirectory,
   onChange,
   onSave,
   onCancel,
@@ -79,12 +84,18 @@ function SourceForm({
   readonly tokenSources: ReadonlyArray<{ readonly value: string; readonly label: string }>;
   readonly saving: boolean;
   readonly problem?: string;
+  readonly readDirectory?: ReadDirectory;
   readonly onChange: (draft: SourceDraft) => void;
   readonly onSave: () => void;
   readonly onCancel: () => void;
 }) {
   const spec = sourceKindSpec(draft.kind);
   const [tried, setTried] = useState(false);
+  const [browsing, setBrowsing] = useState(false);
+  const hint = lookupHint(draft);
+  // An env file is picked as a file; a secrets folder as a folder.
+  const pathMode = draft.kind === "envFile" ? "file" : "directory";
+  const command = draft.kind === "command" ? parseCommandLine(draft.fields.argv ?? "") : undefined;
   const problems = draftProblems(draft);
   const set = (key: string, value: string) => onChange({ ...draft, fields: { ...draft.fields, [key]: value } });
   const save = () => {
@@ -153,6 +164,42 @@ function SourceForm({
                   aria-invalid={error ? true : undefined}
                   onChange={(event) => set(field.key, event.target.value)}
                 />
+              ) : field.key === "path" && readDirectory ? (
+                <>
+                  <div className="region-env__path">
+                    <Input
+                      id={id}
+                      value={value}
+                      autoComplete="off"
+                      spellCheck={false}
+                      placeholder={field.placeholder}
+                      aria-invalid={error ? true : undefined}
+                      data-testid="region-env-field-path"
+                      onChange={(event) => set(field.key, event.target.value)}
+                    />
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="chrome"
+                      data-testid="region-env-browse-path"
+                      onClick={() => setBrowsing((open) => !open)}
+                    >
+                      browse
+                    </Button>
+                  </div>
+                  {browsing ? (
+                    <PathBrowser
+                      mode={pathMode}
+                      start={browseStart(value, pathMode)}
+                      read={readDirectory}
+                      onPick={(picked) => {
+                        set(field.key, picked);
+                        setBrowsing(false);
+                      }}
+                      onClose={() => setBrowsing(false)}
+                    />
+                  ) : null}
+                </>
               ) : (
                 <Input
                   id={id}
@@ -174,9 +221,30 @@ function SourceForm({
               ) : field.hint ? (
                 <p className="region-env__hint">{field.hint}</p>
               ) : null}
+              {field.key === "argv" && command?.ok && command.argv.length > 0 ? (
+                // Exactly what will run, one chip per argument.
+                <div className="region-env__argv" data-testid="region-env-argv" aria-label="Arguments as they will run">
+                  <span className="region-env__hint">Runs as</span>
+                  {command.argv.map((arg, index) => (
+                    <code key={`${index}:${arg}`} className="region-env__arg" data-testid="region-env-arg">
+                      {arg === "" ? '""' : arg}
+                    </code>
+                  ))}
+                </div>
+              ) : null}
+              {field.key === "argv" && command && !command.ok && !error ? (
+                <p className="region-env__error" role="alert">
+                  {command.message}
+                </p>
+              ) : null}
             </div>
           );
         })}
+        {hint ? (
+          <p className="region-env__hint" data-testid="region-env-lookup">
+            {hint}
+          </p>
+        ) : null}
         <label className="region-env__required">
           <Switch
             checked={draft.required}
@@ -214,6 +282,7 @@ export function RegionEnvironmentScreen({
   port,
   onChange,
   newId,
+  readDirectory,
 }: {
   readonly regionId: string;
   readonly environment: RegionEnvironment | undefined;
@@ -221,6 +290,8 @@ export function RegionEnvironmentScreen({
   /** The region's next environment; undefined when nothing is left in it. */
   readonly onChange: (next: RegionEnvironment | undefined) => void;
   readonly newId: () => string;
+  /** Lists a folder on this machine, for the file and folder pickers. */
+  readonly readDirectory?: ReadDirectory;
 }) {
   const sources = useMemo(() => environment?.sources ?? [], [environment]);
   const folders = environment?.folders ?? [];
@@ -230,6 +301,7 @@ export function RegionEnvironmentScreen({
   const [saving, setSaving] = useState(false);
   const [formProblem, setFormProblem] = useState<string | undefined>();
   const [folderDraft, setFolderDraft] = useState("");
+  const [browsingFolder, setBrowsingFolder] = useState(false);
   const [dragging, setDragging] = useState<number | undefined>();
   const [report, setReport] = useState<ReadonlyArray<SourceReport> | undefined>();
   const [reportProblem, setReportProblem] = useState<string | undefined>();
@@ -317,9 +389,12 @@ export function RegionEnvironmentScreen({
     setRefresh((count) => count + 1);
   };
 
-  const tokenSources = sources
-    .filter((source) => source.id !== draft?.id && "name" in source)
-    .map((source) => ({ value: source.id, label: describeSource(source).title }));
+  const tokenSources = tokenSourceOptions({
+    sources,
+    report: report ?? [],
+    regionId,
+    ...(draft ? { excludeId: draft.id } : {}),
+  });
   const newFolderProblem = folderProblem(folderDraft);
   const editingNew = draft !== undefined && !sources.some((source) => source.id === draft.id);
 
@@ -348,6 +423,7 @@ export function RegionEnvironmentScreen({
                     tokenSources={tokenSources}
                     saving={saving}
                     problem={formProblem}
+                    readDirectory={readDirectory}
                     onChange={setDraft}
                     onSave={() => void saveDraft()}
                     onCancel={() => setDraft(undefined)}
@@ -442,6 +518,7 @@ export function RegionEnvironmentScreen({
             tokenSources={tokenSources}
             saving={saving}
             problem={formProblem}
+            readDirectory={readDirectory}
             onChange={setDraft}
             onSave={() => void saveDraft()}
             onCancel={() => setDraft(undefined)}
@@ -621,11 +698,36 @@ export function RegionEnvironmentScreen({
             data-testid="region-env-folder-input"
             onChange={(event) => setFolderDraft(event.target.value)}
           />
+          {readDirectory ? (
+            <Button
+              type="button"
+              size="sm"
+              variant="chrome"
+              data-testid="region-env-browse-folder"
+              onClick={() => setBrowsingFolder((open) => !open)}
+            >
+              browse
+            </Button>
+          ) : null}
           <Button type="submit" size="sm" variant="chrome" disabled={!folderDraft.trim() || newFolderProblem !== undefined}>
             <Plus size={14} aria-hidden />
             add folder
           </Button>
         </form>
+        {browsingFolder && readDirectory ? (
+          <PathBrowser
+            mode="directory"
+            start={browseStart(folderDraft, "directory")}
+            read={readDirectory}
+            onPick={(picked) => {
+              // Picked is chosen: it goes straight into the list.
+              commit({ ...environment, folders: cleanFolders([...folders, picked]) });
+              setFolderDraft("");
+              setBrowsingFolder(false);
+            }}
+            onClose={() => setBrowsingFolder(false)}
+          />
+        ) : null}
         {newFolderProblem ? (
           <p className="region-env__error" role="alert">
             {newFolderProblem}
