@@ -164,7 +164,7 @@ const titleOf = (node: CanvasNode): string => {
     case "link":
       return node.url;
     case "group":
-      return node.label ?? node.id;
+      return regionDisplayName(node);
   }
 };
 
