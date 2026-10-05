@@ -12,7 +12,7 @@
  * value. Nothing partial is ever sent.
  */
 import { use$ } from "@legendapp/state/react";
-import { useEffect, useId, useState, type ReactNode } from "react";
+import { useEffect, useState } from "react";
 import {
   TERMINAL_BOUNDS,
   terminalSettings,
@@ -23,32 +23,7 @@ import {
 import { patchSettings } from "../../lib/settings-state";
 import { state$ } from "../../lib/state";
 import { Select } from "../ui";
-
-/** Row chrome — the panel's FieldRow shape (label, hint, control). */
-function Row({
-  label,
-  hint,
-  group = false,
-  children,
-}: {
-  readonly label: string;
-  readonly hint: string;
-  /** The row holds a menu, not a form field: a named group, not a label. */
-  readonly group?: boolean;
-  readonly children: ReactNode;
-}) {
-  const labelId = useId();
-  const Tag = group ? "div" : "label";
-  return (
-    <Tag className="settings-field" {...(group ? { role: "group", "aria-labelledby": labelId } : {})}>
-      <span className="settings-field__label">
-        <span id={labelId}>{label}</span>
-        <span className="settings-field__hint">{hint}</span>
-      </span>
-      <span className="settings-field__control">{children}</span>
-    </Tag>
-  );
-}
+import { FieldRow } from "./FieldRow";
 
 /**
  * Typed text → the number to persist, or undefined when the text is not yet a
@@ -111,7 +86,7 @@ function NumberRow({
   };
 
   return (
-    <Row label={label} hint={hint}>
+    <FieldRow label={label} hint={hint}>
       <input
         type="number"
         inputMode="decimal"
@@ -131,7 +106,7 @@ function NumberRow({
           }
         }}
       />
-    </Row>
+    </FieldRow>
   );
 }
 
@@ -158,7 +133,7 @@ function FontFamilyRow({
   };
 
   return (
-    <Row label="Font family" hint="font stack for terminal cells, monospace first">
+    <FieldRow label="Font family" hint="font stack for terminal cells, monospace first">
       <input
         type="text"
         value={draft ?? value}
@@ -177,7 +152,7 @@ function FontFamilyRow({
           }
         }}
       />
-    </Row>
+    </FieldRow>
   );
 }
 
@@ -207,7 +182,7 @@ export function TerminalSettingsSection() {
 
   return (
     <div className="settings-section">
-      <Row
+      <FieldRow
         label="Scroll sensitivity"
         hint={`lines per wheel notch (${TERMINAL_BOUNDS.scrollSensitivity.min}–${TERMINAL_BOUNDS.scrollSensitivity.max})`}
       >
@@ -227,7 +202,7 @@ export function TerminalSettingsSection() {
         <span className="settings-field__hint" style={{ marginLeft: 8 }}>
           {terminal.scrollSensitivity}
         </span>
-      </Row>
+      </FieldRow>
 
       <NumberRow
         label="Font size"
@@ -244,7 +219,7 @@ export function TerminalSettingsSection() {
         onCommit={(next) => patch({ fontFamily: next })}
       />
 
-      <Row group label="Cursor style" hint="how the cursor is drawn">
+      <FieldRow group label="Cursor style" hint="how the cursor is drawn">
         <Select
           dense
           value={terminal.cursorStyle}
@@ -258,7 +233,7 @@ export function TerminalSettingsSection() {
             if (choice) void patch({ cursorStyle: choice.value });
           }}
         />
-      </Row>
+      </FieldRow>
 
       <NumberRow
         label="Scrollback"
@@ -270,7 +245,7 @@ export function TerminalSettingsSection() {
         onCommit={(next) => patch({ scrollback: next })}
       />
 
-      <Row
+      <FieldRow
         label="Copy selection automatically"
         hint="off by default; selecting text otherwise replaces the system clipboard"
       >
@@ -282,7 +257,7 @@ export function TerminalSettingsSection() {
             void patch({ copyOnSelect: event.target.checked })
           }
         />
-      </Row>
+      </FieldRow>
 
       <div
         className="settings-profile-list"
@@ -294,7 +269,7 @@ export function TerminalSettingsSection() {
           <span>contrast, spacing, and how output is announced</span>
         </div>
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-          <Row label="Cursor blink" hint="blink while the terminal is visible">
+          <FieldRow label="Cursor blink" hint="blink while the terminal is visible">
             <input
               type="checkbox"
               checked={terminal.cursorBlink}
@@ -303,7 +278,7 @@ export function TerminalSettingsSection() {
                 void patch({ cursorBlink: event.target.checked })
               }
             />
-          </Row>
+          </FieldRow>
 
           <NumberRow
             label="Minimum contrast"
@@ -335,7 +310,7 @@ export function TerminalSettingsSection() {
             onCommit={(next) => patch({ letterSpacing: next })}
           />
 
-          <Row
+          <FieldRow
             label="Screen reader mode"
             hint="expose terminal output to the screen reader"
           >
@@ -347,9 +322,9 @@ export function TerminalSettingsSection() {
                 void patch({ screenReaderMode: event.target.checked })
               }
             />
-          </Row>
+          </FieldRow>
 
-          <Row group label="Bell" hint="what happens when a program rings the bell">
+          <FieldRow group label="Bell" hint="what happens when a program rings the bell">
             <Select
               dense
               value={terminal.bell}
@@ -363,7 +338,7 @@ export function TerminalSettingsSection() {
                 if (choice) void patch({ bell: choice.value });
               }}
             />
-          </Row>
+          </FieldRow>
         </div>
       </div>
     </div>

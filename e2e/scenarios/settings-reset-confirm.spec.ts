@@ -76,6 +76,17 @@ test("reset section asks first, and Escape closes only the confirm", async () =>
     await expect(confirm).toHaveCount(0);
     await expect.poll(keyStored, { message: "confirming deletes the stored key" }).toBe(false);
 
+    // A row that holds a menu is a named group: its text does not open the menu.
+    await page.locator(".settings-nav__item", { hasText: "Terminal" }).click();
+    const cursorRow = page.getByRole("group", { name: "Cursor style" });
+    await cursorRow.getByText("how the cursor is drawn").click();
+    await expect(page.getByRole("listbox")).toHaveCount(0);
+    await cursorRow.getByRole("button", { name: "Cursor style" }).click();
+    await expect(page.getByRole("listbox")).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("listbox")).toHaveCount(0);
+    await expect(settings).toBeVisible();
+
     // A button in a settings row keeps its own name.
     await page.locator(".settings-nav__item", { hasText: "Advanced" }).click();
     await expect(page.getByRole("button", { name: "show again", exact: true })).toHaveCount(1);

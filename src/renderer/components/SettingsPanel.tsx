@@ -1,6 +1,6 @@
 import { use$ } from "@legendapp/state/react";
-import { CircleHelp, RotateCcw, Settings2, X } from "lucide-react";
-import { useCallback, useEffect, useId, useState, type ReactNode } from "react";
+import { RotateCcw, Settings2, X } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
 import type { BrowserProfileInfo, JuntoBrowserApi } from "@shared/ipc";
 import type { SettingsSectionKey } from "@shared/settings";
 import {
@@ -15,6 +15,7 @@ import {
   experimentalFeatureKeys,
 } from "@shared/features";
 import { ExperimentalSettingsSection } from "./settings/ExperimentalSettingsSection";
+import { FieldRow } from "./settings/FieldRow";
 import { CompanionSettingsSection } from "./settings/CompanionSettingsSection";
 import { HarnessesSettingsSection } from "./settings/HarnessesSettingsSection";
 import { ProvidersSettingsSection } from "./settings/ProvidersSettingsSection";
@@ -139,50 +140,6 @@ const SUPERVISED_RUNTIME_HELP =
   "Tradeoff: supervised is more durable for a Command Center or Remote left " +
   "running unattended; unsupervised is simpler for local development and " +
   "attaching a debugger.";
-
-function FieldRow({
-  label,
-  hint,
-  help,
-  group = false,
-  children,
-}: {
-  readonly label: string;
-  readonly hint?: string;
-  /** Longer explanation shown on the ? control (native title tooltip). */
-  readonly help?: string;
-  /**
-   * The row holds a button, a menu or a plain value, not a form field. A
-   * label would rename a button after the row and pass it the row's clicks,
-   * so the row is a named group instead.
-   */
-  readonly group?: boolean;
-  readonly children: ReactNode;
-}) {
-  const labelId = useId();
-  const Row = group ? "div" : "label";
-  return (
-    <Row className="settings-field" {...(group ? { role: "group", "aria-labelledby": labelId } : {})}>
-      <span className="settings-field__label">
-        <span className="settings-field__label-row">
-          <span id={labelId}>{label}</span>
-          {help ? (
-            <span
-              className="settings-field__help"
-              title={help}
-              role="img"
-              aria-label={help}
-            >
-              <CircleHelp size={12} aria-hidden />
-            </span>
-          ) : null}
-        </span>
-        {hint ? <span className="settings-field__hint">{hint}</span> : null}
-      </span>
-      <span className="settings-field__control">{children}</span>
-    </Row>
-  );
-}
 
 type ThemeChoice = "system" | "dark" | "bright";
 

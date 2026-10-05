@@ -26,6 +26,7 @@ import { state$ } from "../../lib/state";
 import { patchSettings, resetSettings } from "../../lib/settings-state";
 import { getJuntoApi } from "../../lib/junto-api";
 import { Button, Input, Select } from "../ui";
+import { FieldRow } from "./FieldRow";
 
 type HarnessScan = ManagedTerminalHarnessOption & {
   readonly models: readonly ManagedTerminalModelOption[];
@@ -199,106 +200,82 @@ export function HarnessesSettingsSection() {
                   </span>
                 </div>
 
-                <label className="settings-field">
-                  <span className="settings-field__label">
-                    <span>Offer in palette</span>
-                    <span className="settings-field__hint">
-                      off hides this harness even when the CLI is installed
-                    </span>
-                  </span>
-                  <span className="settings-field__control">
-                    <input
-                      type="checkbox"
-                      checked={prefs.enabled !== false}
-                      disabled={!row.installed}
-                      aria-label={`Offer ${row.displayName} in palette`}
-                      onChange={(event) =>
-                        patchHarness(row.harness, {
-                          enabled: event.target.checked,
-                        })
-                      }
-                    />
-                  </span>
-                </label>
+                <FieldRow label="Offer in palette" hint="off hides this harness even when the CLI is installed">
+                  <input
+                    type="checkbox"
+                    checked={prefs.enabled !== false}
+                    disabled={!row.installed}
+                    aria-label={`Offer ${row.displayName} in palette`}
+                    onChange={(event) =>
+                      patchHarness(row.harness, {
+                        enabled: event.target.checked,
+                      })
+                    }
+                  />
+                </FieldRow>
 
-                <label className="settings-field">
-                  <span className="settings-field__label">
-                    <span>Default model</span>
-                    {row.modelsError ? (
-                      <span className="settings-field__hint" style={{ color: HUE.crimson }}>
-                        {row.modelsError}
-                      </span>
-                    ) : null}
-                  </span>
-                  <span className="settings-field__control">
-                    <Select
-                      dense
-                      disabled={!row.installed}
-                      value={prefs.model ?? ""}
-                      aria-label={`${row.displayName} default model`}
-                      options={[
-                        DEFAULT_OPTION,
-                        ...row.models.map((m) => ({
-                          value: m.id,
-                          label: m.label,
-                        })),
-                        // Keep a saved custom id selectable even if scan missed it.
-                        ...(prefs.model &&
-                        !row.models.some((m) => m.id === prefs.model)
-                          ? [{ value: prefs.model, label: prefs.model }]
-                          : []),
-                      ]}
-                      onChange={(value) =>
-                        patchHarness(row.harness, { model: value })
-                      }
-                    />
-                  </span>
-                </label>
+                <FieldRow
+                  group
+                  label="Default model"
+                  {...(row.modelsError ? { hint: <span style={{ color: HUE.crimson }}>{row.modelsError}</span> } : {})}
+                >
+                  <Select
+                    dense
+                    disabled={!row.installed}
+                    value={prefs.model ?? ""}
+                    aria-label={`${row.displayName} default model`}
+                    options={[
+                      DEFAULT_OPTION,
+                      ...row.models.map((m) => ({
+                        value: m.id,
+                        label: m.label,
+                      })),
+                      // Keep a saved custom id selectable even if scan missed it.
+                      ...(prefs.model &&
+                      !row.models.some((m) => m.id === prefs.model)
+                        ? [{ value: prefs.model, label: prefs.model }]
+                        : []),
+                    ]}
+                    onChange={(value) =>
+                      patchHarness(row.harness, { model: value })
+                    }
+                  />
+                </FieldRow>
 
-                <label className="settings-field">
-                  <span className="settings-field__label">
-                    <span>Default effort</span>
-                  </span>
-                  <span className="settings-field__control">
-                    <Select
-                      dense
-                      disabled={!row.installed || row.efforts.length === 0}
-                      value={prefs.effort ?? ""}
-                      aria-label={`${row.displayName} default effort`}
-                      options={[
-                        DEFAULT_OPTION,
-                        ...row.efforts.map((e) => ({ value: e, label: e })),
-                      ]}
-                      onChange={(value) =>
-                        patchHarness(row.harness, { effort: value })
-                      }
-                    />
-                  </span>
-                </label>
+                <FieldRow group label="Default effort">
+                  <Select
+                    dense
+                    disabled={!row.installed || row.efforts.length === 0}
+                    value={prefs.effort ?? ""}
+                    aria-label={`${row.displayName} default effort`}
+                    options={[
+                      DEFAULT_OPTION,
+                      ...row.efforts.map((e) => ({ value: e, label: e })),
+                    ]}
+                    onChange={(value) =>
+                      patchHarness(row.harness, { effort: value })
+                    }
+                  />
+                </FieldRow>
 
-                <label className="settings-field">
-                  <span className="settings-field__label">
-                    <span>Default permission mode</span>
-                  </span>
-                  <span className="settings-field__control">
-                    <Select
-                      dense
-                      disabled={!row.installed}
-                      value={prefs.permissionMode ?? ""}
-                      aria-label={`${row.displayName} default permission mode`}
-                      options={[
-                        DEFAULT_OPTION,
-                        ...permissionOptions.map((p) => ({
-                          value: p,
-                          label: p,
-                        })),
-                      ]}
-                      onChange={(value) =>
-                        patchHarness(row.harness, { permissionMode: value })
-                      }
-                    />
-                  </span>
-                </label>
+                <FieldRow group label="Default permission mode">
+                  <Select
+                    dense
+                    disabled={!row.installed}
+                    value={prefs.permissionMode ?? ""}
+                    aria-label={`${row.displayName} default permission mode`}
+                    options={[
+                      DEFAULT_OPTION,
+                      ...permissionOptions.map((p) => ({
+                        value: p,
+                        label: p,
+                      })),
+                    ]}
+                    onChange={(value) =>
+                      patchHarness(row.harness, { permissionMode: value })
+                    }
+                  />
+                </FieldRow>
 
                 {isHarnessId(row.harness) ? (
                   <ExtraArgsField
