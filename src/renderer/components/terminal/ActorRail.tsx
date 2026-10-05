@@ -18,8 +18,6 @@ import type { CanvasNode } from "@shared/canvas";
 import { actorRailExpanded, actorRailPeers, setActorRailExpanded } from "../../lib/actor-rail";
 import type { ActorEdgeRow } from "../../lib/actor-edges";
 import { openActorMirror } from "../../lib/actor-mirrors";
-import { terminalSurfaceId } from "../../lib/dock-state";
-import { scheduleFocusPrimaryControl } from "../../lib/focus-ownership";
 import { openOperatorModal } from "../../lib/operator-modal";
 import { isOverseerSeat } from "../../lib/overseer-set";
 import { nodeTitle } from "../../lib/presentation";
@@ -35,8 +33,6 @@ import { seatUrgencyNow, useSeatGlance } from "../SeatRing";
 import { IconButton, ListRow } from "../ui";
 import "./actor-rail.css";
 
-type Zone = "focus" | "pinned";
-
 /**
  * Where a bubble's anchor sits below its seat's centre. The canvas bubble's
  * tail tip hangs 4px above its anchor (9px gap less the 5px tail); 20px more
@@ -49,14 +45,12 @@ const TAIL_TIP_PX = 24;
 function RailSeat({
   peer,
   actorNodeId,
-  zone,
   compact,
   onUrgency,
   seatRef,
 }: {
   readonly peer: CanvasNode;
   readonly actorNodeId: string;
-  readonly zone: Zone;
   readonly compact: boolean;
   readonly onUrgency: (nodeId: string, urgency: SeatUrgency) => void;
   readonly seatRef: (nodeId: string, element: HTMLLIElement | null) => void;
@@ -91,18 +85,7 @@ function RailSeat({
         aria-expanded={bubbleUp ? true : undefined}
         title={`Go to ${name}`}
         data-testid="actor-rail-go"
-        onClick={() => {
-          openActorMirror(peer, actorNodeId, zone);
-          // The focus shell hands the keyboard to its new front terminal by
-          // itself; the pinned dock does not, so the rail does it here.
-          if (zone === "pinned") {
-            scheduleFocusPrimaryControl(() =>
-              document.querySelector<HTMLElement>(
-                `.workbench-pane[data-surface-id="${CSS.escape(terminalSurfaceId(peer.id))}"]:not(.workbench-pane--parked)`,
-              ),
-            );
-          }
-        }}
+        onClick={() => openActorMirror(peer, actorNodeId)}
       />
       <AgentSeatView
         identity={peer.id}
@@ -167,7 +150,7 @@ function RailBubble({
 const boardMeta = (row: ActorEdgeRow): string | undefined =>
   row.boardNotify === "on" ? "wakes" : row.boardNotify === "off" ? "quiet" : undefined;
 
-export function ActorRail({ node, zone }: { readonly node: CanvasNode; readonly zone: Zone }) {
+export function ActorRail({ node }: { readonly node: CanvasNode }) {
   const doc = use$(state$.doc);
   const expanded = actorRailExpanded(use$(sidebarSections$.open));
   const { agents, others } = useMemo(() => actorRailPeers(doc, node.id), [doc, node.id]);
@@ -200,7 +183,6 @@ export function ActorRail({ node, zone }: { readonly node: CanvasNode; readonly 
       className="actor-rail"
       data-testid="actor-rail"
       data-rail={expanded ? "expanded" : "collapsed"}
-      data-zone={zone}
       aria-label="Connected agents"
     >
       <div className="actor-rail__bar">
@@ -222,7 +204,6 @@ export function ActorRail({ node, zone }: { readonly node: CanvasNode; readonly 
               key={peer.id}
               peer={peer}
               actorNodeId={node.id}
-              zone={zone}
               compact={!expanded}
               onUrgency={onUrgency}
               seatRef={seatRef}

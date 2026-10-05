@@ -59,7 +59,10 @@ import {
   startedSessionLoadPhase,
   type SessionLoadPhase,
 } from "../../lib/session-load";
-import { TASKS_ENABLED } from "@shared/features";
+import {
+  PINNING_ENABLED,
+  TASKS_ENABLED,
+} from "@shared/features";
 import { releaseTaskToQueue } from "../../lib/work-actions";
 import {
   claimFocus,
@@ -645,6 +648,27 @@ const measureHost = (
 /** xterm inset per presentation. Must match the `.xterm` inset in styles.css. */
 const XTERM_PAD = { x: XTERM_PAD_X, y: XTERM_PAD_Y } as const;
 const GRID_XTERM_PAD = { x: GRID_CELL_CHROME.padX, y: GRID_CELL_CHROME.padY } as const;
+
+/**
+ * Pinning (a surface docked beside the canvas) is behind PINNING_ENABLED and
+ * off; this button and its read of the dock exist only in a build that turns
+ * it on.
+ */
+function PinButton({ surfaceId }: { readonly surfaceId: string }) {
+  const pinned = use$(() =>
+    dock$.registry.surfaces.get().find((surface) => surface.id === surfaceId)?.zone === "pinned",
+  );
+  return (
+    <Button
+      size="xs"
+      variant="chrome"
+      title={pinned ? "Move to focus shell" : "Pin to side dock"}
+      onClick={() => (pinned ? unpinWorkbenchSurface(surfaceId) : pinWorkbenchSurface(surfaceId))}
+    >
+      {pinned ? "Unpin" : "Pin"}
+    </Button>
+  );
+}
 
 export function TerminalSurface({
   node,
@@ -1796,16 +1820,9 @@ export function TerminalSurface({
       : undefined;
   const gridHarness = harness !== undefined && isHarnessId(harness) ? harness : undefined;
   const surfaceId = terminalSurfaceId(node.id);
-  const pinned = use$(() =>
-    dock$.registry.surfaces.get().find((surface) => surface.id === surfaceId)?.zone === "pinned",
-  );
   // Modal semantics: dismisses the whole chrome-less focus stack (cycled
   // mirror views park behind the front pane), one press. Views only.
   const closeSurface = () => closeFocusModalSurface(surfaceId);
-  const togglePin = () => {
-    if (pinned) unpinWorkbenchSurface(surfaceId);
-    else pinWorkbenchSurface(surfaceId);
-  };
   const disarmKill = () => {
     if (killArmTimer.current !== null) {
       window.clearTimeout(killArmTimer.current);
@@ -2070,14 +2087,7 @@ export function TerminalSurface({
         middle={agentSeat ? <SeatGitLine node={node} /> : undefined}
         actions={
           <>
-            <Button
-              size="xs"
-              variant="chrome"
-              title={pinned ? "Move to focus shell" : "Pin to side dock"}
-              onClick={togglePin}
-            >
-              {pinned ? "Unpin" : "Pin"}
-            </Button>
+            {PINNING_ENABLED ? <PinButton surfaceId={surfaceId} /> : null}
             {agentSeat ? (
               <SeatDetailsButton
                 node={node}
@@ -2154,9 +2164,7 @@ export function TerminalSurface({
           </Button>
         </div>
       ) : null}
-      {/* Body: xterm stage plus one compact right instrument pane. The ledger
-          occupies the resizable top section in focus; connections fill the
-          remainder. The pinned dock keeps just connections. */}
+      {/* Body: the xterm stage and, for an agent, the connected agents rail beside it. */}
       <div className="native-terminal-surface__body">
         <div className="native-terminal-surface__stage" data-preamble-frame>
           <div
@@ -2231,7 +2239,7 @@ export function TerminalSurface({
             </div>
           ) : null}
         </div>
-        {agentSeat && !grid ? <ActorRail node={node} zone={pinned ? "pinned" : "focus"} /> : null}
+        {agentSeat && !grid ? <ActorRail node={node} /> : null}
       </div>
     </div>
   );

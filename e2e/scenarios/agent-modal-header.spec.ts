@@ -91,7 +91,7 @@ test("the header is one line and the git line gives way before the seat's own wo
     expect(await whole(null)).toBe(true);
     expect((await line.boundingBox())!.x).toBeGreaterThanOrEqual((await right(status)) - 1);
     // Nothing reaches the buttons.
-    expect(await right(line)).toBeLessThanOrEqual((await header.getByRole("button", { name: "Pin", exact: true }).boundingBox())!.x);
+    expect(await right(line)).toBeLessThanOrEqual((await header.getByTestId("seat-details-button").boundingBox())!.x);
 
     // A seat in no region shows no path at all.
     await header.getByRole("button", { name: "Close view", exact: true }).click();

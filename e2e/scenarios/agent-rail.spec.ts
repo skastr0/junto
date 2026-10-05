@@ -285,39 +285,6 @@ test("[fake-tui] every key typed while bubbles come and go reaches the agent", a
   }
 });
 
-test("pinned beside the canvas, the rail moves to an agent in the dock and hands it the keyboard", async () => {
-  const junto = await launchJunto({ seedCanvases: { [CANVAS]: fixture } });
-  try {
-    const { page } = junto;
-    await expect(page.locator('.react-flow__node[data-id="lead"]')).toBeVisible({ timeout: 30_000 });
-    await open(page, "lead");
-    await front(page).locator("header").getByRole("button", { name: "Pin", exact: true }).click();
-    const dock = page.locator(".work-surface-dock--pinned");
-    await expect(dock.getByTestId("actor-rail")).toHaveAttribute("data-zone", "pinned");
-    await expect(page.locator('[data-focus-surface="1"]')).toHaveCount(0);
-
-    await dock.locator('[data-peer-node-id="ada"]').getByTestId("actor-rail-go").click();
-    const shown = dock.locator(".workbench-pane:not(.workbench-pane--parked) .native-terminal-surface");
-    await expect(shown.locator("header").first()).toContainText("ada", { timeout: 20_000 });
-    // Still pinned, no modal; the keyboard is in ada's terminal, and lead stays in the dock behind her.
-    await expect(page.locator('[data-focus-surface="1"]')).toHaveCount(0);
-    await expect
-      .poll(() =>
-        page.evaluate(() => {
-          const active = document.activeElement;
-          return (
-            active?.classList.contains("xterm-helper-textarea") === true &&
-            active.closest(".work-surface-dock--pinned .workbench-pane:not(.workbench-pane--parked)") !== null
-          );
-        }),
-      )
-      .toBe(true);
-    await expect(dock.locator(".native-terminal-surface")).toHaveCount(2);
-  } finally {
-    await junto.close();
-  }
-});
-
 test("seat details open from the header and hold what left the rail", async () => {
   const junto = await launchJunto({ seedCanvases: { [CANVAS]: fixture } });
   try {

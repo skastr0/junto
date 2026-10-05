@@ -118,22 +118,14 @@ export const frontTerminalNodeId = (): string | null => {
  * already inside it, else re-anchors at the clicked rail's actor (whose ring
  * contains the target by construction).
  */
-export const openActorMirror = (
-  peer: CanvasNode,
-  fromNodeId: string,
-  zone: "focus" | "pinned" = "focus",
-): void => {
-  // The anchor orders the FOCUS cycle ring; a pinned rail click must not
-  // silently reorder it (membership re-derives live either way).
-  if (zone === "focus") {
-    const doc = state$.doc.peek();
-    const anchor = mirrorAnchor$.peek();
-    const standing = anchor !== null ? actorRingOf(doc, anchor) : null;
-    if (!standing || !standing.memberIds.includes(peer.id)) {
-      mirrorAnchor$.set(fromNodeId);
-    }
+export const openActorMirror = (peer: CanvasNode, fromNodeId: string): void => {
+  const doc = state$.doc.peek();
+  const anchor = mirrorAnchor$.peek();
+  const standing = anchor !== null ? actorRingOf(doc, anchor) : null;
+  if (!standing || !standing.memberIds.includes(peer.id)) {
+    mirrorAnchor$.set(fromNodeId);
   }
-  void openTerminal(peer, zone);
+  void openTerminal(peer, "focus");
 };
 
 /**
