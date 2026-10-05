@@ -1,4 +1,4 @@
-import { useMemo, useState, type MouseEvent } from "react";
+import { useMemo, useState, type KeyboardEvent, type MouseEvent } from "react";
 import { FileText } from "lucide-react";
 import {
   previewBeforeAfter,
@@ -49,7 +49,8 @@ export function PreviewedMarkdown({
   });
   const gone = refs.filter((ref) => {
     const result = thumbs.get(ref.path);
-    return result !== undefined && !result.ok && result.reason === "missing";
+    // A loose ref may never have been a path: say nothing about it.
+    return !ref.loose && result !== undefined && !result.ok && result.reason === "missing";
   });
   const text = useMemo(
     () =>
@@ -69,17 +70,28 @@ export function PreviewedMarkdown({
     if (ref) setOpenAt(ref.path);
   };
 
+  // Enter on a thumbnail or a file name presses it. A surface around this
+  // one may use Enter for something else (the feed writes a reply): it must
+  // not hear it from here.
+  const keepEnter = (event: KeyboardEvent<HTMLDivElement>): void => {
+    if (event.key !== "Enter" || !(event.target instanceof Element)) return;
+    const control = event.target.closest("button, a");
+    if (!control) return;
+    if (control instanceof HTMLAnchorElement && previewLinkIndex(control.getAttribute("href")) === undefined) return;
+    event.stopPropagation();
+  };
+
   const pair = previewBeforeAfter(items);
   const shown = items.length > SHOWN + 1 ? items.slice(0, SHOWN) : items;
   const rest = items.length - shown.length;
 
   return (
     <>
-      <div className={textClassName} onClick={onTextClick}>
+      <div className={textClassName} onClick={onTextClick} onKeyDown={keepEnter}>
         <ArtifactMarkdown source={text} />
       </div>
       {items.length > 0 || gone.length > 0 ? (
-        <div className="preview-strip" data-testid="preview-strip">
+        <div className="preview-strip" data-testid="preview-strip" onKeyDown={keepEnter}>
           {items.length > 0 ? (
             <ThumbnailStrip label="Files in these details">
               {shown.map((ref) => {
