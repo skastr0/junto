@@ -36,6 +36,8 @@ export type ModalEntry = {
   readonly trap: boolean;
   /** Escape arrived for this modal. False: it is not this modal's to take. */
   readonly onEscape: () => boolean;
+  /** Close this modal outright, whatever Escape means inside it. */
+  readonly onClose: () => void;
 };
 
 type Stacked = ModalEntry & { readonly seq: number };
@@ -61,6 +63,22 @@ export const topOf = <T extends { readonly layer: ModalLayer; readonly seq: numb
 };
 
 export const topModal = (): ModalEntry | undefined => topOf(stack);
+
+/** The layer of the front modal, or null with nothing open: the canvas is in front. */
+export const frontModalLayer = (): ModalLayer | null => topOf(stack)?.layer ?? null;
+
+/**
+ * Close the front modal: the topmost one, by layer then by open order. This
+ * is what "front" means for a close command. Unlike Escape it does not ask
+ * the modal: a terminal keeps Escape for its program, but it still closes.
+ * Returns false when nothing is open.
+ */
+export const closeFrontModal = (): boolean => {
+  const top = topOf(stack);
+  if (!top) return false;
+  top.onClose();
+  return true;
+};
 
 /** True while any modal of this layer is open. */
 export const isModalLayerOpen = (layer: ModalLayer): boolean =>
@@ -262,6 +280,7 @@ export const useModalLayer = ({
   trap = true,
   isolate = true,
   onEscape,
+  onClose,
   returnFocusTo,
   keepFocusOnClose,
   onKeyDown,
@@ -283,6 +302,8 @@ export const useModalLayer = ({
    * Return false when the key is not this modal's (a terminal keeps Escape).
    */
   readonly onEscape: () => boolean | void;
+  /** Close this modal, for closeFrontModal. */
+  readonly onClose: () => void;
   /**
    * Where focus goes on close. Default: whatever held it when the shell
    * first rendered. Pass null to leave focus alone.
@@ -303,6 +324,8 @@ export const useModalLayer = ({
   }
   const onEscapeRef = useRef(onEscape);
   onEscapeRef.current = onEscape;
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
   const keepFocusRef = useRef(keepFocusOnClose);
   keepFocusRef.current = keepFocusOnClose;
 
@@ -314,6 +337,7 @@ export const useModalLayer = ({
       trap,
       container: () => containerRef.current,
       onEscape: () => onEscapeRef.current() !== false,
+      onClose: () => onCloseRef.current(),
     });
     isTopRef.current = isTop;
     const opener = openerRef.current;

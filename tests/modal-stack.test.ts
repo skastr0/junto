@@ -1,5 +1,13 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { nextTabStop, pushModal, resetModalStack, topOf, type ModalLayer } from "../src/renderer/lib/modal-stack";
+import {
+  closeFrontModal,
+  frontModalLayer,
+  nextTabStop,
+  pushModal,
+  resetModalStack,
+  topOf,
+  type ModalLayer,
+} from "../src/renderer/lib/modal-stack";
 
 const entry = (layer: ModalLayer, seq: number) => ({ layer, seq });
 
@@ -58,7 +66,24 @@ describe("tab trap", () => {
 
 describe("who is topmost", () => {
   afterEach(() => resetModalStack());
-  const open = (layer: ModalLayer) => pushModal({ layer, trap: true, container: () => null, onEscape: () => true });
+  const open = (layer: ModalLayer, onClose: () => void = () => undefined) =>
+    pushModal({ layer, trap: true, container: () => null, onEscape: () => true, onClose });
+
+  it("closes the front modal only, and says when the canvas is in front", () => {
+    const closed: string[] = [];
+    expect(frontModalLayer()).toBeNull();
+    expect(closeFrontModal()).toBe(false);
+    const terminal = open("working", () => { closed.push("terminal"); terminal.leave(); });
+    const search = open("operator", () => { closed.push("search"); search.leave(); });
+    expect(frontModalLayer()).toBe("operator");
+    expect(closeFrontModal()).toBe(true);
+    expect(closed).toEqual(["search"]);
+    expect(frontModalLayer()).toBe("working");
+    expect(closeFrontModal()).toBe(true);
+    expect(closed).toEqual(["search", "terminal"]);
+    expect(frontModalLayer()).toBeNull();
+  });
+
 
   it("is the dialog while it is open over its working modal, then the modal again", () => {
     const editor = open("working");

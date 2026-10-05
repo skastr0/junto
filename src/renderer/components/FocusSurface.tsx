@@ -117,6 +117,7 @@ export function FocusSurface({
     // A parent-contained surface shares the screen with the pinned dock.
     trap: contain === "viewport",
     isolate: false,
+    onClose,
     onKeyDown,
     onEscape: () => {
       if (!closeOnEscape) return false;

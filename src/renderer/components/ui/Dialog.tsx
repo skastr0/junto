@@ -56,7 +56,7 @@ export function Dialog({
   const [layerName] = useState<ModalLayer>(() =>
     isModalLayerOpen("operator") ? "operator-dialog" : "working-dialog",
   );
-  const layer = useModalLayer({ layer: layerName, containerRef: cardRef, onEscape: onClose, onKeyDown });
+  const layer = useModalLayer({ layer: layerName, containerRef: cardRef, onEscape: onClose, onClose, onKeyDown });
 
   useEffect(() => {
     const card = cardRef.current;

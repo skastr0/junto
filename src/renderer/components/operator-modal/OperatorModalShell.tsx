@@ -71,6 +71,7 @@ export function OperatorModalShell({
     onEscape: () => {
       if (onEscapeRef.current?.() !== true) closeOperatorModal(id);
     },
+    onClose: () => closeOperatorModal(id),
     onKeyDown,
   });
 
