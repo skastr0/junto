@@ -31,7 +31,7 @@ test("[fake-tui] the grid's Escape rule, and a press between cells keeps the key
       await page.locator(".react-flow__pane").click({ position: { x: 20, y: 300 } });
       for (const id of ids) await page.locator(`.react-flow__node[data-id="${id}"]`).click({ modifiers: ["Shift"] });
       await page.locator('.react-flow__node[data-id="two"]').click({ button: "right" });
-      await page.getByRole("menuitem", { name: "Open 3 agents in a grid" }).click();
+      await page.getByRole("button", { name: "Open 3 agents in a grid" }).click();
       await expect(cells).toHaveCount(3, { timeout: 10_000 });
     };
     const typingInCell = (): Promise<boolean> =>
