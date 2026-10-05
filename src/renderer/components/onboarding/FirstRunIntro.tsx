@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { use$ } from "@legendapp/state/react";
 import { ArrowLeft, ArrowRight } from "lucide-react";
 import type { PortraitExpression } from "@shared/portrait-expression";
@@ -697,16 +697,6 @@ export function FirstRunIntroSurface({
   const chapter = chapters[step]!;
   const last = step === chapters.length - 1;
 
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (isOperatorTyping(event.target)) return;
-      if (event.key === "ArrowRight") setStep((s) => Math.min(s + 1, chapters.length - 1));
-      else if (event.key === "ArrowLeft") setStep((s) => Math.max(s - 1, 0));
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [chapters.length]);
-
   return (
     <FocusSurface
       measure="workspace"
@@ -714,6 +704,11 @@ export function FirstRunIntroSurface({
       label="Welcome to Junto"
       closeOnBackdrop={false}
       onClose={onDone}
+      onKeyDown={(event) => {
+        if (isOperatorTyping(event.target)) return;
+        if (event.key === "ArrowRight") setStep((s) => Math.min(s + 1, chapters.length - 1));
+        else if (event.key === "ArrowLeft") setStep((s) => Math.max(s - 1, 0));
+      }}
       panelClassName="first-run-intro"
     >
       <div className="first-run-intro__frame">
