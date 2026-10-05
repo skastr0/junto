@@ -49,7 +49,7 @@
   position: relative;
   box-sizing: border-box;
   border: 1px solid var(--color-stroke);
-  border-radius: 10px;
+  border-radius: var(--radius-xl);
   background: var(--color-raise);
   box-shadow:
     0 24px 80px var(--color-shadow-1),
