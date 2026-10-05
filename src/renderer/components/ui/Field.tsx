@@ -8,11 +8,15 @@ import { Dropdown, type DropdownOption } from "./Dropdown";
  * House form fields — one treatment for every text input and select:
  * inset fill, hairline stroke, cyan focus ring, mono at 12px.
  */
-const FIELD_CLASS = [
-  "w-full rounded-[5px] border border-stroke bg-inset px-2 py-1.5",
-  "text-body-lg text-ink placeholder:text-faint outline-none transition-colors",
+const FIELD_CHROME = [
+  "w-full rounded-[5px] border border-stroke bg-inset px-2",
+  "text-ink placeholder:text-faint outline-none transition-colors",
   "focus:border-cyan/60 focus:shadow-[0_0_0_3px_var(--color-focus-ring)]",
 ].join(" ");
+const FIELD_CLASS = `${FIELD_CHROME} py-1.5 text-body-lg`;
+// A size is chosen here, never appended by a caller: two size classes on one
+// element resolve by stylesheet order, and the caller's loses.
+const FIELD_DENSE_CLASS = `${FIELD_CHROME} min-h-[28px] py-1 text-body`;
 
 /** Form-field trigger chrome shared by Select (design-system Dropdown). */
 export const FIELD_SELECT_TRIGGER_CLASS = [
@@ -31,9 +35,18 @@ export const INSPECTOR_SELECT_TRIGGER_CLASS = [
 
 export function Input({
   className,
+  dense = false,
   ...rest
-}: ComponentPropsWithRef<"input">) {
-  return <input className={[FIELD_CLASS, className ?? ""].filter(Boolean).join(" ")} {...rest} />;
+}: ComponentPropsWithRef<"input"> & {
+  /** A compact field for a row inside a list: 11px type, 28px tall. */
+  readonly dense?: boolean;
+}) {
+  return (
+    <input
+      className={[dense ? FIELD_DENSE_CLASS : FIELD_CLASS, className ?? ""].filter(Boolean).join(" ")}
+      {...rest}
+    />
+  );
 }
 
 export function Textarea({

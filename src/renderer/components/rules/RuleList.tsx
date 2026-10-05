@@ -19,7 +19,7 @@ function RuleRow({ rule, onChange, onRemove }: {
   };
   return <div className="flex items-center gap-1.5">
     <Input data-focus-owner="canvas-draft" aria-label="Rule text"
-      className="min-h-[28px] py-1 text-[11px]" value={draft}
+      dense value={draft}
       placeholder="what must be true before this closes?"
       onChange={(event) => setDraft(event.target.value)} onBlur={commit}
       onKeyDown={(event) => {

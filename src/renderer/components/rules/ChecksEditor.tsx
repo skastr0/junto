@@ -43,7 +43,8 @@ function CheckRow({
       <Input
         data-focus-owner="canvas-draft"
         aria-label="Check name"
-        className="min-h-[28px] w-[34%] py-1 text-[11px]"
+        dense
+        className="w-[34%]"
         value={label}
         placeholder="name"
         onChange={(event) => setLabel(event.target.value)}
@@ -52,7 +53,8 @@ function CheckRow({
       <Input
         data-focus-owner="canvas-draft"
         aria-label="Check command"
-        className="min-h-[28px] py-1 font-mono text-[11px]"
+        dense
+        className="font-mono"
         value={command}
         placeholder="command, exit 0 passes"
         spellCheck={false}
@@ -95,7 +97,8 @@ function CheckDraftRow({
       <Input
         data-focus-owner="canvas-draft"
         aria-label="New check name"
-        className="min-h-[28px] w-[34%] py-1 text-[11px]"
+        dense
+        className="w-[34%]"
         ref={claimFocusOnMount}
         value={label}
         placeholder="name"
@@ -104,7 +107,8 @@ function CheckDraftRow({
       <Input
         data-focus-owner="canvas-draft"
         aria-label="New check command"
-        className="min-h-[28px] py-1 font-mono text-[11px]"
+        dense
+        className="font-mono"
         value={command}
         placeholder="command, exit 0 passes"
         spellCheck={false}
