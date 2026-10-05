@@ -35,7 +35,7 @@ test("a focused seat shows a ring, says it is selected, and its menu works by ke
   await seat.dispatchEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 400, clientY: 300 });
   const menu = page.getByTestId("seat-menu");
   await expect(menu).toBeVisible();
-  const rows = menu.getByRole("menuitem");
+  const rows = menu.getByRole("button");
   await expect(rows.first()).toBeFocused();
 
   await page.keyboard.press("ArrowDown");

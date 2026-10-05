@@ -869,6 +869,10 @@ const useMenuDismiss = (active: boolean, dismiss: () => void) => {
 const MENU_ITEMS = "button:not(:disabled)";
 
 /**
+ * The canvas menus are vertical toolbars of buttons, not ARIA menus: their
+ * rows are buttons (and one holds a group of buttons), which a menu may not
+ * contain, and every surface that looks a row up finds a button.
+ *
  * A canvas menu worked by keyboard: opened by a key, focus enters at its
  * first row; the arrows, Home and End move between rows; Escape closes it;
  * and closing hands focus back to where it came from. A menu opened by the
@@ -1042,7 +1046,7 @@ type MultiMenuEntry = {
 };
 
 const MultiMenuRow = ({ entry }: { readonly entry: MultiMenuEntry }) => (
-  <button role="menuitem" aria-label={entry.ariaLabel} disabled={entry.disabled} onClick={entry.onSelect}>
+  <button aria-label={entry.ariaLabel} disabled={entry.disabled} onClick={entry.onSelect}>
     <span className="canvas-action-menu__icon" aria-hidden>{entry.icon}</span>
     <span><strong>{entry.label}</strong>{entry.detail ? <small>{entry.detail}</small> : null}</span>
   </button>
@@ -1208,7 +1212,7 @@ function MultiSelectMenu({ anchor, onClose }: { readonly anchor: MultiMenuAnchor
           <SeatMessageForm nodeIds={agentIds} />
         </div>
       ) : (
-        <div ref={menuRef} className="canvas-action-menu" role="menu" aria-label={`Actions for ${nodes}`} onKeyDown={onMenuKeyDown}>
+        <div ref={menuRef} className="canvas-action-menu" role="toolbar" aria-orientation="vertical" aria-label={`Actions for ${nodes}`} onKeyDown={onMenuKeyDown}>
           {agentRows.map((entry) => <MultiMenuRow key={entry.key} entry={entry} />)}
           {agentRows.length > 0 ? <hr className="canvas-action-menu__rule" /> : null}
           <SaveToGroupPicker count={count} onPick={(slot) => run((ids) => saveSelectionToCommandGroup(ids, slot))} />
@@ -1254,7 +1258,7 @@ function SeatMenu({ at, seatId, onClose }: {
       data-canvas-menu-surface
       style={{ position: "fixed", left: position?.x ?? 0, top: position?.y ?? 0, zIndex: 40, visibility: position ? "visible" : "hidden" }}
     >
-      <div ref={menuRef} className="canvas-action-menu" role="menu" aria-label="Agent actions" data-testid="seat-menu" onKeyDown={onMenuKeyDown}>
+      <div ref={menuRef} className="canvas-action-menu" role="toolbar" aria-orientation="vertical" aria-label="Agent actions" data-testid="seat-menu" onKeyDown={onMenuKeyDown}>
         {entries.map((entry) => <MultiMenuRow key={entry.key} entry={entry} />)}
       </div>
     </div>
@@ -1284,9 +1288,8 @@ function TargetConnectMenu({
 
   return (
     <div className="canvas-action-menu-host" data-canvas-menu-surface style={{ position: "fixed", left: Math.min(at.x, window.innerWidth - 210), top: Math.min(at.y, window.innerHeight - 120), zIndex: 40 }}>
-      <div ref={menuRef} className="canvas-action-menu" role="menu" aria-label="Connect" onKeyDown={onMenuKeyDown}>
+      <div ref={menuRef} className="canvas-action-menu" role="toolbar" aria-orientation="vertical" aria-label="Connect" onKeyDown={onMenuKeyDown}>
         <button
-          role="menuitem"
           aria-label={`${label}: ${count} source${count === 1 ? "" : "s"} to ${title}`}
           onClick={() => {
             connectAllToTarget(sourceIds, targetId);
