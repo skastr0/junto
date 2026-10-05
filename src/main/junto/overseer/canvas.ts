@@ -43,6 +43,14 @@ import {
   verbsForEndpoints,
   type OverseerDeleteResource,
 } from "@shared/overseer-authoring";
+import {
+  applyRegionEnvironmentEdit,
+  isRegionNode,
+  notARegion,
+  regionEnvironmentOf,
+  type OverseerEnvEdit,
+  type OverseerEnvRefusal,
+} from "@shared/overseer-env";
 import type { WorkErrorBody } from "@shared/work-control";
 import { actorRefResolverFromProjection } from "@shared/graph";
 import type { ActorRef } from "@shared/work-protocol";
@@ -78,6 +86,13 @@ const CANVAS_OPS = new Set<OverseerOperation>([
   "edge.disconnect",
   "sheet.read",
   "sheet.configure",
+  "env.show",
+  "env.source-add",
+  "env.source-edit",
+  "env.source-remove",
+  "env.source-reorder",
+  "env.seal",
+  "env.folders",
 ]);
 
 export type OverseerDeletePrepareResult =
@@ -723,6 +738,55 @@ const handleNodeConfigure = (
     applyNodeChanges(node, args.changes),
   );
 
+const fromEnvRefusal = (refusal: OverseerEnvRefusal): WorkErrorBody =>
+  fail(refusal.type === "NotFound" ? "UnknownTarget" : "InputError", refusal.message);
+
+const handleEnvShow = (
+  caller: OverseerCaller,
+  args: OverseerArgsFor<"env.show">,
+): Effect.Effect<unknown, WorkErrorBody, CanvasesService> =>
+  Effect.gen(function* () {
+    const read = yield* readCanvas(targetCanvas(caller, args.canvas));
+    const node = findNode(read.doc, args.nodeId);
+    if (node === undefined) {
+      return yield* Effect.fail(
+        fail("UnknownTarget", `node "${args.nodeId}" was not found`),
+      );
+    }
+    if (!isRegionNode(node)) {
+      return yield* Effect.fail(fromEnvRefusal(notARegion(args.nodeId)));
+    }
+    return { nodeId: node.id, environment: regionEnvironmentOf(node) };
+  });
+
+/**
+ * Environment edits are canvas authoring: one read-modify-write of
+ * `ether.region.environment`, committed through the same transaction, grant
+ * and revision rules as `node.configure`.
+ */
+const handleEnvEdit = (
+  caller: OverseerCaller,
+  edit: OverseerEnvEdit,
+): Effect.Effect<unknown, WorkErrorBody, CanvasesService> => {
+  // Minted before the transaction so the caller is told the id it got.
+  const mintedSourceId = `source-${ulid()}`;
+  return mutateExistingNode(caller, edit.args.canvas, edit.args.nodeId, (node) => {
+    const edited = applyRegionEnvironmentEdit(node, edit, () => mintedSourceId);
+    return edited.ok ? edited.value : fromEnvRefusal(edited.error);
+  }).pipe(
+    Effect.map((committed) => {
+      const { node } = committed as { readonly node: CanvasNode };
+      return {
+        nodeId: node.id,
+        ...(edit.operation === "env.source-add"
+          ? { sourceId: edit.args.source.id ?? mintedSourceId }
+          : {}),
+        environment: regionEnvironmentOf(node),
+      };
+    }),
+  );
+};
+
 const handleNodeMove = (
   caller: OverseerCaller,
   args: OverseerArgsFor<"node.move">,
@@ -1147,6 +1211,18 @@ const dispatch = (
       return handleEdgeList(caller, decoded.success as OverseerArgsFor<"edge.list">);
     case "edge.get":
       return handleEdgeGet(caller, decoded.success as OverseerArgsFor<"edge.get">);
+    case "env.show":
+      return handleEnvShow(caller, decoded.success as OverseerArgsFor<"env.show">);
+    case "env.source-add":
+    case "env.source-edit":
+    case "env.source-remove":
+    case "env.source-reorder":
+    case "env.seal":
+    case "env.folders":
+      return handleEnvEdit(caller, {
+        operation,
+        args: decoded.success,
+      } as OverseerEnvEdit);
     case "edge.verbs":
       return handleEdgeVerbs(caller, decoded.success as OverseerArgsFor<"edge.verbs">);
     case "edge.connect":

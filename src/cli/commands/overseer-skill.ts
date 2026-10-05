@@ -69,6 +69,29 @@ Verbs match \`OVERSEER_OPERATION_NAMES\` (dots become family + verb). ${FAMILY_V
 
 Remote seats are supported on the same CLI. Station transport is not this command.
 
+## Region environment and secrets
+
+A region (group node) may carry an \`environment\`: ordered sources that name where a variable comes from on the machine, extra folders, and a sealed switch. A seat is launched with what every region containing it provides, outermost first; an inner region overrides an outer one by variable name, and within a region a later source overrides an earlier one. A change applies when the seat restarts.
+
+The canvas holds names and references only. The one value it ever stores is a \`kind: "value"\` source, which is not secret.
+
+- \`env show {nodeId}\` reads the environment as stored.
+- \`env source-add {nodeId, source, index?}\` appends a source, or inserts it at \`index\`. Omit \`source.id\` and one is generated; the result names it. Kinds: \`value\`, \`secret\`, \`keychain\`, \`keyring\`, \`onepassword\`, \`envFile\`, \`secretsDir\`, \`command\`. \`junto overseer schema show env.source-add\` has every field.
+- \`env source-edit {nodeId, sourceId, source}\` replaces that source whole and keeps its id.
+- \`env source-remove {nodeId, sourceId}\`, \`env source-reorder {nodeId, sourceIds}\` (the complete new order).
+- \`env seal {nodeId, sealed}\`: seats inside a sealed region inherit nothing from regions outside it.
+- \`env folders {nodeId, folders}\` sets the whole list, absolute or \`~/\` paths.
+- \`env doctor {nodeId?}\` prints what seats would launch with: names, kinds, origins and status, never a value. Whole canvas, or one region or seat. It exits non-zero when a source marked \`required\` is \`missing\` or in \`error\`, and still prints the full report.
+
+Prefer what the operator already has: an existing Keychain item (\`keychain\`), an existing 1Password reference (\`onepassword\`), an env file they keep (\`envFile\`). Reach for Junto's own store only for a value that lives nowhere else.
+
+\`secret\` is Junto's own secret store on the machine that runs the command; it is never forwarded to another installation.
+
+- \`secret put [{secretId}]\` saves a value and returns \`{secretId, stored, backend}\`. **The value is read from stdin only**: \`printf %s "$VALUE" | junto overseer secret put\`. A \`value\` key in the argument, a terminal on stdin, or an empty value is refused. Exactly one trailing newline is stripped. Without \`secretId\` a new id is minted; with one, the value behind it is replaced. Name the id in a \`{kind: "secret", name, secretId}\` source.
+- \`secret delete {secretId}\`, \`secret list\` (ids only).
+
+No operation returns a secret value. Do not put one in an argument, a \`value\` source, a message, or a note.
+
 ## Implemented here (CLI)
 
 - Catalog encode, strict arg decode, work-socket transport for every \`OverseerOperation\`

@@ -1,11 +1,14 @@
 // V4: Args→Argument, Options→Flag. Map: ../effect-v4-import-map.ts
 import { Argument, Command, Flag } from "effect/unstable/cli";
+import { readFile } from "node:fs/promises";
 import { Effect, Option, Result, Schema } from "effect";
 import {
   OVERSEER_CATALOG,
   OVERSEER_MAX_REQUEST_BYTES,
   OVERSEER_OPERATION_NAMES,
+  OVERSEER_SECRET_ARGS_OPERATIONS,
   OverseerArgsSchemas,
+  OverseerSecretPutInput,
   decodeOverseerArgs,
   decodeOverseerResult,
   type OverseerCatalogEntry,
@@ -19,9 +22,11 @@ import type {
   CommandSchemaContract,
 } from "../core/discovery";
 import { DEFAULT_TIMEOUT_MS } from "../core/constants";
+import { executeReportCommand } from "../core/env-report";
 import { AuthError, InputError, RuntimeDown, WireError } from "../core/errors";
 import { loadJsonInput } from "../core/json";
 import { executeJsonCommand } from "../core/output";
+import { decodeSecretPutInput, readSecretValue } from "../core/secret-input";
 import { WorkSocket } from "../core/socket";
 import { OVERSEER_SKILL_MARKDOWN } from "./overseer-skill";
 
@@ -44,6 +49,8 @@ const targetArg = Argument.string("target").pipe(
 );
 
 const inputModes = ["inline-json", "@file", "stdin"] as const;
+
+const secretPutInputModes = ["inline-json", "@file"] as const;
 
 const OVERSEER_WORK_OP = "overseer" as WorkOpName;
 
@@ -160,7 +167,9 @@ const loadOverseerArgs = (operation: OverseerOperation, input: Option.Option<str
           message: decoded.failure.message,
           path: "args",
           expected: operation,
-          received: value,
+          // What was received is repeated to help fix it, except where it
+          // could be a secret.
+          ...(OVERSEER_SECRET_ARGS_OPERATIONS.has(operation) ? {} : { received: value }),
           hint: `junto overseer schema show ${operation}`,
         }),
       );
@@ -186,6 +195,8 @@ const FAMILY_HELP: Readonly<Record<string, string>> = {
   page: "Page list, get, open, goto, eval, screenshot, close, stop",
   scheduler: "Scheduler fire, status, configure",
   git: "Git status, log, show on a git node",
+  env: "Region environment: show, source-add, source-edit, source-remove, source-reorder, seal, folders, doctor",
+  secret: "Junto's own secret store on this machine: put (value on stdin), delete, list",
 };
 
 const describeEntry = (entry: OverseerCatalogEntry): string =>
@@ -207,6 +218,72 @@ const makeVerbCommand = (entry: OverseerCatalogEntry) =>
       ),
   ).pipe(Command.withDescription(describeEntry(entry)));
 
+/**
+ * `env doctor` prints the resolver's report whole and exits non-zero when a
+ * required source could not be read.
+ */
+const makeDoctorCommand = (entry: OverseerCatalogEntry) =>
+  Command.make(
+    entry.verb,
+    { input: optionalJsonInputArg, timeout: timeoutOption },
+    ({ input, timeout }) =>
+      executeReportCommand(
+        commandNameFor(entry),
+        Effect.gen(function* () {
+          const args = yield* loadOverseerArgs(entry.operation, input);
+          return yield* callOverseer(entry.operation, args, toUndefined(timeout));
+        }),
+      ),
+  ).pipe(
+    Command.withDescription(
+      "Region environment report: names, kinds, origins and status, never a value. Exits non-zero when a required source is missing",
+    ),
+  );
+
+const secretPutInputArg = Argument.string("input").pipe(
+  Argument.withDescription("JSON object {} or {secretId}, inline or @file. The value is read from stdin"),
+  Argument.optional,
+);
+
+const readArgumentFile = (path: string) =>
+  Effect.tryPromise({
+    try: () => readFile(path, "utf8"),
+    catch: () => new InputError({ message: "the @file argument could not be read", path: "input" }),
+  });
+
+/**
+ * `secret put` reads the value from stdin only, so it cannot share the JSON
+ * input path of the other verbs: there the argument is the whole request.
+ */
+const makeSecretPutCommand = (entry: OverseerCatalogEntry) =>
+  Command.make(
+    entry.verb,
+    { input: secretPutInputArg, timeout: timeoutOption },
+    ({ input, timeout }) =>
+      executeJsonCommand(
+        commandNameFor(entry),
+        Effect.gen(function* () {
+          const named = yield* decodeSecretPutInput(toUndefined(input), readArgumentFile);
+          const value = yield* readSecretValue({
+            isTTY: process.stdin.isTTY === true,
+            text: () => new Response(Bun.stdin.stream()).text(),
+          });
+          return yield* callOverseer(entry.operation, { ...named, value }, toUndefined(timeout));
+        }),
+      ),
+  ).pipe(
+    Command.withDescription(
+      "Save a secret in Junto's own store on this machine. The value is read from stdin only",
+    ),
+  );
+
+const makeFamilyVerbCommand = (entry: OverseerCatalogEntry) =>
+  entry.operation === "secret.put"
+    ? makeSecretPutCommand(entry)
+    : entry.operation === "env.doctor"
+      ? makeDoctorCommand(entry)
+      : makeVerbCommand(entry);
+
 const familyEntries = new Map<string, OverseerCatalogEntry[]>();
 for (const entry of OVERSEER_CATALOG) {
   if (entry.family === "overseer") continue;
@@ -218,7 +295,7 @@ for (const entry of OVERSEER_CATALOG) {
 const familyCommands = [...familyEntries.entries()].map(([family, entries]) =>
   Command.make(family).pipe(
     Command.withDescription(FAMILY_HELP[family] ?? `Overseer ${family} operations`),
-    Command.withSubcommands(entries.map(makeVerbCommand)),
+    Command.withSubcommands(entries.map(makeFamilyVerbCommand)),
   ),
 );
 
@@ -416,9 +493,13 @@ export const overseerSchemas: ReadonlyArray<CommandSchemaContract> = OVERSEER_CA
     command: commandNameFor(entry),
     schema_id: `overseer.${entry.operation}.input/v1`,
     description: `${describeEntry(entry)}. Overseer; edges not required.`,
-    schema: OverseerArgsSchemas[entry.operation],
+    // `secret put` documents what the command takes, which is not what the
+    // wire carries: the value never is an argument.
+    schema: entry.operation === "secret.put"
+      ? OverseerSecretPutInput
+      : OverseerArgsSchemas[entry.operation],
     accepts_batch: false,
-    input_modes: inputModes,
+    input_modes: entry.operation === "secret.put" ? secretPutInputModes : inputModes,
   }),
 );
 
@@ -524,6 +605,132 @@ const declaredOverseerExamples: ReadonlyArray<CommandExample> = [
     name: "git status on a git node",
     args: ["overseer", "git", "status"],
     input: { nodeId: "git-1" },
+  },
+  {
+    command_id: commandIdFor("env.show"),
+    command: "overseer env show",
+    name: "read a region's environment",
+    description: "The environment as stored on the region: names and references, never a secret value.",
+    args: ["overseer", "env", "show"],
+    input: { nodeId: "region-1" },
+  },
+  {
+    command_id: commandIdFor("env.source-add"),
+    command: "overseer env source-add",
+    name: "give every seat in a region an existing Keychain item",
+    description: "Reads the item in place at each launch. The id is generated when omitted; the source is appended unless index is given.",
+    args: ["overseer", "env", "source-add"],
+    input: {
+      nodeId: "region-1",
+      source: { kind: "keychain", name: "OP_SERVICE_ACCOUNT_TOKEN", service: "op-service-account" },
+    },
+  },
+  {
+    command_id: commandIdFor("env.source-add"),
+    command: "overseer env source-add",
+    name: "resolve a 1Password reference with a token from another source",
+    description: "tokenFrom names the source in scope that yields the service account token.",
+    args: ["overseer", "env", "source-add"],
+    input: {
+      nodeId: "region-1",
+      source: {
+        id: "db-url",
+        kind: "onepassword",
+        name: "DATABASE_URL",
+        ref: "op://Engineering/database/url",
+        tokenFrom: "op-token",
+        required: true,
+      },
+    },
+  },
+  {
+    command_id: commandIdFor("env.source-edit"),
+    command: "overseer env source-edit",
+    name: "replace a source whole",
+    description: "The source is replaced as given and keeps its id.",
+    args: ["overseer", "env", "source-edit"],
+    input: {
+      nodeId: "region-1",
+      sourceId: "node-env",
+      source: { kind: "value", name: "NODE_ENV", value: "production" },
+    },
+  },
+  {
+    command_id: commandIdFor("env.source-remove"),
+    command: "overseer env source-remove",
+    name: "remove a source",
+    args: ["overseer", "env", "source-remove"],
+    input: { nodeId: "region-1", sourceId: "node-env" },
+  },
+  {
+    command_id: commandIdFor("env.source-reorder"),
+    command: "overseer env source-reorder",
+    name: "set the order sources apply in",
+    description: "The complete new order. A later source overrides an earlier one by name.",
+    args: ["overseer", "env", "source-reorder"],
+    input: { nodeId: "region-1", sourceIds: ["op-token", "db-url"] },
+  },
+  {
+    command_id: commandIdFor("env.seal"),
+    command: "overseer env seal",
+    name: "seal a region",
+    description: "Seats inside a sealed region inherit nothing from regions outside it.",
+    args: ["overseer", "env", "seal"],
+    input: { nodeId: "region-1", sealed: true },
+  },
+  {
+    command_id: commandIdFor("env.folders"),
+    command: "overseer env folders",
+    name: "set the folders seats inside are given",
+    description: "Sets the whole list. Absolute paths or ~/ paths.",
+    args: ["overseer", "env", "folders"],
+    input: { nodeId: "region-1", folders: ["~/.config/gh", "/opt/shared/certs"] },
+  },
+  {
+    command_id: commandIdFor("env.doctor"),
+    command: "overseer env doctor",
+    name: "report the whole canvas",
+    description: "What every seat would launch with: names, kinds, origins and status, never a value. Exits non-zero when a required source is missing.",
+    args: ["overseer", "env", "doctor"],
+    input: {},
+  },
+  {
+    command_id: commandIdFor("env.doctor"),
+    command: "overseer env doctor",
+    name: "report one region or one seat",
+    args: ["overseer", "env", "doctor"],
+    input: { nodeId: "region-1" },
+  },
+  {
+    command_id: commandIdFor("secret.put"),
+    command: "overseer secret put",
+    name: "save a new secret",
+    description: "The value is read from stdin only: pipe it in. The result carries the id to name in a secret source.",
+    args: ["overseer", "secret", "put"],
+    input: {},
+  },
+  {
+    command_id: commandIdFor("secret.put"),
+    command: "overseer secret put",
+    name: "replace the value behind an id",
+    description: "The value is read from stdin only: pipe it in.",
+    args: ["overseer", "secret", "put"],
+    input: { secretId: "5b0f6d0e-2c1a-4b7e-9d3f-8a1c2e4f6a70" },
+  },
+  {
+    command_id: commandIdFor("secret.delete"),
+    command: "overseer secret delete",
+    name: "remove a secret from this machine",
+    args: ["overseer", "secret", "delete"],
+    input: { secretId: "5b0f6d0e-2c1a-4b7e-9d3f-8a1c2e4f6a70" },
+  },
+  {
+    command_id: commandIdFor("secret.list"),
+    command: "overseer secret list",
+    name: "list the secret ids on this machine",
+    description: "Ids only.",
+    args: ["overseer", "secret", "list"],
+    input: {},
   },
 ];
 

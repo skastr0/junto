@@ -4,10 +4,11 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { spawn } from "node:child_process";
 import { afterEach, describe, expect, it } from "vitest";
-import { Result } from "effect";
+import { Result, Schema } from "effect";
 import {
   OVERSEER_CATALOG,
   OVERSEER_OPERATION_NAMES,
+  OverseerSecretPutInput,
   decodeOverseerArgs,
   decodeOverseerRequest,
 } from "../src/shared/overseer-control";
@@ -174,8 +175,15 @@ describe("overseer catalog wiring", () => {
     for (const example of overseerExamples) {
       if (example.input === undefined) continue;
       const operation = example.command_id.replace(/^overseer\./, "") as (typeof OVERSEER_OPERATION_NAMES)[number];
-      const decoded = decodeOverseerArgs(operation, example.input);
+      // `secret put` takes its value from stdin, so its example is the
+      // command's argument, not the wire args.
+      const decoded = operation === "secret.put"
+        ? Schema.decodeUnknownResult(OverseerSecretPutInput, { onExcessProperty: "error" })(example.input)
+        : decodeOverseerArgs(operation, example.input);
       expect(Result.isSuccess(decoded)).toBe(true);
+    }
+    for (const entry of OVERSEER_CATALOG.filter(({ family }) => family === "env" || family === "secret")) {
+      expect(overseerExamples.some((example) => example.command_id === `overseer.${entry.operation}`)).toBe(true);
     }
     const related = allExamples.filter((example) => example.command_id.startsWith("overseer."));
     expect(related.length).toBeGreaterThan(0);
@@ -413,5 +421,171 @@ describe("overseer schema decode (contract assumptions)", () => {
         decodeOverseerArgs("agent.reseat", { nodeId: "a1", harness: "amp" }),
       ),
     ).toBe(true);
+  });
+});
+
+// Each test here spawns the source CLI several times.
+const SPAWNING_TEST_TIMEOUT_MS = 60_000;
+
+describe("overseer region environment and secrets CLI", { timeout: SPAWNING_TEST_TIMEOUT_MS }, () => {
+  const VALUE = "s3cr3t-never-echoed";
+  const overseerOk = (operation: string, data: unknown) => ({
+    ok: true,
+    op: "overseer",
+    protocol_version: WORK_PROTOCOL_VERSION,
+    data: { ok: true, operation, data },
+  });
+  const innerOf = (observed: Record<string, unknown> | undefined) =>
+    observed?.args as { operation: string; args: Record<string, unknown> } | undefined;
+
+  it("reads the secret value from stdin, strips one newline, and never prints it", async () => {
+    let observed: Record<string, unknown> | undefined;
+    const { workHome } = await startFakeWorkSocket((request) => {
+      observed = request;
+      return overseerOk("secret.put", { secretId: "minted", stored: true, backend: "file" });
+    });
+    const minted = await runCli(["overseer", "secret", "put"], { workHome, stdin: `${VALUE}\n` });
+    expect(minted.code).toBe(0);
+    expect(parseStdout(minted.stdout)).toEqual({
+      ok: true,
+      command: "overseer secret put",
+      data: { secretId: "minted", stored: true, backend: "file" },
+    });
+    expect(innerOf(observed)).toEqual({ operation: "secret.put", args: { value: VALUE } });
+
+    const named = await runCli(["overseer", "secret", "put", '{"secretId":"5b0f6d0e-2c1a-4b7e-9d3f-8a1c2e4f6a70"}'], { workHome, stdin: VALUE });
+    expect(named.code).toBe(0);
+    expect(innerOf(observed)).toEqual({ operation: "secret.put", args: { secretId: "5b0f6d0e-2c1a-4b7e-9d3f-8a1c2e4f6a70", value: VALUE } });
+    expect(`${minted.stdout}${minted.stderr}${named.stdout}${named.stderr}`).not.toContain(VALUE);
+  });
+
+  it("refuses a value outside stdin without opening a socket or repeating it", async () => {
+    let calls = 0;
+    const { workHome } = await startFakeWorkSocket(() => {
+      calls += 1;
+      return overseerOk("secret.put", {});
+    });
+    for (const [args, stdin] of [
+      [["overseer", "secret", "put", JSON.stringify({ value: VALUE })], "anything"],
+      [["overseer", "secret", "put", JSON.stringify({ secretId: "5b0f6d0e-2c1a-4b7e-9d3f-8a1c2e4f6a70", value: VALUE })], "anything"],
+      [["overseer", "secret", "put", JSON.stringify({ secretId: VALUE })], "anything"],
+      [["overseer", "secret", "put", JSON.stringify({ note: VALUE })], "anything"],
+      [["overseer", "secret", "put", "-"], JSON.stringify({ secretId: "abc", value: VALUE })],
+      [["overseer", "secret", "put"], ""],
+      [["overseer", "secret", "put"], "\n"],
+    ] as const) {
+      const result = await runCli(args, { workHome, stdin });
+      expect(result.code).toBe(1);
+      expect(result.stdout).toBe("");
+      const parsed = JSON.parse(result.stderr.trim()) as { ok: false; command: string; error: { type: string } };
+      expect(parsed.command).toBe("overseer secret put");
+      expect(parsed.error.type).toBe("InputError");
+      expect(result.stderr).not.toContain(VALUE);
+    }
+    expect(calls).toBe(0);
+  });
+
+  it("documents secret put as taking no value argument", async () => {
+    const shown = await runCli(["overseer", "schema", "show", "secret.put"]);
+    expect(shown.code).toBe(0);
+    const data = (parseStdout(shown.stdout) as {
+      data: { input_modes: string[]; schema: { properties?: Record<string, unknown> } };
+    }).data;
+    expect(Object.keys(data.schema.properties ?? {})).toEqual(["secretId"]);
+    const skill = OVERSEER_SKILL_MARKDOWN;
+    expect(skill).toContain("read from stdin only");
+    expect(skill).toContain("env doctor");
+    expect(skill).not.toContain("\u00b7");
+  });
+
+  it("prints the doctor report whole and exits non-zero only for a required source that could not be read", async () => {
+    const row = (status: string, required: boolean) => ({
+      regionId: "box", regionLabel: "Box", sourceId: "token", kind: "keychain",
+      names: ["OP_SERVICE_ACCOUNT_TOKEN"], status, required,
+    });
+    const report = (status: string, required: boolean) => ({
+      regions: [{ regionId: "box", regionLabel: "Box", sealed: false, sources: [row(status, required)] }],
+      seats: [],
+    });
+    let next: unknown = report("ok", true);
+    let observed: Record<string, unknown> | undefined;
+    const { workHome } = await startFakeWorkSocket((request) => {
+      observed = request;
+      return overseerOk("env.doctor", next);
+    });
+    for (const [status, required, code] of [
+      ["ok", true, 0],
+      ["missing", false, 0],
+      ["skipped-host", true, 0],
+      ["overridden", true, 0],
+      ["missing", true, 1],
+      ["error", true, 1],
+    ] as const) {
+      next = report(status, required);
+      const result = await runCli(["overseer", "env", "doctor", '{"nodeId":"box"}'], { workHome });
+      expect(result.code).toBe(code);
+      expect(parseStdout(result.stdout)).toEqual({ ok: true, command: "overseer env doctor", data: next });
+    }
+    expect(innerOf(observed)).toEqual({ operation: "env.doctor", args: { nodeId: "box" } });
+  });
+
+  it("sends an environment edit as its own operation", async () => {
+    let observed: Record<string, unknown> | undefined;
+    const { workHome } = await startFakeWorkSocket((request) => {
+      observed = request;
+      return overseerOk("env.source-add", { nodeId: "box", sourceId: "source-1", environment: {} });
+    });
+    const input = { nodeId: "box", source: { kind: "keychain", name: "OP_SERVICE_ACCOUNT_TOKEN", service: "op" } };
+    const result = await runCli(["overseer", "env", "source-add", JSON.stringify(input)], { workHome });
+    expect(result.code).toBe(0);
+    expect(innerOf(observed)).toEqual({ operation: "env.source-add", args: input });
+    const refused = await runCli(["overseer", "env", "source-add", '{"nodeId":"box","source":{"kind":"nope"}}'], { workHome });
+    expect(refused.code).toBe(1);
+    expect((JSON.parse(refused.stderr.trim()) as { error: { type: string } }).error.type).toBe("InputError");
+  });
+
+  // The work-socket op belongs to the region environment resolver. Until it
+  // is in the Work vocabulary the CLI cannot decode its answer; this test
+  // turns itself on the moment it lands.
+  const envReportOpLanded = Result.isSuccess(
+    decodeWorkRequest({ token: "t", op: "env.report", args: {} }),
+  );
+
+  it.skipIf(!envReportOpLanded)("lets a seat read its own report with junto env report", async () => {
+    const seat = (status: string) => ({
+      nodeId: "seat", title: "Seat", regions: ["box"], folders: [], restartToApply: false,
+      report: [{
+        regionId: "box", regionLabel: "Box", sourceId: "token", kind: "keychain",
+        names: ["OP_SERVICE_ACCOUNT_TOKEN"], status, required: true,
+      }],
+    });
+    let next: unknown = seat("ok");
+    let observed: Record<string, unknown> | undefined;
+    const { workHome } = await startFakeWorkSocket((request) => {
+      observed = request;
+      return { ok: true, op: "env.report", protocol_version: WORK_PROTOCOL_VERSION, data: next };
+    });
+    const ok = await runCli(["env", "report"], { workHome });
+    expect(ok.code).toBe(0);
+    expect(parseStdout(ok.stdout)).toEqual({ ok: true, command: "env report", data: next });
+    expect(observed).toMatchObject({ op: "env.report", args: {} });
+    next = seat("missing");
+    const missing = await runCli(["env", "report"], { workHome });
+    expect(missing.code).toBe(1);
+    expect(parseStdout(missing.stdout)).toEqual({ ok: true, command: "env report", data: next });
+  });
+
+  it("registers junto env report as an ordinary command with a schema, an example and a docs entry", async () => {
+    expect(allSchemas.map((schema) => schema.command_id)).toContain("env.report");
+    expect(allExamples.map((example) => example.command_id)).toContain("env.report");
+    expect(commandCapabilities.map((capability) => capability.command_id)).toContain("env.report");
+    for (const topic of ["doctrine", "contract"]) {
+      const docs = await runCli(["docs", topic]);
+      expect(docs.code).toBe(0);
+      expect(docs.stdout).toContain("junto env report");
+    }
+    const help = await runCli(["env", "report", "--help"]);
+    expect(help.code).toBe(0);
+    expect(`${help.stdout}${help.stderr}`).toContain("--timeout");
   });
 });

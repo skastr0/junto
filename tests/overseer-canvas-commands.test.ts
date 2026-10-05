@@ -453,6 +453,92 @@ describe("executeOverseerCanvas", () => {
     else expect(verbs.verbs).toContain(verbs.default);
   });
 
+  it("authors a region's environment through the canvas commit path", async () => {
+    const canvases = await boot();
+    const changes: string[] = [];
+    const unsubscribe = canvases.subscribeChanges((name) => changes.push(name));
+    const env = (operation: string, args: Record<string, unknown>) =>
+      expectOk({ operation, args: { nodeId: "region", ...args } } as OverseerRequest) as Promise<{
+        nodeId: string;
+        sourceId?: string;
+        environment: { sealed?: boolean; folders?: string[]; sources?: Array<{ id: string }> };
+      }>;
+
+    expect(await env("env.show", {})).toEqual({ nodeId: "region", environment: {} });
+    const before = await runtime!.runPromise(canvases.read("ops"));
+    const added = await env("env.source-add", {
+      source: { kind: "keychain", name: "OP_SERVICE_ACCOUNT_TOKEN", service: "op" },
+    });
+    expect(added.sourceId).toMatch(/^source-/u);
+    expect(added.environment.sources).toEqual([
+      { id: added.sourceId, kind: "keychain", name: "OP_SERVICE_ACCOUNT_TOKEN", service: "op" },
+    ]);
+    const afterAdd = await runtime!.runPromise(canvases.read("ops"));
+    expect(afterAdd.revision).not.toBe(before.revision);
+    expect(changes).toEqual(["ops"]);
+
+    await env("env.source-add", {
+      source: { id: "first", kind: "value", name: "NODE_ENV", value: "production" },
+      index: 0,
+    });
+    await env("env.source-edit", {
+      sourceId: "first",
+      source: { kind: "envFile", path: "~/.env", required: true },
+    });
+    await env("env.source-reorder", { sourceIds: [added.sourceId, "first"] });
+    await env("env.seal", { sealed: true });
+    await env("env.folders", { folders: ["~/.config/gh"] });
+    unsubscribe();
+
+    const stored = (await runtime!.runPromise(canvases.read("ops"))).doc.nodes.find(
+      (node) => node.id === "region",
+    );
+    expect(stored).toMatchObject({
+      type: "group",
+      label: "box",
+      ether: { region: { environment: {
+        sealed: true,
+        folders: ["~/.config/gh"],
+        sources: [
+          { id: added.sourceId, kind: "keychain" },
+          { id: "first", kind: "envFile", path: "~/.env", required: true },
+        ],
+      } } },
+    });
+    expect(await env("env.show", {})).toEqual({
+      nodeId: "region",
+      environment: stored?.ether?.region?.environment,
+    });
+
+    await env("env.source-remove", { sourceId: "first" });
+    expect((await env("env.show", {})).environment.sources).toHaveLength(1);
+  });
+
+  it("refuses environment edits it cannot honor and leaves the canvas as it was", async () => {
+    const canvases = await boot();
+    const before = await runtime!.runPromise(canvases.read("ops"));
+    const refused: ReadonlyArray<readonly [OverseerRequest, WorkErrorBody["type"]]> = [
+      [{ operation: "env.seal", args: { nodeId: "n1", sealed: true } }, "InputError"],
+      [{ operation: "env.show", args: { nodeId: "n1" } }, "InputError"],
+      [{ operation: "env.show", args: { nodeId: "ghost" } }, "UnknownTarget"],
+      [{ operation: "env.seal", args: { nodeId: "ghost", sealed: true } }, "UnknownTarget"],
+      [{ operation: "env.source-remove", args: { nodeId: "region", sourceId: "ghost" } }, "UnknownTarget"],
+      [{ operation: "env.source-reorder", args: { nodeId: "region", sourceIds: ["ghost"] } }, "InputError"],
+      [{ operation: "env.folders", args: { nodeId: "region", folders: ["relative"] } }, "InputError"],
+      [{ operation: "env.source-add", args: { nodeId: "region", source: { kind: "value", name: "bad name", value: "x" } } }, "InputError"],
+    ];
+    for (const [request, type] of refused) await expectErr(request, type);
+    const after = await runtime!.runPromise(canvases.read("ops"));
+    expect(after.revision).toBe(before.revision);
+    expect(after.doc).toEqual(before.doc);
+
+    await runtime!.runPromise(canvases.canvasOverseerSet({
+      canvasName: "ops", nodeId: "overseer", overseer: false, expectedRevision: after.revision,
+    }));
+    await expectErr({ operation: "env.seal", args: { nodeId: "region", sealed: true } }, "AuthError");
+    await expectErr({ operation: "env.show", args: { nodeId: "region" } }, "AuthError");
+  });
+
   it("leaves every node and revision unchanged when the final batch graph is invalid", async () => {
     const canvases = await boot();
     const before = await runtime!.runPromise(canvases.read("ops"));

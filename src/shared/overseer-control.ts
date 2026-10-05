@@ -1,8 +1,9 @@
-import { Result, Schema } from "effect";
+import { Result, Schema, Struct } from "effect";
 import { overseerOperationEnabled } from "./features";
 import {
   CanvasColor,
   EdgeEnd,
+  EnvSource,
   EtherBrowser,
   EtherEntity,
   EtherGit,
@@ -18,6 +19,7 @@ import { HarnessId } from "./managed-terminal-templates";
 import { PadPatch } from "./pad";
 import { Verb } from "./physics/verbs";
 import { OverseerLiveCorrelation } from "./overseer-host-control";
+import { SECRET_ID_PATTERN, secretValueProblem } from "./region-secrets";
 import { EtherSheet } from "./sheet";
 import {
   CompletionEvidence,
@@ -148,6 +150,17 @@ export const OVERSEER_OPERATION_NAMES = [
   "git.status",
   "git.log",
   "git.show",
+  "env.show",
+  "env.source-add",
+  "env.source-edit",
+  "env.source-remove",
+  "env.source-reorder",
+  "env.seal",
+  "env.folders",
+  "env.doctor",
+  "secret.put",
+  "secret.delete",
+  "secret.list",
 ] as const;
 
 export const OverseerOperation = Schema.Literals(OVERSEER_OPERATION_NAMES);
@@ -647,6 +660,72 @@ const GitLog = Schema.Struct({
 });
 const GitShow = Schema.Struct({ ...NodeTarget, sha: NonEmpty });
 
+// Region environment --------------------------------------------------------
+
+/**
+ * A source as a caller writes it: the canvas document's own `EnvSource`, with
+ * the id left to main when absent. Derived, never a second copy of the shape.
+ */
+type WithOptionalId<Source> = Source extends { readonly id: string }
+  ? Omit<Source, "id"> & { readonly id?: string }
+  : never;
+export type OverseerEnvSourceDraft = WithOptionalId<EnvSource>;
+
+// Mapping the members loses which fields belong to which kind, so the type
+// is stated by distribution over the same union the schema is built from.
+export const OverseerEnvSourceDraft = Schema.Union(
+  EnvSource.members.map((member) =>
+    member.mapFields((fields) => ({
+      ...Struct.omit(fields, ["id"]),
+      id: Schema.optionalKey(fields.id),
+    })),
+  ),
+) as unknown as Schema.Codec<OverseerEnvSourceDraft>;
+
+const EnvSourceAdd = Schema.Struct({
+  ...NodeTarget,
+  source: OverseerEnvSourceDraft,
+  index: Schema.optionalKey(NonNegativeInt),
+});
+const EnvSourceEdit = Schema.Struct({
+  ...NodeTarget,
+  sourceId: Id,
+  source: OverseerEnvSourceDraft,
+});
+const EnvSourceRemove = Schema.Struct({ ...NodeTarget, sourceId: Id });
+const EnvSourceReorder = Schema.Struct({
+  ...NodeTarget,
+  sourceIds: Schema.Array(Id),
+});
+const EnvSeal = Schema.Struct({ ...NodeTarget, sealed: Schema.Boolean });
+const EnvFolders = Schema.Struct({ ...NodeTarget, folders: Schema.Array(NonEmpty) });
+const EnvDoctor = Schema.Struct({
+  ...CanvasOptional,
+  nodeId: Schema.optionalKey(Id),
+});
+
+// Junto's own secret store, on the machine that runs the command. The value
+// is the one argument in this contract that is never echoed: see
+// `decodeOverseerArgs`.
+const SecretId = Schema.String.pipe(
+  Schema.check(Schema.isPattern(SECRET_ID_PATTERN, { message: "a secret id is a UUID" })),
+);
+const SecretValue = Schema.String.pipe(
+  Schema.check(Schema.makeFilter((value: string) => secretValueProblem(value) ?? true)),
+);
+const SecretIdentity = Schema.Struct({ secretId: SecretId });
+/** `secretId` replaces the value behind that id; without one, the store mints it. */
+const SecretPut = Schema.Struct({ secretId: Schema.optionalKey(SecretId), value: SecretValue });
+
+/**
+ * What `junto overseer secret put` takes as its JSON argument. The value is
+ * not in it: the CLI reads the value from stdin and adds it on the wire.
+ */
+export const OverseerSecretPutInput = Schema.Struct({
+  secretId: Schema.optionalKey(SecretId),
+});
+export type OverseerSecretPutInput = typeof OverseerSecretPutInput.Type;
+
 /**
  * One strict schema per operation. This registry is the dispatcher source of
  * truth and the CLI's offline schema catalog. Unknown/excess fields fail.
@@ -758,6 +837,17 @@ export const OverseerArgsSchemas = {
   "git.status": GitTarget,
   "git.log": GitLog,
   "git.show": GitShow,
+  "env.show": Schema.Struct(NodeTarget),
+  "env.source-add": EnvSourceAdd,
+  "env.source-edit": EnvSourceEdit,
+  "env.source-remove": EnvSourceRemove,
+  "env.source-reorder": EnvSourceReorder,
+  "env.seal": EnvSeal,
+  "env.folders": EnvFolders,
+  "env.doctor": EnvDoctor,
+  "secret.put": SecretPut,
+  "secret.delete": SecretIdentity,
+  "secret.list": EmptyArgs,
 } as const satisfies Record<OverseerOperation, Schema.Top>;
 
 export type OverseerArgsFor<Operation extends OverseerOperation> =
@@ -775,14 +865,32 @@ export const decodeOverseerResult = Schema.decodeUnknownResult(OverseerResult, {
   onExcessProperty: "error",
 });
 
+/** Why an operation's args did not decode. Every caller reports `message`. */
+export type OverseerArgsFailure = { readonly message: string };
+
+/**
+ * Operations whose args carry a secret value. A decode failure for one of
+ * these says only what shape was expected: a schema message describes what
+ * it received, and what it received here must never be repeated.
+ */
+export const OVERSEER_SECRET_ARGS_OPERATIONS: ReadonlySet<OverseerOperation> =
+  new Set<OverseerOperation>(["secret.put"]);
+
+export const OVERSEER_SECRET_ARGS_FAILURE =
+  "secret.put takes {secretId?, value} and nothing else: an optional UUID and a non-empty value of at most 64 KB without a NUL character";
+
 /** Decode an operation's opaque envelope args against its exact schema. */
 export const decodeOverseerArgs = <Operation extends OverseerOperation>(
   operation: Operation,
   args: unknown,
-): Result.Result<OverseerArgsFor<Operation>, Schema.SchemaError> =>
-  Schema.decodeUnknownResult(OverseerArgsSchemas[operation] as never, {
+): Result.Result<OverseerArgsFor<Operation>, OverseerArgsFailure> => {
+  const decoded = Schema.decodeUnknownResult(OverseerArgsSchemas[operation] as never, {
     onExcessProperty: "error",
   })(args ?? {}) as Result.Result<OverseerArgsFor<Operation>, Schema.SchemaError>;
+  return Result.isFailure(decoded) && OVERSEER_SECRET_ARGS_OPERATIONS.has(operation)
+    ? Result.fail({ message: OVERSEER_SECRET_ARGS_FAILURE })
+    : decoded;
+};
 
 export type OverseerCatalogEntry = {
   readonly operation: OverseerOperation;
@@ -830,6 +938,9 @@ export const OVERSEER_READ_ONLY_OPERATIONS = [
   "git.status",
   "git.log",
   "git.show",
+  "env.show",
+  "env.doctor",
+  "secret.list",
 ] as const satisfies ReadonlyArray<OverseerOperation>;
 
 const READ_ONLY_OPERATIONS = new Set<OverseerOperation>(

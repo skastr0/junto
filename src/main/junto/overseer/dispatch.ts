@@ -5,15 +5,21 @@ import {
   OVERSEER_CATALOG,
   OVERSEER_MAX_ERROR_BYTES,
   OVERSEER_MAX_RESULT_BYTES,
+  type OverseerArgsFor,
   type OverseerCaller,
   type OverseerErrorType,
   type OverseerRequest,
   type OverseerResult,
 } from "@shared/overseer-control";
+import { narrowEnvironmentReport } from "@shared/overseer-env";
 import type { InstallationId } from "@shared/installation-id";
 import type { WorkErrorBody } from "@shared/work-control";
 import { admitOverseer, watchOverseerRevocation } from "./admission";
+import { CanvasesService } from "../canvases";
 import { executeOverseerCanvas } from "./canvas";
+import { overseerEnvReport, type OverseerEnvReport } from "./env-report-seam";
+import { executeOverseerSecret } from "./secret";
+import { overseerSecretStore, type OverseerSecretStore } from "./secret-store-seam";
 import { executeOverseerWork } from "./work";
 
 export interface OverseerRuntime {
@@ -26,7 +32,54 @@ export interface OverseerRuntime {
     caller: OverseerCaller,
     request: OverseerRequest,
   ) => Effect.Effect<OverseerResult, WorkErrorBody>;
+  /** This machine's secret store. Defaults to the product store. */
+  readonly secrets?: () => OverseerSecretStore | undefined;
+  /** The region environment resolver's report. Defaults to the product resolver. */
+  readonly envReport?: OverseerEnvReport;
 }
+
+const ENV_DOCTOR_MISSING =
+  "the region environment resolver is not available in this build";
+
+/** The resolver's canvas-wide report, narrowed to one node when asked. */
+const runEnvDoctor = (
+  caller: OverseerCaller,
+  args: OverseerArgsFor<"env.doctor">,
+  report: OverseerEnvReport,
+): Effect.Effect<unknown, WorkErrorBody, CanvasesService> =>
+  Effect.gen(function* () {
+    const canvases = yield* CanvasesService;
+    const canvasName = args.canvas ?? caller.canvasName;
+    const read = yield* canvases.read(canvasName, "overseer.canvas").pipe(
+      Effect.mapError((error): WorkErrorBody => ({
+        type: "UnknownTarget",
+        message: error.message,
+      })),
+    );
+    const nodeId = args.nodeId;
+    if (nodeId !== undefined && !read.doc.nodes.some((node) => node.id === nodeId)) {
+      return yield* Effect.fail<WorkErrorBody>({
+        type: "UnknownTarget",
+        message: `node "${nodeId}" was not found`,
+      });
+    }
+    const whole = yield* Effect.tryPromise({
+      try: () => report(canvasName),
+      // A resolver failure is reported in fixed words: its own message could
+      // quote what a store or a tool printed.
+      catch: (): WorkErrorBody => ({
+        type: "InternalError",
+        message: "the region environment report could not be produced",
+      }),
+    });
+    if (whole === undefined) {
+      return yield* Effect.fail<WorkErrorBody>({
+        type: "UnknownTarget",
+        message: `canvas "${canvasName}" could not be read`,
+      });
+    }
+    return nodeId === undefined ? whole : narrowEnvironmentReport(whole, nodeId);
+  });
 
 const errorType = (type: WorkErrorBody["type"]): OverseerErrorType => {
   switch (type) {
@@ -80,7 +133,10 @@ export const executeOverseer = Effect.fn("overseer.execute")(function* (
   if (Result.isFailure(admitted)) return failed(request, admitted.failure);
   const authority = admitted.success;
   const operation = request.operation;
-  const localResource = operation.startsWith("page.") || operation.startsWith("content.");
+  // Local resources act on the installation that runs the command and are
+  // never forwarded to another one.
+  const localResource = operation.startsWith("page.") ||
+    operation.startsWith("content.") || operation.startsWith("secret.");
 
   const run = Effect.gen(function* () {
     if (authority.configuration.role === "remote" && !localResource) {
@@ -91,6 +147,37 @@ export const executeOverseer = Effect.fn("overseer.execute")(function* (
         type: "ScopeError",
         message: "browser pages are controlled on the overseer's own installation",
       });
+    }
+    if (sourceInstallationId !== undefined && operation.startsWith("secret.")) {
+      return failed(request, {
+        type: "ScopeError",
+        message: "secrets are kept on the overseer's own installation",
+      });
+    }
+    if (operation.startsWith("secret.")) {
+      const outcome = executeOverseerSecret(
+        { operation, args: decoded.success },
+        (runtime.secrets ?? overseerSecretStore)(),
+      );
+      return outcome.ok
+        ? ({ ok: true, operation, data: outcome.data } satisfies OverseerResult)
+        : ({ ok: false, operation, error: outcome.error } satisfies OverseerResult);
+    }
+    if (operation === "env.doctor") {
+      const report = runtime.envReport ?? overseerEnvReport;
+      if (report === undefined) {
+        return {
+          ok: false,
+          operation,
+          error: { type: "Unsupported", message: ENV_DOCTOR_MISSING },
+        } satisfies OverseerResult;
+      }
+      const data = yield* runEnvDoctor(
+        caller,
+        decoded.success as OverseerArgsFor<"env.doctor">,
+        report,
+      );
+      return { ok: true, operation, data } satisfies OverseerResult;
     }
     if (operation === "status") {
       return {
@@ -111,7 +198,8 @@ export const executeOverseer = Effect.fn("overseer.execute")(function* (
     }
     const canvasOperation = operation !== "canvas.screenshot" && (
       operation.startsWith("canvas.") || operation.startsWith("node.") ||
-      operation.startsWith("edge.") || operation.startsWith("sheet.")
+      operation.startsWith("edge.") || operation.startsWith("sheet.") ||
+      operation.startsWith("env.")
     );
     const workOperation = operation.startsWith("tasks.") || operation.startsWith("request.") ||
       operation.startsWith("artifact.") || operation.startsWith("msg.") ||

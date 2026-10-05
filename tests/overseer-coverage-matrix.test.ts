@@ -107,6 +107,17 @@ const FROZEN_OPERATIONS = [
   "git.status",
   "git.log",
   "git.show",
+  "env.show",
+  "env.source-add",
+  "env.source-edit",
+  "env.source-remove",
+  "env.source-reorder",
+  "env.seal",
+  "env.folders",
+  "env.doctor",
+  "secret.put",
+  "secret.delete",
+  "secret.list",
 ] as const;
 
 const FROZEN_READ_ONLY = [
@@ -148,6 +159,9 @@ const FROZEN_READ_ONLY = [
   "git.status",
   "git.log",
   "git.show",
+  "env.show",
+  "env.doctor",
+  "secret.list",
 ] as const;
 
 const quotedOps = (matrix: string): ReadonlyArray<string> =>
@@ -162,7 +176,7 @@ describe("overseer coverage matrix", () => {
     const matrix = read("docs/overseer-coverage-matrix.md");
     expect(collapsed(matrix)).toContain("does not claim every operation has an end-to-end test");
     expect(quotedOps(matrix)).toEqual([...FROZEN_OPERATIONS]);
-    expect(FROZEN_OPERATIONS).toHaveLength(98);
+    expect(FROZEN_OPERATIONS).toHaveLength(109);
     expect(collapsed(matrix)).toContain("`page.eval` is a mutation");
     expect(matrix).toContain("canvasOverseerSet");
     expect(matrix).toContain("tests/overseer-admission.test.ts");
@@ -192,6 +206,7 @@ describe("overseer coverage matrix", () => {
       "Remote source impersonation",
       "Uncertain completion, no automatic replay",
       "Viewport invariance",
+      "Secret value echoed back",
     ]) {
       expect(matrix).toContain(risk);
     }

@@ -1,6 +1,6 @@
 # Overseer command acceptance matrix
 
-Status: inventory of the 98-op contract against integrated handlers
+Status: inventory of the 109-op contract against integrated handlers
 and owning suites. Native/composition lifecycle fixes and cross-canvas
 artifact publisher-home routing are integrated. Coverage below distinguishes
 executed behavior from catalog coverage; it does not claim every operation
@@ -55,13 +55,14 @@ replay.
 | Dispatch | `tests/overseer-dispatch.test.ts` |
 | Canvas / node / edge | `tests/overseer-canvas-commands.test.ts`, `tests/overseer-authoring.test.ts` |
 | Work | `tests/overseer-work.test.ts` |
+| Region environment / secrets | `tests/overseer-env-secret.test.ts`, `tests/overseer-canvas-commands.test.ts`, `tests/overseer-dispatch.test.ts`, `tests/overseer-cli.test.ts` |
 | Native | `tests/overseer-native.test.ts` |
 | Composition | `tests/overseer-composition.test.ts`, `tests/overseer-composition-lifecycle.test.ts` |
 | Station transport | `tests/station-overseer-transport.test.ts` |
 | Human toggle / identity | `e2e/scenarios/overseer-acceptance.spec.ts`, `e2e/scenarios/overseer-seat.spec.ts`, `tests/overseer-set.test.ts`, `tests/overseer-toggle.test.tsx`, `tests/overseer-mark.test.tsx` |
 | Stale save / grant strip | `tests/authorial-canvas-merge.test.ts`, `tests/canvas-save-durability.test.ts` |
 
-## Wire operations (98)
+## Wire operations (109)
 
 | operation | catalog | owning service | coverage | suite |
 | --- | --- | --- | --- | --- |
@@ -163,12 +164,41 @@ replay.
 | `git.status` | read | native `makeOverseerNative` | catalog | handler `overseer/native.ts`; catalog tests/overseer-control.test.ts |
 | `git.log` | read | native `makeOverseerNative` | catalog | handler `overseer/native.ts`; catalog tests/overseer-control.test.ts |
 | `git.show` | read | native `makeOverseerNative` | catalog | handler `overseer/native.ts`; catalog tests/overseer-control.test.ts |
+| `env.show` | read | canvas `executeOverseerCanvas` | exercised | tests/overseer-env-secret.test.ts; tests/overseer-canvas-commands.test.ts |
+| `env.source-add` | mutation | canvas `executeOverseerCanvas` | exercised | tests/overseer-env-secret.test.ts; tests/overseer-canvas-commands.test.ts; tests/overseer-cli.test.ts |
+| `env.source-edit` | mutation | canvas `executeOverseerCanvas` | exercised | tests/overseer-env-secret.test.ts; tests/overseer-canvas-commands.test.ts |
+| `env.source-remove` | mutation | canvas `executeOverseerCanvas` | exercised | tests/overseer-env-secret.test.ts; tests/overseer-canvas-commands.test.ts |
+| `env.source-reorder` | mutation | canvas `executeOverseerCanvas` | exercised | tests/overseer-env-secret.test.ts; tests/overseer-canvas-commands.test.ts |
+| `env.seal` | mutation | canvas `executeOverseerCanvas` | exercised | tests/overseer-env-secret.test.ts; tests/overseer-canvas-commands.test.ts; tests/overseer-dispatch.test.ts |
+| `env.folders` | mutation | canvas `executeOverseerCanvas` | exercised | tests/overseer-env-secret.test.ts; tests/overseer-canvas-commands.test.ts |
+| `env.doctor` | read | main `executeOverseer` over the resolver seam | exercised | tests/overseer-dispatch.test.ts; tests/overseer-cli.test.ts; fake resolver only |
+| `secret.put` | mutation | main `executeOverseerSecret` over the store seam | exercised | tests/overseer-env-secret.test.ts; tests/overseer-dispatch.test.ts; tests/overseer-cli.test.ts; fake store only |
+| `secret.delete` | mutation | main `executeOverseerSecret` over the store seam | exercised | tests/overseer-env-secret.test.ts; tests/overseer-dispatch.test.ts; fake store only |
+| `secret.list` | read | main `executeOverseerSecret` over the store seam | exercised | tests/overseer-env-secret.test.ts; tests/overseer-dispatch.test.ts; fake store only |
 
 ## Human toggle (not a wire operation)
 
 | action | schema | owning service | authorization | result | coverage |
 | --- | --- | --- | --- | --- | --- |
 | Grant or revoke overseer on a managed agent seat | `canvasOverseerSet({canvasName, nodeId, overseer, expectedRevision})` | canvases `canvasOverseerSet` under `runMainAuthoring("ipc.canvas.overseer-set")` | trusted renderer only; Command Center authorial; managed executable seat; aliases share one binding; copies do not inherit; agent commands and ordinary saves cannot mint | `{binding, overseer, affected}` | exercised: parent ran `e2e/scenarios/overseer-acceptance.spec.ts` (grant persisted, ordinary seat ungranted, viewport transform unchanged). Unit: `tests/overseer-set.test.ts`. Identity chrome: `e2e/scenarios/overseer-seat.spec.ts` (not a persistence proof). |
+
+## Region environment and secrets
+
+| item | contract |
+| --- | --- |
+| Environment edits | read-modify-write of `ether.region.environment` on one group node, committed under the `node.configure` transaction, grant and revision rules; a node that is not a region is refused |
+| Source shape | the canvas document's own `EnvSource`; `env.source-add` and `env.source-edit` derive an input where `id` may be omitted |
+| `env.doctor` | the resolver's `RegionEnvironmentReport`, unchanged, narrowed by `nodeId`; CLI exits non-zero when a `required` source is `missing` or `error` and still prints the report |
+| `secret.put` | value enters by stdin only at the CLI; a `value` key in the argument, a terminal on stdin, or an empty value is an `InputError`; exactly one trailing newline is stripped |
+| No echo | `decodeOverseerArgs` answers a fixed sentence for `secret.put`; the CLI omits `received` for it; results carry ids and the store name only |
+| Locality | `secret.*` runs on the caller's installation and is never forwarded |
+| `junto env report` | ordinary command; a seat reads its own `SeatEnvironmentReport` from work op `env.report`; same exit rule |
+
+Product bindings sit behind one import each:
+`src/main/junto/overseer/secret-store-seam.ts` (the platform secret store) and
+`src/main/junto/overseer/env-report-seam.ts` (the resolver). Tests replace
+both with a fake store and a fake resolver. No test reads the platform
+Keychain, the keyring, or the operator's home.
 
 ## Key risks
 
@@ -180,6 +210,7 @@ replay.
 | Self-retirement via canvas delete/kind/binding | refuse own-seat delete, canvas delete that would retire the seat, kind/binding replacement that retires identity | `tests/overseer-canvas-commands.test.ts`; `tests/overseer-authoring.test.ts`; `tests/overseer-dispatch.test.ts` | unit exercised |
 | Remote source impersonation | Command Center compares `deriveActorSeatId(authenticatedSourceInstallation, binding)` to compiled seatId; forged caller args ignored | `tests/overseer-admission.test.ts`; `tests/overseer-dispatch.test.ts`; `tests/station-overseer-transport.test.ts` | unit exercised |
 | Uncertain completion, no automatic replay | timeout/disconnect reports uncertain completion and never replays mutations | `tests/station-overseer-transport.test.ts`; `tests/work-socket-overseer.test.ts` | unit exercised |
+| Secret value echoed back | a value given to `secret.put` never appears in a result, an error, a schema failure, or CLI output | `tests/overseer-env-secret.test.ts`; `tests/overseer-dispatch.test.ts`; `tests/overseer-cli.test.ts` | unit and spawned-CLI exercised with a fake store |
 | Viewport invariance | overseer reads, writes, digest, render, screenshot never pan, zoom, focus, resize, or switch the operator view | parent-run `e2e/scenarios/overseer-acceptance.spec.ts` for human toggle; `tests/overseer-canvas-commands.test.ts` document reads; native capture still pending | Electron toggle exercised; screenshot/native capture not proven |
 
 ## Verification limits

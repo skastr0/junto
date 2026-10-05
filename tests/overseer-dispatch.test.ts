@@ -108,6 +108,99 @@ describe("integrated overseer dispatcher", () => {
     expect(adapters.native).toHaveBeenCalledTimes(1);
   });
 
+  it("keeps secrets on the caller installation and never answers with the value", async () => {
+    const { toggle, adapters } = await boot();
+    const VALUE = "s3cr3t-never-echoed";
+    const held = new Map<string, string>();
+    const secrets = () => ({
+      backend: "memory",
+      save: ({ value, secretId }: { value: string; secretId?: string }) => {
+        const id = secretId ?? "5b0f6d0e-2c1a-4b7e-9d3f-8a1c2e4f6a70";
+        held.set(id, value);
+        return { ok: true as const, secretId: id };
+      },
+      remove: (secretId: string) => {
+        held.delete(secretId);
+        return { ok: true as const };
+      },
+      list: () => [...held.keys()],
+    });
+    const run = (request: Parameters<typeof executeOverseer>[1], runtimeAdapters: OverseerRuntime = { ...adapters, secrets }) =>
+      runtime.runPromise(executeOverseer(caller, request, runtimeAdapters));
+
+    expect(await run({ operation: "secret.put", args: { value: VALUE } }))
+      .toMatchObject({ ok: false, error: { type: "Forbidden" } });
+    expect(held.size).toBe(0);
+    await toggle(true);
+
+    const put = await run({ operation: "secret.put", args: { value: VALUE } });
+    expect(put).toEqual({
+      ok: true, operation: "secret.put", data: { secretId: "5b0f6d0e-2c1a-4b7e-9d3f-8a1c2e4f6a70", stored: true, backend: "memory" },
+    });
+    expect(held.get("5b0f6d0e-2c1a-4b7e-9d3f-8a1c2e4f6a70")).toBe(VALUE);
+    const bad = await run({ operation: "secret.put", args: { secretId: 7, value: VALUE, [VALUE]: VALUE } });
+    expect(bad).toMatchObject({ ok: false, error: { type: "InvalidArguments" } });
+    const listed = await run({ operation: "secret.list" });
+    expect(listed).toMatchObject({ ok: true, data: { secretIds: ["5b0f6d0e-2c1a-4b7e-9d3f-8a1c2e4f6a70"] } });
+    expect(JSON.stringify([put, bad, listed])).not.toContain(VALUE);
+    expect(await run({ operation: "secret.delete", args: { secretId: "5b0f6d0e-2c1a-4b7e-9d3f-8a1c2e4f6a70" } }))
+      .toMatchObject({ ok: true, data: { deleted: true } });
+    expect(held.size).toBe(0);
+
+    expect(await run({ operation: "secret.delete", args: { secretId: "not-a-uuid" } }))
+      .toMatchObject({ ok: false, error: { type: "InvalidArguments" } });
+
+    // A Remote keeps its own secrets: nothing is forwarded to Command Center.
+    const stations = await runtime.runPromise(StationRepository);
+    const configuration = Schema.decodeUnknownSync(RemoteConfiguration)({
+      role: "remote", hostId: "local", agentHostId: "local", commandCenterInstallationId: "cc", supervisedPreferred: false,
+    });
+    expect(await runtime.runPromise(
+      executeOverseer(caller, { operation: "secret.put", args: { secretId: "6c1a7e1f-3d2b-4c8f-8e4a-9b2d3f5a7b81", value: VALUE } }, { ...adapters, secrets })
+        .pipe(Effect.provideService(StationRepository, {
+          ...stations, configuration: Effect.succeed({ configuration, configuredAt: "2026-09-11T00:00:00Z" }),
+        })),
+    )).toMatchObject({ ok: true, data: { secretId: "6c1a7e1f-3d2b-4c8f-8e4a-9b2d3f5a7b81" } });
+    expect(adapters.forward).not.toHaveBeenCalled();
+    expect(adapters.native).not.toHaveBeenCalled();
+  });
+
+  it("returns the resolver's report for env.doctor, narrowed by node, and edits a region through dispatch", async () => {
+    const { canvases, toggle, adapters } = await boot();
+    await toggle(true);
+    const whole = {
+      regions: [{ regionId: "box", regionLabel: "Box", sealed: false, sources: [] }],
+      seats: [
+        { nodeId: "boss", title: "Boss", regions: ["box"], report: [], folders: [], restartToApply: false },
+        { nodeId: "stray", title: "Stray", regions: [], report: [], folders: [], restartToApply: false },
+      ],
+    };
+    const envReport = vi.fn(async (_canvasName: string) => whole);
+    const run = (request: Parameters<typeof executeOverseer>[1], runtimeAdapters: OverseerRuntime = { ...adapters, envReport }) =>
+      runtime.runPromise(executeOverseer(caller, request, runtimeAdapters));
+
+    expect(await run({ operation: "env.doctor" })).toEqual({ ok: true, operation: "env.doctor", data: whole });
+    expect(envReport).toHaveBeenCalledWith("origin");
+    expect(await run({ operation: "env.doctor", args: { nodeId: "boss" } })).toMatchObject({
+      ok: true, data: { regions: [{ regionId: "box" }], seats: [{ nodeId: "boss" }] },
+    });
+    expect(await run({ operation: "env.doctor", args: { nodeId: "ghost" } }))
+      .toMatchObject({ ok: false, error: { type: "NotFound" } });
+    expect(await run({ operation: "env.doctor" }, { ...adapters, envReport: () => Promise.reject(new Error("tool said: hunter2")) }))
+      .toEqual({ ok: false, operation: "env.doctor", error: { type: "InternalError", message: "the region environment report could not be produced" } });
+    expect(await run({ operation: "env.doctor" }, { ...adapters, envReport: async () => undefined }))
+      .toMatchObject({ ok: false, error: { type: "NotFound" } });
+
+    expect(await run({ operation: "node.create", args: {
+      node: { type: "group", id: "box", label: "Box", x: 0, y: -200, width: 600, height: 500 },
+    } })).toMatchObject({ ok: true });
+    expect(await run({ operation: "env.seal", args: { nodeId: "box", sealed: true } }))
+      .toMatchObject({ ok: true, operation: "env.seal", data: { nodeId: "box", environment: { sealed: true } } });
+    const stored = (await runtime.runPromise(canvases.read("origin"))).doc.nodes.find((node) => node.id === "box");
+    expect(stored?.ether?.region?.environment).toEqual({ sealed: true });
+    expect(adapters.native).not.toHaveBeenCalled();
+  });
+
   it("interrupts an admitted native effect when the human revokes its grant", async () => {
     const { toggle, adapters } = await boot();
     await toggle(true);
