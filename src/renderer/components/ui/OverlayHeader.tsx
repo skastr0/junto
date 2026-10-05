@@ -4,8 +4,11 @@ import { Eyebrow } from "./Eyebrow";
 /**
  * Overlay header — the one chrome header for every work-surface panel
  * (terminal, browser, detail readers). Structure:
- *   [leading] eyebrow (context hints) / title / status line ----- actions
+ *   [leading] eyebrow (context hints) / title / status line -- [middle] -- actions
  * `leading` is an identity mark (agent portrait) set left of the text block.
+ * `middle` is the room between the identity and the actions, for one or two
+ * live readouts about the subject; `dense` is the one-line header, with half
+ * the padding, for a surface that gives its height to its content.
  * Replaces the cloned browser-modal-header blocks and
  * gives surfaces like the native terminal the same face.
  */
@@ -14,7 +17,9 @@ export function OverlayHeader({
   eyebrow,
   title,
   status,
+  middle,
   actions,
+  dense = false,
   className,
   ...rest
 }: {
@@ -22,13 +27,16 @@ export function OverlayHeader({
   readonly eyebrow?: ReactNode;
   readonly title: ReactNode;
   readonly status?: ReactNode;
+  readonly middle?: ReactNode;
   readonly actions?: ReactNode;
+  readonly dense?: boolean;
   readonly className?: string;
 } & Omit<HTMLAttributes<HTMLElement>, "title">) {
   return (
     <header
       className={[
-        "flex shrink-0 items-center justify-between gap-3 border-b border-stroke bg-raise-2 px-3.5 py-2.5",
+        "flex shrink-0 items-center justify-between gap-3 border-b border-stroke bg-raise-2 px-3.5",
+        dense ? "py-1.5" : "py-2.5",
         className ?? "",
       ]
         .filter(Boolean)
@@ -41,6 +49,7 @@ export function OverlayHeader({
         <div className="truncate font-mono text-title font-semibold text-ink">{title}</div>
         {status ? <div className="mt-0.5 truncate text-body text-dim">{status}</div> : null}
       </div>
+      {middle ? <div className="flex min-w-0 flex-[2] items-center gap-4">{middle}</div> : null}
       {actions ? <div className="flex shrink-0 items-center gap-1.5">{actions}</div> : null}
     </header>
   );
