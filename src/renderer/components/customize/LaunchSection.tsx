@@ -8,7 +8,6 @@ import {
   readSkipReseatConfirm,
   writeSkipReseatConfirm,
 } from "../../lib/agent-reseat";
-import { closeAgentEditor } from "../../lib/agent-editor-state";
 import { openSaveProfile } from "../../lib/profiles-state";
 import {
   AgentHarnessPick,
@@ -142,10 +141,7 @@ function SeatLaunch({ seat }: AgentEditorSectionProps) {
         <Button
           size="sm"
           className="customize-launch__save"
-          onClick={() => {
-            closeAgentEditor();
-            openSaveProfile(seat.id);
-          }}
+          onClick={() => openSaveProfile(seat.id)}
         >
           Save as profile
         </Button>

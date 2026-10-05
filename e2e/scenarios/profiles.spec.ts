@@ -114,6 +114,8 @@ test("profiles: soul and instructions, save as profile, seat it again", async ({
     await saveDialog.getByRole("button", { name: "Save profile" }).click();
     if (theme === "Dark") {
       await expect(saveDialog).toHaveCount(0);
+      // The dialog opened over the editor, which stays until it is closed.
+      await page.getByTestId("agent-editor").getByRole("button", { name: "Close customize" }).click();
       // Again under the same name: asked inline, not saved.
       await page.getByTestId("rts-save-profile").click();
       await expect(saveDialog).toBeVisible();
@@ -126,6 +128,7 @@ test("profiles: soul and instructions, save as profile, seat it again", async ({
     await saveDialog.getByRole("button", { name: "Back" }).click();
     await saveDialog.getByRole("button", { name: "Cancel" }).click();
     await expect(saveDialog).toHaveCount(0);
+    if (theme !== "Dark") await page.getByTestId("agent-editor").getByRole("button", { name: "Close customize" }).click();
 
     // The add picker inside the region: profile cards at catalog scale.
     const regionBox = await stableBox(region);
