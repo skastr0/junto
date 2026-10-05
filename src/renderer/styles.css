@@ -92,7 +92,6 @@ html[data-junto-platform="darwin"] .focus-surface--height-resizable {
 html[data-junto-platform="darwin"] .focus-surface.focus-surface--contain-parent {
   padding: 16px;
 }
-.focus-surface-popover { z-index: var(--layer-popover); }
 .focus-surface--height-immersive {
   align-items: stretch;
 }

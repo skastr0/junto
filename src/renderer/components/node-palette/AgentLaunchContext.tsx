@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { createPortal } from "react-dom";
 import { ChevronDown, FolderOpen, X } from "lucide-react";
 import { use$ } from "@legendapp/state/react";
 import { LOCAL_HOST_ID } from "@shared/remote-hosts";
@@ -13,7 +12,8 @@ import {
   type AgentHostChoice,
 } from "./agent-launch-model";
 import { HostDirectoryPicker } from "./HostDirectoryPicker";
-import { Button, IconButton, Select } from "../ui";
+import { Button, IconButton, Popover, Select } from "../ui";
+import type { Side } from "../../lib/menu-placement";
 import {
   RegionDefaultFolderOption,
   savePathAsRegionDefault,
@@ -52,6 +52,9 @@ export type AgentLaunchContextProps = {
   readonly initialHostId?: string;
   readonly className?: string;
 };
+
+// Stable identity: a fresh array per render would re-place the popover forever.
+const FOLDER_PICKER_SIDES: ReadonlyArray<Side> = ["above", "below", "right", "left"];
 
 const configuredHost = (): AgentHostChoice => {
   const context = defaultAgentLaunchContext();
@@ -133,16 +136,6 @@ export function AgentLaunchContext({
     });
   }, [cwd, onChange, selectedHost.agentHost, selectedHost.id]);
 
-  useEffect(() => {
-    if (!folderOpen) return;
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onFolderOpenChange(false);
-    };
-    // focus-law: Escape-only close of the folder picker.
-    window.addEventListener("keydown", closeOnEscape);
-    return () => window.removeEventListener("keydown", closeOnEscape);
-  }, [folderOpen, onFolderOpenChange]);
-
   const selectHost = (nextHostId: string) => {
     const nextSeed = resolveRegionCwd(doc, center.x, center.y, nextHostId) ?? "~";
     setHostId(nextHostId);
@@ -174,17 +167,19 @@ export function AgentLaunchContext({
     }
   };
 
+  // The folder picker is a popover on the folder field. Its content marks
+  // itself as a canvas menu surface, so a press inside it does not dismiss
+  // the node palette it belongs to.
   const popover = folderOpen && anchorRef.current
-    ? (() => {
-        const rect = anchorRef.current!.getBoundingClientRect();
-        return createPortal(
-          <div
-            role="dialog"
-            aria-label="Choose starting folder"
-            data-canvas-menu-surface
-            className="focus-surface-popover fixed w-[min(420px,calc(100vw-24px))] rounded-[7px] border border-stroke bg-ground p-3 shadow-[0_18px_42px_var(--color-shadow-1)]"
-            style={{ left: Math.max(12, Math.min(rect.left, window.innerWidth - 432)), bottom: window.innerHeight - rect.top + 8 }}
-          >
+    ? (
+        <Popover
+          anchor={anchorRef.current}
+          label="Choose starting folder"
+          sides={FOLDER_PICKER_SIDES}
+          width={420}
+          onClose={() => onFolderOpenChange(false)}
+        >
+          <div data-canvas-menu-surface>
             <div className="mb-3 flex items-center justify-between border-b border-stroke pb-2">
               <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-ink">
                 <FolderOpen size={14} className="text-cyan" />
@@ -207,10 +202,9 @@ export function AgentLaunchContext({
               onToggle={toggleRegionDefault}
               className="mt-0"
             />
-          </div>,
-          document.body,
-        );
-      })()
+          </div>
+        </Popover>
+      )
     : null;
 
   return (
