@@ -1,5 +1,12 @@
 import type { MenuItemConstructorOptions } from "electron";
-import { KEY_TABLE, chordsFor, menuKeyOf, type MenuKey, type ShortcutId } from "../../shared/key-table";
+import {
+  KEY_TABLE,
+  chordsFor,
+  menuKeyOf,
+  type KeyOverrides,
+  type MenuKey,
+  type ShortcutId,
+} from "../../shared/key-table";
 
 /**
  * The macOS menu bar, Junto first. Electron installs a stock menu for an app
@@ -36,6 +43,8 @@ export type AppMenuInput = {
   readonly productName: string;
   /** False in development builds, which also get reload and developer tools. */
   readonly packaged: boolean;
+  /** The chords the operator changed in Settings; the menu shows and claims those. */
+  readonly overrides?: KeyOverrides;
   /** Hand a chord to the focused window's page as a keydown. */
   readonly sendKey: (key: MenuKey) => void;
 };
@@ -44,7 +53,8 @@ export const appMenuTemplate = (input: AppMenuInput): MenuItemConstructorOptions
   const fromTable = (items: ReadonlyArray<TableItem>): MenuItemConstructorOptions[] =>
     items.flatMap(({ id, label }) => {
       const def = KEY_TABLE.find((row) => row.id === id);
-      const chord = def ? chordsFor(def, true)[0] : undefined;
+      // A shortcut with no key has no menu item: there is no chord to hand over.
+      const chord = def ? chordsFor(def, true, input.overrides)[0] : undefined;
       const key = chord === undefined ? null : menuKeyOf(chord);
       return key === null ? [] : [{ label, accelerator: key.accelerator, click: () => input.sendKey(key) }];
     });

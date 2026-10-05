@@ -57,6 +57,24 @@ describe("the app menu", () => {
   });
 });
 
+describe("the app menu with the operator's own chords", () => {
+  const withOverrides = (overrides: Record<string, string[]>) =>
+    items(appMenuTemplate({ productName: "Junto", packaged: true, overrides, sendKey: () => undefined }));
+
+  it("shows and claims the chord the operator chose", () => {
+    const next = withOverrides({ "urgency.next": ["Cmd+E"] }).find(
+      (item) => item.label === "Next Agent That Needs You",
+    )!;
+    expect(next.accelerator).toBe("Cmd+E");
+  });
+
+  it("drops the item of a shortcut that has no key, so it claims nothing", () => {
+    const labels = withOverrides({ "front.close": [] }).map((item) => item.label);
+    expect(labels).not.toContain("Close");
+    expect(labels).toContain("Zoom Canvas In");
+  });
+});
+
 describe("menuKeyOf", () => {
   it("writes a chord as the menu bar does and as a key to send", () => {
     expect(menuKeyOf("Cmd+Shift+Backquote")).toEqual({

@@ -24,6 +24,7 @@ import {
 } from "@shared/ipc";
 import { overlayManifest } from "@shared/overlay";
 import { PRODUCT_NAME } from "@shared/product-name";
+import { keyboardSettings, type Settings } from "@shared/settings";
 import { modeFromConfiguration, startupDoor } from "@shared/station-mode";
 import { DARK_RUNTIME } from "@shared/theme";
 import type { PreambleEvent } from "@shared/preamble";
@@ -1293,20 +1294,40 @@ if (packagedSandboxDisablingSwitch !== undefined) {
     // Junto's own menu bar. Off macOS there is no Cmd, and the keys there are
     // not designed yet: the platform default stays.
     if (process.platform === "darwin") {
-      Menu.setApplicationMenu(
-        Menu.buildFromTemplate(
-          appMenuTemplate({
-            productName: PRODUCT_NAME,
-            packaged: app.isPackaged,
-            sendKey: ({ keyCode, modifiers }) => {
-              const contents = BrowserWindow.getFocusedWindow()?.webContents;
-              if (!contents || contents.isDestroyed()) return;
-              contents.sendInputEvent({ type: "keyDown", keyCode, modifiers: [...modifiers] });
-              contents.sendInputEvent({ type: "keyUp", keyCode, modifiers: [...modifiers] });
-            },
-          }),
-        ),
-      );
+      // The menu shows and claims the chords the operator chose in Settings,
+      // so it is rebuilt whenever those change.
+      let shownOverrides: string | undefined;
+      const showAppMenu = (settings: Settings | undefined): void => {
+        const overrides = keyboardSettings(settings).overrides;
+        const key = JSON.stringify(overrides);
+        if (key === shownOverrides) return;
+        shownOverrides = key;
+        Menu.setApplicationMenu(
+          Menu.buildFromTemplate(
+            appMenuTemplate({
+              productName: PRODUCT_NAME,
+              packaged: app.isPackaged,
+              overrides,
+              sendKey: ({ keyCode, modifiers }) => {
+                const contents = BrowserWindow.getFocusedWindow()?.webContents;
+                if (!contents || contents.isDestroyed()) return;
+                contents.sendInputEvent({ type: "keyDown", keyCode, modifiers: [...modifiers] });
+                contents.sendInputEvent({ type: "keyUp", keyCode, modifiers: [...modifiers] });
+              },
+            }),
+          ),
+        );
+      };
+      showAppMenu(undefined);
+      void AppRuntime.runPromise(
+        Effect.gen(function* () {
+          const settings = yield* SettingsService;
+          showAppMenu(yield* settings.get);
+          settings.subscribe(showAppMenu);
+        }),
+      ).catch(() => {
+        console.error("[menu] stored shortcuts could not be read; the menu shows the defaults");
+      });
     }
     if (!(await ensureSupervised())) return;
     if (shutdownAdmissionClosed) return;
