@@ -41,7 +41,7 @@ import {
 import { HUE, INK, themeFor } from "../lib/theme";
 import { getJuntoApi } from "../lib/junto-api";
 import { FocusSurface } from "./FocusSurface";
-import { Button, Eyebrow, Select } from "./ui";
+import { Button, ConfirmDialog, Eyebrow, Select } from "./ui";
 import "./settings-panel.css";
 
 /**
@@ -1085,11 +1085,23 @@ function SectionBody({ section }: { readonly section: PanelSection }) {
   }
 }
 
+/**
+ * Sections the header's reset acts on. The rest either store nothing here
+ * (updates, experimental, companion) or are refused by main (Machine).
+ */
+const resettableSection = (section: PanelSection): SettingsSectionKey | undefined =>
+  section === "updates" || section === "experimental" || section === "companion" || section === "station"
+    ? undefined
+    : section;
+
 export function SettingsPanel() {
   const open = use$(state$.settingsOpen);
   const loading = use$(state$.settingsLoading);
   const error = use$(state$.settingsError);
   const [section, setSection] = useState<PanelSection>(DEFAULT_SETTINGS_SECTION);
+  // The section a reset was asked for, until the operator answers.
+  const [resetAsk, setResetAsk] = useState<SettingsSectionKey | undefined>(undefined);
+  const [resetting, setResetting] = useState(false);
 
   if (!open) return null;
 
@@ -1105,6 +1117,7 @@ export function SettingsPanel() {
     : (sections[0]?.key ?? "appearance");
   const meta =
     sections.find((item) => item.key === activeSection) ?? sections[0]!;
+  const resettable = resettableSection(activeSection);
 
   return (
     <FocusSurface
@@ -1123,13 +1136,13 @@ export function SettingsPanel() {
           </div>
         </div>
         <div className="settings-panel__header-actions">
-          {activeSection !== "updates" && activeSection !== "experimental" && activeSection !== "companion" ? (
+          {resettable ? (
             <button
               type="button"
               className="settings-panel__ghost"
               title={`Reset ${meta.label} to defaults`}
               aria-label={`Reset ${meta.label}`}
-              onClick={() => void resetSettings(activeSection)}
+              onClick={() => setResetAsk(resettable)}
             >
               <RotateCcw size={14} />
               <span>reset section</span>
@@ -1180,6 +1193,29 @@ export function SettingsPanel() {
           ) : null}
         </div>
       </div>
+      {resetAsk ? (
+        <ConfirmDialog
+          title={`Reset ${meta.label}?`}
+          confirmLabel={`Reset ${meta.label}`}
+          busy={resetting}
+          testId="settings-reset-confirm"
+          onCancel={() => setResetAsk(undefined)}
+          onConfirm={() => {
+            setResetting(true);
+            void resetSettings(resetAsk).finally(() => {
+              setResetting(false);
+              setResetAsk(undefined);
+            });
+          }}
+        >
+          {resetAsk === "providers" ? (
+            <p>Every stored provider key is deleted and must be entered again. The other Providers settings go back to their defaults.</p>
+          ) : (
+            <p>Every setting in {meta.label} goes back to its default.</p>
+          )}
+          <p>This cannot be undone.</p>
+        </ConfirmDialog>
+      ) : null}
     </FocusSurface>
   );
 }
