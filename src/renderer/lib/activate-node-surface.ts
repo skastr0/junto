@@ -116,3 +116,14 @@ export function activateNodeSurface(node: CanvasNode): ActivateNodeSurfaceResult
     }
   }
 }
+
+/**
+ * Open the surface of the one selected node: the keyboard's way to do what a
+ * double-click on the card does. Nothing opens for an empty or multiple
+ * selection.
+ */
+export function activateSelectedNodeSurface(): ActivateNodeSurfaceResult {
+  const id = state$.selectedNodeId.peek();
+  const node = id ? state$.doc.peek().nodes.find((candidate) => candidate.id === id) : undefined;
+  return node ? activateNodeSurface(node) : { opened: false, reason: "no-surface" };
+}

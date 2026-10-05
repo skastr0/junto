@@ -351,3 +351,13 @@ path.junto-edge {
 @media (prefers-reduced-motion: reduce) {
   path.junto-edge { transition: none; }
 }
+
+/* A node focused by keyboard shows it. React Flow removes the outline from
+   every selectable node (its style.css) and offers nothing in its place, so
+   a Tab across the canvas was invisible. Cyan, as on the fleet map: amber is
+   selection, crimson is blocked. Keyboard focus only, never a click. */
+.react-flow .react-flow__node:is(.react-flow__node-text, .react-flow__node-file, .react-flow__node-link, .react-flow__node-group):focus-visible {
+  outline: 1px solid var(--color-cyan);
+  outline-offset: 3px;
+  border-radius: var(--radius-lg);
+}

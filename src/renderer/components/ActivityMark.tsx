@@ -274,7 +274,10 @@ export function ActivityMark({
   return (
     <span
       ref={ref}
-      role="status"
+      // A picture whose name is the state. Not a live region: a board of
+      // seats would be a board of empty announcements. With its signal
+      // button the mark is a group, since an image hides what it holds.
+      role={signal && onSignalOpen ? "group" : "img"}
       aria-label={name}
       title={name}
       className={["junto-mark", className].filter(Boolean).join(" ")}

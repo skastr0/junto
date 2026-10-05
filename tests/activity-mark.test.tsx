@@ -120,7 +120,8 @@ describe("ActivityMark a11y and sizing", () => {
   it("keeps role, aria-label and title for every mode", () => {
     for (const mode of ["wave", "pulse", "static"] as const) {
       const html = renderToStaticMarkup(<ActivityMark mode={mode} tone="cyan" label={`state-${mode}`} />);
-      expect(html).toContain('role="status"');
+      expect(html).toContain('role="img"');
+      expect(html).not.toContain('role="status"');
       expect(attr(html, "aria-label")).toBe(`state-${mode}`);
       expect(attr(html, "title")).toBe(`state-${mode}`);
     }

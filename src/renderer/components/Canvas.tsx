@@ -41,6 +41,7 @@ import {
 import { regionLabelDrag$ } from "../lib/region-label-drag";
 import { canvasZoomRequest$ } from "../lib/canvas-zoom";
 import { isOperatorModalOpen } from "../lib/operator-modal";
+import { claimFocus, recentGestureKind } from "../lib/focus-ownership";
 import { isEditableEventTarget } from "../lib/multi-select-gesture";
 import { nodeTitle } from "../lib/presentation";
 import { isCommandCenterAuthoring } from "../lib/canvas-boot";
@@ -129,6 +130,16 @@ import { IconButton, OverlayHeader } from "./ui";
  */
 const flowNodeClass = (node: FlowNode, impactClass: string | undefined): string | undefined =>
   node.data.seatRegion !== undefined ? (impactClass ? `junto-flow-agent ${impactClass}` : "junto-flow-agent") : impactClass;
+
+/**
+ * What a node says to a screen reader: its name, and that it is selected.
+ * The node's role (group) carries no selected state of its own, so the name
+ * is where a reader hears it.
+ */
+const flowNodeLabel = (node: FlowNode, selected: boolean): string => {
+  const title = nodeTitle(node.data.node);
+  return selected ? `${title}, selected` : title;
+};
 
 type CanvasNodeRef = { readonly id: string; readonly type?: string; readonly position: { readonly x: number; readonly y: number }; readonly data?: unknown; readonly selected?: boolean };
 type CanvasFlow = {
@@ -224,8 +235,9 @@ function stampImpactShell(
     nodes: nodes.map((node) => {
       const selected = selectedIds.has(node.id);
       const className = flowNodeClass(node, nodeImpactClass(impact.active, impact.cone, node.id));
-      if (node.selected === selected && node.className === className) return node;
-      return { ...node, selected, className };
+      const ariaLabel = flowNodeLabel(node, selected);
+      if (node.selected === selected && node.className === className && node.ariaLabel === ariaLabel) return node;
+      return { ...node, selected, className, ariaLabel };
     }),
     edges: edges.map((edge) => {
       const selected = edge.id === selectedEdgeId;
@@ -371,9 +383,11 @@ function useCanvasDocument(
         const next = nodes.map((node) => {
           const selected = selectedIds.has(node.id);
           const className = flowNodeClass(node, nodeImpactClass(impact.active, impact.cone, node.id));
-          if (node.selected === selected && node.className === className) return node;
+          const ariaLabel = flowNodeLabel(node, selected);
+          // React Flow marks a node selected itself, so the name is compared too.
+          if (node.selected === selected && node.className === className && node.ariaLabel === ariaLabel) return node;
           dirty = true;
-          return { ...node, selected, className };
+          return { ...node, selected, className, ariaLabel };
         });
         return dirty ? next : nodes;
       });
@@ -852,6 +866,52 @@ const useMenuDismiss = (active: boolean, dismiss: () => void) => {
   }, [active, dismiss]);
 };
 
+const MENU_ITEMS = "button:not(:disabled)";
+
+/**
+ * A canvas menu worked by keyboard: opened by a key, focus enters at its
+ * first row; the arrows, Home and End move between rows; Escape closes it;
+ * and closing hands focus back to where it came from. A menu opened by the
+ * pointer leaves focus alone, so a marquee never moves it.
+ */
+const useMenuKeys = (
+  menuRef: React.RefObject<HTMLDivElement | null>,
+  shown: boolean,
+  onClose: () => void,
+): ((event: React.KeyboardEvent) => void) => {
+  useEffect(() => {
+    if (!shown || recentGestureKind() !== "key") return;
+    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    claimFocus(menuRef.current?.querySelector<HTMLElement>(MENU_ITEMS), "open");
+    return () => {
+      const held = document.activeElement;
+      // Hand focus back only when the menu still held it as it closed.
+      if (opener?.isConnected && (held === null || held === document.body)) claimFocus(opener, "open");
+    };
+  }, [menuRef, shown]);
+  return (event) => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      event.stopPropagation();
+      onClose();
+      return;
+    }
+    const step = event.key === "ArrowDown" ? 1 : event.key === "ArrowUp" ? -1 : 0;
+    if (step === 0 && event.key !== "Home" && event.key !== "End") return;
+    const rows = [...(menuRef.current?.querySelectorAll<HTMLElement>(MENU_ITEMS) ?? [])];
+    if (rows.length === 0) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const at = rows.indexOf(document.activeElement as HTMLElement);
+    const next =
+      event.key === "Home" ? 0
+      : event.key === "End" ? rows.length - 1
+      : at === -1 ? (step === 1 ? 0 : rows.length - 1)
+      : (at + step + rows.length) % rows.length;
+    claimFocus(rows[next], "gesture", { event: event.nativeEvent });
+  };
+};
+
 function ModeDeckFocus({
   actions,
   agentPosition,
@@ -982,7 +1042,7 @@ type MultiMenuEntry = {
 };
 
 const MultiMenuRow = ({ entry }: { readonly entry: MultiMenuEntry }) => (
-  <button aria-label={entry.ariaLabel} disabled={entry.disabled} onClick={entry.onSelect}>
+  <button role="menuitem" aria-label={entry.ariaLabel} disabled={entry.disabled} onClick={entry.onSelect}>
     <span className="canvas-action-menu__icon" aria-hidden>{entry.icon}</span>
     <span><strong>{entry.label}</strong>{entry.detail ? <small>{entry.detail}</small> : null}</span>
   </button>
@@ -1008,6 +1068,9 @@ function MultiSelectMenu({ anchor, onClose }: { readonly anchor: MultiMenuAnchor
 
   const hostRef = useRef<HTMLDivElement>(null);
   const [position, setPosition] = useState<{ readonly x: number; readonly y: number } | null>(null);
+  // Hidden until placed: focus can only enter once it shows.
+  const menuRef = useRef<HTMLDivElement>(null);
+  const onMenuKeyDown = useMenuKeys(menuRef, position !== null && !composing, onClose);
   useLayoutEffect(() => {
     const host = hostRef.current;
     if (!host) return;
@@ -1145,7 +1208,7 @@ function MultiSelectMenu({ anchor, onClose }: { readonly anchor: MultiMenuAnchor
           <SeatMessageForm nodeIds={agentIds} />
         </div>
       ) : (
-        <div className="canvas-action-menu" role="menu" aria-label={`Actions for ${nodes}`}>
+        <div ref={menuRef} className="canvas-action-menu" role="menu" aria-label={`Actions for ${nodes}`} onKeyDown={onMenuKeyDown}>
           {agentRows.map((entry) => <MultiMenuRow key={entry.key} entry={entry} />)}
           {agentRows.length > 0 ? <hr className="canvas-action-menu__rule" /> : null}
           <SaveToGroupPicker count={count} onPick={(slot) => run((ids) => saveSelectionToCommandGroup(ids, slot))} />
@@ -1166,7 +1229,9 @@ function SeatMenu({ at, seatId, onClose }: {
 }) {
   useMenuDismiss(true, onClose);
   const hostRef = useRef<HTMLDivElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
   const [position, setPosition] = useState<{ readonly x: number; readonly y: number } | null>(null);
+  const onMenuKeyDown = useMenuKeys(menuRef, position !== null, onClose);
   useLayoutEffect(() => {
     const host = hostRef.current;
     if (!host) return;
@@ -1189,7 +1254,7 @@ function SeatMenu({ at, seatId, onClose }: {
       data-canvas-menu-surface
       style={{ position: "fixed", left: position?.x ?? 0, top: position?.y ?? 0, zIndex: 40, visibility: position ? "visible" : "hidden" }}
     >
-      <div className="canvas-action-menu" role="menu" aria-label="Agent actions" data-testid="seat-menu">
+      <div ref={menuRef} className="canvas-action-menu" role="menu" aria-label="Agent actions" data-testid="seat-menu" onKeyDown={onMenuKeyDown}>
         {entries.map((entry) => <MultiMenuRow key={entry.key} entry={entry} />)}
       </div>
     </div>
@@ -1210,6 +1275,8 @@ function TargetConnectMenu({
   readonly onClose: () => void;
 }) {
   useMenuDismiss(true, onClose);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const onMenuKeyDown = useMenuKeys(menuRef, true, onClose);
   const target = state$.doc.peek().nodes.find((node) => node.id === targetId);
   const title = target ? nodeTitle(target) : targetId;
   const count = sourceIds.length;
@@ -1217,8 +1284,9 @@ function TargetConnectMenu({
 
   return (
     <div className="canvas-action-menu-host" data-canvas-menu-surface style={{ position: "fixed", left: Math.min(at.x, window.innerWidth - 210), top: Math.min(at.y, window.innerHeight - 120), zIndex: 40 }}>
-      <div className="canvas-action-menu">
+      <div ref={menuRef} className="canvas-action-menu" role="menu" aria-label="Connect" onKeyDown={onMenuKeyDown}>
         <button
+          role="menuitem"
           aria-label={`${label}: ${count} source${count === 1 ? "" : "s"} to ${title}`}
           onClick={() => {
             connectAllToTarget(sourceIds, targetId);
