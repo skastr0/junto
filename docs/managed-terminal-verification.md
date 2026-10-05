@@ -29,10 +29,10 @@ silently.
 
 ## Live factory reproduction (2026-09-13)
 
-Later production verification: [2026-09-14 native submission repair](assessments/pty-native-submission-2026-09-14.md)
-reproduces the own-paste idle-gate race, identifies its exact missing CR, and
-verifies `7d2d6cb1` completing that race on the installed package. The clone
-run below remains historical evidence with its stated limits.
+Later production verification (2026-09-14) reproduced the own-paste idle-gate
+race, identified its exact missing CR, and verified `7d2d6cb1` completing that
+race on the installed package. The clone run below remains historical evidence
+with its stated limits.
 
 Use the complete saved factory: nodes, edges, region rules, task rows, claims,
 mail, and its authored playing/paused state. Let normal scheduling activate
@@ -259,13 +259,6 @@ From the herdr study (master @ c0fb777, Apache-2.0; learn-never-fork):
 - Herdr typing has **no gating, no chunking, no dialog avoidance** — a prompt sent while blocked goes into the dialog. Junto's state-gated typing is strictly stronger. Take the 5s `agent_prompt_stalled` check.
 - OSC titles are untrusted model output: sanitize (256-char cap, strip controls), clear retained evidence on agent change.
 - Skip: config writing, remote unsigned manifest auto-update, literal pattern strings (re-derive from our own e2e captures).
-
-From [`tui-horizons.md`](tui-horizons.md):
-- **Junto currently registers zero OSC/CSI handlers** — every structured signal above arrives and is discarded. Largest cheap win.
-- **The emulated grid is renderer-lifetime-bound** (`TerminalSurface.tsx:207/266`) — state detection must move to a main-process grid (`@xterm/headless`, not yet a dependency). The one real architecture prerequisite.
-- `bracketedPasteMode` (CSI ?2004) is a protocol-level "input box live" gate; `?2026` synchronized-output marks exact repaint boundaries — both already parsed by xterm, read by nothing.
-- Nonce discipline for any future OSC-133-style marks (children can forge marks); alt-buffer has no scrollback; wide-char/resize grid pitfalls documented with citations.
-- Cheap-after-agent-driving: exit-code→task state, title/progress rail, notification→attention, terminal macros. Medium: dev-server node, log-watcher. Two operator taste rulings deferred: shell-integration injection into plain terminals; command palettes.
 
 ## Open residue (non-blocking)
 

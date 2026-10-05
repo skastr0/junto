@@ -517,4 +517,4 @@ The approval, answer and access concerns count as waiting, and an accepted repet
   `useThreadHealthMark` supplies it. While the seat has an open declared `blocked` or `escalate`, a waiting reading is hidden and a good one is drawn quiet, so the corner never contradicts itself. Health is never crimson; that hue belongs to declared and control blockers.
 - **The focus sidebar.** `ThreadHealthSection` shows the headline, its confidence, every other accepted reading, and the provenance.
 
-**Measured.** See `docs/assessments/thread-health-2026-09-25.md`: 9/10 on constructed screens through the product pack, no false alarms, and one conservative miss. The run also found and fixed a composer-exclusion defect that deleted boxed permission dialogs from the evidence.
+**Measured (2026-09-25).** 9/10 on constructed screens through the product pack, no false alarms, and one conservative miss. The run also found and fixed a composer-exclusion defect that deleted boxed permission dialogs from the evidence.

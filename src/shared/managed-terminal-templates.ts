@@ -1,7 +1,7 @@
 /**
  * Managed-terminal v1 harness templates — data-only spawn specs for the picker.
  *
- * Phase 5 of docs/managed-terminal-plan.md. Templates describe argv/env
+ * Templates describe argv/env
  * shapes and honest capability badges. resolve-launch (main) turns a template +
  * picker choices into a TerminalLaunch for LocalSessionHost.
  *

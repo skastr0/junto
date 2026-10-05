@@ -4,8 +4,7 @@ Status: ruled by the operator on 2026-09-03, with the complete in-place
 migration ruled on 2026-09-04. This document is the canonical
 vocabulary for the Tasks node. Code identifiers, wire fields, CLI commands,
 operator copy, and agent-facing docs all use these words and no others. The
-completed correction is recorded in
-[`tasks-consolidation-plan.md`](tasks-consolidation-plan.md).
+correction was completed in place on 2026-09-04.
 
 This is corrective removal of broken code, not accommodation of respected
 legacy behavior. Corrected schema 21 rewrites an existing invalid version-21

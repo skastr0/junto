@@ -44,8 +44,7 @@ those ten harnesses; each manifest lists its actual recorded scenarios.
 Manifest skips are missing evidence, not passing scenarios. Provider errors,
 authentication failures, and unfinished turns remain explicit limitations;
 a captured screen alone does not establish a working provider. The registry has
-14 external harnesses. See the
-[full matrix assessment](../../docs/assessments/pty-matrix-2026-09-14.md).
+14 external harnesses.
 
 The corpus exists to feed REAL terminal byte streams through the observer —
 escape sequences, prompt markers, OSC titles/9;4 progress, paste chips, and

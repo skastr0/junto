@@ -354,7 +354,7 @@ exception on that same seat, not a second actor kind and not a drawn edge.
 
 ## The negative case — what this model refuses
 
-Consolidated 2026-07-26 ([`factory-consolidation-plan.md`](factory-consolidation-plan.md)).
+Consolidated 2026-07-26.
 Each row was real code once; none of it is representable now.
 
 | refused | why it was wrong |
