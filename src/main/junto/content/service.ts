@@ -34,6 +34,7 @@ import {
   manifestAvailability,
   recordContentObject,
   recordContentRef,
+  releaseContentRefsForOwner,
   type ContentOwner,
   type ContentRefRow,
   ContentManifestError,
@@ -108,6 +109,13 @@ export type ContentServiceShape = {
   readonly listRefs: (
     sha256: string,
   ) => Effect.Effect<ReadonlyArray<ContentRefRow>, StateEngineError>;
+  /**
+   * Release every reference an owner holds (a closed signal's attachments).
+   * The bytes go at the next garbage collection that finds them unreferenced.
+   */
+  readonly releaseOwner: (
+    owner: ContentOwner,
+  ) => Effect.Effect<number, StateEngineError>;
   /** Startup / recovery integrity over referenced digests. */
   readonly integrityCheck: () => Effect.Effect<
     ContentIntegrityReport,
@@ -221,6 +229,9 @@ const makeContentService = (
 
       return { ...ingested, refRow };
     }),
+
+  releaseOwner: (owner) =>
+    state.transaction("content.releaseOwner", (writer) => releaseContentRefsForOwner(writer, owner)),
 
   availability: (ref) =>
     state.read("content.availability", (reader) => {
