@@ -33,7 +33,7 @@
   background: var(--color-ground);
   color: var(--color-dim);
   font-size: var(--text-caption);
-  letter-spacing: 0.09em;
+  letter-spacing: var(--tracking-label);
   text-transform: uppercase;
 }
 
@@ -87,7 +87,7 @@
   margin: 0;
   color: var(--color-faint);
   font-size: var(--text-caption);
-  letter-spacing: 0.1em;
+  letter-spacing: var(--tracking-label);
   text-transform: uppercase;
 }
 
@@ -106,7 +106,7 @@
   gap: 7px;
   padding: 9px 10px;
   border: 1px solid var(--color-stroke);
-  border-radius: 7px;
+  border-radius: var(--radius-lg);
   background: var(--color-raise);
 }
 
@@ -125,14 +125,14 @@
   flex: 1 1 auto;
   color: var(--color-ink);
   font-size: var(--text-body);
-  line-height: 1.4;
+  line-height: var(--leading-body);
 }
 
 .task-operator-rule__provenance {
   margin: 0;
   color: var(--color-faint);
   font-size: var(--text-caption);
-  letter-spacing: 0.06em;
+  letter-spacing: var(--tracking-label);
 }
 
 .task-operator-rule__field {
@@ -145,7 +145,7 @@
 .task-operator-panel__field > span {
   color: var(--color-dim);
   font-size: var(--text-caption);
-  letter-spacing: 0.1em;
+  letter-spacing: var(--tracking-label);
   text-transform: uppercase;
 }
 
@@ -181,7 +181,7 @@
 .task-operator-panel__defect-targets {
   overflow: hidden;
   border: 1px solid var(--color-stroke);
-  border-radius: 7px;
+  border-radius: var(--radius-lg);
   background: var(--color-raise);
 }
 
@@ -234,7 +234,7 @@
   padding: 0 2px 6px;
   color: var(--color-faint);
   font-size: var(--text-caption);
-  letter-spacing: 0.1em;
+  letter-spacing: var(--tracking-label);
   text-transform: uppercase;
 }
 

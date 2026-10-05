@@ -3,7 +3,7 @@
   gap: 0;
   overflow: hidden;
   border: 1px solid var(--color-stroke);
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
   background: var(--color-raise);
 }
 
@@ -27,7 +27,7 @@
 .verdict-chain__heading span {
   color: var(--color-faint);
   font-size: var(--text-micro);
-  letter-spacing: 0.1em;
+  letter-spacing: var(--tracking-label);
   text-transform: uppercase;
 }
 
@@ -113,5 +113,5 @@
 
 .verdict-chain__stale {
   color: var(--color-faint);
-  font-size: 9.5px;
+  font-size: var(--text-label);
 }
