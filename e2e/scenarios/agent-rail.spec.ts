@@ -192,11 +192,20 @@ test("a voiced preamble shows the canvas bubble beside its seat and never takes 
       await expect(bubble.locator(".junto-preamble__card .junto-preamble__text")).toHaveText(`rolling out step two (${mode})`);
       await expect(page.locator('.react-flow__node[data-id="bea"] [data-testid="node-preamble"]')).toHaveCount(1);
 
-      // It did not move the keyboard, and it sits beside the rail, over no seat.
+      // It did not move the keyboard. It speaks from its own portrait: the card
+      // ends on bea's ring, left of the ring's centre, and touches no other seat's ring.
       expect(await typingInTerminal(page)).toBe(true);
       const card = (await bubble.locator(".junto-preamble__card").boundingBox())!;
-      const railBox = (await rail(page).boundingBox())!;
-      expect(card.x + card.width).toBeLessThanOrEqual(railBox.x);
+      const ringOf = async (id: string) => (await rail(page).locator(`[data-peer-node-id="${id}"] .junto-mark`).first().boundingBox())!;
+      const own = await ringOf("bea");
+      expect(card.x + card.width).toBeGreaterThan(own.x);
+      expect(card.x + card.width).toBeLessThan(own.x + own.width / 2);
+      for (const other of ["ada", "cy"]) {
+        const ring = await ringOf(other);
+        const apart =
+          card.x + card.width <= ring.x || card.x >= ring.x + ring.width || card.y + card.height <= ring.y || card.y >= ring.y + ring.height;
+        expect(apart, `the bubble stays off ${other}'s portrait`).toBe(true);
+      }
 
       // A press on the seat beside its bubble still moves to that agent.
       await rail(page).locator('[data-peer-node-id="bea"]').getByTestId("actor-rail-go").click();

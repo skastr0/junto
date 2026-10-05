@@ -83,16 +83,17 @@
 }
 .actor-rail__seat > .junto-seat button { pointer-events: auto; }
 
-/* Bubbles hang beside their seats, over the terminal's edge and never over
-   the rail. The frame is the strip of terminal left of the rail: the canvas
-   bubble keeps itself inside it, as it keeps itself inside the canvas. Each
-   anchor ends at the rail's border, placed so the bubble's tail tip is level
-   with its seat's ring. The
-   frame and anchors take no pointer; the bubble's card does, as on the canvas. */
+/* A bubble speaks from its seat's portrait: it hangs over the terminal's
+   edge with its tail tip on the portrait's left side, level with the ring's
+   centre. The frame is the strip the canvas bubble keeps itself inside, as it
+   keeps itself inside the canvas; it reaches 34px into the rail so the card
+   ends on the portrait (8px of the bubble's own edge margin, then the tail
+   sits 15.5px in from the card's end, and the ring starts 10px into the
+   rail). The frame and anchors take no pointer; the card does, as on the canvas. */
 .actor-rail__bubbles {
   position: absolute;
   top: 0;
-  right: 100%;
+  right: calc(100% - 34px);
   bottom: 0;
   width: 340px;
   pointer-events: none;
