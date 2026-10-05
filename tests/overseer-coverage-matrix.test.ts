@@ -207,7 +207,6 @@ describe("overseer doctrine alignment", () => {
     const agents = collapsed(read("AGENTS.md"));
     const doctrine = collapsed(read("docs/security-doctrine.md"));
     const physics = collapsed(read("docs/architecture-factory-physics.md"));
-    const plan = collapsed(read("docs/overseer-plan.md"));
 
     expect(agents).toContain("Ordinary agents never write the canvas.");
     expect(agents).not.toContain("**Agents never write the canvas.**");
@@ -234,11 +233,5 @@ describe("overseer doctrine alignment", () => {
     );
     expect(physics).toContain("Can an ordinary agent");
     expect(physics).toContain("never the operator socket");
-
-    expect(plan).toContain("Settled authority decisions");
-    expect(plan).toContain("Factory pause and play have no bearing");
-    expect(plan).not.toContain(
-      "implementation blocked on the three authority decisions",
-    );
   });
 });

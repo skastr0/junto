@@ -168,8 +168,7 @@ authority. Factory pause and play have no bearing on administration. An
 overseer cannot delete its own seat or move the operator viewport. It does
 not receive the operator socket, fleet enrollment, or credentials.
 
-See [`docs/overseer-plan.md`](docs/overseer-plan.md) and
-[`docs/overseer-coverage-matrix.md`](docs/overseer-coverage-matrix.md).
+See [`docs/overseer-coverage-matrix.md`](docs/overseer-coverage-matrix.md).
 
 Headless CLIs reach `CanvasesService` through the running app's owner-local
 canvas control socket. They do not open `junto.db`. Ordinary agents
@@ -235,8 +234,7 @@ human/Command Center except closed overseer commands from a live granted seat.
 
 **Pad (shared page):** a Command Center-homed work-plane sink (same class as board). Ordinary agents read a picture + IR and patch named boxes and pins. They never write the canvas. Ports are `pad.read` and `pad.patch` only. Ordinary agent ink or image upserts are refused. Mentions must be inbound actor node ids. An overseer uses closed `overseer` pad/canvas ops, not a pad-plane canvas write.
 
-- Contract: [`docs/pad-architecture.md`](docs/pad-architecture.md)
-- Operator and agent guide: [`docs/pad.md`](docs/pad.md)
+- Contract and guide: [`docs/pad.md`](docs/pad.md)
 - CLI: `junto pad read`, `patch`, `digest`, `svg`, `look-here`, `get`, `tagged`
 
 ### Station roles

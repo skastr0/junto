@@ -1,12 +1,215 @@
 # Junto pad
 
-Operator and wired agents share one page. The operator marks. The agent
-sees the same page (SVG + digest + look-here crop) and patches named
-boxes and pins. Ordinary agents never write the crew canvas. An overseer
-authors canvas through closed `overseer` commands, not through pad.
+A first-party spatial work sink. The factory canvas stays the ACL.
+The pad is the shared page: images, shapes, ink, pins. Wired agents
+read a picture + a text IR and patch structure and comments. Ordinary
+agents never write the factory canvas.
 
-Contract: [`pad-architecture.md`](pad-architecture.md).
-CLI discovery: `junto docs node pad`.
+This document is the contract and the guide: laws, domain and persistence
+first, then how the operator and a wired agent use the page. A production
+counterexample updates this file, then the code.
+
+## Product sentence
+
+Operator and wired agents share one page. The operator marks. The
+agent sees the same page (SVG + digest + look-here crop) and
+patches named boxes and pins.
+
+## Laws
+
+1. Ordinary agents never write the factory canvas. Pad body lives on the work
+   plane (same class as `board`). An overseer authors canvas through closed
+   `overseer` commands, not through pad.
+2. `applyPatch` is the only mutation of a `Pad`. Editor, CLI, and
+   WorkService all emit `PadPatch`.
+3. Layers do not mix. Render order is always
+   `image → shape+edge → ink → pin`. `z` orders inside a layer.
+4. Mentions are factory agent node ids on inbound edges to this pad.
+   `@` cannot name an unwired agent.
+5. Agents may upsert shapes/edges and pin posts. Agents may not
+   upsert ink or images. Refuse, do not ignore.
+6. Bytes never live in pad JSON. Images are `ContentRef`.
+7. User-facing strings say **Junto**. Never the bare token.
+8. Stock dependencies only. No tldraw, no Excalidraw, no xyflow
+   inside the pad editor. `perfect-freehand` is not v1.
+9. Expand-only SQLite: append `N → N+1`. Read
+   `CURRENT_STATE_SCHEMA_VERSION` at implement time (do not hardcode).
+10. Product name lint, no middle dots, Effect schemas at the
+    component and the seam.
+
+## PCMI
+
+**Pristine (monofiles)**
+
+| File | Owns |
+|---|---|
+| `src/shared/pad.ts` | `Pad`, elements, `PadPatch`, `applyPatch`, `PadError` |
+| `src/shared/pad-geom.ts` | camera, hit-test, AABB, edge anchors, `strokePath` |
+| `src/shared/pad-project.ts` | `padToSvg`, `padToDigest`, `padToFocused`, `padLookHere` |
+
+**Pristine seams (extend existing fail-closed tables)**
+
+- `SinkKind` += `"pad"`
+- Ports: `pad.read`, `pad.patch` only
+- `WorkOpName` += `pad.read`, `pad.patch`
+- `KindSpecs`, `PortForWorkOp`, `OPS_BY_SINK`
+
+**Messy glue**
+
+- SQLite repository, WorkService author rules, IPC, CLI flags
+- React + SVG editor, pointer events, handles, focus modal
+
+Do not invent a second pad document, a CRDT, a drawing framework,
+or a second comment body. Pin posts reuse `BoardAuthor` + `Part`.
+
+## Domain
+
+```
+Pad
+  revision: int          // +1 per accepted patch
+  images: PadImage[]
+  shapes: PadShape[]
+  edges:  PadEdge[]
+  inks:   PadInk[]
+  pins:   PadPin[]
+
+PadShape
+  id, type: box|ellipse|triangle|label
+  x, y, w, h            // axis-aligned, w>0, h>0
+  z: int
+  fill?, stroke?, text?
+  status?: none|active|done|blocked
+
+PadEdge
+  id, from, to
+  fromSide?, toSide?    // top|right|bottom|left
+  label?
+
+PadImage
+  id, x, y, w, h, z
+  ref: ContentRef
+
+PadInk
+  id, z, color, width
+  points: {x,y}[]       // >= 2
+
+PadPin
+  id, x, y
+  bounds?: {w, h}       // look-here crop
+  mentions: string[]    // agent node ids
+  posts: PadPost[]      // BoardAuthor + Part[]
+```
+
+### Invariants (`applyPatch` enforces)
+
+- Ids unique within the pad.
+- `w > 0`, `h > 0`.
+- Edge endpoints exist. Deleting a shape deletes its edges in the
+  same patch application.
+- Ink has ≥ 2 points.
+- Image carries `ContentRef`, never bytes.
+- No rotation. Ink is not a shape.
+- Layers cannot change type.
+
+### Patch
+
+```
+PadPatch =
+  | { op: "upsert", layer: "shape", shape }
+  | { op: "upsert", layer: "edge",  edge }
+  | { op: "upsert", layer: "image", image }
+  | { op: "upsert", layer: "ink",   ink }
+  | { op: "pin.upsert", pin }          // posts omitted; creates/updates shell
+  | { op: "pin.reply",  pinId, post }
+  | { op: "delete",     id }
+  | { op: "z",          id, z }
+
+applyPatch(pad, patch) -> Either<PadError, Pad>
+applyPatches(pad, patches) -> Either<PadError, Pad>
+```
+
+Upsert is create-or-replace by id (idempotent). Invalid patch leaves
+the pad unchanged. Last write per id wins. No CRDT.
+
+Author class is **not** in `pad.ts`. WorkService refuses agent
+ink/image with `InputError`.
+
+## Geometry
+
+`pad-geom.ts` is numbers in, numbers out. No React. No SVG strings.
+
+- `Camera { x, y, zoom }`
+- `viewToScene` / `sceneToView`
+- `boundsOf`, `contentBounds`
+- `hitTest(pad, scenePt, slop)` — topmost by layer then z;
+  ink = distance-to-polyline < width/2 + slop
+- `anchorPoint(shape, side)`, `routeEdge`
+- `strokePath(points, width) -> path d` — orthogonal stays a polyline;
+  freehand (3+ non-axis-aligned points) gets a first-party midpoint
+  quadratic smooth. No `perfect-freehand`.
+
+## Projections
+
+`pad-project.ts` is deterministic, no DOM (same posture as
+`digest.ts` / `svg.ts`).
+
+Persisted `fill` / `stroke` / ink `color` are untrusted data. They
+remain arbitrary strings in Pad IR and Work facts so historical
+patches still decode. Rendering never treats them as HTML or CSS:
+only exact `none` or `#RGB` / `#RGBA` / `#RRGGBB` / `#RRGGBBAA`
+paint. Anything else, including quotes, tags, `url()`, `var()`,
+named colors, and functions, uses a role-specific theme default
+without rewriting storage. `padToSvg` must be safe when parsed as
+markup independently of CSP. The privileged renderer must not
+interpolate Pad strings into HTML; factory-card thumbs are
+structural React SVG. Serialized SVG is for `pad.read` / CLI /
+look-here export only.
+
+- `padToSvg(pad, theme)` — layer order; images as labeled rect +
+  sha prefix unless caller supplies an href map; every dynamic
+  attribute escaped; paint resolved as above
+- `padToDigest(pad)` — text IR, no ink point dumps
+- `padToFocused(pad)` — compact `{id, type, bounds, text, status}`
+- `padLookHere(pad, pinId)` — crop around `pin.bounds` or pin ± margin
+
+Factory digest (`src/shared/digest.ts`) adds one pad block under
+entities (counts + digest). The working copy for a wired agent is
+`pad.read`, not the factory digest.
+
+## Physics and work plane
+
+Card: JSON Canvas `text` node, `ether.entity.kind = "pad"`. Glance
+= title + shape count + unread pin count. SQLite owns truth.
+
+```
+pad.read   → { revision, pad, digest, svg }
+             optional pinId → + lookHere { bounds, digest, svg }
+pad.patch  → { patches } → { revision, pad, digest }
+```
+
+Process-bind + edge ports, identical to board. Command Center-homed
+sink. Remotes enqueue; material pad lives on CC.
+
+Mention check on `pin.upsert` / `pin.reply`: inbound edges → actor
+node ids. Anything else is `InputError`.
+
+## Persistence
+
+Element tables, not one blob:
+
+```
+work_pad_meta
+work_pad_images
+work_pad_shapes
+work_pad_edges
+work_pad_inks
+work_pad_pins
+work_pad_posts
+```
+
+Load → `Pad` → `applyPatch` → write changed rows → bump revision.
+
+Expand-only migration. Frozen board/task SQL is not edited.
 
 ## Operator
 
@@ -57,6 +260,13 @@ images.
 
 Human overlay. Points are recorded at 1–2px spacing and committed as one
 ink element. Agents may not upsert ink. No pressure, no pixel eraser.
+
+Factory card thumbnail is framed structural React SVG (`PadSvg`) or
+the empty-state glyph. `padToSvg` is the export picture, not an
+HTML sink.
+Theme tokens from `src/shared/theme`. This is a Junto
+surface: dim command room, not a crayon whiteboard. Resize handles
+are view-stable (4 AABB). Hit slop is view pixels, not scene units.
 
 ## Agent
 
@@ -117,3 +327,20 @@ operator pointed at a region. A pinId that no longer resolves degrades a
 `junto pad tagged` lists pins that mention this process-bound
 seat. Same `pad.read` grant. The mention universe is inbound actor
 edges; unwired names are refused on `pad.patch`.
+
+CLI discovery: `junto docs node pad`. Every verb is JSON-only, same envelope
+as board, with a discovery schema and examples.
+
+## Tests
+
+- Unit: `applyPatch` refusals, geom hit-test, golden digest/svg
+- Work plane: IPC/CLI mocks, process-bind, ScopeError without edge,
+  agent ink refused, mention of unwired agent refused
+- E2E (Playwright sandbox, no real harnesses): create pad node,
+  wire mock seat, patch via work API, persist across reload,
+  focus modal draws a box, pin + look-here
+
+## Non-goals (v1)
+
+Rotation, pressure, pixel eraser, lasso, frames, C4 stencils,
+agent-written ink, nested factory canvas, Rust, CRDT, tldraw kit.

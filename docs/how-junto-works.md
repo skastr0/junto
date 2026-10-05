@@ -27,7 +27,7 @@ When the next session runs `junto onboard`, it gets the seat's past sessions, ne
 
 The continuation is the one exception to past sessions being context: only the session right after the one that continued sees it, and it is meant to be picked up.
 
-Offboarding is self-service: the agent decides when, and the seat doctrine tells it how. Junto does not read or estimate context windows or token counts.
+Offboarding is self-service: the agent decides when, and `junto docs doctrine` tells it how. Junto does not read or estimate context windows or token counts.
 
 The seat's **Offboard** and **Offboard and continue** buttons in Customize send the agent the offboard prompt for that mode, delivered between turns like any mail, and show the progress: asked, notes saved, then the session closed or the new session started. The notes are always the agent's own.
 
