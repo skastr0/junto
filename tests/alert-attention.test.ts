@@ -3,11 +3,9 @@ import {
   collectAlertSignals,
   collectReadyWorkingSignals,
   cycleAlertFocus,
-  isTypingSurface,
   mergeCycleSignals,
   observeAlertSignals,
   resetAlertQueue,
-  shouldCycleAlertOnKey,
 } from "../src/renderer/lib/alert-attention";
 import { alertId, cycleNext, emptyAlertQueue, observeSignals } from "../src/renderer/lib/alert-queue";
 import * as sound from "../src/renderer/lib/sound";
@@ -254,32 +252,5 @@ describe("ready/working cycle order", () => {
       if (step.item?.nodeId) order.push(step.item.nodeId);
     }
     expect(order).toEqual(["b", "a", "r", "w"]);
-  });
-});
-
-describe("shouldCycleAlertOnKey / isTypingSurface", () => {
-  const bare = { repeat: false, metaKey: false, ctrlKey: false, altKey: false, shiftKey: false, key: " ", code: "Space", target: null as EventTarget | null };
-  const stubSurface = (match: boolean): EventTarget => ({
-    closest: (selector: string) => match && (selector.includes(".xterm") || selector.includes("textarea") || selector.includes("native-terminal")) ? {} : null,
-  }) as unknown as EventTarget;
-
-  it("allows bare Space on the canvas", () => {
-    expect(shouldCycleAlertOnKey(bare)).toBe(true);
-  });
-
-  it("refuses Shift+Space (Caps Lock typing chord)", () => {
-    expect(shouldCycleAlertOnKey({ ...bare, shiftKey: true })).toBe(false);
-  });
-
-  it("refuses Space while focus is inside xterm chrome", () => {
-    const target = stubSurface(true);
-    expect(isTypingSurface(target)).toBe(true);
-    expect(shouldCycleAlertOnKey({ ...bare, target })).toBe(false);
-  });
-
-  it("allows Space when target is not a typing surface", () => {
-    const target = stubSurface(false);
-    expect(isTypingSurface(target)).toBe(false);
-    expect(shouldCycleAlertOnKey({ ...bare, target })).toBe(true);
   });
 });

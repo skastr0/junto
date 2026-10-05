@@ -1,4 +1,5 @@
 import { cycleActorMirror } from "./actor-mirrors";
+import { cycleAlertFocus } from "./alert-attention";
 import { assignSelectionToSlot, jumpToSlot, recallSlot } from "./command-group-runtime";
 import { dock$ } from "./dock-state";
 import type { KeyActions } from "./key-dispatcher";
@@ -21,6 +22,8 @@ export const KEY_ACTIONS: KeyActions = {
   // An empty slot takes nothing: the digit passes.
   "groups.recall": ({ digit }) => recallSlot(digit! - 1),
   "groups.jump": ({ digit }) => jumpToSlot(digit! - 1),
+  // With no alert waiting, Space and the backtick stay with whatever has focus.
+  "alerts.next": () => cycleAlertFocus(),
   "canvas.undo": () => (browserPageInFront() ? false : undo()),
   "canvas.redo": () => (browserPageInFront() ? false : redo()),
   // The key is taken only when a swap happened.

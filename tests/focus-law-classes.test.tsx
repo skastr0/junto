@@ -8,8 +8,9 @@ import {
   noteOperatorGesture,
   resetOperatorGesture,
 } from "../src/renderer/lib/focus-ownership";
-import { shouldCycleAlertOnKey } from "../src/renderer/lib/alert-attention";
+import { keySituation } from "../src/renderer/lib/key-dispatcher";
 import { isEditableEventTarget } from "../src/renderer/lib/multi-select-gesture";
+import { resolveKey } from "../src/shared/key-table";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -99,12 +100,16 @@ describe("focus law regression classes", () => {
       <div class="xterm"><textarea class="xterm-helper-textarea" id="pty"></textarea></div>
       <button id="chrome">x</button>`;
     document.body.appendChild(fields);
-    const space = { repeat: false, metaKey: false, ctrlKey: false, altKey: false, shiftKey: false, key: " ", code: "Space" };
+    const space = { metaKey: false, ctrlKey: false, altKey: false, shiftKey: false, key: " ", code: "Space" };
     const at = (id: string) => fields.querySelector(`#${id}`);
 
-    expect(shouldCycleAlertOnKey({ ...space, target: at("note") })).toBe(false);
-    expect(shouldCycleAlertOnKey({ ...space, target: at("pty") })).toBe(false);
-    expect(shouldCycleAlertOnKey({ ...space, target: at("chrome") })).toBe(true);
+    expect(keySituation(at("note")).context).toBe("field");
+    expect(keySituation(at("pick")).context).toBe("field");
+    expect(keySituation(at("pty")).context).toBe("terminal");
+    expect(keySituation(at("chrome")).context).toBe("canvas");
+    expect(resolveKey(space, keySituation(at("note")))).toBeNull();
+    expect(resolveKey(space, keySituation(at("pty")))).toBeNull();
+    expect(resolveKey(space, keySituation(at("chrome")))).toEqual({ id: "alerts.next" });
     expect(isEditableEventTarget(at("pick"))).toBe(true);
     expect(isEditableEventTarget(at("pty"))).toBe(true);
     expect(isEditableEventTarget(at("chrome"))).toBe(false);

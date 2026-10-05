@@ -1,5 +1,5 @@
 /**
- * Wire: rising-edge alert queue → SFX + Space/` cycle → focusNodeId.
+ * Wire: rising-edge alert queue → SFX + the alert cycle → focusNodeId.
  *
  * Pure model lives in alert-queue.ts. This module collects cycle targets
  * (notifications → ready/complete → working), observes the queue, sounds
@@ -31,38 +31,6 @@ import { nodeTitle } from "./presentation";
 import { playCue } from "./sound";
 import { ALERT_CUE } from "./sound/director";
 import { selectNode, state$ } from "./state";
-import { isOperatorTyping } from "./focus-ownership";
-import { isOperatorModalOpen } from "./operator-modal";
-
-/**
- * Surfaces where Space must type, not cycle alerts.
- * Includes xterm — the helper textarea is a real
- * <textarea>, but focus can also land on .xterm chrome / host wrappers.
- * Uses duck-typed `closest` so node unit tests can stub without DOM globals.
- */
-export const isTypingSurface = (target: EventTarget | null): boolean =>
-  isOperatorTyping(target);
-
-/** Pure gate for the Space/` alert cycle — exported for regression tests. */
-export const shouldCycleAlertOnKey = (
-  event: Pick<
-    KeyboardEvent,
-    "repeat" | "metaKey" | "ctrlKey" | "altKey" | "shiftKey" | "key" | "code" | "target"
-  >,
-): boolean => {
-  if (event.repeat) return false;
-  // Shift+Space is ordinary typing (Caps Lock + Shift for lowercase then space).
-  if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return false;
-  const isCycleKey =
-    event.key === " " ||
-    event.key === "Spacebar" ||
-    event.code === "Space" ||
-    event.key === "`" ||
-    event.code === "Backquote";
-  if (!isCycleKey) return false;
-  if (isTypingSurface(event.target)) return false;
-  return true;
-};
 
 /** Severity ladder for cycle kinds — higher wins when the same node appears twice. */
 const KIND_LEVEL: Readonly<Record<AlertKind, number>> = {
@@ -251,7 +219,7 @@ export const observeAlertSignals = (
   }
 };
 
-/** Space / backtick: next alert → focus + the navigate cue. */
+/** Next alert → focus + the navigate cue. False when no alert is waiting. Its keys are in the key table. */
 export const cycleAlertFocus = (): boolean => {
   const result = cycleNext(queue);
   queue = result.queue;
@@ -345,20 +313,4 @@ export function useAlertAttention(rollups: ReadonlyArray<RegionRollup>): void {
   useEffect(() => {
     observeLive(rollupsRef.current);
   }, [rollups, seatRev, lookKey, hydrated, canvasName, docNodes]);
-
-  // Hotkey: Space or backtick. Capture phase so Space isn't eaten by focused
-  // RF nodes / RTS buttons (those match [role=button] and previously no-op'd).
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent): void => {
-      // An operator modal is on top: its keys are its own, the canvas waits.
-      if (isOperatorModalOpen()) return;
-      if (!shouldCycleAlertOnKey(event)) return;
-      if (queue.items.length === 0) return;
-      event.preventDefault();
-      event.stopPropagation();
-      cycleAlertFocus();
-    };
-    window.addEventListener("keydown", onKey, true);
-    return () => window.removeEventListener("keydown", onKey, true);
-  }, []);
 }
