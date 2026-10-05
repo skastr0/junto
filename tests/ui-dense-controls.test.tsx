@@ -11,6 +11,12 @@ describe("ui IconButton sizes", () => {
     expect(out).not.toMatch(/size-6|size-7/);
   });
 
+  it("shows keyboard focus at every size with an inset ring", () => {
+    for (const size of ["xs", "sm", "md"] as const) {
+      expect(html(<IconButton size={size} aria-label="x">x</IconButton>)).toContain("focus-visible:ring-inset");
+    }
+  });
+
   it("keeps md as the default", () => {
     expect(html(<IconButton aria-label="Close">x</IconButton>)).toContain("size-7");
   });

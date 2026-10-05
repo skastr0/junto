@@ -4,6 +4,7 @@ import type { ButtonHTMLAttributes, ReactNode } from "react";
  * Square icon-only button (lucide glyph). The single affordance for
  * close/edit/delete/open glyphs on cards, toolbars, and panel headers.
  * Always pair with aria-label + title — the icon is never self-describing.
+ * Glyph size follows the button: 12px or less in xs, 15px or so in sm and md.
  */
 export function IconButton({
   tone = "default",
@@ -33,7 +34,9 @@ export function IconButton({
     <button
       type={type}
       className={[
-        "grid place-items-center rounded transition-colors select-none",
+        "grid place-items-center rounded outline-none transition-colors select-none",
+        // Inset, so it reads on a 16px control and survives a clipping parent.
+        "focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-cyan/60",
         "disabled:opacity-40 disabled:pointer-events-none",
         tones[tone],
         sizes[size],
