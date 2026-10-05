@@ -6,6 +6,8 @@
   color: var(--color-faint);
   font-family: var(--font-mono);
   font-size: var(--text-label);
+  /* Its own weight: a crumb inside a bold title is still a crumb. */
+  font-weight: 400;
   text-overflow: ellipsis;
   white-space: nowrap;
   direction: rtl;
