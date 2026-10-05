@@ -17,6 +17,7 @@ export { ToolbarPill } from "./ToolbarPill";
 export { Kbd } from "./Kbd";
 export { SidebarSection } from "./SidebarSection";
 export { Popover } from "./Popover";
+export { Dialog, ConfirmDialog } from "./Dialog";
 export { Slider } from "./Slider";
 export { Switch } from "./Switch";
 export {

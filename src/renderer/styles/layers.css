@@ -1,0 +1,33 @@
+/* =============================================================================
+   LAYERS: the one source for app-level stacking. Three systems, in order:
+
+     base      the canvas, pinned tabs, the dock, the bars
+     working   modals the operator works in, and what opens from them
+     operator  modals that must always be reachable, above everything
+
+   Every overlay belongs to exactly one system and renders through that
+   system's shell: FocusSurface (working), ui Dialog (working dialog), ui
+   Popover (popover), OperatorModalShell (operator). A shell marks its root
+   with data-layer and its dim with data-layer-backdrop.
+
+   Use these tokens for any fixed or portalled surface. Raw z-index is only
+   for order inside one component's own stacking context.
+   ========================================================================== */
+:root {
+  /* The canvas and everything pinned to it: bars, dock, minimap, HUDs. */
+  --layer-base: 0;
+  /* Working modals: terminals, the agent focus view, grids, detail readers, settings. */
+  --layer-working: 10000;
+  /* A dialog or confirm opened from the base or from a working modal: above both. */
+  --layer-working-dialog: 11000;
+  /* A popover anchored to base chrome, a working modal or a working dialog. */
+  --layer-popover: 12000;
+  /* Menus that fly out of a popover or dialog (the model picker): above it. */
+  --layer-flyout: 13000;
+  /* Operator modals: search, the needs-you feed, the agent switcher. */
+  --layer-operator: 15000;
+  /* A popover or menu opened from inside an operator modal. */
+  --layer-operator-popover: 16000;
+  /* Tooltips: above everything, never interactive. */
+  --layer-tooltip: 20000;
+}

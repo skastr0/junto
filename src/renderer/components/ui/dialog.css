@@ -1,0 +1,65 @@
+/* Working dialog: a centred card over the one backdrop recipe. Above the
+   base and above any working modal (styles/layers.css). */
+
+.junto-dialog {
+  position: fixed;
+  inset: 0;
+  z-index: var(--layer-working-dialog);
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+
+.junto-dialog__backdrop {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: var(--color-backdrop);
+  backdrop-filter: blur(2px);
+  cursor: default;
+}
+
+.junto-dialog__card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  box-sizing: border-box;
+  max-width: 100%;
+  max-height: 100%;
+  overflow-y: auto;
+  padding: 18px 20px 16px;
+  border: 1px solid var(--color-stroke);
+  border-radius: 10px;
+  background: var(--color-ground);
+  box-shadow:
+    0 24px 80px var(--color-shadow-1),
+    0 0 0 1px var(--color-overlay-1);
+  color: var(--color-ink-2);
+  outline: 0;
+}
+
+.junto-dialog__title {
+  margin: 0;
+  font-weight: 600;
+  color: var(--color-ink);
+}
+
+.junto-dialog__body {
+  display: grid;
+  gap: 8px;
+  line-height: 1.55;
+}
+
+.junto-dialog__body p {
+  margin: 0;
+}
+
+.junto-dialog__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 6px;
+}

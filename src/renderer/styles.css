@@ -1,5 +1,6 @@
 @import "tailwindcss";
 @import "./styles/theme.generated.css";
+@import "./styles/layers.css";
 
 /* ============================================================================
    JUNTO DESIGN TOKENS come from one source: src/shared/theme/ (authored in
@@ -14,10 +15,6 @@
 
 /* Ground: never pure black, monospace-leaning type. */
 :root {
-  --layer-popover: 12000;
-  /* Menus that fly out of a popover or dialog (the model picker): above it. */
-  --layer-flyout: 13000;
-  --layer-tooltip: 20000;
   color-scheme: dark;
   font-family: "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
   background: var(--color-ground);
@@ -3033,6 +3030,7 @@ ol.note-md__list > .note-md__li::before {
   color: var(--color-dim);
   font-size: 11.5px;
 }
+.junto-popover[data-layer="operator-popover"] { z-index: var(--layer-operator-popover); }
 
 /* Seat signals: rows and the answer popover. */
 .seat-signal--closed { opacity: 0.62; }
