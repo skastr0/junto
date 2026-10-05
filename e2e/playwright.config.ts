@@ -7,7 +7,12 @@ import { defineConfig } from "@playwright/test";
 export default defineConfig({
   testDir: "./scenarios",
   workers: 2,
-  reporter: [["list"]],
+  // A stray test.only would silently narrow a CI run to one test.
+  forbidOnly: Boolean(process.env.CI),
+  // No retries: a spec that passes on the second try is a flake to fix, and
+  // the startup gate must not hide a first-launch hang.
+  retries: 0,
+  reporter: process.env.CI ? [["list"], ["github"]] : [["list"]],
   timeout: 90_000,
   use: {
     trace: "retain-on-failure",
