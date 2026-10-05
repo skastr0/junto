@@ -11,7 +11,7 @@
  * The details therefore render only while the ambient canvas is the one the
  * surface was opened from (terminal$.canvasByNodeId).
  */
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Ellipsis } from "lucide-react";
 import { use$ } from "@legendapp/state/react";
 import type { CanvasNode } from "@shared/canvas";
@@ -44,6 +44,7 @@ import { terminal$ } from "../../lib/terminal-state";
 import { SIGNALS_SECTION, useSeatSignals } from "../../lib/agent-signals-view";
 import { clearSectionReveal, sidebarSections$ } from "../../lib/sidebar-sections";
 import { getJuntoApi } from "../../lib/junto-api";
+import { claimFocus } from "../../lib/focus-ownership";
 import { modKeyGlyph } from "../../lib/platform";
 import { Button, Chip, IconButton, Popover, type ChipTone } from "../ui";
 import { DetailsGroup } from "./DetailsGroup";
@@ -649,6 +650,15 @@ function SeatDetails({ node }: { readonly node: CanvasNode }) {
 export function SeatDetailsButton({ node }: { readonly node: CanvasNode }) {
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
   const [host, setHost] = useState<HTMLSpanElement | null>(null);
+  // Where the keyboard was when the press began (the terminal, usually): a
+  // press moves focus to the button, and closing gives it back.
+  const cameFrom = useRef<HTMLElement | null>(null);
+  const close = (): void => {
+    setAnchor(null);
+    const back = cameFrom.current;
+    cameFrom.current = null;
+    if (back?.isConnected) claimFocus(back, "open");
+  };
   const reveal = use$(sidebarSections$.reveal);
   useEffect(() => {
     if (!host || reveal?.nodeId !== node.id || reveal.section !== SIGNALS_SECTION) return;
@@ -664,14 +674,18 @@ export function SeatDetailsButton({ node }: { readonly node: CanvasNode }) {
         aria-haspopup="dialog"
         aria-expanded={anchor !== null}
         data-testid="seat-details-button"
-        onClick={(event) => setAnchor(anchor ? null : event.currentTarget)}
+        onPointerDown={() => {
+          const active = document.activeElement;
+          if (!anchor) cameFrom.current = active instanceof HTMLElement && active !== document.body ? active : null;
+        }}
+        onClick={(event) => (anchor ? close() : setAnchor(event.currentTarget))}
       >
         <Ellipsis size={15} strokeWidth={1.75} />
       </IconButton>
       {anchor ? (
         <Popover
           anchor={anchor}
-          onClose={() => setAnchor(null)}
+          onClose={close}
           label="Seat details"
           sides={DETAILS_SIDES}
           width={340}

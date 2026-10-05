@@ -195,6 +195,9 @@ test("seat details open from the header and hold what left the rail", async () =
     // Nothing but agents in the rail.
     await expect(rail(page).getByTestId("actor-ledger-mail")).toHaveCount(0);
 
+    // Opened from a focused terminal, it gives the keyboard back when it closes.
+    await front(page).locator(".xterm").first().click();
+    await expect.poll(() => typingInTerminal(page)).toBe(true);
     await front(page).locator("header").getByTestId("seat-details-button").click();
     const details = page.locator('[data-layer="popover"][data-testid="seat-details-popover"]');
     await expect(details).toBeVisible();
@@ -202,8 +205,9 @@ test("seat details open from the header and hold what left the rail", async () =
     await expect(details.getByText(/delivered|prompt|notice/i)).toHaveCount(0);
     await page.keyboard.press("Escape");
     await expect(details).toHaveCount(0);
-    // Escape closed the popover only.
+    // Escape closed the popover only, and typing goes to the terminal again.
     await expect(front(page)).toBeVisible();
+    await expect.poll(() => typingInTerminal(page)).toBe(true);
   } finally {
     await junto.close();
   }
