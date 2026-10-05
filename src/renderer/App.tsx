@@ -16,9 +16,7 @@ import {
   loadDoc,
   prepareCanvasRemoval,
   replaceActiveActorRefs,
-  redo,
   retrySave,
-  undo,
 } from "./lib/mutations";
 import {
   flushCanvasEdits,
@@ -480,10 +478,10 @@ export function App() {
   useEffect(() => {
     /**
      * The front focus surface owns the keyboard before the canvas does. A
-     * browser page frontmost means Escape dismisses the surface (warm-detach)
-     * and Cmd+Z never edits the doc behind the modal; a PTY keeps Escape
-     * page-owned (xterm consumes it, so this handler rarely fires) and the
-     * canvas keys stay gated by Canvas's focus-surface delete-key rules.
+     * browser page frontmost means Escape dismisses the surface (warm-detach);
+     * a PTY keeps Escape page-owned (xterm consumes it, so this handler
+     * rarely fires) and the canvas keys stay gated by Canvas's focus-surface
+     * delete-key rules. Undo and redo are in the key table.
      */
     const frontBrowserSurface = (): { readonly id: string } | undefined => {
       const registry = dock$.registry.peek();
@@ -492,29 +490,19 @@ export function App() {
       return front?.kind === "browser" && front.zone === "focus" ? { id: front.id } : undefined;
     };
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        if (isOperatorTyping(event.target)) return;
-        const front = frontBrowserSurface();
-        if (front) {
-          // Dismiss the page surface, keep the canvas selection intact — the
-          // operator was leaving the page, not deselecting their node.
-          event.preventDefault();
-          closeFocusModalSurface(front.id);
-          return;
-        }
-        if (state$.selectedNodeId.peek() || state$.selectedEdgeId.peek() || state$.selectedNodeIds.peek().length > 0) {
-          event.preventDefault();
-          clearSelection();
-          return;
-        }
+      if (event.key !== "Escape" || isOperatorTyping(event.target)) return;
+      const front = frontBrowserSurface();
+      if (front) {
+        // Dismiss the page surface, keep the canvas selection intact — the
+        // operator was leaving the page, not deselecting their node.
+        event.preventDefault();
+        closeFocusModalSurface(front.id);
         return;
       }
-      if (!(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== "z") return;
-      if (isOperatorTyping(event.target)) return;
-      if (frontBrowserSurface()) return;
-      event.preventDefault();
-      if (event.shiftKey) redo();
-      else undo();
+      if (state$.selectedNodeId.peek() || state$.selectedEdgeId.peek() || state$.selectedNodeIds.peek().length > 0) {
+        event.preventDefault();
+        clearSelection();
+      }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
