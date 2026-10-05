@@ -194,7 +194,6 @@ const localAgentInput = (
     nodeId: spec.nodeId,
     label: spec.label,
     title: spec.title,
-    firstTypedMessage: finalized.plan?.firstTypedMessage,
   };
 };
 

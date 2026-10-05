@@ -18,11 +18,6 @@ import {
 import { configureBoardDelivery } from "./junto/work/board-delivery";
 import { setManagedPulseDeliver } from "./junto/term/managed-pulse-bridge";
 import { injectionSupervisor } from "./junto/term/injection-supervisor";
-import {
-  clearDeliveredForBinding,
-  peekFirstTypedEntry,
-  takeFirstTypedEntryIfCurrent,
-} from "./junto/term/first-typed";
 import { composeFactoryDelivery } from "./junto/term/factory-delivery-composition";
 import { isManagedTerminalReady } from "./junto/term/drive/readiness";
 import { evaluateSchemaCompatibility } from "./junto/state/schema-version-probe";
@@ -427,7 +422,7 @@ const runProductBoot = async (): Promise<void> => {
     });
   };
   // Factory delivery composition: kernel pulses, the injection supervisor,
-  // board wakes, and first-typed doctrine reach Remote seats through this
+  // and board wakes reach Remote seats through this
   // installation's destination drive — the same shared recipe as Command
   // Center, no raw PTY bypass. Mailbox mail is Command Center-only: actor
   // mailboxes are CC-homed and a Remote never materializes message.append.
@@ -444,17 +439,10 @@ const runProductBoot = async (): Promise<void> => {
     composerVerdict: (bindingId) => seatStateRuntime.composerVerdict(bindingId),
     pulse: { setDeliver: setManagedPulseDeliver },
     board: { configure: configureBoardDelivery },
-    firstTyped: {
-      peekEntry: peekFirstTypedEntry,
-      takeEntryIfCurrent: takeFirstTypedEntryIfCurrent,
-      clearDeliveredForBinding,
-    },
   });
   handles.delivery = { dispose: () => remoteDelivery.dispose() };
-  // Same lifecycle ownership as Command Center (ACK/drain/generation),
-  // plus the doctrine kick before the drive's own idle drain.
+  // Same lifecycle ownership as Command Center (ACK/drain/generation).
   const disposeDriveRuntime = attachManagedTerminalDriveRuntime(remoteDrive, {
-    beforeSeatIdle: remoteDelivery.kickFirstTyped,
     subscribeHostEvents: (listener, options) =>
       termPlane.host.subscribeEvents((payload) => {
         if (payload.type === "output") {

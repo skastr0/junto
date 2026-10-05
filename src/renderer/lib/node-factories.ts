@@ -153,7 +153,6 @@ export const buildManagedAgentSeat = (
         : {}),
       ...(extraArgs.length > 0 ? { extraArgs } : {}),
       ...(options.cwd ? { cwd: options.cwd } : {}),
-      injection: { seatBound: false, connected: false },
     },
     {},
   );
@@ -199,7 +198,6 @@ export const buildManagedAgentSeat = (
             ...(extraArgs.length > 0 ? { extraArgs } : {}),
             ...(options.cwd ? { cwd: options.cwd } : {}),
             sessionId: pinSession,
-            injection: { seatBound: false, connected: false },
           },
           {},
         );

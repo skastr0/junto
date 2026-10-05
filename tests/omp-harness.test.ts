@@ -149,14 +149,13 @@ describe("omp session discovery", () => {
 });
 
 describe("omp launch shape", () => {
-  it("carries doctrine on argv — Tier A, not a typed message", () => {
+  it("carries the dials and the operator's prompt, and no instructions flag", () => {
     const launch = resolveManagedLaunch(
       "omp",
       {
         model: "opus",
         effort: "high",
         permissionMode: "write",
-        systemPrompt: "seat doctrine",
         prompt: "get to work",
       },
       {},
@@ -169,15 +168,9 @@ describe("omp launch shape", () => {
       "high",
       "--approval-mode",
       "write",
-      "--append-system-prompt",
-      "seat doctrine",
       "get to work",
     ]);
-    // Last-write-wins on 18.1.16: one flag, never two fragments.
-    expect(
-      launch.argv?.filter((token) => token === "--append-system-prompt"),
-    ).toHaveLength(1);
-    expect(OMP_TEMPLATE.injectionSpec.description).not.toMatch(/repeatable/i);
+    expect(launch.argv).not.toContain("--append-system-prompt");
   });
 
   it("re-passes every dial on resume, by exact id", () => {
@@ -196,14 +189,10 @@ describe("omp launch shape", () => {
       "max",
       "carry on",
     ]);
-    expect(OMP_TEMPLATE.argvSpec.resumeReinjection).toBe("re-pass");
   });
 
-  it("claims Tier A and capture, and offers omp's own thinking levels", () => {
+  it("claims capture, and offers omp's own thinking levels", () => {
     expect(OMP_TEMPLATE.probedVersion).toBe("18.1.16");
-    expect(OMP_TEMPLATE.injectionSpec.tier).toBe("A");
-    expect(OMP_TEMPLATE.injectionSpec.flags).toEqual(["--append-system-prompt"]);
-    expect(OMP_TEMPLATE.capabilityBadges.instructionInjection).toBe("A");
     expect(OMP_TEMPLATE.capabilityBadges.sessionId).toBe("capture");
     expect(OMP_TEMPLATE.displayName).toBe("Oh My Pi");
     expect(OMP_TEMPLATE.efforts).toEqual([

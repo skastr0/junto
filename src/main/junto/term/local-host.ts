@@ -69,10 +69,6 @@ import {
 } from "./observer";
 import { seatStateRuntime } from "./agent-state";
 import {
-  armFirstTypedMessage,
-  clearFirstTypedMessage,
-} from "./first-typed";
-import {
   extractSessionIdFromText,
   recordCapturedSessionId,
   clearCapturedSessionId,
@@ -148,11 +144,6 @@ export type TerminalOpenInput = {
   readonly nodeId?: string;
   readonly label?: string;
   readonly title?: string;
-  /**
-   * Tier B doctrine body — armed for first idle delivery via ManagedTerminalDrive.
-   * Never written into harness configs; typed only.
-   */
-  readonly firstTypedMessage?: string;
 };
 
 /** Geography terminal (`geography/"terminal"`) — a shell. Holds no harness. */
@@ -1087,9 +1078,8 @@ export class LocalSessionHost extends EventEmitter {
     };
     this.sessions.set(bindingId, rec);
     this.liveRecords.add(rec);
-    // Binding-scoped stores are not epoch-keyed. Clear them at the authority
+    // The captured-session store is binding-keyed, not epoch-keyed. Clear it at the authority
     // handoff so an old generation's late callbacks cannot leak into the new.
-    clearFirstTypedMessage(bindingId);
     clearCapturedSessionId(bindingId);
 
     if (Result.isFailure(resolved)) {
@@ -1215,10 +1205,6 @@ export class LocalSessionHost extends EventEmitter {
       if (seat.kind === "agent") {
         seatStateRuntime.bindHarness(bindingId, seat.harness, epoch);
       }
-      const firstTyped = input.firstTypedMessage?.trim();
-      if (firstTyped) {
-        armFirstTypedMessage(bindingId, firstTyped);
-      }
       // Devin announces its session id nowhere on the PTY — the id lives in a
       // lockfile written by a descendant of the process we just spawned.
       this.scheduleDevinSessionDiscovery(rec);
@@ -1226,9 +1212,6 @@ export class LocalSessionHost extends EventEmitter {
         this.observerPlane.detach(bindingId, epoch);
         if (seat.kind === "agent") {
           seatStateRuntime.unbind(bindingId, epoch, "generation_aborted");
-        }
-        if (this.sessions.get(bindingId) === rec) {
-          clearFirstTypedMessage(bindingId);
         }
         // Resume fail-open may already own this binding with a live generation.
         const replacement = this.sessions.get(bindingId);
@@ -2253,7 +2236,6 @@ export class LocalSessionHost extends EventEmitter {
     rec.failOpenUsed = true;
     const freshId = randomUUID();
     let freshLaunch = seed.launch;
-    let freshFirstTypedMessage = seed.firstTypedMessage;
     try {
       if (seed.resumeFallbackIntent) {
         const plan = planFreshManagedSpawnIntent(
@@ -2265,7 +2247,6 @@ export class LocalSessionHost extends EventEmitter {
           throw new Error(`could not resolve fresh ${rec.harness} launch`);
         }
         freshLaunch = plan.launch;
-        freshFirstTypedMessage = plan.firstTypedMessage;
       } else {
         const plan = planFreshPinSession({
           harness: rec.harness,
@@ -2318,18 +2299,12 @@ export class LocalSessionHost extends EventEmitter {
           ...(seed.nodeId ? { nodeId: seed.nodeId } : {}),
           ...(seed.label ? { label: seed.label } : {}),
           ...(seed.title ? { title: seed.title } : {}),
-          ...(freshFirstTypedMessage
-            ? { firstTypedMessage: freshFirstTypedMessage }
-            : {}),
         },
         {
           resumeAttempt: false,
           failOpenSeed: {
             ...seed,
             ...(freshLaunch ? { launch: freshLaunch } : {}),
-            ...(freshFirstTypedMessage
-              ? { firstTypedMessage: freshFirstTypedMessage }
-              : {}),
           },
           failOpenUsed: true,
         },
@@ -2409,10 +2384,9 @@ export class LocalSessionHost extends EventEmitter {
       rec.epoch,
       "generation_exited",
     );
-    // These two stores are binding-keyed rather than epoch-keyed. An old exact
-    // exit must never clear a replacement generation's prompt/session.
+    // The captured-session store is binding-keyed rather than epoch-keyed. An
+    // old exact exit must never clear a replacement generation's session.
     if (this.sessions.get(rec.bindingId) === rec) {
-      clearFirstTypedMessage(rec.bindingId);
       clearCapturedSessionId(rec.bindingId);
     }
     if (!this.liveRecords.delete(rec)) return;

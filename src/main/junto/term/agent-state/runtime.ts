@@ -11,7 +11,6 @@ import type {
 } from "../../../../shared/agent-seat-state";
 import { terminalObserverPlane } from "../observer";
 import type { ObserverGridSnapshot } from "../observer/types";
-import { peekFirstTypedMessage } from "../first-typed";
 import { composerVerdictForHarness } from "./composer";
 import type { ComposerVerdict } from "./types";
 import { FALLBACK_IDLE } from "./engine";
@@ -278,35 +277,13 @@ export class SeatStateRuntime {
    * Fail closed: unknown/unbound/attention/working refuse.
    * Low-confidence bare `default_known_agent_idle_fallback` is **not** typeable —
    * only high-confidence idle or visible idle chrome authorizes paste.
-   *
-   * Muse exception: Tier B doctrine is firstTyped only (no `--agents` decoder on
-   * 0.1.0-R708.1). museRules has no screen idle chrome, so the seat sits on
-   * fallback idle forever. Open the paste gate **only while** a firstTyped body
-   * is armed and the TUI handshake shows bracketed paste — one-shot doctrine
-   * delivery, not permanent mid-turn injectability.
    */
   isSeatIdle(bindingId: string): boolean {
     const slot = this.machine.getSlot(bindingId);
     if (!slot || slot.state !== "idle") return false;
     if (slot.visibleIdle) return true;
     if (slot.confidence === "high") return true;
-    // Low-confidence fallback idle: refuse paste (dialog / unmatched chrome),
-    // except Muse firstTyped doctrine (handshake-gated, one-shot).
-    if (
-      slot.reason === FALLBACK_IDLE ||
-      slot.reason.startsWith(`${FALLBACK_IDLE}+`)
-    ) {
-      const harness =
-        this.harnessByBinding.get(bindingId) ?? slot.harness;
-      if (
-        harness === "muse" &&
-        peekFirstTypedMessage(bindingId) !== undefined
-      ) {
-        const snap = this.evidenceSnapshot(bindingId);
-        if (snap?.signals.modes.bracketedPaste) return true;
-      }
-      return false;
-    }
+    // Low-confidence fallback idle: refuse paste (dialog / unmatched chrome).
     return false;
   }
 

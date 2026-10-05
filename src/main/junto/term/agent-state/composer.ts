@@ -50,20 +50,3 @@ export const composerVerdictForHarness = (
   if (!isHarnessId(harness)) return null;
   return composerVerdictFor(snapshot, rulePackFor(harness));
 };
-
-/**
- * Packs with no composer probes still refuse (`composer-unreadable`).
- * Tier B firstTyped admits a one-shot empty only while that arm is live
- * and the pack has zero probes. Packs that already declare probes stay
- * fail-closed: null still means unreadable.
- */
-export const admitUngroundedFirstTypedComposer = (
-  verdict: ComposerVerdict,
-  pack: SeatRulePack | undefined,
-  firstTypedArmed: boolean,
-): ComposerVerdict => {
-  if (verdict !== null) return verdict;
-  if (!firstTypedArmed || pack === undefined) return null;
-  if ((pack.composer?.length ?? 0) > 0) return null;
-  return "empty";
-};

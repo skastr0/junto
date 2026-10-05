@@ -33,9 +33,8 @@ export type SeatThreadResult =
       readonly ok: true;
       readonly sessionId: string;
       /**
-       * True when this call created the thread. A minted thread is EMPTY, so
-       * the seat still needs its Tier-B doctrine; a thread that was already on
-       * the node carries its own history and must not be re-bootstrapped.
+       * True when this call created the thread. A minted thread is EMPTY; a
+       * thread that was already on the node carries its own history.
        */
       readonly minted: boolean;
     }

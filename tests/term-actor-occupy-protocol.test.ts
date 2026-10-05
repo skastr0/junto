@@ -14,10 +14,6 @@ import { seatStateRuntime } from "../src/main/junto/term/agent-state";
 import { TermControlClient } from "../src/main/junto/term/control-client";
 import { startTermControlServer } from "../src/main/junto/term/control-server";
 import { LocalSessionHost } from "../src/main/junto/term/local-host";
-import {
-  peekFirstTypedMessage,
-  resetFirstTypedForTest,
-} from "../src/main/junto/term/first-typed";
 import { makeManagedSpawnIntent } from "../src/main/junto/term/managed-spawn-plan";
 import { setProcessEpochReaderForTests } from "../src/main/junto/process-epoch";
 import { __setSessionExistenceHomeForTest } from "../src/main/junto/term/session-existence";
@@ -39,7 +35,6 @@ const passThroughAdmission = () => Effect.void;
 const actorSpawnIntent = () => ({
   documentLaunch: { kind: "harness", argv: ["grok"], cwd: "/tmp" },
   resumeRequested: false,
-  injection: { seatBound: true, connected: false },
 } as const);
 
 beforeEach(() => {
@@ -64,7 +59,6 @@ afterEach(async () => {
   }
   restoreHarnessBins();
   __setSessionExistenceHomeForTest(undefined);
-  resetFirstTypedForTest();
   setProcessEpochReaderForTests(undefined);
   setProcessIdentityMapForTests(undefined);
 });
@@ -151,7 +145,7 @@ describe("actor occupy protocol (in-process both ends)", () => {
     expect(createAgentSeat).toHaveBeenCalledTimes(1);
   });
 
-  it("derives Tier B first-typed doctrine only on the Remote spawn host", async () => {
+  it("sends the Remote spawn host an intent and no launch or typed message", async () => {
     const { host, client } = await startPair();
     const createAgentSeat = vi.spyOn(client, "createAgentSeat");
     const when = makeActorSeatOccupy({
@@ -164,12 +158,6 @@ describe("actor occupy protocol (in-process both ends)", () => {
       harness: "muse",
       agentKey: "station:muse",
       documentLaunch: { kind: "harness", argv: ["muse"], cwd: "/tmp" },
-      injection: {
-        seatBound: true,
-        connected: true,
-        seatRef: "actor-kimi",
-        connectedTargets: [{ id: "peer", kind: "agent" }],
-      },
     });
 
     await Effect.runPromise(
@@ -184,7 +172,6 @@ describe("actor occupy protocol (in-process both ends)", () => {
       }),
     );
 
-    expect(peekFirstTypedMessage("proto_remote_tier_b")).toBeUndefined();
     const wire = createAgentSeat.mock.calls[0]?.[0];
     expect(wire).toMatchObject({ spawnIntent });
     expect(wire).not.toHaveProperty("launch");

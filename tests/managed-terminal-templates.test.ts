@@ -110,12 +110,7 @@ describe("managed-terminal templates (data)", () => {
     }
   });
 
-  it("marks injection tiers and release capability badges honestly", () => {
-    expect(CLAUDE_TEMPLATE.injectionSpec.tier).toBe("A");
-    expect(GROK_TEMPLATE.injectionSpec.tier).toBe("A");
-    expect(CODEX_TEMPLATE.injectionSpec.tier).toBe("B");
-    expect(HERMES_TEMPLATE.injectionSpec.tier).toBe("B");
-    expect(CLAUDE_TEMPLATE.capabilityBadges.instructionInjection).toBe("A");
+  it("marks release capability badges honestly", () => {
     expect(CLAUDE_TEMPLATE.capabilityBadges.sessionId).toBe("pin");
     expect(CLAUDE_TEMPLATE.capabilityBadges.hooks).toBe(false);
     expect(GROK_TEMPLATE.capabilityBadges.hooks).toBe(false);
@@ -146,7 +141,7 @@ describe("managed-terminal templates (data)", () => {
     expect(CLAUDE_TEMPLATE.capabilityBadges.labels.join(" ")).not.toContain("cold resume");
     expect(GROK_TEMPLATE.capabilityBadges.labels.join(" ")).not.toContain("cold resume");
     expect(CODEX_TEMPLATE.capabilityBadges.labels).toEqual(
-      expect.arrayContaining(["capture session", "doctrine at creation"]),
+      expect.arrayContaining(["capture session"]),
     );
     expect(CLAUDE_TEMPLATE.mailTransport.pullOnly).toBe(true);
     expect(CLAUDE_TEMPLATE.mailTransport.nativeChannel).toBe(false);
@@ -183,7 +178,6 @@ describe("managed-terminal templates (data)", () => {
   it("describes shipped Prime Agent 0.9.4 capabilities honestly", () => {
     expect(PRIME_AGENT_TEMPLATE.probedVersion).toBe("0.9.4");
     expect(PRIME_AGENT_TEMPLATE.displayName).toBe("Prime Agent");
-    expect(PRIME_AGENT_TEMPLATE.injectionSpec.tier).toBe("A");
     expect(PRIME_AGENT_TEMPLATE.argvSpec).toMatchObject({
       binary: "prime-agent",
       prefix: [],
@@ -192,8 +186,6 @@ describe("managed-terminal templates (data)", () => {
       effortFlag: "--thinking",
       resumeMode: "flag",
       resumeFlag: "-r",
-      systemPromptFlag: "--append-system-prompt",
-      resumeReinjection: "unprobed",
     });
     expect(PRIME_AGENT_TEMPLATE.efforts).toEqual([
       "off",
@@ -261,14 +253,6 @@ describe("managed-terminal templates (data)", () => {
   it("describes shipped Devin 3000.10.21 capabilities honestly", () => {
     expect(DEVIN_TEMPLATE.probedVersion).toBe("3000.10.21");
     expect(DEVIN_TEMPLATE.displayName).toBe("Devin");
-    expect(DEVIN_TEMPLATE.injectionSpec.tier).toBe("B");
-    expect(DEVIN_TEMPLATE.injectionSpec.flags).toEqual([]);
-    expect(DEVIN_TEMPLATE.injectionSpec.description).toBe(
-      "No system-prompt flag — doctrine delivered as the first typed message",
-    );
-    expect(DEVIN_TEMPLATE.injectionSpec.description).not.toContain(
-      "--agent-config",
-    );
     expect(DEVIN_TEMPLATE.argvSpec).toMatchObject({
       binary: "devin",
       promptMode: "positional",
@@ -277,7 +261,6 @@ describe("managed-terminal templates (data)", () => {
       permissionModeFlag: "--permission-mode",
       resumeMode: "flag",
       resumeFlag: "-r",
-      resumeReinjection: "unprobed",
     });
     expect(DEVIN_TEMPLATE.defaultPermissionMode).toBe("normal");
     expect(DEVIN_TEMPLATE.efforts).toEqual([]);
@@ -289,7 +272,6 @@ describe("managed-terminal templates (data)", () => {
   it("describes shipped Cursor Agent 2026.09.10-fd3934a capabilities honestly", () => {
     expect(CURSOR_TEMPLATE.probedVersion).toBe("2026.09.10-fd3934a");
     expect(CURSOR_TEMPLATE.displayName).toBe("Cursor Agent");
-    expect(CURSOR_TEMPLATE.injectionSpec.tier).toBe("B");
     expect(CURSOR_TEMPLATE.argvSpec).toMatchObject({
       binary: "cursor-agent",
       prefix: ["--trust"],
@@ -300,7 +282,6 @@ describe("managed-terminal templates (data)", () => {
       sessionIdFlag: "--new-session-id",
       resumeMode: "flag",
       resumeFlag: "--resume",
-      resumeReinjection: "re-pass",
     });
     expect(CURSOR_TEMPLATE.argvSpec.effortFlag).toBeUndefined();
     expect(CURSOR_TEMPLATE.efforts).toEqual([
@@ -421,7 +402,7 @@ describe("scrubSpawnEnv + buildSpawnEnv", () => {
 describe("resolveManagedLaunch argv", () => {
   const bareAmbient = { PATH: "/usr/bin", HOME: "/home/op" };
 
-  it("claude: model, effort, permission, session pin, append-system-prompt, prompt", () => {
+  it("claude: model, effort, permission, session pin, prompt", () => {
     const launch = resolveManagedLaunch(
       "claude",
       {
@@ -429,7 +410,6 @@ describe("resolveManagedLaunch argv", () => {
         effort: "high",
         permissionMode: "acceptEdits",
         sessionId: "11111111-1111-1111-1111-111111111111",
-        systemPrompt: "call junto onboard",
         prompt: "start the task",
         cwd: "/repo",
         env: { JUNTO_TOKEN: "t" },
@@ -448,8 +428,6 @@ describe("resolveManagedLaunch argv", () => {
       "acceptEdits",
       "--session-id",
       "11111111-1111-1111-1111-111111111111",
-      "--append-system-prompt",
-      "call junto onboard",
       "start the task",
     ]);
     expect(launch.env?.JUNTO_TOKEN).toBe("t");
@@ -477,17 +455,8 @@ describe("resolveManagedLaunch argv", () => {
     expect(launch.argv).not.toContain("--system-prompt-snapshot");
   });
 
-  it("claude resume re-passing doctrine turns system-prompt-snapshot off", () => {
-    // 2.1.267+ records --append-system-prompt on the first request (default
-    // snapshot on). A later different append is ignored unless snapshot is
-    // off. Live 2.1.268 print-mode canary: ALPHA create → BETA resume (no
-    // off) stayed ALPHA; GAMMA resume with off returned GAMMA.
+  it("claude resume names the session and carries no instructions flag", () => {
     expect(CLAUDE_TEMPLATE.probedVersion).toBe("2.1.268");
-    expect(CLAUDE_TEMPLATE.argvSpec.resumeReinjection).toBe("re-pass");
-    expect(CLAUDE_TEMPLATE.argvSpec.resumeReinjectionArgv).toEqual([
-      "--system-prompt-snapshot",
-      "off",
-    ]);
     expect(CLAUDE_TEMPLATE.efforts).toEqual([
       "low",
       "medium",
@@ -501,7 +470,6 @@ describe("resolveManagedLaunch argv", () => {
       "claude",
       {
         resumeId: "abc",
-        systemPrompt: "new doctrine",
       },
       bareAmbient,
     );
@@ -511,10 +479,6 @@ describe("resolveManagedLaunch argv", () => {
       "abc",
       "--permission-mode",
       "default",
-      "--append-system-prompt",
-      "new doctrine",
-      "--system-prompt-snapshot",
-      "off",
     ]);
   });
 
@@ -578,14 +542,13 @@ describe("resolveManagedLaunch argv", () => {
     ]);
   });
 
-  it("grok: session pin, reasoning effort, agent file, git cwd", () => {
+  it("grok: session pin, reasoning effort, git cwd", () => {
     const launch = resolveManagedLaunch(
       "grok",
       {
         model: "grok-4.5",
         effort: "low",
         sessionId: "eacbbdbf-e813-5648-927c-a357e5eddaad",
-        agentFile: "/tmp/junto-agent.md",
         prompt: "Reply with OK",
         cwd: "/repo/git-project",
       },
@@ -601,8 +564,6 @@ describe("resolveManagedLaunch argv", () => {
       "default",
       "--session-id",
       "eacbbdbf-e813-5648-927c-a357e5eddaad",
-      "--agent",
-      "/tmp/junto-agent.md",
       "Reply with OK",
     ]);
     expect(launch.cwd).toBe("/repo/git-project");
@@ -610,47 +571,7 @@ describe("resolveManagedLaunch argv", () => {
     // Appearance is the operator's harness config, never a spawn flag.
     expect(GROK_TEMPLATE.argvSpec.prefix).toEqual([]);
     expect(GROK_TEMPLATE.probedVersion).toBe("1.0.25");
-    expect(GROK_TEMPLATE.argvSpec.resumeReinjection).toBe("frozen");
     expect(GROK_TEMPLATE.efforts).toEqual(["xhigh", "high", "medium", "low"]);
-  });
-
-  it("grok resume drops --rules because 1.0.25 freezes doctrine at create", () => {
-    // Live canary: pin --rules ALPHA, then -r --rules BETA answered ALPHA.
-    const resume = resolveManagedLaunch(
-      "grok",
-      {
-        resumeId: "00000000-0000-4000-8000-00000000a33d",
-        systemPrompt: "BETA_RULES_ONLY",
-        effort: "xhigh",
-      },
-      bareAmbient,
-    );
-    expect(resume.argv).toEqual([
-      "grok",
-      "-r",
-      "00000000-0000-4000-8000-00000000a33d",
-      "--reasoning-effort",
-      "xhigh",
-      "--permission-mode",
-      "default",
-    ]);
-    expect(resume.argv).not.toContain("--rules");
-    expect(resume.argv).not.toContain("BETA_RULES_ONLY");
-  });
-
-  it("grok prefers --rules when systemPrompt is set without agentFile", () => {
-    const launch = resolveManagedLaunch(
-      "grok",
-      { systemPrompt: "doctrine text", permissionMode: "default" },
-      bareAmbient,
-    );
-    const argv = launch.argv ?? [];
-    expect(argv[0]).toBe("grok");
-    expect(argv).not.toContain("--minimal");
-    expect(argv).not.toContain("--no-alt-screen");
-    expect(argv).toContain("--rules");
-    expect(argv).toContain("doctrine text");
-    expect(argv).not.toContain("--agent");
   });
 
   it("amp: launches --no-ide and resumes the exact thread by id", () => {
@@ -677,8 +598,6 @@ describe("resolveManagedLaunch argv", () => {
     expect(AMP_TEMPLATE.efforts).toEqual([]);
     expect(AMP_TEMPLATE.modes).toEqual(["low", "medium", "high", "ultra"]);
     expect(AMP_TEMPLATE.capabilityBadges.sessionId).toBe("provision");
-    expect(AMP_TEMPLATE.injectionSpec.tier).toBe("B");
-    expect(AMP_TEMPLATE.injectionSpec.flags).toEqual([]);
     expect(AMP_TEMPLATE.probedVersion).toBe("0.0.1789113641");
   });
 
@@ -696,7 +615,6 @@ describe("resolveManagedLaunch argv", () => {
 
   it("fx: env dials, named --resume, no argv permission flags", () => {
     expect(FX_TEMPLATE.probedVersion).toBe("0.0.7");
-    expect(FX_TEMPLATE.argvSpec.resumeReinjection).toBe("unprobed");
     expect(FX_TEMPLATE.argvSpec.modelFlag).toBeUndefined();
     expect(FX_TEMPLATE.argvSpec.permissionModeFlag).toBeUndefined();
     expect(FX_TEMPLATE.defaultPermissionMode).toBeUndefined();
@@ -716,10 +634,8 @@ describe("resolveManagedLaunch argv", () => {
     expect(launch.env?.FX_PERMISSION_MODE).toBe("ask");
   });
 
-  it("omp: last-write-wins append, thinking, named --resume", () => {
+  it("omp: thinking, named --resume", () => {
     expect(OMP_TEMPLATE.probedVersion).toBe("18.1.16");
-    expect(OMP_TEMPLATE.argvSpec.resumeReinjection).toBe("re-pass");
-    expect(OMP_TEMPLATE.injectionSpec.description).not.toMatch(/repeatable/i);
     expect(OMP_TEMPLATE.efforts).toEqual([
       "off",
       "minimal",
@@ -736,7 +652,6 @@ describe("resolveManagedLaunch argv", () => {
         model: "opus",
         effort: "high",
         permissionMode: "write",
-        systemPrompt: "seat doctrine",
         prompt: "get to work",
       },
       bareAmbient,
@@ -749,13 +664,8 @@ describe("resolveManagedLaunch argv", () => {
       "high",
       "--approval-mode",
       "write",
-      "--append-system-prompt",
-      "seat doctrine",
       "get to work",
     ]);
-    expect(
-      launch.argv?.filter((token) => token === "--append-system-prompt"),
-    ).toHaveLength(1);
   });
 
   it("hermes: chat --tui -q with profile and model", () => {
@@ -857,9 +767,8 @@ describe("resolveManagedLaunch argv", () => {
     );
     expect(off.argv).not.toContain("--yolo");
   });
-  it("pi: model, thinking effort, session pin, append-system-prompt, positional prompt", () => {
+  it("pi: model, thinking effort, session pin, positional prompt", () => {
     expect(PI_TEMPLATE.probedVersion).toBe("0.85.1");
-    expect(PI_TEMPLATE.argvSpec.resumeReinjection).toBe("re-pass");
     expect(PI_TEMPLATE.efforts).toEqual([
       "off",
       "minimal",
@@ -875,7 +784,6 @@ describe("resolveManagedLaunch argv", () => {
         model: "sonnet",
         effort: "high",
         sessionId: "019fd402-9e75-75e2-bca4-18bff1f2d5cc",
-        systemPrompt: "call junto onboard",
         prompt: "start the task",
       },
       bareAmbient,
@@ -888,8 +796,6 @@ describe("resolveManagedLaunch argv", () => {
       "high",
       "--session-id",
       "019fd402-9e75-75e2-bca4-18bff1f2d5cc",
-      "--append-system-prompt",
-      "call junto onboard",
       "start the task",
     ]);
   });
@@ -914,13 +820,12 @@ describe("resolveManagedLaunch argv", () => {
     expect(launch.argv).toEqual(["pi"]);
   });
 
-  it("prime-agent: model, thinking effort, append-system-prompt, positional prompt", () => {
+  it("prime-agent: model, thinking effort, positional prompt", () => {
     const launch = resolveManagedLaunch(
       "prime-agent",
       {
         model: "gpt-5.5",
         effort: "medium",
-        systemPrompt: "doctrine text",
         prompt: "proceed",
       },
       bareAmbient,
@@ -931,8 +836,6 @@ describe("resolveManagedLaunch argv", () => {
       "gpt-5.5",
       "--thinking",
       "medium",
-      "--append-system-prompt",
-      "doctrine text",
       "proceed",
     ]);
     // The per-binding daemon socket is runtime state, never authorial argv.
@@ -1000,19 +903,13 @@ describe("resolveManagedLaunch argv", () => {
     ]);
   });
 
-  it("kimi 0.34.0: resumeReinjection frozen never builds --agent-file beside -S", () => {
-    // Live 0.34.0 exits 1: Cannot combine --agent/--agent-file with
-    // --session/--continue. The pair must never be on argv.
+  it("kimi 0.34.0: a resume is -S and the id, nothing else", () => {
     expect(KIMI_TEMPLATE.probedVersion).toBe("0.34.0");
-    expect(KIMI_TEMPLATE.argvSpec.resumeReinjection).toBe("frozen");
-    expect(KIMI_TEMPLATE.argvSpec.agentFlag).toBe("--agent-file");
     expect(KIMI_TEMPLATE.argvSpec.resumeFlag).toBe("-S");
     const resume = resolveManagedLaunch(
       "kimi",
       {
         resumeId: "session_c2da0425-9e75-75e2-bca4-18bff1f2d5cc",
-        agentFile: "/tmp/agent.md",
-        systemPrompt: "DOCTRINE",
       },
       bareAmbient,
     );
@@ -1028,7 +925,6 @@ describe("resolveManagedLaunch argv", () => {
 
   it("muse: model, reasoning effort, bare --yolo, positional prompt", () => {
     expect(MUSE_TEMPLATE.probedVersion).toBe("1.1.1-R2514.1");
-    expect(MUSE_TEMPLATE.argvSpec.resumeReinjection).toBe("re-pass");
     expect(MUSE_TEMPLATE.efforts).toEqual([
       "none",
       "minimal",
@@ -1200,7 +1096,6 @@ describe("resolveManagedLaunch argv", () => {
 
   it("agy: model, effort, promptMode flag-i, permissionMode, agent", () => {
     expect(AGY_TEMPLATE.probedVersion).toBe("1.2.1");
-    expect(AGY_TEMPLATE.argvSpec.resumeReinjection).toBe("re-pass");
     expect(AGY_TEMPLATE.capabilityBadges.attentionSource).toBe(
       "permission prompt (Run this command?, Allow access to this URL?, Allow calling this tool?)",
     );

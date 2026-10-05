@@ -25,7 +25,6 @@ export type {
 
 export { evaluate, FALLBACK_IDLE, type EvaluateOptions } from "./engine";
 export {
-  admitUngroundedFirstTypedComposer,
   composerVerdictFor,
   composerVerdictForHarness,
 } from "./composer";

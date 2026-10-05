@@ -6,8 +6,7 @@
  * generation cuts. Both Command Center and the packaged Remote attach the
  * same four feeds from their own local planes — one subscriber set per
  * drive, with explicit cleanup. Product supervisory layers (injection
- * supervisor, session capture, pulses, first-typed doctrine, board and
- * message delivery) stay at their own callsites and are not part of this
+ * supervisor, session capture, pulses, board and message delivery) stay at their own callsites and are not part of this
  * runtime.
  */
 
@@ -49,14 +48,6 @@ export type ManagedDriveRuntimeSources = {
   ) => () => void;
   readonly harnessFor: SeatHarnessLookup;
   readonly snapshotText: (bindingId: string) => string | undefined;
-  /**
-   * Pre-idle hook, invoked before the drive's own idle drain. Lets
-   * Command Center initiate firstTyped doctrine before a previously queued
-   * prompt drains (restoring prior invocation order). It starts first; no
-   * stronger lock priority is claimed — the clipboard preflight awaits even
-   * on a synchronous pass. Omitted on Remote, which has no doctrine layer.
-   */
-  readonly beforeSeatIdle?: (bindingId: string) => void;
 };
 
 /**
@@ -89,7 +80,6 @@ export const attachManagedTerminalDriveRuntime = (
   );
   const unsubSeat = sources.subscribeSeatState((event) => {
     if (event.state === "idle") {
-      sources.beforeSeatIdle?.(event.bindingId);
       drive.onSeatIdle(event.bindingId);
     } else if (event.state === "working") {
       drive.onTurnStart(event.bindingId);

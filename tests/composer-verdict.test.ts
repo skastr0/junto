@@ -9,7 +9,6 @@
  */
 import { describe, expect, it } from "vitest";
 import {
-  admitUngroundedFirstTypedComposer,
   composerVerdictFor,
   composerVerdictForHarness,
   rulePackFor,
@@ -435,29 +434,6 @@ describe("fail-closed defaults", () => {
     expect(composerVerdictForHarness(snap({ lines: [] }), "claude")).toBe(null);
   });
 
-  it("ungrounded firstTyped admits a one-shot empty; probed packs stay closed", () => {
-    expect(
-      admitUngroundedFirstTypedComposer(null, rulePackFor("omp"), true),
-    ).toBe(null);
-    expect(
-      admitUngroundedFirstTypedComposer(null, rulePackFor("junto-overseer"), true),
-    ).toBe("empty");
-    expect(
-      admitUngroundedFirstTypedComposer(null, rulePackFor("amp"), true),
-    ).toBe(null);
-    expect(
-      admitUngroundedFirstTypedComposer(null, rulePackFor("muse"), true),
-    ).toBe(null);
-    expect(
-      admitUngroundedFirstTypedComposer(null, rulePackFor("amp"), false),
-    ).toBe(null);
-    expect(
-      admitUngroundedFirstTypedComposer(null, rulePackFor("claude"), true),
-    ).toBe(null);
-    expect(
-      admitUngroundedFirstTypedComposer("draft", rulePackFor("amp"), true),
-    ).toBe("draft");
-  });
 });
 
 describe("codex v0.149 (live capture 2026-08-28)", () => {

@@ -2,8 +2,7 @@
  * The capture-to-resume loop, end to end:
  *
  *   a capture harness announces an id → proof against its own state →
- *   the seat's node stores it → the next wake resumes that exact session,
- *   with argv shaped by whether the harness can be re-briefed at all.
+ *   the seat's node stores it → the next wake resumes that exact session.
  */
 
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -15,9 +14,6 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   CODEX_TEMPLATE,
   HARNESS_IDS,
-  KIMI_TEMPLATE,
-  MANAGED_TERMINAL_TEMPLATES,
-  reinjectableOnResume,
   templateFor,
   type HarnessId,
 } from "../src/shared/managed-terminal-templates";
@@ -57,119 +53,16 @@ afterEach(() => {
   }
 });
 
-// ── The reinjectability ledger ─────────────────────────────────────────────
-
-/** Probe receipts. Anything not listed here is deliberately absent. */
-const RE_PASS: readonly HarnessId[] = [
-  "claude",
-  "pi",
-  "cursor",
-  "agy",
-  "muse",
-  "hermes",
-];
-const FROZEN: readonly HarnessId[] = ["codex", "kimi", "grok"];
-
-describe("per-harness reinjectability matrix", () => {
-  it("every template declares its class, and the probed ones match the receipts", () => {
-    for (const id of HARNESS_IDS) {
-      expect(
-        MANAGED_TERMINAL_TEMPLATES[id].argvSpec.resumeReinjection,
-      ).toMatch(/^(re-pass|frozen|unprobed)$/);
-    }
-    for (const id of RE_PASS) {
-      expect(templateFor(id).argvSpec.resumeReinjection).toBe("re-pass");
-      expect(reinjectableOnResume(templateFor(id))).toBe(true);
-    }
-    for (const id of FROZEN) {
-      expect(templateFor(id).argvSpec.resumeReinjection).toBe("frozen");
-      expect(reinjectableOnResume(templateFor(id))).toBe(false);
-    }
-  });
-
-  it("an unprobed harness is treated as frozen, never as re-pass", () => {
-    for (const id of HARNESS_IDS) {
-      if (templateFor(id).argvSpec.resumeReinjection !== "unprobed") continue;
-      expect(reinjectableOnResume(templateFor(id))).toBe(false);
-    }
-  });
-});
-
-describe("resume argv per reinjectability class", () => {
-  it("a re-pass harness carries the injection flag on resume when asked", () => {
-    const argv = resolveManagedLaunch(
-      "pi",
-      { resumeId: "SID", systemPrompt: "DOCTRINE", cwd: "/x" },
-    ).argv!;
-    expect(argv).toContain("--session");
-    expect(argv).toContain("SID");
-    expect(argv).toContain("--append-system-prompt");
-    expect(argv).toContain("DOCTRINE");
-  });
-
-  it("claude resume re-pass emits --system-prompt-snapshot off with the carrier", () => {
-    const argv = resolveManagedLaunch("claude", {
-      resumeId: "SID",
-      systemPrompt: "DOCTRINE",
-    }).argv!;
-    expect(argv).toContain("--resume");
-    expect(argv).toContain("SID");
-    expect(argv).toContain("--append-system-prompt");
-    expect(argv).toContain("DOCTRINE");
-    const snap = argv.indexOf("--system-prompt-snapshot");
-    expect(snap).toBeGreaterThan(-1);
-    expect(argv[snap + 1]).toBe("off");
-  });
-
-  it("a frozen harness drops the injection flag on resume, and only on resume", () => {
-    // Kimi refuses `--agent-file` alongside `--session` outright; Codex accepts
-    // re-passed instructions and silently ignores them. Either way the flag on
-    // a resume argv is a claim the seat was re-briefed when it was not.
-    const kimiFresh = resolveManagedLaunch("kimi", {
-      systemPrompt: "DOCTRINE",
-      agentFile: "/tmp/agent.md",
-    }).argv!;
-    const kimiResume = resolveManagedLaunch("kimi", {
-      resumeId: "ses_abc",
-      systemPrompt: "DOCTRINE",
-      agentFile: "/tmp/agent.md",
-    }).argv!;
-    expect(kimiResume).toContain("-S");
-    expect(kimiResume).toContain("ses_abc");
-    expect(kimiResume).not.toContain("/tmp/agent.md");
-    expect(kimiResume).not.toContain("DOCTRINE");
-    // A fresh Kimi seat DOES take the carrier (`--agent-file` is its Tier-A
-    // route); the point is that a resume drops it, because the flag cannot
-    // combine with `--session` at all.
-    expect(kimiFresh).toContain("--agent-file");
-    expect(kimiFresh).toContain("/tmp/agent.md");
-
-    const codexResume = resolveManagedLaunch("codex", {
-      resumeId: "0199-thread",
-      systemPrompt: "DOCTRINE",
-    }).argv!;
-    expect(codexResume.slice(0, 3)).toEqual(["codex", "resume", "0199-thread"]);
-    expect(codexResume).not.toContain("DOCTRINE");
-
-    // Grok 1.0.25 accepts `--rules` on `-r` and ignores the new text
-    // (ALPHA create, BETA resume answered ALPHA_RULES_ONLY). Emitting
-    // the carrier on resume would claim a re-brief that did not happen.
-    const grokFresh = resolveManagedLaunch("grok", {
-      systemPrompt: "DOCTRINE",
-    }).argv!;
-    const grokResume = resolveManagedLaunch("grok", {
-      resumeId: "SID",
-      systemPrompt: "DOCTRINE",
-      agentFile: "/tmp/junto-agent.md",
-    }).argv!;
-    expect(grokFresh).toContain("--rules");
-    expect(grokFresh).toContain("DOCTRINE");
-    expect(grokResume).toContain("-r");
-    expect(grokResume).toContain("SID");
-    expect(grokResume).not.toContain("--rules");
-    expect(grokResume).not.toContain("--agent");
-    expect(grokResume).not.toContain("DOCTRINE");
-    expect(grokResume).not.toContain("/tmp/junto-agent.md");
+describe("resume argv", () => {
+  it("a resume names the exact session and carries no instructions", () => {
+    const kimi = resolveManagedLaunch("kimi", { resumeId: "ses_abc" }).argv!;
+    expect(kimi).toEqual(["kimi", "-S", "ses_abc"]);
+    const codex = resolveManagedLaunch("codex", { resumeId: "0199-thread" }).argv!;
+    expect(codex.slice(0, 3)).toEqual(["codex", "resume", "0199-thread"]);
+    const claude = resolveManagedLaunch("claude", { resumeId: "SID" }).argv!;
+    expect(claude).toContain("--resume");
+    expect(claude).not.toContain("--append-system-prompt");
+    expect(claude).not.toContain("--system-prompt-snapshot");
   });
 
   it("hermes re-passes -m on resume (or the model silently reverts)", () => {
@@ -192,10 +85,7 @@ describe("capability badges match what the code can actually do", () => {
       "no cold resume",
     );
     expect(CODEX_TEMPLATE.capabilityBadges.labels).toEqual(
-      expect.arrayContaining(["capture session", "doctrine at creation"]),
-    );
-    expect(KIMI_TEMPLATE.capabilityBadges.labels).toEqual(
-      expect.arrayContaining(["doctrine at creation"]),
+      expect.arrayContaining(["capture session"]),
     );
   });
 

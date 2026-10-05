@@ -1,7 +1,8 @@
 /**
- * Re-plan managed launch at spawn time from live canvas edges.
- * Document may store unconnected argv (silence at authoring); spawn applies
- * Tier A flags / arms Tier B firstTyped when edges connect the seat.
+ * Re-plan a managed launch at spawn time: session pin or resume, the picker
+ * choices recovered from the document launch, and the operator's own
+ * arguments. A launch carries no Junto instructions; the seat opens to the
+ * harness's own empty composer.
  */
 
 import { randomUUID } from "node:crypto";
@@ -21,18 +22,9 @@ import type { TerminalLaunch } from "@shared/terminal";
 import { recoverDocumentLaunchChoices } from "@shared/launch-choices";
 import { usableJuntoHome } from "@shared/junto-home";
 import {
-  planManagedInjection,
-  targetsBySlot,
-  type InjectionConnectedTarget,
-} from "@shared/managed-terminal-injection";
-import { writeAgentRulesDir } from "./agent-rules-dir";
-import { writeAgentFileSpec } from "./agent-file-spec";
-import {
   isPinSessionHarness,
   shouldResumeHarnessSession,
 } from "./session-existence";
-import { connectedCapabilities, containingRegion } from "../work/authz";
-import { seatGuidanceIndex } from "../seat-guidance/index-memory";
 
 /**
  * Official `bun run dev` sets `JUNTO_HOME` (e.g. ~/.junto-dev) while leaving
@@ -51,23 +43,6 @@ export const shouldAvoidSharedHarnessResume = (
   ownsSessionsEnv: string | undefined = process.env.JUNTO_HOME_OWNS_SESSIONS,
 ): boolean =>
   usableJuntoHome(juntoHomeEnv) !== undefined && ownsSessionsEnv !== "1";
-
-/** True when the live compiled grants have an actionable doctrine section. */
-export const nodeHasActionableFactoryEdge = (
-  doc: CanvasDoc,
-  nodeId: string,
-): boolean => targetsBySlot(connectedTargetsForNode(doc, nodeId)).size > 0;
-
-export const connectedTargetsForNode = (
-  doc: CanvasDoc,
-  nodeId: string,
-): ReadonlyArray<InjectionConnectedTarget> =>
-  connectedCapabilities(doc, nodeId).map((target) => ({
-    id: target.id,
-    ...(target.kind ? { kind: target.kind } : {}),
-    ...(target.title ? { summary: target.title } : {}),
-    ports: target.grants,
-  }));
 
 export type SpawnPlanInput = {
   readonly doc?: CanvasDoc;
@@ -88,8 +63,6 @@ export type SpawnPlanInput = {
   readonly sessionId?: string;
   /** When true, treat sessionId as resume rather than first pin. */
   readonly resume?: boolean;
-  /** Pure CC-compiled seat context; safe to finalize on another host. */
-  readonly injection?: ManagedSpawnIntent["injection"];
 };
 
 const sessionIdForSpawn = (input: SpawnPlanInput): string | undefined => {
@@ -101,44 +74,7 @@ const sessionIdForSpawn = (input: SpawnPlanInput): string | undefined => {
     ?.ether?.terminal?.sessionId?.trim() || undefined;
 };
 
-const injectionForSpawn = (
-  input: SpawnPlanInput,
-): ManagedSpawnIntent["injection"] => {
-  if (input.injection) return input.injection;
-  const seatBound = Boolean(input.doc && input.nodeId);
-  const connectedTargets =
-    input.doc && input.nodeId
-      ? connectedTargetsForNode(input.doc, input.nodeId)
-      : [];
-  const connected = targetsBySlot(connectedTargets).size > 0;
-  return {
-    seatBound,
-    connected,
-    ...(input.nodeId ? { seatRef: input.nodeId } : {}),
-    ...(input.doc && input.nodeId ? { connectedTargets } : {}),
-    ...(input.doc && input.nodeId
-      ? (() => {
-          const region = containingRegion(input.doc, input.nodeId);
-          return region?.instruction
-            ? { regionInstruction: region.instruction }
-            : {};
-        })()
-      : {}),
-    // The operator's soul and instructions for this seat, compiled here on
-    // the Command Center so a Remote spawn carries them unchanged.
-    ...(input.nodeId
-      ? (() => {
-          const guidance = seatGuidanceIndex.get(input.nodeId);
-          return {
-            ...(guidance?.soul ? { seatSoul: guidance.soul } : {}),
-            ...(guidance?.instructions ? { seatInstructions: guidance.instructions } : {}),
-          };
-        })()
-      : {}),
-  };
-};
-
-/** Compile topology/session request without consulting this machine's disk. */
+/** Compile the session request without consulting this machine's disk. */
 export const makeManagedSpawnIntent = (
   input: SpawnPlanInput,
 ): ManagedSpawnIntent => {
@@ -150,7 +86,6 @@ export const makeManagedSpawnIntent = (
     ...(input.cwd?.trim() ? { cwd: input.cwd.trim() } : {}),
     ...(sessionId ? { sessionId } : {}),
     resumeRequested: input.resume === true,
-    injection: injectionForSpawn(input),
     ...(input.profile ? { profile: input.profile } : {}),
     ...(input.provider ? { provider: input.provider } : {}),
     ...(input.model ? { model: input.model } : {}),
@@ -170,64 +105,15 @@ const profileFromAgentKey = (agentKey: string | undefined): string | undefined =
 };
 
 /**
- * Materialize the app-owned rules directory for a harness whose Tier-A carrier
- * is a directory rather than a flag string (agy `--add-dir`).
- *
- * Returns undefined for every other harness, for an unarmed injection, and for
- * a failed write — the resolver treats a missing directory as "no carrier" and
- * falls back to typed delivery, so a seat is never launched un-briefed.
- */
-const rulesDirForSpawn = (
-  harness: HarnessId,
-  injection: ManagedSpawnIntent["injection"],
-): string | undefined => {
-  if (!templateFor(harness).argvSpec.rulesDirFlag) return undefined;
-  const seatRef = injection.seatRef?.trim();
-  if (!seatRef) return undefined;
-  const plan = planManagedInjection(harness, injection);
-  if (!plan.inject) return undefined;
-  const doctrine = plan.systemPrompt ?? plan.firstTypedMessage;
-  if (!doctrine) return undefined;
-  return writeAgentRulesDir({ seatRef, doctrine });
-};
-
-/**
- * Materialize the app-owned agent definition for a harness whose Tier-A carrier
- * is a FILE rather than a flag string (kimi `--agent-file`).
- *
- * Same shape and same failure posture as the rules directory above: undefined
- * for every other harness, for an unarmed injection, and for a failed write —
- * the resolver then falls back to typed delivery, so a seat is never launched
- * un-briefed. A harness that also owns a system-prompt flag (grok `--rules` +
- * `--agent`) is excluded: its agent file is the caller's choice, not doctrine.
- */
-const agentFileForSpawn = (
-  harness: HarnessId,
-  injection: ManagedSpawnIntent["injection"],
-): string | undefined => {
-  const spec = templateFor(harness).argvSpec;
-  if (!spec.agentFlag || spec.systemPromptFlag || spec.rulesDirFlag) {
-    return undefined;
-  }
-  const seatRef = injection.seatRef?.trim();
-  if (!seatRef) return undefined;
-  const plan = planManagedInjection(harness, injection);
-  if (!plan.inject) return undefined;
-  const doctrine = plan.systemPrompt ?? plan.firstTypedMessage;
-  if (!doctrine) return undefined;
-  return writeAgentFileSpec({ seatRef, doctrine });
-};
-
-/**
- * Build spawn plan. When harness is known and doc shows work edges, inject
- * doctrine (Tier A argv / Tier B firstTyped). Unconnected → silence.
+ * Build the spawn plan: recovered picker choices plus the session pin or
+ * resume. Undefined for an unknown harness, and for a provisioned harness with
+ * no thread to open.
  */
 export const planManagedSpawn = (input: SpawnPlanInput): ManagedLaunchPlan | undefined => {
   const harnessRaw = input.harness?.trim();
   if (!harnessRaw || !isHarnessId(harnessRaw)) return undefined;
   const harness: HarnessId = harnessRaw;
 
-  const injection = injectionForSpawn(input);
   const sessionId = input.sessionId?.trim();
   const recovered = recoverDocumentLaunchChoices(harness, input.documentLaunch);
   const profile = input.profile ?? recovered.profile ??
@@ -250,42 +136,17 @@ export const planManagedSpawn = (input: SpawnPlanInput): ManagedLaunchPlan | und
     // the wrong thread.
     return undefined;
   }
-  // For a provisioned harness `resume` means only one thing here: does the
-  // thread already carry history? A thread minted for this spawn is empty, so
-  // the seat still needs its Tier-B doctrine even though the launch argv is
-  // the resume subcommand either way (see the resumeId choice below).
   // -r / --resume only when external harness state proves the id exists.
   // Canvas mint alone is not proof; unproven → pin/create (fail open).
-  const resume = provisioned
-    ? Boolean(sessionId && input.resume)
-    : Boolean(sessionId && input.resume) &&
-      shouldResumeHarnessSession(true, {
-        harness,
-        sessionId: sessionId ?? "",
-        ...(cwd ? { cwd } : {}),
-      });
-  // Harnesses whose Tier-A carrier is a DIRECTORY (agy `--add-dir`) need the
-  // doctrine on disk before argv is built. This host owns a filesystem, so it
-  // writes the app-owned rules dir and hands the resolver the path; a failed
-  // write returns undefined and the resolver falls back to typed delivery.
-  const armedInjection = {
-    ...injection,
-    seatBound: injection.seatBound && !resume,
-    connected: injection.connected && !resume,
-  };
-  const rulesDir = rulesDirForSpawn(harness, armedInjection);
-  // Same for a FILE carrier (kimi `--agent-file`). A resumed seat leaves
-  // `armedInjection` unarmed, so no file is written and the launch is the plain
-  // `-S <id>` resume the harness accepts — `--agent-file` cannot ride there.
-  const agentFile = agentFileForSpawn(harness, armedInjection);
-
+  const resume =
+    !provisioned &&
+    Boolean(sessionId && input.resume) &&
+    shouldResumeHarnessSession(true, {
+      harness,
+      sessionId: sessionId ?? "",
+      ...(cwd ? { cwd } : {}),
+    });
   const choices: ManagedLaunchChoices = {
-    // A resumed session already carries the doctrine in its own history.
-    // The Command Center may compile the topology context, but only this
-    // spawn host decides resume and therefore whether injection is armed.
-    injection: armedInjection,
-    ...(rulesDir ? { rulesDir } : {}),
-    ...(agentFile ? { agentFile } : {}),
     ...(profile ? { profile } : {}),
     ...(input.provider ?? recovered.provider
       ? { provider: input.provider ?? recovered.provider }
@@ -300,7 +161,7 @@ export const planManagedSpawn = (input: SpawnPlanInput): ManagedLaunchPlan | und
     ...(recovered.extraArgs ? { extraArgs: recovered.extraArgs } : {}),
     // A provisioned harness has exactly one launch shape — `threads continue
     // <id>` — whether or not the thread has history, because the id IS the
-    // seat's thread. Injection arming is decided by `resume` above, not here.
+    // seat's thread.
     ...(sessionId && (resume || provisioned)
       ? { resumeId: sessionId }
       : sessionId
@@ -312,7 +173,7 @@ export const planManagedSpawn = (input: SpawnPlanInput): ManagedLaunchPlan | und
   return resolveManagedLaunchPlan(harness, choices);
 };
 
-/** Prefer re-planned launch when injection applies; else document launch. */
+/** The re-planned launch, or the document launch when no plan resolves. */
 export const launchForManagedSpawn = (
   input: SpawnPlanInput,
 ): {
@@ -355,17 +216,6 @@ export const launchForManagedSpawn = (
     }
     return { launch: input.documentLaunch, plan: undefined };
   }
-  // Unconnected but may still need session pin/resume on argv.
-  if (!plan.injection.inject) {
-    // Prefer planned launch when session/resume flags were applied, or when
-    // isolation forced a fresh pin (document argv may still embed -r).
-    if (sessionId || isolateShared) return { launch: plan.launch, plan };
-    return {
-      launch: input.documentLaunch ?? plan.launch,
-      plan,
-    };
-  }
-  // Connected: use planned argv (Tier A flags + session).
   return { launch: plan.launch, plan };
 };
 
@@ -379,7 +229,6 @@ const spawnInputForManagedIntent = (
   cwd: intent.cwd,
   sessionId: intent.sessionId,
   resume: intent.resumeRequested,
-  injection: intent.injection,
   profile: intent.profile,
   provider: intent.provider,
   model: intent.model,
@@ -395,7 +244,7 @@ export const launchForManagedSpawnIntent = (
 ): ReturnType<typeof launchForManagedSpawn> =>
   launchForManagedSpawn(spawnInputForManagedIntent(actor, intent));
 
-/** Re-plan a failed proven resume as a fresh pin without losing seat doctrine. */
+/** Re-plan a failed proven resume as a fresh pin. */
 export const planFreshManagedSpawnIntent = (
   actor: { readonly harness: string; readonly agentKey: string },
   intent: ManagedSpawnIntent,
@@ -429,8 +278,6 @@ export const planFreshPinSession = (input: {
     (input.harness === "hermes" ? profileFromAgentKey(input.agentKey) : undefined);
   const cwd = input.cwd?.trim() || input.documentLaunch?.cwd?.trim() || undefined;
   return resolveManagedLaunchPlan(input.harness, {
-    // Fresh-pin recovery: no seat context — detached silence.
-    injection: { seatBound: false, connected: false },
     sessionId: input.sessionId,
     ...(profile ? { profile } : {}),
     ...(recovered.provider ? { provider: recovered.provider } : {}),

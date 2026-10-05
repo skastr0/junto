@@ -4,18 +4,12 @@
  * harness config writes. Prime Agent's per-binding daemon socket is main-runtime
  * daemon state and is deliberately absent from this authorial resolver.
  *
- * Phase 6: optional `injection` context fills Tier-A system-prompt flags from
- * the shared doctrine builder. Tier-B first typed message is returned on the
- * plan (drive delivers after idle). Unconnected → nothing injected.
+ * Nothing here carries Junto instructions. A seat opens to the harness's own
+ * empty composer; the agent learns about Junto by running `junto onboard`.
+ * The only prompt a launch can carry is one the operator supplied.
  */
 import type { EtherTerminalLaunch } from "./canvas";
 import { sanitizeExtraArgs } from "./launch-extra-args";
-import {
-  type InjectionContext,
-  type ManagedInjectionPlan,
-  buildOrientNotice,
-  planManagedInjection,
-} from "./managed-terminal-injection";
 import {
   type HarnessId,
   type ManagedTerminalTemplate,
@@ -23,7 +17,6 @@ import {
   SPAWN_ENV_SCRUB_PREFIXES,
   isHarnessId,
   isSandboxGatedPermissionMode,
-  reinjectableOnResume,
   templateFor,
 } from "./managed-terminal-templates";
 
@@ -39,7 +32,6 @@ export type ManagedSpawnIntent = {
   readonly sessionId?: string;
   /** Request only. The selected spawn host decides whether proof exists. */
   readonly resumeRequested: boolean;
-  readonly injection: InjectionContext;
   readonly profile?: string;
   /** Hermes provider — re-passed with the model on every cold wake. */
   readonly provider?: string;
@@ -70,7 +62,10 @@ export type ManagedLaunchChoices = {
    * silently, so both are recovered and re-emitted together.
    */
   readonly provider?: string;
-  /** Optional first-turn / auto-submit prompt. */
+  /**
+   * Operator-supplied initial prompt. Never filled by Junto: a launch carries
+   * a prompt only when the operator wrote one.
+   */
   readonly prompt?: string;
   /** Pin session id (Claude/Grok). Ignored on capture-only harnesses. */
   readonly sessionId?: string;
@@ -82,29 +77,6 @@ export type ManagedLaunchChoices = {
    * Sanitized against the template's reserved flags at build time.
    */
   readonly extraArgs?: readonly string[];
-  /**
-   * Tier-A injection body. Claude → `--append-system-prompt`; Grok → `--rules`
-   * when `agentFile` is unset.
-   * Prefer `injection` context (Phase 6) so doctrine is the single source of truth.
-   * When both are set and injection.connected, `injection` wins for Tier A.
-   */
-  readonly systemPrompt?: string;
-  /** Grok `--agent <file>` (takes precedence over systemPrompt for injection). */
-  readonly agentFile?: string;
-  /**
-   * Tier-A rules DIRECTORY for `argvSpec.rulesDirFlag` (Antigravity
-   * `--add-dir`). The caller owns the directory and its `AGENTS.md`; this
-   * resolver only mounts it. Main-side `planManagedSpawn` fills it — the
-   * directory must exist on the spawning host, so the renderer never sets it.
-   */
-  readonly rulesDir?: string;
-  /**
-   * Seat connection + context slots. When set:
-   * - connected=false → no Tier-A flags from injection (unconnected silence)
-   * - connected=true + tier A → systemPrompt filled from doctrine builder
-   * - connected=true + tier B → firstTypedMessage on the resolved plan
-   */
-  readonly injection?: InjectionContext;
   /** Working directory. Grok requires a git work tree. */
   readonly cwd?: string;
   /**
@@ -435,53 +407,13 @@ const buildArgv = (
     pushFlag(argv, spec.sessionIdFlag, choices.sessionId);
   }
 
-  // Tier-A injection. Grok prefers --agent file when provided.
-  //
-  // On a resume the carriers ride only where the harness honors them
-  // (`resumeReinjection`). Codex ignores re-passed instructions on an existing
-  // thread and Kimi refuses `--agent-file` alongside `--session` outright
-  // (0.34.0 exits 1: "Cannot combine --agent/--agent-file with
-  // --session/--continue"), so emitting the flag there is either a lie about
-  // what the seat was told or an argv the harness rejects. Those harnesses
-  // keep the doctrine they were given at creation; the injection supervisor
-  // re-orients them by notice instead.
-  const injectionCarriersAllowed =
-    !resumeId || reinjectableOnResume(template);
-  if (injectionCarriersAllowed) {
-    let emittedInjectionCarrier = false;
-    if (choices.agentFile && spec.agentFlag) {
-      pushFlag(argv, spec.agentFlag, choices.agentFile);
-      emittedInjectionCarrier = true;
-    } else if (choices.systemPrompt && spec.systemPromptFlag) {
-      pushFlag(argv, spec.systemPromptFlag, choices.systemPrompt);
-      emittedInjectionCarrier = true;
-    }
-    // Rules DIRECTORY carrier (agy `--add-dir`). Independent of the two
-    // string carriers above: the harness that mounts a dir has no
-    // system-prompt flag at all, so this is not an "else" branch of them.
-    if (choices.rulesDir && spec.rulesDirFlag) {
-      pushFlag(argv, spec.rulesDirFlag, choices.rulesDir);
-      emittedInjectionCarrier = true;
-    }
-    // Claude 2.1.267+ records `--append-system-prompt` on the first request
-    // and reuses that record on resume unless snapshot is turned off.
-    if (
-      resumeId &&
-      emittedInjectionCarrier &&
-      spec.resumeReinjectionArgv &&
-      spec.resumeReinjectionArgv.length > 0
-    ) {
-      argv.push(...spec.resumeReinjectionArgv);
-    }
-  }
-
   // The operator's own arguments: after everything the template owns, before
   // the prompt (a positional prompt must stay the last token).
   argv.push(...sanitizeExtraArgs(template.harness, choices.extraArgs).args);
 
   // Prompt last (positional, with optional separator), as -q for Hermes TUI
-  // auto-submit, as -i for Antigravity auto-submit, or not at all when the harness
-  // has no argv prompt slot (kimi — the drive delivers Tier-B first-typed messages instead).
+  // auto-submit, as -i for Antigravity auto-submit, or not at all when the
+  // harness has no argv prompt slot (kimi, amp, fx).
   if (choices.prompt) {
     if (spec.promptMode === "flag-q") {
       argv.push("-q", choices.prompt);
@@ -511,142 +443,6 @@ export const resolveTemplate = (
 };
 
 /**
- * Merge injection plan into launch choices for argv construction.
- * Tier A connected → systemPrompt from doctrine (unless agentFile already set).
- * Explicit systemPrompt without injection still works (tests / overrides).
- */
-const applyInjectionChoices = (
-  harness: HarnessId,
-  choices: ManagedLaunchChoices,
-): {
-  readonly choices: ManagedLaunchChoices;
-  readonly plan: ManagedInjectionPlan;
-} => {
-  if (!choices.injection) {
-    // No seat context — treat as unconnected for plan metadata; leave argv as-is
-    // (caller may still pass systemPrompt/agentFile manually).
-    return {
-      choices,
-      plan: {
-        inject: false,
-        tier: templateFor(harness).injectionSpec.tier,
-      },
-    };
-  }
-  const plan = planManagedInjection(harness, choices.injection);
-  if (!plan.inject) {
-    // Unconnected silence: strip Tier-A flag carriers even if caller passed them.
-    const {
-      systemPrompt: _sp,
-      agentFile: _af,
-      rulesDir: _rd,
-      ...rest
-    } = choices;
-    return { choices: rest, plan };
-  }
-  if (!plan.systemPrompt) {
-    // Tier B: prefer argv prompt when the harness auto-submits it
-    // (Devin `devin -- <prompt>`, Hermes `-q`). Otherwise firstTyped paste.
-    // Avoids the stuck "[Pasted text …]" chip when paste+CR races the TUI.
-    const template = templateFor(harness);
-    const mode = template.argvSpec.promptMode;
-    const body = plan.firstTypedMessage?.trim();
-    if (
-      body &&
-      (mode === "positional" || mode === "flag-q" || mode === "flag-i") &&
-      !choices.prompt?.trim()
-    ) {
-      return {
-        choices: { ...choices, prompt: body },
-        plan: {
-          inject: true,
-          tier: plan.tier,
-          // No firstTyped — body rides argv and auto-submits at spawn.
-        },
-      };
-    }
-    // promptMode none (Amp, fx): never firstTyped-paste the full doctrine.
-    // Those TUIs have no argv prompt slot; a multiline paste is the chip
-    // hole. One-line onboard pointer — live map is `junto onboard`.
-    if (body && mode === "none") {
-      return {
-        choices,
-        plan: {
-          inject: true,
-          tier: plan.tier,
-          firstTypedMessage: buildOrientNotice(choices.injection.seatRef),
-        },
-      };
-    }
-    return { choices, plan };
-  }
-  // Tier A whose ONLY carrier is an agent FILE (kimi `--agent-file`): the file
-  // has to exist on the spawning host, so a caller with no filesystem — or a
-  // failed write — leaves the seat with no carrier at all. Kimi has no argv
-  // prompt slot, so the fallback is the typed first message: Tier B, exactly
-  // what this harness did before the file carrier existed.
-  const agentFileTemplate = templateFor(harness);
-  if (
-    agentFileTemplate.argvSpec.agentFlag &&
-    !agentFileTemplate.argvSpec.systemPromptFlag &&
-    !agentFileTemplate.argvSpec.rulesDirFlag &&
-    !choices.agentFile
-  ) {
-    const body = plan.systemPrompt.trim();
-    const mode = agentFileTemplate.argvSpec.promptMode;
-    if (
-      body &&
-      (mode === "positional" || mode === "flag-q" || mode === "flag-i") &&
-      !choices.prompt?.trim()
-    ) {
-      return {
-        choices: { ...choices, prompt: body },
-        plan: { inject: true, tier: plan.tier },
-      };
-    }
-    return {
-      choices,
-      plan: { inject: true, tier: plan.tier, firstTypedMessage: body },
-    };
-  }
-  // Tier A whose ONLY carrier is a rules directory (agy `--add-dir`): the
-  // directory has to exist on the spawning host, so a caller with no
-  // filesystem — or a failed write — leaves the seat with no carrier at all.
-  // Fall back to typed delivery rather than launching an un-briefed seat.
-  const rulesDirTemplate = templateFor(harness);
-  if (
-    rulesDirTemplate.argvSpec.rulesDirFlag &&
-    !rulesDirTemplate.argvSpec.systemPromptFlag &&
-    !choices.rulesDir
-  ) {
-    const body = plan.systemPrompt.trim();
-    const mode = rulesDirTemplate.argvSpec.promptMode;
-    if (
-      body &&
-      (mode === "positional" || mode === "flag-q" || mode === "flag-i") &&
-      !choices.prompt?.trim()
-    ) {
-      return {
-        choices: { ...choices, prompt: body },
-        plan: { inject: true, tier: plan.tier },
-      };
-    }
-    return {
-      choices,
-      plan: { inject: true, tier: plan.tier, firstTypedMessage: body },
-    };
-  }
-  // Tier A connected: doctrine is SoT for systemPrompt unless agentFile wins.
-  if (choices.agentFile) {
-    return { choices, plan };
-  }
-  return {
-    choices: { ...choices, systemPrompt: plan.systemPrompt },
-    plan,
-  };
-};
-
-/**
  * Turn template + picker choices into a TerminalLaunch compatible with
  * LocalSessionHost / EtherTerminalLaunch (`kind: "harness"`).
  */
@@ -656,50 +452,33 @@ export const resolveManagedLaunch = (
   ambientEnv: Readonly<Record<string, string | undefined>> = process.env,
 ): TerminalLaunch => resolveManagedLaunchPlan(harnessOrTemplate, choices, ambientEnv).launch;
 
+/** A resolved launch. It holds argv, cwd and env, and nothing to type. */
 export type ManagedLaunchPlan = {
   readonly launch: TerminalLaunch;
-  /** Injection disposition (Tier A flags already applied to launch.argv when inject). */
-  readonly injection: ManagedInjectionPlan;
-  /**
-   * Tier B: same doctrine text for ManagedTerminalDrive.writePrompt after idle.
-   * Undefined when unconnected or Tier A (already on argv as system prompt flag).
-   */
-  readonly firstTypedMessage?: string;
 };
 
-/**
- * Full resolve: TerminalLaunch + injection plan for Tier-B drive delivery.
- * Prefer this over resolveManagedLaunch when the caller owns first-message typing.
- */
 export const resolveManagedLaunchPlan = (
   harnessOrTemplate: HarnessId | ManagedTerminalTemplate,
   choices: ManagedLaunchChoices = {},
   ambientEnv: Readonly<Record<string, string | undefined>> = process.env,
 ): ManagedLaunchPlan => {
   const template = resolveTemplate(harnessOrTemplate);
-  const { choices: merged, plan } = applyInjectionChoices(template.harness, choices);
-  const argv = buildArgv(template, merged);
+  const argv = buildArgv(template, choices);
   // Dials go on AFTER the scrub, and deliberately so. The scrub exists to kill
   // the value a nested seat would INHERIT (an fx seat launched from inside an
   // fx session); the value the picker chose for this seat is the opposite of
   // that — it is the answer the scrub is clearing the way for.
   const env = {
-    ...buildSpawnEnv(ambientEnv, merged.env),
-    ...envDials(template, merged),
+    ...buildSpawnEnv(ambientEnv, choices.env),
+    ...envDials(template, choices),
   };
 
   const launch: TerminalLaunch = {
     kind: "harness",
     argv,
-    ...(merged.cwd ? { cwd: merged.cwd } : {}),
+    ...(choices.cwd ? { cwd: choices.cwd } : {}),
     ...(Object.keys(env).length > 0 ? { env } : {}),
   };
 
-  return {
-    launch,
-    injection: plan,
-    ...(plan.firstTypedMessage
-      ? { firstTypedMessage: plan.firstTypedMessage }
-      : {}),
-  };
+  return { launch };
 };

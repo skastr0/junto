@@ -223,16 +223,8 @@ describe("muse launch shape", () => {
     expect(fresh.argv).not.toContain("resume");
   });
 
-  it("claims capture, and claims no doctrine beyond Tier B", () => {
+  it("claims capture", () => {
     expect(MUSE_TEMPLATE.capabilityBadges.sessionId).toBe("capture");
-    expect(MUSE_TEMPLATE.injectionSpec.tier).toBe("B");
-    expect(MUSE_TEMPLATE.injectionSpec.flags).toEqual([]);
-    expect(MUSE_TEMPLATE.capabilityBadges.instructionInjection).toBe("B");
-    // --agents is an agent-definition overlay, not a system prompt: its schema
-    // rejects systemPrompt and silently drops unknown keys, so nothing in the
-    // template may advertise it as an injection route.
-    expect(MUSE_TEMPLATE.argvSpec.agentFlag).toBeUndefined();
-    expect(MUSE_TEMPLATE.argvSpec.systemPromptFlag).toBeUndefined();
   });
 
   it("offers the 1.1.1 reasoning-effort vocabulary including max", () => {

@@ -1,7 +1,7 @@
 /**
  * Managed-terminal v1 harness templates — data-only spawn specs for the picker.
  *
- * Phase 5 of docs/managed-terminal-plan.md. Templates describe argv/env/injection
+ * Phase 5 of docs/managed-terminal-plan.md. Templates describe argv/env
  * shapes and honest capability badges. resolve-launch (main) turns a template +
  * picker choices into a TerminalLaunch for LocalSessionHost.
  *
@@ -48,24 +48,6 @@ export const HARNESS_IDS: readonly HarnessId[] = HarnessId.literals;
 export const isHarnessId = (value: string): value is HarnessId =>
   Schema.is(HarnessId)(value);
 
-// ── Injection ──────────────────────────────────────────────────────────────
-
-/**
- * Tier A — system prompt / rules at spawn (flag).
- * Tier B — first typed message (no system-prompt flag on the harness).
- */
-export type InjectionTier = "A" | "B";
-
-export type InjectionSpec = {
-  readonly tier: InjectionTier;
-  /**
-   * Spawn flags that carry the injected doctrine/CLI contract.
-   * Empty for tier B (payload is the first typed prompt instead).
-   */
-  readonly flags: readonly string[];
-  readonly description: string;
-};
-
 // ── Argv / env specs ───────────────────────────────────────────────────────
 
 /**
@@ -100,8 +82,7 @@ export type ArgvSpec = {
    * - `positional` — last argv token (claude/codex/grok/pi/prime-agent/muse/devin)
    * - `flag-q` — `-q <prompt>` (hermes TUI auto-submit)
    * - `flag-i` — `-i <prompt>` (agy auto-submit)
-   * - `none` — no argv prompt slot (kimi TUI waits for typed input; the drive
-   *   delivers Tier-B first-typed messages instead)
+   * - `none` — no argv prompt slot (kimi, amp, fx: the TUI waits for typed input)
    */
   readonly promptMode: "positional" | "flag-q" | "flag-i" | "none";
   /**
@@ -130,9 +111,8 @@ export type ArgvSpec = {
    * Spawn dials some harnesses read from the ENVIRONMENT instead of argv (fx:
    * `FX_MODEL`, `FX_PERMISSION_MODE`). Declared here beside their argv
    * counterparts so a dial is template data either way, and so the resolved
-   * env — rebuilt on every launch — carries them. That rebuild is why an
-   * env-dial harness cannot suffer the "resume silently reverts the model"
-   * trap that flag-passing harnesses need `resumeReinjection` for.
+   * env — rebuilt on every launch — carries them, so an env-dial harness
+   * cannot suffer the "resume silently reverts the model" trap.
    */
   readonly modelEnvKey?: string;
   readonly permissionModeEnvKey?: string;
@@ -171,64 +151,7 @@ export type ArgvSpec = {
    */
   readonly resumeSubcommand?: readonly string[];
   readonly resumeFlag?: string;
-  /** Tier-A system prompt flag (`--append-system-prompt`, `--rules`). */
-  readonly systemPromptFlag?: string;
-  /** Grok agent file flag (`--agent`). */
-  readonly agentFlag?: string;
-  /**
-   * Tier-A rules-DIRECTORY flag (Antigravity `--add-dir`, repeatable). The
-   * harness exposes no system-prompt flag, but it loads `AGENTS.md` from every
-   * directory added to the workspace — so doctrine ships as an app-owned
-   * ephemeral directory instead of an argv string.
-   *
-   * Junto mounts ONLY its own directory
-   * (`<JUNTO_HOME>/.junto/content/agent-rules/<seat>/`): the
-   * operator's workspace is never written to, and the loaded context cites the
-   * app-owned path as its origin. Official agy 1.2.1 best-practices also parse
-   * a workspace-root `AGENTS.md` / `GEMINI.md`; that is why the seat still
-   * never writes the operator cwd. Whether an `--add-dir` `AGENTS.md` is
-   * still obeyed on 1.2.1 is UNVERIFIED (1.1.20 canary; flag still exists).
-   */
-  readonly rulesDirFlag?: string;
-  /**
-   * Extra tokens emitted only on a resume that also re-passes injection
-   * carriers. Claude 2.1.267+ snapshots `--append-system-prompt` by default
-   * (`--system-prompt-snapshot` defaults on), so a later different append is
-   * ignored unless this is `["--system-prompt-snapshot", "off"]`.
-   */
-  readonly resumeReinjectionArgv?: readonly string[];
-  /**
-   * Whether re-passing the injection carriers (`systemPromptFlag` / `agentFlag`)
-   * on a RESUME launch actually reaches the harness. This is a probe receipt,
-   * not a preference — a harness that freezes its instructions at thread
-   * creation accepts the flag on the command line and silently ignores it, so
-   * without this fact the argv would look correct and the seat would run
-   * un-briefed.
-   *
-   * - `re-pass`   — resume argv carrying the injection spec is honored.
-   *   Probed 2026-08: claude, pi, cursor, agy, muse, hermes. Claude
-   *   2.1.268 keeps this class only because `resumeReinjectionArgv` turns
-   *   snapshot recording off; without that, a changed append is ignored.
-   *   (Hermes also needs `-m` re-passed on every resume or the model silently
-   *   reverts; `buildArgv` already re-passes every template-owned flag on
-   *   resume.)
-   * - `frozen`    — instructions are fixed at session creation and cannot be
-   *   re-passed. Probed 2026-08: codex (re-passed developer instructions do not
-   *   apply to an existing thread) and kimi (`--agent-file` cannot combine with
-   *   `--session` / `--continue` at all). Probed 2026-09-11: grok 1.0.25
-   *   (`--rules` on `-r` resume is accepted and ignored). Doctrine for these
-   *   harnesses is delivered-at-creation; later generations are re-oriented
-   *   by the injection supervisor's notices instead.
-   * - `unprobed`  — no receipt yet. Treated exactly like `frozen` at the argv
-   *   boundary, so an unverified harness never gets a claim it has not earned.
-   */
-  readonly resumeReinjection: "re-pass" | "frozen" | "unprobed";
 };
-
-/** Injection carriers may ride a resume launch only for this class. */
-export const reinjectableOnResume = (
-  template: ManagedTerminalTemplate,
-): boolean => template.argvSpec.resumeReinjection === "re-pass";
 
 /**
  * Exact env keys that must be stripped from the ambient process env before
@@ -330,7 +253,6 @@ export type EnvSpec = {
  * UI should surface these so weaker fidelity is visible, not papered over.
  */
 export type CapabilityBadges = {
-  readonly instructionInjection: InjectionTier;
   /** Per-session hooks with zero user-config writes. */
   readonly hooks: boolean;
   readonly effortAtSpawn: boolean;
@@ -719,7 +641,6 @@ export type ManagedTerminalTemplate = {
   readonly displayName: string;
   readonly argvSpec: ArgvSpec;
   readonly envSpec: EnvSpec;
-  readonly injectionSpec: InjectionSpec;
   readonly capabilityBadges: CapabilityBadges;
   readonly mailTransport: MailTransportSpec;
   readonly isolation: IsolationSpec;
@@ -756,15 +677,9 @@ const SHARED_ENV_SPEC: EnvSpec = {
 // ── Four v1 templates ──────────────────────────────────────────────────────
 
 /**
- * Claude Code — Tier A, session pin.
+ * Claude Code — session pin.
  *
  * Re-probed 2.1.268 (2026-09-11):
- * - `--append-system-prompt` is still the Tier-A carrier.
- * - `--system-prompt-snapshot` defaults on (CHANGELOG 2.1.267). A later
- *   different append is ignored on resume unless `--system-prompt-snapshot
- *   off` rides with the carrier (`resumeReinjectionArgv`). Live print-mode
- *   canary on this build: ALPHA create → BETA resume (no off) stayed ALPHA;
- *   GAMMA resume with off returned GAMMA.
  * - `--effort ultracode` accepted at spawn despite incomplete CLI help.
  * - `--permission-mode default` accepted; `--help` lists `manual` as the
  *   displayed alias for that mode.
@@ -783,18 +698,9 @@ export const CLAUDE_TEMPLATE: ManagedTerminalTemplate = {
     sessionIdFlag: "--session-id",
     resumeMode: "flag",
     resumeFlag: "--resume",
-    systemPromptFlag: "--append-system-prompt",
-    resumeReinjection: "re-pass",
-    resumeReinjectionArgv: ["--system-prompt-snapshot", "off"],
   },
   envSpec: SHARED_ENV_SPEC,
-  injectionSpec: {
-    tier: "A",
-    flags: ["--append-system-prompt"],
-    description: "System prompt appended at spawn via --append-system-prompt",
-  },
   capabilityBadges: {
-    instructionInjection: "A",
     hooks: false,
     effortAtSpawn: true,
     sessionId: "pin",
@@ -802,7 +708,7 @@ export const CLAUDE_TEMPLATE: ManagedTerminalTemplate = {
     requiresGitCwd: false,
     stateFeed: "OSC → grid",
     attentionSource: "grid (OSC cannot distinguish permission prompt)",
-    labels: ["injection A", "OSC + grid", "effort", "session pin"],
+    labels: ["OSC + grid", "effort", "session pin"],
   },
   mailTransport: HARNESS_MAIL_TRANSPORT.claude,
   isolation: HARNESS_ISOLATION.claude,
@@ -836,17 +742,9 @@ export const CODEX_TEMPLATE: ManagedTerminalTemplate = {
     // No session pin; the thread id is CAPTURED (SessionStart /
     // CODEX_THREAD_ID / notify) and proven against ~/.codex/sessions before
     // it is ever used to resume.
-    resumeReinjection: "frozen",
   },
   envSpec: SHARED_ENV_SPEC,
-  injectionSpec: {
-    tier: "B",
-    flags: [],
-    description:
-      "No system-prompt flag — doctrine delivered as the first typed message",
-  },
   capabilityBadges: {
-    instructionInjection: "B",
     // Hooks dropped: trust modal; --dangerously-bypass-hook-trust banned.
     hooks: false,
     effortAtSpawn: true,
@@ -859,12 +757,9 @@ export const CODEX_TEMPLATE: ManagedTerminalTemplate = {
     stateFeed: "OSC → grid (+ notify turn-complete)",
     attentionSource: "OSC title Action Required + grid for startup modals",
     labels: [
-      "injection B",
       "no hooks",
       "effort",
       "capture session",
-      // Doctrine is frozen at thread creation: a resume cannot carry it again.
-      "doctrine at creation",
     ],
   },
   mailTransport: HARNESS_MAIL_TRANSPORT.codex,
@@ -876,14 +771,9 @@ export const CODEX_TEMPLATE: ManagedTerminalTemplate = {
 };
 
 /**
- * Grok — Tier A, session pin.
+ * Grok — session pin.
  *
  * Re-probed 1.0.25 (2026-09-11):
- * - `--rules` is still the Tier-A carrier on create (ALPHA_RULES_ONLY honored).
- * - `--rules` on `-r` resume is accepted and ignored: pin with ALPHA, then
- *   `-r <id> --rules BETA` answered ALPHA_RULES_ONLY. `resumeReinjection` is
- *   therefore `frozen`. `--agent` re-pass on resume was not separately
- *   canaried (UNVERIFIED).
  * - Effort vocabulary is `xhigh|high|medium|low` (`grok --reasoning-effort
  *   invalid`; grok-4.6 `models_cache.json` `reasoning_efforts` includes
  *   xhigh). The picker uses this flat list: cache rows are objects
@@ -911,19 +801,9 @@ export const GROK_TEMPLATE: ManagedTerminalTemplate = {
     sessionIdFlag: "--session-id",
     resumeMode: "flag",
     resumeFlag: "-r",
-    systemPromptFlag: "--rules",
-    agentFlag: "--agent",
-    resumeReinjection: "frozen",
   },
   envSpec: SHARED_ENV_SPEC,
-  injectionSpec: {
-    tier: "A",
-    flags: ["--rules", "--agent"],
-    description:
-      "--rules appends; --agent <file> appends frontmatter body (+ tools gating)",
-  },
   capabilityBadges: {
-    instructionInjection: "A",
     hooks: false,
     effortAtSpawn: true,
     sessionId: "pin",
@@ -932,7 +812,6 @@ export const GROK_TEMPLATE: ManagedTerminalTemplate = {
     stateFeed: "OSC → grid",
     attentionSource: "OSC title Action Required + footer/grid",
     labels: [
-      "injection A",
       "OSC + grid",
       "effort",
       "session pin",
@@ -948,7 +827,7 @@ export const GROK_TEMPLATE: ManagedTerminalTemplate = {
 };
 
 /**
- * Hermes — Tier B, capture session, remote-capable.
+ * Hermes — capture session, remote-capable.
  *
  * Re-probed 0.21.0 (2026-09-11):
  * - `--reasoning LEVEL` is a spawn flag on root and `hermes chat`
@@ -997,17 +876,9 @@ export const HERMES_TEMPLATE: ManagedTerminalTemplate = {
     profileFlag: "--profile",
     resumeMode: "flag",
     resumeFlag: "-r",
-    resumeReinjection: "re-pass",
   },
   envSpec: SHARED_ENV_SPEC,
-  injectionSpec: {
-    tier: "B",
-    flags: [],
-    description:
-      "No system-prompt flag — doctrine delivered as the first typed message",
-  },
   capabilityBadges: {
-    instructionInjection: "B",
     hooks: false,
     effortAtSpawn: true,
     // state.db proves a session id, so cold resume is real; the badge used to
@@ -1018,7 +889,6 @@ export const HERMES_TEMPLATE: ManagedTerminalTemplate = {
     stateFeed: "OSC (--tui only) → grid",
     attentionSource: "OSC title ⚠",
     labels: [
-      "injection B",
       "OSC + grid",
       "effort",
       "capture session",
@@ -1033,20 +903,18 @@ export const HERMES_TEMPLATE: ManagedTerminalTemplate = {
 // ── Five 2026-08 harnesses (2026-08 agent-CLI sweep) ─────
 
 /**
- * Pi (earendil-works pi-coding-agent) — Tier A, session pin, RPC/JSON embed.
+ * Pi (earendil-works pi-coding-agent) — session pin, RPC/JSON embed.
  * Verified 0.83.0: positional prompt; --thinking effort (7 levels);
  * --session-id pin (create-if-missing, uuidv7); non-interactive resume is
  * `--session <path|partial-id>` (NOT -r, which opens a picker);
- * --append-system-prompt repeatable; --tools/--exclude-tools allowlists;
+ * --tools/--exclude-tools allowlists;
  * no per-command permission mode (--approve gates project-local trust only).
  *
  * Re-probed 0.85.1 (2026-09-11): every template-owned spawn flag still
  * exists on `pi --help` and official usage.md. Changelog 0.84.0–0.85.1
  * is additive TUI, theme, and observer surface (`--tui-mode`, `--use-theme`,
  * `/thinking`, `ui_prompt_start` / `ui_prompt_end`); none rename or remove
- * `--model`, `--thinking`, `--session-id`, `--session`, or
- * `--append-system-prompt`. `resumeReinjection: "re-pass"` is the 2026-08
- * receipt and was not re-canaried on 0.85.1 (UNVERIFIED).
+ * `--model`, `--thinking`, `--session-id`, or `--session`.
  */
 export const PI_TEMPLATE: ManagedTerminalTemplate = {
   harness: "pi",
@@ -1061,17 +929,9 @@ export const PI_TEMPLATE: ManagedTerminalTemplate = {
     sessionIdFlag: "--session-id",
     resumeMode: "flag",
     resumeFlag: "--session",
-    systemPromptFlag: "--append-system-prompt",
-    resumeReinjection: "re-pass",
   },
   envSpec: SHARED_ENV_SPEC,
-  injectionSpec: {
-    tier: "A",
-    flags: ["--append-system-prompt"],
-    description: "System prompt appended at spawn via --append-system-prompt (repeatable)",
-  },
   capabilityBadges: {
-    instructionInjection: "A",
     hooks: false,
     effortAtSpawn: true,
     sessionId: "pin",
@@ -1079,7 +939,7 @@ export const PI_TEMPLATE: ManagedTerminalTemplate = {
     requiresGitCwd: false,
     stateFeed: "grid → OSC133 (extension/RPC optional)",
     attentionSource: "grid (trust/confirm dialogs)",
-    labels: ["injection A", "grid + OSC133", "effort", "session pin"],
+    labels: ["grid + OSC133", "effort", "session pin"],
   },
   mailTransport: HARNESS_MAIL_TRANSPORT.pi,
   isolation: HARNESS_ISOLATION.pi,
@@ -1087,21 +947,19 @@ export const PI_TEMPLATE: ManagedTerminalTemplate = {
 };
 
 /**
- * Prime Agent (stock separately installed `prime-agent` CLI) — shipped Tier A,
+ * Prime Agent (stock separately installed `prime-agent` CLI) —
  * capture session, with a built-in reporter (idle/working/blocked + session id).
  * Verified 0.7.1: positional prompt; --thinking effort (7 levels); resume
  * `-r <path|id>` / `-c` (no pin flag — capture from reporter / list --json);
- * --append-system-prompt repeatable; no permission-mode flag (--autonomous is
+ * no permission-mode flag (--autonomous is
  * unattended mode, not an approval enum). Junto owns one isolated
  * foreground daemon per live binding. Its unique --daemon-socket is runtime
  * launch state and must never enter this authorial argv template.
  *
  * Re-probed 0.9.4 (2026-09-11): every template-owned spawn flag still exists
  * on `prime-agent --help` and official usage.md. Changelog 0.7.2–0.9.4 does
- * not rename or remove `--model`, `--thinking`, `-r` / `--resume`, or
- * `--append-system-prompt`. Daemon admission is `>= 0.7.1`, not an exact pin.
- * `resumeReinjection: "unprobed"` stays — append-on-cold-`-r` was not
- * canaried (UNVERIFIED). Remote SSH TUI was not re-probed (UNVERIFIED).
+ * not rename or remove `--model`, `--thinking`, or `-r` / `--resume`.
+ * Daemon admission is `>= 0.7.1`, not an exact pin. Remote SSH TUI was not re-probed (UNVERIFIED).
  */
 export const PRIME_AGENT_TEMPLATE: ManagedTerminalTemplate = {
   harness: "prime-agent",
@@ -1115,17 +973,9 @@ export const PRIME_AGENT_TEMPLATE: ManagedTerminalTemplate = {
     effortFlag: "--thinking",
     resumeMode: "flag",
     resumeFlag: "-r",
-    systemPromptFlag: "--append-system-prompt",
-    resumeReinjection: "unprobed",
   },
   envSpec: SHARED_ENV_SPEC,
-  injectionSpec: {
-    tier: "A",
-    flags: ["--append-system-prompt"],
-    description: "System prompt appended at spawn via --append-system-prompt (repeatable)",
-  },
   capabilityBadges: {
-    instructionInjection: "A",
     // Stock built-in lifecycle hooks report per session with zero config writes.
     hooks: true,
     effortAtSpawn: true,
@@ -1137,7 +987,6 @@ export const PRIME_AGENT_TEMPLATE: ManagedTerminalTemplate = {
     stateFeed: "built-in reporter → OSC9/133 + grid",
     attentionSource: "built-in blocked events → grid overlays",
     labels: [
-      "injection A",
       "built-in reporter",
       "zero-write hooks",
       "effort",
@@ -1152,7 +1001,7 @@ export const PRIME_AGENT_TEMPLATE: ManagedTerminalTemplate = {
 };
 
 /**
- * Kimi Code (Moonshot) — Tier A by agent file, capture session, native hook feed.
+ * Kimi Code (Moonshot) — capture session, native hook feed.
  * Verified 0.29.0: NO argv prompt slot in the TUI (promptMode "none"); -m model;
  * --yolo/--auto approval (no enum); resume `-S <id>` (never bare `-S` / `-c`);
  * no pin. 20-event JSON-stdin hooks (PermissionRequest→blocked) live in the
@@ -1165,13 +1014,6 @@ export const PRIME_AGENT_TEMPLATE: ManagedTerminalTemplate = {
  *   post-first-message scrape, never a startup receipt. Whether the card
  *   fills after the first turn is UNVERIFIED. Durable proof is
  *   `~/.kimi-code/sessions/<workDirKey>/<id>/` (`kimiSessionExists`).
- * - `--agent-file <path>` still loads a Markdown agent whose body IS the
- *   system prompt (2026-08-25 canary). Frontmatter is pre-flight — a bad key
- *   exits 1 — so `agent-file-spec` emits only name/description/tools.
- * - `--agent-file` cannot combine with `-S` / `--session` / `--continue`.
- *   Live 0.34.0 exits 1: "Cannot combine --agent/--agent-file with
- *   --session/--continue". `resumeReinjection` stays frozen; `buildArgv`
- *   never emits that pair.
  */
 export const KIMI_TEMPLATE: ManagedTerminalTemplate = {
   harness: "kimi",
@@ -1185,21 +1027,9 @@ export const KIMI_TEMPLATE: ManagedTerminalTemplate = {
     permissionModeFlag: "--yolo",
     resumeMode: "flag",
     resumeFlag: "-S",
-    // The Tier-A carrier is a FILE, not a prompt string: `--agent-file <path>`
-    // loads a Markdown agent definition whose body becomes the system prompt.
-    // `agent-file-spec` (main) writes that file; the resolver only mounts it.
-    agentFlag: "--agent-file",
-    resumeReinjection: "frozen",
   },
   envSpec: SHARED_ENV_SPEC,
-  injectionSpec: {
-    tier: "A",
-    flags: ["--agent-file"],
-    description:
-      "Agent definition at spawn via --agent-file; the file body is the system prompt",
-  },
   capabilityBadges: {
-    instructionInjection: "A",
     hooks: false,
     effortAtSpawn: false,
     sessionId: "capture",
@@ -1207,15 +1037,9 @@ export const KIMI_TEMPLATE: ManagedTerminalTemplate = {
     requiresGitCwd: false,
     stateFeed: "hook feed → grid",
     attentionSource: "PermissionRequest hook → grid approval panel",
-    // `--agent-file` cannot combine with `--session`/`--continue`, so a resumed
-    // Kimi seat can never be re-briefed on argv: it keeps the doctrine its
-    // first generation was given and falls back to typed delivery.
     labels: [
-      "injection A",
-      "agent file",
       "hook feed",
       "capture session",
-      "doctrine at creation",
     ],
   },
   mailTransport: HARNESS_MAIL_TRANSPORT.kimi,
@@ -1224,7 +1048,7 @@ export const KIMI_TEMPLATE: ManagedTerminalTemplate = {
 };
 
 /**
- * Muse Code (Meta; codex-fork family) — Tier B, capture session, grid feed.
+ * Muse Code (Meta; codex-fork family) — capture session, grid feed.
  * Verified 0.1.0-R708.1: positional prompt; --model; --reasoning-effort
  * (none..ultra); --yolo/--approval-mode safety stack; resume is a
  * SUBCOMMAND (`muse resume <uuid>` — root options allowed on either side);
@@ -1232,11 +1056,6 @@ export const KIMI_TEMPLATE: ManagedTerminalTemplate = {
  * responsive host (bracketed paste + OSC palette + DSR cursor-position).
  *
  * Re-probed 0.2.1 (2026-08-25):
- * - `--agents` is an agent-definition overlay, NOT a doctrine route. Its schema
- *   is strict {name, instructions, optional tools}, `systemPrompt` is rejected
- *   outright, unknown keys are silently dropped, and instructions demanding a
- *   canary prefix were never obeyed in main-session turns. Tier stays B; no
- *   agentFlag, no systemPromptFlag, nothing here advertises otherwise.
  * - The session id is never printed: a live PTY capture carries no UUID and the
  *   OSC title is the bare workspace name. It is the session directory's name
  *   (term/templates/muse-session.ts reads it back, workspace-scoped).
@@ -1258,13 +1077,10 @@ export const KIMI_TEMPLATE: ManagedTerminalTemplate = {
  *   second id-less latest-session form and must never be emitted (same as
  *   bare `muse resume`).
  * - `--session-id` remains TUI-rejected (exec-only). Seats stay capture-only.
- * - `systemPrompt` on `--agents` is still rejected. Tier stays B.
  * - Unanswered PTY still emits OSC 10/11 + OSC 4 + DSR; an 8s probe did not
  *   exit. Painting without answers is UNVERIFIED. The 0.2.1 fatal-exit claim
  *   is stale.
- * - `resumeReinjection: "re-pass"` is the 2026-08 receipt and was not
- *   re-canaried on 1.1.1 (UNVERIFIED). Root options still allowed on either
- *   side of `resume`.
+ * - Root options are still allowed on either side of `resume`.
  */
 export const MUSE_TEMPLATE: ManagedTerminalTemplate = {
   harness: "muse",
@@ -1280,16 +1096,9 @@ export const MUSE_TEMPLATE: ManagedTerminalTemplate = {
     resumeMode: "subcommand",
     // Explicit, so the bare-`resume` picker can never be reached by defaulting.
     resumeSubcommand: ["resume"],
-    resumeReinjection: "re-pass",
   },
   envSpec: SHARED_ENV_SPEC,
-  injectionSpec: {
-    tier: "B",
-    flags: [],
-    description: "No system-prompt flag — doctrine delivered as the first typed message",
-  },
   capabilityBadges: {
-    instructionInjection: "B",
     hooks: false,
     effortAtSpawn: true,
     sessionId: "capture",
@@ -1297,7 +1106,7 @@ export const MUSE_TEMPLATE: ManagedTerminalTemplate = {
     requiresGitCwd: false,
     stateFeed: "grid (positive-signal readiness)",
     attentionSource: "grid (approval/trust dialogs)",
-    labels: ["injection B", "grid", "effort", "capture session"],
+    labels: ["grid", "effort", "capture session"],
   },
   mailTransport: HARNESS_MAIL_TRANSPORT.muse,
   isolation: HARNESS_ISOLATION.muse,
@@ -1305,7 +1114,7 @@ export const MUSE_TEMPLATE: ManagedTerminalTemplate = {
 };
 
 /**
- * Devin CLI (Cognition) — Tier B, capture session, grid feed.
+ * Devin CLI (Cognition) — capture session, grid feed.
  * Re-probed 3000.10.21 (2026-09-11): positional prompt REQUIRES `--`
  * separator; `--model`; `--permission-mode` (`normal`, alias `auto`;
  * `accept-edits`; `smart`; `dangerous`, aliases `yolo` / `bypass`;
@@ -1314,19 +1123,11 @@ export const MUSE_TEMPLATE: ManagedTerminalTemplate = {
  * `defaultPermissionMode: "normal"` is still accepted. Resume is
  * `-r <id>` exact; bare `-r` is a picker and is never emitted. No pin.
  *
- * `--agent-config` is gone. 3000.4.16 and 3000.10.21 both answer
- * `error: unexpected argument '--agent-config' found` and exit 2. There
- * is no argv replacement (`--system-prompt`, `--rules`, `--agent` are
- * also rejected). File doctrine (`AGENTS.md`, `.devin/rules`) is
- * workspace/user config, not a spawn flag. Doctrine stays the first
- * typed message.
- *
  * Session capture is a lookup, not a scrape: Devin prints its slug id
  * nowhere, and writes `session_locks/<slug>.lock` from a descendant of
  * the spawned process. `devin-session-capture` matches the lock's PID
  * against the spawn's process tree; the id becomes durable only once
  * Devin's own `sessions` row exists, which is what `-r <id>` reads.
- * `resumeReinjection` stays `unprobed`.
  */
 export const DEVIN_TEMPLATE: ManagedTerminalTemplate = {
   harness: "devin",
@@ -1341,17 +1142,9 @@ export const DEVIN_TEMPLATE: ManagedTerminalTemplate = {
     permissionModeFlag: "--permission-mode",
     resumeMode: "flag",
     resumeFlag: "-r",
-    resumeReinjection: "unprobed",
   },
   envSpec: SHARED_ENV_SPEC,
-  injectionSpec: {
-    tier: "B",
-    flags: [],
-    description:
-      "No system-prompt flag — doctrine delivered as the first typed message",
-  },
   capabilityBadges: {
-    instructionInjection: "B",
     hooks: false,
     effortAtSpawn: false,
     sessionId: "capture",
@@ -1359,7 +1152,7 @@ export const DEVIN_TEMPLATE: ManagedTerminalTemplate = {
     requiresGitCwd: false,
     stateFeed: "grid (❭ prompt + footers)",
     attentionSource: "grid (permission/trust footers)",
-    labels: ["injection B", "grid", "permission enum", "capture session"],
+    labels: ["grid", "permission enum", "capture session"],
   },
   mailTransport: HARNESS_MAIL_TRANSPORT.devin,
   isolation: HARNESS_ISOLATION.devin,
@@ -1376,10 +1169,9 @@ export const isSandboxGatedPermissionMode = (mode: string): boolean =>
   mode === "autonomous";
 
 /**
- * Cursor Agent CLI (binary: `cursor-agent`) — Tier B, session PIN, grid feed.
+ * Cursor Agent CLI (binary: `cursor-agent`) — session PIN, grid feed.
  * Verified 2026.08.11: positional prompt; --model; --yolo/--force allow-all;
- * --resume <id> named only; --trust skips the workspace-trust modal. No public
- * system-prompt flag.
+ * --resume <id> named only; --trust skips the workspace-trust modal.
  *
  * Re-probed 2026-08-25 and two facts changed the shape:
  * - `--new-session-id <uuid>` starts a session with a caller-provided id, so
@@ -1399,11 +1191,6 @@ export const isSandboxGatedPermissionMode = (mode: string): boolean =>
  * - Non-effort brackets still work (`composer-2.5[fast=false]`).
  * - `--new-session-id` remains hidden from `--help` and official parameters
  *   but still pins. `create-chat` still returns a UUID with no disk receipt.
- * - Hidden `--system-prompt <file>` is client-parsed then API-rejected.
- *   Tier stays B. Whether a future server honors it is UNVERIFIED.
- * - `resumeReinjection: "re-pass"` is the 2026-08 receipt. `--model` is
- *   parsed on resume; typed TUI doctrine re-brief was not re-smoked
- *   (UNVERIFIED).
  *
  * Binary name re-probed 2026.09.15-d2fe57e (2026-09-18):
  * - The installer links BOTH `agent` and `cursor-agent` at the same target, so
@@ -1435,17 +1222,9 @@ export const CURSOR_TEMPLATE: ManagedTerminalTemplate = {
     sessionIdFlag: "--new-session-id",
     resumeMode: "flag",
     resumeFlag: "--resume",
-    resumeReinjection: "re-pass",
   },
   envSpec: SHARED_ENV_SPEC,
-  injectionSpec: {
-    tier: "B",
-    flags: [],
-    description:
-      "No public system-prompt flag — doctrine delivered as the first typed message",
-  },
   capabilityBadges: {
-    instructionInjection: "B",
     hooks: false,
     // True only with a model: the hyphenated slug has nothing to attach to otherwise.
     effortAtSpawn: true,
@@ -1454,7 +1233,7 @@ export const CURSOR_TEMPLATE: ManagedTerminalTemplate = {
     requiresGitCwd: false,
     stateFeed: "grid (alt buffer)",
     attentionSource: "grid (approval forms)",
-    labels: ["injection B", "grid", "effort in model", "session pin"],
+    labels: ["grid", "effort in model", "session pin"],
   },
   mailTransport: HARNESS_MAIL_TRANSPORT.cursor,
   isolation: HARNESS_ISOLATION.cursor,
@@ -1474,35 +1253,22 @@ export const CURSOR_TEMPLATE: ManagedTerminalTemplate = {
 };
 
 /**
- * Antigravity CLI (Google Antigravity; binary: `agy`) — Tier A, capture session, grid feed.
+ * Antigravity CLI (Google Antigravity; binary: `agy`) — capture session, grid feed.
  * Verified 1.1.13: `-i <prompt>` auto-submit; `--model`; `--effort` (low|medium|high);
- * `--dangerously-skip-permissions`; `--agent`; `--conversation <id>` resume.
+ * `--dangerously-skip-permissions`; `--conversation <id>` resume.
  *
- * Re-probed 1.1.20 for injection: there is still no system-prompt flag, but
- * `--add-dir <dir>` (repeatable) mounts a directory into the workspace and an
- * `AGENTS.md` inside it loads as project doctrine — confirmed by a canary rule
- * obeyed from an added dir while the cwd carried no `AGENTS.md` at all. That
- * makes doctrine a spawn-time fact rather than a typed first message, so agy is
- * Tier A through the app-owned ephemeral rules dir (never the user workspace).
+ * Re-probed 1.1.20:
  * `--conversation <id>` resume was re-verified on the same build: a token
  * stated in one print-mode turn came back on the resumed conversation.
  *
  * Re-probed 1.2.1 (2026-09-11):
  * - Every claimed spawn flag still exists on `agy --help`. Installed
  *   `agy --version` and GitHub latest are both 1.2.1.
- * - Official best-practices now say a workspace-root `AGENTS.md` or
- *   `GEMINI.md` is parsed on startup. That contradicts the 1.1.20
- *   cwd-negative receipt. Junto still mounts ONLY the app-owned
- *   rules dir via `--add-dir` and never writes the operator workspace.
- *   Whether the `--add-dir` mount itself is still obeyed on 1.2.1 is
- *   UNVERIFIED (flag exists; canary not re-run).
  * - Permission-prompt copy since 1.1.28 names the action (`Run this
  *   command?`, `Allow access to this URL?`, `Allow calling this tool?`)
  *   plus an optional `Reason:` line. Attention matchers follow that copy
  *   and still accept the older `requesting permission for:` form.
  * - `--mode accept-edits|plan` is additive and is not a template dial.
- * - `resumeReinjection: "re-pass"` is the 2026-08 receipt and was not
- *   re-canaried on 1.2.1 (UNVERIFIED).
  */
 export const AGY_TEMPLATE: ManagedTerminalTemplate = {
   harness: "agy",
@@ -1515,21 +1281,11 @@ export const AGY_TEMPLATE: ManagedTerminalTemplate = {
     modelFlag: "--model",
     effortFlag: "--effort",
     permissionModeFlag: "--dangerously-skip-permissions",
-    agentFlag: "--agent",
-    rulesDirFlag: "--add-dir",
     resumeMode: "flag",
     resumeFlag: "--conversation",
-    resumeReinjection: "re-pass",
   },
   envSpec: SHARED_ENV_SPEC,
-  injectionSpec: {
-    tier: "A",
-    flags: ["--add-dir"],
-    description:
-      "Doctrine is an AGENTS.md in an app-owned ephemeral rules dir mounted with --add-dir",
-  },
   capabilityBadges: {
-    instructionInjection: "A",
     hooks: false,
     effortAtSpawn: true,
     sessionId: "capture",
@@ -1539,7 +1295,6 @@ export const AGY_TEMPLATE: ManagedTerminalTemplate = {
     attentionSource:
       "permission prompt (Run this command?, Allow access to this URL?, Allow calling this tool?)",
     labels: [
-      "injection A",
       "grid",
       "effort",
       "capture session",
@@ -1553,7 +1308,7 @@ export const AGY_TEMPLATE: ManagedTerminalTemplate = {
 };
 
 /**
- * Amp CLI (Sourcegraph; binary: `amp`) — Tier B, provisioned thread, OSC → grid.
+ * Amp CLI (Sourcegraph; binary: `amp`) — provisioned thread, OSC → grid.
  *
  * Verified against 0.0.1787664850-g921ac7 by driving the real TUI in a PTY:
  * - `amp threads new --visibility private` printed one `T-<uuid>` and exited;
@@ -1562,7 +1317,6 @@ export const AGY_TEMPLATE: ManagedTerminalTemplate = {
  *   attaching the operator's editor selection to every message;
  * - the one dial is `-m low|medium|high|ultra` (model + system prompt + tools
  *   together) — Amp exposes no model flag and no independent effort;
- * - there is no session-scoped system-prompt flag, so doctrine is Tier B;
  * - startup paints the composer with an `∼ Connecting` footer and NO OSC title;
  *   a turn paints a braille-prefixed title and a `≈ Streaming` footer; a
  *   finished turn paints `<title> - amp - <cwd>`.
@@ -1574,7 +1328,7 @@ export const AGY_TEMPLATE: ManagedTerminalTemplate = {
  *   binaries is still a receipt.
  * - Named `threads continue <T-id>` still resumes (live `--no-ide -x` pong).
  *   Never `amp last`, `threads continue --last`, or bare `threads continue`.
- * - Dial, `--no-ide`, Tier B, and `resumeReinjection: "unprobed"` hold.
+ * - Dial and `--no-ide` hold.
  *   OSC/grid paint was not re-smoked on this build (UNVERIFIED).
  */
 export const AMP_TEMPLATE: ManagedTerminalTemplate = {
@@ -1586,23 +1340,15 @@ export const AMP_TEMPLATE: ManagedTerminalTemplate = {
     // Structural only: `--no-ide` decides what the seat IS (a standalone
     // terminal agent) rather than how it looks.
     prefix: ["--no-ide"],
-    // No argv prompt slot: the thread is resumed by subcommand, so doctrine
-    // and mail both ride the drive's typed path.
+    // No argv prompt slot: the thread is resumed by subcommand, so mail rides
+    // the drive's typed path.
     promptMode: "none",
     modeFlag: "-m",
     resumeMode: "subcommand",
     resumeSubcommand: ["threads", "continue"],
-    resumeReinjection: "unprobed",
   },
   envSpec: SHARED_ENV_SPEC,
-  injectionSpec: {
-    tier: "B",
-    flags: [],
-    description:
-      "No session-scoped system-prompt flag — doctrine is the first typed message",
-  },
   capabilityBadges: {
-    instructionInjection: "B",
     hooks: false,
     effortAtSpawn: false,
     sessionId: "provision",
@@ -1611,7 +1357,6 @@ export const AMP_TEMPLATE: ManagedTerminalTemplate = {
     stateFeed: "OSC title → grid (composer footer)",
     attentionSource: "approval footer (Waiting for Approval) + Ctrl+C menu",
     labels: [
-      "injection B",
       "OSC + grid",
       "mode",
       "provisioned thread",
@@ -1625,11 +1370,9 @@ export const AMP_TEMPLATE: ManagedTerminalTemplate = {
 };
 
 /**
- * fx (Vercel Labs; binary: `fx`) — Tier B, env dials, capture session, grid feed.
+ * fx (Vercel Labs; binary: `fx`) — env dials, capture session, grid feed.
  *
  * Probed 0.0.6 (2026-08-26) against the installed binary:
- * - No system-prompt or session-instructions flag anywhere on the CLI surface,
- *   so doctrine is Tier B, delivered as the first typed message.
  * - Model and permission mode are read from the environment (`FX_MODEL`,
  *   `FX_PERMISSION_MODE`). Effort is a provider-profile concern, not a dial
  *   fx exposes — omitted rather than faked.
@@ -1665,7 +1408,7 @@ export const FX_TEMPLATE: ManagedTerminalTemplate = {
   argvSpec: {
     binary: "fx",
     prefix: [],
-    // No argv prompt slot: doctrine and mail both ride the drive's typed path.
+    // No argv prompt slot: mail rides the drive's typed path.
     promptMode: "none",
     modelEnvKey: "FX_MODEL",
     permissionModeEnvKey: "FX_PERMISSION_MODE",
@@ -1673,17 +1416,9 @@ export const FX_TEMPLATE: ManagedTerminalTemplate = {
     resumeFlag: "--resume",
     // Untested: whether a resumed fx seat honours a typed re-brief. Unprobed
     // is treated as frozen until somebody proves otherwise.
-    resumeReinjection: "unprobed",
   },
   envSpec: SHARED_ENV_SPEC,
-  injectionSpec: {
-    tier: "B",
-    flags: [],
-    description:
-      "No system-prompt flag — doctrine delivered as the first typed message",
-  },
   capabilityBadges: {
-    instructionInjection: "B",
     hooks: false,
     effortAtSpawn: false,
     sessionId: "capture",
@@ -1691,7 +1426,7 @@ export const FX_TEMPLATE: ManagedTerminalTemplate = {
     requiresGitCwd: false,
     stateFeed: "OSC title + grid (no alt screen)",
     attentionSource: "unprobed — no approval-form capture yet",
-    labels: ["injection B", "grid", "env dials", "capture session"],
+    labels: ["grid", "env dials", "capture session"],
   },
   mailTransport: HARNESS_MAIL_TRANSPORT.fx,
   isolation: HARNESS_ISOLATION.fx,
@@ -1699,11 +1434,9 @@ export const FX_TEMPLATE: ManagedTerminalTemplate = {
 };
 
 /**
- * Oh My Pi (binary: `omp`) — Tier A, capture session, OSC title + grid.
+ * Oh My Pi (binary: `omp`) — capture session, OSC title + grid.
  *
  * Probed 18.0.9 (2026-08-28) against the installed binary and one live turn:
- * - `--append-system-prompt <text|file>` exists, so doctrine rides argv:
- *   Tier A, unlike the pi-family harnesses around it.
  * - `--model` (fuzzy), `--thinking off|minimal|low|medium|high|xhigh|max|auto`,
  *   `--approval-mode always-ask|write|yolo`, positional prompt.
  * - No session pin. Sessions land at
@@ -1716,19 +1449,13 @@ export const FX_TEMPLATE: ManagedTerminalTemplate = {
  *
  * Re-probed 18.1.16 (2026-09-11) on the installed binary (`omp --version`
  * prints `omp/18.1.16`):
- * - `--append-system-prompt` is last-write-wins, not repeatable. Help does
- *   not say "can be used multiple times" (unlike `--hook`). Installed
- *   `flag-tables.ts` assigns a single string. Junto already emits
- *   one flag; doctrine is one joined body, never two argv fragments.
  * - Session cwd encoding is three-way (installed `session-paths.ts`):
  *   home-relative `-…` (`-Projects-junto`), cwd under `os.tmpdir()` is
  *   `-tmp-…`, anything else is the abs wrap (`--private-tmp-omp-probe--`).
  *   This machine's tmpdir is `/var/folders/…/T`, so the 18.0.9
  *   `/private/tmp/omp-probe` tree stays the abs wrap.
- * - `resumeReinjection: "re-pass"` is the 2026-08 receipt and was not
- *   re-canaried on 18.1.16 (UNVERIFIED). Source still applies model,
- *   thinking, approval, and append on resume. `buildArgv` still re-passes
- *   every template-owned flag.
+ * - Source still applies model, thinking and approval on resume. `buildArgv`
+ *   still re-passes every template-owned flag.
  */
 export const OMP_TEMPLATE: ManagedTerminalTemplate = {
   harness: "omp",
@@ -1741,23 +1468,14 @@ export const OMP_TEMPLATE: ManagedTerminalTemplate = {
     modelFlag: "--model",
     effortFlag: "--thinking",
     permissionModeFlag: "--approval-mode",
-    systemPromptFlag: "--append-system-prompt",
     resumeMode: "flag",
     resumeFlag: "--resume",
     // Resume re-passes every dial: the flags are read from the new argv on a
     // resumed run, so a cold wake restores the model and thinking level the
     // seat was authored with instead of whatever the session last used.
-    resumeReinjection: "re-pass",
   },
   envSpec: SHARED_ENV_SPEC,
-  injectionSpec: {
-    tier: "A",
-    flags: ["--append-system-prompt"],
-    description:
-      "--append-system-prompt appends doctrine at spawn (one flag, last-write-wins)",
-  },
   capabilityBadges: {
-    instructionInjection: "A",
     hooks: false,
     effortAtSpawn: true,
     sessionId: "capture",
@@ -1765,7 +1483,7 @@ export const OMP_TEMPLATE: ManagedTerminalTemplate = {
     requiresGitCwd: false,
     stateFeed: "OSC title state machine + grid",
     attentionSource: "approval dialog (literals from the binary, uncaptured)",
-    labels: ["injection A", "OSC + grid", "thinking", "capture session"],
+    labels: ["OSC + grid", "thinking", "capture session"],
   },
   mailTransport: HARNESS_MAIL_TRANSPORT.omp,
   isolation: HARNESS_ISOLATION.omp,
@@ -1781,13 +1499,10 @@ export const JUNTO_OVERSEER_TEMPLATE: ManagedTerminalTemplate = {
     prefix: ["overseer-host"],
     promptMode: "none",
     modelFlag: "--model",
-    systemPromptFlag: "--instructions",
-    resumeReinjection: "re-pass",
   },
   envSpec: SHARED_ENV_SPEC,
-  injectionSpec: { tier: "A", flags: ["--instructions"], description: "App-owned structured run instructions" },
   capabilityBadges: {
-    instructionInjection: "A", hooks: false, effortAtSpawn: false,
+    hooks: false, effortAtSpawn: false,
     sessionId: "unavailable", remote: false, requiresGitCwd: false,
     stateFeed: "correlated run events", attentionSource: "structured run events",
     labels: ["live conversation", "correlated tools", "cancellation"],

@@ -77,7 +77,6 @@ describe("Live Overseer product gate", () => {
       spawnIntent: {
         documentLaunch: { kind: "harness", argv: ["junto", "overseer-host"] },
         resumeRequested: false,
-        injection: { seatBound: false, connected: false },
       },
     }))).rejects.toThrow(/disabled/u);
     expect(fake.controllers).toHaveLength(0);

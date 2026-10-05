@@ -1,16 +1,6 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { SeatStateRuntime } from "../src/main/junto/term/agent-state/runtime";
 import type { ObserverGridSnapshot } from "../src/main/junto/term/observer/types";
-import {
-  armFirstTypedMessage,
-  clearFirstTypedMessage,
-  resetFirstTypedForTest,
-  takeFirstTypedMessage,
-} from "../src/main/junto/term/first-typed";
-
-afterEach(() => {
-  resetFirstTypedForTest();
-});
 
 const snap = (
   bindingId: string,
@@ -123,7 +113,7 @@ describe("SeatStateRuntime idle gate", () => {
     rt.stop();
   });
 
-  it("muse fallback idle stays non-typeable without firstTyped doctrine", () => {
+  it("muse fallback idle is never typeable", () => {
     const rt = new SeatStateRuntime({ now: () => 3_000 });
     rt.bindHarness("muse1", "muse", "e1");
     rt.observe(
@@ -144,56 +134,6 @@ describe("SeatStateRuntime idle gate", () => {
     expect(rt.getState("muse1")).toBe("idle");
     expect(rt.machine.getSlot("muse1")?.confidence).toBe("low");
     expect(rt.isSeatIdle("muse1")).toBe(false);
-    rt.stop();
-  });
-
-  it("muse is typeable for firstTyped only when handshake paste is on", () => {
-    const rt = new SeatStateRuntime({ now: () => 4_000 });
-    rt.bindHarness("muse1", "muse", "e1");
-    armFirstTypedMessage("muse1", "## Worker doctrine\nonboard …");
-    rt.observe(
-      snap("muse1", {
-        lines: ["Muse Code 0.1.0"],
-        signals: {
-          title: "",
-          osc9: "",
-          modes: {
-            bracketedPaste: true,
-            synchronizedOutput: false,
-            altScreen: false,
-            mouseModes: [],
-          },
-        },
-      }),
-    );
-    expect(rt.isSeatIdle("muse1")).toBe(true);
-    // After doctrine is taken, gate closes again (no permanent inject).
-    takeFirstTypedMessage("muse1");
-    expect(rt.isSeatIdle("muse1")).toBe(false);
-    rt.stop();
-  });
-
-  it("muse firstTyped does not open paste before bracketed-paste handshake", () => {
-    const rt = new SeatStateRuntime({ now: () => 5_000 });
-    rt.bindHarness("muse1", "muse", "e1");
-    armFirstTypedMessage("muse1", "doctrine");
-    rt.observe(
-      snap("muse1", {
-        lines: ["booting"],
-        signals: {
-          title: "",
-          osc9: "",
-          modes: {
-            bracketedPaste: false,
-            synchronizedOutput: false,
-            altScreen: false,
-            mouseModes: [],
-          },
-        },
-      }),
-    );
-    expect(rt.isSeatIdle("muse1")).toBe(false);
-    clearFirstTypedMessage("muse1");
     rt.stop();
   });
 });

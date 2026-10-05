@@ -1,7 +1,7 @@
 /**
- * Focused composition tests: the seat delivery paths (injection supervisor,
- * first-typed doctrine) reach the seat through the destination drive. No raw
- * PTY bypass exists in the shared recipe.
+ * Focused composition tests: the seat delivery paths (injection supervisor)
+ * reach the seat through the destination drive. No raw PTY bypass exists in
+ * the shared recipe.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { WritePromptOptions } from "../src/main/junto/term/drive";
@@ -9,17 +9,8 @@ import type { ManagedPromptOutcome } from "../src/shared/managed-prompt";
 import { createManagedTerminalDrive } from "../src/main/junto/term/drive/managed-drive-factory";
 import { InjectionSupervisor } from "../src/main/junto/term/injection-supervisor";
 import {
-  armFirstTypedMessage,
-  clearDeliveredForBinding,
-  peekFirstTypedEntry,
-  peekFirstTypedMessage,
-  resetFirstTypedForTest,
-  takeFirstTypedEntryIfCurrent,
-} from "../src/main/junto/term/first-typed";
-import {
   composeFactoryDelivery,
   factoryDeliveryReadTag,
-  makeFactoryFirstTypedKick,
   makeFactoryWriteManagedPrompt,
   wireFactorySupervisor,
   type FactoryDeliveryDrive,
@@ -104,268 +95,6 @@ describe("makeFactoryWriteManagedPrompt", () => {
   );
 });
 
-describe("makeFactoryFirstTypedKick", () => {
-  it("consumes the armed doctrine only after a submitted outcome", async () => {
-    const drive = fakeDrive();
-    let armed: string | undefined = "doctrine body";
-    let seq = 1;
-    const taken: string[] = [];
-    const { kick } = makeFactoryFirstTypedKick({
-      firstTyped: {
-        peekEntry: () => (armed === undefined ? undefined : { text: armed, seq }),
-        takeEntryIfCurrent: (_b, s) => {
-          if (s !== seq || armed === undefined) return undefined;
-          taken.push("b1");
-          const text = armed;
-          armed = undefined;
-          return text;
-        },
-        clearDeliveredForBinding: () => {},
-      },
-      driveReady: () => true,
-      write: makeFactoryWriteManagedPrompt(drive, () => true),
-    });
-    kick("b1");
-    await Promise.resolve();
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(drive.writes).toHaveLength(1);
-    expect(drive.writes[0].options).toMatchObject({ awaitTurnStart: false });
-    expect(taken).toEqual(["b1"]);
-  });
-
-  it.each([refused(), unresolved()])("keeps the arm on $status", async (outcome) => {
-    const drive = fakeDrive();
-    drive.writePrompt = () => Promise.resolve(outcome);
-    let armed: string | undefined = "doctrine body";
-    const seq = 1;
-    let took = 0;
-    const { kick } = makeFactoryFirstTypedKick({
-      firstTyped: {
-        peekEntry: () => (armed === undefined ? undefined : { text: armed, seq }),
-        takeEntryIfCurrent: (_b, s) => {
-          if (s !== seq) return undefined;
-          took += 1;
-          return armed;
-        },
-        clearDeliveredForBinding: () => {},
-      },
-      driveReady: () => true,
-      write: makeFactoryWriteManagedPrompt(drive, () => true),
-    });
-    kick("b1");
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(took).toBe(0);
-    expect(armed).toBe("doctrine body");
-  });
-
-  it("holds one arm per binding while a kick is in flight", () => {
-    const drive = fakeDrive();
-    let calls = 0;
-    let resolveWrite!: (outcome: ManagedPromptOutcome) => void;
-    drive.writePrompt = () => {
-      calls += 1;
-      return new Promise<ManagedPromptOutcome>((resolve) => {
-        resolveWrite = resolve;
-      });
-    };
-    const { kick, inFlight } = makeFactoryFirstTypedKick({
-      firstTyped: {
-        peekEntry: () => ({ text: "doctrine", seq: 1 }),
-        takeEntryIfCurrent: (_b, s) => (s === 1 ? "doctrine" : undefined),
-        clearDeliveredForBinding: () => {},
-      },
-      driveReady: () => true,
-      write: makeFactoryWriteManagedPrompt(drive, () => true),
-    });
-    kick("b1");
-    kick("b1");
-    expect(calls).toBe(1);
-    expect(inFlight.has("b1")).toBe(true);
-    resolveWrite(submitted());
-  });
-
-  it("does nothing when the seat is not drive-ready", () => {
-    const drive = fakeDrive();
-    const { kick } = makeFactoryFirstTypedKick({
-      firstTyped: {
-        peekEntry: () => ({ text: "doctrine", seq: 1 }),
-        takeEntryIfCurrent: (_b, s) => (s === 1 ? "doctrine" : undefined),
-        clearDeliveredForBinding: () => {},
-      },
-      driveReady: () => false,
-      write: makeFactoryWriteManagedPrompt(drive, () => true),
-    });
-    kick("b1");
-    expect(drive.writes).toHaveLength(0);
-  });
-
-  it("late success never consumes a newer rearmed doctrine", async () => {
-    const drive = fakeDrive();
-    let resolveWrite!: (outcome: ManagedPromptOutcome) => void;
-    drive.writePrompt = () =>
-      new Promise<ManagedPromptOutcome>((resolve) => {
-        resolveWrite = resolve;
-      });
-    let armed: string | undefined = "generation-one";
-    let seq = 1;
-    const taken: string[] = [];
-    const { kick, inFlight } = makeFactoryFirstTypedKick({
-      firstTyped: {
-        peekEntry: () => (armed === undefined ? undefined : { text: armed, seq }),
-        takeEntryIfCurrent: (_b, s) => {
-          if (s !== seq || armed === undefined) return undefined;
-          taken.push(armed);
-          const text = armed;
-          armed = undefined;
-          return text;
-        },
-        clearDeliveredForBinding: () => {},
-      },
-      driveReady: () => true,
-      write: makeFactoryWriteManagedPrompt(drive, () => true),
-    });
-    kick("b1");
-    // Generation replacement rearms mid-flight with newer doctrine.
-    armed = "generation-two";
-    seq = 2;
-    resolveWrite(submitted());
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(taken).toEqual([]);
-    expect(armed).toBe("generation-two");
-    expect(inFlight.has("b1")).toBe(false);
-    // The newer doctrine remains kickable.
-    let secondCalls = 0;
-    drive.writePrompt = () => {
-      secondCalls += 1;
-      return Promise.resolve(submitted());
-    };
-    kick("b1");
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(secondCalls).toBe(1);
-    expect(taken).toEqual(["generation-two"]);
-  });
-
-  it("same-text rearm survives a late old success (real registry)", async () => {
-    // Reviewer scenario: arm T, old kick in flight, clear plus rearm of the
-    // IDENTICAL text. Text equality is not arm identity — the old success
-    // must not consume the new arm.
-    const drive = fakeDrive();
-    let resolveWrite!: (outcome: ManagedPromptOutcome) => void;
-    drive.writePrompt = () =>
-      new Promise<ManagedPromptOutcome>((resolve) => {
-        resolveWrite = resolve;
-      });
-    const { kick, inFlight } = makeFactoryFirstTypedKick({
-      firstTyped: {
-        peekEntry: peekFirstTypedEntry,
-        takeEntryIfCurrent: takeFirstTypedEntryIfCurrent,
-        clearDeliveredForBinding,
-      },
-      driveReady: () => true,
-      write: makeFactoryWriteManagedPrompt(drive, () => true),
-    });
-    armFirstTypedMessage("rearm-b", "identical doctrine");
-    kick("rearm-b");
-    clearDeliveredForBinding("rearm-b");
-    armFirstTypedMessage("rearm-b", "identical doctrine");
-    resolveWrite(submitted());
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(peekFirstTypedMessage("rearm-b")).toBe("identical doctrine");
-    expect(inFlight.has("rearm-b")).toBe(false);
-  });
-
-  it("same-body new idle before old settle re-kicks once (real registry)", async () => {
-    // Liveness: old seq1 in flight, generation clear plus IDENTICAL rearm
-    // (seq2), then a new idle before the old write settles. The old
-    // completion must neither consume the new arm nor strand it: exactly
-    // one re-kick delivers the new arm.
-    const drive = fakeDrive();
-    const resolvers: Array<(outcome: ManagedPromptOutcome) => void> = [];
-    let calls = 0;
-    drive.writePrompt = () => {
-      calls += 1;
-      return new Promise<ManagedPromptOutcome>((resolve) => {
-        resolvers.push(resolve);
-      });
-    };
-    const { kick, inFlight } = makeFactoryFirstTypedKick({
-      firstTyped: {
-        peekEntry: peekFirstTypedEntry,
-        takeEntryIfCurrent: takeFirstTypedEntryIfCurrent,
-        clearDeliveredForBinding,
-      },
-      driveReady: () => true,
-      write: makeFactoryWriteManagedPrompt(drive, () => true),
-    });
-    armFirstTypedMessage("live-b", "same body");
-    kick("live-b");
-    expect(calls).toBe(1);
-    clearDeliveredForBinding("live-b");
-    armFirstTypedMessage("live-b", "same body");
-    kick("live-b");
-    expect(calls).toBe(1);
-    resolvers[0](refused());
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(calls).toBe(2);
-    resolvers[1](submitted());
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(peekFirstTypedMessage("live-b")).toBeUndefined();
-    expect(inFlight.has("live-b")).toBe(false);
-  });
-
-  it("same-arm kicks while settling never retry-loop", async () => {
-    const drive = fakeDrive();
-    let calls = 0;
-    let resolveWrite!: (outcome: ManagedPromptOutcome) => void;
-    drive.writePrompt = () => {
-      calls += 1;
-      return new Promise<ManagedPromptOutcome>((resolve) => {
-        resolveWrite = resolve;
-      });
-    };
-    const { kick } = makeFactoryFirstTypedKick({
-      firstTyped: {
-        peekEntry: () => ({ text: "doctrine", seq: 1 }),
-        takeEntryIfCurrent: (_b, s) => (s === 1 ? "doctrine" : undefined),
-        clearDeliveredForBinding: () => {},
-      },
-      driveReady: () => true,
-      write: makeFactoryWriteManagedPrompt(drive, () => true),
-    });
-    kick("b1");
-    kick("b1");
-    resolveWrite(refused());
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(calls).toBe(1);
-  });
-
-  it("a rejected write releases the flight and keeps the arm", async () => {
-    const drive = fakeDrive();
-    drive.writePrompt = () => Promise.reject(new Error("seat gone"));
-    let armed: string | undefined = "doctrine body";
-    const seq = 7;
-    let took = 0;
-    const { kick, inFlight } = makeFactoryFirstTypedKick({
-      firstTyped: {
-        peekEntry: () => (armed === undefined ? undefined : { text: armed, seq }),
-        takeEntryIfCurrent: (_b, s) => {
-          if (s !== seq) return undefined;
-          took += 1;
-          return armed;
-        },
-        clearDeliveredForBinding: () => {},
-      },
-      driveReady: () => true,
-      write: makeFactoryWriteManagedPrompt(drive, () => true),
-    });
-    kick("b1");
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(took).toBe(0);
-    expect(armed).toBe("doctrine body");
-    expect(inFlight.has("b1")).toBe(false);
-  });
-});
-
 describe("wireFactorySupervisor", () => {
   it.each([submitted(), refused(), unresolved()])(
     "only accepts a submitted supervisor notice, outcome $status",
@@ -436,11 +165,10 @@ describe("factoryDeliveryReadTag", () => {
 });
 
 describe("composeFactoryDelivery", () => {
-  const harness = (armed = new Map<string, string>()) => {
+  const harness = () => {
     const drive = fakeDrive();
     const seatListeners: Array<(event: never) => void> = [];
     const noted: unknown[] = [];
-    const cleared: string[] = [];
     const unsubs: string[] = [];
     const composed = composeFactoryDelivery({
       drive,
@@ -468,41 +196,21 @@ describe("composeFactoryDelivery", () => {
       escalate: () => {},
       pulse: { setDeliver: () => {} },
       board: { configure: () => {} },
-      firstTyped: {
-        peekEntry: (b) => {
-          const text = armed.get(b);
-          return text === undefined ? undefined : { text, seq: 1 };
-        },
-        takeEntryIfCurrent: (b, s) => (s === 1 ? armed.get(b) : undefined),
-        clearDeliveredForBinding: (b) => {
-          cleared.push(b);
-        },
-      },
     });
-    return { drive, composed, seatListeners, noted, cleared, unsubs };
+    return { drive, composed, seatListeners, noted, unsubs };
   };
 
-  it("notes every seat state and clears doctrine when a seat is gone", () => {
+  it("notes every seat state", () => {
     const h = harness();
     h.seatListeners[0]({ bindingId: "b1", state: "working" } as never);
     h.seatListeners[0]({ bindingId: "b2", state: "gone" } as never);
     expect(h.noted).toHaveLength(2);
-    expect(h.cleared).toEqual(["b2"]);
   });
 
   it("dispose closes every subscription it opened", () => {
     const h = harness();
     h.composed.dispose();
     expect(h.unsubs).toEqual(expect.arrayContaining(["seat", "snapshots"]));
-  });
-
-  it("exposes a doctrine kick for the runtime pre-idle hook", async () => {
-    const h = harness(new Map([["b9", "doctrine"]]));
-    h.composed.kickFirstTyped("b9");
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(
-      h.drive.writes.some((w) => w.bindingId === "b9" && w.text === "doctrine"),
-    ).toBe(true);
   });
 });
 
@@ -532,34 +240,8 @@ describe("real destination-drive composition", () => {
 
   afterEach(() => {
     drive?.resetForTest();
-    resetFirstTypedForTest();
     writes.length = 0;
     vi.useRealTimers();
-  });
-
-  it("kicks armed doctrine through the real drive recipe", async () => {
-    const d = boot();
-    armFirstTypedMessage("real-b1", "doctrine body");
-    const write = makeFactoryWriteManagedPrompt(d, () => true);
-    const { kick } = makeFactoryFirstTypedKick({
-      firstTyped: {
-        peekEntry: peekFirstTypedEntry,
-        takeEntryIfCurrent: takeFirstTypedEntryIfCurrent,
-        clearDeliveredForBinding,
-      },
-      driveReady: () => true,
-      write,
-    });
-    kick("real-b1");
-    await new Promise((resolve) => setTimeout(resolve, 250));
-    expect(peekFirstTypedMessage("real-b1")).toBeUndefined();
-    const payload = writes
-      .filter((w) => w.bindingId === "real-b1")
-      .map((w) => w.data)
-      .join("");
-    expect(payload).toContain("doctrine body");
-    // Paste and CR are separate writes — never joined, never LF.
-    expect(writes.filter((w) => w.bindingId === "real-b1").length).toBeGreaterThanOrEqual(2);
   });
 
   it("preserves the writer promise through supervisor wiring", async () => {

@@ -14,7 +14,6 @@ import {
   terminalObserverPlane,
 } from "../src/main/junto/term/observer";
 import type { ObserverGridSnapshot } from "../src/main/junto/term/observer/types";
-import { resetFirstTypedForTest } from "../src/main/junto/term/first-typed";
 
 const HR = "─".repeat(40);
 const IDLE_EMPTY = [HR, "❯ ", HR, "footer"];
@@ -50,7 +49,6 @@ const paint = (lines: readonly string[]): string =>
   "\x1b[2J\x1b[H" + lines.join("\r\n");
 
 afterEach(() => {
-  resetFirstTypedForTest();
   terminalObserverPlane.disposeAll();
 });
 

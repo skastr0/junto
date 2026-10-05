@@ -64,7 +64,6 @@ const actorSpec = (bindingId: string, hostId?: string): ActorOccupySpec => ({
   spawnIntent: {
     documentLaunch: { kind: "harness", argv: ["grok"], cwd: "/tmp" },
     resumeRequested: false,
-    injection: { seatBound: true, connected: false },
   },
   ...(hostId === undefined ? {} : { hostId }),
 });

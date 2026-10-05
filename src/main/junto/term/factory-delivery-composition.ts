@@ -2,7 +2,7 @@
  * Shared factory-delivery composition.
  *
  * The product delivery paths — kernel pulses, the injection supervisor,
- * board wakes, and first-typed doctrine — all reach a managed seat PTY
+ * and board wakes — all reach a managed seat PTY
  * through one destination drive. Command Center and the packaged Node
  * Remote both compose them here; mailbox mail is Command Center-only (actor
  * mailboxes are CC-homed) and is wired beside this in `ipc.ts` through the
@@ -91,17 +91,6 @@ export type FactoryDeliveryBoard = {
   readonly configure: (transport: BoardDeliveryTransport) => void;
 };
 
-export type FactoryDeliveryFirstTyped = {
-  readonly peekEntry: (
-    bindingId: string,
-  ) => { readonly text: string; readonly seq: number } | undefined;
-  readonly takeEntryIfCurrent: (
-    bindingId: string,
-    seq: number,
-  ) => string | undefined;
-  readonly clearDeliveredForBinding: (bindingId: string) => void;
-};
-
 /**
  * One perf tag per delivery call site — a read loop must name its driver.
  * Identical vocabulary on both runtimes so the perf tape stays comparable.
@@ -131,67 +120,6 @@ export const makeFactoryWriteManagedPrompt = (
       ready: options?.ready ?? driveReady(bindingId),
       ...(options ?? {}),
     });
-
-/**
- * First-typed doctrine kick: peek first, consume only after a successful
- * physical paste+CR. No turn-start wait — weak-chrome harnesses never
- * publish working, so a stall watch would leave the arm live and re-paste
- * on every idle re-entry. One arm at a time per binding.
- *
- * Arm ownership: the completing write consumes the arm only when the live
- * arm still carries the seq it sent (takeEntryIfCurrent) — text equality
- * is not identity. A generation replacement that rearms mid-flight keeps
- * its newer doctrine; a late success must never eat it. Rejections release
- * the flight without consuming anything and schedule no retry.
- *
- * Liveness: the flight is owned per arm seq, not per binding. A new idle
- * that finds an older arm still settling remembers one re-kick; when the
- * old write settles, the re-kick fires once if the newer arm is still live
- * and the drive is ready. Without this, a same-text rearm stranded behind
- * a slow old write would wait for an idle that never comes on weak-chrome
- * seats.
- */
-export const makeFactoryFirstTypedKick = (input: {
-  readonly firstTyped: FactoryDeliveryFirstTyped;
-  readonly driveReady: (bindingId: string) => boolean;
-  readonly write: FactoryWritePrompt;
-}): {
-  readonly kick: (bindingId: string) => void;
-  readonly inFlight: ReadonlyMap<string, number>;
-} => {
-  const inFlight = new Map<string, number>();
-  const pendingRekick = new Set<string>();
-  const kick = (bindingId: string): void => {
-    const arm = input.firstTyped.peekEntry(bindingId);
-    if (!arm || !input.driveReady(bindingId)) return;
-    const owner = inFlight.get(bindingId);
-    if (owner !== undefined) {
-      // An older arm is still settling. Remember one re-kick only when a
-      // strictly newer arm is live; the same arm refusing must never loop.
-      if (arm.seq !== owner) pendingRekick.add(bindingId);
-      return;
-  input.supervisor.setComposerLookup(input.composerVerdict);
-    }
-    inFlight.set(bindingId, arm.seq);
-    void input
-      .write(bindingId, arm.text, { awaitTurnStart: false })
-      .then(
-        (outcome) => {
-          if (isPromptSubmitted(outcome)) {
-            input.firstTyped.takeEntryIfCurrent(bindingId, arm.seq);
-          }
-        },
-        () => {},
-      )
-      .finally(() => {
-        // Stale-finally fence: only the owning completion releases the
-        // flight it opened.
-        if (inFlight.get(bindingId) === arm.seq) inFlight.delete(bindingId);
-        if (pendingRekick.delete(bindingId)) kick(bindingId);
-      });
-  };
-  return { kick, inFlight };
-};
 
 /**
  * Kernel pulse transport through the destination drive. Returns the
@@ -242,6 +170,7 @@ export const wireFactorySupervisor = (input: {
     listener: (snap: ObserverGridSnapshot) => void,
   ) => () => void;
 }): (() => void) => {
+  input.supervisor.setComposerLookup(input.composerVerdict);
   input.supervisor.setWriter((bindingId, text) =>
     input.write(bindingId, text, { queueIfBusy: false }).then(isPromptSubmitted),
   );
@@ -259,30 +188,22 @@ export type ComposeFactoryDeliveryInput = {
   readonly composerVerdict: (bindingId: string) => "empty" | "draft" | null;
   readonly pulse: FactoryDeliveryPulse;
   readonly board: FactoryDeliveryBoard;
-  readonly firstTyped: FactoryDeliveryFirstTyped;
 };
 
 export type ComposedFactoryDelivery = {
   readonly write: FactoryWritePrompt;
-  readonly kickFirstTyped: (bindingId: string) => void;
   readonly dispose: () => void;
 };
 
 /**
- * Compose pulse, supervisor, board, and first-typed delivery through one
- * destination drive. Returns the writer plus the doctrine kick (for the
- * runtime's pre-idle hook) and a dispose closing every subscription this
+ * Compose pulse, supervisor, and board delivery through one destination
+ * drive. Returns the writer and a dispose closing every subscription this
  * call opened.
  */
 export const composeFactoryDelivery = (
   input: ComposeFactoryDeliveryInput,
 ): ComposedFactoryDelivery => {
   const write = makeFactoryWriteManagedPrompt(input.drive, input.driveReady);
-  const { kick } = makeFactoryFirstTypedKick({
-    firstTyped: input.firstTyped,
-    driveReady: input.driveReady,
-    write,
-  });
 
   factoryPulseTransport({
     pulse: input.pulse,
@@ -304,15 +225,11 @@ export const composeFactoryDelivery = (
   unsubs.push(
     input.events.subscribeSeatState((event) => {
       input.supervisor.noteSeatState(event);
-      if (event.state === "gone") {
-        input.firstTyped.clearDeliveredForBinding(event.bindingId);
-      }
     }),
   );
 
   return {
     write,
-    kickFirstTyped: kick,
     dispose: () => {
       for (const unsub of unsubs) {
         try {

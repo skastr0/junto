@@ -68,15 +68,9 @@ export const reservedLaunchFlags = (
   reserve(spec.providerFlag, "set by the provider choice");
   reserve(spec.sessionIdFlag, "Junto pins the seat's session");
   reserve(spec.resumeFlag, "Junto resumes the seat's session");
-  reserve(spec.systemPromptFlag, "Junto carries the seat's instructions here");
-  reserve(spec.agentFlag, "Junto carries the seat's instructions here");
-  reserve(spec.rulesDirFlag, "Junto carries the seat's instructions here");
   for (const flag of spec.prefix) reserve(flag, "always part of this launch");
   for (const flag of spec.hostProbedFlags ?? []) {
     reserve(flag, "always part of this launch");
-  }
-  for (const flag of spec.resumeReinjectionArgv ?? []) {
-    reserve(flag, "Junto carries the seat's instructions here");
   }
   return reserved;
 };

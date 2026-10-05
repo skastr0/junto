@@ -288,13 +288,13 @@ export const registerTerminalIpc = (
         }
         const sessionIdForSpawn =
           provisioned.sessionId || node.ether?.terminal?.sessionId;
-        // A thread minted for this spawn is empty: the seat is fresh and must
-        // receive its doctrine, however the launch argv is shaped.
+        // A thread minted for this spawn is empty: the seat is fresh, however
+        // the launch argv is shaped.
         const resumeRequested =
           provisioned.ok && provisioned.minted ? false : input.resume === true;
         const { makeManagedSpawnIntent } = await import("./managed-spawn-plan");
-        // Pure compilation only. Session proof, isolation, final argv, and
-        // first-typed disposition belong to the selected process host.
+        // Pure compilation only. Session proof, isolation, and final argv
+        // belong to the selected process host.
         const spawnIntent = makeManagedSpawnIntent({
           ...(docForPlan ? { doc: docForPlan } : {}),
           nodeId: node.id,

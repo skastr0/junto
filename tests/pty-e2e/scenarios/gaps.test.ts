@@ -38,7 +38,7 @@
  *   DRV-7       Grok `[Pasted:Nlines]` footer is not composer chip chrome
  *                (no recipe CR2). Codex payload-head leftover is the same
  *                class — D8 is the drive proof.
- *   DRV-8       Probe-less packs admit firstTyped empty; OMP is grounded.
+ *   DRV-8       OMP's composer is grounded by its own probes.
  *   DRV-9       Grok history footer is not a chip-submit CR — drive proof is
  *                D9 in drive-law.test.ts (not duplicated).
  *   POL-2  D26  false working→idle flips count as turns → fake escalation.
@@ -53,7 +53,6 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { SessionObserver } from "../../../src/main/junto/term/observer";
 import { SeatStateRuntime } from "../../../src/main/junto/term/agent-state/runtime";
 import {
-  admitUngroundedFirstTypedComposer,
   composerVerdictFor,
   rulePackFor,
 } from "../../../src/main/junto/term/agent-state";
@@ -77,7 +76,6 @@ import {
   agentSeat$,
   resetAgentSeatState,
 } from "../../../src/renderer/lib/agent-seat-state";
-import { armFirstTypedMessage, resetFirstTypedForTest } from "../../../src/main/junto/term/first-typed";
 import {
   BRACKETED_PASTE_END,
   BRACKETED_PASTE_START,
@@ -104,7 +102,6 @@ const BINDING = "seat-b1";
 afterEach(() => {
   vi.useRealTimers();
   resetAgentSeatState();
-  resetFirstTypedForTest();
 });
 
 /** Drive-loop fake-clock setup (same contract as drive-law.test.ts). */
@@ -669,18 +666,12 @@ describe("GAP-DRV-7: Grok [Pasted:Nlines] footer is not composer chip chrome", (
 });
 
 // ---------------------------------------------------------------------------
-// DRV-8 — Amp/Muse ungrounded composer: firstTyped empty, mail stays null
+// DRV-8 — OMP composer is grounded
 // ---------------------------------------------------------------------------
 
-describe("GAP-DRV-8: probe-less packs admit firstTyped only", () => {
+describe("GAP-DRV-8: OMP composer is grounded", () => {
   it("GAP-DRV-8: OMP now has composer probes", () => {
     expect((rulePackFor("omp").composer ?? []).length).toBeGreaterThan(0);
-  });
-
-  it("GAP-DRV-8: admitUngroundedFirstTypedComposer stays closed for OMP", () => {
-    expect(
-      admitUngroundedFirstTypedComposer(null, rulePackFor("omp"), true),
-    ).toBe(null);
   });
 });
 
@@ -1008,8 +999,7 @@ describe("GAP-OBS-17: isSeatIdle gates low-confidence idle by reason string (doc
       expect(rtHook.isSeatIdle(BINDING)).toBe(true);
 
       // (c) Muse: the same neutral screen is fallback idle (empty pack) —
-      //     refused, unless the firstTyped doctrine arm + paste handshake open
-      //     the one-shot exception (the gate matches the fallback STRING).
+      //     refused, with no exception.
       const rtMuse = new SeatStateRuntime({ now: () => 1_000 });
       rtMuse.bindHarness(BINDING, "muse", "e1");
       rtMuse.machine.feed(snap, { harness: "muse" });
@@ -1017,9 +1007,8 @@ describe("GAP-OBS-17: isSeatIdle gates low-confidence idle by reason string (doc
         "default_known_agent_idle_fallback",
       );
       expect(rtMuse.isSeatIdle(BINDING)).toBe(false);
-      armFirstTypedMessage(BINDING, "## doctrine\npayload");
       rtMuse.observe(snap);
-      expect(rtMuse.isSeatIdle(BINDING)).toBe(true);
+      expect(rtMuse.isSeatIdle(BINDING)).toBe(false);
       rtMuse.stop();
       rtRule.stop();
       rtHook.stop();

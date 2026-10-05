@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import { resolveManagedLaunchPlan } from "../src/shared/managed-terminal-launch";
 import {
   SPAWN_ENV_SCRUB,
-  templateFor,
   type HarnessId,
 } from "../src/shared/managed-terminal-templates";
 import { buildSpawnEnv, scrubSpawnEnv } from "../src/main/junto/term/templates/resolve-launch";
@@ -40,7 +39,6 @@ describe("zero-config-write spawn audit", () => {
     };
     for (const h of harnesses) {
       const plan = resolveManagedLaunchPlan(h, {
-        injection: { seatBound: true, connected: true },
         model: "m",
       }, ambient);
       const env = plan.launch.env ?? {};
@@ -82,7 +80,6 @@ describe("zero-config-write spawn audit", () => {
       resolveManagedLaunchPlan(
         h,
         {
-          injection: { seatBound: true, connected: true },
           sessionId: "11111111-1111-1111-1111-111111111111",
           cwd: tmp,
         },
@@ -100,10 +97,6 @@ describe("zero-config-write spawn audit", () => {
         .map((d) => d.name)
         .sort();
       expect(after, `${k} home mutated`).toEqual(before.get(k));
-    }
-    // templates declare no config-write injection
-    for (const h of harnesses) {
-      expect(templateFor(h).injectionSpec.tier === "A" || templateFor(h).injectionSpec.tier === "B").toBe(true);
     }
   });
 });

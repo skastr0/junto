@@ -262,7 +262,6 @@ describe("fx launch shape", () => {
 
   it("claims only what fx actually offers", () => {
     expect(FX_TEMPLATE.probedVersion).toBe("0.0.7");
-    expect(FX_TEMPLATE.injectionSpec.tier).toBe("B");
     expect(FX_TEMPLATE.capabilityBadges.sessionId).toBe("capture");
     expect(FX_TEMPLATE.argvSpec.promptMode).toBe("none");
     // Seat dials stay in the environment. 0.0.8 adds --full-access / --yolo
@@ -270,7 +269,6 @@ describe("fx launch shape", () => {
     expect(FX_TEMPLATE.argvSpec.modelFlag).toBeUndefined();
     expect(FX_TEMPLATE.argvSpec.effortFlag).toBeUndefined();
     expect(FX_TEMPLATE.argvSpec.permissionModeFlag).toBeUndefined();
-    expect(FX_TEMPLATE.argvSpec.systemPromptFlag).toBeUndefined();
     // No permission default: fx's stock auto mode spends the operator's money.
     expect(FX_TEMPLATE.defaultPermissionMode).toBeUndefined();
     expect(FX_TEMPLATE.efforts).toEqual([]);

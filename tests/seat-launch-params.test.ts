@@ -157,7 +157,6 @@ describe("extra arguments ride every launch of the seat", () => {
       documentLaunch: node.ether?.terminal?.launch,
       sessionId: node.ether?.terminal?.sessionId,
       resume: false,
-      injection: { seatBound: false, connected: false },
     });
     expect(plan?.launch.argv).toEqual(expect.arrayContaining(["--add-dir", "/tmp/x"]));
   });

@@ -62,7 +62,6 @@ const actorSpec = (bindingId: string, hostId?: string): OccupySpec => ({
   spawnIntent: {
     documentLaunch: { kind: "harness", argv: ["grok"], cwd: "/tmp" },
     resumeRequested: false,
-    injection: { seatBound: false, connected: false },
   },
   ...(hostId === undefined ? {} : { hostId }),
 });
@@ -319,11 +318,6 @@ describe("local TerminalSeatProcess", () => {
             cwd: workDir,
             sessionId,
             resumeRequested: true,
-            injection: {
-              seatBound: true,
-              connected: true,
-              seatRef: "node-seat-resume",
-            },
           },
         }),
       );

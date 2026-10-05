@@ -33,7 +33,7 @@ const SEAT_CWD = tmpdir();
 const seatLaunch = {
   ...resolveManagedLaunch(
     "claude",
-    { cwd: SEAT_CWD, injection: { seatBound: false, connected: false } },
+    { cwd: SEAT_CWD, },
     {},
   ),
   cwd: SEAT_CWD,

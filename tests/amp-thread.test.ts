@@ -357,14 +357,6 @@ describe("AC-8: a restart resumes the same thread without re-injecting doctrine"
     agentKey: "local:amp",
     sessionId: "T-01a03989-71a6-733b-ac4c-76f54969cb55",
     resume,
-    injection: {
-      seatBound: true,
-      connected: true,
-      seatRef: "agent-1",
-      connectedTargets: [
-        { id: "task-1", kind: "task", title: "tasks", grants: ["tasks.list"] },
-      ],
-    },
     documentLaunch: {
       kind: "harness" as const,
       argv: [
@@ -377,7 +369,7 @@ describe("AC-8: a restart resumes the same thread without re-injecting doctrine"
     },
   });
 
-  it("re-opens the exact thread and arms no bootstrap message", () => {
+  it("re-opens the exact thread", () => {
     const resumed = planManagedSpawn(seat(true));
     expect(resumed?.launch?.argv).toEqual([
       "amp",
@@ -386,15 +378,12 @@ describe("AC-8: a restart resumes the same thread without re-injecting doctrine"
       "continue",
       "T-01a03989-71a6-733b-ac4c-76f54969cb55",
     ]);
-    // The thread already carries the doctrine in its own history.
-    expect(resumed?.firstTypedMessage).toBeUndefined();
-    expect(resumed?.injection.inject).toBe(false);
+    expect(Object.keys(resumed ?? {})).toEqual(["launch"]);
   });
 
-  it("arms the Tier-B bootstrap for the freshly minted thread", () => {
-    // The thread `amp threads new` just created is empty, so the first launch
-    // is a fresh seat even though its argv is the resume subcommand. Without
-    // this split an Amp seat would never receive its doctrine at all.
+  it("opens the freshly minted thread with nothing to type", () => {
+    // The thread `amp threads new` just created is empty; its argv is still
+    // the resume subcommand, and the seat opens to Amp's own empty composer.
     const fresh = planManagedSpawn(seat(false));
     expect(fresh?.launch?.argv).toEqual([
       "amp",
@@ -403,11 +392,7 @@ describe("AC-8: a restart resumes the same thread without re-injecting doctrine"
       "continue",
       "T-01a03989-71a6-733b-ac4c-76f54969cb55",
     ]);
-    expect(fresh?.injection.tier).toBe("B");
-    expect(fresh?.injection.inject).toBe(true);
-    expect(fresh?.firstTypedMessage?.length ?? 0).toBeGreaterThan(0);
-    expect(fresh?.firstTypedMessage).not.toContain("\n");
-    expect(fresh?.firstTypedMessage).toContain("junto onboard");
+    expect(Object.keys(fresh ?? {})).toEqual(["launch"]);
   });
 });
 

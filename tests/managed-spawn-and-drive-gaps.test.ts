@@ -8,13 +8,6 @@ import {
 } from "../src/main/junto/term/drive";
 import { isManagedTerminalReady } from "../src/main/junto/term/drive/readiness";
 import {
-  armFirstTypedMessage,
-  peekFirstTypedMessage,
-  takeFirstTypedMessage,
-  resetFirstTypedForTest,
-} from "../src/main/junto/term/first-typed";
-import {
-  nodeHasActionableFactoryEdge,
   launchForManagedSpawn,
   launchForManagedSpawnIntent,
   makeManagedSpawnIntent,
@@ -23,7 +16,6 @@ import {
 import { __setSessionExistenceHomeForTest } from "../src/main/junto/term/session-existence";
 import type { CanvasDoc } from "../src/shared/canvas";
 import { createRequire } from "node:module";
-import { BROWSER_ENABLED } from "../src/shared/features";
 
 const require = createRequire(import.meta.url);
 
@@ -159,20 +151,6 @@ describe("amp readiness is positive, not quiet", () => {
   );
 });
 
-describe("firstTyped arming", () => {
-  afterEach(() => resetFirstTypedForTest());
-
-  it("arms once and take consumes", () => {
-    armFirstTypedMessage("b1", "  doctrine  ");
-    expect(peekFirstTypedMessage("b1")).toBe("doctrine");
-    expect(takeFirstTypedMessage("b1")).toBe("doctrine");
-    expect(peekFirstTypedMessage("b1")).toBeUndefined();
-    armFirstTypedMessage("b1", "again");
-    // Already delivered — second arm ignored until clear.
-    expect(peekFirstTypedMessage("b1")).toBeUndefined();
-  });
-});
-
 describe("managed spawn plan", () => {
   const baseDoc = (connected: boolean): CanvasDoc => ({
     nodes: [
@@ -207,112 +185,23 @@ describe("managed spawn plan", () => {
     edges: connected ? [{ id: "e1", fromNode: "worker", toNode: "peer", ether: { verb: "messages" } }] : [],
   });
 
-  it("detects a mail edge to a peer seat", () => {
-    expect(nodeHasActionableFactoryEdge(baseDoc(true), "worker")).toBe(true);
-    expect(nodeHasActionableFactoryEdge(baseDoc(false), "worker")).toBe(false);
-  });
-
-  it("treats a page capability edge as injection-worthy", () => {
-    const base = baseDoc(false);
-    const page: CanvasDoc = {
-      ...base,
-      nodes: [
-        ...base.nodes,
-        {
-          id: "page",
-          type: "link",
-          url: "https://example.test",
-          x: 200,
-          y: 0,
-          width: 100,
-          height: 80,
-          ether: { entity: { kind: "page" }, browser: { profile: "personal" } },
-        },
-      ],
-      edges: [
-        ...base.edges,
-        { id: "page-edge", fromNode: "worker", toNode: "page", ether: { verb: "navigates" } },
-      ],
-    };
-    expect(nodeHasActionableFactoryEdge(page, "worker")).toBe(true);
-    const { plan } = launchForManagedSpawn({
-      doc: page,
-      nodeId: "worker",
-      harness: "claude",
-      documentLaunch: { kind: "harness", argv: ["claude"] },
-    });
-    expect(plan?.injection.inject).toBe(true);
-    if (BROWSER_ENABLED) {
-      expect(plan?.injection.systemPrompt).toContain(
-        "junto browser pages --json",
-      );
-    } else {
-      expect(plan?.injection.systemPrompt).not.toContain("junto browser");
+  it("a connected seat launches on the plain harness argv", () => {
+    for (const harness of ["claude", "codex", "devin"] as const) {
+      const { plan, launch } = launchForManagedSpawn({
+        doc: baseDoc(true),
+        nodeId: "worker",
+        harness,
+        documentLaunch: { kind: "harness", argv: [harness] },
+      });
+      expect(Object.keys(plan ?? {})).toEqual(["launch"]);
+      expect(launch?.argv?.[0]).toBe(harness);
+      expect(launch?.argv).not.toContain("--append-system-prompt");
+      expect(launch?.argv).not.toContain("--");
+      expect(launch?.argv?.some((a) => a.includes("junto"))).toBe(false);
     }
   });
 
-  it("connected replan applies Tier A system prompt for claude", () => {
-    const { plan, launch } = launchForManagedSpawn({
-      doc: baseDoc(true),
-      nodeId: "worker",
-      harness: "claude",
-      documentLaunch: { kind: "harness", argv: ["claude"] },
-    });
-    expect(plan?.injection.inject).toBe(true);
-    expect(plan?.injection.tier).toBe("A");
-    expect(launch?.argv?.some((a) => a === "--append-system-prompt")).toBe(
-      true,
-    );
-  });
-
-  it("unconnected canvas seat still injects base doctrine (no edge contracts)", () => {
-    const { plan, launch } = launchForManagedSpawn({
-      doc: baseDoc(false),
-      nodeId: "worker",
-      harness: "claude",
-      documentLaunch: { kind: "harness", argv: ["claude"] },
-    });
-    // Seat-bound seats always get base doctrine; edges only add contracts.
-    expect(plan?.injection.inject).toBe(true);
-    expect(plan?.injection.tier).toBe("A");
-    expect(launch?.argv?.some((a) => a === "--append-system-prompt")).toBe(
-      true,
-    );
-    const prompt = plan?.injection.systemPrompt ?? "";
-    expect(prompt).toContain("Junto");
-    expect(prompt).not.toContain("Edge contracts");
-  });
-
-  it("connected codex delivers doctrine as argv prompt (not firstTyped paste)", () => {
-    const { plan, launch } = launchForManagedSpawn({
-      doc: baseDoc(true),
-      nodeId: "worker",
-      harness: "codex",
-      documentLaunch: { kind: "harness", argv: ["codex"] },
-    });
-    expect(plan?.injection.tier).toBe("B");
-    // positional promptMode → doctrine rides argv, auto-submits at spawn
-    expect(plan?.firstTypedMessage).toBeUndefined();
-    const argv = launch?.argv ?? [];
-    expect(argv.some((a) => a.includes("junto onboard"))).toBe(true);
-  });
-
-  it("connected devin delivers doctrine as positional prompt after --", () => {
-    const { plan, launch } = launchForManagedSpawn({
-      doc: baseDoc(true),
-      nodeId: "worker",
-      harness: "devin",
-      documentLaunch: { kind: "harness", argv: ["devin"] },
-    });
-    expect(plan?.injection.tier).toBe("B");
-    expect(plan?.firstTypedMessage).toBeUndefined();
-    const argv = launch?.argv ?? [];
-    const sep = argv.indexOf("--");
-    expect(sep).toBeGreaterThan(-1);
-    expect(argv[sep + 1]).toContain("junto onboard");
-  });
-
-  it("preserves picker choices while adding connected injection", () => {
+  it("preserves picker choices on a connected seat", () => {
     const { launch } = launchForManagedSpawn({
       doc: baseDoc(true),
       nodeId: "worker",
@@ -338,7 +227,6 @@ describe("managed spawn plan", () => {
         "high",
         "--permission-mode",
         "plan",
-        "--append-system-prompt",
       ]),
     );
     expect(launch?.argv).not.toContain("default");
@@ -367,7 +255,6 @@ describe("managed spawn plan", () => {
         "high",
         "--permission-mode",
         "plan",
-        "--append-system-prompt",
       ]),
     );
     expect(launch?.argv).not.toContain("--model=opus");
@@ -442,7 +329,7 @@ describe("managed spawn plan", () => {
     const sid = "aaaaaaaa-bbbb-cccc-dddd-ffffffffffff";
     try {
       // Compilation runs while Command Center has no session proof. It must be
-      // pure and retain only the request plus document-derived injection.
+      // pure and retain only the request.
       __setSessionExistenceHomeForTest(commandCenterHome);
       const intent = makeManagedSpawnIntent({
         doc: baseDoc(true),
@@ -459,10 +346,7 @@ describe("managed spawn plan", () => {
         },
       });
       expect(intent.resumeRequested).toBe(true);
-      expect(intent.injection).toMatchObject({
-        seatBound: true,
-        connected: true,
-      });
+      expect(intent).not.toHaveProperty("injection");
 
       // The same intent resumes when the selected Remote owns proof.
       mkdirSync(
@@ -481,11 +365,9 @@ describe("managed spawn plan", () => {
         intent,
       );
       expect(proven.launch?.argv).toEqual(expect.arrayContaining(["-r", sid]));
-      expect(proven.plan?.injection.inject).toBe(false);
-      expect(proven.plan?.firstTypedMessage).toBeUndefined();
 
-      // Removing only Remote proof makes that identical intent pin fresh and
-      // retain normal doctrine injection; Command Center state is irrelevant.
+      // Removing only Remote proof makes that identical intent pin fresh;
+      // Command Center state is irrelevant.
       rmSync(join(remoteHome, ".grok"), { recursive: true, force: true });
       const unproven = launchForManagedSpawnIntent(
         { harness: "grok", agentKey: "station:grok" },
@@ -495,7 +377,6 @@ describe("managed spawn plan", () => {
         expect.arrayContaining(["--session-id", sid]),
       );
       expect(unproven.launch?.argv).not.toContain("-r");
-      expect(unproven.plan?.injection.inject).toBe(true);
     } finally {
       __setSessionExistenceHomeForTest(undefined);
       rmSync(commandCenterHome, { recursive: true, force: true });
@@ -503,7 +384,7 @@ describe("managed spawn plan", () => {
     }
   });
 
-  it("suppresses Tier B first-typed doctrine only for a host-proven resume", () => {
+  it("a host-proven resume names the session and carries nothing else", () => {
     delete process.env.JUNTO_HOME;
     const home = mkdtempSync(join(tmpdir(), "junto-kimi-resume-host-"));
     const sid = "ses_remote_kimi";
@@ -518,23 +399,14 @@ describe("managed spawn plan", () => {
         documentLaunch: { kind: "harness", argv: ["kimi"] },
         sessionId: sid,
         resume: true,
-        injection: {
-          seatBound: true,
-          connected: true,
-          seatRef: "actor-kimi",
-          connectedTargets: [{ id: "peer", kind: "agent" }],
-        },
       });
       const resolved = launchForManagedSpawnIntent(
         { harness: "kimi", agentKey: "station:kimi" },
         intent,
       );
 
-      expect(resolved.launch?.argv).toEqual(
-        expect.arrayContaining(["-S", sid]),
-      );
-      expect(resolved.plan?.injection.inject).toBe(false);
-      expect(resolved.plan?.firstTypedMessage).toBeUndefined();
+      expect(resolved.launch?.argv).toEqual(["kimi", "-S", sid]);
+      expect(Object.keys(resolved.plan ?? {})).toEqual(["launch"]);
     } finally {
       __setSessionExistenceHomeForTest(undefined);
       rmSync(home, { recursive: true, force: true });

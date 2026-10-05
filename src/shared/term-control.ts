@@ -275,48 +275,6 @@ const isTerminalLaunch = (value: unknown): boolean => {
   return true;
 };
 
-const isInjectionContext = (value: unknown): boolean => {
-  if (!isRecord(value)) return false;
-  if (
-    !hasOnlyKeys(
-      value,
-      new Set([
-        "seatBound",
-        "connected",
-        "seatRef",
-        "connectedTargets",
-        "regionInstruction",
-        "seatSoul",
-        "seatInstructions",
-      ]),
-    ) ||
-    typeof value.seatBound !== "boolean" ||
-    typeof value.connected !== "boolean" ||
-    !optionalString(value.seatRef) ||
-    !optionalString(value.regionInstruction) ||
-    !optionalBoundedString(value.seatSoul, SEAT_SOUL_MAX) ||
-    !optionalBoundedString(value.seatInstructions, SEAT_INSTRUCTIONS_MAX)
-  ) {
-    return false;
-  }
-  if (value.connectedTargets === undefined) return true;
-  if (!Array.isArray(value.connectedTargets)) return false;
-  return value.connectedTargets.every((target) => {
-    if (!isRecord(target)) return false;
-    return (
-      hasOnlyKeys(target, new Set(["id", "kind", "summary", "ports"])) &&
-      typeof target.id === "string" &&
-      optionalString(target.kind) &&
-      optionalString(target.summary) &&
-      (target.ports === undefined ||
-        (Array.isArray(target.ports) &&
-          target.ports.every((port) =>
-            typeof port === "string" && ALL_PORTS.some((known) => known === port),
-          )))
-    );
-  });
-};
-
 /** Strict decoder for the actor-only host-finalized spawn payload. */
 export const decodeManagedSpawnIntent = (
   value: unknown,
@@ -329,7 +287,6 @@ export const decodeManagedSpawnIntent = (
         "documentLaunch",
         "sessionId",
         "resumeRequested",
-        "injection",
         "profile",
         "model",
         "effort",
@@ -338,7 +295,6 @@ export const decodeManagedSpawnIntent = (
       ]),
     ) ||
     typeof value.resumeRequested !== "boolean" ||
-    !isInjectionContext(value.injection) ||
     !optionalString(value.sessionId) ||
     !optionalString(value.profile) ||
     !optionalString(value.model) ||

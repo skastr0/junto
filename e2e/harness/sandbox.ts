@@ -521,7 +521,7 @@ export const agentTextNode = (input: {
   const cwd = input.cwd ?? tmpdir();
   const launch = resolveManagedLaunch(
     harness,
-    { cwd, injection: { seatBound: false, connected: false } },
+    { cwd },
     {},
   );
   return {

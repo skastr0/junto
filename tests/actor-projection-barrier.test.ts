@@ -236,7 +236,6 @@ describe("ActorSeatOccupy Remote projection barrier", () => {
     spawnIntent: {
       documentLaunch: { kind: "harness", argv: ["grok"], cwd: "/tmp" },
       resumeRequested: false,
-      injection: { seatBound: true, connected: false },
     },
     ...(hostId === undefined ? {} : { hostId }),
   });

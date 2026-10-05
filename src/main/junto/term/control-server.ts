@@ -406,8 +406,7 @@ export const startTermControlServer = async (
           if (
             Object.prototype.hasOwnProperty.call(req, "harness") ||
             Object.prototype.hasOwnProperty.call(req, "agentKey") ||
-            Object.prototype.hasOwnProperty.call(req, "spawnIntent") ||
-            Object.prototype.hasOwnProperty.call(req, "firstTypedMessage")
+            Object.prototype.hasOwnProperty.call(req, "spawnIntent")
           ) {
             return {
               v: TERM_CONTROL_PROTOCOL,
@@ -552,9 +551,6 @@ export const startTermControlServer = async (
             canvasName: actor.canvasName,
             nodeId: actor.nodeId,
             label: actorReq.label,
-            ...(finalized.plan.firstTypedMessage
-              ? { firstTypedMessage: finalized.plan.firstTypedMessage }
-              : {}),
           });
           if (
             !sessionActorMatches(summary, actor) ||

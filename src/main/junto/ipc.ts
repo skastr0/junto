@@ -114,7 +114,6 @@ import {
 import { isManagedTerminalReady } from "./term/drive/readiness";
 import { MailReadinessLatch } from "./term/drive/mail-readiness";
 import {
-  admitUngroundedFirstTypedComposer,
   rulePackFor,
   seatStateRuntime,
 } from "./term/agent-state";
@@ -135,12 +134,6 @@ import {
 } from "./term/seat-session-capture";
 import { injectionSupervisor } from "./term/injection-supervisor";
 import {
-  peekFirstTypedMessage,
-  peekFirstTypedEntry,
-  takeFirstTypedEntryIfCurrent,
-  clearDeliveredForBinding,
-} from "./term/first-typed";
-import {
   scheduleManagedPulseReady,
   setManagedPulseDeliver,
 } from "./term/managed-pulse-bridge";
@@ -148,7 +141,6 @@ import {
   factoryBoardTransport,
   factoryDeliveryReadTag,
   factoryPulseTransport,
-  makeFactoryFirstTypedKick,
   wireFactorySupervisor,
 } from "./term/factory-delivery-composition";
 import { terminalObserverPlane } from "./term/observer";
@@ -1745,20 +1737,8 @@ export const registerJuntoIpc = (): void => {
           terminalObserverPlane.snapshot(bindingId)?.signals.modes.bracketedPaste === true,
         // Screen truth: typing is authorized only while the harness's
         // composer probes prove an EMPTY input box on the live grid.
-        composerVerdict: (bindingId) => {
-          const raw = seatStateRuntime.composerVerdict(bindingId);
-          const harness =
-            seatStateRuntime.machine.getSlot(bindingId)?.harness;
-          const pack =
-            harness !== undefined && isHarnessId(harness)
-              ? rulePackFor(harness)
-              : undefined;
-          return admitUngroundedFirstTypedComposer(
-            raw,
-            pack,
-            peekFirstTypedMessage(bindingId) !== undefined,
-          );
-        },
+        composerVerdict: (bindingId) =>
+          seatStateRuntime.composerVerdict(bindingId),
         harnessFor: (bindingId) =>
           seatStateRuntime.machine.getSlot(bindingId)?.harness,
       });
@@ -1786,24 +1766,9 @@ export const registerJuntoIpc = (): void => {
           ready: options?.ready ?? driveReady(bindingId),
           ...(options ?? {}),
         });
-      // Tier B doctrine kick, initiated by the shared runtime before the
-      // drive's own idle drain (preserving the original firstTyped-before-
-      // drain invocation order; no stronger lock priority is claimed).
-      // Shared recipe — the Node Remote kicks the same doctrine through
-      // its own destination drive.
-      const { kick: kickFirstTypedDoctrine } = makeFactoryFirstTypedKick({
-        firstTyped: {
-          peekEntry: peekFirstTypedEntry,
-          takeEntryIfCurrent: takeFirstTypedEntryIfCurrent,
-          clearDeliveredForBinding,
-        },
-        driveReady,
-        write: writeManagedPrompt,
-      });
       // Shared drive lifecycle (ACK/drain/generation cuts); product
       // supervisory feeds below stay local to Command Center.
       attachManagedTerminalDriveRuntime(managedDrive, {
-        beforeSeatIdle: kickFirstTypedDoctrine,
         subscribeHostEvents: (listener, options) =>
           termPlane.host.subscribeEvents((payload) => {
             if (payload.type === "output") {
@@ -2209,9 +2174,6 @@ export const registerJuntoIpc = (): void => {
         });
         if (event.state === "gone") {
           seatSessionCapture.forget(event.bindingId);
-          // Generation exited: a resumed generation must be able to receive
-          // the doctrine again (cold resume must not re-zero the seat).
-          clearDeliveredForBinding(event.bindingId);
         }
         if (
           event.state === "attention" &&
@@ -2245,8 +2207,8 @@ export const registerJuntoIpc = (): void => {
           }
         }
         // Any live state means the seat's terminal is up: write the mail
-        // that waited for it. FirstTyped doctrine and the drive idle drain
-        // run in the shared runtime attach above.
+        // that waited for it. The drive idle drain runs in the shared
+        // runtime attach above.
         if (event.state !== "gone") messageDelivery.onSeatLive(event.bindingId);
       });
       // Kernel pulses for managed seats (not ACP).

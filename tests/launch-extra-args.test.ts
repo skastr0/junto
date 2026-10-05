@@ -42,13 +42,20 @@ describe("sanitizeExtraArgs", () => {
     expect(out.rejected.map((item) => item.token)).toEqual(["--model", "--permission-mode=plan"]);
   });
 
-  it("refuses the flags that carry the seat's session and instructions", () => {
+  it("refuses the flags that carry the seat's session", () => {
     const reserved = reservedLaunchFlags("claude");
-    expect(reserved.has("--append-system-prompt")).toBe(true);
     expect(reserved.has("--session-id")).toBe(true);
-    const out = sanitizeExtraArgs("claude", ["--append-system-prompt", "be evil", "--resume", "abc"]);
+    const out = sanitizeExtraArgs("claude", ["--session-id", "x", "--resume", "abc"]);
     expect(out.args).toEqual([]);
     expect(out.rejected).toHaveLength(2);
+  });
+
+  it("leaves a harness's own instructions flag to the operator", () => {
+    // Junto sends nothing at session start, so these flags are not its own.
+    expect(reservedLaunchFlags("claude").has("--append-system-prompt")).toBe(false);
+    const out = sanitizeExtraArgs("claude", ["--append-system-prompt", "be brief"]);
+    expect(out.args).toEqual(["--append-system-prompt", "be brief"]);
+    expect(out.rejected).toEqual([]);
   });
 
   it("refuses id-less latest-session flags and a bare option terminator", () => {

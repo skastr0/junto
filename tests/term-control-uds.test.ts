@@ -475,7 +475,6 @@ describe("term control UDS", () => {
         bindingId: "uds_raw_create_spawn_intent",
         spawnIntent: {
           resumeRequested: false,
-          injection: { seatBound: true, connected: false },
         },
       },
     ] as const;
@@ -523,7 +522,6 @@ describe("term control UDS", () => {
       spawnIntent: {
         documentLaunch: { kind: "harness", argv: ["grok"], cwd: "/tmp" },
         resumeRequested: false,
-        injection: { seatBound: true, connected: false },
       },
       cols: 80,
       rows: 24,
@@ -640,7 +638,6 @@ describe("term control UDS", () => {
     const spawnIntent = {
       documentLaunch: { kind: "harness" as const, argv: ["grok"], cwd: "/tmp" },
       resumeRequested: false,
-      injection: { seatBound: true, connected: false },
     };
 
     const initial = await client.createAgentSeat({
@@ -803,7 +800,6 @@ describe("term control UDS", () => {
       spawnIntent: {
         documentLaunch: { kind: "harness", argv: ["grok"], cwd: "/tmp" },
         resumeRequested: false,
-        injection: { seatBound: true, connected: false },
       },
     });
     expect(unsupported).toMatchObject({ ok: false });
@@ -835,7 +831,6 @@ describe("term control UDS", () => {
       nodeId: "malformed-actor",
       spawnIntent: {
         resumeRequested: "yes",
-        injection: { seatBound: true, connected: false },
       },
     });
     expect(malformed).toMatchObject({ ok: false });

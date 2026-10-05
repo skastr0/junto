@@ -36,7 +36,6 @@ const launchChoices = (options: OverseerReseatOptions, sessionId?: string) => ({
   ...(options.permissionMode ? { permissionMode: options.permissionMode } : {}),
   ...(options.cwd ? { cwd: options.cwd } : {}),
   ...(sessionId ? { sessionId } : {}),
-  injection: { seatBound: false, connected: false },
 });
 
 /**

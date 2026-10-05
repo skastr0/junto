@@ -119,7 +119,6 @@ export const planSeatLaunch = (input: {
       ...(extra.args.length > 0 ? { extraArgs: extra.args } : {}),
       ...(cwd ? { cwd } : {}),
       ...(pinned ? { sessionId: pinned } : {}),
-      injection: { seatBound: false, connected: false },
     },
     {},
   );

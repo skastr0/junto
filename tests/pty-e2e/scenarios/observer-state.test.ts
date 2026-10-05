@@ -36,15 +36,9 @@ import {
 import { SessionObserver } from "../../../src/main/junto/term/observer";
 import { SeatStateRuntime, progressFingerprint } from "../../../src/main/junto/term/agent-state/runtime";
 import { terminalActivity, isActiveProcessLabel } from "../../../src/renderer/lib/activity";
-import {
-  armFirstTypedMessage,
-  resetFirstTypedForTest,
-  takeFirstTypedMessage,
-} from "../../../src/main/junto/term/first-typed";
 import type { ObserverGridSnapshot } from "../../../src/main/junto/term/observer/types";
 
 afterEach(() => {
-  resetFirstTypedForTest();
   vi.useRealTimers();
 });
 
@@ -364,9 +358,8 @@ describe("R6 — P1 captures present at run time + cross-harness idle coverage",
   // (src/shared/features.ts managedHarnessEnabled) and is outside the five
   // harnesses the canonical corpus carries, so this leg could only ever throw
   // "no fixture for muse/startup-idle" — holding the suite red for a harness we
-  // do not ship. No law was lost: the Tier-B firstTyped gate it asserted (muse
-  // fallback idle refuses paste; arming a firstTyped body opens it for exactly
-  // one delivery) is covered corpus-free in gaps.test.ts GAP-OBS-17 case (c).
+  // do not ship. The law it asserted (muse fallback idle refuses paste) is
+  // covered corpus-free in seat-state-runtime.test.ts.
   // If muse ships, capture it and restore this leg from git history.
 
   it("R6 cross-harness idle (P2/P3): codex/grok/kimi/pi/prime-agent idle → idle + pasteable", async () => {
