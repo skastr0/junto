@@ -121,7 +121,7 @@
   overscroll-behavior: contain;
   list-style: none;
   border: 1px solid var(--color-stroke);
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   scrollbar-color: var(--color-stroke) transparent;
   scrollbar-width: thin;
 }
@@ -132,7 +132,7 @@
   gap: 2px;
   padding: 5px 7px;
   border: 0;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   background: transparent;
   color: var(--color-ink);
   font-size: var(--text-body);
@@ -164,7 +164,7 @@
   display: block;
   padding: 7px 9px;
   border: 1px solid var(--color-stroke);
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   color: var(--color-ink);
   font-size: var(--text-body);
   overflow-wrap: anywhere;
