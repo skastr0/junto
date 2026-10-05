@@ -27,7 +27,7 @@
     "src/renderer/components/node-palette/NodeCatalogGrid.tsx": 1,
     "src/renderer/components/node-palette/RegionDefaultFolderOption.tsx": 2,
     "src/renderer/components/node-palette/node-palette-mode-deck.css": 7,
-    "src/renderer/components/nodes/AgentSeat.tsx": 3,
+    "src/renderer/components/nodes/AgentSeat.tsx": 4,
     "src/renderer/components/nodes/ClaimedTaskStrip.tsx": 1,
     "src/renderer/components/nodes/CronScheduleSurface.tsx": 5,
     "src/renderer/components/nodes/ExecutionCardHeader.tsx": 2,
