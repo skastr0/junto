@@ -39,6 +39,7 @@ import {
   type ImpactSelection,
 } from "../lib/impact-mode";
 import { regionLabelDrag$ } from "../lib/region-label-drag";
+import { canvasZoomRequest$ } from "../lib/canvas-zoom";
 import { isOperatorModalOpen } from "../lib/operator-modal";
 import { isEditableEventTarget } from "../lib/multi-select-gesture";
 import { nodeTitle } from "../lib/presentation";
@@ -1385,6 +1386,20 @@ function useCanvasGraph() {
   useEffect(() => {
     return state$.fitViewRequest.onChange(() => {
       fitReadableField(rf);
+    });
+  }, [rf]);
+  // Zoom asked for from outside the canvas (canvas-zoom.ts).
+  useEffect(() => {
+    return canvasZoomRequest$.onChange(() => {
+      const asked = canvasZoomRequest$.peek();
+      if (!asked) return;
+      const moved =
+        asked.kind === "in"
+          ? rf.zoomIn({ duration: 160 })
+          : asked.kind === "out"
+            ? rf.zoomOut({ duration: 160 })
+            : rf.zoomTo(1, { duration: 200 });
+      void moved.catch(() => undefined);
     });
   }, [rf]);
   useCanvasViewport(nodes.length, rf);
