@@ -62,7 +62,7 @@ test("capture live conversation with isolated provider and media fixtures", asyn
   try {
     const { page, app } = world;
     await expect(page.locator(".react-flow__node").first()).toBeVisible({ timeout: 30_000 });
-    await pinDark(page);
+    await forceDark(page);
     // Fixture handlers replace provider/control IPC only in this isolated
     // Electron test process. No microphone, provider key, or billed call.
     await app.evaluate(({ ipcMain }, { channels, seed }) => {
@@ -174,7 +174,7 @@ const present = async (surface: Locator, name: string): Promise<void> => {
 
 /** This audit is the dark edition. A fresh install follows the OS theme, so
  * without this the frames come out bright whenever the machine is in light mode. */
-const pinDark = async (page: Page): Promise<void> => {
+const forceDark = async (page: Page): Promise<void> => {
   await page.evaluate(() => window.junto!.settingsPatch({ appearance: { theme: "dark" } }));
   await expect(page.locator("html")).not.toHaveAttribute("data-theme", "bright");
 };
@@ -304,7 +304,7 @@ test("capture every surface for design review", async () => {
     const { page } = junto;
 
     await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
-    await pinDark(page);
+    await forceDark(page);
 
     // React Flow only mounts on-screen nodes: wait for the first, fit the
     // whole board, THEN distant entity nodes exist in the DOM.
@@ -361,12 +361,6 @@ test("capture every surface for design review", async () => {
     const noteEditor = page.getByRole("dialog", { name: "Edit note" });
     await expect(noteEditor).toBeVisible({ timeout: 10_000 });
     await shot(page, "25-note-edit");
-    await noteEditor.getByRole("button", { name: "Pin note editor" }).click();
-    const pinnedNote = page.getByTestId("note-workbench-surface");
-    await expect(pinnedNote).toBeVisible();
-    await expect(page.getByRole("complementary", { name: "Pinned work surface dock" })).toBeVisible();
-    await pinnedNote.getByRole("button", { name: "Unpin note editor" }).click();
-    await expect(noteEditor).toBeVisible();
     await page.keyboard.press("Escape");
     await page.waitForTimeout(300);
     const pageNode = page
@@ -477,9 +471,6 @@ test("capture every surface for design review", async () => {
     });
     await page.waitForTimeout(900);
     await shot(page, "09-native-terminal-focus");
-    await surface.getByRole("button", { name: "Pin" }).click();
-    await page.waitForTimeout(700);
-    await shot(page, "09b-native-terminal-pinned");
   } finally {
     await junto.close();
   }
@@ -493,7 +484,7 @@ test("capture the empty field state", async () => {
     const { page } = junto;
     await mkdir(SHOTS, { recursive: true });
     await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
-    await pinDark(page);
+    await forceDark(page);
     await page.waitForTimeout(800);
     await shot(page, "24-empty-field");
   } finally {
