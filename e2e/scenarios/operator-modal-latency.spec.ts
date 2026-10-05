@@ -88,3 +88,34 @@ test("an operator modal opens above a working modal, and Escape closes one layer
   await page.keyboard.press("Escape");
   await expect(digest).toHaveCount(0);
 });
+
+test("search and the feed swap in one shell, and closing returns focus to the start", async ({ junto }) => {
+  const { page } = junto;
+  await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
+  const trigger = page.locator(".station-command-trigger");
+  await trigger.focus();
+  const shells = page.locator('[data-layer="operator"]');
+
+  await page.keyboard.press("Meta+k");
+  await expect(shells).toHaveAttribute("data-operator-modal", "search");
+
+  // The other chord swaps: one shell, one dim, never two.
+  await page.keyboard.press("Meta+i");
+  await expect(shells).toHaveCount(1);
+  await expect(shells).toHaveAttribute("data-operator-modal", "feed");
+  await expect(page.locator("[data-layer-backdrop]")).toHaveCount(1);
+  expect(await page.evaluate(() => document.activeElement?.closest("[data-operator-modal]") !== null)).toBe(true);
+
+  await page.keyboard.press("Meta+k");
+  await expect(shells).toHaveAttribute("data-operator-modal", "search");
+  await expect(page.getByTestId("command-bar-input")).toBeFocused();
+
+  // Ctrl chords are not the operator's on macOS: the field keeps them.
+  await page.keyboard.press("Control+k");
+  await expect(shells).toHaveAttribute("data-operator-modal", "search");
+
+  // Closing after two swaps still returns to where the operator started.
+  await page.keyboard.press("Escape");
+  await expect(shells).toHaveCount(0);
+  await expect(trigger).toBeFocused();
+});

@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { placeBesideRect, type Align, type Side } from "../../lib/menu-placement";
+import { topModal } from "../../lib/modal-stack";
 
 // Module-level so the default is one stable array: a fresh literal per render
 // would re-run the placement layout effect every render and never settle.
@@ -63,6 +64,10 @@ export function Popover({
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
+      // A modal opened above this popover (a confirm it asked for) is the
+      // topmost thing: the key is that modal's.
+      const above = topModal()?.container();
+      if (above && !above.contains(anchor)) return;
       // Esc belongs to the popover while it is open; the surface under it
       // (a focus modal, a PTY) must not also act on it.
       event.preventDefault();

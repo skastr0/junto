@@ -103,7 +103,8 @@ const takeEscape = (event: KeyboardEvent, top: ModalEntry): void => {
 /**
  * Focus fell out of every surface (the focused element was removed, or the
  * window was clicked back into). The next key still belongs to the topmost
- * modal: Escape closes it, anything else puts the keyboard back inside it.
+ * modal: Escape closes it, anything else puts the keyboard back inside it
+ * and is then heard there.
  */
 const onPageKey = (event: KeyboardEvent): void => {
   // A key another handler already used (a chord that just opened a modal)
@@ -119,8 +120,24 @@ const onPageKey = (event: KeyboardEvent): void => {
   }
   if (!top.trap) return;
   if (event.key === "Meta" || event.key === "Control" || event.key === "Shift" || event.key === "Alt") return;
-  if (event.key === "Tab") event.preventDefault();
-  claimFocus(container, "gesture", { event, preventScroll: true });
+  if (!claimFocus(container, "gesture", { event, preventScroll: true })) return;
+  // The key was meant for the modal: play it again from inside, so the
+  // body's own keys (and the Tab trap) still hear it.
+  event.preventDefault();
+  event.stopPropagation();
+  container.dispatchEvent(
+    new KeyboardEvent("keydown", {
+      key: event.key,
+      code: event.code,
+      metaKey: event.metaKey,
+      ctrlKey: event.ctrlKey,
+      altKey: event.altKey,
+      shiftKey: event.shiftKey,
+      repeat: event.repeat,
+      bubbles: true,
+      cancelable: true,
+    }),
+  );
 };
 
 /**
