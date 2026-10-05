@@ -208,9 +208,17 @@ export const makeEnvSourceResolver = (deps: SourceDeps): EnvSourceResolver => {
     let token: string | undefined;
     if (source.tokenFrom !== undefined) {
       const from = context.resolved(source.tokenFrom);
-      const produced = from ? Object.entries(from) : [];
+      // Not in scope here: cut off by a sealed region, later in the order,
+      // meant for another machine, or itself unreadable.
+      if (from === undefined) {
+        return missing(
+          names,
+          "The source this reference takes its 1Password token from is not available here.",
+        );
+      }
+      const produced = Object.entries(from);
       token =
-        produced.length === 1 ? produced[0]![1] : from?.[OP_TOKEN_NAME];
+        produced.length === 1 ? produced[0]![1] : from[OP_TOKEN_NAME];
       if (token === undefined || token.length === 0) {
         return failed(
           names,

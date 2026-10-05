@@ -200,8 +200,21 @@ describe("onepassword", () => {
     expect(calls[0]!.env?.[OP_TOKEN_NAME]).toBe(TOKEN);
   });
 
-  it("a tokenFrom that provided nothing is an error and op is never run", async () => {
+  it("a tokenFrom that is not in scope is missing, and op is never run", async () => {
     const out = await resolver().resolve({ ...source, tokenFrom: "gone" }, nothing);
+    expect(out).toEqual({
+      status: "missing",
+      names: ["GITHUB_TOKEN"],
+      reason: "The source this reference takes its 1Password token from is not available here.",
+    });
+    expect(calls).toEqual([]);
+  });
+
+  it("a tokenFrom source that yields several names and none is the token is an error", async () => {
+    const out = await resolver().resolve(
+      { ...source, tokenFrom: "env" },
+      { resolved: () => ({ A: "one-value", B: "two-value" }) },
+    );
     expect(out).toMatchObject({ status: "error", names: ["GITHUB_TOKEN"] });
     expect(calls).toEqual([]);
   });
