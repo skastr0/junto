@@ -1061,8 +1061,8 @@ html[data-junto-platform="darwin"] .station-bar [role="listbox"] {
 }
 .region-briefing__hint {
   margin: 0;
-  font-size: 11px;
-  line-height: 1.45;
+  font-size: var(--text-body);
+  line-height: var(--leading-body);
   color: var(--color-dim);
 }
 .region-briefing__editor {
@@ -1071,13 +1071,13 @@ html[data-junto-platform="darwin"] .station-bar [role="listbox"] {
   height: 280px;
   resize: vertical;
   border: 1px solid var(--color-stroke);
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   background: var(--color-inset);
   color: var(--color-ink);
   padding: 12px 14px;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 12px;
-  line-height: 1.5;
+  font-size: var(--text-body-lg);
+  line-height: var(--leading-body);
   outline: none;
 }
 .region-briefing__editor::placeholder {
