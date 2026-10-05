@@ -11,9 +11,8 @@
  * that is not expected to appear is skipped here, with its reason:
  *   - usage HUD rail and popover (frames 18, 19): Provider limits HUD is
  *     behind a flag that is off; revisit when the feature ships.
- *   - fleet manager overlay (frames 26 on): fleet stations intermittently do
- *     not paint when a host is discovered on the real network mid-run; needs
- *     a sandboxed discovery seam.
+ *   - fleet manager overlay (frames 26 on): fleet, remote machines and remote
+ *     sessions are behind a feature flag and are not tested now.
  */
 import { mkdir, mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -571,7 +570,7 @@ test("capture the empty field state", async () => {
 // custom appearance) into the sandbox's SQLite database. The fake ssh binary
 // answers reachability probes, so edges settle into reachable state.
 test("capture the fleet manager overlay", async () => {
-  test.skip(true, "Fleet stations intermittently do not paint when a host is discovered on the real network mid-run; needs a sandboxed discovery seam");
+  test.skip(true, "Fleet, remote machines and remote sessions are behind a feature flag and are not tested now");
   const junto = await launchJunto({
     seedCanvases: { fleet: canvasDoc([]) },
     seedHosts: [

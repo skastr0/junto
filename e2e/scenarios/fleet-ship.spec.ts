@@ -4,6 +4,9 @@
  * Build first with `JUNTO_FEATURE_PROFILE=ship bun run electron-vite build`,
  * then run this file through the node Playwright runner. The harness owns a
  * throwaway SQLite installation and uses only the bounded e2e SSH fake.
+ *
+ * SKIPPED: fleet, remote machines and remote sessions are behind a feature
+ * flag and are not tested now.
  */
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
@@ -76,6 +79,9 @@ const openFleet = async (page: Page): Promise<ReturnType<Page["locator"]>> => {
   await expect(panel).toBeVisible({ timeout: 15_000 });
   return panel;
 };
+
+// Skipped as a whole, by the operator's ruling.
+test.skip(true, "Fleet, remote machines and remote sessions are behind a feature flag and are not tested now");
 
 test.beforeAll(async () => {
   await mkdir(SHOTS, { recursive: true });
