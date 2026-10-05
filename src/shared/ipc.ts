@@ -51,7 +51,14 @@ import type { MailTransportSpec, IsolationSpec } from "./managed-terminal-templa
 import type { HarnessHelpFlag } from "./launch-extra-args";
 import type { TerminalSessionSummary } from "./terminal";
 import type { HostDirectorySnapshot } from "./host-directory";
-import type { GitLogResult, GitShowResult, GitStatusResult, GitSummaryResult } from "./git";
+import type {
+  GitLogResult,
+  GitReviewResult,
+  GitReviewView,
+  GitShowResult,
+  GitStatusResult,
+  GitSummaryResult,
+} from "./git";
 import type { ActorRef } from "./work-protocol";
 import type { WorkSeatRecentOpsFeed } from "./work-recent-ops";
 import type {
@@ -337,6 +344,7 @@ export const IPC_CHANNELS = {
   gitLog: "junto:git-log",
   gitShow: "junto:git-show",
   gitSummary: "junto:git-summary",
+  gitReview: "junto:git-review",
   /** Fail-soft model list for the managed-terminal harness picker. */
   managedTerminalModels: "junto:managed-terminal-models",
   /** Fail-soft Hermes profile list for the harness picker. */
@@ -1452,6 +1460,8 @@ export interface JuntoGitApi {
   readonly gitShow: (cwd: string, sha: string) => Promise<GitShowResult>;
   /** A repository at a glance for a folder; one read per repository in main. */
   readonly gitSummary: (cwd: string) => Promise<GitSummaryResult>;
+  /** The diff a reviewer reads for a folder: uncommitted work, or the branch against its base. */
+  readonly gitReview: (cwd: string, view: GitReviewView) => Promise<GitReviewResult>;
 }
 
 /** submitted = typed into the seat; queued = waiting for the seat to start. */

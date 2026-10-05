@@ -907,6 +907,7 @@ const gitApi: JuntoGitApi = {
   gitLog: (cwd, limit) => invoke(IPC_CHANNELS.gitLog, IPC_TIMEOUT_MS, cwd, limit),
   gitShow: (cwd, sha) => invoke(IPC_CHANNELS.gitShow, IPC_TIMEOUT_MS, cwd, sha),
   gitSummary: (cwd) => invoke(IPC_CHANNELS.gitSummary, IPC_TIMEOUT_MS, cwd),
+  gitReview: (cwd, view) => invoke(IPC_CHANNELS.gitReview, IPC_TIMEOUT_MS, cwd, view),
 };
 
 const demoApi: JuntoDemoApi = {

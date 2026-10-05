@@ -19,6 +19,8 @@ import {
   type GitCommit,
   type GitLogResult,
   type GitOperation,
+  type GitReviewResult,
+  type GitReviewView,
   type GitShowResult,
   type GitStatus,
   type GitStatusResult,
@@ -259,6 +261,103 @@ const summarize = async (cwd: string, root: string, gitDir: string): Promise<Git
       ...(base ? { base } : {}),
     },
   };
+};
+
+/** A review reads at most this many new untracked files; the rest are counted, not read. */
+export const GIT_REVIEW_UNTRACKED_MAX = 40;
+const GIT_REVIEW_DIFF_MS = 10_000;
+
+// No external diff drivers or textconv: a repository's config never runs code
+// here. The a/ and b/ prefixes are pinned, so a user's diff.mnemonicPrefix or
+// diff.noprefix cannot change the paths a patch names.
+const PATCH_FLAGS = [
+  "--patch",
+  "--no-color",
+  "--no-ext-diff",
+  "--no-textconv",
+  "--src-prefix=a/",
+  "--dst-prefix=b/",
+] as const;
+
+/**
+ * The diff a reviewer reads for a folder: what is not committed yet (new
+ * files included), or what the branch has committed since the base. Part of
+ * the one git reader; capped like a commit's patch.
+ */
+export const readGitReview = async (cwdInput: string, view: GitReviewView): Promise<GitReviewResult> => {
+  let cwd: string;
+  try {
+    cwd = await resolveRepoCwd(cwdInput);
+  } catch (error) {
+    return fail(error instanceof Error ? error.message : "git path is invalid");
+  }
+  const where = await git(cwd, ["rev-parse", "--is-inside-work-tree", "--show-toplevel"], GIT_SUMMARY_STEP_MS);
+  const [inside, root] = where.stdout.split("\n").map((line) => line.trim());
+  if (!where.ok || inside !== "true" || !root) return fail("not a git repository");
+
+  const [porcelain, headSha] = await Promise.all([
+    git(root, ["status", "--porcelain=v2", "--branch", "--untracked-files=no"], GIT_SUMMARY_STEP_MS),
+    git(root, ["rev-parse", "--short", "HEAD"], GIT_SUMMARY_STEP_MS),
+  ]);
+  const branch = porcelain.ok ? parsePorcelainV2Branch(porcelain.stdout) : { detached: false };
+  const name = branch.head ?? "HEAD";
+  const head = headSha.ok ? headSha.stdout.trim() : "";
+  const common = { branch: name, ...(head ? { head } : {}) };
+  const finish = (patch: string, extra: { readonly base?: string; readonly untrackedLeftOut?: number } = {}): GitReviewResult => {
+    const read = patch.length > GIT_PATCH_MAX_BYTES ? patch.slice(0, GIT_PATCH_MAX_BYTES) : patch;
+    const capped = capPatchForRender(read);
+    return {
+      ok: true,
+      view,
+      patch: capped.patch,
+      ...(capped.truncated ? { files: capped.files, shownFiles: capped.shownFiles } : {}),
+      ...common,
+      ...extra,
+    };
+  };
+
+  if (view === "base") {
+    const [originHead, candidates] = await Promise.all([
+      git(root, ["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"], GIT_SUMMARY_STEP_MS),
+      git(
+        root,
+        [
+          "for-each-ref",
+          "--format=%(refname:short)",
+          ...GIT_BASE_CANDIDATES.map((ref) => (ref.startsWith("origin/") ? `refs/remotes/${ref}` : `refs/heads/${ref}`)),
+        ],
+        GIT_SUMMARY_STEP_MS,
+      ),
+    ]);
+    const base = chooseGitBase({
+      originHead: originHead.ok ? originHead.stdout : undefined,
+      existing: candidates.ok ? candidates.stdout.split("\n") : [],
+    });
+    // No base, no first commit, or the branch is the base: nothing to compare, said by an absent base.
+    if (base === undefined || !head || (!branch.detached && isOwnGitBase(name, base))) return finish("");
+    const diff = await git(root, ["diff", ...PATCH_FLAGS, `${base}...HEAD`, "--"], GIT_REVIEW_DIFF_MS);
+    if (!diff.ok) return fail(diff.error ?? "git diff failed");
+    return finish(diff.stdout, { base });
+  }
+
+  // Tracked work against HEAD (staged or not); before the first commit, against the empty tree.
+  const tracked = await git(
+    root,
+    head ? ["diff", ...PATCH_FLAGS, "HEAD", "--"] : ["diff", ...PATCH_FLAGS, "--cached", "--"],
+    GIT_REVIEW_DIFF_MS,
+  );
+  if (!tracked.ok) return fail(tracked.error ?? "git diff failed");
+  // New files git does not track yet: an agent's most common change. Each is
+  // read as a whole-file addition; ignored files are not listed.
+  const others = await git(root, ["ls-files", "--others", "--exclude-standard", "-z"], GIT_SUMMARY_STEP_MS);
+  const untracked = others.ok ? others.stdout.split("\0").filter((path) => path.length > 0) : [];
+  const read = untracked.slice(0, GIT_REVIEW_UNTRACKED_MAX);
+  // `--no-index` exits 1 when the files differ, which is every time here: its output is the patch.
+  const added = await Promise.all(
+    read.map((path) => git(root, ["diff", ...PATCH_FLAGS, "--no-index", "--", "/dev/null", path], GIT_SUMMARY_STEP_MS)),
+  );
+  const patch = [tracked.stdout, ...added.map((result) => result.stdout)].filter((part) => part.length > 0).join("");
+  return finish(patch, untracked.length > read.length ? { untrackedLeftOut: untracked.length - read.length } : {});
 };
 
 type SummaryEntry = { readonly at: number; readonly result: Promise<GitSummaryResult> };
