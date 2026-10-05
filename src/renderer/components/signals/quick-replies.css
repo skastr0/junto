@@ -13,11 +13,11 @@
   gap: 6px;
   height: 26px;
   padding: 0 11px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   border-color: transparent;
   background: var(--color-overlay-1);
   color: var(--color-ink-2);
-  font-size: 12px;
+  font-size: var(--text-body-lg);
   letter-spacing: 0;
   text-transform: none;
   white-space: nowrap;
@@ -61,7 +61,7 @@
   transform: translateY(-50%);
   color: var(--color-dim);
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: var(--text-label);
   line-height: 1;
   font-variant-numeric: tabular-nums;
   pointer-events: none;
@@ -76,8 +76,8 @@
 .quick-replies-settings__intro {
   max-width: 62ch;
   margin: 0;
-  font-size: 12px;
-  line-height: 1.5;
+  font-size: var(--text-body-lg);
+  line-height: var(--leading-body);
 }
 
 .quick-replies-settings__list {
@@ -105,7 +105,7 @@
 
 .quick-replies-settings__key {
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--text-body);
   color: var(--color-dim);
   text-align: right;
   font-variant-numeric: tabular-nums;
@@ -117,5 +117,5 @@
 }
 
 .quick-replies-settings input {
-  font-size: 13px;
+  font-size: var(--text-body-lg);
 }
