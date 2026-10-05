@@ -7,7 +7,7 @@ import {
   type FocusMeasure,
 } from "../lib/focus-measure";
 import { claimFocus, pickPrimaryFocusControl, scheduleFocusPrimaryControl } from "../lib/focus-ownership";
-import { useModalLayer } from "../lib/modal-stack";
+import { noteSubjectInUse, subjectOf, useModalLayer } from "../lib/modal-stack";
 
 // What a press may land on and keep: controls, fields, and the terminal.
 // Anything else in the panel is blank chrome or plain text.
@@ -182,12 +182,19 @@ export function FocusSurface({
       const control = target.closest(INTERACTIVE_SELECTOR);
       if (control !== null && control !== region && region.contains(control)) return;
       if (window.getSelection()?.isCollapsed === false) return;
-      const primary = pickPrimaryFocusControl(panelRef.current);
-      if (primary) claimFocus(primary, "gesture", { event, preventScroll: true });
+      // The subject in use: in a grid, the terminal last typed into.
+      const subject = subjectOf(region) ?? pickPrimaryFocusControl(panelRef.current);
+      if (subject) claimFocus(subject, "gesture", { event, preventScroll: true });
+    };
+    const root = rootRef.current;
+    const onFocusIn = (event: FocusEvent): void => {
+      if (root && event.target instanceof HTMLElement) noteSubjectInUse(root, event.target);
     };
     for (const region of regions) region.addEventListener("click", onClick);
+    root?.addEventListener("focusin", onFocusIn);
     return () => {
       for (const region of regions) region.removeEventListener("click", onClick);
+      root?.removeEventListener("focusin", onFocusIn);
     };
   }, [hasAside]);
 

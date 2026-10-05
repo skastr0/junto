@@ -129,8 +129,19 @@ const isPageRoot = (node: unknown): boolean =>
 export const subjectOf = (from: Element | null): HTMLElement | null => {
   const surface = from?.closest?.("[data-focus-surface]") ?? null;
   if (!surface) return null;
+  // A surface with several subjects (a grid of terminals): the one last in
+  // use, never just the first on screen.
+  const last = lastSubject.get(surface);
+  if (last && last.isConnected && surface.contains(last)) return last;
   const primary = pickPrimaryFocusControl(surface);
   return primary !== null && isOperatorTyping(primary) ? primary : null;
+};
+
+const lastSubject = new WeakMap<Element, HTMLElement>();
+
+/** A field the operator types into took focus inside `surface`: it is the subject in use. */
+export const noteSubjectInUse = (surface: Element, field: HTMLElement): void => {
+  if (isOperatorTyping(field)) lastSubject.set(surface, field);
 };
 
 /**
