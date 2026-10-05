@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { PINNING_ENABLED } from "@shared/features";
 import { use$ } from "@legendapp/state/react";
 import type { BrowserOpResult, BrowserSessionInfo, JuntoBrowserApi } from "@shared/ipc";
 import { browser$, clearBrowserSessionIfUnchanged } from "../../lib/browser-state";
@@ -233,19 +234,21 @@ export function BrowserSurfaceSlot({
             }
             actions={
               <>
-                <Button
-                  size="xs"
-                  variant="chrome"
-                  title={pinned ? "Move to focus shell" : "Pin to side dock"}
-                  onPointerDown={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    if (pinned) unpinWorkbenchSurface(pageRef);
-                    else pinWorkbenchSurface(pageRef);
-                  }}
-                >
-                  {pinned ? "Unpin" : "Pin"}
-                </Button>
+                {PINNING_ENABLED ? (
+                  <Button
+                    size="xs"
+                    variant="chrome"
+                    title={pinned ? "Move to focus shell" : "Pin to side dock"}
+                    onPointerDown={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      if (pinned) unpinWorkbenchSurface(pageRef);
+                      else pinWorkbenchSurface(pageRef);
+                    }}
+                  >
+                    {pinned ? "Unpin" : "Pin"}
+                  </Button>
+                ) : null}
                 <Button
                   size="xs"
                   variant={stopArm.armed ? "danger" : "chrome"}

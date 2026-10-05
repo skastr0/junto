@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { PINNING_ENABLED } from "@shared/features";
 import { use$ } from "@legendapp/state/react";
 import { Pin, PinOff, X } from "lucide-react";
 import type { Part, WorkMetadata } from "@shared/canvas";
@@ -131,17 +132,19 @@ export function TaskEnqueueSurface({
 
   const actions = (
     <>
-      <IconButton
-        size="md"
-        aria-label={pinned ? "Unpin task enqueue" : "Pin task enqueue"}
-        title={pinned ? "Move to focus" : "Pin to side dock"}
-        onClick={() => {
-          if (pinned) unpinWorkbenchSurface(surface.id);
-          else pinWorkbenchSurface(surface.id);
-        }}
-      >
-        {pinned ? <PinOff size={14} /> : <Pin size={14} />}
-      </IconButton>
+      {PINNING_ENABLED ? (
+        <IconButton
+          size="md"
+          aria-label={pinned ? "Unpin task enqueue" : "Pin task enqueue"}
+          title={pinned ? "Move to focus" : "Pin to side dock"}
+          onClick={() => {
+            if (pinned) unpinWorkbenchSurface(surface.id);
+            else pinWorkbenchSurface(surface.id);
+          }}
+        >
+          {pinned ? <PinOff size={14} /> : <Pin size={14} />}
+        </IconButton>
+      ) : null}
       <IconButton
         size="md"
         tone="danger"

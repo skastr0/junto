@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef } from "react";
+import { PINNING_ENABLED } from "@shared/features";
 import { use$ } from "@legendapp/state/react";
 import { Pin, PinOff, X } from "lucide-react";
 
@@ -157,17 +158,19 @@ export function NoteSurface({
           title={<span title={payload.title}>{payload.title.replace(/^#+\s*/, "") || "untitled"}</span>}
           actions={
             <>
-              <IconButton
-                size="sm"
-                aria-label={pinned ? "Unpin note editor" : "Pin note editor"}
-                title={pinned ? "Move to focus" : "Pin to side dock"}
-                onClick={() => {
-                  if (pinned) unpinWorkbenchSurface(surface.id);
-                  else pinWorkbenchSurface(surface.id);
-                }}
-              >
-                {pinned ? <PinOff size={13} /> : <Pin size={13} />}
-              </IconButton>
+              {PINNING_ENABLED ? (
+                <IconButton
+                  size="sm"
+                  aria-label={pinned ? "Unpin note editor" : "Pin note editor"}
+                  title={pinned ? "Move to focus" : "Pin to side dock"}
+                  onClick={() => {
+                    if (pinned) unpinWorkbenchSurface(surface.id);
+                    else pinWorkbenchSurface(surface.id);
+                  }}
+                >
+                  {pinned ? <PinOff size={13} /> : <Pin size={13} />}
+                </IconButton>
+              ) : null}
               <Button
                 size="xs"
                 variant="chrome"

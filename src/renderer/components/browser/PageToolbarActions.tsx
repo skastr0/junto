@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { PINNING_ENABLED } from "@shared/features";
 import { use$ } from "@legendapp/state/react";
 import { Globe, Pin, SquareX } from "lucide-react";
 import type { CanvasNode } from "@shared/canvas";
@@ -61,19 +62,21 @@ export function PageToolbarActions({ node }: { readonly node: CanvasNode }) {
       >
         <Globe size={14} />
       </IconButton>
-      <IconButton
-        className="nodrag nopan"
-        aria-label="Open page pinned"
-        title="Open page pinned"
-        data-testid="node-toolbar-page-pin"
-        onPointerDown={(event) => {
-          event.preventDefault();
-          event.stopPropagation();
-          open("pinned");
-        }}
-      >
-        <Pin size={14} />
-      </IconButton>
+      {PINNING_ENABLED ? (
+        <IconButton
+          className="nodrag nopan"
+          aria-label="Open page pinned"
+          title="Open page pinned"
+          data-testid="node-toolbar-page-pin"
+          onPointerDown={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            open("pinned");
+          }}
+        >
+          <Pin size={14} />
+        </IconButton>
+      ) : null}
       <IconButton
         className="nodrag nopan"
         aria-label={armed ? "Confirm stop page" : "Stop page"}

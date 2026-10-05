@@ -1,4 +1,5 @@
 import { use$ } from "@legendapp/state/react";
+import { PINNING_ENABLED } from "@shared/features";
 import {
   activateWorkbenchSurface,
   dock$,
@@ -142,7 +143,7 @@ export function WorkbenchChrome({
           ))}
         </button>
 
-        {zone === "focus" && hasZoneSurfaces ? (
+        {PINNING_ENABLED && zone === "focus" && hasZoneSurfaces ? (
           <button
             type="button"
             className="workbench-chrome__btn"
@@ -152,7 +153,7 @@ export function WorkbenchChrome({
             Pin all
           </button>
         ) : null}
-        {zone === "pinned" && hasZoneSurfaces ? (
+        {PINNING_ENABLED && zone === "pinned" && hasZoneSurfaces ? (
           <button
             type="button"
             className="workbench-chrome__btn"

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { PINNING_ENABLED } from "@shared/features";
 import { CircleStop, Compass, Pin, SquareTerminal } from "lucide-react";
 import type { CanvasNode } from "@shared/canvas";
 import { resolveTerminalBinding } from "@shared/terminal";
@@ -85,18 +86,20 @@ export function TerminalToolbarActions({ node }: { readonly node: CanvasNode }) 
       >
         <SquareTerminal size={14} />
       </IconButton>
-      <IconButton
-        className="nodrag nopan"
-        aria-label="Open terminal pinned"
-        title="Open terminal pinned"
-        onPointerDown={(event) => {
-          event.preventDefault();
-          event.stopPropagation();
-          void openTerminal(node, "pinned");
-        }}
-      >
-        <Pin size={14} />
-      </IconButton>
+      {PINNING_ENABLED ? (
+        <IconButton
+          className="nodrag nopan"
+          aria-label="Open terminal pinned"
+          title="Open terminal pinned"
+          onPointerDown={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            void openTerminal(node, "pinned");
+          }}
+        >
+          <Pin size={14} />
+        </IconButton>
+      ) : null}
       {agentSeat && onboarding === "not-onboarded" ? (
         nudgeProblem ? (
           <Button
