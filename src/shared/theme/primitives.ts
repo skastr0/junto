@@ -54,8 +54,11 @@ export const NEUTRALS: Record<"dark" | "bright", NeutralRamp> = {
     well: { l: 0.1353, c: 0.00322, h: 69.58 }, // #090807
     ink: { l: 0.92716, c: 0.01775, h: 81.33 }, // #ede6da
     "ink-2": { l: 0.80991, c: 0.02376, h: 84.59 }, // #c8c0b0
-    dim: { l: 0.61289, c: 0.0183, h: 79.3 }, // #8a8378
-    faint: { l: 0.49033, c: 0.03487, h: 90.43 }, // #68604a
+    // Brightened for legibility (operator decision): both now clear 4.5 to 1
+    // on ground, raise and the cards text sits on. They were #8a8378 and
+    // #68604a, at 5.24 and 3.15 on ground. theme-build.ts holds the floor.
+    dim: { l: 0.7, c: 0.0183, h: 79.3 }, // #a59d92
+    faint: { l: 0.62, c: 0.03, h: 90.43 }, // #8d8672
     umbra: { l: 0, c: 0, h: 0 }, // shadow source
   },
   bright: {

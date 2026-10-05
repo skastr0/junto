@@ -11,8 +11,8 @@
   --color-well: oklch(0.13530 0.00322 69.58);
   --color-ink: oklch(0.92716 0.01775 81.33);
   --color-ink-2: oklch(0.80991 0.02376 84.59);
-  --color-dim: oklch(0.61289 0.01830 79.30);
-  --color-faint: oklch(0.49033 0.03487 90.43);
+  --color-dim: oklch(0.70000 0.01830 79.30);
+  --color-faint: oklch(0.62000 0.03000 90.43);
   --color-stroke: color-mix(in oklab, var(--color-ink) 14%, transparent);
   --color-stroke-hi: color-mix(in oklab, var(--color-ink) 28%, transparent);
   --color-overlay-1: color-mix(in oklab, var(--color-ink) 3%, transparent);

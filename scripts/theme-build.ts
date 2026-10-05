@@ -34,8 +34,10 @@ const LEGACY_DARK_HEX: Record<string, string> = {
   well: "#090807",
   ink: "#ede6da",
   "ink-2": "#c8c0b0",
-  dim: "#8a8378",
-  faint: "#68604a",
+  // Not legacy any more: brightened on purpose so dim and faint text can be
+  // read (see primitives.ts). Pinned here so they cannot drift back.
+  dim: "#a59d92",
+  faint: "#8d8672",
   amber: "#e8a33d",
   "amber-hi": "#f0d9a8",
   cyan: "#39c6d6",
@@ -116,24 +118,39 @@ lines.push("}", "");
 writeFileSync(OUT, lines.join("\n"));
 console.log(`wrote ${OUT}`);
 
-// Soft contrast report (hard gate lands with the enforcement layer).
-console.log("\ncontrast report (informational):");
+// Contrast report. The quiet text tokens are a hard floor: dim and faint are
+// what hints, ages, line numbers and crumbs are written in, and they must be
+// readable on the two surfaces most text sits on. The rest is informational.
+const FLOOR = 4.5;
+const HARD: ReadonlyArray<readonly [string, string]> = [
+  ["dim", "ground"],
+  ["dim", "raise"],
+  ["faint", "ground"],
+  ["faint", "raise"],
+];
+console.log("\ncontrast report:");
+let unreadable = false;
 const report = (mode: "dark" | "bright") => {
   const t = themeRuntime(mode);
   const pairs: Array<[string, string, number]> = [
     ["ink", "ground", 7],
     ["ink-2", "raise", 4.5],
-    ["dim", "ground", 4.5],
-    ["faint", "ground", 4.5],
+    ...HARD.map(([fg, bg]): [string, string, number] => [fg, bg, FLOOR]),
     ["amber-fg", "ground", 4.5],
     ["cyan-fg", "ground", 4.5],
     ["crimson-fg", "ground", 4.5],
   ];
   for (const [fg, bg, min] of pairs) {
     const ratio = contrastRatio(t[fg]!, t[bg]!);
-    const mark = ratio >= min ? "ok " : "LOW";
+    const hard = HARD.some(([f, b]) => f === fg && b === bg);
+    const mark = ratio >= min ? "ok " : hard ? "FAIL" : "LOW";
+    if (ratio < min && hard) unreadable = true;
     console.log(`  ${mode} ${fg}/${bg}: ${ratio.toFixed(2)} (min ${min}) ${mark}`);
   }
 };
 report("dark");
 report("bright");
+if (unreadable) {
+  console.error(`\ndim and faint must reach ${FLOOR} to 1 on ground and raise in every theme. Raise the token, do not lower the floor.`);
+  process.exit(1);
+}
