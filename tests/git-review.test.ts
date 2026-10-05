@@ -2,7 +2,14 @@
  * A review's comments become one mail per recipient, each standing alone.
  */
 import { describe, expect, it } from "vitest";
+import type { CanvasDoc, CanvasNode } from "../src/shared/canvas";
+import { reviewCandidates } from "../src/shared/review-candidates";
 import {
+  applyMention,
+  filterMentionCandidates,
+  mentionedIn,
+  mentionQueryAt,
+  reviewCandidateLabel,
   quoteDiffLines,
   reviewCommentAnchor,
   reviewCountLine,
@@ -153,5 +160,79 @@ describe("one mail per recipient", () => {
       review: { note: "", comments: [comment({ quote: Array.from({ length: 11 }, (_, i) => `+line ${i}`) })] },
     });
     expect(long.mails[0]!.text).toContain("   +line 7\n   (3 more lines)\n   Comment: Why 22?");
+  });
+});
+
+describe("who a review can go to", () => {
+  const agent = (id: string, name: string, x: number, y: number): CanvasNode =>
+    ({ id, type: "text", text: name, x, y, width: 100, height: 60, ether: { entity: { kind: "agent", name: `local:${id}` } } }) as unknown as CanvasNode;
+  const doc = {
+    nodes: [
+      { id: "team", type: "group", label: "Team", x: 0, y: 0, width: 1000, height: 1000 },
+      { id: "sub", type: "group", label: "", x: 10, y: 10, width: 400, height: 400 },
+      agent("lead", "Lead", 600, 600),
+      agent("a", "Atlas", 50, 50),
+      agent("b", "Atlas", 200, 50),
+      agent("far", "Far", 5000, 5000),
+      { id: "note", type: "text", text: "A note", x: 60, y: 200, width: 50, height: 50 },
+      { id: "git", type: "text", text: "repo", x: 300, y: 300, width: 50, height: 50, ether: { entity: { kind: "git" } } },
+    ],
+    edges: [],
+  } as unknown as CanvasDoc;
+  const nameOf = (node: CanvasNode): string => (node.type === "text" ? node.text : node.id);
+
+  it("lists the innermost region's agents first, then each containing region's, never outsiders", () => {
+    const fromSeat = reviewCandidates(doc, "a", nameOf);
+    expect(fromSeat.map((candidate) => candidate.nodeId)).toEqual(["a", "b", "lead"]);
+    expect(fromSeat[0]?.regionPath).toEqual(["Team", "unnamed region"]);
+    // Opened from a git node in the same region: the same agents.
+    expect(reviewCandidates(doc, "git", nameOf).map((candidate) => candidate.nodeId)).toEqual(["a", "b", "lead"]);
+  });
+
+  it("from the open field, or from nowhere, offers every agent on the canvas", () => {
+    expect(reviewCandidates(doc, "far", nameOf).map((candidate) => candidate.nodeId)).toEqual(["lead", "a", "b", "far"]);
+    expect(reviewCandidates(doc, undefined, nameOf)).toHaveLength(4);
+  });
+
+  it("adds the region path to a name only when two candidates share it", () => {
+    const all = reviewCandidates(doc, "a", nameOf);
+    expect(all.map((candidate) => reviewCandidateLabel(candidate, all))).toEqual([
+      "Atlas, Team / unnamed region",
+      "Atlas, Team / unnamed region",
+      "Lead",
+    ]);
+  });
+});
+
+describe("mentioning an agent in a comment", () => {
+  const candidates = [
+    { nodeId: "a", name: "Atlas", regionPath: [] },
+    { nodeId: "b", name: "Brook", regionPath: [] },
+    { nodeId: "c", name: "Coral Atlas", regionPath: [] },
+  ];
+
+  it("finds the @word being typed before the caret", () => {
+    expect(mentionQueryAt("ask @Bro", 8)).toEqual({ start: 4, query: "Bro" });
+    expect(mentionQueryAt("@", 1)).toEqual({ start: 0, query: "" });
+    expect(mentionQueryAt("mail me@host", 12)).toBeUndefined();
+    expect(mentionQueryAt("ask @Brook now", 14)).toBeUndefined();
+  });
+
+  it("filters by name, starts-with first", () => {
+    expect(filterMentionCandidates(candidates, "atl").map((candidate) => candidate.nodeId)).toEqual(["a", "c"]);
+    expect(filterMentionCandidates(candidates, "").map((candidate) => candidate.nodeId)).toEqual(["a", "b", "c"]);
+    expect(filterMentionCandidates(candidates, "zzz")).toEqual([]);
+  });
+
+  it("puts the picked name in place of the @word, and reads mentions back from the text", () => {
+    const at = mentionQueryAt("ask @Bro about it", 8)!;
+    expect(applyMention("ask @Bro about it", at, "Brook")).toEqual({ text: "ask @Brook  about it", caret: 11 });
+    const picked = [
+      { nodeId: "b", name: "Brook" },
+      { nodeId: "a", name: "Atlas" },
+    ];
+    expect(mentionedIn("ask @Brook about it", picked)).toEqual(["b"]);
+    // Deleting the words removes the recipient.
+    expect(mentionedIn("ask about it", picked)).toEqual([]);
   });
 });

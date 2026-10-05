@@ -175,3 +175,57 @@ export const reviewMails = (input: {
   }
   return { mails, unaddressed };
 };
+
+/** An agent a review, or one of its comments, can be sent to. */
+export type ReviewCandidate = {
+  readonly nodeId: string;
+  readonly name: string;
+  /** Its regions, outer to inner; empty in the open field. */
+  readonly regionPath: ReadonlyArray<string>;
+};
+
+/** How a candidate reads in a list: its name, with its region path when another candidate shares the name. */
+export const reviewCandidateLabel = (candidate: ReviewCandidate, all: ReadonlyArray<ReviewCandidate>): string => {
+  const shared = all.some((other) => other.nodeId !== candidate.nodeId && other.name === candidate.name);
+  return shared && candidate.regionPath.length > 0 ? `${candidate.name}, ${candidate.regionPath.join(" / ")}` : candidate.name;
+};
+
+/** The `@word` being typed just before the caret, if any: what a mention list filters by. */
+export const mentionQueryAt = (text: string, caret: number): { readonly start: number; readonly query: string } | undefined => {
+  const before = text.slice(0, caret);
+  const match = before.match(/(^|\s)@([^\s@]*)$/u);
+  if (!match) return undefined;
+  const query = match[2] ?? "";
+  return { start: before.length - query.length - 1, query };
+};
+
+/** Candidates whose name starts with, or contains, what was typed after the @. Starts-with first. */
+export const filterMentionCandidates = (
+  candidates: ReadonlyArray<ReviewCandidate>,
+  query: string,
+): ReadonlyArray<ReviewCandidate> => {
+  const q = query.toLowerCase();
+  const starts = candidates.filter((candidate) => candidate.name.toLowerCase().startsWith(q));
+  const contains = candidates.filter((candidate) => !starts.includes(candidate) && candidate.name.toLowerCase().includes(q));
+  return [...starts, ...contains];
+};
+
+/** Put a picked mention in place of the `@word` being typed; returns the text and where the caret goes. */
+export const applyMention = (
+  text: string,
+  at: { readonly start: number; readonly query: string },
+  name: string,
+): { readonly text: string; readonly caret: number } => {
+  const inserted = `@${name} `;
+  const end = at.start + 1 + at.query.length;
+  return { text: `${text.slice(0, at.start)}${inserted}${text.slice(end)}`, caret: at.start + inserted.length };
+};
+
+/**
+ * The recipients a comment's text still mentions: a mention holds only while
+ * its `@Name` is in the text, so deleting the words removes the recipient.
+ */
+export const mentionedIn = (
+  text: string,
+  picked: ReadonlyArray<{ readonly nodeId: string; readonly name: string }>,
+): ReadonlyArray<string> => [...new Set(picked.filter((entry) => text.includes(`@${entry.name}`)).map((entry) => entry.nodeId))];
