@@ -232,8 +232,8 @@ function FactoryPauseControl({ canvasName }: { readonly canvasName: string }) {
           role="alert"
           style={{
             color: HUE.crimson,
-            fontSize: 8,
-            letterSpacing: ".12em",
+            fontSize: "var(--text-micro)",
+            letterSpacing: "var(--tracking-eyebrow)",
             textTransform: "uppercase",
             maxWidth: 180,
             overflow: "hidden",
