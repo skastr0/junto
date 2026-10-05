@@ -260,6 +260,10 @@ test("the needs-you feed previews the files a signal names", async () => {
     await page.keyboard.press("ArrowRight");
     await expect(title).toHaveText("rail-expanded.png");
     await expect(status).toContainText("3 of 5, 520 × 1400");
+    // The mark in the filmstrip follows the image, not the tile that opened the viewer.
+    await expect(viewer.locator("[aria-current='true']")).toHaveAttribute("aria-label", "Rail expanded, rail-expanded.png");
+    // Let the crossfade and the tile borders settle before the frame.
+    await page.waitForTimeout(400);
     await page.screenshot({ path: join(SHOTS, "viewer-tall-dark.png") });
     // And by button.
     await viewer.getByRole("button", { name: "Next" }).click();
