@@ -296,6 +296,8 @@ export const planManagedSpawn = (input: SpawnPlanInput): ManagedLaunchPlan | und
     ...(input.permissionMode ?? recovered.permissionMode
       ? { permissionMode: input.permissionMode ?? recovered.permissionMode }
       : {}),
+    // The operator's own arguments ride every spawn and resume of the seat.
+    ...(recovered.extraArgs ? { extraArgs: recovered.extraArgs } : {}),
     // A provisioned harness has exactly one launch shape — `threads continue
     // <id>` — whether or not the thread has history, because the id IS the
     // seat's thread. Injection arming is decided by `resume` above, not here.
@@ -437,6 +439,7 @@ export const planFreshPinSession = (input: {
     ...(recovered.permissionMode
       ? { permissionMode: recovered.permissionMode }
       : {}),
+    ...(recovered.extraArgs ? { extraArgs: recovered.extraArgs } : {}),
     ...(cwd ? { cwd } : {}),
   });
 };

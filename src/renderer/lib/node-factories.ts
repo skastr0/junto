@@ -18,6 +18,7 @@ import {
   SHEET_ENABLED,
   TASKS_ENABLED,
 } from "@shared/features";
+import { sanitizeExtraArgs } from "@shared/launch-extra-args";
 import { resolveManagedLaunch } from "@shared/managed-terminal-launch";
 import { emptySheet } from "@shared/sheet";
 import { isValidStationHostId } from "@shared/station";
@@ -112,6 +113,8 @@ export type ManagedAgentSeatOptions = {
   /** Named agent mode (Amp `-m low|medium|high|ultra`). */
   readonly mode?: string;
   readonly permissionMode?: string;
+  /** Extra harness arguments beyond the dials (operator-authored). */
+  readonly extraArgs?: readonly string[];
   readonly cwd?: string;
   readonly label?: string;
 };
@@ -136,6 +139,7 @@ export const buildManagedAgentSeat = (
   const host = requireHostId(options.host);
   const agentHost = requireHostId(options.agentHost ?? host);
   const template = templateFor(options.harness);
+  const extraArgs = sanitizeExtraArgs(options.harness, options.extraArgs).args;
   // Document launch: argv only — main injects scrubbed seat env at spawn.
   const full = resolveManagedLaunch(
     options.harness,
@@ -147,6 +151,7 @@ export const buildManagedAgentSeat = (
       ...(options.permissionMode
         ? { permissionMode: options.permissionMode }
         : {}),
+      ...(extraArgs.length > 0 ? { extraArgs } : {}),
       ...(options.cwd ? { cwd: options.cwd } : {}),
       injection: { seatBound: false, connected: false },
     },
@@ -156,6 +161,7 @@ export const buildManagedAgentSeat = (
     kind: "harness",
     argv: full.argv,
     ...(full.cwd ? { cwd: full.cwd } : {}),
+    ...(extraArgs.length > 0 ? { extraArgs: [...extraArgs] } : {}),
   };
   const agentKey =
     options.harness === "hermes" && options.profile
@@ -190,6 +196,7 @@ export const buildManagedAgentSeat = (
             ...(options.permissionMode
               ? { permissionMode: options.permissionMode }
               : {}),
+            ...(extraArgs.length > 0 ? { extraArgs } : {}),
             ...(options.cwd ? { cwd: options.cwd } : {}),
             sessionId: pinSession,
             injection: { seatBound: false, connected: false },
@@ -200,6 +207,7 @@ export const buildManagedAgentSeat = (
           kind: "harness" as const,
           argv: pinned.argv,
           ...(pinned.cwd ? { cwd: pinned.cwd } : {}),
+          ...(extraArgs.length > 0 ? { extraArgs: [...extraArgs] } : {}),
         };
       })()
     : launch;

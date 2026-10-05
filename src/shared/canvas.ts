@@ -156,6 +156,12 @@ export const EtherTerminalLaunch = Schema.Struct({
   argv: Schema.optionalKey(Schema.Array(Schema.String)),
   cwd: Schema.optionalKey(Schema.String),
   env: Schema.optionalKey(Schema.Record(Schema.String, Schema.String)),
+  /**
+   * Operator-authored harness arguments beyond the picker dials. Already part
+   * of `argv`; kept here as well so every replanned spawn and resume appends
+   * the same tokens (see `shared/launch-extra-args.ts`).
+   */
+  extraArgs: Schema.optionalKey(Schema.Array(Schema.String)),
 });
 export type EtherTerminalLaunch = typeof EtherTerminalLaunch.Type;
 

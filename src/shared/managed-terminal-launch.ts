@@ -9,6 +9,7 @@
  * plan (drive delivers after idle). Unconnected → nothing injected.
  */
 import type { EtherTerminalLaunch } from "./canvas";
+import { sanitizeExtraArgs } from "./launch-extra-args";
 import {
   type InjectionContext,
   type ManagedInjectionPlan,
@@ -76,6 +77,11 @@ export type ManagedLaunchChoices = {
   /** Resume an existing session (re-passes model/effort/permission flags). */
   readonly resumeId?: string;
   readonly permissionMode?: string;
+  /**
+   * Operator-authored arguments appended after every template-owned flag.
+   * Sanitized against the template's reserved flags at build time.
+   */
+  readonly extraArgs?: readonly string[];
   /**
    * Tier-A injection body. Claude → `--append-system-prompt`; Grok → `--rules`
    * when `agentFile` is unset.
@@ -468,6 +474,10 @@ const buildArgv = (
       argv.push(...spec.resumeReinjectionArgv);
     }
   }
+
+  // The operator's own arguments: after everything the template owns, before
+  // the prompt (a positional prompt must stay the last token).
+  argv.push(...sanitizeExtraArgs(template.harness, choices.extraArgs).args);
 
   // Prompt last (positional, with optional separator), as -q for Hermes TUI
   // auto-submit, as -i for Antigravity auto-submit, or not at all when the harness

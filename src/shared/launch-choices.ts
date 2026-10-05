@@ -6,13 +6,20 @@
  * Spawn reads them back to replan a launch; profiles and squads read them to
  * capture a seat as reusable configuration.
  */
+import { argvWithoutExtraArgs } from "./launch-extra-args";
 import type { ManagedLaunchChoices } from "./managed-terminal-launch";
 import { templateFor, type HarnessId } from "./managed-terminal-templates";
 import type { TerminalLaunch } from "./terminal";
 
 export type RecoveredLaunchChoices = Pick<
   ManagedLaunchChoices,
-  "model" | "effort" | "mode" | "permissionMode" | "profile" | "provider"
+  | "model"
+  | "effort"
+  | "mode"
+  | "permissionMode"
+  | "profile"
+  | "provider"
+  | "extraArgs"
 >;
 
 const valueForFlag = (
@@ -54,8 +61,22 @@ export const recoverDocumentLaunchChoices = (
   launch: TerminalLaunch | undefined,
 ): RecoveredLaunchChoices => {
   if (launch?.kind !== "harness" || !launch.argv) return {};
+  const extraArgs = launch.extraArgs ?? [];
+  return {
+    ...recoverTemplateChoices(
+      harness,
+      // Template flags are read from the part of the launch the template
+      // wrote; the operator's own arguments travel separately, verbatim.
+      argvWithoutExtraArgs(launch.argv, extraArgs),
+    ),
+    ...(extraArgs.length > 0 ? { extraArgs } : {}),
+  };
+};
 
-  const argv = launch.argv;
+const recoverTemplateChoices = (
+  harness: HarnessId,
+  argv: ReadonlyArray<string>,
+): Omit<RecoveredLaunchChoices, "extraArgs"> => {
   const spec = templateFor(harness).argvSpec;
 
   const effort = spec.effortConfigKey
