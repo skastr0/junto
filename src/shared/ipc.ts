@@ -47,6 +47,7 @@ import type {
 import type { UsageState } from "./usage";
 import type { AgentSeatStateEvent } from "./agent-seat-state";
 import type { MailTransportSpec, IsolationSpec } from "./managed-terminal-templates";
+import type { HarnessHelpFlag } from "./launch-extra-args";
 import type { TerminalSessionSummary } from "./terminal";
 import type { HostDirectorySnapshot } from "./host-directory";
 import type { GitLogResult, GitShowResult, GitStatusResult } from "./git";
@@ -326,6 +327,8 @@ export const IPC_CHANNELS = {
    * Only `installed: true` rows should be offered for authoring.
    */
   managedTerminalHarnesses: "junto:managed-terminal-harnesses",
+  /** Options the installed harness lists in its own `--help`. */
+  managedTerminalFlags: "junto:managed-terminal-flags",
   /** Main → renderer: managed-agent seat state (idle/working/attention/unknown). */
   agentSeatStateSnapshot: "junto:agent-seat-state-snapshot",
   agentSeatStateChanged: "junto:agent-seat-state-changed",
@@ -1273,6 +1276,12 @@ export interface ManagedTerminalModelsResult {
   readonly efforts: readonly string[];
 }
 
+/** Launch options one installed harness reports about itself. */
+export interface ManagedTerminalFlagsResult {
+  readonly installed: boolean;
+  readonly flags: readonly HarnessHelpFlag[];
+}
+
 export interface ManagedTerminalProfileOption {
   readonly name: string;
   readonly model: string;
@@ -1403,6 +1412,13 @@ export interface JuntoTerminalApi {
    * Palette filters to `installed` before offering a seat.
    */
   readonly managedTerminalHarnesses: () => Promise<ManagedTerminalHarnessesResult>;
+  /**
+   * Fail-soft: the options the installed harness prints in `--help`, for the
+   * launch-parameter editor. Empty when the harness is absent or silent.
+   */
+  readonly managedTerminalFlags: (
+    harness: string,
+  ) => Promise<ManagedTerminalFlagsResult>;
   /** Current managed-seat projection for renderer restart hydration. */
   readonly agentSeatStateSnapshot: () => Promise<ReadonlyArray<AgentSeatStateEvent>>;
   /** Main → renderer: managed-agent seat state (idle/working/attention/unknown). */

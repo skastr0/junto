@@ -868,6 +868,8 @@ const terminalApi: JuntoTerminalApi = {
     invoke(IPC_CHANNELS.managedTerminalProfiles, IPC_TIMEOUT_MS),
   managedTerminalHarnesses: () =>
     invoke(IPC_CHANNELS.managedTerminalHarnesses, IPC_TIMEOUT_MS),
+  managedTerminalFlags: (harness) =>
+    invoke(IPC_CHANNELS.managedTerminalFlags, IPC_TIMEOUT_MS, harness),
   agentSeatStateSnapshot: () =>
     invoke(IPC_CHANNELS.agentSeatStateSnapshot, IPC_TIMEOUT_MS),
   onAgentSeatStateChanged: (listener) =>

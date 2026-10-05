@@ -19,6 +19,7 @@ import {
   type IsolationSpec,
 } from "@shared/managed-terminal-templates";
 import { managedHarnessEnabled } from "@shared/features";
+import { parseHelpFlags, type HarnessHelpFlag } from "@shared/launch-extra-args";
 import {
   configuredToolDirectories,
   enumeratedToolDirs,
@@ -134,19 +135,25 @@ const HELP_PROBE_TIMEOUT_MS = 3_000;
 // upgraded harness is probed again and nothing else ever re-runs it.
 const helpTextCache = new Map<string, string>();
 
-const helpTextOf = (executable: string, pathEnv: string | undefined): string => {
+const helpTextOf = (
+  executable: string,
+  pathEnv: string | undefined,
+  // Subcommand the seat actually launches (`hermes chat`), whose options are
+  // not the root command's.
+  subcommand: readonly string[] = [],
+): string => {
   let stamp = "unknown";
   try {
     stamp = String(statSync(executable).mtimeMs);
   } catch {
     // An unreadable binary still gets one probe per process.
   }
-  const key = `${executable}\0${stamp}`;
+  const key = `${executable}\0${stamp}\0${subcommand.join(" ")}`;
   const cached = helpTextCache.get(key);
   if (cached !== undefined) return cached;
   let text = "";
   try {
-    const result = spawnSync(executable, ["--help"], {
+    const result = spawnSync(executable, [...subcommand, "--help"], {
       env: { ...process.env, ...(pathEnv === undefined ? {} : { PATH: pathEnv }) },
       encoding: "utf8",
       stdio: ["ignore", "pipe", "pipe"],
@@ -177,6 +184,33 @@ export const supportedHostProbedFlags = (
     const escaped = flag.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     return new RegExp(`(^|[\\s,])${escaped}([\\s,=]|$)`, "m").test(help);
   });
+};
+
+/**
+ * The options this installed harness lists for the command a seat launches,
+ * for the operator's launch-parameter editor. Fail-soft: an uninstalled
+ * harness, or one whose `--help` errors or times out, yields an empty list
+ * and the editor falls back to free-form arguments.
+ */
+export const harnessLaunchFlags = (
+  harness: HarnessId,
+): { readonly installed: boolean; readonly flags: readonly HarnessHelpFlag[] } => {
+  if (!managedHarnessEnabled(harness)) return { installed: false, flags: [] };
+  const spec = templateFor(harness).argvSpec;
+  const executable = resolveHarnessExecutable(spec.binary);
+  if (!executable) return { installed: false, flags: [] };
+  const subcommand = spec.prefix.filter((token) => !token.startsWith("-"));
+  const searchPath = harnessSearchPath();
+  let help = helpTextOf(executable, searchPath, subcommand);
+  if (help === "" && subcommand.length > 0) {
+    help = helpTextOf(executable, searchPath);
+  }
+  return {
+    installed: true,
+    flags: parseHelpFlags(help).filter(
+      (flag) => flag.flag !== "--help" && flag.flag !== "--version",
+    ),
+  };
 };
 
 /** Test seam: forget every cached `--help` read. */

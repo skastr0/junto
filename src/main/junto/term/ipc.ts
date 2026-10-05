@@ -387,6 +387,18 @@ export const registerTerminalIpc = (
   });
 
   ipcMain.handle(
+    IPC_CHANNELS.managedTerminalFlags,
+    async (event, harness: string) => {
+      assertTrusted(event);
+      if (typeof harness !== "string" || !isHarnessId(harness)) {
+        return { installed: false, flags: [] };
+      }
+      const { harnessLaunchFlags } = await import("./templates/harness-install");
+      return harnessLaunchFlags(harness);
+    },
+  );
+
+  ipcMain.handle(
     IPC_CHANNELS.terminalGet,
     async (event, bindingId: string, hostId?: string) => {
       assertTrusted(event);
