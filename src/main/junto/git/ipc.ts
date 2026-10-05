@@ -1,7 +1,7 @@
 import type { IpcMain } from "electron";
 import { IPC_CHANNELS } from "@shared/ipc";
 import { GIT_LOG_LIMIT_DEFAULT } from "@shared/git";
-import { readGitLog, readGitShow, readGitStatus } from "../adapters/git";
+import { readGitLog, readGitShow, readGitStatus, readGitSummary } from "../adapters/git";
 
 const asString = (value: unknown): string =>
   typeof value === "string" ? value : "";
@@ -20,5 +20,8 @@ export const registerGitIpc = (ipcMain: IpcMain): void => {
   );
   ipcMain.handle(IPC_CHANNELS.gitShow, (_event, cwd: unknown, sha: unknown) =>
     readGitShow(asString(cwd), asString(sha)),
+  );
+  ipcMain.handle(IPC_CHANNELS.gitSummary, (_event, cwd: unknown) =>
+    readGitSummary(asString(cwd)),
   );
 };

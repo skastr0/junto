@@ -51,7 +51,7 @@ import type { MailTransportSpec, IsolationSpec } from "./managed-terminal-templa
 import type { HarnessHelpFlag } from "./launch-extra-args";
 import type { TerminalSessionSummary } from "./terminal";
 import type { HostDirectorySnapshot } from "./host-directory";
-import type { GitLogResult, GitShowResult, GitStatusResult } from "./git";
+import type { GitLogResult, GitShowResult, GitStatusResult, GitSummaryResult } from "./git";
 import type { ActorRef } from "./work-protocol";
 import type { WorkSeatRecentOpsFeed } from "./work-recent-ops";
 import type {
@@ -323,6 +323,7 @@ export const IPC_CHANNELS = {
   gitStatus: "junto:git-status",
   gitLog: "junto:git-log",
   gitShow: "junto:git-show",
+  gitSummary: "junto:git-summary",
   /** Fail-soft model list for the managed-terminal harness picker. */
   managedTerminalModels: "junto:managed-terminal-models",
   /** Fail-soft Hermes profile list for the harness picker. */
@@ -1371,6 +1372,8 @@ export interface JuntoGitApi {
   readonly gitStatus: (cwd: string) => Promise<GitStatusResult>;
   readonly gitLog: (cwd: string, limit?: number) => Promise<GitLogResult>;
   readonly gitShow: (cwd: string, sha: string) => Promise<GitShowResult>;
+  /** A repository at a glance for a folder; one read per repository in main. */
+  readonly gitSummary: (cwd: string) => Promise<GitSummaryResult>;
 }
 
 /** submitted = typed into the seat; queued = waiting for the seat to start. */
