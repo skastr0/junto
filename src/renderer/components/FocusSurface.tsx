@@ -221,7 +221,8 @@ export function FocusSurface({
       <button
         type="button"
         data-layer-backdrop
-        aria-label={`Close ${label}`}
+        // The dim is a pointer target only: Escape and the close button are the named ways out.
+        aria-hidden="true"
         tabIndex={-1}
         onClick={() => {
           if (closeOnBackdrop) onClose();

@@ -72,7 +72,8 @@ export function Dialog({
       <button
         type="button"
         data-layer-backdrop
-        aria-label="Cancel"
+        // The dim is a pointer target only: Escape and the close button are the named ways out.
+        aria-hidden="true"
         tabIndex={-1}
         onClick={() => {
           if (closeOnBackdrop) onClose();
