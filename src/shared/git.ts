@@ -204,7 +204,10 @@ export const gitSummaryParts = (summary: GitSummary, nowMs: number): ReadonlyArr
     const subject = summary.head.subject.trim();
     if (subject) parts.push({ kind: "subject", text: subject, label: `Latest commit: ${subject}` });
     const age = commitAge(nowMs, summary.head.authoredAt);
-    if (age) parts.push({ kind: "age", text: age, label: `Committed ${new Date(summary.head.authoredAt).toISOString()}` });
+    if (age) {
+      const when = new Date(summary.head.authoredAt).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+      parts.push({ kind: "age", text: age, label: `Committed ${when}` });
+    }
   }
   return parts;
 };
