@@ -1,9 +1,10 @@
 /**
  * The operator feed: one scrolling surface of everything on the canvas that
  * wants the operator, grouped by region. A card is a seat and its need
- * (blocked, wants input, escalation, feedback, or an AI reading that it is
- * waiting on you); signals are answered inline or with one quick reply,
- * anything else opens the seat.
+ * (blocked, needs input, escalation, ready for review, or an AI reading that
+ * it is waiting on you), or a need read off the canvas (a stoppage, a held
+ * node, a sink that wants input); signals are answered inline or with one
+ * quick reply, anything else opens the node.
  *
  * The data is the shared projection (`@shared/operator-feed`), so this is one
  * rendering of a shape a mobile client can read as well.
@@ -39,7 +40,13 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import type { CanvasNode } from "@shared/canvas";
-import type { FeedItem, FeedItemKind, FeedSection } from "@shared/operator-feed";
+import {
+  FEED_KIND_LABEL,
+  needsOperatorCount,
+  type FeedItem,
+  type FeedItemKind,
+  type FeedSection,
+} from "@shared/operator-feed";
 import { activateNodeSurface } from "../../lib/activate-node-surface";
 import { mailAgeLabel } from "../../lib/actor-ledger";
 import { dismissAgentSignal, respondToAgentSignal } from "../../lib/agent-signals-state";
@@ -60,6 +67,7 @@ import { state$ } from "../../lib/state";
 import { accentColor } from "../../lib/theme";
 import { THREAD_HEALTH_STATUS_TONE } from "../../lib/thread-health";
 import { AgentPortrait } from "../AgentPortrait";
+import { NodeKindMark } from "../NodeKindMark";
 import { SeatRing } from "../SeatRing";
 import { QuickReplies } from "../signals/QuickReplies";
 import { SignalReply } from "../signals/SignalReply";
@@ -72,13 +80,13 @@ const LEAVE_MS = 280;
 
 const closeOperatorFeed = (): void => closeOperatorModal("feed");
 
-/** How each need reads: a glyph on the portrait and a word in the meta line. */
-const KIND: Readonly<Record<FeedItemKind, { readonly label: string; readonly icon: LucideIcon }>> = {
-  blocked: { label: "blocked", icon: OctagonAlert },
-  attention: { label: "wants input", icon: MessageCircleQuestion },
-  escalate: { label: "escalation", icon: ArrowBigUpDash },
-  feedback: { label: "feedback", icon: MessageSquareText },
-  health: { label: "AI read", icon: ScanEye },
+/** How each need reads: a glyph on the portrait; its word is FEED_KIND_LABEL. */
+const KIND_ICON: Readonly<Record<FeedItemKind, LucideIcon>> = {
+  blocked: OctagonAlert,
+  attention: MessageCircleQuestion,
+  escalate: ArrowBigUpDash,
+  feedback: MessageSquareText,
+  health: ScanEye,
 };
 
 /** The region's own colour, or a quiet steel for the open field. */
@@ -136,8 +144,9 @@ export function FeedCard({
   useEffect(() => {
     if (selected && reveal) ref.current?.scrollIntoView({ block: "nearest" });
   }, [selected, reveal]);
-  const kind = KIND[item.kind];
-  const KindIcon = kind.icon;
+  const label = FEED_KIND_LABEL[item.kind];
+  const KindIcon = KIND_ICON[item.kind];
+  const isSeat = node === undefined || node.ether?.entity?.kind === "agent";
   const age = mailAgeLabel(nowMs, item.since);
   const health = item.kind === "health" ? undefined : item.health;
 
@@ -150,14 +159,16 @@ export function FeedCard({
         data-item-id={item.itemId}
         data-kind={item.kind}
         aria-current={selected ? "true" : undefined}
-        aria-label={`${item.seat.name}, ${kind.label}`}
+        aria-label={`${item.seat.name}, ${label}`}
         // Select on click, not on press: selecting numbers the row's pills,
         // and a press that reshaped them would land its release elsewhere.
         onClick={onSelect}
       >
         <div className="operator-feed__portrait">
-          {node ? (
+          {node && isSeat ? (
             <SeatRing node={node} px={46} />
+          ) : node ? (
+            <NodeKindMark node={node} className="operator-feed__node-mark" iconSize={18} />
           ) : (
             <AgentPortrait identity={item.seat.portraitIdentity} size={36} frame="round" outline={false} />
           )}
@@ -168,7 +179,7 @@ export function FeedCard({
         <div className="operator-feed__body">
           <header className="operator-feed__card-head">
             <span className="operator-feed__name">{item.seat.name}</span>
-            <span className="operator-feed__kind">{kind.label}</span>
+            <span className="operator-feed__kind">{label}</span>
             {age ? (
               <time className="operator-feed__age" title={new Date(item.since).toLocaleString()}>
                 {age}
@@ -225,7 +236,7 @@ export function FeedCard({
                   </Button>
                 ) : null}
                 <Button size="xs" variant="subtle" disabled={!node} onClick={() => openSeat(item, node)}>
-                  Open seat
+                  {isSeat ? "Open seat" : "Open"}
                   <ArrowUpRight size={11} aria-hidden />
                 </Button>
               </span>
@@ -249,7 +260,7 @@ function FeedRegionSection({
   readonly section: FeedSection & { readonly leavingIds: ReadonlySet<string> };
   readonly children: ReactNode;
 }) {
-  const live = section.items.length - section.leavingIds.size;
+  const live = needsOperatorCount(section.items.filter((item) => !section.leavingIds.has(item.itemId)));
   const outer = section.region.path.slice(0, -1);
   return (
     <section
@@ -263,7 +274,7 @@ function FeedRegionSection({
         <span className="operator-feed__region-label">{section.region.label}</span>
         {outer.length > 0 ? <span className="operator-feed__region-path">in {outer.join(" / ")}</span> : null}
         <span className="operator-feed__region-rule" aria-hidden />
-        <span className="operator-feed__region-count">{live}</span>
+        {live > 0 ? <span className="operator-feed__region-count">{live}</span> : null}
       </header>
       <div className="operator-feed__list">{children}</div>
     </section>

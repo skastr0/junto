@@ -30,8 +30,9 @@ import { onTerminalEvent } from "./terminal-events";
  * silent.
  *
  * Three sources, each already shown in the app:
- * - the ⌘I feed (declared signals and proven needs-input), minus the AI's
- *   advisory reading;
+ * - the ⌘I feed's declared signals and proven needs-input. The AI's advisory
+ *   reading and the needs read off the canvas are listed there but do not
+ *   ping;
  * - seats that finished a turn the operator has not looked at (done);
  * - agent seats whose process ended with a failure exit, until they start
  *   again (stopped), and squads that could not finish starting.
@@ -87,11 +88,11 @@ const FEED_CATEGORY = {
   feedback: "needsYou",
 } as const;
 
-/** Feed items as subjects. The AI's reading is advisory and never pings. */
+/** Feed items as subjects. The AI's reading and canvas needs never ping. */
 export const subjectsFromFeed = (feed: OperatorFeed): ReadonlyArray<NotifySubject> =>
   feed.sections.flatMap((section) =>
     section.items.flatMap((item): ReadonlyArray<NotifySubject> =>
-      item.kind === "health"
+      item.kind === "health" || item.canvas === true
         ? []
         : [
             {

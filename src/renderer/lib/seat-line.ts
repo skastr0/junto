@@ -5,6 +5,7 @@
  */
 
 import type { AgentSignal, AgentSignalKind } from "@shared/agent-signals";
+import { attentionText, FEED_KIND_LABEL } from "@shared/operator-feed";
 import type { ThreadHealthTone } from "@shared/thread-health";
 import type { ActivitySpec, ActivityTone } from "./activity";
 import { SIGNAL_FLAG_TONE } from "./activity-atlas";
@@ -18,7 +19,7 @@ export const seatLine = (activity: ActivitySpec): SeatLine => {
   const { mode, tone, label } = activity;
   if (mode === "pulse" && tone === "green") return { text: "done, not read yet", tone: "green" };
   if (mode === "wave" && tone === "amber") {
-    return { text: /stall/i.test(label) ? "stalled, needs a look" : "wants your input", tone: "amber" };
+    return { text: attentionText(label), tone: "amber" };
   }
   // Crimson in flight is a stoppage or a failure; its label is already copy.
   if (mode === "wave" && tone === "crimson") return { text: label, tone: "crimson" };
@@ -44,11 +45,7 @@ export const seatLine = (activity: ActivitySpec): SeatLine => {
   }
 };
 
-const SIGNAL_WORD: Readonly<Record<AgentSignalKind, string>> = {
-  blocked: "blocked",
-  escalate: "waiting on you",
-  feedback: "ready for review",
-};
+const SIGNAL_WORD: Readonly<Record<AgentSignalKind, string>> = FEED_KIND_LABEL;
 
 /**
  * What a seat says beneath its name, loudest first: its own open signal, then

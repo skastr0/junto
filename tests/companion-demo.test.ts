@@ -85,13 +85,14 @@ describe("demo transcript", () => {
 
     c.send(demoRequest("c1", "canvases.list"));
     expect((await c.until(response("c1"))).result).toEqual({
-      canvases: [{ canvasName: DEMO_CANVAS, title: "Demo", active: true, playing: true, needsYou: 5 }],
+      canvases: [{ canvasName: DEMO_CANVAS, title: "Demo", active: true, playing: true, needsYou: 4 }],
     });
 
     // Every feed kind, grouped by region, most urgent section first.
     c.send(demoRequest("f1", "feed.subscribe"));
     const [feed] = (await c.until(response("f1"))).result.feeds;
-    expect(feed.count).toBe(5);
+    // Five items, four counted: the AI reading is listed, never counted.
+    expect(feed.count).toBe(4);
     const kinds = feed.sections.flatMap((s: Frame) => s.items.map((i: Frame) => i.kind)).sort();
     expect(kinds).toEqual(["attention", "blocked", "escalate", "feedback", "health"]);
     expect(feed.sections.map((s: Frame) => s.region.label)).toEqual(["Backend", "Frontend"]);
@@ -119,9 +120,9 @@ describe("demo transcript", () => {
     const signalEvent = await c.until((f) => f.type === "event" && f.event === "signal.changed");
     expect(signalEvent.data.signal).toMatchObject({ signalId: "sig_demo_blocked", state: "answered" });
     const canvasesEvent = await c.until((f) => f.type === "event" && f.event === "canvases.changed");
-    expect(canvasesEvent.data.canvases[0].needsYou).toBe(4);
+    expect(canvasesEvent.data.canvases[0].needsYou).toBe(3);
     const feedEvent = await c.until((f) => f.type === "event" && f.event === "feed.changed");
-    expect(feedEvent.data.feed.count).toBe(4);
+    expect(feedEvent.data.feed.count).toBe(3);
     const seatEvent = await c.until((f) => f.type === "event" && f.event === "seat.changed");
     expect(seatEvent.data).toMatchObject({ canvasName: DEMO_CANVAS, seat: { nodeId: "atlas", state: "resting", line: "resting" } });
 
@@ -244,7 +245,7 @@ describe("the CLI entry", () => {
     const frames = stdout.trim().split("\n").map((line) => JSON.parse(line));
     expect(code).toBe(0);
     expect(frames[0]).toMatchObject({ type: "event", event: "hello" });
-    expect(frames.find((f) => f.id === "r1")?.result.feeds[0].count).toBe(5);
+    expect(frames.find((f) => f.id === "r1")?.result.feeds[0].count).toBe(4);
     expect(frames.find((f) => f.id === "r2")?.result.serverTime).toBe(DEMO_T0);
   }, 30_000);
 });

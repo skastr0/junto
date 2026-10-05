@@ -7,6 +7,7 @@ import {
   buildOperatorFeed,
   feedRegionFor,
   feedSeatsFromDoc,
+  needsOperatorCount,
   OperatorFeed,
   type FeedSeatInput,
 } from "../src/shared/operator-feed";
@@ -158,6 +159,71 @@ describe("buildOperatorFeed", () => {
   it("is an empty, valid feed when nobody needs the operator", () => {
     const feed = buildOperatorFeed({ canvasName: "main", nowMs: NOW, seats: seats(), signals: [] });
     expect(feed).toEqual({ version: 1, canvasName: "main", generatedAt: NOW, count: 0, sections: [] });
+  });
+
+  it("counts what needs the operator: canvas needs count, an AI reading does not", () => {
+    const feed = buildOperatorFeed({
+      canvasName: "main",
+      nowMs: NOW,
+      seats: seats({ a: { health: reading("waiting_on_operator", NOW - 60_000) } }),
+      signals: [signal({ signalId: "s", nodeId: "b" })],
+      canvasNeeds: [
+        {
+          itemId: "stoppage:sink",
+          kind: "blocked",
+          seat: { nodeId: "sink", name: "Ship it", portraitIdentity: "sink" },
+          region: { regionId: null, label: "open field", path: [] },
+          text: "holding up 2 others",
+          since: 4_000,
+        },
+      ],
+    });
+    const items = feed.sections.flatMap((s) => s.items);
+    expect(items.map((i) => `${i.seat.nodeId}:${i.kind}`).sort()).toEqual(["a:health", "b:feedback", "sink:blocked"]);
+    expect(feed.count).toBe(2);
+    expect(needsOperatorCount(items)).toBe(feed.count);
+    expect(items.find((i) => i.seat.nodeId === "sink")).toMatchObject({ canvas: true, since: 4_000, urgency: 5 });
+  });
+
+  it("adds a canvas need only where nothing listed for that node is as urgent", () => {
+    const need = (nodeId: string, kind: "blocked" | "attention", since: number) => ({
+      itemId: `${kind}:${nodeId}`,
+      kind,
+      seat: { nodeId, name: nodeId, portraitIdentity: nodeId },
+      region: { regionId: null, label: "open field", path: [] },
+      text: "from the canvas",
+      since,
+    });
+    const feed = buildOperatorFeed({
+      canvasName: "main",
+      nowMs: NOW,
+      seats: seats({ a: { attention: { reason: "permission prompt", at: 5_000 }, health: reading("waiting_on_operator", NOW) } }),
+      signals: [signal({ signalId: "s", nodeId: "b", kind: "feedback" })],
+      canvasNeeds: [need("a", "attention", 1), need("b", "blocked", 2), need("c", "blocked", 3)],
+    });
+    const items = feed.sections.flatMap((s) => s.items);
+    // a: its proven attention is as urgent, so the canvas need stays out, and
+    // the AI reading stays out because the seat is already listed.
+    expect(items.filter((i) => i.seat.nodeId === "a").map((i) => i.itemId)).toEqual(["attention:a:5000"]);
+    // b: blocked outranks its feedback, so both show; the seat's region is kept.
+    expect(items.filter((i) => i.seat.nodeId === "b").map((i) => i.kind)).toEqual(["blocked", "feedback"]);
+    expect(items.find((i) => i.itemId === "blocked:b")?.region.regionId).toBe("inner");
+    expect(feed.count).toBe(4);
+  });
+
+  it("orders by urgency, then oldest first", () => {
+    const feed = buildOperatorFeed({
+      canvasName: "main",
+      nowMs: NOW,
+      seats: [],
+      signals: [
+        signal({ signalId: "new-fb", nodeId: "x", kind: "feedback", createdAt: 9_000 }),
+        signal({ signalId: "old-fb", nodeId: "y", kind: "feedback", createdAt: 1_000 }),
+        signal({ signalId: "new-block", nodeId: "z", kind: "blocked", createdAt: 8_000 }),
+        signal({ signalId: "old-block", nodeId: "w", kind: "blocked", createdAt: 2_000 }),
+      ],
+    });
+    expect(feed.sections[0]?.items.map((i) => i.signalId)).toEqual(["old-block", "new-block", "old-fb", "new-fb"]);
   });
 
   it("round-trips through JSON and decodes against its schema", () => {

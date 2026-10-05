@@ -126,7 +126,7 @@ test("the operator feed at thirty: regions in colour, quick replies, real answer
     await setTheme(page, "dark");
 
     const trigger = page.getByTestId("operator-feed-trigger");
-    await expect(trigger).toHaveAttribute("aria-label", "Open needs-you feed, 30 waiting", { timeout: 10_000 });
+    await expect(trigger).toHaveAttribute("aria-label", "Needs you, 30", { timeout: 10_000 });
     await page.screenshot({ path: join(SHOTS, "topbar-count.png"), clip: { x: 0, y: 0, width: 1400, height: 60 } });
 
     await page.keyboard.press("Meta+I");
@@ -167,7 +167,7 @@ test("the operator feed at thirty: regions in colour, quick replies, real answer
     // Key 1 sends "Yes" through the real answer path; the card leaves.
     await page.keyboard.press("1");
     await expect(detailed).toHaveCount(0, { timeout: 10_000 });
-    await expect(trigger).toHaveAttribute("aria-label", "Open needs-you feed, 29 waiting");
+    await expect(trigger).toHaveAttribute("aria-label", "Needs you, 29");
     // The selection moved on to the next card.
     await expect(feed.locator("[aria-current='true']")).toHaveCount(1);
 
@@ -175,7 +175,7 @@ test("the operator feed at thirty: regions in colour, quick replies, real answer
     const byClick = await first.getAttribute("data-item-id");
     await first.getByTestId("quick-replies").getByRole("button", { name: /Go on/ }).click();
     await expect(feed.locator(`[data-item-id='${byClick}']`)).toHaveCount(0, { timeout: 10_000 });
-    await expect(trigger).toHaveAttribute("aria-label", "Open needs-you feed, 28 waiting");
+    await expect(trigger).toHaveAttribute("aria-label", "Needs you, 28");
 
     // Enter opens the written reply; ⌘↵ sends it.
     const written = await feed.locator("[aria-current='true']").getAttribute("data-item-id");

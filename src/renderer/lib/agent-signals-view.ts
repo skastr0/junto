@@ -11,6 +11,7 @@ import {
   respondToAgentSignal,
   type SignalActionResult,
 } from "./agent-signals-state";
+import { FEED_KIND_LABEL } from "@shared/operator-feed";
 import { requestSectionReveal } from "./sidebar-sections";
 import { state$ } from "./state";
 import { openTerminalSurface } from "./terminal-state";
@@ -30,11 +31,8 @@ export const SIGNAL_KIND_TONE: Readonly<Record<AgentSignalKind, "crimson" | "amb
   feedback: "cyan",
 };
 
-export const SIGNAL_KIND_LABEL: Readonly<Record<AgentSignalKind, string>> = {
-  blocked: "blocked",
-  escalate: "escalate",
-  feedback: "feedback",
-};
+/** The feed's own words for each kind: one name per state everywhere. */
+export const SIGNAL_KIND_LABEL: Readonly<Record<AgentSignalKind, string>> = FEED_KIND_LABEL;
 
 /** Open first, worst kind first, newest first; then closed, newest closure first. */
 export const orderSignals = (signals: ReadonlyArray<AgentSignal>): ReadonlyArray<AgentSignal> =>

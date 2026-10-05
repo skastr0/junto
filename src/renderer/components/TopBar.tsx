@@ -26,7 +26,7 @@ import { Button, ConfirmDialog, Dialog, Dropdown, FieldLabel, Input, Popover } f
 import { CanvasInteractionMap } from "./help/CanvasInteractionMap";
 import { FirstPlayConfirm } from "./FirstPlayConfirm";
 import { UpdateChip } from "./UpdateChip";
-import { NeedsYouInbox } from "./feed/NeedsYouInbox";
+import { NeedsYouButton } from "./feed/NeedsYouButton";
 import { UsageHud } from "./UsageHud";
 import { CommandGroupBar } from "./command-groups/CommandGroupBar";
 import { claimFocusOnMount } from "../lib/focus-ownership";
@@ -288,7 +288,7 @@ export function TopBar({
       <CommandGroupBar />
       <div className="station-actions relative ml-auto flex items-center gap-3">
         <UpdateChip />
-        <NeedsYouInbox />
+        <NeedsYouButton />
         <FactoryPauseControl canvasName={canvasName} />
         {DEV_TOOLS_ENABLED && logsExplorer ? (
           <button

@@ -17,6 +17,7 @@
  */
 
 import type { AgentSignalKind } from "@shared/agent-signals";
+import { FEED_KIND_LABEL } from "@shared/operator-feed";
 import type { MemberSeverity } from "@shared/region-rollup";
 import type { ThreadHealthTone } from "@shared/thread-health";
 import { resolveActivityGlyph, type ActivitySpec } from "./activity";
@@ -71,12 +72,6 @@ export const CONTROL_ROLLUP_TONE: Readonly<Record<MemberSeverity, SeatRollupTone
   idle: undefined,
 };
 
-const SIGNAL_REASON: Readonly<Record<AgentSignalKind, string>> = {
-  blocked: "blocked",
-  escalate: "wants you",
-  feedback: "ready for review",
-};
-
 const PROVEN: ReadonlySet<MemberSeverity> = new Set(["blocked", "attention"]);
 
 export const seatRollup = (input: SeatRollupInput): SeatRollup | undefined => {
@@ -85,12 +80,17 @@ export const seatRollup = (input: SeatRollupInput): SeatRollup | undefined => {
       source: "signal",
       tone: SIGNAL_ROLLUP_TONE[input.signal],
       stale: false,
-      reason: SIGNAL_REASON[input.signal],
+      reason: FEED_KIND_LABEL[input.signal],
     };
   }
   const control = input.control;
   if (control !== undefined && PROVEN.has(control)) {
-    return { source: "control", tone: CONTROL_ROLLUP_TONE[control]!, stale: false, reason: control };
+    return {
+      source: "control",
+      tone: CONTROL_ROLLUP_TONE[control]!,
+      stale: false,
+      reason: FEED_KIND_LABEL[control as "blocked" | "attention"],
+    };
   }
   const health = input.health;
   const healthTone = health?.health === undefined ? undefined : HEALTH_ROLLUP_TONE[health.health];

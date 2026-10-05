@@ -8,11 +8,15 @@ import { ThreadHealthValue } from "./thread-health";
  * transport-agnostic so the desktop feed and a later mobile client read the
  * same shape.
  *
- * Three sources, kept distinct:
+ * Four sources, kept distinct:
  * - declared signals (the agent's own claim): blocked, escalate, feedback;
  * - proven control state: the seat's screen shows a dialog that wants input;
+ * - canvas needs, read off the work graph and the sinks: a node that holds
+ *   others up, a node held up, a sink or seat that wants input. Listed only
+ *   where nothing above already says as much for that node;
  * - AI thread health reading "waiting on the operator", only for a seat
- *   nothing else already lists, and only while the reading is fresh.
+ *   nothing else already lists, and only while the reading is fresh. It is
+ *   shown, never counted: it is a reading, not a need.
  * Every item also carries the seat's health reading as a separate, advisory
  * field; it never changes an item's kind or urgency.
  */
@@ -36,6 +40,23 @@ export const FEED_URGENCY: Readonly<Record<FeedItemKind, number>> = {
   feedback: 2,
   health: 1,
 };
+
+/** The one name for each state, wherever a surface says it in words. */
+export const FEED_KIND_LABEL: Readonly<Record<FeedItemKind, string>> = {
+  blocked: "blocked",
+  attention: "needs input",
+  escalate: "waiting on you",
+  feedback: "ready for review",
+  health: "AI read",
+};
+
+/**
+ * How many of these need the operator: the one number the top bar, the feed
+ * header and the Dock badge show. An AI reading never pings, so it never
+ * counts.
+ */
+export const needsOperatorCount = (items: ReadonlyArray<{ readonly kind: FeedItemKind }>): number =>
+  items.reduce((count, item) => (item.kind === "health" ? count : count + 1), 0);
 
 export const FeedSeat = Schema.Struct({
   nodeId: Schema.String,
@@ -87,6 +108,8 @@ export const FeedItem = Schema.Struct({
   signalId: Schema.optionalKey(Schema.String),
   signalKind: Schema.optionalKey(AgentSignalKind),
   health: Schema.optionalKey(FeedHealth),
+  /** Set for a canvas need: read off the work graph or a sink, not said by a seat. */
+  canvas: Schema.optionalKey(Schema.Boolean),
 });
 export type FeedItem = typeof FeedItem.Type;
 
@@ -101,6 +124,7 @@ export const OperatorFeed = Schema.Struct({
   version: Schema.Literal(OPERATOR_FEED_VERSION),
   canvasName: Schema.String,
   generatedAt: Schema.Number,
+  /** needsOperatorCount of every item: AI readings are listed but not counted. */
   count: Schema.Number,
   sections: Schema.Array(FeedSection),
 });

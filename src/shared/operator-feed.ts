@@ -1,6 +1,6 @@
 import type { CanvasDoc, CanvasNode } from "./canvas";
 import type { AgentSignal } from "./agent-signals";
-import { regionStack } from "./graph";
+import { regionDisplayName, regionStack } from "./graph";
 import {
   THREAD_HEALTH_LABEL,
   THREAD_HEALTH_TONE,
@@ -9,6 +9,7 @@ import {
 } from "./thread-health";
 import {
   FEED_URGENCY,
+  needsOperatorCount,
   OPERATOR_FEED_VERSION,
   type FeedHealth,
   type FeedItem,
@@ -40,11 +41,26 @@ export type FeedSeatInput = {
   readonly healthFresh?: boolean;
 };
 
+/**
+ * A need only the canvas knows: a node that holds others up, a node held up
+ * by its work, a sink or seat that wants input. The node need not be a seat.
+ */
+export type FeedCanvasNeed = {
+  readonly itemId: string;
+  readonly kind: "blocked" | "attention";
+  readonly seat: FeedSeat;
+  readonly region: FeedRegion;
+  readonly text: string;
+  /** Epoch ms the need began. */
+  readonly since: number;
+};
+
 export type OperatorFeedInput = {
   readonly canvasName: string;
   readonly nowMs: number;
   readonly seats: ReadonlyArray<FeedSeatInput>;
   readonly signals: ReadonlyArray<AgentSignal>;
+  readonly canvasNeeds?: ReadonlyArray<FeedCanvasNeed>;
 };
 
 export const OPEN_FIELD: FeedRegion = { regionId: null, label: "open field", path: [] };
@@ -54,11 +70,10 @@ export const feedRegionFor = (doc: CanvasDoc, nodeId: string): FeedRegion => {
   const stack = regionStack(doc, nodeId);
   const inner = stack[stack.length - 1];
   if (!inner) return OPEN_FIELD;
-  const labelOf = (group: (typeof stack)[number]): string => group.label?.trim() || "untitled region";
   return {
     regionId: inner.id,
-    label: labelOf(inner),
-    path: stack.map(labelOf),
+    label: regionDisplayName(inner),
+    path: stack.map(regionDisplayName),
     ...(inner.color ? { color: inner.color } : {}),
   };
 };
@@ -163,6 +178,16 @@ export const buildOperatorFeed = (input: OperatorFeedInput): OperatorFeed => {
     });
   }
 
+  // The feed carries the agent's own sentence, so a canvas need joins only
+  // where nothing listed for that node is already as urgent.
+  const worst = new Map<string, number>();
+  for (const item of items) worst.set(item.seat.nodeId, Math.max(worst.get(item.seat.nodeId) ?? 0, item.urgency));
+  for (const need of input.canvasNeeds ?? []) {
+    if ((worst.get(need.seat.nodeId) ?? 0) >= FEED_URGENCY[need.kind]) continue;
+    const entry = seatsById.get(need.seat.nodeId) ?? { seat: need.seat, region: need.region };
+    push(entry, { itemId: need.itemId, kind: need.kind, text: need.text, since: need.since, canvas: true });
+  }
+
   for (const entry of input.seats) {
     const reading = entry.health;
     if (!reading || listed.has(entry.seat.nodeId)) continue;
@@ -197,7 +222,7 @@ export const buildOperatorFeed = (input: OperatorFeedInput): OperatorFeed => {
     version: OPERATOR_FEED_VERSION,
     canvasName,
     generatedAt: nowMs,
-    count: items.length,
+    count: needsOperatorCount(items),
     sections: ordered,
   };
 };
