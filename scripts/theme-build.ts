@@ -3,7 +3,8 @@
 // source (src/shared/theme/). Dark values land in @theme (Tailwind v4
 // registers utilities from them); bright overrides ride on
 // html[data-theme="bright"]. Run after editing the source: bun run theme:build
-import { writeFileSync } from "node:fs";
+// `bun scripts/theme-build.ts --check` is the gate in bun run verify.
+import { readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import {
   contrastRatio,
@@ -115,8 +116,20 @@ for (const [name, value] of Object.entries(SEMANTIC_BRIGHT_OVERRIDES)) {
 }
 lines.push("}", "");
 
-writeFileSync(OUT, lines.join("\n"));
-console.log(`wrote ${OUT}`);
+// --check (the verify lane) writes nothing: it fails when the committed css
+// is not what the source builds, and when the contrast floor below is broken.
+const CHECK = process.argv.includes("--check");
+const built = lines.join("\n");
+if (CHECK) {
+  if (readFileSync(OUT, "utf8") !== built) {
+    console.error("theme.generated.css is not what src/shared/theme builds. Run `bun run theme:build` and commit the result.");
+    process.exit(1);
+  }
+  console.log("theme.generated.css matches the token source");
+} else {
+  writeFileSync(OUT, built);
+  console.log(`wrote ${OUT}`);
+}
 
 // Contrast report. The quiet text tokens are a hard floor: dim and faint are
 // what hints, ages, line numbers and crumbs are written in, and they must be

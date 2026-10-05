@@ -63,6 +63,7 @@ await allMustPass([
   { name: "lint:overlay", cmd: ["bun", "scripts/lint-overlay.ts"] },
   { name: "lint:layers", cmd: ["bun", "scripts/lint-layers.ts"] },
   { name: "lint:design-tokens", cmd: ["bun", "scripts/lint-design-tokens.ts"] },
+  { name: "theme:check", cmd: ["bun", "scripts/theme-build.ts", "--check"] },
 ]);
 
 const vitestWorkers = process.env.CI === "true" ? "2" : "4";
