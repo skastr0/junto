@@ -11,7 +11,7 @@
 .profile-save__error {
   margin: 0;
   color: var(--color-amber);
-  font-size: 11px;
+  font-size: var(--text-body);
 }
 
 /* --- save dialog ----------------------------------------------------------- */
@@ -35,13 +35,13 @@
 
 .profile-dialog__who {
   color: var(--color-ink);
-  font-size: 15px;
+  font-size: var(--text-title);
   font-weight: 600;
 }
 
 .profile-dialog__line {
   color: var(--color-dim);
-  font-size: 11px;
+  font-size: var(--text-body);
 }
 
 .profile-dialog__field {
@@ -51,7 +51,7 @@
 
 .profile-dialog__hint {
   color: var(--color-faint);
-  font-size: 10px;
+  font-size: var(--text-label);
 }
 
 /* --- save row (dialog and draft editor) ---------------------------------- */
@@ -64,8 +64,8 @@
 .profile-save__ask {
   margin: 0;
   color: var(--color-dim);
-  font-size: 11px;
-  line-height: 1.5;
+  font-size: var(--text-body);
+  line-height: var(--leading-body);
   text-wrap: pretty;
 }
 
