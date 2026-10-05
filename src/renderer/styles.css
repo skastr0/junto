@@ -910,6 +910,14 @@ html[data-junto-platform="darwin"] .station-bar [role="listbox"] {
   font-size: var(--text-caption);
   line-height: var(--leading-compact);
 }
+/* Kbd size md: a key cap that is read in a list, not glanced at in a footer.
+   A single key is as wide as it is tall, so a chord's caps line up. */
+.help-map__kbd--md {
+  min-width: 22px;
+  padding: 3px 6px;
+  font-size: var(--text-body);
+  text-align: center;
+}
 @media (max-width: 1360px) {
   .station-bar { gap: 8px; padding: 0 10px 0 84px; }
   .station-command-trigger { max-width: 210px; min-width: 120px; }

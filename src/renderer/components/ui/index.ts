@@ -16,7 +16,7 @@ export { Dropdown, type DropdownOption } from "./Dropdown";
 export { Combobox } from "./Combobox";
 export { OverlayHeader } from "./OverlayHeader";
 export { ToolbarPill } from "./ToolbarPill";
-export { Kbd } from "./Kbd";
+export { Kbd, KeyChord } from "./Kbd";
 export { Popover } from "./Popover";
 export { Dialog, ConfirmDialog } from "./Dialog";
 export { Slider } from "./Slider";
