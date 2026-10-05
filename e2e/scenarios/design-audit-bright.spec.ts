@@ -95,7 +95,7 @@ test("capture key surfaces in bright mode", async () => {
     await page.getByRole("button", { name: "Open settings" }).click();
     await page.locator(".settings-nav__item", { hasText: "Appearance" }).click();
     const brightChoice = page
-      .getByRole("radiogroup", { name: "Theme mode" })
+      .getByRole("radiogroup", { name: "Theme", exact: true })
       .getByRole("radio", { name: /Bright/ });
     await brightChoice.click();
     await expect(brightChoice).toHaveAttribute("aria-checked", "true");
