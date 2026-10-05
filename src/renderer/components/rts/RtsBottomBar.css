@@ -359,6 +359,18 @@
   cursor: pointer;
   flex-shrink: 0;
   transition: border-color 0.1s ease, background 0.1s ease, color 0.1s ease;
+  position: relative;
+}
+/* A key is drawn at 22px in the command card and pressed across 24px: an
+   invisible area centred on it, reaching halfway into the 2px gap each side. */
+.rts-key::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 24px;
+  height: 24px;
+  transform: translate(-50%, -50%);
 }
 
 .rts-key__icon {

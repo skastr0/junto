@@ -5,7 +5,9 @@
 .rts-cmd-accents {
   display: grid;
   grid-template-columns: repeat(7, 12px);
-  gap: 4px;
+  /* Rows 24px apart centre to centre, so each dot is pressed across 24px of
+     height; columns stay 16px apart, which is what seven to a row allows. */
+  gap: 12px 4px;
   align-content: start;
   flex-shrink: 0;
 }
@@ -23,6 +25,14 @@
   place-items: center;
   flex-shrink: 0;
   transition: border-color 120ms ease-out, box-shadow 120ms ease-out;
+  position: relative;
+}
+/* A dot is drawn at 12px and pressed across 16 by 24: an invisible area that
+   reaches halfway to each neighbour. */
+.rts-swatch::before {
+  content: "";
+  position: absolute;
+  inset: -6px -2px;
 }
 
 .rts-swatch span {
@@ -132,7 +142,11 @@
 .accent-custom__dots {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 8px;
+}
+/* In the popover the 16px dots sit 24px apart and are pressed across 24 by 24. */
+.accent-custom__dots .rts-swatch::before {
+  inset: -4px;
 }
 
 .accent-custom__dots .rts-swatch {
