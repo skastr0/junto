@@ -72,7 +72,10 @@ const setTheme = async (page: Page, theme: "dark" | "bright") => {
   else await expect(page.locator("html")).not.toHaveAttribute("data-theme", "bright");
 };
 
-const openDialog = (page: Page): Locator => page.locator('[role="dialog"]:visible').last();
+// A confirm is an alertdialog; it is a frame like any other.
+const DIALOGS = '[role="dialog"]:visible, [role="alertdialog"]:visible';
+
+const openDialog = (page: Page): Locator => page.locator(DIALOGS).last();
 
 const seatMenu = async (page: Page, id: string) => {
   const box = (await page.locator(`.react-flow__node[data-id="${id}"]`).boundingBox())!;
@@ -221,7 +224,7 @@ test("every modal and overlay is one frame", async () => {
         } catch {
           // fall through to Escape
         }
-        for (let i = 0; i < 3 && (await page.locator('[role="dialog"]:visible').count()) > 0; i += 1) {
+        for (let i = 0; i < 3 && (await page.locator(DIALOGS).count()) > 0; i += 1) {
           await page.keyboard.press("Escape");
           await page.waitForTimeout(200);
         }
