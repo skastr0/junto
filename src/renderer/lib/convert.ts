@@ -13,6 +13,7 @@ import { INSTRUMENT_KINDS, INSTRUMENT_RING_PX, renderedNodeSize, SEAT_RING_PX } 
 import { regionNameSlot, sameNameSlot, type RegionNameSlot } from "./region-name-slot";
 import { evenRingCaps, seatRingCaps, type RoomNode } from "./seat-ring-room";
 import { isGitNode, isLabelNode, nodeTitle, searchText } from "./presentation";
+import { wireSides, type WireSideRect } from "./wire-sides";
 
 // Z bands. Groups render at GROUP_Z_BASE + nesting depth so a nested region
 // paints above the region containing it (depth is authoring-warned at
@@ -338,6 +339,14 @@ export const toFlow = (
     }
   }
 
+  // A wire's sockets follow where its two cards sit (wire-sides.ts), at the
+  // size each card is drawn at. The sides stored on the edge only stand in
+  // when an end is missing.
+  const rectOf = (node: CanvasNode | undefined): WireSideRect | undefined =>
+    node === undefined
+      ? undefined
+      : { x: node.x, y: node.y, ...renderedNodeSize(entityKind(node), node) };
+
   const nextEdgeIds = new Set<string>();
   const edges: FlowEdge[] = doc.edges.map((edge) => {
     nextEdgeIds.add(edge.id);
@@ -348,12 +357,20 @@ export const toFlow = (
     const toNode = nodeById.get(edge.toNode);
     const fromKind = fromNode?.ether?.entity?.kind;
     const toKind = toNode?.ether?.entity?.kind;
+    const fromRect = rectOf(fromNode);
+    const toRect = rectOf(toNode);
+    const sides = fromRect && toRect ? wireSides(fromRect, toRect) : undefined;
+    const sourceHandle = `s-${sides?.source ?? edge.fromSide ?? "right"}`;
+    const targetHandle = `t-${sides?.target ?? edge.toSide ?? "left"}`;
     const cached = cache?.edges.get(edge.id);
     // Hit on *source* doc edge ref + live phase inputs. Phase rides the flow
-    // data, never a re-minted ether, so the doc edge is the whole identity.
+    // data, never a re-minted ether, so the doc edge is the whole identity,
+    // but for the sockets: those move when either card does.
     if (
       cached &&
       cached.source === edge &&
+      cached.flow.sourceHandle === sourceHandle &&
+      cached.flow.targetHandle === targetHandle &&
       cached.flow.data?.phase === phase &&
       cached.flow.data?.detail === detail &&
       cached.flow.data?.rippling === rippling &&
@@ -367,8 +384,8 @@ export const toFlow = (
       id: edge.id,
       source: edge.fromNode,
       target: edge.toNode,
-      sourceHandle: `s-${edge.fromSide ?? "right"}`,
-      targetHandle: `t-${edge.toSide ?? "left"}`,
+      sourceHandle,
+      targetHandle,
       markerStart: edge.fromEnd === "arrow" ? { type: MarkerType.ArrowClosed } : undefined,
       markerEnd: edge.toEnd === "arrow" ? { type: MarkerType.ArrowClosed } : undefined,
       type: "ether",

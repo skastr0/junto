@@ -295,6 +295,8 @@ function useCanvasDocument(
   flowCacheRef: React.MutableRefObject<ReturnType<typeof createFlowIdentityCache>>,
   rebuildTick: number,
 ) {
+  // The document the standing projection was built from.
+  const builtDocRef = useRef<CanvasDoc | null>(null);
   const rebuild = useCallback(() => {
     // A drag owns node positions until it commits — queue structural remints.
     if (dragInProgressRef.current || regionLabelDrag$.peek()) {
@@ -302,6 +304,7 @@ function useCanvasDocument(
       return;
     }
     pendingRebuildRef.current = false;
+    builtDocRef.current = state$.doc.peek();
     applyStructuralRebuild(
       setNodes,
       setEdges,
@@ -327,6 +330,13 @@ function useCanvasDocument(
   useEffect(() => {
     const offs = [
       state$.docVersion.onChange(() => rebuild()),
+      // A move or resize commits without a docVersion bump, and what the
+      // projection reads off positions (a wire's sockets, a region's name
+      // slot, a seat's ring room) has to follow it. Skipped when the
+      // docVersion rebuild just above already read this document.
+      state$.docEpoch.onChange(() => {
+        if (builtDocRef.current !== state$.doc.peek()) rebuild();
+      }),
       state$.actorRefs.onChange(() => rebuild()),
       kernel$.executionRev.onChange(() => rebuild()),
     ];
