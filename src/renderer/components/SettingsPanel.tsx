@@ -2,7 +2,7 @@ import { use$ } from "@legendapp/state/react";
 import { RotateCcw, Settings2, X } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import type { BrowserProfileInfo, JuntoBrowserApi } from "@shared/ipc";
-import type { SettingsSectionKey } from "@shared/settings";
+import { DEFAULT_INTERFACE_SCALE, INTERFACE_SCALES, type SettingsSectionKey } from "@shared/settings";
 import {
   AUDIO_ENABLED,
   BROWSER_ENABLED,
@@ -217,6 +217,7 @@ function AppearanceSection() {
     { key: "bright" as const, label: "Bright" },
   ];
   const agentAppearance = appearance.agentAppearance ?? "follow";
+  const interfaceScale = appearance.interfaceScale ?? DEFAULT_INTERFACE_SCALE;
   return (
     <div className="settings-section">
       <div className="settings-theme-modes" role="radiogroup" aria-label="Theme">
@@ -231,6 +232,37 @@ function AppearanceSection() {
             }
           />
         ))}
+      </div>
+      <div style={{ marginTop: 20 }}>
+        <Eyebrow>Interface size</Eyebrow>
+        <p id="settings-interface-size-hint" className="settings-field__hint" style={{ marginTop: 6 }}>
+          Makes everything in Junto larger or smaller together: text, buttons and spacing. The canvas keeps its own zoom.
+        </p>
+        <div
+          role="radiogroup"
+          aria-label="Interface size"
+          aria-describedby="settings-interface-size-hint"
+          style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 10 }}
+        >
+          {INTERFACE_SCALES.map((scale) => {
+            const active = interfaceScale === scale;
+            return (
+              <button
+                key={scale}
+                type="button"
+                role="radio"
+                aria-checked={active}
+                aria-label={`${String(scale)} percent${scale === DEFAULT_INTERFACE_SCALE ? ", standard" : ""}`}
+                data-testid={`interface-size-${String(scale)}`}
+                className={`settings-theme-mode${active ? " is-active" : ""}`}
+                style={{ padding: "8px 14px" }}
+                onClick={() => void patchSettings({ appearance: { interfaceScale: scale } })}
+              >
+                <span className="settings-theme-mode__label">{scale}%</span>
+              </button>
+            );
+          })}
+        </div>
       </div>
       <div style={{ marginTop: 20 }}>
         <Eyebrow>Managed agent appearance</Eyebrow>
