@@ -47,6 +47,7 @@ import {
   type FeedItemKind,
   type FeedSection,
 } from "@shared/operator-feed";
+import { previewMarkdownText } from "@shared/preview";
 import { activateNodeSurface } from "../../lib/activate-node-surface";
 import { mailAgeLabel } from "../../lib/actor-ledger";
 import { dismissAgentSignal, respondToAgentSignal } from "../../lib/agent-signals-state";
@@ -72,6 +73,7 @@ import { SeatRing } from "../SeatRing";
 import { QuickReplies } from "../signals/QuickReplies";
 import { SignalReply } from "../signals/SignalReply";
 import { OperatorModalShell } from "../operator-modal/OperatorModalShell";
+import { PreviewStrip } from "../preview/PreviewStrip";
 import { Button, Kbd, StatusDot } from "../ui";
 import { ArtifactMarkdown } from "../work/ArtifactMarkdown";
 import "./operator-feed.css";
@@ -207,8 +209,12 @@ export function FeedCard({
           ) : null}
           {item.detail && expanded ? (
             <div className="operator-feed__detail">
-              <ArtifactMarkdown source={item.detail} />
+              <ArtifactMarkdown source={previewMarkdownText(item.detail)} />
             </div>
+          ) : null}
+          {/* Mounted with the open details, so a closed card reads no file. */}
+          {item.detail && expanded && item.signalId ? (
+            <PreviewStrip markdown={item.detail} source={{ kind: "signal", signalId: item.signalId }} />
           ) : null}
           {replying && item.signalId ? (
             <SignalReply
