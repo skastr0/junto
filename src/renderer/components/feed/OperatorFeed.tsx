@@ -181,7 +181,7 @@ export function FeedCard({
             <span className="operator-feed__name">{item.seat.name}</span>
             <span className="operator-feed__kind">{label}</span>
             {age ? (
-              <time className="operator-feed__age" title={new Date(item.since).toLocaleString()}>
+              <time className="operator-feed__age" title={new Date(item.since!).toLocaleString()}>
                 {age}
               </time>
             ) : null}

@@ -45,7 +45,7 @@ const signal: AgentSignal = {
 };
 
 const feed: OperatorFeed = {
-  version: 1,
+  version: 2,
   canvasName: "main",
   generatedAt: 1_790_000_000_000,
   count: 1,

@@ -2800,9 +2800,11 @@ const foldTaskMetadata = (
 };
 
 /**
- * When a stored row entered its current state. A row written before the
- * stamp existed has none; its last fact's origin time is the best the
- * journal's row knows, and it is replaced at that row's next state change.
+ * When a stored row entered its current state. Live code, not a safety net:
+ * every install has task and request rows written before the stamp existed,
+ * the operator's own included, and those rows carry none. Their last fact's
+ * origin time is the best the journal's row knows; the row gets a real stamp
+ * at its next state change.
  */
 const rowStateSince = (row: {
   readonly metadata_json: string | null;

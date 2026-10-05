@@ -16,7 +16,7 @@ import {
 import type { ThreadHealthReading } from "@shared/thread-health";
 import { agentSeat$, bindingIdForNode, seatEventForNode } from "./agent-seat-state";
 import { agentSignals$ } from "./agent-signals-state";
-import { chatCoarse$, chatState$ } from "./chat-state";
+import { chatCoarse$ } from "./chat-state";
 import { executionGraphForImpact } from "./impact-mode";
 import { kernel$ } from "./kernel-view";
 import { nodeTitle } from "./presentation";
@@ -62,12 +62,13 @@ export const operatorFeedFor = (
 /**
  * Nodes that want input for a reason the document does not carry, and when
  * it began: a terminal that is not an agent seat whose screen wants input
- * (its seat event's time), and a seat with a permission request pending in a
- * live chat (when this window received it; a chat is not work, so that time
- * is the chat session's, not the journal's).
+ * (its seat event's time, which main stamps), and a seat with a permission
+ * request pending in a live chat. A chat request has no time anyone
+ * recorded: this window only knows when it heard of it, and would hear of
+ * it again after a reload, so it carries none.
  */
-const liveWantsInput = (nodes: ReadonlyArray<CanvasNode>): ReadonlyMap<string, number> => {
-  const out = new Map<string, number>();
+const liveWantsInput = (nodes: ReadonlyArray<CanvasNode>): ReadonlyMap<string, number | undefined> => {
+  const out = new Map<string, number | undefined>();
   for (const node of nodes) {
     const agentKey = attentionAgentKey(node);
     if (!agentKey) {
@@ -76,11 +77,7 @@ const liveWantsInput = (nodes: ReadonlyArray<CanvasNode>): ReadonlyMap<string, n
       if (event?.state === "attention") out.set(node.id, event.at);
       continue;
     }
-    const chat = chatState$[agentKey].peek();
-    const requestId = chat?.pendingPermission?.requestId;
-    if (!requestId) continue;
-    const asked = chat.transcript.find((item) => item.kind === "permission" && item.id === requestId);
-    if (asked) out.set(node.id, asked.ts);
+    if (chatCoarse$[agentKey].peek()?.pendingPermissionId) out.set(node.id, undefined);
   }
   return out;
 };
@@ -106,7 +103,6 @@ const useCanvasNeeds = (): ReadonlyArray<FeedCanvasNeed> => {
       graph: executionGraphForImpact(doc, execution, context),
       nameOf: nodeTitle,
       wantsInput: liveWantsInput(doc.nodes),
-      nowMs: Date.now(),
     });
     // Kernel execution and seat state mutate in place; their revs carry the change.
     // eslint-disable-next-line react-hooks/exhaustive-deps

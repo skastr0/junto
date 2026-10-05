@@ -159,7 +159,7 @@ describe("buildOperatorFeed", () => {
 
   it("is an empty, valid feed when nobody needs the operator", () => {
     const feed = buildOperatorFeed({ canvasName: "main", nowMs: NOW, seats: seats(), signals: [] });
-    expect(feed).toEqual({ version: 1, canvasName: "main", generatedAt: NOW, count: 0, sections: [] });
+    expect(feed).toEqual({ version: 2, canvasName: "main", generatedAt: NOW, count: 0, sections: [] });
   });
 
   it("counts what needs the operator: canvas needs count, an AI reading does not", () => {

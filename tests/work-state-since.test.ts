@@ -221,10 +221,18 @@ describe("WorkRepository stateSince projection", () => {
     );
     expect(await taskSince()).toBe(atMinute(5));
 
-    await runtime.runPromise(
+    const transition = await runtime.runPromise(
       repository.transitionTask({ sink: board, basis, taskId: "t1", state: "input-required", originAt: atMinute(9), receivedAt: atMinute(9) }),
     );
     expect(await taskSince()).toBe(atMinute(9));
+    // The guard: Task's schema accepts stateSince from any caller, so the
+    // journal must be shown to stay free of it. The transition read the task
+    // back from a row that already carried a stamp (the claim's); neither the
+    // fact it wrote nor the value it returned may contain one.
+    expect(JSON.stringify(transition.record)).not.toContain("stateSince");
+    expect(transition.value).not.toHaveProperty("stateSince");
+    // The projection it hands back is the one place that carries it.
+    expect(transition.snapshot.tasks?.items[0]?.stateSince).toBe(atMinute(9));
 
     // A note on the waiting task is a fact that leaves the state alone.
     await runtime.runPromise(

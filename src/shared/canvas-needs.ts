@@ -13,6 +13,7 @@ import { attentionText, feedRegionFor, type FeedCanvasNeed } from "./operator-fe
  * companion backend count the same needs. Every time is the true one: a stop
  * began when its reason says (`BlockedReason.since`), a sink has wanted input
  * since its earliest waiting item entered that state (`Task.stateSince`).
+ * Where no time is known the need carries none; one is never made up.
  */
 
 const holdsUp = (count: number): string =>
@@ -32,15 +33,10 @@ export const feedCanvasNeeds = (input: {
   readonly graph: ExecutionGraph;
   readonly nameOf: (node: CanvasNode) => string;
   /**
-   * Seats that want input for a reason the document does not carry (a
-   * pending permission in a live chat), with the epoch ms it began.
+   * Nodes that want input for a reason the document does not carry, with the
+   * epoch ms it began, or undefined when that is not known.
    */
-  readonly wantsInput?: ReadonlyMap<string, number>;
-  /**
-   * Stands in only where a document's items are not the work projection (an
-   * authored fixture): every projected item and stop reason has its own time.
-   */
-  readonly nowMs: number;
+  readonly wantsInput?: ReadonlyMap<string, number | undefined>;
 }): ReadonlyArray<FeedCanvasNeed> => {
   const { doc, graph } = input;
   const byId = new Map(doc.nodes.map((node) => [node.id, node] as const));
@@ -71,7 +67,7 @@ export const feedCanvasNeeds = (input: {
       seat: { nodeId, name: node ? input.nameOf(node) : nodeId, portraitIdentity: nodeId },
       region: feedRegionFor(doc, nodeId),
       text,
-      since: since ?? input.nowMs,
+      ...(since === undefined ? {} : { since }),
     });
   };
 

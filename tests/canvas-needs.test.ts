@@ -68,7 +68,7 @@ const graph = deriveExecutionGraph(doc, executionContextForDoc(doc, CANVAS));
 
 describe("feedCanvasNeeds", () => {
   it("lists the stoppage, the seat it holds up and the sink that wants input, each since it truly began", () => {
-    const needs = feedCanvasNeeds({ doc, graph, nameOf, nowMs: NOW });
+    const needs = feedCanvasNeeds({ doc, graph, nameOf });
     expect(needs.map((need) => [need.itemId, need.kind, need.seat.name, need.text, need.region.label, need.since])).toEqual([
       ["stoppage:board", "blocked", "Ship it", "holding up 1 other", "Ops", Date.parse(at(5))],
       ["held:atlas", "blocked", "Atlas", "waiting on blocked work upstream", "Ops", Date.parse(at(5))],
@@ -81,7 +81,7 @@ describe("feedCanvasNeeds", () => {
       ["atlas", 123],
       ["ghost", 456],
     ]);
-    const needs = feedCanvasNeeds({ doc, graph, nameOf, wantsInput, nowMs: NOW });
+    const needs = feedCanvasNeeds({ doc, graph, nameOf, wantsInput });
     // Atlas is already listed as held; the stoppage wins the node.
     expect(needs.filter((need) => need.seat.nodeId === "atlas").map((need) => need.itemId)).toEqual(["held:atlas"]);
     expect(needs.find((need) => need.itemId === "input:ghost")).toMatchObject({ kind: "attention", since: 456 });
@@ -97,8 +97,8 @@ describe("feedCanvasNeeds", () => {
       reasonsByNodeId: Object.fromEntries(graph.reasonsByNodeId),
     };
     const wire = JSON.parse(JSON.stringify(snapshot)) as typeof snapshot;
-    const fromSnapshot = feedCanvasNeeds({ doc, graph: executionGraphFromSnapshot(doc, wire), nameOf, nowMs: NOW });
-    const fromGraph = feedCanvasNeeds({ doc, graph, nameOf, nowMs: NOW });
+    const fromSnapshot = feedCanvasNeeds({ doc, graph: executionGraphFromSnapshot(doc, wire), nameOf });
+    const fromGraph = feedCanvasNeeds({ doc, graph, nameOf });
     expect(fromSnapshot).toEqual(fromGraph);
     const feedOf = (canvasNeeds: typeof fromGraph) =>
       buildOperatorFeed({ canvasName: CANVAS, nowMs: NOW, seats: [], signals: [], canvasNeeds });
@@ -106,8 +106,37 @@ describe("feedCanvasNeeds", () => {
     expect(feedOf(fromSnapshot)).toEqual(feedOf(fromGraph));
   });
 
+  it("never makes up a time: a need whose start is unknown carries none and follows the dated ones", () => {
+    const needs = feedCanvasNeeds({ doc, graph, nameOf, wantsInput: new Map([["ghost", undefined]]) });
+    const ghost = needs.find((need) => need.itemId === "input:ghost");
+    expect(ghost).toBeDefined();
+    expect(ghost && "since" in ghost).toBe(false);
+
+    const feed = buildOperatorFeed({ canvasName: CANVAS, nowMs: NOW, seats: [], signals: [], canvasNeeds: needs });
+    const item = feed.sections.flatMap((section) => section.items).find((entry) => entry.itemId === "input:ghost");
+    expect(item && ("since" in item || "ageMs" in item)).toBe(false);
+    // Same urgency as the dated sink: the dated row leads, the undated one follows.
+    const attention = feed.sections.flatMap((section) => section.items).filter((entry) => entry.kind === "attention");
+    expect(attention.map((entry) => entry.itemId)).toEqual(["input:asks", "input:ghost"]);
+    expect(feed.count).toBe(4);
+  });
+
+  it("a document that is not the work projection gives stops with no time, not now", () => {
+    const unstamped = JSON.parse(JSON.stringify(doc).replaceAll(/,"stateSince":"[^"]+"/g, "")) as CanvasDoc;
+    const needs = feedCanvasNeeds({
+      doc: unstamped,
+      graph: deriveExecutionGraph(unstamped, executionContextForDoc(unstamped, CANVAS)),
+      nameOf,
+    });
+    expect(needs.map((need) => [need.itemId, need.since])).toEqual([
+      ["stoppage:board", undefined],
+      ["held:atlas", undefined],
+      ["input:asks", undefined],
+    ]);
+  });
+
   it("is empty when nothing is stopped and no sink waits", () => {
     const calm = { nodes: doc.nodes.filter((node) => node.id === "ops" || node.id === "atlas"), edges: [] } as CanvasDoc;
-    expect(feedCanvasNeeds({ doc: calm, graph: deriveExecutionGraph(calm, executionContextForDoc(calm, CANVAS)), nameOf, nowMs: NOW })).toEqual([]);
+    expect(feedCanvasNeeds({ doc: calm, graph: deriveExecutionGraph(calm, executionContextForDoc(calm, CANVAS)), nameOf })).toEqual([]);
   });
 });

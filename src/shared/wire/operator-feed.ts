@@ -21,7 +21,11 @@ import { ThreadHealthValue } from "./thread-health";
  * field; it never changes an item's kind or urgency.
  */
 
-export const OPERATOR_FEED_VERSION = 1 as const;
+/**
+ * 2: an item's `since` and `ageMs` are absent when the time its need began is
+ * not known. A reader shows no age then; it never substitutes one.
+ */
+export const OPERATOR_FEED_VERSION = 2 as const;
 
 export const FeedItemKind = Schema.Literals([
   "blocked",
@@ -114,9 +118,13 @@ export const FeedItem = Schema.Struct({
   text: Schema.String,
   /** Longer markdown, when the source has it. */
   detail: Schema.optionalKey(Schema.String),
-  /** Epoch ms the need began. */
-  since: Schema.Number,
-  ageMs: Schema.Number,
+  /**
+   * Epoch ms the need began. Absent when that is not known (a permission
+   * request pending in a live chat): no time is ever made up for it.
+   */
+  since: Schema.optionalKey(Schema.Number),
+  /** `generatedAt - since`; absent with it. */
+  ageMs: Schema.optionalKey(Schema.Number),
   /** Present for declared signals: the id to answer or dismiss. */
   signalId: Schema.optionalKey(Schema.String),
   signalKind: Schema.optionalKey(AgentSignalKind),

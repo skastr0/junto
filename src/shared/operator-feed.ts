@@ -51,8 +51,8 @@ export type FeedCanvasNeed = {
   readonly seat: FeedSeat;
   readonly region: FeedRegion;
   readonly text: string;
-  /** Epoch ms the need began. */
-  readonly since: number;
+  /** Epoch ms the need began; absent when that is not known. */
+  readonly since?: number;
 };
 
 export type OperatorFeedInput = {
@@ -126,8 +126,11 @@ const feedHealth = (entry: FeedSeatInput, reading: ThreadHealthReading, nowMs: n
 export const attentionText = (reason: string): string =>
   /stall/i.test(reason) ? "stalled, needs a look" : "wants your input";
 
+/** Most urgent first, then oldest first; a need with no known time follows the dated ones. */
 const byUrgencyThenAge = (a: FeedItem, b: FeedItem): number =>
-  b.urgency - a.urgency || a.since - b.since || a.itemId.localeCompare(b.itemId);
+  b.urgency - a.urgency ||
+  (a.since ?? Number.POSITIVE_INFINITY) - (b.since ?? Number.POSITIVE_INFINITY) ||
+  a.itemId.localeCompare(b.itemId);
 
 export const buildOperatorFeed = (input: OperatorFeedInput): OperatorFeed => {
   const { canvasName, nowMs } = input;
@@ -146,7 +149,7 @@ export const buildOperatorFeed = (input: OperatorFeedInput): OperatorFeed => {
       canvasName,
       seat: entry.seat,
       region: entry.region,
-      ageMs: Math.max(0, nowMs - item.since),
+      ...(item.since === undefined ? {} : { ageMs: Math.max(0, nowMs - item.since) }),
       ...(entry.health ? { health: feedHealth(entry, entry.health, nowMs) } : {}),
     });
   };
@@ -185,7 +188,13 @@ export const buildOperatorFeed = (input: OperatorFeedInput): OperatorFeed => {
   for (const need of input.canvasNeeds ?? []) {
     if ((worst.get(need.seat.nodeId) ?? 0) >= FEED_URGENCY[need.kind]) continue;
     const entry = seatsById.get(need.seat.nodeId) ?? { seat: need.seat, region: need.region };
-    push(entry, { itemId: need.itemId, kind: need.kind, text: need.text, since: need.since, canvas: true });
+    push(entry, {
+      itemId: need.itemId,
+      kind: need.kind,
+      text: need.text,
+      ...(need.since === undefined ? {} : { since: need.since }),
+      canvas: true,
+    });
   }
 
   for (const entry of input.seats) {

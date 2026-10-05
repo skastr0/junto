@@ -143,10 +143,10 @@ const feedSeats = (doc: CanvasDoc, now: number): ReadonlyArray<FeedSeatInput> =>
  * so the phone counts what the desktop counts. Before the first kernel cycle
  * there is no snapshot and so no canvas need yet.
  */
-const canvasNeedsFor = (canvasName: string, doc: CanvasDoc, now: number): ReadonlyArray<FeedCanvasNeed> => {
+const canvasNeedsFor = (canvasName: string, doc: CanvasDoc): ReadonlyArray<FeedCanvasNeed> => {
   const execution = getExecutionByCanvas().get(canvasName);
   if (execution === undefined) return [];
-  return feedCanvasNeeds({ doc, graph: executionGraphFromSnapshot(doc, execution), nameOf: nodeTitle, nowMs: now });
+  return feedCanvasNeeds({ doc, graph: executionGraphFromSnapshot(doc, execution), nameOf: nodeTitle });
 };
 
 const feedFor = (canvasName: string, view: CanvasView, now: number): OperatorFeed =>
@@ -155,7 +155,7 @@ const feedFor = (canvasName: string, view: CanvasView, now: number): OperatorFee
     nowMs: now,
     seats: feedSeats(view.doc, now),
     signals: view.signals,
-    canvasNeeds: canvasNeedsFor(canvasName, view.doc, now),
+    canvasNeeds: canvasNeedsFor(canvasName, view.doc),
   });
 
 const processOf = (binding: string | undefined): "running" | "starting" | "stopped" | undefined => {
