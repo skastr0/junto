@@ -2,7 +2,7 @@
   min-width: 0;
   overflow-wrap: anywhere;
   color: var(--color-ink-2);
-  font-size: 12px;
+  font-size: var(--text-body-lg);
   line-height: 1.65;
 }
 
@@ -19,15 +19,15 @@
   color: var(--color-ink);
   font-family: var(--font-display);
   font-weight: 600;
-  letter-spacing: 0.04em;
-  line-height: 1.2;
+  letter-spacing: var(--tracking-soft);
+  line-height: var(--leading-compact);
   text-wrap: balance;
 }
 
 .artifact-markdown h1 {
   padding-bottom: 0.4em;
   border-bottom: 1px solid var(--color-overlay-4);
-  font-size: 18px;
+  font-size: var(--text-display);
   font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -39,8 +39,8 @@
 
 .artifact-markdown h3 {
   color: var(--color-dim);
-  font-size: 12px;
-  letter-spacing: 0.08em;
+  font-size: var(--text-body-lg);
+  letter-spacing: var(--tracking-label);
   text-transform: uppercase;
 }
 
@@ -83,7 +83,7 @@
   background: var(--color-well);
   color: var(--color-ink-2);
   padding: 10px 12px;
-  font-size: 11px;
+  font-size: var(--text-body);
   line-height: 1.55;
   white-space: pre;
 }
@@ -160,7 +160,7 @@
 .artifact-markdown__blocked-image {
   color: var(--color-crimson);
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: var(--text-label);
 }
 
 .artifact-markdown input[type="checkbox"] {

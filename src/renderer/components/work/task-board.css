@@ -40,7 +40,7 @@
   background: transparent;
   color: var(--color-cyan);
   font: inherit;
-  font-size: 10px;
+  font-size: var(--text-label);
   cursor: pointer;
 }
 
@@ -52,7 +52,7 @@
   border-bottom: 1px solid color-mix(in oklab, var(--color-accent) 34%, transparent);
   background: color-mix(in oklab, var(--color-accent) 8%, transparent);
   color: var(--color-crimson);
-  font-size: 11px;
+  font-size: var(--text-body);
 }
 
 .task-board-error button {
@@ -179,7 +179,7 @@
 .task-board-bulk-bar__count {
   flex: none;
   color: var(--color-ink);
-  font-size: 11px;
+  font-size: var(--text-body);
   font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
@@ -201,7 +201,7 @@
   background: transparent;
   color: var(--color-cyan);
   font: inherit;
-  font-size: 10px;
+  font-size: var(--text-label);
   cursor: pointer;
 }
 
@@ -229,14 +229,14 @@
 .task-board-lane__title {
   margin: 0;
   color: var(--color-ink);
-  font-size: 12px;
+  font-size: var(--text-body-lg);
   font-weight: 600;
   letter-spacing: -0.01em;
 }
 
 .task-board-lane__count {
   color: var(--color-dim);
-  font-size: 10px;
+  font-size: var(--text-label);
   font-variant-numeric: tabular-nums;
 }
 
@@ -247,8 +247,8 @@
   margin: 1px 0 8px;
   padding-inline: 2px;
   color: var(--color-faint);
-  font-size: 9px;
-  line-height: 1.35;
+  font-size: var(--text-caption);
+  line-height: var(--leading-dense);
 }
 
 .task-board-lane__contract-glance {
@@ -262,8 +262,8 @@
   margin: 2px 0 3px;
   padding-inline: 2px;
   color: var(--color-ink-2);
-  font-size: 9px;
-  line-height: 1.35;
+  font-size: var(--text-caption);
+  line-height: var(--leading-dense);
 }
 
 .task-board-lane__contract-glance span {
@@ -301,7 +301,7 @@
   border: 1px dashed var(--color-overlay-4);
   border-radius: 7px;
   color: var(--color-faint);
-  font-size: 10px;
+  font-size: var(--text-label);
   text-align: center;
 }
 
@@ -435,9 +435,9 @@
   margin: 1px 0 0;
   overflow-wrap: anywhere;
   color: var(--color-ink);
-  font-size: 12px;
+  font-size: var(--text-body-lg);
   font-weight: 600;
-  line-height: 1.45;
+  line-height: var(--leading-body);
   letter-spacing: -0.01em;
   text-wrap: pretty;
 }
@@ -449,7 +449,7 @@
   gap: 6px;
   margin-top: 7px;
   color: var(--color-dim);
-  font-size: 9px;
+  font-size: var(--text-caption);
 }
 
 .task-board-card__claimant {
@@ -477,7 +477,7 @@
   margin: 8px 0 0;
   overflow: hidden;
   color: var(--color-ink-2);
-  font-size: 9px;
+  font-size: var(--text-caption);
   line-height: 1.5;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 3;
@@ -502,7 +502,7 @@
 
 .task-board-card__history {
   color: var(--color-faint);
-  font-size: 8px;
+  font-size: var(--text-micro);
   font-variant-numeric: tabular-nums;
 }
 
@@ -559,7 +559,7 @@
   background: transparent;
   color: var(--color-ink-2);
   font: inherit;
-  font-size: 9px;
+  font-size: var(--text-caption);
   text-align: left;
   cursor: pointer;
 }
@@ -597,7 +597,7 @@
 
 .task-board-card__editor > label {
   color: var(--color-dim);
-  font-size: 8px;
+  font-size: var(--text-micro);
   letter-spacing: 0.12em;
   text-transform: uppercase;
 }
@@ -734,7 +734,7 @@
   gap: 8px;
   min-width: 0;
   color: var(--color-ink);
-  font-size: 11px;
+  font-size: var(--text-body);
   font-weight: 600;
 }
 
@@ -769,7 +769,7 @@
 
 .task-detail-panel__section > h3 {
   color: var(--color-ink);
-  font-size: 11px;
+  font-size: var(--text-body);
   font-weight: 600;
 }
 
@@ -821,22 +821,22 @@
 }
 
 .task-create-dialog__path > summary strong {
-  font-size: 11px;
+  font-size: var(--text-body);
   font-weight: 650;
 }
 
 .task-create-dialog__path > summary small,
 .task-create-dialog__admission-heading span {
   color: var(--color-dim);
-  font-size: 9px;
+  font-size: var(--text-caption);
   line-height: 1.4;
 }
 
 .task-create-dialog__path-action {
   flex: none;
   color: var(--color-cyan);
-  font-size: 9px;
-  letter-spacing: 0.08em;
+  font-size: var(--text-caption);
+  letter-spacing: var(--tracking-label);
   text-transform: uppercase;
 }
 
@@ -849,7 +849,7 @@
 }
 
 .task-create-dialog__path[open] .task-create-dialog__path-action::before {
-  font-size: 9px;
+  font-size: var(--text-caption);
 }
 
 .task-create-dialog__path-map {
@@ -875,7 +875,7 @@
 
 .task-create-dialog__admission-heading strong {
   color: var(--color-ink);
-  font-size: 11px;
+  font-size: var(--text-body);
   font-weight: 650;
 }
 
@@ -922,14 +922,14 @@
 
 .task-create-dialog__admission-option strong {
   color: inherit;
-  font-size: 10px;
+  font-size: var(--text-label);
   font-weight: 650;
 }
 
 .task-create-dialog__admission-option span,
 .task-create-dialog__admission-option small {
-  font-size: 9px;
-  line-height: 1.35;
+  font-size: var(--text-caption);
+  line-height: var(--leading-dense);
 }
 
 .task-create-dialog__admission-option small {
@@ -942,8 +942,8 @@
 
 .task-create-dialog__wait-error {
   color: var(--color-crimson);
-  font-size: 9px;
-  line-height: 1.35;
+  font-size: var(--text-caption);
+  line-height: var(--leading-dense);
 }
 
 /* Checkbox rows: horizontal, not stacked (parent label uses display:grid). */
@@ -963,7 +963,7 @@
 
 .task-create-dialog__check > span {
   color: var(--color-ink);
-  font-size: 12px;
+  font-size: var(--text-body-lg);
   font-weight: 500;
   line-height: 1.3;
 }
@@ -1071,7 +1071,7 @@
   display: block;
   overflow: hidden;
   color: var(--color-ink);
-  font-size: 11px;
+  font-size: var(--text-body);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1079,7 +1079,7 @@
 .task-create-dialog__media-list span,
 .task-detail-panel__media span {
   color: var(--color-dim);
-  font-size: 9px;
+  font-size: var(--text-caption);
 }
 
 .task-create-dialog__media-empty,
@@ -1090,7 +1090,7 @@
 
 .task-create-dialog__media-empty {
   color: var(--color-dim);
-  font-size: 11px;
+  font-size: var(--text-body);
   line-height: 1.4;
 }
 
@@ -1102,7 +1102,7 @@
 
 .task-create-dialog__media-actions > span {
   color: var(--color-faint);
-  font-size: 9px;
+  font-size: var(--text-caption);
   line-height: 1.5;
 }
 
@@ -1110,7 +1110,7 @@
 .task-create-dialog__form-error {
   margin: 0;
   color: var(--color-crimson);
-  font-size: 10px;
+  font-size: var(--text-label);
 }
 
 .task-create-dialog__form-error {
@@ -1256,7 +1256,7 @@
   color: var(--color-ink);
   font-size: 15px;
   font-weight: 600;
-  line-height: 1.35;
+  line-height: var(--leading-dense);
   text-wrap: pretty;
 }
 
@@ -1267,7 +1267,7 @@
   padding: 0 16px 14px;
   border-bottom: 1px solid var(--color-stroke);
   color: var(--color-dim);
-  font-size: 9px;
+  font-size: var(--text-caption);
 }
 
 .task-detail-panel__identity span {
@@ -1349,14 +1349,14 @@
 .task-detail-panel__attention-heading p {
   margin-bottom: 3px;
   color: var(--color-cyan);
-  font-size: 8px;
+  font-size: var(--text-micro);
   letter-spacing: 0.1em;
   text-transform: uppercase;
 }
 
 .task-detail-panel__attention-heading h3 {
   color: var(--color-ink);
-  font-size: 12px;
+  font-size: var(--text-body-lg);
   font-weight: 600;
 }
 
@@ -1372,7 +1372,7 @@
 .task-detail-panel__request-context > span,
 .task-detail-panel__response-field > span {
   color: var(--color-dim);
-  font-size: 8px;
+  font-size: var(--text-micro);
   letter-spacing: 0.07em;
   text-transform: uppercase;
 }
@@ -1380,7 +1380,7 @@
 .task-detail-panel__request-context p {
   white-space: pre-wrap;
   color: var(--color-ink-2);
-  font-size: 10px;
+  font-size: var(--text-label);
   line-height: 1.55;
 }
 
@@ -1391,8 +1391,8 @@
 
 .task-detail-panel__response-field small {
   color: var(--color-faint);
-  font-size: 8px;
-  line-height: 1.45;
+  font-size: var(--text-micro);
+  line-height: var(--leading-body);
 }
 
 .task-detail-panel__response-actions {
@@ -1427,14 +1427,14 @@
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   color: var(--color-ink-2);
-  font-size: 10px;
+  font-size: var(--text-label);
   line-height: 1.65;
 }
 
 .task-detail-panel__empty {
   margin: 0;
   color: var(--color-faint);
-  font-size: 9px;
+  font-size: var(--text-caption);
   font-style: italic;
   line-height: 1.5;
 }
@@ -1460,9 +1460,9 @@
 .task-detail-panel__activity strong {
   display: block;
   color: var(--color-ink-2);
-  font-size: 9px;
+  font-size: var(--text-caption);
   font-weight: 600;
-  line-height: 1.35;
+  line-height: var(--leading-dense);
 }
 
 .task-detail-panel__activity p {
@@ -1470,7 +1470,7 @@
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   color: var(--color-dim);
-  font-size: 9px;
+  font-size: var(--text-caption);
   line-height: 1.5;
 }
 
@@ -1486,14 +1486,14 @@
 .task-detail-panel__status > div > h3 {
   margin: 0;
   color: var(--color-ink);
-  font-size: 11px;
+  font-size: var(--text-body);
   font-weight: 600;
-  line-height: 1.35;
+  line-height: var(--leading-dense);
 }
 
 .task-detail-panel__status > div > p {
   color: var(--color-dim);
-  font-size: 9px;
+  font-size: var(--text-caption);
   line-height: 1.5;
 }
 

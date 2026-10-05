@@ -130,7 +130,7 @@ export function ApprovalNoteComposer({
         if (event.key === "Escape") onCancel();
       }}
     >
-      <label className="mb-1 block text-[9px] uppercase tracking-[0.12em] text-faint">
+      <label className="mb-1 block text-caption uppercase tracking-[0.12em] text-faint">
         Context for this decision
       </label>
       <Input

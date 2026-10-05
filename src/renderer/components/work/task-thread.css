@@ -28,7 +28,7 @@
 
 .task-thread__heading span {
   color: var(--color-faint);
-  font-size: 8px;
+  font-size: var(--text-micro);
   letter-spacing: 0.1em;
   text-transform: uppercase;
 }
@@ -39,7 +39,7 @@
   gap: 6px;
   margin: 0;
   color: var(--color-ink);
-  font-size: 12px;
+  font-size: var(--text-body-lg);
   font-weight: 600;
 }
 
@@ -134,7 +134,7 @@
   min-width: 0;
   overflow: hidden;
   color: var(--color-ink-2);
-  font-size: 9px;
+  font-size: var(--text-caption);
   font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -143,7 +143,7 @@
 .task-thread__message > article > header time {
   margin-left: auto;
   color: var(--color-faint);
-  font-size: 8px;
+  font-size: var(--text-micro);
   white-space: nowrap;
 }
 
@@ -158,7 +158,7 @@
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   color: var(--color-dim);
-  font-size: 10px;
+  font-size: var(--text-label);
   line-height: 1.55;
 }
 
@@ -169,7 +169,7 @@
 .task-thread__link {
   overflow: hidden;
   color: var(--color-cyan);
-  font-size: 9px;
+  font-size: var(--text-caption);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -193,7 +193,7 @@
   border: 1px solid var(--color-stroke);
   border-radius: 5px;
   color: var(--color-dim);
-  font-size: 9px;
+  font-size: var(--text-caption);
   background: var(--color-inset);
 }
 
@@ -205,7 +205,7 @@
   border: 1px solid var(--color-stroke);
   border-radius: 5px;
   color: var(--color-dim);
-  font-size: 9px;
+  font-size: var(--text-caption);
   background: var(--color-inset);
 }
 
@@ -219,7 +219,7 @@
 
 .task-thread__composer > label {
   color: var(--color-dim);
-  font-size: 8px;
+  font-size: var(--text-micro);
   letter-spacing: 0.09em;
   text-transform: uppercase;
 }
@@ -237,6 +237,6 @@
 
 .task-thread__composer > div > span {
   color: var(--color-faint);
-  font-size: 8px;
+  font-size: var(--text-micro);
   line-height: 1.4;
 }

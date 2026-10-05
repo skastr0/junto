@@ -2273,7 +2273,7 @@ function TaskDetailPanel({
               }
               onChange={(state) => onMove(task, state as TaskState)}
               className="task-detail-panel__status-menu"
-              triggerClassName="h-9 w-full rounded-[5px] border border-white/10 bg-white/[0.04] px-3 text-[10px] uppercase tracking-[0.08em]"
+              triggerClassName="h-9 w-full rounded-[5px] border border-white/10 bg-white/[0.04] px-3 text-label uppercase tracking-label"
               align="start"
             />
           )}

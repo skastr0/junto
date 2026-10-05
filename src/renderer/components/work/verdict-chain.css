@@ -26,7 +26,7 @@
 
 .verdict-chain__heading span {
   color: var(--color-faint);
-  font-size: 8px;
+  font-size: var(--text-micro);
   letter-spacing: 0.1em;
   text-transform: uppercase;
 }
@@ -37,7 +37,7 @@
   gap: 6px;
   margin: 0;
   color: var(--color-ink);
-  font-size: 12px;
+  font-size: var(--text-body-lg);
   font-weight: 600;
 }
 
@@ -69,7 +69,7 @@
   min-width: 0;
   overflow: hidden;
   color: var(--color-ink);
-  font-size: 11px;
+  font-size: var(--text-body);
   font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -78,7 +78,7 @@
 .verdict-chain__time {
   margin-left: auto;
   color: var(--color-faint);
-  font-size: 8px;
+  font-size: var(--text-micro);
   white-space: nowrap;
 }
 
@@ -93,14 +93,14 @@
 
 .verdict-chain__findings li {
   color: var(--color-dim);
-  font-size: 11px;
-  line-height: 1.45;
+  font-size: var(--text-body);
+  line-height: var(--leading-body);
 }
 
 .verdict-chain__refs li {
   color: var(--color-cyan);
   font-family: var(--font-mono), ui-monospace, monospace;
-  font-size: 10px;
+  font-size: var(--text-label);
   overflow-wrap: anywhere;
 }
 
@@ -108,7 +108,7 @@
   margin: 0;
   padding: 12px 13px;
   color: var(--color-faint);
-  font-size: 11px;
+  font-size: var(--text-body);
 }
 
 .verdict-chain__stale {

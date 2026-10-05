@@ -100,7 +100,7 @@ function SinkGlanceHead({
           />
         ) : (
           <div
-            className="truncate font-mono text-[14px] font-semibold leading-snug"
+            className="truncate font-mono text-title font-semibold leading-snug"
             style={{ color: INK }}
             title={label}
           >
@@ -246,7 +246,7 @@ export function TasksCard({
         }
       />
       <div
-        className="mt-0.5 flex shrink-0 flex-col items-end gap-0.5 pr-1 text-right text-[9px] tabular-nums leading-tight"
+        className="mt-0.5 flex shrink-0 flex-col items-end gap-0.5 pr-1 text-right text-caption tabular-nums leading-tight"
       >
         <span
           className="max-w-full truncate"
@@ -268,7 +268,7 @@ export function TasksCard({
         {visibleRows.map((item) => (
             <div
               key={item.id}
-              className="factory-glance__row factory-glance__row--task truncate text-[10px] leading-snug"
+              className="factory-glance__row factory-glance__row--task truncate text-label leading-snug"
               style={{ color: INK }}
               data-state={item.state}
               data-kind={item.kind}
@@ -285,7 +285,7 @@ export function TasksCard({
             </div>
           ))}
         {items.length === 0 ? (
-          <div className="factory-glance__empty text-[9px]" style={{ color: DIM }}>
+          <div className="factory-glance__empty text-caption" style={{ color: DIM }}>
             empty
           </div>
         ) : null}
@@ -324,19 +324,19 @@ export function RequestsCard({
         onRequestRename={onRequestRename}
         onRenameDone={onRenameDone}
         trailing={
-          <span className="text-[9px] tabular-nums" style={{ color: pending ? HUE.amber : DIM }}>
+          <span className="text-caption tabular-nums" style={{ color: pending ? HUE.amber : DIM }}>
             {pending} pending
           </span>
         }
       />
       <div className="factory-glance__list mt-1.5 flex min-h-0 flex-1 flex-col gap-0.5 overflow-hidden">
         {items.slice(0, 4).map((item) => (
-          <div key={item.id} className="factory-glance__row factory-glance__row--request truncate text-[10px] leading-snug" style={{ color: INK }} data-state={item.state}>
+          <div key={item.id} className="factory-glance__row factory-glance__row--request truncate text-label leading-snug" style={{ color: INK }} data-state={item.state}>
             <span style={{ color: stateHue(item.state) }}>●</span> {taskBrief(item)}
           </div>
         ))}
         {allItems.length === 0 ? (
-          <div className="factory-glance__empty text-[9px]" style={{ color: DIM }}>
+          <div className="factory-glance__empty text-caption" style={{ color: DIM }}>
             quiet
           </div>
         ) : null}
@@ -367,7 +367,7 @@ export function BoardCard({
         onRenameDone={onRenameDone}
         trailing={
           <span
-            className="text-[9px] tabular-nums"
+            className="text-caption tabular-nums"
             style={{ color: unread > 0 ? HUE.amber : DIM }}
             data-testid="board-glance"
           >
@@ -378,7 +378,7 @@ export function BoardCard({
       />
       <div className="factory-glance__list mt-1.5 flex min-h-0 flex-1 flex-col gap-0.5 overflow-hidden">
         {topics.slice(0, 4).map((topic) => (
-          <div key={topic.topicId} className="factory-glance__row factory-glance__row--topic truncate text-[10px] leading-snug" style={{ color: INK }}>
+          <div key={topic.topicId} className="factory-glance__row factory-glance__row--topic truncate text-label leading-snug" style={{ color: INK }}>
             {(topic.unreadPostCount ?? 0) > 0 ? (
               <span className="mr-1 inline-block size-1.5 shrink-0 rounded-full bg-cyan align-middle" aria-label={`${topic.unreadPostCount} unread`} />
             ) : null}
@@ -386,7 +386,7 @@ export function BoardCard({
           </div>
         ))}
         {topics.length === 0 ? (
-          <div className="factory-glance__empty text-[9px]" style={{ color: DIM }}>
+          <div className="factory-glance__empty text-caption" style={{ color: DIM }}>
             quiet
           </div>
         ) : null}
@@ -409,19 +409,19 @@ export function ArtifactsCard({ node }: { readonly node: CanvasNode }) {
         displayLabel="artifacts"
         decal={<Package size={15} />}
         trailing={
-          <span className="text-[9px] tabular-nums" style={{ color: DIM }}>
+          <span className="text-caption tabular-nums" style={{ color: DIM }}>
             {items.length}
           </span>
         }
       />
       <div className="factory-glance__list mt-1.5 flex min-h-0 flex-1 flex-col gap-0.5 overflow-hidden">
         {items.slice(0, 4).map((item) => (
-          <div key={item.artifactId} className="factory-glance__row factory-glance__row--artifact truncate text-[10px]" style={{ color: INK }}>
+          <div key={item.artifactId} className="factory-glance__row factory-glance__row--artifact truncate text-label" style={{ color: INK }}>
             {item.name?.trim() || item.artifactId}
           </div>
         ))}
         {items.length === 0 ? (
-          <div className="factory-glance__empty text-[9px]" style={{ color: DIM }}>
+          <div className="factory-glance__empty text-caption" style={{ color: DIM }}>
             quiet
           </div>
         ) : null}
@@ -734,13 +734,13 @@ export function BoardDetail({
           }
         />
         {listError ? (
-          <div className="work-ledger-error px-3 py-1 text-[11px]" role="alert">
+          <div className="work-ledger-error px-3 py-1 text-body" role="alert">
             {listError}
           </div>
         ) : null}
         {mutationError ? (
           <div
-            className="work-ledger-error px-3 py-1 text-[11px]"
+            className="work-ledger-error px-3 py-1 text-body"
             role="alert"
             data-testid="board-mutation-error"
           >
@@ -749,7 +749,7 @@ export function BoardDetail({
         ) : null}
         {notifyNote ? (
           <div
-            className="px-3 py-1 text-[11px]"
+            className="px-3 py-1 text-body"
             style={{ color: HUE.cyan }}
             role="status"
             data-testid="board-notify-note"
@@ -974,7 +974,7 @@ export function AgentMessagesPane({ node }: { readonly node: CanvasNode }) {
       <div className="inspector-section__label">messages</div>
       <div className="flex max-h-48 flex-col gap-1 overflow-auto">
         {items.length === 0 ? (
-          <div className="text-[11px]" style={{ color: DIM }}>
+          <div className="text-body" style={{ color: DIM }}>
             no messages
           </div>
         ) : (
@@ -992,15 +992,15 @@ export function AgentMessagesPane({ node }: { readonly node: CanvasNode }) {
                   ? `delivered - ${delivered}`
                   : "pending";
             return (
-              <div key={msg.messageId} className="text-[11px] leading-snug" style={{ color: INK }}>
-                <span className="uppercase tracking-wide text-[9px]" style={{ color: DIM }}>
+              <div key={msg.messageId} className="text-body leading-snug" style={{ color: INK }}>
+                <span className="uppercase tracking-wide text-caption" style={{ color: DIM }}>
                   {msg.role}
                 </span>{" "}
                 {msg.parts
                   .filter((p): p is Extract<Part, { kind: "text" }> => p.kind === "text")
                   .map((p) => p.text)
                   .join(" ") || "(parts)"}
-                <span className="ml-1.5 text-[9px] uppercase tracking-wide" style={{ color: DIM }}>
+                <span className="ml-1.5 text-caption uppercase tracking-wide" style={{ color: DIM }}>
                   {stateLabel}
                 </span>
               </div>

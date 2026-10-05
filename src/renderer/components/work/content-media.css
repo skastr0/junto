@@ -8,7 +8,7 @@
   border-radius: 6px;
   background: var(--color-raise-2);
   color: var(--color-ink-2);
-  font-size: 11px;
+  font-size: var(--text-body);
 }
 
 .content-media > div:not(.content-media__meta):not(.content-media__bar) {
@@ -19,7 +19,7 @@
 
 .content-media strong {
   color: var(--color-ink);
-  font-size: 11px;
+  font-size: var(--text-body);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -28,7 +28,7 @@
 .content-media span,
 .content-media small {
   color: var(--color-dim);
-  font-size: 9px;
+  font-size: var(--text-caption);
 }
 
 .content-media--loading .content-media__spin {
@@ -108,7 +108,7 @@
 }
 
 .content-media__bare-error {
-  font-size: 10px;
+  font-size: var(--text-label);
   color: var(--color-crimson);
 }
 
@@ -177,7 +177,7 @@
 }
 
 .content-media__meta strong {
-  font-size: 12px;
+  font-size: var(--text-body-lg);
   font-weight: 600;
 }
 
@@ -194,7 +194,7 @@
   border-radius: 5px;
   padding: 5px 10px;
   color: var(--color-cyan);
-  font-size: 10px;
+  font-size: var(--text-label);
   font-weight: 600;
   letter-spacing: 0.02em;
   white-space: nowrap;
@@ -223,14 +223,14 @@
 
 .content-media__bar .content-media__type {
   color: var(--color-ink-2);
-  font-size: 9px;
+  font-size: var(--text-caption);
   font-weight: 600;
 }
 
 .content-media__bar .content-media__bytes {
   margin-left: auto;
   color: var(--color-dim);
-  font-size: 8px;
+  font-size: var(--text-micro);
   font-variant-numeric: tabular-nums;
 }
 
@@ -243,7 +243,7 @@
   overflow-wrap: anywhere;
   color: var(--color-ink-2);
   font: inherit;
-  font-size: 12px;
+  font-size: var(--text-body-lg);
   line-height: 1.65;
   scrollbar-width: thin;
   background: var(--color-inset);
@@ -257,7 +257,7 @@
   margin: 0;
   padding: 6px 12px 10px;
   color: var(--color-crimson);
-  font-size: 9px;
+  font-size: var(--text-caption);
 }
 
 @keyframes content-media-spin {

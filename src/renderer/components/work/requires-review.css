@@ -23,7 +23,7 @@
 
 .requires-review__copy span {
   color: var(--color-faint);
-  font-size: 8px;
+  font-size: var(--text-micro);
   letter-spacing: 0.1em;
   text-transform: uppercase;
 }
@@ -31,8 +31,8 @@
 .requires-review__copy p {
   margin: 0;
   color: var(--color-dim);
-  font-size: 11px;
-  line-height: 1.45;
+  font-size: var(--text-body);
+  line-height: var(--leading-body);
 }
 
 .requires-review__gate {
