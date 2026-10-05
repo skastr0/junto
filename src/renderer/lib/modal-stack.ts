@@ -84,7 +84,8 @@ export const closeFrontModal = (): boolean => {
 export const isModalLayerOpen = (layer: ModalLayer): boolean =>
   stack.some((entry) => entry.layer === layer);
 
-const FOCUSABLE_SELECTOR = [
+/** What counts as a tab stop, for every shell and floating panel. */
+export const FOCUSABLE_SELECTOR = [
   "a[href]",
   "button:not([disabled])",
   "input:not([disabled]):not([type='hidden'])",

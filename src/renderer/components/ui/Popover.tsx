@@ -2,17 +2,14 @@ import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "re
 import { createPortal } from "react-dom";
 import { placeBesideRect, type Align, type Side } from "../../lib/menu-placement";
 import { claimFocus, focusPrimaryControl } from "../../lib/focus-ownership";
-import { openerBorrowedKeyboard, returnKeyboardFrom, topModal } from "../../lib/modal-stack";
+import { FOCUSABLE_SELECTOR, openerBorrowedKeyboard, returnKeyboardFrom, topModal } from "../../lib/modal-stack";
 
 // Module-level so the default is one stable array: a fresh literal per render
 // would re-run the placement layout effect every render and never settle.
 const DEFAULT_SIDES: ReadonlyArray<Side> = ["left", "right", "below", "above"];
 
-const TAB_STOPS =
-  "a[href], button:not([disabled]), input:not([disabled]):not([type='hidden']), select:not([disabled]), textarea:not([disabled]), [contenteditable]:not([contenteditable='false']), [tabindex]:not([tabindex='-1'])";
-
 const tabStopsIn = (panel: HTMLElement): HTMLElement[] =>
-  Array.from(panel.querySelectorAll<HTMLElement>(TAB_STOPS)).filter((stop) => stop.getClientRects().length > 0);
+  Array.from(panel.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)).filter((stop) => stop.getClientRects().length > 0);
 
 /**
  * Popover — a small floating panel anchored beside an element, for a short
