@@ -138,7 +138,8 @@ State v3; its prerelease status is not a reason to downgrade it.
 - Continuity is Junto's job: a seat resumes its same session across restarts
   and wakes.
 - Offboarding is self-service. The agent runs `junto offboard` (or
-  `--continue`) at its own stopping points; onboarding tells it how and when.
+  `--continue`) at its own stopping points; `junto onboard` names the command
+  and `junto docs doctrine` says how and when.
   Past notes come back at onboard as context, never as ongoing tasks.
 - Junto does not read or estimate context windows or token counts.
 
@@ -195,6 +196,29 @@ to an exported document or the database:
 | Authz | **edges** — ordinary agents only act on connected nodes (kernel-enforced ScopeError otherwise); board ports are distinct (`board.create_topic` vs `board.post`). An overseer bypasses edge scope for closed `overseer` ops after live grant admission; pause/blocked do not deny those ops. |
 
 **How to use:** open the agent chat in Junto so the process is registered, then run `dist/junto` from that agent/tooling tree. `onboard` / `capabilities` report the live edge contract for the admitted principal.
+
+**How a seat learns Junto: `junto onboard`, and nothing before it.** Junto
+sends nothing to a harness at session start, on any harness: no doctrine by
+system-prompt flag, agent file, rules directory, argv prompt, or typed first
+message. There are no injection tiers. A fresh seat opens to the harness's own
+empty composer.
+
+- `junto onboard` is the one loader. Its output stays short: a few lines of
+  guidance, the seat's facts (seat, region briefing, connections), the
+  operator's soul and standing instructions for the seat, and the commands
+  each connection allows, compiled from the ports held on that edge
+  (`src/shared/seat-onboarding.ts`). A seat is never taught a command its
+  edges do not grant.
+- Reference stays behind `junto docs`, `junto schema show` and
+  `junto examples show` (`src/shared/junto-doctrine.ts`, `junto-docs.ts`).
+  Do not grow onboard to carry it.
+- Onboarded means the seat's own process ran `junto onboard` in this harness
+  session. Mail to a seat that has not onboarded carries the pointer on its
+  own line ("new to this seat? run `junto onboard` first"), never as a
+  separate message. The one-sentence nudge and its cadence live in the
+  supervisor (`term/injection-supervisor.ts`).
+- No harness config is written, and no plugin or hook is installed, to make a
+  seat aware of Junto.
 
 Browser control (`junto browser` / `bun run browser`) uses the same process-bind
 identity on protected routes. There is **no enable-grant ceremony** and no client

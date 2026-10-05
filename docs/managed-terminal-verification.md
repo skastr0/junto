@@ -8,6 +8,25 @@ Scope: this map verifies mechanisms exposed by the harness binaries, not
 Junto's current wiring or release status. Current release capability is
 recorded by the managed-terminal template badges.
 
+## Instruction routes are not used (2026-10-05)
+
+Junto sends nothing to a harness at session start, on any harness. The old
+injection tiers (Tier A: a system-prompt flag, agent file or rules directory;
+Tier B: the doctrine typed or passed as the first prompt) are removed, because
+on several harnesses they opened the session with an unrequested turn, named
+the thread after it, and blocked the operator's first message.
+
+A seat learns Junto by running `junto onboard`, which returns a short briefing
+compiled from its live connections. A seat that has not onboarded is pointed
+there by its own mail line and by a one-sentence nudge at a completed turn.
+Reference stays behind `junto docs`.
+
+The rows below that probe instruction routes (`--append-system-prompt`,
+`--rules`, `--agent`, `-c developer_instructions`, the Muse `--agents`
+overlay) remain as verified facts about the binaries. None of them is wired,
+and none should be wired back: C14 and M1 show how such a route fails
+silently.
+
 ## Live factory reproduction (2026-09-13)
 
 Later production verification: [2026-09-14 native submission repair](assessments/pty-native-submission-2026-09-14.md)
@@ -145,10 +164,10 @@ Spawn env trap (prior probe): scrub `CLAUDE_CODE_CHILD_SESSION`, `CLAUDECODE`, `
 | C11 | Spawn env inherited by agent shell; filter knob `shell_environment_policy` | codex injects `CODEX_THREAD_ID`, `CODEX_SANDBOX*` |
 | C12 | OSC title state machine: idle basename / braille working ~10Hz / **`Action Required` title for input-required** / empty on shutdown | startup modals (dir-trust, hooks-review) emit no title — grid only |
 | C13 | Mid-turn 0x03 interrupts, TUI survives | ⚠ idle 0x03 with EMPTY composer exits immediately, no confirmation; with text it only clears |
-| C14 | `-c developer_instructions` is NOT a Tier-A route (2026-08-25, codex-cli 0.149.1) | see the refutation below |
+| C14 | `-c developer_instructions` is NOT a durable instruction route (2026-08-25, codex-cli 0.149.1) | see the refutation below |
 | C15 | 0.156+ runs the TUI through a shared background app-server; `--no-daemon` keeps the session in the launched process (2026-10-05, codex-cli 0.160.0) | ⚠ without the flag the tool shell's parent is `codex app-server --managed-daemon` under launchd, so Junto's process-bound seat identity never resolves and every `junto` call fails. `-c features.daemon_auto_start=false` does NOT help when a daemon is already running. 0.155 and older reject the flag, so the host adds it only when `--help` lists it (`hostProbedFlags`). Probed with a TUI `!` shell command; model-run tool calls not separately probed |
 
-### C14 — why Codex stays Tier B (probe receipt, 2026-08-25, codex-cli 0.149.1)
+### C14 — why `developer_instructions` is not an instruction route (probe receipt, 2026-08-25, codex-cli 0.149.1)
 
 `-c developer_instructions` looks like a system-prompt flag and behaves like one
 right up to the point where it matters:
@@ -164,12 +183,11 @@ right up to the point where it matters:
   replays.
 
 So the flag buys an instruction that silently disappears exactly when the seat
-most needs it, and cannot be restored by the spawn path. Codex therefore stays
-**Tier B** — `injectionSpec.tier` and the `instructionInjection` badge both `B`,
-no `systemPromptConfigKey` plumbing — and doctrine is re-delivered by the
-supervisor's budgeted re-orientation floor (`REORIENT_EVERY_TURNS` in
-`term/intervention/policy.ts`), which is harness-agnostic and self-heals any
-Tier-B seat whose context was compacted away.
+most needs it, and cannot be restored by the spawn path. This is one of the
+receipts behind dropping injection altogether: Junto passes no instruction
+flag to Codex or to any other harness, and does not detect compaction or
+re-orient on a schedule. A seat that lost track shows as not onboarded, and
+the operator has a button that sends the nudge.
 
 Do not retry the flag on resume. The freeze is the trap.
 
@@ -217,9 +235,10 @@ Do not retry the flag on resume. The freeze is the trap.
 | M4 | `muse resume <uuid>` is exact | ⚠ BARE `muse resume` opens the session picker — a seat on no known session. Never emit it |
 | M5 | The TUI requires a responsive host, and the requirement is FATAL | ⚠ with OSC 10/11 and the OSC 4 palette queries unanswered, 0.2.1 emits ~260 bytes and EXITS without painting. Answered, the same spawn paints the TUI and runs a turn |
 
-M1 is why Muse stays Tier B with no `agentFlag` and no `systemPromptFlag`: the
-overlay looks like a doctrine route and silently is not, which is the worst
-shape a capability claim can have.
+M1 is why the Muse overlay was never an instruction route: it looks like one
+and silently is not, which is the worst shape a capability claim can have.
+Junto now uses no instruction route on any harness (see the top of this
+file).
 
 M2 and M3 are why capture reads the store instead of the screen, and why it
 matches on workspace AND start time (`term/templates/muse-session.ts`) — the
