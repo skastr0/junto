@@ -681,11 +681,11 @@ function InstallationFacts() {
         </span>
       </div>
       <FieldRow group label="App version" hint="currently running Junto">
-        <span style={{ color: INK, fontSize: 13 }}>{status.currentVersion}</span>
+        <span style={{ color: INK, fontSize: "var(--text-body-lg)" }}>{status.currentVersion}</span>
       </FieldRow>
       {DEV_TOOLS_ENABLED ? (
         <FieldRow group label="Build" hint="packaged vs development">
-          <span style={{ color: INK, fontSize: 13 }}>{buildLabel}</span>
+          <span style={{ color: INK, fontSize: "var(--text-body-lg)" }}>{buildLabel}</span>
         </FieldRow>
       ) : null}
       <FieldRow
@@ -693,7 +693,7 @@ function InstallationFacts() {
         label="Platform"
         hint={DEV_TOOLS_ENABLED ? "OS, architecture, Electron runtime" : "OS and architecture"}
       >
-        <span style={{ color: INK, fontSize: 13 }}>{platformLabel}</span>
+        <span style={{ color: INK, fontSize: "var(--text-body-lg)" }}>{platformLabel}</span>
       </FieldRow>
       {DEV_TOOLS_ENABLED ? (
         <>
@@ -707,7 +707,7 @@ function InstallationFacts() {
             </span>
           </FieldRow>
           <FieldRow group label="Host id" hint="this machine across the fleet">
-            <span style={{ color: INK, fontSize: 13 }}>
+            <span style={{ color: INK, fontSize: "var(--text-body-lg)" }}>
               {station.hostId.length > 0 ? station.hostId : "—"}
             </span>
           </FieldRow>
@@ -765,7 +765,7 @@ function UpdatesSection() {
   return (
     <div className="settings-section">
       <FieldRow group label="Installed version" hint="currently running Junto">
-        <span style={{ color: INK, fontSize: 13 }}>{status.currentVersion}</span>
+        <span style={{ color: INK, fontSize: "var(--text-body-lg)" }}>{status.currentVersion}</span>
       </FieldRow>
       <FieldRow group label="Application updates" hint={summary}>
         <div className="flex flex-wrap items-center gap-2">
@@ -1035,7 +1035,7 @@ function StationSection() {
         label="This machine's host id"
         hint="How this installation is identified across the fleet"
       >
-        <span style={{ color: INK, fontSize: 13 }}>{station.hostId}</span>
+        <span style={{ color: INK, fontSize: "var(--text-body-lg)" }}>{station.hostId}</span>
       </FieldRow>
       <FieldRow
         label="Allow remote managed installs"
