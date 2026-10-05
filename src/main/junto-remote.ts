@@ -441,10 +441,7 @@ const runProductBoot = async (): Promise<void> => {
         terminalObserverPlane.subscribeGlobal(listener),
     },
     supervisor: injectionSupervisor,
-    escalate: (bindingId, reason) => {
-      if (!seatStateRuntime.machine.getSlot(bindingId)) return;
-      seatStateRuntime.machine.force(bindingId, "attention", reason, "high");
-    },
+    composerVerdict: (bindingId) => seatStateRuntime.composerVerdict(bindingId),
     pulse: { setDeliver: setManagedPulseDeliver },
     board: { configure: configureBoardDelivery },
     firstTyped: {

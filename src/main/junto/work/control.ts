@@ -3060,6 +3060,8 @@ export const startWorkControlServer = async (
         > = Effect.gen(function* () {
           const liveDocsResult = yield* Effect.flatMap(
             CanvasesService,
+        // The admitted seat's terminal binding, for the onboarding proof.
+        let admittedBindingId: string | undefined;
             (canvases) => canvases.liveDocuments(),
           ).pipe(Effect.result);
           if (Result.isFailure(liveDocsResult)) {
@@ -3092,19 +3094,15 @@ export const startWorkControlServer = async (
             });
           }
 
-          // Bootstrap proof: any work-plane call from the seat's own process is
-          // definitive evidence the agent knows the factory CLI. Managed seats
-          // bind their process by agent key, not binding id, so the proof key
-          // comes from the resolved caller node's terminal binding.
+          // Managed seats bind their process by agent key, not binding id, so
+          // the onboarding proof key comes from the resolved caller node's
+          // terminal binding.
           const callerNode = callerResolved.caller.node;
-          const proofBindingId =
+          admittedBindingId =
             admission.principal.bindingId ??
             (isManagedAgentNode(callerNode)
               ? callerNode.ether.terminal.bindingId
               : undefined);
-          yield* Effect.sync(() =>
-            injectionSupervisor.noteWorkPlaneCall(proofBindingId),
-          );
           const occupant = occupantKeyForPrincipal(
             admission.principal,
             `pid:${admission.peerPid}`,
@@ -3296,6 +3294,9 @@ export const startWorkControlServer = async (
             readonly nodeId?: unknown;
             readonly text?: unknown;
             readonly expiresAt?: unknown;
+        // Onboarded means exactly this: `junto onboard` answered the seat's
+        // own process. No other work-plane call counts.
+        if (req.op === "onboard") injectionSupervisor.noteOnboarded(admittedBindingId);
           };
           if (
             typeof value.preambleId === "string" &&

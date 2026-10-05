@@ -61,6 +61,17 @@ import { SeatGuidanceRepository } from "./seat-guidance/repository";
 import { startSeatSessionRecorder, subscribeSeatOffboard } from "./seat-sessions/service";
 import { SeatOffboardCloser } from "./seat-sessions/offboard-close";
 import {
+  defaultSeatsRoot,
+  markSessionOnboarded,
+  onboardedMarkerPath,
+  sessionOnboarded,
+} from "./seat-sessions/notes-file";
+import { buildOnboardNudge } from "@shared/managed-terminal-injection";
+import {
+  onboardNudgeRefusal,
+  type SeatOnboardNudgeResult,
+} from "@shared/seat-onboarding-status";
+import {
   composeOffboardAsk,
   CONTINUATION_KICKOFF,
   OFFBOARD_MODES,
@@ -2059,24 +2070,73 @@ export const registerJuntoIpc = (): void => {
           return { ok: true };
         },
       );
-      // Supervisor transport wiring: re-delivered doctrine goes through the
-      // same drive as first-typed doctrine; escalation surfaces on the canvas
-      // via the seat state machine (attention with an operator-facing reason).
-      // Supervisor transport wiring: re-delivered doctrine goes through the
-      // same drive as first-typed doctrine; escalation surfaces on the canvas
-      // via the seat state machine. Shared recipe — the Node Remote wires
-      // the same supervisor through its own destination drive.
+      // Onboarding status follows the harness session: it is kept beside the
+      // session's notes, so a resumed session reads it back and a fresh one
+      // starts without it. A seat whose session id is not known yet cannot
+      // be recorded; the supervisor asks again at the next completed turn.
+      const onboardedMarkerOf = async (bindingId: string): Promise<string | undefined> => {
+        const live = termPlane.host.get(bindingId);
+        if (!live?.canvasName || !live.nodeId) return undefined;
+        const seat = await managedSeatOn(live.canvasName, live.nodeId);
+        if (seat === undefined || seat.bindingId !== bindingId || !seat.sessionId) return undefined;
+        return onboardedMarkerPath(defaultSeatsRoot(), live.nodeId, seat.sessionId);
+      };
+      injectionSupervisor.setOnboardedRecord({
+        load: async (bindingId) => {
+          const marker = await onboardedMarkerOf(bindingId);
+          return marker !== undefined && sessionOnboarded(marker);
+        },
+        save: async (bindingId) => {
+          const marker = await onboardedMarkerOf(bindingId);
+          if (marker === undefined) return false;
+          markSessionOnboarded(marker, Date.now());
+          return true;
+        },
+      });
+      injectionSupervisor.subscribeOnboarding((event) =>
+        broadcast(IPC_CHANNELS.seatOnboardingChanged, event),
+      );
+      privilegedIpc.handle(IPC_CHANNELS.seatOnboardingSnapshot, () =>
+        injectionSupervisor.currentOnboarding(),
+      );
+      // The operator's nudge: the same sentence, typed now. Gated like every
+      // typed prompt (never the mail path), and refused rather than queued,
+      // so it can never land on a draft or in the middle of a turn later.
+      privilegedIpc.handle(
+        IPC_CHANNELS.seatOnboardNudge,
+        async (_event, canvasName: unknown, seatId: unknown): Promise<SeatOnboardNudgeResult> => {
+          if (typeof canvasName !== "string" || !canvasName || typeof seatId !== "string" || !seatId) {
+            return { ok: false, message: "Junto could not find that seat." };
+          }
+          const seat = await managedSeatOn(canvasName, seatId);
+          if (seat === undefined) return { ok: false, message: "Junto could not find that seat." };
+          if (!seat.local) return { ok: false, message: "This seat runs on another installation." };
+          if (termPlane.host.get(seat.bindingId)?.status !== "running") {
+            return { ok: false, message: "This seat is not running." };
+          }
+          const outcome = await managedDrive.writePrompt(seat.bindingId, buildOnboardNudge(), {
+            ready: driveReady(seat.bindingId),
+            queueIfBusy: false,
+          });
+          if (outcome.status === "refused") {
+            return { ok: false, message: onboardNudgeRefusal(outcome.reason) };
+          }
+          // Typed, whether or not the turn start was seen: do not repeat it.
+          injectionSupervisor.noteNudgeDelivered(seat.bindingId);
+          return { ok: true };
+        },
+      );
+      // Supervisor transport wiring: the onboarding nudge goes through the
+      // drive's gated write. Shared recipe — the Node Remote wires the same
+      // supervisor through its own destination drive.
       wireFactorySupervisor({
         supervisor: injectionSupervisor,
-        write: writeManagedPrompt,
-        escalate: (bindingId, reason) => {
-          seatStateRuntime.machine.force(
-            bindingId,
-            "attention",
-            reason,
-            "high",
-          );
-        },
+        write: (bindingId, text, options) =>
+          managedDrive.writePrompt(bindingId, text, {
+            ready: options?.ready ?? driveReady(bindingId),
+            ...(options ?? {}),
+          }),
+        composerVerdict: (bindingId) => seatStateRuntime.composerVerdict(bindingId),
         subscribeSnapshots: (listener) =>
           terminalObserverPlane.subscribeGlobal(listener),
       });
@@ -2234,7 +2294,13 @@ export const registerJuntoIpc = (): void => {
             }
             return kernel.wakeManagedSeat(canvas, nodeId);
           },
-          writeMail: (bindingId, text) => managedDrive.writeMail(bindingId, text),
+          writeMail: (bindingId, text) =>
+            managedDrive.writeMail(bindingId, text).then((outcome) => {
+              // Mail in the seat is a first real message: the onboarding
+              // nudge may follow the turn it starts.
+              if (outcome === "written") injectionSupervisor.noteMailWritten(bindingId);
+              return outcome;
+            }),
         },
         store: {
           listCanvasNames: () =>

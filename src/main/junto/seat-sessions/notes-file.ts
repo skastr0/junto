@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { resolveJuntoHome } from "@shared/junto-home";
 import { SEAT_SESSION_NOTES_MAX_CHARS } from "@shared/seat-sessions";
@@ -28,6 +28,22 @@ export const seatSessionNotesPath = (seatsRoot: string, seatId: string, sessionI
  * session left for the one after it, beside its notes.
  */
 export const continuationPathOf = (notesPath: string): string => notesPath.replace(/\.md$/, ".next.md");
+
+/**
+ * `<seats root>/<seat>/sessions/<session>.onboarded`: present once the seat's
+ * agent ran `junto onboard` in that harness session. It sits beside the
+ * session's notes so a resumed session reads its own status back, and a fresh
+ * session, having no file, starts without one.
+ */
+export const onboardedMarkerPath = (seatsRoot: string, seatId: string, sessionId: string): string =>
+  seatSessionNotesPath(seatsRoot, seatId, sessionId).replace(/\.md$/, ".onboarded");
+
+export const markSessionOnboarded = (path: string, at: number): void => {
+  mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
+  writeFileSync(path, `${new Date(at).toISOString()}\n`, { mode: 0o600 });
+};
+
+export const sessionOnboarded = (path: string): boolean => existsSync(path);
 
 /**
  * Replace a notes file whole: written beside it, then renamed over it, so a

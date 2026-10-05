@@ -184,10 +184,10 @@ afterEach(async () => {
   }
 });
 
-describe("work control bootstrap proof", () => {
-  it("an onboard call from an agent-key-bound seat proves the seat's terminal binding", async () => {
+describe("work control onboarding proof", () => {
+  it("an onboard call from an agent-key-bound seat onboards the seat's terminal binding", async () => {
     injectionSupervisor.clearForTest();
-    expect(injectionSupervisor.isProven(SEAT_BINDING)).toBe(false);
+    expect(injectionSupervisor.isOnboarded(SEAT_BINDING)).toBe(false);
     const rig = await startRig();
     const token = readFileSync(workControlTokenPath(join(rig.root, "work")), "utf8").trim();
 
@@ -196,6 +196,21 @@ describe("work control bootstrap proof", () => {
     };
 
     expect(response.ok).toBe(true);
-    expect(injectionSupervisor.isProven(SEAT_BINDING)).toBe(true);
+    expect(injectionSupervisor.isOnboarded(SEAT_BINDING)).toBe(true);
+  });
+
+  it("no other work-plane call onboards the seat", async () => {
+    injectionSupervisor.clearForTest();
+    const rig = await startRig();
+    const token = readFileSync(workControlTokenPath(join(rig.root, "work")), "utf8").trim();
+
+    for (const op of ["capabilities", "preamble"]) {
+      const response = (await call(rig.server.socketPath, { token, op, args: { text: "checking in" } })) as {
+        readonly ok: boolean;
+      };
+      expect(response.ok).toBe(true);
+    }
+
+    expect(injectionSupervisor.isOnboarded(SEAT_BINDING)).toBe(false);
   });
 });

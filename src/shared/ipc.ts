@@ -46,6 +46,7 @@ import type {
 } from "./settings";
 import type { UsageState } from "./usage";
 import type { AgentSeatStateEvent } from "./agent-seat-state";
+import type { SeatOnboardingEvent, SeatOnboardNudgeResult } from "./seat-onboarding-status";
 import type { MailTransportSpec, IsolationSpec } from "./managed-terminal-templates";
 import type { HarnessHelpFlag } from "./launch-extra-args";
 import type { TerminalSessionSummary } from "./terminal";
@@ -159,6 +160,10 @@ export const IPC_CHANNELS = {
   seatOffboardAsk: "junto:seat-offboard-ask",
   seatOffboardProgressList: "junto:seat-offboard-progress-list",
   seatOffboardProgress: "junto:seat-offboard-progress",
+  /** Onboarding: every seat's status, one seat's change, and the operator's nudge. */
+  seatOnboardingSnapshot: "junto:seat-onboarding-snapshot",
+  seatOnboardingChanged: "junto:seat-onboarding-changed",
+  seatOnboardNudge: "junto:seat-onboard-nudge",
   /** Agent profiles: list, save (create or replace), rename, delete, live list push. */
   profilesList: "junto:profiles-list",
   profileSave: "junto:profile-save",
@@ -739,6 +744,13 @@ export interface JuntoApi extends UpdateApi, OverseerLiveApi {
   readonly seatOffboardAsk?: (canvasName: string, seatId: string, mode: OffboardMode) => Promise<SeatOffboardAskResult>;
   /** Where every seat's latest offboard stands. */
   readonly seatOffboardProgressList?: () => Promise<ReadonlyArray<SeatOffboardProgress>>;
+  /** Whether each seat's agent ran `junto onboard` in its current harness session. */
+  readonly seatOnboardingSnapshot?: () => Promise<ReadonlyArray<SeatOnboardingEvent>>;
+  /**
+   * Type the onboarding nudge into a seat now. It goes through the same gate
+   * as every other typed prompt, so a busy seat or a draft refuses it.
+   */
+  readonly seatOnboardNudge?: (canvasName: string, seatId: string) => Promise<SeatOnboardNudgeResult>;
   /** The operator's saved agent profiles, by name. */
   readonly profilesList: () => Promise<ReadonlyArray<AgentProfile>>;
   /** Create a profile (no id) or replace one's configuration. */
@@ -943,6 +955,8 @@ export interface JuntoApi extends UpdateApi, OverseerLiveApi {
   readonly onSeatGuidance?: (listener: (event: SeatGuidanceEvent) => void) => () => void;
   /** Main -> renderer: one seat's offboard moved on (asked, saved, resting, started). */
   readonly onSeatOffboardProgress?: (listener: (event: SeatOffboardProgress) => void) => () => void;
+  /** Main -> renderer: one seat onboarded, or started a session that has not. */
+  readonly onSeatOnboardingChanged?: (listener: (event: SeatOnboardingEvent) => void) => () => void;
   /** Main -> renderer: every profile, after any change. */
   readonly onProfilesChanged?: (listener: (profiles: ProfilesChanged) => void) => () => void;
   /** The canvas's open needs, for desktop notifications and the Dock badge. */

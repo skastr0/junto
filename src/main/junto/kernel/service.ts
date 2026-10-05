@@ -34,7 +34,6 @@ import {
   type StationRole,
 } from "@shared/station";
 import { buildFactoryClaimPrompt } from "@shared/factory-claim-prompt";
-import { injectionSupervisor } from "../term/injection-supervisor";
 import {
   claimedByOf,
   makeUserMessage,
@@ -1143,10 +1142,6 @@ const makeKernelService = (
               ),
             );
             if (!accepted) continue;
-            // Claim acceptance re-grounds the seat (the briefing teaches the CLI):
-            // the supervisor counts it as factory proof.
-            injectionSupervisor.noteClaimAccepted(surface.bindingId);
-
             // Record only after the managed transport accepted the prompt. This
             // durably suppresses restart replay. The send→receipt crash window
             // remains intentionally at-least-once until that transport accepts

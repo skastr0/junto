@@ -43,6 +43,8 @@ export type FactoryWritePromptOptions = {
   readonly queueTimeoutMs?: number;
   readonly ready?: boolean;
   readonly awaitTurnStart?: boolean;
+  /** False refuses at once on a busy or unwritable seat instead of queueing. */
+  readonly queueIfBusy?: boolean;
 };
 
 export type FactoryWritePrompt = (
@@ -70,8 +72,8 @@ export type FactoryDeliverySupervisor = {
   readonly setWriter: (
     writer: (bindingId: string, text: string) => boolean | Promise<boolean>,
   ) => void;
-  readonly setEscalationHandler: (
-    handler: (bindingId: string, reason: string) => void,
+  readonly setComposerLookup: (
+    lookup: (bindingId: string) => "empty" | "draft" | null,
   ) => void;
   readonly noteSeatState: (event: AgentSeatStateEvent) => void;
   readonly onSnapshot: (snap: ObserverGridSnapshot) => void;
@@ -168,6 +170,7 @@ export const makeFactoryFirstTypedKick = (input: {
       // strictly newer arm is live; the same arm refusing must never loop.
       if (arm.seq !== owner) pendingRekick.add(bindingId);
       return;
+  input.supervisor.setComposerLookup(input.composerVerdict);
     }
     inFlight.set(bindingId, arm.seq);
     void input
@@ -223,23 +226,24 @@ export const factoryBoardTransport = (input: {
 });
 
 /**
- * Supervisor re-delivery through the destination drive. Returns the
- * snapshot-subscription teardown — the composition owns it, so dispose
- * closes every subscription this module opened.
+ * The supervisor's onboarding nudge through the destination drive's gated
+ * write, never the mail path. It refuses at once on a busy seat, an operator
+ * draft, or an unreadable composer, and the supervisor tries again at a later
+ * event; nothing is queued. Returns the snapshot-subscription teardown — the
+ * composition owns it, so dispose closes every subscription this module
+ * opened.
  */
 export const wireFactorySupervisor = (input: {
   readonly supervisor: FactoryDeliverySupervisor;
   readonly write: FactoryWritePrompt;
-  readonly escalate: (bindingId: string, reason: string) => void;
+  /** The same composer reading the drive gates on. */
+  readonly composerVerdict: (bindingId: string) => "empty" | "draft" | null;
   readonly subscribeSnapshots: (
     listener: (snap: ObserverGridSnapshot) => void,
   ) => () => void;
 }): (() => void) => {
   input.supervisor.setWriter((bindingId, text) =>
-    input.write(bindingId, text).then(isPromptSubmitted),
-  );
-  input.supervisor.setEscalationHandler((bindingId, reason) =>
-    input.escalate(bindingId, reason),
+    input.write(bindingId, text, { queueIfBusy: false }).then(isPromptSubmitted),
   );
   return input.subscribeSnapshots((snap) =>
     input.supervisor.onSnapshot(snap),
@@ -252,7 +256,7 @@ export type ComposeFactoryDeliveryInput = {
   readonly kernel: FactoryDeliveryKernel;
   readonly events: FactoryDeliveryEvents;
   readonly supervisor: FactoryDeliverySupervisor;
-  readonly escalate: (bindingId: string, reason: string) => void;
+  readonly composerVerdict: (bindingId: string) => "empty" | "draft" | null;
   readonly pulse: FactoryDeliveryPulse;
   readonly board: FactoryDeliveryBoard;
   readonly firstTyped: FactoryDeliveryFirstTyped;
@@ -293,7 +297,7 @@ export const composeFactoryDelivery = (
     wireFactorySupervisor({
       supervisor: input.supervisor,
       write,
-      escalate: input.escalate,
+      composerVerdict: input.composerVerdict,
       subscribeSnapshots: input.events.subscribeSnapshots,
     }),
   );

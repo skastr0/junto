@@ -1,106 +1,98 @@
 /**
- * Injection supervisor — event-driven re-engagement for managed seats.
+ * Injection supervisor — a seat's onboarding status and the nudge toward it.
  *
- * Policy: Junto may become more active with a seat's PTY only when it
- * can prove the intervention cannot damage the experience. Every intervention
- * goes through the typed decision matrix (term/intervention/policy.ts), which
- * is total and exhaustive; the write-gates (user present/drafted, live
- * injection, permission modal) ALWAYS override. Escalation is a canvas event,
- * never a PTY write.
+ * Nothing is sent to a seat at session start. A seat is onboarded once its
+ * own process ran `junto onboard` in its current harness session; until then
+ * the supervisor may type one sentence pointing there, at most twice per
+ * generation, on the cadence in term/intervention/policy.ts. The status
+ * follows the harness session: a resumed session reads back what it recorded,
+ * so a seat that onboarded before a restart is not nudged again.
  *
  * Driven by events, never wall clock: seat-state transitions, PTY snapshots
- * (marker echo, turn boundaries), user input, work-plane
- * calls (process-bound proof), claim acceptance, generation changes.
+ * (composer changes), operator input, mail written into the seat, and the
+ * `junto onboard` call itself. Every nudge goes through the drive's gated
+ * write, which refuses on an operator draft or an unreadable composer.
  */
 
 import type { ObserverGridSnapshot } from "./observer/types";
 import {
-  deriveInteraction,
-  type InjectionSignal,
-  type InteractionDerived,
-  type TurnSignal,
-  type UserSignal,
-} from "./observer/interaction";
-import {
-  InteractionContext,
   decideIntervention,
-  MAX_TURNS_WITHOUT_PROOF,
-  type Intervention,
+  type ComposerSignal,
+  type InteractionContext,
+  type OnboardingSignal,
   type SeatSignal,
 } from "./intervention/policy";
-import {
-  appendBootstrapMarker,
-  buildBootstrapMarker,
-  buildOrientNotice,
-} from "@shared/managed-terminal-injection";
+import { buildOnboardNudge } from "@shared/managed-terminal-injection";
 import type { AgentSeatStateEvent } from "@shared/agent-seat-state";
-
-export type AwarenessSignal = "unproven" | "proven";
+import type {
+  SeatOnboardingEvent,
+  SeatOnboardingStatus,
+} from "@shared/seat-onboarding-status";
 
 type SeatSupervision = {
   readonly epoch: string;
   state: SeatSignal;
-  proven: boolean;
-  awareness: AwarenessSignal;
-  /** Completed agent turns without any factory proof (turn budget). */
-  turnsWithoutProof: number;
-  /**
-   * A marker lifecycle was observed on screen (injection seen live/in-flight
-   * at some point) — the only turn evidence that survives without an
-   * operator at the seat. Reset when a turn is counted.
-   */
-  markerLifecycleObserved: boolean;
-  prevTurn: "none" | "in-turn" | "ended";
-  lastSeenSeq: bigint | undefined;
-  lastUserInputAt: number | undefined;
-  lastOutputAt: number | undefined;
-  /** Last decision we acted on, to dedup identical repeats. */
-  lastActedKind: Intervention["kind"] | undefined;
-  /** Only re-inject a charter when a NEW turn completed since the last one. */
-  repairedOnce: boolean;
-  /**
-   * Orient notices delivered to THIS generation. A count, not a flag: the
-   * re-orientation floor re-delivers on a budget, because a harness that
-   * compacts its own context throws the doctrine away mid-session.
-   */
-  orientationsDelivered: number;
-  /** One transport request owns this generation's next orientation receipt. */
-  orientationInFlight: boolean;
-  escalatedOnce: boolean;
-  hadDelivery: boolean;
-  lastText: string | undefined;
-  lastUserSignal: UserSignal | undefined;
-  lastInjectionSignal: InjectionSignal | undefined;
-  lastTurnSignal: TurnSignal | undefined;
+  onboarding: OnboardingSignal;
+  /** The onboarded status reached the session's record (or needs no record). */
+  recorded: boolean;
+  /** The operator typed into this generation's terminal. */
+  operatorTyped: boolean;
+  /** A draft the operator typed was seen in the composer. */
+  operatorDraft: boolean;
+  /** A first real message went into this generation's session. */
+  firstMessageSeen: boolean;
+  /** A turn that began after the first message is still running. */
+  inTurn: boolean;
+  /** Completed turns since the first message, or since the last nudge. */
+  turnsWaited: number;
+  nudgesDelivered: number;
+  /** One transport request owns this generation's next nudge receipt. */
+  nudgeInFlight: boolean;
 };
 
 export type NoticeWriter = (bindingId: string, text: string) => boolean | Promise<boolean>;
-export type EscalationHandler = (bindingId: string, reason: string) => void;
+/** The composer as the drive's own gate reads it; null is unreadable. */
+export type ComposerLookup = (bindingId: string) => "empty" | "draft" | null;
+/** Read back whether the binding's current harness session already onboarded. */
+export type OnboardedLoader = (bindingId: string) => Promise<boolean>;
+/** Record the binding's current harness session as onboarded; false = not yet possible. */
+export type OnboardedRecorder = (bindingId: string) => Promise<boolean>;
+export type OnboardingListener = (event: SeatOnboardingEvent) => void;
 
 /**
  * Pure per-seat supervision state. The class owns state + event handling;
- * PTY writes and canvas escalation go through injected callbacks so this
- * module never imports the drive or the renderer-facing state machine.
+ * PTY writes and the session record go through injected callbacks so this
+ * module never imports the drive or the seat-session store.
  */
 export class InjectionSupervisor {
   private readonly seats = new Map<string, SeatSupervision>();
-  /**
-   * Binding-level sticky facts that survive generation changes and may arrive
-   * before the first snapshot registers the seat: process-bound factory proof
-   * (a work-plane call) and the last user-input timestamp.
-   */
-  private readonly provenBindings = new Set<string>();
+  /** `junto onboard` calls that arrived before the seat's first event. */
+  private readonly onboardedEarly = new Set<string>();
+  /** Last settled status per binding, for a renderer that starts late. */
+  private readonly statuses = new Map<string, SeatOnboardingEvent>();
   private readonly userInputBindings = new Map<string, number>();
+  private readonly listeners = new Set<OnboardingListener>();
   private writer: NoticeWriter | undefined;
-  private escalationHandler: EscalationHandler | undefined;
+  private composer: ComposerLookup | undefined;
+  private loader: OnboardedLoader | undefined;
+  private recorder: OnboardedRecorder | undefined;
   private now: () => number = Date.now;
 
   setWriter(writer: NoticeWriter): void {
     this.writer = writer;
   }
 
-  setEscalationHandler(handler: EscalationHandler): void {
-    this.escalationHandler = handler;
+  setComposerLookup(lookup: ComposerLookup): void {
+    this.composer = lookup;
+  }
+
+  /** Where onboarding is remembered across generations of one harness session. */
+  setOnboardedRecord(record: {
+    readonly load: OnboardedLoader;
+    readonly save: OnboardedRecorder;
+  }): void {
+    this.loader = record.load;
+    this.recorder = record.save;
   }
 
   setNow(now: () => number): void {
@@ -110,68 +102,122 @@ export class InjectionSupervisor {
   /** Test seam. */
   clearForTest(): void {
     this.seats.clear();
+    this.onboardedEarly.clear();
+    this.statuses.clear();
+  }
+
+  subscribeOnboarding(listener: OnboardingListener): () => void {
+    this.listeners.add(listener);
+    return () => {
+      this.listeners.delete(listener);
+    };
+  }
+
+  /** Every seat's last settled status. */
+  currentOnboarding(): ReadonlyArray<SeatOnboardingEvent> {
+    return [...this.statuses.values()];
+  }
+
+  private publish(bindingId: string, status: SeatOnboardingStatus): void {
+    if (this.statuses.get(bindingId)?.status === status) return;
+    const event = { bindingId, status, at: this.now() };
+    this.statuses.set(bindingId, event);
+    for (const listener of this.listeners) {
+      try {
+        listener(event);
+      } catch (error) {
+        console.error("[supervisor] onboarding listener failed:", error);
+      }
+    }
   }
 
   private ensure(bindingId: string, epoch: string): SeatSupervision {
-    let seat = this.seats.get(bindingId);
-    if (seat === undefined || seat.epoch !== epoch) {
-      seat = {
-        epoch,
-        state: "unknown" as SeatSignal,
-        proven: this.provenBindings.has(bindingId),
-        awareness: "unproven",
-        turnsWithoutProof: 0,
-        markerLifecycleObserved: false,
-        prevTurn: "none",
-        lastSeenSeq: undefined,
-        lastUserInputAt: this.userInputBindings.get(bindingId),
-        lastOutputAt: undefined,
-        lastActedKind: undefined,
-        repairedOnce: false,
-        orientationsDelivered: 0,
-        orientationInFlight: false,
-        escalatedOnce: false,
-        hadDelivery: false,
-        lastText: undefined,
-        lastUserSignal: undefined,
-        lastInjectionSignal: undefined,
-        lastTurnSignal: undefined,
-      };
-      this.seats.set(bindingId, seat);
+    const existing = this.seats.get(bindingId);
+    if (existing !== undefined && existing.epoch === epoch) return existing;
+    const early = this.onboardedEarly.delete(bindingId);
+    const seat: SeatSupervision = {
+      epoch,
+      state: "unknown",
+      onboarding: early ? "onboarded" : "unknown",
+      recorded: false,
+      operatorTyped: false,
+      operatorDraft: false,
+      firstMessageSeen: false,
+      inTurn: false,
+      turnsWaited: 0,
+      nudgesDelivered: 0,
+      nudgeInFlight: false,
+    };
+    this.seats.set(bindingId, seat);
+    if (early) {
+      this.publish(bindingId, "onboarded");
+      this.record(bindingId, seat);
+      return seat;
     }
+    const settle = (onboarded: boolean): void => {
+      // A newer generation, or an onboard that landed meanwhile, wins.
+      if (this.seats.get(bindingId) !== seat || seat.onboarding !== "unknown") return;
+      seat.onboarding = onboarded ? "onboarded" : "not-onboarded";
+      seat.recorded = onboarded;
+      this.publish(bindingId, seat.onboarding);
+      this.evaluate(bindingId, seat);
+    };
+    if (this.loader === undefined) settle(false);
+    else void this.loader(bindingId).then(settle, () => settle(false));
     return seat;
   }
 
-  /**
-   * A work-plane call from the seat's own process (process-bind proof) — the
-   * definitive awareness signal. Also called on claim acceptance.
-   */
-  noteWorkPlaneCall(bindingId: string | undefined): void {
-    if (!bindingId) return;
-    // Sticky: proof may arrive before the seat's first snapshot.
-    this.provenBindings.add(bindingId);
-    const seat = this.seats.get(bindingId);
-    if (seat) {
-      seat.proven = true;
-      seat.awareness = "proven";
+  private record(bindingId: string, seat: SeatSupervision): void {
+    if (seat.recorded || seat.onboarding !== "onboarded") return;
+    const recorder = this.recorder;
+    if (recorder === undefined) {
+      seat.recorded = true;
+      return;
     }
+    void recorder(bindingId).then(
+      (saved) => {
+        if (saved && this.seats.get(bindingId) === seat) seat.recorded = true;
+      },
+      () => {},
+    );
   }
 
-  noteClaimAccepted(bindingId: string): void {
-    this.noteWorkPlaneCall(bindingId);
+  /**
+   * `junto onboard` ran from the seat's own process (process-bind proof) in
+   * the binding's live generation. The only thing that onboards a seat.
+   */
+  noteOnboarded(bindingId: string | undefined): void {
+    if (!bindingId) return;
+    const seat = this.seats.get(bindingId);
+    if (seat === undefined) {
+      // The call may precede the seat's first event.
+      this.onboardedEarly.add(bindingId);
+      this.publish(bindingId, "onboarded");
+      return;
+    }
+    seat.onboarding = "onboarded";
+    this.publish(bindingId, "onboarded");
+    this.record(bindingId, seat);
   }
 
-  /** Sticky process-bound proof for a binding (survives generation cuts). */
-  isProven(bindingId: string): boolean {
-    return this.provenBindings.has(bindingId);
+  /** `junto onboard` ran in the harness session this binding is running now. */
+  isOnboarded(bindingId: string): boolean {
+    return (
+      this.seats.get(bindingId)?.onboarding === "onboarded" ||
+      this.onboardedEarly.has(bindingId)
+    );
   }
 
-  /** User keystrokes routed to the PTY (from the terminal write IPC). */
+  /**
+   * Operator bytes routed to the PTY (from the terminal write IPC). A draft
+   * the operator typed, followed by a turn, is a first message.
+   */
   noteUserInput(bindingId: string, at: number = this.now()): void {
-    // Sticky: input may arrive before the seat's first snapshot.
     this.userInputBindings.set(bindingId, at);
     const seat = this.seats.get(bindingId);
-    if (seat) seat.lastUserInputAt = at;
+    if (seat === undefined) return;
+    seat.operatorTyped = true;
+    if (this.composer?.(bindingId) === "draft") seat.operatorDraft = true;
   }
 
   /** Last operator keystroke time for a binding, if any (process-local sticky). */
@@ -179,167 +225,107 @@ export class InjectionSupervisor {
     return this.userInputBindings.get(bindingId);
   }
 
+  /** Mail was typed into the seat: a first real message, whoever sent it. */
+  noteMailWritten(bindingId: string): void {
+    const seat = this.seats.get(bindingId);
+    if (seat === undefined || seat.firstMessageSeen) return;
+    seat.firstMessageSeen = true;
+    // The turn this mail starts is the first one that counts.
+    seat.inTurn = seat.state === "working";
+  }
+
+  /**
+   * A nudge reached the seat outside the cadence (the operator's button). It
+   * counts as one of the generation's nudges, so the cadence does not repeat
+   * what the operator just sent.
+   */
+  noteNudgeDelivered(bindingId: string): void {
+    const seat = this.seats.get(bindingId);
+    if (seat === undefined) return;
+    seat.nudgesDelivered += 1;
+    seat.turnsWaited = 0;
+  }
+
   /** Seat-state machine events (idle/working/attention/gone/...). */
   noteSeatState(event: AgentSeatStateEvent): void {
-    const seat = this.ensure(event.bindingId, event.epoch);
-    seat.state = event.state as SeatSignal;
     if (event.state === "gone") {
-      // Generation exited: evict the per-generation entry (sticky binding
-      // proof + user-input maps persist, so a resumed generation is re-seeded
-      // correctly on its next snapshot and must re-prove awareness). The
-      // spawn path re-arms the first typed message; the wiring cleared the
-      // delivered registry so it can land again.
+      // Generation exited: nothing of it carries over but the session's own
+      // record, which the next generation reads back if it resumes.
       this.seats.delete(event.bindingId);
+      this.onboardedEarly.delete(event.bindingId);
       return;
     }
+    const seat = this.ensure(event.bindingId, event.epoch);
+    const previous = seat.state;
+    seat.state = event.state as SeatSignal;
+    if (event.state === "working" && previous !== "working") {
+      if (!seat.firstMessageSeen && seat.operatorDraft) seat.firstMessageSeen = true;
+      if (seat.firstMessageSeen) seat.inTurn = true;
+    }
+    if (event.state === "idle" && seat.inTurn) {
+      seat.inTurn = false;
+      seat.turnsWaited += 1;
+      // A session id captured at this boundary may make the record writable.
+      this.record(event.bindingId, seat);
+    }
+    this.evaluate(event.bindingId, seat);
   }
 
-  
-  /**
-   * PTY snapshot feed (observer global listener). Derives interaction signals,
-   * runs the decision matrix with dedup.
-   */
+  /** PTY snapshot feed (observer global listener): the composer may have changed. */
   onSnapshot(snap: ObserverGridSnapshot): void {
     const seat = this.ensure(snap.bindingId, snap.epoch);
-    const now = this.now();
-
-    // Output recency from sequence advancement.
-    if (seat.lastSeenSeq !== undefined && snap.seq > seat.lastSeenSeq) {
-      seat.lastOutputAt = now;
-    }
-    seat.lastSeenSeq = snap.seq;
-
-    const markerToken = buildBootstrapMarker(snap.bindingId);
-    const inter = deriveInteraction(
-      seatStateOf(seat),
-      snap.lines,
-      markerToken,
-      seat.hadDelivery,
-      seat.lastUserInputAt,
-      seat.lastOutputAt,
-      now,
-    );
-
-    // Marker lifecycle: seeing our marker live/in-flight is the only turn
-    // evidence that survives without an operator at the seat.
-    if (inter.injection === "live" || inter.injection === "in-flight") {
-      seat.hadDelivery = true;
-      seat.markerLifecycleObserved = true;
-    }
-    if (inter.injection === "consumed") {
-      seat.hadDelivery = true;
-    }
-
-    // Turn-boundary counting (turn budget, never wall clock). A working→idle
-    // flip counts as a turn ONLY when real activity corroborates it: our
-    // marker lifecycle completed (seen live/in-flight, then cleared/output —
-    // the marker left the prompt region), or the operator is at the seat
-    // (recent user input — operator-driven turns need no marker). Bare title
-    // flips with neither are NOT turns: they must not fake the budget into
-    // escalation (POL-2).
     if (
-      seat.prevTurn === "in-turn" &&
-      inter.turn === "ended" &&
-      !seat.proven &&
-      ((seat.markerLifecycleObserved && inter.injection !== "live") ||
-        inter.user === "present")
+      seat.operatorTyped &&
+      !seat.firstMessageSeen &&
+      this.composer?.(snap.bindingId) === "draft"
     ) {
-      seat.turnsWithoutProof += 1;
-      // The lifecycle is per-turn: the next count needs a fresh observation.
-      seat.markerLifecycleObserved = false;
+      seat.operatorDraft = true;
     }
-    seat.prevTurn = inter.turn;
-
-    // Event-gate (not a throttle): the full policy decision only runs when
-    // something decision-relevant changed — text, interaction signals, or
-    // turn state. Identical frames are skipped; no wall clock involved.
-    const signalsChanged =
-      inter.user !== seat.lastUserSignal ||
-      inter.injection !== seat.lastInjectionSignal ||
-      inter.turn !== seat.lastTurnSignal;
-    if (!signalsChanged) return;
-    seat.lastUserSignal = inter.user;
-    seat.lastInjectionSignal = inter.injection;
-    seat.lastTurnSignal = inter.turn;
-
-    this.runDecision(snap.bindingId, seat, inter);
+    this.evaluate(snap.bindingId, seat);
   }
 
-  private runDecision(
-    bindingId: string,
-    seat: SeatSupervision,
-    inter: InteractionDerived,
-  ): void {
+  private composerOf(bindingId: string): ComposerSignal {
+    // Absent lookup = test seam, like the drive's.
+    if (this.composer === undefined) return "empty";
+    return this.composer(bindingId) ?? "unreadable";
+  }
+
+  private evaluate(bindingId: string, seat: SeatSupervision): void {
+    if (seat.nudgeInFlight) return;
     const ctx: InteractionContext = {
-      seat: seatStateOf(seat),
-      user: inter.user,
-      injection: inter.injection,
-      turn: inter.turn,
-      awareness: seat.awareness,
-      turnsWithoutProof: seat.turnsWithoutProof,
-      orientationsDelivered: seat.orientationsDelivered,
-      escalated: seat.escalatedOnce,
+      seat: seat.state,
+      composer: this.composerOf(bindingId),
+      onboarding: seat.onboarding,
+      firstMessageSeen: seat.firstMessageSeen,
+      turnsWaited: seat.turnsWaited,
+      nudgesDelivered: seat.nudgesDelivered,
     };
-    const decision = decideIntervention(ctx);
-
-    // Orientations use accepted-delivery budgets and an in-flight reservation
-    // instead of same-kind dedup, so a refused notice can be retried later.
-    if (
-      decision.kind !== "notify-orient" &&
-      decision.kind === seat.lastActedKind &&
-      decision.kind !== "escalate"
-    ) {
-      return;
-    }
-
-    switch (decision.kind) {
-      case "silent":
-        return;
-      case "hold":
-        return;
-      case "notify-orient": {
-        const writer = this.writer;
-        if (writer === undefined || seat.orientationInFlight) return;
-        // Reserve before invoking the writer: synchronous observer callbacks
-        // and later turn events must not request an overlapping notice.
-        seat.orientationInFlight = true;
-        const payload = appendBootstrapMarker(
-          buildOrientNotice(bindingId),
-          bindingId,
-        );
-        const settle = (accepted: boolean): void => {
-          if (this.seats.get(bindingId) !== seat) return;
-          seat.orientationInFlight = false;
-          if (accepted) {
-            seat.orientationsDelivered += 1;
-            seat.lastActedKind = "notify-orient";
-          }
-        };
-        try {
-          const result = writer(bindingId, payload);
-          if (typeof result === "boolean") settle(result);
-          else void result.then(settle, () => settle(false));
-        } catch {
-          settle(false);
-        }
-        return;
-      }
-      case "escalate": {
-        if (seat.escalatedOnce) return;
-        seat.escalatedOnce = true;
-        seat.lastActedKind = "escalate";
-        this.escalationHandler?.(
-          bindingId,
-          `seat unguided after ${seat.turnsWithoutProof} turns without factory contact (${seat.awareness})`,
-        );
-        return;
-      }
+    if (decideIntervention(ctx).kind !== "nudge") return;
+    const writer = this.writer;
+    if (writer === undefined) return;
+    // Reserve before invoking the writer: synchronous observer callbacks and
+    // later turn events must not request an overlapping nudge.
+    seat.nudgeInFlight = true;
+    const waitedAtSend = seat.turnsWaited;
+    const settle = (accepted: boolean): void => {
+      if (this.seats.get(bindingId) !== seat) return;
+      seat.nudgeInFlight = false;
+      // A refused nudge spends nothing: the next event tries again.
+      if (!accepted) return;
+      seat.nudgesDelivered += 1;
+      // Turns that completed while the receipt was pending still count
+      // toward the next nudge: the turn the nudge starts is the first.
+      seat.turnsWaited = Math.max(0, seat.turnsWaited - waitedAtSend);
+    };
+    try {
+      const result = writer(bindingId, buildOnboardNudge());
+      if (typeof result === "boolean") settle(result);
+      else void result.then(settle, () => settle(false));
+    } catch {
+      settle(false);
     }
   }
-
 }
-
-const seatStateOf = (seat: SeatSupervision): SeatSignal => seat.state;
 
 /** Process-wide supervisor singleton (wired by main/junto/ipc.ts). */
 export const injectionSupervisor = new InjectionSupervisor();

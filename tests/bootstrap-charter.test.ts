@@ -4,7 +4,7 @@ import {
   BOOTSTRAP_MARKER_PREFIX,
   appendBootstrapMarker,
   buildBootstrapMarker,
-  buildOrientNotice,
+  buildOnboardNudge,
 } from "../src/shared/managed-terminal-injection";
 const MARKER_RE = /^\[vc-[0-9a-f]{8}\]$/;
 
@@ -43,12 +43,13 @@ describe("appendBootstrapMarker", () => {
   });
 });
 
-describe("buildOrientNotice", () => {
-  it("is a single line (marker-prefixed notice must not chip)", () => {
-    const notice = buildOrientNotice("seat-1");
-    expect(notice).not.toContain("\n");
-    expect(notice).toContain("junto onboard");
-    expect(notice).toContain("seat-1");
-    expect(appendBootstrapMarker(notice, "seat-1")).not.toContain("\n");
+describe("buildOnboardNudge", () => {
+  it("is one self-explanatory line that names the command", () => {
+    const nudge = buildOnboardNudge();
+    // One line: a multiline paste would collapse into a chip in the composer.
+    expect(nudge).not.toContain("\n");
+    expect(nudge).toContain("seat on a Junto canvas");
+    expect(nudge).toContain("`junto onboard`");
+    expect(nudge).not.toContain("\u00b7");
   });
 });

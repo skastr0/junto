@@ -1,78 +1,47 @@
 /**
- * Typed intervention policy for the managed-terminal seat — the mayInject
- * matrix. Pure: signal values in, one Intervention decision out. Never
- * touches the PTY; the decision is the contract that the drive layer honors.
+ * Onboarding nudge policy for the managed-terminal seat. Pure: signal values
+ * in, one Intervention decision out. Never touches the PTY; the decision is
+ * the contract the supervisor honors, and the drive's own gate still has the
+ * last word on every write.
+ *
+ * Nothing is sent to a seat at session start. A seat learns it is a seat by
+ * running `junto onboard`, pointed there by its mail or by this nudge: one
+ * sentence, at most twice per generation.
  *
  * Decision ladder (highest priority first):
  *
- *   L2  proven        → silent            (junto awareness proven — nothing to do)
- *   gone              → silent            (seat vanished — no reachable PTY)
- *   ── escalate (canvas-only, NOT a PTY write — never gated) ──
- *   turnsWithoutProof ≥ MAX_TURNS_WITHOUT_PROOF (still unproven) → escalate
- *   ── write-gates: guard PTY writes only ──
- *   user present/drafted/submitted → hold("user")
- *   injection live    → hold("one-live")
- *   seat attention    → hold("modal")
- *   ── writes (all write-gated above) ──
- *   turn ended + unproven → notify-orient (one quiet orient notice, once per generation)
- *   else              → hold("turn")
+ *   onboarded            → silent            (`junto onboard` ran in this harness session)
+ *   seat gone            → silent            (no reachable PTY)
+ *   onboarding unknown   → hold("loading")   (a resumed session's status is still being read)
+ *   no first message     → hold("no-message")(the session has not been spoken to yet)
+ *   budget spent         → silent            (NUDGE_AFTER_TURNS.length nudges delivered)
+ *   not due yet          → hold("turn")
+ *   ── write-gates ──
+ *   seat attention       → hold("dialog")
+ *   seat not idle        → hold("turn")      (only at a completed turn)
+ *   composer draft       → hold("draft")     (the operator is drafting)
+ *   composer unreadable  → hold("unreadable")
+ *   else                 → nudge
  *
- * Structural-only: awareness is binary (unproven | proven). Text heuristics
- * were removed (live false alert) — no phrase scanning, no repair-env,
- * no socket-down inference. JUNTO_CLI is the one canonical CLI
- * location, injected at spawn; agent-facing messages never print host paths.
- *
- * The write-gates ALWAYS override every would-be PTY write: when a gate is
- * violated the decision is hold (or silent for proven/gone) regardless of
- * awareness or budget. Escalate is not a PTY write, so it stays legal even
- * under user-present — it only surfaces on the canvas.
+ * No compaction detection and no periodic re-orientation: a seat that loses
+ * track shows as such, and the operator has a button.
  */
 
 import { Schema } from "effect";
-import type {
-  InjectionSignal as InteractionInjectionSignal,
-  TurnSignal as InteractionTurnSignal,
-  UserSignal as InteractionUserSignal,
-} from "../observer/interaction";
 
 // ---------------------------------------------------------------------------
-// Turn budget
-
-/** Turns a seat may go without proof of junto awareness before we escalate. */
-export const MAX_TURNS_WITHOUT_PROOF = 3;
+// Cadence
 
 /**
- * Turns between orient notices.
- *
- * The floor exists because doctrine is not permanent. A Tier-B seat carries it
- * only in conversation history, and a harness that compacts its own context
- * throws it away mid-session — verified on codex-cli 0.149.1, where a forced
- * `/compact` leaves the agent answering "None" about its standing instruction.
- * Nothing in the spawn path can fix that after the fact, so the supervisor
- * re-delivers on a budget instead of assuming one delivery lasts forever.
- *
- * Two, not one: a single quiet turn is normal work, and a notice after every
- * turn would be nagging rather than a floor.
+ * Completed turns to wait before each nudge. The first counts from the first
+ * real message into the session, each later one from the nudge before it: one
+ * after the first completed turn, one more three completed turns later, then
+ * none.
  */
-export const REORIENT_EVERY_TURNS = 2;
+export const NUDGE_AFTER_TURNS: ReadonlyArray<number> = [1, 3];
 
 // ---------------------------------------------------------------------------
 // Signal literals
-//
-// `user`, `injection`, and `turn` mirror ../observer/interaction (same literal
-// values, enforced by the type-level assertions at the bottom of this file).
-// `seat` and `awareness` are local to this package: seat deliberately does NOT
-// import agent-state, and awareness is the policy package's own junto
-// comprehension signal.
-
-/** Is the operator at the seat, drafting, or is our own text in the box? */
-export const UserSignal = Schema.Literals([
-  "absent",
-  "present",
-  "drafted",
-  "submitted",
-]);
-export type UserSignal = typeof UserSignal.Type;
 
 /** Managed terminal seat state (kept local — never imported from agent-state). */
 export const SeatSignal = Schema.Literals([
@@ -84,264 +53,133 @@ export const SeatSignal = Schema.Literals([
 ]);
 export type SeatSignal = typeof SeatSignal.Type;
 
-/** Delivery lifecycle of the last injection. */
-export const InjectionSignal = Schema.Literals([
-  "none",
-  "live",
-  "in-flight",
-  "consumed",
-  "failed",
+/**
+ * The composer as the harness's own probes read it: the drive's write gate.
+ * Only `empty` is typeable; `unreadable` covers a dialog over the box, a
+ * transition, and a harness with no composer probes.
+ */
+export const ComposerSignal = Schema.Literals(["empty", "draft", "unreadable"]);
+export type ComposerSignal = typeof ComposerSignal.Type;
+
+/**
+ * Has `junto onboard` run in this seat's current harness session? `unknown`
+ * while a resumed session's recorded status is still being read.
+ */
+export const OnboardingSignal = Schema.Literals([
+  "unknown",
+  "not-onboarded",
+  "onboarded",
 ]);
-export type InjectionSignal = typeof InjectionSignal.Type;
-
-/** Agent turn lifecycle relative to the seat. */
-export const TurnSignal = Schema.Literals(["none", "in-turn", "ended"]);
-export type TurnSignal = typeof TurnSignal.Type;
-
-/** Junto comprehension: has the seat proven it knows junto? */
-export const AwarenessSignal = Schema.Literals(["unproven", "proven"]);
-export type AwarenessSignal = typeof AwarenessSignal.Type;
+export type OnboardingSignal = typeof OnboardingSignal.Type;
 
 // ---------------------------------------------------------------------------
 // Interaction context
 
-/**
- * Full decision input. `turnsWithoutProof` counts turns since the seat last
- * proved junto awareness, capped at 8.
- */
+const Count = Schema.Int.pipe(Schema.check(Schema.isGreaterThanOrEqualTo(0)));
+
 export const InteractionContext = Schema.Struct({
   seat: SeatSignal,
-  user: UserSignal,
-  injection: InjectionSignal,
-  turn: TurnSignal,
-  awareness: AwarenessSignal,
-  turnsWithoutProof: Schema.Int.pipe(
-    Schema.check(Schema.isBetween({ minimum: 0, maximum: 8 })),
-  ),
+  composer: ComposerSignal,
+  onboarding: OnboardingSignal,
   /**
-   * Orient notices already delivered to this generation. The re-orientation
-   * floor is budgeted off this: a seat whose doctrine was destroyed mid-session
-   * gets told again, on a schedule, rather than once at spawn and never after.
+   * A first real message has gone into this generation's session: one the
+   * operator typed and submitted, or mail.
    */
-  orientationsDelivered: Schema.Int.pipe(
-    Schema.check(Schema.isBetween({ minimum: 0, maximum: 8 })),
-  ),
+  firstMessageSeen: Schema.Boolean,
   /**
-   * The canvas has already been told about this generation. Escalation stays
-   * once per generation, and — unlike before — it does not end the floor: a
-   * seat that has been escalated keeps getting its scheduled re-orientation.
+   * Completed turns since the first message, or since the last delivered
+   * nudge once there is one.
    */
-  escalated: Schema.Boolean,
+  turnsWaited: Count,
+  /** Nudges delivered to this generation. */
+  nudgesDelivered: Count,
 });
 export type InteractionContext = typeof InteractionContext.Type;
 
 // ---------------------------------------------------------------------------
 // Intervention — the decision
 
-/**
- * What the drive layer may do next. `notify-orient` is the only
- * only PTY writes (`PTY_WRITE_KINDS`); `escalate` surfaces on the canvas only.
- */
+/** What the supervisor may do next. `nudge` is the only PTY write. */
 export const Intervention = Schema.Union([
   Schema.Struct({ kind: Schema.Literal("silent") }),
   Schema.Struct({ kind: Schema.Literal("hold"), reason: Schema.String }),
-  Schema.Struct({
-    kind: Schema.Literal("notify-orient"),
-    payload: Schema.Literal("orient"),
-  }),
-  Schema.Struct({
-    kind: Schema.Literal("escalate"),
-    diagnostics: Schema.Array(Schema.String),
-  }),
+  Schema.Struct({ kind: Schema.Literal("nudge") }),
 ]).pipe(Schema.toTaggedUnion("kind"));
 export type Intervention = typeof Intervention.Type;
 
 /** The intervention kinds that physically write to the PTY. */
-export const PTY_WRITE_KINDS: ReadonlySet<string> = new Set(["notify-orient"]);
+export const PTY_WRITE_KINDS: ReadonlySet<string> = new Set(["nudge"]);
 
 // ---------------------------------------------------------------------------
 // Decision
 
 /**
  * Total, exhaustive policy evaluation. Every input combination maps to
- * exactly one Intervention; the write-gates always win over every would-be
- * PTY write (repair-env / notify-orient), while escalate stays reachable
- * because it only surfaces on the canvas.
+ * exactly one Intervention.
  */
 export const decideIntervention = (ctx: InteractionContext): Intervention => {
-  const { seat, user, injection, turn, awareness, turnsWithoutProof } = ctx;
+  if (ctx.onboarding === "onboarded") return { kind: "silent" };
+  if (ctx.seat === "gone") return { kind: "silent" };
+  if (ctx.onboarding === "unknown") return { kind: "hold", reason: "loading" };
 
-  // L4 — proof of junto awareness: nothing to do, ever.
-  if (awareness === "proven") return { kind: "silent" };
+  // A fresh seat opens to the harness's own empty composer and stays that
+  // way until someone speaks to it.
+  if (!ctx.firstMessageSeen) return { kind: "hold", reason: "no-message" };
 
-  // Seat gone: no live PTY to reach. Stay quiet.
-  if (seat === "gone") return { kind: "silent" };
-
-  // ── turn budget ──────────────────────────────────────────────────────────
-  // Budget exhausted without proof: escalate. Escalate is canvas-only — NOT a
-  // PTY write — so the write-gates never block it (a live operator surface
-  // still never gets written to: only notify-orient is a write).
-  if (
-    turnsWithoutProof >= MAX_TURNS_WITHOUT_PROOF &&
-    awareness === "unproven" &&
-    // Once per generation. Re-escalating would only repeat a canvas event the
-    // operator has already seen, and it would starve the re-orientation floor
-    // below — which is the part that can still fix the seat by itself.
-    !ctx.escalated
-  ) {
-    return {
-      kind: "escalate",
-      diagnostics: [
-        `seat unguided after ${MAX_TURNS_WITHOUT_PROOF} turns without proof of junto awareness`,
-      ],
-    };
-  }
+  const wait = NUDGE_AFTER_TURNS[ctx.nudgesDelivered];
+  if (wait === undefined) return { kind: "silent" };
+  if (ctx.turnsWaited < wait) return { kind: "hold", reason: "turn" };
 
   // ── write-gates ──────────────────────────────────────────────────────────
-  // The gates guard PTY writes only. Any live operator surface (user at the
-  // seat, our own injection still pending, or a modal) ALWAYS overrides a
-  // would-be write (notify-orient) regardless of awareness or
-  // budget — the decision becomes hold.
-  if (user === "present" || user === "drafted" || user === "submitted") {
-    return { kind: "hold", reason: "user" };
-  }
-  if (injection === "live") return { kind: "hold", reason: "one-live" };
-  if (seat === "attention") return { kind: "hold", reason: "modal" };
+  if (ctx.seat === "attention") return { kind: "hold", reason: "dialog" };
+  if (ctx.seat !== "idle") return { kind: "hold", reason: "turn" };
+  if (ctx.composer === "draft") return { kind: "hold", reason: "draft" };
+  if (ctx.composer !== "empty") return { kind: "hold", reason: "unreadable" };
 
-  // ── unproven after a turn: the re-orientation floor ───────────────────────
-  // Spawn-time delivery is not durable. A Tier-B seat holds its doctrine only
-  // in conversation history, and a harness that compacts its own context
-  // discards it mid-session with nothing on the spawn path able to notice.
-  // So an unproven seat is re-told on a budget: one notice every
-  // REORIENT_EVERY_TURNS unproven turns, each one still behind every
-  // write-gate above (an operator at the keyboard, our own text still pending,
-  // or a modal all win).
-  //
-  // The old objection to this write was the stuck `[Pasted text #N]` chip.
-  // That is now handled where it belongs, in the drive: multiline paste is
-  // paste → CR → evidence CR (the chip-submit), notices stay one line, and
-  // prompt-pending evidence refuses to receipt a turn whose text never left
-  // the composer.
-  if (
-    turn === "ended" &&
-    awareness === "unproven" &&
-    turnsWithoutProof >=
-      (ctx.orientationsDelivered + 1) * REORIENT_EVERY_TURNS
-  ) {
-    return { kind: "notify-orient", payload: "orient" };
-  }
-  if (turn === "ended" && awareness === "unproven") {
-    return { kind: "hold", reason: "turn" };
-  }
-
-  // Default: hold until a turn boundary or a signal change.
-  return { kind: "hold", reason: "turn" };
+  return { kind: "nudge" };
 };
 
 // ---------------------------------------------------------------------------
 // Policy matrix (documentation + table-driven tests)
 
 /**
- * Key interesting combos across the ladder (L0-L4), the write-gates, and
- * budget exhaustion. Partials are filled with defaults by tests:
- *   { seat: "idle", user: "absent", injection: "none", turn: "none",
- *     awareness: "unproven", turnsWithoutProof: 0 }
- *
- * Gate semantics: gates block PTY writes (notify-orient / repair-env) only;
- * escalate (canvas-only) passes them — see the socket-down / budget rows
- * combined with user/injection/attention below.
+ * Key combos across the ladder. Partials are filled with defaults by tests:
+ *   { seat: "idle", composer: "empty", onboarding: "not-onboarded",
+ *     firstMessageSeen: true, turnsWaited: 0, nudgesDelivered: 0 }
  */
 export const POLICY_TABLE: ReadonlyArray<{
   readonly ctx: Partial<InteractionContext>;
   readonly expected: Intervention["kind"];
 }> = [
-  // ── L4: proven ────────────────────────────────────────────────────────────
-  { ctx: { awareness: "proven" }, expected: "silent" },
-  // Proof beats every gate and the budget.
-  { ctx: { awareness: "proven", user: "present" }, expected: "silent" },
-  { ctx: { awareness: "proven", turnsWithoutProof: 8 }, expected: "silent" },
+  // ── onboarded: nothing to do, ever ────────────────────────────────────────
+  { ctx: { onboarding: "onboarded" }, expected: "silent" },
+  { ctx: { onboarding: "onboarded", turnsWaited: 9 }, expected: "silent" },
+  // A resumed session whose status is still loading is never written to.
+  { ctx: { onboarding: "unknown", turnsWaited: 9 }, expected: "hold" },
 
-  // ── L3: environment / socket ──────────────────────────────────────────────
-  // Budget exhaustion beats the first repair attempt.
+  // ── never before a first real message ─────────────────────────────────────
+  { ctx: { firstMessageSeen: false }, expected: "hold" },
+  { ctx: { firstMessageSeen: false, turnsWaited: 9 }, expected: "hold" },
 
-    // Budget exhaustion beats the orient notice.
+  // ── cadence: after the first completed turn, then three turns later ───────
+  { ctx: { turnsWaited: 0 }, expected: "hold" },
+  { ctx: { turnsWaited: 1 }, expected: "nudge" },
+  { ctx: { nudgesDelivered: 1, turnsWaited: 0 }, expected: "hold" },
+  { ctx: { nudgesDelivered: 1, turnsWaited: 2 }, expected: "hold" },
+  { ctx: { nudgesDelivered: 1, turnsWaited: 3 }, expected: "nudge" },
+  // Then none, however long the seat stays unonboarded.
+  { ctx: { nudgesDelivered: 2, turnsWaited: 3 }, expected: "silent" },
+  { ctx: { nudgesDelivered: 2, turnsWaited: 99 }, expected: "silent" },
 
-  // ── L1: unproven, turn ended — the budgeted re-orientation floor ──────────
-  // One quiet turn is ordinary work, so the first notice waits for the second.
-  { ctx: { turn: "ended" }, expected: "hold" },
-  { ctx: { turn: "ended", turnsWithoutProof: 1 }, expected: "hold" },
-  { ctx: { turn: "ended", turnsWithoutProof: 2 }, expected: "notify-orient" },
-  // A notice already spent buys the next two turns of quiet.
-  {
-    ctx: { turn: "ended", turnsWithoutProof: 2, orientationsDelivered: 1 },
-    expected: "hold",
-  },
-  {
-    ctx: {
-      turn: "ended",
-      turnsWithoutProof: 4,
-      orientationsDelivered: 1,
-      escalated: true,
-    },
-    expected: "notify-orient",
-  },
-  // The floor outlives escalation: the canvas has been told once, and the seat
-  // is still being re-oriented in case it can fix itself.
-  {
-    ctx: {
-      turn: "ended",
-      turnsWithoutProof: 4,
-      orientationsDelivered: 1,
-      escalated: true,
-    },
-    expected: "notify-orient",
-  },
-  // Write-gates still win over the floor, exactly as over any PTY write.
-  {
-    ctx: { turn: "ended", turnsWithoutProof: 2, user: "drafted" },
-    expected: "hold",
-  },
-  // Budget exhaustion escalates to the canvas (never a PTY write), once.
-  { ctx: { turn: "ended", turnsWithoutProof: 3 }, expected: "escalate" },
-  { ctx: { turn: "ended", turnsWithoutProof: 8 }, expected: "escalate" },
-  {
-    ctx: { turn: "ended", turnsWithoutProof: 8, escalated: true },
-    expected: "notify-orient",
-  },
-
-  // ── L0: unproven, no boundary yet ─────────────────────────────────────────
-  { ctx: {}, expected: "hold" },
-  { ctx: { turn: "in-turn" }, expected: "hold" },
-  { ctx: { seat: "working", turn: "in-turn" }, expected: "hold" },
-  { ctx: { turn: "none", turnsWithoutProof: 2 }, expected: "hold" },
-  { ctx: { turnsWithoutProof: 3 }, expected: "escalate" },
-  { ctx: { turnsWithoutProof: 8, turn: "none" }, expected: "escalate" },
-
-  // ── escalate passes the write-gates (canvas-only, not a PTY write) ────────
-  { ctx: { user: "present", turnsWithoutProof: 3 }, expected: "escalate" },
-
-  // ── write-gates: user (block PTY writes, always) ──────────────────────────
-  { ctx: { user: "drafted", turn: "ended" }, expected: "hold" },
-
-  // ── write-gates: injection live ───────────────────────────────────────────
-  { ctx: { injection: "live", awareness: "unproven", turnsWithoutProof: 2 }, expected: "hold" },
-
-  // ── write-gates: seat attention ───────────────────────────────────────────
+  // ── only at a completed turn ──────────────────────────────────────────────
+  { ctx: { turnsWaited: 1, seat: "working" }, expected: "hold" },
+  { ctx: { turnsWaited: 1, seat: "unknown" }, expected: "hold" },
+  // ── never while the operator is drafting or a dialog is up ────────────────
+  { ctx: { turnsWaited: 1, composer: "draft" }, expected: "hold" },
+  { ctx: { turnsWaited: 1, composer: "unreadable" }, expected: "hold" },
+  { ctx: { turnsWaited: 1, seat: "attention" }, expected: "hold" },
+  { ctx: { nudgesDelivered: 1, turnsWaited: 3, composer: "draft" }, expected: "hold" },
 
   // ── seat gone ─────────────────────────────────────────────────────────────
-  { ctx: { seat: "gone" }, expected: "silent" },
-  { ctx: { seat: "gone", user: "present" }, expected: "silent" },
+  { ctx: { seat: "gone", turnsWaited: 1 }, expected: "silent" },
 ];
-
-// ---------------------------------------------------------------------------
-// Compile-time guard: the user/injection/turn literal sets MUST stay in sync
-// with ../observer/interaction. If that package's union ever drifts, this
-// module fails to typecheck.
-
-type AssertSameUnion<A, B> = [A] extends [B] ? ([B] extends [A] ? true : never) : never;
-type _UserSignalMatchesInteraction = AssertSameUnion<UserSignal, InteractionUserSignal>;
-type _InjectionSignalMatchesInteraction = AssertSameUnion<
-  InjectionSignal,
-  InteractionInjectionSignal
->;
-type _TurnSignalMatchesInteraction = AssertSameUnion<TurnSignal, InteractionTurnSignal>;
