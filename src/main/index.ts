@@ -69,6 +69,7 @@ import { makeBrowserProductPathProbe } from "./junto/browser/readiness-probe";
 import { installBrowserProductPathProbe } from "./junto/station-readiness";
 import { findHostById, hostsSnapshot } from "./junto/hosts/snapshot";
 import { hostHasCapability } from "@shared/remote-hosts";
+import { applyInterfaceScale, followInterfaceScale } from "./junto/interface-scale";
 import {
   BROWSER_ENABLED,
   HERMES_INTEGRATION_ENABLED,
@@ -860,6 +861,11 @@ const createWindow = () => {
   }
   trustedMainWindow = mainWindow;
   notificationPlane?.attach(mainWindow);
+  // The interface size (Settings, Appearance) is this window's zoom factor:
+  // applied now, on every change, and again after each load.
+  const mainContents = mainWindow.webContents;
+  const stopInterfaceScale = followInterfaceScale(mainContents);
+  mainContents.on("did-finish-load", () => applyInterfaceScale(mainContents));
   // BrowserWindow's `closed` event fires after its native object and
   // WebContents have been destroyed. Capture the routing identity while it is
   // live; dereferencing mainWindow.webContents inside `closed` throws.
@@ -1054,6 +1060,7 @@ const createWindow = () => {
     disconnectNodeRefIngress = disconnect;
   });
   mainWindow.on("closed", () => {
+    stopInterfaceScale();
     if (productRuntimeStarted) {
       void browserCompositionHost.releaseVisibleWindow(mainWindow).catch(() => {
         exitAfterDetach(1, "browser-composition-host-release-failure");

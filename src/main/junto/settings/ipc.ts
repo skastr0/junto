@@ -4,8 +4,10 @@ import { Effect, Result } from "effect";
 import { IPC_CHANNELS } from "@shared/ipc";
 import { refreshThemeFromSystem, setThemePreference } from "../theme-state";
 import { themePublishDecision } from "./theme-publish";
+import { setInterfaceScale } from "../interface-scale";
 import {
   SettingsSectionKey,
+  interfaceScaleOf,
   redactProvidersForIpc,
   settingsOpFail,
   settingsOpOk,
@@ -60,6 +62,10 @@ export const registerSettingsIpc = (
    */
   const publishThemePreference = (settings: Settings): void => {
     setThemePreference(settings.appearance.theme);
+  };
+  /** The interface size is main's to apply: it is the window's zoom factor. */
+  const publishInterfaceScale = (settings: Settings): void => {
+    setInterfaceScale(interfaceScaleOf(settings));
   };
   const publishToolDirectories = (settings: Settings): void => {
     setConfiguredToolDirectories(settings.advanced.toolDirectories ?? []);
@@ -205,6 +211,7 @@ export const registerSettingsIpc = (
       const settings = yield* SettingsService;
       settings.subscribe((next) => {
         publishThemePreference(next);
+        publishInterfaceScale(next);
         publishToolDirectories(next);
         broadcast(IPC_CHANNELS.settingsChanged, redactProvidersForIpc(next));
       });
@@ -214,6 +221,7 @@ export const registerSettingsIpc = (
       const primed = yield* settings.get.pipe(Effect.result);
       if (Result.isSuccess(primed)) {
         publishThemePreference(primed.success);
+        publishInterfaceScale(primed.success);
         publishToolDirectories(primed.success);
       }
     }),
