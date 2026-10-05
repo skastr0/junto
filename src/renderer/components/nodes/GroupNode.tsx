@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { use$ } from "@legendapp/state/react";
 import { NodeResizer, NodeToolbar, Position, useReactFlow, useStoreApi } from "@xyflow/react";
 import type { NodeProps } from "@xyflow/react";
-import { AlertTriangle, FolderOpen, Lock, Trash2 } from "lucide-react";
+import { AlertTriangle, FolderOpen, KeyRound, Lock, Trash2 } from "lucide-react";
 import type { FlowNode } from "../../lib/convert";
 import { MAX_REGION_DEPTH, UNNAMED_REGION } from "@shared/graph";
 import { deleteNode, renameGroup } from "../../lib/mutations";
@@ -18,10 +18,11 @@ import {
   useShiftMultiSelectDominance,
 } from "../../lib/multi-select-gesture";
 import { RegionPathsModal } from "../RegionPathsModal";
+import { RegionEnvironmentModal } from "../region-environment/RegionEnvironmentModal";
 import { IconButton, ToolbarPill } from "../ui";
 
 /**
- * Floating pill for a selected region: folder paths and delete. No
+ * Floating pill for a selected region: folder paths, environment and delete. No
  * connection focus — a region holds no edges, so its cone is always empty.
  */
 function RegionToolbar({
@@ -29,11 +30,15 @@ function RegionToolbar({
   selected,
   onPaths,
   hasPaths,
+  onEnvironment,
+  hasEnvironment,
 }: {
   readonly nodeId: string;
   readonly selected: boolean;
   readonly onPaths: () => void;
   readonly hasPaths: boolean;
+  readonly onEnvironment: () => void;
+  readonly hasEnvironment: boolean;
 }) {
   // pointerdown stopPropagation keeps RF from starting a drag; action on click
   // so Enter/Space on focused IconButton still fires (pointerdown-only is keyboard-dead).
@@ -53,6 +58,15 @@ function RegionToolbar({
         onClick={(event) => { if (stopDrag(event)) return; onPaths(); }}
       >
         <FolderOpen size={14} />
+      </IconButton>
+      <IconButton
+        className="nodrag nopan"
+        aria-label={hasEnvironment ? "Region environment (set)" : "Region environment"}
+        title={hasEnvironment ? "Environment set" : "Environment"}
+        onPointerDown={stopDrag}
+        onClick={(event) => { if (stopDrag(event)) return; onEnvironment(); }}
+      >
+        <KeyRound size={14} />
       </IconButton>
       <IconButton
         className="nodrag nopan"
@@ -133,6 +147,8 @@ export function GroupNode({ data, selected }: NodeProps<FlowNode>) {
   const tint = accentColor(node.color);
   const [editing, setEditing] = useState(false);
   const [pathsOpen, setPathsOpen] = useState(false);
+  const [environmentOpen, setEnvironmentOpen] = useState(false);
+  const hasEnvironment = node.type === "group" && node.ether?.region?.environment !== undefined;
   const isEditTarget = use$(() => state$.editNodeId.get() === node.id);
   const isPathsTarget = use$(() => state$.regionPathsNodeId.get() === node.id);
   const [draft, setDraft] = useState(label);
@@ -339,6 +355,8 @@ export function GroupNode({ data, selected }: NodeProps<FlowNode>) {
         selected={selected}
         onPaths={() => setPathsOpen(true)}
         hasPaths={hasPaths}
+        onEnvironment={() => setEnvironmentOpen(true)}
+        hasEnvironment={hasEnvironment}
       />
     </div>
     {selected ? null : (
@@ -378,5 +396,6 @@ export function GroupNode({ data, selected }: NodeProps<FlowNode>) {
       ) : null}
     </div>
     {pathsOpen ? <div style={{ pointerEvents: "auto" }}><RegionPathsModal nodeId={node.id} onClose={() => setPathsOpen(false)} /></div> : null}
+    {environmentOpen ? <div style={{ pointerEvents: "auto" }}><RegionEnvironmentModal nodeId={node.id} onClose={() => setEnvironmentOpen(false)} /></div> : null}
   </div>;
 }

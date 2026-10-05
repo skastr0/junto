@@ -1,0 +1,320 @@
+/* Region environment: one scrolling page of sections inside the focus panel. */
+
+.region-env-modal {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+  background: var(--color-raise);
+}
+
+.region-env {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 14px 16px 18px;
+}
+
+.region-env__section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.region-env__section + .region-env__section {
+  border-top: 1px solid var(--color-overlay-3);
+  padding-top: 16px;
+}
+
+.region-env__heading h3 {
+  margin: 0;
+  font-size: var(--text-body-lg);
+  font-weight: 600;
+  color: var(--color-ink);
+}
+
+.region-env__heading p,
+.region-env__hint,
+.region-env__empty {
+  margin: 0;
+  font-size: var(--text-label);
+  line-height: var(--leading-body);
+  color: var(--color-faint);
+}
+
+.region-env__empty {
+  color: var(--color-dim);
+}
+
+.region-env__hint {
+  display: block;
+}
+
+/* Errors are inline and red, next to the thing that failed. */
+.region-env__error {
+  display: block;
+  margin: 0;
+  font-size: var(--text-label);
+  line-height: var(--leading-body);
+  color: var(--color-crimson);
+}
+
+.region-env__sources,
+.region-env__resolved,
+.region-env__folders,
+.region-env__stale {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.region-env__source,
+.region-env__stale-seat,
+.region-env__folder {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 6px 8px;
+  border: 1px solid var(--color-overlay-3);
+  border-radius: var(--radius-md);
+  background: var(--color-raise-2);
+}
+
+.region-env__source[data-dragging="true"] {
+  opacity: 0.45;
+}
+
+.region-env__source--editing {
+  display: block;
+  padding: 10px;
+}
+
+.region-env__grip {
+  display: inline-flex;
+  flex: none;
+  color: var(--color-faint);
+  cursor: grab;
+}
+
+.region-env__source-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.region-env__source-title,
+.region-env__variable-name,
+.region-env__folder-path {
+  font-family: var(--font-mono);
+  font-size: var(--text-body);
+  color: var(--color-ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.region-env__folder-path {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.region-env__source-detail,
+.region-env__origin {
+  font-size: var(--text-label);
+  color: var(--color-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The form: pick a kind, then only that kind's fields. */
+.region-env__form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.region-env__kinds {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 4px;
+}
+
+.region-env__kind {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 7px 8px;
+  border: 1px solid var(--color-overlay-3);
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-ink);
+  text-align: left;
+  cursor: pointer;
+}
+
+.region-env__kind:hover {
+  background: var(--color-overlay-1);
+}
+
+.region-env__kind[aria-checked="true"] {
+  border-color: color-mix(in oklab, var(--color-main) 45%, transparent);
+  background: color-mix(in oklab, var(--color-main) 8%, transparent);
+}
+
+.region-env__kind:focus-visible {
+  outline: 2px solid var(--color-main);
+  outline-offset: 1px;
+}
+
+.region-env__form-kind {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+}
+
+.region-env__kind-label {
+  font-size: var(--text-body);
+  font-weight: 600;
+}
+
+.region-env__kind-summary {
+  font-size: var(--text-label);
+  line-height: var(--leading-dense);
+  color: var(--color-dim);
+}
+
+.region-env__fields {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.region-env__field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.region-env__label {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: var(--text-label);
+  font-weight: 600;
+  color: var(--color-dim);
+}
+
+.region-env__optional {
+  font-weight: 400;
+  color: var(--color-faint);
+}
+
+.region-env__required,
+.region-env__sealed {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: var(--text-body);
+  color: var(--color-ink);
+  cursor: pointer;
+}
+
+.region-env__sealed-title {
+  display: block;
+  font-size: var(--text-body-lg);
+  font-weight: 600;
+}
+
+.region-env__form-actions,
+.region-env__folder-add {
+  display: flex;
+  gap: 8px;
+}
+
+.region-env__form-actions {
+  justify-content: flex-end;
+}
+
+.region-env__folder-add > :first-child {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* The resolved list. */
+.region-env__variable {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 5px 2px;
+  border-bottom: 1px solid var(--color-overlay-2);
+}
+
+.region-env__variable:last-child {
+  border-bottom: 0;
+}
+
+.region-env__variable-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.region-env__variable-name {
+  flex: none;
+  max-width: 45%;
+}
+
+.region-env__variable-name[data-unset="true"] {
+  color: var(--color-dim);
+}
+
+.region-env__origin {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.region-env__variable > p {
+  margin: 0 0 0 16px;
+}
+
+/* A source that lost to a later one: struck through, quiet. */
+.region-env__overridden {
+  display: flex;
+  gap: 8px;
+  font-size: var(--text-label);
+  color: var(--color-faint);
+}
+
+.region-env-modal__footer {
+  display: flex;
+  justify-content: flex-end;
+  flex-shrink: 0;
+  padding: 10px 12px;
+  border-top: 1px solid var(--color-overlay-3);
+  background: var(--color-raise-2);
+}
+
+/* Fit document panel: content height with a real scroll region. */
+.focus-surface__panel--document[data-height="fit"]:has(.region-env-modal) {
+  height: min(82vh, 760px);
+  min-height: 420px;
+  max-height: min(88vh, 820px);
+  padding: 0;
+  overflow: hidden;
+}

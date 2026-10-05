@@ -23,6 +23,7 @@ import type { ActorRef } from "@shared/work-protocol";
 import { formatNodeRef } from "@shared/node-ref";
 import { isValidStationHostId } from "@shared/station";
 import { ulid } from "ulid";
+import type { RegionEnvironment } from "./region-environment";
 import { TASKS_ENABLED } from "@shared/features";
 import {
   flowEdgeRemovalWarnings,
@@ -1446,6 +1447,31 @@ export const setRegionDefaults = (id: string, defaults: EtherRegionDefaults | un
       const nextRegion = cleaned
         ? { ...currentRegion, defaults: cleaned }
         : without(currentRegion, "defaults");
+      if (Object.keys(nextRegion).length > 0) {
+        return { ...n, ether: { ...(n.ether ?? {}), region: nextRegion } };
+      }
+      if (!n.ether) return n;
+      const nextEther = without(n.ether, "region");
+      return (Object.keys(nextEther).length ? { ...n, ether: nextEther } : without(n, "ether")) as CanvasNode;
+    }),
+  });
+};
+
+// Region environment (group nodes only): where the seats inside get their
+// environment at launch. Names and references only; the one value the
+// document ever holds is a plain `value` source. Read live at every spawn,
+// never stamped. Merges into ether.region so hold, instruction, defaults and
+// contract survive; an empty environment strips.
+export const setRegionEnvironment = (id: string, environment: RegionEnvironment | undefined): void => {
+  const doc = state$.doc.peek();
+  commitDoc({
+    ...doc,
+    nodes: doc.nodes.map((n) => {
+      if (n.id !== id || n.type !== "group") return n;
+      const currentRegion = n.ether?.region ?? {};
+      const nextRegion = environment
+        ? { ...currentRegion, environment }
+        : without(currentRegion, "environment");
       if (Object.keys(nextRegion).length > 0) {
         return { ...n, ether: { ...(n.ether ?? {}), region: nextRegion } };
       }

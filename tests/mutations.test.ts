@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Result } from "effect";
 import { decodeCanvasDoc, type CanvasDoc, type GroupNode } from "../src/shared/canvas";
-import { addNode, commitDoc, deleteNode, editLink, editText, loadDoc, redo, renameGroup, renameTerminalNode, setNodeColor, setNodeColorForNodes, setNodeHost, setPageBinding, setRegionDefaults, setRegionHold, undo } from "../src/renderer/lib/mutations";
+import { addNode, commitDoc, deleteNode, editLink, editText, loadDoc, redo, renameGroup, renameTerminalNode, setNodeColor, setNodeColorForNodes, setNodeHost, setPageBinding, setRegionDefaults, setRegionEnvironment, setRegionHold, undo } from "../src/renderer/lib/mutations";
 import { addEdge, connectAllToTarget, deleteEdges, editEdgeLabel, planConnectToTarget, setEdgeColor, toggleEdgeArrow } from "../src/renderer/lib/edge-mutations";
 import { dragHoldMemberIds, findOpenPosition, resizeNode, syncPositions } from "../src/renderer/lib/geometry";
 import { clearGraphFilters, state$ } from "../src/renderer/lib/state";
@@ -1232,6 +1232,62 @@ describe("renderer graph mutations", () => {
     const cleared = state$.doc.peek().nodes[0];
     expect(cleared?.ether?.region).toEqual({ hold: true, instruction: "ship the region" });
     expect(Object.hasOwn(cleared?.ether?.region ?? {}, "defaults")).toBe(false);
+  });
+
+  it("setRegionEnvironment writes names and references, keeps the rest of the region, and strips on clear", () => {
+    state$.canvasName.set("mutation-test");
+    loadDoc({
+      nodes: [{
+        id: "region",
+        type: "group",
+        label: "Payments",
+        x: 0,
+        y: 0,
+        width: 400,
+        height: 300,
+        ether: { region: { hold: true, instruction: "ship the region", defaults: { paths: { local: "/Users/op/proj" } } } },
+      }],
+      edges: [],
+    });
+
+    setRegionEnvironment("region", {
+      sealed: true,
+      sources: [
+        { id: "k1", kind: "keychain", name: "OP_SERVICE_ACCOUNT_TOKEN", service: "op-service-account" },
+        { id: "s1", kind: "secret", name: "GITHUB_TOKEN", secretId: "8f0c1f0e-2f6f-4c7e-9f0a-3b1d2c4e5f60" },
+      ],
+      folders: ["~/.config/gcloud"],
+    });
+    const region = state$.doc.peek().nodes[0]?.ether?.region;
+    expect(region?.hold).toBe(true);
+    expect(region?.instruction).toBe("ship the region");
+    expect(region?.defaults?.paths).toEqual({ local: "/Users/op/proj" });
+    expect(region?.environment?.sealed).toBe(true);
+    expect(region?.environment?.sources?.map((source) => source.id)).toEqual(["k1", "s1"]);
+    // What was written is a document the canvas schema accepts.
+    expect(Result.isSuccess(decodeCanvasDoc(state$.doc.peek()))).toBe(true);
+
+    setRegionEnvironment("region", undefined);
+    const cleared = state$.doc.peek().nodes[0]?.ether?.region;
+    expect(Object.hasOwn(cleared ?? {}, "environment")).toBe(false);
+    expect(cleared?.hold).toBe(true);
+    expect(cleared?.defaults?.paths).toEqual({ local: "/Users/op/proj" });
+  });
+
+  it("setRegionEnvironment ignores non-group nodes and removes an emptied region bag", () => {
+    state$.canvasName.set("mutation-test");
+    loadDoc({
+      nodes: [
+        { id: "note", type: "text", text: "x", x: 0, y: 0, width: 100, height: 80 },
+        { id: "region", type: "group", label: "R", x: 0, y: 0, width: 400, height: 300 },
+      ],
+      edges: [],
+    });
+    setRegionEnvironment("note", { sealed: true });
+    expect(state$.doc.peek().nodes[0]?.ether).toBeUndefined();
+    setRegionEnvironment("region", { sealed: true });
+    setRegionEnvironment("region", undefined);
+    expect(Object.hasOwn(state$.doc.peek().nodes[1] ?? {}, "ether")).toBe(false);
   });
 
   it("setRegionDefaults ignores non-group nodes", () => {
