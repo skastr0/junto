@@ -486,11 +486,12 @@ themselves" (`:209–214`) — meaning during resize the grid and the child
 transiently disagree about the cursor line, so any rule anchored to the last line
 is *wrong* mid-resize, not merely stale. kitty advertising "glitch-free window
 resizing" as a *shell-integration* feature is the tell that this is genuinely hard
-and needs shell cooperation. Also: node-pty ships experimental flow control
-(`handleFlowControl`, `flowControlPause` default XOFF `\x13`, `flowControlResume`
-default XON `\x11` — `node_modules/node-pty/typings/node-pty.d.ts`), which is the
-lever for backpressure; tmux's `%pause`/`%continue` + milliseconds-behind is the
-design to copy if it becomes necessary.
+and needs shell cooperation. Also: do NOT use node-pty's experimental flow control (`handleFlowControl`) for
+backpressure. It swallows a lone Ctrl+S written to the terminal and pauses the
+read with no resume, which froze seats and wedged their stop (removed in
+`fix(term): Ctrl+S no longer freezes a seat or wedges its stop`). tmux's
+`%pause`/`%continue` + milliseconds-behind is the design to copy if
+backpressure becomes necessary.
 
 **Unicode and wide chars.** `IBufferCell.getWidth()` returns `1` normally, `2`
 for CJK/wide, **`0` for the cell immediately following a wide cell**
