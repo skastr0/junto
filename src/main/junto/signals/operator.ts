@@ -9,6 +9,7 @@ import { mailExtensionMetadata } from "@shared/crew";
 import { makeUserMessage } from "@shared/task";
 import { operatorActorRef } from "@shared/work-reference";
 import { WorkService } from "../work/service";
+import { releaseSignalAttachments } from "./attachments";
 import { AgentSignalRepository } from "./repository";
 
 /**
@@ -66,6 +67,7 @@ export const answerAgentSignal = (signalId: string, response: string) =>
 
     const answered = yield* Effect.result(signals.answer(signalId, text));
     if (answered._tag === "Failure") return refused(repositoryMessage(answered.failure));
+    yield* releaseSignalAttachments(answered.success);
     return {
       ok: true as const,
       signal: answered.success,
@@ -78,6 +80,7 @@ export const dismissAgentSignal = (signalId: string) =>
     const signals = yield* AgentSignalRepository;
     const dismissed = yield* Effect.result(signals.dismiss(signalId));
     if (dismissed._tag === "Failure") return refused(repositoryMessage(dismissed.failure));
+    yield* releaseSignalAttachments(dismissed.success);
     return { ok: true as const, signal: dismissed.success };
   });
 
