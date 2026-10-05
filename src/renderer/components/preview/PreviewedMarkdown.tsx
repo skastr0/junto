@@ -100,7 +100,7 @@ export function PreviewedMarkdown({
                 );
               })}
               {rest > 0 ? (
-                <ThumbnailMore size="md" count={rest} title={`${rest} more`} onClick={() => setOpenAt(items[SHOWN]!.path)} />
+                <ThumbnailMore size="md" count={rest} onClick={() => setOpenAt(items[SHOWN]!.path)} />
               ) : null}
             </ThumbnailStrip>
           ) : null}
