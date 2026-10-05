@@ -71,6 +71,144 @@ export const GitShowResult = Schema.Union([
 ]);
 export type GitShowResult = typeof GitShowResult.Type;
 
+/** A git operation left unfinished in the working tree. */
+export const GitOperation = Schema.Literals(["rebase", "merge", "cherry-pick", "revert", "bisect"]);
+export type GitOperation = typeof GitOperation.Type;
+
+/**
+ * A repository at a glance: the branch, whether work is uncommitted, the
+ * latest commit, and how the branch stands against the repository's base
+ * branch. Every optional field is absent when it is not known; a reader
+ * shows nothing for it and never a stand-in.
+ */
+export const GitSummary = Schema.Struct({
+  /** The repository's top level: one repository, one summary, however many seats sit in it. */
+  root: Schema.String,
+  branch: Schema.String,
+  detached: Schema.Boolean,
+  /** Tracked files differ from HEAD (staged or not). Untracked files are not read. */
+  dirty: Schema.Boolean,
+  operation: Schema.optionalKey(GitOperation),
+  head: Schema.optionalKey(GitCommit),
+  /** Absent when the repository has no base branch, or the branch is the base. */
+  base: Schema.optionalKey(
+    Schema.Struct({
+      /** The ref compared against, as git names it: "origin/main", "main". */
+      ref: Schema.String,
+      ahead: Schema.optionalKey(Schema.Number),
+      behind: Schema.optionalKey(Schema.Number),
+      /** Lines the branch adds and removes since it left the base. Absent when the diff ran out of time. */
+      additions: Schema.optionalKey(Schema.Number),
+      deletions: Schema.optionalKey(Schema.Number),
+    }),
+  ),
+});
+export type GitSummary = typeof GitSummary.Type;
+
+export const GitSummaryResult = Schema.Union([
+  Schema.Struct({ ok: Schema.Literal(true), summary: GitSummary }),
+  Schema.Struct({
+    ok: Schema.Literal(false),
+    /** Why there is nothing to show: no folder, not a repository, git is not installed, or git failed. */
+    reason: Schema.Literals(["no-folder", "not-a-repository", "no-git", "failed"]),
+  }),
+]);
+export type GitSummaryResult = typeof GitSummaryResult.Type;
+
+/** `git status --porcelain=v2`: any entry line means tracked work is uncommitted. */
+export const porcelainHasChanges = (stdout: string): boolean =>
+  stdout.split("\n").some((line) => line.length > 0 && !line.startsWith("# "));
+
+/** `git rev-list --left-right --count base...HEAD` prints "<behind>\t<ahead>". */
+export const parseAheadBehind = (stdout: string): { readonly ahead: number; readonly behind: number } | undefined => {
+  const match = stdout.trim().match(/^(\d+)\s+(\d+)$/u);
+  return match ? { behind: Number(match[1]), ahead: Number(match[2]) } : undefined;
+};
+
+/** The candidates a repository's base branch is chosen from, most trusted first. */
+export const GIT_BASE_CANDIDATES = ["origin/main", "origin/master", "main", "master"] as const;
+
+/**
+ * The repository's base branch: what the remote calls its default
+ * (`origin/HEAD`), else the first of origin/main, origin/master, main, master
+ * that exists. None of them: no base, and nothing is compared.
+ */
+export const chooseGitBase = (input: {
+  /** `git symbolic-ref --short refs/remotes/origin/HEAD`, when it resolves. */
+  readonly originHead?: string | undefined;
+  /** Which of GIT_BASE_CANDIDATES exist, by short name. */
+  readonly existing: ReadonlyArray<string>;
+}): string | undefined => {
+  const originHead = input.originHead?.trim();
+  if (originHead) return originHead;
+  const present = new Set(input.existing.map((ref) => ref.trim()));
+  return GIT_BASE_CANDIDATES.find((candidate) => present.has(candidate));
+};
+
+/** A branch is its own base when the base is that same local branch. */
+export const isOwnGitBase = (branch: string, base: string): boolean => base === branch;
+
+/** One readable piece of the summary line. */
+export type GitSummaryPart = {
+  readonly kind: "branch" | "dirty" | "operation" | "ahead" | "behind" | "additions" | "deletions" | "subject" | "age";
+  readonly text: string;
+  /** What the piece means, for a tooltip and a screen reader. */
+  readonly label: string;
+};
+
+const plural = (count: number, one: string, many: string): string => `${count} ${count === 1 ? one : many}`;
+
+const commitAge = (nowMs: number, iso: string): string | undefined => {
+  const at = Date.parse(iso);
+  if (Number.isNaN(at)) return undefined;
+  const delta = Math.max(0, nowMs - at);
+  if (delta < 60_000) return "now";
+  if (delta < 3_600_000) return `${Math.floor(delta / 60_000)}m`;
+  if (delta < 86_400_000) return `${Math.floor(delta / 3_600_000)}h`;
+  return `${Math.floor(delta / 86_400_000)}d`;
+};
+
+/**
+ * The summary as the pieces of one line, in reading order. A piece is left
+ * out when its value is unknown or says nothing (zero ahead, zero lines): the
+ * line never shows a number it does not have.
+ */
+export const gitSummaryParts = (summary: GitSummary, nowMs: number): ReadonlyArray<GitSummaryPart> => {
+  const parts: GitSummaryPart[] = [];
+  const shortHead = summary.head?.sha.slice(0, 7);
+  parts.push(
+    summary.detached
+      ? { kind: "branch", text: shortHead ? `detached at ${shortHead}` : "detached", label: "No branch is checked out" }
+      : { kind: "branch", text: summary.branch, label: `Branch ${summary.branch}` },
+  );
+  if (summary.operation) {
+    parts.push({ kind: "operation", text: `${summary.operation} in progress`, label: `A ${summary.operation} is unfinished` });
+  }
+  if (summary.dirty) parts.push({ kind: "dirty", text: "*", label: "Tracked files have uncommitted changes" });
+  const base = summary.base;
+  if (base) {
+    if (base.ahead !== undefined && base.ahead > 0) {
+      parts.push({ kind: "ahead", text: `↑${base.ahead}`, label: `${plural(base.ahead, "commit", "commits")} ahead of ${base.ref}` });
+    }
+    if (base.behind !== undefined && base.behind > 0) {
+      parts.push({ kind: "behind", text: `↓${base.behind}`, label: `${plural(base.behind, "commit", "commits")} behind ${base.ref}` });
+    }
+    if (base.additions !== undefined && base.additions > 0) {
+      parts.push({ kind: "additions", text: `+${base.additions}`, label: `${plural(base.additions, "line", "lines")} added since ${base.ref}` });
+    }
+    if (base.deletions !== undefined && base.deletions > 0) {
+      parts.push({ kind: "deletions", text: `-${base.deletions}`, label: `${plural(base.deletions, "line", "lines")} removed since ${base.ref}` });
+    }
+  }
+  if (summary.head) {
+    const subject = summary.head.subject.trim();
+    if (subject) parts.push({ kind: "subject", text: subject, label: `Latest commit: ${subject}` });
+    const age = commitAge(nowMs, summary.head.authoredAt);
+    if (age) parts.push({ kind: "age", text: age, label: `Committed ${new Date(summary.head.authoredAt).toISOString()}` });
+  }
+  return parts;
+};
+
 const RECORD = "\x1e";
 const FIELD = "\x00";
 
