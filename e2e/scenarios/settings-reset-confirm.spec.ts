@@ -108,7 +108,7 @@ test("the Agents section rows: a checkbox row is a label, a menu row is a group"
     const { page } = junto;
     await expect(page.locator(".react-flow")).toBeVisible({ timeout: 60_000 });
     await page.getByRole("button", { name: "Open settings" }).click();
-    await page.locator(".settings-nav__item", { hasText: "Agents" }).click();
+    await page.locator(".settings-nav__label", { hasText: /^Agents$/ }).click();
 
     // The checkbox row is still a label: its text toggles the checkbox.
     const offer = page.getByRole("checkbox", { name: /^Offer .+ in palette$/ }).first();
