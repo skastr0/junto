@@ -583,7 +583,10 @@ test("harness keyboard activation opens choices and Escape dismisses one layer a
     await expect(page.locator(".agent-cascade")).toHaveCount(0);
 
     await page.keyboard.press(" ");
-    await waitForClaudeModels(page);
+    const reopened = await waitForClaudeModels(page);
+    // The menu takes focus a frame after it shows; Escape before that lands on
+    // the harness button and focus has nowhere to return from.
+    await expect(reopened.getByRole("menuitem").first()).toBeFocused();
     await page.keyboard.press("Escape");
     await expect(page.locator(".agent-cascade")).toHaveCount(0);
     await expect(claude).toBeFocused();
