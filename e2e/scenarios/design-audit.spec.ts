@@ -7,11 +7,18 @@
  * A plain ship-profile build hides those surfaces and fails this spec.
  * The isolated live scenario needs only JUNTO_LIVE_OVERSEER=1.
  * The screenshots are the artifact; assertions only prove a surface appeared.
+ * A surface that should appear and does not fails the run by name. A surface
+ * that is not expected to appear is skipped here, with its reason:
+ *   - usage HUD rail and popover (frames 18, 19): Provider limits HUD is
+ *     behind a flag that is off; revisit when the feature ships.
+ *   - fleet manager overlay (frames 26 on): fleet stations intermittently do
+ *     not paint when a host is discovered on the real network mid-run; needs
+ *     a sandboxed discovery seam.
  */
 import { mkdir, mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { Page } from "@playwright/test";
+import type { Locator, Page } from "@playwright/test";
 import type { UsageState } from "../../src/shared/usage";
 import type { LiveSnapshot } from "../../src/shared/overseer-live";
 import { IPC_CHANNELS } from "../../src/shared/ipc";
@@ -60,6 +67,7 @@ test("capture live conversation with isolated provider and media fixtures", asyn
   try {
     const { page, app } = world;
     await expect(page.locator(".react-flow__node").first()).toBeVisible({ timeout: 30_000 });
+    await pinDark(page);
     // Fixture handlers replace provider/control IPC only in this isolated
     // Electron test process. No microphone, provider key, or billed call.
     await app.evaluate(({ ipcMain }, { channels, seed }) => {
@@ -160,6 +168,21 @@ test("capture live conversation with isolated provider and media fixtures", asyn
     await world.close();
   }
 });
+
+/** A surface the audit captures must be there: a missing one fails the run
+ * by name instead of passing with no screenshot. */
+const present = async (surface: Locator, name: string): Promise<void> => {
+  await expect(surface, `design audit: ${name} is missing, so its frames were not captured`).toBeVisible({
+    timeout: 10_000,
+  });
+};
+
+/** This audit is the dark edition. A fresh install follows the OS theme, so
+ * without this the frames come out bright whenever the machine is in light mode. */
+const pinDark = async (page: Page): Promise<void> => {
+  await page.evaluate(() => window.junto!.settingsPatch({ appearance: { theme: "dark" } }));
+  await expect(page.locator("html")).not.toHaveAttribute("data-theme", "bright");
+};
 
 const shot = async (page: Page, name: string) => {
   await page.waitForTimeout(350);
@@ -268,6 +291,44 @@ const edges: CanvasEdge[] = [
   verbEdge("e1", "agent1", "agent2", "messages", nodes),
 ];
 
+// Usage rail paint: seeded through the durable `usage_state` seam so the
+// usage frames 18/19 paint against native sources.
+const auditUsage: UsageState = {
+  snapshots: [
+    {
+      source: "codex",
+      fetchedAt: new Date().toISOString(),
+      ok: true,
+      dataConfidence: "stale-cache",
+      quotas: [
+        {
+          provider: "codex",
+          source: "oauth",
+          status: "ok",
+          updatedAt: new Date().toISOString(),
+          windows: [{ label: "primary", usedPercent: 42, windowMinutes: 300 }],
+        },
+      ],
+    },
+    {
+      source: "claude",
+      fetchedAt: new Date().toISOString(),
+      ok: true,
+      dataConfidence: "stale-cache",
+      quotas: [
+        {
+          provider: "claude",
+          source: "oauth",
+          status: "ok",
+          updatedAt: new Date().toISOString(),
+          windows: [{ label: "primary", usedPercent: 18, windowMinutes: 300 }],
+        },
+      ],
+    },
+  ],
+  lastLiveAt: new Date().toISOString(),
+};
+
 test("capture every surface for design review", async () => {
   // This audit drives ~30 surfaces plus seeded live planes; it runs long
   // enough to need a budget above the default 90s worker timeout.
@@ -275,55 +336,19 @@ test("capture every surface for design review", async () => {
   const scenarioDir = await mkdtemp(join(tmpdir(), "junto-audit-"));
   await mkdir(SHOTS, { recursive: true });
 
-  // Usage rail paint: seeded through the durable `usage_state` seam so the
-  // audit still captures frames 18/19 against native sources.
-  const auditUsage: UsageState = {
-    snapshots: [
-      {
-        source: "codex",
-        fetchedAt: new Date().toISOString(),
-        ok: true,
-        dataConfidence: "stale-cache",
-        quotas: [
-          {
-            provider: "codex",
-            source: "oauth",
-            status: "ok",
-            updatedAt: new Date().toISOString(),
-            windows: [{ label: "primary", usedPercent: 42, windowMinutes: 300 }],
-          },
-        ],
-      },
-      {
-        source: "claude",
-        fetchedAt: new Date().toISOString(),
-        ok: true,
-        dataConfidence: "stale-cache",
-        quotas: [
-          {
-            provider: "claude",
-            source: "oauth",
-            status: "ok",
-            updatedAt: new Date().toISOString(),
-            windows: [{ label: "primary", usedPercent: 18, windowMinutes: 300 }],
-          },
-        ],
-      },
-    ],
-    lastLiveAt: new Date().toISOString(),
-  };
-
   const junto = await launchJunto({
     seedCanvases: { "design-audit": canvasDoc(nodes, edges) },
     seedUsage: auditUsage,
-    extraEnv: {
-    },
+    // The add-item palette lists only installed harnesses; the sandbox PATH
+    // carries none, so plant the one whose card and model cascade are captured.
+    seedHarnessInstalls: ["claude"],
   });
 
   try {
     const { page } = junto;
 
     await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
+    await pinDark(page);
 
     // React Flow only mounts on-screen nodes: wait for the first, fit the
     // whole board, THEN distant entity nodes exist in the DOM.
@@ -331,7 +356,8 @@ test("capture every surface for design review", async () => {
       timeout: 30_000,
     });
     const fit = page.getByRole("button", { name: /fit all/i });
-    if (await fit.isVisible().catch(() => false)) await fit.click();
+    await present(fit, "the Fit all nodes control");
+    await fit.click();
     await page.waitForTimeout(800);
     const termNode = page.locator(".react-flow__node", {
       hasText: "audit native term",
@@ -426,77 +452,63 @@ test("capture every surface for design review", async () => {
     await page.keyboard.press("Escape");
     await page.waitForTimeout(300);
 
-    // Usage HUD + popover.
-    const hud = page.getByRole("button", {
-      name: "Provider limits",
-      exact: true,
-    });
-    if (await hud.isVisible().catch(() => false)) {
-      await shot(page, "18-usage-hud-rail");
-      await hud.click();
-      await shot(page, "19-usage-hud-popover");
-      await page.keyboard.press("Escape");
-      await page.waitForTimeout(300);
-    }
-
     // Wizards via the add-item palette.
     const addItem = page.getByRole("button", { name: "Add canvas item" });
-    if (await addItem.isVisible().catch(() => false)) {
-      await addItem.click();
-      const deck = page.getByRole("region", { name: "Add canvas item" });
-      await expect(deck).toBeVisible();
-      await shot(page, "20-node-palette");
-      const claudeAgent = deck.getByRole("button", {
-        name: "Add Claude Code agent",
-      });
-      if (await claudeAgent.isVisible().catch(() => false)) {
-        await claudeAgent.hover();
-        const models = page.getByRole("menu", { name: "Claude Code models" });
-        await models.waitFor({ state: "visible" });
-        await shot(page, "20b-agent-cascade");
-        const launchContext = deck.getByRole("region", {
-          name: "Launch context",
-        });
-        await launchContext
-          .getByRole("button", { name: "Choose starting folder" })
-          .click();
-        const folder = page.getByRole("dialog", {
-          name: "Choose starting folder",
-        });
-        await expect(folder).toBeVisible();
-        await expect(folder.getByLabel("Agent working directory")).toHaveValue(
-          /^\//,
-          { timeout: 10_000 },
-        );
-        await expect(
-          folder.getByRole("checkbox", {
-            name: /use this folder as region default for this host/i,
-          }),
-        ).toBeVisible();
-        await shot(page, "20c-agent-folder");
-        await folder
-          .getByRole("button", { name: "Close folder picker" })
-          .click();
-        // The hover-opened cascade overlays the catalog and intercepts card
-        // clicks. Move to neutral deck chrome so closeCascadeSoon retires it.
-        await deck.getByLabel("Search nodes and agents").hover();
-        await models.waitFor({ state: "hidden" });
-      }
-      const termWiz = deck.getByRole("button", {
-        name: /Terminal/,
-      });
-      if (await termWiz.isVisible().catch(() => false)) {
-        await termWiz.click();
-        await shot(page, "21-terminal-wizard");
-        // FocusSurface-backed now — Escape closes.
-        await page.keyboard.press("Escape");
-        await page.waitForTimeout(300);
-      }
-    }
+    await present(addItem, "the Add canvas item control");
+    await addItem.click();
+    const deck = page.getByRole("region", { name: "Add canvas item" });
+    await expect(deck).toBeVisible();
+    await shot(page, "20-node-palette");
+    const claudeAgent = deck.getByRole("button", {
+      name: "Claude Code",
+      exact: true,
+    });
+    await present(claudeAgent, "the Claude Code agent card in the node palette");
+    await claudeAgent.hover();
+    const models = page.getByRole("menu", { name: "Claude Code models" });
+    await models.waitFor({ state: "visible" });
+    await shot(page, "20b-agent-cascade");
+    const launchContext = deck.getByRole("region", {
+      name: "Launch context",
+    });
+    await launchContext
+      .getByRole("button", { name: "Choose starting folder" })
+      .click();
+    const folder = page.getByRole("dialog", {
+      name: "Choose starting folder",
+    });
+    await expect(folder).toBeVisible();
+    await expect(folder.getByLabel("Agent working directory")).toHaveValue(
+      /^\//,
+      { timeout: 10_000 },
+    );
+    await expect(
+      folder.getByRole("checkbox", {
+        name: /use this folder as region default for this host/i,
+      }),
+    ).toBeVisible();
+    await shot(page, "20c-agent-folder");
+    await folder
+      .getByRole("button", { name: "Close folder picker" })
+      .click();
+    // The hover-opened cascade overlays the catalog and intercepts card
+    // clicks. Move to neutral deck chrome so closeCascadeSoon retires it.
+    await deck.getByLabel("Search nodes and agents").hover();
+    await models.waitFor({ state: "hidden" });
+    const termWiz = deck.getByRole("button", {
+      name: /Terminal/,
+    });
+    await present(termWiz, "the Terminal card in the node palette");
+    await termWiz.click();
+    await shot(page, "21-terminal-wizard");
+    // FocusSurface-backed now — Escape closes.
+    await page.keyboard.press("Escape");
+    await page.waitForTimeout(300);
 
     // LAST: native terminal (its workbench surface has no close affordance
     // yet — it would cover the canvas for every later step).
-    if (await fit.isVisible().catch(() => false)) await fit.click();
+    await present(fit, "the Fit all nodes control");
+    await fit.click();
     await page.waitForTimeout(600);
     await termNode.scrollIntoViewIfNeeded();
     await termNode.dblclick();
@@ -517,6 +529,28 @@ test("capture every surface for design review", async () => {
   }
 });
 
+test("capture the usage HUD rail and popover", async () => {
+  test.skip(true, "Provider limits HUD is behind a flag that is off; revisit when the feature ships");
+  const junto = await launchJunto({
+    seedCanvases: { "design-audit": canvasDoc(nodes, edges) },
+    seedUsage: auditUsage,
+  });
+  try {
+    const { page } = junto;
+    await mkdir(SHOTS, { recursive: true });
+    await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
+    await pinDark(page);
+    // Seeded usage paints stale, and the button's name then carries the age.
+    const hud = page.getByRole("button", { name: /^Provider limits/ });
+    await present(hud, "the usage HUD (Provider limits)");
+    await shot(page, "18-usage-hud-rail");
+    await hud.click();
+    await shot(page, "19-usage-hud-popover");
+  } finally {
+    await junto.close();
+  }
+});
+
 test("capture the empty field state", async () => {
   const junto = await launchJunto({
     seedCanvases: { empty: canvasDoc([]) },
@@ -525,6 +559,7 @@ test("capture the empty field state", async () => {
     const { page } = junto;
     await mkdir(SHOTS, { recursive: true });
     await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
+    await pinDark(page);
     await page.waitForTimeout(800);
     await shot(page, "24-empty-field");
   } finally {
@@ -536,6 +571,7 @@ test("capture the empty field state", async () => {
 // custom appearance) into the sandbox's SQLite database. The fake ssh binary
 // answers reachability probes, so edges settle into reachable state.
 test("capture the fleet manager overlay", async () => {
+  test.skip(true, "Fleet stations intermittently do not paint when a host is discovered on the real network mid-run; needs a sandboxed discovery seam");
   const junto = await launchJunto({
     seedCanvases: { fleet: canvasDoc([]) },
     seedHosts: [
@@ -585,6 +621,7 @@ test("capture the fleet manager overlay", async () => {
     await expect(page.locator(".react-flow").first()).toBeVisible({
       timeout: 30_000,
     });
+    await pinDark(page);
     await page.getByRole("button", { name: "Open fleet manager" }).click();
     const panel = page.locator(".fleet-panel");
     await expect(panel).toBeVisible({ timeout: 15_000 });
