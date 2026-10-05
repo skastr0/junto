@@ -1,0 +1,116 @@
+/* The agent modal's rail (ActorRail.tsx). The seats and their bubbles are the
+   canvas's own components and are not styled here: this file places them. */
+
+.actor-rail {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex: 0 0 248px;
+  width: 248px;
+  min-height: 0;
+  height: 100%;
+  flex-direction: column;
+  border-left: 1px solid color-mix(in srgb, var(--color-stroke) 88%, transparent);
+  background: color-mix(in srgb, var(--color-raise-2) 92%, transparent);
+}
+/* Collapsed: the 52px ring with 8px each side. The width snaps, so the
+   terminal refits once. */
+.actor-rail[data-rail="collapsed"] {
+  flex-basis: 68px;
+  width: 68px;
+}
+
+.actor-rail__bar {
+  display: flex;
+  flex: none;
+  justify-content: flex-end;
+  padding: 4px 6px 0;
+}
+.actor-rail[data-rail="collapsed"] .actor-rail__bar {
+  justify-content: center;
+  padding-inline: 0;
+}
+
+.actor-rail__list {
+  min-height: 0;
+  flex: 1;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 4px 6px 8px;
+}
+.actor-rail[data-rail="collapsed"] .actor-rail__list {
+  padding-inline: 4px;
+  scrollbar-width: none;
+}
+
+.actor-rail__seats,
+.actor-rail__others {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.actor-rail__others {
+  margin-top: 6px;
+  border-top: 1px solid color-mix(in srgb, var(--color-stroke) 60%, transparent);
+  padding-top: 6px;
+}
+
+/* One seat: the canvas seat over a cover button that takes the press. */
+.actor-rail__seat {
+  position: relative;
+  height: 60px;
+  border-radius: var(--radius-lg);
+  padding: 4px;
+}
+.actor-rail__seat:hover { background: var(--color-overlay-1); }
+.actor-rail__go {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  outline: none;
+}
+.actor-rail__go:focus-visible { box-shadow: 0 0 0 3px var(--color-focus-ring); }
+/* The seat sits above the cover button and lets the press through, except
+   its own signal badge. */
+.actor-rail__seat > .junto-seat {
+  position: relative;
+  pointer-events: none;
+}
+.actor-rail__seat > .junto-seat button { pointer-events: auto; }
+
+/* Bubbles hang beside their seats, over the terminal's edge and never over
+   the rail. The frame is the strip of terminal left of the rail: the canvas
+   bubble keeps itself inside it, as it keeps itself inside the canvas. Each
+   anchor ends at the rail's border with its top at the seat's bottom, so the
+   bubble (which sits 9px above its anchor) lands level with its seat. The
+   frame and anchors take no pointer; the bubble's card does, as on the canvas. */
+.actor-rail__bubbles {
+  position: absolute;
+  top: 0;
+  right: 100%;
+  bottom: 0;
+  width: 340px;
+  pointer-events: none;
+}
+.actor-rail__bubble {
+  position: absolute;
+  right: 0;
+  width: 51px;
+  height: 0;
+}
+
+/* Seat details (SeatDetails.tsx): headed groups in the header button's popover. */
+.junto-popover.seat-details-popover {
+  padding: 0;
+}
+.seat-details {
+  display: grid;
+  gap: 12px;
+  padding: 12px;
+}
+.seat-details__group {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}

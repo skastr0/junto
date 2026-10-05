@@ -78,13 +78,12 @@ test("connections rail mirrors swap the modal and Cmd+] cycles the ring", async 
     await expect(front).toBeVisible({ timeout: 20_000 });
     await expect(front.locator("header").first()).toContainText("Alpha hub");
 
-    const glance = front.getByTestId("actor-edges-glance");
+    const glance = front.getByTestId("actor-rail");
     await expect(glance).toBeVisible({ timeout: 10_000 });
 
     // Two actor mirrors.
-    const mirrors = glance.locator(".actor-edges-glance__row--mirror");
+    const mirrors = glance.getByTestId("actor-rail-seat");
     await expect(mirrors).toHaveCount(2);
-    await expect(glance.locator(".actor-edges-glance__cycle-hint")).toBeVisible();
 
     await page.screenshot({
       path: testInfo.outputPath("rail_mirrors.png"),
@@ -92,7 +91,7 @@ test("connections rail mirrors swap the modal and Cmd+] cycles the ring", async 
     });
 
     // Click the Bravo mirror: the modal swaps in place.
-    await glance.locator('[data-peer-node-id="bravo"]').click();
+    await glance.locator('[data-peer-node-id="bravo"]').getByTestId("actor-rail-go").click();
     await expect(front.locator("header").first()).toContainText("Bravo peer", {
       timeout: 20_000,
     });

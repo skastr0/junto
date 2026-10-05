@@ -73,7 +73,9 @@ test("crew ui [fake-tui]: the mail ledger renders truthful delivery on every row
     );
     await expect(front).toBeVisible({ timeout: 20_000 });
 
-    const ledger = front.getByTestId(CREW_UI_SELECTORS.ledger);
+    // Mail lives in seat details, behind the header's details button.
+    await front.locator("header").getByTestId("seat-details-button").click();
+    const ledger = page.getByTestId(CREW_UI_SELECTORS.ledger);
     await expect(ledger).toBeVisible({ timeout: 15_000 });
     await expect(ledger.locator(".actor-ledger__empty")).toHaveText(
       "No mail yet",

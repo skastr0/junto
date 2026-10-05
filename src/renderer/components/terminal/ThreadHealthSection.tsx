@@ -10,15 +10,15 @@
 import type { CanvasNode } from "@shared/canvas";
 import { bindingIdForNode } from "../../lib/agent-seat-state";
 import { threadHealthSectionModel, useThreadHealth } from "../../lib/thread-health";
-import { Chip, SidebarSection, StatusDot } from "../ui";
+import { Chip, StatusDot } from "../ui";
+import { DetailsGroup } from "./DetailsGroup";
 
 export function ThreadHealthSection({ node }: { readonly node: CanvasNode }) {
   const view = useThreadHealth(bindingIdForNode(node));
   if (view === undefined) return null;
   const model = threadHealthSectionModel(view);
   return (
-    <SidebarSection
-      storageKey="seat-sidebar:health"
+    <DetailsGroup
       title="health"
       meta={model.meta}
       testId="seat-health-section"
@@ -46,6 +46,6 @@ export function ThreadHealthSection({ node }: { readonly node: CanvasNode }) {
         </div>
       ) : null}
       <p className="mt-1.5 text-label leading-snug text-faint">{model.provenance}</p>
-    </SidebarSection>
+    </DetailsGroup>
   );
 }

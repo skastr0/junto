@@ -7,7 +7,7 @@ import { verbEdge } from "./sandbox";
 
 export const CREW_UI_SELECTORS = {
   mailRow: "actor-ledger-mail-row",
-  ledger: "actor-ledger",
+  ledger: "seat-details",
 } as const;
 
 /** `ether.mask` is the allow-list. Omitted grants the compile; empty grants none. */

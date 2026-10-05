@@ -119,7 +119,8 @@ export function PreambleBubble({
 
   useLayoutEffect(() => {
     const el = ref.current;
-    const frame = el?.closest(".react-flow");
+    // The canvas, or whatever surface a seat outside it names as its frame.
+    const frame = el?.closest(".react-flow, [data-preamble-frame]");
     if (!el || !frame) return;
     el.style.setProperty("--pre-dx", "0px");
     el.removeAttribute("data-flip");

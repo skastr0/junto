@@ -12,7 +12,8 @@ import { useState } from "react";
 import type { CanvasNode } from "@shared/canvas";
 import { SEAT_ONBOARDING_LABEL } from "@shared/seat-onboarding-status";
 import { sendOnboardNudge, useSeatOnboarding } from "../../lib/seat-onboarding";
-import { Button, SidebarSection, StatusDot } from "../ui";
+import { Button, StatusDot } from "../ui";
+import { DetailsGroup } from "./DetailsGroup";
 
 export function OnboardingSection({ node }: { readonly node: CanvasNode }) {
   const status = useSeatOnboarding(node);
@@ -33,7 +34,7 @@ export function OnboardingSection({ node }: { readonly node: CanvasNode }) {
 
   const onboarded = status === "onboarded";
   return (
-    <SidebarSection storageKey="seat-sidebar:onboarding" title="onboarding" testId="seat-onboarding-section">
+    <DetailsGroup title="onboarding" testId="seat-onboarding-section">
       <div className="flex items-center gap-2" data-onboarding={status}>
         <StatusDot tone={onboarded ? "green" : "dim"} />
         <span className="font-mono text-body-lg text-ink">{SEAT_ONBOARDING_LABEL[status]}</span>
@@ -62,6 +63,6 @@ export function OnboardingSection({ node }: { readonly node: CanvasNode }) {
           {problem}
         </p>
       ) : null}
-    </SidebarSection>
+    </DetailsGroup>
   );
 }

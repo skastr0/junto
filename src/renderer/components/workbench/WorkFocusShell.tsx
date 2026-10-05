@@ -19,30 +19,28 @@ import {
 import { scheduleFocusPrimaryControl } from "../../lib/focus-ownership";
 import { parseTerminalSurfaceId } from "../../lib/dock-state";
 import { terminal$ } from "../../lib/terminal-state";
-import { isGroup } from "@shared/graph";
-import { resolveSpec, roleOf } from "@shared/physics";
+import { actorRailExpanded, actorRailMode } from "../../lib/actor-rail";
+import { sidebarSections$ } from "../../lib/sidebar-sections";
+import { state$ } from "../../lib/state";
 import { FocusSurface } from "../FocusSurface";
 import { WorkbenchChrome } from "./WorkbenchChrome";
 import { WorkbenchPanes } from "./WorkbenchPanes";
 import { saveAndCloseNoteSurface } from "./NoteSurface";
 
 /**
- * Actor terminals carry one stacked right instrument pane (ledger above
- * connections). The panel budgets its width once so the xterm keeps its target
- * columns. Raw shells stay at the bare terminal measure.
+ * An actor terminal carries the connected agents rail beside the xterm:
+ * expanded, collapsed to a strip, or absent when the seat has no connections.
+ * The panel budgets that width so the xterm keeps its target columns. Read
+ * through a selector that returns the mode, so the shell re-renders when the
+ * mode changes, never on every doc write.
  */
-const railsForFrontSurface = (
-  frontId: string | undefined,
-): number => {
+const railsForFrontSurface = (frontId: string | undefined): number => {
   if (!frontId) return 0;
   const nodeId = parseTerminalSurfaceId(frontId);
-  if (!nodeId) return 0;
-  const node = terminal$.openByNodeId[nodeId].peek();
-  if (!node) return 0;
-  const role = roleOf(
-    resolveSpec({ isGroup: isGroup(node), kind: node.ether?.entity?.kind }),
+  if (!nodeId || !terminal$.openByNodeId[nodeId].get()) return 0;
+  return actorTerminalRailsPx(
+    actorRailMode(state$.doc.get(), nodeId, actorRailExpanded(sidebarSections$.open.get())),
   );
-  return role === "actor" ? actorTerminalRailsPx() : 0;
 };
 
 /** Map shell size family → FocusSurface measure token. */
@@ -96,8 +94,7 @@ export function WorkFocusShell() {
 
   const paneCount = panesForLayout(focusLayout);
   const pane0 = focusMru[0];
-  const terminalRailsPx =
-    sizeKey === "terminal" ? railsForFrontSurface(pane0) : 0;
+  const terminalRailsPx = use$(() => (sizeKey === "terminal" ? railsForFrontSurface(pane0) : 0));
   const pane1 = paneCount === 2 ? focusMru[1] : undefined;
   const tabs = focusMru.slice(paneCount);
   const activeId = pane0;

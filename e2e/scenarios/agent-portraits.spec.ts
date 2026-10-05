@@ -155,7 +155,7 @@ test("agent portraits render on seats and in the focus modal", async () => {
       const focus = page.locator('[data-focus-surface="1"]');
       await expect(focus).toBeVisible({ timeout: 20_000 });
       await expect(focus.locator("header .agent-portrait").first()).toBeVisible();
-      const glance = focus.getByTestId("actor-edges-glance");
+      const glance = focus.getByTestId("actor-rail");
       await expect(glance.locator(".agent-portrait").first()).toBeVisible({ timeout: 10_000 });
       await page.waitForTimeout(600);
       await focus.screenshot({ path: join(SHOTS, `${mode}-focus.png`) });

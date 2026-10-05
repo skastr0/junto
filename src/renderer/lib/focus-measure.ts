@@ -70,25 +70,16 @@ export function terminalFocusWidthPx(
  * width once and the xterm keeps its target columns.
  */
 export const TERMINAL_RAILS_PX = {
-  /** Shared width of the stacked ledger and connections pane. */
-  rightPane: 248,
+  /** The connected agents rail with names and lines (actor-rail.css). */
+  expanded: 248,
+  /** The same rail as a strip of rings. */
+  collapsed: 68,
+  /** A seat with no connections has no rail. */
+  none: 0,
 } as const;
 
-/** Expanded / collapsed state of the two actor rails. */
-export type ActorRailsOpen = {
-  readonly ledger: boolean;
-  readonly connections: boolean;
-};
-
-/** Rails default to expanded — the state the panes mount in. */
-export const DEFAULT_ACTOR_RAILS_OPEN: ActorRailsOpen = {
-  ledger: true,
-  connections: true,
-};
-
-export const actorTerminalRailsPx = (
-  _open: ActorRailsOpen = DEFAULT_ACTOR_RAILS_OPEN,
-): number => TERMINAL_RAILS_PX.rightPane;
+export const actorTerminalRailsPx = (mode: keyof typeof TERMINAL_RAILS_PX): number =>
+  TERMINAL_RAILS_PX[mode];
 
 /** Default CSS pixel widths for non-ch measures (document / workspace). */
 export const FOCUS_WIDTH_PX = {

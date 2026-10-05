@@ -1,40 +1,32 @@
 /**
- * The actor terminal's right sidebar in the focus modal: one scrolling column
- * of collapsible sections. Signals lead while any is open; then the seat's
- * standing with the work kernel (task, escalations, raised tasks, artifacts,
- * board), mail, connections, and recent activity. Work rows project from the
- * canvas doc (no IPC reads; operator actions go through the work IPC
- * mutations). Sections size to their content, so the column never holds a
- * fixed empty block. Focus modal only by operator ruling; the pinned dock
- * keeps just connections.
+ * Seat details: everything about one agent seat that is worth a look now and
+ * then, kept out of the way behind one button in the agent modal's header.
+ * The seat's AI reading and onboarding status, its signals, its standing with
+ * the work kernel (task, escalations, raised tasks, artifacts, board) and its
+ * mail. Work rows project from the canvas doc (no IPC reads; operator actions
+ * go through the work IPC mutations).
  *
  * Canvas binding: terminal surfaces are node-keyed and survive canvas
- * navigation, but the ledger projects from — and mutates — the ambient
- * canvas. The pane therefore renders only while the ambient canvas is the
- * one the surface was opened from (terminal$.canvasByNodeId).
+ * navigation, but these rows project from, and mutate, the ambient canvas.
+ * The details therefore render only while the ambient canvas is the one the
+ * surface was opened from (terminal$.canvasByNodeId).
  */
 import { useEffect, useMemo, useState } from "react";
+import { Ellipsis } from "lucide-react";
 import { use$ } from "@legendapp/state/react";
 import type { CanvasNode } from "@shared/canvas";
 import type { WorkOpResult } from "@shared/ipc";
 import type { TaskState } from "@shared/work-model";
-import type { WorkSeatRecentOpsFeed } from "@shared/work-recent-ops";
 import { isGroup } from "@shared/graph";
 import { resolveSpec, roleOf } from "@shared/physics";
 import {
   mailAgeLabel,
   mailboxCounts,
   mailboxRows,
-  recentOpAtMs,
-  recentOpLabel,
   visibleMailRows,
   type MailRow,
 } from "../../lib/actor-ledger";
-import {
-  mailDeliveryLabel,
-  mailEvidenceLabel,
-  mailKindLabel,
-} from "../../lib/crew-mail-view";
+import { mailEvidenceLabel } from "../../lib/crew-mail-view";
 import "./actor-ledger-mail.css";
 import {
   artifactRowsForSeat,
@@ -49,15 +41,19 @@ import { runCanvasAuthoringOperation } from "../../lib/canvas-editor-flush";
 import { applyWorkCanvasWrite } from "../../lib/mutations";
 import { state$ } from "../../lib/state";
 import { terminal$ } from "../../lib/terminal-state";
-import { useSeatSignals } from "../../lib/agent-signals-view";
+import { SIGNALS_SECTION, useSeatSignals } from "../../lib/agent-signals-view";
+import { clearSectionReveal, sidebarSections$ } from "../../lib/sidebar-sections";
 import { getJuntoApi } from "../../lib/junto-api";
 import { modKeyGlyph } from "../../lib/platform";
-import { Button, Chip, SidebarSection, type ChipTone } from "../ui";
-import { ActorConnectionsSection } from "./ActorEdgesGlance";
+import { Button, Chip, IconButton, Popover, type ChipTone } from "../ui";
+import { DetailsGroup } from "./DetailsGroup";
 import { SeatSignalsSection } from "./SeatSignalsSection";
 import { OnboardingSection } from "./OnboardingSection";
 import { ThreadHealthSection } from "./ThreadHealthSection";
 import { Textarea } from "../ui/Field";
+
+// Module-level so the popover's placement effect sees one stable array.
+const DETAILS_SIDES = ["below", "left"] as const;
 
 const taskStateTone = (state: TaskState): ChipTone => {
   if (state === "working") return "cyan";
@@ -81,7 +77,6 @@ function MailRowItem({
   const age = mailAgeLabel(nowMs, row.sentAtMs);
   const inbound = row.direction === "in";
   const unread = inbound && !row.read;
-  const deliveryTone = row.delivery === "waiting" ? "amber" : "steel";
   return (
     <li
       className={[
@@ -99,13 +94,10 @@ function MailRowItem({
         type="button"
         className="actor-ledger__mail-row"
         aria-expanded={open}
-        title={`${inbound ? `from ${row.fromLabel}` : "self note"} - ${mailDeliveryLabel(row.delivery)}${age ? ` - ${age} ago` : ""}`}
+        title={`${inbound ? `from ${row.fromLabel}` : "self note"}${age ? `, ${age} ago` : ""}${unread ? ", unread" : ""}`}
         onClick={onToggle}
       >
         <span className="actor-ledger__mail-head">
-          <span className="actor-ledger__mail-dir" aria-hidden>
-            {inbound ? "←" : "—"}
-          </span>
           <span className="actor-ledger__mail-from">
             {inbound ? row.fromLabel : "self"}
           </span>
@@ -114,10 +106,6 @@ function MailRowItem({
               {age}
             </span>
           ) : null}
-        </span>
-        <span className="actor-ledger__mail-chips">
-          <Chip tone={deliveryTone}>{mailDeliveryLabel(row.delivery)}</Chip>
-          {row.kind ? <Chip tone="steel">{mailKindLabel(row.kind)}</Chip> : null}
         </span>
         {row.subject ? (
           <span className="actor-ledger__mail-subject">{row.subject}</span>
@@ -315,18 +303,8 @@ function RaisedTaskRowItem({
   );
 }
 
-/**
- * Renders only for actor-role nodes. Unlike the connections pane it does not
- * require edges: every actor has a mailbox with the kernel.
- */
-export function ActorLedgerPane({
-  node,
-  visible = true,
-}: {
-  readonly node: CanvasNode;
-  /** Parked keep-alive panes pause projection and timers; drafts survive. */
-  readonly visible?: boolean;
-}) {
+/** Renders only for actor-role nodes: every actor has a mailbox with the kernel. */
+function SeatDetails({ node }: { readonly node: CanvasNode }) {
   const doc = use$(state$.doc);
   const actorRefs = use$(state$.actorRefs);
   const canvas = use$(state$.canvasName);
@@ -351,8 +329,6 @@ export function ActorLedgerPane({
   // another canvas's doc onto this seat or aim mutations at it. Unstamped
   // surfaces (pre-existing sessions) keep the old permissive behavior.
   const canvasMatches = boundCanvas === undefined || boundCanvas === canvas;
-  // Parked panes keep projecting (sections stay mounted so typed drafts
-  // survive re-show); only the age timer pauses off-screen.
   const live = isActor && canvasMatches;
 
   // The prop node is the open-time snapshot; work containers live on the doc.
@@ -398,44 +374,16 @@ export function ActorLedgerPane({
   );
   const counts = useMemo(() => mailboxCounts(rows), [rows]);
 
-  // Recent-ops receipt feed: identity-backed CLI activity from the kernel
-  // (coverage excludes unattributed ops - see work-recent-ops.ts). IPC read,
-  // fetched only while actually on screen; 30s refresh.
-  const [opsFeed, setOpsFeed] = useState<WorkSeatRecentOpsFeed | null>(null);
-  useEffect(() => {
-    if (!visible || !isActor || !canvasMatches) return;
-    const api = getJuntoApi();
-    if (!api?.workSeatRecentOps) return;
-    let stale = false;
-    const pull = (): void => {
-      void api
-        .workSeatRecentOps(canvas, node.id)
-        .then((result) => {
-          if (!stale && result.ok) setOpsFeed(result.data);
-        })
-        .catch(() => {
-          /* feed is telemetry; a failed pull renders the last snapshot */
-        });
-    };
-    pull();
-    const timer = window.setInterval(pull, 30_000);
-    return () => {
-      stale = true;
-      window.clearInterval(timer);
-    };
-  }, [visible, isActor, canvasMatches, canvas, node.id]);
-
   const signals = useSeatSignals(canvas, node.id);
 
-  // Ages are display-only; refresh once a minute while actually on screen.
+  // Ages are display-only; refresh once a minute while open.
   const [nowMs, setNowMs] = useState(() => Date.now());
   const aged = rows.length + signals.signals.length;
   useEffect(() => {
-    if (!visible || aged === 0) return;
-    setNowMs(Date.now());
+    if (aged === 0) return;
     const timer = window.setInterval(() => setNowMs(Date.now()), 60_000);
     return () => window.clearInterval(timer);
-  }, [visible, aged]);
+  }, [aged]);
 
   // Settled mail decays out after the window; unread stays at any age. The
   // minute tick above is what carries a row across the threshold.
@@ -481,17 +429,8 @@ export function ActorLedgerPane({
       dismiss={signals.dismiss}
     />
   ) : null;
-  const lastOpAge = opsFeed?.lastOpAt
-    ? mailAgeLabel(nowMs, Date.parse(opsFeed.lastOpAt) || undefined)
-    : undefined;
-
   return (
-    <aside
-      className="actor-ledger"
-      data-testid="actor-ledger"
-      aria-label="Agent ledger"
-    >
-      {/* Thread health slot: thread-health supplies the seat's AI reading here. */}
+    <div className="seat-details" data-testid="seat-details">
       <ThreadHealthSection node={node} />
       <OnboardingSection node={node} />
       {error ? (
@@ -502,10 +441,9 @@ export function ActorLedgerPane({
           </button>
         </div>
       ) : null}
-      {signals.openCount > 0 ? signalsSection : null}
+      {signalsSection}
       {claim ? (
-        <SidebarSection
-          storageKey="seat-sidebar:task"
+        <DetailsGroup
           title="task"
           count={claim.needsInput ? 1 : undefined}
           countTone="amber"
@@ -522,11 +460,10 @@ export function ActorLedgerPane({
             </span>
             <span className="actor-ledger__item-title">{claim.title}</span>
           </div>
-        </SidebarSection>
+        </DetailsGroup>
       ) : null}
       {requests.length > 0 ? (
-        <SidebarSection
-          storageKey="seat-sidebar:escalations"
+        <DetailsGroup
           title="escalations"
           count={requests.length}
           countTone={requests.some((row) => row.attention) ? "amber" : "faint"}
@@ -556,11 +493,10 @@ export function ActorLedgerPane({
               );
             })}
           </ul>
-        </SidebarSection>
+        </DetailsGroup>
       ) : null}
       {raisedTasks.length > 0 ? (
-        <SidebarSection
-          storageKey="seat-sidebar:raised-tasks"
+        <DetailsGroup
           title="raised tasks"
           count={raisedTasks.length}
           countTone={raisedTasks.some((row) => row.awaitingApproval) ? "amber" : "faint"}
@@ -590,11 +526,10 @@ export function ActorLedgerPane({
               );
             })}
           </ul>
-        </SidebarSection>
+        </DetailsGroup>
       ) : null}
       {artifacts.length > 0 ? (
-        <SidebarSection
-          storageKey="seat-sidebar:artifacts"
+        <DetailsGroup
           title="artifacts"
           count={artifacts.length}
         >
@@ -633,11 +568,10 @@ export function ActorLedgerPane({
               );
             })}
           </ul>
-        </SidebarSection>
+        </DetailsGroup>
       ) : null}
       {boardTopics.length > 0 ? (
-        <SidebarSection
-          storageKey="seat-sidebar:board"
+        <DetailsGroup
           title="board"
           count={boardTopics.length}
           meta={boardUnread > 0 ? `${boardUnread} unread` : undefined}
@@ -670,10 +604,9 @@ export function ActorLedgerPane({
               </li>
             ))}
           </ul>
-        </SidebarSection>
+        </DetailsGroup>
       ) : null}
-      <SidebarSection
-        storageKey="seat-sidebar:mail"
+      <DetailsGroup
         title="mail"
         count={counts.total}
         meta={counts.unread > 0 ? `${counts.unread} unread` : undefined}
@@ -704,40 +637,50 @@ export function ActorLedgerPane({
             {`${visibleMail.hidden} settled - junto msg list`}
           </p>
         ) : null}
-      </SidebarSection>
-      {signals.openCount === 0 ? signalsSection : null}
-      <ActorConnectionsSection node={node} />
-      {opsFeed !== null && opsFeed.operations.length > 0 ? (
-        <SidebarSection
-          storageKey="seat-sidebar:activity"
-          title="activity"
-          meta={lastOpAge ? `last op ${lastOpAge}` : undefined}
+      </DetailsGroup>
+    </div>
+  );
+}
+
+/**
+ * The one quiet control in the agent modal's header that opens seat details.
+ * A signal opened from elsewhere (the canvas seat's badge) opens it too.
+ */
+export function SeatDetailsButton({ node }: { readonly node: CanvasNode }) {
+  const [anchor, setAnchor] = useState<HTMLElement | null>(null);
+  const [host, setHost] = useState<HTMLSpanElement | null>(null);
+  const reveal = use$(sidebarSections$.reveal);
+  useEffect(() => {
+    if (!host || reveal?.nodeId !== node.id || reveal.section !== SIGNALS_SECTION) return;
+    setAnchor(host);
+    clearSectionReveal();
+  }, [host, reveal, node.id]);
+  return (
+    <span ref={setHost} className="inline-flex">
+      <IconButton
+        size="sm"
+        title="Seat details: mail, signals, onboarding"
+        aria-label="Seat details"
+        aria-haspopup="dialog"
+        aria-expanded={anchor !== null}
+        data-testid="seat-details-button"
+        onClick={(event) => setAnchor(anchor ? null : event.currentTarget)}
+      >
+        <Ellipsis size={15} strokeWidth={1.75} />
+      </IconButton>
+      {anchor ? (
+        <Popover
+          anchor={anchor}
+          onClose={() => setAnchor(null)}
+          label="Seat details"
+          sides={DETAILS_SIDES}
+          width={340}
+          className="seat-details-popover"
+          testId="seat-details-popover"
         >
-          <ul
-            className="actor-ledger__ops"
-            data-testid="actor-ledger-ops"
-            title="Identity-backed CLI activity only - task updates are not attributed"
-          >
-            {opsFeed.operations.map((op, index) => {
-              const age = mailAgeLabel(nowMs, recentOpAtMs(op));
-              return (
-                <li
-                  key={`${op.appliedAt}:${index}`}
-                  className="actor-ledger__op"
-                  title={`${op.operation} on ${op.targetNodeId} at ${op.appliedAt}`}
-                >
-                  <span className="actor-ledger__op-label">
-                    {recentOpLabel(op)}
-                  </span>
-                  {age ? (
-                    <span className="actor-ledger__op-age">{age}</span>
-                  ) : null}
-                </li>
-              );
-            })}
-          </ul>
-        </SidebarSection>
+          <SeatDetails node={node} />
+        </Popover>
       ) : null}
-    </aside>
+    </span>
   );
 }

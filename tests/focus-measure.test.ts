@@ -30,44 +30,19 @@ describe("focus-measure", () => {
     expect(PROSE_MEASURE_CH).toBe(65);
   });
 
-  describe("actor rails budget", () => {
-    const panelWidth = (open: {
-      readonly ledger: boolean;
-      readonly connections: boolean;
-    }): number => terminalFocusWidthPx() + actorTerminalRailsPx(open);
-
-    it("budgets the shared right pane once", () => {
-      expect(actorTerminalRailsPx()).toBe(TERMINAL_RAILS_PX.rightPane);
+  describe("actor rail budget", () => {
+    it("budgets the rail by its mode: expanded, a strip of rings, or none", () => {
+      expect(actorTerminalRailsPx("expanded")).toBe(TERMINAL_RAILS_PX.expanded);
+      expect(actorTerminalRailsPx("collapsed")).toBe(TERMINAL_RAILS_PX.collapsed);
+      expect(actorTerminalRailsPx("none")).toBe(0);
+      expect(TERMINAL_RAILS_PX.collapsed).toBeLessThan(TERMINAL_RAILS_PX.expanded);
     });
 
-    it("keeps one pane width while its stacked sections collapse", () => {
-      expect(actorTerminalRailsPx({ ledger: false, connections: false })).toBe(
-        TERMINAL_RAILS_PX.rightPane,
-      );
-      expect(actorTerminalRailsPx({ ledger: true, connections: false })).toBe(
-        TERMINAL_RAILS_PX.rightPane,
-      );
-    });
-
-    it("leaves the terminal the same width whichever stacked sections are open", () => {
-      const stageWidths = [
-        { ledger: true, connections: true },
-        { ledger: true, connections: false },
-        { ledger: false, connections: true },
-        { ledger: false, connections: false },
-      ].map((open) => panelWidth(open) - actorTerminalRailsPx(open));
-
-      expect(new Set(stageWidths).size).toBe(1);
-      expect(stageWidths[0]).toBe(terminalFocusWidthPx());
-    });
-
-    it("keeps the panel stable when a right-pane section expands", () => {
-      const collapsed = panelWidth({ ledger: false, connections: false });
-      const oneOpen = panelWidth({ ledger: true, connections: false });
-      const bothOpen = panelWidth({ ledger: true, connections: true });
-
-      expect(oneOpen).toBe(collapsed);
-      expect(bothOpen).toBe(oneOpen);
+    it("leaves the terminal its own width whatever the rail does", () => {
+      for (const mode of ["expanded", "collapsed", "none"] as const) {
+        const panel = terminalFocusWidthPx() + actorTerminalRailsPx(mode);
+        expect(panel - actorTerminalRailsPx(mode)).toBe(terminalFocusWidthPx());
+      }
     });
   });
 });

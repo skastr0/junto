@@ -12,13 +12,13 @@ import { mailAgeLabel } from "../../lib/actor-ledger";
 import {
   SIGNAL_KIND_LABEL,
   SIGNAL_KIND_TONE,
-  SIGNALS_SECTION,
   signalOutcomeLabel,
   type SeatSignalSummary,
   type SignalActionResult,
 } from "../../lib/agent-signals-view";
 import { ArtifactMarkdown } from "../work/ArtifactMarkdown";
-import { Chip, IconButton, Popover, SidebarSection } from "../ui";
+import { Chip, IconButton, Popover } from "../ui";
+import { DetailsGroup } from "./DetailsGroup";
 import { SignalReply } from "../signals/SignalReply";
 
 function SignalPopover({
@@ -86,10 +86,7 @@ export function SeatSignalsSection({
   const tone = summary.worstOpen === "blocked" ? "crimson" : summary.openCount > 0 ? "amber" : "faint";
 
   return (
-    <SidebarSection
-      storageKey="seat-sidebar:signals"
-      sectionKey={SIGNALS_SECTION}
-      revealFor={nodeId}
+    <DetailsGroup
       title="signals"
       count={summary.openCount}
       countTone={tone}
@@ -140,6 +137,6 @@ export function SeatSignalsSection({
           dismiss={dismiss}
         />
       ) : null}
-    </SidebarSection>
+    </DetailsGroup>
   );
 }

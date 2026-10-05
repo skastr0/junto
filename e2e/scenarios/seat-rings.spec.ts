@@ -157,12 +157,12 @@ test("agent seats and their connection cards hold portraits in rings; the galler
       await page.waitForTimeout(300);
       await planner.screenshot({ path: join(SHOTS, `app-${mode}-seat-selected.png`) });
 
-      // Connection cards show each agent peer as its seat: portrait in a ring.
+      // The rail shows each connected agent as its canvas seat: portrait in the seat ring.
       await planner.dblclick();
       const focus = page.locator('[data-focus-surface="1"]');
       await expect(focus).toBeVisible({ timeout: 20_000 });
-      const glance = focus.getByTestId("actor-edges-glance");
-      await expect(glance.locator('.junto-mark[data-mark-size="glance"] .agent-portrait').first()).toBeVisible({
+      const glance = focus.getByTestId("actor-rail");
+      await expect(glance.locator('.junto-mark[data-mark-size="seat"] .agent-portrait').first()).toBeVisible({
         timeout: 10_000,
       });
       await page.waitForTimeout(600);

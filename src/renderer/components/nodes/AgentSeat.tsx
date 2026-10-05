@@ -64,6 +64,7 @@ export function AgentSeatView({
   onboarding,
   onSignalOpen,
   overseer = false,
+  compact = false,
   children,
 }: {
   /** Seat identity (node id) for the portrait. */
@@ -82,6 +83,8 @@ export function AgentSeatView({
   readonly onSignalOpen?: () => void;
   /** An overseer seat: a crest on the ring, no second border or tab. */
   readonly overseer?: boolean;
+  /** The ring and portrait alone, name and line left out (a narrow strip of seats). */
+  readonly compact?: boolean;
   /** Extra rows under the line (claimed task). */
   readonly children?: ReactNode;
 }) {
@@ -136,6 +139,7 @@ export function AgentSeatView({
           mood={seatPortraitMood(activity, health, open?.kind)}
         />
       </ActivityMarkFromSpec>
+      {compact ? null : (
       <div className="junto-seat__text min-w-0 flex-1">
         {title}
         <div className="junto-seat__line flex items-baseline gap-1.5 text-[10.5px] leading-snug">
@@ -156,6 +160,7 @@ export function AgentSeatView({
         </div>
         {children}
       </div>
+      )}
     </div>
   );
 }

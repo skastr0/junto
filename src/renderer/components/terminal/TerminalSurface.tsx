@@ -51,7 +51,7 @@ import {
 import { ensureTerminalRunning } from "../../lib/terminal-actions";
 import { seatDeadReason } from "../../lib/seat-recovery";
 import { onTerminalEvent } from "../../lib/terminal-events";
-import { actorRailsOpen, terminal$ } from "../../lib/terminal-state";
+import { terminal$ } from "../../lib/terminal-state";
 import {
   initialSessionLoadPhase,
   isSessionLoadActive,
@@ -70,8 +70,8 @@ import { ActivityMark } from "../ActivityMark";
 import { Button, Eyebrow, OverlayHeader } from "../ui";
 import { OverseerMark } from "../OverseerMark";
 import { isOverseerSeat } from "../../lib/overseer-set";
-import { ActorEdgesGlance } from "./ActorEdgesGlance";
-import { ActorLedgerPane } from "./ActorLedgerPane";
+import { ActorRail } from "./ActorRail";
+import { SeatDetailsButton } from "./SeatDetails";
 import { SessionLoadSpinner } from "./SessionLoadSpinner";
 import { SeatRing } from "../SeatRing";
 import { HarnessMark } from "../HarnessMark";
@@ -1794,8 +1794,6 @@ export function TerminalSurface({
   const pinned = use$(() =>
     dock$.registry.surfaces.get().find((surface) => surface.id === surfaceId)?.zone === "pinned",
   );
-  const railsOpen = use$(terminal$.railsOpenByNodeId);
-  const actorRailState = actorRailsOpen(node.id, railsOpen);
   // Modal semantics: dismisses the whole chrome-less focus stack (cycled
   // mirror views park behind the front pane), one press. Views only.
   const closeSurface = () => closeFocusModalSurface(surfaceId);
@@ -2052,6 +2050,7 @@ export function TerminalSurface({
             >
               {pinned ? "Unpin" : "Pin"}
             </Button>
+            {agentSeat && !grid ? <SeatDetailsButton node={node} /> : null}
             {agentSeat ? (
               <Button
                 size="xs"
@@ -2120,7 +2119,7 @@ export function TerminalSurface({
           occupies the resizable top section in focus; connections fill the
           remainder. The pinned dock keeps just connections. */}
       <div className="native-terminal-surface__body">
-        <div className="native-terminal-surface__stage">
+        <div className="native-terminal-surface__stage" data-preamble-frame>
           <div
             ref={hostRef}
             className={[
@@ -2193,28 +2192,7 @@ export function TerminalSurface({
             </div>
           ) : null}
         </div>
-        {agentSeat && !grid ? (
-          <aside
-            className={[
-              "actor-terminal-right-pane",
-              pinned ? "actor-terminal-right-pane--pinned" : "",
-              actorRailState.connections
-                ? "actor-terminal-right-pane--connections-expanded"
-                : "actor-terminal-right-pane--connections-collapsed",
-            ]
-              .filter(Boolean)
-              .join(" ")}
-            aria-label="Agent context pane"
-            data-testid="actor-terminal-right-pane"
-          >
-            {/* Focus: one sectioned sidebar (connections included). Pinned: connections rail only. */}
-            {pinned ? (
-              <ActorEdgesGlance node={node} zone="pinned" />
-            ) : (
-              <ActorLedgerPane node={node} visible={visible} />
-            )}
-          </aside>
-        ) : null}
+        {agentSeat && !grid ? <ActorRail node={node} zone={pinned ? "pinned" : "focus"} /> : null}
       </div>
     </div>
   );
