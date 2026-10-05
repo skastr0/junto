@@ -151,6 +151,16 @@ describe("the key table on macOS", () => {
     expect(resolveKey(key({ key: "2", code: "Digit2", metaKey: true }), at("operator"))).toBeNull();
   });
 
+  it("opens the git review with Cmd+G where an agent is in front, not on the bare canvas or over search", () => {
+    for (const context of ["terminal", "field", "working"] as const) {
+      expect(resolveKey(key({ key: "g", metaKey: true }), at(context))).toEqual({ id: "git.review" });
+    }
+    expect(resolveKey(key({ key: "g", metaKey: true }), at("canvas"))).toBeNull();
+    expect(resolveKey(key({ key: "g", metaKey: true }), at("operator"))).toBeNull();
+    expect(resolveKey(key({ key: "G", metaKey: true, shiftKey: true }), at("terminal"))).toBeNull();
+    expect(resolveKey(key({ key: "g", ctrlKey: true }), at("terminal"))).toBeNull();
+  });
+
   it("leaves a digit chord with Shift, Alt or Control alone", () => {
     for (const context of KEY_CONTEXTS) {
       expect(resolveKey(key({ key: "!", code: "Digit1", metaKey: true, shiftKey: true }), at(context))).toBeNull();

@@ -52,6 +52,7 @@ export type ShortcutId =
   | "groups.recall"
   | "groups.jump"
   | "alerts.next"
+  | "git.review"
   | "mirrors.next"
   | "mirrors.previous"
   | "canvas.undo"
@@ -131,6 +132,14 @@ export const KEY_TABLE: ReadonlyArray<ShortcutDef> = [
     mac: ["Space", "Backquote"],
     other: ["Space", "Backquote"],
     where: ["canvas", "working"],
+  },
+  {
+    id: "git.review",
+    area: "Agents",
+    does: "Open the git review for the agent in front, or close it",
+    mac: ["Cmd+G"],
+    other: [],
+    where: ["terminal", "field", "working"],
   },
   {
     id: "mirrors.next",
