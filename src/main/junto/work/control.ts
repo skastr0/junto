@@ -3060,6 +3060,8 @@ export const startWorkControlServer = async (
         // service await is live, rather than merely checking identity again.
         // The admitted seat, for the tool preamble told after a success.
         let admittedSeat: Pick<WorkCaller, "canvasName" | "nodeId"> | undefined;
+        // The admitted seat's terminal binding, for the onboarding proof.
+        let admittedBindingId: string | undefined;
         const liveAuthorityAndDispatch: Effect.Effect<
           WorkDispatchResult,
           never,
@@ -3067,8 +3069,6 @@ export const startWorkControlServer = async (
         > = Effect.gen(function* () {
           const liveDocsResult = yield* Effect.flatMap(
             CanvasesService,
-        // The admitted seat's terminal binding, for the onboarding proof.
-        let admittedBindingId: string | undefined;
             (canvases) => canvases.liveDocuments(),
           ).pipe(Effect.result);
           if (Result.isFailure(liveDocsResult)) {
@@ -3294,6 +3294,9 @@ export const startWorkControlServer = async (
           );
           return;
         }
+        // Onboarded means exactly this: `junto onboard` answered the seat's
+        // own process. No other work-plane call counts.
+        if (req.op === "onboard") injectionSupervisor.noteOnboarded(admittedBindingId);
         if (req.op === "preamble" && options.onPreamble) {
           const value = outcome.success as {
             readonly preambleId?: unknown;
@@ -3301,9 +3304,6 @@ export const startWorkControlServer = async (
             readonly nodeId?: unknown;
             readonly text?: unknown;
             readonly expiresAt?: unknown;
-        // Onboarded means exactly this: `junto onboard` answered the seat's
-        // own process. No other work-plane call counts.
-        if (req.op === "onboard") injectionSupervisor.noteOnboarded(admittedBindingId);
           };
           if (
             typeof value.preambleId === "string" &&
