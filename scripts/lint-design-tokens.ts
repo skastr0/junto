@@ -32,11 +32,11 @@ export type Rule = (typeof RULES)[number];
 
 /** What to write instead, shown with every failure. */
 const REMEDY: Record<Rule, string> = {
-  "font-size": "use a size token: text-label, text-body, text-body-lg, text-title, or var(--text-*)",
+  "font-size": "use a size token: text-label, text-body, text-body-lg, text-title, text-display, text-hero, or var(--text-*)",
   "font-family": "use font-mono or font-display, or var(--font-mono) / var(--font-display)",
-  tracking: "use tracking-flat, tracking-label, tracking-eyebrow, or var(--tracking-*)",
-  leading: "use leading-compact, leading-body, or var(--leading-*)",
-  radius: "do not add a new raw radius; reuse a ui primitive until radius tokens land",
+  tracking: "use tracking-flat, tracking-soft, tracking-label, tracking-eyebrow, or var(--tracking-*)",
+  leading: "use leading-compact, leading-dense, leading-body, leading-open, or var(--leading-*)",
+  radius: "use rounded-sm, rounded-md, rounded-lg, rounded-xl, rounded-pill, or var(--radius-*)",
   color: "use a color token: text-ink, bg-raise, var(--color-*)",
 };
 

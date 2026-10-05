@@ -16,6 +16,7 @@ import {
   FONT_MONO,
   LEADING,
   LEGACY_TEXT_SIZES,
+  RADIUS,
   TEXT_SIZES,
   TRACKING,
 } from "../src/shared/theme";
@@ -83,7 +84,7 @@ lines.push(
   `  --font-mono: ${FONT_MONO};`,
   `  --font-display: ${FONT_DISPLAY};`,
   "",
-  "  /* type scale: sizes the app already shipped, so adopting one moves no pixel */",
+  "  /* type scale: a few steps; a legacy value moves to its nearest one */",
 );
 for (const [name, value] of Object.entries(TEXT_SIZES)) {
   const legacy = LEGACY_TEXT_SIZES.includes(name)
@@ -96,6 +97,10 @@ for (const [name, value] of Object.entries(TRACKING)) {
 }
 for (const [name, value] of Object.entries(LEADING)) {
   lines.push(`  --leading-${name}: ${value};`);
+}
+lines.push("", "  /* corner radius: sm to xl equal Tailwind's defaults, in px */");
+for (const [name, value] of Object.entries(RADIUS)) {
+  lines.push(`  --radius-${name}: ${value};`);
 }
 lines.push(
   "}",

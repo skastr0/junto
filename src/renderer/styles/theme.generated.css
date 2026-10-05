@@ -55,7 +55,7 @@
   --font-mono: "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
   --font-display: "Arial Narrow", "Avenir Next Condensed", "Helvetica Neue", sans-serif;
 
-  /* type scale: sizes the app already shipped, so adopting one moves no pixel */
+  /* type scale: a few steps; a legacy value moves to its nearest one */
   --text-micro: 8px; /* legacy, under review: not for new work */
   --text-caption: 9px; /* legacy, under review: not for new work */
   --text-label: 10px;
@@ -63,11 +63,22 @@
   --text-body-lg: 12px;
   --text-title: 14px;
   --text-display: 18px;
+  --text-hero: 24px;
   --tracking-flat: 0;
+  --tracking-soft: 0.04em;
   --tracking-label: 0.08em;
   --tracking-eyebrow: 0.14em;
   --leading-compact: 1.2;
+  --leading-dense: 1.35;
   --leading-body: 1.45;
+  --leading-open: 1.6;
+
+  /* corner radius: sm to xl equal Tailwind's defaults, in px */
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 12px;
+  --radius-pill: 999px;
 }
 
 html[data-theme="bright"] {
