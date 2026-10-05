@@ -17,7 +17,7 @@
 .artifact-markdown :is(h1, h2, h3, h4, h5, h6) {
   margin: 1.1em 0 0.45em;
   color: var(--color-ink);
-  font-family: "Arial Narrow", "Avenir Next Condensed", "Helvetica Neue", sans-serif;
+  font-family: var(--font-display);
   font-weight: 600;
   letter-spacing: 0.04em;
   line-height: 1.2;

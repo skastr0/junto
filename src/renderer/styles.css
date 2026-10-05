@@ -16,7 +16,7 @@
 /* Ground: never pure black, monospace-leaning type. */
 :root {
   color-scheme: dark;
-  font-family: "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+  font-family: var(--font-mono);
   background: var(--color-ground);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
@@ -844,7 +844,7 @@ html[data-junto-platform="darwin"] .station-bar [role="listbox"] {
 .help-map__heading { min-width: 0; }
 .help-map__title {
   color: var(--color-ink);
-  font-family: "Arial Narrow", "Avenir Next Condensed", sans-serif;
+  font-family: var(--font-display);
   font-size: 17px;
   font-weight: 500;
   letter-spacing: .12em;
@@ -996,7 +996,7 @@ html[data-junto-platform="darwin"] .station-bar [role="listbox"] {
 }
 .inspector-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; flex: 0 0 auto; border-bottom: 1px solid var(--color-overlay-4); padding: 14px 14px 12px; }
 .inspector-eyebrow { color: var(--color-cyan); font-size: 8px; letter-spacing: .16em; text-transform: uppercase; }
-.inspector-title { overflow: hidden; margin-top: 7px; color: var(--color-ink); font-family: "Arial Narrow", "Avenir Next Condensed", sans-serif; font-size: 21px; letter-spacing: .1em; line-height: 1; text-overflow: ellipsis; text-transform: uppercase; white-space: nowrap; }
+.inspector-title { overflow: hidden; margin-top: 7px; color: var(--color-ink); font-family: var(--font-display); font-size: 21px; letter-spacing: .1em; line-height: 1; text-overflow: ellipsis; text-transform: uppercase; white-space: nowrap; }
 .inspector-close { display: grid; height: 26px; width: 26px; flex: 0 0 auto; place-items: center; border-radius: 5px; color: var(--color-faint); }
 .inspector-close:hover { background: var(--color-overlay-3); color: var(--color-ink); }
 .inspector-body { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 13px 14px 14px; }
@@ -1152,7 +1152,7 @@ html[data-junto-platform="darwin"] .station-bar [role="listbox"] {
 .field-empty__reticle span:nth-child(2) { right: -3px; top: -3px; border-left: 0; border-bottom: 0; }
 .field-empty__reticle span:nth-child(3) { right: -3px; bottom: -3px; border-left: 0; border-top: 0; }
 .field-empty__reticle span:nth-child(4) { left: -3px; bottom: -3px; border-right: 0; border-top: 0; }
-.field-empty__title { margin-top: 9px; color: var(--color-ink); font-family: "Arial Narrow", "Avenir Next Condensed", sans-serif; font-size: 26px; letter-spacing: .16em; text-transform: uppercase; }
+.field-empty__title { margin-top: 9px; color: var(--color-ink); font-family: var(--font-display); font-size: 26px; letter-spacing: .16em; text-transform: uppercase; }
 .field-empty__copy { margin-top: 10px; color: var(--color-faint); font-size: 10px; letter-spacing: .06em; line-height: 1.7; }
 /* Region window frame — the only chrome that grabs an unselected region.
    The plate and the React Flow wrapper stay pointer-transparent, so the
@@ -1244,7 +1244,7 @@ html[data-junto-platform="darwin"] .station-bar [role="listbox"] {
 .junto-region-glance__text {
   max-width: 100%;
   color: var(--region-name, color-mix(in oklab, var(--color-ink) 20%, transparent));
-  font-family: "Arial Narrow", "Avenir Next Condensed", sans-serif;
+  font-family: var(--font-display);
   line-height: 1;
   letter-spacing: .1em;
   text-align: center;
@@ -1272,7 +1272,7 @@ html[data-junto-platform="darwin"] .station-bar [role="listbox"] {
 .manifest-header { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; max-width: 1320px; margin: 0 auto 28px; padding-bottom: 20px; border-bottom: 1px solid var(--color-overlay-4); }
 .manifest-eyebrow { display: flex; align-items: center; gap: 7px; color: var(--color-amber); font-size: 8px; letter-spacing: .18em; text-transform: uppercase; }
 .manifest-eyebrow svg { color: var(--color-cyan); }
-.manifest-header h1 { margin: 10px 0 5px; color: var(--color-ink); font-family: "Arial Narrow", "Avenir Next Condensed", sans-serif; font-size: clamp(26px, 4vw, 42px); font-weight: 500; letter-spacing: .12em; line-height: 1; text-transform: uppercase; }
+.manifest-header h1 { margin: 10px 0 5px; color: var(--color-ink); font-family: var(--font-display); font-size: clamp(26px, 4vw, 42px); font-weight: 500; letter-spacing: .12em; line-height: 1; text-transform: uppercase; }
 .manifest-header p { margin: 0; color: var(--color-dim); font-size: 10px; letter-spacing: .08em; }
 .manifest-header__meta { display: flex; gap: 18px; color: var(--color-faint); font-size: 8px; letter-spacing: .12em; text-transform: uppercase; }
 .manifest-header__meta strong { color: var(--color-amber); font-size: 15px; font-weight: 500; margin-right: 4px; }
@@ -1292,12 +1292,12 @@ html[data-junto-platform="darwin"] .station-bar [role="listbox"] {
 .manifest-card__blocker { color: var(--color-crimson); margin-left: auto; }
 .manifest-card__arrow { color: var(--color-faint); margin-left: auto; }
 .manifest-card__blocker + .manifest-card__arrow { margin-left: 0; }
-.manifest-card__title { overflow: hidden; color: var(--color-ink); font-family: "Arial Narrow", "Avenir Next Condensed", sans-serif; font-size: 19px; letter-spacing: .09em; line-height: 1.05; text-overflow: ellipsis; text-transform: uppercase; white-space: nowrap; }
+.manifest-card__title { overflow: hidden; color: var(--color-ink); font-family: var(--font-display); font-size: 19px; letter-spacing: .09em; line-height: 1.05; text-overflow: ellipsis; text-transform: uppercase; white-space: nowrap; }
 .manifest-card__detail { display: -webkit-box; min-height: 32px; overflow: hidden; color: var(--color-dim); font-size: 10px; line-height: 1.5; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
 .manifest-card .mb-1\.5 { margin-top: auto; margin-bottom: 0; }
 .manifest-empty { display: grid; place-items: center; gap: 10px; min-height: 280px; color: var(--color-faint); text-align: center; }
 .manifest-empty svg { color: var(--color-amber); }
-.manifest-empty strong { color: var(--color-ink); font-family: "Arial Narrow", "Avenir Next Condensed", sans-serif; font-size: 24px; font-weight: 500; letter-spacing: .12em; text-transform: uppercase; }
+.manifest-empty strong { color: var(--color-ink); font-family: var(--font-display); font-size: 24px; font-weight: 500; letter-spacing: .12em; text-transform: uppercase; }
 .manifest-empty span { font-size: 10px; }
 
 /* Element resets live in the base layer so Tailwind utilities (utilities
@@ -2051,7 +2051,7 @@ html[data-surface-motion="paused"] .junto-node[data-seat-attention="true"]::afte
 }
 .junto-modal__close:hover { background: var(--color-overlay-3); color: var(--color-ink); }
 .junto-modal__eyebrow { color: var(--color-cyan); font-size: 8px; letter-spacing: 0.16em; text-transform: uppercase; }
-.junto-modal__title { margin-top: 7px; padding-right: 20px; overflow-wrap: anywhere; color: var(--color-ink); font-family: "Arial Narrow", "Avenir Next Condensed", sans-serif; font-size: 19px; letter-spacing: 0.06em; line-height: 1.25; text-transform: uppercase; }
+.junto-modal__title { margin-top: 7px; padding-right: 20px; overflow-wrap: anywhere; color: var(--color-ink); font-family: var(--font-display); font-size: 19px; letter-spacing: 0.06em; line-height: 1.25; text-transform: uppercase; }
 .junto-modal__meta { margin-top: 6px; color: var(--color-dim); font-size: 9px; letter-spacing: 0.04em; }
 .junto-modal__body {
   margin-top: 14px;
@@ -2264,7 +2264,7 @@ html[data-surface-motion="paused"] .junto-node[data-seat-attention="true"]::afte
 .note-md__h {
   margin: 0 0 0.4em;
   color: var(--color-ink);
-  font-family: "Arial Narrow", "Avenir Next Condensed", "Helvetica Neue", sans-serif;
+  font-family: var(--font-display);
   font-weight: 600;
   letter-spacing: 0.04em;
   line-height: 1.2;
@@ -2382,7 +2382,7 @@ ol.note-md__list > .note-md__li::before {
   padding: 0.1em 0 0.1em 1.55em;
   border: 0;
   color: var(--color-ink);
-  font-family: "Arial Narrow", "Avenir Next Condensed", "Helvetica Neue", sans-serif;
+  font-family: var(--font-display);
   font-style: italic;
   font-size: 1.05em;
   line-height: 1.45;
@@ -2392,7 +2392,7 @@ ol.note-md__list > .note-md__li::before {
   position: absolute;
   left: 0;
   top: -0.2em;
-  font-family: "Arial Narrow", "Avenir Next Condensed", sans-serif;
+  font-family: var(--font-display);
   font-style: normal;
   font-weight: 700;
   font-size: 1.85em;
@@ -2620,7 +2620,7 @@ ol.note-md__list > .note-md__li::before {
   color: var(--color-ink);
   padding: 5px 7px;
   box-shadow: 0 4px 8px var(--color-shadow-1);
-  font-family: "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+  font-family: var(--font-mono);
   font-size: 9px;
   font-weight: 500;
   letter-spacing: 0.045em;
