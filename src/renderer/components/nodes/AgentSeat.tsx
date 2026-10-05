@@ -1,11 +1,13 @@
 import type { ReactNode } from "react";
 import type { CanvasNode } from "@shared/canvas";
 import type { AgentSignal } from "@shared/agent-signals";
+import { SEAT_ONBOARDING_LABEL, type SeatOnboardingStatus } from "@shared/seat-onboarding-status";
 import type { ThreadHealthTone, ThreadHealthValue } from "@shared/thread-health";
 import type { ActivitySpec, ActivityTone } from "../../lib/activity";
 import { bindingIdForNode } from "../../lib/agent-seat-state";
 import { useSeatSignalRollup } from "../../lib/agent-signals-state";
 import { openSeatSignals } from "../../lib/agent-signals-view";
+import { useSeatOnboarding } from "../../lib/seat-onboarding";
 import { seatSaying } from "../../lib/seat-line";
 import { state$ } from "../../lib/state";
 import { useThreadHealthMark } from "../../lib/thread-health";
@@ -59,6 +61,7 @@ export function AgentSeatView({
   context,
   health,
   signal,
+  onboarding,
   onSignalOpen,
   overseer = false,
   children,
@@ -74,6 +77,8 @@ export function AgentSeatView({
   readonly context?: string;
   readonly health: SeatHealth;
   readonly signal: SeatSignal;
+  /** Whether the agent ran `junto onboard` in this session; absent until known. */
+  readonly onboarding?: SeatOnboardingStatus;
   readonly onSignalOpen?: () => void;
   /** An overseer seat: a crest on the ring, no second border or tab. */
   readonly overseer?: boolean;
@@ -133,8 +138,21 @@ export function AgentSeatView({
       </ActivityMarkFromSpec>
       <div className="junto-seat__text min-w-0 flex-1">
         {title}
-        <div className="junto-seat__line truncate text-[10.5px] leading-snug" data-testid="agent-seat-line">
-          {line}
+        <div className="junto-seat__line flex items-baseline gap-1.5 text-[10.5px] leading-snug">
+          <span className="min-w-0 flex-1 truncate" data-testid="agent-seat-line">
+            {line}
+          </span>
+          {onboarding ? (
+            // A quiet fact beside the line, never the line itself: a seat
+            // nobody has spoken to yet is not onboarded and nothing is wrong.
+            <span
+              className={`shrink-0 font-display text-[9px] tracking-[0.12em] uppercase ${onboarding === "onboarded" ? "text-faint" : "text-dim"}`}
+              data-testid="agent-seat-onboarding"
+              data-onboarding={onboarding}
+            >
+              {SEAT_ONBOARDING_LABEL[onboarding]}
+            </span>
+          ) : null}
         </div>
         {children}
       </div>
@@ -158,6 +176,7 @@ export function AgentSeat({
   const canvasName = use$(state$.canvasName);
   const rollup = useSeatSignalRollup(canvasName, node.id);
   const health = useThreadHealthMark(bindingIdForNode(node), rollup?.kind);
+  const onboarding = useSeatOnboarding(node);
   // What the ring says, for the regions and the minimap (region-urgency.ts).
   const urgency = seatUrgencyOfRing({
     glyph: resolveActivityGlyph(rest.activity.mode, rest.activity.tone, rest.activity.glyph),
@@ -174,6 +193,7 @@ export function AgentSeat({
       identity={node.id}
       health={health}
       signal={{ worst: rollup?.signal, openCount: rollup?.openCount ?? 0 }}
+      onboarding={onboarding}
       onSignalOpen={() => openSeatSignals(node)}
       {...rest}
     />

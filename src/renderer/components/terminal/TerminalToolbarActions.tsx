@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
-import { CircleStop, Pin, SquareTerminal } from "lucide-react";
+import { CircleStop, Compass, Pin, SquareTerminal } from "lucide-react";
 import type { CanvasNode } from "@shared/canvas";
 import { resolveTerminalBinding } from "@shared/terminal";
+import { sendOnboardNudge, useSeatOnboarding } from "../../lib/seat-onboarding";
 import { killTerminal, openTerminal } from "../../lib/terminal-actions";
 import {
   isAgentTerminalSeat,
@@ -15,12 +16,24 @@ import { Button, IconButton } from "../ui";
  * Open is one-click; open-pinned lands in the side dock; stop ends the seat's
  * process in two clicks, and the armed second click reads as words ("Stop
  * process?") so the confirm is legible without a tooltip. Never on the card body.
+ * A seat whose agent has not onboarded also gets the nudge: one click types
+ * the one-sentence pointer to `junto onboard`, and a refusal reads as words.
  *
  * Icons share the toolbar steel chrome (IconButton default) — no per-action
  * accent colors. Crimson is reserved for the armed stop confirm only.
  */
 export function TerminalToolbarActions({ node }: { readonly node: CanvasNode }) {
   const [armed, setArmed] = useState(false);
+  const onboarding = useSeatOnboarding(node);
+  const [nudgeProblem, setNudgeProblem] = useState<string | undefined>();
+  const [nudging, setNudging] = useState(false);
+  const nudge = async () => {
+    setNudging(true);
+    setNudgeProblem(undefined);
+    const result = await sendOnboardNudge(node.id);
+    setNudging(false);
+    if (!result.ok) setNudgeProblem(result.message);
+  };
   const armTimer = useRef<number | null>(null);
   const binding = resolveTerminalBinding(node);
   const agentSeat =
@@ -84,6 +97,38 @@ export function TerminalToolbarActions({ node }: { readonly node: CanvasNode }) 
       >
         <Pin size={14} />
       </IconButton>
+      {agentSeat && onboarding === "not-onboarded" ? (
+        nudgeProblem ? (
+          <Button
+            className="nodrag nopan"
+            size="xs"
+            aria-label={`Onboarding nudge not sent. ${nudgeProblem}`}
+            title={`${nudgeProblem} Click to try again.`}
+            onPointerDown={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              void nudge();
+            }}
+          >
+            <Compass size={11} aria-hidden />
+            Not sent
+          </Button>
+        ) : (
+          <IconButton
+            className="nodrag nopan"
+            aria-label="Send onboarding nudge"
+            title="Not onboarded. Send the onboarding nudge"
+            disabled={nudging}
+            onPointerDown={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              void nudge();
+            }}
+          >
+            <Compass size={14} />
+          </IconButton>
+        )
+      ) : null}
       {armed ? (
         <Button
           className="nodrag nopan"

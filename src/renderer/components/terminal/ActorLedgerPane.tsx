@@ -55,6 +55,7 @@ import { modKeyGlyph } from "../../lib/platform";
 import { Button, Chip, SidebarSection, type ChipTone } from "../ui";
 import { ActorConnectionsSection } from "./ActorEdgesGlance";
 import { SeatSignalsSection } from "./SeatSignalsSection";
+import { OnboardingSection } from "./OnboardingSection";
 import { ThreadHealthSection } from "./ThreadHealthSection";
 import { Textarea } from "../ui/Field";
 
@@ -492,6 +493,7 @@ export function ActorLedgerPane({
     >
       {/* Thread health slot: thread-health supplies the seat's AI reading here. */}
       <ThreadHealthSection node={node} />
+      <OnboardingSection node={node} />
       {error ? (
         <div className="actor-ledger__error" role="alert">
           {error}

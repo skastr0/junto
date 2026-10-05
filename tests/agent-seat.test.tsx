@@ -88,3 +88,27 @@ describe("AgentSeatView line", () => {
     expect(html).toContain('class="junto-mark__seat"');
   });
 });
+
+describe("AgentSeatView onboarding", () => {
+  const tag = (html: string): string | undefined =>
+    /data-testid="agent-seat-onboarding" data-onboarding="([^"]+)">([^<]*)</.exec(html)?.slice(1).join(" ");
+
+  it("says nothing until Junto knows", () => {
+    expect(tag(seat({}))).toBeUndefined();
+  });
+
+  it("shows a seat that has not onboarded", () => {
+    expect(tag(seat({ onboarding: "not-onboarded" }))).toBe("not-onboarded Not onboarded");
+  });
+
+  it("shows a seat that has", () => {
+    expect(tag(seat({ onboarding: "onboarded" }))).toBe("onboarded Onboarded");
+  });
+
+  it("sits beside the line and never replaces it", () => {
+    const html = seat({ signal: { worst: signal, openCount: 1 }, onboarding: "not-onboarded" });
+    expect(html).toContain("blocked");
+    expect(html).toContain("needs the prod DB password");
+    expect(tag(html)).toBe("not-onboarded Not onboarded");
+  });
+});
