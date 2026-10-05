@@ -199,7 +199,8 @@ export function FeedCard({
               type="button"
               className="operator-feed__detail-toggle"
               aria-expanded={expanded}
-              aria-label={`${expanded ? "Hide details" : "Details"} from ${item.seat.name}`}
+              // One name in both states: aria-expanded says which.
+              aria-label={`Details from ${item.seat.name}`}
               onClick={onToggleDetail}
             >
               <ChevronDown size={12} className={expanded ? "operator-feed__chevron--open" : undefined} aria-hidden />
