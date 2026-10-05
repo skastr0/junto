@@ -176,14 +176,14 @@ export const onboardCommand = Command.make(
       Effect.gen(function* () {
         const socket = yield* WorkSocket;
         const args = Option.isSome(pastNotes) ? { past_notes: pastNotes.value } : {};
-        return annotateCapabilityInvocations(
-          yield* socket.call("onboard", args, toUndefined(timeout)),
-        );
+        // Onboard already carries the commands each connection allows,
+        // compiled by the daemon from held ports (`instructions`).
+        return yield* socket.call("onboard", args, toUndefined(timeout));
       }),
     ),
 ).pipe(
   Command.withDescription(
-    "Seat orientation: node, region briefing (instruction), edges, co-members, past sessions",
+    "Load this seat: guidance, region briefing, connections and the commands each allows, past sessions",
   ),
 );
 

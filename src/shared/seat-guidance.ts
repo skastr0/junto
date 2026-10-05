@@ -8,9 +8,9 @@ import { PORTRAIT_SEAT_ID_MAX } from "./portrait-overrides";
  * - soul: who this agent is. Personality, voice, values. Markdown.
  * - instructions: standing instructions for this seat. Markdown.
  *
- * Both reach the agent through the compiled seat doctrine and `junto onboard`,
- * identically for every harness, as clearly marked operator-authored sections
- * that never outrank the Junto laws. This normalizer is the one gate for the
+ * Both reach the agent through `junto onboard` and nowhere else, identically
+ * for every harness, as the seat's own fields with one line of guidance on
+ * how to hold them. This normalizer is the one gate for the
  * IPC input and the stored rows.
  */
 

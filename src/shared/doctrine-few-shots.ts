@@ -1,5 +1,5 @@
 /**
- * Canonical worked examples for the injected doctrine — ONE source of truth.
+ * Canonical worked examples for the doctrine — ONE source of truth.
  *
  * The doctrine's few-shot section renders these payloads verbatim, and the
  * CLI examples catalog (cli/core/discovery.ts) imports the same objects for

@@ -26,7 +26,7 @@ export type SeatGuidanceRepositoryError = SeatGuidancePersistenceError | SeatGui
 
 /**
  * Per-seat soul and instructions (`seat_guidance`). The operator authors them
- * in the agent editor; the seat doctrine and `junto onboard` carry them.
+ * in the agent editor; `junto onboard` carries them.
  */
 export class SeatGuidanceRepository extends Context.Service<SeatGuidanceRepository,
   {

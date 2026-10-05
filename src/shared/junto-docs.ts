@@ -1,12 +1,12 @@
 /**
  * Junto documentation catalog — the CLI as the infinite knowledge
- * base. The injected doctrine stays compact and points here; the CLI carries
- * the full doctrine, the complete per-node-kind documentation (role, ports,
+ * base. Nothing is sent to a harness at session start: `junto onboard` loads
+ * the short briefing and points here; the CLI carries the full doctrine, the complete per-node-kind documentation (role, ports,
  * data models, events), and the concepts. Generated from the physics registry
  * and the real schemas so it can never drift from the program.
  *
- * Pure module — no Node imports (renderer-safe). One theory: the injected
- * doctrine is the pointer; `junto docs` is the encyclopedia.
+ * Pure module — no Node imports (renderer-safe). One theory: `junto onboard`
+ * is the pointer; `junto docs` is the encyclopedia.
  */
 
 import { Schema } from "effect";
@@ -32,13 +32,10 @@ import {
 import { EtherBrowser, EtherRegion, EtherTerminal, EtherTimer, EtherWatch } from "./canvas";
 import { EtherSheet } from "./sheet";
 import {
-  JUNTO_INTRO,
   SEAT_DOCTRINE,
-  WORKER_DOCTRINE,
-  BASE_CONTRACT,
-  compileEdgeSlots,
-  buildInjectionText,
-} from "./managed-terminal-injection";
+  buildDoctrineBody,
+  buildEdgeContracts,
+} from "./junto-doctrine";
 
 // ── Port descriptions (single source) ──────────────────────────────────────
 
@@ -256,10 +253,10 @@ export const buildNodeKindDoc = (kind: string): string | undefined => {
     "",
     "## Contract",
     "",
-    "The seat's CLI contract for this kind is injected when the seat holds an edge to it:",
+    "`junto onboard` compiles the commands a seat holds on its edge to this kind. The full contract:",
     "",
   ];
-  const contracts = compileEdgeSlots([{
+  const contracts = buildEdgeContracts([{
     id: `<${kind}-node-id>`,
     kind,
     ports: ALL_PORTS.filter((port) => doc.offers.includes(port)),
@@ -267,19 +264,16 @@ export const buildNodeKindDoc = (kind: string): string | undefined => {
   if (contracts.length > 0) {
     lines.push("These examples cover the offered ports; your live edge may grant fewer.", "```", ...contracts, "```");
   } else {
-    lines.push("_No edge contract is injected for this kind in v1._");
+    lines.push("_This kind carries no edge contract in v1._");
   }
   return lines.join("\n");
 };
 
-// ── Expanded doctrine (the injected body + expansions) ─────────────────────
+// ── Expanded doctrine (the body + expansions) ──────────────────────────────
 
 export const buildDoctrineDoc = (): string => {
-  const injected = buildInjectionText({
-    seatBound: true,
-    connected: true,
-    seatRef: "<seat-ref>",
-    connectedTargets: [
+  const body = buildDoctrineBody(
+    [
       { id: "<task-node>", kind: "task" },
       { id: "<requests-node>", kind: "requests" },
       { id: "<artifacts-node>", kind: "artifacts" },
@@ -291,15 +285,15 @@ export const buildDoctrineDoc = (): string => {
         NODE_DOCS.find((doc) => doc.kind === target.kind)?.offers.includes(port),
       ),
     })),
-  });
+  );
   return [
     "# Junto — full doctrine",
     "",
-    "This is the complete doctrine. The injected system prompt is a compact",
-    "edge-compiled subset of it; every law below expands what the injection",
-    "states. Read what you need; the CLI is stateful and current at all times.",
+    "This is the complete doctrine. Nothing here is sent to a harness: a seat",
+    "loads its short briefing with `junto onboard`, and every law below expands",
+    "it. Read what you need; the CLI is stateful and current at all times.",
     "",
-    injected ?? "",
+    body,
     "",
     "## Expansions",
     "",
@@ -332,12 +326,12 @@ export const buildDoctrineDoc = (): string => {
     "### Why the CLI is the tool surface",
     "One binary, JSON-in/JSON-out, self-describing (`capabilities`/`schema`/",
     "`examples`/`docs`), batch-capable. No MCP registries, no plugins, no config",
-    "writes to your harness. The doctrine is the pointer; the CLI is the map.",
+    "writes to your harness. `junto onboard` is the pointer; the CLI is the map.",
     "",
     "### The operational events",
     `Beyond the doctrine you receive: ${TASKS_ENABLED ? "claim notices (task data at claim), " : ""}connection`,
-    "messages (what you can now reach or no longer reach), orient notices",
-    "(re-grounding), repair notes (environment fixes), and mail. All are compact; the",
+    "messages (what you can now reach or no longer reach), an onboarding nudge",
+    "(only while the seat has not onboarded), repair notes (environment fixes), and mail. All are compact; the",
     "full context is always one `onboard` away.",
     "",
   ].join("\n");
@@ -417,7 +411,7 @@ export const DOC_TOPICS: ReadonlyArray<{
   readonly title: string;
   readonly description: string;
 }> = [
-  { id: "doctrine", title: "Full doctrine", description: "The complete doctrine: injected body + expansions." },
+  { id: "doctrine", title: "Full doctrine", description: "The complete doctrine: the laws, the CLI contract, and expansions." },
   { id: "nodes", title: "Node catalog", description: "Every node kind, its role, and the ports it offers." },
   { id: "node", title: "Node kind in depth", description: "Role, ports, data model, events, and contract for one kind." },
   { id: "concepts", title: "Concepts", description: `Seats, grants, ${TASKS_ENABLED ? "the task queue, earned completion" : "edges, honest reporting"}, identity, errors, the ladder.` },

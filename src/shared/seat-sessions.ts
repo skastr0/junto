@@ -48,7 +48,7 @@ export const ONBOARD_PAST_NOTES_MAX = 20;
 export const ONBOARD_PAST_SESSIONS_MAX = 30;
 
 /**
- * How `junto onboard` and the seat doctrine frame the past sessions. Short
+ * How `junto onboard` and the doctrine behind `junto docs` frame the past sessions. Short
  * and firm: they are history to read, not work to pick up.
  */
 export const PAST_SESSIONS_FRAMING =

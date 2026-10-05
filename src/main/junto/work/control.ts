@@ -160,6 +160,10 @@ import { PortraitOverrideRepository } from "../portraits/repository";
 import { recoverDocumentLaunchChoices } from "@shared/launch-choices";
 import { isHarnessId } from "@shared/managed-terminal-templates";
 import { RELAY_ENABLED, TASKS_ENABLED } from "@shared/features";
+import {
+  compileConnectionInstructions,
+  onboardGuidanceFor,
+} from "@shared/seat-onboarding";
 
 /** Ops that act on the factory — refused for paused seats. Reads stay open. */
 const MUTATING_OPS: ReadonlySet<string> = new Set([
@@ -1111,15 +1115,18 @@ const dispatchOp = (
         // First, so it is read first: the note the previous session left
         // for this one, when it continued rather than rested.
         ...(history?.handoff ? { handoff: history.handoff } : {}),
+        // The few lines every seat needs. Nothing is sent to a harness at
+        // session start, so this is where a seat learns what Junto asks of it.
+        guidance: onboardGuidanceFor(seat),
         nodeRef: formatNodeRef({
           canvasName: caller.canvasName,
           nodeId: caller.nodeId,
         }),
         node: summarizeNode(self),
         // The seat as the operator configured it: name, harness and launch
-        // dials, look, and the operator-authored soul and instructions. The
-        // same for every harness; the doctrine carries soul and instructions
-        // too, and this is where to reread them after a change.
+        // dials, look, and the operator-authored soul and standing
+        // instructions. Onboard is their only carrier, the same for every
+        // harness, read live so an edit shows on the next onboard.
         ...(seat ? { seat } : {}),
         // This seat's earlier sessions: history for continuity, with the
         // latest offboard notes inline and paths to open for the rest.
@@ -1128,16 +1135,21 @@ const dispatchOp = (
         role: factoryRoleOfNode(self),
         tools,
         overseer: { enabled: overseer, affectedByPause: false },
+        protocol_version: WORK_PROTOCOL_VERSION,
         region: region ?? null,
         connected: connected.map((c) => ({
           id: c.id,
           kind: c.kind,
           title: c.title,
-          summary: c.summary,
           role: c.role,
           grants: c.grants,
           ...(boardBriefing(board, c.id) ?? {}),
         })),
+        // What each connection allows, compiled from the ports held on it:
+        // a seat is never taught a command its edges do not grant.
+        instructions: compileConnectionInstructions(
+          connected.map((c) => ({ id: c.id, kind: c.kind, ports: c.grants })),
+        ),
         // Operator-pinned precedent from the seat's own region stack. Region
         // rulings ride the Tasks gate: a tasks-off build names none.
         ...(TASKS_ENABLED
@@ -1150,11 +1162,6 @@ const dispatchOp = (
         ...(paused
           ? { next_step: "wait for the operator to play the canvas" }
           : {}),
-        capabilities: {
-          protocol_version: WORK_PROTOCOL_VERSION,
-          connected,
-          tools,
-        },
       };
     }
 
