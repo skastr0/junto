@@ -643,6 +643,29 @@ export const SignalRaiseArgs = Schema.Struct({
 });
 export type SignalRaiseArgs = typeof SignalRaiseArgs.Type;
 
+/** One file as an agent names it to the CLI: a path the CLI reads, never sent on. */
+export const SignalAttachCliInput = Schema.Struct({
+  path: Schema.String,
+  caption: Schema.optionalKey(Schema.String),
+}).annotate({
+  parseOptions: { onExcessProperty: "error" },
+});
+export type SignalAttachCliInput = typeof SignalAttachCliInput.Type;
+
+/**
+ * What `junto escalate|blocked|feedback` takes as its JSON input. The CLI
+ * turns `attach` paths into bytes (`SignalRaiseArgs.attach`) before the call.
+ */
+export const SignalRaiseCliArgs = Schema.Struct({
+  kind: AgentSignalKind,
+  text: Schema.String,
+  detail: Schema.optionalKey(Schema.String),
+  attach: Schema.optionalKey(Schema.Array(SignalAttachCliInput)),
+}).annotate({
+  parseOptions: { onExcessProperty: "error" },
+});
+export type SignalRaiseCliArgs = typeof SignalRaiseCliArgs.Type;
+
 /** Withdraw one open signal by id, or every open signal of the seat. */
 export const SignalClearArgs = Schema.Struct({
   signalId: Schema.optionalKey(Schema.String),
