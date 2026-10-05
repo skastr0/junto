@@ -666,7 +666,7 @@ html[data-junto-platform="darwin"] .station-bar [role="listbox"] {
   width: min(920px, calc(100vw - 48px));
   padding: 12px 14px 10px;
   border: 1px solid var(--color-stroke);
-  border-radius: 12px;
+  border-radius: var(--radius-xl);
   background: linear-gradient(
     160deg,
     color-mix(in oklab, var(--color-raise) 96%, transparent),
@@ -683,8 +683,8 @@ html[data-junto-platform="darwin"] .station-bar [role="listbox"] {
 }
 .focus-switcher__count {
   color: var(--color-faint);
-  font-size: 9px;
-  letter-spacing: 0.12em;
+  font-size: var(--text-caption);
+  letter-spacing: var(--tracking-eyebrow);
   text-transform: uppercase;
 }
 .focus-switcher__strip {
@@ -703,7 +703,7 @@ html[data-junto-platform="darwin"] .station-bar [role="listbox"] {
   min-height: 92px;
   padding: 10px 12px;
   border: 1px solid var(--color-overlay-4);
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
   background: var(--color-overlay-1);
   color: var(--color-dim);
   text-align: left;
@@ -733,24 +733,24 @@ html[data-junto-platform="darwin"] .station-bar [role="listbox"] {
   height: 14px;
   align-items: center;
   justify-content: center;
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   border: 1px solid var(--color-overlay-4);
   color: var(--color-faint);
   font-family: var(--font-mono);
-  font-size: 9px;
+  font-size: var(--text-caption);
 }
 .focus-switcher__parked {
   color: var(--color-cyan);
-  font-size: 8px;
-  letter-spacing: 0.12em;
+  font-size: var(--text-micro);
+  letter-spacing: var(--tracking-eyebrow);
   text-transform: uppercase;
 }
 .focus-switcher__title {
   overflow: hidden;
   color: var(--color-ink);
-  font-size: 13px;
+  font-size: var(--text-body-lg);
   font-weight: 500;
-  line-height: 1.25;
+  line-height: var(--leading-compact);
   text-overflow: ellipsis;
   display: -webkit-box;
   -webkit-line-clamp: 2;
@@ -762,7 +762,7 @@ html[data-junto-platform="darwin"] .station-bar [role="listbox"] {
   align-items: center;
   gap: 10px 14px;
   color: var(--color-faint);
-  font-size: 10px;
+  font-size: var(--text-label);
 }
 .focus-switcher__hint {
   display: inline-flex;
