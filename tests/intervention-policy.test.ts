@@ -15,17 +15,18 @@ import type { InteractionContext as InteractionContextT } from "../src/main/junt
  *
  * 1. POLICY_TABLE rows: every documented combo decides to its expected kind.
  * 2. One block per clause of the nudge rule: never before a first message,
- *    never while drafting or on a dialog, exactly two nudges at the stated
- *    turns, none once onboarded, none after a resume of an onboarded session.
+ *    without waiting for the turn to end, never while drafting or on a
+ *    dialog, exactly two nudges at the stated turns, none once onboarded,
+ *    none after a resume of an onboarded session.
  * 3. Exhaustive sweep: the full product space holds every invariant.
  * 4. Totality: every decision decodes as a valid Intervention via Schema.
  */
 
 // POLICY_TABLE rows are partials; the full context fills the neutral
-// defaults: an idle, unonboarded seat with an empty composer that has been
-// spoken to and has not completed a turn since.
+// defaults: an unonboarded seat, mid-turn with an empty composer, that has
+// been spoken to but whose turns have not been counted yet.
 const DEFAULT_CTX: InteractionContextT = {
-  seat: "idle",
+  seat: "working",
   composer: "empty",
   onboarding: "not-onboarded",
   firstMessageSeen: true,
@@ -48,9 +49,9 @@ const TURN_VALUES = [0, 1, 2, 3, 4, 5, 8, 50] as const;
 const NUDGE_VALUES = [0, 1, 2, 3] as const;
 
 /**
- * A session as the supervisor counts it: every completed turn re-decides, and
- * a nudge that goes out restarts the wait. Returns the completed turns (1
- * based, since the first message) after which a nudge was sent.
+ * A session as the supervisor counts it: every turn that starts re-decides,
+ * and a nudge that goes out restarts the wait. Returns the turns (1 based,
+ * the first message's turn is 1) during which a nudge was sent.
  */
 const nudgeTurns = (turns: number, over: Partial<InteractionContextT> = {}): number[] => {
   const sent: number[] = [];
@@ -91,26 +92,49 @@ describe("intervention policy", () => {
     });
   });
 
-  describe("only at a completed turn, never while drafting or on a dialog", () => {
-    it("holds while the operator has a draft in the composer", () => {
-      expect(decideIntervention(ctxFrom({ turnsWaited: 1, composer: "draft" }))).toEqual({
-        kind: "hold",
-        reason: "draft",
-      });
+  describe("does not wait for the turn to end", () => {
+    it("interjects mid-turn, as soon as the first message is in", () => {
+      expect(decide({ turnsWaited: 1, seat: "working" })).toBe("nudge");
+    });
+
+    it("a turn that already ended is no reason to hold either", () => {
+      expect(decide({ turnsWaited: 1, seat: "idle" })).toBe("nudge");
+    });
+
+    it("a harness that paints no readable composer mid-turn is still mid-turn", () => {
+      expect(decide({ turnsWaited: 1, seat: "working", composer: "unreadable" })).toBe("nudge");
+    });
+
+    it("nothing is typed before the message's turn has started", () => {
+      expect(decide({ turnsWaited: 0, seat: "idle" })).toBe("hold");
+      expect(decide({ turnsWaited: 0, seat: "working" })).toBe("hold");
+    });
+  });
+
+  describe("never while the operator is drafting or a dialog is up", () => {
+    it("holds while the operator has a draft in the composer, mid-turn or at rest", () => {
+      for (const seat of ["working", "idle"] as const) {
+        expect(decideIntervention(ctxFrom({ turnsWaited: 1, seat, composer: "draft" }))).toEqual({
+          kind: "hold",
+          reason: "draft",
+        });
+      }
     });
 
     it("holds while a dialog is up", () => {
-      expect(decideIntervention(ctxFrom({ turnsWaited: 1, seat: "attention" }))).toEqual({
-        kind: "hold",
-        reason: "dialog",
-      });
-      // A dialog painted over the composer makes it unreadable too.
-      expect(decide({ turnsWaited: 1, composer: "unreadable" })).toBe("hold");
+      for (const composer of COMPOSER_SIGNALS) {
+        expect(decideIntervention(ctxFrom({ turnsWaited: 1, seat: "attention", composer }))).toEqual({
+          kind: "hold",
+          reason: "dialog",
+        });
+      }
     });
 
-    it("holds mid-turn", () => {
-      expect(decide({ turnsWaited: 1, seat: "working" })).toBe("hold");
-      expect(decide({ nudgesDelivered: 1, turnsWaited: 3, seat: "working" })).toBe("hold");
+    it("leaves an idle seat with an unreadable composer alone", () => {
+      expect(decideIntervention(ctxFrom({ turnsWaited: 1, seat: "idle", composer: "unreadable" }))).toEqual({
+        kind: "hold",
+        reason: "unreadable",
+      });
     });
 
     it("a held nudge is not lost: it goes out once the draft is gone", () => {
@@ -120,13 +144,13 @@ describe("intervention policy", () => {
   });
 
   describe("exactly two nudges, at the stated turns", () => {
-    it("one after the first completed turn, one three completed turns later, then none", () => {
+    it("one into the first turn, one into the third turn after it, then none", () => {
       expect(nudgeTurns(40)).toEqual([1, 4]);
     });
 
     it("the second waits three turns from a first that was held back", () => {
       // The first nudge was held through turns 1 and 2 (a draft) and went out
-      // after turn 3: the second follows three completed turns after that.
+      // in turn 3: the second follows three turns after that.
       expect(decide({ turnsWaited: 3, nudgesDelivered: 0 })).toBe("nudge");
       expect(decide({ turnsWaited: 2, nudgesDelivered: 1 })).toBe("hold");
       expect(decide({ turnsWaited: 3, nudgesDelivered: 1 })).toBe("nudge");
@@ -161,8 +185,8 @@ describe("intervention policy", () => {
 
   describe("no nudge after a resume of an onboarded session", () => {
     it("a resumed generation starts with fresh counters and is still silent", () => {
-      // The resumed generation is spoken to and completes turns like any
-      // other; its session's recorded status is what keeps it quiet.
+      // The resumed generation is spoken to and runs turns like any other;
+      // its session's recorded status is what keeps it quiet.
       expect(nudgeTurns(12, { onboarding: "onboarded" })).toEqual([]);
     });
 
@@ -197,8 +221,9 @@ describe("intervention policy", () => {
                 // A write happens only when every clause allows it.
                 expect(onboarding).toBe("not-onboarded");
                 expect(firstMessageSeen).toBe(true);
-                expect(seat).toBe("idle");
-                expect(composer).toBe("empty");
+                expect(["idle", "working"]).toContain(seat);
+                expect(composer).not.toBe("draft");
+                if (seat === "idle") expect(composer).toBe("empty");
                 expect(nudgesDelivered).toBeLessThan(NUDGE_AFTER_TURNS.length);
                 expect(turnsWaited).toBeGreaterThanOrEqual(NUDGE_AFTER_TURNS[nudgesDelivered]!);
               }

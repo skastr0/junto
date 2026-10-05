@@ -8,10 +8,15 @@
  * follows the harness session: a resumed session reads back what it recorded,
  * so a seat that onboarded before a restart is not nudged again.
  *
+ * The nudge does not wait for a turn to end, which can be hours: it is
+ * interjected as soon as the message that started the turn is in and nothing
+ * of the operator's is in its way (no draft, no dialog). The transport is the
+ * drive's interjecting write, the one mail uses: it types mid-turn and yields
+ * only to the operator composing in the seat.
+ *
  * Driven by events, never wall clock: seat-state transitions, PTY snapshots
  * (composer changes), operator input, mail written into the seat, and the
- * `junto onboard` call itself. Every nudge goes through the drive's gated
- * write, which refuses on an operator draft or an unreadable composer.
+ * `junto onboard` call itself.
  */
 
 import type { ObserverGridSnapshot } from "./observer/types";
@@ -41,9 +46,9 @@ type SeatSupervision = {
   operatorDraft: boolean;
   /** A first real message went into this generation's session. */
   firstMessageSeen: boolean;
-  /** A turn that began after the first message is still running. */
+  /** A counted turn is running. */
   inTurn: boolean;
-  /** Completed turns since the first message, or since the last nudge. */
+  /** Turns started since the first message, or since the last nudge. */
   turnsWaited: number;
   nudgesDelivered: number;
   /** One transport request owns this generation's next nudge receipt. */
@@ -225,13 +230,23 @@ export class InjectionSupervisor {
     return this.userInputBindings.get(bindingId);
   }
 
-  /** Mail was typed into the seat: a first real message, whoever sent it. */
+  /**
+   * Mail was typed into the seat: a real message, whoever sent it, and the
+   * start of a turn (or part of the one already running).
+   */
   noteMailWritten(bindingId: string): void {
     const seat = this.seats.get(bindingId);
-    if (seat === undefined || seat.firstMessageSeen) return;
+    if (seat === undefined) return;
     seat.firstMessageSeen = true;
-    // The turn this mail starts is the first one that counts.
-    seat.inTurn = seat.state === "working";
+    this.startTurn(seat);
+    this.evaluate(bindingId, seat);
+  }
+
+  /** Count a turn once, however its start is learned. */
+  private startTurn(seat: SeatSupervision): void {
+    if (seat.inTurn) return;
+    seat.inTurn = true;
+    seat.turnsWaited += 1;
   }
 
   /**
@@ -259,12 +274,12 @@ export class InjectionSupervisor {
     const previous = seat.state;
     seat.state = event.state as SeatSignal;
     if (event.state === "working" && previous !== "working") {
+      // The operator's draft left the composer and a turn began: it was sent.
       if (!seat.firstMessageSeen && seat.operatorDraft) seat.firstMessageSeen = true;
-      if (seat.firstMessageSeen) seat.inTurn = true;
+      if (seat.firstMessageSeen) this.startTurn(seat);
     }
     if (event.state === "idle" && seat.inTurn) {
       seat.inTurn = false;
-      seat.turnsWaited += 1;
       // A session id captured at this boundary may make the record writable.
       this.record(event.bindingId, seat);
     }
@@ -313,8 +328,8 @@ export class InjectionSupervisor {
       // A refused nudge spends nothing: the next event tries again.
       if (!accepted) return;
       seat.nudgesDelivered += 1;
-      // Turns that completed while the receipt was pending still count
-      // toward the next nudge: the turn the nudge starts is the first.
+      // Turns that started while the receipt was pending still count toward
+      // the next nudge.
       seat.turnsWaited = Math.max(0, seat.turnsWaited - waitedAtSend);
     };
     try {

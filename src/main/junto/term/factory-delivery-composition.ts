@@ -43,8 +43,6 @@ export type FactoryWritePromptOptions = {
   readonly queueTimeoutMs?: number;
   readonly ready?: boolean;
   readonly awaitTurnStart?: boolean;
-  /** False refuses at once on a busy or unwritable seat instead of queueing. */
-  readonly queueIfBusy?: boolean;
 };
 
 export type FactoryWritePrompt = (
@@ -154,16 +152,19 @@ export const factoryBoardTransport = (input: {
 });
 
 /**
- * The supervisor's onboarding nudge through the destination drive's gated
- * write, never the mail path. It refuses at once on a busy seat, an operator
- * draft, or an unreadable composer, and the supervisor tries again at a later
- * event; nothing is queued. Returns the snapshot-subscription teardown — the
+ * The supervisor's onboarding nudge through the destination drive. It is an
+ * interjection: `interject` types it whatever the seat is doing and yields
+ * only to the operator composing there, the way mail is written, because a
+ * nudge that waits for the turn to end can arrive hours late. It is not mail:
+ * no mailbox, no receipt, and a nudge that could not be typed is simply tried
+ * again at a later event. Returns the snapshot-subscription teardown — the
  * composition owns it, so dispose closes every subscription this module
  * opened.
  */
 export const wireFactorySupervisor = (input: {
   readonly supervisor: FactoryDeliverySupervisor;
-  readonly write: FactoryWritePrompt;
+  /** True once the sentence and its CR reached the PTY. */
+  readonly interject: (bindingId: string, text: string) => Promise<boolean>;
   /** The same composer reading the drive gates on. */
   readonly composerVerdict: (bindingId: string) => "empty" | "draft" | null;
   readonly subscribeSnapshots: (
@@ -171,9 +172,7 @@ export const wireFactorySupervisor = (input: {
   ) => () => void;
 }): (() => void) => {
   input.supervisor.setComposerLookup(input.composerVerdict);
-  input.supervisor.setWriter((bindingId, text) =>
-    input.write(bindingId, text, { queueIfBusy: false }).then(isPromptSubmitted),
-  );
+  input.supervisor.setWriter(input.interject);
   return input.subscribeSnapshots((snap) =>
     input.supervisor.onSnapshot(snap),
   );
@@ -185,6 +184,8 @@ export type ComposeFactoryDeliveryInput = {
   readonly kernel: FactoryDeliveryKernel;
   readonly events: FactoryDeliveryEvents;
   readonly supervisor: FactoryDeliverySupervisor;
+  /** Types the supervisor's nudge mid-turn; see wireFactorySupervisor. */
+  readonly interject: (bindingId: string, text: string) => Promise<boolean>;
   readonly composerVerdict: (bindingId: string) => "empty" | "draft" | null;
   readonly pulse: FactoryDeliveryPulse;
   readonly board: FactoryDeliveryBoard;
@@ -217,7 +218,7 @@ export const composeFactoryDelivery = (
   unsubs.push(
     wireFactorySupervisor({
       supervisor: input.supervisor,
-      write,
+      interject: input.interject,
       composerVerdict: input.composerVerdict,
       subscribeSnapshots: input.events.subscribeSnapshots,
     }),

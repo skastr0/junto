@@ -9,7 +9,6 @@ import {
   decodeSeatOnboardingEvent,
   seatOnboarding$,
 } from "../src/renderer/lib/seat-onboarding";
-import { ManagedPromptRefusalReason } from "../src/shared/managed-prompt";
 import { onboardNudgeRefusal, SEAT_ONBOARDING_LABEL } from "../src/shared/seat-onboarding-status";
 
 beforeEach(() => {
@@ -56,17 +55,17 @@ describe("onboarding copy", () => {
   });
 
   it("every refusal reads as a sentence with no middle dot", () => {
-    for (const reason of ManagedPromptRefusalReason.literals) {
+    for (const reason of ["dialog", "draft", "unavailable"] as const) {
       const message = onboardNudgeRefusal(reason);
       expect(message).toMatch(/^[A-Z].*\.$/);
-      expect(message).not.toContain("·");
+      expect(message).not.toContain("\u00b7");
     }
   });
 
-  it("tells a busy seat, a draft and an unreadable composer apart", () => {
-    const messages = new Set(
-      ["seat-busy", "composer-not-empty", "composer-unreadable", "operator-active"].map(onboardNudgeRefusal),
-    );
-    expect(messages.size).toBe(4);
+  it("tells a dialog, a draft and an unready terminal apart, and never blames a running turn", () => {
+    const messages = (["dialog", "draft", "unavailable"] as const).map(onboardNudgeRefusal);
+    expect(new Set(messages).size).toBe(3);
+    // A nudge is typed mid-turn, so "the agent is busy" is never the reason.
+    for (const message of messages) expect(message).not.toMatch(/turn|busy/i);
   });
 });

@@ -372,14 +372,15 @@ describe("GAP-POL-2: false working→idle flips are not turns", () => {
     expect(nudges).toEqual([]);
   });
 
-  it("GAP-POL-2 sanity: REAL turns after a first message earn the two nudges, at turns 1 and 4", async () => {
+  it("GAP-POL-2 sanity: REAL turns after a first message earn the two nudges, in turns 1 and 4", async () => {
     // Positive half of the law: a real turn — text pasted into the box,
     // submitted, working, idle — must count.
     const sup = new InjectionSupervisor();
-    const nudgedAfter: number[] = [];
-    let completed = 0;
+    const nudgedIn: Array<{ turn: number; state: string | undefined }> = [];
+    let turn = 0;
+    let stateNow: () => string | undefined = () => undefined;
     sup.setWriter(() => {
-      nudgedAfter.push(completed);
+      nudgedIn.push({ turn, state: stateNow() });
       return true;
     });
     const { loop, advance, flush } = setup({
@@ -388,10 +389,11 @@ describe("GAP-POL-2: false working→idle flips are not turns", () => {
       onSnapshot: (snap) => sup.onSnapshot(snap),
     });
     wireSupervisor(loop, sup);
+    stateNow = () => loop.runtime.getState(BINDING);
     await flush();
 
     for (let i = 0; i < 6; i += 1) {
-      completed = i + 1;
+      turn = i + 1;
       const p = loop.drive.writePrompt(BINDING, `request ${i}`);
       // The first write is the session's first real message, as mail is.
       if (i === 0) sup.noteMailWritten(BINDING);
@@ -402,7 +404,9 @@ describe("GAP-POL-2: false working→idle flips are not turns", () => {
       await flush();
     }
     loop.dispose();
-    expect(nudgedAfter).toEqual([1, 4]);
+    expect(nudgedIn.map((nudge) => nudge.turn)).toEqual([1, 4]);
+    // The second goes in as its turn starts, not after the turn has ended.
+    expect(nudgedIn[1]?.state).toBe("working");
   });
 });
 

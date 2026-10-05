@@ -115,40 +115,67 @@ describe("InjectionSupervisor", () => {
     });
 
     it("an operator-typed message is one", async () => {
-      const { writer, start, operatorTurn } = rig();
+      const { writer, supervisor, composer, start, state } = rig();
       await start();
-      operatorTurn();
+      composer.verdict = "draft";
+      supervisor.noteUserInput("b1");
+      expect(writer).not.toHaveBeenCalled();
+      // Submitted: the draft leaves the composer and the turn begins.
+      composer.verdict = "empty";
+      state("working");
       expect(writer).toHaveBeenCalledTimes(1);
       expect(writer).toHaveBeenCalledWith("b1", buildOnboardNudge());
     });
 
     it("mail is one", async () => {
-      const { writer, start, mailTurn } = rig();
+      const { writer, supervisor, start } = rig();
       await start();
-      mailTurn();
-      expect(writer).toHaveBeenCalledTimes(1);
-    });
-
-    it("mail typed mid-turn counts the turn it lands in", async () => {
-      const { writer, supervisor, start, state } = rig();
-      await start();
-      state("working");
       supervisor.noteMailWritten("b1");
-      expect(writer).not.toHaveBeenCalled();
-      state("idle");
       expect(writer).toHaveBeenCalledTimes(1);
     });
   });
 
-  describe("only at a completed turn, never while drafting or on a dialog", () => {
-    it("holds for an operator draft and sends once it is gone", async () => {
-      const { writer, supervisor, composer, start, state } = rig();
+  describe("does not wait for the turn to end", () => {
+    it("interjects while the first turn is still running", async () => {
+      const { writer, supervisor, start, state } = rig();
       await start();
       supervisor.noteMailWritten("b1");
       state("working");
-      // The operator starts typing the next message before the turn ends.
+      // The turn may run for hours; the nudge is already in.
+      expect(writer).toHaveBeenCalledTimes(1);
+      for (let i = 0; i < 5; i += 1) supervisor.onSnapshot(snap({ seq: BigInt(10 + i) }));
+      expect(writer).toHaveBeenCalledTimes(1);
+    });
+
+    it("mail typed into a running turn is followed at once", async () => {
+      const { writer, supervisor, start, state } = rig();
+      await start();
+      state("working");
+      expect(writer).not.toHaveBeenCalled();
+      supervisor.noteMailWritten("b1");
+      expect(writer).toHaveBeenCalledTimes(1);
+    });
+
+    it("the second nudge goes in as its turn starts, not when it ends", async () => {
+      const { writer, start, state, mailTurn, turn } = rig();
+      await start();
+      mailTurn();
+      turn();
+      turn();
+      expect(writer).toHaveBeenCalledTimes(1);
+      state("working");
+      expect(writer).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  describe("never while the operator is drafting or a dialog is up", () => {
+    it("holds for an operator draft and sends once it is gone", async () => {
+      const { writer, supervisor, composer, start, state } = rig();
+      await start();
+      state("working");
+      // The operator is already typing the next message as the mail lands.
       composer.verdict = "draft";
-      state("idle");
+      supervisor.noteMailWritten("b1");
       supervisor.onSnapshot(snap({ seq: 2n }));
       expect(writer).not.toHaveBeenCalled();
       composer.verdict = "empty";
@@ -159,38 +186,23 @@ describe("InjectionSupervisor", () => {
     it("holds while a dialog is up", async () => {
       const { writer, supervisor, composer, start, state } = rig();
       await start();
-      supervisor.noteMailWritten("b1");
       state("working");
       state("attention");
       composer.verdict = null;
+      supervisor.noteMailWritten("b1");
       supervisor.onSnapshot(snap({ seq: 2n }));
       expect(writer).not.toHaveBeenCalled();
-      // The dialog is answered and the turn runs to its end.
+      // The dialog is answered and the turn runs on.
       composer.verdict = "empty";
       state("working");
-      state("idle");
       expect(writer).toHaveBeenCalledTimes(1);
     });
 
-    it("never writes mid-turn", async () => {
-      const { writer, supervisor, start, state, mailTurn } = rig();
-      await start();
-      mailTurn();
-      expect(writer).toHaveBeenCalledTimes(1);
-      for (let i = 0; i < 3; i += 1) {
-        state("working");
-        supervisor.onSnapshot(snap({ seq: BigInt(10 + i) }));
-        expect(writer).toHaveBeenCalledTimes(1);
-        state("idle");
-      }
-      expect(writer).toHaveBeenCalledTimes(2);
-    });
-
-    it("a nudge the drive refuses spends nothing and is tried again", async () => {
+    it("a nudge the drive could not type spends nothing and is tried again", async () => {
       const writer = vi.fn<NoticeWriter>().mockReturnValueOnce(false).mockReturnValue(true);
-      const { supervisor, start, mailTurn } = rig(writer);
+      const { supervisor, start } = rig(writer);
       await start();
-      mailTurn();
+      supervisor.noteMailWritten("b1");
       expect(writer).toHaveBeenCalledTimes(1);
       supervisor.onSnapshot(snap({ seq: 2n }));
       expect(writer).toHaveBeenCalledTimes(2);
@@ -221,12 +233,12 @@ describe("InjectionSupervisor", () => {
       mailTurn();
       supervisor.onSnapshot(snap({ seq: 2n }));
       turn();
+      turn();
       expect(writer).toHaveBeenCalledTimes(1);
       accept(true);
       await settled();
-      // The turn that ran while the receipt was pending counts toward the
-      // second nudge: two more complete the three.
-      turn();
+      // The two turns that started while the receipt was pending count
+      // toward the second nudge: one more makes the three.
       expect(writer).toHaveBeenCalledTimes(1);
       turn();
       expect(writer).toHaveBeenCalledTimes(2);
@@ -234,19 +246,29 @@ describe("InjectionSupervisor", () => {
   });
 
   describe("exactly two nudges, at the stated turns", () => {
-    it("one after the first completed turn, one three turns later, then none", async () => {
+    it("one in the first turn, one in the third turn after it, then none", async () => {
       const { writer, start, mailTurn, turn } = rig();
       await start();
-      const sentAfter: number[] = [];
+      const sentIn: number[] = [];
       mailTurn();
-      if (writer.mock.calls.length === 1) sentAfter.push(1);
-      for (let completed = 2; completed <= 20; completed += 1) {
+      if (writer.mock.calls.length === 1) sentIn.push(1);
+      for (let started = 2; started <= 20; started += 1) {
         const before = writer.mock.calls.length;
         turn();
-        if (writer.mock.calls.length > before) sentAfter.push(completed);
+        if (writer.mock.calls.length > before) sentIn.push(started);
       }
-      expect(sentAfter).toEqual([1, 4]);
+      expect(sentIn).toEqual([1, 4]);
       expect(writer.mock.calls.every(([, text]) => text === buildOnboardNudge())).toBe(true);
+    });
+
+    it("later mail into the same turn does not count as another turn", async () => {
+      const { writer, supervisor, start, state } = rig();
+      await start();
+      supervisor.noteMailWritten("b1");
+      state("working");
+      for (let i = 0; i < 6; i += 1) supervisor.noteMailWritten("b1");
+      state("idle");
+      expect(writer).toHaveBeenCalledTimes(1);
     });
 
     it("the operator's own nudge counts, so the cadence does not repeat it", async () => {

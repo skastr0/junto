@@ -436,6 +436,8 @@ const runProductBoot = async (): Promise<void> => {
         terminalObserverPlane.subscribeGlobal(listener),
     },
     supervisor: injectionSupervisor,
+    interject: (bindingId, text) =>
+      remoteDrive.writeMail(bindingId, text).then((outcome) => outcome === "written"),
     composerVerdict: (bindingId) => seatStateRuntime.composerVerdict(bindingId),
     pulse: { setDeliver: setManagedPulseDeliver },
     board: { configure: configureBoardDelivery },

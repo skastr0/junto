@@ -8,6 +8,12 @@
  * running `junto onboard`, pointed there by its mail or by this nudge: one
  * sentence, at most twice per generation.
  *
+ * The nudge is an interjection, not an end-of-turn note. A turn can run for
+ * hours, so it goes in as soon as it can no longer get in the way of the
+ * message that started the turn: that message has been submitted, the
+ * composer holds no draft, and no dialog is up. The harness queues or steers
+ * what it receives mid-turn, as it does mail.
+ *
  * Decision ladder (highest priority first):
  *
  *   onboarded            → silent            (`junto onboard` ran in this harness session)
@@ -18,10 +24,10 @@
  *   not due yet          → hold("turn")
  *   ── write-gates ──
  *   seat attention       → hold("dialog")
- *   seat not idle        → hold("turn")      (only at a completed turn)
+ *   seat state unknown   → hold("unsettled")
  *   composer draft       → hold("draft")     (the operator is drafting)
- *   composer unreadable  → hold("unreadable")
- *   else                 → nudge
+ *   idle + unreadable    → hold("unreadable")(a transition or an unprobed box)
+ *   else                 → nudge             (idle or mid-turn)
  *
  * No compaction detection and no periodic re-orientation: a seat that loses
  * track shows as such, and the operator has a button.
@@ -33,10 +39,10 @@ import { Schema } from "effect";
 // Cadence
 
 /**
- * Completed turns to wait before each nudge. The first counts from the first
- * real message into the session, each later one from the nudge before it: one
- * after the first completed turn, one more three completed turns later, then
- * none.
+ * Turns that must have STARTED before each nudge. The first counts from the
+ * first real message into the session, each later one from the nudge before
+ * it: one into the first turn, one more into the third turn after that, then
+ * none. Starts, not completions: waiting for a turn to end can be hours late.
  */
 export const NUDGE_AFTER_TURNS: ReadonlyArray<number> = [1, 3];
 
@@ -87,8 +93,8 @@ export const InteractionContext = Schema.Struct({
    */
   firstMessageSeen: Schema.Boolean,
   /**
-   * Completed turns since the first message, or since the last delivered
-   * nudge once there is one.
+   * Turns started since (and including) the first message, or since the last
+   * delivered nudge once there is one.
    */
   turnsWaited: Count,
   /** Nudges delivered to this generation. */
@@ -131,10 +137,19 @@ export const decideIntervention = (ctx: InteractionContext): Intervention => {
   if (ctx.turnsWaited < wait) return { kind: "hold", reason: "turn" };
 
   // ── write-gates ──────────────────────────────────────────────────────────
+  // The nudge may land mid-turn, but never on top of something of the
+  // operator's: a dialog waiting for an answer, or a draft in the composer.
   if (ctx.seat === "attention") return { kind: "hold", reason: "dialog" };
-  if (ctx.seat !== "idle") return { kind: "hold", reason: "turn" };
+  if (ctx.seat !== "idle" && ctx.seat !== "working") {
+    return { kind: "hold", reason: "unsettled" };
+  }
   if (ctx.composer === "draft") return { kind: "hold", reason: "draft" };
-  if (ctx.composer !== "empty") return { kind: "hold", reason: "unreadable" };
+  // Mid-turn a harness may not paint a composer the probes can read; that is
+  // the turn, not a dialog (a dialog is `attention`). At rest an unreadable
+  // box is a transition or an unprobed harness, and is left alone.
+  if (ctx.seat === "idle" && ctx.composer !== "empty") {
+    return { kind: "hold", reason: "unreadable" };
+  }
 
   return { kind: "nudge" };
 };
@@ -144,7 +159,7 @@ export const decideIntervention = (ctx: InteractionContext): Intervention => {
 
 /**
  * Key combos across the ladder. Partials are filled with defaults by tests:
- *   { seat: "idle", composer: "empty", onboarding: "not-onboarded",
+ *   { seat: "working", composer: "empty", onboarding: "not-onboarded",
  *     firstMessageSeen: true, turnsWaited: 0, nudgesDelivered: 0 }
  */
 export const POLICY_TABLE: ReadonlyArray<{
@@ -161,7 +176,7 @@ export const POLICY_TABLE: ReadonlyArray<{
   { ctx: { firstMessageSeen: false }, expected: "hold" },
   { ctx: { firstMessageSeen: false, turnsWaited: 9 }, expected: "hold" },
 
-  // ── cadence: after the first completed turn, then three turns later ───────
+  // ── cadence: into the first turn, then into the third turn after ──────────
   { ctx: { turnsWaited: 0 }, expected: "hold" },
   { ctx: { turnsWaited: 1 }, expected: "nudge" },
   { ctx: { nudgesDelivered: 1, turnsWaited: 0 }, expected: "hold" },
@@ -171,12 +186,16 @@ export const POLICY_TABLE: ReadonlyArray<{
   { ctx: { nudgesDelivered: 2, turnsWaited: 3 }, expected: "silent" },
   { ctx: { nudgesDelivered: 2, turnsWaited: 99 }, expected: "silent" },
 
-  // ── only at a completed turn ──────────────────────────────────────────────
-  { ctx: { turnsWaited: 1, seat: "working" }, expected: "hold" },
+  // ── it does not wait for the turn to end ──────────────────────────────────
+  { ctx: { turnsWaited: 1, seat: "working" }, expected: "nudge" },
+  { ctx: { turnsWaited: 1, seat: "idle" }, expected: "nudge" },
+  // A harness that paints no readable composer mid-turn is still mid-turn.
+  { ctx: { turnsWaited: 1, seat: "working", composer: "unreadable" }, expected: "nudge" },
   { ctx: { turnsWaited: 1, seat: "unknown" }, expected: "hold" },
   // ── never while the operator is drafting or a dialog is up ────────────────
   { ctx: { turnsWaited: 1, composer: "draft" }, expected: "hold" },
-  { ctx: { turnsWaited: 1, composer: "unreadable" }, expected: "hold" },
+  { ctx: { turnsWaited: 1, seat: "idle", composer: "draft" }, expected: "hold" },
+  { ctx: { turnsWaited: 1, seat: "idle", composer: "unreadable" }, expected: "hold" },
   { ctx: { turnsWaited: 1, seat: "attention" }, expected: "hold" },
   { ctx: { nudgesDelivered: 1, turnsWaited: 3, composer: "draft" }, expected: "hold" },
 

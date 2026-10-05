@@ -2057,9 +2057,22 @@ export const registerJuntoIpc = (): void => {
       privilegedIpc.handle(IPC_CHANNELS.seatOnboardingSnapshot, () =>
         injectionSupervisor.currentOnboarding(),
       );
-      // The operator's nudge: the same sentence, typed now. Gated like every
-      // typed prompt (never the mail path), and refused rather than queued,
-      // so it can never land on a draft or in the middle of a turn later.
+      // The onboarding nudge is interjected: typed whatever the seat is
+      // doing, mid-turn included, because a nudge that waits for a turn to
+      // end can be hours late. It stays out of the operator's way: a dialog
+      // waiting for an answer is never typed into, and the drive holds back
+      // for a draft in the composer. Nothing is queued; a nudge that could
+      // not be typed is tried again (or the operator presses again).
+      const interjectOnboardNudge = async (
+        bindingId: string,
+        text: string,
+      ): Promise<"written" | "dialog" | "draft" | "unavailable"> => {
+        if (productAutomationSuspended || !mailReadyNow(bindingId)) return "unavailable";
+        if (seatStateRuntime.getState(bindingId) === "attention") return "dialog";
+        const outcome = await managedDrive.writeMail(bindingId, text);
+        return outcome === "written" ? "written" : outcome === "held" ? "draft" : "unavailable";
+      };
+      // The operator's nudge: the same sentence, typed now.
       privilegedIpc.handle(
         IPC_CHANNELS.seatOnboardNudge,
         async (_event, canvasName: unknown, seatId: unknown): Promise<SeatOnboardNudgeResult> => {
@@ -2072,28 +2085,19 @@ export const registerJuntoIpc = (): void => {
           if (termPlane.host.get(seat.bindingId)?.status !== "running") {
             return { ok: false, message: "This seat is not running." };
           }
-          const outcome = await managedDrive.writePrompt(seat.bindingId, buildOnboardNudge(), {
-            ready: driveReady(seat.bindingId),
-            queueIfBusy: false,
-          });
-          if (outcome.status === "refused") {
-            return { ok: false, message: onboardNudgeRefusal(outcome.reason) };
-          }
-          // Typed, whether or not the turn start was seen: do not repeat it.
+          const outcome = await interjectOnboardNudge(seat.bindingId, buildOnboardNudge());
+          if (outcome !== "written") return { ok: false, message: onboardNudgeRefusal(outcome) };
+          // The cadence does not repeat what the operator just sent.
           injectionSupervisor.noteNudgeDelivered(seat.bindingId);
           return { ok: true };
         },
       );
-      // Supervisor transport wiring: the onboarding nudge goes through the
-      // drive's gated write. Shared recipe — the Node Remote wires the same
-      // supervisor through its own destination drive.
+      // Supervisor transport wiring. Shared recipe — the Node Remote wires
+      // the same supervisor through its own destination drive.
       wireFactorySupervisor({
         supervisor: injectionSupervisor,
-        write: (bindingId, text, options) =>
-          managedDrive.writePrompt(bindingId, text, {
-            ready: options?.ready ?? driveReady(bindingId),
-            ...(options ?? {}),
-          }),
+        interject: (bindingId, text) =>
+          interjectOnboardNudge(bindingId, text).then((outcome) => outcome === "written"),
         composerVerdict: (bindingId) => seatStateRuntime.composerVerdict(bindingId),
         subscribeSnapshots: (listener) =>
           terminalObserverPlane.subscribeGlobal(listener),

@@ -96,40 +96,16 @@ describe("makeFactoryWriteManagedPrompt", () => {
 });
 
 describe("wireFactorySupervisor", () => {
-  it.each([submitted(), refused(), unresolved()])(
-    "only accepts a submitted supervisor notice, outcome $status",
-    async (outcome) => {
-      let writer: ((b: string, t: string) => boolean | Promise<boolean>) | undefined;
-      const dispose = wireFactorySupervisor({
-        supervisor: {
-          setWriter: (fn) => {
-            writer = fn;
-          },
-          setComposerLookup: () => {},
-          noteSeatState: () => {},
-          onSnapshot: () => {},
-        },
-        write: () => Promise.resolve(outcome),
-        composerVerdict: () => "empty",
-        subscribeSnapshots: () => () => {},
-      });
-      await expect(Promise.resolve(writer?.("b1", "notice"))).resolves.toBe(
-        outcome.status === "submitted",
-      );
-      dispose();
-    },
-  );
-
-  it("sends the supervisor's nudge through the gated writer", async () => {
-    const drive = fakeDrive();
-    let writer: ((b: string, t: string) => Promise<boolean>) | undefined;
+  it("hands the supervisor the interjecting writer and the drive's composer reading", async () => {
+    let writer: ((b: string, t: string) => boolean | Promise<boolean>) | undefined;
     let composer: ((b: string) => "empty" | "draft" | null) | undefined;
+    const typed: Array<{ bindingId: string; text: string }> = [];
     const snapshots: unknown[] = [];
     const closed: string[] = [];
     const dispose = wireFactorySupervisor({
       supervisor: {
         setWriter: (fn) => {
-          writer = (b, t) => Promise.resolve(fn(b, t)).then((ok) => ok);
+          writer = fn;
         },
         setComposerLookup: (fn) => {
           composer = fn;
@@ -139,7 +115,10 @@ describe("wireFactorySupervisor", () => {
           snapshots.push(snap);
         },
       },
-      write: makeFactoryWriteManagedPrompt(drive, () => true),
+      interject: (bindingId, text) => {
+        typed.push({ bindingId, text });
+        return Promise.resolve(bindingId === "b1");
+      },
       composerVerdict: (b) => (b === "b1" ? "draft" : "empty"),
       subscribeSnapshots: (listener) => {
         listener({ text: "frame" } as never);
@@ -148,9 +127,13 @@ describe("wireFactorySupervisor", () => {
         };
       },
     });
-    await writer?.("b1", "supervisor nudge");
-    expect(drive.writes).toHaveLength(1);
-    expect(drive.writes[0]).toMatchObject({ text: "supervisor nudge" });
+    // Acceptance is the interjection's own answer: typed or not.
+    await expect(Promise.resolve(writer?.("b1", "nudge"))).resolves.toBe(true);
+    await expect(Promise.resolve(writer?.("b2", "nudge"))).resolves.toBe(false);
+    expect(typed).toEqual([
+      { bindingId: "b1", text: "nudge" },
+      { bindingId: "b2", text: "nudge" },
+    ]);
     // The supervisor gates on the same composer reading the drive does.
     expect(composer?.("b1")).toBe("draft");
     expect(composer?.("b2")).toBe("empty");
@@ -196,6 +179,7 @@ describe("composeFactoryDelivery", () => {
         },
         onSnapshot: () => {},
       },
+      interject: () => Promise.resolve(true),
       composerVerdict: () => "empty",
       pulse: { setDeliver: () => {} },
       board: { configure: () => {} },
@@ -247,38 +231,49 @@ describe("real destination-drive composition", () => {
     vi.useRealTimers();
   });
 
-  it("preserves the writer promise through supervisor wiring", async () => {
-    const d = boot();
-    const supervisor = new InjectionSupervisor();
-    let captured:
-      | ((bindingId: string, text: string) => boolean | Promise<boolean>)
-      | undefined;
-    wireFactorySupervisor({
-      supervisor: {
-        setWriter: (fn) => {
-          captured = fn;
-          supervisor.setWriter(fn);
-        },
-        setComposerLookup: (fn) => supervisor.setComposerLookup(fn),
-        noteSeatState: (event) => supervisor.noteSeatState(event),
-        onSnapshot: (snap) => supervisor.onSnapshot(snap),
+  it("the supervisor's nudge is typed by the real drive while the seat is mid-turn", async () => {
+    writes.length = 0;
+    const busy = createManagedTerminalDrive({
+      write: (bindingId, data) => {
+        writes.push({ bindingId, data });
+        return true;
       },
-      write: makeFactoryWriteManagedPrompt(d, () => true),
+      // Mid-turn: the gated write would refuse or queue here.
+      isSeatIdle: () => false,
+      seatState: () => "working" as const,
+      onAttention: () => {},
+      snapshot: emptySnapshot,
+      composerVerdict: () => "empty" as const,
+      harnessFor: () => "codex",
+    });
+    drive = busy;
+    const supervisor = new InjectionSupervisor();
+    wireFactorySupervisor({
+      supervisor,
+      interject: (bindingId, text) =>
+        busy.writeMail(bindingId, text).then((outcome) => outcome === "written"),
       composerVerdict: () => "empty",
       subscribeSnapshots: () => () => {},
     });
-    expect(captured).toBeDefined();
-    const result = captured?.("real-b3", "supervisor nudge");
-    // Acceptance must stay a real promise result: budgets advance only on
-    // true acceptance (see 94657fa1), never on a coerced sync value.
-    expect(typeof result).not.toBe("boolean");
-    await new Promise((resolve) => setTimeout(resolve, 150));
-    d.onTurnStart("real-b3");
-    await expect(result).resolves.toBe(true);
+    supervisor.noteSeatState({
+      bindingId: "real-b3",
+      epoch: "e1",
+      state: "working",
+      reason: "test",
+      confidence: "high",
+      at: 0,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(writes).toEqual([]);
+    // The first real message goes in; the nudge follows without waiting for
+    // the turn to end.
+    supervisor.noteMailWritten("real-b3");
+    await new Promise((resolve) => setTimeout(resolve, 400));
     const payload = writes
       .filter((w) => w.bindingId === "real-b3")
       .map((w) => w.data)
       .join("");
-    expect(payload).toContain("supervisor nudge");
+    expect(payload).toContain("Run `junto onboard`");
+    expect(payload.endsWith("\r")).toBe(true);
   });
 });
