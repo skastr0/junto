@@ -425,7 +425,14 @@ const DEFAULT_ROWS = 32;
 const MAX_JOURNAL_BYTES = 512 * 1024;
 const SESSION_CAPTURE_TAIL_BYTES = 1024;
 const SHUTDOWN_GRACE_MS = 1500;
-const KILL_GRACE_MS = 400;
+/**
+ * TERM-to-KILL delay. Equal to the graceful window on purpose: a shorter
+ * timer preempts every `shutdownGraceMs` wait below and force-kills harnesses
+ * that are still exiting cleanly. Measured clean exits after SIGTERM: Claude
+ * Code 590 to 780 ms, Grok 700 to 735 ms, so the old 400 ms killed both on
+ * every stop.
+ */
+const KILL_GRACE_MS = SHUTDOWN_GRACE_MS;
 const LATE_EXIT_GRACE_MS = 1500;
 
 const mintEpoch = (): string =>

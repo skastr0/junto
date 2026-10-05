@@ -1801,6 +1801,30 @@ describe("LocalSessionHost", () => {
     expect(identities.snapshot()).toEqual(occupiedIdentity);
   });
 
+  it("gives a stopping harness the full graceful window before force-killing it", async () => {
+    vi.useFakeTimers();
+    const fake = makeFakeTerminalProcessAuthority(() => ({
+      pid: trackSyntheticPid(43_900),
+      // Stays alive through TERM, like a harness still flushing its session.
+      exitOnSignal: "SIGKILL",
+    }));
+    // Production graces: no overrides, so this pins the shipped defaults.
+    const host = new LocalSessionHost(fake.authority);
+    hosts.push(host);
+    host.create({ bindingId: "slow-exit" });
+
+    expect(host.kill("slow-exit")).toBe(true);
+    expect(fake.controllers[0]?.signals).toEqual(["SIGTERM"]);
+
+    // Claude Code and Grok need 600 to 800 ms to exit cleanly after TERM.
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(fake.controllers[0]?.signals).toEqual(["SIGTERM"]);
+
+    await vi.advanceTimersByTimeAsync(500);
+    expect(fake.controllers[0]?.signals).toEqual(["SIGTERM", "SIGKILL"]);
+    expect(host.runningCount()).toBe(0);
+  });
+
   it("closes create admission synchronously and coalesces concurrent shutdown callers", async () => {
     vi.useFakeTimers();
     const fake = makeFakeTerminalProcessAuthority(() => ({
