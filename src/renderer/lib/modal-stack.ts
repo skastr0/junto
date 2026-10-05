@@ -1,5 +1,5 @@
 import { useEffect, useRef, type KeyboardEvent as ReactKeyboardEvent, type RefObject } from "react";
-import { claimFocus } from "./focus-ownership";
+import { claimFocus, setFocusFence } from "./focus-ownership";
 
 /**
  * The modal stack: one order for every open modal shell, so "topmost" has a
@@ -106,6 +106,9 @@ const takeEscape = (event: KeyboardEvent, top: ModalEntry): void => {
  * modal: Escape closes it, anything else puts the keyboard back inside it.
  */
 const onPageKey = (event: KeyboardEvent): void => {
+  // A key another handler already used (a chord that just opened a modal)
+  // is spent, and focus may have moved inside since the key was pressed.
+  if (event.defaultPrevented || !isPageRoot(document.activeElement)) return;
   if (!isPageRoot(event.target) && event.target !== window) return;
   const top = topModal();
   const container = top?.container();
@@ -134,10 +137,29 @@ const onOutsideEscape = (event: KeyboardEvent): void => {
   takeEscape(event, top);
 };
 
+/**
+ * The fence the focus authority asks: while the topmost modal traps the
+ * keyboard, a claim may land inside it or in something floating above the
+ * app (its popovers and menus), never in a modal under it or in the app
+ * itself. A surface still finishing its own open cannot pull focus back out
+ * of a modal that opened over it.
+ */
+const fenceAllows = (target: HTMLElement): boolean => {
+  const top = topOf(stack);
+  const container = top?.container();
+  if (!top || !top.trap || !container || container.contains(target)) return true;
+  for (const entry of stack) {
+    if (entry !== top && entry.container()?.contains(target)) return false;
+  }
+  const app = document.getElementById("root");
+  return !(app !== null && app.contains(target) && !app.contains(container));
+};
+
 let listening = false;
 const ensureListening = (): void => {
   if (listening || typeof window === "undefined") return;
   listening = true;
+  setFocusFence(fenceAllows);
   // focus-law: acts only while a modal is open and focus sits on the page itself, never in a field.
   window.addEventListener("keydown", onPageKey, { capture: true });
   // focus-law: Escape-only close of the topmost modal.

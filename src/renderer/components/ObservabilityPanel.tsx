@@ -1,4 +1,5 @@
 import { use$ } from "@legendapp/state/react";
+import { FocusSurface } from "./FocusSurface";
 import {
   ArrowDown,
   CirclePause,
@@ -9,7 +10,6 @@ import {
   X,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { createPortal } from "react-dom";
 import {
   matchesObservabilityQuery,
   type ObservabilityLogEntry,
@@ -308,19 +308,6 @@ export function ObservabilityPanel() {
     el.scrollTop = el.scrollHeight;
   }, [entries, open, stickBottom]);
 
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        close();
-      }
-    };
-    // focus-law: Escape-only close of the open panel.
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [open, close]);
-
   const toggleLevel = (level: ObservabilityLogLevel) => {
     setLevels((prev) =>
       prev.includes(level) ? prev.filter((l) => l !== level) : [...prev, level],
@@ -351,28 +338,14 @@ export function ObservabilityPanel() {
 
   if (!DEV_TOOLS_ENABLED || !open) return null;
 
-  return createPortal(
-    <div
-      className="fixed inset-0 z-[80] flex items-stretch justify-end"
-      role="presentation"
+  return (
+    <FocusSurface
+      measure="document"
+      height="immersive"
+      label="Observability logs"
+      onClose={close}
+      panelClassName="p-0! bg-well!"
     >
-      <button
-        type="button"
-        className="absolute inset-0"
-        aria-label="Close logs explorer"
-        style={{ background: "color-mix(in oklab, var(--color-umbra) 55%, transparent)", backdropFilter: "blur(2px)" }}
-        onClick={close}
-      />
-      <aside
-        role="dialog"
-        aria-modal="true"
-        aria-label="Observability logs"
-        className="relative z-10 flex h-full w-[min(720px,92vw)] flex-col border-l"
-        style={{
-          borderColor: "var(--color-overlay-4)",
-          background: WELL,
-        }}
-      >
         <OverlayHeader
           eyebrow="observability"
           title="Logs"
@@ -479,8 +452,6 @@ export function ObservabilityPanel() {
             entries.map((entry) => <LogRow key={entry.id} entry={entry} />)
           )}
         </div>
-      </aside>
-    </div>,
-    document.body,
+    </FocusSurface>
   );
 }

@@ -1,8 +1,8 @@
-import { AnimatePresence, motion } from "motion/react";
 import { use$ } from "@legendapp/state/react";
 import { Check, Copy, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { state$ } from "../lib/state";
+import { FocusSurface } from "./FocusSurface";
 import { Button, IconButton, OverlayHeader } from "./ui";
 
 function useDigestCopy(digest: string | undefined) {
@@ -36,21 +36,16 @@ export function DigestPanel() {
   const { copied, copy } = useDigestCopy(digest?.digest);
   const close = () => state$.digestOpen.set(false);
 
+  if (!open || !digest) return null;
   return (
-    <AnimatePresence>
-      {open && digest ? (
-        <motion.aside
-          key="digest"
-          role="dialog"
-          aria-label="Canvas digest"
-          aria-modal="true"
-          data-testid="canvas-digest"
-          initial={{ x: "100%" }}
-          animate={{ x: 0 }}
-          exit={{ x: "100%" }}
-          transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
-          className="absolute right-0 top-0 z-50 flex h-full w-[440px] max-w-[90vw] flex-col border-l border-stroke bg-ground"
-        >
+    <FocusSurface
+      measure="document"
+      height="immersive"
+      label="Canvas digest"
+      onClose={close}
+      panelClassName="p-0! bg-ground!"
+    >
+      <div className="flex min-h-0 flex-1 flex-col" data-testid="canvas-digest">
           <OverlayHeader
             eyebrow="canvas digest"
             title="Canvas digest"
@@ -84,8 +79,7 @@ export function DigestPanel() {
           >
             {digest.digest}
           </pre>
-        </motion.aside>
-      ) : null}
-    </AnimatePresence>
+      </div>
+    </FocusSurface>
   );
 }

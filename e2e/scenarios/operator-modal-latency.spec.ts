@@ -55,3 +55,36 @@ test("search opens within budget and returns focus where it was", async ({ junto
   );
   expect(median).toBeLessThan(OPEN_BUDGET_MS);
 });
+
+test("an operator modal opens above a working modal, and Escape closes one layer at a time", async ({ junto }) => {
+  const { page } = junto;
+  await expect(page.locator(".react-flow")).toBeVisible({ timeout: 30_000 });
+
+  // A working modal: the canvas digest, opened from the command bar.
+  await page.keyboard.press("Meta+k");
+  await page.getByTestId("command-bar-input").fill(">digest");
+  await page.keyboard.press("Enter");
+  const digest = page.getByTestId("canvas-digest");
+  await expect(digest).toBeVisible();
+  await expect(page.locator('[data-layer="operator"]')).toHaveCount(0);
+
+  // Search opens over it and owns the middle of the screen.
+  await page.keyboard.press("Meta+k");
+  const input = page.getByTestId("command-bar-input");
+  await expect(input).toBeFocused();
+  const topLayer = await page.evaluate(() => {
+    const box = document.querySelector('[data-operator-modal="search"] [role="dialog"]')!.getBoundingClientRect();
+    const hit = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
+    return hit?.closest("[data-layer]")?.getAttribute("data-layer");
+  });
+  expect(topLayer).toBe("operator");
+
+  // Escape closes search only; the digest is still there.
+  await page.keyboard.press("Escape");
+  await expect(page.locator('[data-layer="operator"]')).toHaveCount(0);
+  await expect(digest).toBeVisible();
+
+  // The next Escape closes the working modal.
+  await page.keyboard.press("Escape");
+  await expect(digest).toHaveCount(0);
+});

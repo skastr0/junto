@@ -251,6 +251,14 @@ export type ClaimFocusOptions = {
 const activeElementNow = (): Element | null =>
   typeof document === "undefined" ? null : document.activeElement;
 
+// The modal fence: while a modal holds the keyboard, nothing under it may
+// claim focus. lib/modal-stack owns the order and sets the fence.
+let focusFence: ((target: HTMLElement) => boolean) | null = null;
+
+export const setFocusFence = (fence: ((target: HTMLElement) => boolean) | null): void => {
+  focusFence = fence;
+};
+
 /**
  * The only way to move focus. Returns true when the target owns focus
  * afterwards.
@@ -261,6 +269,7 @@ export const claimFocus = (
   options: ClaimFocusOptions = {},
 ): boolean => {
   if (!target) return false;
+  if (focusFence && !focusFence(target)) return false;
   // A gesture claim names its event when it has one; otherwise (and for
   // opens) the tracker's last press stands in for it.
   const gesture =

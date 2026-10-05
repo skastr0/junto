@@ -493,11 +493,6 @@ export function App() {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         if (isOperatorTyping(event.target)) return;
-        if (state$.digestOpen.peek()) {
-          event.preventDefault();
-          state$.digestOpen.set(false);
-          return;
-        }
         const front = frontBrowserSurface();
         if (front) {
           // Dismiss the page surface, keep the canvas selection intact — the
