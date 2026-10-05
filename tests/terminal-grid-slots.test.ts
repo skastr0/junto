@@ -41,10 +41,10 @@ afterEach(() => {
 });
 
 describe("grid focus terminal slots", () => {
-  it("borrows a pinned terminal and hands it back to its pane", () => {
-    openTerminalSurface(node("a"), "pinned");
-    const pinnedPane = el("pinned");
-    registerTerminalSlot("a", pinnedPane);
+  it("borrows an open terminal and hands it back to its pane", () => {
+    openTerminalSurface(node("a"));
+    const pane = el("pane");
+    registerTerminalSlot("a", pane);
 
     openGridTerminalSurface(node("a"));
     const cell = el("cell");
@@ -54,10 +54,10 @@ describe("grid focus terminal slots", () => {
 
     registerGridTerminalSlot("a", null);
     closeGridTerminalSurfaces();
-    expect(terminalSlotElement("a")).toBe(pinnedPane);
+    expect(terminalSlotElement("a")).toBe(pane);
     expect(terminal$.openByNodeId.a.peek()).toBeDefined();
     expect(dock$.registry.peek().surfaces).toEqual([
-      { id: terminalSurfaceId("a"), kind: "terminal", zone: "pinned" },
+      { id: terminalSurfaceId("a"), kind: "terminal", zone: "focus" },
     ]);
   });
 
@@ -81,7 +81,7 @@ describe("grid focus terminal slots", () => {
 
   it("adopts a grid-owned view into the dock when opened normally", () => {
     openGridTerminalSurface(node("b"));
-    openTerminalSurface(node("b"), "pinned");
+    openTerminalSurface(node("b"));
     closeGridTerminalSurfaces();
     expect(terminal$.openByNodeId.b.peek()).toBeDefined();
     expect(dock$.registry.peek().surfaces.map((s) => s.id)).toEqual([terminalSurfaceId("b")]);

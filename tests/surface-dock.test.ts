@@ -7,10 +7,8 @@ import {
   initialWorkbenchState,
   isInteractiveSurface,
   openSurface,
-  pinSurface,
   setFocusSize,
   setLayout,
-  unpinSurface,
   visiblePanes,
   workbenchBrowserSurfaces,
   workbenchInteractiveSurface,
@@ -34,7 +32,6 @@ import {
   reconcileDockFromLiveSessions,
   stopDockBrowser,
   terminalSurfaceId,
-  unpinWorkbenchSurface,
 } from "../src/renderer/lib/dock-state";
 import { browser$, cacheBrowserSession } from "../src/renderer/lib/browser-state";
 import { terminal$ } from "../src/renderer/lib/terminal-state";
@@ -87,17 +84,6 @@ describe("surface-registry (pure workbench)", () => {
     expect(noop.evicted).toEqual([]);
   });
 
-  it("pin / unpin moves zone and MRU stacks", () => {
-    let t = openSurface(initialWorkbenchState(), browserSlot("a"));
-    t = pinSurface(t.state, "a");
-    expect(t.state.surfaces[0]?.zone).toBe("pinned");
-    expect(t.state.pinnedMru).toEqual(["a"]);
-    expect(t.state.focusMru).toEqual([]);
-    t = unpinSurface(t.state, "a");
-    expect(t.state.surfaces[0]?.zone).toBe("focus");
-    expect(t.state.focusMru).toEqual(["a"]);
-  });
-
   it("visiblePanes respects layout solo vs split", () => {
     let state: WorkbenchState = initialWorkbenchState();
     for (const id of ["a", "b", "c"]) {
@@ -134,21 +120,6 @@ describe("surface-registry (pure workbench)", () => {
     expect(isInteractiveSurface("chat")).toBe(true);
     expect(isInteractiveSurface("task-create")).toBe(true);
     expect(isInteractiveSurface("note")).toBe(true);
-  });
-
-  it("opens task-create into focus and pins beside other surfaces", () => {
-    let t = openSurface(initialWorkbenchState(), {
-      id: "terminal:n1",
-      kind: "terminal",
-    });
-    t = pinSurface(t.state, "terminal:n1");
-    t = openSurface(t.state, { id: "task-create:tasks-1", kind: "task-create" }, "focus");
-    expect(t.state.surfaces.map((s) => `${s.zone}:${s.kind}`).sort()).toEqual([
-      "focus:task-create",
-      "pinned:terminal",
-    ]);
-    t = pinSurface(t.state, "task-create:tasks-1");
-    expect(t.state.pinnedMru).toEqual(["task-create:tasks-1", "terminal:n1"]);
   });
 
   it("keys remembered focus width by surface family so pin/resize cannot poison enqueue", () => {
@@ -322,7 +293,7 @@ describe("dock-state", () => {
     });
   });
 
-  it("opens agent chat as a focus surface and preserves its payload across pinning", () => {
+  it("opens agent chat as a focus surface and drops its payload on close", () => {
     const node = {
       id: "agent-1",
       type: "text" as const,
@@ -344,16 +315,12 @@ describe("dock-state", () => {
       title: "PROFILE-01",
     });
 
-    pinWorkbenchSurface(id);
-    expect(dock$.registry.peek().surfaces[0]?.zone).toBe("pinned");
-    expect(dock$.chatById[id].peek()?.agentKey).toBe("remote-a:profile-01");
-
     closeWorkbenchSurface(id);
     expect(dock$.registry.peek().surfaces).toEqual([]);
     expect(dock$.chatById[id].peek()).toBeUndefined();
   });
 
-  it("keeps a Note draft outside the canvas card across pinning and repeated opens", () => {
+  it("keeps a Note draft outside the canvas card across repeated opens", () => {
     const node = {
       id: "note-1",
       type: "text" as const,
@@ -367,11 +334,10 @@ describe("dock-state", () => {
     openNoteSurface(node);
     const id = noteSurfaceId(node.id);
     dock$.noteById[id].draft.set("Field notes\n\nOperator draft");
-    pinWorkbenchSurface(id);
     openNoteSurface({ ...node, text: "Field notes\n\nProjection update" });
 
     expect(dock$.registry.peek().surfaces).toEqual([
-      { id, kind: "note", zone: "pinned" },
+      { id, kind: "note", zone: "focus" },
     ]);
     expect(dock$.noteById[id].peek()).toMatchObject({
       nodeId: "note-1",
@@ -851,41 +817,6 @@ describe("dock-state", () => {
       ]);
     });
 
-    it("opens auto-pinned when preferred zone is pinned", () => {
-      const node = nativeTerminalNode("t1");
-      openTerminalSurface(node, "pinned");
-      expect(dock$.registry.peek().surfaces).toEqual([
-        { id: terminalSurfaceId("t1"), kind: "terminal", zone: "pinned" },
-      ]);
-      expect(dock$.registry.peek().pinnedMru[0]).toBe(terminalSurfaceId("t1"));
-    });
-
-    it("moves an already-open focus terminal into pinned on open-pinned", () => {
-      const node = nativeTerminalNode("t1");
-      openTerminalSurface(node, "focus");
-      expect(dock$.registry.peek().surfaces[0]?.zone).toBe("focus");
-      openTerminalSurface(node, "pinned");
-      expect(dock$.registry.peek().surfaces).toEqual([
-        { id: terminalSurfaceId("t1"), kind: "terminal", zone: "pinned" },
-      ]);
-    });
-
-    it("does not re-pin after the operator unpins when another terminal opens", () => {
-      const a = nativeTerminalNode("t1");
-      const b = nativeTerminalNode("t2");
-      openTerminalSurface(a, "pinned");
-      const idA = terminalSurfaceId("t1");
-      // Operator moves back to focus.
-      unpinWorkbenchSurface(idA);
-      expect(dock$.registry.peek().surfaces.find((s) => s.id === idA)?.zone).toBe("focus");
-
-      openTerminalSurface(b, "focus");
-      expect(dock$.registry.peek().surfaces.find((s) => s.id === idA)?.zone).toBe("focus");
-      expect(dock$.registry.peek().surfaces.find((s) => s.id === terminalSurfaceId("t2"))?.zone).toBe(
-        "focus",
-      );
-    });
-
     it("a manual tab activation survives later terminal opens", () => {
       openTerminalSurface(nativeTerminalNode("t1"), "focus");
       openTerminalSurface(nativeTerminalNode("t2"), "focus");
@@ -902,40 +833,29 @@ describe("dock-state", () => {
     });
   });
 
-  describe("one owner for a terminal's view", () => {
-    it("a request for focus never pulls a pinned terminal out of the dock", () => {
-      const node = nativeTerminalNode("t1");
-      openTerminalSurface(node, "pinned");
-      openTerminalSurface(nativeTerminalNode("t2"), "pinned");
-      openTerminalSurface(node, "focus");
-      expect(dock$.registry.peek().surfaces.find((s) => s.id === terminalSurfaceId("t1"))?.zone).toBe("pinned");
-      expect(dock$.registry.peek().pinnedMru[0]).toBe(terminalSurfaceId("t1"));
-      expect(dock$.registry.peek().focusMru).toEqual([]);
-    });
-
-    it("closing the surface drops the terminal's view state, and the reverse", () => {
+  describe("pinning is off: nothing enters the pinned zone", () => {
+    it("an open asked for as pinned lands in the focus view, and Pin does nothing", () => {
       openTerminalSurface(nativeTerminalNode("t1"), "pinned");
+      const id = terminalSurfaceId("t1");
+      expect(dock$.registry.peek().surfaces).toEqual([{ id, kind: "terminal", zone: "focus" }]);
+      pinWorkbenchSurface(id);
+      expect(dock$.registry.peek().surfaces).toEqual([{ id, kind: "terminal", zone: "focus" }]);
+      expect(dock$.registry.peek().pinnedMru).toEqual([]);
+    });
+  });
+
+  describe("one owner for a terminal's view", () => {
+    it("closing the surface drops the terminal's view state, and the reverse", () => {
+      openTerminalSurface(nativeTerminalNode("t1"));
       closeWorkbenchSurface(terminalSurfaceId("t1"));
       expect(terminal$.openByNodeId.peek()).toEqual({});
 
-      openTerminalSurface(nativeTerminalNode("t2"), "pinned");
+      openTerminalSurface(nativeTerminalNode("t2"));
       closeTerminalView("t2");
       expect(dock$.registry.peek().surfaces).toEqual([]);
       expect(terminal$.openByNodeId.peek()).toEqual({});
     });
 
-    it("pin, unpin, pin again leaves one surface in one zone each time", () => {
-      const id = terminalSurfaceId("t1");
-      openTerminalSurface(nativeTerminalNode("t1"));
-      for (const zone of ["pinned", "focus", "pinned"] as const) {
-        if (zone === "pinned") pinWorkbenchSurface(id);
-        else unpinWorkbenchSurface(id);
-        const registry = dock$.registry.peek();
-        expect(registry.surfaces).toEqual([{ id, kind: "terminal", zone }]);
-        expect(registry.pinnedMru).toEqual(zone === "pinned" ? [id] : []);
-        expect(registry.focusMru).toEqual(zone === "focus" ? [id] : []);
-      }
-    });
   });
 
   describe("closeFocusModalSurface — Close dismisses the whole chrome-less modal", () => {
@@ -948,25 +868,6 @@ describe("dock-state", () => {
       closeFocusModalSurface(terminalSurfaceId("t3"));
       expect(dock$.registry.peek().surfaces).toEqual([]);
       expect(terminal$.openByNodeId.peek()).toEqual({});
-    });
-
-    it("never reaches into the pinned zone", () => {
-      openTerminalSurface(nativeTerminalNode("dock"), "pinned");
-      openTerminalSurface(nativeTerminalNode("t1"), "focus");
-      openTerminalSurface(nativeTerminalNode("t2"), "focus");
-      closeFocusModalSurface(terminalSurfaceId("t2"));
-      expect(dock$.registry.peek().surfaces).toEqual([
-        { id: terminalSurfaceId("dock"), kind: "terminal", zone: "pinned" },
-      ]);
-    });
-
-    it("closing a pinned surface stays per-surface", () => {
-      openTerminalSurface(nativeTerminalNode("dock"), "pinned");
-      openTerminalSurface(nativeTerminalNode("t1"), "focus");
-      closeFocusModalSurface(terminalSurfaceId("dock"));
-      expect(dock$.registry.peek().surfaces).toEqual([
-        { id: terminalSurfaceId("t1"), kind: "terminal", zone: "focus" },
-      ]);
     });
 
     it("with tab chrome visible (mixed kinds) close stays per-surface", () => {

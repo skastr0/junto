@@ -1,5 +1,6 @@
 import { observable } from "@legendapp/state";
 import type { CanvasNode, EtherBrowser } from "@shared/canvas";
+import { PINNING_ENABLED } from "@shared/features";
 import { resolveTerminalBinding } from "@shared/terminal";
 import type {
   BrowserOpResult,
@@ -123,6 +124,13 @@ export const dock$ = observable({
   opErrorByRef: {} as Record<string, BrowserOpError>,
 });
 
+/**
+ * The zone a request may land in. Pinning is behind a build flag that is off
+ * in every profile: with it off the pinned zone cannot be entered, so every
+ * open lands in the focus view and Pin does nothing.
+ */
+const admittedZone = (zone: WorkZone): WorkZone => (PINNING_ENABLED ? zone : "focus");
+
 type BrowserApi = ReturnType<typeof getJuntoApi> & Partial<JuntoBrowserApi>;
 
 const api = (): BrowserApi | undefined => getJuntoApi() as BrowserApi | undefined;
@@ -233,7 +241,7 @@ export const openAgentChatSurface = (
     agentKey: entity.name,
     title,
   });
-  applyTransition(openSurface(dock$.registry.peek(), { id, kind: "chat" }, zone));
+  applyTransition(openSurface(dock$.registry.peek(), { id, kind: "chat" }, admittedZone(zone)));
 };
 
 /**
@@ -258,7 +266,7 @@ export const openTaskCreateSurface = (
     mode: "task",
   });
   applyTransition(
-    openSurface(dock$.registry.peek(), { id, kind: "task-create" }, zone),
+    openSurface(dock$.registry.peek(), { id, kind: "task-create" }, admittedZone(zone)),
   );
 };
 
@@ -286,7 +294,7 @@ export const openNoteSurface = (
           savedText: node.text,
         },
   );
-  applyTransition(openSurface(dock$.registry.peek(), { id, kind: "note" }, zone));
+  applyTransition(openSurface(dock$.registry.peek(), { id, kind: "note" }, admittedZone(zone)));
 };
 
 export const updateNoteSurfaceDraft = (id: string, draft: string): void => {
@@ -357,7 +365,7 @@ export const openDockBrowser = async (
   openAttemptByRef.set(ref, attempt);
   dock$.opErrorByRef[ref].delete();
   dock$.browserByRef[ref].set(payload);
-  applyTransition(openSurface(dock$.registry.peek(), { id: ref, kind: "browser" }, zone));
+  applyTransition(openSurface(dock$.registry.peek(), { id: ref, kind: "browser" }, admittedZone(zone)));
   // Fast, authoritative-mirror refusal for disallowed targets: main enforces
   // the same policy, but the operator should not wait on an IPC round trip to
   // learn a URL can never open.
@@ -423,7 +431,9 @@ export const openTerminalSurface = (
   if (canvasName !== undefined) terminal$.canvasByNodeId[node.id].set(canvasName);
   terminal$.gridOwnedByNodeId[node.id].delete();
   terminal$.openByNodeId[node.id].set(node);
-  applyTransition(openSurface(dock$.registry.peek(), { id: terminalSurfaceId(node.id), kind: "terminal" }, zone));
+  applyTransition(
+    openSurface(dock$.registry.peek(), { id: terminalSurfaceId(node.id), kind: "terminal" }, admittedZone(zone)),
+  );
 };
 
 /**
@@ -437,6 +447,7 @@ export const closeTerminalView = (nodeId: string): void => {
 };
 
 export const pinWorkbenchSurface = (id: string): void => {
+  if (!PINNING_ENABLED) return;
   applyTransition(pinSurface(dock$.registry.peek(), id));
 };
 
